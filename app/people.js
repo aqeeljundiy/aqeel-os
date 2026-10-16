@@ -292,15 +292,17 @@ ACT['wh-new-pre']=0;
 {const base=ACT['wh-new'];ACT['wh-new']=async a=>{try{S.agentsCache=((await H('/profiles')).profiles||[]).map(x=>x.name)}catch{}return base(a)}}
 {const base=PAGES.channels;PAGES.channels=async(p,el)=>{
  // load the team list together with the page, and hold its place while it loads (no late pop-in)
- const admin=S.me?.admin!==false&&!S.chOverride;const pD=admin?UI('/ui/channels').catch(()=>null):null,pA=admin?H('/profiles').catch(()=>({profiles:[]})):null;
+ const admin=S.me?.admin!==false&&!S.chOverride;const pK=admin?UI('/ui/channels/links').catch(()=>({links:[]})):null,pD=admin?UI('/ui/channels').catch(()=>null):null,pA=admin?H('/profiles').catch(()=>({profiles:[]})):null;
  await base(p,el);if(!admin)return;
  const panel=document.createElement('div');panel.className='panel card';panel.style.marginBottom='16px';
  panel.innerHTML=`<h2>Every agent's channels</h2><p class="sub">Each connection belongs to one agent, which answers it.</p>${'<div class="row skel-row" style="padding:12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="skel" style="height:18px;width:40%"></div></div>'.repeat(2)}`;
  el.querySelector('.grid-cards')?.before(panel);
- const d=await pD;if(!d){panel.remove();return}const agents=((await pA).profiles||[]).map(x=>x.name);
+ const d=await pD;if(!d){panel.remove();return}const LK=Object.fromEntries(((await pK)?.links||[]).map(l=>[l.name,l]));
+ // extra connections (WhatsApp 2…) sit right under their agent's channels, by name and ID
+ d.channels.sort((x,y)=>{const bx=x.agent.split('--')[0],by=y.agent.split('--')[0];return bx===by?(x.agent.includes('--'))-(y.agent.includes('--'))||x.id.localeCompare(y.id):0});const agents=((await pA).profiles||[]).map(x=>x.name);
  panel.innerHTML=`<h2>Every agent's channels</h2><p class="sub">Each connection belongs to one agent, which answers it. Move one to another agent and its settings, WhatsApp login and approved people go along, so nobody sets it up twice.</p>
-  ${d.channels.length?d.channels.map((c,i)=>`<div class="row" ${st(i)} style="padding:12px 12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="main-c">${chLogo(c.id,c.name)}<div class="txt"><b>${esc(c.name)}</b><span>${esc(chState(c))}</span></div></div>
-   <div class="act"><span class="hint" style="margin:0">Answered by</span><select style="width:auto" data-chmove="${esc(c.id)}" data-from="${esc(c.agent)}">${agents.map(n=>`<option value="${esc(n)}" ${n===c.agent?'selected':''}>${esc(ident(n).name)}</option>`).join('')}</select></div></div>`).join(''):'<p class="hint">No channel is connected yet. Set one up below and it shows here for the whole team.</p>'}`;
+  ${d.channels.length?d.channels.map((c,i)=>`<div class="row" ${st(i)} style="padding:12px 12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="main-c">${chLogo(c.id,c.name)}<div class="txt"><b>${esc(LK[c.agent]?linkTitle(LK[c.agent]):c.name)} <span class="chip id-chip" title="The ID agents use for this connection">ID ${esc(LK[c.agent]?linkId(LK[c.agent]):c.id)}</span></b><span>${esc(chState(c))}</span></div></div>
+   <div class="act">${LK[c.agent]?`<span class="hint" style="margin:0">Extra number of</span><b style="font-size:13.5px">${esc(ident(LK[c.agent].agent).name)}</b>`:`<span class="hint" style="margin:0">Answered by</span><select style="width:auto" data-chmove="${esc(c.id)}" data-from="${esc(c.agent)}">${agents.map(n=>`<option value="${esc(n)}" ${n===c.agent?'selected':''}>${esc(ident(n).name)}</option>`).join('')}</select>`}</div></div>`).join(''):'<p class="hint">No channel is connected yet. Set one up below and it shows here for the whole team.</p>'}`;
  panel.querySelectorAll('select').forEach(enhanceSelect);
  panel.querySelectorAll('[data-chmove]').forEach(s=>s.onchange=async()=>{const to=s.value,from=s.dataset.from;if(to===from)return;
   if(!await confirmBox('Move this channel to '+ident(to).name+'?',ident(to).name+' will answer it from now on. Its settings and approved people move along; the channel restarts for a few seconds.','Move',false)){s.value=from;return}

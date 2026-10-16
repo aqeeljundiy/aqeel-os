@@ -390,7 +390,7 @@ const server=createServer(async(req,res)=>{
     if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+from,'GET',new URLSearchParams(),from))return send(res,403,{error:'You can only send as an agent you use.'});
     try{return send(res,200,await relay.sendAs(from,String(b.owner||''),String(b.platform||''),String(b.text||''),b.chat?String(b.chat):null))}catch(e){return send(res,400,{error:e.message})}}
    if(p==='/ui/channels/for'&&req.method==='GET'){const a=url.searchParams.get('agent')||'default';if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a))return send(res,403,{error:'Not your agent'});
-    const sh=await relay.shares();return send(res,200,{channels:Object.entries(sh).filter(([k,v])=>v.senders.includes(a)).map(([k])=>{const [owner,platform]=k.split('|');return {owner,platform}})})}
+    return send(res,200,{channels:await relay.channelsFor(a)})}   // its own, its extra connections and shared ones, each with an ID
    if(p==='/ui/channels/job-relays'&&req.method==='GET')return send(res,200,await relay.jobRelays());
    if(p==='/ui/channels/move'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can move channels.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{return send(res,200,await channels.move(String(b.platform||''),String(b.from||''),String(b.to||'')))}catch(e){return send(res,400,{error:e.message})}}
    // QR codes (WhatsApp linking…): drawn here with the qrcode library that ships with the engine

@@ -82,7 +82,11 @@ async function cronDrawer(job){
  const [targets,bps,cfg]=await Promise.all([H('/cron/delivery-targets?profile='+encodeURIComponent(S.profile||'default')).catch(()=>({targets:[]})),job?{blueprints:[]}:H('/cron/blueprints?profile='+encodeURIComponent(S.profile||'default')).catch(()=>({blueprints:[]})),H('/config').catch(()=>({}))]);
  const tg=targets.targets||[];
  // shared channels this agent may send through (another agent owns and receives on them)
- try{const sc=await UI('/ui/channels/for?agent='+encodeURIComponent(S.profile||'default'));for(const ch of sc.channels||[])tg.push({id:'relay:'+ch.owner+'|'+ch.platform,name:pretty(ch.platform)+' via '+ident(ch.owner).name+' (shared)'})}catch{}
+ // every channel this agent can deliver on, by name and ID: its own (the engine sends those), its extra
+ // connections and other agents' shared ones (aqeelOS passes those on)
+ try{const me=S.profile||'default';const sc=await UI('/ui/channels/for?agent='+encodeURIComponent(me));for(const ch of sc.channels||[]){
+  if(ch.owner===me){const t=tg.find(t=>t.id===ch.platform||String(t.id).startsWith(ch.platform+':'));if(t)t.name=(t.name||pretty(ch.platform)).replace(/ · main.*/,'')+' · main (ID '+ch.id+')';continue}
+  tg.push({id:'relay:'+ch.owner+'|'+ch.platform,name:ch.owner.startsWith(me+'--')?ch.name+' (ID '+ch.id+')':ch.name+' (shared)'})}}catch{}
  try{const jr=job?await UI('/ui/channels/job-relays'):{};const t=jr[(job?.profile||S.profile||'default')+'|'+job?.id];if(t&&job)job.deliver='relay:'+t.owner+'|'+t.platform}catch{}const tz=cfg.timezone||'';const myTz=Intl.DateTimeFormat().resolvedOptions().timeZone;
  const tgName=id=>/^relay:/.test(id)?(tg.find(t=>t.id===id)?.name||'Shared channel'):id==='local'?'This app (shows under Automation, with a pop-up)':/^bot-chat/.test(id)?'Desktop app inbox ('+ident(id.split(':')[1]||'default').name+'), not this app':DELIVER_LABEL[id]||tg.find(t=>t.id===id)?.name||pretty(id);
  const tzNote=!tz&&myTz&&myTz!=='UTC'?`<div class="tz-note">${icon('globe',15)}<span>aqeelOS runs schedules in <b>UTC</b>. Use your timezone (<b>${esc(myTz)}</b>) instead?</span><button type="button" data-act="tz-use" data-tz="${esc(myTz)}">Use ${esc(myTz.split('/').pop().replace('_',' '))}</button></div>`:'';
