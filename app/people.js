@@ -403,4 +403,11 @@ const chState=c=>/logged out|bridge process died|bridge_exited/i.test((c.error_c
  if(id!=='whatsapp')return;const err=d.querySelector('.err-line');
  if(err&&/bridge|logged out|exited/i.test(err.textContent)){err.innerHTML='WhatsApp ended this link (it happens when the phone unlinks the device or the connection is interrupted right after linking). Link the phone again below.';
   const g=d.querySelector('[data-act="onboard"]');if(g)g.innerHTML=icon('refresh',15)+'Link again (fresh QR)';g?.setAttribute('data-relink','1')}}}
-{const base=ACT['onboard'];ACT['onboard']=async a=>{if(a.dataset.id==='whatsapp'&&a.dataset.relink){try{await put(H,'/messaging/platforms/whatsapp',{enabled:false,env:{}}).catch(()=>{});await post(UI,'/ui/channels/whatsapp-reset',{agent:S.profile||'default'})}catch(e){return fail(e)}}return base(a)}}
+{const base=ACT['onboard'];ACT['onboard']=async a=>{if(a.dataset.id==='whatsapp'&&a.dataset.relink){const box=$('#onboard');
+  // The gateway keeps retrying WhatsApp with the old login even after it is switched off, and two connections
+  // on one login make WhatsApp drop the link. So: switch it off, restart the gateway for real (stops the retries),
+  // clear the old login, and only then ask for a QR.
+  try{if(box)box.innerHTML='<p class="hint"><span class="spinner"></span> Preparing a clean link (about 20 seconds)…</p>';a.disabled=true;
+   await put(H,'/messaging/platforms/whatsapp',{enabled:false,env:{}}).catch(()=>{});await post(UI,'/ui/gateway/restart');
+   for(let i=0;i<30;i++){await new Promise(r=>setTimeout(r,2000));try{const st=await H('/status');if(st.gateway_running)break}catch{}}
+   await new Promise(r=>setTimeout(r,3000));await post(UI,'/ui/channels/whatsapp-reset',{agent:S.profile||'default'});a.disabled=false}catch(e){a.disabled=false;return fail(e)}}return base(a)}}

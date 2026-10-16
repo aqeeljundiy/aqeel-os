@@ -285,7 +285,11 @@ const server=createServer(async(req,res)=>{
    // WhatsApp: clear a login that WhatsApp has ended, so a fresh QR can link the phone again
    if(p==='/ui/channels/whatsapp-reset'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can relink WhatsApp.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
     const ag=String(b.agent||'default');if(!(await listAgents()).includes(ag))return send(res,400,{error:'Unknown agent'});
-    const dir=path.join(ag==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',ag),'platforms','whatsapp','session');const {rm}=await import('node:fs/promises');await rm(dir,{recursive:true,force:true});return send(res,200,{ok:true})}
+    const dir=path.join(ag==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',ag),'platforms','whatsapp','session');// a bridge left running by the gateway keeps the login and its port; stop every bridge using this login first
+    const {execFile}=await import('node:child_process');const out=await new Promise(r=>execFile('ps',['-eo','pid=,args='],(e,o)=>r(String(o||''))));
+    const pids=out.split('\n').filter(l=>/whatsapp-bridge\/bridge\.js/.test(l)&&l.includes('--session '+dir)).map(l=>+l.trim().split(/\s+/)[0]).filter(Boolean);
+    for(const pid of pids){try{process.kill(pid,'SIGTERM')}catch{}}if(pids.length)await new Promise(r=>setTimeout(r,1500));for(const pid of pids){try{process.kill(pid,'SIGKILL')}catch{}}
+    const {rm}=await import('node:fs/promises');await rm(dir,{recursive:true,force:true});return send(res,200,{ok:true,stopped:pids.length})}
    if(p==='/ui/channels/move'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can move channels.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{return send(res,200,await channels.move(String(b.platform||''),String(b.from||''),String(b.to||'')))}catch(e){return send(res,400,{error:e.message})}}
    // QR codes (WhatsApp linking…): drawn here with the qrcode library that ships with the engine
    if(p==='/ui/qr'&&req.method==='GET'){const d=String(url.searchParams.get('d')||'');if(!d||d.length>2000)return send(res,400,'bad');
