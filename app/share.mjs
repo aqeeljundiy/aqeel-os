@@ -58,7 +58,8 @@ export function createShare({DASH,TOKEN,HERMES_HOME,listAgents}){
   throw new Error('Only MCP tools and skills can be duplicated. A plugin runs once per agent.')}
  // sign-ins return to the public site (set per tool, so the engine's own public-URL setting and its login gate stay off)
  async function prepareSignin(agent,name,redirect,client){if(!NAME.test(name))throw new Error('Bad name');const b=await mcpBlock(agent,name);if(!b?.url)throw new Error('Only tools with an address sign in this way.');
-  const o={...(b.oauth||{}),redirect_uri:redirect};if(client?.id)o.client_id=client.id;if(client?.secret)o.client_secret=client.secret;
+  // the public return address wins; a local callback port (what 'hermes mcp login' uses) cannot reach the person's browser
+  const o={...(b.oauth||{}),redirect_uri:redirect};delete o.redirect_port;if(client?.id)o.client_id=client.id;if(client?.secret)o.client_secret=client.secret;
   if(b.auth==='oauth'&&JSON.stringify(b.oauth||{})===JSON.stringify(o))return {ok:true,changed:false};b.auth='oauth';b.oauth=o;await setMcp(agent,name,b);return {ok:true,changed:true}}
  async function setOauthClient(agent,name,id,secret,redirect){if(!id)throw new Error('Paste the Client ID.');return prepareSignin(agent,name,redirect,{id,secret})}
  return {usedBy,share,renameMcp,python,duplicate,setOauthClient,prepareSignin};
