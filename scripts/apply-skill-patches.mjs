@@ -9,6 +9,15 @@ const exists=p=>access(p).then(()=>true,()=>false);
 let changed=0;
 
 const GOOGLE_SECTION=`
+<!-- aqeelos:composio-first -->
+## Not set up yet? Use Composio first
+
+If no Google account is set up here yet (\`setup.py --list-accounts\` shows none) and the agent has the Composio
+tools (composio), use Composio's Gmail, Google Drive, Calendar, Sheets and Docs tools instead. Do NOT ask the
+person to create a Google Cloud project or OAuth client: that is slow and error-prone. Only set Google up here
+when the person asks for it, or when Composio cannot do the job.
+<!-- /aqeelos:composio-first -->
+
 <!-- aqeelos:multi-account -->
 ## Several Google accounts (one agent, many accounts)
 
@@ -38,5 +47,6 @@ for(const h of homes){const dir=path.join(h,'skills','productivity','google-work
    await writeFile(br,s);changed++;console.log('patched',br)}}
  // 2) the instructions tell the agent how to work with several accounts
  const md=path.join(dir,'SKILL.md');if(await exists(md)){let s=await readFile(md,'utf8');
-  if(!s.includes('aqeelos:multi-account')){const at=s.search(/\n## /);s=at>0?s.slice(0,at)+'\n'+GOOGLE_SECTION+s.slice(at):s+GOOGLE_SECTION;await writeFile(md,s);changed++;console.log('patched',md)}}}
+  // (re)apply when our block is missing or older: drop an earlier aqeelOS block, then insert the current one
+  if(!s.includes('aqeelos:composio-first')){s=s.replace(/\n?<!-- aqeelos:multi-account -->[\s\S]*?<!-- \/aqeelos:multi-account -->\n?/,'\n');const at=s.search(/\n## /);s=at>0?s.slice(0,at)+'\n'+GOOGLE_SECTION+s.slice(at):s+GOOGLE_SECTION;await writeFile(md,s);changed++;console.log('patched',md)}}}
 console.log(changed?changed+' change(s)':'skill patches already in place');
