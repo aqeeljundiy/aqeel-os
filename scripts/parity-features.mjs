@@ -49,6 +49,16 @@ export const AREAS=[
  ['EDIT','Editing like Slides and Figma'],
  ['V5','Audit V5 · hierarchy, balance and motion'],
  ['V6','Audit V6 · speed, lean code and reliability'],
+ ['FIG','Design editing like Figma'],
+ ['GSL','Slides editing like Google Slides'],
+ ['GDOC','Documents like Google Docs'],
+ ['REP','Research reports'],
+ ['SHEET','Data and charts like Sheets'],
+ ['IMG','Images and video tools'],
+ ['EVERY','Every kind of work'],
+ ['W1','Audit W1 · every new tool, every state'],
+ ['W2','Audit W2 · real jobs, exports and Bahasa'],
+ ['W3','Audit W3 · balance, motion and lean code'],
 ];
 
 // [id, title, source, priority, status, acceptance]
@@ -671,6 +681,103 @@ export const FEATURES=[
  ['V6-10','Preview script is guarded by tests','Audit','P1','done','New tests check that the script injected into previews parses (its escaping broke twice before), that it never messages itself, and that the empty page speaks the app language.'],
  ['V6-11','All 68 tests pass','Audit','P1','done','npm test runs 68 tests across 20 files in about 4 seconds.'],
  ['V6-12','Server log is clean','Audit','P1','done','No errors or exceptions in the server output across restarts and the audit runs.'],
+
+ // Design editing like Figma
+ ['FIG-01','Grab and drag','Request','P0','done','Pick an element and drag it straight away; no Move button needed first.'],
+ ['FIG-02','Snap to other elements','Request','P0','done','While moving, snap to the edges and centres of nearby elements, not only the frame.'],
+ ['FIG-03','Gap labels','Request','P1','done','While moving, show the distance in pixels to the neighbours, like Figma\'s red numbers.'],
+ ['FIG-04','Resize handles','Request','P0','done','Corner and side handles change width and height; Shift keeps the proportions.'],
+ ['FIG-05','Undo and redo your own edits','Request','P0','done','Ctrl+Z / Ctrl+Shift+Z undo every manual change on the canvas (text, colour, move, resize), not only the AI\'s.'],
+ ['FIG-06','Layers panel','Request','P1','done','A list of the frame\'s elements: click to select, hover to highlight, drag to reorder.'],
+ ['FIG-07','Select several elements','Request','P1','done','Shift+click adds to the selection; move them together.'],
+ ['FIG-08','Align and distribute','Request','P1','done','Align the selection left, centre, right, top, middle or bottom, and space it evenly.'],
+ ['FIG-09','Add from a toolbar','Request','P1','done','Add text, a rectangle or an image to a frame.'],
+ ['FIG-10','Duplicate and delete','Request','P1','done','Ctrl+D duplicates the picked element; Delete removes it.'],
+ ['FIG-11','Exact position and size','Request','P1','done','X, Y, W and H boxes in the inspector.'],
+ ['FIG-12','Border, shadow and opacity','Request','P2','done','Inspector controls for border, shadow and opacity.'],
+ ['FIG-13','Replace an image','Request','P2','done','Swap a picked image for an upload or a media-library file.'],
+ ['FIG-14','Spacing for rows and columns','Request','P2','done','For flex and grid containers: direction, gap and padding controls (Figma auto layout).'],
+ ['FIG-15','SVG and PDF per frame','Request','P2','done','Download any frame as SVG or PDF, as well as PNG.'],
+
+ // Slides editing like Google Slides
+ ['GSL-01','Resize with corner handles','Request','P0','done','Corner handles change width and height; images and charts keep their proportions.'],
+ ['GSL-02','Add text boxes','Request','P0','done','Insert a free text box anywhere on a slide.'],
+ ['GSL-03','Add shapes, lines and icons','Request','P1','done','Insert rectangles, circles, lines and arrows with fill and stroke colours.'],
+ ['GSL-04','Select several and group','Request','P1','done','Shift+click selects several; move them together.'],
+ ['GSL-05','Align and distribute','Request','P1','done','Align several items to each other or to the slide, and space them evenly.'],
+ ['GSL-06','Bring to front, send to back','Request','P1','done','Change which item sits on top.'],
+ ['GSL-07','Exact position and size','Request','P1','done','X, Y, W and H boxes for the selected item.'],
+ ['GSL-08','Rotate','Request','P2','done','Rotate an item with a handle; Shift snaps to 15 degree steps.'],
+ ['GSL-09','Crop an image on the slide','Request','P2','done','Crop and reposition an image inside its box.'],
+ ['GSL-10','Duplicate a slide','Request','P1','done','Duplicate the current slide (also Ctrl+D in the strip).'],
+ ['GSL-11','Slide sizes','Request','P2','done','16:9, 4:3, square and 9:16 story decks, also in exports.'],
+ ['GSL-12','Transitions and builds','Request','P2','done','Fade or slide between slides and reveal bullets one by one when presenting.'],
+
+ // Documents like Google Docs
+ ['GDOC-01','Formatting toolbar','Request','P0','done','Headings, bold, italic, bullet and numbered lists, links and quotes from a bar.'],
+ ['GDOC-02','Tables in documents','Request','P1','done','Insert a table and edit its cells, rows and columns.'],
+ ['GDOC-03','Images in documents','Request','P1','done','Insert an image from a file or the media library.'],
+ ['GDOC-04','Find and replace','Request','P1','done','Ctrl+F finds in the document; replace one or all.'],
+ ['GDOC-05','Suggest mode','Request','P2','done','Your own edits can show as tracked suggestions to accept or reject.'],
+ ['GDOC-06','Page view','Request','P2','done','A page layout with margins and page breaks, as it will print and export.'],
+ ['GDOC-07','Table of contents','Request','P2','done','Insert a table of contents built from the headings.'],
+
+ // Research reports
+ ['REP-01','Sources panel','Request','P0','done','A panel beside the report lists every source with its site and date; clicking a citation shows its source.'],
+ ['REP-02','Add your own sources','Request','P1','done','Attach a link or PDF for the AI to use and cite.'],
+ ['REP-03','Re-check a claim','Request','P2','done','Select a sentence and ask the AI to verify it against its source.'],
+ ['REP-04','Citation style','Request','P2','done','Numbered, APA or MLA references.'],
+
+ // Data and charts like Sheets
+ ['SHEET-01','Data grid','Request','P0','done','See and edit the data behind a dashboard in a spreadsheet-style grid.'],
+ ['SHEET-02','Sort and filter','Request','P1','done','Sort by any column and filter rows in the grid.'],
+ ['SHEET-03','Group by and formulas','Request','P2','done','Group rows with totals, and simple formulas (SUM, AVERAGE, COUNT).'],
+ ['SHEET-04','Change a chart by clicking it','Request','P1','done','Click a chart to switch its type or colours.'],
+ ['SHEET-05','Refresh from a new file','Request','P2','done','Drop in an updated CSV or XLSX to refresh the data.'],
+ ['SHEET-06','CSV and chart PNG','Request','P2','done','Export the data as CSV and any chart as PNG.'],
+
+ // Images and video tools
+ ['IMG-01','Remove a background','Request','P2','done','Remove the background of an image.'],
+ ['IMG-02','Variations','Request','P2','done','Ask for variations of an image (needs an image tool connected).'],
+ ['IMG-03','Trim a video','Request','P2','done','Set start and end points of a video and save the cut.'],
+
+ // Every kind of work
+ ['EVERY-01','Make a copy','Request','P1','done','Duplicate any piece of work into a new folder.'],
+ ['EVERY-02','Templates for every kind','Request','P1','done','Start slides, documents and reports from templates, not only websites.'],
+ ['EVERY-03','Search your work','Request','P2','done','Search across the titles and text of all your work.'],
+
+ // Audit W1 · every new tool, every state
+ ['W1-01','Arrange panel reads cleanly','Audit','P1','done','The size heading was a long line in capitals; it is now “Position and size” with the unit as a quiet note.'],
+ ['W1-02','Pickers open under their button','Audit','P1','done','The icon picker and Arrange panel were measured from the wrong box and opened over the slide strip; the stage is now their anchor.'],
+ ['W1-03','Videos play in the app','Audit','P1','done','The app’s security policy had no media rule, so videos from outputs never played; media from the preview server is now allowed.'],
+ ['W1-04','Video and PDF files are served','Audit','P1','done','The preview server only served images and text; videos and PDFs are now served with byte ranges, so seeking works.'],
+ ['W1-05','Trimmed clips and sources can be saved','Audit','P1','done','The file-path check only allowed text and images, so trimmed clips and added PDF sources were refused; they are allowed in their own folders.'],
+ ['W1-06','Trim knows the clip length','Audit','P1','done','Browser-recorded clips report an unknown length; the trim dialog now finds the real length before showing the sliders.'],
+ ['W1-07','Trim never hangs','Audit','P1','done','Recording followed the screen refresh, which stops in a background window; it now uses a timer and stops with a clear message if playback stalls.'],
+ ['W1-08','Background removal keeps the subject','Audit','P1','done','The first threshold also removed light grey parts; it now only clears colours very close to the edge colour.'],
+ ['W1-09','Edits wait for the full image','Audit','P1','done','Crop, upscale and background removal waited for nothing when the picture had not loaded yet; they now load it first.'],
+ ['W1-10','Prompt dialogs show their label','Audit','P1','done','Dialogs that passed their label and length limit as input options lost both (comments capped at 180 characters); fixed for every caller.'],
+ ['W1-11','Slide edits are never undone by a reload','Audit','P1','done','A refresh from disk while a slide save was pending put the older file back; the editor now ignores reloads while it saves.'],
+ ['W1-12','Align buttons on slides work','Audit','P1','done','The Arrange panel’s align buttons had their arguments in the wrong order; fixed.'],
+ ['W1-13','Shape line and corner menus show','Audit','P1','done','A rule that hides text controls for boxes also hid the line width and corner menus; they show again.'],
+ ['W1-14','Documents never get stuck mid-edit','Audit','P1','done','Inserting while a block was open left the editor thinking it was still editing; every change now finishes the open block first.'],
+ ['W1-15','Fit to the panel fits','Audit','P1','done','Page size was reported already zoomed, and a hidden panel measured as 0; fit now uses the real size and runs when the panel appears.'],
+ ['W1-16','SVG export keeps every drawing','Audit','P1','done','Frames that use shared symbols (<use>) exported without them; the symbols travel with the SVG now.'],
+ ['W1-17','Standalone previews stay quiet','Audit','P1','done','A preview opened alone posted messages to itself in a loop; fixed (found in round W1 of the editor checks).'],
+
+ // Audit W2 · real jobs, exports and Bahasa
+ ['W2-01','A real AI job uses the new tools','Audit','P1','done','A GPT run made a dashboard that keeps data.csv, writes charts.json and marks each chart with data-chart, so clicking a chart opens its editor and the grid shows the data.'],
+ ['W2-02','Click a chart, edit that chart','Audit','P1','done','Edit charts picks a chart on the page; its card opens highlighted with type, data and colour per series (two slice colours for pies).'],
+ ['W2-03','Exports carry the new content','Audit','P1','done','PPTX has text boxes, shapes, arrows, icons, rotation and 4:3 pages; DOCX embeds images and the contents list; frame PDFs are the frame’s size; SVGs render.'],
+ ['W2-04','Bahasa for every new tool','Audit','P1','done','About 230 new labels, tooltips and messages are translated; your own data (grid cells, column names, layers, sources, search results) is never translated.'],
+ ['W2-05','Trim label works in any language','Audit','P1','done','The trim range reads 0:01.0 – 0:02.5 · 1.5 s instead of an English sentence.'],
+
+ // Audit W3 · balance, motion and lean code
+ ['W3-01','Parser can never stall','Audit','P1','done','A line starting like an image but not one (“![x](a) caption”) froze the document parser; paragraphs now always move forward, with a test.'],
+ ['W3-02','Tests for the new editors','Audit','P1','done','New tests cover document blocks, CSV and formulas, slide items, crops, sizes and icons, version grouping and which files can be saved; 72 tests pass.'],
+ ['W3-03','Lean code check','Audit','P1','done','No unused functions or CSS rules after the build; design editing lives in its own files (preview-edit.js, canvas-ui.js, data-ui.js) instead of growing one file.'],
+ ['W3-04','Motion on every new panel','Audit','P1','done','The tool dock rises in, inspector, layers, sources and Arrange fade in, find and table bars arrive gently; reduced motion turns it all off.'],
+ ['W3-05','One version per editing session','Audit','P1','done','Autosaving designs and slides no longer floods the version list: edits to one file in a row become one version.'],
 ];
 
 const LABEL={done:'Implemented',partial:'Partial',planned:'Planned'};

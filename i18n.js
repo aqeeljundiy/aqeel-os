@@ -2,7 +2,7 @@
 // (text, title, placeholder, aria-label, alt) as they render, using the lang-<code>.js dictionary.
 // User content (chat messages, code, file contents, terminal output) is never touched.
 const KEY='cba-lang',ATTRS=['title','placeholder','aria-label','alt'];
-const SKIP='pre,code,script,style,.message .body,.message .md,.msg-doc,.xterm,.editor-area,[data-no-translate],[contenteditable="true"],.slide,.art-paper,.doc-paper,.doc-outline,.chat-title,.output-row,.art-compare-pane,.art-chart-card input,.art-switch,.art-media figcaption,.next-recap,.art-switch strong,.msg-outputs,.dk-thumb,.ds-meta strong';
+const SKIP='pre,code,script,style,.message .body,.message .md,.msg-doc,.xterm,.editor-area,[data-no-translate],[contenteditable="true"],.slide,.art-paper,.doc-paper,.doc-outline,.chat-title,.output-row,.art-compare-pane,.art-chart-card input,.art-switch,.art-media figcaption,.next-recap,.art-switch strong,.msg-outputs,.dk-thumb,.ds-meta strong,.dv-grid tbody,.dv-h,.dv-tab,.dv-groups,.cv-layer span,.cv-head strong,.doc-src-t,.search-result strong,.search-snippet,.doc-sugg del,.doc-sugg ins,.art-chart-card textarea,.doc-paper,.cv-text';
 export const LANGUAGES=[['en','English'],['id','Bahasa Indonesia']];
 export function lang(){try{const v=localStorage.getItem(KEY);return LANGUAGES.some(([c])=>c===v)?v:'en'}catch{return 'en'}}
 export function setLang(code){try{localStorage.setItem(KEY,code)}catch{}location.reload()}

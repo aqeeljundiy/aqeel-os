@@ -42,13 +42,13 @@ function settle(d,resolve){let done=false;const finish=v=>{if(done)return;done=t
 function dialog({title,message,confirm='OK',danger,input}){return new Promise(resolve=>{
  const d=el('dialog','kit-dialog');const form=el('form');form.method='dialog';
  const h=el('h2','',title);form.append(h);if(message)form.append(el('p','kit-message',message));
- let field;if(input){const id='kit-'+Math.random().toString(36).slice(2);const l=el('label','',input.label);l.htmlFor=id;field=el('input');field.id=id;field.value=input.value||'';field.maxLength=input.max||180;field.required=true;field.autocomplete='off';form.append(l,field)}
+ let field;if(input){const id='kit-'+Math.random().toString(36).slice(2);const l=el('label','',input.label);l.htmlFor=id;field=el('input');field.id=id;field.value=input.value||'';field.maxLength=input.max||180;field.required=!input.optional;field.autocomplete='off';form.append(l,field)}
  const actions=el('div','dialog-actions');const cancel=el('button','', 'Cancel');cancel.type='button';const ok=el('button',danger?'primary danger':'primary',confirm);ok.value='ok';actions.append(cancel,ok);form.append(actions);d.append(form);document.body.append(d);
- const finish=settle(d,resolve);cancel.onclick=()=>finish(null);form.onsubmit=e=>{e.preventDefault();if(field&&!field.value.trim())return field.focus();finish(field?field.value.trim():true)};
+ const finish=settle(d,resolve);cancel.onclick=()=>finish(null);form.onsubmit=e=>{e.preventDefault();if(field&&!field.value.trim()&&!input.optional)return field.focus();finish(field?field.value.trim():true)};
  d.showModal();(field||ok).focus();field?.select();
 })}
 export const confirmDialog=o=>dialog(o).then(Boolean);
-export const promptDialog=o=>dialog({...o,input:{label:o.label,value:o.value,max:o.max}});
+export const promptDialog=o=>dialog({...o,input:{label:o.label??o.input?.label,value:o.value??o.input?.value,max:o.max??o.input?.max,optional:o.optional??o.input?.optional}});
 
 // Checkbox choices, e.g. rewind: [{key,label,hint,checked}] → {key:boolean} or null when cancelled.
 export function choiceDialog({title,message,options,confirm='OK',danger}){return new Promise(resolve=>{

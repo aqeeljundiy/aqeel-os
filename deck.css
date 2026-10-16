@@ -62,3 +62,15 @@
 .slide-in>.s-list,.slide-in>.s-cols,.slide-in>.s-timeline,.slide-in>.s-team,.slide-in>.s-table,.slide-in>.s-chartbox{margin-block:auto}
 .slide-in>.s-chartbox{flex:0 1 auto;height:34cqw}
 .slide-in>.s-list~.s-foot,.slide-in>.s-cols~.s-foot,.slide-in>.s-timeline~.s-foot,.slide-in>.s-team~.s-foot,.slide-in>.s-table~.s-foot,.slide-in>.s-chartbox~.s-foot{margin-top:0}
+
+/* slide sizes */
+.slide.r-4x3{aspect-ratio:4/3}.slide.r-1x1{aspect-ratio:1}.slide.r-9x16{aspect-ratio:9/16}
+.slide-in{isolation:isolate}
+/* free items: text boxes, shapes, lines, arrows and images placed anywhere */
+.s-item{margin:0;box-sizing:border-box}
+.s-tx{color:var(--ds-ink);font-family:var(--ds-body);padding:.3cqw .4cqw}
+.l-title .s-tx,.l-closing .s-tx{color:var(--ds-onAccent)}
+.s-pic img{width:100%;height:100%;display:block;object-fit:cover}
+.s-pic .s-img-empty{width:100%;height:100%;aspect-ratio:auto}
+.s-ln svg{width:100%;height:100%;display:block;overflow:visible}
+.s-ic svg{width:100%;height:100%;display:block}

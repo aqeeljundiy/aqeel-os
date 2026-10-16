@@ -841,6 +841,133 @@ Every capability Claude Code and Codex offer that fits code by aqeel, plus featu
 | V6-11 | All 68 tests pass | Implemented | npm test runs 68 tests across 20 files in about 4 seconds. | Audit | P1 |
 | V6-12 | Server log is clean | Implemented | No errors or exceptions in the server output across restarts and the audit runs. | Audit | P1 |
 
+### Design editing like Figma
+
+| ID | Capability | Current status | Acceptance criterion | Source | Priority |
+|---|---|---|---|---|---|
+| FIG-01 | Grab and drag | Implemented | Pick an element and drag it straight away; no Move button needed first. | Request | P0 |
+| FIG-02 | Snap to other elements | Implemented | While moving, snap to the edges and centres of nearby elements, not only the frame. | Request | P0 |
+| FIG-03 | Gap labels | Implemented | While moving, show the distance in pixels to the neighbours, like Figma's red numbers. | Request | P1 |
+| FIG-04 | Resize handles | Implemented | Corner and side handles change width and height; Shift keeps the proportions. | Request | P0 |
+| FIG-05 | Undo and redo your own edits | Implemented | Ctrl+Z / Ctrl+Shift+Z undo every manual change on the canvas (text, colour, move, resize), not only the AI's. | Request | P0 |
+| FIG-06 | Layers panel | Implemented | A list of the frame's elements: click to select, hover to highlight, drag to reorder. | Request | P1 |
+| FIG-07 | Select several elements | Implemented | Shift+click adds to the selection; move them together. | Request | P1 |
+| FIG-08 | Align and distribute | Implemented | Align the selection left, centre, right, top, middle or bottom, and space it evenly. | Request | P1 |
+| FIG-09 | Add from a toolbar | Implemented | Add text, a rectangle or an image to a frame. | Request | P1 |
+| FIG-10 | Duplicate and delete | Implemented | Ctrl+D duplicates the picked element; Delete removes it. | Request | P1 |
+| FIG-11 | Exact position and size | Implemented | X, Y, W and H boxes in the inspector. | Request | P1 |
+| FIG-12 | Border, shadow and opacity | Implemented | Inspector controls for border, shadow and opacity. | Request | P2 |
+| FIG-13 | Replace an image | Implemented | Swap a picked image for an upload or a media-library file. | Request | P2 |
+| FIG-14 | Spacing for rows and columns | Implemented | For flex and grid containers: direction, gap and padding controls (Figma auto layout). | Request | P2 |
+| FIG-15 | SVG and PDF per frame | Implemented | Download any frame as SVG or PDF, as well as PNG. | Request | P2 |
+
+### Slides editing like Google Slides
+
+| ID | Capability | Current status | Acceptance criterion | Source | Priority |
+|---|---|---|---|---|---|
+| GSL-01 | Resize with corner handles | Implemented | Corner handles change width and height; images and charts keep their proportions. | Request | P0 |
+| GSL-02 | Add text boxes | Implemented | Insert a free text box anywhere on a slide. | Request | P0 |
+| GSL-03 | Add shapes, lines and icons | Implemented | Insert rectangles, circles, lines and arrows with fill and stroke colours. | Request | P1 |
+| GSL-04 | Select several and group | Implemented | Shift+click selects several; move them together. | Request | P1 |
+| GSL-05 | Align and distribute | Implemented | Align several items to each other or to the slide, and space them evenly. | Request | P1 |
+| GSL-06 | Bring to front, send to back | Implemented | Change which item sits on top. | Request | P1 |
+| GSL-07 | Exact position and size | Implemented | X, Y, W and H boxes for the selected item. | Request | P1 |
+| GSL-08 | Rotate | Implemented | Rotate an item with a handle; Shift snaps to 15 degree steps. | Request | P2 |
+| GSL-09 | Crop an image on the slide | Implemented | Crop and reposition an image inside its box. | Request | P2 |
+| GSL-10 | Duplicate a slide | Implemented | Duplicate the current slide (also Ctrl+D in the strip). | Request | P1 |
+| GSL-11 | Slide sizes | Implemented | 16:9, 4:3, square and 9:16 story decks, also in exports. | Request | P2 |
+| GSL-12 | Transitions and builds | Implemented | Fade or slide between slides and reveal bullets one by one when presenting. | Request | P2 |
+
+### Documents like Google Docs
+
+| ID | Capability | Current status | Acceptance criterion | Source | Priority |
+|---|---|---|---|---|---|
+| GDOC-01 | Formatting toolbar | Implemented | Headings, bold, italic, bullet and numbered lists, links and quotes from a bar. | Request | P0 |
+| GDOC-02 | Tables in documents | Implemented | Insert a table and edit its cells, rows and columns. | Request | P1 |
+| GDOC-03 | Images in documents | Implemented | Insert an image from a file or the media library. | Request | P1 |
+| GDOC-04 | Find and replace | Implemented | Ctrl+F finds in the document; replace one or all. | Request | P1 |
+| GDOC-05 | Suggest mode | Implemented | Your own edits can show as tracked suggestions to accept or reject. | Request | P2 |
+| GDOC-06 | Page view | Implemented | A page layout with margins and page breaks, as it will print and export. | Request | P2 |
+| GDOC-07 | Table of contents | Implemented | Insert a table of contents built from the headings. | Request | P2 |
+
+### Research reports
+
+| ID | Capability | Current status | Acceptance criterion | Source | Priority |
+|---|---|---|---|---|---|
+| REP-01 | Sources panel | Implemented | A panel beside the report lists every source with its site and date; clicking a citation shows its source. | Request | P0 |
+| REP-02 | Add your own sources | Implemented | Attach a link or PDF for the AI to use and cite. | Request | P1 |
+| REP-03 | Re-check a claim | Implemented | Select a sentence and ask the AI to verify it against its source. | Request | P2 |
+| REP-04 | Citation style | Implemented | Numbered, APA or MLA references. | Request | P2 |
+
+### Data and charts like Sheets
+
+| ID | Capability | Current status | Acceptance criterion | Source | Priority |
+|---|---|---|---|---|---|
+| SHEET-01 | Data grid | Implemented | See and edit the data behind a dashboard in a spreadsheet-style grid. | Request | P0 |
+| SHEET-02 | Sort and filter | Implemented | Sort by any column and filter rows in the grid. | Request | P1 |
+| SHEET-03 | Group by and formulas | Implemented | Group rows with totals, and simple formulas (SUM, AVERAGE, COUNT). | Request | P2 |
+| SHEET-04 | Change a chart by clicking it | Implemented | Click a chart to switch its type or colours. | Request | P1 |
+| SHEET-05 | Refresh from a new file | Implemented | Drop in an updated CSV or XLSX to refresh the data. | Request | P2 |
+| SHEET-06 | CSV and chart PNG | Implemented | Export the data as CSV and any chart as PNG. | Request | P2 |
+
+### Images and video tools
+
+| ID | Capability | Current status | Acceptance criterion | Source | Priority |
+|---|---|---|---|---|---|
+| IMG-01 | Remove a background | Implemented | Remove the background of an image. | Request | P2 |
+| IMG-02 | Variations | Implemented | Ask for variations of an image (needs an image tool connected). | Request | P2 |
+| IMG-03 | Trim a video | Implemented | Set start and end points of a video and save the cut. | Request | P2 |
+
+### Every kind of work
+
+| ID | Capability | Current status | Acceptance criterion | Source | Priority |
+|---|---|---|---|---|---|
+| EVERY-01 | Make a copy | Implemented | Duplicate any piece of work into a new folder. | Request | P1 |
+| EVERY-02 | Templates for every kind | Implemented | Start slides, documents and reports from templates, not only websites. | Request | P1 |
+| EVERY-03 | Search your work | Implemented | Search across the titles and text of all your work. | Request | P2 |
+
+### Audit W1 · every new tool, every state
+
+| ID | Capability | Current status | Acceptance criterion | Source | Priority |
+|---|---|---|---|---|---|
+| W1-01 | Arrange panel reads cleanly | Implemented | The size heading was a long line in capitals; it is now “Position and size” with the unit as a quiet note. | Audit | P1 |
+| W1-02 | Pickers open under their button | Implemented | The icon picker and Arrange panel were measured from the wrong box and opened over the slide strip; the stage is now their anchor. | Audit | P1 |
+| W1-03 | Videos play in the app | Implemented | The app’s security policy had no media rule, so videos from outputs never played; media from the preview server is now allowed. | Audit | P1 |
+| W1-04 | Video and PDF files are served | Implemented | The preview server only served images and text; videos and PDFs are now served with byte ranges, so seeking works. | Audit | P1 |
+| W1-05 | Trimmed clips and sources can be saved | Implemented | The file-path check only allowed text and images, so trimmed clips and added PDF sources were refused; they are allowed in their own folders. | Audit | P1 |
+| W1-06 | Trim knows the clip length | Implemented | Browser-recorded clips report an unknown length; the trim dialog now finds the real length before showing the sliders. | Audit | P1 |
+| W1-07 | Trim never hangs | Implemented | Recording followed the screen refresh, which stops in a background window; it now uses a timer and stops with a clear message if playback stalls. | Audit | P1 |
+| W1-08 | Background removal keeps the subject | Implemented | The first threshold also removed light grey parts; it now only clears colours very close to the edge colour. | Audit | P1 |
+| W1-09 | Edits wait for the full image | Implemented | Crop, upscale and background removal waited for nothing when the picture had not loaded yet; they now load it first. | Audit | P1 |
+| W1-10 | Prompt dialogs show their label | Implemented | Dialogs that passed their label and length limit as input options lost both (comments capped at 180 characters); fixed for every caller. | Audit | P1 |
+| W1-11 | Slide edits are never undone by a reload | Implemented | A refresh from disk while a slide save was pending put the older file back; the editor now ignores reloads while it saves. | Audit | P1 |
+| W1-12 | Align buttons on slides work | Implemented | The Arrange panel’s align buttons had their arguments in the wrong order; fixed. | Audit | P1 |
+| W1-13 | Shape line and corner menus show | Implemented | A rule that hides text controls for boxes also hid the line width and corner menus; they show again. | Audit | P1 |
+| W1-14 | Documents never get stuck mid-edit | Implemented | Inserting while a block was open left the editor thinking it was still editing; every change now finishes the open block first. | Audit | P1 |
+| W1-15 | Fit to the panel fits | Implemented | Page size was reported already zoomed, and a hidden panel measured as 0; fit now uses the real size and runs when the panel appears. | Audit | P1 |
+| W1-16 | SVG export keeps every drawing | Implemented | Frames that use shared symbols (<use>) exported without them; the symbols travel with the SVG now. | Audit | P1 |
+| W1-17 | Standalone previews stay quiet | Implemented | A preview opened alone posted messages to itself in a loop; fixed (found in round W1 of the editor checks). | Audit | P1 |
+
+### Audit W2 · real jobs, exports and Bahasa
+
+| ID | Capability | Current status | Acceptance criterion | Source | Priority |
+|---|---|---|---|---|---|
+| W2-01 | A real AI job uses the new tools | Implemented | A GPT run made a dashboard that keeps data.csv, writes charts.json and marks each chart with data-chart, so clicking a chart opens its editor and the grid shows the data. | Audit | P1 |
+| W2-02 | Click a chart, edit that chart | Implemented | Edit charts picks a chart on the page; its card opens highlighted with type, data and colour per series (two slice colours for pies). | Audit | P1 |
+| W2-03 | Exports carry the new content | Implemented | PPTX has text boxes, shapes, arrows, icons, rotation and 4:3 pages; DOCX embeds images and the contents list; frame PDFs are the frame’s size; SVGs render. | Audit | P1 |
+| W2-04 | Bahasa for every new tool | Implemented | About 230 new labels, tooltips and messages are translated; your own data (grid cells, column names, layers, sources, search results) is never translated. | Audit | P1 |
+| W2-05 | Trim label works in any language | Implemented | The trim range reads 0:01.0 – 0:02.5 · 1.5 s instead of an English sentence. | Audit | P1 |
+
+### Audit W3 · balance, motion and lean code
+
+| ID | Capability | Current status | Acceptance criterion | Source | Priority |
+|---|---|---|---|---|---|
+| W3-01 | Parser can never stall | Implemented | A line starting like an image but not one (“![x](a) caption”) froze the document parser; paragraphs now always move forward, with a test. | Audit | P1 |
+| W3-02 | Tests for the new editors | Implemented | New tests cover document blocks, CSV and formulas, slide items, crops, sizes and icons, version grouping and which files can be saved; 72 tests pass. | Audit | P1 |
+| W3-03 | Lean code check | Implemented | No unused functions or CSS rules after the build; design editing lives in its own files (preview-edit.js, canvas-ui.js, data-ui.js) instead of growing one file. | Audit | P1 |
+| W3-04 | Motion on every new panel | Implemented | The tool dock rises in, inspector, layers, sources and Arrange fade in, find and table bars arrive gently; reduced motion turns it all off. | Audit | P1 |
+| W3-05 | One version per editing session | Implemented | Autosaving designs and slides no longer floods the version list: edits to one file in a row become one version. | Audit | P1 |
+
 ## Architecture and local data
 
 The browser talks to a loopback Node service on port 4320. Installed official CLIs perform model requests using their existing account logins. Coding responses contain structured file proposals that the service validates and writes into the selected managed project. Provider requests use reconstructed recent chat and project-file context rather than native provider session IDs.
