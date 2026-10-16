@@ -69,7 +69,7 @@ async function makeSafeAgent(name){
  let id=slug,n=2;while((Pages._agents||[]).includes(id))id=slug+'-'+n++;
  await post(H,'/profiles',{name:id,clone_from_default:false,no_skills:false});
  await post(UI,'/ui/accounts/setup-agent',{name:id}).catch(()=>{});
- for(const t of UNSAFE_TOOLSETS)await put(H,'/tools/toolsets/'+t+'?profile='+encodeURIComponent(id),{enabled:false}).catch(()=>{});
+ await post(UI,'/ui/agent-safe',{agent:id}).catch(()=>{});   // locked on every channel (chats, WhatsApp, schedules), and kept locked
  await put(UI,'/ui/identities/'+encodeURIComponent(id),{name,title:''}).catch(()=>{});
  await loadIdentities();return id}
 ACT['ppl-invite']=()=>{const d=drawer('Invite someone',`<label>Their name</label><input id="ivName" placeholder="Sarah"><label>Their email (optional)</label><input id="ivMail" type="email" placeholder="sarah@example.com"><p class="hint" style="margin:4px 0 0">We email them the invite link. You also get it to copy.</p>
@@ -408,7 +408,9 @@ const chState=c=>/logged out|bridge process died|bridge_exited/i.test((c.error_c
 {const base=ACT['ch-open'];ACT['ch-open']=async a=>{await base(a);const id=a.dataset.id;const d=$('.drawer');if(!d)return;
  d.querySelectorAll('.chip').forEach(ch=>{const t=ch.textContent.trim();const k=Object.keys(CH_STATE).find(k=>pretty(k)===t);if(k)ch.textContent=CH_STATE[k]});
  if(id!=='whatsapp')return;const err=d.querySelector('.err-line');
- if(err&&/bridge|logged out|exited/i.test(err.textContent)){err.innerHTML='WhatsApp ended this link (it happens when the phone unlinks the device or the connection is interrupted right after linking). Link the phone again below.';
+ // only a real logout gets 'link again'; a busy port right after a restart clears by itself and the login is fine
+ if(err&&/bound by|bridge_conflict|already in use|port \d+/i.test(err.textContent)){err.innerHTML='WhatsApp is still starting up after a restart. Your link is saved; give it a minute, then refresh.';return}
+ if(err&&/logged out|exited|unlinked/i.test(err.textContent)){err.innerHTML='WhatsApp ended this link (it happens when the phone unlinks the device or the connection is interrupted right after linking). Link the phone again below.';
   const g=d.querySelector('[data-act="onboard"]');if(g)g.innerHTML=icon('refresh',15)+'Link again (fresh QR)';g?.setAttribute('data-relink','1')}}}
 {const base=ACT['onboard'];ACT['onboard']=async a=>{if(a.dataset.id==='whatsapp'&&a.dataset.relink){const box=$('#onboard');
   // The gateway keeps retrying WhatsApp with the old login even after it is switched off, and two connections
@@ -417,7 +419,7 @@ const chState=c=>/logged out|bridge process died|bridge_exited/i.test((c.error_c
   try{if(box)box.innerHTML='<p class="hint"><span class="spinner"></span> Preparing a clean link (about 20 seconds)…</p>';a.disabled=true;
    await put(H,'/messaging/platforms/whatsapp',{enabled:false,env:{}}).catch(()=>{});await post(UI,'/ui/gateway/restart');
    for(let i=0;i<30;i++){await new Promise(r=>setTimeout(r,2000));try{const st=await H('/status');if(st.gateway_running)break}catch{}}
-   await new Promise(r=>setTimeout(r,3000));await post(UI,'/ui/channels/whatsapp-reset',{agent:S.profile||'default'});a.disabled=false}catch(e){a.disabled=false;return fail(e)}}return base(a)}}
+   await new Promise(r=>setTimeout(r,3000));await post(UI,'/ui/channels/whatsapp-reset',{agent:agentProfile()||'default'})   /* the agent being set up (an extra number is its own copy) */;a.disabled=false}catch(e){a.disabled=false;return fail(e)}}return base(a)}}
 
 /* ---------- Skills: a readable preview (engine wording shown as aqeelOS); the source stays exactly as it is ---------- */
 {const base=Pages.openSkill;Pages.openSkill=async name=>{await base(name);if(!name)return;const d=$('.drawer');const ta=d?.querySelector('#skBody');if(!ta)return;
@@ -539,6 +541,12 @@ ACT['mcp-auth']=async a=>{const name=a.dataset.name,agent=S.profile||'default';
  const panel=document.createElement('div');panel.className='panel card';panel.style.marginTop='16px';
  panel.innerHTML=`<h2>Recently deleted</h2><p class="sub">Deleted agents are kept for 30 days. Restoring brings back its settings, skills, memory and chats.</p>${items.map((x,i)=>`<div class="row" ${st(i)} style="padding:12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="main-c">${agentAva(x.agent)}<div class="txt"><b>${esc(ident(x.agent).name)}</b><span>Deleted ${esc(when(x.deleted))} · ${esc(bytes(x.size))}</span></div></div><div class="act"><button data-act="agent-restore" data-file="${esc(x.file)}" data-name="${esc(ident(x.agent).name)}">${icon('refresh',15)}Restore</button></div></div>`).join('')}`;
  el.append(panel)}}
+/* ---------- Agents: an agent whose setup did not finish says so, with one click to finish it ---------- */
+{const base=PAGES.profiles;PAGES.profiles=async(p,el)=>{await base(p,el);let st={};try{st=(await UI('/ui/agent-setup')).agents||{}}catch{return}
+ for(const [n,v] of Object.entries(st)){if(v.ok)continue;const tags=el.querySelector('.agent-card[data-name="'+CSS.escape(n)+'"] .agent-tags');if(!tags)continue;
+  tags.insertAdjacentHTML('beforeend',`<span class="chip warn" title="${esc((v.failed||[]).join(' · '))}">${icon('alert',12)}Setup not finished</span><button class="small" data-act="agent-fix" data-name="${esc(n)}">Finish setup</button>`)}}}
+ACT['agent-fix']=async a=>{a.disabled=true;const was=a.textContent;a.textContent='Finishing…';
+ try{const r=await post(UI,'/ui/accounts/setup-agent',{name:a.dataset.name});if(r.ok)toast('Setup finished');else toast('Not finished yet: '+(r.failed||[]).join(' · '),'err');reload()}catch(e){a.disabled=false;a.textContent=was;fail(e)}};
 ACT['agent-restore']=async a=>{if(!await confirmBox('Restore '+a.dataset.name+'?','It comes back as it was when it was deleted.','Restore',false))return;a.disabled=true;
  try{await post(UI,'/ui/agent-restore',{file:a.dataset.file});toast(a.dataset.name+' is back');setTimeout(()=>reload(),1500)}catch(e){a.disabled=false;fail(e)}};
 

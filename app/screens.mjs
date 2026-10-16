@@ -8,6 +8,8 @@ import {readFile,readdir,mkdir,stat,utimes} from 'node:fs/promises';
 import {connect} from 'node:net';
 import {homedir} from 'node:os';
 import path from 'node:path';
+import {createServer} from 'node:net';
+import {setKey,agentNames,LIVE_APP} from './agentops.mjs';
 
 const HOME=homedir();
 const HERMES=process.env.HERMES_BIN||path.join(HOME,'.local','bin','hermes');
@@ -21,7 +23,7 @@ const run=(cmd,args,env={},timeout=60000)=>new Promise(res=>execFile(cmd,args,{e
 export function createScreens(){
  const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const sockOf=a=>path.join(homeOf(a),'bot-desktop','rfb.sock');
- async function agents(){const l=['default'];try{for(const d of await readdir(path.join(HERMES_HOME,'profiles'),{withFileTypes:true}))if(d.isDirectory()&&NAME.test(d.name)&&!d.name.includes('--'))l.push(d.name)}catch{}return l}
+ const agents=async()=>(await agentNames()).filter(n=>NAME.test(n));
  async function valid(a){if(!NAME.test(a||''))return false;try{return (await stat(homeOf(a))).isDirectory()}catch{return false}}
  const config=a=>readFile(path.join(homeOf(a),'config.yaml'),'utf8').catch(()=>'');
  const shared=async a=>/cdp_url:\s*['"]?http:\/\/127\.0\.0\.1:9333/.test(await config(a));
@@ -56,7 +58,7 @@ export function createScreens(){
  const busy=new Map();
  const ensure=a=>{if(!busy.has(a))busy.set(a,ensureNow(a).finally(()=>busy.delete(a)));return busy.get(a)};
  async function ensureNow(a){
-  const c=await config(a);const set=(k,v)=>run(HERMES,['-p',a,'config','set',k,String(v)]);
+  const c=await config(a);if(!c)return;const set=async(k,v)=>{const r=await setKey(a,k,String(v));if(!r.ok)throw new Error(k+': '+r.err)};
   if(!/^bot_desktop:/m.test(c)){await set('bot_desktop.auto_start','true');await set('bot_desktop.idle_stop_minutes','15')}
   const dir=path.join(WORKSPACES,a);await mkdir(dir,{recursive:true}).catch(()=>{});
   const cwd=(/^terminal:[\s\S]*?\n\s+cwd:\s*['"]?([^'"\n#]+)/m.exec(c)||[])[1]?.trim();
@@ -64,13 +66,18 @@ export function createScreens(){
  const ensureAll=async()=>{for(const a of await agents())await ensure(a).catch(()=>{})};
 
  /* ---------- viewer bridge: one websockify per agent screen, stopped when nobody watches ---------- */
- const bridges=new Map();let nextPort=6101;
+ const bridges=new Map();
+ // a port nothing listens on (an old viewer left by an earlier app run could still hold one and show the wrong screen)
+ const freePort=()=>new Promise((res,rej)=>{const srv=createServer();srv.once('error',rej);srv.listen(0,'127.0.0.1',()=>{const {port}=srv.address();srv.close(()=>res(port))})});
+ const killAll=()=>{for(const b of bridges.values())try{b.proc.kill()}catch{}};
+ for(const sig of ['SIGTERM','SIGINT'])process.once(sig,()=>{killAll();process.exit(0)});process.once('exit',killAll);   // a hang-up kills without this; the next start stops what it left
  async function bridge(a){
   let b=bridges.get(a);if(b&&b.proc.exitCode===null)return b;
-  const port=nextPort++;if(nextPort>6199)nextPort=6101;
+  const port=await freePort();
   const proc=spawn('websockify',[`127.0.0.1:${port}`,`--unix-target=${sockOf(a)}`],{stdio:'ignore'});proc.on('error',()=>{});
   b={port,proc,viewers:0,timer:null};bridges.set(a,b);proc.on('exit',()=>{if(bridges.get(a)===b)bridges.delete(a)});
-  for(let i=0;i<30;i++){if(await new Promise(res=>{const c=connect(port,'127.0.0.1');c.once('connect',()=>{c.destroy();res(true)});c.once('error',()=>res(false))}))break;await new Promise(r=>setTimeout(r,100))}
+  for(let i=0;i<30;i++){if(proc.exitCode!==null)break;if(await new Promise(res=>{const c=connect(port,'127.0.0.1');c.once('connect',()=>{c.destroy();res(true)});c.once('error',()=>res(false))}))break;await new Promise(r=>setTimeout(r,100))}
+  if(proc.exitCode!==null)throw new Error('The screen viewer could not start.');
   return b}
  // Pipes an upgraded viewer socket to the right screen. Watching counts as using the screen, so it
  // is not stopped as idle while someone has it open.
@@ -109,7 +116,8 @@ export function createScreens(){
    const mins=Number((/^bot_desktop:[\s\S]*?\n\s+idle_stop_minutes:\s*([\d.]+)/m.exec(await config(a))||[])[1]??15);if(!(mins>0))continue;
    let last=0;for(const f of ['activity','env'])try{last=Math.max(last,(await stat(path.join(homeOf(a),'bot-desktop',f))).mtimeMs)}catch{}
    if(last&&Date.now()-last>mins*60000)await runtime(a,'stop_if_idle()').catch(()=>{})}}
- setInterval(()=>reap().catch(()=>{}),60000).unref();
- setTimeout(()=>ensureAll().catch(()=>{}),5000);
- return {handle,upgrade,status,displayEnv,homeOf,valid,shared};
+ if(LIVE_APP){setInterval(()=>reap().catch(()=>{}),60000).unref();setTimeout(()=>ensureAll().catch(()=>{}),5000)}
+ // viewers left running by an earlier run of the app (their parent is gone) are stopped
+ if(LIVE_APP)run('bash',['-c',"ps -eo pid=,ppid=,args= | awk '$2==1 && /websockify 127.0.0.1:61[0-9][0-9] --unix-target=/ {print $1}' | xargs -r kill"],{},10000).catch(()=>{});
+ return {handle,upgrade,status,displayEnv,homeOf,valid,shared,ensure};
 }

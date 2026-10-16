@@ -1,9 +1,10 @@
 // Shared channels: one agent owns (and receives on) a WhatsApp/Telegram connection; agents you allow can SEND
 // through it. A message is relayed by the owner agent with a one-off "no agent" job: a tiny script prints the
 // text, the engine delivers it to the chosen chat, then the job and script are removed. No AI runs, no tokens.
-import {readFile,writeFile,mkdir,rename,rm} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,rename,rm,readdir} from 'node:fs/promises';
 import {randomBytes,createHmac} from 'node:crypto';
 import path from 'node:path';
+import {LIVE_APP} from './agentops.mjs';
 
 export function createRelay({DATA,DASH,TOKEN,HERMES_HOME,SECRET,listAgents,links,platformsOf,nameOf}){
  const FILE=path.join(DATA,'channel-shares.json');let db=null;
@@ -17,7 +18,9 @@ export function createRelay({DATA,DASH,TOKEN,HERMES_HOME,SECRET,listAgents,links
  // people the owner agent may message on that platform: the ones approved under Pairing
  async function recipients(owner,platform){try{const p=await api('/pairing'+q(owner));return (p.approved||[]).filter(x=>x.platform===platform).map(x=>({id:String(x.user_id),name:x.user_name||String(x.user_id)}))}catch{return []}}
 
- async function send({owner,platform,chat,text,from}){
+ let sending=0;   // relays on their way (counted by /healthz, so a deploy waits for them)
+ async function send(o){sending++;try{return await sendNow(o)}finally{sending--}}
+ async function sendNow({owner,platform,chat,text,from}){
   if(!/^[a-z_]{2,30}$/.test(platform))throw new Error('Unknown channel');
   const body=(from&&from!==owner?'['+from+'] ':'')+String(text||'').slice(0,4000);if(!String(text||'').trim())throw new Error('Nothing to send');
   const name='aqeelos-relay-'+randomBytes(5).toString('hex')+'.py';const dir=path.join(homeOf(owner),'scripts');await mkdir(dir,{recursive:true});
@@ -70,7 +73,12 @@ export function createRelay({DATA,DASH,TOKEN,HERMES_HOME,SECRET,listAgents,links
    const text=last?.content||(j.last_status!=='ok'?'did not run: '+(j.last_error||j.last_status):'');
    if(!text){if(late)await done();continue}
    await done();await sendAs(agent,t.owner,t.platform,(j.name?j.name+': ':'')+text,null);console.log('relay sent',k,'to',t.owner+'|'+t.platform)}catch(e){console.warn('relay tick',k,e.message)}}}
- setInterval(()=>tick().catch(()=>{}),45000).unref();
+ if(LIVE_APP)setInterval(()=>tick().catch(()=>{}),45000).unref();
+ // a relay cut off halfway (the app restarted mid-send) would leave its one-off job behind, set to fire again next 1 January
+ async function sweep(){for(const a of [...await listAgents(),...(await links.list().catch(()=>[])).map(l=>l.name)]){
+  const l=await api('/cron/jobs'+q(a)).catch(()=>[]);for(const j of (Array.isArray(l)?l:l.jobs||[]))if(j.name==='aqeelOS relay'&&j.id){await api('/cron/jobs/'+j.id+q(a),{method:'DELETE'}).catch(()=>{});console.log('relay: removed a leftover one-off job on',a)}
+  const dir=path.join(homeOf(a),'scripts');for(const f of await readdir(dir).catch(()=>[]))if(/^aqeelos-relay-[0-9a-f]+\.py$/.test(f))await rm(path.join(dir,f),{force:true}).catch(()=>{})}}
+ if(LIVE_APP)setTimeout(()=>{if(!sending)sweep().catch(()=>{})},60000).unref();   // a test copy would send every relay twice
 
  /* the "notify me" tool agents call: a tiny MCP server, one address per agent, signed so only that agent uses it */
  const sig=a=>createHmac('sha256',SECRET).update('relay:'+a).digest('base64url').slice(0,32);
@@ -85,5 +93,5 @@ export function createRelay({DATA,DASH,TOKEN,HERMES_HOME,SECRET,listAgents,links
    if(!c)return reply({content:[{type:'text',text:'No channel matches. Available IDs: '+(ch.map(c=>c.id).join(', ')||'none')}],isError:true});
    try{await sendAs(agent,c.owner,c.platform,a.text,null);return reply({content:[{type:'text',text:'Sent on '+c.name+' ('+c.id+').'}]})}catch(e){return reply({content:[{type:'text',text:e.message.startsWith('Not ')?e.message:'Not sent: '+e.message}],isError:true})}}
   return {status:200,body:{jsonrpc:'2.0',id:msg.id,error:{code:-32601,message:'Method not found'}}}}
- return {recipients,send,sendAs,shares,setShare,setJobRelay,jobRelays,mcp,sig,channelsFor};
+ return {sending:()=>sending,recipients,send,sendAs,shares,setShare,setJobRelay,jobRelays,mcp,sig,channelsFor};
 }

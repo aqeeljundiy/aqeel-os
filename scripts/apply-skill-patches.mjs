@@ -66,4 +66,45 @@ except Exception:
     pass`;
 for(const h of homes){const sp=path.join(h,'skills','productivity','google-workspace','scripts','setup.py');if(!await exists(sp))continue;let s=await readFile(sp,'utf8');
  if(!s.includes('aqeelos:web-redirect')&&s.includes('REDIRECT_URI = "http://localhost:1"')){s=s.replace('REDIRECT_URI = "http://localhost:1"',WEB_REDIRECT);await writeFile(sp,s);changed++;console.log('patched',sp)}}
+// 4) Engine: accept token replies that are valid but not to the letter of the spec. Slack's personal ("as you")
+//    tokens come back with token_type "user" (the engine only accepts "Bearer"), and Slack reports refusals as
+//    HTTP 200 + {"ok": false, "error": …}; both ended as a bare "Invalid token response". Now the first is
+//    accepted and the second shows Slack's own reason.
+{const pf=path.join(HOME,'hermes-agent','tools','mcp_oauth_provider.py');if(await exists(pf)){let s=await readFile(pf,'utf8');
+ const from=`        try:
+            token_response = await handle_token_response_scopes(response)
+        except (HTTPError, OAuthTokenError):
+            raise OAuthTokenError("Invalid token response") from None`;
+ const to=`        try:
+            token_response = await handle_token_response_scopes(response)
+        except (HTTPError, OAuthTokenError):
+            # aqeelos:token-type: Slack user tokens say token_type "user"; refusals come as 200 + ok:false
+            try:
+                import json as _aq_json
+                from mcp.shared.auth import OAuthToken as _AqToken
+                _aq = _aq_json.loads(response.text or "{}")
+            except Exception:
+                raise OAuthTokenError("Invalid token response") from None
+            if isinstance(_aq, dict) and _aq.get("ok") is False:
+                raise OAuthTokenError("Token exchange refused: " + str(_aq.get("error") or "unknown error")) from None
+            if isinstance(_aq, dict) and not _aq.get("access_token") and isinstance(_aq.get("authed_user"), dict):
+                _aq = _aq["authed_user"]
+            if not (isinstance(_aq, dict) and _aq.get("access_token")):
+                raise OAuthTokenError("Invalid token response") from None
+            _aq = {k: v for k, v in _aq.items() if k in ("access_token", "expires_in", "scope", "refresh_token")}
+            _aq["token_type"] = "Bearer"
+            token_response = _AqToken.model_validate(_aq)`;
+ if(!s.includes('aqeelos:token-type')&&s.includes(from)){await writeFile(pf,s.replace(from,to));changed++;console.log('patched',pf)}}}
+// 5) Engine: a WhatsApp bridge port that was just closed (TIME_WAIT, ~60 s after a restart) was treated as "bound by
+//    another process", a permanent error with no retry, so a second agent's WhatsApp stayed down after every restart.
+//    SO_REUSEADDR ignores just-closed connections; a port really in use still fails the bind.
+{const pf=path.join(HOME,'hermes-agent','plugins','platforms','whatsapp','bridge_ownership.py');if(await exists(pf)){let s=await readFile(pf,'utf8');
+ const from=`    with socket.socket() as sock:
+        try:
+            sock.bind(("127.0.0.1", port))`;
+ const to=`    with socket.socket() as sock:
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # aqeelos:port-reuse (TIME_WAIT is not "in use")
+            sock.bind(("127.0.0.1", port))`;
+ if(!s.includes('aqeelos:port-reuse')&&s.includes(from)){await writeFile(pf,s.replace(from,to));changed++;console.log('patched',pf)}}}
 console.log(changed?changed+' change(s)':'skill patches already in place');

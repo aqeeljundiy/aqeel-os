@@ -260,7 +260,8 @@ function palette(){closeLayers();scrim();const p=document.createElement('div');p
  inp.onkeydown=e=>{const L=[...list,...remote];if(e.key==='ArrowDown'){sel=Math.min(sel+1,L.length-1);paint();e.preventDefault()}if(e.key==='ArrowUp'){sel=Math.max(sel-1,0);paint();e.preventDefault()}if(e.key==='Enter'){const it=L[sel];closeLayers();it?.run()}};
  box.onclick=e=>{const b=e.target.closest('[data-i]');if(!b)return;const it=[...list,...remote][+b.dataset.i];closeLayers();it.run()};paint();inp.focus()}
 function theme(){const d=document.documentElement.classList.toggle('dark');try{localStorage.setItem('hui-theme',d?'dark':'light')}catch{};const tb=$('.topbar');if(tb)paintTop()}
-async function restartGateway(){try{await post(UI,'/ui/gateway/restart');toast('Restarting the engine… back in about 25 seconds');setTimeout(()=>refreshStatus(),26000)}catch(e){fail(e)}}
+async function restartGateway(){try{const r=await post(UI,'/ui/gateway/restart');const n=r?.waiting||0;
+ toast(n?'Restarting the engine as soon as '+(n===1?'the reply in progress finishes':n+' replies in progress finish'):'Restarting the engine… back in about 25 seconds');setTimeout(()=>refreshStatus(),n?60000:26000)}catch(e){fail(e)}}
 async function refreshStatus(){try{S.status=await H('/status');if(S.me?.admin!==false)S.box=await UI('/ui/box').catch(()=>S.box);const r=route();if(!r.signin&&$('.side'))paintSide(r),paintBanner()}catch{}}
 
 /* ---------- sign-in ---------- */

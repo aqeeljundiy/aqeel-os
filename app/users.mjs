@@ -118,6 +118,7 @@ export function createUsers(DATA,mail){
    if(/^\/files(\/(read|download|stream|mkdir|upload-stream))?$/.test(rest))return null; // path checked by the caller
    // agents
    if(rest==='/profiles'&&method==='POST')return !can(u,'create')?no('Ask the owner to let you create agents.'):ownCount(u)>=eff(u).maxAgents?no(eff(u).maxAgents?'You already have '+eff(u).maxAgents+' agents, your limit. Delete one first or ask the owner.':'Your role does not include making agents.'):null;
+   if(rest==='/profiles/active'&&G)return null;   // which agent is the CLI default: read-only, fine for anyone signed in
    const pr=/^\/profiles\/([^/]+)(\/(soul|description|model))?$/.exec(rest);
    if(pr){const ag=decodeURIComponent(pr[1]);if(!pr[2])return method==='DELETE'?(atLeast(u,ag,'owner')?null:no('Only an owner of this agent can delete it.')):G&&atLeast(u,ag,'chat')?null:no();
     if(pr[3]==='model')return atLeast(u,ag,'edit')&&can(u,'models')?null:no();return atLeast(u,ag,'edit')?null:no('You can chat with this agent but not change it.')}
@@ -234,5 +235,5 @@ export function createUsers(DATA,mail){
  const limitOf=u=>isAdmin(u)?null:eff(u).limit;
  async function loginCode(u){const me=byId(u.id);return sendCode(me,'login',me.email)}
  function finishLogin(key,code){const v=checkCode(String(key||''),code,'login');if(v.error)return v;const u=byId(v.uid);return u?{ok:true,user:u}:{error:'That person no longer exists.'}}
- return {ownerOf,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginCode,finishLogin,created,can,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home};
+ return {agentOwner,byId,ownerOf,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginCode,finishLogin,created,can,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home};
 }

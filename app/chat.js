@@ -230,6 +230,12 @@ const Chat={
    while((i=buf.search(/\r?\n\r?\n/))>=0){const raw=buf.slice(0,i);buf=buf.slice(i).replace(/^\r?\n\r?\n/,'');let ev='message',data='';for(const line of raw.split(/\r?\n/)){if(line.startsWith(':'))continue;if(line.startsWith('event:'))ev=line.slice(6).trim();else if(line.startsWith('data:'))data+=line.slice(5).trimStart()}if(!data)continue;let d;try{d=JSON.parse(data)}catch{d={text:data}}on({type:d.type||ev,...d})}}},
  onEvent(id,e){const s=this.live[id];if(!s)return;const ai=s.ai;if(!ai)return;
   if(e.type==='tool.started'&&id===this.id&&/adspower|:9333|:50325/i.test(JSON.stringify([e.tool_name,e.preview,e.args])))Screen.useAds?.();
+  // The engine slips a steer in right before the agent's next model call (once the step it is on finishes) and
+  // says nothing on this stream when it does. So a steer that was waiting when a step finished has been read as
+  // soon as the agent shows anything new after that step.
+  if(s.turns.some(t=>t.steer==='sent')){
+   if(e.type==='tool.completed'||e.type==='tool.failed'){for(const t of s.turns)if(t.steer==='sent')t.afterStep=true}
+   else if(/^(assistant\.(delta|commentary|reasoning)|reasoning\.delta|tool\.started)$/.test(e.type)||e.type==='tool.progress'&&e.tool_name==='_thinking'){for(const t of s.turns)if(t.steer==='sent'&&t.afterStep)t.steer='delivered'}}
   switch(e.type){
    case 'run.started':s.runId=e.run_id;ai.model=e.runtime?.model||'';break;
    case 'assistant.delta':ai.text+=e.delta||e.text||'';break;
@@ -243,7 +249,8 @@ const Chat={
     if(this.allowAll(id)&&s.runId){const pick=(e.choices||['once']).includes('session')?'session':'once';post(G,'/v1/runs/'+s.runId+'/approval',{choice:pick,...(e.request_id?{request_id:e.request_id}:{})}).then(()=>{ai.approval.resolved=pick;ai.approval.auto=true;if(this.id===id)this.paint()}).catch(()=>{})}break;
    case 'approval.responded':if(ai.approval)ai.approval.resolved=e.choice;break;
    case 'assistant.completed':{let c=this.contentText(e.content||'');const prev=(s.runTurns||[]).filter(t=>t!==ai).map(t=>t.text).join('');if(prev&&c.startsWith(prev))c=c.slice(prev.length).trim();if(c&&(!ai.text||c.length>=ai.text.length))ai.text=c}ai.model=e.runtime?.model||ai.model;break;
-   case 'run.completed':this.refreshUsage();if(e.pending_steer){/* the reply ended before the agent read it: send it as the next message instead */const u=[...s.turns].reverse().find(t=>t.steer&&t.steer!=='delivered');if(u){const i=s.turns.indexOf(u);const nx=s.turns[i+1];s.turns.splice(i,nx&&nx.role==='ai'&&!nx.text&&!(nx.steps||[]).length?2:1);if(s.ai===nx)s.ai=s.turns[s.turns.length-1];(s.queue??=[]).unshift({text:u.text,images:[]})}}if(e.messages){/* fill tool outputs from the final transcript */const t=this.toTurns(e.messages.map(m=>({...m,active:1})));const last=t[t.length-1];if(last?.role==='ai'){last.steps.forEach((x,k)=>{if(ai.steps[k]&&!ai.steps[k].out)ai.steps[k].out=x.out});if(!ai.text)ai.text=last.text}}const u=e.usage;if(u)ai.usage=u;break;
+   case 'run.completed':this.refreshUsage();if(!e.pending_steer)for(const t of s.turns){if(t.steer==='sent')t.steer='delivered'}   // nothing left unread: the agent took every steer in
+   if(e.pending_steer){/* the reply ended before the agent read it: send it as the next message instead */const u=[...s.turns].reverse().find(t=>t.steer&&t.steer!=='delivered');if(u){const i=s.turns.indexOf(u);const nx=s.turns[i+1];s.turns.splice(i,nx&&nx.role==='ai'&&!nx.text&&!(nx.steps||[]).length?2:1);if(s.ai===nx)s.ai=s.turns[s.turns.length-1];(s.queue??=[]).unshift({text:u.text,images:[]})}}if(e.messages){/* fill tool outputs from the final transcript */const t=this.toTurns(e.messages.map(m=>({...m,active:1})));const last=t[t.length-1];if(last?.role==='ai'){last.steps.forEach((x,k)=>{if(ai.steps[k]&&!ai.steps[k].out)ai.steps[k].out=x.out});if(!ai.text)ai.text=last.text}}const u=e.usage;if(u)ai.usage=u;break;
    case 'run.failed':ai.error=e.error?.message||e.error||AGENT()+' stopped with an error.';break;
    case 'run.steered':{const u=[...s.turns].reverse().find(t=>t.steer==='sending'||t.steer==='sent');if(u)u.steer='delivered';break}
    case 'run.cancelled':case 'run.interrupted':ai.text+=(ai.text?'\n\n':'')+'*Stopped.*';break;

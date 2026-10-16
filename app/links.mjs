@@ -6,6 +6,7 @@
 import {readFile,writeFile,rename,rm,lstat,symlink,mkdir,stat,readdir} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
 import path from 'node:path';
+import {withAgent,editEnv,LIVE_APP} from './agentops.mjs';
 
 export const isLink=n=>typeof n==='string'&&n.includes('--');
 export const baseOf=n=>isLink(n)?n.split('--')[0]:n;
@@ -16,7 +17,11 @@ export function createLinks({DATA,DASH,TOKEN,HERMES_HOME,python,setupAgent}){
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)};
  const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const api=(p,o={})=>fetch(DASH+'/api'+p,{...o,headers:{'x-hermes-session-token':TOKEN,'content-type':'application/json'}}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||j.error||('HTTP '+r.status));return j});
- const SHARED=['SOUL.md','memories','skills','plugins','home','workspace'];
+ const SHARED=['SOUL.md','memories','skills','plugins','home','workspace','mcp-tokens'];
+ // single files the copy uses as-is: model sign-ins (auth.json) and the Google Workspace logins, whatever accounts exist
+ const SHARED_FILES=a=>readdir(homeOf(a)).then(l=>l.filter(n=>n==='auth.json'||/^google_(token|client_secret)[\w-]*\.json$/.test(n))).catch(()=>[]);
+ // .env lines that belong to one channel connection stay the copy's own; every other key (API keys…) comes from the agent
+ const CHANNEL_KEY=/^(WHATSAPP|TELEGRAM|DISCORD|SLACK_BOT|SLACK_APP|SIGNAL|MATRIX|MATTERMOST|EMAIL|SMS|TWILIO|LINE|WECOM|WEIXIN|FEISHU|DINGTALK|QQ|YUANBAO|HOMEASSISTANT|TEAMS|GOOGLE_CHAT)_/;
 
  // the copy's settings = the agent's settings, keeping only the copy's own channels
  const SYNC=`import sys,os
@@ -29,13 +34,30 @@ main.pop('platforms',None)
 if 'platforms' in link: main['platforms']=link['platforms']
 ms=main.get('mcp_servers')
 if ms and 'aqeelos-notify' in ms: del ms['aqeelos-notify']
-with open(sys.argv[2]+'.tmp','w') as f: y.dump(main,f)
-os.chmod(sys.argv[2]+'.tmp',0o600);os.replace(sys.argv[2]+'.tmp',sys.argv[2])`;
+own=(link.get('mcp_servers') or {}).get('aqeelos-notify')
+if own is not None: main.setdefault('mcp_servers',{})['aqeelos-notify']=own
+import io
+buf=io.StringIO();y.dump(main,buf);new=buf.getvalue()
+try: cur=open(sys.argv[2]).read()
+except FileNotFoundError: cur=None
+if new!=cur:
+  tmp=sys.argv[2]+'.%d.tmp'%os.getpid()
+  with open(tmp,'w') as f: f.write(new)
+  os.chmod(tmp,0o600);os.replace(tmp,sys.argv[2])`;
  async function syncOne(name,agent){const py=await python();if(!py)throw new Error('The engine is not installed on the box.');
-  await new Promise((res,rej)=>execFile(py,['-c',SYNC,path.join(homeOf(agent),'config.yaml'),path.join(homeOf(name),'config.yaml')],{timeout:30000},(e,o,er)=>e?rej(new Error(String(er||e.message).trim().split('\n').pop())):res()))}
+  await withAgent(name,()=>new Promise((res,rej)=>execFile(py,['-c',SYNC,path.join(homeOf(agent),'config.yaml'),path.join(homeOf(name),'config.yaml')],{timeout:30000},(e,o,er)=>e?rej(new Error(String(er||e.message).trim().split('\n').pop())):res())))}
  async function share(name,agent){for(const f of SHARED){const src=path.join(homeOf(agent),f),dst=path.join(homeOf(name),f);
    if(!await stat(src).catch(()=>null)){if(f==='SOUL.md')continue;await mkdir(src,{recursive:true})}
-   const cur=await lstat(dst).catch(()=>null);if(cur?.isSymbolicLink())continue;if(cur)await rm(dst,{recursive:true,force:true});await symlink(src,dst)}}
+   const cur=await lstat(dst).catch(()=>null);if(cur?.isSymbolicLink())continue;if(cur)await rm(dst,{recursive:true,force:true});await symlink(src,dst)}
+  for(const f of await SHARED_FILES(agent)){const src=path.join(homeOf(agent),f),dst=path.join(homeOf(name),f);const cur=await lstat(dst).catch(()=>null);
+   if(cur?.isSymbolicLink())continue;if(cur)await rm(dst,{force:true});await symlink(src,dst)}
+  // keys: the agent's non-channel .env lines + the copy's own channel lines and gateway key
+  const main=(await readFile(path.join(homeOf(agent),'.env'),'utf8').catch(()=>'')).split('\n');
+  const keyOf=l=>(/^\s*(?:export\s+)?([A-Z0-9_]+)=/.exec(l)||[])[1];
+  const envF=path.join(homeOf(name),'.env');
+  // under the engine's .env lock, from the copy's file as it is at that moment (a pairing may just have written to it)
+  await editEnv(envF,cur=>{const own=cur.split('\n');const keep=own.filter(l=>{const k=keyOf(l);return k&&(CHANNEL_KEY.test(k)||k==='API_SERVER_KEY')});const keepKeys=new Set(keep.map(keyOf));
+   const next=[...keep,...main.filter(l=>{const k=keyOf(l);return k&&!CHANNEL_KEY.test(k)&&!keepKeys.has(k)}),''].join('\n');return next.trim()!==cur.trim()?next:null})}
 
  async function list(agent){await load();return Object.entries(db.links).filter(([,v])=>!agent||v.agent===agent).map(([name,v])=>({name,...v}))}
  async function create(agent,platform){
@@ -57,8 +79,8 @@ os.chmod(sys.argv[2]+'.tmp',0o600);os.replace(sys.argv[2]+'.tmp',sys.argv[2])`;
  // keep every copy's settings equal to its agent's (checked every minute; only rewritten after a change)
  const seen=new Map();
  async function syncAll(){await load();for(const [name,v] of Object.entries(db.links)){try{
-   const m=(await stat(path.join(homeOf(v.agent),'config.yaml'))).mtimeMs;if(seen.get(name)===m)continue;
+   const m=(await stat(path.join(homeOf(v.agent),'config.yaml'))).mtimeMs+'|'+((await stat(path.join(homeOf(v.agent),'.env')).catch(()=>null))?.mtimeMs||0);   if(seen.get(name)===m)continue;   // settings or keys unchanged
    await share(name,v.agent);await syncOne(name,v.agent);seen.set(name,m)}catch(e){console.warn('link sync',name,e.message)}}}
- setInterval(()=>syncAll().catch(()=>{}),60000).unref();setTimeout(()=>syncAll().catch(()=>{}),8000).unref();
+ if(LIVE_APP){setInterval(()=>syncAll().catch(()=>{}),60000).unref();setTimeout(()=>syncAll().catch(()=>{}),8000).unref()}
  return {list,create,remove,rename:rename_,syncAll,isLink,baseOf};
 }

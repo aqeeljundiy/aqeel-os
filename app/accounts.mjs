@@ -6,6 +6,7 @@ import {spawn,execFile} from 'node:child_process';
 import {readFile,writeFile,mkdir,rename,rm,readdir,cp,appendFile,access} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import path from 'node:path';
+import {hermes as hq,setKey,readConfig,pick,editEnv,agentNames,setStatus,getStatus,LIVE_APP} from './agentops.mjs';
 
 const HOME=homedir();
 const CLAUDE=process.env.CLAUDE_BIN||path.join(HOME,'.local','bin','claude');
@@ -18,6 +19,7 @@ const MAIN={id:'main',label:'Main account',dir:path.join(HOME,'.claude')};
 
 // Set up a brand-new agent (plugin, model, gateway key); server.mjs also calls it for agents members create.
 export let setupAgentFn=null;
+export const export_setups={running:()=>0,wait:()=>Promise.resolve()};   // setups in progress, counted by /healthz so a deploy waits for them
 export function createAccounts(DATA){
  const FILE=path.join(DATA,'accounts.json');
  const load=async()=>{try{return JSON.parse(await readFile(FILE,'utf8'))}catch{return {accounts:[],assign:{},auto:{on:false,threshold:90},events:[]}}};
@@ -48,12 +50,12 @@ export function createAccounts(DATA){
  const headroom=v=>v?.usage?100-Math.max(v.usage.session?.used||0,v.usage.week?.used||0):-1;
 
  /* ---------- which agent uses which account ---------- */
- async function agents(){const names=['default'];try{for(const d of await readdir(path.join(HERMES_HOME,'profiles'),{withFileTypes:true}))if(d.isDirectory()&&!d.name.startsWith('.')&&!d.name.includes('--'))names.push(d.name)}catch{}return names}
+ const agents=()=>agentNames();
  async function assign(d,profile,accountId,why){
   const a=all(d).find(x=>x.id===accountId);if(!a)throw new Error('Unknown account');
   if(!/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(profile))throw new Error('Bad agent name');
   // Main account: an empty setting falls back to Claude's default sign-in.
-  const r=await run(HERMES,['-p',profile,'config','set',SETTING,a.id==='main'?'':a.dir],{},30000);
+  const r=await hq(profile,['config','set',SETTING,a.id==='main'?'':a.dir]);
   if(!r.ok)throw new Error('The engine did not accept the change: '+(r.err||r.out).slice(0,200));
   d.assign[profile]=a.id;if(why)d.events.unshift({t:Date.now(),profile,to:a.id,why});d.events=d.events.slice(0,50);await save(d);
  }
@@ -97,10 +99,13 @@ export function createAccounts(DATA){
   const k=key=>((new RegExp('^model:[\\s\\S]*?\\n\\s+'+key+':\\s*(\\S+)','m').exec(y)||[])[1]||'').replace(/^["']|["']$/g,'');return {provider:k('provider'),model:k('default')}}
  async function entryOf(d,profile){const r=await agentRoute(profile);return r.provider===PLUGIN||!r.provider?PLUGIN_KEY+(d.assign[profile]||'main'):'p:'+r.provider}
  async function useEntry(d,profile,e,why){
-  if(e.key.startsWith(PLUGIN_KEY)){await assign(d,profile,e.key.slice(PLUGIN_KEY.length),why);await run(HERMES,['-p',profile,'config','set','model.provider',PLUGIN]);}
-  else{const r=await run(HERMES,['-p',profile,'config','set','model.provider',e.key.slice(2)]);if(!r.ok)throw new Error('The engine did not accept the change');
+  if(e.key.startsWith(PLUGIN_KEY)){await assign(d,profile,e.key.slice(PLUGIN_KEY.length),why);await setKey(profile,'model.provider',PLUGIN);}
+  else{// only switch an agent to a provider THAT agent is signed in to (sign-ins are per agent)
+   const slug=e.key.slice(2);const ok=await fetch(GATE+(profile==='default'?'':'/p/'+encodeURIComponent(profile))+'/api/model/options',{headers:{authorization:'Bearer '+(process.env.API_SERVER_KEY||'')},signal:AbortSignal.timeout(20000)}).then(r=>r.json()).then(j=>(j.providers||[]).some(p=>p.slug===slug&&p.authenticated)).catch(()=>false);
+   if(!ok)throw new Error(profile+' is not signed in to '+slug+'; sign in on that agent first');
+   const r=await setKey(profile,'model.provider',slug);if(!r.ok)throw new Error('The engine did not accept the change');
    d.events.unshift({t:Date.now(),profile,to:e.key,why:why||''});d.events=d.events.slice(0,50);await save(d)}
-  if(e.model)await run(HERMES,['-p',profile,'config','set','model.default',e.model]);
+  if(e.model)await setKey(profile,'model.default',e.model);
  }
  async function usageOf(d,key,det,prov){if(key.startsWith(PLUGIN_KEY)){const v=det[key.slice(PLUGIN_KEY.length)];return v?.signedIn?(v.usage?Math.max(v.usage.session?.used||0,v.usage.week?.used||0):0):null}
   const p=prov.find(x=>x.slug===key.slice(2));return p?worstOf(p.windows):null}
@@ -117,30 +122,54 @@ export function createAccounts(DATA){
    const worst=Math.max(v.usage.session?.used||0,v.usage.week?.used||0);if(worst<th)continue;
    const best=accts.filter(a=>a.id!==cur&&det[a.id]?.signedIn&&det[a.id]?.usage).sort((x,y)=>headroom(det[y.id])-headroom(det[x.id]))[0];
    if(best&&headroom(det[best.id])>100-th)await assign(d,profile,best.id,`${v.label||cur} reached ${worst}%`).catch(e=>console.warn('auto-switch',e.message))}}
- setInterval(()=>autoTick().catch(()=>{}),5*60000).unref();
+ if(LIVE_APP)setInterval(()=>autoTick().catch(()=>{}),5*60000).unref();   // a test copy never switches real agents
 
  /* ---------- HTTP ---------- */
- /* ---------- a new agent gets what it needs to chat: the Claude plugin, a model, and the gateway key ---------- */
- async function setupAgent(name){
+ /* ---------- a new agent gets everything it needs, checked step by step ----------
+    One setup per agent at a time (a second call joins the running one). Each step is skipped when already
+    right, so the health check can run it again and again; what failed is kept and shown on the Agents page. */
+ const DENY=['*gateway stop*','*gateway restart*','*kill-session -t gateway*','*pkill*hermes*','*killall*hermes*','*pkill*gateway*','*kill*bridge.js*','*pkill*node*','*mcp login*','*localhost:3118*','*127.0.0.1:3118*'];
+ // the main agent's working settings every agent starts with (copied once; changes made later on that agent stay)
+ const FROM_MAIN=['timezone','browser.headed','browser.inactivity_timeout','agent.max_turns','agent.reasoning_effort'];
+ const setups=new Map();
+ function setupAgent(name){if(!setups.has(name))setups.set(name,doSetup(name).finally(()=>setups.delete(name)));return setups.get(name)}
+ async function doSetup(name){
   if(!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(name)||name==='default')throw new Error('Unknown agent');
-  const dir=path.join(HERMES_HOME,'profiles',name);await access(dir);const done=[];
-  // the gateway key first: without it the engine refuses every chat, and it takes no time
-  const envF=path.join(dir,'.env');const env=await readFile(envF,'utf8').catch(()=>'');
-  if(!/^API_SERVER_KEY=/m.test(env)&&process.env.API_SERVER_KEY){await appendFile(envF,(env&&!env.endsWith('\n')?'\n':'')+'API_SERVER_KEY='+process.env.API_SERVER_KEY+'\n',{mode:0o600});done.push('key')}
+  const dir=path.join(HERMES_HOME,'profiles',name);await access(path.join(dir,'config.yaml'));const done=[],failed=[];
+  const step=async(label,fn)=>{try{const r=await fn();if(r&&r.ok===false)throw new Error(r.err||'failed');done.push(label)}catch(e){failed.push(label+': '+String(e.message).slice(0,200))}};
+  // the gateway key first: without it the engine refuses every chat (written under the engine's .env lock)
+  const KEY=process.env.API_SERVER_KEY;
+  if(KEY&&!/^API_SERVER_KEY=/m.test(await readFile(path.join(dir,'.env'),'utf8').catch(()=>'')))
+   await step('key',()=>editEnv(path.join(dir,'.env'),cur=>/^API_SERVER_KEY=/m.test(cur)?null:cur+(cur&&!cur.endsWith('\n')?'\n':'')+'API_SERVER_KEY='+KEY+'\n'));
+  const c=await readConfig(name),main=await readConfig('default')||{};
+  if(!c){failed.push('settings: could not be read');await setStatus(name,{t:Date.now(),ok:false,failed});return {ok:false,done,failed}}
   const plug=path.join(dir,'plugins',PLUGIN);
-  if(!await access(plug).then(()=>1,()=>0)){await mkdir(path.join(dir,'plugins'),{recursive:true});await cp(path.join(HERMES_HOME,'plugins',PLUGIN),plug,{recursive:true});
-   await cp(path.join(HERMES_HOME,'plugins','.install-metadata.json'),path.join(dir,'plugins','.install-metadata.json')).catch(()=>{});done.push('plugin')}
-  const cfg=await readFile(path.join(dir,'config.yaml'),'utf8').catch(()=>'');
-  if(!cfg.includes('- '+PLUGIN)){await run(HERMES,['-p',name,'plugins','enable',PLUGIN],{},60000);done.push('enabled')}
-  const modelKey=(y,k)=>(new RegExp('^model:[\\s\\S]*?\\n\\s+'+k+':\\s*(\\S+)','m').exec(y)||[])[1]||'';
-  const prov=modelKey(cfg,'provider');
-  if(!prov||/^(anthropic|nous)/.test(prov)){const m=modelKey(await readFile(path.join(HERMES_HOME,'config.yaml'),'utf8').catch(()=>''),'default')||'sonnet';
-   await run(HERMES,['-p',name,'config','set','model.provider',PLUGIN]);await run(HERMES,['-p',name,'config','set','model.default',m]);done.push('model')}
-  // agents may never stop or kill the gateway (they did once, mid-chat); restarts go through the app
-  await run(HERMES,['-p',name,'config','set','approvals.deny',JSON.stringify(['*gateway stop*','*gateway restart*','*kill-session -t gateway*','*pkill*hermes*','*killall*hermes*','*pkill*gateway*','*kill*bridge.js*','*pkill*node*','*mcp login*','*localhost:3118*','*127.0.0.1:3118*']),'--force']);done.push('guard');
+  if(!await access(plug).then(()=>1,()=>0))await step('plugin',async()=>{await mkdir(path.join(dir,'plugins'),{recursive:true});await cp(path.join(HERMES_HOME,'plugins',PLUGIN),plug,{recursive:true});
+   await cp(path.join(HERMES_HOME,'plugins','.install-metadata.json'),path.join(dir,'plugins','.install-metadata.json')).catch(()=>{})});
+  if(!(pick(c,'plugins.enabled')||[]).includes(PLUGIN))await step('plugin enabled',async()=>{const r=await hq(name,['plugins','enable',PLUGIN],{timeout:150000,retries:3});if(!r.ok)return r;
+   if(!(pick(await readConfig(name)||{},'plugins.enabled')||[]).includes(PLUGIN))throw new Error('the engine did not keep the Claude plugin enabled');return r});
+  const prov=pick(c,'model.provider')||'';
+  if(!prov||/^(anthropic|nous)/.test(prov)){const m=pick(main,'model.provider')===PLUGIN&&pick(main,'model.default')||'sonnet';
+   await step('model',async()=>{const r=await setKey(name,'model.provider',PLUGIN);return r.ok?setKey(name,'model.default',String(m)):r})}
+  // agents may never stop or kill the gateway (they did once, mid-chat) or sign in through localhost; restarts go through the app
+  const deny=pick(c,'approvals.deny')||[];if(DENY.some(x=>!deny.includes(x)))await step('guard',()=>setKey(name,'approvals.deny',[...new Set([...deny,...DENY])]));
   // every agent can reach outside apps through Composio (one sign-in per agent, no app to create)
-  if(!/connect.composio.dev/.test(await readFile(path.join(dir,'config.yaml'),'utf8').catch(()=>''))){await run(HERMES,['-p',name,'config','set','mcp_servers.composio',JSON.stringify({url:'https://connect.composio.dev/mcp',enabled:true,auth:'oauth',oauth:{redirect_uri:(process.env.PUBLIC_URL||'https://ai.elkiya.com').replace(/\/$/,'')+'/mcp-oauth/api/mcp/oauth/callback/composio'}}),'--force']);done.push('composio')}
-  return {ok:true,done}}
+  if(!Object.values(pick(c,'mcp_servers')||{}).some(v=>/connect.composio.dev/.test(v?.url||'')))
+   await step('composio',()=>setKey(name,'mcp_servers.composio',{url:'https://connect.composio.dev/mcp',enabled:true,auth:'oauth',oauth:{redirect_uri:(process.env.PUBLIC_URL||'https://ai.elkiya.com').replace(/\/$/,'')+'/mcp-oauth/api/mcp/oauth/callback/composio'}}));
+  const st=(await getStatus())[name]||{};
+  if(!st.defaults){const before=failed.length;
+   for(const k of FROM_MAIN){const v=pick(main,k);if(v===undefined||v===null||v==='')continue;if(JSON.stringify(pick(c,k))===JSON.stringify(v))continue;await step(k,()=>setKey(name,k,typeof v==='object'?v:String(v)))}
+   // pictures: the main agent's image maker, when this agent is signed in to it
+   const img=pick(main,'image_gen.provider');
+   if(img&&!pick(c,'image_gen.provider')){const signed=await fetch(GATE+'/p/'+encodeURIComponent(name)+'/api/model/options',{headers:{authorization:'Bearer '+(KEY||'')},signal:AbortSignal.timeout(20000)}).then(r=>r.json()).then(j=>(j.providers||[]).some(p=>p.slug===img&&p.authenticated)).catch(()=>false);
+    if(signed)await step('image maker',()=>setKey(name,'image_gen.provider',String(img)))}
+   if(failed.length===before)await setStatus(name,{defaults:Date.now()})}
+  // deleted while it was being set up: nothing to report
+  if(!await access(path.join(dir,'config.yaml')).then(()=>1,()=>0)){await setStatus(name,null);return {ok:false,gone:true,done,failed}}
+  await setStatus(name,{t:Date.now(),ok:!failed.length,failed});
+  if(failed.length)console.warn('setup',name,'failed:',failed.join(' | '));else if(done.length)console.log('setup',name,'done:',done.join(', '));
+  return {ok:!failed.length,done,failed}}
+ export_setups.running=()=>setups.size;export_setups.wait=n=>setups.get(n)||Promise.resolve();
 
  setupAgentFn=setupAgent;
  return async function handle(req,res,p,send,readBody){

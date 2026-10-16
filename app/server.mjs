@@ -3,9 +3,10 @@
 // Hermes credentials stay on this server; the browser only ever holds a session cookie.
 // No dependencies. Run: node app/server.mjs (configuration via environment, see README).
 import {createServer,request as httpRequest} from 'node:http';
-import {readFile,stat,writeFile,mkdir,unlink,rename,realpath} from 'node:fs/promises';
+import {readFile,stat,writeFile,mkdir,unlink,rename,realpath,readlink} from 'node:fs/promises';
 import {homedir} from 'node:os';
-import {createAccounts,setupAgentFn} from './accounts.mjs';
+import {createAccounts,setupAgentFn,export_setups} from './accounts.mjs';
+import {withAgent,setKey,readConfig,pick,agentNames,isAgent,busy as opsBusy,initStatus,getStatus,setStatus,editEnv,hermes as hcmd} from './agentops.mjs';
 import {createScreens} from './screens.mjs';
 import {createUsers,UNSAFE_TOOLSETS} from './users.mjs';
 import {createStarters} from './starters.mjs';
@@ -25,6 +26,8 @@ import {fileURLToPath} from 'node:url';
 const here=path.dirname(fileURLToPath(import.meta.url));
 const root=path.resolve(here,'..');
 const env=process.env;
+// every log line starts with the time (UTC), so problems can be matched with the engine's own logs
+if(process.argv[2]!=='hash')for(const k of ['log','warn','error']){const f=console[k].bind(console);console[k]=(...a)=>f(new Date().toISOString().slice(0,19).replace('T',' '),...a)}
 const PORT=Number(env.UI_PORT)||4400;
 const HOST=env.UI_HOST||'127.0.0.1';
 const DASH=new URL(env.HERMES_DASH||'http://127.0.0.1:9119');
@@ -109,7 +112,7 @@ async function serveFile(res,rel){
    Hermes has no avatars and its default profile can't be renamed, so the UI keeps identities itself,
    outside the app folder so deploys never touch them. The name is also written to Hermes'
    profile.yaml (display_name) so Hermes' own tools show it too. */
-const DATA=path.resolve(env.UI_DATA_DIR||path.join(root,'..','hermes-ui-data'));
+const DATA=path.resolve(env.UI_DATA_DIR||path.join(root,'..','hermes-ui-data'));initStatus(DATA);
 const HERMES_HOME=env.HERMES_HOME||path.join(homedir(),'.hermes');
 const IDS=path.join(DATA,'identities.json');
 const okProfile=n=>/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(n);
@@ -146,15 +149,22 @@ const usage=createUsage(DASH.origin,DASH_TOKEN);
 const explain=createExplain(DATA);
 const relay=createRelay({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,SECRET,listAgents:()=>listAgents(),links:{list:a=>links.list(a)},platformsOf:a=>platformsCached(a),nameOf:a=>NAMES[a]||a});
 const NAMES={};   // agents' display names (refreshed with the agent context), for messages people read
-// agents allowed to send through a shared channel get the "notify me" tool; others lose it
-async function syncNotifyTool(){const sh=await relay.shares();const senders=new Set(Object.values(sh).flatMap(v=>v.senders||[]));
+/* Every agent and every extra-number copy gets the aqeelOS tool (aqeelos-notify): send_to_person, and
+   connect_mcp_tool for sign-ins. Its address is signed per agent. A test copy only touches agents it made. */
+const madeHere=new Set();
+let notifyRun=null,notifyAgain=false;
+function syncNotifyTool(){if(notifyRun){notifyAgain=true;return notifyRun}
+ notifyRun=(async()=>{do{notifyAgain=false;await syncNotifyOnce()}while(notifyAgain)})().finally(()=>{notifyRun=null});return notifyRun}
+async function syncNotifyOnce(){
  // through the engine's own MCP route, so the running engine picks the tool up (a config edit alone is not noticed)
- const mcp=(a,m,p,b)=>fetch(`${DASH.origin}/api/mcp/servers${p}?profile=${encodeURIComponent(a)}`,{method:m,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:b?JSON.stringify(b):undefined}).then(r=>{if(!r.ok&&r.status!==404)throw new Error('MCP '+m+' '+r.status)});
- for(const a of await listAgents()){if(PORT!==4400&&!senders.has(a))continue;   // a test copy only touches the agents it is testing
-  const want=senders.has(a)||(await relay.channelsFor(a).catch(()=>[])).length>0;   // any agent with a channel can notify the person
-  const url=`http://127.0.0.1:${PORT}/mcp/notify/${a}/${relay.sig(a)}`;const y=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>'');
-  if(want?y.includes(url):!y.includes('aqeelos-notify'))continue;
-  if(y.includes('aqeelos-notify'))await mcp(a,'DELETE','/aqeelos-notify');if(want)await mcp(a,'POST','',{name:'aqeelos-notify',url})}}
+ const mcp=(a,m,p,b)=>fetch(`${DASH.origin}/api/mcp/servers${p}?profile=${encodeURIComponent(a)}`,{method:m,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:b?JSON.stringify(b):undefined}).then(async r=>{if(!r.ok&&r.status!==404)throw new Error('MCP '+m+' '+r.status+' '+(await r.text().catch(()=>'')).slice(0,120))});
+ for(const a of await listAllProfiles()){if(PORT!==4400&&!madeHere.has(a))continue;
+  try{const url=`http://127.0.0.1:${PORT}/mcp/notify/${a}/${relay.sig(a)}`;const cfg=()=>readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>'');
+   if((await cfg()).includes(url))continue;
+   const set=await withAgent(a,async()=>{const y=await cfg();if(!y||y.includes(url))return false;   // read again inside the queue
+    if(y.includes('aqeelos-notify'))await mcp(a,'DELETE','/aqeelos-notify');
+    try{await mcp(a,'POST','',{name:'aqeelos-notify',url})}catch{await new Promise(r=>setTimeout(r,4000));await mcp(a,'DELETE','/aqeelos-notify').catch(()=>{});await mcp(a,'POST','',{name:'aqeelos-notify',url})}return true});
+   if(set)console.log('notify tool set for',a)}catch(e){if(await isAgent(a))console.warn('notify tool',a,e.message)}}}
 /* What each agent should know about aqeelOS: the screens the person can watch and the channel IDs it can
    message them on. Kept in a marked section of AGENTS.md in the agent's own folder (~/workspaces/<agent>),
    which the engine reads with every chat; anything outside the section is left alone. */
@@ -164,8 +174,7 @@ async function displayName(a){const y=await readFile(path.join(a==='default'?HER
 const CHAT_HINT="You're replying in aqeelOS, a chat app that shows Markdown. Format for easy reading, like a well-written Claude or ChatGPT reply: short answers stay short and conversational; longer ones start with the outcome, then use ## headings for sections, bullet or numbered lists, tables for comparisons, and code blocks for code or commands. Bold the key numbers, names, dates and decisions (for example: UPS **Rp522,328** → **Continue**) so the reply can be skimmed. While working, keep progress notes to one short line each and lead the final answer with the result. File/media delivery: images referenced as MEDIA:/absolute/path tags (.png/.jpg/.jpeg/.gif/.webp/.bmp, up to 5MB) are shown inline in the chat. Non-image files are not shown inline, so state the plain file path instead of a MEDIA: tag.";
 async function ensureChatHint(a){const cfgFile=path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml');const y=await readFile(cfgFile,'utf8').catch(()=>'');
  if(y.includes('Bold the key numbers'))return;   // already the current wording
- const {execFile}=await import('node:child_process');
- await new Promise(res=>execFile(path.join(homedir(),'.local','bin','hermes'),['-p',a,'config','set','agent.platform_hints.api_server',JSON.stringify({replace:CHAT_HINT}),'--force'],{timeout:60000},()=>res()))}
+ const r=await setKey(a,'agent.platform_hints.api_server',{replace:CHAT_HINT});if(!r.ok)throw new Error(r.err)}
 async function writeAgentContext(){const all=await listAgents();const names={};for(const a of all)names[a]=NAMES[a]=await displayName(a);
  const ads=[];for(const a of all)if(await screens.shared(a).catch(()=>false))ads.push(a);
  for(const a of all){await ensureChatHint(a).catch(e=>console.warn('chat hint',a,e.message));try{const me=names[a],adsNames=ads.map(x=>names[x]+"'s screen").join(' / ')||'the AdsPower screen';
@@ -181,7 +190,7 @@ async function writeAgentContext(){const all=await listAgents();const names={};f
    ...(/connect.composio.dev|rube.app/.test(await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>''))?['','## Apps','',
     'For an outside app (Slack, Gmail, Google Drive, Notion, GitHub…), use that app’s own MCP tool if you have it and it is connected. Otherwise use the Composio tools (composio), which reach 500+ apps through the person’s Composio account. If Composio says an app is not connected yet, give the person the link it returns to connect it, then continue.']:[]),
    '','## Connecting an MCP tool that needs a sign-in','',
-   'Do not run “hermes mcp login” and do not use a 127.0.0.1 / localhost callback: the person is not at this server, so that page never opens for them. Add the tool (with its client ID/secret if the service needs its own app), then call the connect_mcp_tool tool (from aqeelos-notify) and send the person its steps exactly as written. Never make up steps, addresses or commands for connecting: the people using this are often not technical, so keep it to what the tool says. When the tool recommends Composio, offer that first. aqeelOS sets the return address itself: https://ai.elkiya.com/mcp-oauth/api/mcp/oauth/callback/<tool name> (this is what goes in the service’s Redirect URLs).',
+   'Never use manage_connections (authorize/install/enable) or “hermes mcp login” for MCP tools, and never a 127.0.0.1 / localhost callback: the person is not at this server, so that page never opens for them. Add the tool (with its client ID/secret if the service needs its own app), then call the connect_mcp_tool tool (from aqeelos-notify) and send the person its steps exactly as written. Never make up steps, addresses or commands for connecting: the people using this are often not technical, so keep it to what the tool says. When the tool recommends Composio, offer that first. aqeelOS sets the return address itself: https://ai.elkiya.com/mcp-oauth/api/mcp/oauth/callback/<tool name> (this is what goes in the service’s Redirect URLs).',
    '','## Channels you can message the person on','',
    ch.length?'Use the send_to_person tool with one of these IDs when the person asks to be notified on a channel ("notify me on shop-whatsapp"):':'None yet. The person can connect WhatsApp, Telegram and others on the Channels page.',
    ...ch.map(c=>'- '+c.id+' = '+c.name),'<!-- /aqeelos:context -->'].filter(x=>x!==null).join('\n');
@@ -189,41 +198,72 @@ async function writeAgentContext(){const all=await listAgents();const names={};f
   const cur=await readFile(file,'utf8').catch(()=>'');const re=/<!-- aqeelos:context[\s\S]*?<!-- \/aqeelos:context -->/;
   const next=re.test(cur)?cur.replace(re,()=>body):(cur?cur.replace(/\s*$/,'\n\n'):'')+body+'\n';if(next!==cur)await writeFile(file,next)}catch(e){console.warn('agent context',a,e.message)}}}
 if(PORT===4400){setTimeout(()=>writeAgentContext().catch(()=>{}),25000);setInterval(()=>writeAgentContext().catch(()=>{}),180000).unref()}
-/* Agent health: every agent (new ones shortly after they are made, all of them every 5 minutes) gets what it
-   needs to work without anyone fixing it: its gateway key, and the public sign-in return address on every
-   sign-in (OAuth) tool, whoever added the tool. Quiet, idempotent, logs only what it repaired. */
-async function agentHealth(only){const h={'x-hermes-session-token':DASH_TOKEN};
- for(const a of only?[only]:await listAgents()){try{
-  if(a!=='default'){const envF=path.join(HERMES_HOME,'profiles',a,'.env');const e=await readFile(envF,'utf8').catch(()=>null);
-   if(e!==null&&!/^API_SERVER_KEY=/m.test(e)&&API_KEY){await writeFile(envF,(e&&!e.endsWith('\n')?e+'\n':e)+'API_SERVER_KEY='+API_KEY+'\n',{mode:0o600});console.log('health',a,'added the gateway key')}}
+/* Agent health: every agent (new ones right after they are made, all of them every 5 minutes) gets what it
+   needs to work without anyone fixing it: the full setup (each step skipped when already right), the chat
+   hint, its screen settings, the public sign-in return address on every sign-in (OAuth) tool, the engine's
+   localhost-only connector tool off, and for agents of people without "unsafe tools" those tools locked on
+   every channel. Quiet and idempotent; logs only what it repaired. */
+async function lockTools(a){const c=await readConfig(a);if(!c)throw new Error('the settings could not be read');
+ const cur=pick(c,'agent.disabled_toolsets')||[];const list=Array.isArray(cur)?cur.map(String):String(cur).split(',').map(x=>x.trim()).filter(Boolean);
+ if(UNSAFE_TOOLSETS.every(t=>list.includes(t)))return false;
+ // the engine applies agent.disabled_toolsets on every channel (aqeelOS chats, WhatsApp, schedules…), not just the command line
+ const r=await setKey(a,'agent.disabled_toolsets',[...new Set([...list,...UNSAFE_TOOLSETS])]);if(!r.ok)throw new Error(r.err);
+ console.log('health',a,'locked terminal, files, code and computer use on every channel');return true}
+const lockedAgent=(a,st)=>{if(st[a]?.safe)return true;const ow=users.agentOwner(a);if(!ow||ow==='owner')return false;const u=users.byId(ow);return !!u&&!users.can(u,'unsafe')};
+async function agentHealth(only){const h={'x-hermes-session-token':DASH_TOKEN};const st=await getStatus();await users.load();
+ for(const a of only?[only]:await listAllProfiles()){try{
+  if(!await isAgent(a))continue;const copy=a.includes('--');
+  // a failing setup is tried again every 15 minutes (a plugin enable is slow and builds an engine environment)
+  if(a!=='default'&&!copy&&setupAgentFn){const s=st[a];if(only||!s||s.ok||Date.now()-(s.t||0)>15*60e3)await setupAgentFn(a).catch(e=>console.warn('setup',a,e.message))}
+  if(copy&&API_KEY){const envF=path.join(HERMES_HOME,'profiles',a,'.env');
+   if(await editEnv(envF,cur=>/^API_SERVER_KEY=/m.test(cur)?null:cur+(cur&&!cur.endsWith('\n')?'\n':'')+'API_SERVER_KEY='+API_KEY+'\n').catch(()=>false))console.log('health',a,'added the gateway key')}
+  if(!copy){await ensureChatHint(a).catch(async e=>{if(await isAgent(a))console.warn('chat hint',a,e.message)});await screens.ensure(a).catch(()=>{})}
+  if(!copy&&a!=='default'&&lockedAgent(a,st))await lockTools(a).catch(e=>console.warn('lock tools',a,e.message));
+  {const cf=path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml');const y=await readFile(cf,'utf8').catch(()=>'');
+   // the engine's own connector tool only works at this server (localhost); agents that have connect_mcp_tool use that instead
+   if(y.includes('aqeelos-notify')&&!/^  connectors:\n(?:    .*\n)*?    enabled: false/m.test(y)){const r=await setKey(a,'tools.connectors.enabled','false');
+    if(r.ok)console.log('health',a,'switched off the engine connector tool (agents use connect_mcp_tool)');else if(await isAgent(a))console.warn('health',a,'connector tool:',r.err)}}
   const sv=await fetch(DASH.origin+'/api/mcp/servers?profile='+encodeURIComponent(a),{headers:h}).then(r=>r.json()).catch(()=>({}));
   for(const m of sv.servers||[]){if(!m.url||/127.0.0.1|localhost/.test(m.url))continue;if(m.auth!=='oauth'&&!/connect.composio.dev|rube.app/.test(m.url))continue;
    const r=await sharing.prepareSignin(a,m.name,MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(m.name)).catch(()=>null);if(r?.changed)console.log('health',a,m.name,'set the public sign-in address')}}
-  catch(e){console.warn('health',a,e.message)}}}
-/* Gateway watch. Deleting an agent makes the engine stop its gateway, and its dashboard then starts one by
-   itself, outside the managed session and without ~/.local/bin on the PATH, so Claude cannot be found
-   ("no usable login") and every agent stops answering. Every minute (and right after an agent is deleted),
-   a gateway outside its session is replaced by a proper one. A deliberate Stop from the app is respected. */
-let gwStopped=false;
-async function gatewayWatch(){if(gwStopped)return;const {execFile}=await import('node:child_process');
- const sh=c=>new Promise(r=>execFile('bash',['-c',c],{timeout:90000,env:{...process.env,PATH:homedir()+'/.local/bin:'+process.env.PATH}},(e,o)=>r({ok:!e,out:String(o||'')})));
- if((await sh('tmux has-session -t gateway')).ok)return;
- // The engine restarts itself (e.g. after a WhatsApp is linked) outside the session. That copy is left alone
- // unless it really cannot reach Claude in the last 10 minutes; replacing every restart fought the engine and
- // dropped freshly linked WhatsApps.
- const log=(await sh('tail -400 ~/.hermes/logs/agent.log')).out.split('\n').filter(l=>/ClaudeCodeLoggedOut|no usable login/.test(l));
- const recent=log.some(l=>{const t=Date.parse(l.slice(0,19).replace(' ','T')+'Z');return t&&Date.now()-t<10*60e3});
- if(!recent)return;
- console.warn('gateway watch: the gateway outside its session cannot reach Claude; restarting it properly');
- await sh('hermes -p default gateway stop >/dev/null 2>&1; sleep 3; ~/services.sh >/dev/null 2>&1')}
+  catch(e){if(await isAgent(a))console.warn('health',a,e.message)}}}
+/* The engine. aqeelOS restarts it one way only: wait for replies in progress (up to 10 minutes), stop whichever
+   gateway runs (also one the engine started by itself), and start it in its managed session with the full
+   environment (~/.local/bin on the PATH, so Claude is found). The dashboard keeps running, so sign-ins in
+   progress survive. The watch (every minute) starts a gateway when none runs, and replaces one the engine
+   started itself only when THAT gateway cannot reach Claude. A deliberate Stop from the app is respected. */
+let gwStopped=false,gwRestarting=null,gwMissing=0;
+const liveCount=()=>[...LIVE.values()].filter(r=>!r.done).length;
+const shx=async c=>{const {execFile}=await import('node:child_process');return new Promise(r=>execFile('bash',['-c',c],{timeout:150000,env:{...process.env,PATH:homedir()+'/.local/bin:'+process.env.PATH}},(e,o)=>r({ok:!e,out:String(o||'')})))};
+async function gatewayPid(){const t=await readFile(path.join(HERMES_HOME,'gateway.pid'),'utf8').catch(()=>'');const pid=Number((/\d+/.exec(t)||[])[0]);if(!pid)return 0;try{process.kill(pid,0);return pid}catch{return 0}}
+function restartGateway(why,{wait=true}={}){if(gwRestarting)return gwRestarting;if(PORT!==4400){console.log('gateway restart skipped (test copy):',why);return Promise.resolve()}
+ gwRestarting=(async()=>{if(wait)for(let i=0;i<120&&liveCount()>0;i++)await new Promise(r=>setTimeout(r,5000));
+  console.log('gateway restart:',why);gwStopped=false;
+  await shx('hermes -p default gateway stop >/dev/null 2>&1; for i in $(seq 1 30); do p=$(grep -o "[0-9]*" ~/.hermes/gateway.pid 2>/dev/null | head -1); [ -n "$p" ] && kill -0 "$p" 2>/dev/null || break; sleep 1; done; tmux kill-session -t gateway 2>/dev/null; sleep 1; ~/services.sh >/dev/null 2>&1');
+  platCache.clear()})().finally(()=>{gwRestarting=null});return gwRestarting}
+async function gatewayWatch(){if(gwStopped||gwRestarting)return;
+ const pid=await gatewayPid();const inTmux=(await shx('tmux has-session -t gateway')).ok;
+ // nothing running at all, twice in a row (so an engine restart in progress is not cut off): start it
+ if(!pid&&!inTmux){if(++gwMissing<2)return;gwMissing=0;console.warn('gateway watch: no gateway was running');return restartGateway('no gateway was running',{wait:false})}
+ gwMissing=0;if(inTmux||!pid)return;
+ const up=Number((await shx('ps -o etimes= -p '+pid)).out.trim())||0;const since=Date.now()-up*1000;
+ const log=(await shx('tail -400 ~/.hermes/logs/agent.log')).out.split('\n').filter(l=>/ClaudeCodeLoggedOut|no usable login/.test(l));
+ const bad=log.some(l=>{const t=Date.parse(l.slice(0,19).replace(' ','T')+'Z');return t&&t>since+5000&&Date.now()-t<10*60e3});
+ if(bad){console.warn('gateway watch: the gateway the engine started cannot reach Claude; restarting it properly');return restartGateway('gateway outside its session cannot reach Claude')}}
 if(PORT===4400){setInterval(()=>gatewayWatch().catch(()=>{}),60000).unref()}
 // only the live app (port 4400) sets agents' tools; a test copy on another port must not repoint them
 if(PORT===4400){setTimeout(()=>agentHealth().catch(()=>{}),30000);setInterval(()=>agentHealth().catch(()=>{}),300000).unref()}
 if(PORT===4400){setTimeout(()=>syncNotifyTool().catch(e=>console.warn('notify tool',e.message)),20000);setInterval(()=>syncNotifyTool().catch(()=>{}),600000).unref()}
+// old engine environments (each plugin enable builds one, ~400 MB): the engine's own cleanup once a day; it keeps the one in use, any still held, and any less than a day old
+if(PORT===4400){const gc=()=>shx('timeout 900 hermes pm gc >/dev/null 2>&1').catch(()=>{});setTimeout(gc,30*60e3).unref();setInterval(gc,24*3600e3).unref()}
+// leftovers of deleted agents: a folder with only logs/ (a command still ran during the delete) is removed
+if(PORT===4400)setTimeout(async()=>{for(const d of await readdir(path.join(HERMES_HOME,'profiles'),{withFileTypes:true}).catch(()=>[])){if(!d.isDirectory()||d.name.startsWith('.'))continue;
+ const dir=path.join(HERMES_HOME,'profiles',d.name);if(await isAgent(d.name))continue;const st=await stat(dir).catch(()=>null);const inside=await readdir(dir).catch(()=>['?']);
+ if(st&&Date.now()-st.mtimeMs>10*60e3&&inside.every(x=>['logs','plugin-update-checks','cache','sandboxes'].includes(x))){const {rm}=await import('node:fs/promises');await rm(dir,{recursive:true,force:true}).catch(()=>{});console.log('removed the leftover folder of deleted agent',d.name)}}},40000);
 const sharing=createShare({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAgents()});
-const channels=createChannels({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAllProfiles(),cached:a=>platformsCached(a)});
+const channels=createChannels({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAllProfiles(),cached:a=>platformsCached(a),restart:why=>restartGateway(why)});
 const links=createLinks({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,python:()=>sharing.python(),setupAgent:n=>setupAgentFn?.(n)});
-async function listAgents(){const n=['default'];try{for(const d of await readdir(path.join(HERMES_HOME,'profiles'),{withFileTypes:true}))if(d.isDirectory()&&!d.name.startsWith('.')&&!isLink(d.name))n.push(d.name)}catch{}return n}
+function listAgents(){return agentNames()}   // real agents only (a folder with a config), not extra-number copies
 async function listAllProfiles(){return [...await listAgents(),...(await links.list()).map(l=>l.name)]}
 async function agentModel(a){const y=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>'');const k=key=>((new RegExp('^model:[\\s\\S]*?\\n\\s+'+key+':\\s*(\\S+)','m').exec(y)||[])[1]||'').replace(/^["']|["']$/g,'');return {provider:k('provider'),model:k('default')}}
 const users=createUsers(DATA,mailer);
@@ -236,9 +276,9 @@ const agentOf=(p,q)=>{const m=/^\/gapi\/p\/([^/]+)/.exec(p);return m?decodeURICo
 // An agent a member just created: they own it, it can chat (plugin, model, gateway key), and unless they
 // may use the unsafe tools, terminal / files / code / computer use are switched off.
 async function memberAgent(u,name){
- await users.created(u,name);
+ await users.created(u,name);madeHere.add(name);
  await setupAgentFn?.(name).catch(e=>console.warn('setup',name,e.message));
- if(!users.can(u,'unsafe'))for(const t of UNSAFE_TOOLSETS)await fetch(`${DASH.origin}/api/tools/toolsets/${t}?profile=${encodeURIComponent(name)}`,{method:'PUT',headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:'{"enabled":false}'}).catch(()=>{});
+ if(!users.can(u,'unsafe'))await lockTools(name).catch(e=>console.warn('lock tools',name,e.message));
 }
 /* The engine's channel list is slow (it checks every connection, 5–20 s), and pages ask for it often.
    Keep each agent's answer for 15 s, share one request between everyone asking at once, and forget it as
@@ -257,20 +297,44 @@ const appSettings=(tool,url)=>{const k=Object.keys(APP_SETTINGS).find(k=>tool.to
 const FLOWS_FILE=path.join(DATA,'signin-flows.json');let signinFlows=new Map();
 readFile(FLOWS_FILE,'utf8').then(t=>{signinFlows=new Map(Object.entries(JSON.parse(t)))}).catch(()=>{});
 const saveFlows=()=>writeFile(FLOWS_FILE,JSON.stringify(Object.fromEntries(signinFlows))).catch(()=>{});
+/* A sign-in started inside the chat engine (its own connector) waits on a private local listener; the public return
+   page reaches it by trying the gateway's local listening ports (the listener checks the one-time state itself). */
+async function deliverToGateway(search){try{const pid=JSON.parse(await readFile(path.join(HERMES_HOME,'gateway.pid'),'utf8')).pid;
+  const inodes=new Set();for(const fd of await readdir('/proc/'+pid+'/fd').catch(()=>[])){const l=await readlink('/proc/'+pid+'/fd/'+fd).catch(()=>'');const m=/^socket:\[(\d+)\]$/.exec(l);if(m)inodes.add(m[1])}
+  const ports=[];for(const line of (await readFile('/proc/net/tcp','utf8')).split('\n').slice(1)){const c=line.trim().split(/\s+/);if(c[3]==='0A'&&c[1]?.startsWith('0100007F:')&&inodes.has(c[9])){const port=parseInt(c[1].split(':')[1],16);if(![8642,8644,9119].includes(port))ports.push(port)}}
+  for(const port of ports){const r=await fetch('http://127.0.0.1:'+port+'/callback'+search,{signal:AbortSignal.timeout(4000)}).catch(()=>null);if(r&&r.ok){console.log('sign-in delivered to the chat engine on',port);return true}}}catch(e){console.warn('deliverToGateway',e.message)}return false}
+const linkSeen=new Map();   // flow|link → when that link was first handed out
 async function startSignin(agent,tool){const k=agent+'|'+tool,prev=signinFlows.get(k),h={'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'};
- // a link that is still open is simply given again (the engine keeps one per tool until it is used or expires)
+ // a link still open is given again, but only while it is young: each link works for 5 minutes, after which the
+ // engine quietly makes a new one, so an older link would fail when the person opens it
  if(prev){const f=await fetch(DASH.origin+'/api/mcp/oauth/flows/'+encodeURIComponent(prev),{headers:h}).then(r=>r.ok?r.json():null).catch(()=>null);
-  if(f&&f.authorization_url&&/authorization_required|pending/.test(f.status||''))return f}
+  const seen=linkSeen.get(prev+'|'+(f?.authorization_url||''));
+  if(f&&f.authorization_url&&/authorization_required|pending/.test(f.status||'')&&seen&&Date.now()-seen<240e3)return f;
+  if(f&&/authorization_required|pending/.test(f.status||''))await fetch(DASH.origin+'/api/mcp/oauth/flows/'+encodeURIComponent(prev),{method:'DELETE',headers:h}).catch(()=>{})}
+ // a sign-in starts by deleting the saved tokens; keep a copy and put it back if this one doesn't finish
+ const home=agent==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',agent),tok=path.join(home,'mcp-tokens',tool+'.json'),bak=tok+'.aqbak';
+ await readFile(tok).then(b=>writeFile(bak,b,{mode:0o600})).catch(()=>{});
+ setTimeout(async()=>{const has=await stat(tok).then(()=>true,()=>false);if(!has&&await stat(bak).then(()=>true,()=>false)){await rename(bak,tok).catch(()=>{});console.log('sign-in',agent,tool,'did not finish; put the earlier tokens back')}},6.5*60e3).unref?.();
  // the engine frees a cancelled sign-in a moment later, so retry briefly while it says "already in progress"
  let r,j;for(let i=0;i<8;i++){r=await fetch(DASH.origin+'/api/mcp/servers/'+encodeURIComponent(tool)+'/auth?profile='+encodeURIComponent(agent),{method:'POST',headers:h,body:'{}'});j=await r.json().catch(()=>({}));
   if(!/already in progress/i.test(j.detail||j.error||''))break;await new Promise(res=>setTimeout(res,1500))}
  if(/already in progress/i.test(j.detail||j.error||''))j.error='A sign-in for '+tool+' is already open. Use the link given a moment ago, or try again in a few minutes.';
- if(j.flow_id){signinFlows.set(k,j.flow_id);saveFlows()}if(!r.ok&&!j.error)j.error=j.detail||('HTTP '+r.status);return j}
+ if(j.flow_id){signinFlows.set(k,j.flow_id);saveFlows();if(j.authorization_url)linkSeen.set(j.flow_id+'|'+j.authorization_url,Date.now())}if(!r.ok&&!j.error)j.error=j.detail||('HTTP '+r.status);return j}
 const esc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const keyOk=new Set();   // agents checked for their gateway key
 const platCache=new Map();
+/* The engine reports WhatsApp on any agent but the main one as "not set up", even when linked and connected (its
+   check needs env keys WhatsApp doesn't have). The truth: switched on + a saved login (creds.json) = set up, and the
+   live state the gateway records for "<agent>:whatsapp". */
+async function trueWhatsApp(agent,v){const list=v?.platforms||v;if(!Array.isArray(list))return;const w=list.find(x=>x.id==='whatsapp');if(!w||(w.configured&&agent==='default'))return;
+ const home=agent==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',agent);
+ const env=await readFile(path.join(home,'.env'),'utf8').catch(()=>'');const on=/^WHATSAPP_ENABLED=["']?true/im.test(env);
+ const linked=await stat(path.join(home,'platforms','whatsapp','session','creds.json')).then(()=>true,()=>false);
+ if(!(on&&linked))return;w.configured=true;w.enabled=true;
+ try{const g=JSON.parse(await readFile(path.join(HERMES_HOME,'gateway_state.json'),'utf8'));const st=g.platforms?.[agent==='default'?'whatsapp':agent+':whatsapp'];
+  if(st){w.state=st.state||w.state;w.error_message=st.error_message||null;w.error_code=st.error_code||null}else if(w.state==='not_configured')w.state='starting'}catch{}}
 function platformsCached(agent){const k=agent||'default';const c=platCache.get(k);if(c&&(c.p||Date.now()-c.t<15000))return c.p||Promise.resolve(c.v);
- const p=fetch(DASH.origin+'/api/messaging/platforms?profile='+encodeURIComponent(k),{headers:{'x-hermes-session-token':DASH_TOKEN}}).then(async r=>{const v=await r.json();if(!r.ok)throw Object.assign(new Error(v.detail||'HTTP '+r.status),{status:r.status});platCache.set(k,{t:Date.now(),v});return v}).catch(e=>{platCache.delete(k);throw e});
+ const p=fetch(DASH.origin+'/api/messaging/platforms?profile='+encodeURIComponent(k),{headers:{'x-hermes-session-token':DASH_TOKEN}}).then(async r=>{const v=await r.json();if(!r.ok)throw Object.assign(new Error(v.detail||'HTTP '+r.status),{status:r.status});await trueWhatsApp(k,v);platCache.set(k,{t:Date.now(),v});return v}).catch(e=>{platCache.delete(k);throw e});
  platCache.set(k,{p});return p}
 async function hermesCall(req,res,u,url){
  const p=url.pathname,q=url.searchParams,agent=agentOf(p,q);
@@ -284,7 +348,7 @@ async function hermesCall(req,res,u,url){
  let body;
  // Same for every change the engine scopes by body (pairing approvals, chat import/update…): if the address names the
  // agent and the JSON body doesn't, the body gets it too. Uploads and non-JSON bodies are left alone.
- if(p.startsWith('/hapi/')&&req.method!=='GET'&&q.get('profile')&&/json/.test(String(req.headers['content-type']||''))&&!p.startsWith('/hapi/files')){let b=null;try{const raw=(await readRaw(req,2e6)).toString('utf8');b=raw?JSON.parse(raw):{}}catch{}
+ if(p.startsWith('/hapi/')&&req.method!=='GET'&&q.get('profile')&&/json/.test(String(req.headers['content-type']||''))&&!p.startsWith('/hapi/files')){let b=null;try{const raw=(await readRaw(req,30e6)).toString('utf8');b=raw?JSON.parse(raw):{}}catch{}
   if(b&&typeof b==='object'&&!Array.isArray(b)&&!b.profile)b.profile=q.get('profile');if(b!==null)body=Buffer.from(JSON.stringify(b))}
  // a member's file calls must stay in their own folder
  if(!users.isAdmin(u)&&p.startsWith('/hapi/files')){
@@ -295,7 +359,7 @@ async function hermesCall(req,res,u,url){
  // a member's message: within their daily limit, and only on models they may use
  const chatM=/^\/gapi(?:\/p\/[^/]+)?\/api\/sessions\/([^/]+)\/chat\/stream$/.exec(p);
  if(chatM&&!users.isAdmin(u)&&req.method==='POST'){
-  const lim=users.limitOf(u);if(lim?.tokens){const t=await usage.today(await listAgents(),u.id,users.ownerOf);if(t.tokens>=lim.tokens)return send(res,429,{error:'You reached today\'s limit. It resets at midnight.'})}
+  const lim=users.limitOf(u);if(lim?.tokens){const t=await usage.today(await listAllProfiles(),u.id,users.ownerOf);if(t.tokens>=lim.tokens)return send(res,429,{error:'You reached today\'s limit. It resets at midnight.'})}
   const allowed=users.allowedModels(u);if(allowed){let b={};try{b=JSON.parse((await readRaw(req,40e6)).toString('utf8'))}catch{}
    if(b.model){if(!users.modelOk(u,b.provider||'',b.model))return send(res,403,{error:'You can\'t use that model. Ask the owner.'})}
    else{const d=await agentModel(agent);if(!users.modelOk(u,d.provider,d.model)){const [pv,...m]=String(allowed[0]).split('|');if(m.length){b.provider=pv;b.model=m.join('|')}else b.model=pv}}
@@ -308,14 +372,47 @@ async function hermesCall(req,res,u,url){
   relayJob=cronM[1]||null;body=Buffer.from(JSON.stringify(b))}
  // deleting an agent: keep a full copy first (30 days), so it can be restored from Agents › Recently deleted
  const delM=/^\/hapi\/profiles\/([^/]+)$/.exec(p);
+ // a delete waits for the agent's setup and settings changes to finish (a command running during a delete leaves a ghost folder)
+ if(delM&&req.method==='DELETE'){const n=decodeURIComponent(delM[1]);await export_setups.wait(n).catch(()=>{});await withAgent(n,()=>{})}
  if(delM&&req.method==='DELETE'){const name=decodeURIComponent(delM[1]);if(name!=='default'&&/^[a-z0-9][a-z0-9_-]{0,63}$/.test(name)&&!/^(rl|nt|lk|dp|kp|sh-a|sh-b)-/.test(name)){
    const dir=path.join(HERMES_HOME,'profiles',name),trash=path.join(DATA,'agent-trash');await mkdir(trash,{recursive:true});
    const file=path.join(trash,name+'__'+new Date().toISOString().replace(/[:.]/g,'-')+'.tgz');const {execFile}=await import('node:child_process');
    // tar exits 1 when a file changed while it was read (a busy agent); the backup is still good if it was written
    const ok=await new Promise(r=>execFile('tar',['-czf',file,'--warning=no-file-changed','--ignore-failed-read','--exclude=./cache','--exclude=./sandboxes','-C',dir,'.'],{timeout:180000,maxBuffer:1e6},e=>r(!e||e.code===1)))&&(await stat(file).then(x=>x.size>0,()=>false));
    if(!ok)return send(res,500,{error:'Could not save a backup of this agent first, so it was not deleted.'})}}
- if(p==='/hapi/gateway/stop'&&req.method==='POST')gwStopped=true;   // a deliberate stop: the watch leaves it stopped
- if(delM&&req.method==='DELETE'&&PORT===4400)setTimeout(()=>gatewayWatch().catch(()=>{}),15000);
+ if(p==='/hapi/gateway/stop'&&req.method==='POST'&&(q.get('profile')||'default')==='default')gwStopped=true;   // a deliberate stop: the watch leaves it stopped
+ // deleting an agent also removes its extra numbers (copies) and takes it out of channel sharing
+ if(delM&&req.method==='DELETE'){const gone=decodeURIComponent(delM[1]);if(!gone.includes('--')){for(const l of await links.list(gone).catch(()=>[]))await links.remove(l.name).catch(e=>console.warn('remove copy',l.name,e.message));
+  setTimeout(async()=>{if(await isAgent(gone))return;const {rm}=await import('node:fs/promises');
+   // anything the engine left behind (a bare logs/ folder) and an agent folder holding only aqeelOS's own notes
+   await rm(path.join(HERMES_HOME,'profiles',gone),{recursive:true,force:true}).catch(()=>{});
+   const ws=path.join(homedir(),'workspaces',gone);if((await readdir(ws).catch(()=>['?'])).every(x=>x==='AGENTS.md'))await rm(ws,{recursive:true,force:true}).catch(()=>{});
+   await setStatus(gone,null);const sh=await relay.shares().catch(()=>({}));
+   for(const [k,v] of Object.entries(sh)){const [owner,platform]=k.split('|');if(owner===gone)await relay.setShare(owner,platform,{senders:[],chat:''}).catch(()=>{});else if((v.senders||[]).includes(gone))await relay.setShare(owner,platform,{senders:v.senders.filter(x=>x!==gone),chat:v.chat}).catch(()=>{})}
+   syncNotifyTool().catch(()=>{});if(PORT===4400)writeAgentContext().catch(()=>{});console.log('cleaned up after deleting',gone)},20000)}}
+ {const whM=/^\/hapi\/webhooks(?:\/([^/]+))?(\/enabled)?$/.exec(p),wa=q.get('profile')||'default';
+  // one webhook list serves every agent (the main agent's); each entry is bound to the agent it runs as
+  if(whM&&!wa.includes('--')&&req.method==='GET'&&!whM[1]){const h={'x-hermes-session-token':DASH_TOKEN};
+   const d=await fetch(DASH.origin+'/api/webhooks?profile=default',{headers:h}).then(r=>r.json()).catch(()=>({}));
+   let store={};try{store=JSON.parse(await readFile(path.join(HERMES_HOME,'webhook_subscriptions.json'),'utf8'))}catch{}
+   const subs=(d.subscriptions||[]).map(x=>{const ag=(store[x.name]?.profile)||'default';return {...x,agent:ag,url_path:ag==='default'?'/webhooks/'+x.name:'/webhooks/'+ag+'/'+x.name}}).filter(x=>x.agent===wa);
+   return send(res,200,{...d,subscriptions:subs})}
+  // turning webhooks on is for the one shared listener (the main agent's)
+  if(whM&&whM[1]==='enable'&&req.method==='POST'&&wa!=='default'){req.url=req.url.replace(/([?&]profile=)[^&]*/,'$1default');let b={};try{b=JSON.parse((body||Buffer.from('{}')).toString('utf8')||'{}')}catch{}b.profile='default';body=Buffer.from(JSON.stringify(b))}
+  if(whM&&wa!=='default'&&!wa.includes('--')){const h={'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'};
+   if(req.method==='POST'&&!whM[1]){let b={};try{b=JSON.parse((body||await readRaw(req,65536)).toString('utf8'))}catch{}
+    const name=String(b.name||'').trim().toLowerCase().replace(/ /g,'-');if(!/^[a-z0-9][a-z0-9_-]*$/.test(name))return send(res,400,{error:'Use lowercase letters, numbers, - or _.'});
+    const secret=b.secret||randomBytes(24).toString('hex');const args=['-p','default','webhook','subscribe',name,'--route-profile',wa,'--secret',secret];
+    if(b.prompt)args.push('--prompt',String(b.prompt));if(b.description)args.push('--description',String(b.description));if(b.events?.length)args.push('--events',b.events.join(','));
+    if(b.skills?.length)args.push('--skills',b.skills.join(','));if(b.deliver)args.push('--deliver',String(b.deliver));if(b.deliver_chat_id)args.push('--deliver-chat-id',String(b.deliver_chat_id));
+    if(b.deliver_only)args.push('--deliver-only');if(b.script)args.push('--script',String(b.script));
+    const {execFile}=await import('node:child_process');const r=await new Promise(d=>execFile(path.join(homedir(),'.local','bin','hermes'),args,{timeout:90000},(e,o,er)=>d({ok:!e,out:String(o||'')+String(er||'')})));
+    const er=/^Error:\s*(.+)$/m.exec(r.out)||(/not enabled|webhook channel/i.test(r.out)&&['','Turn on webhooks first.']);
+    if(!r.ok||er)return send(res,400,{error:((er&&er[1])||r.out.trim().split('\n').pop()||'Could not create the webhook').slice(0,300)});
+    return send(res,200,{name,secret,route_profile:wa,url_path:'/webhooks/'+wa+'/'+name})}
+   if(whM[1]&&(req.method==='DELETE'||req.method==='PUT')){let store={};try{store=JSON.parse(await readFile(path.join(HERMES_HOME,'webhook_subscriptions.json'),'utf8'))}catch{}
+    if(store[decodeURIComponent(whM[1])]?.profile!==wa)return send(res,404,{error:'No webhook with that name on this agent.'});const r=await fetch(DASH.origin+'/api/webhooks/'+whM[1]+(whM[2]||'')+'?profile=default',{method:req.method,headers:h,body:req.method==='PUT'?(body||await readRaw(req,65536)):undefined});
+    const t=await r.text();res.writeHead(r.status,{'content-type':'application/json',...security});return res.end(t)}}}
  let made=null;
  if(!users.isAdmin(u)&&req.method==='POST'&&(p==='/hapi/mcp/servers'||p==='/hapi/profiles')){
   let b={};try{b=JSON.parse((body||await readRaw(req,65536)).toString('utf8'))}catch{}
@@ -328,7 +425,8 @@ async function hermesCall(req,res,u,url){
   :/^\/gapi(\/p\/[^/]+)?\/api\/model\/options$/.test(p)&&users.allowedModels(u)?d=>({...d,providers:(d.providers||[]).map(pv=>({...pv,models:(pv.models||[]).filter(m=>users.modelOk(u,pv.slug,m))})).filter(pv=>pv.models.length)})
   :/^\/gapi(\/p\/[^/]+)?\/api\/sessions$/.test(p)&&req.method==='POST'?async d=>{await users.own(d.id||d.session?.id||d.session_id,u);return d}
   :made?async d=>{await memberAgent(u,made);return d}
-  :p==='/hapi/profiles'&&req.method==='POST'?async d=>{const n=d?.name||d?.profile?.name;if(n)setupAgentFn?.(n).catch(e=>console.warn('setup',n,e.message)).finally(()=>setTimeout(()=>{agentHealth(n).catch(()=>{});syncNotifyTool().catch(()=>{})},5000));return d}
+  :p==='/hapi/profiles'&&req.method==='POST'?async d=>{const n=d?.name||d?.profile?.name;if(n){madeHere.add(n);(setupAgentFn?setupAgentFn(n):Promise.resolve()).catch(e=>console.warn('setup',n,e.message)).finally(async()=>{await agentHealth(n).catch(()=>{});await syncNotifyTool().catch(()=>{});if(PORT===4400)writeAgentContext().catch(()=>{});
+   const {execFile}=await import('node:child_process');execFile(process.execPath,[path.join(root,'scripts','apply-skill-patches.mjs')],{timeout:180000},e=>{if(e)console.warn('skill patches',n,e.message)})})}return d}
   :relayTarget!==undefined?async d=>{const id=relayJob||(d.job||d).id;if(id)await relay.setJobRelay(agent,id,relayTarget);return d}:undefined;
  if(p.startsWith('/hapi/'))return proxy(req,res,DASH,'/hapi',{'x-hermes-session-token':DASH_TOKEN},{transform,body});
  const live=chatM&&req.method==='POST'?{key:agent+'|'+decodeURIComponent(chatM[1]),user:u.id}:undefined;
@@ -386,7 +484,7 @@ async function openBrowser(res,agent){
 const server=createServer(async(req,res)=>{
  const url=new URL(req.url,'http://x');const p=url.pathname;
  try{
-  if(p==='/healthz')return send(res,200,{ok:true,build:BUILD,live:[...LIVE.values()].filter(r=>!r.done).length});
+  if(p==='/healthz')return send(res,200,{ok:true,build:BUILD,live:liveCount(),busy:liveCount()+export_setups.running()+opsBusy()+relay.sending()+(gwRestarting?1:0)});
   // the "notify me" tool agents call (from this box only; each agent's address is signed)
   const mn=/^\/mcp\/notify\/([\w-]+)\/([\w-]+)$/.exec(p);
   if(mn){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method==='GET')return send(res,405,'POST only');
@@ -394,10 +492,11 @@ const server=createServer(async(req,res)=>{
    const signed=mn[2]===relay.sig(mn[1]);
    if(signed&&msg.method==='tools/call'&&msg.params?.name==='connect_mcp_tool'){const tool=String(msg.params?.arguments?.tool||'').trim();const reply=(text,isError)=>send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text}],...(isError?{isError:true}:{})}});
     const redirect=MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(tool);
-    try{const pr=await sharing.prepareSignin(mn[1],tool,redirect);if(pr.changed)await new Promise(r=>setTimeout(r,2500));const [svc,where,save]=appSettings(tool,pr.url);
-     const j=await startSignin(mn[1],tool);
+    const ag=mn[1].split('--')[0];
+    try{const pr=await sharing.prepareSignin(ag,tool,redirect);if(pr.changed)await new Promise(r=>setTimeout(r,2500));const [svc,where,save]=appSettings(tool,pr.url);
+     const j=await startSignin(ag,tool);
      // the answer is written for anyone on the team: the easy way first, exact steps only when an app of their own is involved
-     if(j.authorization_url&&!pr.own)return reply(`Send the person exactly this (no technical steps needed):\n\nTo connect ${svc}, open this link and click Allow: ${j.authorization_url}\nYou'll land on a page that says "Signed in". That's it.\n\n(The link works for about 5 minutes; if it expires, ask again.)`);
+     if(j.authorization_url&&!pr.own)return reply(`Send the person exactly this (no technical steps needed):\n\nTo connect ${svc}, open this link and click Allow: ${j.authorization_url}\nYou'll land on a page that says "Signed in". That's it.\n\n(Open it within 5 minutes; after that, ask again for a fresh link.)`);
      if(j.authorization_url)return reply(`${svc} is connected through the person's own ${svc} app, so that app must list aqeelOS's address first. Before anything else, offer the no-setup option: "I can connect ${svc} through Composio instead: one click on Allow, nothing to set up. Want that?" If yes, use the composio tools. If not, send exactly this:\n\n1. Open ${where}.\n2. Add this address exactly: ${redirect}\n3. Click ${save}. (It doesn't work until it's saved.)\n4. Then open this link and click Allow: ${j.authorization_url}\n5. You'll land on a page that says "Signed in".\n\nIf ${svc} says "redirect_uri did not match", steps 2–3 weren't saved: redo them, then open the link again. Only an admin of that ${svc} app can do steps 1–3; if the person isn't one, use Composio.`);
      const err=j.error||j.detail||'no link came back';
      if(/client registration|client_id|client id/i.test(err))return reply(`${svc} only works with an app of your own. Recommend Composio to the person (one click on Allow, nothing to set up) and use the composio tools. Only if they insist (an admin, one time): create an app at ${where.split(' → ')[0]}, add this Redirect URL: ${redirect}, then paste its Client ID and Client Secret in Abilities › MCP tools › ${tool} › Sign in.`,true);
@@ -408,13 +507,14 @@ const server=createServer(async(req,res)=>{
   // Incoming webhooks (GitHub, Stripe…) reach Hermes' webhook listener here. No sign-in: each
   // subscription checks its own secret signature, and nothing but POST /webhooks/<name> passes.
   if(/^\/webhooks\/[\w.-]{1,64}$/.test(p)&&req.method==='POST')return proxy(req,res,HOOKS,'',{});
+  {const wm=/^\/webhooks\/([a-z0-9][a-z0-9_-]{0,63})\/([\w.-]{1,64})$/.exec(p);if(wm&&req.method==='POST'){req.url='/p/'+wm[1]+'/webhooks/'+wm[2]+url.search;return proxy(req,res,HOOKS,'',{})}}
   // MCP sign-in (OAuth) returns here from Slack, Notion…; the engine checks the one-time state. No sign-in needed.
   // Google sign-ins (Google Workspace skill with a Web-application client) return here, and aqeelOS finishes them:
   // it finds the agent and account whose pending sign-in has this state and runs the skill's --auth-code step.
   if(p==='/google-oauth/callback'&&req.method==='GET'){const st=url.searchParams.get('state')||'';
    const page=(t,m)=>{res.writeHead(200,{'content-type':'text/html; charset=utf-8',...security});return res.end(`<!doctype html><meta name="viewport" content="width=device-width"><title>aqeelOS</title><body style="font-family:system-ui;max-width:440px;margin:15vh auto;text-align:center;color:#111;line-height:1.5"><h2>${t}</h2><p>${m}</p></body>`)};
    if(url.searchParams.get('error'))return page('Not connected','You clicked Cancel (or Google said no). Ask your agent for a new link if you want to connect.');
-   let hit=null;for(const a of await listAgents()){const home=a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
+   let hit=null;for(const a of await listAllProfiles()){const home=a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
     for(const fn of await readdir(home).catch(()=>[])){const m=/^google_oauth_pending(?:_(.+))?\.json$/.exec(fn);if(!m)continue;
      try{const j=JSON.parse(await readFile(path.join(home,fn),'utf8'));if(j.state&&j.state===st){hit={a,home,acct:m[1]||''};break}}catch{}}if(hit)break}
    if(!hit)return page('This link has expired','A newer link replaced it, or it was already used. Ask your agent for a new Google sign-in link and open it right away.');
@@ -423,7 +523,8 @@ const server=createServer(async(req,res)=>{
    if(!r.ok||/ERROR/.test(r.out))return page('Google sign-in did not finish',esc((r.out.trim().split('\n').filter(Boolean).pop()||'Unknown error').slice(0,300))+' Ask your agent for a new link.');
    return page('Google account connected',(hit.acct?'<b>'+esc(hit.acct)+'</b> is ':'Your Google account is ')+'connected to '+esc(NAMES[hit.a]||hit.a)+'. You can close this tab and go back to aqeelOS.')}
   if(p.startsWith('/mcp-oauth/api/mcp/oauth/callback/')&&req.method==='GET'){
-   const tool=decodeURIComponent(p.split('/').pop()||'');const r=await fetch(DASH.origin+p.slice('/mcp-oauth'.length)+url.search).catch(()=>null);if(r)await r.text();
+   const tool=decodeURIComponent(p.split('/').pop()||'');let r=await fetch(DASH.origin+p.slice('/mcp-oauth'.length)+url.search).catch(()=>null);if(r)await r.text();
+   if(r&&r.status===404&&url.searchParams.get('code')){const g=await deliverToGateway(url.search);if(g)r={ok:true,status:200,viaGateway:true}}
    // say what really happened: wait for the engine to finish trading the code, then report it plainly
    let title='Signed in',msg='You can close this tab and go back to aqeelOS.';
    if(url.searchParams.get('error'))[title,msg]=['Not connected','You clicked Cancel (or the service said no). Go back to aqeelOS and press Sign in again if you want to connect.'];
@@ -495,16 +596,30 @@ const server=createServer(async(req,res)=>{
     const dir=path.join(HERMES_HOME,'profiles',m[1]);if(await stat(dir).catch(()=>null))return send(res,409,{error:'An agent with that name exists already.'});
     await mkdir(dir,{recursive:true});const {execFile}=await import('node:child_process');
     const ok=await new Promise(r=>execFile('tar',['-xzf',path.join(DATA,'agent-trash',f),'-C',dir],{timeout:180000},e=>r(!e)));if(!ok)return send(res,500,{error:'Could not unpack the backup.'});
-    await fetch(DASH.origin+'/api/gateway/restart?profile=default',{method:'POST',headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:'{}'}).catch(()=>{});
+    restartGateway('restored '+m[1]).then(()=>agentHealth(m[1])).catch(()=>{});
     return send(res,200,{ok:true,agent:m[1]})}
+   // plugins on/off for ONE agent (the engine's own plugin routes always change the main agent)
+   if(p==='/ui/plugins/toggle'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||'default'),name=String(b.name||'');
+    if(!/^[\w.@-]{1,80}$/.test(name))return send(res,400,{error:'Unknown plugin'});
+    if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag+'/soul','PUT',new URLSearchParams(),ag)!==null)return send(res,403,{error:'You can only change agents you may edit.'});
+    if(!(await listAllProfiles()).includes(ag))return send(res,400,{error:'Unknown agent'});
+    const r=await hcmd(ag,['plugins',b.enabled?'enable':'disable',name],{timeout:150000});
+    return r.ok?send(res,200,{ok:true,restart_required:/restart/i.test(r.out)}):send(res,400,{error:(r.err||'Could not change the plugin').slice(0,300)})}
    if(p==='/ui/box'&&req.method==='GET')return send(res,200,await boxMemory());
    if(p==='/ui/live'&&req.method==='GET'){const rec=LIVE.get((url.searchParams.get('agent')||'default')+'|'+(url.searchParams.get('session')||''));
     if(!rec||rec.done||rec.user!==u.id)return send(res,url.searchParams.has('peek')?200:204,url.searchParams.has('peek')?{live:false}:'');
     if(url.searchParams.has('peek'))return send(res,200,{live:true,since:rec.t});
     res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-cache','x-accel-buffering':'no',...security});res.socket?.setNoDelay(true);
     for(const c of rec.chunks)res.write(c);rec.subs.add(res);res.on('close',()=>rec.subs.delete(res));return}
-   if(p==='/ui/gateway/restart'&&req.method==='POST'){gwStopped=false;if(!users.isAdmin(u))return send(res,403,{error:'Only admins can restart the gateway.'});
-    const {exec}=await import('node:child_process');exec('export PATH=$HOME/.local/bin:$PATH; hermes -p default gateway stop >/dev/null 2>&1; tmux kill-session -t gateway 2>/dev/null; tmux kill-session -t dashboard 2>/dev/null; sleep 2; ~/services.sh',{timeout:60000,shell:'/bin/bash'},()=>{});return send(res,200,{ok:true})}
+   if(p==='/ui/gateway/restart'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can restart the gateway.'});
+    const waiting=liveCount();restartGateway('restart from the app ('+(u.name||u.id)+')').catch(()=>{});return send(res,200,{ok:true,waiting})}
+   // each agent's setup result, for the Agents page (what failed, so it can be finished with one click)
+   if(p==='/ui/agent-setup'&&req.method==='GET'){const st=await getStatus();const out={};for(const [a,v] of Object.entries(st))if(users.isAdmin(u)||users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a)===null)out[a]={ok:v.ok!==false,failed:v.failed||[],t:v.t||0};return send(res,200,{agents:out})}
+   // an agent for someone who must not have terminal, files, code or computer use: locked on every channel, and kept so
+   if(p==='/ui/agent-safe'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||'');
+    if(!await isAgent(ag)||ag==='default')return send(res,400,{error:'Unknown agent'});
+    if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag+'/soul','PUT',new URLSearchParams(),ag)!==null)return send(res,403,{error:'You can only change agents you may edit.'});
+    try{await setStatus(ag,{safe:true});await lockTools(ag);return send(res,200,{ok:true})}catch(e){return send(res,400,{error:e.message})}}
    // abilities across agents: who has what, copy to other agents, rename an MCP tool (admins, or owners of both agents)
    if(p==='/ui/share/used'&&req.method==='GET'){const kind=url.searchParams.get('kind')||'';const all=await sharing.usedBy(kind);if(!users.isAdmin(u)){for(const k of Object.keys(all))all[k]=all[k].filter(a=>users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a)===null)}return send(res,200,all)}
    if(p==='/ui/share'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const from=String(b.from||''),to=(Array.isArray(b.to)?b.to:[]).map(String);
@@ -530,7 +645,7 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/channels'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can see every channel.'});return send(res,200,{channels:await channels.list()})}
    // WhatsApp: clear a login that WhatsApp has ended, so a fresh QR can link the phone again
    if(p==='/ui/channels/whatsapp-reset'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can relink WhatsApp.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
-    const ag=String(b.agent||'default');if(!(await listAgents()).includes(ag))return send(res,400,{error:'Unknown agent'});
+    const ag=String(b.agent||'default');if(!(await listAllProfiles()).includes(ag))return send(res,400,{error:'Unknown agent'});   // extra numbers (copies) included
     const dir=path.join(ag==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',ag),'platforms','whatsapp','session');// a bridge left running by the gateway keeps the login and its port; stop every bridge using this login first
     const {execFile}=await import('node:child_process');const out=await new Promise(r=>execFile('ps',['-eo','pid=,args='],(e,o)=>r(String(o||''))));
     const pids=out.split('\n').filter(l=>/whatsapp-bridge\/bridge\.js/.test(l)&&l.includes('--session '+dir)).map(l=>+l.trim().split(/\s+/)[0]).filter(Boolean);
@@ -552,9 +667,9 @@ const server=createServer(async(req,res)=>{
     try{const mod=await import(path.join(HERMES_HOME,'hermes-agent','node_modules','qrcode','lib','index.js'));const QR=mod.default||mod;const svg=await QR.toString(d,{type:'svg',margin:1,errorCorrectionLevel:'M',color:{dark:'#0b0c10',light:'#ffffff'}});
      res.writeHead(200,{'content-type':'image/svg+xml','cache-control':'no-store','x-content-type-options':'nosniff'});return res.end(svg)}catch(e){return send(res,500,{error:'QR could not be drawn: '+e.message})}}
    if(p==='/ui/explain'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,300000))}catch{}return send(res,200,await explain.get(String(b.kind||''),Array.isArray(b.items)?b.items:[]))}
-   if(p==='/ui/usage'&&req.method==='GET'){const days=Math.min(365,Math.max(1,+url.searchParams.get('days')||7));const all=await usage.breakdown(await listAgents(),days,users.ownerOf);
+   if(p==='/ui/usage'&&req.method==='GET'){const days=Math.min(365,Math.max(1,+url.searchParams.get('days')||7));const all=await usage.breakdown(await listAllProfiles(),days,users.ownerOf);
     const people=Object.fromEntries(users.people().map(x=>[x.id,{name:x.name,avatar:x.avatar?'/ui/people/avatar/'+x.id:null,limit:x.limit||null}]));
-    if(!users.isAdmin(u))return send(res,200,{days,byPerson:{[u.id]:all.byPerson[u.id]||null},people:{[u.id]:people[u.id]},today:await usage.today(await listAgents(),u.id,users.ownerOf)});
+    if(!users.isAdmin(u))return send(res,200,{days,byPerson:{[u.id]:all.byPerson[u.id]||null},people:{[u.id]:people[u.id]},today:await usage.today(await listAllProfiles(),u.id,users.ownerOf)});
     return send(res,200,{...all,people})}
    if(p==='/ui/starters'){const agent=url.searchParams.get('agent')||'default';if(users.gate(u,'/ui/screens/'+agent,'GET',new URLSearchParams(),agent))return send(res,403,{error:'That agent is not shared with you.'});
     let recent=[];try{const r=await fetch(`${DASH.origin}/api/sessions?limit=60${agent==='default'?'':'&profile='+encodeURIComponent(agent)}`,{headers:{'x-hermes-session-token':DASH_TOKEN}});recent=users.filter(u,'/hapi/sessions',await r.json()).sessions||[]}catch{}

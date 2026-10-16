@@ -5,13 +5,14 @@ import {execFile} from 'node:child_process';
 import {cp,readdir,stat,access,readFile,writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {homedir} from 'node:os';
+import {hermes as hq} from './agentops.mjs';
 
 const HERMES=process.env.HERMES_BIN||path.join(homedir(),'.local','bin','hermes');
 const NAME=/^[\w.@-]{1,80}$/;
 
 export function createShare({DASH,TOKEN,HERMES_HOME,listAgents}){
  const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
- const run=(args,timeout=60000)=>new Promise(res=>execFile(HERMES,args,{timeout,maxBuffer:4e6},(e,out,err)=>res({ok:!e,out:String(out||''),err:String(err||e?.message||'')})));
+ const run=(args,timeout=60000)=>args[0]==='-p'?hq(args[1],args.slice(2),{timeout:Math.max(timeout,120000)}):new Promise(res=>execFile(HERMES,args,{timeout,maxBuffer:4e6},(e,out,err)=>res({ok:!e,out:String(out||''),err:String(err||e?.message||'')})));
  const api=(p,o={})=>fetch(DASH+'/api'+p,{...o,headers:{'x-hermes-session-token':TOKEN,'content-type':'application/json'}}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||j.error||('HTTP '+r.status));return j});
  const q=a=>'?profile='+encodeURIComponent(a);
  // the engine's Python reads YAML; used to lift one MCP block out of an agent's config as JSON
