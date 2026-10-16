@@ -1,0 +1,18 @@
+/* code by aqeel.exe: the top bar is the window's title bar (see native-frame.js). */
+.native-frame .topbar,.native-frame body>header{-webkit-app-region:drag;app-region:drag;padding-right:0;user-select:none}
+.native-frame .topbar :is(button,a,input,select,label,[role=button]),.native-frame body>header :is(button,a,input,select){-webkit-app-region:no-drag;app-region:no-drag}
+.window-controls{display:flex;align-self:stretch;margin-left:8px;-webkit-app-region:no-drag;app-region:no-drag}
+.window-controls button{display:grid;place-items:center;width:46px;height:100%;min-height:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;color:var(--ink-2,#2e3038);transition:background .12s,color .12s}
+.window-controls button:hover{background:rgba(127,127,127,.14);color:var(--ink,#0b0c10)}
+.window-controls .wc-close:hover{background:#e81123;color:#fff}
+.window-controls svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.3;stroke-linecap:round;stroke-linejoin:round}
+.window-controls button:focus-visible{outline:2px solid var(--blue-2,#2f7bff);outline-offset:-2px}
+/* pages whose header nav sits at the right end keep it next to the controls */
+.native-frame body>header .page-nav{margin-left:auto}
+/* the toolbar group sits at the right, next to the window buttons (not centred between brand and buttons) */
+.native-frame .topbar{justify-content:flex-start}
+.native-frame .topbar .top-actions{margin-left:auto}
+/* even breathing room above and below the bar's controls */
+.native-frame .topbar .search-btn,.native-frame .topbar .icon-btn{height:34px;min-height:34px}
+.native-frame .topbar .icon-btn{width:34px}
+.native-frame .topbar .brand{padding-top:1px}

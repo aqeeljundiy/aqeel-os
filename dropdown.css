@@ -1,0 +1,31 @@
+/* Elkiya dropdown — values from elkiya-group src/pages/index.astro (.dd) */
+.dd{position:relative;min-width:0;display:block}.dd-native{position:absolute!important;inset:0;width:100%!important;height:100%!important;opacity:0;pointer-events:none;margin:0!important}
+.dd-btn{all:unset;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:42px;font:inherit;font-size:14px;padding:10px 14px;border-radius:var(--r-md,12px);border:1px solid var(--border,#e2e3e9);background:var(--surface,#fff);color:var(--muted,#646875);cursor:pointer;transition:border-color .2s,box-shadow .2s,background .2s}
+.dd.has-value .dd-btn,.dd .dd-btn{color:var(--ink,#0b0c10)}.dd-btn:hover{border-color:#d2d4dc}
+.dd-btn:focus-visible,.dd.open .dd-btn{outline:none;border-color:var(--blue,#0158cb);box-shadow:0 0 0 3px rgba(1,88,203,.15)}
+.dd-btn:disabled{opacity:.55;cursor:default}
+.dd-val{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.dd-chev{width:8px;height:8px;border-right:1.5px solid var(--muted,#646875);border-bottom:1.5px solid var(--muted,#646875);transform:rotate(45deg) translateY(-2px);transition:transform .3s cubic-bezier(.2,.7,.2,1);flex:none}
+.dd.open .dd-chev{transform:rotate(-135deg) translateY(-2px)}
+.dd-floating{position:fixed;z-index:1000;box-sizing:border-box;background:var(--surface,#fff);color:var(--ink,#0b0c10);border:1px solid var(--border,#e2e3e9);border-radius:14px;box-shadow:0 30px 80px -30px rgba(1,88,203,.35),0 2px 6px rgba(11,12,16,.06);padding:6px;overflow:auto;opacity:0;transform:translateY(-6px) scale(.985);transform-origin:top;transition:opacity .22s ease,transform .28s cubic-bezier(.2,.7,.2,1);font-family:'Plus Jakarta Sans',system-ui,sans-serif}
+.dd-floating.up{transform-origin:bottom;transform:translateY(6px) scale(.985)}.dd-floating.shown{opacity:1;transform:none}
+.dd-group+.dd-group{border-top:1px solid var(--border,#e2e3e9);margin-top:4px;padding-top:4px}
+.dd-gl{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted,#646875);padding:8px 10px 4px}
+.dd-floating [role=option]{all:unset;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;font:inherit;font-size:14px;color:var(--ink,#0b0c10);padding:9px 10px;border-radius:9px;cursor:pointer;transition:background .15s}
+.dd-floating [role=option]:hover,.dd-floating [role=option]:focus-visible{background:var(--soft,#edeef2)}
+.dd-floating [role=option][aria-selected=true]{color:var(--blue,#0158cb);font-weight:500}
+.dd-floating [role=option][aria-selected=true]::after{content:"✓";font-size:13px;flex:none}
+.dd-floating [role=option]:disabled{opacity:.45;cursor:default;background:none}
+.dd-opt{display:grid;gap:2px;min-width:0}.dd-opt small{font-size:12px;font-weight:400;color:var(--muted,#646875);line-height:1.4}
+/* compact pill variant for toolbars and the composer */
+.dd-pill .dd-btn{min-height:34px;padding:7px 12px;gap:8px;font-size:12.5px;font-weight:500;border-radius:9999px;background:var(--soft-2,#f5f6f8);border-color:transparent}
+.dd-pill .dd-btn:hover{border-color:var(--border,#e2e3e9)}.dd-pill .dd-chev{width:6px;height:6px}
+.dark .dd-floating{box-shadow:0 30px 80px -30px rgba(0,0,0,.7),0 2px 6px rgba(0,0,0,.3)}
+@media(max-width:850px){.dd-btn{min-height:44px}.dd-pill .dd-btn{min-height:40px}.dd-floating [role=option]{padding:12px 10px}}
+@media(prefers-reduced-motion:reduce){.dd-floating,.dd-chev{transition:none}}
+
+/* closing: fade back out instead of vanishing */
+.dd-floating.closing{pointer-events:none;transition-duration:.15s}
+
+/* in the top layer as a popover: drop the browser's centred popover box */
+.dd-floating[popover]{inset:auto;margin:0;overflow:auto}
