@@ -181,7 +181,7 @@ async function writeAgentContext(){const all=await listAgents();const names={};f
    ...(/connect.composio.dev|rube.app/.test(await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>''))?['','## Apps','',
     'For an outside app (Slack, Gmail, Google Drive, Notion, GitHub…), use that app’s own MCP tool if you have it and it is connected. Otherwise use the Composio tools (composio), which reach 500+ apps through the person’s Composio account. If Composio says an app is not connected yet, give the person the link it returns to connect it, then continue.']:[]),
    '','## Connecting an MCP tool that needs a sign-in','',
-   'Do not run “hermes mcp login” and do not use a 127.0.0.1 / localhost callback: the person is not at this server, so that page never opens for them. Add the tool (with its client ID/secret if the service needs its own app), then call the connect_mcp_tool tool (from aqeelos-notify) to get the sign-in link to give the person, or tell them to press Sign in on it under Abilities › MCP tools. aqeelOS sets the return address itself: https://ai.elkiya.com/mcp-oauth/api/mcp/oauth/callback/<tool name> (this is what goes in the service’s Redirect URLs).',
+   'Do not run “hermes mcp login” and do not use a 127.0.0.1 / localhost callback: the person is not at this server, so that page never opens for them. Add the tool (with its client ID/secret if the service needs its own app), then call the connect_mcp_tool tool (from aqeelos-notify) and send the person its steps exactly as written. Never make up steps, addresses or commands for connecting: the people using this are often not technical, so keep it to what the tool says. When the tool recommends Composio, offer that first. aqeelOS sets the return address itself: https://ai.elkiya.com/mcp-oauth/api/mcp/oauth/callback/<tool name> (this is what goes in the service’s Redirect URLs).',
    '','## Channels you can message the person on','',
    ch.length?'Use the send_to_person tool with one of these IDs when the person asks to be notified on a channel ("notify me on shop-whatsapp"):':'None yet. The person can connect WhatsApp, Telegram and others on the Channels page.',
    ...ch.map(c=>'- '+c.id+' = '+c.name),'<!-- /aqeelos:context -->'].filter(x=>x!==null).join('\n');
@@ -216,7 +216,18 @@ async function memberAgent(u,name){
    soon as a channel setting changes. */
 // where MCP sign-ins come back: the public site (the engine is told this, see ensurePublicUrl)
 const MCP_OAUTH_BASE=(env.PUBLIC_URL||'https://ai.elkiya.com').replace(/\/$/,'')+'/mcp-oauth';
-const signinFlows=new Map();   // agent|tool → open sign-in flow id
+// where each service keeps its redirect URLs, so the steps an agent gives are exact
+const APP_SETTINGS={slack:['Slack','api.slack.com/apps → your app → OAuth & Permissions → Redirect URLs → Add New Redirect URL','Save URLs'],
+ google:['Google','console.cloud.google.com/apis/credentials → your OAuth client (Web application) → Authorized redirect URIs → Add URI','Save'],
+ github:['GitHub','github.com/settings/developers → OAuth Apps → your app → Authorization callback URL','Update application'],
+ notion:['Notion','notion.so/my-integrations → your integration → Redirect URIs','Save changes'],
+ microsoft:['Microsoft','portal.azure.com → App registrations → your app → Authentication → Web → Redirect URIs','Save'],
+ hubspot:['HubSpot','developers.hubspot.com → your app → Auth → Redirect URLs','Save']};
+const appSettings=(tool,url)=>{const k=Object.keys(APP_SETTINGS).find(k=>tool.toLowerCase().includes(k)||String(url||'').includes(k));return k?APP_SETTINGS[k]:[tool.charAt(0).toUpperCase()+tool.slice(1),'your '+tool+' app’s OAuth settings → Redirect URLs','Save']};
+// agent|tool → open sign-in flow id, kept across restarts (the engine keeps the flow open meanwhile)
+const FLOWS_FILE=path.join(DATA,'signin-flows.json');let signinFlows=new Map();
+readFile(FLOWS_FILE,'utf8').then(t=>{signinFlows=new Map(Object.entries(JSON.parse(t)))}).catch(()=>{});
+const saveFlows=()=>writeFile(FLOWS_FILE,JSON.stringify(Object.fromEntries(signinFlows))).catch(()=>{});
 async function startSignin(agent,tool){const k=agent+'|'+tool,prev=signinFlows.get(k),h={'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'};
  // a link that is still open is simply given again (the engine keeps one per tool until it is used or expires)
  if(prev){const f=await fetch(DASH.origin+'/api/mcp/oauth/flows/'+encodeURIComponent(prev),{headers:h}).then(r=>r.ok?r.json():null).catch(()=>null);
@@ -225,7 +236,7 @@ async function startSignin(agent,tool){const k=agent+'|'+tool,prev=signinFlows.g
  let r,j;for(let i=0;i<8;i++){r=await fetch(DASH.origin+'/api/mcp/servers/'+encodeURIComponent(tool)+'/auth?profile='+encodeURIComponent(agent),{method:'POST',headers:h,body:'{}'});j=await r.json().catch(()=>({}));
   if(!/already in progress/i.test(j.detail||j.error||''))break;await new Promise(res=>setTimeout(res,1500))}
  if(/already in progress/i.test(j.detail||j.error||''))j.error='A sign-in for '+tool+' is already open. Use the link given a moment ago, or try again in a few minutes.';
- if(j.flow_id)signinFlows.set(k,j.flow_id);if(!r.ok&&!j.error)j.error=j.detail||('HTTP '+r.status);return j}
+ if(j.flow_id){signinFlows.set(k,j.flow_id);saveFlows()}if(!r.ok&&!j.error)j.error=j.detail||('HTTP '+r.status);return j}
 const platCache=new Map();
 function platformsCached(agent){const k=agent||'default';const c=platCache.get(k);if(c&&(c.p||Date.now()-c.t<15000))return c.p||Promise.resolve(c.v);
  const p=fetch(DASH.origin+'/api/messaging/platforms?profile='+encodeURIComponent(k),{headers:{'x-hermes-session-token':DASH_TOKEN}}).then(async r=>{const v=await r.json();if(!r.ok)throw Object.assign(new Error(v.detail||'HTTP '+r.status),{status:r.status});platCache.set(k,{t:Date.now(),v});return v}).catch(e=>{platCache.delete(k);throw e});
@@ -340,11 +351,13 @@ const server=createServer(async(req,res)=>{
    const signed=mn[2]===relay.sig(mn[1]);
    if(signed&&msg.method==='tools/call'&&msg.params?.name==='connect_mcp_tool'){const tool=String(msg.params?.arguments?.tool||'').trim();const reply=(text,isError)=>send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text}],...(isError?{isError:true}:{})}});
     const redirect=MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(tool);
-    try{await sharing.prepareSignin(mn[1],tool,redirect);await new Promise(r=>setTimeout(r,2500));
+    try{const pr=await sharing.prepareSignin(mn[1],tool,redirect);if(pr.changed)await new Promise(r=>setTimeout(r,2500));const [svc,where,save]=appSettings(tool,pr.url);
      const j=await startSignin(mn[1],tool);
-     if(j.authorization_url)return reply(`Give the person this sign-in link (valid for about 5 minutes): ${j.authorization_url}\nAfter they click Allow they land on an aqeelOS page saying "Signed in", and ${tool} reconnects by itself. They can also press Sign in on ${tool} under Abilities › MCP tools. If the service asks for a redirect URL, it is: ${redirect}`);
+     // the answer is written for anyone on the team: the easy way first, exact steps only when an app of their own is involved
+     if(j.authorization_url&&!pr.own)return reply(`Send the person exactly this (no technical steps needed):\n\nTo connect ${svc}, open this link and click Allow: ${j.authorization_url}\nYou'll land on a page that says "Signed in". That's it.\n\n(The link works for about 5 minutes; if it expires, ask again.)`);
+     if(j.authorization_url)return reply(`${svc} is connected through the person's own ${svc} app, so that app must list aqeelOS's address first. Before anything else, offer the no-setup option: "I can connect ${svc} through Composio instead: one click on Allow, nothing to set up. Want that?" If yes, use the composio tools. If not, send exactly this:\n\n1. Open ${where}.\n2. Add this address exactly: ${redirect}\n3. Click ${save}. (It doesn't work until it's saved.)\n4. Then open this link and click Allow: ${j.authorization_url}\n5. You'll land on a page that says "Signed in".\n\nIf ${svc} says "redirect_uri did not match", steps 2–3 weren't saved: redo them, then open the link again. Only an admin of that ${svc} app can do steps 1–3; if the person isn't one, use Composio.`);
      const err=j.error||j.detail||'no link came back';
-     if(/client registration|client_id|client id/i.test(err))return reply(`${tool} needs its own app. Either suggest Composio (no app to create), or ask the person to create an OAuth app with this Redirect URL: ${redirect} and paste its Client ID and Client Secret into the Connect screen (Abilities › MCP tools › ${tool} › Sign in).`,true);
+     if(/client registration|client_id|client id/i.test(err))return reply(`${svc} only works with an app of your own. Recommend Composio to the person (one click on Allow, nothing to set up) and use the composio tools. Only if they insist (an admin, one time): create an app at ${where.split(' → ')[0]}, add this Redirect URL: ${redirect}, then paste its Client ID and Client Secret in Abilities › MCP tools › ${tool} › Sign in.`,true);
      return reply('Could not start the sign-in: '+err,true)}catch(e){return reply('Could not start the sign-in: '+e.message,true)}}
    const out=await relay.mcp(mn[1],mn[2],msg);
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'connect_mcp_tool',description:'Start the sign-in for one of your MCP tools (slack, composio, notion…) and get the link to give the person. Always use this to connect an MCP tool; never a command-line login or a localhost callback.',inputSchema:{type:'object',properties:{tool:{type:'string',description:'The MCP tool name as listed, e.g. "slack" or "composio"'}},required:['tool']}});

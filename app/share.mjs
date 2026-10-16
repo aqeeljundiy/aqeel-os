@@ -60,7 +60,8 @@ export function createShare({DASH,TOKEN,HERMES_HOME,listAgents}){
  async function prepareSignin(agent,name,redirect,client){if(!NAME.test(name))throw new Error('Bad name');const b=await mcpBlock(agent,name);if(!b?.url)throw new Error('Only tools with an address sign in this way.');
   // the public return address wins; a local callback port (what 'hermes mcp login' uses) cannot reach the person's browser
   const o={...(b.oauth||{}),redirect_uri:redirect};delete o.redirect_port;if(client?.id)o.client_id=client.id;if(client?.secret)o.client_secret=client.secret;
-  if(b.auth==='oauth'&&JSON.stringify(b.oauth||{})===JSON.stringify(o))return {ok:true,changed:false};b.auth='oauth';b.oauth=o;await setMcp(agent,name,b);return {ok:true,changed:true}}
+  const own=!!o.client_id;   // the person's own app: its settings must list our Redirect URL
+  if(b.auth==='oauth'&&JSON.stringify(b.oauth||{})===JSON.stringify(o))return {ok:true,changed:false,own,url:b.url};b.auth='oauth';b.oauth=o;await setMcp(agent,name,b);return {ok:true,changed:true,own,url:b.url}}
  async function setOauthClient(agent,name,id,secret,redirect){if(!id)throw new Error('Paste the Client ID.');return prepareSignin(agent,name,redirect,{id,secret})}
  return {usedBy,share,renameMcp,python,duplicate,setOauthClient,prepareSignin};
 }
