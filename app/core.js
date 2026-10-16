@@ -80,7 +80,8 @@ function md(src){
   if(/^\s*```/.test(l)){const lang=l.trim().slice(3).trim();const buf=[];i++;while(i<lines.length&&!/^\s*```/.test(lines[i]))buf.push(lines[i++]);i++;out.push(`<div class="codeblock"><div class="cb-head"><span>${esc(lang||'code')}</span><button data-act="copycode">${icon('copy',13)}Copy</button></div><pre>${esc(buf.join('\n'))}</pre></div>`);continue}
   if(/^\s*$/.test(l)){i++;continue}
   if(/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(l)){out.push('<hr>');i++;continue}
-  const h=/^(#{1,6})\s+(.*)$/.exec(l);if(h){out.push(h[1].length<=2?`<h3>${inline(h[2])}</h3>`:`<h4>${inline(h[2])}</h4>`);i++;continue}
+  // a clear heading scale like Claude / ChatGPT: # big, ## medium, ### small, deeper = bold line
+  const h=/^(#{1,6})\s+(.*)$/.exec(l);if(h){const n=Math.min(h[1].length,4);out.push(`<h${n+1} class="md-h${n}">${inline(h[2])}</h${n+1}>`);i++;continue}
   if(isItem(l)){out.push(list());continue}
   if(/^\|.*\|\s*$/.test(l)&&/^\|[\s:|-]+\|\s*$/.test(lines[i+1]||'')){const row=r=>r.trim().replace(/^\||\|$/g,'').split('|').map(c=>c.trim());const head=row(l);i+=2;const body=[];while(i<lines.length&&/^\|.*\|\s*$/.test(lines[i]))body.push(row(lines[i++]));out.push(`<div class="table-wrap"><table><thead><tr>${head.map(h=>`<th>${inline(h)}</th>`).join('')}</tr></thead><tbody>${body.map(r=>`<tr>${r.map(c=>`<td>${inline(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`);continue}
   if(/^>\s?/.test(l)){const b=[];while(i<lines.length&&/^>\s?/.test(lines[i]))b.push(lines[i++].replace(/^>\s?/,''));out.push('<blockquote>'+md(b.join('\n'))+'</blockquote>');continue}
