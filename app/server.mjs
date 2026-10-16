@@ -14,6 +14,7 @@ import {createUsage} from './usage.mjs';
 import {createExplain} from './explain.mjs';
 import {createChannels} from './channels.mjs';
 import {createShare} from './share.mjs';
+import {createRelay} from './relay.mjs';
 import {readdir} from 'node:fs/promises';
 import {scryptSync,randomBytes,createHmac,timingSafeEqual} from 'node:crypto';
 import path from 'node:path';
@@ -131,6 +132,14 @@ const accountsApi=createAccounts(DATA);
 const mailer=createMail(DATA);
 const usage=createUsage(DASH.origin,DASH_TOKEN);
 const explain=createExplain(DATA);
+const relay=createRelay({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,SECRET,listAgents:()=>listAgents()});
+// agents allowed to send through a shared channel get the "notify me" tool; others lose it
+async function syncNotifyTool(){const sh=await relay.shares();const senders=new Set(Object.values(sh).flatMap(v=>v.senders||[]));
+ // through the engine's own MCP route, so the running engine picks the tool up (a config edit alone is not noticed)
+ const mcp=(a,m,p,b)=>fetch(`${DASH.origin}/api/mcp/servers${p}?profile=${encodeURIComponent(a)}`,{method:m,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:b?JSON.stringify(b):undefined}).then(r=>{if(!r.ok&&r.status!==404)throw new Error('MCP '+m+' '+r.status)});
+ for(const a of await listAgents()){const want=senders.has(a);const url=`http://127.0.0.1:${PORT}/mcp/notify/${a}/${relay.sig(a)}`;const y=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>'');
+  if(want?y.includes(url):!y.includes('aqeelos-notify'))continue;
+  if(y.includes('aqeelos-notify'))await mcp(a,'DELETE','/aqeelos-notify');if(want)await mcp(a,'POST','',{name:'aqeelos-notify',url})}}
 const sharing=createShare({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAgents()});
 const channels=createChannels({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAgents()});
 async function listAgents(){const n=['default'];try{for(const d of await readdir(path.join(HERMES_HOME,'profiles'),{withFileTypes:true}))if(d.isDirectory()&&!d.name.startsWith('.'))n.push(d.name)}catch{}return n}
@@ -167,6 +176,12 @@ async function hermesCall(req,res,u,url){
    if(b.model){if(!users.modelOk(u,b.provider||'',b.model))return send(res,403,{error:'You can\'t use that model. Ask the owner.'})}
    else{const d=await agentModel(agent);if(!users.modelOk(u,d.provider,d.model)){const [pv,...m]=String(allowed[0]).split('|');if(m.length){b.provider=pv;b.model=m.join('|')}else b.model=pv}}
    body=Buffer.from(JSON.stringify(b))}}
+ let relayTarget=undefined,relayJob=null;
+ const cronM=/^\/hapi\/cron\/jobs(?:\/([^/]+))?$/.exec(p);
+ if(cronM&&(req.method==='POST'&&!cronM[1]||req.method==='PUT'&&cronM[1])&&!body){let b={};try{b=JSON.parse((await readRaw(req,262144)).toString('utf8'))}catch{}
+  const holder=req.method==='PUT'?(b.updates||{}):b;const dv=String(holder.deliver||'');
+  if(dv.startsWith('relay:')){const [owner,platform]=dv.slice(6).split('|');relayTarget={owner,platform};holder.deliver='local'}else if('deliver' in holder)relayTarget=null;
+  relayJob=cronM[1]||null;body=Buffer.from(JSON.stringify(b))}
  let made=null;
  if(!users.isAdmin(u)&&req.method==='POST'&&(p==='/hapi/mcp/servers'||p==='/hapi/profiles')){
   let b={};try{b=JSON.parse((await readRaw(req,65536)).toString('utf8'))}catch{}
@@ -178,7 +193,8 @@ async function hermesCall(req,res,u,url){
  const transform=/^\/hapi\/(sessions|sessions\/search|profiles|cron\/jobs)$/.test(p)&&req.method==='GET'?d=>users.filter(u,p,d,agent)
   :/^\/gapi(\/p\/[^/]+)?\/api\/model\/options$/.test(p)&&users.allowedModels(u)?d=>({...d,providers:(d.providers||[]).map(pv=>({...pv,models:(pv.models||[]).filter(m=>users.modelOk(u,pv.slug,m))})).filter(pv=>pv.models.length)})
   :/^\/gapi(\/p\/[^/]+)?\/api\/sessions$/.test(p)&&req.method==='POST'?async d=>{await users.own(d.id||d.session?.id||d.session_id,u);return d}
-  :made?async d=>{await memberAgent(u,made);return d}:undefined;
+  :made?async d=>{await memberAgent(u,made);return d}
+  :relayTarget!==undefined?async d=>{const id=relayJob||(d.job||d).id;if(id)await relay.setJobRelay(agent,id,relayTarget);return d}:undefined;
  if(p.startsWith('/hapi/'))return proxy(req,res,DASH,'/hapi',{'x-hermes-session-token':DASH_TOKEN},{transform,body});
  return proxy(req,res,GATE,'/gapi',{authorization:'Bearer '+API_KEY},{transform,body});
 }
@@ -235,6 +251,10 @@ const server=createServer(async(req,res)=>{
  const url=new URL(req.url,'http://x');const p=url.pathname;
  try{
   if(p==='/healthz')return send(res,200,{ok:true,build:BUILD});
+  // the "notify me" tool agents call (from this box only; each agent's address is signed)
+  const mn=/^\/mcp\/notify\/([\w-]+)\/([\w-]+)$/.exec(p);
+  if(mn){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method==='GET')return send(res,405,'POST only');
+   let msg={};try{msg=JSON.parse(await readBody(req,65536))}catch{return send(res,400,{error:'bad json'})}const out=await relay.mcp(mn[1],mn[2],msg);if(out.body==null){res.writeHead(out.status);return res.end()}return send(res,out.status,out.body)}
   // Incoming webhooks (GitHub, Stripe…) reach Hermes' webhook listener here. No sign-in: each
   // subscription checks its own secret signature, and nothing but POST /webhooks/<name> passes.
   if(/^\/webhooks\/[\w.-]{1,64}$/.test(p)&&req.method==='POST')return proxy(req,res,HOOKS,'',{});
@@ -272,7 +292,7 @@ const server=createServer(async(req,res)=>{
    // A true gateway restart (stop and start the service). The engine's own restart only reloads agents inside
    // the running process, so things read at startup (shell hooks) would not change.
    if(p==='/ui/gateway/restart'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can restart the gateway.'});
-    const {exec}=await import('node:child_process');exec('tmux kill-session -t gateway 2>/dev/null; sleep 1; ~/services.sh',{timeout:60000,shell:'/bin/bash'},()=>{});return send(res,200,{ok:true})}
+    const {exec}=await import('node:child_process');exec('tmux kill-session -t gateway 2>/dev/null; tmux kill-session -t dashboard 2>/dev/null; sleep 1; ~/services.sh',{timeout:60000,shell:'/bin/bash'},()=>{});return send(res,200,{ok:true})}
    // abilities across agents: who has what, copy to other agents, rename an MCP tool (admins, or owners of both agents)
    if(p==='/ui/share/used'&&req.method==='GET'){const kind=url.searchParams.get('kind')||'';const all=await sharing.usedBy(kind);if(!users.isAdmin(u)){for(const k of Object.keys(all))all[k]=all[k].filter(a=>users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a)===null)}return send(res,200,all)}
    if(p==='/ui/share'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const from=String(b.from||''),to=(Array.isArray(b.to)?b.to:[]).map(String);
@@ -290,6 +310,16 @@ const server=createServer(async(req,res)=>{
     const pids=out.split('\n').filter(l=>/whatsapp-bridge\/bridge\.js/.test(l)&&l.includes('--session '+dir)).map(l=>+l.trim().split(/\s+/)[0]).filter(Boolean);
     for(const pid of pids){try{process.kill(pid,'SIGTERM')}catch{}}if(pids.length)await new Promise(r=>setTimeout(r,1500));for(const pid of pids){try{process.kill(pid,'SIGKILL')}catch{}}
     const {rm}=await import('node:fs/promises');await rm(dir,{recursive:true,force:true});return send(res,200,{ok:true,stopped:pids.length})}
+   if(p==='/ui/channels/shares'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can share channels.'});
+    if(req.method==='GET'){const sh=await relay.shares();return send(res,200,{shares:sh})}
+    if(req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const v=await relay.setShare(String(b.owner||''),String(b.platform||''),b);syncNotifyTool().catch(e=>console.warn('notify tool',e.message));return send(res,200,{share:v})}}
+   if(p==='/ui/channels/recipients'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,{recipients:await relay.recipients(url.searchParams.get('owner')||'default',url.searchParams.get('platform')||'')})}
+   if(p==='/ui/channels/send'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}const from=String(b.from||b.owner||'default');
+    if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+from,'GET',new URLSearchParams(),from))return send(res,403,{error:'You can only send as an agent you use.'});
+    try{return send(res,200,await relay.sendAs(from,String(b.owner||''),String(b.platform||''),String(b.text||''),b.chat?String(b.chat):null))}catch(e){return send(res,400,{error:e.message})}}
+   if(p==='/ui/channels/for'&&req.method==='GET'){const a=url.searchParams.get('agent')||'default';if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a))return send(res,403,{error:'Not your agent'});
+    const sh=await relay.shares();return send(res,200,{channels:Object.entries(sh).filter(([k,v])=>v.senders.includes(a)).map(([k])=>{const [owner,platform]=k.split('|');return {owner,platform}})})}
+   if(p==='/ui/channels/job-relays'&&req.method==='GET')return send(res,200,await relay.jobRelays());
    if(p==='/ui/channels/move'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can move channels.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{return send(res,200,await channels.move(String(b.platform||''),String(b.from||''),String(b.to||'')))}catch(e){return send(res,400,{error:e.message})}}
    // QR codes (WhatsApp linking…): drawn here with the qrcode library that ships with the engine
    if(p==='/ui/qr'&&req.method==='GET'){const d=String(url.searchParams.get('d')||'');if(!d||d.length>2000)return send(res,400,'bad');

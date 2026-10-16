@@ -221,7 +221,7 @@ function palette(){closeLayers();scrim();const p=document.createElement('div');p
  inp.onkeydown=e=>{const L=[...list,...remote];if(e.key==='ArrowDown'){sel=Math.min(sel+1,L.length-1);paint();e.preventDefault()}if(e.key==='ArrowUp'){sel=Math.max(sel-1,0);paint();e.preventDefault()}if(e.key==='Enter'){const it=L[sel];closeLayers();it?.run()}};
  box.onclick=e=>{const b=e.target.closest('[data-i]');if(!b)return;const it=[...list,...remote][+b.dataset.i];closeLayers();it.run()};paint();inp.focus()}
 function theme(){const d=document.documentElement.classList.toggle('dark');try{localStorage.setItem('hui-theme',d?'dark':'light')}catch{};const tb=$('.topbar');if(tb)paintTop()}
-async function restartGateway(){try{await post(UI,'/ui/gateway/restart');toast('Gateway restarting… back in about 15 seconds');setTimeout(()=>refreshStatus(),16000)}catch(e){fail(e)}}
+async function restartGateway(){try{await post(UI,'/ui/gateway/restart');toast('Restarting the engine… back in about 25 seconds');setTimeout(()=>refreshStatus(),26000)}catch(e){fail(e)}}
 async function refreshStatus(){try{S.status=await H('/status');const r=route();if(!r.signin&&$('.side'))paintSide(r),paintBanner()}catch{}}
 
 /* ---------- sign-in ---------- */

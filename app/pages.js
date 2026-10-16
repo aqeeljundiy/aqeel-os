@@ -80,8 +80,11 @@ function schedulePicker(box,expr,tz){const s=parseCron(expr);if(!s.time)s.time='
 const DELIVER_LABEL={origin:'Home channel',local:'Save only (no message)'};
 async function cronDrawer(job){
  const [targets,bps,cfg]=await Promise.all([H('/cron/delivery-targets?profile='+encodeURIComponent(S.profile||'default')).catch(()=>({targets:[]})),job?{blueprints:[]}:H('/cron/blueprints?profile='+encodeURIComponent(S.profile||'default')).catch(()=>({blueprints:[]})),H('/config').catch(()=>({}))]);
- const tg=targets.targets||[];const tz=cfg.timezone||'';const myTz=Intl.DateTimeFormat().resolvedOptions().timeZone;
- const tgName=id=>id==='local'?'This app (shows under Automation, with a pop-up)':/^bot-chat/.test(id)?'Desktop app inbox ('+ident(id.split(':')[1]||'default').name+'), not this app':DELIVER_LABEL[id]||tg.find(t=>t.id===id)?.name||pretty(id);
+ const tg=targets.targets||[];
+ // shared channels this agent may send through (another agent owns and receives on them)
+ try{const sc=await UI('/ui/channels/for?agent='+encodeURIComponent(S.profile||'default'));for(const ch of sc.channels||[])tg.push({id:'relay:'+ch.owner+'|'+ch.platform,name:pretty(ch.platform)+' via '+ident(ch.owner).name+' (shared)'})}catch{}
+ try{const jr=job?await UI('/ui/channels/job-relays'):{};const t=jr[(job?.profile||S.profile||'default')+'|'+job?.id];if(t&&job)job.deliver='relay:'+t.owner+'|'+t.platform}catch{}const tz=cfg.timezone||'';const myTz=Intl.DateTimeFormat().resolvedOptions().timeZone;
+ const tgName=id=>/^relay:/.test(id)?(tg.find(t=>t.id===id)?.name||'Shared channel'):id==='local'?'This app (shows under Automation, with a pop-up)':/^bot-chat/.test(id)?'Desktop app inbox ('+ident(id.split(':')[1]||'default').name+'), not this app':DELIVER_LABEL[id]||tg.find(t=>t.id===id)?.name||pretty(id);
  const tzNote=!tz&&myTz&&myTz!=='UTC'?`<div class="tz-note">${icon('globe',15)}<span>aqeelOS runs schedules in <b>UTC</b>. Use your timezone (<b>${esc(myTz)}</b>) instead?</span><button type="button" data-act="tz-use" data-tz="${esc(myTz)}">Use ${esc(myTz.split('/').pop().replace('_',' '))}</button></div>`:'';
  const hasBp=!job&&bps.blueprints?.length;let mode='own';let bp=null;let picker=null;
  const d=drawer(job?'Edit schedule':'New schedule',`${tzNote}${hasBp?tabs('cronMode',['Write my own','From a template'],'Write my own'):''}<div id="cjBody"></div>`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="cjSave">${job?'Save changes':'Create schedule'}</button>`);

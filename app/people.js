@@ -421,3 +421,23 @@ const chState=c=>/logged out|bridge process died|bridge_exited/i.test((c.error_c
  bar.querySelector('#skSrc').onclick=()=>{const show=ta.hidden;ta.hidden=!show;lab.hidden=!show;pv.hidden=show;bar.querySelector('#skSrc').innerHTML=show?icon('eye',15)+'Show preview':icon('edit',15)+'Edit source';if(show)ta.focus()}}}
 // technical names: shown with aqeelOS, the exact name stays in the hover (it is what commands use)
 {const paint=paintExplained;paintExplained=(el,kind,sel,idOf)=>{paint(el,kind,sel,idOf);el.querySelectorAll(sel+' .realname').forEach(s=>{if(s.dataset.br||!/hermes/i.test(s.textContent))return;s.dataset.br='1';s.title='Exact name: '+s.textContent;s.textContent=s.textContent.replace(/hermes/gi,'aqeelos')})}}
+
+/* ---------- shared channels: one agent receives, the agents you pick can also send through it ---------- */
+async function channelShareDrawer(owner,platform){let sh={},rec=[],agents=[];
+ try{[sh,rec,agents]=await Promise.all([UI('/ui/channels/shares').then(r=>r.shares||{}),UI('/ui/channels/recipients?owner='+encodeURIComponent(owner)+'&platform='+platform).then(r=>r.recipients||[]),H('/profiles').then(r=>(r.profiles||[]).map(x=>x.name))])}catch(e){return fail(e)}
+ const cur=sh[owner+'|'+platform]||{senders:[],chat:''};const others=agents.filter(a=>a!==owner);
+ const d=drawer(pretty(platform)+' · who can send',`<p class="hint" style="margin:0 0 10px"><b>${esc(ident(owner).name)}</b> owns this ${esc(pretty(platform))} and receives every reply. The agents you tick can also <b>send</b> you messages through it (tagged with their name): from schedules, or with their "notify me" tool. No AI runs to pass them on.</p>
+  <label>Who can send</label>${others.map(a=>`<label class="capt"><input type="checkbox" value="${esc(a)}" ${cur.senders.includes(a)?'checked':''}>${agentAva(a)}<span>${esc(ident(a).name)}</span></label>`).join('')||'<p class="hint">There are no other agents yet.</p>'}
+  <label>Sends to</label><select id="csTo">${rec.length?rec.map(p=>`<option value="${esc(p.id)}" ${p.id===cur.chat?'selected':''}>${esc(p.name)} (${esc(p.id)})</option>`).join(''):'<option value="">Nobody approved yet</option>'}</select>
+  <p class="hint" style="margin:4px 0 0">People approved under Automations › Pairing for this channel.</p>
+  <div style="display:flex;gap:8px;margin-top:16px"><button id="csTest">${icon('send',15)}Send a test message</button></div>`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="csGo">Save</button>`);
+ const vals=()=>({owner,platform,senders:[...d.querySelectorAll('input[type=checkbox]:checked')].map(i=>i.value),chat:$('#csTo').value});
+ d.querySelector('#csGo').onclick=async()=>{try{await put(UI,'/ui/channels/shares',vals());closeLayers();toast('Saved. Those agents get a "notify me" tool within a minute and can pick this channel in schedules.');reload()}catch(e){fail(e)}};
+ d.querySelector('#csTest').onclick=async()=>{const b=d.querySelector('#csTest');b.disabled=true;const v=vals();const from=v.senders[0]||owner;
+  try{await put(UI,'/ui/channels/shares',v);await post(UI,'/ui/channels/send',{from,owner,platform,chat:v.chat,text:'Test from aqeelOS: sending through this channel works.'});toast('Sent as '+ident(from).name+'. Check your '+pretty(platform)+'.')}catch(e){fail(e)}finally{b.disabled=false}}}
+ACT['ch-share']=a=>channelShareDrawer(a.dataset.owner,a.dataset.platform);
+{const base=PAGES.channels;PAGES.channels=async(p,el)=>{await base(p,el);if(S.me?.admin===false)return;let sh={};try{sh=(await UI('/ui/channels/shares')).shares||{}}catch{}
+ el.querySelectorAll('[data-chmove][data-from]').forEach(s=>{const row=s.closest('.row');const act=row?.querySelector('.act');if(!act||act.querySelector('[data-act="ch-share"]'))return;
+  const owner=s.dataset.from,platform=s.dataset.chmove;const cur=sh[owner+'|'+platform];const n=cur?.senders?.length||0;
+  const b=document.createElement('button');b.className='ghost';b.dataset.act='ch-share';b.dataset.owner=owner;b.dataset.platform=platform;b.innerHTML=icon('user',15)+(n?'Senders · '+n:'Who can send');act.prepend(b);
+  const t=row.querySelector('.txt b');if(t&&n&&!t.querySelector('.access'))t.insertAdjacentHTML('beforeend',' '+accessChip('Shared · '+(n+1)+' can send',ident(owner).name+' receives. Also sends: '+cur.senders.map(a=>ident(a).name).join(', '),'shared'))})}}
