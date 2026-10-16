@@ -159,9 +159,15 @@ async function syncNotifyTool(){const sh=await relay.shares();const senders=new 
    message them on. Kept in a marked section of AGENTS.md in the agent's own folder (~/workspaces/<agent>),
    which the engine reads with every chat; anything outside the section is left alone. */
 async function displayName(a){const y=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'profile.yaml'),'utf8').catch(()=>'');return (/^display_name:\s*"?([^"\n]+)"?/m.exec(y)||[])[1]?.trim()||(a==='default'?'aqeelOS':a)}
+/* The engine tells models that chats from an app are plain text ("no markdown"), so replies came out as flat
+   paragraphs although aqeelOS shows formatting. Each agent gets the engine's own override with the truth. */
+const CHAT_HINT="You're replying in aqeelOS, a chat app that shows Markdown. Format for easy reading: short answers stay short and conversational; longer ones use short headings, bullet or numbered lists, **bold** for key words, tables for comparisons, and code blocks for code or commands. While working, keep progress notes to one short line each and lead the final answer with the result. File/media delivery: images referenced as MEDIA:/absolute/path tags (.png/.jpg/.jpeg/.gif/.webp/.bmp, up to 5MB) are shown inline in the chat. Non-image files are not shown inline, so state the plain file path instead of a MEDIA: tag.";
+async function ensureChatHint(a){const cfgFile=path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml');const y=await readFile(cfgFile,'utf8').catch(()=>'');
+ if(y.includes('aqeelOS, a chat app that shows Markdown'))return;const {execFile}=await import('node:child_process');
+ await new Promise(res=>execFile(path.join(homedir(),'.local','bin','hermes'),['-p',a,'config','set','agent.platform_hints.api_server',JSON.stringify({replace:CHAT_HINT}),'--force'],{timeout:60000},()=>res()))}
 async function writeAgentContext(){const all=await listAgents();const names={};for(const a of all)names[a]=NAMES[a]=await displayName(a);
  const ads=[];for(const a of all)if(await screens.shared(a).catch(()=>false))ads.push(a);
- for(const a of all){try{const me=names[a],adsNames=ads.map(x=>names[x]+"'s screen").join(' / ')||'the AdsPower screen';
+ for(const a of all){await ensureChatHint(a).catch(e=>console.warn('chat hint',a,e.message));try{const me=names[a],adsNames=ads.map(x=>names[x]+"'s screen").join(' / ')||'the AdsPower screen';
   const own=ads.includes(a)?`You browse through AdsPower, so your browser shows on the shared AdsPower screen, listed as "${me}'s screen".`:`Your own screen is "${me}'s screen". Your browser tool opens pages there; it starts by itself when you browse.`;
   const others=all.filter(x=>x!==a&&!ads.includes(x)).map(x=>'"'+names[x]+"'s screen\"").join(', ');
   const ch=await relay.channelsFor(a).catch(()=>[]);

@@ -50,16 +50,39 @@ const srcIcon=s=>({telegram:'telegram',whatsapp:'whatsapp',cron:'cron',api_serve
 // Small, safe Markdown: paragraphs, lists, headings, bold, italics, inline code, fenced code, links, tables, quotes.
 function md(src){
  const out=[];const lines=String(src||'').replace(/\r/g,'').split('\n');let i=0;
- const inline=t=>esc(t).replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>').replace(/(^|[^*])\*([^*\s][^*]*)\*/g,'$1<i>$2</i>').replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>').replace(/(^|\s)(https?:\/\/[^\s<]+)/g,'$1<a href="$2" target="_blank" rel="noopener">$2</a>');
+ // inline: code and images are lifted out first so nothing inside them gets rewritten
+ const inline=t=>{const keep=[];const put=h=>'\u0000'+(keep.push(h)-1)+'\u0000';
+  t=t.replace(/`([^`]+)`/g,(m,c)=>put('<code>'+esc(c)+'</code>'))
+   .replace(/!\[([^\]]*)\]\(((?:data:image\/[a-z+.-]+;base64,[A-Za-z0-9+/=]+)|(?:https?:\/\/[^)\s]+))\)/g,(m,alt,u)=>put(`<img class="md-img" src="${esc(u)}" alt="${esc(alt)}" loading="lazy">`));
+  t=esc(t).replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>').replace(/__([^_]+)__/g,'<b>$1</b>').replace(/(^|[^*\w])\*([^*\s][^*]*)\*/g,'$1<i>$2</i>').replace(/~~([^~]+)~~/g,'<s>$1</s>')
+   .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>').replace(/(^|\s)(https?:\/\/[^\s<]+)/g,'$1<a href="$2" target="_blank" rel="noopener">$2</a>');
+  return t.replace(/\u0000(\d+)\u0000/g,(m,n)=>keep[+n])};
+ const isItem=l=>/^\s*(?:[-*+]|\d+[.)])\s+/.test(l),indent=l=>l.match(/^\s*/)[0].replace(/\t/g,'  ').length;
+ // a list block, nested by indentation; indented lines under an item continue it
+ const list=()=>{const root={kids:[]};const stack=[{ind:-1,node:root,ordered:null}];
+  while(i<lines.length){const l=lines[i];
+   if(/^\s*$/.test(l)){const nx=lines[i+1]||'';
+    // a blank line then a different kind of list (numbers → bullets) starts a new list
+    if(isItem(nx)&&indent(nx)===0&&root.kids.length&&/^\s*\d/.test(nx)!==root.kids[0].ordered)break;
+    if(isItem(nx)||(indent(nx)>=2&&stack.length>1)){i++;continue}break}
+   if(isItem(l)){const ind=indent(l),ordered=/^\s*\d/.test(l);while(stack.length>1&&ind<=stack[stack.length-1].ind)stack.pop();
+    const parent=stack[stack.length-1].node;const item={text:[l.replace(/^\s*(?:[-*+]|\d+[.)])\s+/,'')],kids:[],ordered,task:null};
+    const m=/^\[( |x|X)\]\s+/.exec(item.text[0]);if(m){item.task=m[1]!==' ';item.text[0]=item.text[0].slice(m[0].length)}
+    parent.kids.push(item);stack.push({ind,node:item});i++;continue}
+   if(indent(l)>=2&&stack.length>1){stack[stack.length-1].node.text.push(l.trim());i++;continue}
+   break}
+  const html=kids=>{if(!kids.length)return '';const tag=kids[0].ordered?'ol':'ul';
+   return `<${tag}>${kids.map(k=>`<li${k.task!==null?' class="task"':''}>${k.task!==null?`<span class="tick ${k.task?'on':''}">${k.task?'✓':''}</span>`:''}${k.text.map(inline).join('<br>')}${html(k.kids)}</li>`).join('')}</${tag}>`};
+  return html(root.kids)};
  while(i<lines.length){const l=lines[i];
-  if(/^```/.test(l)){const lang=l.slice(3).trim();const buf=[];i++;while(i<lines.length&&!/^```/.test(lines[i]))buf.push(lines[i++]);i++;out.push(`<div class="codeblock"><div class="cb-head"><span>${esc(lang||'code')}</span><button data-act="copycode">${icon('copy',13)}Copy</button></div><pre>${esc(buf.join('\n'))}</pre></div>`);continue}
+  if(/^\s*```/.test(l)){const lang=l.trim().slice(3).trim();const buf=[];i++;while(i<lines.length&&!/^\s*```/.test(lines[i]))buf.push(lines[i++]);i++;out.push(`<div class="codeblock"><div class="cb-head"><span>${esc(lang||'code')}</span><button data-act="copycode">${icon('copy',13)}Copy</button></div><pre>${esc(buf.join('\n'))}</pre></div>`);continue}
   if(/^\s*$/.test(l)){i++;continue}
-  if(/^#{1,3} /.test(l)){out.push(`<h3>${inline(l.replace(/^#+ /,''))}</h3>`);i++;continue}
-  if(/^\s*[-*] /.test(l)){const it=[];while(i<lines.length&&/^\s*[-*] /.test(lines[i]))it.push('<li>'+inline(lines[i++].replace(/^\s*[-*] /,''))+'</li>');out.push('<ul>'+it.join('')+'</ul>');continue}
-  if(/^\s*\d+[.)] /.test(l)){const it=[];while(i<lines.length&&/^\s*\d+[.)] /.test(lines[i]))it.push('<li>'+inline(lines[i++].replace(/^\s*\d+[.)] /,''))+'</li>');out.push('<ol>'+it.join('')+'</ol>');continue}
-  if(/^\|.*\|\s*$/.test(l)&&/^\|[\s:|-]+\|\s*$/.test(lines[i+1]||'')){const row=r=>r.trim().replace(/^\||\|$/g,'').split('|').map(c=>c.trim());const head=row(l);i+=2;const body=[];while(i<lines.length&&/^\|.*\|\s*$/.test(lines[i]))body.push(row(lines[i++]));out.push(`<table><thead><tr>${head.map(h=>`<th>${inline(h)}</th>`).join('')}</tr></thead><tbody>${body.map(r=>`<tr>${r.map(c=>`<td>${inline(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`);continue}
-  if(/^> /.test(l)){const b=[];while(i<lines.length&&/^> /.test(lines[i]))b.push(inline(lines[i++].slice(2)));out.push('<blockquote>'+b.join('<br>')+'</blockquote>');continue}
-  const p=[];while(i<lines.length&&!/^\s*$/.test(lines[i])&&!/^```|^#{1,3} |^\s*[-*] |^\s*\d+[.)] |^> /.test(lines[i]))p.push(inline(lines[i++]));out.push('<p>'+p.join('<br>')+'</p>');
+  if(/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(l)){out.push('<hr>');i++;continue}
+  const h=/^(#{1,6})\s+(.*)$/.exec(l);if(h){out.push(h[1].length<=2?`<h3>${inline(h[2])}</h3>`:`<h4>${inline(h[2])}</h4>`);i++;continue}
+  if(isItem(l)){out.push(list());continue}
+  if(/^\|.*\|\s*$/.test(l)&&/^\|[\s:|-]+\|\s*$/.test(lines[i+1]||'')){const row=r=>r.trim().replace(/^\||\|$/g,'').split('|').map(c=>c.trim());const head=row(l);i+=2;const body=[];while(i<lines.length&&/^\|.*\|\s*$/.test(lines[i]))body.push(row(lines[i++]));out.push(`<div class="table-wrap"><table><thead><tr>${head.map(h=>`<th>${inline(h)}</th>`).join('')}</tr></thead><tbody>${body.map(r=>`<tr>${r.map(c=>`<td>${inline(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`);continue}
+  if(/^>\s?/.test(l)){const b=[];while(i<lines.length&&/^>\s?/.test(lines[i]))b.push(lines[i++].replace(/^>\s?/,''));out.push('<blockquote>'+md(b.join('\n'))+'</blockquote>');continue}
+  const p=[];while(i<lines.length&&!/^\s*$/.test(lines[i])&&!/^\s*```|^#{1,6}\s|^>\s?|^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(lines[i])&&!(isItem(lines[i])&&p.length===0)&&!(isItem(lines[i])))p.push(inline(lines[i++]));out.push('<p>'+p.join('<br>')+'</p>');
  }
  return out.join('');
 }
