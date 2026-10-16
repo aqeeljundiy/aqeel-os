@@ -801,3 +801,23 @@ input[type=checkbox]:not(.switch)::after{margin:auto}
 .md .md-img{display:block;max-width:min(100%,560px);height:auto;border-radius:var(--r-md);border:1px solid var(--border);margin:8px 0}
 .md .table-wrap{overflow-x:auto;margin:6px 0 14px}.md .table-wrap table{margin:0}
 .thread.settled .msg,.thread.settled .step,.thread.settled .approval{animation:none}
+/* lean steps: slim rows like a log, not cards */
+.steps{gap:1px;margin:0 0 12px}
+.step{border:0;background:transparent;border-radius:8px;animation:none}
+.step-head{min-height:30px;padding:4px 8px;gap:8px;font-size:13px;border-radius:8px;color:var(--ink-2)}
+.step-head:hover{background:var(--soft)}
+.step-head .si{width:18px;height:18px;background:transparent;border-radius:0;color:var(--muted)}
+.step-head .sum b{font-weight:600;color:var(--ink)}
+.step-head .sum .sub-t{color:var(--muted)}
+.step-head .sum code{font-size:12px;background:transparent;padding:0}
+.step-head .state{font-size:11.5px}
+.step.open{background:var(--soft-2)}
+.step-body pre{border-top:0;padding:4px 12px 10px 34px;font-size:12px}
+.steps-fold>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:6px;min-height:30px;padding:4px 8px;border-radius:8px;font-size:13px;color:var(--muted);user-select:none}
+.steps-fold>summary::-webkit-details-marker{display:none}
+.steps-fold>summary:hover{background:var(--soft);color:var(--ink-2)}
+.steps-fold>summary svg{transition:transform var(--t-med) var(--ease)}
+.steps-fold[open]>summary svg{transform:rotate(90deg)}
+.steps-fold[open]{padding-bottom:2px}
+.steps-fold .step{margin-left:14px}
+.bad-t{color:var(--bad)}

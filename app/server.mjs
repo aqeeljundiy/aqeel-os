@@ -3,7 +3,7 @@
 // Hermes credentials stay on this server; the browser only ever holds a session cookie.
 // No dependencies. Run: node app/server.mjs (configuration via environment, see README).
 import {createServer,request as httpRequest} from 'node:http';
-import {readFile,stat,writeFile,mkdir,unlink,rename} from 'node:fs/promises';
+import {readFile,stat,writeFile,mkdir,unlink,rename,realpath} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {createAccounts,setupAgentFn} from './accounts.mjs';
 import {createScreens} from './screens.mjs';
@@ -366,6 +366,12 @@ const server=createServer(async(req,res)=>{
      if(req.method==='DELETE'){const l=(await links.list()).find(x=>x.name===b.name&&x.agent===ag);if(!l)throw new Error('Unknown connection.');await links.remove(l.name);return send(res,200,{ok:true})}
      if(req.method==='PUT'){const l=(await links.list()).find(x=>x.name===b.name&&x.agent===ag);if(!l)throw new Error('Unknown connection.');return send(res,200,await links.rename(l.name,b.label))}}
     catch(e){return send(res,400,{error:e.message})}}
+   // pictures agents make (MEDIA:/…/cache/generated/…): served to signed-in people, nothing outside those folders
+   if(p==='/ui/media'&&req.method==='GET'){const want=String(url.searchParams.get('path')||'');const ext=(/\.(png|jpe?g|gif|webp|bmp)$/i.exec(want)||[])[1];
+    let real='';try{real=await realpath(want)}catch{}
+    const okDir=real&&(real.startsWith(HERMES_HOME+'/')||real.startsWith(path.join(homedir(),'workspaces')+'/'))&&/\/cache\/generated\/|\/workspaces\//.test(real);
+    if(!ext||!okDir)return send(res,404,{error:'Not found'});
+    try{const buf=await readFile(real);res.writeHead(200,{'content-type':'image/'+(ext.toLowerCase()==='jpg'?'jpeg':ext.toLowerCase()),'cache-control':'private, max-age=86400',...security});return res.end(buf)}catch{return send(res,404,{error:'Not found'})}}
    if(p==='/ui/box'&&req.method==='GET')return send(res,200,await boxMemory());
    if(p==='/ui/live'&&req.method==='GET'){const rec=LIVE.get((url.searchParams.get('agent')||'default')+'|'+(url.searchParams.get('session')||''));
     if(!rec||rec.done||rec.user!==u.id)return send(res,url.searchParams.has('peek')?200:204,url.searchParams.has('peek')?{live:false}:'');

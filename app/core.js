@@ -49,11 +49,13 @@ const srcIcon=s=>({telegram:'telegram',whatsapp:'whatsapp',cron:'cron',api_serve
 
 // Small, safe Markdown: paragraphs, lists, headings, bold, italics, inline code, fenced code, links, tables, quotes.
 function md(src){
+ // MEDIA:/path/picture.png (how agents hand over pictures they made) shows the picture itself
+ src=String(src||'').replace(/(^|\s)MEDIA:\s*(\/[^\s)]+\.(?:png|jpe?g|gif|webp|bmp))/gi,(m,pre,p)=>pre+'![image](/ui/media?path='+encodeURIComponent(p)+')');
  const out=[];const lines=String(src||'').replace(/\r/g,'').split('\n');let i=0;
  // inline: code and images are lifted out first so nothing inside them gets rewritten
  const inline=t=>{const keep=[];const put=h=>'\u0000'+(keep.push(h)-1)+'\u0000';
   t=t.replace(/`([^`]+)`/g,(m,c)=>put('<code>'+esc(c)+'</code>'))
-   .replace(/!\[([^\]]*)\]\(((?:data:image\/[a-z+.-]+;base64,[A-Za-z0-9+/=]+)|(?:https?:\/\/[^)\s]+))\)/g,(m,alt,u)=>put(`<img class="md-img" src="${esc(u)}" alt="${esc(alt)}" loading="lazy">`));
+   .replace(/!\[([^\]]*)\]\(((?:data:image\/[a-z+.-]+;base64,[A-Za-z0-9+/=]+)|(?:https?:\/\/[^)\s]+)|(?:\/ui\/media\?path=[^)\s]+))\)/g,(m,alt,u)=>put(`<img class="md-img" src="${esc(u)}" alt="${esc(alt)}" loading="lazy">`));
   t=esc(t).replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>').replace(/__([^_]+)__/g,'<b>$1</b>').replace(/(^|[^*\w])\*([^*\s][^*]*)\*/g,'$1<i>$2</i>').replace(/~~([^~]+)~~/g,'<s>$1</s>')
    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>').replace(/(^|\s)(https?:\/\/[^\s<]+)/g,'$1<a href="$2" target="_blank" rel="noopener">$2</a>');
   return t.replace(/\u0000(\d+)\u0000/g,(m,n)=>keep[+n])};

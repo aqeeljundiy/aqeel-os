@@ -129,10 +129,16 @@ const Chat={
   // jump, never glide: the chat area scrolls smoothly for people, but placing the view must be instant
   if((follow&&atBottom||opening)&&sc){sc.style.scrollBehavior='auto';sc.scrollTop=sc.scrollHeight;if(opening)requestAnimationFrame(()=>{sc.scrollTop=sc.scrollHeight;requestAnimationFrame(()=>{sc.scrollTop=sc.scrollHeight;sc.style.scrollBehavior=''})});else sc.style.scrollBehavior=''}},
  turnHtml(t,i,s){
-  if(t.role==='user')return `<div class="msg user ${t.steer?'steer':''}">${this.userHtml(t.text)}${t.steer?`<span class="attach">${icon(t.steer==='failed'?'alert':'zap',12)} ${t.steer==='failed'?esc(t.err||'Not delivered'):t.steer==='delivered'?'Read while working':'Sent while working'}</span>`:''}${t.images?`<span class="attach">${icon('clip',12)} ${plural(t.images,'image')}</span>`:''}</div>`;
+  if(t.role==='user')return `<div class="msg user ${t.steer?'steer':''}">${this.userHtml(t.text)}${t.steer?`<span class="attach">${icon(t.steer==='failed'?'alert':'zap',12)} ${t.steer==='failed'?esc(t.err||'Not delivered'):t.steer==='delivered'?'Read by '+esc(AGENT()):t.steer==='sending'?'Sending…':'Waiting: '+esc(AGENT())+' reads it after its current step'}</span>`:''}${t.images?`<span class="attach">${icon('clip',12)} ${plural(t.images,'image')}</span>`:''}</div>`;
   const last=i===s.turns.length-1;if(!last&&!t.text&&!(t.steps||[]).length&&!t.think&&!t.approval&&!t.error)return '';
   const think=t.think?`<button class="think" data-act="think">${icon('brain',15)}${s.running&&last&&!t.text?'Thinking…':'Thought'}${t.thinkSecs?' for '+t.thinkSecs+' s':''}${icon('chevR',14)}</button><div class="think-body" hidden>${esc(t.think)}</div>`:'';
-  const steps=t.steps?.length?`<div class="steps">${t.steps.map((x,k)=>this.stepHtml(x,i+'-'+k)).join('')}</div>`:'';
+  // steps stay lean: slim rows; a longer run folds into one line ("Ran 6 steps"), the latest two stay in view while working
+  const stp=t.steps||[],live=s.running&&last,fold=live?stp.length>3:stp.length>2;
+  const rows=(list,off)=>list.map((x,k)=>this.stepHtml(x,i+'-'+(k+off))).join('');
+  const failed=stp.filter(x=>x.failed).length;
+  const steps=!stp.length?'':!fold?`<div class="steps">${rows(stp,0)}</div>`:live
+   ?`<div class="steps"><details class="steps-fold" data-f="${i}" ${this._folds?.has(i+'')?'open':''}><summary>${icon('chevR',13)}${plural(stp.length-2,'earlier step')}</summary>${rows(stp.slice(0,-2),0)}</details>${rows(stp.slice(-2),stp.length-2)}</div>`
+   :`<div class="steps"><details class="steps-fold" data-f="${i}" ${this._folds?.has(i+'')?'open':''}><summary>${icon('chevR',13)}Ran ${plural(stp.length,'step')}${failed?` · <span class="bad-t">${failed} failed</span>`:''}</summary>${rows(stp,0)}</details></div>`;
   const appr=t.approval?this.approvalHtml(t.approval):'';
   const typing=s.running&&last&&!t.text&&!t.approval&&!(t.steps||[]).some(x=>!x.done);
   const text=t.text?`<div class="text md ${s.running&&last?'streaming':''}">${md(t.text)}</div>`:typing?'<div class="text"><span class="typing"><i></i><i></i><i></i></span></div>':'';
@@ -141,7 +147,11 @@ const Chat={
   return `<div class="msg ai"><span class="who">${avatarImg(16)}</span><div class="body">${think}${steps}${appr}${text}${err}${tools}</div></div>`},
  stepHtml(x,k){const ic={terminal:'terminal',web_search:'globe',web_extract:'globe',browser_navigate:'globe',read_file:'file',write_file:'file',patch:'edit',search_files:'search'}[x.tool]||(/browser|web/.test(x.tool)?'globe':/file|patch/.test(x.tool)?'file':'terminal');
   const state=!x.done?'<span class="spinner"></span>Running':x.failed?`<span style="color:var(--bad)">${icon('x',14)}</span>Failed`:`<span class="ok-ic">${icon('check',14)}</span>${x.secs?x.secs+' s':'Done'}`;
-  const sum=x.tool==='terminal'?`<code>${esc(x.sum)}</code>`:`<b style="font-weight:600">${esc(x.tool.replace(/_/g,' '))}</b> ${esc(x.sum&&x.sum!==x.tool?x.sum:'')}`;
+  // tools reached through the lookup step ("tool call") show the real tool and what it was asked
+  let tool=x.tool,sumText=x.sum&&x.sum!==x.tool?x.sum:'';const a=x.args||{};
+  if(/^(tool_call|call_tool|use_tool)$/.test(tool)){const inner=a.name||a.tool||a.tool_name||a.function;if(inner){tool=String(inner).replace(/^mcp__/,'').replace(/__/g,' · ');const ia=a.arguments||a.args||a.input||{};const v=typeof ia==='string'?ia:(ia.prompt||ia.query||ia.url||ia.text||ia.path||ia.command||'');sumText=String(v).slice(0,140)}}
+  else if(/^(tool_describe|tool_search)$/.test(tool)){tool='looked up tools';const q=a.names||a.queries||a.query;sumText=Array.isArray(q)?q.join(', '):String(q||'')}
+  const sum=x.tool==='terminal'?`<code>${esc(x.sum)}</code>`:`<b>${esc(String(tool).replace(/_/g,' '))}</b> <span class="sub-t">${esc(sumText)}</span>`;
   const detail=[x.args&&Object.keys(x.args).length?JSON.stringify(x.args,null,2):'',x.out].filter(Boolean).join('\n\n— output —\n');
   return `<div class="step" data-k="${k}"><button class="step-head" data-act="step"><span class="si">${icon(ic,14)}</span><span class="sum">${sum}</span><span class="state">${state}</span><span class="chev">${icon('chevR',14)}</span></button><div class="step-body"><div><pre>${esc(detail.slice(0,20000)||'(no output)')}</pre></div></div></div>`},
  approvalHtml(a){if(a.resolved)return `<div class="steps"><div class="step"><div class="step-head"><span class="si">${icon(a.resolved==='deny'?'x':'check',14)}</span><span class="sum">${a.resolved==='deny'?'Denied':'Approved'}${a.command?': <code>'+esc(a.command)+'</code>':''}</span></div></div></div>`;
@@ -261,3 +271,5 @@ async function deleteSession(id){const c=S.sessions.find(x=>x.id===id);if(!await
  try{await del(H,'/sessions/'+encodeURIComponent(id));S.sessions=S.sessions.filter(x=>x.id!==id);delete Chat.live[id];toast('Chat deleted');if(route().chat===id)go('/chat');else paintSide()}catch(e){fail(e)}}
 
 Chat.watchLive();
+// remember which folded step runs are open, so a repaint keeps them open
+document.addEventListener('toggle',e=>{const d=e.target;if(!d?.matches?.('details.steps-fold'))return;(Chat._folds??=new Set())[d.open?'add':'delete'](d.dataset.f)},true);
