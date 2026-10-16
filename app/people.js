@@ -499,3 +499,29 @@ const IMG_FRIENDLY={'OpenAI (Codex auth)':'ChatGPT, with your sign-in (GPT Image
  panel.innerHTML=`<h2>Images</h2><p class="sub">Who makes pictures when you ask any agent for one, whatever chat model it uses.</p><div class="row" style="padding:12px 0 0;border:0"><div class="main-c"><span class="ic blue">${icon('sparkle',16)}</span><div class="txt"><b class="img-now"><span class="skel" style="display:inline-block;width:180px;height:14px"></span></b><span>Images show right in the chat.</span></div></div><div class="act"><button data-act="ts-setup" data-name="image_gen">${icon('sliders',15)}Change</button></div></div>`;
  const anchor=[...el.querySelectorAll('.panel h2')].find(h=>/Helper models/.test(h.textContent))?.closest('.panel');(anchor||el.querySelector('.panel'))?.after(panel);
  const cfg=await pc;const now=(cfg?.providers||[]).find(x=>x.is_active);const b=panel.querySelector('.img-now');if(b)b.textContent=now?(IMG_FRIENDLY[now.name]||now.name):'Not set up yet';}}
+
+/* ---------- MCP sign-in (OAuth). Sign-ins come back to this site; a service without automatic app
+   registration (Slack, Google…) first needs its own app's Client ID and Secret, asked for here. ---------- */
+const OAUTH_APP_HELP={slack:['Slack','https://api.slack.com/apps','Create New App › From scratch. Under OAuth & Permissions add the Redirect URL below and the scopes the Slack MCP needs, then copy the Client ID and Client Secret from Basic Information.'],
+ google:['Google','https://console.cloud.google.com/apis/credentials','Create an OAuth client (Web application) and add the Redirect URL below as an authorised redirect URI.'],
+ github:['GitHub','https://github.com/settings/developers','New OAuth App, with the Redirect URL below as the callback URL.']};
+async function mcpClientDrawer(name,reason){const agent=S.profile||'default';let redirect='';try{redirect=(await UI('/ui/mcp/oauth-redirect?name='+encodeURIComponent(name))).redirect}catch{}
+ const key=Object.keys(OAUTH_APP_HELP).find(k=>name.toLowerCase().includes(k));const [who,link,how]=OAUTH_APP_HELP[key]||[pretty(name),'','Create an OAuth app with this service, add the Redirect URL below to it, then paste its Client ID and Secret.'];
+ const d=drawer('Connect '+pretty(name),`<p class="hint" style="margin:0 0 10px">${esc(who)} does not let apps register themselves, so it needs an app of your own (one time). ${esc(how)}${link?` <a href="${esc(link)}" target="_blank" rel="noopener">Open ${esc(who)}’s app page</a>`:''}</p>
+  <label>Redirect URL (paste into ${esc(who)})</label><div style="display:flex;gap:8px"><input id="ocRedir" readonly value="${esc(redirect)}"><button class="ghost" id="ocCopy">${icon('copy',15)}Copy</button></div>
+  <label>Client ID</label><input id="ocId" autocomplete="off"><label>Client Secret</label><input id="ocSecret" type="password" autocomplete="new-password">
+  ${reason?`<p class="hint" style="margin-top:12px">Engine said: ${esc(reason.split('\n')[0])}</p>`:''}`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="ocGo">Save and sign in</button>`);
+ d.querySelector('#ocCopy').onclick=()=>{navigator.clipboard?.writeText(redirect);toast('Copied')};
+ d.querySelector('#ocGo').onclick=async()=>{try{await post(UI,'/ui/mcp/oauth-client',{agent,name,client_id:$('#ocId').value,client_secret:$('#ocSecret').value});closeLayers();await new Promise(r=>setTimeout(r,2500));ACT['mcp-auth']({dataset:{name}})}catch(e){fail(e)}}}
+ACT['mcp-auth']=async a=>{const name=a.dataset.name,agent=S.profile||'default';
+ // a tab opened right away (popup blockers allow it only now); it is pointed at the sign-in page once known
+ const win=window.open('about:blank','_blank');
+ try{await post(UI,'/ui/mcp/prepare-signin',{agent,name});const f=await post(H,'/mcp/servers/'+encodeURIComponent(name)+'/auth');const url=f.authorization_url||f.auth_url||f.url;
+  if(!url){win?.close();const err=f.error||'';if(/client registration|client_id|client id/i.test(err))return mcpClientDrawer(name,err);return fail(new Error(err||'The service did not offer a sign-in.'))}
+  if(win)win.location=url;else window.open(url,'_blank','noopener');
+  const d=drawer('Sign in to '+pretty(name),`<p style="color:var(--ink-2);margin:0 0 12px">Finish signing in in the tab that opened, then come back here.</p><p><a href="${esc(url)}" target="_blank" rel="noopener">Open the sign-in page again</a></p><p class="hint" id="mcpSt">Waiting for you to sign in…</p>`);
+  const id=f.flow_id;for(let i=0;i<150&&d.isConnected&&id;i++){await new Promise(r=>setTimeout(r,2000));let s;try{s=await H('/mcp/oauth/flows/'+encodeURIComponent(id))}catch{break}
+   const st=s.status||'';d.querySelector('#mcpSt').textContent=/authorization_required|pending/.test(st)?'Waiting for you to sign in…':'Status: '+pretty(st);
+   if(/complete|success|done|connected|authorized/.test(st)){closeLayers();toast('Signed in to '+pretty(name)+(s.tools?.length?' · '+s.tools.length+' tools':''));reload();return}
+   if(/error|fail|expired|cancel/.test(st)){d.querySelector('#mcpSt').textContent='Did not finish: '+(s.error||st);return}}}
+ catch(e){win?.close();fail(e)}};

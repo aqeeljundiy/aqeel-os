@@ -56,5 +56,10 @@ export function createShare({DASH,TOKEN,HERMES_HOME,listAgents}){
    if(await stat(dst).then(()=>true,()=>false))throw new Error(to+' already exists.');await cp(src,dst,{recursive:true});
    const md=path.join(dst,'SKILL.md');let t=await readFile(md,'utf8');t=t.replace(/^(---[\s\S]*?\nname:\s*)(.+)$/m,(m,a)=>a+to);await writeFile(md,t);return {ok:true,name:to}}
   throw new Error('Only MCP tools and skills can be duplicated. A plugin runs once per agent.')}
- return {usedBy,share,renameMcp,python,duplicate};
+ // sign-ins return to the public site (set per tool, so the engine's own public-URL setting and its login gate stay off)
+ async function prepareSignin(agent,name,redirect,client){if(!NAME.test(name))throw new Error('Bad name');const b=await mcpBlock(agent,name);if(!b?.url)throw new Error('Only tools with an address sign in this way.');
+  const o={...(b.oauth||{}),redirect_uri:redirect};if(client?.id)o.client_id=client.id;if(client?.secret)o.client_secret=client.secret;
+  if(b.auth==='oauth'&&JSON.stringify(b.oauth||{})===JSON.stringify(o))return {ok:true,changed:false};b.auth='oauth';b.oauth=o;await setMcp(agent,name,b);return {ok:true,changed:true}}
+ async function setOauthClient(agent,name,id,secret,redirect){if(!id)throw new Error('Paste the Client ID.');return prepareSignin(agent,name,redirect,{id,secret})}
+ return {usedBy,share,renameMcp,python,duplicate,setOauthClient,prepareSignin};
 }
