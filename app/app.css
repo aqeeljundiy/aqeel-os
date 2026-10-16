@@ -691,3 +691,19 @@ button.small{min-height:32px;padding:0 14px;font-size:13px;gap:6px}
 .realname{font-weight:400;color:var(--muted);font-size:11.5px;margin-left:4px}
 .mi-sub{display:block;font-size:11.5px;color:var(--muted);font-weight:400;line-height:1.35;margin-top:1px;white-space:normal}
 .menu .item .t{min-width:0}
+.role-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-top:6px}
+.role-card{display:flex;flex-direction:column;align-items:flex-start;gap:4px;text-align:left;padding:14px 16px;border-radius:18px;min-height:0;background:var(--soft-2);border:1px solid var(--border);box-shadow:none;animation:rise var(--t-med) var(--ease) both}
+.role-card:hover{border-color:var(--blue-2);transform:translateY(-1px)}.role-card b{font-size:14px}.role-card span{font-size:12.5px;color:var(--ink-2);font-weight:400}.role-card small{font-size:11.5px;color:var(--muted)}
+
+/* ---------- smoothness ---------- */
+/* refreshing the page you are on: content swaps in place, nothing re-animates */
+#pg.soft *,#pg.soft{animation:none!important}
+/* labels inside panels breathe like the ones in drawers */
+.panel label:not(.capt):not(.pick):not(.switch):not([class*="toggle"]){display:block;font-size:13px;font-weight:500;color:var(--ink-2);margin:16px 0 6px}
+.panel .sub+label,.panel h2+label,.panel>div>label:first-child{margin-top:4px}
+.panel .sched-row{gap:12px}
+/* pressing things feels physical */
+button:active:not(:disabled){transform:scale(.98)}
+.card.tile,.role-card,.pri-row,.kcard{will-change:transform}
+/* empty chat sits under the same soft sky as the other empty states */
+.chat-scroll:has(.chat-empty){background:radial-gradient(70% 420px at 50% 0%,var(--sky-1),transparent 75%)}

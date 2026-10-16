@@ -119,7 +119,11 @@ function render(){
  paintSide(r);paintTop(r);paintBanner();if(typeof Screen!=='undefined')Screen.paint();
  const v=$('#view');v.classList.remove('enter');void v.offsetWidth;v.classList.add('enter');
  if(r.chat!==undefined)Chat.view(v,r.chat);
- else{const P=PAGES[r.page.id];v.innerHTML=`<div class="page">${head(r.page)}<div id="pg">${skeleton()}</div></div>`;if(P)Promise.resolve(P(r.page,$('#pg'),r)).catch(e=>showError($('#pg'),e))}
+ else{const P=PAGES[r.page.id];const key=r.sec.id+'/'+r.page.id+'/'+(r.arg||[]).join('/');
+  // Same page again (after a save, a toggle…): update in place. No skeleton flash, no replayed entrance animations.
+  const same=S._pageKey===key&&$('#pg');S._pageKey=key;
+  if(same){const pg=$('#pg');pg.classList.add('soft');if(P)Promise.resolve(P(r.page,pg,r)).catch(e=>showError(pg,e)).finally(()=>setTimeout(()=>pg.classList.remove('soft'),400))}
+  else{v.innerHTML=`<div class="page">${head(r.page)}<div id="pg">${skeleton()}</div></div>`;if(P)Promise.resolve(P(r.page,$('#pg'),r)).catch(e=>showError($('#pg'),e))}}
 }
 function paintSide(r){$('.side').innerHTML=sidebar(r||route())}
 function paintTop(r){$('.topbar').innerHTML=topbar(r||route())}
@@ -146,8 +150,8 @@ function topbar(r){
  <button class="ghost icon" data-act="theme" title="Light or dark" aria-label="Switch light and dark">${icon(document.documentElement.classList.contains('dark')?'sun':'moon',18)}</button></div>`;
 }
 // One calm banner for low memory / disk / out-of-memory restarts (most severe first).
-function paintBanner(){const slot=$('#bannerSlot');if(!slot)return;const rp=S.status?.resource_pressure||S.status?.resources;let msg='',key='';
- if(rp&&typeof rp==='object'){const d=rp.disk?.level||rp.disk_level,m=rp.memory?.level||rp.memory_level,oom=rp.oom_restart||rp.suspected_oom;
+function paintBanner(){const slot=$('#bannerSlot');if(!slot)return;const st=S.status||{};const rp=st.resource_pressure||st.resources||((st.memory||st.disk)?{memory:st.memory,disk:st.disk}:null);let msg='',key='';
+ if(rp&&typeof rp==='object'){const d=rp.disk?.level||rp.disk?.pressure||rp.disk_level,m=rp.memory?.level||rp.memory?.pressure||rp.memory_level,oom=rp.oom_restart||rp.suspected_oom||rp.memory?.last_boot_suspected_oom;
   if(d==='critical'){msg='<b>Disk is almost full.</b> Free space on the AI box from System › Host.';key='disk-c'}
   else if(m==='critical'){msg='<b>aqeelOS is almost out of memory</b> and may restart.';key='mem-c'}
   else if(oom){msg='<b>aqeelOS restarted unexpectedly</b>, most likely because it ran out of memory.';key='oom'}

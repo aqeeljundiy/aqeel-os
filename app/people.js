@@ -55,7 +55,7 @@ PAGES.people=async(p,el)=>{
  el.innerHTML=`<div class="people-grid">${[d.owner,...d.users].map(person).join('')}</div>
   ${inv?`<div class="panel card" style="margin-top:16px"><h2>Waiting to join</h2><p class="sub">Links work once and expire after 7 days.</p>${inv}</div>`:''}
   <div class="panel card" style="margin-top:16px"><h2>Email sending</h2><p class="sub">Used for sign-in codes and invites.</p><div id="mailBox">${skeleton(1)}</div></div>
-  <div class="panel card" style="margin-top:16px"><h2>How sharing works</h2><p class="sub" style="margin-bottom:0">Two layers. <b>Per agent</b>: Can chat uses it, Can edit also changes its personality and (if allowed below) its skills, tools, schedules and model, Owner can also delete it. <b>Per person</b>: the Allowed to list. Creators get their own agents and own everything they build. Each person's chats are private, also from you. Agents made for family have no terminal or file access, so they can't reach the rest of the box.</p></div>`;
+  <div class="panel card" style="margin-top:16px"><h2>How sharing works</h2><p class="sub" style="margin-bottom:0">Two layers. <b>Each person has a role</b> (Roles above): what they may do, which models they get, a daily limit and how many agents they may own. <b>Each agent is shared per person</b>: Can chat uses it, Can edit also changes it within their role, Owner can also delete or give it away. Agent settings, keys and channels stay with admins. Everyone's chats are private, also from you.</p></div>`;
  el.querySelectorAll('[data-cap]').forEach(x=>x.onchange=async()=>{const id=x.dataset.user;
   if(x.dataset.cap==='unsafe'&&x.checked&&!await confirmBox('Give terminal and file tools?','Agents with these tools can read everything on the box, including your keys and other people\'s files. Only for people you trust like an admin.','Allow')){x.checked=false;return}
   const caps=[...el.querySelectorAll('[data-cap][data-user="'+id+'"]')].filter(i=>i.checked).map(i=>i.dataset.cap);try{await UI('/ui/people/'+id,{method:'PATCH',body:{caps}});toast('Saved')}catch(e){fail(e)}});
@@ -73,16 +73,16 @@ async function makeSafeAgent(name){
  await put(UI,'/ui/identities/'+encodeURIComponent(id),{name,title:''}).catch(()=>{});
  await loadIdentities();return id}
 ACT['ppl-invite']=()=>{const d=drawer('Invite someone',`<label>Their name</label><input id="ivName" placeholder="Sarah"><label>Their email (optional)</label><input id="ivMail" type="email" placeholder="sarah@example.com"><p class="hint" style="margin:4px 0 0">We email them the invite link. You also get it to copy.</p>
-  <label>Role</label><select id="ivRole"><option value="member">Member: chats with the agents you share</option><option value="creator">Creator: also builds their own agents, skills and schedules</option>${S.me?.role==='owner'?'<option value="admin">Admin: can do everything</option>':''}</select>
+  <label>Role</label><select id="ivRole">${Object.entries(Pages._ppl?.roles||{}).map(([k,ro])=>`<option value="${esc(k)}">${esc(ro.name)}: ${esc(roleSummary(ro))}</option>`).join('')}${S.me?.role==='owner'?'<option value="admin">Admin: can do everything</option>':''}</select>
   <div id="ivAgents"><label>Agents they can use</label>${agentPicker('ivPick')}
   <label class="pick" style="margin-top:10px"><input type="checkbox" id="ivNew" checked><span><b>Also make them their own agent</b><br><small class="hint">Uses your Claude plan. No terminal, files or computer use.</small></span></label>
   <input id="ivNewName" placeholder="Name for their agent, e.g. Sarah's assistant" style="margin-top:6px"></div>`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="ivGo">Create invite link</button>`);
  const sync=()=>{$('#ivAgents').hidden=$('#ivRole').value==='admin';$('#ivNewName').hidden=!$('#ivNew').checked};$('#ivRole').onchange=sync;$('#ivNew').onchange=sync;
  $('#ivName').oninput=e=>{const v=e.target.value.trim();$('#ivNewName').placeholder=v?v+"'s assistant":"Name for their agent"};
- d.querySelector('#ivGo').onclick=async()=>{const name=$('#ivName').value.trim(),pick=$('#ivRole').value,role=pick==='creator'?'member':pick,caps=pick==='creator'?(Pages._ppl?.presets?.creator||[]):[];const b=d.querySelector('#ivGo');b.disabled=true;
+ d.querySelector('#ivGo').onclick=async()=>{const name=$('#ivName').value.trim(),pick=$('#ivRole').value,role=pick==='admin'?'admin':'member',roleId=pick==='admin'?null:pick,caps=[];const b=d.querySelector('#ivGo');b.disabled=true;
   try{const agents=role==='admin'?{}:pickedAgents('ivPick');
    if(role!=='admin'&&$('#ivNew').checked){const an=$('#ivNewName').value.trim()||(name?name+"'s assistant":'Family assistant');b.textContent='Making their agent…';const id=await makeSafeAgent(an);agents[id]='owner'}
-   const inv=await post(UI,'/ui/people/invite',{name,role,caps,agents});const to=$('#ivMail').value.trim();closeLayers();
+   const inv=await post(UI,'/ui/people/invite',{name,role,roleId,caps,agents});const to=$('#ivMail').value.trim();closeLayers();
    if(to){try{await post(UI,'/ui/people/invite/'+inv.code+'/email',{to,link:location.origin+'/#invite/'+inv.code});toast('Invite emailed to '+to+'. The link is copied too.')}catch(e){toast('Email failed ('+(e.message||e)+'). The link is copied instead.','err')}}
    await copyInvite(inv.code);reload()}catch(e){fail(e)}finally{b.disabled=false}}};
 async function copyInvite(code){const link=location.origin+'/#invite/'+code;try{await navigator.clipboard.writeText(link);toast('Invite link copied. Send it to them.')}catch{await promptBox('Invite link','Copy this link and send it',link,'Done')}}
@@ -256,3 +256,47 @@ const pluginGroup=x=>{const m=/\/plugins\/([^/]+)\//.exec(x.path||'');const g=m?
  const row=(x,i)=>{const on=x.runtime_status==='enabled',v=ex('plugin',x.name);return `<div class="row" ${st(i)} data-pl="${esc(x.name)}"><div class="main-c"><span class="ic ${on?'blue':''}">${icon('layers',17)}</span><div class="txt"><b>${esc(v?.title||pretty(x.name))} <small class="realname">${esc(x.name)}</small></b><span title="${esc(x.description||'')}">${esc(v?.summary||(x.description||'').slice(0,120))}</span></div></div><div class="act">${toggle(on,x.name,'data-act="pl-toggle" data-name="'+esc(x.name)+'"')}<button class="ghost icon" data-menu="plugin" data-name="${esc(x.name)}" data-remove="${x.can_remove?1:''}" data-update="${x.can_update_git?1:''}" data-dash="${x.has_dashboard_manifest?1:''}" data-hidden="${x.user_hidden?1:''}" aria-label="More">${icon('more',18)}</button></div></div>`};
  const paint=()=>{if(route().page?.id!=='plugins')return;el.innerHTML=`${tabs('plugins',['Installed','Browse'])}${Object.entries(groups).sort((a,b)=>a[0]==='Other'?1:b[0]==='Other'?-1:a[0].localeCompare(b[0])).map(([g,xs])=>`<h2 class="ach-cat">${esc(g)} <small class="hint">${xs.length}</small></h2><div class="card list">${xs.map(row).join('')}</div>`).join('')}`;placePills()};
  paint();explainFor('plugin',list.map(x=>({id:x.name,name:x.name,desc:x.description||''})),paint)}}
+
+/* ---------- Roles: define once (permissions, models, daily limit, how many agents), give each person one ---------- */
+const roleSummary=ro=>{const n=(ro.caps||[]).length;return (n?n+' permission'+(n>1?'s':''):'chat only')+(ro.models?' · '+ro.models.length+' model'+(ro.models.length>1?'s':''):'')+(ro.limit?' · '+num(ro.limit.tokens)+'/day':'')+(ro.maxAgents?' · up to '+ro.maxAgents+' agents':'')};
+async function roleDrawer(id){const d0=Pages._ppl||{};const ro=id?d0.roles[id]:{name:'',caps:[],models:null,limit:null,maxAgents:0};if(!Chat.models)await Chat.loadModels().catch(()=>{});const ms=Chat.models||[];
+ const d=drawer(id?'Role · '+ro.name:'New role',`<label>Name</label><input id="roN" value="${esc(ro.name)}" placeholder="Family">
+  <label>Allowed to</label>${Object.entries(d0.caps||{}).map(([k,l])=>`<label class="capt ${k==='unsafe'?'risky':''}"><input type="checkbox" data-rcap="${k}" ${(ro.caps||[]).includes(k)?'checked':''} ${k==='unsafe'&&S.me?.role!=='owner'?'disabled':''}><span>${esc(l)}</span></label>`).join('')}
+  <p class="hint" style="margin:6px 0 0">Agent settings (config, keys, channels) always stay with admins.</p>
+  <label>Models</label><label class="pick"><input type="checkbox" id="roAll" ${!ro.models?'checked':''}><span><b>Every model you have on</b></span></label>
+  <div id="roList" ${!ro.models?'hidden':''}>${ms.map(m=>`<label class="pick"><input type="checkbox" value="${esc(m.provider+'|'+m.id)}" ${!ro.models||ro.models.includes(m.provider+'|'+m.id)?'checked':''}><span>${esc(m.label)} <small class="hint">${esc(m.providerName)}</small></span></label>`).join('')}</div>
+  <div class="sched-row"><div><label>Daily limit</label><select id="roLim">${LIMITS.map(([v,l])=>`<option value="${v}" ${(ro.limit?.tokens||0)===v?'selected':''}>${l}</option>`).join('')}</select></div>
+  <div><label>Agents they may own</label><select id="roMax">${[0,1,2,3,5,10].map(v=>`<option value="${v}" ${(ro.maxAgents||0)===v?'selected':''}>${v?v:'None'}</option>`).join('')}</select></div></div>
+  ${id?`<button class="ghost" id="roDel" style="margin-top:20px;color:var(--bad)">${icon('trash',15)}Delete role</button>`:''}`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="roGo">${id?'Save':'Create role'}</button>`);
+ d.querySelector('#roAll').onchange=e=>d.querySelector('#roList').hidden=e.target.checked;
+ d.querySelector('#roGo').onclick=async()=>{const body={name:$('#roN').value.trim()||'Role',caps:[...d.querySelectorAll('[data-rcap]:checked')].map(i=>i.dataset.rcap),models:d.querySelector('#roAll').checked?null:[...d.querySelectorAll('#roList input:checked')].map(i=>i.value),limit:+$('#roLim').value?{tokens:+$('#roLim').value}:null,maxAgents:+$('#roMax').value};
+  if(body.caps.includes('unsafe')&&!(ro.caps||[]).includes('unsafe')&&!await confirmBox('Give terminal and file tools?','People with this role can read everything on the box, including keys and other people\'s files.','Allow'))return;
+  try{await UI('/ui/roles'+(id?'/'+id:''),{method:id?'PUT':'POST',body});closeLayers();toast(id?'Role saved':'Role created');reload()}catch(e){fail(e)}};
+ d.querySelector('#roDel')?.addEventListener('click',async()=>{if(!await confirmBox('Delete '+ro.name+'?','People must have another role first.','Delete'))return;try{await UI('/ui/roles/'+id,{method:'DELETE'});closeLayers();toast('Role deleted');reload()}catch(e){fail(e)}})}
+ACT['role-new']=()=>roleDrawer(null);ACT['role-open']=a=>roleDrawer(a.dataset.id);
+{const people=PAGES.people;PAGES.people=async(p,el)=>{await people(p,el);const d=Pages._ppl||{};if(!d.roles)return;
+ // each member: one role picker; per-person settings show only for Custom
+ el.querySelectorAll('.person').forEach(card=>{const id=card.querySelector('[data-cap]')?.dataset.user;const u=(d.users||[]).find(x=>x.id===id);if(!u||u.role!=='member')return;
+  const box=document.createElement('div');box.className='pcaps prole';box.innerHTML=`<div class="pshare"><b>Role</b><select style="width:auto" data-role="${esc(u.id)}">${Object.entries(d.roles).map(([k,ro])=>`<option value="${esc(k)}" ${u.roleId===k?'selected':''}>${esc(ro.name)}</option>`).join('')}<option value="custom" ${u.roleId==='custom'?'selected':''}>Custom</option></select></div><p class="hint" style="margin:2px 0 0">${u.roleId==='custom'?'Their own settings below.':esc(roleSummary(d.roles[u.roleId]||{}))}</p>`;
+  const first=card.querySelector('.pshares');(first||card.lastChild).after(box);enhanceSelect(box.querySelector('select'));
+  if(u.roleId!=='custom')card.querySelectorAll('.pcaps:not(.prole)').forEach(x=>x.hidden=true)});
+ el.querySelectorAll('[data-role]').forEach(s=>s.onchange=async()=>{try{await UI('/ui/people/'+s.dataset.role,{method:'PATCH',body:{roleId:s.value==='custom'?null:s.value}});toast('Role changed');reload()}catch(e){fail(e)}});
+ // the roles themselves
+ const panel=document.createElement('div');panel.className='panel card';panel.style.marginTop='16px';
+ panel.innerHTML=`<div class="h-row"><h2 style="margin:0">Roles</h2><button data-act="role-new">${icon('plus',15)}New role</button></div><p class="sub">What each kind of person may do, which models they get, a daily limit and how many agents they may own.</p>
+  <div class="role-grid">${Object.entries(d.roles).map(([k,ro],i)=>`<button class="card role-card" ${st(i)} data-act="role-open" data-id="${esc(k)}"><b>${esc(ro.name)}</b><span>${esc(roleSummary(ro))}</span><small>${(d.users||[]).filter(x=>x.roleId===k).length} people</small></button>`).join('')}</div>`;
+ el.querySelector('.people-grid')?.after(panel)}}
+
+/* ---------- Channels for the whole team: which agent answers each one, and moving it ---------- */
+ACT['wh-new-pre']=0;
+{const base=ACT['wh-new'];ACT['wh-new']=async a=>{try{S.agentsCache=((await H('/profiles')).profiles||[]).map(x=>x.name)}catch{}return base(a)}}
+{const base=PAGES.channels;PAGES.channels=async(p,el)=>{await base(p,el);if(S.me?.admin===false)return;
+ let d;try{d=await UI('/ui/channels')}catch{return}const agents=((await H('/profiles').catch(()=>({profiles:[]}))).profiles||[]).map(x=>x.name);
+ const panel=document.createElement('div');panel.className='panel card';panel.style.marginBottom='16px';
+ panel.innerHTML=`<h2>Every agent's channels</h2><p class="sub">Each connection belongs to one agent, which answers it. Move one to another agent and its settings, WhatsApp login and approved people go along, so nobody sets it up twice.</p>
+  ${d.channels.length?d.channels.map((c,i)=>`<div class="row" ${st(i)} style="padding:12px 12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="main-c">${chLogo(c.id,c.name)}<div class="txt"><b>${esc(c.name)}</b><span>${c.state==='connected'?'Connected':esc(pretty(c.state||'not running'))}${c.error?' · '+esc(c.error):''}</span></div></div>
+   <div class="act"><span class="hint" style="margin:0">Answered by</span><select style="width:auto" data-chmove="${esc(c.id)}" data-from="${esc(c.agent)}">${agents.map(n=>`<option value="${esc(n)}" ${n===c.agent?'selected':''}>${esc(ident(n).name)}</option>`).join('')}</select></div></div>`).join(''):'<p class="hint">No channel is connected yet. Set one up below and it shows here for the whole team.</p>'}`;
+ el.querySelector('.grid-cards')?.before(panel);panel.querySelectorAll('select').forEach(enhanceSelect);
+ panel.querySelectorAll('[data-chmove]').forEach(s=>s.onchange=async()=>{const to=s.value,from=s.dataset.from;if(to===from)return;
+  if(!await confirmBox('Move this channel to '+ident(to).name+'?',ident(to).name+' will answer it from now on. Its settings and approved people move along; the channel restarts for a few seconds.','Move',false)){s.value=from;return}
+  try{await post(UI,'/ui/channels/move',{platform:s.dataset.chmove,from,to});toast('Moved. '+ident(to).name+' answers it now.');reload()}catch(e){fail(e);s.value=from}})}}

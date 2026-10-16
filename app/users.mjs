@@ -15,10 +15,14 @@ export const CAPS={
  mcp:'Connect outside tools by URL (MCP)',
  schedules:'Make schedules',
  models:'Change an agent\'s model',
+ tools:'Turn safe tools on or off on their agents',
  usage:'See account usage',
  unsafe:'Terminal, files and code tools on their agents',
 };
-export const PRESETS={member:[],creator:['create','skills','mcp','schedules','models','usage']};
+export const PRESETS={member:[],creator:['create','skills','mcp','schedules','models','tools','usage']};
+// Roles bundle what someone may do: permissions, which models, a daily limit and how many agents they may own.
+// The owner defines them once (People › Roles) and gives each person one. "Custom" = per-person settings.
+const DEFAULT_ROLES={member:{name:'Member',caps:[],models:null,limit:null,maxAgents:0},creator:{name:'Creator',caps:PRESETS.creator,models:null,limit:null,maxAgents:5}};
 export const UNSAFE_TOOLSETS=['terminal','file','code_execution','computer_use'];
 const MAX_OWN_AGENTS=5;
 const PEOPLE_DIR=path.join(homedir(),'people');      // members' own folders: ~/people/<id>
@@ -27,7 +31,7 @@ export function createUsers(DATA,mail){
  const FILE=path.join(DATA,'users.json');
  let db=null;
  const load=async()=>{if(db)return db;try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}
-  db.users||=[];db.invites||=[];db.shares||={};db.owners||={};db.agentOwners||={};db.ownerName||='Aqeel';return db};
+  db.users||=[];db.invites||=[];db.shares||={};db.owners||={};db.agentOwners||={};db.roles||=JSON.parse(JSON.stringify(DEFAULT_ROLES));db.ownerName||='Aqeel';return db};
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)};
  const hash=pw=>{const salt=randomBytes(16);return 'scrypt:'+salt.toString('hex')+':'+scryptSync(String(pw),salt,64).toString('hex')};
  const check=(pw,h)=>{const [k,s,x]=String(h||'').split(':');if(k!=='scrypt'||!s||!x)return false;const a=scryptSync(String(pw),Buffer.from(s,'hex'),64),b=Buffer.from(x,'hex');return a.length===b.length&&timingSafeEqual(a,b)};
@@ -59,8 +63,9 @@ export function createUsers(DATA,mail){
   if((m=/^\/ui\/screens\/([^/]+)/.exec(p)))return decodeURIComponent(m[1]);if((m=/^\/ui\/(identities|avatar)\/([^/]+)$/.exec(p)))return decodeURIComponent(m[2]);return null}
  const atLeast=(u,agent,want)=>{const l=level(u,agent);return !!l&&LEVELS.indexOf(l)>=LEVELS.indexOf(want)};
  const home=u=>path.join(PEOPLE_DIR,u.id);
- const can=(u,cap)=>isAdmin(u)||!!(u.caps||[]).includes(cap);
- const ownCount=u=>Object.values(db.shares).filter(m=>m[u.id]==='owner').length;
+ const eff=u=>{const x=byId(u.id)||u;const role=x.roleId&&db.roles[x.roleId];return role?{caps:role.caps||[],models:role.models||null,limit:role.limit||null,maxAgents:role.maxAgents??5,role:x.roleId}:{caps:x.caps||[],models:x.models||null,limit:x.limit||null,maxAgents:5,role:'custom'}};
+ const can=(u,cap)=>isAdmin(u)||eff(u).caps.includes(cap);
+ const ownCount=u=>Object.values(db.agentOwners).filter(id=>id===u.id).length;
 
  /* ---------- 6-digit codes by email: to confirm an address, and for two-step sign-in ---------- */
  const codes=new Map();   // key → {hash, exp, tries, uid, purpose, email}
@@ -110,7 +115,7 @@ export function createUsers(DATA,mail){
    if(s&&!['search','prune','bulk-delete','empty','import','stats'].includes(s[1]))return mine(u,decodeURIComponent(s[1]))?null:no('That chat is not yours.');
    if(/^\/files(\/(read|download|stream|mkdir|upload-stream))?$/.test(rest))return null; // path checked by the caller
    // agents
-   if(rest==='/profiles'&&method==='POST')return !can(u,'create')?no('Ask the owner to let you create agents.'):ownCount(u)>=MAX_OWN_AGENTS?no('You already have '+MAX_OWN_AGENTS+' agents. Delete one first.'):null;
+   if(rest==='/profiles'&&method==='POST')return !can(u,'create')?no('Ask the owner to let you create agents.'):ownCount(u)>=eff(u).maxAgents?no(eff(u).maxAgents?'You already have '+eff(u).maxAgents+' agents, your limit. Delete one first or ask the owner.':'Your role does not include making agents.'):null;
    const pr=/^\/profiles\/([^/]+)(\/(soul|description|model))?$/.exec(rest);
    if(pr){const ag=decodeURIComponent(pr[1]);if(!pr[2])return method==='DELETE'?(atLeast(u,ag,'owner')?null:no('Only an owner of this agent can delete it.')):G&&atLeast(u,ag,'chat')?null:no();
     if(pr[3]==='model')return atLeast(u,ag,'edit')&&can(u,'models')?null:no();return atLeast(u,ag,'edit')?null:no('You can chat with this agent but not change it.')}
@@ -118,7 +123,7 @@ export function createUsers(DATA,mail){
    if(/^\/skills(\/(content|toggle))?$/.test(rest))return edit('skills');
    if(/^\/mcp\/servers(\/[^/]+(\/(enabled|test))?)?$/.test(rest))return edit('mcp');   // a command server needs "unsafe": checked on the body
    if(/^\/tools\/toolsets$/.test(rest)&&G)return edit();
-   const ts=/^\/tools\/toolsets\/([^/]+)$/.exec(rest);if(ts&&method==='PUT')return edit(UNSAFE_TOOLSETS.includes(decodeURIComponent(ts[1]))?'unsafe':null,'Terminal, files and code tools are only for admins.');
+   const ts=/^\/tools\/toolsets\/([^/]+)$/.exec(rest);if(ts&&method==='PUT')return edit(UNSAFE_TOOLSETS.includes(decodeURIComponent(ts[1]))?'unsafe':'tools',UNSAFE_TOOLSETS.includes(decodeURIComponent(ts[1]))?'Terminal, files and code tools are only for admins.':'Your role does not include turning tools on or off.');
    if(/^\/cron\/jobs(\/[^/]+(\/(pause|resume|trigger|runs))?)?$/.test(rest))return edit('schedules');
    if(/^\/cron\/(delivery-targets|blueprints(\/instantiate)?)$/.test(rest))return edit('schedules');
    if(rest==='/model/set'&&method==='POST')return edit('models');
@@ -149,7 +154,7 @@ export function createUsers(DATA,mail){
  async function api(u,req,res,p,send,readBody){
   await load();
   const body=async()=>{try{return JSON.parse(await readBody(req,8192))}catch{return {}}};
-  if(p==='/ui/me'&&req.method==='GET'){const shares={};for(const a of new Set([...Object.keys(db.shares),...Object.keys(db.agentOwners)])){const l=level(u,a);if(l)shares[a]=l}return send(res,200,{...pub(u),admin:isAdmin(u),caps:isAdmin(u)?Object.keys(CAPS):(u.caps||[]),home:isAdmin(u)?homedir():home(u),agents:shares})}
+  if(p==='/ui/me'&&req.method==='GET'){const shares={};for(const a of new Set([...Object.keys(db.shares),...Object.keys(db.agentOwners)])){const l=level(u,a);if(l)shares[a]=l}return send(res,200,{...pub(u),admin:isAdmin(u),caps:isAdmin(u)?Object.keys(CAPS):eff(u).caps,role_name:isAdmin(u)?null:(eff(u).role==='custom'?'Custom':db.roles[eff(u).role]?.name),home:isAdmin(u)?homedir():home(u),agents:shares})}
   if(p==='/ui/me/password'&&req.method==='PUT'){const b=await body();const x=u.role==='owner'?null:db.users.find(y=>y.id===u.id);
    if(u.role==='owner'?!ownerPwOk(b.current):!x||!check(b.current,x.pw))return send(res,400,{error:'Your current password is not right.'});if(String(b.next||'').length<8)return send(res,400,{error:'Use at least 8 characters.'});
    if(x)x.pw=hash(b.next);else db.ownerPw=hash(b.next);await save();return send(res,200,{ok:true})}
@@ -185,19 +190,24 @@ export function createUsers(DATA,mail){
    else{const prev=agentOwner(a);db.agentOwners[a]=to.id;db.shares[a]||={};delete db.shares[a][to.id];if(prev!==to.id&&byId(prev))db.shares[a][prev]='edit'}
    await save();return send(res,200,{ok:true})}
   if(!isAdmin(u))return send(res,403,{error:'Only admins can manage people.'});
+  const rl=/^\/ui\/roles(?:\/([\w-]+))?$/.exec(p);
+  if(rl){const id=rl[1];const clean=b=>({name:String(b.name||'Role').trim().slice(0,40)||'Role',caps:(Array.isArray(b.caps)?b.caps:[]).filter(k=>k in CAPS&&(k!=='unsafe'||u.role==='owner')),models:Array.isArray(b.models)&&b.models.length?b.models.map(String).slice(0,200):null,limit:b.limit&&+b.limit.tokens>0?{tokens:Math.round(+b.limit.tokens)}:null,maxAgents:Math.max(0,Math.min(50,+b.maxAgents||0))});
+   if(!id&&req.method==='POST'){const b=await body();let k=String(b.name||'role').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'role';while(db.roles[k])k+='-2';db.roles[k]=clean(b);await save();return send(res,200,{id:k,...db.roles[k]})}
+   if(id&&req.method==='PUT'){if(!db.roles[id])return send(res,404,{error:'Unknown role'});db.roles[id]={...db.roles[id],...clean({...db.roles[id],...await body()})};await save();return send(res,200,db.roles[id])}
+   if(id&&req.method==='DELETE'){if(db.users.some(x=>x.roleId===id))return send(res,409,{error:'Someone still has this role. Give them another one first.'});delete db.roles[id];await save();return send(res,200,{ok:true})}}
   if(p==='/ui/mail'&&req.method==='GET')return send(res,200,await mail.settings());
   if(p==='/ui/mail'&&req.method==='PUT'){await mail.update(await body());return send(res,200,await mail.settings())}
   if(p==='/ui/mail/test'&&req.method==='POST'){const b=await body();try{const r=await mail.deliver(String(b.to||'').trim(),'aqeelOS test email','This is a test from aqeelOS. If you can read it, email works.');return send(res,200,{ok:true,reply:r})}catch(e){return send(res,502,{error:e.message})}}
   const ie=/^\/ui\/people\/invite\/([\w-]+)\/email$/.exec(p);if(ie&&req.method==='POST'){const b=await body();const i=db.invites.find(x=>x.code===ie[1]&&!x.used);if(!i)return send(res,404,{error:'That invite is gone.'});
    try{await mail.deliver(String(b.to||'').trim(),(byId(u.id)?.name||'Someone')+' invited you to aqeelOS',`Hi${i.name?' '+i.name:''},\n\n${byId(u.id)?.name||'Someone'} invited you to aqeelOS. Open this link to pick a username and password:\n\n${String(b.link||'')}\n\nThe link works once and expires in 7 days.`);return send(res,200,{ok:true})}catch(e){return send(res,502,{error:e.message})}}
-  if(p==='/ui/people'&&req.method==='GET')return send(res,200,{caps:CAPS,presets:PRESETS,owner:pub(owner()),users:db.users.map(x=>({...pub(x),caps:x.caps||[],models:x.models||null,limit:x.limit||null})),invites:db.invites.filter(i=>!i.used&&i.expires>Date.now()).map(i=>({code:i.code,name:i.name,role:i.role,agents:i.agents,expires:i.expires})),shares:db.shares});
+  if(p==='/ui/people'&&req.method==='GET')return send(res,200,{caps:CAPS,presets:PRESETS,owner:pub(owner()),roles:db.roles,users:db.users.map(x=>({...pub(x),roleId:x.roleId||'custom',caps:x.caps||[],models:x.models||null,limit:x.limit||null})),invites:db.invites.filter(i=>!i.used&&i.expires>Date.now()).map(i=>({code:i.code,name:i.name,role:i.role,agents:i.agents,expires:i.expires})),shares:db.shares});
   if(p==='/ui/people/invite'&&req.method==='POST'){const b=await body();const role=b.role==='admin'&&u.role==='owner'?'admin':'member';
-   const inv={code:randomBytes(18).toString('base64url'),name:String(b.name||'').trim().slice(0,60),role,caps:(Array.isArray(b.caps)?b.caps:[]).filter(k=>k in CAPS&&(k!=='unsafe'||u.role==='owner')),agents:b.agents&&typeof b.agents==='object'?b.agents:{},expires:Date.now()+7*864e5,by:u.id};db.invites.push(inv);await save();return send(res,200,inv)}
+   const inv={code:randomBytes(18).toString('base64url'),name:String(b.name||'').trim().slice(0,60),role,roleId:b.roleId&&db.roles[b.roleId]?b.roleId:null,caps:(Array.isArray(b.caps)?b.caps:[]).filter(k=>k in CAPS&&(k!=='unsafe'||u.role==='owner')),agents:b.agents&&typeof b.agents==='object'?b.agents:{},expires:Date.now()+7*864e5,by:u.id};db.invites.push(inv);await save();return send(res,200,inv)}
   const iv=/^\/ui\/people\/invite\/([\w-]+)$/.exec(p);if(iv&&req.method==='DELETE'){db.invites=db.invites.filter(i=>i.code!==iv[1]);await save();return send(res,200,{ok:true})}
   if(p==='/ui/people/share'&&req.method==='PUT'){const b=await body();const a=String(b.agent||''),id=String(b.user||'');if(!/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(a)||!byId(id)||id==='owner')return send(res,400,{error:'Unknown agent or person'});
    db.shares[a]||={};if(LEVELS.includes(b.level))db.shares[a][id]=b.level;else delete db.shares[a][id];await save();return send(res,200,{ok:true,shares:db.shares[a]})}
   const um=/^\/ui\/people\/([\w-]+)$/.exec(p);
-  if(um&&req.method==='PATCH'){const x=db.users.find(y=>y.id===um[1]);if(!x)return send(res,404,{error:'Not found'});const b=await body();if(b.name)x.name=String(b.name).trim().slice(0,60);if(b.role&&u.role==='owner'&&['admin','member'].includes(b.role))x.role=b.role;if(Array.isArray(b.caps))x.caps=b.caps.filter(k=>k in CAPS&&(k!=='unsafe'||u.role==='owner'));
+  if(um&&req.method==='PATCH'){const x=db.users.find(y=>y.id===um[1]);if(!x)return send(res,404,{error:'Not found'});const b=await body();if(b.name)x.name=String(b.name).trim().slice(0,60);if(b.role&&u.role==='owner'&&['admin','member'].includes(b.role))x.role=b.role;if('roleId' in b)x.roleId=b.roleId&&db.roles[b.roleId]?b.roleId:null;if(Array.isArray(b.caps))x.caps=b.caps.filter(k=>k in CAPS&&(k!=='unsafe'||u.role==='owner'));
    if('models' in b)x.models=Array.isArray(b.models)?b.models.map(String).slice(0,200):null;
    if('limit' in b)x.limit=b.limit&&+b.limit.tokens>0?{tokens:Math.round(+b.limit.tokens)}:null;await save();return send(res,200,pub(x))}
   if(um&&req.method==='DELETE'){const id=um[1];db.users=db.users.filter(y=>y.id!==id);for(const a of Object.values(db.shares))delete a[id];await save();return send(res,200,{ok:true})}
@@ -209,15 +219,15 @@ export function createUsers(DATA,mail){
   name=String(name||i.name||'').trim().slice(0,60);if(!name)throw new Error('Tell us your name.');if(String(pw||'').length<8)throw new Error('Use a password of at least 8 characters.');
   if(norm(name)===norm(db.ownerName)||db.users.some(u=>norm(u.name)===norm(name)))throw new Error('That name is taken. Try another.');
   const un=norm(username||slugName(name));if(!USERNAME.test(un))throw new Error('Pick a username of 3–32 characters: letters, numbers, dots, dashes or underscores.');if(userTaken(un,null))throw new Error('That username is taken. Try another.');
-  const u={id:randomBytes(6).toString('hex'),name,username:un,role:i.role,caps:i.caps||[],pw:hash(pw),created:Date.now(),last:Date.now()};db.users.push(u);
+  const u={id:randomBytes(6).toString('hex'),name,username:un,role:i.role,roleId:i.roleId||null,caps:i.caps||[],pw:hash(pw),created:Date.now(),last:Date.now()};db.users.push(u);
   for(const [a,l] of Object.entries(i.agents||{}))if(LEVELS.includes(l)){db.shares[a]||={};db.shares[a][u.id]=l}
   i.used=Date.now();await save();await mkdir(home(u),{recursive:true}).catch(()=>{});return u}
 
  async function created(u,agent){await load();db.agentOwners[agent]=u.id;await save()}
  // models: null = any model the owner has enabled; otherwise a list of "provider|model" keys (or bare model ids)
- const modelOk=(u,provider,model)=>{if(isAdmin(u))return true;const l=byId(u.id)?.models;if(!l)return true;return l.includes(provider+'|'+model)||l.includes(model)};
- const allowedModels=u=>isAdmin(u)?null:byId(u.id)?.models||null;
- const limitOf=u=>isAdmin(u)?null:byId(u.id)?.limit||null;
+ const modelOk=(u,provider,model)=>{if(isAdmin(u))return true;const l=eff(u).models;if(!l)return true;return l.includes(provider+'|'+model)||l.includes(model)};
+ const allowedModels=u=>isAdmin(u)?null:eff(u).models;
+ const limitOf=u=>isAdmin(u)?null:eff(u).limit;
  async function loginCode(u){const me=byId(u.id);return sendCode(me,'login',me.email)}
  function finishLogin(key,code){const v=checkCode(String(key||''),code,'login');if(v.error)return v;const u=byId(v.uid);return u?{ok:true,user:u}:{error:'That person no longer exists.'}}
  return {ownerOf,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginCode,finishLogin,created,can,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home};
