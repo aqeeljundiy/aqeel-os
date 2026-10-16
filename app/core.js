@@ -117,7 +117,7 @@ function render(){
  if(!$('.app'))root.innerHTML=`<div class="app"><aside class="side" aria-label="Navigation"></aside><div class="main"><div class="topbar"></div><div id="bannerSlot"></div><div class="view" id="view"></div></div><aside class="screen-pane" id="screenPane" aria-label="Live screen" hidden></aside></div>`;
  const app=$('.app');app.classList.toggle('collapsed',S.collapsed);const sw=store.get('sideW',null);if(sw)app.style.setProperty('--side-open',sw+'px');app.classList.remove('nav-open');
  paintSide(r);paintTop(r);paintBanner();if(typeof Screen!=='undefined')Screen.paint();
- const v=$('#view');v.classList.remove('enter');void v.offsetWidth;v.classList.add('enter');
+ const v=$('#view');v.classList.remove('enter');void v.offsetWidth;v.classList.add('enter');watchReveal(v);
  if(r.chat!==undefined)Chat.view(v,r.chat);
  else{const P=PAGES[r.page.id];const key=r.sec.id+'/'+r.page.id+'/'+(r.arg||[]).join('/');
   // Same page again (after a save, a toggle…): update in place. No skeleton flash, no replayed entrance animations.
@@ -235,3 +235,10 @@ function codeStep(f,d){f.querySelector('h1').textContent='Check your email';f.qu
   if(!r.ok){err.textContent=j.error||'That code is not right.';f.classList.remove('shake');void f.offsetWidth;f.classList.add('shake');return}S.signedIn=true;if(location.hash==='#/signin')location.hash='#/chat';await boot()}finally{b.disabled=false}}}
 function signedOut(){if(!S.signedIn)return;S.signedIn=false;render()}
 async function signOut(){await fetch('/auth/logout',{method:'POST'});S.signedIn=false;$('#root').innerHTML='';render()}
+
+/* Loading → loaded: wherever loading placeholders (.skel) are replaced, the new content fades and rises in,
+   a little staggered, instead of snapping into place. Works for whole pages and for panels that load later. */
+function watchReveal(root){if(!root||root._reveal)return;root._reveal=new MutationObserver(ms=>{for(const m of ms){
+ if(![...m.removedNodes].some(n=>n.nodeType===1&&(n.classList?.contains('skel')||n.querySelector?.('.skel'))))continue;
+ let i=0;for(const n of m.addedNodes)if(n.nodeType===1&&!n.classList.contains('skel')&&!n.querySelector?.('.skel')){n.classList.remove('reveal');void n.offsetWidth;n.style.setProperty('--ri',i++);n.classList.add('reveal')}}});
+ root._reveal.observe(root,{childList:true,subtree:true})}

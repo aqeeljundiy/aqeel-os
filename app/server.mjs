@@ -153,7 +153,7 @@ async function syncNotifyTool(){const sh=await relay.shares();const senders=new 
   if(want?y.includes(url):!y.includes('aqeelos-notify'))continue;
   if(y.includes('aqeelos-notify'))await mcp(a,'DELETE','/aqeelos-notify');if(want)await mcp(a,'POST','',{name:'aqeelos-notify',url})}}
 const sharing=createShare({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAgents()});
-const channels=createChannels({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAllProfiles()});
+const channels=createChannels({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAllProfiles(),cached:a=>platformsCached(a)});
 const links=createLinks({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,python:()=>sharing.python(),setupAgent:n=>setupAgentFn?.(n)});
 async function listAgents(){const n=['default'];try{for(const d of await readdir(path.join(HERMES_HOME,'profiles'),{withFileTypes:true}))if(d.isDirectory()&&!d.name.startsWith('.')&&!isLink(d.name))n.push(d.name)}catch{}return n}
 async function listAllProfiles(){return [...await listAgents(),...(await links.list()).map(l=>l.name)]}
@@ -172,9 +172,18 @@ async function memberAgent(u,name){
  await setupAgentFn?.(name).catch(e=>console.warn('setup',name,e.message));
  if(!users.can(u,'unsafe'))for(const t of UNSAFE_TOOLSETS)await fetch(`${DASH.origin}/api/tools/toolsets/${t}?profile=${encodeURIComponent(name)}`,{method:'PUT',headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:'{"enabled":false}'}).catch(()=>{});
 }
+/* The engine's channel list is slow (it checks every connection, 5–20 s), and pages ask for it often.
+   Keep each agent's answer for 15 s, share one request between everyone asking at once, and forget it as
+   soon as a channel setting changes. */
+const platCache=new Map();
+function platformsCached(agent){const k=agent||'default';const c=platCache.get(k);if(c&&(c.p||Date.now()-c.t<15000))return c.p||Promise.resolve(c.v);
+ const p=fetch(DASH.origin+'/api/messaging/platforms?profile='+encodeURIComponent(k),{headers:{'x-hermes-session-token':DASH_TOKEN}}).then(async r=>{const v=await r.json();if(!r.ok)throw Object.assign(new Error(v.detail||'HTTP '+r.status),{status:r.status});platCache.set(k,{t:Date.now(),v});return v}).catch(e=>{platCache.delete(k);throw e});
+ platCache.set(k,{p});return p}
 async function hermesCall(req,res,u,url){
  const p=url.pathname,q=url.searchParams,agent=agentOf(p,q);
  const no=users.gate(u,p,req.method,q,agent);if(no)return send(res,no.status,{error:no.error});
+ if(p==='/hapi/messaging/platforms'&&req.method==='GET'){try{return send(res,200,await platformsCached(q.get('profile')||'default'))}catch(e){return send(res,e.status||502,{error:e.message})}}
+ if(p.startsWith('/hapi/messaging/')&&req.method!=='GET')platCache.clear();
  let body;
  // a member's file calls must stay in their own folder
  if(!users.isAdmin(u)&&p.startsWith('/hapi/files')){
@@ -307,6 +316,7 @@ const server=createServer(async(req,res)=>{
    // A true gateway restart (stop and start the service). The engine's own restart only reloads agents inside
    // the running process, so things read at startup (shell hooks) would not change.
    // extra connections of one app for one agent (WhatsApp 2…): admins, or whoever may edit that agent
+   if(p.startsWith('/ui/channels')&&req.method!=='GET')platCache.clear();
    if(p==='/ui/channels/links'){const a=url.searchParams.get('agent')||'';
     if(req.method==='GET')return send(res,200,{links:(await links.list(a||null)).filter(l=>users.isAdmin(u)||users.gate(u,'/hapi/profiles/'+l.agent+'/soul','PUT',new URLSearchParams(),l.agent)===null)});
     let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||a);

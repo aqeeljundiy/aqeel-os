@@ -777,3 +777,12 @@ input[type=checkbox]:not(.switch)::after{margin:auto}
 .tile-foot .add-another{display:inline-flex;align-items:center;gap:4px;margin-left:auto;margin-right:8px;padding:4px 10px;border-radius:var(--r-pill);font-size:12.5px;font-weight:600;color:var(--blue);background:var(--blue-soft);cursor:pointer;transition:background var(--t-f,.15s)}
 .tile-foot .add-another:hover{background:rgba(1,88,203,.14)}
 .extra-head .txt span{white-space:normal}
+/* loaded content arrives smoothly (see watchReveal in core.js) */
+.reveal{animation:reveal .42s var(--ease) both;animation-delay:calc(min(var(--ri,0),8) * 45ms)}
+.reveal .row,.reveal .tile,.reveal .stat{animation-delay:calc(min(var(--ri,0),8) * 45ms + 60ms)}
+@keyframes reveal{from{opacity:0;transform:translateY(8px);filter:blur(2px)}to{opacity:1;transform:none;filter:none}}
+/* placeholders: a soft moving shine so it reads as "loading", not as empty boxes */
+.skel{background:linear-gradient(100deg,var(--soft) 30%,var(--surface) 50%,var(--soft) 70%);background-size:220% 100%;animation:shimmer 1.3s ease-in-out infinite}
+.skel-row{animation:shimmer 1.3s ease-in-out infinite,skelIn .3s var(--ease) both}
+@keyframes skelIn{from{opacity:0}to{opacity:1}}
+@media (prefers-reduced-motion:reduce){.reveal{animation:none}.skel,.skel-row{animation:none}}
