@@ -744,3 +744,7 @@ input[type=checkbox]:not(.switch)::after{margin:auto}
 .tile .agent-foot>span{display:flex;align-items:center;gap:8px}
 .tile .agent-foot .chip.ok{min-height:32px;padding:0 12px}
 .screen-head .scr-which{margin-left:8px;min-height:28px;padding:0 10px;font-size:12px}
+.screen-head .scr-pick{min-height:30px;max-width:220px;padding:0 28px 0 10px;font-size:13px;font-weight:600;border-radius:10px;margin:0 0 0 2px;width:auto}
+.screen-head.compact .scr-pick{max-width:150px}
+.screen-head .scr-note{font-size:11px;white-space:nowrap}
+.screen-head{flex-wrap:nowrap;min-width:0}.screen-head .scr-pick{flex:0 1 auto;min-width:0;text-overflow:ellipsis}
