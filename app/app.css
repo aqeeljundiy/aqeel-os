@@ -739,3 +739,7 @@ input[type=checkbox]:not(.switch)::after{margin:auto}
 .txt b:has(.chip.access){display:flex!important;align-items:center;flex-wrap:wrap;gap:0 4px}
 .skill-preview{max-height:52vh;overflow:auto;padding:14px 16px;border:1px solid var(--border);border-radius:14px;background:var(--soft-2);font-size:13.5px;line-height:1.6}
 .skill-preview h1{font-size:17px;margin:4px 0 8px}.skill-preview h2{font-size:15px;margin:14px 0 6px}.skill-preview h3{font-size:14px;margin:12px 0 4px}
+/* agent cards: one footer height whether it shows "In use" or the button, so the ⋯ menus line up */
+.tile .agent-foot{min-height:36px;padding-top:12px;border-top:1px solid var(--border)}
+.tile .agent-foot>span{display:flex;align-items:center;gap:8px}
+.tile .agent-foot .chip.ok{min-height:32px;padding:0 12px}
