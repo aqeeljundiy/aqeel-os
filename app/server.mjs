@@ -181,7 +181,7 @@ async function writeAgentContext(){const all=await listAgents();const names={};f
    ...(/connect.composio.dev|rube.app/.test(await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>''))?['','## Apps','',
     'For an outside app (Slack, Gmail, Google Drive, Notion, GitHub…), use that app’s own MCP tool if you have it and it is connected. Otherwise use the Composio tools (composio), which reach 500+ apps through the person’s Composio account. If Composio says an app is not connected yet, give the person the link it returns to connect it, then continue.']:[]),
    '','## Connecting an MCP tool that needs a sign-in','',
-   'Do not run “hermes mcp login” and do not use a 127.0.0.1 / localhost callback: the person is not at this server, so that page never opens for them. Add the tool (with its client ID/secret if the service needs its own app), then tell the person to press Sign in on it under Abilities › MCP tools. aqeelOS sets the return address itself: https://ai.elkiya.com/mcp-oauth/api/mcp/oauth/callback/<tool name> (this is what goes in the service’s Redirect URLs).',
+   'Do not run “hermes mcp login” and do not use a 127.0.0.1 / localhost callback: the person is not at this server, so that page never opens for them. Add the tool (with its client ID/secret if the service needs its own app), then call the connect_mcp_tool tool (from aqeelos-notify) to get the sign-in link to give the person, or tell them to press Sign in on it under Abilities › MCP tools. aqeelOS sets the return address itself: https://ai.elkiya.com/mcp-oauth/api/mcp/oauth/callback/<tool name> (this is what goes in the service’s Redirect URLs).',
    '','## Channels you can message the person on','',
    ch.length?'Use the send_to_person tool with one of these IDs when the person asks to be notified on a channel ("notify me on shop-whatsapp"):':'None yet. The person can connect WhatsApp, Telegram and others on the Channels page.',
    ...ch.map(c=>'- '+c.id+' = '+c.name),'<!-- /aqeelos:context -->'].filter(x=>x!==null).join('\n');
@@ -216,6 +216,16 @@ async function memberAgent(u,name){
    soon as a channel setting changes. */
 // where MCP sign-ins come back: the public site (the engine is told this, see ensurePublicUrl)
 const MCP_OAUTH_BASE=(env.PUBLIC_URL||'https://ai.elkiya.com').replace(/\/$/,'')+'/mcp-oauth';
+const signinFlows=new Map();   // agent|tool → open sign-in flow id
+async function startSignin(agent,tool){const k=agent+'|'+tool,prev=signinFlows.get(k),h={'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'};
+ // a link that is still open is simply given again (the engine keeps one per tool until it is used or expires)
+ if(prev){const f=await fetch(DASH.origin+'/api/mcp/oauth/flows/'+encodeURIComponent(prev),{headers:h}).then(r=>r.ok?r.json():null).catch(()=>null);
+  if(f&&f.authorization_url&&/authorization_required|pending/.test(f.status||''))return f}
+ // the engine frees a cancelled sign-in a moment later, so retry briefly while it says "already in progress"
+ let r,j;for(let i=0;i<8;i++){r=await fetch(DASH.origin+'/api/mcp/servers/'+encodeURIComponent(tool)+'/auth?profile='+encodeURIComponent(agent),{method:'POST',headers:h,body:'{}'});j=await r.json().catch(()=>({}));
+  if(!/already in progress/i.test(j.detail||j.error||''))break;await new Promise(res=>setTimeout(res,1500))}
+ if(/already in progress/i.test(j.detail||j.error||''))j.error='A sign-in for '+tool+' is already open. Use the link given a moment ago, or try again in a few minutes.';
+ if(j.flow_id)signinFlows.set(k,j.flow_id);if(!r.ok&&!j.error)j.error=j.detail||('HTTP '+r.status);return j}
 const platCache=new Map();
 function platformsCached(agent){const k=agent||'default';const c=platCache.get(k);if(c&&(c.p||Date.now()-c.t<15000))return c.p||Promise.resolve(c.v);
  const p=fetch(DASH.origin+'/api/messaging/platforms?profile='+encodeURIComponent(k),{headers:{'x-hermes-session-token':DASH_TOKEN}}).then(async r=>{const v=await r.json();if(!r.ok)throw Object.assign(new Error(v.detail||'HTTP '+r.status),{status:r.status});platCache.set(k,{t:Date.now(),v});return v}).catch(e=>{platCache.delete(k);throw e});
@@ -326,7 +336,19 @@ const server=createServer(async(req,res)=>{
   // the "notify me" tool agents call (from this box only; each agent's address is signed)
   const mn=/^\/mcp\/notify\/([\w-]+)\/([\w-]+)$/.exec(p);
   if(mn){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method==='GET')return send(res,405,'POST only');
-   let msg={};try{msg=JSON.parse(await readBody(req,65536))}catch{return send(res,400,{error:'bad json'})}const out=await relay.mcp(mn[1],mn[2],msg);if(out.body==null){res.writeHead(out.status);return res.end()}return send(res,out.status,out.body)}
+   let msg={};try{msg=JSON.parse(await readBody(req,65536))}catch{return send(res,400,{error:'bad json'})}// connect_mcp_tool: the right way for an agent to start a sign-in (public return address, never localhost)
+   const signed=mn[2]===relay.sig(mn[1]);
+   if(signed&&msg.method==='tools/call'&&msg.params?.name==='connect_mcp_tool'){const tool=String(msg.params?.arguments?.tool||'').trim();const reply=(text,isError)=>send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text}],...(isError?{isError:true}:{})}});
+    const redirect=MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(tool);
+    try{await sharing.prepareSignin(mn[1],tool,redirect);await new Promise(r=>setTimeout(r,2500));
+     const j=await startSignin(mn[1],tool);
+     if(j.authorization_url)return reply(`Give the person this sign-in link (valid for about 5 minutes): ${j.authorization_url}\nAfter they click Allow they land on an aqeelOS page saying "Signed in", and ${tool} reconnects by itself. They can also press Sign in on ${tool} under Abilities › MCP tools. If the service asks for a redirect URL, it is: ${redirect}`);
+     const err=j.error||j.detail||'no link came back';
+     if(/client registration|client_id|client id/i.test(err))return reply(`${tool} needs its own app. Either suggest Composio (no app to create), or ask the person to create an OAuth app with this Redirect URL: ${redirect} and paste its Client ID and Client Secret into the Connect screen (Abilities › MCP tools › ${tool} › Sign in).`,true);
+     return reply('Could not start the sign-in: '+err,true)}catch(e){return reply('Could not start the sign-in: '+e.message,true)}}
+   const out=await relay.mcp(mn[1],mn[2],msg);
+   if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'connect_mcp_tool',description:'Start the sign-in for one of your MCP tools (slack, composio, notion…) and get the link to give the person. Always use this to connect an MCP tool; never a command-line login or a localhost callback.',inputSchema:{type:'object',properties:{tool:{type:'string',description:'The MCP tool name as listed, e.g. "slack" or "composio"'}},required:['tool']}});
+   if(out.body==null){res.writeHead(out.status);return res.end()}return send(res,out.status,out.body)}
   // Incoming webhooks (GitHub, Stripe…) reach Hermes' webhook listener here. No sign-in: each
   // subscription checks its own secret signature, and nothing but POST /webhooks/<name> passes.
   if(/^\/webhooks\/[\w.-]{1,64}$/.test(p)&&req.method==='POST')return proxy(req,res,HOOKS,'',{});
@@ -413,6 +435,9 @@ const server=createServer(async(req,res)=>{
    // a provider without automatic registration (Slack, Google…): its app's client ID/secret, and the return address to give it
    if(p==='/ui/mcp/oauth-client'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can set this.'});let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}
     try{return send(res,200,await sharing.setOauthClient(String(b.agent||'default'),String(b.name||''),String(b.client_id||'').trim(),String(b.client_secret||'').trim(),MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(String(b.name||''))))}catch(e){return send(res,400,{error:e.message})}}
+   if(p==='/ui/mcp/start-signin'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||'default'),tool=String(b.name||'');
+    if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag+'/soul','PUT',new URLSearchParams(),ag)!==null)return send(res,403,{error:'Not your agent.'});
+    try{const pr=await sharing.prepareSignin(ag,tool,MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(tool));if(pr.changed)await new Promise(r=>setTimeout(r,2500));return send(res,200,await startSignin(ag,tool))}catch(e){return send(res,400,{error:e.message})}}
    if(p==='/ui/mcp/prepare-signin'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||'default');
     if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag+'/soul','PUT',new URLSearchParams(),ag)!==null)return send(res,403,{error:'Not your agent.'});
     try{const r=await sharing.prepareSignin(ag,String(b.name||''),MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(String(b.name||'')));if(r.changed)await new Promise(r=>setTimeout(r,2500));return send(res,200,r)}catch(e){return send(res,400,{error:e.message})}}

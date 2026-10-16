@@ -517,7 +517,7 @@ async function mcpClientDrawer(name,reason){const agent=S.profile||'default';let
 ACT['mcp-auth']=async a=>{const name=a.dataset.name,agent=S.profile||'default';
  // a tab opened right away (popup blockers allow it only now); it is pointed at the sign-in page once known
  const win=window.open('about:blank','_blank');
- try{await post(UI,'/ui/mcp/prepare-signin',{agent,name});const f=await post(H,'/mcp/servers/'+encodeURIComponent(name)+'/auth');const url=f.authorization_url||f.auth_url||f.url;
+ try{const f=await post(UI,'/ui/mcp/start-signin',{agent,name});const url=f.authorization_url||f.auth_url||f.url;
   if(!url){win?.close();const err=f.error||'';if(/client registration|client_id|client id/i.test(err))return mcpClientDrawer(name,err);return fail(new Error(err||'The service did not offer a sign-in.'))}
   if(win)win.location=url;else window.open(url,'_blank','noopener');
   const d=drawer('Sign in to '+pretty(name),`<p style="color:var(--ink-2);margin:0 0 12px">Finish signing in in the tab that opened, then come back here.</p><p><a href="${esc(url)}" target="_blank" rel="noopener">Open the sign-in page again</a></p><p class="hint" id="mcpSt">Waiting for you to sign in…</p>`);
