@@ -45,7 +45,7 @@ const plural=(n,w)=>n+' '+w+(n===1?'':'s');
 // Short provider names, the way people say them (Claude, ChatGPT…), not Hermes' plugin titles.
 const provLabel=p=>{const s=String(p?.slug||p||''),n=String(p?.name||s);if(s==='moa')return 'Team of models';if(/claude-subscription|^claude-code/.test(s))return 'Claude';if(/codex/.test(s))return 'ChatGPT';if(s==='openrouter')return 'OpenRouter';if(/gemini/.test(s))return 'Gemini';return n.replace(/\s*\((experimental|beta)\)$/i,'')};
 const modelLabel=m=>{if(!m)return 'Default';const s=String(m).replace(/\[1m\]$/,'').replace(/^(?:anthropic\/)?claude-/,'');const mm=/^(opus|sonnet|haiku|fable)-(\d+)(?:[-.](\d+))?(?:-\d{8})?$/.exec(s.replace(/^anthropic\//,''));if(mm)return mm[1][0].toUpperCase()+mm[1].slice(1)+' '+mm[2]+(mm[3]?'.'+mm[3]:'');if(/^(opus|sonnet|haiku|fable)$/.test(s))return s[0].toUpperCase()+s.slice(1);const g=/^(?:openai\/)?gpt-(.+)$/i.exec(s);if(g)return 'GPT-'+g[1].replace(/-codex/,' Codex').replace(/-mini/,' mini');return s};
-const srcIcon=s=>({telegram:'telegram',cron:'cron',api_server:'web',tui:'terminal',cli:'terminal',oneshot:'terminal',webhook:'hook',discord:'chat',slack:'chat',email:'chat'}[s]||'chat');
+const srcIcon=s=>({telegram:'telegram',whatsapp:'whatsapp',cron:'cron',api_server:'chat',tui:'terminal',cli:'terminal',oneshot:'terminal',webhook:'hook',discord:'chat',slack:'chat',email:'chat'}[s]||'chat');
 
 // Small, safe Markdown: paragraphs, lists, headings, bold, italics, inline code, fenced code, links, tables, quotes.
 function md(src){

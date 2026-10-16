@@ -411,3 +411,13 @@ const chState=c=>/logged out|bridge process died|bridge_exited/i.test((c.error_c
    await put(H,'/messaging/platforms/whatsapp',{enabled:false,env:{}}).catch(()=>{});await post(UI,'/ui/gateway/restart');
    for(let i=0;i<30;i++){await new Promise(r=>setTimeout(r,2000));try{const st=await H('/status');if(st.gateway_running)break}catch{}}
    await new Promise(r=>setTimeout(r,3000));await post(UI,'/ui/channels/whatsapp-reset',{agent:S.profile||'default'});a.disabled=false}catch(e){a.disabled=false;return fail(e)}}return base(a)}}
+
+/* ---------- Skills: a readable preview (engine wording shown as aqeelOS); the source stays exactly as it is ---------- */
+{const base=Pages.openSkill;Pages.openSkill=async name=>{await base(name);if(!name)return;const d=$('.drawer');const ta=d?.querySelector('#skBody');if(!ta)return;
+ const lab=ta.previousElementSibling;const src=ta.value.replace(/^---[\s\S]*?\n---\n?/,'');
+ const pv=document.createElement('div');pv.className='skill-preview md';pv.innerHTML=md(src);
+ const bar=document.createElement('div');bar.className='h-row';bar.style.margin='4px 0 8px';bar.innerHTML=`<span class="th">What this skill tells the agent</span><button class="ghost" id="skSrc">${icon('edit',15)}Edit source</button>`;
+ lab.before(bar);lab.before(pv);lab.hidden=true;ta.hidden=true;
+ bar.querySelector('#skSrc').onclick=()=>{const show=ta.hidden;ta.hidden=!show;lab.hidden=!show;pv.hidden=show;bar.querySelector('#skSrc').innerHTML=show?icon('eye',15)+'Show preview':icon('edit',15)+'Edit source';if(show)ta.focus()}}}
+// technical names: shown with aqeelOS, the exact name stays in the hover (it is what commands use)
+{const paint=paintExplained;paintExplained=(el,kind,sel,idOf)=>{paint(el,kind,sel,idOf);el.querySelectorAll(sel+' .realname').forEach(s=>{if(s.dataset.br||!/hermes/i.test(s.textContent))return;s.dataset.br='1';s.title='Exact name: '+s.textContent;s.textContent=s.textContent.replace(/hermes/gi,'aqeelos')})}}

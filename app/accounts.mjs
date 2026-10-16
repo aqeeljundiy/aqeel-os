@@ -135,6 +135,8 @@ export function createAccounts(DATA){
    await run(HERMES,['-p',name,'config','set','model.provider',PLUGIN]);await run(HERMES,['-p',name,'config','set','model.default',m]);done.push('model')}
   const envF=path.join(dir,'.env');const env=await readFile(envF,'utf8').catch(()=>'');
   if(!/^API_SERVER_KEY=/m.test(env)&&process.env.API_SERVER_KEY){await appendFile(envF,(env&&!env.endsWith('\n')?'\n':'')+'API_SERVER_KEY='+process.env.API_SERVER_KEY+'\n',{mode:0o600});done.push('key')}
+  // agents may never stop or kill the gateway (they did once, mid-chat); restarts go through the app
+  await run(HERMES,['-p',name,'config','set','approvals.deny',JSON.stringify(['*gateway stop*','*gateway restart*','*kill-session -t gateway*','*pkill*hermes*','*killall*hermes*','*pkill*gateway*','*kill*bridge.js*','*pkill*node*']),'--force']);done.push('guard');
   return {ok:true,done}}
 
  setupAgentFn=setupAgent;

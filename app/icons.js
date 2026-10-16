@@ -8,7 +8,7 @@ const ICONS={
  plus:'<path d="M12 5v14M5 12h14"/>',
  search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
  more:'<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>',
- chevR:'<path d="m9 6 6 6-6 6"/>',chevD:'<path d="m6 9 6 6 6-6"/>',chevU:'<path d="m6 15 6-6 6 6"/>',wand:'<path d="m15 4 1-2 1 2 2 1-2 1-1 2-1-2-2-1 2-1ZM4 20 14 10M12 8l4 4"/>',trophy:'<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4Z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/>',chevL:'<path d="m15 6-6 6 6 6"/>',
+ chevR:'<path d="m9 6 6 6-6 6"/>',chevD:'<path d="m6 9 6 6 6-6"/>',chevU:'<path d="m6 15 6-6 6 6"/>',whatsapp:'<path d="M4 20l1.3-3.9A8.5 8.5 0 1 1 8 19.2L4 20Z"/><path d="M9.2 8.6c.2 2.4 2.6 5 5 5.4l.9-1 1.5.7-.3 1.2c-3.6.4-7.3-3.2-6.9-6.8l1.3-.3.7 1.5-1 .9Z"/>',wand:'<path d="m15 4 1-2 1 2 2 1-2 1-1 2-1-2-2-1 2-1ZM4 20 14 10M12 8l4 4"/>',trophy:'<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4Z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/>',chevL:'<path d="m15 6-6 6 6 6"/>',
  panel:'<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/>',
  menu:'<path d="M4 7h16M4 12h16M4 17h16"/>',
  x:'<path d="M18 6 6 18M6 6l12 12"/>',
