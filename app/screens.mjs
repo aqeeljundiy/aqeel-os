@@ -21,7 +21,7 @@ const run=(cmd,args,env={},timeout=60000)=>new Promise(res=>execFile(cmd,args,{e
 export function createScreens(){
  const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const sockOf=a=>path.join(homeOf(a),'bot-desktop','rfb.sock');
- async function agents(){const l=['default'];try{for(const d of await readdir(path.join(HERMES_HOME,'profiles'),{withFileTypes:true}))if(d.isDirectory()&&NAME.test(d.name))l.push(d.name)}catch{}return l}
+ async function agents(){const l=['default'];try{for(const d of await readdir(path.join(HERMES_HOME,'profiles'),{withFileTypes:true}))if(d.isDirectory()&&NAME.test(d.name)&&!d.name.includes('--'))l.push(d.name)}catch{}return l}
  async function valid(a){if(!NAME.test(a||''))return false;try{return (await stat(homeOf(a))).isDirectory()}catch{return false}}
  const config=a=>readFile(path.join(homeOf(a),'config.yaml'),'utf8').catch(()=>'');
  const shared=async a=>/cdp_url:\s*['"]?http:\/\/127\.0\.0\.1:9333/.test(await config(a));

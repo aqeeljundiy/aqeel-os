@@ -16,6 +16,7 @@ import {createChannels} from './channels.mjs';
 import {createShare} from './share.mjs';
 import {createRelay} from './relay.mjs';
 import {boxMemory} from './boxmem.mjs';
+import {createLinks,isLink} from './links.mjs';
 import {readdir} from 'node:fs/promises';
 import {scryptSync,randomBytes,createHmac,timingSafeEqual} from 'node:crypto';
 import path from 'node:path';
@@ -152,8 +153,10 @@ async function syncNotifyTool(){const sh=await relay.shares();const senders=new 
   if(want?y.includes(url):!y.includes('aqeelos-notify'))continue;
   if(y.includes('aqeelos-notify'))await mcp(a,'DELETE','/aqeelos-notify');if(want)await mcp(a,'POST','',{name:'aqeelos-notify',url})}}
 const sharing=createShare({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAgents()});
-const channels=createChannels({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAgents()});
-async function listAgents(){const n=['default'];try{for(const d of await readdir(path.join(HERMES_HOME,'profiles'),{withFileTypes:true}))if(d.isDirectory()&&!d.name.startsWith('.'))n.push(d.name)}catch{}return n}
+const channels=createChannels({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAllProfiles()});
+const links=createLinks({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,python:()=>sharing.python(),setupAgent:n=>setupAgentFn?.(n)});
+async function listAgents(){const n=['default'];try{for(const d of await readdir(path.join(HERMES_HOME,'profiles'),{withFileTypes:true}))if(d.isDirectory()&&!d.name.startsWith('.')&&!isLink(d.name))n.push(d.name)}catch{}return n}
+async function listAllProfiles(){return [...await listAgents(),...(await links.list()).map(l=>l.name)]}
 async function agentModel(a){const y=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>'');const k=key=>((new RegExp('^model:[\\s\\S]*?\\n\\s+'+key+':\\s*(\\S+)','m').exec(y)||[])[1]||'').replace(/^["']|["']$/g,'');return {provider:k('provider'),model:k('default')}}
 const users=createUsers(DATA,mailer);
 const starters=createStarters(DATA);
@@ -303,6 +306,15 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/me'||p.startsWith('/ui/me/')||p.startsWith('/ui/people')||p.startsWith('/ui/agents')||p.startsWith('/ui/mail')||p.startsWith('/ui/roles'))return users.api(u,req,res,p,send,readBody);
    // A true gateway restart (stop and start the service). The engine's own restart only reloads agents inside
    // the running process, so things read at startup (shell hooks) would not change.
+   // extra connections of one app for one agent (WhatsApp 2…): admins, or whoever may edit that agent
+   if(p==='/ui/channels/links'){const a=url.searchParams.get('agent')||'';
+    if(req.method==='GET')return send(res,200,{links:(await links.list(a||null)).filter(l=>users.isAdmin(u)||users.gate(u,'/hapi/profiles/'+l.agent+'/soul','PUT',new URLSearchParams(),l.agent)===null)});
+    let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||a);
+    if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag+'/soul','PUT',new URLSearchParams(),ag)!==null)return send(res,403,{error:'You can only add connections to agents you may edit.'});
+    try{if(req.method==='POST')return send(res,200,await links.create(ag,String(b.platform||'')));
+     if(req.method==='DELETE'){const l=(await links.list()).find(x=>x.name===b.name&&x.agent===ag);if(!l)throw new Error('Unknown connection.');await links.remove(l.name);return send(res,200,{ok:true})}
+     if(req.method==='PUT'){const l=(await links.list()).find(x=>x.name===b.name&&x.agent===ag);if(!l)throw new Error('Unknown connection.');return send(res,200,await links.rename(l.name,b.label))}}
+    catch(e){return send(res,400,{error:e.message})}}
    if(p==='/ui/box'&&req.method==='GET')return send(res,200,await boxMemory());
    if(p==='/ui/live'&&req.method==='GET'){const rec=LIVE.get((url.searchParams.get('agent')||'default')+'|'+(url.searchParams.get('session')||''));
     if(!rec||rec.done||rec.user!==u.id)return send(res,url.searchParams.has('peek')?200:204,url.searchParams.has('peek')?{live:false}:'');

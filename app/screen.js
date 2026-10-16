@@ -15,12 +15,14 @@ const Screen={
  watch(){clearInterval(this._t);if(!this.open)return;this.refresh();this.loadList().then(()=>this.paint(true));this._t=setInterval(()=>{if(++this._n%6===0)this.loadList();if(document.hidden)return;if(this.st?.agent!==this.agent()){this.st=null;this.ads=false}this.refresh()},5000)},
  // the agent started using AdsPower: show where AdsPower draws (only for agents that have their own screen)
  // which screen: every agent's own screen, the shared AdsPower screen, or simply follow the chat's agent
- picker(){const cur=this.ads?'ads':this.pick||'';const ag=this.list.length?this.list:[{agent:this.chatAgent()}];
+ // every agent by name; an AdsPower agent's screen is the shared AdsPower one, so picking it shows that
+ picker(){const ag=this.list.length?this.list:[{agent:this.chatAgent()}];const adsAgent=ag.find(x=>x.kind==='shared')?.agent;
+  const cur=this.ads?(adsAgent||'ads'):this.pick||'';
   const opt=(v,l)=>`<option value="${esc(v)}" ${v===cur?'selected':''}>${esc(l)}</option>`;
   return `<select id="scrPick" class="scr-pick" aria-label="Which screen" title="Which screen to watch">${opt('','Follow this chat ('+ident(this.chatAgent()).name+')')}
-   ${ag.filter(x=>x.kind!=='shared').map(x=>opt(x.agent,ident(x.agent).name+"'s screen"+(x.running===false?' · off':''))).join('')}
-   ${S.me?.admin!==false?opt('ads','AdsPower screen'+(ag.some(x=>x.kind==='shared')?' ('+ag.filter(x=>x.kind==='shared').map(x=>ident(x.agent).name).join(', ')+')':'')):''}</select>`},
- note(){if(this.ads&&this.st?.kind!=='shared')return 'Shared';if(this.pick&&this.pick!==this.chatAgent())return 'Other agent';return ''},
+   ${ag.map(x=>opt(x.agent,ident(x.agent).name+"'s screen"+(x.running===false?' · off':''))).join('')}
+   ${!adsAgent&&this.ads?opt('ads','AdsPower screen'):''}</select>`},
+ note(){if(this.ads&&this.st?.kind!=='shared')return 'AdsPower';if(this.pick&&this.pick!==this.chatAgent())return 'Other agent';return ''},
  noteTip(){return this.ads?'AdsPower browsers: any agent that uses AdsPower draws here':'Not the agent of this chat'},
  async loadList(){try{this.list=(await call('','/ui/screens')).screens||[]}catch{}},
  choose(v){this.ads=v==='ads';this.pick=v&&v!=='ads'?v:null;this.st=null;this.paint(true);this.refresh()},

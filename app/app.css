@@ -774,3 +774,6 @@ input[type=checkbox]:not(.switch)::after{margin:auto}
 .mem-parts .mem-row i::after{content:"";position:absolute;inset:0 auto 0 0;width:var(--w);background:var(--blue);border-radius:inherit;animation:growW .6s var(--ease) both}
 .mem-parts .mem-row b{text-align:right;font-variant-numeric:tabular-nums}
 @keyframes growW{from{width:0}}
+.tile-foot .add-another{display:inline-flex;align-items:center;gap:4px;margin-left:auto;margin-right:8px;padding:4px 10px;border-radius:var(--r-pill);font-size:12.5px;font-weight:600;color:var(--blue);background:var(--blue-soft);cursor:pointer;transition:background var(--t-f,.15s)}
+.tile-foot .add-another:hover{background:rgba(1,88,203,.14)}
+.extra-head .txt span{white-space:normal}

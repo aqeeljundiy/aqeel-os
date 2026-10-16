@@ -48,7 +48,7 @@ export function createAccounts(DATA){
  const headroom=v=>v?.usage?100-Math.max(v.usage.session?.used||0,v.usage.week?.used||0):-1;
 
  /* ---------- which agent uses which account ---------- */
- async function agents(){const names=['default'];try{for(const d of await readdir(path.join(HERMES_HOME,'profiles'),{withFileTypes:true}))if(d.isDirectory()&&!d.name.startsWith('.'))names.push(d.name)}catch{}return names}
+ async function agents(){const names=['default'];try{for(const d of await readdir(path.join(HERMES_HOME,'profiles'),{withFileTypes:true}))if(d.isDirectory()&&!d.name.startsWith('.')&&!d.name.includes('--'))names.push(d.name)}catch{}return names}
  async function assign(d,profile,accountId,why){
   const a=all(d).find(x=>x.id===accountId);if(!a)throw new Error('Unknown account');
   if(!/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(profile))throw new Error('Bad agent name');

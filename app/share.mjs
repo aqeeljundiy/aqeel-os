@@ -49,5 +49,5 @@ export function createShare({DASH,TOKEN,HERMES_HOME,listAgents}){
 
  async function renameMcp(agent,from,to){if(!NAME.test(from)||!NAME.test(to))throw new Error('Use letters, numbers, dots or dashes.');
   const block=await mcpBlock(agent,from);await setMcp(agent,to,block);const r=await run(['-p',agent,'config','unset','mcp_servers.'+from]);if(!r.ok)throw new Error('Copied, but the old name could not be removed.');return {ok:true}}
- return {usedBy,share,renameMcp};
+ return {usedBy,share,renameMcp,python};
 }

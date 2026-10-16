@@ -290,13 +290,18 @@ ACT['role-new']=()=>roleDrawer(null);ACT['role-open']=a=>roleDrawer(a.dataset.id
 /* ---------- Channels for the whole team: which agent answers each one, and moving it ---------- */
 ACT['wh-new-pre']=0;
 {const base=ACT['wh-new'];ACT['wh-new']=async a=>{try{S.agentsCache=((await H('/profiles')).profiles||[]).map(x=>x.name)}catch{}return base(a)}}
-{const base=PAGES.channels;PAGES.channels=async(p,el)=>{await base(p,el);if(S.me?.admin===false)return;
- let d;try{d=await UI('/ui/channels')}catch{return}const agents=((await H('/profiles').catch(()=>({profiles:[]}))).profiles||[]).map(x=>x.name);
+{const base=PAGES.channels;PAGES.channels=async(p,el)=>{
+ // load the team list together with the page, and hold its place while it loads (no late pop-in)
+ const admin=S.me?.admin!==false&&!S.chOverride;const pD=admin?UI('/ui/channels').catch(()=>null):null,pA=admin?H('/profiles').catch(()=>({profiles:[]})):null;
+ await base(p,el);if(!admin)return;
  const panel=document.createElement('div');panel.className='panel card';panel.style.marginBottom='16px';
+ panel.innerHTML=`<h2>Every agent's channels</h2><p class="sub">Each connection belongs to one agent, which answers it.</p>${'<div class="row skel-row" style="padding:12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="skel" style="height:18px;width:40%"></div></div>'.repeat(2)}`;
+ el.querySelector('.grid-cards')?.before(panel);
+ const d=await pD;if(!d){panel.remove();return}const agents=((await pA).profiles||[]).map(x=>x.name);
  panel.innerHTML=`<h2>Every agent's channels</h2><p class="sub">Each connection belongs to one agent, which answers it. Move one to another agent and its settings, WhatsApp login and approved people go along, so nobody sets it up twice.</p>
   ${d.channels.length?d.channels.map((c,i)=>`<div class="row" ${st(i)} style="padding:12px 12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="main-c">${chLogo(c.id,c.name)}<div class="txt"><b>${esc(c.name)}</b><span>${esc(chState(c))}</span></div></div>
    <div class="act"><span class="hint" style="margin:0">Answered by</span><select style="width:auto" data-chmove="${esc(c.id)}" data-from="${esc(c.agent)}">${agents.map(n=>`<option value="${esc(n)}" ${n===c.agent?'selected':''}>${esc(ident(n).name)}</option>`).join('')}</select></div></div>`).join(''):'<p class="hint">No channel is connected yet. Set one up below and it shows here for the whole team.</p>'}`;
- el.querySelector('.grid-cards')?.before(panel);panel.querySelectorAll('select').forEach(enhanceSelect);
+ panel.querySelectorAll('select').forEach(enhanceSelect);
  panel.querySelectorAll('[data-chmove]').forEach(s=>s.onchange=async()=>{const to=s.value,from=s.dataset.from;if(to===from)return;
   if(!await confirmBox('Move this channel to '+ident(to).name+'?',ident(to).name+' will answer it from now on. Its settings and approved people move along; the channel restarts for a few seconds.','Move',false)){s.value=from;return}
   try{await post(UI,'/ui/channels/move',{platform:s.dataset.chmove,from,to});toast('Moved. '+ident(to).name+' answers it now.');reload()}catch(e){fail(e);s.value=from}})}}
@@ -436,8 +441,40 @@ async function channelShareDrawer(owner,platform){let sh={},rec=[],agents=[];
  d.querySelector('#csTest').onclick=async()=>{const b=d.querySelector('#csTest');b.disabled=true;const v=vals();const from=v.senders[0]||owner;
   try{await put(UI,'/ui/channels/shares',v);await post(UI,'/ui/channels/send',{from,owner,platform,chat:v.chat,text:'Test from aqeelOS: sending through this channel works.'});toast('Sent as '+ident(from).name+'. Check your '+pretty(platform)+'.')}catch(e){fail(e)}finally{b.disabled=false}}}
 ACT['ch-share']=a=>channelShareDrawer(a.dataset.owner,a.dataset.platform);
-{const base=PAGES.channels;PAGES.channels=async(p,el)=>{await base(p,el);if(S.me?.admin===false)return;let sh={};try{sh=(await UI('/ui/channels/shares')).shares||{}}catch{}
+{const base=PAGES.channels;PAGES.channels=async(p,el)=>{await base(p,el);if(S.me?.admin===false||S.chOverride)return;let sh={};try{sh=(await UI('/ui/channels/shares')).shares||{}}catch{}
  el.querySelectorAll('[data-chmove][data-from]').forEach(s=>{const row=s.closest('.row');const act=row?.querySelector('.act');if(!act||act.querySelector('[data-act="ch-share"]'))return;
   const owner=s.dataset.from,platform=s.dataset.chmove;const cur=sh[owner+'|'+platform];const n=cur?.senders?.length||0;
   const b=document.createElement('button');b.className='ghost';b.dataset.act='ch-share';b.dataset.owner=owner;b.dataset.platform=platform;b.innerHTML=icon('user',15)+(n?'Senders · '+n:'Who can send');act.prepend(b);
   const t=row.querySelector('.txt b');if(t&&n&&!t.querySelector('.access'))t.insertAdjacentHTML('beforeend',' '+accessChip('Shared · '+(n+1)+' can send',ident(owner).name+' receives. Also sends: '+cur.senders.map(a=>ident(a).name).join(', '),'shared'))})}}
+
+/* ---------- Extra connections: a second (third…) WhatsApp, Telegram… for the same agent ----------
+   Each one is a hidden linked copy of the agent that shares its personality, memory, skills and tools.
+   Setting one up reuses the normal channel screens, pointed at the copy (S.chOverride). */
+addEventListener('hashchange',()=>{if(S.chOverride){S.chOverride=null;S.chOverrideInfo=null}});
+const linkTitle=l=>l.label||pretty(l.platform)+' '+l.n;
+ACT['ch-extra-add']=async a=>{const agent=S.profile||'default',platform=a.dataset.id;
+ if(!await confirmBox(`Add another ${pretty(platform)} to ${ident(agent).name}?`,`It answers as ${ident(agent).name}: same personality, memory, skills and tools, on a different ${pretty(platform)} account. Chats on it stay separate from this one.`,'Add',false))return;
+ try{toast('Preparing a new connection…');const l=await post(UI,'/ui/channels/links',{agent,platform});ACT['ch-extra-open']({dataset:{name:l.name,platform,n:l.n,agent}})}catch(e){fail(e)}};
+ACT['ch-extra-open']=a=>{S.chOverride=a.dataset.name;S.chOverrideInfo={platform:a.dataset.platform,n:a.dataset.n,agent:a.dataset.agent||S.profile||'default',label:a.dataset.label||''};reload()};
+ACT['ch-extra-done']=()=>{S.chOverride=null;S.chOverrideInfo=null;reload()};
+ACT['ch-extra-rename']=async a=>{const v=prompt('Name for this connection (for example "Shop WhatsApp")',a.dataset.label||'');if(v==null)return;try{await put(UI,'/ui/channels/links',{agent:a.dataset.agent,name:a.dataset.name,label:v});toast('Renamed');reload()}catch(e){fail(e)}};
+ACT['ch-extra-remove']=async a=>{if(!await confirmBox('Remove '+a.dataset.title+'?','Its login and settings are deleted. '+ident(a.dataset.agent).name+' and its other channels are not touched.','Remove'))return;
+ try{await del(UI,'/ui/channels/links',{agent:a.dataset.agent,name:a.dataset.name});toast('Removed');S.chOverride=null;reload()}catch(e){fail(e)}};
+{const base=PAGES.channels;PAGES.channels=async(p,el)=>{
+ const o=S.chOverrideInfo;
+ if(S.chOverride&&o){await base(p,el);
+  // setting up an extra connection: only that app, with a clear header
+  el.querySelectorAll('.grid-cards [data-id]').forEach(c=>{if(c.dataset.id!==o.platform)c.remove()});
+  el.insertAdjacentHTML('afterbegin',`<div class="panel card extra-head" style="margin-bottom:16px"><div class="row" style="padding:0;border:0"><div class="main-c">${chLogo(o.platform,pretty(o.platform))}<div class="txt"><b>${esc(o.label||pretty(o.platform)+' '+o.n)} for ${esc(ident(o.agent).name)}</b><span>Answers as ${esc(ident(o.agent).name)}: same personality, memory, skills and tools. Open the card below to connect it.</span></div></div><div class="act"><button class="primary" data-act="ch-extra-done">${icon('check',15)}Done</button></div></div></div>`);
+  return}
+ const agent=S.profile||'default';const pL=UI('/ui/channels/links?agent='+encodeURIComponent(agent)).catch(()=>({links:[]}));const pC=UI('/ui/channels').catch(()=>({channels:[]}));
+ await base(p,el);
+ // "Add another" on every app this agent already uses
+ el.querySelectorAll('.grid-cards .card[data-id]').forEach(c=>{const pl=(Pages.platforms||[]).find(x=>x.id===c.dataset.id);if(!pl?.configured||['api_server','webhook'].includes(pl.id))return;
+  c.querySelector('.tile-foot')?.insertAdjacentHTML('beforeend',`<span class="add-another" role="button" tabindex="0" data-act="ch-extra-add" data-id="${esc(pl.id)}" title="Connect another ${esc(pl.name)} account to this agent">${icon('plus',14)}Add another</span>`)});
+ const [{links=[]},{channels=[]}]=await Promise.all([pL,pC]);if(!links.length)return;
+ const st_=n=>channels.find(c=>c.agent===n);
+ const panel=document.createElement('div');panel.className='panel card';panel.style.marginBottom='16px';
+ panel.innerHTML=`<h2>Extra connections</h2><p class="sub">More accounts of the same app for ${esc(ident(agent).name)}. Each answers as ${esc(ident(agent).name)}.</p>${links.map((l,i)=>{const c=st_(l.name);return `<div class="row" ${st(i)} style="padding:12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="main-c">${chLogo(l.platform,pretty(l.platform))}<div class="txt"><b>${esc(linkTitle(l))}</b><span>${c?esc(chState(c)):'Not connected yet'}</span></div></div>
+  <div class="act"><button data-act="ch-extra-open" data-name="${esc(l.name)}" data-platform="${esc(l.platform)}" data-n="${l.n}" data-agent="${esc(l.agent)}" data-label="${esc(l.label||'')}">${icon('sliders',15)}${c?'Manage':'Connect'}</button><button class="ghost icon" data-act="ch-extra-rename" data-name="${esc(l.name)}" data-agent="${esc(l.agent)}" data-label="${esc(l.label||'')}" title="Rename" aria-label="Rename">${icon('edit',15)}</button><button class="ghost icon" data-act="ch-extra-remove" data-name="${esc(l.name)}" data-agent="${esc(l.agent)}" data-title="${esc(linkTitle(l))}" title="Remove" aria-label="Remove">${icon('trash',15)}</button></div></div>`}).join('')}`;
+ el.querySelector('.grid-cards')?.before(panel)}}

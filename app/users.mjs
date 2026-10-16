@@ -55,7 +55,7 @@ export function createUsers(DATA,mail){
  // An agent owned by a member is private: admins see it listed but can open it only when it is shared with them.
  const agentOwner=a=>db.agentOwners[a]||'owner';
  const isPrivate=a=>{const o=byId(agentOwner(a));return !!o&&!isAdmin(o)};
- function level(u,agent){if(agentOwner(agent)===u.id)return 'owner';const shared=(db.shares[agent]||{})[u.id]||null;
+ function level(u,agent){if(typeof agent==='string'&&agent.includes('--'))agent=agent.split('--')[0];  // a copy has its agent's rightsif(agentOwner(agent)===u.id)return 'owner';const shared=(db.shares[agent]||{})[u.id]||null;
   if(isAdmin(u))return isPrivate(agent)?shared:'owner';return shared}
  // which agent a call is about, when it is about one
  function agentTarget(p,query,a){let m;if((m=/^\/gapi\/p\/([^/]+)/.exec(p)))return decodeURIComponent(m[1]);if(p.startsWith('/gapi/'))return 'default';
@@ -147,6 +147,8 @@ export function createUsers(DATA,mail){
   if(/^\/hapi\/sessions$/.test(p)&&Array.isArray(data.sessions)){const s=data.sessions.filter(x=>keep(x.id));return {...data,sessions:s,total:s.length}}
   if(/^\/hapi\/sessions\/search$/.test(p)&&Array.isArray(data.results))return {...data,results:data.results.filter(x=>keep(x.session_id||x.id))};
   if(/^\/hapi\/cron\/jobs$/.test(p)&&!isAdmin(u)){const jobs=Array.isArray(data)?data:data.jobs;if(Array.isArray(jobs)){const f=jobs.filter(j=>atLeast(u,j.profile||'default','edit'));return Array.isArray(data)?f:{...data,jobs:f}}}
+  // the hidden copies behind extra connections (WhatsApp 2…) are not agents of their own
+  if(/^\/hapi\/profiles$/.test(p)&&Array.isArray(data.profiles))data={...data,profiles:data.profiles.filter(x=>!String(x.name).includes('--'))};
   if(/^\/hapi\/profiles$/.test(p)&&Array.isArray(data.profiles)&&!isAdmin(u))return {...data,profiles:data.profiles.filter(x=>level(u,x.name))};
   return data}
 
