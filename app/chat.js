@@ -149,7 +149,7 @@ const Chat={
   const state=!x.done?'<span class="spinner"></span>Running':x.failed?`<span style="color:var(--bad)">${icon('x',14)}</span>Failed`:`<span class="ok-ic">${icon('check',14)}</span>${x.secs?x.secs+' s':'Done'}`;
   // tools reached through the lookup step ("tool call") show the real tool and what it was asked
   let tool=x.tool,sumText=x.sum&&x.sum!==x.tool?x.sum:'';const a=x.args||{};
-  if(/^(tool_call|call_tool|use_tool)$/.test(tool)){const inner=a.name||a.tool||a.tool_name||a.function;if(inner){tool=String(inner).replace(/^mcp__/,'').replace(/__/g,' · ');const ia=a.arguments||a.args||a.input||{};const v=typeof ia==='string'?ia:(ia.prompt||ia.query||ia.url||ia.text||ia.path||ia.command||'');sumText=String(v).slice(0,140)}}
+  if(/^(tool_call|call_tool|use_tool)$/.test(tool)){const calls=Array.isArray(a.calls)?a.calls:[a],c=calls[0]||{};const inner=c.name||c.tool||c.tool_name||c.function;if(inner){tool=String(inner).replace(/^mcp__/,'').replace(/__/g,' · ')+(calls.length>1?' +'+(calls.length-1):'');const ia=c.arguments||c.args||c.input||{};const v=typeof ia==='string'?ia:(ia.prompt||ia.query||ia.url||ia.text||ia.path||ia.command||'');sumText=String(v).slice(0,140)}}
   else if(/^(tool_describe|tool_search)$/.test(tool)){tool='looked up tools';const q=a.names||a.queries||a.query;sumText=Array.isArray(q)?q.join(', '):String(q||'')}
   const sum=x.tool==='terminal'?`<code>${esc(x.sum)}</code>`:`<b>${esc(String(tool).replace(/_/g,' '))}</b> <span class="sub-t">${esc(sumText)}</span>`;
   const detail=[x.args&&Object.keys(x.args).length?JSON.stringify(x.args,null,2):'',x.out].filter(Boolean).join('\n\n— output —\n');
