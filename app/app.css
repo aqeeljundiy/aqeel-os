@@ -778,7 +778,7 @@ input[type=checkbox]:not(.switch)::after{margin:auto}
 .tile-foot .add-another:hover{background:rgba(1,88,203,.14)}
 .extra-head .txt span{white-space:normal}
 /* loaded content arrives smoothly (see watchReveal in core.js) */
-.reveal{animation:reveal .42s var(--ease) both;animation-delay:calc(min(var(--ri,0),8) * 45ms)}
+.reveal{animation:reveal .42s var(--ease) backwards;animation-delay:calc(min(var(--ri,0),8) * 45ms)}
 .reveal .row,.reveal .tile,.reveal .stat{animation-delay:calc(min(var(--ri,0),8) * 45ms + 60ms)}
 @keyframes reveal{from{opacity:0;transform:translateY(8px);filter:blur(2px)}to{opacity:1;transform:none;filter:none}}
 /* placeholders: a soft moving shine so it reads as "loading", not as empty boxes */

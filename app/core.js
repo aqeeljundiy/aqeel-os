@@ -263,5 +263,5 @@ async function signOut(){await fetch('/auth/logout',{method:'POST'});S.signedIn=
    a little staggered, instead of snapping into place. Works for whole pages and for panels that load later. */
 function watchReveal(root){if(!root||root._reveal)return;root._reveal=new MutationObserver(ms=>{for(const m of ms){
  if(![...m.removedNodes].some(n=>n.nodeType===1&&(n.classList?.contains('skel')||n.querySelector?.('.skel'))))continue;
- let i=0;for(const n of m.addedNodes)if(n.nodeType===1&&!n.classList.contains('skel')&&!n.querySelector?.('.skel')){n.classList.remove('reveal');void n.offsetWidth;n.style.setProperty('--ri',i++);n.classList.add('reveal')}}});
+ let i=0;for(const n of m.addedNodes)if(n.nodeType===1&&!/^(SELECT|SCRIPT|STYLE|TEMPLATE)$/.test(n.tagName)&&!n.hidden&&!n.classList.contains('skel')&&!n.classList.contains('sel-native')&&!n.querySelector?.('.skel')){n.classList.remove('reveal');void n.offsetWidth;n.style.setProperty('--ri',i++);n.classList.add('reveal')}}});
  root._reveal.observe(root,{childList:true,subtree:true})}
