@@ -294,7 +294,7 @@ ACT['wh-new-pre']=0;
  let d;try{d=await UI('/ui/channels')}catch{return}const agents=((await H('/profiles').catch(()=>({profiles:[]}))).profiles||[]).map(x=>x.name);
  const panel=document.createElement('div');panel.className='panel card';panel.style.marginBottom='16px';
  panel.innerHTML=`<h2>Every agent's channels</h2><p class="sub">Each connection belongs to one agent, which answers it. Move one to another agent and its settings, WhatsApp login and approved people go along, so nobody sets it up twice.</p>
-  ${d.channels.length?d.channels.map((c,i)=>`<div class="row" ${st(i)} style="padding:12px 12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="main-c">${chLogo(c.id,c.name)}<div class="txt"><b>${esc(c.name)}</b><span>${c.state==='connected'?'Connected':esc(pretty(c.state||'not running'))}${c.error?' · '+esc(c.error):''}</span></div></div>
+  ${d.channels.length?d.channels.map((c,i)=>`<div class="row" ${st(i)} style="padding:12px 12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="main-c">${chLogo(c.id,c.name)}<div class="txt"><b>${esc(c.name)}</b><span>${esc(chState(c))}</span></div></div>
    <div class="act"><span class="hint" style="margin:0">Answered by</span><select style="width:auto" data-chmove="${esc(c.id)}" data-from="${esc(c.agent)}">${agents.map(n=>`<option value="${esc(n)}" ${n===c.agent?'selected':''}>${esc(ident(n).name)}</option>`).join('')}</select></div></div>`).join(''):'<p class="hint">No channel is connected yet. Set one up below and it shows here for the whole team.</p>'}`;
  el.querySelector('.grid-cards')?.before(panel);panel.querySelectorAll('select').forEach(enhanceSelect);
  panel.querySelectorAll('[data-chmove]').forEach(s=>s.onchange=async()=>{const to=s.value,from=s.dataset.from;if(to===from)return;
@@ -392,3 +392,15 @@ async function moaDrawer(name){const {c,presets}=Pages._moa||{};const pr=name?pr
  d.querySelector('#moDel')?.addEventListener('click',async()=>{if(!await confirmBox('Delete '+pretty(name)+'?','Chats using it switch back to a normal model.','Delete'))return;try{await write(p=>{delete p[name]});closeLayers();toast('Team deleted');reload()}catch(e){fail(e)}})}
 ACT['moa-new']=()=>moaDrawer(null);ACT['moa-edit']=a=>moaDrawer(a.dataset.n);
 {const base=PAGES.models;PAGES.models=async(p,el)=>{await base(p,el);if(S.me?.admin===false)return;moaPanel(el)}}
+
+/* ---------- channel states in plain words, and relinking WhatsApp ---------- */
+const CH_STATE={connected:'Connected',pending_restart:'Restart needed',retrying:'Reconnecting',starting:'Starting',connecting:'Connecting',disabled:'Off',failed:'Not connected',error:'Not connected',stopped:'Off'};
+const chState=c=>/logged out|bridge process died|bridge_exited/i.test((c.error_code||'')+' '+(c.error_message||'')+' '+(c.error||''))?'Not connected · link again':CH_STATE[c.state]||pretty(c.state||'Not set up');
+{const base=PAGES.channels;PAGES.channels=async(p,el)=>{await base(p,el);
+ el.querySelectorAll('.chip').forEach(ch=>{const t=ch.textContent.trim();const k=Object.keys(CH_STATE).find(k=>pretty(k)===t);if(k)ch.textContent=CH_STATE[k]})}}
+{const base=ACT['ch-open'];ACT['ch-open']=async a=>{await base(a);const id=a.dataset.id;const d=$('.drawer');if(!d)return;
+ d.querySelectorAll('.chip').forEach(ch=>{const t=ch.textContent.trim();const k=Object.keys(CH_STATE).find(k=>pretty(k)===t);if(k)ch.textContent=CH_STATE[k]});
+ if(id!=='whatsapp')return;const err=d.querySelector('.err-line');
+ if(err&&/bridge|logged out|exited/i.test(err.textContent)){err.innerHTML='WhatsApp ended this link (it happens when the phone unlinks the device or the connection is interrupted right after linking). Link the phone again below.';
+  const g=d.querySelector('[data-act="onboard"]');if(g)g.innerHTML=icon('refresh',15)+'Link again (fresh QR)';g?.setAttribute('data-relink','1')}}}
+{const base=ACT['onboard'];ACT['onboard']=async a=>{if(a.dataset.id==='whatsapp'&&a.dataset.relink){try{await put(H,'/messaging/platforms/whatsapp',{enabled:false,env:{}}).catch(()=>{});await post(UI,'/ui/channels/whatsapp-reset',{agent:S.profile||'default'})}catch(e){return fail(e)}}return base(a)}}

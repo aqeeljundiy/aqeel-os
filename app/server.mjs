@@ -282,6 +282,10 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/share/rename-mcp'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can rename MCP tools.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{return send(res,200,await sharing.renameMcp(String(b.agent||'default'),String(b.from||''),String(b.to||'')))}catch(e){return send(res,400,{error:e.message})}}
    // channels across all agents (admins), and handing one to another agent
    if(p==='/ui/channels'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can see every channel.'});return send(res,200,{channels:await channels.list()})}
+   // WhatsApp: clear a login that WhatsApp has ended, so a fresh QR can link the phone again
+   if(p==='/ui/channels/whatsapp-reset'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can relink WhatsApp.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
+    const ag=String(b.agent||'default');if(!(await listAgents()).includes(ag))return send(res,400,{error:'Unknown agent'});
+    const dir=path.join(ag==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',ag),'platforms','whatsapp','session');const {rm}=await import('node:fs/promises');await rm(dir,{recursive:true,force:true});return send(res,200,{ok:true})}
    if(p==='/ui/channels/move'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can move channels.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{return send(res,200,await channels.move(String(b.platform||''),String(b.from||''),String(b.to||'')))}catch(e){return send(res,400,{error:e.message})}}
    // QR codes (WhatsApp linking…): drawn here with the qrcode library that ships with the engine
    if(p==='/ui/qr'&&req.method==='GET'){const d=String(url.searchParams.get('d')||'');if(!d||d.length>2000)return send(res,400,'bad');
