@@ -2,7 +2,7 @@
 // schedules, so "share" means: copy it to the agents you pick (settings included), and "used by" means:
 // which agents have one with that name. Renaming an MCP tool is copy-under-new-name, then remove the old.
 import {execFile} from 'node:child_process';
-import {cp,readdir,stat,access} from 'node:fs/promises';
+import {cp,readdir,stat,access,readFile,writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {homedir} from 'node:os';
 
@@ -49,5 +49,12 @@ export function createShare({DASH,TOKEN,HERMES_HOME,listAgents}){
 
  async function renameMcp(agent,from,to){if(!NAME.test(from)||!NAME.test(to))throw new Error('Use letters, numbers, dots or dashes.');
   const block=await mcpBlock(agent,from);await setMcp(agent,to,block);const r=await run(['-p',agent,'config','unset','mcp_servers.'+from]);if(!r.ok)throw new Error('Copied, but the old name could not be removed.');return {ok:true}}
- return {usedBy,share,renameMcp,python};
+ /* a second copy on the same agent under another name (e.g. two AdsPower logins, or a skill to change separately) */
+ async function duplicate(kind,agent,name,to){if(!NAME.test(name)||!NAME.test(to)||name===to)throw new Error('Use letters, numbers, dots or dashes, and a new name.');
+  if(kind==='mcp'){const have=((await api('/mcp/servers'+q(agent))).servers||[]).map(x=>x.name);if(have.includes(to))throw new Error(to+' already exists.');await setMcp(agent,to,await mcpBlock(agent,name));return {ok:true,name:to}}
+  if(kind==='skill'){const src=await findSkillDir(agent,name);if(!src)throw new Error('Skill folder not found.');const dst=path.join(path.dirname(src),to);
+   if(await stat(dst).then(()=>true,()=>false))throw new Error(to+' already exists.');await cp(src,dst,{recursive:true});
+   const md=path.join(dst,'SKILL.md');let t=await readFile(md,'utf8');t=t.replace(/^(---[\s\S]*?\nname:\s*)(.+)$/m,(m,a)=>a+to);await writeFile(md,t);return {ok:true,name:to}}
+  throw new Error('Only MCP tools and skills can be duplicated. A plugin runs once per agent.')}
+ return {usedBy,share,renameMcp,python,duplicate};
 }
