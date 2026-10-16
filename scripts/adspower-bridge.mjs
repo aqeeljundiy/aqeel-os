@@ -4,6 +4,7 @@
 // Settings (read fresh on every call from the facebook-manager and default .env, so you or the agent can change them):
 //   ADSPOWER_API_KEY  Local API key (AdsPower › Automation › API)
 //   ADSPOWER_PROFILE  the profile to use: its name, remark or id. Never guessed among business profiles.
+//                     Not set: the profile that is already open (e.g. the agent opened it with its AdsPower tool).
 // Env: ADSPOWER_API (default http://127.0.0.1:50325), BRIDGE_PORT (default 9333).
 import {createServer,request} from 'node:http';
 import {connect} from 'node:net';
@@ -34,7 +35,12 @@ async function pickProfile(){
 }
 const portOf=d=>{const ws=d.ws?.puppeteer||'';const m=/:(\d+)\//.exec(ws);return Number(d.debug_port)||(m?Number(m[1]):0)};
 let starting=null;
+// the profile that is open right now (newest last); none set and none open → say how to fix it
+async function openPort(){const d=await api('GET','/api/v1/browser/local-active');const l=d.list||[];const a=l[l.length-1];
+ if(!a)throw new Error('No AdsPower profile is open. Open one first (AdsPower tool), or set ADSPOWER_PROFILE to the profile to use.');
+ if(chosenFor!=='(open) '+a.user_id){chosenFor='(open) '+a.user_id;profileId='';log('using the open profile',a.user_id)}return portOf(a)}
 async function ensure(){ // → debug port of the running profile
+ if(!(setting('ADSPOWER_PROFILE')||setting('ADSPOWER_PROFILE_ID')))return openPort();
  const id=await pickProfile();
  try{const a=await api('GET','/api/v2/browser-profile/active?profile_id='+encodeURIComponent(id));if(/active/i.test(a.status||'')&&portOf(a))return portOf(a)}catch(e){log('active check:',e.message)}
  if(!starting)starting=api('POST','/api/v2/browser-profile/start',{profile_id:id}).then(d=>{log('started profile',id);return portOf(d)}).finally(()=>setTimeout(()=>starting=null,3000));
