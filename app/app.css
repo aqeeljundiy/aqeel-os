@@ -831,3 +831,34 @@ input[type=checkbox]:not(.switch)::after{margin:auto}
 /* long links and codes wrap inside chat bubbles instead of running off the edge */
 .msg.user,.msg .text{overflow-wrap:anywhere;word-break:break-word;min-width:0}
 .msg .text pre,.msg .text .codeblock pre{overflow-x:auto;word-break:normal;overflow-wrap:normal}
+/* usage card (chat › usage %) */
+.meter-card{position:fixed;z-index:60;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);box-shadow:0 12px 32px rgba(11,12,16,.16);padding:14px 16px;animation:rise var(--t-fast,.18s) var(--ease) both}
+.meter-card .mc-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:8px}
+.meter-card .mc-head b{font-size:14px}.meter-card .mc-head span{font-size:12.5px;color:var(--muted)}
+.meter-card .mc-row{padding:8px 0;border-top:1px solid var(--border)}
+.meter-card .mc-top{display:flex;justify-content:space-between;font-size:13px;color:var(--ink-2)}.meter-card .mc-top b{color:var(--ink);font-variant-numeric:tabular-nums}
+.meter-card .mc-bar{display:block;height:6px;border-radius:99px;background:var(--soft);margin:6px 0 4px;overflow:hidden}
+.meter-card .mc-bar s{display:block;height:100%;border-radius:inherit;background:var(--blue);text-decoration:none}
+.meter-card .mc-bar.warn s{background:#d4880f}.meter-card .mc-bar.bad s{background:var(--bad)}
+.meter-card small{font-size:12px;color:var(--muted)}
+.meter-card .mc-more{margin-top:8px;width:100%;justify-content:center}
+/* per-chat permission switch */
+.composer-bar .perm{gap:5px}
+.composer-bar .perm.on{color:#9a5b00;background:#fff4e0}
+.dark .composer-bar .perm.on{color:#f3b45a;background:rgba(243,180,90,.12)}
+@container (max-width:620px){.composer-bar .perm span{display:none}}
+/* narrow windows (or the screen panel open): layouts follow the space they actually have */
+.page{container-type:inline-size;container-name:page}
+.panel,.card.list{container-type:inline-size}
+@container page (max-width:880px){.two{grid-template-columns:minmax(0,1fr)}}
+.stack-2{display:grid;grid-template-columns:minmax(0,1fr);gap:16px}
+/* label above its control when a panel is narrow */
+@container (max-width:520px){.field{grid-template-columns:minmax(0,1fr);gap:8px;align-items:start}.field>div{width:100%}}
+/* list rows: the name gets the room, the chips/buttons wrap under it when tight */
+.row .txt{min-width:0}.row .txt b,.row .txt span{overflow-wrap:anywhere}
+@container (max-width:460px){.row{grid-template-columns:minmax(0,1fr);gap:8px}.row .act{justify-content:flex-start;flex-wrap:wrap}}
+.list-head{gap:12px}
+/* usage tables follow their panel's width, not the window's */
+.utable{min-width:0;overflow-x:auto}
+.utable .uh,.utable .ur{grid-template-columns:minmax(120px,2fr) repeat(5,minmax(56px,1fr))}
+@container (max-width:620px){.utable .uh,.utable .ur{grid-template-columns:minmax(0,1.6fr) repeat(3,minmax(48px,1fr))}.utable .uh>span:nth-child(5),.utable .uh>span:nth-child(6),.utable .ur>span:nth-child(5),.utable .ur>span:nth-child(6){display:none}}

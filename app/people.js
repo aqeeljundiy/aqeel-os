@@ -555,3 +555,16 @@ ACT['use-composio']=a=>useComposio(a.dataset.app||'');
  const tabs_=el.querySelector('.tabs, [role=tablist]');if(!el.querySelector('.composio-note')){const n=document.createElement('div');n.className='panel card composio-note';
   n.innerHTML=`<div class="row" style="padding:0;border:0"><div class="main-c"><span class="ic blue">${icon('plug',16)}</span><div class="txt"><b>Hard to connect an app? Use Composio</b><span>One sign-in reaches 500+ apps (Slack, Gmail, Google Drive, GitHub…). Use an app's own tool when it signs in easily; use Composio when it would need its own app.</span></div></div><div class="act"><button data-act="use-composio">${icon('plug',15)}Set up Composio</button></div></div>`;
   (tabs_||el.firstElementChild)?.after(n)}}}
+
+/* ---------- Chat › usage %: a small card with this account's limits, right where you are ---------- */
+ACT['meter-card']=a=>{document.querySelector('.meter-card')?.remove();const prov=Chat.cur()?.provider||Chat.defProv;const ws=(Chat.usage||{})[prov]||[];if(!ws.length)return;
+ const m=Chat.cur();const card=document.createElement('div');card.className='meter-card';card.setAttribute('role','dialog');
+ const row=w=>{const u=Math.round(Number(w.used_percent)||0),c=u>=90?'bad':u>=70?'warn':'ok';return `<div class="mc-row"><div class="mc-top"><span>${esc(w.label||'Limit')}</span><b>${u}%</b></div><i class="mc-bar ${c}"><s style="width:${Math.min(100,u)}%"></s></i>${w.resets_at?`<small>Resets ${esc(when(w.resets_at))}</small>`:''}</div>`};
+ card.innerHTML=`<div class="mc-head"><b>${esc(m?.providerName||provLabel(prov))}</b><span>${esc(m?.label||'')}</span></div>${ws.map(row).join('')}
+  ${S.me?.admin!==false?`<button class="ghost small mc-more" data-go="/models/accounts">See all accounts${icon('chevR',14)}</button>`:''}`;
+ document.body.append(card);const r=a.getBoundingClientRect(),w=Math.min(300,innerWidth-24);card.style.width=w+'px';
+ card.style.left=Math.max(12,Math.min(r.left+r.width/2-w/2,innerWidth-w-12))+'px';card.style.top=Math.max(12,r.top-card.offsetHeight-10)+'px';
+ const off=e=>{if(!card.contains(e.target)&&!e.target.closest('[data-act="meter-card"]')){card.remove();document.removeEventListener('pointerdown',off,true)}};
+ setTimeout(()=>document.addEventListener('pointerdown',off,true),0);card.querySelector('.mc-more')?.addEventListener('click',()=>card.remove())};
+addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelector('.meter-card')?.remove()});
+addEventListener('hashchange',()=>document.querySelector('.meter-card')?.remove());

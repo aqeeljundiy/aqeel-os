@@ -21,12 +21,14 @@ PAGES.accounts=async(p,el)=>{
   ${logoImg(s.logo,s.name[0].toUpperCase())}<div class="txt"><b>${esc(s.name)}</b><span>${u.length?'In use by '+esc(u.join(', ')):'Standby'}</span></div>
   <select data-pri-model="${i}" style="width:auto"><option value="">Keep each agent's model</option>${s.models.map(m=>`<option value="${esc(m)}" ${m===e.model?'selected':''}>${esc(modelLabel(m))}</option>`).join('')}</select>
   ${usedChip(s.used)}<span class="pri-btns"><button class="ghost icon-btn" data-act="pri-move" data-i="${i}" data-dir="-1" aria-label="Move up" ${i?'':'disabled'}>${icon('chevU',16)}</button><button class="ghost icon-btn" data-act="pri-move" data-i="${i}" data-dir="1" aria-label="Move down" ${i<pri.length-1?'':'disabled'}>${icon('chevD',16)}</button><button class="ghost icon-btn" data-act="pri-del" data-i="${i}" aria-label="Remove">${icon('x',16)}</button></span></div>`};
- const card=(s,i)=>`<div class="card tile acct" ${st(i)} style="cursor:default"><div class="tile-top">${logoImg(s.logo,s.name[0].toUpperCase())}<div style="min-width:0;flex:1"><h3>${esc(s.name)}</h3><span class="acct-mail">${esc(s.sub)}</span></div>${usedChip(s.used)}</div>
-  ${s.bars.length?`<div class="ubars">${s.bars.map(([l,w])=>pctBar(l,w)).join('')}</div>`:`<p class="hint">${s.ok?(s.key.startsWith('p:')?'This provider does not report limits. It is billed per use.':'Usage appears after the first chat.'):'Sign in again to use this account.'}</p>`}
+ const card=(s,i)=>`<div class="card tile acct" ${st(i)} style="cursor:default"><div class="tile-top">${logoImg(s.logo,s.name[0].toUpperCase())}<div style="min-width:0;flex:1"><h3>${esc(s.name)}</h3><span class="acct-mail">${esc(s.sub)}</span></div>${s.isTeam?'':usedChip(s.used)}</div>
+  ${s.isTeam?'':s.bars.length?`<div class="ubars">${s.bars.map(([l,w])=>pctBar(l,w)).join('')}</div>`:`<p class="hint">${s.ok?(s.key.startsWith('p:')?'This provider does not report limits. It is billed per use.':'Usage appears after the first chat.'):'Sign in again to use this account.'}</p>`}
   ${(s.details||[]).map(x=>`<p class="hint" style="margin:4px 0">${esc(x)}</p>`).join('')}
   <div class="acct-agents"><span class="th">Used by</span>${users(s.key).map(n=>`<span class="chip">${esc(n)}</span>`).join('')||'<span class="hint" style="margin:0">No agent yet</span>'}</div>
   ${s.menu?`<div class="tile-foot"><span></span><button class="ghost icon" data-menu="acct" data-id="${esc(s.menu)}" aria-label="More">${icon('more',18)}</button></div>`:''}</div>`;
- const left=src.filter(s=>!pri.some(e=>e.key===s.key));
+ // the 'Team of models' (Mixture of Agents) is not an account of its own: it borrows the others. Say so, and only show it when an agent uses it
+ for(const s of src)if(/moa|mixture/i.test(s.key+' '+s.name)){s.isTeam=true;s.name='Team of models';s.sub='Several models answer, one combines them';s.details=['It runs on your other accounts above, so it has no limits of its own. Set it up under Models › Team of models.']}
+ const left=src.filter(s=>!pri.some(e=>e.key===s.key)&&!(s.isTeam&&!users(s.key).length));
  el.innerHTML=`<div class="panel card"><h2>Priority</h2><p class="sub">The order your accounts get used in. When an agent's account passes the limit you set, it moves to the next one with room. Drag to reorder.</p>
   <div class="pri-list">${pri.map(priRow).join('')||'<p class="hint">Nothing here yet. Add your accounts in the order you want them used.</p>'}</div>
   ${left.length?`<button class="ghost" data-menu="pri-add" style="margin-top:10px">${icon('plus',15)}Add to priority</button>`:''}</div>

@@ -44,7 +44,20 @@ const bytes=n=>n==null?'—':n>=1e9?(n/1e9).toFixed(1)+' GB':n>=1e6?(n/1e6).toFi
 const plural=(n,w)=>n+' '+w+(n===1?'':'s');
 // Short provider names, the way people say them (Claude, ChatGPT…), not Hermes' plugin titles.
 const provLabel=p=>{const s=String(p?.slug||p||''),n=String(p?.name||s);if(s==='moa')return 'Team of models';if(/claude-subscription|^claude-code/.test(s))return 'Claude';if(/codex/.test(s))return 'ChatGPT';if(s==='openrouter')return 'OpenRouter';if(/gemini/.test(s))return 'Gemini';return n.replace(/\s*\((experimental|beta)\)$/i,'')};
-const modelLabel=m=>{if(!m)return 'Default';const s=String(m).replace(/\[1m\]$/,'').replace(/^(?:anthropic\/)?claude-/,'');const mm=/^(opus|sonnet|haiku|fable)-(\d+)(?:[-.](\d+))?(?:-\d{8})?$/.exec(s.replace(/^anthropic\//,''));if(mm)return mm[1][0].toUpperCase()+mm[1].slice(1)+' '+mm[2]+(mm[3]?'.'+mm[3]:'');if(/^(opus|sonnet|haiku|fable)$/.test(s))return s[0].toUpperCase()+s.slice(1);const g=/^(?:openai\/)?gpt-(.+)$/i.exec(s);if(g)return 'GPT-'+g[1].replace(/-codex/,' Codex').replace(/-mini/,' mini');return s};
+const modelLabel=m=>{if(!m)return 'Default';const s=String(m).replace(/\[1m\]$/,'').replace(/^(?:anthropic\/)?claude-/,'');const mm=/^(opus|sonnet|haiku|fable)-(\d+)(?:[-.](\d+))?(?:-\d{8})?$/.exec(s.replace(/^anthropic\//,''));if(mm)return mm[1][0].toUpperCase()+mm[1].slice(1)+' '+mm[2]+(mm[3]?'.'+mm[3]:'');if(/^(opus|sonnet|haiku|fable)$/.test(s))return s[0].toUpperCase()+s.slice(1);return niceModel(s)};
+// any other model id in plain words: "gpt-6.1-sol" → "GPT-6.1 Sol", "gpt-6-luna-900k" → "GPT-6 Luna · 900k",
+// "gemini-2.5-pro" → "Gemini 2.5 Pro", "qwen3-coder-plus" → "Qwen3 Coder Plus"
+function niceModel(id){let s=String(id||'').replace(/^.*\//,'').replace(/\[[^\]]*\]$/,'').replace(/-(?:20\d{2}-\d{2}-\d{2}|\d{8})$/,'');
+ let ctx='';const c=/-(\d+(?:\.\d+)?[km])$/i.exec(s);if(c){ctx=c[1].toLowerCase();s=s.slice(0,-c[0].length)}
+ const BRAND={gpt:'GPT',gemini:'Gemini',gemma:'Gemma',grok:'Grok',qwen:'Qwen',deepseek:'DeepSeek',llama:'Llama',mistral:'Mistral',kimi:'Kimi',glm:'GLM',minimax:'MiniMax',claude:'Claude',command:'Command',sonar:'Sonar',nova:'Nova',phi:'Phi'};
+ const parts=s.split('-').filter(Boolean);if(!parts.length)return String(id||'');
+ const word=w=>/^\d/.test(w)?w:/^(mini|nano|micro)$/i.test(w)?w.toLowerCase():/^[a-z]\d/i.test(w)||/^\d+[a-z]$/i.test(w)?w.toUpperCase():w[0].toUpperCase()+w.slice(1);
+ let head=parts.shift();const b=/^([a-z]+)(\d.*)?$/i.exec(head);let out;
+ if(b&&BRAND[b[1].toLowerCase()]){const name=BRAND[b[1].toLowerCase()];
+  if(name==='GPT'&&/^\d/.test(parts[0]||''))out='GPT-'+parts.shift();else if(name==='GPT'&&b[2])out='GPT-'+b[2];else out=name+(b[2]||'')}
+ else out=/^o\d/i.test(head)?head.toLowerCase():word(head);
+ const rest=parts.map(word).join(' ').replace(/\bCodex\b/,'Codex');
+ return (out+(rest?' '+rest:'')+(ctx?' · '+ctx:'')).trim()}
 const srcIcon=s=>({telegram:'telegram',whatsapp:'whatsapp',cron:'cron',api_server:'chat',tui:'terminal',cli:'terminal',oneshot:'terminal',webhook:'hook',discord:'chat',slack:'chat',email:'chat'}[s]||'chat');
 
 // Small, safe Markdown: paragraphs, lists, headings, bold, italics, inline code, fenced code, links, tables, quotes.
