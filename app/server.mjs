@@ -65,7 +65,13 @@ async function readBody(req,limit=1e6){return (await readRaw(req,limit)).toStrin
 
 // transform(json) rewrites a JSON answer before it reaches the browser (used to keep people's chats apart);
 // body is a request body that was already read (to check it) and must be sent on as is.
-function proxy(req,res,target,prefix,authHeaders,{transform,body}={}){
+/* Live replies: a chat reply streams to the page that sent it, and a copy is kept here while it runs, so a
+   refreshed page or a second tab on the same chat can pick it up (GET /ui/live). The reply keeps going on
+   the engine when the page goes away. Copies are dropped two minutes after the reply ends. */
+const LIVE=new Map();
+function liveStart(key,user){const rec={user,chunks:[],subs:new Set(),done:false,t:Date.now()};LIVE.set(key,rec);return rec}
+function liveEnd(key,rec){rec.done=true;for(const r of rec.subs)r.end();rec.subs.clear();setTimeout(()=>{if(LIVE.get(key)===rec)LIVE.delete(key)},120000)}
+function proxy(req,res,target,prefix,authHeaders,{transform,body,live}={}){
  const url=new URL(req.url,'http://x');
  // /hapi/status → dashboard /api/status · /gapi/api/sessions → gateway /api/sessions
  const upstreamPath=(prefix==='/hapi'?'/api':'')+url.pathname.slice(prefix.length)+url.search;
@@ -78,10 +84,14 @@ function proxy(req,res,target,prefix,authHeaders,{transform,body}={}){
   if(String(r.headers['content-type']||'').includes('text/event-stream')){out['cache-control']='no-cache';out['x-accel-buffering']='no';res.socket?.setNoDelay(true)}
   if(transform&&String(r.headers['content-type']||'').includes('json')){const chunks=[];r.on('data',c=>chunks.push(c));r.on('end',async()=>{let txt=Buffer.concat(chunks).toString('utf8');
     try{if((r.statusCode||500)<300)txt=JSON.stringify(await transform(JSON.parse(txt)))}catch{}delete out['content-length'];delete out['content-encoding'];res.writeHead(r.statusCode||502,{...out,...security});res.end(txt)});return}
+  if(live&&(r.statusCode||500)<300&&String(r.headers['content-type']||'').includes('text/event-stream')){
+   const rec=liveStart(live.key,live.user);res.writeHead(r.statusCode,{...out,...security});
+   r.on('data',c=>{rec.chunks.push(c);if(!res.writableEnded&&!res.destroyed)res.write(c);for(const sub of rec.subs)sub.write(c)});
+   r.on('end',()=>{liveEnd(live.key,rec);if(!res.writableEnded)res.end()});r.on('error',()=>{liveEnd(live.key,rec);res.end()});live.started=true;return}
   res.writeHead(r.statusCode||502,{...out,...security});r.pipe(res);
  });
  up.on('error',e=>{if(!res.headersSent)send(res,502,{error:'The aqeelOS engine is not reachable',detail:e.code||e.message});else res.end()});
- req.on('aborted',()=>up.destroy());res.on('close',()=>{if(!res.writableEnded)up.destroy()});
+ req.on('aborted',()=>{if(!live?.started)up.destroy()});res.on('close',()=>{if(!res.writableEnded&&!live?.started)up.destroy()});
  if(body!==undefined)up.end(body);else req.pipe(up);
 }
 
@@ -169,7 +179,7 @@ async function hermesCall(req,res,u,url){
    let fp=null;if(p.endsWith('upload-stream'))fp=(/name="path"\r\n\r\n([^\r\n]*)/.exec(raw.toString('latin1'))||[])[1];else{try{fp=JSON.parse(raw.toString('utf8')).path}catch{}}
    if(!users.filePathOk(u,fp))return send(res,403,{error:'That folder is not yours.'})}}
  // a member's message: within their daily limit, and only on models they may use
- const chatM=/^\/gapi(?:\/p\/[^/]+)?\/api\/sessions\/[^/]+\/chat\/stream$/.exec(p);
+ const chatM=/^\/gapi(?:\/p\/[^/]+)?\/api\/sessions\/([^/]+)\/chat\/stream$/.exec(p);
  if(chatM&&!users.isAdmin(u)&&req.method==='POST'){
   const lim=users.limitOf(u);if(lim?.tokens){const t=await usage.today(await listAgents(),u.id,users.ownerOf);if(t.tokens>=lim.tokens)return send(res,429,{error:'You reached today\'s limit. It resets at midnight.'})}
   const allowed=users.allowedModels(u);if(allowed){let b={};try{b=JSON.parse((await readRaw(req,40e6)).toString('utf8'))}catch{}
@@ -196,7 +206,8 @@ async function hermesCall(req,res,u,url){
   :made?async d=>{await memberAgent(u,made);return d}
   :relayTarget!==undefined?async d=>{const id=relayJob||(d.job||d).id;if(id)await relay.setJobRelay(agent,id,relayTarget);return d}:undefined;
  if(p.startsWith('/hapi/'))return proxy(req,res,DASH,'/hapi',{'x-hermes-session-token':DASH_TOKEN},{transform,body});
- return proxy(req,res,GATE,'/gapi',{authorization:'Bearer '+API_KEY},{transform,body});
+ const live=chatM&&req.method==='POST'?{key:agent+'|'+decodeURIComponent(chatM[1]),user:u.id}:undefined;
+ return proxy(req,res,GATE,'/gapi',{authorization:'Bearer '+API_KEY},{transform,body,live});
 }
 
 /* ---------- service logos: fetched once per domain, cached on the box, served from this origin ---------- */
@@ -291,6 +302,11 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/me'||p.startsWith('/ui/me/')||p.startsWith('/ui/people')||p.startsWith('/ui/agents')||p.startsWith('/ui/mail')||p.startsWith('/ui/roles'))return users.api(u,req,res,p,send,readBody);
    // A true gateway restart (stop and start the service). The engine's own restart only reloads agents inside
    // the running process, so things read at startup (shell hooks) would not change.
+   if(p==='/ui/live'&&req.method==='GET'){const rec=LIVE.get((url.searchParams.get('agent')||'default')+'|'+(url.searchParams.get('session')||''));
+    if(!rec||rec.done||rec.user!==u.id)return send(res,url.searchParams.has('peek')?200:204,url.searchParams.has('peek')?{live:false}:'');
+    if(url.searchParams.has('peek'))return send(res,200,{live:true,since:rec.t});
+    res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-cache','x-accel-buffering':'no',...security});res.socket?.setNoDelay(true);
+    for(const c of rec.chunks)res.write(c);rec.subs.add(res);res.on('close',()=>rec.subs.delete(res));return}
    if(p==='/ui/gateway/restart'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can restart the gateway.'});
     const {exec}=await import('node:child_process');exec('tmux kill-session -t gateway 2>/dev/null; tmux kill-session -t dashboard 2>/dev/null; sleep 1; ~/services.sh',{timeout:60000,shell:'/bin/bash'},()=>{});return send(res,200,{ok:true})}
    // abilities across agents: who has what, copy to other agents, rename an MCP tool (admins, or owners of both agents)
@@ -366,6 +382,8 @@ server.on('upgrade',(req,sock,headBuf)=>{
  if(p!=='/screen/websockify'||!validCookie(req)||!sameOrigin(req)){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}
  const agent=new URL(req.url,'http://x').searchParams.get('agent');
  me(req).then(u=>{if(!u||users.gate(u,'/ui/screens/'+(agent||'default'),'GET',new URLSearchParams(),agent||'default')){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}
-  return screens.upgrade(req,sock,headBuf,agent)}).catch(()=>sock.destroy());
+  // screen=ads: the shared AdsPower screen, whichever agent is driving it (admins only)
+  const ads=new URL(req.url,'http://x').searchParams.get('screen')==='ads';if(ads&&!users.isAdmin(u)){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}
+  return screens.upgrade(req,sock,headBuf,ads?null:agent)}).catch(()=>sock.destroy());
 });
 server.listen(PORT,HOST,()=>console.log(`aqeelOS on http://${HOST}:${PORT} → dashboard ${DASH.origin}, gateway ${GATE.origin}`));

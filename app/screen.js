@@ -4,18 +4,20 @@
 const Screen={
  open:store.get('screenOpen',false),control:false,mode:store.get('screenMode','dock'),
  float:store.get('screenFloat',{w:480,x:null,y:null}),
- st:null,
+ st:null,ads:false,   // ads: show the shared AdsPower screen instead of the agent's own
  agent(){return S.profile||'default'},
- off(){return this.st&&this.st.agent===this.agent()&&this.st.kind==='desktop'&&!this.st.running},
- src(){return '/screen/vnc.html?autoconnect=1&reconnect=1&reconnect_delay=1500&resize=scale&show_dot=1&path='+encodeURIComponent('screen/websockify?agent='+this.agent())+'&view_only='+(this.control?0:1)},
+ off(){return !this.ads&&this.st&&this.st.agent===this.agent()&&this.st.kind==='desktop'&&!this.st.running},
+ src(){return '/screen/vnc.html?autoconnect=1&reconnect=1&reconnect_delay=1500&resize=scale&show_dot=1&path='+encodeURIComponent('screen/websockify?agent='+this.agent()+(this.ads?'&screen=ads':''))+'&view_only='+(this.control?0:1)},
  async refresh(){const a=this.agent();try{const st=await call('','/ui/screens/'+encodeURIComponent(a));const was=this.st;this.st=st;
   if(!was||was.agent!==st.agent||was.running!==st.running||was.kind!==st.kind)this.paint(true)}catch{}},
  // While the screen is open, notice when the agent changes or its screen turns on/off by itself.
- watch(){clearInterval(this._t);if(!this.open)return;this.refresh();this._t=setInterval(()=>{if(document.hidden)return;if(this.st?.agent!==this.agent())this.st=null;this.refresh()},5000)},
+ watch(){clearInterval(this._t);if(!this.open)return;this.refresh();this._t=setInterval(()=>{if(document.hidden)return;if(this.st?.agent!==this.agent()){this.st=null;this.ads=false}this.refresh()},5000)},
+ // the agent started using AdsPower: show where AdsPower draws (only for agents that have their own screen)
+ useAds(){if(this.ads||this.st?.kind==='shared'||S.me?.admin===false)return;this.ads=true;if(this.open)this.paint(true)},
  toggle(){this.open=!this.open;store.set('screenOpen',this.open);this.paint(true);this.watch();paintTop()},
  setMode(m){this.mode=m;store.set('screenMode',m);this.paint(true)},
  setControl(on){this.control=on;this.paint(true);if(on)setTimeout(()=>$('#scrFrame')?.focus(),400)},
- head(compact){const c=this.control;return `<div class="screen-head ${compact?'compact':''}" ${compact?'data-drag="float"':''}><b>${icon('monitor',16)}<span class="lbl">${esc(ident(this.agent()).name)}</span></b>${this.off()?'<span class="chip"><i class="dot"></i>Off</span>':`<span class="chip ${c?'warn':'ok'}"><i class="dot"></i>${c?'You are in control':'Watching'}</span>`}<span class="grow"></span>
+ head(compact){const c=this.control;return `<div class="screen-head ${compact?'compact':''}" ${compact?'data-drag="float"':''}><b>${icon('monitor',16)}<span class="lbl">${this.ads?'AdsPower':esc(ident(this.agent()).name)}</span></b>${this.st?.kind==='desktop'&&S.me?.admin!==false?`<button class="ghost small scr-which" data-act="scr-ads" title="${this.ads?'Show '+esc(ident(this.agent()).name)+"'s own screen":'Show the AdsPower screen'}">${this.ads?esc(ident(this.agent()).name)+"'s screen":'AdsPower'}</button>`:''}${this.off()?'<span class="chip"><i class="dot"></i>Off</span>':`<span class="chip ${c?'warn':'ok'}"><i class="dot"></i>${c?'You are in control':'Watching'}</span>`}<span class="grow"></span>
   ${this.off()?'':`<button class="${c?'primary':''}" data-act="scr-control" title="${c?'Give control back':'Use mouse and keyboard on the screen'}">${icon('mouse',15)}<span>${c?'Done':'Take over'}</span></button>`}
   ${compact||this.off()?'':`<button class="ghost icon" data-act="scr-browser" title="Open a browser window" aria-label="Open a browser window">${icon('globe',17)}</button>`}
   <button class="ghost icon" data-act="scr-mode" title="${this.mode==='float'?'Dock beside the chat':'Float over the chat'}" aria-label="${this.mode==='float'?'Dock':'Float'}">${icon(this.mode==='float'?'dock':'pip',17)}</button>
@@ -40,6 +42,7 @@ const Screen={
  tidy(){const f=$('#scrFrame');if(!f)return;f.onload=()=>{try{const d=f.contentDocument;const st=d.createElement('style');st.textContent='#noVNC_control_bar_anchor,#noVNC_control_bar,#noVNC_control_bar_hint,#noVNC_status{display:none!important}html,body,#noVNC_container{background:#0b0c10!important}';d.head.append(st)}catch{}}},
 };
 ACT['screen']=()=>Screen.toggle();
+ACT['scr-ads']=()=>{Screen.ads=!Screen.ads;Screen.paint(true)};
 ACT['scr-control']=()=>Screen.setControl(!Screen.control);
 ACT['scr-mode']=()=>Screen.setMode(Screen.mode==='float'?'dock':'float');
 ACT['scr-pop']=()=>window.open(Screen.src().replace('view_only=1','view_only=0'),'_blank','noopener');

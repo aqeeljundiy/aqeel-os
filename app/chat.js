@@ -100,7 +100,7 @@ const Chat={
  /* ---------- history ---------- */
  async loadHistory(id){
   try{const d=await H('/sessions/'+encodeURIComponent(id)+'/messages?limit=500&order=latest');if(this.id!==id)return;
-   this.live[id]={turns:this.toTurns(d.messages||[]),running:false};this.paint();
+   if(this.live[id]?.running)return;this.live[id]={turns:this.toTurns(d.messages||[]),running:false};this.paint();this.follow(id);
    // A session that was continued after compaction: offer the newest continuation.
    H('/sessions/'+encodeURIComponent(id)+'/latest-descendant').then(x=>{const nid=x?.latest_id||x?.session_id||x?.id;if(nid&&nid!==id&&this.id===id){const th=$('#thread');th?.insertAdjacentHTML('afterbegin',`<div class="approval" style="background:var(--blue-soft);border-color:transparent"><h4>${icon('fork',16)}This chat continues in a newer one</h4><p>aqeelOS compacted it and carried on in a follow-up chat.</p><div class="btns"><button class="primary" data-go="/chat/${esc(nid)}">Open the latest</button></div></div>`)}}).catch(()=>{});
   }catch(e){if(this.id===id)showError($('#scroll'),e)}
@@ -196,10 +196,25 @@ const Chat={
    const last=s.ai||ai;if(!last.meta)last.meta=[modelLabel(last.model||ai.model||m.id),this.effort,Math.round((Date.now()-s.started)/1000)+' s'].filter(Boolean).join(' · ');
    if(this.id===id){this.paint();this.paintComposerBar()}this.loadSessions();this.runQueue(id)}
  },
+ /* A reply still running (sent before a refresh, or from another tab): pick it up from the start and follow it. */
+ async follow(id){const s=this.live[id];if(!s||s.running||s.following)return;s.following=true;
+  try{const r=await fetch('/ui/live?agent='+encodeURIComponent(S.profile||'default')+'&session='+encodeURIComponent(id),{headers:{'x-hui':'1'},credentials:'same-origin'});
+   if(r.status!==200||!r.body)return;const ai={role:'ai',steps:[],text:'',think:''};let shown=false;
+   s.ai=ai;s.runTurns=[ai];s.running=true;s.started=Date.now();
+   const show=um=>{if(shown)return;shown=true;const txt=typeof um==='string'?um:Array.isArray(um)?um.filter(x=>x.type==='text').map(x=>x.text).join(' '):'';
+    const last=s.turns[s.turns.length-1];if(txt&&!(last?.role==='user'&&last.text===txt))s.turns.push({role:'user',text:txt});s.turns.push(ai);if(this.id===id){this.paint();this.paintComposerBar()}paintSide()};
+   await this.readStream(r,ev=>{if(!shown)show(ev.type==='run.started'?ev.user_message?.content:'');this.onEvent(id,ev)});
+   s.running=false;s.runId=null;ai.steps.forEach(x=>x.done=true);if(shown&&!ai.meta)ai.meta=[modelLabel(ai.model||''),Math.round((Date.now()-s.started)/1000)+' s'].filter(Boolean).join(' · ');
+   if(this.id===id){this.paint();this.paintComposerBar()}this.loadSessions()}
+  catch{if(s.running){s.running=false;if(this.id===id){this.paint();this.paintComposerBar()}}}finally{s.following=false}},
+ // other tabs: notice when a reply starts on the open chat
+ watchLive(){clearInterval(this._lv);this._lv=setInterval(async()=>{const id=this.id,s=this.live[id];if(!id||document.hidden||!s||s.running||s.following)return;
+  try{const r=await fetch('/ui/live?peek=1&agent='+encodeURIComponent(S.profile||'default')+'&session='+encodeURIComponent(id),{headers:{'x-hui':'1'},credentials:'same-origin'});const j=await r.json();if(j.live&&this.id===id)this.follow(id)}catch{}},3000)},
  async readStream(r,on){const rd=r.body.getReader();const dec=new TextDecoder();let buf='';
   for(;;){const {value,done}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});let i;
    while((i=buf.search(/\r?\n\r?\n/))>=0){const raw=buf.slice(0,i);buf=buf.slice(i).replace(/^\r?\n\r?\n/,'');let ev='message',data='';for(const line of raw.split(/\r?\n/)){if(line.startsWith(':'))continue;if(line.startsWith('event:'))ev=line.slice(6).trim();else if(line.startsWith('data:'))data+=line.slice(5).trimStart()}if(!data)continue;let d;try{d=JSON.parse(data)}catch{d={text:data}}on({type:d.type||ev,...d})}}},
  onEvent(id,e){const s=this.live[id];if(!s)return;const ai=s.ai;if(!ai)return;
+  if(e.type==='tool.started'&&id===this.id&&/adspower|:9333|:50325/i.test(JSON.stringify([e.tool_name,e.preview,e.args])))Screen.useAds?.();
   switch(e.type){
    case 'run.started':s.runId=e.run_id;ai.model=e.runtime?.model||'';break;
    case 'assistant.delta':ai.text+=e.delta||e.text||'';break;
@@ -242,3 +257,5 @@ async function renameSession(id,title){const c=S.sessions.find(x=>x.id===id);if(
  try{await H('/sessions/'+encodeURIComponent(id),{method:'PATCH',body:{title}});if(c)c.title=title;paintSide();paintTop();toast('Renamed')}catch(e){fail(e)}}
 async function deleteSession(id){const c=S.sessions.find(x=>x.id===id);if(!await confirmBox('Delete this chat?',`“${esc(c?.title||c?.preview||id)}” and all its messages will be removed. This can't be undone.`))return;
  try{await del(H,'/sessions/'+encodeURIComponent(id));S.sessions=S.sessions.filter(x=>x.id!==id);delete Chat.live[id];toast('Chat deleted');if(route().chat===id)go('/chat');else paintSide()}catch(e){fail(e)}}
+
+Chat.watchLive();

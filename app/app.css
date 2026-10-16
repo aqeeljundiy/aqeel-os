@@ -743,3 +743,4 @@ input[type=checkbox]:not(.switch)::after{margin:auto}
 .tile .agent-foot{min-height:36px;padding-top:12px;border-top:1px solid var(--border)}
 .tile .agent-foot>span{display:flex;align-items:center;gap:8px}
 .tile .agent-foot .chip.ok{min-height:32px;padding:0 12px}
+.screen-head .scr-which{margin-left:8px;min-height:28px;padding:0 10px;font-size:12px}
