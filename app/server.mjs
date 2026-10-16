@@ -208,7 +208,13 @@ let gwStopped=false;
 async function gatewayWatch(){if(gwStopped)return;const {execFile}=await import('node:child_process');
  const sh=c=>new Promise(r=>execFile('bash',['-c',c],{timeout:90000,env:{...process.env,PATH:homedir()+'/.local/bin:'+process.env.PATH}},(e,o)=>r({ok:!e,out:String(o||'')})));
  if((await sh('tmux has-session -t gateway')).ok)return;
- console.warn('gateway watch: the gateway is not in its session; restarting it properly');
+ // The engine restarts itself (e.g. after a WhatsApp is linked) outside the session. That copy is left alone
+ // unless it really cannot reach Claude in the last 10 minutes; replacing every restart fought the engine and
+ // dropped freshly linked WhatsApps.
+ const log=(await sh('tail -400 ~/.hermes/logs/agent.log')).out.split('\n').filter(l=>/ClaudeCodeLoggedOut|no usable login/.test(l));
+ const recent=log.some(l=>{const t=Date.parse(l.slice(0,19).replace(' ','T')+'Z');return t&&Date.now()-t<10*60e3});
+ if(!recent)return;
+ console.warn('gateway watch: the gateway outside its session cannot reach Claude; restarting it properly');
  await sh('hermes -p default gateway stop >/dev/null 2>&1; sleep 3; ~/services.sh >/dev/null 2>&1')}
 if(PORT===4400){setInterval(()=>gatewayWatch().catch(()=>{}),60000).unref()}
 // only the live app (port 4400) sets agents' tools; a test copy on another port must not repoint them
@@ -498,7 +504,7 @@ const server=createServer(async(req,res)=>{
     res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-cache','x-accel-buffering':'no',...security});res.socket?.setNoDelay(true);
     for(const c of rec.chunks)res.write(c);rec.subs.add(res);res.on('close',()=>rec.subs.delete(res));return}
    if(p==='/ui/gateway/restart'&&req.method==='POST'){gwStopped=false;if(!users.isAdmin(u))return send(res,403,{error:'Only admins can restart the gateway.'});
-    const {exec}=await import('node:child_process');exec('tmux kill-session -t gateway 2>/dev/null; tmux kill-session -t dashboard 2>/dev/null; sleep 1; ~/services.sh',{timeout:60000,shell:'/bin/bash'},()=>{});return send(res,200,{ok:true})}
+    const {exec}=await import('node:child_process');exec('export PATH=$HOME/.local/bin:$PATH; hermes -p default gateway stop >/dev/null 2>&1; tmux kill-session -t gateway 2>/dev/null; tmux kill-session -t dashboard 2>/dev/null; sleep 2; ~/services.sh',{timeout:60000,shell:'/bin/bash'},()=>{});return send(res,200,{ok:true})}
    // abilities across agents: who has what, copy to other agents, rename an MCP tool (admins, or owners of both agents)
    if(p==='/ui/share/used'&&req.method==='GET'){const kind=url.searchParams.get('kind')||'';const all=await sharing.usedBy(kind);if(!users.isAdmin(u)){for(const k of Object.keys(all))all[k]=all[k].filter(a=>users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a)===null)}return send(res,200,all)}
    if(p==='/ui/share'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const from=String(b.from||''),to=(Array.isArray(b.to)?b.to:[]).map(String);
