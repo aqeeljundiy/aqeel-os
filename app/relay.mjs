@@ -5,7 +5,7 @@ import {readFile,writeFile,mkdir,rename,rm} from 'node:fs/promises';
 import {randomBytes,createHmac} from 'node:crypto';
 import path from 'node:path';
 
-export function createRelay({DATA,DASH,TOKEN,HERMES_HOME,SECRET,listAgents}){
+export function createRelay({DATA,DASH,TOKEN,HERMES_HOME,SECRET,listAgents,links,platformsOf,nameOf}){
  const FILE=path.join(DATA,'channel-shares.json');let db=null;
  const load=async()=>{if(db)return db;try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.shares||={};db.jobs||={};db.seen||={};return db};
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)};
@@ -34,10 +34,22 @@ export function createRelay({DATA,DASH,TOKEN,HERMES_HOME,SECRET,listAgents}){
  async function shares(){await load();return db.shares}
  async function setShare(owner,platform,b){await load();const k=key(owner,platform);const agents=await listAgents();
   db.shares[k]={senders:(Array.isArray(b.senders)?b.senders:[]).filter(a=>agents.includes(a)&&a!==owner),chat:String(b.chat||'').slice(0,80)};if(!db.shares[k].senders.length&&!db.shares[k].chat)delete db.shares[k];await save();return db.shares[k]||null}
- async function channelsFor(agent){await load();return Object.entries(db.shares).filter(([k,v])=>v.senders.includes(agent)||k.startsWith(agent+'|')).map(([k,v])=>{const [owner,platform]=k.split('|');return {owner,platform,chat:v.chat}})}
+ /* every channel an agent can message the person on, each with a short ID it can be told to use:
+    its own (whatsapp), its extra connections (whatsapp-2, or the name you gave it: shop-whatsapp),
+    and other agents' channels shared with it (whatsapp@ads-manager) */
+ const PRETTY={whatsapp:'WhatsApp',telegram:'Telegram',discord:'Discord',slack:'Slack',signal:'Signal',email:'Email',sms:'SMS',matrix:'Matrix',mattermost:'Mattermost',homeassistant:'Home Assistant',dingtalk:'DingTalk',feishu:'Feishu',wecom:'WeCom',weixin:'WeChat',line:'LINE'};
+ const nice=p=>PRETTY[p]||p.charAt(0).toUpperCase()+p.slice(1).replace(/_/g,' ');
+ const slug=v=>String(v||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+ const NOT=new Set(['api_server','webhook']);
+ const connected=async a=>{try{const r=await platformsOf(a);return (r.platforms||r||[]).filter(p=>!NOT.has(p.id)&&p.configured&&p.enabled).map(p=>p.id)}catch{return []}};
+ async function channelsFor(agent){await load();const out=[];
+  for(const p of await connected(agent))out.push({id:p,owner:agent,platform:p,name:nice(p)+' (main)'});
+  for(const l of (await links?.list(agent))||[])if((await connected(l.name)).includes(l.platform))out.push({id:slug(l.label)||l.platform+'-'+l.n,owner:l.name,platform:l.platform,name:l.label||nice(l.platform)+' '+l.n});
+  for(const [k,v] of Object.entries(db.shares)){const [owner,platform]=k.split('|');if(v.senders.includes(agent)&&!out.some(c=>c.owner===owner&&c.platform===platform))out.push({id:platform+'@'+owner,owner,platform,chat:v.chat,name:nice(platform)+' via '+(nameOf?nameOf(owner):owner)})}
+  return out}
  // an agent sends through a shared channel
  async function sendAs(from,owner,platform,text,chat){await load();const s=db.shares[key(owner,platform)];
-  if(from!==owner&&!(s&&s.senders.includes(from)))throw new Error(from+' may not send through '+owner+"'s "+platform+'.');
+  if(from!==owner&&!owner.startsWith(from+'--')&&!(s&&s.senders.includes(from)))throw new Error(from+' may not send through '+owner+"'s "+platform+'.');
   const to=chat||s?.chat||(await recipients(owner,platform))[0]?.id;if(!to)throw new Error('Nobody to send to yet: approve someone on that channel first.');
   return send({owner,platform,chat:to,text,from})}
 
@@ -66,12 +78,12 @@ export function createRelay({DATA,DASH,TOKEN,HERMES_HOME,SECRET,listAgents}){
   const reply=result=>({status:200,body:{jsonrpc:'2.0',id:msg.id,result}});
   if(msg.method==='initialize')return reply({protocolVersion:msg.params?.protocolVersion||'2025-06-18',capabilities:{tools:{}},serverInfo:{name:'aqeelos-notify',version:'1.0.0'}});
   if(msg.method==='notifications/initialized'||msg.id==null)return {status:202,body:null};
-  if(msg.method==='tools/list'){const ch=await channelsFor(agent);return reply({tools:[{name:'send_to_person',description:'Send a message to the person on WhatsApp/Telegram through a shared channel (no reply comes back to you; the channel owner receives replies). Channels you may use: '+(ch.map(c=>c.platform+' via '+c.owner).join(', ')||'none yet'),
-   inputSchema:{type:'object',properties:{text:{type:'string',description:'The message'},channel:{type:'string',description:'e.g. "whatsapp" or "telegram via default"; optional when there is only one'}},required:['text']}}]})}
+  if(msg.method==='tools/list'){const ch=await channelsFor(agent);return reply({tools:[{name:'send_to_person',description:'Send a message to the person on WhatsApp/Telegram (or another connected app). Pick the channel by its ID when the person names one. Replies on that channel come back as a new chat, not to this one. Channels (ID = name): '+(ch.map(c=>c.id+' = '+c.name).join('; ')||'none yet'),
+   inputSchema:{type:'object',properties:{text:{type:'string',description:'The message'},channel:{type:'string',description:'Channel ID from the list, e.g. "whatsapp" or "shop-whatsapp". Optional when there is only one.'}},required:['text']}}]})}
   if(msg.method==='tools/call'){const a=msg.params?.arguments||{};const ch=await channelsFor(agent);const want=String(a.channel||'').toLowerCase();
-   const c=ch.find(c=>!want||want.includes(c.platform)&&(!/ via /.test(want)||want.endsWith(c.owner)))||null;
-   if(!c)return reply({content:[{type:'text',text:'No shared channel matches. Available: '+(ch.map(c=>c.platform+' via '+c.owner).join(', ')||'none')}],isError:true});
-   try{await sendAs(agent,c.owner,c.platform,a.text,null);return reply({content:[{type:'text',text:'Sent on '+c.platform+'.'}]})}catch(e){return reply({content:[{type:'text',text:e.message.startsWith('Not ')?e.message:'Not sent: '+e.message}],isError:true})}}
+   const c=(want&&ch.find(c=>c.id===want||slug(c.name)===slug(want)))||ch.find(c=>!want||want.includes(c.platform)&&(!/ via |@/.test(want)||want.endsWith(c.owner)))||null;
+   if(!c)return reply({content:[{type:'text',text:'No channel matches. Available IDs: '+(ch.map(c=>c.id).join(', ')||'none')}],isError:true});
+   try{await sendAs(agent,c.owner,c.platform,a.text,null);return reply({content:[{type:'text',text:'Sent on '+c.name+' ('+c.id+').'}]})}catch(e){return reply({content:[{type:'text',text:e.message.startsWith('Not ')?e.message:'Not sent: '+e.message}],isError:true})}}
   return {status:200,body:{jsonrpc:'2.0',id:msg.id,error:{code:-32601,message:'Method not found'}}}}
- return {recipients,send,sendAs,shares,setShare,setJobRelay,jobRelays,mcp,sig};
+ return {recipients,send,sendAs,shares,setShare,setJobRelay,jobRelays,mcp,sig,channelsFor};
 }

@@ -452,6 +452,8 @@ ACT['ch-share']=a=>channelShareDrawer(a.dataset.owner,a.dataset.platform);
    Setting one up reuses the normal channel screens, pointed at the copy (S.chOverride). */
 addEventListener('hashchange',()=>{if(S.chOverride){S.chOverride=null;S.chOverrideInfo=null}});
 const linkTitle=l=>l.label||pretty(l.platform)+' '+l.n;
+// the ID an agent uses to pick this channel ("notify me on shop-whatsapp"); same rule as relay.mjs
+const linkId=l=>String(l.label||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'')||l.platform+'-'+l.n;
 ACT['ch-extra-add']=async a=>{const agent=S.profile||'default',platform=a.dataset.id;
  if(!await confirmBox(`Add another ${pretty(platform)} to ${ident(agent).name}?`,`It answers as ${ident(agent).name}: same personality, memory, skills and tools, on a different ${pretty(platform)} account. Chats on it stay separate from this one.`,'Add',false))return;
  try{toast('Preparing a new connection…');const l=await post(UI,'/ui/channels/links',{agent,platform});ACT['ch-extra-open']({dataset:{name:l.name,platform,n:l.n,agent}})}catch(e){fail(e)}};
@@ -475,7 +477,7 @@ ACT['ch-extra-remove']=async a=>{if(!await confirmBox('Remove '+a.dataset.title+
  const [{links=[]},{channels=[]}]=await Promise.all([pL,pC]);if(!links.length)return;
  const st_=n=>channels.find(c=>c.agent===n);
  const panel=document.createElement('div');panel.className='panel card';panel.style.marginBottom='16px';
- panel.innerHTML=`<h2>Extra connections</h2><p class="sub">More accounts of the same app for ${esc(ident(agent).name)}. Each answers as ${esc(ident(agent).name)}.</p>${links.map((l,i)=>{const c=st_(l.name);return `<div class="row" ${st(i)} style="padding:12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="main-c">${chLogo(l.platform,pretty(l.platform))}<div class="txt"><b>${esc(linkTitle(l))}</b><span>${c?esc(chState(c)):'Not connected yet'}</span></div></div>
+ panel.innerHTML=`<h2>Extra connections</h2><p class="sub">More accounts of the same app for ${esc(ident(agent).name)}. Each answers as ${esc(ident(agent).name)}. To have it message you on one, name its ID, for example “notify me on <code>${esc(linkId(links[0]))}</code>”. The first account of each app has the app’s name as ID (<code>${esc(links[0].platform)}</code>).</p>${links.map((l,i)=>{const c=st_(l.name);return `<div class="row" ${st(i)} style="padding:12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="main-c">${chLogo(l.platform,pretty(l.platform))}<div class="txt"><b>${esc(linkTitle(l))} <span class="chip id-chip" title="The ID agents use for this connection">ID ${esc(linkId(l))}</span></b><span>${c?esc(chState(c)):'Not connected yet'}</span></div></div>
   <div class="act"><button data-act="ch-extra-open" data-name="${esc(l.name)}" data-platform="${esc(l.platform)}" data-n="${l.n}" data-agent="${esc(l.agent)}" data-label="${esc(l.label||'')}">${icon('sliders',15)}${c?'Manage':'Connect'}</button><button class="ghost icon" data-act="ch-extra-rename" data-name="${esc(l.name)}" data-agent="${esc(l.agent)}" data-label="${esc(l.label||'')}" title="Rename" aria-label="Rename">${icon('edit',15)}</button><button class="ghost icon" data-act="ch-extra-remove" data-name="${esc(l.name)}" data-agent="${esc(l.agent)}" data-title="${esc(linkTitle(l))}" title="Remove" aria-label="Remove">${icon('trash',15)}</button></div></div>`}).join('')}`;
  el.querySelector('.grid-cards')?.before(panel)}}
 

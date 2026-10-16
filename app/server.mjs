@@ -144,14 +144,42 @@ const accountsApi=createAccounts(DATA);
 const mailer=createMail(DATA);
 const usage=createUsage(DASH.origin,DASH_TOKEN);
 const explain=createExplain(DATA);
-const relay=createRelay({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,SECRET,listAgents:()=>listAgents()});
+const relay=createRelay({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,SECRET,listAgents:()=>listAgents(),links:{list:a=>links.list(a)},platformsOf:a=>platformsCached(a),nameOf:a=>NAMES[a]||a});
+const NAMES={};   // agents' display names (refreshed with the agent context), for messages people read
 // agents allowed to send through a shared channel get the "notify me" tool; others lose it
 async function syncNotifyTool(){const sh=await relay.shares();const senders=new Set(Object.values(sh).flatMap(v=>v.senders||[]));
  // through the engine's own MCP route, so the running engine picks the tool up (a config edit alone is not noticed)
  const mcp=(a,m,p,b)=>fetch(`${DASH.origin}/api/mcp/servers${p}?profile=${encodeURIComponent(a)}`,{method:m,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:b?JSON.stringify(b):undefined}).then(r=>{if(!r.ok&&r.status!==404)throw new Error('MCP '+m+' '+r.status)});
- for(const a of await listAgents()){const want=senders.has(a);const url=`http://127.0.0.1:${PORT}/mcp/notify/${a}/${relay.sig(a)}`;const y=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>'');
+ for(const a of await listAgents()){if(PORT!==4400&&!senders.has(a))continue;   // a test copy only touches the agents it is testing
+  const want=senders.has(a)||(await relay.channelsFor(a).catch(()=>[])).length>0;   // any agent with a channel can notify the person
+  const url=`http://127.0.0.1:${PORT}/mcp/notify/${a}/${relay.sig(a)}`;const y=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>'');
   if(want?y.includes(url):!y.includes('aqeelos-notify'))continue;
   if(y.includes('aqeelos-notify'))await mcp(a,'DELETE','/aqeelos-notify');if(want)await mcp(a,'POST','',{name:'aqeelos-notify',url})}}
+/* What each agent should know about aqeelOS: the screens the person can watch and the channel IDs it can
+   message them on. Kept in a marked section of AGENTS.md in the agent's own folder (~/workspaces/<agent>),
+   which the engine reads with every chat; anything outside the section is left alone. */
+async function displayName(a){const y=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'profile.yaml'),'utf8').catch(()=>'');return (/^display_name:\s*"?([^"\n]+)"?/m.exec(y)||[])[1]?.trim()||(a==='default'?'aqeelOS':a)}
+async function writeAgentContext(){const all=await listAgents();const names={};for(const a of all)names[a]=NAMES[a]=await displayName(a);
+ const ads=[];for(const a of all)if(await screens.shared(a).catch(()=>false))ads.push(a);
+ for(const a of all){try{const me=names[a],adsNames=ads.map(x=>names[x]+"'s screen").join(' / ')||'the AdsPower screen';
+  const own=ads.includes(a)?`You browse through AdsPower, so your browser shows on the shared AdsPower screen, listed as "${me}'s screen".`:`Your own screen is "${me}'s screen". Your browser tool opens pages there; it starts by itself when you browse.`;
+  const others=all.filter(x=>x!==a&&!ads.includes(x)).map(x=>'"'+names[x]+"'s screen\"").join(', ');
+  const ch=await relay.channelsFor(a).catch(()=>[]);
+  const body=['<!-- aqeelos:context (written by aqeelOS and kept up to date; edit outside this block) -->','# Working in aqeelOS','','## Screens','',
+   'The person can watch screens live in aqeelOS: the monitor button at the top right, then the screen picker.',
+   '- '+own,
+   '- AdsPower browsers, opened by any agent, show on the shared AdsPower screen, listed as '+adsNames+'.',
+   others?'- Other agents have their own screens: '+others+'.':null,
+   'When you start working in a browser or in AdsPower, say which screen to watch, for example: "I am working on '+(ads.includes(a)?me+"'s screen":me+"'s screen")+'." If the person needs to sign in or solve a check themselves, tell them to open that screen and press Take over.',
+   '','## Channels you can message the person on','',
+   ch.length?'Use the send_to_person tool with one of these IDs when the person asks to be notified on a channel ("notify me on shop-whatsapp"):':'None yet. The person can connect WhatsApp, Telegram and others on the Channels page.',
+   ...ch.map(c=>'- '+c.id+' = '+c.name),'<!-- /aqeelos:context -->'].filter(x=>x!==null).join('\n');
+  const dir=path.join(homedir(),'workspaces',a),file=path.join(dir,'AGENTS.md');await mkdir(dir,{recursive:true});
+  const cur=await readFile(file,'utf8').catch(()=>'');const re=/<!-- aqeelos:context[\s\S]*?<!-- \/aqeelos:context -->/;
+  const next=re.test(cur)?cur.replace(re,()=>body):(cur?cur.replace(/\s*$/,'\n\n'):'')+body+'\n';if(next!==cur)await writeFile(file,next)}catch(e){console.warn('agent context',a,e.message)}}}
+if(PORT===4400){setTimeout(()=>writeAgentContext().catch(()=>{}),25000);setInterval(()=>writeAgentContext().catch(()=>{}),180000).unref()}
+// only the live app (port 4400) sets agents' tools; a test copy on another port must not repoint them
+if(PORT===4400){setTimeout(()=>syncNotifyTool().catch(e=>console.warn('notify tool',e.message)),20000);setInterval(()=>syncNotifyTool().catch(()=>{}),600000).unref()}
 const sharing=createShare({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAgents()});
 const channels=createChannels({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAllProfiles(),cached:a=>platformsCached(a)});
 const links=createLinks({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,python:()=>sharing.python(),setupAgent:n=>setupAgentFn?.(n)});
@@ -316,7 +344,7 @@ const server=createServer(async(req,res)=>{
    // A true gateway restart (stop and start the service). The engine's own restart only reloads agents inside
    // the running process, so things read at startup (shell hooks) would not change.
    // extra connections of one app for one agent (WhatsApp 2…): admins, or whoever may edit that agent
-   if(p.startsWith('/ui/channels')&&req.method!=='GET')platCache.clear();
+   if(p.startsWith('/ui/channels')&&req.method!=='GET'){platCache.clear();setTimeout(()=>syncNotifyTool().catch(()=>{}),20000)}
    if(p==='/ui/channels/links'){const a=url.searchParams.get('agent')||'';
     if(req.method==='GET')return send(res,200,{links:(await links.list(a||null)).filter(l=>users.isAdmin(u)||users.gate(u,'/hapi/profiles/'+l.agent+'/soul','PUT',new URLSearchParams(),l.agent)===null)});
     let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||a);
