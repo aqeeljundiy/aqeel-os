@@ -124,6 +124,9 @@ export function createAccounts(DATA){
  async function setupAgent(name){
   if(!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(name)||name==='default')throw new Error('Unknown agent');
   const dir=path.join(HERMES_HOME,'profiles',name);await access(dir);const done=[];
+  // the gateway key first: without it the engine refuses every chat, and it takes no time
+  const envF=path.join(dir,'.env');const env=await readFile(envF,'utf8').catch(()=>'');
+  if(!/^API_SERVER_KEY=/m.test(env)&&process.env.API_SERVER_KEY){await appendFile(envF,(env&&!env.endsWith('\n')?'\n':'')+'API_SERVER_KEY='+process.env.API_SERVER_KEY+'\n',{mode:0o600});done.push('key')}
   const plug=path.join(dir,'plugins',PLUGIN);
   if(!await access(plug).then(()=>1,()=>0)){await mkdir(path.join(dir,'plugins'),{recursive:true});await cp(path.join(HERMES_HOME,'plugins',PLUGIN),plug,{recursive:true});
    await cp(path.join(HERMES_HOME,'plugins','.install-metadata.json'),path.join(dir,'plugins','.install-metadata.json')).catch(()=>{});done.push('plugin')}
@@ -133,8 +136,6 @@ export function createAccounts(DATA){
   const prov=modelKey(cfg,'provider');
   if(!prov||/^(anthropic|nous)/.test(prov)){const m=modelKey(await readFile(path.join(HERMES_HOME,'config.yaml'),'utf8').catch(()=>''),'default')||'sonnet';
    await run(HERMES,['-p',name,'config','set','model.provider',PLUGIN]);await run(HERMES,['-p',name,'config','set','model.default',m]);done.push('model')}
-  const envF=path.join(dir,'.env');const env=await readFile(envF,'utf8').catch(()=>'');
-  if(!/^API_SERVER_KEY=/m.test(env)&&process.env.API_SERVER_KEY){await appendFile(envF,(env&&!env.endsWith('\n')?'\n':'')+'API_SERVER_KEY='+process.env.API_SERVER_KEY+'\n',{mode:0o600});done.push('key')}
   // agents may never stop or kill the gateway (they did once, mid-chat); restarts go through the app
   await run(HERMES,['-p',name,'config','set','approvals.deny',JSON.stringify(['*gateway stop*','*gateway restart*','*kill-session -t gateway*','*pkill*hermes*','*killall*hermes*','*pkill*gateway*','*kill*bridge.js*','*pkill*node*','*mcp login*','*localhost:3118*','*127.0.0.1:3118*']),'--force']);done.push('guard');
   // every agent can reach outside apps through Composio (one sign-in per agent, no app to create)

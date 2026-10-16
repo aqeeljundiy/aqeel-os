@@ -13,7 +13,8 @@ export function createChannels({DASH,TOKEN,HERMES_HOME,listAgents,cached}){
  const NOT_CHANNELS=new Set(['api_server','webhook']);   // shared by every agent already
 
  async function list(){const out=[];const all=await listAgents();const got=await Promise.all(all.map(a=>(cached?cached(a).then(r=>r.platforms||r):platforms(a)).catch(()=>null)));
-  for(const [i,a] of all.entries()){const ps=got[i];if(!ps)continue;for(const p of ps)if(!NOT_CHANNELS.has(p.id)&&(p.configured||p.enabled))out.push({agent:a,id:p.id,name:p.name,state:p.state,enabled:!!p.enabled,error:p.error_message||null})}
+  for(const [i,a] of all.entries()){const ps=got[i];if(!ps)continue;for(const p of ps)// only connections that exist: a switched-on but never-linked WhatsApp (a started set-up) is not one
+   if(!NOT_CHANNELS.has(p.id)&&(p.configured||p.state==='connected'))out.push({agent:a,id:p.id,name:p.name,state:p.state,enabled:!!p.enabled,error:p.error_message||null})}
   return out}
 
  // move one channel's connection from agent `from` to agent `to`
