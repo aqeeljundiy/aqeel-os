@@ -3,6 +3,8 @@
 # Needs the `ai-vps` SSH host (see ~/.ssh/config). Secrets stay on the box in ~/apps/hermes-ui.env.
 set -e
 cd "$(dirname "$0")/.."
+node scripts/check-globals.mjs
+for f in app/*.js app/*.mjs; do node --check "$f" || { echo "✗ $f does not parse"; exit 1; }; done
 node scripts/features.mjs >/dev/null
 tar --force-local -czf ../hui.tgz app assets backlog data mockup scripts PRD.md
 scp -q ../hui.tgz ai-vps:/tmp/hui.tgz && rm ../hui.tgz

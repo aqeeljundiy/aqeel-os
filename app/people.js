@@ -300,3 +300,95 @@ ACT['wh-new-pre']=0;
  panel.querySelectorAll('[data-chmove]').forEach(s=>s.onchange=async()=>{const to=s.value,from=s.dataset.from;if(to===from)return;
   if(!await confirmBox('Move this channel to '+ident(to).name+'?',ident(to).name+' will answer it from now on. Its settings and approved people move along; the channel restarts for a few seconds.','Move',false)){s.value=from;return}
   try{await post(UI,'/ui/channels/move',{platform:s.dataset.chmove,from,to});toast('Moved. '+ident(to).name+' answers it now.');reload()}catch(e){fail(e);s.value=from}})}}
+
+/* ---------- Used by / Share with other agents (skills, MCP tools, plugins, schedules) ---------- */
+const SHARE_KIND_LABEL={skill:'skill',mcp:'MCP tool',plugin:'plugin',schedule:'schedule'};
+async function usedByMap(kind){try{return await UI('/ui/share/used?kind='+kind)}catch{return {}}}
+const agentDots=list=>`<span class="used-by" title="Used by ${esc(list.map(a=>ident(a).name).join(', '))}">${list.slice(0,4).map(a=>agentAva(a)).join('')}${list.length>4?`<small>+${list.length-4}</small>`:''}</span>`;
+async function shareDrawer(kind,name,label,has=[]){let agents=[];try{agents=((await H('/profiles')).profiles||[]).map(x=>x.name)}catch(e){return fail(e)}
+ const from=S.profile||'default';const others=agents.filter(a=>a!==from);
+ const d=drawer('Share '+label,`<p class="hint" style="margin:0 0 10px">Copies this ${SHARE_KIND_LABEL[kind]} from ${esc(ident(from).name)} to the agents you tick, with its settings. Each agent keeps its own copy, so later changes stay on the agent you change.</p>
+  ${others.length?others.map(a=>`<label class="capt"><input type="checkbox" value="${esc(a)}" ${has.includes(a)?'checked disabled':''}>${agentAva(a)}<span>${esc(ident(a).name)}${has.includes(a)?' <small class="hint">already has it</small>':''}</span></label>`).join(''):'<p class="hint">There are no other agents yet.</p>'}`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="shrGo">Share</button>`);
+ d.querySelector('#shrGo').onclick=async()=>{const to=[...d.querySelectorAll('input:checked:not(:disabled)')].map(i=>i.value);if(!to.length)return toast('Tick at least one agent','err');
+  try{const r=await post(UI,'/ui/share',{kind,name,from,to});closeLayers();toast(r.failed?.length?`Shared with ${r.done.length}; ${r.failed.map(f=>ident(f.agent).name+': '+f.error).join('; ')}`:`Shared with ${r.done.map(a=>ident(a).name).join(', ')}`,r.failed?.length?'err':undefined);reload()}catch(e){fail(e)}}}
+// add Used by + Share to each row of a list
+async function decorateRows(el,kind,rows){if(S.me?.admin===false&&kind!=='skill')return;const used=await usedByMap(kind);
+ for(const {row,name,label} of rows){const act=row.querySelector('.act');if(!act||act.querySelector('.used-by'))continue;const list=used[name]||[];
+  const box=document.createElement('span');box.className='share-box';box.innerHTML=`${list.length?agentDots(list):''}<button class="ghost icon" title="Share with other agents" aria-label="Share with other agents">${icon('fork',16)}</button>`;
+  box.querySelector('button').onclick=e=>{e.stopPropagation();shareDrawer(kind,name,label||name,list)};act.prepend(box)}}
+{const base=PAGES.skills;PAGES.skills=async(p,el)=>{await base(p,el);const rows=[...el.querySelectorAll('[data-act="sk-open"][data-name]')].map(r=>({row:r,name:r.dataset.name,label:ex('skill',r.dataset.name)?.title||r.dataset.name}));if(rows.length)decorateRows(el,'skill',rows)}}
+{const base=PAGES.plugins;PAGES.plugins=async(p,el)=>{await base(p,el);const go=()=>{const rows=[...el.querySelectorAll('.row[data-pl]')].map(r=>({row:r,name:r.dataset.pl,label:ex('plugin',r.dataset.pl)?.title||r.dataset.pl}));if(rows.length)decorateRows(el,'plugin',rows)};go();setTimeout(go,9000)}}
+{const base=PAGES.mcp;PAGES.mcp=async(p,el)=>{await base(p,el);const rows=[...el.querySelectorAll('.row[data-mcp]')].map(r=>({row:r,name:r.dataset.mcp,label:ex('mcp',r.dataset.mcp)?.title||r.dataset.mcp}));if(!rows.length)return;
+ decorateRows(el,'mcp',rows);
+ if(S.me?.admin!==false)rows.forEach(({row,name})=>{const act=row.querySelector('.act');const b=document.createElement('button');b.className='ghost icon';b.title='Rename';b.setAttribute('aria-label','Rename');b.innerHTML=icon('edit',16);
+  b.onclick=async e=>{e.stopPropagation();const v=await promptBox('Rename '+name,'New name (letters, numbers, dots or dashes)',name,'Rename');if(!v||v===name)return;
+   try{await post(UI,'/ui/share/rename-mcp',{agent:S.profile||'default',from:name,to:v.trim()});toast('Renamed to '+v.trim()+'. It reconnects on the next message.');reload()}catch(er){fail(er)}};act.querySelector('[data-act="mcp-del"]')?.before(b)})}}
+// schedules: copy one to another agent from its ⋯ menu
+{const base=Pages.cronMenu;Pages.cronMenu=el=>{const id=el.dataset.id,prof=el.dataset.profile||'default';const real=window.menu;
+ window.menu=(a,items,...rest)=>{window.menu=real;return real(a,[{label:'Copy to another agent…',icon:'fork',run:()=>{const keep=S.profile;S.profile=prof==='default'?'':prof;shareDrawer('schedule',id,(Pages.cronJobs||[]).find(x=>x.id===id)?.name||'schedule').finally(()=>{S.profile=keep})}},'-',...items],...rest)};
+ try{base(el)}catch(e){window.menu=real;throw e}}}
+
+/* ---------- schedule results reach you here: a pop-up when a scheduled run finishes ---------- */
+const CronNotify={
+ key:()=>'cronSeen:'+(S.profile||'default'),
+ async check(){if(document.hidden||!S.signedIn)return;let list=[];try{list=(await H('/sessions?sources=cron&limit=5')).sessions||[]}catch{return}
+  let seen=0;try{seen=+localStorage.getItem(this.key())||0}catch{}
+  const newest=Math.max(0,...list.map(s=>s.started_at||0));if(!seen){try{localStorage.setItem(this.key(),String(newest||Date.now()/1000))}catch{}return}
+  const fresh=list.filter(s=>(s.started_at||0)>seen&&!s.is_active).reverse();if(!fresh.length)return;
+  try{localStorage.setItem(this.key(),String(newest))}catch{}
+  for(const s of fresh){let text='';try{const m=await H('/sessions/'+encodeURIComponent(s.id)+'/messages?limit=4&order=latest');const ms=(m.messages||m||[]).filter(x=>x.role==='assistant'&&typeof x.content==='string');text=(ms[0]||ms[ms.length-1])?.content||''}catch{}
+   this.show(s,text)}},
+ show(s,text){const n=document.createElement('div');n.className='cron-pop';const name=String(s.title||'Schedule').replace(/ · [A-Z][a-z]{2} \d+ \d\d:\d\d$/,'');
+  n.innerHTML=`<span class="ic blue">${icon('clock',16)}</span><div class="txt"><b>${esc(name)}</b><span>${esc(String(text||'Finished.').slice(0,160))}</span></div><button class="ghost" data-go="/chat/${esc(s.id)}">Open</button><button class="ghost icon" aria-label="Close">${icon('x',14)}</button>`;
+  n.querySelector('[aria-label="Close"]').onclick=()=>n.remove();n.querySelector('[data-go]').addEventListener('click',()=>n.remove());
+  (document.querySelector('.cron-pops')||document.body.appendChild(Object.assign(document.createElement('div'),{className:'cron-pops'}))).append(n);setTimeout(()=>n.classList.add('out'),60000);setTimeout(()=>n.remove(),60500);
+  try{if(document.hidden&&'Notification' in window&&Notification.permission==='granted')new Notification(name,{body:String(text||'').slice(0,120)})}catch{}}
+};
+setInterval(()=>CronNotify.check(),30000);setTimeout(()=>CronNotify.check(),4000);
+
+/* ---------- Access: one small badge on every row saying who can use it ---------- */
+const accessChip=(text,tip,kind='')=>`<span class="chip access ${kind}" title="${esc(tip)}">${icon(kind==='shared'?'user':kind==='public'?'globe':'lock',11)}${esc(text)}</span>`;
+function accessFor(list,here){const n=(list||[]).length;return n>1?accessChip('Shared · '+n+' agents','Used by '+list.map(a=>ident(a).name).join(', '),'shared'):accessChip('Only this agent','Only '+ident(here).name+' has it. Use Share to copy it to others.')}
+{const deco=decorateRows;decorateRows=async(el,kind,rows)=>{await deco(el,kind,rows);if(S.me?.admin===false&&kind!=='skill')return;const used=await usedByMap(kind);const here=S.profile||'default';
+ rows.forEach(({row,name})=>{const t=row.querySelector('.txt b');if(!t||t.querySelector('.access'))return;t.insertAdjacentHTML('beforeend',' '+accessFor(used[name],here))})}}
+// schedules: each runs on exactly one agent
+{const base=PAGES.schedules;PAGES.schedules=async(p,el)=>{await base(p,el);el.querySelectorAll('[data-menu="cron"][data-profile]').forEach(m=>{const row=m.closest('.row,.card');const t=row?.querySelector('.txt b,h3');if(!t||t.querySelector('.access'))return;
+ t.insertAdjacentHTML('beforeend',' '+accessChip('Only '+ident(m.dataset.profile).name,'Runs on '+ident(m.dataset.profile).name+'. Use Copy to another agent to reuse it.'))})}}
+// webhooks: the address is public (anyone with it and the secret can send), one agent handles each
+{const base=PAGES.webhooks;PAGES.webhooks=async(p,el)=>{await base(p,el);el.querySelectorAll('[data-act="wh-del"][data-name]').forEach(b=>{const row=b.closest('.row');const t=row?.querySelector('.txt b');if(!t||t.querySelector('.access'))return;
+ t.insertAdjacentHTML('beforeend',' '+accessChip('Public address · runs on '+ident(S.profile||'default').name,'Any service with the address and its secret can send events. '+ident(S.profile||'default').name+' handles them.','public'))})}}
+// channels: one agent answers each connection
+{const base=PAGES.channels;PAGES.channels=async(p,el)=>{await base(p,el);el.querySelectorAll('[data-act="ch-open"][data-id]').forEach(c=>{const st=c.querySelector('.tile-foot .chip');if(!st||/Not set up/i.test(st.textContent)||c.querySelector('.access'))return;
+ const id=c.dataset.id;const shared=id==='api_server'||id==='webhook';c.querySelector('h3')?.insertAdjacentHTML('beforeend',' '+(shared?accessChip('Every agent','The same address serves all agents; each request names its agent.','shared'):accessChip('Only '+ident(S.profile||'default').name,'This connection belongs to '+ident(S.profile||'default').name+'. Move it from "Every agent\'s channels" to give it to another agent.')))})}}
+
+/* ---------- Telegram: set up with Telegram's own @BotFather (no outside pairing service) ---------- */
+{const base=ACT['onboard'];ACT['onboard']=async a=>{if(a.dataset.id!=='telegram')return base(a);const box=$('#onboard');if(!box)return base(a);
+ const bf='https://t.me/BotFather';
+ box.innerHTML=`<div style="margin-top:12px"><img src="/ui/qr?d=${encodeURIComponent(bf)}" alt="QR code" style="width:170px;height:170px;display:block;margin:0 auto 10px;border-radius:12px;background:#fff;padding:8px">
+  <ol class="qr-steps"><li>Open <a href="${bf}" target="_blank" rel="noopener">@BotFather</a> in Telegram (scan this code with your phone, or tap the link).</li><li>Send <b>/newbot</b>, give it a name (e.g. <i>aqeelOS</i>) and a username ending in <i>bot</i>.</li><li>BotFather replies with a token like <code>123456789:AA…</code>. Copy it.</li><li>Paste it below in <b>Telegram bot token</b>, switch the channel on, and press <b>Save</b>. Then message your bot.</li></ol>
+  <p class="hint">Only people you approve under Automations › Pairing can talk to it.</p></div>`;
+ a.hidden=true;document.querySelector('.drawer [data-env="TELEGRAM_BOT_TOKEN"]')?.focus()}}
+
+/* ---------- Models › Mixture of agents: several models advise, one writes the answer ---------- */
+async function moaPanel(el){let c;try{c=await H('/config')}catch{return}const moa=c.moa||{};const presets=moa.presets||{};if(!Chat.models)await Chat.loadModels().catch(()=>{});
+ const ok=new Set((Chat.models||[]).map(m=>m.provider));const usable=pr=>[...(pr.reference_models||[]),pr.aggregator||{}].every(s=>!s.provider||ok.has(s.provider));
+ const label=s=>s?modelLabel(s.model)+((Chat.models||[]).find(m=>m.provider===s.provider)?'':' (not signed in)'):'—';
+ const box=document.createElement('div');box.className='panel card';box.style.marginTop='16px';
+ box.innerHTML=`<div class="h-row"><h2 style="margin:0">Mixture of agents</h2><button data-act="moa-new">${icon('plus',15)}New team</button></div><p class="sub">A team of models answers together: the advisors each think about the question, then one model writes the final answer. Pick a team as the model in chat (it shows under "Team of models").</p>
+  ${Object.entries(presets).map(([n,pr])=>`<div class="row" style="padding:12px 12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="main-c"><span class="ic ${usable(pr)?'blue':''}">${icon('layers',17)}</span><div class="txt"><b>${esc(pretty(n))} ${usable(pr)?'':accessChip('Needs another sign-in','Uses a provider you are not signed in to','public')}</b><span>Advisors: ${esc((pr.reference_models||[]).filter(s=>s.enabled!==false).map(label).join(', ')||'none')} · Answer: ${esc(label(pr.aggregator))}</span></div></div>
+   <div class="act"><button class="ghost" data-act="moa-edit" data-n="${esc(n)}">Edit</button></div></div>`).join('')||'<p class="hint">No teams yet.</p>'}`;
+ el.append(box);Pages._moa={c,presets}}
+async function moaDrawer(name){const {c,presets}=Pages._moa||{};const pr=name?presets[name]:{reference_models:[],aggregator:null};const ms=(Chat.models||[]).filter(m=>m.provider!=='moa');const key=m=>m.provider+'|'+m.id;
+ const isRef=m=>(pr.reference_models||[]).some(s=>s.provider===m.provider&&s.model===m.id&&s.enabled!==false);
+ const d=drawer(name?'Team · '+pretty(name):'New team',`<label>Name</label><input id="moN" value="${esc(name||'')}" placeholder="claude-team" ${name?'disabled':''}>
+  <label>Advisors (they each think about the question)</label>${ms.map(m=>`<label class="capt"><input type="checkbox" value="${esc(key(m))}" ${isRef(m)?'checked':''}><span>${esc(m.label)} <small class="hint">${esc(m.providerName)}</small></span></label>`).join('')}
+  <label>Writes the final answer</label><select id="moA">${ms.map(m=>`<option value="${esc(key(m))}" ${pr.aggregator&&pr.aggregator.provider===m.provider&&pr.aggregator.model===m.id?'selected':''}>${esc(m.label)} · ${esc(m.providerName)}</option>`).join('')}</select>
+  <p class="hint">More advisors means better answers but slower replies and more usage.</p>${name?`<button class="ghost" id="moDel" style="margin-top:18px;color:var(--bad)">${icon('trash',15)}Delete team</button>`:''}`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="moGo">Save</button>`);
+ const split=v=>{const i=v.indexOf('|');return {provider:v.slice(0,i),model:v.slice(i+1)}};
+ const write=async fn=>{const cfg=await H('/config');cfg.moa=cfg.moa||{};cfg.moa.presets=cfg.moa.presets||{};fn(cfg.moa.presets);await put(H,'/config',{config:cfg})};
+ d.querySelector('#moGo').onclick=async()=>{const n=(name||$('#moN').value.trim().toLowerCase().replace(/[^a-z0-9-]+/g,'-').replace(/^-|-$/g,''));if(!n)return toast('Give the team a name','err');
+  const refs=[...d.querySelectorAll('input[type=checkbox]:checked')].map(i=>({...split(i.value),enabled:true}));if(refs.length<2)return toast('Pick at least two advisors','err');
+  try{await write(p=>{p[n]={...(p[n]||{}),reference_models:refs,aggregator:split($('#moA').value),enabled:true}});closeLayers();toast('Team saved. Pick it as the model in chat.');Chat.models=null;await Chat.loadModels().catch(()=>{});reload()}catch(e){fail(e)}};
+ d.querySelector('#moDel')?.addEventListener('click',async()=>{if(!await confirmBox('Delete '+pretty(name)+'?','Chats using it switch back to a normal model.','Delete'))return;try{await write(p=>{delete p[name]});closeLayers();toast('Team deleted');reload()}catch(e){fail(e)}})}
+ACT['moa-new']=()=>moaDrawer(null);ACT['moa-edit']=a=>moaDrawer(a.dataset.n);
+{const base=PAGES.models;PAGES.models=async(p,el)=>{await base(p,el);if(S.me?.admin===false)return;moaPanel(el)}}

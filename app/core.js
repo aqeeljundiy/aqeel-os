@@ -43,7 +43,7 @@ const num=n=>n==null?'—':n>=1e6?(n/1e6).toFixed(1).replace(/\.0$/,'')+'M':n>=1
 const bytes=n=>n==null?'—':n>=1e9?(n/1e9).toFixed(1)+' GB':n>=1e6?(n/1e6).toFixed(1)+' MB':n>=1e3?(n/1e3).toFixed(1)+' KB':n+' B';
 const plural=(n,w)=>n+' '+w+(n===1?'':'s');
 // Short provider names, the way people say them (Claude, ChatGPT…), not Hermes' plugin titles.
-const provLabel=p=>{const s=String(p?.slug||p||''),n=String(p?.name||s);if(/claude-subscription|^claude-code/.test(s))return 'Claude';if(/codex/.test(s))return 'ChatGPT';if(s==='openrouter')return 'OpenRouter';if(/gemini/.test(s))return 'Gemini';return n.replace(/\s*\((experimental|beta)\)$/i,'')};
+const provLabel=p=>{const s=String(p?.slug||p||''),n=String(p?.name||s);if(s==='moa')return 'Team of models';if(/claude-subscription|^claude-code/.test(s))return 'Claude';if(/codex/.test(s))return 'ChatGPT';if(s==='openrouter')return 'OpenRouter';if(/gemini/.test(s))return 'Gemini';return n.replace(/\s*\((experimental|beta)\)$/i,'')};
 const modelLabel=m=>{if(!m)return 'Default';const s=String(m).replace(/\[1m\]$/,'').replace(/^(?:anthropic\/)?claude-/,'');const mm=/^(opus|sonnet|haiku|fable)-(\d+)(?:[-.](\d+))?(?:-\d{8})?$/.exec(s.replace(/^anthropic\//,''));if(mm)return mm[1][0].toUpperCase()+mm[1].slice(1)+' '+mm[2]+(mm[3]?'.'+mm[3]:'');if(/^(opus|sonnet|haiku|fable)$/.test(s))return s[0].toUpperCase()+s.slice(1);const g=/^(?:openai\/)?gpt-(.+)$/i.exec(s);if(g)return 'GPT-'+g[1].replace(/-codex/,' Codex').replace(/-mini/,' mini');return s};
 const srcIcon=s=>({telegram:'telegram',cron:'cron',api_server:'web',tui:'terminal',cli:'terminal',oneshot:'terminal',webhook:'hook',discord:'chat',slack:'chat',email:'chat'}[s]||'chat');
 
@@ -221,7 +221,7 @@ function palette(){closeLayers();scrim();const p=document.createElement('div');p
  inp.onkeydown=e=>{const L=[...list,...remote];if(e.key==='ArrowDown'){sel=Math.min(sel+1,L.length-1);paint();e.preventDefault()}if(e.key==='ArrowUp'){sel=Math.max(sel-1,0);paint();e.preventDefault()}if(e.key==='Enter'){const it=L[sel];closeLayers();it?.run()}};
  box.onclick=e=>{const b=e.target.closest('[data-i]');if(!b)return;const it=[...list,...remote][+b.dataset.i];closeLayers();it.run()};paint();inp.focus()}
 function theme(){const d=document.documentElement.classList.toggle('dark');try{localStorage.setItem('hui-theme',d?'dark':'light')}catch{};const tb=$('.topbar');if(tb)paintTop()}
-async function restartGateway(){try{const r=await post(H,'/gateway/restart');toast('Gateway restarting… back in a few seconds');if(r?.name)followAction(r.name,()=>{}).then(()=>refreshStatus())}catch(e){fail(e)}}
+async function restartGateway(){try{await post(UI,'/ui/gateway/restart');toast('Gateway restarting… back in about 15 seconds');setTimeout(()=>refreshStatus(),16000)}catch(e){fail(e)}}
 async function refreshStatus(){try{S.status=await H('/status');const r=route();if(!r.signin&&$('.side'))paintSide(r),paintBanner()}catch{}}
 
 /* ---------- sign-in ---------- */
