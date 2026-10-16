@@ -487,8 +487,7 @@ ACT['ch-extra-remove']=async a=>{if(!await confirmBox('Remove '+a.dataset.title+
 /* ---------- Duplicate: a second copy of an MCP tool or a skill on the same agent ---------- */
 async function duplicateItem(kind,name){const v=await promptBox('Duplicate '+name,kind==='mcp'?'Name for the copy. It keeps the same settings; change its keys or login after.':'Name for the copy. Edit it separately afterwards.',name+'-2',kind==='mcp'?'Duplicate':'Duplicate');if(!v)return;
  try{const r=await post(UI,'/ui/share/duplicate',{kind,agent:S.profile||'default',name,to:v.trim().toLowerCase().replace(/[^a-z0-9._-]+/g,'-')});toast('Added '+r.name+'.');reload()}catch(e){fail(e)}}
-{const base=PAGES.mcp;PAGES.mcp=async(p,el)=>{await base(p,el);if(S.me?.admin===false)return;el.querySelectorAll('.row[data-mcp]').forEach(row=>{const act=row.querySelector('.act');if(!act||act.querySelector('.dup-btn'))return;
- const b=document.createElement('button');b.className='ghost icon dup-btn';b.title='Duplicate (another copy with its own name)';b.setAttribute('aria-label','Duplicate');b.innerHTML=icon('copy',16);b.onclick=e=>{e.stopPropagation();duplicateItem('mcp',row.dataset.mcp)};act.querySelector('[data-act="mcp-del"]')?.before(b)||act.append(b)})}}
+// (MCP rows already have their own Duplicate button in pages.js)
 {const base=PAGES.skills;PAGES.skills=async(p,el)=>{await base(p,el);el.querySelectorAll('[data-act="sk-open"][data-name]').forEach(row=>{const act=row.querySelector('.act');if(!act||act.querySelector('.dup-btn'))return;
  const b=document.createElement('button');b.className='ghost icon dup-btn';b.title='Duplicate (a copy to change separately)';b.setAttribute('aria-label','Duplicate');b.innerHTML=icon('copy',16);b.onclick=e=>{e.stopPropagation();duplicateItem('skill',row.dataset.name)};act.prepend(b)})}}
 
@@ -525,3 +524,18 @@ ACT['mcp-auth']=async a=>{const name=a.dataset.name,agent=S.profile||'default';
    if(/complete|success|done|connected|authorized/.test(st)){closeLayers();toast('Signed in to '+pretty(name)+(s.tools?.length?' · '+s.tools.length+' tools':''));reload();return}
    if(/error|fail|expired|cancel/.test(st)){d.querySelector('#mcpSt').textContent='Did not finish: '+(s.error||st);return}}}
  catch(e){win?.close();fail(e)}};
+
+/* ---------- The built-in "notify me" tool (aqeelos-notify): made by aqeelOS, kept on agents that have a
+   channel. It can be switched off, not deleted or signed in to. ---------- */
+{const base=PAGES.mcp;PAGES.mcp=async(p,el)=>{await base(p,el);const row=el.querySelector('.row[data-mcp="aqeelos-notify"]');if(!row)return;
+ row.querySelectorAll('.act button').forEach(b=>{if(!b.closest('.switch')&&!b.closest('.share-box'))b.remove()});row.querySelector('.share-box')?.remove();
+ const txt=row.querySelector('.txt');if(txt){const sub=txt.querySelector('span:not(.access):not(.chip)');if(sub)sub.textContent='Lets this agent message you on WhatsApp, Telegram and your other channels ("notify me on whatsapp"). Added by aqeelOS; switch it off to stop.';
+  txt.querySelector('b')?.insertAdjacentHTML('beforeend',' <span class="chip blue" title="Part of aqeelOS, kept on every agent that has a channel">Built in</span>')}}}
+
+/* ---------- Agents › Recently deleted: every deleted agent is kept for 30 days and can be restored ---------- */
+{const base=PAGES.profiles;PAGES.profiles=async(p,el)=>{await base(p,el);if(S.me?.admin===false)return;let items=[];try{items=(await UI('/ui/agent-trash')).items||[]}catch{return}if(!items.length)return;
+ const panel=document.createElement('div');panel.className='panel card';panel.style.marginTop='16px';
+ panel.innerHTML=`<h2>Recently deleted</h2><p class="sub">Deleted agents are kept for 30 days. Restoring brings back its settings, skills, memory and chats.</p>${items.map((x,i)=>`<div class="row" ${st(i)} style="padding:12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="main-c">${agentAva(x.agent)}<div class="txt"><b>${esc(ident(x.agent).name)}</b><span>Deleted ${esc(when(x.deleted))} · ${esc(bytes(x.size))}</span></div></div><div class="act"><button data-act="agent-restore" data-file="${esc(x.file)}" data-name="${esc(ident(x.agent).name)}">${icon('refresh',15)}Restore</button></div></div>`).join('')}`;
+ el.append(panel)}}
+ACT['agent-restore']=async a=>{if(!await confirmBox('Restore '+a.dataset.name+'?','It comes back as it was when it was deleted.','Restore',false))return;a.disabled=true;
+ try{await post(UI,'/ui/agent-restore',{file:a.dataset.file});toast(a.dataset.name+' is back');setTimeout(()=>reload(),1500)}catch(e){a.disabled=false;fail(e)}};

@@ -268,3 +268,17 @@ function watchReveal(root){if(!root||root._reveal)return;root._reveal=new Mutati
  if(![...m.removedNodes].some(n=>n.nodeType===1&&(n.classList?.contains('skel')||n.querySelector?.('.skel'))))continue;
  let i=0;for(const n of m.addedNodes)if(n.nodeType===1&&!/^(SELECT|SCRIPT|STYLE|TEMPLATE)$/.test(n.tagName)&&!n.hidden&&!n.classList.contains('skel')&&!n.classList.contains('sel-native')&&!n.querySelector?.('.skel')){n.classList.remove('reveal');void n.offsetWidth;n.style.setProperty('--ri',i++);n.classList.add('reveal')}}});
  root._reveal.observe(root,{childList:true,subtree:true})}
+/* "0 3 * * 1" → "Mondays at 03:00": schedules in plain words (falls back to the original text) */
+function cronText(expr){const s=String(expr||'').trim();const f=s.split(/\s+/);if(f.length!==5)return s;const [mi,ho,dom,mon,dow]=f;
+ const DAYS=['Sundays','Mondays','Tuesdays','Wednesdays','Thursdays','Fridays','Saturdays','Sundays'],SHORT=['Sun','Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+ const MON=['','January','February','March','April','May','June','July','August','September','October','November','December'];
+ const num=v=>/^\d+$/.test(v),pad=v=>String(v).padStart(2,'0');const ord=n=>n+(['th','st','nd','rd'][(n%100>10&&n%100<14)?0:n%10<4?n%10:0]||'th');
+ const at=num(mi)&&num(ho)?'at '+pad(ho)+':'+pad(mi):num(mi)&&ho==='*'?'every hour at :'+pad(mi):/^\*\/\d+$/.test(mi)&&ho==='*'?'every '+mi.slice(2)+' minutes':/^\*\/\d+$/.test(ho)&&num(mi)?'every '+ho.slice(2)+' hours at :'+pad(mi):/^\*\/\d+$/.test(mi)&&/^\d+-\d+$/.test(ho)?'every '+mi.slice(2)+' minutes from '+pad(ho.split('-')[0])+':00 to '+pad(ho.split('-')[1])+':59':num(mi)&&/^[\d,]+$/.test(ho)?'at '+ho.split(',').map(h=>pad(h)+':'+pad(mi)).join(', '):null;
+ if(!at)return s;
+ const days=dow==='*'?null:/^\d$/.test(dow)?DAYS[+dow]:/^\d-\d$/.test(dow)?(dow==='1-5'?'Weekdays':SHORT[+dow[0]]+'–'+SHORT[+dow[2]]):/^[\d,]+$/.test(dow)?dow.split(',').map(d=>SHORT[+d]).join(', '):null;
+ if(dow!=='*'&&!days)return s;
+ const dates=dom==='*'?null:num(dom)?'the '+ord(+dom):/^\d+-\d+$/.test(dom)?'days '+dom.replace('-','–'):/^[\d,]+$/.test(dom)?'the '+dom.split(',').map(d=>ord(+d)).join(', '):null;
+ if(dom!=='*'&&!dates)return s;
+ const month=mon==='*'?null:num(mon)?MON[+mon]:null;if(mon!=='*'&&!month)return s;
+ let out=days?days+' '+at:dates?(dates[0]==='d'?'Days '+dom.replace('-','–'):'On '+dates)+' of '+(month||'each month')+' '+at:month?'Every day in '+month+' '+at:/^every/.test(at)?at[0].toUpperCase()+at.slice(1):'Every day '+at;
+ return out}

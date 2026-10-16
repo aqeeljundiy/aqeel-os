@@ -163,7 +163,8 @@ async function displayName(a){const y=await readFile(path.join(a==='default'?HER
    paragraphs although aqeelOS shows formatting. Each agent gets the engine's own override with the truth. */
 const CHAT_HINT="You're replying in aqeelOS, a chat app that shows Markdown. Format for easy reading, like a well-written Claude or ChatGPT reply: short answers stay short and conversational; longer ones start with the outcome, then use ## headings for sections, bullet or numbered lists, tables for comparisons, and code blocks for code or commands. Bold the key numbers, names, dates and decisions (for example: UPS **Rp522,328** → **Continue**) so the reply can be skimmed. While working, keep progress notes to one short line each and lead the final answer with the result. File/media delivery: images referenced as MEDIA:/absolute/path tags (.png/.jpg/.jpeg/.gif/.webp/.bmp, up to 5MB) are shown inline in the chat. Non-image files are not shown inline, so state the plain file path instead of a MEDIA: tag.";
 async function ensureChatHint(a){const cfgFile=path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml');const y=await readFile(cfgFile,'utf8').catch(()=>'');
- if(y.includes('Bold the key numbers'))return;   // already the current wordingconst {execFile}=await import('node:child_process');
+ if(y.includes('Bold the key numbers'))return;   // already the current wording
+ const {execFile}=await import('node:child_process');
  await new Promise(res=>execFile(path.join(homedir(),'.local','bin','hermes'),['-p',a,'config','set','agent.platform_hints.api_server',JSON.stringify({replace:CHAT_HINT}),'--force'],{timeout:60000},()=>res()))}
 async function writeAgentContext(){const all=await listAgents();const names={};for(const a of all)names[a]=NAMES[a]=await displayName(a);
  const ads=[];for(const a of all)if(await screens.shared(a).catch(()=>false))ads.push(a);
@@ -241,6 +242,13 @@ async function hermesCall(req,res,u,url){
   const holder=req.method==='PUT'?(b.updates||{}):b;const dv=String(holder.deliver||'');
   if(dv.startsWith('relay:')){const [owner,platform]=dv.slice(6).split('|');relayTarget={owner,platform};holder.deliver='local'}else if('deliver' in holder)relayTarget=null;
   relayJob=cronM[1]||null;body=Buffer.from(JSON.stringify(b))}
+ // deleting an agent: keep a full copy first (30 days), so it can be restored from Agents › Recently deleted
+ const delM=/^\/hapi\/profiles\/([^/]+)$/.exec(p);
+ if(delM&&req.method==='DELETE'){const name=decodeURIComponent(delM[1]);if(name!=='default'&&/^[a-z0-9][a-z0-9_-]{0,63}$/.test(name)&&!/^(rl|nt|lk|dp|kp|sh-a|sh-b)-/.test(name)){
+   const dir=path.join(HERMES_HOME,'profiles',name),trash=path.join(DATA,'agent-trash');await mkdir(trash,{recursive:true});
+   const file=path.join(trash,name+'__'+new Date().toISOString().replace(/[:.]/g,'-')+'.tgz');const {execFile}=await import('node:child_process');
+   const ok=await new Promise(r=>execFile('tar',['-czf',file,'--exclude=./cache','--exclude=./sandboxes','-C',dir,'.'],{timeout:180000,maxBuffer:1e6},e=>r(!e)));
+   if(!ok)return send(res,500,{error:'Could not save a backup of this agent first, so it was not deleted.'})}}
  let made=null;
  if(!users.isAdmin(u)&&req.method==='POST'&&(p==='/hapi/mcp/servers'||p==='/hapi/profiles')){
   let b={};try{b=JSON.parse((await readRaw(req,65536)).toString('utf8'))}catch{}
@@ -372,6 +380,18 @@ const server=createServer(async(req,res)=>{
     const okDir=real&&(real.startsWith(HERMES_HOME+'/')||real.startsWith(path.join(homedir(),'workspaces')+'/'))&&/\/cache\/generated\/|\/workspaces\//.test(real);
     if(!ext||!okDir)return send(res,404,{error:'Not found'});
     try{const buf=await readFile(real);res.writeHead(200,{'content-type':'image/'+(ext.toLowerCase()==='jpg'?'jpeg':ext.toLowerCase()),'cache-control':'private, max-age=86400',...security});return res.end(buf)}catch{return send(res,404,{error:'Not found'})}}
+   // recently deleted agents (backups) and restoring one
+   if(p==='/ui/agent-trash'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Admins only.'});const trash=path.join(DATA,'agent-trash');const out=[];
+    for(const f of await readdir(trash).catch(()=>[])){const m=/^(.+)__(.+)\.tgz$/.exec(f);if(!m)continue;const st=await stat(path.join(trash,f)).catch(()=>null);if(!st)continue;
+     if(Date.now()-st.mtimeMs>30*864e5){await unlink(path.join(trash,f)).catch(()=>{});continue}out.push({file:f,agent:m[1],deleted:st.mtimeMs,size:st.size})}
+    return send(res,200,{items:out.sort((a,b)=>b.deleted-a.deleted)})}
+   if(p==='/ui/agent-restore'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Admins only.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
+    const f=String(b.file||'');const m=/^([a-z0-9][a-z0-9_-]{0,63})__[\w-]+\.tgz$/.exec(f);if(!m)return send(res,400,{error:'Unknown backup.'});
+    const dir=path.join(HERMES_HOME,'profiles',m[1]);if(await stat(dir).catch(()=>null))return send(res,409,{error:'An agent with that name exists already.'});
+    await mkdir(dir,{recursive:true});const {execFile}=await import('node:child_process');
+    const ok=await new Promise(r=>execFile('tar',['-xzf',path.join(DATA,'agent-trash',f),'-C',dir],{timeout:180000},e=>r(!e)));if(!ok)return send(res,500,{error:'Could not unpack the backup.'});
+    await fetch(DASH.origin+'/api/gateway/restart?profile=default',{method:'POST',headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:'{}'}).catch(()=>{});
+    return send(res,200,{ok:true,agent:m[1]})}
    if(p==='/ui/box'&&req.method==='GET')return send(res,200,await boxMemory());
    if(p==='/ui/live'&&req.method==='GET'){const rec=LIVE.get((url.searchParams.get('agent')||'default')+'|'+(url.searchParams.get('session')||''));
     if(!rec||rec.done||rec.user!==u.id)return send(res,url.searchParams.has('peek')?200:204,url.searchParams.has('peek')?{live:false}:'');
