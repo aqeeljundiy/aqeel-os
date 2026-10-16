@@ -189,7 +189,30 @@ async function writeAgentContext(){const all=await listAgents();const names={};f
   const cur=await readFile(file,'utf8').catch(()=>'');const re=/<!-- aqeelos:context[\s\S]*?<!-- \/aqeelos:context -->/;
   const next=re.test(cur)?cur.replace(re,()=>body):(cur?cur.replace(/\s*$/,'\n\n'):'')+body+'\n';if(next!==cur)await writeFile(file,next)}catch(e){console.warn('agent context',a,e.message)}}}
 if(PORT===4400){setTimeout(()=>writeAgentContext().catch(()=>{}),25000);setInterval(()=>writeAgentContext().catch(()=>{}),180000).unref()}
+/* Agent health: every agent (new ones shortly after they are made, all of them every 5 minutes) gets what it
+   needs to work without anyone fixing it: its gateway key, and the public sign-in return address on every
+   sign-in (OAuth) tool, whoever added the tool. Quiet, idempotent, logs only what it repaired. */
+async function agentHealth(only){const h={'x-hermes-session-token':DASH_TOKEN};
+ for(const a of only?[only]:await listAgents()){try{
+  if(a!=='default'){const envF=path.join(HERMES_HOME,'profiles',a,'.env');const e=await readFile(envF,'utf8').catch(()=>null);
+   if(e!==null&&!/^API_SERVER_KEY=/m.test(e)&&API_KEY){await writeFile(envF,(e&&!e.endsWith('\n')?e+'\n':e)+'API_SERVER_KEY='+API_KEY+'\n',{mode:0o600});console.log('health',a,'added the gateway key')}}
+  const sv=await fetch(DASH.origin+'/api/mcp/servers?profile='+encodeURIComponent(a),{headers:h}).then(r=>r.json()).catch(()=>({}));
+  for(const m of sv.servers||[]){if(!m.url||/127.0.0.1|localhost/.test(m.url))continue;if(m.auth!=='oauth'&&!/connect.composio.dev|rube.app/.test(m.url))continue;
+   const r=await sharing.prepareSignin(a,m.name,MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(m.name)).catch(()=>null);if(r?.changed)console.log('health',a,m.name,'set the public sign-in address')}}
+  catch(e){console.warn('health',a,e.message)}}}
+/* Gateway watch. Deleting an agent makes the engine stop its gateway, and its dashboard then starts one by
+   itself, outside the managed session and without ~/.local/bin on the PATH, so Claude cannot be found
+   ("no usable login") and every agent stops answering. Every minute (and right after an agent is deleted),
+   a gateway outside its session is replaced by a proper one. A deliberate Stop from the app is respected. */
+let gwStopped=false;
+async function gatewayWatch(){if(gwStopped)return;const {execFile}=await import('node:child_process');
+ const sh=c=>new Promise(r=>execFile('bash',['-c',c],{timeout:90000,env:{...process.env,PATH:homedir()+'/.local/bin:'+process.env.PATH}},(e,o)=>r({ok:!e,out:String(o||'')})));
+ if((await sh('tmux has-session -t gateway')).ok)return;
+ console.warn('gateway watch: the gateway is not in its session; restarting it properly');
+ await sh('hermes -p default gateway stop >/dev/null 2>&1; sleep 3; ~/services.sh >/dev/null 2>&1')}
+if(PORT===4400){setInterval(()=>gatewayWatch().catch(()=>{}),60000).unref()}
 // only the live app (port 4400) sets agents' tools; a test copy on another port must not repoint them
+if(PORT===4400){setTimeout(()=>agentHealth().catch(()=>{}),30000);setInterval(()=>agentHealth().catch(()=>{}),300000).unref()}
 if(PORT===4400){setTimeout(()=>syncNotifyTool().catch(e=>console.warn('notify tool',e.message)),20000);setInterval(()=>syncNotifyTool().catch(()=>{}),600000).unref()}
 const sharing=createShare({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAgents()});
 const channels=createChannels({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAllProfiles(),cached:a=>platformsCached(a)});
@@ -277,6 +300,8 @@ async function hermesCall(req,res,u,url){
    const file=path.join(trash,name+'__'+new Date().toISOString().replace(/[:.]/g,'-')+'.tgz');const {execFile}=await import('node:child_process');
    const ok=await new Promise(r=>execFile('tar',['-czf',file,'--exclude=./cache','--exclude=./sandboxes','-C',dir,'.'],{timeout:180000,maxBuffer:1e6},e=>r(!e)));
    if(!ok)return send(res,500,{error:'Could not save a backup of this agent first, so it was not deleted.'})}}
+ if(p==='/hapi/gateway/stop'&&req.method==='POST')gwStopped=true;   // a deliberate stop: the watch leaves it stopped
+ if(delM&&req.method==='DELETE'&&PORT===4400)setTimeout(()=>gatewayWatch().catch(()=>{}),15000);
  let made=null;
  if(!users.isAdmin(u)&&req.method==='POST'&&(p==='/hapi/mcp/servers'||p==='/hapi/profiles')){
   let b={};try{b=JSON.parse((await readRaw(req,65536)).toString('utf8'))}catch{}
@@ -289,7 +314,7 @@ async function hermesCall(req,res,u,url){
   :/^\/gapi(\/p\/[^/]+)?\/api\/model\/options$/.test(p)&&users.allowedModels(u)?d=>({...d,providers:(d.providers||[]).map(pv=>({...pv,models:(pv.models||[]).filter(m=>users.modelOk(u,pv.slug,m))})).filter(pv=>pv.models.length)})
   :/^\/gapi(\/p\/[^/]+)?\/api\/sessions$/.test(p)&&req.method==='POST'?async d=>{await users.own(d.id||d.session?.id||d.session_id,u);return d}
   :made?async d=>{await memberAgent(u,made);return d}
-  :p==='/hapi/profiles'&&req.method==='POST'?async d=>{const n=d?.name||d?.profile?.name;if(n)setupAgentFn?.(n).catch(e=>console.warn('setup',n,e.message));return d}
+  :p==='/hapi/profiles'&&req.method==='POST'?async d=>{const n=d?.name||d?.profile?.name;if(n)setupAgentFn?.(n).catch(e=>console.warn('setup',n,e.message)).finally(()=>setTimeout(()=>{agentHealth(n).catch(()=>{});syncNotifyTool().catch(()=>{})},5000));return d}
   :relayTarget!==undefined?async d=>{const id=relayJob||(d.job||d).id;if(id)await relay.setJobRelay(agent,id,relayTarget);return d}:undefined;
  if(p.startsWith('/hapi/'))return proxy(req,res,DASH,'/hapi',{'x-hermes-session-token':DASH_TOKEN},{transform,body});
  const live=chatM&&req.method==='POST'?{key:agent+'|'+decodeURIComponent(chatM[1]),user:u.id}:undefined;
@@ -441,7 +466,7 @@ const server=createServer(async(req,res)=>{
     if(url.searchParams.has('peek'))return send(res,200,{live:true,since:rec.t});
     res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-cache','x-accel-buffering':'no',...security});res.socket?.setNoDelay(true);
     for(const c of rec.chunks)res.write(c);rec.subs.add(res);res.on('close',()=>rec.subs.delete(res));return}
-   if(p==='/ui/gateway/restart'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can restart the gateway.'});
+   if(p==='/ui/gateway/restart'&&req.method==='POST'){gwStopped=false;if(!users.isAdmin(u))return send(res,403,{error:'Only admins can restart the gateway.'});
     const {exec}=await import('node:child_process');exec('tmux kill-session -t gateway 2>/dev/null; tmux kill-session -t dashboard 2>/dev/null; sleep 1; ~/services.sh',{timeout:60000,shell:'/bin/bash'},()=>{});return send(res,200,{ok:true})}
    // abilities across agents: who has what, copy to other agents, rename an MCP tool (admins, or owners of both agents)
    if(p==='/ui/share/used'&&req.method==='GET'){const kind=url.searchParams.get('kind')||'';const all=await sharing.usedBy(kind);if(!users.isAdmin(u)){for(const k of Object.keys(all))all[k]=all[k].filter(a=>users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a)===null)}return send(res,200,all)}

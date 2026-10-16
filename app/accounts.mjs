@@ -139,7 +139,7 @@ export function createAccounts(DATA){
   // agents may never stop or kill the gateway (they did once, mid-chat); restarts go through the app
   await run(HERMES,['-p',name,'config','set','approvals.deny',JSON.stringify(['*gateway stop*','*gateway restart*','*kill-session -t gateway*','*pkill*hermes*','*killall*hermes*','*pkill*gateway*','*kill*bridge.js*','*pkill*node*','*mcp login*','*localhost:3118*','*127.0.0.1:3118*']),'--force']);done.push('guard');
   // every agent can reach outside apps through Composio (one sign-in per agent, no app to create)
-  if(!/connect.composio.dev/.test(await readFile(path.join(dir,'config.yaml'),'utf8').catch(()=>''))){await run(HERMES,['-p',name,'config','set','mcp_servers.composio',JSON.stringify({url:'https://connect.composio.dev/mcp',enabled:true}),'--force']);done.push('composio')}
+  if(!/connect.composio.dev/.test(await readFile(path.join(dir,'config.yaml'),'utf8').catch(()=>''))){await run(HERMES,['-p',name,'config','set','mcp_servers.composio',JSON.stringify({url:'https://connect.composio.dev/mcp',enabled:true,auth:'oauth',oauth:{redirect_uri:(process.env.PUBLIC_URL||'https://ai.elkiya.com').replace(/\/$/,'')+'/mcp-oauth/api/mcp/oauth/callback/composio'}}),'--force']);done.push('composio')}
   return {ok:true,done}}
 
  setupAgentFn=setupAgent;
