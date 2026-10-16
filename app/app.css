@@ -748,3 +748,24 @@ input[type=checkbox]:not(.switch)::after{margin:auto}
 .screen-head.compact .scr-pick{max-width:150px}
 .screen-head .scr-note{font-size:11px;white-space:nowrap}
 .screen-head{flex-wrap:nowrap;min-width:0}.screen-head .scr-pick{flex:0 1 auto;min-width:0;text-overflow:ellipsis}
+/* composer toolbar: buttons keep their size; when the box is narrow, labels fold into icons instead of overflowing */
+.composer{container-type:inline-size}
+.composer-bar>*{flex:none}
+.composer-bar .grow{flex:1 1 0;min-width:0}
+.composer-bar .pick{min-width:0;max-width:170px;white-space:nowrap;overflow:hidden}
+.composer-bar .busy-mode{color:var(--blue);background:var(--blue-soft);gap:5px}
+.composer-bar .send{flex:none;width:38px;height:38px;border-radius:50%}
+@container (max-width:620px){.composer-bar .pick>span:first-child:not(:only-child){display:none}.composer-bar .busy-mode span{display:none}}
+@container (max-width:520px){.composer-bar .meter span{display:none}.composer-bar .lang{display:none}}
+/* the screen never squeezes the chat below ~460px; on small windows it floats over the chat instead */
+.app.screen-open{grid-template-columns:var(--side-w) minmax(460px,1fr) min(var(--screen-w,min(48vw,820px)),max(320px,calc(100vw - var(--side-w) - 460px)))}
+@media (max-width:1180px) and (min-width:761px){
+ .app.screen-open{grid-template-columns:var(--side-w) minmax(0,1fr)}
+ .screen-pane{position:fixed;top:0;right:0;bottom:0;width:min(460px,92vw);z-index:44;box-shadow:-12px 0 32px rgba(11,12,16,.12)}
+ .screen-pane .resizer{display:none}}
+/* toolbar = left tools + right controls; on a narrow box the right group moves to its own line, right-aligned */
+.composer-bar{flex-wrap:wrap;justify-content:space-between;row-gap:6px}
+.composer-bar>.cb-l,.composer-bar>.cb-r{display:flex;align-items:center;gap:6px;min-width:0}
+.composer-bar>.cb-r{margin-left:auto}
+.composer-bar .cb-r>*{flex:none}
+.composer-bar>.cb-r{gap:4px}@container (max-width:420px){.composer-bar .pick{padding:0 8px}}

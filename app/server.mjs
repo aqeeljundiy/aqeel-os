@@ -261,7 +261,7 @@ async function openBrowser(res,agent){
 const server=createServer(async(req,res)=>{
  const url=new URL(req.url,'http://x');const p=url.pathname;
  try{
-  if(p==='/healthz')return send(res,200,{ok:true,build:BUILD});
+  if(p==='/healthz')return send(res,200,{ok:true,build:BUILD,live:[...LIVE.values()].filter(r=>!r.done).length});
   // the "notify me" tool agents call (from this box only; each agent's address is signed)
   const mn=/^\/mcp\/notify\/([\w-]+)\/([\w-]+)$/.exec(p);
   if(mn){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method==='GET')return send(res,405,'POST only');
