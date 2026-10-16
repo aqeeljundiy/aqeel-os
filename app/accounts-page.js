@@ -1,0 +1,51 @@
+// Models › Accounts: every account that does the thinking (Claude accounts plus signed-in providers such as
+// ChatGPT or OpenRouter), how much each has left, the priority order they are used in, and which agent uses what.
+const PLUGIN_ID='claude-subscription-directsdk-experimental';
+const PROV_DOMAINS={'openai-codex':'chatgpt.com','openai-api':'openai.com',openrouter:'openrouter.ai',gemini:'gemini.google.com',xai:'x.ai','xai-oauth':'x.ai',deepseek:'deepseek.com',copilot:'github.com',huggingface:'huggingface.co','kimi-coding':'moonshot.ai',minimax:'minimax.io',zai:'z.ai'};
+function acctSources(d){
+ const claudeModels=(Chat.models||[]).filter(m=>m.provider===PLUGIN_ID).map(m=>m.id);
+ const claude=d.accounts.map(a=>({key:'claude:'+a.id,name:a.label,sub:a.email||'Claude',logo:'claude.ai',models:claudeModels,ok:a.signedIn,
+  used:a.usage?Math.max(a.usage.session?.used||0,a.usage.week?.used||0):null,bars:a.usage?[['Session (5 h)',a.usage.session],['This week',a.usage.week]]:[],menu:a.id}));
+ const prov=(d.providers||[]).map(p=>({key:'p:'+p.slug,name:provLabel(p),sub:p.name,logo:PROV_DOMAINS[p.slug]||'',models:p.models,ok:true,
+  used:p.windows.length?Math.max(0,...p.windows.filter(w=>w.scope!=='model').map(w=>w.used)):null,bars:p.windows.map(w=>[w.label,{used:w.used,resets:w.resets}]),details:p.details}));
+ return [...claude,...prov]}
+const usedChip=u=>u==null?'<span class="chip">No limit info</span>':`<span class="chip ${u>=90?'bad':u>=70?'warn':'ok'}"><i class="dot"></i>${u}% used</span>`;
+
+PAGES.accounts=async(p,el)=>{
+ setActions(`<button data-act="acct-refresh">${icon('refresh',16)}Refresh</button><button class="primary" data-act="acct-add">${icon('plus',16)}Add Claude account</button>`);
+ const d=await UI('/ui/accounts'+(Pages._acctFresh?'?fresh=1':''));Pages._acctFresh=false;Pages._acct=d;if(!Chat.models)await Chat.loadModels().catch(()=>{});
+ const src=acctSources(d);Pages._acctSrc=src;const byKey=Object.fromEntries(src.map(s=>[s.key,s]));
+ const users=k=>Object.entries(d.route||{}).filter(([,r])=>r.entry===k).map(([n])=>ident(n).name);
+ const pri=(d.priority||[]).filter(e=>byKey[e.key]);Pages._pri=pri;
+ const priRow=(e,i)=>{const s=byKey[e.key];const u=users(e.key);return `<div class="pri-row" draggable="true" data-pri="${i}" ${st(i)}><span class="pri-n">${i+1}</span>
+  ${logoImg(s.logo,s.name[0].toUpperCase())}<div class="txt"><b>${esc(s.name)}</b><span>${u.length?'In use by '+esc(u.join(', ')):'Standby'}</span></div>
+  <select data-pri-model="${i}" style="width:auto"><option value="">Keep each agent's model</option>${s.models.map(m=>`<option value="${esc(m)}" ${m===e.model?'selected':''}>${esc(modelLabel(m))}</option>`).join('')}</select>
+  ${usedChip(s.used)}<span class="pri-btns"><button class="ghost icon-btn" data-act="pri-move" data-i="${i}" data-dir="-1" aria-label="Move up" ${i?'':'disabled'}>${icon('chevU',16)}</button><button class="ghost icon-btn" data-act="pri-move" data-i="${i}" data-dir="1" aria-label="Move down" ${i<pri.length-1?'':'disabled'}>${icon('chevD',16)}</button><button class="ghost icon-btn" data-act="pri-del" data-i="${i}" aria-label="Remove">${icon('x',16)}</button></span></div>`};
+ const card=(s,i)=>`<div class="card tile acct" ${st(i)} style="cursor:default"><div class="tile-top">${logoImg(s.logo,s.name[0].toUpperCase())}<div style="min-width:0;flex:1"><h3>${esc(s.name)}</h3><span class="acct-mail">${esc(s.sub)}</span></div>${usedChip(s.used)}</div>
+  ${s.bars.length?`<div class="ubars">${s.bars.map(([l,w])=>pctBar(l,w)).join('')}</div>`:`<p class="hint">${s.ok?(s.key.startsWith('p:')?'This provider does not report limits. It is billed per use.':'Usage appears after the first chat.'):'Sign in again to use this account.'}</p>`}
+  ${(s.details||[]).map(x=>`<p class="hint" style="margin:4px 0">${esc(x)}</p>`).join('')}
+  <div class="acct-agents"><span class="th">Used by</span>${users(s.key).map(n=>`<span class="chip">${esc(n)}</span>`).join('')||'<span class="hint" style="margin:0">No agent yet</span>'}</div>
+  ${s.menu?`<div class="tile-foot"><span></span><button class="ghost icon" data-menu="acct" data-id="${esc(s.menu)}" aria-label="More">${icon('more',18)}</button></div>`:''}</div>`;
+ const left=src.filter(s=>!pri.some(e=>e.key===s.key));
+ el.innerHTML=`<div class="panel card"><h2>Priority</h2><p class="sub">The order your accounts get used in. When an agent's account passes the limit you set, it moves to the next one with room. Drag to reorder.</p>
+  <div class="pri-list">${pri.map(priRow).join('')||'<p class="hint">Nothing here yet. Add your accounts in the order you want them used.</p>'}</div>
+  ${left.length?`<button class="ghost" data-menu="pri-add" style="margin-top:10px">${icon('plus',15)}Add to priority</button>`:''}</div>
+ <div class="two" style="margin-top:16px"><div class="panel card"><h2>Switch automatically</h2><p class="sub">Checked every 5 minutes. ${pri.length?'Follows the priority list.':'Without a priority list, Claude agents move to the Claude account with the most room.'}</p>
+  <label style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin:6px 0 14px">Switch when an account runs low ${toggle(d.auto.on,'Switch automatically','id="acAuto"')}</label>
+  ${fieldRow('Switch at','Session or weekly use',`<select id="acTh">${[70,80,90,95].map(v=>`<option value="${v}" ${+d.auto.threshold===v?'selected':''}>${v}% used</option>`).join('')}</select>`)}
+  ${(d.events||[]).length?`<h3 style="font-size:13.5px;margin:16px 0 6px">Recent switches</h3>${d.events.slice(0,6).map(e=>`<p class="hint" style="margin:2px 0">${esc(new Date(e.t).toLocaleString())} · ${esc(ident(e.profile).name)} → ${esc(byKey[e.to]?.name||byKey['claude:'+e.to]?.name||e.to)} · ${esc(e.why)}</p>`).join('')}`:''}</div>
+ <div class="panel card"><h2>Which agent uses what</h2><p class="sub">Takes effect on the agent's next message.</p>${Object.entries(d.route||{}).map(([n,r])=>fieldRow(esc(ident(n).name),esc(modelLabel(r.model)),`<select data-use="${esc(n)}">${src.map(s=>`<option value="${esc(s.key)}" ${s.key===r.entry?'selected':''} ${s.ok?'':'disabled'}>${esc(s.name)}${s.used!=null?' · '+s.used+'% used':''}</option>`).join('')}</select>`)).join('')}</div></div>
+ <h2 class="ach-cat">All accounts</h2><div class="grid-cards acct-grid">${src.map(card).join('')}<a class="card tile acct acct-more" href="#/models/keys">${icon('plus',22)}<b>Connect another</b><span>Sign in to ChatGPT, or add an API key for OpenRouter, Gemini and more.</span></a></div>`;
+ el.querySelectorAll('[data-pri-model]').forEach(s=>s.onchange=()=>{const l=pri.map(e=>({...e}));l[+s.dataset.priModel].model=s.value;savePri(l)});
+ el.querySelectorAll('[data-use]').forEach(s=>s.onchange=async()=>{const e=pri.find(x=>x.key===s.value);try{await UI('/ui/accounts/use',{method:'POST',body:{profile:s.dataset.use,key:s.value,model:e?.model||''}});toast(ident(s.dataset.use).name+' now uses '+byKey[s.value].name);reload()}catch(er){fail(er);reload()}});
+ // drag a row onto another to reorder
+ let from=null;el.querySelectorAll('.pri-row').forEach(r=>{r.ondragstart=e=>{from=+r.dataset.pri;r.classList.add('dragging');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/pri',r.dataset.pri)};r.ondragend=()=>r.classList.remove('dragging');
+  r.ondragover=e=>{if(from==null)return;e.preventDefault();r.classList.add('over')};r.ondragleave=()=>r.classList.remove('over');
+  r.ondrop=e=>{e.preventDefault();r.classList.remove('over');const to=+r.dataset.pri;if(from==null||from===to)return;const l=[...pri];l.splice(to,0,l.splice(from,1)[0]);from=null;savePri(l)}});
+ const saveAuto=async()=>{try{await UI('/ui/accounts/auto',{method:'PUT',body:{on:$('#acAuto').checked,threshold:+$('#acTh').value}});toast($('#acAuto').checked?'Automatic switching on':'Automatic switching off')}catch(e){fail(e)}};
+ $('#acAuto').onchange=saveAuto;$('#acTh').onchange=saveAuto;
+};
+async function savePri(list){try{await UI('/ui/accounts/priority',{method:'PUT',body:{priority:list}});reload()}catch(e){fail(e)}}
+ACT['pri-move']=a=>{const l=[...Pages._pri],i=+a.dataset.i,j=i+ +a.dataset.dir;[l[i],l[j]]=[l[j],l[i]];savePri(l)};
+ACT['pri-del']=a=>{const l=[...Pages._pri];l.splice(+a.dataset.i,1);savePri(l)};
+Pages.priAddMenu=el=>{const used=new Set(Pages._pri.map(e=>e.key));menu(el,Pages._acctSrc.filter(s=>!used.has(s.key)).map(s=>({label:s.name,icon:s.key.startsWith('claude:')?'user':'cpu',run:()=>savePri([...Pages._pri,{key:s.key,model:''}])})))};

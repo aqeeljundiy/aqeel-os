@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>aqeelOS board</title>
+<link rel="icon" href="/assets/elkiya-mark.svg">
+<link rel="stylesheet" href="/assets/brand.css">
+<style>
+ body{min-height:100dvh;background:radial-gradient(60% 420px at 50% 0%,rgba(255,255,255,.9),transparent 70%),linear-gradient(180deg,var(--sky-1) 0,var(--sky-2) 320px,var(--soft-2) 640px)}
+ .dark body{background:var(--bg)}
+ header{height:60px;display:flex;align-items:center;gap:16px;padding:0 28px;border-bottom:1px solid rgba(226,227,233,.7);background:rgba(255,255,255,.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);position:sticky;top:0;z-index:5}
+ .dark header{background:rgba(23,28,37,.78);border-color:var(--border)}
+ header nav{margin-left:auto;display:flex;gap:4px;align-items:center}
+ header nav a{padding:7px 12px;border-radius:var(--r-pill);font-size:13.5px;color:var(--ink-2)}
+ header nav a:hover{background:var(--soft-2);color:var(--ink)}
+ main{max-width:1320px;margin:auto;padding:44px 28px 80px}
+ h1{font-size:34px;font-weight:600;letter-spacing:-1px;margin:16px 0 10px}
+ .lead{color:var(--ink-2);font-size:16px;margin:0 0 28px;max-width:720px;line-height:1.55}
+ .stats{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:24px}
+ .stat{padding:16px 20px;min-width:150px}
+ .stat b{display:block;font-size:26px;font-weight:600;letter-spacing:-.6px}
+ .stat span{font-size:13px;color:var(--muted)}
+ .bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:28px}
+ .bar input{max-width:280px}
+ .seg{display:inline-flex;background:var(--soft);border:1px solid var(--border);border-radius:var(--r-pill);padding:3px}
+ .seg button{min-height:32px;padding:6px 14px;border:0;background:transparent;box-shadow:none;font-size:13px}
+ .seg button:hover{transform:none;box-shadow:none}
+ .seg button.on{background:var(--surface);box-shadow:0 1px 2px rgba(11,12,16,.08);color:var(--ink)}
+ .area{margin-bottom:28px;animation:rise var(--t-med) var(--ease) both}
+ .area h2{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:600;letter-spacing:-.3px;margin:0 0 12px}
+ .area h2 .chip{font-weight:500}
+ .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+ .feat{padding:18px 20px;border-radius:var(--r-card);display:flex;flex-direction:column;gap:10px;transition:transform var(--t-fast) var(--ease),box-shadow var(--t-fast) var(--ease)}
+ .feat:hover{transform:translateY(-2px)}
+ .feat .top{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+ .feat .id{font-size:12px;font-weight:600;color:var(--muted)}
+ .feat h3{margin:0;font-size:15px;font-weight:600;letter-spacing:-.2px}
+ .feat p{margin:0;font-size:13.5px;line-height:1.55;color:var(--ink-2)}
+ .feat .meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:auto}
+ .empty{padding:40px;text-align:center;color:var(--muted)}
+ @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+ @media (max-width:700px){header{padding:0 16px}main{padding:28px 16px 60px}h1{font-size:28px}.bar input{max-width:none}.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+ <span class="wordmark"><img class="mark" src="/assets/elkiya-mark.svg" alt="">aqeelOS</span>
+ <nav><a href="/">Mockup</a><button class="ghost icon" id="theme" aria-label="Switch light and dark">◐</button></nav>
+</header>
+<main>
+ <span class="eyebrow">Development board</span>
+ <h1>aqeelOS inventory</h1>
+ <p class="lead">Every feature from the original dashboard, the Claude-style chat behaviour and the Elkiya brand rules, each with a line that says when it counts as done. Generated from <b>scripts/features.mjs</b>.</p>
+ <div class="stats" id="stats"></div>
+ <div class="bar">
+  <input id="q" type="search" placeholder="Search features" aria-label="Search features">
+  <div class="seg" id="status" role="group" aria-label="Status"><button class="on" data-v="">All</button><button data-v="planned">Planned</button><button data-v="partial">Partial</button><button data-v="done">Done</button></div>
+  <div class="seg" id="mock" role="group" aria-label="Mockup"><button class="on" data-v="">Everything</button><button data-v="yes">In mockup</button><button data-v="no">Build only</button></div>
+ </div>
+ <section class="area"><h2>Where every old dashboard page went<span class="chip" id="mapcount"></span></h2><div class="card" style="overflow-x:auto;padding:6px 8px"><table id="map" style="width:100%;border-collapse:collapse;font-size:13.5px"></table></div></section>
+ <div id="areas"></div>
+</main>
+<script src="/backlog/board.js"></script>
+</body>
+</html>

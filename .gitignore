@@ -1,0 +1,8 @@
+# local tool settings and secrets never go to GitHub
+.claude/
+node_modules/
+*.env
+.env*
+*.tgz
+*.log
+_e.cjs
