@@ -707,3 +707,4 @@ button:active:not(:disabled){transform:scale(.98)}
 .card.tile,.role-card,.pri-row,.kcard{will-change:transform}
 /* empty chat sits under the same soft sky as the other empty states */
 .chat-scroll:has(.chat-empty){background:radial-gradient(70% 420px at 50% 0%,var(--sky-1),transparent 75%)}
+.qr-steps{margin:6px 0 10px;padding-left:20px;color:var(--ink-2);font-size:13px;line-height:1.7;text-align:left}
