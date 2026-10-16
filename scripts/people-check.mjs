@@ -2,13 +2,14 @@
 // rule is exercised. Run on the box against a test copy: node scripts/people-check.mjs [base] [password file]
 import {readFileSync} from 'node:fs';
 const BASE=process.argv[2]||'http://127.0.0.1:4402',PW=readFileSync(process.argv[3]||'/tmp/ppl/pw','utf8').trim();
-const AGENT='facebook-manager';
+const AGENT='pc-'+Date.now().toString(36).slice(-5);   // a throwaway agent, made and removed by this check
 const res=[];const step=async(n,fn)=>{try{const x=await fn();res.push(['PASS',n,x||''])}catch(e){res.push(['FAIL',n,e.message])}};
 const must=(c,m)=>{if(!c)throw new Error(m)};
 async function call(ck,path,{method='GET',body,raw,type}={}){const h={'x-hui':'1'};if(ck)h.cookie=ck;if(body!==undefined){h['content-type']='application/json'}if(type)h['content-type']=type;
  const r=await fetch(BASE+path,{method,headers:h,body:raw??(body!==undefined?JSON.stringify(body):undefined),redirect:'manual'});const t=await r.text();let j;try{j=JSON.parse(t)}catch{j=t}return {s:r.status,j,ck:(r.headers.get('set-cookie')||'').split(';')[0]}}
 let owner,member,code,sid,uid,home;
 await step('Owner signs in with password only',async()=>{const r=await call(null,'/auth/login',{method:'POST',body:{password:PW}});must(r.s===200&&r.ck,'status '+r.s);owner=r.ck});
+await step('Throwaway agent to share',async()=>{const r=await call(owner,'/hapi/profiles',{method:'POST',body:{name:AGENT,clone_from_default:false,no_skills:true}});must(r.s<300,'status '+r.s);await new Promise(x=>setTimeout(x,8000))});
 await step('Owner is owner',async()=>{const r=await call(owner,'/ui/me');must(r.j.role==='owner'&&r.j.admin,JSON.stringify(r.j))});
 await step('Wrong password refused',async()=>{const r=await call(null,'/auth/login',{method:'POST',body:{password:'nope'}});must(r.s===401,'status '+r.s)});
 await step('Invite a member with one agent',async()=>{const r=await call(owner,'/ui/people/invite',{method:'POST',body:{name:'Test Member',role:'member',agents:{[AGENT]:'chat'}}});must(r.s===200&&r.j.code,JSON.stringify(r.j));code=r.j.code});
@@ -42,4 +43,5 @@ await step('Clean up: delete test chat',async()=>{const r=await call(member,'/ha
 await step('Clean up: delete test file',async()=>{const r=await call(owner,'/hapi/files',{method:'DELETE',body:{path:home,recursive:true}});must(r.s<300,'status '+r.s)});
 await step('Clean up: remove member',async()=>{const r=await call(owner,'/ui/people/'+uid,{method:'DELETE'});must(r.s===200,'status '+r.s)});
 await step('Removed member is signed out',async()=>{const r=await call(member,'/ui/me');must(r.s===401,'status '+r.s)});
+await step('Clean up: remove throwaway agent',async()=>{const r=await call(owner,'/hapi/profiles/'+AGENT,{method:'DELETE'});must(r.s<300,'status '+r.s)});
 for(const r of res)console.log(r.join(' | '));console.log(res.filter(r=>r[0]==='PASS').length+'/'+res.length+' passed');

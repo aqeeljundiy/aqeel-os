@@ -55,7 +55,9 @@ export function createUsers(DATA,mail){
  // An agent owned by a member is private: admins see it listed but can open it only when it is shared with them.
  const agentOwner=a=>db.agentOwners[a]||'owner';
  const isPrivate=a=>{const o=byId(agentOwner(a));return !!o&&!isAdmin(o)};
- function level(u,agent){if(typeof agent==='string'&&agent.includes('--'))agent=agent.split('--')[0];  // a copy has its agent's rightsif(agentOwner(agent)===u.id)return 'owner';const shared=(db.shares[agent]||{})[u.id]||null;
+ function level(u,agent){
+  if(typeof agent==='string'&&agent.includes('--'))agent=agent.split('--')[0];   // a copy has its agent's rights
+  if(agentOwner(agent)===u.id)return 'owner';const shared=(db.shares[agent]||{})[u.id]||null;
   if(isAdmin(u))return isPrivate(agent)?shared:'owner';return shared}
  // which agent a call is about, when it is about one
  function agentTarget(p,query,a){let m;if((m=/^\/gapi\/p\/([^/]+)/.exec(p)))return decodeURIComponent(m[1]);if(p.startsWith('/gapi/'))return 'default';

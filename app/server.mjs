@@ -273,7 +273,13 @@ async function hermesCall(req,res,u,url){
   if(e!==null){if(!/^API_SERVER_KEY=/m.test(e)&&API_KEY){await writeFile(envF,(e&&!e.endsWith('\n')?e+'\n':e)+'API_SERVER_KEY='+API_KEY+'\n',{mode:0o600});console.log('added the missing gateway key for',agent);await new Promise(r=>setTimeout(r,1500))}keyOk.add(agent)}}
  if(p==='/hapi/messaging/platforms'&&req.method==='GET'){try{return send(res,200,await platformsCached(q.get('profile')||'default'))}catch(e){return send(res,e.status||502,{error:e.message})}}
  if(p.startsWith('/hapi/messaging/')&&req.method!=='GET')platCache.clear();
+ // channel set-up (WhatsApp QR, Telegram bot…) reads the agent from the request BODY, not the address; without it
+ // the engine pairs the main agent instead (Husband Mode's WhatsApp "never paired"). Always pass it along.
  let body;
+ // Same for every change the engine scopes by body (pairing approvals, chat import/update…): if the address names the
+ // agent and the JSON body doesn't, the body gets it too. Uploads and non-JSON bodies are left alone.
+ if(p.startsWith('/hapi/')&&req.method!=='GET'&&q.get('profile')&&/json/.test(String(req.headers['content-type']||''))&&!p.startsWith('/hapi/files')){let b=null;try{const raw=(await readRaw(req,2e6)).toString('utf8');b=raw?JSON.parse(raw):{}}catch{}
+  if(b&&typeof b==='object'&&!Array.isArray(b)&&!b.profile)b.profile=q.get('profile');if(b!==null)body=Buffer.from(JSON.stringify(b))}
  // a member's file calls must stay in their own folder
  if(!users.isAdmin(u)&&p.startsWith('/hapi/files')){
   if(req.method==='GET'){if(!users.filePathOk(u,q.get('path')||users.home(u)))return send(res,403,{error:'That folder is not yours.'})}
@@ -290,7 +296,7 @@ async function hermesCall(req,res,u,url){
    body=Buffer.from(JSON.stringify(b))}}
  let relayTarget=undefined,relayJob=null;
  const cronM=/^\/hapi\/cron\/jobs(?:\/([^/]+))?$/.exec(p);
- if(cronM&&(req.method==='POST'&&!cronM[1]||req.method==='PUT'&&cronM[1])&&!body){let b={};try{b=JSON.parse((await readRaw(req,262144)).toString('utf8'))}catch{}
+ if(cronM&&(req.method==='POST'&&!cronM[1]||req.method==='PUT'&&cronM[1])){let b={};try{b=JSON.parse((body||await readRaw(req,262144)).toString('utf8'))}catch{}
   const holder=req.method==='PUT'?(b.updates||{}):b;const dv=String(holder.deliver||'');
   if(dv.startsWith('relay:')){const [owner,platform]=dv.slice(6).split('|');relayTarget={owner,platform};holder.deliver='local'}else if('deliver' in holder)relayTarget=null;
   relayJob=cronM[1]||null;body=Buffer.from(JSON.stringify(b))}
@@ -299,13 +305,14 @@ async function hermesCall(req,res,u,url){
  if(delM&&req.method==='DELETE'){const name=decodeURIComponent(delM[1]);if(name!=='default'&&/^[a-z0-9][a-z0-9_-]{0,63}$/.test(name)&&!/^(rl|nt|lk|dp|kp|sh-a|sh-b)-/.test(name)){
    const dir=path.join(HERMES_HOME,'profiles',name),trash=path.join(DATA,'agent-trash');await mkdir(trash,{recursive:true});
    const file=path.join(trash,name+'__'+new Date().toISOString().replace(/[:.]/g,'-')+'.tgz');const {execFile}=await import('node:child_process');
-   const ok=await new Promise(r=>execFile('tar',['-czf',file,'--exclude=./cache','--exclude=./sandboxes','-C',dir,'.'],{timeout:180000,maxBuffer:1e6},e=>r(!e)));
+   // tar exits 1 when a file changed while it was read (a busy agent); the backup is still good if it was written
+   const ok=await new Promise(r=>execFile('tar',['-czf',file,'--warning=no-file-changed','--ignore-failed-read','--exclude=./cache','--exclude=./sandboxes','-C',dir,'.'],{timeout:180000,maxBuffer:1e6},e=>r(!e||e.code===1)))&&(await stat(file).then(x=>x.size>0,()=>false));
    if(!ok)return send(res,500,{error:'Could not save a backup of this agent first, so it was not deleted.'})}}
  if(p==='/hapi/gateway/stop'&&req.method==='POST')gwStopped=true;   // a deliberate stop: the watch leaves it stopped
  if(delM&&req.method==='DELETE'&&PORT===4400)setTimeout(()=>gatewayWatch().catch(()=>{}),15000);
  let made=null;
  if(!users.isAdmin(u)&&req.method==='POST'&&(p==='/hapi/mcp/servers'||p==='/hapi/profiles')){
-  let b={};try{b=JSON.parse((await readRaw(req,65536)).toString('utf8'))}catch{}
+  let b={};try{b=JSON.parse((body||await readRaw(req,65536)).toString('utf8'))}catch{}
   // an MCP server started by command runs code on the box: same rule as the terminal
   if(p==='/hapi/mcp/servers'&&b.command&&!users.can(u,'unsafe'))return send(res,403,{error:'Only admins can add tools that run a command on the box. Use a server URL instead.'});
   // a member's new agent starts empty: copying the main agent would copy its keys and memory
