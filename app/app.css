@@ -769,3 +769,8 @@ input[type=checkbox]:not(.switch)::after{margin:auto}
 .composer-bar>.cb-r{margin-left:auto}
 .composer-bar .cb-r>*{flex:none}
 .composer-bar>.cb-r{gap:4px}@container (max-width:420px){.composer-bar .pick{padding:0 8px}}
+.mem-parts .mem-row{display:grid;grid-template-columns:minmax(120px,240px) 1fr 76px;align-items:center;gap:12px;padding:7px 0;font-size:13.5px}
+.mem-parts .mem-row i{display:block;height:8px;border-radius:99px;background:var(--soft);position:relative;overflow:hidden}
+.mem-parts .mem-row i::after{content:"";position:absolute;inset:0 auto 0 0;width:var(--w);background:var(--blue);border-radius:inherit;animation:growW .6s var(--ease) both}
+.mem-parts .mem-row b{text-align:right;font-variant-numeric:tabular-nums}
+@keyframes growW{from{width:0}}

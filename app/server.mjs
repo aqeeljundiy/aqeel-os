@@ -15,6 +15,7 @@ import {createExplain} from './explain.mjs';
 import {createChannels} from './channels.mjs';
 import {createShare} from './share.mjs';
 import {createRelay} from './relay.mjs';
+import {boxMemory} from './boxmem.mjs';
 import {readdir} from 'node:fs/promises';
 import {scryptSync,randomBytes,createHmac,timingSafeEqual} from 'node:crypto';
 import path from 'node:path';
@@ -302,6 +303,7 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/me'||p.startsWith('/ui/me/')||p.startsWith('/ui/people')||p.startsWith('/ui/agents')||p.startsWith('/ui/mail')||p.startsWith('/ui/roles'))return users.api(u,req,res,p,send,readBody);
    // A true gateway restart (stop and start the service). The engine's own restart only reloads agents inside
    // the running process, so things read at startup (shell hooks) would not change.
+   if(p==='/ui/box'&&req.method==='GET')return send(res,200,await boxMemory());
    if(p==='/ui/live'&&req.method==='GET'){const rec=LIVE.get((url.searchParams.get('agent')||'default')+'|'+(url.searchParams.get('session')||''));
     if(!rec||rec.done||rec.user!==u.id)return send(res,url.searchParams.has('peek')?200:204,url.searchParams.has('peek')?{live:false}:'');
     if(url.searchParams.has('peek'))return send(res,200,{live:true,since:rec.t});

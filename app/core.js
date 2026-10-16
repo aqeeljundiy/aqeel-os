@@ -150,13 +150,13 @@ function topbar(r){
  <button class="ghost icon" data-act="theme" title="Light or dark" aria-label="Switch light and dark">${icon(document.documentElement.classList.contains('dark')?'sun':'moon',18)}</button></div>`;
 }
 // One calm banner for low memory / disk / out-of-memory restarts (most severe first).
-function paintBanner(){const slot=$('#bannerSlot');if(!slot)return;const st=S.status||{};const rp=st.resource_pressure||st.resources||((st.memory||st.disk)?{memory:st.memory,disk:st.disk}:null);let msg='',key='';
- if(rp&&typeof rp==='object'){const d=rp.disk?.level||rp.disk?.pressure||rp.disk_level,m=rp.memory?.level||rp.memory?.pressure||rp.memory_level,oom=rp.oom_restart||rp.suspected_oom||rp.memory?.last_boot_suspected_oom;
+function paintBanner(){const slot=$('#bannerSlot');if(!slot)return;const st=S.status||{};const rp=st.resource_pressure||st.resources||((st.memory||st.disk||S.box)?{memory:st.memory,disk:st.disk}:null);let msg='',key='';
+ if(rp&&typeof rp==='object'){const d=rp.disk?.level||rp.disk?.pressure||rp.disk_level,m=S.box?.memory?.level||rp.memory?.level||rp.memory?.pressure||rp.memory_level,oom=rp.oom_restart||rp.suspected_oom||rp.memory?.last_boot_suspected_oom;
   if(d==='critical'){msg='<b>Disk is almost full.</b> Free space on the AI box from System › Host.';key='disk-c'}
   else if(m==='critical'){msg='<b>aqeelOS is almost out of memory</b> and may restart.';key='mem-c'}
   else if(oom){msg='<b>aqeelOS restarted unexpectedly</b>, most likely because it ran out of memory.';key='oom'}
   else if(d==='elevated'){msg='<b>Disk is getting full</b> on the AI box.';key='disk-e'}
-  else if(m==='elevated'){msg='<b>Memory is running low</b> on the AI box.';key='mem-e'}}
+  else if(m==='elevated'){msg=`<b>Memory is running low</b> on the AI box${S.box?.memory?.pct?' ('+S.box.memory.pct+'% of its '+bytes(S.box.memory.limit)+')':''}. See System › Host for what uses it.`;key='mem-e'}}
  key=key&&key+':'+(S.status?.gateway_pid||'');
  slot.innerHTML=msg&&S.bannerDismissed!==key?`<div class="banner">${icon('alert',16)}<span>${msg}</span><button data-act="banner" data-key="${esc(key)}">Dismiss</button></div>`:''}
 
@@ -222,7 +222,7 @@ function palette(){closeLayers();scrim();const p=document.createElement('div');p
  box.onclick=e=>{const b=e.target.closest('[data-i]');if(!b)return;const it=[...list,...remote][+b.dataset.i];closeLayers();it.run()};paint();inp.focus()}
 function theme(){const d=document.documentElement.classList.toggle('dark');try{localStorage.setItem('hui-theme',d?'dark':'light')}catch{};const tb=$('.topbar');if(tb)paintTop()}
 async function restartGateway(){try{await post(UI,'/ui/gateway/restart');toast('Restarting the engine… back in about 25 seconds');setTimeout(()=>refreshStatus(),26000)}catch(e){fail(e)}}
-async function refreshStatus(){try{S.status=await H('/status');const r=route();if(!r.signin&&$('.side'))paintSide(r),paintBanner()}catch{}}
+async function refreshStatus(){try{S.status=await H('/status');if(S.me?.admin!==false)S.box=await UI('/ui/box').catch(()=>S.box);const r=route();if(!r.signin&&$('.side'))paintSide(r),paintBanner()}catch{}}
 
 /* ---------- sign-in ---------- */
 function signinHtml(){return `<div class="signin"><form class="card" id="signin"><span class="wordmark"><img class="mark" src="/assets/elkiya-mark.svg" alt="">aqeelOS</span><h1>Welcome back</h1><p>Sign in to aqeelOS.</p><label for="nm">Username</label><input id="nm" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="aqeel"><label for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" placeholder="Your password"><p class="err" id="err" role="alert"></p><button class="primary" type="submit">Sign in</button><p class="foot">${icon('lock',13)} Private · ${esc(location.host)}</p></form></div>`}
