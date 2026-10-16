@@ -99,7 +99,7 @@ const Chat={
  /* ---------- history ---------- */
  async loadHistory(id){
   try{const d=await H('/sessions/'+encodeURIComponent(id)+'/messages?limit=500&order=latest');if(this.id!==id)return;
-   if(this.live[id]?.running)return;this.live[id]={turns:this.toTurns(d.messages||[]),running:false};this.paint();this.follow(id);
+   if(this.live[id]?.running)return;this.live[id]={turns:this.toTurns(d.messages||[]),running:false};this._opening=id;this.paint();this.follow(id);
    // A session that was continued after compaction: offer the newest continuation.
    H('/sessions/'+encodeURIComponent(id)+'/latest-descendant').then(x=>{const nid=x?.latest_id||x?.session_id||x?.id;if(nid&&nid!==id&&this.id===id){const th=$('#thread');th?.insertAdjacentHTML('afterbegin',`<div class="approval" style="background:var(--blue-soft);border-color:transparent"><h4>${icon('fork',16)}This chat continues in a newer one</h4><p>aqeelOS compacted it and carried on in a follow-up chat.</p><div class="btns"><button class="primary" data-go="/chat/${esc(nid)}">Open the latest</button></div></div>`)}}).catch(()=>{});
   }catch(e){if(this.id===id)showError($('#scroll'),e)}
@@ -122,9 +122,12 @@ const Chat={
  paint(follow=true){const s=this.live[this.id];const th=$('#thread')||(()=>{const sc=$('#scroll');if(!sc)return null;sc.innerHTML='<div class="thread" id="thread"></div>';return $('#thread')})();if(!th||!s)return;
   const sc=$('#scroll');const atBottom=!sc||sc.scrollHeight-sc.scrollTop-sc.clientHeight<120;
   const keep=$$('.step.open',th).map(x=>x.dataset.k);
+  // an opened chat shows its history at once (no rise-in for old messages); new turns still animate
+  const opening=this._opening===this.id;if(opening){this._opening=null;th.classList.add('settled')}
   th.innerHTML=s.turns.map((t,i)=>this.turnHtml(t,i,s)).join('')||'';
   keep.forEach(k=>th.querySelector(`.step[data-k="${k}"]`)?.classList.add('open'));
-  if(follow&&atBottom&&sc)sc.scrollTop=sc.scrollHeight},
+  // jump, never glide: the chat area scrolls smoothly for people, but placing the view must be instant
+  if((follow&&atBottom||opening)&&sc){sc.style.scrollBehavior='auto';sc.scrollTop=sc.scrollHeight;if(opening)requestAnimationFrame(()=>{sc.scrollTop=sc.scrollHeight;requestAnimationFrame(()=>{sc.scrollTop=sc.scrollHeight;sc.style.scrollBehavior=''})});else sc.style.scrollBehavior=''}},
  turnHtml(t,i,s){
   if(t.role==='user')return `<div class="msg user ${t.steer?'steer':''}">${this.userHtml(t.text)}${t.steer?`<span class="attach">${icon(t.steer==='failed'?'alert':'zap',12)} ${t.steer==='failed'?esc(t.err||'Not delivered'):t.steer==='delivered'?'Read while working':'Sent while working'}</span>`:''}${t.images?`<span class="attach">${icon('clip',12)} ${plural(t.images,'image')}</span>`:''}</div>`;
   const last=i===s.turns.length-1;if(!last&&!t.text&&!(t.steps||[]).length&&!t.think&&!t.approval&&!t.error)return '';

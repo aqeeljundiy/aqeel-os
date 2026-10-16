@@ -800,3 +800,4 @@ input[type=checkbox]:not(.switch)::after{margin:auto}
 .md s{color:var(--muted)}
 .md .md-img{display:block;max-width:min(100%,560px);height:auto;border-radius:var(--r-md);border:1px solid var(--border);margin:8px 0}
 .md .table-wrap{overflow-x:auto;margin:6px 0 14px}.md .table-wrap table{margin:0}
+.thread.settled .msg,.thread.settled .step,.thread.settled .approval{animation:none}
