@@ -260,6 +260,7 @@ async function startSignin(agent,tool){const k=agent+'|'+tool,prev=signinFlows.g
   if(!/already in progress/i.test(j.detail||j.error||''))break;await new Promise(res=>setTimeout(res,1500))}
  if(/already in progress/i.test(j.detail||j.error||''))j.error='A sign-in for '+tool+' is already open. Use the link given a moment ago, or try again in a few minutes.';
  if(j.flow_id){signinFlows.set(k,j.flow_id);saveFlows()}if(!r.ok&&!j.error)j.error=j.detail||('HTTP '+r.status);return j}
+const esc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const keyOk=new Set();   // agents checked for their gateway key
 const platCache=new Map();
 function platformsCached(agent){const k=agent||'default';const c=platCache.get(k);if(c&&(c.p||Date.now()-c.t<15000))return c.p||Promise.resolve(c.v);
@@ -395,10 +396,33 @@ const server=createServer(async(req,res)=>{
   // subscription checks its own secret signature, and nothing but POST /webhooks/<name> passes.
   if(/^\/webhooks\/[\w.-]{1,64}$/.test(p)&&req.method==='POST')return proxy(req,res,HOOKS,'',{});
   // MCP sign-in (OAuth) returns here from Slack, Notion…; the engine checks the one-time state. No sign-in needed.
+  // Google sign-ins (Google Workspace skill with a Web-application client) return here, and aqeelOS finishes them:
+  // it finds the agent and account whose pending sign-in has this state and runs the skill's --auth-code step.
+  if(p==='/google-oauth/callback'&&req.method==='GET'){const st=url.searchParams.get('state')||'';
+   const page=(t,m)=>{res.writeHead(200,{'content-type':'text/html; charset=utf-8',...security});return res.end(`<!doctype html><meta name="viewport" content="width=device-width"><title>aqeelOS</title><body style="font-family:system-ui;max-width:440px;margin:15vh auto;text-align:center;color:#111;line-height:1.5"><h2>${t}</h2><p>${m}</p></body>`)};
+   if(url.searchParams.get('error'))return page('Not connected','You clicked Cancel (or Google said no). Ask your agent for a new link if you want to connect.');
+   let hit=null;for(const a of await listAgents()){const home=a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
+    for(const fn of await readdir(home).catch(()=>[])){const m=/^google_oauth_pending(?:_(.+))?\.json$/.exec(fn);if(!m)continue;
+     try{const j=JSON.parse(await readFile(path.join(home,fn),'utf8'));if(j.state&&j.state===st){hit={a,home,acct:m[1]||''};break}}catch{}}if(hit)break}
+   if(!hit)return page('This link has expired','A newer link replaced it, or it was already used. Ask your agent for a new Google sign-in link and open it right away.');
+   const py=await sharing.python();const script=path.join(hit.home,'skills','productivity','google-workspace','scripts','setup.py');const {execFile}=await import('node:child_process');
+   const r=await new Promise(done=>execFile(py,[script,...(hit.acct?['--account',hit.acct]:[]),'--auth-code','https://ai.elkiya.com/google-oauth/callback'+url.search],{timeout:90000,env:{...process.env,HERMES_HOME:hit.home}},(e,o,er)=>done({ok:!e,out:String(o||'')+String(er||'')})));
+   if(!r.ok||/ERROR/.test(r.out))return page('Google sign-in did not finish',esc((r.out.trim().split('\n').filter(Boolean).pop()||'Unknown error').slice(0,300))+' Ask your agent for a new link.');
+   return page('Google account connected',(hit.acct?'<b>'+esc(hit.acct)+'</b> is ':'Your Google account is ')+'connected to '+esc(NAMES[hit.a]||hit.a)+'. You can close this tab and go back to aqeelOS.')}
   if(p.startsWith('/mcp-oauth/api/mcp/oauth/callback/')&&req.method==='GET'){
-   const r=await fetch(DASH.origin+p.slice('/mcp-oauth'.length)+url.search).catch(()=>null);if(r)await r.text();const ok=!!r&&r.ok;
-   res.writeHead(r?.status||502,{'content-type':'text/html; charset=utf-8',...security});
-   return res.end(`<!doctype html><meta name="viewport" content="width=device-width"><title>aqeelOS</title><body style="font-family:system-ui;max-width:420px;margin:15vh auto;text-align:center;color:#111"><h2>${ok?'Signed in':'Sign-in did not finish'}</h2><p>${ok?'You can close this tab and go back to aqeelOS.':'Go back to aqeelOS and press Sign in again.'}</p></body>`)}
+   const tool=decodeURIComponent(p.split('/').pop()||'');const r=await fetch(DASH.origin+p.slice('/mcp-oauth'.length)+url.search).catch(()=>null);if(r)await r.text();
+   // say what really happened: wait for the engine to finish trading the code, then report it plainly
+   let title='Signed in',msg='You can close this tab and go back to aqeelOS.';
+   if(url.searchParams.get('error'))[title,msg]=['Not connected','You clicked Cancel (or the service said no). Go back to aqeelOS and press Sign in again if you want to connect.'];
+   else if(!r)[title,msg]=['aqeelOS is not reachable','Try again in a minute.'];
+   else if(r.status===404)[title,msg]=['This link has expired','It was replaced by a newer one or is older than a few minutes. Go back to aqeelOS, press Sign in (or ask your agent to connect it) and use the newest link right away.'];
+   else if(!r.ok)[title,msg]=['Sign-in did not finish','The service sent back something unexpected. Press Sign in again.'];
+   else{const ids=[...signinFlows.entries()].filter(([k])=>k.endsWith('|'+tool)).map(([,v])=>v);const h={'x-hermes-session-token':DASH_TOKEN};let st=null;
+    for(let i=0;i<20&&ids.length;i++){for(const id of ids){const f=await fetch(DASH.origin+'/api/mcp/oauth/flows/'+encodeURIComponent(id),{headers:h}).then(x=>x.ok?x.json():null).catch(()=>null);if(f&&!/authorization_required|pending|exchang|connecting/i.test(f.status||'')){st=f;break}}if(st)break;await new Promise(x=>setTimeout(x,750))}
+    if(st&&/error|fail/i.test(st.status||''))[title,msg]=['Sign-in did not finish',esc(String(st.error||'The service refused the sign-in.').slice(0,300))+' Press Sign in again; if it keeps happening, ask your agent to connect it through Composio.'];
+    else if(st&&st.tools?.length)msg=`${esc(tool)} is connected with ${st.tools.length} tools. You can close this tab and go back to aqeelOS.`}
+   res.writeHead(r?.status&&r.status<500?200:502,{'content-type':'text/html; charset=utf-8',...security});
+   return res.end(`<!doctype html><meta name="viewport" content="width=device-width"><title>aqeelOS</title><body style="font-family:system-ui;max-width:440px;margin:15vh auto;text-align:center;color:#111;line-height:1.5"><h2>${title}</h2><p>${msg}</p></body>`)}
   if(p.startsWith('/screen/')){if(!validCookie(req))return send(res,401,'Sign in first.');return screenHttp(req,res)}
   if(p==='/ui/screen/browser'||p.startsWith('/ui/screens')){const u=await me(req);if(!u)return send(res,401,{error:'Sign in first.'});if(req.method!=='GET'&&req.headers['x-hui']!=='1')return send(res,403,{error:'Sign in first.'});
    const sm=/^\/ui\/screens\/([^/]+)/.exec(p);if(p==='/ui/screens'&&!users.isAdmin(u))return send(res,200,{screens:[]});

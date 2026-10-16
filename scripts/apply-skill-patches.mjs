@@ -18,7 +18,7 @@ person to create a Google Cloud project or OAuth client: that is slow and error-
 when the person asks for it, or when Composio cannot do the job.
 <!-- /aqeelos:composio-first -->
 
-<!-- aqeelos:multi-account -->
+<!-- aqeelos:multi-account --><!-- aqeelos:signin-v1 -->
 ## Several Google accounts (one agent, many accounts)
 
 The person may have several Google accounts (for example work, personal, shop). Each one is a **named account**
@@ -36,6 +36,12 @@ with its own sign-in; the OAuth client (google_client_secret.json) is shared, so
 - **Across all accounts** ("any unread mail?", "what's on my calendars today?"): run the command once per account
   and label each result with the account's name/email.
 - **Remove an account:** \`setup.py --account NAME --revoke\`.
+- **Signing in:** if \`--auth-url\` gives a link with redirect_uri https://ai.elkiya.com/google-oauth/callback, just send the
+  link. After the person clicks Allow, aqeelOS finishes the sign-in by itself and shows "Google account connected";
+  then run \`--check\`. Do NOT ask them to paste anything. If the link has redirect_uri http://localhost:1 (a Desktop
+  client), offer the one-time switch: in Google Cloud › APIs & Services › Credentials, create an OAuth client of type
+  "Web application" with the authorised redirect URI https://ai.elkiya.com/google-oauth/callback, and save its JSON with
+  \`setup.py --client-secret <file>\`. Until then the paste method still works.
 <!-- /aqeelos:multi-account -->
 `;
 
@@ -48,5 +54,16 @@ for(const h of homes){const dir=path.join(h,'skills','productivity','google-work
  // 2) the instructions tell the agent how to work with several accounts
  const md=path.join(dir,'SKILL.md');if(await exists(md)){let s=await readFile(md,'utf8');
   // (re)apply when our block is missing or older: drop an earlier aqeelOS block, then insert the current one
-  if(!s.includes('aqeelos:composio-first')){s=s.replace(/\n?<!-- aqeelos:multi-account -->[\s\S]*?<!-- \/aqeelos:multi-account -->\n?/,'\n');const at=s.search(/\n## /);s=at>0?s.slice(0,at)+'\n'+GOOGLE_SECTION+s.slice(at):s+GOOGLE_SECTION;await writeFile(md,s);changed++;console.log('patched',md)}}}
+  if(!s.includes('aqeelos:signin-v1')){s=s.replace(/\n?<!-- aqeelos:composio-first -->[\s\S]*?<!-- \/aqeelos:composio-first -->\n?/,'\n').replace(/\n?<!-- aqeelos:multi-account -->[\s\S]*?<!-- \/aqeelos:multi-account -->\n?/,'\n');const at=s.search(/\n## /);s=at>0?s.slice(0,at)+'\n'+GOOGLE_SECTION+s.slice(at):s+GOOGLE_SECTION;await writeFile(md,s);changed++;console.log('patched',md)}}}
+// 3) Google sign-ins return to the aqeelOS site when the Google client is a "Web application" one: aqeelOS then
+//    finishes the sign-in itself (no "copy the localhost address"). A Desktop client keeps the localhost method.
+const WEB_REDIRECT=`REDIRECT_URI = "http://localhost:1"
+# aqeelos:web-redirect: a Web-application client returns to the aqeelOS site, which finishes the sign-in by itself
+try:
+    if "web" in json.loads(CLIENT_SECRET_PATH.read_text(encoding="utf-8")):
+        REDIRECT_URI = os.environ.get("AQEELOS_GOOGLE_REDIRECT", "https://ai.elkiya.com/google-oauth/callback")
+except Exception:
+    pass`;
+for(const h of homes){const sp=path.join(h,'skills','productivity','google-workspace','scripts','setup.py');if(!await exists(sp))continue;let s=await readFile(sp,'utf8');
+ if(!s.includes('aqeelos:web-redirect')&&s.includes('REDIRECT_URI = "http://localhost:1"')){s=s.replace('REDIRECT_URI = "http://localhost:1"',WEB_REDIRECT);await writeFile(sp,s);changed++;console.log('patched',sp)}}
 console.log(changed?changed+' change(s)':'skill patches already in place');
