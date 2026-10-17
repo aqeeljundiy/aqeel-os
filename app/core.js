@@ -5,6 +5,13 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const isMac=/Mac|iPhone|iPad/.test(navigator.platform);
 const MOD=isMac?'⌘':'Ctrl';
 const store={get(k,d){try{const v=localStorage.getItem('hui-'+k);return v===null?d:JSON.parse(v)}catch{return d}},set(k,v){try{localStorage.setItem('hui-'+k,JSON.stringify(v))}catch{}}};
+// Costs are worked out in US dollars; each person can see them in rupiah instead, at today's rate (account menu, or Usage)
+const FX={rate:store.get('idrRate',16500),loaded:false,load(){if(this.loaded)return;this.loaded=true;UI('/ui/fx').then(r=>{if(r.IDR){this.rate=r.IDR;this.day=r.updated;store.set('idrRate',r.IDR)}}).catch(()=>{})}};
+const currency=()=>store.get('currency','USD');
+function money(c,opt={}){if(c==null||isNaN(c))return '';c=+c;
+ if(currency()==='IDR'){FX.load();const v=c*FX.rate;if(v>0&&v<1)return '<Rp1';return 'Rp'+(v>=1e6&&!opt.full&&!opt.cents?(v/1e6).toLocaleString('id-ID',{maximumFractionDigits:v>=1e7?0:1})+' jt':Math.round(v).toLocaleString('id-ID'))}
+ if(opt.cents)return '$'+c.toFixed(2);return c>0&&c<0.01?'<$0.01':'$'+(c<10?c.toFixed(2):Math.round(c).toLocaleString('en-US'))}
+function setCurrency(c){store.set('currency',c);if(c==='IDR')FX.load();toast(c==='IDR'?'Costs now in rupiah, at about Rp'+Math.round(FX.rate).toLocaleString('id-ID')+' per dollar':'Costs now in US dollars');if(typeof reload==='function')reload()}
 // Your settings follow you: what this browser remembers for you (drafts, Allow all per chat, folded sections,
 // filters, theme, notifications you have seen) is also saved to your account on the box and loaded once at sign-in,
 // so every device shows the same. Rules: a change made here and not sent yet always wins; another person signing in
@@ -49,9 +56,10 @@ async function call(base,path,opt={}){
  return data;
 }
 // The active agent (Hermes profile): dashboard calls get ?profile=, gateway calls go through /p/<profile>/.
+// pages that belong to one agent: a picker in the header shows another agent's without switching who you chat with
+const VIEW_RE=/^#\/(abilities\/(skills|mcp|plugins|files|memory)|automations\/(webhooks|pairing)|models\/(models|keys)|system\/(logs|settings))(\/|$)/;
 const agentProfile=()=>{if(S.chOverride)return S.chOverride;   // chOverride: setting up an extra connection (WhatsApp 2…)
- // on Abilities and Webhooks you can look at another agent's list without switching who you chat with
- if(S.viewAgent){if(/^#\/(abilities\/(skills|mcp|plugins)|automations\/webhooks)/.test(location.hash))return S.viewAgent==='default'?'':S.viewAgent;S.viewAgent=null}
+ if(S.viewAgent){if(VIEW_RE.test(location.hash))return S.viewAgent==='default'?'':S.viewAgent;S.viewAgent=null}
  return S.profile&&S.profile!=='default'?S.profile:''};
 // Every dashboard call names its agent, the main one too: Hermes serves several agents from one backend
 // and refuses some writes (e.g. deleting a webhook) that don't say which.
@@ -238,7 +246,7 @@ function paintBanner(){const slot=$('#bannerSlot');if(!slot)return;const st=S.st
 
 /* ---------- page helpers ---------- */
 function head(p,actions=''){return `<div class="page-head"><div><span class="eyebrow">${route().sec.label}</span><h1>${p.label}</h1><p>${p.desc||''}</p></div><div class="head-actions" style="display:flex;gap:8px;flex-wrap:wrap">${actions}</div></div>`}
-function setActions(html){const a=$('.head-actions');if(a)a.innerHTML=html}
+function setActions(html){const a=$('.head-actions');if(!a)return;const vp=a.querySelector('.view-pick');a.innerHTML=html;if(vp)a.prepend(vp)}
 function tabs(key,list,cur){cur=cur||S.tab[key]||list[0];return `<div class="tabs" data-tabs="${key}">${list.map(t=>`<button class="${t===cur?'on':''}" data-tab="${esc(t)}">${esc(t)}</button>`).join('')}<span class="pill"></span></div>`}
 const toggle=(on,label,attrs='')=>`<input type="checkbox" class="switch" ${on?'checked':''} aria-label="${esc(label)}" ${attrs}>`;
 const st=i=>`style="animation-delay:${Math.min(i,10)*30}ms"`;
@@ -268,11 +276,15 @@ function scrim(){const s=document.createElement('div');s.className='scrim';s.onc
 function drawer(title,body,foot='',opt={}){openLayer();const d=document.createElement('div');const size=opt.size||(/<textarea|data-big/.test(body)||/schedule|SOUL|config.yaml|Shell hooks|MCP server|identity/i.test(title)?'lg':String(body).length<700?'sm':'md');d.className=opt.side?'drawer':'drawer pop '+size;d.setAttribute('role','dialog');d.setAttribute('aria-label',title);d.innerHTML=`<div class="drawer-head"><h2>${esc(title)}</h2><button class="ghost icon" data-act="close" aria-label="Close">${icon('x',18)}</button></div><div class="drawer-body">${body}</div>${foot?`<div class="drawer-foot">${foot}</div>`:''}`;document.body.append(d);setTimeout(()=>d.querySelector('input:not([type=checkbox]),textarea,select')?.focus(),30);return d}
 function menu(anchor,items,opt={}){$$('.menu').forEach(e=>e.remove());const m=document.createElement('div');m.className='menu';m.setAttribute('role','menu');const list=items.filter(Boolean);
  m.innerHTML=list.map((i,ix)=>i==='-'?'<hr>':i.header?`<div class="mh">${esc(i.header)}</div>`:`<button class="item ${i.bad?'bad':''} ${i.on?'cur':''}" role="menuitem" data-mi="${ix}" ${i.disabled?'disabled':''}>${i.icon?icon(i.icon,16):''}<span class="t">${esc(i.label)}${i.sub?`<small class="mi-sub">${esc(i.sub)}</small>`:''}</span>${i.on?`<span style="color:var(--blue)">${icon('check',15)}</span>`:''}${i.kbd?`<small style="margin-left:auto;color:var(--muted)">${esc(i.kbd)}</small>`:''}</button>`).join('');
- if(opt.matchWidth)m.style.minWidth=anchor.offsetWidth+'px';document.body.append(m);
+ // long lists get a search box that narrows the items as you type (Enter picks the first one left)
+ if(opt.search){m.insertAdjacentHTML('afterbegin',`<div class="mi-find">${icon('search',14)}<input placeholder="Search" aria-label="Search the list"></div>`);const inp=m.querySelector('.mi-find input');
+  inp.oninput=()=>{const q=inp.value.trim().toLowerCase();$$('button.item',m).forEach(b=>b.hidden=!!q&&!b.textContent.toLowerCase().includes(q));$$('.mh,hr',m).forEach(x=>x.hidden=!!q)};
+  inp.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();$$('button.item',m).find(b=>!b.hidden)?.click()}if(e.key==='ArrowDown'){e.preventDefault();$$('button.item',m).find(b=>!b.hidden)?.focus()}}}
+ if(opt.matchWidth)m.style.minWidth=Math.max(220,anchor.offsetWidth)+'px';document.body.append(m);
  const r=anchor.getBoundingClientRect(),w=m.offsetWidth;let h=m.offsetHeight;let x=Math.min(r.left,innerWidth-w-12),y=r.bottom+6;const below=innerHeight-r.bottom-18,above=r.top-18;if(h>below&&above>below){m.style.maxHeight=Math.min(h,above)+'px';h=m.offsetHeight;y=r.top-h-6}else m.style.maxHeight=Math.max(160,below)+'px';m.style.left=Math.max(12,x)+'px';m.style.top=Math.max(12,y)+'px';
  m.onclick=e=>{const b=e.target.closest('[data-mi]');if(!b)return;const it=list[+b.dataset.mi];m.remove();it?.run?.();opt.onClose?.()};
  m.onkeydown=e=>{const bs=$$('button.item:not([disabled])',m);const i=bs.indexOf(document.activeElement);if(e.key==='ArrowDown'){e.preventDefault();bs[Math.min(i+1,bs.length-1)]?.focus()}if(e.key==='ArrowUp'){e.preventDefault();bs[Math.max(i-1,0)]?.focus()}if(e.key==='Escape'){m.remove();anchor.focus();opt.onClose?.()}if(e.key==='Tab')m.remove()};
- (m.querySelector('.cur')||m.querySelector('button.item'))?.focus();m.querySelector('.cur')?.scrollIntoView({block:'nearest'})}
+ (m.querySelector('.mi-find input')||m.querySelector('.cur')||m.querySelector('button.item'))?.focus();m.querySelector('.cur')?.scrollIntoView({block:'nearest'})}
 
 /* ---------- brand dropdowns: every <select> becomes an Elkiya menu button ---------- */
 function enhanceSelect(sel){if(sel.dataset.enhanced||sel.multiple)return;sel.dataset.enhanced='1';

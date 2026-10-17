@@ -130,8 +130,17 @@ export function createAccounts(DATA){
     right, so the health check can run it again and again; what failed is kept and shown on the Agents page. */
  const DENY=['*gateway stop*','*gateway restart*','*kill-session -t gateway*','*pkill*hermes*','*killall*hermes*','*pkill*gateway*','*kill*bridge.js*','*pkill*node*','*mcp login*','*localhost:3118*','*127.0.0.1:3118*'];
  // the main agent's working settings every agent starts with (copied once; changes made later on that agent stay)
+ const QUIET=[['display.busy_ack_enabled',false],['display.busy_steer_ack_enabled',false],['display.busy_ack_detail',false],['display.suppress_warning_notifications',true],['display.long_running_notifications',false]];
  const FROM_MAIN=['timezone','browser.headed','browser.inactivity_timeout','agent.max_turns','agent.reasoning_effort'];
  const setups=new Map();
+ // copy each skill folder the agent does not have yet from the main agent (never overwrites its own)
+ async function giveSkills(name){const from=path.join(HERMES_HOME,'skills'),to=path.join(HERMES_HOME,'profiles',name,'skills');let n=0;
+  await access(path.join(HERMES_HOME,'profiles',name,'config.yaml'));
+  for(const cat of await readdir(from,{withFileTypes:true}).catch(()=>[])){if(!cat.isDirectory()||cat.name.startsWith('.'))continue;
+   for(const sk of await readdir(path.join(from,cat.name),{withFileTypes:true}).catch(()=>[])){if(!sk.isDirectory())continue;const src=path.join(from,cat.name,sk.name),dst=path.join(to,cat.name,sk.name);
+    if(await access(path.join(src,'SKILL.md')).then(()=>false,()=>true))continue;if(await access(dst).then(()=>true,()=>false))continue;
+    await mkdir(path.dirname(dst),{recursive:true});await cp(src,dst,{recursive:true});n++}}
+  if(n)console.log('gave',n,'skills to',name);return n}
  function setupAgent(name){if(!setups.has(name))setups.set(name,doSetup(name).finally(()=>setups.delete(name)));return setups.get(name)}
  async function doSetup(name){
   if(!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(name)||name==='default')throw new Error('Unknown agent');
@@ -159,6 +168,11 @@ export function createAccounts(DATA){
   if(!Object.values(pick(c,'mcp_servers')||{}).some(v=>/connect.composio.dev/.test(v?.url||'')))
    await step('composio',()=>setKey(name,'mcp_servers.composio',{url:'https://connect.composio.dev/mcp',enabled:true,auth:'oauth',oauth:{redirect_uri:(process.env.PUBLIC_URL||'https://ai.elkiya.com').replace(/\/$/,'')+'/mcp-oauth/api/mcp/oauth/callback/composio'}}));
   const st=(await getStatus())[name]||{};
+  // quiet channels: no "steered / queued / redirected" echoes, warning pings, "still working" heartbeats or
+  // "gateway restarted" messages. Only settings nobody has chosen yet, so a later choice stays.
+  for(const [k,v] of QUIET)if(pick(c,k)===undefined)await step(k,()=>setKey(name,k,String(v)));
+  for(const pl of Object.keys(pick(c,'platforms')||{}))if(pick(c,'platforms.'+pl+'.gateway_restart_notification')===undefined&&!/^(webhook|api_server)$/.test(pl))
+   await step('quiet '+pl,()=>setKey(name,'platforms.'+pl+'.gateway_restart_notification','false'));
   if(!st.defaults){const before=failed.length;
    for(const k of FROM_MAIN){const v=pick(main,k);if(v===undefined||v===null||v==='')continue;if(JSON.stringify(pick(c,k))===JSON.stringify(v))continue;await step(k,()=>setKey(name,k,typeof v==='object'?v:String(v)))}
    // pictures: the main agent's image maker, when this agent is signed in to it
@@ -175,7 +189,10 @@ export function createAccounts(DATA){
 
  setupAgentFn=setupAgent;
  return async function handle(req,res,p,send,readBody){
-  if(p==='/ui/accounts/setup-agent'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{return send(res,200,await setupAgent(String(b.name||'')))}catch(e){return send(res,400,{error:e.message})}}
+  if(p==='/ui/accounts/setup-agent'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const n=String(b.name||'');
+   // a new agent starts with every skill the main agent has (once, here: skills removed later stay removed)
+   if(!b.noSkills&&/^[a-z0-9][a-z0-9_-]{0,63}$/.test(n)&&n!=='default')await giveSkills(n).catch(e=>console.warn('skills for',n,e.message));
+   try{return send(res,200,await setupAgent(n))}catch(e){return send(res,400,{error:e.message})}}
   const d=await load();
   if(p==='/ui/accounts'&&req.method==='GET'){const fresh=new URL(req.url,'http://x').searchParams.has('fresh');const list=await Promise.all(all(d).map(a=>details(a,fresh)));
    const ag=await agents();const prov=await providers(fresh);const route=Object.fromEntries(await Promise.all(ag.map(async n=>[n,{entry:await entryOf(d,n),...await agentRoute(n)}])));

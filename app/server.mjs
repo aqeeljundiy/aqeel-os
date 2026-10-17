@@ -161,6 +161,15 @@ const schedules=createSchedules({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_H
 setTimeout(()=>schedules.tick(),40000).unref();setInterval(()=>schedules.tick(),10*60000).unref();
 const relay=createRelay({ownerAgent:a=>{const o=users.agentOwner(String(a).split('--')[0]);return !o||o==='owner'},DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,SECRET,listAgents:()=>listAgents(),links:{list:a=>links.list(a)},platformsOf:a=>platformsCached(a),nameOf:a=>NAMES[a]||a});
 const NAMES={};   // agents' display names (refreshed with the agent context), for messages people read
+// names and notes people give their Google accounts, "<agent>|<account name>" → {label, note}
+const FX={idr:16500,at:0,day:''};   // dollar → rupiah, refreshed by /ui/fx
+let GLABELS=null;const googleLabels=async()=>GLABELS??=await readFile(path.join(DATA,'google-accounts.json'),'utf8').then(JSON.parse).catch(()=>({}));
+async function writeJsonAtomic(f,v){await mkdir(path.dirname(f),{recursive:true});const t=f+'.'+process.pid+'.'+Math.random().toString(36).slice(2)+'.tmp';await writeFile(t,JSON.stringify(v,null,1));await rename(t,f)}
+// the Google accounts an agent has, with what the person called them, for its working notes
+async function googleContext(a){const home=a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);const L=await googleLabels();const out=[];
+ for(const f of (await readdir(home).catch(()=>[])).sort()){const m=/^google_token(?:_([\w.-]+))?\.json$/.exec(f);if(!m)continue;let email='';try{email=JSON.parse(await readFile(path.join(home,f),'utf8')).account||''}catch{}
+  const n=m[1]||'',x=L[a+'|'+n]||{};out.push('- '+(x.label?'"'+x.label+'"':n?'"'+n+'"':'"Main Google account"')+(email?' ('+email+')':'')+': '+(n?'use --account '+n:'the default, no --account flag')+(x.note?'. '+x.note:''))}
+ return out}
 /* Every agent and every extra-number copy gets the aqeelOS tool (aqeelos-notify): send_to_person, and
    connect_mcp_tool for sign-ins. Its address is signed per agent. A test copy only touches agents it made. */
 const madeHere=new Set();
@@ -196,7 +205,7 @@ async function writeAgentContext(){const all=await listAgents();const names={};f
  for(const a of all){await ensureChatHint(a).catch(e=>console.warn('chat hint',a,e.message));try{const me=names[a],adsNames=ads.map(x=>names[x]+"'s screen").join(' / ')||'the AdsPower screen';
   const own=ads.includes(a)?`You browse through AdsPower, so your browser shows on the shared AdsPower screen, listed as "${me}'s screen".`:`Your own screen is "${me}'s screen". Your browser tool opens pages there; it starts by itself when you browse.`;
   const others=all.filter(x=>x!==a&&!ads.includes(x)).map(x=>'"'+names[x]+"'s screen\"").join(', ');
-  const ch=await relay.channelsFor(a).catch(()=>[]);
+  const ch=await relay.channelsFor(a).catch(()=>[]);const gacc=await googleContext(a).catch(()=>[]);
   const body=['<!-- aqeelos:context (written by aqeelOS and kept up to date; edit outside this block) -->','# Working in aqeelOS','','## Screens','',
    'The person can watch screens live in aqeelOS: the monitor button at the top right, then the screen picker.',
    '- '+own,
@@ -213,6 +222,8 @@ async function writeAgentContext(){const all=await listAgents();const names={};f
    'Which browser: before your first browser step in a chat, call choose_browser (from aqeelos-notify) with the task and your suggestion: "yours" (the person\'s own Chrome, where they are already signed in) for one-off jobs in web consoles, "server" (your screen on the AI box) for anything scheduled, long-running or done while they are away. Follow their answer for the rest of that chat.',
    '','## Connecting an MCP tool that needs a sign-in','',
    'Never use manage_connections (authorize/install/enable) or “hermes mcp login” for MCP tools, and never a 127.0.0.1 / localhost callback: the person is not at this server, so that page never opens for them. Add the tool (with its client ID/secret if the service needs its own app), then call the connect_mcp_tool tool (from aqeelos-notify) and send the person its steps exactly as written. Never make up steps, addresses or commands for connecting: the people using this are often not technical, so keep it to what the tool says. When the tool recommends Composio, offer that first. aqeelOS sets the return address itself: https://ai.elkiya.com/mcp-oauth/api/mcp/oauth/callback/<tool name> (this is what goes in the service’s Redirect URLs).',
+   ...(gacc.length?['','## Your Google accounts','',
+    'The person named these and said what each is for. When they mention one by its name ("from my Elkiya account") or the job fits its note, use that account with the Google Workspace skill; when it is unclear which one, ask.',...gacc]:[]),
    '','## Keep schedules tidy','',
    'Whenever you create or change a schedule, give it a clear title the person understands without opening it (no codes like "x3"), then call organize_schedule (from aqeelos-notify) with its id, the folder it belongs to (the client or project, for example Dagadu, Personal Finance, Elkiya, AdmissionSight; reuse an existing folder when one fits) and one plain sentence on what it does and why. When asked to tidy up, move, rename or explain schedules, do the same for each one.',
    '','## Passwords, API keys and other secrets','',
@@ -896,14 +907,24 @@ const server=createServer(async(req,res)=>{
     if(!(await listAllProfiles()).includes(ag))return send(res,400,{error:'Unknown agent'});
     const r=await hcmd(ag,['plugins',b.enabled?'enable':'disable',name],{timeout:150000});
     return r.ok?send(res,200,{ok:true,restart_required:/restart/i.test(r.out)}):send(res,400,{error:(r.err||'Could not change the plugin').slice(0,300)})}
+   // today's US dollar → rupiah rate, so costs can be shown in rupiah (fetched twice a day, last good one kept)
+   if(p==='/ui/fx'&&req.method==='GET'){if(!FX.at||Date.now()-FX.at>12*3600e3){try{const r=await fetch('https://open.er-api.com/v6/latest/USD',{signal:AbortSignal.timeout(8000)});const j=await r.json();const v=+j?.rates?.IDR;if(v>1000&&v<100000)Object.assign(FX,{idr:v,at:Date.now(),day:(j.time_last_update_utc||'').slice(5,16)})}catch{}}
+    return send(res,200,{IDR:FX.idr,updated:FX.day||null})}
    if(p==='/ui/box'&&req.method==='GET')return send(res,200,await boxMemory());
    // Google accounts an agent can use (the Google Workspace skill keeps one sign-in per account); never the tokens themselves
    if(p==='/ui/google-accounts'){const a=String(url.searchParams.get('agent')||'default');if(!(await listAllProfiles()).includes(a))return send(res,400,{error:'Unknown agent'});
     if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a))return send(res,403,{error:'Not your agent'});
     const home=a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
     if(req.method==='GET'){const out=[];for(const f of await readdir(home).catch(()=>[])){const m=/^google_token(?:_([\w.-]+))?\.json$/.exec(f);if(!m)continue;
-      try{const j=JSON.parse(await readFile(path.join(home,f),'utf8'));out.push({name:m[1]||'',email:j.account||'',scopes:(j.scopes||[]).map(s=>String(s).split('/').pop()),renews:!!j.refresh_token,expiry:j.expiry||null})}catch{}}
+      try{const j=JSON.parse(await readFile(path.join(home,f),'utf8'));const L=(await googleLabels())[a+'|'+(m[1]||'')]||{};out.push({name:m[1]||'',email:j.account||'',label:L.label||'',note:L.note||'',scopes:(j.scopes||[]).map(s=>String(s).split('/').pop()),renews:!!j.refresh_token,expiry:j.expiry||null})}catch{}}
      return send(res,200,{accounts:out})}
+    // the name people see and a note on what the account is for; the agent is told both (see writeAgentContext).
+    // The skill's own account name (google_token_<name>.json) never changes, so nothing has to sign in again.
+    if(req.method==='PUT'){if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+a+'/soul','PUT',new URLSearchParams(),a)!==null)return send(res,403,{error:'You can only change agents you may edit.'});
+     let b={};try{b=JSON.parse(await readBody(req,8192))}catch{return send(res,400,{error:'Bad request'})}const n=String(b.name||'');if(n&&!/^[\w.-]{1,60}$/.test(n))return send(res,400,{error:'Unknown account'});
+     const all=await googleLabels();const k=a+'|'+n;const label=String(b.label||'').replace(/[\r\n"]+/g,' ').trim().slice(0,60),note=String(b.note||'').replace(/[\r\n]+/g,' ').trim().slice(0,400);
+     if(label||note)all[k]={label,note};else delete all[k];await writeJsonAtomic(path.join(DATA,'google-accounts.json'),all);GLABELS=all;
+     if(PORT===4400)writeAgentContext().catch(()=>{});return send(res,200,{ok:true,label,note})}
     if(req.method==='DELETE'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can remove a Google account.'});const n=String(url.searchParams.get('name')||'');if(n&&!/^[\w.-]{1,60}$/.test(n))return send(res,400,{error:'Unknown account'});
      await unlink(path.join(home,'google_token'+(n?'_'+n:'')+'.json')).catch(()=>{});console.log('removed google account',n||'(main)','from',a);return send(res,200,{ok:true})}}
    // Who can reach the AI box over SSH: one public key per device or AI tool, added and removed here (admins only).
@@ -1078,7 +1099,7 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/schedules/meta'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const a=String(b.profile||'default');if(!users.isAdmin(u)&&users.gate(u,'/hapi/cron/jobs','POST',new URLSearchParams('profile='+a),a))return send(res,403,{error:'Not your agent'});
     return send(res,200,await schedules.setMeta(a,String(b.id||''),b))}
    if(p==='/ui/schedules/folder'&&req.method==='POST'&&!users.isAdmin(u))return send(res,403,{error:'Only admins can rename folders.'});
-   if(p==='/ui/schedules/folder'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{return send(res,200,await schedules.folderOp(b))}catch(e){return send(res,400,{error:e.message})}}
+   if(p==='/ui/schedules/folder'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,65536))}catch{}try{return send(res,200,await schedules.folderOp(b))}catch(e){return send(res,400,{error:e.message})}}
    if(p==='/ui/channels/job-relays'&&req.method==='GET'){const all=await relay.jobRelays();if(users.isAdmin(u))return send(res,200,all);const out={};for(const [k,v] of Object.entries(all||{})){const a=k.split('|')[0];if(!users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a))out[k]=v}return send(res,200,out)}
    // reconnect ONE channel: a second agent's channel is switched off and on by itself (no engine restart);
    // the main agent's channels live in the engine itself, so for those the proper restart is the only way

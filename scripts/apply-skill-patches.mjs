@@ -155,4 +155,16 @@ for(const h of homes){const sp=path.join(h,'skills','productivity','google-works
   const next=s.split('\n').map(l=>{if(/^\s*(```|~~~)/.test(l)){fence=!fence;return l}return fence?l:prose(l)}).join('\n');
   if(next!==s){await writeFile(f,next);n++}}
  if(n){changed+=n;console.log('skills say aqeelOS in',n,'file(s)')}}
+// 12) The engine told agents that aqeelOS's documentation lives on the original engine's website, and an agent without
+//     the engine-help skill sent people there ("ask an admin, see hermes-agent.nousresearch.com"). Now no link is
+//     given out, and an agent changes its own settings or names the aqeelOS page that does it.
+{const pf=path.join(HOME,'hermes-agent','agent','prompt_builder.py');let s=await readFile(pf,'utf8').catch(()=>null);
+ if(s!=null&&s.includes('https://hermes-agent.nousresearch.com/docs')){
+  s=s.replace('"tools, or capabilities, the documentation at https://hermes-agent.nousresearch.com/docs is your "','"tools, or capabilities, the engine documentation (for your own reading only: never give the person a link to it) is your "')
+   .replace('"tools, or capabilities, the documentation at https://hermes-agent.nousresearch.com/docs is the "','"tools, or capabilities, remember that your own settings are yours to change: they live in config.yaml in your folder and change with the "')
+   .replace('"authoritative reference and always holds the latest, most up-to-date information. Point the user there "','"aqeelos config set command (aqeelos config show lists them). When the person asks for a change, make it, "')
+   .replace('"(or read it yourself if you have a way to fetch web content)."','"or name the aqeelOS page that does it (Settings, Channels, Connected apps). Never send them to outside documentation."');
+  if(!s.includes('https://hermes-agent.nousresearch.com/docs')){const t=pf+'.aq.tmp';await writeFile(t,s);
+   const {execFileSync}=await import('node:child_process');try{execFileSync('python3',['-c','import ast,sys;ast.parse(open(sys.argv[1]).read())',t]);await rename(t,pf);changed++;console.log('engine help text gives no outside link')}catch(e){await rm(t,{force:true});console.warn('! engine help text: would not compile, left alone')}}
+  else console.warn('! engine help text changed upstream: link still there')}}
 console.log(changed?changed+' change(s)':'skill patches already in place');

@@ -15,7 +15,7 @@ const kindOf=f=>f.is_directory?'folder':Object.keys(FT).find(k=>FT[k].test(f.nam
 const KIND_ICON={folder:'folder',image:'eye',video:'play',audio:'radio',pdf:'file',md:'file',code:'terminal',archive:'layers',sheet:'chart',doc:'file',file:'file'};
 const KIND_LABEL={folder:'Folder',image:'Image',video:'Video',audio:'Audio',pdf:'PDF',md:'Markdown',code:'Text',archive:'Archive',sheet:'Spreadsheet',doc:'Document',file:'File'};
 // Places follow the selected agent: its own workspace first, and its own memory and skills.
-const fAgent=()=>S.profile||'default';const fAgentHome=()=>FILE_HOME+'/.hermes'+(fAgent()==='default'?'':'/profiles/'+fAgent());
+const fAgent=()=>agentProfile()||'default';const fAgentHome=()=>FILE_HOME+'/.hermes'+(fAgent()==='default'?'':'/profiles/'+fAgent());
 const fWork=()=>S.me&&!S.me.admin?FILE_HOME:FILE_HOME+'/workspaces/'+fAgent();
 const placesFor=()=>!S.me?.admin&&S.me?[['My files',FILE_HOME,'folder']]:[['Workspace',fWork(),'folder'],['Home',FILE_HOME,'folder'],['Projects',FILE_HOME+'/projects','folder'],['Downloads',FILE_HOME+'/Downloads','download'],['Memory',fAgentHome()+'/memories','brain'],['Skills',fAgentHome()+'/skills','sparkle'],['Apps',FILE_HOME+'/apps','layers']];
 

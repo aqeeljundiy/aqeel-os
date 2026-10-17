@@ -194,7 +194,7 @@ ACT['ppl-models']=async a=>{const u=(Pages._ppl?.users||[]).find(x=>x.id===a.dat
  const days=+String(S.tab.usage||'7 days').split(' ')[0]||7;let d;try{d=await UI('/ui/usage?days='+days)}catch{return}
  const tok=o=>num((o.input||0)+(o.output||0));
  const table=(title,rows,label)=>rows.length?`<div class="panel card" style="margin-top:16px"><h2>${title}</h2><div class="utable"><div class="uh"><span>${label}</span><span>Chats</span><span>Messages</span><span>Tokens</span><span>Cache</span><span>Est. cost</span></div>
-  ${rows.map(([k,o,head])=>`<div class="ur">${head}<span>${num(o.chats)}</span><span>${num(o.messages)}</span><span>${tok(o)}</span><span>${num(o.cache)}</span><span>$${(o.cost||0).toFixed(2)}</span></div>`).join('')}</div></div>`:'';
+  ${rows.map(([k,o,head])=>`<div class="ur">${head}<span>${num(o.chats)}</span><span>${num(o.messages)}</span><span>${tok(o)}</span><span>${num(o.cache)}</span><span>${money(o.cost||0,{cents:true})}</span></div>`).join('')}</div></div>`:'';
  const ppl=Object.entries(d.byPerson||{}).filter(([,o])=>o).sort((a,b)=>(b[1].input+b[1].output)-(a[1].input+a[1].output)).map(([id,o])=>{const x=d.people?.[id]||{name:id};return [id,o,`<span class="uname">${personAva({name:x.name,avatar:x.avatar},24)}${esc(id===S.me?.id?'You':x.name)}${x.limit?`<small>limit ${num(x.limit.tokens)}/day</small>`:''}</span>`]});
  const ags=Object.entries(d.byAgent||{}).sort((a,b)=>(b[1].input+b[1].output)-(a[1].input+a[1].output)).map(([a,o])=>[a,o,`<span class="uname">${agentAva(a)}${esc(ident(a).name)}</span>`]);
  const mds=Object.entries(d.byModel||{}).sort((a,b)=>(b[1].input+b[1].output)-(a[1].input+a[1].output)).map(([m,o])=>[m,o,`<span class="uname">${esc(modelLabel(m))}</span>`]);
@@ -216,7 +216,7 @@ ACT['mcp-dup']=a=>{const m=(Pages._mcp||[]).find(x=>x.name===a.dataset.name);if(
   try{await post(H,'/mcp/servers',body);closeLayers();toast(name+' added');reload()}catch(e){fail(e)}}};
 
 /* ---------- Memory: MEMORY.md and USER.md are plain files the agent reads; you can edit them ---------- */
-const memHome=()=>'/home/claude/.hermes'+((S.profile||'default')==='default'?'':'/profiles/'+S.profile);
+const memHome=()=>{const a=agentProfile()||'default';return '/home/claude/.hermes'+(a==='default'?'':'/profiles/'+a)};
 ACT['mem-edit']=async a=>{const f=a.dataset.f,path=memHome()+'/memories/'+f;let cur='';try{cur=(await readText(path)).text||''}catch{}
  const d=drawer('Edit '+f,`<p class="hint" style="margin:0 0 8px">${f==='USER.md'?'What the agent knows about you: name, preferences, how you like answers.':'Notes the agent keeps about its work.'} It reads this at the start of every chat. Keep it short; entries are separated by a line with §.</p>
   <textarea id="memT" rows="18" style="font-family:var(--mono);font-size:12.5px">${esc(cur)}</textarea>`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="memGo">Save</button>`);
@@ -321,7 +321,7 @@ const SHARE_KIND_LABEL={skill:'skill',mcp:'MCP tool',plugin:'plugin',schedule:'s
 async function usedByMap(kind){try{return await UI('/ui/share/used?kind='+kind)}catch{return {}}}
 const agentDots=list=>`<span class="used-by" title="Used by ${esc(list.map(a=>ident(a).name).join(', '))}">${list.slice(0,4).map(a=>agentAva(a)).join('')}${list.length>4?`<small>+${list.length-4}</small>`:''}</span>`;
 async function shareDrawer(kind,name,label,has=[]){let agents=[];try{agents=((await H('/profiles')).profiles||[]).map(x=>x.name)}catch(e){return fail(e)}
- const from=S.profile||'default';const others=agents.filter(a=>a!==from);
+ const from=(agentProfile()||'default');const others=agents.filter(a=>a!==from);
  const d=drawer('Share '+label,`<p class="hint" style="margin:0 0 10px">Copies this ${SHARE_KIND_LABEL[kind]} from ${esc(ident(from).name)} to the agents you tick, with its settings. Each agent keeps its own copy, so later changes stay on the agent you change.</p>
   ${others.length?others.map(a=>`<label class="capt"><input type="checkbox" value="${esc(a)}" ${has.includes(a)?'checked disabled':''}>${agentAva(a)}<span>${esc(ident(a).name)}${has.includes(a)?' <small class="hint">already has it</small>':''}</span></label>`).join(''):'<p class="hint">There are no other agents yet.</p>'}`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="shrGo">Share</button>`);
  d.querySelector('#shrGo').onclick=async()=>{const to=[...d.querySelectorAll('input:checked:not(:disabled)')].map(i=>i.value);if(!to.length)return toast('Tick at least one agent','err');
@@ -337,7 +337,7 @@ async function decorateRows(el,kind,rows){if(S.me?.admin===false&&kind!=='skill'
  decorateRows(el,'mcp',rows);
  if(S.me?.admin!==false)rows.forEach(({row,name})=>{const act=row.querySelector('.act');const b=document.createElement('button');b.className='ghost icon';b.title='Rename';b.setAttribute('aria-label','Rename');b.innerHTML=icon('edit',16);
   b.onclick=async e=>{e.stopPropagation();const v=await promptBox('Rename '+name,'New name (letters, numbers, dots or dashes)',name,'Rename');if(!v||v===name)return;
-   try{await post(UI,'/ui/share/rename-mcp',{agent:S.profile||'default',from:name,to:v.trim()});toast('Renamed to '+v.trim()+'. It reconnects on the next message.');reload()}catch(er){fail(er)}};act.querySelector('[data-act="mcp-del"]')?.before(b)})}}
+   try{await post(UI,'/ui/share/rename-mcp',{agent:(agentProfile()||'default'),from:name,to:v.trim()});toast('Renamed to '+v.trim()+'. It reconnects on the next message.');reload()}catch(er){fail(er)}};act.querySelector('[data-act="mcp-del"]')?.before(b)})}}
 // schedules: copy one to another agent from its ⋯ menu
 {const base=Pages.cronMenu;Pages.cronMenu=el=>{const id=el.dataset.id,prof=el.dataset.profile||'default';const real=window.menu;
  window.menu=(a,items,...rest)=>{window.menu=real;return real(a,[{label:'Copy to another agent…',icon:'fork',run:()=>{const keep=S.profile;S.profile=prof==='default'?'':prof;shareDrawer('schedule',id,(Pages.cronJobs||[]).find(x=>x.id===id)?.name||'schedule').finally(()=>{S.profile=keep})}},'-',...items],...rest)};
@@ -377,7 +377,7 @@ function accessFor(list,here){const n=(list||[]).length;return n>1?accessChip('S
  t.insertAdjacentHTML('beforeend',' '+accessChip('Only '+ident(m.dataset.profile).name,'Runs on '+ident(m.dataset.profile).name+'. Use Copy to another agent to reuse it.'))})}}
 // webhooks: the address is public (anyone with it and the secret can send), one agent handles each
 {const base=PAGES.webhooks;PAGES.webhooks=async(p,el)=>{await base(p,el);el.querySelectorAll('[data-act="wh-del"][data-name]').forEach(b=>{const row=b.closest('.row');const t=row?.querySelector('.txt b');if(!t||t.querySelector('.access'))return;
- t.insertAdjacentHTML('beforeend',' '+accessChip('Public address · runs on '+ident(S.profile||'default').name,'Any service with the address and its secret can send events. '+ident(S.profile||'default').name+' handles them.','public'))})}}
+ t.insertAdjacentHTML('beforeend',' '+accessChip('Public address · runs on '+ident((agentProfile()||'default')).name,'Any service with the address and its secret can send events. '+ident((agentProfile()||'default')).name+' handles them.','public'))})}}
 // channels: one agent answers each connection
 {const base=PAGES.channels;PAGES.channels=async(p,el)=>{await base(p,el);el.querySelectorAll('[data-act="ch-open"][data-id]').forEach(c=>{const st=c.querySelector('.tile-foot .chip');if(!st||/Not set up/i.test(st.textContent)||c.querySelector('.access'))return;
  const id=c.dataset.id;const shared=id==='api_server'||id==='webhook';c.querySelector('h3')?.insertAdjacentHTML('beforeend',' '+(shared?accessChip('Every agent','The same address serves all agents; each request names its agent.','shared'):accessChip('Only '+ident(S.profile||'default').name,'This connection belongs to '+ident(S.profile||'default').name+'. Move it from "Every agent\'s channels" to give it to another agent.')))})}}
@@ -533,7 +533,7 @@ ACT['ch-extra-remove']=async a=>{if(!await confirmBox('Remove '+a.dataset.title+
 
 /* ---------- Duplicate: a second copy of an MCP tool or a skill on the same agent ---------- */
 async function duplicateItem(kind,name){const v=await promptBox('Duplicate '+name,kind==='mcp'?'Name for the copy. It keeps the same settings; change its keys or login after.':'Name for the copy. Edit it separately afterwards.',name+'-2',kind==='mcp'?'Duplicate':'Duplicate');if(!v)return;
- try{const r=await post(UI,'/ui/share/duplicate',{kind,agent:S.profile||'default',name,to:v.trim().toLowerCase().replace(/[^a-z0-9._-]+/g,'-')});toast('Added '+r.name+'.');reload()}catch(e){fail(e)}}
+ try{const r=await post(UI,'/ui/share/duplicate',{kind,agent:(agentProfile()||'default'),name,to:v.trim().toLowerCase().replace(/[^a-z0-9._-]+/g,'-')});toast('Added '+r.name+'.');reload()}catch(e){fail(e)}}
 // (MCP rows already have their own Duplicate button in pages.js)
 {const base=PAGES.skills;PAGES.skills=async(p,el)=>{await base(p,el);el.querySelectorAll('[data-act="sk-open"][data-name]').forEach(row=>{const act=row.querySelector('.act');if(!act||act.querySelector('.dup-btn'))return;
  const b=document.createElement('button');b.className='ghost icon dup-btn';b.title='Duplicate (a copy to change separately)';b.setAttribute('aria-label','Duplicate');b.innerHTML=icon('copy',16);b.onclick=e=>{e.stopPropagation();duplicateItem('skill',row.dataset.name)};act.prepend(b)})}}
@@ -551,7 +551,7 @@ const IMG_FRIENDLY={'OpenAI (Codex auth)':'ChatGPT, with your sign-in (GPT Image
 const OAUTH_APP_HELP={slack:['Slack','https://api.slack.com/apps','Create New App › From scratch. Under OAuth & Permissions add the Redirect URL below and the scopes the Slack MCP needs, then copy the Client ID and Client Secret from Basic Information.'],
  google:['Google','https://console.cloud.google.com/apis/credentials','Create an OAuth client (Web application) and add the Redirect URL below as an authorised redirect URI.'],
  github:['GitHub','https://github.com/settings/developers','New OAuth App, with the Redirect URL below as the callback URL.']};
-async function mcpClientDrawer(name,reason){const agent=S.profile||'default';let redirect='';try{redirect=(await UI('/ui/mcp/oauth-redirect?name='+encodeURIComponent(name))).redirect}catch{}
+async function mcpClientDrawer(name,reason){const agent=(agentProfile()||'default');let redirect='';try{redirect=(await UI('/ui/mcp/oauth-redirect?name='+encodeURIComponent(name))).redirect}catch{}
  const key=Object.keys(OAUTH_APP_HELP).find(k=>name.toLowerCase().includes(k));const [who,link,how]=OAUTH_APP_HELP[key]||[pretty(name),'','Create an OAuth app with this service, add the Redirect URL below to it, then paste its Client ID and Secret.'];
  const d=drawer('Connect '+pretty(name),`<div class="panel card" style="box-shadow:none;margin:0 0 14px;padding:14px 16px"><b style="font-size:13.5px">Can’t create an app?</b><p class="hint" style="margin:4px 0 10px">Composio has a ready-made ${esc(who)} connection: one click on Allow. Its free plan has a limit on actions and costs money beyond it, so the steps below (free) come first.</p><button id="ocComposio">${icon('plug',15)}Use Composio instead</button></div>
   <p class="hint" style="margin:0 0 10px"><b>Or set up your own app.</b> ${esc(who)} does not let apps register themselves, so it needs an app of your own (one time). ${esc(how)}${link?` <a href="${esc(link)}" target="_blank" rel="noopener">Open ${esc(who)}’s app page</a>`:''}</p>
@@ -561,7 +561,7 @@ async function mcpClientDrawer(name,reason){const agent=S.profile||'default';let
  d.querySelector('#ocComposio').onclick=()=>{closeLayers();useComposio(who)};
  d.querySelector('#ocCopy').onclick=()=>{navigator.clipboard?.writeText(redirect);toast('Copied')};
  d.querySelector('#ocGo').onclick=async()=>{try{await post(UI,'/ui/mcp/oauth-client',{agent,name,client_id:$('#ocId').value,client_secret:$('#ocSecret').value});closeLayers();await new Promise(r=>setTimeout(r,2500));ACT['mcp-auth']({dataset:{name}})}catch(e){fail(e)}}}
-ACT['mcp-auth']=async a=>{const name=a.dataset.name,agent=S.profile||'default';
+ACT['mcp-auth']=async a=>{const name=a.dataset.name,agent=(agentProfile()||'default');
  // a tab opened right away (popup blockers allow it only now); it is pointed at the sign-in page once known
  const win=window.open('about:blank','_blank');
  try{const f=await post(UI,'/ui/mcp/start-signin',{agent,name});const url=f.authorization_url||f.auth_url||f.url;
@@ -600,7 +600,7 @@ ACT['agent-restore']=async a=>{if(!await confirmBox('Restore '+a.dataset.name+'?
 
 /* Composio: one sign-in for hundreds of apps (Slack, Gmail, Google Drive, GitHub…). The rule: an app's own
    MCP tool when it connects easily, otherwise Composio. Added to the agent on first use. */
-async function useComposio(app){const agent=S.profile||'default';
+async function useComposio(app){const agent=(agentProfile()||'default');
  try{const have=((await H('/mcp/servers')).servers||[]).find(x=>/connect.composio.dev|rube.app/.test(x.url||''));
   const name=have?.name||'composio';if(!have){await post(H,'/mcp/servers',{name,url:'https://connect.composio.dev/mcp'});toast('Composio added')}
   if(have&&have.auth==='oauth'&&have.tools?.length){toast('Composio is connected. Ask '+ident(agent).name+' to use '+(app||'the app')+'; it gives you a link if '+(app||'that app')+' still needs connecting.');return}

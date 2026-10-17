@@ -69,14 +69,27 @@ export function createSchedules({DATA,DASH,TOKEN,HERMES_HOME,listAgents,python,r
   return out}
 
  let infoCache=null;
- async function info(){await load();if(!infoCache||Date.now()-infoCache.t>60000){const agents=await listAgents();const all=await jobs().catch(()=>[]);const [r,n]=await Promise.all([runs(agents),names(agents,all)]);infoCache={t:Date.now(),runs:r,names:n}}return {meta:JSON.parse(JSON.stringify(db.jobs)),folds:{...db.folds},runs:{...infoCache.runs},names:{...infoCache.names}}}
+ async function info(){await load();if(!infoCache||Date.now()-infoCache.t>60000){const agents=await listAgents();const all=await jobs().catch(()=>[]);const [r,n]=await Promise.all([runs(agents),names(agents,all)]);infoCache={t:Date.now(),runs:r,names:n}}return {meta:JSON.parse(JSON.stringify(db.jobs)),folds:{...db.folds},folders:[...(db.folders||[])],order:[...(db.order||[])],colors:{...(db.colors||{})},runs:{...infoCache.runs},names:{...infoCache.names}}}
  async function setMeta(profile,id,b){await load();const k=key(profile,id);const m=db.jobs[k]??={};
   if(b.folder!==undefined){m.folder=String(b.folder||'').replace(/[\[\]]/g,'').trim().slice(0,30)||'General';m.folderAuto=false}
   if(b.summary!==undefined){m.summary=String(b.summary||'').slice(0,240);m.summaryManual=true}
   if(b.dismissSuggest)m.suggest='';await save();return m}
  async function folderOp(b){await load();const from=String(b.from||''),to=String(b.to||'').replace(/[\[\]]/g,'').trim().slice(0,30);
   if(b.fold!==undefined){db.folds[from]=!!b.fold;await save();return {ok:true}}
-  if(!from||!to)throw new Error('Give the folder and its new name');for(const m of Object.values(db.jobs))if(m.folder===from){m.folder=to;m.folderAuto=false}await save();return {ok:true}}
+  db.folders??=[];db.order??=[];db.colors??={};
+  // schedules filed only by a [Bracket] in their name are pinned to the folder first, so rename and delete carry them too
+  for(const x of Array.isArray(b.jobs)?b.jobs.slice(0,500):[]){const m=db.jobs[key(String(x[0]||'default'),String(x[1]||''))]??={};if(!m.folder)m.folder=from}
+  // a new, still empty folder (it stays listed until it is deleted)
+  if(b.create!==undefined){const n=String(b.create).replace(/[\[\]]/g,'').trim().slice(0,30);if(!n)throw new Error('Give the folder a name');if(!db.folders.includes(n))db.folders.push(n);if(!db.order.includes(n))db.order.push(n);db.folds[n]=false;await save();return {ok:true,name:n}}
+  // the order folders are shown in, as the person arranged them
+  if(Array.isArray(b.order)){db.order=[...new Set(b.order.map(x=>String(x).slice(0,30)))].slice(0,200);await save();return {ok:true}}
+  if(b.color!==undefined){if(!from)throw new Error('Which folder?');const c=String(b.color);if(c&&!/^(blue|green|coral|purple|amber|teal|grey)$/.test(c))throw new Error('Unknown colour');if(c)db.colors[from]=c;else delete db.colors[from];await save();return {ok:true}}
+  // deleting a folder never deletes schedules: they go back to General
+  if(b.delete){const f=String(b.delete);for(const m of Object.values(db.jobs))if(m.folder===f){m.folder='General';m.folderAuto=false}
+   db.folders=db.folders.filter(x=>x!==f);db.order=db.order.filter(x=>x!==f);delete db.colors[f];delete db.folds[f];await save();return {ok:true}}
+  if(!from||!to)throw new Error('Give the folder and its new name');for(const m of Object.values(db.jobs))if(m.folder===from){m.folder=to;m.folderAuto=false}
+  const swap=l=>l.map(x=>x===from?to:x);db.folders=[...new Set(swap(db.folders.includes(from)?db.folders:[...db.folders,to]))];db.order=[...new Set(swap(db.order))];
+  if(db.colors[from]){db.colors[to]=db.colors[from];delete db.colors[from]}if(from in db.folds){db.folds[to]=db.folds[from];delete db.folds[from]}await save();return {ok:true}}
  async function detail(profile,id){const all=await jobs();const j=all.find(x=>x.id===id&&(x.profile||'default')===(profile||'default'));if(!j)throw new Error('No such schedule');
   const books=(await runbooks(j.prompt,profile)).map(b=>({name:path.basename(b.path),path:b.path,text:b.text}));
   let last='';try{const s=(await api('/sessions?sources=cron&limit=40&order=recent&profile='+encodeURIComponent(profile||'default'))).sessions||[];const x=s.find(x=>String(x.id).startsWith('cron_'+id+'_')&&!x.is_active);

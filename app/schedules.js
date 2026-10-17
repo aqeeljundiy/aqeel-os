@@ -3,10 +3,10 @@
    description of each schedule, who it reaches by name, its model, and what its runs cost this month.
    Clicking a schedule opens its details: what it does step by step, the runbook it follows, its last result
    and its recent runs. Agents file what they make themselves (organize_schedule). */
-const SCHED={agent:store.get('schedAgent',''),q:'',info:null};
+const SCHED={agent:store.get('schedAgent',''),sort:store.get('schedSort','custom'),q:'',info:null};
 const stripBracket=n=>String(n||'').replace(/^\s*\[[^\]]*\]\s*/,'');
 const bracketOf=n=>(/^\s*\[([^\]]{1,40})\]/.exec(n||'')||[])[1]?.trim()||'';
-const usd=c=>c==null?'':c<0.01?'<$0.01':'$'+(c<10?c.toFixed(2):Math.round(c));
+const usd=c=>money(c);   // dollars, or rupiah when the person picked that (core.js)
 const toks=n=>!n?'0':n<1000?String(n):n<1e6?(n/1e3).toFixed(n<1e4?1:0)+'k':(n/1e6).toFixed(1)+'M';
 const secsText=s=>s==null?'':s<60?s+' s':s<3600?Math.round(s/60)+' min':(s/3600).toFixed(1)+' h';
 function whenText(j){const sc=j.schedule||{};const disp=String(sc.display||j.schedule_display||'');const zone=SCHED.tz?' ('+SCHED.tz.split('/').pop().replace(/_/g,' ')+' time)':'';
@@ -27,34 +27,82 @@ PAGES.schedules=async(p,el)=>{
  const agents=[...new Set(jobs.map(j=>j.profile||'default'))];if(SCHED.agent&&!agents.includes(SCHED.agent))SCHED.agent='';
  const q=SCHED.q.toLowerCase();
  const shown=jobs.filter(j=>(!SCHED.agent||(j.profile||'default')===SCHED.agent)&&(!q||[j.name,j.prompt,schedMeta(j).m.summary,folderOf(j)].join(' ').toLowerCase().includes(q)));
+ const I=SCHED.info,admin=S.me?.admin!==false;
  const groups={};for(const j of shown)(groups[folderOf(j)]??=[]).push(j);
- const order=Object.keys(groups).sort((a,b)=>(a==='General')-(b==='General')||a.localeCompare(b));
- const folds=SCHED.info.folds||{};let n=0;
+ // folders made on purpose show while still empty, unless you are searching or looking at one agent
+ if(!q&&!SCHED.agent)for(const f of I.folders||[])groups[f]??=[];
+ const month=l=>l.reduce((s,j)=>s+(schedMeta(j).r.cost||0),0);
+ const sort=SCHED.sort||'custom',pos=f=>{const i=(I.order||[]).indexOf(f);return i<0?1e6:i};
+ const order=Object.keys(groups).sort((a,b)=>sort==='az'?a.localeCompare(b):sort==='cost'?month(groups[b])-month(groups[a])||a.localeCompare(b):sort==='size'?groups[b].length-groups[a].length||a.localeCompare(b)
+  :pos(a)-pos(b)||(a==='General')-(b==='General')||a.localeCompare(b));
+ SCHED.shownOrder=order;
+ const folds=I.folds||{},colors=I.colors||{};let n=0;
  const row=j=>{const on=j.enabled&&j.state!=='paused';const {m,r}=schedMeta(j);const last=r.runs[0];
   const model=j.model?`<span class="chip sm-chip" title="Runs on this model instead of the agent’s">${icon('cpu',11)}${esc(modelLabel(j.model))}</span>`:'';
   const cost=r.runs.length?`<span title="${esc(r.sub?'Covered by your subscription. This is what it would cost on the pay-per-use API.':'Estimated from the model’s price')}">≈ ${usd(r.cost)} this month · ${plural(r.runs.length,'run')}</span>`:'';
   const bad=j.last_status&&j.last_status!=='ok'||j.last_delivery_error;
-  return `<div class="row sj-row" ${st(n++)} data-act="cron-open" data-id="${esc(j.id)}" data-profile="${esc(j.profile||'default')}" tabindex="0"><div class="main-c"><span class="ic ${on?'blue':''} ${bad?'warn':''}">${icon(bad?'alert':'clock',18)}</span><div class="txt"><b>${esc(stripBracket(j.name)||j.prompt?.slice(0,60)||j.id)}</b>
+  return `<div class="row sj-row" ${st(n++)} ${admin?`draggable="true"`:""} data-act="cron-open" data-id="${esc(j.id)}" data-profile="${esc(j.profile||'default')}" tabindex="0"><div class="main-c"><span class="ic ${on?'blue':''} ${bad?'warn':''}">${icon(bad?'alert':'clock',18)}</span><div class="txt"><b>${esc(stripBracket(j.name)||j.prompt?.slice(0,60)||j.id)}</b>
    ${m.summary?`<span class="sched-desc">${esc(m.summary)}</span>`:`<span class="sched-desc pending"><i class="skel" style="display:inline-block;width:min(320px,60%);height:10px;border-radius:5px;vertical-align:middle"></i></span>`}
    <span class="sched-meta" title="${esc(j.schedule?.expr||j.schedule_display||'')}">${esc(whenText(j))} · to ${esc(deliverName(j,SCHED.info.names))} · ${on?'next '+when(j.next_run_at):'paused'}${j.last_run_at?' · last '+when(j.last_run_at)+(bad?'':' ✓'):''}${last?.secs?' · took '+secsText(last.secs):''}</span>
    ${model||cost?`<span class="sched-meta">${model}${cost}</span>`:''}
    ${bad?`<span class="err-line" style="white-space:normal">${esc(j.last_delivery_error||j.last_error||'Last run: '+j.last_status)}</span>`:''}</div></div>
    <div class="act">${toggle(on,'Active','data-act="cron-toggle" data-id="'+esc(j.id)+'" data-profile="'+esc(j.profile||'default')+'"')}<button class="ghost icon" data-menu="cron" data-id="${esc(j.id)}" data-profile="${esc(j.profile||'default')}" aria-label="More">${icon('more',18)}</button></div></div>`};
- const month=l=>l.reduce((s,j)=>s+(schedMeta(j).r.cost||0),0);
+ const SORTS={custom:'Your order',az:'A to Z',size:'Most schedules',cost:'Costs most'};
  el.innerHTML=`<div class="toolbar sched-bar"><div class="search">${icon('search',16)}<input id="schedQ" placeholder="Search schedules" value="${esc(SCHED.q)}"></div>
-  ${agents.length>1?`<div class="seg-chips">${['',...agents].map(a=>`<button class="${SCHED.agent===a?'on':''}" data-act="sched-agent" data-a="${esc(a)}">${a?esc(ident(a).name):'All agents'}</button>`).join('')}</div>`:''}</div>
-  ${order.length?order.map(f=>{const l=groups[f],shut=!!folds[f]&&!q;return `<section class="sched-folder ${shut?'shut':''}" data-folder="${esc(f)}"><button class="sf-head" data-act="sched-fold" data-f="${esc(f)}" aria-expanded="${!shut}">${icon('chevD',16)}${icon('folder',16)}<b>${esc(f)}</b><span class="n">${l.length}</span>${month(l)?`<span class="sf-cost">≈ ${usd(month(l))} this month</span>`:''}<span class="sf-more" data-act="sched-folder-menu" data-f="${esc(f)}" role="button" aria-label="Folder options">${icon('more',16)}</span></button><div class="sf-body"><div class="card list">${l.map(row).join('')}</div></div></section>`}).join(''):emptyBox('Nothing matches','Try another word or agent.')}`;
+  ${agents.length>1?`<button type="button" class="sel-btn inline sched-agent-btn" data-act="sched-agent-pick" aria-haspopup="menu"><span class="sv">${SCHED.agent?esc(ident(SCHED.agent).name):'All agents'}</span>${icon('chevD',15)}</button>`:''}
+  <button type="button" class="sel-btn inline" data-act="sched-sort" aria-haspopup="menu" title="How folders are ordered"><span class="sv">${icon('list',14)} ${esc(SORTS[sort])}</span>${icon('chevD',15)}</button>
+  ${admin?`<button class="ghost" data-act="sched-folder-new">${icon('plus',16)}New folder</button>`:''}</div>
+  ${order.length?order.map(f=>{const l=groups[f],shut=folds[f]!==false&&!q;return `<section class="sched-folder ${shut?'shut':''} ${colors[f]?'c-'+colors[f]:''}" data-folder="${esc(f)}"><button class="sf-head" data-act="sched-fold" data-f="${esc(f)}" aria-expanded="${!shut}" ${admin?'draggable="true" title="Drag to reorder"':''}>${icon('chevD',16)}<span class="sf-ic">${icon('folder',16)}</span><b>${esc(f)}</b><span class="n">${l.length}</span>${month(l)?`<span class="sf-cost">≈ ${usd(month(l))} this month</span>`:''}${admin?`<span class="sf-more" data-act="sched-folder-menu" data-f="${esc(f)}" role="button" tabindex="0" aria-label="Folder options">${icon('more',16)}</span>`:''}</button><div class="sf-body"><div class="card list">${l.length?l.map(row).join(''):`<div class="sf-empty">Nothing here yet. Drag a schedule onto this folder, or use ⋯ › Move to folder.</div>`}</div></div></section>`}).join(''):emptyBox('Nothing matches','Try another word or agent.')}`;
+ if(admin)schedDrag(el);
  let t;$('#schedQ').oninput=e=>{clearTimeout(t);t=setTimeout(()=>{SCHED.q=e.target.value;PAGES.schedules(p,el).then(()=>{const i=$('#schedQ');i.focus();i.setSelectionRange(i.value.length,i.value.length)})},200)};
  // descriptions still being written: look again in a little while
  clearTimeout(SCHED.t);if(jobs.some(j=>!schedMeta(j).m.summary)&&(SCHED.tries=(SCHED.tries||0)+1)<=4)SCHED.t=setTimeout(()=>{if(route().page?.id==='schedules'&&!document.hidden&&!$('.drawer')&&document.activeElement?.id!=='schedQ')PAGES.schedules(p,el).catch(()=>{})},45000);
 };
-ACT['sched-agent']=a=>{SCHED.agent=a.dataset.a;store.set('schedAgent',SCHED.agent);reload()};
+ACT['sched-agent-pick']=a=>{const ag=[...new Set((Pages.cronJobs||[]).map(j=>j.profile||'default'))];
+ menu(a,[{label:'All agents',icon:'layers',on:!SCHED.agent,run:()=>{SCHED.agent='';store.set('schedAgent','');reload()}},'-',...ag.map(n=>({label:ident(n).name,icon:'user',on:SCHED.agent===n,sub:plural((Pages.cronJobs||[]).filter(j=>(j.profile||'default')===n).length,'schedule'),run:()=>{SCHED.agent=n;store.set('schedAgent',n);reload()}}))],{search:ag.length>6,matchWidth:true})};
 ACT['sched-fold']=(a,e)=>{if(e.target.closest('[data-act="sched-folder-menu"]'))return;const f=a.dataset.f;const sec=a.closest('.sched-folder');const shut=!sec.classList.contains('shut');sec.classList.toggle('shut',shut);a.setAttribute('aria-expanded',!shut);
  (SCHED.info.folds??={})[f]=shut;post(UI,'/ui/schedules/folder',{from:f,fold:shut}).catch(()=>{})};
-ACT['sched-folder-menu']=(a,e)=>{e?.stopPropagation();const f=a.dataset.f;menu(a,[{label:'Rename folder',icon:'edit',run:async()=>{const v=await promptBox('Rename folder','Folder name',f,'Rename');if(!v||v.trim()===f)return;try{await post(UI,'/ui/schedules/folder',{from:f,to:v.trim()});toast('Folder renamed');reload()}catch(er){fail(er)}}}])};
+/* folders: make, rename, colour, reorder (menu or drag), delete; schedules move by drag or from their ⋯ menu.
+   Deleting a folder never deletes a schedule: they go back to General. */
+const FOLDER_COLORS=[['','No colour'],['blue','Blue'],['green','Green'],['teal','Teal'],['purple','Purple'],['amber','Amber'],['coral','Coral'],['grey','Grey']];
+const inFolder=f=>(Pages.cronJobs||[]).filter(j=>folderOf(j)===f).map(j=>[j.profile||'default',j.id]);
+const folderPost=b=>post(UI,'/ui/schedules/folder',b);
+// the whole order: what is shown, then folders hidden by a search or agent filter where they were
+function saveOrder(l){const all=[...l,...(SCHED.info.order||[]).filter(x=>!l.includes(x))];SCHED.info.order=all;if(SCHED.sort!=='custom'){SCHED.sort='custom';store.set('schedSort','custom')}return folderPost({order:all})}
+async function newFolder(){const v=await promptBox('New folder','Folder name','', 'Create');if(!v?.trim())return null;try{const r=await folderPost({create:v.trim()});toast('Folder “'+r.name+'” made');return r.name}catch(e){fail(e);return null}}
+ACT['sched-folder-new']=async()=>{if(await newFolder())reload()};
+ACT['sched-sort']=a=>{const S2={custom:'Your order (drag folders to arrange)',az:'A to Z',size:'Most schedules first',cost:'Costs most first'};
+ menu(a,Object.entries(S2).map(([k,l])=>({label:l,on:(SCHED.sort||'custom')===k,run:()=>{SCHED.sort=k;store.set('schedSort',k);reload()}})),{matchWidth:true})};
+ACT['sched-folder-menu']=(a,e)=>{e?.stopPropagation();const f=a.dataset.f;const l=SCHED.shownOrder||[],i=l.indexOf(f);
+ const move=d=>{const x=[...l];x.splice(i,1);x.splice(i+d,0,f);saveOrder(x).then(()=>reload()).catch(fail)};
+ menu(a,[{label:'Rename folder',icon:'edit',run:async()=>{const v=await promptBox('Rename folder','Folder name',f,'Rename');if(!v||v.trim()===f)return;try{await folderPost({from:f,to:v.trim(),jobs:inFolder(f)});toast('Folder renamed');reload()}catch(er){fail(er)}}},
+  {label:'Colour…',icon:'sparkle',run:()=>folderColour(a,f)},
+  {label:'Move up',icon:'chevU',disabled:i<=0,run:()=>move(-1)},{label:'Move down',icon:'chevD',disabled:i<0||i>=l.length-1,run:()=>move(1)},
+  ...(f==='General'?[]:['-',{label:'Delete folder',icon:'trash',bad:true,run:async()=>{const n=inFolder(f).length;if(!await confirmBox('Delete “'+f+'”?',n?plural(n,'schedule')+' in it move to General. No schedule is deleted.':'The folder is empty.','Delete folder'))return;
+   try{await folderPost({delete:f,from:f,jobs:inFolder(f)});toast('Folder deleted');reload()}catch(er){fail(er)}}}])])};
+function folderColour(a,f){const cur=(SCHED.info.colors||{})[f]||'';menu(a,FOLDER_COLORS.map(([c,l])=>({label:l,icon:'folder',on:c===cur,run:()=>folderPost({from:f,color:c}).then(()=>reload()).catch(fail)})));
+ $$('.menu button.item').forEach((b,ix)=>{const c=FOLDER_COLORS[ix]?.[0];if(c)b.querySelector('svg')?.setAttribute('style','color:var(--fc-'+c+')')})}
+// drag a schedule onto a folder to file it; drag a folder's title bar to put it somewhere else in the list
+function schedDrag(el){let drag=null;
+ el.querySelectorAll('.sj-row[draggable]').forEach(r=>r.ondragstart=e=>{drag={kind:'job',profile:r.dataset.profile,id:r.dataset.id};e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',r.dataset.id);r.classList.add('dragging');e.stopPropagation()});
+ el.querySelectorAll('.sf-head[draggable]').forEach(h=>h.ondragstart=e=>{drag={kind:'folder',f:h.dataset.f};e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',h.dataset.f);h.closest('.sched-folder').classList.add('dragging')});
+ el.ondragend=()=>{drag=null;el.querySelectorAll('.dragging,.drop-on,.drop-before,.drop-after').forEach(x=>x.classList.remove('dragging','drop-on','drop-before','drop-after'))};
+ el.querySelectorAll('.sched-folder').forEach(sec=>{const f=sec.dataset.folder;
+  sec.ondragover=e=>{if(!drag)return;if(drag.kind==='job'){const j=(Pages.cronJobs||[]).find(x=>x.id===drag.id&&(x.profile||'default')===drag.profile);if(j&&folderOf(j)===f)return}if(drag.kind==='folder'&&drag.f===f)return;
+   e.preventDefault();e.dataTransfer.dropEffect='move';if(drag.kind==='job')sec.classList.add('drop-on');else{const r=sec.getBoundingClientRect(),after=e.clientY>r.top+r.height/2;sec.classList.toggle('drop-after',after);sec.classList.toggle('drop-before',!after)}};
+  sec.ondragleave=e=>{if(!sec.contains(e.relatedTarget))sec.classList.remove('drop-on','drop-before','drop-after')};
+  sec.ondrop=async e=>{e.preventDefault();const d=drag;const after=sec.classList.contains('drop-after');el.ondragend();if(!d)return;
+   if(d.kind==='job'){const j=(Pages.cronJobs||[]).find(x=>x.id===d.id&&(x.profile||'default')===d.profile);if(j)fileSchedule(j,f)}
+   else{const l=(SCHED.shownOrder||[]).filter(x=>x!==d.f);l.splice(l.indexOf(f)+(after?1:0),0,d.f);try{await saveOrder(l);reload()}catch(er){fail(er)}}}})}
+async function fileSchedule(j,f){const was=folderOf(j);if(was===f)return;try{await put(UI,'/ui/schedules/meta',{profile:j.profile||'default',id:j.id,folder:f});
+ toastUndo('Moved to '+f,()=>put(UI,'/ui/schedules/meta',{profile:j.profile||'default',id:j.id,folder:was}).then(()=>reload()));reload()}catch(e){fail(e)}}
 ACT['cron-open']=(a,e)=>{if(e.target.closest('.switch,[data-menu],button,label,input'))return;const j=(Pages.cronJobs||[]).find(x=>x.id===a.dataset.id&&(x.profile||'default')===a.dataset.profile);if(j)cronDetail(j)};
-async function moveSchedule(j){const have=[...new Set((Pages.cronJobs||[]).map(folderOf))];const v=await promptBox('Move to folder','Folder (an existing one or a new name). Folders: '+have.join(', '),folderOf(j),'Move');if(!v)return;
- const was=folderOf(j);try{await put(UI,'/ui/schedules/meta',{profile:j.profile||'default',id:j.id,folder:v.trim()});toastUndo('Moved to '+v.trim(),()=>put(UI,'/ui/schedules/meta',{profile:j.profile||'default',id:j.id,folder:was}).then(()=>reload()));reload()}catch(e){fail(e)}}
+// choose the folder from a list (or make a new one) instead of typing its name
+function moveSchedule(j){const cur=folderOf(j);const have=[...new Set([...(SCHED.shownOrder||[]),...(Pages.cronJobs||[]).map(folderOf),...(SCHED.info.folders||[]),'General'])];const colors=SCHED.info.colors||{};
+ const d=drawer('Move to folder',`<p class="hint" style="margin:0 0 10px">${esc(stripBracket(j.name)||'This schedule')} is in <b>${esc(cur)}</b>.</p><div class="mv-list">${have.map(f=>`<button class="mv-f ${f===cur?'on':''} ${colors[f]?'c-'+colors[f]:''}" data-f="${esc(f)}" ${f===cur?'disabled':''}><span class="sf-ic">${icon('folder',16)}</span>${esc(f)}${f===cur?'<small>here now</small>':''}</button>`).join('')}</div>`,
+  `<button class="ghost" data-act="close">Cancel</button><button id="mvNew">${icon('plus',16)}New folder</button>`,{size:'sm'});
+ d.querySelectorAll('.mv-f').forEach(b=>b.onclick=()=>{closeLayers();fileSchedule(j,b.dataset.f)});
+ d.querySelector('#mvNew').onclick=async()=>{const n=await newFolder();if(n){closeLayers();fileSchedule(j,n)}}}
 async function describeSchedule2(j){const {m}=schedMeta(j);const v=await promptBox('Description','What it does and why, in one sentence',m.summary||'','Save');if(v==null)return;
  try{await put(UI,'/ui/schedules/meta',{profile:j.profile||'default',id:j.id,summary:v.trim()});toast('Saved');reload()}catch(e){fail(e)}}
 // the ⋯ menu gains Move, Describe and Details
@@ -105,40 +153,56 @@ async function cronDetail(j){const {m,r}=schedMeta(j);const prof=j.profile||'def
   ${top.length?`<h3 class="sd-h">Costliest schedules, last 31 days</h3><div class="sd-runs">${top.map(x=>`<div class="sd-run" style="grid-template-columns:2fr 1fr 1fr" ${x.j?`data-act="spend-open" data-id="${esc(x.j.id)}" data-profile="${esc(x.j.profile||'default')}"`:''}><span>${esc(stripBracket(x.j?.name||x.k))}</span><span>${plural(x.r.runs.length,'run')}</span><span>≈ ${usd(x.r.cost)}</span></div>`).join('')}</div>`:''}`}}
 ACT['spend-open']=a=>{const j=(Pages.cronJobs||[]).find(x=>x.id===a.dataset.id&&(x.profile||'default')===a.dataset.profile);if(j)cronDetail(j);else go('/automations/schedules')};
 
-/* ---------- Skills, MCP tools, Plugins and Webhooks belong to one agent each. A row of agent chips at the top says
-   whose you are looking at and switches to another agent's, without leaving the page or changing who you chat with.
+/* ---------- Pages that belong to one agent (skills, apps, plugins, files, memory, webhooks, who can message, models,
+   keys, logs, settings) carry a "Showing" picker in the header: look at any agent you may use without leaving the
+   page or changing who you chat with. It sits in the header so the page never jumps when it loads.
    Skills are grouped into folders by what they are for, each folding open and shut (remembered per person). ---------- */
-const VIEW_PAGES=/^(skills|mcp|plugins|webhooks)$/;
-async function viewAgents(){if(S._viewList)return S._viewList;let l=[];try{const pr=await H('/profiles');l=(Array.isArray(pr)?pr:pr.profiles||[]).map(x=>x.name)}catch{}
+async function viewAgents(){if(S._viewList)return S._viewList;let l=[];try{const pr=await H('/profiles?profile=default');l=(Array.isArray(pr)?pr:pr.profiles||[]).map(x=>x.name)}catch{}
  if(S.me&&S.me.admin===false)l=l.filter(a=>S.me.agents?.[a]);return S._viewList=l.filter(a=>!a.includes('--'))}
-function viewing(){return S.viewAgent||S.profile||'default'}
-for(const id of ['skills','mcp','plugins','webhooks']){const base=PAGES[id];if(!base)continue;PAGES[id]=async(p,el)=>{
- // the agent being looked at decides whose list loads (cleared again on other pages, see agentProfile)
- await base(p,el);const list=await viewAgents();if(list.length<2)return;const cur=viewing();
- const bar=document.createElement('div');bar.className='view-agent';bar.innerHTML=`<span>${icon('user',14)}Showing</span><div class="seg-chips">${list.map(a=>`<button class="${a===cur?'on':''}" data-act="view-agent" data-a="${esc(a)}">${esc(ident(a).name)}</button>`).join('')}</div>`;
- el.prepend(bar)}}
-ACT['view-agent']=a=>{const n=a.dataset.a;S.viewAgent=n===(S.profile||'default')?null:n;Pages._toolCache=null;reload()};
+function viewing(){return agentProfile()||'default'}
+function viewPick(list){const box=$('.page-head .head-actions');if(!box)return;let b=box.querySelector('.view-pick');if(list.length<2){b?.remove();return}
+ const i=ident(viewing()),mine=viewing()===(S.profile||'default');
+ if(!b){b=document.createElement('button');b.type='button';b.className='view-pick';b.dataset.act='view-pick';b.setAttribute('aria-haspopup','menu');box.prepend(b)}
+ b.title=mine?'You are chatting with this agent. Pick another to look at theirs.':'Looking at '+i.name+'’s. You still chat with '+ident().name+'.';b.classList.toggle('other',!mine);
+ b.innerHTML=`<span class="vp-ava">${i.avatar?`<img src="${esc(i.avatar)}" alt="">`:esc(i.name[0]||'?')}</span><span class="vp-t"><small>Showing</small><b>${esc(i.name)}</b></span>${icon('chevD',15)}`}
+for(const id of ['skills','mcp','plugins','webhooks','pairing','files','memory','models','keys','logs','settings']){const base=PAGES[id];if(!base)continue;PAGES[id]=async(p,el)=>{
+ // the agent being looked at decides whose data loads (cleared again on other pages, see agentProfile)
+ viewPick(await viewAgents());return base(p,el)}}
+ACT['view-pick']=async a=>{const list=await viewAgents(),me=S.profile||'default';
+ menu(a,[{header:'Show whose'},...list.map(n=>({label:ident(n).name,icon:'user',on:n===viewing(),sub:n===me?'You chat with this one':'',run:()=>{if(n===viewing())return;S.viewAgent=n===me?null:n;Pages._toolCache=null;Pages._dirty=null;reload()}}))],{search:list.length>6,matchWidth:true})};
 // skills in folders by category
 {const base=PAGES.skills;PAGES.skills=async(p,el)=>{await base(p,el);if((S.tab.skills||'Installed')!=='Installed'||S.skillQ||(S.skillCat&&S.skillCat!=='All'))return;
  const card=el.querySelector('.card.list');const rows=[...card?.querySelectorAll('.row[data-act="sk-open"]')||[]];if(rows.length<8)return;
  const cat=n=>(Pages._skills||[]).find(s=>s.name===n)?.category||'other';const groups={};for(const r of rows)(groups[cat(r.dataset.name)]??=[]).push(r);
  const shut=store.get('skFold',{});const box=document.createElement('div');
  for(const g of Object.keys(groups).sort((a,b)=>(a==='other')-(b==='other')||a.localeCompare(b))){const l=groups[g];const on=l.filter(r=>r.querySelector('input:checked')).length;
-  const sec=document.createElement('section');sec.className='sched-folder'+(shut[g]?' shut':'');sec.innerHTML=`<button class="sf-head" data-act="sk-fold" data-f="${esc(g)}" aria-expanded="${!shut[g]}">${icon('chevD',16)}${icon('folder',16)}<b>${esc(pretty(g))}</b><span class="n">${l.length}</span><span class="sf-cost">${on} on</span></button><div class="sf-body"><div class="card list"></div></div>`;
+  const sec=document.createElement('section');sec.className='sched-folder'+(shut[g]!==false?' shut':'');sec.innerHTML=`<button class="sf-head" data-act="sk-fold" data-f="${esc(g)}" aria-expanded="${shut[g]===false}">${icon('chevD',16)}${icon('folder',16)}<b>${esc(pretty(g))}</b><span class="n">${l.length}</span><span class="sf-cost">${on} on</span></button><div class="sf-body"><div class="card list"></div></div>`;
   l.forEach(r=>sec.querySelector('.card.list').append(r));box.append(sec)}
  card.replaceWith(box)}}
 ACT['sk-fold']=a=>{const sec=a.closest('.sched-folder');const s=!sec.classList.contains('shut');sec.classList.toggle('shut',s);a.setAttribute('aria-expanded',!s);const f=store.get('skFold',{});f[a.dataset.f]=s;store.set('skFold',f)};
 
-/* ---------- Google accounts: one agent can use several (work, personal, a client's). Skills shows them with what each
-   may do; Connect another asks the agent, which sends a one-click Google sign-in link. ---------- */
-{const base=PAGES.skills;PAGES.skills=async(p,el)=>{await base(p,el);if((S.tab.skills||'Installed')!=='Installed')return;const ag=viewing();
- let d;try{d=await UI('/ui/google-accounts?agent='+encodeURIComponent(ag))}catch{return}const l=d.accounts||[];if(!l.length&&!(Pages._skills||[]).some(s=>/google/.test(s.name)&&s.enabled))return;
- const what=sc=>[...new Set(sc.map(s=>/gmail/.test(s)?'Gmail':/drive/.test(s)?'Drive':/calendar/.test(s)?'Calendar':/spreadsheets/.test(s)?'Sheets':/documents/.test(s)?'Docs':/presentations/.test(s)?'Slides':/contacts/.test(s)?'Contacts':'').filter(Boolean))].join(', ');
- const panel=document.createElement('div');panel.className='panel card';panel.style.marginBottom='16px';
- panel.innerHTML=`<h2>Google accounts</h2><p class="sub">${esc(ident(ag).name)} can use ${l.length===1?'this account':'these accounts'} for Gmail, Drive, Sheets, Docs and Calendar. Ask it to use a specific one (“from my Elkiya account”).</p>
-  ${l.map((x,i)=>`<div class="row" ${st(i)} style="padding:10px 0;border-top:1px solid var(--border)"><div class="main-c"><span class="ic blue">${icon('globe',16)}</span><div class="txt"><b>${esc(x.email||(x.name?pretty(x.name):'Main Google account'))}</b><span>${x.name?esc(x.name)+' · ':'Main · '}${esc(what(x.scopes)||plural(x.scopes.length,'permission'))}${x.renews?'':' · needs signing in again'}</span></div></div><div class="act">${S.me?.admin!==false?`<button class="ghost" data-act="gacc-del" data-n="${esc(x.name)}" data-e="${esc(x.email||x.name||'this account')}" style="color:var(--bad)">${icon('trash',15)}Remove</button>`:''}</div></div>`).join('')}
-  <button data-act="gacc-add" style="margin-top:10px">${icon('plus',15)}Connect another Google account</button>`;
- el.querySelector('.view-agent')?el.querySelector('.view-agent').after(panel):el.prepend(panel)}}
+/* ---------- Google accounts: one agent can use several (work, personal, a client's). They sit on Connected apps with
+   the name you gave each one and a note on what it is for; the agent is told both, so "send it from my Elkiya account"
+   picks the right one. Connect another asks the agent, which sends a one-click Google sign-in link. ---------- */
+const gaccWhat=sc=>[...new Set(sc.map(s=>/gmail/.test(s)?'Gmail':/drive/.test(s)?'Drive':/calendar/.test(s)?'Calendar':/spreadsheets/.test(s)?'Sheets':/documents/.test(s)?'Docs':/presentations/.test(s)?'Slides':/contacts/.test(s)?'Contacts':'').filter(Boolean))].join(', ');
+const gaccTitle=x=>x.label||(x.name?pretty(x.name):'Main Google account');
+{const base=PAGES.mcp;PAGES.mcp=async(p,el)=>{await base(p,el);if((S.tab.mcp||'Your servers')!=='Your servers')return;const ag=viewing();
+ let d;try{d=await UI('/ui/google-accounts?agent='+encodeURIComponent(ag))}catch{return}const l=d.accounts||[];Pages._gacc=l;
+ const edit=S.me?.admin!==false||S.me?.agents?.[ag]==='edit';
+ const panel=document.createElement('div');panel.className='panel card gacc-panel';panel.style.marginBottom='16px';
+ panel.innerHTML=`<h2 class="h-row">Google accounts<span class="chip">${l.length}</span></h2><p class="sub">${l.length?`${esc(ident(ag).name)} can use ${l.length===1?'this account':'these accounts'} for Gmail, Drive, Sheets, Docs and Calendar. Give each a name and say what it is for, and ${esc(ident(ag).name)} picks the right one when you ask (“send it from my Elkiya account”).`:`${esc(ident(ag).name)} has no Google account yet. Connect one to let it read and send Gmail, and work in Drive, Sheets, Docs and Calendar.`}</p>
+  ${l.map((x,i)=>`<div class="row gacc-row" ${st(i)}><div class="main-c">${logoImg('google.com','G')}<div class="txt"><b>${esc(gaccTitle(x))}${x.renews?'':` <span class="chip warn">Needs signing in again</span>`}</b>
+   <span>${esc([x.email,gaccWhat(x.scopes)||plural(x.scopes.length,'permission')].filter(Boolean).join(' · '))}</span>${x.note?`<span class="gacc-note">${icon('edit',12)}${esc(x.note)}</span>`:edit?`<span class="gacc-note empty">No note yet. Say what this account is for.</span>`:''}</div></div>
+   <div class="act">${edit?`<button class="ghost" data-act="gacc-edit" data-i="${i}">${icon('edit',15)}Name and note</button>`:''}${S.me?.admin!==false?`<button class="ghost icon" data-act="gacc-del" data-n="${esc(x.name)}" data-e="${esc(x.email||gaccTitle(x))}" aria-label="Remove" title="Remove" style="color:var(--bad)">${icon('trash',15)}</button>`:''}</div></div>`).join('')}
+  <button data-act="gacc-add" style="margin-top:10px">${icon('plus',15)}Connect ${l.length?'another':'a'} Google account</button>`;
+ const t=el.querySelector('.tabs,[role=tablist]');t?t.after(panel):el.prepend(panel)}}
+ACT['gacc-edit']=a=>{const x=(Pages._gacc||[])[+a.dataset.i];if(!x)return;const ag=viewing();
+ const d=drawer('Name and note',`<label>Name</label><input id="gaName" maxlength="60" placeholder="${esc(x.name?pretty(x.name):'Main Google account')}" value="${esc(x.label)}">
+  <p class="hint">What you call it, for example “Elkiya work” or “Personal”.${x.email?' It is '+esc(x.email)+'.':''}</p>
+  <label>What it is for</label><textarea id="gaNote" rows="3" maxlength="400" placeholder="For example: client emails and invoices for Elkiya. Use it for anything about Dagadu.">${esc(x.note)}</textarea>
+  <p class="hint">${esc(ident(ag).name)} reads this to choose the right account. Nothing has to sign in again.</p>`,
+  `<button class="ghost" data-act="close">Cancel</button><button class="primary" id="gaSave">Save</button>`,{size:'sm'});
+ d.querySelector('#gaSave').onclick=async()=>{try{await put(UI,'/ui/google-accounts?agent='+encodeURIComponent(ag),{name:x.name,label:$('#gaName').value,note:$('#gaNote').value});closeLayers();toast('Saved. '+ident(ag).name+' goes by it from the next message.');reload()}catch(e){fail(e)}}};
 ACT['gacc-add']=()=>{if(viewing()!==(S.profile||'default'))switchAgent(viewing());go('/chat');setTimeout(()=>{const ta=$('#msg');if(ta){ta.value='Connect another Google account for me (Gmail, Drive, Sheets, Docs, Calendar). Give it a short name, send me the sign-in link, and tell me when it is connected.';ta.focus()}},400)};
 ACT['gacc-del']=async a=>{if(!await confirmBox('Remove '+a.dataset.e+'?',esc(ident(viewing()).name)+' can no longer use this Google account until it is connected again.','Remove'))return;
  try{await del(UI,'/ui/google-accounts?agent='+encodeURIComponent(viewing())+'&name='+encodeURIComponent(a.dataset.n));toast('Removed');reload()}catch(e){fail(e)}};

@@ -2,6 +2,8 @@
 // Two ways: "direct" talks to the recipient's mail server from this box (often lands in spam, and some
 // providers refuse unknown senders), or "smtp" goes through a real mail account (Gmail app password,
 // Resend, Brevo…), which is what makes mail arrive reliably. Settings live in DATA/mail.json.
+// Direct mail must come from a domain whose SPF lists this box (elkiya.com does) and greet with the box's reverse
+// name (mail.sprint2go.com): Gmail refuses senders with neither SPF nor DKIM, which is why ai.elkiya.com mail never came.
 import net from 'node:net';
 import tls from 'node:tls';
 import {resolveMx} from 'node:dns/promises';
@@ -12,12 +14,15 @@ import path from 'node:path';
 
 export function createMail(DATA){
  const FILE=path.join(DATA,'mail.json');
- const load=async()=>{try{return JSON.parse(await readFile(FILE,'utf8'))}catch{return {mode:'direct',from:'aqeelOS <no-reply@ai.elkiya.com>'}}};
+ const load=async()=>{let c;try{c=JSON.parse(await readFile(FILE,'utf8'))}catch{return {mode:'direct',from:'aqeelOS <no-reply@elkiya.com>',helo:'mail.sprint2go.com'}}
+  // saved before the fix: the old sender address (no SPF) and no greeting name meant Gmail refused every mail
+  if(c.mode!=='smtp'&&/@ai\.elkiya\.com>?$/.test(c.from||'')){c.from=c.from.replace('@ai.elkiya.com','@elkiya.com');c.helo=c.helo||'mail.sprint2go.com'}
+  if(c.mode!=='smtp'&&!c.helo)c.helo='mail.sprint2go.com';return c};
  const save=async c=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(c,null,1),{mode:0o600});await rename(FILE+'.tmp',FILE)};
  const addr=s=>(/<([^>]+)>/.exec(s)||[,s])[1].trim();
 
  // one SMTP conversation; resolves with the server's last reply
- function talk({host,port,secure,user,pass,from,to,data,timeout=20000}){return new Promise((resolve,reject)=>{
+ function talk({host,port,secure,user,pass,from,to,data,helo,timeout=20000}){return new Promise((resolve,reject)=>{
   let sock=secure?tls.connect({host,port,servername:host}):net.connect({host,port});let buf='',waiting=null,done=false;
   const fail=e=>{if(done)return;done=true;try{sock.destroy()}catch{}reject(e instanceof Error?e:new Error(String(e)))};
   const timer=setTimeout(()=>fail(new Error('The mail server did not answer in time.')),timeout);
@@ -26,7 +31,7 @@ export function createMail(DATA){
   const cmd=async(line,ok=/^[23]/)=>{if(line!==null)sock.write(line+'\r\n');const r=await read();const code=r.trim().split('\r\n').pop();if(!ok.test(code))throw new Error(code.slice(0,200));return r};
   sock.on('data',onData);sock.on('error',fail);sock.setEncoding('utf8');
   (async()=>{try{
-   await cmd(null);const helo=hostname()||'aqeelos';let ehlo=await cmd('EHLO '+helo);
+   await cmd(null);helo=helo||hostname()||'aqeelos';let ehlo=await cmd('EHLO '+helo);
    if(!secure&&/STARTTLS/i.test(ehlo)){await cmd('STARTTLS');sock.removeListener('data',onData);sock=tls.connect({socket:sock,servername:host});sock.setEncoding('utf8');sock.on('data',onData);sock.on('error',fail);await new Promise((r,j)=>{sock.once('secureConnect',r);sock.once('error',j)});ehlo=await cmd('EHLO '+helo)}
    if(user){await cmd('AUTH LOGIN',/^3/);await cmd(Buffer.from(user).toString('base64'),/^3/);await cmd(Buffer.from(pass||'').toString('base64'))}
    await cmd('MAIL FROM:<'+addr(from)+'>');await cmd('RCPT TO:<'+to+'>');
@@ -44,7 +49,7 @@ export function createMail(DATA){
   const data=check?null:message(c.from,to,subject,text);
   if(c.mode==='smtp'){if(!c.host)throw new Error('Email sending is not set up yet.');return talk({host:c.host,port:+c.port||587,secure:!!c.secure||+c.port===465,user:c.user,pass:c.pass,from:c.from,to,data})}
   const mx=(await resolveMx(to.split('@')[1]).catch(()=>[])).sort((a,b)=>a.priority-b.priority);if(!mx.length)throw new Error('That email domain has no mail server.');
-  let last;for(const m of mx.slice(0,3)){try{return await talk({host:m.exchange,port:25,from:c.from,to,data})}catch(e){last=e}}
+  let last;for(const m of mx.slice(0,3)){try{return await talk({host:m.exchange,port:25,from:c.from,to,data,helo:c.helo})}catch(e){last=e}}
   throw new Error('The mail server refused it: '+(last?.message||'unknown error'))}
 
  return {
