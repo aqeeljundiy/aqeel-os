@@ -54,7 +54,7 @@ Pages.priAddMenu=el=>{const used=new Set(Pages._pri.map(e=>e.key));menu(el,Pages
 
 /* ---------- Gemini through your Google AI subscription (Pro / Ultra), via the official Gemini CLI: one Google sign-in,
    then it is a model like any other (Models, the chat model menu, the priority list). ---------- */
-{const base=PAGES.accounts;PAGES.accounts=async(p,el)=>{await base(p,el);let g;try{g=await UI('/ui/gemini/status')}catch{return}if(!g.installed)return;
+{const base=PAGES.accounts;PAGES.accounts=async(p,el)=>{await base(p,el);let g;try{g=await UI('/ui/gemini/status')}catch{return}if(!g.installed||g.retired)return;
  const admin=S.me?.admin!==false;const box=document.createElement('div');box.className='panel card gem-card';box.style.marginTop='16px';
  box.innerHTML=`<div class="gem-top">${logoImg('gemini.google.com','G')}<div class="txt"><h2 style="margin:0">Gemini with your Google AI plan</h2>
   <p class="sub" style="margin:4px 0 0">${g.signedIn?`Connected${g.account?' as <b>'+esc(g.account)+'</b>':''}. Gemini models now show up under Models and in the chat's model menu.`:'Use Gemini through your Google AI Pro or Ultra subscription, the same way Claude runs on your Claude plan. Sign in once with the Google account that has the plan.'}</p></div>

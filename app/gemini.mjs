@@ -20,7 +20,8 @@ export function createGemini({HERMES_HOME,hcmd,listAgents}){
   const next={...cur,...SETTINGS,tools:{...(cur.tools||{}),...SETTINGS.tools},general:{...(cur.general||{}),...SETTINGS.general}};if(JSON.stringify(next)!==JSON.stringify(cur))await writeFile(f,JSON.stringify(next,null,2))}
  async function account(){try{const a=JSON.parse(await readFile(path.join(GDIR,'google_accounts.json'),'utf8'));return a.active||null}catch{return null}}
  async function status(){const installed=await stat(BIN).then(()=>true,()=>false);const signedIn=await stat(CREDS).then(s=>s.size>20,()=>false);
-  return {installed,signedIn,account:signedIn?await account():null,login:login?.state||null}}
+  // Google stopped serving Gemini CLI to personal accounts (Google AI Pro too) and points to Antigravity; checked 17 Oct 2026
+  return {installed,signedIn,retired:true,account:signedIn?await account():null,login:login?.state||null}}
  const pane=async()=>(await run('tmux',['capture-pane','-pJt',SESSION,'-S','-200'])).out;
  async function start(){await ensureSettings();await run('tmux',['kill-session','-t',SESSION]);
   const r=await run('tmux',['new-session','-d','-s',SESSION,'-x','400','-y','80','-c',homedir(),'env NO_BROWSER=true '+BIN]);if(!r.ok)throw new Error('Could not start the Gemini sign-in: '+r.err.slice(0,200));
