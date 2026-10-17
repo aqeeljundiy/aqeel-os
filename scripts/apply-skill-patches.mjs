@@ -10,15 +10,17 @@ let changed=0;
 
 const GOOGLE_SECTION=`
 <!-- aqeelos:composio-first -->
-## Not set up yet? Use Composio first
+## Not set up yet? This skill first (free); Composio only as the fallback
 
-If no Google account is set up here yet (\`setup.py --list-accounts\` shows none) and the agent has the Composio
-tools (composio), use Composio's Gmail, Google Drive, Calendar, Sheets and Docs tools instead. Do NOT ask the
-person to create a Google Cloud project or OAuth client: that is slow and error-prone. Only set Google up here
-when the person asks for it, or when Composio cannot do the job.
+If no Google account is set up here yet (\`setup.py --list-accounts\` shows none), set one up with this skill: it is
+free. Send the sign-in link from \`--auth-url\` (see Signing in below). If there is no OAuth client yet, walk the
+person through creating one (or do it with them in the browser) and have them send its JSON with the lock button.
+Only if that is not possible (no access to Google Cloud) or they do not want it, offer Composio's Gmail, Drive,
+Calendar, Sheets and Docs tools, and say plainly that Composio's free plan has a limit on actions and costs money
+beyond it. Use Composio only after they agree.
 <!-- /aqeelos:composio-first -->
 
-<!-- aqeelos:multi-account --><!-- aqeelos:signin-v1 -->
+<!-- aqeelos:multi-account --><!-- aqeelos:signin-v2 -->
 ## Several Google accounts (one agent, many accounts)
 
 The person may have several Google accounts (for example work, personal, shop). Each one is a **named account**
@@ -54,7 +56,7 @@ for(const h of homes){const dir=path.join(h,'skills','productivity','google-work
  // 2) the instructions tell the agent how to work with several accounts
  const md=path.join(dir,'SKILL.md');if(await exists(md)){let s=await readFile(md,'utf8');
   // (re)apply when our block is missing or older: drop an earlier aqeelOS block, then insert the current one
-  if(!s.includes('aqeelos:signin-v1')){s=s.replace(/\n?<!-- aqeelos:composio-first -->[\s\S]*?<!-- \/aqeelos:composio-first -->\n?/,'\n').replace(/\n?<!-- aqeelos:multi-account -->[\s\S]*?<!-- \/aqeelos:multi-account -->\n?/,'\n');const at=s.search(/\n## /);s=at>0?s.slice(0,at)+'\n'+GOOGLE_SECTION+s.slice(at):s+GOOGLE_SECTION;await writeFile(md,s);changed++;console.log('patched',md)}}}
+  if(!s.includes('aqeelos:signin-v2')){s=s.replace(/\n?<!-- aqeelos:composio-first -->[\s\S]*?<!-- \/aqeelos:composio-first -->\n?/,'\n').replace(/\n?<!-- aqeelos:multi-account -->[\s\S]*?<!-- \/aqeelos:multi-account -->\n?/,'\n');const at=s.search(/\n## /);s=at>0?s.slice(0,at)+'\n'+GOOGLE_SECTION+s.slice(at):s+GOOGLE_SECTION;await writeFile(md,s);changed++;console.log('patched',md)}}}
 // 3) Google sign-ins return to the aqeelOS site when the Google client is a "Web application" one: aqeelOS then
 //    finishes the sign-in itself (no "copy the localhost address"). A Desktop client keeps the localhost method.
 const WEB_REDIRECT=`REDIRECT_URI = "http://localhost:1"
