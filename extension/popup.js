@@ -8,4 +8,5 @@ $('go').onclick=async()=>{$('err').textContent='';const base=$('base').value.tri
   const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(r.status===401?'Sign in to aqeelOS in this browser first, then press Connect again.':(j.error||'aqeelOS said no ('+r.status+').'));
   await chrome.storage.local.set({base,token:j.token});await chrome.runtime.sendMessage('connect');setTimeout(show,800)}catch(e){$('err').textContent=e.message}};
 $('off').onclick=async()=>{await chrome.storage.local.remove('token');await chrome.runtime.sendMessage('connect');show()};
+$('panel').onclick=async()=>{const w=await chrome.windows.getCurrent();await chrome.sidePanel.open({windowId:w.id});window.close()};
 show();

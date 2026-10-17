@@ -41,13 +41,17 @@ export function createLocalBrowser({DATA,GATE,API_KEY,EXT_DIR}){
  const lanes=new Map();     // chat session → {ws (to the engine), user, agent}
  const pending=new Map();   // command id → lane
  const connected=user=>conns.has(user);
+ // ask the person's browser something (a picture of the agent's tab, or bring it to the front)
+ const asks=new Map();
+ function ask(user,type,ms=6000){const w=conns.get(user);if(!w)return Promise.resolve({offline:true});const id=randomBytes(6).toString('hex');
+  return new Promise(ok=>{const t=setTimeout(()=>{asks.delete(id);ok({timeout:true})},ms);asks.set(id,r=>{clearTimeout(t);ok(r)});w.send(JSON.stringify({type,id}))})}
 
  async function pair(user){await load();const token=randomBytes(24).toString('base64url');db.tokens[token]={user,created:Date.now()};await save();return token}
  async function upgrade(req,sock,head){const t=new URL(req.url,'http://x').searchParams.get('t')||'';await load();const rec=db.tokens[t];
   if(!rec){const w=acceptWs(req,sock,head);w?.send('{"type":"unpaired"}');w?.close();return}
   const w=acceptWs(req,sock,head);if(!w)return;const old=conns.get(rec.user);if(old)old.close();conns.set(rec.user,w);rec.last=Date.now();save().catch(()=>{});
   console.log('my browser: connected for',rec.user);
-  w.ev.onmessage=t=>{let m;try{m=JSON.parse(t)}catch{return}if(m.type!=='result')return;const lane=pending.get(m.id);if(!lane)return;pending.delete(m.id);
+  w.ev.onmessage=t=>{let m;try{m=JSON.parse(t)}catch{return}if(m.type==='reply'){const q=asks.get(m.id);if(q){asks.delete(m.id);q(m)}return}if(m.type!=='result')return;const lane=pending.get(m.id);if(!lane)return;pending.delete(m.id);
    try{lane.ws.send(JSON.stringify({method:'browser.controller.result',params:{command_id:m.id,ok:m.ok===true,...(m.ok?{result:m.result}:{error:String(m.error||'failed')})}}))}catch{}};
   w.ev.onclose=()=>{if(conns.get(rec.user)===w){conns.delete(rec.user);console.log('my browser: disconnected for',rec.user)}}}
 
@@ -70,4 +74,4 @@ export function createLocalBrowser({DATA,GATE,API_KEY,EXT_DIR}){
   try{lane.ws.send(JSON.stringify({method:'browser.controller.detach',params:{}}))}catch{}setTimeout(()=>{try{lane.ws.close()}catch{}},300);return true}
  const linked=session=>lanes.has(session);
  const zip=()=>zipDir(EXT_DIR,'aqeelos-browser');
- return {pair,upgrade,link,unlink,linked,connected,zip}}
+ return {pair,upgrade,link,unlink,linked,connected,zip,ask}}

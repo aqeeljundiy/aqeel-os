@@ -2,7 +2,7 @@
 // Every agent has its own screen that starts when it browses and stops when idle; AdsPower agents share :99.
 // Shown as a laptop, either docked beside the chat (resizable) or floating like a mini player.
 const Screen={
- open:store.get('screenOpen',false),control:false,mode:store.get('screenMode','dock'),
+ open:store.get('screenOpen',false),control:false,mode:store.get('screenMode','dock'),src_:store.get('screenSrc','box'),   // src_: 'box' (the AI box screen) or 'mine' (the agent's tab in my Chrome)
  float:store.get('screenFloat',{w:480,x:null,y:null}),
  st:null,ads:false,pick:null,list:[],_n:0,   // pick: an agent chosen in the picker (null = follow the chat); ads: the shared AdsPower screen
  agent(){return this.pick||S.profile||'default'},
@@ -27,16 +27,33 @@ const Screen={
  async loadList(){try{this.list=(await call('','/ui/screens')).screens||[]}catch{}},
  choose(v){this.ads=v==='ads';this.pick=v&&v!=='ads'?v:null;this.st=null;this.paint(true);this.refresh()},
  useAds(){if(this.pick)return;if(this.ads||this.st?.kind==='shared'||S.me?.admin===false)return;this.ads=true;if(this.open)this.paint(true)},
- toggle(){this.open=!this.open;store.set('screenOpen',this.open);this.paint(true);this.watch();paintTop()},
+ toggle(){this.open=!this.open;store.set('screenOpen',this.open);this.paint(true);this.watch();this.mirror();paintTop()},
+ /* My browser view: a live picture of the agent's tab in your Chrome (the aqeelOS extension sends it), every 1.5 s
+    while this view is open and the page is visible. Take over brings that tab to the front. */
+ mirror(){clearInterval(this._m);if(!this.open||this.src_!=='mine')return;const tick=async()=>{if(document.hidden||!$('#lbNote'))return;let f={};try{f=await call('','/ui/local-browser/frame')}catch{return}
+   const img=$('#lbImg'),note=$('#lbNote'),bar=$('#lbBar');if(!note)return;
+   const say=(html,btn)=>{img.hidden=true;note.hidden=false;note.innerHTML=html+(btn||'')};
+   if(!f.connected)return say('<b>Your browser isn’t connected</b><span>Install the aqeelOS extension in Chrome once, then agents can work there when you choose “My browser”.</span>','<button class="primary" data-act="browser-setup">'+icon('globe',15)+'Set it up</button>');
+   if(f.none)return say('<b>No agent is using your browser yet</b><span>When an agent asks where to browse, pick “My browser”. Its tab shows up here.</span>');
+   bar.innerHTML=esc(f.title||'')+(f.url?' · <span class="lb-url">'+esc(f.url)+'</span>':'');
+   if(f.inactive)return say('<b>The agent’s tab is in the background</b><span>Another tab is in front in that Chrome window.</span>','<button data-act="lb-focus">'+icon('mouse',15)+'Show it</button>');
+   if(f.data){img.src=f.data;img.hidden=false;note.hidden=true}};tick();this._m=setInterval(tick,1500)},
  setMode(m){this.mode=m;store.set('screenMode',m);this.paint(true)},
  setControl(on){this.control=on;this.paint(true);if(on)setTimeout(()=>$('#scrFrame')?.focus(),400)},
- head(compact){const c=this.control;return `<div class="screen-head ${compact?'compact':''}" ${compact?'data-drag="float"':''}><b>${icon('monitor',16)}</b>${this.picker()}${this.off()?'<span class="chip"><i class="dot"></i>Off</span>':`<span class="chip ${c?'warn':'ok'}"><i class="dot"></i>${c?'You are in control':'Watching'}</span>`}${this.note()?`<span class="chip warn scr-note" title="${esc(this.noteTip())}">${esc(this.note())}</span>`:''}<span class="grow"></span>
+ seg(){return `<span class="scr-seg" role="tablist" aria-label="Which screen"><button class="${this.src_==='box'?'on':''}" data-act="scr-src" data-v="box" title="The agent's screen on the AI box">AI box</button><button class="${this.src_==='mine'?'on':''}" data-act="scr-src" data-v="mine" title="The agent's tab in your own Chrome">My browser</button></span>`},
+ setSrc(v){this.src_=v;store.set('screenSrc',v);this.paint(true);this.mirror()},
+ head(compact){const c=this.control;if(this.src_==='mine')return `<div class="screen-head ${compact?'compact':''}" ${compact?'data-drag="float"':''}><b>${icon('monitor',16)}</b>${this.seg()}<span class="grow"></span>
+  <button data-act="lb-focus" title="Bring the agent's tab to the front in Chrome">${icon('mouse',15)}<span>Take over</span></button>
+  <button class="ghost icon" data-act="scr-mode" title="${this.mode==='float'?'Dock beside the chat':'Float over the chat'}" aria-label="${this.mode==='float'?'Dock':'Float'}">${icon(this.mode==='float'?'dock':'pip',17)}</button>
+  <button class="ghost icon" data-act="screen" title="Close" aria-label="Close screen">${icon('x',18)}</button></div>`;
+  return `<div class="screen-head ${compact?'compact':''}" ${compact?'data-drag="float"':''}><b>${icon('monitor',16)}</b>${this.seg()}${this.picker()}${this.off()?'<span class="chip"><i class="dot"></i>Off</span>':`<span class="chip ${c?'warn':'ok'}"><i class="dot"></i>${c?'You are in control':'Watching'}</span>`}${this.note()?`<span class="chip warn scr-note" title="${esc(this.noteTip())}">${esc(this.note())}</span>`:''}<span class="grow"></span>
   ${this.off()?'':`<button class="${c?'primary':''}" data-act="scr-control" title="${c?'Give control back':'Use mouse and keyboard on the screen'}">${icon('mouse',15)}<span>${c?'Done':'Take over'}</span></button>`}
   ${compact||this.off()?'':`<button class="ghost icon" data-act="scr-browser" title="Open a browser window" aria-label="Open a browser window">${icon('globe',17)}</button>`}
   <button class="ghost icon" data-act="scr-mode" title="${this.mode==='float'?'Dock beside the chat':'Float over the chat'}" aria-label="${this.mode==='float'?'Dock':'Float'}">${icon(this.mode==='float'?'dock':'pip',17)}</button>
   ${compact?'':`<button class="ghost icon" data-act="scr-pop" title="Open in its own tab" aria-label="Open in its own tab">${icon('popout',17)}</button>`}
   <button class="ghost icon" data-act="screen" title="Close" aria-label="Close screen">${icon('x',18)}</button></div>`},
- laptop(){const n=esc(ident(this.agent()).name);if(this.off())return `<div class="screen-stage"><div class="laptop"><div class="lid"><span class="cam"></span><div class="lcd scr-off"><div>${icon('monitor',28)}<b>${n}'s screen is off</b><span>It turns on by itself when ${n} opens a browser, and off again after 15 quiet minutes.</span><button class="primary" data-act="scr-start">${icon('power',15)}Turn on now</button></div></div></div></div></div>`;
+ laptop(){if(this.src_==='mine')return `<div class="screen-stage"><div class="laptop"><div class="lid"><span class="cam"></span><div class="lcd lb-mirror"><img id="lbImg" alt="The agent's tab in your browser" hidden><div id="lbNote" class="lb-note"><span class="spinner"></span></div></div></div></div><div class="screen-hint lb-bar" id="lbBar">Looking for your browser…</div></div>`;
+  const n=esc(ident(this.agent()).name);if(this.off())return `<div class="screen-stage"><div class="laptop"><div class="lid"><span class="cam"></span><div class="lcd scr-off"><div>${icon('monitor',28)}<b>${n}'s screen is off</b><span>It turns on by itself when ${n} opens a browser, and off again after 15 quiet minutes.</span><button class="primary" data-act="scr-start">${icon('power',15)}Turn on now</button></div></div></div></div></div>`;
   return `<div class="screen-stage"><div class="laptop"><div class="lid"><span class="cam"></span><div class="lcd"><iframe id="scrFrame" title="Live screen of ${n}" src="${this.src()}" allow="clipboard-read; clipboard-write"></iframe></div></div></div>${this.control?'<div class="screen-hint">You are in control. Ctrl+V pastes your text into the screen; copying on the screen copies to this computer.</div>':'<div class="screen-hint">Watching only. Press Take over to click and type.</div>'}</div>`},
  paint(force){const pane=$('#screenPane'),app=$('.app');if(!pane||!app)return;
   const docked=this.open&&this.mode==='dock',floating=this.open&&this.mode==='float';
@@ -92,4 +109,6 @@ ACT['scr-browser']=async()=>{try{await post((p,o)=>call('',p,o),'/ui/screen/brow
  document.addEventListener('dblclick',e=>{const h=e.target.closest('[data-drag]');if(!h)return;const app=$('.app');if(h.dataset.drag==='side'){app.style.removeProperty('--side-open');store.set('sideW',null)}if(h.dataset.drag==='screen'){app.style.removeProperty('--screen-w');store.set('screenW',null)}});
  addEventListener('resize',()=>Screen.placeFloat());
 })();
-if(Screen.open)setTimeout(()=>Screen.watch(),300);
+if(Screen.open)setTimeout(()=>{Screen.watch();Screen.mirror()},300);
+ACT['scr-src']=a=>Screen.setSrc(a.dataset.v);
+ACT['lb-focus']=async()=>{try{const r=await post((p,o)=>call('',p,o),'/ui/local-browser/focus');if(r.offline)toast('Your browser isn’t connected','err');else if(r.none)toast('No agent tab yet','err');else toast('Brought to the front in Chrome')}catch(e){fail(e)}};

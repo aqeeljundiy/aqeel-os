@@ -1,7 +1,7 @@
 // aqeelOS: use my browser. Keeps one connection to aqeelOS; when you choose "My browser" for a chat, the agent's
 // browser actions (open, read, click, type, keys, scroll, back) arrive here and run in a separate window, so
 // your own tabs are never touched. It only does those actions: no scripts of the agent's own, no downloads.
-const S={ws:null,alive:null,tab:null};
+const S={ws:null,alive:null,tab:null,panelWin:null};
 
 async function settings(){return chrome.storage.local.get(['base','token'])}
 const badge=on=>{chrome.action.setBadgeText({text:on?'on':''});chrome.action.setBadgeBackgroundColor({color:on?'#2f7d32':'#888'})};
@@ -12,6 +12,7 @@ async function connect(){const {base,token}=await settings();if(!base||!token)re
  ws.onopen=()=>{badge(true);clearInterval(S.alive);S.alive=setInterval(()=>{try{ws.send('{"type":"ping"}')}catch{}},20000)};
  ws.onmessage=async e=>{let m;try{m=JSON.parse(e.data)}catch{return}
   if(m.type==='unpaired'){await chrome.storage.local.remove('token');badge(false);return}
+  if(m.type==='frame'||m.type==='focus'){let r={};try{r=await (m.type==='frame'?frame():focus())}catch(err){r={error:String(err?.message||err)}}try{ws.send(JSON.stringify({type:'reply',id:m.id,...r}))}catch{}return}
   if(m.type!=='command')return;
   let reply;try{reply={ok:true,result:await act(m.action,m.arguments||{})}}catch(err){reply={ok:false,error:String(err?.message||err)}}
   try{ws.send(JSON.stringify({type:'result',id:m.id,...reply}))}catch{}};
@@ -20,7 +21,10 @@ async function connect(){const {base,token}=await settings();if(!base||!token)re
 // the agent's own window and tab (kept across restarts of this extension)
 async function agentTab(){if(!S.tab)S.tab=(await chrome.storage.session.get('tab')).tab;
  if(S.tab){try{return await chrome.tabs.get(S.tab)}catch{}}
- const w=await chrome.windows.create({url:'about:blank',focused:true,width:1280,height:900});S.tab=w.tabs[0].id;await chrome.storage.session.set({tab:S.tab});return w.tabs[0]}
+ let tab;if(S.panelWin){tab=await chrome.tabs.create({windowId:S.panelWin,url:'about:blank',active:true});
+  try{const g=await chrome.tabs.group({tabIds:[tab.id],createProperties:{windowId:S.panelWin}});await chrome.tabGroups.update(g,{title:'aqeelOS agent',color:'blue'})}catch{}}
+ else{const w=await chrome.windows.create({url:'about:blank',focused:true,width:1280,height:900});tab=w.tabs[0]}
+ S.tab=tab.id;await chrome.storage.session.set({tab:S.tab});return tab}
 const loaded=id=>new Promise(ok=>{const t=setTimeout(done,30000);function done(){clearTimeout(t);chrome.tabs.onUpdated.removeListener(on);ok()}
  function on(tid,info){if(tid===id&&info.status==='complete')done()}chrome.tabs.onUpdated.addListener(on)});
 const inPage=async(func,args=[])=>{const t=await agentTab();const [r]=await chrome.scripting.executeScript({target:{tabId:t.id},func,args});return r?.result};
@@ -37,6 +41,11 @@ async function act(action,a){
  if(action==='browser_scroll'){await inPage(d=>window.scrollBy({top:(d==='up'?-1:1)*innerHeight*.8,behavior:'instant'}),[a.direction]);return {success:true,scrolled:a.direction}}
  if(action==='browser_back'){const t=await agentTab();const w=loaded(t.id);await chrome.tabs.goBack(t.id).catch(()=>{});await w;const tab=await chrome.tabs.get(t.id);return {success:true,url:tab.url,title:tab.title}}
  throw new Error('This browser cannot do '+action+' yet.')}
+
+async function current(){if(!S.tab)S.tab=(await chrome.storage.session.get('tab')).tab;if(!S.tab)return null;try{return await chrome.tabs.get(S.tab)}catch{return null}}
+async function frame(){const t=await current();if(!t)return {none:true};if(!t.active)return {inactive:true,url:t.url,title:t.title};
+ const data=await chrome.tabs.captureVisibleTab(t.windowId,{format:'jpeg',quality:55});return {data,url:t.url,title:t.title}}
+async function focus(){const t=await current();if(!t)return {none:true};await chrome.windows.update(t.windowId,{focused:true});await chrome.tabs.update(t.id,{active:true});return {ok:true}}
 
 // ---- functions that run inside the page ----
 function snapshot(full){
@@ -73,6 +82,8 @@ function pressKey(key){const e=document.activeElement||document.body;const o={ke
  if(go&&key==='Tab'){const all=[...document.querySelectorAll('a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"])')].filter(x=>!x.disabled);const i=all.indexOf(e);all[i+1]?.focus()}
  return {}}
 
+// the side panel says which window it is in while it is open
+chrome.runtime.onConnect.addListener(p=>{const m=/^panel:(\d+)$/.exec(p.name);if(!m)return;S.panelWin=+m[1];p.onDisconnect.addListener(()=>{if(S.panelWin===+m[1])S.panelWin=null})});
 chrome.runtime.onStartup.addListener(connect);chrome.runtime.onInstalled.addListener(connect);
 chrome.alarms.create('keep',{periodInMinutes:1});chrome.alarms.onAlarm.addListener(connect);
 chrome.runtime.onMessage.addListener((m,_s,reply)=>{if(m==='connect'){S.ws?.close();S.ws=null;connect().then(()=>reply(true));return true}
