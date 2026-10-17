@@ -412,10 +412,13 @@ PAGES.logs=async(p,el)=>{
 ACT['log-live']=a=>{S.logs.live=a.checked};
 
 /* ===================== System › Settings ===================== */
+const CFG_WORDS=[['hermes-cli','aqeelos-cli'],['hermes gateway','aqeelos gateway'],['Hermes','aqeelOS']];
+const cfgShow=v=>{if(v==null)return v;const t=typeof v==='string'?v:JSON.stringify(v);if(!/hermes/i.test(t))return v;let o=t;for(const [a,b] of CFG_WORDS)o=o.split(a).join(b);try{return typeof v==='string'?o:JSON.parse(o)}catch{return v}};
+const cfgSave=v=>{if(typeof v!=='string')return v;let o=v;for(const [a,b] of CFG_WORDS)o=o.split(b).join(a);return o};
 PAGES.settings=async(p,el)=>{
  setActions(`<button data-act="cfg-raw">Raw YAML</button><button data-act="cfg-import">${icon('upload',16)}Import</button><button data-act="cfg-export">${icon('download',16)}Export</button><button class="primary" data-act="cfg-save">Save</button>`);
  const [cfg,schema,consent]=await Promise.all([H('/config'),H('/config/schema'),null]);Pages._cfg=cfg;Pages._dirty={};
- const get=k=>k.split('.').reduce((o,x)=>o==null?undefined:o[x],cfg);
+ const get=k=>cfgShow(k.split('.').reduce((o,x)=>o==null?undefined:o[x],cfg));
  const fields=Object.entries(schema.fields||{});const cats=(schema.category_order||[...new Set(fields.map(f=>f[1].category))]).filter(c=>fields.some(f=>f[1].category===c));
  const q=(S.cfgQ||'').toLowerCase();const cur=S.cfgCat||cats[0];
  const ctl=(k,f)=>{const v=get(k);const opts=f.options||f.choices||f.enum;
@@ -432,7 +435,7 @@ PAGES.settings=async(p,el)=>{
  
 };
 ACT['cfg-cat']=a=>{S.cfgCat=a.dataset.c;S.cfgQ='';reload()};
-ACT['cfg-save']=async()=>{const c=Pages._cfg;const dirty=Object.entries(Pages._dirty||{});if(!dirty.length&&!Pages._loadedDefaults)return toast('Nothing changed');try{for(const [k,i] of dirty){let v=i.dataset.t==='bool'?i.checked:i.dataset.t==='num'?(i.value===''?null:Number(i.value)):i.dataset.t==='json'?JSON.parse(i.value||'null'):i.value;const parts=k.split('.');let o=c;parts.slice(0,-1).forEach(x=>o=o[x]??(o[x]={}));o[parts.at(-1)]=v}await put(H,'/config',{config:c});Pages._dirty={};Pages._loadedDefaults=false;toast('Settings saved · new chats use them')}catch(e){fail(e.name==='SyntaxError'?new Error('One of the list or object fields is not valid JSON'):e)}};
+ACT['cfg-save']=async()=>{const c=Pages._cfg;const dirty=Object.entries(Pages._dirty||{});if(!dirty.length&&!Pages._loadedDefaults)return toast('Nothing changed');try{for(const [k,i] of dirty){let v=i.dataset.t==='bool'?i.checked:i.dataset.t==='num'?(i.value===''?null:Number(i.value)):i.dataset.t==='json'?JSON.parse(cfgSave(i.value)||'null'):cfgSave(i.value);const parts=k.split('.');let o=c;parts.slice(0,-1).forEach(x=>o=o[x]??(o[x]={}));o[parts.at(-1)]=v}await put(H,'/config',{config:c});Pages._dirty={};Pages._loadedDefaults=false;toast('Settings saved · new chats use them')}catch(e){fail(e.name==='SyntaxError'?new Error('One of the list or object fields is not valid JSON'):e)}};
 ACT['cfg-export']=async()=>{try{downloadBlob(new Blob([JSON.stringify(await H('/config'),null,2)],{type:'application/json'}),'hermes-config.json')}catch(e){fail(e)}};
 ACT['cfg-import']=()=>pickFile('.json',async f=>{try{const c=JSON.parse(await f.text());if(!await confirmBox('Replace all settings?','Every setting is replaced with the file’s values.','Replace'))return;await put(H,'/config',{config:c});toast('Settings imported');reload()}catch(e){fail(e)}});
 ACT['cfg-defaults']=async()=>{try{Pages._cfg=await H('/config/defaults');Pages._loadedDefaults=true;toast('Defaults loaded · press Save to keep them')}catch(e){fail(e)}};

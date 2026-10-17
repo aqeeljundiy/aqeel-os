@@ -15,6 +15,8 @@ KEEP = {'agent/anthropic_adapter.py'}
 def rename_text(t):
     if MODEL_NAME.search(t): return t
     t = t.replace('Hermes Agent', 'aqeelOS').replace('built by Nous Research', 'built by Elkiya').replace('(by Nous Research)', '(by Elkiya)')
+    # the one command people see in Telegram's menu with the engine's folder name in it
+    t = t.replace('Write a markdown implementation plan to .hermes/plans/ without executing anything', 'Write a step-by-step plan as a markdown file, without doing anything yet')
     return WORD.sub('aqeelOS', t)
 
 def patch(src):
@@ -26,7 +28,7 @@ def patch(src):
     sig = [t for t in toks if t.type not in (tokenize.NL, tokenize.NEWLINE, tokenize.COMMENT, tokenize.INDENT, tokenize.DEDENT)]
     kinds = {tokenize.STRING} | ({tokenize.FSTRING_MIDDLE} if hasattr(tokenize, 'FSTRING_MIDDLE') else set())
     for i, t in enumerate(sig):
-        if t.type not in kinds or 'Hermes' not in t.string or not re.search(r'\s', t.string):
+        if t.type not in kinds or ('Hermes' not in t.string and '.hermes/plans/ without' not in t.string) or not re.search(r'\s', t.string):
             continue
         prev = sig[i - 1].string if i else ''
         nxt = sig[i + 1].string if i + 1 < len(sig) else ''
@@ -52,7 +54,7 @@ def main():
                 try:
                     with open(p, encoding='utf-8') as f: old = f.read()
                 except Exception: continue
-                if 'Hermes' not in old: continue
+                if 'Hermes' not in old and '.hermes/plans/ without' not in old: continue
                 try: new, n = patch(old)
                 except Exception: continue
                 if not n or new == old: continue
