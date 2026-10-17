@@ -282,6 +282,12 @@ async function gatewayWatch(){if(gwStopped||gwRestarting)return;
  const bad=log.some(l=>{const t=Date.parse(l.slice(0,19).replace(' ','T')+'Z');return t&&t>since+5000&&Date.now()-t<10*60e3});
  if(bad){console.warn('gateway watch: the gateway the engine started cannot reach Claude; restarting it properly');return restartGateway('gateway outside its session cannot reach Claude')}}
 if(PORT===4400){setInterval(()=>gatewayWatch().catch(()=>{}),60000).unref()}
+// the dashboard (settings, channels, sign-ins, dictation) can be killed when the box runs out of memory: if it does
+// not answer twice in a row, it is started again (in its managed session, like the engine)
+let dashMissing=0;
+if(PORT===4400)setInterval(async()=>{const ok=await fetch(DASH.origin+'/api/status',{signal:AbortSignal.timeout(8000)}).then(r=>r.status<500,()=>false);
+ if(ok){dashMissing=0;return}if(++dashMissing<2)return;dashMissing=0;console.warn('dashboard watch: the dashboard stopped answering; starting it again');
+ await shx('tmux kill-session -t dashboard 2>/dev/null; ~/services.sh >/dev/null 2>&1')},60000).unref();
 // only the live app (port 4400) sets agents' tools; a test copy on another port must not repoint them
 if(PORT===4400){setTimeout(()=>agentHealth().catch(()=>{}),30000);setInterval(()=>agentHealth().catch(()=>{}),300000).unref()}
 if(PORT===4400){setTimeout(()=>syncNotifyTool().catch(e=>console.warn('notify tool',e.message)),20000);setInterval(()=>syncNotifyTool().catch(()=>{}),600000).unref()}
