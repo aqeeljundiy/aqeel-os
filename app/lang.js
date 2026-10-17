@@ -60,7 +60,7 @@ const Lang={
  known(s){const k=(s||'').trim();return !!k&&(k in ID||ID_PATTERNS.some(([re])=>re.test(k)))},
  // the name in words changes; of paths only the two that exist under both names on the box (~/.aqeelos and
  // ~/apps/aqeelos-ui are links), so anything copied from the screen still works
- brand(s){return s.replace(/Hermes Agent/g,'aqeelOS').replace(/Nous Research/g,'aqeelOS').replace(/Hermes/g,'aqeelOS').replace(/\/\.hermes(?=\/|\s|$|['")])/g,'/.aqeelos').replace(/\/apps\/hermes-ui(?=\/|\s|$)/g,'/apps/aqeelos-ui').replace(/(?<![\w./~_-])hermes(?![\w/_.])/g,'aqeelos')},
+ brand(s){return s.replace(/Hermes Agent/g,'aqeelOS').replace(/Nous Research/g,'aqeelOS').replace(/Hermes/g,'aqeelOS').replace(/\/\.hermes(?=\/|\s|$|['")])/g,'/.aqeelos').replace(/\/apps\/hermes-ui(?=\/|\s|$)/g,'/apps/aqeelos-ui').replace(/(?<![\w./~_])hermes(?![\w/_.])/g,'aqeelos')},
  run(root){if(!root)return;const id=this.cur==='id';
   const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,{acceptNode:n=>n.parentElement?.closest('.thread,textarea,[contenteditable],pre,code,.pv-doc,.pv-code,[data-raw]')?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT});
   for(let n;(n=w.nextNode());){const v=n.nodeValue;if(!v||!v.trim())continue;let t=/hermes|nous research/i.test(v)?this.brand(v):v;if(id&&!n.parentElement?.closest('[data-notr],.msg,pre,code,.log,.action-log')&&this.known(t))t=this.t(t);if(t!==v)n.nodeValue=t}
