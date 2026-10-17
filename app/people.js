@@ -417,7 +417,7 @@ const accountText=a=>a?[a.phone||a.username,a.name].filter(Boolean).join(' · ')
    Clears an ended login (kept aside on the box), shows a fresh QR, and once the phone scans it switches the
    channel on. Extra agents pick it up live; the main agent's engine restarts after replies in progress finish. */
 async function linkWhatsApp(agent,{replace=false,title}={}){const q='?profile='+encodeURIComponent(agent);let pid=null,done=false,kept=null;
- const d=drawer(title||'Link WhatsApp · '+ident(agent.split('--')[0]).name,`<div id="waBox" class="wa-link"><p class="hint"><span class="spinner"></span> Getting a fresh QR code…</p></div>`,`<button class="ghost" data-act="close">Close</button>`);
+ const d=sideDrawer(title||'Link WhatsApp · '+ident(agent.split('--')[0]).name,`<div id="waBox" class="wa-link"><p class="hint"><span class="spinner"></span> Getting a fresh QR code…</p></div>`,`<button class="ghost" data-act="close">Close</button>`);
  const box=d.querySelector('#waBox');const live=()=>box.isConnected;
  const cleanup=()=>{if(done)return;const c=pid?del(H,'/messaging/whatsapp/onboarding/'+encodeURIComponent(pid)+q).catch(()=>{}):Promise.resolve();pid=null;
   if(kept){const k=kept;kept=null;c.then(()=>post(UI,'/ui/channels/whatsapp/restore',{agent,kept:k})).catch(()=>{})}};
@@ -657,7 +657,7 @@ ACT['secret-give']=()=>Secrets.give();
 ACT['browser-pick']=a=>Secrets.pickBrowser(a.closest('.secret-card'),a.dataset.where);
 const BrowserSetup={
  async open(){let st={};try{st=await UI('/ui/local-browser/status')}catch{}
-  const d=drawer('Use my browser',`<div class="lb-state ${st.connected?'on':''}"><i class="dot"></i>${st.connected?'This person’s browser is connected':'Not connected yet'}</div>
+  const d=sideDrawer('Use my browser',`<div class="lb-state ${st.connected?'on':''}"><i class="dot"></i>${st.connected?'This person’s browser is connected':'Not connected yet'}</div>
    <p class="hint" style="margin:10px 0 14px">With the aqeelOS extension, an agent can work in your own Chrome when you choose “My browser”: in a separate window you can watch, with the sign-ins you already have. Good for one-off jobs (Google Cloud, admin pages). Anything that must keep running stays on the AI box.</p>
    <ol class="qr-steps lb-steps"><li><a href="/ui/local-browser/extension.zip" download>Download the extension</a> and unzip it (right-click › Extract all).</li>
     <li>In Chrome, open <code>chrome://extensions</code> and switch on <b>Developer mode</b> (top right).</li>

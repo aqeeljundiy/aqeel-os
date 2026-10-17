@@ -79,26 +79,37 @@ function schedulePicker(box,expr,tz){const s=parseCron(expr);if(!s.time)s.time='
  return {get:()=>buildCron(s)}}
 const DELIVER_LABEL={origin:'Home channel',local:'Save only (no message)'};
 async function cronDrawer(job){const jobAgent=job?.profile||S.profile||'default';   // a schedule belongs to its agent: its channels, its time zone
- const [targets,bps,cfg]=await Promise.all([H('/cron/delivery-targets?profile='+encodeURIComponent(jobAgent)).catch(()=>({targets:[]})),job?{blueprints:[]}:H('/cron/blueprints?profile='+encodeURIComponent(jobAgent)).catch(()=>({blueprints:[]})),H('/config?profile='+encodeURIComponent(jobAgent)).catch(()=>({}))]);
+ // opens at once: the quick answers get a moment, the channel list (slow while channels are checked) fills in afterwards
+ const soon=(p,v,ms=1200)=>Promise.race([p.catch(()=>v),new Promise(r=>setTimeout(()=>r(v),ms))]);
+ const [targets,bps,cfg]=await Promise.all([soon(H('/cron/delivery-targets?profile='+encodeURIComponent(jobAgent)),{targets:[]}),job?{blueprints:[]}:soon(H('/cron/blueprints?profile='+encodeURIComponent(jobAgent)),{blueprints:[]}),soon(H('/config?profile='+encodeURIComponent(jobAgent)),{})]);
  const tg=targets.targets||[];
+ const extra=(async()=>{
  // shared channels this agent may send through (another agent owns and receives on them)
  // every channel this agent can deliver on, by name and ID: its own (the engine sends those), its extra
  // connections and other agents' shared ones (aqeelOS passes those on)
  try{const me=jobAgent;const sc=await UI('/ui/channels/for?agent='+encodeURIComponent(me));for(const ch of sc.channels||[]){
   if(ch.owner===me){const t=tg.find(t=>t.id===ch.platform||String(t.id).startsWith(ch.platform+':'));if(t)t.name=(t.name||pretty(ch.platform)).replace(/ · main.*/,'')+' · main (ID '+ch.id+')';continue}
   tg.push({id:'relay:'+ch.owner+'|'+ch.platform,name:ch.owner.startsWith(me+'--')?ch.name+' (ID '+ch.id+')':ch.name+' (shared)'})}}catch{}
- try{const jr=job?await UI('/ui/channels/job-relays'):{};const t=jr[(job?.profile||S.profile||'default')+'|'+job?.id];if(t&&job)job.deliver='relay:'+t.owner+'|'+t.platform}catch{}const tz=cfg.timezone||'';const myTz=Intl.DateTimeFormat().resolvedOptions().timeZone;
- const tgName=id=>/^relay:/.test(id)?(tg.find(t=>t.id===id)?.name||'Shared channel'):id==='local'?'This app (shows under Automation, with a pop-up)':/^bot-chat/.test(id)?'Desktop app inbox ('+ident(id.split(':')[1]||'default').name+'), not this app':DELIVER_LABEL[id]||tg.find(t=>t.id===id)?.name||pretty(id);
+ try{const jr=job?await UI('/ui/channels/job-relays'):{};const t=jr[(job?.profile||S.profile||'default')+'|'+job?.id];if(t&&job)job.deliver='relay:'+t.owner+'|'+t.platform}catch{}
+  if(!tg.length){const t=await H('/cron/delivery-targets?profile='+encodeURIComponent(jobAgent)).catch(()=>({targets:[]}));tg.push(...(t.targets||[]))}})();
+ const tz=cfg.timezone||'';const myTz=Intl.DateTimeFormat().resolvedOptions().timeZone;
+ const tgName=id=>/^relay:/.test(id)?(tg.find(t=>t.id===id)?.name||'Shared channel'):id==='local'?'This app (shows under Automation, with a pop-up)':/^bot-chat/.test(id)?'Desktop app inbox ('+ident(id.split(':')[1]||'default').name+'), not this app':DELIVER_LABEL[id]||tg.find(t=>t.id===id)?.name||(/:/.test(id)&&typeof deliverName==='function'?deliverName({deliver:id},SCHED.info?.names):pretty(id));
  const tzNote=!tz&&myTz&&myTz!=='UTC'?`<div class="tz-note">${icon('globe',15)}<span>aqeelOS runs schedules in <b>UTC</b>. Use your timezone (<b>${esc(myTz)}</b>) instead?</span><button type="button" data-act="tz-use" data-tz="${esc(myTz)}">Use ${esc(myTz.split('/').pop().replace('_',' '))}</button></div>`:'';
  const hasBp=!job&&bps.blueprints?.length;let mode='own';let bp=null;let picker=null;
  const d=drawer(job?'Edit schedule':'New schedule',`${tzNote}${hasBp?tabs('cronMode',['Write my own','From a template'],'Write my own'):''}<div id="cjBody"></div>`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="cjSave">${job?'Save changes':'Create schedule'}</button>`);
  const body=d.querySelector('#cjBody');
  d.querySelector('[data-act=tz-use]')?.addEventListener('click',async e=>{e.stopPropagation();const b=e.currentTarget;try{await saveConfigPatch(c=>{c.timezone=b.dataset.tz});toast('aqeelOS now uses '+b.dataset.tz);closeLayers();cronDrawer(job)}catch(er){fail(er)}});
+ const delOpts=(cur=job?.deliver||'local')=>{const l=tg.length?[...tg]:[{id:'local'}];if(!l.some(t=>t.id===cur))l.unshift({id:cur});return l.map(t=>`<option value="${esc(t.id)}" ${cur===t.id?'selected':''}>${esc(tgName(t.id))}</option>`).join('')};
+ extra.then(()=>{const sel=d.querySelector('#cjDeliver');if(!sel||!d.isConnected)return;const cur=sel.dataset.touched?sel.value:(job?.deliver||sel.value);sel.innerHTML=delOpts(cur);sel._sync?.()});
+ // the models this agent can use, filled in once known (the current one stays selected)
+ const fillModels=()=>call('/gapi'+(jobAgent==='default'?'':'/p/'+encodeURIComponent(jobAgent)),'/api/model/options').then(o=>{const sel=d.querySelector('#cjModel');if(!sel)return;const cur=sel.value;
+  sel.innerHTML='<option value="">'+esc(ident(jobAgent).name)+'’s model (default)</option>'+(o.providers||[]).filter(usableProvider).map(pv=>'<optgroup label="'+esc(pv.name)+'">'+pv.models.map(m=>'<option value="'+esc(pv.slug+'|'+m)+'" '+((cur===pv.slug+'|'+m)||(job?.model===m&&(!job?.provider||job.provider===pv.slug))?'selected':'')+'>'+esc(modelLabel(m))+'</option>').join('')+'</optgroup>').join('');sel._sync?.()}).catch(()=>{});
  const own=()=>{body.innerHTML=`<label>Name</label><input id="cjName" value="${esc(job?.name||'')}" placeholder="Morning site report">
   <label>What should aqeelOS do?</label><textarea id="cjPrompt" rows="5" placeholder="Check every site and tell me if anything is down or slow.">${esc(job?.prompt||'')}</textarea>
   <label>When</label><div id="cjWhen"></div>
-  <label>Send the result to</label><select id="cjDeliver">${(tg.length?tg:[{id:'local'}]).map(t=>`<option value="${esc(t.id)}" ${(job?.deliver||'local')===t.id?'selected':''}>${esc(tgName(t.id))}</option>`).join('')}</select>
-  <p class="hint">Runs on the box in its own chat; you'll find it under Chat › Automation.</p>`;picker=schedulePicker(body.querySelector('#cjWhen'),job?.schedule?.expr||'0 8 * * 1-5',tz)};
+  <label>Send the result to</label><select id="cjDeliver">${delOpts()}</select>
+  <label>Model</label><select id="cjModel"><option value="">${esc(ident(jobAgent).name)}’s model (default)</option>${job?.model?`<option value="${esc((job.provider||'')+'|'+job.model)}" selected>${esc(modelLabel(job.model))}</option>`:''}</select><p class="hint">Pick a cheaper or faster model for simple jobs. Any provider you have signed in to works.</p>
+  <p class="hint">Runs on the box in its own chat; you'll find it under Chat › Automation.</p>`;fillModels();picker=schedulePicker(body.querySelector('#cjWhen'),job?.schedule?.expr||'0 8 * * 1-5',tz);body.querySelector('#cjDeliver').addEventListener('change',e=>e.target.dataset.touched=1)};
  const tpl=()=>{body.innerHTML=`<div class="tpl-grid">${bps.blueprints.map(b=>`<button type="button" class="card tpl ${bp?.key===b.key?'on':''}" data-bp="${esc(b.key)}"><b>${esc(b.title)}</b><span>${esc(b.description)}</span><small>${esc(b.scheduleHuman||'')}</small></button>`).join('')}</div><div id="bpFields"></div>`;if(bp)tplFields()};
  const tplFields=()=>{const f=body.querySelector('#bpFields');f.innerHTML=`<div class="panel card tpl-form"><h2>${esc(bp.title)}</h2><p class="sub">${esc(bp.description)}</p>${bp.fields.map(x=>`<label>${esc(x.label)}${x.optional?' (optional)':''}</label>${x.type==='enum'?`<select data-bpf="${esc(x.name)}">${x.options.map(o=>`<option value="${esc(o)}" ${o===x.default?'selected':''}>${esc(x.name==='deliver'?tgName(o):pretty(o))}</option>`).join('')}</select>`:x.type==='time'?`<input type="time" data-bpf="${esc(x.name)}" value="${esc(x.default||'08:00')}" step="300"><p class="hint">${esc(tz||'UTC')} time</p>`:`<input data-bpf="${esc(x.name)}" value="${esc(x.default||'')}">${x.help?`<p class="hint">${esc(x.help)}</p>`:''}`}`).join('')}</div>`;f.scrollIntoView({behavior:'smooth',block:'nearest'})};
  (mode==='template'?tpl:own)();placePills();
@@ -106,7 +117,7 @@ async function cronDrawer(job){const jobAgent=job?.profile||S.profile||'default'
  body.addEventListener('click',e=>{const b=e.target.closest('[data-bp]');if(!b)return;bp=bps.blueprints.find(x=>x.key===b.dataset.bp);body.querySelectorAll('[data-bp]').forEach(x=>x.classList.toggle('on',x===b));tplFields()});
  d.querySelector('#cjSave').onclick=async()=>{try{
   if(mode==='template'){if(!bp)return toast('Pick a template first','err');const values={};body.querySelectorAll('[data-bpf]').forEach(i=>values[i.dataset.bpf]=i.value);await post(H,'/cron/blueprints/instantiate?profile='+encodeURIComponent(S.profile||'default'),{blueprint:bp.key,values})}
-  else{const b={name:$('#cjName').value.trim(),prompt:$('#cjPrompt').value.trim(),schedule:picker.get(),deliver:$('#cjDeliver').value};if(!b.prompt)return toast('Tell aqeelOS what to do','err');if(!b.schedule)return toast('Choose when it runs','err');
+  else{const b={name:$('#cjName').value.trim(),prompt:$('#cjPrompt').value.trim(),schedule:picker.get(),deliver:$('#cjDeliver').value};{const mv=$('#cjModel')?.value||'';const [pv,...mm]=mv.split('|');b.model=mv?mm.join('|'):null;b.provider=mv?pv:null}if(!b.prompt)return toast('Tell aqeelOS what to do','err');if(!b.schedule)return toast('Choose when it runs','err');
    if(job)await put(H,`/cron/jobs/${encodeURIComponent(job.id)}?profile=${encodeURIComponent(job.profile||'default')}`,{updates:b});else await post(H,'/cron/jobs?profile='+encodeURIComponent(S.profile||'default'),b)}
   closeLayers();toast(job?'Schedule saved':'Schedule created');reload()}catch(e){fail(e)}};
 }
