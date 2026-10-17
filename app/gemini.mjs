@@ -24,7 +24,7 @@ export function createGemini({HERMES_HOME,hcmd,listAgents}){
  const pane=async()=>(await run('tmux',['capture-pane','-pJt',SESSION,'-S','-200'])).out;
  async function start(){await ensureSettings();await run('tmux',['kill-session','-t',SESSION]);
   const r=await run('tmux',['new-session','-d','-s',SESSION,'-x','400','-y','80','-c',homedir(),'env NO_BROWSER=true '+BIN]);if(!r.ok)throw new Error('Could not start the Gemini sign-in: '+r.err.slice(0,200));
-  login={started:Date.now(),state:'waiting'};setTimeout(()=>{if(login?.state==='waiting'){login.state='expired';run('tmux',['kill-session','-t',SESSION])}},10*60000).unref();
+  const me=login={started:Date.now(),state:'waiting'};console.log('gemini sign-in started');setTimeout(()=>{if(login===me&&me.state==='waiting'){me.state='expired';console.log('gemini sign-in expired (no code within 20 minutes)');run('tmux',['kill-session','-t',SESSION])}},20*60000).unref();
   for(let i=0;i<60;i++){await sleep(500);const t=await pane();const m=/https:\/\/accounts\.google\.com\/o\/oauth2\/\S+/.exec(t.replace(/\n(?=\S)/g,''));if(m)return {url:m[0]};
    if(await stat(CREDS).then(()=>true,()=>false)){await stop();login.state='done';return {signedIn:true}}}
   throw new Error('The Gemini sign-in did not show a link. Try again.')}
@@ -32,9 +32,10 @@ export function createGemini({HERMES_HOME,hcmd,listAgents}){
  async function code(c){c=String(c||'').trim();if(!c||c.length>2048||/[\s'"`$\\]/.test(c))throw new Error('Paste the whole code from the Google page.');
   if(login?.state!=='waiting')throw new Error('This sign-in is not running any more. Start again.');
   await run('tmux',['send-keys','-t',SESSION,'-l',c]);await run('tmux',['send-keys','-t',SESSION,'Enter']);
-  for(let i=0;i<40;i++){await sleep(500);if(await stat(CREDS).then(s=>s.size>20,()=>false)){login.state='done';await sleep(1500);await stop();await enableAll().catch(e=>console.warn('gemini plugin',e.message));return {ok:true,account:await account()}}
-   if(/invalid_grant|Failed to|error/i.test((await pane()).slice(-600)))break}
-  return {ok:false,error:'Google did not accept that code. Start again and paste the new code right away.'}}
+  console.log('gemini sign-in: code received');const before=(await pane()).length;
+  for(let i=0;i<60;i++){await sleep(500);if(await stat(CREDS).then(s=>s.size>20,()=>false)){login.state='done';console.log('gemini signed in as',await account());await sleep(1500);await stop();await enableAll().catch(e=>console.warn('gemini plugin',e.message));return {ok:true,account:await account()}}
+   const tail=(await pane()).slice(Math.max(0,before-200));if(/invalid_grant|Failed to authenticate|Error authenticating|code.{0,20}(invalid|expired)/i.test(tail)){console.warn('gemini sign-in refused:',tail.replace(/\s+/g,' ').slice(-240));break}}
+  return {ok:false,error:'Google did not accept that code. Press Connect again, sign in with the new link and paste its code (each link works once).'}}
  async function logout(){await stop();await rm(CREDS,{force:true});login=null;return {ok:true}}
  // the engine plugin, installed for every agent and switched on
  async function enableAll(){const src=path.join(path.dirname(new URL(import.meta.url).pathname),'..','engine','gemini-subscription');
