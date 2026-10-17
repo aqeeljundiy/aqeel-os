@@ -216,6 +216,21 @@ async function lockTools(a){const c=await readConfig(a);if(!c)throw new Error('t
  const r=await setKey(a,'agent.disabled_toolsets',[...new Set([...list,...UNSAFE_TOOLSETS])]);if(!r.ok)throw new Error(r.err);
  console.log('health',a,'locked terminal, files, code and computer use on every channel');return true}
 const lockedAgent=(a,st)=>{if(st[a]?.safe)return true;const ow=users.agentOwner(a);if(!ow||ow==='owner')return false;const u=users.byId(ow);return !!u&&!users.can(u,'unsafe')};
+/* Loop guard. Two agents on WhatsApp that may answer each other reply back and forth until WhatsApp logs both out
+   (it happened once). So an extra agent never answers another agent's own WhatsApp number: such a number is taken
+   off its allowed and approved lists. The main agent keeps its lists, so the owner can still message it from a
+   phone that another agent (like Husband Mode) also runs on. */
+async function waIds(a){const c=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'platforms','whatsapp','session','creds.json'),'utf8').then(JSON.parse).catch(()=>null);
+ return [c?.me?.id,c?.me?.lid].filter(Boolean).map(x=>String(x).split('@')[0].split(':')[0].replace(/\D/g,'')).filter(Boolean)}
+async function loopGuard(a,all){if(a.split('--')[0]==='default')return;const home=path.join(HERMES_HOME,'profiles',a);
+ const others=new Set();for(const b of all)if(b!==a)for(const id of await waIds(b))others.add(id);if(!others.size)return;const removed=[];
+ const envF=path.join(home,'.env');
+ await editEnv(envF,cur=>{let changed=false;const next=cur.split('\n').map(l=>{const m=/^(WHATSAPP_ALLOWED_USERS=)["']?([^"'\n]*)["']?$/.exec(l);if(!m)return l;
+  const keep=m[2].split(',').map(x=>x.trim()).filter(x=>{const d=x.replace(/\D/g,'');if(d&&others.has(d)){removed.push(x);changed=true;return false}return !!x});return m[1]+keep.join(',')});return changed?next.join('\n'):null}).catch(()=>{});
+ const apF=path.join(home,'platforms','pairing','whatsapp-approved.json');const ap=await readFile(apF,'utf8').then(JSON.parse).catch(()=>null);
+ if(ap&&typeof ap==='object'){let ch=false;for(const k of Object.keys(ap))if(others.has(k.replace(/\D/g,''))){delete ap[k];removed.push(k);ch=true}
+  if(ch){await writeFile(apF+'.tmp',JSON.stringify(ap));await rename(apF+'.tmp',apF)}}
+ if(removed.length){platCache.delete(a);console.log('loop guard:',a,'no longer answers other agents\' WhatsApp numbers:',removed.join(', '))}}
 async function agentHealth(only){const h={'x-hermes-session-token':DASH_TOKEN};const st=await getStatus();await users.load();
  for(const a of only?[only]:await listAllProfiles()){try{
   if(!await isAgent(a)||(PORT===4400&&!only&&await isTestAgent(a)))continue;const copy=a.includes('--');
@@ -224,6 +239,7 @@ async function agentHealth(only){const h={'x-hermes-session-token':DASH_TOKEN};c
   if(copy&&API_KEY){const envF=path.join(HERMES_HOME,'profiles',a,'.env');
    if(await editEnv(envF,cur=>/^API_SERVER_KEY=/m.test(cur)?null:cur+(cur&&!cur.endsWith('\n')?'\n':'')+'API_SERVER_KEY='+API_KEY+'\n').catch(()=>false))console.log('health',a,'added the gateway key')}
   if(!copy){await ensureChatHint(a).catch(async e=>{if(await isAgent(a))console.warn('chat hint',a,e.message)});await screens.ensure(a).catch(()=>{})}
+  if(a!=='default')await loopGuard(a,await listAllProfiles()).catch(e=>console.warn('loop guard',a,e.message));
   if(!copy&&a!=='default'&&lockedAgent(a,st))await lockTools(a).catch(e=>console.warn('lock tools',a,e.message));
   {const cf=path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml');const y=await readFile(cf,'utf8').catch(()=>'');
    // the engine's own connector tool only works at this server (localhost); agents that have connect_mcp_tool use that instead
