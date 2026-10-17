@@ -1009,3 +1009,80 @@ body:has(.drawer.pop) .scrim{backdrop-filter:blur(5px);background:rgba(11,12,16,
 .sd-run{display:grid;grid-template-columns:1.4fr .8fr 1fr .8fr 1.2fr;gap:8px;padding:9px 12px;font-size:12.5px;border-top:1px solid var(--border);cursor:pointer}.sd-run:first-child{border-top:0}.sd-run:hover{background:var(--soft)}.sd-run .m{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media (max-width:600px){.sd-run{grid-template-columns:1fr 1fr 1fr}.sd-run .m,.sd-run span:nth-child(3){display:none}}
 .sj-row .main-c{flex:1;min-width:0}.sj-row .txt{flex:1;min-width:0}.sj-row .txt>span{white-space:normal;overflow:visible}
+
+/* steer: an ordinary bubble; one quiet line under it while it waits (as in Claude) */
+.steer-meta{align-self:flex-end;display:flex;align-items:center;gap:10px;margin:-8px 4px 0;font-size:12.5px;color:var(--muted);animation:fadeIn .25s var(--ease) both}
+.steer-meta.failed{color:var(--bad)}
+.steer-meta .steer-now{background:none;border:0;padding:2px 4px;min-height:0;font-size:12.5px;color:var(--ink-2);cursor:pointer;border-radius:6px;transition:color .2s,background .2s}
+.steer-meta .steer-now:hover{color:var(--ink);background:var(--soft)}
+/* attachments: real previews in the composer and in the message */
+#attachList{gap:8px!important}#attachList.busy{opacity:.6;pointer-events:none}
+.att-chip{position:relative;display:flex;align-items:center;gap:10px;padding:6px 30px 6px 6px;margin-bottom:8px;border:1px solid var(--border);border-radius:14px;background:var(--surface);max-width:260px;animation:cardIn .25s var(--ease) both}
+.att-chip img,.att-chip video{width:44px;height:44px;object-fit:cover;border-radius:10px;flex:none;background:var(--soft)}
+.att-chip .att-play{position:absolute;left:20px;top:20px;width:20px;height:20px;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;display:grid;place-items:center}
+.att-chip .att-ic{width:44px;height:44px;border-radius:10px;background:var(--blue-soft);color:var(--blue-deep);display:grid;place-items:center;flex:none}
+.att-chip .att-txt{display:flex;flex-direction:column;min-width:0}.att-chip b{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.att-chip small{font-size:11.5px;color:var(--muted)}
+.att-chip .att-x{position:absolute;top:6px;right:6px;width:20px;height:20px;min-height:0;padding:0;border:0;border-radius:50%;background:var(--soft);color:var(--ink-2);display:grid;place-items:center;cursor:pointer}
+.att-chip .att-x:hover{background:var(--soft-2);color:var(--ink)}
+.att-row{display:flex;flex-wrap:wrap;gap:8px;margin:2px 0 8px}.att-row:last-child{margin-bottom:0}
+.att-img{max-width:min(100%,320px);max-height:260px;border-radius:12px;object-fit:cover;cursor:zoom-in;border:1px solid var(--border);display:block}
+.att-vid{max-width:min(100%,420px);max-height:300px;border-radius:12px;background:#000;display:block}
+.att-file{display:flex;align-items:center;gap:10px;padding:8px 12px;border:1px solid var(--border);border-radius:12px;background:var(--soft);color:var(--ink);text-decoration:none;max-width:320px}
+.att-file:hover{border-color:var(--blue-2)}.att-file span{display:flex;flex-direction:column;min-width:0}.att-file b{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.att-file small{font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.att-zoom{position:fixed;inset:0;z-index:300;background:rgba(10,12,16,.72);backdrop-filter:blur(6px);display:grid;place-items:center;cursor:zoom-out;animation:fadeIn .2s var(--ease) both}
+.att-zoom img{max-width:92vw;max-height:90vh;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.4);animation:cardIn .25s var(--ease) both}
+.att-zoom.out{opacity:0;transition:opacity .2s}
+/* loading placeholders shaped like the rows they stand for */
+.sk-item{display:flex;align-items:center;gap:14px;padding:16px 0;border-top:1px solid var(--border);animation:skelIn .35s var(--ease) both;animation-delay:var(--d)}
+.sk-item:first-child{border-top:0}
+.sk-item .skel{animation-delay:var(--d)}
+.sk-ic{width:34px;height:34px;border-radius:10px;flex:none}
+.sk-lines{flex:1;display:flex;flex-direction:column;gap:8px}.sk-l1{height:12px;border-radius:6px}.sk-l2{height:10px;border-radius:5px;opacity:.7}
+.sk-end{width:42px;height:22px;border-radius:999px;flex:none}
+/* Kanban fills the window; each column scrolls on its own */
+.kboard{align-items:stretch;padding-bottom:6px}
+.kcol{min-height:0;overflow:hidden}.kcol .klist{flex:1;overflow-y:auto;scrollbar-width:thin}
+/* links in messages: small labelled buttons */
+.md a.lk{display:inline-flex;align-items:center;gap:5px;vertical-align:baseline;max-width:100%;padding:1px 10px 1px 8px;margin:1px;border-radius:999px;background:var(--blue-soft);color:var(--blue-deep);font-size:.92em;font-weight:600;text-decoration:none;line-height:1.6;transition:background .2s,transform .15s}
+.md a.lk span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:320px}.md a.lk svg{flex:none}
+.md a.lk:hover{background:var(--blue);color:#fff}.md a.lk:active{transform:scale(.97)}
+.dark .md a.lk{color:var(--blue-2)}.dark .md a.lk:hover{color:#fff}
+/* notifications: slide in from the right, a blue dot until seen, fold past three */
+.cron-pop{animation:noticeIn .5s cubic-bezier(.2,.9,.25,1.15) both;position:relative}
+.cron-pop.unread::after{content:"";position:absolute;top:10px;left:10px;width:8px;height:8px;border-radius:50%;background:var(--blue);box-shadow:0 0 0 3px var(--surface);animation:fadeIn .3s both}
+.cron-pop .np-act{flex:none;min-height:32px;padding:0 12px;border-radius:999px;font-weight:600}
+.cron-pop .np-x{flex:none;width:30px;min-height:30px}
+.cron-pop.folded{display:none}
+.cron-pop.out{animation:noticeOut .28s cubic-bezier(.4,0,1,1) both}
+.np-more{align-self:flex-end;min-height:30px;padding:0 14px;border-radius:999px;font-size:12.5px;font-weight:600;background:var(--surface);border:1px solid var(--border);box-shadow:0 8px 20px -10px rgba(11,12,16,.3);animation:fadeIn .25s both}
+@keyframes noticeIn{from{opacity:0;transform:translateX(36px) scale(.97)}to{opacity:1;transform:none}}
+@keyframes noticeOut{to{opacity:0;transform:translateX(28px) scale(.97)}}
+@media (prefers-reduced-motion:reduce){.cron-pop,.cron-pop.out{animation:none}}
+
+/* agent cards: the whole card opens a chat; the gear holds settings */
+.agent-card:not(.locked){cursor:pointer;transition:transform .2s var(--ease),box-shadow .2s var(--ease),border-color .2s}
+.agent-card:not(.locked):hover{transform:translateY(-2px);border-color:var(--blue-2);box-shadow:0 14px 30px -18px rgba(11,12,16,.35)}
+.agent-card:not(.locked):active{transform:translateY(0) scale(.995)}
+.agent-go{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--blue-deep);opacity:.75;transition:opacity .2s,gap .2s}
+.agent-card:hover .agent-go{opacity:1;gap:8px}.dark .agent-go{color:var(--blue-2)}
+.agent-gear svg{transition:transform .5s var(--ease)}.agent-gear:hover svg{transform:rotate(60deg)}
+
+.kind-chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:1px 8px;border-radius:999px;margin-right:4px;vertical-align:1px;background:var(--soft);color:var(--ink-2)}
+.kind-chip.bot{background:var(--blue-soft);color:var(--blue-deep)}.dark .kind-chip.bot{color:var(--blue-2)}
+.ch-note{font-style:italic;color:var(--muted)!important}
+
+/* Keys: each group folds; groups you use start open */
+.kfold .kf-head{display:flex;align-items:center;justify-content:space-between;width:100%;background:none;border:0;box-shadow:none;padding:0;min-height:0;text-align:left;color:inherit;cursor:pointer}
+.kfold .kf-head h2{margin:0}.kfold .kf-head .sub{margin:2px 0 0}.kfold .kf-head svg{transition:transform .3s var(--ease);color:var(--muted)}
+.kfold.shut .kf-head svg{transform:rotate(-90deg)}
+.kfold .kf-body{display:grid;grid-template-rows:1fr;transition:grid-template-rows .35s var(--ease),opacity .25s,margin .3s;margin-top:10px}.kfold .kf-body>div{min-height:0;overflow:hidden}
+.kfold.shut .kf-body{grid-template-rows:0fr;opacity:0;margin-top:0}
+.spend .spend-bars{display:flex;flex-direction:column;gap:8px}.sb-row{display:grid;grid-template-columns:140px 1fr 80px;align-items:center;gap:12px;font-size:13.5px}
+.sb-bar{height:10px;border-radius:999px;background:var(--soft);overflow:hidden}.sb-bar i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,var(--blue),var(--blue-2));animation:barGrow .8s var(--ease) both;transform-origin:left}
+.sb-v{text-align:right;color:var(--ink-2)}.tz-note.warn{background:color-mix(in srgb,var(--warn) 12%,transparent);color:var(--ink)}
+@keyframes barGrow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.row .txt span.kind-chip{display:inline-flex;margin-top:0;white-space:nowrap}
+.kf-more{margin-top:10px}.kf-more>summary{cursor:pointer;font-size:13px;color:var(--blue-deep);font-weight:600;padding:8px 0;list-style:none}.kf-more>summary::-webkit-details-marker{display:none}.dark .kf-more>summary{color:var(--blue-2)}
+/* notifications sit top right, under the bar, clear of the message box */
+.cron-pops{top:72px;bottom:auto;right:18px}
+@media (max-width:700px){.cron-pops{top:auto;bottom:12px;right:12px;left:12px;max-width:none}}

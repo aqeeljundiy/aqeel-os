@@ -15,6 +15,7 @@ PAGES.kanban=async(p,el)=>{
  el.querySelectorAll('.kcard').forEach(c=>c.ondragend=()=>c.classList.remove('dragging'));
  el.querySelectorAll('.kcol').forEach(col=>{col.ondragover=e=>{if(e.dataTransfer.types.includes('text/kb')){e.preventDefault();col.classList.add('over')}};col.ondragleave=()=>col.classList.remove('over');
   col.ondrop=async e=>{e.preventDefault();col.classList.remove('over');const id=e.dataTransfer.getData('text/kb');if(!id)return;try{const r=await KB('/tasks/'+encodeURIComponent(id),{method:'PATCH',body:{status:col.dataset.col}});if(r?.warning)toast(r.warning);reload()}catch(er){fail(er)}}});
+ const fit=()=>{const k=el.querySelector('.kboard');if(!k)return;k.style.height=Math.max(320,innerHeight-k.getBoundingClientRect().top-18)+'px'};fit();window.removeEventListener('resize',Pages._kbFit||fit);Pages._kbFit=fit;window.addEventListener('resize',fit);
  clearTimeout(Pages._kbT);Pages._kbT=setTimeout(()=>{if(route().page?.id==='kanban'&&!document.hidden&&!$('.drawer'))PAGES.kanban(p,el).catch(()=>{})},10000);
 };
 ACT['kb-refresh']=()=>reload();

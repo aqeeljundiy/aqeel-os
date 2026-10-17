@@ -44,9 +44,11 @@ document.addEventListener('click',e=>{
   case 'step':a.closest('.step').classList.toggle('open');break;
   case 'think':{const b=a.nextElementSibling;b.hidden=!b.hidden;a.querySelector('svg:last-child').style.transform=b.hidden?'':'rotate(90deg)';break}
   case 'approval':Chat.approve(a.dataset.choice);break;
+  case 'perm-menu':Chat.permMenu(a);break;
   case 'perm-toggle':{if(!Chat.id){toast('Send the first message, then choose Allow all for this chat.');break}const on=!Chat.allowAll(Chat.id);Chat.setAllowAll(Chat.id,on);Chat.paintComposerBar();toast(on?'Allow all in this chat: no approval prompts (blocked commands stay blocked).':'Ask me: risky commands wait for your OK again.');break}
-  case 'attach':pickFile('image/*',f=>Chat.addFiles(f),true);break;
-  case 'unattach':Chat.files.splice(+a.dataset.i,1);Chat.paintFiles();break;
+  case 'attach':pickFile('*/*',f=>Chat.addFiles(f),true);break;
+  case 'att-zoom':{const d=document.createElement('div');d.className='att-zoom';d.innerHTML=`<img src="${esc(a.src)}" alt="">`;d.onclick=()=>{d.classList.add('out');setTimeout(()=>d.remove(),200)};document.body.append(d);break}
+  case 'unattach':{const f=Chat.files[+a.dataset.i];if(f?.blob&&!Chat._sentAtt)setTimeout(()=>URL.revokeObjectURL(f.blob),60000)}Chat.files.splice(+a.dataset.i,1);Chat.paintFiles();break;
   case 'copymsg':{const t=Chat.live[Chat.id]?.turns[+a.dataset.i];navigator.clipboard.writeText(t?.text||'').then(()=>toast('Reply copied'));break}
   case 'copycode':navigator.clipboard.writeText(a.closest('.codeblock').querySelector('pre').textContent).then(()=>toast('Code copied'));break;
   case 'copy-text':navigator.clipboard.writeText(a.dataset.text).then(()=>toast('Copied'));break;

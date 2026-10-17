@@ -60,6 +60,11 @@ function niceModel(id){let s=String(id||'').replace(/^.*\//,'').replace(/\[[^\]]
  return (out+(rest?' '+rest:'')+(ctx?' · '+ctx:'')).trim()}
 const srcIcon=s=>({telegram:'telegram',whatsapp:'whatsapp',cron:'cron',api_server:'chat',tui:'terminal',cli:'terminal',oneshot:'terminal',webhook:'hook',discord:'chat',slack:'chat',email:'chat'}[s]||'chat');
 
+// Links show as small labelled buttons (named links keep their name; a bare link says what it is: Google Doc, Sheet…)
+function linkChip(u,text){const raw=u.replace(/&amp;/g,'&');let host='',deep=false;try{const x=new URL(raw);host=x.hostname.replace(/^www\./,'');deep=x.pathname.length>1}catch{}
+ const kind=/docs\.google\.com\/document/.test(raw)?['Google Doc','file']:/docs\.google\.com\/spreadsheets/.test(raw)?['Google Sheet','list']:/docs\.google\.com\/presentation/.test(raw)?['Google Slides','layers']:/drive\.google\.com/.test(raw)?['Google Drive','folder']:/github\.com/.test(raw)?['GitHub','terminal']:null;
+ const label=text||(kind?kind[0]:host+(deep?'/…':''));
+ return `<a class="lk" href="${u}" target="_blank" rel="noopener" title="${u}">${icon(kind?kind[1]:'link',13)}<span>${label}</span></a>`}
 // Small, safe Markdown: paragraphs, lists, headings, bold, italics, inline code, fenced code, links, tables, quotes.
 function md(src){
  // MEDIA:/path/picture.png (how agents hand over pictures they made) shows the picture itself
@@ -69,8 +74,8 @@ function md(src){
  const inline=t=>{const keep=[];const put=h=>'\u0000'+(keep.push(h)-1)+'\u0000';
   t=t.replace(/`([^`]+)`/g,(m,c)=>put('<code>'+esc(c)+'</code>'))
    .replace(/!\[([^\]]*)\]\(((?:data:image\/[a-z+.-]+;base64,[A-Za-z0-9+/=]+)|(?:https?:\/\/[^)\s]+)|(?:\/ui\/media\?path=[^)\s]+))\)/g,(m,alt,u)=>put(`<img class="md-img" src="${esc(u)}" alt="${esc(alt)}" loading="lazy">`));
-  t=esc(t).replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>').replace(/__([^_]+)__/g,'<b>$1</b>').replace(/(^|[^*\w])\*([^*\s][^*]*)\*/g,'$1<i>$2</i>').replace(/~~([^~]+)~~/g,'<s>$1</s>')
-   .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>').replace(/(^|\s)(https?:\/\/[^\s<]+)/g,'$1<a href="$2" target="_blank" rel="noopener">$2</a>');
+  t=esc(t).replace(/(?<![\w\/.-])Hermes Agent\b/g,'aqeelOS').replace(/(?<![\w\/.-])Hermes(?![\w-])/g,'aqeelOS').replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>').replace(/__([^_]+)__/g,'<b>$1</b>').replace(/(^|[^*\w])\*([^*\s][^*]*)\*/g,'$1<i>$2</i>').replace(/~~([^~]+)~~/g,'<s>$1</s>')
+   .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,(m,t,u)=>linkChip(u,t)).replace(/(^|\s)(https?:\/\/[^\s<]+)/g,(m,pre,u)=>pre+linkChip(u));
   return t.replace(/\u0000(\d+)\u0000/g,(m,n)=>keep[+n])};
  const isItem=l=>/^\s*(?:[-*+]|\d+[.)])\s+/.test(l),indent=l=>l.match(/^\s*/)[0].replace(/\t/g,'  ').length;
  // a list block, nested by indentation; indented lines under an item continue it
@@ -205,7 +210,7 @@ function setActions(html){const a=$('.head-actions');if(a)a.innerHTML=html}
 function tabs(key,list,cur){cur=cur||S.tab[key]||list[0];return `<div class="tabs" data-tabs="${key}">${list.map(t=>`<button class="${t===cur?'on':''}" data-tab="${esc(t)}">${esc(t)}</button>`).join('')}<span class="pill"></span></div>`}
 const toggle=(on,label,attrs='')=>`<input type="checkbox" class="switch" ${on?'checked':''} aria-label="${esc(label)}" ${attrs}>`;
 const st=i=>`style="animation-delay:${Math.min(i,10)*30}ms"`;
-const skeleton=(n=4)=>`<div class="card list" style="padding:6px 22px">${Array.from({length:n},()=>'<div class="skel skel-row"></div>').join('')}</div>`;
+const skeleton=(n=4)=>`<div class="card list sk-list" style="padding:6px 22px">${Array.from({length:n},(x,i)=>`<div class="sk-item" style="--d:${i*90}ms"><span class="skel sk-ic"></span><span class="sk-lines"><span class="skel sk-l1" style="width:${[46,58,38,52,44,60][i%6]}%"></span><span class="skel sk-l2" style="width:${[72,64,80,68,76,58][i%6]}%"></span></span><span class="skel sk-end"></span></div>`).join('')}</div>`;
 function showError(el,e,retry){if(!el)return;el.innerHTML=`<div class="card state-box err"><b>Couldn't load this</b>${esc(e?.message||e)}<br><button data-act="reload">${icon('refresh',15)}Try again</button></div>`}
 const emptyBox=(title,text,btn='')=>`<div class="empty-hero"><b style="display:block;font-size:17px;margin-bottom:6px">${esc(title)}</b><span style="color:var(--ink-2)">${esc(text)}</span>${btn?`<div style="margin-top:16px">${btn}</div>`:''}</div>`;
 // Tab bars are often re-rendered on switch, so each bar remembers where its pill was and a fresh pill

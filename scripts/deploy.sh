@@ -19,6 +19,8 @@ for i in $(seq 1 120); do
 done
 BOX
 # 2) Only now pack the files, so what goes live is what is here at this moment (not what was here before the wait).
+# the update history on /backlog: when each deploy went live and which commit it carried
+node -e "const fs=require('fs'),f='data/deploys.json';let l=[];try{l=JSON.parse(fs.readFileSync(f,'utf8'))}catch{}let h='';try{h=require('child_process').execFileSync('git',['rev-parse','--short','HEAD'],{encoding:'utf8'}).trim()}catch{}l.push({at:new Date().toISOString(),commit:h});fs.writeFileSync(f,JSON.stringify(l.slice(-200),null,1))"
 node scripts/features.mjs >/dev/null
 tar --force-local -czf ../hui.tgz app assets backlog data extension mockup scripts PRD.md
 scp -q ../hui.tgz ai-vps:/tmp/hui.tgz && rm ../hui.tgz

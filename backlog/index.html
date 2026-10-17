@@ -41,25 +41,52 @@
  .empty{padding:40px;text-align:center;color:var(--muted)}
  @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
  @media (max-width:700px){header{padding:0 16px}main{padding:28px 16px 60px}h1{font-size:28px}.bar input{max-width:none}.grid{grid-template-columns:1fr}}
+
+ .bboard{display:grid;grid-template-columns:repeat(4,minmax(240px,1fr));gap:14px;align-items:start}
+ .bcol{background:rgba(255,255,255,.55);border:1px solid var(--border);border-radius:22px;padding:14px 12px;min-height:200px}
+ .dark .bcol{background:rgba(255,255,255,.03)}
+ .bcol header{display:flex;align-items:center;justify-content:space-between;padding:0 4px}.bcol header b{font-size:15px}
+ .bcol header .n{font-size:12px;color:var(--muted);background:var(--soft);border-radius:999px;padding:2px 9px}
+ .bcol.doing header b{color:var(--blue-deep)}.bcol.blocked header b{color:var(--warn)}.bcol.done header b{color:var(--ok)}
+ .bh{font-size:12.5px;color:var(--muted);margin:2px 4px 10px}.bh.empty{text-align:center;padding:20px 0}
+ .blist{display:flex;flex-direction:column;gap:8px;max-height:calc(100dvh - 330px);overflow-y:auto;padding:2px;scrollbar-width:thin}
+ .bcol.done .blist{max-height:calc(100dvh - 330px)}
+ .bcard{padding:12px 14px;border-radius:16px;cursor:pointer;display:flex;flex-direction:column;gap:6px;animation:rise .35s var(--ease) both;animation-delay:calc(var(--i)*25ms);transition:transform .15s,box-shadow .15s}
+ .bcard:hover{transform:translateY(-2px)}.bcard .top{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.bcard .id{font-size:11.5px;font-weight:600;color:var(--muted)}
+ .bcard h3{margin:0;font-size:14px;font-weight:600;letter-spacing:-.15px;line-height:1.35}.bcard .area-t{font-size:12px;color:var(--muted)}
+ .bcol.done .bcard{opacity:.85}
+ .pop-bg{position:fixed;inset:0;z-index:20;background:rgba(11,12,16,.32);backdrop-filter:blur(5px);display:grid;place-items:center;padding:16px;animation:fade .2s both}
+ .pop-bg.out{opacity:0;transition:opacity .2s}
+ .pop{position:relative;max-width:620px;width:100%;max-height:86vh;overflow:auto;padding:24px 26px;border-radius:24px;animation:rise .28s var(--ease) both}
+ .pop h2{margin:12px 0 8px;font-size:20px;letter-spacing:-.4px}.pop p{color:var(--ink-2);line-height:1.6;margin:0}.pop .top{display:flex;gap:6px;flex-wrap:wrap;align-items:center}.pop .id{font-weight:600;color:var(--muted);font-size:12.5px}
+ .pop h4{margin:18px 0 6px;font-size:13.5px}.up-line{font-size:13px;color:var(--ink-2);padding:6px 0;border-top:1px solid var(--border)}
+ .pop-x{position:absolute;top:14px;right:14px}
+ .uday{margin-bottom:22px}.uday h3{font-size:15px;margin:0 0 8px}.ulist{padding:4px 18px}
+ .uline{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;padding:11px 0;border-top:1px solid var(--border);font-size:13.5px;line-height:1.5}.uline:first-child{border-top:0}
+ .uline .ut{font-size:12px;color:var(--muted);min-width:44px}.uline.live{color:var(--ink)}
+ @keyframes fade{from{opacity:0}}
+ @media (max-width:1000px){.bboard{grid-template-columns:repeat(2,minmax(0,1fr))}}
+ @media (max-width:640px){.bboard{grid-template-columns:1fr}.blist{max-height:none}}
 </style>
 </head>
 <body>
 <header>
  <span class="wordmark"><img class="mark" src="/assets/elkiya-mark.svg" alt="">aqeelOS</span>
- <nav><a href="/">Mockup</a><button class="ghost icon" id="theme" aria-label="Switch light and dark">◐</button></nav>
+ <nav><a href="/">Open aqeelOS</a><button class="ghost icon" id="theme" aria-label="Switch light and dark">◐</button></nav>
 </header>
 <main>
  <span class="eyebrow">Development board</span>
- <h1>aqeelOS inventory</h1>
- <p class="lead">Every feature from the original dashboard, the Claude-style chat behaviour and the Elkiya brand rules, each with a line that says when it counts as done. Generated from <b>scripts/features.mjs</b>.</p>
+ <h1>aqeelOS board</h1>
+ <p class="lead">Everything asked for and built, by where it stands. Open a card to see what counts as done and its updates.</p>
  <div class="stats" id="stats"></div>
  <div class="bar">
-  <input id="q" type="search" placeholder="Search features" aria-label="Search features">
-  <div class="seg" id="status" role="group" aria-label="Status"><button class="on" data-v="">All</button><button data-v="planned">Planned</button><button data-v="partial">Partial</button><button data-v="done">Done</button></div>
-  <div class="seg" id="mock" role="group" aria-label="Mockup"><button class="on" data-v="">Everything</button><button data-v="yes">In mockup</button><button data-v="no">Build only</button></div>
+  <div class="seg" id="tabs" role="tablist"><button class="on" data-v="board">Board</button><button data-v="updates">Updates</button><button data-v="map">Old pages</button></div>
+  <input id="q" type="search" placeholder="Search" aria-label="Search">
+  <select id="area" aria-label="Area" style="max-width:220px"></select>
  </div>
- <section class="area"><h2>Where every old dashboard page went<span class="chip" id="mapcount"></span></h2><div class="card" style="overflow-x:auto;padding:6px 8px"><table id="map" style="width:100%;border-collapse:collapse;font-size:13.5px"></table></div></section>
- <div id="areas"></div>
+ <div id="v-board"><div class="bboard" id="board"></div></div>
+ <div id="v-updates" hidden><div id="updates"></div></div>
+ <div id="v-map" hidden><section class="area"><h2>Where every old dashboard page went<span class="chip" id="mapcount"></span></h2><div class="card" style="overflow-x:auto;padding:6px 8px"><table id="map" style="width:100%;border-collapse:collapse;font-size:13.5px"></table></div></section></div>
 </main>
 <script src="/backlog/board.js"></script>
 </body>

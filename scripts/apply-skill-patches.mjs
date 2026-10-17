@@ -2,7 +2,7 @@
 // deploy.sh runs this every time; each change is skipped when it is already there).
 // Run on the box: node scripts/apply-skill-patches.mjs
 import {readFile,writeFile,readdir,access} from 'node:fs/promises';
-import path from 'node:path';import {homedir} from 'node:os';
+import path from 'node:path';import {homedir} from 'node:os';import {readdirSync,existsSync} from 'node:fs';
 const HOME=path.join(homedir(),'.hermes');
 const homes=[HOME];for(const d of await readdir(path.join(HOME,'profiles'),{withFileTypes:true}).catch(()=>[]))if(d.isDirectory()&&!d.name.startsWith('.'))homes.push(path.join(HOME,'profiles',d.name));
 const exists=p=>access(p).then(()=>true,()=>false);
@@ -115,4 +115,14 @@ for(const h of homes){const sp=path.join(h,'skills','productivity','google-works
  for(const f of await readdir(dir).catch(()=>[])){if(!/\.ya?ml$/.test(f))continue;const p=path.join(dir,f);const s=await readFile(p,'utf8');
   const next=s.split('\n').map(l=>/^\s*[\w.-]+:\s/.test(l)||/^\s+["']/.test(l)?l.replace(/Hermes Agent/g,'aqeelOS').replace(/\bHermes\b/g,'aqeelOS'):l).join('\n');
   if(next!==s){await writeFile(p,next);changed++;console.log('renamed engine messages in',f)}}}
+// 8) Words the engine sends straight to people outside its message files: the approval prompt on WhatsApp and
+//    Telegram, the WhatsApp reply header, schedule result threads, "is working", the Telegram command menu, sign-in
+//    pages. Only text inside quotes that reads as a sentence changes; code that compares the name is left alone, and a
+//    file that no longer compiles afterwards is put back.
+{const files=['gateway/platforms/base_exec_approval.py','gateway/platforms/whatsapp_common.py','cron/scheduler_delivery.py','cron/scheduler.py','gateway/relay/adapter.py','gateway/relay/command_manifest.py','hermes_cli/commands.py','hermes_cli/web_routers/mcp.py','gateway/slash_commands.py','gateway/run_notifications.py','gateway/session.py'];
+ const {execFileSync}=await import('node:child_process');const py=(()=>{try{const base=path.join(HOME,'installs');for(const i of readdirSync(base))for(const e of readdirSync(path.join(base,i,'environments'))){const p=path.join(base,i,'environments',e,'venv','bin','python');if(existsSync(p))return p}}catch{}return 'python3'})();
+ for(const rel of files){const p=path.join(HOME,'hermes-agent',rel);const s=await readFile(p,'utf8').catch(()=>null);if(s==null)continue;
+  const next=s.split('\n').map(l=>/==\s*["']Hermes|["']Hermes Agent["']\s*[:)\]]|X-Hermes|HermesAgent\//.test(l)?l:l.replace(/(["'])((?:\\.|(?!\1)[^\\])*)\1/g,(m,q,body)=>/\s/.test(body)&&/(?<![\w-])Hermes(?![\w-])/.test(body)?q+body.replace(/Hermes Agent/g,'aqeelOS').replace(/(?<![\w-])Hermes(?![\w-])/g,'aqeelOS')+q:m)).join('\n');
+  if(next===s)continue;await writeFile(p,next);
+  try{execFileSync(py,['-m','py_compile',p],{timeout:30000});changed++;console.log('renamed engine words in',rel)}catch{await writeFile(p,s);console.warn('! left',rel,'as it was (did not compile after renaming)')}}}
 console.log(changed?changed+' change(s)':'skill patches already in place');

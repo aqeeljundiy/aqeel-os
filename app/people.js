@@ -134,11 +134,11 @@ PAGES.profiles=async(p,el)=>{
  setActions(S.me?.admin===false&&!(S.me.caps||[]).includes('create')?'':`<button class="primary" data-act="prof-new">${icon('plus',16)}New agent</button>`);
  const list=Pages._profiles.filter(x=>own[x.name]||S.me?.admin!==false);
  el.innerHTML=`<div class="grid-cards">${list.map((x,i)=>{const id=ident(x.name),o=own[x.name]||{},locked=o.access===null&&o.private;
-  return `<div class="card tile agent-card ${locked?'locked':''}" ${st(i)} ${locked?`data-act="agent-locked" data-owner="${esc(o.owner?.name||'')}"`:`data-act="ident-open"`} data-name="${esc(x.name)}">
+  return `<div class="card tile agent-card ${locked?'locked':''}" ${st(i)} ${locked?`data-act="agent-locked" data-owner="${esc(o.owner?.name||'')}"`:`data-act="agent-card" tabindex="0" title="Chat with ${esc(id.name)}"`} data-name="${esc(x.name)}">
   <div class="tile-top"><span class="logo ava">${id.avatar&&!locked?`<img src="${esc(id.avatar)}" alt="">`:esc(id.name[0].toUpperCase())}</span><div style="min-width:0"><h3>${esc(id.name)}</h3><span style="font-size:12.5px;color:var(--muted)">${locked?'Private':esc(id.title||'Agent')+' · '+esc(modelLabel(x.model))+' · '+plural(x.skill_count||0,'skill')}</span></div>${locked?`<span class="chip">${icon('lock',12)}Private</span>`:''}</div>
   ${locked?`<p class="hint">Only ${esc(o.owner?.name||'its owner')} and the people they share it with can open it.</p>`:`<p>${esc(x.description||'No description yet.')}</p>`}
   <div class="agent-people">${o.owner?`<span class="aowner" title="Owner">${personAva(o.owner,22)}<span>${esc(o.owner.id===S.me?.id?'You':o.owner.name)}</span><small>owner</small></span>`:''}${(o.shared||[]).length?`<span class="ashared">${o.shared.slice(0,5).map(s=>`<span title="${esc(s.name)} · ${esc(LEVEL_LABEL[s.level]||s.level)}">${personAva(s,22)}</span>`).join('')}${o.shared.length>5?`<small>+${o.shared.length-5}</small>`:''}</span>`:''}</div>
-  <div class="agent-tags">${x.is_default?'<span class="chip blue">Default</span>':''}${locked?'':chipState(x.gateway_running,'Gateway on','Gateway off')}${act.active===x.name?'<span class="chip" title="The agent the command line uses">CLI default</span>':''}</div><div class="tile-foot agent-foot"><span>${locked?'':(S.profile||'default')===x.name?'<span class="chip ok"><i class="dot"></i>In use</span>':`<button class="primary small" data-act="agent-use" data-name="${esc(x.name)}">${icon('chat',14)}Use this agent</button>`}</span>${locked?'':`<button class="ghost icon" data-menu="profilecard" data-name="${esc(x.name)}" aria-label="More">${icon('more',18)}</button>`}</div></div>`}).join('')}</div>`;
+  <div class="agent-tags">${x.is_default?'<span class="chip blue">Default</span>':''}${locked?'':chipState(x.gateway_running,'Gateway on','Gateway off')}${act.active===x.name?'<span class="chip" title="The agent the command line uses">CLI default</span>':''}</div><div class="tile-foot agent-foot"><span>${locked?'':(S.profile||'default')===x.name?'<span class="chip ok"><i class="dot"></i>In use</span>':`<span class="agent-go">${icon('chat',14)}Chat with ${esc(id.name)}</span>`}</span>${locked?'':`<button class="ghost icon agent-gear" data-menu="profilecard" data-name="${esc(x.name)}" aria-label="Settings for ${esc(id.name)}" title="Settings">${icon('settings',18)}</button>`}</div></div>`}).join('')}</div>`;
 };
 ACT['agent-locked']=a=>toast('This agent is private to '+(a.dataset.owner||'its owner')+'. Ask them to share it with you.');
 // Sharing and owner, from an agent's ⋯ menu (its owner only)
@@ -223,6 +223,8 @@ ACT['mem-edit']=async a=>{const f=a.dataset.f,path=memHome()+'/memories/'+f;let 
   try{await H('/files/upload-stream',{method:'POST',body:fd});closeLayers();toast(f+' saved');reload()}catch(e){fail(e)}}};
 
 ACT['agent-use']=a=>{switchAgent(a.dataset.name);go('/chat')};
+// the whole card opens a chat with that agent; the gear holds its settings
+ACT['agent-card']=(a,e)=>{if(e.target.closest('[data-menu],button,a,select,input'))return;if((S.profile||'default')!==a.dataset.name)switchAgent(a.dataset.name);go('/chat')};
 
 /* ---------- plain names and "what it does" (written once by Haiku, see explain.mjs) ---------- */
 const EXPLAIN={};
@@ -301,8 +303,8 @@ ACT['wh-new-pre']=0;
  // extra connections (WhatsApp 2…) sit right under their agent's channels, by name and ID
  d.channels.sort((x,y)=>{const bx=x.agent.split('--')[0],by=y.agent.split('--')[0];return bx===by?(x.agent.includes('--'))-(y.agent.includes('--'))||x.id.localeCompare(y.id):0});const agents=((await pA).profiles||[]).map(x=>x.name);
  panel.innerHTML=`<h2>Every agent's channels</h2><p class="sub">Each connection belongs to one agent, which answers it. Check one any time; aqeelOS also checks them every 2 hours and tells you when one needs linking again. Move one to another agent and its settings, WhatsApp login and approved people go along.</p>
-  ${d.channels.length?d.channels.map((c,i)=>`<div class="row" ${st(i)} style="padding:12px 12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="main-c">${chLogo(c.id,c.name)}<div class="txt"><b>${esc(LK[c.agent]?linkTitle(LK[c.agent]):c.name)}</b>${c.account?'<span class="acct-line">'+esc(accountText(c.account))+'</span>':''}<span title="Agents use the name “${esc(LK[c.agent]?linkId(LK[c.agent]):c.id)}” to pick this channel">${c.paused?'<i class="dot"></i>Paused · nobody answers it':c.state==='connected'?'<i class="dot ok"></i>Connected':esc(chState(c).replace(' · link again',''))}</span></div></div>
-   <div class="act ch-act">${c.id==='whatsapp'&&!c.paused&&c.state!=='connected'?`<button class="primary small" data-act="wa-link" data-agent="${esc(c.agent)}">${icon('refresh',14)}Link again</button>`:''}${LK[c.agent]?`<span class="hint" style="margin:0">Extra number of</span><b style="font-size:13.5px">${esc(ident(LK[c.agent].agent).name)}</b>`:`<span class="ab-lbl">Answered by</span><select style="width:auto" data-chmove="${esc(c.id)}" data-from="${esc(c.agent)}" data-paused="${c.paused?1:''}" data-acct="${esc(accountText(c.account))}">${agents.map(n=>`<option value="${esc(n)}" ${n===c.agent&&!c.paused?'selected':''}>${esc(ident(n).name)}</option>`).join('')}<option value="" ${c.paused?'selected':''}>Nobody (paused)</option></select>`}<button class="ghost icon ch-more" data-act="ch-more" data-agent="${esc(c.agent)}" data-platform="${esc(c.id)}" data-paused="${c.paused?1:''}" data-state="${esc(c.state||'')}" data-extra="${LK[c.agent]?1:''}" title="More" aria-label="More for ${esc(c.name)}">${icon('more',18)}</button></div></div>`).join(''):'<p class="hint">No channel is connected yet. Set one up below and it shows here for the whole team.</p>'}`;
+  ${d.channels.length?d.channels.map((c,i)=>`<div class="row" ${st(i)} style="padding:12px 12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="main-c">${chLogo(c.id,c.name)}<div class="txt"><b>${esc(LK[c.agent]?linkTitle(LK[c.agent]):c.name)}</b>${c.account?'<span class="acct-line">'+(c.account.kind?`<span class="kind-chip ${c.account.kind}" title="${c.account.kind==='bot'?'A bot account made for the agent':'Someone’s own account: messages come from that person'}">${icon(c.account.kind==='bot'?'zap':'user',11)}${c.account.kind==='bot'?'Bot':'Personal account'}</span> `:'')+esc(accountText(c.account))+'</span>':''}${c.note?'<span class="acct-line ch-note">'+esc(c.note)+'</span>':''}<span title="Agents use the name “${esc(LK[c.agent]?linkId(LK[c.agent]):c.id)}” to pick this channel">${c.paused?'<i class="dot"></i>Paused · nobody answers it':c.state==='connected'?'<i class="dot ok"></i>Connected':esc(chState(c).replace(' · link again',''))}</span></div></div>
+   <div class="act ch-act">${c.id==='whatsapp'&&!c.paused&&c.state!=='connected'?`<button class="primary small" data-act="wa-link" data-agent="${esc(c.agent)}">${icon('refresh',14)}Link again</button>`:''}${LK[c.agent]?`<span class="hint" style="margin:0">Extra number of</span><b style="font-size:13.5px">${esc(ident(LK[c.agent].agent).name)}</b>`:`<span class="ab-lbl">Answered by</span><select style="width:auto" data-chmove="${esc(c.id)}" data-from="${esc(c.agent)}" data-paused="${c.paused?1:''}" data-acct="${esc(accountText(c.account))}">${agents.map(n=>`<option value="${esc(n)}" ${n===c.agent&&!c.paused?'selected':''}>${esc(ident(n).name)}</option>`).join('')}<option value="" ${c.paused?'selected':''}>Nobody (paused)</option></select>`}<button class="ghost icon ch-more" data-act="ch-more" data-agent="${esc(c.agent)}" data-platform="${esc(c.id)}" data-paused="${c.paused?1:''}" data-state="${esc(c.state||'')}" data-extra="${LK[c.agent]?1:''}" data-note="${esc(c.note||'')}" title="More" aria-label="More for ${esc(c.name)}">${icon('more',18)}</button></div></div>`).join(''):'<p class="hint">No channel is connected yet. Set one up below and it shows here for the whole team.</p>'}`;
  panel.querySelectorAll('select').forEach(enhanceSelect);
  panel.querySelectorAll('[data-chmove]').forEach(s=>s.onchange=async()=>{const to=s.value,from=s.dataset.from,pf=s.dataset.chmove,was=s.dataset.paused?'':from;if(to===was)return;
   const what=appName(pf)+(s.dataset.acct?' ('+s.dataset.acct+')':'');
@@ -348,13 +350,19 @@ const CronNotify={
   const newest=Math.max(0,...list.map(s=>s.started_at||0));if(!seen){try{localStorage.setItem(this.key(),String(newest||Date.now()/1000))}catch{}return}
   const fresh=list.filter(s=>(s.started_at||0)>seen&&!s.is_active).reverse();if(!fresh.length)return;
   try{localStorage.setItem(this.key(),String(newest))}catch{}
-  for(const s of fresh){let text='';try{const m=await H('/sessions/'+encodeURIComponent(s.id)+'/messages?limit=4&order=latest');const ms=(m.messages||m||[]).filter(x=>x.role==='assistant'&&typeof x.content==='string');text=(ms[0]||ms[ms.length-1])?.content||''}catch{}
-   this.show(s,text)}},
- show(s,text){const n=document.createElement('div');n.className='cron-pop';const name=String(s.title||'Schedule').replace(/ · [A-Z][a-z]{2} \d+ \d\d:\d\d$/,'');
-  n.innerHTML=`<span class="ic blue">${icon('clock',16)}</span><div class="txt"><b>${esc(name)}</b><span>${esc(String(text||'Finished.').slice(0,160))}</span></div><button class="ghost" data-go="/chat/${esc(s.id)}">Open</button><button class="ghost icon" aria-label="Close">${icon('x',14)}</button>`;
-  const bye=()=>{n.classList.add('out');setTimeout(()=>n.remove(),300)};n.querySelector('[aria-label="Close"]').onclick=bye;n.querySelector('[data-go]').addEventListener('click',bye);
-  (document.querySelector('.cron-pops')||document.body.appendChild(Object.assign(document.createElement('div'),{className:'cron-pops'}))).append(n);setTimeout(()=>n.classList.add('out'),60000);setTimeout(()=>n.remove(),60500);
-  try{if(document.hidden&&'Notification' in window&&Notification.permission==='granted')new Notification(name,{body:String(text||'').slice(0,120)})}catch{}}
+  for(const s of fresh){let text='';try{const m=await H('/sessions/'+encodeURIComponent(s.id)+'/messages?limit=6&order=latest');const ms=(m.messages||m||[]).filter(x=>x.role==='assistant'&&Chat.contentText(x.content).trim());text=Chat.contentText((ms[0]||ms[ms.length-1])?.content)}catch{}
+   this.show(s,text)}
+  this.failures()},
+ // the first line or two of what it said, without Markdown marks
+ gist(t){return String(t||'').replace(/\[([^\]]+)\]\([^)]+\)/g,'$1').replace(/MEDIA:\S+/g,'').replace(/[*_#`>|]+/g,'').replace(/\s+/g,' ').trim().slice(0,170)},
+ show(s,text){const name=String(s.title||'Schedule').replace(/ · [A-Z][a-z]{2} \d+ \d\d:\d\d$/,'').replace(/^\s*\[[^\]]*\]\s*/,'');
+  Notices.show({icon:'clock',title:name+' finished',text:this.gist(text)||'Done. Open it to see the result.',actions:[{label:'Open',go:'/chat/'+s.id}]})},
+ // a schedule that failed, or found nowhere to deliver, says so once, in plain words, with a way to fix it
+ async failures(){let jobs=[];try{jobs=await H('/cron/jobs?profile=all')}catch{return}
+  for(const j of jobs){const err=j.last_delivery_error||(j.last_status&&j.last_status!=='ok'?(j.last_error||j.last_status):'');if(!err||!j.last_run_at||Date.now()-new Date(j.last_run_at)>86400e3)continue;
+   const k='cronFail:'+(j.profile||'default')+'|'+j.id+'|'+j.last_run_at;try{if(localStorage.getItem(k))continue;localStorage.setItem(k,'1')}catch{continue}
+   const plain=/auth|token|expired|401|403|sign.?in|credential/i.test(err)?'A sign-in it needs has expired. Ask the agent to connect it again.':/deliver|chat not found|recipient|not connected|platform/i.test(err)?'It ran, but the result could not be delivered. Check where it sends to.':String(err).slice(0,140);
+   Notices.show({icon:'alert',kind:'warn',title:stripBracket(j.name)+' did not finish',text:plain,life:600000,key:k,actions:[{label:'Fix',run:()=>{go('/automations/schedules');setTimeout(()=>{const x=(Pages.cronJobs||[]).find(y=>y.id===j.id);if(x)cronDetail(x)},900)}}]})}}
 };
 setInterval(()=>CronNotify.check(),30000);setTimeout(()=>CronNotify.check(),4000);
 
@@ -575,7 +583,7 @@ ACT['mcp-auth']=async a=>{const name=a.dataset.name,agent=S.profile||'default';
 /* ---------- Agents › Recently deleted: every deleted agent is kept for 30 days and can be restored ---------- */
 {const base=PAGES.profiles;PAGES.profiles=async(p,el)=>{await base(p,el);if(S.me?.admin===false)return;let items=[];try{items=(await UI('/ui/agent-trash')).items||[]}catch{return}if(!items.length)return;
  const panel=document.createElement('div');panel.className='panel card';panel.style.marginTop='16px';
- panel.innerHTML=`<h2>Recently deleted</h2><p class="sub">Deleted agents are kept for 30 days. Restoring brings back its settings, skills, memory and chats.</p>${items.map((x,i)=>`<div class="row" ${st(i)} style="padding:12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="main-c">${agentAva(x.agent)}<div class="txt"><b>${esc(ident(x.agent).name)}</b><span>Deleted ${esc(when(x.deleted))} · ${esc(bytes(x.size))}</span></div></div><div class="act"><button data-act="agent-restore" data-file="${esc(x.file)}" data-name="${esc(ident(x.agent).name)}">${icon('refresh',15)}Restore</button></div></div>`).join('')}`;
+ panel.innerHTML=`<h2>Recently deleted</h2><p class="sub">Deleted agents are kept for 30 days. Restoring brings back its settings, skills, memory and chats.</p>${items.map((x,i)=>`<div class="row" ${st(i)} style="padding:12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="main-c">${agentAva(x.agent)}<div class="txt"><b>${esc(ident(x.agent).name)}</b><span>Deleted ${esc(when(x.deleted))} · ${esc(bytes(x.size))}</span></div></div><div class="act"><button class="ghost" data-act="agent-purge" data-file="${esc(x.file)}" data-name="${esc(ident(x.agent).name)}" style="color:var(--bad)">${icon('trash',15)}Delete forever</button><button data-act="agent-restore" data-file="${esc(x.file)}" data-name="${esc(ident(x.agent).name)}">${icon('refresh',15)}Restore</button></div></div>`).join('')}`;
  el.append(panel)}}
 /* ---------- Agents: an agent whose setup did not finish says so, with one click to finish it ---------- */
 {const base=PAGES.profiles;PAGES.profiles=async(p,el)=>{await base(p,el);let st={};try{st=(await UI('/ui/agent-setup')).agents||{}}catch{return}
@@ -583,6 +591,8 @@ ACT['mcp-auth']=async a=>{const name=a.dataset.name,agent=S.profile||'default';
   tags.insertAdjacentHTML('beforeend',`<span class="chip warn" title="${esc((v.failed||[]).join(' · '))}">${icon('alert',12)}Setup not finished</span><button class="small" data-act="agent-fix" data-name="${esc(n)}">Finish setup</button>`)}}}
 ACT['agent-fix']=async a=>{a.disabled=true;const was=a.textContent;a.textContent='Finishing…';
  try{const r=await post(UI,'/ui/accounts/setup-agent',{name:a.dataset.name});if(r.ok)toast('Setup finished');else toast('Not finished yet: '+(r.failed||[]).join(' · '),'err');reload()}catch(e){a.disabled=false;a.textContent=was;fail(e)}};
+ACT['agent-purge']=async a=>{if(!await confirmBox('Delete '+a.dataset.name+' forever?','Its kept backup (settings, skills, memory and chats) is removed now. This cannot be undone.','Delete forever'))return;a.disabled=true;
+ try{await post(UI,'/ui/agent-trash/purge',{file:a.dataset.file});toast(a.dataset.name+' deleted for good');const row=a.closest('.row');row?.classList.add('closing');setTimeout(()=>reload(),300)}catch(e){a.disabled=false;fail(e)}};
 ACT['agent-restore']=async a=>{if(!await confirmBox('Restore '+a.dataset.name+'?','It comes back as it was when it was deleted.','Restore',false))return;a.disabled=true;
  try{await post(UI,'/ui/agent-restore',{file:a.dataset.file});toast(a.dataset.name+' is back');setTimeout(()=>reload(),1500)}catch(e){a.disabled=false;fail(e)}};
 
@@ -627,11 +637,11 @@ const ChannelAlert={
  async check(){if(document.hidden||!S.signedIn||S.me?.admin===false)return;let items=[];try{items=(await UI('/ui/channels/attention')).items||[]}catch{return}
   for(const x of items){const k='chAlert:'+x.agent+'|'+x.id;let seen=0;try{seen=+localStorage.getItem(k)||0}catch{}if(Date.now()-seen<6*3600e3)continue;
    if(document.querySelector('.cron-pop[data-k="'+CSS.escape(k)+'"]'))continue;this.show(x,k)}},
- show(x,k){const n=document.createElement('div');n.className='cron-pop';n.dataset.k=k;const who=ident(x.base||x.agent).name+(x.agent.includes('--')?' (extra number)':'');
-  n.innerHTML=`<span class="ic warn">${icon('alert',16)}</span><div class="txt"><b>${esc(appName(x.id))} ${x.needs_link?'logged out':'not connected'}</b><span>${esc(who)}${x.account?' · '+esc(accountText(x.account)):''}. ${x.needs_link?'Link it again, or remove it if it is no longer used.':'Open Channels to check it.'}</span></div>${x.id==='whatsapp'&&x.needs_link?`<button class="ghost" data-act="wa-link" data-agent="${esc(x.agent)}">Link again</button>`:'<button class="ghost" data-go="/automations/channels">Open</button>'}<button class="ghost icon" aria-label="Close">${icon('x',14)}</button>`;
-  const close=()=>{try{localStorage.setItem(k,String(Date.now()))}catch{}n.classList.add('out');setTimeout(()=>n.remove(),400)};
-  n.querySelector('[aria-label="Close"]').onclick=close;n.querySelector('[data-act],[data-go]')?.addEventListener('click',close);
-  (document.querySelector('.cron-pops')||document.body.appendChild(Object.assign(document.createElement('div'),{className:'cron-pops'}))).append(n)}};
+ show(x,k){const who=ident(x.base||x.agent).name+(x.agent.includes('--')?' (extra number)':'');
+  Notices.show({icon:'alert',kind:'warn',key:k,life:600000,title:appName(x.id)+' '+(x.needs_link?'logged out':'not connected'),
+   text:who+(x.account?' · '+accountText(x.account):'')+'. '+(x.needs_link?'Link it again, or remove it if it is no longer used.':'Open Channels to check it.'),
+   actions:[x.id==='whatsapp'&&x.needs_link?{label:'Link again',run:()=>ACT['wa-link']({dataset:{agent:x.agent}})}:{label:'Open',go:'/automations/channels'}],
+   onClose:()=>{try{localStorage.setItem(k,String(Date.now()))}catch{}}})}};
 setInterval(()=>ChannelAlert.check(),10*60e3);setTimeout(()=>ChannelAlert.check(),6000);
 
 /* ---------- Channels page: status lives in "Every agent's channels" at the top; the cards below are only for
@@ -678,6 +688,7 @@ ACT['lb-off']=async()=>{try{await post(UI,'/ui/local-browser/off',{session:Chat.
 ACT['ch-more']=a=>{const ag=a.dataset.agent,pf=a.dataset.platform,paused=!!a.dataset.paused,extra=!!a.dataset.extra,wa=pf==='whatsapp';
  menu(a,[{label:'Check connection',icon:'activity',run:()=>ACT['ch-check']({dataset:{agent:ag,platform:pf},innerHTML:'',closest:()=>a.closest('.row')})},
   !extra&&{label:'Who can send through it',icon:'user',run:()=>channelShareDrawer(ag,pf)},
+  {label:a.dataset.note?'Edit the note':'Add a note (what it is for)',icon:'edit',run:async()=>{const v=await promptBox('Note for '+appName(pf),'What is it for? (only you see this)',a.dataset.note||'','Save');if(v==null)return;try{await put(UI,'/ui/channels/note',{agent:ag,platform:pf,note:v});toast('Saved');reload()}catch(e){fail(e)}}},
   {label:'Reconnect',icon:'refresh',run:()=>reconnectChannel(ag,pf)},
   wa&&{label:'Link a different phone (new QR)',icon:'refresh',run:()=>ACT['wa-replace']({dataset:{agent:ag}})},
   !extra&&{label:paused?'Resume (answer it again)':'Pause (nobody answers)',icon:paused?'play':'pause',run:()=>setPaused(ag,pf,!paused)},

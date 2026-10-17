@@ -179,9 +179,9 @@ async function syncNotifyOnce(){
 async function displayName(a){const y=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'profile.yaml'),'utf8').catch(()=>'');return (/^display_name:\s*"?([^"\n]+)"?/m.exec(y)||[])[1]?.trim()||(a==='default'?'aqeelOS':a)}
 /* The engine tells models that chats from an app are plain text ("no markdown"), so replies came out as flat
    paragraphs although aqeelOS shows formatting. Each agent gets the engine's own override with the truth. */
-const CHAT_HINT="You're replying in aqeelOS, a chat app that shows Markdown. Format for easy reading, like a well-written Claude or ChatGPT reply: short answers stay short and conversational; longer ones start with the outcome, then use ## headings for sections, bullet or numbered lists, tables for comparisons, and code blocks for code or commands. Bold the key numbers, names, dates and decisions (for example: UPS **Rp522,328** → **Continue**) so the reply can be skimmed. While working, keep progress notes to one short line each and lead the final answer with the result. File/media delivery: images referenced as MEDIA:/absolute/path tags (.png/.jpg/.jpeg/.gif/.webp/.bmp, up to 5MB) are shown inline in the chat. Non-image files are not shown inline, so state the plain file path instead of a MEDIA: tag.";
+const CHAT_HINT="You're replying in aqeelOS, a chat app that shows Markdown. Format for easy reading, like a well-written Claude or ChatGPT reply: short answers stay short and conversational; longer ones start with the outcome, then use ## headings for sections, bullet or numbered lists, tables for comparisons, and code blocks for code or commands. Bold the key numbers, names, dates and decisions (for example: UPS **Rp522,328** → **Continue**) so the reply can be skimmed. Never send more than two plain paragraphs in a row: start a section with a bold lead-in (**Short answer** …, **What changed** …, **Next step** …) and put lists of points in bullets. Write every link as [a short name](url) (for example [Dagadu weekly report](https://docs.google.com/…)), never a bare URL; aqeelOS shows them as small labelled buttons. While working, keep progress notes to one short line each and lead the final answer with the result. File/media delivery: images referenced as MEDIA:/absolute/path tags (.png/.jpg/.jpeg/.gif/.webp/.bmp, up to 5MB) are shown inline in the chat. Non-image files are not shown inline, so state the plain file path instead of a MEDIA: tag.";
 async function ensureChatHint(a){const cfgFile=path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml');const y=await readFile(cfgFile,'utf8').catch(()=>'');
- if(y.includes('Bold the key numbers'))return;   // already the current wording
+ if(y.includes('never a bare URL'))return;   // already the current wording
  const r=await setKey(a,'agent.platform_hints.api_server',{replace:CHAT_HINT});if(!r.ok)throw new Error(r.err)}
 async function writeAgentContext(){const all=await listAgents();const names={};for(const a of all)names[a]=NAMES[a]=await displayName(a);
  const ads=[];for(const a of all)if(await screens.shared(a).catch(()=>false))ads.push(a);
@@ -210,6 +210,7 @@ async function writeAgentContext(){const all=await listAgents();const names={};f
    '','## Passwords, API keys and other secrets','',
    'Never ask the person to type a password, code or API key into the chat, and never ask them to type it on the screen viewer. Call ask_secret (from aqeelos-notify): mode "type" types it into the field you clicked on your screen, mode "save" stores it as a named key. The person can also send you one with the lock button; you then get its name. To enter a saved one, click the field and call type_secret with its name. You never see the values.',
    '','## Channels you can message the person on','',
+   'Urgent or important news for the person who owns you (not the people you chat with) goes through a channel marked "to you" with send_to_person. Never send such an alert back to the person you are chatting with, and never tell them you are passing messages on unless they ask you to.',
    ch.length?'Use the send_to_person tool with one of these IDs when the person asks to be notified on a channel ("notify me on shop-whatsapp"):':'None yet. The person can connect WhatsApp, Telegram and others on the Channels page.',
    ...ch.map(c=>'- '+c.id+' = '+c.name),'<!-- /aqeelos:context -->'].filter(x=>x!==null).join('\n');
   const dir=path.join(homedir(),'workspaces',a),file=path.join(dir,'AGENTS.md');await mkdir(dir,{recursive:true});
@@ -414,7 +415,15 @@ async function channelAccounts(agent,v){await trueStates(agent,v).catch(()=>{});
  const t=list.find(x=>x.id==='telegram');
  if(t&&(t.configured||t.state==='connected')){const tok=((await readFile(path.join(home,'.env'),'utf8').catch(()=>'')).match(/^TELEGRAM_BOT_TOKEN=["']?([^"'\n]+)/m)||[])[1];
   if(tok){let n=tgNames.get(tok);if(!n||Date.now()-n.t>3600e3){const j=await fetch('https://api.telegram.org/bot'+tok+'/getMe',{signal:AbortSignal.timeout(5000)}).then(r=>r.json()).catch(()=>null);n={t:Date.now(),v:j?.ok?{username:'@'+j.result.username,name:j.result.first_name||null}:n?.v||null};tgNames.set(tok,n)}
-   if(n.v)t.account=n.v}}}
+   if(n.v)t.account=n.v}}
+ // Slack: which workspace, and whether it posts as a bot app or as a person's own Slack account
+ const sl=list.find(x=>x.id==='slack');
+ if(sl&&(sl.configured||sl.state==='connected')){const envT=await readFile(path.join(home,'.env'),'utf8').catch(()=>'');const tok=(envT.match(/^SLACK_BOT_TOKEN=["']?([^"'\n]+)/m)||envT.match(/^SLACK_USER_TOKEN=["']?([^"'\n]+)/m)||[])[1];
+  if(tok){let n=tgNames.get(tok);if(!n||Date.now()-n.t>3600e3){const j=await fetch('https://slack.com/api/auth.test',{method:'POST',headers:{authorization:'Bearer '+tok},signal:AbortSignal.timeout(5000)}).then(r=>r.json()).catch(()=>null);n={t:Date.now(),v:j?.ok?{username:j.user?'@'+j.user:null,name:j.team||null,kind:tok.startsWith('xoxp-')?'person':'bot'}:n?.v||null};tgNames.set(tok,n)}
+   if(n.v)sl.account=n.v}}
+ // what kind of account each one is: a bot, or someone's own account
+ for(const c of list){if(!c.account)continue;c.account.kind??=c.id==='whatsapp'?'person':/^(telegram|discord)$/.test(c.id)?'bot':undefined}
+ const notes=await readFile(path.join(DATA,'channel-notes.json'),'utf8').then(JSON.parse).catch(()=>({}));for(const c of list){const n=notes[agent+'|'+c.id];if(n)c.note=n}}
 // The main agent's list takes seconds (each channel is checked), and many screens ask for it, so the last answer
 // is used at once and refreshed behind the scenes (a change on the Channels page clears it, so that stays exact).
 function platformsCached(agent){const k=agent||'default';const c=platCache.get(k);if(c&&(c.p||Date.now()-c.t<15000))return c.p||Promise.resolve(c.v);
@@ -765,6 +774,8 @@ const server=createServer(async(req,res)=>{
     for(const f of await readdir(trash).catch(()=>[])){const m=/^(.+)__(.+)\.tgz$/.exec(f);if(!m)continue;const st=await stat(path.join(trash,f)).catch(()=>null);if(!st)continue;
      if(Date.now()-st.mtimeMs>30*864e5){await unlink(path.join(trash,f)).catch(()=>{});continue}out.push({file:f,agent:m[1],deleted:st.mtimeMs,size:st.size})}
     return send(res,200,{items:out.sort((a,b)=>b.deleted-a.deleted)})}
+   if(p==='/ui/agent-trash/purge'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Admins only.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
+    const f=String(b.file||'');if(!/^[\w.-]+__[\w.-]+\.tgz$/.test(f)||f.includes('..'))return send(res,400,{error:'Unknown backup'});await unlink(path.join(DATA,'agent-trash',f)).catch(()=>{});console.log('deleted the kept backup',f);return send(res,200,{ok:true})}
    if(p==='/ui/agent-restore'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Admins only.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
     const f=String(b.file||'');const m=/^([a-z0-9][a-z0-9_-]{0,63})__[\w-]+\.tgz$/.exec(f);if(!m)return send(res,400,{error:'Unknown backup.'});
     const dir=path.join(HERMES_HOME,'profiles',m[1]);if(await stat(dir).catch(()=>null))return send(res,409,{error:'An agent with that name exists already.'});
@@ -790,6 +801,12 @@ const server=createServer(async(req,res)=>{
    // each agent's setup result, for the Agents page (what failed, so it can be finished with one click)
    if(p==='/ui/agent-setup'&&req.method==='GET'){const st=await getStatus();const out={};for(const [a,v] of Object.entries(st))if(users.isAdmin(u)||users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a)===null)out[a]={ok:v.ok!==false,failed:v.failed||[],t:v.t||0};return send(res,200,{agents:out})}
    // an agent for someone who must not have terminal, files, code or computer use: locked on every channel, and kept so
+   // how an agent handles commands that need approval: ask (manual) or Smart (an AI reviewer passes safe ones and asks you about the rest)
+   if(p==='/ui/agent-approvals'){const ag=req.method==='GET'?(url.searchParams.get('agent')||'default'):null;let b={};if(req.method==='PUT'){try{b=JSON.parse(await readBody(req,2048))}catch{}}
+    const a=ag||String(b.agent||'default');if(!(await listAllProfiles()).includes(a))return send(res,400,{error:'Unknown agent'});
+    if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a))return send(res,403,{error:'Not your agent'});
+    if(req.method==='GET'){const c=await readConfig(a);return send(res,200,{mode:pick(c,'approvals.mode')||'manual'})}
+    if(req.method==='PUT'){const mode=b.mode==='smart'?'smart':'manual';const r=await setKey(a,'approvals.mode',mode);if(!r.ok)return send(res,500,{error:r.err||'Could not save'});console.log('approvals for',a,'→',mode);return send(res,200,{mode})}}
    if(p==='/ui/agent-safe'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||'');
     if(!await isAgent(ag)||ag==='default')return send(res,400,{error:'Unknown agent'});
     if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag+'/soul','PUT',new URLSearchParams(),ag)!==null)return send(res,403,{error:'You can only change agents you may edit.'});
@@ -916,6 +933,8 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/channels/job-relays'&&req.method==='GET')return send(res,200,await relay.jobRelays());
    // reconnect ONE channel: a second agent's channel is switched off and on by itself (no engine restart);
    // the main agent's channels live in the engine itself, so for those the proper restart is the only way
+   // a short note on a channel (what it is for), shown on its row
+   if(p==='/ui/channels/note'&&req.method==='PUT'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can change channels.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const k=String(b.agent||'')+'|'+String(b.platform||'');const f=path.join(DATA,'channel-notes.json');const all=await readFile(f,'utf8').then(JSON.parse).catch(()=>({}));const v=String(b.note||'').trim().slice(0,120);if(v)all[k]=v;else delete all[k];await writeFile(f,JSON.stringify(all,null,1));platCache.clear();return send(res,200,{ok:true})}
    if(p==='/ui/channels/reconnect'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can reconnect channels.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
     const ag=String(b.agent||''),pf=String(b.platform||'');if(!(await listAllProfiles()).includes(ag)||!/^[a-z0-9_]{1,40}$/.test(pf))return send(res,400,{error:'Unknown channel'});
     if(ag==='default'){restartGateway('reconnect '+pf+' (main agent)').catch(()=>{});return send(res,200,{ok:true,restarting:true,waiting:liveCount()})}

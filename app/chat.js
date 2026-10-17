@@ -85,10 +85,24 @@ const Chat={
   return `<button class="meter ${c}" data-act="meter-card" title="${esc(tip)}" aria-label="${u}% of this account's limit used"><svg width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="${R}" class="trk"/><circle cx="9" cy="9" r="${R}" class="val" stroke-dasharray="${L}" stroke-dashoffset="${L*(1-u/100)}"/></svg><span>${u}%</span></button>`},
  refreshUsage(){clearTimeout(this._uT);this._uT=setTimeout(async()=>{await this.loadModels().catch(()=>{});const m=$('.meter');if(m){const t=document.createElement('div');t.innerHTML=this.meterHtml();const n=t.firstElementChild;if(n)m.replaceWith(n)}},1500)},
  barHtml(){const running=this.live[this.id]?.running;const m=this.cur();const known=(this.models||[]).find(x=>x.id===m.id&&x.provider===m.provider);
-  return `<span class="cb-l"><button class="ghost icon" data-act="attach" title="Attach images" aria-label="Attach images">${icon('clip',18)}</button><button class="ghost icon" data-act="secret-give" title="Send a password or key securely" aria-label="Send a password or key securely">${icon('lock',18)}</button>${this.canTools()?`<button class="ghost icon ${this.tools.length?'on':''}" data-menu="chat-tools" title="Use a tool" aria-label="Use a tool">${icon('plug',18)}</button>`:''}<span id="voiceSlot" class="voice-slot">${Voice.btn()}</span>${this.id||(S.me&&!S.me.admin)?'':`<button class="pick" data-menu="workspace" title="Folder for this chat">${icon('folder',15)}<span>${esc(this.cwd?this.cwd.replace(/^\/home\/claude/,'~'):'~')}</span></button>`}</span><span class="cb-r"><button class="pick perm ${this.allowAll(this.id)?'on':''}" data-act="perm-toggle" title="${this.allowAll(this.id)?'Allow all: commands that need approval run without asking in this chat (the block list still applies). Click to ask again.':'Ask me: risky commands wait for your OK. Click to allow all in this chat.'}">${icon(this.allowAll(this.id)?'zap':'shield',14)}<span>${this.allowAll(this.id)?'Allow all':'Ask me'}</span></button><button class="pick" data-menu="model">${esc(known?known.label:modelLabel(m.id))}${icon('chevD',14)}</button>${this.meterHtml()}${(!known||known.reasoning)?`<button class="pick" data-menu="effort"><span>Effort </span>${esc(this.effort)}${icon('chevD',14)}</button>`:''}
+  return `<span class="cb-l"><button class="ghost icon" data-act="attach" title="Attach pictures, videos or files" aria-label="Attach files">${icon('clip',18)}</button><button class="ghost icon" data-act="secret-give" title="Send a password or key securely" aria-label="Send a password or key securely">${icon('lock',18)}</button>${this.canTools()?`<button class="ghost icon ${this.tools.length?'on':''}" data-menu="chat-tools" title="Use a tool" aria-label="Use a tool">${icon('plug',18)}</button>`:''}<span id="voiceSlot" class="voice-slot">${Voice.btn()}</span>${this.id||(S.me&&!S.me.admin)?'':`<button class="pick" data-menu="workspace" title="Folder for this chat">${icon('folder',15)}<span>${esc(this.cwd?this.cwd.replace(/^\/home\/claude/,'~'):'~')}</span></button>`}</span><span class="cb-r">${this.permBtn()}<button class="pick" data-menu="model">${esc(known?known.label:modelLabel(m.id))}${icon('chevD',14)}</button>${this.meterHtml()}${(!known||known.reasoning)?`<button class="pick" data-menu="effort"><span>Effort </span>${esc(this.effort)}${icon('chevD',14)}</button>`:''}
   ${running?`<button class="pick busy-mode" data-act="send-mode" data-mode="${this.sendMode==='queue'?'steer':'queue'}" title="${this.sendMode==='queue'?'Queue: your message waits until this reply is done. Click to steer instead.':'Steer: your message joins the reply in progress. Click to queue instead.'}">${icon(this.sendMode==='queue'?'clock':'wand',14)}<span>${this.sendMode==='queue'?'Queue':'Steer'}</span></button><button class="ghost icon" data-act="send-busy" title="${this.sendMode==='queue'?'Queue (Enter)':'Steer (Enter)'}" aria-label="${this.sendMode==='queue'?'Queue message':'Steer'}">${icon('send',17)}</button>`:''}<button class="primary send ${running?'stop':''}" id="send" aria-label="${running?'Stop':'Send'}" title="${running?'Stop (Esc)':'Send (Enter)'}">${icon(running?'stop':'send',18)}</button></span>`},
  // per-chat permission level, kept in this browser: 'Ask me' (default) or 'Allow all' (auto-approve)
  allowAll(id){return !!id&&store.get('allowAll:'+id,false)},
+ // three levels: Ask me (this chat), Smart (the whole agent: an AI reviewer passes safe commands and asks you about
+ // risky ones) and Allow all (this chat). The engine's block list applies at every level.
+ smart:{},
+ permLevel(){if(this.allowAll(this.id))return 'all';const ag=S.profile||'default';if(!(ag in this.smart)){this.smart[ag]=null;UI('/ui/agent-approvals?agent='+encodeURIComponent(ag)).then(r=>{this.smart[ag]=r.mode==='smart';this.paintComposerBar()}).catch(()=>{})}return this.smart[ag]?'smart':'ask'},
+ permBtn(){const l=this.permLevel();const L={ask:['shield','Ask me','Ask me: commands that could change things wait for your OK.'],smart:['sparkle','Smart','Smart: an AI reviewer approves safe commands and asks you only about risky ones.'],all:['zap','Allow all','Allow all: no approval prompts in this chat (blocked commands stay blocked).']}[l];
+  return `<button class="pick perm ${l!=='ask'?'on':''} lvl-${l}" data-act="perm-menu" title="${esc(L[2])} Click to change.">${icon(L[0],14)}<span>${L[1]}</span></button>`},
+ permMenu(el){const l=this.permLevel(),ag=S.profile||'default',me=this;
+  const set=async lv=>{if(lv==='all'&&!me.id)return toast('Send the first message, then choose Allow all for this chat.');
+   if(lv==='all'){me.setAllowAll(me.id,true);me.paintComposerBar();return toast('Allow all in this chat: no approval prompts (blocked commands stay blocked).')}
+   me.setAllowAll(me.id,false);const want=lv==='smart';if(!!me.smart[ag]!==want){try{await put(UI,'/ui/agent-approvals',{agent:ag,mode:want?'smart':'manual'});me.smart[ag]=want}catch(e){return fail(e)}}
+   me.paintComposerBar();toast(want?'Smart for '+ident(ag).name+': safe commands go ahead, risky ones still ask you.':'Ask me: commands that could change things wait for your OK.')};
+  menu(el,[{header:'When a command needs approval'},{label:'Ask me',sub:'Every one waits for your OK (this chat)',icon:'shield',on:l==='ask',run:()=>set('ask')},
+   {label:'Smart',sub:'An AI reviewer approves safe ones and asks you about risky ones (all of '+ident(ag).name+'’s chats and channels)',icon:'sparkle',on:l==='smart',run:()=>set('smart')},
+   {label:'Allow all',sub:'No prompts in this chat. Blocked commands stay blocked.',icon:'zap',on:l==='all',run:()=>set('all')}])},
  setAllowAll(id,on){if(id)store.set('allowAll:'+id,!!on)},
  placeholder(){const s=this.live[this.id];if(!s?.running)return 'Message '+AGENT()+'… (type / for commands)';return this.sendMode==='queue'?'Queue a message for after this reply…':'Steer '+AGENT()+' while it works…'},
  setSendMode(m){this.sendMode=m;store.set('sendMode',m);this.paintComposerBar();$('#msg')?.focus()},
@@ -105,14 +119,22 @@ const Chat={
   let dt=null;const key=this.draftKey();
   ta.oninput=()=>{ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,220)+'px';this.slash(ta.value);clearTimeout(dt);dt=setTimeout(()=>{try{ta.value.trim()?localStorage.setItem(key,ta.value):localStorage.removeItem(key)}catch{}},300)};
   ta.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();const first=$('#slash .item');if(first&&/^\/\S*$/.test(ta.value))return this.pickSlash(first.dataset.cmd);this.submit()}if(e.key==='Escape'&&this.live[this.id]?.running)this.stop()};
-  ta.onpaste=e=>{const f=[...(e.clipboardData?.files||[])].filter(x=>x.type.startsWith('image/'));if(f.length){e.preventDefault();this.addFiles(f)}};
+  ta.onpaste=e=>{const f=[...(e.clipboardData?.files||[])];if(f.length){e.preventDefault();this.addFiles(f)}};
   const box=$('#composer');box.ondragover=e=>{e.preventDefault();box.classList.add('drop')};box.ondragleave=()=>box.classList.remove('drop');box.ondrop=e=>{e.preventDefault();box.classList.remove('drop');this.addFiles([...e.dataTransfer.files])};
  },
 
  /* ---------- attachments (images go inline to the model) ---------- */
  files:[],
- addFiles(list){for(const f of list){if(!f.type.startsWith('image/')){toast('Only images can be attached to a chat. Upload other files in Abilities › Files.','err');continue}if(f.size>8e6){toast(f.name+' is larger than 8 MB','err');continue}const r=new FileReader();r.onload=()=>{this.files.push({name:f.name,url:r.result});this.paintFiles()};r.readAsDataURL(f)}},
- paintFiles(){const el=$('#attachList');if(!el)return;el.innerHTML=this.files.map((f,i)=>`<span class="chip" style="margin-bottom:6px">${icon('file',13)}${esc(f.name)}<button class="ghost icon" style="width:20px;min-height:20px" data-act="unattach" data-i="${i}" aria-label="Remove">${icon('x',12)}</button></span>`).join('')},
+ addFiles(list){for(const f of list){const kind=attKind(f.name,f.type);
+  if(kind==='image'&&f.size<=8e6){const r=new FileReader();r.onload=()=>{this.files.push({name:f.name,kind,url:r.result,size:f.size});this.paintFiles()};r.readAsDataURL(f);continue}
+  if(f.size>200e6){toast(f.name+' is larger than 200 MB','err');continue}
+  this.files.push({name:f.name,kind,file:f,blob:URL.createObjectURL(f),size:f.size});this.paintFiles()}},
+ paintFiles(){const el=$('#attachList');if(!el)return;el.innerHTML=this.files.map((f,i)=>`<span class="att-chip ${f.kind}">${f.kind==='image'?`<img src="${esc(f.url||f.blob)}" alt="">`:f.kind==='video'?`<video src="${esc(f.blob)}#t=0.5" muted preload="metadata"></video><span class="att-play">${icon('play',14)}</span>`:`<span class="att-ic">${icon('file',18)}</span>`}<span class="att-txt"><b>${esc(f.name)}</b><small>${attSize(f.size)}</small></span><button class="att-x" data-act="unattach" data-i="${i}" aria-label="Remove ${esc(f.name)}">${icon('x',12)}</button></span>`).join('')},
+ // files that are not sent inline go to the box first; the message names where they are
+ async uploadAtt(list){const out=[];const base=(typeof FILE_HOME!=='undefined'?FILE_HOME:'/home/claude').replace(/\/$/,'')+'/uploads';
+  for(const f of list){const t=new Date().toISOString().slice(0,10);const path=base+'/'+t+'-'+f.name.replace(/[^\w.\- ]+/g,'_');
+   const fd=new FormData();fd.append('path',path);fd.append('overwrite','true');fd.append('file',f.file||dataFile(f),f.name);
+   await H('/files/upload-stream',{method:'POST',body:fd});out.push(path)}return out},
 
  /* ---------- history ---------- */
  async loadHistory(id){
@@ -127,11 +149,11 @@ const Chat={
  },
  toTurns(msgs){const turns=[];let ai=null;const byCall={};
   for(const m of msgs){if(m.active===0)continue;
-   if(m.role==='user'){ai=null;let text=typeof m.content==='string'?m.content:this.contentText(m.content);
+   if(m.role==='user'){ai=null;let text=typeof m.content==='string'?m.content:this.contentText(m.content);text=text.replace(/\[image\]/g,'');const imgs=Array.isArray(m.content)?m.content.filter(p=>p.type==='image_url').map(p=>p.image_url?.url||p.image_url).filter(u=>typeof u==='string'&&/^(data:image|https?:|\/)/.test(u)):[];
     // a steer is saved inside the engine's "[OUT-OF-BAND USER MESSAGE …]" frame (for the model); show what was typed, as a steer
     const st=/^\s*\[OUT-OF-BAND USER MESSAGE[^\]]*\]\s*([\s\S]*?)\s*(?:\[\/OUT-OF-BAND USER MESSAGE\])?\s*$/.exec(text);
     if(st||m.display_kind==='steer'){turns.push({role:'user',text:st?st[1]:text,steer:'delivered'});continue}
-    turns.push({role:'user',text});continue}
+    turns.push({role:'user',text,imgs,images:imgs.length});continue}
    if(m.role==='system')continue;
    if(!ai){ai={role:'ai',steps:[],text:'',think:''};turns.push(ai)}
    if(m.role==='assistant'){const r=m.reasoning_content||m.reasoning;if(r&&typeof r==='string')ai.think+=(ai.think?'\n\n':'')+r;
@@ -157,7 +179,7 @@ const Chat={
   // jump, never glide: the chat area scrolls smoothly for people, but placing the view must be instant
   if((follow&&atBottom||opening)&&sc){sc.style.scrollBehavior='auto';sc.scrollTop=sc.scrollHeight;if(opening)requestAnimationFrame(()=>{sc.scrollTop=sc.scrollHeight;requestAnimationFrame(()=>{sc.scrollTop=sc.scrollHeight;sc.style.scrollBehavior=''})});else sc.style.scrollBehavior=''}},
  turnHtml(t,i,s){
-  if(t.role==='user')return `<div class="msg user ${t.steer?'steer':''}">${this.userHtml(t.text)}${t.steer?`<span class="attach">${icon(t.steer==='failed'?'alert':'zap',12)} ${t.steer==='failed'?esc(t.err||'Not delivered'):t.steer==='delivered'?'Read by '+esc(AGENT()):t.steer==='sending'?'Sending…':'Waiting: '+esc(AGENT())+' reads it after its current step'}${t.steer==='sent'?` <button class="steer-now" data-act="steer-now" title="Stops the step it is on and sends this message right away">Send now</button>`:''}</span>`:''}${t.images?`<span class="attach">${icon('clip',12)} ${plural(t.images,'image')}</span>`:''}</div>`;
+  if(t.role==='user')return `<div class="msg user">${this.userHtml(t.text,t)}${t.images&&!(t.imgs||[]).length?`<span class="attach">${icon('clip',12)} ${plural(t.images,'image')}</span>`:''}</div>${t.steer&&t.steer!=='delivered'?`<div class="steer-meta ${t.steer}">${t.steer==='failed'?icon('alert',12)+esc(t.err||'Not delivered'):t.steer==='sending'?'Sending…':`<span class="sm-hint" title="${esc(AGENT())} reads it as soon as the step it is on finishes, without stopping its work">In the reply in progress</span><button class="steer-now" data-act="steer-now" title="Stops the step it is on and sends this message right away">Send now</button>`}</div>`:''}`;
   const last=i===s.turns.length-1;if(!last&&!t.text&&!(t.steps||[]).length&&!t.think&&!t.approval&&!t.error)return '';
   const think=t.think?`<button class="think" data-act="think">${icon('brain',15)}${s.running&&last&&!t.text?'Thinking…':'Thought'}${t.thinkSecs?' for '+t.thinkSecs+' s':''}${icon('chevR',14)}</button><div class="think-body" hidden>${esc(t.think)}</div>`:'';
   // steps stay lean: slim rows; a longer run folds into one line ("Ran 6 steps"), the latest two stay in view while working
@@ -179,7 +201,7 @@ const Chat={
   let tool=x.tool,sumText=x.sum&&x.sum!==x.tool?x.sum:'';const a=x.args||{};
   if(/^(tool_call|call_tool|use_tool)$/.test(tool)){const calls=Array.isArray(a.calls)?a.calls:[a],c=calls[0]||{};const inner=c.name||c.tool||c.tool_name||c.function;if(inner){tool=String(inner).replace(/^mcp__/,'').replace(/__/g,' · ')+(calls.length>1?' +'+(calls.length-1):'');const ia=c.arguments||c.args||c.input||{};const v=typeof ia==='string'?ia:(ia.prompt||ia.query||ia.url||ia.text||ia.path||ia.command||'');sumText=String(v).slice(0,140)}}
   else if(/^(tool_describe|tool_search)$/.test(tool)){tool='looked up tools';const q=a.names||a.queries||a.query;sumText=Array.isArray(q)?q.join(', '):String(q||'')}
-  const sum=x.tool==='terminal'?`<code>${esc(x.sum)}</code>`:`<b>${esc(String(tool).replace(/_/g,' '))}</b> <span class="sub-t">${esc(sumText)}</span>`;
+  const sum=x.tool==='terminal'?`<code>${esc(plainPaths(x.sum))}</code>`:`<b>${esc(String(tool).replace(/_/g,' '))}</b> <span class="sub-t">${esc(plainPaths(sumText))}</span>`;
   const detail=[x.args&&Object.keys(x.args).length?JSON.stringify(x.args,null,2):'',x.out].filter(Boolean).join('\n\n— output —\n');
   return `<div class="step" data-k="${k}"><button class="step-head" data-act="step"><span class="si">${icon(ic,14)}</span><span class="sum">${sum}</span><span class="state">${state}</span><span class="chev">${icon('chevR',14)}</span></button><div class="step-body"><div><pre>${esc(detail.slice(0,20000)||'(no output)')}</pre></div></div></div>`},
  approvalHtml(a){if(a.resolved)return `<div class="steps"><div class="step"><div class="step-head"><span class="si">${icon(a.resolved==='deny'?'x':'check',14)}</span><span class="sum">${a.resolved==='deny'?'Denied':a.auto?'Approved automatically (Allow all)':'Approved'}${a.command?': <code>'+esc(a.command)+'</code>':''}</span></div></div></div>`;
@@ -189,9 +211,12 @@ const Chat={
  /* ---------- sending ---------- */
  async submit(){if(Voice.on)Voice.stop();const ta=$('#msg');const text=ta.value.trim();if(!text&&!this.files.length)return;try{localStorage.removeItem(this.draftKey());localStorage.removeItem('draft:'+(S.profile||'default')+'|new')}catch{}
   const s=this.live[this.id];
+  if(this.files.some(f=>f.kind!=='image')||s?.running&&this.sendMode!=='queue'&&this.files.length){const up=s?.running&&this.sendMode!=='queue'?this.files:this.files.filter(f=>f.kind!=='image');
+   const sp=$('#attachList');sp?.classList.add('busy');let paths;try{paths=await this.uploadAtt(up)}catch(e){sp?.classList.remove('busy');return fail(e)}sp?.classList.remove('busy');
+   this._sentAtt=up;this.files=this.files.filter(f=>!up.includes(f));this.paintFiles();ta.value=(text+'\n\n'+paths.map(p=>'[Attached file: '+p+']').join('\n')).trim();return this.submit()}
   if(s?.running&&this.sendMode==='queue'){const images=this.files;this.files=[];this.paintFiles();(s.queue??=[]).push({text,images});ta.value='';ta.style.height='';this.paintQueue();return}
   if(s?.running){if(!s.runId)return toast(AGENT()+' is starting, try again in a second');ta.value='';ta.style.height='';
-   const u={role:'user',text,steer:'sending'};const n={role:'ai',steps:[],text:'',think:''};s.turns.push(u,n);s.ai=n;s.runTurns.push(n);this.paint();
+   const u={role:'user',text,steer:'sending',local:this.takeSent()};const n={role:'ai',steps:[],text:'',think:''};s.turns.push(u,n);s.ai=n;s.runTurns.push(n);this.paint();
    try{await post(G,'/v1/runs/'+s.runId+'/steer',{text});if(u.steer==='sending')u.steer='sent'}catch(e){u.steer='failed';u.err=e.message;s.turns.splice(s.turns.indexOf(n),1);s.runTurns.pop();s.ai=s.runTurns[s.runTurns.length-1]}this.paint();return}
   if(s)s.paused=false;
   if(text.startsWith('/')&&this.command(text))return;
@@ -205,8 +230,17 @@ const Chat={
  toolChipsHtml(){return this.tools.map((t,i)=>`<span class="tchip">${icon(t.kind==='mcp'?'plug':'zap',13)}${esc(t.label)}<button class="ghost icon" data-act="tool-off" data-i="${i}" aria-label="Remove ${esc(t.label)}">${icon('x',12)}</button></span>`).join('')},
  paintTools(){const el=$('#toolChips');if(el)el.innerHTML=this.toolChipsHtml();$$('[data-menu="chat-tools"]').forEach(b=>b.classList.toggle('on',this.tools.length>0))},
  TOOL_RE:/^\[Use these tools for this: ([^\]]+)\]\n\n/,
- userHtml(text){const m=this.TOOL_RE.exec(text||'');const body=m?text.slice(m[0].length):text||'';
-  return (m?`<span class="tchips">${m[1].split(', ').map(x=>`<span class="tchip">${icon(/\(MCP\)$/.test(x)?'plug':'zap',12)}${esc(x.replace(/ \(MCP\)$/,''))}</span>`).join('')}</span>`:'')+esc(body).replace(/\n/g,'<br>')},
+ ATT_RE:/\n*\[Attached file: ([^\]\n]+)\]/g,
+ takeSent(){const l=this._sentAtt||[];this._sentAtt=null;const m={};for(const f of l)if(f.blob)m[f.name]=f.blob;return m},
+ // the attachments of a sent message, as previews: pictures and videos play right in the chat
+ attHtml(paths,imgs,local){const one=p=>{const name=p.split('/').pop().replace(/^\d{4}-\d\d-\d\d-/,''),k=attKind(name),src=(local||{})[name]||fileUrl(p,k==='video'?'stream':'download');
+   if(k==='image')return `<img class="att-img" src="${esc(src)}" alt="${esc(name)}" loading="lazy" data-act="att-zoom">`;
+   if(k==='video')return `<video class="att-vid" src="${esc(src)}" controls preload="metadata" playsinline></video>`;
+   return `<a class="att-file" href="${esc(fileUrl(p))}" download="${esc(name)}">${icon('file',18)}<span><b>${esc(name)}</b><small>${esc(p.replace(/^\/home\/[^/]+/,'~'))}</small></span></a>`};
+  const all=[...(imgs||[]).filter(Boolean).map(u=>`<img class="att-img" src="${esc(u)}" alt="" loading="lazy" data-act="att-zoom">`),...paths.map(one)];
+  return all.length?`<div class="att-row">${all.join('')}</div>`:''},
+ userHtml(text,t={}){const m=this.TOOL_RE.exec(text||'');let body=m?text.slice(m[0].length):text||'';const paths=[];body=body.replace(this.ATT_RE,(x,p)=>{paths.push(p.trim());return ''}).trim();
+  return (m?`<span class="tchips">${m[1].split(', ').map(x=>`<span class="tchip">${icon(/\(MCP\)$/.test(x)?'plug':'zap',12)}${esc(x.replace(/ \(MCP\)$/,''))}</span>`).join('')}</span>`:'')+this.attHtml(paths,t.imgs,t.local)+(body?`<div class="u-text">${esc(body).replace(/\n/g,'<br>')}</div>`:'')},
  async toolsMenu(el){const k=S.profile||'default';const c=this._toolCache?.[k];let d=c&&Date.now()-c.t<60000?c.d:null;
   if(!d){try{const [m,t]=await Promise.all([H('/mcp/servers').catch(()=>({servers:[]})),H('/tools/toolsets').catch(()=>[])]);d={mcp:(m.servers||m||[]).filter(s=>s.enabled!==false),built:(Array.isArray(t)?t:t.toolsets||[]).filter(x=>x.enabled)};(this._toolCache||={})[k]={t:Date.now(),d}}catch(e){return fail(e)}}
   explainFor('mcp',d.mcp.map(s=>({id:s.name,name:s.name,desc:s.url||s.command||''})));explainFor('tool',d.built.map(t=>({id:t.name,name:t.label||t.name,desc:t.description||''})));
@@ -221,7 +255,7 @@ const Chat={
   if(!id){try{const body=this.cwd?{cwd:this.cwd}:{};const d=await post(G,'/api/sessions',body);id=d.session?.id||d.id;}catch(e){return fail(e)}
    S.sessions.unshift({id,title:'',preview:text.replace(this.TOOL_RE,'').slice(0,80),source:'api_server',last_active:Date.now()/1000,is_active:true});this.id=id;history.replaceState(null,'','#/chat/'+id);this.live[id]={turns:[],running:false};$('#scroll').innerHTML='<div class="thread" id="thread"></div>'}
   const s=this.live[id]||(this.live[id]={turns:[],running:false});
-  s.turns.push({role:'user',text,images:images.length||0});const ai={role:'ai',steps:[],text:'',think:''};s.turns.push(ai);s.ai=ai;s.runTurns=[ai];
+  s.turns.push({role:'user',text,images:images.length||0,imgs:images.map(f=>f.url),local:this.takeSent()});const ai={role:'ai',steps:[],text:'',think:''};s.turns.push(ai);s.ai=ai;s.runTurns=[ai];
   s.running=true;s.started=Date.now();if(this.id===id){this.paint();this.paintComposerBar()}paintSide();
   const m=this.cur();const body={message:images.length?[{type:'text',text},...images.map(f=>({type:'image_url',image_url:{url:f.url}}))]:text};
   if(this.model){body.model=m.id;body.provider=m.provider}
@@ -380,3 +414,9 @@ const Secrets={timer:null,
 
 // a folded list of steps rises in when it is opened
 document.addEventListener('toggle',e=>{const d=e.target;if(!d.classList?.contains('steps-fold')||!d.open||calm())return;d.classList.add('opening');setTimeout(()=>d.classList.remove('opening'),360)},true);
+
+function attKind(name,type=''){if(/^image\//.test(type)||/\.(png|jpe?g|gif|webp|bmp|avif)$/i.test(name))return 'image';if(/^video\//.test(type)||/\.(mp4|mov|webm|m4v|mkv)$/i.test(name))return 'video';return 'file'}
+function attSize(n){return !n?'':n<1e6?Math.max(1,Math.round(n/1e3))+' KB':(n/1e6).toFixed(n<1e7?1:0)+' MB'}
+function dataFile(f){const [h,b]=String(f.url||'').split(',');const bin=atob(b||'');const a=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)a[i]=bin.charCodeAt(i);return new Blob([a],{type:(/data:([^;]+)/.exec(h)||[])[1]||'application/octet-stream'})}
+// step lines show the engine's folders in plain words (the exact command stays in the step's details)
+function plainPaths(t){return String(t||'').replace(/\/home\/[\w.-]+\/\.hermes\/profiles\/([\w-]+)/g,(m,a)=>'['+ident(a).name+']').replace(/\/home\/[\w.-]+\/\.hermes(?=\/|\b)/g,'[aqeelOS]').replace(/~\/\.hermes(?=\/|\b)/g,'[aqeelOS]').replace(/(^|[\s;&|(])hermes(?=\s)/g,'$1aqeelos').replace(/(?<![\w\/.-])Hermes Agent\b/g,'aqeelOS').replace(/(?<![\w\/.-])Hermes(?![\w-])/g,'aqeelOS')}

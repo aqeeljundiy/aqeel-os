@@ -49,10 +49,13 @@ export function createRelay({DATA,DASH,TOKEN,HERMES_HOME,SECRET,listAgents,links
   for(const p of await connected(agent))out.push({id:p,owner:agent,platform:p,name:nice(p)+' (main)'});
   for(const l of (await links?.list(agent))||[])if((await connected(l.name)).includes(l.platform))out.push({id:slug(l.label)||l.platform+'-'+l.n,owner:l.name,platform:l.platform,name:l.label||nice(l.platform)+' '+l.n});
   for(const [k,v] of Object.entries(db.shares)){const [owner,platform]=k.split('|');if(v.senders.includes(agent)&&!out.some(c=>c.owner===owner&&c.platform===platform))out.push({id:platform+'@'+owner,owner,platform,chat:v.chat,name:nice(platform)+' via '+(nameOf?nameOf(owner):owner)})}
+  // alerts for you always have a way out: every agent may reach you through the main agent's own channels (to you,
+  // the person approved there), even when its own channel only talks to someone else (Husband Mode on WhatsApp)
+  if(agent!=='default'&&!agent.startsWith('default--'))for(const p of await connected('default'))if(!out.some(c=>c.owner==='default'&&c.platform===p))out.push({id:p+'@you',owner:'default',platform:p,toYou:true,name:nice(p)+' to you (via '+(nameOf?nameOf('default'):'the main agent')+')'});
   return out}
  // an agent sends through a shared channel
  async function sendAs(from,owner,platform,text,chat){await load();const s=db.shares[key(owner,platform)];
-  if(from!==owner&&!owner.startsWith(from+'--')&&!(s&&s.senders.includes(from)))throw new Error(from+' may not send through '+owner+"'s "+platform+'.');
+  if(from!==owner&&!owner.startsWith(from+'--')&&!(s&&s.senders.includes(from))&&owner!=='default')throw new Error(from+' may not send through '+owner+"'s "+platform+'.');
   const to=chat||s?.chat||(await recipients(owner,platform))[0]?.id;if(!to)throw new Error('Nobody to send to yet: approve someone on that channel first.');
   return send({owner,platform,chat:to,text,from})}
 
