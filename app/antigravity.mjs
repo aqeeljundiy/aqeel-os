@@ -1,0 +1,50 @@
+// Google AI Pro / Ultra through Antigravity, Google's official agy command-line tool (Google retired the Gemini CLI
+// for personal accounts on 17 Oct 2026 and points people here). agy's first sign-in needs a real terminal, so it runs
+// in a hidden tmux session: aqeelOS shows the Google link, the person signs in and pastes the code back into
+// aqeelOS, which types it into that terminal. agy keeps and refreshes the login itself; the engine plugin
+// antigravity-subscription then uses agy for chats (thinking only: aqeelOS keeps the tools and approvals).
+import {execFile} from 'node:child_process';
+import {mkdir,cp,readdir,stat} from 'node:fs/promises';
+import {homedir} from 'node:os';
+import path from 'node:path';
+
+const BIN=path.join(homedir(),'.local','bin','agy'),WORK=path.join(homedir(),'.cache','agy-work'),SESSION='agy-login';
+const run=(cmd,args,o={})=>new Promise(res=>execFile(cmd,args,{timeout:o.timeout||20000,cwd:o.cwd,maxBuffer:4e6,env:{...process.env,PATH:path.join(homedir(),'.local','bin')+':'+process.env.PATH}},(e,out,err)=>res({ok:!e,out:String(out||''),err:String(err||e?.message||'')})));
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+
+export function createAntigravity({HERMES_HOME,hcmd,listAgents}){
+ let login=null,cache={t:0,v:null};
+ const pane=async()=>(await run('tmux',['capture-pane','-pt',SESSION,'-S','-300'])).out;
+ // signed in = agy can list the account's models (agy keeps its login where it wants: keyring or its own file)
+ async function models(){const r=await run(BIN,['models'],{timeout:30000,cwd:WORK});if(!r.ok||/not signed in|sign in|login/i.test(r.out+r.err)&&!/gemini|claude/i.test(r.out))return null;
+  return r.out.split('\n').map(l=>l.trim()).filter(l=>/^[\w.-]+$/.test(l)||/^[-*•]\s*[\w.-]+/.test(l)).map(l=>l.replace(/^[-*•]\s*/,'').split(/\s/)[0]).filter(Boolean)}
+ async function status(fresh){const installed=await stat(BIN).then(()=>true,()=>false);if(!installed)return {installed:false,signedIn:false};
+  if(fresh||Date.now()-cache.t>10*60000){const m=await models();cache={t:Date.now(),v:m}}
+  return {installed,signedIn:!!cache.v,models:cache.v||[],login:login?.state||null}}
+ async function stop(){await run('tmux',['kill-session','-t',SESSION])}
+ // the link sits between two ruled lines and is wrapped over several screen lines: join them back together
+ const linkIn=t=>{const m=/Open the URL below[\s\S]*?─{10,}\s*\n([\s\S]*?)\n\s*─{10,}/.exec(t);return m?(m[1].replace(/\s+/g,'').match(/https:\/\/accounts\.google\.com\/\S+/)||[])[0]:null};
+ async function start(){await mkdir(WORK,{recursive:true});await stop();
+  const r=await run('tmux',['new-session','-d','-s',SESSION,'-x','200','-y','60','-c',WORK,'env SSH_CONNECTION=1 '+BIN]);if(!r.ok)throw new Error('Could not start the Antigravity sign-in: '+r.err.slice(0,200));
+  const me=login={state:'waiting'};console.log('antigravity sign-in started');setTimeout(()=>{if(login===me&&me.state==='waiting'){me.state='expired';console.log('antigravity sign-in expired');stop()}},20*60000).unref();
+  let chose=false;
+  for(let i=0;i<60;i++){await sleep(500);const t=await pane();
+   if(!chose&&/Select login method/.test(t)){chose=true;await run('tmux',['send-keys','-t',SESSION,'Enter']);continue}   // 1. Google OAuth
+   const u=linkIn(t);if(u)return {url:u};
+   if(!/not signed in|Select login method|Open the URL/i.test(t)&&i>16){const s=await status(true);if(s.signedIn){await stop();me.state='done';return {signedIn:true}}}}
+  throw new Error('The Antigravity sign-in did not show a link. Try again.')}
+ async function code(c){c=String(c||'').trim();if(!c||c.length>2048||/[\s'"`$\\]/.test(c))throw new Error('Paste the whole code from the Google page.');
+  if(login?.state!=='waiting')throw new Error('This sign-in is not running any more. Press Connect again.');
+  console.log('antigravity sign-in: code received');await run('tmux',['send-keys','-t',SESSION,'-l',c]);await run('tmux',['send-keys','-t',SESSION,'Enter']);
+  for(let i=0;i<12;i++){await sleep(2500);const t=(await pane()).slice(-1500);
+   if(/invalid|expired|failed|error/i.test(t)&&/code|auth/i.test(t)&&i>1){console.warn('antigravity sign-in refused:',t.replace(/\s+/g,' ').slice(-200));break}
+   if(!/authorization code/i.test(t)||i>3){const s=await status(true);if(s.signedIn){login.state='done';console.log('antigravity signed in,',s.models.length,'models');await stop();await enableAll().catch(e=>console.warn('antigravity plugin',e.message));return {ok:true,models:s.models}}}}
+  return {ok:false,error:'Google did not accept that code. Press Connect again, sign in with the new link and paste its code (each link works once).'}}
+ async function logout(){await stop();await run(BIN,['logout'],{timeout:20000,cwd:WORK});cache={t:0,v:null};login=null;return {ok:true}}
+ // the engine plugin, installed for every agent and switched on (only once agy is signed in)
+ async function enableAll(){const src=path.join(path.dirname(new URL(import.meta.url).pathname),'..','engine','antigravity-subscription');if(!await stat(src).then(()=>true,()=>false))return;
+  for(const a of await listAgents()){if(a.includes('--'))continue;const dst=path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'plugins','antigravity-subscription');
+   await mkdir(dst,{recursive:true});for(const f of await readdir(src))await cp(path.join(src,f),path.join(dst,f),{recursive:true});
+   const r=await hcmd(a,['plugins','enable','antigravity-subscription'],{timeout:150000});if(!r.ok)console.warn('antigravity plugin for',a,(r.err||'').slice(0,200))}
+  console.log('antigravity subscription plugin ready')}
+ return {status,start,code,logout,enableAll}}

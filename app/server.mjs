@@ -7,6 +7,7 @@ import {readFile,stat,writeFile,mkdir,unlink,rename,realpath,readlink} from 'nod
 import {homedir} from 'node:os';
 import {createAccounts,setupAgentFn,export_setups} from './accounts.mjs';
 import {createGemini} from './gemini.mjs';
+import {createAntigravity} from './antigravity.mjs';
 import {withAgent,setKey,readConfig,pick,agentNames,isAgent,busy as opsBusy,initStatus,getStatus,setStatus,editEnv,hermes as hcmd,python as enginePython,LIVE_APP} from './agentops.mjs';
 import {createSchedules} from './schedules.mjs';
 import {createScreens} from './screens.mjs';
@@ -387,6 +388,7 @@ const links=createLinks({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,pyth
 function listAgents(){return agentNames()}   // real agents only (a folder with a config), not extra-number copies
 async function listAllProfiles(){return [...await listAgents(),...(await links.list()).map(l=>l.name)]}
 const gemini=createGemini({HERMES_HOME,hcmd,listAgents});
+const antigravity=createAntigravity({HERMES_HOME,hcmd,listAgents});
 async function agentModel(a){const y=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>'');const k=key=>((new RegExp('^model:[\\s\\S]*?\\n\\s+'+key+':\\s*(\\S+)','m').exec(y)||[])[1]||'').replace(/^["']|["']$/g,'');return {provider:k('provider'),model:k('default')}}
 const users=createUsers(DATA,mailer);
 const starters=createStarters(DATA);
@@ -922,6 +924,12 @@ const server=createServer(async(req,res)=>{
     return r.ok?send(res,200,{ok:true,restart_required:/restart/i.test(r.out)}):send(res,400,{error:(r.err||'Could not change the plugin').slice(0,300)})}
    // today's US dollar → rupiah rate, so costs can be shown in rupiah (fetched twice a day, last good one kept)
    // Gemini through the Google AI subscription: status for everyone, signing in and out for admins
+   // Google AI Pro through Antigravity (Google's agy tool): same flow as Gemini had
+   if(p.startsWith('/ui/antigravity/')){const act=p.slice(16);if(act==='status'&&req.method==='GET')return send(res,200,await antigravity.status(url.searchParams.has('fresh')));
+    if(!users.isAdmin(u))return send(res,403,{error:'Only admins can connect Google AI Pro.'});if(req.method!=='POST')return send(res,405,{error:'POST only'});
+    let b={};try{b=JSON.parse(await readBody(req,8192)||'{}')}catch{}
+    try{if(act==='start')return send(res,200,await antigravity.start());if(act==='code')return send(res,200,await antigravity.code(b.code));if(act==='logout')return send(res,200,await antigravity.logout())}catch(e){return send(res,400,{error:e.message})}
+    return send(res,404,{error:'Unknown'})}
    if(p.startsWith('/ui/gemini/')){const act=p.slice(11);if(act==='status'&&req.method==='GET')return send(res,200,await gemini.status());
     if(!users.isAdmin(u))return send(res,403,{error:'Only admins can connect Gemini.'});if(req.method!=='POST')return send(res,405,{error:'POST only'});
     let b={};try{b=JSON.parse(await readBody(req,8192)||'{}')}catch{}

@@ -68,3 +68,20 @@ ACT['gem-start']=async a=>{a.disabled=true;const f=$('#gemFlow');f.innerHTML=`<p
    if(x.ok){S.geminiOn=true;Pages._acctFresh=true;Chat.loadModels().catch(()=>{});toast('Gemini connected'+(x.account?' as '+x.account:''));reload()}else{m.textContent=x.error;b.disabled=false}}catch(e){m.textContent=e.message;b.disabled=false}};
   $('#gemGo').onclick=go;$('#gemCode').onkeydown=e=>{if(e.key==='Enter')go()};$('#gemCode').focus()}catch(e){f.innerHTML=`<p class="err-line" style="margin-top:12px">${esc(e.message)}</p>`;a.disabled=false}};
 ACT['gem-out']=async()=>{if(!await confirmBox('Sign Gemini out?','Agents that use a Gemini model switch to their next account in the priority list.','Sign out'))return;try{await post(UI,'/ui/gemini/logout');S.geminiOn=false;Pages._acctFresh=true;Chat.loadModels().catch(()=>{});toast('Gemini signed out');reload()}catch(e){fail(e)}};
+
+/* ---------- Google AI Pro / Ultra through Antigravity (Google's official agy tool, which replaced the Gemini CLI for
+   personal plans): Gemini 4, Gemini Flash and Claude 5.5 on your Google plan. One Google sign-in, link and code. ---------- */
+{const base=PAGES.accounts;PAGES.accounts=async(p,el)=>{await base(p,el);let g;try{g=await UI('/ui/antigravity/status')}catch{return}if(!g.installed)return;
+ const admin=S.me?.admin!==false;const box=document.createElement('div');box.className='panel card gem-card';box.style.marginTop='16px';
+ box.innerHTML=`<div class="gem-top">${logoImg('antigravity.google','A')}<div class="txt"><h2 style="margin:0">Google AI Pro (Antigravity)</h2>
+  <p class="sub" style="margin:4px 0 0">${g.signedIn?`Connected. ${g.models?.length?esc(plural(g.models.length,'model'))+' on your Google plan: '+esc(g.models.slice(0,4).join(', '))+(g.models.length>4?'…':'')+'.':''}`:'Use your Google AI Pro plan for Gemini 4, Gemini Flash and Claude 5.5 through Google’s official Antigravity tool, the same way Claude runs on your Claude plan. Sign in once with the Google account that has the plan.'}</p></div>
+  ${admin?(g.signedIn?`<button class="ghost" data-act="agy-out">Sign out</button>`:`<button class="primary" data-act="agy-start">${icon('plug',15)}Connect</button>`):''}</div><div id="agyFlow"></div>`;
+ el.append(box)}}
+ACT['agy-start']=async a=>{a.disabled=true;const f=$('#agyFlow');f.innerHTML=`<p class="hint" style="margin-top:12px"><span class="spinner"></span> Getting the Google sign-in link…</p>`;
+ try{const r=await post(UI,'/ui/antigravity/start');if(r.signedIn){toast('Google AI Pro is connected');return reload()}
+  f.innerHTML=`<ol class="qr-steps" style="margin-top:14px"><li><a href="${esc(r.url)}" target="_blank" rel="noopener">Open the Google sign-in</a> and choose the account that has Google AI Pro.</li><li>Allow access. Google then shows a code: copy it.</li><li>Paste it here and press <b>Connect</b> within a minute.</li></ol>
+   <div style="display:flex;gap:8px;margin-top:10px"><input id="agyCode" placeholder="Paste the code from Google" autocomplete="off" style="flex:1"><button class="primary" id="agyGo">Connect</button></div><p class="hint" id="agyMsg"></p>`;
+  const go=async()=>{const b=$('#agyGo'),m=$('#agyMsg');b.disabled=true;m.textContent='Checking with Google…';try{const x=await post(UI,'/ui/antigravity/code',{code:$('#agyCode').value});
+   if(x.ok){Pages._acctFresh=true;Chat.loadModels().catch(()=>{});toast('Google AI Pro connected');reload()}else{m.textContent=x.error;b.disabled=false}}catch(e){m.textContent=e.message;b.disabled=false}};
+  $('#agyGo').onclick=go;$('#agyCode').onkeydown=e=>{if(e.key==='Enter')go()};$('#agyCode').focus()}catch(e){f.innerHTML=`<p class="err-line" style="margin-top:12px">${esc(e.message)}</p>`;a.disabled=false}};
+ACT['agy-out']=async()=>{if(!await confirmBox('Sign Google AI Pro out?','Agents that use one of its models switch to their next account in the priority list.','Sign out'))return;try{await post(UI,'/ui/antigravity/logout');Pages._acctFresh=true;toast('Signed out');reload()}catch(e){fail(e)}};
