@@ -474,6 +474,29 @@ async function channelAttention(fresh){if(!fresh&&Date.now()-attention.t<10*60e3
  const before=new Set(attention.list.map(x=>x.agent+'|'+x.id));for(const x of list)if(!before.has(x.agent+'|'+x.id))console.warn('channel check:',x.name,'on',x.agent,x.needs_link?'is logged out':'is '+x.state);
  attention={t:Date.now(),list};return list}
 if(PORT===4400){setTimeout(()=>channelAttention(true).catch(()=>{}),90e3);setInterval(()=>channelAttention(true).catch(()=>{}),2*3600e3).unref()}
+/* WhatsApp that stays connected. Every 10 minutes (live app) a linked number that dropped is reconnected on its own,
+   with its saved login (no new QR): only that number's connection restarts, never the engine. The main agent's own
+   channels live inside the engine, so those are only reported (the pop-up and the bell say so). A number is tried at
+   most 3 times in 6 hours; after that it waits for a person. Once a day every WhatsApp login is backed up (last 3 kept),
+   so a damaged login can be put back instead of linking again. */
+const waTries=new Map();
+async function reconnectOne(ag,pf){const h={'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'};
+ const put=on=>fetch(DASH.origin+'/api/messaging/platforms/'+pf+'?profile='+encodeURIComponent(ag),{method:'PUT',headers:h,body:JSON.stringify({enabled:on,env:{},profile:ag})}).then(r=>r.json()).catch(()=>({}));
+ await put(false);if(pf==='whatsapp')await stopBridges(ag).catch(()=>{});await new Promise(r=>setTimeout(r,2500));const j=await put(true);platCache.delete(ag);attention.t=0;return j}
+async function waGuard(){if(gwRestarting)return;
+ for(const a of await listAllProfiles()){if(a==='default')continue;
+  const st=await checkChannel(a,'whatsapp').catch(()=>null);if(!st||st.state==='missing'||st.paused||st.connected||st.needs_link)continue;
+  if(/retrying|connecting|starting/.test(st.state||''))continue;   // already on its way back
+  const now=Date.now(),l=(waTries.get(a)||[]).filter(t=>now-t<6*3600e3);if(l.length>=3||l.some(t=>now-t<30*60e3))continue;
+  l.push(now);waTries.set(a,l);console.warn('whatsapp guard:',a,'dropped ('+(st.state||'?')+'), reconnecting with its saved login');
+  await reconnectOne(a,'whatsapp').catch(e=>console.warn('whatsapp guard:',a,e.message));
+  await new Promise(r=>setTimeout(r,20000));const after=await checkChannel(a,'whatsapp').catch(()=>null);console.log('whatsapp guard:',a,after?.connected?'back online':'still not connected ('+(after?.state||'?')+')')}}
+async function waBackup(){const {execFile}=await import('node:child_process');const day=new Date().toISOString().slice(0,10);
+ for(const a of await listAllProfiles()){const dir=path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'platforms','whatsapp','session');
+  if(!await stat(path.join(dir,'creds.json')).catch(()=>null))continue;const to=path.join(DATA,'wa-backup',a);await mkdir(to,{recursive:true});const f=path.join(to,day+'.tgz');if(await stat(f).catch(()=>null))continue;
+  const ok=await new Promise(r=>execFile('tar',['-czf',f,'-C',dir,'.'],{timeout:120000},e=>r(!e)));if(!ok){await unlink(f).catch(()=>{});continue}
+  const old=(await readdir(to)).filter(x=>/^\d{4}-\d\d-\d\d\.tgz$/.test(x)).sort().slice(0,-3);for(const x of old)await unlink(path.join(to,x)).catch(()=>{});console.log('whatsapp login backed up for',a)}}
+if(PORT===4400){setInterval(()=>waGuard().catch(e=>console.warn('whatsapp guard',e.message)),10*60e3).unref();setTimeout(()=>waBackup().catch(()=>{}),5*60e3).unref();setInterval(()=>waBackup().catch(()=>{}),6*3600e3).unref()}
 /* Secrets the agent asks for (ask_secret): the person types them into a protected field in the chat, and the value
    goes straight where it is needed (typed into the agent's screen, or saved as a key). It never enters the
    conversation, the logs or the agent's context. A request waits about 4½ minutes (the engine gives a tool call 5). */
@@ -802,6 +825,17 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/agent-setup'&&req.method==='GET'){const st=await getStatus();const out={};for(const [a,v] of Object.entries(st))if(users.isAdmin(u)||users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a)===null)out[a]={ok:v.ok!==false,failed:v.failed||[],t:v.t||0};return send(res,200,{agents:out})}
    // an agent for someone who must not have terminal, files, code or computer use: locked on every channel, and kept so
    // how an agent handles commands that need approval: ask (manual) or Smart (an AI reviewer passes safe ones and asks you about the rest)
+   // each person's own settings (drafts, Allow all per chat, folded sections, filters, notifications), kept on the
+   // box so they are the same on every device; values are the browser's own strings, capped in size
+   if(p==='/ui/prefs'){const id=String(u?.id||'owner').replace(/[^\w-]/g,'_');const f=path.join(DATA,'prefs',id+'.json');
+    const cur=await readFile(f,'utf8').then(JSON.parse).catch(()=>({}));
+    if(req.method==='GET')return send(res,200,{prefs:cur});
+    if(req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,600000))}catch{return send(res,400,{error:'Bad settings'})}
+     for(const [k,v] of Object.entries(b.set||{}))if(/^(hui-|draft:|cronSeen:|chAlert:|cronFail:)/.test(k)&&k.length<200)cur[k]=String(v).slice(0,40000);
+     for(const k of b.del||[])delete cur[k];
+     // keep it small: drop the oldest seen-markers first
+     const keys=Object.keys(cur);if(JSON.stringify(cur).length>500000)for(const k of keys.filter(k=>/^(cronFail:|chAlert:|draft:)/.test(k)).slice(0,Math.ceil(keys.length/4)))delete cur[k];
+     await mkdir(path.dirname(f),{recursive:true});const t=f+'.tmp';await writeFile(t,JSON.stringify(cur));await rename(t,f);return send(res,200,{ok:true})}}
    if(p==='/ui/agent-approvals'){const ag=req.method==='GET'?(url.searchParams.get('agent')||'default'):null;let b={};if(req.method==='PUT'){try{b=JSON.parse(await readBody(req,2048))}catch{}}
     const a=ag||String(b.agent||'default');if(!(await listAllProfiles()).includes(a))return send(res,400,{error:'Unknown agent'});
     if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a))return send(res,403,{error:'Not your agent'});

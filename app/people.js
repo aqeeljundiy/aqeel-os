@@ -11,6 +11,7 @@ const UNSAFE_TOOLSETS=['terminal','file','code_execution','computer_use'];
 
 async function loadMe(){
  try{S.me=await UI('/ui/me')}catch{S.me={admin:true,role:'owner',name:'',agents:{}}}
+ await Prefs.load();
  applyRole();
  if(!S.me.admin&&typeof FILE_HOME!=='undefined')FILE_HOME=S.me.home;
 }
@@ -138,7 +139,7 @@ PAGES.profiles=async(p,el)=>{
   <div class="tile-top"><span class="logo ava">${id.avatar&&!locked?`<img src="${esc(id.avatar)}" alt="">`:esc(id.name[0].toUpperCase())}</span><div style="min-width:0"><h3>${esc(id.name)}</h3><span style="font-size:12.5px;color:var(--muted)">${locked?'Private':esc(id.title||'Agent')+' · '+esc(modelLabel(x.model))+' · '+plural(x.skill_count||0,'skill')}</span></div>${locked?`<span class="chip">${icon('lock',12)}Private</span>`:''}</div>
   ${locked?`<p class="hint">Only ${esc(o.owner?.name||'its owner')} and the people they share it with can open it.</p>`:`<p>${esc(x.description||'No description yet.')}</p>`}
   <div class="agent-people">${o.owner?`<span class="aowner" title="Owner">${personAva(o.owner,22)}<span>${esc(o.owner.id===S.me?.id?'You':o.owner.name)}</span><small>owner</small></span>`:''}${(o.shared||[]).length?`<span class="ashared">${o.shared.slice(0,5).map(s=>`<span title="${esc(s.name)} · ${esc(LEVEL_LABEL[s.level]||s.level)}">${personAva(s,22)}</span>`).join('')}${o.shared.length>5?`<small>+${o.shared.length-5}</small>`:''}</span>`:''}</div>
-  <div class="agent-tags">${x.is_default?'<span class="chip blue">Default</span>':''}${locked?'':chipState(x.gateway_running,'Gateway on','Gateway off')}${act.active===x.name?'<span class="chip" title="The agent the command line uses">CLI default</span>':''}</div><div class="tile-foot agent-foot"><span>${locked?'':(S.profile||'default')===x.name?'<span class="chip ok"><i class="dot"></i>In use</span>':`<span class="agent-go">${icon('chat',14)}Chat with ${esc(id.name)}</span>`}</span>${locked?'':`<button class="ghost icon agent-gear" data-menu="profilecard" data-name="${esc(x.name)}" aria-label="Settings for ${esc(id.name)}" title="Settings">${icon('settings',18)}</button>`}</div></div>`}).join('')}</div>`;
+  <div class="agent-tags">${x.is_default?'<span class="chip blue">Default</span>':''}${locked?'':chipState(x.gateway_running,'Online','Offline')}${act.active===x.name?'<span class="chip" title="The agent the command line uses">CLI default</span>':''}</div><div class="tile-foot agent-foot"><span>${locked?'':(S.profile||'default')===x.name?'<span class="chip ok"><i class="dot"></i>In use</span>':`<span class="agent-go">${icon('chat',14)}Chat with ${esc(id.name)}</span>`}</span>${locked?'':`<button class="ghost icon agent-gear" data-menu="profilecard" data-name="${esc(x.name)}" aria-label="Settings for ${esc(id.name)}" title="Settings">${icon('settings',18)}</button>`}</div></div>`}).join('')}</div>`;
 };
 ACT['agent-locked']=a=>toast('This agent is private to '+(a.dataset.owner||'its owner')+'. Ask them to share it with you.');
 // Sharing and owner, from an agent's ⋯ menu (its owner only)
@@ -700,3 +701,7 @@ async function setPaused(ag,pf,on){const what=appName(pf);
 async function reconnectChannel(ag,pf){const main=ag.split('--')[0]==='default'&&!ag.includes('--');
  if(main&&!await confirmBox('Reconnect '+appName(pf)+'?','The main agent’s channels only reconnect by restarting the engine, so every agent pauses for about 20 seconds (replies in progress finish first).','Reconnect',false))return;
  try{const r=await post(UI,'/ui/channels/reconnect',{agent:ag,platform:pf});toast(r.restarting?'Reconnecting: the engine restarts once replies in progress finish':appName(pf)+' reconnected');setTimeout(()=>reload(),r.restarting?20000:3000)}catch(e){fail(e)}}
+
+// the bell (Inbox lives in notices.js, which loads before the action table)
+ACT['inbox']=()=>{if($('.drawer.inbox'))return closeLayers();Inbox.open()};
+setTimeout(()=>Inbox.paintBell(),300);setInterval(()=>Inbox.paintBell(),2000);addEventListener('storage',e=>{if(e.key==='hui-inbox')Inbox.paintBell()});

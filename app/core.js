@@ -5,6 +5,27 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const isMac=/Mac|iPhone|iPad/.test(navigator.platform);
 const MOD=isMac?'⌘':'Ctrl';
 const store={get(k,d){try{const v=localStorage.getItem('hui-'+k);return v===null?d:JSON.parse(v)}catch{return d}},set(k,v){try{localStorage.setItem('hui-'+k,JSON.stringify(v))}catch{}}};
+// Your settings follow you: what this browser remembers for you (drafts, Allow all per chat, folded sections,
+// filters, theme, notifications you have seen) is also saved to your account on the box and loaded at sign-in,
+// so every device shows the same. Writes are batched; nothing waits on the network.
+const Prefs={q:{},gone:new Set(),t:0,ready:false,
+ mine:k=>/^(hui-|draft:|cronSeen:|chAlert:|cronFail:)/.test(k),
+ push(k,v){if(!this.ready)return;this.q[k]=v;this.gone.delete(k);this.later()},
+ drop(k){if(!this.ready)return;delete this.q[k];this.gone.add(k);this.later()},
+ later(){clearTimeout(this.t);this.t=setTimeout(()=>this.flush(),1200)},
+ flush(){const set=this.q,del=[...this.gone];if(!Object.keys(set).length&&!del.length)return;this.q={};this.gone.clear();const body=JSON.stringify({set,del});
+  fetch('/ui/prefs',{method:'PUT',headers:{'x-hui':'1','content-type':'application/json'},body,keepalive:true}).catch(()=>{Object.assign(this.q,set);del.forEach(k=>this.gone.add(k))})},
+ // at sign-in: what the account has wins over this browser, except what you changed here since (still waiting to be sent)
+ async load(){try{const r=await fetch('/ui/prefs',{headers:{'x-hui':'1'}});if(!r.ok)return;const {prefs={}}=await r.json();
+   const here={};for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(this.mine(k))here[k]=localStorage.getItem(k)}
+   for(const [k,v] of Object.entries(prefs))try{rawSet.call(localStorage,k,v)}catch{}
+   // first time on this account: what this browser already had becomes the account's
+   const missing=Object.keys(here).filter(k=>!(k in prefs));this.ready=true;for(const k of missing)this.push(k,here[k]);
+   if(prefs['hui-theme'])document.documentElement.classList.toggle('dark',prefs['hui-theme']==='dark')}catch{}}};
+const rawSet=Storage.prototype.setItem,rawDel=Storage.prototype.removeItem;
+Storage.prototype.setItem=function(k,v){rawSet.call(this,k,v);if(this===window.localStorage&&Prefs.mine(k))Prefs.push(k,String(v))};
+Storage.prototype.removeItem=function(k){rawDel.call(this,k);if(this===window.localStorage&&Prefs.mine(k))Prefs.drop(k)};
+addEventListener('pagehide',()=>Prefs.flush());
 
 /* ---------- API ---------- */
 class ApiError extends Error{constructor(msg,status,data){super(msg);this.status=status;this.data=data}}
@@ -143,7 +164,7 @@ const SECTIONS=[
  {id:'system',label:'System',icon:'gauge',key:'6',pages:[
   {id:'status',label:'Status',icon:'activity',desc:'Is everything running, and what happened recently.'},
   {id:'usage',label:'Usage',icon:'chart',desc:'Tokens, cache and cost over time.'},
-  {id:'logs',label:'Logs',icon:'list',desc:'What aqeelOS and the gateway wrote while working.'},
+  {id:'logs',label:'Logs',icon:'list',desc:'What aqeelOS wrote while working.'},
   {id:'settings',label:'Settings',icon:'sliders',desc:'Every aqeelOS setting, grouped and searchable.'},
   {id:'host',label:'Host',icon:'server',desc:'The AI box itself: resources, updates and maintenance.'}]},
 ];
@@ -177,7 +198,7 @@ function sidebar(r){
  let sub='';
  if(sec.id==='chat')sub=Chat.sidebar(r);
  else sub=`<div class="side-sub"><div class="side-sub-head"><span class="th">${sec.label}</span></div><div class="side-list">${sec.pages.map(p=>`<button class="item ${r.page.id===p.id?'on':''}" data-go="/${sec.id}/${p.id}">${icon(p.icon,16)}<span class="t">${p.label}</span></button>`).join('')}</div></div>`;
- const st=S.status;const gw=st?(st.gateway_running?'Gateway running':'Gateway stopped'):'Connecting…';
+ const st=S.status;const gw=st?(st.gateway_running?'Online':'Offline'):'Connecting…';
  return `<div class="resizer side-rz" data-drag="side" title="Drag to resize · double-click to reset"></div><div class="side-top"><span class="wordmark"><img class="mark" src="/assets/elkiya-mark.svg" alt=""><span>aqeelOS</span></span><button class="ghost icon collapse-btn" data-act="collapse" title="Collapse sidebar (${MOD}+B)" aria-label="Collapse sidebar">${icon('panel',18)}</button></div>
  <nav class="sections">${S.collapsed?`<button class="sec" data-act="collapse" title="Expand sidebar (${MOD}+B)">${icon('panel',19)}</button>`:''}${sections}</nav>${sub}
  <div class="side-foot"><button class="status-btn" data-menu="profile" aria-label="Account and status"><span class="avatar">${ident().avatar?`<img src="${esc(ident().avatar)}" alt="">`:esc(AGENT()[0].toUpperCase())}</span><span class="who"><b>${esc(AGENT())}</b><span><i class="dot" style="color:${st&&!st.gateway_running?'var(--bad)':'var(--ok)'}"></i>${gw} · ${esc(modelLabel(S.model))}</span></span>${icon('chevD',16)}</button></div>`;
@@ -190,7 +211,7 @@ function topbar(r){
  else if(r.chat!==undefined){const c=S.sessions.find(x=>x.id===r.chat);crumbs=`<b data-act="rename-current" title="Rename" style="cursor:text">${c?esc(c.title||c.preview||'Chat'):'New chat'}</b>`}
  else crumbs=`<span>${r.sec.label}</span>${icon('chevR',14)}<b>${r.page.label}</b>`;
  return `<button class="ghost icon menu-btn" data-act="nav" aria-label="Open navigation">${icon('menu',20)}</button><div class="crumbs">${crumbs}</div>
- <div class="top-actions"><button class="ghost icon ${Screen.open&&Screen.src_!=='mine'?'on':''}" data-act="screen-box" title="The agent's screen on the AI box" aria-label="The agent's screen on the AI box" aria-pressed="${Screen.open&&Screen.src_!=='mine'}">${icon('monitor',18)}</button><button class="ghost icon ${Screen.open&&Screen.src_==='mine'?'on':''}" data-act="screen-mine" title="My browser: the agent's tab in your own Chrome" aria-label="My browser" aria-pressed="${Screen.open&&Screen.src_==='mine'}">${icon('globe',18)}</button><button class="k-btn" data-act="palette" aria-label="Search and commands">${icon('search',15)}<span class="k-label">Search or run a command</span><kbd>${MOD} K</kbd></button>
+ <div class="top-actions"><button class="ghost icon ${Screen.open&&Screen.src_!=='mine'?'on':''}" data-act="screen-box" title="The agent's screen on the AI box" aria-label="The agent's screen on the AI box" aria-pressed="${Screen.open&&Screen.src_!=='mine'}">${icon('monitor',18)}</button><button class="ghost icon ${Screen.open&&Screen.src_==='mine'?'on':''}" data-act="screen-mine" title="My browser: the agent's tab in your own Chrome" aria-label="My browser" aria-pressed="${Screen.open&&Screen.src_==='mine'}">${icon('globe',18)}</button><button class="ghost icon bell" data-act="inbox" title="Notifications" aria-label="Notifications">${icon('bell',18)}<span class="bell-n"></span></button><button class="k-btn" data-act="palette" aria-label="Search and commands">${icon('search',15)}<span class="k-label">Search or run a command</span><kbd>${MOD} K</kbd></button>
  <button class="ghost icon" data-act="theme" title="Light or dark" aria-label="Switch light and dark">${icon(document.documentElement.classList.contains('dark')?'sun':'moon',18)}</button></div>`;
 }
 // One calm banner for low memory / disk / out-of-memory restarts (most severe first).
@@ -260,7 +281,7 @@ function actionDrawer(title,name){const d=drawer(title,`<div class="action-log" 
 async function runAction(title,path,body){try{const r=await post(H,path,body);if(r?.ok===false)throw new Error(r.error||r.message||'Failed');if(r?.name)actionDrawer(title,r.name);else toast(title+' done');return r}catch(e){fail(e)}}
 
 function palette(){openLayer();const p=document.createElement('div');p.className='palette';p.setAttribute('role','dialog');p.setAttribute('aria-label','Search and commands');
- const actions=[{g:'Actions',l:'New chat',ic:'plus',run:()=>Chat.newChat()},{g:'Actions',l:'Restart gateway',ic:'refresh',run:()=>restartGateway()},{g:'Actions',l:'Use my browser (set up the extension)',ic:'globe',run:()=>BrowserSetup.open()},{g:'Actions',l:'Toggle light / dark',ic:'moon',run:()=>theme()},{g:'Actions',l:'Check for engine updates',ic:'download',run:()=>go('/system/host')},{g:'Actions',l:'Sign out',ic:'logout',run:()=>signOut()}];
+ const actions=[{g:'Actions',l:'New chat',ic:'plus',run:()=>Chat.newChat()},{g:'Actions',l:'Restart agents',ic:'refresh',run:()=>restartGateway()},{g:'Actions',l:'Use my browser (set up the extension)',ic:'globe',run:()=>BrowserSetup.open()},{g:'Actions',l:'Toggle light / dark',ic:'moon',run:()=>theme()},{g:'Actions',l:'Check for engine updates',ic:'download',run:()=>go('/system/host')},{g:'Actions',l:'Sign out',ic:'logout',run:()=>signOut()}];
  const models=(Chat.models||[]).slice(0,12).map(m=>({g:'Switch model',l:m.label+' · '+m.providerName,ic:'cpu',run:()=>Chat.setModel(m)}));
  const pages=SECTIONS.flatMap(s=>s.pages?s.pages.map(x=>({g:'Pages',l:s.label+' › '+x.label,ic:x.icon,run:()=>go('/'+s.id+'/'+x.id)})):[{g:'Pages',l:'Chat',ic:'chat',run:()=>go('/chat')},{g:'Pages',l:'Chat › Manage chats',ic:'list',run:()=>go('/chat/manage')}]);
  const chats=S.sessions.slice(0,60).map(c=>({g:'Chats',l:c.title||c.preview||c.id,ic:srcIcon(c.source),run:()=>go('/chat/'+c.id)}));

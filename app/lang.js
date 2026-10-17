@@ -24,7 +24,7 @@ const ID={
  'API keys and tokens, stored on the box and never shown in full.':'Kunci API dan token, disimpan di server dan tidak pernah ditampilkan utuh.',
  'Is everything running, and what happened recently.':'Apakah semuanya berjalan, dan apa yang terjadi baru-baru ini.',
  'Tokens, cache and cost over time.':'Token, cache, dan biaya dari waktu ke waktu.',
- 'What aqeelOS and the gateway wrote while working.':'Catatan aqeelOS dan gateway saat bekerja.',
+ 'What aqeelOS wrote while working.':'Catatan aqeelOS saat bekerja.',
  'Every aqeelOS setting, grouped and searchable.':'Semua pengaturan aqeelOS, dikelompokkan dan bisa dicari.',
  'The AI box itself: resources, updates and maintenance.':'Server AI itu sendiri: sumber daya, pembaruan, dan perawatan.',
  'Who can sign in, what they can do, and which agents they can use.':'Siapa yang bisa masuk, apa yang bisa mereka lakukan, dan agen mana yang bisa mereka pakai.',
@@ -42,7 +42,7 @@ const ID={
  'Invite someone':'Undang seseorang','Share an agent':'Bagikan agen','Allowed to':'Boleh','Can chat':'Bisa mengobrol','Can edit':'Bisa mengubah','Owner':'Pemilik','Member':'Anggota','Admin':'Admin',
  'New agent':'Agen baru','New schedule':'Jadwal baru','New task':'Tugas baru','Add account':'Tambah akun','Add Claude account':'Tambah akun Claude','Add a key':'Tambah kunci',
  'Priority':'Prioritas','Switch automatically':'Pindah otomatis','Which agent uses what':'Agen mana memakai apa','All accounts':'Semua akun','Used by':'Dipakai oleh','No agent yet':'Belum ada agen',
- 'This week':'Minggu ini','Session (5 h)':'Sesi (5 jam)','Gateway running':'Gateway berjalan','Gateway stopped':'Gateway berhenti',
+ 'This week':'Minggu ini','Session (5 h)':'Sesi (5 jam)','Online':'Online','Offline':'Offline','Restart agents':'Mulai ulang agen',
  'Plan my week':'Rencanakan mingguku','Dinner ideas':'Ide makan malam','Write a message':'Tulis pesan','Learn something':'Belajar sesuatu',
 };
 // Sentences with a name inside them (the name sits in its own element, so the pieces are matched apart).
