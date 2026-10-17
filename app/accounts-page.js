@@ -51,3 +51,20 @@ async function savePri(list){try{await UI('/ui/accounts/priority',{method:'PUT',
 ACT['pri-move']=a=>{const l=[...Pages._pri],i=+a.dataset.i,j=i+ +a.dataset.dir;[l[i],l[j]]=[l[j],l[i]];savePri(l)};
 ACT['pri-del']=a=>{const l=[...Pages._pri];l.splice(+a.dataset.i,1);savePri(l)};
 Pages.priAddMenu=el=>{const used=new Set(Pages._pri.map(e=>e.key));menu(el,Pages._acctSrc.filter(s=>!used.has(s.key)).map(s=>({label:s.name,icon:s.key.startsWith('claude:')?'user':'cpu',run:()=>savePri([...Pages._pri,{key:s.key,model:''}])})))};
+
+/* ---------- Gemini through your Google AI subscription (Pro / Ultra), via the official Gemini CLI: one Google sign-in,
+   then it is a model like any other (Models, the chat model menu, the priority list). ---------- */
+{const base=PAGES.accounts;PAGES.accounts=async(p,el)=>{await base(p,el);let g;try{g=await UI('/ui/gemini/status')}catch{return}if(!g.installed)return;
+ const admin=S.me?.admin!==false;const box=document.createElement('div');box.className='panel card gem-card';box.style.marginTop='16px';
+ box.innerHTML=`<div class="gem-top">${logoImg('gemini.google.com','G')}<div class="txt"><h2 style="margin:0">Gemini with your Google AI plan</h2>
+  <p class="sub" style="margin:4px 0 0">${g.signedIn?`Connected${g.account?' as <b>'+esc(g.account)+'</b>':''}. Gemini models now show up under Models and in the chat's model menu.`:'Use Gemini through your Google AI Pro or Ultra subscription, the same way Claude runs on your Claude plan. Sign in once with the Google account that has the plan.'}</p></div>
+  ${admin?(g.signedIn?`<button class="ghost" data-act="gem-out">Sign out</button>`:`<button class="primary" data-act="gem-start">${icon('plug',15)}Connect</button>`):''}</div><div id="gemFlow"></div>`;
+ el.append(box)}}
+ACT['gem-start']=async a=>{a.disabled=true;const f=$('#gemFlow');f.innerHTML=`<p class="hint" style="margin-top:12px"><span class="spinner"></span> Getting the Google sign-in link…</p>`;
+ try{const r=await post(UI,'/ui/gemini/start');if(r.signedIn){toast('Gemini is connected');return reload()}
+  f.innerHTML=`<ol class="qr-steps" style="margin-top:14px"><li><a href="${esc(r.url)}" target="_blank" rel="noopener">Open the Google sign-in</a> and choose the account that has Google AI Pro.</li><li>Allow access. Google then shows a code: copy it.</li><li>Paste it here and press <b>Connect</b>.</li></ol>
+   <div style="display:flex;gap:8px;margin-top:10px"><input id="gemCode" placeholder="Paste the code from Google" autocomplete="off" style="flex:1"><button class="primary" id="gemGo">Connect</button></div><p class="hint" id="gemMsg"></p>`;
+  const go=async()=>{const b=$('#gemGo'),m=$('#gemMsg');b.disabled=true;m.textContent='Checking with Google…';try{const x=await post(UI,'/ui/gemini/code',{code:$('#gemCode').value});
+   if(x.ok){S.geminiOn=true;Pages._acctFresh=true;Chat.loadModels().catch(()=>{});toast('Gemini connected'+(x.account?' as '+x.account:''));reload()}else{m.textContent=x.error;b.disabled=false}}catch(e){m.textContent=e.message;b.disabled=false}};
+  $('#gemGo').onclick=go;$('#gemCode').onkeydown=e=>{if(e.key==='Enter')go()};$('#gemCode').focus()}catch(e){f.innerHTML=`<p class="err-line" style="margin-top:12px">${esc(e.message)}</p>`;a.disabled=false}};
+ACT['gem-out']=async()=>{if(!await confirmBox('Sign Gemini out?','Agents that use a Gemini model switch to their next account in the priority list.','Sign out'))return;try{await post(UI,'/ui/gemini/logout');S.geminiOn=false;Pages._acctFresh=true;Chat.loadModels().catch(()=>{});toast('Gemini signed out');reload()}catch(e){fail(e)}};

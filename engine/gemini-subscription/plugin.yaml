@@ -1,0 +1,17 @@
+name: gemini-subscription
+kind: model-provider
+version: 0.1.0
+manifest_version: 2
+description: Gemini through your Google AI Pro / Ultra subscription, via the official Gemini CLI in ACP mode; aqeelOS owns tools, approvals and memory
+author: Elkiya
+license: MIT
+tags: [model-provider, google, gemini, subscription]
+requires_hermes: ">=0.21.4"
+platforms: []
+optional_env:
+  - GEMINI_SUBSCRIPTION_COMMAND
+  - GEMINI_SUBSCRIPTION_ARGS
+external_dependencies:
+  - name: gemini
+    check: "gemini --version"
+    install: "npm install -g @google/gemini-cli"

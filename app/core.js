@@ -171,7 +171,8 @@ const avatarImg=s=>ident().avatar?`<img src="${esc(ident().avatar)}" alt="${esc(
 async function loadIdentities(){try{S.identities=await call('','/ui/identities')}catch{}}
 
 // Model providers worth showing: signed in, and not Nous or the pay-per-use Anthropic API (no key on this box).
-const usableProvider=p=>p.authenticated&&(p.models||[]).length&&!/nous/i.test((p.slug||'')+' '+(p.name||''))&&!(p.slug==='anthropic'&&!S.anthropicKey);
+// Gemini via the Google AI plan counts only once someone signed in to it (the engine lists it as soon as the CLI exists)
+const usableProvider=p=>p.authenticated&&!(p.slug==='gemini-subscription'&&!S.geminiOn)&&(p.models||[]).length&&!/nous/i.test((p.slug||'')+' '+(p.name||''))&&!(p.slug==='anthropic'&&!S.anthropicKey);
 
 /* ---------- navigation model ---------- */
 const SECTIONS=[

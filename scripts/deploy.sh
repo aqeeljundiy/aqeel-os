@@ -20,7 +20,7 @@ done
 BOX
 # 2) Only now pack the files, so what goes live is what is here at this moment (not what was here before the wait).
 node scripts/features.mjs >/dev/null
-tar --force-local -czf ../hui.tgz app assets backlog data extension mockup scripts PRD.md
+tar --force-local -czf ../hui.tgz app assets backlog data engine extension mockup scripts PRD.md
 scp -q ../hui.tgz ai-vps:/tmp/hui.tgz && rm ../hui.tgz
 ssh ai-vps 'bash -s' <<'BOX'
 set -e

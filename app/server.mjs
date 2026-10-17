@@ -6,6 +6,7 @@ import {createServer,request as httpRequest} from 'node:http';
 import {readFile,stat,writeFile,mkdir,unlink,rename,realpath,readlink} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {createAccounts,setupAgentFn,export_setups} from './accounts.mjs';
+import {createGemini} from './gemini.mjs';
 import {withAgent,setKey,readConfig,pick,agentNames,isAgent,busy as opsBusy,initStatus,getStatus,setStatus,editEnv,hermes as hcmd,python as enginePython,LIVE_APP} from './agentops.mjs';
 import {createSchedules} from './schedules.mjs';
 import {createScreens} from './screens.mjs';
@@ -385,6 +386,7 @@ const localBrowser=createLocalBrowser({DATA,GATE:GATE.origin,API_KEY,EXT_DIR:pat
 const links=createLinks({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,python:()=>sharing.python(),setupAgent:n=>setupAgentFn?.(n)});
 function listAgents(){return agentNames()}   // real agents only (a folder with a config), not extra-number copies
 async function listAllProfiles(){return [...await listAgents(),...(await links.list()).map(l=>l.name)]}
+const gemini=createGemini({HERMES_HOME,hcmd,listAgents});
 async function agentModel(a){const y=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>'');const k=key=>((new RegExp('^model:[\\s\\S]*?\\n\\s+'+key+':\\s*(\\S+)','m').exec(y)||[])[1]||'').replace(/^["']|["']$/g,'');return {provider:k('provider'),model:k('default')}}
 const users=createUsers(DATA,mailer);
 const starters=createStarters(DATA);
@@ -919,6 +921,12 @@ const server=createServer(async(req,res)=>{
     const r=await hcmd(ag,['plugins',b.enabled?'enable':'disable',name],{timeout:150000});
     return r.ok?send(res,200,{ok:true,restart_required:/restart/i.test(r.out)}):send(res,400,{error:(r.err||'Could not change the plugin').slice(0,300)})}
    // today's US dollar → rupiah rate, so costs can be shown in rupiah (fetched twice a day, last good one kept)
+   // Gemini through the Google AI subscription: status for everyone, signing in and out for admins
+   if(p.startsWith('/ui/gemini/')){const act=p.slice(11);if(act==='status'&&req.method==='GET')return send(res,200,await gemini.status());
+    if(!users.isAdmin(u))return send(res,403,{error:'Only admins can connect Gemini.'});if(req.method!=='POST')return send(res,405,{error:'POST only'});
+    let b={};try{b=JSON.parse(await readBody(req,8192)||'{}')}catch{}
+    try{if(act==='start')return send(res,200,await gemini.start());if(act==='code')return send(res,200,await gemini.code(b.code));if(act==='logout')return send(res,200,await gemini.logout())}catch(e){return send(res,400,{error:e.message})}
+    return send(res,404,{error:'Unknown'})}
    if(p==='/ui/fx'&&req.method==='GET'){if(!FX.at||Date.now()-FX.at>12*3600e3){try{const r=await fetch('https://open.er-api.com/v6/latest/USD',{signal:AbortSignal.timeout(8000)});const j=await r.json();const v=+j?.rates?.IDR;if(v>1000&&v<100000)Object.assign(FX,{idr:v,at:Date.now(),day:(j.time_last_update_utc||'').slice(5,16)})}catch{}}
     return send(res,200,{IDR:FX.idr,updated:FX.day||null})}
    if(p==='/ui/box'&&req.method==='GET')return send(res,200,await boxMemory());

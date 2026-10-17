@@ -3,7 +3,7 @@
 // Each account is its own Claude Code config folder (CLAUDE_CONFIG_DIR); the main one is ~/.claude.
 // Hermes' Claude plugin is pointed at an account per agent with its `claude_config_dir` setting.
 import {spawn,execFile} from 'node:child_process';
-import {readFile,writeFile,mkdir,rename,rm,readdir,cp,appendFile,access} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,rename,rm,readdir,cp,appendFile,access,stat} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import path from 'node:path';
 import {hermes as hq,setKey,readConfig,pick,editEnv,agentNames,setStatus,getStatus,LIVE_APP} from './agentops.mjs';
@@ -86,7 +86,8 @@ export function createAccounts(DATA){
  let provCache={t:0,v:[]};
  async function providers(fresh){if(!fresh&&Date.now()-provCache.t<60000)return provCache.v;
   try{const r=await fetch(GATE+'/api/model/options',{headers:{authorization:'Bearer '+(process.env.API_SERVER_KEY||'')},signal:AbortSignal.timeout(20000)});const j=await r.json();
-   provCache={t:Date.now(),v:(j.providers||[]).filter(p=>p.authenticated&&!SKIP.test(p.slug)).map(p=>({slug:p.slug,name:p.name,models:p.models||[],
+   const gem=await stat(path.join(homedir(),'.gemini','oauth_creds.json')).then(()=>true,()=>false);
+   provCache={t:Date.now(),v:(j.providers||[]).filter(p=>p.authenticated&&!SKIP.test(p.slug)&&(p.slug!=='gemini-subscription'||gem)).map(p=>({slug:p.slug,name:p.name,models:p.models||[],
     windows:(p.usage?.windows||[]).map(w=>({label:w.label,used:Math.round(Number(w.used_percent)||0),resets:w.resets_at||null,scope:w.scope||'account'})),details:p.usage?.details||[]}))}}catch{}
   return provCache.v}
  const worstOf=ws=>Math.max(0,...(ws||[]).filter(w=>w.scope!=='model').map(w=>w.used||0));
