@@ -146,4 +146,13 @@ for(const h of homes){const sp=path.join(h,'skills','productivity','google-works
 {const dirs=[path.join(HOME,'memories')];for(const p of (()=>{try{return readdirSync(path.join(HOME,'profiles'))}catch{return []}})())dirs.push(path.join(HOME,'profiles',p,'memories'));
  for(const d of dirs)for(const f of ['MEMORY.md','USER.md']){const p=path.join(d,f);const s=await readFile(p,'utf8').catch(()=>null);if(s==null)continue;
   const next=s.replace(/Hermes Agent/g,'aqeelOS').replace(/(?<![\w./-])Hermes(?![\w/-])/g,'aqeelOS');if(next!==s){await writeFile(p,next);changed++;console.log('memory notes say aqeelOS:',p.replace(HOME,'~'))}}}
+// 11) Skills are instructions the agents read and sometimes quote: their prose says aqeelOS too. Code blocks, `inline
+//     code`, paths and commands are left exactly as they are (they must keep working).
+{const roots=[path.join(HOME,'skills')];for(const p of (()=>{try{return readdirSync(path.join(HOME,'profiles'))}catch{return []}})())roots.push(path.join(HOME,'profiles',p,'skills'));
+ const walk=(d,out)=>{let l=[];try{l=readdirSync(d,{withFileTypes:true})}catch{return out}for(const e of l){const p=path.join(d,e.name);if(e.isDirectory()&&!e.name.startsWith('.'))walk(p,out);else if(/^(SKILL|README)\.md$|\.md$/.test(e.name))out.push(p)}return out};
+ const prose=l=>l.split(/(`[^`]*`)/).map((part,i)=>i%2?part:part.replace(/Hermes Agent/g,'aqeelOS').replace(/(?<![\w./~-])Hermes(?![\w/-])/g,'aqeelOS')).join('');
+ let n=0;for(const r of roots)for(const f of walk(r,[])){const s=await readFile(f,'utf8').catch(()=>null);if(s==null||!/Hermes/.test(s))continue;let fence=false;
+  const next=s.split('\n').map(l=>{if(/^\s*(```|~~~)/.test(l)){fence=!fence;return l}return fence?l:prose(l)}).join('\n');
+  if(next!==s){await writeFile(f,next);n++}}
+ if(n){changed+=n;console.log('skills say aqeelOS in',n,'file(s)')}}
 console.log(changed?changed+' change(s)':'skill patches already in place');

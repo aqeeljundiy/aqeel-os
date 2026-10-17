@@ -7,8 +7,15 @@ import io, os, re, sys, tokenize, py_compile, tempfile
 WORD = re.compile(r'(?<![\w.-])Hermes(?![\w-])')
 SKIP_OPS = {'==', '!=', 'in', 'not', 'is'}
 
+MODEL_NAME = re.compile(r'Hermes[- ]?\d')   # Nous's own models (Hermes 3, Hermes-4-405B) keep their names
+# files whose wording is a contract with someone else, kept exactly as the engine ships them: the Anthropic
+# sign-in rewrites the engine's name into "Claude Code" on the way out, and must keep doing so
+KEEP = {'agent/anthropic_adapter.py'}
+
 def rename_text(t):
-    return WORD.sub('aqeelOS', t.replace('Hermes Agent', 'aqeelOS'))
+    if MODEL_NAME.search(t): return t
+    t = t.replace('Hermes Agent', 'aqeelOS').replace('built by Nous Research', 'built by Elkiya').replace('(by Nous Research)', '(by Elkiya)')
+    return WORD.sub('aqeelOS', t)
 
 def patch(src):
     toks = list(tokenize.generate_tokens(io.StringIO(src).readline))
@@ -41,6 +48,7 @@ def main():
             for fn in fns:
                 if not fn.endswith('.py'): continue
                 p = os.path.join(dp, fn)
+                if os.path.relpath(p, root).replace(os.sep, '/') in KEEP: continue
                 try:
                     with open(p, encoding='utf-8') as f: old = f.read()
                 except Exception: continue

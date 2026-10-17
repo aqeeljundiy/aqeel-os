@@ -1126,3 +1126,13 @@ button.think:hover{color:var(--ink-2);background:var(--soft)}
 @media (max-width:700px){.cron-pops{top:64px;bottom:auto;left:12px;right:12px;max-width:none}}
 /* F27 on touch screens the folder ⋯ and the inbox ✕ are always visible */
 @media (hover:none){.sf-head .sf-more,.ib-item .ib-x{opacity:1}}
+
+/* memory notes as cards */
+.mem-cards{display:flex;flex-direction:column;gap:8px;max-height:420px;overflow:auto;padding-right:4px}
+.mem-card{background:var(--soft);border-radius:12px;padding:10px 14px;font-size:13.5px;line-height:1.55;overflow-wrap:anywhere}.mem-card p{margin:0}
+/* bot / personal account label: icon and word on one line */
+.kind-chip svg{display:inline-block;flex:none;vertical-align:-1px}
+.row .txt .acct-line{display:flex;flex-wrap:wrap;align-items:center;gap:4px}
+/* keys: a long hidden value never overflows its row */
+[data-reveal]{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block}
+.row .txt span.kind-chip{flex:none;white-space:nowrap;flex-direction:row}

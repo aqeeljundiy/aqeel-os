@@ -9,7 +9,11 @@ const bracketOf=n=>(/^\s*\[([^\]]{1,40})\]/.exec(n||'')||[])[1]?.trim()||'';
 const usd=c=>c==null?'':c<0.01?'<$0.01':'$'+(c<10?c.toFixed(2):Math.round(c));
 const toks=n=>!n?'0':n<1000?String(n):n<1e6?(n/1e3).toFixed(n<1e4?1:0)+'k':(n/1e6).toFixed(1)+'M';
 const secsText=s=>s==null?'':s<60?s+' s':s<3600?Math.round(s/60)+' min':(s/3600).toFixed(1)+' h';
-function deliverName(j,names){const d=String(j.deliver||'local');if(d==='local')return 'this app';if(d==='origin')return 'where it was made';
+function whenText(j){const sc=j.schedule||{};const disp=String(sc.display||j.schedule_display||'');const zone=SCHED.tz?' ('+SCHED.tz.split('/').pop().replace(/_/g,' ')+' time)':'';
+ const iv=/^every\s+(\d+)\s*([smhd])$/i.exec(disp);if(iv){const n=+iv[1],u={s:'second',m:'minute',h:'hour',d:'day'}[iv[2].toLowerCase()];return 'Every '+(n===1?u:n+' '+u+'s')}
+ const once=/^once at (\d{4}-\d\d-\d\d)[ T](\d\d:\d\d)/i.exec(disp);if(once){const d=new Date(once[1]+'T12:00:00');return 'Once, '+d.toLocaleDateString([],{weekday:'short',day:'numeric',month:'short'})+' at '+once[2]+zone}
+ const t=cronText(sc.expr||disp);return (t?t.charAt(0).toUpperCase()+t.slice(1):disp)+(sc.expr&&/\d\d:\d\d/.test(t)?zone:'')}
+function deliverName(j,names){const d=String(j.deliver||'local');if(d==='local')return 'this app';if(d==='origin')return 'the chat it was made in';
  const [pf,...rest]=d.split(':');const id=rest.join(':');const app=({whatsapp:'WhatsApp',telegram:'Telegram',slack:'Slack',discord:'Discord',email:'Email',signal:'Signal'})[pf]||pretty(pf);
  if(!id)return app;const who=(names||{})[d]||(names||{})[pf+':'+id.split('@')[0]];return who?who+' on '+app:app}
 function schedMeta(j){const i=SCHED.info||{};const k=(j.profile||'default')+'|'+j.id;return {m:(i.meta||{})[k]||{},r:(i.runs||{})[k]||{runs:[],tokens:0,cost:0}}}
@@ -17,7 +21,7 @@ const folderOf=j=>schedMeta(j).m.folder||bracketOf(j.name)||'General';
 
 PAGES.schedules=async(p,el)=>{
  setActions(`<button class="primary" data-act="cron-new">${icon('plus',16)}New schedule</button>`);
- const [jobs,info]=await Promise.all([H('/cron/jobs?profile=all'),UI('/ui/schedules/info').catch(()=>null)]);
+ const [jobs,info]=await Promise.all([H('/cron/jobs?profile=all'),UI('/ui/schedules/info').catch(()=>null),SCHED.tz!==undefined?null:H('/config?profile=default').then(c=>{SCHED.tz=c.timezone||''}).catch(()=>{SCHED.tz=''})]);
  Pages.cronJobs=jobs;SCHED.info=info||SCHED.info||{meta:{},runs:{},names:{},folds:{}};
  if(!jobs.length){el.innerHTML=emptyBox('No schedules yet','Have aqeelOS do something on a timetable, like a morning report on Telegram.',`<button class="primary" data-act="cron-new">${icon('plus',16)}New schedule</button>`);return}
  const agents=[...new Set(jobs.map(j=>j.profile||'default'))];if(SCHED.agent&&!agents.includes(SCHED.agent))SCHED.agent='';
@@ -32,7 +36,7 @@ PAGES.schedules=async(p,el)=>{
   const bad=j.last_status&&j.last_status!=='ok'||j.last_delivery_error;
   return `<div class="row sj-row" ${st(n++)} data-act="cron-open" data-id="${esc(j.id)}" data-profile="${esc(j.profile||'default')}" tabindex="0"><div class="main-c"><span class="ic ${on?'blue':''} ${bad?'warn':''}">${icon(bad?'alert':'clock',18)}</span><div class="txt"><b>${esc(stripBracket(j.name)||j.prompt?.slice(0,60)||j.id)}</b>
    ${m.summary?`<span class="sched-desc">${esc(m.summary)}</span>`:`<span class="sched-desc pending"><i class="skel" style="display:inline-block;width:min(320px,60%);height:10px;border-radius:5px;vertical-align:middle"></i></span>`}
-   <span class="sched-meta" title="${esc(j.schedule?.expr||j.schedule_display||'')}">${esc(cronText(j.schedule?.expr||j.schedule_display||j.schedule?.display||''))} · to ${esc(deliverName(j,SCHED.info.names))} · ${on?'next '+when(j.next_run_at):'paused'}${j.last_run_at?' · last '+when(j.last_run_at):''}${last?.secs?' · took '+secsText(last.secs):''}</span>
+   <span class="sched-meta" title="${esc(j.schedule?.expr||j.schedule_display||'')}">${esc(whenText(j))} · to ${esc(deliverName(j,SCHED.info.names))} · ${on?'next '+when(j.next_run_at):'paused'}${j.last_run_at?' · last '+when(j.last_run_at)+(bad?'':' ✓'):''}${last?.secs?' · took '+secsText(last.secs):''}</span>
    ${model||cost?`<span class="sched-meta">${model}${cost}</span>`:''}
    ${bad?`<span class="err-line" style="white-space:normal">${esc(j.last_delivery_error||j.last_error||'Last run: '+j.last_status)}</span>`:''}</div></div>
    <div class="act">${toggle(on,'Active','data-act="cron-toggle" data-id="'+esc(j.id)+'" data-profile="'+esc(j.profile||'default')+'"')}<button class="ghost icon" data-menu="cron" data-id="${esc(j.id)}" data-profile="${esc(j.profile||'default')}" aria-label="More">${icon('more',18)}</button></div></div>`};
@@ -64,7 +68,7 @@ async function cronDetail(j){const {m,r}=schedMeta(j);const prof=j.profile||'def
   <div class="sd-top"><span class="chip">${icon('folder',12)}${esc(folderOf(j))}</span><span class="chip">${icon('user',12)}${esc(ident(prof).name)}</span>${j.model?`<span class="chip">${icon('cpu',12)}${esc(modelLabel(j.model))}</span>`:''}<span class="chip ${on?'ok':''}">${on?'Active':'Paused'}</span></div>
   ${m.summary?`<p class="sd-sum">${esc(m.summary)}</p>`:'<p class="sd-sum muted">A description is being written…</p>'}
   ${m.suggest?`<div class="tz-note">${icon('sparkle',15)}<span>A clearer title: <b>${esc(m.suggest)}</b></span><button type="button" data-sd="title">Use it</button></div>`:''}
-  <div class="sd-facts"><div><small>When</small><b>${esc(cronText(j.schedule?.expr||j.schedule_display||''))}</b></div><div><small>Sends to</small><b>${esc(deliverName(j,SCHED.info.names))}</b></div><div><small>Next run</small><b>${on?esc(when(j.next_run_at)):'Paused'}</b></div><div><small>This month</small><b>${r.runs.length?'≈ '+usd(r.cost)+' · '+toks(r.tokens)+' tokens':'No runs yet'}</b></div></div>
+  <div class="sd-facts"><div><small>When</small><b>${esc(whenText(j))}</b></div><div><small>Sends to</small><b>${esc(deliverName(j,SCHED.info.names))}</b></div><div><small>Next run</small><b>${on?esc(when(j.next_run_at)):'Paused'}</b></div><div><small>This month</small><b>${r.runs.length?'≈ '+usd(r.cost)+' · '+toks(r.tokens)+' tokens':'No runs yet'}</b></div></div>
   ${(m.steps||[]).length?`<h3 class="sd-h">What it does</h3><ol class="sd-steps">${m.steps.map(s=>`<li>${esc(s)}</li>`).join('')}</ol>`:''}
   <div id="sdMore"><div class="skel" style="height:90px;margin-top:16px"></div></div>
   <details class="sd-raw"><summary>The exact instructions it gets</summary><pre>${esc(j.prompt||'')}</pre></details></div>`,
@@ -95,7 +99,7 @@ async function cronDetail(j){const {m,r}=schedMeta(j);const prof=j.profile||'def
  const jobs=Pages.cronJobs||await H('/cron/jobs?profile=all').catch(()=>[]);const top=Object.entries(info.runs||{}).map(([k,r])=>{const [pr,id]=k.split('|');const j=jobs.find(x=>x.id===id&&(x.profile||'default')===pr);return {k,j,r}}).filter(x=>x.r.cost>0).sort((a,b)=>b.r.cost-a.r.cost).slice(0,5);
  const spikes=rows.filter(r=>r.prev>0.5&&r.wk>r.prev*1.8);
  panel.innerHTML=`<h2>Spending overview</h2><p class="sub">Estimated at pay-per-use prices. What a subscription covers is included, so you can see what each part would cost.</p>
-  <div class="sd-facts"><div><small>This month so far</small><b>≈ ${usd(total)}</b></div><div><small>On pace for</small><b>≈ ${usd(total/dayOf*days)}</b></div><div><small>Last month</small><b>≈ ${usd(lastT)}</b></div></div>
+  <div class="sd-facts"><div><small>This month so far</small><b>≈ ${usd(total)}</b></div><div><small>On pace for</small><b>≈ ${usd(total/dayOf*days)}</b></div><div><small>Last month</small><b>${lastT<0.01?'No use yet':'≈ '+usd(lastT)}</b></div></div>
   ${spikes.map(r=>`<div class="tz-note warn">${icon('alert',15)}<span><b>${esc(ident(r.a).name)}</b> cost ≈ ${usd(r.wk)} in the last 7 days, about ${Math.round(r.wk/r.prev)}× a usual week.</span></div>`).join('')}
   <h3 class="sd-h">By agent, this month</h3><div class="spend-bars">${rows.map(r=>`<div class="sb-row"><span class="sb-n">${esc(ident(r.a).name)}</span><span class="sb-bar"><i style="width:${total?Math.max(2,r.month/total*100):0}%"></i></span><span class="sb-v">≈ ${usd(r.month)}</span></div>`).join('')}</div>
   ${top.length?`<h3 class="sd-h">Costliest schedules, last 31 days</h3><div class="sd-runs">${top.map(x=>`<div class="sd-run" style="grid-template-columns:2fr 1fr 1fr" ${x.j?`data-act="spend-open" data-id="${esc(x.j.id)}" data-profile="${esc(x.j.profile||'default')}"`:''}><span>${esc(stripBracket(x.j?.name||x.k))}</span><span>${plural(x.r.runs.length,'run')}</span><span>≈ ${usd(x.r.cost)}</span></div>`).join('')}</div>`:''}`}}

@@ -32,7 +32,7 @@ export function createSchedules({DATA,DASH,TOKEN,HERMES_HOME,listAgents,python,r
 
  // one schedule described: what it does, the steps, a clearer title if the current one is a puzzle, and a folder
  async function describe(j,folders){const books=await runbooks(j.prompt,j.profile);
-  const sys='You explain an automated, scheduled task to a busy non-technical business owner. Answer with JSON only: {"summary":"one plain sentence (max 22 words): what it does and why it is useful","steps":["2 to 5 very short steps it takes"],"title":"a clear title of max 6 words, or empty if the current title is already clear","folder":"the project or area it belongs to"}. For folder, reuse one of these if it fits: '+(folders.join(', ')||'(none yet)')+'. Otherwise give a short new one (1-2 words, e.g. the client or project name), or "General". Never mention files, skills, tools or code.';
+  const sys='You explain an automated, scheduled task to a busy non-technical business owner. Where the result goes is given below (Delivers to); never name a different app than that. Answer with JSON only: {"summary":"one plain sentence (max 22 words): what it does and why it is useful","steps":["2 to 5 very short steps it takes"],"title":"a clear title of max 6 words, or empty if the current title is already clear","folder":"the project or area it belongs to"}. For folder, reuse one of these if it fits: '+(folders.join(', ')||'(none yet)')+'. Otherwise give a short new one (1-2 words, e.g. the client or project name), or "General". Never mention files, skills, tools or code.';
   const user='Title: '+(j.name||'')+'\nRuns: '+(j.schedule?.display||j.schedule_display||'')+'\nDelivers to: '+(j.deliver||'this app')+'\n\nInstructions:\n'+String(j.prompt||'').slice(0,4000)+books.map(b=>'\n\nRunbook it follows ('+path.basename(b.path)+'):\n'+b.text.slice(0,6000)).join('');
   const raw=await aux(sys,user,600);const m=/\{[\s\S]*\}/.exec(raw);if(!m)return null;
   try{const v=JSON.parse(m[0]);return {summary:String(v.summary||'').slice(0,240),steps:(Array.isArray(v.steps)?v.steps:[]).map(s=>String(s).slice(0,120)).slice(0,5),title:String(v.title||'').slice(0,60),folder:String(v.folder||'').replace(/[\[\]]/g,'').trim().slice(0,30)}}catch{return null}}
@@ -41,7 +41,7 @@ export function createSchedules({DATA,DASH,TOKEN,HERMES_HOME,listAgents,python,r
  // keep every schedule described (new ones, and ones whose instructions changed); one at a time, in the background
  async function tick(){if(busy||!live())return;busy=true;try{await load();const all=await jobs();
    const folders=()=>[...new Set([...all.map(j=>bracket(j.name)),...Object.values(db.jobs).map(m=>m.folder)].filter(Boolean))];
-   for(const j of all){const k=key(j.profile,j.id),m=db.jobs[k]||{};const h=hash((j.name||'')+'\n'+(j.prompt||''));
+   for(const j of all){const k=key(j.profile,j.id),m=db.jobs[k]||{};const h=hash((j.name||'')+'\n'+(j.prompt||'')+'\n'+(j.deliver||''));
     if(!m.folder&&bracket(j.name)){m.folder=bracket(j.name);m.folderAuto=true;db.jobs[k]=m;await save()}
     if(m.h===h&&m.summary!=null)continue;if(m.failH===h&&(m.tries>=3||Date.now()-(m.failAt||0)<(m.tries>1?6:1)*3600e3))continue;const d=await describe(j,folders());if(!d){m.failH=h;m.tries=(m.failH===h?(m.tries||0):0)+1;m.failAt=Date.now();db.jobs[k]=m;await save();continue}delete m.failH;delete m.tries;delete m.failAt;
     Object.assign(m,{h,summary:m.summaryManual?m.summary:d.summary,steps:d.steps,suggest:d.title&&d.title.toLowerCase()!==String(j.name||'').replace(/^\s*\[[^\]]*\]\s*/,'').toLowerCase()?d.title:''});

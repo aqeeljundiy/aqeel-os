@@ -137,9 +137,9 @@ PAGES.profiles=async(p,el)=>{
  el.innerHTML=`<div class="grid-cards">${list.map((x,i)=>{const id=ident(x.name),o=own[x.name]||{},locked=o.access===null&&o.private;
   return `<div class="card tile agent-card ${locked?'locked':''}" ${st(i)} ${locked?`data-act="agent-locked" data-owner="${esc(o.owner?.name||'')}"`:`data-act="agent-card" tabindex="0" title="Chat with ${esc(id.name)}"`} data-name="${esc(x.name)}">
   <div class="tile-top"><span class="logo ava">${id.avatar&&!locked?`<img src="${esc(id.avatar)}" alt="">`:esc(id.name[0].toUpperCase())}</span><div style="min-width:0"><h3>${esc(id.name)}</h3><span style="font-size:12.5px;color:var(--muted)">${locked?'Private':esc(id.title||'Agent')+' · '+esc(modelLabel(x.model))+' · '+plural(x.skill_count||0,'skill')}</span></div>${locked?`<span class="chip">${icon('lock',12)}Private</span>`:''}</div>
-  ${locked?`<p class="hint">Only ${esc(o.owner?.name||'its owner')} and the people they share it with can open it.</p>`:`<p>${esc(x.description||'No description yet.')}</p>`}
+  ${locked?`<p class="hint">Only ${esc(o.owner?.name||'its owner')} and the people they share it with can open it.</p>`:(x.description?`<p>${esc(x.description)}</p>`:`<p class="hint"><a href="#" data-act="agent-describe" data-name="${esc(x.name)}">Add a description</a> (for example: Handles finance and the monthly close)</p>`)}
   <div class="agent-people">${o.owner?`<span class="aowner" title="Owner">${personAva(o.owner,22)}<span>${esc(o.owner.id===S.me?.id?'You':o.owner.name)}</span><small>owner</small></span>`:''}${(o.shared||[]).length?`<span class="ashared">${o.shared.slice(0,5).map(s=>`<span title="${esc(s.name)} · ${esc(LEVEL_LABEL[s.level]||s.level)}">${personAva(s,22)}</span>`).join('')}${o.shared.length>5?`<small>+${o.shared.length-5}</small>`:''}</span>`:''}</div>
-  <div class="agent-tags">${x.is_default?'<span class="chip blue">Default</span>':''}${locked?'':chipState(x.gateway_running,'Online','Offline')}${act.active===x.name?'<span class="chip" title="The agent the command line uses">CLI default</span>':''}</div><div class="tile-foot agent-foot"><span>${locked?'':(S.profile||'default')===x.name?'<span class="chip ok"><i class="dot"></i>In use</span>':`<span class="agent-go">${icon('chat',14)}Chat with ${esc(id.name)}</span>`}</span>${locked?'':`<button class="ghost icon agent-gear" data-menu="profilecard" data-name="${esc(x.name)}" aria-label="Settings for ${esc(id.name)}" title="Settings">${icon('settings',18)}</button>`}</div></div>`}).join('')}</div>`;
+  <div class="agent-tags">${x.is_default?'<span class="chip blue">Default</span>':''}${locked?'':chipState(x.gateway_running,'Online','Offline')}</div><div class="tile-foot agent-foot"><span>${locked?'':(S.profile||'default')===x.name?'<span class="chip ok"><i class="dot"></i>In use</span>':`<span class="agent-go">${icon('chat',14)}Chat with ${esc(id.name)}</span>`}</span>${locked?'':`<button class="ghost icon agent-gear" data-menu="profilecard" data-name="${esc(x.name)}" aria-label="Settings for ${esc(id.name)}" title="Settings">${icon('settings',18)}</button>`}</div></div>`}).join('')}</div>`;
 };
 ACT['agent-locked']=a=>toast('This agent is private to '+(a.dataset.owner||'its owner')+'. Ask them to share it with you.');
 // Sharing and owner, from an agent's ⋯ menu (its owner only)
@@ -395,7 +395,7 @@ async function moaPanel(el){let c;try{c=await H('/config')}catch{return}const mo
  const ok=new Set((Chat.models||[]).map(m=>m.provider));const usable=pr=>[...(pr.reference_models||[]),pr.aggregator||{}].every(s=>!s.provider||ok.has(s.provider));
  const label=s=>s?modelLabel(s.model)+((Chat.models||[]).find(m=>m.provider===s.provider)?'':' (not signed in)'):'—';
  const box=document.createElement('div');box.className='panel card';box.style.marginTop='16px';
- box.innerHTML=`<div class="h-row"><h2 style="margin:0">Mixture of agents</h2><button data-act="moa-new">${icon('plus',15)}New team</button></div><p class="sub">A team of models answers together: the advisors each think about the question, then one model writes the final answer. Pick a team as the model in chat (it shows under "Team of models").</p>
+ box.innerHTML=`<div class="h-row"><h2 style="margin:0">Team of models</h2><button data-act="moa-new">${icon('plus',15)}New team</button></div><p class="sub">A team of models answers together: the advisors each think about the question, then one model writes the final answer. Pick a team as the model in chat (it shows under "Team of models").</p>
   ${Object.entries(presets).map(([n,pr])=>`<div class="row" style="padding:12px 12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="main-c"><span class="ic ${usable(pr)?'blue':''}">${icon('layers',17)}</span><div class="txt"><b>${esc(pretty(n))} ${usable(pr)?'':accessChip('Needs another sign-in','Uses a provider you are not signed in to','public')}</b><span>Advisors: ${esc((pr.reference_models||[]).filter(s=>s.enabled!==false).map(label).join(', ')||'none')} · Answer: ${esc(label(pr.aggregator))}</span></div></div>
    <div class="act"><button class="ghost" data-act="moa-edit" data-n="${esc(n)}">Edit</button></div></div>`).join('')||'<p class="hint">No teams yet.</p>'}`;
  el.append(box);Pages._moa={c,presets}}
@@ -608,7 +608,7 @@ async function useComposio(app){const agent=S.profile||'default';
 ACT['use-composio']=a=>useComposio(a.dataset.app||'');
 // catalog: apps that need their own app (no automatic sign-in) get a Composio shortcut
 {const base=PAGES.mcp;PAGES.mcp=async(p,el)=>{await base(p,el);if(S.me?.admin===false)return;
- const tabs_=el.querySelector('.tabs, [role=tablist]');if(!el.querySelector('.composio-note')){const n=document.createElement('div');n.className='panel card composio-note';
+ const tabs_=el.querySelector('.tabs, [role=tablist]');if(!el.querySelector('.composio-note')&&!(Pages._mcp||[]).some(m=>/composio/.test((m.name||'')+' '+(m.url||'')))){const n=document.createElement('div');n.className='panel card composio-note';
   n.innerHTML=`<div class="row" style="padding:0;border:0"><div class="main-c"><span class="ic blue">${icon('plug',16)}</span><div class="txt"><b>Last resort for hard-to-connect apps: Composio</b><span>One sign-in reaches 500+ apps, but its free plan has a limit on actions and costs money beyond it. Agents try an app’s own tool, a built-in skill or the browser first, and ask before using Composio.</span></div></div><div class="act"><button data-act="use-composio">${icon('plug',15)}Set up Composio</button></div></div>`;
   (tabs_||el.firstElementChild)?.after(n)}}}
 
@@ -716,3 +716,7 @@ const SysEvents={async check(){if(document.hidden||!S.signedIn||S.me?.admin===fa
   Inbox.add({key:'sys:'+e.id,icon:'refresh',kind:'blue',title:'Agents restarted for a moment',text:why+' Channels (WhatsApp, Telegram, Slack) reconnected by themselves.',go:'/automations/channels',actions:[{label:'Channels',go:'/automations/channels'}]})}
  if(n)store.set('sysSeen',[...seen].slice(-100))}};
 setInterval(()=>SysEvents.check(),60000);setTimeout(()=>SysEvents.check(),8000);
+
+// an agent without a description: one click to write one
+ACT['agent-describe']=async(a,e)=>{e?.preventDefault();e?.stopPropagation();const n=a.dataset.name;const v=await promptBox('Describe '+ident(n).name,'What does it do? (one sentence)','','Save');if(!v)return;
+ try{await put(H,'/profiles/'+encodeURIComponent(n)+'/description',{description:v.trim()});toast('Saved');reload()}catch(er){fail(er)}};
