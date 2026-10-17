@@ -58,11 +58,9 @@ const Lang={
  set(l){this.cur=l;try{localStorage.setItem('aq-lang',l)}catch{}document.documentElement.lang=l==='id'?'id':'en';location.reload()},
  t(s){if(this.cur!=='id'||!s)return s;const k=s.trim();const v=ID[k];if(v)return s.replace(k,v);for(const [re,to] of ID_PATTERNS)if(re.test(k))return s.replace(k,k.replace(re,to));return s},
  known(s){const k=(s||'').trim();return !!k&&(k in ID||ID_PATTERNS.some(([re])=>re.test(k)))},
- // translate a subtree: text nodes and the attributes people read
- // The engine's own texts (channel, plugin and skill descriptions…) say "Hermes"; on screen it is aqeelOS.
- // Chats, code and logs are left exactly as they are.
- // Every form of the engine's name becomes ours on screen (commands keep working: `aqeelos` runs the same CLI on the box).
- brand(s){return s.replace(/Hermes Agent/g,'aqeelOS').replace(/Nous Research/g,'aqeelOS').replace(/HERMES/g,'AQEELOS').replace(/Hermes/g,'aqeelOS').replace(/hermes/g,'aqeelos')},
+ // the name in words changes; of paths only the two that exist under both names on the box (~/.aqeelos and
+ // ~/apps/aqeelos-ui are links), so anything copied from the screen still works
+ brand(s){return s.replace(/Hermes Agent/g,'aqeelOS').replace(/Nous Research/g,'aqeelOS').replace(/Hermes/g,'aqeelOS').replace(/\/\.hermes(?=\/|\s|$|['")])/g,'/.aqeelos').replace(/\/apps\/hermes-ui(?=\/|\s|$)/g,'/apps/aqeelos-ui').replace(/(?<![\w./~_-])hermes(?![\w/_.])/g,'aqeelos')},
  run(root){if(!root)return;const id=this.cur==='id';
   const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,{acceptNode:n=>n.parentElement?.closest('.thread,textarea,[contenteditable],pre,code,.pv-doc,.pv-code,[data-raw]')?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT});
   for(let n;(n=w.nextNode());){const v=n.nodeValue;if(!v||!v.trim())continue;let t=/hermes|nous research/i.test(v)?this.brand(v):v;if(id&&!n.parentElement?.closest('[data-notr],.msg,pre,code,.log,.action-log')&&this.known(t))t=this.t(t);if(t!==v)n.nodeValue=t}

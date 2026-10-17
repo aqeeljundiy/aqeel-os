@@ -106,7 +106,8 @@ async function cronDrawer(job){const jobAgent=job?.profile||S.profile||'default'
  extra.then(()=>{const sel=d.querySelector('#cjDeliver');if(!sel||!d.isConnected)return;const cur=sel.dataset.touched?sel.value:(job?.deliver||sel.value);sel.innerHTML=delOpts(cur);sel._sync?.()});
  // the models this agent can use, filled in once known (the current one stays selected)
  const fillModels=()=>call('/gapi'+(jobAgent==='default'?'':'/p/'+encodeURIComponent(jobAgent)),'/api/model/options').then(o=>{const sel=d.querySelector('#cjModel');if(!sel)return;const cur=sel.value;
-  sel.innerHTML='<option value="">'+esc(ident(jobAgent).name)+'’s model (default)</option>'+(o.providers||[]).filter(usableProvider).map(pv=>'<optgroup label="'+esc(pv.name)+'">'+pv.models.map(m=>'<option value="'+esc(pv.slug+'|'+m)+'" '+((cur===pv.slug+'|'+m)||(job?.model===m&&(!job?.provider||job.provider===pv.slug))?'selected':'')+'>'+esc(modelLabel(m))+'</option>').join('')+'</optgroup>').join('');sel._sync?.()}).catch(()=>{});
+  const keep=job?.model&&!(o.providers||[]).filter(usableProvider).some(pv=>pv.models.includes(job.model))?'<option value="'+esc((job.provider||'')+'|'+job.model)+'" '+(cur===(job.provider||'')+'|'+job.model?'selected':'')+'>'+esc(modelLabel(job.model))+' (current)</option>':'';
+  sel.innerHTML='<option value="">'+esc(ident(jobAgent).name)+'’s model (default)</option>'+keep+(o.providers||[]).filter(usableProvider).map(pv=>'<optgroup label="'+esc(pv.name)+'">'+pv.models.map(m=>'<option value="'+esc(pv.slug+'|'+m)+'" '+((cur===pv.slug+'|'+m)||(job?.model===m&&(!job?.provider||job.provider===pv.slug))?'selected':'')+'>'+esc(modelLabel(m))+'</option>').join('')+'</optgroup>').join('');sel._sync?.()}).catch(()=>{});
  const own=()=>{body.innerHTML=`<label>Name</label><input id="cjName" value="${esc(job?.name||'')}" placeholder="Morning site report">
   <label>What should aqeelOS do?</label><textarea id="cjPrompt" rows="5" placeholder="Check every site and tell me if anything is down or slow.">${esc(job?.prompt||'')}</textarea>
   <label>When</label><div id="cjWhen"></div>
@@ -118,6 +119,7 @@ async function cronDrawer(job){const jobAgent=job?.profile||S.profile||'default'
  (mode==='template'?tpl:own)();placePills();
  d.querySelector('[data-tabs=cronMode]')?.addEventListener('click',e=>{const b=e.target.closest('[data-tab]');if(!b)return;mode=b.dataset.tab==='From a template'?'template':'own';(mode==='template'?tpl:own)()});
  body.addEventListener('click',e=>{const b=e.target.closest('[data-bp]');if(!b)return;bp=bps.blueprints.find(x=>x.key===b.dataset.bp);body.querySelectorAll('[data-bp]').forEach(x=>x.classList.toggle('on',x===b));tplFields()});
+ {const sv=d.querySelector('#cjSave');sv.disabled=true;extra.finally(()=>{sv.disabled=false})}
  d.querySelector('#cjSave').onclick=async()=>{try{
   if(mode==='template'){if(!bp)return toast('Pick a template first','err');const values={};body.querySelectorAll('[data-bpf]').forEach(i=>values[i.dataset.bpf]=i.value);await post(H,'/cron/blueprints/instantiate?profile='+encodeURIComponent(S.profile||'default'),{blueprint:bp.key,values})}
   else{const b={name:$('#cjName').value.trim(),prompt:$('#cjPrompt').value.trim(),schedule:picker.get(),deliver:$('#cjDeliver').value};{const mv=$('#cjModel')?.value||'';const [pv,...mm]=mv.split('|');b.model=mv?mm.join('|'):null;b.provider=mv?pv:null}if(!b.prompt)return toast('Tell aqeelOS what to do','err');if(!b.schedule)return toast('Choose when it runs','err');
@@ -414,7 +416,7 @@ ACT['log-live']=a=>{S.logs.live=a.checked};
 /* ===================== System › Settings ===================== */
 const CFG_WORDS=[['hermes-cli','aqeelos-cli'],['hermes gateway','aqeelos gateway'],['Hermes','aqeelOS']];
 const cfgShow=v=>{if(v==null)return v;const t=typeof v==='string'?v:JSON.stringify(v);if(!/hermes/i.test(t))return v;let o=t;for(const [a,b] of CFG_WORDS)o=o.split(a).join(b);try{return typeof v==='string'?o:JSON.parse(o)}catch{return v}};
-const cfgSave=v=>{if(typeof v!=='string')return v;let o=v;for(const [a,b] of CFG_WORDS)o=o.split(b).join(a);return o};
+const cfgSave=v=>{if(typeof v!=='string')return v;let o=v;for(const [a,b] of CFG_WORDS.slice(0,2))o=o.split(b).join(a);return o};
 PAGES.settings=async(p,el)=>{
  setActions(`<button data-act="cfg-raw">Raw YAML</button><button data-act="cfg-import">${icon('upload',16)}Import</button><button data-act="cfg-export">${icon('download',16)}Export</button><button class="primary" data-act="cfg-save">Save</button>`);
  const [cfg,schema,consent]=await Promise.all([H('/config'),H('/config/schema'),null]);Pages._cfg=cfg;Pages._dirty={};

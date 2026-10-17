@@ -6,7 +6,9 @@ import {randomBytes,createHmac} from 'node:crypto';
 import path from 'node:path';
 import {LIVE_APP} from './agentops.mjs';
 
-export function createRelay({DATA,DASH,TOKEN,HERMES_HOME,SECRET,listAgents,links,platformsOf,nameOf}){
+export function createRelay({DATA,DASH,TOKEN,HERMES_HOME,SECRET,listAgents,links,platformsOf,nameOf,ownerAgent=()=>false}){
+ // the owner's own chat on the main agent's channel (its home channel), for alerts "to you"
+ const homeChat=async p=>{const t=await readFile(path.join(HERMES_HOME,'.env'),'utf8').catch(()=>'');return ((new RegExp('^'+p.toUpperCase()+'_HOME_CHANNEL=["\']?([^"\'\\n]+)','m')).exec(t)||[])[1]||null};
  const FILE=path.join(DATA,'channel-shares.json');let db=null;
  const load=async()=>{if(db)return db;try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.shares||={};db.jobs||={};db.seen||={};return db};
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)};
@@ -54,8 +56,9 @@ export function createRelay({DATA,DASH,TOKEN,HERMES_HOME,SECRET,listAgents,links
   if(agent!=='default'&&!agent.startsWith('default--'))for(const p of await connected('default'))if(!out.some(c=>c.owner==='default'&&c.platform===p))out.push({id:p+'@you',owner:'default',platform:p,toYou:true,name:nice(p)+' to you (via '+(nameOf?nameOf('default'):'the main agent')+')'});
   return out}
  // an agent sends through a shared channel
- async function sendAs(from,owner,platform,text,chat,{person=false}={}){await load();const s=db.shares[key(owner,platform)];
-  if(from!==owner&&!owner.startsWith(from+'--')&&!(s&&s.senders.includes(from))&&(person||owner!=='default'))throw new Error(from+' may not send through '+owner+"'s "+platform+'.');
+ async function sendAs(from,owner,platform,text,chat,{person=false,toYou=false}={}){await load();const s=db.shares[key(owner,platform)];
+  const you=toYou&&owner==='default'&&!person&&ownerAgent(from);if(you&&!chat)chat=await homeChat(platform);
+  if(from!==owner&&!owner.startsWith(from+'--')&&!(s&&s.senders.includes(from))&&!you)throw new Error(from+' may not send through '+owner+"'s "+platform+'.');
   if(person&&chat&&!(await recipients(owner,platform)).some(r=>r.id===String(chat)))throw new Error('You can only send to people approved on that channel.');
   const to=chat||s?.chat||(await recipients(owner,platform))[0]?.id;if(!to)throw new Error('Nobody to send to yet: approve someone on that channel first.');
   return send({owner,platform,chat:to,text,from})}
@@ -76,7 +79,7 @@ export function createRelay({DATA,DASH,TOKEN,HERMES_HOME,SECRET,listAgents,links
    const last=(m.messages||m||[]).find?.(x=>x.role==='assistant'&&typeof x.content==='string'&&x.content.trim());
    const text=last?.content||(j.last_status!=='ok'?'did not run: '+(j.last_error||j.last_status):'');
    if(!text){if(late)await done();continue}
-   await done();await sendAs(agent,t.owner,t.platform,(j.name?j.name+': ':'')+text,null);console.log('relay sent',k,'to',t.owner+'|'+t.platform)}catch(e){console.warn('relay tick',k,e.message)}}}
+   await done();await sendAs(agent,t.owner,t.platform,(j.name?j.name+': ':'')+text,null,{toYou:t.owner==='default'});console.log('relay sent',k,'to',t.owner+'|'+t.platform)}catch(e){console.warn('relay tick',k,e.message)}}}
  let ticking=false;if(LIVE_APP)setInterval(()=>{if(ticking)return;ticking=true;tick().catch(()=>{}).finally(()=>{ticking=false})},45000).unref();
  // a relay cut off halfway (the app restarted mid-send) would leave its one-off job behind, set to fire again next 1 January
  async function sweep(){for(const a of [...await listAgents(),...(await links.list().catch(()=>[])).map(l=>l.name)]){
@@ -95,7 +98,7 @@ export function createRelay({DATA,DASH,TOKEN,HERMES_HOME,SECRET,listAgents,links
   if(msg.method==='tools/call'){const a=msg.params?.arguments||{};const ch=await channelsFor(agent);const want=String(a.channel||'').toLowerCase();
    const c=(want&&ch.find(c=>c.id===want||slug(c.name)===slug(want)))||ch.find(c=>!want||want.includes(c.platform)&&(!/ via |@/.test(want)||want.endsWith(c.owner)))||null;
    if(!c)return reply({content:[{type:'text',text:'No channel matches. Available IDs: '+(ch.map(c=>c.id).join(', ')||'none')}],isError:true});
-   try{await sendAs(agent,c.owner,c.platform,a.text,null);return reply({content:[{type:'text',text:'Sent on '+c.name+' ('+c.id+').'}]})}catch(e){return reply({content:[{type:'text',text:e.message.startsWith('Not ')?e.message:'Not sent: '+e.message}],isError:true})}}
+   try{await sendAs(agent,c.owner,c.platform,a.text,null,{toYou:!!c.toYou});return reply({content:[{type:'text',text:'Sent on '+c.name+' ('+c.id+').'}]})}catch(e){return reply({content:[{type:'text',text:e.message.startsWith('Not ')?e.message:'Not sent: '+e.message}],isError:true})}}
   return {status:200,body:{jsonrpc:'2.0',id:msg.id,error:{code:-32601,message:'Method not found'}}}}
  return {sending:()=>sending,recipients,send,sendAs,shares,setShare,setJobRelay,jobRelays,mcp,sig,channelsFor};
 }

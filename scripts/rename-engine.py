@@ -21,18 +21,29 @@ def rename_text(t):
 
 def patch(src):
     toks = list(tokenize.generate_tokens(io.StringIO(src).readline))
-    lines = src.splitlines(keepends=True)
+    lines = io.StringIO(src).readlines()          # the same line split the tokenizer uses (only \n), so offsets match
     starts = [0]
     for l in lines: starts.append(starts[-1] + len(l))
     edits = []
     sig = [t for t in toks if t.type not in (tokenize.NL, tokenize.NEWLINE, tokenize.COMMENT, tokenize.INDENT, tokenize.DEDENT)]
-    kinds = {tokenize.STRING} | ({tokenize.FSTRING_MIDDLE} if hasattr(tokenize, 'FSTRING_MIDDLE') else set())
+    fmid = getattr(tokenize, 'FSTRING_MIDDLE', None)
+    kinds = {tokenize.STRING} | ({fmid} if fmid is not None else set())
+    # a text that the code compares anywhere (== "…", "…" in x) keeps its exact value everywhere in the file,
+    # so a writer and its checker never disagree
+    compared = set()
+    for i, t in enumerate(sig):
+        if t.type in kinds:
+            prev = sig[i - 1].string if i else ''
+            nxt = sig[i + 1].string if i + 1 < len(sig) else ''
+            if prev in SKIP_OPS or nxt in SKIP_OPS or (nxt == ':' and prev in ('{', ',')):
+                compared.add(t.string.strip('rRbBuUfF').strip('"\''))
     for i, t in enumerate(sig):
         if t.type not in kinds or ('Hermes' not in t.string and '.hermes/plans/ without' not in t.string) or not re.search(r'\s', t.string):
             continue
-        prev = sig[i - 1].string if i else ''
-        nxt = sig[i + 1].string if i + 1 < len(sig) else ''
-        if prev in SKIP_OPS or nxt in SKIP_OPS or nxt == ':' and prev in ('{', ','):   # comparisons and dict keys
+        # f-strings: their {…} parts are code (and {{ }} are escapes) — leave any f-string piece with braces alone
+        if (fmid is not None and t.type == fmid) or re.match(r'(?i)^[rbu]*f', t.string):
+            if '{' in t.string or '}' in t.string: continue
+        if t.string.strip('rRbBuUfF').strip('"\'') in compared:
             continue
         new = rename_text(t.string)
         if new != t.string:
@@ -41,6 +52,7 @@ def patch(src):
     for a, b, new in sorted(edits, reverse=True):
         src = src[:a] + new + src[b:]
     return src, len(edits)
+
 
 def main():
     root = sys.argv[1]; changed = 0

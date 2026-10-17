@@ -65,7 +65,7 @@ function checkPassword(pw){const [kind,salt,hash]=PW_HASH.split(':');if(kind!=='
 
 // 5 wrong passwords per address per 10 minutes, then a cool-down.
 const attempts=new Map();
-function clientIp(req){const l=String(req.headers['x-forwarded-for']||'').split(',').map(x=>x.trim()).filter(Boolean);return l[l.length-1]||req.socket.remoteAddress||'?'}
+function clientIp(req){const cf=String(req.headers['cf-connecting-ip']||'').trim();if(cf)return cf;const l=String(req.headers['x-forwarded-for']||'').split(',').map(x=>x.trim()).filter(Boolean);return l[l.length-1]||req.socket.remoteAddress||'?'}
 function limited(ip){const now=Date.now(),a=(attempts.get(ip)||[]).filter(t=>now-t<600e3);if(a.length)attempts.set(ip,a);else attempts.delete(ip);if(attempts.size>5000)for(const k of [...attempts.keys()].slice(0,1000))attempts.delete(k);return a.length>=5}
 
 /* ---------- helpers ---------- */
@@ -79,9 +79,10 @@ async function readBody(req,limit=1e6){return (await readRaw(req,limit)).toStrin
    refreshed page or a second tab on the same chat can pick it up (GET /ui/live). The reply keeps going on
    the engine when the page goes away. Copies are dropped two minutes after the reply ends. */
 const LIVE=new Map();
+const runOwner=new Map();   // run id → person, so Approve / Stop work as long as the run lives
 function liveStart(key,user){const rec={user,chunks:[],size:0,subs:new Set(),done:false,t:Date.now(),last:Date.now()};LIVE.set(key,rec);return rec}
-setInterval(()=>{for(const [k,r] of LIVE)if(!r.done&&Date.now()-r.last>20*60e3){console.warn('live stream idle for 20 min, ending it:',k);liveEnd(k,r)}},60000).unref();
-function liveEnd(key,rec){rec.done=true;saveThinking(key,rec);for(const r of rec.subs)r.end();rec.subs.clear();setTimeout(()=>{if(LIVE.get(key)===rec)LIVE.delete(key)},120000)}
+setInterval(()=>{for(const [k,r] of LIVE)if(!r.done&&!r.asking&&Date.now()-r.last>20*60e3){console.warn('live stream idle for 20 min, ending it:',k);liveEnd(k,r)}},60000).unref();
+function liveEnd(key,rec){if(rec.done)return;rec.done=true;saveThinking(key,rec);for(const r of rec.subs)r.end();rec.subs.clear();setTimeout(()=>{if(LIVE.get(key)===rec)LIVE.delete(key)},120000)}
 function proxy(req,res,target,prefix,authHeaders,{transform,body,live}={}){
  const url=new URL(req.url,'http://x');
  // /hapi/status → dashboard /api/status · /gapi/api/sessions → gateway /api/sessions
@@ -98,7 +99,7 @@ function proxy(req,res,target,prefix,authHeaders,{transform,body,live}={}){
     if((r.statusCode||500)<300){try{txt=JSON.stringify(await transform(JSON.parse(txt)))}catch{res.writeHead(502,{'content-type':'application/json',...security});return res.end('{"error":"Could not check what you may see. Try again."}')}}delete out['content-length'];delete out['content-encoding'];res.writeHead(r.statusCode||502,{...out,...security});res.end(txt)});return}
   if(live&&(r.statusCode||500)<300&&String(r.headers['content-type']||'').includes('text/event-stream')){
    const rec=liveStart(live.key,live.user);res.writeHead(r.statusCode,{...out,...security});
-   r.on('data',c=>{rec.last=Date.now();rec.size+=c.length;rec.chunks.push(c);if(rec.size>8e6){const head=rec.chunks.slice(0,40);let tail=[],sz=0;for(let i=rec.chunks.length-1;i>=40&&sz<4e6;i--){tail.unshift(rec.chunks[i]);sz+=rec.chunks[i].length}rec.chunks=[...head,...tail];rec.size=rec.chunks.reduce((a,b)=>a+b.length,0)}if(!rec.runId){const m=/"run_id"\s*:\s*"([^"]+)"/.exec(c.toString('utf8'));if(m)rec.runId=m[1]}if(!res.writableEnded&&!res.destroyed)res.write(c);for(const sub of rec.subs)sub.write(c)});
+   r.on('data',c=>{rec.last=Date.now();rec.size+=c.length;rec.chunks.push(c);if(rec.size>8e6){const head=rec.chunks.slice(0,40);let tail=[],sz=0;for(let i=rec.chunks.length-1;i>=40&&sz<4e6;i--){tail.unshift(rec.chunks[i]);sz+=rec.chunks[i].length}rec.chunks=[...head,...tail];rec.size=rec.chunks.reduce((a,b)=>a+b.length,0)}{const t=c.toString('utf8');if(!rec.runId){const m=/"run_id"\s*:\s*"([^"]+)"/.exec(t);if(m){rec.runId=m[1];runOwner.set(m[1],{user:rec.user,t:Date.now()});if(runOwner.size>2000)for(const k of [...runOwner.keys()].slice(0,500))runOwner.delete(k)}}if(/approval\.request/.test(t))rec.asking=true;if(/approval\.responded/.test(t))rec.asking=false}if(!res.writableEnded&&!res.destroyed)res.write(c);for(const sub of rec.subs)sub.write(c)});
    r.on('end',()=>{liveEnd(live.key,rec);if(!res.writableEnded)res.end()});r.on('error',()=>{liveEnd(live.key,rec);res.end()});live.started=true;return}
   res.writeHead(r.statusCode||502,{...out,...security});r.pipe(res);
  });
@@ -158,7 +159,7 @@ const usage=createUsage(DASH.origin,DASH_TOKEN);
 const explain=createExplain(DATA,{python:enginePython,root});
 const schedules=createSchedules({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAgents(),python:enginePython,root,live:()=>LIVE_APP||process.env.SCHED_DESCRIBE==='1'});
 setTimeout(()=>schedules.tick(),40000).unref();setInterval(()=>schedules.tick(),10*60000).unref();
-const relay=createRelay({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,SECRET,listAgents:()=>listAgents(),links:{list:a=>links.list(a)},platformsOf:a=>platformsCached(a),nameOf:a=>NAMES[a]||a});
+const relay=createRelay({ownerAgent:a=>{const o=users.agentOwner(String(a).split('--')[0]);return !o||o==='owner'},DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,SECRET,listAgents:()=>listAgents(),links:{list:a=>links.list(a)},platformsOf:a=>platformsCached(a),nameOf:a=>NAMES[a]||a});
 const NAMES={};   // agents' display names (refreshed with the agent context), for messages people read
 /* Every agent and every extra-number copy gets the aqeelOS tool (aqeelos-notify): send_to_person, and
    connect_mcp_tool for sign-ins. Its address is signed per agent. A test copy only touches agents it made. */
@@ -263,7 +264,7 @@ async function agentHealth(only){const h={'x-hermes-session-token':DASH_TOKEN};c
  for(const a of only?[only]:await listAllProfiles()){try{
   if(!await isAgent(a)||(PORT===4400&&!only&&await isTestAgent(a)))continue;const copy=a.includes('--');
   // a failing setup is tried again every 15 minutes (a plugin enable is slow and builds an engine environment)
-  if(a!=='default'&&!copy&&setupAgentFn){const s=st[a];if(only||!s||Date.now()-(s.t||0)>(s.ok?60:15)*60e3)await setupAgentFn(a).catch(e=>console.warn('setup',a,e.message))}
+  if(a!=='default'&&!copy&&setupAgentFn){const s=st[a];if(only||!s||Date.now()-(s.t||0)>(s.ok?24*60:15)*60e3)await setupAgentFn(a).catch(e=>console.warn('setup',a,e.message))}
   if(copy&&API_KEY){const envF=path.join(HERMES_HOME,'profiles',a,'.env');
    if(await editEnv(envF,cur=>/^API_SERVER_KEY=/m.test(cur)?null:cur+(cur&&!cur.endsWith('\n')?'\n':'')+'API_SERVER_KEY='+API_KEY+'\n').catch(()=>false))console.log('health',a,'added the gateway key')}
   if(!copy){await ensureChatHint(a).catch(async e=>{if(await isAgent(a))console.warn('chat hint',a,e.message)});await screens.ensure(a).catch(()=>{})}
@@ -302,7 +303,7 @@ async function gatewayPid(){const t=await readFile(path.join(HERMES_HOME,'gatewa
 let sysEvents=[],lastGwPid=0,lastOwnRestart=0;
 function noteSys(kind,why){sysEvents.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),t:Date.now(),kind,why:String(why||'').slice(0,160)});sysEvents=sysEvents.slice(-50)}
 let autoRestarts=[];
-function restartGateway(why,{wait=true,auto=false}={}){if(gwRestarting)return gwRestarting;if(auto){autoRestarts=autoRestarts.filter(t=>Date.now()-t<30*60e3);if(autoRestarts.length>=3){noteSys('restart-failed','The engine kept stopping, so it was left off. Open System › Host and press Start.');return Promise.resolve()}autoRestarts.push(Date.now())}if(PORT!==4400){console.log('gateway restart skipped (test copy):',why);return Promise.resolve()}
+function restartGateway(why,{wait=true,auto=false}={}){if(gwRestarting)return gwRestarting;if(auto){autoRestarts=autoRestarts.filter(t=>Date.now()-t<30*60e3);if(autoRestarts.length>=3){if(Date.now()-(globalThis.__rf||0)>30*60e3){globalThis.__rf=Date.now();noteSys('restart-failed','The engine kept stopping, so it was left off. Open System › Host and press Start.')}return Promise.resolve()}autoRestarts.push(Date.now())}if(PORT!==4400){console.log('gateway restart skipped (test copy):',why);return Promise.resolve()}
  gwRestarting=(async()=>{if(wait)for(let i=0;i<120&&liveCount()>0;i++)await new Promise(r=>setTimeout(r,5000));
   console.log('gateway restart:',why);gwStopped=false;lastOwnRestart=Date.now();noteSys('restart',why);
   await shx('hermes -p default gateway stop >/dev/null 2>&1; for i in $(seq 1 30); do p=$(grep -o "[0-9]*" ~/.hermes/gateway.pid 2>/dev/null | head -1); [ -n "$p" ] && kill -0 "$p" 2>/dev/null || break; sleep 1; done; tmux kill-session -t gateway 2>/dev/null; sleep 1; ~/services.sh >/dev/null 2>&1');
@@ -322,7 +323,8 @@ if(PORT===4400){setInterval(()=>gatewayWatch().catch(()=>{}),60000).unref()}
    progress, the engine restarts once so people see aqeelOS again in channel messages, prompts and errors. */
 const engineHead={v:null,t:0};
 async function engineWatch(){const r=await shx('git -C ~/.hermes/hermes-agent rev-parse HEAD 2>/dev/null');const h=String(r.out||'').trim();if(!/^[0-9a-f]{40}$/.test(h))return;
- if(engineHead.v===null){engineHead.v=h;const clean=(await shx('git -C ~/.hermes/hermes-agent diff --quiet && echo clean')).out.trim()==='clean';if(!clean)return}else if(h===engineHead.v)return;if(h===engineHead.v)return;engineHead.v=h;console.log('engine updated to',h.slice(0,8),'- applying aqeelOS patches again');
+ const clean=(await shx('git -C ~/.hermes/hermes-agent diff --quiet && echo clean')).out.trim()==='clean';
+ if(engineHead.v===null){engineHead.v=h;if(!clean)return}else if(h===engineHead.v&&!clean)return;if(h===engineHead.v)return;engineHead.v=h;console.log('engine updated to',h.slice(0,8),'- applying aqeelOS patches again');
  const {execFile}=await import('node:child_process');const out=await new Promise(res=>execFile(process.execPath,[path.join(root,'scripts','apply-skill-patches.mjs')],{timeout:600000,maxBuffer:8e6},(e,o)=>res(String(o||''))));
  const n=Number((/(\d+) change\(s\)/.exec(out)||[])[1]||0);console.log('engine patches after update:',n,'change(s)');if(n)restartGateway('engine updated: aqeelOS wording applied again').catch(()=>{})}
 if(PORT===4400){setInterval(()=>engineWatch().catch(()=>{}),5*60000).unref();setTimeout(()=>engineWatch().catch(()=>{}),20000).unref()}
@@ -565,13 +567,13 @@ function askSecret(agent,a){return new Promise(resolve=>{const id=randomBytes(9)
  setTimeout(()=>{if(secretAsks.get(id)===rec){secretAsks.delete(id);resolve({text:'The person did not fill in the protected field in time. Ask again if you still need it.',isError:true})}},270000)})}
 const secretDir=base=>path.join(homedir(),'workspaces',base,'.secrets');
 const RESERVED_KEY=/^(API_SERVER_|HERMES_|TELEGRAM_|WHATSAPP_|SLACK_|DISCORD_|SIGNAL_|MATRIX_|EMAIL_|SMS_|TWILIO_|GATEWAY_|DASHBOARD_|UI_)|_BASE_URL$|^(PATH|HOME|NODE_OPTIONS|PYTHONPATH|LD_PRELOAD)$/;
-async function saveSecret(base,name,value){if(RESERVED_KEY.test(name))throw new Error(name+' is part of how aqeelOS itself is wired; pick another name for this secret.');const home=base==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',base);
+async function saveSecret(base,name,value,{admin=false}={}){if(!admin&&RESERVED_KEY.test(name))throw new Error(name+' is part of how aqeelOS itself is wired; pick another name for this secret.');const home=base==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',base);
  await editEnv(path.join(home,'.env'),cur=>{const lines=cur.split('\n').filter(l=>!l.startsWith(name+'='));while(lines.length&&lines[lines.length-1]==='')lines.pop();return [...lines,name+'='+value.replace(/[\r\n]/g,''),''].join('\n')});
  const dir=secretDir(base);await mkdir(dir,{recursive:true,mode:0o700});await writeFile(path.join(dir,name),value,{mode:0o600})}
 const secretHow=(base,name)=>'To enter it on your screen, click the field and call type_secret with name '+name+'. In a command use "$(cat ~/workspaces/'+base+'/.secrets/'+name+')". Never print, echo or show the value.';
-async function useSecret(rec,value){
+async function useSecret(rec,value,{admin=false}={}){
  if(rec.mode==='type'){await screens.typeInto(rec.base,value,{enter:rec.enter});return 'Typed it into the focused field on your screen'+(rec.enter?' and pressed Enter':'')+'. You never saw the value; take a screenshot to check the result.'}
- await saveSecret(rec.base,rec.name,value);
+ await saveSecret(rec.base,rec.name,value,{admin});
  return 'Saved as '+rec.name+' in your settings (the engine and its tools read it from there). '+secretHow(rec.base,rec.name)}
 /* "Which browser?" An agent about to work in a browser asks (choose_browser) once per chat: the person's own
    Chrome (one-off jobs where they are already signed in) or the agent's screen on the AI box (anything that must
@@ -580,11 +582,21 @@ const browserAsks=new Map();
 function askBrowser(agent,a){return new Promise(resolve=>{const id=randomBytes(9).toString('base64url');
  const rec={id,kind:'browser',agent,base:agent.split('--')[0],task:String(a.task||'a browser job').slice(0,160),suggest:a.suggest==='yours'?'yours':'server',why:String(a.why||'').slice(0,220),t:Date.now(),resolve};browserAsks.set(id,rec);
  setTimeout(()=>{if(browserAsks.get(id)===rec){browserAsks.delete(id);resolve({text:'The person did not choose in time. Use your own screen on the AI box and tell them you did.'})}},270000)})}
+// a web address that ends up inside the box or on a private network, however it is spelled (user@host, numeric,
+// IPv6-mapped, a name that resolves privately): refused for tools a member adds
+async function privateAddress(u){let url;try{url=new URL(String(u))}catch{return true}if(!/^https?:$/.test(url.protocol))return true;
+ const host=url.hostname.replace(/^\[|\]$/g,'');const {lookup}=await import('node:dns/promises');const {isIP}=await import('node:net');
+ let addrs=[];try{addrs=isIP(host)?[{address:host}]:await lookup(host,{all:true,verbatim:true})}catch{return true}
+ const bad=a=>{a=String(a).toLowerCase();const m=/^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(a);if(m)a=m[1];
+  const h=/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(a);if(h){const x=parseInt(h[1],16),y=parseInt(h[2],16);a=[x>>8,x&255,y>>8,y&255].join('.')}
+  if(/^\d+\.\d+\.\d+\.\d+$/.test(a)){const [x,y]=a.split('.').map(Number);return x===0||x===10||x===127||(x===169&&y===254)||(x===172&&y>=16&&y<=31)||(x===192&&y===168)||(x===100&&y>=64&&y<=127)||x>=224}
+  return a==='::'||a==='::1'||/^f[cd]/.test(a)||/^fe[89ab]/.test(a)};
+ return !addrs.length||addrs.some(x=>bad(x.address))}
 async function hermesCall(req,res,u,url){
  const p=url.pathname,q=url.searchParams,agent=agentOf(p,q);
  if(['profile','path','name','agent'].some(k=>q.getAll(k).length>1))return send(res,400,{error:'Each setting may appear only once.'});
  const no=users.gate(u,p,req.method,q,agent);if(no)return send(res,no.status,{error:no.error});
- {const rm=/\/v1\/runs\/([^/]+)/.exec(p);if(rm&&!users.isAdmin(u)){const rec=[...LIVE.values()].find(r=>r.runId===decodeURIComponent(rm[1]));if(!rec||rec.user!==u.id)return send(res,403,{error:'That reply is not yours.'})}}
+ {const rm=/\/v1\/runs\/([^/]+)/.exec(p);if(rm&&!users.isAdmin(u)){const own=runOwner.get(decodeURIComponent(rm[1]));if(!own||own.user!==u.id)return send(res,403,{error:'That reply is not yours.'})}}
  if(p.startsWith('/gapi/p/')&&agent&&agent!=='default'&&!keyOk.has(agent)){const envF=path.join(HERMES_HOME,'profiles',agent,'.env');const e=await readFile(envF,'utf8').catch(()=>null);
   if(e!==null){if(!/^API_SERVER_KEY=/m.test(e)&&API_KEY){await writeFile(envF,(e&&!e.endsWith('\n')?e+'\n':e)+'API_SERVER_KEY='+API_KEY+'\n',{mode:0o600});console.log('added the missing gateway key for',agent);await new Promise(r=>setTimeout(r,1500))}keyOk.add(agent)}}
  if(p==='/hapi/messaging/platforms'&&req.method==='GET'){try{return send(res,200,await platformsCached(q.get('profile')||'default'))}catch(e){return send(res,e.status||502,{error:e.message})}}
@@ -600,7 +612,7 @@ async function hermesCall(req,res,u,url){
  // agent and the JSON body doesn't, the body gets it too. Uploads and non-JSON bodies are left alone.
  // An engine update starts from the engine's own files: aqeelOS's renames (aqeelOS instead of Hermes in what people
  // read) are put back to the original first, so the update never clashes with them; they are applied again after it.
- if(p==='/hapi/hermes/update'&&req.method==='POST'&&users.isAdmin(u)){const r=await shx('git -C ~/.hermes/hermes-agent checkout -- . 2>&1');console.log('engine update: renamed files reset first',r.ok?'':'('+String(r.out||'').slice(0,120)+')');engineHead.t=0}
+ if(p==='/hapi/hermes/update'&&req.method==='POST'&&users.isAdmin(u)){const r=await shx('git -C ~/.hermes/hermes-agent checkout -- . 2>&1');console.log('engine update: renamed files reset first',r.ok?'':'('+String(r.out||'').slice(0,120)+')');engineHead.v=null;setTimeout(()=>engineWatch().catch(()=>{}),120000)}
  if(p.startsWith('/hapi/')&&req.method!=='GET'&&q.get('profile')&&/json/.test(String(req.headers['content-type']||''))&&!p.startsWith('/hapi/files')){let b=null;try{const raw=(await readRaw(req,30e6)).toString('utf8');b=raw?JSON.parse(raw):{}}catch{}
   if(b&&typeof b==='object'&&!Array.isArray(b)&&(!b.profile||!users.isAdmin(u)))b.profile=q.get('profile');if(b!==null)body=Buffer.from(JSON.stringify(b))}
  // a member's JSON body without ?profile= may not name another agent either
@@ -674,7 +686,7 @@ async function hermesCall(req,res,u,url){
   // an MCP server started by command runs code on the box: same rule as the terminal
   if(/^\/hapi\/mcp\/servers(\/[^/]+)?$/.test(p)&&/^(POST|PUT|PATCH)$/.test(req.method)&&(b.command||b.args||b.transport==='stdio')&&!users.can(u,'unsafe'))return send(res,403,{error:'Only admins can add tools that run a command on the box. Use a server URL instead.'});
   // a member's tool address may not point inside the box or at a cloud's metadata service
-  if(/^\/hapi\/mcp\/servers/.test(p)&&b.url&&/^https?:\/\/(localhost|127\.|0\.0\.0\.0|\[::1\]|169\.254\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|metadata)/i.test(String(b.url)))return send(res,403,{error:'Tools must use a public web address.'});
+  if(/^\/hapi\/mcp\/servers/.test(p)&&b.url&&await privateAddress(b.url))return send(res,403,{error:'Tools must use a public web address.'});
   // a member's new agent starts empty: copying the main agent would copy its keys and memory
   if(p==='/hapi/profiles'){b.clone_from_default=false;b.clone_all=false;made=String(b.name||'')}
   body=Buffer.from(JSON.stringify(b))}
@@ -973,10 +985,10 @@ const server=createServer(async(req,res)=>{
     if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+base,'GET',new URLSearchParams(),base))return send(res,403,{error:'Not your agent.'});
     const label=String(b.label||'').trim().slice(0,140),value=String(b.value||'');if(!label)return send(res,400,{error:'Say what it is, so the agent knows when to use it.'});if(!value||value.length>8000)return send(res,400,{error:'Type or paste the value.'});
     let name=String(b.name||'').trim().toUpperCase().replace(/[^A-Z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,40);if(!/^[A-Z]/.test(name))name='SECRET_'+name;if(name.length<3)name='SECRET_'+Date.now().toString(36).toUpperCase();
-    if(RESERVED_KEY.test(name))name='SECRET_'+name;
+    if(RESERVED_KEY.test(name)&&!users.isAdmin(u))name='SECRET_'+name;
     // a member who may only chat cannot replace a key that already exists and was not given as a secret
     if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+base+'/soul','PUT',new URLSearchParams(),base)){const envT=await readFile(path.join(base==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',base),'.env'),'utf8').catch(()=>'');if(new RegExp('^'+name+'=','m').test(envT)&&!await stat(path.join(secretDir(base),name)).catch(()=>null))name='SECRET_'+name}
-    try{await saveSecret(base,name,value)}catch(e){return send(res,400,{error:e.message})}console.log('secret saved for',base,'('+name+')');
+    try{await saveSecret(base,name,value,{admin:users.isAdmin(u)})}catch(e){return send(res,400,{error:e.message})}console.log('secret saved for',base,'('+name+')');
     return send(res,200,{ok:true,name,message:'🔒 '+label+' — saved for you as '+name+'. You cannot see the value. '+secretHow(base,name)})}
    if(p==='/ui/secrets/pending'&&req.method==='GET'){const ag=String(url.searchParams.get('agent')||'default').split('--')[0];
     if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+ag,'GET',new URLSearchParams(),ag))return send(res,200,{items:[]});
@@ -1000,7 +1012,7 @@ const server=createServer(async(req,res)=>{
     let b={};try{b=JSON.parse(await readBody(req,20000))}catch{}
     if(b.cancel){secretAsks.delete(rec.id);rec.resolve({text:'The person chose not to give it. Do not ask again unless they say so.',isError:true});return send(res,200,{ok:true})}
     const value=String(b.value||'');if(!value||value.length>8000)return send(res,400,{error:'Type or paste the value first.'});
-    try{const text=await useSecret(rec,value);secretAsks.delete(rec.id);rec.resolve({text});console.log('secret given to',rec.agent,'('+rec.mode+(rec.name?' '+rec.name:'')+')');return send(res,200,{ok:true,text:rec.mode==='type'?'Typed into the screen.':'Saved as '+rec.name+'.'})}
+    try{const text=await useSecret(rec,value,{admin:users.isAdmin(u)});secretAsks.delete(rec.id);rec.resolve({text});console.log('secret given to',rec.agent,'('+rec.mode+(rec.name?' '+rec.name:'')+')');return send(res,200,{ok:true,text:rec.mode==='type'?'Typed into the screen.':'Saved as '+rec.name+'.'})}
     catch(e){return send(res,409,{error:e.message})}}}   // stays open: the person can fix it (open the screen) and send again
    if(p==='/ui/channels/check'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||'default'),pf=String(b.platform||'');
     if(!(await listAllProfiles()).includes(ag)||!/^[a-z0-9_]{1,40}$/.test(pf))return send(res,400,{error:'Unknown channel'});
@@ -1060,7 +1072,7 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/channels/for'&&req.method==='GET'){const a=url.searchParams.get('agent')||'default';if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a))return send(res,403,{error:'Not your agent'});
     return send(res,200,{channels:await relay.channelsFor(a)})}   // its own, its extra connections and shared ones, each with an ID
    // Schedules: folders, plain descriptions, recipients by name and what each run cost
-   if(p==='/ui/schedules/info'&&req.method==='GET'){try{const d=await schedules.info();if(!users.isAdmin(u)){const ok=a=>!users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a);for(const k of Object.keys(d.meta))if(!ok(k.split('|')[0]))delete d.meta[k];for(const k of Object.keys(d.runs))if(!ok(k.split('|')[0]))delete d.runs[k]}return send(res,200,d)}catch(e){return send(res,500,{error:e.message})}}
+   if(p==='/ui/schedules/info'&&req.method==='GET'){try{const d0=await schedules.info();const d={...d0,meta:{...d0.meta},runs:{...d0.runs},names:{...d0.names}};if(!users.isAdmin(u)){d.names={};const ok=a=>!users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a);for(const k of Object.keys(d.meta))if(!ok(k.split('|')[0]))delete d.meta[k];for(const k of Object.keys(d.runs))if(!ok(k.split('|')[0]))delete d.runs[k]}return send(res,200,d)}catch(e){return send(res,500,{error:e.message})}}
    if(p==='/ui/schedules/detail'&&req.method==='GET'){const a=url.searchParams.get('profile')||'default';if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a))return send(res,403,{error:'Not your agent'});
     try{return send(res,200,await schedules.detail(a,url.searchParams.get('id')||''))}catch(e){return send(res,404,{error:e.message})}}
    if(p==='/ui/schedules/meta'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const a=String(b.profile||'default');if(!users.isAdmin(u)&&users.gate(u,'/hapi/cron/jobs','POST',new URLSearchParams('profile='+a),a))return send(res,403,{error:'Not your agent'});

@@ -28,7 +28,7 @@ export function createSchedules({DATA,DASH,TOKEN,HERMES_HOME,listAgents,python,r
   return out}
 
  function aux(system,user,max=500){return new Promise(async res=>{const py=await python();if(!py)return res('');
-  const c=execFile(py,[path.join(root,'scripts','aux-llm.py'),'.'],{timeout:120000,maxBuffer:2e6,cwd:'/tmp'},(e,o)=>res(e?'':String(o||'').trim()));c.stdin.end(JSON.stringify({system,user,max_tokens:max}))})}
+  const c=execFile(py,[path.join(root,'scripts','aux-llm.py'),path.join(HOME,'.hermes','hermes-agent')],{timeout:120000,maxBuffer:2e6,cwd:path.join(HOME,'.hermes')},(e,o)=>res(e?'':String(o||'').trim()));c.stdin.end(JSON.stringify({system,user,max_tokens:max}))})}
 
  // one schedule described: what it does, the steps, a clearer title if the current one is a puzzle, and a folder
  async function describe(j,folders){const books=await runbooks(j.prompt,j.profile);
@@ -43,7 +43,7 @@ export function createSchedules({DATA,DASH,TOKEN,HERMES_HOME,listAgents,python,r
    const folders=()=>[...new Set([...all.map(j=>bracket(j.name)),...Object.values(db.jobs).map(m=>m.folder)].filter(Boolean))];
    for(const j of all){const k=key(j.profile,j.id),m=db.jobs[k]||{};const h=hash((j.name||'')+'\n'+(j.prompt||'')+'\n'+(j.deliver||''));
     if(!m.folder&&bracket(j.name)){m.folder=bracket(j.name);m.folderAuto=true;db.jobs[k]=m;await save()}
-    if(m.h===h&&m.summary!=null)continue;if(m.failH===h&&(m.tries>=3||Date.now()-(m.failAt||0)<(m.tries>1?6:1)*3600e3))continue;const d=await describe(j,folders());if(!d){m.failH=h;m.tries=(m.failH===h?(m.tries||0):0)+1;m.failAt=Date.now();db.jobs[k]=m;await save();continue}delete m.failH;delete m.tries;delete m.failAt;
+    if(m.h===h&&m.summary!=null)continue;if(m.failH===h&&(m.tries>=3||Date.now()-(m.failAt||0)<(m.tries>1?6:1)*3600e3))continue;const d=await describe(j,folders());if(!d){m.tries=(m.failH===h?(m.tries||0):0)+1;m.failH=h;m.failAt=Date.now();db.jobs[k]=m;await save();continue}delete m.failH;delete m.tries;delete m.failAt;
     Object.assign(m,{h,summary:m.summaryManual?m.summary:d.summary,steps:d.steps,suggest:d.title&&d.title.toLowerCase()!==String(j.name||'').replace(/^\s*\[[^\]]*\]\s*/,'').toLowerCase()?d.title:''});
     if(!m.folder||m.folderAuto&&!bracket(j.name)){m.folder=bracket(j.name)||d.folder||'General';m.folderAuto=true}
     db.jobs[k]=m;await save()}
@@ -69,7 +69,7 @@ export function createSchedules({DATA,DASH,TOKEN,HERMES_HOME,listAgents,python,r
   return out}
 
  let infoCache=null;
- async function info(){await load();if(!infoCache||Date.now()-infoCache.t>60000){const agents=await listAgents();const all=await jobs().catch(()=>[]);const [r,n]=await Promise.all([runs(agents),names(agents,all)]);infoCache={t:Date.now(),runs:r,names:n}}return {meta:db.jobs,folds:db.folds,runs:infoCache.runs,names:infoCache.names}}
+ async function info(){await load();if(!infoCache||Date.now()-infoCache.t>60000){const agents=await listAgents();const all=await jobs().catch(()=>[]);const [r,n]=await Promise.all([runs(agents),names(agents,all)]);infoCache={t:Date.now(),runs:r,names:n}}return {meta:JSON.parse(JSON.stringify(db.jobs)),folds:{...db.folds},runs:{...infoCache.runs},names:{...infoCache.names}}}
  async function setMeta(profile,id,b){await load();const k=key(profile,id);const m=db.jobs[k]??={};
   if(b.folder!==undefined){m.folder=String(b.folder||'').replace(/[\[\]]/g,'').trim().slice(0,30)||'General';m.folderAuto=false}
   if(b.summary!==undefined){m.summary=String(b.summary||'').slice(0,240);m.summaryManual=true}
@@ -80,10 +80,10 @@ export function createSchedules({DATA,DASH,TOKEN,HERMES_HOME,listAgents,python,r
  async function detail(profile,id){const all=await jobs();const j=all.find(x=>x.id===id&&(x.profile||'default')===(profile||'default'));if(!j)throw new Error('No such schedule');
   const books=(await runbooks(j.prompt,profile)).map(b=>({name:path.basename(b.path),path:b.path,text:b.text}));
   let last='';try{const s=(await api('/sessions?sources=cron&limit=40&order=recent&profile='+encodeURIComponent(profile||'default'))).sessions||[];const x=s.find(x=>String(x.id).startsWith('cron_'+id+'_')&&!x.is_active);
-   if(x){const m=await api('/sessions/'+encodeURIComponent(x.id)+'/messages?limit=6&order=latest');const ms=(m.messages||m||[]).filter(y=>y.role==='assistant'&&typeof y.content==='string'&&y.content.trim());last=(ms[0]||ms[ms.length-1])?.content||'';last={session:x.id,text:String(last).slice(0,4000),at:x.ended_at||x.started_at}}}catch{}
+   if(x){const m=await api('/sessions/'+encodeURIComponent(x.id)+'/messages?limit=6&order=latest&profile='+encodeURIComponent(profile||'default'));const ms=(m.messages||m||[]).filter(y=>y.role==='assistant'&&typeof y.content==='string'&&y.content.trim());last=(ms[0]||ms[ms.length-1])?.content||'';last={session:x.id,text:String(last).slice(0,4000),at:x.ended_at||x.started_at}}}catch{}
   return {books,last}}
  // an agent files and describes what it made (the aqeelos-notify tool organize_schedule)
- async function organize(agent,a){const all=await jobs();const j=all.find(x=>x.id===String(a.job_id||'')&&(x.profile||'default')===agent)||all.find(x=>(x.profile||'default')===agent&&String(x.name||'').toLowerCase()===String(a.job_id||'').toLowerCase());
+ async function organize(agent,a){agent=String(agent).split('--')[0];const all=await jobs();const j=all.find(x=>x.id===String(a.job_id||'')&&(x.profile||'default')===agent)||all.find(x=>(x.profile||'default')===agent&&String(x.name||'').toLowerCase()===String(a.job_id||'').toLowerCase());
   if(!j)return {isError:true,text:'No schedule with that ID on this agent. List your schedules (cronjob list) and use its id.'};
   if(a.title){const t=String(a.title).trim().slice(0,80);await api('/cron/jobs/'+encodeURIComponent(j.id)+'?profile='+encodeURIComponent(agent),{method:'PUT',body:JSON.stringify({updates:{name:t}})})}
   await setMeta(agent,j.id,{...(a.folder?{folder:a.folder}:{}),...(a.description?{summary:a.description}:{})});

@@ -1,0 +1,33 @@
+// End-to-end checks against the TEST copy (port 4402, its own data). Each step prints PASS/FAIL.
+import {readFileSync} from 'node:fs';
+const B='http://127.0.0.1:4402';const PW=readFileSync('/tmp/ppl/pw','utf8').trim();const out=[];
+const step=async(n,fn)=>{try{const x=await fn();out.push('PASS '+n+(x?' · '+x:''))}catch(e){out.push('FAIL '+n+' · '+e.message)}};
+const must=(c,m)=>{if(!c)throw new Error(m)};
+const login=async()=>{const r=await fetch(B+'/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({password:PW})});return (r.headers.get('set-cookie')||'').split(';')[0]};
+const mk=ck=>async(p,o={})=>{const h={'x-hui':'1',cookie:ck};let body=o.body;if(body&&!(body instanceof FormData)){h['content-type']='application/json';body=JSON.stringify(body)}const r=await fetch(B+p,{method:o.method||'GET',headers:h,body});const t=await r.text();let j;try{j=JSON.parse(t)}catch{j=t}return {s:r.status,j}};
+const A=mk(await login()),Bdev=mk(await login());
+let job=null;
+await step('Create a schedule',async()=>{const r=await A('/hapi/cron/jobs?profile=default',{method:'POST',body:{name:'[E2E] Test schedule',prompt:'Reply with the word ok.',schedule:'0 9 1 1 *',deliver:'local'}});must(r.s<300,r.s+' '+JSON.stringify(r.j).slice(0,160));job=r.j.job||r.j;must(job.id,'no id');return job.id});
+await step('It is listed with its folder',async()=>{const r=await A('/hapi/cron/jobs?profile=all');must(r.s===200,'status '+r.s);const j=(r.j||[]).find(x=>x.id===job.id);must(j,'not listed');return j.schedule_display});
+await step('Edit it (name and model)',async()=>{const r=await A('/hapi/cron/jobs/'+job.id+'?profile=default',{method:'PUT',body:{updates:{name:'[E2E] Test schedule edited',model:null,provider:null}}});must(r.s<300,r.s+' '+JSON.stringify(r.j).slice(0,160))});
+await step('Move it to a folder',async()=>{const r=await A('/ui/schedules/meta',{method:'PUT',body:{profile:'default',id:job.id,folder:'E2E Folder'}});must(r.s===200&&r.j.folder==='E2E Folder',JSON.stringify(r.j))});
+await step('Give it a description',async()=>{const r=await A('/ui/schedules/meta',{method:'PUT',body:{profile:'default',id:job.id,summary:'A test that replies ok.'}});must(r.s===200&&r.j.summary,'')});
+await step('Details open',async()=>{const r=await A('/ui/schedules/detail?profile=default&id='+job.id);must(r.s===200,'status '+r.s)});
+await step('Delete it',async()=>{const r=await A('/hapi/cron/jobs/'+job.id+'?profile=default',{method:'DELETE'});must(r.s<300,'status '+r.s)});
+await step('Settings follow you to another device',async()=>{await A('/ui/prefs',{method:'PUT',body:{set:{'hui-e2e':'"from device A"'},del:[]}});const r=await Bdev('/ui/prefs');must(r.j.prefs['hui-e2e']==='"from device A"','not seen on device B');await A('/ui/prefs',{method:'PUT',body:{set:{},del:['hui-e2e']}});const r2=await Bdev('/ui/prefs');must(!('hui-e2e' in r2.j.prefs),'delete did not sync')});
+await step('Prefs refuse keys that are not settings',async()=>{await A('/ui/prefs',{method:'PUT',body:{set:{'evil':'1'},del:[]}});const r=await A('/ui/prefs');must(!('evil' in r.j.prefs),'stored a foreign key')});
+await step('Smart approvals on and off',async()=>{const a=await A('/ui/agent-approvals',{method:'PUT',body:{agent:'pixel-agent',mode:'smart'}});must(a.j.mode==='smart',JSON.stringify(a.j));const g=await A('/ui/agent-approvals?agent=pixel-agent');must(g.j.mode==='smart','read back '+g.j.mode);const b=await A('/ui/agent-approvals',{method:'PUT',body:{agent:'pixel-agent',mode:'manual'}});must(b.j.mode==='manual','')});
+await step('Channel note add and remove',async()=>{const a=await A('/ui/channels/note',{method:'PUT',body:{agent:'pixel-agent',platform:'slack',note:'E2E note'}});must(a.s===200,'status '+a.s);const b=await A('/ui/channels/note',{method:'PUT',body:{agent:'pixel-agent',platform:'slack',note:''}});must(b.s===200,'')});
+await step('Google accounts list',async()=>{const r=await A('/ui/google-accounts?agent=default');must(r.s===200&&Array.isArray(r.j.accounts),'status '+r.s);return r.j.accounts.length+' accounts'});
+await step('Memory figures',async()=>{const r=await A('/ui/memory');must(r.s===200&&r.j.max>0,'status '+r.s);return Math.round(r.j.used/r.j.max*100)+'%'});
+await step('System events readable',async()=>{const r=await A('/ui/system-events');must(r.s===200&&Array.isArray(r.j.events),'status '+r.s)});
+await step('Thinking store answers',async()=>{const r=await A('/ui/thinking?session=api_x_y');must(r.s===200,'status '+r.s)});
+await step('Repeated profile refused',async()=>{const r=await A('/hapi/cron/jobs?profile=default&profile=husband-mode');must(r.s===400,'status '+r.s)});
+// a picture and a PDF in one message
+await step('Upload a PDF the way the chat does',async()=>{const fd=new FormData();fd.append('path','/home/claude/uploads/e2e-test.pdf');fd.append('overwrite','true');fd.append('file',new Blob(['%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF'],{type:'application/pdf'}),'e2e-test.pdf');const r=await A('/hapi/files/upload-stream',{method:'POST',body:fd});must(r.s<300,'status '+r.s+' '+JSON.stringify(r.j).slice(0,120))});
+await step('A chat with a picture and that PDF',async()=>{const s=await A('/gapi/api/sessions',{method:'POST',body:{}});const id=s.j.session?.id||s.j.id;
+ const png='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+ const r=await fetch(B+'/gapi/api/sessions/'+encodeURIComponent(id)+'/chat/stream',{method:'POST',headers:{'x-hui':'1',cookie:(await login()),'content-type':'application/json'},body:JSON.stringify({message:[{type:'text',text:'Reply in one line: did you get a picture, and is there a file attached?\n\n[Attached file: /home/claude/uploads/e2e-test.pdf]'},{type:'image_url',image_url:{url:png}}]})});
+ const t=await r.text();const done=/event: run.completed/.test(t);await A('/hapi/sessions/'+encodeURIComponent(id),{method:'DELETE'});must(done,'no answer');const m=[...t.matchAll(/"content": "([^"]{0,200})"/g)].map(x=>x[1]).pop()||'';return m.slice(0,120)});
+await A('/hapi/files?path=/home/claude/uploads/e2e-test.pdf',{method:'DELETE',body:{path:'/home/claude/uploads/e2e-test.pdf'}}).catch(()=>{});
+console.log(out.join('\n'));

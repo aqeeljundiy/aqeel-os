@@ -1136,3 +1136,5 @@ button.think:hover{color:var(--ink-2);background:var(--soft)}
 /* keys: a long hidden value never overflows its row */
 [data-reveal]{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block}
 .row .txt span.kind-chip{flex:none;white-space:nowrap;flex-direction:row}
+/* phones: the top bar shows the page you are on (the section name is in the menu) */
+@media (max-width:760px){.crumbs{font-size:0;gap:0}.crumbs>svg{display:none}.crumbs b{font-size:15px}}

@@ -19,8 +19,6 @@ for i in $(seq 1 120); do
 done
 BOX
 # 2) Only now pack the files, so what goes live is what is here at this moment (not what was here before the wait).
-# the update history on /backlog: when each deploy went live and which commit it carried
-node -e "const fs=require('fs'),f='data/deploys.json';let l=[];try{l=JSON.parse(fs.readFileSync(f,'utf8'))}catch{}let h='';try{h=require('child_process').execFileSync('git',['rev-parse','--short','HEAD'],{encoding:'utf8'}).trim()}catch{}l.push({at:new Date().toISOString(),commit:h});fs.writeFileSync(f,JSON.stringify(l.slice(-200),null,1))"
 node scripts/features.mjs >/dev/null
 tar --force-local -czf ../hui.tgz app assets backlog data extension mockup scripts PRD.md
 scp -q ../hui.tgz ai-vps:/tmp/hui.tgz && rm ../hui.tgz
@@ -28,8 +26,12 @@ ssh ai-vps 'bash -s' <<'BOX'
 set -e
 # a reply may have started while the files were on their way: wait again right before the restart (up to 5 minutes)
 for i in $(seq 1 60); do n=$(curl -fs http://127.0.0.1:4400/healthz | grep -o '"busy":[0-9]*' | cut -d: -f2); [ "${n:-0}" = 0 ] && break; [ "$i" = 1 ] && echo "a reply started meanwhile; waiting for it…"; sleep 5; done
+n=$(curl -fs http://127.0.0.1:4400/healthz | grep -o '"busy":[0-9]*' | cut -d: -f2); if [ "${n:-0}" != 0 ] && [ "${FORCE:-0}" != 1 ]; then echo "✗ still busy; nothing changed on the box. Try again later, or FORCE=1."; rm -f /tmp/hui.tgz; exit 1; fi
 mkdir -p ~/apps/hermes-ui && tar -xzf /tmp/hui.tgz -C ~/apps/hermes-ui && rm /tmp/hui.tgz
 tmux kill-session -t ui 2>/dev/null || true
 node ~/apps/hermes-ui/scripts/apply-skill-patches.mjs || echo "! skill patches: see the message above"
 ~/services.sh; for i in $(seq 1 20); do sleep 1; h=$(curl -fs http://127.0.0.1:4400/healthz) && break; done; [ -n "$h" ] && echo "$h · UI restarted" || { echo "✗ the UI did not answer within 20 s"; exit 1; }
 BOX
+
+# the update history on /backlog: recorded once the new version answers (it travels with the next deploy)
+node -e "const fs=require('fs'),f='data/deploys.json';let l=[];try{l=JSON.parse(fs.readFileSync(f,'utf8'))}catch{}let h='';try{h=require('child_process').execFileSync('git',['rev-parse','--short','HEAD'],{encoding:'utf8'}).trim()}catch{}l.push({at:new Date().toISOString(),commit:h});fs.writeFileSync(f,JSON.stringify(l.slice(-200),null,1))"

@@ -7,8 +7,8 @@ const HOME=path.join(homedir(),'.hermes');
 // every file is replaced in one step (never left half-written), and only one run patches at a time (deploys, engine
 // updates and new agents can all start this); a lock older than 15 minutes is a crashed run and is taken over
 const writeFile=async(p,d,o)=>{const t=p+'.aq-'+process.pid+'-'+Math.random().toString(36).slice(2,7);await rawWrite(t,d,o);await rename(t,p)};
-{const L=path.join(HOME,'.aqeelos-patch.lock');for(let i=0;;i++){try{await mkdir(L);break}catch{const s=await stat(L).catch(()=>null);if(s&&Date.now()-s.mtimeMs>15*60e3){await rm(L,{recursive:true,force:true});continue}if(i>=300){console.warn('! another patch run is still going; skipped');process.exit(0)}await new Promise(r=>setTimeout(r,2000))}}
- process.on('exit',()=>{try{rmSync(L,{recursive:true,force:true})}catch{}})}
+{const L=path.join(HOME,'.aqeelos-patch.lock');for(let i=0;;i++){try{await mkdir(L);break}catch{const s=await stat(L).catch(()=>null);if(s&&Date.now()-s.mtimeMs>8*60e3){await rm(L,{recursive:true,force:true});continue}if(i>=300){console.warn('! another patch run is still going; skipped');process.exit(0)}await new Promise(r=>setTimeout(r,2000))}}
+ const free=()=>{try{rmSync(L,{recursive:true,force:true})}catch{}};process.on('exit',free);for(const sig of ['SIGTERM','SIGINT','SIGHUP'])process.on(sig,()=>{free();process.exit(1)})}
 const homes=[HOME];for(const d of await readdir(path.join(HOME,'profiles'),{withFileTypes:true}).catch(()=>[]))if(d.isDirectory()&&!d.name.startsWith('.'))homes.push(path.join(HOME,'profiles',d.name));
 const exists=p=>access(p).then(()=>true,()=>false);
 let changed=0;

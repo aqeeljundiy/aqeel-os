@@ -15,7 +15,7 @@ export function createExplain(DATA,{python,root}={}){
  const load=async()=>{if(cache)return cache;try{cache=JSON.parse(await readFile(FILE,'utf8'))}catch{cache={}}return cache};
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(cache));await rename(FILE+'.tmp',FILE)};
  const key=(kind,it)=>kind+':'+it.id+':'+createHash('sha1').update(String(it.name||'')+'|'+String(it.desc||'')).digest('hex').slice(0,10);
- const ask=prompt=>new Promise(async res=>{const py=python&&await python();if(!py)return res(null);const c=execFile(py,[path.join(root,'scripts','aux-llm.py'),'.'],{timeout:120000,maxBuffer:2e6,cwd:'/tmp'},(err,out)=>res(err?null:String(out)));c.stdin.end(JSON.stringify({system:'You write short, plain explanations for a non-technical person. Follow the format asked for exactly.',user:prompt,max_tokens:1800}))});
+ const ask=prompt=>new Promise(async res=>{const py=python&&await python();if(!py)return res(null);const c=execFile(py,[path.join(root,'scripts','aux-llm.py'),path.join(homedir(),'.hermes','hermes-agent')],{timeout:120000,maxBuffer:2e6,cwd:path.join(homedir(),'.hermes')},(err,out)=>res(err?null:String(out)));c.stdin.end(JSON.stringify({system:'You write short, plain explanations for a non-technical person. Follow the format asked for exactly.',user:prompt,max_tokens:1800}))});
 
  async function write(kind,items){
   const list=items.map((it,i)=>`${i+1}. id=${it.id} | name=${it.name||it.id} | description=${String(it.desc||'').replace(/\s+/g,' ').slice(0,400)}`).join('\n');
