@@ -934,3 +934,6 @@ input[type=checkbox]:not(.switch)::after{margin:auto}
 .item.unread .t{font-weight:650;color:var(--ink)}
 .item .unread-dot{width:8px;height:8px;border-radius:50%;background:var(--blue);flex:none;margin-left:auto;box-shadow:0 0 0 3px color-mix(in srgb,var(--blue) 18%,transparent);animation:fade .25s var(--ease) both}
 .item.unread .more{margin-left:4px}
+/* dictation: a red pulse and a timer while recording, a spinner while the box transcribes */
+.mic-time{font-size:12px;font-variant-numeric:tabular-nums;color:var(--bad);min-width:30px;animation:fade .2s var(--ease) both}
+.mic.busy{opacity:1}
