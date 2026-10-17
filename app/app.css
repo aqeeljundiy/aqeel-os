@@ -393,7 +393,7 @@ input[type=time]{font-variant-numeric:tabular-nums;font-size:15px}
 /* ---------- sizing: sidebar and screen widths ---------- */
 .app{--side-w:var(--side-open,272px)}
 .app.collapsed{--side-w:68px}
-.side{position:relative}
+@media (min-width:761px){.side{position:relative}}   /* on phones the menu slides over the page (see the 760px rule) */
 .resizer{position:absolute;top:0;bottom:0;width:10px;z-index:6;cursor:col-resize;touch-action:none}
 .resizer::after{content:"";position:absolute;top:50%;left:50%;width:4px;height:44px;border-radius:4px;background:var(--border);transform:translate(-50%,-50%);opacity:0;transition:opacity var(--t-fast),background var(--t-fast)}
 .resizer:hover::after,body.dragging .resizer::after{opacity:1;background:var(--blue-2)}
