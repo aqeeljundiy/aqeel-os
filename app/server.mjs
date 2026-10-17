@@ -35,6 +35,7 @@ const HOST=env.UI_HOST||'127.0.0.1';
 const DASH=new URL(env.HERMES_DASH||'http://127.0.0.1:9119');
 const GATE=new URL(env.HERMES_API||'http://127.0.0.1:8642');
 const HOOKS=new URL(env.HERMES_WEBHOOKS||'http://127.0.0.1:8644');
+const WA_CLOUD=new URL(env.HERMES_WA_CLOUD||'http://127.0.0.1:8090');   // the engine's WhatsApp Business listener
 const DASH_TOKEN=env.HERMES_DASHBOARD_SESSION_TOKEN||'';
 const API_KEY=env.API_SERVER_KEY||'';
 const PW_HASH=env.UI_PASSWORD_HASH||'';            // "scrypt:<salt hex>:<hash hex>"
@@ -810,6 +811,9 @@ const server=createServer(async(req,res)=>{
   // subscription checks its own secret signature, and nothing but POST /webhooks/<name> passes.
   if(/^\/webhooks\/[\w.-]{1,64}$/.test(p)&&req.method==='POST')return proxy(req,res,HOOKS,'',{});
   {const wm=/^\/webhooks\/([a-z0-9][a-z0-9_-]{0,63})\/([\w.-]{1,64})$/.exec(p);if(wm&&req.method==='POST'){req.url='/p/'+wm[1]+'/webhooks/'+wm[2]+url.search;return proxy(req,res,HOOKS,'',{})}}
+  // WhatsApp Business (Meta's Cloud API) calls here: GET is Meta's address check, POST the messages. No sign-in:
+  // the engine checks Meta's signature with the app secret. The main agent's listener serves every agent (/p/<agent>/…).
+  {const cm=/^\/whatsapp-cloud(?:\/([a-z0-9][a-z0-9_-]{0,63}))?$/.exec(p);if(cm&&(req.method==='GET'||req.method==='POST')){req.url=(cm[1]&&cm[1]!=='default'?'/p/'+cm[1]:'')+'/whatsapp/webhook'+url.search;return proxy(req,res,WA_CLOUD,'',{})}}
   // MCP sign-in (OAuth) returns here from Slack, Notion…; the engine checks the one-time state. No sign-in needed.
   // Google sign-ins (Google Workspace skill with a Web-application client) return here, and aqeelOS finishes them:
   // it finds the agent and account whose pending sign-in has this state and runs the skill's --auth-code step.
@@ -933,6 +937,23 @@ const server=createServer(async(req,res)=>{
      if(PORT===4400)writeAgentContext().catch(()=>{});return send(res,200,{ok:true,label,note})}
     if(req.method==='DELETE'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can remove a Google account.'});const n=String(url.searchParams.get('name')||'');if(n&&!/^[\w.-]{1,60}$/.test(n))return send(res,400,{error:'Unknown account'});
      await unlink(path.join(home,'google_token'+(n?'_'+n:'')+'.json')).catch(()=>{});console.log('removed google account',n||'(main)','from',a);return send(res,200,{ok:true})}}
+   // WhatsApp Business (Meta's Cloud API) for one agent: the keys from Meta's app go in the agent's own .env, aqeelOS
+   // makes the check word (verify token) and gives the address to paste into Meta. Values are never sent back.
+   if(p==='/ui/channels/wa-cloud'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can set up WhatsApp Business.'});
+    const a=String(url.searchParams.get('agent')||'default');if(!(await listAllProfiles()).includes(a)||a.includes('--'))return send(res,400,{error:'Unknown agent'});
+    const envF=path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'.env');const KEYS={phone_number_id:'WHATSAPP_CLOUD_PHONE_NUMBER_ID',access_token:'WHATSAPP_CLOUD_ACCESS_TOKEN',app_secret:'WHATSAPP_CLOUD_APP_SECRET',app_id:'WHATSAPP_CLOUD_APP_ID',waba_id:'WHATSAPP_CLOUD_WABA_ID'};
+    const read=async()=>{const t=await readFile(envF,'utf8').catch(()=>'');const v=k=>(new RegExp('^'+k+'=["\']?([^"\'\\n]*)','m').exec(t)||[])[1]||'';return {v,t}};
+    const callback=(env.PUBLIC_URL||'https://ai.elkiya.com').replace(/\/$/,'')+'/whatsapp-cloud'+(a==='default'?'':'/'+a);
+    if(req.method==='GET'){const {v}=await read();return send(res,200,{callback,verify_token:v('WHATSAPP_CLOUD_VERIFY_TOKEN'),set:Object.fromEntries(Object.entries(KEYS).map(([k,e])=>[k,!!v(e)]))})}
+    if(req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,16384))}catch{return send(res,400,{error:'Bad request'})}
+     const put={};for(const [k,e] of Object.entries(KEYS)){const x=String(b[k]||'').trim();if(!x)continue;if(/[\s"'\\]/.test(x)||x.length>600)return send(res,400,{error:'That '+k.replace(/_/g,' ')+' does not look right.'});put[e]=x}
+     if(put.WHATSAPP_CLOUD_PHONE_NUMBER_ID&&!/^\d{6,30}$/.test(put.WHATSAPP_CLOUD_PHONE_NUMBER_ID))return send(res,400,{error:'The phone number ID is the long number Meta shows under API Setup, not the phone number itself.'});
+     const {v}=await read();if(!v('WHATSAPP_CLOUD_VERIFY_TOKEN'))put.WHATSAPP_CLOUD_VERIFY_TOKEN=randomBytes(18).toString('base64url');
+     if(!(put.WHATSAPP_CLOUD_PHONE_NUMBER_ID||v(KEYS.phone_number_id))||!(put.WHATSAPP_CLOUD_ACCESS_TOKEN||v(KEYS.access_token)))return send(res,400,{error:'The phone number ID and the access token are both needed.'});
+     await editEnv(envF,cur=>{const lines=cur.split('\n').filter(l=>!Object.keys(put).some(k=>l.startsWith(k+'=')));while(lines.length&&lines[lines.length-1]==='')lines.pop();return [...lines,...Object.entries(put).map(([k,x])=>k+'='+x),''].join('\n')});
+     console.log('whatsapp business set up for',a,Object.keys(put).map(k=>k.replace('WHATSAPP_CLOUD_','')).join(' '));
+     let on=true;try{await setChannelOn(a,'whatsapp_cloud',true)}catch(e){on=false;console.warn('whatsapp business on',a,e.message)}
+     const r=await read();return send(res,200,{ok:true,on,callback,verify_token:r.v('WHATSAPP_CLOUD_VERIFY_TOKEN')})}}
    // Who can reach the AI box over SSH: one public key per device or AI tool, added and removed here (admins only).
    // Only public keys are ever handled; the key aqeelOS's own builder uses cannot be removed from here.
    if(p==='/ui/ssh-keys'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can manage access to the AI box.'});

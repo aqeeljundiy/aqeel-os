@@ -720,3 +720,27 @@ setInterval(()=>SysEvents.check(),60000);setTimeout(()=>SysEvents.check(),8000);
 // an agent without a description: one click to write one
 ACT['agent-describe']=async(a,e)=>{e?.preventDefault();e?.stopPropagation();const n=a.dataset.name;const v=await promptBox('Describe '+ident(n).name,'What does it do? (one sentence)','','Save');if(!v)return;
  try{await put(H,'/profiles/'+encodeURIComponent(n)+'/description',{description:v.trim()});toast('Saved');reload()}catch(er){fail(er)}};
+
+/* ---------- WhatsApp Business (Meta's official Cloud API): a number that never logs out. Guided steps for Meta's
+   developer site, the two fields that matter, and the address plus check word to paste back into Meta. ---------- */
+{const base=ACT['ch-open'];ACT['ch-open']=a=>a.dataset.id==='whatsapp_cloud'?waCloudDrawer():base(a)}
+async function waCloudDrawer(){const ag=agentProfile()||'default';let s;try{s=await UI('/ui/channels/wa-cloud?agent='+encodeURIComponent(ag))}catch(e){return fail(e)}
+ const c=(Pages.platforms||[]).find(x=>x.id==='whatsapp_cloud')||{};const ready=s.set.phone_number_id&&s.set.access_token;
+ const copy=(label,v)=>`<div class="wac-copy"><span>${esc(label)}</span><code>${esc(v)}</code><button class="ghost icon" data-act="copy-text" data-text="${esc(v)}" aria-label="Copy ${esc(label)}">${icon('copy',15)}</button></div>`;
+ const field=(k,label,hint,secret)=>`<label>${label}</label><input id="wac_${k}" ${secret?'type="password"':''} autocomplete="off" placeholder="${s.set[k]?'Saved · leave empty to keep':''}"><p class="hint">${hint}</p>`;
+ const d=drawer('WhatsApp Business',`<div style="display:flex;align-items:center;gap:14px;margin-bottom:14px"><span class="logo-lg">${chLogo('whatsapp','WhatsApp')}</span><div><b style="font-size:15px">WhatsApp Business for ${esc(ident(ag).name)}</b><div style="margin-top:4px">${c.state==='connected'?'<span class="chip ok"><i class="dot"></i>Connected</span>':`<span class="chip">${ready?esc(chState(c)||'Saved'):'Not set up'}</span>`}</div></div></div>
+  <p class="hint" style="margin:0 0 12px">Meta's official connection for a business number. It never logs out like a linked phone can. Replies within 24 hours of a customer's message are free; starting a conversation later costs a small fee that Meta charges.</p>
+  <ol class="qr-steps"><li>On <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener">developers.facebook.com</a>, create an app of type <b>Business</b> and add <b>WhatsApp</b> to it.</li>
+   <li>Under <b>WhatsApp › API Setup</b>, pick or add the business number, then copy its <b>Phone number ID</b> and an <b>access token</b> (for a token that does not expire: Business Settings › System users › Generate token).</li>
+   <li>Paste both below and press <b>Save</b>.</li>
+   <li>Under <b>WhatsApp › Configuration › Webhook</b>, paste the address and check word shown after saving, then subscribe to <b>messages</b>.</li></ol>
+  ${field('phone_number_id','Phone number ID *','The long number under API Setup, not the phone number itself.')}
+  ${field('access_token','Access token *','Starts with EAA…',true)}
+  ${field('app_secret','App secret','App settings › Basic › App secret. Lets aqeelOS check that messages really come from Meta.',true)}
+  <div id="wacOut">${s.verify_token?`<h3 style="font-size:14px;margin:16px 0 8px">Paste these into Meta</h3>${copy('Callback URL',s.callback)}${copy('Verify token',s.verify_token)}`:''}</div>`,
+  `<button class="ghost" data-act="close">Close</button><button class="primary" id="wacSave">Save</button>`);
+ d.querySelector('#wacSave').onclick=async()=>{const b={};for(const k of ['phone_number_id','access_token','app_secret']){const v=d.querySelector('#wac_'+k).value.trim();if(v)b[k]=v}
+  if(!Object.keys(b).length&&ready)return closeLayers();
+  try{const r=await post(UI,'/ui/channels/wa-cloud?agent='+encodeURIComponent(ag),b);toast(r.on?'Saved. Now paste the address into Meta':'Saved. Switch the channel on after the agents restart');
+   d.querySelector('#wacOut').innerHTML=`<h3 style="font-size:14px;margin:16px 0 8px">Paste these into Meta</h3>${copy('Callback URL',r.callback)}${copy('Verify token',r.verify_token)}`;
+   d.querySelectorAll('input').forEach(i=>{i.value='';i.placeholder='Saved · leave empty to keep'})}catch(e){fail(e)}}}
