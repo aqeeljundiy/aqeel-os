@@ -66,7 +66,7 @@ const Chat={
   else this.loadStarters();
  },
  emptyHtml(){if(S.me&&!S.me.admin&&!Object.keys(S.me.agents||{}).length)return `<div class="chat-empty"><div class="halo">${icon('user',28)}</div><h1>Welcome, ${esc(S.me.name)}</h1><p>No agents are shared with you yet. Ask the person who invited you to share one, then refresh this page.</p></div>`;
-  const h=new Date().getHours();const hi=h<12?'Good morning':h<18?'Good afternoon':'Good evening';
+  const hi='Welcome to aqeelOS';
   return `<div class="chat-empty"><div class="halo">${avatarImg(30)}</div><h1>${hi}</h1><p>${S.me&&!S.me.admin?`What can <span class="agent-name">${esc(AGENT())}</span> help you with today?`:`What should <span class="agent-name">${esc(AGENT())}</span> work on? It runs on your AI box, so it keeps going when you close this tab.`}</p>
   <div class="prompts" id="starters">${this.startersHtml(this.starters[S.profile||'default']||STARTER_DEFAULTS[S.me&&!S.me.admin?'member':'admin'])}</div></div>`},
  // Starter prompts come from the person's recent chats with this agent (server: starters.mjs); cached here per agent.

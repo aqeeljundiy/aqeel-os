@@ -31,7 +31,7 @@ const ID={
  'Your own folder. Your agents can read what you put here.':'Folder milikmu. Agenmu bisa membaca apa yang kamu taruh di sini.',
  // chat
  'New chat':'Obrolan baru','Search chats':'Cari obrolan','Chats':'Obrolan','Automation':'Otomatis','All':'Semua','Manage chats':'Kelola obrolan','Today':'Hari ini','Yesterday':'Kemarin',
- 'Good morning':'Selamat pagi','Good afternoon':'Selamat siang','Good evening':'Selamat malam','No chats yet.':'Belum ada obrolan.',
+ 'Welcome to aqeelOS':'Selamat datang di aqeelOS','Good morning':'Selamat pagi','Good afternoon':'Selamat siang','Good evening':'Selamat malam','No chats yet.':'Belum ada obrolan.',
  'Effort':'Usaha','Thought':'Berpikir','Thinking…':'Sedang berpikir…','Use a tool':'Pakai alat','MCP tools':'Alat MCP','Built-in tools':'Alat bawaan','Manage tools…':'Kelola alat…',
  'Attach images':'Lampirkan gambar','Steer now':'Arahkan sekarang','Queue next':'Antrekan',
  // account menu and common
