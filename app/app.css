@@ -960,3 +960,10 @@ input[type=checkbox]:not(.switch)::after{margin:auto}
 .lb-note{display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;color:#e8e9ee;padding:24px;max-width:380px;animation:fade .25s var(--ease) both}
 .lb-note b{font-size:14.5px}.lb-note span{font-size:12.5px;color:#a9adb8;line-height:1.5}.lb-note button{margin-top:6px}
 .lb-bar{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.lb-bar .lb-url{color:var(--muted)}
+
+/* channel rows: Answered by and one ⋯ menu, aligned on every row */
+.ch-act{display:flex;align-items:center;gap:10px;flex-wrap:nowrap}
+.ch-act .ab-lbl{font-size:12.5px;color:var(--muted);white-space:nowrap}
+.ch-act .sel-btn,.ch-act select{min-width:150px}
+.ch-act .ch-more{flex:none}
+@media (max-width:720px){.ch-act .ab-lbl{display:none}.ch-act .sel-btn,.ch-act select{min-width:120px}}

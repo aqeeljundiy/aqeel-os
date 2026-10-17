@@ -126,7 +126,7 @@ const CH_ICONS={api_server:'server',webhook:'hook',a2a:'link',email:'chat',sms:'
 const chLogo=(id,name)=>CH_DOMAINS[id]?logoImg(CH_DOMAINS[id],(name||id)[0].toUpperCase(),CH_COLORS[id]):CH_ICONS[id]?`<span class="logo" style="background:${CH_COLORS[id]||'var(--ink)'};color:#fff">${icon(CH_ICONS[id],18)}</span>`:logoImg(null,(name||id)[0].toUpperCase(),CH_COLORS[id]);
 const CH_COLORS={telegram:'#229ED9',discord:'#5865F2',whatsapp:'#25D366',slack:'#4A154B',email:'#0158cb',signal:'#3A76F0',sms:'#F22F46',matrix:'#0b0c10',mattermost:'#1E325C'};
 PAGES.channels=async(p,el)=>{
- setActions(`<button data-act="gw-restart">${icon('refresh',16)}Restart gateway</button>`);
+ setActions('');
  const d=await H('/messaging/platforms');const list=(d.platforms||[]).sort((a,b)=>(b.state==='connected')-(a.state==='connected')||(b.configured-a.configured));Pages.platforms=list;
  el.innerHTML=`<div class="grid-cards">${list.map((c,i)=>`<button class="card tile" ${st(i)} data-act="ch-open" data-id="${esc(c.id)}"><div class="tile-top">${chLogo(c.id,c.name)}<div><h3>${esc(c.name)}</h3></div></div><p>${esc(c.description||'')}</p><div class="tile-foot">${c.state==='connected'?'<span class="chip ok"><i class="dot"></i>Connected</span>':c.enabled&&c.configured?`<span class="chip warn">${esc(chState(c))}</span>`:c.configured?'<span class="chip">Off</span>':'<span class="chip">Not set up</span>'}<span style="color:var(--muted)">${icon('chevR',16)}</span></div></button>`).join('')}</div>`;
 };

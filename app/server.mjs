@@ -388,7 +388,7 @@ const tgNames=new Map();
 let gwLog={t:0,text:''};
 async function gatewayLog(){if(Date.now()-gwLog.t>8000){const {execFile}=await import('node:child_process');gwLog={t:Date.now(),text:await new Promise(r=>execFile('tail',['-n','4000',path.join(HERMES_HOME,'logs','gateway.log')],{maxBuffer:8e6},(e,o)=>r(String(o||''))))}}return gwLog.text}
 async function trueStates(agent,v){const list=v?.platforms||v;if(!Array.isArray(list)||agent==='default')return;const log=await gatewayLog();
- for(const c of list){if(c.id==='whatsapp'||['api_server','webhook'].includes(c.id)||!/stopped|not_running|starting/.test(String(c.state||'')))continue;
+ for(const c of list){if(c.id==='whatsapp'||['api_server','webhook'].includes(c.id)||!/stopped|not_running|starting|pending_restart|restart/.test(String(c.state||'')))continue;
   const esc_=x=>x.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');const re=new RegExp('✓ '+esc_(c.id)+' (connected|disconnected)[^\\n]*\\(profile: '+esc_(agent)+'\\)|✗ '+esc_(c.id)+' failed to connect \\(profile: '+esc_(agent)+'\\)','g');
   let last=null,m;while((m=re.exec(log)))last=m;if(!last)continue;
   const p=await gatewayPid();if(!p)continue;   // the engine is not running at all: keep what it says
@@ -890,6 +890,14 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/channels/for'&&req.method==='GET'){const a=url.searchParams.get('agent')||'default';if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a))return send(res,403,{error:'Not your agent'});
     return send(res,200,{channels:await relay.channelsFor(a)})}   // its own, its extra connections and shared ones, each with an ID
    if(p==='/ui/channels/job-relays'&&req.method==='GET')return send(res,200,await relay.jobRelays());
+   // reconnect ONE channel: a second agent's channel is switched off and on by itself (no engine restart);
+   // the main agent's channels live in the engine itself, so for those the proper restart is the only way
+   if(p==='/ui/channels/reconnect'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can reconnect channels.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
+    const ag=String(b.agent||''),pf=String(b.platform||'');if(!(await listAllProfiles()).includes(ag)||!/^[a-z0-9_]{1,40}$/.test(pf))return send(res,400,{error:'Unknown channel'});
+    if(ag==='default'){restartGateway('reconnect '+pf+' (main agent)').catch(()=>{});return send(res,200,{ok:true,restarting:true,waiting:liveCount()})}
+    const h={'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'};const put=on=>fetch(DASH.origin+'/api/messaging/platforms/'+pf+'?profile='+encodeURIComponent(ag),{method:'PUT',headers:h,body:JSON.stringify({enabled:on,env:{},profile:ag})}).then(r=>r.json()).catch(()=>({}));
+    await put(false);if(pf==='whatsapp')await stopBridges(ag).catch(()=>{});await new Promise(r=>setTimeout(r,2500));const j=await put(true);platCache.clear();attention.t=0;
+    console.log('reconnected',pf,'on',ag,j.hot_served?'(live)':'');return send(res,200,{ok:true,restarting:false})}
    if(p==='/ui/channels/pause'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can pause channels.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
     const ag=String(b.agent||''),pf=String(b.platform||'');if(!(await listAllProfiles()).includes(ag)||!/^[a-z0-9_]{1,40}$/.test(pf)||['api_server','webhook'].includes(pf))return send(res,400,{error:'Unknown channel'});
     try{return send(res,200,await setChannelOn(ag,pf,b.on===true))}catch(e){return send(res,400,{error:e.message})}}
