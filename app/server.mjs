@@ -224,6 +224,14 @@ async function writeAgentContext(){const all=await listAgents();const names={};f
   const cur=await readFile(file,'utf8').catch(()=>'');const re=/<!-- aqeelos:context[\s\S]*?<!-- \/aqeelos:context -->/;
   const next=re.test(cur)?cur.replace(re,()=>body):(cur?cur.replace(/\s*$/,'\n\n'):'')+body+'\n';if(next!==cur)await writeFile(file,next)}catch(e){console.warn('agent context',a,e.message)}}}
 if(PORT===4400){setTimeout(()=>writeAgentContext().catch(()=>{}),25000);setInterval(()=>writeAgentContext().catch(()=>{}),600000).unref()}
+/* Dictation spells your names right: the speech model gets the names it should expect (agents, schedule folders,
+   the app itself), kept up to date as they change. */
+async function sttVocab(){try{const names=new Set(['aqeelOS']);for(const a of await listAgents())names.add(NAMES[a]||a);
+  const meta=await readFile(path.join(DATA,'schedule-meta.json'),'utf8').then(JSON.parse).catch(()=>({jobs:{}}));for(const m of Object.values(meta.jobs||{}))if(m.folder&&m.folder!=='General')names.add(m.folder);
+  const want='Names that may come up, '+[...names].filter(Boolean).join(', ')+'.';
+  const cur=pick(await readConfig('default')||{},'stt.local.initial_prompt');if(cur===want)return;
+  const r=await setKey('default','stt.local.initial_prompt',want);if(r.ok)console.log('dictation knows these names now:',[...names].join(', '))}catch(e){console.warn('dictation names',e.message)}}
+if(PORT===4400){setTimeout(()=>sttVocab(),90000).unref();setInterval(()=>sttVocab(),3600e3).unref()}
 /* Agent health: every agent (new ones right after they are made, all of them every 5 minutes) gets what it
    needs to work without anyone fixing it: the full setup (each step skipped when already right), the chat
    hint, its screen settings, the public sign-in return address on every sign-in (OAuth) tool, the engine's
