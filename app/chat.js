@@ -87,8 +87,11 @@ const Chat={
   el.innerHTML=q.length?`<div class="queue">${q.map((m,i)=>`<span class="qchip" title="${esc(m.text)}"><b>${i+1}</b><span class="qt">${esc(m.text)}</span><button class="ghost icon" data-act="unqueue" data-i="${i}" aria-label="Remove from queue">${icon('x',12)}</button></span>`).join('')}${s.paused&&!s.running?`<span class="qnote">Paused after Stop</span><button class="qgo" data-act="queue-go">${icon('play',13)}Send next</button>`:`<span class="qnote">${s.running?'Runs after this reply':''}</span>`}</div>`:''},
  runQueue(id){const s=this.live[id];if(!s||s.running||s.paused||!s.queue?.length)return;const next=s.queue.shift();if(this.id===id)this.paintQueue();setTimeout(()=>this.send(next.text,next.images||[],id),250)},
  paintComposerBar(){const b=$('#cbar');if(b)b.innerHTML=this.barHtml();const ta=$('#msg');if(ta)ta.placeholder=this.placeholder();this.paintQueue()},
+ draftKey(){return 'draft:'+(S.profile||'default')+'|'+(this.id||'new')},
  bindComposer(){const ta=$('#msg');if(!ta)return;ta.focus();
-  ta.oninput=()=>{ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,220)+'px';this.slash(ta.value)};
+  try{const d=localStorage.getItem(this.draftKey());if(d&&!ta.value){ta.value=d;ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,220)+'px'}}catch{}
+  let dt=null;const key=this.draftKey();
+  ta.oninput=()=>{ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,220)+'px';this.slash(ta.value);clearTimeout(dt);dt=setTimeout(()=>{try{ta.value.trim()?localStorage.setItem(key,ta.value):localStorage.removeItem(key)}catch{}},300)};
   ta.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();const first=$('#slash .item');if(first&&/^\/\S*$/.test(ta.value))return this.pickSlash(first.dataset.cmd);this.submit()}if(e.key==='Escape'&&this.live[this.id]?.running)this.stop()};
   ta.onpaste=e=>{const f=[...(e.clipboardData?.files||[])].filter(x=>x.type.startsWith('image/'));if(f.length){e.preventDefault();this.addFiles(f)}};
   const box=$('#composer');box.ondragover=e=>{e.preventDefault();box.classList.add('drop')};box.ondragleave=()=>box.classList.remove('drop');box.ondrop=e=>{e.preventDefault();box.classList.remove('drop');this.addFiles([...e.dataTransfer.files])};
@@ -132,7 +135,7 @@ const Chat={
   // jump, never glide: the chat area scrolls smoothly for people, but placing the view must be instant
   if((follow&&atBottom||opening)&&sc){sc.style.scrollBehavior='auto';sc.scrollTop=sc.scrollHeight;if(opening)requestAnimationFrame(()=>{sc.scrollTop=sc.scrollHeight;requestAnimationFrame(()=>{sc.scrollTop=sc.scrollHeight;sc.style.scrollBehavior=''})});else sc.style.scrollBehavior=''}},
  turnHtml(t,i,s){
-  if(t.role==='user')return `<div class="msg user ${t.steer?'steer':''}">${this.userHtml(t.text)}${t.steer?`<span class="attach">${icon(t.steer==='failed'?'alert':'zap',12)} ${t.steer==='failed'?esc(t.err||'Not delivered'):t.steer==='delivered'?'Read by '+esc(AGENT()):t.steer==='sending'?'Sending…':'Waiting: '+esc(AGENT())+' reads it after its current step'}</span>`:''}${t.images?`<span class="attach">${icon('clip',12)} ${plural(t.images,'image')}</span>`:''}</div>`;
+  if(t.role==='user')return `<div class="msg user ${t.steer?'steer':''}">${this.userHtml(t.text)}${t.steer?`<span class="attach">${icon(t.steer==='failed'?'alert':'zap',12)} ${t.steer==='failed'?esc(t.err||'Not delivered'):t.steer==='delivered'?'Read by '+esc(AGENT()):t.steer==='sending'?'Sending…':'Waiting: '+esc(AGENT())+' reads it after its current step'}${t.steer==='sent'?` <button class="steer-now" data-act="steer-now" title="Stops the step it is on and sends this message right away">Send now</button>`:''}</span>`:''}${t.images?`<span class="attach">${icon('clip',12)} ${plural(t.images,'image')}</span>`:''}</div>`;
   const last=i===s.turns.length-1;if(!last&&!t.text&&!(t.steps||[]).length&&!t.think&&!t.approval&&!t.error)return '';
   const think=t.think?`<button class="think" data-act="think">${icon('brain',15)}${s.running&&last&&!t.text?'Thinking…':'Thought'}${t.thinkSecs?' for '+t.thinkSecs+' s':''}${icon('chevR',14)}</button><div class="think-body" hidden>${esc(t.think)}</div>`:'';
   // steps stay lean: slim rows; a longer run folds into one line ("Ran 6 steps"), the latest two stay in view while working
@@ -162,7 +165,7 @@ const Chat={
   return `<div class="approval"><h4>${icon('shield',16)}${esc(a.title||AGENT()+' needs your OK')}</h4><p>${esc(a.description||a.reason||'This command could change or delete things on the box.')}</p>${a.command?`<pre>${esc(a.command)}</pre>`:''}<div class="btns">${(a.choices||['once','deny']).map((c,i)=>`<button class="${i===0?'primary':c==='deny'?'ghost':''}" data-act="approval" data-choice="${c}">${label[c]||c}</button>`).join('')}</div></div>`},
 
  /* ---------- sending ---------- */
- async submit(){if(Voice.on)Voice.stop();const ta=$('#msg');const text=ta.value.trim();if(!text&&!this.files.length)return;
+ async submit(){if(Voice.on)Voice.stop();const ta=$('#msg');const text=ta.value.trim();if(!text&&!this.files.length)return;try{localStorage.removeItem(this.draftKey());localStorage.removeItem('draft:'+(S.profile||'default')+'|new')}catch{}
   const s=this.live[this.id];
   if(s?.running&&this.sendMode==='queue'){const images=this.files;this.files=[];this.paintFiles();(s.queue??=[]).push({text,images});ta.value='';ta.style.height='';this.paintQueue();return}
   if(s?.running){if(!s.runId)return toast(AGENT()+' is starting, try again in a second');ta.value='';ta.style.height='';
@@ -252,11 +255,17 @@ const Chat={
    case 'run.completed':this.refreshUsage();if(!e.pending_steer)for(const t of s.turns){if(t.steer==='sent')t.steer='delivered'}   // nothing left unread: the agent took every steer in
    if(e.pending_steer){/* the reply ended before the agent read it: send it as the next message instead */const u=[...s.turns].reverse().find(t=>t.steer&&t.steer!=='delivered');if(u){const i=s.turns.indexOf(u);const nx=s.turns[i+1];s.turns.splice(i,nx&&nx.role==='ai'&&!nx.text&&!(nx.steps||[]).length?2:1);if(s.ai===nx)s.ai=s.turns[s.turns.length-1];(s.queue??=[]).unshift({text:u.text,images:[]})}}if(e.messages){/* fill tool outputs from the final transcript */const t=this.toTurns(e.messages.map(m=>({...m,active:1})));const last=t[t.length-1];if(last?.role==='ai'){last.steps.forEach((x,k)=>{if(ai.steps[k]&&!ai.steps[k].out)ai.steps[k].out=x.out});if(!ai.text)ai.text=last.text}}const u=e.usage;if(u)ai.usage=u;break;
    case 'run.failed':ai.error=e.error?.message||e.error||AGENT()+' stopped with an error.';break;
+   case 'aqeelos.steer':{if(e.text&&!s.turns.some(t=>t.steer&&t.text===e.text)){const n={role:'ai',steps:[],text:'',think:''};s.turns.push({role:'user',text:e.text,steer:'sent'},n);s.ai=n;(s.runTurns??=[]).push(n)}break}
    case 'run.steered':{const u=[...s.turns].reverse().find(t=>t.steer==='sending'||t.steer==='sent');if(u)u.steer='delivered';break}
    case 'run.cancelled':case 'run.interrupted':ai.text+=(ai.text?'\n\n':'')+'*Stopped.*';break;
   }
   if(this.id===id){cancelAnimationFrame(this.raf);this.raf=requestAnimationFrame(()=>this.paint())}
  },
+ // the waiting steers leave the running reply and are sent first, as soon as the stopped step ends
+ async steerNow(){const s=this.live[this.id];if(!s?.running)return;const wait=s.turns.filter(t=>t.steer==='sent'||t.steer==='sending');if(!wait.length)return;
+  for(const t of wait){const i=s.turns.indexOf(t);const nx=s.turns[i+1];s.turns.splice(i,nx&&nx.role==='ai'&&!nx.text&&!(nx.steps||[]).length?2:1);if(s.ai===nx){s.runTurns=s.runTurns.filter(x=>x!==nx);s.ai=s.runTurns[s.runTurns.length-1]||s.turns[s.turns.length-1]}}
+  (s.queue??=[]).unshift(...wait.map(t=>({text:t.text,images:[]})));s.paused=false;this.paint();this.paintQueue();
+  try{if(s.runId)await post(G,'/v1/runs/'+s.runId+'/stop')}catch{}setTimeout(()=>s.abort?.abort(),1500);toast('Stopping the current step; your message goes next')},
  async stop(){const s=this.live[this.id];if(!s?.running)return;s.paused=true;try{if(s.runId)await post(G,'/v1/runs/'+s.runId+'/stop')}catch{}setTimeout(()=>s.abort?.abort(),1500);toast('Stopping…')},
  async approve(choice){const s=this.live[this.id];const t=s?.turns[s.turns.length-1];if(!s?.runId||!t?.approval)return;try{await post(G,'/v1/runs/'+s.runId+'/approval',{choice,...(t.approval.request_id?{request_id:t.approval.request_id}:{})});t.approval.resolved=choice;this.paint()}catch(e){fail(e)}},
  async newChat(){this.id=null;go('/chat')},

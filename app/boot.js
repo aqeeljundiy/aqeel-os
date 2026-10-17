@@ -53,6 +53,7 @@ document.addEventListener('click',e=>{
   case 'copy-text':navigator.clipboard.writeText(a.dataset.text).then(()=>toast('Copied'));break;
   case 'retry':Chat.retry();break;
   case 'send-mode':Chat.setSendMode(a.dataset.mode);break;
+  case 'steer-now':Chat.steerNow();break;
   case 'send-busy':Chat.submit();break;
   case 'unqueue':{const s=Chat.live[Chat.id];s?.queue?.splice(+a.dataset.i,1);Chat.paintQueue();break}
   case 'queue-go':{const s=Chat.live[Chat.id];if(s){s.paused=false;Chat.runQueue(Chat.id)}break}

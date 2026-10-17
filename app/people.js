@@ -300,9 +300,9 @@ ACT['wh-new-pre']=0;
  const d=await pD;if(!d){panel.remove();return}const LK=Object.fromEntries(((await pK)?.links||[]).map(l=>[l.name,l]));
  // extra connections (WhatsApp 2…) sit right under their agent's channels, by name and ID
  d.channels.sort((x,y)=>{const bx=x.agent.split('--')[0],by=y.agent.split('--')[0];return bx===by?(x.agent.includes('--'))-(y.agent.includes('--'))||x.id.localeCompare(y.id):0});const agents=((await pA).profiles||[]).map(x=>x.name);
- panel.innerHTML=`<h2>Every agent's channels</h2><p class="sub">Each connection belongs to one agent, which answers it. Move one to another agent and its settings, WhatsApp login and approved people go along, so nobody sets it up twice.</p>
-  ${d.channels.length?d.channels.map((c,i)=>`<div class="row" ${st(i)} style="padding:12px 12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="main-c">${chLogo(c.id,c.name)}<div class="txt"><b>${esc(LK[c.agent]?linkTitle(LK[c.agent]):c.name)}</b><span>${esc(chState(c))} · <span class="id-code" title="The ID agents use for this connection">ID ${esc(LK[c.agent]?linkId(LK[c.agent]):c.id)}</span></span></div></div>
-   <div class="act">${LK[c.agent]?`<span class="hint" style="margin:0">Extra number of</span><b style="font-size:13.5px">${esc(ident(LK[c.agent].agent).name)}</b>`:`<span class="hint" style="margin:0">Answered by</span><select style="width:auto" data-chmove="${esc(c.id)}" data-from="${esc(c.agent)}">${agents.map(n=>`<option value="${esc(n)}" ${n===c.agent?'selected':''}>${esc(ident(n).name)}</option>`).join('')}</select>`}</div></div>`).join(''):'<p class="hint">No channel is connected yet. Set one up below and it shows here for the whole team.</p>'}`;
+ panel.innerHTML=`<h2>Every agent's channels</h2><p class="sub">Each connection belongs to one agent, which answers it. Check one any time; aqeelOS also checks them every 2 hours and tells you when one needs linking again. Move one to another agent and its settings, WhatsApp login and approved people go along.</p>
+  ${d.channels.length?d.channels.map((c,i)=>`<div class="row" ${st(i)} style="padding:12px 12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="main-c">${chLogo(c.id,c.name)}<div class="txt"><b>${esc(LK[c.agent]?linkTitle(LK[c.agent]):c.name)}${c.account?' <span class="acct">'+esc(accountText(c.account))+'</span>':''}</b><span title="Agents use the name “${esc(LK[c.agent]?linkId(LK[c.agent]):c.id)}” to pick this channel">${c.state==='connected'?'<i class="dot ok"></i>Connected':esc(chState(c).replace(' · link again',''))}</span></div></div>
+   <div class="act">${c.id==='whatsapp'&&c.state!=='connected'?`<button class="primary small" data-act="wa-link" data-agent="${esc(c.agent)}">${icon('refresh',14)}Link again</button><button class="ghost icon" data-act="wa-remove" data-agent="${esc(c.agent)}" title="Remove this WhatsApp" aria-label="Remove this WhatsApp">${icon('trash',16)}</button>`:''}<button class="ghost icon" data-act="ch-check" data-agent="${esc(c.agent)}" data-platform="${esc(c.id)}" title="Check connection" aria-label="Check connection">${icon('activity',16)}</button>${LK[c.agent]?`<span class="hint" style="margin:0">Extra number of</span><b style="font-size:13.5px">${esc(ident(LK[c.agent].agent).name)}</b>`:`<span class="hint" style="margin:0">Answered by</span><select style="width:auto" data-chmove="${esc(c.id)}" data-from="${esc(c.agent)}">${agents.map(n=>`<option value="${esc(n)}" ${n===c.agent?'selected':''}>${esc(ident(n).name)}</option>`).join('')}</select>`}</div></div>`).join(''):'<p class="hint">No channel is connected yet. Set one up below and it shows here for the whole team.</p>'}`;
  panel.querySelectorAll('select').forEach(enhanceSelect);
  panel.querySelectorAll('[data-chmove]').forEach(s=>s.onchange=async()=>{const to=s.value,from=s.dataset.from;if(to===from)return;
   if(!await confirmBox('Move this channel to '+ident(to).name+'?',ident(to).name+' will answer it from now on. Its settings and approved people move along; the channel restarts for a few seconds.','Move',false)){s.value=from;return}
@@ -402,24 +402,52 @@ ACT['moa-new']=()=>moaDrawer(null);ACT['moa-edit']=a=>moaDrawer(a.dataset.n);
 
 /* ---------- channel states in plain words, and relinking WhatsApp ---------- */
 const CH_STATE={connected:'Connected',pending_restart:'Restart needed',retrying:'Reconnecting',starting:'Starting',connecting:'Connecting',disabled:'Off',failed:'Not connected',error:'Not connected',stopped:'Off'};
-const chState=c=>/logged out|bridge process died|bridge_exited/i.test((c.error_code||'')+' '+(c.error_message||'')+' '+(c.error||''))?'Not connected · link again':CH_STATE[c.state]||pretty(c.state||'Not set up');
+const chState=c=>c.state==='connected'?'Connected':c.needs_link||/logged out|died|exit code|bridge_exited/i.test((c.error_code||'')+' '+(c.error_message||'')+' '+(c.error||''))?'Logged out · link again':CH_STATE[c.state]||pretty(c.state||'Not set up');
+const APP_NAME={whatsapp:'WhatsApp',telegram:'Telegram',discord:'Discord',slack:'Slack',signal:'Signal',email:'Email',sms:'SMS',matrix:'Matrix',mattermost:'Mattermost',api_server:'API server',webhook:'Webhooks'};
+const appName=p=>APP_NAME[p]||pretty(p);
+// the account a channel is: "+6281… · Aqeel" for WhatsApp, "@aqeelos_bot" for Telegram
+const accountText=a=>a?[a.phone||a.username,a.name].filter(Boolean).join(' · '):'';
+
+/* ---------- Link WhatsApp: the one way to connect, relink or add a WhatsApp, from every button ----------
+   Clears an ended login (kept aside on the box), shows a fresh QR, and once the phone scans it switches the
+   channel on. Extra agents pick it up live; the main agent's engine restarts after replies in progress finish. */
+async function linkWhatsApp(agent,{replace=false,title}={}){const q='?profile='+encodeURIComponent(agent);let pid=null,done=false,kept=null;
+ const d=drawer(title||'Link WhatsApp · '+ident(agent.split('--')[0]).name,`<div id="waBox" class="wa-link"><p class="hint"><span class="spinner"></span> Getting a fresh QR code…</p></div>`,`<button class="ghost" data-act="close">Close</button>`);
+ const box=d.querySelector('#waBox');const live=()=>box.isConnected;
+ const cleanup=()=>{if(done)return;const c=pid?del(H,'/messaging/whatsapp/onboarding/'+encodeURIComponent(pid)+q).catch(()=>{}):Promise.resolve();pid=null;
+  if(kept){const k=kept;kept=null;c.then(()=>post(UI,'/ui/channels/whatsapp/restore',{agent,kept:k})).catch(()=>{})}};
+ new MutationObserver((m,o)=>{if(!d.isConnected){o.disconnect();cleanup()}}).observe(document.body,{childList:true,subtree:true});
+ const fail_=(msg,retry=true)=>{box.innerHTML=`<p class="err-line">${esc(msg)}</p>${retry?`<button class="primary" id="waRetry">${icon('refresh',15)}Try again</button>`:''}`;box.querySelector('#waRetry')?.addEventListener('click',()=>{closeLayers();linkWhatsApp(agent,{replace,title})})};
+ try{kept=(await post(UI,'/ui/channels/whatsapp/prepare',{agent,replace}))?.kept||null;
+  const start=await post(H,'/messaging/whatsapp/onboarding/start'+q,{mode:'bot'});pid=start.pairing_id||start.id;
+  let s=start,lastQr='';
+  for(let i=0;i<150&&live();i++){
+   if(s.status==='connected'){box.innerHTML=`<p class="hint">${icon('check',15)} Linked${s.account_phone?' as <b>+'+esc(s.account_phone)+'</b>':''}${s.account_name?' ('+esc(s.account_name)+')':''}. Switching it on…</p>`;
+    const r=await post(H,'/messaging/whatsapp/onboarding/'+encodeURIComponent(pid)+'/apply'+q,{mode:'bot'});done=true;
+    box.innerHTML=`<div class="wa-done"><span class="ic ok">${icon('check',22)}</span><div><b>WhatsApp linked${r.account?.phone?' · '+esc(r.account.phone):''}</b><p class="hint" style="margin:4px 0 0">${r.hot_served?'It is answering now.':r.waiting?'It starts answering as soon as the '+(r.waiting===1?'reply':r.waiting+' replies')+' in progress finish (the engine restarts once).':'The engine restarts once (about 20 seconds), then it answers.'} Send it a message from another phone to try it.</p></div></div>`;
+    d.querySelector('[data-act="close"]').textContent='Done';d.querySelector('[data-act="close"]').classList.replace('ghost','primary');d.addEventListener('click',e=>{if(e.target.closest('[data-act="close"]'))setTimeout(()=>reload(),300)});return}
+   if(/error|expired|cancel/.test(s.status||'')){cleanup();return fail_(/expired/.test(s.status)?'The QR code expired before it was scanned.':'WhatsApp could not start the link: '+(s.error||s.status))}
+   if(s.qr_payload&&s.qr_payload!==lastQr){lastQr=s.qr_payload;box.innerHTML=`<img class="wa-qr" src="/ui/qr?d=${encodeURIComponent(s.qr_payload)}" alt="QR code to scan with WhatsApp">
+    <ol class="qr-steps"><li>Open WhatsApp on the phone this agent should use.</li><li>Tap <b>Settings</b> (iPhone) or <b>⋮</b> (Android), then <b>Linked devices</b>.</li><li>Tap <b>Link a device</b> and point the camera at this code.</li></ol><p class="hint">The code refreshes by itself; keep this window open until it says linked.</p>`}
+   else if(!s.qr_payload)box.innerHTML='<p class="hint"><span class="spinner"></span> '+(s.status==='installing'?'Preparing WhatsApp on the box…':'Getting a fresh QR code…')+'</p>';
+   await new Promise(r=>setTimeout(r,2000));if(!live())break;s=await H('/messaging/whatsapp/onboarding/'+encodeURIComponent(pid)+q)}
+  cleanup();if(live())fail_('This took too long. Start again for a new code.')}
+ catch(e){cleanup();if(e.message&&/connected/i.test(e.message)&&!replace)return fail_(e.message,false);fail_(e.message||String(e))}}
+ACT['wa-link']=a=>linkWhatsApp(a.dataset.agent||agentProfile()||'default');
+ACT['wa-replace']=async a=>{const ag=a.dataset.agent||agentProfile()||'default';if(!await confirmBox('Link a different phone?','The phone linked now stops answering for '+ident(ag.split('--')[0]).name+'. Chats and approved people stay.','Link a different phone',false))return;linkWhatsApp(ag,{replace:true})};
 {const base=PAGES.channels;PAGES.channels=async(p,el)=>{await base(p,el);
  el.querySelectorAll('.chip').forEach(ch=>{const t=ch.textContent.trim();const k=Object.keys(CH_STATE).find(k=>pretty(k)===t);if(k)ch.textContent=CH_STATE[k]})}}
 {const base=ACT['ch-open'];ACT['ch-open']=async a=>{await base(a);const id=a.dataset.id;const d=$('.drawer');if(!d)return;
  d.querySelectorAll('.chip').forEach(ch=>{const t=ch.textContent.trim();const k=Object.keys(CH_STATE).find(k=>pretty(k)===t);if(k)ch.textContent=CH_STATE[k]});
- if(id!=='whatsapp')return;const err=d.querySelector('.err-line');
- // only a real logout gets 'link again'; a busy port right after a restart clears by itself and the login is fine
- if(err&&/bound by|bridge_conflict|already in use|port \d+/i.test(err.textContent)){err.innerHTML='WhatsApp is still starting up after a restart. Your link is saved; give it a minute, then refresh.';return}
- if(err&&/logged out|exited|unlinked/i.test(err.textContent)){err.innerHTML='WhatsApp ended this link (it happens when the phone unlinks the device or the connection is interrupted right after linking). Link the phone again below.';
-  const g=d.querySelector('[data-act="onboard"]');if(g)g.innerHTML=icon('refresh',15)+'Link again (fresh QR)';g?.setAttribute('data-relink','1')}}}
-{const base=ACT['onboard'];ACT['onboard']=async a=>{if(a.dataset.id==='whatsapp'&&a.dataset.relink){const box=$('#onboard');
-  // The gateway keeps retrying WhatsApp with the old login even after it is switched off, and two connections
-  // on one login make WhatsApp drop the link. So: switch it off, restart the gateway for real (stops the retries),
-  // clear the old login, and only then ask for a QR.
-  try{if(box)box.innerHTML='<p class="hint"><span class="spinner"></span> Preparing a clean link (about 20 seconds)…</p>';a.disabled=true;
-   await put(H,'/messaging/platforms/whatsapp',{enabled:false,env:{}}).catch(()=>{});await post(UI,'/ui/gateway/restart');
-   for(let i=0;i<30;i++){await new Promise(r=>setTimeout(r,2000));try{const st=await H('/status');if(st.gateway_running)break}catch{}}
-   await new Promise(r=>setTimeout(r,3000));await post(UI,'/ui/channels/whatsapp-reset',{agent:agentProfile()||'default'})   /* the agent being set up (an extra number is its own copy) */;a.disabled=false}catch(e){a.disabled=false;return fail(e)}}return base(a)}}
+ const c=(Pages.platforms||[]).find(x=>x.id===id);
+ if(c?.account)d.querySelector('.logo-lg')?.nextElementSibling?.querySelector('b')?.insertAdjacentHTML('afterend','<div class="hint" style="margin:2px 0 0">'+esc(accountText(c.account))+'</div>');
+ if(id!=='whatsapp')return;const err=d.querySelector('.err-line');const g=d.querySelector('[data-act="onboard"]');const ag=agentProfile()||'default';
+ if(err&&/bound by|bridge_conflict|already in use|port \d+/i.test(err.textContent))err.textContent='WhatsApp is starting up after a restart. The link is saved; give it a minute, then refresh.';
+ else if(err&&(c?.needs_link||/logged out|died|exit|unlinked/i.test(err.textContent)))err.textContent='This WhatsApp was logged out: the device was removed under Linked devices on the phone, or WhatsApp ended the link. Link it again with a fresh QR code.';
+ if(!g)return;g.dataset.agent=ag;
+ if(c?.state==='connected'){g.dataset.act='wa-replace';g.innerHTML=icon('refresh',15)+'Link a different phone';g.closest('.panel')?.querySelector('.hint')?.replaceChildren(document.createTextNode('Linked'+(c.account?' as '+accountText(c.account):'')+'. Use this only to switch to another phone.'))}
+ else{g.dataset.act='wa-link';g.innerHTML=icon(c?.needs_link?'refresh':'play',15)+(c?.needs_link?'Link again (fresh QR)':'Link WhatsApp (QR code)')}}}
+{const base=ACT['onboard'];ACT['onboard']=a=>a.dataset.id==='whatsapp'?linkWhatsApp(agentProfile()||'default'):base(a)}
 
 /* ---------- Skills: a readable preview (engine wording shown as aqeelOS); the source stays exactly as it is ---------- */
 {const base=Pages.openSkill;Pages.openSkill=async name=>{await base(name);if(!name)return;const d=$('.drawer');const ta=d?.querySelector('#skBody');if(!ta)return;
@@ -459,8 +487,10 @@ const linkTitle=l=>l.label||pretty(l.platform)+' '+l.n;
 // the ID an agent uses to pick this channel ("notify me on shop-whatsapp"); same rule as relay.mjs
 const linkId=l=>String(l.label||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'')||l.platform+'-'+l.n;
 ACT['ch-extra-add']=async a=>{const agent=S.profile||'default',platform=a.dataset.id;
- if(!await confirmBox(`Add another ${pretty(platform)} to ${ident(agent).name}?`,`It answers as ${ident(agent).name}: same personality, memory, skills and tools, on a different ${pretty(platform)} account. Chats on it stay separate from this one.`,'Add',false))return;
- try{toast('Preparing a new connection…');const l=await post(UI,'/ui/channels/links',{agent,platform});ACT['ch-extra-open']({dataset:{name:l.name,platform,n:l.n,agent}})}catch(e){fail(e)}};
+ if(!await confirmBox(`Add another ${appName(platform)} to ${ident(agent).name}?`,`It answers as ${ident(agent).name}: same personality, memory, skills and tools, on a different ${appName(platform)} account. Chats on it stay separate from this one.${platform==='whatsapp'?' Next you scan a QR code with the other phone.':''}`,platform==='whatsapp'?'Add and show the QR code':'Add',false))return;
+ try{toast('Preparing a new connection…');const l=await post(UI,'/ui/channels/links',{agent,platform});
+  if(platform==='whatsapp')return linkWhatsApp(l.name,{title:'Link '+appName(platform)+' '+l.n+' · '+ident(agent).name});
+  ACT['ch-extra-open']({dataset:{name:l.name,platform,n:l.n,agent}})}catch(e){fail(e)}};
 ACT['ch-extra-open']=a=>{S.chOverride=a.dataset.name;S.chOverrideInfo={platform:a.dataset.platform,n:a.dataset.n,agent:a.dataset.agent||S.profile||'default',label:a.dataset.label||''};reload()};
 ACT['ch-extra-done']=()=>{S.chOverride=null;S.chOverrideInfo=null;reload()};
 ACT['ch-extra-rename']=async a=>{const v=prompt('Name for this connection (for example "Shop WhatsApp")',a.dataset.label||'');if(v==null)return;try{await put(UI,'/ui/channels/links',{agent:a.dataset.agent,name:a.dataset.name,label:v});toast('Renamed');reload()}catch(e){fail(e)}};
@@ -477,8 +507,10 @@ ACT['ch-extra-remove']=async a=>{if(!await confirmBox('Remove '+a.dataset.title+
  await base(p,el);
  // "Add another" on every app this agent already uses
  el.querySelectorAll('.grid-cards .card[data-id]').forEach(c=>{const pl=(Pages.platforms||[]).find(x=>x.id===c.dataset.id);if(!pl?.configured||['api_server','webhook'].includes(pl.id))return;
-  c.querySelector('h3')?.insertAdjacentHTML('afterend','<span class="tile-id" title="The ID agents use for this connection">ID '+esc(pl.id)+'</span>');
-  c.querySelector('.tile-foot')?.insertAdjacentHTML('beforeend',`<span class="add-another" role="button" tabindex="0" data-act="ch-extra-add" data-id="${esc(pl.id)}" title="Connect another ${esc(pl.name)} account to this agent">${icon('plus',14)}Add another</span>`)});
+  c.querySelector('h3')?.insertAdjacentHTML('afterend','<span class="tile-id" title="Agents use the name '+esc(pl.id)+' to pick this channel">'+esc(accountText(pl.account)||'agents call it '+pl.id)+'</span>');
+  if(pl.id==='whatsapp'&&pl.state!=='connected'){c.querySelector('.tile-foot')?.insertAdjacentHTML('beforeend',`<span class="add-another" role="button" tabindex="0" data-act="wa-link" data-agent="${esc(agentProfile()||'default')}">${icon('refresh',14)}Link again</span>`);return}
+  if(pl.state!=='connected')return;
+  c.querySelector('.tile-foot')?.insertAdjacentHTML('beforeend',`<span class="add-another" role="button" tabindex="0" data-act="ch-extra-add" data-id="${esc(pl.id)}" title="Connect another ${esc(appName(pl.id))} account to this agent">${icon('plus',14)}Add another</span>`)});
  const [{links=[]},{channels=[]}]=await Promise.all([pL,pC]);if(!links.length)return;
  const st_=n=>channels.find(c=>c.agent===n);
  const panel=document.createElement('div');panel.className='panel card';panel.style.marginBottom='16px';
@@ -576,3 +608,37 @@ ACT['meter-card']=a=>{document.querySelector('.meter-card')?.remove();const prov
  setTimeout(()=>document.addEventListener('pointerdown',off,true),0);card.querySelector('.mc-more')?.addEventListener('click',()=>card.remove())};
 addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelector('.meter-card')?.remove()});
 addEventListener('hashchange',()=>document.querySelector('.meter-card')?.remove());
+
+/* ---------- Channel checks: a button on every connection, and a pop-up when one needs attention ---------- */
+ACT['ch-check']=async a=>{const was=a.innerHTML;a.disabled=true;a.innerHTML='<span class="spinner"></span>';
+ try{const r=await post(UI,'/ui/channels/check',{agent:a.dataset.agent,platform:a.dataset.platform});toast(appName(a.dataset.platform)+' · '+ident(a.dataset.agent.split('--')[0]).name+': '+r.text,r.connected?undefined:'err');
+  const row=a.closest('.row');const shown=row?.querySelector('.txt span')?.textContent||'';if(r.connected!==/Connected/.test(shown))reload()}catch(e){fail(e)}finally{a.disabled=false;a.innerHTML=was}};
+ACT['wa-remove']=async a=>{const ag=a.dataset.agent;const name=ident(ag.split('--')[0]).name;
+ if(!await confirmBox('Remove this WhatsApp from '+name+'?','Its connection stops and the ended login is cleared. Chats and approved people stay, and you can link a phone again any time.','Remove'))return;
+ try{await post(UI,'/ui/channels/whatsapp/remove',{agent:ag});toast('WhatsApp removed from '+name);reload()}catch(e){fail(e)}};
+// the drawer's Test button does the same full check
+{const base=ACT['ch-test'];ACT['ch-test']=async a=>{const id=a.dataset.id;if(!['whatsapp','telegram'].includes(id))return base(a);
+ try{const r=await post(UI,'/ui/channels/check',{agent:agentProfile()||'default',platform:id});toast(r.text,r.connected?undefined:'err')}catch(e){fail(e)}}}
+const ChannelAlert={
+ async check(){if(document.hidden||!S.signedIn||S.me?.admin===false)return;let items=[];try{items=(await UI('/ui/channels/attention')).items||[]}catch{return}
+  for(const x of items){const k='chAlert:'+x.agent+'|'+x.id;let seen=0;try{seen=+localStorage.getItem(k)||0}catch{}if(Date.now()-seen<6*3600e3)continue;
+   if(document.querySelector('.cron-pop[data-k="'+CSS.escape(k)+'"]'))continue;this.show(x,k)}},
+ show(x,k){const n=document.createElement('div');n.className='cron-pop';n.dataset.k=k;const who=ident(x.base||x.agent).name+(x.agent.includes('--')?' (extra number)':'');
+  n.innerHTML=`<span class="ic warn">${icon('alert',16)}</span><div class="txt"><b>${esc(appName(x.id))} ${x.needs_link?'logged out':'not connected'}</b><span>${esc(who)}${x.account?' · '+esc(accountText(x.account)):''}. ${x.needs_link?'Link it again, or remove it if it is no longer used.':'Open Channels to check it.'}</span></div>${x.id==='whatsapp'&&x.needs_link?`<button class="ghost" data-act="wa-link" data-agent="${esc(x.agent)}">Link again</button>`:'<button class="ghost" data-go="/automations/channels">Open</button>'}<button class="ghost icon" aria-label="Close">${icon('x',14)}</button>`;
+  const close=()=>{try{localStorage.setItem(k,String(Date.now()))}catch{}n.classList.add('out');setTimeout(()=>n.remove(),400)};
+  n.querySelector('[aria-label="Close"]').onclick=close;n.querySelector('[data-act],[data-go]')?.addEventListener('click',close);
+  (document.querySelector('.cron-pops')||document.body.appendChild(Object.assign(document.createElement('div'),{className:'cron-pops'}))).append(n)}};
+setInterval(()=>ChannelAlert.check(),10*60e3);setTimeout(()=>ChannelAlert.check(),6000);
+
+/* ---------- Channels page: status lives in "Every agent's channels" at the top; the cards below are only for
+   adding (the app, and Set up or Add another). People who don't see the top list keep the status on the cards. ---------- */
+{const base=PAGES.channels;PAGES.channels=async(p,el)=>{await base(p,el);if(S.me?.admin===false||S.chOverride)return;const grid=el.querySelector('.grid-cards');if(!grid)return;
+ if(!el.querySelector('.ch-cat-head'))grid.insertAdjacentHTML('beforebegin','<div class="ch-cat-head"><h2>Add a channel</h2><p class="sub">Connect an app, or another account of one this agent already uses. Connected ones are listed above.</p></div>');
+ const ag=agentProfile()||'default';
+ grid.querySelectorAll('.card[data-id]').forEach(c=>{const pl=(Pages.platforms||[]).find(x=>x.id===c.dataset.id);if(!pl)return;
+  c.querySelectorAll('h3 .access,.tile-id').forEach(x=>x.remove());const foot=c.querySelector('.tile-foot');if(!foot)return;
+  const built=['api_server','webhook'].includes(pl.id),has=pl.configured||pl.account;const ok=pl.state==='connected';
+  const lbl=built?'<span class="cat-note">Built in · every agent</span>':has&&ok?`<span class="add-another" role="button" tabindex="0" data-act="${pl.id==='whatsapp'?'wa-add':'ch-extra-add'}" data-id="${esc(pl.id)}">${icon('plus',14)}Add another</span>`:
+   pl.id==='whatsapp'?`<span class="add-another" role="button" tabindex="0" data-act="wa-link" data-agent="${esc(ag)}">${icon('plus',14)}${has?'Link again':'Set up'}</span>`:`<span class="add-another" role="button" tabindex="0" data-act="ch-open" data-id="${esc(pl.id)}">${icon('plus',14)}${has?'Fix':'Set up'}</span>`;
+  foot.innerHTML=lbl+'<span style="color:var(--muted)">'+icon('chevR',16)+'</span>'})}}
+ACT['wa-add']=a=>ACT['ch-extra-add']({dataset:{id:'whatsapp'}});

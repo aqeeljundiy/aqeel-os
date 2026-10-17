@@ -125,7 +125,7 @@ export function createAccounts(DATA){
  if(LIVE_APP)setInterval(()=>autoTick().catch(()=>{}),5*60000).unref();   // a test copy never switches real agents
 
  /* ---------- HTTP ---------- */
- /* ---------- a new agent gets everything it needs, checked step by step ----------
+ /* ---------- a new agent gets everything it needs, checked step by step (any model provider) ----------
     One setup per agent at a time (a second call joins the running one). Each step is skipped when already
     right, so the health check can run it again and again; what failed is kept and shown on the Agents page. */
  const DENY=['*gateway stop*','*gateway restart*','*kill-session -t gateway*','*pkill*hermes*','*killall*hermes*','*pkill*gateway*','*kill*bridge.js*','*pkill*node*','*mcp login*','*localhost:3118*','*127.0.0.1:3118*'];
@@ -143,14 +143,16 @@ export function createAccounts(DATA){
    await step('key',()=>editEnv(path.join(dir,'.env'),cur=>/^API_SERVER_KEY=/m.test(cur)?null:cur+(cur&&!cur.endsWith('\n')?'\n':'')+'API_SERVER_KEY='+KEY+'\n'));
   const c=await readConfig(name),main=await readConfig('default')||{};
   if(!c){failed.push('settings: could not be read');await setStatus(name,{t:Date.now(),ok:false,failed});return {ok:false,done,failed}}
-  const plug=path.join(dir,'plugins',PLUGIN);
-  if(!await access(plug).then(()=>1,()=>0))await step('plugin',async()=>{await mkdir(path.join(dir,'plugins'),{recursive:true});await cp(path.join(HERMES_HOME,'plugins',PLUGIN),plug,{recursive:true});
+  // the main agent's model sign-ins carry over (aqeelOS works with any model; the Claude sign-in is one plugin among them)
+  const mainUses=(pick(main,'plugins.enabled')||[]).includes(PLUGIN);const plug=path.join(dir,'plugins',PLUGIN);
+  if(mainUses&&!await access(plug).then(()=>1,()=>0))await step('plugin',async()=>{await mkdir(path.join(dir,'plugins'),{recursive:true});await cp(path.join(HERMES_HOME,'plugins',PLUGIN),plug,{recursive:true});
    await cp(path.join(HERMES_HOME,'plugins','.install-metadata.json'),path.join(dir,'plugins','.install-metadata.json')).catch(()=>{})});
-  if(!(pick(c,'plugins.enabled')||[]).includes(PLUGIN))await step('plugin enabled',async()=>{const r=await hq(name,['plugins','enable',PLUGIN],{timeout:150000,retries:3});if(!r.ok)return r;
+  if(mainUses&&!(pick(c,'plugins.enabled')||[]).includes(PLUGIN))await step('plugin enabled',async()=>{const r=await hq(name,['plugins','enable',PLUGIN],{timeout:150000,retries:3});if(!r.ok)return r;
    if(!(pick(await readConfig(name)||{},'plugins.enabled')||[]).includes(PLUGIN))throw new Error('the engine did not keep the Claude plugin enabled');return r});
   const prov=pick(c,'model.provider')||'';
-  if(!prov||/^(anthropic|nous)/.test(prov)){const m=pick(main,'model.provider')===PLUGIN&&pick(main,'model.default')||'sonnet';
-   await step('model',async()=>{const r=await setKey(name,'model.provider',PLUGIN);return r.ok?setKey(name,'model.default',String(m)):r})}
+  // a new agent starts on the main agent's model, whichever provider that is (GPT, Claude, OpenRouter…)
+  const mp=pick(main,'model.provider'),md=pick(main,'model.default');
+  if((!prov||/^(anthropic|nous)$/.test(prov))&&mp&&md&&prov!==mp)await step('model',async()=>{const r=await setKey(name,'model.provider',String(mp));return r.ok?setKey(name,'model.default',String(md)):r});
   // agents may never stop or kill the gateway (they did once, mid-chat) or sign in through localhost; restarts go through the app
   const deny=pick(c,'approvals.deny')||[];if(DENY.some(x=>!deny.includes(x)))await step('guard',()=>setKey(name,'approvals.deny',[...new Set([...deny,...DENY])]));
   // every agent can reach outside apps through Composio (one sign-in per agent, no app to create)

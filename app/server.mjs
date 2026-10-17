@@ -91,7 +91,7 @@ function proxy(req,res,target,prefix,authHeaders,{transform,body,live}={}){
     try{if((r.statusCode||500)<300)txt=JSON.stringify(await transform(JSON.parse(txt)))}catch{}delete out['content-length'];delete out['content-encoding'];res.writeHead(r.statusCode||502,{...out,...security});res.end(txt)});return}
   if(live&&(r.statusCode||500)<300&&String(r.headers['content-type']||'').includes('text/event-stream')){
    const rec=liveStart(live.key,live.user);res.writeHead(r.statusCode,{...out,...security});
-   r.on('data',c=>{rec.chunks.push(c);if(!res.writableEnded&&!res.destroyed)res.write(c);for(const sub of rec.subs)sub.write(c)});
+   r.on('data',c=>{rec.chunks.push(c);if(!rec.runId){const m=/"run_id"\s*:\s*"([^"]+)"/.exec(c.toString('utf8'));if(m)rec.runId=m[1]}if(!res.writableEnded&&!res.destroyed)res.write(c);for(const sub of rec.subs)sub.write(c)});
    r.on('end',()=>{liveEnd(live.key,rec);if(!res.writableEnded)res.end()});r.on('error',()=>{liveEnd(live.key,rec);res.end()});live.started=true;return}
   res.writeHead(r.statusCode||502,{...out,...security});r.pipe(res);
  });
@@ -152,13 +152,17 @@ const NAMES={};   // agents' display names (refreshed with the agent context), f
 /* Every agent and every extra-number copy gets the aqeelOS tool (aqeelos-notify): send_to_person, and
    connect_mcp_tool for sign-ins. Its address is signed per agent. A test copy only touches agents it made. */
 const madeHere=new Set();
+// agents a test copy makes are its own: it lists them here and the live app leaves them alone (no setup, tools or health on them)
+const TEST_LIST=path.join(HERMES_HOME,'.aqeelos-test-agents');let testAgents={t:0,v:new Set()};
+const isTestAgent=async a=>{if(Date.now()-testAgents.t>20000)testAgents={t:Date.now(),v:new Set((await readFile(TEST_LIST,'utf8').catch(()=>'')).split('\n').filter(Boolean))};return testAgents.v.has(a)};
+const noteMade=n=>{madeHere.add(n);if(PORT!==4400)writeFile(TEST_LIST,n+'\n',{flag:'a'}).catch(()=>{})};
 let notifyRun=null,notifyAgain=false;
 function syncNotifyTool(){if(notifyRun){notifyAgain=true;return notifyRun}
  notifyRun=(async()=>{do{notifyAgain=false;await syncNotifyOnce()}while(notifyAgain)})().finally(()=>{notifyRun=null});return notifyRun}
 async function syncNotifyOnce(){
  // through the engine's own MCP route, so the running engine picks the tool up (a config edit alone is not noticed)
  const mcp=(a,m,p,b)=>fetch(`${DASH.origin}/api/mcp/servers${p}?profile=${encodeURIComponent(a)}`,{method:m,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:b?JSON.stringify(b):undefined}).then(async r=>{if(!r.ok&&r.status!==404)throw new Error('MCP '+m+' '+r.status+' '+(await r.text().catch(()=>'')).slice(0,120))});
- for(const a of await listAllProfiles()){if(PORT!==4400&&!madeHere.has(a))continue;
+ for(const a of await listAllProfiles()){if(PORT!==4400&&!madeHere.has(a))continue;if(PORT===4400&&await isTestAgent(a))continue;
   try{const url=`http://127.0.0.1:${PORT}/mcp/notify/${a}/${relay.sig(a)}`;const cfg=()=>readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>'');
    if((await cfg()).includes(url))continue;
    const set=await withAgent(a,async()=>{const y=await cfg();if(!y||y.includes(url))return false;   // read again inside the queue
@@ -212,7 +216,7 @@ async function lockTools(a){const c=await readConfig(a);if(!c)throw new Error('t
 const lockedAgent=(a,st)=>{if(st[a]?.safe)return true;const ow=users.agentOwner(a);if(!ow||ow==='owner')return false;const u=users.byId(ow);return !!u&&!users.can(u,'unsafe')};
 async function agentHealth(only){const h={'x-hermes-session-token':DASH_TOKEN};const st=await getStatus();await users.load();
  for(const a of only?[only]:await listAllProfiles()){try{
-  if(!await isAgent(a))continue;const copy=a.includes('--');
+  if(!await isAgent(a)||(PORT===4400&&!only&&await isTestAgent(a)))continue;const copy=a.includes('--');
   // a failing setup is tried again every 15 minutes (a plugin enable is slow and builds an engine environment)
   if(a!=='default'&&!copy&&setupAgentFn){const s=st[a];if(only||!s||s.ok||Date.now()-(s.t||0)>15*60e3)await setupAgentFn(a).catch(e=>console.warn('setup',a,e.message))}
   if(copy&&API_KEY){const envF=path.join(HERMES_HOME,'profiles',a,'.env');
@@ -257,9 +261,10 @@ if(PORT===4400){setTimeout(()=>syncNotifyTool().catch(e=>console.warn('notify to
 // old engine environments (each plugin enable builds one, ~400 MB): the engine's own cleanup once a day; it keeps the one in use, any still held, and any less than a day old
 if(PORT===4400){const gc=()=>shx('timeout 900 hermes pm gc >/dev/null 2>&1').catch(()=>{});setTimeout(gc,30*60e3).unref();setInterval(gc,24*3600e3).unref()}
 // leftovers of deleted agents: a folder with only logs/ (a command still ran during the delete) is removed
-if(PORT===4400)setTimeout(async()=>{for(const d of await readdir(path.join(HERMES_HOME,'profiles'),{withFileTypes:true}).catch(()=>[])){if(!d.isDirectory()||d.name.startsWith('.'))continue;
+const sweepGhosts=async()=>{for(const d of await readdir(path.join(HERMES_HOME,'profiles'),{withFileTypes:true}).catch(()=>[])){if(!d.isDirectory()||d.name.startsWith('.'))continue;
  const dir=path.join(HERMES_HOME,'profiles',d.name);if(await isAgent(d.name))continue;const st=await stat(dir).catch(()=>null);const inside=await readdir(dir).catch(()=>['?']);
- if(st&&Date.now()-st.mtimeMs>10*60e3&&inside.every(x=>['logs','plugin-update-checks','cache','sandboxes'].includes(x))){const {rm}=await import('node:fs/promises');await rm(dir,{recursive:true,force:true}).catch(()=>{});console.log('removed the leftover folder of deleted agent',d.name)}}},40000);
+ if(st&&Date.now()-st.mtimeMs>10*60e3&&inside.every(x=>['logs','plugin-update-checks','cache','sandboxes'].includes(x))){const {rm}=await import('node:fs/promises');await rm(dir,{recursive:true,force:true}).catch(()=>{});console.log('removed the leftover folder of deleted agent',d.name)}}};
+if(PORT===4400){setTimeout(()=>sweepGhosts().catch(()=>{}),40000);setInterval(()=>sweepGhosts().catch(()=>{}),30*60e3).unref()}
 const sharing=createShare({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAgents()});
 const channels=createChannels({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAllProfiles(),cached:a=>platformsCached(a),restart:why=>restartGateway(why)});
 const links=createLinks({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,python:()=>sharing.python(),setupAgent:n=>setupAgentFn?.(n)});
@@ -276,7 +281,7 @@ const agentOf=(p,q)=>{const m=/^\/gapi\/p\/([^/]+)/.exec(p);return m?decodeURICo
 // An agent a member just created: they own it, it can chat (plugin, model, gateway key), and unless they
 // may use the unsafe tools, terminal / files / code / computer use are switched off.
 async function memberAgent(u,name){
- await users.created(u,name);madeHere.add(name);
+ await users.created(u,name);noteMade(name);
  await setupAgentFn?.(name).catch(e=>console.warn('setup',name,e.message));
  if(!users.can(u,'unsafe'))await lockTools(name).catch(e=>console.warn('lock tools',name,e.message));
 }
@@ -333,9 +338,65 @@ async function trueWhatsApp(agent,v){const list=v?.platforms||v;if(!Array.isArra
  if(!(on&&linked))return;w.configured=true;w.enabled=true;
  try{const g=JSON.parse(await readFile(path.join(HERMES_HOME,'gateway_state.json'),'utf8'));const st=g.platforms?.[agent==='default'?'whatsapp':agent+':whatsapp'];
   if(st){w.state=st.state||w.state;w.error_message=st.error_message||null;w.error_code=st.error_code||null}else if(w.state==='not_configured')w.state='starting'}catch{}}
+/* Which account each channel is: the WhatsApp number and name from its saved login, the Telegram bot's
+   @username (asked from Telegram once an hour). A WhatsApp whose login WhatsApp ended (logged out on the phone,
+   or the bridge stopped) is marked needs_link, so every screen offers the same "Link again". */
+const tgNames=new Map();
+async function channelAccounts(agent,v){const list=v?.platforms||v;if(!Array.isArray(list))return;const home=agent==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',agent);
+ const w=list.find(x=>x.id==='whatsapp');
+ if(w){try{const c=JSON.parse(await readFile(path.join(home,'platforms','whatsapp','session','creds.json'),'utf8'));const id=String(c.me?.id||c.me?.lid||'');const digits=id.split('@')[0].split(':')[0].replace(/\D/g,'');
+   w.account={phone:digits?'+'+digits:null,name:c.me?.name||c.me?.verifiedName||null}}catch{}
+  const err=(w.error_code||'')+' '+(w.error_message||'');const log=await readFile(path.join(home,'platforms','whatsapp','bridge.log'),'utf8').then(t=>t.slice(-3000)).catch(()=>'');
+  const lastOut=log.lastIndexOf('Logged out'),lastOk=log.lastIndexOf('WhatsApp connected');
+  w.needs_link=w.state!=='connected'&&(!!w.account||w.configured)&&(/logged out|died|exit|bridge_exited|unlinked/i.test(err)||lastOut>lastOk)}
+ const t=list.find(x=>x.id==='telegram');
+ if(t&&(t.configured||t.state==='connected')){const tok=((await readFile(path.join(home,'.env'),'utf8').catch(()=>'')).match(/^TELEGRAM_BOT_TOKEN=["']?([^"'\n]+)/m)||[])[1];
+  if(tok){let n=tgNames.get(tok);if(!n||Date.now()-n.t>3600e3){const j=await fetch('https://api.telegram.org/bot'+tok+'/getMe',{signal:AbortSignal.timeout(5000)}).then(r=>r.json()).catch(()=>null);n={t:Date.now(),v:j?.ok?{username:'@'+j.result.username,name:j.result.first_name||null}:n?.v||null};tgNames.set(tok,n)}
+   if(n.v)t.account=n.v}}}
 function platformsCached(agent){const k=agent||'default';const c=platCache.get(k);if(c&&(c.p||Date.now()-c.t<15000))return c.p||Promise.resolve(c.v);
- const p=fetch(DASH.origin+'/api/messaging/platforms?profile='+encodeURIComponent(k),{headers:{'x-hermes-session-token':DASH_TOKEN}}).then(async r=>{const v=await r.json();if(!r.ok)throw Object.assign(new Error(v.detail||'HTTP '+r.status),{status:r.status});await trueWhatsApp(k,v);platCache.set(k,{t:Date.now(),v});return v}).catch(e=>{platCache.delete(k);throw e});
+ const p=fetch(DASH.origin+'/api/messaging/platforms?profile='+encodeURIComponent(k),{headers:{'x-hermes-session-token':DASH_TOKEN}}).then(async r=>{const v=await r.json();if(!r.ok)throw Object.assign(new Error(v.detail||'HTTP '+r.status),{status:r.status});await trueWhatsApp(k,v);await channelAccounts(k,v).catch(()=>{});platCache.set(k,{t:Date.now(),v});return v}).catch(e=>{platCache.delete(k);throw e});
  platCache.set(k,{p});return p}
+/* A WhatsApp just paired: stop the pairing connection first (two connections on one login make WhatsApp end
+   it), switch the channel on with the engine's own save, and restart the engine the proper way only if the
+   running engine cannot pick it up by itself (extra agents are picked up live; the main agent needs a restart). */
+async function finishWhatsAppLink(agent,pid,b){const h={'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'};const pq='?profile='+encodeURIComponent(agent);
+ const st=await fetch(DASH.origin+'/api/messaging/whatsapp/onboarding/'+encodeURIComponent(pid),{headers:h}).then(r=>r.json()).catch(()=>({}));
+ if(st.status!=='connected')throw Object.assign(new Error('WhatsApp is not linked yet. Scan the code first.'),{status:409});
+ await fetch(DASH.origin+'/api/messaging/whatsapp/onboarding/'+encodeURIComponent(pid),{method:'DELETE',headers:h}).catch(()=>{});
+ await stopBridges(agent,{pairOnly:true});
+ const env={WHATSAPP_ENABLED:'true',WHATSAPP_MODE:String(b.mode||st.mode||'bot'),WHATSAPP_DM_POLICY:'pairing'};if(b.allowed_users)env.WHATSAPP_ALLOWED_USERS=String(b.allowed_users);
+ const r=await fetch(DASH.origin+'/api/messaging/platforms/whatsapp'+pq,{method:'PUT',headers:h,body:JSON.stringify({enabled:true,env,profile:agent})});const j=await r.json().catch(()=>({}));
+ if(!r.ok)throw new Error(j.detail||j.error||'Could not switch WhatsApp on.');
+ platCache.clear();const waiting=liveCount();
+ if(!j.hot_served)restartGateway('WhatsApp linked on '+agent).catch(()=>{});
+ console.log('whatsapp linked on',agent,st.account_phone?'(+'+st.account_phone+')':'',j.hot_served?'· picked up live':'· engine restarting');
+ setTimeout(()=>syncNotifyTool().catch(()=>{}),20000);
+ return {ok:true,hot_served:!!j.hot_served,restarting:!j.hot_served,waiting,account:{phone:st.account_phone?'+'+st.account_phone:null,name:st.account_name||null}}}
+// every bridge.js using this agent's WhatsApp login (or only the pairing one)
+async function stopBridges(agent,{pairOnly=false}={}){const dir=path.join(agent==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',agent),'platforms','whatsapp','session');
+ const {execFile}=await import('node:child_process');const out=await new Promise(r=>execFile('ps',['-eo','pid=,args='],(e,o)=>r(String(o||''))));
+ const pids=out.split('\n').filter(l=>/whatsapp-bridge\/bridge\.js/.test(l)&&l.includes('--session '+dir)&&(!pairOnly||l.includes('--pair-only'))).map(l=>+l.trim().split(/\s+/)[0]).filter(Boolean);
+ for(const pid of pids){try{process.kill(pid,'SIGTERM')}catch{}}if(pids.length)await new Promise(r=>setTimeout(r,1500));for(const pid of pids){try{process.kill(pid,'SIGKILL')}catch{}}return pids.length}
+/* Channel checks. "Check connection" asks the engine fresh and, for WhatsApp, also looks for its running bridge.
+   Every 2 hours (live app) every agent's channels are checked the same way; a logged-out or failing one is listed
+   in /ui/channels/attention, which the app shows as a pop-up with Link again / Remove. */
+async function checkChannel(agent,platform){platCache.delete(agent);const pl=await platformsCached(agent);const c=(pl?.platforms||pl||[]).find(x=>x.id===platform);
+ if(!c)return {state:'missing',connected:false,text:'This channel is not set up on '+(NAMES[agent]||agent)+'.'};
+ let bridge=true;if(platform==='whatsapp'){const dir=path.join(agent==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',agent),'platforms','whatsapp','session');
+  const {execFile}=await import('node:child_process');const out=await new Promise(r=>execFile('ps',['-eo','args='],(e,o)=>r(String(o||''))));bridge=out.split('\n').some(l=>/whatsapp-bridge\/bridge\.js/.test(l)&&l.includes('--session '+dir)&&!l.includes('--pair-only'))}
+ const connected=c.state==='connected'&&bridge;const acct=c.account?' ('+[c.account.phone||c.account.username,c.account.name].filter(Boolean).join(' · ')+')':'';
+ const text=connected?'Connected'+acct+'. Messages are coming in.':c.needs_link?'Logged out'+acct+': the phone removed this linked device, or WhatsApp ended the link. Link it again with a fresh QR code, or remove it.':
+  c.state==='connected'&&!bridge?'The engine says connected, but the WhatsApp connection is not running. Restart the engine, or link it again.':
+  /retrying|connecting|starting/.test(c.state||'')?'Reconnecting right now. Check again in a minute.':(c.enabled===false?'Switched off.':'Not connected'+(c.error_message?': '+String(c.error_message).replace(/\s*\(see \/[^)]*\)/,'').slice(0,160):'.'));
+ return {agent,platform,state:c.state,connected,needs_link:!!c.needs_link,account:c.account||null,text}}
+let attention={t:0,list:[]};
+async function channelAttention(fresh){if(!fresh&&Date.now()-attention.t<10*60e3)return attention.list;const list=[];
+ for(const a of await listAllProfiles()){if(fresh)platCache.delete(a);const pl=await platformsCached(a).catch(()=>null);
+  for(const c of (pl?.platforms||pl||[])){if(['api_server','webhook'].includes(c.id)||!(c.configured||c.account))continue;
+   if(c.needs_link||(c.enabled&&/fatal|error|failed/.test(c.state||'')))list.push({agent:a,base:a.split('--')[0],id:c.id,name:c.name,account:c.account||null,needs_link:!!c.needs_link,state:c.state})}}
+ const before=new Set(attention.list.map(x=>x.agent+'|'+x.id));for(const x of list)if(!before.has(x.agent+'|'+x.id))console.warn('channel check:',x.name,'on',x.agent,x.needs_link?'is logged out':'is '+x.state);
+ attention={t:Date.now(),list};return list}
+if(PORT===4400){setTimeout(()=>channelAttention(true).catch(()=>{}),90e3);setInterval(()=>channelAttention(true).catch(()=>{}),2*3600e3).unref()}
 async function hermesCall(req,res,u,url){
  const p=url.pathname,q=url.searchParams,agent=agentOf(p,q);
  const no=users.gate(u,p,req.method,q,agent);if(no)return send(res,no.status,{error:no.error});
@@ -343,6 +404,9 @@ async function hermesCall(req,res,u,url){
   if(e!==null){if(!/^API_SERVER_KEY=/m.test(e)&&API_KEY){await writeFile(envF,(e&&!e.endsWith('\n')?e+'\n':e)+'API_SERVER_KEY='+API_KEY+'\n',{mode:0o600});console.log('added the missing gateway key for',agent);await new Promise(r=>setTimeout(r,1500))}keyOk.add(agent)}}
  if(p==='/hapi/messaging/platforms'&&req.method==='GET'){try{return send(res,200,await platformsCached(q.get('profile')||'default'))}catch(e){return send(res,e.status||502,{error:e.message})}}
  if(p.startsWith('/hapi/messaging/')&&req.method!=='GET')platCache.clear();
+ {const am=/^\/hapi\/messaging\/whatsapp\/onboarding\/([^/]+)\/apply$/.exec(p);
+  if(am&&req.method==='POST'){const ag=q.get('profile')||'default';let b={};try{b=JSON.parse((await readRaw(req,65536)).toString('utf8')||'{}')}catch{}
+   try{return send(res,200,await finishWhatsAppLink(ag,decodeURIComponent(am[1]),b))}catch(e){return send(res,e.status||400,{error:e.message})}}}
  // channel set-up (WhatsApp QR, Telegram bot…) reads the agent from the request BODY, not the address; without it
  // the engine pairs the main agent instead (Husband Mode's WhatsApp "never paired"). Always pass it along.
  let body;
@@ -425,11 +489,18 @@ async function hermesCall(req,res,u,url){
   :/^\/gapi(\/p\/[^/]+)?\/api\/model\/options$/.test(p)&&users.allowedModels(u)?d=>({...d,providers:(d.providers||[]).map(pv=>({...pv,models:(pv.models||[]).filter(m=>users.modelOk(u,pv.slug,m))})).filter(pv=>pv.models.length)})
   :/^\/gapi(\/p\/[^/]+)?\/api\/sessions$/.test(p)&&req.method==='POST'?async d=>{await users.own(d.id||d.session?.id||d.session_id,u);return d}
   :made?async d=>{await memberAgent(u,made);return d}
-  :p==='/hapi/profiles'&&req.method==='POST'?async d=>{const n=d?.name||d?.profile?.name;if(n){madeHere.add(n);(setupAgentFn?setupAgentFn(n):Promise.resolve()).catch(e=>console.warn('setup',n,e.message)).finally(async()=>{await agentHealth(n).catch(()=>{});await syncNotifyTool().catch(()=>{});if(PORT===4400)writeAgentContext().catch(()=>{});
+  :p==='/hapi/profiles'&&req.method==='POST'?async d=>{const n=d?.name||d?.profile?.name;if(n){noteMade(n);(setupAgentFn?setupAgentFn(n):Promise.resolve()).catch(e=>console.warn('setup',n,e.message)).finally(async()=>{await agentHealth(n).catch(()=>{});await syncNotifyTool().catch(()=>{});if(PORT===4400)writeAgentContext().catch(()=>{});
    const {execFile}=await import('node:child_process');execFile(process.execPath,[path.join(root,'scripts','apply-skill-patches.mjs')],{timeout:180000},e=>{if(e)console.warn('skill patches',n,e.message)})})}return d}
   :relayTarget!==undefined?async d=>{const id=relayJob||(d.job||d).id;if(id)await relay.setJobRelay(agent,id,relayTarget);return d}:undefined;
  if(p.startsWith('/hapi/'))return proxy(req,res,DASH,'/hapi',{'x-hermes-session-token':DASH_TOKEN},{transform,body});
  const live=chatM&&req.method==='POST'?{key:agent+'|'+decodeURIComponent(chatM[1]),user:u.id}:undefined;
+ // a steer: sent to the engine, then added to the live reply so other tabs on the same chat show it too
+ {const sm=/^\/gapi(\/p\/[^/]+)?\/v1\/runs\/([^/]+)\/steer$/.exec(p);
+  if(sm&&req.method==='POST'){const raw=body||await readRaw(req,65536);
+   const r=await fetch(GATE.origin+(sm[1]||'')+'/v1/runs/'+sm[2]+'/steer',{method:'POST',headers:{authorization:'Bearer '+API_KEY,'content-type':'application/json'},body:raw}).catch(e=>({ok:false,status:502,text:async()=>JSON.stringify({error:e.message})}));const t=await r.text();
+   if(r.ok){let text='';try{text=String(JSON.parse(raw.toString('utf8')).text||'')}catch{}
+    for(const rec of LIVE.values())if(rec.runId===sm[2]&&!rec.done){const c=Buffer.from('event: aqeelos.steer\ndata: '+JSON.stringify({type:'aqeelos.steer',text,run_id:sm[2],from:u.id})+'\n\n');rec.chunks.push(c);for(const sub of rec.subs)sub.write(c)}}
+   res.writeHead(r.status,{'content-type':'application/json',...security});return res.end(t)}}
  return proxy(req,res,GATE,'/gapi',{authorization:'Bearer '+API_KEY},{transform,body,live});
 }
 
@@ -644,13 +715,44 @@ const server=createServer(async(req,res)=>{
    // channels across all agents (admins), and handing one to another agent
    if(p==='/ui/channels'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can see every channel.'});return send(res,200,{channels:await channels.list()})}
    // WhatsApp: clear a login that WhatsApp has ended, so a fresh QR can link the phone again
-   if(p==='/ui/channels/whatsapp-reset'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can relink WhatsApp.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
-    const ag=String(b.agent||'default');if(!(await listAllProfiles()).includes(ag))return send(res,400,{error:'Unknown agent'});   // extra numbers (copies) included
-    const dir=path.join(ag==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',ag),'platforms','whatsapp','session');// a bridge left running by the gateway keeps the login and its port; stop every bridge using this login first
-    const {execFile}=await import('node:child_process');const out=await new Promise(r=>execFile('ps',['-eo','pid=,args='],(e,o)=>r(String(o||''))));
-    const pids=out.split('\n').filter(l=>/whatsapp-bridge\/bridge\.js/.test(l)&&l.includes('--session '+dir)).map(l=>+l.trim().split(/\s+/)[0]).filter(Boolean);
-    for(const pid of pids){try{process.kill(pid,'SIGTERM')}catch{}}if(pids.length)await new Promise(r=>setTimeout(r,1500));for(const pid of pids){try{process.kill(pid,'SIGKILL')}catch{}}
-    const {rm}=await import('node:fs/promises');await rm(dir,{recursive:true,force:true});return send(res,200,{ok:true,stopped:pids.length})}
+   if(p==='/ui/channels/check'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||'default'),pf=String(b.platform||'');
+    if(!(await listAllProfiles()).includes(ag)||!/^[a-z0-9_]{1,40}$/.test(pf))return send(res,400,{error:'Unknown channel'});
+    if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+ag.split('--')[0],'GET',new URLSearchParams(),ag.split('--')[0]))return send(res,403,{error:'Not your agent.'});
+    const r=await checkChannel(ag,pf);attention.t=0;return send(res,200,r)}
+   if(p==='/ui/channels/attention'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,200,{items:[]});return send(res,200,{items:await channelAttention(url.searchParams.has('fresh'))})}
+   // removing a WhatsApp that is no longer wanted: its connection stops, the ended login is set aside, the channel is switched off
+   if(p==='/ui/channels/whatsapp/remove'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||'default');
+    if(!(await listAllProfiles()).includes(ag))return send(res,400,{error:'Unknown agent'});
+    if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag.split('--')[0]+'/soul','PUT',new URLSearchParams(),ag.split('--')[0])!==null)return send(res,403,{error:'You can only change agents you may edit.'});
+    if(ag.includes('--')){await links.remove(ag).catch(()=>{});platCache.clear();attention.t=0;return send(res,200,{ok:true,removed:'extra'})}
+    await stopBridges(ag);const dir=path.join(ag==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',ag),'platforms','whatsapp','session');
+    if(await stat(dir).then(()=>true,()=>false))await rename(dir,dir+'.unlinked-'+new Date().toISOString().replace(/[:.]/g,'-')).catch(()=>{});
+    const h={'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'};
+    const r=await fetch(DASH.origin+'/api/messaging/platforms/whatsapp?profile='+encodeURIComponent(ag),{method:'PUT',headers:h,body:JSON.stringify({enabled:false,env:{WHATSAPP_ENABLED:'false'},profile:ag})}).then(r=>r.json()).catch(()=>({}));
+    platCache.clear();attention.t=0;if(!r.hot_served&&ag==='default')restartGateway('WhatsApp removed from '+ag).catch(()=>{});console.log('whatsapp removed from',ag);return send(res,200,{ok:true})}
+   if((p==='/ui/channels/whatsapp/prepare'||p==='/ui/channels/whatsapp-reset')&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
+    const ag=String(b.agent||'default');if(!(await listAllProfiles()).includes(ag))return send(res,400,{error:'Unknown agent'});
+    if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag.split('--')[0]+'/soul','PUT',new URLSearchParams(),ag.split('--')[0])!==null)return send(res,403,{error:'You can only link channels of agents you may edit.'});
+    const home=ag==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',ag),dir=path.join(home,'platforms','whatsapp','session');
+    platCache.delete(ag);const pl=await platformsCached(ag).catch(()=>null);const w=(pl?.platforms||pl||[]).find?.(x=>x.id==='whatsapp');
+    // a working link is never thrown away by accident: replacing it (another phone) has to be asked for
+    if(w?.state==='connected'&&!b.replace)return send(res,409,{error:'This WhatsApp is connected'+(w.account?.phone?' ('+w.account.phone+')':'')+'. To link a different phone, choose “Link a different phone”.',connected:true,account:w.account||null});
+    // the engine still retrying the old login would fight the new QR on the same files: switch it off first
+    if(w&&/retrying|reconnecting|connecting|starting/.test(w.state||'')){const h={'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'};
+     const r=await fetch(DASH.origin+'/api/messaging/platforms/whatsapp?profile='+encodeURIComponent(ag),{method:'PUT',headers:h,body:JSON.stringify({enabled:false,env:{},profile:ag})}).then(r=>r.json()).catch(()=>({}));
+     if(!r.hot_served)await restartGateway('stopping WhatsApp retries on '+ag+' before linking')}
+    const stopped=await stopBridges(ag);
+    let kept=null;if(await stat(dir).then(()=>true,()=>false)){const keep=dir+'.unlinked-'+new Date().toISOString().replace(/[:.]/g,'-');kept=path.basename(keep);await rename(dir,keep).catch(async()=>{const {rm}=await import('node:fs/promises');await rm(dir,{recursive:true,force:true})});
+     const parent=path.dirname(dir);const old=(await readdir(parent).catch(()=>[])).filter(n=>n.startsWith('session.unlinked-')).sort().reverse().slice(2);   // keep the last two ended logins only
+     const {rm}=await import('node:fs/promises');for(const o of old)await rm(path.join(parent,o),{recursive:true,force:true}).catch(()=>{})}
+    platCache.clear();console.log('whatsapp: cleared the ended login of',ag,stopped?'(stopped '+stopped+' bridge)':'');return send(res,200,{ok:true,was:w?.account||null,kept})}
+   // the QR window closed before a phone was linked: the ended login goes back, so the channel still shows (Logged out · Link again)
+   if(p==='/ui/channels/whatsapp/restore'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||'default'),kept=String(b.kept||'');
+    if(!(await listAllProfiles()).includes(ag)||!/^session\.unlinked-[\w-]+$/.test(kept))return send(res,400,{error:'Nothing to restore'});
+    if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag.split('--')[0]+'/soul','PUT',new URLSearchParams(),ag.split('--')[0])!==null)return send(res,403,{error:'Not your agent.'});
+    const dir=path.join(ag==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',ag),'platforms','whatsapp','session');
+    if(await stat(path.join(dir,'creds.json')).then(()=>true,()=>false))return send(res,200,{ok:true,restored:false});   // a new phone got linked after all
+    await stopBridges(ag,{pairOnly:true});const {rm}=await import('node:fs/promises');await rm(dir,{recursive:true,force:true});await rename(path.join(path.dirname(dir),kept),dir).catch(()=>{});platCache.clear();return send(res,200,{ok:true,restored:true})}
    if(p==='/ui/channels/shares'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can share channels.'});
     if(req.method==='GET'){const sh=await relay.shares();return send(res,200,{shares:sh})}
     if(req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const v=await relay.setShare(String(b.owner||''),String(b.platform||''),b);syncNotifyTool().catch(e=>console.warn('notify tool',e.message));return send(res,200,{share:v})}}
