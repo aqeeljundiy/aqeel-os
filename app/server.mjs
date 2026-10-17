@@ -195,6 +195,8 @@ async function writeAgentContext(){const all=await listAgents();const names={};f
     'For an outside app (Slack, Gmail, Google Drive, Notion, GitHub…), use that app’s own MCP tool if you have it and it is connected. Otherwise use the Composio tools (composio), which reach 500+ apps through the person’s Composio account. If Composio says an app is not connected yet, give the person the link it returns to connect it, then continue.']:[]),
    '','## Connecting an MCP tool that needs a sign-in','',
    'Never use manage_connections (authorize/install/enable) or “hermes mcp login” for MCP tools, and never a 127.0.0.1 / localhost callback: the person is not at this server, so that page never opens for them. Add the tool (with its client ID/secret if the service needs its own app), then call the connect_mcp_tool tool (from aqeelos-notify) and send the person its steps exactly as written. Never make up steps, addresses or commands for connecting: the people using this are often not technical, so keep it to what the tool says. When the tool recommends Composio, offer that first. aqeelOS sets the return address itself: https://ai.elkiya.com/mcp-oauth/api/mcp/oauth/callback/<tool name> (this is what goes in the service’s Redirect URLs).',
+   '','## Passwords, API keys and other secrets','',
+   'Never ask the person to type a password, code or API key into the chat, and never ask them to type it on the screen viewer. Call ask_secret (from aqeelos-notify): mode "type" types it into the field you clicked on your screen, mode "save" stores it as a named key. You never see the value.',
    '','## Channels you can message the person on','',
    ch.length?'Use the send_to_person tool with one of these IDs when the person asks to be notified on a channel ("notify me on shop-whatsapp"):':'None yet. The person can connect WhatsApp, Telegram and others on the Channels page.',
    ...ch.map(c=>'- '+c.id+' = '+c.name),'<!-- /aqeelos:context -->'].filter(x=>x!==null).join('\n');
@@ -266,7 +268,7 @@ const sweepGhosts=async()=>{for(const d of await readdir(path.join(HERMES_HOME,'
  if(st&&Date.now()-st.mtimeMs>10*60e3&&inside.every(x=>['logs','plugin-update-checks','cache','sandboxes'].includes(x))){const {rm}=await import('node:fs/promises');await rm(dir,{recursive:true,force:true}).catch(()=>{});console.log('removed the leftover folder of deleted agent',d.name)}}};
 if(PORT===4400){setTimeout(()=>sweepGhosts().catch(()=>{}),40000);setInterval(()=>sweepGhosts().catch(()=>{}),30*60e3).unref()}
 const sharing=createShare({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAgents()});
-const channels=createChannels({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAllProfiles(),cached:a=>platformsCached(a),restart:why=>restartGateway(why)});
+const channels=createChannels({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAllProfiles(),cached:a=>platformsCached(a),restart:why=>restartGateway(why),paused:()=>pausedLoad()});
 const links=createLinks({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,python:()=>sharing.python(),setupAgent:n=>setupAgentFn?.(n)});
 function listAgents(){return agentNames()}   // real agents only (a folder with a config), not extra-number copies
 async function listAllProfiles(){return [...await listAgents(),...(await links.list()).map(l=>l.name)]}
@@ -341,14 +343,26 @@ async function trueWhatsApp(agent,v){const list=v?.platforms||v;if(!Array.isArra
 /* Which account each channel is: the WhatsApp number and name from its saved login, the Telegram bot's
    @username (asked from Telegram once an hour). A WhatsApp whose login WhatsApp ended (logged out on the phone,
    or the bridge stopped) is marked needs_link, so every screen offers the same "Link again". */
+const PAUSED_FILE=path.join(DATA,'channel-paused.json');
+const pausedLoad=async()=>{try{return JSON.parse(await readFile(PAUSED_FILE,'utf8'))}catch{return {}}};
+const pausedSave=async v=>{await writeFile(PAUSED_FILE+'.tmp',JSON.stringify(v,null,1));await rename(PAUSED_FILE+'.tmp',PAUSED_FILE)};
+/* Pause / resume a channel: the engine's own on/off (an explicit "off" beats a saved login or token), so a paused
+   WhatsApp keeps its link and a paused Telegram its bot; picking an agent again turns it on with no new QR. */
+async function setChannelOn(agent,platform,on){const h={'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'};
+ const r=await fetch(DASH.origin+'/api/messaging/platforms/'+encodeURIComponent(platform)+'?profile='+encodeURIComponent(agent),{method:'PUT',headers:h,body:JSON.stringify({enabled:on,env:{},profile:agent})});
+ const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||j.error||'The engine did not accept the change.');
+ const ps=await pausedLoad();const k=agent+'|'+platform;if(on)delete ps[k];else ps[k]={t:Date.now()};await pausedSave(ps);platCache.clear();attention.t=0;
+ const afterOff=()=>platform==='whatsapp'&&!on?stopBridges(agent).catch(()=>{}):null;   // its connection stops too; the login stays
+ if(!j.hot_served)restartGateway((on?'resumed ':'paused ')+platform+' on '+agent).then(afterOff).catch(()=>{});else setTimeout(afterOff,3000);
+ console.log('channel',platform,'on',agent,on?'resumed':'paused');return {ok:true,paused:!on,restarting:!j.hot_served,waiting:liveCount()}}
 const tgNames=new Map();
-async function channelAccounts(agent,v){const list=v?.platforms||v;if(!Array.isArray(list))return;const home=agent==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',agent);
+async function channelAccounts(agent,v){const list=v?.platforms||v;if(!Array.isArray(list))return;const ps=await pausedLoad();for(const c of list)if(ps[agent+'|'+c.id]){c.paused=true;c.state='paused'}const home=agent==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',agent);
  const w=list.find(x=>x.id==='whatsapp');
  if(w){try{const c=JSON.parse(await readFile(path.join(home,'platforms','whatsapp','session','creds.json'),'utf8'));const id=String(c.me?.id||c.me?.lid||'');const digits=id.split('@')[0].split(':')[0].replace(/\D/g,'');
    w.account={phone:digits?'+'+digits:null,name:c.me?.name||c.me?.verifiedName||null}}catch{}
   const err=(w.error_code||'')+' '+(w.error_message||'');const log=await readFile(path.join(home,'platforms','whatsapp','bridge.log'),'utf8').then(t=>t.slice(-3000)).catch(()=>'');
   const lastOut=log.lastIndexOf('Logged out'),lastOk=log.lastIndexOf('WhatsApp connected');
-  w.needs_link=w.state!=='connected'&&(!!w.account||w.configured)&&(/logged out|died|exit|bridge_exited|unlinked/i.test(err)||lastOut>lastOk)}
+  w.needs_link=!w.paused&&w.state!=='connected'&&(!!w.account||w.configured)&&(/logged out|died|exit|bridge_exited|unlinked/i.test(err)||lastOut>lastOk)}
  const t=list.find(x=>x.id==='telegram');
  if(t&&(t.configured||t.state==='connected')){const tok=((await readFile(path.join(home,'.env'),'utf8').catch(()=>'')).match(/^TELEGRAM_BOT_TOKEN=["']?([^"'\n]+)/m)||[])[1];
   if(tok){let n=tgNames.get(tok);if(!n||Date.now()-n.t>3600e3){const j=await fetch('https://api.telegram.org/bot'+tok+'/getMe',{signal:AbortSignal.timeout(5000)}).then(r=>r.json()).catch(()=>null);n={t:Date.now(),v:j?.ok?{username:'@'+j.result.username,name:j.result.first_name||null}:n?.v||null};tgNames.set(tok,n)}
@@ -382,6 +396,7 @@ async function stopBridges(agent,{pairOnly=false}={}){const dir=path.join(agent=
    in /ui/channels/attention, which the app shows as a pop-up with Link again / Remove. */
 async function checkChannel(agent,platform){platCache.delete(agent);const pl=await platformsCached(agent);const c=(pl?.platforms||pl||[]).find(x=>x.id===platform);
  if(!c)return {state:'missing',connected:false,text:'This channel is not set up on '+(NAMES[agent]||agent)+'.'};
+ if(c.paused)return {agent,platform,state:'paused',connected:false,paused:true,account:c.account||null,text:'Paused: still linked'+(c.account?' ('+[c.account.phone||c.account.username,c.account.name].filter(Boolean).join(' · ')+')':'')+', but no agent answers it. Pick an agent under Answered by to turn it back on.'};
  let bridge=true;if(platform==='whatsapp'){const dir=path.join(agent==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',agent),'platforms','whatsapp','session');
   const {execFile}=await import('node:child_process');const out=await new Promise(r=>execFile('ps',['-eo','args='],(e,o)=>r(String(o||''))));bridge=out.split('\n').some(l=>/whatsapp-bridge\/bridge\.js/.test(l)&&l.includes('--session '+dir)&&!l.includes('--pair-only'))}
  const connected=c.state==='connected'&&bridge;const acct=c.account?' ('+[c.account.phone||c.account.username,c.account.name].filter(Boolean).join(' · ')+')':'';
@@ -393,10 +408,25 @@ let attention={t:0,list:[]};
 async function channelAttention(fresh){if(!fresh&&Date.now()-attention.t<10*60e3)return attention.list;const list=[];
  for(const a of await listAllProfiles()){if(fresh)platCache.delete(a);const pl=await platformsCached(a).catch(()=>null);
   for(const c of (pl?.platforms||pl||[])){if(['api_server','webhook'].includes(c.id)||!(c.configured||c.account))continue;
-   if(c.needs_link||(c.enabled&&/fatal|error|failed/.test(c.state||'')))list.push({agent:a,base:a.split('--')[0],id:c.id,name:c.name,account:c.account||null,needs_link:!!c.needs_link,state:c.state})}}
+   if(!c.paused&&(c.needs_link||(c.enabled&&/fatal|error|failed/.test(c.state||''))))list.push({agent:a,base:a.split('--')[0],id:c.id,name:c.name,account:c.account||null,needs_link:!!c.needs_link,state:c.state})}}
  const before=new Set(attention.list.map(x=>x.agent+'|'+x.id));for(const x of list)if(!before.has(x.agent+'|'+x.id))console.warn('channel check:',x.name,'on',x.agent,x.needs_link?'is logged out':'is '+x.state);
  attention={t:Date.now(),list};return list}
 if(PORT===4400){setTimeout(()=>channelAttention(true).catch(()=>{}),90e3);setInterval(()=>channelAttention(true).catch(()=>{}),2*3600e3).unref()}
+/* Secrets the agent asks for (ask_secret): the person types them into a protected field in the chat, and the value
+   goes straight where it is needed (typed into the agent's screen, or saved as a key). It never enters the
+   conversation, the logs or the agent's context. A request waits about 4½ minutes (the engine gives a tool call 5). */
+const secretAsks=new Map();
+function askSecret(agent,a){return new Promise(resolve=>{const id=randomBytes(9).toString('base64url');
+ const rec={id,agent,base:agent.split('--')[0],label:String(a.label||'A password or key').slice(0,140),mode:a.mode==='save'?'save':'type',name:String(a.name||'').trim().toUpperCase().replace(/[^A-Z0-9_]/g,'_').slice(0,60),enter:!!a.press_enter,t:Date.now(),resolve};
+ if(rec.mode==='save'&&!/^[A-Z][A-Z0-9_]{1,59}$/.test(rec.name))return resolve({text:'For mode "save", give the key a name in capitals, like OPENAI_API_KEY, and ask again.',isError:true});
+ secretAsks.set(id,rec);console.log('secret asked by',agent+':',rec.label,'('+rec.mode+')');
+ setTimeout(()=>{if(secretAsks.get(id)===rec){secretAsks.delete(id);resolve({text:'The person did not fill in the protected field in time. Ask again if you still need it.',isError:true})}},270000)})}
+async function useSecret(rec,value){
+ if(rec.mode==='type'){await screens.typeInto(rec.base,value,{enter:rec.enter});return 'Typed it into the focused field on your screen'+(rec.enter?' and pressed Enter':'')+'. You never saw the value; take a screenshot to check the result.'}
+ const home=rec.base==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',rec.base);
+ await editEnv(path.join(home,'.env'),cur=>{const lines=cur.split('\n').filter(l=>!l.startsWith(rec.name+'='));while(lines.length&&lines[lines.length-1]==='')lines.pop();return [...lines,rec.name+'='+value.replace(/[\r\n]/g,''),''].join('\n')});
+ const dir=path.join(homedir(),'workspaces',rec.base,'.secrets');await mkdir(dir,{recursive:true,mode:0o700});await writeFile(path.join(dir,rec.name),value,{mode:0o600});
+ return 'Saved as '+rec.name+' in your settings (the engine and its tools read it from there). In a command use "$(cat ~/workspaces/'+rec.base+'/.secrets/'+rec.name+')". Never print, echo or show the value.'}
 async function hermesCall(req,res,u,url){
  const p=url.pathname,q=url.searchParams,agent=agentOf(p,q);
  const no=users.gate(u,p,req.method,q,agent);if(no)return send(res,no.status,{error:no.error});
@@ -572,8 +602,9 @@ const server=createServer(async(req,res)=>{
      const err=j.error||j.detail||'no link came back';
      if(/client registration|client_id|client id/i.test(err))return reply(`${svc} only works with an app of your own. Recommend Composio to the person (one click on Allow, nothing to set up) and use the composio tools. Only if they insist (an admin, one time): create an app at ${where.split(' → ')[0]}, add this Redirect URL: ${redirect}, then paste its Client ID and Client Secret in Abilities › MCP tools › ${tool} › Sign in.`,true);
      return reply('Could not start the sign-in: '+err,true)}catch(e){return reply('Could not start the sign-in: '+e.message,true)}}
+   if(signed&&msg.method==='tools/call'&&msg.params?.name==='ask_secret'){const r=await askSecret(mn[1],msg.params?.arguments||{});return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text:r.text}],...(r.isError?{isError:true}:{})}})}
    const out=await relay.mcp(mn[1],mn[2],msg);
-   if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'connect_mcp_tool',description:'Start the sign-in for one of your MCP tools (slack, composio, notion…) and get the link to give the person. Always use this to connect an MCP tool; never a command-line login or a localhost callback.',inputSchema:{type:'object',properties:{tool:{type:'string',description:'The MCP tool name as listed, e.g. "slack" or "composio"'}},required:['tool']}});
+   if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'ask_secret',description:'Ask the person for a password, API key or other secret through a protected field in their aqeelOS chat. You never see the value. mode "type": it is typed into the field that has focus on your screen (click the field first; set press_enter to submit). mode "save": it is stored as a named key (name in capitals, e.g. OPENAI_API_KEY) that the engine and your commands can use. Never ask for a secret in plain chat or on the screen viewer; always use this.',inputSchema:{type:'object',properties:{label:{type:'string',description:'What it is, e.g. "Gmail password for ops@company.com"'},mode:{type:'string',enum:['type','save']},name:{type:'string',description:'For save: the key name in capitals'},press_enter:{type:'boolean',description:'For type: press Enter after typing'}},required:['label','mode']}},{name:'connect_mcp_tool',description:'Start the sign-in for one of your MCP tools (slack, composio, notion…) and get the link to give the person. Always use this to connect an MCP tool; never a command-line login or a localhost callback.',inputSchema:{type:'object',properties:{tool:{type:'string',description:'The MCP tool name as listed, e.g. "slack" or "composio"'}},required:['tool']}});
    if(out.body==null){res.writeHead(out.status);return res.end()}return send(res,out.status,out.body)}
   // Incoming webhooks (GitHub, Stripe…) reach Hermes' webhook listener here. No sign-in: each
   // subscription checks its own secret signature, and nothing but POST /webhooks/<name> passes.
@@ -612,6 +643,7 @@ const server=createServer(async(req,res)=>{
   if(p==='/ui/screen/browser'||p.startsWith('/ui/screens')){const u=await me(req);if(!u)return send(res,401,{error:'Sign in first.'});if(req.method!=='GET'&&req.headers['x-hui']!=='1')return send(res,403,{error:'Sign in first.'});
    const sm=/^\/ui\/screens\/([^/]+)/.exec(p);if(p==='/ui/screens'&&!users.isAdmin(u))return send(res,200,{screens:[]});
    const no=users.gate(u,p,req.method,url.searchParams,sm?decodeURIComponent(sm[1]):agentOf(p,url.searchParams));if(no)return send(res,no.status,{error:no.error});
+   if(/\/type$/.test(p)&&url.searchParams.get('screen')==='ads'&&!users.isAdmin(u))return send(res,403,{error:'Only admins can type into the shared screen.'});
    return p==='/ui/screen/browser'?openBrowser(res,url.searchParams.get('agent')):screens.handle(req,res,p,send)}
   if(p==='/auth/login'&&req.method==='POST'){
    const ip=clientIp(req);if(limited(ip))return send(res,429,{error:'Too many attempts. Try again in a few minutes.'});
@@ -715,6 +747,16 @@ const server=createServer(async(req,res)=>{
    // channels across all agents (admins), and handing one to another agent
    if(p==='/ui/channels'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can see every channel.'});return send(res,200,{channels:await channels.list()})}
    // WhatsApp: clear a login that WhatsApp has ended, so a fresh QR can link the phone again
+   if(p==='/ui/secrets/pending'&&req.method==='GET'){const ag=String(url.searchParams.get('agent')||'default').split('--')[0];
+    if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+ag,'GET',new URLSearchParams(),ag))return send(res,200,{items:[]});
+    return send(res,200,{items:[...secretAsks.values()].filter(x=>x.base===ag).map(x=>({id:x.id,label:x.label,mode:x.mode,name:x.name,enter:x.enter,t:x.t,expires:x.t+270000}))})}
+   {const sm=/^\/ui\/secrets\/([\w-]+)$/.exec(p);if(sm&&req.method==='POST'){const rec=secretAsks.get(sm[1]);if(!rec)return send(res,404,{error:'This request has ended. Ask the agent again.'});
+    if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+rec.base,'GET',new URLSearchParams(),rec.base))return send(res,403,{error:'Not your agent.'});
+    let b={};try{b=JSON.parse(await readBody(req,20000))}catch{}
+    if(b.cancel){secretAsks.delete(rec.id);rec.resolve({text:'The person chose not to give it. Do not ask again unless they say so.',isError:true});return send(res,200,{ok:true})}
+    const value=String(b.value||'');if(!value||value.length>8000)return send(res,400,{error:'Type or paste the value first.'});
+    try{const text=await useSecret(rec,value);secretAsks.delete(rec.id);rec.resolve({text});console.log('secret given to',rec.agent,'('+rec.mode+(rec.name?' '+rec.name:'')+')');return send(res,200,{ok:true,text:rec.mode==='type'?'Typed into the screen.':'Saved as '+rec.name+'.'})}
+    catch(e){return send(res,409,{error:e.message})}}}   // stays open: the person can fix it (open the screen) and send again
    if(p==='/ui/channels/check'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||'default'),pf=String(b.platform||'');
     if(!(await listAllProfiles()).includes(ag)||!/^[a-z0-9_]{1,40}$/.test(pf))return send(res,400,{error:'Unknown channel'});
     if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+ag.split('--')[0],'GET',new URLSearchParams(),ag.split('--')[0]))return send(res,403,{error:'Not your agent.'});
@@ -763,7 +805,12 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/channels/for'&&req.method==='GET'){const a=url.searchParams.get('agent')||'default';if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a))return send(res,403,{error:'Not your agent'});
     return send(res,200,{channels:await relay.channelsFor(a)})}   // its own, its extra connections and shared ones, each with an ID
    if(p==='/ui/channels/job-relays'&&req.method==='GET')return send(res,200,await relay.jobRelays());
-   if(p==='/ui/channels/move'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can move channels.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{return send(res,200,await channels.move(String(b.platform||''),String(b.from||''),String(b.to||'')))}catch(e){return send(res,400,{error:e.message})}}
+   if(p==='/ui/channels/pause'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can pause channels.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
+    const ag=String(b.agent||''),pf=String(b.platform||'');if(!(await listAllProfiles()).includes(ag)||!/^[a-z0-9_]{1,40}$/.test(pf)||['api_server','webhook'].includes(pf))return send(res,400,{error:'Unknown channel'});
+    try{return send(res,200,await setChannelOn(ag,pf,b.on===true))}catch(e){return send(res,400,{error:e.message})}}
+   if(p==='/ui/channels/move'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can move channels.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
+    try{const pf=String(b.platform||''),from=String(b.from||''),to=String(b.to||'');const r=await channels.move(pf,from,to);
+     const ps=await pausedLoad();if(ps[from+'|'+pf]||ps[to+'|'+pf]){delete ps[from+'|'+pf];delete ps[to+'|'+pf];await pausedSave(ps)}return send(res,200,r)}catch(e){return send(res,400,{error:e.message})}}
    // QR codes (WhatsApp linking…): drawn here with the qrcode library that ships with the engine
    if(p==='/ui/qr'&&req.method==='GET'){const d=String(url.searchParams.get('d')||'');if(!d||d.length>2000)return send(res,400,'bad');
     try{const mod=await import(path.join(HERMES_HOME,'hermes-agent','node_modules','qrcode','lib','index.js'));const QR=mod.default||mod;const svg=await QR.toString(d,{type:'svg',margin:1,errorCorrectionLevel:'M',color:{dark:'#0b0c10',light:'#ffffff'}});

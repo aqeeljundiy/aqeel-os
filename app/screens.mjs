@@ -96,12 +96,24 @@ export function createScreens(){
  // DISPLAY etc. of a running agent screen, so a spare browser window can open on it.
  async function displayEnv(a){const t=await readFile(path.join(homeOf(a),'bot-desktop','env'),'utf8').catch(()=>'');const e={};for(const l of t.split('\n')){const m=/^(?:export\s+)?([A-Z_]+)=['"]?(.*?)['"]?$/.exec(l.trim());if(m)e[m[1]]=m[2]}return e}
 
+ // Typing into a screen: text from the person goes straight to the focused field there. Never logged.
+ async function typeInto(a,text,{enter=false,ads=false}={}){
+  const onShared=ads||await shared(a)||!await desktopsReady();const env=onShared?{DISPLAY:':99'}:await displayEnv(a);
+  if(!onShared&&!await alive(a))throw new Error('This agent’s screen is not running. Open it (or let the agent open its browser) first.');
+  if(!env.DISPLAY)throw new Error('The screen is not running.');
+  const r=await run('xdotool',['type','--clearmodifiers','--delay','12','--',String(text)],env,90000);if(!r.ok)throw new Error('Could not type into the screen.');
+  if(enter)await run('xdotool',['key','--clearmodifiers','Return'],env,10000);
+  if(!onShared){const t=new Date();await utimes(path.join(homeOf(a),'bot-desktop','activity'),t,t).catch(()=>{})}
+  return true}
+ const readJson=req=>new Promise(ok=>{let d='';req.on('data',c=>{d+=c;if(d.length>40000)req.destroy()});req.on('end',()=>{try{ok(JSON.parse(d||'{}'))}catch{ok({})}});req.on('error',()=>ok({}))});
  async function handle(req,res,p,send){
   if(p==='/ui/screens'&&req.method==='GET'){await ensureAll();return send(res,200,{screens:await Promise.all((await agents()).map(status))})}
-  const m=/^\/ui\/screens\/([^/]+)(?:\/(start|stop))?$/.exec(p);if(!m)return send(res,404,{error:'Not found'});
+  const m=/^\/ui\/screens\/([^/]+)(?:\/(start|stop|type))?$/.exec(p);if(!m)return send(res,404,{error:'Not found'});
   const a=decodeURIComponent(m[1]);if(!await valid(a))return send(res,404,{error:'Unknown agent'});
   ensure(a).catch(()=>{});
   if(!m[2]&&req.method==='GET')return send(res,200,await status(a));
+  if(m[2]==='type'){if(req.method!=='POST')return send(res,405,{error:'POST only'});const b=await readJson(req);const text=String(b.text||'');if(!text||text.length>8000)return send(res,400,{error:'Nothing to type.'});
+   try{await typeInto(a,text,{enter:!!b.enter,ads:new URL(req.url,'http://x').searchParams.get('screen')==='ads'});return send(res,200,{ok:true,chars:text.length})}catch(e){return send(res,409,{error:e.message})}}
   if(req.method!=='POST'||await shared(a))return send(res,400,{error:'This agent uses the shared screen.'});
   try{const r=await runtime(a,m[2]==='start'?'start()':'stop()');
    if(m[2]==='start'&&r&&r.running===false)return send(res,409,{error:r.blocker||('Missing on the box: '+(r.missing||[]).join(', '))});
@@ -119,5 +131,5 @@ export function createScreens(){
  if(LIVE_APP){setInterval(()=>reap().catch(()=>{}),60000).unref();setTimeout(()=>ensureAll().catch(()=>{}),5000)}
  // viewers left running by an earlier run of the app (their parent is gone) are stopped
  if(LIVE_APP)run('bash',['-c',"ps -eo pid=,ppid=,args= | awk '$2==1 && /websockify 127.0.0.1:61[0-9][0-9] --unix-target=/ {print $1}' | xargs -r kill"],{},10000).catch(()=>{});
- return {handle,upgrade,status,displayEnv,homeOf,valid,shared,ensure};
+ return {handle,upgrade,status,displayEnv,homeOf,valid,shared,ensure,typeInto};
 }

@@ -50,7 +50,7 @@ const Chat={
  view(el,id){
   if(id==='manage')return Pages.manageChats(el);
   this.id=id;
-  el.innerHTML=`<div class="chat"><div class="chat-scroll" id="scroll">${id?'<div class="thread" id="thread"><div class="skel" style="height:60px;width:60%;align-self:flex-end"></div><div class="skel" style="height:120px"></div></div>':this.emptyHtml()}</div>${this.composerHtml()}</div>`;
+  el.innerHTML=`<div class="chat"><div class="chat-scroll" id="scroll">${id?'<div class="thread" id="thread"><div class="skel" style="height:60px;width:60%;align-self:flex-end"></div><div class="skel" style="height:120px"></div></div>':this.emptyHtml()}</div><div id="secretSlot" class="secret-slot"></div>${this.composerHtml()}</div>`;Secrets.check();
   this.bindComposer();this.paintQueue();
   if(id){if(this.live[id])this.paint();else this.loadHistory(id)}
   else this.loadStarters();
@@ -240,7 +240,7 @@ const Chat={
    if(e.type==='tool.completed'||e.type==='tool.failed'){for(const t of s.turns)if(t.steer==='sent')t.afterStep=true}
    else if(/^(assistant\.(delta|commentary|reasoning)|reasoning\.delta|tool\.started)$/.test(e.type)||e.type==='tool.progress'&&e.tool_name==='_thinking'){for(const t of s.turns)if(t.steer==='sent'&&t.afterStep)t.steer='delivered'}}
   switch(e.type){
-   case 'run.started':s.runId=e.run_id;ai.model=e.runtime?.model||'';break;
+   case 'run.started':Secrets.start();s.runId=e.run_id;ai.model=e.runtime?.model||'';break;
    case 'assistant.delta':ai.text+=e.delta||e.text||'';break;
    case 'assistant.commentary':if(!e.already_streamed&&e.text)ai.text+=(ai.text?'\n\n':'')+e.text;break;
    case 'tool.started':ai.steps.push({tool:e.tool_name||'tool',args:e.args||{},sum:e.preview||this.summary(e.tool_name,e.args),out:'',done:false,t0:Date.now()});break;
@@ -294,3 +294,26 @@ async function deleteSession(id){const c=S.sessions.find(x=>x.id===id);if(!await
 Chat.watchLive();
 // remember which folded step runs are open, so a repaint keeps them open
 document.addEventListener('toggle',e=>{const d=e.target;if(!d?.matches?.('details.steps-fold'))return;(Chat._folds??=new Set())[d.open?'add':'delete'](d.dataset.f)},true);
+
+/* ---------- Secrets: when an agent asks for a password or key (its ask_secret tool), a protected field shows above
+   the composer. The value goes straight to the box (typed into the agent's screen, or saved as a key); it is never
+   part of the chat, and the agent never sees it. ---------- */
+const Secrets={timer:null,
+ start(){if(!this.timer)this.timer=setInterval(()=>this.check(),2500);this.check()},
+ async check(){const slot=$('#secretSlot');if(!slot)return;let items=[];try{items=(await UI('/ui/secrets/pending?agent='+encodeURIComponent(agentProfile()||'default'))).items||[]}catch{return}
+  const ids=new Set(items.map(x=>x.id));slot.querySelectorAll('.secret-card:not(.done)').forEach(c=>{if(!ids.has(c.dataset.id)){c.classList.add('out');setTimeout(()=>c.remove(),300)}});
+  for(const x of items)if(!slot.querySelector('[data-id="'+x.id+'"]')){slot.insertAdjacentHTML('beforeend',this.card(x));const c=slot.lastElementChild;const i=c.querySelector('input');i.focus();
+   i.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();this.send(c)}};this.tick(c,x.expires)}
+  if(!items.length&&!Object.values(Chat.live||{}).some(s=>s?.running)){clearInterval(this.timer);this.timer=null}},
+ card(x){const who=esc(AGENT());const where=x.mode==='type'?'It is typed into the field on '+who+'’s screen'+(x.enter?' and sent':'')+'.':'It is saved as <code>'+esc(x.name)+'</code> for '+who+'.';
+  return `<div class="secret-card" data-id="${esc(x.id)}"><span class="ic">${icon('lock',17)}</span><div class="sc-main"><b>${who} needs: ${esc(x.label)}</b>
+   <span class="hint">${where} ${who} never sees it, and it is not saved in this chat.</span>
+   <div class="sc-row"><input type="password" autocomplete="off" spellcheck="false" aria-label="${esc(x.label)}" placeholder="Type or paste it here"><button class="ghost icon" data-act="secret-eye" title="Show while typing" aria-label="Show while typing">${icon('eye',16)}</button><button class="primary" data-act="secret-send">${icon('lock',14)}Send securely</button><button class="ghost" data-act="secret-cancel">Not now</button></div>
+   <span class="sc-foot"><span class="sc-err"></span><span class="sc-left"></span></span></div></div>`},
+ tick(c,exp){const el=c.querySelector('.sc-left');const t=setInterval(()=>{if(!c.isConnected||c.classList.contains('done'))return clearInterval(t);const s=Math.max(0,Math.round((exp-Date.now())/1000));el.textContent=s?'Open for '+Math.floor(s/60)+':'+String(s%60).padStart(2,'0'):'Expired';if(!s)clearInterval(t)},1000)},
+ async send(c){const i=c.querySelector('input'),err=c.querySelector('.sc-err'),b=c.querySelector('[data-act="secret-send"]');const v=i.value;if(!v){err.textContent='Type or paste it first.';return i.focus()}
+  b.disabled=true;err.textContent='';
+  try{const r=await post(UI,'/ui/secrets/'+encodeURIComponent(c.dataset.id),{value:v});i.value='';c.classList.add('done');
+   c.querySelector('.sc-main').innerHTML='<b>'+icon('check',15)+' '+esc(r.text||'Sent')+'</b><span class="hint">'+esc(AGENT())+' carries on without seeing it.</span>';setTimeout(()=>{c.classList.add('out');setTimeout(()=>c.remove(),300)},4000)}
+  catch(e){err.textContent=e.message;b.disabled=false}},
+ async cancel(c){try{await post(UI,'/ui/secrets/'+encodeURIComponent(c.dataset.id),{cancel:true})}catch{}c.classList.add('out');setTimeout(()=>c.remove(),300)}};

@@ -875,3 +875,21 @@ input[type=checkbox]:not(.switch)::after{margin:auto}
 .msg.user.steer .steer-now{margin-left:8px;padding:2px 10px;min-height:0;font-size:12px;border-radius:999px;background:var(--blue-soft);color:var(--blue-deep);border:0;cursor:pointer;transition:background .2s,transform .15s}
 .msg.user.steer .steer-now:hover{background:var(--blue);color:#fff}.msg.user.steer .steer-now:active{transform:scale(.97)}
 .dark .msg.user.steer .steer-now{color:var(--blue-2)}
+.row .txt .acct-line{font-size:12.5px;color:var(--ink-2);margin-top:1px}
+.row .txt span .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--muted);margin-right:6px;vertical-align:1px}
+.row .txt span .dot.ok{background:var(--ok)}
+/* the protected secret field above the composer */
+.secret-slot{display:flex;flex-direction:column;gap:10px;padding:0 var(--chat-pad,24px);max-width:var(--chat-max,860px);margin:0 auto;width:100%}
+.secret-slot:empty{display:none}
+.secret-card{display:flex;gap:14px;align-items:flex-start;padding:16px 18px;border-radius:16px;background:var(--surface);border:1px solid color-mix(in srgb,var(--blue) 35%,var(--border));box-shadow:var(--shadow-float);animation:rise .3s ease both;transition:opacity .3s,transform .3s}
+.secret-card.out{opacity:0;transform:translateY(6px)}
+.secret-card>.ic{width:36px;height:36px;border-radius:11px;display:grid;place-items:center;flex:none;background:var(--blue-soft);color:var(--blue-deep)}
+.dark .secret-card>.ic{color:var(--blue-2)}
+.secret-card .sc-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.secret-card .sc-main b{font-size:14.5px;display:flex;align-items:center;gap:6px}
+.secret-card .sc-row{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap}
+.secret-card .sc-row input{flex:1;min-width:180px;font-family:var(--mono);letter-spacing:.5px}
+.secret-card .sc-foot{display:flex;justify-content:space-between;gap:10px;font-size:12px;color:var(--muted);min-height:16px}
+.secret-card .sc-err{color:var(--bad)}
+.secret-card.done{border-color:color-mix(in srgb,var(--ok) 40%,var(--border))}
+.secret-card.done>.ic{background:color-mix(in srgb,var(--ok) 14%,transparent);color:var(--ok)}

@@ -37,7 +37,7 @@ const Screen={
   ${compact?'':`<button class="ghost icon" data-act="scr-pop" title="Open in its own tab" aria-label="Open in its own tab">${icon('popout',17)}</button>`}
   <button class="ghost icon" data-act="screen" title="Close" aria-label="Close screen">${icon('x',18)}</button></div>`},
  laptop(){const n=esc(ident(this.agent()).name);if(this.off())return `<div class="screen-stage"><div class="laptop"><div class="lid"><span class="cam"></span><div class="lcd scr-off"><div>${icon('monitor',28)}<b>${n}'s screen is off</b><span>It turns on by itself when ${n} opens a browser, and off again after 15 quiet minutes.</span><button class="primary" data-act="scr-start">${icon('power',15)}Turn on now</button></div></div></div></div></div>`;
-  return `<div class="screen-stage"><div class="laptop"><div class="lid"><span class="cam"></span><div class="lcd"><iframe id="scrFrame" title="Live screen of ${n}" src="${this.src()}" allow="clipboard-read; clipboard-write"></iframe></div></div></div>${this.control?'':'<div class="screen-hint">Watching only. Press Take over to click and type.</div>'}</div>`},
+  return `<div class="screen-stage"><div class="laptop"><div class="lid"><span class="cam"></span><div class="lcd"><iframe id="scrFrame" title="Live screen of ${n}" src="${this.src()}" allow="clipboard-read; clipboard-write"></iframe></div></div></div>${this.control?'<div class="screen-hint">You are in control. Ctrl+V pastes your text into the screen; copying on the screen copies to this computer.</div>':'<div class="screen-hint">Watching only. Press Take over to click and type.</div>'}</div>`},
  paint(force){const pane=$('#screenPane'),app=$('.app');if(!pane||!app)return;
   const docked=this.open&&this.mode==='dock',floating=this.open&&this.mode==='float';
   app.classList.toggle('screen-open',docked);pane.hidden=!docked;
@@ -52,7 +52,20 @@ const Screen={
  placeFloat(){const fl=$('#screenFloat');if(!fl)return;const w=Math.max(300,Math.min(this.float.w||480,innerWidth-24));fl.style.width=w+'px';
   const h=fl.offsetHeight||w*.78;let x=this.float.x??innerWidth-w-24,y=this.float.y??innerHeight-h-24;x=Math.max(12,Math.min(x,innerWidth-w-12));y=Math.max(12,Math.min(y,innerHeight-h-12));fl.style.left=x+'px';fl.style.top=y+'px'},
  // The stream page is same-origin, so its own toolbar can be hidden: only the screen should show.
- tidy(){const f=$('#scrFrame');if(!f)return;f.onload=()=>{try{const d=f.contentDocument;const st=d.createElement('style');st.textContent='#noVNC_control_bar_anchor,#noVNC_control_bar,#noVNC_control_bar_hint,#noVNC_status{display:none!important}html,body,#noVNC_container{background:#0b0c10!important}';d.head.append(st)}catch{}}},
+ tidy(){const f=$('#scrFrame');if(!f)return;f.onload=()=>{try{const d=f.contentDocument;const st=d.createElement('style');st.textContent='#noVNC_control_bar_anchor,#noVNC_control_bar,#noVNC_control_bar_hint,#noVNC_status{display:none!important}html,body,#noVNC_container{background:#0b0c10!important}';d.head.append(st)}catch{}this.clipboard(f)}},
+ /* Copy and paste with the remote screen. Ctrl+V: your text is typed into the field that has focus there (the
+    remote's own clipboard is not involved, so it always pastes what you copied). Copying inside the screen puts
+    that text on this computer's clipboard. Only while you are in control. */
+ clipboard(f){const w=f.contentWindow,d=f.contentDocument;if(!w||!d||w.__aqClip)return;w.__aqClip=1;let pasted=0;
+  w.addEventListener('keydown',e=>{if(!this.control||!(e.ctrlKey||e.metaKey)||e.altKey||e.key.toLowerCase()!=='v')return;
+   e.stopImmediatePropagation();const t0=Date.now();   // noVNC must not send Ctrl+V itself; the browser's paste follows
+   setTimeout(()=>{if(pasted>=t0)return;w.navigator.clipboard?.readText?.().then(t=>{if(t)this.typeText(t)}).catch(()=>toast('Allow clipboard access for this site to paste into the screen','err'))},200)},true);
+  d.addEventListener('paste',e=>{if(!this.control)return;const t=e.clipboardData?.getData('text');if(!t)return;e.preventDefault();e.stopImmediatePropagation();pasted=Date.now();this.typeText(t)},true);
+  const ta=d.getElementById('noVNC_clipboard_text');let last=ta?.value||'';
+  if(ta)setInterval(()=>{if(!ta.isConnected||ta.value===last)return;last=ta.value;if(!last||!this.control)return;
+   w.navigator.clipboard?.writeText(last).then(()=>toast('Copied from the screen'),()=>navigator.clipboard?.writeText(last).then(()=>toast('Copied from the screen'),()=>{}))},600)},
+ async typeText(t){if(t.length>8000)return toast('That is too long to paste (8,000 characters at most)','err');
+  try{await post((p,o)=>call('',p,o),'/ui/screens/'+encodeURIComponent(this.agent())+'/type'+(this.ads?'?screen=ads':''),{text:t});toast('Pasted into the screen')}catch(e){fail(e)}},
 };
 ACT['screen']=()=>Screen.toggle();
 document.addEventListener('change',e=>{if(e.target.id==='scrPick')Screen.choose(e.target.value)});
