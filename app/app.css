@@ -1173,3 +1173,23 @@ button.think:hover{color:var(--ink-2);background:var(--soft)}
 @media(max-width:560px){.sched-folder .sf-head .sf-cost{display:none}}
 .wac-copy{display:flex;align-items:center;gap:10px;padding:8px 8px 8px 12px;border:1px solid var(--border);border-radius:var(--r-md);margin:0 0 8px;font-size:13px}
 .wac-copy span{flex:none;color:var(--muted);width:92px}.wac-copy code{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px}
+/* replies with visible structure (agreed mock-up, part 1): headings clearly above body text, real bold, numbered
+   steps in soft circles, soft boxes for "next step" and warnings. Decorations stay quieter than the words. */
+.md .md-h1{font-size:20px;font-weight:700;letter-spacing:-.015em;line-height:1.3;margin:22px 0 10px}
+.md .md-h2{font-size:18px;font-weight:700;letter-spacing:-.01em;line-height:1.35;margin:22px 0 8px;padding-top:16px;border-top:1px solid var(--border)}
+.md>.md-h1:first-child,.md>.md-h2:first-child{margin-top:0;padding-top:0;border-top:0}
+.md .md-h3,.md .md-h4{font-size:15.5px;font-weight:700;margin:18px 0 6px}
+.md b,.md strong{font-weight:700}
+.md>ol{list-style:none;padding-left:0;counter-reset:mdn}
+.md>ol>li{counter-increment:mdn;position:relative;padding-left:32px;margin:0 0 8px}
+.md>ol>li::before{content:counter(mdn);position:absolute;left:0;top:.1em;width:22px;height:22px;border-radius:50%;background:var(--blue-soft);color:var(--blue-deep);font-size:12px;font-weight:700;display:grid;place-items:center}
+.md>ol>li[data-n]::before{content:attr(data-n)}
+.md>ul{list-style:none;padding-left:0}
+.md>ul>li{position:relative;padding-left:18px;margin:0 0 5px}
+.md>ul>li::before{content:'';position:absolute;left:4px;top:.68em;width:6px;height:6px;border-radius:50%;background:var(--blue)}
+.md>ul>li.task{padding-left:0}.md>ul>li.task::before{display:none}
+.md blockquote{border-left:0;padding:10px 14px;border-radius:12px;background:var(--blue-soft);color:var(--ink)}
+.md blockquote.warn{background:color-mix(in srgb,var(--warn) 13%,var(--surface))}
+.md blockquote p:last-child{margin-bottom:0}
+.md th{font-size:13px;font-weight:700;text-align:left}
+.dark .md>ol>li::before{color:var(--blue-2)}

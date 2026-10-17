@@ -126,13 +126,13 @@ function md(src){
     if(isItem(nx)&&indent(nx)===0&&root.kids.length&&/^\s*\d/.test(nx)!==root.kids[0].ordered)break;
     if(isItem(nx)||(indent(nx)>=2&&stack.length>1)){i++;continue}break}
    if(isItem(l)){const ind=indent(l),ordered=/^\s*\d/.test(l);while(stack.length>1&&ind<=stack[stack.length-1].ind)stack.pop();
-    const parent=stack[stack.length-1].node;const item={text:[l.replace(/^\s*(?:[-*+]|\d+[.)])\s+/,'')],kids:[],ordered,task:null};
+    const parent=stack[stack.length-1].node;const item={n:(/^\s*(\d+)/.exec(l)||[])[1]||null,text:[l.replace(/^\s*(?:[-*+]|\d+[.)])\s+/,'')],kids:[],ordered,task:null};
     const m=/^\[( |x|X)\]\s+/.exec(item.text[0]);if(m){item.task=m[1]!==' ';item.text[0]=item.text[0].slice(m[0].length)}
     parent.kids.push(item);stack.push({ind,node:item});i++;continue}
    if(indent(l)>=2&&stack.length>1){stack[stack.length-1].node.text.push(l.trim());i++;continue}
    break}
   const html=kids=>{if(!kids.length)return '';const tag=kids[0].ordered?'ol':'ul';
-   return `<${tag}>${kids.map(k=>`<li${k.task!==null?' class="task"':''}>${k.task!==null?`<span class="tick ${k.task?'on':''}">${k.task?'✓':''}</span>`:''}${k.text.map(inline).join('<br>')}${html(k.kids)}</li>`).join('')}</${tag}>`};
+   return `<${tag}>${kids.map(k=>`<li${k.task!==null?' class="task"':''}${k.n?` data-n="${k.n}"`:''}>${k.task!==null?`<span class="tick ${k.task?'on':''}">${k.task?'✓':''}</span>`:''}${k.text.map(inline).join('<br>')}${html(k.kids)}</li>`).join('')}</${tag}>`};
   return html(root.kids)};
  while(i<lines.length){const l=lines[i];
   if(/^\s*```/.test(l)){const lang=l.trim().slice(3).trim();const buf=[];i++;while(i<lines.length&&!/^\s*```/.test(lines[i]))buf.push(lines[i++]);i++;out.push(`<div class="codeblock"><div class="cb-head"><span>${esc(lang||'code')}</span><button data-act="copycode">${icon('copy',13)}Copy</button></div><pre>${esc(buf.join('\n'))}</pre></div>`);continue}
@@ -142,7 +142,7 @@ function md(src){
   const h=/^(#{1,6})\s+(.*)$/.exec(l);if(h){const n=Math.min(h[1].length,4);out.push(`<h${n+1} class="md-h${n}">${inline(h[2])}</h${n+1}>`);i++;continue}
   if(isItem(l)){out.push(list());continue}
   if(/^\|.*\|\s*$/.test(l)&&/^\|[\s:|-]+\|\s*$/.test(lines[i+1]||'')){const row=r=>r.trim().replace(/^\||\|$/g,'').split('|').map(c=>c.trim());const head=row(l);i+=2;const body=[];while(i<lines.length&&/^\|.*\|\s*$/.test(lines[i]))body.push(row(lines[i++]));out.push(`<div class="table-wrap"><table><thead><tr>${head.map(h=>`<th>${inline(h)}</th>`).join('')}</tr></thead><tbody>${body.map(r=>`<tr>${r.map(c=>`<td>${inline(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`);continue}
-  if(/^>\s?/.test(l)){const b=[];while(i<lines.length&&/^>\s?/.test(lines[i]))b.push(lines[i++].replace(/^>\s?/,''));out.push('<blockquote>'+md(b.join('\n'))+'</blockquote>');continue}
+  if(/^>\s?/.test(l)){const b=[];while(i<lines.length&&/^>\s?/.test(lines[i]))b.push(lines[i++].replace(/^>\s?/,''));const warn=/^\s*(⚠|❗|\*\*(warning|heads up|careful|note)\b)/i.test(b[0]||'');out.push('<blockquote'+(warn?' class="warn"':'')+'>'+md(b.join('\n'))+'</blockquote>');continue}
   const p=[];while(i<lines.length&&!/^\s*$/.test(lines[i])&&!/^\s*```|^#{1,6}\s|^>\s?|^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(lines[i])&&!(isItem(lines[i])&&p.length===0)&&!(isItem(lines[i])))p.push(inline(lines[i++]));out.push('<p>'+p.join('<br>')+'</p>');
  }
  return out.join('');
