@@ -217,11 +217,16 @@ function placePills(){$$('.tabs').forEach(t=>{const on=t.querySelector('button.o
  pill.style.left=to.left+'px';pill.style.width=to.width+'px';pillAt[key]=to})}
 
 /* ---------- floating layers ---------- */
-function closeLayers(){$$('.scrim,.palette,.drawer,.menu').forEach(e=>e.remove())}
+/* Closing a layer: it eases out first. Opening a replacement (another drawer, the palette) removes the old one at
+   once and keeps the dimmed background as it is, so nothing flashes. Reduced motion: gone at once. */
+const calm=()=>matchMedia('(prefers-reduced-motion: reduce)').matches;
+function leave(e,ms=200){if(!e?.isConnected)return;if(calm()){e.remove();return}if(e.classList.contains('closing'))return;e.classList.add('closing');e.style.pointerEvents='none';setTimeout(()=>e.remove(),ms)}
+function closeLayers(animate=true,{keepScrim=false}={}){document.querySelectorAll('.scrim,.palette,.drawer,.menu').forEach(e=>{if(keepScrim&&e.classList.contains('scrim')&&!e.classList.contains('closing'))return;animate?leave(e,e.classList.contains('menu')?150:210):e.remove()})}
+const openLayer=()=>{const had=document.querySelector('.scrim:not(.closing)');closeLayers(false,{keepScrim:true});if(!had)scrim()};
 function toast(msg,kind){const t=document.createElement('div');t.className='toast';t.innerHTML=icon(kind==='err'?'alert':'check',15)+esc(msg);$('#toasts').append(t);setTimeout(()=>{t.classList.add('out');setTimeout(()=>t.remove(),260)},kind==='err'?6000:2800)}
 const fail=e=>{if(e?.status!==401)toast(e?.message||String(e),'err')};
 function scrim(){const s=document.createElement('div');s.className='scrim';s.onclick=closeLayers;document.body.append(s)}
-function drawer(title,body,foot=''){closeLayers();scrim();const d=document.createElement('div');d.className='drawer';d.setAttribute('role','dialog');d.setAttribute('aria-label',title);d.innerHTML=`<div class="drawer-head"><h2>${esc(title)}</h2><button class="ghost icon" data-act="close" aria-label="Close">${icon('x',18)}</button></div><div class="drawer-body">${body}</div>${foot?`<div class="drawer-foot">${foot}</div>`:''}`;document.body.append(d);setTimeout(()=>d.querySelector('input:not([type=checkbox]),textarea,select')?.focus(),30);return d}
+function drawer(title,body,foot=''){openLayer();const d=document.createElement('div');d.className='drawer';d.setAttribute('role','dialog');d.setAttribute('aria-label',title);d.innerHTML=`<div class="drawer-head"><h2>${esc(title)}</h2><button class="ghost icon" data-act="close" aria-label="Close">${icon('x',18)}</button></div><div class="drawer-body">${body}</div>${foot?`<div class="drawer-foot">${foot}</div>`:''}`;document.body.append(d);setTimeout(()=>d.querySelector('input:not([type=checkbox]),textarea,select')?.focus(),30);return d}
 function menu(anchor,items,opt={}){$$('.menu').forEach(e=>e.remove());const m=document.createElement('div');m.className='menu';m.setAttribute('role','menu');const list=items.filter(Boolean);
  m.innerHTML=list.map((i,ix)=>i==='-'?'<hr>':i.header?`<div class="mh">${esc(i.header)}</div>`:`<button class="item ${i.bad?'bad':''} ${i.on?'cur':''}" role="menuitem" data-mi="${ix}" ${i.disabled?'disabled':''}>${i.icon?icon(i.icon,16):''}<span class="t">${esc(i.label)}${i.sub?`<small class="mi-sub">${esc(i.sub)}</small>`:''}</span>${i.on?`<span style="color:var(--blue)">${icon('check',15)}</span>`:''}${i.kbd?`<small style="margin-left:auto;color:var(--muted)">${esc(i.kbd)}</small>`:''}</button>`).join('');
  if(opt.matchWidth)m.style.minWidth=anchor.offsetWidth+'px';document.body.append(m);
@@ -246,7 +251,7 @@ function promptBox(title,label,value='',okLabel='Save'){return new Promise(res=>
 function actionDrawer(title,name){const d=drawer(title,`<div class="action-log" id="alog">Starting…</div>`,`<button class="primary" data-act="close">Done</button>`);followAction(name,(lines,done,code)=>{const el=d.querySelector('#alog');if(!el)return;el.textContent=(lines.join('').trim()||'(no output yet)')+(done?'\n\n'+(code===0||code==null?'✓ Finished':'✕ Exited with code '+code):'');el.scrollTop=el.scrollHeight})}
 async function runAction(title,path,body){try{const r=await post(H,path,body);if(r?.ok===false)throw new Error(r.error||r.message||'Failed');if(r?.name)actionDrawer(title,r.name);else toast(title+' done');return r}catch(e){fail(e)}}
 
-function palette(){closeLayers();scrim();const p=document.createElement('div');p.className='palette';p.setAttribute('role','dialog');p.setAttribute('aria-label','Search and commands');
+function palette(){openLayer();const p=document.createElement('div');p.className='palette';p.setAttribute('role','dialog');p.setAttribute('aria-label','Search and commands');
  const actions=[{g:'Actions',l:'New chat',ic:'plus',run:()=>Chat.newChat()},{g:'Actions',l:'Restart gateway',ic:'refresh',run:()=>restartGateway()},{g:'Actions',l:'Toggle light / dark',ic:'moon',run:()=>theme()},{g:'Actions',l:'Check for engine updates',ic:'download',run:()=>go('/system/host')},{g:'Actions',l:'Sign out',ic:'logout',run:()=>signOut()}];
  const models=(Chat.models||[]).slice(0,12).map(m=>({g:'Switch model',l:m.label+' · '+m.providerName,ic:'cpu',run:()=>Chat.setModel(m)}));
  const pages=SECTIONS.flatMap(s=>s.pages?s.pages.map(x=>({g:'Pages',l:s.label+' › '+x.label,ic:x.icon,run:()=>go('/'+s.id+'/'+x.id)})):[{g:'Pages',l:'Chat',ic:'chat',run:()=>go('/chat')},{g:'Pages',l:'Chat › Manage chats',ic:'list',run:()=>go('/chat/manage')}]);

@@ -352,7 +352,7 @@ const CronNotify={
    this.show(s,text)}},
  show(s,text){const n=document.createElement('div');n.className='cron-pop';const name=String(s.title||'Schedule').replace(/ · [A-Z][a-z]{2} \d+ \d\d:\d\d$/,'');
   n.innerHTML=`<span class="ic blue">${icon('clock',16)}</span><div class="txt"><b>${esc(name)}</b><span>${esc(String(text||'Finished.').slice(0,160))}</span></div><button class="ghost" data-go="/chat/${esc(s.id)}">Open</button><button class="ghost icon" aria-label="Close">${icon('x',14)}</button>`;
-  n.querySelector('[aria-label="Close"]').onclick=()=>n.remove();n.querySelector('[data-go]').addEventListener('click',()=>n.remove());
+  const bye=()=>{n.classList.add('out');setTimeout(()=>n.remove(),300)};n.querySelector('[aria-label="Close"]').onclick=bye;n.querySelector('[data-go]').addEventListener('click',bye);
   (document.querySelector('.cron-pops')||document.body.appendChild(Object.assign(document.createElement('div'),{className:'cron-pops'}))).append(n);setTimeout(()=>n.classList.add('out'),60000);setTimeout(()=>n.remove(),60500);
   try{if(document.hidden&&'Notification' in window&&Notification.permission==='granted')new Notification(name,{body:String(text||'').slice(0,120)})}catch{}}
 };

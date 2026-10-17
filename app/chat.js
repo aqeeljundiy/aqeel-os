@@ -129,8 +129,11 @@ const Chat={
   const sc=$('#scroll');const atBottom=!sc||sc.scrollHeight-sc.scrollTop-sc.clientHeight<120;
   const keep=$$('.step.open',th).map(x=>x.dataset.k);
   // an opened chat shows its history at once (no rise-in for old messages); new turns still animate
-  const opening=this._opening===this.id;if(opening){this._opening=null;th.classList.add('settled')}
+  const opening=this._opening===this.id;if(opening){this._opening=null;s._seen={n:1e9,k:new Set()}}   // what is there when a chat opens is history: shown at once
   th.innerHTML=s.turns.map((t,i)=>this.turnHtml(t,i,s)).join('')||'';
+  // the thread is redrawn on every streamed word: only messages and steps that are new since the last paint rise in
+  const seen=s._seen||(s._seen={n:0,k:new Set()});[...th.children].forEach((el,i)=>{if(i<seen.n)el.classList.add('still')});seen.n=th.children.length;
+  th.querySelectorAll('.step[data-k]').forEach(x=>{if(opening||seen.k.has(x.dataset.k))x.classList.add('still');seen.k.add(x.dataset.k)});
   keep.forEach(k=>th.querySelector(`.step[data-k="${k}"]`)?.classList.add('open'));
   // jump, never glide: the chat area scrolls smoothly for people, but placing the view must be instant
   if((follow&&atBottom||opening)&&sc){sc.style.scrollBehavior='auto';sc.scrollTop=sc.scrollHeight;if(opening)requestAnimationFrame(()=>{sc.scrollTop=sc.scrollHeight;requestAnimationFrame(()=>{sc.scrollTop=sc.scrollHeight;sc.style.scrollBehavior=''})});else sc.style.scrollBehavior=''}},
@@ -301,7 +304,7 @@ document.addEventListener('toggle',e=>{const d=e.target;if(!d?.matches?.('detail
 const Secrets={timer:null,
  start(){if(!this.timer)this.timer=setInterval(()=>this.check(),2500);this.check()},
  async check(){const slot=$('#secretSlot');if(!slot)return;let items=[];try{items=(await UI('/ui/secrets/pending?agent='+encodeURIComponent(agentProfile()||'default'))).items||[]}catch{return}
-  const ids=new Set(items.map(x=>x.id));slot.querySelectorAll('.secret-card:not(.done):not(.give)').forEach(c=>{if(!ids.has(c.dataset.id)){c.classList.add('out');setTimeout(()=>c.remove(),300)}});
+  const ids=new Set(items.map(x=>x.id));slot.querySelectorAll('.secret-card:not(.done):not(.give)').forEach(c=>{if(!ids.has(c.dataset.id)){Secrets.drop(c)}});
   for(const x of items)if(!slot.querySelector('[data-id="'+x.id+'"]')){slot.insertAdjacentHTML('beforeend',this.card(x));const c=slot.lastElementChild;const i=c.querySelector('input');i.focus();
    i.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();this.send(c)}};this.tick(c,x.expires)}
   if(!items.length&&!Object.values(Chat.live||{}).some(s=>s?.running)){clearInterval(this.timer);this.timer=null}},
@@ -327,14 +330,19 @@ const Secrets={timer:null,
   if(!ctx.value.trim()){err.textContent='Say what it is, so '+AGENT()+' knows when to use it.';return ctx.focus()}if(!val.value){err.textContent='Type or paste the value.';return val.focus()}
   b.disabled=true;err.textContent='';
   try{const r=await post(UI,'/ui/secrets/give',{agent:agentProfile()||'default',label:ctx.value.trim(),name:this.nameOf(ctx.value),value:val.value});val.value='';c.classList.add('done');
-   c.querySelector('.sc-main').innerHTML='<b>'+icon('check',15)+' Saved as '+esc(r.name)+'</b><span class="hint">'+esc(AGENT())+' now knows it has “'+esc(ctx.value.trim())+'” and can use it without seeing it.</span>';setTimeout(()=>{c.classList.add('out');setTimeout(()=>c.remove(),300)},3500);
+   c.querySelector('.sc-main').innerHTML='<b>'+icon('check',15)+' Saved as '+esc(r.name)+'</b><span class="hint">'+esc(AGENT())+' now knows it has “'+esc(ctx.value.trim())+'” and can use it without seeing it.</span>';setTimeout(()=>{Secrets.drop(c)},3500);
    // tell the agent (as a steer while it is working, otherwise as a message); the value is not in it
    const ta=$('#msg');if(ta){const keep=ta.value;ta.value=r.message;await Chat.submit();if(keep)setTimeout(()=>{const t=$('#msg');if(t&&!t.value){t.value=keep;t.dispatchEvent(new Event('input'))}},50)}}
   catch(e){err.textContent=e.message;b.disabled=false}},
+ drop(c){const slot=c.parentElement;if(!slot)return;c.classList.add('out');if(![...slot.children].some(x=>!x.classList.contains('out')))slot.classList.add('closing');
+  setTimeout(()=>{c.remove();if(!slot.children.length)slot.classList.remove('closing')},calm()?0:260)},
  tick(c,exp){const el=c.querySelector('.sc-left');const t=setInterval(()=>{if(!c.isConnected||c.classList.contains('done'))return clearInterval(t);const s=Math.max(0,Math.round((exp-Date.now())/1000));el.textContent=s?'Open for '+Math.floor(s/60)+':'+String(s%60).padStart(2,'0'):'Expired';if(!s)clearInterval(t)},1000)},
  async send(c){if(c.classList.contains('give'))return this.giveSend(c);const i=c.querySelector('input[data-val]'),err=c.querySelector('.sc-err'),b=c.querySelector('[data-act="secret-send"]');const v=i.value;if(!v){err.textContent='Type or paste it first.';return i.focus()}
   b.disabled=true;err.textContent='';
   try{const r=await post(UI,'/ui/secrets/'+encodeURIComponent(c.dataset.id),{value:v});i.value='';c.classList.add('done');
-   c.querySelector('.sc-main').innerHTML='<b>'+icon('check',15)+' '+esc(r.text||'Sent')+'</b><span class="hint">'+esc(AGENT())+' carries on without seeing it.</span>';setTimeout(()=>{c.classList.add('out');setTimeout(()=>c.remove(),300)},4000)}
+   c.querySelector('.sc-main').innerHTML='<b>'+icon('check',15)+' '+esc(r.text||'Sent')+'</b><span class="hint">'+esc(AGENT())+' carries on without seeing it.</span>';setTimeout(()=>{Secrets.drop(c)},4000)}
   catch(e){err.textContent=e.message;b.disabled=false}},
- async cancel(c){if(!c.classList.contains('give'))try{await post(UI,'/ui/secrets/'+encodeURIComponent(c.dataset.id),{cancel:true})}catch{}c.classList.add('out');setTimeout(()=>c.remove(),300)}};
+ async cancel(c){if(!c.classList.contains('give'))try{await post(UI,'/ui/secrets/'+encodeURIComponent(c.dataset.id),{cancel:true})}catch{}Secrets.drop(c)}};
+
+// a folded list of steps rises in when it is opened
+document.addEventListener('toggle',e=>{const d=e.target;if(!d.classList?.contains('steps-fold')||!d.open||calm())return;d.classList.add('opening');setTimeout(()=>d.classList.remove('opening'),360)},true);

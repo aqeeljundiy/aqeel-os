@@ -908,3 +908,22 @@ input[type=checkbox]:not(.switch)::after{margin:auto}
 .secret-card .sc-left{font-size:12px;color:var(--muted)}
 .secret-card .sc-err{font-size:12.5px;color:var(--bad);min-height:0}
 .secret-card .sc-err:empty{display:none}
+
+/* ---------- motion: things leave as smoothly as they arrive ---------- */
+@keyframes fadeOut{to{opacity:0}}
+@keyframes slideOut{to{transform:translateX(28px);opacity:0}}
+@keyframes menuOut{to{opacity:0;transform:translateY(-4px) scale(.98)}}
+@keyframes popOut{to{opacity:0;transform:translate(-50%,6px) scale(.98)}}
+.scrim.closing{animation:fadeOut .21s var(--ease) both}
+.drawer.closing{animation:slideOut .21s cubic-bezier(.4,0,1,1) both}
+.menu.closing{animation:menuOut .15s var(--ease) both}
+.palette.closing{animation:popOut .18s var(--ease) both}
+.secret-slot.closing{animation:fadeOut .26s var(--ease) both}
+@keyframes cardOut{to{opacity:0;transform:translateY(8px) scale(.98)}}
+.secret-slot .secret-card.out,.cron-pop.out{animation:cardOut .26s var(--ease) both}
+/* the chat: what is already on screen stays still while a reply streams; only new messages and steps rise in */
+.thread .msg.still,.thread .step.still,.thread .approval.still{animation:none}
+.steps-fold.opening>:not(summary){animation:rise .26s var(--ease) both}
+.steps-fold.opening>:not(summary):nth-child(3){animation-delay:30ms}.steps-fold.opening>:not(summary):nth-child(4){animation-delay:60ms}.steps-fold.opening>:not(summary):nth-child(n+5){animation-delay:90ms}
+/* everything settles quickly for people who ask their system for less motion */
+@media (prefers-reduced-motion: reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-delay:0ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}

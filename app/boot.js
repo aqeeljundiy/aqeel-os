@@ -29,7 +29,7 @@ document.addEventListener('click',e=>{
  const ts=e.target.closest('[data-tabset]');if(ts){const [k,v]=ts.dataset.tabset.split(':');S.tab[k]=v;reload();return}
  const c=e.target.closest('[data-cmd]');if(c){Chat.pickSlash(c.dataset.cmd);return}
  const pr=e.target.closest('[data-prompt]');if(pr){Chat.send(pr.dataset.prompt);return}
- if(!e.target.closest('.menu'))$$('.menu').forEach(x=>x.remove());
+ if(!e.target.closest('.menu'))$$('.menu:not(.closing)').forEach(x=>leave(x,150));
  if(e.target.closest('#send')){if(Chat.live[Chat.id]?.running)Chat.stop();else Chat.submit();return}
  const a=e.target.closest('[data-act]');if(!a)return;const act=a.dataset.act;
  if(ACT[act])return ACT[act](a,e);
