@@ -125,4 +125,16 @@ for(const h of homes){const sp=path.join(h,'skills','productivity','google-works
   const next=s.split('\n').map(l=>/==\s*["']Hermes|["']Hermes Agent["']\s*[:)\]]|X-Hermes|HermesAgent\//.test(l)?l:l.replace(/(["'])((?:\\.|(?!\1)[^\\])*)\1/g,(m,q,body)=>/\s/.test(body)&&/(?<![\w-])Hermes(?![\w-])/.test(body)?q+body.replace(/Hermes Agent/g,'aqeelOS').replace(/(?<![\w-])Hermes(?![\w-])/g,'aqeelOS')+q:m)).join('\n');
   if(next===s)continue;await writeFile(p,next);
   try{execFileSync(py,['-m','py_compile',p],{timeout:30000});changed++;console.log('renamed engine words in',rel)}catch{await writeFile(p,s);console.warn('! left',rel,'as it was (did not compile after renaming)')}}}
+// 9) Read aloud: Microsoft's free voice refuses old edge-tts versions (403). Any engine environment that carries an
+//    older edge-tts gets 7.3.1 (the old one is kept next to it as a backup); the dashboard picks it up when it restarts.
+{const base=path.join(HOME,'installs');const WANT='7.3.1';
+ const URL_='https://files.pythonhosted.org/packages/35/86/3b97d755992777d5a9ca0e45a8ec96cc9858b2d6dd8f65f3f688d60e8709/edge_tts-7.3.1-py3-none-any.whl';
+ const older=(a,b)=>{const x=a.split('.').map(Number),y=b.split('.').map(Number);for(let i=0;i<3;i++){if((x[i]||0)!==(y[i]||0))return (x[i]||0)<(y[i]||0)}return false};
+ const {execFileSync}=await import('node:child_process');let whl=null;
+ for(const i of readdirSync(base,{withFileTypes:true}).filter(d=>d.isDirectory()).map(d=>d.name))for(const e of (()=>{try{return readdirSync(path.join(base,i,'environments'))}catch{return []}})()){
+  const lib=path.join(base,i,'environments',e,'venv','lib');let sp=null;try{const py=readdirSync(lib).find(x=>x.startsWith('python'));if(py)sp=path.join(lib,py,'site-packages')}catch{}if(!sp)continue;
+  const info=(()=>{try{return readdirSync(sp).find(x=>/^edge_tts-[\d.]+\.dist-info$/.test(x))}catch{return null}})();if(!info)continue;const have=info.slice(9,-10);if(!older(have,WANT))continue;
+  try{if(!whl){whl='/tmp/edge_tts-'+WANT+'.whl';execFileSync('curl',['-sf','-o',whl,URL_],{timeout:60000})}
+   const bak=path.join(sp,'..','edge-tts-'+have+'.bak');execFileSync('mkdir',['-p',bak]);execFileSync('cp',['-a',path.join(sp,'edge_tts'),path.join(sp,info),bak]);
+   execFileSync('rm',['-rf',path.join(sp,'edge_tts'),path.join(sp,info)]);execFileSync('python3',['-c','import zipfile,sys;zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])',whl,sp]);changed++;console.log('read aloud: edge-tts',have,'→',WANT,'in',e)}catch(err){console.warn('! read aloud: could not update edge-tts in',e,err.message)}}}
 console.log(changed?changed+' change(s)':'skill patches already in place');

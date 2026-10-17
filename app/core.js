@@ -41,7 +41,10 @@ async function call(base,path,opt={}){
  return data;
 }
 // The active agent (Hermes profile): dashboard calls get ?profile=, gateway calls go through /p/<profile>/.
-const agentProfile=()=>S.chOverride||(S.profile&&S.profile!=='default'?S.profile:'');   // chOverride: setting up an extra connection (WhatsApp 2…)
+const agentProfile=()=>{if(S.chOverride)return S.chOverride;   // chOverride: setting up an extra connection (WhatsApp 2…)
+ // on Abilities and Webhooks you can look at another agent's list without switching who you chat with
+ if(S.viewAgent&&/^#\/(abilities|automations\/webhooks)/.test(location.hash))return S.viewAgent==='default'?'':S.viewAgent;
+ return S.profile&&S.profile!=='default'?S.profile:''};
 // Every dashboard call names its agent, the main one too: Hermes serves several agents from one backend
 // and refuses some writes (e.g. deleting a webhook) that don't say which.
 const withProfile=p=>{if(/[?&]profile=/.test(p))return p;return p+(p.includes('?')?'&':'?')+'profile='+encodeURIComponent(agentProfile()||'default')};

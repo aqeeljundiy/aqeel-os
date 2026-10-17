@@ -50,7 +50,7 @@ ACT['sched-fold']=(a,e)=>{if(e.target.closest('[data-act="sched-folder-menu"]'))
 ACT['sched-folder-menu']=(a,e)=>{e?.stopPropagation();const f=a.dataset.f;menu(a,[{label:'Rename folder',icon:'edit',run:async()=>{const v=await promptBox('Rename folder','Folder name',f,'Rename');if(!v||v.trim()===f)return;try{await post(UI,'/ui/schedules/folder',{from:f,to:v.trim()});toast('Folder renamed');reload()}catch(er){fail(er)}}}])};
 ACT['cron-open']=(a,e)=>{if(e.target.closest('.switch,[data-menu],button,label,input'))return;const j=(Pages.cronJobs||[]).find(x=>x.id===a.dataset.id&&(x.profile||'default')===a.dataset.profile);if(j)cronDetail(j)};
 async function moveSchedule(j){const have=[...new Set((Pages.cronJobs||[]).map(folderOf))];const v=await promptBox('Move to folder','Folder (an existing one or a new name). Folders: '+have.join(', '),folderOf(j),'Move');if(!v)return;
- try{await put(UI,'/ui/schedules/meta',{profile:j.profile||'default',id:j.id,folder:v.trim()});toast('Moved to '+v.trim());reload()}catch(e){fail(e)}}
+ const was=folderOf(j);try{await put(UI,'/ui/schedules/meta',{profile:j.profile||'default',id:j.id,folder:v.trim()});toastUndo('Moved to '+v.trim(),()=>put(UI,'/ui/schedules/meta',{profile:j.profile||'default',id:j.id,folder:was}).then(()=>reload()));reload()}catch(e){fail(e)}}
 async function describeSchedule2(j){const {m}=schedMeta(j);const v=await promptBox('Description','What it does and why, in one sentence',m.summary||'','Save');if(v==null)return;
  try{await put(UI,'/ui/schedules/meta',{profile:j.profile||'default',id:j.id,summary:v.trim()});toast('Saved');reload()}catch(e){fail(e)}}
 // the ⋯ menu gains Move, Describe and Details
@@ -100,3 +100,54 @@ async function cronDetail(j){const {m,r}=schedMeta(j);const prof=j.profile||'def
   <h3 class="sd-h">By agent, this month</h3><div class="spend-bars">${rows.map(r=>`<div class="sb-row"><span class="sb-n">${esc(ident(r.a).name)}</span><span class="sb-bar"><i style="width:${total?Math.max(2,r.month/total*100):0}%"></i></span><span class="sb-v">≈ ${usd(r.month)}</span></div>`).join('')}</div>
   ${top.length?`<h3 class="sd-h">Costliest schedules, last 31 days</h3><div class="sd-runs">${top.map(x=>`<div class="sd-run" style="grid-template-columns:2fr 1fr 1fr" ${x.j?`data-act="spend-open" data-id="${esc(x.j.id)}" data-profile="${esc(x.j.profile||'default')}"`:''}><span>${esc(stripBracket(x.j?.name||x.k))}</span><span>${plural(x.r.runs.length,'run')}</span><span>≈ ${usd(x.r.cost)}</span></div>`).join('')}</div>`:''}`}}
 ACT['spend-open']=a=>{const j=(Pages.cronJobs||[]).find(x=>x.id===a.dataset.id&&(x.profile||'default')===a.dataset.profile);if(j)cronDetail(j);else go('/automations/schedules')};
+
+/* ---------- Skills, MCP tools, Plugins and Webhooks belong to one agent each. A row of agent chips at the top says
+   whose you are looking at and switches to another agent's, without leaving the page or changing who you chat with.
+   Skills are grouped into folders by what they are for, each folding open and shut (remembered per person). ---------- */
+const VIEW_PAGES=/^(skills|mcp|plugins|webhooks)$/;
+async function viewAgents(){if(S._viewList)return S._viewList;let l=[];try{const pr=await H('/profiles');l=(Array.isArray(pr)?pr:pr.profiles||[]).map(x=>x.name)}catch{}
+ if(S.me&&S.me.admin===false)l=l.filter(a=>S.me.agents?.[a]);return S._viewList=l.filter(a=>!a.includes('--'))}
+function viewing(){return S.viewAgent||S.profile||'default'}
+for(const id of ['skills','mcp','plugins','webhooks']){const base=PAGES[id];if(!base)continue;PAGES[id]=async(p,el)=>{
+ // the agent being looked at decides whose list loads (cleared again on other pages, see agentProfile)
+ await base(p,el);const list=await viewAgents();if(list.length<2)return;const cur=viewing();
+ const bar=document.createElement('div');bar.className='view-agent';bar.innerHTML=`<span>${icon('user',14)}Showing</span><div class="seg-chips">${list.map(a=>`<button class="${a===cur?'on':''}" data-act="view-agent" data-a="${esc(a)}">${esc(ident(a).name)}</button>`).join('')}</div>`;
+ el.prepend(bar)}}
+ACT['view-agent']=a=>{const n=a.dataset.a;S.viewAgent=n===(S.profile||'default')?null:n;Pages._toolCache=null;reload()};
+// skills in folders by category
+{const base=PAGES.skills;PAGES.skills=async(p,el)=>{await base(p,el);if((S.tab.skills||'Installed')!=='Installed'||S.skillQ||(S.skillCat&&S.skillCat!=='All'))return;
+ const card=el.querySelector('.card.list');const rows=[...card?.querySelectorAll('.row[data-act="sk-open"]')||[]];if(rows.length<8)return;
+ const cat=n=>(Pages._skills||[]).find(s=>s.name===n)?.category||'other';const groups={};for(const r of rows)(groups[cat(r.dataset.name)]??=[]).push(r);
+ const shut=store.get('skFold',{});const box=document.createElement('div');
+ for(const g of Object.keys(groups).sort((a,b)=>(a==='other')-(b==='other')||a.localeCompare(b))){const l=groups[g];const on=l.filter(r=>r.querySelector('input:checked')).length;
+  const sec=document.createElement('section');sec.className='sched-folder'+(shut[g]?' shut':'');sec.innerHTML=`<button class="sf-head" data-act="sk-fold" data-f="${esc(g)}" aria-expanded="${!shut[g]}">${icon('chevD',16)}${icon('folder',16)}<b>${esc(pretty(g))}</b><span class="n">${l.length}</span><span class="sf-cost">${on} on</span></button><div class="sf-body"><div class="card list"></div></div>`;
+  l.forEach(r=>sec.querySelector('.card.list').append(r));box.append(sec)}
+ card.replaceWith(box)}}
+ACT['sk-fold']=a=>{const sec=a.closest('.sched-folder');const s=!sec.classList.contains('shut');sec.classList.toggle('shut',s);a.setAttribute('aria-expanded',!s);const f=store.get('skFold',{});f[a.dataset.f]=s;store.set('skFold',f)};
+
+/* ---------- Google accounts: one agent can use several (work, personal, a client's). Skills shows them with what each
+   may do; Connect another asks the agent, which sends a one-click Google sign-in link. ---------- */
+{const base=PAGES.skills;PAGES.skills=async(p,el)=>{await base(p,el);if((S.tab.skills||'Installed')!=='Installed')return;const ag=viewing();
+ let d;try{d=await UI('/ui/google-accounts?agent='+encodeURIComponent(ag))}catch{return}const l=d.accounts||[];if(!l.length&&!(Pages._skills||[]).some(s=>/google/.test(s.name)&&s.enabled))return;
+ const what=sc=>[...new Set(sc.map(s=>/gmail/.test(s)?'Gmail':/drive/.test(s)?'Drive':/calendar/.test(s)?'Calendar':/spreadsheets/.test(s)?'Sheets':/documents/.test(s)?'Docs':/presentations/.test(s)?'Slides':/contacts/.test(s)?'Contacts':'').filter(Boolean))].join(', ');
+ const panel=document.createElement('div');panel.className='panel card';panel.style.marginBottom='16px';
+ panel.innerHTML=`<h2>Google accounts</h2><p class="sub">${esc(ident(ag).name)} can use ${l.length===1?'this account':'these accounts'} for Gmail, Drive, Sheets, Docs and Calendar. Ask it to use a specific one (“from my Elkiya account”).</p>
+  ${l.map((x,i)=>`<div class="row" ${st(i)} style="padding:10px 0;border-top:1px solid var(--border)"><div class="main-c"><span class="ic blue">${icon('globe',16)}</span><div class="txt"><b>${esc(x.email||(x.name?pretty(x.name):'Main Google account'))}</b><span>${x.name?esc(x.name)+' · ':'Main · '}${esc(what(x.scopes)||plural(x.scopes.length,'permission'))}${x.renews?'':' · needs signing in again'}</span></div></div><div class="act">${S.me?.admin!==false?`<button class="ghost" data-act="gacc-del" data-n="${esc(x.name)}" data-e="${esc(x.email||x.name||'this account')}" style="color:var(--bad)">${icon('trash',15)}Remove</button>`:''}</div></div>`).join('')}
+  <button data-act="gacc-add" style="margin-top:10px">${icon('plus',15)}Connect another Google account</button>`;
+ el.querySelector('.view-agent')?el.querySelector('.view-agent').after(panel):el.prepend(panel)}}
+ACT['gacc-add']=()=>{if(viewing()!==(S.profile||'default'))switchAgent(viewing());go('/chat');setTimeout(()=>{const ta=$('#msg');if(ta){ta.value='Connect another Google account for me (Gmail, Drive, Sheets, Docs, Calendar). Give it a short name, send me the sign-in link, and tell me when it is connected.';ta.focus()}},400)};
+ACT['gacc-del']=async a=>{if(!await confirmBox('Remove '+a.dataset.e+'?',esc(ident(viewing()).name)+' can no longer use this Google account until it is connected again.','Remove'))return;
+ try{await del(UI,'/ui/google-accounts?agent='+encodeURIComponent(viewing())+'&name='+encodeURIComponent(a.dataset.n));toast('Removed');reload()}catch(e){fail(e)}};
+
+/* ---------- System › Host: who can reach the AI box over SSH (a teammate's laptop, Codex or Cursor on a PC…) ---------- */
+{const base=PAGES.host;PAGES.host=async(p,el)=>{await base(p,el);if(S.me?.admin===false)return;let d;try{d=await UI('/ui/ssh-keys')}catch{return}
+ const panel=document.createElement('div');panel.className='panel card';panel.style.marginTop='16px';
+ const paint=()=>{panel.innerHTML=`<h2>Access to the AI box</h2><p class="sub">Each laptop or AI tool (Codex, Cursor, Claude Code on another PC) gets its own key, so you can remove one without touching the others. Only the public key is ever pasted here.</p>
+  ${d.keys.map((k,i)=>`<div class="row" ${st(i)} style="padding:10px 0;border-top:1px solid var(--border)"><div class="main-c"><span class="ic blue">${icon('key',16)}</span><div class="txt"><b>${esc(k.name.replace(/-/g,' '))}</b><span style="font-family:var(--mono);font-size:11.5px">${esc(k.type)} · ${esc(k.fp)}${k.protected?' · used by aqeelOS’s builder':''}</span></div></div><div class="act">${k.protected?'':`<button class="ghost" data-act="ssh-del" data-fp="${esc(k.fp)}" data-n="${esc(k.name)}" style="color:var(--bad)">${icon('trash',15)}Remove</button>`}</div></div>`).join('')}
+  <button data-act="ssh-add" style="margin-top:10px">${icon('plus',15)}Give a device access</button>
+  <details class="sd-raw" style="margin-top:14px"><summary>How to connect from a new device</summary><div class="md" style="margin-top:8px">${md('1. On that device, make a key: `ssh-keygen -t ed25519 -C "my-laptop"` (press Enter at each question).\n2. Show the public key: `cat ~/.ssh/id_ed25519.pub` (on Windows: `type %USERPROFILE%\\.ssh\\id_ed25519.pub`) and paste it here with **Give a device access**.\n3. Connect: `ssh -p '+d.port+' '+d.user+'@'+d.host+'`.\n\nAn AI tool on that device (Codex, Cursor, Claude Code) can then work on the box the same way. Remove the key here when the device is lost or the person leaves.')}</div></details>`};
+ paint();el.append(panel);
+ panel.addEventListener('click',async e=>{const b=e.target.closest('[data-act]');if(!b)return;e.stopPropagation();
+  if(b.dataset.act==='ssh-add'){const dl=drawer('Give a device access',`<label>Name</label><input id="skN" placeholder="Aqeel’s MacBook"><label>Public key</label><textarea id="skK" rows="4" placeholder="ssh-ed25519 AAAA… my-laptop" style="font-family:var(--mono);font-size:12px"></textarea><p class="hint">One line starting with ssh-ed25519 or ssh-rsa. Never paste a private key (the file without .pub).</p>`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="skGo">Give access</button>`);
+   dl.querySelector('#skGo').onclick=async()=>{try{d=await post(UI,'/ui/ssh-keys',{name:$('#skN').value,key:$('#skK').value});closeLayers();toast('Access given');paint()}catch(er){fail(er)}}}
+  if(b.dataset.act==='ssh-del'){if(!await confirmBox('Remove '+b.dataset.n.replace(/-/g,' ')+'?','That device can no longer reach the AI box. Its AI tools lose access too.','Remove'))return;try{d=await del(UI,'/ui/ssh-keys',{fp:b.dataset.fp});toast('Access removed');paint()}catch(er){fail(er)}}})}}

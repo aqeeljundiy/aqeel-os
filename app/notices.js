@@ -40,3 +40,8 @@ const Inbox={key:'hui-inbox',
    return head+`<div class="ib-item ${x.read?'':'unread'}" data-inbox="${esc(x.id)}" ${st(Math.min(i,10))} tabindex="0"><span class="ic ${esc(x.kind)}">${icon(x.icon,15)}</span><div class="txt"><b>${esc(x.title)}</b>${x.text?`<span>${esc(x.text)}</span>`:''}<small>${esc(new Date(x.t).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}))}${x.go?' · '+esc(x.label):''}</small></div><button class="ghost icon ib-x" data-ib-x aria-label="Remove">${icon('x',13)}</button></div>`}).join('')}};
 // every pop-up also lands in the inbox, and reading it in either place counts
 {const show=Notices.show.bind(Notices);Notices.show=o=>{const id=Inbox.add(o);const n=show({...o,onRead:()=>Inbox.read(id),onClose:()=>{o.onClose?.()}});return n}}
+
+// Undo instead of "are you sure?": things that can be put back happen at once, with Undo in the message for 8 seconds
+function toastUndo(msg,undo){const t=document.createElement('div');t.className='toast undo';t.innerHTML=icon('check',15)+'<span>'+esc(msg)+'</span><button class="ghost small">Undo</button>';$('#toasts').append(t);
+ let done=false;const bye=()=>{t.classList.add('out');setTimeout(()=>t.remove(),260)};const tm=setTimeout(bye,8000);
+ t.querySelector('button').onclick=async()=>{if(done)return;done=true;clearTimeout(tm);bye();try{await undo();toast('Undone')}catch(e){fail(e)}}}

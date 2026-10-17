@@ -77,7 +77,7 @@ async function readBody(req,limit=1e6){return (await readRaw(req,limit)).toStrin
    the engine when the page goes away. Copies are dropped two minutes after the reply ends. */
 const LIVE=new Map();
 function liveStart(key,user){const rec={user,chunks:[],subs:new Set(),done:false,t:Date.now()};LIVE.set(key,rec);return rec}
-function liveEnd(key,rec){rec.done=true;for(const r of rec.subs)r.end();rec.subs.clear();setTimeout(()=>{if(LIVE.get(key)===rec)LIVE.delete(key)},120000)}
+function liveEnd(key,rec){rec.done=true;saveThinking(key,rec);for(const r of rec.subs)r.end();rec.subs.clear();setTimeout(()=>{if(LIVE.get(key)===rec)LIVE.delete(key)},120000)}
 function proxy(req,res,target,prefix,authHeaders,{transform,body,live}={}){
  const url=new URL(req.url,'http://x');
  // /hapi/status → dashboard /api/status · /gapi/api/sessions → gateway /api/sessions
@@ -270,16 +270,30 @@ async function agentHealth(only){const h={'x-hermes-session-token':DASH_TOKEN};c
    progress survive. The watch (every minute) starts a gateway when none runs, and replaces one the engine
    started itself only when THAT gateway cannot reach Claude. A deliberate Stop from the app is respected. */
 let gwStopped=false,gwRestarting=null,gwMissing=0;
+// Thinking survives a refresh: the engine keeps no thinking text for some models (only a sealed signature), so when
+// a reply streamed through aqeelOS ends, the thinking it showed is saved per chat and shown again when it is reopened.
+async function saveThinking(key,rec){try{const sid=key.split('|').slice(1).join('|');if(!/^[\w.-]{3,120}$/.test(sid))return;
+ let user='',think='',secs=0,t0=0,t1=0;
+ for(const ev of Buffer.concat(rec.chunks).toString('utf8').split('\n\n')){const name=(/^event: *(.+)$/m.exec(ev)||[])[1];const dl=ev.split('\n').filter(l=>l.startsWith('data:')).map(l=>l.slice(5)).join('');if(!dl)continue;let e;try{e=JSON.parse(dl)}catch{continue}const ty=e.type||name;
+  if(ty==='run.started'){const c=e.user_message?.content;user=typeof c==='string'?c:Array.isArray(c)?c.map(x=>x.text||'').join(''):''}
+  if(ty==='reasoning.delta'||ty==='assistant.reasoning'||(ty==='tool.progress'&&e.tool_name==='_thinking')){const d=e.delta||e.text||'';if(d){if(!t0)t0=Date.now();think+=d}}}
+ if(!think.trim()||!user)return;const f=path.join(DATA,'thinking',sid+'.json');const l=await readFile(f,'utf8').then(JSON.parse).catch(()=>[]);
+ l.push({u:user.slice(0,300),think:think.slice(0,20000),by:rec.user,t:Date.now()});await mkdir(path.dirname(f),{recursive:true});await writeFile(f,JSON.stringify(l.slice(-200)))}catch(e){console.warn('save thinking',e.message)}}
 const liveCount=()=>[...LIVE.values()].filter(r=>!r.done).length;
 const shx=async c=>{const {execFile}=await import('node:child_process');return new Promise(r=>execFile('bash',['-c',c],{timeout:150000,env:{...process.env,PATH:homedir()+'/.local/bin:'+process.env.PATH}},(e,o)=>r({ok:!e,out:String(o||'')})))};
 async function gatewayPid(){const t=await readFile(path.join(HERMES_HOME,'gateway.pid'),'utf8').catch(()=>'');const pid=Number((/\d+/.exec(t)||[])[0]);if(!pid)return 0;try{process.kill(pid,0);return pid}catch{return 0}}
+// Every engine restart is noted (ours with the reason, and ones the engine does by itself), so the bell can say why
+// Slack or WhatsApp dropped for a moment instead of it being a mystery.
+let sysEvents=[],lastGwPid=0,lastOwnRestart=0;
+function noteSys(kind,why){sysEvents.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),t:Date.now(),kind,why:String(why||'').slice(0,160)});sysEvents=sysEvents.slice(-50)}
 function restartGateway(why,{wait=true}={}){if(gwRestarting)return gwRestarting;if(PORT!==4400){console.log('gateway restart skipped (test copy):',why);return Promise.resolve()}
  gwRestarting=(async()=>{if(wait)for(let i=0;i<120&&liveCount()>0;i++)await new Promise(r=>setTimeout(r,5000));
-  console.log('gateway restart:',why);gwStopped=false;
+  console.log('gateway restart:',why);gwStopped=false;lastOwnRestart=Date.now();noteSys('restart',why);
   await shx('hermes -p default gateway stop >/dev/null 2>&1; for i in $(seq 1 30); do p=$(grep -o "[0-9]*" ~/.hermes/gateway.pid 2>/dev/null | head -1); [ -n "$p" ] && kill -0 "$p" 2>/dev/null || break; sleep 1; done; tmux kill-session -t gateway 2>/dev/null; sleep 1; ~/services.sh >/dev/null 2>&1');
   platCache.clear()})().finally(()=>{gwRestarting=null});return gwRestarting}
 async function gatewayWatch(){if(gwStopped||gwRestarting)return;
  const pid=await gatewayPid();const inTmux=(await shx('tmux has-session -t gateway')).ok;
+ if(pid&&lastGwPid&&pid!==lastGwPid&&Date.now()-lastOwnRestart>180000)noteSys('restart-self','');if(pid)lastGwPid=pid;
  // nothing running at all, twice in a row (so an engine restart in progress is not cut off): start it
  if(!pid&&!inTmux){if(++gwMissing<2)return;gwMissing=0;console.warn('gateway watch: no gateway was running');return restartGateway('no gateway was running',{wait:false})}
  gwMissing=0;if(inTmux||!pid)return;
@@ -288,6 +302,22 @@ async function gatewayWatch(){if(gwStopped||gwRestarting)return;
  const bad=log.some(l=>{const t=Date.parse(l.slice(0,19).replace(' ','T')+'Z');return t&&t>since+5000&&Date.now()-t<10*60e3});
  if(bad){console.warn('gateway watch: the gateway the engine started cannot reach Claude; restarting it properly');return restartGateway('gateway outside its session cannot reach Claude')}}
 if(PORT===4400){setInterval(()=>gatewayWatch().catch(()=>{}),60000).unref()}
+/* Memory guard. The AI box has a fixed memory limit; when it runs full, the engine or the dashboard is killed.
+   Every 2 minutes: above 80% the bell says so (once an hour); above 90%, with no reply, schedule, setup or relay in
+   progress, the AdsPower browsers are closed (AdsPower itself stays open and a browser reopens when an agent needs it).
+   The Host page shows the numbers in plain words. */
+async function memNow(){const n=async f=>Number((await readFile(f,'utf8').catch(()=>'')).trim())||0;
+ const cur=await n('/sys/fs/cgroup/memory.current'),max=await n('/sys/fs/cgroup/memory.max');if(cur&&max)return {used:cur,max};
+ const m=await readFile('/proc/meminfo','utf8').catch(()=>'');const kb=k=>Number((new RegExp('^'+k+':\\s+(\\d+)','m').exec(m)||[])[1]||0)*1024;return {used:kb('MemTotal')-kb('MemAvailable'),max:kb('MemTotal')}}
+let memWarned=0;
+async function memGuard(){const {used,max}=await memNow();if(!max)return;const pct=used/max;
+ if(pct>0.8&&Date.now()-memWarned>3600e3){memWarned=Date.now();noteSys('memory',Math.round(pct*100)+'% of memory in use ('+(used/1e9).toFixed(1)+' of '+(max/1e9).toFixed(1)+' GB)')}
+ if(pct<=0.9)return;if(liveCount()>0||opsBusy()>0||relay.sending()>0||export_setups.running()>0||gwRestarting)return;
+ const key=((await readFile(path.join(HERMES_HOME,'.env'),'utf8').catch(()=>'')).match(/^ADSPOWER_API_KEY=["']?([^"'\n]+)/m)||[])[1]||'';const h=key?{authorization:'Bearer '+key}:{};
+ const act=await fetch('http://127.0.0.1:50325/api/v1/browser/local-active',{headers:h,signal:AbortSignal.timeout(5000)}).then(r=>r.json()).catch(()=>null);const list=act?.data?.list||[];let n=0;
+ for(const b of list){const id=b.user_id||b.profile_id;if(!id)continue;const r=await fetch('http://127.0.0.1:50325/api/v1/browser/stop?user_id='+encodeURIComponent(id),{headers:h,signal:AbortSignal.timeout(8000)}).then(r=>r.json()).catch(()=>null);if(r?.code===0)n++}
+ if(n){console.warn('memory guard: memory at',Math.round(pct*100)+'%, closed',n,'AdsPower browser(s)');noteSys('memory-freed','Memory was almost full, so '+n+' AdsPower browser'+(n>1?'s were':' was')+' closed. They reopen when an agent needs them.')}}
+if(PORT===4400)setInterval(()=>memGuard().catch(e=>console.warn('memory guard',e.message)),120000).unref();
 // the dashboard (settings, channels, sign-ins, dictation) can be killed when the box runs out of memory: if it does
 // not answer twice in a row, it is started again (in its managed session, like the engine)
 let dashMissing=0;
@@ -814,6 +844,33 @@ const server=createServer(async(req,res)=>{
     const r=await hcmd(ag,['plugins',b.enabled?'enable':'disable',name],{timeout:150000});
     return r.ok?send(res,200,{ok:true,restart_required:/restart/i.test(r.out)}):send(res,400,{error:(r.err||'Could not change the plugin').slice(0,300)})}
    if(p==='/ui/box'&&req.method==='GET')return send(res,200,await boxMemory());
+   // Google accounts an agent can use (the Google Workspace skill keeps one sign-in per account); never the tokens themselves
+   if(p==='/ui/google-accounts'){const a=String(url.searchParams.get('agent')||'default');if(!(await listAllProfiles()).includes(a))return send(res,400,{error:'Unknown agent'});
+    if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a))return send(res,403,{error:'Not your agent'});
+    const home=a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
+    if(req.method==='GET'){const out=[];for(const f of await readdir(home).catch(()=>[])){const m=/^google_token(?:_([\w.-]+))?\.json$/.exec(f);if(!m)continue;
+      try{const j=JSON.parse(await readFile(path.join(home,f),'utf8'));out.push({name:m[1]||'',email:j.account||'',scopes:(j.scopes||[]).map(s=>String(s).split('/').pop()),renews:!!j.refresh_token,expiry:j.expiry||null})}catch{}}
+     return send(res,200,{accounts:out})}
+    if(req.method==='DELETE'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can remove a Google account.'});const n=String(url.searchParams.get('name')||'');if(n&&!/^[\w.-]{1,60}$/.test(n))return send(res,400,{error:'Unknown account'});
+     await unlink(path.join(home,'google_token'+(n?'_'+n:'')+'.json')).catch(()=>{});console.log('removed google account',n||'(main)','from',a);return send(res,200,{ok:true})}}
+   // Who can reach the AI box over SSH: one public key per device or AI tool, added and removed here (admins only).
+   // Only public keys are ever handled; the key aqeelOS's own builder uses cannot be removed from here.
+   if(p==='/ui/ssh-keys'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can manage access to the AI box.'});
+    const f=path.join(homedir(),'.ssh','authorized_keys');const lines=(await readFile(f,'utf8').catch(()=>'')).split('\n').filter(l=>l.trim()&&!l.trim().startsWith('#'));
+    const {createHash}=await import('node:crypto');const fp=l=>{const b=l.trim().split(/\s+/)[1]||'';try{return 'SHA256:'+createHash('sha256').update(Buffer.from(b,'base64')).digest('base64').replace(/=+$/,'')}catch{return ''}};
+    const list=()=>lines.map(l=>{const [type,,...c]=l.trim().split(/\s+/);return {type,name:c.join(' ')||'(no name)',fp:fp(l),protected:/^windows-pc$/.test(c.join(' '))}});
+    if(req.method==='GET')return send(res,200,{keys:list(),host:'ai.elkiya.com',port:2222,user:'claude'});
+    let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
+    if(req.method==='POST'){const k=String(b.key||'').trim().replace(/\s+/g,' ');const name=String(b.name||'').trim().replace(/[^\w .@-]/g,'').slice(0,60);
+     const m=/^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(?:256|384|521)|sk-ssh-ed25519@openssh\.com) ([A-Za-z0-9+/=]{60,}) ?(.*)$/.exec(k);if(!m)return send(res,400,{error:'That is not an SSH public key. It starts with ssh-ed25519 (or ssh-rsa) and is one line. Never paste a private key.'});
+     if(!name)return send(res,400,{error:'Give it a name, like “Aqeel’s MacBook” or “Codex on the office PC”.'});
+     if(lines.some(l=>l.split(/\s+/)[1]===m[2]))return send(res,400,{error:'That key already has access.'});
+     await mkdir(path.dirname(f),{recursive:true,mode:0o700});await writeFile(f,[...lines,m[1]+' '+m[2]+' '+name.replace(/\s+/g,'-')].join('\n')+'\n',{mode:0o600});console.log('ssh access added:',name,'by',u.name||u.id);return send(res,200,{keys:(lines.push(m[1]+' '+m[2]+' '+name.replace(/\s+/g,'-')),list())})}
+    if(req.method==='DELETE'){const i=list().findIndex(x=>x.fp===b.fp);if(i<0)return send(res,404,{error:'No such key'});if(list()[i].protected)return send(res,400,{error:'This key is how aqeelOS itself is maintained; it stays.'});
+     const name=list()[i].name;lines.splice(i,1);await writeFile(f,lines.join('\n')+'\n',{mode:0o600});console.log('ssh access removed:',name,'by',u.name||u.id);return send(res,200,{keys:list()})}}
+   if(p==='/ui/memory'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Admins only.'});return send(res,200,await memNow())}
+   if(p==='/ui/system-events'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,200,{events:[]});return send(res,200,{events:sysEvents})}
+   if(p==='/ui/thinking'&&req.method==='GET'){const sid=String(url.searchParams.get('session')||'');if(!/^[\w.-]{3,120}$/.test(sid))return send(res,200,{items:[]});const l=await readFile(path.join(DATA,'thinking',sid+'.json'),'utf8').then(JSON.parse).catch(()=>[]);return send(res,200,{items:l.filter(x=>users.isAdmin(u)||x.by===u.id).map(({u:q,think})=>({u:q,think}))})}
    if(p==='/ui/live'&&req.method==='GET'){const rec=LIVE.get((url.searchParams.get('agent')||'default')+'|'+(url.searchParams.get('session')||''));
     if(!rec||rec.done||rec.user!==u.id)return send(res,url.searchParams.has('peek')?200:204,url.searchParams.has('peek')?{live:false}:'');
     if(url.searchParams.has('peek'))return send(res,200,{live:true,since:rec.t});

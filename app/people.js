@@ -695,8 +695,8 @@ ACT['ch-more']=a=>{const ag=a.dataset.agent,pf=a.dataset.platform,paused=!!a.dat
   !extra&&{label:paused?'Resume (answer it again)':'Pause (nobody answers)',icon:paused?'play':'pause',run:()=>setPaused(ag,pf,!paused)},
   '-',{label:wa?'Remove this WhatsApp':'Remove this connection',icon:'trash',bad:true,run:()=>wa?ACT['wa-remove']({dataset:{agent:ag}}):ACT['ch-remove']({dataset:{agent:ag,platform:pf}})}])};
 async function setPaused(ag,pf,on){const what=appName(pf);
- if(on&&!await confirmBox('Pause '+what+'?',what+' stays linked and ready, but no agent answers it until you resume it. Nothing needs to be set up again.','Pause',false))return;
- try{const r=await post(UI,'/ui/channels/pause',{agent:ag,platform:pf,on:!on});toast(what+(on?' paused':' answers again')+(r.restarting?' · the main agent’s channels restart for a moment':''));reload()}catch(e){fail(e)}}
+ try{const r=await post(UI,'/ui/channels/pause',{agent:ag,platform:pf,on:!on});const m=what+(on?' paused: stays linked, nobody answers it':' answers again')+(r.restarting?' · the main agent’s channels restart for a moment':'');if(on)toastUndo(m,()=>setPausedQuiet(ag,pf,false));else toast(m);reload()}catch(e){fail(e)}}
+async function setPausedQuiet(ag,pf,on){await post(UI,'/ui/channels/pause',{agent:ag,platform:pf,on:!on});reload()}
 // reconnect one channel: on a second agent only that channel restarts; the main agent's channels share the engine
 async function reconnectChannel(ag,pf){const main=ag.split('--')[0]==='default'&&!ag.includes('--');
  if(main&&!await confirmBox('Reconnect '+appName(pf)+'?','The main agent’s channels only reconnect by restarting the engine, so every agent pauses for about 20 seconds (replies in progress finish first).','Reconnect',false))return;
@@ -705,3 +705,13 @@ async function reconnectChannel(ag,pf){const main=ag.split('--')[0]==='default'&
 // the bell (Inbox lives in notices.js, which loads before the action table)
 ACT['inbox']=()=>{if($('.drawer.inbox'))return closeLayers();Inbox.open()};
 setTimeout(()=>Inbox.paintBell(),300);setInterval(()=>Inbox.paintBell(),2000);addEventListener('storage',e=>{if(e.key==='hui-inbox')Inbox.paintBell()});
+
+// engine restarts land in the bell with the reason in plain words (so a channel dropping for a moment is explained)
+const SysEvents={async check(){if(document.hidden||!S.signedIn||S.me?.admin===false)return;let ev=[];try{ev=(await UI('/ui/system-events')).events||[]}catch{return}
+ const seen=new Set(store.get('sysSeen',[]));let n=0;
+ for(const e of ev){if(seen.has(e.id))continue;seen.add(e.id);n++;const w=e.why||'';
+  const why=e.kind==='restart-self'?'The engine restarted on its own, usually after a settings change.':/^restart from the app/.test(w)?'Someone pressed Restart agents.':/WhatsApp linked/.test(w)?'A WhatsApp number was linked.':/removed from/.test(w)?'A channel was removed.':/^reconnect/.test(w)?'A channel of the main agent was reconnected.':/^(paused|resumed)/.test(w)?'A channel was paused or resumed.':/no gateway was running/.test(w)?'It had stopped, so it was started again.':/restored/.test(w)?'An agent was restored.':/cannot reach/.test(w)?'It had lost its model sign-in, so it was restarted properly.':w;
+  if(/^memory/.test(e.kind)){Inbox.add({key:'sys:'+e.id,icon:'activity',kind:e.kind==='memory'?'warn':'blue',title:e.kind==='memory'?'The AI box is low on memory':'Memory freed',text:e.kind==='memory'?e.why+'. Heavy jobs may fail; idle browsers close by themselves.':e.why,go:'/system/host',actions:[{label:'Host',go:'/system/host'}]});continue}
+  Inbox.add({key:'sys:'+e.id,icon:'refresh',kind:'blue',title:'Agents restarted for a moment',text:why+' Channels (WhatsApp, Telegram, Slack) reconnected by themselves.',go:'/automations/channels',actions:[{label:'Channels',go:'/automations/channels'}]})}
+ if(n)store.set('sysSeen',[...seen].slice(-100))}};
+setInterval(()=>SysEvents.check(),60000);setTimeout(()=>SysEvents.check(),8000);

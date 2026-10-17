@@ -140,6 +140,10 @@ const Chat={
  async loadHistory(id){
   try{const d=await H('/sessions/'+encodeURIComponent(id)+'/messages?limit=500&order=latest');if(this.id!==id)return;
    if(this.live[id]?.running)return;this.live[id]={turns:this.toTurns(d.messages||[]),running:false};this._opening=id;this.paint();this.follow(id);
+   // the thinking shown while each reply streamed (saved by aqeelOS; some models keep none themselves)
+   UI('/ui/thinking?session='+encodeURIComponent(id)).then(x=>{const s=this.live[id];if(!s||s.running||!(x.items||[]).length)return;let changed=false;const T=s.turns;
+    for(let i=0;i<T.length-1;i++){if(T[i].role!=='user')continue;const ai=T[i+1];if(ai?.role!=='ai'||ai.think)continue;const q=String(T[i].text||'').slice(0,300);const hit=x.items.find(y=>y.u===q||(q&&y.u.startsWith(q.slice(0,120))));if(hit){ai.think=hit.think;changed=true}}
+    if(changed&&this.id===id)this.paint()}).catch(()=>{});
    // A session that was continued after compaction: offer the newest continuation.
    // The engine follows only chats compacted for length; a chat that was reset and carried on (WhatsApp does this)
    // names the chat it continues, so that chain is followed here to its newest chat.
