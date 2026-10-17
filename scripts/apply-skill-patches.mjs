@@ -109,4 +109,10 @@ for(const h of homes){const sp=path.join(h,'skills','productivity','google-works
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # aqeelos:port-reuse (TIME_WAIT is not "in use")
             sock.bind(("127.0.0.1", port))`;
  if(!s.includes('aqeelos:port-reuse')&&s.includes(from)){await writeFile(pf,s.replace(from,to));changed++;console.log('patched',pf)}}}
+// 7) The engine's own messages (to WhatsApp, Telegram, the chat: "Hermes is shutting down", "Hermes is back"…)
+//    say aqeelOS. Only the words people read change; commands such as `hermes gateway restart` stay as they are.
+{const dir=path.join(HOME,'hermes-agent','locales');
+ for(const f of await readdir(dir).catch(()=>[])){if(!/\.ya?ml$/.test(f))continue;const p=path.join(dir,f);const s=await readFile(p,'utf8');
+  const next=s.split('\n').map(l=>/^\s*[\w.-]+:\s/.test(l)||/^\s+["']/.test(l)?l.replace(/Hermes Agent/g,'aqeelOS').replace(/\bHermes\b/g,'aqeelOS'):l).join('\n');
+  if(next!==s){await writeFile(p,next);changed++;console.log('renamed engine messages in',f)}}}
 console.log(changed?changed+' change(s)':'skill patches already in place');

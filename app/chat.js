@@ -95,7 +95,10 @@ const Chat={
  paintQueue(){const el=$('#queueList');if(!el)return;const s=this.live[this.id];const q=s?.queue||[];
   el.innerHTML=q.length?`<div class="queue">${q.map((m,i)=>`<span class="qchip" title="${esc(m.text)}"><b>${i+1}</b><span class="qt">${esc(m.text)}</span><button class="ghost icon" data-act="unqueue" data-i="${i}" aria-label="Remove from queue">${icon('x',12)}</button></span>`).join('')}${s.paused&&!s.running?`<span class="qnote">Paused after Stop</span><button class="qgo" data-act="queue-go">${icon('play',13)}Send next</button>`:`<span class="qnote">${s.running?'Runs after this reply':''}</span>`}</div>`:''},
  runQueue(id){const s=this.live[id];if(!s||s.running||s.paused||!s.queue?.length)return;const next=s.queue.shift();if(this.id===id)this.paintQueue();setTimeout(()=>this.send(next.text,next.images||[],id),250)},
- paintComposerBar(){const b=$('#cbar');if(b)b.innerHTML=this.barHtml();const ta=$('#msg');if(ta)ta.placeholder=this.placeholder();this.paintQueue()},
+ async browserChip(){const id=this.id;if(!id)return;let st={};try{st=await UI('/ui/local-browser/status?session='+encodeURIComponent(id))}catch{return}if(this.id!==id)return;
+  const l=$('.cb-l');if(!l)return;l.querySelector('.lb-chip')?.remove();if(!st.session)return;
+  l.insertAdjacentHTML('beforeend','<span class="lb-chip" title="This chat browses in your own Chrome">'+icon('monitor',13)+'In my browser<button class="ghost icon" data-act="lb-off" title="Back to the AI box screen" aria-label="Back to the AI box screen">'+icon('x',12)+'</button></span>')},
+ paintComposerBar(){const b=$('#cbar');if(b)b.innerHTML=this.barHtml();this.browserChip();const ta=$('#msg');if(ta)ta.placeholder=this.placeholder();this.paintQueue()},
  draftKey(){return 'draft:'+(S.profile||'default')+'|'+(this.id||'new')},
  bindComposer(){const ta=$('#msg');if(!ta)return;ta.focus();
   try{const d=localStorage.getItem(this.draftKey());if(d&&!ta.value){ta.value=d;ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,220)+'px'}}catch{}
@@ -116,7 +119,10 @@ const Chat={
   try{const d=await H('/sessions/'+encodeURIComponent(id)+'/messages?limit=500&order=latest');if(this.id!==id)return;
    if(this.live[id]?.running)return;this.live[id]={turns:this.toTurns(d.messages||[]),running:false};this._opening=id;this.paint();this.follow(id);
    // A session that was continued after compaction: offer the newest continuation.
-   H('/sessions/'+encodeURIComponent(id)+'/latest-descendant').then(x=>{const nid=x?.latest_id||x?.session_id||x?.id;if(nid&&nid!==id&&this.id===id){const th=$('#thread');th?.insertAdjacentHTML('afterbegin',`<div class="approval" style="background:var(--blue-soft);border-color:transparent"><h4>${icon('fork',16)}This chat continues in a newer one</h4><p>aqeelOS compacted it and carried on in a follow-up chat.</p><div class="btns"><button class="primary" data-go="/chat/${esc(nid)}">Open the latest</button></div></div>`)}}).catch(()=>{});
+   // The engine follows only chats compacted for length; a chat that was reset and carried on (WhatsApp does this)
+   // names the chat it continues, so that chain is followed here to its newest chat.
+   const chain=from=>{let cur=from,seen=new Set([from]);for(;;){const next=(S.sessions||[]).filter(c=>c.parent_session_id===cur&&!seen.has(c.id)).sort((a,b)=>(b.started_at||0)-(a.started_at||0))[0];if(!next)return cur;seen.add(next.id);cur=next.id}};
+   H('/sessions/'+encodeURIComponent(id)+'/latest-descendant').then(x=>{let nid=x?.latest_id||x?.session_id||x?.id;if(!nid||nid===id)nid=chain(id);else nid=chain(nid);if(nid&&nid!==id&&this.id===id){const th=$('#thread');th?.insertAdjacentHTML('afterbegin',`<div class="approval" style="background:var(--blue-soft);border-color:transparent"><h4>${icon('fork',16)}This chat continues in a newer one</h4><p>It carried on in a follow-up chat (it got long, or the conversation was reset).</p><div class="btns"><button class="primary" data-go="/chat/${esc(nid)}">Open the latest</button></div></div>`)}}).catch(()=>{});
   }catch(e){if(this.id===id)showError($('#scroll'),e)}
  },
  toTurns(msgs){const turns=[];let ai=null;const byCall={};
@@ -227,6 +233,7 @@ const Chat={
   }catch(e){if(e.name!=='AbortError'){(s.ai||ai).error=e.message||String(e)}}
   finally{s.running=false;s.abort=null;s.runId=null;for(const t of s.runTurns||[ai])t.steps.forEach(x=>{if(!x.done){x.done=true;x.failed=x.failed||!!t.error}});
    for(const t of s.turns)if(t.steer==='sending')t.steer='sent';
+   if(s.autoGo){s.autoGo=false;s.paused=false;(s.queue??=[]).unshift({text:'Go ahead in my browser.',images:[]})}   // the person chose their browser: its tools load with this next turn
    const last=s.ai||ai;if(!last.meta)last.meta=[modelLabel(last.model||ai.model||m.id),this.effort,Math.round((Date.now()-s.started)/1000)+' s'].filter(Boolean).join(' · ');
    if(this.id===id){this.paint();this.paintComposerBar()}this.loadSessions();this.runQueue(id)}
  },
@@ -318,10 +325,24 @@ const Secrets={timer:null,
  start(){if(!this.timer)this.timer=setInterval(()=>this.check(),2500);this.check()},
  async check(){const slot=$('#secretSlot');if(!slot)return;let items=[];try{items=(await UI('/ui/secrets/pending?agent='+encodeURIComponent(agentProfile()||'default'))).items||[]}catch{return}
   const ids=new Set(items.map(x=>x.id));slot.querySelectorAll('.secret-card:not(.done):not(.give)').forEach(c=>{if(!ids.has(c.dataset.id)){Secrets.drop(c)}});
-  for(const x of items)if(!slot.querySelector('[data-id="'+x.id+'"]')){slot.insertAdjacentHTML('beforeend',this.card(x));const c=slot.lastElementChild;const i=c.querySelector('input');i.focus();
-   i.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();this.send(c)}};this.tick(c,x.expires)}
+  for(const x of items)if(!slot.querySelector('[data-id="'+x.id+'"]')){slot.insertAdjacentHTML('beforeend',this.card(x));const c=slot.lastElementChild;const i=c.querySelector('input');
+   if(i){i.focus();i.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();this.send(c)}}}this.tick(c,x.expires)}
   if(!items.length&&!Object.values(Chat.live||{}).some(s=>s?.running)){clearInterval(this.timer);this.timer=null}},
- card(x){const who=esc(AGENT());const where=x.mode==='type'?'It is typed into the field on '+who+'’s screen'+(x.enter?' and sent':'')+'.':'It is saved as <code>'+esc(x.name)+'</code> for '+who+'.';
+ // the chat the agent is working in (a choice applies to that chat)
+ runningChat(){const live=Object.entries(Chat.live||{}).find(([,s])=>s?.running);return live?.[0]||Chat.id||''},
+ browserCard(x){const who=esc(AGENT()),mine=x.suggest==='yours';
+  return `<div class="secret-card choice" data-id="${esc(x.id)}" data-kind="browser"><span class="ic">${icon('globe',17)}</span><div class="sc-main"><b>Where should ${who} do this?</b>
+   <span class="hint">${esc(x.task)}${x.why?' · '+esc(x.why):''}</span>
+   <div class="choice-row">
+    <button class="pick ${mine?'rec':''}" data-act="browser-pick" data-where="yours"><b>${icon('monitor',15)}My browser</b><span>A separate window on this computer, with your sign-ins. Stops if your computer sleeps.${x.connected?'':' Needs the aqeelOS extension (one-time setup).'}</span>${mine?'<em>Suggested</em>':''}</button>
+    <button class="pick ${mine?'':'rec'}" data-act="browser-pick" data-where="server"><b>${icon('server',15)}The AI box screen</b><span>Keeps working when your computer is off. Watch it with the screen button.</span>${mine?'':'<em>Suggested</em>'}</button>
+   </div><span class="sc-err"></span>
+   <div class="sc-actions"><span class="sc-left"></span></div></div></div>`},
+ async pickBrowser(c,where){const err=c.querySelector('.sc-err');err.textContent='';c.querySelectorAll('button').forEach(b=>b.disabled=true);
+  try{const sid=this.runningChat();await post(UI,'/ui/browser-choice/'+encodeURIComponent(c.dataset.id),{where,session:sid});if(where==='yours'&&Chat.live[sid])Chat.live[sid].autoGo=true;c.classList.add('done');
+   c.querySelector('.sc-main').innerHTML='<b>'+icon('check',15)+' '+(where==='yours'?'Using your browser':'Using the AI box screen')+'</b><span class="hint">'+(where==='yours'?esc(AGENT())+' works in a new Chrome window on this computer. You can watch, and take over by clicking.':esc(AGENT())+' carries on on its own screen.')+'</span>';setTimeout(()=>this.drop(c),3500)}
+  catch(e){c.querySelectorAll('button').forEach(b=>b.disabled=false);if(/not connected|extension/i.test(e.message)){err.textContent='Your browser isn’t connected yet.';BrowserSetup.open()}else err.textContent=e.message}},
+ card(x){if(x.kind==='browser')return this.browserCard(x);const who=esc(AGENT());const where=x.mode==='type'?'It is typed into the field on '+who+'’s screen'+(x.enter?' and sent':'')+'.':'It is saved as <code>'+esc(x.name)+'</code> for '+who+'.';
   return `<div class="secret-card" data-id="${esc(x.id)}"><span class="ic">${icon('lock',17)}</span><div class="sc-main"><b>${who} needs: ${esc(x.label)}</b>
    <span class="hint">${where} ${who} never sees it, and it is not saved in this chat.</span>
    <div class="sc-field"><input type="password" data-val autocomplete="off" spellcheck="false" aria-label="${esc(x.label)}" placeholder="Type or paste it here"><button class="ghost icon" data-act="secret-eye" title="Show while typing" aria-label="Show while typing">${icon('eye',16)}</button></div>

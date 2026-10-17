@@ -937,3 +937,15 @@ input[type=checkbox]:not(.switch)::after{margin:auto}
 /* dictation: a red pulse and a timer while recording, a spinner while the box transcribes */
 .mic-time{font-size:12px;font-variant-numeric:tabular-nums;color:var(--bad);min-width:30px;animation:fade .2s var(--ease) both}
 .mic.busy{opacity:1}
+
+/* "Which browser?" card: two clear choices, the suggested one highlighted */
+.secret-card .choice-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+.secret-card .choice-row .pick{display:flex;flex-direction:column;align-items:flex-start;gap:4px;text-align:left;white-space:normal;height:auto;min-height:0;padding:12px 14px;border-radius:14px;font-weight:400;position:relative;transition:border-color .2s,box-shadow .2s,transform .15s}
+.secret-card .choice-row .pick b{display:flex;align-items:center;gap:6px;font-size:14px}
+.secret-card .choice-row .pick span{font-size:12.5px;color:var(--ink-2);line-height:1.45}
+.secret-card .choice-row .pick em{position:absolute;top:10px;right:10px;font-style:normal;font-size:11px;font-weight:600;color:var(--blue-deep);background:var(--blue-soft);border-radius:999px;padding:1px 8px}
+.secret-card .choice-row .pick.rec{border-color:color-mix(in srgb,var(--blue) 55%,var(--border));box-shadow:0 0 0 3px color-mix(in srgb,var(--blue) 12%,transparent)}
+@media (max-width:640px){.secret-card .choice-row{grid-template-columns:1fr}}
+.lb-state{display:flex;align-items:center;gap:8px;font-weight:600}.lb-state .dot{width:9px;height:9px;border-radius:50%;background:var(--muted)}.lb-state.on .dot{background:var(--ok)}
+.lb-steps code{font-family:var(--mono);font-size:12.5px;background:var(--soft);padding:1px 6px;border-radius:6px}
+.lb-chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:var(--blue-deep);background:var(--blue-soft);border-radius:999px;padding:2px 2px 2px 9px;animation:fade .2s var(--ease) both}.lb-chip .ghost.icon{min-height:22px;min-width:22px;padding:0}.dark .lb-chip{color:var(--blue-2)}

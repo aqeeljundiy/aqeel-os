@@ -18,6 +18,7 @@ import {createShare} from './share.mjs';
 import {createRelay} from './relay.mjs';
 import {boxMemory} from './boxmem.mjs';
 import {createLinks,isLink} from './links.mjs';
+import {createLocalBrowser} from './localbrowser.mjs';
 import {readdir} from 'node:fs/promises';
 import {scryptSync,randomBytes,createHmac,timingSafeEqual} from 'node:crypto';
 import path from 'node:path';
@@ -198,6 +199,7 @@ async function writeAgentContext(){const all=await listAgents();const names={};f
    '3. The browser on your screen, where the person can watch and sign in themselves. Good for one-off jobs in a web console (setting something up, inviting someone, changing a setting).',
    'Only when those cannot do it, or the setup needs an app or admin access the person does not have, suggest Composio. Say plainly: "Composio is quick (one click on Allow, nothing to set up), but its free plan has a limit on actions and costs money beyond it." Use it only after the person agrees.',
    'Choosing where it runs: a one-off job can be done in the browser now. Anything that must keep running (schedules, automatic replies, regular reports) needs a tool or skill on this server, so set that up instead of relying on the browser.',
+   'Which browser: before your first browser step in a chat, call choose_browser (from aqeelos-notify) with the task and your suggestion: "yours" (the person\'s own Chrome, where they are already signed in) for one-off jobs in web consoles, "server" (your screen on the AI box) for anything scheduled, long-running or done while they are away. Follow their answer for the rest of that chat.',
    '','## Connecting an MCP tool that needs a sign-in','',
    'Never use manage_connections (authorize/install/enable) or “hermes mcp login” for MCP tools, and never a 127.0.0.1 / localhost callback: the person is not at this server, so that page never opens for them. Add the tool (with its client ID/secret if the service needs its own app), then call the connect_mcp_tool tool (from aqeelos-notify) and send the person its steps exactly as written. Never make up steps, addresses or commands for connecting: the people using this are often not technical, so keep it to what the tool says. When the tool recommends Composio, offer that first. aqeelOS sets the return address itself: https://ai.elkiya.com/mcp-oauth/api/mcp/oauth/callback/<tool name> (this is what goes in the service’s Redirect URLs).',
    '','## Passwords, API keys and other secrets','',
@@ -247,6 +249,8 @@ async function agentHealth(only){const h={'x-hermes-session-token':DASH_TOKEN};c
   if(a!=='default')await loopGuard(a,await listAllProfiles()).catch(e=>console.warn('loop guard',a,e.message));
   if(!copy&&a!=='default'&&lockedAgent(a,st))await lockTools(a).catch(e=>console.warn('lock tools',a,e.message));
   {const cf=path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml');const y=await readFile(cf,'utf8').catch(()=>'');
+   // every agent can work in the person's own browser when they choose it (the engine's browser-extension control)
+   if(y&&!/extension_control:\s*\n\s+enabled:\s*true/.test(y)){const r=await setKey(a,'browser.extension_control.enabled','true');if(r.ok)console.log('health',a,'can now use the person’s own browser when chosen')}
    // the engine's own connector tool only works at this server (localhost); agents that have connect_mcp_tool use that instead
    if(y.includes('aqeelos-notify')&&!/^  connectors:\n(?:    .*\n)*?    enabled: false/m.test(y)){const r=await setKey(a,'tools.connectors.enabled','false');
     if(r.ok)console.log('health',a,'switched off the engine connector tool (agents use connect_mcp_tool)');else if(await isAgent(a))console.warn('health',a,'connector tool:',r.err)}}
@@ -290,6 +294,7 @@ const sweepGhosts=async()=>{for(const d of await readdir(path.join(HERMES_HOME,'
 if(PORT===4400){setTimeout(()=>sweepGhosts().catch(()=>{}),40000);setInterval(()=>sweepGhosts().catch(()=>{}),30*60e3).unref()}
 const sharing=createShare({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAgents()});
 const channels=createChannels({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAllProfiles(),cached:a=>platformsCached(a),restart:why=>restartGateway(why),paused:()=>pausedLoad()});
+const localBrowser=createLocalBrowser({DATA,GATE:GATE.origin,API_KEY,EXT_DIR:path.join(root,'extension')});
 const links=createLinks({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,python:()=>sharing.python(),setupAgent:n=>setupAgentFn?.(n)});
 function listAgents(){return agentNames()}   // real agents only (a folder with a config), not extra-number copies
 async function listAllProfiles(){return [...await listAgents(),...(await links.list()).map(l=>l.name)]}
@@ -377,7 +382,18 @@ async function setChannelOn(agent,platform,on){const h={'x-hermes-session-token'
  if(!j.hot_served)restartGateway((on?'resumed ':'paused ')+platform+' on '+agent).then(afterOff).catch(()=>{});else setTimeout(afterOff,3000);
  console.log('channel',platform,'on',agent,on?'resumed':'paused');return {ok:true,paused:!on,restarting:!j.hot_served,waiting:liveCount()}}
 const tgNames=new Map();
-async function channelAccounts(agent,v){const list=v?.platforms||v;if(!Array.isArray(list))return;const ps=await pausedLoad();for(const c of list)if(ps[agent+'|'+c.id]){c.paused=true;c.state='paused'}const home=agent==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',agent);
+/* The engine reports "gateway stopped" for apps on a second agent although the shared engine serves them (it only
+   records live state for the main agent). The truth is in the engine's own log: its last "✓ <app> connected /
+   disconnected (profile: <agent>)" line for that agent. */
+let gwLog={t:0,text:''};
+async function gatewayLog(){if(Date.now()-gwLog.t>8000){const {execFile}=await import('node:child_process');gwLog={t:Date.now(),text:await new Promise(r=>execFile('tail',['-n','4000',path.join(HERMES_HOME,'logs','gateway.log')],{maxBuffer:8e6},(e,o)=>r(String(o||''))))}}return gwLog.text}
+async function trueStates(agent,v){const list=v?.platforms||v;if(!Array.isArray(list)||agent==='default')return;const log=await gatewayLog();
+ for(const c of list){if(c.id==='whatsapp'||['api_server','webhook'].includes(c.id)||!/stopped|not_running|starting/.test(String(c.state||'')))continue;
+  const esc_=x=>x.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');const re=new RegExp('✓ '+esc_(c.id)+' (connected|disconnected)[^\\n]*\\(profile: '+esc_(agent)+'\\)|✗ '+esc_(c.id)+' failed to connect \\(profile: '+esc_(agent)+'\\)','g');
+  let last=null,m;while((m=re.exec(log)))last=m;if(!last)continue;
+  const p=await gatewayPid();if(!p)continue;   // the engine is not running at all: keep what it says
+  c.state=last[1]==='connected'?'connected':last[1]==='disconnected'?'disconnected':'failed';if(c.state==='connected'){c.configured=true;c.enabled=true}}}
+async function channelAccounts(agent,v){await trueStates(agent,v).catch(()=>{});const list=v?.platforms||v;if(!Array.isArray(list))return;const ps=await pausedLoad();for(const c of list)if(ps[agent+'|'+c.id]){c.paused=true;c.state='paused'}const home=agent==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',agent);
  const w=list.find(x=>x.id==='whatsapp');
  if(w){try{const c=JSON.parse(await readFile(path.join(home,'platforms','whatsapp','session','creds.json'),'utf8'));const id=String(c.me?.id||c.me?.lid||'');const digits=id.split('@')[0].split(':')[0].replace(/\D/g,'');
    w.account={phone:digits?'+'+digits:null,name:c.me?.name||c.me?.verifiedName||null}}catch{}
@@ -451,6 +467,13 @@ async function useSecret(rec,value){
  if(rec.mode==='type'){await screens.typeInto(rec.base,value,{enter:rec.enter});return 'Typed it into the focused field on your screen'+(rec.enter?' and pressed Enter':'')+'. You never saw the value; take a screenshot to check the result.'}
  await saveSecret(rec.base,rec.name,value);
  return 'Saved as '+rec.name+' in your settings (the engine and its tools read it from there). '+secretHow(rec.base,rec.name)}
+/* "Which browser?" An agent about to work in a browser asks (choose_browser) once per chat: the person's own
+   Chrome (one-off jobs where they are already signed in) or the agent's screen on the AI box (anything that must
+   keep running). The person answers on a card in the chat; their answer links that chat to their browser or not. */
+const browserAsks=new Map();
+function askBrowser(agent,a){return new Promise(resolve=>{const id=randomBytes(9).toString('base64url');
+ const rec={id,kind:'browser',agent,base:agent.split('--')[0],task:String(a.task||'a browser job').slice(0,160),suggest:a.suggest==='yours'?'yours':'server',why:String(a.why||'').slice(0,220),t:Date.now(),resolve};browserAsks.set(id,rec);
+ setTimeout(()=>{if(browserAsks.get(id)===rec){browserAsks.delete(id);resolve({text:'The person did not choose in time. Use your own screen on the AI box and tell them you did.'})}},270000)})}
 async function hermesCall(req,res,u,url){
  const p=url.pathname,q=url.searchParams,agent=agentOf(p,q);
  const no=users.gate(u,p,req.method,q,agent);if(no)return send(res,no.status,{error:no.error});
@@ -626,6 +649,7 @@ const server=createServer(async(req,res)=>{
      const err=j.error||j.detail||'no link came back';
      if(/client registration|client_id|client id/i.test(err))return reply(`${svc} needs an app of the person's own (a one-time setup, free). Offer to walk them through it, or do it with them in the browser: create an app at ${where.split(' → ')[0]}, add this Redirect URL: ${redirect}, then they paste its Client ID and Client Secret with the lock button (or in Abilities › MCP tools › ${tool} › Sign in). If they cannot (no admin access) or do not want to, offer Composio as the fallback and tell them: "Composio is quick (one click on Allow, nothing to set up), but its free plan has a limit on actions and costs money beyond it." Use it only if they agree.`,true);
      return reply('Could not start the sign-in: '+err,true)}catch(e){return reply('Could not start the sign-in: '+e.message,true)}}
+   if(signed&&msg.method==='tools/call'&&msg.params?.name==='choose_browser'){const r=await askBrowser(mn[1],msg.params?.arguments||{});return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text:r.text}]}})}
    if(signed&&msg.method==='tools/call'&&msg.params?.name==='type_secret'){const base=mn[1].split('--')[0],a=msg.params?.arguments||{};const name=String(a.name||'').trim().toUpperCase();
     const reply=(text,isError)=>send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text}],...(isError?{isError:true}:{})}});
     if(!/^[A-Z][A-Z0-9_]{1,59}$/.test(name))return reply('Give the name of a saved secret, like GMAIL_PASSWORD.',true);
@@ -634,7 +658,7 @@ const server=createServer(async(req,res)=>{
     try{await screens.typeInto(base,value,{enter:!!a.press_enter});return reply('Typed '+name+' into the focused field on your screen'+(a.press_enter?' and pressed Enter':'')+'. You did not see it; take a screenshot to check the result.')}catch(e){return reply('Could not type it: '+e.message,true)}}
    if(signed&&msg.method==='tools/call'&&msg.params?.name==='ask_secret'){const r=await askSecret(mn[1],msg.params?.arguments||{});return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text:r.text}],...(r.isError?{isError:true}:{})}})}
    const out=await relay.mcp(mn[1],mn[2],msg);
-   if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'type_secret',description:'Type a secret the person saved for you (a password, code or key) into the field that has focus on your screen, without seeing it. Click the field first. Saved secrets: '+((await readdir(secretDir(mn[1].split('--')[0])).catch(()=>[])).join(', ')||'none yet (ask with ask_secret)')+'.',inputSchema:{type:'object',properties:{name:{type:'string',description:'The saved name, e.g. GMAIL_PASSWORD'},press_enter:{type:'boolean'}},required:['name']}},{name:'ask_secret',description:'Ask the person for a password, API key or other secret through a protected field in their aqeelOS chat. You never see the value. mode "type": it is typed into the field that has focus on your screen (click the field first; set press_enter to submit). mode "save": it is stored as a named key (name in capitals, e.g. OPENAI_API_KEY) that the engine and your commands can use. Never ask for a secret in plain chat or on the screen viewer; always use this.',inputSchema:{type:'object',properties:{label:{type:'string',description:'What it is, e.g. "Gmail password for ops@company.com"'},mode:{type:'string',enum:['type','save']},name:{type:'string',description:'For save: the key name in capitals'},press_enter:{type:'boolean',description:'For type: press Enter after typing'}},required:['label','mode']}},{name:'connect_mcp_tool',description:'Start the sign-in for one of your MCP tools (slack, composio, notion…) and get the link to give the person. Always use this to connect an MCP tool; never a command-line login or a localhost callback.',inputSchema:{type:'object',properties:{tool:{type:'string',description:'The MCP tool name as listed, e.g. "slack" or "composio"'}},required:['tool']}});
+   if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'choose_browser',description:'Before a browser job in a chat, ask the person once where to do it: their own Chrome ("yours": a separate window on their computer, with the sign-ins they already have; best for one-off jobs such as Google Cloud or admin consoles) or your screen on the AI box ("server": keeps working when their computer is off; needed for anything scheduled or long-running). Give your suggestion. Wait for the answer, then follow it for the rest of the chat.',inputSchema:{type:'object',properties:{task:{type:'string',description:'What you will do in the browser, in a few words'},suggest:{type:'string',enum:['yours','server']},why:{type:'string',description:'One short reason for your suggestion'}},required:['task','suggest']}},{name:'type_secret',description:'Type a secret the person saved for you (a password, code or key) into the field that has focus on your screen, without seeing it. Click the field first. Saved secrets: '+((await readdir(secretDir(mn[1].split('--')[0])).catch(()=>[])).join(', ')||'none yet (ask with ask_secret)')+'.',inputSchema:{type:'object',properties:{name:{type:'string',description:'The saved name, e.g. GMAIL_PASSWORD'},press_enter:{type:'boolean'}},required:['name']}},{name:'ask_secret',description:'Ask the person for a password, API key or other secret through a protected field in their aqeelOS chat. You never see the value. mode "type": it is typed into the field that has focus on your screen (click the field first; set press_enter to submit). mode "save": it is stored as a named key (name in capitals, e.g. OPENAI_API_KEY) that the engine and your commands can use. Never ask for a secret in plain chat or on the screen viewer; always use this.',inputSchema:{type:'object',properties:{label:{type:'string',description:'What it is, e.g. "Gmail password for ops@company.com"'},mode:{type:'string',enum:['type','save']},name:{type:'string',description:'For save: the key name in capitals'},press_enter:{type:'boolean',description:'For type: press Enter after typing'}},required:['label','mode']}},{name:'connect_mcp_tool',description:'Start the sign-in for one of your MCP tools (slack, composio, notion…) and get the link to give the person. Always use this to connect an MCP tool; never a command-line login or a localhost callback.',inputSchema:{type:'object',properties:{tool:{type:'string',description:'The MCP tool name as listed, e.g. "slack" or "composio"'}},required:['tool']}});
    if(out.body==null){res.writeHead(out.status);return res.end()}return send(res,out.status,out.body)}
   // Incoming webhooks (GitHub, Stripe…) reach Hermes' webhook listener here. No sign-in: each
   // subscription checks its own secret signature, and nothing but POST /webhooks/<name> passes.
@@ -786,7 +810,19 @@ const server=createServer(async(req,res)=>{
     return send(res,200,{ok:true,name,message:'🔒 '+label+' — saved for you as '+name+'. You cannot see the value. '+secretHow(base,name)})}
    if(p==='/ui/secrets/pending'&&req.method==='GET'){const ag=String(url.searchParams.get('agent')||'default').split('--')[0];
     if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+ag,'GET',new URLSearchParams(),ag))return send(res,200,{items:[]});
-    return send(res,200,{items:[...secretAsks.values()].filter(x=>x.base===ag).map(x=>({id:x.id,label:x.label,mode:x.mode,name:x.name,enter:x.enter,t:x.t,expires:x.t+270000}))})}
+    return send(res,200,{items:[...[...secretAsks.values()].filter(x=>x.base===ag).map(x=>({id:x.id,label:x.label,mode:x.mode,name:x.name,enter:x.enter,t:x.t,expires:x.t+270000})),
+     ...[...browserAsks.values()].filter(x=>x.base===ag).map(x=>({id:x.id,kind:'browser',task:x.task,suggest:x.suggest,why:x.why,t:x.t,expires:x.t+270000,connected:localBrowser.connected(u.id)}))]})}
+   if(p==='/ui/local-browser/pair'&&req.method==='POST')return send(res,200,{token:await localBrowser.pair(u.id)});
+   if(p==='/ui/local-browser/status'&&req.method==='GET')return send(res,200,{connected:localBrowser.connected(u.id),session:url.searchParams.get('session')?localBrowser.linked(url.searchParams.get('session')):undefined});
+   if(p==='/ui/local-browser/extension.zip'&&req.method==='GET'){const z=await localBrowser.zip();res.writeHead(200,{'content-type':'application/zip','content-disposition':'attachment; filename="aqeelos-browser.zip"','content-length':z.length,...security});return res.end(z)}
+   if(p==='/ui/local-browser/off'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}return send(res,200,{ok:localBrowser.unlink(String(b.session||''))})}
+   {const bm=/^\/ui\/browser-choice\/([\w-]+)$/.exec(p);if(bm&&req.method==='POST'){const rec=browserAsks.get(bm[1]);if(!rec)return send(res,404,{error:'This question has ended. Ask the agent again.'});
+    if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+rec.base,'GET',new URLSearchParams(),rec.base))return send(res,403,{error:'Not your agent.'});
+    let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const session=String(b.session||'');
+    if(b.where==='yours'){if(!session)return send(res,400,{error:'Open the chat the agent is working in, then choose.'});
+     try{await localBrowser.link(u.id,rec.base,session)}catch(e){return send(res,409,{error:e.message})}
+     browserAsks.delete(rec.id);rec.resolve({text:'The person chose their own browser. Its tools (browser_navigate, browser_snapshot, browser_click, browser_type, browser_press, browser_scroll, browser_back) are added from your next turn and run in their Chrome, in a separate window they can watch, with the sign-ins they already have there. End this turn now with one short line saying you are ready; aqeelOS then tells you to go ahead. In this chat do not use browser_exec (that one runs on the AI box). Screenshots and browser_vision are not available in their browser; read pages with browser_snapshot. Ask before you submit anything that sends, pays, deletes or invites.'});return send(res,200,{ok:true})}
+    if(session)localBrowser.unlink(session);browserAsks.delete(rec.id);rec.resolve({text:'The person chose your screen on the AI box. Use your browser as usual there.'});return send(res,200,{ok:true})}}
    {const sm=/^\/ui\/secrets\/([\w-]+)$/.exec(p);if(sm&&req.method==='POST'){const rec=secretAsks.get(sm[1]);if(!rec)return send(res,404,{error:'This request has ended. Ask the agent again.'});
     if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+rec.base,'GET',new URLSearchParams(),rec.base))return send(res,403,{error:'Not your agent.'});
     let b={};try{b=JSON.parse(await readBody(req,20000))}catch{}
@@ -800,6 +836,16 @@ const server=createServer(async(req,res)=>{
     const r=await checkChannel(ag,pf);attention.t=0;return send(res,200,r)}
    if(p==='/ui/channels/attention'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,200,{items:[]});return send(res,200,{items:await channelAttention(url.searchParams.has('fresh'))})}
    // removing a WhatsApp that is no longer wanted: its connection stops, the ended login is set aside, the channel is switched off
+   if(p==='/ui/channels/remove'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||''),pf=String(b.platform||'');
+    if(!(await listAllProfiles()).includes(ag)||!/^[a-z0-9_]{1,40}$/.test(pf)||['api_server','webhook','whatsapp'].includes(pf))return send(res,400,{error:'Unknown channel'});
+    if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag.split('--')[0]+'/soul','PUT',new URLSearchParams(),ag.split('--')[0])!==null)return send(res,403,{error:'You can only change agents you may edit.'});
+    if(ag.includes('--')){await links.remove(ag).catch(()=>{});platCache.clear();attention.t=0;return send(res,200,{ok:true})}
+    const pl=await platformsCached(ag).catch(()=>null);const c=(pl?.platforms||pl||[]).find(x=>x.id===pf);const keys=(c?.env_vars||[]).map(v=>v.key).filter(Boolean);
+    const h={'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'};
+    const r=await fetch(DASH.origin+'/api/messaging/platforms/'+pf+'?profile='+encodeURIComponent(ag),{method:'PUT',headers:h,body:JSON.stringify({enabled:false,env:{},clear_env:keys,profile:ag})});const j=await r.json().catch(()=>({}));
+    if(!r.ok)return send(res,400,{error:j.detail||j.error||'The engine did not accept it.'});
+    const ps=await pausedLoad();if(ps[ag+'|'+pf]){delete ps[ag+'|'+pf];await pausedSave(ps)}
+    platCache.clear();attention.t=0;if(!j.hot_served&&ag==='default')restartGateway(pf+' removed from '+ag).catch(()=>{});console.log('channel',pf,'removed from',ag);return send(res,200,{ok:true})}
    if(p==='/ui/channels/whatsapp/remove'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||'default');
     if(!(await listAllProfiles()).includes(ag))return send(res,400,{error:'Unknown agent'});
     if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag.split('--')[0]+'/soul','PUT',new URLSearchParams(),ag.split('--')[0])!==null)return send(res,403,{error:'You can only change agents you may edit.'});
@@ -890,6 +936,7 @@ const server=createServer(async(req,res)=>{
 // The screen's live connection is a WebSocket: same login, and only from this site (no cross-site hijacking).
 server.on('upgrade',(req,sock,headBuf)=>{
  const p=new URL(req.url,'http://x').pathname;
+ if(p==='/ui/local-browser/ws'){localBrowser.upgrade(req,sock,headBuf).catch(()=>sock.destroy());return}
  if(p!=='/screen/websockify'||!validCookie(req)||!sameOrigin(req)){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}
  const agent=new URL(req.url,'http://x').searchParams.get('agent');
  me(req).then(u=>{if(!u||users.gate(u,'/ui/screens/'+(agent||'default'),'GET',new URLSearchParams(),agent||'default')){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}

@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 node scripts/check-globals.mjs
 for f in app/*.js app/*.mjs; do node --check "$f" || { echo "✗ $f does not parse"; exit 1; }; done
 node scripts/features.mjs >/dev/null
-tar --force-local -czf ../hui.tgz app assets backlog data mockup scripts PRD.md
+tar --force-local -czf ../hui.tgz app assets backlog data extension mockup scripts PRD.md
 scp -q ../hui.tgz ai-vps:/tmp/hui.tgz && rm ../hui.tgz
 # Never cut off work in progress (a reply, an agent being set up, a settings change, an engine restart):
 # restarting the UI would stop it halfway. After 10 minutes the deploy is cancelled instead, with nothing
