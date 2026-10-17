@@ -927,3 +927,9 @@ input[type=checkbox]:not(.switch)::after{margin:auto}
 .steps-fold.opening>:not(summary):nth-child(3){animation-delay:30ms}.steps-fold.opening>:not(summary):nth-child(4){animation-delay:60ms}.steps-fold.opening>:not(summary):nth-child(n+5){animation-delay:90ms}
 /* everything settles quickly for people who ask their system for less motion */
 @media (prefers-reduced-motion: reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-delay:0ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
+/* chat list: where each chat came from, a ring while the agent works, a dot when something is new */
+.item .src{position:relative;display:grid;place-items:center}
+.item .src.working::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:2px solid transparent;border-top-color:var(--blue);border-right-color:color-mix(in srgb,var(--blue) 40%,transparent);animation:spin .9s linear infinite}
+.item.unread .t{font-weight:650;color:var(--ink)}
+.item .unread-dot{width:8px;height:8px;border-radius:50%;background:var(--blue);flex:none;margin-left:auto;box-shadow:0 0 0 3px color-mix(in srgb,var(--blue) 18%,transparent);animation:fade .25s var(--ease) both}
+.item.unread .more{margin-left:4px}

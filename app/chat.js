@@ -3,6 +3,12 @@
 const EFFORTS=['low','medium','high','xhigh','max'];
 const AUTOMATION_SOURCES=['cron','api_server_runs','tool','acp','webhook'];
 // Where a chat came from, said plainly on hover.
+/* what you have seen: per agent, each chat's last activity when you last had it open (in this browser) */
+const ChatSeen={k:()=>'chatSeen:'+(S.profile||'default'),
+ db(){let v=null;try{v=JSON.parse(localStorage.getItem(this.k()))}catch{}if(!v){v={base:Date.now()/1000,c:{}};this.save(v)}return v},   // first visit: nothing lights up at once
+ save(v){try{localStorage.setItem(this.k(),JSON.stringify(v))}catch{}},
+ mark(id,t){const v=this.db();const at=Math.max(t||0,Date.now()/1000);if((v.c[id]||0)<at-1){v.c[id]=at;this.save(v)}},
+ isNew(c){const v=this.db();return (c.last_active||c.started_at||0)>(v.c[c.id]||v.base)+2}};
 const SRC_LABEL={api_server:'Started in this app',whatsapp:'From WhatsApp',telegram:'From Telegram',cron:'A schedule ran this',webhook:'Started by a webhook',cli:'From the command line',tui:'From the command line',oneshot:'A one-off task',discord:'From Discord',slack:'From Slack',email:'From email'};
 // Shown until the server has starters written from recent chats.
 const STARTER_DEFAULTS={admin:[['Check my sites','See if every site on the VPS is up, and tell me if anything is slow.'],['Plan a schedule','Every weekday at 8, send me a short report on how my sites are doing.'],['Tidy the server','Find what is using disk space on this box and suggest a safe clean-up.'],['Research','Find three new AI tools worth trying this week and say what each one is good for.']],member:[['Plan my week','Help me plan this week: ask me what is coming up, then make a simple day-by-day list.'],['Dinner ideas','Suggest five easy dinners for this week with a shopping list.'],['Write a message','Help me write a friendly message. Ask me who it is for and what I want to say.'],['Learn something','Explain something interesting in simple words. Ask me what I am curious about first.']]};
@@ -18,7 +24,10 @@ const Chat={
   const list=S.sessions.filter(c=>(S.chatFilter==='all'||(S.chatFilter==='chats')!==AUTOMATION_SOURCES.includes(c.source))&&(!q||((c.title||'')+' '+(c.preview||'')).toLowerCase().includes(q)));
   const pinned=store.get('pinned',[]);const pins=list.filter(c=>pinned.includes(c.id)),rest=list.filter(c=>!pinned.includes(c.id));
   const groups={};rest.forEach(c=>(groups[groupOf(c.last_active||c.started_at)]??=[]).push(c));
-  const row=c=>`<button class="item ${r.chat===c.id?'on':''}" data-go="/chat/${esc(c.id)}">${c.is_active||this.live[c.id]?.running?`<span class="live">${icon('activity',14)}</span>`:`<span class="src" title="${esc(SRC_LABEL[c.source]||('From '+pretty(c.source||'this app')))}">${icon(srcIcon(c.source),14)}</span>`}<span class="t">${esc(c.title||c.preview||'Untitled chat')}</span><span class="more" role="button" tabindex="0" data-menu="convo" data-id="${esc(c.id)}" aria-label="More">${icon('more',16)}</span></button>`;
+  /* each row: where it came from (always), a ring while the agent is really working, a dot when something is new */
+  const now=Date.now()/1000;if(r.chat)ChatSeen.mark(r.chat,S.sessions.find(x=>x.id===r.chat)?.last_active);
+  const row=c=>{const working=this.live[c.id]?.running||(c.is_active&&now-(c.last_active||0)<120);const unread=!working&&r.chat!==c.id&&ChatSeen.isNew(c);const from=SRC_LABEL[c.source]||('From '+pretty(c.source||'this app'));
+   return `<button class="item ${r.chat===c.id?'on':''} ${unread?'unread':''}" data-go="/chat/${esc(c.id)}"><span class="src ${working?'working':''}" title="${esc(from+(working?' · working now':unread?' · new since you last looked':''))}">${icon(srcIcon(c.source),14)}</span><span class="t">${esc(c.title||c.preview||'Untitled chat')}</span>${unread?'<i class="unread-dot" aria-label="New"></i>':''}<span class="more" role="button" tabindex="0" data-menu="convo" data-id="${esc(c.id)}" aria-label="More">${icon('more',16)}</span></button>`};
   const body=!S.sessionsLoaded?'<div class="skel skel-row" style="height:30px;margin:12px 10px"></div>'.repeat(5):list.length?`${pins.length?`<div class="group-label">Pinned</div>${pins.map(row).join('')}`:''}${Object.entries(groups).map(([g,l])=>`<div class="group-label">${g}</div>${l.map(row).join('')}`).join('')}`:`<p style="padding:16px 12px;color:var(--muted);font-size:13px">${q?'No chats match.':'No chats yet.'}</p>`;
   return `<div class="side-sub"><div style="padding:12px 12px 8px"><button style="width:100%" data-act="new">${icon('plus',16)}New chat</button></div>
    <div class="side-search">${icon('search',15)}<input id="chatSearch" placeholder="Search chats" aria-label="Search chats" value="${esc(S.search)}"></div>
