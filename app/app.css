@@ -879,17 +879,32 @@ input[type=checkbox]:not(.switch)::after{margin:auto}
 .row .txt span .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--muted);margin-right:6px;vertical-align:1px}
 .row .txt span .dot.ok{background:var(--ok)}
 /* the protected secret field above the composer */
-.secret-slot{display:flex;flex-direction:column;gap:10px;padding:0 var(--chat-pad,24px);max-width:var(--chat-max,860px);margin:0 auto;width:100%}
+/* a pop-up in the middle of the chat column only: the chat behind is dimmed and blurred so the field has full attention */
+.chat{position:relative}
+.secret-slot{position:absolute;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;background:color-mix(in srgb,var(--bg) 55%,transparent);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);animation:fade .2s ease both}
 .secret-slot:empty{display:none}
+.secret-slot .secret-card{width:min(560px,100%);padding:22px 24px;border-radius:20px;animation:secretIn .28s cubic-bezier(.2,.8,.2,1) both}
+@keyframes secretIn{from{opacity:0;transform:translateY(10px) scale(.97)}to{opacity:1;transform:none}}
 .secret-card{display:flex;gap:14px;align-items:flex-start;padding:16px 18px;border-radius:16px;background:var(--surface);border:1px solid color-mix(in srgb,var(--blue) 35%,var(--border));box-shadow:var(--shadow-float);animation:rise .3s ease both;transition:opacity .3s,transform .3s}
 .secret-card.out{opacity:0;transform:translateY(6px)}
 .secret-card>.ic{width:36px;height:36px;border-radius:11px;display:grid;place-items:center;flex:none;background:var(--blue-soft);color:var(--blue-deep)}
 .dark .secret-card>.ic{color:var(--blue-2)}
 .secret-card .sc-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
-.secret-card .sc-main b{font-size:14.5px;display:flex;align-items:center;gap:6px}
+.secret-card .sc-main b{font-size:15px;display:flex;align-items:center;gap:6px;line-height:1.4}
 .secret-card .sc-row{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap}
 .secret-card .sc-row input{flex:1;min-width:180px;font-family:var(--mono);letter-spacing:.5px}
 .secret-card .sc-foot{display:flex;justify-content:space-between;gap:10px;font-size:12px;color:var(--muted);min-height:16px}
 .secret-card .sc-err{color:var(--bad)}
 .secret-card.done{border-color:color-mix(in srgb,var(--ok) 40%,var(--border))}
 .secret-card.done>.ic{background:color-mix(in srgb,var(--ok) 14%,transparent);color:var(--ok)}
+
+.secret-card .sc-field{display:flex;gap:6px;align-items:center;margin-top:10px}
+.secret-card .sc-field input{flex:1;min-width:0;font-family:var(--mono);letter-spacing:.5px}
+.secret-card [data-ctx]{margin-top:2px}
+.secret-card .sc-lbl{font-size:12.5px;font-weight:600;color:var(--ink-2);margin:10px 0 0}
+.secret-card .sc-lbl+.sc-field{margin-top:4px}
+.secret-card .sc-actions{display:flex;gap:8px;align-items:center;margin-top:14px}
+.secret-card .sc-actions .grow{flex:1}
+.secret-card .sc-left{font-size:12px;color:var(--muted)}
+.secret-card .sc-err{font-size:12.5px;color:var(--bad);min-height:0}
+.secret-card .sc-err:empty{display:none}

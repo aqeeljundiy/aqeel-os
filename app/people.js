@@ -652,3 +652,4 @@ ACT['wa-add']=a=>ACT['ch-extra-add']({dataset:{id:'whatsapp'}});
 ACT['secret-send']=a=>Secrets.send(a.closest('.secret-card'));
 ACT['secret-cancel']=a=>Secrets.cancel(a.closest('.secret-card'));
 ACT['secret-eye']=a=>{const i=a.closest('.sc-row').querySelector('input');i.type=i.type==='password'?'text':'password';i.focus()};
+ACT['secret-give']=()=>Secrets.give();
