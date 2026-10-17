@@ -1193,3 +1193,44 @@ button.think:hover{color:var(--ink-2);background:var(--soft)}
 .md blockquote p:last-child{margin-bottom:0}
 .md th{font-size:13px;font-weight:700;text-align:left}
 .dark .md>ol>li::before{color:var(--blue-2)}
+/* links, files and labels in replies (agreed mock-up, part 2), kept quieter than the sentence they sit in */
+.md a.lk{gap:6px;padding:1px 9px 1px 4px;border:1px solid var(--border);background:var(--surface);color:var(--ink);font-weight:500;font-size:.94em;line-height:1.55;transition:border-color .2s,box-shadow .2s,transform .15s}
+.md a.lk:hover{background:var(--surface);color:var(--ink);border-color:var(--blue-2);box-shadow:0 2px 8px rgba(30,90,255,.10)}
+.md a.lk .lk-fav{width:16px;height:16px;border-radius:50%;object-fit:cover;flex:none;background:var(--soft)}
+.md a.lk .lk-fav+svg{display:none}.md a.lk>svg{margin-left:3px;color:var(--muted)}
+.md a.lk small{color:var(--muted);font-size:.9em;font-weight:400;white-space:nowrap}
+.dark .md a.lk{color:var(--ink)}.dark .md a.lk:hover{color:var(--ink)}
+.md a.lk-card{display:flex;align-items:center;gap:12px;max-width:440px;margin:4px 0 12px;padding:10px 14px 10px 10px;border:1px solid var(--border);border-radius:14px;background:var(--surface);color:var(--ink);text-decoration:none;transition:border-color .2s,box-shadow .2s,transform .15s}
+.md a.lk-card:hover{border-color:var(--blue-2);box-shadow:0 4px 14px rgba(30,90,255,.10)}.md a.lk-card:active{transform:scale(.99)}
+.md .lk-ic{width:34px;height:34px;flex:none;border-radius:9px;background:var(--soft);display:grid;place-items:center;color:var(--muted)}
+.md .lk-ic .lk-fav{width:20px;height:20px;border-radius:5px}.md .lk-ic .lk-fav+svg{display:none}
+.md .lk-t{display:flex;flex-direction:column;min-width:0;line-height:1.35}.md .lk-t b{font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.md .lk-t small{color:var(--muted);font-size:12.5px}.md .lk-go{margin-left:auto;display:inline-flex;align-items:center;gap:4px;color:var(--muted);font-size:12.5px;white-space:nowrap}
+.md a.fchip{display:inline-flex;align-items:center;gap:7px;max-width:100%;vertical-align:baseline;padding:2px 10px 2px 3px;margin:1px;border-radius:9px;background:var(--soft);color:var(--ink);font-size:.92em;font-weight:500;text-decoration:none;transition:background .2s}
+.md a.fchip:hover{background:var(--soft-2)}
+.md a.fchip i{font-style:normal;min-width:26px;height:20px;padding:0 4px;border-radius:5px;background:var(--muted);color:#fff;font-size:9.5px;font-weight:700;letter-spacing:.02em;display:grid;place-items:center}
+.md a.fchip i.fx-pdf{background:#e0604d}.md a.fchip i.fx-xlsx,.md a.fchip i.fx-csv{background:#3f9b5a}.md a.fchip i.fx-docx,.md a.fchip i.fx-doc{background:#2f6bff}.md a.fchip i.fx-pptx{background:#d9822b}
+.md a.fchip i.fx-png,.md a.fchip i.fx-jpg,.md a.fchip i.fx-jpeg,.md a.fchip i.fx-webp{background:#7c5cd6}.md a.fchip i.fx-zip{background:#8a8f98}
+.md .stl{display:inline-flex;align-items:center;gap:5px;padding:0 8px;border-radius:999px;font-size:.84em;font-weight:600;line-height:1.7;vertical-align:baseline;background:var(--soft);color:var(--ink-2)}
+.md .stl::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor;opacity:.85}
+.md .stl.ok{background:color-mix(in srgb,var(--ok) 13%,var(--surface));color:color-mix(in srgb,var(--ok) 78%,var(--ink))}
+.md .stl.wait{background:color-mix(in srgb,var(--warn) 15%,var(--surface));color:color-mix(in srgb,var(--warn) 62%,var(--ink))}
+.md .stl.bad{background:color-mix(in srgb,var(--bad) 11%,var(--surface));color:var(--bad)}
+/* phone app: no double-tap zoom, and fields at 16px so focusing one never zooms the page */
+html{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adjust:100%}
+@media (max-width:760px){input,textarea,select,.sel-btn{font-size:16px}}
+/* phones: the floating screen sits across the full width at the top, under the bar, so the newest messages and the
+   message box stay in view below it (agreed after the mock-up) */
+@media (max-width:760px){
+ .screen-float{top:calc(env(safe-area-inset-top,0px) + 64px)!important;bottom:auto!important;left:8px!important;right:8px!important;width:auto!important;border-radius:18px;animation:floatDown var(--t-med) var(--ease)}
+ .screen-float .screen-head{cursor:default;height:44px}
+ .screen-float .screen-stage{padding:8px 10px 12px}
+}
+@keyframes floatDown{from{opacity:0;transform:translateY(-14px) scale(.98)}}
+.lb-steps{margin:2px 0 0;padding-left:18px;text-align:left;font-size:12.5px;color:#a9adb8;line-height:1.55}.lb-note .spinner+span{margin-top:2px}
+.tabs:not(:has(.pill[style*="width"])) button.on{background:var(--surface);box-shadow:0 1px 2px rgba(11,12,16,.1);border-radius:var(--r-pill)}
+.hist-more{display:flex;justify-content:center;margin:4px 0 14px}.hist-more button{gap:6px;font-size:13px;color:var(--ink-2)}
+.lb-mirror img[hidden]{display:none!important}
+/* in the small floating window the message stays short so its button fits */
+.screen-float .lb-note{padding:12px 14px;gap:5px}.screen-float .lb-note b{font-size:13.5px}.screen-float .lb-note span{font-size:11.5px}
+.screen-float .lb-steps{display:none}.screen-float .lb-note button{margin-top:2px;min-height:30px;padding:0 12px;font-size:12.5px}

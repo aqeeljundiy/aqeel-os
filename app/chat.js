@@ -138,9 +138,10 @@ const Chat={
    await H('/files/upload-stream',{method:'POST',body:fd});out.push(path)}return out},
 
  /* ---------- history ---------- */
- async loadHistory(id){
-  try{const d=await H('/sessions/'+encodeURIComponent(id)+'/messages?limit=500&order=latest');if(this.id!==id)return;
-   if(this.live[id]?.running)return;this.live[id]={turns:this.toTurns(d.messages||[]),running:false,seenAt:Date.now()/1000};this._opening=id;this.paint();this.follow(id);
+ // a long chat opens with its newest 150 messages (big chats were over 1 MB with every tool output); the rest on request
+ async loadHistory(id,all=false){const lim=all?2000:150;
+  try{const d=await H('/sessions/'+encodeURIComponent(id)+'/messages?limit='+lim+'&order=latest');if(this.id!==id)return;
+   if(this.live[id]?.running)return;const ms=d.messages||[];this.live[id]={turns:this.toTurns(ms),running:false,seenAt:Date.now()/1000,more:!all&&ms.length>=lim};this._opening=id;this.paint();this.follow(id);
    // the thinking shown while each reply streamed (saved by aqeelOS; some models keep none themselves)
    UI('/ui/thinking?session='+encodeURIComponent(id)).then(x=>{const s=this.live[id];if(!s||s.running||!(x.items||[]).length)return;let changed=false;const T=s.turns;
     for(let i=0;i<T.length-1;i++){if(T[i].role!=='user')continue;const ai=T[i+1];if(ai?.role!=='ai'||ai.think)continue;const q=String(T[i].text||'').slice(0,300);const hit=x.items.find(y=>y.u===q||(q&&y.u.startsWith(q.slice(0,120))));if(hit){ai.think=hit.think;changed=true}}
@@ -176,7 +177,7 @@ const Chat={
   const keep=$$('.step.open',th).map(x=>x.dataset.k);
   // an opened chat shows its history at once (no rise-in for old messages); new turns still animate
   const opening=this._opening===this.id;if(opening){this._opening=null;s._seen={n:1e9,k:new Set()}}   // what is there when a chat opens is history: shown at once
-  th.innerHTML=s.turns.map((t,i)=>this.turnHtml(t,i,s)).join('')||'';
+  th.innerHTML=(s.more?`<div class="hist-more"><button class="ghost" data-act="hist-more">${icon('chevU',15)}Show earlier messages</button></div>`:'')+(s.turns.map((t,i)=>this.turnHtml(t,i,s)).join('')||'');
   // the thread is redrawn on every streamed word: only messages and steps that are new since the last paint rise in
   const seen=s._seen||(s._seen={n:0,k:new Set()});[...th.children].forEach((el,i)=>{if(i<seen.n)el.classList.add('still')});seen.n=th.children.length;
   th.querySelectorAll('.step[data-k]').forEach(x=>{if(opening||seen.k.has(x.dataset.k))x.classList.add('still');seen.k.add(x.dataset.k)});
@@ -426,3 +427,4 @@ function attSize(n){return !n?'':n<1e6?Math.max(1,Math.round(n/1e3))+' KB':(n/1e
 function dataFile(f){const [h,b]=String(f.url||'').split(',');const bin=atob(b||'');const a=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)a[i]=bin.charCodeAt(i);return new Blob([a],{type:(/data:([^;]+)/.exec(h)||[])[1]||'application/octet-stream'})}
 // step lines show the engine's folders in plain words (the exact command stays in the step's details)
 function plainPaths(t){return String(t||'').replace(/\/home\/[\w.-]+\/\.hermes\/profiles\/([\w-]+)/g,(m,a)=>'['+ident(a).name+']').replace(/\/home\/[\w.-]+\/\.hermes(?=\/|\b)/g,'[aqeelOS]').replace(/~\/\.hermes(?=\/|\b)/g,'[aqeelOS]').replace(/(^|[\s;&|(])hermes(?=\s)/g,'$1aqeelos').replace(/(?<![\w\/.-])Hermes Agent\b/g,'aqeelOS').replace(/(?<![\w\/.-])Hermes(?![\w-])/g,'aqeelOS')}
+

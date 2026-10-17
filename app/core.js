@@ -101,10 +101,22 @@ function niceModel(id){let s=String(id||'').replace(/^.*\//,'').replace(/\[[^\]]
 const srcIcon=s=>({telegram:'telegram',whatsapp:'whatsapp',cron:'cron',api_server:'chat',tui:'terminal',cli:'terminal',oneshot:'terminal',webhook:'hook',discord:'chat',slack:'chat',email:'chat'}[s]||'chat');
 
 // Links show as small labelled buttons (named links keep their name; a bare link says what it is: Google Doc, Sheet…)
-function linkChip(u,text){const raw=u.replace(/&amp;/g,'&');let host='',deep=false;try{const x=new URL(raw);host=x.hostname.replace(/^www\./,'');deep=x.pathname.length>1}catch{}
- const kind=/docs\.google\.com\/document/.test(raw)?['Google Doc','file']:/docs\.google\.com\/spreadsheets/.test(raw)?['Google Sheet','list']:/docs\.google\.com\/presentation/.test(raw)?['Google Slides','layers']:/drive\.google\.com/.test(raw)?['Google Drive','folder']:/github\.com/.test(raw)?['GitHub','terminal']:null;
- const label=text||(kind?kind[0]:host+(deep?'/…':''));
- return `<a class="lk" href="${u}" target="_blank" rel="noopener" title="${u}">${icon(kind?kind[1]:'link',13)}<span>${label}</span></a>`}
+// Each shows the site's own icon, the name at text weight and the site in muted text (agreed mock-up, part 2).
+const LK_SITES=[[/docs\.google\.com\/document/,'Google Docs','Google Doc'],[/docs\.google\.com\/spreadsheets/,'Google Sheets','Google Sheet'],[/docs\.google\.com\/presentation/,'Google Slides','Google Slides'],[/docs\.google\.com\/forms/,'Google Forms','Google Form'],[/drive\.google\.com/,'Google Drive','Google Drive'],[/calendar\.google\.com/,'Google Calendar','Calendar'],[/mail\.google\.com/,'Gmail','Gmail'],[/notion\.(so|site)/,'Notion','Notion page'],[/github\.com/,'GitHub','GitHub'],[/figma\.com/,'Figma','Figma file'],[/slack\.com/,'Slack','Slack'],[/(youtube\.com|youtu\.be)/,'YouTube','YouTube video'],[/canva\.com/,'Canva','Canva design'],[/ai\.elkiya\.com/,'aqeelOS','aqeelOS']];
+function lkInfo(u){const raw=u.replace(/&amp;/g,'&');let host='',deep=false;try{const x=new URL(raw);host=x.hostname.replace(/^www\./,'');deep=x.pathname.length>1}catch{}
+ const s=LK_SITES.find(([re])=>re.test(raw));const site=s?s[1]:host.split('.').slice(-2,-1)[0]?.replace(/^./,c=>c.toUpperCase())||host;
+ return {raw,host,site,fallback:s?s[2]:host+(deep?'/…':'')}}
+const lkFav=host=>host?`<img class="lk-fav" src="/ui/logo?d=${encodeURIComponent(host)}&v=3" alt="" loading="lazy">`:'';
+function linkChip(u,text){const {host,site,fallback}=lkInfo(u);const label=text||fallback;
+ return `<a class="lk" href="${u}" target="_blank" rel="noopener" title="${u}">${lkFav(host)}${icon('link',13)}<span>${label}</span>${text&&site&&site.toLowerCase()!==String(label).toLowerCase()?`<small>${esc(site)}</small>`:''}</a>`}
+// a link on a line of its own becomes a small card: icon, name, site, Open
+function linkCard(u,text){const {host,site,fallback}=lkInfo(u);
+ return `<a class="lk-card" href="${u}" target="_blank" rel="noopener" title="${u}"><span class="lk-ic">${lkFav(host)}${icon('link',16)}</span><span class="lk-t"><b>${text||fallback}</b><small>${esc(site)}</small></span><span class="lk-go">Open ${icon('popout',13)}</span></a>`}
+// a file the agent made: its name with a small type badge, opening it from the box
+function fileChip(p){const name=p.split('/').pop(),ext=(name.split('.').pop()||'').slice(0,4).toUpperCase();const href=typeof fileUrl==='function'?fileUrl(p):'#';
+ return `<a class="fchip" href="${esc(href)}" target="_blank" rel="noopener" title="${esc(p)}"><i class="fx-${esc(ext.toLowerCase())}">${esc(ext)}</i>${esc(name)}</a>`}
+// [[Done]] / [[Needs you]] / [[Failed]]: a status label, its colour from the word
+function statusChip(w){const k=/^(done|ok|ready|sent|live|passed|paid|fixed|connected)$/i.test(w)?'ok':/^(failed|error|blocked|broken|overdue|missed|down)$/i.test(w)?'bad':/^(needs you|waiting|pending|to do|todo|in progress|review|soon|paused)$/i.test(w)?'wait':'';return `<span class="stl ${k}">${esc(w)}</span>`}
 // Small, safe Markdown: paragraphs, lists, headings, bold, italics, inline code, fenced code, links, tables, quotes.
 function md(src){
  // MEDIA:/path/picture.png (how agents hand over pictures they made) shows the picture itself
@@ -112,7 +124,10 @@ function md(src){
  const out=[];const lines=String(src||'').replace(/\r/g,'').split('\n');let i=0;
  // inline: code and images are lifted out first so nothing inside them gets rewritten
  const inline=t=>{const keep=[];const put=h=>'\u0000'+(keep.push(h)-1)+'\u0000';
-  t=t.replace(/`([^`]+)`/g,(m,c)=>put('<code>'+esc(c)+'</code>'))
+  const FILE=/^(?:\/home\/[\w.-]+|~)\/[^\s`<>"']*[^\s`<>"'/]\.[A-Za-z0-9]{1,6}$/;
+  t=t.replace(/`([^`]+)`/g,(m,c)=>put(FILE.test(c)?fileChip(c.replace(/^~/,'/home/claude')):'<code>'+esc(c)+'</code>'))
+   .replace(/(^|[\s(])((?:\/home\/[\w.-]+|~)\/[^\s`<>"']*[^\s`<>"'/.,;:)]\.[A-Za-z0-9]{1,6})(?=$|[\s.,;:)])/g,(m,pre,f)=>pre+put(fileChip(f.replace(/^~/,'/home/claude'))))
+   .replace(/\[\[([^\[\]\n]{1,24})\]\]/g,(m,w)=>put(statusChip(w.trim())))
    .replace(/!\[([^\]]*)\]\(((?:data:image\/[a-z+.-]+;base64,[A-Za-z0-9+/=]+)|(?:https?:\/\/[^)\s]+)|(?:\/ui\/media\?path=[^)\s]+))\)/g,(m,alt,u)=>put(`<img class="md-img" src="${esc(u)}" alt="${esc(alt)}" loading="lazy">`));
   t=esc(t).replace(/(?<![\w\/.-])Hermes Agent\b/g,'aqeelOS').replace(/(?<![\w\/.-])Hermes(?![\w-])/g,'aqeelOS').replace(/(?<![\w\/.-])hermes(?=[\s-])/g,'aqeelos').replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>').replace(/__([^_]+)__/g,'<b>$1</b>').replace(/(^|[^*\w])\*([^*\s][^*]*)\*/g,'$1<i>$2</i>').replace(/~~([^~]+)~~/g,'<s>$1</s>')
    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,(m,t,u)=>linkChip(u,t)).replace(/(^|\s)(https?:\/\/[^\s<]+)/g,(m,pre,u)=>pre+linkChip(u));
@@ -143,6 +158,7 @@ function md(src){
   if(isItem(l)){out.push(list());continue}
   if(/^\|.*\|\s*$/.test(l)&&/^\|[\s:|-]+\|\s*$/.test(lines[i+1]||'')){const row=r=>r.trim().replace(/^\||\|$/g,'').split('|').map(c=>c.trim());const head=row(l);i+=2;const body=[];while(i<lines.length&&/^\|.*\|\s*$/.test(lines[i]))body.push(row(lines[i++]));out.push(`<div class="table-wrap"><table><thead><tr>${head.map(h=>`<th>${inline(h)}</th>`).join('')}</tr></thead><tbody>${body.map(r=>`<tr>${r.map(c=>`<td>${inline(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`);continue}
   if(/^>\s?/.test(l)){const b=[];while(i<lines.length&&/^>\s?/.test(lines[i]))b.push(lines[i++].replace(/^>\s?/,''));const warn=/^\s*(⚠|❗|\*\*(warning|heads up|careful|note)\b)/i.test(b[0]||'');out.push('<blockquote'+(warn?' class="warn"':'')+'>'+md(b.join('\n'))+'</blockquote>');continue}
+  {const lc=/^\s*\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)\s*$/.exec(l);if(lc&&/^\s*$/.test(lines[i+1]||'')){out.push(linkCard(esc(lc[2]),esc(lc[1])));i++;continue}}
   const p=[];while(i<lines.length&&!/^\s*$/.test(lines[i])&&!/^\s*```|^#{1,6}\s|^>\s?|^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(lines[i])&&!(isItem(lines[i])&&p.length===0)&&!(isItem(lines[i])))p.push(inline(lines[i++]));out.push('<p>'+p.join('<br>')+'</p>');
  }
  return out.join('');
@@ -188,7 +204,7 @@ const SECTIONS=[
   {id:'host',label:'Host',icon:'server',desc:'The AI box itself: resources, updates and maintenance.'}]},
 ];
 
-const S={identities:{},collapsed:store.get('collapsed',false),tab:{},status:null,sessions:[],sessionsLoaded:false,chatFilter:store.get('chatFilter','chats'),search:'',bannerDismissed:store.get('bannerDismissed',''),signedIn:false};
+const S={identities:{},collapsed:store.get('collapsed',false),tab:{},status:null,sessions:[],sessionsLoaded:false,chatFilter:['chats','automation','all'].includes(store.get('chatFilter','chats'))?store.get('chatFilter','chats'):'chats',search:'',bannerDismissed:store.get('bannerDismissed',''),signedIn:false};
 
 function route(){const p=location.hash.replace(/^#\/?/,'').split('/').map(decodeURIComponent);if(p[0]==='signin')return{signin:true};if(p[0]==='invite')return{invite:p[1]||''};const sec=SECTIONS.find(s=>s.id===p[0])||SECTIONS[0];if(sec.id==='chat')return{sec,chat:p[1]||null};const page=sec.pages.find(x=>x.id===p[1])||sec.pages[0];return{sec,page,arg:p.slice(2)}}
 function go(h){if(location.hash==='#'+h)render();else location.hash=h}
@@ -256,7 +272,9 @@ const emptyBox=(title,text,btn='')=>`<div class="empty-hero"><b style="display:b
 // Tab bars are often re-rendered on switch, so each bar remembers where its pill was and a fresh pill
 // glides from there instead of appearing in place.
 const pillAt={};
-function placePills(){$$('.tabs').forEach(t=>{const on=t.querySelector('button.on'),pill=t.querySelector('.pill');if(!on||!pill||!on.offsetWidth)return;
+// a tab bar drawn while hidden (the phone's closed sidebar) is measured again as soon as it shows
+const pillRO=typeof ResizeObserver==='function'?new ResizeObserver(()=>requestAnimationFrame(placePills)):null;
+function placePills(){$$('.tabs').forEach(t=>{if(pillRO&&!t._ro){t._ro=1;pillRO.observe(t)}const on=t.querySelector('button.on'),pill=t.querySelector('.pill');if(!on||!pill||!on.offsetWidth)return;
  const key=t.dataset.tabs||'',to={left:on.offsetLeft,width:on.offsetWidth},from=pillAt[key];
  if(!pill.style.left&&from&&(from.left!==to.left||from.width!==to.width)){pill.style.transition='none';pill.style.left=from.left+'px';pill.style.width=from.width+'px';pill.offsetWidth;pill.style.transition=''}
  pill.style.left=to.left+'px';pill.style.width=to.width+'px';pillAt[key]=to})}
@@ -366,3 +384,8 @@ function cronText(expr){const s=String(expr||'').trim();const f=s.split(/\s+/);i
  const month=mon==='*'?null:num(mon)?MON[+mon]:null;if(mon!=='*'&&!month)return s;
  let out=days?days+' '+at:dates?(dates[0]==='d'?'Days '+dom.replace('-','–'):'On '+dates)+' of '+(month||'each month')+' '+at:month?'Every day in '+month+' '+at:/^every/.test(at)?at[0].toUpperCase()+at.slice(1):'Every day '+at;
  return out}
+// a site without an icon: drop the broken picture so the plain link icon shows (inline onerror is blocked by the CSP)
+document.addEventListener('error',e=>{if(e.target?.classList?.contains('lk-fav'))e.target.remove()},true);
+// installed on a phone it behaves like an app: no pinch or double-tap zoom (iOS ignores user-scalable=no)
+for(const ev of ['gesturestart','gesturechange'])document.addEventListener(ev,e=>e.preventDefault(),{passive:false});
+document.addEventListener('touchmove',e=>{if(e.touches&&e.touches.length>1)e.preventDefault()},{passive:false});

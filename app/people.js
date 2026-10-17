@@ -744,3 +744,7 @@ async function waCloudDrawer(){const ag=agentProfile()||'default';let s;try{s=aw
   try{const r=await post(UI,'/ui/channels/wa-cloud?agent='+encodeURIComponent(ag),b);toast(r.on?'Saved. Now paste the address into Meta':'Saved. Switch the channel on after the agents restart');
    d.querySelector('#wacOut').innerHTML=`<h3 style="font-size:14px;margin:16px 0 8px">Paste these into Meta</h3>${copy('Callback URL',r.callback)}${copy('Verify token',r.verify_token)}`;
    d.querySelectorAll('input').forEach(i=>{i.value='';i.placeholder='Saved · leave empty to keep'})}catch(e){fail(e)}}}
+
+// chat: load the earlier part of a long chat
+ACT['hist-more']=async a=>{const id=Chat.id;if(!id)return;a.disabled=true;a.innerHTML='<span class="spinner"></span>Loading earlier messages…';const sc=$('#scroll');const from=sc?sc.scrollHeight-sc.scrollTop:0;
+ await Chat.loadHistory(id,true);if(sc)requestAnimationFrame(()=>{sc.scrollTop=sc.scrollHeight-from})};

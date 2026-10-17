@@ -30,14 +30,22 @@ const Screen={
  toggle(){this.open=!this.open;store.set('screenOpen',this.open);this.paint(true);this.watch();this.mirror();paintTop()},
  /* My browser view: a live picture of the agent's tab in your Chrome (the aqeelOS extension sends it), every 1.5 s
     while this view is open and the page is visible. Take over brings that tab to the front. */
- mirror(){clearInterval(this._m);if(!this.open||this.src_!=='mine')return;const tick=async()=>{if(document.hidden||!$('#lbNote'))return;let f={};try{f=await call('','/ui/local-browser/frame')}catch{return}
+ // a Chrome that is linked but asleep (lid closed, Chrome in the background) answers nothing: after a few silent
+ // tries it says so plainly instead of spinning on a broken picture
+ mirror(){clearInterval(this._m);if(!this.open||this.src_!=='mine')return;let quiet=0,shown=false;const tick=async()=>{if(document.hidden||!$('#lbNote'))return;let f={};try{f=await call('','/ui/local-browser/frame')}catch{f={error:true}}
    const img=$('#lbImg'),note=$('#lbNote'),bar=$('#lbBar');if(!note)return;
-   const say=(html,btn)=>{img.hidden=true;note.hidden=false;note.innerHTML=html+(btn||'')};
-   if(!f.connected)return say('<b>Your browser isn’t connected</b><span>Install the aqeelOS extension in Chrome once, then agents can work there when you choose “My browser”.</span>','<button class="primary" data-act="browser-setup">'+icon('globe',15)+'Set it up</button>');
+   if(!img.onerror)img.onerror=()=>{img.hidden=true;note.hidden=false;shown=false};
+   const say=(html,btn)=>{img.hidden=true;note.hidden=false;shown=false;const h=html+(btn||'');if(note.dataset.h!==h){note.dataset.h=h;note.innerHTML=h}};
+   const steps='<ol class="lb-steps"><li>Open Chrome on your computer (wake it up if it is asleep).</li><li>Click the aqeelOS icon in the toolbar and make sure it says Connected.</li></ol>';
+   const silent=f.error||f.timeout||(f.connected&&!f.none&&!f.inactive&&!f.data);
+   if(silent){if(++quiet<3&&!shown)return say('<span class="spinner"></span><span>Connecting to your browser…</span>');if(shown)return;
+    return say(f.error?'<b>aqeelOS can’t be reached right now</b><span>Check your internet connection. It tries again by itself.</span>':'<b>Your browser isn’t answering</b><span>Chrome is closed, asleep, or the extension lost its connection.</span>'+steps,'<button data-act="lb-retry">'+icon('refresh',15)+'Try again</button>')}
+   quiet=0;
+   if(!f.connected)return say('<b>Your browser isn’t connected</b><span>Agents can work in your own Chrome when you choose “My browser”. It needs the aqeelOS extension, installed once.</span>'+steps,'<button class="primary" data-act="browser-setup">'+icon('globe',15)+'Set it up</button>');
    if(f.none)return say('<b>No agent is using your browser yet</b><span>When an agent asks where to browse, pick “My browser”. Its tab shows up here.</span>');
    bar.innerHTML=esc(f.title||'')+(f.url?' · <span class="lb-url">'+esc(f.url)+'</span>':'');
    if(f.inactive)return say('<b>The agent’s tab is in the background</b><span>Another tab is in front in that Chrome window.</span>','<button data-act="lb-focus">'+icon('mouse',15)+'Show it</button>');
-   if(f.data){img.src=f.data;img.hidden=false;note.hidden=true}};tick();this._m=setInterval(tick,1500)},
+   if(f.data){img.src=f.data;img.hidden=false;note.hidden=true;note.dataset.h='';shown=true}};tick();this._m=setInterval(tick,1500);this._mt=tick},
  setMode(m){this.mode=m;store.set('screenMode',m);this.paint(true)},
  setControl(on){this.control=on;this.paint(true);if(on)setTimeout(()=>$('#scrFrame')?.focus(),400)},
  seg(){return `<span class="scr-seg" role="tablist" aria-label="Which screen"><button class="${this.src_==='box'?'on':''}" data-act="scr-src" data-v="box" title="The agent's screen on the AI box">AI box</button><button class="${this.src_==='mine'?'on':''}" data-act="scr-src" data-v="mine" title="The agent's tab in your own Chrome">My browser</button></span>`},
@@ -115,3 +123,4 @@ ACT['scr-src']=a=>{Screen.setSrc(a.dataset.v);paintTop()};
 const openScreen=v=>{if(Screen.open&&Screen.src_===v){Screen.toggle();return}Screen.src_=v;store.set('screenSrc',v);if(!Screen.open)Screen.toggle();else{Screen.paint(true);Screen.mirror();paintTop()}};
 ACT['screen-box']=()=>openScreen('box');ACT['screen-mine']=()=>openScreen('mine');
 ACT['lb-focus']=async()=>{try{const r=await post((p,o)=>call('',p,o),'/ui/local-browser/focus');if(r.offline)toast('Your browser isn’t connected','err');else if(r.none)toast('No agent tab yet','err');else toast('Brought to the front in Chrome')}catch(e){fail(e)}};
+ACT['lb-retry']=()=>{const n=$('#lbNote');if(n){n.dataset.h='';n.innerHTML='<span class="spinner"></span><span>Connecting to your browser…</span>'}Screen.mirror()};
