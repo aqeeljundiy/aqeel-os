@@ -121,7 +121,11 @@ const Chat={
  },
  toTurns(msgs){const turns=[];let ai=null;const byCall={};
   for(const m of msgs){if(m.active===0)continue;
-   if(m.role==='user'){ai=null;turns.push({role:'user',text:typeof m.content==='string'?m.content:this.contentText(m.content)});continue}
+   if(m.role==='user'){ai=null;let text=typeof m.content==='string'?m.content:this.contentText(m.content);
+    // a steer is saved inside the engine's "[OUT-OF-BAND USER MESSAGE …]" frame (for the model); show what was typed, as a steer
+    const st=/^\s*\[OUT-OF-BAND USER MESSAGE[^\]]*\]\s*([\s\S]*?)\s*(?:\[\/OUT-OF-BAND USER MESSAGE\])?\s*$/.exec(text);
+    if(st||m.display_kind==='steer'){turns.push({role:'user',text:st?st[1]:text,steer:'delivered'});continue}
+    turns.push({role:'user',text});continue}
    if(m.role==='system')continue;
    if(!ai){ai={role:'ai',steps:[],text:'',think:''};turns.push(ai)}
    if(m.role==='assistant'){const r=m.reasoning_content||m.reasoning;if(r&&typeof r==='string')ai.think+=(ai.think?'\n\n':'')+r;
