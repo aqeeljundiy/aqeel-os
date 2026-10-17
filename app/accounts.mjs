@@ -69,7 +69,7 @@ export function createAccounts(DATA){
   const child=spawn(CLAUDE,['auth','login'],{env:{...process.env,CLAUDE_CONFIG_DIR:dir,BROWSER:'true'},stdio:['pipe','pipe','pipe']});
   const s={child,out:'',state:'running',dir,label:String(label||id).slice(0,60)};logins.set(id,s);
   const add=b=>{s.out=(s.out+String(b).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g,'')).slice(-8000)};child.stdout.on('data',add);child.stderr.on('data',add);
-  child.on('close',async code=>{s.state=code===0?'done':'failed';if(code===0){const d2=await load();if(!d2.accounts.some(a=>a.id===id))d2.accounts.push({id,label:s.label,dir});await save(d2);cache.delete(id)}});
+  child.on('close',async code=>{try{s.state=code===0?'done':'failed';if(code===0){const d2=await load();if(!d2.accounts.some(a=>a.id===id))d2.accounts.push({id,label:s.label,dir});await save(d2);cache.delete(id)}}catch(e){s.state='failed';console.warn('account sign-in',e.message)}});
   setTimeout(()=>{if(s.state==='running'){s.state='failed';child.kill()}},10*60000).unref();
   for(let i=0;i<40&&!/https:\/\/\S+/.test(s.out);i++)await new Promise(r=>setTimeout(r,250));
   return {id,url:(/https:\/\/\S+/.exec(s.out)||[])[0]||null,state:s.state};

@@ -16,7 +16,7 @@ export function createLinks({DATA,DASH,TOKEN,HERMES_HOME,python,setupAgent}){
  const load=async()=>{if(db)return db;try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.links||={};return db};
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)};
  const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
- const api=(p,o={})=>fetch(DASH+'/api'+p,{...o,headers:{'x-hermes-session-token':TOKEN,'content-type':'application/json'}}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||j.error||('HTTP '+r.status));return j});
+ const api=(p,o={})=>fetch(DASH+'/api'+p,{signal:AbortSignal.timeout(o.timeout||60000),...o,headers:{'x-hermes-session-token':TOKEN,'content-type':'application/json'}}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||j.error||('HTTP '+r.status));return j});
  const SHARED=['SOUL.md','memories','skills','plugins','home','workspace','mcp-tokens'];
  // single files the copy uses as-is: model sign-ins (auth.json) and the Google Workspace logins, whatever accounts exist
  const SHARED_FILES=a=>readdir(homeOf(a)).then(l=>l.filter(n=>n==='auth.json'||/^google_(token|client_secret)[\w-]*\.json$/.test(n))).catch(()=>[]);

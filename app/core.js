@@ -6,26 +6,34 @@ const isMac=/Mac|iPhone|iPad/.test(navigator.platform);
 const MOD=isMac?'⌘':'Ctrl';
 const store={get(k,d){try{const v=localStorage.getItem('hui-'+k);return v===null?d:JSON.parse(v)}catch{return d}},set(k,v){try{localStorage.setItem('hui-'+k,JSON.stringify(v))}catch{}}};
 // Your settings follow you: what this browser remembers for you (drafts, Allow all per chat, folded sections,
-// filters, theme, notifications you have seen) is also saved to your account on the box and loaded at sign-in,
-// so every device shows the same. Writes are batched; nothing waits on the network.
-const Prefs={q:{},gone:new Set(),t:0,ready:false,
- mine:k=>/^(hui-|draft:|cronSeen:|chAlert:|cronFail:)/.test(k),
+// filters, theme, notifications you have seen) is also saved to your account on the box and loaded once at sign-in,
+// so every device shows the same. Rules: a change made here and not sent yet always wins; another person signing in
+// on this browser never sees (or inherits) yours; deletions stay deleted; sends are small batches.
+const Prefs={q:{},gone:new Set(),t:0,ready:false,loaded:null,
+ mine:k=>/^(hui-|draft:|cronSeen:|chAlert:|cronFail:)/.test(k)&&k!=='hui-prefs-owner',
  push(k,v){if(!this.ready)return;this.q[k]=v;this.gone.delete(k);this.later()},
  drop(k){if(!this.ready)return;delete this.q[k];this.gone.add(k);this.later()},
  later(){clearTimeout(this.t);this.t=setTimeout(()=>this.flush(),1200)},
- flush(){const set=this.q,del=[...this.gone];if(!Object.keys(set).length&&!del.length)return;this.q={};this.gone.clear();const body=JSON.stringify({set,del});
-  fetch('/ui/prefs',{method:'PUT',headers:{'x-hui':'1','content-type':'application/json'},body,keepalive:true}).catch(()=>{Object.assign(this.q,set);del.forEach(k=>this.gone.add(k))})},
- // at sign-in: what the account has wins over this browser, except what you changed here since (still waiting to be sent)
- async load(){try{const r=await fetch('/ui/prefs',{headers:{'x-hui':'1'}});if(!r.ok)return;const {prefs={}}=await r.json();
-   const here={};for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(this.mine(k))here[k]=localStorage.getItem(k)}
-   for(const [k,v] of Object.entries(prefs))try{rawSet.call(localStorage,k,v)}catch{}
-   // first time on this account: what this browser already had becomes the account's
-   const missing=Object.keys(here).filter(k=>!(k in prefs));this.ready=true;for(const k of missing)this.push(k,here[k]);
-   if(prefs['hui-theme'])document.documentElement.classList.toggle('dark',prefs['hui-theme']==='dark')}catch{}}};
+ flush(closing){const set=this.q,del=[...this.gone];if(!Object.keys(set).length&&!del.length)return;this.q={};this.gone.clear();
+  // batches under 60 KB (a closing tab can only send that much)
+  const batches=[];let cur={set:{},del},size=0;for(const [k,v] of Object.entries(set)){const n=k.length+String(v).length+8;if(size+n>60000&&Object.keys(cur.set).length){batches.push(cur);cur={set:{},del:[]};size=0}cur.set[k]=v;size+=n}batches.push(cur);
+  for(const b of batches)fetch('/ui/prefs',{method:'PUT',headers:{'x-hui':'1','content-type':'application/json'},body:JSON.stringify(b),keepalive:!!closing}).catch(()=>{Object.assign(this.q,b.set);b.del.forEach(k=>this.gone.add(k))})},
+ load(uid){return this.loaded??=(async()=>{try{const r=await fetch('/ui/prefs',{headers:{'x-hui':'1'}});if(!r.ok)return;const {prefs={}}=await r.json();
+   const keys=[];for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(this.mine(k))keys.push(k)}
+   // someone else used this browser before: their settings leave with them
+   const owner=localStorage.getItem('hui-prefs-owner');const other=owner&&uid&&owner!==String(uid);if(other)for(const k of keys)try{rawDel.call(localStorage,k)}catch{}
+   if(uid)try{rawSet.call(localStorage,'hui-prefs-owner',String(uid))}catch{}
+   for(const [k,v] of Object.entries(prefs))if(!(k in this.q)&&!this.gone.has(k))try{rawSet.call(localStorage,k,v)}catch{}
+   this.ready=true;
+   // a brand-new account takes what this browser already had (its first device); after that, the account is the source
+   if(!Object.keys(prefs).length&&!other)for(const k of keys){const v=localStorage.getItem(k);if(v!=null)this.push(k,v)}
+   if(prefs['hui-theme'])document.documentElement.classList.toggle('dark',prefs['hui-theme']==='dark')}catch{}})()},
+ // signing out: this browser keeps nothing of yours
+ clear(){const keys=[];for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(this.mine(k)&&k!=='hui-theme')keys.push(k)}this.flush(true);for(const k of keys)try{rawDel.call(localStorage,k)}catch{}try{rawDel.call(localStorage,'hui-prefs-owner')}catch{}this.ready=false;this.loaded=null}};
 const rawSet=Storage.prototype.setItem,rawDel=Storage.prototype.removeItem;
 Storage.prototype.setItem=function(k,v){rawSet.call(this,k,v);if(this===window.localStorage&&Prefs.mine(k))Prefs.push(k,String(v))};
 Storage.prototype.removeItem=function(k){rawDel.call(this,k);if(this===window.localStorage&&Prefs.mine(k))Prefs.drop(k)};
-addEventListener('pagehide',()=>Prefs.flush());
+addEventListener('pagehide',()=>Prefs.flush(true));
 
 /* ---------- API ---------- */
 class ApiError extends Error{constructor(msg,status,data){super(msg);this.status=status;this.data=data}}
@@ -43,7 +51,7 @@ async function call(base,path,opt={}){
 // The active agent (Hermes profile): dashboard calls get ?profile=, gateway calls go through /p/<profile>/.
 const agentProfile=()=>{if(S.chOverride)return S.chOverride;   // chOverride: setting up an extra connection (WhatsApp 2…)
  // on Abilities and Webhooks you can look at another agent's list without switching who you chat with
- if(S.viewAgent&&/^#\/(abilities|automations\/webhooks)/.test(location.hash))return S.viewAgent==='default'?'':S.viewAgent;
+ if(S.viewAgent){if(/^#\/(abilities\/(skills|mcp|plugins)|automations\/webhooks)/.test(location.hash))return S.viewAgent==='default'?'':S.viewAgent;S.viewAgent=null}
  return S.profile&&S.profile!=='default'?S.profile:''};
 // Every dashboard call names its agent, the main one too: Hermes serves several agents from one backend
 // and refuses some writes (e.g. deleting a webhook) that don't say which.
@@ -277,14 +285,27 @@ function enhanceSelect(sel){if(sel.dataset.enhanced||sel.multiple)return;sel.dat
  btn.onkeydown=e=>{if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();btn.click()}}}
 new MutationObserver(muts=>{for(const m of muts)for(const n of m.addedNodes){if(n.nodeType!==1)continue;if(n.tagName==='SELECT')enhanceSelect(n);else n.querySelectorAll?.('select').forEach(enhanceSelect)}}).observe(document.documentElement,{childList:true,subtree:true});
 const sideDrawer=(t,b,f)=>drawer(t,b,f,{side:true});
-function confirmBox(title,text,okLabel='Delete',danger=true){return new Promise(res=>{const d=drawer(title,`<p style="margin:0;color:var(--ink-2);line-height:1.55">${text}</p>`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="cfm-ok" ${danger?'style="background:var(--bad);box-shadow:none"':''}>${esc(okLabel)}</button>`);d.querySelector('#cfm-ok').onclick=()=>{closeLayers();res(true)};const obs=new MutationObserver(()=>{if(!d.isConnected){obs.disconnect();res(false)}});obs.observe(document.body,{childList:true})})}
-function promptBox(title,label,value='',okLabel='Save'){return new Promise(res=>{const d=drawer(title,`<label>${esc(label)}</label><input id="pb-in" value="${esc(value)}">`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="pb-ok">${esc(okLabel)}</button>`);const inp=d.querySelector('#pb-in');const ok=()=>{const v=inp.value;closeLayers();res(v)};d.querySelector('#pb-ok').onclick=ok;inp.onkeydown=e=>{if(e.key==='Enter')ok()};const obs=new MutationObserver(()=>{if(!d.isConnected){obs.disconnect();res(null)}});obs.observe(document.body,{childList:true})})}
+// A question on top of whatever is open (an editor keeps its edits when you answer or cancel), closing only itself.
+// The text is shown as plain text: names people chose can never turn into markup.
+function stackPop(title,body,foot){const sc=document.createElement('div');sc.className='scrim stack';const d=document.createElement('div');d.className='drawer pop sm stack';d.setAttribute('role','dialog');d.setAttribute('aria-modal','true');d.setAttribute('aria-label',title);
+ d.innerHTML=`<div class="drawer-head"><h2>${esc(title)}</h2><button class="ghost icon" data-x aria-label="Close">${icon('x',18)}</button></div><div class="drawer-body">${body}</div><div class="drawer-foot">${foot}</div>`;
+ const back=document.activeElement;document.body.append(sc,d);let done=false;
+ const close=()=>{if(done)return;done=true;document.removeEventListener('keydown',key,true);leave(d,200);leave(sc,200);try{back?.focus?.()}catch{}};
+ const key=e=>{if(e.key==='Escape'){e.stopPropagation();e.preventDefault();d.dispatchEvent(new Event('cancel'));close()}
+  if(e.key==='Tab'){const f=[...d.querySelectorAll('button,input,select,textarea,[tabindex]')].filter(x=>!x.disabled&&x.offsetParent);if(!f.length)return;const i=f.indexOf(document.activeElement);if(e.shiftKey&&i<=0){e.preventDefault();f[f.length-1].focus()}else if(!e.shiftKey&&i===f.length-1){e.preventDefault();f[0].focus()}}};
+ document.addEventListener('keydown',key,true);sc.onclick=()=>{d.dispatchEvent(new Event('cancel'));close()};d.querySelectorAll('[data-x]').forEach(b=>b.onclick=e=>{e.stopPropagation();d.dispatchEvent(new Event('cancel'));close()});
+ return {d,close}}
+const plainText=t=>{const x=document.createElement('template');x.innerHTML=String(t??'');return x.content.textContent};
+function confirmBox(title,text,okLabel='Delete',danger=true){return new Promise(res=>{const {d,close}=stackPop(title,'<p style="margin:0;color:var(--ink-2);line-height:1.55"></p>',`<button class="ghost" data-x>Cancel</button><button class="primary" id="cfm-ok" ${danger?'style="background:var(--bad);box-shadow:none"':''}>${esc(okLabel)}</button>`);
+ d.querySelector('p').textContent=plainText(text);const ok=d.querySelector('#cfm-ok');ok.onclick=e=>{e.stopPropagation();close();res(true)};d.addEventListener('cancel',()=>res(false));d.querySelectorAll('[data-x]').forEach(b=>b.addEventListener('click',()=>res(false)));setTimeout(()=>ok.focus(),30)})}
+function promptBox(title,label,value='',okLabel='Save'){return new Promise(res=>{const {d,close}=stackPop(title,`<label>${esc(label)}</label><input id="pb-in">`,`<button class="ghost" data-x>Cancel</button><button class="primary" id="pb-ok">${esc(okLabel)}</button>`);
+ const inp=d.querySelector('#pb-in');inp.value=value;const ok=()=>{const v=inp.value;close();res(v)};d.querySelector('#pb-ok').onclick=e=>{e.stopPropagation();ok()};inp.onkeydown=e=>{if(e.key==='Enter')ok()};d.addEventListener('cancel',()=>res(null));d.querySelectorAll('[data-x]').forEach(b=>b.addEventListener('click',()=>res(null)));setTimeout(()=>{inp.focus();inp.select()},30)})}
 // Live log of a Hermes background action in a drawer.
 function actionDrawer(title,name){const d=drawer(title,`<div class="action-log" id="alog">Starting…</div>`,`<button class="primary" data-act="close">Done</button>`);followAction(name,(lines,done,code)=>{const el=d.querySelector('#alog');if(!el)return;el.textContent=(lines.join('').trim()||'(no output yet)')+(done?'\n\n'+(code===0||code==null?'✓ Finished':'✕ Exited with code '+code):'');el.scrollTop=el.scrollHeight})}
 async function runAction(title,path,body){try{const r=await post(H,path,body);if(r?.ok===false)throw new Error(r.error||r.message||'Failed');if(r?.name)actionDrawer(title,r.name);else toast(title+' done');return r}catch(e){fail(e)}}
 
 function palette(){openLayer();const p=document.createElement('div');p.className='palette';p.setAttribute('role','dialog');p.setAttribute('aria-label','Search and commands');
- const actions=[{g:'Actions',l:'New chat',ic:'plus',run:()=>Chat.newChat()},{g:'Actions',l:'Restart agents',ic:'refresh',run:()=>restartGateway()},{g:'Actions',l:'Use my browser (set up the extension)',ic:'globe',run:()=>BrowserSetup.open()},{g:'Actions',l:'Toggle light / dark',ic:'moon',run:()=>theme()},{g:'Actions',l:'Check for engine updates',ic:'download',run:()=>go('/system/host')},{g:'Actions',l:'Sign out',ic:'logout',run:()=>signOut()}];
+ const actions=[{g:'Actions',l:'New chat',ic:'plus',run:()=>Chat.newChat()},{g:'Actions',l:'Restart agents',ic:'refresh',run:()=>restartGateway()},{g:'Actions',l:'Use my browser (set up the extension)',ic:'globe',run:()=>BrowserSetup.open()},{g:'Actions',l:'Toggle light / dark',ic:'moon',run:()=>theme()},{g:'Actions',l:'Check for engine updates',ic:'download',run:()=>go('/system/host')},{g:'Actions',l:'Sign out',ic:'logout',run:()=>signOut()},{g:'Actions',l:'Sign out on every device',ic:'logout',run:async()=>{if(!await confirmBox('Sign out everywhere?','Every browser and phone signed in as you is signed out, this one too.','Sign out everywhere'))return;try{await fetch('/auth/logout-all',{method:'POST',headers:{'x-hui':'1'}});location.href='/'}catch(e){fail(e)}}}];
  const models=(Chat.models||[]).slice(0,12).map(m=>({g:'Switch model',l:m.label+' · '+m.providerName,ic:'cpu',run:()=>Chat.setModel(m)}));
  const pages=SECTIONS.flatMap(s=>s.pages?s.pages.map(x=>({g:'Pages',l:s.label+' › '+x.label,ic:x.icon,run:()=>go('/'+s.id+'/'+x.id)})):[{g:'Pages',l:'Chat',ic:'chat',run:()=>go('/chat')},{g:'Pages',l:'Chat › Manage chats',ic:'list',run:()=>go('/chat/manage')}]);
  const chats=S.sessions.slice(0,60).map(c=>({g:'Chats',l:c.title||c.preview||c.id,ic:srcIcon(c.source),run:()=>go('/chat/'+c.id)}));
@@ -311,7 +332,7 @@ function codeStep(f,d){f.querySelector('h1').textContent='Check your email';f.qu
  f.onsubmit=async e=>{e.preventDefault();const err=$('#err'),b=f.querySelector('button');b.disabled=true;try{const r=await fetch('/auth/code',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({key:d.key,code:i.value})});const j=await r.json().catch(()=>({}));
   if(!r.ok){err.textContent=j.error||'That code is not right.';f.classList.remove('shake');void f.offsetWidth;f.classList.add('shake');return}S.signedIn=true;if(location.hash==='#/signin')location.hash='#/chat';await boot()}finally{b.disabled=false}}}
 function signedOut(){if(!S.signedIn)return;S.signedIn=false;render()}
-async function signOut(){await fetch('/auth/logout',{method:'POST'});S.signedIn=false;$('#root').innerHTML='';render()}
+async function signOut(){try{Prefs.clear()}catch{}await fetch('/auth/logout',{method:'POST'});S.signedIn=false;$('#root').innerHTML='';render()}
 
 /* Loading → loaded: wherever loading placeholders (.skel) are replaced, the new content fades and rises in,
    a little staggered, instead of snapping into place. Works for whole pages and for panels that load later. */

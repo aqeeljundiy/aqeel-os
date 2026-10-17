@@ -58,10 +58,11 @@ const Chat={
  /* ---------- view ---------- */
  view(el,id){
   if(id==='manage')return Pages.manageChats(el);
+  if(this.id!==id&&this.files.length){for(const f of this.files)if(f.blob)URL.revokeObjectURL(f.blob);this.files=[]}
   this.id=id;
   el.innerHTML=`<div class="chat"><div class="chat-scroll" id="scroll">${id?'<div class="thread" id="thread"><div class="skel" style="height:60px;width:60%;align-self:flex-end"></div><div class="skel" style="height:120px"></div></div>':this.emptyHtml()}</div><div id="secretSlot" class="secret-slot"></div>${this.composerHtml()}</div>`;Secrets.check();
   this.bindComposer();this.paintQueue();
-  if(id){if(this.live[id])this.paint();else this.loadHistory(id)}
+  if(id){const c=(S.sessions||[]).find(x=>x.id===id),s=this.live[id];if(s&&(s.running||!c||!s.seenAt||(c.last_active||0)<=s.seenAt))this.paint();else this.loadHistory(id)}
   else this.loadStarters();
  },
  emptyHtml(){if(S.me&&!S.me.admin&&!Object.keys(S.me.agents||{}).length)return `<div class="chat-empty"><div class="halo">${icon('user',28)}</div><h1>Welcome, ${esc(S.me.name)}</h1><p>No agents are shared with you yet. Ask the person who invited you to share one, then refresh this page.</p></div>`;
@@ -139,7 +140,7 @@ const Chat={
  /* ---------- history ---------- */
  async loadHistory(id){
   try{const d=await H('/sessions/'+encodeURIComponent(id)+'/messages?limit=500&order=latest');if(this.id!==id)return;
-   if(this.live[id]?.running)return;this.live[id]={turns:this.toTurns(d.messages||[]),running:false};this._opening=id;this.paint();this.follow(id);
+   if(this.live[id]?.running)return;this.live[id]={turns:this.toTurns(d.messages||[]),running:false,seenAt:Date.now()/1000};this._opening=id;this.paint();this.follow(id);
    // the thinking shown while each reply streamed (saved by aqeelOS; some models keep none themselves)
    UI('/ui/thinking?session='+encodeURIComponent(id)).then(x=>{const s=this.live[id];if(!s||s.running||!(x.items||[]).length)return;let changed=false;const T=s.turns;
     for(let i=0;i<T.length-1;i++){if(T[i].role!=='user')continue;const ai=T[i+1];if(ai?.role!=='ai'||ai.think)continue;const q=String(T[i].text||'').slice(0,300);const hit=x.items.find(y=>y.u===q||(q&&y.u.startsWith(q.slice(0,120))));if(hit){ai.think=hit.think;changed=true}}
@@ -210,14 +211,15 @@ const Chat={
   return `<div class="step" data-k="${k}"><button class="step-head" data-act="step"><span class="si">${icon(ic,14)}</span><span class="sum">${sum}</span><span class="state">${state}</span><span class="chev">${icon('chevR',14)}</span></button><div class="step-body"><div><pre>${esc(detail.slice(0,20000)||'(no output)')}</pre></div></div></div>`},
  approvalHtml(a){if(a.resolved)return `<div class="steps"><div class="step"><div class="step-head"><span class="si">${icon(a.resolved==='deny'?'x':'check',14)}</span><span class="sum">${a.resolved==='deny'?'Denied':a.auto?'Approved automatically (Allow all)':'Approved'}${a.command?': <code>'+esc(a.command)+'</code>':''}</span></div></div></div>`;
   const label={once:'Approve once',session:'Allow for this chat',always:'Always allow',deny:'Deny'};
-  return `<div class="approval"><h4>${icon('shield',16)}${esc(a.title||AGENT()+' needs your OK')}</h4><p>${esc(a.description||a.reason||'This command could change or delete things on the box.')}</p>${a.command?`<pre>${esc(a.command)}</pre>`:''}<div class="btns">${(a.choices||['once','deny']).map((c,i)=>`<button class="${i===0?'primary':c==='deny'?'ghost':''}" data-act="approval" data-choice="${c}">${label[c]||c}</button>`).join('')}</div></div>`},
+  return `<div class="approval"><h4>${icon('shield',16)}${esc(a.title||AGENT()+' needs your OK')}</h4><p>${esc(a.description||a.reason||'This command could change or delete things on the box.')}</p>${a.command?`<pre>${esc(a.command)}</pre>`:''}<div class="btns">${(a.choices||['once','deny']).map((c,i)=>`<button class="${i===0?'primary':c==='deny'?'ghost':''}" data-act="approval" data-choice="${esc(c)}">${esc(label[c]||c)}</button>`).join('')}</div></div>`},
 
  /* ---------- sending ---------- */
- async submit(){if(Voice.on)Voice.stop();const ta=$('#msg');const text=ta.value.trim();if(!text&&!this.files.length)return;try{localStorage.removeItem(this.draftKey());localStorage.removeItem('draft:'+(S.profile||'default')+'|new')}catch{}
+ async submit(){if(this._sending)return;this._sending=true;try{return await this._submit()}finally{this._sending=false}},
+ async _submit(){if(Voice.on)Voice.stop();const ta=$('#msg');const text=ta.value.trim();if(!text&&!this.files.length)return;try{localStorage.removeItem(this.draftKey());localStorage.removeItem('draft:'+(S.profile||'default')+'|new')}catch{}
   const s=this.live[this.id];
   if(this.files.some(f=>f.kind!=='image')||s?.running&&this.sendMode!=='queue'&&this.files.length){const up=s?.running&&this.sendMode!=='queue'?this.files:this.files.filter(f=>f.kind!=='image');
    const sp=$('#attachList');sp?.classList.add('busy');let paths;try{paths=await this.uploadAtt(up)}catch(e){sp?.classList.remove('busy');return fail(e)}sp?.classList.remove('busy');
-   this._sentAtt=up;this.files=this.files.filter(f=>!up.includes(f));this.paintFiles();ta.value=(text+'\n\n'+paths.map(p=>'[Attached file: '+p+']').join('\n')).trim();return this.submit()}
+   this._sentAtt=up;this.files=this.files.filter(f=>!up.includes(f));this.paintFiles();ta.value=(text+'\n\n'+paths.map(p=>'[Attached file: '+p+']').join('\n')).trim();return this._submit()}
   if(s?.running&&this.sendMode==='queue'){const images=this.files;this.files=[];this.paintFiles();(s.queue??=[]).push({text,images});ta.value='';ta.style.height='';this.paintQueue();return}
   if(s?.running){if(!s.runId)return toast(AGENT()+' is starting, try again in a second');ta.value='';ta.style.height='';
    const u={role:'user',text,steer:'sending',local:this.takeSent()};const n={role:'ai',steps:[],text:'',think:''};s.turns.push(u,n);s.ai=n;s.runTurns.push(n);this.paint();
@@ -257,7 +259,7 @@ const Chat={
   if(this.tools.length&&!target){text='[Use these tools for this: '+this.tools.map(t=>t.label+(t.kind==='mcp'?' (MCP)':'')+' = '+t.name).join(', ').replace(/ = [^,]+/g,'')+']\n\n'+text;this.tools=[];this.paintTools()}
   let id=target||this.id;
   if(!id){try{const body=this.cwd?{cwd:this.cwd}:{};const d=await post(G,'/api/sessions',body);id=d.session?.id||d.id;}catch(e){return fail(e)}
-   S.sessions.unshift({id,title:'',preview:text.replace(this.TOOL_RE,'').slice(0,80),source:'api_server',last_active:Date.now()/1000,is_active:true});this.id=id;history.replaceState(null,'','#/chat/'+id);this.live[id]={turns:[],running:false};$('#scroll').innerHTML='<div class="thread" id="thread"></div>'}
+   S.sessions.unshift({id,title:'',preview:text.replace(this.TOOL_RE,'').slice(0,80),source:'api_server',last_active:Date.now()/1000,is_active:true});this.id=id;history.replaceState(null,'','#/chat/'+id);this.live[id]={turns:[],running:false};if($('#scroll'))$('#scroll').innerHTML='<div class="thread" id="thread"></div>'}
   const s=this.live[id]||(this.live[id]={turns:[],running:false});
   s.turns.push({role:'user',text,images:images.length||0,imgs:images.map(f=>f.url),local:this.takeSent()});const ai={role:'ai',steps:[],text:'',think:''};s.turns.push(ai);s.ai=ai;s.runTurns=[ai];
   s.running=true;s.started=Date.now();if(this.id===id){this.paint();this.paintComposerBar()}paintSide();

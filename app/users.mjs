@@ -2,7 +2,7 @@
 // invited by link. Members only reach the agents shared with them, their own chats and their own folder.
 // Hermes itself is single-user, so every rule here is enforced in front of it, on this server.
 import {readFile,writeFile,mkdir,rename,unlink} from 'node:fs/promises';
-import {scryptSync,randomBytes,timingSafeEqual} from 'node:crypto';
+import {scryptSync,randomBytes,timingSafeEqual,randomInt} from 'node:crypto';
 import {homedir} from 'node:os';
 import path from 'node:path';
 
@@ -72,7 +72,7 @@ export function createUsers(DATA,mail){
  /* ---------- 6-digit codes by email: to confirm an address, and for two-step sign-in ---------- */
  const codes=new Map();   // key → {hash, exp, tries, uid, purpose, email}
  const EMAIL=/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
- async function sendCode(u,purpose,email){const code=String(100000+Math.floor(Math.random()*900000));const key=randomBytes(16).toString('hex');
+ async function sendCode(u,purpose,email){const code=String(randomInt(100000,1000000));const key=randomBytes(16).toString('hex');
   codes.set(key,{hash:hash(code),exp:Date.now()+10*60e3,tries:0,uid:u.id,purpose,email});for(const [k,v] of codes)if(v.exp<Date.now())codes.delete(k);
   const what=purpose==='login'?'sign in to aqeelOS':'confirm this email for aqeelOS';
   await mail.deliver(email,code+' is your aqeelOS code',`Hi ${u.name},\n\nYour code to ${what} is:\n\n    ${code}\n\nIt works for 10 minutes. If you didn't ask for it, you can ignore this email.\n\naqeelOS`);

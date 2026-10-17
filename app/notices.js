@@ -12,7 +12,7 @@ const Notices={max:3,box(){let b=document.querySelector('.cron-pops');if(!b){b=d
   n.onmouseenter=pause;n.onmouseleave=resume;n.onfocusin=pause;n.onfocusout=resume;
   b.append(n);resume();
   // read once it has been on screen for a few seconds while you are here
-  const read=()=>setTimeout(()=>{if(document.hidden)return document.addEventListener('visibilitychange',read,{once:true});n.classList.remove('unread');o.onRead?.()},5000);read();
+  const read=()=>setTimeout(()=>{if(document.hidden)return document.addEventListener('visibilitychange',read,{once:true});if(!n.isConnected||n.classList.contains('folded'))return;n.classList.remove('unread');o.onRead?.()},5000);read();
   this.fold();try{if(document.hidden&&'Notification' in window&&Notification.permission==='granted')new Notification(o.title||'aqeelOS',{body:String(o.text||'').slice(0,120)})}catch{}
   return n},
  fold(){const b=document.querySelector('.cron-pops');if(!b)return;const all=[...b.querySelectorAll('.cron-pop:not(.out)')];const open=b.classList.contains('all');
@@ -22,12 +22,12 @@ const Notices={max:3,box(){let b=document.querySelector('.cron-pops');if(!b){b=d
 /* ---------- The bell: every notification is kept (newest first, 150 at most) and synced to your account, so
    nothing is lost when a pop-up leaves. The panel on the right lists them, read or unread, each with its action. ---------- */
 const Inbox={key:'hui-inbox',
- all(){return store.get('inbox',[])},save(l){store.set('inbox',l.slice(0,150));this.paintBell()},
- add(o){const l=this.all();const it={id:o.key||('n'+Date.now()+Math.random().toString(36).slice(2,6)),t:Date.now(),icon:o.icon||'clock',kind:o.kind||'blue',title:o.title||'',text:String(o.text||'').slice(0,300),go:(o.actions||[]).find(a=>a.go)?.go||o.go||'',label:(o.actions||[])[0]?.label||'Open',read:false};
+ all(){return store.get('inbox',[])},save(l){store.set('inbox',l.slice(0,60));this.paintBell()},
+ add(o){const l=this.all();const it={id:(o.key?o.key+(o.repeat===false?'':'@'+Math.floor(Date.now()/3600e3)):'')||('n'+Date.now()+Math.random().toString(36).slice(2,6)),t:Date.now(),icon:o.icon||'clock',kind:o.kind||'blue',title:o.title||'',text:String(o.text||'').slice(0,200),go:(o.actions||[]).find(a=>a.go)?.go||o.go||'',label:(o.actions||[])[0]?.label||'Open',read:false};
   if(l.some(x=>x.id===it.id))return it.id;l.unshift(it);this.save(l);if($('.drawer.inbox'))this.paintList();return it.id},
  read(id){const l=this.all();const x=l.find(y=>y.id===id);if(x&&!x.read){x.read=true;this.save(l)}},
  unread(){return this.all().filter(x=>!x.read).length},
- paintBell(){const n=this.unread();$$('[data-act="inbox"]').forEach(b=>{b.classList.toggle('has',n>0);const c=b.querySelector('.bell-n');if(c)c.textContent=n>99?'99+':String(n);b.setAttribute('aria-label',n?n+' unread notifications':'Notifications')})},
+ paintBell(){const n=this.unread();$$('[data-act="inbox"]').forEach(b=>{if(b.dataset.n===String(n))return;b.dataset.n=String(n);b.classList.toggle('has',n>0);const c=b.querySelector('.bell-n');if(c)c.textContent=n>99?'99+':String(n);b.setAttribute('aria-label',n?n+' unread notifications':'Notifications')})},
  open(){const d=sideDrawer('Notifications','<div class="inbox-bar"><button class="ghost small" data-ib="read">'+icon('check',14)+'Mark all read</button><button class="ghost small" data-ib="clear">'+icon('trash',14)+'Clear read</button></div><div id="inboxList"></div>','');d.classList.add('inbox');
   d.addEventListener('click',e=>{const b=e.target.closest('[data-ib]');if(b){const l=this.all();if(b.dataset.ib==='read')l.forEach(x=>x.read=true);this.save(b.dataset.ib==='clear'?l.filter(x=>!x.read):l);this.paintList();return}
    const it=e.target.closest('[data-inbox]');if(!it)return;const x=this.all().find(y=>y.id===it.dataset.inbox);if(!x)return;this.read(x.id);if(e.target.closest('[data-ib-x]')){this.save(this.all().filter(y=>y.id!==x.id));this.paintList();return}

@@ -1,0 +1,60 @@
+# The engine's own sentences say aqeelOS instead of Hermes. Only real string literals change (Python's tokenizer
+# decides what is a string, so names in code are never touched); a string compared against something (==, !=, in)
+# is left alone, since code may rely on its exact value. Each file is written atomically and must still compile.
+# Usage: python rename-engine.py <engine folder> <dir> [<dir> …]   prints the changed files.
+import io, os, re, sys, tokenize, py_compile, tempfile
+
+WORD = re.compile(r'(?<![\w.-])Hermes(?![\w-])')
+SKIP_OPS = {'==', '!=', 'in', 'not', 'is'}
+
+def rename_text(t):
+    return WORD.sub('aqeelOS', t.replace('Hermes Agent', 'aqeelOS'))
+
+def patch(src):
+    toks = list(tokenize.generate_tokens(io.StringIO(src).readline))
+    lines = src.splitlines(keepends=True)
+    starts = [0]
+    for l in lines: starts.append(starts[-1] + len(l))
+    edits = []
+    sig = [t for t in toks if t.type not in (tokenize.NL, tokenize.NEWLINE, tokenize.COMMENT, tokenize.INDENT, tokenize.DEDENT)]
+    kinds = {tokenize.STRING} | ({tokenize.FSTRING_MIDDLE} if hasattr(tokenize, 'FSTRING_MIDDLE') else set())
+    for i, t in enumerate(sig):
+        if t.type not in kinds or 'Hermes' not in t.string or not re.search(r'\s', t.string):
+            continue
+        prev = sig[i - 1].string if i else ''
+        nxt = sig[i + 1].string if i + 1 < len(sig) else ''
+        if prev in SKIP_OPS or nxt in SKIP_OPS or nxt == ':' and prev in ('{', ','):   # comparisons and dict keys
+            continue
+        new = rename_text(t.string)
+        if new != t.string:
+            a = starts[t.start[0] - 1] + t.start[1]; b = starts[t.end[0] - 1] + t.end[1]
+            edits.append((a, b, new))
+    for a, b, new in sorted(edits, reverse=True):
+        src = src[:a] + new + src[b:]
+    return src, len(edits)
+
+def main():
+    root = sys.argv[1]; changed = 0
+    for d in sys.argv[2:]:
+        for dp, dns, fns in os.walk(os.path.join(root, d)):
+            dns[:] = [x for x in dns if x not in ('tests', 'test', '__pycache__', 'node_modules', '.git')]
+            for fn in fns:
+                if not fn.endswith('.py'): continue
+                p = os.path.join(dp, fn)
+                try:
+                    with open(p, encoding='utf-8') as f: old = f.read()
+                except Exception: continue
+                if 'Hermes' not in old: continue
+                try: new, n = patch(old)
+                except Exception: continue
+                if not n or new == old: continue
+                try: compile(new, p, 'exec')
+                except Exception:
+                    print('! left as it was (would not compile):', os.path.relpath(p, root)); continue
+                fd, tmp = tempfile.mkstemp(dir=dp, prefix='.aq-', suffix='.tmp')
+                with os.fdopen(fd, 'w', encoding='utf-8') as f: f.write(new)
+                os.chmod(tmp, os.stat(p).st_mode); os.replace(tmp, p); changed += 1
+                print('renamed engine words in', os.path.relpath(p, root))
+    print(changed, 'file(s) renamed')
+
+main()

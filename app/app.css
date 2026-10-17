@@ -1119,3 +1119,10 @@ button.think{min-height:28px;padding:2px 8px;font-size:13px;color:var(--muted);b
 button.think:hover{color:var(--ink-2);background:var(--soft)}
 .think-body{font-size:13px;color:var(--ink-2);line-height:1.6;border-left:2px solid var(--border);padding:2px 0 2px 12px;margin:2px 0 10px 8px;white-space:pre-wrap;max-height:300px;overflow:auto}
 .sched-folder .sf-head{justify-content:flex-start;text-align:left}
+/* a question stacked on top of an open pop-up */
+.scrim.stack{z-index:60}.drawer.pop.stack{z-index:61}
+
+/* F22 on phones, notifications sit at the top, clear of the message box */
+@media (max-width:700px){.cron-pops{top:64px;bottom:auto;left:12px;right:12px;max-width:none}}
+/* F27 on touch screens the folder ⋯ and the inbox ✕ are always visible */
+@media (hover:none){.sf-head .sf-more,.ib-item .ib-x{opacity:1}}

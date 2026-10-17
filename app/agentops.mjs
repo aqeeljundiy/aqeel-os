@@ -34,7 +34,7 @@ export const setKey=(agent,key,value)=>hermes(agent,['config','set',key,typeof v
 
 // the agent's settings as data (the engine's own Python reads the YAML)
 let py=null;
-export async function python(){if(py)return py;const base=path.join(HERMES_HOME,'installs');const found=[];
+export async function python(){if(py&&await stat(py).then(()=>true,()=>false))return py;py=null;const base=path.join(HERMES_HOME,'installs');const found=[];
  for(const i of await readdir(base).catch(()=>[]))for(const e of await readdir(path.join(base,i,'environments')).catch(()=>[])){const p=path.join(base,i,'environments',e,'venv','bin','python');const s=await stat(p).catch(()=>null);if(s)found.push([s.mtimeMs,p])}
  for(const [,p] of found.sort((a,b)=>b[0]-a[0])){const ok=await new Promise(r=>execFile(p,['-c','import ruamel.yaml'],{timeout:10000},e=>r(!e)));if(ok){py=p;return py}}return null}
 export async function readConfig(agent){const p=await python();if(!p)return null;

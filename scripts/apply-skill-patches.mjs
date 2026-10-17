@@ -1,9 +1,14 @@
 // Small, re-appliable improvements to engine skills (an engine update can replace skill files, so
 // deploy.sh runs this every time; each change is skipped when it is already there).
 // Run on the box: node scripts/apply-skill-patches.mjs
-import {readFile,writeFile,readdir,access} from 'node:fs/promises';
-import path from 'node:path';import {homedir} from 'node:os';import {readdirSync,existsSync} from 'node:fs';
+import {readFile,writeFile as rawWrite,readdir,access,rename,mkdir,rm,stat} from 'node:fs/promises';
+import path from 'node:path';import {homedir} from 'node:os';import {readdirSync,existsSync,rmSync} from 'node:fs';
 const HOME=path.join(homedir(),'.hermes');
+// every file is replaced in one step (never left half-written), and only one run patches at a time (deploys, engine
+// updates and new agents can all start this); a lock older than 15 minutes is a crashed run and is taken over
+const writeFile=async(p,d,o)=>{const t=p+'.aq-'+process.pid+'-'+Math.random().toString(36).slice(2,7);await rawWrite(t,d,o);await rename(t,p)};
+{const L=path.join(HOME,'.aqeelos-patch.lock');for(let i=0;;i++){try{await mkdir(L);break}catch{const s=await stat(L).catch(()=>null);if(s&&Date.now()-s.mtimeMs>15*60e3){await rm(L,{recursive:true,force:true});continue}if(i>=300){console.warn('! another patch run is still going; skipped');process.exit(0)}await new Promise(r=>setTimeout(r,2000))}}
+ process.on('exit',()=>{try{rmSync(L,{recursive:true,force:true})}catch{}})}
 const homes=[HOME];for(const d of await readdir(path.join(HOME,'profiles'),{withFileTypes:true}).catch(()=>[]))if(d.isDirectory()&&!d.name.startsWith('.'))homes.push(path.join(HOME,'profiles',d.name));
 const exists=p=>access(p).then(()=>true,()=>false);
 let changed=0;
@@ -115,20 +120,15 @@ for(const h of homes){const sp=path.join(h,'skills','productivity','google-works
  for(const f of await readdir(dir).catch(()=>[])){if(!/\.ya?ml$/.test(f))continue;const p=path.join(dir,f);const s=await readFile(p,'utf8');
   const next=s.split('\n').map(l=>/^\s*[\w.-]+:\s/.test(l)||/^\s+["']/.test(l)?l.replace(/Hermes Agent/g,'aqeelOS').replace(/\bHermes\b/g,'aqeelOS'):l).join('\n');
   if(next!==s){await writeFile(p,next);changed++;console.log('renamed engine messages in',f)}}}
-// 8) Words the engine sends straight to people outside its message files: the approval prompt on WhatsApp and
-//    Telegram, the WhatsApp reply header, schedule result threads, "is working", the Telegram command menu, sign-in
-//    pages. Only text inside quotes that reads as a sentence changes; code that compares the name is left alone, and a
-//    file that no longer compiles afterwards is put back.
-//    Every engine file is covered (channels, schedules, tools, the agent loop, the dashboard), since any of them can put
-//    a sentence in front of a person ("⏳ Another Hermes process…", "Hermes will try again…", tool errors the agent repeats).
-{const ROOT=path.join(HOME,'hermes-agent');const files=[];
- const walk=rel=>{let l=[];try{l=readdirSync(path.join(ROOT,rel),{withFileTypes:true})}catch{return}for(const d of l){if(/^(tests?|__pycache__|node_modules|\.git)$/.test(d.name))continue;const r=rel+'/'+d.name;if(d.isDirectory())walk(r);else if(d.name.endsWith('.py'))files.push(r.slice(1))}};
- for(const d of ['gateway','cron','agent','tools','hermes_cli','plugins'])walk('/'+d);
- const {execFileSync}=await import('node:child_process');const py=(()=>{try{const base=path.join(HOME,'installs');for(const i of readdirSync(base))for(const e of readdirSync(path.join(base,i,'environments'))){const p=path.join(base,i,'environments',e,'venv','bin','python');if(existsSync(p))return p}}catch{}return 'python3'})();
- for(const rel of files){const p=path.join(HOME,'hermes-agent',rel);const s=await readFile(p,'utf8').catch(()=>null);if(s==null)continue;
-  const next=s.split('\n').map(l=>/==\s*["']Hermes|["']Hermes Agent["']\s*[:)\]]|X-Hermes|HermesAgent\/|["'][^"']*Hermes[^"']*["']\s*(?:in|==|!=)\s|(?:==|!=|startswith\(|endswith\(|\bin)\s*\(?\s*["'][^"']*Hermes|re\.(?:compile|search|match|sub)\(/.test(l)?l:l.replace(/(["'])((?:\\.|(?!\1)[^\\])*)\1/g,(m,q,body)=>/\s/.test(body)&&/(?<![\w-])Hermes(?![\w-])/.test(body)?q+body.replace(/Hermes Agent/g,'aqeelOS').replace(/(?<![\w-])Hermes(?![\w-])/g,'aqeelOS')+q:m)).join('\n');
-  if(next===s)continue;await writeFile(p,next);
-  try{execFileSync(py,['-m','py_compile',p],{timeout:30000});changed++;console.log('renamed engine words in',rel)}catch{await writeFile(p,s);console.warn('! left',rel,'as it was (did not compile after renaming)')}}}
+// 8) Words the engine sends straight to people outside its message files: approval prompts, the WhatsApp reply
+//    header, schedule results and failures, "is working", the Telegram command menu, tool errors the agent repeats,
+//    sign-in pages. scripts/rename-engine.py changes only real string literals (Python's own tokenizer decides), never
+//    names in code or strings that are compared; every file must still compile and is replaced atomically.
+{const {execFileSync}=await import('node:child_process');
+ const py=(()=>{try{const base=path.join(HOME,'installs');const l=[];for(const i of readdirSync(base))for(const e of readdirSync(path.join(base,i,'environments'))){const p=path.join(base,i,'environments',e,'venv','bin','python');if(existsSync(p))l.push(p)}return l[0]||'python3'}catch{return 'python3'}})();
+ try{const out=execFileSync(py,[path.join(path.dirname(new URL(import.meta.url).pathname),'rename-engine.py'),path.join(HOME,'hermes-agent'),'gateway','cron','agent','tools','hermes_cli','plugins'],{timeout:300000,encoding:'utf8',maxBuffer:16e6});
+  const n=Number((/(\d+) file\(s\) renamed/.exec(out)||[])[1]||0);if(n){changed+=n;console.log('renamed engine words in',n,'file(s)')}for(const l of out.split('\n').filter(l=>l.startsWith('!')))console.warn(l)}
+ catch(e){console.warn('! engine wording:',String(e.message).split('\n')[0])}}
 // 9) Read aloud: Microsoft's free voice refuses old edge-tts versions (403). Any engine environment that carries an
 //    older edge-tts gets 7.3.1 (the old one is kept next to it as a backup); the dashboard picks it up when it restarts.
 {const base=path.join(HOME,'installs');const WANT='7.3.1';

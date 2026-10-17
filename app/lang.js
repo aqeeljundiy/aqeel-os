@@ -64,10 +64,10 @@ const Lang={
  // Every form of the engine's name becomes ours on screen (commands keep working: `aqeelos` runs the same CLI on the box).
  brand(s){return s.replace(/Hermes Agent/g,'aqeelOS').replace(/Nous Research/g,'aqeelOS').replace(/HERMES/g,'AQEELOS').replace(/Hermes/g,'aqeelOS').replace(/hermes/g,'aqeelos')},
  run(root){if(!root)return;const id=this.cur==='id';
-  const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,{acceptNode:n=>n.parentElement?.closest('.thread,textarea,[contenteditable],.step-body pre')?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT});
+  const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,{acceptNode:n=>n.parentElement?.closest('.thread,textarea,[contenteditable],pre,code,.pv-doc,.pv-code,[data-raw]')?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT});
   for(let n;(n=w.nextNode());){const v=n.nodeValue;if(!v||!v.trim())continue;let t=/hermes|nous research/i.test(v)?this.brand(v):v;if(id&&!n.parentElement?.closest('[data-notr],.msg,pre,code,.log,.action-log')&&this.known(t))t=this.t(t);if(t!==v)n.nodeValue=t}
   (root.querySelectorAll?root:document).querySelectorAll('[placeholder],[title],[aria-label]').forEach(e=>{if(e.closest('textarea,[contenteditable]'))return;for(const k of ['placeholder','title','aria-label']){const v=e.getAttribute(k);if(!v)continue;let t=/hermes|nous research/i.test(v)?this.brand(v):v;if(id&&this.known(t))t=this.t(t);if(t!==v)e.setAttribute(k,t)}})},
  start(){if(this.cur==='id')document.documentElement.lang='id';let q=false;
-  new MutationObserver(()=>{if(q)return;q=true;requestAnimationFrame(()=>{q=false;this.run(document.body)})}).observe(document.body,{childList:true,subtree:true,characterData:false});this.run(document.body)},
+  const todo=new Set();new MutationObserver(ms=>{for(const m of ms)for(const n of m.addedNodes)todo.add(n.nodeType===3?n.parentElement:n);if(q)return;q=true;requestAnimationFrame(()=>{q=false;const l=[...todo];todo.clear();for(const n of l)if(n&&n.isConnected&&n.nodeType===1)this.run(n)})}).observe(document.body,{childList:true,subtree:true,characterData:false});this.run(document.body)},
 };
 document.addEventListener('DOMContentLoaded',()=>Lang.start());

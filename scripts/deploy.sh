@@ -26,8 +26,10 @@ tar --force-local -czf ../hui.tgz app assets backlog data extension mockup scrip
 scp -q ../hui.tgz ai-vps:/tmp/hui.tgz && rm ../hui.tgz
 ssh ai-vps 'bash -s' <<'BOX'
 set -e
+# a reply may have started while the files were on their way: wait again right before the restart (up to 5 minutes)
+for i in $(seq 1 60); do n=$(curl -fs http://127.0.0.1:4400/healthz | grep -o '"busy":[0-9]*' | cut -d: -f2); [ "${n:-0}" = 0 ] && break; [ "$i" = 1 ] && echo "a reply started meanwhile; waiting for it…"; sleep 5; done
 mkdir -p ~/apps/hermes-ui && tar -xzf /tmp/hui.tgz -C ~/apps/hermes-ui && rm /tmp/hui.tgz
 tmux kill-session -t ui 2>/dev/null || true
 node ~/apps/hermes-ui/scripts/apply-skill-patches.mjs || echo "! skill patches: see the message above"
-~/services.sh; sleep 2; curl -fs http://127.0.0.1:4400/healthz && echo " · UI restarted"
+~/services.sh; for i in $(seq 1 20); do sleep 1; h=$(curl -fs http://127.0.0.1:4400/healthz) && break; done; [ -n "$h" ] && echo "$h · UI restarted" || { echo "✗ the UI did not answer within 20 s"; exit 1; }
 BOX

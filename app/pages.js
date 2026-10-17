@@ -4,6 +4,7 @@ const ACT={};
 const PAGES={};
 const Pages={};
 const reload=()=>render();
+const laterReload=ms=>{const at=location.hash;setTimeout(()=>{if(location.hash===at&&!document.querySelector('.drawer,.menu'))render()},ms)};
 const fieldRow=(label,hint,control)=>`<div class="field"><label>${label}${hint?`<small>${hint}</small>`:''}</label><div>${control}</div></div>`;
 const chipState=(ok,yes,no)=>ok?`<span class="chip ok"><i class="dot"></i>${yes}</span>`:`<span class="chip">${no}</span>`;
 const pretty=s=>String(s||'').replace(/[-_]/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
@@ -339,7 +340,7 @@ ACT['keys-adv']=a=>{S.keysAdv=a.checked;reload()};
 ACT['key-save']=async a=>{const k=a.dataset.k;const v=$(`[data-kin="${CSS.escape(k)}"]`).value.trim();if(!v)return toast('Paste a value first','err');try{await put(H,'/env',{key:k,value:v});toast(k+' saved');reload()}catch(e){fail(e)}};
 ACT['key-edit']=async a=>{const v=await promptBox('Change '+a.dataset.k,'New value','','Save');if(!v)return;try{await put(H,'/env',{key:a.dataset.k,value:v});toast('Saved');reload()}catch(e){fail(e)}};
 ACT['key-del']=async a=>{if(!await confirmBox('Remove '+a.dataset.k+'?','Anything using this key stops working until you add it again.','Remove'))return;try{await del(H,'/env',{key:a.dataset.k});toast('Removed');reload()}catch(e){fail(e)}};
-ACT['key-reveal']=async a=>{try{const r=await post(H,'/env/reveal',{key:a.dataset.k});const c=$(`[data-reveal="${CSS.escape(a.dataset.k)}"]`);c.textContent=r.value;setTimeout(()=>reload(),15000)}catch(e){fail(e)}};
+ACT['key-reveal']=async a=>{try{const r=await post(H,'/env/reveal',{key:a.dataset.k});const c=$(`[data-reveal="${CSS.escape(a.dataset.k)}"]`);c.textContent=r.value;laterReload(15000)}catch(e){fail(e)}};
 
 /* ===================== Models › Profiles ===================== */
 PAGES.profiles=async(p,el)=>{

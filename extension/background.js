@@ -32,7 +32,7 @@ const cleanRef=r=>String(r||'').replace(/^@/,'').replace(/^ref=/,'').trim();
 
 async function act(action,a){
  if(action==='controller.noop')return {success:true};
- if(action==='browser_navigate'){let url=String(a.url||'');if(!/^[a-z]+:/i.test(url))url='https://'+url;const t=await agentTab();const w=loaded(t.id);await chrome.tabs.update(t.id,{url});await w;
+ if(action==='browser_navigate'){let url=String(a.url||'');if(!/^[a-z]+:/i.test(url))url='https://'+url;if(!/^https?:/i.test(url))return {ok:false,error:'Only web addresses (http or https) can be opened.'};const t=await agentTab();const w=loaded(t.id);await chrome.tabs.update(t.id,{url});await w;
   const tab=await chrome.tabs.get(t.id);const snap=await inPage(snapshot,[false]);return {success:true,url:tab.url,title:tab.title,snapshot:snap.text,element_count:snap.count}}
  if(action==='browser_snapshot'){const snap=await inPage(snapshot,[!!a.full]);return {success:true,snapshot:snap.text,element_count:snap.count}}
  if(action==='browser_click'){const r=await inPage(clickRef,[cleanRef(a.ref)]);if(!r.ok)throw new Error(r.error);await new Promise(z=>setTimeout(z,600));return {success:true,clicked:a.ref}}

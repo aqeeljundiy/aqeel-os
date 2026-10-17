@@ -11,7 +11,7 @@ export function createRelay({DATA,DASH,TOKEN,HERMES_HOME,SECRET,listAgents,links
  const load=async()=>{if(db)return db;try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.shares||={};db.jobs||={};db.seen||={};return db};
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)};
  const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
- const api=(p,o={})=>fetch(DASH+'/api'+p,{...o,headers:{'x-hermes-session-token':TOKEN,'content-type':'application/json'}}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||j.error||('HTTP '+r.status));return j});
+ const api=(p,o={})=>fetch(DASH+'/api'+p,{signal:AbortSignal.timeout(o.timeout||60000),...o,headers:{'x-hermes-session-token':TOKEN,'content-type':'application/json'}}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||j.error||('HTTP '+r.status));return j});
  const q=a=>'?profile='+encodeURIComponent(a);const sleep=ms=>new Promise(r=>setTimeout(r,ms));
  const key=(owner,platform)=>owner+'|'+platform;
 
@@ -54,8 +54,9 @@ export function createRelay({DATA,DASH,TOKEN,HERMES_HOME,SECRET,listAgents,links
   if(agent!=='default'&&!agent.startsWith('default--'))for(const p of await connected('default'))if(!out.some(c=>c.owner==='default'&&c.platform===p))out.push({id:p+'@you',owner:'default',platform:p,toYou:true,name:nice(p)+' to you (via '+(nameOf?nameOf('default'):'the main agent')+')'});
   return out}
  // an agent sends through a shared channel
- async function sendAs(from,owner,platform,text,chat){await load();const s=db.shares[key(owner,platform)];
-  if(from!==owner&&!owner.startsWith(from+'--')&&!(s&&s.senders.includes(from))&&owner!=='default')throw new Error(from+' may not send through '+owner+"'s "+platform+'.');
+ async function sendAs(from,owner,platform,text,chat,{person=false}={}){await load();const s=db.shares[key(owner,platform)];
+  if(from!==owner&&!owner.startsWith(from+'--')&&!(s&&s.senders.includes(from))&&(person||owner!=='default'))throw new Error(from+' may not send through '+owner+"'s "+platform+'.');
+  if(person&&chat&&!(await recipients(owner,platform)).some(r=>r.id===String(chat)))throw new Error('You can only send to people approved on that channel.');
   const to=chat||s?.chat||(await recipients(owner,platform))[0]?.id;if(!to)throw new Error('Nobody to send to yet: approve someone on that channel first.');
   return send({owner,platform,chat:to,text,from})}
 
@@ -76,7 +77,7 @@ export function createRelay({DATA,DASH,TOKEN,HERMES_HOME,SECRET,listAgents,links
    const text=last?.content||(j.last_status!=='ok'?'did not run: '+(j.last_error||j.last_status):'');
    if(!text){if(late)await done();continue}
    await done();await sendAs(agent,t.owner,t.platform,(j.name?j.name+': ':'')+text,null);console.log('relay sent',k,'to',t.owner+'|'+t.platform)}catch(e){console.warn('relay tick',k,e.message)}}}
- if(LIVE_APP)setInterval(()=>tick().catch(()=>{}),45000).unref();
+ let ticking=false;if(LIVE_APP)setInterval(()=>{if(ticking)return;ticking=true;tick().catch(()=>{}).finally(()=>{ticking=false})},45000).unref();
  // a relay cut off halfway (the app restarted mid-send) would leave its one-off job behind, set to fire again next 1 January
  async function sweep(){for(const a of [...await listAgents(),...(await links.list().catch(()=>[])).map(l=>l.name)]){
   const l=await api('/cron/jobs'+q(a)).catch(()=>[]);for(const j of (Array.isArray(l)?l:l.jobs||[]))if(j.name==='aqeelOS relay'&&j.id){await api('/cron/jobs/'+j.id+q(a),{method:'DELETE'}).catch(()=>{});console.log('relay: removed a leftover one-off job on',a)}

@@ -92,3 +92,6 @@ const BUILD=document.querySelector('meta[name=build]')?.content;
 async function checkUpdate(){if(!BUILD||$('#updBanner'))return;try{const r=await (await fetch('/healthz',{cache:'no-store'})).json();if(r.build&&r.build!==BUILD){const b=document.createElement('div');b.id='updBanner';b.className='toast';b.style.cssText='position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:70;gap:12px';b.innerHTML=`${icon('sparkle',15)}aqeelOS was updated<button class="primary" style="min-height:30px;padding:0 14px;font-size:12.5px">Reload</button>`;b.querySelector('button').onclick=()=>location.reload();document.body.append(b)}}catch{}}
 setInterval(()=>{if(!document.hidden)checkUpdate()},60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkUpdate()});
 boot();
+
+// F26 rows you can reach with Tab (schedules, inbox items, file tiles, agent cards) open with Enter or Space too
+document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches?.('[tabindex="0"][data-act]')&&!e.target.matches('input,textarea,select,button')){e.preventDefault();e.target.click()}});

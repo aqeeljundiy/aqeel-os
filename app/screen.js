@@ -79,7 +79,7 @@ const Screen={
    setTimeout(()=>{if(pasted>=t0)return;w.navigator.clipboard?.readText?.().then(t=>{if(t)this.typeText(t)}).catch(()=>toast('Allow clipboard access for this site to paste into the screen','err'))},200)},true);
   d.addEventListener('paste',e=>{if(!this.control)return;const t=e.clipboardData?.getData('text');if(!t)return;e.preventDefault();e.stopImmediatePropagation();pasted=Date.now();this.typeText(t)},true);
   const ta=d.getElementById('noVNC_clipboard_text');let last=ta?.value||'';
-  if(ta)setInterval(()=>{if(!ta.isConnected||ta.value===last)return;last=ta.value;if(!last||!this.control)return;
+  clearInterval(this._clip);if(ta)this._clip=setInterval(()=>{if(!ta.isConnected){clearInterval(this._clip);return}if(ta.value===last)return;last=ta.value;if(!last||!this.control)return;
    w.navigator.clipboard?.writeText(last).then(()=>toast('Copied from the screen'),()=>navigator.clipboard?.writeText(last).then(()=>toast('Copied from the screen'),()=>{}))},600)},
  async typeText(t){if(t.length>8000)return toast('That is too long to paste (8,000 characters at most)','err');
   try{await post((p,o)=>call('',p,o),'/ui/screens/'+encodeURIComponent(this.agent())+'/type'+(this.ads?'?screen=ads':''),{text:t});toast('Pasted into the screen')}catch(e){fail(e)}},

@@ -11,7 +11,7 @@ const UNSAFE_TOOLSETS=['terminal','file','code_execution','computer_use'];
 
 async function loadMe(){
  try{S.me=await UI('/ui/me')}catch{S.me={admin:true,role:'owner',name:'',agents:{}}}
- await Prefs.load();
+ await Prefs.load(S.me?.id||S.me?.name||'owner');
  applyRole();
  if(!S.me.admin&&typeof FILE_HOME!=='undefined')FILE_HOME=S.me.home;
 }
@@ -304,7 +304,7 @@ ACT['wh-new-pre']=0;
  // extra connections (WhatsApp 2…) sit right under their agent's channels, by name and ID
  d.channels.sort((x,y)=>{const bx=x.agent.split('--')[0],by=y.agent.split('--')[0];return bx===by?(x.agent.includes('--'))-(y.agent.includes('--'))||x.id.localeCompare(y.id):0});const agents=((await pA).profiles||[]).map(x=>x.name);
  panel.innerHTML=`<h2>Every agent's channels</h2><p class="sub">Each connection belongs to one agent, which answers it. Check one any time; aqeelOS also checks them every 2 hours and tells you when one needs linking again. Move one to another agent and its settings, WhatsApp login and approved people go along.</p>
-  ${d.channels.length?d.channels.map((c,i)=>`<div class="row" ${st(i)} style="padding:12px 12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="main-c">${chLogo(c.id,c.name)}<div class="txt"><b>${esc(LK[c.agent]?linkTitle(LK[c.agent]):c.name)}</b>${c.account?'<span class="acct-line">'+(c.account.kind?`<span class="kind-chip ${c.account.kind}" title="${c.account.kind==='bot'?'A bot account made for the agent':'Someone’s own account: messages come from that person'}">${icon(c.account.kind==='bot'?'zap':'user',11)}${c.account.kind==='bot'?'Bot':'Personal account'}</span> `:'')+esc(accountText(c.account))+'</span>':''}${c.note?'<span class="acct-line ch-note">'+esc(c.note)+'</span>':''}<span title="Agents use the name “${esc(LK[c.agent]?linkId(LK[c.agent]):c.id)}” to pick this channel">${c.paused?'<i class="dot"></i>Paused · nobody answers it':c.state==='connected'?'<i class="dot ok"></i>Connected':esc(chState(c).replace(' · link again',''))}</span></div></div>
+  ${d.channels.length?d.channels.map((c,i)=>`<div class="row" ${st(i)} style="padding:12px 12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="main-c">${chLogo(c.id,c.name)}<div class="txt"><b>${esc(LK[c.agent]?linkTitle(LK[c.agent]):c.name)}</b>${c.account?'<span class="acct-line">'+(c.account.kind?`<span class="kind-chip ${c.account.kind==='bot'?'bot':'person'}" title="${c.account.kind==='bot'?'A bot account made for the agent':'Someone’s own account: messages come from that person'}">${icon(c.account.kind==='bot'?'zap':'user',11)}${c.account.kind==='bot'?'Bot':'Personal account'}</span> `:'')+esc(accountText(c.account))+'</span>':''}${c.note?'<span class="acct-line ch-note">'+esc(c.note)+'</span>':''}<span title="Agents use the name “${esc(LK[c.agent]?linkId(LK[c.agent]):c.id)}” to pick this channel">${c.paused?'<i class="dot"></i>Paused · nobody answers it':c.state==='connected'?'<i class="dot ok"></i>Connected':esc(chState(c).replace(' · link again',''))}</span></div></div>
    <div class="act ch-act">${c.id==='whatsapp'&&!c.paused&&c.state!=='connected'?`<button class="primary small" data-act="wa-link" data-agent="${esc(c.agent)}">${icon('refresh',14)}Link again</button>`:''}${LK[c.agent]?`<span class="hint" style="margin:0">Extra number of</span><b style="font-size:13.5px">${esc(ident(LK[c.agent].agent).name)}</b>`:`<span class="ab-lbl">Answered by</span><select style="width:auto" data-chmove="${esc(c.id)}" data-from="${esc(c.agent)}" data-paused="${c.paused?1:''}" data-acct="${esc(accountText(c.account))}">${agents.map(n=>`<option value="${esc(n)}" ${n===c.agent&&!c.paused?'selected':''}>${esc(ident(n).name)}</option>`).join('')}<option value="" ${c.paused?'selected':''}>Nobody (paused)</option></select>`}<button class="ghost icon ch-more" data-act="ch-more" data-agent="${esc(c.agent)}" data-platform="${esc(c.id)}" data-paused="${c.paused?1:''}" data-state="${esc(c.state||'')}" data-extra="${LK[c.agent]?1:''}" data-note="${esc(c.note||'')}" title="More" aria-label="More for ${esc(c.name)}">${icon('more',18)}</button></div></div>`).join(''):'<p class="hint">No channel is connected yet. Set one up below and it shows here for the whole team.</p>'}`;
  panel.querySelectorAll('select').forEach(enhanceSelect);
  panel.querySelectorAll('[data-chmove]').forEach(s=>s.onchange=async()=>{const to=s.value,from=s.dataset.from,pf=s.dataset.chmove,was=s.dataset.paused?'':from;if(to===was)return;
@@ -348,7 +348,7 @@ const CronNotify={
  key:()=>'cronSeen:'+(S.profile||'default'),
  async check(){if(document.hidden||!S.signedIn)return;let list=[];try{list=(await H('/sessions?sources=cron&limit=5')).sessions||[]}catch{return}
   let seen=0;try{seen=+localStorage.getItem(this.key())||0}catch{}
-  const newest=Math.max(0,...list.map(s=>s.started_at||0));if(!seen){try{localStorage.setItem(this.key(),String(newest||Date.now()/1000))}catch{}return}
+  const newest=Math.max(0,...list.filter(s=>!s.is_active).map(s=>s.started_at||0));if(!seen){try{localStorage.setItem(this.key(),String(newest||Date.now()/1000))}catch{}return}
   const fresh=list.filter(s=>(s.started_at||0)>seen&&!s.is_active).reverse();if(!fresh.length)return;
   try{localStorage.setItem(this.key(),String(newest))}catch{}
   for(const s of fresh){let text='';try{const m=await H('/sessions/'+encodeURIComponent(s.id)+'/messages?limit=6&order=latest');const ms=(m.messages||m||[]).filter(x=>x.role==='assistant'&&Chat.contentText(x.content).trim());text=Chat.contentText((ms[0]||ms[ms.length-1])?.content)}catch{}
@@ -439,7 +439,7 @@ async function linkWhatsApp(agent,{replace=false,title}={}){const q='?profile='+
    if(s.status==='connected'){box.innerHTML=`<p class="hint">${icon('check',15)} Linked${s.account_phone?' as <b>+'+esc(s.account_phone)+'</b>':''}${s.account_name?' ('+esc(s.account_name)+')':''}. Switching it on…</p>`;
     const r=await post(H,'/messaging/whatsapp/onboarding/'+encodeURIComponent(pid)+'/apply'+q,{mode:'bot'});done=true;
     box.innerHTML=`<div class="wa-done"><span class="ic ok">${icon('check',22)}</span><div><b>WhatsApp linked${r.account?.phone?' · '+esc(r.account.phone):''}</b><p class="hint" style="margin:4px 0 0">${r.hot_served?'It is answering now.':r.waiting?'It starts answering as soon as the '+(r.waiting===1?'reply':r.waiting+' replies')+' in progress finish (the engine restarts once).':'The engine restarts once (about 20 seconds), then it answers.'} Send it a message from another phone to try it.</p></div></div>`;
-    const fb=d.querySelector('.drawer-foot [data-act="close"]');if(fb){fb.textContent='Done';fb.classList.replace('ghost','primary')}d.addEventListener('click',e=>{if(e.target.closest('[data-act="close"]'))setTimeout(()=>reload(),300)});return}
+    const fb=d.querySelector('.drawer-foot [data-act="close"]');if(fb){fb.textContent='Done';fb.classList.replace('ghost','primary')}d.addEventListener('click',e=>{if(e.target.closest('[data-act="close"]'))laterReload(300)});return}
    if(/error|expired|cancel/.test(s.status||'')){cleanup();return fail_(/expired/.test(s.status)?'The QR code expired before it was scanned.':'WhatsApp could not start the link: '+(s.error||s.status))}
    if(s.qr_payload&&s.qr_payload!==lastQr){lastQr=s.qr_payload;box.innerHTML=`<img class="wa-qr" src="/ui/qr?d=${encodeURIComponent(s.qr_payload)}" alt="QR code to scan with WhatsApp">
     <ol class="qr-steps"><li>Open WhatsApp on the phone this agent should use.</li><li>Tap <b>Settings</b> (iPhone) or <b>⋮</b> (Android), then <b>Linked devices</b>.</li><li>Tap <b>Link a device</b> and point the camera at this code.</li></ol><p class="hint">The code refreshes by itself; keep this window open until it says linked.</p>`}
@@ -566,7 +566,8 @@ ACT['mcp-auth']=async a=>{const name=a.dataset.name,agent=S.profile||'default';
  const win=window.open('about:blank','_blank');
  try{const f=await post(UI,'/ui/mcp/start-signin',{agent,name});const url=f.authorization_url||f.auth_url||f.url;
   if(!url){win?.close();const err=f.error||'';if(/client registration|client_id|client id/i.test(err))return mcpClientDrawer(name,err);return fail(new Error(err||'The service did not offer a sign-in.'))}
-  if(win)win.location=url;else window.open(url,'_blank','noopener');
+  if(!/^https:\/\//i.test(String(url||''))){win?.close();return toast('That sign-in link does not look right, so it was not opened.','err')}
+  if(win){win.opener=null;win.location=url}else window.open(url,'_blank','noopener');
   const d=drawer('Sign in to '+pretty(name),`<p style="color:var(--ink-2);margin:0 0 12px">Finish signing in in the tab that opened, then come back here.</p><p><a href="${esc(url)}" target="_blank" rel="noopener">Open the sign-in page again</a></p><p class="hint" id="mcpSt">Waiting for you to sign in…</p>`);
   const id=f.flow_id;for(let i=0;i<150&&d.isConnected&&id;i++){await new Promise(r=>setTimeout(r,2000));let s;try{s=await H('/mcp/oauth/flows/'+encodeURIComponent(id))}catch{break}
    const st=s.status||'';d.querySelector('#mcpSt').textContent=/authorization_required|pending/.test(st)?'Waiting for you to sign in…':'Status: '+pretty(st);
@@ -593,9 +594,9 @@ ACT['mcp-auth']=async a=>{const name=a.dataset.name,agent=S.profile||'default';
 ACT['agent-fix']=async a=>{a.disabled=true;const was=a.textContent;a.textContent='Finishing…';
  try{const r=await post(UI,'/ui/accounts/setup-agent',{name:a.dataset.name});if(r.ok)toast('Setup finished');else toast('Not finished yet: '+(r.failed||[]).join(' · '),'err');reload()}catch(e){a.disabled=false;a.textContent=was;fail(e)}};
 ACT['agent-purge']=async a=>{if(!await confirmBox('Delete '+a.dataset.name+' forever?','Its kept backup (settings, skills, memory and chats) is removed now. This cannot be undone.','Delete forever'))return;a.disabled=true;
- try{await post(UI,'/ui/agent-trash/purge',{file:a.dataset.file});toast(a.dataset.name+' deleted for good');const row=a.closest('.row');row?.classList.add('closing');setTimeout(()=>reload(),300)}catch(e){a.disabled=false;fail(e)}};
+ try{await post(UI,'/ui/agent-trash/purge',{file:a.dataset.file});toast(a.dataset.name+' deleted for good');const row=a.closest('.row');row?.classList.add('closing');laterReload(300)}catch(e){a.disabled=false;fail(e)}};
 ACT['agent-restore']=async a=>{if(!await confirmBox('Restore '+a.dataset.name+'?','It comes back as it was when it was deleted.','Restore',false))return;a.disabled=true;
- try{await post(UI,'/ui/agent-restore',{file:a.dataset.file});toast(a.dataset.name+' is back');setTimeout(()=>reload(),1500)}catch(e){a.disabled=false;fail(e)}};
+ try{await post(UI,'/ui/agent-restore',{file:a.dataset.file});toast(a.dataset.name+' is back');laterReload(1500)}catch(e){a.disabled=false;fail(e)}};
 
 /* Composio: one sign-in for hundreds of apps (Slack, Gmail, Google Drive, GitHub…). The rule: an app's own
    MCP tool when it connects easily, otherwise Composio. Added to the agent on first use. */
@@ -661,7 +662,7 @@ ACT['wa-add']=a=>ACT['ch-extra-add']({dataset:{id:'whatsapp'}});
 // the protected secret field (Secrets in chat.js): its buttons
 ACT['secret-send']=a=>Secrets.send(a.closest('.secret-card'));
 ACT['secret-cancel']=a=>Secrets.cancel(a.closest('.secret-card'));
-ACT['secret-eye']=a=>{const i=a.closest('.sc-row').querySelector('input');i.type=i.type==='password'?'text':'password';i.focus()};
+ACT['secret-eye']=a=>{const i=(a.closest('.sc-field')||a.closest('.sc-row'))?.querySelector('input');if(!i)return;i.type=i.type==='password'?'text':'password';i.focus()};
 ACT['secret-give']=()=>Secrets.give();
 
 // "Which browser?" card buttons, and the one-time setup of the aqeelOS extension (use my browser)
@@ -700,7 +701,7 @@ async function setPausedQuiet(ag,pf,on){await post(UI,'/ui/channels/pause',{agen
 // reconnect one channel: on a second agent only that channel restarts; the main agent's channels share the engine
 async function reconnectChannel(ag,pf){const main=ag.split('--')[0]==='default'&&!ag.includes('--');
  if(main&&!await confirmBox('Reconnect '+appName(pf)+'?','The main agent’s channels only reconnect by restarting the engine, so every agent pauses for about 20 seconds (replies in progress finish first).','Reconnect',false))return;
- try{const r=await post(UI,'/ui/channels/reconnect',{agent:ag,platform:pf});toast(r.restarting?'Reconnecting: the engine restarts once replies in progress finish':appName(pf)+' reconnected');setTimeout(()=>reload(),r.restarting?20000:3000)}catch(e){fail(e)}}
+ try{const r=await post(UI,'/ui/channels/reconnect',{agent:ag,platform:pf});toast(r.restarting?'Reconnecting: the engine restarts once replies in progress finish':appName(pf)+' reconnected');laterReload(r.restarting?20000:3000)}catch(e){fail(e)}}
 
 // the bell (Inbox lives in notices.js, which loads before the action table)
 ACT['inbox']=()=>{if($('.drawer.inbox'))return closeLayers();Inbox.open()};
