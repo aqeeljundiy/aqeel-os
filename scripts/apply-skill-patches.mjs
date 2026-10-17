@@ -118,7 +118,7 @@ for(const h of homes){const sp=path.join(h,'skills','productivity','google-works
 //    say aqeelOS. Only the words people read change; commands such as `hermes gateway restart` stay as they are.
 {const dir=path.join(HOME,'hermes-agent','locales');
  for(const f of await readdir(dir).catch(()=>[])){if(!/\.ya?ml$/.test(f))continue;const p=path.join(dir,f);const s=await readFile(p,'utf8');
-  const next=s.split('\n').map(l=>/^\s*[\w.-]+:\s/.test(l)||/^\s+["']/.test(l)?l.replace(/Hermes Agent/g,'aqeelOS').replace(/\bHermes\b/g,'aqeelOS'):l).join('\n');
+  const next=s.split('\n').map(l=>/^\s*[\w.-]+:\s/.test(l)||/^\s+["']/.test(l)?l.replace(/Hermes Agent/g,'aqeelOS').replace(/\bHermes\b/g,'aqeelOS').replace('a markdown implementation plan to .hermes/plans/ without executing anything','a step-by-step plan as a markdown file, without doing anything yet'):l).join('\n');
   if(next!==s){await writeFile(p,next);changed++;console.log('renamed engine messages in',f)}}}
 // 8) Words the engine sends straight to people outside its message files: approval prompts, the WhatsApp reply
 //    header, schedule results and failures, "is working", the Telegram command menu, tool errors the agent repeats,
