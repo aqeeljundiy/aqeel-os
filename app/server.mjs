@@ -206,12 +206,18 @@ async function writeAgentContext(){const all=await listAgents();const names={};f
   const own=ads.includes(a)?`You browse through AdsPower, so your browser shows on the shared AdsPower screen, listed as "${me}'s screen".`:`Your own screen is "${me}'s screen". Your browser tool opens pages there; it starts by itself when you browse.`;
   const others=all.filter(x=>x!==a&&!ads.includes(x)).map(x=>'"'+names[x]+"'s screen\"").join(', ');
   const ch=await relay.channelsFor(a).catch(()=>[]);const gacc=await googleContext(a).catch(()=>[]);
+  // an agent without terminal and files cannot change its own settings: it says where they change instead of
+  // guessing ("an admin has to…", an outside website)
+  const off=pick(await readConfig(a).catch(()=>null)||{},'agent.disabled_toolsets')||[];const locked=(Array.isArray(off)?off:String(off).split(',')).map(x=>String(x).trim()).includes('terminal');
   const body=['<!-- aqeelos:context (written by aqeelOS and kept up to date; edit outside this block) -->','# Working in aqeelOS','','## Screens','',
    'The person can watch screens live in aqeelOS: the monitor button at the top right, then the screen picker.',
    '- '+own,
    '- AdsPower browsers, opened by any agent, show on the shared AdsPower screen, listed as '+adsNames+'.',
    others?'- Other agents have their own screens: '+others+'.':null,
    'When you start working in a browser or in AdsPower, say which screen to watch, for example: "I am working on '+(ads.includes(a)?me+"'s screen":me+"'s screen")+'." If the person needs to sign in or solve a check themselves, tell them to open that screen and press Take over.',
+   ...(locked?['','## Changing settings','',
+    'You have no terminal or file tools, so you cannot change your own settings, and that is on purpose. When someone asks to change how you or your channels behave (notices such as "Redirected current run", your model, what you may use, who may message you), say plainly that you cannot change it yourself and that it is changed in aqeelOS on the Settings page (System › Settings, with "Showing: '+me+'" picked at the top). Who may message you is on Automations › Who can message; apps are on Abilities › Connected apps.',
+    'Never send anyone to a website or to documentation for this, and never say "an admin" has to do it.']:[]),
    '','## Apps and accounts: free ways first','',
    'For an outside app (Slack, Gmail, Google Drive, Notion, GitHub, Google Cloud…), try the free ways first, in this order:',
    '1. That app’s own MCP tool, if you have it (connect it with connect_mcp_tool when it needs a sign-in).',
