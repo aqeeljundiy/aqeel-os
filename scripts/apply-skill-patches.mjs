@@ -119,10 +119,14 @@ for(const h of homes){const sp=path.join(h,'skills','productivity','google-works
 //    Telegram, the WhatsApp reply header, schedule result threads, "is working", the Telegram command menu, sign-in
 //    pages. Only text inside quotes that reads as a sentence changes; code that compares the name is left alone, and a
 //    file that no longer compiles afterwards is put back.
-{const files=['gateway/platforms/base_exec_approval.py','gateway/platforms/whatsapp_common.py','cron/scheduler_delivery.py','cron/scheduler.py','gateway/relay/adapter.py','gateway/relay/command_manifest.py','hermes_cli/commands.py','hermes_cli/web_routers/mcp.py','gateway/slash_commands.py','gateway/run_notifications.py','gateway/session.py'];
+//    Every engine file is covered (channels, schedules, tools, the agent loop, the dashboard), since any of them can put
+//    a sentence in front of a person ("⏳ Another Hermes process…", "Hermes will try again…", tool errors the agent repeats).
+{const ROOT=path.join(HOME,'hermes-agent');const files=[];
+ const walk=rel=>{let l=[];try{l=readdirSync(path.join(ROOT,rel),{withFileTypes:true})}catch{return}for(const d of l){if(/^(tests?|__pycache__|node_modules|\.git)$/.test(d.name))continue;const r=rel+'/'+d.name;if(d.isDirectory())walk(r);else if(d.name.endsWith('.py'))files.push(r.slice(1))}};
+ for(const d of ['gateway','cron','agent','tools','hermes_cli','plugins'])walk('/'+d);
  const {execFileSync}=await import('node:child_process');const py=(()=>{try{const base=path.join(HOME,'installs');for(const i of readdirSync(base))for(const e of readdirSync(path.join(base,i,'environments'))){const p=path.join(base,i,'environments',e,'venv','bin','python');if(existsSync(p))return p}}catch{}return 'python3'})();
  for(const rel of files){const p=path.join(HOME,'hermes-agent',rel);const s=await readFile(p,'utf8').catch(()=>null);if(s==null)continue;
-  const next=s.split('\n').map(l=>/==\s*["']Hermes|["']Hermes Agent["']\s*[:)\]]|X-Hermes|HermesAgent\//.test(l)?l:l.replace(/(["'])((?:\\.|(?!\1)[^\\])*)\1/g,(m,q,body)=>/\s/.test(body)&&/(?<![\w-])Hermes(?![\w-])/.test(body)?q+body.replace(/Hermes Agent/g,'aqeelOS').replace(/(?<![\w-])Hermes(?![\w-])/g,'aqeelOS')+q:m)).join('\n');
+  const next=s.split('\n').map(l=>/==\s*["']Hermes|["']Hermes Agent["']\s*[:)\]]|X-Hermes|HermesAgent\/|["'][^"']*Hermes[^"']*["']\s*(?:in|==|!=)\s|(?:==|!=|startswith\(|endswith\(|\bin)\s*\(?\s*["'][^"']*Hermes|re\.(?:compile|search|match|sub)\(/.test(l)?l:l.replace(/(["'])((?:\\.|(?!\1)[^\\])*)\1/g,(m,q,body)=>/\s/.test(body)&&/(?<![\w-])Hermes(?![\w-])/.test(body)?q+body.replace(/Hermes Agent/g,'aqeelOS').replace(/(?<![\w-])Hermes(?![\w-])/g,'aqeelOS')+q:m)).join('\n');
   if(next===s)continue;await writeFile(p,next);
   try{execFileSync(py,['-m','py_compile',p],{timeout:30000});changed++;console.log('renamed engine words in',rel)}catch{await writeFile(p,s);console.warn('! left',rel,'as it was (did not compile after renaming)')}}}
 // 9) Read aloud: Microsoft's free voice refuses old edge-tts versions (403). Any engine environment that carries an
@@ -137,4 +141,9 @@ for(const h of homes){const sp=path.join(h,'skills','productivity','google-works
   try{if(!whl){whl='/tmp/edge_tts-'+WANT+'.whl';execFileSync('curl',['-sf','-o',whl,URL_],{timeout:60000})}
    const bak=path.join(sp,'..','edge-tts-'+have+'.bak');execFileSync('mkdir',['-p',bak]);execFileSync('cp',['-a',path.join(sp,'edge_tts'),path.join(sp,info),bak]);
    execFileSync('rm',['-rf',path.join(sp,'edge_tts'),path.join(sp,info)]);execFileSync('python3',['-c','import zipfile,sys;zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])',whl,sp]);changed++;console.log('read aloud: edge-tts',have,'→',WANT,'in',e)}catch(err){console.warn('! read aloud: could not update edge-tts in',e,err.message)}}}
+// 10) The agents' own memory notes (MEMORY.md, USER.md) name the system they run on in plain sentences; they say
+//     aqeelOS, so an agent never tells someone it is "Hermes". Paths and commands (~/.hermes, hermes …) are left alone.
+{const dirs=[path.join(HOME,'memories')];for(const p of (()=>{try{return readdirSync(path.join(HOME,'profiles'))}catch{return []}})())dirs.push(path.join(HOME,'profiles',p,'memories'));
+ for(const d of dirs)for(const f of ['MEMORY.md','USER.md']){const p=path.join(d,f);const s=await readFile(p,'utf8').catch(()=>null);if(s==null)continue;
+  const next=s.replace(/Hermes Agent/g,'aqeelOS').replace(/(?<![\w./-])Hermes(?![\w/-])/g,'aqeelOS');if(next!==s){await writeFile(p,next);changed++;console.log('memory notes say aqeelOS:',p.replace(HOME,'~'))}}}
 console.log(changed?changed+' change(s)':'skill patches already in place');

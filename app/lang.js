@@ -61,11 +61,12 @@ const Lang={
  // translate a subtree: text nodes and the attributes people read
  // The engine's own texts (channel, plugin and skill descriptions…) say "Hermes"; on screen it is aqeelOS.
  // Chats, code and logs are left exactly as they are.
- brand(s){return s.replace(/\bHermes Agent\b/g,'aqeelOS').replace(/\bHermes\b/g,'aqeelOS').replace(/\bNous Research\b/g,'aqeelOS').replace(/(^|[\s`'"(:])hermes(?= [a-z])/g,'$1aqeelos')},
+ // Every form of the engine's name becomes ours on screen (commands keep working: `aqeelos` runs the same CLI on the box).
+ brand(s){return s.replace(/Hermes Agent/g,'aqeelOS').replace(/Nous Research/g,'aqeelOS').replace(/HERMES/g,'AQEELOS').replace(/Hermes/g,'aqeelOS').replace(/hermes/g,'aqeelos')},
  run(root){if(!root)return;const id=this.cur==='id';
-  const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,{acceptNode:n=>n.parentElement?.closest('.thread,.msg,textarea,pre,code,.log,.action-log,[data-notr]')?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT});
-  for(let n;(n=w.nextNode());){const v=n.nodeValue;if(!v||!v.trim())continue;let t=/Hermes|Nous Research|hermes [a-z]/.test(v)?this.brand(v):v;if(id&&this.known(t))t=this.t(t);if(t!==v)n.nodeValue=t}
-  (root.querySelectorAll?root:document).querySelectorAll('[placeholder],[title],[aria-label]').forEach(e=>{if(e.closest('.thread,textarea'))return;for(const k of ['placeholder','title','aria-label']){const v=e.getAttribute(k);if(!v)continue;let t=/Hermes|Nous Research|hermes [a-z]/.test(v)?this.brand(v):v;if(id&&this.known(t))t=this.t(t);if(t!==v)e.setAttribute(k,t)}})},
+  const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,{acceptNode:n=>n.parentElement?.closest('.thread,textarea,[contenteditable],.step-body pre')?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT});
+  for(let n;(n=w.nextNode());){const v=n.nodeValue;if(!v||!v.trim())continue;let t=/hermes|nous research/i.test(v)?this.brand(v):v;if(id&&!n.parentElement?.closest('[data-notr],.msg,pre,code,.log,.action-log')&&this.known(t))t=this.t(t);if(t!==v)n.nodeValue=t}
+  (root.querySelectorAll?root:document).querySelectorAll('[placeholder],[title],[aria-label]').forEach(e=>{if(e.closest('textarea,[contenteditable]'))return;for(const k of ['placeholder','title','aria-label']){const v=e.getAttribute(k);if(!v)continue;let t=/hermes|nous research/i.test(v)?this.brand(v):v;if(id&&this.known(t))t=this.t(t);if(t!==v)e.setAttribute(k,t)}})},
  start(){if(this.cur==='id')document.documentElement.lang='id';let q=false;
   new MutationObserver(()=>{if(q)return;q=true;requestAnimationFrame(()=>{q=false;this.run(document.body)})}).observe(document.body,{childList:true,subtree:true,characterData:false});this.run(document.body)},
 };

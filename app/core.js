@@ -98,7 +98,7 @@ function md(src){
  const inline=t=>{const keep=[];const put=h=>'\u0000'+(keep.push(h)-1)+'\u0000';
   t=t.replace(/`([^`]+)`/g,(m,c)=>put('<code>'+esc(c)+'</code>'))
    .replace(/!\[([^\]]*)\]\(((?:data:image\/[a-z+.-]+;base64,[A-Za-z0-9+/=]+)|(?:https?:\/\/[^)\s]+)|(?:\/ui\/media\?path=[^)\s]+))\)/g,(m,alt,u)=>put(`<img class="md-img" src="${esc(u)}" alt="${esc(alt)}" loading="lazy">`));
-  t=esc(t).replace(/(?<![\w\/.-])Hermes Agent\b/g,'aqeelOS').replace(/(?<![\w\/.-])Hermes(?![\w-])/g,'aqeelOS').replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>').replace(/__([^_]+)__/g,'<b>$1</b>').replace(/(^|[^*\w])\*([^*\s][^*]*)\*/g,'$1<i>$2</i>').replace(/~~([^~]+)~~/g,'<s>$1</s>')
+  t=esc(t).replace(/(?<![\w\/.-])Hermes Agent\b/g,'aqeelOS').replace(/(?<![\w\/.-])Hermes(?![\w-])/g,'aqeelOS').replace(/(?<![\w\/.-])hermes(?=[\s-])/g,'aqeelos').replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>').replace(/__([^_]+)__/g,'<b>$1</b>').replace(/(^|[^*\w])\*([^*\s][^*]*)\*/g,'$1<i>$2</i>').replace(/~~([^~]+)~~/g,'<s>$1</s>')
    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,(m,t,u)=>linkChip(u,t)).replace(/(^|\s)(https?:\/\/[^\s<]+)/g,(m,pre,u)=>pre+linkChip(u));
   return t.replace(/\u0000(\d+)\u0000/g,(m,n)=>keep[+n])};
  const isItem=l=>/^\s*(?:[-*+]|\d+[.)])\s+/.test(l),indent=l=>l.match(/^\s*/)[0].replace(/\t/g,'  ').length;

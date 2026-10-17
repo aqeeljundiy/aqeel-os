@@ -302,6 +302,14 @@ async function gatewayWatch(){if(gwStopped||gwRestarting)return;
  const bad=log.some(l=>{const t=Date.parse(l.slice(0,19).replace(' ','T')+'Z');return t&&t>since+5000&&Date.now()-t<10*60e3});
  if(bad){console.warn('gateway watch: the gateway the engine started cannot reach Claude; restarting it properly');return restartGateway('gateway outside its session cannot reach Claude')}}
 if(PORT===4400){setInterval(()=>gatewayWatch().catch(()=>{}),60000).unref()}
+/* After an engine update (from the app or by itself), the renames are applied again and, once nothing is in
+   progress, the engine restarts once so people see aqeelOS again in channel messages, prompts and errors. */
+const engineHead={v:null,t:0};
+async function engineWatch(){const r=await shx('git -C ~/.hermes/hermes-agent rev-parse HEAD 2>/dev/null');const h=String(r.out||'').trim();if(!/^[0-9a-f]{40}$/.test(h))return;
+ if(engineHead.v===null){engineHead.v=h;return}if(h===engineHead.v)return;engineHead.v=h;console.log('engine updated to',h.slice(0,8),'- applying aqeelOS patches again');
+ const {execFile}=await import('node:child_process');const out=await new Promise(res=>execFile(process.execPath,[path.join(root,'scripts','apply-skill-patches.mjs')],{timeout:600000,maxBuffer:8e6},(e,o)=>res(String(o||''))));
+ const n=Number((/(\d+) change\(s\)/.exec(out)||[])[1]||0);console.log('engine patches after update:',n,'change(s)');if(n)restartGateway('engine updated: aqeelOS wording applied again').catch(()=>{})}
+if(PORT===4400){setInterval(()=>engineWatch().catch(()=>{}),5*60000).unref();setTimeout(()=>engineWatch().catch(()=>{}),20000).unref()}
 /* Memory guard. The AI box has a fixed memory limit; when it runs full, the engine or the dashboard is killed.
    Every 2 minutes: above 80% the bell says so (once an hour); above 90%, with no reply, schedule, setup or relay in
    progress, the AdsPower browsers are closed (AdsPower itself stays open and a browser reopens when an agent needs it).
@@ -567,6 +575,9 @@ async function hermesCall(req,res,u,url){
  let body;
  // Same for every change the engine scopes by body (pairing approvals, chat import/update…): if the address names the
  // agent and the JSON body doesn't, the body gets it too. Uploads and non-JSON bodies are left alone.
+ // An engine update starts from the engine's own files: aqeelOS's renames (aqeelOS instead of Hermes in what people
+ // read) are put back to the original first, so the update never clashes with them; they are applied again after it.
+ if(p==='/hapi/hermes/update'&&req.method==='POST'&&users.isAdmin(u)){const r=await shx('git -C ~/.hermes/hermes-agent checkout -- . 2>&1');console.log('engine update: renamed files reset first',r.ok?'':'('+String(r.out||'').slice(0,120)+')');engineHead.t=0}
  if(p.startsWith('/hapi/')&&req.method!=='GET'&&q.get('profile')&&/json/.test(String(req.headers['content-type']||''))&&!p.startsWith('/hapi/files')){let b=null;try{const raw=(await readRaw(req,30e6)).toString('utf8');b=raw?JSON.parse(raw):{}}catch{}
   if(b&&typeof b==='object'&&!Array.isArray(b)&&!b.profile)b.profile=q.get('profile');if(b!==null)body=Buffer.from(JSON.stringify(b))}
  // a member's file calls must stay in their own folder
