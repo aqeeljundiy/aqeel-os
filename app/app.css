@@ -929,7 +929,8 @@ input[type=checkbox]:not(.switch)::after{margin:auto}
 @media (prefers-reduced-motion: reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-delay:0ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
 /* chat list: where each chat came from, a ring while the agent works, a dot when something is new */
 .item .src{position:relative;display:grid;place-items:center}
-.item .src.working::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:2px solid transparent;border-top-color:var(--blue);border-right-color:color-mix(in srgb,var(--blue) 40%,transparent);animation:spin .9s linear infinite}
+.item .src.working svg{opacity:0}
+.item .src.working::after{content:"";position:absolute;width:12px;height:12px;left:50%;top:50%;margin:-6px 0 0 -6px;border-radius:50%;border:1.75px solid color-mix(in srgb,var(--blue) 22%,transparent);border-top-color:var(--blue);animation:spin .8s linear infinite}
 .item.unread .t{font-weight:650;color:var(--ink)}
 .item .unread-dot{width:8px;height:8px;border-radius:50%;background:var(--blue);flex:none;margin-left:auto;box-shadow:0 0 0 3px color-mix(in srgb,var(--blue) 18%,transparent);animation:fade .25s var(--ease) both}
 .item.unread .more{margin-left:4px}
