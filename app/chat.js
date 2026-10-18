@@ -265,7 +265,11 @@ const Chat={
   s.turns.push({role:'user',text,images:images.length||0,imgs:images.map(f=>f.url),local:this.takeSent()});const ai={role:'ai',steps:[],text:'',think:''};s.turns.push(ai);s.ai=ai;s.runTurns=[ai];
   s.running=true;s.started=Date.now();if(this.id===id){this.paint();this.paintComposerBar()}paintSide();
   const m=this.cur();const body={message:images.length?[{type:'text',text},...images.map(f=>({type:'image_url',image_url:{url:f.url}}))]:text};
-  if(this.model){body.model=m.id;body.provider=m.provider}
+  // always the model shown in the chat bar, with its own account: left out, the engine reuses the chat's last model
+  // name with the agent's default account (Gemini sent to the Claude account, 18 Oct)
+  // the lock makes the engine use exactly this model on this account (and remember both for the chat); without it
+  // a chat's earlier model name beats the request and runs on the agent's default account
+  if(m.id&&m.provider){body.model=m.id;body.provider=m.provider;body.require_model_lock=true}
   body.model_options={reasoning_effort:this.effort};
   const ctl=new AbortController();s.abort=ctl;
   try{const r=await G('/api/sessions/'+encodeURIComponent(id)+'/chat/stream',{method:'POST',body,raw:true,signal:ctl.signal});
