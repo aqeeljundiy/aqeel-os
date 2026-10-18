@@ -111,8 +111,11 @@ def _make_client_class():
                             break
                     elif kind == "step_update":
                         st = ev.get("step_update") or {}
-                        if st.get("step_type") == "tool":
-                            tool_seen = "agy tried to use its own tool " + str(st.get("tool_name") or "")
+                        # manage_task is agy's own to-do list for the turn (no files, commands or web): Claude models
+                        # use it to plan. It is one of the four tools agy cannot drop, and it is the only one let through.
+                        name = str(st.get("tool_name") or (st.get("tool_info") or {}).get("name") or "")
+                        if st.get("step_type") == "tool" and name not in ("manage_task",):
+                            tool_seen = "agy tried to use its own tool " + name
                             proc.kill()
                             break
                     elif kind == "result":
