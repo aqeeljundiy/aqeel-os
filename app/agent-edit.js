@@ -1,0 +1,63 @@
+/* ---------- Agents › Edit agent (agreed layout, 18 Oct): one window with tabs instead of seven menu items.
+   Identity     picture, name, title, description (or have it written), and the rarely used extras
+   Personality  how it introduces itself and its standing instructions (SOUL)
+   Model        the model this agent thinks with (its own sign-ins)
+   Sharing      owner and who may use it (the owner only)
+   Save stores whatever changed. The card menu keeps only Edit, Chat with it and Delete; what a member may
+   do still follows their share level and permissions. ---------- */
+const AE_TABS=['Identity','Personality','Model','Sharing'];
+async function editAgent(name,start='Identity'){
+ const base='/profiles/'+encodeURIComponent(name),prof=(Pages._profiles||[]).find(p=>p.name===name)||{name},id=ident(name);
+ const admin=S.me?.admin!==false,lvl=admin?'owner':(S.me?.agents?.[name]||'chat'),has=k=>admin||(S.me?.caps||[]).includes(k);
+ const owner=Pages._own?.[name]?.access==='owner'||admin&&!Pages._own?.[name];
+ const tabsOn=AE_TABS.filter(t=>t!=='Model'||has('models')).filter(t=>t!=='Sharing'||owner);
+ const [soulR,opts]=await Promise.all([H(base+'/soul').catch(()=>({})),has('models')?call('/gapi'+(name==='default'?'':'/p/'+encodeURIComponent(name)),'/api/model/options').catch(()=>({providers:[]})):null]);
+ const soul=soulR.content||'',authed=((opts||{}).providers||[]).filter(usableProvider);
+ let newPic=null,removePic=false;
+ const sec=(t,html)=>`<div class="ae-sec" data-sec="${t}" ${t===start?'':'hidden'}>${html}</div>`;
+ const d=drawer('Edit '+id.name,`<div class="tabs ae-tabs" style="display:flex;margin:0 0 16px">${tabsOn.map(t=>`<button type="button" class="${t===start?'on':''}" data-ae="${t}">${t}</button>`).join('')}<span class="pill"></span></div>
+  ${sec('Identity',`<div class="ident-top"><div class="ident-ava" id="idAva">${id.avatar?`<img src="${esc(id.avatar)}" alt="">`:esc(id.name[0].toUpperCase())}</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" id="idPick">${icon('upload',15)}Upload picture</button><button type="button" class="ghost" id="idDrop" ${id.avatar?'':'hidden'}>Remove</button></div><p class="hint" style="margin:6px 0 0">PNG, JPG or WebP · square works best · under 2 MB</p></div>
+   <label>Name</label><input id="idName" maxlength="60" value="${esc(id.name)}" placeholder="aqeelOS">
+   <label>Title</label><input id="idTitle" maxlength="80" value="${esc(id.title)}" placeholder="Operations assistant">
+   <label class="h-row">Description <button type="button" class="ghost" id="aeAuto" style="min-height:28px;padding:0 10px;font-size:12.5px">${icon('sparkle',13)}Write it for me</button></label><input id="idDesc" value="${esc(prof.description||'')}" placeholder="What this agent is for">
+   ${admin?`<details class="ae-adv"><summary>Advanced</summary><p class="hint">Internal name: <code>${esc(name)}</code> (never changes).</p><div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="ghost" id="aeCmd">${icon('copy',14)}Copy setup command</button><button type="button" class="ghost" id="aeActive">${icon('check',14)}Use on the command line</button></div></details>`:''}`)}
+  ${sec('Personality',`<label style="display:flex;align-items:center;justify-content:space-between;gap:12px">Update how it introduces itself ${toggle(true,'Update introduction','id="idIntro"')}</label><p class="hint">Rewrites the first line so it always calls itself by its name.</p>
+   <label>Personality and standing instructions</label><textarea id="idSoul" rows="16" style="font-family:var(--mono);font-size:12.5px;line-height:1.55">${esc(soul)}</textarea>`)}
+  ${tabsOn.includes('Model')?sec('Model',`<label>Model</label><select id="aeModel"><option value="">Keep ${esc(modelLabel(prof.model)||'the current model')}</option>${authed.map(pv=>`<optgroup label="${esc(pv.name)}">${pv.models.map(m=>`<option value="${esc(pv.slug+'|'+m)}">${esc(modelLabel(m))}</option>`).join('')}</optgroup>`).join('')}</select>
+   <p class="hint">Its new chats, schedules and channels use this. Effort, helper models and which account it uses are on <a href="#/models/models" data-act="ae-models">Models and accounts › Agents’ models</a>.</p>`):''}
+  ${tabsOn.includes('Sharing')?sec('Sharing',`<p class="hint" style="margin:0 0 10px">Who owns ${esc(id.name)} and who else may chat with it or change it.</p><button type="button" id="aeShare">${icon('user',15)}Manage sharing</button>`):''}`,
+  `<button class="ghost" data-act="close">Cancel</button><button class="primary" id="aeSave">Save</button>`,{size:'lg'});
+ // tabs inside the window
+ const show=t=>{d.querySelectorAll('[data-ae]').forEach(b=>b.classList.toggle('on',b.dataset.ae===t));d.querySelectorAll('.ae-sec').forEach(s=>s.hidden=s.dataset.sec!==t);placePills()};
+ d.querySelectorAll('[data-ae]').forEach(b=>b.onclick=()=>show(b.dataset.ae));requestAnimationFrame(placePills);
+ const soulBox=d.querySelector('#idSoul'),intro=d.querySelector('#idIntro'),ava=d.querySelector('#idAva'),nameIn=d.querySelector('#idName'),titleIn=d.querySelector('#idTitle');
+ // the introduction line follows the name, but only once the name or title is actually changed: opening and saving
+ // the window never rewrites the personality on its own
+ const renamed=()=>nameIn.value.trim()!==id.name||titleIn.value.trim()!==(id.title||'');
+ const preview=()=>{soulBox.value=intro.checked&&renamed()?withIntro(soulBox.dataset.base,nameIn.value.trim()||'aqeelOS',titleIn.value.trim()):soulBox.dataset.base};
+ soulBox.dataset.base=soul;soulBox.oninput=()=>{soulBox.dataset.base=soulBox.value};
+ nameIn.oninput=preview;titleIn.oninput=preview;intro.onchange=preview;
+ d.querySelector('#idPick').onclick=()=>pickFile('image/png,image/jpeg,image/webp,image/gif',f=>{if(f.size>2e6)return toast('Pictures must be under 2 MB','err');newPic=f;removePic=false;ava.innerHTML=`<img src="${URL.createObjectURL(f)}" alt="">`;d.querySelector('#idDrop').hidden=false});
+ d.querySelector('#idDrop').onclick=()=>{newPic=null;removePic=true;ava.textContent=(nameIn.value||'a')[0].toUpperCase();d.querySelector('#idDrop').hidden=true};
+ d.querySelector('#aeAuto').onclick=async e=>{const b=e.currentTarget;b.disabled=true;try{const r=await post(H,base+'/describe-auto',{overwrite:true});if(r.description){d.querySelector('#idDesc').value=r.description;prof.description=r.description}toast('Description written')}catch(er){fail(er)}b.disabled=false};
+ d.querySelector('#aeCmd')?.addEventListener('click',async()=>{try{const r=await H(base+'/setup-command');await navigator.clipboard.writeText(r.command);toast('Copied: '+r.command)}catch(e){fail(e)}});
+ d.querySelector('#aeActive')?.addEventListener('click',async()=>{try{await post(H,'/profiles/active',{name});toast('The command line now uses '+id.name)}catch(e){fail(e)}});
+ d.querySelector('#aeShare')?.addEventListener('click',()=>ACT['agent-share'](name));
+ d.querySelector('[data-act="ae-models"]')?.addEventListener('click',e=>{e.preventDefault();closeLayers();S.tab.models='Agents’ models';if(name!==(S.profile||'default'))S.viewAgent=name;go('/models/models')});
+ d.querySelector('#aeSave').onclick=async()=>{const nm=nameIn.value.trim();if(!nm){show('Identity');return toast('Give it a name','err')}const btn=d.querySelector('#aeSave');btn.disabled=true;
+  try{if(nm!==id.name||titleIn.value.trim()!==id.title)await call('','/ui/identities/'+encodeURIComponent(name),{method:'PUT',body:{name:nm,title:titleIn.value.trim()}});
+   if(newPic){const r=await fetch('/ui/avatar/'+encodeURIComponent(name),{method:'PUT',headers:{'x-hui':'1','content-type':newPic.type},body:newPic});if(!r.ok)throw new Error((await r.json().catch(()=>({}))).error||'Picture upload failed')}
+   if(removePic)await call('','/ui/avatar/'+encodeURIComponent(name),{method:'DELETE'});
+   const desc=d.querySelector('#idDesc').value.trim();if(desc!==(prof.description||''))await put(H,base+'/description',{description:desc});
+   if(soulBox.value!==soul)await put(H,base+'/soul',{content:soulBox.value});
+   const mv=d.querySelector('#aeModel')?.value;if(mv){const [provider,model]=mv.split('|');await put(H,base+'/model',{provider,model})}
+   await loadIdentities();closeLayers();toast(nm+' saved');paintSide();if(route().page?.id==='profiles')reload()}
+  catch(e){fail(e);btn.disabled=false}}}
+// the card menu: Edit, Chat with it, Delete (each only when allowed)
+{const full=Pages.profileMenu;
+ Pages.profileMenu=el=>{const n=el.dataset.name,x=(Pages._profiles||[]).find(p=>p.name===n)||{};const admin=S.me?.admin!==false;
+  const lvl=admin?'owner':(S.me?.agents?.[n]||'chat');
+  // Delete keeps its own careful confirmation: take it from the full menu
+  let del=null;const real=window.menu;window.menu=(a,items)=>{window.menu=real;del=items.find(i=>i&&i.label==='Delete')||null};try{full(el)}catch{window.menu=real}
+  menu(el,[...(lvl!=='chat'?[{label:'Edit agent',icon:'edit',run:()=>editAgent(n)}]:[]),{label:'Chat with it',icon:'chat',run:()=>switchAgent(n)},...(!x.is_default&&del?['-',del]:[])])}}
+ACT['ident-open']=(a,e)=>{if(e?.target?.closest('[data-menu]'))return;editAgent(a.dataset.name)};
