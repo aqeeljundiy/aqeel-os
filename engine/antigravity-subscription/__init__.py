@@ -102,11 +102,11 @@ def _make_client_class():
                         continue
                     kind = ev.get("event")
                     if kind == "init":
+                        # agy 1.4 lists its whole tool registry here even for the text-only agent, so the list
+                        # proves nothing; what counts is a tool step (below), which ends the request at once
                         conv_id = str(ev.get("conversation_id") or "")
-                        tools = ((ev.get("init") or {}).get("tools") or [])
-                        risky = [t for t in tools if t not in ("call_mcp_tool", "list_resources", "read_resource", "manage_task")]
-                        if risky:   # the text-only agent did not load: agy would run its own tools
-                            tool_seen = "agy started with its own tools (" + ", ".join(risky[:6]) + ")"
+                        if (ev.get("init") or {}).get("agent") not in (None, AGENT_NAME):
+                            tool_seen = "agy started a different agent (" + str((ev.get("init") or {}).get("agent")) + ")"
                             proc.kill()
                             break
                     elif kind == "step_update":
@@ -186,7 +186,7 @@ profile = AntigravitySubscriptionProfile(
     process_command="agy",
     process_args=(),
     process_command_env_vars=("ANTIGRAVITY_SUBSCRIPTION_COMMAND",),
-    fallback_models=("gemini-4-argon-high", "gemini-3.8-flash-high"),
+    fallback_models=("gemini-3.8-flash-high", "gemini-3.8-flash-medium"),
 )
 
 register_provider(profile)
