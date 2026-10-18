@@ -129,7 +129,7 @@ def _make_client_class():
                 stderr = (proc.stderr.read() if proc.stderr else "")[-600:]
                 shutil.rmtree(work, ignore_errors=True)
                 if conv_id:   # agy's own copy of the conversation: aqeelOS keeps the chat, agy keeps nothing
-                    for p in (_AGY_HOME / "conversations").glob(f"{conv_id}*"):
+                    for p in [*(_AGY_HOME / "conversations").glob(f"{conv_id}*"), *(_AGY_HOME / "brain").glob(f"{conv_id}*"), *(_AGY_HOME / "annotations").glob(f"{conv_id}*")]:
                         with contextlib.suppress(Exception):
                             shutil.rmtree(p) if p.is_dir() else p.unlink()
             if tool_seen:
