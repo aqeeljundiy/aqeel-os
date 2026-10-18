@@ -197,18 +197,17 @@ const SECTIONS=[
   {id:'keys',label:'Keys',icon:'key',desc:'API keys and tokens, stored on the box and never shown in full.'}
 ]},
  {id:'system',label:'System',icon:'gauge',key:'7',pages:[
-  {id:'status',label:'Status',icon:'activity',desc:'Is everything running, and what happened recently.'},
   {id:'usage',label:'Usage',icon:'chart',desc:'Tokens, cache and cost over time.'},
+  {id:'health',label:'Health',icon:'activity',desc:'Is everything running, and the AI box itself: resources, updates and maintenance.'},
   {id:'logs',label:'Logs',icon:'list',desc:'What aqeelOS wrote while working.'},
-  {id:'settings',label:'Settings',icon:'sliders',desc:'Every aqeelOS setting, grouped and searchable.'},
-  {id:'host',label:'Host',icon:'server',desc:'The AI box itself: resources, updates and maintenance.'}]},
+  {id:'settings',label:'Settings',icon:'sliders',desc:'Every aqeelOS setting, grouped and searchable.'}]},
 ];
 
 const S={identities:{},collapsed:store.get('collapsed',false),tab:{},status:null,sessions:[],sessionsLoaded:false,chatFilter:['chats','automation','all'].includes(store.get('chatFilter','chats'))?store.get('chatFilter','chats'):'chats',search:'',bannerDismissed:store.get('bannerDismissed',''),signedIn:false};
 
 // pages that moved keep their old addresses: [new section, page, tab]
-const ROUTE_MOVED={'automations/channels':['channels','channels','Connections'],'automations/pairing':['channels','channels','Who can message']};
-function route(){let p=location.hash.replace(/^#\/?/,'').split('/').map(decodeURIComponent);{const mv=ROUTE_MOVED[p[0]+'/'+p[1]];if(mv){S.tab[mv[1]]=mv[2];p=[mv[0],mv[1],...p.slice(2)];history.replaceState(null,'','#/'+p.map(encodeURIComponent).join('/'))}}if(p[0]==='signin')return{signin:true};if(p[0]==='invite')return{invite:p[1]||''};const sec=SECTIONS.find(s=>s.id===p[0])||SECTIONS[0];if(sec.id==='chat')return{sec,chat:p[1]||null};const page=sec.pages.find(x=>x.id===p[1])||sec.pages[0];return{sec,page,arg:p.slice(2)}}
+const ROUTE_MOVED={'automations/channels':['channels','channels','Connections'],'automations/pairing':['channels','channels','Who can message'],'system/status':['system','health'],'system/host':['system','health']};
+function route(){let p=location.hash.replace(/^#\/?/,'').split('/').map(decodeURIComponent);{const mv=ROUTE_MOVED[p[0]+'/'+p[1]];if(mv){if(mv[2])S.tab[mv[1]]=mv[2];p=[mv[0],mv[1],...p.slice(2)];history.replaceState(null,'','#/'+p.map(encodeURIComponent).join('/'))}}if(p[0]==='signin')return{signin:true};if(p[0]==='invite')return{invite:p[1]||''};const sec=SECTIONS.find(s=>s.id===p[0])||SECTIONS[0];if(sec.id==='chat')return{sec,chat:p[1]||null};const page=sec.pages.find(x=>x.id===p[1])||sec.pages[0];return{sec,page,arg:p.slice(2)}}
 function go(h){if(location.hash==='#'+h)render();else location.hash=h}
 
 /* ---------- shell ---------- */
@@ -254,11 +253,11 @@ function topbar(r){
 // One calm banner for low memory / disk / out-of-memory restarts (most severe first).
 function paintBanner(){const slot=$('#bannerSlot');if(!slot)return;const st=S.status||{};const rp=st.resource_pressure||st.resources||((st.memory||st.disk||S.box)?{memory:st.memory,disk:st.disk}:null);let msg='',key='';
  if(rp&&typeof rp==='object'){const d=rp.disk?.level||rp.disk?.pressure||rp.disk_level,m=S.box?.memory?.level||rp.memory?.level||rp.memory?.pressure||rp.memory_level,oom=rp.oom_restart||rp.suspected_oom||rp.memory?.last_boot_suspected_oom;
-  if(d==='critical'){msg='<b>Disk is almost full.</b> Free space on the AI box from System › Host.';key='disk-c'}
+  if(d==='critical'){msg='<b>Disk is almost full.</b> Free space on the AI box from System › Health.';key='disk-c'}
   else if(m==='critical'){msg='<b>aqeelOS is almost out of memory</b> and may restart.';key='mem-c'}
   else if(oom){msg='<b>aqeelOS restarted unexpectedly</b>, most likely because it ran out of memory.';key='oom'}
   else if(d==='elevated'){msg='<b>Disk is getting full</b> on the AI box.';key='disk-e'}
-  else if(m==='elevated'){msg=`<b>Memory is running low</b> on the AI box${S.box?.memory?.pct?' ('+S.box.memory.pct+'% of its '+bytes(S.box.memory.limit)+')':''}. See System › Host for what uses it.`;key='mem-e'}}
+  else if(m==='elevated'){msg=`<b>Memory is running low</b> on the AI box${S.box?.memory?.pct?' ('+S.box.memory.pct+'% of its '+bytes(S.box.memory.limit)+')':''}. See System › Health for what uses it.`;key='mem-e'}}
  key=key&&key+':'+(S.status?.gateway_pid||'');
  slot.innerHTML=msg&&S.bannerDismissed!==key?`<div class="banner">${icon('alert',16)}<span>${msg}</span><button data-act="banner" data-key="${esc(key)}">Dismiss</button></div>`:''}
 
@@ -337,7 +336,7 @@ function actionDrawer(title,name){const d=drawer(title,`<div class="action-log" 
 async function runAction(title,path,body){try{const r=await post(H,path,body);if(r?.ok===false)throw new Error(r.error||r.message||'Failed');if(r?.name)actionDrawer(title,r.name);else toast(title+' done');return r}catch(e){fail(e)}}
 
 function palette(){openLayer();const p=document.createElement('div');p.className='palette';p.setAttribute('role','dialog');p.setAttribute('aria-label','Search and commands');
- const actions=[{g:'Actions',l:'New chat',ic:'plus',run:()=>Chat.newChat()},{g:'Actions',l:'Restart agents',ic:'refresh',run:()=>restartGateway()},{g:'Actions',l:'Use my browser (set up the extension)',ic:'globe',run:()=>BrowserSetup.open()},{g:'Actions',l:'Toggle light / dark',ic:'moon',run:()=>theme()},{g:'Actions',l:'Check for engine updates',ic:'download',run:()=>go('/system/host')},{g:'Actions',l:'Sign out',ic:'logout',run:()=>signOut()},{g:'Actions',l:'Sign out on every device',ic:'logout',run:()=>signOutAll()}];
+ const actions=[{g:'Actions',l:'New chat',ic:'plus',run:()=>Chat.newChat()},{g:'Actions',l:'Restart agents',ic:'refresh',run:()=>restartGateway()},{g:'Actions',l:'Use my browser (set up the extension)',ic:'globe',run:()=>BrowserSetup.open()},{g:'Actions',l:'Toggle light / dark',ic:'moon',run:()=>theme()},{g:'Actions',l:'Check for updates',ic:'download',run:()=>{go('/system/health');const t=setInterval(()=>{const b=document.querySelector('[data-act="upd-check"]');if(b){clearInterval(t);b.click()}},400);setTimeout(()=>clearInterval(t),15000)}},{g:'Actions',l:'Sign out',ic:'logout',run:()=>signOut()},{g:'Actions',l:'Sign out on every device',ic:'logout',run:()=>signOutAll()}];
  const models=(Chat.models||[]).slice(0,12).map(m=>({g:'Switch model',l:m.label+' · '+m.providerName,ic:'cpu',run:()=>Chat.setModel(m)}));
  const pages=SECTIONS.flatMap(s=>s.pages?s.pages.map(x=>({g:'Pages',l:s.label+' › '+x.label,ic:x.icon,run:()=>go('/'+s.id+'/'+x.id)})):[{g:'Pages',l:'Chat',ic:'chat',run:()=>go('/chat')},{g:'Pages',l:'Chat › Manage chats',ic:'list',run:()=>go('/chat/manage')}]);
  const chats=S.sessions.slice(0,60).map(c=>({g:'Chats',l:c.title||c.preview||c.id,ic:srcIcon(c.source),run:()=>go('/chat/'+c.id)}));

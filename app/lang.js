@@ -4,6 +4,7 @@
 const LANGS=[['en','English'],['id','Bahasa Indonesia']];
 const ID={
  // navigation
+ 'Health':'Kesehatan','The AI box':'Server AI','Is everything running, and the AI box itself: resources, updates and maintenance.':'Apakah semuanya berjalan, dan server AI itu sendiri: sumber daya, pembaruan, dan perawatan.',
  'Connections':'Koneksi','People waiting':'Orang yang menunggu','Talk to your agents on WhatsApp, Telegram, Slack and more, and choose who may message them.':'Bicara dengan agenmu di WhatsApp, Telegram, Slack, dan lainnya, dan pilih siapa yang boleh mengirim pesan.',
  'Models and accounts':'Model dan akun','The accounts that do the thinking, and which model each agent uses.':'Akun yang berpikir, dan model yang dipakai setiap agen.','Agents’ models':'Model agen','Pictures':'Gambar','Team of models':'Tim model','Add account':'Tambah akun','Your accounts':'Akunmu','Who makes pictures':'Siapa yang membuat gambar','Subscriptions you are signed in to':'Langganan yang sudah masuk','Which account each agent uses':'Akun yang dipakai setiap agen',
  'Who can message':'Siapa yang bisa mengirim pesan','Task board':'Papan tugas','Connected apps':'Aplikasi terhubung','Showing':'Menampilkan','Show whose':'Tampilkan milik siapa',
