@@ -50,13 +50,12 @@ PAGES.people=async(p,el)=>{
  const sharesOf=id=>Object.entries(d.shares||{}).filter(([,m])=>m[id]).map(([a,m])=>[a,m[id]]);
  const person=(u,i)=>{const sh=sharesOf(u.id);const self=u.id===S.me?.id;return `<div class="card person" ${st(i)}><div class="person-head ${self?'self':''}" ${self?'data-act="me-profile" role="button" tabindex="0"':''}>${personAva(u,40)}<div class="txt"><b>${esc(u.name)}</b><span>${u.username?'@'+esc(u.username)+' · ':''}${esc(ROLE_LABEL[u.role])}${self?' · edit your profile':''}${u.last?' · seen '+ago(u.last/1000):''}</span></div></div>
    ${u.role==='owner'||self?'':`<button class="ghost icon-btn more" data-menu="person" data-id="${esc(u.id)}" aria-label="More">${icon('more',18)}</button>`}
-   ${u.role==='member'?`<div class="pshares"><span class="th">Agents</span>${sh.length?sh.map(([a,l])=>`<div class="pshare">${agentAva(a)}<b>${esc(ident(a).name)}</b><select style="width:auto" data-share="${esc(a)}" data-user="${esc(u.id)}">${Object.entries(LEVEL_LABEL).map(([k,v])=>`<option value="${k}" ${k===l?'selected':''}>${v}</option>`).join('')}<option value="">Remove</option></select></div>`).join(''):'<p class="hint" style="margin:4px 0">No agents shared yet.</p>'}
+   ${u.role==='member'?`<div class="pshares"><span class="th">Agents</span>${sh.length?sh.map(([a,l])=>`<div class="pshare">${agentAva(a)}<b>${esc(ident(a).name)}</b><span class="chip">${esc(LEVEL_LABEL[l]||l)}</span><button class="ghost" data-act="ppl-share-open" data-a="${esc(a)}" style="margin-left:auto;min-height:30px;padding:0 10px;font-size:12.5px">Change</button></div>`).join(''):'<p class="hint" style="margin:4px 0">No agents shared yet.</p>'}
     <button class="ghost" data-act="ppl-share" data-id="${esc(u.id)}" style="margin-top:6px">${icon('plus',15)}Share an agent</button></div>
    <div class="pcaps"><span class="th">Allowed to</span>${Object.entries(d.caps||{}).map(([k,l])=>`<label class="capt ${k==='unsafe'?'risky':''}"><input type="checkbox" data-cap="${k}" data-user="${esc(u.id)}" ${(u.caps||[]).includes(k)?'checked':''} ${k==='unsafe'&&S.me?.role!=='owner'?'disabled':''}><span>${esc(l)}</span></label>`).join('')}</div>`:`<p class="hint" style="margin:10px 0 0">${u.role==='owner'?'Everything, including people and keys.':'Everything except changing the owner.'}</p>`}</div>`};
  const inv=(d.invites||[]).map((x,i)=>`<div class="row" ${st(i)} style="padding:12px 12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="txt"><b>${esc(x.name||'Anyone with the link')} · ${esc(ROLE_LABEL[x.role])}</b><span>Expires ${new Date(x.expires).toLocaleDateString()}${Object.keys(x.agents||{}).length?' · '+Object.keys(x.agents).map(a=>esc(ident(a).name)).join(', '):''}</span></div><div class="act"><button data-act="ppl-copy" data-code="${esc(x.code)}">${icon('copy',15)}Copy link</button><button class="ghost" data-act="ppl-uninvite" data-code="${esc(x.code)}" aria-label="Cancel invite">${icon('x',16)}</button></div></div>`).join('');
  el.innerHTML=`<div class="people-grid">${[d.owner,...d.users].map(person).join('')}</div>
   ${inv?`<div class="panel card" style="margin-top:16px"><h2>Waiting to join</h2><p class="sub">Links work once and expire after 7 days.</p>${inv}</div>`:''}
-  <div class="panel card" style="margin-top:16px"><h2>Email sending</h2><p class="sub">Used for sign-in codes and invites.</p><div id="mailBox">${skeleton(1)}</div></div>
   <div class="panel card" style="margin-top:16px"><h2>How sharing works</h2><p class="sub" style="margin-bottom:0">Two layers. <b>Each person has a role</b> (Roles above): what they may do, which models they get, a daily limit and how many agents they may own. <b>Each agent is shared per person</b>: Can chat uses it, Can edit also changes it within their role, Owner can also delete or give it away. Agent settings, keys and channels stay with admins. Everyone's chats are private, also from you.</p></div>`;
  el.querySelectorAll('[data-cap]').forEach(x=>x.onchange=async()=>{const id=x.dataset.user;
   if(x.dataset.cap==='unsafe'&&x.checked&&!await confirmBox('Give terminal and file tools?','Agents with these tools can read everything on the box, including your keys and other people\'s files. Only for people you trust like an admin.','Allow')){x.checked=false;return}
@@ -170,7 +169,9 @@ async function mailPanel(){const box=$('#mailBox');if(!box)return;let m;try{m=aw
  $('#mlMode').onchange=e=>$('#mlSmtp').hidden=e.target.value!=='smtp';
  $('#mlSave').onclick=async()=>{try{await put(UI,'/ui/mail',{mode:$('#mlMode').value,from:$('#mlFrom').value,host:$('#mlHost').value,port:$('#mlPort').value,user:$('#mlUser').value,pass:$('#mlPass').value||undefined});toast('Email settings saved')}catch(e){fail(e)}};
  $('#mlTest').onclick=async()=>{const b=$('#mlTest');b.disabled=true;try{await post(UI,'/ui/mail/test',{to:$('#mlTo').value});toast('Test sent. Check the inbox and spam.')}catch(e){fail(e)}finally{b.disabled=false}}}
-{const people=PAGES.people;PAGES.people=async(p,el)=>{await people(p,el);mailPanel()}}
+// Email sending lives on Settings (agreed layout, 18 Oct): sign-in codes and invites
+{const settings=PAGES.settings;PAGES.settings=async(p,el)=>{await settings(p,el);if(S.me?.admin===false||el.querySelector('#mailBox'))return;
+ const box=document.createElement('div');box.className='panel card';box.style.marginBottom='16px';box.innerHTML=`<h2>Email sending</h2><p class="sub">Used for sign-in codes and invites.</p><div id="mailBox">${skeleton(1)}</div>`;el.prepend(box);mailPanel()}}
 
 /* ---------- per person: which models, and a daily limit ---------- */
 const LIMITS=[[0,'No limit'],[50000,'50k tokens a day'],[200000,'200k tokens a day'],[1000000,'1M tokens a day'],[5000000,'5M tokens a day']];
@@ -694,7 +695,6 @@ ACT['ch-more']=a=>{const ag=a.dataset.agent,pf=a.dataset.platform,paused=!!a.dat
   {label:a.dataset.note?'Edit the note':'Add a note (what it is for)',icon:'edit',run:async()=>{const v=await promptBox('Note for '+appName(pf),'What is it for? (only you see this)',a.dataset.note||'','Save');if(v==null)return;try{await put(UI,'/ui/channels/note',{agent:ag,platform:pf,note:v});toast('Saved');reload()}catch(e){fail(e)}}},
   {label:'Reconnect',icon:'refresh',run:()=>reconnectChannel(ag,pf)},
   wa&&{label:'Link a different phone (new QR)',icon:'refresh',run:()=>ACT['wa-replace']({dataset:{agent:ag}})},
-  !extra&&{label:paused?'Resume (answer it again)':'Pause (nobody answers)',icon:paused?'play':'pause',run:()=>setPaused(ag,pf,!paused)},
   '-',{label:wa?'Remove this WhatsApp':'Remove this connection',icon:'trash',bad:true,run:()=>wa?ACT['wa-remove']({dataset:{agent:ag}}):ACT['ch-remove']({dataset:{agent:ag,platform:pf}})}])};
 async function setPaused(ag,pf,on){const what=appName(pf);
  try{const r=await post(UI,'/ui/channels/pause',{agent:ag,platform:pf,on:!on});const m=what+(on?' paused: stays linked, nobody answers it':' answers again')+(r.restarting?' · the main agent’s channels restart for a moment':'');if(on)toastUndo(m,()=>setPausedQuiet(ag,pf,false));else toast(m);reload()}catch(e){fail(e)}}
@@ -749,3 +749,7 @@ async function waCloudDrawer(){const ag=agentProfile()||'default';let s;try{s=aw
 // chat: load the earlier part of a long chat
 ACT['hist-more']=async a=>{const id=Chat.id;if(!id)return;a.disabled=true;a.innerHTML='<span class="spinner"></span>Loading earlier messages…';const sc=$('#scroll');const from=sc?sc.scrollHeight-sc.scrollTop:0;
  await Chat.loadHistory(id,true);if(sc)requestAnimationFrame(()=>{sc.scrollTop=sc.scrollHeight-from})};
+
+// People › Share an agent / Change: the agent's own sharing window (one place to change sharing)
+ACT['ppl-share-open']=a=>ACT['agent-share'](a.dataset.a);
+ACT['ppl-share']=a=>{const list=(Pages._agents||[]).filter(n=>!n.includes('--'));menu(a,[{header:'Share which agent?'},...list.map(n=>({label:ident(n).name,icon:'user',run:()=>ACT['agent-share'](n)}))],{matchWidth:true})};

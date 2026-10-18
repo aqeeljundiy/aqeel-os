@@ -27,8 +27,12 @@ const exec=(args,timeout)=>new Promise(res=>execFile(HERMES,args,{timeout,maxBuf
  const out=String(o||'')+String(er||'');const bad=BAD.test(out);
  res({ok:!e&&!bad,out,err:(e||bad)?(out.trim().split('\n').filter(l=>/error|refus|fail|denied|not /i.test(l)).pop()||out.trim().split('\n').pop()||e?.message||'failed').slice(0,300):''})}));
 // one engine command for one agent, queued; tried again when another writer got in between
+// After an engine update its first command finishes setting itself up (dependencies, the computer-use driver), which
+// can outlast the time limit: that is not a failure, so the command runs again with room to finish.
+const SETTING_UP=/completing source-update|Installing Python dependencies|Preparing pinned|Syncing bundled skills|Update complete/i;
 export async function hermes(agent,args,{timeout=60000,retries=2}={}){
- for(let i=0;;i++){const r=await withAgent(agent,()=>exec(['-p',agent,...args],timeout));
+ for(let i=0,t=timeout;;i++){const r=await withAgent(agent,()=>exec(['-p',agent,...args],t));
+  if(!r.ok&&SETTING_UP.test(r.out)&&i<=retries){t=Math.max(t,300000);continue}
   if(r.ok||i>=retries||!RETRY.test(r.out))return r;await new Promise(z=>setTimeout(z,3000*(i+1)))}}
 export const setKey=(agent,key,value)=>hermes(agent,['config','set',key,typeof value==='string'?value:JSON.stringify(value),...(value&&typeof value==='object'?['--force']:[])]);
 
