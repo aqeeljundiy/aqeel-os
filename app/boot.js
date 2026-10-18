@@ -7,6 +7,7 @@ function openMenu(el){const k=el.dataset.menu;
  if(k==='workspace'){H('/chat/workspaces').then(w=>{const items=[{label:'Home (~)',icon:'folder',on:!Chat.cwd,run:()=>{Chat.cwd='';store.set('cwd','');Chat.paintComposerBar()}},...[...(w.projects||[]),...(w.repos||[])].map(x=>{const p=x.path||x;return {label:String(p).replace(/^\/home\/claude/,'~'),icon:'folder',on:Chat.cwd===p,run:()=>{Chat.cwd=p;store.set('cwd',p);Chat.paintComposerBar()}}}),'-',{label:'Other path…',icon:'plus',run:async()=>{const p=await promptBox('Folder for new chats','Full path on the box',Chat.cwd||'/home/claude/');if(p){Chat.cwd=p.trim();store.set('cwd',Chat.cwd);Chat.paintComposerBar()}}},{label:'Rescan for repos',icon:'refresh',run:()=>H('/chat/workspaces?scan=1').then(()=>toast('Rescanned'))}];menu(el,items)}).catch(fail)}
  if(k==='profile'){const dark=document.documentElement.classList.contains('dark');H('/profiles').then(pr=>{const ad=S.me?.admin!==false;menu(el,[...(S.me?.name?[{header:S.me.name+' · '+({owner:'Owner',admin:'Admin',member:'Member'}[S.me.role]||'')}]:[]),...(ad?[{label:'Status',icon:'activity',run:()=>go('/system/status')},{label:'People',icon:'user',run:()=>go('/system/people')}]:[]),...(S.me?[{label:'Your profile',icon:'user',run:()=>ACT['me-profile']()}]:[]),{header:'Agents'},...(pr.profiles||[]).map(p=>({label:ident(p.name).name,icon:'user',on:(S.profile||'default')===p.name,run:()=>switchAgent(p.name)})),'-',{label:dark?'Light mode':'Dark mode',icon:dark?'sun':'moon',run:theme},{label:'Keyboard shortcuts',icon:'cmd',kbd:MOD+' /',run:shortcuts},{label:'Language: '+(Lang.cur==='id'?'Bahasa Indonesia':'English'),icon:'globe',run:()=>Lang.set(Lang.cur==='id'?'en':'id')},{label:'Costs in: '+(currency()==='IDR'?'Rupiah (Rp)':'US dollars ($)'),icon:'chart',run:()=>setCurrency(currency()==='IDR'?'USD':'IDR')},...(ad?[{label:'Development board',icon:'list',run:()=>window.open('/backlog','_blank','noopener')}]:[]),'-',{label:'Sign out',icon:'logout',run:signOut},{label:'Sign out on every device',icon:'logout',run:()=>signOutAll()}])}).catch(fail)}
  if(k==='acct')Pages.acctMenu(el);
+ if(k==='acct-new')Pages.acctNewMenu(el);
  if(k==='person')Pages.personMenu(el);
  if(k==='pri-add')Pages.priAddMenu(el);
  if(k==='chat-tools')Chat.toolsMenu(el);
@@ -24,7 +25,7 @@ document.addEventListener('click',e=>{
  const t=e.target.closest('[data-tab]');if(t){const box=t.closest('[data-tabs]');const key=box.dataset.tabs;
   if(key==='chatFilter'){S.chatFilter=t.dataset.tab;store.set('chatFilter',S.chatFilter);paintSide();placePills();return}
   S.tab[key]=t.dataset.tab;box.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b===t));placePills();
-  if(['skills','mcp','plugins','usage','currency','hist'].includes(key)){if(key==='hist')Pages.manageChats($('#view'));else reload()}return}
+  if(['skills','mcp','plugins','usage','currency','models','hist'].includes(key)){if(key==='hist')Pages.manageChats($('#view'));else reload()}return}
  const ts=e.target.closest('[data-tabset]');if(ts){const [k,v]=ts.dataset.tabset.split(':');S.tab[k]=v;reload();return}
  const c=e.target.closest('[data-cmd]');if(c){Chat.pickSlash(c.dataset.cmd);return}
  const pr=e.target.closest('[data-prompt]');if(pr){Chat.send(pr.dataset.prompt);return}

@@ -193,8 +193,7 @@ const SECTIONS=[
   {id:'memory',label:'Memory',icon:'brain',desc:'What aqeelOS remembers about you between chats.'},
   {id:'achievements',label:'Achievements',icon:'trophy',desc:'Badges for what you and your agents have done, from your whole history.'}]},
  {id:'models',label:'Models',icon:'cpu',key:'5',pages:[
-  {id:'models',label:'Models',icon:'cpu',desc:'Which AI does the thinking, and how hard it thinks.'},
-  {id:'accounts',label:'Accounts',icon:'user',desc:'Every account that does the thinking: how much is left, which one is used first, and which agent uses what.'},
+  {id:'models',label:'Models and accounts',icon:'cpu',desc:'The accounts that do the thinking, and which model each agent uses.'},
   {id:'keys',label:'Keys',icon:'key',desc:'API keys and tokens, stored on the box and never shown in full.'}
 ]},
  {id:'system',label:'System',icon:'gauge',key:'6',pages:[
