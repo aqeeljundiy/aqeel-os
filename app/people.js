@@ -24,7 +24,7 @@ function applyRole(){
  const out=[SECTIONS.find(s=>s.id==='chat')];
  if(has('create')||editsAny)out.push({id:'agents',label:'Agents',icon:'user',pages:[pg('agents','profiles',{desc:'Agents you can use and change.'})]});
  if(has('schedules'))out.push({id:'automations',label:'Automations',icon:'zap',pages:[pg('automations','schedules')]});
- out.push({id:'abilities',label:'Abilities',icon:'puzzle',pages:[...(has('skills')?[pg('abilities','skills')]:[]),...(has('mcp')?[pg('abilities','mcp')]:[]),pg('abilities','files',{desc:'Your own folder. Your agents can read what you put here.'})]});
+ out.push({id:'abilities',label:'Abilities',icon:'puzzle',pages:[...(has('skills')?[pg('abilities','skills')]:[]),...(has('mcp')?[pg('abilities','mcp')]:[]),pg('agents','files',{desc:'Your own folder. Your agents can read what you put here.'})]});
  if(has('usage'))out.push({id:'models',label:'Models',icon:'cpu',pages:[{id:'accounts',label:'Accounts',icon:'user',desc:'How much of each account is used.'}]});
  out.forEach((s,i)=>{if(s.id!=='chat')s.key=String(i+1)});
  SECTIONS.splice(0,SECTIONS.length,...out);
@@ -713,7 +713,7 @@ const SysEvents={async check(){if(document.hidden||!S.signedIn||S.me?.admin===fa
  const seen=new Set(store.get('sysSeen',[]));let n=0;
  for(const e of ev){if(seen.has(e.id))continue;seen.add(e.id);n++;const w=e.why||'';
   const why=e.kind==='restart-self'?'The engine restarted on its own, usually after a settings change.':/^restart from the app/.test(w)?'Someone pressed Restart agents.':/WhatsApp linked/.test(w)?'A WhatsApp number was linked.':/removed from/.test(w)?'A channel was removed.':/^reconnect/.test(w)?'A channel of the main agent was reconnected.':/^(paused|resumed)/.test(w)?'A channel was paused or resumed.':/no gateway was running/.test(w)?'It had stopped, so it was started again.':/restored/.test(w)?'An agent was restored.':/cannot reach/.test(w)?'It had lost its model sign-in, so it was restarted properly.':w;
-  if(/^memory/.test(e.kind)){Inbox.add({key:'sys:'+e.id,icon:'activity',kind:e.kind==='memory'?'warn':'blue',title:e.kind==='memory'?'The AI box is low on memory':'Memory freed',text:e.kind==='memory'?e.why+'. Heavy jobs may fail; idle browsers close by themselves.':e.why,go:'/system/host',actions:[{label:'Host',go:'/system/host'}]});continue}
+  if(/^memory/.test(e.kind)){Inbox.add({key:'sys:'+e.id,icon:'activity',kind:e.kind==='memory'?'warn':'blue',title:e.kind==='memory'?'The AI box is low on memory':'Memory freed',text:e.kind==='memory'?e.why+'. Heavy jobs may fail; idle browsers close by themselves.':e.why,go:'/system/health',actions:[{label:'Host',go:'/system/health'}]});continue}
   Inbox.add({key:'sys:'+e.id,icon:'refresh',kind:'blue',title:'Agents restarted for a moment',text:why+' Channels (WhatsApp, Telegram, Slack) reconnected by themselves.',go:'/channels/channels',actions:[{label:'Channels',go:'/channels/channels'}]})}
  if(n)store.set('sysSeen',[...seen].slice(-100))}};
 setInterval(()=>SysEvents.check(),60000);setTimeout(()=>SysEvents.check(),8000);

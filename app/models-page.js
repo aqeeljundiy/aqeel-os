@@ -52,7 +52,7 @@ Pages.acctNewMenu=async el=>{let o={providers:[]};try{o=await H('/providers/oaut
  menu(el,[{header:'Add an account'},{label:'Claude',sub:'Sign in with your Claude plan',icon:'user',run:()=>ACT['acct-add']()},
   ...subs.map(x=>{const n=/codex|openai/i.test(x.id)?'ChatGPT':String(x.name).replace(/\s*\([^)]*\)/g,'').replace(/\s*OAuth\b/gi,'').trim();return {label:n,sub:'Sign in with your '+n+' plan',icon:'user',run:()=>ACT['oauth-in']({dataset:{id:x.id,name:n}})}}),
   {label:'Google AI Pro',sub:'Gemini and Claude on your Google plan',icon:'user',run:()=>{S.tab.models='Accounts';go('/models/models');setTimeout(()=>$('[data-act="agy-start"]')?.click()||toast('Google AI Pro is already connected'),900)}},
-  '-',{label:'Another provider',sub:'OpenRouter, xAI and more, with an API key',icon:'key',run:()=>{store.set('keysOpen:LLM providers',true);go('/models/keys')}}],{matchWidth:true})};
+  '-',{label:'Another provider',sub:'OpenRouter, xAI and more, with an API key',icon:'key',run:()=>{store.set('keysOpen:LLM providers',true);go('/system/keys')}}],{matchWidth:true})};
 // panels that some pages add a moment later (Team of models, Google AI Pro) land on their own tab only
 const MODEL_TAB_DROP={'Accounts':/^(Priority|Switch automatically|Which agent uses what|Default model|Model for|Helper models|Images|Who makes pictures|Team of models)/,
  'Agents’ models':/^(Sign-ins|Subscriptions you|Images|Who makes pictures|Team of models|Google AI Pro|Gemini)/,'Pictures':/^(?!Images|Who makes pictures)/,'Team of models':/^(?!Team of models)/};
