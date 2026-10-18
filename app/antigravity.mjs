@@ -4,7 +4,7 @@
 // aqeelOS, which types it into that terminal. agy keeps and refreshes the login itself; the engine plugin
 // antigravity-subscription then uses agy for chats (thinking only: aqeelOS keeps the tools and approvals).
 import {execFile} from 'node:child_process';
-import {mkdir,cp,readdir,stat} from 'node:fs/promises';
+import {mkdir,cp,readdir,stat,readFile,writeFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import path from 'node:path';
 
@@ -40,9 +40,19 @@ export function createAntigravity({HERMES_HOME,hcmd,listAgents}){
    if(/invalid|expired|failed|error/i.test(t)&&/code|auth/i.test(t)&&i>1){console.warn('antigravity sign-in refused:',t.replace(/\s+/g,' ').slice(-200));break}
    if(!/authorization code/i.test(t)||i>3){const s=await status(true);if(s.signedIn){login.state='done';console.log('antigravity signed in,',s.models.length,'models');await stop();await enableAll().catch(e=>console.warn('antigravity plugin',e.message));return {ok:true,models:s.models}}}}
   return {ok:false,error:'Google did not accept that code. Press Connect again, sign in with the new link and paste its code (each link works once).'}}
- async function logout(){await stop();await run(BIN,['logout'],{timeout:20000,cwd:WORK});cache={t:0,v:null};login=null;return {ok:true}}
+ // signing out also switches the plugin off everywhere, so no agent keeps a model that can no longer answer
+ async function logout(){await stop();await mkdir(WORK,{recursive:true});
+  await run('tmux',['new-session','-d','-s',SESSION,'-x','200','-y','60','-c',WORK,BIN]);await sleep(6000);
+  await run('tmux',['send-keys','-t',SESSION,'-l','/logout']);await run('tmux',['send-keys','-t',SESSION,'Enter']);await sleep(4000);await stop();
+  cache={t:0,v:null};login=null;
+  for(const a of await listAgents()){if(a.includes('--'))continue;await hcmd(a,['plugins','disable','antigravity-subscription'],{timeout:150000}).catch(()=>{})}
+  console.log('antigravity signed out');return {ok:true}}
+ // second guard behind the text-only agent: agy's own permission list denies every action it could take
+ async function denyAll(){const f=path.join(homedir(),'.gemini','antigravity-cli','settings.json');let cur={};try{cur=JSON.parse(await readFile(f,'utf8'))}catch{}
+  const deny=['command(*)','read_file(*)','write_file(*)','read_url(*)','execute_url(*)','mcp(*)','unsandboxed(*)'];
+  const next={...cur,permissions:{...(cur.permissions||{}),allow:[],ask:[],deny}};if(JSON.stringify(next)!==JSON.stringify(cur)){await mkdir(path.dirname(f),{recursive:true});await writeFile(f,JSON.stringify(next,null,2))}}
  // the engine plugin, installed for every agent and switched on (only once agy is signed in)
- async function enableAll(){const src=path.join(path.dirname(new URL(import.meta.url).pathname),'..','engine','antigravity-subscription');if(!await stat(src).then(()=>true,()=>false))return;
+ async function enableAll(){await denyAll();const src=path.join(path.dirname(new URL(import.meta.url).pathname),'..','engine','antigravity-subscription');if(!await stat(src).then(()=>true,()=>false))return;
   for(const a of await listAgents()){if(a.includes('--'))continue;const dst=path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'plugins','antigravity-subscription');
    await mkdir(dst,{recursive:true});for(const f of await readdir(src))await cp(path.join(src,f),path.join(dst,f),{recursive:true});
    const r=await hcmd(a,['plugins','enable','antigravity-subscription'],{timeout:150000});if(!r.ok)console.warn('antigravity plugin for',a,(r.err||'').slice(0,200))}

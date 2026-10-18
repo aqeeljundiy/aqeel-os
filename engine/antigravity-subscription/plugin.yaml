@@ -1,0 +1,16 @@
+name: antigravity-subscription
+kind: model-provider
+version: 0.1.0
+manifest_version: 2
+description: Gemini and Claude through your Google AI Pro / Ultra plan, via Google's official agy tool in print mode; text only, aqeelOS owns tools, approvals and memory
+author: Elkiya
+license: MIT
+tags: [model-provider, google, gemini, antigravity, subscription]
+requires_hermes: ">=0.21.4"
+platforms: [linux]
+optional_env:
+  - ANTIGRAVITY_SUBSCRIPTION_COMMAND
+external_dependencies:
+  - name: agy
+    check: "agy --version"
+    install: "curl -fsSL https://antigravity.google/cli/install.sh | bash"
