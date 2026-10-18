@@ -85,3 +85,5 @@ async function preview(i){const files=(Pages._items||[]).filter(x=>!x.is_directo
   else throw new Error('binary');
  }catch(e){stage.innerHTML=`<div class="pv-none"><span class="fk fk-${k}">${icon(KIND_ICON[k],34)}</span><b>No preview for this file</b><span>${esc(f.name)} · ${bytes(f.size)}</span><button class="primary" data-pv="download">${icon('download',15)}Download</button></div>`}
 }
+// the "Showing" agent picker (Files loads after the other pages got theirs, so it is added here)
+{const base=PAGES.files;PAGES.files=async(p,el)=>{viewPick(await viewAgents());return base(p,el)}}

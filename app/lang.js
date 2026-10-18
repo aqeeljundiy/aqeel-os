@@ -4,6 +4,10 @@
 const LANGS=[['en','English'],['id','Bahasa Indonesia']];
 const ID={
  // navigation
+ 'Who can message':'Siapa yang bisa mengirim pesan','Task board':'Papan tugas','Connected apps':'Aplikasi terhubung','Showing':'Menampilkan','Show whose':'Tampilkan milik siapa',
+ 'Approve the people who may message your agents on WhatsApp, Telegram and other channels.':'Setujui orang yang boleh mengirim pesan ke agenmu di WhatsApp, Telegram, dan saluran lain.',
+ 'Tasks your agents pick up and work through on their own.':'Tugas yang diambil dan dikerjakan agenmu sendiri.',
+ 'Outside apps and services your agents can use, like Notion, Slack or GitHub.':'Aplikasi dan layanan luar yang bisa dipakai agenmu, seperti Notion, Slack, atau GitHub.',
  'Chat':'Obrolan','Agents':'Agen','Automations':'Otomatisasi','Abilities':'Kemampuan','Models':'Model','System':'Sistem','Files':'File',
  'Schedules':'Jadwal','Channels':'Saluran','Webhooks':'Webhook','Pairing':'Pemasangan','Kanban':'Kanban','Skills':'Keahlian','MCP tools':'Alat MCP','Plugins':'Plugin',
  'Memory':'Memori','Achievements':'Pencapaian','Accounts':'Akun','Keys':'Kunci','Status':'Status','Usage':'Pemakaian','Logs':'Log','Settings':'Pengaturan','Host':'Server','People':'Orang',

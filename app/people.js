@@ -388,7 +388,7 @@ function accessFor(list,here){const n=(list||[]).length;return n>1?accessChip('S
  const bf='https://t.me/BotFather';
  box.innerHTML=`<div style="margin-top:12px"><img src="/ui/qr?d=${encodeURIComponent(bf)}" alt="QR code" style="width:170px;height:170px;display:block;margin:0 auto 10px;border-radius:12px;background:#fff;padding:8px">
   <ol class="qr-steps"><li>Open <a href="${bf}" target="_blank" rel="noopener">@BotFather</a> in Telegram (scan this code with your phone, or tap the link).</li><li>Send <b>/newbot</b>, give it a name (e.g. <i>aqeelOS</i>) and a username ending in <i>bot</i>.</li><li>BotFather replies with a token like <code>123456789:AA…</code>. Copy it.</li><li>Paste it below in <b>Telegram bot token</b>, switch the channel on, and press <b>Save</b>. Then message your bot.</li></ol>
-  <p class="hint">Only people you approve under Automations › Pairing can talk to it.</p></div>`;
+  <p class="hint">Only people you approve under Automations › Who can message can talk to it.</p></div>`;
  a.hidden=true;document.querySelector('.drawer [data-env="TELEGRAM_BOT_TOKEN"]')?.focus()}}
 
 /* ---------- Models › Mixture of agents: several models advise, one writes the answer ---------- */
@@ -481,7 +481,7 @@ async function channelShareDrawer(owner,platform){let sh={},rec=[],agents=[];
  const d=drawer(pretty(platform)+' · who can send',`<p class="hint" style="margin:0 0 10px"><b>${esc(ident(owner).name)}</b> owns this ${esc(pretty(platform))} and receives every reply. The agents you tick can also <b>send</b> you messages through it (tagged with their name): from schedules, or with their "notify me" tool. No AI runs to pass them on.</p>
   <label>Who can send</label>${others.map(a=>`<label class="capt"><input type="checkbox" value="${esc(a)}" ${cur.senders.includes(a)?'checked':''}>${agentAva(a)}<span>${esc(ident(a).name)}</span></label>`).join('')||'<p class="hint">There are no other agents yet.</p>'}
   <label>Sends to</label><select id="csTo">${rec.length?rec.map(p=>`<option value="${esc(p.id)}" ${p.id===cur.chat?'selected':''}>${esc(p.name)} (${esc(p.id)})</option>`).join(''):'<option value="">Nobody approved yet</option>'}</select>
-  <p class="hint" style="margin:4px 0 0">People approved under Automations › Pairing for this channel.</p>
+  <p class="hint" style="margin:4px 0 0">People approved under Automations › Who can message for this channel.</p>
   <div style="display:flex;gap:8px;margin-top:16px"><button id="csTest">${icon('send',15)}Send a test message</button></div>`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="csGo">Save</button>`);
  const vals=()=>({owner,platform,senders:[...d.querySelectorAll('input[type=checkbox]:checked')].map(i=>i.value),chat:$('#csTo').value});
  d.querySelector('#csGo').onclick=async()=>{try{await put(UI,'/ui/channels/shares',vals());closeLayers();toast('Saved. Those agents get a "notify me" tool within a minute and can pick this channel in schedules.');reload()}catch(e){fail(e)}};
