@@ -57,7 +57,7 @@ async function call(base,path,opt={}){
 }
 // The active agent (Hermes profile): dashboard calls get ?profile=, gateway calls go through /p/<profile>/.
 // pages that belong to one agent: a picker in the header shows another agent's without switching who you chat with
-const VIEW_RE=/^#\/(abilities\/(skills|mcp|plugins|files|memory)|automations\/(webhooks|pairing)|models\/(models|keys)|system\/(logs|settings))(\/|$)/;
+const VIEW_RE=/^#\/(abilities\/(skills|mcp|plugins|files|memory)|automations\/webhooks|channels\/channels|models\/(models|keys)|system\/(logs|settings))(\/|$)/;
 const agentProfile=()=>{if(S.chOverride)return S.chOverride;   // chOverride: setting up an extra connection (WhatsApp 2…)
  if(S.viewAgent){if(VIEW_RE.test(location.hash))return S.viewAgent==='default'?'':S.viewAgent;S.viewAgent=null}
  return S.profile&&S.profile!=='default'?S.profile:''};
@@ -181,22 +181,22 @@ const SECTIONS=[
   {id:'profiles',label:'Agents',icon:'user',desc:'Each agent has its own name, picture, personality, model, skills, memory and chats.'}]},
  {id:'automations',label:'Automations',icon:'zap',key:'3',pages:[
   {id:'schedules',label:'Schedules',icon:'clock',desc:'Prompts that run on a timetable and deliver the result where you want it.'},
-  {id:'channels',label:'Channels',icon:'radio',desc:'Talk to aqeelOS from Telegram, Discord, WhatsApp, email and more.'},
   {id:'webhooks',label:'Webhooks',icon:'hook',desc:'Let other services trigger aqeelOS with an event.'},
-  {id:'pairing',label:'Who can message',icon:'link',desc:'Approve the people who may message your agents on WhatsApp, Telegram and other channels.'},
   {id:'kanban',label:'Task board',icon:'list',desc:'Tasks your agents pick up and work through on their own.'}]},
- {id:'abilities',label:'Abilities',icon:'puzzle',key:'4',pages:[
+ {id:'channels',label:'Channels',icon:'radio',key:'4',pages:[
+  {id:'channels',label:'Channels',icon:'radio',desc:'Talk to your agents on WhatsApp, Telegram, Slack and more, and choose who may message them.'}]},
+ {id:'abilities',label:'Abilities',icon:'puzzle',key:'5',pages:[
   {id:'skills',label:'Skills',icon:'wand',desc:'Reusable know-how aqeelOS can pick up for a task.'},
   {id:'mcp',label:'Connected apps',icon:'plug',desc:'Outside apps and services your agents can use, like Notion, Slack or GitHub.'},
   {id:'plugins',label:'Plugins',icon:'layers',desc:'Extensions for aqeelOS itself, such as model providers.'},
   {id:'files',label:'Files',icon:'folder',desc:'Files on the AI box that aqeelOS works with.'},
   {id:'memory',label:'Memory',icon:'brain',desc:'What aqeelOS remembers about you between chats.'},
   {id:'achievements',label:'Achievements',icon:'trophy',desc:'Badges for what you and your agents have done, from your whole history.'}]},
- {id:'models',label:'Models',icon:'cpu',key:'5',pages:[
+ {id:'models',label:'Models',icon:'cpu',key:'6',pages:[
   {id:'models',label:'Models and accounts',icon:'cpu',desc:'The accounts that do the thinking, and which model each agent uses.'},
   {id:'keys',label:'Keys',icon:'key',desc:'API keys and tokens, stored on the box and never shown in full.'}
 ]},
- {id:'system',label:'System',icon:'gauge',key:'6',pages:[
+ {id:'system',label:'System',icon:'gauge',key:'7',pages:[
   {id:'status',label:'Status',icon:'activity',desc:'Is everything running, and what happened recently.'},
   {id:'usage',label:'Usage',icon:'chart',desc:'Tokens, cache and cost over time.'},
   {id:'logs',label:'Logs',icon:'list',desc:'What aqeelOS wrote while working.'},
@@ -206,7 +206,9 @@ const SECTIONS=[
 
 const S={identities:{},collapsed:store.get('collapsed',false),tab:{},status:null,sessions:[],sessionsLoaded:false,chatFilter:['chats','automation','all'].includes(store.get('chatFilter','chats'))?store.get('chatFilter','chats'):'chats',search:'',bannerDismissed:store.get('bannerDismissed',''),signedIn:false};
 
-function route(){const p=location.hash.replace(/^#\/?/,'').split('/').map(decodeURIComponent);if(p[0]==='signin')return{signin:true};if(p[0]==='invite')return{invite:p[1]||''};const sec=SECTIONS.find(s=>s.id===p[0])||SECTIONS[0];if(sec.id==='chat')return{sec,chat:p[1]||null};const page=sec.pages.find(x=>x.id===p[1])||sec.pages[0];return{sec,page,arg:p.slice(2)}}
+// pages that moved keep their old addresses: [new section, page, tab]
+const ROUTE_MOVED={'automations/channels':['channels','channels','Connections'],'automations/pairing':['channels','channels','Who can message']};
+function route(){let p=location.hash.replace(/^#\/?/,'').split('/').map(decodeURIComponent);{const mv=ROUTE_MOVED[p[0]+'/'+p[1]];if(mv){S.tab[mv[1]]=mv[2];p=[mv[0],mv[1],...p.slice(2)];history.replaceState(null,'','#/'+p.map(encodeURIComponent).join('/'))}}if(p[0]==='signin')return{signin:true};if(p[0]==='invite')return{invite:p[1]||''};const sec=SECTIONS.find(s=>s.id===p[0])||SECTIONS[0];if(sec.id==='chat')return{sec,chat:p[1]||null};const page=sec.pages.find(x=>x.id===p[1])||sec.pages[0];return{sec,page,arg:p.slice(2)}}
 function go(h){if(location.hash==='#'+h)render();else location.hash=h}
 
 /* ---------- shell ---------- */
