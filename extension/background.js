@@ -33,11 +33,12 @@ const who=()=>S.agent||'The agent';
 // the agent's error, said for the person (no refs, no instructions meant for the agent)
 const forPerson=e=>String(e||'').replace(/\s*(Take a new snapshot|Pick a text box from the snapshot)\.?/g,'').replace(/element [ef0-9-]+/g,'that part of the page').replace(/\s+/g,' ').trim()||'something went wrong.';
 
-async function connect(){const {base,token}=await settings();if(!base||!token){paintIcon();return}
+async function connect(){const {base,token,replaced}=await chrome.storage.local.get(['base','token','replaced']);if(!base||!token||replaced){paintIcon();return}
  if(S.ws&&S.ws.readyState<=1)return;
  const ws=new WebSocket(base.replace(/^http/,'ws')+'/ui/local-browser/ws?t='+encodeURIComponent(token));S.ws=ws;
  ws.onopen=()=>{S.retry=0;paintIcon();try{ws.send(JSON.stringify({type:'hello',version:VERSION}))}catch{}clearInterval(S.alive);S.alive=setInterval(()=>{try{ws.send('{"type":"ping"}')}catch{}},20000)};
  ws.onmessage=async e=>{let m;try{m=JSON.parse(e.data)}catch{return}
+  if(m.type==='replaced'){await chrome.storage.local.set({replaced:Date.now()});paintIcon();return}
   if(m.type==='unpaired'){await chrome.storage.local.remove('token');paintIcon();return}
   if(m.type==='frame'||m.type==='focus'){let r={};try{r=await (m.type==='frame'?frame():focus())}catch(err){r={error:String(err?.message||err)}}try{ws.send(JSON.stringify({type:'reply',id:m.id,...r}))}catch{}return}
   if(m.type!=='command')return;
@@ -69,12 +70,16 @@ chrome.runtime.onMessage.addListener((m,sender,reply)=>{
   if(m.aq==='handback'||m.aq==='continue'){S.blockUntil=0;setMode('idle-soon','Handed back. Tell '+who()+' in chat to carry on.')}
   if(m.aq==='dismiss')setMode('idle');
   return}
- if(m==='connect'){S.ws?.close();S.ws=null;S.retry=0;connect().then(()=>reply(true));return true}
- if(m==='status'){reply({connected:online(),mode:S.mode,text:S.text,version:VERSION});return true}});
+ if(m==='connect'){chrome.storage.local.remove('replaced').then(()=>{S.ws?.close();S.ws=null;S.retry=0;return connect()}).then(()=>reply(true));return true}
+ if(m==='status'){chrome.storage.local.get('replaced').then(v=>reply({connected:online(),replaced:!!v.replaced,mode:S.mode,text:S.text,version:VERSION}));return true}});
 
 // ---- the agent's own window and tab (kept across restarts of this extension) ----
 async function agentTab(){if(!S.tab)S.tab=(await chrome.storage.session.get('tab')).tab;
- if(S.tab){try{return await chrome.tabs.get(S.tab)}catch{}}
+ if(S.tab){try{const t=await chrome.tabs.get(S.tab);
+  // an agent tab left alone in a window of its own (older versions opened one): bring it into the window you use
+  const win=S.panelWin||(await chrome.windows.getLastFocused({windowTypes:['normal']}).catch(()=>null))?.id;
+  if(win&&t.windowId!==win&&(await chrome.tabs.query({windowId:t.windowId})).length===1){await chrome.tabs.move(t.id,{windowId:win,index:-1});await chrome.tabs.update(t.id,{active:true});const n=await chrome.tabs.get(t.id);await group(n);return n}
+  return t}catch{}}
  // a new tab in the window you are using (the one with the side chat, if it is open), in a group named after the agent
  let win=S.panelWin;if(!win){try{win=(await chrome.windows.getLastFocused({windowTypes:['normal']})).id}catch{}}
  let tab;if(win){tab=await chrome.tabs.create({windowId:win,url:'about:blank',active:true})}

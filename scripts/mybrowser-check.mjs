@@ -13,7 +13,7 @@ let token,ext,sid;const got=[];
 await step('Owner signs in',async()=>{const r=await call('/auth/login',{method:'POST',body:{password:PW}});must(r.s===200,'status '+r.s)});
 await step('The extension pairs',async()=>{const r=await call('/ui/local-browser/pair',{method:'POST',body:{}});must(r.s===200&&r.j.token,JSON.stringify(r.j));token=r.j.token});
 await step('The extension connects',async()=>{ext=new WebSocket(BASE.replace(/^http/,'ws')+'/ui/local-browser/ws?t='+encodeURIComponent(token));
- await new Promise((ok,no)=>{ext.onopen=ok;ext.onerror=()=>no(new Error('no connection'))});
+ await new Promise((ok,no)=>{ext.onopen=ok;ext.onerror=()=>no(new Error('no connection'))});ext.send(JSON.stringify({type:'hello',version:'check'}));
  ext.onmessage=e=>{const m=JSON.parse(String(e.data));if(m.type!=='command')return;got.push(m.action);
   const result=m.action==='browser_navigate'?{success:true,url:'https://example.com/',title:'Example Domain (from my browser)',snapshot:'Page: Example Domain (from my browser)\n- heading "Example Domain"\n- link "More information" [ref=e1]',element_count:1}:{success:true,snapshot:'- heading "Example Domain"',element_count:1};
   ext.send(JSON.stringify({type:'result',id:m.id,ok:true,result}))};

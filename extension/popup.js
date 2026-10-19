@@ -6,8 +6,8 @@ async function show(){const {base,token}=await chrome.storage.local.get(['base',
  const s=await chrome.runtime.sendMessage('status').catch(()=>({}));const on=!!(token&&s?.connected);
  const busy=on&&['work','need','fail','control'].includes(s.mode);
  $('st').className='st'+(on?' on':'')+(busy?' '+s.mode:'');
- $('stt').textContent=!on?(token?'Not connected right now':'Not connected yet'):{work:'The agent is working',need:'The agent needs you',fail:'A step failed',control:'You have control'}[s.mode]||'Connected';
- $('doing').textContent=busy?s.text:'';$('off').style.display=token?'':'none';$('go').textContent=token?'Reconnect':'Connect';
+ $('stt').textContent=!on?(s?.replaced?'Another Chrome is connected':token?'Not connected right now':'Not connected yet'):{work:'The agent is working',need:'The agent needs you',fail:'A step failed',control:'You have control'}[s.mode]||'Connected';
+ $('doing').textContent=busy?s.text:(!on&&s?.replaced?'aqeelOS is using the extension in another Chrome window or profile. Press Use this Chrome to switch here.':'');$('off').style.display=token?'':'none';$('go').textContent=s?.replaced?'Use this Chrome':token?'Reconnect':'Connect';
  // a newer extension on aqeelOS: say so, with the download
  try{const r=await fetch(b+'/ui/local-browser/version',{credentials:'include',headers:{'x-hui':'1'}});const j=await r.json();
   if(j.latest&&newer(j.latest,VER)){$('upd').style.display='block';$('upd').innerHTML='Version '+j.latest+' is ready. <a href="'+b+'/ui/local-browser/extension.zip" target="_blank">Download it</a>, unzip it over this folder, then press Reload on chrome://extensions.'}}catch{}}

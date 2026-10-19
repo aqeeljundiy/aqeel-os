@@ -49,11 +49,15 @@ export function createLocalBrowser({DATA,GATE,API_KEY,EXT_DIR,NAMES={}}){
  async function pair(user){await load();const token=randomBytes(24).toString('base64url');db.tokens[token]={user,created:Date.now()};await save();return token}
  async function upgrade(req,sock,head){const t=new URL(req.url,'http://x').searchParams.get('t')||'';await load();const rec=db.tokens[t];
   if(!rec){const w=acceptWs(req,sock,head);w?.send('{"type":"unpaired"}');w?.close();return}
-  const w=acceptWs(req,sock,head);if(!w)return;const old=conns.get(rec.user);if(old)old.close();conns.set(rec.user,w);rec.last=Date.now();save().catch(()=>{});
-  console.log('my browser: connected for',rec.user);
-  w.ev.onmessage=t=>{let m;try{m=JSON.parse(t)}catch{return}if(m.type==='hello'){w.version=String(m.version||'').slice(0,20);return}if(m.type==='reply'){const q=asks.get(m.id);if(q){asks.delete(m.id);q(m)}return}if(m.type!=='result')return;const lane=pending.get(m.id);if(!lane)return;pending.delete(m.id);
+  const w=acceptWs(req,sock,head);if(!w)return;
+  // One browser per person. The newest one that says hello wins, and the one it replaces is told so (it then
+  // waits until Connect is pressed there), so two Chromes or profiles never keep knocking each other off.
+  // An old extension (it never says hello) is turned away while a current one is connected.
+  const take=()=>{const old=conns.get(rec.user);if(old===w)return;if(old){old.send('{"type":"replaced"}');old.close()}conns.set(rec.user,w);rec.last=Date.now();save().catch(()=>{});console.log('my browser: connected for',rec.user,'(extension '+(w.version||'old')+')')};
+  const oldT=setTimeout(()=>{const cur=conns.get(rec.user);if(cur?.version){console.log('my browser: turned away an old extension for',rec.user);w.send('{"type":"unpaired"}');w.close();return}take()},3000);
+  w.ev.onmessage=t=>{let m;try{m=JSON.parse(t)}catch{return}if(m.type==='hello'){clearTimeout(oldT);w.version=String(m.version||'').slice(0,20)||'2';take();return}if(m.type==='reply'){const q=asks.get(m.id);if(q){asks.delete(m.id);q(m)}return}if(m.type!=='result')return;const lane=pending.get(m.id);if(!lane)return;pending.delete(m.id);
    try{lane.ws.send(JSON.stringify({method:'browser.controller.result',params:{command_id:m.id,ok:m.ok===true,...(m.ok?{result:m.result}:{error:String(m.error||'failed')})}}))}catch{}};
-  w.ev.onclose=()=>{if(conns.get(rec.user)===w){conns.delete(rec.user);console.log('my browser: disconnected for',rec.user);
+  w.ev.onclose=()=>{clearTimeout(oldT);if(conns.get(rec.user)===w){conns.delete(rec.user);console.log('my browser: disconnected for',rec.user);
    for(const [id,lane] of pending)if(lane.user===rec.user){pending.delete(id);try{lane.ws.send(JSON.stringify({method:'browser.controller.result',params:{command_id:id,ok:false,error:'The person’s browser went offline (Chrome was closed or the extension disconnected).'}}))}catch{}}}}}
 
  // the person chose "My browser" for this chat: register it with the engine for exactly this chat
