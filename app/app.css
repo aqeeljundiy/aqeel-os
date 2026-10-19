@@ -961,7 +961,7 @@ input[type=checkbox]:not(.switch)::after{margin:auto}
 .lb-note b{font-size:14.5px}.lb-note span{font-size:12.5px;color:#a9adb8;line-height:1.5}.lb-note button{margin-top:6px}
 .lb-bar{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.lb-bar .lb-url{color:var(--muted)}
 
-/* channel rows: Answered by and one ⋯ menu, aligned on every row */
+/* channel rows: Owned by and one ⋯ menu, aligned on every row */
 .ch-act{display:flex;align-items:center;gap:10px;flex-wrap:nowrap}
 .ch-act .ab-lbl{font-size:12.5px;color:var(--muted);white-space:nowrap}
 .ch-act .sel-btn,.ch-act select{min-width:150px}
@@ -1267,3 +1267,14 @@ html.in-panel .composer-wrap{padding:0 10px 12px}
 .share-agents .share-row .ghost.small{flex:none}
 .acc-btn{flex:none}
 .acc-btn{display:inline-flex;align-items:center;gap:8px;padding-left:6px;color:var(--ink-2);font-weight:500}.acc-btn .acc-who{margin:0}
+/* sign-in details */
+.si-card{border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface);animation:lbUp var(--t-med) var(--ease) both}
+.si-row{display:grid;grid-template-columns:120px 1fr;gap:12px;padding:11px 14px;border-top:1px solid var(--border);font-size:14px}.si-row:first-child{border-top:0}
+.si-row .si-k{color:var(--muted);font-size:13px}.si-row small{display:block;color:var(--muted);font-size:12px}.si-row .acc-av{margin:0 4px 0 0;box-shadow:none;vertical-align:-5px}
+.si-opts{display:grid;gap:8px}.si-opts button{justify-content:flex-start;width:100%}
+@media (max-width:560px){.si-row{grid-template-columns:1fr;gap:2px}}
+/* All agents */
+.vp-ava.all{background:var(--blue-soft);color:var(--blue-deep);display:grid;place-items:center}
+.all-view{animation:lbUp var(--t-med) var(--ease) both}
+.all-view .act{gap:8px}
+.acc-nosign{font-size:12.5px;color:var(--muted);display:inline-flex;align-items:center;gap:6px;white-space:nowrap}.acc-nosign::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--warn,#d97706)}

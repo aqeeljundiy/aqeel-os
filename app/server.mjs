@@ -266,6 +266,13 @@ async function writeAgentContext(){const all=await listAgents();const names={};f
    Test button does. One with no sign-in, or that fails on its sign-in, is listed for admins, who get a notice with
    a Sign in button instead of finding out when an agent says it cannot reach the app. */
 const signinsDue=new Map();let signinsAt=0;
+// a connected app in words people know: which service, which account, and what stops working without it
+const APP_KINDS=[[/slack\.com/,'Slack','read and post in Slack'],[/notion\.com/,'Notion','read and edit your Notion pages'],[/n8n/,'n8n','find and run your n8n workflows'],
+ [/composio/,'App connector (Composio)','use the apps you linked in Composio'],[/github/,'GitHub','work with your GitHub repositories'],[/linear/,'Linear','read and update Linear issues'],[/google|gmail/,'Google','use your Google apps']];
+function appInfo(name,url){const k=APP_KINDS.find(([re])=>re.test(String(url||'')+' '+name))||[null,pretty0(name),'use '+pretty0(name)];
+ const acct=String(name).toLowerCase().replace(/^(slack|notion|n8n|composio|github|linear|google)[-_]?/,'');const account=acct&&acct!==String(name).toLowerCase()?pretty0(acct):'';
+ return {app:k[1],account,label:k[1]+(account?' ('+account+')':''),does:k[2],url:url||''}}
+const pretty0=x=>String(x||'').replace(/[-_]+/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
 async function checkSignins(){const h={'x-hermes-session-token':DASH_TOKEN};const seen=new Set();
  for(const a of await listAgents()){let list=[];try{const r=await fetch(DASH.origin+'/api/mcp/servers?profile='+encodeURIComponent(a),{headers:h,signal:AbortSignal.timeout(15000)});list=(await r.json()).servers||[]}catch{continue}
   for(const s of list){if(s.auth!=='oauth'||s.enabled===false)continue;const key=a+'|'+s.name;seen.add(key);
@@ -273,7 +280,7 @@ async function checkSignins(){const h={'x-hermes-session-token':DASH_TOKEN};cons
    if(!await stat(tok).catch(()=>null))why='not signed in';
    else{try{const r=await fetch(DASH.origin+'/api/mcp/servers/'+encodeURIComponent(s.name)+'/test?profile='+encodeURIComponent(a),{method:'POST',headers:h,signal:AbortSignal.timeout(70000)});const j=await r.json();
     if(j.ok===false&&/oauth|unauthori[sz]ed|401|invalid_grant|invalid_token|expired|login/i.test(String(j.error||'')))why='the sign-in ran out'}catch{}}
-   if(why){if(!signinsDue.has(key))console.log('sign-in needed:',s.name,'on',a,'('+why+')');signinsDue.set(key,{agent:a,agentName:NAMES[a]||a,name:s.name,why})}else signinsDue.delete(key)}}
+   if(why){if(!signinsDue.has(key))console.log('sign-in needed:',s.name,'on',a,'('+why+')');signinsDue.set(key,{agent:a,agentName:NAMES[a]||a,name:s.name,why,...appInfo(s.name,s.url),last:(await stat(tok).catch(()=>null))?.mtimeMs||0})}else signinsDue.delete(key)}}
  for(const k of [...signinsDue.keys()])if(!seen.has(k))signinsDue.delete(k);signinsAt=Date.now()}
 if(PORT===4400){setTimeout(()=>checkSignins().catch(()=>{}),120000);setInterval(()=>checkSignins().catch(()=>{}),3*3600e3).unref()}
 if(PORT===4400){setTimeout(()=>writeAgentContext().catch(()=>{}),25000);setInterval(()=>writeAgentContext().catch(()=>{}),600000).unref()}
@@ -589,7 +596,7 @@ async function stopBridges(agent,{pairOnly=false}={}){const dir=path.join(agent=
    in /ui/channels/attention, which the app shows as a pop-up with Link again / Remove. */
 async function checkChannel(agent,platform){platCache.delete(agent);const pl=await platformsCached(agent);const c=(pl?.platforms||pl||[]).find(x=>x.id===platform);
  if(!c)return {state:'missing',connected:false,text:'This channel is not set up on '+(NAMES[agent]||agent)+'.'};
- if(c.paused)return {agent,platform,state:'paused',connected:false,paused:true,account:c.account||null,text:'Paused: still linked'+(c.account?' ('+[c.account.phone||c.account.username,c.account.name].filter(Boolean).join(' · ')+')':'')+', but no agent answers it. Pick an agent under Answered by to turn it back on.'};
+ if(c.paused)return {agent,platform,state:'paused',connected:false,paused:true,account:c.account||null,text:'Paused: still linked'+(c.account?' ('+[c.account.phone||c.account.username,c.account.name].filter(Boolean).join(' · ')+')':'')+', but no agent answers it. Pick an agent under Owned by to turn it back on.'};
  let bridge=true;if(platform==='whatsapp'){const dir=path.join(agent==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',agent),'platforms','whatsapp','session');
   const {execFile}=await import('node:child_process');const out=await new Promise(r=>execFile('ps',['-eo','args='],(e,o)=>r(String(o||''))));bridge=out.split('\n').some(l=>/whatsapp-bridge\/bridge\.js/.test(l)&&l.includes('--session '+dir)&&!l.includes('--pair-only'))}
  const connected=c.state==='connected'&&bridge;const acct=c.account?' ('+[c.account.phone||c.account.username,c.account.name].filter(Boolean).join(' · ')+')':'';
@@ -1089,6 +1096,9 @@ const server=createServer(async(req,res)=>{
    // a provider without automatic registration (Slack, Google…): its app's client ID/secret, and the return address to give it
    if(p==='/ui/mcp/oauth-client'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can set this.'});let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}
     try{return send(res,200,await sharing.setOauthClient(String(b.agent||'default'),String(b.name||''),String(b.client_id||'').trim(),String(b.client_secret||'').trim(),MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(String(b.name||''))))}catch(e){return send(res,400,{error:e.message})}}
+   // every agent's model and the account it runs on, for "All agents" on Agents' models
+   if(p==='/ui/models/agents'&&req.method==='GET'){const out=[];for(const a of await listAgents()){if(!users.isAdmin(u)&&!users.byId(u.id)?.agents?.[a])continue;const c=await readConfig(a).catch(()=>null)||{};
+     out.push({id:a,name:NAMES[a]||await displayName(a),model:c.model?.default||'',provider:c.model?.provider||''})}return send(res,200,{agents:out})}
    // Access: who owns each connection and which agents may use it (see access.mjs). Admins only.
    if(p==='/ui/access'||p==='/ui/access/owner'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can see and change who uses a connection.'});
     const KINDS=['mcp','google','plugin','key'];
@@ -1096,7 +1106,10 @@ const server=createServer(async(req,res)=>{
     if(req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const kind=String(b.kind||''),id=String(b.id||''),agent=String(b.agent||'');
      if(!KINDS.includes(kind)||!id||!(await listAgents()).includes(agent))return send(res,400,{error:'Bad request'});
      try{const r=p==='/ui/access/owner'?await access.setOwner(kind,id,agent):b.on?await access.grant(kind,id,agent):await access.revoke(kind,id,agent);console.log('access:',kind,id,p==='/ui/access/owner'?'owner →':b.on?'on for':'off for',agent);return send(res,200,{ok:true,...r})}catch(e){return send(res,409,{error:e.message})}}}
-   if(p==='/ui/mcp/signins'&&req.method==='GET')return send(res,200,{items:users.isAdmin(u)?[...signinsDue.values()]:[],checked:signinsAt});
+   if(p==='/ui/mcp/signins'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,200,{items:[]});
+    // for each, the other agents that are signed in to the same app (their sign-in can be used instead)
+    const l=await access.list('mcp').catch(()=>({items:[]}));
+    return send(res,200,{checked:signinsAt,items:[...signinsDue.values()].map(x=>{const it=l.items.find(y=>y.id===x.name);return {...x,others:(it?.users||[]).filter(u2=>u2.signed&&u2.id!==x.agent).map(u2=>({id:u2.id,name:u2.name}))}})})}
    // "Use on other agents": a connected app (its settings and its sign-in) copied to other agents, so a second
    // agent can use n8n, Notion… without signing in again. The agents restart once nobody is mid-reply.
    if(p==='/ui/mcp/share'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can share connected apps between agents.'});
@@ -1145,14 +1158,14 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/local-browser/version'&&req.method==='GET')return send(res,200,{latest:await localBrowser.latest()});
    if(p==='/ui/local-browser/status'&&req.method==='GET')return send(res,200,{connected:localBrowser.connected(u.id),version:localBrowser.version(u.id),latest:await localBrowser.latest(),session:url.searchParams.get('session')?localBrowser.linked(url.searchParams.get('session')):undefined});
    if(p==='/ui/local-browser/extension.zip'&&req.method==='GET'){const z=await localBrowser.zip();res.writeHead(200,{'content-type':'application/zip','content-disposition':'attachment; filename="aqeelos-browser.zip"','content-length':z.length,...security});return res.end(z)}
-   if(p==='/ui/local-browser/frame'&&req.method==='GET'){const r=await localBrowser.ask(u.id,'frame');res.writeHead(200,{'content-type':'application/json','cache-control':'no-store',...security});return res.end(JSON.stringify({connected:!r.offline,...r,type:undefined,id:undefined}))}
-   if(p==='/ui/local-browser/focus'&&req.method==='POST')return send(res,200,await localBrowser.ask(u.id,'focus'));
+   if(p==='/ui/local-browser/frame'&&req.method==='GET'){const ses=url.searchParams.get('session')||'';if(ses)localBrowser.retitle(ses,url.searchParams.get('title')||'');const r=await localBrowser.ask(u.id,'frame',6000,ses?{session:ses}:{});res.writeHead(200,{'content-type':'application/json','cache-control':'no-store',...security});return res.end(JSON.stringify({connected:!r.offline,...r,type:undefined,id:undefined}))}
+   if(p==='/ui/local-browser/focus'&&req.method==='POST'){const ses=url.searchParams.get('session')||'';return send(res,200,await localBrowser.ask(u.id,'focus',6000,ses?{session:ses}:{}))}
    if(p==='/ui/local-browser/off'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}return send(res,200,{ok:localBrowser.unlink(String(b.session||''),users.isAdmin(u)?null:u.id)})}
    {const bm=/^\/ui\/browser-choice\/([\w-]+)$/.exec(p);if(bm&&req.method==='POST'){const rec=browserAsks.get(bm[1]);if(!rec)return send(res,404,{error:'This question has ended. Ask the agent again.'});
     if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+rec.base,'GET',new URLSearchParams(),rec.base))return send(res,403,{error:'Not your agent.'});
     let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const session=String(b.session||'');
     if(b.where==='yours'){if(!session)return send(res,400,{error:'Open the chat the agent is working in, then choose.'});
-     try{await localBrowser.link(u.id,rec.base,session)}catch(e){return send(res,409,{error:e.message})}
+     try{await localBrowser.link(u.id,rec.base,session,String(b.title||''))}catch(e){return send(res,409,{error:e.message})}
      browserAsks.delete(rec.id);rec.resolve({text:'The person chose their own browser. Its tools (browser_navigate, browser_snapshot, browser_click, browser_type, browser_press, browser_scroll, browser_back) are added from your next turn and run in their Chrome, in a separate window they can watch, with the sign-ins they already have there. End this turn now with one short line saying you are ready; aqeelOS then tells you to go ahead. In this chat do not use browser_exec (that one runs on the AI box). Screenshots and browser_vision are not available in their browser; read pages with browser_snapshot. Ask before you submit anything that sends, pays, deletes or invites.'});return send(res,200,{ok:true})}
     if(session)localBrowser.unlink(session);browserAsks.delete(rec.id);rec.resolve({text:'The person chose your screen on the AI box. Use your browser as usual there.'});return send(res,200,{ok:true})}}
    {const sm=/^\/ui\/secrets\/([\w-]+)$/.exec(p);if(sm&&req.method==='POST'){const rec=secretAsks.get(sm[1]);if(!rec)return send(res,404,{error:'This request has ended. Ask the agent again.'});

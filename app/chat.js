@@ -384,7 +384,7 @@ const Secrets={timer:null,
    </div><span class="sc-err"></span>
    <div class="sc-actions"><span class="sc-left"></span></div></div></div>`},
  async pickBrowser(c,where){const err=c.querySelector('.sc-err');err.textContent='';c.querySelectorAll('button').forEach(b=>b.disabled=true);
-  try{const sid=this.runningChat();await post(UI,'/ui/browser-choice/'+encodeURIComponent(c.dataset.id),{where,session:sid});if(where==='yours'&&Chat.live[sid])Chat.live[sid].autoGo=true;c.classList.add('done');
+  try{const sid=this.runningChat();await post(UI,'/ui/browser-choice/'+encodeURIComponent(c.dataset.id),{where,session:sid,title:chatTitle(sid)});if(where==='yours'&&Chat.live[sid])Chat.live[sid].autoGo=true;c.classList.add('done');
    c.querySelector('.sc-main').innerHTML='<b>'+icon('check',15)+' '+(where==='yours'?'Using your browser':'Using the AI box screen')+'</b><span class="hint">'+(where==='yours'?esc(AGENT())+' works in a new Chrome window on this computer. You can watch, and take over by clicking.':esc(AGENT())+' carries on on its own screen.')+'</span>';setTimeout(()=>this.drop(c),3500)}
   catch(e){c.querySelectorAll('button').forEach(b=>b.disabled=false);if(/not connected|extension/i.test(e.message)){err.textContent='Your browser isn’t connected yet.';BrowserSetup.open()}else err.textContent=e.message}},
  card(x){if(x.kind==='browser')return this.browserCard(x);const who=esc(AGENT());const where=x.mode==='type'?'It is typed into the field on '+who+'’s screen'+(x.enter?' and sent':'')+'.':'It is saved as <code>'+esc(x.name)+'</code> for '+who+'.';
@@ -432,3 +432,5 @@ function dataFile(f){const [h,b]=String(f.url||'').split(',');const bin=atob(b||
 // step lines show the engine's folders in plain words (the exact command stays in the step's details)
 function plainPaths(t){return String(t||'').replace(/\/home\/[\w.-]+\/\.hermes\/profiles\/([\w-]+)/g,(m,a)=>'['+ident(a).name+']').replace(/\/home\/[\w.-]+\/\.hermes(?=\/|\b)/g,'[aqeelOS]').replace(/~\/\.hermes(?=\/|\b)/g,'[aqeelOS]').replace(/(^|[\s;&|(])hermes(?=\s)/g,'$1aqeelos').replace(/(?<![\w\/.-])Hermes Agent\b/g,'aqeelOS').replace(/(?<![\w\/.-])Hermes(?![\w-])/g,'aqeelOS')}
 
+
+function chatTitle(id){const c=(S.sessions||[]).find(x=>x.id===id);return c?String(c.title||c.preview||'').slice(0,80):''}

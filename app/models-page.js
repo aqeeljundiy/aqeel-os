@@ -23,7 +23,8 @@ const panelsTitled=(root,re)=>[...root.querySelectorAll('.panel')].filter(p=>re.
    const tmp=document.createElement('div');tmp.hidden=true;document.body.append(tmp);box.hidden=true;document.body.append(box);
    await Promise.all([oldAccounts(p,box),oldModels(p,tmp)]);if(stale()){tmp.remove();box.remove();return}box.hidden=false;
    // the per-agent parts live on Agents' models now
-   for(const x of panelsTitled(box,/^(Priority|Switch automatically|Which agent uses what)/))x.remove();box.querySelector('.two:empty')?.remove();
+   // the priority order and automatic switching are about accounts, so they stay here (owner, 19 Oct)
+   for(const x of panelsTitled(box,/^(Which agent uses what)/))x.remove();box.querySelector('.two:empty')?.remove();
    box.querySelectorAll('.two').forEach(t=>{if(!t.querySelector('.panel'))t.remove()});
    const yours=box.querySelector('h2.ach-cat');if(yours){yours.replaceChildren('Your accounts');yours.style.marginTop='0'}
    // Team of models is not an account: it has its own tab
@@ -38,7 +39,7 @@ const panelsTitled=(root,re)=>[...root.querySelectorAll('.panel')].filter(p=>re.
    const dm=panelsTitled(a,/^Default model/)[0];if(dm){dm.querySelector('h2').textContent='Model for '+ident(agentProfile()||'default').name;
     const sub=dm.querySelector('.sub');if(sub)sub.textContent=sub.textContent.replace('Used for new chats','Used for its new chats')}
    const tw=a.querySelector('.two');if(tw&&tw.children.length===1)tw.classList.remove('two');
-   b.querySelector('h2.ach-cat')?.remove();b.querySelector('.acct-grid')?.remove();b.querySelectorAll('.gem-card').forEach(x=>x.remove());
+   b.querySelector('h2.ach-cat')?.remove();b.querySelector('.acct-grid')?.remove();for(const x of panelsTitled(b,/^(Priority|Switch automatically)/))x.remove();b.querySelectorAll('.gem-card').forEach(x=>x.remove());
    panelsTitled(b,/^Which agent uses what/)[0]?.querySelector('h2')?.replaceChildren('Which account each agent uses')}
   else{const want=tab==='Pictures'?/^Images/:/^Team of models/;box.hidden=true;document.body.append(box);await oldModels(p,box);if(stale()){box.remove();return}box.hidden=false;
    for(const x of [...box.querySelectorAll('.panel')])if(!want.test((x.querySelector('h2')?.textContent||'').trim()))x.remove();
@@ -54,7 +55,7 @@ Pages.acctNewMenu=async el=>{let o={providers:[]};try{o=await H('/providers/oaut
   {label:'Google AI Pro',sub:'Gemini and Claude on your Google plan',icon:'user',run:()=>{S.tab.models='Accounts';go('/models/models');setTimeout(()=>$('[data-act="agy-start"]')?.click()||toast('Google AI Pro is already connected'),900)}},
   '-',{label:'Another provider',sub:'OpenRouter, xAI and more, with an API key',icon:'key',run:()=>{store.set('keysOpen:LLM providers',true);go('/system/keys')}}],{matchWidth:true})};
 // panels that some pages add a moment later (Team of models, Google AI Pro) land on their own tab only
-const MODEL_TAB_DROP={'Accounts':/^(Priority|Switch automatically|Which agent uses what|Default model|Model for|Helper models|Images|Who makes pictures|Team of models)/,
- 'Agents’ models':/^(Sign-ins|Subscriptions you|Images|Who makes pictures|Team of models|Google AI Pro|Gemini)/,'Pictures':/^(?!Images|Who makes pictures)/,'Team of models':/^(?!Team of models)/};
+const MODEL_TAB_DROP={'Accounts':/^(Which agent uses what|Default model|Model for|Helper models|Images|Who makes pictures|Team of models)/,
+ 'Agents’ models':/^(Priority|Switch automatically|Sign-ins|Subscriptions you|Images|Who makes pictures|Team of models|Google AI Pro|Gemini)/,'Pictures':/^(?!Images|Who makes pictures)/,'Team of models':/^(?!Team of models)/};
 function pruneModelTab(box,tab){const re=MODEL_TAB_DROP[tab];if(!re)return;const go=()=>{for(const p of box.querySelectorAll('.panel')){const t=(p.querySelector('h2')?.textContent||'').trim();if(t&&re.test(t))p.remove()}};go();
  const mo=new MutationObserver(go);mo.observe(box,{childList:true,subtree:true});setTimeout(()=>mo.disconnect(),15000)}

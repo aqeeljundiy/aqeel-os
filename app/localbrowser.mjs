@@ -43,8 +43,8 @@ export function createLocalBrowser({DATA,GATE,API_KEY,EXT_DIR,NAMES={}}){
  const connected=user=>conns.has(user);
  // ask the person's browser something (a picture of the agent's tab, or bring it to the front)
  const asks=new Map();
- function ask(user,type,ms=6000){const w=conns.get(user);if(!w)return Promise.resolve({offline:true});const id=randomBytes(6).toString('hex');
-  return new Promise(ok=>{const t=setTimeout(()=>{asks.delete(id);ok({timeout:true})},ms);asks.set(id,r=>{clearTimeout(t);ok(r)});w.send(JSON.stringify({type,id}))})}
+ function ask(user,type,ms=6000,extra={}){const w=conns.get(user);if(!w)return Promise.resolve({offline:true});const id=randomBytes(6).toString('hex');
+  return new Promise(ok=>{const t=setTimeout(()=>{asks.delete(id);ok({timeout:true})},ms);asks.set(id,r=>{clearTimeout(t);ok(r)});w.send(JSON.stringify({type,id,...extra}))})}
 
  async function pair(user){await load();const token=randomBytes(24).toString('base64url');db.tokens[token]={user,created:Date.now()};await save();return token}
  async function upgrade(req,sock,head){const t=new URL(req.url,'http://x').searchParams.get('t')||'';await load();const rec=db.tokens[t];
@@ -61,25 +61,27 @@ export function createLocalBrowser({DATA,GATE,API_KEY,EXT_DIR,NAMES={}}){
    for(const [id,lane] of pending)if(lane.user===rec.user){pending.delete(id);try{lane.ws.send(JSON.stringify({method:'browser.controller.result',params:{command_id:id,ok:false,error:'The person’s browser went offline (Chrome was closed or the extension disconnected).'}}))}catch{}}}}}
 
  // the person chose "My browser" for this chat: register it with the engine for exactly this chat
- async function link(user,agent,session){if(!conns.has(user))throw new Error('Your browser is not connected. Open the aqeelOS extension in Chrome and press Connect.');
+ async function link(user,agent,session,title=''){if(!conns.has(user))throw new Error('Your browser is not connected. Open the aqeelOS extension in Chrome and press Connect.');
   unlink(session);const pre=agent&&agent!=='default'?'/p/'+encodeURIComponent(agent):'';
   const r=await fetch(GATE+pre+'/v1/browser-control/register',{method:'POST',headers:{authorization:'Bearer '+API_KEY,'content-type':'application/json'},
    body:JSON.stringify({protocol_version:1,session_id:session,controller_id:'aqeelos-'+user,browser_profile_id:'chrome-'+user,capabilities:CAPS})});
   const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error?.message||j.error||j.detail||('The engine did not accept it ('+r.status+').'));
   const ws=new WebSocket(GATE.replace(/^http/,'ws')+(j.ws_path||'/v1/browser-control/ws'),['hermes-browser-control-v1','hermes-browser-control-ticket.'+j.ticket]);
-  const lane={ws,user,agent,session};lanes.set(session,lane);
+  const lane={ws,user,agent,session,title:String(title||'').slice(0,80)};lanes.set(session,lane);
   await new Promise((ok,no)=>{const t=setTimeout(()=>{try{ws.close()}catch{}no(new Error('The engine did not answer the browser link in time.'))},10000);ws.onopen=()=>{clearTimeout(t);ok()};ws.onerror=()=>{clearTimeout(t);no(new Error('Could not open the browser link to the engine.'))}});
   ws.onmessage=e=>{let f;try{f=JSON.parse(String(e.data))}catch{return}if(f.method!=='browser.controller.command')return;const p=f.params||{};
    const ext=conns.get(user);
    if(!ext){try{ws.send(JSON.stringify({method:'browser.controller.result',params:{command_id:p.command_id,ok:false,error:'The person’s browser is offline (the aqeelOS extension is not connected). Ask them to open Chrome, or to switch this chat back to the AI box screen.'}}))}catch{}return}
-   pending.set(p.command_id,lane);ext.send(JSON.stringify({type:'command',id:p.command_id,action:p.action,arguments:p.arguments||{},agent:NAMES[agent]||agent}))};
+   pending.set(p.command_id,lane);ext.send(JSON.stringify({type:'command',id:p.command_id,action:p.action,arguments:p.arguments||{},agent:NAMES[agent]||agent,session,chat:lane.title}))};
   ws.onclose=()=>{if(lanes.get(session)===lane)lanes.delete(session)};
   console.log('my browser: chat',session,'on',agent,'now uses the browser of',user);return true}
  function unlink(session,user){const lane=lanes.get(session);if(!lane||user&&lane.user!==user)return false;lanes.delete(session);
   try{lane.ws.send(JSON.stringify({method:'browser.controller.detach',params:{}}))}catch{}setTimeout(()=>{try{lane.ws.close()}catch{}},300);return true}
  const linked=session=>lanes.has(session);
+ // the chat's name changed (renamed, or titled after its first reply): the tab group follows on the next step
+ const retitle=(session,title)=>{const l=lanes.get(session);if(l&&title)l.title=String(title).slice(0,80)};
  const zip=()=>zipDir(EXT_DIR,'aqeelos-browser');
  // the extension version in this aqeelOS, and the one the person's browser runs
  const latest=async()=>{try{return JSON.parse(await readFile(path.join(EXT_DIR,'manifest.json'),'utf8')).version}catch{return ''}};
  const version=user=>conns.get(user)?.version||'';
- return {pair,upgrade,link,unlink,linked,connected,zip,ask,latest,version}}
+ return {pair,upgrade,link,unlink,linked,connected,zip,ask,latest,version,retitle}}

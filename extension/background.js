@@ -1,15 +1,23 @@
 // aqeelOS: use my browser. Keeps one connection to aqeelOS; when you choose "My browser" for a chat, the agent's
-// browser actions (open, read, click, type, keys, scroll, back) arrive here and run in the agent's own tab, so
-// your own tabs are never touched. It only does those actions: no scripts of the agent's own, no downloads.
-// While the agent works, its tab glows and shows what it is doing, with Stop and Take over; the toolbar icon's dot
-// says the same (blue working, amber needs you, red failed, grey not connected).
-const S={ws:null,alive:null,tab:null,panelWin:null,retry:0,mode:'idle',text:'',agent:'',blockUntil:0,blockWhy:'',idleT:null,inflight:null,newTab:null};
+// browser actions (open, read, click, type, keys, scroll, back) arrive here and run in that chat's own tab group,
+// named after the agent and the chat ("aqeelOS / Donna · Frea Baby dashboard"). A chat only ever works in its own
+// group: never in your other tabs, never in another chat's group. Drag a tab into the group to hand it over.
+// While the agent works, its tab glows and says what it does, with Stop and Take over (for that chat only); the
+// toolbar icon's dot says the same (blue working, amber needs you, red failed, grey not connected).
+const S={ws:null,alive:null,panelWin:null,retry:0,lanes:new Map(),last:null,queue:Promise.resolve()};
 const VERSION=chrome.runtime.getManifest().version;
-
-async function settings(){return chrome.storage.local.get(['base','token'])}
 const online=()=>!!S.ws&&S.ws.readyState===1;
 
-// ---- the toolbar icon: the round white mark, with a dot for what the agent is doing ----
+// ---- one lane per chat: its tab group, the tab it is on, and what it is doing ----
+function lane(session,meta={}){const id=String(session||'default');let L=S.lanes.get(id);
+ if(!L){L={session:id,chat:'',agent:'',tab:null,group:null,mode:'idle',text:'',blockUntil:0,blockWhy:'',idleT:null,inflight:null,newTab:null};S.lanes.set(id,L)}
+ if(meta.chat&&meta.chat!==L.chat){L.chat=meta.chat;nameGroup(L)}if(meta.agent&&meta.agent!==L.agent){L.agent=meta.agent;nameGroup(L)}return L}
+const save=()=>chrome.storage.session.set({lanes:[...S.lanes.values()].map(L=>({session:L.session,chat:L.chat,agent:L.agent,tab:L.tab,group:L.group}))}).catch(()=>{});
+const restored=chrome.storage.session.get('lanes').then(v=>{for(const x of v.lanes||[]){const L=lane(x.session);Object.assign(L,{chat:x.chat||'',agent:x.agent||'',tab:x.tab||null,group:x.group||null})}}).catch(()=>{});
+const laneOfTab=id=>[...S.lanes.values()].find(L=>L.tab===id);
+const who=L=>L.agent||'The agent';
+
+// ---- the toolbar icon: the round white mark, with a dot for the most urgent lane ----
 const DOT={work:'#2563eb',need:'#d97706',fail:'#dc2626',offline:'#9ca3af'};
 function drawIcon(size,dot){const c=new OffscreenCanvas(size,size),g=c.getContext('2d'),k=size/32;g.scale(k,k);
  g.beginPath();g.arc(16,16,15.4,0,7);g.fillStyle='#fff';g.fill();g.lineWidth=1;g.strokeStyle='#d6d9e0';g.stroke();
@@ -17,19 +25,20 @@ function drawIcon(size,dot){const c=new OffscreenCanvas(size,size),g=c.getContex
  g.beginPath();g.moveTo(16,12.4);g.lineTo(19.6,16);g.lineTo(16,19.6);g.lineTo(12.4,16);g.closePath();g.fill();
  if(dot){g.beginPath();g.arc(25,25,6.4,0,7);g.fillStyle='#fff';g.fill();g.beginPath();g.arc(25,25,4.8,0,7);g.fillStyle=dot;g.fill()}
  return g.getImageData(0,0,size,size)}
-const TITLE={work:'aqeelOS: the agent is working',need:'aqeelOS: the agent needs you',fail:'aqeelOS: a step failed',offline:'aqeelOS: not connected',idle:'aqeelOS: connected'};
-function paintIcon(){const st=!online()?'offline':S.mode==='control'?'idle':S.mode;const dot=DOT[st];
+const TITLE={work:'aqeelOS: an agent is working',need:'aqeelOS: an agent needs you',fail:'aqeelOS: a step failed',offline:'aqeelOS: not connected',idle:'aqeelOS: connected'};
+const RANK=['need','fail','work'];
+function top(){let best=null;for(const L of S.lanes.values()){const r=RANK.indexOf(L.mode);if(r>=0&&(!best||r<RANK.indexOf(best.mode)))best=L}return best}
+function paintIcon(){const t=top();const st=!online()?'offline':t?t.mode:'idle';const dot=DOT[st];
  try{chrome.action.setIcon({imageData:{16:drawIcon(16,dot),32:drawIcon(32,dot)}})}catch{}chrome.action.setBadgeText({text:''});chrome.action.setTitle({title:TITLE[st]||TITLE.idle})}
 
-// ---- the layer over the agent's tab ----
+// ---- the layer over a lane's tab ----
 async function layer(tabId,state){if(!tabId)return;try{await chrome.scripting.executeScript({target:{tabId},files:['overlay.js']});
  await chrome.scripting.executeScript({target:{tabId},func:s=>window.__aq?.set(s),args:[state]})}catch{}}
-const pushLayer=()=>layer(S.tab,{mode:S.mode,text:S.text,agent:S.agent});
-function setMode(mode,text){S.mode=mode;S.text=text||'';clearTimeout(S.idleT);paintIcon();const p=pushLayer();chrome.storage.session.set({mode,text:S.text}).catch(()=>{});
+const pushLayer=L=>layer(L.tab,{mode:L.mode,text:L.text,agent:L.agent,chat:L.chat});
+function setMode(L,mode,text){L.mode=mode;L.text=text||'';clearTimeout(L.idleT);paintIcon();const p=pushLayer(L);
  // between steps the agent is thinking; if no step comes for a while it has finished
- if(mode==='work')S.idleT=setTimeout(()=>setMode('idle'),45000);
- if(mode==='idle-soon')S.idleT=setTimeout(()=>setMode('idle'),4000);return p}
-const who=()=>S.agent||'The agent';
+ if(mode==='work')L.idleT=setTimeout(()=>setMode(L,'idle'),45000);
+ if(mode==='idle-soon')L.idleT=setTimeout(()=>setMode(L,'idle'),4000);return p}
 // the agent's error, said for the person (no refs, no instructions meant for the agent)
 const forPerson=e=>String(e||'').replace(/\s*(Take a new snapshot|Pick a text box from the snapshot)\.?/g,'').replace(/element [ef0-9-]+/g,'that part of the page').replace(/\s+/g,' ').trim()||'something went wrong.';
 
@@ -37,107 +46,117 @@ async function connect(){const {base,token,replaced}=await chrome.storage.local.
  if(S.ws&&S.ws.readyState<=1)return;
  const ws=new WebSocket(base.replace(/^http/,'ws')+'/ui/local-browser/ws?t='+encodeURIComponent(token));S.ws=ws;
  ws.onopen=()=>{S.retry=0;paintIcon();try{ws.send(JSON.stringify({type:'hello',version:VERSION}))}catch{}clearInterval(S.alive);S.alive=setInterval(()=>{try{ws.send('{"type":"ping"}')}catch{}},20000)};
- ws.onmessage=async e=>{let m;try{m=JSON.parse(e.data)}catch{return}
+ ws.onmessage=async e=>{let m;try{m=JSON.parse(e.data)}catch{return}await restored;
   if(m.type==='replaced'){await chrome.storage.local.set({replaced:Date.now()});paintIcon();return}
   if(m.type==='unpaired'){await chrome.storage.local.remove('token');paintIcon();return}
-  if(m.type==='frame'||m.type==='focus'){let r={};try{r=await (m.type==='frame'?frame():focus())}catch(err){r={error:String(err?.message||err)}}try{ws.send(JSON.stringify({type:'reply',id:m.id,...r}))}catch{}return}
+  if(m.type==='frame'||m.type==='focus'){const L=m.session?S.lanes.get(String(m.session)):S.last;let r={};try{r=L?await (m.type==='frame'?frame(L):focus(L)):{none:true}}catch(err){r={error:String(err?.message||err)}}try{ws.send(JSON.stringify({type:'reply',id:m.id,...r}))}catch{}return}
   if(m.type!=='command')return;
-  if(m.agent&&m.agent!==S.agent){S.agent=m.agent;renameGroup()}
-  const reply=r=>{if(S.inflight?.id===m.id)S.inflight=null;if(r.ignored)return;try{ws.send(JSON.stringify({type:'result',id:m.id,...r}))}catch{}};
-  const gate=blocked(m.action);if(gate)return reply({ok:false,error:gate});
-  const job={id:m.id,reply};S.inflight=job;if(m.action!=='controller.noop'&&S.mode!=='need')S.mode='work';
-  let r;try{r={ok:true,result:await act(m.action,m.arguments||{})}}catch(err){r={ok:false,error:String(err?.message||err)};if(!job.done&&m.action!=='controller.noop')setMode('fail',who()+' couldn’t '+VERB[m.action]+': '+forPerson(r.error))}
-  if(job.done)return;job.done=true;
-  if(r.ok&&!['need','fail'].includes(S.mode)&&m.action!=='controller.noop')setMode('work',who()+' is thinking…');
-  reply(r)};
+  const L=lane(m.session,{chat:m.chat,agent:m.agent});S.last=L;
+  const reply=r=>{if(L.inflight?.id===m.id)L.inflight=null;try{ws.send(JSON.stringify({type:'result',id:m.id,...r}))}catch{}};
+  const gate=blocked(L,m.action);if(gate)return reply({ok:false,error:gate});
+  const job={id:m.id,reply};L.inflight=job;
+  // one browser step at a time, so two chats never act at once
+  S.queue=S.queue.then(async()=>{if(job.done)return;if(m.action!=='controller.noop'&&L.mode!=='need')L.mode='work';
+   let r;try{r={ok:true,result:await act(L,m.action,m.arguments||{})}}catch(err){r={ok:false,error:String(err?.message||err)};if(!job.done&&m.action!=='controller.noop')setMode(L,'fail',who(L)+' couldn’t '+VERB[m.action]+': '+forPerson(r.error))}
+   if(job.done)return;job.done=true;
+   if(r.ok&&!['need','fail'].includes(L.mode)&&m.action!=='controller.noop')setMode(L,'work',who(L)+' is thinking…');
+   reply(r)}).catch(()=>{})};
  ws.onclose=()=>{clearInterval(S.alive);if(S.ws===ws)S.ws=null;paintIcon();
   // back again by itself: soon at first, then less often
   const wait=Math.min(30000,2000*2**S.retry++);setTimeout(connect,wait)};
  ws.onerror=()=>{}}
 
-// Stop, Take over and robot checks: the agent is told plainly, and nothing more runs until the person says so
-function blocked(action){
- if(S.mode==='control')return 'The person has taken over the browser. Stop using it now, and wait until they tell you in chat to continue.';
- if(Date.now()<S.blockUntil){S.blockUntil=Date.now()+20000;return S.blockWhy}
- if(S.mode==='need'&&action!=='browser_snapshot')return 'The person is still finishing the step you handed them in their browser. Wait until they tell you in chat that it is done.';
+// Stop, Take over and robot checks: the agent is told plainly, and nothing more runs in that chat until the person says so
+function blocked(L,action){
+ if(L.mode==='control')return 'The person has taken over the browser. Stop using it now, and wait until they tell you in chat to continue.';
+ if(Date.now()<L.blockUntil){L.blockUntil=Date.now()+20000;return L.blockWhy}
+ if(L.mode==='need'&&action!=='browser_snapshot')return 'The person is still finishing the step you handed them in their browser. Wait until they tell you in chat that it is done.';
  return null}
-function cutInflight(error){const j=S.inflight;if(!j||j.done)return;j.done=true;j.reply({ok:false,error})}
+function cutInflight(L,error){const j=L.inflight;if(!j||j.done)return;j.done=true;j.reply({ok:false,error})}
 const STOPPED='The person pressed Stop in their browser. Stop this task now: do not use the browser again in this turn. Tell them in one or two lines what you had done.';
 chrome.runtime.onMessage.addListener((m,sender,reply)=>{
- if(m&&m.aq){if(sender.tab?.id!==S.tab)return;
-  if(m.aq==='stop'){S.blockUntil=Date.now()+20000;S.blockWhy=STOPPED;cutInflight(STOPPED);setMode('idle-soon','Stopped. '+who()+' won’t use the browser until you ask again.')}
-  if(m.aq==='takeover'){cutInflight('The person has taken over the browser. Stop using it now, and wait until they tell you in chat to continue.');setMode('control','You’re in control. '+who()+' waits until you hand back.')}
-  if(m.aq==='handback'||m.aq==='continue'){S.blockUntil=0;setMode('idle-soon','Handed back. Tell '+who()+' in chat to carry on.')}
-  if(m.aq==='dismiss')setMode('idle');
+ if(m&&m.aq){const L=laneOfTab(sender.tab?.id);if(!L)return;
+  if(m.aq==='stop'){L.blockUntil=Date.now()+20000;L.blockWhy=STOPPED;cutInflight(L,STOPPED);setMode(L,'idle-soon','Stopped. '+who(L)+' won’t use the browser until you ask again.')}
+  if(m.aq==='takeover'){cutInflight(L,'The person has taken over the browser. Stop using it now, and wait until they tell you in chat to continue.');setMode(L,'control','You’re in control. '+who(L)+' waits until you hand back.')}
+  if(m.aq==='handback'||m.aq==='continue'){L.blockUntil=0;setMode(L,'idle-soon','Handed back. Tell '+who(L)+' in chat to carry on.')}
+  if(m.aq==='dismiss')setMode(L,'idle');
   return}
  if(m==='connect'){chrome.storage.local.remove('replaced').then(()=>{S.ws?.close();S.ws=null;S.retry=0;return connect()}).then(()=>reply(true));return true}
- if(m==='status'){chrome.storage.local.get('replaced').then(v=>reply({connected:online(),replaced:!!v.replaced,mode:S.mode,text:S.text,version:VERSION}));return true}});
+ if(m==='status'){chrome.storage.local.get('replaced').then(v=>{const t=top()||S.last;reply({connected:online(),replaced:!!v.replaced,mode:t?.mode||'idle',text:t?.text||'',chat:t?.chat||'',version:VERSION,
+  lanes:[...S.lanes.values()].filter(L=>L.tab).map(L=>({chat:L.chat,agent:L.agent,mode:L.mode}))})});return true}});
 
-// ---- the agent's own window and tab (kept across restarts of this extension) ----
-async function agentTab(){if(!S.tab)S.tab=(await chrome.storage.session.get('tab')).tab;
- if(S.tab){try{const t=await chrome.tabs.get(S.tab);
-  // an agent tab left alone in a window of its own (older versions opened one): bring it into the window you use
-  const win=S.panelWin||(await chrome.windows.getLastFocused({windowTypes:['normal']}).catch(()=>null))?.id;
-  if(win&&t.windowId!==win&&(await chrome.tabs.query({windowId:t.windowId})).length===1){await chrome.tabs.move(t.id,{windowId:win,index:-1});await chrome.tabs.update(t.id,{active:true});const n=await chrome.tabs.get(t.id);await group(n);return n}
-  return t}catch{}}
- // a new tab in the window you are using (the one with the side chat, if it is open), in a group named after the agent
- let win=S.panelWin;if(!win){try{win=(await chrome.windows.getLastFocused({windowTypes:['normal']})).id}catch{}}
- let tab;if(win){tab=await chrome.tabs.create({windowId:win,url:'about:blank',active:true})}
+// ---- a lane's tab group, in the window you are using (the one with the side chat, if it is open) ----
+const groupName=L=>'aqeelOS / '+(L.agent||'agent')+(L.chat?' · '+(L.chat.length>28?L.chat.slice(0,27)+'…':L.chat):'');
+async function nameGroup(L){if(L.group>0)try{await chrome.tabGroups.update(L.group,{title:groupName(L),color:'blue'})}catch{L.group=null}}
+async function intoGroup(L,tab){try{if(L.group>0){try{await chrome.tabGroups.get(L.group)}catch{L.group=null}}
+  if(L.group>0&&tab.windowId===(await chrome.tabGroups.get(L.group)).windowId)await chrome.tabs.group({tabIds:[tab.id],groupId:L.group});
+  else L.group=await chrome.tabs.group({tabIds:[tab.id],createProperties:{windowId:tab.windowId}});
+  await nameGroup(L)}catch{}save()}
+const useWin=async()=>S.panelWin||(await chrome.windows.getLastFocused({windowTypes:['normal']}).catch(()=>null))?.id;
+async function agentTab(L){
+ if(L.tab){try{const t=await chrome.tabs.get(L.tab);
+  // a tab the person dragged out of the group is theirs again
+  if(L.group>0&&t.groupId!==L.group){L.tab=null}else{
+   // an agent tab left alone in a window of its own (older versions opened one): bring it into the window you use
+   const win=await useWin();if(win&&t.windowId!==win&&(await chrome.tabs.query({windowId:t.windowId})).length===1){await chrome.tabs.move(t.id,{windowId:win,index:-1});await chrome.tabs.update(t.id,{active:true});const n=await chrome.tabs.get(t.id);await intoGroup(L,n);return n}
+   if(!(t.groupId>0))await intoGroup(L,t);return t}}catch{L.tab=null}}
+ // another tab still in the group (one the person dragged in): use that
+ if(L.group>0){const inG=await chrome.tabs.query({groupId:L.group}).catch(()=>[]);if(inG.length){L.tab=(inG.find(t=>t.active)||inG[0]).id;save();return chrome.tabs.get(L.tab)}}
+ const win=await useWin();let tab;if(win)tab=await chrome.tabs.create({windowId:win,url:'about:blank',active:true});
  else{const w=await chrome.windows.create({url:'about:blank',focused:true,width:1280,height:900});tab=w.tabs[0]}
- await group(tab);await useTab(tab.id);return tab}
-async function useTab(id){S.tab=id;await chrome.storage.session.set({tab:id})}
-const groupName=()=>'aqeelOS / '+(S.agent||'agent');
-async function group(tab){try{let g=tab.groupId;if(!(g>0))g=await chrome.tabs.group({tabIds:[tab.id],createProperties:{windowId:tab.windowId}});await chrome.tabGroups.update(g,{title:groupName(),color:'blue'})}catch{}}
-// another agent took over the tab: the group's name follows
-async function renameGroup(){const t=await current();if(t)group(t)}
-// a link that opens a new tab: the agent follows it there
-chrome.tabs.onCreated.addListener(t=>{if(S.tab&&t.openerTabId===S.tab)S.newTab=t.id});
-// a new page in the agent's tab: draw the layer again
-chrome.tabs.onUpdated.addListener((id,info)=>{if(id===S.tab&&info.status==='complete'&&S.mode!=='idle')pushLayer()});
+ L.tab=tab.id;await intoGroup(L,tab);return tab}
+// a link that opens a new tab: the chat follows it there, in its group
+chrome.tabs.onCreated.addListener(t=>{const L=laneOfTab(t.openerTabId);if(L)L.newTab=t.id});
+// you switch to another tab of a chat's group: that chat works there from now on
+chrome.tabs.onActivated.addListener(async({tabId})=>{const t=await chrome.tabs.get(tabId).catch(()=>null);if(!t||!(t.groupId>0))return;
+ const L=[...S.lanes.values()].find(x=>x.group===t.groupId);if(L&&L.tab!==tabId){L.tab=tabId;save();if(L.mode!=='idle')pushLayer(L)}});
+// a new page in a lane's tab: draw the layer again
+chrome.tabs.onUpdated.addListener((id,info)=>{const L=laneOfTab(id);if(L&&info.status==='complete'&&L.mode!=='idle')pushLayer(L)});
+chrome.tabs.onRemoved.addListener(id=>{const L=laneOfTab(id);if(L){L.tab=null;save()}});
 
 const loaded=(id,ms=30000)=>new Promise(ok=>{const t=setTimeout(done,ms);function done(){clearTimeout(t);chrome.tabs.onUpdated.removeListener(on);ok()}
  function on(tid,info){if(tid===id&&info.status==='complete')done()}chrome.tabs.onUpdated.addListener(on);chrome.tabs.get(id).then(t=>{if(t.status==='complete'&&ms<30000)done()}).catch(done)});
 // after a click or a key: follow a new tab, wait for a page that starts loading, then for the page to settle
-async function settle(){await new Promise(z=>setTimeout(z,350));
- if(S.newTab){const id=S.newTab;S.newTab=null;const old=S.tab;await useTab(id);try{const t=await chrome.tabs.get(id);await group(t)}catch{}await loaded(id,15000);layer(old,{mode:'idle'});pushLayer();return {new_tab:true}}
- const t=await chrome.tabs.get(S.tab).catch(()=>null);if(t?.status==='loading')await loaded(S.tab,15000);
- await inPage(quiet).catch(()=>{});return {}}
-const inPage=async(func,args=[],frameId=0)=>{const t=await agentTab();const [r]=await chrome.scripting.executeScript({target:{tabId:t.id,frameIds:[frameId]},func,args});return r?.result};
+async function settle(L){await new Promise(z=>setTimeout(z,350));
+ if(L.newTab){const id=L.newTab;L.newTab=null;const old=L.tab;L.tab=id;try{await intoGroup(L,await chrome.tabs.get(id))}catch{}await loaded(id,15000);layer(old,{mode:'idle'});pushLayer(L);return {new_tab:true}}
+ const t=await chrome.tabs.get(L.tab).catch(()=>null);if(t?.status==='loading')await loaded(L.tab,15000);
+ await inPage(L,quiet).catch(()=>{});return {}}
+const inPage=async(L,func,args=[],frameId=0)=>{const t=await agentTab(L);const [r]=await chrome.scripting.executeScript({target:{tabId:t.id,frameIds:[frameId]},func,args});return r?.result};
 // refs look like e12 (the page) or f5-e12 (a frame inside it)
 const parseRef=r=>{const s=String(r||'').replace(/^@/,'').replace(/^ref=/,'').trim();const m=/^f(\d+)-(e\d+)$/.exec(s);return m?{frame:+m[1],ref:m[2]}:{frame:0,ref:s}};
 const VERB={browser_navigate:'open the page',browser_snapshot:'read the page',browser_click:'click',browser_type:'type',browser_press:'press the key',browser_scroll:'scroll',browser_back:'go back',['controller.noop']:'connect'};
 
-async function act(action,a){
+async function act(L,action,a){
  if(action==='controller.noop')return {success:true};
  if(action==='browser_navigate'){let url=String(a.url||'');if(!/^[a-z]+:/i.test(url))url='https://'+url;if(!/^https?:/i.test(url))throw new Error('only web addresses (http or https) can be opened.');
-  setMode('work',who()+' is opening '+host(url));const t=await agentTab();const w=loaded(t.id);await chrome.tabs.update(t.id,{url});await w;
+  setMode(L,'work',who(L)+' is opening '+host(url));const t=await agentTab(L);const w=loaded(t.id);await chrome.tabs.update(t.id,{url});await w;
   const tab=await chrome.tabs.get(t.id);
-  try{await inPage(quiet)}catch(err){if(/error page/i.test(String(err?.message)))throw new Error('the page didn’t load ('+host(url)+'). The address may be wrong, the site may be down, or the internet is off.')}pushLayer();const snap=await snapshotAll(false);return {success:true,url:tab.url,title:tab.title,snapshot:snap.text,element_count:snap.count}}
- if(action==='browser_snapshot'){setMode('work',who()+' is reading the page');const snap=await snapshotAll(!!a.full);return {success:true,snapshot:snap.text,element_count:snap.count}}
- if(action==='browser_click'){const {frame,ref}=parseRef(a.ref);await setMode('work',who()+' is clicking');const r=await inPage(clickRef,[ref,state()],frame);if(!r?.ok)throw new Error(r?.error||'the click didn’t happen.');
-  const s=await settle();const tab=await chrome.tabs.get(S.tab);return {success:true,clicked:a.ref,...(s.new_tab?{note:'The click opened a new tab; you are in it now.',url:tab.url,title:tab.title}:{})}}
- if(action==='browser_type'){const {frame,ref}=parseRef(a.ref);await setMode('work',who()+' is typing');const r=await inPage(typeRef,[ref,String(a.text??''),state()],frame);if(!r?.ok)throw new Error(r?.error||'typing didn’t work.');return {success:true,typed:r.secret?'(hidden)':String(a.text??''),element:a.ref,...(r.chose?{chose:r.chose}:{})}}
- if(action==='browser_press'){setMode('work',who()+' is pressing '+(a.key||'Enter'));const r=await inPage(pressKey,[String(a.key||'Enter')]);const s=await settle();return {success:true,pressed:a.key,...r,...(s.new_tab?{note:'A new tab opened; you are in it now.'}:{})}}
- if(action==='browser_scroll'){setMode('work',who()+' is scrolling '+(a.direction==='up'?'up':'down'));await inPage(d=>window.scrollBy({top:(d==='up'?-1:1)*innerHeight*.8,behavior:'smooth'}),[a.direction]);await new Promise(z=>setTimeout(z,450));return {success:true,scrolled:a.direction}}
- if(action==='browser_back'){setMode('work',who()+' is going back');const t=await agentTab();const w=loaded(t.id);await chrome.tabs.goBack(t.id).catch(()=>{});await w;const tab=await chrome.tabs.get(t.id);pushLayer();return {success:true,url:tab.url,title:tab.title}}
+  try{await inPage(L,quiet)}catch(err){if(/error page/i.test(String(err?.message)))throw new Error('the page didn’t load ('+host(url)+'). The address may be wrong, the site may be down, or the internet is off.')}pushLayer(L);const snap=await snapshotAll(L,false);return {success:true,url:tab.url,title:tab.title,snapshot:snap.text,element_count:snap.count}}
+ if(action==='browser_snapshot'){setMode(L,'work',who(L)+' is reading the page');const snap=await snapshotAll(L,!!a.full);return {success:true,snapshot:snap.text,element_count:snap.count}}
+ if(action==='browser_click'){const {frame,ref}=parseRef(a.ref);await setMode(L,'work',who(L)+' is clicking');const r=await inPage(L,clickRef,[ref,state(L)],frame);if(!r?.ok)throw new Error(r?.error||'the click didn’t happen.');
+  const s=await settle(L);const tab=await chrome.tabs.get(L.tab);return {success:true,clicked:a.ref,...(s.new_tab?{note:'The click opened a new tab; you are in it now.',url:tab.url,title:tab.title}:{})}}
+ if(action==='browser_type'){const {frame,ref}=parseRef(a.ref);await setMode(L,'work',who(L)+' is typing');const r=await inPage(L,typeRef,[ref,String(a.text??''),state(L)],frame);if(!r?.ok)throw new Error(r?.error||'typing didn’t work.');return {success:true,typed:r.secret?'(hidden)':String(a.text??''),element:a.ref,...(r.chose?{chose:r.chose}:{})}}
+ if(action==='browser_press'){setMode(L,'work',who(L)+' is pressing '+(a.key||'Enter'));const r=await inPage(L,pressKey,[String(a.key||'Enter')]);const s=await settle(L);return {success:true,pressed:a.key,...r,...(s.new_tab?{note:'A new tab opened; you are in it now.'}:{})}}
+ if(action==='browser_scroll'){setMode(L,'work',who(L)+' is scrolling '+(a.direction==='up'?'up':'down'));await inPage(L,d=>window.scrollBy({top:(d==='up'?-1:1)*innerHeight*.8,behavior:'smooth'}),[a.direction]);await new Promise(z=>setTimeout(z,450));return {success:true,scrolled:a.direction}}
+ if(action==='browser_back'){setMode(L,'work',who(L)+' is going back');const t=await agentTab(L);const w=loaded(t.id);await chrome.tabs.goBack(t.id).catch(()=>{});await w;const tab=await chrome.tabs.get(t.id);pushLayer(L);return {success:true,url:tab.url,title:tab.title}}
  throw new Error('this browser can’t do '+action+' yet.')}
 const host=u=>{try{return new URL(u).hostname.replace(/^www\./,'')}catch{return u}};
-const state=()=>({mode:'work',agent:S.agent});
+const state=L=>({mode:'work',agent:L.agent,chat:L.chat});
 
 // the page and its frames as one list; a robot check on the page is handed to the person
-async function snapshotAll(full){const t=await agentTab();
+async function snapshotAll(L,full){const t=await agentTab(L);
  const res=await chrome.scripting.executeScript({target:{tabId:t.id,allFrames:true},func:snapshot,args:[full]}).catch(()=>[]);
- const top=res.find(r=>r.frameId===0)?.result||{text:'(This page can’t be read: it may be a browser page or still loading.)',count:0};let text=top.text,count=top.count,captcha=top.captcha;
+ const top0=res.find(r=>r.frameId===0)?.result||{text:'(This page can’t be read: it may be a browser page or still loading.)',count:0};let text=top0.text,count=top0.count,captcha=top0.captcha;
  for(const r of res){if(r.frameId===0||!r.result?.count||count>=500)continue;captcha||=r.result.captcha;
   text+='\n- frame "'+r.result.title+'"\n'+r.result.text.split('\n').slice(1).map(l=>'  '+l.replace(/\[ref=(e\d+)\]/g,'[ref=f'+r.frameId+'-$1]')).join('\n');count+=r.result.count}
- if(captcha||res.some(r=>r.result?.captchaFrame)){setMode('need',who()+' needs you: solve the “I’m not a robot” check, then press Done');
+ if(captcha||res.some(r=>r.result?.captchaFrame)){setMode(L,'need',who(L)+' needs you: solve the “I’m not a robot” check, then press Done');
   text+='\n\nNOTE: This page shows a robot check (CAPTCHA). Do not try to solve it. Tell the person in one line to solve it in their browser and press Done, then end your turn and wait for them.'}
  return {text,count}}
 
-async function current(){if(!S.tab)S.tab=(await chrome.storage.session.get('tab')).tab;if(!S.tab)return null;try{return await chrome.tabs.get(S.tab)}catch{return null}}
-async function frame(){const t=await current();if(!t)return {none:true};if(!t.active)return {inactive:true,url:t.url,title:t.title};
+async function current(L){if(!L?.tab)return null;try{return await chrome.tabs.get(L.tab)}catch{return null}}
+async function frame(L){const t=await current(L);if(!t)return {none:true};if(!t.active)return {inactive:true,url:t.url,title:t.title};
  const data=await chrome.tabs.captureVisibleTab(t.windowId,{format:'jpeg',quality:55});return {data,url:t.url,title:t.title}}
-async function focus(){const t=await current();if(!t)return {none:true};await chrome.windows.update(t.windowId,{focused:true});await chrome.tabs.update(t.id,{active:true});return {ok:true}}
+async function focus(L){const t=await current(L);if(!t)return {none:true};await chrome.windows.update(t.windowId,{focused:true});await chrome.tabs.update(t.id,{active:true});return {ok:true}}
 
 // ---- functions that run inside the page ----
 function quiet(){return new Promise(ok=>{let t=setTimeout(done,350);const end=setTimeout(done,2500);const mo=new MutationObserver(()=>{clearTimeout(t);t=setTimeout(done,350)});
@@ -199,5 +218,5 @@ chrome.runtime.onStartup.addListener(connect);chrome.runtime.onInstalled.addList
 chrome.alarms.create('keep',{periodInMinutes:1});chrome.alarms.onAlarm.addListener(connect);
 // Alt+A opens the side chat
 chrome.commands?.onCommand.addListener(async c=>{if(c==='open-chat'){const w=await chrome.windows.getCurrent();chrome.sidePanel.open({windowId:w.id}).catch(()=>{})}});
-chrome.storage.session.get(['mode','text']).then(v=>{if(v.mode&&v.mode!=='work'){S.mode=v.mode;S.text=v.text||''}paintIcon()}).catch(()=>{});
+restored.then(paintIcon);
 connect();

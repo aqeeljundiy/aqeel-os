@@ -32,7 +32,7 @@ const Screen={
     while this view is open and the page is visible. Take over brings that tab to the front. */
  // a Chrome that is linked but asleep (lid closed, Chrome in the background) answers nothing: after a few silent
  // tries it says so plainly instead of spinning on a broken picture
- mirror(){clearInterval(this._m);if(!this.open||this.src_!=='mine')return;let quiet=0,shown=false;const tick=async()=>{if(document.hidden||!$('#lbNote'))return;let f={};try{f=await call('','/ui/local-browser/frame')}catch{f={error:true}}
+ mirror(){clearInterval(this._m);if(!this.open||this.src_!=='mine')return;let quiet=0,shown=false;const tick=async()=>{if(document.hidden||!$('#lbNote'))return;let f={};try{f=await call('','/ui/local-browser/frame?session='+encodeURIComponent(Chat.id||'')+'&title='+encodeURIComponent(chatTitle(Chat.id)))}catch{f={error:true}}
    const img=$('#lbImg'),note=$('#lbNote'),bar=$('#lbBar');if(!note)return;
    if(!img.onerror)img.onerror=()=>{img.hidden=true;note.hidden=false;shown=false};
    const say=(html,btn)=>{img.hidden=true;note.hidden=false;shown=false;const h=html+(btn||'');if(note.dataset.h!==h){note.dataset.h=h;note.innerHTML=h}};
@@ -122,5 +122,5 @@ ACT['scr-src']=a=>{Screen.setSrc(a.dataset.v);paintTop()};
 // the two top-bar buttons: each opens the panel on its screen, or closes it when that screen is already showing
 const openScreen=v=>{if(Screen.open&&Screen.src_===v){Screen.toggle();return}Screen.src_=v;store.set('screenSrc',v);if(!Screen.open)Screen.toggle();else{Screen.paint(true);Screen.mirror();paintTop()}};
 ACT['screen-box']=()=>openScreen('box');ACT['screen-mine']=()=>openScreen('mine');
-ACT['lb-focus']=async()=>{try{const r=await post((p,o)=>call('',p,o),'/ui/local-browser/focus');if(r.offline)toast('Your browser isn’t connected','err');else if(r.none)toast('No agent tab yet','err');else toast('Brought to the front in Chrome')}catch(e){fail(e)}};
+ACT['lb-focus']=async()=>{try{const r=await post((p,o)=>call('',p,o),'/ui/local-browser/focus?session='+encodeURIComponent(Chat.id||''));if(r.offline)toast('Your browser isn’t connected','err');else if(r.none)toast('No agent tab yet','err');else toast('Brought to the front in Chrome')}catch(e){fail(e)}};
 ACT['lb-retry']=()=>{const n=$('#lbNote');if(n){n.dataset.h='';n.innerHTML='<span class="spinner"></span><span>Connecting to your browser…</span>'}Screen.mirror()};

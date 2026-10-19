@@ -23,6 +23,7 @@ root.innerHTML=`<style>
 .need .pill .ic{background:#fbbf24}.idle-soon .pill .ic{background:#9ca3af}.fail .pill .ic{background:#f87171}.control .pill .ic{background:#9ca3af}
 @keyframes spin{to{transform:rotate(360deg)}}
 .pill .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.pill .ch{flex:none;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:rgba(255,255,255,.55);font-size:12px;padding-left:10px;border-left:1px solid rgba(255,255,255,.18)}.pill .ch:empty{display:none}
 .pill button{flex:none;border:0;border-radius:999px;padding:6px 13px;font-size:12.5px;font-weight:600;cursor:pointer;background:rgba(255,255,255,.14);color:#fff;transition:background .15s}
 .pill button:hover{background:rgba(255,255,255,.24)}
 .pill button.w{background:#fff;color:#111}.pill button.w:hover{background:#e8e8e8}
@@ -36,12 +37,12 @@ root.innerHTML=`<style>
 @media (prefers-reduced-motion:reduce){.cur{transition:opacity .2s}.work .glow{animation:none}}
 </style><div class="w"><div class="glow"></div><div class="box"></div>
 <div class="cur"><svg viewBox="0 0 24 24" width="22" height="22"><path d="M4 2l16 9.5-7 1.6-3.6 6.6z" fill="#2563eb" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg><span></span></div>
-<div class="pill" role="status" aria-live="polite"><span class="ic"></span><span class="t"></span></div></div>`;
+<div class="pill" role="status" aria-live="polite"><span class="ic"></span><span class="t"></span><span class="ch" title="The chat this is for"></span></div></div>`;
 const W=root.querySelector('.w'),pill=root.querySelector('.pill'),txt=root.querySelector('.t'),cur=root.querySelector('.cur'),box=root.querySelector('.box');
 const attach=()=>{if(!host.isConnected)(document.body||document.documentElement).appendChild(host)};
 let pos=null,boxT=null;
 const BUTTONS={work:[['takeover','Take over'],['stop','Stop',1]],need:[['takeover','I’ll do it'],['continue','Done, continue',1]],fail:[['takeover','I’ll do it'],['dismiss','OK',1]],control:[['handback','Hand back',1]]};
-function set(s){attach();W.className='w '+(s.mode==='idle'?'':'on '+s.mode);txt.textContent=s.text||'';cur.querySelector('span').textContent=s.agent||'aqeelOS';
+function set(s){attach();W.className='w '+(s.mode==='idle'?'':'on '+s.mode);txt.textContent=s.text||'';root.querySelector('.ch').textContent=s.chat||'';cur.querySelector('span').textContent=s.agent||'aqeelOS';
  pill.querySelectorAll('button').forEach(b=>b.remove());
  for(const [id,label,white] of BUTTONS[s.mode]||[]){const b=document.createElement('button');b.textContent=label;if(white)b.className='w';
   b.onclick=e=>{e.stopPropagation();chrome.runtime.sendMessage({aq:id})};pill.appendChild(b)}
