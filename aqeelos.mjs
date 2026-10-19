@@ -2,7 +2,8 @@
 // Pairing: aqeelOS hands this app its own key through the page (no password typed here). The key lets the app's
 // runs reach the person's aqeelOS agents with all their abilities (aqeelos-mcp.mjs), and lets the app update itself.
 // Only the aqeelOS address this copy came from (aqeelos.json, written by the download) may show the app in a frame.
-import {readFile,writeFile,mkdir} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,access} from 'node:fs/promises';
+import {spawn} from 'node:child_process';
 import path from 'node:path';
 
 export function createAqeelos({root}){
@@ -31,4 +32,22 @@ export function createAqeelos({root}){
     if(j.job){const job=j.job;void (async()=>{let out;try{out=await work(job)}catch(e){out={state:'failed',text:e.message}}
      await fetch(link.base+'/ui/code/done',{method:'POST',headers:{authorization:'Bearer '+link.token,'content-type':'application/json'},body:JSON.stringify({id:job.id,...out})}).catch(()=>{})})()}}
    catch{await wait(15000)}}})()}
- return {origins,state,pair,unpair,mcp,agents,serve}}
+ /* Self-update (an installed app only, never a developer's git checkout): every 30 minutes it asks aqeelOS for the
+    current version; when it differs and no AI run is working, it fetches the new files, keeps its data, installs new
+    dependencies if the list changed, and exits; the starter (Windows) or launchd (Mac) brings it back up at once. */
+ let updating=false;
+ async function checkUpdate(busy){await load();if(updating||!link.token||!install.version||process.env.CBA_NO_UPDATE)return {state:'off'};if(await access(path.join(root,'.git')).then(()=>true,()=>false))return {state:'dev'};
+  const h={authorization:'Bearer '+link.token};const v=await fetch(link.base+'/ui/code/version',{headers:h,signal:AbortSignal.timeout(15000)}).then(r=>r.json()).catch(()=>({}));
+  if(!v.version||v.version===install.version)return {state:'current',version:install.version};if(busy())return {state:'waiting',version:v.version};
+  updating=true;try{const r=await fetch(link.base+'/ui/code/update',{headers:h,signal:AbortSignal.timeout(300000)});if(!r.ok)throw Error('aqeelOS answered '+r.status);const buf=Buffer.from(await r.arrayBuffer());
+   const before=await readFile(path.join(root,'package.json'),'utf8').catch(()=>'');let n=0;
+   for(const [name,data] of unzip(buf)){if(/^(data|node_modules|projects|outputs)\//.test(name)||name.includes('..'))continue;const to=path.join(root,name);await mkdir(path.dirname(to),{recursive:true});await writeFile(to,data);n++}
+   const after=await readFile(path.join(root,'package.json'),'utf8').catch(()=>'');const deps=s=>{try{const j=JSON.parse(s);return JSON.stringify([j.dependencies,j.optionalDependencies])}catch{return ''}};
+   if(deps(before)!==deps(after))await new Promise(res=>{const p=spawn(process.platform==='win32'?'npm.cmd':'npm',['install','--no-audit','--no-fund','--loglevel=error'],{cwd:root,shell:process.platform==='win32',stdio:'ignore'});p.on('exit',res);p.on('error',res)});
+   console.log('aqeelOS Code updated to '+v.version+' ('+n+' files); restarting');setTimeout(()=>process.exit(0),500);return {state:'updated',version:v.version}}
+  catch(e){updating=false;console.warn('update failed:',e.message);return {state:'failed',error:e.message}}}
+ function autoUpdate(busy){if(process.env.NODE_TEST_CONTEXT)return;const tick=()=>checkUpdate(busy).catch(()=>{});setTimeout(tick,120000).unref?.();setInterval(tick,1800000).unref?.()}
+ return {origins,state,pair,unpair,mcp,agents,serve,checkUpdate,autoUpdate}}
+// the entries of a stored (uncompressed) zip, as aqeelOS makes them
+function unzip(buf){const out=[];let i=0;while(i+30<=buf.length&&buf.readUInt32LE(i)===0x04034b50){const size=buf.readUInt32LE(i+18),nl=buf.readUInt16LE(i+26),xl=buf.readUInt16LE(i+28);
+  const name=buf.slice(i+30,i+30+nl).toString();const start=i+30+nl+xl;out.push([name,buf.slice(start,start+size)]);i=start+size}return out}

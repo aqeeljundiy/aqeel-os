@@ -246,6 +246,7 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
    // the first signed-in coding AI does it; if it fails (a busy sign-in, a limit), the next one tries once
    let run;for(const provider of ready.slice(0,2)){run=startAgent({projectId:p.id,chatId:c.id,provider,model:'',effort:'',mode:'auto',kind:'app',agent:job.agent,prompt:job.task});await run.finished;if(run.state!=='failed')break}
    return {state:run.state,text:run.result?.text||run.error||'',files:run.changed||[],chat:c.id}}});
+ aqeelos?.autoUpdate(()=>[...agents.values()].some(live));
  function startAgent(job){if(!PROVIDERS.includes(job.provider))throw Error('Choose a connected provider.');if([...agents.values()].filter(live).length>=4)throw Error('Four AI runs are already working. Wait for one to finish.')
   const run=new AgentRun(job);run.finished=new Promise(r=>run.done=r);agents.set(run.id,run);void runAgent(run);return run}
  async function addUserMessage(data){const chat=store.chat(data.projectId,data.chatId);await store.serialize(async()=>{chat.messages.push({role:'user',text:data.prompt.trim(),time:Date.now(),...(data.mode&&data.mode!=='single'?{mode:data.mode}:{}),...(Array.isArray(data.attachments)&&data.attachments.length?{attachments:data.attachments.map(a=>({id:a.id,name:a.name}))}:{})});if(chat.title==='New chat')chat.title=data.prompt.trim().slice(0,42);await store.persist()});return chat}
