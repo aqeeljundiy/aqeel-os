@@ -1433,3 +1433,17 @@ details.make-templates[open] .make-template-row{margin-top:8px;animation:arrive 
 .bf-list{display:grid;gap:2px;max-height:300px;overflow:auto;border:1px solid var(--border);border-radius:12px;padding:6px}
 .bf-item{display:flex;align-items:center;text-align:left;min-height:34px;padding:0 10px;border:0;border-radius:8px;background:transparent;box-shadow:none;font-size:13.5px;cursor:pointer}
 .bf-item:hover{background:var(--soft-2)}.bf-item.up{color:var(--muted)}
+
+/* Do a task: where it saves, in the chip */
+.kind-chip .kind-where{display:inline-flex;align-items:center;gap:6px;min-width:0;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
+.kind-chip .kind-change{width:auto!important;min-height:22px!important;height:22px;padding:0 8px!important;border-radius:var(--r-pill);font-size:12px;color:var(--blue)!important}
+.kind-chip .kind-change:hover{background:var(--blue-soft)!important}
+
+/* Do a task: where should it save */
+.ask-folder form{min-width:min(460px,88vw)}.af-place{display:grid;grid-template-columns:auto 1fr;column-gap:10px;align-items:center;padding:12px 14px;border:1px solid var(--border);border-radius:12px;background:var(--soft-2);margin:4px 0 14px}
+.af-place svg{grid-row:span 2;width:20px;height:20px;fill:none;stroke:var(--ink-2);stroke-width:1.8;stroke-linejoin:round}.af-name{font-weight:600;font-size:14px}.af-full{color:var(--muted);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kit-dialog.ask-folder,.kit-dialog.box-folders{width:min(480px,92vw);max-width:92vw;overflow:hidden}
+.ask-folder form,.box-folders form{min-width:0!important;width:100%}
+.ask-folder h2{white-space:normal;overflow-wrap:anywhere}
+.af-place{min-width:0}.af-place>span,.af-place>small{min-width:0}
+.kind-chip{max-width:100%;flex-wrap:nowrap;white-space:nowrap}.kind-chip>*{flex:none}.kind-chip .kind-where{flex:1 1 auto;max-width:none}
