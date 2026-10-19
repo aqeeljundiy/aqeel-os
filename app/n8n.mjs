@@ -7,7 +7,7 @@ import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import {randomBytes,randomUUID} from 'node:crypto';
 import path from 'node:path';
 
-export function createN8n({BASE='https://n8n.elkiya.com',DATA,setKey,restart,names}){
+export function createN8n({BASE='https://n8n.elkiya.com',DATA,setKey,restart,names,readConfig,removeMcp}){
  const FILE=path.join(DATA,'n8n.json');let db=null;
  const load=async()=>{if(db)return db;try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.base||=BASE;db.users||={};return db};
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE,JSON.stringify(db,null,1),{mode:0o600})};
@@ -52,7 +52,7 @@ export function createN8n({BASE='https://n8n.elkiya.com',DATA,setKey,restart,nam
    u=db.users[agent]={email,password,id,made:Date.now()};await save()}
   if(!u.mcp){const s=await login(u.email,u.password);let k=null;try{k=(await rest('/rest/mcp/api-key',{cookie:s.cookie})).data}catch{}
    if(!k?.apiKey)k=(await rest('/rest/mcp/api-key/rotate',{method:'POST',cookie:s.cookie})).data;
-   if(!k?.apiKey)throw new Error('n8n did not give an MCP key.');u.mcp=true;await save();
+   if(!k?.apiKey)throw new Error('n8n did not give an MCP key.');u.mcp=true;u.key=k.apiKey;await save();
    const r=await setKey(agent,'mcp_servers.n8n',{url:db.base+'/mcp-server/http',headers:{Authorization:'Bearer '+k.apiKey},enabled:true});if(!r.ok)throw new Error(r.err||'Could not connect the agent’s n8n tool');
    restart('n8n connected for '+names(agent))}
   return {email:u.email}}
@@ -71,5 +71,17 @@ catch(e){document.getElementById('m').textContent=e.message+'. Close this and op
   const u=k.agent==='__owner'?{email:db.ownerEmail,password:db.ownerPassword}:(await ensure(k.agent),db.users[k.agent]);const s=await login(u.email,u.password,String(bid||'').slice(0,100));
   // n8n's own cookie, for n8n's own address (this page is served there)
   return s.set.filter(c=>/^n8n-auth=/.test(c)).map(c=>c.replace(/;\s*domain=[^;]*/i,''))}
+ // an agent's n8n space can be opened to other agents: they get a second n8n tool (n8n-<space>) that acts as that space's
+ // user, so Pixel can run Donna's workflows. The space keeps one owner, the agent it was made for.
+ async function keyOf(a){const u=db.users[a];if(u?.key)return u.key;const c=await readConfig(a).catch(()=>null);const h=c?.mcp_servers?.n8n?.headers?.Authorization||'';const k=h.replace(/^Bearer\s+/,'');if(k&&u){u.key=k;await save()}return k}
+ const toolName=space=>'n8n-'+String(space).replace(/[^a-z0-9-]/gi,'').toLowerCase();
+ async function share(space,to,on){await load();const u=db.users[space];if(!u)throw new Error('That agent has no n8n yet.');if(to===space)throw new Error('The owner always has its own n8n.');
+  u.shared=(u.shared||[]).filter(x=>x!==to);
+  if(on){const k=await keyOf(space);if(!k)throw new Error('The n8n key of that space is missing.');const r=await setKey(to,'mcp_servers.'+toolName(space),{url:db.base+'/mcp-server/http',headers:{Authorization:'Bearer '+k},enabled:true});if(!r.ok)throw new Error(r.err||'Could not give access');u.shared.push(to)}
+  else await removeMcp(to,toolName(space));
+  await save();restart('n8n '+names(space)+(on?' shared with ':' taken from ')+names(to));return {ok:true}}
+ // every space: its owner, its n8n user, how many workflows it has, and who else may use it
+ async function spaces(){await load();const out=[];for(const [a,u] of Object.entries(db.users)){let n=null;try{const s=await login(u.email,u.password);const w=(await rest('/rest/workflows?take=200',{cookie:s.cookie})).data;n=Array.isArray(w)?w.length:(w?.count??null)}catch{}
+  out.push({agent:a,email:u.email,workflows:n,shared:u.shared||[]})}return out}
  const status=async agent=>{await load();return {ready:await ready(),base:db.base,user:db.users[agent]?{email:db.users[agent].email}:null,users:Object.fromEntries(Object.entries(db.users).map(([a,u])=>[a,u.email]))}};
- return {ready,setOwner,ensure,ticket,page,go,status}}
+ return {ready,setOwner,ensure,ticket,page,go,status,share,spaces}}

@@ -450,7 +450,7 @@ const channels=createChannels({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,lis
 const access=createAccess({HERMES_HOME,DATA,listAgents:()=>listAgents(),readConfig,setKey,hermes:hcmd,editEnv,names:a=>NAMES[a]||(a==='default'?'aqeelOS':a),writeJson:(f,v)=>writeJsonAtomic(f,v),restart:why=>restartGateway(why).catch(()=>{}),
  own:{n8n:{owner:'aqeelOS',note:'every agent has its own n8n user',grant:a=>n8n.ensure(a)}},
  dash:(method,p)=>fetch(DASH.origin+p,{method,headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(r=>r.json().catch(()=>({})))});
-const n8n=createN8n({BASE:N8N_URL,DATA,setKey,restart:why=>restartGateway(why).catch(()=>{}),names:a=>NAMES[a]||a});
+const n8n=createN8n({BASE:N8N_URL,readConfig,removeMcp:(a,name)=>fetch(DASH.origin+'/api/mcp/servers/'+encodeURIComponent(name)+'?profile='+encodeURIComponent(a),{method:'DELETE',headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(()=>true),DATA,setKey,restart:why=>restartGateway(why).catch(()=>{}),names:a=>NAMES[a]||a});
 const localBrowser=createLocalBrowser({DATA,GATE:GATE.origin,API_KEY,EXT_DIR:path.join(root,'extension'),NAMES,PUBLIC_URL});
 const links=createLinks({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,python:()=>sharing.python(),setupAgent:n=>setupAgentFn?.(n)});
 function listAgents(){return agentNames()}   // real agents only (a folder with a config), not extra-number copies
@@ -1110,6 +1110,10 @@ const server=createServer(async(req,res)=>{
     try{return send(res,200,await sharing.setOauthClient(String(b.agent||'default'),String(b.name||''),String(b.client_id||'').trim(),String(b.client_secret||'').trim(),MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(String(b.name||''))))}catch(e){return send(res,400,{error:e.message})}}
    // every agent's model and the account it runs on, for "All agents" on Agents' models
    if(p==='/ui/n8n/status'&&req.method==='GET'){const a=String(url.searchParams.get('agent')||'default');return send(res,200,await n8n.status(a))}
+   if(p==='/ui/n8n/spaces'&&req.method==='GET'){const mine=users.isAdmin(u)?null:new Set(Object.keys(users.byId(u.id)?.agents||{}));const l=(await n8n.spaces()).filter(x=>!mine||mine.has(x.agent));
+    return send(res,200,{spaces:l.map(x=>({...x,name:NAMES[x.agent]||x.agent,shared:x.shared.filter(a=>!mine||mine.has(a))})),agents:(await listAgents()).filter(a=>!mine||mine.has(a)).map(a=>({id:a,name:NAMES[a]||a})),canEdit:users.isAdmin(u)})}
+   if(p==='/ui/n8n/share'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can share an agent’s n8n.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
+    try{return send(res,200,await n8n.share(String(b.space||''),String(b.agent||''),!!b.on))}catch(e){return send(res,409,{error:e.message})}}
    if(p==='/ui/n8n/owner'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can connect n8n.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
     try{await n8n.setOwner(String(b.email||'').trim(),String(b.password||''));console.log('n8n: owner login saved');return send(res,200,{ok:true})}catch(e){return send(res,400,{error:e.message})}}
    if(p==='/ui/n8n/open'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const a=String(b.agent||'default');

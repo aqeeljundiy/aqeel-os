@@ -188,7 +188,7 @@ const SECTIONS=[
  {id:'automations',label:'Automations',icon:'zap',key:'3',pages:[
   {id:'schedules',label:'Schedules',icon:'clock',desc:'Prompts that run on a timetable and deliver the result where you want it.'},
   {id:'webhooks',label:'Webhooks',icon:'hook',desc:'Let other services trigger aqeelOS with an event.'},
-  {id:'n8n',label:'n8n',icon:'layers',desc:'Each agent’s own n8n, for workflows it builds and runs. Opens without signing in.'},
+  {id:'n8n',label:'n8n',icon:'layers',desc:'Every agent’s n8n space: who owns it, who can use it. Opens without signing in.'},
   {id:'kanban',label:'Task board',icon:'list',desc:'Tasks your agents pick up and work through on their own.'}]},
  {id:'channels',label:'Channels',icon:'radio',key:'4',pages:[
   {id:'channels',label:'Channels',icon:'radio',desc:'Talk to your agents on WhatsApp, Telegram, Slack and more, and choose who may message them.'}]},

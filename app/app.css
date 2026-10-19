@@ -1298,3 +1298,4 @@ html.in-panel .composer-wrap{padding:0 10px 12px}
 .n8n-tab{display:inline-flex;align-items:center;gap:8px;padding:5px 12px 5px 6px;border-radius:999px;border:1px solid var(--border);background:var(--surface);font:inherit;font-size:13.5px;cursor:pointer;transition:background var(--t-fast),border-color var(--t-fast),color var(--t-fast)}
 .n8n-tab:hover{border-color:var(--blue-soft)}.n8n-tab.on{background:var(--blue-soft);border-color:transparent;color:var(--blue-deep);font-weight:600}
 .n8n-tab .acc-av{margin:0;box-shadow:none}.n8n-tab .ic{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:var(--soft)}.n8n-tab small{font-size:11px;color:var(--muted)}
+.n8n-row .act{display:flex;align-items:center;gap:10px}.n8n-row .ab-lbl{font-size:13px;color:var(--muted)}.n8n-row .acc-owner-name{min-width:90px}
