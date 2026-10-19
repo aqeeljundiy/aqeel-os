@@ -445,7 +445,12 @@ if(document.body.classList.contains('embed'))for(const [v,t,d] of [['ask','Ask m
  const bar=document.createElement('div');bar.className='web-tabs';$('preview-view').before(bar);
  const lead=document.createElement('div');lead.className='browser-tab preview-tab';const lb=document.createElement('button');lb.type='button';lb.className='browser-tab-open';lb.setAttribute('role','tab');lb.title='This project’s preview';
  const dot=document.createElement('i');dot.className='preview-dot';lb.append(dot,document.createElement('span'));lead.append(lb);lb.addEventListener('click',()=>openProject());
- const paintLead=()=>{lb.lastChild.textContent=project()?.name?'Preview · '+project().name:'Preview';lead.classList.toggle('on',!web);lb.setAttribute('aria-selected',String(!web));return lead};
+ // the project's own tab says Your app, and is there only when the project has something to preview (a site or a dev server)
+ let hasApp=true;
+ const paintLead=()=>{if(!hasApp)return null;lb.lastChild.textContent='Your app';lb.title='Preview of '+(project()?.name||'this project');lead.classList.toggle('on',!web);lb.setAttribute('aria-selected',String(!web));return lead};
+ const checkApp=async()=>{if(!projectId)return;try{const {files}=await api('/files?projectId='+projectId);hasApp=(files||[]).some(f=>/(^|\/)index\.html?$/i.test(f))||Boolean(devUrl)}catch{hasApp=true}
+  browserUI?.paint();if(!hasApp&&!web&&!$('preview-view').hidden)openWeb()};
+ {const rf=refreshFiles;refreshFiles=async(...a)=>{const r=await rf(...a);checkApp();return r}}
  const ensureBrowser=()=>{if(!browserUI){browserUI=createBrowserUI({attach:files=>composer.attach(files),insert:text=>insertMessage(text),container:()=>$('browser-view'),api:(r,b)=>api(r,b),token:()=>token,notify:t=>notify(t),visible:()=>!$('browser-view').hidden,watchWhenHidden:()=>true,
    lead:paintLead,leadActive:()=>!web,onTabOpen:()=>{if(!web)openWeb()},
    onAiActivity:()=>{if(!primed)return;if(!$('preview-view').hidden||!$('browser-view').hidden)openWeb();else $('preview-badge').hidden=false}});bar.append(browserUI.strip)}return browserUI};
