@@ -428,8 +428,8 @@ async function loadAgents(){try{const {agents}=await (await fetch('/api/aqeelos/
  sel.replaceChildren(new Option('No agent',''),...agents.map(a=>{const o=new Option(a.name,a.id);o.dataset.desc=a.apps.length||a.google?'With '+[...a.apps,...(a.google?['Google']:[])].slice(0,5).join(', '):'An aqeelOS agent';return o}));
  sel.options[0].dataset.desc='The coding AI on its own, with this project’s tools.';sel.closest('.model-pickers')?.classList.add('has-agents');aqAgents=agents;pickAgent()}catch{}}
 let aqAgents=[];
-function pickAgent(){const sel=$('agent-pick');if(!aqAgents.length)return;let v='';try{v=localStorage.getItem('cba-agent-'+projectId)??project()?.settings?.agent??''}catch{}if(![...sel.options].some(o=>o.value===v))v='';if(sel.value!==v){sel.value=v;sel.dispatchEvent(new Event('change'))}}
-$('agent-pick').addEventListener('change',()=>{try{localStorage.setItem('cba-agent-'+projectId,$('agent-pick').value)}catch{}});
+function pickAgent(){const sel=$('agent-pick');if(!aqAgents.length)return;let v='';try{v=localStorage.getItem('cba-agent2-'+projectId)??''}catch{}/* no agent unless you pick one: the coding AI asks the right agent itself when it needs that agent's access */if(![...sel.options].some(o=>o.value===v))v='';if(sel.value!==v){sel.value=v;sel.dispatchEvent(new Event('change'))}}
+$('agent-pick').addEventListener('change',()=>{try{localStorage.setItem('cba-agent2-'+projectId,$('agent-pick').value)}catch{}});
 {const sp=selectProject;selectProject=async(...a)=>{const r=await sp(...a);pickAgent();return r}}
 // the project list arrives after the agents on a fresh load: pick the project's agent once it is there
 {const rs=refreshState;let once=false;refreshState=async(...a)=>{const r=await rs(...a);if(!once&&projects?.length){once=true;pickAgent()}return r}}
