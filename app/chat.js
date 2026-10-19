@@ -63,12 +63,12 @@ const Chat={
   el.innerHTML=`<div class="chat"><div class="chat-scroll" id="scroll">${id?'<div class="thread" id="thread"><div class="skel" style="height:60px;width:60%;align-self:flex-end"></div><div class="skel" style="height:120px"></div></div>':this.emptyHtml()}</div><div id="secretSlot" class="secret-slot"></div>${this.composerHtml()}</div>`;Secrets.check();
   this.bindComposer();this.paintQueue();
   if(id){const c=(S.sessions||[]).find(x=>x.id===id),s=this.live[id];if(s&&(s.running||!c||!s.seenAt||(c.last_active||0)<=s.seenAt))this.paint();else this.loadHistory(id)}
-  else this.loadStarters();
+  // no starter suggestions on a new chat (removed 19 Oct at the owner's request)
  },
  emptyHtml(){if(S.me&&!S.me.admin&&!Object.keys(S.me.agents||{}).length)return `<div class="chat-empty"><div class="halo">${icon('user',28)}</div><h1>Welcome, ${esc(S.me.name)}</h1><p>No agents are shared with you yet. Ask the person who invited you to share one, then refresh this page.</p></div>`;
   const hi='Welcome to aqeelOS';
   return `<div class="chat-empty"><div class="halo">${avatarImg(30)}</div><h1>${hi}</h1><p>${S.me&&!S.me.admin?`What can <span class="agent-name">${esc(AGENT())}</span> help you with today?`:`What should <span class="agent-name">${esc(AGENT())}</span> work on? It runs on your AI box, so it keeps going when you close this tab.`}</p>
-  <div class="prompts" id="starters">${this.startersHtml(this.starters[S.profile||'default']||STARTER_DEFAULTS[S.me&&!S.me.admin?'member':'admin'])}</div></div>`},
+  </div>`},
  // Starter prompts come from the person's recent chats with this agent (server: starters.mjs); cached here per agent.
  starters:{},
  startersHtml(list){return (list||[]).map(([a,b])=>`<button class="card prompt" data-prompt="${esc(b)}"><b>${esc(a)}</b>${esc(b)}</button>`).join('')},
