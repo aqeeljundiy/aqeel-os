@@ -41,7 +41,7 @@ async function connect(){const {base,token}=await settings();if(!base||!token){p
   if(m.type==='unpaired'){await chrome.storage.local.remove('token');paintIcon();return}
   if(m.type==='frame'||m.type==='focus'){let r={};try{r=await (m.type==='frame'?frame():focus())}catch(err){r={error:String(err?.message||err)}}try{ws.send(JSON.stringify({type:'reply',id:m.id,...r}))}catch{}return}
   if(m.type!=='command')return;
-  if(m.agent)S.agent=m.agent;
+  if(m.agent&&m.agent!==S.agent){S.agent=m.agent;renameGroup()}
   const reply=r=>{if(S.inflight?.id===m.id)S.inflight=null;if(r.ignored)return;try{ws.send(JSON.stringify({type:'result',id:m.id,...r}))}catch{}};
   const gate=blocked(m.action);if(gate)return reply({ok:false,error:gate});
   const job={id:m.id,reply};S.inflight=job;if(m.action!=='controller.noop'&&S.mode!=='need')S.mode='work';
@@ -75,11 +75,16 @@ chrome.runtime.onMessage.addListener((m,sender,reply)=>{
 // ---- the agent's own window and tab (kept across restarts of this extension) ----
 async function agentTab(){if(!S.tab)S.tab=(await chrome.storage.session.get('tab')).tab;
  if(S.tab){try{return await chrome.tabs.get(S.tab)}catch{}}
- let tab;if(S.panelWin){tab=await chrome.tabs.create({windowId:S.panelWin,url:'about:blank',active:true});await group(tab)}
+ // a new tab in the window you are using (the one with the side chat, if it is open), in a group named after the agent
+ let win=S.panelWin;if(!win){try{win=(await chrome.windows.getLastFocused({windowTypes:['normal']})).id}catch{}}
+ let tab;if(win){tab=await chrome.tabs.create({windowId:win,url:'about:blank',active:true})}
  else{const w=await chrome.windows.create({url:'about:blank',focused:true,width:1280,height:900});tab=w.tabs[0]}
- await useTab(tab.id);return tab}
+ await group(tab);await useTab(tab.id);return tab}
 async function useTab(id){S.tab=id;await chrome.storage.session.set({tab:id})}
-async function group(tab){try{if(tab.groupId>0)return;const g=await chrome.tabs.group({tabIds:[tab.id],createProperties:{windowId:tab.windowId}});await chrome.tabGroups.update(g,{title:'aqeelOS agent',color:'blue'})}catch{}}
+const groupName=()=>'aqeelOS / '+(S.agent||'agent');
+async function group(tab){try{let g=tab.groupId;if(!(g>0))g=await chrome.tabs.group({tabIds:[tab.id],createProperties:{windowId:tab.windowId}});await chrome.tabGroups.update(g,{title:groupName(),color:'blue'})}catch{}}
+// another agent took over the tab: the group's name follows
+async function renameGroup(){const t=await current();if(t)group(t)}
 // a link that opens a new tab: the agent follows it there
 chrome.tabs.onCreated.addListener(t=>{if(S.tab&&t.openerTabId===S.tab)S.newTab=t.id});
 // a new page in the agent's tab: draw the layer again
