@@ -185,6 +185,8 @@ const SECTIONS=[
   {id:'profiles',label:'Agents',icon:'user',desc:'Each agent has its own name, picture, personality, model, skills, memory and chats.'},
   {id:'memory',label:'Memory',icon:'brain',desc:'What each agent remembers about you and its work, between chats.'},
   {id:'files',label:'Files',icon:'folder',desc:'Files on the AI box that your agents work with.'}]},
+ {id:'code',label:'Code',icon:'terminal',key:'8',pages:[
+  {id:'code',label:'Code',icon:'terminal',desc:'Build apps, websites, decks, docs and designs with your agents, a live preview and a guarded browser. Runs in the aqeelOS Code app on this computer.'}]},
  {id:'automations',label:'Automations',icon:'zap',key:'3',pages:[
   {id:'schedules',label:'Schedules',icon:'clock',desc:'Prompts that run on a timetable and deliver the result where you want it.'},
   {id:'webhooks',label:'Webhooks',icon:'hook',desc:'Let other services trigger aqeelOS with an event.'},
@@ -244,6 +246,7 @@ function sidebar(r){
  const sections=SECTIONS.map(s=>`<button class="sec ${s.id===sec.id?'on':''}" data-go="/${s.id}" title="${s.label} (${MOD}+${s.key})" aria-current="${s.id===sec.id?'page':'false'}">${icon(s.icon,19)}<span class="label">${s.label}</span><span class="kbd">${MOD} ${s.key}</span></button>`).join('');
  let sub='';
  if(sec.id==='chat')sub=Chat.sidebar(r);
+ else if(sec.id==='code'&&typeof CodeUI!=='undefined')sub=CodeUI.sidebar(r);
  else sub=`<div class="side-sub"><div class="side-sub-head"><span class="th">${sec.label}</span></div><div class="side-list">${sec.pages.map(p=>`<button class="item ${r.page.id===p.id?'on':''}" data-go="/${sec.id}/${p.id}">${icon(p.icon,16)}<span class="t">${p.label}</span></button>`).join('')}</div></div>`;
  const st=S.status;const gw=st?(st.gateway_running?'Online':'Offline'):'Connecting…';
  return `<div class="resizer side-rz" data-drag="side" title="Drag to resize · double-click to reset"></div><div class="side-top"><span class="wordmark"><img class="mark" src="/assets/elkiya-mark.svg" alt=""><span>aqeelOS</span></span><button class="ghost icon collapse-btn" data-act="collapse" title="Collapse sidebar (${MOD}+B)" aria-label="Collapse sidebar">${icon('panel',18)}</button></div>

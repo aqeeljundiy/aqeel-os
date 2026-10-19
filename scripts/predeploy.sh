@@ -10,7 +10,7 @@ cd "$(dirname "$0")/.."
 # the My browser check (slow: it makes a throwaway agent) runs only when the browser parts changed since the last deploy
 last=$(node -e "try{const l=require('./data/deploys.json');console.log(l[l.length-1].commit||'')}catch{}")
 MB=1;if [ -n "$last" ] && ! git diff --name-only "$last" HEAD -- app/localbrowser.mjs app/screen.js app/chat.js extension scripts/mybrowser-check.mjs 2>/dev/null | grep -q .; then MB=0;fi
-tar --force-local -czf ../hui-check.tgz app assets backlog data engine extension mockup scripts PRD.md
+tar --force-local -czf ../hui-check.tgz app assets backlog data engine extension mockup scripts code-installer PRD.md
 scp -q ../hui-check.tgz ai-vps:/tmp/hui-check.tgz && rm ../hui-check.tgz
 ssh ai-vps "MB=$MB bash -s" <<'BOX'
 set -e

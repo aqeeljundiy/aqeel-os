@@ -1303,3 +1303,20 @@ html.in-panel .composer-wrap{padding:0 10px 12px}
 .n8n-row .n8n-owner{display:inline-flex;align-items:center;gap:8px;white-space:nowrap}.n8n-row .n8n-owner .acc-av{margin:0;box-shadow:none}.n8n-row .n8n-owner b{font-weight:600;font-size:14px}
 .n8n-row .acc-btn{justify-self:start}
 @media (max-width:900px){.n8n-row{flex-wrap:wrap}.n8n-row .act{grid-template-columns:1fr auto auto;width:100%}.n8n-row .acc-btn{display:none}}
+/* Code: the aqeelOS Code app fills the main area */
+.page.page-full{padding:0;max-width:none;height:calc(100dvh - 60px)}.page.page-full>.page-head{display:none}.page.page-full #pg{height:100%}
+.code-host{position:relative;height:100%;background:var(--bg)}
+.code-frame{border:0;width:100%;height:100%;display:block;animation:lbUp var(--t-med) var(--ease) both}
+.code-wait{position:absolute;inset:0;display:grid;place-items:center;align-content:center;gap:10px;color:var(--muted);font-size:14px}
+.code-lock{max-width:620px;margin:60px auto;padding:30px 32px;text-align:left;animation:lbUp var(--t-med) var(--ease) both}
+.code-lock-ic{width:52px;height:52px;border-radius:16px;display:grid;place-items:center;background:var(--blue-soft);color:var(--blue-deep);margin:0 0 14px}
+.code-lock h2{margin:0 0 8px;font-size:20px}.code-lock>p{color:var(--ink-2);margin:0 0 18px}
+.code-dl{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 18px}.code-dl .btn{display:inline-flex;align-items:center;gap:8px;text-decoration:none;padding:10px 18px;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--ink);font-weight:600}
+.code-dl .btn.primary{background:var(--blue,#2563eb);border-color:transparent;color:#fff}
+.code-steps{margin:0 0 14px;padding-left:20px;color:var(--ink-2);font-size:14px}.code-steps li{margin:4px 0}
+.code-retry{display:flex;align-items:center;gap:8px;margin:0}
+.spinner.tiny{width:12px;height:12px;border-width:2px;display:inline-block;flex:none}
+.code-filter{display:flex;gap:4px;margin:0 12px 8px;padding:3px;background:var(--soft-2);border-radius:999px}.code-filter button{flex:1;border:0;background:none;border-radius:999px;font:inherit;font-size:13px;padding:5px 0;min-height:0;color:var(--ink-2);cursor:pointer;transition:background var(--t-fast)}.code-filter button.on{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:var(--shadow-card)}
+.code-tree .code-p{gap:6px}.code-tree .code-chats{padding-left:22px;animation:lbUp var(--t-fast) var(--ease) both}.code-tree .code-c{font-size:13.5px}.code-tree .code-c.on{background:var(--blue-soft);color:var(--blue-deep)}
+.code-foot{padding:8px 12px;border-top:1px solid var(--border)}
+@media (max-width:760px){.page.page-full{height:auto}.code-lock{margin:20px 16px}}
