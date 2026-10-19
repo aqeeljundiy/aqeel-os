@@ -570,7 +570,10 @@ if(document.body.classList.contains('embed')){
   const opts=modelOpts();const cur=$('model-name').value;const other=opts.find(o=>o[0].split(':')[0]!==cur.split(':')[0])||opts.find(o=>o[0]!==cur)||opts[0];
   let b;[b,buildSel]=selFrom('Builds',opts,(buildSel&&opts.some(o=>o[0]===buildSel.value))?buildSel.value:other?.[0]);
   const ag=[...$('agent-pick').options].filter(o=>o.value).map(o=>[o.value,o.textContent]);let im;[im,imgSel]=selFrom('Images',[['','No images'],...ag],imgSel?.value||'');
-  teamRow.append(plans,b,im)};
+  teamRow.append(plans,b,im);
+  const o=$('model-name').selectedOptions[0],pv=o?.value.split(':')[0];const planName=pillText()+' · '+(PROV[pv]||pv||'');plans.querySelector('b').textContent=planName;
+  const hint=()=>{const bn=buildSel.selectedOptions[0]?.textContent||'another model';const img=imgSel.value?' '+imgSel.selectedOptions[0].textContent+' makes the images.':'';$('composer-hint').textContent=planName+' plans, '+bn+' builds it, then '+planName+' checks it.'+img+' Approvals still apply.'};
+  buildSel.addEventListener('change',hint);imgSel.addEventListener('change',hint);hint()};
  window.__teamBuilder=()=>{if(!buildSel)return null;const [prov,id]=buildSel.value.split(':');return {provider:prov,model:id||'',effort:''}};
  window.__teamImages=()=>imgSel?.value?(imgSel.selectedOptions[0]?.textContent||imgSel.value):'';
  document.querySelector('.composer-controls').before(teamRow);
