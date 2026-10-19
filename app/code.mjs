@@ -60,4 +60,8 @@ export function createCode({DATA,SRC,PUBLIC_URL,ROOT}){
   if(os==='windows'){files.push(['aqeelOS Code/Install aqeelOS Code.cmd',await tpl('install.cmd')],['aqeelOS Code/install.ps1',await tpl('install.ps1')],['aqeelOS Code/uninstall.ps1',await tpl('uninstall.ps1')])}
   else files.push(['aqeelOS Code/Install aqeelOS Code.command',await tpl('install.command'),true],['aqeelOS Code/Uninstall aqeelOS Code.command',await tpl('uninstall.command'),true]);
   return zip(files.map(f=>f.length===3?f:[f[0],f[1],/\.(command|sh)$/.test(f[0])]))}
- return {pair,who,devices,unpair,version,update,download,poll,done,projectsFor,work}}
+ const UFILE=path.join(DATA,'code-usage.json');let ub=null;const day=()=>new Date().toISOString().slice(0,10);
+ const uload=async()=>{if(!ub){try{ub=JSON.parse(await readFile(UFILE,'utf8'))}catch{ub={}}}if(ub.day!==day())ub={day:day(),u:{}};return ub};
+ async function usedToday(uid){await uload();return ub.u[uid]||0}
+ async function addUsage(uid,tokens){await uload();ub.u[uid]=(ub.u[uid]||0)+Math.max(0,Number(tokens)||0);await writeFile(UFILE,JSON.stringify(ub)).catch(()=>{})}
+ return {usedToday,addUsage,pair,who,devices,unpair,version,update,download,poll,done,projectsFor,work}}

@@ -34,7 +34,14 @@ const CodeUI={where:(()=>{try{return localStorage.getItem('aq-code-where')||'com
  beat(){clearInterval(this.hb);this.hb=setInterval(()=>{const el=this.frame?.closest('#pg');if(!el?.isConnected||route().sec?.id!=='code'){clearInterval(this.hb);return}
    if(this.state==='on'&&Date.now()-(this.seen||0)>25000){clearInterval(this.hb);this.state='wait';this.paintSide();this.page(null,el)}else this.post({aq:'ping'})},10000)},
  lock(el){if(!el.isConnected||route().sec?.id!=='code')return;this.state='lock';this.paintSide();const mac=/Mac/i.test(navigator.platform||navigator.userAgent);
-  el.querySelector('.code-host').innerHTML=`<div class="code-lock card">
+  let seen=false;try{seen=localStorage.getItem('aq-code-seen')==='1'}catch{}
+  el.querySelector('.code-host').innerHTML=seen?`<div class="code-lock card">
+   <span class="code-lock-ic">${icon('terminal',26)}</span><h2>aqeelOS Code isn’t running on this computer</h2>
+   <p>It is installed here but not answering: the computer may have just started or woken up, or the app was closed.</p>
+   <ol class="code-steps"><li>${mac?'It starts by itself when you log in to your Mac. If it doesn’t, run the installer from the download again: it starts it and keeps your projects.':'Open the <b>Start menu</b> and choose <b>aqeelOS Code</b>.'}</li><li>Code opens here by itself as soon as it answers.</li></ol>
+   <p class="code-perm hint" hidden></p>
+   <p class="hint code-retry"><span class="spinner tiny"></span>Waiting for the app…</p>
+   <details class="code-new"><summary>Not installed on this computer?</summary><div class="code-dl"><a class="btn" href="/ui/code/download/windows" download>${icon('download',16)}Download for Windows</a><a class="btn" href="/ui/code/download/mac" download>${icon('download',16)}Download for Mac</a></div></details></div>`:`<div class="code-lock card">
    <span class="code-lock-ic">${icon('terminal',26)}</span><h2>Code needs the aqeelOS Code app on this computer</h2>
    <p>Code builds apps, websites, decks, docs and designs with a live preview and its own guarded browser, using your agents and everything connected to aqeelOS. It runs on your own computer, so install it once.</p>
    <div class="code-dl"><a class="btn ${mac?'':'primary'}" href="/ui/code/download/windows" download>${icon('download',16)}Download for Windows</a><a class="btn ${mac?'primary':''}" href="/ui/code/download/mac" download>${icon('download',16)}Download for Mac</a></div>
@@ -51,7 +58,7 @@ const CodeUI={where:(()=>{try{return localStorage.getItem('aq-code-where')||'com
   clearTimeout(this.timer);this.timer=setTimeout(()=>{if(route().sec?.id==='code'&&this.state==='lock')this.page(null,el.closest('#pg')||el)},6000)},
  async onMessage(e){if(!this.app||e.origin!==this.app||!e.data?.cba)return;const m=e.data;
   if(m.type==='pong'){this.seen=Date.now();return}
-  if(m.type==='hello'){clearTimeout(this.timer);this.state='on';this.seen=Date.now();this.beat();this.st={projects:m.projects||[],project:m.project,chat:m.chat};
+  if(m.type==='hello'){try{if(this.where!=='online')localStorage.setItem('aq-code-seen','1')}catch{}clearTimeout(this.timer);this.state='on';this.seen=Date.now();this.beat();this.st={projects:m.projects||[],project:m.project,chat:m.chat};
    const f=this.frame;if(f){f.hidden=false;f.closest('.code-host')?.querySelector('.code-wait')?.remove()}
    this.post({aq:'theme',dark:document.documentElement.classList.contains('dark')});this.post({aq:'lang',lang:(typeof Lang!=='undefined'&&Lang.cur)||'en'});
    if(!m.paired&&this.where!=='online'){try{const r=await post(UI,'/ui/code/pair',{name:(/Mac/i.test(navigator.platform)?'Mac':/Win/i.test(navigator.platform)?'Windows PC':'Computer')+(()=>{const b=navigator.userAgentData?.brands?.find(b=>/Chrome|Edge/.test(b.brand))?.brand;return b?' · '+b:''})()});this.post({aq:'pair',token:r.token,base:location.origin})}catch(er){fail(er)}}

@@ -72,7 +72,7 @@ const Lang={
   // logs and plugin sources: module names, the engine folder (~/.aqeelos/aqeelos-agent is a real link) and repositories
   .replace(/\bhermes_(?=[a-z])/g,'aqeelos_').replace(/\/hermes-agent(?=\/|\s|$|['")])/g,'/aqeelos-agent').replace(/NousResearch\/hermes-official-plugins/g,'Official plugins').replace(/(\w)\/hermes-(?=[\w-])/g,'$1/')},
  run(root){if(!root)return;const id=this.cur==='id';
-  const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,{acceptNode:n=>n.parentElement?.closest('.thread,textarea,[contenteditable],pre,code,.pv-doc,.pv-code,[data-raw]')?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT});
+  const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,{acceptNode:n=>n.parentElement?.closest('.thread,textarea,[contenteditable],pre,code,.pv-doc,.pv-code,[data-raw],.fwrap')?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT});
   for(let n;(n=w.nextNode());){const v=n.nodeValue;if(!v||!v.trim())continue;let t=/hermes|nous research/i.test(v)?this.brand(v):v;if(id&&!n.parentElement?.closest('[data-notr],.msg,pre,code,.log,.action-log')&&this.known(t))t=this.t(t);if(t!==v)n.nodeValue=t}
   (root.querySelectorAll?root:document).querySelectorAll('[placeholder],[title],[aria-label]').forEach(e=>{if(e.closest('textarea,[contenteditable]'))return;for(const k of ['placeholder','title','aria-label']){const v=e.getAttribute(k);if(!v)continue;let t=/hermes|nous research/i.test(v)?this.brand(v):v;if(id&&this.known(t))t=this.t(t);if(t!==v)e.setAttribute(k,t)}})},
  start(){if(this.cur==='id')document.documentElement.lang='id';let q=false;

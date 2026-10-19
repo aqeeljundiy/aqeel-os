@@ -49,6 +49,9 @@ copy /y "%~dp0uninstall.ps1" "%TEMP%\aqeelos-code-uninstall.ps1" >nul
 powershell -NoProfile -ExecutionPolicy Bypass -File "%TEMP%\aqeelos-code-uninstall.ps1"
 pause
 "@ | Set-Content -Encoding ASCII $un
+$menu = Join-Path ([Environment]::GetFolderPath('Programs')) 'aqeelOS Code.lnk'
+$sm = (New-Object -ComObject WScript.Shell).CreateShortcut($menu)
+$sm.TargetPath = 'wscript.exe'; $sm.Arguments = '"' + $vbs + '"'; $sm.WorkingDirectory = $dest; $sm.Description = 'Start aqeelOS Code (it runs in the background and opens in aqeelOS)'; $sm.Save()
 Start-Process wscript.exe -ArgumentList ('"' + $vbs + '"')
 
 # 4. The coding tools it found (each is optional; sign in to them once)

@@ -1,0 +1,22 @@
+# Waiting for GitHub permission: copy this to .github/workflows/uptime.yml once the GitHub sign-in may change workflows (gh auth refresh -s workflow).
+# Is aqeelOS up? Checked from outside the server every 30 minutes (a server that is off cannot report itself).
+# If ai.elkiya.com does not answer three times in a row, this run fails and GitHub emails the repo owner.
+# Every 30 minutes keeps it inside GitHub's free minutes for private repositories.
+name: aqeelOS uptime
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: ai.elkiya.com answers
+        run: |
+          for i in 1 2 3; do
+            if curl -fsS --max-time 20 https://ai.elkiya.com/healthz >/dev/null; then echo "aqeelOS is up"; exit 0; fi
+            echo "no answer (try $i)"; sleep 20
+          done
+          echo "::error::aqeelOS (ai.elkiya.com) is not answering. Check the Contabo panel: if the server says Stopped, start it."
+          exit 1

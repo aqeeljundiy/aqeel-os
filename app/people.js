@@ -103,6 +103,7 @@ ACT['me-profile']=()=>{const me=S.me||{};
   <h3 class="prof-h">Email</h3><label>Email address</label><div class="row-in"><input id="pfMail" type="email" value="${esc(me.email||'')}" placeholder="you@example.com" autocomplete="email"><span class="chip ${me.email?(me.emailVerified?'ok':'warn'):''}" id="pfMailState">${me.email?(me.emailVerified?'Confirmed':'Not confirmed'):'None'}</span></div>
   <div id="pfVerify" ${me.email&&!me.emailVerified?'':'hidden'}><label>Code from the email</label><div class="row-in"><input id="pfCode" inputmode="numeric" maxlength="6" placeholder="123456" autocomplete="one-time-code"><button id="pfCodeGo">Confirm</button><button class="ghost" id="pfResend">Send again</button></div><p class="hint" style="margin:4px 0 0">Check spam too. Codes work for 10 minutes.</p></div>
   <label style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px">Ask for an email code when I sign in ${toggle(!!me.twoStep,'Two-step sign-in','id="pf2s" '+(me.emailVerified?'':'disabled'))}</label>
+  <h3 class="prof-h">Devices</h3><p class="hint" style="margin:0 0 8px">Signed in on a computer or phone you no longer use?</p><button class="ghost" data-act="sign-out-all">${icon('logout',15)}Sign out on every device</button>
   <h3 class="prof-h">Password</h3><label>Current password</label><input id="pwC" type="password" autocomplete="current-password"><label>New password</label><input id="pwN" type="password" autocomplete="new-password" placeholder="At least 8 characters">
   <p class="hint" style="margin:6px 0 0">Leave both empty to keep your password.</p>`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="pfGo">Save</button>`);
  const pick=d.querySelector('#pfFile');d.querySelector('#pfPic').onclick=()=>pick.click();
@@ -756,3 +757,5 @@ ACT['hist-more']=async a=>{const id=Chat.id;if(!id)return;a.disabled=true;a.inne
 // People › Share an agent / Change: the agent's own sharing window (one place to change sharing)
 ACT['ppl-share-open']=a=>ACT['agent-share'](a.dataset.a);
 ACT['ppl-share']=a=>{const list=(Pages._agents||[]).filter(n=>!n.includes('--'));menu(a,[{header:'Share which agent?'},...list.map(n=>({label:ident(n).name,icon:'user',run:()=>ACT['agent-share'](n)}))],{matchWidth:true})};
+
+ACT['sign-out-all']=()=>signOutAll();

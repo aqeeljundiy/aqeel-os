@@ -457,6 +457,12 @@ const code=createCode({DATA,SRC:path.join(homedir(),'apps','aqeel-code'),PUBLIC_
 // the box's own Code copy (online projects) is paired with this aqeelOS by itself, and again if its key is lost
 if(LIVE_APP)setTimeout(async()=>{try{const f=path.join(homedir(),'apps','aqeel-code','data','aqeelos.json');let l={};try{l=JSON.parse(await readFile(f,'utf8'))}catch{}if(l.token&&await code.who(l.token))return;
  const token=await code.pair('owner','AI box · online');await mkdir(path.dirname(f),{recursive:true});await writeFile(f,JSON.stringify({base:'http://127.0.0.1:'+PORT,token,user:'Aqeel',pairedAt:Date.now()},null,1),{mode:0o600});console.log('code: paired the online copy')}catch(e){console.warn('code: online pairing',e.message)}},8000).unref();
+// After the server was off: tell the owner on the main agent's channel how long (it cannot report while it is off;
+// a check from outside, .github/workflows/uptime.yml, emails while it is down). A heartbeat every minute marks it alive.
+if(LIVE_APP){const HB=path.join(DATA,'heartbeat.json');readFile(HB,'utf8').then(t=>JSON.parse(t).t||0).catch(()=>0).then(last=>{const beat=()=>writeFile(HB,JSON.stringify({t:Date.now()})).catch(()=>{});beat();setInterval(beat,60000).unref();
+ const gap=Date.now()-last;if(!last||gap<5*60e3)return;setTimeout(async()=>{try{const ch=await relay.channelsFor('default');const c=ch.find(x=>x.platform==='whatsapp')||ch[0];if(!c)return;
+  const at=t=>new Date(t).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Jakarta'}),mins=Math.round(gap/60000);
+  await relay.sendAs('default',c.owner,c.platform,'aqeelOS was off from about '+at(last)+' to '+at(Date.now())+' (Jakarta time, '+mins+' min). It is running again.',null,{toYou:true});console.log('told the owner about '+mins+' min off')}catch(e){console.warn('downtime note:',e.message)}},120000).unref()})}
 const codeOnline=createCodeOnline({SECRET,SECURE:SECURE_COOKIE,users:()=>users,HOST:env.CODE_HOST||'code.elkiya.com',PREVIEW_HOST:env.CODE_PREVIEW_HOST||'code-preview.elkiya.com',HOME:PUBLIC_URL||'https://ai.elkiya.com'});
 const localBrowser=createLocalBrowser({DATA,GATE:GATE.origin,API_KEY,EXT_DIR:path.join(root,'extension'),NAMES,PUBLIC_URL});
 const links=createLinks({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,python:()=>sharing.python(),setupAgent:n=>setupAgentFn?.(n)});
@@ -724,7 +730,7 @@ async function hermesCall(req,res,u,url){
  // a member's message: within their daily limit, and only on models they may use
  const chatM=/^\/gapi(?:\/p\/[^/]+)?\/api\/sessions\/([^/]+)\/chat\/stream$/.exec(p);
  if(chatM&&!users.isAdmin(u)&&req.method==='POST'){
-  const lim=users.limitOf(u);if(lim?.tokens){const t=await usage.today(await listAllProfiles(),u.id,users.ownerOf);if(t.tokens>=lim.tokens)return send(res,429,{error:'You reached today\'s limit. It resets at midnight.'})}
+  const lim=users.limitOf(u);if(lim?.tokens){const t=await usage.today(await listAllProfiles(),u.id,users.ownerOf);if(t.tokens+await code.usedToday(u.id)>=lim.tokens)return send(res,429,{error:'You reached today\'s limit. It resets at midnight.'})}
   const allowed=users.allowedModels(u);if(allowed){let b={};try{b=JSON.parse((await readRaw(req,40e6)).toString('utf8'))}catch{}
    if(b.model){if(!users.modelOk(u,b.provider||'',b.model))return send(res,403,{error:'You can\'t use that model. Ask the owner.'})}
    else{const d=await agentModel(agent);if(!users.modelOk(u,d.provider,d.model)){const [pv,...m]=String(allowed[0]).split('|');if(m.length){b.provider=pv;b.model=m.join('|')}else b.model=pv}}
@@ -935,10 +941,13 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/code/agents'){const out=[];for(const a of await listAgents()){if(!mine(a)||await isTestAgent(a))continue;const c=await readConfig(a).catch(()=>null)||{};out.push({id:a,name:NAMES[a]||await displayName(a),apps:Object.keys(c.mcp_servers||{}).filter(n=>n!=='aqeelos-notify'),google:(await googleContext(a).catch(()=>[])).length})}return send(res,200,{agents:out})}
    if(p==='/ui/code/ask'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,65536))}catch{}const a=String(b.agent||'default');if(!(await listAgents()).includes(a)||!mine(a))return send(res,403,{error:'You can’t ask that agent.'});
     const task=String(b.task||'').slice(0,20000);if(!task)return send(res,400,{error:'Say what the agent should do.'});const pre=a!=='default'?'/p/'+encodeURIComponent(a):'';
+    // a member: within their daily limit (Chat and Code together) and on a model they may use, as in Chat
+    let model='default';if(!users.isAdmin(who)){const lim=users.limitOf(who);if(lim?.tokens){const t=await usage.today(await listAllProfiles(),who.id,users.ownerOf);if(t.tokens+await code.usedToday(who.id)>=lim.tokens)return send(res,429,{error:'You reached today\'s limit. It resets at midnight.'})}
+     const allowed=users.allowedModels(who);if(allowed){const d=await agentModel(a);if(!users.modelOk(who,d.provider,d.model)){const [pv,...m]=String(allowed[0]).split('|');model=m.length?m.join('|'):pv}}}
     try{const r=await fetch(GATE.origin+pre+'/v1/chat/completions',{method:'POST',headers:{authorization:'Bearer '+API_KEY,'content-type':'application/json'},signal:AbortSignal.timeout(900000),
-      body:JSON.stringify({model:'default',stream:false,messages:[{role:'user',content:'(Asked from aqeelOS Code by '+(who.name||who.id)+(b.project?', project '+String(b.project).slice(0,80):'')+'. Do it with your own tools and reply with exactly what was asked for.)\n\n'+task}]})});
+      body:JSON.stringify({model,stream:false,messages:[{role:'user',content:'(Asked from aqeelOS Code by '+(who.name||who.id)+(b.project?', project '+String(b.project).slice(0,80):'')+'. Do it with your own tools and reply with exactly what was asked for.)\n\n'+task}]})});
      const j=await r.json().catch(()=>({}));if(!r.ok)return send(res,502,{error:j.error?.message||j.error||'The agent did not answer ('+r.status+').'});
-     console.log('code: '+(who.name||who.id)+' asked',a,'from aqeelOS Code');return send(res,200,{agent:a,agentName:NAMES[a]||await displayName(a),text:j.choices?.[0]?.message?.content||''})}catch(e){return send(res,504,{error:'The agent took too long: '+e.message})}}
+     if(j.usage?.total_tokens)await code.addUsage(who.id,j.usage.total_tokens);console.log('code: '+(who.name||who.id)+' asked',a,'from aqeelOS Code');return send(res,200,{agent:a,agentName:NAMES[a]||await displayName(a),text:j.choices?.[0]?.message?.content||''})}catch(e){return send(res,504,{error:'The agent took too long: '+e.message})}}
    if(p==='/ui/code/version')return send(res,200,{version:await code.version()});
    if(p==='/ui/code/update'){const u=await code.update();res.writeHead(200,{'content-type':'application/zip','content-length':u.zip.length,'x-code-version':u.version,'cache-control':'no-store'});return res.end(u.zip)}
    if(p==='/ui/code/poll'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,262144))}catch{}const allowedA=new Set((await listAgents()).filter(mine));const job=await code.poll(dev,(Array.isArray(b.projects)?b.projects:[]).map(x=>({...x,agent:allowedA.has(x?.agent)?x.agent:'',agents:(Array.isArray(x?.agents)?x.agents:[]).filter(a=>allowedA.has(a))})));return send(res,200,{job})}
@@ -1147,6 +1156,16 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/n8n/status'&&req.method==='GET'){const a=String(url.searchParams.get('agent')||'default');return send(res,200,await n8n.status(a))}
    if(p==='/ui/code/pair'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}return send(res,200,{token:await code.pair(u.id,b.name)})}
    if(p==='/ui/code/online'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Code is for admins while it is being finished.'});return send(res,200,{url:codeOnline.url(u.id),origin:new URL(codeOnline.url(u.id)).origin})}
+   // Files: search a folder and everything inside it (names only), and which of the quick places exist
+   if(p==='/ui/files/search'&&req.method==='GET'){const root=path.resolve(url.searchParams.get('path')||homedir()),q=String(url.searchParams.get('q')||'').trim().toLowerCase(),hid=url.searchParams.get('hidden')==='1';
+    if(!q)return send(res,200,{results:[]});if(!users.filePathOk(u,root))return send(res,403,{error:'You can only search your own files.'});
+    const SKIP=new Set(['node_modules','.git','__pycache__','.venv','venv','.cache','.npm','.local','browser-profile']);const out=[];let seen=0;const queue=[[root,0]];
+    const t0=Date.now();while(queue.length&&seen<300000&&Date.now()-t0<4000&&out.length<200){const [dir,depth]=queue.shift();let list=[];try{list=await readdir(dir,{withFileTypes:true})}catch{continue}
+     for(const e of list){seen++;if(!hid&&e.name.startsWith('.'))continue;const fp=path.join(dir,e.name);const isDir=e.isDirectory();
+      if(e.name.toLowerCase().includes(q)){let st=null;try{st=await stat(fp)}catch{}out.push({name:e.name,path:fp,is_directory:isDir,size:st?.size||0,mtime:st?Math.floor(st.mtimeMs/1000):0,rel:path.relative(root,dir)||'.'});if(out.length>=200)break}
+      if(isDir&&!SKIP.has(e.name)&&depth<8)queue.push([fp,depth+1])}}
+    return send(res,200,{results:out,more:out.length>=200||queue.length>0})}
+   if(p==='/ui/files/exist'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}const ok=[];for(const x of (Array.isArray(b.paths)?b.paths:[]).slice(0,20)){const fp=path.resolve(String(x));if(!users.filePathOk(u,fp))continue;try{if((await stat(fp)).isDirectory())ok.push(String(x))}catch{}}return send(res,200,{exist:ok})}
    if(p==='/ui/code/devices'&&req.method==='GET')return send(res,200,{devices:await code.devices(u.id)});
    if(p==='/ui/code/unpair'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}await code.unpair(u.id,String(b.id||''));return send(res,200,{ok:true})}
    {const dm=/^\/ui\/code\/download\/(windows|mac)$/.exec(p);if(dm&&req.method==='GET'){const z=await code.download(dm[1]);res.writeHead(200,{'content-type':'application/zip','content-disposition':'attachment; filename="aqeelOS Code ('+(dm[1]==='mac'?'Mac':'Windows')+').zip"','content-length':z.length,...security});return res.end(z)}}
