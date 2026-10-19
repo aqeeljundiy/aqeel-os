@@ -1319,7 +1319,7 @@ html.in-panel .composer-wrap{padding:0 10px 12px}
 .code-filter{display:flex;gap:4px;margin:0 12px 8px;padding:3px;background:var(--soft-2);border-radius:999px}.code-filter button{flex:1;border:0;background:none;border-radius:999px;font:inherit;font-size:13px;padding:5px 0;min-height:0;color:var(--ink-2);cursor:pointer;transition:background var(--t-fast)}.code-filter button.on{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:var(--shadow-card)}
 .code-tree .code-p{gap:6px}.code-tree .code-chats{padding-left:22px;animation:lbUp var(--t-fast) var(--ease) both}.code-tree .code-c{font-size:13.5px}.code-tree .code-c.on{background:var(--blue-soft);color:var(--blue-deep)}
 .code-foot{padding:8px 12px;border-top:1px solid var(--border)}
-@media (max-width:760px){.page.page-full{height:auto}.code-lock{margin:20px 16px}}
+@media (max-width:760px){.page.page-full{height:calc(100dvh - 60px)}.page.page-full:has(.code-lock){height:auto}.code-lock{margin:20px 16px}}
 .code-perm{display:flex;gap:8px;align-items:flex-start;background:var(--soft-2);border-radius:var(--r-md);padding:10px 12px;margin:0 0 12px;color:var(--ink-2)}.code-perm svg{flex:none;margin-top:3px}
 
 /* Code: where the projects live (this computer, or online on the AI box) */

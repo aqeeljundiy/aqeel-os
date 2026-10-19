@@ -28,6 +28,9 @@ const CodeUI={where:(()=>{try{return localStorage.getItem('aq-code-where')||'com
   if(this.where==='online'){try{const r=await UI('/ui/code/online');this.app=r.origin;f.src=r.url}catch(e){this.app='';el.querySelector('.code-host').innerHTML=`<div class="code-lock card"><h2>Online projects aren’t available</h2><p>${esc(e.message)}</p></div>`;return}
    clearTimeout(this.timer);this.timer=setTimeout(()=>{if(this.state!=='on'&&el.isConnected){el.querySelector('.code-wait span:last-child')&&(el.querySelector('.code-wait span:last-child').textContent='The online copy is slow to answer. It starts by itself; this page retries.');this.timer=setTimeout(()=>this.page(p,el),8000)}},15000);return}
   this.app=CODE_APP;f.src=CODE_APP+'/?embed=aqeelos';this.timer=setTimeout(()=>{if(this.state!=='on')this.lock(el)},9000)},
+ // the app answers a ping every 10 s; if it stops (it quit, the computer slept), Code waits for it again
+ beat(){clearInterval(this.hb);this.hb=setInterval(()=>{const el=this.frame?.closest('#pg');if(!el?.isConnected||route().sec?.id!=='code'){clearInterval(this.hb);return}
+   if(this.state==='on'&&Date.now()-(this.seen||0)>25000){clearInterval(this.hb);this.state='wait';this.paintSide();this.page(null,el)}else this.post({aq:'ping'})},10000)},
  lock(el){if(!el.isConnected||route().sec?.id!=='code')return;this.state='lock';this.paintSide();const mac=/Mac/i.test(navigator.platform||navigator.userAgent);
   el.querySelector('.code-host').innerHTML=`<div class="code-lock card">
    <span class="code-lock-ic">${icon('terminal',26)}</span><h2>Code needs the aqeelOS Code app on this computer</h2>
@@ -45,7 +48,8 @@ const CodeUI={where:(()=>{try{return localStorage.getItem('aq-code-where')||'com
   // keep checking quietly while the page is open
   clearTimeout(this.timer);this.timer=setTimeout(()=>{if(route().sec?.id==='code'&&this.state==='lock')this.page(null,el.closest('#pg')||el)},6000)},
  async onMessage(e){if(!this.app||e.origin!==this.app||!e.data?.cba)return;const m=e.data;
-  if(m.type==='hello'){clearTimeout(this.timer);this.state='on';this.st={projects:m.projects||[],project:m.project,chat:m.chat};
+  if(m.type==='pong'){this.seen=Date.now();return}
+  if(m.type==='hello'){clearTimeout(this.timer);this.state='on';this.seen=Date.now();this.beat();this.st={projects:m.projects||[],project:m.project,chat:m.chat};
    const f=this.frame;if(f){f.hidden=false;f.closest('.code-host')?.querySelector('.code-wait')?.remove()}
    this.post({aq:'theme',dark:document.documentElement.classList.contains('dark')});this.post({aq:'lang',lang:(typeof Lang!=='undefined'&&Lang.cur)||'en'});
    if(!m.paired&&this.where!=='online'){try{const r=await post(UI,'/ui/code/pair',{name:(/Mac/i.test(navigator.platform)?'Mac':/Win/i.test(navigator.platform)?'Windows PC':'Computer')+(()=>{const b=navigator.userAgentData?.brands?.find(b=>/Chrome|Edge/.test(b.brand))?.brand;return b?' · '+b:''})()});this.post({aq:'pair',token:r.token,base:location.origin})}catch(er){fail(er)}}
