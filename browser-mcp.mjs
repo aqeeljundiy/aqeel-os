@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // MCP server (stdio) that gives Claude and Codex the same side browser. Each tool relays to the
 // running app (CBA_URL + CBA_TOKEN), so every action shows up live in the app's Browser tab.
+// a path in the project (index.html, /about.html, ./pages/x.html) opens the project's live preview
+const inProject=u=>{u=String(u||'').trim();const pv=process.env.CBA_PREVIEW;if(!pv||/^[a-z][a-z0-9+.-]*:/i.test(u))return u;if(/^\.?\//.test(u)||/^[\w./-]+\.html?([?#]|$)/i.test(u)||!/\.[a-z]{2,}(\/|$)/i.test(u))return pv+u.replace(/^\.?\//,'');return u};
 const BASE=(process.env.CBA_URL||'http://127.0.0.1:4321')+'/api/workspace/browser',TOKEN=process.env.CBA_TOKEN||'';
 
 const TOOLS=[
@@ -22,7 +24,7 @@ async function call(route,body){const r=await fetch(BASE+route,{method:body?'POS
 const page=s=>`Page: ${s.title||'(untitled)'}\nURL: ${s.url}`;
 
 async function run(name,a){
- if(name==='browser_open')return page(await call('/navigate',{url:a.url}));
+ if(name==='browser_open')return page(await call('/navigate',{url:inProject(a.url)}));
  if(name==='browser_snapshot'){const s=await call('/snapshot');return page(s)+'\n\nInteractive elements (ref | role | name):\n'+(s.elements.join('\n')||'(none visible — try browser_scroll or browser_read)')}
  if(name==='browser_click')return 'Clicked.\n'+page(await call('/click',{ref:a.ref}));
  if(name==='browser_type'){let s=await call('/type',{ref:a.ref,text:a.text});if(a.submit)s=await call('/key',{key:'Enter'});return 'Typed.\n'+page(s)}

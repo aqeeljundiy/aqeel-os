@@ -64,10 +64,16 @@ export function createBrowserUI(ctx){
   try{const info=await ctx.api('/browser/inspect',point(e));const v=view.getBoundingClientRect(),s=stage.getBoundingClientRect(),k=v.width/size.width;
    if(!picking||!info?.rect)return;Object.assign(outline.style,{left:(v.left-s.left+stage.scrollLeft+info.rect.x*k)+'px',top:(v.top-s.top+stage.scrollTop+info.rect.y*k)+'px',width:info.rect.w*k+'px',height:info.rect.h*k+'px'});outlineTag.textContent=info.tag+' · '+Math.round(info.rect.w)+'×'+Math.round(info.rect.h);outline.hidden=false}catch{}finally{hoverBusy=false}});
  view.addEventListener('mouseleave',()=>{outline.hidden=true});const activity=el('div','browser-activity');activity.setAttribute('aria-live','polite');
- root.append(strip,bar,tools,guardBox,control,stage,activity);
+ const askBar=el('div','browser-ask');askBar.hidden=true;askBar.setAttribute('role','alert');
+ root.append(strip,bar,tools,guardBox,askBar,control,stage,activity);
+ let askedFor='';
+ function paintAsk(){const a=status.guard?.ask;askBar.hidden=!a;if(!a){askedFor='';return}if(askedFor===a.host)return;askedFor=a.host;
+  const t=el('span','');t.append(el('b','','The AI wants to open '+a.host),el('span','',' Allow it to use this site in this browser?'));
+  const yes=el('button','primary small','Allow '+a.host);yes.type='button';const no=el('button','ghost small','Not now');no.type='button';
+  yes.addEventListener('click',()=>call('/guard',{answer:true}));no.addEventListener('click',()=>call('/guard',{answer:false}));askBar.replaceChildren(icon('shield'),t,yes,no);ctx.notify('The AI asks to open '+a.host+'. Allow it in the Browser.')}
 
  async function call(route,body){try{status=await ctx.api('/browser'+route,body);paintStatus();ensureLoop()}catch(e){ctx.notify(e.message)}}
- function paintStatus(){if(document.activeElement!==address)address.value=status.url&&status.url!=='about:blank'?status.url:'';empty.hidden=Boolean(seq)&&status.state==='running'&&Boolean(status.url)&&status.url!=='about:blank';if(status.width)size={width:status.width,height:status.height};view.style.maxWidth=size.width+'px';
+ function paintStatus(){paintAsk();if(document.activeElement!==address)address.value=status.url&&status.url!=='about:blank'?status.url:'';empty.hidden=Boolean(seq)&&status.state==='running'&&Boolean(status.url)&&status.url!=='about:blank';if(status.width)size={width:status.width,height:status.height};view.style.maxWidth=size.width+'px';
   for(const b of sizes.children)b.classList.toggle('selected',b.dataset.preset===status.preset);dims.textContent=size.width+' × '+size.height;
   const sc=status.scheme||'light';scheme.replaceChildren(icon(sc==='light'?'sun':sc==='dark'?'moon':'system'),el('span','',sc==='light'?'Light page':sc==='dark'?'Dark page':'System page'));scheme.setAttribute('aria-label','Page colour scheme: '+sc);paintTabs();
   activity.replaceChildren();const items=(status.log||[]).slice(-6).reverse();

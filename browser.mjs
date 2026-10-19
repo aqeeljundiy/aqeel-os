@@ -33,12 +33,19 @@ window.__cbaOv={say(x){if(!h.isConnected)(document.body||document.documentElemen
 const ONE_VIEW=`window.open=function(u){if(u)location.href=new URL(u,location.href).href;return window};document.addEventListener('click',e=>{const a=e.target&&e.target.closest&&e.target.closest('a[target]');if(a&&a.target!=='_self'&&a.target!=='_top')a.target='_self'},true);`;
 export class SideBrowser{
  constructor(dataDir){this.guardFile=path.join(dataDir,'browser-guard.json');this.guard={sites:[],paused:false};readFile(this.guardFile,'utf8').then(t=>{const g=JSON.parse(t);this.guard.sites=Array.isArray(g.sites)?g.sites:[]}).catch(()=>{});this.profile=path.join(dataDir,'browser-profile');this.pidFile=path.join(dataDir,'browser.pid');process.on('exit',()=>killTree(this.child));this.frame=null;this.frameSeq=0;this.waiters=[];this.log=[];this.state='stopped';this.preset='desktop';this.view={...PRESETS.desktop};this.scheme='light';this.tabs=[]}
- status(){return {guard:{sites:this.guard.sites,paused:this.guard.paused,reason:this.guard.reason||''},state:this.state,url:this.url||'',title:this.title||'',width:this.view.width,height:this.view.height,preset:this.preset,scheme:this.scheme,tabs:this.tabs,tab:this.target||null,error:this.error||null,log:this.log.slice(-40)}}
+ status(){return {guard:{sites:this.guard.sites,paused:this.guard.paused,reason:this.guard.reason||'',ask:this.guard.ask?{host:this.guard.ask.host}:null},state:this.state,url:this.url||'',title:this.title||'',width:this.view.width,height:this.view.height,preset:this.preset,scheme:this.scheme,tabs:this.tabs,tab:this.target||null,error:this.error||null,log:this.log.slice(-40)}}
  // may the AI open this address? This computer's own pages and the sites the person allowed
  allowed(u){try{const x=new URL(u);if(x.protocol==='about:')return true;const h=x.hostname.toLowerCase();return LOCAL.test(h)||this.guard.sites.some(s=>h===s||h.endsWith('.'+s))}catch{return false}}
- refuse(u){let h=u;try{h=new URL(u).hostname}catch{}return Error(h+' is not on the allowed sites for this browser. Ask the person to allow it (Browser › Allowed sites), or use what is allowed: this computer\'s previews and '+(this.guard.sites.join(', ')||'no other sites')+'.')}
+ // a site the AI may not open yet: the browser asks the person (Allow this site / Not now) and the AI waits for the answer
+ async permit(u){if(this.allowed(u))return true;let h='';try{const x=new URL(u);if(!/^https?:$/.test(x.protocol))return false;h=x.hostname.toLowerCase().replace(/^www\./,'')}catch{return false}
+  if(this.guard.ask?.host===h)return this.guard.ask.wait;this.guard.ask?.done(false);
+  const ask={host:h};ask.wait=new Promise(r=>{ask.done=v=>{clearTimeout(ask.timer);r(v)};ask.timer=setTimeout(()=>r(false),180000)});this.guard.ask=ask;
+  this.note({by:'ai',action:'asks to open',detail:h});await this.say('The AI asks to open '+h+': allow it below the address bar').catch(()=>{});
+  const ok=await ask.wait;if(this.guard.ask===ask)this.guard.ask=null;return ok}
+ async answer(yes){const a=this.guard.ask;if(!a)return this.status();this.guard.ask=null;if(yes){this.guard.sites=[...new Set([...this.guard.sites,a.host])];await writeFile(this.guardFile,JSON.stringify({sites:this.guard.sites},null,1)).catch(()=>{});this.note({by:'user',action:'allowed',detail:a.host})}a.done(Boolean(yes));return this.status()}
+ refuse(u,asked){let h=u;try{h=new URL(u).hostname}catch{}if(asked)return Error('The person did not allow '+h+' (or did not answer). Do it another way, or tell them what you need it for.');return Error(h+' is not on the allowed sites for this browser. Ask the person to allow it (Browser › Allowed sites), or use what is allowed: this computer\'s previews and '+(this.guard.sites.join(', ')||'no other sites')+'.')}
  aiGate(){if(this.guard.paused)throw Error('The person has taken over the browser. Stop using it and wait until they hand it back.')}
- async setGuard({sites,paused}={}){if(Array.isArray(sites))this.guard.sites=[...new Set(sites.map(s=>String(s).trim().toLowerCase().replace(/^https?:\/\//,'').replace(/\/.*$/,'').replace(/^www\./,'')).filter(s=>/^[a-z0-9.-]+\.[a-z]{2,}$/.test(s)))].slice(0,40);
+ async setGuard({sites,paused,answer}={}){if(answer!==undefined)return this.answer(answer);if(Array.isArray(sites))this.guard.sites=[...new Set(sites.map(s=>String(s).trim().toLowerCase().replace(/^https?:\/\//,'').replace(/\/.*$/,'').replace(/^www\./,'')).filter(s=>/^[a-z0-9.-]+\.[a-z]{2,}$/.test(s)))].slice(0,40);
   if(paused!==undefined){this.guard.paused=!!paused;this.guard.reason='';if(this.guard.paused)this.say('You have control. The AI waits until you hand back.').catch(()=>{});else this.off().catch(()=>{})}
   await writeFile(this.guardFile,JSON.stringify({sites:this.guard.sites},null,1)).catch(()=>{});return this.status()}
  async layer(){try{await this.send('Runtime.evaluate',{expression:OVERLAY})}catch{}}
@@ -52,7 +59,7 @@ export class SideBrowser{
   if(!found)return;this.guard.paused=true;this.guard.reason='robot';this.note({by:'page',action:'robot check',detail:'Handed to you: solve it, then Hand back.'});await this.say('Robot check: please solve it, then press Hand back').catch(()=>{});
   throw Error('A robot check (CAPTCHA) appeared. The person has been asked to solve it. Stop using the browser and wait; try again after they hand it back.')}
  // after an AI click or key: if it led off the allowed sites, go back and say so
- async stayInside(){await this.robotCheck();const u=await this.eval('location.href').catch(()=>this.url);if(this.allowed(u))return;await this.send('Page.navigateToHistoryEntry',{entryId:(await this.send('Page.getNavigationHistory')).entries.slice(-2)[0].id}).catch(()=>{});await this.waitLoad(4000);throw this.refuse(u)}
+ async stayInside(){await this.robotCheck();const u=await this.eval('location.href').catch(()=>this.url);if(this.allowed(u))return;await this.send('Page.navigateToHistoryEntry',{entryId:(await this.send('Page.getNavigationHistory')).entries.slice(-2)[0].id}).catch(()=>{});await this.waitLoad(4000);if(await this.permit(u)){await this.send('Page.navigate',{url:u});await this.waitLoad();return}throw this.refuse(u,true)}
  note(entry){this.log.push({time:Date.now(),...entry});if(this.log.length>200)this.log.shift()}
 
  async start(){if(this.state==='running')return this.status();if(this.starting)return this.starting;
@@ -115,7 +122,7 @@ export class SideBrowser{
  nextFrame(after,timeout=1500){if(this.frameSeq>after&&this.frame)return Promise.resolve();return new Promise(r=>{this.waiters.push(r);setTimeout(r,timeout)})}
 
  async navigate(url,by='user'){await this.ensure();const u=normalizeUrl(url);
-  if(by==='ai'){this.aiGate();if(!this.allowed(u))throw this.refuse(u);await this.say('AI is opening '+(()=>{try{return new URL(u).hostname}catch{return u}})())}
+  if(by==='ai'){this.aiGate();if(!(await this.permit(u)))throw this.refuse(u,true);await this.say('AI is opening '+(()=>{try{return new URL(u).hostname}catch{return u}})())}
   this.note({by,action:'open',detail:u});await this.send('Page.navigate',{url:u});await this.waitLoad();if(by==='ai'){await this.robotCheck();await this.say('AI is reading '+(this.title||this.url))}return this.status()}
  async waitLoad(ms=8000){const start=Date.now();while(Date.now()-start<ms){try{if(await this.eval('document.readyState')==='complete')break}catch{}await new Promise(r=>setTimeout(r,150))}await this.refreshTitle();this.url=await this.eval('location.href').catch(()=>this.url);await this.refreshTabs()}
  async history(delta,by='user'){if(by==='ai')this.aiGate();await this.ensure();const h=await this.send('Page.getNavigationHistory');const e=h.entries[h.currentIndex+delta];if(!e)return this.status();this.note({by,action:delta<0?'back':'forward',detail:e.url});await this.send('Page.navigateToHistoryEntry',{entryId:e.id});await this.waitLoad();return this.status()}

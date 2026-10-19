@@ -1517,3 +1517,11 @@ body.embed .composer-controls{padding:6px 0 0}
 .place-err{margin:0;font-size:12.5px;color:#c2410c}
 
 .next-box .next-recap:empty{display:none}
+/* Publish (top of the chat) */
+.publish-btn{display:inline-flex;align-items:center;gap:6px;min-height:30px;height:30px;padding:0 12px;margin-right:6px;border:1px solid var(--border);border-radius:var(--r-pill);background:var(--surface);color:var(--ink);font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap;transition:border-color .2s ease,background .2s ease}
+.publish-btn[hidden]{display:none}.publish-btn:hover{border-color:#c4d5f3;background:var(--blue-soft)}
+.publish-btn svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* the side browser asks before the AI opens a new site */
+.browser-ask{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:0 12px 8px;padding:10px 12px;border:1px solid #c4d5f3;border-radius:14px;background:var(--blue-soft);color:var(--ink);font-size:13px;animation:arrive .25s ease-out}
+.browser-ask[hidden]{display:none}.browser-ask>svg{width:18px;height:18px;color:var(--blue);flex:none}.browser-ask>span{flex:1;min-width:200px;line-height:1.45}.browser-ask b{font-weight:600}
