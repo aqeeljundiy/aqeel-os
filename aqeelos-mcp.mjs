@@ -13,11 +13,12 @@ async function run(name,a){
  if(name==='aqeelos_ask'){const j=await call('/ui/code/ask',{agent:a.agent||'',task:a.task,project:PROJECT});return (j.agentName?j.agentName+': ':'')+(j.text||'(no answer)')}
  throw Error('Unknown tool '+name)}
 let buffer='';const send=o=>process.stdout.write(JSON.stringify(o)+'\n');
-process.stdin.on('data',async d=>{buffer+=d;let i;while((i=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,i).trim();buffer=buffer.slice(i+1);if(!line)continue;let m;try{m=JSON.parse(line)}catch{continue}
+const pending=new Set();process.stdin.on('data',d=>{const job=(async()=>{buffer+=d;let i;while((i=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,i).trim();buffer=buffer.slice(i+1);if(!line)continue;let m;try{m=JSON.parse(line)}catch{continue}
  if(m.method==='initialize')send({jsonrpc:'2.0',id:m.id,result:{protocolVersion:m.params?.protocolVersion||'2025-06-18',capabilities:{tools:{}},serverInfo:{name:'aqeelos',version:'0.1.0'}}});
  else if(m.method==='tools/list')send({jsonrpc:'2.0',id:m.id,result:{tools:TOOLS}});
  else if(m.method==='tools/call'){try{const out=await run(m.params.name,m.params.arguments||{});send({jsonrpc:'2.0',id:m.id,result:{content:[{type:'text',text:out}]}})}catch(e){send({jsonrpc:'2.0',id:m.id,result:{content:[{type:'text',text:'Error: '+e.message}],isError:true}})}}
  else if(m.method==='ping')send({jsonrpc:'2.0',id:m.id,result:{}});
  else if(m.id!==undefined)send({jsonrpc:'2.0',id:m.id,error:{code:-32601,message:'Method not found'}});
-}});
-process.stdin.on('end',()=>process.exit(0));
+}})();pending.add(job);job.finally(()=>pending.delete(job))});
+// the client closed: finish what was asked, then stop
+process.stdin.on('end',async()=>{await Promise.allSettled([...pending]);process.exit(0)});
