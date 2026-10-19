@@ -1306,3 +1306,21 @@ body.embed .send-btn{width:38px;height:38px;min-height:38px;border-radius:50%;pa
 /* one Preview tab: an address field for the web, and a way back to the project from the browser */
 .preview-address{flex:1 1 200px;min-width:120px;max-width:360px}.preview-address input{width:100%;border-radius:var(--r-pill);padding:6px 14px;font-size:12.5px;min-height:30px}
 .browser-home{flex:none;min-height:32px;padding:4px 14px;font-size:12px;border-radius:var(--r-pill);white-space:nowrap;animation:guardIn .2s ease}
+
+/* inside aqeelOS: Code's tools (search, terminal, settings, more) sit at the end of the workspace tab row */
+body.embed .work-heading .top-actions{display:flex;align-items:center;gap:2px;margin-left:auto;padding-left:8px;flex:none}
+body.embed .work-heading .top-actions #install-app,body.embed .work-heading .top-actions #theme-toggle,body.embed .work-heading .top-actions #phone-button{display:none!important}
+body.embed .work-heading .search-btn span,body.embed .work-heading .search-btn kbd{display:none}
+body.embed .work-heading .search-btn{width:34px;min-height:34px;padding:0;justify-content:center;border-radius:50%}
+/* the highlighted reply action (Retry after a failure) keeps its blue */
+.reply-actions button.primary{background:linear-gradient(180deg,var(--blue-2) 0%,var(--blue) 100%);color:#fff;border-color:transparent}
+/* inside aqeelOS: the tools stay round icons and never squeeze the workspace tabs */
+body.embed .work-heading nav{flex:1 1 auto;min-width:0}
+body.embed .work-heading .top-actions .search-btn{flex:none!important;width:34px!important;max-width:34px;min-width:34px;height:34px;min-height:34px}
+body.embed .work-heading .top-actions .icon-btn{flex:none}
+/* one Browser tab: the strip above it starts with the project's preview */
+.web-tabs{margin:0 var(--gutter);padding-top:8px}.web-tabs[hidden]{display:none}
+.web-tabs .browser-tabs{margin:0}
+#browser-view>.browser-tabs{display:none}
+.preview-tab .preview-dot{width:8px;height:8px;border-radius:50%;background:#16a34a;flex:none;margin-right:6px}
+.preview-tab .browser-tab-open{display:inline-flex;align-items:center}

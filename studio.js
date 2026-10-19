@@ -399,24 +399,27 @@ async function init(){try{const providersReady=fetch('/api/status').then(r=>r.js
 // app running, is it paired), pair (aqeelOS hands over this computer's key), open / new chat / new project, theme and
 // language; this app tells aqeelOS whenever its projects or the open chat change.
 {const EMBED=new URLSearchParams(location.search).get('embed')==='aqeelos';
- if(EMBED){document.body.classList.add('embed');let allowed=[],parentOrigin='';
+ if(EMBED){document.body.classList.add('embed');{const t=document.querySelector('.topbar .top-actions');if(t)document.querySelector('.work-heading')?.append(t)}let allowed=[],parentOrigin='';
   const post=m=>{if(parentOrigin)parent.postMessage({cba:1,...m},parentOrigin)};
   const summary=()=>({project:projectId,chat:chatId,projects:(projects||[]).filter(p=>!p.archived).map(p=>({id:p.id,name:p.name,pinned:!!p.pinned,where:p.path?'folder':'app',
-   chats:(p.chats||[]).filter(c=>!c.archived&&!c.temporary).map(c=>({id:c.id,title:c.title||'New chat',updated:c.updatedAt||c.updated||c.createdAt||0,busy:runningProjects.has(p.id)&&c.id===chatId}))}))});
+   chats:(p.chats||[]).filter(c=>!c.archived&&!c.temporary).map(c=>({id:c.id,title:c.title||'New chat',updated:c.updatedAt||c.updated||c.createdAt||0,busy:['running','waiting'].includes(sidebar.state(p,c)),unread:['unread','failed'].includes(sidebar.state(p,c))}))}))});
   const ready=fetch('/api/aqeelos').then(r=>r.json()).then(s=>{allowed=s.origins||[];return s}).catch(()=>({origins:[]}));
   addEventListener('message',async e=>{await ready;if(!allowed.includes(e.origin)||!e.data||!e.data.aq)return;parentOrigin=e.origin;const m=e.data;
    try{
-    if(m.aq==='hello'){const s=await (await fetch('/api/aqeelos')).json();post({type:'hello',paired:s.paired,user:s.user,base:s.base,...summary()})}
+    if(m.aq==='hello'){sent='';const s=await (await fetch('/api/aqeelos')).json();post({type:'hello',paired:s.paired,user:s.user,base:s.base,...summary()})}
     else if(m.aq==='pair'){const r=await fetch('/api/aqeelos/pair',{method:'POST',headers:{'content-type':'application/json','x-local-token':token},body:JSON.stringify({base:m.base,token:m.token})});const j=await r.json();post({type:'paired',ok:r.ok,error:j.error,user:j.user})}
     else if(m.aq==='open'){if(m.project!==projectId)await selectProject(m.project,m.chat||undefined);else if(m.chat)await openChat(m.project,m.chat);post({type:'state',...summary()})}
     else if(m.aq==='newChat'){if(m.project&&m.project!==projectId)await selectProject(m.project);await newChat();post({type:'state',...summary()})}
     else if(m.aq==='newProject')$('new-project')?.click();
+    else if(m.aq==='menu'){const p=(projects||[]).find(x=>x.id===m.project);const c=p&&m.chat?(p.chats||[]).find(x=>x.id===m.chat):null;if(p&&(!m.chat||c))openMenu({x:12,y:Math.max(8,Math.min(Number(m.y)||60,innerHeight-60))},sidebar.items(p,c),{label:c?'Chat actions':'Project actions'})}
     else if(m.aq==='theme')theme(!!m.dark);
-    else if(m.aq==='lang'&&m.lang&&m.lang!==lang)setLang(m.lang);
+    else if(m.aq==='lang'&&m.lang&&m.lang!==lang()&&['en','id'].includes(m.lang))setLang(m.lang);
    }catch(err){post({type:'error',error:String(err?.message||err)})}});
   // aqeelOS's sidebar follows this app
-  const rp=renderProjects;renderProjects=(...a)=>{const r=rp(...a);post({type:'state',...summary()});return r};
-  setInterval(()=>post({type:'state',...summary()}),15000)}}
+  // only when something changed (the list re-renders often, for example while a run is going)
+  let sent='';const share=()=>{const st=summary(),k=JSON.stringify(st);if(k===sent)return;sent=k;post({type:'state',...st})};
+  const rp=renderProjects;renderProjects=(...a)=>{const r=rp(...a);share();return r};
+  setInterval(share,5000)}}
 
 // aqeelOS agents in the composer: who the run works for (its abilities come along through aqeelos_ask). The project's
 // own agent is chosen by default; the choice is remembered per project.
@@ -430,22 +433,27 @@ $('agent-pick').addEventListener('change',()=>{try{localStorage.setItem('cba-age
 void loadAgents();setInterval(()=>{if(!aqAgents.length)void loadAgents()},30000);
 // inside aqeelOS the approval levels carry aqeelOS's names
 if(document.body.classList.contains('embed'))for(const [v,t,d] of [['ask','Ask me','Approve each command and file change.'],['auto','Smart','Edits and commands inside the project run; anything outside asks you.'],['full','Allow all','No prompts and no sandbox. Only for trusted tasks.']]){const o=$('mode').querySelector('option[value="'+v+'"]');if(o){o.textContent=t;o.dataset.desc=d}}
-// Preview and Browser are one tab. It shows the project by default; type a website in its address field (or let the
-// AI browse) and the same tab shows the live browser; "Your project" goes back. The old Browser tab is gone.
+// One Browser tab. Its tab strip starts with the project's preview (pinned, with sizes, element picking, editing and
+// error reports) and then the real browser's tabs, where you and the AI open any other site. The AI's browsing
+// shows here as it happens. The old separate Preview and Browser tabs are now this one.
 {const tab=$('browser-tab');tab.hidden=true;let web=false,primed=false;setTimeout(()=>{primed=true},4000);const sv=switchView;
- const ensureBrowser=()=>{browserUI??=createBrowserUI({attach:files=>composer.attach(files),insert:text=>insertMessage(text),container:()=>$('browser-view'),api:(r,b)=>api(r,b),token:()=>token,notify:t=>notify(t),visible:()=>!$('browser-view').hidden,watchWhenHidden:()=>true,
-  onAiActivity:()=>{if(!primed)return;if(!$('preview-view').hidden||!$('browser-view').hidden)openWeb();else $('preview-badge').hidden=false}});return browserUI};
- const mark=()=>{const on=!$('preview-view').hidden||!$('browser-view').hidden;for(const b of document.querySelectorAll('[data-view="preview"]')){b.classList.toggle('active',on);b.setAttribute('aria-current',on?'page':'false')}};
- switchView=v=>{if(v==='preview'&&web)v='browser';const show=v==='browser'&&$('browser-view').hidden;if(v==='browser'){web=true;ensureBrowser()}sv(v);if(show)browserUI.show();if(v==='preview'||v==='browser'){$('preview-badge').hidden=true;mark()}};
- function openWeb(url){switchView('browser');if(url)api('/browser/navigate',{url}).then(()=>browserUI.show()).catch(e=>notify(e.message))}
- function openProject(){web=false;sv('preview');mark()}
- // the badge for AI browsing while another tab is open, on the Preview tab
- const pt=document.querySelector('button[data-view="preview"]');const badge=document.createElement('span');badge.className='tab-badge';badge.id='preview-badge';badge.hidden=true;badge.textContent='AI';pt.append(badge);
- // the address field in the preview toolbar: anything that is not a file of the project opens in the browser
- const f=document.createElement('form');f.className='preview-address';const i=document.createElement('input');i.setAttribute('aria-label','Address');i.placeholder='Search or enter a website';i.autocomplete='off';i.spellcheck=false;f.append(i);
+ const pt=document.querySelector('button[data-view="preview"]');pt.firstChild.textContent='Browser';
+ // the strip sits above both views: the preview tab first, then the browser's own tabs
+ const bar=document.createElement('div');bar.className='web-tabs';$('preview-view').before(bar);
+ const lead=document.createElement('div');lead.className='browser-tab preview-tab';const lb=document.createElement('button');lb.type='button';lb.className='browser-tab-open';lb.setAttribute('role','tab');lb.title='This project’s preview';
+ const dot=document.createElement('i');dot.className='preview-dot';lb.append(dot,document.createElement('span'));lead.append(lb);lb.addEventListener('click',()=>openProject());
+ const paintLead=()=>{lb.lastChild.textContent=project()?.name?'Preview · '+project().name:'Preview';lead.classList.toggle('on',!web);lb.setAttribute('aria-selected',String(!web));return lead};
+ const ensureBrowser=()=>{if(!browserUI){browserUI=createBrowserUI({attach:files=>composer.attach(files),insert:text=>insertMessage(text),container:()=>$('browser-view'),api:(r,b)=>api(r,b),token:()=>token,notify:t=>notify(t),visible:()=>!$('browser-view').hidden,watchWhenHidden:()=>true,
+   lead:paintLead,leadActive:()=>!web,onTabOpen:()=>{if(!web)openWeb()},
+   onAiActivity:()=>{if(!primed)return;if(!$('preview-view').hidden||!$('browser-view').hidden)openWeb();else $('preview-badge').hidden=false}});bar.append(browserUI.strip)}return browserUI};
+ const mark=()=>{const on=!$('preview-view').hidden||!$('browser-view').hidden;bar.hidden=!on;for(const b of document.querySelectorAll('[data-view="preview"]')){b.classList.toggle('active',on);b.setAttribute('aria-current',on?'page':'false')}};
+ switchView=v=>{if(v==='preview'&&web)v='browser';const show=v==='browser'&&$('browser-view').hidden;if(v==='browser'){web=true;ensureBrowser()}sv(v);if(show)browserUI.show();if(v==='preview'||v==='browser')$('preview-badge').hidden=true;mark();browserUI?.paint()};
+ function openWeb(url){switchView('browser');if(url)Promise.resolve(browserUI.show()).then(()=>browserUI.open(url))}
+ function openProject(){web=false;sv('preview');mark();browserUI?.paint()}
+ {const sp=selectProject;selectProject=async(...a)=>{const r=await sp(...a);browserUI?.paint();return r}}
+ // the AI badge, when it browses while another workspace tab is open
+ const badge=document.createElement('span');badge.className='tab-badge';badge.id='preview-badge';badge.hidden=true;badge.textContent='AI';pt.append(badge);
+ // the address field on the preview: a website opens in a new browser tab
+ const f=document.createElement('form');f.className='preview-address';const i=document.createElement('input');i.setAttribute('aria-label','Open a website in a new tab');i.placeholder='Open a website';i.autocomplete='off';i.spellcheck=false;f.append(i);
  $('preview-path').before(f);f.addEventListener('submit',e=>{e.preventDefault();const v=i.value.trim();if(!v)return;i.value='';i.blur();openWeb(v)});
- // in the browser: a way back to the project
- const back=document.createElement('button');back.type='button';back.className='browser-home';back.textContent='Your project';back.title='Back to the project preview';back.addEventListener('click',openProject);
- const fit=()=>{const bar=$('browser-view').querySelector('.browser-bar');if(bar&&!bar.contains(back))bar.prepend(back)};new MutationObserver(fit).observe($('browser-view'),{childList:true});
- // the AI's browsing shows up here even when the browser was never opened
- ensureBrowser()}
+ ensureBrowser();mark()}

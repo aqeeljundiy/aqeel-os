@@ -8,17 +8,17 @@ export function createBrowserUI(ctx){
  const root=ctx.container();let seq=0,looping=false,status={state:'stopped'},lastAi=0,frameUrl=null,size={width:1280,height:800};
  // tab strip: one chip per page, plus a new-tab button
  const strip=el('div','browser-tabs');strip.setAttribute('role','tablist');strip.setAttribute('aria-label','Browser tabs');
- const plus=el('button','browser-tab-new');plus.append(icon('plus'));plus.type='button';plus.title='New tab (Ctrl+T in the browser)';plus.setAttribute('aria-label','New tab');plus.addEventListener('click',()=>{address.value='';call('/tab',{}).then(()=>address.focus())});
+ const plus=el('button','browser-tab-new');plus.append(icon('plus'));plus.type='button';plus.title='New tab (Ctrl+T in the browser)';plus.setAttribute('aria-label','New tab');plus.addEventListener('click',()=>{ctx.onTabOpen?.();address.value='';call('/tab',{}).then(()=>address.focus())});
  // your tab order (drag to change) and which tabs were already on screen, so only new ones animate in
  let order=[];try{order=JSON.parse(localStorage.getItem('cba-tab-order')||'[]')}catch{}const seen=new Set();let dragId=null;
  const saveOrder=()=>{try{localStorage.setItem('cba-tab-order',JSON.stringify(order.slice(-50)))}catch{}};
- function paintTabs(){const tabs=[...(status.tabs||[])];for(const t of tabs)if(!order.includes(t.id))order.push(t.id);tabs.sort((a,b)=>order.indexOf(a.id)-order.indexOf(b.id));strip.replaceChildren();
-  for(const t of tabs){const chip=el('div','browser-tab'+(t.id===status.tab?' on':'')+(seen.size&&!seen.has(t.id)?' entering':''));seen.add(t.id);chip.draggable=true;chip.dataset.id=t.id;
+ function paintTabs(){const tabs=[...(status.tabs||[])];for(const t of tabs)if(!order.includes(t.id))order.push(t.id);tabs.sort((a,b)=>order.indexOf(a.id)-order.indexOf(b.id));strip.replaceChildren();const lead=ctx.lead?.();if(lead)strip.append(lead);const leading=Boolean(ctx.leadActive?.());
+  for(const t of tabs){const chip=el('div','browser-tab'+(t.id===status.tab&&!leading?' on':'')+(seen.size&&!seen.has(t.id)?' entering':''));seen.add(t.id);chip.draggable=true;chip.dataset.id=t.id;
    chip.addEventListener('dragstart',e=>{dragId=t.id;chip.classList.add('dragging');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',t.id)});
    chip.addEventListener('dragend',()=>{dragId=null;chip.classList.remove('dragging');strip.querySelectorAll('.drop-before,.drop-after').forEach(c=>c.classList.remove('drop-before','drop-after'))});
    chip.addEventListener('dragover',e=>{if(!dragId||dragId===t.id)return;e.preventDefault();const r=chip.getBoundingClientRect(),after=e.clientX>r.left+r.width/2;chip.classList.toggle('drop-after',after);chip.classList.toggle('drop-before',!after)});
    chip.addEventListener('dragleave',()=>chip.classList.remove('drop-before','drop-after'));
-   chip.addEventListener('drop',e=>{e.preventDefault();if(!dragId||dragId===t.id)return;const after=chip.classList.contains('drop-after');order=order.filter(id=>id!==dragId);order.splice(order.indexOf(t.id)+(after?1:0),0,dragId);saveOrder();paintTabs()});const open=el('button','browser-tab-open',!t.url||t.url==='about:blank'?'New tab':t.title||t.url);open.type='button';open.setAttribute('role','tab');open.setAttribute('aria-selected',String(t.id===status.tab));open.title=t.url;open.addEventListener('click',()=>t.id!==status.tab&&call('/tab',{id:t.id}));
+   chip.addEventListener('drop',e=>{e.preventDefault();if(!dragId||dragId===t.id)return;const after=chip.classList.contains('drop-after');order=order.filter(id=>id!==dragId);order.splice(order.indexOf(t.id)+(after?1:0),0,dragId);saveOrder();paintTabs()});const open=el('button','browser-tab-open',!t.url||t.url==='about:blank'?'New tab':t.title||t.url);open.type='button';open.setAttribute('role','tab');open.setAttribute('aria-selected',String(t.id===status.tab));open.title=t.url;open.addEventListener('click',()=>{ctx.onTabOpen?.();if(t.id!==status.tab)call('/tab',{id:t.id})});
    const x=el('button','browser-tab-close');x.append(icon('close'));x.type='button';x.setAttribute('aria-label','Close tab '+(t.title||''));x.title='Close tab';x.addEventListener('click',e=>{e.stopPropagation();chip.classList.add('leaving');setTimeout(()=>call('/tab',{id:t.id,close:true}),160)});chip.append(open,x);strip.append(chip)}
   strip.append(plus)}
  const bar=el('form','browser-bar');bar.setAttribute('role','search');
@@ -95,5 +95,5 @@ export function createBrowserUI(ctx){
 
  async function show(){try{status=await ctx.api('/browser/status');if(status.state!=='running'){empty.querySelector('p').textContent='Starting the browser…';status=await ctx.api('/browser/start',{});empty.querySelector('p').textContent='A real browser that you and the AI share. Type an address above to start. The AI can open pages, click, type and read here; you see every action live.'}paintStatus();ensureLoop()}catch(e){empty.querySelector('p').textContent=e.message}}
  setInterval(async()=>{if(!ctx.visible()&&!ctx.watchWhenHidden?.())return;try{status=await ctx.api('/browser/status');paintStatus();ensureLoop()}catch{}},2000);
- return {show};
+ return {show,strip,paint:paintTabs,open:url=>{const t=status.tabs||[];const blank=t.length===1&&(!t[0].url||t[0].url==='about:blank');return call(blank?'/navigate':'/tab',{url})}};
 }

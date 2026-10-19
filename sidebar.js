@@ -120,7 +120,7 @@ export function createSidebar(ctx){
  function updateStatus(){for(const p of ctx.projects())for(const c of p.chats){const row=ctx.container().querySelector(`[data-chat="${c.id}"] .status-dot`);if(!row)continue;const s=status(p,c);const fresh=dot(s);if(row.className!==fresh.className)row.replaceWith(fresh)}
   for(const node of ctx.container().querySelectorAll('.tree-project')){const p=ctx.projects().find(x=>x.id===node.dataset.project);const d=node.querySelector('.project-row>.status-dot');if(p&&d&&!node.querySelector('.tree-chats')){const fresh=dot(projectStatus(p));if(d.className!==fresh.className)d.replaceWith(fresh)}}}
 
- return {render,updateStatus,markSeen,search:v=>{query=v.trim();render()}};
+ return {render,updateStatus,markSeen,search:v=>{query=v.trim();render()},items:(p,c)=>c?chatItems(p,c):projectItems(p),state:(p,c)=>status(p,c)};
  // list earlier CLI sessions for the folder; importing opens a chat that resumes the native session
  async function pastSessions(p){const d=document.createElement('dialog');d.className='kit-dialog cli-sessions';const form=document.createElement('form');form.method='dialog';const h=document.createElement('h2');h.textContent='Past CLI sessions';const note=document.createElement('p');note.className='kit-message';note.textContent='Looking for Claude Code and Codex sessions in '+p.name+'…';
   const list=document.createElement('div');list.className='cli-list';const actions=document.createElement('div');actions.className='dialog-actions';const close=document.createElement('button');close.type='button';close.textContent='Close';actions.append(close);form.append(h,note,list,actions);d.append(form);document.body.append(d);d.showModal();

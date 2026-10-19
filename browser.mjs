@@ -64,12 +64,14 @@ export class SideBrowser{
  // Attach to one tab (a DevTools page target). Switching tabs swaps the connection; the old one is ignored.
  connect(page){return new Promise((resolve,reject)=>{
   const old=this.ws;const ws=new WebSocket(page.webSocketDebuggerUrl);this.ws=ws;this.target=page.id;this.url=page.url;this.title=page.title;this.id=0;this.pending=new Map();try{old?.close()}catch{}
-  ws.onopen=async()=>{try{await this.send('Page.enable');await this.send('Runtime.enable');await this.send('Page.addScriptToEvaluateOnNewDocument',{source:ONE_VIEW}).catch(()=>{});await this.send('Page.setDownloadBehavior',{behavior:'deny'}).catch(()=>{});await this.applyView();resolve()}catch(e){reject(e)}};
+  ws.onopen=async()=>{try{await this.send('Page.enable');await this.send('Runtime.enable');await this.send('Page.addScriptToEvaluateOnNewDocument',{source:ONE_VIEW}).catch(()=>{});await this.send('Page.setDownloadBehavior',{behavior:'deny'}).catch(()=>{});await this.send('Page.setInterceptFileChooserDialog',{enabled:true}).catch(()=>{});await this.applyView();resolve()}catch(e){reject(e)}};
   ws.onerror=()=>reject(Error('Could not connect to the browser.'));ws.onclose=()=>{if(this.ws===ws)this.state='stopped'};
   ws.onmessage=ev=>{if(this.ws!==ws)return;const m=JSON.parse(ev.data);if(m.id&&this.pending.has(m.id)){const p=this.pending.get(m.id);this.pending.delete(m.id);m.error?p.reject(Error(m.error.message)):p.resolve(m.result);return}
    if(m.method==='Page.screencastFrame'){this.frame=Buffer.from(m.params.data,'base64');this.frameSeq++;this.send('Page.screencastFrameAck',{sessionId:m.params.sessionId}).catch(()=>{});for(const w of this.waiters.splice(0))w()}
    if(m.method==='Page.frameNavigated'&&!m.params.frame.parentId){this.url=m.params.frame.url}
-   if(m.method==='Page.loadEventFired')this.refreshTitle()}
+   if(m.method==='Page.loadEventFired')this.refreshTitle()
+   // a page asking for a file from this computer gets none; downloads are refused too (set below)
+   if(m.method==='Page.fileChooserOpened'){this.note({by:'page',action:'file picker blocked',detail:'This browser never hands files from this computer to a page.'});this.say('A file picker was blocked').catch(()=>{})}}
  })}
  send(method,params={}){if(!this.ws||this.ws.readyState!==1)return Promise.reject(Error('The side browser is not running.'));const id=++this.id;this.ws.send(JSON.stringify({id,method,params}));
   return new Promise((resolve,reject)=>{this.pending.set(id,{resolve,reject});setTimeout(()=>{if(this.pending.delete(id))reject(Error(method+' timed out.'))},30000)})}
