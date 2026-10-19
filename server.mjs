@@ -7,6 +7,7 @@ import {fileURLToPath} from 'node:url';
 import {randomBytes, randomUUID} from 'node:crypto';
 import {LoginConsole} from './login.mjs';
 import {createWorkspaceAPI,previewOrigin} from './workspace-api.mjs';
+import {createAqeelos} from './aqeelos.mjs';
 import {createPlanning} from './planning.mjs';
 import {Accounts,readCodexAccount} from './accounts.mjs';
 import * as platform from './platform.mjs';
@@ -18,6 +19,7 @@ async function models(){if(Date.now()-codexModels.at>600000||!codexModels.list.l
  let gemini=GEMINI_MODELS;try{const saved=JSON.parse(await readFile(path.join(root,'data','gemini-models.json'),'utf8'));if(saved.length)gemini=[GEMINI_MODELS[0],...saved.map(m=>({id:m.modelId,name:m.name||m.modelId,description:m.description||'',efforts:[],defaultEffort:''}))]}catch{}
  return {codex:codexModels.list,claude:CLAUDE_MODELS,gemini}}
 const root=path.dirname(fileURLToPath(import.meta.url));
+const aqeelos=createAqeelos({root});
 const work=path.join(root,'scratch');
 await mkdir(work,{recursive:true});
 const token=randomBytes(24).toString('hex');
@@ -95,7 +97,7 @@ async function run(job){
   job.text=parsed.text;job.billing=parsed.billing;job.state='complete';
  }catch(e){job.state='failed';job.error=e.message.slice(0,4000)}finally{job.finishedAt=Date.now();active--}
 }
-const workspaceAPI=await createWorkspaceAPI({claudeAccounts,root,platform,appUrl:()=>'http://127.0.0.1:'+(server.address()?.port||4321),findExecutable,status:selectAccount,execute,parseResponse,env:cleanEnv,token,accounts});
+const workspaceAPI=await createWorkspaceAPI({aqeelos,claudeAccounts,root,platform,appUrl:()=>'http://127.0.0.1:'+(server.address()?.port||4321),findExecutable,status:selectAccount,execute,parseResponse,env:cleanEnv,token,accounts});
 const planning=await createPlanning(root);
 const server=http.createServer(async(req,res)=>{
  const send=(code,data)=>{res.writeHead(code,{'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(data))};
@@ -114,6 +116,10 @@ const server=http.createServer(async(req,res)=>{
    const origin=req.headers.origin;if(origin&&origin!==`http://${req.headers.host}`)return send(403,{error:'Origin rejected.'});
    if(req.headers['x-local-token']!==token)return send(403,{error:'Reload the page before sending.'});
   }
+  // aqeelOS: this computer's link (shown inside aqeelOS, paired by the page with a key aqeelOS gives it)
+  if(url.pathname==='/api/aqeelos'&&req.method==='GET')return send(200,await aqeelos.state());
+  if(url.pathname==='/api/aqeelos/pair'&&req.method==='POST'){let body='';for await(const c of req){body+=c;if(body.length>4000)return send(413,{error:'Too large.'})}const d=JSON.parse(body||'{}');try{return send(200,await aqeelos.pair(String(d.base||''),String(d.token||'')))}catch(e){return send(400,{error:e.message})}}
+  if(url.pathname==='/api/aqeelos/unpair'&&req.method==='POST')return send(200,await aqeelos.unpair());
   if(url.pathname==='/api/remote'&&req.method==='GET')return send(200,remote.view(server.address().port));
   if(url.pathname==='/api/remote'&&req.method==='POST'){let body='';for await(const c of req){body+=c;if(body.length>2000)return send(413,{error:'Too large.'})}const d=JSON.parse(body||'{}');
    if(d.action==='enable'||d.action==='disable'){await remote.setEnabled(d.action==='enable');await syncLan()}else if(d.action==='code')remote.newCode();else if(d.action==='revoke')await remote.revoke(d.id);else return send(400,{error:'Unknown action.'});return send(200,remote.view(server.address().port))}
@@ -149,7 +155,7 @@ const server=http.createServer(async(req,res)=>{
   }
   if(req.method==='GET'&&url.pathname.startsWith('/api/jobs/')){const job=jobs.get(url.pathname.split('/').pop());return job?send(200,job):send(404,{error:'Request not found.'})}
   const files={'/':'studio.html','/kinds.js':'kinds.js','/ui-check.js':'scripts/ui-check.js','/doc-ui.js':'doc-ui.js','/md-lite.mjs':'md-lite.mjs','/design-ui.js':'design-ui.js','/artifacts-ui.js':'artifacts-ui.js','/canvas-ui.js':'canvas-ui.js','/data-ui.js':'data-ui.js','/deck-ui.js':'deck-ui.js','/deck-render.js':'deck-render.js','/deck.css':'deck.css','/mockup':'mockups/phase0.html','/mockup.css':'mockups/phase0.css','/mockup.js':'mockups/phase0.js','/studio.js':'studio.js','/studio.css':'studio.css','/connections':'index.html','/app.js':'app.js','/style.css':'style.css','/backlog':'development.html','/development.js':'development.js','/development.css':'development.css','/planning.css':'planning.css','/PRODUCT-REQUIREMENTS.md':'PRODUCT-REQUIREMENTS.md','/README.md':'README.md','/assets/plus-jakarta-sans.woff2':'assets/plus-jakarta-sans.woff2','/assets/elkiya-mark.svg':'assets/elkiya-mark.svg','/dropdown.js':'dropdown.js','/i18n.js':'i18n.js','/icons.js':'icons.js','/theme.js':'theme.js','/native-frame.js':'native-frame.js','/native-frame.css':'native-frame.css','/theme.css':'theme.css','/lang-id.js':'lang-id.js','/dropdown.css':'dropdown.css','/model-picker.js':'model-picker.js','/agent-ui.js':'agent-ui.js','/sidebar.js':'sidebar.js','/ui-kit.js':'ui-kit.js','/md.js':'md.js','/diff.mjs':'diff.mjs','/review.js':'review.js','/customize.js':'customize.js','/file-tree.js':'file-tree.js','/vt.js':'vt.js','/sw.js':'sw.js','/git-ui.js':'git-ui.js','/dev-ui.js':'dev-ui.js','/browser-ui.js':'browser-ui.js','/composer.js':'composer.js','/terminal-ui.js':'terminal-ui.js','/phone-ui.js':'phone-ui.js','/mobile.js':'mobile.js','/usage.html':'usage.html','/usage-ui.js':'usage-ui.js','/usage-cost.js':'usage-cost.js','/palette.js':'palette.js','/editor.js':'editor.js','/usage.css':'usage.css','/manifest.webmanifest':'manifest.webmanifest','/assets/icon-180.png':'assets/icon-180.png','/assets/icon-512.png':'assets/icon-512.png'};
-  if(req.method==='GET'&&files[url.pathname]){res.writeHead(200,{'Content-Type':url.pathname.endsWith('.md')?'text/plain; charset=utf-8':url.pathname.endsWith('.woff2')?'font/woff2':url.pathname.endsWith('.png')?'image/png':url.pathname.endsWith('.webmanifest')?'application/manifest+json':url.pathname.endsWith('.svg')?'image/svg+xml':/\.m?js$/.test(url.pathname)?'text/javascript':url.pathname.endsWith('.css')?'text/css':'text/html','Cache-Control':'no-store','Content-Security-Policy':"default-src 'self'; frame-src "+previewOrigin(req.headers.host)+" http://127.0.0.1:* http://localhost:*; img-src 'self' blob: data: "+previewOrigin(req.headers.host)+"; media-src 'self' blob: "+previewOrigin(req.headers.host)+"; frame-ancestors 'none'; object-src 'none'; base-uri 'none'"});return res.end(await readFile(path.join(root,files[url.pathname])))}
+  if(req.method==='GET'&&files[url.pathname]){res.writeHead(200,{'Content-Type':url.pathname.endsWith('.md')?'text/plain; charset=utf-8':url.pathname.endsWith('.woff2')?'font/woff2':url.pathname.endsWith('.png')?'image/png':url.pathname.endsWith('.webmanifest')?'application/manifest+json':url.pathname.endsWith('.svg')?'image/svg+xml':/\.m?js$/.test(url.pathname)?'text/javascript':url.pathname.endsWith('.css')?'text/css':'text/html','Cache-Control':'no-store','Content-Security-Policy':"default-src 'self'; frame-src "+previewOrigin(req.headers.host)+" http://127.0.0.1:* http://localhost:*; img-src 'self' blob: data: "+previewOrigin(req.headers.host)+"; media-src 'self' blob: "+previewOrigin(req.headers.host)+"; frame-ancestors "+((await aqeelos.origins()).join(' ')||"'none'")+"; object-src 'none'; base-uri 'none'"});return res.end(await readFile(path.join(root,files[url.pathname])))}
   send(404,{error:'Not found.'});
  }catch(e){send(e.status||400,{error:e.message})}
 });

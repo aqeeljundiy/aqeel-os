@@ -41,7 +41,7 @@ export function createSidebar(ctx){
   'separator',
   p.archived?{label:'Restore from archive',action:()=>act(()=>ctx.api('/project/update',{projectId:p.id,archived:false}),'Project restored.')}
    :{label:'Archive',action:()=>act(()=>ctx.api('/project/update',{projectId:p.id,archived:true}),'Project archived. Find it under Archived.')},
-  p.path?{label:'Remove from app…',danger:true,action:async()=>{if(await confirmDialog({title:'Remove “'+p.name+'” from the app?',message:'Its chats and saved versions are removed from code by aqeel. The folder itself stays on your computer: '+p.path,confirm:'Remove',danger:true}))act(()=>ctx.api('/project/delete',{projectId:p.id}),'Project removed. The folder is untouched.')}}
+  p.path?{label:'Remove from app…',danger:true,action:async()=>{if(await confirmDialog({title:'Remove “'+p.name+'” from the app?',message:'Its chats and saved versions are removed from aqeelOS Code. The folder itself stays on your computer: '+p.path,confirm:'Remove',danger:true}))act(()=>ctx.api('/project/delete',{projectId:p.id}),'Project removed. The folder is untouched.')}}
   :{label:'Delete project…',danger:true,action:async()=>{if(await confirmDialog({title:'Delete “'+p.name+'”?',message:'This permanently deletes the project folder, its chats and saved versions from this PC. This cannot be undone.',confirm:'Delete project',danger:true}))act(()=>ctx.api('/project/delete',{projectId:p.id}),'Project deleted.')}},
  ]}
  function chatItems(p,c){const s=status(p,c);return [

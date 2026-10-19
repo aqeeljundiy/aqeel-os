@@ -48,7 +48,7 @@ export function openCustomize(ctx,start='prompts'){
   const ok=el('button','primary','Save hooks');ok.type='button';ok.onclick=async()=>{if(items.some(h=>h.enabled!==false&&!data.hooks.some(o=>o.command===h.command))&&!(await confirmDialog({title:'Save these hooks?',message:'Hook commands run automatically on this computer during AI runs, in every project.',confirm:'Save hooks'})))return;save({hooks:items},'Hooks saved.')};
   const actions=el('div','custom-actions');actions.append(add,ok);panel.append(list,actions)}
 
- function schedules(){panel.append(el('p','kit-message','Run a prompt on a schedule in a new chat, for example a daily dependency check. Runs happen while code by aqeel is open on this computer; a missed run happens once when it next starts. Scheduled runs use Plan only (read-only) or Auto-edit, never full access.'));
+ function schedules(){panel.append(el('p','kit-message','Run a prompt on a schedule in a new chat, for example a daily dependency check. Runs happen while aqeelOS Code is open on this computer; a missed run happens once when it next starts. Scheduled runs use Plan only (read-only) or Auto-edit, never full access.'));
   const items=data.schedules.map(s=>({...s}));const list=el('div','custom-list');const projects=data.projects.map(p=>[p.id,p.name]);
   const paintList=()=>{list.replaceChildren(...items.map((s,i)=>{const row=el('div','custom-row');const top=el('div','custom-row-top');const name=input(s.name,{placeholder:'Name'});name.setAttribute('aria-label','Schedule name');name.oninput=()=>s.name=name.value;
    const on=el('input');on.type='checkbox';on.checked=s.enabled!==false;on.setAttribute('role','switch');on.setAttribute('aria-label','Enabled');on.onchange=()=>s.enabled=on.checked;const x=el('button','','Remove');x.type='button';x.onclick=()=>{items.splice(i,1);paintList()};top.append(name,on,x);
@@ -72,7 +72,7 @@ export function openCustomize(ctx,start='prompts'){
 export async function openDiagnostics(ctx){const {body}=shell('Diagnostics');body.append(el('p','kit-message','Checking…'));
  try{const r=await ctx.api('/diagnostics');const rows=el('div','diag-list');
   const line=(label,value,state)=>{const row=el('div','diag-row'+(state?' '+state:''));row.append(el('span','diag-dot'),el('strong','',label),el('span','diag-value',value));rows.append(row)};
-  line('code by aqeel','Node '+r.app.node+' · '+r.app.platform+' · running for '+Math.round(r.app.uptime/60)+' min','ok');
+  line('aqeelOS Code','Node '+r.app.node+' · '+r.app.platform+' · running for '+Math.round(r.app.uptime/60)+' min','ok');
   for(const t of r.tools)line(t.name,t.path?(t.version||'installed')+' · '+t.path:t.optional?'Not installed (optional)':'Not installed',t.path?'ok':t.optional?'':'bad');
   for(const p of r.providers)line(p.name,p.ready?'Signed in'+(p.account?' · '+p.account:''):p.message||'Not ready',p.ready?'ok':'bad');
   line('Side browser',r.browser||'No Chrome or Edge found',r.browser?'ok':'bad');line('Data folder',r.app.data+' · '+r.app.projects+(r.app.projects===1?' project':' projects'),'ok');

@@ -8,7 +8,7 @@ import os from 'node:os';
 import {isWindows,isMac} from './platform.mjs';
 
 // apps an AI may never drive: this app itself (it would approve its own actions) and password managers
-export const BLOCKED=/code by aqeel|keepass|1password|bitwarden|lastpass|dashlane|keychain access|credential manager/i;
+export const BLOCKED=/code by aqeel|aqeelos code|keepass|1password|bitwarden|lastpass|dashlane|keychain access|credential manager/i;
 export const appKey=a=>String(a.name||'').toLowerCase();
 
 // "ctrl+shift+s", "enter", "alt+f4" → SendKeys syntax (^+s, {ENTER}, %{F4})

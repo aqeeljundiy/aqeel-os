@@ -8,7 +8,7 @@ import {shell} from './platform.mjs';
 // work directly in the project folder. Both adapters emit the same event shapes so the UI renders one timeline:
 //  message {text, final}  · command {command, status, output, exitCode}  · file {paths, status}
 //  tool {name, detail, status}  · approval {kind, title, detail, status}  · error {text}
-export const INSTRUCTIONS=`You are working inside "code by aqeel", a local app and website builder.
+export const INSTRUCTIONS=`You are working inside "aqeelOS Code", a local app and website builder that is part of the person's aqeelOS. When the aqeelos tools are available, use aqeelos_ask for anything outside this project folder (read or update a Google Sheet, run or build an n8n workflow, send a WhatsApp or Slack message, set up a schedule, look something up in Notion or memory): one of the person's agents does it with its own access and tells you the result. aqeelos_agents lists who can help.
 The current working directory is the user's project folder: keep every change inside it.
 For new websites prefer static HTML, CSS and JavaScript with index.html as the entry point, unless the project already uses another stack.
 You may run shell commands (${shell('').label} on ${process.platform==='win32'?'Windows':process.platform==='darwin'?'macOS':'Linux'}). The user approves commands and edits from the app, so run what the task needs and explain briefly why.
@@ -86,7 +86,7 @@ export function runCodex(run,{executable,env,cwd,prompt,threadId,onSession,brows
    if(p.serverName==='app'||(p.serverName==='browser'&&run.mode!=='ask')||(run.extraMcp||[]).some(m=>m.name===p.serverName&&m.permission==='allow'))answer('accept'); // the app's own tools only show things in the app
    else if(p.mode==='url')answer('decline');
    else run.ask('tool',p.message||('Allow '+p.serverName+'?'),p.serverName+(p.message?' — '+p.message:''),answer)}
-  else fail('code by aqeel cannot answer '+m.method+' yet.');
+  else fail('aqeelOS Code cannot answer '+m.method+' yet.');
  },m=>{
   const p=m.params||{},item=p.item;
   if(m.method==='item/started'&&item){
@@ -119,7 +119,7 @@ export function runCodex(run,{executable,env,cwd,prompt,threadId,onSession,brows
  run.stop=async()=>{run.stopped=true;run.denyAll();try{if(turnId)await client.call('turn/interrupt',{threadId:run.threadId,turnId})}catch{}setTimeout(()=>finish('stopped'),3000)};
  run.steer=async text=>{if(!turnId||done)throw Error('This run has already finished.');await client.call('turn/steer',{threadId:run.threadId,expectedTurnId:turnId,input:[{type:'text',text,text_elements:[]}]});run.emit({type:'steer',text})};
  (async()=>{try{
-  await client.call('initialize',{clientInfo:{name:'code_by_aqeel',title:'code by aqeel',version:'0.2.0'}});client.send({method:'initialized'});
+  await client.call('initialize',{clientInfo:{name:'code_by_aqeel',title:'aqeelOS Code',version:'0.2.0'}});client.send({method:'initialized'});
   const policy=codexPolicy(run.mode,cwd);const options={cwd,approvalPolicy:policy.approvalPolicy,sandbox:policy.sandbox,developerInstructions:INSTRUCTIONS+(run.extraInstructions||''),...(run.model?{model:run.model}:{}),...(browserMcp&&run.mode!=='plan'?{config:{mcp_servers:{browser:browserMcp,...Object.fromEntries((extraMcp||[]).map(m=>[m.name,{command:m.command,args:m.args,env:m.env}]))}}}:{})};
   let thread;if(threadId){try{thread=(await client.call('thread/resume',{threadId,...options})).thread}catch{}}
   if(!thread)thread=(await client.call('thread/start',{...options,serviceName:'code_by_aqeel'})).thread;
@@ -156,7 +156,7 @@ export function runClaude(run,{executable,env,cwd,prompt,sessionId,onSession,bro
    const kind=/^(Bash|PowerShell)$/.test(r.tool_name)?'command':/^(Write|Edit|MultiEdit|NotebookEdit)$/.test(r.tool_name)?'file':'tool';
    const detail=kind==='command'?input.command:kind==='file'?rel(cwd,input.file_path||input.notebook_path||''):r.tool_name+' '+JSON.stringify(input).slice(0,300);
    run.ask(kind,kind==='command'?'Run this command?':kind==='file'?'Allow this file change?':'Allow '+(r.display_name||r.tool_name)+'?',detail,dec=>send({type:'control_response',response:{subtype:'success',request_id:m.request_id,response:dec==='decline'?{behavior:'deny',message:'The user declined this action in code by aqeel.'}:{behavior:'allow',updatedInput:input,...(dec==='acceptForSession'&&r.permission_suggestions?{updatedPermissions:r.permission_suggestions.map(s=>({...s,destination:'session'}))}:{})}}}))}
-  else if(m.type==='control_request')send({type:'control_response',response:{subtype:'error',request_id:m.request_id,error:'Not supported by code by aqeel.'}});
+  else if(m.type==='control_request')send({type:'control_response',response:{subtype:'error',request_id:m.request_id,error:'Not supported by aqeelOS Code.'}});
   else if(m.type==='assistant'&&!m.parent_tool_use_id){const us=m.message?.usage;if(us)run.context={used:(us.input_tokens||0)+(us.cache_read_input_tokens||0)+(us.cache_creation_input_tokens||0)+(us.output_tokens||0),window:run.context?.window||null};for(const block of m.message?.content||[]){
    if(block.type==='text'&&block.text.trim()){lastText=run.emit({type:'message',text:block.text,final:false})}
    else if(block.type==='thinking'&&block.thinking?.trim())run.emit({type:'thinking',text:block.thinking.slice(0,6000)})

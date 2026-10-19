@@ -25,5 +25,5 @@ export function listCodexModels(executable,env,cwd){return new Promise(resolve=>
   if(message.id===1){const data=message.result?.data;if(!Array.isArray(data))return finish([]);
    finish(data.filter(m=>!m.hidden&&typeof m.model==='string').map(m=>({id:m.model,name:m.displayName||m.model,description:m.description||'',efforts:(m.supportedReasoningEfforts||[]).map(e=>e.reasoningEffort).filter(e=>EFFORTS.codex.includes(e)),defaultEffort:m.defaultReasoningEffort||'',isDefault:Boolean(m.isDefault)})))}
  }});
- send({id:0,method:'initialize',params:{clientInfo:{name:'code_by_aqeel',title:'code by aqeel',version:'0.1.0'}}});
+ send({id:0,method:'initialize',params:{clientInfo:{name:'code_by_aqeel',title:'aqeelOS Code',version:'0.1.0'}}});
 })}

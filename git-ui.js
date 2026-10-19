@@ -16,7 +16,7 @@ export function createGitUI(ctx){
   const actions=el('div','dialog-actions');const cancel=el('button','','Cancel');cancel.type='button';const ok=el('button','primary','Clone');actions.append(cancel,ok);
   form.append(pickLabel,pick,urlLabel,url,where,actions);d.append(form);document.body.append(d);d.showModal();
   let busy=false;const close=()=>{if(!busy){d.close();setTimeout(()=>d.remove(),180)}};cancel.onclick=close;d.addEventListener('cancel',e=>{e.preventDefault();close()});
-  try{const {login,repos}=await ctx.api('/github/repos');note.textContent='Signed in to GitHub as '+login+'. Cloned projects are saved in Documents › code by aqeel.';{const sw=el('button','link-button','Switch account');sw.type='button';sw.onclick=()=>accountsDialog();note.append(' ',sw)}pick.replaceChildren(new Option('Choose a repository',''));
+  try{const {login,repos}=await ctx.api('/github/repos');note.textContent='Signed in to GitHub as '+login+'. Cloned projects are saved in Documents › aqeelOS Code.';{const sw=el('button','link-button','Switch account');sw.type='button';sw.onclick=()=>accountsDialog();note.append(' ',sw)}pick.replaceChildren(new Option('Choose a repository',''));
    for(const r of repos){const o=new Option(r.nameWithOwner+(r.isPrivate?' · private':''),r.nameWithOwner);if(r.description)o.dataset.desc=r.description;pick.append(o)}}
   catch(err){note.textContent=err.message;pick.replaceChildren(new Option('Not available',''));pick.disabled=true}
   pick.addEventListener('change',()=>{if(pick.value)url.value=''});url.addEventListener('input',()=>{if(url.value)pick.value=''});

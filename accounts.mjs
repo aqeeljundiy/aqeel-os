@@ -22,7 +22,7 @@ export function readCodexAccount(executable,env,cwd){return new Promise(resolve=
   if(message.id===1){const a=message.result?.account;account=a?{type:a.type,email:a.email||null,plan:a.planType||null}:null;if(account?.type!=='chatgpt')return finish({account,limits:null});send({id:2,method:'account/rateLimits/read'})}
   if(message.id===2){const r=message.result;finish({account,limits:r?{rateLimits:r.rateLimits,rateLimitsByLimitId:r.rateLimitsByLimitId}:null,detail:message.error?'Usage unavailable.':null})}
  }});
- send({id:0,method:'initialize',params:{clientInfo:{name:'aqeel_code',title:'code by aqeel',version:'0.1.0'}}});
+ send({id:0,method:'initialize',params:{clientInfo:{name:'aqeel_code',title:'aqeelOS Code',version:'0.1.0'}}});
 })}
 
 export class Accounts {

@@ -6,7 +6,7 @@ export function openPhoneDialog(ctx){
  const close=()=>{clearInterval(timer);d.close();setTimeout(()=>d.remove(),180)};d.addEventListener('cancel',e=>{e.preventDefault();close()});
  async function act(action,extra={}){try{state=await ctx.api('/remote',{action,...extra},true);render()}catch(e){ctx.notify(e.message)}}
  function render(){d.replaceChildren();const h=el('h2','','Use on your phone');
-  const intro=el('p','kit-message','Open code by aqeel on your iPhone over your home Wi-Fi. Your computer still does the work; the phone shows chats, approvals and previews.');
+  const intro=el('p','kit-message','Open aqeelOS Code on your iPhone over your home Wi-Fi. Your computer still does the work; the phone shows chats, approvals and previews.');
   const toggle=el('label','switch-row');const box=el('input');box.type='checkbox';box.setAttribute('role','switch');box.checked=state.enabled;box.addEventListener('change',()=>act(box.checked?'enable':'disable'));toggle.append(box,el('span','',state.enabled?'Phone access is on':'Phone access is off'));
   d.append(h,intro,toggle);
   if(state.enabled){

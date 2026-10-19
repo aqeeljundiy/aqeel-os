@@ -44,12 +44,12 @@ const label=p=>providerName(p);
 const composer=createComposer({commands:()=>slashCommands(),history:()=>(chat()?.messages||[]).filter(m=>m.role==='user').map(m=>m.text),textarea:()=>$('chat-prompt'),form:()=>$('chat-form'),controls:()=>document.querySelector('.composer-controls'),api:(r,b)=>api(r,b),notify:t=>notify(t),projectId:()=>projectId});
 function notify(text){const t=$('toast');t.textContent=text;t.hidden=false;t.classList.remove('out');clearTimeout(notify.timer);notify.timer=setTimeout(()=>{t.classList.add('out');notify.timer=setTimeout(()=>t.hidden=true,200)},Math.min(9000,3500+text.length*40))}
 $('toast').addEventListener('click',()=>$('toast').hidden=true);
-async function api(route,body,retried){let r;try{r=await fetch('/api/workspace'+route,{method:body?'POST':'GET',headers:{'Content-Type':'application/json','X-Local-Token':token},...(body?{body:JSON.stringify(body)}:{})})}catch{connectionLost();throw Error('Cannot reach code by aqeel. Is the app still running on this computer?')}
+async function api(route,body,retried){let r;try{r=await fetch('/api/workspace'+route,{method:body?'POST':'GET',headers:{'Content-Type':'application/json','X-Local-Token':token},...(body?{body:JSON.stringify(body)}:{})})}catch{connectionLost();throw Error('Cannot reach aqeelOS Code. Is the app still running on this computer?')}
  // the server restarted and issued a new token: pick it up and try once more
  if(r.status===403&&!retried){const fresh=await fetch('/api/status').then(x=>x.ok?x.json():null).catch(()=>null);if(fresh?.token&&fresh.token!==token){token=fresh.token;return api(route,body,true)}}
  const data=await r.json().catch(()=>({error:'The app sent an unexpected reply ('+r.status+').'}));if(!r.ok)throw Error(data.error||'Request failed');return data}
 // Connection lost: show a banner, retry every 2 seconds, then refresh everything (including runs that kept going)
-let offline=false;function connectionLost(){if(offline)return;offline=true;let b=document.getElementById('offline-banner');if(!b){b=document.createElement('div');b.id='offline-banner';b.setAttribute('role','status');document.body.append(b)}b.textContent='Can\'t reach code by aqeel on your computer. Reconnecting…';b.hidden=false;
+let offline=false;function connectionLost(){if(offline)return;offline=true;let b=document.getElementById('offline-banner');if(!b){b=document.createElement('div');b.id='offline-banner';b.setAttribute('role','status');document.body.append(b)}b.textContent='Can\'t reach aqeelOS Code on your computer. Reconnecting…';b.hidden=false;
  (async()=>{while(offline){await new Promise(r=>setTimeout(r,2000));try{const r=await fetch('/api/status');if(!r.ok)continue;const d=await r.json();token=d.token;offline=false;b.hidden=true;if(!started){location.reload();return}notify('Reconnected.');await refreshState();for(const p of projects){try{const {runs}=await api('/agents?projectId='+p.id);for(const x of runs)void agentUI.follow({...x,projectId:p.id,state:'running'})}catch{}}}catch{}}})()}
 addEventListener('online',()=>{if(offline)notify('Back online. Reconnecting…')});
 function project(){return projects.find(p=>p.id===projectId)}
@@ -316,7 +316,7 @@ function slashCommands(){const p=getChoice().provider;return [
  {name:'doctor',description:'Diagnostics: tools, sign-in and recent errors',run:()=>diagnostics()},
  {name:'help',description:'Search everything (Ctrl+K)',run:()=>palette.open()},
  {name:'shortcuts',description:'Keyboard shortcuts',run:()=>openShortcuts()},
- {name:'guide',description:'How code by aqeel works',run:()=>openGuide()},
+ {name:'guide',description:'How aqeelOS Code works',run:()=>openGuide()},
  ...savedSkills.filter(k=>/^[\w-]{1,40}$/.test(k.name)).map(k=>({name:k.name,description:(k.description||'Skill').slice(0,90)+' · skill',run:()=>{const t=$('chat-prompt');t.value='Use the '+k.name+' skill: ';t.dispatchEvent(new Event('input'));t.focus();t.setSelectionRange(t.value.length,t.value.length)}})),
  ...savedPrompts.filter(s=>!['compact','review','plan','new','fork','init','instructions','model','usage','settings','customize','doctor','help','shortcuts','guide'].includes(s.name)).map(s=>({name:s.name,description:s.description+' · '+s.source,run:()=>usePrompt(s.text)}))]}
 let savedPrompts=[],savedSkills=[],promptsFor=null;async function loadSavedPrompts(force){if(!projectId||(!force&&promptsFor===projectId))return;promptsFor=projectId;try{const r=await api('/prompts?projectId='+projectId);savedPrompts=r.prompts;savedSkills=r.skills||[]}catch{savedPrompts=[];savedSkills=[]}}
@@ -347,13 +347,13 @@ const palette=createPalette({projects:()=>projects,openChat:(p,c)=>openChat(p,c)
  {label:'Toggle terminal',keys:'Ctrl+`',run:()=>$('terminal-toggle').click()},{label:'Toggle projects panel',run:()=>$('sidebar-toggle').click()},{label:'Toggle conversation panel',run:()=>$('chat-fold').click()},
  ...['preview','artifacts','files','history','browser'].map((v,i)=>({label:'Show '+({preview:'Preview',artifacts:'Artifacts',files:'Files',history:'Changes',browser:'Browser'})[v],keys:'Ctrl+'+(i+1),run:()=>{document.querySelector('[data-view='+v+']').click();mobile?.showWork()}})),
  {label:'Stop the running AI',run:()=>agentUI.stop(projectId,chatId).catch(e=>notify(e.message))},{label:'Compact this chat',run:()=>compact(getChoice().provider)},{label:'Edit project instructions (AGENTS.md)',run:()=>editInstructions()},
- {label:'Switch light / dark mode',run:()=>$('theme-toggle').click()},{label:'Switch language: English / Bahasa Indonesia',run:()=>setLang(lang()==='en'?'id':'en')},{label:'Settings',run:()=>$('settings-button').click()},{label:'Customize: saved prompts',run:()=>customize('prompts')},{label:'Customize: skills',run:()=>customize('skills')},{label:'Customize: hooks',run:()=>customize('hooks')},{label:'Customize: scheduled runs',run:()=>customize('schedules')},{label:'Diagnostics',run:()=>diagnostics()},{label:'Install as an app',run:()=>installApp()},{label:'Search in project files',run:()=>$('search-files').click()},{label:'Keyboard shortcuts',keys:'Ctrl+/',run:()=>openShortcuts()},{label:'Guide: how code by aqeel works',run:()=>openGuide()},{label:'Publish site to GitHub Pages…',run:()=>gitUI.publish()},{label:'Usage',run:()=>location.href='/usage.html'},{label:'Connections and accounts',run:()=>location.href='/connections'},{label:'Use on your phone',run:()=>$('phone-button').click()}]});
+ {label:'Switch light / dark mode',run:()=>$('theme-toggle').click()},{label:'Switch language: English / Bahasa Indonesia',run:()=>setLang(lang()==='en'?'id':'en')},{label:'Settings',run:()=>$('settings-button').click()},{label:'Customize: saved prompts',run:()=>customize('prompts')},{label:'Customize: skills',run:()=>customize('skills')},{label:'Customize: hooks',run:()=>customize('hooks')},{label:'Customize: scheduled runs',run:()=>customize('schedules')},{label:'Diagnostics',run:()=>diagnostics()},{label:'Install as an app',run:()=>installApp()},{label:'Search in project files',run:()=>$('search-files').click()},{label:'Keyboard shortcuts',keys:'Ctrl+/',run:()=>openShortcuts()},{label:'Guide: how aqeelOS Code works',run:()=>openGuide()},{label:'Publish site to GitHub Pages…',run:()=>gitUI.publish()},{label:'Usage',run:()=>location.href='/usage.html'},{label:'Connections and accounts',run:()=>location.href='/connections'},{label:'Use on your phone',run:()=>$('phone-button').click()}]});
 $('palette-button').addEventListener('click',()=>palette.open());
 // Install as an app (Chrome/Edge on Windows and Mac): own window, Start menu or Dock icon. iPhone uses Share › Add to Home Screen.
 let installPrompt=null;try{navigator.serviceWorker?.register('/sw.js').catch(()=>{})}catch{}
-addEventListener('beforeinstallprompt',e=>{e.preventDefault();installPrompt=e;$('install-app').hidden=false});addEventListener('appinstalled',()=>{installPrompt=null;$('install-app').hidden=true;notify('Installed. Open code by aqeel from your Start menu, Dock or desktop.')});
+addEventListener('beforeinstallprompt',e=>{e.preventDefault();installPrompt=e;$('install-app').hidden=false});addEventListener('appinstalled',()=>{installPrompt=null;$('install-app').hidden=true;notify('Installed. Open aqeelOS Code from your Start menu, Dock or desktop.')});
 async function installApp(){if(installPrompt){installPrompt.prompt();const {outcome}=await installPrompt.userChoice;if(outcome==='accepted'){installPrompt=null;$('install-app').hidden=true}return}
- if(matchMedia('(display-mode: standalone)').matches)return notify('code by aqeel is already running as an installed app.');notify(/iPhone|iPad/.test(navigator.userAgent)?'In Safari, tap Share, then Add to Home Screen.':'Use your browser menu: Install code by aqeel (Chrome) or Apps › Install this site as an app (Edge).')}
+ if(matchMedia('(display-mode: standalone)').matches)return notify('aqeelOS Code is already running as an installed app.');notify(/iPhone|iPad/.test(navigator.userAgent)?'In Safari, tap Share, then Add to Home Screen.':'Use your browser menu: Install aqeelOS Code (Chrome) or Apps › Install this site as an app (Edge).')}
 $('install-app').addEventListener('click',installApp);
 addEventListener('keydown',e=>{if(e.altKey&&!e.ctrlKey&&!e.metaKey&&e.key.toLowerCase()==='n'){e.preventDefault();newChat();return}
  if((e.ctrlKey||e.metaKey)&&e.shiftKey&&e.key.toLowerCase()==='f'){e.preventDefault();$('search-files').click();return}
@@ -389,3 +389,28 @@ async function init(){try{const providersReady=fetch('/api/status').then(r=>r.js
 
 // Keep several windows (and later the phone) in sync: re-read the workspace when this window regains focus.
 {let last=0;const sync=()=>{if(document.hidden||!token||Date.now()-last<1500)return;last=Date.now();refreshState().catch(()=>{})};addEventListener('focus',sync);document.addEventListener('visibilitychange',sync)}
+
+// ---- Inside aqeelOS (its Code section shows this app in a frame) ----
+// aqeelOS keeps its own sidebar and lists this app's projects and chats there, so here the header and the projects
+// column are hidden. The two talk by messages, and only with the aqeelOS address this copy belongs to: hello (is the
+// app running, is it paired), pair (aqeelOS hands over this computer's key), open / new chat / new project, theme and
+// language; this app tells aqeelOS whenever its projects or the open chat change.
+{const EMBED=new URLSearchParams(location.search).get('embed')==='aqeelos';
+ if(EMBED){document.body.classList.add('embed');let allowed=[],parentOrigin='';
+  const post=m=>{if(parentOrigin)parent.postMessage({cba:1,...m},parentOrigin)};
+  const summary=()=>({project:projectId,chat:chatId,projects:(projects||[]).filter(p=>!p.archived).map(p=>({id:p.id,name:p.name,pinned:!!p.pinned,where:p.path?'folder':'app',
+   chats:(p.chats||[]).filter(c=>!c.archived&&!c.temporary).map(c=>({id:c.id,title:c.title||'New chat',updated:c.updatedAt||c.updated||c.createdAt||0,busy:runningProjects.has(p.id)&&c.id===chatId}))}))});
+  const ready=fetch('/api/aqeelos').then(r=>r.json()).then(s=>{allowed=s.origins||[];return s}).catch(()=>({origins:[]}));
+  addEventListener('message',async e=>{await ready;if(!allowed.includes(e.origin)||!e.data||!e.data.aq)return;parentOrigin=e.origin;const m=e.data;
+   try{
+    if(m.aq==='hello'){const s=await (await fetch('/api/aqeelos')).json();post({type:'hello',paired:s.paired,user:s.user,base:s.base,...summary()})}
+    else if(m.aq==='pair'){const r=await fetch('/api/aqeelos/pair',{method:'POST',headers:{'content-type':'application/json','x-local-token':token},body:JSON.stringify({base:m.base,token:m.token})});const j=await r.json();post({type:'paired',ok:r.ok,error:j.error,user:j.user})}
+    else if(m.aq==='open'){if(m.project!==projectId)await selectProject(m.project,m.chat||undefined);else if(m.chat)await openChat(m.project,m.chat);post({type:'state',...summary()})}
+    else if(m.aq==='newChat'){if(m.project&&m.project!==projectId)await selectProject(m.project);await newChat();post({type:'state',...summary()})}
+    else if(m.aq==='newProject')$('new-project')?.click();
+    else if(m.aq==='theme')theme(!!m.dark);
+    else if(m.aq==='lang'&&m.lang&&m.lang!==lang)setLang(m.lang);
+   }catch(err){post({type:'error',error:String(err?.message||err)})}});
+  // aqeelOS's sidebar follows this app
+  const rp=renderProjects;renderProjects=(...a)=>{const r=rp(...a);post({type:'state',...summary()});return r};
+  setInterval(()=>post({type:'state',...summary()}),15000)}}
