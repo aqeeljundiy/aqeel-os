@@ -48,7 +48,14 @@ class ApiError extends Error{constructor(msg,status,data){super(msg);this.status
 // started on an earlier page is dropped when it comes back (a quiet "stale" error nobody sees). Changes (POST,
 // PUT, DELETE) always finish.
 const STALE=()=>Object.assign(new Error('That page was left before it finished loading.'),{stale:true});
-async function call(base,path,opt={}){const nav=S._nav,read=!opt.method||opt.method==='GET';
+// A button you press shows a spinner while what it started is still talking to the server (anything it starts within
+// 0.6 s of the click), so it never looks like nothing happened. Works for every button, however its click is wired.
+const Press={btn:null,at:0};document.addEventListener('click',e=>{const b=e.target.closest?.('button,.btn,[role=button]');if(b&&!b.disabled){Press.btn=b;Press.at=Date.now()}},true);
+function pressBusy(p){const b=Press.btn;if(!b||Date.now()-Press.at>600||!b.isConnected)return;b._busyN=(b._busyN||0)+1;
+ const t=setTimeout(()=>{if(b._busyN&&b.isConnected){b.classList.add('is-busy');b.setAttribute('aria-busy','true')}},120);
+ p.finally(()=>{if(--b._busyN<=0){b._busyN=0;clearTimeout(t);b.classList.remove('is-busy');b.removeAttribute('aria-busy')}}).catch(()=>{})}
+async function call(base,path,opt={}){const req=callRaw(base,path,opt);pressBusy(req);return req}
+async function callRaw(base,path,opt={}){const nav=S._nav,read=!opt.method||opt.method==='GET';
  const init={method:opt.method||'GET',headers:{'x-hui':'1',...(opt.headers||{})},credentials:'same-origin',signal:opt.signal};
  if(opt.body!==undefined){if(opt.body instanceof FormData)init.body=opt.body;else{init.body=JSON.stringify(opt.body);init.headers['content-type']='application/json'}}
  const r=await fetch(base+path,init);if(read&&!opt.keep&&nav!==S._nav)throw STALE();

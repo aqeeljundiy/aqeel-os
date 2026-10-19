@@ -12,7 +12,7 @@ const CodeUI={where:(()=>{try{const w=localStorage.getItem('aq-code-where');retu
  whereBar(){if(!this.online())return '';return `<div class="code-where" role="tablist" aria-label="Build or Live">${[['computer','Build','terminal'],['live','Live','globe']].map(([k,t,i])=>`<button role="tab" aria-selected="${this.where===k}" class="${this.where===k?'on':''}" data-act="code-where" data-w="${k}">${icon(i,14)}${t}</button>`).join('')}</div>`},
  // the left list, under the aqeelOS sections, like the chat list
  sidebar(){if(this.where==='live')return this.liveSide();const ps=this.st.projects||[],q=this.q.toLowerCase();
-  if(this.state==='lock')return `<div class="side-sub">${this.whereBar()}<p class="hint" style="margin:6px 18px">Install aqeelOS Code on this computer to see your projects here.</p></div>`;
+  if(this.state==='lock')return `<div class="side-sub">${this.whereBar()}<p class="hint" style="margin:6px 18px">${/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)?"Your projects show here in the desktop app on your computer.":"Install aqeelOS Code on this computer to see your projects here."}</p></div>`;
   if(this.state!=='on')return `<div class="side-sub">${this.whereBar()}<div class="code-skel" role="status" aria-label="${this.where==='online'?'Opening your online projects':'Connecting to aqeelOS Code'}"><span class="ring"></span><i></i><i></i><i></i></div></div>`;
   const chats=p=>(p.chats||[]).filter(c=>(!q||(c.title+' '+p.name).toLowerCase().includes(q))&&(this.filter!=='Active'||c.busy)&&(this.filter!=='Unread'||c.unread)).sort((a,b)=>(b.updated||0)-(a.updated||0));
   return `<div class="side-sub">${this.whereBar()}<div style="padding:4px 12px 8px"><button style="width:100%" data-act="code-new">${icon('plus',16)}New chat</button></div>
@@ -26,6 +26,8 @@ const CodeUI={where:(()=>{try{const w=localStorage.getItem('aq-code-where');retu
  // the page: the app in a frame, or the lock screen
  async page(p,el){const pg=el.closest('.page');pg?.classList.add('page-full');setActions('');clearTimeout(this.timer);
   if(this.where==='live')return this.livePage(el);
+  // on a phone or tablet there is no desktop app to find: say so, and offer what works here (Live)
+  if(/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&/Macintosh/.test(navigator.userAgent))){this.state='lock';this.paintSide();el.innerHTML=`<div class="code-host"><div class="code-lock card"><span class="code-lock-ic">${icon('monitor',26)}</span><h2>Code runs in the desktop app</h2><p>Building apps, slides and documents with Code needs the aqeelOS Code app on a Windows or Mac computer. Open aqeelOS on your computer to install it there.</p><p class="code-or">On this phone you can <button class="linkish" data-act="code-where" data-w="live">see what’s live</button>: the apps your team published.</p></div></div>`;return}
   el.innerHTML=`<div class="code-host"><div class="code-wait"><span class="ring"></span><span>${this.where==='online'?'Opening your online projects…':'Looking for aqeelOS Code on this computer…'}</span></div>
    <iframe class="code-frame" title="aqeelOS Code" allow="local-network-access; clipboard-read; clipboard-write; microphone" hidden></iframe></div>`;
   const f=el.querySelector('iframe');this.frame=f;this.state='wait';this.paintSide();
