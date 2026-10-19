@@ -91,7 +91,7 @@ Object.assign(CodeUI,{
   return `<div class="side-sub">${this.whereBar()}<div class="side-list live-side">${this.live?apps.map(a=>`<button class="item" data-act="live-jump" data-id="${esc(a.id)}"><i class="live-dot ${esc(a.status)}"></i><span class="t">${esc(a.name)}</span></button>`).join('')||'<p class="hint" style="margin:6px 18px">Nothing is live yet.</p>':'<div class="code-skel" role="status" aria-label="Loading"><span class="ring"></span><i></i><i></i></div>'}</div></div>`},
  async livePage(el){this.frame=null;this.state='live';
   if(!this.live)el.innerHTML=`<div class="code-host live-host"><div class="code-wait"><span class="ring"></span><span>Loading what’s live…</span></div></div>`;
-  try{this.live=await UI('/ui/live')}catch(e){el.innerHTML=`<div class="code-host live-host"><div class="code-lock card"><h2>Live isn’t available</h2><p>${esc(e.message)}</p></div></div>`;return}
+  try{this.live=await UI('/ui/apps')}catch(e){el.innerHTML=`<div class="code-host live-host"><div class="code-lock card"><h2>Live isn’t available</h2><p>${esc(e.message)}</p></div></div>`;return}
   this.paintSide();this.paintLive(el);this.watchLive(el)},
  paintLive(el){const d=this.live,apps=d.apps||[];
   const card=a=>`<article class="live-card card" id="live-${esc(a.id)}">
@@ -108,10 +108,10 @@ Object.assign(CodeUI,{
  // apps that are still publishing are checked every 8 seconds
  watchLive(el){clearInterval(this.lt);this.lt=setInterval(async()=>{if(!el.isConnected||this.where!=='live'||route().sec?.id!=='code'){clearInterval(this.lt);return}
    const busy=(this.live?.apps||[]).filter(a=>a.status==='building');if(!busy.length)return;let changed=false;
-   for(const a of busy){try{const r=await post(UI,'/ui/live/check',{id:a.id});if(r.status!==a.status){a.status=r.status;a.error=r.error;changed=true}}catch{}}
+   for(const a of busy){try{const r=await post(UI,'/ui/apps/check',{id:a.id});if(r.status!==a.status){a.status=r.status;a.error=r.error;changed=true}}catch{}}
    if(changed){this.paintLive(el);this.paintSide()}},8000)}});
 ACT['live-jump']=a=>{const c=document.getElementById('live-'+a.dataset.id);if(c){c.scrollIntoView({behavior:'smooth',block:'center'});c.classList.remove('flash');void c.offsetWidth;c.classList.add('flash')}};
 ACT['live-remove']=async a=>{const x=(CodeUI.live?.apps||[]).find(y=>y.id===a.dataset.id);if(!x)return;
  if(!await confirmBox('Take '+x.name+' offline?','Its address stops working and the app is removed from the server'+(x.db?', with its database':'')+'. The project itself stays in Code.','Take offline'))return;
- try{await post(UI,'/ui/live/remove',{id:x.id});toast(x.name+' is offline');CodeUI.live=null;const el=$('#pg .code-host')?.parentElement||$('#pg');if(el)CodeUI.livePage(el)}catch(e){fail(e)}};
-ACT['live-connect']=async()=>{try{await post(UI,'/ui/live/connect',{url:$('#liveUrl').value,key:$('#liveKey').value});toast('Live is connected');CodeUI.live=null;const el=$('#pg .code-host')?.parentElement||$('#pg');if(el)CodeUI.livePage(el)}catch(e){fail(e)}};
+ try{await post(UI,'/ui/apps/remove',{id:x.id});toast(x.name+' is offline');CodeUI.live=null;const el=$('#pg .code-host')?.parentElement||$('#pg');if(el)CodeUI.livePage(el)}catch(e){fail(e)}};
+ACT['live-connect']=async()=>{try{await post(UI,'/ui/apps/connect',{url:$('#liveUrl').value,key:$('#liveKey').value});toast('Live is connected');CodeUI.live=null;const el=$('#pg .code-host')?.parentElement||$('#pg');if(el)CodeUI.livePage(el)}catch(e){fail(e)}};

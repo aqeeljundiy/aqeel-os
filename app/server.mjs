@@ -1197,11 +1197,11 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/code/usage'&&req.method==='GET'){const days=Math.min(365,Math.max(1,+url.searchParams.get('days')||7));const d=await code.runs(days,users.isAdmin(u)?null:u.id);const people={};for(const id of Object.keys(d.byPerson)){const x=users.byId(id);people[id]={name:x?.name||id,avatar:x?.avatar?'/ui/people/avatar/'+id:null}}return send(res,200,{...d,people})}
    // Bottlenecks: what is stuck until a person acts (admins also see what aqeelOS itself noticed)
    // Live: every published app (everyone sees them; publisher or admin takes one offline; admins connect the server)
-   if(p==='/ui/live'&&req.method==='GET')return send(res,200,{...await live.list(u,users.isAdmin(u)),admin:users.isAdmin(u)});
-   if(p.startsWith('/ui/live/')&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}
-    try{if(p==='/ui/live/check'){const a=await live.check(String(b.id||''));return send(res,200,{status:a.status,error:a.error||''})}
-     if(p==='/ui/live/remove')return send(res,200,await live.remove(u,users.isAdmin(u),String(b.id||'')));
-     if(p==='/ui/live/connect'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,await live.connect(b))}}catch(e){return send(res,400,{error:e.message})}}
+   if(p==='/ui/apps'&&req.method==='GET')return send(res,200,{...await live.list(u,users.isAdmin(u)),admin:users.isAdmin(u)});
+   if(p.startsWith('/ui/apps/')&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}
+    try{if(p==='/ui/apps/check'){const a=await live.check(String(b.id||''));return send(res,200,{status:a.status,error:a.error||''})}
+     if(p==='/ui/apps/remove')return send(res,200,await live.remove(u,users.isAdmin(u),String(b.id||'')));
+     if(p==='/ui/apps/connect'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,await live.connect(b))}}catch(e){return send(res,400,{error:e.message})}}
    if(p==='/ui/bottlenecks'&&req.method==='GET'){const admin=users.isAdmin(u);const items=await bottlenecks.list({admin,mayUse:a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a),signins:admin?[...signinsDue.values()]:[],invites:admin?users.expiredInvites():[]});return send(res,200,{items})}
    if((p==='/ui/bottlenecks/done'||p==='/ui/bottlenecks/later')&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const id=String(b.id||'');if(!id)return send(res,400,{error:'Which one?'});if(!users.isAdmin(u)&&!id.startsWith('report|'))return send(res,403,{error:'Only admins.'});await (p.endsWith('done')?bottlenecks.done(id):bottlenecks.later(id));return send(res,200,{ok:true})}
    if(p==='/ui/code/devices'&&req.method==='GET')return send(res,200,{devices:await code.devices(u.id)});
