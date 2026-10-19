@@ -30,14 +30,20 @@ const CodeUI={st:{projects:[],project:'',chat:''},state:'wait',open:{},q:'',filt
    <p>Code builds apps, websites, decks, docs and designs with a live preview and its own guarded browser, using your agents and everything connected to aqeelOS. It runs on your own computer, so install it once.</p>
    <div class="code-dl"><a class="btn ${mac?'':'primary'}" href="/ui/code/download/windows" download>${icon('download',16)}Download for Windows</a><a class="btn ${mac?'primary':''}" href="/ui/code/download/mac" download>${icon('download',16)}Download for Mac</a></div>
    <ol class="code-steps"><li>Unzip it, then open <b>${mac?'Install aqeelOS Code.command':'Install aqeelOS Code.cmd'}</b>${mac?' (the first time: right-click › Open)':''}.</li><li>It installs Node.js if needed, starts in the background and comes back here.</li><li>Chrome may ask to let aqeelOS reach apps on this computer: allow it.</li></ol>
+   <p class="code-perm hint" hidden></p>
    <p class="hint code-retry"><span class="spinner tiny"></span>Waiting for the app… this opens by itself once it runs.</p></div>`;
+  // Chrome asks before a website may reach apps on this computer; once refused, Code stays locked until it is allowed
+  (async()=>{let st='';for(const n of ['local-network-access','loopback-network']){try{st=(await navigator.permissions.query({name:n})).state;break}catch{}}
+   const box=el.querySelector('.code-perm');if(!box)return;
+   if(st==='denied'){box.hidden=false;box.innerHTML=`${icon('alert',14)}<span>This browser is blocking aqeelOS from reaching apps on this computer. Click the icon left of the address bar › <b>Site settings</b> › <b>Local network access</b> › <b>Allow</b>, then reload. Already installed the app? This is why Code stays locked.</span>`}
+   else if(st==='prompt'){box.hidden=false;box.innerHTML=`${icon('shield',14)}<span>When the app runs, Chrome asks whether aqeelOS may reach apps on this computer. Choose <b>Allow</b>.</span>`}})();
   // keep checking quietly while the page is open
   clearTimeout(this.timer);this.timer=setTimeout(()=>{if(route().sec?.id==='code'&&this.state==='lock')this.page(null,el.closest('#pg')||el)},6000)},
  async onMessage(e){if(e.origin!==CODE_APP||!e.data?.cba)return;const m=e.data;
   if(m.type==='hello'){clearTimeout(this.timer);this.state='on';this.st={projects:m.projects||[],project:m.project,chat:m.chat};
    const f=this.frame;if(f){f.hidden=false;f.closest('.code-host')?.querySelector('.code-wait')?.remove()}
    this.post({aq:'theme',dark:document.documentElement.classList.contains('dark')});this.post({aq:'lang',lang:(typeof Lang!=='undefined'&&Lang.cur)||'en'});
-   if(!m.paired){try{const r=await post(UI,'/ui/code/pair',{name:(/Mac/i.test(navigator.platform)?'Mac':/Win/i.test(navigator.platform)?'Windows PC':'Computer')+' · '+(navigator.userAgentData?.brands?.find(b=>/Chrome|Edge/.test(b.brand))?.brand||'browser')});this.post({aq:'pair',token:r.token,base:location.origin})}catch(er){fail(er)}}
+   if(!m.paired){try{const r=await post(UI,'/ui/code/pair',{name:(/Mac/i.test(navigator.platform)?'Mac':/Win/i.test(navigator.platform)?'Windows PC':'Computer')+(()=>{const b=navigator.userAgentData?.brands?.find(b=>/Chrome|Edge/.test(b.brand))?.brand;return b?' · '+b:''})()});this.post({aq:'pair',token:r.token,base:location.origin})}catch(er){fail(er)}}
    this.paintSide()}
   if(m.type==='state'){this.st={projects:m.projects||[],project:m.project,chat:m.chat};this.paintSide()}
   if(m.type==='paired'){if(m.ok)toast('This computer is paired with aqeelOS');else toast('Pairing didn’t work: '+(m.error||'unknown'),'err')}

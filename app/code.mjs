@@ -27,7 +27,25 @@ export function createCode({DATA,SRC,PUBLIC_URL,ROOT}){
  const hash=t=>createHash('sha256').update(String(t)).digest('hex');
  // a new key for one person's computer; only its hash is kept here
  async function pair(user,name){await load();const token='aqc_'+randomBytes(24).toString('base64url');db.devices[hash(token)]={user,name:String(name||'Computer').slice(0,60),created:Date.now(),last:0};await save();return token}
- async function who(token){await load();const d=db.devices[hash(token||'')];if(!d)return null;d.last=Date.now();save().catch(()=>{});return d}
+ async function who(token){await load();const h=hash(token||''),d=db.devices[h];if(!d)return null;if(Date.now()-d.last>60000){d.last=Date.now();save().catch(()=>{})}return {...d,key:h.slice(0,16)}}
+ /* Agents work on projects: every paired Code app (a person's computer, or the box's own copy for online projects)
+    asks here for work about every 25 s and says which of its projects agents may use (a project's own agent, and the
+    agents it is shared with). An agent's code_work goes to the app that has the project; the answer comes back here. */
+ const live=new Map(),jobs=new Map();let seq=0;
+ function poll(dev,projects){const k=dev.key,cur=live.get(k);if(cur?.wake)cur.wake(null);
+  const e={user:dev.user,name:dev.name,seen:Date.now(),projects:(Array.isArray(projects)?projects:[]).slice(0,300).map(p=>({id:String(p.id).slice(0,80),name:String(p.name||'').slice(0,120),agent:String(p.agent||''),agents:(Array.isArray(p.agents)?p.agents:[]).map(String).slice(0,40),where:p.where==='online'?'online':'computer'})),queue:cur?.queue||[]};live.set(k,e);
+  if(e.queue.length)return Promise.resolve(e.queue.shift());
+  return new Promise(r=>{const t=setTimeout(()=>{e.wake=null;r(null)},25000);e.wake=j=>{clearTimeout(t);e.wake=null;r(j)}})}
+ function done(dev,id,out){const j=jobs.get(String(id));if(!j||j.dev!==dev.key)return false;jobs.delete(j.id);j.resolve(out||{});return true}
+ // the projects an agent may work on, on computers that asked for work in the last two minutes
+ function projectsFor(agent){const out=[];for(const [k,e] of live)if(Date.now()-e.seen<120000)for(const p of e.projects)if(p.agent===agent||p.agents.includes(agent))out.push({project:k+':'+p.id,name:p.name,where:p.where==='online'?'online (the AI box)':'on '+e.name,owner:p.agent===agent});return out}
+ function work(agent,agentName,ref,task,ms=540000){const [k,id]=String(ref).split(':');const e=live.get(k);const p=e?.projects.find(x=>x.id===id);
+  if(!e||Date.now()-e.seen>120000)return Promise.reject(Error('The computer with that project is not connected right now. It must be on, with aqeelOS Code running.'));
+  if(!p||(p.agent!==agent&&!p.agents.includes(agent)))return Promise.reject(Error('You may not work on that project. Its owner can share it with you in Code › project settings.'));
+  const j={id:String(++seq)+'-'+Date.now().toString(36),dev:k,job:null};j.job={id:j.id,project:id,agent,agentName,task:String(task).slice(0,20000)};
+  const result=new Promise((res,rej)=>{j.resolve=res;setTimeout(()=>{if(jobs.has(j.id)){jobs.delete(j.id);res({state:'running',text:'Still working after 9 minutes. It carries on in Code; check back with code_projects later or look in Code.'})}},ms)});
+  jobs.set(j.id,j);if(e.wake)e.wake(j.job);else e.queue.push(j.job);return result}
+
  async function devices(user){await load();return Object.entries(db.devices).filter(([,d])=>d.user===user).map(([h,d])=>({id:h.slice(0,12),...d}))}
  async function unpair(user,id){await load();for(const [h,d] of Object.entries(db.devices))if(d.user===user&&h.startsWith(id))delete db.devices[h];await save()}
  const version=async()=>{try{return JSON.parse(await readFile(path.join(SRC,'package.json'),'utf8')).version||'0'}catch{return '0'}};
@@ -38,4 +56,4 @@ export function createCode({DATA,SRC,PUBLIC_URL,ROOT}){
   if(os==='windows'){files.push(['aqeelOS Code/Install aqeelOS Code.cmd',await tpl('install.cmd')],['aqeelOS Code/install.ps1',await tpl('install.ps1')])}
   else files.push(['aqeelOS Code/Install aqeelOS Code.command',await tpl('install.command'),true]);
   return zip(files.map(f=>f.length===3?f:[f[0],f[1],/\.(command|sh)$/.test(f[0])]))}
- return {pair,who,devices,unpair,version,download}}
+ return {pair,who,devices,unpair,version,download,poll,done,projectsFor,work}}

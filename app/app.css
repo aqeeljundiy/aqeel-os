@@ -1320,3 +1320,4 @@ html.in-panel .composer-wrap{padding:0 10px 12px}
 .code-tree .code-p{gap:6px}.code-tree .code-chats{padding-left:22px;animation:lbUp var(--t-fast) var(--ease) both}.code-tree .code-c{font-size:13.5px}.code-tree .code-c.on{background:var(--blue-soft);color:var(--blue-deep)}
 .code-foot{padding:8px 12px;border-top:1px solid var(--border)}
 @media (max-width:760px){.page.page-full{height:auto}.code-lock{margin:20px 16px}}
+.code-perm{display:flex;gap:8px;align-items:flex-start;background:var(--soft-2);border-radius:var(--r-md);padding:10px 12px;margin:0 0 12px;color:var(--ink-2)}.code-perm svg{flex:none;margin-top:3px}
