@@ -697,7 +697,7 @@ button.small{min-height:32px;padding:0 14px;font-size:13px;gap:6px}
 
 /* ---------- smoothness ---------- */
 /* refreshing the page you are on: content swaps in place, nothing re-animates */
-#pg.soft *,#pg.soft{animation:none!important}
+/* same-page redraws: calm motion (core.js) stops their fades before they paint; a switch here would restart them all when it lifts */
 /* labels inside panels breathe like the ones in drawers */
 .panel label:not(.capt):not(.pick):not(.switch):not([class*="toggle"]){display:block;font-size:13px;font-weight:500;color:var(--ink-2);margin:16px 0 6px}
 .panel .sub+label,.panel h2+label,.panel>div>label:first-child{margin-top:4px}
