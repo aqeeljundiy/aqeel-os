@@ -1,6 +1,7 @@
 import {spawn} from 'node:child_process';
 import {EFFORTS} from './models.mjs';
-import {readFile,access,appendFile} from 'node:fs/promises';
+import {readFile,access,appendFile,readdir} from 'node:fs/promises';
+import {homedir} from 'node:os';
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {Workspace,buildSchema,isImage} from './workspace.mjs';
@@ -169,10 +170,12 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
     const STYLES={concise:'Keep replies short: a few sentences, no preamble.',explanatory:'Explain your reasoning and the trade-offs of what you changed, in plain language.',learning:'Teach as you go: explain concepts briefly and point out what the user could try themselves.'};
     if(!run.system&&(s.agents||[]).length){run.agents=s.agents;if(run.provider!=='claude')run.extraInstructions+='\n\nHelper roles the user defined (take on the matching role when a task fits it):\n'+s.agents.map(a=>'- '+a.name+': '+a.description+(a.instructions?' Instructions: '+a.instructions.slice(0,800):'')).join('\n')}
     if(!run.system)run.extraInstructions+=await memoryInstructions(run.projectId,cwd)
+    {const names=Object.keys(await readSecrets());if(names.length&&!run.system)run.extraInstructions+='\n\nSaved secrets you can use as environment variables (their values are hidden from you; never print, log or commit them): '+names.join(', ')+'.'}
     if(run.kind&&run.kind!=='app'&&!run.system)run.extraInstructions+=kindInstructions(run.kind,await projectDS(run.projectId))
     if(STYLES[s.outputStyle])run.extraInstructions+='\n\nResponse style: '+STYLES[s.outputStyle];if(!run.webAccess)run.extraInstructions+='\n\nDo not access the internet in this session.'
     if(!run.system){const g=store.chat(run.projectId,run.chatId).goal;if(g)run.extraInstructions+='\n\nThis chat has a long-running goal. Keep working toward it and finish each reply with a one-line progress note.\nGoal: '+g}}
    const options={extraMcp:run.extraMcp,browserMcp:run.webAccess===false?null:browserMcp(),executable:provider.path,env:run.provider==='codex'?accounts.env(provider.profileId):provider.profileId&&claudeAccounts?claudeAccounts.env(provider.profileId):env,cwd,prompt:(run.fullPrompt||agentPrompt(chat,run.provider,run.prompt,Boolean(session)))+(run.mentions?.length?'\n\nFiles the user pointed to: '+run.mentions.join(', '):'')+(run.images?.length?'\n\n'+run.images.length+' image'+(run.images.length>1?'s are':' is')+' attached.':'')+(run.attachText||''),threadId:session,sessionId:session,mcpConfig:run.mcpConfig,onSession:id=>{if(!run.cwd)chat.sessions[run.provider]=id}}
+   if(!run.system){const sec=await readSecrets();if(Object.keys(sec).length)options.env={...(options.env||process.env),...sec}}
    const hookEnv={CBA_PROJECT:store.project(run.projectId)?.name||'',CBA_PROVIDER:run.provider,CBA_PROMPT:run.prompt.slice(0,4000)}
    for(const h of run.hooks.filter(h=>h.event==='run-start')){const r=await fireHook(run,h,cwd,hookEnv);if(r.code!==0)throw Error('A run-start hook stopped this run'+(r.output?': '+r.output.slice(-300):' (exit code '+r.code+').'))}
    if(run.provider==='gemini'){options.gemini=provider.gemini;options.env=env;options.onModels=list=>writeFileAsync(path.join(root,'data','gemini-models.json'),JSON.stringify(list.slice(0,30).map(m=>({modelId:m.modelId,name:m.name,description:m.description||''})))).catch(()=>{})}
@@ -247,6 +250,13 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
    let run;for(const provider of ready.slice(0,2)){run=startAgent({projectId:p.id,chatId:c.id,provider,model:'',effort:'',mode:'auto',kind:'app',agent:job.agent,prompt:job.task});await run.finished;if(run.state!=='failed')break}
    return {state:run.state,text:run.result?.text||run.error||'',files:run.changed||[],chat:c.id}}});
  aqeelos?.autoUpdate(()=>[...agents.values()].some(live));
+ // secrets (passwords, keys) you send from the composer: kept on this computer only (data/secrets.json, owner-only);
+ // every run gets them as environment variables and the AI is told their names, never their values
+ // new projects live where you can find them: Documents\aqeelOS Code\<name> (a number is added if that folder is in use)
+ const placeFor=async name=>{const base=path.join(homedir(),'Documents','aqeelOS Code');const clean=String(name).replace(/[<>:"/\\|?*\x00-\x1f]/g,'').replace(/[. ]+$/,'').trim().slice(0,60)||'Project';
+  for(let i=1;i<200;i++){const p=path.join(base,i===1?clean:clean+' '+i);try{const e=await readdir(p);if(!e.length&&!store.state.projects.some(x=>x.path===p))return p}catch{return p}}return path.join(base,clean+' '+Date.now())};
+ const SECRETS=path.join(root,'data','secrets.json');
+ const readSecrets=async()=>{try{return JSON.parse(await readFile(SECRETS,'utf8'))}catch{return {}}};
  function startAgent(job){if(!PROVIDERS.includes(job.provider))throw Error('Choose a connected provider.');if([...agents.values()].filter(live).length>=4)throw Error('Four AI runs are already working. Wait for one to finish.')
   const run=new AgentRun(job);run.finished=new Promise(r=>run.done=r);agents.set(run.id,run);void runAgent(run);return run}
  async function addUserMessage(data){const chat=store.chat(data.projectId,data.chatId);await store.serialize(async()=>{chat.messages.push({role:'user',text:data.prompt.trim(),time:Date.now(),...(data.mode&&data.mode!=='single'?{mode:data.mode}:{}),...(Array.isArray(data.attachments)&&data.attachments.length?{attachments:data.attachments.map(a=>({id:a.id,name:a.name}))}:{})});if(chat.title==='New chat')chat.title=data.prompt.trim().slice(0,42);await store.persist()});return chat}
@@ -311,7 +321,10 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
   if(req.headers['x-local-token']!==token)return send(403,{error:'Reload to reconnect.'}),true;
   const data=req.method==='POST'?await body(req):null;
   if(url.pathname==='/api/workspace'&&req.method==='GET')return send(200,{projects:store.state.projects}),true;
-  if(url.pathname==='/api/workspace/project'&&req.method==='POST')return send(200,await store.serialize(()=>store.createProject(data.name))),true;
+  if(url.pathname==='/api/workspace/project/place'&&req.method==='GET')return send(200,{path:process.env.CBA_ONLINE?'':await placeFor(url.searchParams.get('name')||'Project')}),true;
+  if(url.pathname==='/api/workspace/folder/pick'&&req.method==='POST'){const f=await platform.pickFolder('Choose where to keep this project');return send(200,f?{path:f}:{cancelled:true}),true}
+  if(url.pathname==='/api/workspace/project'&&req.method==='POST'){const name=String(data.name||'');const where=process.env.CBA_ONLINE?'':data.place?path.resolve(String(data.place)):await placeFor(name);
+   return send(200,await store.serialize(()=>store.createProject(name,where?{path:where}:{}))),true}
   if(url.pathname==='/api/workspace/chat'&&req.method==='POST')return send(200,await store.serialize(async()=>{const ch=await store.createChat(data.projectId);if(data.temporary){ch.temporary=true;ch.title='Temporary chat';await store.persist()}return ch})),true;
   if(url.pathname==='/api/workspace/files'&&req.method==='GET')return send(200,{files:await store.listFiles(url.searchParams.get('projectId'))}),true;
   if(url.pathname==='/api/workspace/file'&&req.method==='GET')return send(200,{content:await store.read(url.searchParams.get('projectId'),url.searchParams.get('path'))}),true;
@@ -361,7 +374,7 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
   if(url.pathname==='/api/workspace/folder'&&req.method==='GET')return send(200,{path:await store.folder(url.searchParams.get('projectId'))}),true
   if(url.pathname==='/api/workspace/reveal'&&req.method==='POST'){const folder=await store.folder(data.projectId)
    if(data.target==='editor')await platform.openInEditor(folder,data.file?await store.file(data.projectId,data.file):undefined);else platform.reveal(folder);return send(200,{opened:true}),true}
-  if(url.pathname==='/api/workspace/project/open'&&req.method==='POST'){const folder=data.path||await platform.pickFolder('Choose a folder to open in code by aqeel');if(!folder)return send(200,{cancelled:true}),true
+  if(url.pathname==='/api/workspace/project/open'&&req.method==='POST'){const folder=data.path||await platform.pickFolder('Choose a folder to open in aqeelOS Code');if(!folder)return send(200,{cancelled:true}),true
    let git=false;try{await access(path.join(folder,'.git'));git=true}catch{}const p=await store.serialize(()=>store.addFolder(folder,git?{git:true}:{}));return send(200,p),true}
   if(url.pathname.startsWith('/api/workspace/github/account')){const gh=await locate('gh',findExecutable);if(!gh)throw Error('GitHub CLI (gh) is not installed. Install it from cli.github.com.');
    if(req.method==='POST'&&!isLoopback(req.socket.remoteAddress))throw Error('GitHub accounts: '+HOST_ONLY);
@@ -464,6 +477,9 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
    if(data.schedules!==undefined){for(const x of data.schedules||[])if(x.model||x.effort)checkModel({provider:x.provider,model:x.model,effort:x.effort});s.schedules=validateSchedules(data.schedules,store.state.projects.map(p=>p.id))}
    await writeFileAsync(path.join(root,'data','settings.json'),JSON.stringify(s,null,2));return send(200,{ok:true}),true}
   if(url.pathname==='/api/workspace/schedules/run'&&req.method==='POST'){const s=(await readSettings()).schedules?.find(x=>x.id===data.id);if(!s)throw Error('Schedule not found.');const chatId=await startScheduled(s);const st=await readScheduleState();st[s.id]={...st[s.id],lastRun:Date.now(),chatId,error:null,since:st[s.id]?.since||Date.now()};await writeFileAsync(scheduleFile,JSON.stringify(st,null,2));return send(200,{projectId:s.projectId,chatId}),true}
+  if(url.pathname==='/api/workspace/secrets'&&req.method==='GET')return send(200,{names:Object.keys(await readSecrets())}),true;
+  if(url.pathname==='/api/workspace/secret'&&req.method==='POST'){const name=String(data.name||'').trim().toUpperCase();if(!/^[A-Z][A-Z0-9_]{1,59}$/.test(name))throw Error('Use a name like GMAIL_PASSWORD: letters, numbers and _.');
+   const all=await readSecrets();if(data.value===''||data.value==null)delete all[name];else all[name]=String(data.value).slice(0,8000);await makeDir(path.dirname(SECRETS),{recursive:true});await writeFileAsync(SECRETS,JSON.stringify(all),{mode:0o600});return send(200,{names:Object.keys(all)}),true}
   if(url.pathname==='/api/workspace/settings'&&req.method==='GET'){const s=await readSettings();return send(200,{instructions:s.instructions||'',computerUse:Boolean(s.computerUse),desktopGrants:s.desktopGrants||[],webAccess:s.webAccess!==false,fastMode:Boolean(s.fastMode),outputStyle:s.outputStyle||'default',agents:s.agents||[],dokploy:{url:s.dokploy?.url||'',key:s.dokploy?.key?SECRET:''},mcpServers:(s.mcpServers||[]).map(m=>({...m,env:Object.fromEntries(Object.entries(m.env||{}).map(([k,v])=>[k,v?SECRET:'']))})),dataFolder:path.join(root,'data')}),true}
   if(url.pathname==='/api/workspace/settings'&&req.method==='POST'){const s=await readSettings();
    if(data.instructions!==undefined){if(typeof data.instructions!=='string'||data.instructions.length>8000)throw Error('Instructions must be under 8,000 characters.');s.instructions=data.instructions}

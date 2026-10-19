@@ -1372,3 +1372,42 @@ body.embed .composer-tools .dd:has(#mode) .dd-chev,body.embed .composer-tools .d
 body.embed .composer-tools .dd-pill .dd-btn{padding:5px 9px}
 body.embed .composer-controls .model-pickers .aq-pill{flex:1 1 auto;min-width:96px;max-width:200px}
 body.embed .composer-controls .model-pickers .dd:has(#effort){flex:none}
+
+/* inside aqeelOS: the composer one-to-one with aqeelOS Chat */
+body.embed .composer-tools .aq-tool svg,body.embed .composer-tools .attach-button svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+body.embed .aq-folder{display:inline-flex;align-items:center;gap:6px;min-height:32px;height:32px;max-width:140px;padding:0 11px;margin-left:2px;border:0;border-radius:var(--r-pill);background:var(--soft-2);color:var(--ink-2);font-size:12.5px;box-shadow:none;cursor:pointer}
+body.embed .aq-folder svg{width:15px;height:15px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linejoin:round}
+body.embed .aq-folder span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+body.embed .aq-folder:hover{background:var(--soft)}
+body.embed .aq-team{flex:none!important;gap:6px;padding:0 10px}
+body.embed .aq-team svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round}
+body.embed .aq-team.on{background:var(--blue-soft);color:var(--blue-deep)}
+body.embed .composer-controls:not(:has(.aq-team.on)) .aq-team span{display:none}
+body.embed .aq-meter{display:inline-flex;align-items:center;gap:4px;flex:none;font-size:12px;color:var(--muted);padding:0 2px}
+body.embed .aq-meter svg{width:18px;height:18px;transform:rotate(-90deg)}
+body.embed .aq-meter circle{fill:none;stroke-width:2.6}.aq-meter .t{stroke:var(--soft)}.aq-meter .v{stroke:var(--blue);stroke-linecap:round;transition:stroke-dasharray .4s}
+body.embed .aq-meter.hot .v{stroke:#d1453b}
+body.embed .agent-chip{margin:2px 0 6px}
+body.embed .agent-chip .av{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;background:var(--blue);color:#fff;font-size:10.5px;font-weight:600}
+.team-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;margin:2px 0 6px;font-size:12.5px;color:var(--muted);animation:aqMenuIn .2s ease}
+.team-row[hidden]{display:none}
+.team-role{display:inline-flex;align-items:center;gap:6px}.team-role>span{color:var(--muted)}.team-role b{font-weight:600;color:var(--ink)}
+.aq-menu .mi-ic{width:16px;height:16px;flex:none;fill:none;stroke:var(--ink-2);stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.aq-menu .mi-sub{display:block;font-size:11.5px;color:var(--muted);white-space:normal;margin-top:1px}
+.aq-menu .item:has(.mi-sub){min-height:46px;padding-top:6px;padding-bottom:6px}
+.aq-secret{display:grid;gap:10px;min-width:min(380px,86vw)}.aq-secret label{display:grid;gap:4px;font-size:13px;font-weight:600}.aq-secret input{font-weight:400}.aq-secret-have{font-size:12px;color:var(--muted);margin:0}
+/* inside aqeelOS: choices on top of the message box, tools and send at the bottom */
+body.embed .aq-choices{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:0 0 4px}
+body.embed .aq-choices .dd-pill .dd-btn,body.embed .aq-choices .aq-pill{min-height:30px;height:30px;font-size:12.5px;border-color:transparent;background:var(--soft-2);box-shadow:none}
+body.embed .aq-choices .aq-pill:not(.aq-team){flex:0 1 auto;min-width:0;max-width:220px}
+body.embed .model-pickers{flex:0 0 auto;margin-left:auto}
+body.embed .composer-controls{justify-content:space-between}
+body.embed .composer-controls .composer-tools{flex:1 1 auto;min-width:0}
+body.embed .aq-choices .dd:has(#effort) .dd-val::before{content:'Effort '!important;color:var(--muted)}
+
+/* New project: where it is kept */
+.place-row{display:flex;align-items:center;gap:8px;margin:2px 0 12px;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:var(--soft-2);font-size:12.5px;min-width:0}
+.place-row[hidden]{display:none}
+.place-ic svg{width:15px;height:15px;fill:none;stroke:var(--ink-2);stroke-width:1.8;stroke-linejoin:round;display:block}
+.place-path{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left;color:var(--ink-2)}
+.place-change{flex:none;min-height:28px;padding:3px 10px;font-size:12px;border-radius:var(--r-pill)}

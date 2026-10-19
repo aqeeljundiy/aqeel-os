@@ -22,7 +22,8 @@ export function createAqeelos({root}){
  // the person's aqeelOS agents this computer may ask (what Code's picker lists)
  let agentsAt=0,agentsList=[];
  async function agents(){await load();if(!link.token)return [];if(Date.now()-agentsAt<60000)return agentsList;
-  try{const r=await fetch(link.base+'/ui/code/agents',{headers:{authorization:'Bearer '+link.token},signal:AbortSignal.timeout(15000)});const j=await r.json().catch(()=>({}));if(r.ok){agentsList=(j.agents||[]).map(a=>({id:String(a.id),name:String(a.name||a.id),apps:a.apps||[],google:a.google||0}));agentsAt=Date.now()}}catch{}return agentsList}
+  try{const r=await fetch(link.base+'/ui/code/agents',{headers:{authorization:'Bearer '+link.token},signal:AbortSignal.timeout(15000)});const j=await r.json().catch(()=>({}));if(r.status===401){link={};await writeFile(FILE,'{}').catch(()=>{});agentsList=[];return []}   // aqeelOS no longer knows this key: unpaired, so the page pairs it again
+  if(r.ok){agentsList=(j.agents||[]).map(a=>({id:String(a.id),name:String(a.name||a.id),apps:a.apps||[],google:a.google||0}));agentsAt=Date.now()}}catch{}return agentsList}
  async function unpair(){link={};await writeFile(FILE,'{}').catch(()=>{});return state()}
  // every run gets the aqeelOS tools when this computer is paired
  async function mcp(run){await load();if(!link.token)return null;return {name:'aqeelos',command:process.execPath,args:[path.join(root,'aqeelos-mcp.mjs')],env:{AQ_BASE:link.base,AQ_TOKEN:link.token,AQ_PROJECT:String(run?.projectId||''),AQ_AGENT:String(run?.agent||'')}}}

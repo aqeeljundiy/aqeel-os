@@ -229,13 +229,13 @@ async function rewind(index){const m=chat()?.messages[index];if(!m)return;const 
   {key:'conversation',label:'Remove the conversation after it',hint:'Both AIs start a fresh session from the earlier history.',checked:true},
   {key:'code',label:later.length?'Undo file changes since then ('+later.length+' change'+(later.length>1?'s':'')+')':'Undo file changes since then (none)',hint:'Each undo is saved in Changes, so this can be reversed.',checked:later.length>0}]});
  if(!choice)return;if(choice.code&&!discard())return;try{const r=await api('/chat/rewind',{projectId,chatId,index,code:choice.code,conversation:choice.conversation});if(choice.code){selectedFile='';}await refreshState();if(choice.code){await refreshFiles();refreshPreview()}$('chat-prompt').value=r.prompt;saveDraft();$('chat-prompt').focus();notify('Rewound'+(r.restored?': '+r.restored+' change'+(r.restored>1?'s':'')+' undone.':'.'))}catch(e){notify(e.message)}}
-function showDialog(action){dialogAction=action;$('dialog-title').textContent=action==='project'?'New project':'New file';$('name-label').textContent=action==='project'?'Project name':'File path';$('dialog-hint').textContent=action==='project'?'Saved in your local workspace. Each project keeps its own files and chats.':'For example: index.html, style.css or js/app.js';$('name-input').value='';$('name-dialog').showModal();$('name-input').focus()}
+function showDialog(action){dialogAction=action;paintPlace(action==='project');$('dialog-title').textContent=action==='project'?'New project':'New file';$('name-label').textContent=action==='project'?'Project name':'File path';$('dialog-hint').textContent=action==='project'?'Its files are kept in this folder on your computer. Each project keeps its own files and chats.':'For example: index.html, style.css or js/app.js';$('name-input').value='';$('name-dialog').showModal();$('name-input').focus()}
 const gitUI=createGitUI({project:()=>project(),api:(r,b)=>api(r,b),projectId:()=>projectId,notify:t=>notify(t),bar:()=>$('git-bar'),newEmpty:()=>showDialog('project'),
  afterChange:async()=>{selectedFile='';await refreshState();await refreshFiles();refreshPreview()},
  openProject:async id=>{await refreshState();await selectProject(id)},
  askAI:(text,o={})=>{if(o.mode&&$('mode').value!==o.mode){$('mode').value=o.mode;$('mode').dispatchEvent(new Event('change'))}$('chat-prompt').value=text;$('chat-form').requestSubmit()}});
 $('new-project').addEventListener('click',()=>gitUI.newProjectMenu($('new-project')));$('new-file').addEventListener('click',()=>showDialog('file'));$('dialog-cancel').addEventListener('click',()=>$('name-dialog').close());
-$('name-form').addEventListener('submit',async e=>{e.preventDefault();try{const value=$('name-input').value.trim();if(dialogAction==='project'){if(!discard())return;const p=await api('/project',{name:value});await refreshState();await selectProject(p.id)}else{if(!discard())return;await api('/file',{projectId,path:value,content:''});savedContent=$('editor').value;selectedFile='';await refreshState();await refreshFiles();await openFile(value);switchView('files')}$('name-dialog').close()}catch(e){notify(e.message)}});
+$('name-form').addEventListener('submit',async e=>{e.preventDefault();try{const value=$('name-input').value.trim();if(dialogAction==='project'){if(!discard())return;const p=await api('/project',{name:value,...(pickedPlace?{place:pickedPlace}:{})});pickedPlace='';await refreshState();await selectProject(p.id)}else{if(!discard())return;await api('/file',{projectId,path:value,content:''});savedContent=$('editor').value;selectedFile='';await refreshState();await refreshFiles();await openFile(value);switchView('files')}$('name-dialog').close()}catch(e){notify(e.message)}});
 $('context-meter').addEventListener('click',()=>{const sessions=Object.keys(chat()?.sessions||{});if(!sessions.length)return notify('Nothing to compact yet.');openMenu($('context-meter'),sessions.map(p=>({label:'Compact '+label(p)+' session',hint:chat().context?.[p]?Math.round(chat().context[p].used/chat().context[p].window*100)+'%':'',action:()=>compact(p)})),{anchor:$('context-meter'),label:'Compact'})});
 // With no project yet, starting a chat (or sending a message) makes one, named after the first message when there is one
 async function ensureProject(firstMessage){if(projectId&&project())return true;
@@ -267,7 +267,7 @@ $('search-files').addEventListener('click',()=>{const d=document.createElement('
  q.addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(run,250)});form.onsubmit=e=>{e.preventDefault();clearTimeout(timer);run()}});
 $('chat-form').addEventListener('submit',async e=>{e.preventDefault();const pickedKind=currentKind();if(!(await ensureProject($('chat-prompt').value)))return;if(pickedKind!=='app'&&!chat()?.messages.length)kindPick.set(chatId,pickedKind);{const t=$('chat-prompt').value.trim();if(/^#(?!#)\s*\S/.test(t)&&!agentUI.active(projectId,chatId)){try{if(await remember(t.replace(/^#\s*/,''))){$('chat-prompt').value='';saveDraft()}}catch(err){notify(err.message)}return}}const live=agentUI.active(projectId,chatId);if(live){const text=$('chat-prompt').value;if(!text.trim())return;try{await api('/agent/steer',{id:live.view.id,prompt:text});$('chat-prompt').value='';saveDraft();$('chat-prompt').focus();growPrompt();notify('Sent to the running AI.')}catch(err){notify(err.message)}return}if(isDirty()){notify('Save your file edits before asking the AI.');return}const {provider,model,effort}=getChoice();const multi=$('multi').value,other=partnerFor(provider);
  if(multi==='compare'){try{const r=await api('/compare',{projectId,chatId,prompt:$('chat-prompt').value,mode:$('mode').value,variants:[{provider,model,effort},choiceFor(other)]});$('chat-prompt').value='';saveDraft();$('chat-prompt').focus();growPrompt();await refreshState();for(const x of r.runs)void agentUI.follow({id:x.id,projectId,chatId,provider:x.provider,draft:true,state:'running'})}catch(e){notify(e.message)}return}
- if(multi==='team'){try{const r=await api('/team',{projectId,chatId,prompt:$('chat-prompt').value,mode:$('mode').value,planner:{provider,model,effort},builder:choiceFor(other)});$('chat-prompt').value='';saveDraft();$('chat-prompt').focus();growPrompt();await refreshState();for(const x of r.runs)void agentUI.follow({id:x.id,projectId,chatId,provider:x.provider,team:{stage:x.stage},state:'running'})}catch(e){notify(e.message)}return}
+ if(multi==='team'){try{const img=window.__teamImages?.()||'';const r=await api('/team',{projectId,chatId,prompt:$('chat-prompt').value+(img?'\n\n(For any images, ask '+img+' through aqeelos_ask.)':''),mode:$('mode').value,planner:{provider,model,effort},builder:window.__teamBuilder?.()||choiceFor(other)});$('chat-prompt').value='';saveDraft();$('chat-prompt').focus();growPrompt();await refreshState();for(const x of r.runs)void agentUI.follow({id:x.id,projectId,chatId,provider:x.provider,team:{stage:x.stage},state:'running'})}catch(e){notify(e.message)}return}
  if(composer.pending()){notify('Wait for the images to finish attaching.');return}
  try{const view=await api('/agent',{projectId,chatId,provider,model,effort,agent:$('agent-pick').value,mode:$('mode').value,kind:currentKind(),attachments:composer.attachments(),prompt:$('chat-prompt').value});composer.clear();$('chat-prompt').value='';saveDraft();$('chat-prompt').focus();growPrompt();await refreshState();void agentUI.follow(view)}catch(e){notify(e.message)}});
 $('chat-prompt').addEventListener('input',saveDraft);
@@ -505,3 +505,110 @@ if(document.body.classList.contains('embed')){
  const tools=document.querySelector('.composer-tools'),right=document.querySelector('.model-pickers');
  const form=$('chat-form');const sync=()=>form.classList.toggle('multi-on',$('multi').value!=='single');$('multi').addEventListener('change',sync);sync();
  $('chat-prompt').rows=2}
+
+// Inside aqeelOS the composer is one-to-one with aqeelOS Chat. Left: attach, send a secret, use a tool, voice, the
+// project's folder. Right: Ask me / Smart / Allow all, One model or Team, the model (named as in Chat:
+// "Opus 5.5 · Claude", "GPT-6.1 Sol · ChatGPT"), the usage ring, Effort, send. Agents are chosen under Use a tool
+// (a chip above the message shows who you work with); with none, the coding AI asks the agent whose abilities fit.
+if(document.body.classList.contains('embed')){
+ const svg=p=>'<svg viewBox="0 0 24 24" aria-hidden="true">'+p+'</svg>';
+ const ICON={clip:'<path d="M20 11.5 12.3 19.2a5 5 0 0 1-7.1-7.1l8-8a3.4 3.4 0 0 1 4.8 4.8l-8 8a1.7 1.7 0 0 1-2.4-2.4l7.4-7.4"/>',lock:'<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',plug:'<path d="M9 2v5M15 2v5M6 7h12v4a6 6 0 0 1-12 0z"/><path d="M12 17v5"/>',folder:'<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',cpu:'<rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/>',check:'<path d="M5 12.5l4.5 4.5L19 7.5"/>',team:'<circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0"/><circle cx="17" cy="9" r="2.5"/><path d="M15.5 14.2A5 5 0 0 1 21 19"/>'};
+ const tools=document.querySelector('.composer-tools'),right=document.querySelector('.model-pickers');
+ const PROV={claude:'Claude',codex:'ChatGPT',gemini:'Gemini'};
+ // model names as aqeelOS Chat shows them
+ const VERS={fable:'Fable 5.1',opus:'Opus 5.5',sonnet:'Sonnet 5.5',haiku:'Haiku 5.5'};
+ const pretty=(prov,text)=>{const t=String(text||'').trim();if(!t||/^default/i.test(t))return 'Default';if(prov==='claude')return VERS[t.toLowerCase()]||t;return t.replace(/-(?=[A-Za-z])/g,' ')};
+ // ── shared menu (the aqeelOS look) ──
+ let menu=null,menuFor=null;const close=()=>{if(!menu)return;const m=menu;menu=null;menuFor?.setAttribute('aria-expanded','false');menuFor=null;m.classList.add('out');setTimeout(()=>m.remove(),140)};
+ function openMenu(anchor,build,{search=false}={}){if(menuFor===anchor){close();return}close();const m=document.createElement('div');m.className='aq-menu';m.setAttribute('role','menu');const rows=[];
+  const api={head:t=>{const h=document.createElement('div');h.className='mh';h.textContent=t;m.append(h)},sep:()=>m.append(document.createElement('hr')),
+   item:(label,{on=false,icon,lead,sub,run}={})=>{const b=document.createElement('button');b.type='button';b.className='item'+(on?' cur':'');b.setAttribute('role','menuitem');
+    if(icon)b.insertAdjacentHTML('beforeend',svg(ICON[icon]).replace('<svg','<svg class="mi-ic"'));if(lead){const a=document.createElement('span');a.className='av';a.textContent=lead;b.append(a)}
+    const s=document.createElement('span');s.className='t';s.textContent=label;if(sub){const x=document.createElement('small');x.className='mi-sub';x.textContent=sub;s.append(x)}b.append(s);if(on)b.insertAdjacentHTML('beforeend',svg(ICON.check).replace('<svg','<svg class="aq-check"'));
+    b.addEventListener('click',()=>{close();run?.();anchor.focus()});m.append(b);rows.push(b)}};
+  build(api);
+  if(search&&rows.length>9){const f=document.createElement('div');f.className='mi-find';const i=document.createElement('input');i.placeholder='Search';i.setAttribute('aria-label','Search the list');f.append(i);m.prepend(f);i.addEventListener('input',()=>{const q=i.value.trim().toLowerCase();for(const b of rows)b.hidden=!!q&&!b.textContent.toLowerCase().includes(q);for(const x of m.querySelectorAll('.mh,hr'))x.hidden=!!q})}
+  document.body.append(m);const r=anchor.getBoundingClientRect(),h=m.offsetHeight,w=m.offsetWidth;m.style.left=Math.max(8,Math.min(r.left,innerWidth-w-8))+'px';m.style.top=(r.top-h-8>8?r.top-h-8:r.bottom+8)+'px';
+  menu=m;menuFor=anchor;anchor.setAttribute('aria-expanded','true');m.querySelector('.item.cur')?.scrollIntoView({block:'nearest'});m.querySelector('.mi-find input')?.focus()}
+ addEventListener('click',e=>{if(menu&&!menu.contains(e.target)&&!menuFor?.contains(e.target))close()},true);addEventListener('keydown',e=>{if(e.key==='Escape'&&menu){const a=menuFor;close();a?.focus()}});addEventListener('resize',close);
+ const btn=(title,ic,on,cls='')=>{const b=document.createElement('button');b.type='button';b.className='attach-button aq-tool '+cls;b.title=title;b.setAttribute('aria-label',title);b.innerHTML=svg(ICON[ic]);b.addEventListener('click',e=>{e.stopPropagation();on(b)});return b};
+ // ── left: attach, secret, tool, voice, folder ──
+ const attach=tools.querySelector('.attach-button:not(.mic):not(.dict-lang)');if(attach){attach.innerHTML=svg(ICON.clip);attach.title='Attach pictures, videos or files';attach.setAttribute('aria-label','Attach files')}
+ const secret=btn('Send a password or key securely','lock',async()=>{const d=document.createElement('dialog');d.className='kit-dialog';d.innerHTML='<form method="dialog" class="aq-secret"><h2>Send a password or key securely</h2><p class="kit-message">It is saved on this computer only. The AI can use it (as an environment variable) but never sees the value.</p><label>Name<input name="n" placeholder="GMAIL_PASSWORD" autocomplete="off" spellcheck="false" required></label><label>Value<input name="v" type="password" autocomplete="new-password" required></label><p class="aq-secret-have"></p><div class="kit-actions"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="ok">Save</button></div></form>';
+  document.body.append(d);api('/secrets').then(r=>{if(r.names?.length)d.querySelector('.aq-secret-have').textContent='Saved: '+r.names.join(', ')}).catch(()=>{});d.showModal();d.querySelector('input').focus();
+  d.addEventListener('close',async()=>{const f=d.querySelector('form');if(d.returnValue==='ok'){try{await api('/secret',{name:f.n.value,value:f.v.value});notify('Saved '+f.n.value.trim().toUpperCase()+'. The AI can use it by name.');insertMessage('(Use the saved secret '+f.n.value.trim().toUpperCase()+'.)')}catch(e){notify(e.message)}}f.v.value='';setTimeout(()=>d.remove(),200)})});
+ const tool=btn('Use a tool','plug',b=>openMenu(b,m=>{
+  const ag=[...$('agent-pick').options];if(ag.length>1){m.head('Work with an agent');for(const o of ag)m.item(o.value?o.textContent:'No agent (Code asks the right one)',{on:o.value===$('agent-pick').value,lead:o.value?(o.textContent.trim()[0]||'?').toUpperCase():'–',run:()=>{$('agent-pick').value=o.value;$('agent-pick').dispatchEvent(new Event('change'))}})}
+  m.sep();m.head('Tools on this computer');m.item('The browser',{icon:'plug',run:()=>insertMessage('[Use the browser for this] ')});
+  for(const t of (window.__aqTools||[]))m.item(t,{icon:'plug',run:()=>insertMessage('[Use '+t+' for this] ')});
+  m.sep();m.item('Manage tools and sign-ins…',{icon:'cpu',run:()=>{location.href='/connections'}})},{search:true}));
+ api('/settings').then(s=>{window.__aqTools=(s.mcpServers||[]).filter(x=>x.enabled!==false).map(x=>x.name)}).catch(()=>{});
+ const mic=tools.querySelector('.attach-button.mic');
+ const folder=document.createElement('button');folder.type='button';folder.className='aq-folder';folder.title='This project’s folder';folder.innerHTML=svg(ICON.folder)+'<span></span>';
+ folder.addEventListener('click',e=>{e.stopPropagation();const p=project();if(!p)return;openMenu(folder,m=>{m.head(p.name);m.item(folder.title2||'Folder',{icon:'folder',sub:'Where this project is kept'});
+  m.item('Show in '+(platformInfo?.fileManager||'Explorer'),{icon:'folder',run:()=>api('/reveal',{projectId:p.id,target:'explorer'}).catch(er=>notify(er.message))});
+  m.item('Copy folder path',{icon:'folder',run:()=>navigator.clipboard.writeText(folder.title2||'').then(()=>notify('Folder path copied.'))});
+  m.item('Open in VS Code',{icon:'folder',run:()=>api('/reveal',{projectId:p.id,target:'editor'}).catch(er=>notify(er.message))})})});
+ const paintFolder=async()=>{const p=project();if(!p){folder.hidden=true;return}folder.hidden=false;folder.querySelector('span').textContent=p.name;try{const {path:fp}=await api('/folder?projectId='+p.id);folder.title2=fp;folder.title=fp}catch{}};
+ const modeDd=$('mode').closest('.dd'),multiDd=$('multi').closest('.dd');multiDd?.setAttribute('hidden','');
+ tools.replaceChildren(...[attach,secret,tool,mic,folder,multiDd].filter(Boolean));paintFolder();{const rs=refreshState;refreshState=async(...x)=>{const r=await rs(...x);paintFolder();return r}}{const sp=selectProject;selectProject=async(...a)=>{const r=await sp(...a);paintFolder();return r}}
+ // the agent you work with, above the message (Use a tool › Work with an agent)
+ const chip=document.createElement('div');chip.className='kind-chip agent-chip';chip.hidden=true;$('chat-prompt').before(chip);
+ const paintChip=()=>{const v=$('agent-pick').value;chip.hidden=!v;if(!v)return;chip.replaceChildren();const a=document.createElement('span');a.className='av';a.textContent=($('agent-pick').selectedOptions[0]?.textContent||v).trim()[0].toUpperCase();const t=document.createElement('span');t.textContent='With '+($('agent-pick').selectedOptions[0]?.textContent||v);const x=document.createElement('button');x.type='button';x.textContent='×';x.title='Work without an agent';x.setAttribute('aria-label','Work without an agent');x.addEventListener('click',()=>{$('agent-pick').value='';$('agent-pick').dispatchEvent(new Event('change'))});chip.append(a,t,x)};
+ $('agent-pick').addEventListener('change',paintChip);new MutationObserver(paintChip).observe($('agent-pick'),{childList:true});paintChip();
+ // ── right: mode (Ask me), One model / Team, model, usage, effort ──
+ for(const [v,t,d] of [['ask','Ask me','Approve each command and file change.'],['auto','Smart','Edits and commands inside the project run; anything outside asks you.'],['full','Allow all','No prompts and no sandbox. Only for trusted tasks.']]){const o=modeDd?.querySelector('select')?.querySelector('option[value="'+v+'"]');if(o){o.textContent=t;o.dataset.desc=d}}
+ const team=document.createElement('button');team.type='button';team.className='aq-pill aq-team';team.setAttribute('aria-haspopup','menu');
+ const paintTeam=()=>{const on=$('multi').value==='team';team.innerHTML=svg(ICON.team)+'<span>'+(on?'Team':'One model')+'</span>';team.classList.toggle('on',on);team.title=on?'Team: one model plans, one builds, and an agent can make images':'One model does the work';teamRow.hidden=!on};
+ team.addEventListener('click',e=>{e.stopPropagation();openMenu(team,m=>{m.item('One model',{on:$('multi').value!=='team',sub:'The model you picked does the work.',run:()=>{$('multi').value='single';$('multi').dispatchEvent(new Event('change'));paintTeam()}});
+  m.item('Team',{on:$('multi').value==='team',sub:'One model plans, another builds and checks it; an agent can make the images.',run:()=>{$('multi').value='team';$('multi').dispatchEvent(new Event('change'));paintTeam()}})})});
+ // who does what in a Team, in plain words (shown only when Team is on)
+ const teamRow=document.createElement('div');teamRow.className='team-row';teamRow.hidden=true;
+ const selFrom=(label,opts,val)=>{const l=document.createElement('label');l.className='team-role';const s=document.createElement('select');s.dataset.dd='pill';s.setAttribute('aria-label',label);for(const [v,t] of opts)s.append(new Option(t,v));s.value=val;l.append(Object.assign(document.createElement('span'),{textContent:label}),s);return [l,s]};
+ const modelOpts=()=>[...$('model-name').querySelectorAll('option')].map(o=>{const prov=o.value.split(':')[0];return [o.value,pretty(prov,o.textContent)+' · '+(PROV[prov]||prov)]});
+ let buildSel,imgSel;const paintTeamRow=()=>{teamRow.replaceChildren();const plans=document.createElement('span');plans.className='team-role';plans.innerHTML='<span>Plans</span><b></b>';plans.querySelector('b').textContent=pillText();
+  const opts=modelOpts();const cur=$('model-name').value;const other=opts.find(o=>o[0].split(':')[0]!==cur.split(':')[0])||opts.find(o=>o[0]!==cur)||opts[0];
+  let b;[b,buildSel]=selFrom('Builds',opts,(buildSel&&opts.some(o=>o[0]===buildSel.value))?buildSel.value:other?.[0]);
+  const ag=[...$('agent-pick').options].filter(o=>o.value).map(o=>[o.value,o.textContent]);let im;[im,imgSel]=selFrom('Images',[['','No images'],...ag],imgSel?.value||'');
+  teamRow.append(plans,b,im)};
+ window.__teamBuilder=()=>{if(!buildSel)return null;const [prov,id]=buildSel.value.split(':');return {provider:prov,model:id||'',effort:''}};
+ window.__teamImages=()=>imgSel?.value?(imgSel.selectedOptions[0]?.textContent||imgSel.value):'';
+ document.querySelector('.composer-controls').before(teamRow);
+ $('multi').addEventListener('change',()=>{paintTeam();if($('multi').value==='team')paintTeamRow()});
+ // the model pill, as in Chat
+ const pill=document.querySelector('.aq-pill:not(.aq-team)')||document.createElement('button');pill.type='button';pill.className='aq-pill';pill.setAttribute('aria-haspopup','menu');
+ const pillText=()=>{const o=$('model-name').selectedOptions[0];return o?pretty(o.value.split(':')[0],o.textContent):'Default'};
+ const paintPill=()=>{pill.innerHTML='<span></span><svg class="aq-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';pill.firstChild.textContent=pillText();const o=$('model-name').selectedOptions[0];pill.title=o?pretty(o.value.split(':')[0],o.textContent)+' · '+(PROV[o.value.split(':')[0]]||''):'';if($('multi').value==='team')paintTeamRow()};
+ const fresh=pill.cloneNode(false);pill.replaceWith?.(fresh);const P=fresh;Object.defineProperty(window,'__aqPill',{value:P,configurable:true});
+ const paint=()=>{P.innerHTML='<span></span><svg class="aq-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';P.firstChild.textContent=pillText();if($('multi').value==='team')paintTeamRow()};
+ P.addEventListener('click',e=>{e.stopPropagation();openMenu(P,m=>{const groups=[...$('model-name').querySelectorAll('optgroup')];let first=true;
+  for(const g of groups){const prov=(g.querySelector('option')?.value||'').split(':')[0];for(const o of g.querySelectorAll('option')){const name=pretty(prov,o.textContent);
+    m.item(name==='Default'?'Default · '+(PROV[prov]||prov):name+' · '+(PROV[prov]||prov),{icon:'cpu',on:o.value===$('model-name').value,run:()=>{$('model-name').value=o.value;$('model-name').dispatchEvent(new Event('change'))}})}
+   if(first){first=false}}
+  m.sep();m.item('Sign in to more models…',{icon:'cpu',run:()=>{location.href='/connections'}})},{search:true})});
+ for(const id of ['model-name','model','provider-pick'])$(id).addEventListener('change',()=>setTimeout(paint));new MutationObserver(paint).observe($('model-name'),{childList:true,subtree:true});
+ // usage of the current account, as the ring in Chat
+ const meter=document.createElement('span');meter.className='aq-meter';meter.hidden=true;
+ const paintMeter=async()=>{try{const s=await (await fetch('/api/status')).json();const p=(s.providers||[]).find(x=>x.id===$('provider-pick').value);const rl=p?.limits?.rateLimits?.primary;const pct=rl?.usedPercent??p?.limits?.windows?.[0]?.usedPercent;
+   if(typeof pct!=='number'){meter.hidden=true;return}const v=Math.max(0,Math.min(100,Math.round(pct)));meter.hidden=false;meter.title=v+'% of this account’s current window used';meter.innerHTML='<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.5" class="t"/><circle cx="10" cy="10" r="7.5" class="v" style="stroke-dasharray:'+(v/100*47.1).toFixed(1)+' 47.1"/></svg><span>'+v+'%</span>';meter.classList.toggle('hot',v>=90)}catch{meter.hidden=true}};
+ $('provider-pick').addEventListener('change',()=>setTimeout(paintMeter));setInterval(paintMeter,60000);paintMeter();
+ const eff=$('effort').closest('.dd');{const lead=[modeDd,team,P,meter,eff].filter(Boolean);const keep=[...right.children].filter(x=>!lead.includes(x));right.replaceChildren(...lead,...keep)}
+ paint();paintTeam()}
+// Calm motion in Code too: entrance animations play when something first appears, never again when a list redraws itself
+{const names=()=>{const s=new Set();for(const ss of document.styleSheets){let rules;try{rules=ss.cssRules}catch{continue}for(const r of rules)if(r.type===7){const f=[...r.cssRules].find(k=>k.keyText==='0%'||k.keyText==='from');if(f&&f.style.opacity!==''&&Number(f.style.opacity)<.6)s.add(r.name)}}return s};
+ let entry=null,until=performance.now()+1500;
+ new MutationObserver(list=>{if(performance.now()<until)return;entry??=names();for(const m of list)for(const n of m.addedNodes){if(n.nodeType!==1||n.closest?.('.ctx-menu,.aq-menu,dialog,.toast,.notify,[data-anim]'))continue;
+  for(const a of n.getAnimations?.({subtree:true})||[]){const t=a.effect?.getTiming?.();if(a.animationName&&t&&t.iterations!==Infinity&&entry.has(a.animationName))a.finish()}}}).observe(document.body,{childList:true,subtree:true});
+ addEventListener('click',e=>{if(e.target.closest?.('[data-view],.tree-item,.project-row,button'))until=performance.now()+500},true)}
+// the choices sit in a slim row at the top of the message box; tools and send stay in the bottom row
+if(document.body.classList.contains('embed')){const top=document.createElement('div');top.className='aq-choices';const right=document.querySelector('.model-pickers');
+ const keep=[$('mode').closest('.dd'),document.querySelector('.aq-team'),window.__aqPill,document.querySelector('.aq-meter'),$('effort').closest('.dd')].filter(Boolean);top.append(...keep);
+ $('chat-prompt').before(top);document.querySelector('.agent-chip')&&top.before(document.querySelector('.agent-chip'));document.querySelector('.team-row')&&top.after(document.querySelector('.team-row'))}
+
+// New project: shows where it will be kept (Documents\aqeelOS Code\<name>), and Change… picks any folder
+let pickedPlace='';
+function paintPlace(on){let row=$('place-row');if(!row){row=document.createElement('div');row.id='place-row';row.className='place-row';row.innerHTML='<span class="place-ic" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span><span class="place-path"></span><button type="button" class="place-change">Change…</button>';
+  $('dialog-hint').after(row);row.querySelector('.place-change').addEventListener('click',async()=>{try{const r=await api('/folder/pick',{});if(r.path){pickedPlace=r.path;row.querySelector('.place-path').textContent=r.path;row.title=r.path}}catch(e){notify(e.message)}});
+  let t=0;$('name-input').addEventListener('input',()=>{if(pickedPlace||dialogAction!=='project')return;clearTimeout(t);t=setTimeout(fill,250)})}
+ pickedPlace='';row.hidden=!on;if(on){$('dialog-hint').textContent='Its files are kept in this folder on your computer. Each project keeps its own files and chats.';fill()}
+ async function fill(){try{const {path:p}=await api('/project/place?name='+encodeURIComponent($('name-input').value.trim()||'New project'));if(!p){row.hidden=true;$('dialog-hint').textContent='Saved on the AI box with your other online projects.';return}if(!pickedPlace){row.querySelector('.place-path').textContent=p;row.title=p}}catch{}}}
