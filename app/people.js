@@ -250,7 +250,7 @@ function paintExplained(el,kind,sel,idOf){el.querySelectorAll(sel).forEach(r=>{c
 // MCP servers
 {const base=PAGES.mcp;PAGES.mcp=async(p,el)=>{await base(p,el);const list=Pages._mcp||[];if(!list.length||S.tab.mcp==='Catalog')return;
  const rows=[...el.querySelectorAll('.card.list .row')];rows.forEach((r,i)=>{if(list[i])r.dataset.mcp=list[i].name});
- explainFor('mcp',list.map(m=>({id:m.name,name:m.name,desc:(m.url||m.command||'')+' '+(m.tools||[]).map(t=>t.name||t).slice(0,12).join(', ')})),()=>paintExplained(el,'mcp','.row[data-mcp]',r=>r.dataset.mcp))}}
+ explainFor('mcp',list.map(m=>({id:m.name,name:m.name,desc:(m.url||m.command||'')+' '+(Array.isArray(m.tools)?m.tools:[]).map(t=>t.name||t).slice(0,12).join(', ')})),()=>paintExplained(el,'mcp','.row[data-mcp]',r=>r.dataset.mcp))}}
 
 // Plugins, grouped by what kind of thing they are
 const PLUGIN_GROUPS={browser:'Browser backends',dashboard_auth:'Sign-in methods',auth:'Sign-in methods',image_gen:'Image generation',image:'Image generation',memory:'Memory',model_providers:'Model providers',providers:'Model providers',cron:'Scheduling',platforms:'Channels',messaging:'Channels',tools:'Tools',observability:'Monitoring',context:'Context'};
