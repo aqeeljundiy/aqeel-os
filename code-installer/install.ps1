@@ -41,12 +41,19 @@ Loop
 $startup = [Environment]::GetFolderPath('Startup')
 $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $startup 'aqeelOS Code.lnk'))
 $lnk.TargetPath = 'wscript.exe'; $lnk.Arguments = '"' + $vbs + '"'; $lnk.WorkingDirectory = $dest; $lnk.Save()
+# an uninstaller next to it (it runs from a temporary copy, so it can remove the folder; your projects are kept)
+$un = Join-Path $dest 'Uninstall aqeelOS Code.cmd'
+@"
+@echo off
+copy /y "%~dp0uninstall.ps1" "%TEMP%\aqeelos-code-uninstall.ps1" >nul
+powershell -NoProfile -ExecutionPolicy Bypass -File "%TEMP%\aqeelos-code-uninstall.ps1"
+pause
+"@ | Set-Content -Encoding ASCII $un
 Start-Process wscript.exe -ArgumentList ('"' + $vbs + '"')
 
-# 4. The coding tools it can use (each is optional; sign in to them once)
-foreach ($t in @(@('claude','Claude Code','https://claude.com/claude-code'), @('codex','Codex','https://developers.openai.com/codex'))) {
-  if (-not (Get-Command $t[0] -ErrorAction SilentlyContinue)) { Write-Host ("Optional: install " + $t[1] + " to code with it (" + $t[2] + ").") -ForegroundColor DarkGray }
-}
+# 4. The coding tools it found (each is optional; sign in to them once)
+Start-Sleep -Seconds 3
+try { $st = Invoke-RestMethod http://127.0.0.1:4321/api/status -TimeoutSec 20; foreach ($p in $st.providers) { if ($p.id -ne 'gemini') { $n = @{claude='Claude Code';codex='Codex'}[$p.id]; if ($p.ready) { Write-Host ("Ready: " + $n) } elseif ($p.installed) { Write-Host ("Sign in to " + $n + " once to code with it.") -ForegroundColor DarkGray } else { Write-Host ("Optional: install " + $n + " to code with it.") -ForegroundColor DarkGray } } } } catch { Write-Host "The app is still starting; it opens inside aqeelOS in a moment." -ForegroundColor DarkGray }
 
 # 5. Open Code in aqeelOS
 $base = (Get-Content (Join-Path $dest 'aqeelos.json') -Raw | ConvertFrom-Json).aqeelos.base

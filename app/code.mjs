@@ -57,7 +57,7 @@ export function createCode({DATA,SRC,PUBLIC_URL,ROOT}){
  async function download(os){const files=(await walk(SRC)).map(([n,b])=>['aqeelOS Code/'+n,b]);
   const cfg=JSON.stringify({aqeelos:{base:PUBLIC_URL,origins:[PUBLIC_URL],version:await version()}},null,1);files.push(['aqeelOS Code/aqeelos.json',Buffer.from(cfg)]);
   const tpl=f=>readFile(path.join(ROOT,'code-installer',f));
-  if(os==='windows'){files.push(['aqeelOS Code/Install aqeelOS Code.cmd',await tpl('install.cmd')],['aqeelOS Code/install.ps1',await tpl('install.ps1')])}
-  else files.push(['aqeelOS Code/Install aqeelOS Code.command',await tpl('install.command'),true]);
+  if(os==='windows'){files.push(['aqeelOS Code/Install aqeelOS Code.cmd',await tpl('install.cmd')],['aqeelOS Code/install.ps1',await tpl('install.ps1')],['aqeelOS Code/uninstall.ps1',await tpl('uninstall.ps1')])}
+  else files.push(['aqeelOS Code/Install aqeelOS Code.command',await tpl('install.command'),true],['aqeelOS Code/Uninstall aqeelOS Code.command',await tpl('uninstall.command'),true]);
   return zip(files.map(f=>f.length===3?f:[f[0],f[1],/\.(command|sh)$/.test(f[0])]))}
  return {pair,who,devices,unpair,version,update,download,poll,done,projectsFor,work}}
