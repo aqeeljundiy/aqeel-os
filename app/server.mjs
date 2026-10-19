@@ -254,6 +254,19 @@ async function writeAgentContext(){const all=await listAgents();const names={};f
   const cur=await readFile(file,'utf8').catch(()=>'');const re=/<!-- aqeelos:context[\s\S]*?<!-- \/aqeelos:context -->/;
   const next=re.test(cur)?cur.replace(re,()=>body):(cur?cur.replace(/\s*$/,'\n\n'):'')+body+'\n';if(next!==cur)await writeFile(file,next)}catch(e){console.warn('agent context',a,e.message)}}}
 if(PORT===4400){setTimeout(()=>writeAgentContext().catch(()=>{}),25000);setInterval(()=>writeAgentContext().catch(()=>{}),600000).unref()}
+/* Slack client channels stay silent. An agent whose Slack answers wherever it is invited keeps its client channels
+   (ext-…) on SLACK_IGNORED_CHANNELS; a client channel made later is added here, and the agents restart once nobody
+   is mid-reply so it takes effect. Only agents whose .env carries the aqeelOS marker line are touched. */
+async function slackClientChannels(){for(const a of await listAgents()){try{
+  const envF=path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'.env');const cur=await readFile(envF,'utf8').catch(()=>'');
+  if(!/kept up to date by aqeelOS/.test(cur))continue;const tok=(/^SLACK_BOT_TOKEN=(.+)$/m.exec(cur)||[])[1]?.trim();if(!tok)continue;
+  const have=new Set(((/^SLACK_IGNORED_CHANNELS=(.*)$/m.exec(cur)||[])[1]||'').split(',').map(x=>x.trim()).filter(Boolean));
+  const r=await fetch('https://slack.com/api/conversations.list?types=public_channel,private_channel&limit=1000&exclude_archived=true',{headers:{authorization:'Bearer '+tok},signal:AbortSignal.timeout(20000)}).then(x=>x.json());
+  if(!r.ok)continue;const add=(r.channels||[]).filter(c=>/^ext-/.test(c.name)&&!have.has(c.id));if(!add.length)continue;
+  const next=[...have,...add.map(c=>c.id)].join(',');
+  await editEnv(envF,t=>/^SLACK_IGNORED_CHANNELS=/m.test(t)?t.replace(/^SLACK_IGNORED_CHANNELS=.*$/m,'SLACK_IGNORED_CHANNELS='+next):null);
+  console.log('slack: client channels kept silent for',a+':',add.map(c=>'#'+c.name).join(', '));restartGateway('a new Slack client channel is kept silent for '+a).catch(()=>{})}catch(e){console.warn('slack client channels',a,e.message)}}}
+if(PORT===4400){setTimeout(()=>slackClientChannels(),60000).unref();setInterval(()=>slackClientChannels(),900000).unref()}
 /* Dictation spells your names right: the speech model gets the names it should expect (agents, schedule folders,
    the app itself), kept up to date as they change. */
 async function sttVocab(){try{const names=new Set(['aqeelOS']);for(const a of await listAgents())names.add(NAMES[a]||a);
