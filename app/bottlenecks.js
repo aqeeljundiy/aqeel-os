@@ -1,0 +1,18 @@
+// Bottlenecks: what is stuck until you act, with a fix for each (next to the bell). aqeelOS adds what it notices (a
+// sign-in that is due, a failed schedule, an expired invite, the server having been off); agents add what blocks them.
+const Bottlenecks={items:[],
+ async check(){if(!S.signedIn||document.hidden)return;try{const d=await UI('/ui/bottlenecks');this.items=d.items||[]}catch{return}this.paintCount()},
+ paintCount(){const b=document.querySelector('[data-act="bottlenecks"]');if(!b)return;const n=this.items.length;b.hidden=!n;const c=b.querySelector('.bn-n');if(c)c.textContent=n>9?'9+':String(n||'')},
+ icon:{signin:'key',schedule:'clock',invite:'user',report:'alert',down:'activity'},
+ async open(){await this.check();const nm=a=>typeof ident==='function'&&ident(a)?.name||a;const list=this.items.map(x=>x.agent?{...x,agentName:nm(x.agent),title:x.kind==='report'?nm(x.agent)+' is blocked: '+x.missing:x.title}:x);
+  const body=list.length?'<div class="bn-list">'+list.map((x,i)=>'<div class="bn-item"><span class="bn-ic bn-'+esc(x.kind)+'">'+icon(this.icon[x.kind]||'alert',16)+'</span><div class="bn-t"><b>'+esc(x.title)+'</b>'+(x.count>1?'<small class="bn-c">reported '+x.count+' times</small>':'')+'<p>'+esc(x.text||'')+'</p><div class="bn-acts" data-i="'+i+'"></div></div></div>').join('')+'</div>':'<div class="bn-empty">'+icon('check',22)+'<b>Nothing is stuck</b><p class="hint">When a sign-in is due, a schedule fails or an agent is missing access, it shows up here with a way to fix it.</p></div>';
+  const d=drawer('Bottlenecks',body,'<button class="ghost" data-act="close">Close</button>');
+  d.querySelectorAll('.bn-acts').forEach(box=>{const x=list[+box.dataset.i];for(const [label,run,primary] of this.actions(x)){const b=document.createElement('button');b.type='button';b.className=primary?'primary small':'ghost small';b.textContent=label;b.onclick=async()=>{try{await run();await this.check();closeLayers();if(this.items.length)this.open()}catch(e){fail(e)}};box.append(b)}})},
+ actions(x){const done=()=>post(UI,'/ui/bottlenecks/done',{id:x.id}),later=()=>post(UI,'/ui/bottlenecks/later',{id:x.id}).then(()=>toast('Hidden until tomorrow'));
+  if(x.kind==='signin')return [['Fix it',()=>{closeLayers();Signins.open(x.signin);return new Promise(()=>{})},true],['Not now',later]];
+  if(x.kind==='schedule')return [['Run again',async()=>{await post(H,'/cron/jobs/'+encodeURIComponent(x.job.id)+'/trigger?profile='+encodeURIComponent(x.agent));await done();toast('Running again')},true],['Open schedules',()=>{closeLayers();go('/automations/schedules');return new Promise(()=>{})}],['Not now',later]];
+  if(x.kind==='invite')return [['Make a new link',async()=>{const i=x.invite;const r=await post(UI,'/ui/people/invite',{name:i.name,role:i.role,roleId:i.roleId,caps:i.caps,agents:i.agents});const link=location.origin+'/#invite/'+r.code;await navigator.clipboard.writeText(link).catch(()=>{});await done();toast('New invite link copied · valid for 7 days')},true],['Not now',later]];
+  if(x.kind==='report')return [['Ask '+x.agentName+' to try again',async()=>{await done();closeLayers();if((S.profile||'default')!==x.agent&&typeof switchAgent==='function')switchAgent(x.agent);go('/chat');setTimeout(()=>{const t=document.querySelector('.composer textarea');if(t){t.value='That should be fixed now: '+x.title.replace(/^.*? is blocked: /,'')+'. Please try again.';t.dispatchEvent(new Event('input'));t.focus()}},600);return new Promise(()=>{})},true],['It’s fixed',async()=>{await done();toast('Marked as fixed')}],['Not now',later]];
+  return [['Got it',done,true]]}};
+ACT['bottlenecks']=()=>Bottlenecks.open();
+setInterval(()=>Bottlenecks.check(),120000);setTimeout(()=>Bottlenecks.check(),2500);

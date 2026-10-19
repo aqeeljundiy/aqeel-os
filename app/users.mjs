@@ -140,7 +140,7 @@ export function createUsers(DATA,mail){
    if(p.startsWith('/ui/screens')||p==='/ui/screen/browser')return atLeast(u,a,'chat')?null:no();
    // Code on their own computer: pair it, see and unpair their computers, download the app (online projects are for admins)
    if(/^\/ui\/code\/(pair|devices|unpair|download\/(windows|mac))$/.test(p))return null;
-   if(p==='/ui/files/search'||p==='/ui/files/exist'||p==='/ui/code/usage')return null;   // the handler keeps members inside their own folder
+   if(p==='/ui/files/search'||p==='/ui/files/exist'||p==='/ui/code/usage'||p.startsWith('/ui/bottlenecks'))return null;   // the handler keeps members inside their own folder
    return no()}
   return no()}
  // A member's file calls must stay inside ~/people/<id>.
@@ -238,5 +238,6 @@ export function createUsers(DATA,mail){
  const limitOf=u=>isAdmin(u)?null:eff(u).limit;
  async function loginCode(u){const me=byId(u.id);return sendCode(me,'login',me.email)}
  function finishLogin(key,code){const v=checkCode(String(key||''),code,'login');if(v.error)return v;const u=byId(v.uid);return u?{ok:true,user:u}:{error:'That person no longer exists.'}}
- return {agentOwner,byId,ownerOf,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginCode,finishLogin,created,can,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home};
+ const expiredInvites=()=>(db?.invites||[]).filter(i=>!i.used&&i.expires<Date.now()&&i.expires>Date.now()-30*86400e3).map(i=>({code:i.code,name:i.name,role:i.role,roleId:i.roleId||null,caps:i.caps||[],agents:i.agents||{},expired:i.expires}));
+ return {expiredInvites,agentOwner,byId,ownerOf,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginCode,finishLogin,created,can,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home};
 }
