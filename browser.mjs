@@ -70,7 +70,7 @@ export class SideBrowser{
   if(paused!==undefined){this.guard.paused=!!paused;this.guard.reason='';if(this.guard.paused){this.pausedAt=Date.now();this.say('You have control. The AI carries on after 30 seconds without your clicks, or when you hand back.').catch(()=>{})}else this.off().catch(()=>{})}
   await writeFile(this.guardFile,JSON.stringify({sites:this.guard.sites},null,1)).catch(()=>{});return this.status()}
  // the project's own browser profile (cookies, sign-ins, history, permissions) and where its downloads go
- async useProject(folder,downloads){if(downloads){this.downloads=downloads;await mkdir(downloads,{recursive:true}).catch(()=>{})}
+ async useProject(folder,downloads){if(downloads&&downloads!==this.downloads){this.downloads=downloads;await mkdir(downloads,{recursive:true}).catch(()=>{});if(this.state==="running")await this.send("Page.setDownloadBehavior",{behavior:"allow",downloadPath:downloads}).catch(()=>{})}
   const prof=folder&&!process.env.CBA_ONLINE?path.join(folder,'.aqeelos','browser'):path.join(this.dataDir,'browser-profile');if(prof===this.profile)return false;
   const was=this.state==='running';if(was||this.starting){try{await this.starting}catch{}this.stop();await new Promise(r=>setTimeout(r,700))}
   this.profile=prof;this.pidFile=path.join(path.dirname(prof),'browser.pid');this.aiTarget=null;this.aiWs=null;this.tabs=[];this.perms={};this.guard.perm=null;this.guard.file=null;

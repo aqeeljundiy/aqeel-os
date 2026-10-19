@@ -279,7 +279,7 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
    else if(j.action==='back')text=page(await call('back',{}));
    else throw Error('Unknown browser action.');return {state:'complete',text}}catch(e){return {state:'failed',text:e.message}}}
  // where a task's results go: the chat's own choice, or Downloads\<project> on this computer (<project>\Downloads online)
- async function resultsDirFor(projectId,chatId){const c=store.chat(projectId,chatId);if(c?.resultsDir)return c.resultsDir;const p=store.project(projectId);const clean=String(p?.name||'Project').replace(/[<>:"/\\|?*\x00-\x1f]/g,'').replace(/[. ]+$/,'').trim().slice(0,60)||'Project';
+ async function resultsDirFor(projectId,chatId){const c=chatId?store.chat(projectId,chatId):null;if(c?.resultsDir)return c.resultsDir;const p=store.project(projectId);const clean=String(p?.name||'Project').replace(/[<>:"/\\|?*\x00-\x1f]/g,'').replace(/[. ]+$/,'').trim().slice(0,60)||'Project';
   return process.env.CBA_ONLINE?path.join(await store.folder(projectId),'Downloads'):path.join(homedir(),'Downloads',clean)}
  // files left loose in the results folder go into their type's subfolder
  // did this run save anything into the folder (so the reply can offer Show folder)?
