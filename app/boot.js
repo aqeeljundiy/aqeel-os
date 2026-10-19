@@ -25,7 +25,7 @@ document.addEventListener('click',e=>{
  const t=e.target.closest('[data-tab]');if(t){const box=t.closest('[data-tabs]');const key=box.dataset.tabs;
   if(key==='chatFilter'){S.chatFilter=t.dataset.tab;store.set('chatFilter',S.chatFilter);paintSide();placePills();return}
   S.tab[key]=t.dataset.tab;box.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b===t));placePills();
-  if(['skills','mcp','plugins','usage','currency','models','channels','hist'].includes(key)){if(key==='hist')Pages.manageChats($('#view'));else reload()}return}
+  if(['skills','mcp','plugins','usage','currency','models','channels','hist','codews'].includes(key)){if(key==='hist')Pages.manageChats($('#view'));else reload()}return}
  const ts=e.target.closest('[data-tabset]');if(ts){const [k,v]=ts.dataset.tabset.split(':');S.tab[k]=v;reload();return}
  const c=e.target.closest('[data-cmd]');if(c){Chat.pickSlash(c.dataset.cmd);return}
  const pr=e.target.closest('[data-prompt]');if(pr){Chat.send(pr.dataset.prompt);return}
