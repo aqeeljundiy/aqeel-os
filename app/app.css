@@ -1248,3 +1248,9 @@ html.in-panel .topbar{height:52px;padding:0 8px 0 6px}
 html.in-panel .topbar .crumbs b{font-size:14px}
 html.in-panel .thread{padding:18px 14px}
 html.in-panel .composer-wrap{padding:0 10px 12px}
+/* Connected apps › Use on other agents */
+.share-agents{display:grid;gap:8px}
+.share-agents label.share-row{display:flex;margin:0;font-weight:400;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface);cursor:pointer;transition:border-color var(--t-fast),background var(--t-fast);animation:lbUp var(--t-med) var(--ease) both}
+.share-row:hover{border-color:var(--blue-soft)}.share-row.has{cursor:default;opacity:.75}
+.share-agents .share-row .txt{flex:1;min-width:0;display:flex;flex-direction:column}.share-row .txt span{font-size:12.5px;color:var(--muted)}
+.share-agents .share-row .ic{flex:none;width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:var(--soft);color:var(--ink-2)}.share-agents .share-row .switch{flex:none;margin:0}

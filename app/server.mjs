@@ -3,7 +3,7 @@
 // Hermes credentials stay on this server; the browser only ever holds a session cookie.
 // No dependencies. Run: node app/server.mjs (configuration via environment, see README).
 import {createServer,request as httpRequest} from 'node:http';
-import {readFile,stat,writeFile,mkdir,unlink,rename,realpath,readlink} from 'node:fs/promises';
+import {readFile,stat,writeFile,mkdir,unlink,rename,realpath,readlink,copyFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {createAccounts,setupAgentFn,export_setups} from './accounts.mjs';
 import {createGemini} from './gemini.mjs';
@@ -230,6 +230,14 @@ async function writeAgentContext(){const all=await listAgents();const names={};f
     'If something cannot be changed from your side, say plainly where it is changed in aqeelOS: the Settings page (System › Settings, with "Showing: '+me+'" picked at the top), Channels › Who can message, or Abilities › Connected apps. Never send anyone to a website or to documentation for this, and never say "an admin" has to do it.',
     // channels kept to a few tools on purpose (a team Slack, check-ins that read it): there the agent says so plainly
     ...(narrow.length?['On '+narrow.join(' and ')+' you have only a few tools on purpose (no terminal, browser or files). There, say plainly that it is something you do when asked in the aqeelOS app, never that it is impossible.']:[])]),
+   // agents of admins fix a missing tool, permission or connection themselves, from any channel, and apply it
+   ...(!locked&&!lockedAgent(a,{})?['','## When you are missing a tool, a permission or a connection','',
+    'Nothing here waits for a developer. When you (or another agent, when the person asks about it) cannot do something only because of a setting, a missing connection or a missing action in a tool, fix it yourself, then do the job. Never answer that it needs a developer, a code change, Claude, the app instead of Slack, or more permission from the person when you can change it from here:',
+    '1. Settings: `aqeelos -p <agent> config show` shows what limits an agent: `platform_toolsets` (tools per channel; a channel should have the same as the app unless the person said otherwise), `agent.disabled_toolsets`, `approvals.mode`, `mcp_servers.<name>.enabled`. Change it with `aqeelos -p <agent> config set <key> <value>`.',
+    '2. A connected app another agent already has (n8n, Notion, Slack…): copy its `mcp_servers.<name>` entry into the other agent (`config set mcp_servers.<name> \'<json>\'`) and its sign-in files `mcp-tokens/<name>*.json` (in ~/.hermes or ~/.hermes/profiles/<agent>) into the other agent\'s `mcp-tokens` folder. No new sign-in is needed.',
+    '3. A tool that lacks one action (it can update a sheet but not create one): add the action to that tool\'s server, or write a small skill or MCP tool for it, and try it once from the terminal before using it.',
+    '4. Then call apply_changes (from aqeelos-notify) once, finish your turn with what you changed, and do the job in the next turn. Never restart the gateway any other way.',
+    'Ask the person first only when the change reaches outside the team (sharing with outside people, messaging clients), spends money, or deletes something. Everything else: do it and say in one line what you changed.']:[]),
    '','## Apps and accounts: free ways first','',
    'For an outside app (Slack, Gmail, Google Drive, Notion, GitHub, Google Cloud…), try the free ways first, in this order:',
    '1. That app’s own MCP tool, if you have it (connect it with connect_mcp_tool when it needs a sign-in).',
@@ -253,6 +261,20 @@ async function writeAgentContext(){const all=await listAgents();const names={};f
   const dir=path.join(homedir(),'workspaces',a),file=path.join(dir,'AGENTS.md');await mkdir(dir,{recursive:true});
   const cur=await readFile(file,'utf8').catch(()=>'');const re=/<!-- aqeelos:context[\s\S]*?<!-- \/aqeelos:context -->/;
   const next=re.test(cur)?cur.replace(re,()=>body):(cur?cur.replace(/\s*$/,'\n\n'):'')+body+'\n';if(next!==cur)await writeFile(file,next)}catch(e){console.warn('agent context',a,e.message)}}}
+/* Sign-ins that ran out: every few hours each agent's signed-in apps (OAuth MCP tools) are tested the way the
+   Test button does. One with no sign-in, or that fails on its sign-in, is listed for admins, who get a notice with
+   a Sign in button instead of finding out when an agent says it cannot reach the app. */
+const signinsDue=new Map();let signinsAt=0;
+async function checkSignins(){const h={'x-hermes-session-token':DASH_TOKEN};const seen=new Set();
+ for(const a of await listAgents()){let list=[];try{const r=await fetch(DASH.origin+'/api/mcp/servers?profile='+encodeURIComponent(a),{headers:h,signal:AbortSignal.timeout(15000)});list=(await r.json()).servers||[]}catch{continue}
+  for(const s of list){if(s.auth!=='oauth'||s.enabled===false)continue;const key=a+'|'+s.name;seen.add(key);
+   const tok=path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'mcp-tokens',s.name+'.json');let why='';
+   if(!await stat(tok).catch(()=>null))why='not signed in';
+   else{try{const r=await fetch(DASH.origin+'/api/mcp/servers/'+encodeURIComponent(s.name)+'/test?profile='+encodeURIComponent(a),{method:'POST',headers:h,signal:AbortSignal.timeout(70000)});const j=await r.json();
+    if(j.ok===false&&/oauth|unauthori[sz]ed|401|invalid_grant|invalid_token|expired|login/i.test(String(j.error||'')))why='the sign-in ran out'}catch{}}
+   if(why){if(!signinsDue.has(key))console.log('sign-in needed:',s.name,'on',a,'('+why+')');signinsDue.set(key,{agent:a,agentName:NAMES[a]||a,name:s.name,why})}else signinsDue.delete(key)}}
+ for(const k of [...signinsDue.keys()])if(!seen.has(k))signinsDue.delete(k);signinsAt=Date.now()}
+if(PORT===4400){setTimeout(()=>checkSignins().catch(()=>{}),120000);setInterval(()=>checkSignins().catch(()=>{}),3*3600e3).unref()}
 if(PORT===4400){setTimeout(()=>writeAgentContext().catch(()=>{}),25000);setInterval(()=>writeAgentContext().catch(()=>{}),600000).unref()}
 /* Slack: every agent with its own Slack bot answers in any channel it is invited to (private ones too) when a team
    member mentions it, except client channels (ext-…), which stay silent. Once per agent, a fixed channel list
@@ -836,7 +858,15 @@ const server=createServer(async(req,res)=>{
     if(value===null){const have=await readdir(secretDir(base)).catch(()=>[]);return reply('No saved secret called '+name+'.'+(have.length?' Saved ones: '+have.join(', ')+'.':' Ask the person with ask_secret.'),true)}
     try{await screens.typeInto(base,value,{enter:!!a.press_enter});return reply('Typed '+name+' into the focused field on your screen'+(a.press_enter?' and pressed Enter':'')+'. You did not see it; take a screenshot to check the result.')}catch(e){return reply('Could not type it: '+e.message,true)}}
    if(signed&&msg.method==='tools/call'&&msg.params?.name==='ask_secret'){const r=await askSecret(mn[1],msg.params?.arguments||{});return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text:r.text}],...(r.isError?{isError:true}:{})}})}
+   // apply_changes: an agent that changed settings, tools or skills (its own or another agent's) makes them take
+   // effect itself, through the same careful restart as the Restart agents button: after every reply in progress
+   // (its own included) has finished. Only agents of people who may use the unsafe tools.
+   const mayApply=!lockedAgent(mn[1].split('--')[0],{});
+   if(signed&&msg.method==='tools/call'&&msg.params?.name==='apply_changes'){if(!mayApply)return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{isError:true,content:[{type:'text',text:'Only agents of admins can restart the agents. Ask an admin to press Restart agents on System › Health.'}]}});
+    const why=String(msg.params?.arguments?.why||'settings changed').slice(0,120);restartGateway(why+' (asked by '+(NAMES[mn[1].split('--')[0]]||mn[1])+')').catch(()=>{});
+    return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text:'aqeelOS restarts the agents as soon as no reply is in progress, this one included: usually within a minute after you finish. Finish your turn now with one short line saying the change is applied in a minute and what the person can try then. Do not check or test it in this turn.'}]}})}
    const out=await relay.mcp(mn[1],mn[2],msg);
+   if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools)&&mayApply)out.body.result.tools.push({name:'apply_changes',description:'Make settings changes take effect: after you changed an agent\'s config (yours or another agent\'s), added or shared an MCP tool or connected app, a skill, a plugin or a toolset, call this once. aqeelOS restarts the agents safely when no reply is running. Never restart the gateway any other way.',inputSchema:{type:'object',properties:{why:{type:'string',description:'What changed, in a few words'}},required:['why']}});
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'choose_browser',description:'Before a browser job in a chat, ask the person once where to do it: their own Chrome ("yours": a separate window on their computer, with the sign-ins they already have; best for one-off jobs such as Google Cloud or admin consoles) or your screen on the AI box ("server": keeps working when their computer is off; needed for anything scheduled or long-running). Give your suggestion. Wait for the answer, then follow it for the rest of the chat.',inputSchema:{type:'object',properties:{task:{type:'string',description:'What you will do in the browser, in a few words'},suggest:{type:'string',enum:['yours','server']},why:{type:'string',description:'One short reason for your suggestion'}},required:['task','suggest']}},{name:'type_secret',description:'Type a secret the person saved for you (a password, code or key) into the field that has focus on your screen, without seeing it. Click the field first. Saved secrets: '+((await readdir(secretDir(mn[1].split('--')[0])).catch(()=>[])).join(', ')||'none yet (ask with ask_secret)')+'.',inputSchema:{type:'object',properties:{name:{type:'string',description:'The saved name, e.g. GMAIL_PASSWORD'},press_enter:{type:'boolean'}},required:['name']}},{name:'ask_secret',description:'Ask the person for a password, API key or other secret through a protected field in their aqeelOS chat. You never see the value. mode "type": it is typed into the field that has focus on your screen (click the field first; set press_enter to submit). mode "save": it is stored as a named key (name in capitals, e.g. OPENAI_API_KEY) that the engine and your commands can use. Never ask for a secret in plain chat or on the screen viewer; always use this.',inputSchema:{type:'object',properties:{label:{type:'string',description:'What it is, e.g. "Gmail password for ops@company.com"'},mode:{type:'string',enum:['type','save']},name:{type:'string',description:'For save: the key name in capitals'},press_enter:{type:'boolean',description:'For type: press Enter after typing'}},required:['label','mode']}},{name:'organize_schedule',description:'File one of your schedules so the person understands it at a glance: put it in a folder (the project or client it is for, e.g. Dagadu, Personal Finance), give it a clear title and a one-sentence description of what it does and why. Use it right after you create or change a schedule, and when the person asks you to tidy, move or rename schedules.',inputSchema:{type:'object',properties:{job_id:{type:'string',description:'The schedule id (from cronjob list)'},folder:{type:'string',description:'Folder name, 1-2 words'},title:{type:'string',description:'Clear title, max 6 words (optional)'},description:{type:'string',description:'One plain sentence: what it does and why'}},required:['job_id']}},{name:'connect_mcp_tool',description:'Start the sign-in for one of your MCP tools (slack, composio, notion…) and get the link to give the person. Always use this to connect an MCP tool; never a command-line login or a localhost callback.',inputSchema:{type:'object',properties:{tool:{type:'string',description:'The MCP tool name as listed, e.g. "slack" or "composio"'}},required:['tool']}});
    if(out.body==null){res.writeHead(out.status);return res.end()}return send(res,out.status,out.body)}
   // Incoming webhooks (GitHub, Stripe…) reach Hermes' webhook listener here. No sign-in: each
@@ -1056,6 +1086,21 @@ const server=createServer(async(req,res)=>{
    // a provider without automatic registration (Slack, Google…): its app's client ID/secret, and the return address to give it
    if(p==='/ui/mcp/oauth-client'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can set this.'});let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}
     try{return send(res,200,await sharing.setOauthClient(String(b.agent||'default'),String(b.name||''),String(b.client_id||'').trim(),String(b.client_secret||'').trim(),MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(String(b.name||''))))}catch(e){return send(res,400,{error:e.message})}}
+   if(p==='/ui/mcp/signins'&&req.method==='GET')return send(res,200,{items:users.isAdmin(u)?[...signinsDue.values()]:[],checked:signinsAt});
+   // "Use on other agents": a connected app (its settings and its sign-in) copied to other agents, so a second
+   // agent can use n8n, Notion… without signing in again. The agents restart once nobody is mid-reply.
+   if(p==='/ui/mcp/share'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can share connected apps between agents.'});
+    const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);const all=await listAgents();
+    if(req.method==='GET'){const from=String(url.searchParams.get('from')||'default'),name=String(url.searchParams.get('name')||'');
+     const out=[];for(const a of all){if(a===from)continue;const c=await readConfig(a).catch(()=>null);out.push({id:a,name:NAMES[a]||await displayName(a),has:!!pick(c||{},'mcp_servers.'+name)})}return send(res,200,{agents:out})}
+    if(req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const from=String(b.from||'default'),name=String(b.name||'');const to=(Array.isArray(b.to)?b.to:[]).map(String).filter(a=>all.includes(a)&&a!==from);
+     if(!/^[\w.-]{1,64}$/.test(name)||name==='aqeelos-notify')return send(res,400,{error:'This app can’t be shared.'});
+     const src=pick(await readConfig(from).catch(()=>null)||{},'mcp_servers.'+name);if(!src||typeof src!=='object')return send(res,404,{error:'That app isn’t set up on this agent.'});
+     const tokDir=path.join(homeOf(from),'mcp-tokens');const toks=(await readdir(tokDir).catch(()=>[])).filter(f=>f===name+'.json'||f.startsWith(name+'.')&&/\.(meta|client)\.json$/.test(f));
+     const done=[];for(const a of to){const r=await setKey(a,'mcp_servers.'+name,src);if(!r.ok)return send(res,500,{error:(NAMES[a]||a)+': '+(r.err||'could not save')});
+      const dst=path.join(homeOf(a),'mcp-tokens');await mkdir(dst,{recursive:true,mode:0o700});for(const f of toks)await copyFile(path.join(tokDir,f),path.join(dst,f)).catch(()=>{});done.push(NAMES[a]||a)}
+     if(done.length){console.log('connected app',name,'from',from,'now also on',done.join(', '));restartGateway('connected app '+name+' shared').catch(()=>{})}
+     return send(res,200,{ok:true,agents:done})}}
    if(p==='/ui/mcp/start-signin'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||'default'),tool=String(b.name||'');
     if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag+'/soul','PUT',new URLSearchParams(),ag)!==null)return send(res,403,{error:'Not your agent.'});
     try{const pr=await sharing.prepareSignin(ag,tool,MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(tool));if(pr.changed)await new Promise(r=>setTimeout(r,2500));return send(res,200,await startSignin(ag,tool))}catch(e){return send(res,400,{error:e.message})}}
