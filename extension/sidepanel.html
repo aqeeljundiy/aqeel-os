@@ -1,5 +1,10 @@
 <!doctype html><meta charset="utf-8">
-<style>html,body{margin:0;height:100%;background:#fff}iframe{border:0;width:100%;height:100%;display:block}
-.msg{font:14px/1.5 "Plus Jakarta Sans",system-ui,sans-serif;color:#444;padding:24px}</style>
+<style>html,body{margin:0;height:100%;background:#fff}
+@media (prefers-color-scheme:dark){html,body{background:#111}}
+iframe{border:0;width:100%;height:100%;display:block;opacity:0;transition:opacity .35s ease}iframe.in{opacity:1}
+.wait{position:fixed;inset:0;display:grid;place-items:center;transition:opacity .3s ease}.wait.out{opacity:0;pointer-events:none}
+.wait img{width:44px;height:44px;animation:breathe 1.6s ease-in-out infinite}
+@keyframes breathe{50%{transform:scale(.9);opacity:.6}}</style>
+<div class="wait" id="wait"><img src="icon-48.png" alt="Loading aqeelOS"></div>
 <iframe id="app" title="aqeelOS" allow="clipboard-read; clipboard-write; microphone"></iframe>
 <script src="sidepanel.js"></script>

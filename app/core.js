@@ -207,6 +207,8 @@ const S={identities:{},collapsed:store.get('collapsed',false),tab:{},status:null
 // pages that moved keep their old addresses: [new section, page, tab]
 const ROUTE_MOVED={'automations/channels':['channels','channels','Connections'],'automations/pairing':['channels','channels','Who can message'],'system/status':['system','health'],'system/host':['system','health'],'abilities/memory':['agents','memory'],'abilities/files':['agents','files'],'models/keys':['system','keys']};
 function route(){let p=location.hash.replace(/^#\/?/,'').split('/').map(decodeURIComponent);{const mv=ROUTE_MOVED[p[0]+'/'+p[1]];if(mv){if(mv[2])S.tab[mv[1]]=mv[2];p=[mv[0],mv[1],...p.slice(2)];history.replaceState(null,'','#/'+p.map(encodeURIComponent).join('/'))}}if(p[0]==='signin')return{signin:true};if(p[0]==='invite')return{invite:p[1]||''};const sec=SECTIONS.find(s=>s.id===p[0])||SECTIONS[0];if(sec.id==='chat')return{sec,chat:p[1]||null};const page=sec.pages.find(x=>x.id===p[1])||sec.pages[0];return{sec,page,arg:p.slice(2)}}
+// aqeelOS inside the browser extension's side panel: a compact chat, with the full app one click away
+const PANEL=new URLSearchParams(location.search).has('panel');if(PANEL){document.documentElement.classList.add('in-panel');if(!location.hash.startsWith('#/chat'))history.replaceState(null,'','#/chat')}
 function go(h){if(location.hash==='#'+h)render();else location.hash=h}
 
 /* ---------- shell ---------- */
@@ -241,6 +243,7 @@ function sidebar(r){
 // Hermes dashboard plugins (Kanban, Achievements) open in their own tab of the original dashboard.
 function pluginLinks(sec){const want=sec==='automations'?['kanban']:['hermes-achievements'];return (S.dashPlugins||[]).filter(p=>want.includes(p.name)).map(p=>`<button class="item" data-act="plugin-page" data-name="${esc(p.name)}" data-path="${esc(p.tab?.path||'')}">${icon(sec==='automations'?'list':'sparkle',16)}<span class="t">${esc(p.label)}</span><span class="n">${icon('chevR',13)}</span></button>`).join('')}
 function topbar(r){
+ if(PANEL)return panelTop(r);
  let crumbs;
  if(r.chat==='manage')crumbs=`<span>Chat</span>${icon('chevR',14)}<b>Manage chats</b>`;
  else if(r.chat!==undefined){const c=S.sessions.find(x=>x.id===r.chat);crumbs=`<b data-act="rename-current" title="Rename" style="cursor:text">${c?esc(c.title||c.preview||'Chat'):'New chat'}</b>`}
@@ -249,6 +252,9 @@ function topbar(r){
  <div class="top-actions"><button class="ghost icon ${Screen.open&&Screen.src_!=='mine'?'on':''}" data-act="screen-box" title="The agent's screen on the AI box" aria-label="The agent's screen on the AI box" aria-pressed="${Screen.open&&Screen.src_!=='mine'}">${icon('monitor',18)}</button><button class="ghost icon ${Screen.open&&Screen.src_==='mine'?'on':''}" data-act="screen-mine" title="My browser: the agent's tab in your own Chrome" aria-label="My browser" aria-pressed="${Screen.open&&Screen.src_==='mine'}">${icon('globe',18)}</button><button class="ghost icon bell" data-act="inbox" title="Notifications" aria-label="Notifications">${icon('bell',18)}<span class="bell-n"></span></button><button class="k-btn" data-act="palette" aria-label="Search and commands">${icon('search',15)}<span class="k-label">Search or run a command</span><kbd>${MOD} K</kbd></button>
  <button class="ghost icon" data-act="theme" title="Light or dark" aria-label="Switch light and dark">${icon(document.documentElement.classList.contains('dark')?'sun':'moon',18)}</button></div>`;
 }
+function panelTop(r){const c=r.chat&&S.sessions.find(x=>x.id===r.chat);const t=r.chat===undefined?r.page.label:c?esc(c.title||c.preview||'Chat'):'New chat';
+ return `<button class="ghost icon menu-btn" data-act="nav" aria-label="Past chats and pages" title="Past chats and pages">${icon('menu',19)}</button><div class="crumbs"><b>${t}</b></div>
+ <div class="top-actions"><button class="ghost icon" data-act="new" title="New chat" aria-label="New chat">${icon('plus',18)}</button><button class="ghost icon bell" data-act="inbox" title="Notifications" aria-label="Notifications">${icon('bell',18)}<span class="bell-n"></span></button><button class="ghost icon" data-act="panel-full" title="Open the full aqeelOS in a tab" aria-label="Open the full aqeelOS">${icon('popout',17)}</button></div>`}
 // One calm banner for low memory / disk / out-of-memory restarts (most severe first).
 function paintBanner(){const slot=$('#bannerSlot');if(!slot)return;const st=S.status||{};const rp=st.resource_pressure||st.resources||((st.memory||st.disk||S.box)?{memory:st.memory,disk:st.disk}:null);let msg='',key='';
  if(rp&&typeof rp==='object'){const d=rp.disk?.level||rp.disk?.pressure||rp.disk_level,m=S.box?.memory?.level||rp.memory?.level||rp.memory?.pressure||rp.memory_level,oom=rp.oom_restart||rp.suspected_oom||rp.memory?.last_boot_suspected_oom;

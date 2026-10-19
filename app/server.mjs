@@ -220,8 +220,12 @@ async function writeAgentContext(){const all=await listAgents();const names={};f
    others?'- Other agents have their own screens: '+others+'.':null,
    'When you start working in a browser or in AdsPower, say which screen to watch, for example: "I am working on '+(ads.includes(a)?me+"'s screen":me+"'s screen")+'." If the person needs to sign in or solve a check themselves, tell them to open that screen and press Take over.',
    ...(locked?['','## Changing settings','',
-    'You have no terminal or file tools, so you cannot change your own settings, and that is on purpose. When someone asks to change how you or your channels behave (notices such as "Redirected current run", your model, what you may use, who may message you), say plainly that you cannot change it yourself and that it is changed in aqeelOS on the Settings page (System › Settings, with "Showing: '+me+'" picked at the top). Who may message you is on Automations › Who can message; apps are on Abilities › Connected apps.',
-    'Never send anyone to a website or to documentation for this, and never say "an admin" has to do it.']:[]),
+    'You have no terminal or file tools, so you cannot change your own settings, and that is on purpose. When someone asks to change how you or your channels behave (notices such as "Redirected current run", your model, what you may use, who may message you), say plainly that you cannot change it yourself and that it is changed in aqeelOS on the Settings page (System › Settings, with "Showing: '+me+'" picked at the top). Who may message you is on Channels › Who can message (that page approves people; which Slack channels you listen to is not on any page yet, so say the aqeelOS owner changes it on the AI box); apps are on Abilities › Connected apps.',
+    'Never send anyone to a website or to documentation for this, and never say "an admin" has to do it.']
+    // every other agent changes its own settings when asked, and otherwise says the same plain thing
+    :['','## Changing settings','',
+    'Your settings are yours to change: they live in your own aqeelOS settings and change with `aqeelos -p '+a+' config set <key> <value>` (`aqeelos -p '+a+' config show` lists them). When someone asks to change how you or your channels behave (notices such as "Redirected current run", your model, who may message you), make the change yourself and say in one line what you changed; some settings (such as channel notices) only take effect after the agents restart, so say that and that the person can press Restart agents on System › Health. Only change your own settings, never another agent\'s unless the person clearly asks.',
+    'If something cannot be changed from your side, say plainly where it is changed in aqeelOS: the Settings page (System › Settings, with "Showing: '+me+'" picked at the top), Channels › Who can message, or Abilities › Connected apps. Never send anyone to a website or to documentation for this, and never say "an admin" has to do it.']),
    '','## Apps and accounts: free ways first','',
    'For an outside app (Slack, Gmail, Google Drive, Notion, GitHub, Google Cloud…), try the free ways first, in this order:',
    '1. That app’s own MCP tool, if you have it (connect it with connect_mcp_tool when it needs a sign-in).',
@@ -383,7 +387,7 @@ const sweepGhosts=async()=>{for(const d of await readdir(path.join(HERMES_HOME,'
 if(PORT===4400){setTimeout(()=>sweepGhosts().catch(()=>{}),40000);setInterval(()=>sweepGhosts().catch(()=>{}),30*60e3).unref()}
 const sharing=createShare({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAgents()});
 const channels=createChannels({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAllProfiles(),cached:a=>platformsCached(a),restart:why=>restartGateway(why),paused:()=>pausedLoad()});
-const localBrowser=createLocalBrowser({DATA,GATE:GATE.origin,API_KEY,EXT_DIR:path.join(root,'extension')});
+const localBrowser=createLocalBrowser({DATA,GATE:GATE.origin,API_KEY,EXT_DIR:path.join(root,'extension'),NAMES});
 const links=createLinks({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,python:()=>sharing.python(),setupAgent:n=>setupAgentFn?.(n)});
 function listAgents(){return agentNames()}   // real agents only (a folder with a config), not extra-number copies
 async function listAllProfiles(){return [...await listAgents(),...(await links.list()).map(l=>l.name)]}
@@ -1060,7 +1064,8 @@ const server=createServer(async(req,res)=>{
     return send(res,200,{items:[...[...secretAsks.values()].filter(x=>x.base===ag).map(x=>({id:x.id,label:x.label,mode:x.mode,name:x.name,enter:x.enter,t:x.t,expires:x.t+270000})),
      ...[...browserAsks.values()].filter(x=>x.base===ag).map(x=>({id:x.id,kind:'browser',task:x.task,suggest:x.suggest,why:x.why,t:x.t,expires:x.t+270000,connected:localBrowser.connected(u.id)}))]})}
    if(p==='/ui/local-browser/pair'&&req.method==='POST')return send(res,200,{token:await localBrowser.pair(u.id)});
-   if(p==='/ui/local-browser/status'&&req.method==='GET')return send(res,200,{connected:localBrowser.connected(u.id),session:url.searchParams.get('session')?localBrowser.linked(url.searchParams.get('session')):undefined});
+   if(p==='/ui/local-browser/version'&&req.method==='GET')return send(res,200,{latest:await localBrowser.latest()});
+   if(p==='/ui/local-browser/status'&&req.method==='GET')return send(res,200,{connected:localBrowser.connected(u.id),version:localBrowser.version(u.id),latest:await localBrowser.latest(),session:url.searchParams.get('session')?localBrowser.linked(url.searchParams.get('session')):undefined});
    if(p==='/ui/local-browser/extension.zip'&&req.method==='GET'){const z=await localBrowser.zip();res.writeHead(200,{'content-type':'application/zip','content-disposition':'attachment; filename="aqeelos-browser.zip"','content-length':z.length,...security});return res.end(z)}
    if(p==='/ui/local-browser/frame'&&req.method==='GET'){const r=await localBrowser.ask(u.id,'frame');res.writeHead(200,{'content-type':'application/json','cache-control':'no-store',...security});return res.end(JSON.stringify({connected:!r.offline,...r,type:undefined,id:undefined}))}
    if(p==='/ui/local-browser/focus'&&req.method==='POST')return send(res,200,await localBrowser.ask(u.id,'focus'));

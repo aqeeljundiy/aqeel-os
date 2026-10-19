@@ -33,7 +33,7 @@ async function zipDir(dir,prefix){const files=[];for(const f of await readdir(di
  const cd=Buffer.concat(central);const end=Buffer.alloc(22);end.writeUInt32LE(0x06054b50,0);end.writeUInt16LE(files.length,8);end.writeUInt16LE(files.length,10);end.writeUInt32LE(cd.length,12);end.writeUInt32LE(off,16);
  return Buffer.concat([...parts,cd,end])}
 
-export function createLocalBrowser({DATA,GATE,API_KEY,EXT_DIR}){
+export function createLocalBrowser({DATA,GATE,API_KEY,EXT_DIR,NAMES={}}){
  const FILE=path.join(DATA,'local-browsers.json');let db=null;
  const load=async()=>{if(db)return db;try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.tokens||={};return db};
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1),{mode:0o600});await rename(FILE+'.tmp',FILE)};
@@ -51,7 +51,7 @@ export function createLocalBrowser({DATA,GATE,API_KEY,EXT_DIR}){
   if(!rec){const w=acceptWs(req,sock,head);w?.send('{"type":"unpaired"}');w?.close();return}
   const w=acceptWs(req,sock,head);if(!w)return;const old=conns.get(rec.user);if(old)old.close();conns.set(rec.user,w);rec.last=Date.now();save().catch(()=>{});
   console.log('my browser: connected for',rec.user);
-  w.ev.onmessage=t=>{let m;try{m=JSON.parse(t)}catch{return}if(m.type==='reply'){const q=asks.get(m.id);if(q){asks.delete(m.id);q(m)}return}if(m.type!=='result')return;const lane=pending.get(m.id);if(!lane)return;pending.delete(m.id);
+  w.ev.onmessage=t=>{let m;try{m=JSON.parse(t)}catch{return}if(m.type==='hello'){w.version=String(m.version||'').slice(0,20);return}if(m.type==='reply'){const q=asks.get(m.id);if(q){asks.delete(m.id);q(m)}return}if(m.type!=='result')return;const lane=pending.get(m.id);if(!lane)return;pending.delete(m.id);
    try{lane.ws.send(JSON.stringify({method:'browser.controller.result',params:{command_id:m.id,ok:m.ok===true,...(m.ok?{result:m.result}:{error:String(m.error||'failed')})}}))}catch{}};
   w.ev.onclose=()=>{if(conns.get(rec.user)===w){conns.delete(rec.user);console.log('my browser: disconnected for',rec.user);
    for(const [id,lane] of pending)if(lane.user===rec.user){pending.delete(id);try{lane.ws.send(JSON.stringify({method:'browser.controller.result',params:{command_id:id,ok:false,error:'The person’s browser went offline (Chrome was closed or the extension disconnected).'}}))}catch{}}}}}
@@ -68,11 +68,14 @@ export function createLocalBrowser({DATA,GATE,API_KEY,EXT_DIR}){
   ws.onmessage=e=>{let f;try{f=JSON.parse(String(e.data))}catch{return}if(f.method!=='browser.controller.command')return;const p=f.params||{};
    const ext=conns.get(user);
    if(!ext){try{ws.send(JSON.stringify({method:'browser.controller.result',params:{command_id:p.command_id,ok:false,error:'The person’s browser is offline (the aqeelOS extension is not connected). Ask them to open Chrome, or to switch this chat back to the AI box screen.'}}))}catch{}return}
-   pending.set(p.command_id,lane);ext.send(JSON.stringify({type:'command',id:p.command_id,action:p.action,arguments:p.arguments||{}}))};
+   pending.set(p.command_id,lane);ext.send(JSON.stringify({type:'command',id:p.command_id,action:p.action,arguments:p.arguments||{},agent:NAMES[agent]||agent}))};
   ws.onclose=()=>{if(lanes.get(session)===lane)lanes.delete(session)};
   console.log('my browser: chat',session,'on',agent,'now uses the browser of',user);return true}
  function unlink(session,user){const lane=lanes.get(session);if(!lane||user&&lane.user!==user)return false;lanes.delete(session);
   try{lane.ws.send(JSON.stringify({method:'browser.controller.detach',params:{}}))}catch{}setTimeout(()=>{try{lane.ws.close()}catch{}},300);return true}
  const linked=session=>lanes.has(session);
  const zip=()=>zipDir(EXT_DIR,'aqeelos-browser');
- return {pair,upgrade,link,unlink,linked,connected,zip,ask}}
+ // the extension version in this aqeelOS, and the one the person's browser runs
+ const latest=async()=>{try{return JSON.parse(await readFile(path.join(EXT_DIR,'manifest.json'),'utf8')).version}catch{return ''}};
+ const version=user=>conns.get(user)?.version||'';
+ return {pair,upgrade,link,unlink,linked,connected,zip,ask,latest,version}}

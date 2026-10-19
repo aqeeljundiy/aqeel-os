@@ -1239,3 +1239,12 @@ html{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adjust:10
 .gem-top>.logo{width:44px;height:44px;flex:none;border-radius:12px}.gem-top>.logo img{width:28px;height:28px}
 .ae-adv{margin-top:18px;border-top:1px solid var(--border);padding-top:12px}.ae-adv summary{cursor:pointer;font-size:13.5px;color:var(--ink-2);font-weight:600}.ae-adv[open] summary{margin-bottom:8px}.ae-tabs button{flex:1}
 .ident-top button[hidden],.drawer button[hidden]{display:none!important}
+.lb-upd{display:flex;gap:10px;align-items:flex-start;margin:12px 0 0;padding:10px 14px;border-radius:var(--r-md);background:var(--blue-soft);color:var(--blue-deep);font-size:13.5px;animation:lbUp var(--t-med) var(--ease)}
+.lb-upd svg{flex:none;margin-top:3px}.lb-upd a{font-weight:600}
+@keyframes lbUp{from{opacity:0;transform:translateY(4px)}}
+/* inside the extension's side panel: a compact chat */
+html.in-panel .screen-pane{display:none!important}
+html.in-panel .topbar{height:52px;padding:0 8px 0 6px}
+html.in-panel .topbar .crumbs b{font-size:14px}
+html.in-panel .thread{padding:18px 14px}
+html.in-panel .composer-wrap{padding:0 10px 12px}

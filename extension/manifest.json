@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "aqeelOS: use my browser",
-  "version": "1.1.0",
-  "description": "Lets your aqeelOS agents work in this browser when you choose it, with aqeelOS open in the side panel next to the page.",
+  "version": "2.0.0",
+  "description": "Lets your aqeelOS agents work in this browser when you choose it, with a side chat next to the page. You always see what the agent is doing, and can stop it or take over.",
   "permissions": [
     "tabs",
     "scripting",
@@ -19,13 +19,28 @@
   },
   "action": {
     "default_title": "aqeelOS",
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon-16.png",
+      "32": "icon-32.png"
+    }
   },
   "icons": {
-    "128": "icon.png"
+    "16": "icon-16.png",
+    "32": "icon-32.png",
+    "48": "icon-48.png",
+    "128": "icon-128.png"
   },
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA6Ixlo+lQ96P9GVJmuxzMpIbM5kb+DNd7GKuasteHt6ZRVne32Cb6zxAK+hBc2jfsL8KmwvP5GgEof0auxmUrYCSimay0HuOhgwWZXsfRTgnpx4GWfFmqkED9ZqLevDCHkxffs7v4DXW2x4Z8HoI/sPSxn9WUuCY4CFVrRiVgaYVkMFobvCBGd/SFuYRjs71ZyJzbj55ZSs9BGiY3xjenpipt8YSEfRFirI/xhfE0ungi6QWbqEHPgHeypSsA9ZHKvIDG5monOv6dBFqtm9zhl2WpAfNk8mwXs/B7GYQIShgwIv2fRjHLJsfSrTdRVrHSYNPNgUE7GVCJFfoG4f86BQIDAQAB",
   "side_panel": {
     "default_path": "sidepanel.html"
+  },
+  "commands": {
+    "open-chat": {
+      "suggested_key": {
+        "default": "Alt+A"
+      },
+      "description": "Open the aqeelOS side chat"
+    }
   }
 }

@@ -671,12 +671,13 @@ ACT['secret-give']=()=>Secrets.give();
 ACT['browser-pick']=a=>Secrets.pickBrowser(a.closest('.secret-card'),a.dataset.where);
 const BrowserSetup={
  async open(){let st={};try{st=await UI('/ui/local-browser/status')}catch{}
-  const d=sideDrawer('Use my browser',`<div class="lb-state ${st.connected?'on':''}"><i class="dot"></i>${st.connected?'This person’s browser is connected':'Not connected yet'}</div>
-   <p class="hint" style="margin:10px 0 14px">With the aqeelOS extension, an agent can work in your own Chrome when you choose “My browser”: in a separate window you can watch, with the sign-ins you already have. Good for one-off jobs (Google Cloud, admin pages). Anything that must keep running stays on the AI box.</p>
+  const d=sideDrawer('Use my browser',`<div class="lb-state ${st.connected?'on':''}"><i class="dot"></i>${st.connected?'Your browser is connected'+(st.version?' (version '+esc(st.version)+')':''):'Not connected yet'}</div>
+   ${st.connected&&st.latest&&st.version!==st.latest?`<div class="lb-upd">${icon('refresh',14)}<span><b>Version ${esc(st.latest)} is ready.</b> <a href="/ui/local-browser/extension.zip" download>Download it</a>, unzip it over your current aqeelos-browser folder, then press the reload arrow on the extension in <code>chrome://extensions</code>.</span></div>`:''}
+   <p class="hint" style="margin:10px 0 14px">With the aqeelOS extension, an agent can work in your own Chrome when you choose “My browser”, in its own tab group you can watch, with the sign-ins you already have. The tab glows while it works, a cursor shows where it clicks, and you can press Stop or Take over any time. The extension also has a side chat (Alt+A). Good for one-off jobs (Google Cloud, admin pages). Anything that must keep running stays on the AI box.</p>
    <ol class="qr-steps lb-steps"><li><a href="/ui/local-browser/extension.zip" download>Download the extension</a> and unzip it (right-click › Extract all).</li>
     <li>In Chrome, open <code>chrome://extensions</code> and switch on <b>Developer mode</b> (top right).</li>
     <li>Click <b>Load unpacked</b> and pick the unzipped <b>aqeelos-browser</b> folder.</li>
-    <li>Click the aqeelOS icon in Chrome’s toolbar (pin it from the puzzle icon) and press <b>Connect</b>. Use the Chrome where you are signed in to aqeelOS.</li></ol>
+    <li>Click the round white aqeelOS icon in Chrome’s toolbar (pin it from the puzzle icon) and press <b>Connect</b>. Use the Chrome where you are signed in to aqeelOS.</li></ol>
    <p class="hint">It only does what an agent’s browser does (open pages, read them, click, type, press keys, scroll, go back), only in chats where you chose it, and you can disconnect from its icon any time.</p>`,
    `<button class="ghost" data-act="close">Close</button><button class="primary" id="lbCheck">${icon('refresh',15)}Check connection</button>`);
   d.querySelector('#lbCheck').onclick=async()=>{try{const s=await UI('/ui/local-browser/status');toast(s.connected?'Your browser is connected':'Not connected yet. Press Connect in the extension.',s.connected?undefined:'err');if(s.connected)closeLayers()}catch(e){fail(e)}}}};

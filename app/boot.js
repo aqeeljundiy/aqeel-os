@@ -96,3 +96,4 @@ boot();
 
 // F26 rows you can reach with Tab (schedules, inbox items, file tiles, agent cards) open with Enter or Space too
 document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches?.('[tabindex="0"][data-act]')&&!e.target.matches('input,textarea,select,button')){e.preventDefault();e.target.click()}});
+ACT['panel-full']=()=>window.open(location.origin+'/'+location.hash,'_blank');
