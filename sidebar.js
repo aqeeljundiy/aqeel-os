@@ -106,7 +106,7 @@ export function createSidebar(ctx){
   const bar=el('div','tree-filter');bar.setAttribute('role','radiogroup');bar.setAttribute('aria-label','Show chats');
   for(const [key,text] of [['all','All'],['active','Active'],['unread','Unread']]){const f=el('button',filter===key?'on':'',text);f.type='button';f.setAttribute('role','radio');f.setAttribute('aria-checked',String(filter===key));f.addEventListener('click',()=>{filter=key;write('cba-filter',filter);render()});bar.append(f)}
   root.append(bar);
-  if(!ctx.projects().some(p=>!p.archived)){const e=el('div','tree-start');e.append(el('p','','No projects yet. Start a new chat or just send a message, and a project is made for you. To work on files you already have, use the folder button above.'));root.append(e)}
+  if(!ctx.projects().some(p=>!p.archived)){const e=el('div','tree-start');e.append(el('p','','No projects yet. Start a new chat or send a message: Code asks for the project’s name and folder first. To work on files you already have, use the folder button above.'));root.append(e)}
   const q=query.toLowerCase(),found=(p,c)=>!q||p.name.toLowerCase().includes(q)||(c.title||'').toLowerCase().includes(q)||c.messages?.some(m=>m.role==='user'&&String(m.text||'').toLowerCase().includes(q));
   const match=(p,c)=>found(p,c)&&(filter==='all'||(filter==='active'?['running','waiting'].includes(status(p,c)):['unread','failed','waiting'].includes(status(p,c))));
   const sections=[...new Set(ctx.projects().filter(p=>!p.archived).map(p=>p.section||''))].sort((a,b)=>a===''?-1:b===''?1:a.localeCompare(b));
