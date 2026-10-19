@@ -1525,3 +1525,12 @@ body.embed .composer-controls{padding:6px 0 0}
 /* the side browser asks before the AI opens a new site */
 .browser-ask{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:0 12px 8px;padding:10px 12px;border:1px solid #c4d5f3;border-radius:14px;background:var(--blue-soft);color:var(--ink);font-size:13px;animation:arrive .25s ease-out}
 .browser-ask[hidden]{display:none}.browser-ask>svg{width:18px;height:18px;color:var(--blue);flex:none}.browser-ask>span{flex:1;min-width:200px;line-height:1.45}.browser-ask b{font-weight:600}
+
+/* approvals: the plain sentence first, the exact command folded */
+.approval-sub{margin:4px 0 8px;font-size:12.5px;color:var(--muted);line-height:1.45}.approval-sub:empty{display:none}
+.approval-more{margin:0 0 10px}.approval-more>summary{cursor:pointer;font-size:12.5px;font-weight:600;color:var(--blue);list-style:none;display:inline-flex;align-items:center;gap:6px}
+.approval-more>summary::before{content:'›';display:inline-block;transition:transform .2s ease}.approval-more[open]>summary::before{transform:rotate(90deg)}
+.approval-more>.approval-detail{margin-top:8px;animation:arrive .2s ease-out}
+
+/* the AI's own tab in the side browser */
+.browser-tab.ai-tab{position:relative}.browser-tab.ai-tab::before{content:'AI';margin-right:6px;padding:0 6px;border-radius:var(--r-pill);background:var(--blue);color:#fff;font-size:10px;font-weight:700;line-height:16px}

@@ -8,6 +8,16 @@ import {shell} from './platform.mjs';
 // work directly in the project folder. Both adapters emit the same event shapes so the UI renders one timeline:
 //  message {text, final}  · command {command, status, output, exitCode}  · file {paths, status}
 //  tool {name, detail, status}  · approval {kind, title, detail, status}  · error {text}
+// a plain sentence for an approval: what this command does, so the person knows what they allow
+export function whatItDoes(cmd,said){const t=String(said||'').trim().replace(/\s+/g,' ');if(t)return t.replace(/\.$/,'').slice(0,140)+'?';
+ const c=String(cmd||'');const host=(c.match(/https?:\/\/([^\/\s'"?]+)/)||[])[1];const parts=[];
+ if(/Invoke-WebRequest|Invoke-RestMethod|\bcurl\b|\bwget\b|fetch\(/i.test(c))parts.push('Download from '+(host?host.replace(/^www\./,''):'the internet'));
+ if(/\b(npm|pnpm|yarn)\s+(i|install|add)\b|pip install/i.test(c))parts.push('Install packages');
+ if(/\b(npm|pnpm|yarn)\s+(run\s+)?(dev|start|build|test)\b/i.test(c))parts.push('Run the project ('+(c.match(/\b(dev|start|build|test)\b/)||[''])[0]+')');
+ if(/http\.server|serve\b|vite\b|next dev/i.test(c))parts.push('Start a local web server');
+ if(/New-Item|mkdir/i.test(c))parts.push('Make folders');if(/Out-File|Set-Content|\bCopy-Item|\bMove-Item|\bmv\b|\bcp\b|>\s*\S/i.test(c))parts.push('Save or move files');
+ if(/Remove-Item|\brm\b|del\s/i.test(c))parts.push('Delete files');if(/\bgit\s+(push|commit|reset|checkout|pull|clone)/i.test(c))parts.push('Use git ('+c.match(/\bgit\s+(\w+)/)[1]+')');
+ return (parts.length?parts.slice(0,3).join(', '):'Run a command on your computer')+'?'}
 export const INSTRUCTIONS=`You are working inside "aqeelOS Code", a local app and website builder that is part of the person's aqeelOS. When the aqeelos tools are available, use aqeelos_ask for anything outside this project folder (read or update a Google Sheet, run or build an n8n workflow, send a WhatsApp or Slack message, set up a schedule, look something up in Notion or memory): one of the person's agents does it with its own access and tells you the result. aqeelos_agents lists who can help.
 The current working directory is the user's project folder: keep every change inside it.
 For new websites prefer static HTML, CSS and JavaScript with index.html as the entry point, unless the project already uses another stack.
@@ -76,7 +86,7 @@ export function runCodex(run,{executable,env,cwd,prompt,threadId,onSession,brows
  child.on('error',e=>finish('failed',e.message));child.on('close',()=>finish(run.stopped?'stopped':'failed','Codex exited before finishing.'));child.stderr.on('data',()=>{});child.stdin.on('error',()=>{});
  const client=rpc(child,(m,ok,fail)=>{
   const p=m.params||{};
-  if(m.method==='item/commandExecution/requestApproval'){if(readOnly(p)){const e=items.get(p.itemId);if(e)run.update(e,{auto:true});return ok({decision:'accept'})}const cmd=displayCommand(p.command);run.ask('command',p.reason?'Run this command? '+p.reason:'Run this command?',cmd||'(command)',d=>ok({decision:d}))}
+  if(m.method==='item/commandExecution/requestApproval'){if(readOnly(p)){const e=items.get(p.itemId);if(e)run.update(e,{auto:true});return ok({decision:'accept'})}const cmd=displayCommand(p.command);run.ask('command',whatItDoes(cmd,p.reason),cmd||'(command)',d=>ok({decision:d}))}
   else if(m.method==='item/fileChange/requestApproval'){const item=items.get(p.itemId);run.ask('file',p.reason||'Apply these file changes?',(item?.paths||[]).join('\n')||'Project files',d=>ok({decision:d}))}
   else if(m.method==='execCommandApproval'||m.method==='applyPatchApproval'){run.ask(m.method==='execCommandApproval'?'command':'file','Allow this action?',displayCommand([].concat(p.command||[]).join(' '))||'Project files',d=>ok({decision:d==='decline'?'denied':d==='acceptForSession'?'approved_for_session':'approved'}))}
   else if(m.method==='item/tool/requestUserInput'){run.askQuestions((p.questions||[]).map(q=>({id:q.id,header:q.header,question:q.question,options:q.options||[],other:q.isOther,secret:q.isSecret})),a=>ok({answers:Object.fromEntries(Object.entries(a||{}).map(([id,v])=>[id,{answers:v}]))}))}
@@ -156,7 +166,7 @@ export function runClaude(run,{executable,env,cwd,prompt,sessionId,onSession,bro
   else if(m.type==='control_request'&&m.request?.subtype==='can_use_tool'){const r=m.request,input=r.input||{};
    const kind=/^(Bash|PowerShell)$/.test(r.tool_name)?'command':/^(Write|Edit|MultiEdit|NotebookEdit)$/.test(r.tool_name)?'file':'tool';
    const detail=kind==='command'?input.command:kind==='file'?rel(cwd,input.file_path||input.notebook_path||''):r.tool_name+' '+JSON.stringify(input).slice(0,300);
-   run.ask(kind,kind==='command'?'Run this command?':kind==='file'?'Allow this file change?':'Allow '+(r.display_name||r.tool_name)+'?',detail,dec=>send({type:'control_response',response:{subtype:'success',request_id:m.request_id,response:dec==='decline'?{behavior:'deny',message:'The user declined this action in code by aqeel.'}:{behavior:'allow',updatedInput:input,...(dec==='acceptForSession'&&r.permission_suggestions?{updatedPermissions:r.permission_suggestions.map(s=>({...s,destination:'session'}))}:{})}}}))}
+   run.ask(kind,kind==='command'?whatItDoes(input.command,input.description):kind==='file'?'Allow this file change?':'Allow '+(r.display_name||r.tool_name)+'?',detail,dec=>send({type:'control_response',response:{subtype:'success',request_id:m.request_id,response:dec==='decline'?{behavior:'deny',message:'The user declined this action in code by aqeel.'}:{behavior:'allow',updatedInput:input,...(dec==='acceptForSession'&&r.permission_suggestions?{updatedPermissions:r.permission_suggestions.map(s=>({...s,destination:'session'}))}:{})}}}))}
   else if(m.type==='control_request')send({type:'control_response',response:{subtype:'error',request_id:m.request_id,error:'Not supported by aqeelOS Code.'}});
   else if(m.type==='assistant'&&!m.parent_tool_use_id){const us=m.message?.usage;if(us)run.context={used:(us.input_tokens||0)+(us.cache_read_input_tokens||0)+(us.cache_creation_input_tokens||0)+(us.output_tokens||0),window:run.context?.window||null};for(const block of m.message?.content||[]){
    if(block.type==='text'&&block.text.trim()){lastText=run.emit({type:'message',text:block.text,final:false})}

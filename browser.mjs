@@ -5,6 +5,9 @@
 // downloads; while it works the page shows a frame, a status line and a cursor that moves to what it clicks; and the
 // person can take over at any time (the AI is told to wait) and hand back.
 import {spawn} from 'node:child_process';
+import {AsyncLocalStorage} from 'node:async_hooks';
+// which actions are the AI's: they go to the AI's own tab, so the person can use other tabs at the same time
+export const AI=new AsyncLocalStorage();
 import {mkdir,readFile,writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {findBrowser,killTree} from './platform.mjs';
@@ -36,7 +39,7 @@ const ROBOT_JS=`(()=>{const t=(document.title+' '+(document.body?document.body.i
  if(/just a moment|verify you are human|are you a robot|i'm not a robot|unusual traffic|press and hold|security check/.test(t))return 'check';return ''})()`;
 export class SideBrowser{
  constructor(dataDir){this.guardFile=path.join(dataDir,'browser-guard.json');this.guard={sites:[],paused:false};readFile(this.guardFile,'utf8').then(t=>{const g=JSON.parse(t);this.guard.sites=Array.isArray(g.sites)?g.sites:[]}).catch(()=>{});this.profile=path.join(dataDir,'browser-profile');this.pidFile=path.join(dataDir,'browser.pid');process.on('exit',()=>killTree(this.child));this.frame=null;this.frameSeq=0;this.waiters=[];this.log=[];this.state='stopped';this.preset='desktop';this.view={...PRESETS.desktop};this.scheme='light';this.tabs=[]}
- status(){return {guard:{sites:this.guard.sites,paused:this.guard.paused,reason:this.guard.reason||'',ask:this.guard.ask?{host:this.guard.ask.host}:null},state:this.state,url:this.url||'',title:this.title||'',width:this.view.width,height:this.view.height,preset:this.preset,scheme:this.scheme,tabs:this.tabs,tab:this.target||null,error:this.error||null,log:this.log.slice(-40)}}
+ status(){return {guard:{sites:this.guard.sites,paused:this.guard.paused,reason:this.guard.reason||'',ask:this.guard.ask?{host:this.guard.ask.host}:null},state:this.state,url:this.url||'',title:this.title||'',width:this.view.width,height:this.view.height,preset:this.preset,scheme:this.scheme,tabs:this.tabs,tab:this.target||null,aiTab:this.aiTarget||null,error:this.error||null,log:this.log.slice(-40)}}
  // may the AI open this address? This computer's own pages and the sites the person allowed
  allowed(u){try{const x=new URL(u);if(x.protocol==='about:')return true;const h=x.hostname.toLowerCase();return LOCAL.test(h)||this.guard.sites.some(s=>h===s||h.endsWith('.'+s))}catch{return false}}
  // a site the AI may not open yet: the browser asks the person (Allow this site / Not now) and the AI waits for the answer
@@ -47,7 +50,7 @@ export class SideBrowser{
   const ok=await ask.wait;if(this.guard.ask===ask)this.guard.ask=null;return ok}
  async answer(yes){const a=this.guard.ask;if(!a)return this.status();this.guard.ask=null;if(yes){this.guard.sites=[...new Set([...this.guard.sites,a.host])];await writeFile(this.guardFile,JSON.stringify({sites:this.guard.sites},null,1)).catch(()=>{});this.note({by:'user',action:'allowed',detail:a.host})}a.done(Boolean(yes));return this.status()}
  refuse(u,asked){let h=u;try{h=new URL(u).hostname}catch{}if(asked)return Error('The person did not allow '+h+' (or did not answer). Do it another way, or tell them what you need it for.');return Error(h+' is not on the allowed sites for this browser. Ask the person to allow it (Browser › Allowed sites), or use what is allowed: this computer\'s previews and '+(this.guard.sites.join(', ')||'no other sites')+'.')}
- async aiGate(){for(let i=0;i<60&&this.guard.paused;i++){
+ async aiGate(){if(this.guard.paused&&this.guard.reason!=='robot'){this.guard.paused=false;this.guard.reason=''}for(let i=0;i<60&&this.guard.paused;i++){
    if(this.guard.reason==='robot'){if(!(await this.robotOnPage())){this.resume('The robot check is done, so the AI carries on');break}}
    else if(Date.now()-this.lastPerson()>30000){this.resume('You left the browser for 30 seconds, so the AI carries on');break}
    await new Promise(r=>setTimeout(r,1000))}
@@ -94,10 +97,26 @@ export class SideBrowser{
    // a page asking for a file from this computer gets none; downloads are refused too (set below)
    if(m.method==='Page.fileChooserOpened'){this.note({by:'page',action:'file picker blocked',detail:'This browser never hands files from this computer to a page.'});this.say('A file picker was blocked').catch(()=>{})}}
  })}
- send(method,params={}){if(!this.ws||this.ws.readyState!==1)return Promise.reject(Error('The side browser is not running.'));const id=++this.id;this.ws.send(JSON.stringify({id,method,params}));
-  return new Promise((resolve,reject)=>{this.pending.set(id,{resolve,reject});setTimeout(()=>{if(this.pending.delete(id))reject(Error(method+' timed out.'))},30000)})}
+ inAi(){return Boolean(AI.getStore()&&this.aiTarget&&this.aiTarget!==this.target&&this.aiWs)}
+ send(method,params={}){const ai=this.inAi(),ws=ai?this.aiWs:this.ws,pending=ai?this.aiPending:this.pending;if(!ws||ws.readyState!==1)return Promise.reject(Error('The side browser is not running.'));const id=ai?++this.aiN:++this.id;ws.send(JSON.stringify({id,method,params}));
+  return new Promise((resolve,reject)=>{pending.set(id,{resolve,reject});setTimeout(()=>{if(pending.delete(id))reject(Error(method+' timed out.'))},30000)})}
+ // the AI's own tab: the tab on screen if it is empty, else a new one (the person stays where they are)
+ async aiTab(){await this.ensure();await this.refreshTabs();
+  if(this.aiTarget&&this.tabs.some(t=>t.id===this.aiTarget)){if(this.aiTarget!==this.target&&(!this.aiWs||this.aiWs.readyState!==1))await this.connectAi(this.aiTarget);return}
+  const cur=this.tabs.find(t=>t.id===this.target);if(!cur||!cur.url||cur.url==='about:blank'){this.aiTarget=this.target;return}
+  const t=await this.devtools('new?about:blank','PUT');this.aiTarget=t.id;await this.devtools('activate/'+this.target).catch(()=>{});await this.connectAi(t.id);this.note({by:'ai',action:'new tab',detail:'The AI’s own tab'});await this.refreshTabs()}
+ connectAi(id){return new Promise(async(resolve,reject)=>{const page=(await this.devtools('list')).find(t=>t.id===id);if(!page)return reject(Error('The AI’s tab is closed.'));
+  const old=this.aiWs;const ws=new WebSocket(page.webSocketDebuggerUrl);this.aiWs=ws;this.aiPending=new Map();this.aiN=0;this.aiUrl=page.url;this.aiTitle=page.title;try{old?.close()}catch{}
+  const s=(method,params={})=>new Promise((res,rej)=>{const n=++this.aiN;this.aiPending.set(n,{resolve:res,reject:rej});ws.send(JSON.stringify({id:n,method,params}))});
+  ws.onopen=async()=>{try{await s('Page.enable');await s('Runtime.enable');await s('Page.addScriptToEvaluateOnNewDocument',{source:ONE_VIEW}).catch(()=>{});await s('Page.setDownloadBehavior',{behavior:'deny'}).catch(()=>{});await s('Page.setInterceptFileChooserDialog',{enabled:true}).catch(()=>{});
+   const {width,height,mobile}=this.view;await s('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile}).catch(()=>{});resolve()}catch(e){reject(e)}};
+  ws.onerror=()=>reject(Error('Could not connect to the AI’s tab.'));ws.onclose=()=>{if(this.aiWs===ws)this.aiWs=null};
+  ws.onmessage=ev=>{if(this.aiWs!==ws)return;const m=JSON.parse(ev.data);if(m.id&&this.aiPending.has(m.id)){const p=this.aiPending.get(m.id);this.aiPending.delete(m.id);m.error?p.reject(Error(m.error.message)):p.resolve(m.result);return}
+   if(m.method==='Page.frameNavigated'&&!m.params.frame.parentId)this.aiUrl=m.params.frame.url;if(m.method==='Page.fileChooserOpened')this.note({by:'page',action:'file picker blocked',detail:'This browser never hands files from this computer to a page.'})}})}
+ // what the AI sees: its own tab's address and title
+ aiView(){const s=this.status();return this.inAi()?{...s,url:this.aiUrl||'',title:this.aiTitle||''}:s}
  async eval(expression){const r=await this.send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.exception?.description||'Script error');return r.result.value}
- async refreshTitle(){try{this.title=await this.eval('document.title')}catch{}}
+ async refreshTitle(){try{const t=await this.eval('document.title');if(this.inAi())this.aiTitle=t;else this.title=t}catch{}}
  async ensure(){if(this.state!=='running')await this.start()}
 
  // Apply the viewport preset and colour scheme to the current tab, then restart the screencast at that size.
@@ -131,8 +150,8 @@ export class SideBrowser{
 
  async navigate(url,by='user'){await this.ensure();const u=normalizeUrl(url);
   if(by==='ai'){await this.aiGate();if(!(await this.permit(u)))throw this.refuse(u,true);await this.say('AI is opening '+(()=>{try{return new URL(u).hostname}catch{return u}})())}
-  this.note({by,action:'open',detail:u});await this.send('Page.navigate',{url:u});await this.waitLoad();if(by==='ai'){await this.robotCheck();await this.say('AI is reading '+(this.title||this.url))}return this.status()}
- async waitLoad(ms=8000){const start=Date.now();while(Date.now()-start<ms){try{if(await this.eval('document.readyState')==='complete')break}catch{}await new Promise(r=>setTimeout(r,150))}await this.refreshTitle();this.url=await this.eval('location.href').catch(()=>this.url);await this.refreshTabs()}
+  this.note({by,action:'open',detail:u});await this.send('Page.navigate',{url:u});await this.waitLoad();if(by==='ai'){await this.robotCheck();await this.say('AI is reading '+((this.inAi()?this.aiTitle:this.title)||(this.inAi()?this.aiUrl:this.url)))}return by==='ai'?this.aiView():this.status()}
+ async waitLoad(ms=8000){const start=Date.now();while(Date.now()-start<ms){try{if(await this.eval('document.readyState')==='complete')break}catch{}await new Promise(r=>setTimeout(r,150))}await this.refreshTitle();{const u=await this.eval('location.href').catch(()=>this.inAi()?this.aiUrl:this.url);if(this.inAi())this.aiUrl=u;else this.url=u};await this.refreshTabs()}
  async history(delta,by='user'){if(by==='ai')await this.aiGate();await this.ensure();const h=await this.send('Page.getNavigationHistory');const e=h.entries[h.currentIndex+delta];if(!e)return this.status();this.note({by,action:delta<0?'back':'forward',detail:e.url});await this.send('Page.navigateToHistoryEntry',{entryId:e.id});await this.waitLoad();return this.status()}
  async reload(by='user'){await this.ensure();this.note({by,action:'reload',detail:this.url});await this.send('Page.reload');await this.waitLoad();return this.status()}
 

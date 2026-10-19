@@ -13,7 +13,7 @@ export function createBrowserUI(ctx){
  let order=[];try{order=JSON.parse(localStorage.getItem('cba-tab-order')||'[]')}catch{}const seen=new Set();let dragId=null;
  const saveOrder=()=>{try{localStorage.setItem('cba-tab-order',JSON.stringify(order.slice(-50)))}catch{}};
  function paintTabs(){const tabs=[...(status.tabs||[])];for(const t of tabs)if(!order.includes(t.id))order.push(t.id);tabs.sort((a,b)=>order.indexOf(a.id)-order.indexOf(b.id));strip.replaceChildren();const lead=ctx.lead?.();if(lead)strip.append(lead);const leading=Boolean(ctx.leadActive?.());
-  for(const t of tabs){const chip=el('div','browser-tab'+(t.id===status.tab&&!leading?' on':'')+(seen.size&&!seen.has(t.id)?' entering':''));seen.add(t.id);chip.draggable=true;chip.dataset.id=t.id;
+  for(const t of tabs){const chip=el('div','browser-tab'+(t.id===status.tab&&!leading?' on':'')+(seen.size&&!seen.has(t.id)?' entering':''));seen.add(t.id);chip.draggable=true;chip.dataset.id=t.id;if(t.id===status.aiTab){chip.classList.add('ai-tab');chip.title='The AI works in this tab. You can use the others at the same time.'}
    chip.addEventListener('dragstart',e=>{dragId=t.id;chip.classList.add('dragging');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',t.id)});
    chip.addEventListener('dragend',()=>{dragId=null;chip.classList.remove('dragging');strip.querySelectorAll('.drop-before,.drop-after').forEach(c=>c.classList.remove('drop-before','drop-after'))});
    chip.addEventListener('dragover',e=>{if(!dragId||dragId===t.id)return;e.preventDefault();const r=chip.getBoundingClientRect(),after=e.clientX>r.left+r.width/2;chip.classList.toggle('drop-after',after);chip.classList.toggle('drop-before',!after)});
@@ -81,7 +81,7 @@ export function createBrowserUI(ctx){
   for(const it of items){const row=el('span','browser-log'+(it.by==='ai'?' ai':''));row.append(el('b','',it.by==='ai'?'AI':'You'),' '+it.action+(it.detail?' · '+it.detail:''));activity.append(row)}
   const newestAi=Math.max(0,...(status.log||[]).filter(x=>x.by==='ai').map(x=>x.time));if(newestAi>lastAi){lastAi=newestAi;ctx.onAiActivity?.()}
   const paused=!!status.guard?.paused,working=!paused&&Date.now()-newestAi<12000;control.className='browser-control'+(paused?' you':working?' ai':'');
-  controlText.textContent=paused&&status.guard?.reason==='robot'?'A robot check needs you. Solve it on the page, then hand back.':paused?'You have control. The AI waits until you hand back.':working?'The AI is working in this browser.':'';controlBtn.replaceChildren(icon('hand'),el('span','',paused?'Hand back':'Take over'));paintGuard()}
+  controlText.textContent=paused&&status.guard?.reason==='robot'?'A robot check is on the AI’s tab. Solve it there; the AI carries on by itself.':working?(status.aiTab&&status.aiTab!==status.tab?'The AI is working in its own tab. You can keep using this one.':'The AI is working in this tab. You can click and type here too.'):'';controlBtn.hidden=true;paintGuard()}
 
  async function loop(){if(looping)return;looping=true;
   try{while(ctx.visible()&&status.state==='running'){const r=await fetch('/api/workspace/browser/frame?after='+seq,{headers:{'X-Local-Token':ctx.token()}});
