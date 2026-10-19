@@ -12,11 +12,11 @@ PAGES.n8n=async(p,el)=>{viewPick([]);const admin=S.me?.admin!==false;
    <div style="display:flex;gap:10px;align-items:center;margin-top:14px"><button class="primary" id="n8nGo">Connect</button><a class="hint" href="${esc(ns.base)}" target="_blank" rel="noopener">Open n8n</a></div></div>`;
   el.querySelector('#n8nGo').onclick=async e=>{const b=e.currentTarget;b.disabled=true;try{await post(UI,'/ui/n8n/owner',{email:$('#n8nEmail').value,password:$('#n8nPw').value});toast('n8n connected');reload()}catch(er){fail(er)}finally{b.disabled=false}};return}
  setActions(admin?`<button data-act="n8n-open" data-owner="1">${icon('popout',16)}All workflows</button>`:'');
- const d=await UI('/ui/n8n/spaces');N8N.d=d;
+ const d=await UI('/ui/n8n/spaces');for(const x of d.spaces)x.name=ident(x.agent).name;for(const g of d.agents)g.name=ident(g.id).name;N8N.d=d;
  const row=(x,i)=>{const users=[{id:x.agent,name:x.name},...x.shared.map(a=>({id:a,name:ident(a).name}))];
   return `<div class="row n8n-row" ${st(i)}><div class="main-c">${logoImg('n8n.io','n')}<div class="txt"><b>${esc(x.name)}’s n8n</b>
     <span>${x.workflows==null?'':plural(x.workflows,'workflow')+' · '}${esc(x.email)}</span></div></div>
-   <div class="act"><span class="ab-lbl">Owned by</span><b class="acc-owner-name">${esc(x.name)}</b>
+   <div class="act"><span class="n8n-owner"><span class="ab-lbl">Owned by</span>${Access.av({id:x.agent,name:x.name},22)}<b>${esc(x.name)}</b></span>
     <button class="ghost small acc-btn" data-act="n8n-who" data-space="${esc(x.agent)}" title="Who can use ${esc(x.name)}’s n8n"><span class="acc-who">${users.slice(0,5).map(u=>Access.av(u)).join('')}</span><span>${users.length>1?users.length+' agents':'Only '+esc(x.name)}</span></button>
     <button data-act="n8n-open" data-space="${esc(x.agent)}">${icon('popout',15)}Open</button>
     <button class="ghost icon" data-act="n8n-more" data-space="${esc(x.agent)}" aria-label="More">${icon('more',18)}</button></div></div>`};
