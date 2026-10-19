@@ -7,7 +7,7 @@ import path from 'node:path';
 
 export function createAqeelos({root}){
  const FILE=path.join(root,'data','aqeelos.json');let link=null,install=null;
- const load=async()=>{if(!link){try{link=JSON.parse(await readFile(FILE,'utf8'))}catch{link={}}}
+ const load=async()=>{if(!link?.token){try{link=JSON.parse(await readFile(FILE,'utf8'))}catch{link={}}}
   if(!install){try{install=JSON.parse(await readFile(path.join(root,'aqeelos.json'),'utf8')).aqeelos||{}}catch{install={}}}return link};
  const clean=u=>{try{return new URL(u).origin}catch{return ''}};
  // the aqeelOS addresses allowed to show and drive this app
