@@ -31,6 +31,9 @@ export function createCodeOnline({SECRET,SECURE,users,HOST='code.elkiya.com',PRE
   req.pipe(up)}
  // true when the request was for one of Code online's addresses (and is now answered)
  function handle(req,res){const w=which(req);if(!w)return false;const url=new URL(req.url,'http://x');
+  // Code exists only inside aqeelOS: opened as a page of its own (typed in the address bar, a link, a new tab), it goes to
+  // Code in aqeelOS instead. Inside aqeelOS it loads as a frame, which browsers mark as Sec-Fetch-Dest: iframe.
+  if(req.method==='GET'&&req.headers['sec-fetch-dest']==='document'){res.writeHead(302,{location:HOME+'/#/code/code','cache-control':'no-store'});res.end();return true}
   if(url.pathname==='/aqeelos-login'){const uid=readTicket(url.searchParams.get('t'));if(!allowed(uid)){page(res,403,'This link has expired','Open Code again from aqeelOS.');return true}
    if(w==='app'){const to=url.searchParams.get('to')||'/?embed=aqeelos';const back=scheme+HOST+(to.startsWith('/')&&!to.startsWith('//')?to:'/');
     res.writeHead(303,{location:scheme+PREVIEW_HOST+'/aqeelos-login?t='+encodeURIComponent(ticket(uid))+'&back='+encodeURIComponent(back),'set-cookie':'aqc='+cookie(uid)+attrs,'cache-control':'no-store','referrer-policy':'no-referrer'});return res.end(),true}
