@@ -138,6 +138,8 @@ export function createUsers(DATA,mail){
    if(p==='/ui/accounts'&&method==='GET')return can(u,'usage')?null:no();
    if(/^\/ui\/(identities|avatar)\/([^/]+)$/.test(p))return atLeast(u,decodeURIComponent(p.split('/')[3]),'edit')?null:no('You can chat with this agent but not change it.');
    if(p.startsWith('/ui/screens')||p==='/ui/screen/browser')return atLeast(u,a,'chat')?null:no();
+   // Code on their own computer: pair it, see and unpair their computers, download the app (online projects are for admins)
+   if(/^\/ui\/code\/(pair|devices|unpair|download\/(windows|mac))$/.test(p))return null;
    return no()}
   return no()}
  // A member's file calls must stay inside ~/people/<id>.

@@ -6,7 +6,8 @@ const CODE_APP='http://127.0.0.1:4321';
 const CodeUI={where:(()=>{try{return localStorage.getItem('aq-code-where')||'computer'}catch{return 'computer'}})(),app:CODE_APP,st:{projects:[],project:'',chat:''},state:'wait',open:{},q:'',filter:'All',frame:null,timer:null,
  post(m){this.frame?.contentWindow?.postMessage(m,this.app)},
  // this computer (the desktop app) or online (the copy on the AI box, behind sign-in)
- whereBar(){return `<div class="code-where" role="tablist" aria-label="Where projects live">${[['computer','This computer','monitor'],['online','Online','globe']].map(([k,t,i])=>`<button role="tab" aria-selected="${this.where===k}" class="${this.where===k?'on':''}" data-act="code-where" data-w="${k}">${icon(i,14)}${t}</button>`).join('')}</div>`},
+ admin(){return S.me?.admin!==false},
+ whereBar(){if(!this.admin())return '';return `<div class="code-where" role="tablist" aria-label="Where projects live">${[['computer','This computer','monitor'],['online','Online','globe']].map(([k,t,i])=>`<button role="tab" aria-selected="${this.where===k}" class="${this.where===k?'on':''}" data-act="code-where" data-w="${k}">${icon(i,14)}${t}</button>`).join('')}</div>`},
  // the left list, under the aqeelOS sections, like the chat list
  sidebar(){const ps=this.st.projects||[],q=this.q.toLowerCase();
   if(this.state!=='on')return `<div class="side-sub">${this.whereBar()}<p class="hint" style="margin:6px 18px">${this.state==='lock'?'Install aqeelOS Code on this computer to see your projects here.':this.where==='online'?'Opening your online projects…':'Connecting to aqeelOS Code on this computer…'}</p></div>`;
@@ -25,6 +26,7 @@ const CodeUI={where:(()=>{try{return localStorage.getItem('aq-code-where')||'com
    <iframe class="code-frame" title="aqeelOS Code" allow="local-network-access; clipboard-read; clipboard-write; microphone" hidden></iframe></div>`;
   const f=el.querySelector('iframe');this.frame=f;this.state='wait';this.paintSide();
   f.onload=()=>{this.post({aq:'hello'});if(this.where==='online')return;clearTimeout(this.timer);this.timer=setTimeout(()=>{if(this.state!=='on')this.lock(el)},3500)};
+  if(!this.admin())this.where='computer';
   if(this.where==='online'){try{const r=await UI('/ui/code/online');this.app=r.origin;f.src=r.url}catch(e){this.app='';el.querySelector('.code-host').innerHTML=`<div class="code-lock card"><h2>Online projects aren’t available</h2><p>${esc(e.message)}</p></div>`;return}
    clearTimeout(this.timer);this.timer=setTimeout(()=>{if(this.state!=='on'&&el.isConnected){el.querySelector('.code-wait span:last-child')&&(el.querySelector('.code-wait span:last-child').textContent='The online copy is slow to answer. It starts by itself; this page retries.');this.timer=setTimeout(()=>this.page(p,el),8000)}},15000);return}
   this.app=CODE_APP;f.src=CODE_APP+'/?embed=aqeelos';this.timer=setTimeout(()=>{if(this.state!=='on')this.lock(el)},9000)},
@@ -39,7 +41,7 @@ const CodeUI={where:(()=>{try{return localStorage.getItem('aq-code-where')||'com
    <ol class="code-steps"><li>Unzip it, then open <b>${mac?'Install aqeelOS Code.command':'Install aqeelOS Code.cmd'}</b>${mac?' (the first time: right-click › Open)':''}.</li><li>It installs Node.js if needed, starts in the background and comes back here.</li><li>Chrome may ask to let aqeelOS reach apps on this computer: allow it.</li></ol>
    <p class="code-perm hint" hidden></p>
    <p class="hint code-retry"><span class="spinner tiny"></span>Waiting for the app… this opens by itself once it runs.</p>
-   <p class="code-or">No install needed for <button class="linkish" data-act="code-where" data-w="online">online projects</button>: they live on the AI box and open here.</p></div>`;
+   ${this.admin()?'':'<!--'}<p class="code-or">No install needed for <button class="linkish" data-act="code-where" data-w="online">online projects</button>: they live on the AI box and open here.</p>${this.admin()?'':'-->'}</div>`;
   // Chrome asks before a website may reach apps on this computer; once refused, Code stays locked until it is allowed
   (async()=>{let st='';for(const n of ['local-network-access','loopback-network']){try{st=(await navigator.permissions.query({name:n})).state;break}catch{}}
    const box=el.querySelector('.code-perm');if(!box)return;

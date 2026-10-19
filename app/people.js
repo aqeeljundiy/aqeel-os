@@ -22,6 +22,8 @@ function applyRole(){
  const has=k=>(S.me?.caps||[]).includes(k),editsAny=Object.values(S.me?.agents||{}).some(l=>l!=='chat');
  const pg=(sec,id,extra)=>({...SECTIONS.find(s=>s.id===sec).pages.find(p=>p.id===id),...extra});
  const out=[SECTIONS.find(s=>s.id==='chat')];
+ // Code on their own computer, with the agents shared with them (online projects stay with admins: the AI box has one Linux user)
+ {const c=SECTIONS.find(s=>s.id==='code');if(c)out.push(c)}
  if(has('create')||editsAny)out.push({id:'agents',label:'Agents',icon:'user',pages:[pg('agents','profiles',{desc:'Agents you can use and change.'})]});
  if(has('schedules'))out.push({id:'automations',label:'Automations',icon:'zap',pages:[pg('automations','schedules')]});
  out.push({id:'abilities',label:'Abilities',icon:'puzzle',pages:[...(has('skills')?[pg('abilities','skills')]:[]),...(has('mcp')?[pg('abilities','mcp')]:[]),pg('agents','files',{desc:'Your own folder. Your agents can read what you put here.'})]});
