@@ -426,3 +426,10 @@ document.addEventListener('touchmove',e=>{if(e.touches&&e.touches.length>1)e.pre
 async function signOutAll(){if(!await confirmBox('Sign out everywhere?','Every browser and phone signed in as you is signed out, this one too.','Sign out everywhere'))return;try{await fetch('/auth/logout-all',{method:'POST',headers:{'x-hui':'1'}});location.href='/'}catch(e){fail(e)}}
 
 addEventListener('unhandledrejection',e=>{if(e.reason?.stale)e.preventDefault()});
+/* A new version is ready: after a deploy, an open tab offers Reload instead of quietly running the old version
+   (the build number is in this page's script addresses and in /healthz). Checked every two minutes and on return. */
+{const loaded=(document.querySelector('script[src*="/app/core.js"]')?.src.match(/[?&]v=(\d+)/)||[])[1];let shown=false;
+ const check=async()=>{if(!loaded||shown||document.hidden)return;try{const h=await (await fetch('/healthz',{cache:'no-store'})).json();if(h.build&&String(h.build)!==loaded)show()}catch{}};
+ const show=()=>{shown=true;const n=document.createElement('div');n.className='new-version';n.setAttribute('role','status');n.innerHTML='<span>A new version of '+esc(typeof Brand!=='undefined'?Brand.name:'aqeelOS')+' is ready.</span><button class="primary small" type="button">Reload</button><button class="ghost small" type="button" aria-label="Later">Later</button>';
+  n.querySelector('.primary').onclick=()=>location.reload();n.querySelector('.ghost').onclick=()=>{n.classList.add('out');setTimeout(()=>n.remove(),200)};document.body.append(n)};
+ setInterval(check,120000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)check()});setTimeout(check,15000)}

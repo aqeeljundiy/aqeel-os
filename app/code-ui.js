@@ -12,7 +12,8 @@ const CodeUI={where:(()=>{try{return localStorage.getItem('aq-code-where')||'com
  whereBar(){if(!this.admin())return '';return `<div class="code-where" role="tablist" aria-label="Where projects live">${[['computer','This computer','monitor'],['online','Online','globe']].map(([k,t,i])=>`<button role="tab" aria-selected="${this.where===k}" class="${this.where===k?'on':''}" data-act="code-where" data-w="${k}">${icon(i,14)}${t}</button>`).join('')}</div>`},
  // the left list, under the aqeelOS sections, like the chat list
  sidebar(){const ps=this.st.projects||[],q=this.q.toLowerCase();
-  if(this.state!=='on')return `<div class="side-sub">${this.whereBar()}<p class="hint" style="margin:6px 18px">${this.state==='lock'?'Install aqeelOS Code on this computer to see your projects here.':this.where==='online'?'Opening your online projects…':'Connecting to aqeelOS Code on this computer…'}</p></div>`;
+  if(this.state==='lock')return `<div class="side-sub">${this.whereBar()}<p class="hint" style="margin:6px 18px">Install aqeelOS Code on this computer to see your projects here.</p></div>`;
+  if(this.state!=='on')return `<div class="side-sub">${this.whereBar()}<div class="code-skel" role="status" aria-label="${this.where==='online'?'Opening your online projects':'Connecting to aqeelOS Code'}"><span class="ring"></span><i></i><i></i><i></i></div></div>`;
   const chats=p=>(p.chats||[]).filter(c=>(!q||(c.title+' '+p.name).toLowerCase().includes(q))&&(this.filter!=='Active'||c.busy)&&(this.filter!=='Unread'||c.unread)).sort((a,b)=>(b.updated||0)-(a.updated||0));
   return `<div class="side-sub">${this.whereBar()}<div style="padding:4px 12px 8px"><button style="width:100%" data-act="code-new">${icon('plus',16)}New chat</button></div>
    <div class="side-search">${icon('search',16)}<input id="codeQ" placeholder="Search chats" value="${esc(this.q)}" aria-label="Search chats"></div>
@@ -24,13 +25,14 @@ const CodeUI={where:(()=>{try{return localStorage.getItem('aq-code-where')||'com
  paintSide(){if(route().sec?.id!=='code')return;const s=$('.side .side-sub');const h=this.sidebar();if(s)s.outerHTML=h;const i=$('#codeQ');if(i)i.oninput=e=>{this.q=e.target.value;const pos=e.target.selectionStart;this.paintSide();const n=$('#codeQ');n?.focus();n?.setSelectionRange(pos,pos)}},
  // the page: the app in a frame, or the lock screen
  async page(p,el){const pg=el.closest('.page');pg?.classList.add('page-full');setActions('');clearTimeout(this.timer);
-  el.innerHTML=`<div class="code-host"><div class="code-wait"><span class="spinner"></span><span>Looking for aqeelOS Code on this computer…</span></div>
+  el.innerHTML=`<div class="code-host"><div class="code-wait"><span class="ring"></span><span>${this.where==='online'?'Opening your online projects…':'Looking for aqeelOS Code on this computer…'}</span></div>
    <iframe class="code-frame" title="aqeelOS Code" allow="local-network-access; clipboard-read; clipboard-write; microphone" hidden></iframe></div>`;
   const f=el.querySelector('iframe');this.frame=f;this.state='wait';this.paintSide();
   f.onload=()=>{this.post({aq:'hello'});if(this.where==='online')return;clearTimeout(this.timer);this.timer=setTimeout(()=>{if(this.state!=='on')this.lock(el)},3500)};
   if(!this.admin())this.where='computer';
   if(this.where==='online'){try{const r=await UI('/ui/code/online');this.app=r.origin;f.src=r.url}catch(e){this.app='';el.querySelector('.code-host').innerHTML=`<div class="code-lock card"><h2>Online projects aren’t available</h2><p>${esc(e.message)}</p></div>`;return}
    clearTimeout(this.timer);this.timer=setTimeout(()=>{if(this.state!=='on'&&el.isConnected){el.querySelector('.code-wait span:last-child')&&(el.querySelector('.code-wait span:last-child').textContent='The online copy is slow to answer. It starts by itself; this page retries.');this.timer=setTimeout(()=>this.page(p,el),8000)}},15000);return}
+  if(this.admin()&&!this._warm){this._warm=true;setTimeout(()=>UI('/ui/code/online').then(r=>{const w=document.createElement('iframe');w.hidden=true;w.title='';w.src=r.url;document.body.append(w);setTimeout(()=>w.remove(),20000)}).catch(()=>{}),2500)}
   this.app=CODE_APP;f.src=CODE_APP+'/?embed=aqeelos';this.timer=setTimeout(()=>{if(this.state!=='on')this.lock(el)},9000)},
  // the app answers a ping every 10 s; if it stops (it quit, the computer slept), Code waits for it again
  beat(){clearInterval(this.hb);this.hb=setInterval(()=>{const el=this.frame?.closest('#pg');if(!el?.isConnected||route().sec?.id!=='code'){clearInterval(this.hb);return}
@@ -60,6 +62,7 @@ const CodeUI={where:(()=>{try{return localStorage.getItem('aq-code-where')||'com
   clearTimeout(this.timer);this.timer=setTimeout(()=>{if(route().sec?.id==='code'&&this.state==='lock')this.page(null,el.closest('#pg')||el)},6000)},
  async onMessage(e){if(!this.app||e.origin!==this.app||!e.data?.cba)return;const m=e.data;
   if(m.type==='pong'){this.seen=Date.now();return}
+  if(m.type==='openFiles'&&m.path&&this.where==='online'){if(typeof fAgent==='function')S._fileAgent=fAgent();S.filePath=String(m.path);S._placesOk=null;go('/agents/files');return}
   if(m.type==='hello'){try{if(this.where!=='online')localStorage.setItem('aq-code-seen','1')}catch{}clearTimeout(this.timer);this.state='on';this.seen=Date.now();this.beat();this.st={projects:m.projects||[],project:m.project,chat:m.chat,agent:m.agent||'',agents:m.agents||[],model:m.model||''};setTimeout(()=>typeof paintSide==='function'&&paintSide());
    const f=this.frame;if(f){f.hidden=false;f.closest('.code-host')?.querySelector('.code-wait')?.remove()}
    this.post({aq:'theme',dark:document.documentElement.classList.contains('dark')});if(typeof Brand!=='undefined'&&Brand.custom)this.post({aq:'brand',name:Brand.name});this.post({aq:'lang',lang:(typeof Lang!=='undefined'&&Lang.cur)||'en'});

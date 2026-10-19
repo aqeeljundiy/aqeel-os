@@ -17,13 +17,13 @@ const KIND_LABEL={folder:'Folder',image:'Image',video:'Video',audio:'Audio',pdf:
 // Places follow the selected agent: its own workspace first, and its own memory and skills.
 const fAgent=()=>agentProfile()||'default';const fAgentHome=()=>FILE_HOME+'/.hermes'+(fAgent()==='default'?'':'/profiles/'+fAgent());
 const fWork=()=>S.me&&!S.me.admin?FILE_HOME:FILE_HOME+'/workspaces/'+fAgent();
-const placesFor=()=>!S.me?.admin&&S.me?[['My files',FILE_HOME,'folder']]:[['Workspace',fWork(),'folder'],['Home',FILE_HOME,'folder'],['Projects',FILE_HOME+'/projects','folder'],['Downloads',FILE_HOME+'/Downloads','download'],['Memory',fAgentHome()+'/memories','brain'],['Skills',fAgentHome()+'/skills','sparkle'],['Apps',FILE_HOME+'/apps','layers']];
+const placesFor=()=>!S.me?.admin&&S.me?[['My files',FILE_HOME,'folder','own']]:[['Workspace',fWork(),'folder','agent'],['Memory',fAgentHome()+'/memories','brain','agent'],['Skills',fAgentHome()+'/skills','sparkle','agent'],['Home',FILE_HOME,'folder','box'],['Apps',FILE_HOME+'/apps','layers','box'],['Code projects',FILE_HOME+'/code-projects','folder','box']];
 
 const FV={view:store.get('filesView','grid'),sort:store.get('filesSort','name'),hidden:store.get('filesHidden',false),q:''};
 PAGES.files=async(p,el)=>{
  if(S._fileAgent!==fAgent()){S._fileAgent=fAgent();S.filePath=fWork();S._placesOk=null}
  // quick places that exist (Workspace and Home always); checked once per agent
- if(!S._placesOk){const all=placesFor();S._placesOk=new Set(all.slice(0,2).map(x=>x[1]));UI('/ui/files/exist',{method:'POST',body:{paths:all.map(x=>x[1])}}).then(r=>{for(const x of r.exist||[])S._placesOk.add(x);paintPlaces()}).catch(()=>{S._placesOk=new Set(all.map(x=>x[1]));paintPlaces()})}
+ if(!S._placesOk){const all=placesFor();S._placesOk=new Set([fWork(),FILE_HOME]);UI('/ui/files/exist',{method:'POST',body:{paths:all.map(x=>x[1])}}).then(r=>{for(const x of r.exist||[])S._placesOk.add(x);paintPlaces()}).catch(()=>{S._placesOk=new Set(all.map(x=>x[1]));paintPlaces()})}
  const PLACES=placesFor();const path=S.filePath||fWork();let d;
  try{d=await H('/files'+qp({path}))}catch(e){if(e.stale)throw e;if(path!==FILE_HOME){S.filePath=FILE_HOME;toast('That folder doesn’t exist yet','err');return PAGES.files(p,el)}throw e}
  S.filePath=d.path;Pages._dir=d;
@@ -38,7 +38,7 @@ PAGES.files=async(p,el)=>{
  const tile=(f,i)=>`<div class="ftile ${f.is_directory?'dir':''}" ${st(i)} data-act="f-open" data-i="${i}" tabindex="0" title="${esc(f.name)}"><div class="fthumb">${thumb(f)}</div><div class="fname">${esc(f.name)}</div><div class="fmeta">${f.rel&&f.rel!=='.'?'in '+esc(f.rel)+' · ':''}${f.is_directory?'Folder':bytes(f.size)}${f.mtime?' · '+ago(f.mtime):''}</div><button class="ghost icon fmore" data-menu="file" data-i="${i}" aria-label="More">${icon('more',16)}</button></div>`;
  const row=(f,i)=>`<div class="row clickable frow" ${st(i)} data-act="f-open" data-i="${i}" tabindex="0"><div class="main-c"><span class="fk-sm fk-${kindOf(f)}">${icon(KIND_ICON[kindOf(f)],16)}</span><div class="txt"><b>${esc(f.name)}</b>${f.rel&&f.rel!=='.'?`<small class="frel">in ${esc(f.rel)}</small>`:''}</div></div><div class="act"><span class="fcol">${KIND_LABEL[kindOf(f)]}</span><span class="fcol">${f.is_directory?'—':bytes(f.size)}</span><span class="fcol">${f.mtime?ago(f.mtime):''}</span><button class="ghost icon" data-menu="file" data-i="${i}" aria-label="More">${icon('more',16)}</button></div></div>`;
  el.innerHTML=`<div class="fwrap" id="fwrap">
-  <div class="fplaces">${PLACES.map(([l,pth,ic])=>`<button class="place ${d.path===pth||(pth!==FILE_HOME&&d.path.startsWith(pth+'/'))?'on':''}" data-act="f-cd" data-path="${esc(pth)}" ${S._placesOk.has(pth)?'':'hidden'}>${icon(ic,15)}${l}</button>`).join('')}</div>
+  <div class="fplaces">${PLACES.map(([l,pth,ic,grp],k)=>`${grp==='box'&&PLACES[k-1]?.[3]!=='box'?'<span class="fplaces-sep" title="Every agent sees these folders">The AI box (shared)</span>':''}<button class="place ${d.path===pth||(pth!==FILE_HOME&&d.path.startsWith(pth+'/'))?'on':''}" data-act="f-cd" data-path="${esc(pth)}" ${S._placesOk.has(pth)?'':'hidden'}>${icon(ic,15)}${l}</button>`).join('')}</div>
   <div class="fbar"><div class="fcrumbs">${parts.map((x,i)=>`<button class="ghost" data-act="f-cd" data-path="/${esc(parts.slice(0,i+1).join('/'))}">${esc(x)}</button>${i<parts.length-1?icon('chevR',13):''}`).join('')}</div><span class="grow"></span>
    <div class="search fsearch">${icon('search',15)}<input id="fQ" placeholder="Search this folder and inside it" value="${esc(FV.q)}"></div>
    <select id="fSort" style="width:auto">${[['name','Name'],['modified','Last modified'],['size','Size'],['type','Type']].map(([v,l])=>`<option value="${v}" ${FV.sort===v?'selected':''}>Sort: ${l}</option>`).join('')}</select>

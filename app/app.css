@@ -1371,3 +1371,13 @@ div.skel:not(.loading)::after{content:'';width:26px;height:26px;border-radius:50
 .brand-prev .wordmark{font-size:20px}
 
 .side-foot .avatar.none{background:var(--soft);color:var(--muted)}
+/* a new version is ready */
+.new-version{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:80;display:flex;align-items:center;gap:10px;padding:8px 8px 8px 16px;border-radius:var(--r-pill);background:var(--ink);color:var(--surface);font-size:13.5px;box-shadow:0 18px 40px -16px rgba(15,23,42,.45);animation:toastIn .25s var(--ease) both}
+.new-version.out{animation:toastOut .2s ease forwards}.new-version .ghost{color:inherit;opacity:.75}
+
+/* Code: waiting for the projects (the brand spinner and faint rows) */
+.code-skel{display:grid;gap:10px;padding:14px 18px}.code-skel .ring{margin:4px 0 6px}
+.code-skel i{display:block;height:12px;border-radius:6px;background:var(--soft);opacity:.7;animation:ringIn .3s .2s both}.code-skel i:nth-child(2){width:72%}.code-skel i:nth-child(3){width:58%}.code-skel i:nth-child(4){width:66%}
+.code-wait{flex-direction:column;gap:14px}
+/* Files: the agent's places, then the AI box's shared places */
+.fplaces-sep{display:inline-flex;align-items:center;margin:0 4px 0 10px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);white-space:nowrap}
