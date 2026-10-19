@@ -400,7 +400,7 @@ async function signOut(){try{Prefs.clear()}catch{}await fetch('/auth/logout',{me
    a little staggered, instead of snapping into place. Works for whole pages and for panels that load later. */
 function watchReveal(root){if(!root||root._reveal)return;root._reveal=new MutationObserver(ms=>{for(const m of ms){
  if(![...m.removedNodes].some(n=>n.nodeType===1&&(n.classList?.contains('skel')||n.querySelector?.('.skel'))))continue;
- let i=0;for(const n of m.addedNodes)if(n.nodeType===1&&!/^(SELECT|SCRIPT|STYLE|TEMPLATE)$/.test(n.tagName)&&!n.hidden&&!n.classList.contains('skel')&&!n.classList.contains('sel-native')&&!n.querySelector?.('.skel')){n.classList.remove('reveal');void n.offsetWidth;n.style.setProperty('--ri',i++);n.classList.add('reveal')}}});
+ let i=0;for(const n of m.addedNodes)if(n.nodeType===1&&!/^(SELECT|SCRIPT|STYLE|TEMPLATE)$/.test(n.tagName)&&!n.hidden&&!n.classList.contains('skel')&&!n.classList.contains('sel-native')&&!n.querySelector?.('.skel')){const sg=(n.textContent||'').replace(/s+/g,' ').trim().slice(0,80);root._seen??=new Map();const key=location.hash.split('?')[0];if(root._seenKey!==key){root._seenKey=key;root._seen=new Map()}if(sg&&root._seen.has(sg))continue;if(sg)root._seen.set(sg,1);n.classList.remove('reveal');void n.offsetWidth;n.style.setProperty('--ri',i++);n.classList.add('reveal')}}});
  root._reveal.observe(root,{childList:true,subtree:true})}
 /* "0 3 * * 1" → "Mondays at 03:00": schedules in plain words (falls back to the original text) */
 function cronText(expr){const s=String(expr||'').trim();const f=s.split(/\s+/);if(f.length!==5)return s;const [mi,ho,dom,mon,dow]=f;

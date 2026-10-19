@@ -4,12 +4,14 @@
 (async()=>{const errs=[];window.addEventListener('error',e=>errs.push('script error: '+e.message));
 const pages=['#/chat','#/code/code','#/agents/profiles','#/agents/memory','#/agents/files','#/automations/schedules','#/automations/webhooks','#/automations/n8n','#/channels/channels','#/abilities/skills','#/abilities/mcp','#/abilities/plugins','#/models/models','#/system/people','#/system/usage','#/system/health','#/system/logs','#/system/keys','#/system/settings','#/system/guide'];
 const sl=ms=>new Promise(r=>setTimeout(r,ms));const out=[];let bad=0;
-let settled=Infinity;const flick=[];document.addEventListener('animationstart',e=>{if(performance.now()<settled||typeof Calm==='undefined'||!Calm.entry().has(e.animationName))return;const t=e.target;if(t.closest?.('.menu,.toast,dialog,.drawer,.notice,[data-anim],.aq-menu'))return;
+let settled=Infinity,shown=new Set();const flick=[];const sig=t=>(t.textContent||'').replace(/s+/g,' ').trim().slice(0,80);
+ const snap=()=>{shown=new Set();for(const el of document.querySelectorAll('#view *')){const x=sig(el);if(x.length>3)shown.add(x)}};
+document.addEventListener('animationstart',e=>{if(performance.now()<settled||typeof Calm==='undefined'||!Calm.entry().has(e.animationName))return;const t=e.target;if(t.closest?.('.menu,.toast,dialog,.drawer,.notice,[data-anim],.aq-menu'))return;if(!shown.has(sig(t)))return;
  setTimeout(()=>{if(t.isConnected&&t.getAnimations().some(a=>a.animationName===e.animationName&&a.playState==='running'))flick.push(e.animationName+' on '+(t.id?'#'+t.id:String(t.className||t.tagName).slice(0,40)))},40)},true);
 for(let i=0;i<pages.length;i++){const p=pages[i];
  location.hash=pages[(i+3)%pages.length];await sl(120);location.hash=pages[(i+7)%pages.length];await sl(200);
  if(i%3===0)S.viewAll=!S.viewAll;if(i%4===1)S.viewAgent=S.viewAgent?null:(S._viewList||[])[1]||null;
- location.hash=p;settled=performance.now()+1500;flick.length=0;await sl(4500);settled=Infinity;
+ location.hash=p;flick.length=0;await sl(2500);snap();settled=performance.now();await sl(5500);settled=Infinity;
  if(flick.length){bad++;out.push('✗ '+p+' flickers: '+[...new Set(flick)].slice(0,3).join(', '))}
  const err=[...document.querySelectorAll('#view .state-box.err')].map(x=>x.textContent.trim().slice(0,140));
  const txt=document.querySelector('#view')?.innerText||'';const nul=/\bnull\b|\bundefined\b|NaN|\[object Object\]/.test(txt);
