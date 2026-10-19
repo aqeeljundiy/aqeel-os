@@ -1424,3 +1424,8 @@ div.skel:not(.loading)::after{content:'';width:26px;height:26px;border-radius:50
 .si-other{display:grid;gap:8px;margin-top:12px;animation:lbUp var(--t-med) var(--ease) both}.si-other[hidden]{display:none}
 .si-other label{font-size:13px;font-weight:600}.si-other textarea{min-height:76px}
 .si-other-acts{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.si-other-acts .hint{margin:0;font-size:12px}
+
+/* Usage: one row of controls, all the same height */
+.u-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}.u-bar .tabs{margin:0}
+.u-pick{display:inline-flex;align-items:center;gap:8px;height:40px;min-height:40px;padding:0 14px;border-radius:var(--r-pill);background:var(--soft);border:1px solid var(--border);box-shadow:none;font-size:13.5px;font-weight:600;color:var(--ink);white-space:nowrap;transition:background var(--t-fast) var(--ease),border-color var(--t-fast) var(--ease)}
+.u-pick:hover{background:var(--surface);border-color:var(--ink-3,#c4c8d0);transform:none}.u-pick svg{color:var(--muted)}

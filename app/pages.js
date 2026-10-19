@@ -391,14 +391,15 @@ function mergeUsage(all){const day=new Map(),mod=new Map();const add=(t,s)=>{for
  return {daily:[...day.values()].sort((a,b)=>a.day<b.day?-1:1),by_model:[...mod.values()].sort((a,b)=>(b.estimated_cost||0)-(a.estimated_cost||0))}}
 ACT['usage-pick']=async a=>{const list=await viewAgents();const who=S.usageAgent||'*';
  menu(a,[{header:'Whose usage'},{label:'All agents',icon:'layers',sub:'Every agent added together',on:who==='*',run:()=>{S.usageAgent='*';reload()}},'-',...list.map(n=>({label:ident(n).name,icon:'user',on:n===who,run:()=>{S.usageAgent=n;reload()}}))],{search:list.length>8,matchWidth:true})};
+ACT['currency-pick']=a=>{const c=currency(),admin=S.me?.admin!==false,def=S.defaults?.currency||'USD';
+ menu(a,[{header:'Show costs in'},{label:'US dollars',sub:'$',on:c==='USD',run:()=>setCurrency('USD')},{label:'Rupiah',sub:'Rp, at today’s rate',on:c==='IDR',run:()=>setCurrency('IDR')},...(admin&&c!==def?['-',{label:'Use '+(c==='IDR'?'rupiah':'US dollars')+' for everyone',icon:'user',sub:'For people who haven’t picked one',run:()=>ACT['currency-default']()}]:[])],{matchWidth:false})};
 ACT['currency-default']=async()=>{try{await post(UI,'/ui/defaults',{currency:currency()});S.defaults={...(S.defaults||{}),currency:currency()};toast('Everyone who hasn’t picked a currency now sees '+(currency()==='IDR'?'rupiah':'US dollars'));reload()}catch(e){fail(e)}};
 PAGES.usage=async(p,el)=>{
  const days={'7 days':7,'30 days':30,'90 days':90}[S.tab.usage||'7 days'];
  // dollars or rupiah: the tab sets the person's choice, which every cost in the app follows
- if(S.tab.currency){const c=S.tab.currency.startsWith('Rp')?'IDR':'USD';if(c!==currency()){store.set('currency',c);if(c==='IDR')FX.load()}}
  const list=await viewAgents().catch(()=>[]);const who=S.usageAgent&&(S.usageAgent==='*'||list.includes(S.usageAgent))?S.usageAgent:list.length>1?'*':(S.profile||'default');
  const cur=currency()==='IDR'?'Rp IDR':'$ USD',isDefault=currency()===(S.defaults?.currency||'USD');
- setActions((list.length>1?`<button class="view-pick usage-pick${who==='*'?'':' other'}" data-act="usage-pick" aria-haspopup="menu" title="Whose usage to show">${icon('user',15)}<span>${who==='*'?'All agents':esc(ident(who).name)}</span>${icon('chevD',14)}</button>`:'')+tabs('currency',['$ USD','Rp IDR'],cur)+(S.me?.admin!==false&&!isDefault?'<button class="ghost small" data-act="currency-default" title="Everyone who has not picked a currency sees this one">Use for everyone</button>':'')+tabs('usage',['7 days','30 days','90 days']));placePills();
+ setActions('<div class="u-bar">'+(list.length>1?`<button class="u-pick" data-act="usage-pick" aria-haspopup="menu" title="Whose usage to show">${icon(who==='*'?'layers':'user',15)}<span>${who==='*'?'All agents':esc(ident(who).name)}</span>${icon('chevD',14)}</button>`:'')+`<button class="u-pick" data-act="currency-pick" aria-haspopup="menu" title="Currency for costs"><span>${cur}</span>${icon('chevD',14)}</button>`+tabs('usage',['7 days','30 days','90 days'])+'</div>');placePills();
  const one=a=>H('/analytics/usage?days='+days+'&profile='+encodeURIComponent(a)).catch(()=>({daily:[],by_model:[]}));
  const u=who==='*'?mergeUsage(await Promise.all((list.length?list:['default']).map(one))):await one(who);const daily=u.daily||[];
  const sum=k=>daily.reduce((a,d)=>a+(d[k]||0),0);const inp=sum('input_tokens'),out=sum('output_tokens'),cache=sum('cache_read_tokens'),cost=sum('estimated_cost'),actual=sum('actual_cost'),ses=sum('sessions');
