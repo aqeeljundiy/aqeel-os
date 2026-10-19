@@ -25,7 +25,7 @@ function acceptWs(req,sock,head){const key=req.headers['sec-websocket-key'];if(!
 
 // a zip of the extension folder (stored, no compression), for the Download button
 const CRC=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return b=>{let c=0xFFFFFFFF;for(const x of b)c=t[(c^x)&255]^(c>>>8);return (c^0xFFFFFFFF)>>>0}})();
-async function zipDir(dir,prefix){const files=[];for(const f of await readdir(dir))if((await stat(path.join(dir,f))).isFile())files.push([prefix+'/'+f,await readFile(path.join(dir,f))]);
+async function zipDir(dir,prefix,extra=[]){const files=[];for(const f of await readdir(dir))if((await stat(path.join(dir,f))).isFile())files.push([prefix+'/'+f,await readFile(path.join(dir,f))]);for(const [n,b] of extra)files.push([prefix+'/'+n,Buffer.from(b)]);
  const parts=[],central=[];let off=0;
  for(const [name,data] of files){const nb=Buffer.from(name);const crc=CRC(data);const lh=Buffer.alloc(30);lh.writeUInt32LE(0x04034b50,0);lh.writeUInt16LE(20,4);lh.writeUInt32LE(crc,14);lh.writeUInt32LE(data.length,18);lh.writeUInt32LE(data.length,22);lh.writeUInt16LE(nb.length,26);
   parts.push(lh,nb,data);const ch=Buffer.alloc(46);ch.writeUInt32LE(0x02014b50,0);ch.writeUInt16LE(20,4);ch.writeUInt16LE(20,6);ch.writeUInt32LE(crc,16);ch.writeUInt32LE(data.length,20);ch.writeUInt32LE(data.length,24);ch.writeUInt16LE(nb.length,28);ch.writeUInt32LE(off,42);
@@ -33,7 +33,7 @@ async function zipDir(dir,prefix){const files=[];for(const f of await readdir(di
  const cd=Buffer.concat(central);const end=Buffer.alloc(22);end.writeUInt32LE(0x06054b50,0);end.writeUInt16LE(files.length,8);end.writeUInt16LE(files.length,10);end.writeUInt32LE(cd.length,12);end.writeUInt32LE(off,16);
  return Buffer.concat([...parts,cd,end])}
 
-export function createLocalBrowser({DATA,GATE,API_KEY,EXT_DIR,NAMES={}}){
+export function createLocalBrowser({DATA,GATE,API_KEY,EXT_DIR,NAMES={},PUBLIC_URL='https://ai.elkiya.com'}){
  const FILE=path.join(DATA,'local-browsers.json');let db=null;
  const load=async()=>{if(db)return db;try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.tokens||={};return db};
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1),{mode:0o600});await rename(FILE+'.tmp',FILE)};
@@ -80,7 +80,7 @@ export function createLocalBrowser({DATA,GATE,API_KEY,EXT_DIR,NAMES={}}){
  const linked=session=>lanes.has(session);
  // the chat's name changed (renamed, or titled after its first reply): the tab group follows on the next step
  const retitle=(session,title)=>{const l=lanes.get(session);if(l&&title)l.title=String(title).slice(0,80)};
- const zip=()=>zipDir(EXT_DIR,'aqeelos-browser');
+ const zip=()=>zipDir(EXT_DIR,'aqeelos-browser',[['config.json',JSON.stringify({base:PUBLIC_URL})]]);
  // the extension version in this aqeelOS, and the one the person's browser runs
  const latest=async()=>{try{return JSON.parse(await readFile(path.join(EXT_DIR,'manifest.json'),'utf8')).version}catch{return ''}};
  const version=user=>conns.get(user)?.version||'';

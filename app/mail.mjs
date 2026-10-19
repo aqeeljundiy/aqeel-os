@@ -14,7 +14,7 @@ import path from 'node:path';
 
 export function createMail(DATA){
  const FILE=path.join(DATA,'mail.json');
- const load=async()=>{let c;try{c=JSON.parse(await readFile(FILE,'utf8'))}catch{return {mode:'direct',from:'aqeelOS <no-reply@elkiya.com>',helo:'mail.sprint2go.com'}}
+ const load=async()=>{let c;try{c=JSON.parse(await readFile(FILE,'utf8'))}catch{return {mode:'direct',from:'aqeelOS <no-reply@'+(process.env.MAIL_DOMAIN||'elkiya.com')+'>',helo:process.env.MAIL_HELO||'mail.sprint2go.com'}}
   // saved before the fix: the old sender address (no SPF) and no greeting name meant Gmail refused every mail
   if(c.mode!=='smtp'&&/@ai\.elkiya\.com>?$/.test(c.from||'')){c.from=c.from.replace('@ai.elkiya.com','@elkiya.com');c.helo=c.helo||'mail.sprint2go.com'}
   if(c.mode!=='smtp'&&!c.helo)c.helo='mail.sprint2go.com';return c};

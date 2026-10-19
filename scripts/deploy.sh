@@ -5,6 +5,8 @@ set -e
 cd "$(dirname "$0")/.."
 node scripts/check-globals.mjs
 for f in app/*.js app/*.mjs; do node --check "$f" || { echo "✗ $f does not parse"; exit 1; }; done
+# the new version must pass the checks on the private test copy first (about 5 minutes; SKIP_CHECKS=1 skips them)
+[ "${SKIP_CHECKS:-0}" = 1 ] || bash scripts/predeploy.sh
 # 1) Never cut off work in progress (a reply, an agent being set up, a settings change, an engine restart):
 #    wait until the box is idle. After 10 minutes the deploy is cancelled, with nothing changed on the box
 #    (FORCE=1 bash scripts/deploy.sh deploys anyway).

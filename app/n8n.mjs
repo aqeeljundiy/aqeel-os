@@ -7,9 +7,9 @@ import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import {randomBytes,randomUUID} from 'node:crypto';
 import path from 'node:path';
 
-export function createN8n({DATA,setKey,restart,names}){
+export function createN8n({BASE='https://n8n.elkiya.com',DATA,setKey,restart,names}){
  const FILE=path.join(DATA,'n8n.json');let db=null;
- const load=async()=>{if(db)return db;try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.base||='https://n8n.elkiya.com';db.users||={};return db};
+ const load=async()=>{if(db)return db;try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.base||=BASE;db.users||={};return db};
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE,JSON.stringify(db,null,1),{mode:0o600})};
  const SERVER_BID='aqeelos-'+randomUUID();     // the browser id aqeelOS itself uses when it talks to n8n
  // one REST call; cookie and browser id go along, a new sign-in cookie comes back
@@ -19,7 +19,14 @@ export function createN8n({DATA,setKey,restart,names}){
   if(!r.ok)throw new Error((j?.message||('n8n answered '+r.status)).replace(/Do you have caps lock on\?/,'').trim());return {data:j?.data??j,set}}
  const cookieOf=set=>set.map(c=>c.split(';')[0]).filter(c=>/^n8n-auth=/.test(c)).join('; ');
  async function login(email,password,bid=SERVER_BID){const r=await rest('/rest/login',{method:'POST',body:{emailOrLdapLoginId:email,password},bid});const c=cookieOf(r.set);if(!c)throw new Error('n8n did not sign in.');return {cookie:c,set:r.set,user:r.data}}
- const ready=async()=>{await load();return !!(db.ownerEmail&&db.ownerPassword)};
+ // aqeelOS owns n8n: on a fresh n8n (no owner yet) it makes the owner account itself, so nobody types an n8n login
+ let setupTried=0;
+ async function autoSetup(){if(Date.now()-setupTried<60000)return false;setupTried=Date.now();
+  let s;try{s=(await rest('/rest/settings')).data}catch{return false}if(!s?.userManagement?.showSetupOnFirstLoad)return false;
+  const email='aqeelos@agents.'+new URL(db.base).hostname.split('.').slice(-2).join('.'),password='Aq'+randomBytes(18).toString('base64url')+'9';
+  await rest('/rest/owner/setup',{method:'POST',body:{email,firstName:'aqeelOS',lastName:'Owner',password}});
+  db.ownerEmail=email;db.ownerPassword=password;db.ownedByAqeelos=true;await save();console.log('n8n: aqeelOS set itself up as the owner ('+email+')');return true}
+ const ready=async()=>{await load();return !!(db.ownerEmail&&db.ownerPassword)||await autoSetup().catch(()=>false)};
  async function setOwner(email,password){await load();await login(email,password);db.ownerEmail=email;db.ownerPassword=password;await save();return true}
  async function owner(){if(!await ready())throw new Error('Connect aqeelOS to n8n first: Automations › n8n asks for the n8n owner login once.');return login(db.ownerEmail,db.ownerPassword)}
 
@@ -49,7 +56,8 @@ const t=new URLSearchParams(location.search).get('t')||'';const go=new URLSearch
 try{const r=await fetch('/aqeelos-login/go',{method:'POST',headers:{'content-type':'application/json'},credentials:'include',body:JSON.stringify({t,b})});const j=await r.json();if(!r.ok)throw new Error(j.error||'n8n could not open');location.replace(go.startsWith('/')?go:'/home/workflows')}
 catch(e){document.getElementById('m').textContent=e.message+'. Close this and open n8n again from aqeelOS.'}})()</script>`;
  async function go(t,bid){const k=tickets.get(String(t||''));if(!k||Date.now()-k.at>60000)throw new Error('This link has expired');tickets.delete(t);
-  await ensure(k.agent);const u=db.users[k.agent];const s=await login(u.email,u.password,String(bid||'').slice(0,100));
+  // an admin opening n8n as its owner (to see every agent's workflows), or an agent's own n8n
+  const u=k.agent==='__owner'?{email:db.ownerEmail,password:db.ownerPassword}:(await ensure(k.agent),db.users[k.agent]);const s=await login(u.email,u.password,String(bid||'').slice(0,100));
   // n8n's own cookie, for n8n's own address (this page is served there)
   return s.set.filter(c=>/^n8n-auth=/.test(c)).map(c=>c.replace(/;\s*domain=[^;]*/i,''))}
  const status=async agent=>{await load();return {ready:await ready(),base:db.base,user:db.users[agent]?{email:db.users[agent].email}:null}};
