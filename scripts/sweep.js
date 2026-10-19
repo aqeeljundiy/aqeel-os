@@ -14,7 +14,7 @@ for(let i=0;i<pages.length;i++){const p=pages[i];
  location.hash=p;flick.length=0;await sl(2500);snap();settled=performance.now();await sl(5500);settled=Infinity;
  if(flick.length){bad++;out.push('✗ '+p+' flickers: '+[...new Set(flick)].slice(0,3).join(', '))}
  const err=[...document.querySelectorAll('#view .state-box.err')].map(x=>x.textContent.trim().slice(0,140));
- const txt=document.querySelector('#view')?.innerText||'';const nul=/\bnull\b|\bundefined\b|NaN|\[object Object\]/.test(txt);
+ const txt=(()=>{const v=document.querySelector('#view');if(!v)return '';const c=v.cloneNode(true);c.querySelectorAll('.log,pre,code,#logBox').forEach(e=>e.remove());return c.textContent||''})();   // logs and code are shown as they areconst nul=/\bnull\b|\bundefined\b|NaN|\[object Object\]/.test(txt);
  if(err.length||nul){bad++;out.push('✗ '+p+' '+(err.join(' / ')||'shows null/undefined text'))}}
 if(errs.length){bad+=errs.length;out.push(...[...new Set(errs)].map(e=>'✗ '+e))}
 return JSON.stringify({out,bad})})()
