@@ -204,7 +204,13 @@ ACT['ppl-models']=async a=>{const u=(Pages._ppl?.users||[]).find(x=>x.id===a.dat
  const ags=Object.entries(d.byAgent||{}).sort((a,b)=>(b[1].input+b[1].output)-(a[1].input+a[1].output)).map(([a,o])=>[a,o,`<span class="uname">${agentAva(a)}${esc(ident(a).name)}</span>`]);
  const mds=Object.entries(d.byModel||{}).sort((a,b)=>(b[1].input+b[1].output)-(a[1].input+a[1].output)).map(([m,o])=>[m,o,`<span class="uname">${esc(modelLabel(m))}</span>`]);
  const box=document.createElement('div');box.innerHTML=(d.today?`<div class="panel card" style="margin-top:16px"><h2>You today</h2><p class="sub" style="margin:0">${num(d.today.tokens)} tokens in ${num(d.today.messages)} messages${d.people?.[S.me?.id]?.limit?` of your ${num(d.people[S.me.id].limit.tokens)} a day`:''}.</p></div>`:'')
-  +table('By person',ppl,'Person')+table('By agent',ags,'Agent');el.append(box)}}
+  +table('By person',ppl,'Person')+table('By agent',ags,'Agent');el.append(box);
+ // Code runs (desktop app and online), by person, agent and project
+ let c;try{c=await UI('/ui/code/usage?days='+days)}catch{return}const ctab=(title,rows,label)=>rows.length?`<div class="panel card" style="margin-top:16px"><h2>${title}</h2><div class="utable ucode"><div class="uh"><span>${label}</span><span>Runs</span><span>Tokens</span><span>Cache</span></div>${rows.map(([k,o,head])=>`<div class="ur">${head}<span>${num(o.runs)}</span><span>${tok(o)}</span><span>${num(o.cache)}</span></div>`).join('')}</div></div>`:'';
+ const srt=o=>Object.entries(o||{}).sort((a,b)=>(b[1].input+b[1].output)-(a[1].input+a[1].output));
+ const cp=srt(c.byPerson).map(([id,o])=>{const x=c.people?.[id]||{name:id};return [id,o,`<span class="uname">${personAva({name:x.name,avatar:x.avatar},24)}${esc(id===S.me?.id?'You':x.name)}</span>`]});
+ const ca=srt(c.byAgent).map(([a,o])=>[a,o,`<span class="uname">${a==='(no agent)'?esc('No agent'):agentAva(a)+esc(ident(a).name)}</span>`]);const cj=srt(c.byProject).map(([n,o])=>[n,o,`<span class="uname">${icon('folder',16)}${esc(n)}</span>`]);
+ if(cp.length||ca.length||cj.length){const cb=document.createElement('div');cb.innerHTML=`<h2 class="ach-cat" style="margin-top:26px">Code</h2>`+ctab('Code by person',cp,'Person')+ctab('Code by agent',ca,'Agent')+ctab('Code by project',cj,'Project');el.append(cb)}}}
 
 /* ---------- MCP: run the same server more than once (e.g. three AdsPower setups), each with its own name and settings ---------- */
 ACT['mcp-dup']=a=>{const m=(Pages._mcp||[]).find(x=>x.name===a.dataset.name);if(!m)return;

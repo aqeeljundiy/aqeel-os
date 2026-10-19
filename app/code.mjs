@@ -69,4 +69,11 @@ export function createCode({DATA,SRC,PUBLIC_URL,ROOT}){
  function browse(uids,payload,ms=150000){const c=computerOf(uids);if(!c)return Promise.reject(Error('No computer of yours has aqeelOS Code running right now.'));const e=live.get(c.key);
   const j={id:String(++seq)+'-'+Date.now().toString(36),dev:c.key,job:null};j.job={id:j.id,kind:'browser',...payload};
   const result=new Promise(res=>{j.resolve=res;setTimeout(()=>{if(jobs.has(j.id)){jobs.delete(j.id);res({state:'failed',text:'The computer did not answer in time.'})}},ms)});jobs.set(j.id,j);if(e.wake)e.wake(j.job);else e.queue.push(j.job);return result}
- return {computerOf,browse,usedToday,addUsage,pair,who,devices,unpair,version,update,download,poll,done,projectsFor,work}}
+ // every Code run, reported by the app after it finishes: who started it, for which agent, in which project, and its tokens
+ const RUNS=path.join(DATA,'code-runs.jsonl');
+ async function addRun(dev,r){const line={time:Date.now(),user:dev.user,device:dev.name,agent:String(r.agent||''),project:String(r.projectName||r.projectId||'').slice(0,80),provider:String(r.provider||''),model:String(r.model||''),input:Math.max(0,+r.input||0),output:Math.max(0,+r.output||0),cache:Math.max(0,+r.cachedInput||0),state:String(r.state||'')};
+  await mkdir(DATA,{recursive:true});await writeFile(RUNS,JSON.stringify(line)+'\n',{flag:'a'});await addUsage(dev.user,line.input+line.output)}
+ async function runs(days,uid){const since=Date.now()-days*86400e3;const out={byPerson:{},byAgent:{},byProject:{}};let text='';try{text=await readFile(RUNS,'utf8')}catch{}
+  for(const l of text.split('\n')){if(!l)continue;let r;try{r=JSON.parse(l)}catch{continue}if(r.time<since||(uid&&r.user!==uid))continue;
+   for(const [m,k] of [['byPerson',r.user],['byAgent',r.agent||'(no agent)'],['byProject',r.project||'(unnamed)']]){const o=out[m][k]??={runs:0,input:0,output:0,cache:0};o.runs++;o.input+=r.input;o.output+=r.output;o.cache+=r.cache}}return out}
+ return {addRun,runs,computerOf,browse,usedToday,addUsage,pair,who,devices,unpair,version,update,download,poll,done,projectsFor,work}}
