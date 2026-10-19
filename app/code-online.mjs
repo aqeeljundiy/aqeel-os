@@ -18,10 +18,12 @@ export function createCodeOnline({SECRET,SECURE,users,HOST='code.elkiya.com',PRE
  const scheme=SECURE?'https://':'http://';
  const hostOf=req=>String(req.headers['x-forwarded-host']||req.headers.host||'').split(',')[0].trim().split(':')[0].toLowerCase();
  const which=req=>{const h=hostOf(req);return h===HOST?'app':h===PREVIEW_HOST?'preview':null};
- // who may open it: admins while Code is being finished
- const allowed=uid=>{const U=users();const u=uid&&U.byId(uid);return u&&U.isAdmin(u)?u:null};
+ // who may open it: everyone signed in to aqeelOS; Code itself shows each person only their own projects and the ones
+ // shared with them
+ const allowed=uid=>{const U=users();return (uid&&U.byId(uid))||null};
+ const roleOf=u=>users().isAdmin(u)?'admin':'member';
  const page=(res,code,title,text)=>{res.writeHead(code,{'content-type':'text/html; charset=utf-8','cache-control':'no-store'});res.end(`<!doctype html><meta name=viewport content="width=device-width,initial-scale=1"><title>${title}</title><body style="font-family:'Plus Jakarta Sans',system-ui,sans-serif;display:grid;place-items:center;min-height:90vh;color:#0b0c10"><div style="max-width:420px;text-align:center"><h1 style="font-size:20px">${title}</h1><p style="color:#646875">${text}</p><p><a href="${HOME}/#/code/code" target="_top" style="color:#0158cb">Open Code in aqeelOS</a></p></div>`)};
- function pass(req,res,target){const [host,port]=target.split(':');const h={...req.headers};delete h.cookie;h.host=target;
+ function pass(req,res,target,who){const [host,port]=target.split(':');const h={...req.headers};delete h.cookie;delete h['x-aq-user'];delete h['x-aq-role'];h.host=target;h['x-aq-user']=who.id;h['x-aq-role']=roleOf(who);
   if(h.origin)h.origin='http://'+target;if(h.referer)h.referer=h.referer.replace(/^https?:\/\/[^/]+/,'http://'+target);
   delete h['x-forwarded-host'];delete h['x-forwarded-for'];delete h['x-real-ip'];
   const up=httpRequest({host,port:Number(port),method:req.method,path:req.url,headers:h},r=>{const out={...r.headers};
@@ -38,8 +40,13 @@ export function createCodeOnline({SECRET,SECURE,users,HOST='code.elkiya.com',PRE
    if(w==='app'){const to=url.searchParams.get('to')||'/?embed=aqeelos';const back=scheme+HOST+(to.startsWith('/')&&!to.startsWith('//')?to:'/');
     res.writeHead(303,{location:scheme+PREVIEW_HOST+'/aqeelos-login?t='+encodeURIComponent(ticket(uid))+'&back='+encodeURIComponent(back),'set-cookie':'aqc='+cookie(uid)+attrs,'cache-control':'no-store','referrer-policy':'no-referrer'});return res.end(),true}
    const back=url.searchParams.get('back')||'';res.writeHead(303,{location:back.startsWith(scheme+HOST+'/')?back:scheme+HOST+'/','set-cookie':'aqc='+cookie(uid)+attrs,'cache-control':'no-store','referrer-policy':'no-referrer'});return res.end(),true}
-  if(!allowed(readCookie(req))){if(w==='preview'&&req.method==='GET'){page(res,401,'Sign in to see this preview','Previews of online projects open from Code in aqeelOS.');return true}
+  const who=allowed(readCookie(req));if(!who){if(w==='preview'&&req.method==='GET'){page(res,401,'Sign in to see this preview','Previews of online projects open from Code in aqeelOS.');return true}
    if(req.method==='GET'&&!url.pathname.startsWith('/api/')){page(res,401,'Open Code from aqeelOS','Online projects are behind your aqeelOS sign-in.');return true}
    res.writeHead(401,{'content-type':'application/json'});res.end(JSON.stringify({error:'Open Code from aqeelOS first.'}));return true}
-  pass(req,res,w==='app'?APP:PREVIEW);return true}
- return {handle,ticket,url:(uid,to)=>scheme+HOST+'/aqeelos-login?t='+encodeURIComponent(ticket(uid))+(to?'&to='+encodeURIComponent(to):'')}}
+  pass(req,res,w==='app'?APP:PREVIEW,who);return true}
+ // when online Code runs in its own container (CODE_GATE_SECRET set), its gate checks the sign-in: the ticket carries the
+ // person and their role, signed with the secret only aqeelOS and that gate know
+ const GATE=process.env.CODE_GATE_SECRET||'';
+ const gateTicket=(uid,role)=>{const exp=Date.now()+120000;return [uid,role,exp,createHmac('sha256',GATE).update('code-ticket:'+uid+'.'+role+'.'+exp).digest('base64url').slice(0,32)].join('.')};
+ const urlFor=(uid,to)=>{const u=users().byId(uid);const t=GATE?gateTicket(uid,u?roleOf(u):'member'):ticket(uid);return scheme+HOST+'/aqeelos-login?t='+encodeURIComponent(t)+(to?'&to='+encodeURIComponent(to):'')};
+ return {handle:(req,res)=>GATE?false:handle(req,res),ticket,url:urlFor,remote:()=>Boolean(GATE)}}
