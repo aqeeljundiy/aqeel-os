@@ -55,7 +55,7 @@ export function createCode({DATA,SRC,PUBLIC_URL,ROOT}){
  async function update(){const v=await version();const files=await walk(SRC);files.push(['aqeelos.json',Buffer.from(JSON.stringify({aqeelos:{base:PUBLIC_URL,origins:[PUBLIC_URL],version:v}},null,1))]);return {version:v,zip:zip(files.map(f=>[f[0],f[1],/\.(command|sh)$/.test(f[0])]))}}
  // the download for one kind of computer
  async function download(os){const files=(await walk(SRC)).map(([n,b])=>['aqeelOS Code/'+n,b]);
-  const cfg=JSON.stringify({aqeelos:{base:PUBLIC_URL,origins:[PUBLIC_URL],version:await version()}},null,1);files.push(['aqeelOS Code/aqeelos.json',Buffer.from(cfg)]);
+  const cfg=JSON.stringify({aqeelos:{base:PUBLIC_URL,origins:[PUBLIC_URL],version:await version(),brand:globalThis.AQ_BRAND||'aqeelOS'}},null,1);files.push(['aqeelOS Code/aqeelos.json',Buffer.from(cfg)]);
   const tpl=f=>readFile(path.join(ROOT,'code-installer',f));
   if(os==='windows'){files.push(['aqeelOS Code/Install aqeelOS Code.cmd',await tpl('install.cmd')],['aqeelOS Code/install.ps1',await tpl('install.ps1')],['aqeelOS Code/uninstall.ps1',await tpl('uninstall.ps1')])}
   else files.push(['aqeelOS Code/Install aqeelOS Code.command',await tpl('install.command'),true],['aqeelOS Code/Uninstall aqeelOS Code.command',await tpl('uninstall.command'),true]);
@@ -64,4 +64,9 @@ export function createCode({DATA,SRC,PUBLIC_URL,ROOT}){
  const uload=async()=>{if(!ub){try{ub=JSON.parse(await readFile(UFILE,'utf8'))}catch{ub={}}}if(ub.day!==day())ub={day:day(),u:{}};return ub};
  async function usedToday(uid){await uload();return ub.u[uid]||0}
  async function addUsage(uid,tokens){await uload();ub.u[uid]=(ub.u[uid]||0)+Math.max(0,Number(tokens)||0);await writeFile(UFILE,JSON.stringify(ub)).catch(()=>{})}
- return {usedToday,addUsage,pair,who,devices,unpair,version,update,download,poll,done,projectsFor,work}}
+ // the guarded browser on a person's own computer: the most recently connected computer of these people (never the AI box's copy)
+ function computerOf(uids){let best=null;for(const [k,e] of live)if(uids.includes(e.user)&&Date.now()-e.seen<120000&&!/AI box/.test(e.name||'')&&(!best||e.seen>best[1].seen))best=[k,e];return best?{key:best[0],name:best[1].name}:null}
+ function browse(uids,payload,ms=150000){const c=computerOf(uids);if(!c)return Promise.reject(Error('No computer of yours has aqeelOS Code running right now.'));const e=live.get(c.key);
+  const j={id:String(++seq)+'-'+Date.now().toString(36),dev:c.key,job:null};j.job={id:j.id,kind:'browser',...payload};
+  const result=new Promise(res=>{j.resolve=res;setTimeout(()=>{if(jobs.has(j.id)){jobs.delete(j.id);res({state:'failed',text:'The computer did not answer in time.'})}},ms)});jobs.set(j.id,j);if(e.wake)e.wake(j.job);else e.queue.push(j.job);return result}
+ return {computerOf,browse,usedToday,addUsage,pair,who,devices,unpair,version,update,download,poll,done,projectsFor,work}}

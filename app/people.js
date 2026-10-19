@@ -35,7 +35,7 @@ function applyRole(){
 /* ---------- invite link: /#invite/<code> ---------- */
 async function inviteView(root,code){
  let info=null;try{const r=await fetch('/auth/invite?code='+encodeURIComponent(code));if(r.ok)info=await r.json()}catch{}
- root.innerHTML=`<div class="signin"><form class="card" id="inv"><span class="wordmark"><img class="mark" src="/assets/elkiya-mark.svg" alt="">aqeelOS</span>
+ root.innerHTML=`<div class="signin"><form class="card" id="inv"><span class="wordmark"><img class="mark" src="${Brand.mark()}" alt="">${esc(Brand.name)}</span>
   ${info?`<h1>You're invited</h1><p>Pick a password to start using aqeelOS.</p><label for="ivN">Your name</label><input id="ivN" autocomplete="name" value="${esc(info.name||'')}" placeholder="Sarah"><label for="ivU">Username</label><input id="ivU" autocomplete="username" autocapitalize="none" spellcheck="false" value="${esc(info.username||'')}" placeholder="sarah"><p class="hint" style="margin:4px 0 0">You sign in with this. Letters, numbers, dots or dashes.</p>
   <label for="ivP">Password</label><input id="ivP" type="password" autocomplete="new-password" placeholder="At least 8 characters"><p class="err" id="err" role="alert"></p><button class="primary" type="submit">Join aqeelOS</button>`
   :`<h1>This link doesn't work</h1><p>It has expired or was already used. Ask for a new invite.</p><a class="btn" href="/#signin" style="margin-top:12px">Go to sign in</a>`}</form></div>`;

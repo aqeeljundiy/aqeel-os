@@ -25,7 +25,7 @@ function acceptWs(req,sock,head){const key=req.headers['sec-websocket-key'];if(!
 
 // a zip of the extension folder (stored, no compression), for the Download button
 const CRC=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return b=>{let c=0xFFFFFFFF;for(const x of b)c=t[(c^x)&255]^(c>>>8);return (c^0xFFFFFFFF)>>>0}})();
-async function zipDir(dir,prefix,extra=[]){const files=[];for(const f of await readdir(dir))if((await stat(path.join(dir,f))).isFile())files.push([prefix+'/'+f,await readFile(path.join(dir,f))]);for(const [n,b] of extra)files.push([prefix+'/'+n,Buffer.from(b)]);
+async function zipDir(dir,prefix,extra=[]){const files=[];const bn=globalThis.AQ_BRAND;const rename=bn&&bn!=='aqeelOS';for(const f of await readdir(dir))if((await stat(path.join(dir,f))).isFile()){let b=await readFile(path.join(dir,f));if(rename&&/\.(json|html|js)$/.test(f))b=Buffer.from(b.toString('utf8').replace(/aqeelOS/g,bn));files.push([prefix+'/'+f,b])}for(const [n,b] of extra){const i=files.findIndex(x=>x[0]===prefix+'/'+n);if(i>=0)files.splice(i,1);files.push([prefix+'/'+n,Buffer.from(b)])}
  const parts=[],central=[];let off=0;
  for(const [name,data] of files){const nb=Buffer.from(name);const crc=CRC(data);const lh=Buffer.alloc(30);lh.writeUInt32LE(0x04034b50,0);lh.writeUInt16LE(20,4);lh.writeUInt32LE(crc,14);lh.writeUInt32LE(data.length,18);lh.writeUInt32LE(data.length,22);lh.writeUInt16LE(nb.length,26);
   parts.push(lh,nb,data);const ch=Buffer.alloc(46);ch.writeUInt32LE(0x02014b50,0);ch.writeUInt16LE(20,4);ch.writeUInt16LE(20,6);ch.writeUInt32LE(crc,16);ch.writeUInt32LE(data.length,20);ch.writeUInt32LE(data.length,24);ch.writeUInt16LE(nb.length,28);ch.writeUInt32LE(off,42);

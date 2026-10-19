@@ -1359,3 +1359,13 @@ div.skel:not(.loading)::after{content:'';width:26px;height:26px;border-radius:50
 /* Files: where a search result lives, and the search box while it looks */
 .frel{display:block;font-size:12px;color:var(--muted);font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fsearch.busy::after{content:'';width:14px;height:14px;margin-left:6px;border-radius:50%;flex:none;background:conic-gradient(from .2turn,rgba(1,88,203,0) 0turn,var(--blue) .8turn,transparent .8turn);-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 2.5px),#000 calc(100% - 2px));mask:radial-gradient(farthest-side,transparent calc(100% - 2.5px),#000 calc(100% - 2px));animation:spin .9s linear infinite}
+
+/* branding: any logo is shown in black and white */
+.wordmark img.mark{filter:grayscale(1) contrast(1.05)}
+.dark .wordmark img.mark{filter:grayscale(1) invert(1)}
+
+/* System › Branding */
+.brand-page h2{font-size:16px;margin:0 0 4px}.brand-page .sub{margin:0 0 10px}
+.brand-prev{display:grid;grid-template-columns:1fr 1fr;gap:10px}.brand-prev .bp{border:1px solid var(--border);border-radius:14px;padding:22px;display:grid;place-items:center}
+.brand-prev .bp.light{background:#fff}.brand-prev .bp.dark{background:#111}.brand-prev .bp.light .wordmark{color:#0b0c10}.brand-prev .bp.dark .wordmark{color:#fff}.brand-prev .bp.light img.mark{filter:grayscale(1)!important}.brand-prev .bp.dark img.mark{filter:grayscale(1) invert(1)!important}
+.brand-prev .wordmark{font-size:20px}

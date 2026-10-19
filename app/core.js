@@ -207,6 +207,7 @@ const SECTIONS=[
   {id:'logs',label:'Logs',icon:'list',desc:'What aqeelOS wrote while working.'},
   {id:'keys',label:'Keys and secrets',icon:'key',desc:'API keys, tokens and passwords, stored on the box and never shown in full.'},
   {id:'settings',label:'Settings',icon:'sliders',desc:'Every aqeelOS setting, grouped and searchable.'},
+  {id:'branding',label:'Branding',icon:'sparkle',desc:'The name and logo of this install. The font and the black-and-white look stay the same.'},
   {id:'guide',label:'Guide',icon:'list',desc:'How aqeelOS works, in a few minutes.'}]},
 ];
 
@@ -260,7 +261,7 @@ function sidebar(r){
  else if(sec.id==='code'&&typeof CodeUI!=='undefined')sub=CodeUI.sidebar(r);
  else sub=`<div class="side-sub"><div class="side-sub-head"><span class="th">${sec.label}</span></div><div class="side-list">${sec.pages.map(p=>`<button class="item ${r.page.id===p.id?'on':''}" data-go="/${sec.id}/${p.id}">${icon(p.icon,16)}<span class="t">${p.label}</span></button>`).join('')}</div></div>`;
  const st=S.status;const gw=st?(st.gateway_running?'Online':'Offline'):'Connecting…';
- return `<div class="resizer side-rz" data-drag="side" title="Drag to resize · double-click to reset"></div><div class="side-top"><span class="wordmark"><img class="mark" src="/assets/elkiya-mark.svg" alt=""><span>aqeelOS</span></span><button class="ghost icon collapse-btn" data-act="collapse" title="Collapse sidebar (${MOD}+B)" aria-label="Collapse sidebar">${icon('panel',18)}</button></div>
+ return `<div class="resizer side-rz" data-drag="side" title="Drag to resize · double-click to reset"></div><div class="side-top"><span class="wordmark"><img class="mark" src="${Brand.mark()}" alt=""><span>${esc(Brand.name)}</span></span><button class="ghost icon collapse-btn" data-act="collapse" title="Collapse sidebar (${MOD}+B)" aria-label="Collapse sidebar">${icon('panel',18)}</button></div>
  <nav class="sections">${S.collapsed?`<button class="sec" data-act="collapse" title="Expand sidebar (${MOD}+B)">${icon('panel',19)}</button>`:''}${sections}</nav>${sub}
  <div class="side-foot"><button class="status-btn" data-menu="profile" aria-label="Account and status"><span class="avatar">${ident().avatar?`<img src="${esc(ident().avatar)}" alt="">`:esc(AGENT()[0].toUpperCase())}</span><span class="who"><b>${esc(AGENT())}</b><span><i class="dot" style="color:${st&&!st.gateway_running?'var(--bad)':'var(--ok)'}"></i>${gw} · ${esc(modelLabel(S.model))}</span></span>${icon('chevD',16)}</button></div>`;
 }
@@ -384,7 +385,7 @@ async function restartGateway(){try{const r=await post(UI,'/ui/gateway/restart')
 async function refreshStatus(){try{S.status=await H('/status');if(S.me?.admin!==false)S.box=await UI('/ui/box').catch(()=>S.box);const r=route();if(!r.signin&&$('.side'))paintSide(r),paintBanner()}catch{}}
 
 /* ---------- sign-in ---------- */
-function signinHtml(){return `<div class="signin"><form class="card" id="signin"><span class="wordmark"><img class="mark" src="/assets/elkiya-mark.svg" alt="">aqeelOS</span><h1>Welcome back</h1><p>Sign in to aqeelOS.</p><label for="nm">Username</label><input id="nm" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="aqeel"><label for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" placeholder="Your password"><p class="err" id="err" role="alert"></p><button class="primary" type="submit">Sign in</button><p class="foot">${icon('lock',13)} Private · ${esc(location.host)}</p></form></div>`}
+function signinHtml(){return `<div class="signin"><form class="card" id="signin"><span class="wordmark"><img class="mark" src="${Brand.mark()}" alt="">${esc(Brand.name)}</span><h1>Welcome back</h1><p>Sign in to aqeelOS.</p><label for="nm">Username</label><input id="nm" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="aqeel"><label for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" placeholder="Your password"><p class="err" id="err" role="alert"></p><button class="primary" type="submit">Sign in</button><p class="foot">${icon('lock',13)} Private · ${esc(location.host)}</p></form></div>`}
 function bindSignin(){const f=$('#signin');$('#nm').focus();f.onsubmit=async e=>{e.preventDefault();const pw=$('#pw').value;const err=$('#err');const shake=()=>{f.classList.remove('shake');void f.offsetWidth;f.classList.add('shake')};if(!pw){err.textContent='Enter your password.';return shake()}
  const b=f.querySelector('button');b.disabled=true;try{const r=await fetch('/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:$('#nm').value.trim(),password:pw})});const d=await r.json().catch(()=>({}));if(!r.ok){err.textContent=d.error||'Sign-in failed.';shake();return}if(d.needCode){codeStep(f,d);return}S.signedIn=true;if(location.hash==='#/signin')location.hash='#/chat';await boot()}finally{b.disabled=false}}}
 // Two-step sign-in: the password was right, now the code from their email.

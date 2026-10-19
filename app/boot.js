@@ -82,6 +82,7 @@ addEventListener('resize',placePills);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&S.signedIn){refreshStatus();Chat.loadSessions()}});
 
 async function boot(){
+ await Brand.load();
  try{const r=await fetch('/auth/me');S.signedIn=r.ok}catch{S.signedIn=false}
  if(!S.signedIn)return render();
  await loadMe();

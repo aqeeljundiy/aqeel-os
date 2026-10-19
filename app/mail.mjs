@@ -40,7 +40,7 @@ export function createMail(DATA){
   }catch(e){clearTimeout(timer);fail(e)}})();
  })}
 
- function message(from,to,subject,text){const id='<'+randomBytes(12).toString('hex')+'@'+(addr(from).split('@')[1]||'aqeelos')+'>';
+ function message(from,to,subject,text){const bn=globalThis.AQ_BRAND;if(bn&&bn!=='aqeelOS'){const re=/aqeelOS/g;from=String(from).replace(re,bn);subject=String(subject).replace(re,bn);text=String(text).replace(re,bn)}const id='<'+randomBytes(12).toString('hex')+'@'+(addr(from).split('@')[1]||'aqeelos')+'>';
   return [`From: ${from}`,`To: <${to}>`,`Subject: ${subject}`,`Date: ${new Date().toUTCString()}`,`Message-ID: ${id}`,'MIME-Version: 1.0','Content-Type: text/plain; charset=utf-8','Content-Transfer-Encoding: 8bit','',text].join('\r\n')}
 
  // data=null only checks that the server would take the message (no mail is sent)
