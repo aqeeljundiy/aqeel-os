@@ -13,7 +13,9 @@ const KEY_SECRET=/(KEY|TOKEN|SECRET|PASSWORD|PASS)$/;
 const h8=s=>createHash('sha256').update(String(s)).digest('hex').slice(0,8);
 const readJson=async f=>{try{return JSON.parse(await readFile(f,'utf8'))}catch{return null}};
 
-export function createAccess({HERMES_HOME,DATA,listAgents,readConfig,setKey,hermes,editEnv,names,writeJson,restart,dash}){
+// own: connections where every agent has its own account instead of a shared sign-in (n8n): turning one on makes
+// that agent's own account, and there is no owner agent to pick (the label says who owns the service itself)
+export function createAccess({HERMES_HOME,DATA,listAgents,readConfig,setKey,hermes,editEnv,names,writeJson,restart,dash,own={}}){
  const home=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const REG=path.join(DATA,'access.json');let reg=null;
  const loadReg=async()=>reg||(reg=(await readJson(REG))||{owners:{}});
@@ -48,13 +50,14 @@ export function createAccess({HERMES_HOME,DATA,listAgents,readConfig,setKey,herm
   const ids=new Set();for(const a of agents)for(const id of Object.keys(per[a]))ids.add(id);const items=[];
   for(const id of ids){const users=agents.filter(a=>per[a][id]);const signed=users.filter(a=>per[a][id].signed);
    let owner=reg.owners[kind+'|'+id];if(!users.includes(owner))owner=signed[0]||users[0];
-   if(!users.some(seen))continue;const x=per[owner][id];items.push({kind,id,label:x.label,detail:x.detail,bot:!!x.bot,owner,ownerName:names(owner),
+   if(!users.some(seen))continue;const x=per[owner][id];const o=kind==='mcp'&&own[id];items.push({kind,id,label:x.label,detail:x.detail,bot:!!x.bot,owner,ownerName:o?o.owner:names(owner),own:!!o,ownNote:o?.note||'',
     users:users.filter(seen).map(a=>({id:a,name:names(a),signed:per[a][id].signed})),ownerSigned:per[owner][id].signed})}
   return {agents:agents.filter(seen).map(a=>({id:a,name:names(a)})),items:items.sort((p,q)=>p.label.localeCompare(q.label))}}
 
  async function find(kind,id){const l=await list(kind);const it=l.items.find(x=>x.id===id);if(!it)throw new Error('That connection is gone. Reload the page.');return it}
 
  async function grant(kind,id,to){const it=await find(kind,id);const from=it.owner;if(to===from)return {changed:false};
+  if(kind==='mcp'&&own[id]){await own[id].grant(to);return {changed:true}}
   const src=(await holdings(from))[kind][id];
   if(kind==='mcp'){const c=await readConfig(from);const entry=c?.mcp_servers?.[id];if(!entry)throw new Error('The owner no longer has it.');
    const r=await setKey(to,'mcp_servers.'+id,entry);if(!r.ok)throw new Error(r.err||'Could not save');
@@ -73,7 +76,7 @@ export function createAccess({HERMES_HOME,DATA,listAgents,readConfig,setKey,herm
    restart('access: '+src.name+' shared with '+names(to));return {changed:true}}
   throw new Error('Unknown kind')}
 
- async function revoke(kind,id,from){const it=await find(kind,id);if(from===it.owner)throw new Error(names(from)+' owns it. Make another agent the owner first.');
+ async function revoke(kind,id,from){const it=await find(kind,id);if(from===it.owner&&!it.own)throw new Error(names(from)+' owns it. Make another agent the owner first.');
   const mine=(await holdings(from))[kind][id];if(!mine)return {changed:false};
   if(kind==='mcp'){await dash('DELETE','/api/mcp/servers/'+encodeURIComponent(id)+'?profile='+encodeURIComponent(from));
    for(const f of [id+'.json',id+'.meta.json',id+'.client.json'])await unlink(path.join(home(from),'mcp-tokens',f)).catch(()=>{});
@@ -83,7 +86,7 @@ export function createAccess({HERMES_HOME,DATA,listAgents,readConfig,setKey,herm
   if(kind==='key'){await editEnv(path.join(home(from),'.env'),cur=>cur.split('\n').filter(l=>!l.startsWith(mine.name+'=')).join('\n'));restart('access: '+mine.name+' taken from '+names(from));return {changed:true}}
   throw new Error('Unknown kind')}
 
- async function setOwner(kind,id,agent){const it=await find(kind,id);if(!it.users.some(u=>u.id===agent))throw new Error(names(agent)+' doesn’t have it yet. Turn it on first.');
+ async function setOwner(kind,id,agent){const it=await find(kind,id);if(it.own)throw new Error(it.label+' has no owner agent: '+it.ownNote);if(!it.users.some(u=>u.id===agent))throw new Error(names(agent)+' doesn’t have it yet. Turn it on first.');
   await loadReg();reg.owners[kind+'|'+id]=agent;await saveReg();return {ok:true}}
 
  return {list,grant,revoke,setOwner}}

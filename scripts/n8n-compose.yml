@@ -1,4 +1,6 @@
 # n8n workflow automation, connected to aqeelOS (MCP at https://n8n.elkiya.com). Data lives in the n8n-data-v2 volume (owned by aqeelOS since 19 Oct 2026; the earlier n8n-data volume is kept, unused).
+# All of n8n.elkiya.com goes through "edge" (caddy): /aqeelos-login goes to aqeelOS (opens an agent's n8n without signing in),
+# everything else to n8n, which may then be shown inside aqeelOS (https://ai.elkiya.com) and nowhere else.
 services:
   n8n:
     image: n8nio/n8n:2.42.2
@@ -10,7 +12,7 @@ services:
       - N8N_PORT=5678
       - WEBHOOK_URL=https://n8n.elkiya.com/
       - N8N_EDITOR_BASE_URL=https://n8n.elkiya.com/
-      - N8N_PROXY_HOPS=1
+      - N8N_PROXY_HOPS=2
       - GENERIC_TIMEZONE=Asia/Jakarta
       - TZ=Asia/Jakarta
       - N8N_DIAGNOSTICS_ENABLED=false
@@ -23,11 +25,27 @@ services:
     networks:
       - dokploy-network
     mem_limit: 1536m
-  # n8n.elkiya.com/aqeelos-login goes to aqeelOS, which opens n8n for an agent without signing in
   aqeelos-login:
     image: caddy:2.8.4-alpine
     restart: unless-stopped
-    command: caddy reverse-proxy --from :80 --to claude-box-ibjaqq-ai-box-1:4400
+    command:
+      - sh
+      - -c
+      - |
+        cat > /etc/caddy/Caddyfile <<'CADDY'
+        :80 {
+          handle /aqeelos-login* {
+            reverse_proxy claude-box-ibjaqq-ai-box-1:4400
+          }
+          handle {
+            reverse_proxy n8n:5678 {
+              header_down -X-Frame-Options
+            }
+            header Content-Security-Policy "frame-ancestors https://ai.elkiya.com"
+          }
+        }
+        CADDY
+        exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
     networks:
       - dokploy-network
     mem_limit: 64m

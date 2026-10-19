@@ -1293,3 +1293,8 @@ html.in-panel .composer-wrap{padding:0 10px 12px}
 .guide{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}@media (max-width:860px){.guide{grid-template-columns:1fr}}
 .guide-card{display:flex;gap:14px;padding:18px 20px;animation:lbUp var(--t-med) var(--ease) both}
 .guide-card .ic{flex:none}.guide-card h2{font-size:16px;margin:0 0 4px}.guide-card p{margin:0;color:var(--ink-2);font-size:14px;line-height:1.55}
+.n8n-head{margin:0 0 10px}.n8n-own{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}.n8n-own b{color:var(--ink-2);font-weight:600}
+.n8n-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px}
+.n8n-tab{display:inline-flex;align-items:center;gap:8px;padding:5px 12px 5px 6px;border-radius:999px;border:1px solid var(--border);background:var(--surface);font:inherit;font-size:13.5px;cursor:pointer;transition:background var(--t-fast),border-color var(--t-fast),color var(--t-fast)}
+.n8n-tab:hover{border-color:var(--blue-soft)}.n8n-tab.on{background:var(--blue-soft);border-color:transparent;color:var(--blue-deep);font-weight:600}
+.n8n-tab .acc-av{margin:0;box-shadow:none}.n8n-tab .ic{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:var(--soft)}.n8n-tab small{font-size:11px;color:var(--muted)}

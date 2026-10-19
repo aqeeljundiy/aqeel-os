@@ -71,5 +71,5 @@ catch(e){document.getElementById('m').textContent=e.message+'. Close this and op
   const u=k.agent==='__owner'?{email:db.ownerEmail,password:db.ownerPassword}:(await ensure(k.agent),db.users[k.agent]);const s=await login(u.email,u.password,String(bid||'').slice(0,100));
   // n8n's own cookie, for n8n's own address (this page is served there)
   return s.set.filter(c=>/^n8n-auth=/.test(c)).map(c=>c.replace(/;\s*domain=[^;]*/i,''))}
- const status=async agent=>{await load();return {ready:await ready(),base:db.base,user:db.users[agent]?{email:db.users[agent].email}:null}};
+ const status=async agent=>{await load();return {ready:await ready(),base:db.base,user:db.users[agent]?{email:db.users[agent].email}:null,users:Object.fromEntries(Object.entries(db.users).map(([a,u])=>[a,u.email]))}};
  return {ready,setOwner,ensure,ticket,page,go,status}}
