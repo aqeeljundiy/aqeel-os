@@ -16,6 +16,11 @@ const readJson=async f=>{try{return JSON.parse(await readFile(f,'utf8'))}catch{r
 // own: connections where every agent has its own account instead of a shared sign-in (n8n): turning one on makes
 // that agent's own account, and there is no owner agent to pick (the label says who owns the service itself)
 export function createAccess({HERMES_HOME,DATA,listAgents,readConfig,setKey,hermes,editEnv,names,writeJson,restart,dash,own={}}){
+ // each agent's settings, kept for 30 s: reading them starts a small program per agent (1-2 s each), and the box
+ // that offers "use another agent's" has just read them, so the click goes straight to saving
+ const cfgCache=new Map();const readConfigRaw=readConfig;readConfig=async a=>{const c=cfgCache.get(a);if(c&&Date.now()-c.at<30000)return c.v;const v=await readConfigRaw(a);cfgCache.set(a,{v,at:Date.now()});return v};
+ const hermesRaw=hermes;hermes=async(a,...r)=>{cfgCache.delete(a);try{return await hermesRaw(a,...r)}finally{cfgCache.delete(a)}};
+ const setKeyRaw=setKey;setKey=async(a,...r)=>{cfgCache.delete(a);try{return await setKeyRaw(a,...r)}finally{cfgCache.delete(a)}};
  const home=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const REG=path.join(DATA,'access.json');let reg=null;
  const loadReg=async()=>reg||(reg=(await readJson(REG))||{owners:{}});
