@@ -212,7 +212,9 @@ async function writeAgentContext(){const all=await listAgents();const names={};f
   const ch=await relay.channelsFor(a).catch(()=>[]);const gacc=await googleContext(a).catch(()=>[]);
   // an agent without terminal and files cannot change its own settings: it says where they change instead of
   // guessing ("an admin has to…", an outside website)
-  const off=pick(await readConfig(a).catch(()=>null)||{},'agent.disabled_toolsets')||[];const locked=(Array.isArray(off)?off:String(off).split(',')).map(x=>String(x).trim()).includes('terminal');
+  const cfgA=await readConfig(a).catch(()=>null)||{};const pts=pick(cfgA,'platform_toolsets')||{};
+  const narrow=Object.entries(pts).filter(([k,v])=>Array.isArray(v)&&!/^(cli|api_server)$/.test(k)&&!v.some(x=>/^(terminal|hermes-)/.test(x))).map(([k])=>k==='cron'?'scheduled runs':k[0].toUpperCase()+k.slice(1));
+  const off=pick(cfgA,'agent.disabled_toolsets')||[];const locked=(Array.isArray(off)?off:String(off).split(',')).map(x=>String(x).trim()).includes('terminal');
   const body=['<!-- aqeelos:context (written by aqeelOS and kept up to date; edit outside this block) -->','# Working in aqeelOS','','## Screens','',
    'The person can watch screens live in aqeelOS: the monitor button at the top right, then the screen picker.',
    '- '+own,
@@ -225,7 +227,9 @@ async function writeAgentContext(){const all=await listAgents();const names={};f
     // every other agent changes its own settings when asked, and otherwise says the same plain thing
     :['','## Changing settings','',
     'Your settings are yours to change: they live in your own aqeelOS settings and change with `aqeelos -p '+a+' config set <key> <value>` (`aqeelos -p '+a+' config show` lists them). When someone asks to change how you or your channels behave (notices such as "Redirected current run", your model, who may message you), make the change yourself and say in one line what you changed; some settings (such as channel notices) only take effect after the agents restart, so say that and that the person can press Restart agents on System › Health. When the person asks you to change another agent\'s settings, or every agent\'s, do it the same way with that agent\'s name after -p ('+all.map(x=>x+' = '+names[x]).join(', ')+') and say which agents you changed. Without such a request, change only your own.',
-    'If something cannot be changed from your side, say plainly where it is changed in aqeelOS: the Settings page (System › Settings, with "Showing: '+me+'" picked at the top), Channels › Who can message, or Abilities › Connected apps. Never send anyone to a website or to documentation for this, and never say "an admin" has to do it.']),
+    'If something cannot be changed from your side, say plainly where it is changed in aqeelOS: the Settings page (System › Settings, with "Showing: '+me+'" picked at the top), Channels › Who can message, or Abilities › Connected apps. Never send anyone to a website or to documentation for this, and never say "an admin" has to do it.',
+    // channels kept to a few tools on purpose (a team Slack, check-ins that read it): there the agent says so plainly
+    ...(narrow.length?['On '+narrow.join(' and ')+' you have only a few tools on purpose (no terminal, browser or files). There, say plainly that it is something you do when asked in the aqeelOS app, never that it is impossible.']:[])]),
    '','## Apps and accounts: free ways first','',
    'For an outside app (Slack, Gmail, Google Drive, Notion, GitHub, Google Cloud…), try the free ways first, in this order:',
    '1. That app’s own MCP tool, if you have it (connect it with connect_mcp_tool when it needs a sign-in).',
