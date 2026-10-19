@@ -60,7 +60,7 @@ export class SideBrowser{
    await mkdir(this.profile,{recursive:true});const port=await freePort(9300);this.port=port;
    // a browser left over from a previous run would keep the profile locked
    try{const old=Number(await readFile(this.pidFile,'utf8'));if(old){try{process.kill(old,0);killTree({pid:old});await new Promise(r=>setTimeout(r,800))}catch{}}}catch{}
-   this.child=spawn(exe,['--headless=new','--remote-debugging-port='+port,'--remote-allow-origins=*','--user-data-dir='+this.profile,'--window-size=1280,800','--no-first-run','--no-default-browser-check','--disable-features=Translate','about:blank'],{stdio:'ignore',windowsHide:true});
+   this.child=spawn(exe,['--headless=new','--remote-debugging-port='+port,'--remote-allow-origins=*','--user-data-dir='+this.profile,'--window-size=1280,800','--no-first-run','--no-default-browser-check','--disable-features=Translate',...(process.platform==='linux'?['--no-sandbox','--disable-dev-shm-usage','--disable-gpu']:[]),'about:blank'],{stdio:'ignore',windowsHide:true});
    this.child.on('exit',()=>{this.state='stopped';this.ws=null});writeFile(this.pidFile,String(this.child.pid)).catch(()=>{});
    let targets=[];for(let i=0;i<50;i++){try{targets=await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();if(targets.some(t=>t.type==='page'))break}catch{}await new Promise(r=>setTimeout(r,200))}
    const page=targets.find(t=>t.type==='page');if(!page)throw Error('The browser did not start.');

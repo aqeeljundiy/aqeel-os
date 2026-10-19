@@ -96,7 +96,11 @@ export async function findBrowser(){const home=os.homedir();
  const candidates=isWindows?[path.join(process.env.ProgramFiles||'C:/Program Files','Google/Chrome/Application/chrome.exe'),path.join(process.env.LOCALAPPDATA||'','Google/Chrome/Application/chrome.exe'),path.join(process.env['ProgramFiles(x86)']||'C:/Program Files (x86)','Microsoft/Edge/Application/msedge.exe'),path.join(process.env.ProgramFiles||'C:/Program Files','Microsoft/Edge/Application/msedge.exe')]
   :isMac?['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome','/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge','/Applications/Chromium.app/Contents/MacOS/Chromium',path.join(home,'Applications/Google Chrome.app/Contents/MacOS/Google Chrome')]
   :['/usr/bin/google-chrome','/usr/bin/chromium','/usr/bin/chromium-browser','/usr/bin/microsoft-edge'];
- for(const p of candidates)if(await exists(p))return p;return null}
+ // a server (the online copy on the AI box) has no Chrome installed system-wide: use CBA_BROWSER, or a bundled Chromium
+ if(process.env.CBA_BROWSER&&await exists(process.env.CBA_BROWSER))return process.env.CBA_BROWSER;
+ for(const p of candidates)if(await exists(p))return p;
+ if(!isWindows&&!isMac){const {readdir}=await import('node:fs/promises');for(const [dir,sub] of [[path.join(home,'.hermes','tools'),'chrome-linux64/chrome'],[path.join(home,'.cache','ms-playwright'),'chrome-linux/chrome']]){for(const d of (await readdir(dir).catch(()=>[])).filter(x=>/^chromium-/.test(x)).sort().reverse()){const p=path.join(dir,d,sub);if(await exists(p))return p}}}
+ return null}
 
 // A long-lived shell that reads commands line by line from stdin (keeps cd, variables and history).
 export function persistentShell(){
