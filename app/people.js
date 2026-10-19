@@ -11,6 +11,7 @@ const UNSAFE_TOOLSETS=['terminal','file','code_execution','computer_use'];
 
 async function loadMe(){
  try{S.me=await UI('/ui/me')}catch{S.me={admin:true,role:'owner',name:'',agents:{}}}
+ try{S.defaults=await UI('/ui/defaults')}catch{S.defaults={}}
  UI('/ui/gemini/status').then(g=>{S.geminiOn=!!g.signedIn&&!g.retired}).catch(()=>{});
  await Prefs.load(S.me?.id||S.me?.name||'owner');
  applyRole();
