@@ -64,6 +64,6 @@ ACT['ch-pick']=async a=>{const list=await viewAgents();menu(a,[{header:'Show who
  ...list.map(n=>({label:ident(n).name,icon:'user',on:S.chAgent===n,run:()=>{S.chAgent=n;reload()}}))],{matchWidth:true})};
 // the shared AdsPower screen says which agents can draw on it, so one screen per agent stays clear
 // (screen.js loads after this file)
-setTimeout(()=>{if(typeof Screen==='undefined')return;const ads={who:'',at:0};const load=async()=>{if(Date.now()-ads.at<300000||S.me?.admin===false)return;ads.at=Date.now();const d=await Access.load('mcp');const it=d?.items.find(x=>/adspower/i.test(x.id));ads.who=it?it.users.map(u=>u.name).join(', '):''};
+addEventListener('load',()=>{if(typeof Screen==='undefined'||typeof Screen.picker!=='function'||typeof Screen.noteTip!=='function')return;const ads={who:'',at:0};const load=async()=>{if(Date.now()-ads.at<300000||S.me?.admin===false)return;ads.at=Date.now();const d=await Access.load('mcp');const it=d?.items.find(x=>/adspower/i.test(x.id));ads.who=it?it.users.map(u=>u.name).join(', '):''};
  const base=Screen.picker.bind(Screen);Screen.picker=function(){load().catch(()=>{});return base().split('AdsPower screen').join(ads.who?'AdsPower screen (shared: '+ads.who+')':'AdsPower screen')};
- const tip=Screen.noteTip.bind(Screen);Screen.noteTip=function(){return this.ads&&ads.who?'AdsPower browsers of '+ads.who+' draw here, on one shared screen':tip()}},0);
+ const tip=Screen.noteTip.bind(Screen);Screen.noteTip=function(){return this.ads&&ads.who?'AdsPower browsers of '+ads.who+' draw here, on one shared screen':tip()}});
