@@ -23,6 +23,7 @@ import {boxMemory} from './boxmem.mjs';
 import {createLinks,isLink} from './links.mjs';
 import {createLocalBrowser} from './localbrowser.mjs';
 import {createAccess} from './access.mjs';
+import {createN8n} from './n8n.mjs';
 import {readdir} from 'node:fs/promises';
 import {scryptSync,randomBytes,createHmac,timingSafeEqual} from 'node:crypto';
 import path from 'node:path';
@@ -51,7 +52,7 @@ if(!PW_HASH)console.warn('UI_PASSWORD_HASH is not set: nobody can sign in.');
 if(!env.UI_SECRET)console.warn('UI_SECRET is not set: sessions end when the server restarts.');
 
 const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.json':'application/json; charset=utf-8','.svg':'image/svg+xml','.woff2':'font/woff2','.png':'image/png','.ico':'image/x-icon','.webmanifest':'application/manifest+json'};
-const security={'x-content-type-options':'nosniff','referrer-policy':'same-origin','permissions-policy':'camera=(), geolocation=()','content-security-policy':"default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; media-src 'self' blob:; frame-src 'self' blob:; frame-ancestors 'self' chrome-extension://jdfbikbihabglfkcckkmmfbmfdpifbgf; base-uri 'none'; form-action 'self'"};
+const security={'x-content-type-options':'nosniff','referrer-policy':'same-origin','permissions-policy':'camera=(), geolocation=()','content-security-policy':"default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; media-src 'self' blob:; frame-src 'self' blob: https://n8n.elkiya.com; frame-ancestors 'self' chrome-extension://jdfbikbihabglfkcckkmmfbmfdpifbgf; base-uri 'none'; form-action 'self'"};
 
 /* ---------- sessions ---------- */
 const sign=v=>createHmac('sha256',SECRET).update(v).digest('base64url');
@@ -282,6 +283,9 @@ async function checkSignins(){const h={'x-hermes-session-token':DASH_TOKEN};cons
     if(j.ok===false&&/oauth|unauthori[sz]ed|401|invalid_grant|invalid_token|expired|login/i.test(String(j.error||'')))why='the sign-in ran out'}catch{}}
    if(why){if(!signinsDue.has(key))console.log('sign-in needed:',s.name,'on',a,'('+why+')');signinsDue.set(key,{agent:a,agentName:NAMES[a]||a,name:s.name,why,...appInfo(s.name,s.url),last:(await stat(tok).catch(()=>null))?.mtimeMs||0})}else signinsDue.delete(key)}}
  for(const k of [...signinsDue.keys()])if(!seen.has(k))signinsDue.delete(k);signinsAt=Date.now()}
+// every agent gets its own n8n user once n8n is connected (new agents within a few minutes); nothing happens before that
+async function n8nForAll(){if(!await n8n.ready())return;for(const a of await listAgents()){try{await n8n.ensure(a)}catch(e){console.warn('n8n for',a,e.message)}}}
+if(PORT===4400){setTimeout(()=>n8nForAll().catch(()=>{}),90000);setInterval(()=>n8nForAll().catch(()=>{}),600000).unref()}
 if(PORT===4400){setTimeout(()=>checkSignins().catch(()=>{}),120000);setInterval(()=>checkSignins().catch(()=>{}),3*3600e3).unref()}
 if(PORT===4400){setTimeout(()=>writeAgentContext().catch(()=>{}),25000);setInterval(()=>writeAgentContext().catch(()=>{}),600000).unref()}
 /* Slack: every agent with its own Slack bot answers in any channel it is invited to (private ones too) when a team
@@ -442,6 +446,7 @@ const sharing=createShare({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAge
 const channels=createChannels({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAllProfiles(),cached:a=>platformsCached(a),restart:why=>restartGateway(why),paused:()=>pausedLoad()});
 const access=createAccess({HERMES_HOME,DATA,listAgents:()=>listAgents(),readConfig,setKey,hermes:hcmd,editEnv,names:a=>NAMES[a]||(a==='default'?'aqeelOS':a),writeJson:(f,v)=>writeJsonAtomic(f,v),restart:why=>restartGateway(why).catch(()=>{}),
  dash:(method,p)=>fetch(DASH.origin+p,{method,headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(r=>r.json().catch(()=>({})))});
+const n8n=createN8n({DATA,setKey,restart:why=>restartGateway(why).catch(()=>{}),names:a=>NAMES[a]||a});
 const localBrowser=createLocalBrowser({DATA,GATE:GATE.origin,API_KEY,EXT_DIR:path.join(root,'extension'),NAMES});
 const links=createLinks({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,python:()=>sharing.python(),setupAgent:n=>setupAgentFn?.(n)});
 function listAgents(){return agentNames()}   // real agents only (a folder with a config), not extra-number copies
@@ -900,6 +905,9 @@ const server=createServer(async(req,res)=>{
    const r=await new Promise(done=>execFile(py,[script,...(hit.acct?['--account',hit.acct]:[]),'--auth-code','https://ai.elkiya.com/google-oauth/callback'+url.search],{timeout:90000,env:{...process.env,HERMES_HOME:hit.home}},(e,o,er)=>done({ok:!e,out:String(o||'')+String(er||'')})));
    if(!r.ok||/ERROR/.test(r.out))return page('Google sign-in did not finish',esc((r.out.trim().split('\n').filter(Boolean).pop()||'Unknown error').slice(0,300))+' Ask your agent for a new link.');
    return page('Google account connected',(hit.acct?'<b>'+esc(hit.acct)+'</b> is ':'Your Google account is ')+'connected to '+esc(NAMES[hit.a]||hit.a)+'. You can close this tab and go back to aqeelOS.')}
+  if(p==='/aqeelos-login'&&req.method==='GET'){res.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer'});return res.end(n8n.page())}
+  if(p==='/aqeelos-login/go'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
+   try{const set=await n8n.go(b.t,b.b);res.writeHead(200,{'content-type':'application/json','cache-control':'no-store','set-cookie':set});return res.end('{"ok":true}')}catch(e){return send(res,400,{error:e.message})}}
   if(p.startsWith('/mcp-oauth/api/mcp/oauth/callback/')&&req.method==='GET'){
    const tool=decodeURIComponent(p.split('/').pop()||'');let r=await fetch(DASH.origin+p.slice('/mcp-oauth'.length)+url.search).catch(()=>null);if(r)await r.text();
    if(r&&r.status===404&&url.searchParams.get('code')){const g=await deliverToGateway(url.search);if(g)r={ok:true,status:200,viaGateway:true}}
@@ -1097,12 +1105,21 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/mcp/oauth-client'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can set this.'});let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}
     try{return send(res,200,await sharing.setOauthClient(String(b.agent||'default'),String(b.name||''),String(b.client_id||'').trim(),String(b.client_secret||'').trim(),MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(String(b.name||''))))}catch(e){return send(res,400,{error:e.message})}}
    // every agent's model and the account it runs on, for "All agents" on Agents' models
+   if(p==='/ui/n8n/status'&&req.method==='GET'){const a=String(url.searchParams.get('agent')||'default');return send(res,200,await n8n.status(a))}
+   if(p==='/ui/n8n/owner'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can connect n8n.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
+    try{await n8n.setOwner(String(b.email||'').trim(),String(b.password||''));console.log('n8n: owner login saved');return send(res,200,{ok:true})}catch(e){return send(res,400,{error:e.message})}}
+   if(p==='/ui/n8n/open'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const a=String(b.agent||'default');if(!(await listAgents()).includes(a))return send(res,400,{error:'Unknown agent'});
+    if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a))return send(res,403,{error:'Not your agent'});
+    try{const r=await n8n.ensure(a);const st=await n8n.status(a);return send(res,200,{url:st.base+'/aqeelos-login?t='+n8n.ticket(a),email:r.email})}catch(e){return send(res,409,{error:e.message})}}
    if(p==='/ui/models/agents'&&req.method==='GET'){const out=[];for(const a of await listAgents()){if(!users.isAdmin(u)&&!users.byId(u.id)?.agents?.[a])continue;const c=await readConfig(a).catch(()=>null)||{};
      out.push({id:a,name:NAMES[a]||await displayName(a),model:c.model?.default||'',provider:c.model?.provider||''})}return send(res,200,{agents:out})}
    // Access: who owns each connection and which agents may use it (see access.mjs). Admins only.
-   if(p==='/ui/access'||p==='/ui/access/owner'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can see and change who uses a connection.'});
-    const KINDS=['mcp','google','plugin','key'];
-    if(req.method==='GET'){const kind=String(url.searchParams.get('kind')||'');if(!KINDS.includes(kind))return send(res,400,{error:'Unknown kind'});return send(res,200,await access.list(kind))}
+   if(p==='/ui/access'||p==='/ui/access/owner'){const KINDS=['mcp','google','plugin','key'];
+    // everyone sees the agents they may use (admins: every agent); only admins change who uses what, and see keys
+    if(req.method==='GET'){const kind=String(url.searchParams.get('kind')||'');if(!KINDS.includes(kind))return send(res,400,{error:'Unknown kind'});
+     if(users.isAdmin(u))return send(res,200,{...await access.list(kind),canEdit:true});if(kind==='key')return send(res,403,{error:'Only admins can see keys.'});
+     return send(res,200,{...await access.list(kind,new Set(Object.keys(users.byId(u.id)?.agents||{}))),canEdit:false})}
+    if(!users.isAdmin(u))return send(res,403,{error:'Only admins can change who uses a connection.'});
     if(req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const kind=String(b.kind||''),id=String(b.id||''),agent=String(b.agent||'');
      if(!KINDS.includes(kind)||!id||!(await listAgents()).includes(agent))return send(res,400,{error:'Bad request'});
      try{const r=p==='/ui/access/owner'?await access.setOwner(kind,id,agent):b.on?await access.grant(kind,id,agent):await access.revoke(kind,id,agent);console.log('access:',kind,id,p==='/ui/access/owner'?'owner →':b.on?'on for':'off for',agent);return send(res,200,{ok:true,...r})}catch(e){return send(res,409,{error:e.message})}}}

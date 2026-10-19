@@ -43,13 +43,14 @@ export function createAccess({HERMES_HOME,DATA,listAgents,readConfig,setKey,herm
   return out}
 
  // every connection of a kind across the agents, with its owner and the agents that use it
- async function list(kind){await loadReg();const agents=order(await listAgents());const per={};for(const a of agents)per[a]=(await holdings(a))[kind];
+ // only: the agents this person may use (null = all). Owners are worked out over every agent either way.
+ async function list(kind,only=null){await loadReg();const agents=order(await listAgents());const seen=a=>!only||only.has(a);const per={};for(const a of agents)per[a]=(await holdings(a))[kind];
   const ids=new Set();for(const a of agents)for(const id of Object.keys(per[a]))ids.add(id);const items=[];
   for(const id of ids){const users=agents.filter(a=>per[a][id]);const signed=users.filter(a=>per[a][id].signed);
    let owner=reg.owners[kind+'|'+id];if(!users.includes(owner))owner=signed[0]||users[0];
-   const x=per[owner][id];items.push({kind,id,label:x.label,detail:x.detail,bot:!!x.bot,owner,ownerName:names(owner),
-    users:users.map(a=>({id:a,name:names(a),signed:per[a][id].signed})),ownerSigned:per[owner][id].signed})}
-  return {agents:agents.map(a=>({id:a,name:names(a)})),items:items.sort((p,q)=>p.label.localeCompare(q.label))}}
+   if(!users.some(seen))continue;const x=per[owner][id];items.push({kind,id,label:x.label,detail:x.detail,bot:!!x.bot,owner,ownerName:names(owner),
+    users:users.filter(seen).map(a=>({id:a,name:names(a),signed:per[a][id].signed})),ownerSigned:per[owner][id].signed})}
+  return {agents:agents.filter(seen).map(a=>({id:a,name:names(a)})),items:items.sort((p,q)=>p.label.localeCompare(q.label))}}
 
  async function find(kind,id){const l=await list(kind);const it=l.items.find(x=>x.id===id);if(!it)throw new Error('That connection is gone. Reload the page.');return it}
 

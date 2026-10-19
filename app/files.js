@@ -22,7 +22,7 @@ const placesFor=()=>!S.me?.admin&&S.me?[['My files',FILE_HOME,'folder']]:[['Work
 const FV={view:store.get('filesView','grid'),sort:store.get('filesSort','name'),hidden:store.get('filesHidden',false),q:''};
 PAGES.files=async(p,el)=>{
  if(S._fileAgent!==fAgent()){S._fileAgent=fAgent();S.filePath=fWork()}const PLACES=placesFor();const path=S.filePath||fWork();let d;
- try{d=await H('/files'+qp({path}))}catch(e){if(path!==FILE_HOME){S.filePath=FILE_HOME;toast('That folder doesn’t exist yet','err');return PAGES.files(p,el)}throw e}
+ try{d=await H('/files'+qp({path}))}catch(e){if(e.stale)throw e;if(path!==FILE_HOME){S.filePath=FILE_HOME;toast('That folder doesn’t exist yet','err');return PAGES.files(p,el)}throw e}
  S.filePath=d.path;Pages._dir=d;
  setActions(`<button data-act="f-mkdir">${icon('folder',16)}New folder</button><button class="primary" data-act="f-upload">${icon('upload',16)}Upload</button>`);
  const parts=d.path.split('/').filter(Boolean);

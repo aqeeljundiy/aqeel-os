@@ -44,10 +44,14 @@ addEventListener('pagehide',()=>Prefs.flush(true));
 
 /* ---------- API ---------- */
 class ApiError extends Error{constructor(msg,status,data){super(msg);this.status=status;this.data=data}}
-async function call(base,path,opt={}){
+// A page that is still loading when you move to another page must not draw into the new one: a read (GET) that
+// started on an earlier page is dropped when it comes back (a quiet "stale" error nobody sees). Changes (POST,
+// PUT, DELETE) always finish.
+const STALE=()=>Object.assign(new Error('That page was left before it finished loading.'),{stale:true});
+async function call(base,path,opt={}){const nav=S._nav,read=!opt.method||opt.method==='GET';
  const init={method:opt.method||'GET',headers:{'x-hui':'1',...(opt.headers||{})},credentials:'same-origin',signal:opt.signal};
  if(opt.body!==undefined){if(opt.body instanceof FormData)init.body=opt.body;else{init.body=JSON.stringify(opt.body);init.headers['content-type']='application/json'}}
- const r=await fetch(base+path,init);
+ const r=await fetch(base+path,init);if(read&&!opt.keep&&nav!==S._nav)throw STALE();
  // Only this app's own server says "sign in again"; a 401 from Hermes itself is an ordinary error.
  if(r.status===401&&r.headers.get('x-hui-auth')==='required'){signedOut();throw new ApiError('Signed out',401)}
  if(opt.raw)return r;
@@ -57,7 +61,7 @@ async function call(base,path,opt={}){
 }
 // The active agent (Hermes profile): dashboard calls get ?profile=, gateway calls go through /p/<profile>/.
 // pages that belong to one agent: a picker in the header shows another agent's without switching who you chat with
-const VIEW_RE=/^#\/(abilities\/(skills|mcp|plugins)|agents\/(files|memory)|automations\/webhooks|channels\/channels|models\/models|system\/(keys|logs|settings))(\/|$)/;
+const VIEW_RE=/^#\/(abilities\/(skills|mcp|plugins)|agents\/(files|memory)|automations\/(webhooks|n8n)|channels\/channels|models\/models|system\/(keys|logs|settings))(\/|$)/;
 const agentProfile=()=>{if(S.chOverride)return S.chOverride;   // chOverride: setting up an extra connection (WhatsApp 2…)
  if(S.viewAgent){if(VIEW_RE.test(location.hash))return S.viewAgent==='default'?'':S.viewAgent;S.viewAgent=null}
  return S.profile&&S.profile!=='default'?S.profile:''};
@@ -184,6 +188,7 @@ const SECTIONS=[
  {id:'automations',label:'Automations',icon:'zap',key:'3',pages:[
   {id:'schedules',label:'Schedules',icon:'clock',desc:'Prompts that run on a timetable and deliver the result where you want it.'},
   {id:'webhooks',label:'Webhooks',icon:'hook',desc:'Let other services trigger aqeelOS with an event.'},
+  {id:'n8n',label:'n8n',icon:'layers',desc:'Each agent’s own n8n, for workflows it builds and runs. Opens without signing in.'},
   {id:'kanban',label:'Task board',icon:'list',desc:'Tasks your agents pick up and work through on their own.'}]},
  {id:'channels',label:'Channels',icon:'radio',key:'4',pages:[
   {id:'channels',label:'Channels',icon:'radio',desc:'Talk to your agents on WhatsApp, Telegram, Slack and more, and choose who may message them.'}]},
@@ -214,6 +219,7 @@ function go(h){if(location.hash==='#'+h)render();else location.hash=h}
 /* ---------- shell ---------- */
 function render(){
  const r=route(),root=$('#root');closeLayers();
+ {const k=location.hash.split('?')[0];if(k!==S._navKey){S._navKey=k;S._nav=(S._nav||0)+1}}
  if(r.invite!==undefined){root.innerHTML='';inviteView(root,r.invite);return}
  if(r.signin||!S.signedIn){root.innerHTML=signinHtml();bindSignin();return}
  if(!$('.app'))root.innerHTML=`<div class="app"><aside class="side" aria-label="Navigation"></aside><div class="main"><div class="topbar"></div><div id="bannerSlot"></div><div class="view" id="view"></div></div><aside class="screen-pane" id="screenPane" aria-label="Live screen" hidden></aside></div>`;
@@ -224,8 +230,11 @@ function render(){
  else{const P=PAGES[r.page.id];const key=r.sec.id+'/'+r.page.id+'/'+(r.arg||[]).join('/');
   // Same page again (after a save, a toggle…): update in place. No skeleton flash, no replayed entrance animations.
   const same=S._pageKey===key&&$('#pg');S._pageKey=key;
-  if(same){const pg=$('#pg');pg.classList.add('soft');if(P)Promise.resolve(P(r.page,pg,r)).catch(e=>showError(pg,e)).finally(()=>setTimeout(()=>pg.classList.remove('soft'),400))}
-  else{v.innerHTML=`<div class="page">${head(r.page)}<div id="pg">${skeleton()}</div></div>`;if(P)Promise.resolve(P(r.page,$('#pg'),r)).catch(e=>showError($('#pg'),e))}}
+  if(same){const pg=$('#pg');pg.classList.add('soft');if(P)runPage(P,r,pg).finally(()=>setTimeout(()=>pg.classList.remove('soft'),400))}
+  else{v.innerHTML=`<div class="page">${head(r.page)}<div id="pg">${skeleton()}</div></div>`;const pg=$('#pg');if(P)runPage(P,r,pg)}}
+// draw a page; if it fails (the engine busy for a moment), try once more quietly before saying so
+function runPage(P,r,pg){const nav=S._nav;return Promise.resolve(P(r.page,pg,r)).catch(async e=>{if(e?.stale||nav!==S._nav||!pg.isConnected)return;if(e?.status&&e.status<500&&e.status!==429)return showError(pg,e);
+ await sleep(1200);if(nav!==S._nav||!pg.isConnected)return;return Promise.resolve(P(r.page,pg,r)).catch(e2=>showError(pg,e2))})}
 }
 function paintSide(r){$('.side').innerHTML=sidebar(r||route())}
 function paintTop(r){$('.topbar').innerHTML=topbar(r||route())}
@@ -273,7 +282,7 @@ function tabs(key,list,cur){cur=cur||S.tab[key]||list[0];return `<div class="tab
 const toggle=(on,label,attrs='')=>`<input type="checkbox" class="switch" ${on?'checked':''} aria-label="${esc(label)}" ${attrs}>`;
 const st=i=>`style="animation-delay:${Math.min(i,10)*30}ms"`;
 const skeleton=(n=4)=>`<div class="card list sk-list" style="padding:6px 22px">${Array.from({length:n},(x,i)=>`<div class="sk-item" style="--d:${i*90}ms"><span class="skel sk-ic"></span><span class="sk-lines"><span class="skel sk-l1" style="width:${[46,58,38,52,44,60][i%6]}%"></span><span class="skel sk-l2" style="width:${[72,64,80,68,76,58][i%6]}%"></span></span><span class="skel sk-end"></span></div>`).join('')}</div>`;
-function showError(el,e,retry){if(!el)return;el.innerHTML=`<div class="card state-box err"><b>Couldn't load this</b>${esc(e?.message||e)}<br><button data-act="reload">${icon('refresh',15)}Try again</button></div>`}
+function showError(el,e,retry){if(!el||e?.stale||!el.isConnected)return;el.innerHTML=`<div class="card state-box err"><b>Couldn't load this</b>${esc(e?.message||e)}<br><button data-act="reload">${icon('refresh',15)}Try again</button></div>`}
 const emptyBox=(title,text,btn='')=>`<div class="empty-hero"><b style="display:block;font-size:17px;margin-bottom:6px">${esc(title)}</b><span style="color:var(--ink-2)">${esc(text)}</span>${btn?`<div style="margin-top:16px">${btn}</div>`:''}</div>`;
 // Tab bars are often re-rendered on switch, so each bar remembers where its pill was and a fresh pill
 // glides from there instead of appearing in place.
@@ -293,7 +302,7 @@ function leave(e,ms=200){if(!e?.isConnected)return;if(calm()){e.remove();return}
 function closeLayers(animate=true,{keepScrim=false}={}){document.querySelectorAll('.scrim,.palette,.drawer,.menu').forEach(e=>{if(keepScrim&&e.classList.contains('scrim')&&!e.classList.contains('closing'))return;animate?leave(e,e.classList.contains('menu')?150:210):e.remove()})}
 const openLayer=()=>{const had=document.querySelector('.scrim:not(.closing)');closeLayers(false,{keepScrim:true});if(!had)scrim()};
 function toast(msg,kind){const t=document.createElement('div');t.className='toast';t.innerHTML=icon(kind==='err'?'alert':'check',15)+esc(msg);$('#toasts').append(t);setTimeout(()=>{t.classList.add('out');setTimeout(()=>t.remove(),260)},kind==='err'?6000:2800)}
-const fail=e=>{if(e?.status!==401)toast(e?.message||String(e),'err')};
+const fail=e=>{if(e?.stale)return;if(e?.status!==401)toast(e?.message||String(e),'err')};
 function scrim(){const s=document.createElement('div');s.className='scrim';s.onclick=closeLayers;document.body.append(s)}
 // Pop-ups open in the middle with rounded corners (small for a question, larger for an editor); the side panel
 // stays only where the page beside it matters (sideDrawer: Link WhatsApp, Use my browser).
@@ -398,3 +407,5 @@ document.addEventListener('touchmove',e=>{if(e.touches&&e.touches.length>1)e.pre
 
 // sign out everywhere (every browser and phone signed in as this person); in the account menu and the command palette
 async function signOutAll(){if(!await confirmBox('Sign out everywhere?','Every browser and phone signed in as you is signed out, this one too.','Sign out everywhere'))return;try{await fetch('/auth/logout-all',{method:'POST',headers:{'x-hui':'1'}});location.href='/'}catch(e){fail(e)}}
+
+addEventListener('unhandledrejection',e=>{if(e.reason?.stale)e.preventDefault()});

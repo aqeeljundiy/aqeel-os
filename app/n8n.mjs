@@ -1,0 +1,56 @@
+// n8n for every agent. One n8n (n8n.elkiya.com); each agent gets its own n8n user, made with the owner's login the
+// first time it is needed, so it has its own workflows. The agent's n8n tool connects as that user (its own MCP key),
+// and Automations › n8n opens the agent's n8n without signing in: aqeelOS hands out a one-minute ticket, a small
+// page that aqeelOS serves on n8n's own address (n8n.elkiya.com/aqeelos-login) signs in as the agent's user with
+// the browser's own n8n id, and n8n opens signed in. Passwords stay in aqeelOS's data; nobody types them.
+import {readFile,writeFile,mkdir} from 'node:fs/promises';
+import {randomBytes,randomUUID} from 'node:crypto';
+import path from 'node:path';
+
+export function createN8n({DATA,setKey,restart,names}){
+ const FILE=path.join(DATA,'n8n.json');let db=null;
+ const load=async()=>{if(db)return db;try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.base||='https://n8n.elkiya.com';db.users||={};return db};
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE,JSON.stringify(db,null,1),{mode:0o600})};
+ const SERVER_BID='aqeelos-'+randomUUID();     // the browser id aqeelOS itself uses when it talks to n8n
+ // one REST call; cookie and browser id go along, a new sign-in cookie comes back
+ async function rest(p,{method='GET',body,cookie='',bid=SERVER_BID}={}){await load();
+  const r=await fetch(db.base+p,{method,headers:{'content-type':'application/json','browser-id':bid,...(cookie?{cookie}:{})},body:body===undefined?undefined:JSON.stringify(body),redirect:'manual',signal:AbortSignal.timeout(20000)});
+  const set=r.headers.getSetCookie?.()||[];const text=await r.text();let j=null;try{j=JSON.parse(text)}catch{}
+  if(!r.ok)throw new Error((j?.message||('n8n answered '+r.status)).replace(/Do you have caps lock on\?/,'').trim());return {data:j?.data??j,set}}
+ const cookieOf=set=>set.map(c=>c.split(';')[0]).filter(c=>/^n8n-auth=/.test(c)).join('; ');
+ async function login(email,password,bid=SERVER_BID){const r=await rest('/rest/login',{method:'POST',body:{emailOrLdapLoginId:email,password},bid});const c=cookieOf(r.set);if(!c)throw new Error('n8n did not sign in.');return {cookie:c,set:r.set,user:r.data}}
+ const ready=async()=>{await load();return !!(db.ownerEmail&&db.ownerPassword)};
+ async function setOwner(email,password){await load();await login(email,password);db.ownerEmail=email;db.ownerPassword=password;await save();return true}
+ async function owner(){if(!await ready())throw new Error('Connect aqeelOS to n8n first: Automations › n8n asks for the n8n owner login once.');return login(db.ownerEmail,db.ownerPassword)}
+
+ // the agent's own n8n user (made once), and its tool connected as that user
+ async function ensure(agent){await load();let u=db.users[agent];
+  if(!u){const o=await owner();const email=('agent-'+agent).replace(/[^a-z0-9-]/gi,'').toLowerCase()+'@agents.elkiya.com',password='Aq'+randomBytes(18).toString('base64url')+'9';
+   const inv=await rest('/rest/invitations',{method:'POST',body:[{email,role:'global:member'}],cookie:o.cookie});const it=(Array.isArray(inv.data)?inv.data:[])[0];
+   if(it?.error&&!/already/i.test(it.error))throw new Error(it.error);
+   const url=String(it?.user?.inviteAcceptUrl||'');const q=new URL(url,db.base).searchParams;const inviterId=q.get('inviterId'),inviteeId=q.get('inviteeId')||it?.user?.id;
+   if(!inviterId||!inviteeId)throw new Error('n8n did not make the user (maybe it already exists without aqeelOS knowing its password).');
+   await rest('/rest/invitations/'+inviteeId+'/accept',{method:'POST',body:{inviterId,firstName:names(agent),lastName:'(aqeelOS)',password}});
+   u=db.users[agent]={email,password,id:inviteeId,made:Date.now()};await save()}
+  if(!u.mcp){const s=await login(u.email,u.password);let k=null;try{k=(await rest('/rest/mcp/api-key',{cookie:s.cookie})).data}catch{}
+   if(!k?.apiKey)k=(await rest('/rest/mcp/api-key/rotate',{method:'POST',cookie:s.cookie})).data;
+   if(!k?.apiKey)throw new Error('n8n did not give an MCP key.');u.mcp=true;await save();
+   const r=await setKey(agent,'mcp_servers.n8n',{url:db.base+'/mcp-server/http',headers:{Authorization:'Bearer '+k.apiKey},enabled:true});if(!r.ok)throw new Error(r.err||'Could not connect the agent’s n8n tool');
+   restart('n8n connected for '+names(agent))}
+  return {email:u.email}}
+
+ // opening n8n without signing in: a one-minute ticket, then the login page on n8n's own address uses it
+ const tickets=new Map();
+ function ticket(agent){const t=randomBytes(24).toString('base64url');tickets.set(t,{agent,at:Date.now()});setTimeout(()=>tickets.delete(t),60000).unref?.();return t}
+ const page=()=>`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Opening n8n</title>
+<style>body{margin:0;height:100vh;display:grid;place-items:center;font:15px system-ui,sans-serif;color:#555;background:#f6f6f8}p{animation:f 1.2s ease-in-out infinite}@keyframes f{50%{opacity:.4}}</style><p id="m">Opening n8n…</p>
+<script>(async()=>{const K='n8n-browserId';let b=localStorage.getItem(K);if(!b){b=(crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random());localStorage.setItem(K,b)}
+const t=new URLSearchParams(location.search).get('t')||'';const go=new URLSearchParams(location.search).get('to')||'/home/workflows';
+try{const r=await fetch('/aqeelos-login/go',{method:'POST',headers:{'content-type':'application/json'},credentials:'include',body:JSON.stringify({t,b})});const j=await r.json();if(!r.ok)throw new Error(j.error||'n8n could not open');location.replace(go.startsWith('/')?go:'/home/workflows')}
+catch(e){document.getElementById('m').textContent=e.message+'. Close this and open n8n again from aqeelOS.'}})()</script>`;
+ async function go(t,bid){const k=tickets.get(String(t||''));if(!k||Date.now()-k.at>60000)throw new Error('This link has expired');tickets.delete(t);
+  await ensure(k.agent);const u=db.users[k.agent];const s=await login(u.email,u.password,String(bid||'').slice(0,100));
+  // n8n's own cookie, for n8n's own address (this page is served there)
+  return s.set.filter(c=>/^n8n-auth=/.test(c)).map(c=>c.replace(/;\s*domain=[^;]*/i,''))}
+ const status=async agent=>{await load();return {ready:await ready(),base:db.base,user:db.users[agent]?{email:db.users[agent].email}:null}};
+ return {ready,setOwner,ensure,ticket,page,go,status}}
