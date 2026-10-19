@@ -228,7 +228,7 @@ function render(){
  if(!$('.app'))root.innerHTML=`<div class="app"><aside class="side" aria-label="Navigation"></aside><div class="main"><div class="topbar"></div><div id="bannerSlot"></div><div class="view" id="view"></div></div><aside class="screen-pane" id="screenPane" aria-label="Live screen" hidden></aside></div>`;
  const app=$('.app');app.classList.toggle('collapsed',S.collapsed);const sw=store.get('sideW',null);if(sw)app.style.setProperty('--side-open',sw+'px');app.classList.remove('nav-open');
  paintSide(r);paintTop(r);paintBanner();if(typeof Screen!=='undefined')Screen.paint();
- const v=$('#view');v.classList.remove('enter');void v.offsetWidth;v.classList.add('enter');watchReveal(v);
+ const v=$('#view');{const key=location.hash.split('?')[0];if(v._key!==key){v._key=key;Calm.opening();v.classList.remove('enter');void v.offsetWidth;v.classList.add('enter')}}watchReveal(v);
  if(r.chat!==undefined)Chat.view(v,r.chat);
  else{const P=PAGES[r.page.id];const key=r.sec.id+'/'+r.page.id+'/'+(r.arg||[]).join('/');
   // Same page again (after a save, a toggle…): update in place. No skeleton flash, no replayed entrance animations.
@@ -239,8 +239,19 @@ function render(){
 function runPage(P,r,pg){const nav=S._nav;return Promise.resolve(P(r.page,pg,r)).catch(async e=>{if(e?.stale||nav!==S._nav||!pg.isConnected)return;if(e?.status&&e.status<500&&e.status!==429)return showError(pg,e);
  await sleep(1200);if(nav!==S._nav||!pg.isConnected)return;return Promise.resolve(P(r.page,pg,r)).catch(e2=>showError(pg,e2))})}
 }
-function paintSide(r){$('.side').innerHTML=sidebar(r||route())}
-function paintTop(r){$('.topbar').innerHTML=topbar(r||route())}
+function paintSide(r){const el=$('.side'),h=sidebar(r||route());if(el._h!==h){el._h=h;el.innerHTML=h}}
+function paintTop(r){const el=$('.topbar'),h=topbar(r||route());if(el._h!==h){el._h=h;el.innerHTML=h}}
+/* Calm motion. Things fade in when they first appear: a page you open, a menu, a toast, a dialog. When a view redraws
+   itself (a refresh, a save, a status update) nothing fades again: any entrance animation on redrawn content is finished
+   at once, so nothing flickers. Spinners and other endless animations are left alone. Opt in with data-anim. */
+const Calm={until:0,names:null,
+ opening(ms=900){this.until=performance.now()+ms},
+ entry(){if(this.names)return this.names;const s=new Set();for(const ss of document.styleSheets){let rules;try{rules=ss.cssRules}catch{continue}
+  for(const r of rules)if(r.type===7){const f=[...r.cssRules].find(k=>k.keyText==='0%'||k.keyText==='from');if(f&&f.style.opacity!==''&&Number(f.style.opacity)<.6)s.add(r.name)}}return this.names=s},
+ calm(n){if(performance.now()<this.until||n.closest?.('.menu,.toast,dialog,.drawer,.notice,[data-anim],.aq-menu'))return;
+  for(const a of n.getAnimations?.({subtree:true})||[]){const t=a.effect?.getTiming?.();if(a.animationName&&t&&t.iterations!==Infinity&&this.entry().has(a.animationName))a.finish()}}};
+new MutationObserver(list=>{for(const m of list)for(const n of m.addedNodes)if(n.nodeType===1)Calm.calm(n)}).observe(document.documentElement,{childList:true,subtree:true});
+Calm.opening(1500);
 function sidebar(r){
  const sec=r.sec;
  const sections=SECTIONS.map(s=>`<button class="sec ${s.id===sec.id?'on':''}" data-go="/${s.id}" title="${s.label} (${MOD}+${s.key})" aria-current="${s.id===sec.id?'page':'false'}">${icon(s.icon,19)}<span class="label">${s.label}</span><span class="kbd">${MOD} ${s.key}</span></button>`).join('');
@@ -285,7 +296,8 @@ function setActions(html){const a=$('.head-actions');if(!a)return;const vp=a.que
 function tabs(key,list,cur){cur=cur||S.tab[key]||list[0];return `<div class="tabs" data-tabs="${key}">${list.map(t=>`<button class="${t===cur?'on':''}" data-tab="${esc(t)}">${esc(t)}</button>`).join('')}<span class="pill"></span></div>`}
 const toggle=(on,label,attrs='')=>`<input type="checkbox" class="switch" ${on?'checked':''} aria-label="${esc(label)}" ${attrs}>`;
 const st=i=>`style="animation-delay:${Math.min(i,10)*30}ms"`;
-const skeleton=(n=4)=>`<div class="card list sk-list" style="padding:6px 22px">${Array.from({length:n},(x,i)=>`<div class="sk-item" style="--d:${i*90}ms"><span class="skel sk-ic"></span><span class="sk-lines"><span class="skel sk-l1" style="width:${[46,58,38,52,44,60][i%6]}%"></span><span class="skel sk-l2" style="width:${[72,64,80,68,76,58][i%6]}%"></span></span><span class="skel sk-end"></span></div>`).join('')}</div>`;
+const skeleton=()=>`<div class="skel loading" role="status" aria-label="Loading"><span class="ring"></span></div>`;
+const skeletonRows=(n=4)=>`<div class="card list sk-list" style="padding:6px 22px">${Array.from({length:n},(x,i)=>`<div class="sk-item" style="--d:${i*90}ms"><span class="skel sk-ic"></span><span class="sk-lines"><span class="skel sk-l1" style="width:${[46,58,38,52,44,60][i%6]}%"></span><span class="skel sk-l2" style="width:${[72,64,80,68,76,58][i%6]}%"></span></span><span class="skel sk-end"></span></div>`).join('')}</div>`;
 function showError(el,e,retry){if(!el||e?.stale||!el.isConnected)return;el.innerHTML=`<div class="card state-box err"><b>Couldn't load this</b>${esc(e?.message||e)}<br><button data-act="reload">${icon('refresh',15)}Try again</button></div>`}
 const emptyBox=(title,text,btn='')=>`<div class="empty-hero"><b style="display:block;font-size:17px;margin-bottom:6px">${esc(title)}</b><span style="color:var(--ink-2)">${esc(text)}</span>${btn?`<div style="margin-top:16px">${btn}</div>`:''}</div>`;
 // Tab bars are often re-rendered on switch, so each bar remembers where its pill was and a fresh pill
