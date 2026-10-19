@@ -409,7 +409,9 @@ function watchReveal(root){if(!root||root._reveal)return;root._reveal=new Mutati
  // one loaded fade per visit to a page: the first content that arrives may fade in; later redraws never do
  {const key=location.hash.split('?')[0]+'#'+(S._nav||0);if(root._fadeKey!==key){root._fadeKey=key;root._fadeUntil=0}if(root._fadeUntil&&performance.now()>root._fadeUntil)continue}
  {const key=location.hash.split('?')[0];if(root._seenKey!==key){root._seenKey=key;root._seen=new Map()}for(const r of m.removedNodes)if(r.nodeType===1&&!r.classList?.contains('skel')){const sg=(r.textContent||'').replace(/s+/g,' ').trim().slice(0,80);if(sg)root._seen.set(sg,1)}}
- if(![...m.removedNodes].some(n=>n.nodeType===1&&(n.classList?.contains('skel')||n.querySelector?.('.skel'))))continue;
+ // only a page that was loading fades in: a block skeleton went away (small inline placeholders, such as a summary still
+ // being written, do not count, or a later redraw would fade everything in again)
+ if(![...m.removedNodes].some(n=>n.nodeType===1&&(n.classList?.contains('skel')&&!n.closest?.('.sched-desc')&&n.tagName!=='I'||n.classList?.contains('skel-row')||n.querySelector?.('div.skel,.skel.loading,.skel-row'))))continue;
  let i=0;for(const n of m.addedNodes)if(n.nodeType===1&&!/^(SELECT|SCRIPT|STYLE|TEMPLATE)$/.test(n.tagName)&&!n.hidden&&!n.classList.contains('skel')&&!n.classList.contains('sel-native')&&!n.querySelector?.('.skel')){const sg=(n.textContent||'').replace(/s+/g,' ').trim().slice(0,80);root._seen??=new Map();const key=location.hash.split('?')[0];if(root._seenKey!==key){root._seenKey=key;root._seen=new Map()}if(sg&&root._seen.has(sg))continue;if(sg)root._seen.set(sg,1);if(!root._fadeUntil)root._fadeUntil=performance.now()+700;n.classList.remove('reveal');void n.offsetWidth;n.style.setProperty('--ri',i++);n.classList.add('reveal')}}});
  root._reveal.observe(root,{childList:true,subtree:true})}
 /* "0 3 * * 1" → "Mondays at 03:00": schedules in plain words (falls back to the original text) */
