@@ -187,7 +187,8 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
    const go=()=>(run.provider==='codex'?runCodex:run.provider==='gemini'?runGemini:runClaude)(run,options)
    let result=await go()
    // another Claude Code process (for example a desktop session) was refreshing the shared sign-in: wait and try once more
-   if(result.state==='failed'&&/refresh OAuth token/i.test(result.error||result.text||'')&&run.state!=='stopped'){run.emit({type:'message',text:'Claude was busy refreshing its sign-in. Retrying in 15 seconds…'});await new Promise(r=>setTimeout(r,15000));if(run.state!=='stopped')result=await go()}
+   // (other Claude programs on this computer share it, so wait a little longer each time, up to three tries)
+   for(const wait of [15,30,60]){if(!(result.state==='failed'&&/refresh OAuth token/i.test(result.error||result.text||'')&&run.state!=='stopped'))break;run.emit({type:'message',text:'Claude was busy refreshing its sign-in. Trying again in '+wait+' seconds…'});await new Promise(r=>setTimeout(r,wait*1000));if(run.state!=='stopped')result=await go()}
    // an output keeps its kind: if a run changed an existing output's kind (say, wrote a deck into a document's folder), its output.json goes back
    if(before){for(const [name,old] of Object.entries(before)){if(!/^outputs\/[a-z0-9-]+\/output\.json$/.test(name))continue;let was,now;try{was=JSON.parse(old).kind;now=JSON.parse(await store.read(run.projectId,name)).kind}catch{continue}if(was&&now&&was!==now){await writeFileAsync(path.join(cwd,name),old);run.emit({type:'tool',name:'Kept '+name.split('/')[1]+' as '+was,detail:'The AI tried to change it to '+now+'; make a new output for that instead.',status:'completed'})}}}
    const recorded=before?await store.serialize(()=>store.record(run.projectId,before,label(run.provider)+': '+shorten(run.prompt,60))):null,changed=recorded?.files||[]

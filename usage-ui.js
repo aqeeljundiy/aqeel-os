@@ -3,7 +3,8 @@ import {costOf} from './usage-cost.js';
 const $=id=>document.getElementById(id);
 const el=(tag,cls,text)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e};
 const fmt=n=>n>=1e9?(n/1e9).toFixed(2)+'B':n>=1e6?(n/1e6).toFixed(2)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':String(Math.round(n));
-const usd=n=>n==null?'—':n<0.01&&n>0?'<$0.01':'$'+n.toFixed(n<10?3:2);
+// in the currency aqeelOS uses (US dollars unless the person or the company picked rupiah)
+const usd=n=>{if(n==null)return '—';let c={};try{c=JSON.parse(localStorage.getItem('cba-currency')||'{}')}catch{}if(c.code==='IDR'){const v=n*(c.rate||16500);return v>0&&v<1?'<Rp1':'Rp'+Math.round(v).toLocaleString('id-ID')}return n<0.01&&n>0?'<$0.01':'$'+n.toFixed(n<10?3:2)};
 const PROVIDER={codex:'GPT',claude:'Claude',gemini:'Gemini'},SERIES=['codex','claude','gemini'];
 let token='',data=null,range=30,tipEl=null;
 
