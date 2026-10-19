@@ -16,7 +16,10 @@ function imageSize(b){try{if(b[0]===0x89)return {w:b.readUInt32BE(16),h:b.readUI
  let i=2;while(i<b.length){if(b[i]!==0xff)break;const m=b[i+1],len=b.readUInt16BE(i+2);if(m>=0xc0&&m<=0xc3)return {h:b.readUInt16BE(i+5),w:b.readUInt16BE(i+7)};i+=2+len}}catch{}return {}}
 import {findBrowser} from './platform.mjs';
 
-export const KINDS=['app','deck','doc','design','research','data','media'];
+export const KINDS=['app','task','deck','doc','design','research','data','media'];
+// Do a task: nothing is made; files the task collects go to the results folder, sorted by type
+export const RESULT_TYPES=[['Images',/\.(png|jpe?g|gif|webp|svg|avif|bmp|tiff?|heic|ico)$/i],['Videos',/\.(mp4|mov|webm|mkv|avi|m4v)$/i],['Audio',/\.(mp3|wav|m4a|ogg|flac|aac)$/i],['Documents',/\.(pdf|docx?|pptx?|txt|md|rtf|odt|html?)$/i],['Spreadsheets and data',/\.(xlsx?|csv|tsv|json|xml|ods|parquet|sqlite|db)$/i],['Archives',/\.(zip|rar|7z|tar|gz|tgz)$/i]];
+export function taskInstructions(dir){return `\n\nThe user wants a task done, not something made: do it with the browser tools, files and the other tools, and do not build an app, page or document unless asked.\nSave every file the task collects or produces into this results folder: ${dir}\nSort them into subfolders by type: ${RESULT_TYPES.map(t=>t[0]).join(', ')} and Other (make a subfolder only when it gets a file). Keep the original file names where you can, and never overwrite a different file with the same name (add -2, -3).\nWhen you are done, reply with what you did and a short list of what you saved, with where (for example: Images/hero.jpg).`}
 const SLUG=/^[a-z0-9][a-z0-9-]{0,59}$/;
 export const checkSlug=s=>{if(!SLUG.test(String(s||'')))throw Error('Unknown output.');return s};
 

@@ -2,6 +2,7 @@ import {spawn} from 'node:child_process';
 import {EFFORTS} from './models.mjs';
 import {readFile,access,appendFile,readdir} from 'node:fs/promises';
 import {homedir} from 'node:os';
+import {taskInstructions,RESULT_TYPES} from './outputs.mjs';
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {Workspace,buildSchema,isImage} from './workspace.mjs';
@@ -171,7 +172,8 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
     if(!run.system&&(s.agents||[]).length){run.agents=s.agents;if(run.provider!=='claude')run.extraInstructions+='\n\nHelper roles the user defined (take on the matching role when a task fits it):\n'+s.agents.map(a=>'- '+a.name+': '+a.description+(a.instructions?' Instructions: '+a.instructions.slice(0,800):'')).join('\n')}
     if(!run.system)run.extraInstructions+=await memoryInstructions(run.projectId,cwd)
     {const names=Object.keys(await readSecrets());if(names.length&&!run.system)run.extraInstructions+='\n\nSaved secrets you can use as environment variables (their values are hidden from you; never print, log or commit them): '+names.join(', ')+'.'}
-    if(run.kind&&run.kind!=='app'&&!run.system)run.extraInstructions+=kindInstructions(run.kind,await projectDS(run.projectId))
+    if(run.kind==='task'&&!run.system){run.resultsDir=await resultsDirFor(run.projectId,run.chatId);await makeDir(run.resultsDir,{recursive:true}).catch(()=>{});run.writeDirs=[run.resultsDir];run.extraInstructions+=taskInstructions(run.resultsDir)}
+    else if(run.kind&&run.kind!=='app'&&!run.system)run.extraInstructions+=kindInstructions(run.kind,await projectDS(run.projectId))
     if(STYLES[s.outputStyle])run.extraInstructions+='\n\nResponse style: '+STYLES[s.outputStyle];if(!run.webAccess)run.extraInstructions+='\n\nDo not access the internet in this session.'
     if(!run.system){const g=store.chat(run.projectId,run.chatId).goal;if(g)run.extraInstructions+='\n\nThis chat has a long-running goal. Keep working toward it and finish each reply with a one-line progress note.\nGoal: '+g}}
    const options={extraMcp:run.extraMcp,browserMcp:run.webAccess===false?null:browserMcp(),executable:provider.path,env:run.provider==='codex'?accounts.env(provider.profileId):provider.profileId&&claudeAccounts?claudeAccounts.env(provider.profileId):env,cwd,prompt:(run.fullPrompt||agentPrompt(chat,run.provider,run.prompt,Boolean(session)))+(run.mentions?.length?'\n\nFiles the user pointed to: '+run.mentions.join(', '):'')+(run.images?.length?'\n\n'+run.images.length+' image'+(run.images.length>1?'s are':' is')+' attached.':'')+(run.attachText||''),threadId:session,sessionId:session,mcpConfig:run.mcpConfig,onSession:id=>{if(!run.cwd)chat.sessions[run.provider]=id}}
@@ -190,6 +192,7 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
    const others=changed.length?[...agents.values()].filter(r=>r!==run&&r.projectId===run.projectId&&r.before&&live(r)):[];if(others.length){const now=await store.snapshot(run.projectId);for(const r of others)for(const n of changed){if(n in now)r.before[n]=now[n];else delete r.before[n]}}
    if(changed.length)for(const h of run.hooks.filter(h=>h.event==='files-changed'))await fireHook(run,h,cwd,{...hookEnv,CBA_FILES:changed.join('\n')})
    for(const h of run.hooks.filter(h=>h.event==='run-finished'))await fireHook(run,h,cwd,{...hookEnv,CBA_STATUS:result.state||'',CBA_FILES:changed.join('\n')})
+   if(run.resultsDir)run.sorted=await sortResults(run.resultsDir).catch(()=>0);
    run.result=result;run.changed=changed
    if(run.context&&!run.system&&!run.cwd)await store.serialize(async()=>{chat.context??={};chat.context[run.provider]={...run.context,at:Date.now(),compacted:Boolean(run.compacted)};await store.persist()})
    await recordUsage(run)
@@ -267,6 +270,12 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
    else if(j.action==='read'){const t=await call('text');text=page(t)+'\n\n'+(t.text||'')}
    else if(j.action==='back')text=page(await call('back',{}));
    else throw Error('Unknown browser action.');return {state:'complete',text}}catch(e){return {state:'failed',text:e.message}}}
+ // where a task's results go: the chat's own choice, or Downloads\<project> on this computer (<project>\Downloads online)
+ async function resultsDirFor(projectId,chatId){const c=store.chat(projectId,chatId);if(c?.resultsDir)return c.resultsDir;const p=store.project(projectId);const clean=String(p?.name||'Project').replace(/[<>:"/\\|?*\x00-\x1f]/g,'').replace(/[. ]+$/,'').trim().slice(0,60)||'Project';
+  return process.env.CBA_ONLINE?path.join(await store.folder(projectId),'Downloads'):path.join(homedir(),'Downloads',clean)}
+ // files left loose in the results folder go into their type's subfolder
+ async function sortResults(dir){const {rename}=await import('node:fs/promises');let n=0;for(const e of await readdir(dir,{withFileTypes:true}).catch(()=>[])){if(!e.isFile()||e.name.startsWith('.'))continue;const t=(RESULT_TYPES.find(([,re])=>re.test(e.name))||['Other'])[0];
+   await makeDir(path.join(dir,t),{recursive:true});let to=path.join(dir,t,e.name),i=2;while(await access(to).then(()=>true,()=>false)){const x=path.extname(e.name);to=path.join(dir,t,path.basename(e.name,x)+'-'+i+++x)}await rename(path.join(dir,e.name),to);n++}return n}
  const SECRETS=path.join(root,'data','secrets.json');
  const readSecrets=async()=>{try{return JSON.parse(await readFile(SECRETS,'utf8'))}catch{return {}}};
  function startAgent(job){if(!PROVIDERS.includes(job.provider))throw Error('Choose a connected provider.');if([...agents.values()].filter(live).length>=4)throw Error('Four AI runs are already working. Wait for one to finish.')
@@ -489,6 +498,9 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
    if(data.schedules!==undefined){for(const x of data.schedules||[])if(x.model||x.effort)checkModel({provider:x.provider,model:x.model,effort:x.effort});s.schedules=validateSchedules(data.schedules,store.state.projects.map(p=>p.id))}
    await writeFileAsync(path.join(root,'data','settings.json'),JSON.stringify(s,null,2));return send(200,{ok:true}),true}
   if(url.pathname==='/api/workspace/schedules/run'&&req.method==='POST'){const s=(await readSettings()).schedules?.find(x=>x.id===data.id);if(!s)throw Error('Schedule not found.');const chatId=await startScheduled(s);const st=await readScheduleState();st[s.id]={...st[s.id],lastRun:Date.now(),chatId,error:null,since:st[s.id]?.since||Date.now()};await writeFileAsync(scheduleFile,JSON.stringify(st,null,2));return send(200,{projectId:s.projectId,chatId}),true}
+  if(url.pathname==='/api/workspace/results'&&req.method==='GET')return send(200,{path:await resultsDirFor(url.searchParams.get('projectId'),url.searchParams.get('chatId')),online:Boolean(process.env.CBA_ONLINE)}),true;
+  if(url.pathname==='/api/workspace/results'&&req.method==='POST'){if(process.env.CBA_ONLINE)throw Error('Online tasks keep their results in the project.');const c=store.chat(data.projectId,data.chatId);if(!c)throw Error('No such chat.');
+   let p=data.path;if(data.pick){p=await platform.pickFolder('Choose where to save this task’s results');if(!p)return send(200,{cancelled:true}),true}c.resultsDir=p?path.resolve(String(p)):undefined;await store.persist();return send(200,{path:await resultsDirFor(data.projectId,data.chatId)}),true}
   if(url.pathname==='/api/workspace/secrets'&&req.method==='GET')return send(200,{names:Object.keys(await readSecrets())}),true;
   if(url.pathname==='/api/workspace/secret'&&req.method==='POST'){const name=String(data.name||'').trim().toUpperCase();if(!/^[A-Z][A-Z0-9_]{1,59}$/.test(name))throw Error('Use a name like GMAIL_PASSWORD: letters, numbers and _.');
    const all=await readSecrets();if(data.value===''||data.value==null)delete all[name];else all[name]=String(data.value).slice(0,8000);await makeDir(path.dirname(SECRETS),{recursive:true});await writeFileAsync(SECRETS,JSON.stringify(all),{mode:0o600});return send(200,{names:Object.keys(all)}),true}

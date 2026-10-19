@@ -13,9 +13,16 @@ const ASSETS=new Set(['.pdf','.webm','.mp4']);
 export function validateFile(name,asset=false){if(typeof name!=='string'||name.length>180||/[\\:<>?"*|]/.test(name)||name.startsWith('/')||name.split('/').some(s=>!s||s==='.'||s==='..'||s.startsWith('.')||/[. ]$/.test(s)||/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(s))||!(extensions.has(path.extname(name).toLowerCase())||asset&&ASSETS.has(path.extname(name).toLowerCase())))throw Error('Use a relative HTML, CSS, JS, JSON, Markdown, text or SVG file path.');return name}
 export class Workspace {
  constructor(root){this.root=root;this.projectsRoot=path.join(root,'projects');this.statePath=path.join(root,'workspace.json');this.queue=Promise.resolve()}
- async init(){await mkdir(this.projectsRoot,{recursive:true});try{this.state=JSON.parse(await readFile(this.statePath,'utf8'))}catch(e){if(e.code!=='ENOENT')throw e;this.state={projects:[]};await this.createProject('First website')}return this}
+ async init(){await mkdir(this.projectsRoot,{recursive:true});try{this.state=JSON.parse(await readFile(this.statePath,'utf8'));this.lastBackup=null}catch(e){if(e.code!=='ENOENT')throw e;
+  // no project list: restore the newest backup if there is one, and only start fresh on a truly new install
+  const dir=path.join(this.root,'backups');const last=(await readdir(dir).catch(()=>[])).filter(f=>f.startsWith('workspace-')).sort().pop();
+  if(last){this.state=JSON.parse(await readFile(path.join(dir,last),'utf8'));await this.persist();console.warn('workspace.json was missing: restored '+last)}else{this.state={projects:[]};await this.createProject('First website')}}return this}
  serialize(fn){const pending=this.queue.then(fn);this.queue=pending.catch(()=>{});return pending}
- async persist(){await writeFile(this.statePath+'.tmp',JSON.stringify(this.state,null,2));await rename(this.statePath+'.tmp',this.statePath)}
+ async persist(){const text=JSON.stringify(this.state,null,2);await writeFile(this.statePath+'.tmp',text);await rename(this.statePath+'.tmp',this.statePath);await this.backup(text).catch(()=>{})}
+ // a copy of the project list at most every 10 minutes, and always when the number of projects changes; the last 30 are kept
+ async backup(text){const dir=path.join(this.root,'backups');const n=this.state.projects.length;if(this.lastBackup&&Date.now()-this.lastBackup.at<600000&&this.lastBackup.n===n)return;
+  await mkdir(dir,{recursive:true});await writeFile(path.join(dir,'workspace-'+new Date().toISOString().replace(/[:.]/g,'-')+'-'+n+'p.json'),text);this.lastBackup={at:Date.now(),n};
+  const all=(await readdir(dir)).filter(f=>f.startsWith('workspace-')).sort();for(const f of all.slice(0,Math.max(0,all.length-30)))await unlink(path.join(dir,f)).catch(()=>{})}
  project(id){const p=this.state.projects.find(p=>p.id===id);if(!p)throw Error('Project not found.');return p}
  async folder(id){const p=this.project(id);return p.path||path.join(this.projectsRoot,id)}
  async file(id,name,asset=false){validateFile(name,asset);const root=await this.folder(id);const target=path.join(root,name);let parent=target;while(parent!==root){try{const info=await lstat(parent);if(info.isSymbolicLink())throw Error('Linked files and folders cannot be edited here.')}catch(e){if(e.code!=='ENOENT')throw e}parent=path.dirname(parent)}const resolved=await realpath(root);if(process.platform==='win32'?resolved.toLowerCase()!==root.toLowerCase():resolved!==root)throw Error('Project folder must not be a symbolic link.');return target}
@@ -35,7 +42,8 @@ export class Workspace {
   if(!p.path){try{await killProcessesIn(path.join(this.projectsRoot,id));await rm(path.join(this.projectsRoot,id),{recursive:true,force:true,maxRetries:10,retryDelay:300})}catch(e){if(e.code==='EBUSY'||e.code==='EPERM')throw Error('A program is still using this project folder. Close it (for example an editor or terminal open in that folder) and try again.');throw e}}
   this.state.projects.splice(i,1);await this.persist()}
  // remove app-made project folders that no project points to (left by an earlier failed delete)
- async sweep(){const keep=new Set(this.state.projects.map(p=>p.id));for(const d of await readdir(this.projectsRoot,{withFileTypes:true}).catch(()=>[]))if(d.isDirectory()&&!keep.has(d.name)){await killProcessesIn(path.join(this.projectsRoot,d.name));await rm(path.join(this.projectsRoot,d.name),{recursive:true,force:true,maxRetries:5,retryDelay:200}).catch(()=>{})}}
+ async sweep(){if(!this.state.projects.length)return;const keep=new Set(this.state.projects.map(p=>p.id));const aside=path.join(this.root,'orphaned');
+  for(const d of await readdir(this.projectsRoot,{withFileTypes:true}).catch(()=>[]))if(d.isDirectory()&&!keep.has(d.name)){await killProcessesIn(path.join(this.projectsRoot,d.name));await mkdir(aside,{recursive:true});await rename(path.join(this.projectsRoot,d.name),path.join(aside,d.name+'-'+Date.now())).catch(()=>{})}}
  async addFolder(folder,extra={}){const real=await realpath(folder);const info=await lstat(real);if(!info.isDirectory())throw Error('Choose a folder.');
   const same=(a,b)=>process.platform==='win32'?a.toLowerCase()===b.toLowerCase():a===b;const existing=this.state.projects.find(p=>p.path&&same(p.path,real));if(existing)return existing;
   const p={id:randomUUID(),name:extra.name||path.basename(real),path:real,chats:[{id:randomUUID(),title:'New chat',messages:[]}],versions:[],createdAt:Date.now(),...extra};this.state.projects.push(p);await this.persist();return p}

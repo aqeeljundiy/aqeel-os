@@ -24,9 +24,9 @@ const TASK_STATUS={pending:'pending',in_progress:'inProgress',completed:'complet
 // plan = read-only investigation that ends in a plan, full = no prompts at all (explicit opt-in).
 export const MODES=['ask','auto','plan','full'];
 export const PLAN_PROMPT='PLAN MODE: do not modify files or run commands that change anything. Investigate with read-only commands if needed, then reply with a concise numbered implementation plan, the files you would change, and any questions for the user. The user will approve the plan before you build it.\n\n';
-export function codexPolicy(mode,cwd){if(mode==='full')return {approvalPolicy:'never',sandbox:'danger-full-access',sandboxPolicy:{type:'dangerFullAccess'}};
+export function codexPolicy(mode,cwd,extra=[]){if(mode==='full')return {approvalPolicy:'never',sandbox:'danger-full-access',sandboxPolicy:{type:'dangerFullAccess'}};
  if(mode==='plan')return {approvalPolicy:'never',sandbox:'read-only',sandboxPolicy:{type:'readOnly',networkAccess:true}};
- return {approvalPolicy:mode==='auto'?'on-request':'untrusted',sandbox:'workspace-write',sandboxPolicy:{type:'workspaceWrite',writableRoots:[cwd],networkAccess:true,excludeTmpdirEnvVar:false,excludeSlashTmp:false}}}
+ return {approvalPolicy:mode==='auto'?'on-request':'untrusted',sandbox:'workspace-write',sandboxPolicy:{type:'workspaceWrite',writableRoots:[cwd,...extra],networkAccess:true,excludeTmpdirEnvVar:false,excludeSlashTmp:false}}}
 export const claudeMode=mode=>({ask:'default',auto:'acceptEdits',plan:'plan',full:'bypassPermissions'})[mode]||'default';
 const MAX_EVENTS=600,MAX_OUTPUT=20000;
 
@@ -120,7 +120,7 @@ export function runCodex(run,{executable,env,cwd,prompt,threadId,onSession,brows
  run.steer=async text=>{if(!turnId||done)throw Error('This run has already finished.');await client.call('turn/steer',{threadId:run.threadId,expectedTurnId:turnId,input:[{type:'text',text,text_elements:[]}]});run.emit({type:'steer',text})};
  (async()=>{try{
   await client.call('initialize',{clientInfo:{name:'code_by_aqeel',title:'aqeelOS Code',version:'0.2.0'}});client.send({method:'initialized'});
-  const policy=codexPolicy(run.mode,cwd);const options={cwd,approvalPolicy:policy.approvalPolicy,sandbox:policy.sandbox,developerInstructions:INSTRUCTIONS+(run.extraInstructions||''),...(run.model?{model:run.model}:{}),...(browserMcp&&run.mode!=='plan'?{config:{mcp_servers:{browser:browserMcp,...Object.fromEntries((extraMcp||[]).map(m=>[m.name,{command:m.command,args:m.args,env:m.env}]))}}}:{})};
+  const policy=codexPolicy(run.mode,cwd,run.writeDirs||[]);const options={cwd,approvalPolicy:policy.approvalPolicy,sandbox:policy.sandbox,developerInstructions:INSTRUCTIONS+(run.extraInstructions||''),...(run.model?{model:run.model}:{}),...(browserMcp&&run.mode!=='plan'?{config:{mcp_servers:{browser:browserMcp,...Object.fromEntries((extraMcp||[]).map(m=>[m.name,{command:m.command,args:m.args,env:m.env}]))}}}:{})};
   let thread;if(threadId){try{thread=(await client.call('thread/resume',{threadId,...options})).thread}catch{}}
   if(!thread)thread=(await client.call('thread/start',{...options,serviceName:'code_by_aqeel'})).thread;
   run.threadId=thread.id;onSession?.(thread.id);
@@ -137,6 +137,7 @@ export function runClaude(run,{executable,env,cwd,prompt,sessionId,onSession,bro
  const toolList=(CLAUDE_TOOLS+',Task'+(run.mode==='plan'?',ExitPlanMode':'')).split(',').filter(t=>run.webAccess!==false||!/^Web(Fetch|Search)$/.test(t)).join(',');
  const args=['-p','--input-format','stream-json','--output-format','stream-json','--verbose','--permission-prompt-tool','stdio','--permission-mode',claudeMode(run.mode),'--setting-sources','','--strict-mcp-config','--tools',toolList,'--append-system-prompt',INSTRUCTIONS+(run.extraInstructions||'')];
  if(run.mode==='full')args.push('--dangerously-skip-permissions');
+ for(const d of run.writeDirs||[])args.push('--add-dir',d);   // a task's results folder
  if(browserMcp&&run.mode!=='plan'){args.push('--mcp-config',JSON.stringify({mcpServers:{browser:{type:'stdio',...browserMcp},...Object.fromEntries((extraMcp||[]).map(m=>[m.name,{type:'stdio',command:m.command,args:m.args,env:m.env}]))}}));args.push('--allowedTools',...(run.mode==='ask'?BROWSER_READ:['mcp__browser']),'mcp__app',...(extraMcp||[]).filter(m=>m.permission==='allow').map(m=>'mcp__'+m.name))}
  if(run.agents?.length)args.push('--agents',JSON.stringify(Object.fromEntries(run.agents.map(a=>[a.name,{description:a.description,prompt:a.instructions||a.description,...(a.model?{model:a.model}:{})}]))));if(run.addDirs?.length)args.push('--add-dir',...run.addDirs);if(run.fast)args.push('--settings',JSON.stringify({fastMode:true}));if(run.model)args.push('--model',run.model);if(run.effort)args.push('--effort',run.effort);if(sessionId)args.push('--resume',sessionId);
  const child=spawn(executable,args,{cwd,env,windowsHide:true,shell:false});

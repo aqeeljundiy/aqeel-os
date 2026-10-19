@@ -2,6 +2,9 @@
 // The server adds the matching instructions for the AI (outputs.mjs).
 const svg=d=>'<svg viewBox="0 0 24 24" aria-hidden="true">'+d+'</svg>';
 export const KINDS=[
+ {id:'task',name:'Do a task',line:'Browse, collect and sort files. Nothing to build',icon:svg('<path d="M5 12.5l4 4L19 7"/><path d="M4 4h10M4 20h16"/>'),
+  placeholder:'Say what to do, for example: save the product photos from this page…',
+  templates:[['Save images from a page','Open [website] and save every product image on the page.'],['Collect prices','Go through [website] and collect each product name, price and link into a spreadsheet.'],['Sort my files','Look through the files in [folder] and sort them into folders by what they are.'],['Download documents','Find the PDF brochures on [website] and download them all.']]},
  {id:'app',name:'App or website',line:'Build and preview a working site',icon:svg('<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 9h18M7 6.5h.01M10 6.5h.01"/>'),
   placeholder:'Describe what to build or change…',
   templates:[['Portfolio site','Build a clean portfolio website with a projects section and a contact form.'],['Landing page','Make a one-page landing page for a coffee shop with a menu and opening hours.'],['Explain this project','Explain how this project is structured and how to run it.'],['Fix accessibility','Find and fix accessibility problems on the home page.']]},

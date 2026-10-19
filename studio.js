@@ -78,13 +78,17 @@ async function openChat(pid,cid){queueMicrotask(()=>mobile?.openedChat());if(pid
 const kindPick=new Map();
 const currentKind=()=>chat()?.kind||kindPick.get(chatId)||'app';
 function startScreen(){const wrap=document.createElement('div');wrap.className='make-start';const k=currentKind();
- const h=document.createElement('h2');h.textContent='What do you want to make?';const p=document.createElement('p');p.textContent='Pick one, or just type below. The right editor opens on the side, and you can change your mind any time.';
- const grid=document.createElement('div');grid.className='make-kinds';grid.setAttribute('role','radiogroup');grid.setAttribute('aria-label','What to make');
- for(const item of KINDS){const b=document.createElement('button');b.type='button';b.className='make-kind'+(item.id===k?' on':'');b.dataset.kind=item.id;b.setAttribute('role','radio');b.setAttribute('aria-checked',String(item.id===k));
-  const ic=document.createElement('span');ic.className='make-ico';ic.innerHTML=item.icon;const n=document.createElement('strong');n.textContent=item.name;const l=document.createElement('small');l.textContent=item.line;b.append(ic,n,l);
-  b.addEventListener('click',()=>{kindPick.set(chatId,item.id);paintKind();if(item.id!=='app')switchView('artifacts');const fresh=startScreen();wrap.replaceWith(fresh);fresh.querySelector('.make-kind.on')?.focus()});grid.append(b)}
- grid.addEventListener('keydown',e=>{const all=[...grid.children],i=all.indexOf(document.activeElement);if(i<0)return;const d={ArrowRight:1,ArrowDown:2,ArrowLeft:-1,ArrowUp:-2}[e.key];if(d){e.preventDefault();all[(i+d+all.length)%all.length].focus()}});
- const t=document.createElement('div');t.className='make-templates';const th=document.createElement('div');th.className='make-templates-head';th.textContent='Start from a template';const row=document.createElement('div');row.className='make-template-row';
+ // What should Code do? Do a task (nothing to build), or make something; templates fold away; bring existing work stays small
+ const h=document.createElement('h2');h.textContent='What should Code do?';const p=document.createElement('p');p.textContent='Pick one, or just type below. You can change your mind any time.';
+ const pick=id=>{kindPick.set(chatId,id);paintKind();if(id!=='app'&&id!=='task')switchView('artifacts');const fresh=startScreen();wrap.replaceWith(fresh);fresh.querySelector('[data-kind="'+id+'"]')?.focus()};
+ const task=KINDS.find(x=>x.id==='task');const tb=document.createElement('button');tb.type='button';tb.className='make-task'+(k==='task'?' on':'');tb.dataset.kind='task';tb.setAttribute('aria-pressed',String(k==='task'));
+ tb.innerHTML='<span class="make-ico">'+task.icon+'</span><span class="mt-t"><strong></strong><small></small></span>';tb.querySelector('strong').textContent=task.name;tb.querySelector('small').textContent=task.line+' · results go to Downloads, sorted by type.';tb.addEventListener('click',()=>pick('task'));
+ const mh=document.createElement('div');mh.className='make-head';mh.textContent='Or make something';
+ const grid=document.createElement('div');grid.className='make-chips';grid.setAttribute('role','radiogroup');grid.setAttribute('aria-label','What to make');
+ for(const item of KINDS.filter(x=>x.id!=='task')){const b=document.createElement('button');b.type='button';b.className='make-chip'+(item.id===k?' on':'');b.dataset.kind=item.id;b.setAttribute('role','radio');b.setAttribute('aria-checked',String(item.id===k));b.title=item.line;
+  const ic=document.createElement('span');ic.className='make-ico sm';ic.innerHTML=item.icon;b.append(ic,item.name);b.addEventListener('click',()=>pick(item.id));grid.append(b)}
+ grid.addEventListener('keydown',e=>{const all=[...grid.children],i=all.indexOf(document.activeElement);if(i<0)return;const d={ArrowRight:1,ArrowDown:1,ArrowLeft:-1,ArrowUp:-1}[e.key];if(d){e.preventDefault();all[(i+d+all.length)%all.length].focus()}});
+ const t=document.createElement('details');t.className='make-templates';const th=document.createElement('summary');th.className='make-templates-head';th.textContent='Start from a template';const row=document.createElement('div');row.className='make-template-row';
  for(const [name,text] of kindOf(k).templates){const b=document.createElement('button');b.type='button';b.className='make-template';b.dataset.kind=k;const thumb=document.createElement('span');thumb.className='make-thumb';thumb.innerHTML='<i></i><b></b><b></b>';b.append(thumb,name);
   b.addEventListener('click',()=>{const ta=$('chat-prompt');ta.value=text;ta.dispatchEvent(new Event('input'));ta.focus();const at=text.indexOf('[');if(at>=0)ta.setSelectionRange(at,text.indexOf(']',at)+1)});row.append(b)}
  t.append(th,row);
@@ -94,7 +98,7 @@ function startScreen(){const wrap=document.createElement('div');wrap.className='
  const fo=document.createElement('button');fo.type='button';fo.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 18V7a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span>Open a folder</span>';fo.onclick=()=>gitUI.newProjectMenu();
  const pull=document.createElement('button');pull.type='button';pull.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19h14"/></svg><span>Pull latest</span>';pull.title='Get the newest commits from GitHub into this project';pull.hidden=!project()?.path;
  pull.onclick=async()=>{try{await api('/git/run',{projectId,action:'pull'});notify('Pulled the latest changes.');await refreshFiles()}catch(e){notify(e.message)}};
- ex.append(gh,fo,pull);wrap.append(h,p,grid,t,ex);return wrap}
+ ex.append(gh,fo,pull);wrap.append(h,p,tb,mh,grid,t,ex);return wrap}
 // the composer shows the chosen kind as a chip; with no messages yet it can be cleared back to App
 function paintKind(){const k=kindOf(currentKind());$('chat-prompt').placeholder=k.placeholder;let chip=$('kind-chip');
  if(!chip){chip=document.createElement('div');chip.id='kind-chip';chip.className='kind-chip';$('chat-prompt').before(chip)}
@@ -628,3 +632,10 @@ function rebrand(name){brandName=name;document.title=document.title.replace(/aqe
 const KEEP='.message,.md,pre,code,textarea,input,[contenteditable],.editor-area,.xterm,.file-tree,.terminal,.msg-doc';
 function fix(t){if(!brandName||!t.nodeValue.includes('aqeelOS')||t.parentElement?.closest(KEEP))return;t.nodeValue=t.nodeValue.replace(/aqeelOS/g,brandName)}
 function sweep(root){if(!brandName)return;const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);for(let n;(n=w.nextNode());)fix(n);for(const e of root.querySelectorAll?.('[title],[aria-label],[placeholder]')||[])for(const k of ['title','aria-label','placeholder']){const v=e.getAttribute(k);if(v&&v.includes('aqeelOS')&&!e.closest(KEEP))e.setAttribute(k,v.replace(/aqeelOS/g,brandName))}}
+
+// Do a task: where its results go, shown above the message with Change… (this computer) or Open in Files (online)
+{const pk=paintKind;paintKind=(...a)=>{const r=pk(...a);paintResults();return r}}
+async function paintResults(){let row=$('results-row');if(currentKind()!=='task'||!projectId){if(row)row.hidden=true;return}
+ if(!row){row=document.createElement('div');row.id='results-row';row.className='results-row';row.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19h14"/></svg><span class="rp"></span><button type="button" class="rc">Change…</button>';
+  $('chat-prompt').before(row);row.querySelector('.rc').addEventListener('click',async()=>{try{const r=await api('/results',{projectId,chatId,pick:true});if(r.path)paintResults()}catch(e){notify(e.message)}})}
+ row.hidden=false;try{const r=await api('/results?projectId='+projectId+'&chatId='+chatId);row.querySelector('.rp').textContent='Saving to '+r.path.replace(/^.*[\\/](Downloads)[\\/]/i,'$1/').replace(/\\/g,'/');row.title=r.path;row.querySelector('.rc').hidden=r.online}catch{}}
