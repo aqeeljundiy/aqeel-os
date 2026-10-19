@@ -18,7 +18,12 @@ export function createN8n({BASE='https://n8n.elkiya.com',DATA,setKey,restart,nam
   const set=r.headers.getSetCookie?.()||[];const text=await r.text();let j=null;try{j=JSON.parse(text)}catch{}
   if(!r.ok)throw new Error((j?.message||('n8n answered '+r.status)).replace(/Do you have caps lock on\?/,'').trim());return {data:j?.data??j,set}}
  const cookieOf=set=>set.map(c=>c.split(';')[0]).filter(c=>/^n8n-auth=/.test(c)).join('; ');
- async function login(email,password,bid=SERVER_BID){const r=await rest('/rest/login',{method:'POST',body:{emailOrLdapLoginId:email,password},bid});const c=cookieOf(r.set);if(!c)throw new Error('n8n did not sign in.');return {cookie:c,set:r.set,user:r.data}}
+ // n8n allows only a few sign-ins a minute, so aqeelOS keeps its own sessions (30 minutes) instead of signing in per step.
+ // A browser's sign-in (its own browser id) is never cached: that cookie goes to the person.
+ const sessions=new Map();
+ async function login(email,password,bid=SERVER_BID){const k=email,s=sessions.get(k);if(bid===SERVER_BID&&s&&Date.now()-s.at<30*60e3)return s.v;
+  const r=await rest('/rest/login',{method:'POST',body:{emailOrLdapLoginId:email,password},bid});const c=cookieOf(r.set);if(!c)throw new Error('n8n did not sign in.');
+  const v={cookie:c,set:r.set,user:r.data};if(bid===SERVER_BID)sessions.set(k,{v,at:Date.now()});return v}
  // aqeelOS owns n8n: on a fresh n8n (no owner yet) it makes the owner account itself, so nobody types an n8n login
  let setupTried=0;
  async function autoSetup(){if(Date.now()-setupTried<60000)return false;setupTried=Date.now();
@@ -33,12 +38,16 @@ export function createN8n({BASE='https://n8n.elkiya.com',DATA,setKey,restart,nam
  // the agent's own n8n user (made once), and its tool connected as that user
  async function ensure(agent){await load();let u=db.users[agent];
   if(!u){const o=await owner();const email=('agent-'+agent).replace(/[^a-z0-9-]/gi,'').toLowerCase()+'@agents.elkiya.com',password='Aq'+randomBytes(18).toString('base64url')+'9';
+   // invite, then accept the invitation with its token (the link n8n returns: /signup?token=…). An invitation sent
+   // earlier and never accepted is picked up from the user list instead of inviting again.
    const inv=await rest('/rest/invitations',{method:'POST',body:[{email,role:'global:member'}],cookie:o.cookie});const it=(Array.isArray(inv.data)?inv.data:[])[0];
-   if(it?.error&&!/already/i.test(it.error))throw new Error(it.error);
-   const url=String(it?.user?.inviteAcceptUrl||'');const q=new URL(url,db.base).searchParams;const inviterId=q.get('inviterId'),inviteeId=q.get('inviteeId')||it?.user?.id;
-   if(!inviterId||!inviteeId)throw new Error('n8n did not make the user (maybe it already exists without aqeelOS knowing its password).');
-   await rest('/rest/invitations/'+inviteeId+'/accept',{method:'POST',body:{inviterId,firstName:names(agent),lastName:'(aqeelOS)',password}});
-   u=db.users[agent]={email,password,id:inviteeId,made:Date.now()};await save()}
+   let link=String(it?.user?.inviteAcceptUrl||''),id=it?.user?.id;
+   if(!link){const list=(await rest('/rest/users',{cookie:o.cookie})).data;const all=Array.isArray(list)?list:list?.items||[];const x=all.find(y=>String(y.email).toLowerCase()===email);
+    if(x&&!x.isPending)throw new Error('An n8n user '+email+' already exists and aqeelOS doesn’t know its password. Remove it in n8n (Open as owner › Settings › Users), then try again.');
+    link=String(x?.inviteAcceptUrl||'');id=x?.id}
+   const token=new URL(link||'/',db.base).searchParams.get('token');if(!token)throw new Error(it?.error||'n8n did not make the user.');
+   await rest('/rest/invitations/accept',{method:'POST',body:{token,firstName:names(agent),lastName:'(aqeelOS)',password}});
+   u=db.users[agent]={email,password,id,made:Date.now()};await save()}
   if(!u.mcp){const s=await login(u.email,u.password);let k=null;try{k=(await rest('/rest/mcp/api-key',{cookie:s.cookie})).data}catch{}
    if(!k?.apiKey)k=(await rest('/rest/mcp/api-key/rotate',{method:'POST',cookie:s.cookie})).data;
    if(!k?.apiKey)throw new Error('n8n did not give an MCP key.');u.mcp=true;await save();
