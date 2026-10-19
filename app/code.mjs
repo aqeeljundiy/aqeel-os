@@ -48,12 +48,16 @@ export function createCode({DATA,SRC,PUBLIC_URL,ROOT}){
 
  async function devices(user){await load();return Object.entries(db.devices).filter(([,d])=>d.user===user).map(([h,d])=>({id:h.slice(0,12),...d}))}
  async function unpair(user,id){await load();for(const [h,d] of Object.entries(db.devices))if(d.user===user&&h.startsWith(id))delete db.devices[h];await save()}
- const version=async()=>{try{return JSON.parse(await readFile(path.join(SRC,'package.json'),'utf8')).version||'0'}catch{return '0'}};
+ // the version is the commit the box's copy of the source is at (it changes with every pull)
+ const version=async()=>{try{const head=(await readFile(path.join(SRC,'.git','HEAD'),'utf8')).trim();if(!head.startsWith('ref:'))return head.slice(0,12);const ref=head.slice(4).trim();
+   const sha=await readFile(path.join(SRC,'.git',ref),'utf8').catch(async()=>((await readFile(path.join(SRC,'.git','packed-refs'),'utf8')).split('\n').find(l=>l.endsWith(' '+ref))||'').split(' ')[0]);return String(sha).trim().slice(0,12)||'0'}catch{return '0'}};
+ // what an installed app fetches to update itself: the source, and this install's address and version
+ async function update(){const v=await version();const files=await walk(SRC);files.push(['aqeelos.json',Buffer.from(JSON.stringify({aqeelos:{base:PUBLIC_URL,origins:[PUBLIC_URL],version:v}},null,1))]);return {version:v,zip:zip(files.map(f=>[f[0],f[1],/\.(command|sh)$/.test(f[0])]))}}
  // the download for one kind of computer
  async function download(os){const files=(await walk(SRC)).map(([n,b])=>['aqeelOS Code/'+n,b]);
-  const cfg=JSON.stringify({aqeelos:{base:PUBLIC_URL,origins:[PUBLIC_URL]}},null,1);files.push(['aqeelOS Code/aqeelos.json',Buffer.from(cfg)]);
+  const cfg=JSON.stringify({aqeelos:{base:PUBLIC_URL,origins:[PUBLIC_URL],version:await version()}},null,1);files.push(['aqeelOS Code/aqeelos.json',Buffer.from(cfg)]);
   const tpl=f=>readFile(path.join(ROOT,'code-installer',f));
   if(os==='windows'){files.push(['aqeelOS Code/Install aqeelOS Code.cmd',await tpl('install.cmd')],['aqeelOS Code/install.ps1',await tpl('install.ps1')])}
   else files.push(['aqeelOS Code/Install aqeelOS Code.command',await tpl('install.command'),true]);
   return zip(files.map(f=>f.length===3?f:[f[0],f[1],/\.(command|sh)$/.test(f[0])]))}
- return {pair,who,devices,unpair,version,download,poll,done,projectsFor,work}}
+ return {pair,who,devices,unpair,version,update,download,poll,done,projectsFor,work}}

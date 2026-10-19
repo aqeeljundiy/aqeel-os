@@ -940,6 +940,7 @@ const server=createServer(async(req,res)=>{
      const j=await r.json().catch(()=>({}));if(!r.ok)return send(res,502,{error:j.error?.message||j.error||'The agent did not answer ('+r.status+').'});
      console.log('code: '+(who.name||who.id)+' asked',a,'from aqeelOS Code');return send(res,200,{agent:a,agentName:NAMES[a]||await displayName(a),text:j.choices?.[0]?.message?.content||''})}catch(e){return send(res,504,{error:'The agent took too long: '+e.message})}}
    if(p==='/ui/code/version')return send(res,200,{version:await code.version()});
+   if(p==='/ui/code/update'){const u=await code.update();res.writeHead(200,{'content-type':'application/zip','content-length':u.zip.length,'x-code-version':u.version,'cache-control':'no-store'});return res.end(u.zip)}
    if(p==='/ui/code/poll'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,262144))}catch{}const job=await code.poll(dev,b.projects);return send(res,200,{job})}
    if(p==='/ui/code/done'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,262144))}catch{}return send(res,200,{ok:code.done(dev,b.id,{state:String(b.state||''),text:String(b.text||'').slice(0,20000),files:(b.files||[]).slice(0,200).map(String),chat:String(b.chat||'')})})}
    return send(res,404,{error:'Not found'})}

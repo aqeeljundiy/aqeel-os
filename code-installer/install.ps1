@@ -1,6 +1,7 @@
 # aqeelOS Code for Windows: copies the app to your user folder, makes it start (hidden) when you sign in to Windows,
 # starts it now and opens Code in aqeelOS. Run it again to update or repair. Nothing needs administrator rights,
 # except installing Node.js the first time (Windows asks).
+param([switch]$NoOpen)   # -NoOpen: install without opening aqeelOS (for checks)
 $ErrorActionPreference = 'Stop'
 $src  = Split-Path -Parent $MyInvocation.MyCommand.Path
 $dest = Join-Path $env:LOCALAPPDATA 'aqeelOS Code'
@@ -18,7 +19,7 @@ if ((NodeMajor) -lt 22) {
 }
 
 # 2. Stop a running copy, then copy the app (your projects and settings in its data folder stay)
-Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like "*aqeelOS Code*server.mjs*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+Get-CimInstance Win32_Process | Where-Object { ($_.Name -eq 'wscript.exe' -and $_.CommandLine -like "*aqeelOS Code*start-hidden.vbs*") -or ($_.Name -eq 'node.exe' -and $_.CommandLine -like "*aqeelOS Code*server.mjs*") } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 New-Item -ItemType Directory -Force -Path $dest | Out-Null
 robocopy $src $dest /E /XF 'Install aqeelOS Code.cmd' 'install.ps1' /NFL /NDL /NJH /NJS /NP | Out-Null
 Push-Location $dest
@@ -32,7 +33,10 @@ $vbs = Join-Path $dest 'start-hidden.vbs'
 Set sh = CreateObject("WScript.Shell")
 sh.CurrentDirectory = "$dest"
 sh.Environment("Process")("HUB_PORT") = "4321"
-sh.Run "node server.mjs", 0, False
+Do
+  sh.Run "node ""$dest\server.mjs""", 0, True
+  WScript.Sleep 3000
+Loop
 "@ | Set-Content -Encoding ASCII $vbs
 $startup = [Environment]::GetFolderPath('Startup')
 $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $startup 'aqeelOS Code.lnk'))
@@ -47,5 +51,5 @@ foreach ($t in @(@('claude','Claude Code','https://claude.com/claude-code'), @('
 # 5. Open Code in aqeelOS
 $base = (Get-Content (Join-Path $dest 'aqeelos.json') -Raw | ConvertFrom-Json).aqeelos.base
 Start-Sleep -Seconds 3
-Start-Process ($base + '/#/code/code')
+if (-not $NoOpen) { Start-Process ($base + '/#/code/code') }
 Write-Host "Done. aqeelOS Code runs in the background and opens inside aqeelOS." -ForegroundColor Green

@@ -1,5 +1,6 @@
 # n8n workflow automation, connected to aqeelOS (MCP at https://n8n.elkiya.com). Data lives in the n8n-data-v2 volume (owned by aqeelOS since 19 Oct 2026; the earlier n8n-data volume is kept, unused).
 # All of n8n.elkiya.com goes through "edge" (caddy): /aqeelos-login goes to aqeelOS (opens an agent's n8n without signing in),
+# code.elkiya.com and code-preview.elkiya.com (aqeelOS Code online) go to aqeelOS, which checks the sign-in;
 # everything else to n8n, which may then be shown inside aqeelOS (https://ai.elkiya.com) and nowhere else.
 services:
   n8n:
@@ -34,6 +35,10 @@ services:
       - |
         cat > /etc/caddy/Caddyfile <<'CADDY'
         :80 {
+          @code host code.elkiya.com code-preview.elkiya.com
+          handle @code {
+            reverse_proxy claude-box-ibjaqq-ai-box-1:4400
+          }
           handle /aqeelos-login* {
             reverse_proxy claude-box-ibjaqq-ai-box-1:4400
           }
