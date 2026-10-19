@@ -1324,3 +1324,51 @@ body.embed .work-heading .top-actions .icon-btn{flex:none}
 #browser-view>.browser-tabs{display:none}
 .preview-tab .preview-dot{width:8px;height:8px;border-radius:50%;background:#16a34a;flex:none;margin-right:6px}
 .preview-tab .browser-tab-open{display:inline-flex;align-items:center}
+
+/* inside aqeelOS: one model pill and an aqeelOS menu (the separate agent and model pickers are hidden) */
+body.embed .aq-picker .dd:has(#agent-pick),body.embed .aq-picker .dd:has(#model-name){display:none!important}
+body.embed .aq-pill{display:inline-flex;align-items:center;gap:6px;min-height:34px;max-width:240px;padding:0 12px;font-size:13px;border:1px solid transparent;border-radius:var(--r-pill);background:var(--soft-2);color:var(--ink);box-shadow:none;cursor:pointer;transition:background .15s,border-color .15s}
+body.embed .aq-pill:hover{background:var(--soft)}
+body.embed .aq-pill[aria-expanded=true]{border-color:#c4d5f3;background:var(--surface)}
+body.embed .aq-pill span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.aq-chev{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none;opacity:.7}
+body.embed .dd:has(#effort) .dd-val::before{content:'Effort ';color:var(--muted)}
+.aq-menu{position:fixed;z-index:60;min-width:240px;max-width:300px;max-height:min(380px,60vh);overflow-y:auto;scrollbar-width:thin;padding:6px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);box-shadow:0 18px 40px -16px rgba(15,23,42,.28),0 2px 8px rgba(15,23,42,.06);animation:aqMenuIn .16s cubic-bezier(.2,.8,.2,1)}
+.aq-menu.out{animation:aqMenuOut .14s ease forwards}
+.aq-menu .mh{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:10px 10px 4px}
+.aq-menu hr{border:0;border-top:1px solid var(--border);margin:6px 4px}
+.aq-menu .item{display:flex;align-items:center;gap:10px;width:100%;min-height:36px;padding:0 10px;border:0;border-radius:8px;background:transparent;color:var(--ink);font-size:13.5px;text-align:left;cursor:pointer;box-shadow:none;transition:background .12s}
+.aq-menu .item:hover,.aq-menu .item:focus-visible{background:var(--soft-2);outline:none}
+.aq-menu .item.cur{background:var(--blue-soft);color:var(--blue-deep)}
+.aq-menu .item .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.aq-menu .av{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--soft);color:var(--ink-2);font-size:11px;font-weight:600}
+.aq-menu .item.cur .av{background:var(--blue);color:#fff}
+.aq-check{width:15px;height:15px;fill:none;stroke:var(--blue);stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.aq-menu .mi-find{display:flex;align-items:center;margin:2px 2px 6px}
+.aq-menu .mi-find input{width:100%;min-height:32px;border-radius:8px;padding:4px 10px;font-size:13px}
+.dark .aq-menu{box-shadow:0 18px 40px -16px rgba(0,0,0,.6)}
+@keyframes aqMenuIn{from{opacity:0;transform:translateY(4px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes aqMenuOut{to{opacity:0;transform:translateY(4px) scale(.98)}}
+@media (prefers-reduced-motion:reduce){.aq-menu,.aq-menu.out{animation:none}}
+
+/* inside aqeelOS: the composer bar like aqeelOS (plain icon tools, soft pills, no hint line unless it matters) */
+body.embed .chat-form textarea{min-height:48px;padding:4px 0}
+body.embed .composer-tools .attach-button{width:34px;height:34px;min-height:34px;padding:0;border:0;border-radius:50%;background:transparent;box-shadow:none;color:var(--ink-2);display:grid;place-items:center;transition:background .15s}
+body.embed .composer-tools .attach-button:hover{background:var(--soft-2)}
+body.embed .composer-tools .dict-lang{display:none}
+body.embed .composer-controls .dd-pill .dd-btn,body.embed .aq-pill{min-height:32px;height:32px;border-color:transparent;background:var(--soft-2);box-shadow:none}
+body.embed .aq-pill{flex:0 1 auto;min-width:0;max-width:190px;font-size:12.5px;padding:0 11px}
+body.embed .chat-form:not(.multi-on) .composer-tools .dd:has(#multi) .dd-val{display:none}
+body.embed #composer-hint:not(.warn){display:none}
+body.embed .chat-form.multi-on #composer-hint{display:block}
+/* inside aqeelOS: room for one composer row (you can still drag the column), and the bar never splits in two */
+@media (min-width:851px){:root:has(body.embed){--chat:440px}}
+body.embed .composer-controls{flex-wrap:nowrap!important;row-gap:0}
+body.embed .composer-controls .model-pickers{order:0!important;flex-basis:auto!important;margin-left:auto!important;min-width:0}
+body.embed .composer-controls>#send,body.embed .composer-controls>#stop-run{margin-left:2px!important}
+body.embed .aq-pill{max-width:150px}
+@container (max-width:460px){body.embed .dd:has(#effort) .dd-val::before{content:''}}
+body.embed .composer-tools .dd:has(#mode) .dd-chev,body.embed .composer-tools .dd:has(#multi) .dd-chev{display:none}
+body.embed .composer-tools .dd-pill .dd-btn{padding:5px 9px}
+body.embed .composer-controls .model-pickers .aq-pill{flex:1 1 auto;min-width:96px;max-width:200px}
+body.embed .composer-controls .model-pickers .dd:has(#effort){flex:none}

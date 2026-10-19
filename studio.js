@@ -460,3 +460,48 @@ if(document.body.classList.contains('embed'))for(const [v,t,d] of [['ask','Ask m
  const f=document.createElement('form');f.className='preview-address';const i=document.createElement('input');i.setAttribute('aria-label','Open a website in a new tab');i.placeholder='Open a website';i.autocomplete='off';i.spellcheck=false;f.append(i);
  $('preview-path').before(f);f.addEventListener('submit',e=>{e.preventDefault();const v=i.value.trim();if(!v)return;i.value='';i.blur();openWeb(v)});
  ensureBrowser();mark()}
+
+// Inside aqeelOS the composer picks like aqeelOS does: one pill ("Donna AI · Opus") opens one short menu with the
+// agents and the coding AIs and their models (plain rows: name and a check, never lists of connected apps), and
+// Effort beside it. The hidden pickers stay the source of truth, so runs, Compare and Team work as before.
+if(document.body.classList.contains('embed')){
+ const host=document.querySelector('.model-pickers');host.classList.add('aq-picker');
+ const pill=document.createElement('button');pill.type='button';pill.className='aq-pill';pill.setAttribute('aria-haspopup','menu');pill.setAttribute('aria-expanded','false');host.prepend(pill);
+ const NAMES={claude:'Claude Code',codex:'Codex',gemini:'Gemini'};
+ const agentName=()=>{const v=$('agent-pick').value;return v?($('agent-pick').selectedOptions[0]?.textContent||v):''};
+ const modelName=()=>{const o=$('model-name').selectedOptions[0];const n=o?.textContent||'Default';return n==='Default model'?'Default':n};
+ const chev='<svg class="aq-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
+ const paint=()=>{const a=agentName();pill.replaceChildren();const t=document.createElement('span');t.textContent=(a?a+' · ':'')+modelName();pill.append(t);pill.insertAdjacentHTML('beforeend',chev);pill.title=(a?a+' with ':'')+(NAMES[$('provider-pick').value]||'')+' · '+modelName()};
+ for(const id of ['agent-pick','model-name','model','provider-pick'])$(id).addEventListener('change',()=>setTimeout(paint));
+ new MutationObserver(paint).observe($('model-name'),{childList:true,subtree:true});new MutationObserver(paint).observe($('agent-pick'),{childList:true});paint();
+ let menu=null;const close=()=>{if(!menu)return;const m=menu;menu=null;m.classList.add('out');setTimeout(()=>m.remove(),140);pill.setAttribute('aria-expanded','false')};
+ const check='<svg class="aq-check" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+ function open(){close();const m=document.createElement('div');m.className='aq-menu';m.setAttribute('role','menu');const rows=[];
+  const head=t=>{const h=document.createElement('div');h.className='mh';h.textContent=t;m.append(h)};
+  const item=(label,on,run,lead)=>{const b=document.createElement('button');b.type='button';b.className='item'+(on?' cur':'');b.setAttribute('role','menuitemradio');b.setAttribute('aria-checked',String(on));
+   if(lead){const i=document.createElement('span');i.className='av';i.textContent=lead;b.append(i)}
+   const s=document.createElement('span');s.className='t';s.textContent=label;b.append(s);if(on)b.insertAdjacentHTML('beforeend',check);
+   b.addEventListener('click',()=>{run();close();pill.focus()});m.append(b);rows.push(b)};
+  // who works: an aqeelOS agent (its abilities come along) or the coding AI on its own
+  const ag=[...$('agent-pick').options];
+  if(ag.length>1){head('Agent');for(const o of ag)item(o.value?o.textContent:'No agent',o.value===$('agent-pick').value,()=>{$('agent-pick').value=o.value;$('agent-pick').dispatchEvent(new Event('change'))},o.value?(o.textContent.trim()[0]||'?').toUpperCase():'–')}
+  // the coding AI and its model
+  for(const g of $('model-name').querySelectorAll('optgroup')){const prov=(g.querySelector('option')?.value||'').split(':')[0];if(m.children.length)m.append(document.createElement('hr'));head(NAMES[prov]||g.label);
+   for(const o of g.querySelectorAll('option'))item(o.textContent==='Default model'?'Default':o.textContent,o.value===$('model-name').value,()=>{$('model-name').value=o.value;$('model-name').dispatchEvent(new Event('change'))})}
+  // long lists get a search box, like aqeelOS
+  if(rows.length>9){const f=document.createElement('div');f.className='mi-find';const i=document.createElement('input');i.placeholder='Search';i.setAttribute('aria-label','Search agents and models');f.append(i);m.prepend(f);
+   i.addEventListener('input',()=>{const q=i.value.trim().toLowerCase();for(const b of rows)b.hidden=!!q&&!b.textContent.toLowerCase().includes(q);for(const x of m.querySelectorAll('.mh,hr'))x.hidden=!!q})}
+  document.body.append(m);const r=pill.getBoundingClientRect(),h=m.offsetHeight,w=m.offsetWidth;
+  m.style.left=Math.max(8,Math.min(r.left,innerWidth-w-8))+'px';m.style.top=(r.top-h-8>8?r.top-h-8:r.bottom+8)+'px';
+  menu=m;pill.setAttribute('aria-expanded','true');(m.querySelector('.item.cur')||m.querySelector('.item'))?.scrollIntoView({block:'nearest'});m.querySelector('.mi-find input')?.focus()}
+ pill.addEventListener('click',e=>{e.stopPropagation();menu?close():open()});
+ addEventListener('click',e=>{if(menu&&!menu.contains(e.target))close()});
+ addEventListener('keydown',e=>{if(e.key==='Escape'&&menu){close();pill.focus()}});addEventListener('resize',close)}
+
+// Inside aqeelOS the composer bar is laid out like aqeelOS's: tools on the left (attach, voice), choices on the right
+// (Ask me, 1 AI / Compare / Team, who and which model, effort), then send. The hint line only shows when it says
+// something you need (nothing connected, or what Compare / Team will do).
+if(document.body.classList.contains('embed')){
+ const tools=document.querySelector('.composer-tools'),right=document.querySelector('.model-pickers');
+ const form=$('chat-form');const sync=()=>form.classList.toggle('multi-on',$('multi').value!=='single');$('multi').addEventListener('change',sync);sync();
+ $('chat-prompt').rows=2}
