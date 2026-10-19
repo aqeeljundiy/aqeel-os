@@ -119,6 +119,7 @@ const server=http.createServer(async(req,res)=>{
   // aqeelOS: this computer's link (shown inside aqeelOS, paired by the page with a key aqeelOS gives it)
   if(url.pathname==='/api/aqeelos'&&req.method==='GET')return send(200,await aqeelos.state());
   if(url.pathname==='/api/aqeelos/pair'&&req.method==='POST'){let body='';for await(const c of req){body+=c;if(body.length>4000)return send(413,{error:'Too large.'})}const d=JSON.parse(body||'{}');try{return send(200,await aqeelos.pair(String(d.base||''),String(d.token||'')))}catch(e){return send(400,{error:e.message})}}
+  if(url.pathname==='/api/aqeelos/update'&&req.method==='POST')return send(200,await aqeelos.checkUpdate());
   if(url.pathname==='/api/aqeelos/agents'&&req.method==='GET')return send(200,{agents:await aqeelos.agents()});
   if(url.pathname==='/api/aqeelos/unpair'&&req.method==='POST')return send(200,await aqeelos.unpair());
   if(url.pathname==='/api/remote'&&req.method==='GET')return send(200,remote.view(server.address().port));
