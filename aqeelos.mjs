@@ -55,7 +55,12 @@ export function createAqeelos({root}){
  let peopleList=[],peopleAt=0;
  async function people(){await load();if(!link.token)return [];if(Date.now()-peopleAt<60000)return peopleList;
   try{const r=await fetch(link.base+'/ui/code/people',{headers:{authorization:'Bearer '+link.token},signal:AbortSignal.timeout(10000)});if(r.ok){peopleList=(await r.json()).people||[];peopleAt=Date.now()}}catch{}return peopleList}
- return {origins,state,pair,unpair,mcp,agents,serve,checkUpdate,autoUpdate,reportUsage,people}}
+ // Live: send a project (zip) to aqeelOS, which runs it on the server at <slug>.app.elkiya.com
+ async function publish(zip,{name,slug,repo,db}){await load();if(!link.token)throw Error('Connect this app to aqeelOS first (open Code in aqeelOS).');
+  const q=new URLSearchParams({name:name||'',slug:slug||'',repo:repo||'',db:db?'1':''});
+  const r=await fetch(link.base+'/ui/code/publish?'+q,{method:'POST',headers:{authorization:'Bearer '+link.token,'content-type':'application/zip'},body:zip,signal:AbortSignal.timeout(600000)});
+  const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'aqeelOS did not take it ('+r.status+').');return j}
+ return {origins,state,pair,unpair,mcp,agents,serve,checkUpdate,autoUpdate,reportUsage,people,publish}}
 // the entries of a stored (uncompressed) zip, as aqeelOS makes them
 function unzip(buf){const out=[];let i=0;while(i+30<=buf.length&&buf.readUInt32LE(i)===0x04034b50){const size=buf.readUInt32LE(i+18),nl=buf.readUInt16LE(i+26),xl=buf.readUInt16LE(i+28);
   const name=buf.slice(i+30,i+30+nl).toString();const start=i+30+nl+xl;out.push([name,buf.slice(start,start+size)]);i=start+size}return out}

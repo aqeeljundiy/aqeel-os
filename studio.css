@@ -1467,3 +1467,13 @@ details.make-templates[open] .make-template-row{margin-top:8px;animation:arrive 
 .share-seg button.on{background:var(--surface,#fff);color:var(--ink,#0b0c10);box-shadow:0 1px 3px rgba(0,0,0,.12)}
 .share-dialog{width:min(560px,calc(100vw - 32px))}
 .share-row{flex-wrap:wrap}
+
+/* Publish to Live */
+.publish-dialog{width:min(520px,calc(100vw - 32px))}.publish-dialog form{display:grid;gap:12px}
+.pub-l{display:grid;gap:6px;font-size:13px;font-weight:600;color:var(--ink-2)}.pub-l input{font:inherit;font-weight:500;min-height:40px;padding:8px 12px;border-radius:12px;border:1px solid var(--line,var(--border));background:var(--surface,#fff);color:var(--ink)}
+.pub-addr{display:flex;align-items:center;gap:6px}.pub-addr input{flex:1;min-width:0}.pub-addr span{font-weight:500;color:var(--muted);white-space:nowrap}
+.pub-db{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--line,var(--border));border-radius:12px;cursor:pointer;transition:border-color .2s ease,background .2s ease}
+.pub-db:has(input:checked){border-color:var(--accent,#0158cb);background:var(--soft,rgba(1,88,203,.05))}.pub-db input{margin-top:3px}.pub-db b{display:block;font-size:13.5px}.pub-db small{display:block;color:var(--muted);font-size:12px;margin-top:2px;line-height:1.45}
+.pub-state{display:flex;align-items:center;gap:8px;margin:0;font-size:13px;color:var(--ink-2)}
+.pub-state .ring{width:16px;height:16px;border-radius:50%;background:conic-gradient(from 0deg,transparent 0 25%,var(--accent,#0158cb));-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 2.5px),#000 calc(100% - 2px));mask:radial-gradient(farthest-side,transparent calc(100% - 2.5px),#000 calc(100% - 2px));animation:pubSpin .8s linear infinite;flex:none}
+@keyframes pubSpin{to{transform:rotate(360deg)}}

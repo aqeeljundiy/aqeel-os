@@ -70,7 +70,7 @@ const devUI=createDevUI({api:(r,b)=>api(r,b),projectId:()=>projectId,notify:t=>n
  showLogs:(text,title)=>{if(text===null){terminalUI.setDev(null);return}$('terminal').hidden=false;$('terminal-toggle').setAttribute('aria-expanded','true');terminalUI.setDev(text,title+' logs')}});
 let terminalUI=null;
 let peopleCache=null,meId='';
-const sidebar=createSidebar({online:()=>isOnline,shareProject:p=>shareProject(p),outputs:()=>artifactsUI?.list()||[],deleteOutput:slug=>ensureArtifacts().remove(slug),openOutput:slug=>{switchView('artifacts');artifactsUI?.show(slug);mobile?.showWork()},container:()=>$('projects'),projects:()=>projects,projectId:()=>projectId,chatId:()=>chatId,runs:()=>agentUI.runs(),api:(r,b)=>api(r,b),notify:t=>notify(t),refresh:()=>refreshState(),
+const sidebar=createSidebar({online:()=>isOnline,shareProject:p=>shareProject(p),publish:p=>publishProject(p),outputs:()=>artifactsUI?.list()||[],deleteOutput:slug=>ensureArtifacts().remove(slug),openOutput:slug=>{switchView('artifacts');artifactsUI?.show(slug);mobile?.showWork()},container:()=>$('projects'),projects:()=>projects,projectId:()=>projectId,chatId:()=>chatId,runs:()=>agentUI.runs(),api:(r,b)=>api(r,b),notify:t=>notify(t),refresh:()=>refreshState(),
  selectProject:id=>selectProject(id).catch(e=>notify(e.message)),fileManager:()=>platformInfo.fileManager,editInstructions:()=>editInstructions(),projectSettings:p=>projectSettings(p),openChat:(pid,cid)=>openChat(pid,cid).catch(e=>notify(e.message))});
 function renderProjects(){sidebar.render()}
 async function openChat(pid,cid){queueMicrotask(()=>mobile?.openedChat());if(pid!==projectId){if(!discard())return;await selectProject(pid,cid)}else{await leaveTemporary(cid);chatId=cid;await refreshState()}}
@@ -683,3 +683,19 @@ async function shareProject(p){peopleCache=null;const list=await loadPeople();co
    k.onclick=async()=>{try{const r=await api('/project/share',{projectId:p.id,uid:x.id,access:v});shares=r.shares||{};p.shares=shares;paint();renderProjects()}catch(e){notify(e.message)}};seg.append(k)}
   paint();row.append(b,seg);box.append(row)}
  document.body.append(d);d.showModal();d.addEventListener('close',()=>{d.remove();void refreshState()})}
+
+// Live: publish a project to <name>.app.elkiya.com through aqeelOS (anyone can; it shows under Code › Live)
+function publishProject(p){const d=document.createElement('dialog');d.className='kit-dialog publish-dialog';const slugOf=s=>String(s||'').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,40);
+ d.innerHTML='<form method="dialog"><h2></h2><p class="kit-message">Your team sees it under Code › Live in aqeelOS, and anyone with the link can open it. Hidden files such as .env are not sent; settings go in with the database below or in the code.</p>'
+  +'<label class="pub-l">Name<input class="pub-name" maxlength="80"></label><label class="pub-l">Address<span class="pub-addr"><input class="pub-slug" maxlength="40"><span>.app.elkiya.com</span></span></label>'
+  +'<label class="pub-db"><input type="checkbox" class="pub-dbx"><span><b>It needs a database</b><small>A private Postgres database for this app; its address is in DATABASE_URL.</small></span></label>'
+  +'<p class="pub-state" hidden><span class="ring small"></span><span>Sending it to the server…</span></p>'
+  +'<div class="kit-actions"><button value="cancel">Cancel</button><button class="primary pub-go" type="button"></button></div></form>';
+ const $q=s=>d.querySelector(s);$q('h2').textContent=(p.live?'Update “':'Publish “')+p.name+'”';$q('.pub-go').textContent=p.live?'Update':'Publish';
+ const name=$q('.pub-name'),slug=$q('.pub-slug');name.value=p.name;slug.value=p.live?.slug||slugOf(p.name);let touched=Boolean(p.live);
+ if(p.live){slug.readOnly=true;slug.title='The address stays the same when you update.'}
+ name.oninput=()=>{if(!touched)slug.value=slugOf(name.value)};slug.oninput=()=>{touched=true;const c=slugOf(slug.value);if(c!==slug.value)slug.value=c};
+ $q('.pub-go').onclick=async()=>{const go=$q('.pub-go'),st=$q('.pub-state');go.disabled=true;st.hidden=false;
+  try{const a=await api('/publish',{projectId:p.id,name:name.value.trim()||p.name,slug:slug.value,db:$q('.pub-dbx').checked});d.close();await refreshState();
+   notify((p.live?'Updated: ':'Publishing: ')+a.url.replace('https://','')+' goes live in a minute or two. See it under Code › Live.')}catch(e){go.disabled=false;st.hidden=true;notify(e.message)}};
+ document.body.append(d);d.showModal();d.addEventListener('close',()=>d.remove());setTimeout(()=>name.focus(),30)}
