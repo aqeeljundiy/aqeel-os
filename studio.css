@@ -1275,7 +1275,7 @@ dialog[open]::backdrop{opacity:1}
 .dk-stage{position:relative}
 /* inside aqeelOS: its own sidebar and header take the place of these */
 body.embed .topbar,body.embed #sidebar,body.embed #sidebar-resize{display:none!important}
-body.embed .studio{grid-template-columns:var(--chat) 6px minmax(280px,1fr);height:100dvh}
+@media(min-width:851px){body.embed .studio{grid-template-columns:var(--chat) 6px minmax(280px,1fr);height:100dvh}}
 
 /* the guard: what the AI may open, and who has control */
 .browser-guard{display:inline-flex;align-items:center;gap:6px;min-height:30px;padding:4px 12px;font-size:12px;border-radius:var(--r-pill);white-space:nowrap}

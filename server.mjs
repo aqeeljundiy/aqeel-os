@@ -172,6 +172,7 @@ const previewServer=http.createServer(async(req,res)=>{const send=(code,data)=>{
  const url=new URL(req.url,'http://127.0.0.1');if(!url.pathname.startsWith('/preview/')&&!url.pathname.startsWith('/draft/'))return send(404,{error:'Not found.'});req.previewServer=true;
  try{await workspaceAPI(req,res,url,send)}catch(e){send(400,{error:e.message})}});
 let lan=[];
-async function syncLan(){for(const s of lan)s.close();lan=[];if(!remote.state.enabled)return;const port=server.address().port;
+// a copy installed from aqeelOS is reached only through aqeelOS (phones use aqeelOS), never on the local network
+async function syncLan(){for(const s of lan)s.close();lan=[];if(!remote.state.enabled||(await aqeelos.state()).version)return;const port=server.address().port;
  for(const a of remote.addresses(port)){const ip=new URL(a.url).hostname;for(const [handler,p] of [[server.listeners('request')[0],port],[previewServer.listeners('request')[0],port+1]]){const s=http.createServer(handler);s.on('error',e=>console.error('Phone access on '+ip+':'+p+' failed: '+e.message));s.listen(p,ip);lan.push(s)}}}
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){const port=Number(process.env.HUB_PORT||process.env.PORT||4321);server.listen(port,'127.0.0.1',()=>{console.log('code by aqeel: http://127.0.0.1:'+server.address().port);syncLan()});previewServer.listen(port+1,'127.0.0.1')}

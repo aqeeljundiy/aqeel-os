@@ -412,6 +412,7 @@ async function init(){try{const providersReady=fetch('/api/status').then(r=>r.js
     else if(m.aq==='newChat'){if(m.project&&m.project!==projectId)await selectProject(m.project);await newChat();post({type:'state',...summary()})}
     else if(m.aq==='newProject')$('new-project')?.click();
     else if(m.aq==='menu'){const p=(projects||[]).find(x=>x.id===m.project);const c=p&&m.chat?(p.chats||[]).find(x=>x.id===m.chat):null;if(p&&(!m.chat||c))openMenu({x:12,y:Math.max(8,Math.min(Number(m.y)||60,innerHeight-60))},sidebar.items(p,c),{label:c?'Chat actions':'Project actions'})}
+    else if(m.aq==='ping'){const ok=await fetch('/api/status?quick',{cache:'no-store',signal:AbortSignal.timeout(5000)}).then(r=>r.ok,()=>false);if(ok)post({type:'pong'})}   // only while the app itself still answers
     else if(m.aq==='theme')theme(!!m.dark);
     else if(m.aq==='lang'&&m.lang&&m.lang!==lang()&&['en','id'].includes(m.lang))setLang(m.lang);
    }catch(err){post({type:'error',error:String(err?.message||err)})}});
@@ -430,6 +431,8 @@ let aqAgents=[];
 function pickAgent(){const sel=$('agent-pick');if(!aqAgents.length)return;let v='';try{v=localStorage.getItem('cba-agent-'+projectId)??project()?.settings?.agent??''}catch{}if(![...sel.options].some(o=>o.value===v))v='';if(sel.value!==v){sel.value=v;sel.dispatchEvent(new Event('change'))}}
 $('agent-pick').addEventListener('change',()=>{try{localStorage.setItem('cba-agent-'+projectId,$('agent-pick').value)}catch{}});
 {const sp=selectProject;selectProject=async(...a)=>{const r=await sp(...a);pickAgent();return r}}
+// the project list arrives after the agents on a fresh load: pick the project's agent once it is there
+{const rs=refreshState;let once=false;refreshState=async(...a)=>{const r=await rs(...a);if(!once&&projects?.length){once=true;pickAgent()}return r}}
 void loadAgents();setInterval(()=>{if(!aqAgents.length)void loadAgents()},30000);
 // inside aqeelOS the approval levels carry aqeelOS's names
 if(document.body.classList.contains('embed'))for(const [v,t,d] of [['ask','Ask me','Approve each command and file change.'],['auto','Smart','Edits and commands inside the project run; anything outside asks you.'],['full','Allow all','No prompts and no sandbox. Only for trusted tasks.']]){const o=$('mode').querySelector('option[value="'+v+'"]');if(o){o.textContent=t;o.dataset.desc=d}}
