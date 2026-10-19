@@ -1276,3 +1276,20 @@ dialog[open]::backdrop{opacity:1}
 /* inside aqeelOS: its own sidebar and header take the place of these */
 body.embed .topbar,body.embed #sidebar,body.embed #sidebar-resize{display:none!important}
 body.embed .studio{grid-template-columns:var(--chat) 6px minmax(280px,1fr);height:100dvh}
+
+/* the guard: what the AI may open, and who has control */
+.browser-guard{display:inline-flex;align-items:center;gap:6px;min-height:30px;padding:4px 12px;font-size:12px;border-radius:var(--r-pill);white-space:nowrap}
+.browser-guard .ico{width:14px;height:14px;color:var(--accent,#2563eb)}
+.browser-guard-box{margin:0 var(--gutter) 10px;padding:14px 16px;border:1px solid var(--line);border-radius:14px;background:var(--panel,var(--bg));display:grid;gap:10px;animation:guardIn .22s ease}
+.browser-guard-box[hidden]{display:none}.browser-guard-box p{margin:0;font-size:12px}
+.guard-sites{display:flex;flex-wrap:wrap;gap:6px}.guard-site{display:inline-flex;align-items:center;gap:4px;padding:3px 4px 3px 10px;border-radius:var(--r-pill);border:1px solid var(--line);font-size:12px;animation:guardIn .2s ease}
+.guard-site button{width:20px;height:20px;min-height:20px;padding:0;border:0;background:none;border-radius:50%;display:grid;place-items:center}.guard-site .ico{width:12px;height:12px}
+.guard-add{display:flex;gap:6px}.guard-add input{flex:1;min-width:0;border-radius:var(--r-pill);padding:6px 12px;font-size:12px}.guard-add button{min-height:30px;padding:4px 14px;font-size:12px}
+.browser-control{display:flex;align-items:center;gap:10px;margin:0 var(--gutter);max-height:0;opacity:0;overflow:hidden;font-size:12.5px;transition:max-height .3s ease,opacity .25s ease,margin .3s ease}
+.browser-control.ai,.browser-control.you{max-height:60px;opacity:1;margin-bottom:8px}
+.browser-control span{flex:1}.browser-control button{display:inline-flex;align-items:center;gap:6px;min-height:28px;padding:3px 12px;font-size:12px;border-radius:var(--r-pill)}.browser-control button .ico{width:14px;height:14px}
+.browser-control .dot{width:8px;height:8px;border-radius:50%;background:#2563eb;flex:none}.browser-control.ai .dot{animation:guardPulse 1.4s ease-in-out infinite}.browser-control.you .dot{background:#f59e0b}
+.browser-control.ai+.browser-stage{box-shadow:0 0 0 2px rgba(37,99,235,.45),0 0 24px rgba(37,99,235,.18);transition:box-shadow .3s}
+@keyframes guardIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+@keyframes guardPulse{50%{opacity:.35;transform:scale(.8)}}
+@media (prefers-reduced-motion:reduce){.browser-control,.browser-guard-box,.guard-site{transition:none;animation:none}.browser-control.ai .dot{animation:none}}

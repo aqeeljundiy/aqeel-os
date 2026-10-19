@@ -37,7 +37,24 @@ export function createBrowserUI(ctx){
  const rotate=el('button','browser-nav');rotate.append(icon('rotate'));rotate.type='button';rotate.title='Rotate screen';rotate.setAttribute('aria-label','Rotate screen');rotate.addEventListener('click',()=>call('/view',{rotate:true}));
  const scheme=el('button','browser-scheme');scheme.type='button';scheme.title='Page colour scheme (separate from the app theme)';
  const NEXT={light:'dark',dark:'system',system:'light'};scheme.addEventListener('click',()=>call('/view',{scheme:NEXT[status.scheme||'light']}));
- const dims=el('span','browser-dims');const tools=el('div','browser-tools');tools.append(sizes,rotate,dims,scheme);
+ const dims=el('span','browser-dims');
+ // the AI's limits here: only this computer's pages and the sites you allow, one view, no downloads
+ const guardBtn=el('button','browser-guard');guardBtn.type='button';guardBtn.setAttribute('aria-expanded','false');guardBtn.title='What the AI may open in this browser';
+ const guardBox=el('div','browser-guard-box');guardBox.hidden=true;
+ guardBtn.addEventListener('click',()=>{guardBox.hidden=!guardBox.hidden;guardBtn.setAttribute('aria-expanded',String(!guardBox.hidden));if(!guardBox.hidden){paintGuard();guardBox.querySelector('input')?.focus()}});
+ const setSites=sites=>call('/guard',{sites}).then(paintGuard);
+ function paintGuard(){const g=status.guard||{sites:[]};guardBtn.replaceChildren(icon('shield'),el('span','',g.sites.length?g.sites.length+' site'+(g.sites.length>1?'s':'')+' allowed':'Guarded'));
+  if(guardBox.hidden)return;guardBox.replaceChildren(el('strong','','The AI may open'),el('p','hint','This computer’s own pages (previews, dev servers) always. Other sites only when you add them here. It stays in one view and can’t download files. You can browse anywhere yourself.'));
+  const list=el('div','guard-sites');for(const s of g.sites){const c=el('span','guard-site',s);const x=el('button','');x.type='button';x.append(icon('close'));x.setAttribute('aria-label','Remove '+s);x.addEventListener('click',()=>setSites(g.sites.filter(v=>v!==s)));c.append(x);list.append(c)}
+  if(!g.sites.length)list.append(el('span','hint','No other sites yet.'));
+  const f=el('form','guard-add');const i=el('input','');i.placeholder='docs.google.com';i.setAttribute('aria-label','Site to allow');const add=el('button','','Allow');add.type='submit';f.append(i,add);
+  const here=status.url&&/^https?:/.test(status.url)?(()=>{try{return new URL(status.url).hostname.replace(/^www\./,'')}catch{return ''}})():'';
+  f.addEventListener('submit',e=>{e.preventDefault();const v=i.value.trim();if(v)setSites([...g.sites,v])});guardBox.append(list,f);
+  if(here&&!/^(localhost|127\.0\.0\.1)$/.test(here)&&!g.sites.includes(here)){const b=el('button','ghost small','Allow '+here);b.type='button';b.addEventListener('click',()=>setSites([...g.sites,here]));guardBox.append(b)}}
+ const tools=el('div','browser-tools');tools.append(sizes,rotate,dims,guardBtn,scheme);
+ // while the AI works here: say so, with Take over; while you have it: Hand back
+ const control=el('div','browser-control');control.setAttribute('aria-live','polite');const controlText=el('span','');const controlBtn=el('button','small');controlBtn.type='button';control.append(el('i','dot'),controlText,controlBtn);
+ controlBtn.addEventListener('click',()=>call('/guard',{paused:!status.guard?.paused}));
  const stage=el('div','browser-stage');const view=el('img','browser-view');view.alt='Side browser page';view.tabIndex=0;view.draggable=false;
  const empty=el('div','browser-empty');const globe=el('span','empty-icon');globe.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>';empty.append(globe,el('strong','','Side browser'),el('p','','A real browser that you and the AI share. Type an address above to start. The AI can open pages, click, type and read here; you see every action live.'));
  const outline=el('div','pick-outline');outline.hidden=true;const outlineTag=el('span','pick-tag');outline.append(outlineTag);stage.append(view,empty,outline);
@@ -47,7 +64,7 @@ export function createBrowserUI(ctx){
   try{const info=await ctx.api('/browser/inspect',point(e));const v=view.getBoundingClientRect(),s=stage.getBoundingClientRect(),k=v.width/size.width;
    if(!picking||!info?.rect)return;Object.assign(outline.style,{left:(v.left-s.left+stage.scrollLeft+info.rect.x*k)+'px',top:(v.top-s.top+stage.scrollTop+info.rect.y*k)+'px',width:info.rect.w*k+'px',height:info.rect.h*k+'px'});outlineTag.textContent=info.tag+' · '+Math.round(info.rect.w)+'×'+Math.round(info.rect.h);outline.hidden=false}catch{}finally{hoverBusy=false}});
  view.addEventListener('mouseleave',()=>{outline.hidden=true});const activity=el('div','browser-activity');activity.setAttribute('aria-live','polite');
- root.append(strip,bar,tools,stage,activity);
+ root.append(strip,bar,tools,guardBox,control,stage,activity);
 
  async function call(route,body){try{status=await ctx.api('/browser'+route,body);paintStatus();ensureLoop()}catch(e){ctx.notify(e.message)}}
  function paintStatus(){if(document.activeElement!==address)address.value=status.url&&status.url!=='about:blank'?status.url:'';empty.hidden=Boolean(seq)&&status.state==='running'&&Boolean(status.url)&&status.url!=='about:blank';if(status.width)size={width:status.width,height:status.height};view.style.maxWidth=size.width+'px';
@@ -56,7 +73,9 @@ export function createBrowserUI(ctx){
   activity.replaceChildren();const items=(status.log||[]).slice(-6).reverse();
   if(!items.length)activity.append(el('span','browser-log-empty','No actions yet.'));
   for(const it of items){const row=el('span','browser-log'+(it.by==='ai'?' ai':''));row.append(el('b','',it.by==='ai'?'AI':'You'),' '+it.action+(it.detail?' · '+it.detail:''));activity.append(row)}
-  const newestAi=Math.max(0,...(status.log||[]).filter(x=>x.by==='ai').map(x=>x.time));if(newestAi>lastAi){lastAi=newestAi;ctx.onAiActivity?.()}}
+  const newestAi=Math.max(0,...(status.log||[]).filter(x=>x.by==='ai').map(x=>x.time));if(newestAi>lastAi){lastAi=newestAi;ctx.onAiActivity?.()}
+  const paused=!!status.guard?.paused,working=!paused&&Date.now()-newestAi<12000;control.className='browser-control'+(paused?' you':working?' ai':'');
+  controlText.textContent=paused?'You have control. The AI waits until you hand back.':working?'The AI is working in this browser.':'';controlBtn.replaceChildren(icon('hand'),el('span','',paused?'Hand back':'Take over'));paintGuard()}
 
  async function loop(){if(looping)return;looping=true;
   try{while(ctx.visible()&&status.state==='running'){const r=await fetch('/api/workspace/browser/frame?after='+seq,{headers:{'X-Local-Token':ctx.token()}});

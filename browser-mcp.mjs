@@ -4,7 +4,7 @@
 const BASE=(process.env.CBA_URL||'http://127.0.0.1:4321')+'/api/workspace/browser',TOKEN=process.env.CBA_TOKEN||'';
 
 const TOOLS=[
- {name:'browser_open',description:'Open a URL (or search the web) in the shared side browser. Returns the page title and URL.',inputSchema:{type:'object',properties:{url:{type:'string',description:'Address, domain or search text'}},required:['url']}},
+ {name:'browser_open',description:'Open an address in the shared side browser. It is guarded: you may open this computer's own pages (previews, dev servers on localhost) and the sites the person allowed; anything else is refused with the list. It keeps one view (links that would open a new tab open here), and downloads are off. If the person takes over, stop and wait. Returns the page title and URL.',inputSchema:{type:'object',properties:{url:{type:'string',description:'Address, domain or search text'}},required:['url']}},
  {name:'browser_snapshot',description:'List visible interactive elements with numbered refs. Use the refs with browser_click and browser_type. Take a new snapshot after the page changes.',inputSchema:{type:'object',properties:{}}},
  {name:'browser_click',description:'Click the element with this ref from the latest snapshot.',inputSchema:{type:'object',properties:{ref:{type:'integer'}},required:['ref']}},
  {name:'browser_type',description:'Type text into the element with this ref (it is focused and its text selected first). Set submit to press Enter afterwards.',inputSchema:{type:'object',properties:{ref:{type:'integer'},text:{type:'string'},submit:{type:'boolean'}},required:['ref','text']}},
@@ -13,7 +13,7 @@ const TOOLS=[
  {name:'browser_back',description:'Go back to the previous page.',inputSchema:{type:'object',properties:{}}},
  {name:'browser_read',description:'Read the visible text of the current page (up to 20,000 characters).',inputSchema:{type:'object',properties:{}}},
  {name:'browser_viewport',description:'Change the screen size the page is rendered at (to check responsive layouts) and/or the page colour scheme.',inputSchema:{type:'object',properties:{preset:{type:'string',enum:['desktop','laptop','tablet','mobile']},rotate:{type:'boolean'},scheme:{type:'string',enum:['light','dark','system']}}}},
- {name:'browser_tabs',description:'List, open, switch or close side browser tabs. action: list | new (optional url) | switch (id) | close (id).',inputSchema:{type:'object',properties:{action:{type:'string',enum:['list','new','switch','close']},id:{type:'string'},url:{type:'string'}},required:['action']}},
+ {name:'browser_tabs',description:'List the side browser tabs. This browser keeps you in one view: new opens the address in the current view; switch and close are not allowed for you.',inputSchema:{type:'object',properties:{action:{type:'string',enum:['list','new','switch','close']},id:{type:'string'},url:{type:'string'}},required:['action']}},
  {name:'browser_screenshot',description:'Take a screenshot of the current page.',inputSchema:{type:'object',properties:{}}},
 ];
 
