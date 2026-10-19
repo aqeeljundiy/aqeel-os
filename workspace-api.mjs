@@ -31,8 +31,10 @@ import {loadPrompts,validatePrompts,loadSkills,skillsInstructions,validateHooks,
 // Previews are served from their own origin (app port + 1): isolated from the app without a sandboxed, opaque origin.
 // host:port from the Host header — loopback, a LAN address (phone access) or a plain host name
 const HOST=/^((?:\d{1,3}\.){3}\d{1,3}|localhost|[a-z0-9-]+(?:\.[a-z0-9-]+)*):(\d{2,5})$/i;
-export function previewOrigin(host){const m=String(host||'').match(HOST);return m?'http://'+m[1]+':'+(Number(m[2])+1):'http://127.0.0.1:4322'}
-export function previewCSP(host){const m=String(host||'').match(HOST);const app=m?'http://'+m[1]+':'+(Number(m[2])-1):'http://127.0.0.1:4321';
+// online (the copy on the AI box, behind aqeelOS sign-in): its public addresses come from CBA_PUBLIC_APP and CBA_PUBLIC_PREVIEW
+const PUB_APP=process.env.CBA_PUBLIC_APP||'',PUB_PREVIEW=process.env.CBA_PUBLIC_PREVIEW||'';
+export function previewOrigin(host){if(PUB_PREVIEW)return PUB_PREVIEW;const m=String(host||'').match(HOST);return m?'http://'+m[1]+':'+(Number(m[2])+1):'http://127.0.0.1:4322'}
+export function previewCSP(host){const m=String(host||'').match(HOST);const app=(m?'http://'+m[1]+':'+(Number(m[2])-1):'http://127.0.0.1:4321')+(PUB_APP?' '+PUB_APP:'');
  return "default-src 'self' https: data: blob:; script-src 'self' 'unsafe-inline' https:; style-src 'self' 'unsafe-inline' https:; img-src 'self' https: data: blob:; font-src 'self' https: data:; media-src 'self' https: data: blob:; connect-src 'self'; frame-ancestors "+app+"; form-action 'none'"}
 // Injected into HTML previews: forwards uncaught errors, console errors and failed loads to the app window.
 export const ERROR_REPORTER=`(()=>{const send=(kind,text,where)=>{try{parent.postMessage({cba:'preview-error',kind,text:String(text).slice(0,500),where:where||location.pathname},'*')}catch{}};
