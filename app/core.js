@@ -179,16 +179,12 @@ async function loadIdentities(){try{S.identities=await call('','/ui/identities')
 const usableProvider=p=>p.authenticated&&!(p.slug==='gemini-subscription'&&!S.geminiOn)&&(p.models||[]).length&&!/nous/i.test((p.slug||'')+' '+(p.name||''))&&!(p.slug==='anthropic'&&!S.anthropicKey);
 
 /* ---------- navigation model ---------- */
-// Code is still a preview: it shows only on a local copy (localhost), never on the live app
-const CODE_PREVIEW=/^(localhost|127\.0\.0\.1)$/.test(location.hostname);
 const SECTIONS=[
  {id:'chat',label:'Chat',icon:'chat',key:'1'},
  {id:'agents',label:'Agents',icon:'user',key:'2',pages:[
   {id:'profiles',label:'Agents',icon:'user',desc:'Each agent has its own name, picture, personality, model, skills, memory and chats.'},
   {id:'memory',label:'Memory',icon:'brain',desc:'What each agent remembers about you and its work, between chats.'},
   {id:'files',label:'Files',icon:'folder',desc:'Files on the AI box that your agents work with.'}]},
- ...(CODE_PREVIEW?[{id:'code',label:'Code',icon:'terminal',key:'8',pages:[
-  {id:'projects',label:'Projects',icon:'folder',desc:'Folders on the AI box your agents build in. Open one to see its files, preview and changes.'}]}]:[]),
  {id:'automations',label:'Automations',icon:'zap',key:'3',pages:[
   {id:'schedules',label:'Schedules',icon:'clock',desc:'Prompts that run on a timetable and deliver the result where you want it.'},
   {id:'webhooks',label:'Webhooks',icon:'hook',desc:'Let other services trigger aqeelOS with an event.'},
