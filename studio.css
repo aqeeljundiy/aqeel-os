@@ -1453,3 +1453,4 @@ details.make-templates[open] .make-template-row{margin-top:8px;animation:arrive 
 .bf-bar{display:flex;align-items:center;gap:10px;min-width:0}.bf-bar .bf-path{flex:1;min-width:0;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:inherit;font-size:13px;color:var(--ink-2)}
 .bf-new{flex:none;min-height:30px;padding:3px 12px;font-size:12.5px;border-radius:var(--r-pill)}
 .bf-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:6px}.bf-actions button{min-height:38px;padding:6px 18px}
+.bf-list>p.hint{margin:6px 8px;font-size:13px;color:var(--muted)}
