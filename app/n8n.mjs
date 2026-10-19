@@ -37,6 +37,8 @@ export function createN8n({BASE='https://n8n.elkiya.com',DATA,setKey,restart,nam
 
  // the agent's own n8n user (made once), and its tool connected as that user
  async function ensure(agent){await load();let u=db.users[agent];
+  // agents reach n8n through its MCP access, which a fresh n8n starts with switched off
+  if(!db.mcpOn){const o=await owner();await rest('/rest/mcp/settings',{method:'PATCH',body:{mcpAccessEnabled:true},cookie:o.cookie});db.mcpOn=true;await save()}
   if(!u){const o=await owner();const email=('agent-'+agent).replace(/[^a-z0-9-]/gi,'').toLowerCase()+'@agents.elkiya.com',password='Aq'+randomBytes(18).toString('base64url')+'9';
    // invite, then accept the invitation with its token (the link n8n returns: /signup?token=…). An invitation sent
    // earlier and never accepted is picked up from the user list instead of inviting again.
