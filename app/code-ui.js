@@ -3,13 +3,15 @@
 // No app on this computer: Code is locked with the downloads for Windows and Mac, and opens once the app answers.
 // The page and the app talk only by messages (hello, pair, open, new chat, theme, language; the app sends its state).
 const CODE_APP='http://127.0.0.1:4321';
-const CodeUI={st:{projects:[],project:'',chat:''},state:'wait',open:{},q:'',filter:'All',frame:null,timer:null,
- post(m){this.frame?.contentWindow?.postMessage(m,CODE_APP)},
+const CodeUI={where:(()=>{try{return localStorage.getItem('aq-code-where')||'computer'}catch{return 'computer'}})(),app:CODE_APP,st:{projects:[],project:'',chat:''},state:'wait',open:{},q:'',filter:'All',frame:null,timer:null,
+ post(m){this.frame?.contentWindow?.postMessage(m,this.app)},
+ // this computer (the desktop app) or online (the copy on the AI box, behind sign-in)
+ whereBar(){return `<div class="code-where" role="tablist" aria-label="Where projects live">${[['computer','This computer','monitor'],['online','Online','globe']].map(([k,t,i])=>`<button role="tab" aria-selected="${this.where===k}" class="${this.where===k?'on':''}" data-act="code-where" data-w="${k}">${icon(i,14)}${t}</button>`).join('')}</div>`},
  // the left list, under the aqeelOS sections, like the chat list
  sidebar(){const ps=this.st.projects||[],q=this.q.toLowerCase();
-  if(this.state!=='on')return `<div class="side-sub"><div class="side-sub-head"><span class="th">Code</span></div><p class="hint" style="margin:6px 18px">${this.state==='lock'?'Install aqeelOS Code on this computer to see your projects here.':'Connecting to aqeelOS Code on this computer…'}</p></div>`;
+  if(this.state!=='on')return `<div class="side-sub">${this.whereBar()}<p class="hint" style="margin:6px 18px">${this.state==='lock'?'Install aqeelOS Code on this computer to see your projects here.':this.where==='online'?'Opening your online projects…':'Connecting to aqeelOS Code on this computer…'}</p></div>`;
   const chats=p=>(p.chats||[]).filter(c=>(!q||(c.title+' '+p.name).toLowerCase().includes(q))&&(this.filter!=='Active'||c.busy)).sort((a,b)=>(b.updated||0)-(a.updated||0));
-  return `<div class="side-sub"><div style="padding:12px 12px 8px"><button style="width:100%" data-act="code-new">${icon('plus',16)}New chat</button></div>
+  return `<div class="side-sub">${this.whereBar()}<div style="padding:4px 12px 8px"><button style="width:100%" data-act="code-new">${icon('plus',16)}New chat</button></div>
    <div class="side-search">${icon('search',16)}<input id="codeQ" placeholder="Search chats" value="${esc(this.q)}" aria-label="Search chats"></div>
    <div class="code-filter">${['All','Active'].map(f=>`<button class="${this.filter===f?'on':''}" data-act="code-filter" data-f="${f}">${f}</button>`).join('')}</div>
    <div class="side-list code-tree">${ps.map(p=>{const open=this.open[p.id]??p.id===this.st.project,cs=chats(p);if(q&&!cs.length&&!p.name.toLowerCase().includes(q))return '';
@@ -22,8 +24,10 @@ const CodeUI={st:{projects:[],project:'',chat:''},state:'wait',open:{},q:'',filt
   el.innerHTML=`<div class="code-host"><div class="code-wait"><span class="spinner"></span><span>Looking for aqeelOS Code on this computer…</span></div>
    <iframe class="code-frame" title="aqeelOS Code" allow="local-network-access; clipboard-read; clipboard-write; microphone" hidden></iframe></div>`;
   const f=el.querySelector('iframe');this.frame=f;this.state='wait';this.paintSide();
-  f.onload=()=>{this.post({aq:'hello'});clearTimeout(this.timer);this.timer=setTimeout(()=>{if(this.state!=='on')this.lock(el)},3500)};
-  f.src=CODE_APP+'/?embed=aqeelos';this.timer=setTimeout(()=>{if(this.state!=='on')this.lock(el)},9000)},
+  f.onload=()=>{this.post({aq:'hello'});if(this.where==='online')return;clearTimeout(this.timer);this.timer=setTimeout(()=>{if(this.state!=='on')this.lock(el)},3500)};
+  if(this.where==='online'){try{const r=await UI('/ui/code/online');this.app=r.origin;f.src=r.url}catch(e){this.app='';el.querySelector('.code-host').innerHTML=`<div class="code-lock card"><h2>Online projects aren’t available</h2><p>${esc(e.message)}</p></div>`;return}
+   clearTimeout(this.timer);this.timer=setTimeout(()=>{if(this.state!=='on'&&el.isConnected){el.querySelector('.code-wait span:last-child')&&(el.querySelector('.code-wait span:last-child').textContent='The online copy is slow to answer. It starts by itself; this page retries.');this.timer=setTimeout(()=>this.page(p,el),8000)}},15000);return}
+  this.app=CODE_APP;f.src=CODE_APP+'/?embed=aqeelos';this.timer=setTimeout(()=>{if(this.state!=='on')this.lock(el)},9000)},
  lock(el){if(!el.isConnected||route().sec?.id!=='code')return;this.state='lock';this.paintSide();const mac=/Mac/i.test(navigator.platform||navigator.userAgent);
   el.querySelector('.code-host').innerHTML=`<div class="code-lock card">
    <span class="code-lock-ic">${icon('terminal',26)}</span><h2>Code needs the aqeelOS Code app on this computer</h2>
@@ -31,7 +35,8 @@ const CodeUI={st:{projects:[],project:'',chat:''},state:'wait',open:{},q:'',filt
    <div class="code-dl"><a class="btn ${mac?'':'primary'}" href="/ui/code/download/windows" download>${icon('download',16)}Download for Windows</a><a class="btn ${mac?'primary':''}" href="/ui/code/download/mac" download>${icon('download',16)}Download for Mac</a></div>
    <ol class="code-steps"><li>Unzip it, then open <b>${mac?'Install aqeelOS Code.command':'Install aqeelOS Code.cmd'}</b>${mac?' (the first time: right-click › Open)':''}.</li><li>It installs Node.js if needed, starts in the background and comes back here.</li><li>Chrome may ask to let aqeelOS reach apps on this computer: allow it.</li></ol>
    <p class="code-perm hint" hidden></p>
-   <p class="hint code-retry"><span class="spinner tiny"></span>Waiting for the app… this opens by itself once it runs.</p></div>`;
+   <p class="hint code-retry"><span class="spinner tiny"></span>Waiting for the app… this opens by itself once it runs.</p>
+   <p class="code-or">No install needed for <button class="linkish" data-act="code-where" data-w="online">online projects</button>: they live on the AI box and open here.</p></div>`;
   // Chrome asks before a website may reach apps on this computer; once refused, Code stays locked until it is allowed
   (async()=>{let st='';for(const n of ['local-network-access','loopback-network']){try{st=(await navigator.permissions.query({name:n})).state;break}catch{}}
    const box=el.querySelector('.code-perm');if(!box)return;
@@ -39,11 +44,11 @@ const CodeUI={st:{projects:[],project:'',chat:''},state:'wait',open:{},q:'',filt
    else if(st==='prompt'){box.hidden=false;box.innerHTML=`${icon('shield',14)}<span>When the app runs, Chrome asks whether aqeelOS may reach apps on this computer. Choose <b>Allow</b>.</span>`}})();
   // keep checking quietly while the page is open
   clearTimeout(this.timer);this.timer=setTimeout(()=>{if(route().sec?.id==='code'&&this.state==='lock')this.page(null,el.closest('#pg')||el)},6000)},
- async onMessage(e){if(e.origin!==CODE_APP||!e.data?.cba)return;const m=e.data;
+ async onMessage(e){if(!this.app||e.origin!==this.app||!e.data?.cba)return;const m=e.data;
   if(m.type==='hello'){clearTimeout(this.timer);this.state='on';this.st={projects:m.projects||[],project:m.project,chat:m.chat};
    const f=this.frame;if(f){f.hidden=false;f.closest('.code-host')?.querySelector('.code-wait')?.remove()}
    this.post({aq:'theme',dark:document.documentElement.classList.contains('dark')});this.post({aq:'lang',lang:(typeof Lang!=='undefined'&&Lang.cur)||'en'});
-   if(!m.paired){try{const r=await post(UI,'/ui/code/pair',{name:(/Mac/i.test(navigator.platform)?'Mac':/Win/i.test(navigator.platform)?'Windows PC':'Computer')+(()=>{const b=navigator.userAgentData?.brands?.find(b=>/Chrome|Edge/.test(b.brand))?.brand;return b?' · '+b:''})()});this.post({aq:'pair',token:r.token,base:location.origin})}catch(er){fail(er)}}
+   if(!m.paired&&this.where!=='online'){try{const r=await post(UI,'/ui/code/pair',{name:(/Mac/i.test(navigator.platform)?'Mac':/Win/i.test(navigator.platform)?'Windows PC':'Computer')+(()=>{const b=navigator.userAgentData?.brands?.find(b=>/Chrome|Edge/.test(b.brand))?.brand;return b?' · '+b:''})()});this.post({aq:'pair',token:r.token,base:location.origin})}catch(er){fail(er)}}
    this.paintSide()}
   if(m.type==='state'){this.st={projects:m.projects||[],project:m.project,chat:m.chat};this.paintSide()}
   if(m.type==='paired'){if(m.ok)toast('This computer is paired with aqeelOS');else toast('Pairing didn’t work: '+(m.error||'unknown'),'err')}
@@ -54,6 +59,7 @@ ACT['code-new']=()=>CodeUI.post({aq:'newChat',project:CodeUI.st.project});
 ACT['code-newproj']=()=>CodeUI.post({aq:'newProject'});
 ACT['code-chat']=a=>{CodeUI.st.project=a.dataset.p;CodeUI.st.chat=a.dataset.c;CodeUI.post({aq:'open',project:a.dataset.p,chat:a.dataset.c});CodeUI.paintSide()};
 ACT['code-proj']=a=>{const id=a.dataset.id,was=CodeUI.open[id]??id===CodeUI.st.project;CodeUI.open[id]=!was;if(!was&&id!==CodeUI.st.project)CodeUI.post({aq:'open',project:id});CodeUI.paintSide()};
+ACT['code-where']=a=>{CodeUI.where=a.dataset.w;try{localStorage.setItem('aq-code-where',CodeUI.where)}catch{}CodeUI.st={projects:[],project:'',chat:''};CodeUI.state='wait';const el=$('#pg .code-host')?.parentElement||$('#pg');if(el)CodeUI.page(null,el);CodeUI.paintSide()};
 ACT['code-filter']=a=>{CodeUI.filter=a.dataset.f;CodeUI.paintSide()};
 // the theme switch follows into the app
 {const t0=theme;theme=(...a)=>{const r=t0(...a);CodeUI.post({aq:'theme',dark:document.documentElement.classList.contains('dark')});return r}}

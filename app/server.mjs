@@ -25,6 +25,7 @@ import {createLocalBrowser} from './localbrowser.mjs';
 import {createAccess} from './access.mjs';
 import {createN8n} from './n8n.mjs';
 import {createCode} from './code.mjs';
+import {createCodeOnline} from './code-online.mjs';
 import {readdir} from 'node:fs/promises';
 import {scryptSync,randomBytes,createHmac,timingSafeEqual} from 'node:crypto';
 import path from 'node:path';
@@ -56,7 +57,7 @@ if(!PW_HASH)console.warn('UI_PASSWORD_HASH is not set: nobody can sign in.');
 if(!env.UI_SECRET)console.warn('UI_SECRET is not set: sessions end when the server restarts.');
 
 const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.json':'application/json; charset=utf-8','.svg':'image/svg+xml','.woff2':'font/woff2','.png':'image/png','.ico':'image/x-icon','.webmanifest':'application/manifest+json'};
-const security={'x-content-type-options':'nosniff','referrer-policy':'same-origin','permissions-policy':'camera=(), geolocation=()','content-security-policy':"default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; media-src 'self' blob:; frame-src 'self' blob: "+N8N_URL+" http://127.0.0.1:4321 http://localhost:4321; frame-ancestors 'self' chrome-extension://jdfbikbihabglfkcckkmmfbmfdpifbgf; base-uri 'none'; form-action 'self'"};
+const security={'x-content-type-options':'nosniff','referrer-policy':'same-origin','permissions-policy':'camera=(), geolocation=()','content-security-policy':"default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; media-src 'self' blob:; frame-src 'self' blob: "+N8N_URL+" http://127.0.0.1:4321 http://localhost:4321 https://"+(env.CODE_HOST||'code.elkiya.com')+"; frame-ancestors 'self' chrome-extension://jdfbikbihabglfkcckkmmfbmfdpifbgf; base-uri 'none'; form-action 'self'"};
 
 /* ---------- sessions ---------- */
 const sign=v=>createHmac('sha256',SECRET).update(v).digest('base64url');
@@ -453,6 +454,7 @@ const access=createAccess({HERMES_HOME,DATA,listAgents:()=>listAgents(),readConf
  dash:(method,p)=>fetch(DASH.origin+p,{method,headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(r=>r.json().catch(()=>({})))});
 const n8n=createN8n({BASE:N8N_URL,readConfig,removeMcp:(a,name)=>fetch(DASH.origin+'/api/mcp/servers/'+encodeURIComponent(name)+'?profile='+encodeURIComponent(a),{method:'DELETE',headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(()=>true),DATA,setKey,restart:why=>restartGateway(why).catch(()=>{}),names:a=>NAMES[a]||a});
 const code=createCode({DATA,SRC:path.join(homedir(),'apps','aqeel-code'),PUBLIC_URL,ROOT:root});
+const codeOnline=createCodeOnline({SECRET,SECURE:SECURE_COOKIE,users:()=>users,HOST:env.CODE_HOST||'code.elkiya.com',PREVIEW_HOST:env.CODE_PREVIEW_HOST||'code-preview.elkiya.com',HOME:PUBLIC_URL||'https://ai.elkiya.com'});
 const localBrowser=createLocalBrowser({DATA,GATE:GATE.origin,API_KEY,EXT_DIR:path.join(root,'extension'),NAMES,PUBLIC_URL});
 const links=createLinks({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,python:()=>sharing.python(),setupAgent:n=>setupAgentFn?.(n)});
 function listAgents(){return agentNames()}   // real agents only (a folder with a config), not extra-number copies
@@ -854,6 +856,7 @@ const server=createServer(async(req,res)=>{
  const url=new URL(req.url,'http://x');const p=url.pathname;
  try{
   await users.load();   // people (owners, shares) are read before any route uses them, also right after a restart
+  if(codeOnline.handle(req,res))return;   // code.elkiya.com and code-preview.elkiya.com: Code online, behind sign-in
   if(p==='/healthz')return send(res,200,{ok:true,build:BUILD,live:liveCount(),busy:liveCount()+export_setups.running()+opsBusy()+relay.sending()+(gwRestarting?1:0)});
   // the "notify me" tool agents call (from this box only; each agent's address is signed)
   const mn=/^\/mcp\/notify\/([\w-]+)\/([\w-]+)$/.exec(p);
@@ -1139,6 +1142,7 @@ const server=createServer(async(req,res)=>{
    // every agent's model and the account it runs on, for "All agents" on Agents' models
    if(p==='/ui/n8n/status'&&req.method==='GET'){const a=String(url.searchParams.get('agent')||'default');return send(res,200,await n8n.status(a))}
    if(p==='/ui/code/pair'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}return send(res,200,{token:await code.pair(u.id,b.name)})}
+   if(p==='/ui/code/online'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Code is for admins while it is being finished.'});return send(res,200,{url:codeOnline.url(u.id),origin:new URL(codeOnline.url(u.id)).origin})}
    if(p==='/ui/code/devices'&&req.method==='GET')return send(res,200,{devices:await code.devices(u.id)});
    if(p==='/ui/code/unpair'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}await code.unpair(u.id,String(b.id||''));return send(res,200,{ok:true})}
    {const dm=/^\/ui\/code\/download\/(windows|mac)$/.exec(p);if(dm&&req.method==='GET'){const z=await code.download(dm[1]);res.writeHead(200,{'content-type':'application/zip','content-disposition':'attachment; filename="aqeelOS Code ('+(dm[1]==='mac'?'Mac':'Windows')+').zip"','content-length':z.length,...security});return res.end(z)}}
