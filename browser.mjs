@@ -1,4 +1,5 @@
-// Side browser: a headless Chromium driven over the DevTools protocol. The UI shows a live screencast
+// Side browser: the computer's own Chrome (or Edge), a normal browser window kept out of view, driven over the DevTools
+// protocol, with one profile per project (its .aqeelos/browser folder: cookies, sign-ins, history, site permissions). The UI shows a live screencast
 // and forwards mouse/keyboard; the AI uses the same page through browser-mcp.mjs (navigate, snapshot, click…).
 // Guarded for the AI: it may only open this computer's own pages (previews, dev servers) and the sites the person
 // allowed; it works in one view (links that open a new tab or window open here, it can't make or switch tabs); no
@@ -10,7 +11,8 @@ import {AsyncLocalStorage} from 'node:async_hooks';
 export const AI=new AsyncLocalStorage();
 import {mkdir,readFile,writeFile} from 'node:fs/promises';
 import path from 'node:path';
-import {findBrowser,killTree} from './platform.mjs';
+import {findBrowser,killTree,pickFile} from './platform.mjs';
+import {appendFile,access as fsAccess} from 'node:fs/promises';
 import {freePort} from './devservers.mjs';
 
 // Viewport presets; "mobile" also turns on touch and a phone user agent so sites serve their mobile layout.
@@ -34,12 +36,18 @@ const w=r.querySelector('.w'),p=r.querySelector('.p'),c=r.querySelector('.c');(d
 window.__cbaOv={say(x){if(!h.isConnected)(document.body||document.documentElement).appendChild(h);w.className='w on';p.textContent=x;clearTimeout(t);t=setTimeout(()=>w.className='w',9000)},move(x,y,click){c.classList.add('s');c.style.transform='translate('+x+'px,'+y+'px)';if(click)setTimeout(()=>{const d=document.createElement('div');d.className='rp';d.style.left=x+'px';d.style.top=y+'px';w.appendChild(d);setTimeout(()=>d.remove(),700)},450)},off(){w.className='w'}}})()`;
 // links that would open a new tab or window open in this one
 const ONE_VIEW=`window.open=function(u){if(u)location.href=new URL(u,location.href).href;return window};document.addEventListener('click',e=>{const a=e.target&&e.target.closest&&e.target.closest('a[target]');if(a&&a.target!=='_self'&&a.target!=='_top')a.target='_self'},true);`;
+const PERM_JS=`(()=>{if(window.__cbaPermWrap)return;window.__cbaPermWrap=1;const wait={};window.__cbaPermDone=(id,ok)=>{const f=wait[id];delete wait[id];if(f)f(ok)};
+ const ask=kinds=>new Promise(res=>{const id=Math.random().toString(36).slice(2);wait[id]=res;try{window.__cbaPerm(JSON.stringify({id,kinds,origin:location.origin}))}catch{delete wait[id];res(true)}});
+ const md=navigator.mediaDevices;if(md&&md.getUserMedia){const g=md.getUserMedia.bind(md);md.getUserMedia=async c=>{const k=[];if(c&&c.audio)k.push('audioCapture');if(c&&c.video)k.push('videoCapture');if(k.length&&!(await ask(k)))throw new DOMException('Permission denied','NotAllowedError');return g(c)}}
+ const geo=navigator.geolocation;if(geo){for(const m of ['getCurrentPosition','watchPosition']){const o=geo[m].bind(geo);geo[m]=(ok,err,opt)=>{ask(['geolocation']).then(y=>{if(y)o(ok,err,opt);else if(err)err({code:1,message:'User denied Geolocation'})});return 0}}}
+ if(window.Notification&&Notification.requestPermission){const r=Notification.requestPermission.bind(Notification);Notification.requestPermission=async()=>(await ask(['notifications']))?r():'denied'}})()`;
+const PERM_NAME={audioCapture:'microphone',videoCapture:'camera',geolocation:'location',notifications:'notifications'};
 const ROBOT_JS=`(()=>{const t=(document.title+' '+(document.body?document.body.innerText.slice(0,3000):'')).toLowerCase();
  if([...document.querySelectorAll('iframe')].some(f=>/recaptcha|hcaptcha|challenges\\.cloudflare|turnstile|arkoselabs|funcaptcha/.test(f.src||'')))return 'captcha';
  if(/just a moment|verify you are human|are you a robot|i'm not a robot|unusual traffic|press and hold|security check/.test(t))return 'check';return ''})()`;
 export class SideBrowser{
- constructor(dataDir){this.guardFile=path.join(dataDir,'browser-guard.json');this.guard={sites:[],paused:false};readFile(this.guardFile,'utf8').then(t=>{const g=JSON.parse(t);this.guard.sites=Array.isArray(g.sites)?g.sites:[]}).catch(()=>{});this.profile=path.join(dataDir,'browser-profile');this.pidFile=path.join(dataDir,'browser.pid');process.on('exit',()=>killTree(this.child));this.frame=null;this.frameSeq=0;this.waiters=[];this.log=[];this.state='stopped';this.preset='desktop';this.view={...PRESETS.desktop};this.scheme='light';this.tabs=[]}
- status(){return {guard:{sites:this.guard.sites,paused:this.guard.paused,reason:this.guard.reason||'',ask:this.guard.ask?{host:this.guard.ask.host}:null},state:this.state,url:this.url||'',title:this.title||'',width:this.view.width,height:this.view.height,preset:this.preset,scheme:this.scheme,tabs:this.tabs,tab:this.target||null,aiTab:this.aiTarget||null,error:this.error||null,log:this.log.slice(-40)}}
+ constructor(dataDir){this.guardFile=path.join(dataDir,'browser-guard.json');this.guard={sites:[],paused:false};readFile(this.guardFile,'utf8').then(t=>{const g=JSON.parse(t);this.guard.sites=Array.isArray(g.sites)?g.sites:[]}).catch(()=>{});this.dataDir=dataDir;this.profile=path.join(dataDir,'browser-profile');this.pidFile=path.join(dataDir,'browser.pid');this.perms={};this.downloads=null;process.on('exit',()=>killTree(this.child));this.frame=null;this.frameSeq=0;this.waiters=[];this.log=[];this.state='stopped';this.preset='desktop';this.view={...PRESETS.desktop};this.scheme='light';this.tabs=[]}
+ status(){return {guard:{sites:this.guard.sites,paused:this.guard.paused,reason:this.guard.reason||'',ask:this.guard.ask?{host:this.guard.ask.host}:null,perm:this.guard.perm?{origin:this.guard.perm.origin,what:this.guard.perm.kinds.map(k=>PERM_NAME[k]||k)}:null,file:this.guard.file?{origin:this.guard.file.origin}:null},state:this.state,url:this.url||'',title:this.title||'',width:this.view.width,height:this.view.height,preset:this.preset,scheme:this.scheme,tabs:this.tabs,tab:this.target||null,aiTab:this.aiTarget||null,error:this.error||null,log:this.log.slice(-40)}}
  // may the AI open this address? This computer's own pages and the sites the person allowed
  allowed(u){try{const x=new URL(u);if(x.protocol==='about:')return true;const h=x.hostname.toLowerCase();return LOCAL.test(h)||this.guard.sites.some(s=>h===s||h.endsWith('.'+s))}catch{return false}}
  // a site the AI may not open yet: the browser asks the person (Allow this site / Not now) and the AI waits for the answer
@@ -58,9 +66,34 @@ export class SideBrowser{
  lastPerson(){const l=this.log.filter(x=>x.by==='user');return Math.max(this.pausedAt||0,...l.map(x=>x.time))}
  resume(why){this.guard.paused=false;this.guard.reason='';this.note({by:'page',action:'handed back',detail:why});this.off().catch(()=>{})}
  async robotOnPage(){return await this.eval(ROBOT_JS).catch(()=>'')}
- async setGuard({sites,paused,answer}={}){if(answer!==undefined)return this.answer(answer);if(Array.isArray(sites))this.guard.sites=[...new Set(sites.map(s=>String(s).trim().toLowerCase().replace(/^https?:\/\//,'').replace(/\/.*$/,'').replace(/^www\./,'')).filter(s=>/^[a-z0-9.-]+\.[a-z]{2,}$/.test(s)))].slice(0,40);
+ async setGuard({sites,paused,answer,perm,file}={}){if(answer!==undefined)return this.answer(answer);if(perm!==undefined)return this.answerPerm(Boolean(perm));if(file!==undefined)return this.answerFile(file==='pick');if(Array.isArray(sites))this.guard.sites=[...new Set(sites.map(s=>String(s).trim().toLowerCase().replace(/^https?:\/\//,'').replace(/\/.*$/,'').replace(/^www\./,'')).filter(s=>/^[a-z0-9.-]+\.[a-z]{2,}$/.test(s)))].slice(0,40);
   if(paused!==undefined){this.guard.paused=!!paused;this.guard.reason='';if(this.guard.paused){this.pausedAt=Date.now();this.say('You have control. The AI carries on after 30 seconds without your clicks, or when you hand back.').catch(()=>{})}else this.off().catch(()=>{})}
   await writeFile(this.guardFile,JSON.stringify({sites:this.guard.sites},null,1)).catch(()=>{});return this.status()}
+ // the project's own browser profile (cookies, sign-ins, history, permissions) and where its downloads go
+ async useProject(folder,downloads){if(downloads){this.downloads=downloads;await mkdir(downloads,{recursive:true}).catch(()=>{})}
+  const prof=folder&&!process.env.CBA_ONLINE?path.join(folder,'.aqeelos','browser'):path.join(this.dataDir,'browser-profile');if(prof===this.profile)return false;
+  const was=this.state==='running';if(was||this.starting){try{await this.starting}catch{}this.stop();await new Promise(r=>setTimeout(r,700))}
+  this.profile=prof;this.pidFile=path.join(path.dirname(prof),'browser.pid');this.aiTarget=null;this.aiWs=null;this.tabs=[];this.perms={};this.guard.perm=null;this.guard.file=null;
+  if(folder){await mkdir(path.dirname(prof),{recursive:true}).catch(()=>{});// keep it out of git (only this computer's copy of the repo knows)
+   const ex=path.join(folder,'.git','info','exclude');try{await fsAccess(path.join(folder,'.git'));const cur=await readFile(ex,'utf8').catch(()=>'');if(!/^\.aqeelos\/?$/m.test(cur)){await mkdir(path.dirname(ex),{recursive:true});await appendFile(ex,(cur&&!cur.endsWith('\n')?'\n':'')+'.aqeelos/\n')}}catch{}}
+  if(was)this.note({by:'page',action:'profile',detail:'Switched to this project’s browser'});return was}
+ permFile(){return path.join(path.dirname(this.profile),'browser-permissions.json')}
+ async loadPerms(){try{this.perms=JSON.parse(await readFile(this.permFile(),'utf8'))}catch{this.perms={}}
+  for(const [origin,ks] of Object.entries(this.perms))for(const [k,v] of Object.entries(ks))await this.send('Browser.setPermission',{permission:{name:k},setting:v,origin}).catch(()=>{})}
+ // a page asked for the microphone, camera, location or notifications: answered from what the person chose before, else asked
+ async permAsk(payload,conn){let q;try{q=JSON.parse(payload)}catch{return}const known=q.kinds.map(k=>this.perms[q.origin]?.[k]);
+  if(known.every(v=>v==='granted'))return this.permDone(q,true,conn);if(known.some(v=>v==='denied'))return this.permDone(q,false,conn);
+  this.guard.perm?.q&&this.permDone(this.guard.perm.q,false,this.guard.perm.conn);this.guard.perm={q,conn,origin:q.origin,kinds:q.kinds};
+  this.note({by:'page',action:'asks',detail:new URL(q.origin).host+' wants your '+q.kinds.map(k=>PERM_NAME[k]||k).join(' and ')})}
+ async permDone(q,ok,conn){const run=f=>conn==='ai'?AI.run(true,f):f();await run(()=>this.send('Runtime.evaluate',{expression:'window.__cbaPermDone&&window.__cbaPermDone('+JSON.stringify(q.id)+','+(ok?'true':'false')+')'})).catch(()=>{})}
+ async answerPerm(yes){const p=this.guard.perm;if(!p)return this.status();this.guard.perm=null;const setting=yes?'granted':'denied';
+  for(const k of p.kinds){(this.perms[p.origin]??={})[k]=setting;await this.send('Browser.setPermission',{permission:{name:k},setting,origin:p.origin}).catch(()=>{})}
+  await writeFile(this.permFile(),JSON.stringify(this.perms,null,1)).catch(()=>{});this.note({by:'user',action:yes?'allowed':'blocked',detail:new URL(p.origin).host+': '+p.kinds.map(k=>PERM_NAME[k]||k).join(', ')});await this.permDone(p.q,yes,p.conn);return this.status()}
+ // a page asked for a file: the person chooses one (never the AI)
+ fileAsk(params,conn){let origin='';try{origin=new URL(conn==='ai'?this.aiUrl:this.url).origin}catch{}this.guard.file={params,conn,origin};this.note({by:'page',action:'asks',detail:(origin?new URL(origin).host:'The page')+' wants a file from your computer'})}
+ async answerFile(pick){const f=this.guard.file;if(!f)return this.status();this.guard.file=null;if(!pick)return this.status();
+  const p=await pickFile('Choose the file to give '+(f.origin?new URL(f.origin).host:'this page'));if(!p)return this.status();
+  const run=fn=>f.conn==='ai'?AI.run(true,fn):fn();await run(()=>this.send('DOM.setFileInputFiles',{files:[p],backendNodeId:f.params.backendNodeId}));this.note({by:'user',action:'gave a file',detail:path.basename(p)});return this.status()}
  async layer(){try{await this.send('Runtime.evaluate',{expression:OVERLAY})}catch{}}
  async say(text){await this.layer();await this.send('Runtime.evaluate',{expression:'window.__cbaOv&&window.__cbaOv.say('+JSON.stringify(String(text).slice(0,120))+')'}).catch(()=>{})}
  async off(){await this.send('Runtime.evaluate',{expression:'window.__cbaOv&&window.__cbaOv.off()'}).catch(()=>{})}
@@ -78,24 +111,27 @@ export class SideBrowser{
    await mkdir(this.profile,{recursive:true});const port=await freePort(9300);this.port=port;
    // a browser left over from a previous run would keep the profile locked
    try{const old=Number(await readFile(this.pidFile,'utf8'));if(old){try{process.kill(old,0);killTree({pid:old});await new Promise(r=>setTimeout(r,800))}catch{}}}catch{}
-   this.child=spawn(exe,['--headless=new','--remote-debugging-port='+port,'--remote-allow-origins=*','--user-data-dir='+this.profile,'--window-size=1280,800','--no-first-run','--no-default-browser-check','--disable-features=Translate',...(process.platform==='linux'?['--no-sandbox','--disable-dev-shm-usage','--disable-gpu']:[]),'about:blank'],{stdio:'ignore',windowsHide:true});
+   const head=process.platform==='linux'&&!process.env.DISPLAY?['--headless=new']:['--window-position=-2400,-2400','--disable-backgrounding-occluded-windows','--disable-renderer-backgrounding','--disable-background-timer-throttling'];
+   this.child=spawn(exe,[...head,'--remote-debugging-port='+port,'--remote-allow-origins=*','--user-data-dir='+this.profile,'--window-size=1280,800','--no-first-run','--no-default-browser-check','--disable-features=Translate,CalculateNativeWinOcclusion',...(process.platform==='linux'?['--no-sandbox','--disable-dev-shm-usage','--disable-gpu']:[]),'about:blank'],{stdio:'ignore',windowsHide:true});
    this.child.on('exit',()=>{this.state='stopped';this.ws=null});writeFile(this.pidFile,String(this.child.pid)).catch(()=>{});
    let targets=[];for(let i=0;i<50;i++){try{targets=await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();if(targets.some(t=>t.type==='page'))break}catch{}await new Promise(r=>setTimeout(r,200))}
    const page=targets.find(t=>t.type==='page');if(!page)throw Error('The browser did not start.');
-   await this.connect(page);this.state='running';await this.refreshTabs();return this.status()}
+   await this.connect(page);this.state='running';await this.loadPerms();await this.refreshTabs();return this.status()}
   catch(e){this.state='failed';this.error=e.message;killTree(this.child);throw e}finally{this.starting=null}})();return this.starting}
 
  // Attach to one tab (a DevTools page target). Switching tabs swaps the connection; the old one is ignored.
  connect(page){return new Promise((resolve,reject)=>{
   const old=this.ws;const ws=new WebSocket(page.webSocketDebuggerUrl);this.ws=ws;this.target=page.id;this.url=page.url;this.title=page.title;this.id=0;this.pending=new Map();try{old?.close()}catch{}
-  ws.onopen=async()=>{try{await this.send('Page.enable');await this.send('Runtime.enable');await this.send('Page.addScriptToEvaluateOnNewDocument',{source:ONE_VIEW}).catch(()=>{});await this.send('Page.setDownloadBehavior',{behavior:'deny'}).catch(()=>{});await this.send('Page.setInterceptFileChooserDialog',{enabled:true}).catch(()=>{});await this.applyView();resolve()}catch(e){reject(e)}};
+  ws.onopen=async()=>{try{await this.send('Page.enable');await this.send('Runtime.enable');await this.send('Page.addScriptToEvaluateOnNewDocument',{source:ONE_VIEW}).catch(()=>{});await this.send('Page.setDownloadBehavior',this.downloads?{behavior:'allow',downloadPath:this.downloads}:{behavior:'deny'}).catch(()=>{});await this.send('Runtime.addBinding',{name:'__cbaPerm'}).catch(()=>{});await this.send('Page.addScriptToEvaluateOnNewDocument',{source:PERM_JS}).catch(()=>{});await this.send('Page.setInterceptFileChooserDialog',{enabled:true}).catch(()=>{});await this.applyView();resolve()}catch(e){reject(e)}};
   ws.onerror=()=>reject(Error('Could not connect to the browser.'));ws.onclose=()=>{if(this.ws===ws)this.state='stopped'};
   ws.onmessage=ev=>{if(this.ws!==ws)return;const m=JSON.parse(ev.data);if(m.id&&this.pending.has(m.id)){const p=this.pending.get(m.id);this.pending.delete(m.id);m.error?p.reject(Error(m.error.message)):p.resolve(m.result);return}
    if(m.method==='Page.screencastFrame'){this.frame=Buffer.from(m.params.data,'base64');this.frameSeq++;this.send('Page.screencastFrameAck',{sessionId:m.params.sessionId}).catch(()=>{});for(const w of this.waiters.splice(0))w()}
    if(m.method==='Page.frameNavigated'&&!m.params.frame.parentId){this.url=m.params.frame.url}
    if(m.method==='Page.loadEventFired')this.refreshTitle()
    // a page asking for a file from this computer gets none; downloads are refused too (set below)
-   if(m.method==='Page.fileChooserOpened'){this.note({by:'page',action:'file picker blocked',detail:'This browser never hands files from this computer to a page.'});this.say('A file picker was blocked').catch(()=>{})}}
+   if(m.method==='Page.fileChooserOpened')this.fileAsk(m.params,'view');
+   if(m.method==='Runtime.bindingCalled'&&m.params.name==='__cbaPerm')this.permAsk(m.params.payload,'view');
+   if(m.method==='Page.downloadWillBegin')this.note({by:'page',action:'download',detail:(m.params.suggestedFilename||'a file')+' → '+(this.downloads||'')})}
  })}
  inAi(){return Boolean(AI.getStore()&&this.aiTarget&&this.aiTarget!==this.target&&this.aiWs)}
  send(method,params={}){const ai=this.inAi(),ws=ai?this.aiWs:this.ws,pending=ai?this.aiPending:this.pending;if(!ws||ws.readyState!==1)return Promise.reject(Error('The side browser is not running.'));const id=ai?++this.aiN:++this.id;ws.send(JSON.stringify({id,method,params}));
@@ -108,11 +144,11 @@ export class SideBrowser{
  connectAi(id){return new Promise(async(resolve,reject)=>{const page=(await this.devtools('list')).find(t=>t.id===id);if(!page)return reject(Error('The AI’s tab is closed.'));
   const old=this.aiWs;const ws=new WebSocket(page.webSocketDebuggerUrl);this.aiWs=ws;this.aiPending=new Map();this.aiN=0;this.aiUrl=page.url;this.aiTitle=page.title;try{old?.close()}catch{}
   const s=(method,params={})=>new Promise((res,rej)=>{const n=++this.aiN;this.aiPending.set(n,{resolve:res,reject:rej});ws.send(JSON.stringify({id:n,method,params}))});
-  ws.onopen=async()=>{try{await s('Page.enable');await s('Runtime.enable');await s('Page.addScriptToEvaluateOnNewDocument',{source:ONE_VIEW}).catch(()=>{});await s('Page.setDownloadBehavior',{behavior:'deny'}).catch(()=>{});await s('Page.setInterceptFileChooserDialog',{enabled:true}).catch(()=>{});
+  ws.onopen=async()=>{try{await s('Page.enable');await s('Runtime.enable');await s('Page.addScriptToEvaluateOnNewDocument',{source:ONE_VIEW}).catch(()=>{});await s('Page.setDownloadBehavior',this.downloads?{behavior:'allow',downloadPath:this.downloads}:{behavior:'deny'}).catch(()=>{});await s('Runtime.addBinding',{name:'__cbaPerm'}).catch(()=>{});await s('Page.addScriptToEvaluateOnNewDocument',{source:PERM_JS}).catch(()=>{});await s('Page.setInterceptFileChooserDialog',{enabled:true}).catch(()=>{});
    const {width,height,mobile}=this.view;await s('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile}).catch(()=>{});resolve()}catch(e){reject(e)}};
   ws.onerror=()=>reject(Error('Could not connect to the AI’s tab.'));ws.onclose=()=>{if(this.aiWs===ws)this.aiWs=null};
   ws.onmessage=ev=>{if(this.aiWs!==ws)return;const m=JSON.parse(ev.data);if(m.id&&this.aiPending.has(m.id)){const p=this.aiPending.get(m.id);this.aiPending.delete(m.id);m.error?p.reject(Error(m.error.message)):p.resolve(m.result);return}
-   if(m.method==='Page.frameNavigated'&&!m.params.frame.parentId)this.aiUrl=m.params.frame.url;if(m.method==='Page.fileChooserOpened')this.note({by:'page',action:'file picker blocked',detail:'This browser never hands files from this computer to a page.'})}})}
+   if(m.method==='Page.frameNavigated'&&!m.params.frame.parentId)this.aiUrl=m.params.frame.url;if(m.method==='Page.fileChooserOpened')this.fileAsk(m.params,'ai');if(m.method==='Runtime.bindingCalled'&&m.params.name==='__cbaPerm')this.permAsk(m.params.payload,'ai');if(m.method==='Page.downloadWillBegin')this.note({by:'page',action:'download',detail:(m.params.suggestedFilename||'a file')+' → '+(this.downloads||'')})}})}
  // what the AI sees: its own tab's address and title
  aiView(){const s=this.status();return this.inAi()?{...s,url:this.aiUrl||'',title:this.aiTitle||''}:s}
  async eval(expression){const r=await this.send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.exception?.description||'Script error');return r.result.value}

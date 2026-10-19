@@ -81,6 +81,16 @@ export function pickFolder(prompt='Choose a project folder'){return new Promise(
  let out='';const child=spawn(exe,args,{windowsHide:false});child.stdout.on('data',d=>out+=d);child.on('error',()=>resolve(null));child.on('close',()=>{const p=out.trim().replace(/\/$/,'');resolve(p||null)});
 })}
 
+// Native file picker (one file), for a page in the side browser that asks for a file: the person chooses, never the AI.
+export function pickFile(prompt='Choose a file'){return new Promise(resolve=>{
+ let exe,args;
+ if(isWindows){exe=path.join(process.env.SystemRoot||'C:/Windows','System32/WindowsPowerShell/v1.0/powershell.exe');
+  args=['-NoProfile','-STA','-Command',WINDOWS_FOLDER_DIALOG.replace('o|0x20|0x40','o|0x40').replace('"Open in code by aqeel"','"Choose"').replace('__TITLE__',prompt.replace(/'/g,"''"))]}
+ else if(isMac){exe='/usr/bin/osascript';args=['-e',`POSIX path of (choose file with prompt "${prompt.replace(/"/g,'\\"')}")`]}
+ else{exe='zenity';args=['--file-selection','--title='+prompt]}
+ let out='';const child=spawn(exe,args,{windowsHide:false});child.stdout.on('data',d=>out+=d);child.on('error',()=>resolve(null));child.on('close',()=>resolve(out.trim()||null));
+})}
+
 // Default place for repositories cloned from GitHub.
 export const reposHome=()=>path.join(os.homedir(),'Documents','code by aqeel');
 

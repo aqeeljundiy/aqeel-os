@@ -67,7 +67,12 @@ export function createBrowserUI(ctx){
  const askBar=el('div','browser-ask');askBar.hidden=true;askBar.setAttribute('role','alert');
  root.append(strip,bar,tools,guardBox,askBar,control,stage,activity);
  let askedFor='';
- function paintAsk(){const a=status.guard?.ask;askBar.hidden=!a;if(!a){askedFor='';return}if(askedFor===a.host)return;askedFor=a.host;
+ function paintAsk(){const g=status.guard||{},pm=g.perm,fl=g.file;
+  if(!g.ask&&(pm||fl)){const key=pm?'perm:'+pm.origin+pm.what:'file:'+fl.origin;askBar.hidden=false;if(askedFor===key)return;askedFor=key;const host=(()=>{try{return new URL((pm||fl).origin).host}catch{return 'This page'}})();
+   const t=el('span','');t.append(el('b','',pm?host+' wants your '+pm.what.join(' and '):host+' wants a file from your computer'),el('span','',pm?' Allow it for this site? Code remembers it in this project.':' Choose one to give it, or cancel. The AI never picks files for you.'));
+   const yes=el('button','primary small',pm?'Allow':'Choose a file…');yes.type='button';const no=el('button','ghost small',pm?'Block':'Cancel');no.type='button';
+   yes.addEventListener('click',()=>call('/guard',pm?{perm:true}:{file:'pick'}));no.addEventListener('click',()=>call('/guard',pm?{perm:false}:{file:'cancel'}));askBar.replaceChildren(icon(pm?'shield':'upload'),t,yes,no);ctx.notify(pm?host+' asks for your '+pm.what.join(' and ')+'. Answer in the Browser.':host+' wants a file. Answer in the Browser.');return}
+  const a=g.ask;askBar.hidden=!a;if(!a){askedFor='';return}if(askedFor===a.host)return;askedFor=a.host;
   const t=el('span','');t.append(el('b','','The AI wants to open '+a.host),el('span','',' Allow it to use this site in this browser?'));
   const yes=el('button','primary small','Allow '+a.host);yes.type='button';const no=el('button','ghost small','Not now');no.type='button';
   yes.addEventListener('click',()=>call('/guard',{answer:true}));no.addEventListener('click',()=>call('/guard',{answer:false}));askBar.replaceChildren(icon('shield'),t,yes,no);ctx.notify('The AI asks to open '+a.host+'. Allow it in the Browser.')}

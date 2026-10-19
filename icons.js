@@ -12,6 +12,7 @@ const PATHS={
  plus:'<path d="M12 5v14M5 12h14"/>',
  close:'<path d="M7 7l10 10M17 7 7 17"/>',
  shield:'<path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/>',
+ upload:'<path d="M12 16V4M7.5 8.5 12 4l4.5 4.5M5 20h14"/>',
  hand:'<path d="M8 12V6a1.5 1.5 0 0 1 3 0v5M11 11V4.5a1.5 1.5 0 0 1 3 0V11M14 11V6a1.5 1.5 0 0 1 3 0v7a7 7 0 0 1-7 7h-.5A5.5 5.5 0 0 1 5 16.3L3.6 13a1.5 1.5 0 0 1 2.6-1.4L8 14"/>',
 };
 export function icon(name){const s=document.createElementNS('http://www.w3.org/2000/svg','svg');s.setAttribute('viewBox','0 0 24 24');s.setAttribute('aria-hidden','true');s.classList.add('ico');s.innerHTML=PATHS[name]||'';return s}
