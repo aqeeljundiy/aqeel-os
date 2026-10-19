@@ -35,7 +35,10 @@ export function shell(command){
 }
 
 // Show a folder in the file manager.
-export function reveal(folder){const [exe,args]=isWindows?[path.join(process.env.SystemRoot||'C:/Windows','explorer.exe'),[folder]]:isMac?['/usr/bin/open',[folder]]:['xdg-open',[folder]];
+export function reveal(folder){if(isWindows){const dir=path.resolve(folder).replace(/'/g,"''");
+  const ps=WINDOWS_FRONT+"$sh=New-Object -ComObject Shell.Application;$sh.Open('"+dir+"');$w=$null;for($i=0;$i -lt 30 -and -not $w;$i++){Start-Sleep -Milliseconds 150;$w=@($sh.Windows()|Where-Object{try{$_.Document.Folder.Self.Path -eq '"+dir+"'}catch{$false}})[0]}if($w){[Front]::Go([IntPtr]$w.HWND)}";
+  spawn(path.join(process.env.SystemRoot||'C:/Windows','System32/WindowsPowerShell/v1.0/powershell.exe'),['-NoProfile','-STA','-Command',ps],{detached:true,stdio:'ignore',windowsHide:true}).on('error',()=>{}).unref();return}
+ const [exe,args]=isMac?['/usr/bin/open',[folder]]:['xdg-open',[folder]];
  spawn(exe,args,{detached:true,stdio:'ignore'}).on('error',()=>{}).unref()}
 export const fileManagerName=isWindows?'Explorer':isMac?'Finder':'file manager';
 
@@ -46,7 +49,15 @@ export async function openInEditor(folder,file){const code=await findOnPath('cod
 // Native folder picker on the host computer. Resolves to a path or null when cancelled.
 // The modern Windows "Select Folder" window (the Explorer-style dialog apps use for File › Open), through its COM interface.
 // Only the methods called here have real signatures; the others hold their places in the interface.
-const WINDOWS_FOLDER_DIALOG=`Add-Type -AssemblyName System.Windows.Forms
+const WINDOWS_FRONT=`Add-Type -TypeDefinition @'
+using System;using System.Runtime.InteropServices;
+public static class Front{[DllImport("user32.dll")]static extern IntPtr GetForegroundWindow();[DllImport("user32.dll")]static extern uint GetWindowThreadProcessId(IntPtr h,IntPtr p);
+ [DllImport("kernel32.dll")]static extern uint GetCurrentThreadId();[DllImport("user32.dll")]static extern bool AttachThreadInput(uint a,uint b,bool on);
+ [DllImport("user32.dll")]static extern bool SetForegroundWindow(IntPtr h);[DllImport("user32.dll")]static extern bool BringWindowToTop(IntPtr h);[DllImport("user32.dll")]static extern bool ShowWindow(IntPtr h,int c);
+ public static void Go(IntPtr h){uint fg=GetWindowThreadProcessId(GetForegroundWindow(),IntPtr.Zero),me=GetCurrentThreadId();AttachThreadInput(me,fg,true);ShowWindow(h,9);BringWindowToTop(h);SetForegroundWindow(h);AttachThreadInput(me,fg,false);}}
+'@
+`;
+const WINDOWS_FOLDER_DIALOG=WINDOWS_FRONT+`Add-Type -AssemblyName System.Windows.Forms
 Add-Type -TypeDefinition @'
 using System;using System.Runtime.InteropServices;
 [ComImport,Guid("42f85136-db7e-439c-85f1-e4075d135fc8"),InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -59,7 +70,7 @@ public interface IShellItem{void BindToHandler();void GetParent();void GetDispla
 public static class FolderPicker{public static string Pick(string title,IntPtr owner){var d=(IFileDialog)new FileOpenDialog();uint o;d.GetOptions(out o);d.SetOptions(o|0x20|0x40);d.SetTitle(title);d.SetOkButtonLabel("Open in code by aqeel");
  if(d.Show(owner)!=0)return null;IShellItem item;d.GetResult(out item);string path;item.GetDisplayName(0x80058000,out path);return path;}}
 '@
-$owner=New-Object System.Windows.Forms.Form;$owner.TopMost=$true;$p=[FolderPicker]::Pick('__TITLE__',$owner.Handle);if($p){[Console]::Out.Write($p)}`;
+$owner=New-Object System.Windows.Forms.Form;$owner.TopMost=$true;$owner.ShowInTaskbar=$false;$owner.FormBorderStyle='None';$owner.Opacity=0;$owner.StartPosition='CenterScreen';$owner.Width=1;$owner.Height=1;$owner.Show();[Front]::Go($owner.Handle);$p=[FolderPicker]::Pick('__TITLE__',$owner.Handle);if($p){[Console]::Out.Write($p)}`;
 
 export function pickFolder(prompt='Choose a project folder'){return new Promise(resolve=>{
  let exe,args;

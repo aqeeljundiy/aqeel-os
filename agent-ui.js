@@ -7,8 +7,9 @@ const STATUS={running:'Running',completed:'Done',failed:'Failed',declined:'Decli
 const label=p=>({claude:'Claude',codex:'GPT',gemini:'Gemini'})[p]||p;
 
 // The end of a turn: a short recap and up to two one-click next steps (sent as your next message)
-export function nextBox(next,send){const box=el('div','next-box');box.append(el('p','next-recap',next.recap||''));
- if(next.actions?.length){const row=el('div','next-actions');next.actions.forEach((a,i)=>{const b=el('button',i?'':'primary',a.label);b.type='button';b.title=a.message;b.addEventListener('click',()=>{for(const x of row.querySelectorAll('button'))x.disabled=true;send(a.message)});row.append(b)});box.append(row)}return box}
+export function nextBox(next,send,extra=[]){const box=el('div','next-box');box.append(el('p','next-recap',next.recap||''));
+ if(next.actions?.length||extra.length){const row=el('div','next-actions');(next.actions||[]).forEach((a,i)=>{const b=el('button',i?'':'primary',a.label);b.type='button';b.title=a.message;b.addEventListener('click',()=>{for(const x of row.querySelectorAll('button'))x.disabled=true;send(a.message)});row.append(b)});
+  for(const [label,run] of extra){const b=el('button','',label);b.type='button';b.addEventListener('click',run);row.append(b)}box.append(row)}return box}
 
 export function createAgentUI(ctx){
  const runs=new Map(); // runId -> {view, panel, nodes: Map(key->node), terminalSeen:Set}

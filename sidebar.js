@@ -38,7 +38,6 @@ export function createSidebar(ctx){
   {label:'Rename…',action:async()=>{const name=await promptDialog({title:'Rename project',label:'Project name',value:p.name,confirm:'Rename',max:80});if(name&&name!==p.name)act(()=>ctx.api('/project/update',{projectId:p.id,name}),'Project renamed.')}},
   'separator',
   {label:'Reveal in '+(ctx.fileManager?.()||'Explorer'),action:()=>act(()=>ctx.api('/reveal',{projectId:p.id,target:'explorer'}))},
-  {label:'Open in VS Code',action:()=>act(()=>ctx.api('/reveal',{projectId:p.id,target:'editor'}))},
   {label:'Copy folder path',action:()=>act(async()=>{const {path}=await ctx.api('/folder?projectId='+p.id);await navigator.clipboard.writeText(path)},'Folder path copied.')},
   'separator',
   p.archived?{label:'Restore from archive',action:()=>act(()=>ctx.api('/project/update',{projectId:p.id,archived:false}),'Project restored.')}

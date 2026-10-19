@@ -1505,3 +1505,15 @@ body.embed .composer-controls{padding:6px 0 0}
 /* one font: Plus Jakarta Sans for everything people read, numbers included; only code blocks, the editor and the terminal stay monospaced */
 .md-code{font-family:inherit;font-size:.94em;font-weight:500}
 .file-change .file-link,#preview-path,#terminal-form label{font-family:inherit}
+
+/* New project: where to keep it, chosen on purpose */
+.place-choice{display:grid;gap:8px;margin:2px 0 4px}.place-choice[hidden]{display:none}
+.place-opt{display:flex;align-items:center;gap:12px;width:100%;min-height:0;height:auto;padding:11px 14px;text-align:left;border:1px solid var(--border);border-radius:14px;background:var(--surface);color:var(--ink);font:inherit;cursor:pointer;box-shadow:none;transition:border-color .2s ease,box-shadow .2s ease,background .2s ease}
+.place-opt:hover{border-color:#c4d5f3}.place-opt.on{border-color:var(--blue);box-shadow:0 0 0 3px rgba(1,88,203,.1)}
+.po-dot{width:18px;height:18px;border-radius:50%;border:2px solid var(--border);flex:none;display:grid;place-items:center;transition:border-color .2s ease}
+.po-dot::after{content:'';width:8px;height:8px;border-radius:50%;background:var(--blue);transform:scale(0);transition:transform .2s ease}
+.place-opt.on .po-dot{border-color:var(--blue)}.place-opt.on .po-dot::after{transform:scale(1)}
+.po-t{display:grid;gap:2px;min-width:0}.po-t b{font-size:13.5px;font-weight:600}.po-path{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left}
+.place-err{margin:0;font-size:12.5px;color:#c2410c}
+
+.next-box .next-recap:empty{display:none}
