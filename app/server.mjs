@@ -291,6 +291,9 @@ async function checkSignins(){const h={'x-hermes-session-token':DASH_TOKEN};cons
     if(j.ok===false&&/oauth|unauthori[sz]ed|401|invalid_grant|invalid_token|expired|login/i.test(String(j.error||'')))why='the sign-in ran out'}catch{}}
    if(why){if(!signinsDue.has(key))console.log('sign-in needed:',s.name,'on',a,'('+why+')');signinsDue.set(key,{agent:a,agentName:NAMES[a]||a,name:s.name,why,...appInfo(s.name,s.url),last:(await stat(tok).catch(()=>null))?.mtimeMs||0})}else signinsDue.delete(key)}}
  for(const k of [...signinsDue.keys()])if(!seen.has(k))signinsDue.delete(k);signinsAt=Date.now()}
+// cheap: only looks at the token files (the full check above also tests each app, every 3 hours)
+async function freshSignins(){for(const [k,x] of [...signinsDue]){const tok=path.join(x.agent==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',x.agent),'mcp-tokens',x.name+'.json');const st=await stat(tok).catch(()=>null);
+  if(st&&st.size>2&&(x.why==='not signed in'||st.mtimeMs>(x.last||0)+1000))signinsDue.delete(k)}}
 // every agent gets its own n8n user once n8n is connected (new agents within a few minutes); nothing happens before that
 async function n8nForAll(){if(!await n8n.ready())return;for(const a of await listAgents()){if(await isTestAgent(a))continue;try{await n8n.ensure(a)}catch(e){console.warn('n8n for',a,e.message)}}}
 if(PORT===4400){setTimeout(()=>n8nForAll().catch(()=>{}),90000);setInterval(()=>n8nForAll().catch(()=>{}),600000).unref()}
@@ -1206,7 +1209,7 @@ const server=createServer(async(req,res)=>{
     try{if(p==='/ui/apps/check'){const a=await live.check(String(b.id||''));return send(res,200,{status:a.status,error:a.error||''})}
      if(p==='/ui/apps/remove')return send(res,200,await live.remove(u,users.isAdmin(u),String(b.id||'')));
      if(p==='/ui/apps/connect'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,await live.connect(b))}}catch(e){return send(res,400,{error:e.message})}}
-   if(p==='/ui/bottlenecks'&&req.method==='GET'){const admin=users.isAdmin(u);const items=await bottlenecks.list({admin,mayUse:a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a),signins:admin?[...signinsDue.values()]:[],invites:admin?users.expiredInvites():[]});return send(res,200,{items})}
+   if(p==='/ui/bottlenecks'&&req.method==='GET'){const admin=users.isAdmin(u);if(admin)await freshSignins();const items=await bottlenecks.list({admin,mayUse:a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a),signins:admin?[...signinsDue.values()]:[],invites:admin?users.expiredInvites():[]});return send(res,200,{items})}
    if((p==='/ui/bottlenecks/done'||p==='/ui/bottlenecks/later')&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const id=String(b.id||'');if(!id)return send(res,400,{error:'Which one?'});if(!users.isAdmin(u)&&!id.startsWith('report|'))return send(res,403,{error:'Only admins.'});await (p.endsWith('done')?bottlenecks.done(id):bottlenecks.later(id));return send(res,200,{ok:true})}
    if(p==='/ui/code/devices'&&req.method==='GET')return send(res,200,{devices:await code.devices(u.id)});
    if(p==='/ui/code/unpair'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}await code.unpair(u.id,String(b.id||''));return send(res,200,{ok:true})}
@@ -1234,7 +1237,7 @@ const server=createServer(async(req,res)=>{
     if(req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const kind=String(b.kind||''),id=String(b.id||''),agent=String(b.agent||'');
      if(!KINDS.includes(kind)||!id||!(await listAgents()).includes(agent))return send(res,400,{error:'Bad request'});
      try{const r=p==='/ui/access/owner'?await access.setOwner(kind,id,agent):b.on?await access.grant(kind,id,agent):await access.revoke(kind,id,agent);console.log('access:',kind,id,p==='/ui/access/owner'?'owner →':b.on?'on for':'off for',agent);return send(res,200,{ok:true,...r})}catch(e){return send(res,409,{error:e.message})}}}
-   if(p==='/ui/mcp/signins'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,200,{items:[]});
+   if(p==='/ui/mcp/signins'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,200,{items:[]});await freshSignins();
     // for each, the other agents that are signed in to the same app (their sign-in can be used instead)
     const l=await access.list('mcp').catch(()=>({items:[]}));
     return send(res,200,{checked:signinsAt,items:[...signinsDue.values()].map(x=>{const it=l.items.find(y=>y.id===x.name);return {...x,others:(it?.users||[]).filter(u2=>u2.signed&&u2.id!==x.agent).map(u2=>({id:u2.id,name:u2.name}))}})})}

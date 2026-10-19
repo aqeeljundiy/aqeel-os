@@ -3,6 +3,9 @@
 // sign-in, remove it from this agent, or later.
 const Signins={shown:new Set(),
  snoozed(k){try{return (JSON.parse(localStorage.getItem('signinLater')||'{}')[k]||0)>Date.now()}catch{return false}},
+ // after a sign-in: check every 10 s for two minutes, so the reminder goes away as soon as it lands
+ watch(x){const k=x.agent+'|'+x.name;let n=0;clearInterval(this['w'+k]);this['w'+k]=setInterval(async()=>{n++;let d;try{d=await UI('/ui/mcp/signins')}catch{return}
+  if(!(d.items||[]).some(y=>y.agent===x.agent&&y.name===x.name)){clearInterval(this['w'+k]);this.shown.delete(k);toast((x.label||x.name)+' is signed in for '+x.agentName);if(typeof Bottlenecks!=='undefined')Bottlenecks.check()}else if(n>=12)clearInterval(this['w'+k])},10000)},
  snooze(k){try{const m=JSON.parse(localStorage.getItem('signinLater')||'{}');m[k]=Date.now()+24*3600e3;localStorage.setItem('signinLater',JSON.stringify(m))}catch{}},
  async check(){if(!S.signedIn||S.me?.admin===false||document.hidden)return;let d;try{d=await UI('/ui/mcp/signins')}catch{return}this.items=d.items||[];
   for(const x of this.items){const k=x.agent+'|'+x.name;if(this.shown.has(k)||this.snoozed(k))continue;this.shown.add(k);
@@ -21,11 +24,16 @@ const Signins={shown:new Set(),
     <button class="primary" data-si="signin">${icon('key',15)}Sign in to ${esc(x.app||x.name)}</button>
     ${o?`<button data-si="use">${icon('user',15)}Use ${esc(o.name)}’s sign-in</button>`:''}
     <button class="ghost" data-si="remove">${icon('trash',15)}${esc(x.agentName)} doesn’t need it: remove</button>
-    <button class="ghost" data-si="later">${icon('clock',15)}Remind me tomorrow</button></div>
+    <button class="ghost" data-si="later">${icon('clock',15)}Remind me tomorrow</button>
+    <button class="ghost" data-si="other">${icon('chat',15)}Something else…</button></div>
+   <div class="si-other" hidden><label for="siTxt">Tell ${esc(x.agentName)} why, or ask something</label><textarea id="siTxt" rows="3" placeholder="For example: you don’t need Composio for this, use the Gmail connection instead"></textarea><div class="si-other-acts"><button class="primary small" data-si="send">Send to ${esc(x.agentName)}</button><span class="hint">It goes to a new chat with ${esc(x.agentName)}; this reminder waits a day.</span></div></div>
    <p class="hint" style="margin:12px 0 0">Signing in opens ${esc(x.app||'the app')}’s own page in a new tab. Pick the account ${x.account?`for <b>${esc(x.account)}</b> `:''}and allow access, then come back here.</p>`,`<button class="ghost" data-act="close">Close</button>`);
   const done=msg=>{closeLayers();toast(msg);document.querySelector('.cron-pop[data-k="'+CSS.escape('signin|'+k)+'"] .np-x')?.click()};
-  d.querySelector('[data-si="signin"]').onclick=async()=>{const w=window.open('about:blank','_blank');try{const r=await post(UI,'/ui/mcp/start-signin',{agent:x.agent,name:x.name});const u=r.authorization_url||r.auth_url||r.url;if(!u)throw new Error(r.error||'No sign-in page came back.');if(w)w.location=u;else window.open(u,'_blank');done('Finish signing in on the page that opened')}catch(e){w?.close();fail(e)}};
-  d.querySelector('[data-si="use"]')?.addEventListener('click',async()=>{try{await post(UI,'/ui/access',{kind:'mcp',id:x.name,agent:x.agent,on:true});done(x.agentName+' now uses '+o.name+'’s sign-in · ready in about a minute')}catch(e){fail(e)}});
+  d.querySelector('[data-si="signin"]').onclick=async()=>{const w=window.open('about:blank','_blank');try{const r=await post(UI,'/ui/mcp/start-signin',{agent:x.agent,name:x.name});const u=r.authorization_url||r.auth_url||r.url;if(!u)throw new Error(r.error||'No sign-in page came back.');if(w)w.location=u;else window.open(u,'_blank');done('Finish signing in on the page that opened');this.watch(x)}catch(e){w?.close();fail(e)}};
+  d.querySelector('[data-si="use"]')?.addEventListener('click',async()=>{try{await post(UI,'/ui/access',{kind:'mcp',id:x.name,agent:x.agent,on:true});done(x.agentName+' now uses '+o.name+'’s sign-in · ready in about a minute');this.watch(x)}catch(e){fail(e)}});
+  d.querySelector('[data-si="other"]').onclick=()=>{const b=d.querySelector('.si-other');b.hidden=false;b.querySelector('textarea').focus()};
+  d.querySelector('[data-si="send"]').onclick=async()=>{const t=d.querySelector('#siTxt').value.trim();if(!t){d.querySelector('#siTxt').focus();return}this.snooze(k);done('Sent to '+x.agentName);
+   if((S.profile||'default')!==x.agent&&typeof switchAgent==='function')switchAgent(x.agent);go('/chat');setTimeout(()=>{if(typeof Chat!=='undefined'&&Chat.send)Chat.send('(About the '+(x.label||x.name)+' sign-in it asked for) '+t)},1500)};
   d.querySelector('[data-si="remove"]').onclick=async()=>{if(!await confirmBox('Remove '+(x.label||x.name)+' from '+x.agentName+'?',x.agentName+' stops trying to use it. Other agents keep theirs.','Remove'))return;
    try{await del(H,'/mcp/servers/'+encodeURIComponent(x.name)+'?profile='+encodeURIComponent(x.agent));done('Removed from '+x.agentName)}catch(e){fail(e)}};
   d.querySelector('[data-si="later"]').onclick=()=>{this.snooze(k);done('We’ll remind you tomorrow')}}};
