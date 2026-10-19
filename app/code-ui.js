@@ -7,6 +7,8 @@ const CodeUI={where:(()=>{try{return localStorage.getItem('aq-code-where')||'com
  post(m){this.frame?.contentWindow?.postMessage(m,this.app)},
  // this computer (the desktop app) or online (the copy on the AI box, behind sign-in)
  admin(){return S.me?.admin!==false},
+ // the bottom-left card in Code: Code's agent (No agent by default) and its model
+ agentCard(){const a=(this.st.agents||[]).find(x=>x.id===this.st.agent);return {name:a?a.name:'No agent',initial:a?a.name.trim()[0].toUpperCase():'–',model:this.st.model||'Default',none:!a}},
  whereBar(){if(!this.admin())return '';return `<div class="code-where" role="tablist" aria-label="Where projects live">${[['computer','This computer','monitor'],['online','Online','globe']].map(([k,t,i])=>`<button role="tab" aria-selected="${this.where===k}" class="${this.where===k?'on':''}" data-act="code-where" data-w="${k}">${icon(i,14)}${t}</button>`).join('')}</div>`},
  // the left list, under the aqeelOS sections, like the chat list
  sidebar(){const ps=this.st.projects||[],q=this.q.toLowerCase();
@@ -58,12 +60,12 @@ const CodeUI={where:(()=>{try{return localStorage.getItem('aq-code-where')||'com
   clearTimeout(this.timer);this.timer=setTimeout(()=>{if(route().sec?.id==='code'&&this.state==='lock')this.page(null,el.closest('#pg')||el)},6000)},
  async onMessage(e){if(!this.app||e.origin!==this.app||!e.data?.cba)return;const m=e.data;
   if(m.type==='pong'){this.seen=Date.now();return}
-  if(m.type==='hello'){try{if(this.where!=='online')localStorage.setItem('aq-code-seen','1')}catch{}clearTimeout(this.timer);this.state='on';this.seen=Date.now();this.beat();this.st={projects:m.projects||[],project:m.project,chat:m.chat};
+  if(m.type==='hello'){try{if(this.where!=='online')localStorage.setItem('aq-code-seen','1')}catch{}clearTimeout(this.timer);this.state='on';this.seen=Date.now();this.beat();this.st={projects:m.projects||[],project:m.project,chat:m.chat,agent:m.agent||'',agents:m.agents||[],model:m.model||''};setTimeout(()=>typeof paintSide==='function'&&paintSide());
    const f=this.frame;if(f){f.hidden=false;f.closest('.code-host')?.querySelector('.code-wait')?.remove()}
    this.post({aq:'theme',dark:document.documentElement.classList.contains('dark')});if(typeof Brand!=='undefined'&&Brand.custom)this.post({aq:'brand',name:Brand.name});this.post({aq:'lang',lang:(typeof Lang!=='undefined'&&Lang.cur)||'en'});
    if(!m.paired&&this.where!=='online'){try{const r=await post(UI,'/ui/code/pair',{name:(/Mac/i.test(navigator.platform)?'Mac':/Win/i.test(navigator.platform)?'Windows PC':'Computer')+(()=>{const b=navigator.userAgentData?.brands?.find(b=>/Chrome|Edge/.test(b.brand))?.brand;return b?' · '+b:''})()});this.post({aq:'pair',token:r.token,base:location.origin})}catch(er){fail(er)}}
    this.paintSide()}
-  if(m.type==='state'){const st={projects:m.projects||[],project:m.project,chat:m.chat};if(JSON.stringify(st)===JSON.stringify(this.st))return;this.st=st;this.paintSide()}
+  if(m.type==='state'){const st={projects:m.projects||[],project:m.project,chat:m.chat,agent:m.agent||'',agents:m.agents||[],model:m.model||''};if(JSON.stringify(st)===JSON.stringify(this.st))return;const foot=st.agent!==this.st.agent||st.model!==this.st.model||JSON.stringify(st.agents)!==JSON.stringify(this.st.agents);this.st=st;this.paintSide();if(foot&&typeof paintSide==='function')paintSide()}
   if(m.type==='paired'){if(m.ok)toast('This computer is paired with aqeelOS');else toast('Pairing didn’t work: '+(m.error||'unknown'),'err')}
   if(m.type==='error')toast(m.error,'err')}};
 addEventListener('message',e=>CodeUI.onMessage(e));

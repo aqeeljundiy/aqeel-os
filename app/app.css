@@ -1369,3 +1369,5 @@ div.skel:not(.loading)::after{content:'';width:26px;height:26px;border-radius:50
 .brand-prev{display:grid;grid-template-columns:1fr 1fr;gap:10px}.brand-prev .bp{border:1px solid var(--border);border-radius:14px;padding:22px;display:grid;place-items:center}
 .brand-prev .bp.light{background:#fff}.brand-prev .bp.dark{background:#111}.brand-prev .bp.light .wordmark{color:#0b0c10}.brand-prev .bp.dark .wordmark{color:#fff}.brand-prev .bp.light img.mark{filter:grayscale(1)!important}.brand-prev .bp.dark img.mark{filter:grayscale(1) invert(1)!important}
 .brand-prev .wordmark{font-size:20px}
+
+.side-foot .avatar.none{background:var(--soft);color:var(--muted)}
