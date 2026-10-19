@@ -402,10 +402,11 @@ async function init(){try{const providersReady=fetch('/api/status').then(r=>r.js
 // column are hidden. The two talk by messages, and only with the aqeelOS address this copy belongs to: hello (is the
 // app running, is it paired), pair (aqeelOS hands over this computer's key), open / new chat / new project, theme and
 // language; this app tells aqeelOS whenever its projects or the open chat change.
+let share=()=>{};
 {const EMBED=new URLSearchParams(location.search).get('embed')==='aqeelos';
  if(EMBED){document.body.classList.add('embed');{const t=document.querySelector('.topbar .top-actions');if(t)document.querySelector('.work-heading')?.append(t)}let allowed=[],parentOrigin='';
   const post=m=>{if(parentOrigin)parent.postMessage({cba:1,...m},parentOrigin)};
-  const summary=()=>({project:projectId,chat:chatId,projects:(projects||[]).filter(p=>!p.archived).map(p=>({id:p.id,name:p.name,pinned:!!p.pinned,where:p.path?'folder':'app',
+  const summary=()=>({agent:$('agent-pick')?.value||'',agents:[...($('agent-pick')?.options||[])].filter(o=>o.value).map(o=>({id:o.value,name:o.textContent})),model:document.querySelector('.aq-choices .aq-pill:not(.aq-team) span')?.textContent||'',project:projectId,chat:chatId,projects:(projects||[]).filter(p=>!p.archived).map(p=>({id:p.id,name:p.name,pinned:!!p.pinned,where:p.path?'folder':'app',
    chats:(p.chats||[]).filter(c=>!c.archived&&!c.temporary).map(c=>({id:c.id,title:c.title||'New chat',updated:c.updatedAt||c.updated||c.createdAt||0,busy:['running','waiting'].includes(sidebar.state(p,c)),unread:['unread','failed'].includes(sidebar.state(p,c))}))}))});
   const ready=fetch('/api/aqeelos').then(r=>r.json()).then(s=>{allowed=s.origins||[];return s}).catch(()=>({origins:[]}));
   addEventListener('message',async e=>{await ready;if(!allowed.includes(e.origin)||!e.data||!e.data.aq)return;parentOrigin=e.origin;const m=e.data;
@@ -416,6 +417,7 @@ async function init(){try{const providersReady=fetch('/api/status').then(r=>r.js
     else if(m.aq==='newChat'){if(m.project&&m.project!==projectId)await selectProject(m.project);await newChat();post({type:'state',...summary()})}
     else if(m.aq==='newProject')$('new-project')?.click();
     else if(m.aq==='menu'){const p=(projects||[]).find(x=>x.id===m.project);const c=p&&m.chat?(p.chats||[]).find(x=>x.id===m.chat):null;if(p&&(!m.chat||c))openMenu({x:12,y:Math.max(8,Math.min(Number(m.y)||60,innerHeight-60))},sidebar.items(p,c),{label:c?'Chat actions':'Project actions'})}
+    else if(m.aq==='agent'){const sel=$('agent-pick');const v=String(m.id||'');if([...sel.options].some(o=>o.value===v)){sel.value=v;sel.dispatchEvent(new Event('change'))}share()}
     else if(m.aq==='ping'){const ok=await fetch('/api/status?quick',{cache:'no-store',signal:AbortSignal.timeout(5000)}).then(r=>r.ok,()=>false);if(ok)post({type:'pong'})}   // only while the app itself still answers
     else if(m.aq==='brand'&&m.name&&m.name!=='aqeelOS')rebrand(String(m.name).slice(0,24));
     else if(m.aq==='theme')theme(!!m.dark);
@@ -423,7 +425,7 @@ async function init(){try{const providersReady=fetch('/api/status').then(r=>r.js
    }catch(err){post({type:'error',error:String(err?.message||err)})}});
   // aqeelOS's sidebar follows this app
   // only when something changed (the list re-renders often, for example while a run is going)
-  let sent='';const share=()=>{const st=summary(),k=JSON.stringify(st);if(k===sent)return;sent=k;post({type:'state',...st})};
+  let sent='';share=()=>{const st=summary(),k=JSON.stringify(st);if(k===sent)return;sent=k;post({type:'state',...st})};
   const rp=renderProjects;renderProjects=(...a)=>{const r=rp(...a);share();return r};
   setInterval(share,5000)}}
 
@@ -451,9 +453,9 @@ if(document.body.classList.contains('embed'))for(const [v,t,d] of [['ask','Ask m
  const lead=document.createElement('div');lead.className='browser-tab preview-tab';const lb=document.createElement('button');lb.type='button';lb.className='browser-tab-open';lb.setAttribute('role','tab');lb.title='This project’s preview';
  const dot=document.createElement('i');dot.className='preview-dot';lb.append(dot,document.createElement('span'));lead.append(lb);lb.addEventListener('click',()=>openProject());
  // the project's own tab says Your app, and is there only when the project has something to preview (a site or a dev server)
- let hasApp=true;
+ let hasApp=false;
  const paintLead=()=>{if(!hasApp)return null;lb.lastChild.textContent='Your app';lb.title='Preview of '+(project()?.name||'this project');lead.classList.toggle('on',!web);lb.setAttribute('aria-selected',String(!web));return lead};
- const checkApp=async()=>{if(!projectId)return;try{const {files}=await api('/files?projectId='+projectId);hasApp=(files||[]).some(f=>/(^|\/)index\.html?$/i.test(f))||Boolean(devUrl)}catch{hasApp=true}
+ const checkApp=async()=>{if(!projectId){hasApp=false;browserUI?.paint();if(!web&&!$('preview-view').hidden)openWeb();return}try{const {files}=await api('/files?projectId='+projectId);hasApp=(files||[]).some(f=>/(^|\/)index\.html?$/i.test(f))||Boolean(devUrl)}catch{hasApp=true}
   browserUI?.paint();if(!hasApp&&!web&&!$('preview-view').hidden)openWeb()};
  {const rf=refreshFiles;refreshFiles=async(...a)=>{const r=await rf(...a);checkApp();return r}}
  const ensureBrowser=()=>{if(!browserUI){browserUI=createBrowserUI({attach:files=>composer.attach(files),insert:text=>insertMessage(text),container:()=>$('browser-view'),api:(r,b)=>api(r,b),token:()=>token,notify:t=>notify(t),visible:()=>!$('browser-view').hidden,watchWhenHidden:()=>true,
@@ -548,8 +550,7 @@ if(document.body.classList.contains('embed')){
   document.body.append(d);api('/secrets').then(r=>{if(r.names?.length)d.querySelector('.aq-secret-have').textContent='Saved: '+r.names.join(', ')}).catch(()=>{});d.showModal();d.querySelector('input').focus();
   d.addEventListener('close',async()=>{const f=d.querySelector('form');if(d.returnValue==='ok'){try{await api('/secret',{name:f.n.value,value:f.v.value});notify('Saved '+f.n.value.trim().toUpperCase()+'. The AI can use it by name.');insertMessage('(Use the saved secret '+f.n.value.trim().toUpperCase()+'.)')}catch(e){notify(e.message)}}f.v.value='';setTimeout(()=>d.remove(),200)})});
  const tool=btn('Use a tool','plug',b=>openMenu(b,m=>{
-  const ag=[...$('agent-pick').options];if(ag.length>1){m.head('Work with an agent');for(const o of ag)m.item(o.value?o.textContent:'No agent (Code asks the right one)',{on:o.value===$('agent-pick').value,lead:o.value?(o.textContent.trim()[0]||'?').toUpperCase():'–',run:()=>{$('agent-pick').value=o.value;$('agent-pick').dispatchEvent(new Event('change'))}})}
-  m.sep();m.head('Tools on this computer');m.item('The browser',{icon:'plug',run:()=>insertMessage('[Use the browser for this] ')});
+  m.head('Tools on this computer');m.item('The browser',{icon:'plug',run:()=>insertMessage('[Use the browser for this] ')});
   for(const t of (window.__aqTools||[]))m.item(t,{icon:'plug',run:()=>insertMessage('[Use '+t+' for this] ')});
   m.sep();m.item('Manage tools and sign-ins…',{icon:'cpu',run:()=>{location.href='/connections'}})},{search:true}));
  api('/settings').then(s=>{window.__aqTools=(s.mcpServers||[]).filter(x=>x.enabled!==false).map(x=>x.name)}).catch(()=>{});
@@ -565,7 +566,7 @@ if(document.body.classList.contains('embed')){
  // the agent you work with, above the message (Use a tool › Work with an agent)
  const chip=document.createElement('div');chip.className='kind-chip agent-chip';chip.hidden=true;$('chat-prompt').before(chip);
  const paintChip=()=>{const v=$('agent-pick').value;chip.hidden=!v;if(!v)return;chip.replaceChildren();const a=document.createElement('span');a.className='av';a.textContent=($('agent-pick').selectedOptions[0]?.textContent||v).trim()[0].toUpperCase();const t=document.createElement('span');t.textContent='With '+($('agent-pick').selectedOptions[0]?.textContent||v);const x=document.createElement('button');x.type='button';x.textContent='×';x.title='Work without an agent';x.setAttribute('aria-label','Work without an agent');x.addEventListener('click',()=>{$('agent-pick').value='';$('agent-pick').dispatchEvent(new Event('change'))});chip.append(a,t,x)};
- $('agent-pick').addEventListener('change',paintChip);new MutationObserver(paintChip).observe($('agent-pick'),{childList:true});paintChip();
+ $('agent-pick').addEventListener('change',()=>{paintChip();share()});new MutationObserver(paintChip).observe($('agent-pick'),{childList:true});paintChip();
  // ── right: mode (Ask me), One model / Team, model, usage, effort ──
  for(const [v,t,d] of [['ask','Ask me','Approve each command and file change.'],['auto','Smart','Edits and commands inside the project run; anything outside asks you.'],['full','Allow all','No prompts and no sandbox. Only for trusted tasks.']]){const o=modeDd?.querySelector('select')?.querySelector('option[value="'+v+'"]');if(o){o.textContent=t;o.dataset.desc=d}}
  const team=document.createElement('button');team.type='button';team.className='aq-pill aq-team';team.setAttribute('aria-haspopup','menu');
