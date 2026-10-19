@@ -75,7 +75,7 @@ export function createBrowserUI(ctx){
   for(const it of items){const row=el('span','browser-log'+(it.by==='ai'?' ai':''));row.append(el('b','',it.by==='ai'?'AI':'You'),' '+it.action+(it.detail?' · '+it.detail:''));activity.append(row)}
   const newestAi=Math.max(0,...(status.log||[]).filter(x=>x.by==='ai').map(x=>x.time));if(newestAi>lastAi){lastAi=newestAi;ctx.onAiActivity?.()}
   const paused=!!status.guard?.paused,working=!paused&&Date.now()-newestAi<12000;control.className='browser-control'+(paused?' you':working?' ai':'');
-  controlText.textContent=paused?'You have control. The AI waits until you hand back.':working?'The AI is working in this browser.':'';controlBtn.replaceChildren(icon('hand'),el('span','',paused?'Hand back':'Take over'));paintGuard()}
+  controlText.textContent=paused&&status.guard?.reason==='robot'?'A robot check needs you. Solve it on the page, then hand back.':paused?'You have control. The AI waits until you hand back.':working?'The AI is working in this browser.':'';controlBtn.replaceChildren(icon('hand'),el('span','',paused?'Hand back':'Take over'));paintGuard()}
 
  async function loop(){if(looping)return;looping=true;
   try{while(ctx.visible()&&status.state==='running'){const r=await fetch('/api/workspace/browser/frame?after='+seq,{headers:{'X-Local-Token':ctx.token()}});
