@@ -242,7 +242,7 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
  // aqeelOS agents work on projects linked to them (project settings › Agent, or shared with them): a chat in the project
  // shows what was asked and done, and the answer goes back to the agent
  aqeelos?.serve({projects:async()=>store.state.projects.filter(p=>!p.archived&&(p.settings?.agent||p.settings?.shareAgents?.length)).map(p=>({id:p.id,name:p.name,agent:p.settings?.agent||'',agents:p.settings?.shareAgents||[],where:process.env.CBA_ONLINE?'online':'computer'})),
-  work:async job=>{const p=store.project(job.project);if(!p||p.archived)throw Error('That project is not here any more.');if(p.settings?.agent!==job.agent&&!(p.settings?.shareAgents||[]).includes(job.agent))throw Error('That project is not shared with you.');
+  work:async job=>{if(job.kind==='browser')return browserJob(job);const p=store.project(job.project);if(!p||p.archived)throw Error('That project is not here any more.');if(p.settings?.agent!==job.agent&&!(p.settings?.shareAgents||[]).includes(job.agent))throw Error('That project is not shared with you.');
    const ready=[];for(const id of new Set([p.settings?.provider,'claude','codex','gemini']))if(id&&(await status(id).catch(()=>({}))).ready)ready.push(id);if(!ready.length)throw Error('No coding AI is signed in on that computer.');
    const c=await store.serialize(()=>store.createChat(p.id));c.title=shorten((job.agentName||job.agent)+': '+job.task,60);
    await addUserMessage({projectId:p.id,chatId:c.id,prompt:'From '+(job.agentName||job.agent)+' (aqeelOS): '+job.task});
@@ -255,6 +255,18 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
  // new projects live where you can find them: Documents\aqeelOS Code\<name> (a number is added if that folder is in use)
  const placeFor=async name=>{const base=path.join(homedir(),'Documents','aqeelOS Code');const clean=String(name).replace(/[<>:"/\\|?*\x00-\x1f]/g,'').replace(/[. ]+$/,'').trim().slice(0,60)||'Project';
   for(let i=1;i<200;i++){const p=path.join(base,i===1?clean:clean+' '+i);try{const e=await readdir(p);if(!e.length&&!store.state.projects.some(x=>x.path===p))return p}catch{return p}}return path.join(base,clean+' '+Date.now())};
+ // an aqeelOS agent browsing on this computer (computer_browser): the same guarded browser and rules as the coding AI
+ async function browserJob(j){const call=async(route,body)=>{const r=await fetch(appUrl()+'/api/workspace/browser/'+route,{method:'POST',headers:{'content-type':'application/json','x-local-token':token,origin:appUrl()},body:JSON.stringify({...(body||{}),by:'ai'})});const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(d.error||'The browser did not answer.');return d};
+  const page=s=>'Page: '+(s.title||'(untitled)')+'\nURL: '+(s.url||'');
+  try{if(browser.state!=='running')await call('start');let text;
+   if(j.action==='open')text=page(await call('navigate',{url:j.url}));
+   else if(j.action==='snapshot'){const s=await call('snapshot');text=page(s)+'\n\nInteractive elements (ref | role | name):\n'+((s.elements||[]).join('\n')||'(none visible)')}
+   else if(j.action==='click')text='Clicked.\n'+page(await call('click',{ref:j.ref}));
+   else if(j.action==='type'){let s=await call('type',{ref:j.ref,text:j.text||''});if(j.submit)s=await call('key',{key:'Enter'});text='Typed.\n'+page(s)}
+   else if(j.action==='press')text='Pressed '+j.key+'.\n'+page(await call('key',{key:j.key}));
+   else if(j.action==='read'){const t=await call('text');text=page(t)+'\n\n'+(t.text||'')}
+   else if(j.action==='back')text=page(await call('back',{}));
+   else throw Error('Unknown browser action.');return {state:'complete',text}}catch(e){return {state:'failed',text:e.message}}}
  const SECRETS=path.join(root,'data','secrets.json');
  const readSecrets=async()=>{try{return JSON.parse(await readFile(SECRETS,'utf8'))}catch{return {}}};
  function startAgent(job){if(!PROVIDERS.includes(job.provider))throw Error('Choose a connected provider.');if([...agents.values()].filter(live).length>=4)throw Error('Four AI runs are already working. Wait for one to finish.')
