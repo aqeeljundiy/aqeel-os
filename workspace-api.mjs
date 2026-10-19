@@ -256,6 +256,9 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
  // secrets (passwords, keys) you send from the composer: kept on this computer only (data/secrets.json, owner-only);
  // every run gets them as environment variables and the AI is told their names, never their values
  // new projects live where you can find them: Documents\aqeelOS Code\<name> (a number is added if that folder is in use)
+ // online: Code's own area on the AI box; it never sees or uses anything outside it
+ const AREA=path.join(homedir(),'code-projects');
+ const inArea=p=>{const r=path.resolve(String(p||''));return r===AREA||r.startsWith(AREA+path.sep)};
  const placeFor=async name=>{const base=process.env.CBA_ONLINE?path.join(homedir(),'code-projects'):path.join(homedir(),'Documents','aqeelOS Code');const clean=String(name).replace(/[<>:"/\\|?*\x00-\x1f]/g,'').replace(/[. ]+$/,'').trim().slice(0,60)||'Project';
   for(let i=1;i<200;i++){const p=path.join(base,i===1?clean:clean+' '+i);try{const e=await readdir(p);if(!e.length&&!store.state.projects.some(x=>x.path===p))return p}catch{return p}}return path.join(base,clean+' '+Date.now())};
  // an aqeelOS agent browsing on this computer (computer_browser): the same guarded browser and rules as the coding AI
@@ -344,12 +347,15 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
   if(url.pathname==='/api/workspace'&&req.method==='GET')return send(200,{projects:store.state.projects}),true;
   if(url.pathname==='/api/workspace/project/place'&&req.method==='GET')return send(200,{path:await placeFor(url.searchParams.get('name')||'Project'),online:Boolean(process.env.CBA_ONLINE)}),true;
   // online: the AI box's folders (inside its home folder) to open one as a project
-  if(url.pathname==='/api/workspace/folders'&&req.method==='GET'){const home=homedir();const at=path.resolve(url.searchParams.get('path')||home);if(at!==home&&!at.startsWith(home+path.sep))throw Error('Only folders inside the home folder.');
-   const dirs=(await readdir(at,{withFileTypes:true}).catch(()=>[])).filter(d=>d.isDirectory()&&!d.name.startsWith('.')&&!/^(node_modules|__pycache__)$/.test(d.name)).map(d=>d.name).sort((a,b)=>a.localeCompare(b));return send(200,{path:at,home,parent:at===home?null:path.dirname(at),dirs}),true}
+  if(url.pathname==='/api/workspace/folders'&&req.method==='GET'){const home=process.env.CBA_ONLINE?AREA:homedir();await makeDir(home,{recursive:true}).catch(()=>{});const at=path.resolve(url.searchParams.get('path')||home);if(at!==home&&!at.startsWith(home+path.sep))throw Error('Only folders inside Code projects.');
+   const dirs=(await readdir(at,{withFileTypes:true}).catch(()=>[])).filter(d=>d.isDirectory()&&!d.name.startsWith('.')&&!/^(node_modules|__pycache__)$/.test(d.name)).map(d=>d.name).sort((a,b)=>a.localeCompare(b));return send(200,{path:at,home,root:process.env.CBA_ONLINE?'Code projects':'Home',parent:at===home?null:path.dirname(at),dirs}),true}
+  // a new folder inside the picker's folder (online: only inside Code projects)
+  if(url.pathname==='/api/workspace/folders/new'&&req.method==='POST'){const home=process.env.CBA_ONLINE?AREA:homedir();const at=path.resolve(String(data.path||home));if(at!==home&&!at.startsWith(home+path.sep))throw Error('Only inside Code projects.');
+   const name=String(data.name||'').replace(/[<>:"/\\|?*\x00-\x1f]/g,'').replace(/[. ]+$/,'').trim().slice(0,60);if(!name)throw Error('Name the folder.');const p=path.join(at,name);await makeDir(p,{recursive:true});return send(200,{path:p}),true}
   if(url.pathname==='/api/workspace/project/zip'&&req.method==='GET'){const p=store.project(url.searchParams.get('projectId'));if(!p)throw Error('Project not found.');const {zipFolder}=await import('./zip.mjs');const name=String(p.name).replace(/[^\w .-]+/g,'').trim()||'project';const z=await zipFolder(await store.folder(p.id),name);
    res.writeHead(200,{'Content-Type':'application/zip','Content-Length':z.length,'Content-Disposition':'attachment; filename="'+name+'.zip"','Cache-Control':'no-store'});res.end(z);return true}
   if(url.pathname==='/api/workspace/folder/pick'&&req.method==='POST'){const f=await platform.pickFolder('Choose where to keep this project');return send(200,f?{path:f}:{cancelled:true}),true}
-  if(url.pathname==='/api/workspace/project'&&req.method==='POST'){const name=String(data.name||'');const where=data.place&&(!process.env.CBA_ONLINE||path.resolve(String(data.place)).startsWith(homedir()+path.sep))?path.resolve(String(data.place)):await placeFor(name);
+  if(url.pathname==='/api/workspace/project'&&req.method==='POST'){const name=String(data.name||'');const where=data.place&&(!process.env.CBA_ONLINE||inArea(data.place))?path.resolve(String(data.place)):await placeFor(name);
    return send(200,await store.serialize(()=>store.createProject(name,where?{path:where}:{}))),true}
   if(url.pathname==='/api/workspace/chat'&&req.method==='POST')return send(200,await store.serialize(async()=>{const ch=await store.createChat(data.projectId);if(data.temporary){ch.temporary=true;ch.title='Temporary chat';await store.persist()}return ch})),true;
   if(url.pathname==='/api/workspace/files'&&req.method==='GET')return send(200,{files:await store.listFiles(url.searchParams.get('projectId'))}),true;
@@ -400,7 +406,7 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
   if(url.pathname==='/api/workspace/folder'&&req.method==='GET')return send(200,{path:await store.folder(url.searchParams.get('projectId'))}),true
   if(url.pathname==='/api/workspace/reveal'&&req.method==='POST'){const folder=await store.folder(data.projectId)
    if(data.target==='editor')await platform.openInEditor(folder,data.file?await store.file(data.projectId,data.file):undefined);else platform.reveal(folder);return send(200,{opened:true}),true}
-  if(url.pathname==='/api/workspace/project/open'&&req.method==='POST'){const folder=data.path||await platform.pickFolder('Choose a folder to open in aqeelOS Code');if(!folder)return send(200,{cancelled:true}),true
+  if(url.pathname==='/api/workspace/project/open'&&req.method==='POST'){if(process.env.CBA_ONLINE&&(!data.path||!inArea(data.path)))throw Error('Online, pick a folder inside Code projects.');const folder=data.path||await platform.pickFolder('Choose a folder to open in aqeelOS Code');if(!folder)return send(200,{cancelled:true}),true
    let git=false;try{await access(path.join(folder,'.git'));git=true}catch{}const p=await store.serialize(()=>store.addFolder(folder,git?{git:true}:{}));return send(200,p),true}
   if(url.pathname.startsWith('/api/workspace/github/account')){const gh=await locate('gh',findExecutable);if(!gh)throw Error('GitHub CLI (gh) is not installed. Install it from cli.github.com.');
    if(req.method==='POST'&&!isLoopback(req.socket.remoteAddress))throw Error('GitHub accounts: '+HOST_ONLY);
@@ -505,7 +511,7 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
   if(url.pathname==='/api/workspace/schedules/run'&&req.method==='POST'){const s=(await readSettings()).schedules?.find(x=>x.id===data.id);if(!s)throw Error('Schedule not found.');const chatId=await startScheduled(s);const st=await readScheduleState();st[s.id]={...st[s.id],lastRun:Date.now(),chatId,error:null,since:st[s.id]?.since||Date.now()};await writeFileAsync(scheduleFile,JSON.stringify(st,null,2));return send(200,{projectId:s.projectId,chatId}),true}
   if(url.pathname==='/api/workspace/results'&&req.method==='GET')return send(200,{path:await resultsDirFor(url.searchParams.get('projectId'),url.searchParams.get('chatId')),online:Boolean(process.env.CBA_ONLINE)}),true;
   if(url.pathname==='/api/workspace/results'&&req.method==='POST'){const c=store.chat(data.projectId,data.chatId);if(!c)throw Error('No such chat.');
-   if(process.env.CBA_ONLINE&&data.path){const h=homedir(),r=path.resolve(String(data.path));if(r!==h&&!r.startsWith(h+path.sep))throw Error('Choose a folder inside the AI box’s home folder.')}
+   if(process.env.CBA_ONLINE&&data.path&&!inArea(data.path)&&!path.resolve(String(data.path)).startsWith(await store.folder(data.projectId)))throw Error('Choose a folder inside Code projects.');
    let p=data.path;if(data.pick&&!process.env.CBA_ONLINE){p=await platform.pickFolder('Choose where to save this task’s results');if(!p)return send(200,{cancelled:true}),true}c.resultsDir=p?path.resolve(String(p)):undefined;await store.persist();return send(200,{path:await resultsDirFor(data.projectId,data.chatId)}),true}
   if(url.pathname==='/api/workspace/secrets'&&req.method==='GET')return send(200,{names:Object.keys(await readSecrets())}),true;
   if(url.pathname==='/api/workspace/secret'&&req.method==='POST'){const name=String(data.name||'').trim().toUpperCase();if(!/^[A-Z][A-Z0-9_]{1,59}$/.test(name))throw Error('Use a name like GMAIL_PASSWORD: letters, numbers and _.');
