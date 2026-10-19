@@ -3,13 +3,13 @@
 // tool acting in that space). Open opens the space's n8n in a new tab, already signed in; admins can also open
 // every workflow as the n8n owner.
 PAGES.n8n=async(p,el)=>{viewPick([]);const admin=S.me?.admin!==false;
- const st=await UI('/ui/n8n/status?agent=default');
- if(!st.ready){setActions('');
+ const ns=await UI('/ui/n8n/status?agent=default');
+ if(!ns.ready){setActions('');
   if(!admin){el.innerHTML=emptyBox('n8n isn’t connected yet','Ask an admin to connect aqeelOS to n8n on this page.','');return}
   el.innerHTML=`<div class="panel card n8n-setup"><h2>Connect aqeelOS to n8n</h2><p class="sub">This n8n already has an owner, so aqeelOS can’t set itself up. Type that n8n login once here, or have n8n reset so aqeelOS owns it and nobody ever signs in. Then every agent gets its own n8n space, opened without signing in.</p>
    <label for="n8nEmail">n8n owner email (your n8n login, not aqeelOS)</label><input id="n8nEmail" type="email" autocomplete="off" placeholder="the email you sign in to n8n with">
    <label for="n8nPw">n8n owner password</label><input id="n8nPw" type="password" autocomplete="new-password">
-   <div style="display:flex;gap:10px;align-items:center;margin-top:14px"><button class="primary" id="n8nGo">Connect</button><a class="hint" href="${esc(st.base)}" target="_blank" rel="noopener">Open n8n</a></div></div>`;
+   <div style="display:flex;gap:10px;align-items:center;margin-top:14px"><button class="primary" id="n8nGo">Connect</button><a class="hint" href="${esc(ns.base)}" target="_blank" rel="noopener">Open n8n</a></div></div>`;
   el.querySelector('#n8nGo').onclick=async e=>{const b=e.currentTarget;b.disabled=true;try{await post(UI,'/ui/n8n/owner',{email:$('#n8nEmail').value,password:$('#n8nPw').value});toast('n8n connected');reload()}catch(er){fail(er)}finally{b.disabled=false}};return}
  setActions(admin?`<button data-act="n8n-open" data-owner="1">${icon('popout',16)}All workflows</button>`:'');
  const d=await UI('/ui/n8n/spaces');N8N.d=d;
