@@ -256,7 +256,7 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
  // secrets (passwords, keys) you send from the composer: kept on this computer only (data/secrets.json, owner-only);
  // every run gets them as environment variables and the AI is told their names, never their values
  // new projects live where you can find them: Documents\aqeelOS Code\<name> (a number is added if that folder is in use)
- const placeFor=async name=>{const base=path.join(homedir(),'Documents','aqeelOS Code');const clean=String(name).replace(/[<>:"/\\|?*\x00-\x1f]/g,'').replace(/[. ]+$/,'').trim().slice(0,60)||'Project';
+ const placeFor=async name=>{const base=process.env.CBA_ONLINE?path.join(homedir(),'code-projects'):path.join(homedir(),'Documents','aqeelOS Code');const clean=String(name).replace(/[<>:"/\\|?*\x00-\x1f]/g,'').replace(/[. ]+$/,'').trim().slice(0,60)||'Project';
   for(let i=1;i<200;i++){const p=path.join(base,i===1?clean:clean+' '+i);try{const e=await readdir(p);if(!e.length&&!store.state.projects.some(x=>x.path===p))return p}catch{return p}}return path.join(base,clean+' '+Date.now())};
  // an aqeelOS agent browsing on this computer (computer_browser): the same guarded browser and rules as the coding AI
  async function browserJob(j){const call=async(route,body)=>{const r=await fetch(appUrl()+'/api/workspace/browser/'+route,{method:'POST',headers:{'content-type':'application/json','x-local-token':token,origin:appUrl()},body:JSON.stringify({...(body||{}),by:'ai'})});const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(d.error||'The browser did not answer.');return d};
@@ -342,9 +342,14 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
   if(req.headers['x-local-token']!==token)return send(403,{error:'Reload to reconnect.'}),true;
   const data=req.method==='POST'?await body(req):null;
   if(url.pathname==='/api/workspace'&&req.method==='GET')return send(200,{projects:store.state.projects}),true;
-  if(url.pathname==='/api/workspace/project/place'&&req.method==='GET')return send(200,{path:process.env.CBA_ONLINE?'':await placeFor(url.searchParams.get('name')||'Project')}),true;
+  if(url.pathname==='/api/workspace/project/place'&&req.method==='GET')return send(200,{path:await placeFor(url.searchParams.get('name')||'Project'),online:Boolean(process.env.CBA_ONLINE)}),true;
+  // online: the AI box's folders (inside its home folder) to open one as a project
+  if(url.pathname==='/api/workspace/folders'&&req.method==='GET'){const home=homedir();const at=path.resolve(url.searchParams.get('path')||home);if(at!==home&&!at.startsWith(home+path.sep))throw Error('Only folders inside the home folder.');
+   const dirs=(await readdir(at,{withFileTypes:true}).catch(()=>[])).filter(d=>d.isDirectory()&&!d.name.startsWith('.')&&!/^(node_modules|__pycache__)$/.test(d.name)).map(d=>d.name).sort((a,b)=>a.localeCompare(b));return send(200,{path:at,home,parent:at===home?null:path.dirname(at),dirs}),true}
+  if(url.pathname==='/api/workspace/project/zip'&&req.method==='GET'){const p=store.project(url.searchParams.get('projectId'));if(!p)throw Error('Project not found.');const {zipFolder}=await import('./zip.mjs');const name=String(p.name).replace(/[^\w .-]+/g,'').trim()||'project';const z=await zipFolder(await store.folder(p.id),name);
+   res.writeHead(200,{'Content-Type':'application/zip','Content-Length':z.length,'Content-Disposition':'attachment; filename="'+name+'.zip"','Cache-Control':'no-store'});res.end(z);return true}
   if(url.pathname==='/api/workspace/folder/pick'&&req.method==='POST'){const f=await platform.pickFolder('Choose where to keep this project');return send(200,f?{path:f}:{cancelled:true}),true}
-  if(url.pathname==='/api/workspace/project'&&req.method==='POST'){const name=String(data.name||'');const where=process.env.CBA_ONLINE?'':data.place?path.resolve(String(data.place)):await placeFor(name);
+  if(url.pathname==='/api/workspace/project'&&req.method==='POST'){const name=String(data.name||'');const where=data.place&&!process.env.CBA_ONLINE?path.resolve(String(data.place)):await placeFor(name);
    return send(200,await store.serialize(()=>store.createProject(name,where?{path:where}:{}))),true}
   if(url.pathname==='/api/workspace/chat'&&req.method==='POST')return send(200,await store.serialize(async()=>{const ch=await store.createChat(data.projectId);if(data.temporary){ch.temporary=true;ch.title='Temporary chat';await store.persist()}return ch})),true;
   if(url.pathname==='/api/workspace/files'&&req.method==='GET')return send(200,{files:await store.listFiles(url.searchParams.get('projectId'))}),true;

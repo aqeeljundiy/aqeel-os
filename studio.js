@@ -234,7 +234,7 @@ async function rewind(index){const m=chat()?.messages[index];if(!m)return;const 
   {key:'code',label:later.length?'Undo file changes since then ('+later.length+' change'+(later.length>1?'s':'')+')':'Undo file changes since then (none)',hint:'Each undo is saved in Changes, so this can be reversed.',checked:later.length>0}]});
  if(!choice)return;if(choice.code&&!discard())return;try{const r=await api('/chat/rewind',{projectId,chatId,index,code:choice.code,conversation:choice.conversation});if(choice.code){selectedFile='';}await refreshState();if(choice.code){await refreshFiles();refreshPreview()}$('chat-prompt').value=r.prompt;saveDraft();$('chat-prompt').focus();notify('Rewound'+(r.restored?': '+r.restored+' change'+(r.restored>1?'s':'')+' undone.':'.'))}catch(e){notify(e.message)}}
 function showDialog(action){dialogAction=action;paintPlace(action==='project');$('dialog-title').textContent=action==='project'?'New project':'New file';$('name-label').textContent=action==='project'?'Project name':'File path';$('dialog-hint').textContent=action==='project'?'Its files are kept in this folder on your computer. Each project keeps its own files and chats.':'For example: index.html, style.css or js/app.js';$('name-input').value='';$('name-dialog').showModal();$('name-input').focus()}
-const gitUI=createGitUI({project:()=>project(),api:(r,b)=>api(r,b),projectId:()=>projectId,notify:t=>notify(t),bar:()=>$('git-bar'),newEmpty:()=>showDialog('project'),
+const gitUI=createGitUI({online:()=>isOnline,pickBoxFolder:()=>pickBoxFolder(),project:()=>project(),api:(r,b)=>api(r,b),projectId:()=>projectId,notify:t=>notify(t),bar:()=>$('git-bar'),newEmpty:()=>showDialog('project'),
  afterChange:async()=>{selectedFile='';await refreshState();await refreshFiles();refreshPreview()},
  openProject:async id=>{await refreshState();await selectProject(id)},
  askAI:(text,o={})=>{if(o.mode&&$('mode').value!==o.mode){$('mode').value=o.mode;$('mode').dispatchEvent(new Event('change'))}$('chat-prompt').value=text;$('chat-form').requestSubmit()}});
@@ -556,7 +556,10 @@ if(document.body.classList.contains('embed')){
  api('/settings').then(s=>{window.__aqTools=(s.mcpServers||[]).filter(x=>x.enabled!==false).map(x=>x.name)}).catch(()=>{});
  const mic=tools.querySelector('.attach-button.mic');
  const folder=document.createElement('button');folder.type='button';folder.className='aq-folder';folder.title='This project’s folder';folder.innerHTML=svg(ICON.folder)+'<span></span>';
- folder.addEventListener('click',e=>{e.stopPropagation();const p=project();if(!p)return;openMenu(folder,m=>{m.head(p.name);m.item(folder.title2||'Folder',{icon:'folder',sub:'Where this project is kept'});
+ folder.addEventListener('click',e=>{e.stopPropagation();const p=project();if(!p)return;if(isOnline){openMenu(folder,m=>{m.head(p.name);m.item('On the AI box · '+String(folder.title2||'').replace(/^.*\/(code-projects|projects)\//,'Online projects/'),{icon:'folder',sub:'Where this project is kept'});
+  m.item('Open in aqeelOS Files',{icon:'folder',run:()=>parent.postMessage({cba:1,type:'openFiles',path:folder.title2},'*')});
+  m.item('Download as zip',{icon:'folder',run:()=>{const a=document.createElement('a');a.href='/api/workspace/project/zip?projectId='+encodeURIComponent(p.id);a.download='';document.body.append(a);a.click();a.remove()}});
+  m.item('Copy folder path',{icon:'folder',run:()=>navigator.clipboard.writeText(folder.title2||'').then(()=>notify('Folder path copied.'))})});return}openMenu(folder,m=>{m.head(p.name);m.item(folder.title2||'Folder',{icon:'folder',sub:'Where this project is kept'});
   m.item('Show in '+(platformInfo?.fileManager||'Explorer'),{icon:'folder',run:()=>api('/reveal',{projectId:p.id,target:'explorer'}).catch(er=>notify(er.message))});
   m.item('Copy folder path',{icon:'folder',run:()=>navigator.clipboard.writeText(folder.title2||'').then(()=>notify('Folder path copied.'))});
   m.item('Open in VS Code',{icon:'folder',run:()=>api('/reveal',{projectId:p.id,target:'editor'}).catch(er=>notify(er.message))})})});
@@ -625,7 +628,7 @@ function paintPlace(on){let row=$('place-row');if(!row){row=document.createEleme
   $('dialog-hint').after(row);row.querySelector('.place-change').addEventListener('click',async()=>{try{const r=await api('/folder/pick',{});if(r.path){pickedPlace=r.path;row.querySelector('.place-path').textContent=r.path;row.title=r.path}}catch(e){notify(e.message)}});
   let t=0;$('name-input').addEventListener('input',()=>{if(pickedPlace||dialogAction!=='project')return;clearTimeout(t);t=setTimeout(fill,250)})}
  pickedPlace='';row.hidden=!on;if(on){$('dialog-hint').textContent='Its files are kept in this folder on your computer. Each project keeps its own files and chats.';fill()}
- async function fill(){try{const {path:p}=await api('/project/place?name='+encodeURIComponent($('name-input').value.trim()||'New project'));if(!p){row.hidden=true;$('dialog-hint').textContent='Saved on the AI box with your other online projects.';return}if(!pickedPlace){row.querySelector('.place-path').textContent=p;row.title=p}}catch{}}}
+ async function fill(){try{const {path:p,online}=await api('/project/place?name='+encodeURIComponent($('name-input').value.trim()||'New project'));row.querySelector('.place-change').hidden=!!online;if(online)$('dialog-hint').textContent='Kept on the AI box with your other online projects.';if(!p){row.hidden=true;$('dialog-hint').textContent='Saved on the AI box with your other online projects.';return}if(!pickedPlace){row.querySelector('.place-path').textContent=p;row.title=p}}catch{}}}
 // The install's own name (aqeelOS › Branding), sent by aqeelOS: on-screen text only, never chats, code or files
 let brandName='';
 function rebrand(name){brandName=name;document.title=document.title.replace(/aqeelOS/g,name);sweep(document.body);
@@ -640,3 +643,13 @@ async function paintResults(){let row=$('results-row');if(currentKind()!=='task'
  if(!row){row=document.createElement('div');row.id='results-row';row.className='results-row';row.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19h14"/></svg><span class="rp"></span><button type="button" class="rc">Change…</button>';
   $('chat-prompt').before(row);row.querySelector('.rc').addEventListener('click',async()=>{try{const r=await api('/results',{projectId,chatId,pick:true});if(r.path)paintResults()}catch(e){notify(e.message)}})}
  row.hidden=false;try{const r=await api('/results?projectId='+projectId+'&chatId='+chatId);row.querySelector('.rp').textContent='Saving to '+r.path.replace(/^.*[\\/](Downloads)[\\/]/i,'$1/').replace(/\\/g,'/');row.title=r.path;row.querySelector('.rc').hidden=r.online}catch{}}
+
+// Online (the copy on the AI box): no folder windows there. Open a folder lists the box's folders; the project folder
+// menu offers Open in aqeelOS Files, Download as zip and Copy path instead of Explorer and VS Code.
+let isOnline=false;fetch('/api/status?quick').then(r=>r.json()).then(s=>{isOnline=Boolean(s.online);document.body.classList.toggle('online',isOnline)}).catch(()=>{});
+async function pickBoxFolder(){const d=document.createElement('dialog');d.className='kit-dialog box-folders';d.innerHTML='<form method="dialog"><h2>Open a folder on the AI box</h2><p class="kit-message">Pick the folder to work on. It stays where it is; removing the project later keeps the folder.</p><div class="bf-path"></div><div class="bf-list" role="listbox" aria-label="Folders"></div><div class="kit-actions"><button value="cancel">Cancel</button><button class="primary" value="ok">Open this folder</button></div></form>';
+ document.body.append(d);let at='';const list=d.querySelector('.bf-list'),crumb=d.querySelector('.bf-path');
+ const load=async p=>{list.innerHTML='<span class="spinner"></span>';try{const r=await api('/folders?path='+encodeURIComponent(p||''));at=r.path;crumb.textContent=r.path.replace(r.home,'~');list.replaceChildren();
+   if(r.parent){const up=document.createElement('button');up.type='button';up.className='bf-item up';up.textContent='‹ Up';up.onclick=()=>load(r.parent);list.append(up)}
+   for(const n of r.dirs){const b=document.createElement('button');b.type='button';b.className='bf-item';b.textContent=n;b.onclick=()=>load(r.path+'/'+n);list.append(b)}if(!r.dirs.length)list.append(Object.assign(document.createElement('p'),{className:'hint',textContent:'No folders inside.'}))}catch(e){list.textContent=e.message}};
+ d.showModal();load('');d.addEventListener('close',async()=>{if(d.returnValue==='ok'&&at){try{const p=await api('/project/open',{path:at});notify('Opened '+p.name+'.');await refreshState();await selectProject(p.id)}catch(e){notify(e.message)}}setTimeout(()=>d.remove(),200)})}
