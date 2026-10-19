@@ -3,15 +3,15 @@
 // No app on this computer: Code is locked with the downloads for Windows and Mac, and opens once the app answers.
 // The page and the app talk only by messages (hello, pair, open, new chat, theme, language; the app sends its state).
 const CODE_APP='http://127.0.0.1:4321';
-const CodeUI={where:(()=>{try{return localStorage.getItem('aq-code-where')||'computer'}catch{return 'computer'}})(),app:CODE_APP,st:{projects:[],project:'',chat:''},state:'wait',open:{},q:'',filter:'All',frame:null,timer:null,
+const CodeUI={where:(()=>{try{const w=localStorage.getItem('aq-code-where');return w==='online'||w==='live'?'live':'computer'}catch{return 'computer'}})(),live:null,app:CODE_APP,st:{projects:[],project:'',chat:''},state:'wait',open:{},q:'',filter:'All',frame:null,timer:null,
  post(m){this.frame?.contentWindow?.postMessage(m,this.app)},
  // this computer (the desktop app) or online (the copy on the AI box, behind sign-in)
  online(){return true},   // everyone: online projects are private to each person until their owner shares them
  // the bottom-left card in Code: Code's agent (No agent by default) and its model
  agentCard(){const a=(this.st.agents||[]).find(x=>x.id===this.st.agent);return {name:a?a.name:'No agent',initial:a?a.name.trim()[0].toUpperCase():'–',model:this.st.model||'Default',none:!a}},
- whereBar(){if(!this.online())return '';return `<div class="code-where" role="tablist" aria-label="Where projects live">${[['computer','This computer','monitor'],['online','Online','globe']].map(([k,t,i])=>`<button role="tab" aria-selected="${this.where===k}" class="${this.where===k?'on':''}" data-act="code-where" data-w="${k}">${icon(i,14)}${t}</button>`).join('')}</div>`},
+ whereBar(){if(!this.online())return '';return `<div class="code-where" role="tablist" aria-label="Build or Live">${[['computer','Build','terminal'],['live','Live','globe']].map(([k,t,i])=>`<button role="tab" aria-selected="${this.where===k}" class="${this.where===k?'on':''}" data-act="code-where" data-w="${k}">${icon(i,14)}${t}</button>`).join('')}</div>`},
  // the left list, under the aqeelOS sections, like the chat list
- sidebar(){const ps=this.st.projects||[],q=this.q.toLowerCase();
+ sidebar(){if(this.where==='live')return this.liveSide();const ps=this.st.projects||[],q=this.q.toLowerCase();
   if(this.state==='lock')return `<div class="side-sub">${this.whereBar()}<p class="hint" style="margin:6px 18px">Install aqeelOS Code on this computer to see your projects here.</p></div>`;
   if(this.state!=='on')return `<div class="side-sub">${this.whereBar()}<div class="code-skel" role="status" aria-label="${this.where==='online'?'Opening your online projects':'Connecting to aqeelOS Code'}"><span class="ring"></span><i></i><i></i><i></i></div></div>`;
   const chats=p=>(p.chats||[]).filter(c=>(!q||(c.title+' '+p.name).toLowerCase().includes(q))&&(this.filter!=='Active'||c.busy)&&(this.filter!=='Unread'||c.unread)).sort((a,b)=>(b.updated||0)-(a.updated||0));
@@ -25,6 +25,7 @@ const CodeUI={where:(()=>{try{return localStorage.getItem('aq-code-where')||'com
  paintSide(){if(route().sec?.id!=='code')return;const s=$('.side .side-sub');const h=this.sidebar();if(s)s.outerHTML=h;const i=$('#codeQ');if(i)i.oninput=e=>{this.q=e.target.value;const pos=e.target.selectionStart;this.paintSide();const n=$('#codeQ');n?.focus();n?.setSelectionRange(pos,pos)}},
  // the page: the app in a frame, or the lock screen
  async page(p,el){const pg=el.closest('.page');pg?.classList.add('page-full');setActions('');clearTimeout(this.timer);
+  if(this.where==='live')return this.livePage(el);
   el.innerHTML=`<div class="code-host"><div class="code-wait"><span class="ring"></span><span>${this.where==='online'?'Opening your online projects…':'Looking for aqeelOS Code on this computer…'}</span></div>
    <iframe class="code-frame" title="aqeelOS Code" allow="local-network-access; clipboard-read; clipboard-write; microphone" hidden></iframe></div>`;
   const f=el.querySelector('iframe');this.frame=f;this.state='wait';this.paintSide();
@@ -52,7 +53,7 @@ const CodeUI={where:(()=>{try{return localStorage.getItem('aq-code-where')||'com
    <ol class="code-steps"><li>Unzip it, then open <b>${mac?'Install aqeelOS Code.command':'Install aqeelOS Code.cmd'}</b>${mac?' (the first time: right-click › Open)':''}.</li><li>It installs Node.js if needed, starts in the background and comes back here.</li><li>Chrome may ask to let aqeelOS reach apps on this computer: allow it.</li></ol>
    <p class="code-perm hint" hidden></p>
    <p class="hint code-retry"><span class="spinner tiny"></span>Waiting for the app… this opens by itself once it runs.</p>
-   ${this.online()?'':'<!--'}<p class="code-or">No install needed for <button class="linkish" data-act="code-where" data-w="online">online projects</button>: they live on the AI box and open here.</p>${this.online()?'':'-->'}</div>`;
+   ${this.online()?'':'<!--'}<p class="code-or">Just looking? <button class="linkish" data-act="code-where" data-w="live">See what’s live</button>: apps your team published.</p>${this.online()?'':'-->'}</div>`;
   // Chrome asks before a website may reach apps on this computer; once refused, Code stays locked until it is allowed
   (async()=>{let st='';for(const n of ['local-network-access','loopback-network']){try{st=(await navigator.permissions.query({name:n})).state;break}catch{}}
    const box=el.querySelector('.code-perm');if(!box)return;
@@ -82,3 +83,35 @@ ACT['code-menu']=a=>{const f=CodeUI.frame;if(!f)return;const y=a.getBoundingClie
 ACT['code-filter']=a=>{CodeUI.filter=a.dataset.f;CodeUI.paintSide()};
 // the theme switch follows into the app
 {const t0=theme;theme=(...a)=>{const r=t0(...a);CodeUI.post({aq:'theme',dark:document.documentElement.classList.contains('dark')});return r}}
+
+// Live: the apps published from Code (Build › a project's menu › Publish to Live), each at its own address
+Object.assign(CodeUI,{
+ stLabel:{live:'Live',building:'Publishing…',failed:'Didn’t start'},
+ liveSide(){const apps=this.live?.apps||[];
+  return `<div class="side-sub">${this.whereBar()}<div class="side-list live-side">${this.live?apps.map(a=>`<button class="item" data-act="live-jump" data-id="${esc(a.id)}"><i class="live-dot ${esc(a.status)}"></i><span class="t">${esc(a.name)}</span></button>`).join('')||'<p class="hint" style="margin:6px 18px">Nothing is live yet.</p>':'<div class="code-skel" role="status" aria-label="Loading"><span class="ring"></span><i></i><i></i></div>'}</div></div>`},
+ async livePage(el){this.frame=null;this.state='live';
+  if(!this.live)el.innerHTML=`<div class="code-host live-host"><div class="code-wait"><span class="ring"></span><span>Loading what’s live…</span></div></div>`;
+  try{this.live=await UI('/ui/live')}catch(e){el.innerHTML=`<div class="code-host live-host"><div class="code-lock card"><h2>Live isn’t available</h2><p>${esc(e.message)}</p></div></div>`;return}
+  this.paintSide();this.paintLive(el);this.watchLive(el)},
+ paintLive(el){const d=this.live,apps=d.apps||[];
+  const card=a=>`<article class="live-card card" id="live-${esc(a.id)}">
+    <div class="live-top"><h3>${esc(a.name)}</h3><span class="live-st ${esc(a.status)}"><i class="live-dot ${esc(a.status)}"></i>${esc(this.stLabel[a.status]||a.status)}</span></div>
+    <a class="live-url" href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.url.replace(/^https:\/\//,''))}${icon('popout',13)}</a>
+    <p class="live-meta">By ${esc(a.mine?'you':a.ownerName||'someone')} · ${esc(ago(Math.round((a.updated||a.created)/1000)))}${a.db?' · with a database':''}</p>
+    ${a.repo?`<p class="live-meta">${icon('link',13)}<a href="${esc(/^https?:/.test(a.repo)?a.repo:'https://github.com/'+a.repo)}" target="_blank" rel="noopener">${esc(a.repo.replace(/^https:\/\/github.com\//,''))}</a></p>`:''}
+    ${a.status==='failed'&&a.error?`<p class="live-err">${esc(a.error)}</p>`:''}
+    <div class="live-acts"><a class="btn small primary" href="${esc(a.url)}" target="_blank" rel="noopener">Open</a>${a.canRemove?`<button class="ghost small" data-act="live-remove" data-id="${esc(a.id)}">Take offline</button>`:''}</div></article>`;
+  const connect=d.admin&&!d.connected?`<div class="card live-connect"><h3>Connect Live to the server</h3><p class="hint">Once, so anyone can publish. In Dokploy: <b>Settings › Profile › API keys › Create</b>, then paste it here with the server’s address.</p>
+    <label>Server address</label><input id="liveUrl" placeholder="https://deploy.elkiya.com"><label>API key</label><input id="liveKey" type="password" autocomplete="off"><div class="live-acts"><button class="primary" data-act="live-connect">Connect</button></div></div>`:'';
+  el.innerHTML=`<div class="code-host live-host"><div class="live-wrap"><div class="live-head"><h2>Live</h2><p class="hint">Apps your team published from Code. Each one runs on its own address on ${esc(d.domain)}. To publish, open a project in Build › its menu › <b>Publish to Live</b>.</p></div>${connect}
+    ${apps.length?`<div class="live-grid">${apps.map(card).join('')}</div>`:`<div class="live-empty card">${icon('globe',24)}<b>Nothing is live yet</b><p class="hint">Build something in Code, then publish it from the project’s menu. It shows up here with its link.</p></div>`}</div></div>`},
+ // apps that are still publishing are checked every 8 seconds
+ watchLive(el){clearInterval(this.lt);this.lt=setInterval(async()=>{if(!el.isConnected||this.where!=='live'||route().sec?.id!=='code'){clearInterval(this.lt);return}
+   const busy=(this.live?.apps||[]).filter(a=>a.status==='building');if(!busy.length)return;let changed=false;
+   for(const a of busy){try{const r=await post(UI,'/ui/live/check',{id:a.id});if(r.status!==a.status){a.status=r.status;a.error=r.error;changed=true}}catch{}}
+   if(changed){this.paintLive(el);this.paintSide()}},8000)}});
+ACT['live-jump']=a=>{const c=document.getElementById('live-'+a.dataset.id);if(c){c.scrollIntoView({behavior:'smooth',block:'center'});c.classList.remove('flash');void c.offsetWidth;c.classList.add('flash')}};
+ACT['live-remove']=async a=>{const x=(CodeUI.live?.apps||[]).find(y=>y.id===a.dataset.id);if(!x)return;
+ if(!await confirmBox('Take '+x.name+' offline?','Its address stops working and the app is removed from the server'+(x.db?', with its database':'')+'. The project itself stays in Code.','Take offline'))return;
+ try{await post(UI,'/ui/live/remove',{id:x.id});toast(x.name+' is offline');CodeUI.live=null;const el=$('#pg .code-host')?.parentElement||$('#pg');if(el)CodeUI.livePage(el)}catch(e){fail(e)}};
+ACT['live-connect']=async()=>{try{await post(UI,'/ui/live/connect',{url:$('#liveUrl').value,key:$('#liveKey').value});toast('Live is connected');CodeUI.live=null;const el=$('#pg .code-host')?.parentElement||$('#pg');if(el)CodeUI.livePage(el)}catch(e){fail(e)}};
