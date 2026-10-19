@@ -33,6 +33,7 @@ export function createSidebar(ctx){
   ...(p.section?[{label:'Remove from section',action:()=>act(()=>ctx.api('/project/update',{projectId:p.id,section:''}))}]:[]),
   {label:'Open a past CLI session…',hint:'Claude Code or Codex',action:()=>pastSessions(p)},
    {label:'Edit instructions (AGENTS.md)',action:async()=>{if(p.id!==ctx.projectId())await ctx.selectProject(p.id);ctx.editInstructions?.()}},
+  ...(ctx.online?.()&&(!p.access||p.access==='owner')?[{label:'Share…',action:()=>ctx.shareProject?.(p)}]:[]),
   {label:'Rename…',action:async()=>{const name=await promptDialog({title:'Rename project',label:'Project name',value:p.name,confirm:'Rename',max:80});if(name&&name!==p.name)act(()=>ctx.api('/project/update',{projectId:p.id,name}),'Project renamed.')}},
   'separator',
   {label:'Reveal in '+(ctx.fileManager?.()||'Explorer'),action:()=>act(()=>ctx.api('/reveal',{projectId:p.id,target:'explorer'}))},
@@ -77,6 +78,7 @@ export function createSidebar(ctx){
   const toggle=el('button','tree-toggle');toggle.type='button';toggle.setAttribute('aria-expanded',String(open));toggle.setAttribute('aria-label',(open?'Collapse ':'Expand ')+p.name);
   toggle.addEventListener('click',()=>{expanded[p.id]=!open;write('cba-tree',expanded);render()});
   const b=el('button','project-button'+(p.id===ctx.projectId()?' selected':''));b.type='button';b.title=p.name;b.textContent=p.name;if(p.kind&&p.kind!=='app')b.dataset.kind=p.kind;
+  {const shared=p.access&&p.access!=='owner'?(p.access==='view'?'View only':'Shared with you'):Object.keys(p.shares||{}).length?'Shared':'';if(shared){const t=el('span','proj-shared');t.textContent=shared;b.append(t);b.title=p.name+' · '+shared}}
   b.addEventListener('click',()=>{if(!open){expanded[p.id]=true;write('cba-tree',expanded)}ctx.selectProject(p.id)});
   b.addEventListener('dblclick',e=>{e.preventDefault();const span=el('span');b.replaceChildren(span);inlineRename(span,p.name,name=>ctx.api('/project/update',{projectId:p.id,name}))});
   const more=el('button','tree-more','⋯');more.type='button';more.setAttribute('aria-label','Project actions for '+p.name);more.setAttribute('aria-haspopup','menu');

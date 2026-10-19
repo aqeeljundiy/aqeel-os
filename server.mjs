@@ -112,6 +112,7 @@ const server=http.createServer(async(req,res)=>{
   if(!open&&!remote.device(req.headers.cookie)){if(req.method==='GET'&&!url.pathname.startsWith('/api/')){res.writeHead(303,{Location:'/pair'});return res.end()}return send(401,{error:'Pair this device first.'})}
   if(url.pathname.startsWith('/api/remote'))return send(403,{error:'Manage phone access from the computer.'})}
  try{
+  if(process.env.CBA_ONLINE&&req.headers['x-aq-user']&&req.headers['x-aq-role']!=='admin'&&req.method==='POST'&&/^\/api\/(accounts|login|aqeelos|development|remote)/.test(url.pathname))return send(403,{error:'Only admins can change this.'});
   if(req.method==='POST'||url.pathname==='/api/login'||url.pathname==='/api/accounts'){
    const origin=req.headers.origin;if(origin&&origin!==`http://${req.headers.host}`)return send(403,{error:'Origin rejected.'});
    if(req.headers['x-local-token']!==token)return send(403,{error:'Reload the page before sending.'});

@@ -258,6 +258,7 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
  // new projects live where you can find them: Documents\aqeelOS Code\<name> (a number is added if that folder is in use)
  // online: Code's own area on the AI box; it never sees or uses anything outside it
  const AREA=path.join(homedir(),'code-projects');
+ const accessOf=(p,w)=>!w?'owner':p.owner?(p.owner===w.uid?'owner':p.shares?.[w.uid]||null):(w.admin?'owner':null);
  const inArea=p=>{const r=path.resolve(String(p||''));return r===AREA||r.startsWith(AREA+path.sep)};
  const placeFor=async name=>{const base=process.env.CBA_ONLINE?path.join(homedir(),'code-projects'):path.join(homedir(),'Documents','aqeelOS Code');const clean=String(name).replace(/[<>:"/\\|?*\x00-\x1f]/g,'').replace(/[. ]+$/,'').trim().slice(0,60)||'Project';
   for(let i=1;i<200;i++){const p=path.join(base,i===1?clean:clean+' '+i);try{const e=await readdir(p);if(!e.length&&!store.state.projects.some(x=>x.path===p))return p}catch{return p}}return path.join(base,clean+' '+Date.now())};
@@ -283,7 +284,7 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
  const readSecrets=async()=>{try{return JSON.parse(await readFile(SECRETS,'utf8'))}catch{return {}}};
  function startAgent(job){if(!PROVIDERS.includes(job.provider))throw Error('Choose a connected provider.');if([...agents.values()].filter(live).length>=4)throw Error('Four AI runs are already working. Wait for one to finish.')
   const run=new AgentRun(job);run.finished=new Promise(r=>run.done=r);agents.set(run.id,run);void runAgent(run);return run}
- async function addUserMessage(data){const chat=store.chat(data.projectId,data.chatId);await store.serialize(async()=>{chat.messages.push({role:'user',text:data.prompt.trim(),time:Date.now(),...(data.mode&&data.mode!=='single'?{mode:data.mode}:{}),...(Array.isArray(data.attachments)&&data.attachments.length?{attachments:data.attachments.map(a=>({id:a.id,name:a.name}))}:{})});if(chat.title==='New chat')chat.title=data.prompt.trim().slice(0,42);await store.persist()});return chat}
+ async function addUserMessage(data){const chat=store.chat(data.projectId,data.chatId);await store.serialize(async()=>{chat.messages.push({role:'user',text:data.prompt.trim(),time:Date.now(),...(data.by?{by:data.by}:{}),...(data.mode&&data.mode!=='single'?{mode:data.mode}:{}),...(Array.isArray(data.attachments)&&data.attachments.length?{attachments:data.attachments.map(a=>({id:a.id,name:a.name}))}:{})});if(chat.title==='New chat')chat.title=data.prompt.trim().slice(0,42);await store.persist()});return chat}
  // images saved by /upload, referenced by id only
  async function resolveImages(list){if(!Array.isArray(list))return [];if(list.length>6)throw Error('Attach up to 6 files.');const out=[];for(const a of list){if(/^[0-9a-f-]{36}\.(pptx|docx|xlsx|xls|pdf|txt|md|csv|tsv|json|xml|yaml|yml|toml|ini|log|html|css|js|mjs|cjs|ts|tsx|jsx|py|rb|go|rs|java|kt|swift|c|h|cpp|cs|php|sh|ps1|sql|vue|svelte)$/.test(a?.id||''))continue;if(!/^[0-9a-f-]{36}\.(png|jpg|webp|gif)$/.test(a?.id||''))throw Error('Unknown attachment.');const p=path.join(root,'data','uploads',a.id);try{await access(p)}catch{throw Error('An attachment is missing. Attach it again.')}out.push({path:p,type:{png:'image/png',jpg:'image/jpeg',webp:'image/webp',gif:'image/gif'}[a.id.split('.').pop()]})}return out}
  // @path mentions that match real project files
@@ -331,6 +332,7 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
    if(req.method!=='GET')return send(405,{error:'Read-only preview.'}),true
    if(!req.previewServer){res.writeHead(302,{Location:previewOrigin(req.headers.host)+url.pathname});res.end();return true};
    const [, ,id,...parts]=url.pathname.split('/');const file=parts.join('/')||'index.html';
+   if(process.env.CBA_ONLINE&&req.headers['x-aq-user']){const p=store.state.projects.find(x=>x.id===id);if(p&&!accessOf(p,{uid:String(req.headers['x-aq-user']),admin:req.headers['x-aq-role']==='admin'})){res.writeHead(404);res.end();return true}}
    if(file==='__cba-status'){let has=false;try{await store.read(id,url.searchParams.get('page')||'index.html');has=true}catch{}const run=[...agents.values()].find(r=>r.projectId===id&&live(r)&&!r.cwd);res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({exists:has,building:Boolean(run),who:run?label(run.provider):null}));return true}
    if(file==='__cba-font.woff2'){res.writeHead(200,{'Content-Type':'font/woff2','Cache-Control':'max-age=86400'});res.end(await readFile(path.join(root,'assets','plus-jakarta-sans.woff2')));return true}
    if(file==='__cba-edit.js'){res.writeHead(200,{'Content-Type':'text/javascript; charset=utf-8','Cache-Control':'no-store'});res.end(await readFile(path.join(root,'preview-edit.js')));return true}
@@ -344,7 +346,20 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
   if(!url.pathname.startsWith('/api/workspace'))return false;
   if(req.headers['x-local-token']!==token)return send(403,{error:'Reload to reconnect.'}),true;
   const data=req.method==='POST'?await body(req):null;
-  if(url.pathname==='/api/workspace'&&req.method==='GET')return send(200,{projects:store.state.projects}),true;
+  // online, each person sees their own projects and the ones shared with them (the gate says who is asking)
+  const who=process.env.CBA_ONLINE&&req.headers['x-aq-user']?{uid:String(req.headers['x-aq-user']),admin:req.headers['x-aq-role']==='admin'}:null;
+  if(who){for(const pid of [data?.projectId||url.searchParams.get('projectId'),data?.toProjectId].filter(Boolean)){const p=store.state.projects.find(x=>x.id===pid);if(!p)continue;const a=accessOf(p,who);
+    if(!a)return send(404,{error:'Project not found.'}),true;
+    if(req.method==='POST'&&a==='view')return send(403,{error:'You can only view this project. Ask its owner for edit access.'}),true;
+    if(/\/project\/(delete|share)$/.test(url.pathname)&&a!=='owner')return send(403,{error:'Only the project’s owner can do that.'}),true}
+   if(!who.admin&&req.method==='POST'&&/^\/api\/workspace\/(settings|secret|extensions|github\/account|usage\/|schedules|desktop\/)/.test(url.pathname))return send(403,{error:'Only admins can change this.'}),true;
+   if(data)data.by=who.uid}
+  if(url.pathname==='/api/workspace'&&req.method==='GET')return send(200,{projects:who?store.state.projects.filter(p=>accessOf(p,who)).map(p=>({...p,access:accessOf(p,who)})):store.state.projects,me:who?.uid||''}),true;
+  // the people a project can be shared with (from aqeelOS), and sharing it
+  if(url.pathname==='/api/workspace/people'&&req.method==='GET')return send(200,{people:who?(await aqeelos.people()).filter(x=>x.id!==who.uid):[],me:who?.uid||''}),true;
+  if(url.pathname==='/api/workspace/project/share'&&req.method==='POST'){const p=store.project(data.projectId);const uid=String(data.uid||'');if(!uid||uid===p.owner)throw Error('Choose someone to share with.');
+   p.shares={...(p.shares||{})};if(data.access==='view'||data.access==='edit')p.shares[uid]=data.access;else delete p.shares[uid];if(!p.owner&&who)p.owner=who.uid;
+   await store.serialize(()=>store.persist());return send(200,{shares:p.shares}),true}
   if(url.pathname==='/api/workspace/project/place'&&req.method==='GET')return send(200,{path:await placeFor(url.searchParams.get('name')||'Project'),online:Boolean(process.env.CBA_ONLINE)}),true;
   // online: the AI box's folders (inside its home folder) to open one as a project
   if(url.pathname==='/api/workspace/folders'&&req.method==='GET'){const home=process.env.CBA_ONLINE?AREA:homedir();await makeDir(home,{recursive:true}).catch(()=>{});const at=path.resolve(url.searchParams.get('path')||home);if(at!==home&&!at.startsWith(home+path.sep))throw Error('Only folders inside Code projects.');
@@ -356,7 +371,7 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
    res.writeHead(200,{'Content-Type':'application/zip','Content-Length':z.length,'Content-Disposition':'attachment; filename="'+name+'.zip"','Cache-Control':'no-store'});res.end(z);return true}
   if(url.pathname==='/api/workspace/folder/pick'&&req.method==='POST'){const f=await platform.pickFolder('Choose where to keep this project');return send(200,f?{path:f}:{cancelled:true}),true}
   if(url.pathname==='/api/workspace/project'&&req.method==='POST'){const name=String(data.name||'');const where=data.place&&(!process.env.CBA_ONLINE||inArea(data.place))?path.resolve(String(data.place)):await placeFor(name);
-   return send(200,await store.serialize(()=>store.createProject(name,where?{path:where}:{}))),true}
+   return send(200,await store.serialize(()=>store.createProject(name,{...(where?{path:where}:{}),...(who?{owner:who.uid}:{})}))),true}
   if(url.pathname==='/api/workspace/chat'&&req.method==='POST')return send(200,await store.serialize(async()=>{const ch=await store.createChat(data.projectId);if(data.temporary){ch.temporary=true;ch.title='Temporary chat';await store.persist()}return ch})),true;
   if(url.pathname==='/api/workspace/files'&&req.method==='GET')return send(200,{files:await store.listFiles(url.searchParams.get('projectId'))}),true;
   if(url.pathname==='/api/workspace/file'&&req.method==='GET')return send(200,{content:await store.read(url.searchParams.get('projectId'),url.searchParams.get('path'))}),true;
@@ -407,7 +422,7 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
   if(url.pathname==='/api/workspace/reveal'&&req.method==='POST'){const folder=await store.folder(data.projectId)
    if(data.target==='editor')await platform.openInEditor(folder,data.file?await store.file(data.projectId,data.file):undefined);else platform.reveal(folder);return send(200,{opened:true}),true}
   if(url.pathname==='/api/workspace/project/open'&&req.method==='POST'){if(process.env.CBA_ONLINE&&(!data.path||!inArea(data.path)))throw Error('Online, pick a folder inside Code projects.');const folder=data.path||await platform.pickFolder('Choose a folder to open in aqeelOS Code');if(!folder)return send(200,{cancelled:true}),true
-   let git=false;try{await access(path.join(folder,'.git'));git=true}catch{}const p=await store.serialize(()=>store.addFolder(folder,git?{git:true}:{}));return send(200,p),true}
+   let git=false;try{await access(path.join(folder,'.git'));git=true}catch{}const p=await store.serialize(()=>store.addFolder(folder,{...(git?{git:true}:{}),...(who?{owner:who.uid}:{})}));return send(200,p),true}
   if(url.pathname.startsWith('/api/workspace/github/account')){const gh=await locate('gh',findExecutable);if(!gh)throw Error('GitHub CLI (gh) is not installed. Install it from cli.github.com.');
    if(req.method==='POST'&&!isLoopback(req.socket.remoteAddress))throw Error('GitHub accounts: '+HOST_ONLY);
    if(url.pathname==='/api/workspace/github/accounts'){const r=await tool(gh,['auth','status','--hostname','github.com'],{env,timeout:20000});return send(200,{accounts:parseAccounts(r.stdout+'\n'+r.stderr),signingIn:Boolean(ghLogin)}),true}
@@ -425,7 +440,7 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
   if(url.pathname==='/api/workspace/github/clone'&&req.method==='POST'){const repo=normalizeRepo(data.repo);const gh=await locate('gh',findExecutable);if(!gh)throw Error('GitHub CLI (gh) is not installed.')
    const base=platform.reposHome();await makeDir(base,{recursive:true});let dest=path.join(base,repo.split('/')[1]),n=2;while(true){try{await access(dest);dest=path.join(base,repo.split('/')[1]+'-'+n++)}catch{break}}
    const r=await tool(gh,['repo','clone',repo,dest],{env,timeout:600000});if(r.code!==0)throw Error(r.stderr.trim().slice(-400)||'Clone failed.')
-   const p=await store.serialize(()=>store.addFolder(dest,{name:repo.split('/')[1],repo,git:true}));return send(200,p),true}
+   const p=await store.serialize(()=>store.addFolder(dest,{...(who?{owner:who.uid}:{}),name:repo.split('/')[1],repo,git:true}));return send(200,p),true}
   if(url.pathname.startsWith('/api/workspace/browser/')){const action=url.pathname.slice('/api/workspace/browser/'.length),by=data?.by==='ai'?'ai':'user'
    if(action==='frame'){const after=Number(url.searchParams.get('after'))||0;await browser.nextFrame(after);if(!browser.frame){res.writeHead(204,{'Cache-Control':'no-store'});res.end();return true}res.writeHead(200,{'Content-Type':'image/jpeg','Cache-Control':'no-store','X-Frame-Seq':String(browser.frameSeq)});res.end(browser.frame);return true}
    const routes={status:async()=>(browser.state==='running'&&await browser.refreshTabs(),browser.status()),view:()=>browser.setView(data),tab:()=>data.close?browser.closeTab(data.id,by):data.id?browser.switchTab(data.id,by):browser.newTab(data.url||'about:blank',by),start:()=>browser.start(),stop:()=>(browser.stop(),browser.status()),guard:()=>{if(by==='ai')throw Error('Only the person changes what this browser allows.');return browser.setGuard(data||{})},navigate:()=>browser.navigate(data.url,by),back:()=>browser.history(-1,by),forward:()=>browser.history(1,by),reload:()=>browser.reload(by),
@@ -461,7 +476,7 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
   if(url.pathname==='/api/workspace/git/pr/merge'&&req.method==='POST'){await useGithub(data.projectId);const cwd=await store.folder(data.projectId),gh=await locate('gh',findExecutable);if(!gh)throw Error('GitHub CLI not installed.');const r=await tool(gh,['pr','merge','--squash'],{cwd,env,timeout:120000});if(r.code!==0)throw Error((r.stderr||r.stdout).trim().slice(-400)||'Merge failed.');return send(200,{output:r.stdout.trim()}),true}
   if(url.pathname==='/api/workspace/git/worktree'&&req.method==='POST'){const p=store.project(data.projectId),cwd=await store.folder(p.id),git=await locate('git',findExecutable);if(!git)throw Error('git is not installed.');const branch=String(data.branch||'').trim();if(!/^[\w./-]{1,60}$/.test(branch)||branch.includes('..'))throw Error('Use a branch name with letters, numbers, dots, dashes or slashes.')
    const dest=path.join(path.dirname(cwd),path.basename(cwd)+'-'+branch.replace(/[\/]/g,'-'));const r=await tool(git,['worktree','add',dest,'-b',branch],{cwd,env,timeout:120000});if(r.code!==0)throw Error((r.stderr||r.stdout).trim().slice(-400)||'Could not create the worktree.')
-   const w=await store.serialize(()=>store.addFolder(dest,{name:p.name+' · '+branch,git:true,worktreeOf:p.id,section:p.section||null}));return send(200,w),true}
+   const w=await store.serialize(()=>store.addFolder(dest,{...(p.owner?{owner:p.owner,shares:p.shares||{}}:{}),name:p.name+' · '+branch,git:true,worktreeOf:p.id,section:p.section||null}));return send(200,w),true}
   if(url.pathname==='/api/workspace/git/worktree/remove'&&req.method==='POST'){const w=store.project(data.projectId);if(!w.worktreeOf)throw Error('This project is not a worktree.');const parent=await store.folder(w.worktreeOf),git=await locate('git',findExecutable);if(busy(w.id))throw Error('Stop the running AI first.')
    const r=await tool(git,['worktree','remove',w.path].concat(data.force?['--force']:[]),{cwd:parent,env,timeout:60000});if(r.code!==0)throw Error((r.stderr||r.stdout).trim().slice(-400)||'Could not remove the worktree.');await store.serialize(()=>store.removeProject(w.id));return send(200,{ok:true}),true}
   if(url.pathname==='/api/workspace/git/branches'&&req.method==='GET'){const cwd=await store.folder(url.searchParams.get('projectId')),git=await locate('git',findExecutable);if(!git)throw Error('git is not installed.');return send(200,{branches:await branchList(git,cwd)}),true}

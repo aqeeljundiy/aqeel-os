@@ -52,7 +52,10 @@ export function createAqeelos({root}){
  function autoUpdate(busy){busyNow=busy;if(process.env.NODE_TEST_CONTEXT)return;const tick=()=>checkUpdate(busy).catch(()=>{});setTimeout(tick,120000).unref?.();setInterval(tick,1800000).unref?.()}
  // each finished run's tokens go to aqeelOS (System › Usage: Code by person, agent and project)
  async function reportUsage(line){await load();if(!link.token)return;await fetch(link.base+'/ui/code/run-usage',{method:'POST',headers:{authorization:'Bearer '+link.token,'content-type':'application/json'},body:JSON.stringify(line),signal:AbortSignal.timeout(15000)}).catch(()=>{})}
- return {origins,state,pair,unpair,mcp,agents,serve,checkUpdate,autoUpdate,reportUsage}}
+ let peopleList=[],peopleAt=0;
+ async function people(){await load();if(!link.token)return [];if(Date.now()-peopleAt<60000)return peopleList;
+  try{const r=await fetch(link.base+'/ui/code/people',{headers:{authorization:'Bearer '+link.token},signal:AbortSignal.timeout(10000)});if(r.ok){peopleList=(await r.json()).people||[];peopleAt=Date.now()}}catch{}return peopleList}
+ return {origins,state,pair,unpair,mcp,agents,serve,checkUpdate,autoUpdate,reportUsage,people}}
 // the entries of a stored (uncompressed) zip, as aqeelOS makes them
 function unzip(buf){const out=[];let i=0;while(i+30<=buf.length&&buf.readUInt32LE(i)===0x04034b50){const size=buf.readUInt32LE(i+18),nl=buf.readUInt16LE(i+26),xl=buf.readUInt16LE(i+28);
   const name=buf.slice(i+30,i+30+nl).toString();const start=i+30+nl+xl;out.push([name,buf.slice(start,start+size)]);i=start+size}return out}
