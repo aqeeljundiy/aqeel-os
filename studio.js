@@ -413,6 +413,7 @@ async function init(){try{const providersReady=fetch('/api/status').then(r=>r.js
     else if(m.aq==='newProject')$('new-project')?.click();
     else if(m.aq==='menu'){const p=(projects||[]).find(x=>x.id===m.project);const c=p&&m.chat?(p.chats||[]).find(x=>x.id===m.chat):null;if(p&&(!m.chat||c))openMenu({x:12,y:Math.max(8,Math.min(Number(m.y)||60,innerHeight-60))},sidebar.items(p,c),{label:c?'Chat actions':'Project actions'})}
     else if(m.aq==='ping'){const ok=await fetch('/api/status?quick',{cache:'no-store',signal:AbortSignal.timeout(5000)}).then(r=>r.ok,()=>false);if(ok)post({type:'pong'})}   // only while the app itself still answers
+    else if(m.aq==='brand'&&m.name&&m.name!=='aqeelOS')rebrand(String(m.name).slice(0,24));
     else if(m.aq==='theme')theme(!!m.dark);
     else if(m.aq==='lang'&&m.lang&&m.lang!==lang()&&['en','id'].includes(m.lang))setLang(m.lang);
    }catch(err){post({type:'error',error:String(err?.message||err)})}});
@@ -620,3 +621,10 @@ function paintPlace(on){let row=$('place-row');if(!row){row=document.createEleme
   let t=0;$('name-input').addEventListener('input',()=>{if(pickedPlace||dialogAction!=='project')return;clearTimeout(t);t=setTimeout(fill,250)})}
  pickedPlace='';row.hidden=!on;if(on){$('dialog-hint').textContent='Its files are kept in this folder on your computer. Each project keeps its own files and chats.';fill()}
  async function fill(){try{const {path:p}=await api('/project/place?name='+encodeURIComponent($('name-input').value.trim()||'New project'));if(!p){row.hidden=true;$('dialog-hint').textContent='Saved on the AI box with your other online projects.';return}if(!pickedPlace){row.querySelector('.place-path').textContent=p;row.title=p}}catch{}}}
+// The install's own name (aqeelOS › Branding), sent by aqeelOS: on-screen text only, never chats, code or files
+let brandName='';
+function rebrand(name){brandName=name;document.title=document.title.replace(/aqeelOS/g,name);sweep(document.body);
+ if(!rebrand.mo){rebrand.mo=new MutationObserver(l=>{for(const m of l)for(const n of m.addedNodes)if(n.nodeType===1)sweep(n);else if(n.nodeType===3)fix(n)});rebrand.mo.observe(document.body,{childList:true,subtree:true})}}
+const KEEP='.message,.md,pre,code,textarea,input,[contenteditable],.editor-area,.xterm,.file-tree,.terminal,.msg-doc';
+function fix(t){if(!brandName||!t.nodeValue.includes('aqeelOS')||t.parentElement?.closest(KEEP))return;t.nodeValue=t.nodeValue.replace(/aqeelOS/g,brandName)}
+function sweep(root){if(!brandName)return;const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);for(let n;(n=w.nextNode());)fix(n);for(const e of root.querySelectorAll?.('[title],[aria-label],[placeholder]')||[])for(const k of ['title','aria-label','placeholder']){const v=e.getAttribute(k);if(v&&v.includes('aqeelOS')&&!e.closest(KEEP))e.setAttribute(k,v.replace(/aqeelOS/g,brandName))}}
