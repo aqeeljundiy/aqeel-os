@@ -121,8 +121,10 @@ Object.assign(CodeUI,{
     <label>Server address</label><input id="liveUrl" placeholder="https://deploy.elkiya.com"><label>API key</label><input id="liveKey" type="password" autocomplete="off"><div class="live-acts"><button class="primary" data-act="live-connect">Connect</button></div></div>`:'';
   el.innerHTML=`<div class="code-host live-host"><div class="live-wrap"><div class="live-head"><h2>Live</h2><p class="hint">Apps your team published from Code. Each one runs on its own address on ${esc(d.domain)}. To publish, open a project in Build › its menu › <b>Publish to Live</b>.</p></div>${connect}
     ${apps.length?`<div class="live-grid">${apps.map(card).join('')}</div>`:`<div class="live-empty card"><span class="ln-ico">${icon('globe',22)}</span><b>Nothing is live yet</b><p class="hint">Build something in Code, then publish it from the project’s menu. It shows up here with its link.</p></div>`}</div></div>`},
- // apps that are still publishing are checked every 8 seconds
- watchLive(el){clearInterval(this.lt);this.lt=setInterval(async()=>{if(!el.isConnected||this.where!=='live'||route().sec?.id!=='code'){clearInterval(this.lt);return}
+ // apps that are still publishing are checked every 8 seconds; the whole list every 32, so changes made elsewhere show up
+ watchLive(el){clearInterval(this.lt);let n=0;this.lt=setInterval(async()=>{if(!el.isConnected||this.where!=='live'||route().sec?.id!=='code'){clearInterval(this.lt);return}
+   if(++n%4===0){try{const d=await UI('/ui/apps');if(!el.isConnected||this.where!=='live')return;
+    if(JSON.stringify(d)!==JSON.stringify(this.live)&&!document.activeElement?.closest?.('.live-host input')){this.live=d;this.paintLive(el);this.paintSide()}}catch{}return}
    const busy=(this.live?.apps||[]).filter(a=>a.status==='building');if(!busy.length)return;let changed=false;
    for(const a of busy){try{const r=await post(UI,'/ui/apps/check',{id:a.id});if(r.status!==a.status){a.status=r.status;a.error=r.error;changed=true}}catch{}}
    if(changed){this.paintLive(el);this.paintSide()}},8000)}});
