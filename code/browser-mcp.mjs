@@ -19,7 +19,8 @@ const TOOLS=[
  {name:'browser_screenshot',description:'Take a screenshot of the current page.',inputSchema:{type:'object',properties:{}}},
 ];
 
-async function call(route,body){const r=await fetch(BASE+route,{method:body?'POST':'GET',headers:{'Content-Type':'application/json','X-Local-Token':TOKEN},...(body?{body:JSON.stringify({...body,by:'ai',...(process.env.CBA_PROJECT?{projectId:process.env.CBA_PROJECT}:{})})}:{})});
+// every call is a POST marked by:'ai', so reading (snapshot, text, screenshot) happens in the same AI tab as clicking
+async function call(route,body){const r=await fetch(BASE+route,{method:'POST',headers:{'Content-Type':'application/json','X-Local-Token':TOKEN},body:JSON.stringify({...(body||{}),by:'ai',...(process.env.CBA_PROJECT?{projectId:process.env.CBA_PROJECT}:{})})});
  const data=await r.json().catch(()=>({}));if(!r.ok)throw Error(data.error||'The app did not respond.');return data}
 const page=s=>`Page: ${s.title||'(untitled)'}\nURL: ${s.url}`;
 
