@@ -743,7 +743,7 @@ ACT['agent-describe']=async(a,e)=>{e?.preventDefault();e?.stopPropagation();cons
    developer site, the two fields that matter, and the address plus check word to paste back into Meta. ---------- */
 {const base=ACT['ch-open'];ACT['ch-open']=a=>a.dataset.id==='whatsapp_cloud'?waCloudDrawer():base(a)}
 async function waCloudDrawer(){const ag=agentProfile()||'default';let s;try{s=await UI('/ui/channels/wa-cloud?agent='+encodeURIComponent(ag))}catch(e){return fail(e)}
- const c=(Pages.platforms||[]).find(x=>x.id==='whatsapp_cloud')||{};const ready=s.set.phone_number_id&&s.set.access_token;
+ const c=(Pages.platforms||[]).find(x=>x.id==='whatsapp_cloud')||{};let ready=s.set.phone_number_id&&s.set.access_token;
  const copy=(label,v)=>`<div class="wac-copy"><span>${esc(label)}</span><code>${esc(v)}</code><button class="ghost icon" data-act="copy-text" data-text="${esc(v)}" aria-label="Copy ${esc(label)}">${icon('copy',15)}</button></div>`;
  const field=(k,label,hint,secret)=>`<label>${label}</label><input id="wac_${k}" ${secret?'type="password"':''} autocomplete="off" placeholder="${s.set[k]?'Saved · leave empty to keep':''}"><p class="hint">${hint}</p>`;
  const d=drawer('WhatsApp Business',`<div style="display:flex;align-items:center;gap:14px;margin-bottom:14px"><span class="logo-lg">${chLogo('whatsapp','WhatsApp')}</span><div><b style="font-size:15px">WhatsApp Business for ${esc(ident(ag).name)}</b><div style="margin-top:4px">${c.state==='connected'?'<span class="chip ok"><i class="dot"></i>Connected</span>':`<span class="chip">${ready?esc(chState(c)||'Saved'):'Not set up'}</span>`}</div></div></div>
@@ -761,7 +761,7 @@ async function waCloudDrawer(){const ag=agentProfile()||'default';let s;try{s=aw
   if(!Object.keys(b).length&&ready)return closeLayers();
   try{const r=await post(UI,'/ui/channels/wa-cloud?agent='+encodeURIComponent(ag),b);toast(r.on?'Saved. Now paste the address into Meta':'Saved. Switch the channel on after the agents restart');
    d.querySelector('#wacOut').innerHTML=`<h3 style="font-size:14px;margin:16px 0 8px">Paste these into Meta</h3>${copy('Callback URL',r.callback)}${copy('Verify token',r.verify_token)}`;
-   d.querySelectorAll('input').forEach(i=>{i.value='';i.placeholder='Saved · leave empty to keep'})}catch(e){fail(e)}}}
+   for(const k in b){s.set[k]=true;const i=d.querySelector('#wac_'+k);i.value='';i.placeholder='Saved · leave empty to keep'}ready=s.set.phone_number_id&&s.set.access_token}catch(e){fail(e)}}}
 
 // chat: load the earlier part of a long chat
 ACT['hist-more']=async a=>{const id=Chat.id;if(!id)return;a.disabled=true;a.innerHTML='<span class="spinner"></span>Loading earlier messages…';const sc=$('#scroll');const from=sc?sc.scrollHeight-sc.scrollTop:0;
