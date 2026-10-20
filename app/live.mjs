@@ -11,7 +11,11 @@ const RESERVED=new Set(['www','app','apps','ai','api','code','code-preview','n8n
 export function createLive({DATA,DOMAIN='app.elkiya.com'}){
  const FILE=path.join(DATA,'live.json');let db=null;
  const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.apps||=[];db.dokploy||={}}return db};
- const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)};
+ // saves run one after another so two never share the .tmp file; a failed one still lets the next run
+ let saving=Promise.resolve();
+ const save=()=>{const p=saving.then(async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)});saving=p.catch(()=>{});return p};
+ // addresses being published right now, so two people can't claim the same new one at once
+ const busy=new Set();
  // Dokploy's API: POST /api/<procedure> with the key in x-api-key (GET with ?input= for reads)
  async function dk(proc,body,{get=false,form=null}={}){const c=(await load()).dokploy;if(!c.url||!c.key)throw Error('Live isn’t connected to the server yet. An admin connects it under Code › Live.');
   const u=c.url.replace(/\/$/,'')+'/api/'+proc+(get&&body?'?input='+encodeURIComponent(JSON.stringify(body)):'');
@@ -35,7 +39,9 @@ export function createLive({DATA,DOMAIN='app.elkiya.com'}){
   const next=s==='done'?'live':s==='running'?'building':s==='error'?'failed':a.status;if(next!==a.status){a.status=next;a.error=next==='failed'?'The build failed. Ask Code to check that the app starts with npm start (or is a plain website), then publish again.':'';await save()}}catch{}return a}
  async function check(id){await load();const a=db.apps.find(x=>x.id===id);if(!a)throw Error('No such app.');if(a.appId)await refresh(a);return a}
  // publish (or update) one app from a zip of its project
- async function publish(u,{name,slug,repo,database,zip}){await load();slug=clean(slug||name);if(slug.length<2)throw Error('Give the app a name of at least 2 letters.');
+ async function publish(u,o={}){const slug=clean(o.slug||o.name);if(busy.has(slug))throw Error('Someone is publishing '+slug+'.'+DOMAIN+' right now. Try again in a minute.');
+  busy.add(slug);try{return await publishOne(u,o)}finally{busy.delete(slug)}}
+ async function publishOne(u,{name,slug,repo,database,zip}){await load();slug=clean(slug||name);if(slug.length<2)throw Error('Give the app a name of at least 2 letters.');
   if(RESERVED.has(slug))throw Error('“'+slug+'” is taken. Choose another name.');if(!zip?.length)throw Error('The project is empty.');
   let a=db.apps.find(x=>x.slug===slug);if(a&&a.owner!==u.id)throw Error(slug+'.'+DOMAIN+' already belongs to '+(a.ownerName||'someone else')+'. Choose another name.');
   // any failure from here on marks the app failed with its reason
