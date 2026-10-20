@@ -39,7 +39,7 @@ PAGES.schedules=async(p,el)=>{
  const folds=I.folds||{},colors=I.colors||{};let n=0;
  const row=j=>{const on=j.enabled&&j.state!=='paused';const {m,r}=schedMeta(j);const last=r.runs[0];
   const model=j.model?`<span class="chip sm-chip" title="Runs on this model instead of the agent’s">${icon('cpu',11)}${esc(modelLabel(j.model))}</span>`:'';
-  const cost=r.runs.length?`<span title="${esc(r.sub?'Covered by your subscription. This is what it would cost on the pay-per-use API.':'Estimated from the model’s price')}">≈ ${usd(r.cost)} this month · ${plural(r.runs.length,'run')}</span>`:'';
+  const cost=r.runs.length?`<span title="${esc(r.sub?'Covered by your subscription. This is what it would cost on the pay-per-use API.':'Estimated from the model’s price')}">≈ ${usd(r.cost)} this month · ${plural(r.n||r.runs.length,'run')}</span>`:'';
   const bad=j.last_status&&j.last_status!=='ok'||j.last_delivery_error;
   return `<div class="row sj-row" ${st(n++)} ${admin?`draggable="true"`:""} data-act="cron-open" data-id="${esc(j.id)}" data-profile="${esc(j.profile||'default')}" tabindex="0"><div class="main-c"><span class="ic ${on?'blue':''} ${bad?'warn':''}">${icon(bad?'alert':'clock',18)}</span><div class="txt"><b>${esc(stripBracket(j.name)||j.prompt?.slice(0,60)||j.id)}</b>
    ${m.summary?`<span class="sched-desc">${esc(m.summary)}</span>`:`<span class="sched-desc pending"><i class="skel" style="display:inline-block;width:min(320px,60%);height:10px;border-radius:5px;vertical-align:middle"></i></span>`}
@@ -150,7 +150,7 @@ async function cronDetail(j){const {m,r}=schedMeta(j);const prof=j.profile||'def
   <div class="sd-facts"><div><small>This month so far</small><b>≈ ${usd(total)}</b></div><div><small>On pace for</small><b>≈ ${usd(total/dayOf*days)}</b></div><div><small>Last month</small><b>${lastT<0.01?'No use yet':'≈ '+usd(lastT)}</b></div></div>
   ${spikes.map(r=>`<div class="tz-note warn">${icon('alert',15)}<span><b>${esc(ident(r.a).name)}</b> cost ≈ ${usd(r.wk)} in the last 7 days, about ${Math.round(r.wk/r.prev)}× a usual week.</span></div>`).join('')}
   
-  ${top.length?`<h3 class="sd-h">Costliest schedules, last 31 days</h3><div class="sd-runs">${top.map(x=>`<div class="sd-run" style="grid-template-columns:2fr 1fr 1fr" ${x.j?`data-act="spend-open" data-id="${esc(x.j.id)}" data-profile="${esc(x.j.profile||'default')}"`:''}><span>${esc(stripBracket(x.j?.name||x.k))}</span><span>${plural(x.r.runs.length,'run')}</span><span>≈ ${usd(x.r.cost)}</span></div>`).join('')}</div>`:''}`}}
+  ${top.length?`<h3 class="sd-h">Costliest schedules this month</h3><div class="sd-runs">${top.map(x=>`<div class="sd-run" style="grid-template-columns:2fr 1fr 1fr" ${x.j?`data-act="spend-open" data-id="${esc(x.j.id)}" data-profile="${esc(x.j.profile||'default')}"`:''}><span>${esc(stripBracket(x.j?.name||x.k))}</span><span>${plural(x.r.runs.length,'run')}</span><span>≈ ${usd(x.r.cost)}</span></div>`).join('')}</div>`:''}`}}
 ACT['spend-open']=a=>{const j=(Pages.cronJobs||[]).find(x=>x.id===a.dataset.id&&(x.profile||'default')===a.dataset.profile);if(j)cronDetail(j);else go('/automations/schedules')};
 
 /* ---------- Pages that belong to one agent (skills, apps, plugins, files, memory, webhooks, who can message, models,
