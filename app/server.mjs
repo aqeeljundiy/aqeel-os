@@ -493,7 +493,7 @@ const brand=createBrand({DATA});
 const backups=createBackups({DATA,HOME:homedir(),HERMES_HOME,notify:(t,d)=>bottlenecks.event('backup',t,d+' Open System › Health to try again.').catch(()=>{})});if(PORT===4400)backups.schedule();
 const live=createLive({DATA,DOMAIN:env.LIVE_DOMAIN||'app.elkiya.com'});
 const bottlenecks=createBottlenecks({DATA,listAgents:()=>listAgents(),names:a=>NAMES[a]||a,dash:p=>fetch(DASH.origin+'/api'+p,{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(20000)}).then(r=>r.json())});brand.name().then(n=>{globalThis.AQ_BRAND=n}).catch(()=>{});
-const codeOnline=createCodeOnline({SECRET,SECURE:SECURE_COOKIE,users:()=>users,HOST:env.CODE_HOST||'code.elkiya.com',PREVIEW_HOST:env.CODE_PREVIEW_HOST||'code-preview.elkiya.com',HOME:PUBLIC_URL||'https://ai.elkiya.com'});
+const codeOnline=createCodeOnline({SECRET,SECURE:SECURE_COOKIE,users:()=>users,revokedAt:uid=>revoked[uid]||0,HOST:env.CODE_HOST||'code.elkiya.com',PREVIEW_HOST:env.CODE_PREVIEW_HOST||'code-preview.elkiya.com',HOME:PUBLIC_URL||'https://ai.elkiya.com'});
 const localBrowser=createLocalBrowser({DATA,GATE:GATE.origin,API_KEY,EXT_DIR:path.join(root,'extension'),NAMES,PUBLIC_URL});
 const links=createLinks({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,python:()=>sharing.python(),setupAgent:n=>setupAgentFn?.(n)});
 function listAgents(){return agentNames()}   // real agents only (a folder with a config), not extra-number copies
@@ -1061,6 +1061,8 @@ const server=createServer(async(req,res)=>{
   if(p.startsWith('/ui/')){
    const u=await me(req);if(!u)return send(res,401,{error:'Sign in first.'},{'x-hui-auth':'required'});
    if(req.method!=='GET'&&req.headers['x-hui']!=='1')return send(res,403,{error:'Missing request header.'});
+   // a new password signs out every other browser and phone; this one gets a fresh sign-in
+   if(p==='/ui/me/password'&&req.method==='PUT')return users.api(u,req,res,p,async(r,code,data,h)=>{if(code===200){await revokeSessions(u.id);return send(r,code,data,{...(h||{}),'set-cookie':'hui='+makeCookie(u.id)+'; '+cookieAttrs(SESSION_DAYS*86400)})}return send(r,code,data,h)},readBody);
    if(p==='/ui/me'||p.startsWith('/ui/me/')||p.startsWith('/ui/people')||p.startsWith('/ui/agents')||p.startsWith('/ui/mail')||p.startsWith('/ui/roles'))return users.api(u,req,res,p,send,readBody);
    // A true gateway restart (stop and start the service). The engine's own restart only reloads agents inside
    // the running process, so things read at startup (shell hooks) would not change.
@@ -1263,7 +1265,7 @@ const server=createServer(async(req,res)=>{
      if(url.searchParams.get('check'))return send(res,200,{ok:Boolean(st)});
      if(st){res.writeHead(200,{'content-type':'application/octet-stream','content-disposition':'attachment; filename="'+(dm[1]==='mac'?'aqeelOS.dmg':'aqeelOS Setup.exe')+'"','content-length':st.size,...security});return createReadStream(f).pipe(res)}}
     return send(res,404,{error:'The aqeelOS app for '+(dm[1]==='mac'?'Mac':'Windows')+' isn’t ready yet.'})}}
-   if(p==='/ui/n8n/spaces'&&req.method==='GET'){const mine=users.isAdmin(u)?null:new Set(Object.keys(users.byId(u.id)?.agents||{}));const l=(await n8n.spaces()).filter(x=>!mine||mine.has(x.agent));
+   if(p==='/ui/n8n/spaces'&&req.method==='GET'){const mine=users.isAdmin(u)?null:new Set((await listAgents()).filter(a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a)));const l=(await n8n.spaces()).filter(x=>!mine||mine.has(x.agent));
     return send(res,200,{spaces:l.map(x=>({...x,name:NAMES[x.agent]||x.agent,shared:x.shared.filter(a=>!mine||mine.has(a))})),agents:(await listAgents()).filter(a=>!mine||mine.has(a)).map(a=>({id:a,name:NAMES[a]||a})),canEdit:users.isAdmin(u)})}
    if(p==='/ui/n8n/share'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can share an agent’s n8n.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
     try{return send(res,200,await n8n.share(String(b.space||''),String(b.agent||''),!!b.on))}catch(e){return send(res,409,{error:e.message})}}
@@ -1288,7 +1290,7 @@ const server=createServer(async(req,res)=>{
     // everyone sees the agents they may use (admins: every agent); only admins change who uses what, and see keys
     if(req.method==='GET'){const kind=String(url.searchParams.get('kind')||'');if(!KINDS.includes(kind))return send(res,400,{error:'Unknown kind'});
      if(users.isAdmin(u))return send(res,200,{...await access.list(kind),canEdit:true});if(kind==='key')return send(res,403,{error:'Only admins can see keys.'});
-     return send(res,200,{...await access.list(kind,new Set(Object.keys(users.byId(u.id)?.agents||{}))),canEdit:false})}
+     return send(res,200,{...await access.list(kind,new Set((await listAgents()).filter(a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a)))),canEdit:false})}
     if(!users.isAdmin(u))return send(res,403,{error:'Only admins can change who uses a connection.'});
     if(req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const kind=String(b.kind||''),id=String(b.id||''),agent=String(b.agent||'');
      if(!KINDS.includes(kind)||!id||!(await listAgents()).includes(agent))return send(res,400,{error:'Bad request'});
@@ -1492,7 +1494,7 @@ server.on('upgrade',(req,sock,headBuf)=>{
  me(req).then(u=>{if(!u||users.gate(u,'/ui/screens/'+(agent||'default'),'GET',new URLSearchParams(),agent||'default')){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}
   // screen=ads: the shared AdsPower screen, whichever agent is driving it (admins only)
   const ads=new URL(req.url,'http://x').searchParams.get('screen')==='ads';if(ads&&!users.isAdmin(u)){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}
-  return screens.upgrade(req,sock,headBuf,ads?null:agent)}).catch(()=>sock.destroy());
+  return screens.upgrade(req,sock,headBuf,ads?null:agent,users.isAdmin(u))}).catch(()=>sock.destroy());
 });
 server.listen(PORT,HOST,()=>console.log(`aqeelOS on http://${HOST}:${PORT} → dashboard ${DASH.origin}, gateway ${GATE.origin}`));
 

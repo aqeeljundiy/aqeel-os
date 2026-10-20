@@ -6,14 +6,16 @@
 import {request as httpRequest} from 'node:http';
 import {createHmac,timingSafeEqual} from 'node:crypto';
 
-export function createCodeOnline({SECRET,SECURE,users,HOST='code.elkiya.com',PREVIEW_HOST='code-preview.elkiya.com',APP='127.0.0.1:4321',PREVIEW='127.0.0.1:4322',HOME='https://ai.elkiya.com'}){
+export function createCodeOnline({SECRET,SECURE,users,revokedAt=()=>0,HOST='code.elkiya.com',PREVIEW_HOST='code-preview.elkiya.com',APP='127.0.0.1:4321',PREVIEW='127.0.0.1:4322',HOME='https://ai.elkiya.com'}){
  const sig=s=>createHmac('sha256',SECRET).update(s).digest('base64url').slice(0,32);
  const same=(a,b)=>{a=Buffer.from(String(a));b=Buffer.from(String(b));return a.length===b.length&&timingSafeEqual(a,b)};
  // a ticket (two minutes, one person) and the cookie it becomes (seven days)
  const ticket=uid=>{const exp=Date.now()+120000;return uid+'.'+exp+'.'+sig('code-ticket:'+uid+'.'+exp)};
  const readTicket=t=>{const [uid,exp,s]=String(t||'').split('.');if(!uid||!exp||Number(exp)<Date.now()||!same(s,sig('code-ticket:'+uid+'.'+exp)))return null;return uid};
  const cookie=uid=>{const exp=Date.now()+7*86400e3;return uid+'.'+exp+'.'+sig('code-cookie:'+uid+'.'+exp)};
- const readCookie=req=>{const m=/(?:^|;\s*)aqc=([^;]+)/.exec(req.headers.cookie||'');if(!m)return null;const [uid,exp,s]=decodeURIComponent(m[1]).split('.');if(!uid||Number(exp)<Date.now()||!same(s,sig('code-cookie:'+uid+'.'+exp)))return null;return uid};
+ const readCookie=req=>{const m=/(?:^|;\s*)aqc=([^;]+)/.exec(req.headers.cookie||'');if(!m)return null;const [uid,exp,s]=decodeURIComponent(m[1]).split('.');if(!uid||Number(exp)<Date.now()||!same(s,sig('code-cookie:'+uid+'.'+exp)))return null;
+  // Sign out everywhere (or a new password) ends Code sessions too
+  const cut=revokedAt(uid);if(cut&&Number(exp)-7*86400e3<cut)return null;return uid};
  const attrs='; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800'+(SECURE?'; Secure':'');
  const scheme=SECURE?'https://':'http://';
  const hostOf=req=>String(req.headers['x-forwarded-host']||req.headers.host||'').split(',')[0].trim().split(':')[0].toLowerCase();

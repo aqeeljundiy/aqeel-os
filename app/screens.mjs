@@ -81,9 +81,11 @@ export function createScreens(){
   return b}
  // Pipes an upgraded viewer socket to the right screen. Watching counts as using the screen, so it
  // is not stopped as idle while someone has it open.
- async function upgrade(req,sock,headBuf,agent){
+ async function upgrade(req,sock,headBuf,agent,isAdmin=false){
   let port=SHARED.port,b=null;
   if(agent&&await valid(agent)&&!await shared(agent)&&await desktopsReady()){if(!await alive(agent)){sock.end('HTTP/1.1 503 Service Unavailable\r\n\r\n');return}b=await bridge(agent);port=b.port;b.viewers++;clearTimeout(b.timer)}
+  // the shared screen (AdsPower, and agents that use it) is for admins only, whichever agent was asked for
+  if(port===SHARED.port&&!isAdmin){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}
   const act=path.join(homeOf(agent||'default'),'bot-desktop','activity');
   const touch=b?setInterval(()=>{const t=new Date();utimes(act,t,t).catch(()=>{})},60000):null;
   const up=connect(port,'127.0.0.1',()=>{
