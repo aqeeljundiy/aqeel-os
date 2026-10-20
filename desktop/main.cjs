@@ -98,7 +98,10 @@ app.whenReady().then(async()=>{await new Promise(r=>ctl.listen(0,'127.0.0.1',()=
  if(!DEV)app.setLoginItemSettings({openAtLogin:true,args:['--background']});makeTray();
  await open();try{await startCode();await attach()}catch(e){dialog.showErrorBox('aqeelOS','Code could not start: '+e.message)}});
 const showWin=()=>{if(!win)return;if(win.isMinimized())win.restore();win.show();win.focus()};
-app.on('second-instance',showWin);app.on('activate',showWin);
+// aqeelos://code links (from the website when Code is opened in a normal browser) bring this app forward on Code
+if(!DEV)app.setAsDefaultProtocolClient('aqeelos');
+const openLink=u=>{showWin();if(win&&/^aqeelos:\/\/code/i.test(String(u||'')))win.webContents.executeJavaScript("location.hash='#/code/code'").catch(()=>{})};
+app.on('second-instance',(e,argv)=>openLink(argv.find(x=>/^aqeelos:/i.test(x))));app.on('open-url',(e,u)=>{e.preventDefault();openLink(u)});app.on('activate',showWin);
 let tray=null;
 function makeTray(){try{tray=new Tray(path.join(BUNDLED,'assets',process.platform==='win32'?'icon.ico':'icon-180.png'));tray.setToolTip('aqeelOS');
  tray.setContextMenu(Menu.buildFromTemplate([{label:'Open aqeelOS',click:showWin},{type:'separator'},{label:'Quit aqeelOS',click:()=>{app.isQuitting=true;app.quit()}}]));tray.on('click',showWin)}catch(e){console.warn('tray:',e.message)}}
