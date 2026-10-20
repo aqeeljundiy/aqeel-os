@@ -56,7 +56,10 @@ export function createAccess({HERMES_HOME,DATA,listAgents,readConfig,setKey,herm
   const ids=new Set();for(const a of agents)for(const id of Object.keys(per[a]))ids.add(id);const items=[];
   for(const id of ids){const users=agents.filter(a=>per[a][id]);const signed=users.filter(a=>per[a][id].signed);
    let owner=reg.owners[kind+'|'+id];if(!users.includes(owner))owner=signed[0]||users[0];
-   if(!users.some(seen))continue;const x=per[owner][id];const o=kind==='mcp'&&own[id];items.push({kind,id,label:x.label,detail:x.detail,bot:!!x.bot,owner,ownerName:o?o.owner:names(owner),own:!!o,ownNote:o?.note||'',
+   if(!users.some(seen))continue;const x=per[owner][id];const o=kind==='mcp'&&own[id];
+   // same name on two agents but a different address or sign-in: say so rather than pass them off as one
+   const mixed=kind==='mcp'&&!o&&users.some(a=>per[a][id].detail!==x.detail||(per[a][id].fp&&x.fp&&per[a][id].fp!==x.fp));
+   items.push({kind,id,label:x.label,detail:x.detail,mixed,bot:!!x.bot,owner,ownerName:o?o.owner:names(owner),own:!!o,ownNote:o?.note||'',
     users:users.filter(seen).map(a=>({id:a,name:names(a),signed:per[a][id].signed})),ownerSigned:per[owner][id].signed})}
   return {agents:agents.filter(seen).map(a=>({id:a,name:names(a)})),items:items.sort((p,q)=>p.label.localeCompare(q.label))}}
 
@@ -67,6 +70,8 @@ export function createAccess({HERMES_HOME,DATA,listAgents,readConfig,setKey,herm
   if(kind==='mcp'&&own[id]){await own[id].grant(to);return {changed:true}}
   const src=(await holdings(from))[kind][id];
   if(kind==='mcp'){const c=await readConfig(from);const entry=c?.mcp_servers?.[id];if(!entry)throw new Error('The owner no longer has it.');
+   // never replace another agent's own connection that only shares the name
+   {const theirs=(await holdings(to)).mcp[id];if(theirs&&(theirs.detail!==src.detail||(theirs.fp&&src.fp&&theirs.fp!==src.fp)))throw new Error(names(to)+' already has its own '+id+' connection. Remove it there first if you want to replace it.')}
    const r=await setKey(to,'mcp_servers.'+id,entry);if(!r.ok)throw new Error(r.err||'Could not save');
    const td=path.join(home(from),'mcp-tokens'),dd=path.join(home(to),'mcp-tokens');await mkdir(dd,{recursive:true,mode:0o700});
    for(const f of await readdir(td).catch(()=>[]))if(f===id+'.json'||f===id+'.meta.json'||f===id+'.client.json')await copyFile(path.join(td,f),path.join(dd,f));
