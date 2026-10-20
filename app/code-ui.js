@@ -26,6 +26,8 @@ const CodeUI={where:(()=>{try{const w=localStorage.getItem('aq-code-where');retu
  // the page: the app in a frame, or the lock screen
  async page(p,el){const pg=el.closest('.page');pg?.classList.add('page-full');setActions('');clearTimeout(this.timer);
   if(this.where==='live')return this.livePage(el);
+  if(!CodeUI._dl){CodeUI._dl=true;document.addEventListener('click',async e=>{const a=e.target.closest?.('a[href^="/ui/code/download/"]');if(!a||a.dataset.ok)return;e.preventDefault();
+   try{const r=await UI(a.getAttribute('href')+'?check=1');if(r.ok){a.dataset.ok='1';a.click();delete a.dataset.ok}else toast('The aqeelOS app for '+(/mac$/.test(a.getAttribute('href'))?'Mac':'Windows')+' isn’t ready yet. Ask an admin.','err')}catch(er){fail(er)}},true)}
   // Code works in the aqeelOS app (its real browser lives there); in a normal browser, open the app or get it
   if(!window.aqDesktop&&!/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)){this.state='lock';this.paintSide();const mac=/Mac/i.test(navigator.platform||navigator.userAgent);
    el.innerHTML=`<div class="code-host"><div class="code-lock card"><span class="code-lock-ic">${icon('monitor',26)}</span><h2>Code works in the aqeelOS app</h2><p>Code builds with a real browser for your projects, which lives in the aqeelOS app on your computer. Open the app to use Code; everything else in aqeelOS works here too.</p>

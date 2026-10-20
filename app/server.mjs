@@ -1257,10 +1257,12 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/code/devices'&&req.method==='GET')return send(res,200,{devices:await code.devices(u.id)});
    if(p==='/ui/code/unpair'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}await code.unpair(u.id,String(b.id||''));return send(res,200,{ok:true})}
    {const dm=/^\/ui\/code\/download\/(windows|mac)$/.exec(p);if(dm&&req.method==='GET'){
-    // the aqeelOS app installer, once one is on the server (Windows: aqeelOS-Setup.exe, Mac: aqeelOS.dmg); else the older zip
+    // the aqeelOS app installer (Windows: aqeelOS-Setup.exe, Mac: aqeelOS.dmg). ?check=1 says whether it is there; without one
+    // there is nothing to give (the older zip ran Code outside the app, which the browser no longer opens)
     {const f=path.join(DATA,'desktop',dm[1]==='mac'?'aqeelOS.dmg':'aqeelOS-Setup.exe');const st=await stat(f).catch(()=>null);
+     if(url.searchParams.get('check'))return send(res,200,{ok:Boolean(st)});
      if(st){res.writeHead(200,{'content-type':'application/octet-stream','content-disposition':'attachment; filename="'+(dm[1]==='mac'?'aqeelOS.dmg':'aqeelOS Setup.exe')+'"','content-length':st.size,...security});return createReadStream(f).pipe(res)}}
-    const z=await code.download(dm[1]);res.writeHead(200,{'content-type':'application/zip','content-disposition':'attachment; filename="aqeelOS Code ('+(dm[1]==='mac'?'Mac':'Windows')+').zip"','content-length':z.length,...security});return res.end(z)}}
+    return send(res,404,{error:'The aqeelOS app for '+(dm[1]==='mac'?'Mac':'Windows')+' isn’t ready yet.'})}}
    if(p==='/ui/n8n/spaces'&&req.method==='GET'){const mine=users.isAdmin(u)?null:new Set(Object.keys(users.byId(u.id)?.agents||{}));const l=(await n8n.spaces()).filter(x=>!mine||mine.has(x.agent));
     return send(res,200,{spaces:l.map(x=>({...x,name:NAMES[x.agent]||x.agent,shared:x.shared.filter(a=>!mine||mine.has(a))})),agents:(await listAgents()).filter(a=>!mine||mine.has(a)).map(a=>({id:a,name:NAMES[a]||a})),canEdit:users.isAdmin(u)})}
    if(p==='/ui/n8n/share'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can share an agent’s n8n.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}

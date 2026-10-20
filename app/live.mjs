@@ -25,8 +25,9 @@ export function createLive({DATA,DOMAIN='app.elkiya.com'}){
   const find=async()=>{const all=await dk('project.all',null,{get:true});const p=(all||[]).find(x=>x.name==='Live apps');return p&&(p.environments?.[0]?.environmentId)};
   let id=await find();if(!id){await dk('project.create',{name:'Live apps',description:'Apps published from aqeelOS Code. aqeelOS creates and removes them.'});id=await find()}
   if(!id)throw Error('Could not make the Live apps project on the server.');c.environmentId=id;await save();return id}
- async function connect({url,key}){await load();db.dokploy={url:String(url||'').trim(),key:String(key||'').trim()};if(!/^https?:\/\//.test(db.dokploy.url)||db.dokploy.key.length<10)throw Error('Paste the server address and its API key.');
-  await envId();await save();return {ok:true}}
+ // a new address and key are kept only once the server answers with them; a wrong one leaves the old ones in place
+ async function connect({url,key}){await load();const next={url:String(url||'').trim(),key:String(key||'').trim()};if(!/^https?:\/\//.test(next.url)||next.key.length<10)throw Error('Paste the server address and its API key.');
+  const prev=db.dokploy;db.dokploy=next;try{await envId()}catch(e){db.dokploy=prev;throw e}await save();return {ok:true}}
  const view=(a,u,admin)=>({id:a.id,name:a.name,slug:a.slug,url:urlOf(a.slug),owner:a.owner,ownerName:a.ownerName,repo:a.repo||'',db:Boolean(a.dbId),status:a.status,error:a.error||'',created:a.created,updated:a.updated,mine:a.owner===u.id,canRemove:a.owner===u.id||admin});
  async function list(u,admin){await load();return {apps:db.apps.map(a=>view(a,u,admin)).sort((a,b)=>(b.updated||0)-(a.updated||0)),connected:Boolean(db.dokploy.url&&db.dokploy.key),domain:DOMAIN}}
  // the app's state on the server
