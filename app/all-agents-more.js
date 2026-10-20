@@ -8,7 +8,7 @@ const allChip=(act,a,name,on)=>`<button class="aam-ag${on?' on':''}" data-act="$
 const perAgent=async(fn)=>{const list=await viewAgents();return Promise.all(list.map(async a=>({a,d:await fn(a).catch(()=>null)})))};
 const prof=(p,a)=>p+(p.includes('?')?'&':'?')+'profile='+encodeURIComponent(a);
 async function allChipFlip(b,path,body,label){const on=b.getAttribute('aria-pressed')!=='true',a=b.dataset.agent;b.disabled=true;
- try{await put(H,prof(path,a),body(on));b.classList.toggle('on',on);b.setAttribute('aria-pressed',String(on));toast(label+(on?' on for ':' off for ')+ident(a).name)}catch(e){fail(e)}finally{b.disabled=false}}
+ try{await put(H,prof(path,a),body(on));S._skPer=null;b.classList.toggle('on',on);b.setAttribute('aria-pressed',String(on));toast(label+(on?' on for ':' off for ')+ident(a).name)}catch(e){fail(e)}finally{b.disabled=false}}
 ACT['all-sk']=b=>allChipFlip(b,'/skills/toggle',on=>({name:b.dataset.name,enabled:on}),b.dataset.name);
 ACT['all-ts']=b=>allChipFlip(b,'/tools/toolsets/'+encodeURIComponent(b.dataset.name),on=>({enabled:on}),b.dataset.name);
 
@@ -18,13 +18,16 @@ Object.assign(ALLVIEW,{
   if(tab==='Tool groups'){const per=await perAgent(a=>H(prof('/tools/toolsets',a)));const m=new Map();
    for(const {a,d} of per)for(const t of d||[]){const x=m.get(t.name)||{...t,on:[],all:[]};x.all.push(a);if(t.enabled)x.on.push(a);m.set(t.name,x)}
    const rows=[...m.values()].map((t,i)=>allRow(i,`<span class="ic">${icon('layers',17)}</span>`,esc(t.label||t.name),esc(t.description||''),null,`<span class="aam-ags">${t.all.map(a=>allChip('all-ts',a,t.name,t.on.includes(a))).join('')}</span>`));
-   el.innerHTML=`${tabs('skills',['Installed','Tool groups','Find more skills'])}<div class="all-view">${allSection('Tool groups',rows,'No tool groups.')}</div>`;return}
-  const per=await perAgent(a=>H(prof('/skills',a)));const m=new Map();
+   const bad=per.filter(x=>!x.d).map(x=>ident(x.a).name);
+   el.innerHTML=`${tabs('skills',['Installed','Tool groups','Find more skills'])}${bad.length?`<p class="err-line" style="margin:0 0 12px">Couldn’t load ${esc(bad.join(', '))}. <button data-act="reload">Try again</button></p>`:''}<div class="all-view">${allSection('Tool groups',rows,'No tool groups.')}</div>`;return}
+  // typing in the search box reuses the last answers (up to 30 s old) instead of asking every agent again; not kept when one failed
+  let per=S._skReuse&&S._skPer&&Date.now()-S._skPer.t<30000?S._skPer.d:null;S._skReuse=false;if(!per){per=await perAgent(a=>H(prof('/skills',a)));S._skPer=per.some(x=>!x.d)?null:{t:Date.now(),d:per}}
+  const m=new Map(),bad=per.filter(x=>!x.d).map(x=>ident(x.a).name);
   for(const {a,d} of per)for(const s of d||[]){const x=m.get(s.name)||{...s,on:[],all:[]};x.all.push(a);if(s.enabled)x.on.push(a);m.set(s.name,x)}
   const q=(S.skillQ||'').toLowerCase(),all=[...m.values()].sort((x,y)=>x.name.localeCompare(y.name)),list=all.filter(s=>!q||(s.name+' '+s.description).toLowerCase().includes(q));
   const rows=list.map((s,i)=>allRow(i,`<span class="ic ${s.on.length?'blue':''}">${icon('sparkle',17)}</span>`,esc(s.name),esc(s.description||'')+(s.category?' · '+esc(pretty(s.category)):''),null,`<span class="aam-ags">${s.all.map(a=>allChip('all-sk',a,s.name,s.on.includes(a))).join('')}</span>`));
-  el.innerHTML=`${tabs('skills',['Installed','Tool groups','Find more skills'])}<div class="toolbar"><div class="search">${icon('search',16)}<input id="skQ" placeholder="Search ${all.length} skills on all agents" value="${esc(S.skillQ||'')}"></div><span class="chip">${per.length} agents</span></div><div class="all-view">${allSection('Skills, and which agents have each on',rows,q?'No skill matches.':'No skills yet.')}</div>`;
-  let t;$('#skQ').oninput=e=>{clearTimeout(t);t=setTimeout(()=>{S.skillQ=e.target.value;PAGES.skills(p,el).then(()=>{const i=$('#skQ');if(i){i.focus();i.setSelectionRange(i.value.length,i.value.length)}})},200)}},
+  el.innerHTML=`${tabs('skills',['Installed','Tool groups','Find more skills'])}<div class="toolbar"><div class="search">${icon('search',16)}<input id="skQ" placeholder="Search ${all.length} skills on all agents" value="${esc(S.skillQ||'')}"></div><span class="chip">${per.length-bad.length} agents</span></div>${bad.length?`<p class="err-line" style="margin:0 0 12px">Couldn’t load ${esc(bad.join(', '))}. <button data-act="reload">Try again</button></p>`:''}<div class="all-view">${allSection('Skills, and which agents have each on',rows,q?'No skill matches.':'No skills yet.')}</div>`;
+  let t;$('#skQ').oninput=e=>{clearTimeout(t);t=setTimeout(()=>{S.skillQ=e.target.value;S._skReuse=true;PAGES.skills(p,el).then(()=>{const i=$('#skQ');if(i){i.focus();i.setSelectionRange(i.value.length,i.value.length)}})},200)}},
  async memory(p,el){setActions('');const list=await viewAgents();
   const home=a=>'/home/claude/.hermes'+(a==='default'?'':'/profiles/'+a)+'/memories/';
   const read=async f=>{try{return (await readText(f)).text}catch{return null}};
@@ -39,7 +42,7 @@ Object.assign(ALLVIEW,{
   el.innerHTML=`<div class="all-view">${allSection('Each agent’s own folder',rows,'No agents yet.')}</div>`},
  async logs(p,el){setActions('');const per=await perAgent(a=>H(prof('/logs'+qp({file:'agent',lines:80}),a)));
   const lines=per.flatMap(({a,d})=>(d?.lines||[]).map(l=>({a,l:l.replace(/\n$/,'')}))).sort((x,y)=>x.l.slice(0,23)<y.l.slice(0,23)?-1:1).slice(-400);
-  el.innerHTML=`<div class="all-view"><p class="hint" style="margin:0 0 12px">The latest lines from every agent, oldest first. Pick one agent under Showing for its channels and errors, filters and live updates.</p><pre class="log" id="logBox">${lines.map(({a,l})=>{const e='<b class="aam-who">'+esc(ident(a).name)+'</b> '+esc(l);return / (ERROR|CRITICAL) /.test(l)?`<span class="e">${e}</span>`:/ WARNING /.test(l)?`<span class="w">${e}</span>`:e}).join('\n')||'Nothing logged yet.'}</pre></div>`;
+  el.innerHTML=`<div class="all-view"><p class="hint" style="margin:0 0 12px">The latest lines from every agent, oldest first. Pick one agent under Showing for its channels and errors, filters and live updates.</p><div class="log" id="logBox">${lines.map(({a,l})=>{const e='<b class="aam-who">'+esc(ident(a).name)+'</b> '+esc(l);return / (ERROR|CRITICAL) /.test(l)?`<span class="e">${e}</span>`:/ WARNING /.test(l)?`<span class="w">${e}</span>`:e}).join('\n')||'Nothing logged yet.'}</div></div>`;
   const box=$('#logBox');if(box)box.scrollTop=box.scrollHeight},
  async settings(p,el){setActions('');const per=await perAgent(a=>H(prof('/config',a)));
   const g=(c,k)=>k.split('.').reduce((o,x)=>o==null?undefined:o[x],c);
