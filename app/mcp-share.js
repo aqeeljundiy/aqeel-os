@@ -4,8 +4,8 @@
 const Signins={shown:new Set(),
  snoozed(k){try{return (JSON.parse(localStorage.getItem('signinLater')||'{}')[k]||0)>Date.now()}catch{return false}},
  // after a sign-in: check every 10 s for two minutes, so the reminder goes away as soon as it lands
- watch(x){const k=x.agent+'|'+x.name;let n=0;clearInterval(this['w'+k]);this['w'+k]=setInterval(async()=>{n++;let d;try{d=await UI('/ui/mcp/signins')}catch{return}
-  if(!(d.items||[]).some(y=>y.agent===x.agent&&y.name===x.name)){clearInterval(this['w'+k]);this.shown.delete(k);toast((x.label||x.name)+' is signed in for '+x.agentName);if(typeof Bottlenecks!=='undefined')Bottlenecks.check()}else if(n>=12)clearInterval(this['w'+k])},10000)},
+ watch(x){const k=x.agent+'|'+x.name;let n=0;clearInterval(this['w'+k]);this['w'+k]=setInterval(async()=>{if(++n>=12||!S.signedIn)clearInterval(this['w'+k]);if(!S.signedIn)return;let d;try{d=await UI('/ui/mcp/signins')}catch{return}
+  if(!(d.items||[]).some(y=>y.agent===x.agent&&y.name===x.name)){clearInterval(this['w'+k]);this.shown.delete(k);toast((x.label||x.name)+' is signed in for '+x.agentName);if(typeof Bottlenecks!=='undefined')Bottlenecks.check()}},10000)},
  snooze(k){try{const m=JSON.parse(localStorage.getItem('signinLater')||'{}');m[k]=Date.now()+24*3600e3;localStorage.setItem('signinLater',JSON.stringify(m))}catch{}},
  async check(){if(!S.signedIn||S.me?.admin===false||document.hidden)return;let d;try{d=await UI('/ui/mcp/signins')}catch{return}this.items=d.items||[];
   for(const x of this.items){const k=x.agent+'|'+x.name;if(this.shown.has(k)||this.snoozed(k))continue;this.shown.add(k);
