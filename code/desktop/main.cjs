@@ -100,7 +100,7 @@ const ctl=http.createServer(async(req,res)=>{const send=(c,o)=>{res.writeHead(c,
 const BACKGROUND=process.argv.includes('--background');
 async function open(){win=new BrowserWindow({width:1440,height:920,show:!BACKGROUND,minWidth:900,minHeight:600,title:'aqeelOS',backgroundColor:'#ffffff',autoHideMenuBar:true,
   icon:path.join(BUNDLED,'assets',process.platform==='win32'?'icon.ico':'icon-512.png'),
-  webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegrationInSubFrames:true,sandbox:false}});
+  webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegrationInSubFrames:true,sandbox:false,additionalArguments:['--cba-port='+CODE_PORT]}});
  win.webContents.setWindowOpenHandler(({url})=>{if(/^https?:/.test(url))shell.openExternal(url);return {action:'deny'}});
  win.on('resize',place);
  // closing the window keeps aqeelOS running in the background (Code keeps working for agents and other browsers); Quit is in the tray
