@@ -52,9 +52,9 @@ export function createSchedules({DATA,DASH,TOKEN,HERMES_HOME,listAgents,python,r
   catch(e){console.warn('schedule descriptions:',e.message)}finally{busy=false}}
 
  // the runs of each schedule this month: tokens, estimated cost, how long, which model
- async function runs(agents){const out={};const since=Date.now()/1000-31*86400;
+ async function runs(agents){const out={};const n=new Date(),since=new Date(n.getFullYear(),n.getMonth(),1).getTime()/1000;
   await Promise.all(agents.map(async a=>{let s=[];for(let off=0;off<500;off+=100){let page=[];try{page=(await api('/sessions?sources=cron&limit=100&offset='+off+'&profile='+encodeURIComponent(a))).sessions||[]}catch{break}s.push(...page);if(page.length<100||page.some(x=>(x.started_at||0)<since))break}
-   for(const x of s){const m=/^cron_([0-9a-f]+)_/.exec(x.id||'');if(!m||(x.started_at||0)<since)continue;const k=key(a,m[1]);const r=out[k]??={runs:[],tokens:0,cost:0};
+   for(const x of s){const m=/^cron_([0-9a-f]+)_/.exec(x.id||'');if(!m||(x.started_at||0)<since)continue;const k=key(a,m[1]);const r=out[k]??={runs:[],n:0,tokens:0,cost:0};r.n++;
     const tok=(x.input_tokens||0)+(x.output_tokens||0)+(x.reasoning_tokens||0)+(x.cache_read_tokens||0)+(x.cache_write_tokens||0);const cost=x.actual_cost_usd??x.estimated_cost_usd??0;
     r.tokens+=tok;r.cost+=cost||0;r.sub=r.sub||/subscription/.test(x.billing_provider||'');
     if(r.runs.length<12)r.runs.push({id:x.id,t:x.started_at,secs:x.ended_at?Math.round(x.ended_at-x.started_at):null,tokens:tok,cost,model:x.model,active:!!x.is_active,end:x.end_reason||'',sub:/subscription/.test(x.billing_provider||'')})}}))
