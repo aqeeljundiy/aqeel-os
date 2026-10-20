@@ -400,8 +400,8 @@ function codeStep(f,d){f.querySelector('h1').textContent='Check your email';f.qu
  f.querySelectorAll('label,input').forEach(e=>e.hidden=true);const i=document.createElement('input');i.id='code';i.inputMode='numeric';i.autocomplete='one-time-code';i.placeholder='123456';i.maxLength=6;f.querySelector('#err').before(i);i.focus();
  f.onsubmit=async e=>{e.preventDefault();const err=$('#err'),b=f.querySelector('button');b.disabled=true;try{const r=await fetch('/auth/code',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({key:d.key,code:i.value})});const j=await r.json().catch(()=>({}));
   if(!r.ok){err.textContent=j.error||'That code is not right.';f.classList.remove('shake');void f.offsetWidth;f.classList.add('shake');return}S.signedIn=true;if(location.hash==='#/signin')location.hash='#/chat';await boot()}finally{b.disabled=false}}}
-function signedOut(){if(!S.signedIn)return;S.signedIn=false;render()}
-async function signOut(){try{Prefs.clear()}catch{}await fetch('/auth/logout',{method:'POST'});S.signedIn=false;$('#root').innerHTML='';render()}
+function signedOut(){if(!S.signedIn)return;S.signedIn=false;location.href='/'}
+async function signOut(){try{Prefs.clear()}catch{}await fetch('/auth/logout',{method:'POST'}).catch(()=>{});S.signedIn=false;location.href='/'}
 
 /* Loading → loaded: wherever loading placeholders (.skel) are replaced, the new content fades and rises in,
    a little staggered, instead of snapping into place. Works for whole pages and for panels that load later. */

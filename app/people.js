@@ -229,9 +229,9 @@ ACT['mcp-dup']=a=>{const m=(Pages._mcp||[]).find(x=>x.name===a.dataset.name);if(
 
 /* ---------- Memory: MEMORY.md and USER.md are plain files the agent reads; you can edit them ---------- */
 const memHome=()=>{const a=agentProfile()||'default';return '/home/claude/.hermes'+(a==='default'?'':'/profiles/'+a)};
-ACT['mem-edit']=async a=>{const f=a.dataset.f,path=memHome()+'/memories/'+f;let cur='';try{cur=(await readText(path)).text||''}catch{}
+ACT['mem-edit']=async a=>{const f=a.dataset.f,path=memHome()+'/memories/'+f;let cur='';try{cur=(await readText(path)).text||''}catch(e){if(e?.status!==404&&!/not found|no such|does not exist/i.test(e?.message||''))return fail(e)}
  const d=drawer('Edit '+f,`<p class="hint" style="margin:0 0 8px">${f==='USER.md'?'What the agent knows about you: name, preferences, how you like answers.':'Notes the agent keeps about its work.'} It reads this at the start of every chat. Keep it short; entries are separated by a line with §.</p>
-  <textarea id="memT" rows="18" style="font-family:var(--mono);font-size:12.5px">${esc(cur)}</textarea>`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="memGo">Save</button>`);
+  <textarea id="memT" rows="18" style="font-size:13px;line-height:1.55">${esc(cur)}</textarea>`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="memGo">Save</button>`);
  d.querySelector('#memGo').onclick=async()=>{const fd=new FormData();fd.append('path',path);fd.append('overwrite','true');fd.append('file',new Blob([$('#memT').value],{type:'text/markdown'}),f);
   try{await H('/files/upload-stream',{method:'POST',body:fd});closeLayers();toast(f+' saved');reload()}catch(e){fail(e)}}};
 

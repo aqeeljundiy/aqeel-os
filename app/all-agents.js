@@ -4,7 +4,7 @@
 // show every agent with their own filter.)
 const ALL_PAGES=new Set(['mcp','plugins','keys','webhooks','channels','models']);
 const allHere=()=>{const id=route().page?.id;if(!ALL_PAGES.has(id))return false;if(id==='channels')return (S.tab.channels||'Connections')==='Who can message';if(id==='models')return S.tab.models==='Agents’ models';return true};
-const showingAll=()=>(S.viewAll??true)&&allHere()&&!(route().page?.id==='keys'&&S.me?.admin===false);
+const showingAll=()=>(S.viewAll??true)&&allHere()&&!(['keys','files'].includes(route().page?.id)&&S.me?.admin===false);
 // the picker says "All agents" while that is what you see
 {const base=viewPick;viewPick=list=>{base(list);if(!showingAll())return;const b=$('.page-head .head-actions .view-pick');if(!b)return;b.classList.add('other');b.title='Every agent’s, each with its owner';
  b.innerHTML=`<span class="vp-ava all">${icon('layers',14)}</span><span class="vp-t"><small>Showing</small><b>All agents</b></span>${icon('chevD',15)}`}}

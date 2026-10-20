@@ -133,8 +133,8 @@ const Chat={
  paintFiles(){const el=$('#attachList');if(!el)return;el.innerHTML=this.files.map((f,i)=>`<span class="att-chip ${f.kind}">${f.kind==='image'?`<img src="${esc(f.url||f.blob)}" alt="">`:f.kind==='video'?`<video src="${esc(f.blob)}#t=0.5" muted preload="metadata"></video><span class="att-play">${icon('play',14)}</span>`:`<span class="att-ic">${icon('file',18)}</span>`}<span class="att-txt"><b>${esc(f.name)}</b><small>${attSize(f.size)}</small></span><button class="att-x" data-act="unattach" data-i="${i}" aria-label="Remove ${esc(f.name)}">${icon('x',12)}</button></span>`).join('')},
  // files that are not sent inline go to the box first; the message names where they are
  async uploadAtt(list){const out=[];const base=(typeof FILE_HOME!=='undefined'?FILE_HOME:'/home/claude').replace(/\/$/,'')+'/uploads';
-  for(const f of list){const t=new Date().toISOString().slice(0,10);const path=base+'/'+t+'-'+f.name.replace(/[^\w.\- ]+/g,'_');
-   const fd=new FormData();fd.append('path',path);fd.append('overwrite','true');fd.append('file',f.file||dataFile(f),f.name);
+  for(const f of list){const t=new Date().toISOString().slice(0,10);const path=base+'/'+t+'-'+Date.now().toString(36)+Math.random().toString(36).slice(2,5)+'-'+f.name.replace(/[^\w.\- ]+/g,'_');
+   const fd=new FormData();fd.append('path',path);fd.append('overwrite','false');fd.append('file',f.file||dataFile(f),f.name);
    await H('/files/upload-stream',{method:'POST',body:fd});out.push(path)}return out},
 
  /* ---------- history ---------- */
@@ -218,7 +218,7 @@ const Chat={
  async submit(){if(this._sending)return;this._sending=true;try{return await this._submit()}finally{this._sending=false}},
  async _submit(){if(Voice.on)Voice.stop();const ta=$('#msg');const text=ta.value.trim();if(!text&&!this.files.length)return;try{localStorage.removeItem(this.draftKey());localStorage.removeItem('draft:'+(S.profile||'default')+'|new')}catch{}
   const s=this.live[this.id];
-  if(this.files.some(f=>f.kind!=='image')||s?.running&&this.sendMode!=='queue'&&this.files.length){const up=s?.running&&this.sendMode!=='queue'?this.files:this.files.filter(f=>f.kind!=='image');
+  if(this.files.some(f=>f.kind!=='image'||!f.url)||s?.running&&this.sendMode!=='queue'&&this.files.length){const up=s?.running&&this.sendMode!=='queue'?this.files:this.files.filter(f=>f.kind!=='image'||!f.url);
    const sp=$('#attachList');sp?.classList.add('busy');let paths;try{paths=await this.uploadAtt(up)}catch(e){sp?.classList.remove('busy');return fail(e)}sp?.classList.remove('busy');
    this._sentAtt=up;this.files=this.files.filter(f=>!up.includes(f));this.paintFiles();ta.value=(text+'\n\n'+paths.map(p=>'[Attached file: '+p+']').join('\n')).trim();return this._submit()}
   if(s?.running&&this.sendMode==='queue'){const images=this.files;this.files=[];this.paintFiles();(s.queue??=[]).push({text,images});ta.value='';ta.style.height='';this.paintQueue();return}
@@ -229,7 +229,7 @@ const Chat={
   if(text.startsWith('/')&&this.command(text))return;
   ta.value='';ta.style.height='';$('#slash').innerHTML='';
   const images=this.files;this.files=[];this.paintFiles();
-  await this.send(text,images)},
+  this.send(text,images)},
  // Tools picked for the next message (MCP servers or built-in tools). Hermes has no per-message tool switch,
  // so they travel as a short instruction in front of the message; the bubble shows them as chips.
  tools:[],
@@ -240,7 +240,7 @@ const Chat={
  ATT_RE:/\n*\[Attached file: ([^\]\n]+)\]/g,
  takeSent(){const l=this._sentAtt||[];this._sentAtt=null;const m={};for(const f of l)if(f.blob)m[f.name]=f.blob;return m},
  // the attachments of a sent message, as previews: pictures and videos play right in the chat
- attHtml(paths,imgs,local){const one=p=>{const name=p.split('/').pop().replace(/^\d{4}-\d\d-\d\d-/,''),k=attKind(name),src=(local||{})[name]||fileUrl(p,k==='video'?'stream':'download');
+ attHtml(paths,imgs,local){const one=p=>{const name=p.split('/').pop().replace(/^\d{4}-\d\d-\d\d-(?:[a-z0-9]{8,12}-)?/,''),k=attKind(name),src=(local||{})[name]||fileUrl(p,k==='video'?'stream':'download');
    if(k==='image')return `<img class="att-img" src="${esc(src)}" alt="${esc(name)}" loading="lazy" data-act="att-zoom">`;
    if(k==='video')return `<video class="att-vid" src="${esc(src)}" controls preload="metadata" playsinline></video>`;
    return `<a class="att-file" href="${esc(fileUrl(p))}" download="${esc(name)}">${icon('file',18)}<span><b>${esc(name)}</b><small>${esc(p.replace(/^\/home\/[^/]+/,'~'))}</small></span></a>`};

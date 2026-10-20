@@ -57,7 +57,8 @@ ACT['f-view']=a=>{FV.view=a.dataset.v;store.set('filesView',FV.view);reload()};
 ACT['f-hidden']=()=>{FV.hidden=!FV.hidden;store.set('filesHidden',FV.hidden);reload()};
 ACT['f-mkdir']=async()=>{const n=await promptBox('New folder','Folder name','','Create');if(!n)return;try{await post(H,'/files/mkdir',{path:(S.filePath||FILE_HOME).replace(/\/$/,'')+'/'+n});toast('Folder created');reload()}catch(e){fail(e)}};
 ACT['f-upload']=()=>pickFile('*/*',uploadFiles,true);
-async function uploadFiles(files){const dir=(S.filePath||FILE_HOME).replace(/\/$/,'');let ok=0;const t=document.createElement('div');t.className='toast';document.getElementById('toasts').append(t);
+async function uploadFiles(files){const dir=(S.filePath||FILE_HOME).replace(/\/$/,'');let ok=0;const taken=files.filter(f=>(Pages._items||[]).some(x=>!x.is_directory&&x.name===f.name));
+ if(taken.length&&!await confirmBox('Replace '+plural(taken.length,'file')+'?',taken.map(f=>f.name).join(', ')+(taken.length===1?' is':' are')+' already in this folder. Uploading replaces '+(taken.length===1?'it':'them')+'.','Replace'))return;const t=document.createElement('div');t.className='toast';document.getElementById('toasts').append(t);
  for(const [i,f] of files.entries()){t.innerHTML=`<span class="spinner"></span>Uploading ${i+1} of ${files.length}: ${esc(f.name)}`;const fd=new FormData();fd.append('path',dir+'/'+f.name);fd.append('overwrite','true');fd.append('file',f,f.name);try{await H('/files/upload-stream',{method:'POST',body:fd});ok++}catch(e){fail(e)}}
  t.remove();if(ok)toast('Uploaded '+plural(ok,'file'));reload()}
 async function deleteFile(f){if(!await confirmBox('Delete '+(f.is_directory?'folder':'file')+'?',`${esc(f.path)}${f.is_directory?' and everything inside it':''} will be removed from the box.`))return;try{await del(H,'/files',{path:f.path,recursive:!!f.is_directory});toast('Deleted');closePreview();reload()}catch(e){fail(e)}}
