@@ -1448,3 +1448,10 @@ div.skel:not(.loading)::after{content:'';width:26px;height:26px;border-radius:50
 
 /* in the aqeelOS app, notices sit bottom-left, clear of Code's real browser on the right */
 .aq-desktop .cron-pops{right:auto;left:20px}
+/* Live, nothing published yet: a calm centred card in the side list and on the page */
+.live-none{display:grid;justify-items:center;gap:8px;text-align:center;margin:14px 12px;padding:26px 18px 22px;border:1px dashed var(--border);border-radius:var(--r-card);background:var(--soft);animation:rise var(--t-med) var(--ease) both}
+.live-none b{font-size:14px;color:var(--ink)}.live-none p{margin:0;font-size:12.5px;line-height:1.5;color:var(--muted);max-width:220px}
+.ln-ico{display:grid;place-items:center;width:44px;height:44px;border-radius:50%;background:var(--blue-soft);color:var(--blue);margin-bottom:4px;box-shadow:0 0 0 6px color-mix(in srgb,var(--blue-soft) 45%,transparent)}
+.live-none .ln-go{margin-top:8px;padding:7px 14px;font-size:12.5px;transition:background var(--t-fast) var(--ease),transform var(--t-fast) var(--ease)}
+.live-none .ln-go:hover{background:var(--soft-2);transform:translateY(-1px)}
+.live-empty{animation:rise var(--t-med) var(--ease) both}.live-empty .ln-ico{width:52px;height:52px;margin-bottom:6px}
