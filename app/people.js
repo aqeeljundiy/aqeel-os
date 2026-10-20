@@ -87,9 +87,9 @@ ACT['ppl-invite']=()=>{const d=drawer('Invite someone',`<label>Their name</label
  const sync=()=>{$('#ivAgents').hidden=$('#ivRole').value==='admin';$('#ivNewName').hidden=!$('#ivNew').checked};$('#ivRole').onchange=sync;$('#ivNew').onchange=sync;
  $('#ivName').oninput=e=>{const v=e.target.value.trim();$('#ivNewName').placeholder=v?v+"'s assistant":"Name for their agent"};
  d.querySelector('#ivGo').onclick=async()=>{const name=$('#ivName').value.trim(),pick=$('#ivRole').value,role=pick==='admin'?'admin':'member',roleId=pick==='admin'?null:pick,caps=[];const b=d.querySelector('#ivGo');b.disabled=true;
-  try{const agents=role==='admin'?{}:pickedAgents('ivPick');
-   if(role!=='admin'&&$('#ivNew').checked){const an=$('#ivNewName').value.trim()||(name?name+"'s assistant":'Family assistant');b.textContent='Making their agent…';const id=await makeSafeAgent(an);agents[id]='owner'}
-   const inv=await post(UI,'/ui/people/invite',{name,role,roleId,caps,agents});const to=$('#ivMail').value.trim();closeLayers();
+  try{const agents=role==='admin'?{}:pickedAgents('ivPick');let ownAgent=null;
+   if(role!=='admin'&&$('#ivNew').checked){const an=$('#ivNewName').value.trim()||(name?name+"'s assistant":'Family assistant');b.textContent='Making their agent…';const id=await makeSafeAgent(an);agents[id]='owner';ownAgent=id}
+   const inv=await post(UI,'/ui/people/invite',{name,role,roleId,caps,agents,ownAgent});const to=$('#ivMail').value.trim();closeLayers();
    if(to){try{await post(UI,'/ui/people/invite/'+inv.code+'/email',{to,link:location.origin+'/#invite/'+inv.code});toast('Invite emailed to '+to+'. The link is copied too.')}catch(e){toast('Email failed ('+(e.message||e)+'). The link is copied instead.','err')}}
    await copyInvite(inv.code);reload()}catch(e){fail(e)}finally{b.disabled=false}}};
 async function copyInvite(code){const link=location.origin+'/#invite/'+code;try{await navigator.clipboard.writeText(link);toast('Invite link copied. Send it to them.')}catch{await promptBox('Invite link','Copy this link and send it',link,'Done')}}

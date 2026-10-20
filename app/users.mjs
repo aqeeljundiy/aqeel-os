@@ -222,7 +222,9 @@ export function createUsers(DATA,mail){
    try{await mail.deliver(String(b.to||'').trim(),(byId(u.id)?.name||'Someone')+' invited you to aqeelOS',`Hi${i.name?' '+i.name:''},\n\n${byId(u.id)?.name||'Someone'} invited you to aqeelOS. Open this link to pick a username and password:\n\n${String(b.link||'')}\n\nThe link works once and expires in 7 days.`);return send(res,200,{ok:true})}catch(e){return send(res,502,{error:e.message})}}
   if(p==='/ui/people'&&req.method==='GET')return send(res,200,{caps:CAPS,presets:PRESETS,owner:pub(owner()),roles:db.roles,users:db.users.map(x=>({...pub(x),roleId:x.roleId||'custom',caps:x.caps||[],models:x.models||null,limit:x.limit||null})),invites:db.invites.filter(i=>!i.used&&i.expires>Date.now()).map(i=>({code:i.code,name:i.name,role:i.role,agents:i.agents,expires:i.expires})),shares:db.shares});
   if(p==='/ui/people/invite'&&req.method==='POST'){const b=await body();if(b.roleId&&unsafeRole(b.roleId))return send(res,403,UNSAFE_ROLE);const role=b.role==='admin'&&u.role==='owner'?'admin':'member';
-   const inv={code:randomBytes(18).toString('base64url'),name:String(b.name||'').trim().slice(0,60),role,roleId:b.roleId&&db.roles[b.roleId]?b.roleId:null,caps:(Array.isArray(b.caps)?b.caps:[]).filter(k=>k in CAPS&&(k!=='unsafe'||u.role==='owner')),agents:b.agents&&typeof b.agents==='object'?Object.fromEntries(Object.entries(b.agents).filter(([a])=>!isPrivate(a)||level(u,a)==='owner')):{},expires:Date.now()+7*864e5,by:u.id};db.invites.push(inv);await save();return send(res,200,inv)}
+   const inv={code:randomBytes(18).toString('base64url'),name:String(b.name||'').trim().slice(0,60),role,roleId:b.roleId&&db.roles[b.roleId]?b.roleId:null,caps:(Array.isArray(b.caps)?b.caps:[]).filter(k=>k in CAPS&&(k!=='unsafe'||u.role==='owner')),agents:b.agents&&typeof b.agents==='object'?Object.fromEntries(Object.entries(b.agents).filter(([a])=>!isPrivate(a)||level(u,a)==='owner')):{},expires:Date.now()+7*864e5,by:u.id};
+   // the agent made for them in this invite becomes theirs (private) when they accept, if the inviter still owns it then
+   if(typeof b.ownAgent==='string'&&inv.agents[b.ownAgent]==='owner'&&agentOwner(b.ownAgent)===u.id)inv.ownAgent=b.ownAgent;db.invites.push(inv);await save();return send(res,200,inv)}
   const iv=/^\/ui\/people\/invite\/([\w-]+)$/.exec(p);if(iv&&req.method==='DELETE'){db.invites=db.invites.filter(i=>i.code!==iv[1]);await save();return send(res,200,{ok:true})}
   if(p==='/ui/people/share'&&req.method==='PUT'){const b=await body();const a=String(b.agent||''),id=String(b.user||'');if(!/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(a)||!byId(id)||id==='owner')return send(res,400,{error:'Unknown agent or person'});
    // a private agent's people are its owner's to change (admins included)
@@ -248,6 +250,7 @@ export function createUsers(DATA,mail){
   const un=norm(username||slugName(name));if(!USERNAME.test(un))throw new Error('Pick a username of 3–32 characters: letters, numbers, dots, dashes or underscores.');if(userTaken(un,null))throw new Error('That username is taken. Try another.');
   const u={id:randomBytes(6).toString('hex'),name,username:un,role:i.role,roleId:i.roleId||null,caps:i.caps||[],pw:hash(pw),created:Date.now(),last:Date.now()};db.users.push(u);
   for(const [a,l] of Object.entries(i.agents||{}))if(LEVELS.includes(l)){db.shares[a]||={};db.shares[a][u.id]=l}
+  if(i.ownAgent&&agentOwner(i.ownAgent)===i.by){db.agentOwners[i.ownAgent]=u.id;delete db.shares[i.ownAgent]?.[u.id]}
   i.used=Date.now();await save();await mkdir(home(u),{recursive:true}).catch(()=>{});return u}
 
  async function created(u,agent){await load();db.agentOwners[agent]=u.id;await save()}
@@ -257,6 +260,6 @@ export function createUsers(DATA,mail){
  const limitOf=u=>isAdmin(u)?null:eff(u).limit;
  async function loginCode(u){const me=byId(u.id);return sendCode(me,'login',me.email)}
  function finishLogin(key,code){const v=checkCode(String(key||''),code,'login');if(v.error)return v;const u=byId(v.uid);return u?{ok:true,user:u}:{error:'That person no longer exists.'}}
- const expiredInvites=()=>(db?.invites||[]).filter(i=>!i.used&&i.expires<Date.now()&&i.expires>Date.now()-30*86400e3).map(i=>({code:i.code,name:i.name,role:i.role,roleId:i.roleId||null,caps:i.caps||[],agents:i.agents||{},expired:i.expires}));
+ const expiredInvites=()=>(db?.invites||[]).filter(i=>!i.used&&i.expires<Date.now()&&i.expires>Date.now()-30*86400e3).map(i=>({code:i.code,name:i.name,role:i.role,roleId:i.roleId||null,caps:i.caps||[],agents:i.agents||{},ownAgent:i.ownAgent||null,expired:i.expires}));
  return {expiredInvites,agentOwner,byId,ownerOf,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginCode,finishLogin,created,can,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home,level,dropAgent,restoreAgent};
 }
