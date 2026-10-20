@@ -188,7 +188,7 @@ function snapshot(full){
  return {text:lines.join('\n'),count:n,captcha,captchaFrame,title:text(document.title||location.hostname)}}
 async function clickRef(ref,st){const e=document.querySelector('[data-aq-ref="'+ref+'"]');if(!e)return {ok:false,error:'element '+ref+' isn’t on the page any more (the page changed). Take a new snapshot.'};
  e.scrollIntoView({block:'center',behavior:'instant'});const name=String(e.getAttribute('aria-label')||e.innerText||(e.type==='password'?'':e.value)||e.title||'').replace(/\s+/g,' ').trim().slice(0,40);
- if(window.__aq){window.__aq.set({...st,text:(st.agent||'The agent')+' is clicking '+(name?'“'+name+'”':'a button')});await window.__aq.move(e.getBoundingClientRect(),true)}
+ if(window.__aq){window.__aq.set({...st,text:(st.agent||'The agent')+' is clicking '+(name?'“'+name+'”':'a button')});await window.__aq.move(e.getBoundingClientRect(),true);if(window.__aq.mode!=='work')return {ok:false,error:'The person stopped this step.'}}
  if(!e.isConnected)return {ok:false,error:'element '+ref+' disappeared just before the click. Take a new snapshot.'};
  const r=e.getBoundingClientRect(),o={bubbles:true,cancelable:true,composed:true,clientX:r.left+r.width/2,clientY:r.top+r.height/2,button:0,view:window};
  e.dispatchEvent(new PointerEvent('pointerdown',{...o,pointerType:'mouse'}));e.dispatchEvent(new MouseEvent('mousedown',o));e.focus?.({preventScroll:true});
@@ -196,7 +196,7 @@ async function clickRef(ref,st){const e=document.querySelector('[data-aq-ref="'+
 async function typeRef(ref,value,st){const e=document.querySelector('[data-aq-ref="'+ref+'"]');if(!e)return {ok:false,error:'element '+ref+' isn’t on the page any more (the page changed). Take a new snapshot.'};
  e.scrollIntoView({block:'center',behavior:'instant'});const secret=e.type==='password';
  if(window.__aq){const label=String(e.getAttribute('aria-label')||e.getAttribute('placeholder')||e.name||'').trim().slice(0,30);
-  window.__aq.set({...st,text:(st.agent||'The agent')+(e.tagName==='SELECT'?' is choosing “'+value.slice(0,30)+'”':secret?' is typing a password':' is typing'+(label?' in “'+label+'”':''))});await window.__aq.move(e.getBoundingClientRect(),false)}
+  window.__aq.set({...st,text:(st.agent||'The agent')+(e.tagName==='SELECT'?' is choosing “'+value.slice(0,30)+'”':secret?' is typing a password':' is typing'+(label?' in “'+label+'”':''))});await window.__aq.move(e.getBoundingClientRect(),false);if(window.__aq.mode!=='work')return {ok:false,error:'The person stopped this step.'}}
  e.focus();
  if(e.tagName==='SELECT'){const want=value.trim().toLowerCase();const opts=[...e.options];const o=opts.find(x=>x.value.toLowerCase()===want||x.text.trim().toLowerCase()===want)||opts.find(x=>x.text.toLowerCase().includes(want));
   if(!o)return {ok:false,error:'no choice “'+value+'” in that list. The choices are: '+opts.slice(0,30).map(x=>'“'+x.text.trim()+'”').join(', ')};

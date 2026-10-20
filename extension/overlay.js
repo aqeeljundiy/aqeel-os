@@ -42,7 +42,7 @@ const W=root.querySelector('.w'),pill=root.querySelector('.pill'),txt=root.query
 const attach=()=>{if(!host.isConnected)(document.body||document.documentElement).appendChild(host)};
 let pos=null,boxT=null;
 const BUTTONS={work:[['takeover','Take over'],['stop','Stop',1]],need:[['takeover','I’ll do it'],['continue','Done, continue',1]],fail:[['takeover','I’ll do it'],['dismiss','OK',1]],control:[['handback','Hand back',1]]};
-function set(s){attach();W.className='w '+(s.mode==='idle'?'':'on '+s.mode);txt.textContent=s.text||'';root.querySelector('.ch').textContent=s.chat||'';cur.querySelector('span').textContent=s.agent||'aqeelOS';
+function set(s){attach();window.__aq.mode=s.mode;W.className='w '+(s.mode==='idle'?'':'on '+s.mode);txt.textContent=s.text||'';root.querySelector('.ch').textContent=s.chat||'';cur.querySelector('span').textContent=s.agent||'aqeelOS';
  pill.querySelectorAll('button').forEach(b=>b.remove());
  for(const [id,label,white] of BUTTONS[s.mode]||[]){const b=document.createElement('button');b.textContent=label;if(white)b.className='w';
   b.onclick=e=>{e.stopPropagation();chrome.runtime.sendMessage({aq:id})};pill.appendChild(b)}
