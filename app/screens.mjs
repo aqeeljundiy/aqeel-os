@@ -27,6 +27,8 @@ export function createScreens(){
  async function valid(a){if(!NAME.test(a||''))return false;try{return (await stat(homeOf(a))).isDirectory()}catch{return false}}
  const config=a=>readFile(path.join(homeOf(a),'config.yaml'),'utf8').catch(()=>'');
  const shared=async a=>/cdp_url:\s*['"]?http:\/\/127\.0\.0\.1:9333/.test(await config(a));
+ // an agent with its own Linux user: the box's root startup keeps its screen running (aqeelOS only watches it)
+ const ownUser=async a=>/ssh_user:\s*['"]?ag-/.test(await config(a));
  // Running = the launcher process is alive and the socket exists. Never probe the socket itself: Xvnc counts
  // every connect-and-close as a failed login and soon blacklists the screen for all viewers.
  // an agent with its own Linux user runs its screen as that user: asking about its process then says "not yours" (EPERM), which still means it runs
@@ -52,7 +54,7 @@ export function createScreens(){
   if(!await desktopsReady())return {agent:a,kind:'shared',running:true,note:'Own screens need the desktop packages on the box.'};
   const running=await alive(a);let idle=null;
   try{idle=Math.round((Date.now()-(await stat(path.join(homeOf(a),'bot-desktop','activity'))).mtimeMs)/60000)}catch{}
-  return {agent:a,kind:'desktop',running,idle_minutes:running?idle:null}}
+  return {agent:a,kind:'desktop',running,idle_minutes:running?idle:null,...(await ownUser(a)?{managed:true,note:'Always on: it runs as this agent’s own user.'}:{})}}
 
  // Every agent: its screen starts itself when it browses and stops after 15 idle minutes, and its
  // terminal starts in its own folder (~/workspaces/<agent>). Only fills in what is not set yet.
@@ -118,6 +120,7 @@ export function createScreens(){
   if(m[2]==='type'){if(req.method!=='POST')return send(res,405,{error:'POST only'});const b=await readJson(req);const text=String(b.text||'');if(!text||text.length>8000)return send(res,400,{error:'Nothing to type.'});
    try{await typeInto(a,text,{enter:!!b.enter,ads:new URL(req.url,'http://x').searchParams.get('screen')==='ads'});return send(res,200,{ok:true,chars:text.length})}catch(e){return send(res,409,{error:e.message})}}
   if(req.method!=='POST'||await shared(a))return send(res,400,{error:'This agent uses the shared screen.'});
+  if(await ownUser(a))return send(res,200,await status(a));
   try{const r=await runtime(a,m[2]==='start'?'start()':'stop()');
    if(m[2]==='start'&&r&&r.running===false)return send(res,409,{error:r.blocker||('Missing on the box: '+(r.missing||[]).join(', '))});
    return send(res,200,await status(a))}catch(e){return send(res,500,{error:e.message})}}
@@ -127,7 +130,7 @@ export function createScreens(){
  // bot_desktop.idle_stop_minutes is turned off. Hermes turns it back on the next time the agent browses.
  async function reap(){
   for(const a of await agents()){
-   if(!await alive(a)||await shared(a)||(bridges.get(a)?.viewers>0))continue;
+   if(!await alive(a)||await shared(a)||await ownUser(a)||(bridges.get(a)?.viewers>0))continue;
    const mins=Number((/^bot_desktop:[\s\S]*?\n\s+idle_stop_minutes:\s*([\d.]+)/m.exec(await config(a))||[])[1]??15);if(!(mins>0))continue;
    let last=0;for(const f of ['activity','env'])try{last=Math.max(last,(await stat(path.join(homeOf(a),'bot-desktop',f))).mtimeMs)}catch{}
    if(last&&Date.now()-last>mins*60000)await runtime(a,'stop_if_idle()').catch(()=>{})}}
