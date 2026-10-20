@@ -99,6 +99,8 @@ export function createUsers(DATA,mail){
     Returns null (allowed), or {status,error}. `agent` is the profile the call is for. */
  function gate(u,p,method,query,agent){
   const no=(error='You do not have access to that.')=>({status:403,error});
+  // dictation: the box's own speech-to-text (it runs on the main agent's setup) turns anyone's voice into text, nothing more
+  if(p==='/hapi/audio/transcribe'&&method==='POST')return null;
   if(isAdmin(u)){const t=agentTarget(p,query,agent||'default');return t&&!level(u,t)&&!(method==='GET'&&/^\/ui\/(identities|avatar\/[^/]+)$/.test(p))?no('This agent is private to its owner. Ask them to share it.'):null}
   const a=agent||'default';
   if(p.startsWith('/gapi/')){
