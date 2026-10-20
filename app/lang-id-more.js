@@ -311,6 +311,7 @@ Object.assign(ID,{
  'Weekly':'Mingguan',
  'No limit info':'Tidak ada info batas',
  'This provider does not report limits. It is billed per use.':'Penyedia ini tidak melaporkan batas. Ditagih per pemakaian.',
+ 'This provider does not report limits.':'Penyedia ini tidak melaporkan batas.',
  'Connect another':'Hubungkan yang lain',
  'Sign in to ChatGPT, or add an API key for OpenRouter, Gemini and more.':'Masuk ke ChatGPT, atau tambahkan kunci API untuk OpenRouter, Gemini, dan lainnya.',
  'Move up':'Naikkan',

@@ -7,7 +7,7 @@ function acctSources(d){
  const claude=d.accounts.map(a=>({key:'claude:'+a.id,name:a.label,sub:a.email||'Claude',logo:'claude.ai',models:claudeModels,ok:a.signedIn,
   used:a.usage?Math.max(a.usage.session?.used||0,a.usage.week?.used||0):null,bars:a.usage?[['Session (5 h)',a.usage.session],['This week',a.usage.week]]:[],menu:a.id}));
  const prov=(d.providers||[]).map(p=>({key:'p:'+p.slug,name:provLabel(p),sub:p.name,logo:PROV_DOMAINS[p.slug]||(/antigravity|gemini|google/i.test(p.slug+' '+p.name)?'gemini.google.com':''),models:p.models,ok:true,
-  used:p.windows.length?Math.max(0,...p.windows.filter(w=>w.scope!=='model').map(w=>w.used)):null,bars:p.windows.map(w=>[w.label,{used:w.used,resets:w.resets}]),details:p.details}));
+  used:p.windows.some(w=>w.scope!=='model')?Math.max(0,...p.windows.filter(w=>w.scope!=='model').map(w=>w.used)):null,bars:p.windows.map(w=>[w.label,{used:w.used,resets:w.resets}]),details:p.details}));
  return [...claude,...prov]}
 const usedChip=u=>u==null?'<span class="chip">No limit info</span>':`<span class="chip ${u>=90?'bad':u>=70?'warn':'ok'}"><i class="dot"></i>${u}% used</span>`;
 
@@ -22,7 +22,7 @@ PAGES.accounts=async(p,el)=>{
   <select data-pri-model="${i}" style="width:auto"><option value="">Keep each agent's model</option>${s.models.map(m=>`<option value="${esc(m)}" ${m===e.model?'selected':''}>${esc(modelLabel(m))}</option>`).join('')}</select>
   ${usedChip(s.used)}<span class="pri-btns"><button class="ghost icon-btn" data-act="pri-move" data-i="${i}" data-dir="-1" aria-label="Move up" ${i?'':'disabled'}>${icon('chevU',16)}</button><button class="ghost icon-btn" data-act="pri-move" data-i="${i}" data-dir="1" aria-label="Move down" ${i<pri.length-1?'':'disabled'}>${icon('chevD',16)}</button><button class="ghost icon-btn" data-act="pri-del" data-i="${i}" aria-label="Remove">${icon('x',16)}</button></span></div>`};
  const card=(s,i)=>`<div class="card tile acct" ${st(i)} style="cursor:default"><div class="tile-top">${logoImg(s.logo,s.name[0].toUpperCase())}<div style="min-width:0;flex:1"><h3>${esc(s.name)}</h3><span class="acct-mail">${esc(s.sub)}</span></div>${s.isTeam?'':usedChip(s.used)}</div>
-  ${s.isTeam?'':s.bars.length?`<div class="ubars">${s.bars.map(([l,w])=>pctBar(l,w)).join('')}</div>`:`<p class="hint">${s.ok?(s.key.startsWith('p:')?'This provider does not report limits. It is billed per use.':'Usage appears after the first chat.'):'Sign in again to use this account.'}</p>`}
+  ${s.isTeam?'':s.bars.length?`<div class="ubars">${s.bars.map(([l,w])=>pctBar(l,w)).join('')}</div>`:`<p class="hint">${s.ok?(s.key.startsWith('p:')?'This provider does not report limits.'+(/subscription|codex|antigravity/i.test(s.key)?'':' It is billed per use.'):'Usage appears after the first chat.'):'Sign in again to use this account.'}</p>`}
   ${(s.details||[]).map(x=>`<p class="hint" style="margin:4px 0">${esc(x)}</p>`).join('')}
   <div class="acct-agents"><span class="th">Used by</span>${users(s.key).map(n=>`<span class="chip">${esc(n)}</span>`).join('')||'<span class="hint" style="margin:0">No agent yet</span>'}</div>
   ${s.menu?`<div class="tile-foot"><span></span><button class="ghost icon" data-menu="acct" data-id="${esc(s.menu)}" aria-label="More">${icon('more',18)}</button></div>`:''}</div>`;
@@ -82,6 +82,6 @@ ACT['agy-start']=async a=>{a.disabled=true;const f=$('#agyFlow');f.innerHTML=`<p
   f.innerHTML=`<ol class="qr-steps" style="margin-top:14px"><li><a href="${esc(r.url)}" target="_blank" rel="noopener">Open the Google sign-in</a> and choose the account that has Google AI Pro.</li><li>Allow access. Google then shows a code: copy it.</li><li>Paste it here and press <b>Connect</b> within a minute.</li></ol>
    <div style="display:flex;gap:8px;margin-top:10px"><input id="agyCode" placeholder="Paste the code from Google" autocomplete="off" style="flex:1"><button class="primary" id="agyGo">Connect</button></div><p class="hint" id="agyMsg"></p>`;
   const go=async()=>{const b=$('#agyGo'),m=$('#agyMsg');b.disabled=true;m.textContent='Checking with Google…';try{const x=await post(UI,'/ui/antigravity/code',{code:$('#agyCode').value});
-   if(x.ok){Pages._acctFresh=true;Chat.loadModels().catch(()=>{});toast('Google AI Pro connected');reload()}else{m.textContent=x.error;b.disabled=false}}catch(e){m.textContent=e.message;b.disabled=false}};
+   if(x.ok){Pages._acctFresh=true;Chat.loadModels().catch(()=>{});toast('Google AI Pro connected');reload()}else{m.innerHTML=esc(x.error)+' <button class="ghost small" data-act="agy-start">Get a new link</button>';b.disabled=false;a.disabled=false}}catch(e){m.textContent=e.message;b.disabled=false}};
   $('#agyGo').onclick=go;$('#agyCode').onkeydown=e=>{if(e.key==='Enter')go()};$('#agyCode').focus()}catch(e){f.innerHTML=`<p class="err-line" style="margin-top:12px">${esc(e.message)}</p>`;a.disabled=false}};
 ACT['agy-out']=async()=>{if(!await confirmBox('Sign Google AI Pro out?','Agents that use one of its models switch to their next account in the priority list.','Sign out'))return;try{await post(UI,'/ui/antigravity/logout');Pages._acctFresh=true;toast('Signed out');reload()}catch(e){fail(e)}};

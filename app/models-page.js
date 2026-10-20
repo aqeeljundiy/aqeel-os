@@ -29,7 +29,7 @@ const panelsTitled=(root,re)=>[...root.querySelectorAll('.panel')].filter(p=>re.
    const yours=box.querySelector('h2.ach-cat');if(yours){yours.replaceChildren('Your accounts');yours.style.marginTop='0'}
    // Team of models is not an account: it has its own tab
    box.querySelectorAll('.acct-grid .acct').forEach(c=>{if(/^Team of models/.test(c.querySelector('h3')?.textContent||''))c.remove()});
-   const more=box.querySelector('.acct-more');if(more){more.removeAttribute('href');more.setAttribute('role','button');more.dataset.menu='acct-new';more.querySelector('span').textContent='ChatGPT, Claude, Google AI Pro, or a provider with an API key.';more.querySelector('b').textContent='Add account'}
+   const more=box.querySelector('.acct-more');if(more){more.removeAttribute('href');more.setAttribute('role','button');more.tabIndex=0;more.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();more.click()}};more.dataset.menu='acct-new';more.querySelector('span').textContent='ChatGPT, Claude, Google AI Pro, or a provider with an API key.';more.querySelector('b').textContent='Add account'}
    // the subscriptions you are signed in to (and signing out of them) from the old Models page
    const si=panelsTitled(tmp,/^Sign-ins/)[0];tmp.remove();
    if(si){si.style.marginTop='16px';si.querySelector('h2').textContent='Subscriptions you are signed in to';box.append(si)}}
@@ -48,10 +48,12 @@ const panelsTitled=(root,re)=>[...root.querySelectorAll('.panel')].filter(p=>re.
    if(!box.querySelector('.panel'))box.innerHTML=emptyBox(tab==='Pictures'?'Pictures':'Team of models','Only admins can change this.','')}
   live.replaceChildren(box);pruneModelTab(box,tab);actions()}}
 // one Add account button: what kind of account
-Pages.acctNewMenu=async el=>{let o={providers:[]};try{o=await H('/providers/oauth?profile=default')}catch{}
+Pages.acctNewMenu=async el=>{let o={providers:[]};try{o=await H('/providers/oauth')}catch{}
  const subs=(o.providers||[]).filter(x=>!/nous|anthropic|claude/i.test(x.id+' '+x.name)&&!x.status?.logged_in&&x.flow!=='external');
  const items=[{label:'Claude',sub:'Sign in with your Claude plan',icon:'user',run:()=>ACT['acct-add']()},...subs.map(x=>{const n=/codex|openai/i.test(x.id)?'ChatGPT':String(x.name).replace(/\s*\([^)]*\)/g,'').replace(/\s*OAuth\b/gi,'').trim();return {label:n,sub:'Sign in with your '+n+' plan',icon:'user',run:()=>ACT['oauth-in']({dataset:{id:x.id,name:n}})}}),
-  {label:'Google AI Pro',sub:'Gemini and Claude on your Google plan',icon:'user',run:()=>{S.tab.models='Accounts';go('/models/models');setTimeout(()=>$('[data-act="agy-start"]')?.click()||toast('Google AI Pro is already connected'),900)}}].sort((x,y)=>x.label.localeCompare(y.label));
+  {label:'Google AI Pro',sub:'Gemini and Claude on your Google plan',icon:'user',run:()=>{S.tab.models='Accounts';go('/models/models');
+   // wait for the Google card to appear (the accounts request can be slow), then start its sign-in
+   const t0=Date.now(),tryIt=()=>{const b=$('[data-act="agy-start"]');if(b)return b.click();if($('[data-act="agy-out"]'))return toast('Google AI Pro is already connected');if(Date.now()-t0<8000)setTimeout(tryIt,250)};setTimeout(tryIt,300)}}].sort((x,y)=>x.label.localeCompare(y.label));
  menu(el,[{header:'Add an account'},...items,
   '-',{label:'Another provider',sub:'OpenRouter, xAI and more, with an API key',icon:'key',run:()=>{store.set('keysOpen:LLM providers',true);go('/system/keys')}}],{matchWidth:true})};
 // panels that some pages add a moment later (Team of models, Google AI Pro) land on their own tab only
