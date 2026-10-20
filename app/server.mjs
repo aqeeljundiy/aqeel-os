@@ -173,7 +173,7 @@ async function identities(req,res,p){
 const accountsApi=createAccounts(DATA);
 // every agent's defaults from aqeelOS itself (tools, screen and browser, skills, its own Linux user): at start and for new agents
 // the settings an agent may change for itself (my_settings): only everyday ones, never what it can reach
-const OWN_SETTINGS=/^(stt|tts).[a-z0-9_.]+$|^timezone$|^display.[a-z0-9_.]+$/;
+const OWN_SETTINGS=/^(stt|tts)\.[a-z0-9_.]+$|^timezone$|^display\.[a-z0-9_.]+$/;
 const agentDefaults=createAgentDefaults({DATA,giveSkills:n=>accountHooks.giveSkills?.(n)});
 accountHooks.afterSetup=n=>agentDefaults.added(n).catch(e=>console.warn('agent defaults',n,e.message));
 // at start, then every 10 minutes: agents made outside aqeelOS (by Claude, by another agent, from the command line) get them too
