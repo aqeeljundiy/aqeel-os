@@ -368,7 +368,10 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
   const data=req.method==='POST'?await body(req):null;
   // online, each person sees their own projects and the ones shared with them (the gate says who is asking)
   const who=process.env.CBA_ONLINE&&req.headers['x-aq-user']?{uid:String(req.headers['x-aq-user']),admin:req.headers['x-aq-role']==='admin'}:null;
-  if(who){for(const pid of [data?.projectId||url.searchParams.get('projectId'),data?.toProjectId].filter(Boolean)){const p=store.state.projects.find(x=>x.id===pid);if(!p)continue;const a=accessOf(p,who);
+  // terminals, runs, builds and commands are reached by their own id, so check the project they belong to as well
+  const objId=data?.id||url.searchParams.get('id'),objMap=/^\/api\/workspace\/terminal\//.test(url.pathname)?terminals.sessions:/^\/api\/workspace\/agent(\/|$)/.test(url.pathname)?agents:/^\/api\/workspace\/(job|build\/stop)$/.test(url.pathname)?builds:/^\/api\/workspace\/command(\/stop)?$/.test(url.pathname)?commands:null,obj=objMap&&objId?objMap.get(objId):null;
+  if(who&&obj&&!store.state.projects.some(x=>x.id===obj.projectId&&accessOf(x,who)))return send(404,{error:'Not found.'}),true;
+  if(who){for(const pid of [data?.projectId||url.searchParams.get('projectId'),data?.toProjectId,obj?.projectId].filter(Boolean)){const p=store.state.projects.find(x=>x.id===pid);if(!p)continue;const a=accessOf(p,who);
     if(!a)return send(404,{error:'Project not found.'}),true;
     if(req.method==='POST'&&a==='view')return send(403,{error:'You can only view this project. Ask its owner for edit access.'}),true;
     if(/\/project\/(delete|share)$/.test(url.pathname)&&a!=='owner')return send(403,{error:'Only the project’s owner can do that.'}),true}
@@ -723,7 +726,7 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
   if(url.pathname==='/api/workspace/command'&&req.method==='POST'){
    if(typeof data.command!=='string'||!data.command.trim()||data.command.length>4000)throw Error('Enter a command up to 4,000 characters.');
    const cwd=await store.folder(data.projectId);if([...commands.values()].some(c=>c.state==='running'))throw Error('A command is already running.');
-   const job={id:randomUUID(),state:'running',output:platform.shell('').prompt+' '+data.command+'\n'};commands.set(job.id,job);
+   const job={id:randomUUID(),projectId:data.projectId,state:'running',output:platform.shell('').prompt+' '+data.command+'\n'};commands.set(job.id,job);
    const sh=platform.shell(data.command);const child=spawn(sh.exe,sh.args,{cwd,env,windowsHide:true,shell:false});
    const append=d=>{job.output=(job.output+d.toString()).slice(-50000)};child.stdout.on('data',append);child.stderr.on('data',append);child.stdin.end();let timer;const finish=(code,error)=>{if(job.state!=='running')return;clearTimeout(timer);job.state=code===0?'complete':'failed';job.output+='\n'+(error||'Exited with code '+code);job.finishedAt=Date.now()};child.on('error',e=>finish(-1,e.message));child.on('close',code=>finish(code));timer=setTimeout(()=>{finish(-1,'Command timed out after 3 minutes.');child.kill()},180000);timer.unref();job.stop=()=>{finish(-1,'Stopped.');child.kill()};return send(202,{id:job.id}),true;
   }
