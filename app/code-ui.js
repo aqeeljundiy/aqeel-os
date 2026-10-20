@@ -36,6 +36,8 @@ const CodeUI={where:(()=>{try{const w=localStorage.getItem('aq-code-where');retu
   if(this.where==='online'){try{const r=await UI('/ui/code/online');this.app=r.origin;f.src=r.url}catch(e){this.app='';el.querySelector('.code-host').innerHTML=`<div class="code-lock card"><h2>Online projects aren’t available</h2><p>${esc(e.message)}</p></div>`;return}
    clearTimeout(this.timer);this.timer=setTimeout(()=>{if(this.state!=='on'&&el.isConnected){el.querySelector('.code-wait span:last-child')&&(el.querySelector('.code-wait span:last-child').textContent='The online copy is slow to answer. It starts by itself; this page retries.');this.timer=setTimeout(()=>this.page(p,el),8000)}},15000);return}
   if(this.online()&&!this._warm){this._warm=true;setTimeout(()=>UI('/ui/code/online').then(r=>{const w=document.createElement('iframe');w.hidden=true;w.title='';w.src=r.url;document.body.append(w);setTimeout(()=>w.remove(),20000)}).catch(()=>{}),2500)}
+  if(window.aqDesktop&&!this._frameRep){this._frameRep=setInterval(()=>{const fr=this.frame,on=fr&&fr.isConnected&&!fr.hidden&&route().sec?.id==='code'&&!document.querySelector('.menu,.drawer,dialog[open],.palette:not([hidden]),.scrim');
+    if(!on){window.aqDesktop.frame({visible:false});return}const r=fr.getBoundingClientRect();window.aqDesktop.frame({x:r.left,y:r.top,width:r.width,height:r.height,visible:true})},250)}
   this.app=CODE_APP;f.src=CODE_APP+'/?embed=aqeelos';this.timer=setTimeout(()=>{if(this.state!=='on')this.lock(el)},9000)},
  // the app answers a ping every 10 s; if it stops (it quit, the computer slept), Code waits for it again
  beat(){clearInterval(this.hb);this.hb=setInterval(()=>{const el=this.frame?.closest('#pg');if(!el?.isConnected||route().sec?.id!=='code'){clearInterval(this.hb);return}
