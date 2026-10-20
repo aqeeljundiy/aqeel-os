@@ -26,6 +26,7 @@ export function createMulti({store,startAgent,canStart=()=>true,root}){
   // if one variant can't start, the ones already running stop and the drafts go, so nothing is left half-started
   try{for(const [i,v] of variants.entries()){const key=String.fromCharCode(97+i),dir=path.join(drafts,id,key);await mkdir(dir,{recursive:true});
    await cp(source,dir,{recursive:true,filter:src=>!SKIP.has(path.basename(src))||src===source});
+   // Ask runs as Auto here: edits land only in the draft, and Keep is the approval (the composer hint says so)
    const run=startAgent({projectId,chatId,provider:v.provider,model:v.model||'',effort:v.effort||'',mode:mode==='plan'?'plan':mode==='full'?'full':'auto',prompt,cwd:dir,silent:true,
     fullPrompt:'You are one of two AI models answering the same request in parallel, each in a separate draft copy of the project. Work only in the current folder. Do not stop to ask the user questions: choose sensible defaults, finish the change, and mention your assumptions in the summary.\n\nUser request: '+prompt});
    job.variants.push({key,provider:v.provider,model:v.model||'',effort:v.effort||'',runId:run.id,dir,run})}}

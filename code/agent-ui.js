@@ -85,7 +85,8 @@ export function createAgentUI(ctx){
  async function follow(view){
   if(runs.has(view.id))return;
   const run={view,after:0,nodes:new Map(),events:new Map(),terminal:new Set()};runs.set(view.id,run);paint(run);ctx.attach();
-  try{while(true){const v=await poll(run);if(v.state!=='running'&&v.state!=='waiting')break;await new Promise(r=>setTimeout(r,v.state==='waiting'?900:650))}}
+  // a failed poll is retried a few times before the run is treated as gone (a blip shouldn't drop a live run)
+  try{let fails=0;while(true){let v;try{v=await poll(run);fails=0}catch(err){if(++fails<5){await new Promise(r=>setTimeout(r,1500));continue}throw err}if(v.state!=='running'&&v.state!=='waiting')break;await new Promise(r=>setTimeout(r,v.state==='waiting'?900:650))}}
   catch(err){ctx.notify(err.message)}
   runs.delete(view.id);run.panel?.remove();ctx.onFinish(run.view);
  }
