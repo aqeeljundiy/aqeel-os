@@ -1435,3 +1435,8 @@ div.skel:not(.loading)::after{content:'';width:26px;height:26px;border-radius:50
 .icon.is-busy>svg,.ghost.icon.is-busy>svg{opacity:0}.icon.is-busy::after{position:absolute;left:50%;top:50%;margin:-6.5px 0 0 -6.5px}
 @keyframes busySpin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.is-busy::after{animation-duration:2s}}
+
+/* System › Health: backups */
+.backups-card{margin-bottom:16px}.bk-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap}.bk-head h2{margin:0 0 4px}.bk-head .sub{margin:0}
+.bk-acts{display:flex;gap:8px;flex-wrap:wrap}.bk-rows{display:grid;gap:8px;margin-top:14px}.bk-row{display:grid;grid-template-columns:120px 1fr;gap:12px;font-size:13.5px;line-height:1.5}.bk-k{color:var(--muted)}
+@media (max-width:620px){.bk-row{grid-template-columns:1fr;gap:2px}}
