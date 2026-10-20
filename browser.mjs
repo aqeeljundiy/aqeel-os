@@ -16,7 +16,7 @@ import {appendFile,access as fsAccess} from 'node:fs/promises';
 import {freePort} from './devservers.mjs';
 
 // Viewport presets; "mobile" also turns on touch and a phone user agent so sites serve their mobile layout.
-export const PRESETS={desktop:{width:1280,height:800,mobile:false},laptop:{width:1440,height:900,mobile:false},tablet:{width:820,height:1180,mobile:true},mobile:{width:390,height:844,mobile:true}};
+export const PRESETS={desktop:{width:1920,height:1080,mobile:false},laptop:{width:1440,height:900,mobile:false},tablet:{width:820,height:1180,mobile:true},mobile:{width:390,height:844,mobile:true}};
 const MOBILE_UA='Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36';
 const SCHEMES=new Set(['light','dark','system']);
 
@@ -83,12 +83,14 @@ export class SideBrowser{
  // a page asked for the microphone, camera, location or notifications: answered from what the person chose before, else asked
  async permAsk(payload,conn){let q;try{q=JSON.parse(payload)}catch{return}const known=q.kinds.map(k=>this.perms[q.origin]?.[k]);
   if(known.every(v=>v==='granted'))return this.permDone(q,true,conn);if(known.some(v=>v==='denied'))return this.permDone(q,false,conn);
+  // the same page asking again for the same thing while the bar is up waits for the same answer (one bar, one note)
+  const p=this.guard.perm;if(p&&p.origin===q.origin&&p.kinds.join()===q.kinds.join()){(p.more??=[]).push({q,conn});return}
   this.guard.perm?.q&&this.permDone(this.guard.perm.q,false,this.guard.perm.conn);this.guard.perm={q,conn,origin:q.origin,kinds:q.kinds};
   this.note({by:'page',action:'asks',detail:new URL(q.origin).host+' wants your '+q.kinds.map(k=>PERM_NAME[k]||k).join(' and ')})}
  async permDone(q,ok,conn){const run=f=>conn==='ai'?AI.run(true,f):f();await run(()=>this.send('Runtime.evaluate',{expression:'window.__cbaPermDone&&window.__cbaPermDone('+JSON.stringify(q.id)+','+(ok?'true':'false')+')'})).catch(()=>{})}
  async answerPerm(yes){const p=this.guard.perm;if(!p)return this.status();this.guard.perm=null;const setting=yes?'granted':'denied';
   for(const k of p.kinds){(this.perms[p.origin]??={})[k]=setting;await this.send('Browser.setPermission',{permission:{name:k},setting,origin:p.origin}).catch(()=>{})}
-  await writeFile(this.permFile(),JSON.stringify(this.perms,null,1)).catch(()=>{});this.note({by:'user',action:yes?'allowed':'blocked',detail:new URL(p.origin).host+': '+p.kinds.map(k=>PERM_NAME[k]||k).join(', ')});await this.permDone(p.q,yes,p.conn);return this.status()}
+  await writeFile(this.permFile(),JSON.stringify(this.perms,null,1)).catch(()=>{});this.note({by:'user',action:yes?'allowed':'blocked',detail:new URL(p.origin).host+': '+p.kinds.map(k=>PERM_NAME[k]||k).join(', ')});await this.permDone(p.q,yes,p.conn);for(const m of p.more||[])await this.permDone(m.q,yes,m.conn);return this.status()}
  // a page asked for a file: the person chooses one (never the AI)
  fileAsk(params,conn){let origin='';try{origin=new URL(conn==='ai'?this.aiUrl:this.url).origin}catch{}this.guard.file={params,conn,origin};this.note({by:'page',action:'asks',detail:(origin?new URL(origin).host:'The page')+' wants a file from your computer'})}
  async answerFile(pick){const f=this.guard.file;if(!f)return this.status();this.guard.file=null;if(!pick)return this.status();
@@ -168,15 +170,16 @@ export class SideBrowser{
 
  // Apply the viewport preset and colour scheme to the current tab, then restart the screencast at that size.
  async applyView(){const {width,height,mobile}=this.view;
-  if(this.ctlUrl&&this.preset==='desktop'){await this.send('Emulation.clearDeviceMetricsOverride').catch(()=>{});await this.send('Emulation.setEmulatedMedia',{features:[{name:'prefers-color-scheme',value:this.scheme==='system'?'':this.scheme}]}).catch(()=>{});return}
   await this.send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:this.dpr||1,mobile,...(this.ctlUrl?{scale:this.fit||1}:{})});
   await this.send('Emulation.setTouchEmulationEnabled',{enabled:mobile,maxTouchPoints:mobile?5:1});
   await this.send('Emulation.setUserAgentOverride',{userAgent:mobile?MOBILE_UA:''});
   await this.send('Emulation.setEmulatedMedia',{features:[{name:'prefers-color-scheme',value:this.scheme==='system'?'':this.scheme}]});
   await this.send('Page.stopScreencast').catch(()=>{});
   if(this.ctlUrl)return;const k=this.dpr||1;await this.send('Page.startScreencast',{format:'jpeg',quality:90,maxWidth:Math.round(width*k),maxHeight:Math.round(height*k),everyNthFrame:1})}
- async setView({preset,rotate,scheme,dpr,fit}={}){await this.ensure();if(dpr)this.dpr=Math.min(3,Math.max(1,Number(dpr)||1));if(fit){this.fit=Math.min(1,Math.max(0.1,Number(fit)||1));if(!preset&&!rotate&&!scheme){if(this.ctlUrl&&this.preset!=='desktop')await this.applyView();return this.status()}}
-  if(preset){if(!PRESETS[preset])throw Error('Unknown screen size.');this.preset=preset;this.view={...PRESETS[preset]}}
+ async setView({preset,rotate,scheme,dpr,fit,width,height}={}){await this.ensure();if(dpr)this.dpr=Math.min(3,Math.max(1,Number(dpr)||1));if(fit){this.fit=Math.min(1,Math.max(0.1,Number(fit)||1));if(!preset&&!rotate&&!scheme){if(this.ctlUrl)await this.applyView();return this.status()}}
+  // custom: any width × height (320–3840), shown like a desktop screen
+  if(preset==='custom'){const c=v=>Math.round(Math.min(3840,Math.max(320,Number(v)||0)));if(!width||!height)throw Error('Give a width and a height.');this.preset='custom';this.view={width:c(width),height:c(height),mobile:false}}
+  else if(preset){if(!PRESETS[preset])throw Error('Unknown screen size.');this.preset=preset;this.view={...PRESETS[preset]}}
   if(rotate)this.view={...this.view,width:this.view.height,height:this.view.width};
   if(scheme){if(!SCHEMES.has(scheme))throw Error('Unknown colour scheme.');this.scheme=scheme}
   await this.applyView();if(preset)await this.send('Page.reload').then(()=>this.waitLoad()).catch(()=>{});return this.status()}

@@ -33,7 +33,13 @@ export function createBrowserUI(ctx){
  bar.addEventListener('submit',e=>{e.preventDefault();if(address.value.trim())call('/navigate',{url:address.value.trim()})});
  // screen size and colour scheme of the page, independent of the app's own theme
  const sizes=el('div','devices browser-sizes');sizes.setAttribute('aria-label','Screen size');
- for(const [id,label] of [['desktop','Desktop'],['laptop','Laptop'],['tablet','Tablet'],['mobile','Mobile']]){const b=el('button','',label);b.type='button';b.dataset.preset=id;b.addEventListener('click',()=>call('/view',{preset:id}));sizes.append(b)}
+ for(const [id,label] of [['desktop','Desktop'],['laptop','Laptop'],['tablet','Tablet'],['mobile','Mobile'],['custom','Custom']]){const b=el('button','',label);b.type='button';b.dataset.preset=id;b.addEventListener('click',()=>id==='custom'?openCustom():call('/view',{preset:id}));sizes.append(b)}
+ // Custom: any width × height, typed in a small box under the size buttons
+ const custom=el('form','browser-custom');custom.hidden=true;const cw=el('input','');const ch=el('input','');for(const [i,n] of [[cw,'Width'],[ch,'Height']]){i.type='number';i.min='320';i.max='3840';i.step='1';i.required=true;i.setAttribute('aria-label',n+' in pixels');i.placeholder=n}
+ const cset=el('button','primary small','Set size');cset.type='submit';const cno=el('button','ghost small','Cancel');cno.type='button';custom.append(cw,el('span','browser-custom-x','×'),ch,el('span','browser-custom-px','px'),cset,cno);
+ function openCustom(){cw.value=size.width;ch.value=size.height;custom.hidden=false;requestAnimationFrame(()=>{cw.focus();cw.select()})}
+ cno.addEventListener('click',()=>{custom.hidden=true});custom.addEventListener('keydown',e=>{if(e.key==='Escape'){custom.hidden=true}});
+ custom.addEventListener('submit',async e=>{e.preventDefault();await call('/view',{preset:'custom',width:+cw.value,height:+ch.value});custom.hidden=true});
  const rotate=el('button','browser-nav');rotate.append(icon('rotate'));rotate.type='button';rotate.title='Rotate screen';rotate.setAttribute('aria-label','Rotate screen');rotate.addEventListener('click',()=>call('/view',{rotate:true}));
  const scheme=el('button','browser-scheme');scheme.type='button';scheme.title='Page colour scheme (separate from the app theme)';
  const NEXT={light:'dark',dark:'system',system:'light'};scheme.addEventListener('click',()=>call('/view',{scheme:NEXT[status.scheme||'light']}));
@@ -63,23 +69,24 @@ export function createBrowserUI(ctx){
  view.addEventListener('mousemove',async e=>{if(!picking||hoverBusy||Date.now()-hoverAt<120)return;hoverAt=Date.now();hoverBusy=true;
   try{const info=await ctx.api('/browser/inspect',point(e));const v=view.getBoundingClientRect(),s=stage.getBoundingClientRect(),k=v.width/size.width;
    if(!picking||!info?.rect)return;Object.assign(outline.style,{left:(v.left-s.left+stage.scrollLeft+info.rect.x*k)+'px',top:(v.top-s.top+stage.scrollTop+info.rect.y*k)+'px',width:info.rect.w*k+'px',height:info.rect.h*k+'px'});outlineTag.textContent=info.tag+' · '+Math.round(info.rect.w)+'×'+Math.round(info.rect.h);outline.hidden=false}catch{}finally{hoverBusy=false}});
- view.addEventListener('mouseleave',()=>{outline.hidden=true});const activity=el('div','browser-activity');activity.setAttribute('aria-live','polite');
+ view.addEventListener('mouseleave',()=>{outline.hidden=true});
  const askBar=el('div','browser-ask');askBar.hidden=true;askBar.setAttribute('role','alert');
  const device=el('div','device-frame');device.hidden=true;device.setAttribute('aria-hidden','true');device.append(el('i','dev-notch'),el('i','dev-base'));stage.append(device);
- const BEZEL={mobile:{pad:14,base:0},tablet:{pad:18,base:0},laptop:{pad:12,base:22}};let fitSent=0,screenRect=null;
- function layoutDevice(){const p=status.preset||'desktop',b=BEZEL[p];stage.classList.toggle('device-on',Boolean(b));device.hidden=!b;device.dataset.kind=p;
+ // every size is scaled down to fit and centred; desktop and custom have no frame. radius: the screen's rounded corners
+ const BEZEL={mobile:{pad:14,base:0,radius:38},tablet:{pad:18,base:0,radius:16},laptop:{pad:12,base:22,radius:10},desktop:{pad:0,base:0,radius:8,bare:true},custom:{pad:0,base:0,radius:8,bare:true}};let fitSent=0,screenRect=null;
+ function layoutDevice(){const p=status.preset||'desktop',b=BEZEL[p]||BEZEL.desktop;stage.classList.toggle('device-on',true);stage.classList.toggle('device-bare',Boolean(b.bare));device.hidden=Boolean(b.bare);device.dataset.kind=p;
   if(!b){screenRect=null;for(const k of ['position','left','top','width','height','maxWidth'])view.style[k]='';view.style.maxWidth=size.width+'px';return}
   const W=stage.clientWidth-28,H=stage.clientHeight-28,w=size.width,h=size.height;const s=Math.min(1,(W-2*b.pad)/w,(H-2*b.pad-b.base)/h);
   const sw=Math.round(w*s),sh=Math.round(h*s),fw=sw+2*b.pad,fh=sh+2*b.pad+b.base,left=Math.round((stage.clientWidth-fw)/2),top=Math.round((stage.clientHeight-fh)/2);
   Object.assign(device.style,{left:left+'px',top:top+'px',width:fw+'px',height:fh+'px','--pad':b.pad+'px'});
-  screenRect={x:left+b.pad,y:top+b.pad,width:sw,height:sh};Object.assign(view.style,{position:'absolute',left:screenRect.x+'px',top:screenRect.y+'px',width:sw+'px',height:sh+'px',maxWidth:'none'});
+  screenRect={x:left+b.pad,y:top+b.pad,width:sw,height:sh,radius:Math.round(b.radius*Math.max(.5,Math.min(1,s*1.6)))};view.style.borderRadius=screenRect.radius+'px';Object.assign(view.style,{position:'absolute',left:screenRect.x+'px',top:screenRect.y+'px',width:sw+'px',height:sh+'px',maxWidth:'none'});
   // the app's real browser scales the page into the screen too
   if(window.cbaDesktop&&Math.abs(s-fitSent)>0.01){fitSent=s;ctx.api('/browser/view',{fit:Math.round(s*1000)/1000}).catch(()=>{})}}
  new ResizeObserver(()=>layoutDevice()).observe(stage);
- root.append(strip,bar,tools,guardBox,askBar,control,stage,activity);
+ root.append(strip,bar,tools,custom,guardBox,askBar,control,stage);
  // in the aqeelOS app the page is a real browser view the app lays exactly over this area
  if(window.cbaDesktop){stage.classList.add('native');const over=()=>[...document.querySelectorAll('dialog[open],.menu,.aq-menu,.dd-floating,.kit-menu,.palette:not([hidden]),.drawer,[role=menu],[role=listbox]:not(.bf-list)')].filter(e=>e.offsetWidth).map(e=>{const r=e.tagName==='DIALOG'?{left:0,top:0,width:innerWidth,height:innerHeight}:e.getBoundingClientRect();return {x:r.left,y:r.top,width:r.width,height:r.height}});
-  const report=()=>{const s=stage.getBoundingClientRect(),r=screenRect?{left:s.left+screenRect.x,top:s.top+screenRect.y,width:screenRect.width,height:screenRect.height}:s;window.cbaDesktop.stage({x:r.left,y:r.top,width:r.width,height:r.height,visible:ctx.visible()&&status.state==='running'&&r.width>20,overlays:over()})};
+  const report=()=>{const s=stage.getBoundingClientRect(),r=screenRect?{left:s.left+screenRect.x,top:s.top+screenRect.y,width:screenRect.width,height:screenRect.height}:s;window.cbaDesktop.stage({x:r.left,y:r.top,width:r.width,height:r.height,radius:screenRect?.radius||0,visible:ctx.visible()&&status.state==='running'&&r.width>20,overlays:over()})};
   new ResizeObserver(report).observe(stage);addEventListener('resize',report);setInterval(report,400);ctx.nativeReport=report}
  let askedFor='';
  function paintAsk(){const g=status.guard||{},pm=g.perm,fl=g.file;
@@ -93,12 +100,9 @@ export function createBrowserUI(ctx){
   yes.addEventListener('click',()=>call('/guard',{answer:true}));no.addEventListener('click',()=>call('/guard',{answer:false}));askBar.replaceChildren(icon('shield'),t,yes,no);ctx.notify('The AI asks to open '+a.host+'. Allow it in the Browser.')}
 
  async function call(route,body){try{status=await ctx.api('/browser'+route,body);paintStatus();ensureLoop()}catch(e){ctx.notify(e.message)}}
- function paintStatus(){paintAsk();layoutDevice();ctx.nativeReport?.();if(document.activeElement!==address)address.value=status.url&&status.url!=='about:blank'?status.url:'';empty.hidden=Boolean(seq)&&status.state==='running'&&Boolean(status.url)&&status.url!=='about:blank';if(status.width)size={width:status.width,height:status.height};view.style.maxWidth=size.width+'px';
+ function paintStatus(){paintAsk();if(status.width)size={width:status.width,height:status.height};layoutDevice();ctx.nativeReport?.();if(document.activeElement!==address)address.value=status.url&&status.url!=='about:blank'?status.url:'';empty.hidden=Boolean(seq)&&status.state==='running'&&Boolean(status.url)&&status.url!=='about:blank';
   for(const b of sizes.children)b.classList.toggle('selected',b.dataset.preset===status.preset);dims.textContent=size.width+' × '+size.height;
   const sc=status.scheme||'light';scheme.replaceChildren(icon(sc==='light'?'sun':sc==='dark'?'moon':'system'),el('span','',sc==='light'?'Light page':sc==='dark'?'Dark page':'System page'));scheme.setAttribute('aria-label','Page colour scheme: '+sc);paintTabs();
-  activity.replaceChildren();const items=(status.log||[]).slice(-6).reverse();
-  if(!items.length)activity.append(el('span','browser-log-empty','No actions yet.'));
-  for(const it of items){const row=el('span','browser-log'+(it.by==='ai'?' ai':''));row.append(el('b','',it.by==='ai'?'AI':'You'),' '+it.action+(it.detail?' · '+it.detail:''));activity.append(row)}
   const newestAi=Math.max(0,...(status.log||[]).filter(x=>x.by==='ai').map(x=>x.time));if(newestAi>lastAi){lastAi=newestAi;ctx.onAiActivity?.()}
   const paused=!!status.guard?.paused,working=!paused&&Date.now()-newestAi<12000;control.className='browser-control'+(paused?' you':working?' ai':'');
   controlText.textContent=paused&&status.guard?.reason==='robot'?'A robot check is on the AI’s tab. Solve it there; the AI carries on by itself.':working?(status.aiTab&&status.aiTab!==status.tab?'The AI is working in its own tab. You can keep using this one.':'The AI is working in this tab. You can click and type here too.'):'';controlBtn.hidden=true;paintGuard()}

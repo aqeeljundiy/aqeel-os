@@ -65,7 +65,14 @@ function place(){const t=active&&tabs.get(active);if(!t)return;if(!shown||!stage
  const fx=frameRect.x,fy=frameRect.y,b={x:Math.round(fx+stageRect.x),y:Math.round(fy+stageRect.y),width:Math.max(1,Math.round(stageRect.width)),height:Math.max(1,Math.round(stageRect.height))};
  const hit=o=>o.width>0&&o.height>0&&o.x<b.x+b.width&&o.x+o.width>b.x&&o.y<b.y+b.height&&o.y+o.height>b.y;
  const covered=(frameRect.overlays||[]).some(hit)||(stageRect.overlays||[]).some(o=>hit({...o,x:o.x+fx,y:o.y+fy}));
- t.view.setBounds(b);t.view.setVisible(!covered)}
+ if(t.radius!==(stageRect.radius||0)){t.radius=stageRect.radius||0;try{t.view.setBorderRadius(t.radius)}catch{}}
+ t.view.setVisible(!covered);move(t,b)}
+// a size switch (Desktop, Tablet, Mobile…) glides to the new bounds; small changes (dragging the window) follow at once
+function move(t,b){const from=t.bounds,same=from&&from.x===b.x&&from.y===b.y&&from.width===b.width&&from.height===b.height;if(same)return;
+ const big=from&&(Math.abs(from.width-b.width)>from.width*.08||Math.abs(from.height-b.height)>from.height*.08);clearTimeout(t.tween);t.bounds=b;
+ if(!big||!t.view.getVisible?.()){t.view.setBounds(b);return}
+ const start=Date.now(),cur=t.view.getBounds(),ease=k=>1-Math.pow(1-k,3),lerp=(a,z,k)=>Math.round(a+(z-a)*k);
+ const step=()=>{const k=Math.min(1,(Date.now()-start)/240),e=ease(k);t.view.setBounds({x:lerp(cur.x,b.x,e),y:lerp(cur.y,b.y,e),width:lerp(cur.width,b.width,e),height:lerp(cur.height,b.height,e)});if(k<1)t.tween=setTimeout(step,12)};step()}
 ipcMain.on('aq:frame',(e,r)=>{frameRect=r&&r.visible?r:null;if(!frameRect){for(const t of tabs.values())t.view.setVisible(false);return}place()});                       // aqeelOS: where Code's frame is in the window
 ipcMain.on('aq:stage',(e,r)=>{stageRect=r&&r.width>0?r:null;shown=Boolean(r&&r.visible);for(const [k,t] of tabs)t.view.setVisible(k===active&&shown);place()});   // Code: its browser area
 ipcMain.handle('aq:info',()=>({desktop:true,platform:process.platform,version:app.getVersion()}));
