@@ -8,6 +8,8 @@ PAGES.kanban=async(p,el)=>{
  const b=await KB('/board');Pages._kb=b;const byCol=Object.fromEntries((b.columns||[]).map(c=>[c.name,c.tasks||[]]));
  const total=Object.values(byCol).reduce((n,l)=>n+l.length,0);
  const card=t=>`<div class="kcard" draggable="true" data-act="kb-open" data-id="${esc(t.id)}" tabindex="0"><b>${esc(t.title||'Untitled')}</b>${t.body?`<p>${esc(String(t.body).slice(0,140))}</p>`:''}<div class="kmeta">${t.assignee?`<span class="chip">${esc(ident(t.assignee).name)}</span>`:'<span class="chip">Unassigned</span>'}${t.priority?`<span class="chip ${t.priority>=2?'bad':t.priority>=1?'warn':''}">P${t.priority}</span>`:''}<span class="kage">${kAge(t)}</span></div></div>`;
+ // the 10-second refresh redraws the board: keep where the person had scrolled
+ const k0=el.querySelector('.kboard'),sx=k0?.scrollLeft||0,cs=Object.fromEntries([...el.querySelectorAll('.kcol')].map(c=>[c.dataset.col,c.querySelector('.klist')?.scrollTop||0]));
  el.innerHTML=`${total?'':`<div class="empty-hero" style="margin-bottom:16px"><b style="display:block;font-size:17px;margin-bottom:6px">Hand work to your agents</b><span style="color:var(--ink-2)">Add a task, give it to an agent and move it to Ready. The agent picks it up, works on it, and moves it along.</span></div>`}
  <div class="kboard">${KCOLS.filter(([id])=>id in byCol&&(['todo','ready','running','done'].includes(id)||byCol[id].length)).map(([id,label,hint])=>`<section class="kcol" data-col="${id}"><header><b>${label}</b><span class="n">${byCol[id].length}</span></header><p class="khint">${hint}</p><div class="klist">${byCol[id].map(card).join('')}</div></section>`).join('')}</div>`;
  // drag a card to another column to change its status
@@ -16,7 +18,10 @@ PAGES.kanban=async(p,el)=>{
  el.querySelectorAll('.kcol').forEach(col=>{col.ondragover=e=>{if(e.dataTransfer.types.includes('text/kb')){e.preventDefault();col.classList.add('over')}};col.ondragleave=()=>col.classList.remove('over');
   col.ondrop=async e=>{e.preventDefault();col.classList.remove('over');const id=e.dataTransfer.getData('text/kb');if(!id)return;try{const r=await KB('/tasks/'+encodeURIComponent(id),{method:'PATCH',body:{status:col.dataset.col}});if(r?.warning)toast(r.warning);reload()}catch(er){fail(er)}}});
  const fit=()=>{const k=el.querySelector('.kboard');if(!k)return;k.style.height=Math.max(320,innerHeight-k.getBoundingClientRect().top-18)+'px'};fit();window.removeEventListener('resize',Pages._kbFit||fit);Pages._kbFit=fit;window.addEventListener('resize',fit);
- clearTimeout(Pages._kbT);Pages._kbT=setTimeout(()=>{if(route().page?.id==='kanban'&&!document.hidden&&!$('.drawer'))PAGES.kanban(p,el).catch(()=>{})},10000);
+ {const k=el.querySelector('.kboard');if(k)k.scrollLeft=sx;el.querySelectorAll('.kcol').forEach(c=>{const l=c.querySelector('.klist');if(l&&cs[c.dataset.col])l.scrollTop=cs[c.dataset.col]})}
+ // while a task is open or the tab is hidden, wait and try again instead of stopping
+ const tick=()=>{if(route().page?.id!=='kanban')return;if(document.hidden||$('.drawer')){Pages._kbT=setTimeout(tick,10000);return}PAGES.kanban(p,el).catch(()=>{})};
+ clearTimeout(Pages._kbT);Pages._kbT=setTimeout(tick,10000);
 };
 ACT['kb-refresh']=()=>reload();
 ACT['kb-new']=()=>{const ag=Pages._kb?.assignees||['default'];
@@ -55,5 +60,7 @@ PAGES.achievements=async(p,el)=>{
  el.innerHTML=`<div class="stats">${[['Unlocked',`${unlocked.length} / ${list.length}`,'badges earned'],['Top tier',(unlocked.map(x=>x.tier).filter(Boolean).sort((p2,q)=>Object.keys(TIER_COLORS).indexOf(q)-Object.keys(TIER_COLORS).indexOf(p2))[0])||'—','your best so far'],['Categories',String(cats.length),cats.slice(0,3).join(', ')],['History scan',scan?.state==='running'?'Scanning…':scan?.snapshot_generated_at?ago(scan.snapshot_generated_at):'—','of your past sessions']].map(([t,v,s],i)=>`<div class="card stat" ${st(i)}><span class="th">${t}</span><b>${esc(v)}</b><small>${esc(s)}</small></div>`).join('')}</div>
   ${rec.length?`<div class="panel card"><h2>Recently unlocked</h2>${rec.map(r=>`<p class="hint" style="margin:4px 0">${esc(r.name||r.achievement_id||'')} ${r.tier?'· '+esc(r.tier):''} ${r.unlocked_at?'· '+ago(r.unlocked_at):''}</p>`).join('')}</div>`:''}
   ${cats.map(c=>`<h2 class="ach-cat">${esc(c)}</h2><div class="ach-grid">${list.filter(x=>(x.category||'Other')===c).sort((x,y)=>(y.unlocked-x.unlocked)||((y.progress_pct||0)-(x.progress_pct||0))).map(badge).join('')}</div>`).join('')}`;
+ // while a scan runs, look again every 5 s until it is done
+ clearTimeout(Pages._achT);if(scan?.state==='running')Pages._achT=setTimeout(()=>{if(route().page?.id==='achievements')PAGES.achievements(p,el).catch(()=>{})},5000);
 };
 ACT['ach-rescan']=async()=>{try{await post(H,'/plugins/hermes-achievements/rescan');toast('Scanning your history…');setTimeout(reload,4000)}catch(e){fail(e)}};
