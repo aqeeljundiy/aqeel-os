@@ -61,13 +61,19 @@ export function createAgentDefaults({DATA,giveSkills,log=m=>console.log(m)}){
  async function skills(names){let n=0;for(const a of names)if(a!=='default')n+=await giveSkills(a).catch(()=>0)||0;return n}
  // about every minute: agents made any way (aqeelOS, the engine's command line, another agent) get the defaults once
  // when first seen (the list survives restarts), and every agent gets the main agent's skills it lacks
- async function tick(){const names=await agentNames();await skills(names);let seen;try{seen=new Set(JSON.parse(await readFile(SEEN,'utf8')))}catch{seen=null}
+ // an agent first seen less than 5 minutes ago is still being set up by whoever made it (this aqeelOS, or the test copy
+ // that shares the engine): settings and plugins written at the same moment collide (AdmissionRefused), so it waits
+ const FIRST=path.join(DATA,'agents-first-seen.json');let first=null;
+ async function settled(names){if(!first){try{first=JSON.parse(await readFile(FIRST,'utf8'))}catch{first={};for(const a of names)first[a]=0}}
+  let ch=false;for(const a of names)if(!(a in first)){first[a]=Date.now();ch=true}if(ch)await writeFile(FIRST,JSON.stringify(first)).catch(()=>{});
+  return names.filter(a=>a==='default'||Date.now()-first[a]>=300000)}
+ async function tick(){const names=await settled(await agentNames());await skills(names);let seen;try{seen=new Set(JSON.parse(await readFile(SEEN,'utf8')))}catch{seen=null}
   if(!seen){await writeFile(SEEN,JSON.stringify(names));return 0}let n=0;
   for(const a of names)if(!seen.has(a)){log('new agent '+a+': giving it the defaults');n+=await added(a).catch(e=>{log('agent defaults '+a+': '+e.message);return 0});seen.add(a);await writeFile(SEEN,JSON.stringify([...seen]))}
   return n}
  async function all(){await ensureKey().catch(e=>log('agent key: '+e.message));await knownHost().catch(()=>{});const names=await agentNames(),tr=await trusted();
   await requestUsers(names.filter(a=>!tr.has(a)));await skills(names);
-  let n=0;for(const a of names)n+=await ensure(a).catch(e=>{log('agent defaults '+a+': '+e.message);return 0});return n}
+  let n=0;for(const a of await settled(names))n+=await ensure(a).catch(e=>{log('agent defaults '+a+': '+e.message);return 0});return n}
  // a new agent: its user (when it is not trusted), then the defaults
  async function added(a){const names=await agentNames(),tr=await trusted();await requestUsers(names.filter(x=>!tr.has(x)));
   if(!tr.has(a))for(let i=0;i<8&&!await ready(a);i++)await new Promise(r=>setTimeout(r,2000));return ensure(a)}

@@ -151,7 +151,8 @@ export function createAccounts(DATA){
  async function doSetup(name){
   if(!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(name)||name==='default')throw new Error('Unknown agent');
   const dir=path.join(HERMES_HOME,'profiles',name);await access(path.join(dir,'config.yaml'));const done=[],failed=[];
-  const step=async(label,fn)=>{try{const r=await fn();if(r&&r.ok===false)throw new Error(r.err||'failed');done.push(label)}catch(e){failed.push(label+': '+String(e.message).slice(0,200))}};
+  // a step that collides with another writer of the agent's settings ("configuration changed since this selection was read") tries again
+  const step=async(label,fn)=>{for(let i=0;;i++){try{const r=await fn();if(r&&r.ok===false)throw new Error(r.err||'failed');done.push(label);return}catch(e){const m=String(e.message);if(i<3&&/AdmissionRefused|changed since/i.test(m)){await new Promise(r=>setTimeout(r,2000+i*2000));continue}failed.push(label+': '+m.slice(0,200));return}}};
   // the gateway key first: without it the engine refuses every chat (written under the engine's .env lock)
   const KEY=process.env.API_SERVER_KEY;
   if(KEY&&!/^API_SERVER_KEY=/m.test(await readFile(path.join(dir,'.env'),'utf8').catch(()=>'')))
