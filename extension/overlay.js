@@ -2,11 +2,13 @@
 // is doing (with Stop and Take over), and a cursor with the agent's name that moves to each thing before it is
 // clicked or typed in. It lives in a closed shadow root, so the page's own styles and scripts cannot reach it.
 (()=>{if(window.__aq)return;
+// Plus Jakarta Sans from the extension, under its own name so the page's fonts are untouched (loaded as bytes, so the page's rules can't block it)
+try{fetch(chrome.runtime.getURL('plus-jakarta-sans.woff2')).then(r=>r.arrayBuffer()).then(b=>new FontFace('aqeelOS Jakarta',b,{weight:'200 800'}).load()).then(f=>document.fonts.add(f)).catch(()=>{})}catch{}
 const host=document.createElement('aqeelos-layer');host.style.cssText='all:initial;position:fixed;inset:0;z-index:2147483647;pointer-events:none';
 const root=host.attachShadow({mode:'closed'});
 root.innerHTML=`<style>
 :host{all:initial}
-*{box-sizing:border-box;font-family:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",sans-serif}
+*{box-sizing:border-box;font-family:"aqeelOS Jakarta","Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",sans-serif}
 .glow{position:fixed;inset:0;pointer-events:none;opacity:0;transition:opacity .35s ease,box-shadow .35s ease}
 .on .glow{opacity:1}
 .work .glow{box-shadow:inset 0 0 0 3px rgba(37,99,235,.55),inset 0 0 44px rgba(37,99,235,.18);animation:breathe 2.4s ease-in-out infinite}

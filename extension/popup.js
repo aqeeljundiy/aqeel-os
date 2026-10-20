@@ -13,10 +13,10 @@ async function show(){const {base,token}=await chrome.storage.local.get(['base',
  // a newer extension on aqeelOS: say so, with the download
  try{const r=await fetch(b+'/ui/local-browser/version',{credentials:'include',headers:{'x-hui':'1'}});const j=await r.json();
   if(j.latest&&newer(j.latest,VER)){$('upd').style.display='block';$('upd').innerHTML='Version '+j.latest+' is ready. <a href="'+b+'/ui/local-browser/extension.zip" target="_blank">Download it</a>, unzip it over this folder, then press Reload on chrome://extensions.'}}catch{}}
-$('go').onclick=async()=>{$('err').textContent='';const base=$('base').value.trim().replace(/\/+$/,'')||await DEF;
+$('go').onclick=async()=>{const go=$('go');if(go.disabled)return;go.disabled=true;go.textContent='Connecting…';$('err').textContent='';const base=$('base').value.trim().replace(/\/+$/,'')||await DEF;
  try{const r=await fetch(base+'/ui/local-browser/pair',{method:'POST',credentials:'include',headers:{'x-hui':'1','content-type':'application/json'},body:'{}'});
   const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(r.status===401?'Sign in to aqeelOS in this browser first, then press Connect again.':(j.error||'aqeelOS said no ('+r.status+').'));
-  await chrome.storage.local.set({base,token:j.token});await chrome.runtime.sendMessage('connect');setTimeout(show,800)}catch(e){$('err').textContent=e.message}};
+  await chrome.storage.local.set({base,token:j.token});await chrome.runtime.sendMessage('connect');setTimeout(()=>{go.disabled=false;show()},800)}catch(e){$('err').textContent=e.message;go.disabled=false;show()}};
 $('off').onclick=async()=>{await chrome.storage.local.remove('token');await chrome.runtime.sendMessage('connect');show()};
 $('panel').onclick=async()=>{const w=await chrome.windows.getCurrent();await chrome.sidePanel.open({windowId:w.id});window.close()};
 show();
