@@ -65,11 +65,19 @@
     },
     "mac": {
       "target": [
-        "dmg",
-        "zip"
+        "dmg"
       ],
       "icon": "../assets/icon-512.png",
-      "category": "public.app-category.productivity"
+      "category": "public.app-category.productivity",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Websites you open in aqeelOS’s browser can ask for your microphone.",
+        "NSCameraUsageDescription": "Websites you open in aqeelOS’s browser can ask for your camera.",
+        "NSLocationUsageDescription": "Websites you open in aqeelOS’s browser can ask for your location."
+      },
+      "artifactName": "aqeelOS-${version}-${arch}.${ext}"
+    },
+    "dmg": {
+      "title": "aqeelOS"
     }
   }
 }
