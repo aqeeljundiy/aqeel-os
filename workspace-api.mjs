@@ -259,6 +259,10 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
    let run;for(const provider of ready.slice(0,2)){run=startAgent({projectId:p.id,chatId:c.id,provider,model:'',effort:'',mode:'auto',kind:'app',agent:job.agent,prompt:job.task});await run.finished;if(run.state!=='failed')break}
    return {state:run.state,text:run.result?.text||run.error||'',files:run.changed||[],chat:c.id}}});
  aqeelos?.autoUpdate(()=>[...agents.values()].some(live));
+ // tell aqeelOS what this computer's Code has connected (shown under Connected apps › Code)
+ {const tellAqeelos=async()=>{try{let github=[];const gh=await locate('gh',findExecutable).catch(()=>null);if(gh){const r=await tool(gh,['auth','status','--hostname','github.com'],{env,timeout:20000}).catch(()=>null);if(r)github=parseAccounts(r.stdout+'\n'+r.stderr)}
+   const s=await readSettings();await aqeelos?.report({github,mcp:(s.mcpServers||[]).filter(m=>m.enabled!==false).map(m=>m.name)})}catch{}};
+  if(!process.env.NODE_TEST_CONTEXT){setTimeout(tellAqeelos,90000).unref?.();setInterval(tellAqeelos,1800000).unref?.()}}
  // secrets (passwords, keys) you send from the composer: kept on this computer only (data/secrets.json, owner-only);
  // every run gets them as environment variables and the AI is told their names, never their values
  // new projects live where you can find them: Documents\aqeelOS Code\<name> (a number is added if that folder is in use)
