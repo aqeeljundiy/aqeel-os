@@ -502,7 +502,7 @@ const gemini=createGemini({HERMES_HOME,hcmd,listAgents});
 const antigravity=createAntigravity({HERMES_HOME,hcmd,listAgents});
 async function agentModel(a){const y=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>'');const k=key=>((new RegExp('^model:[\\s\\S]*?\\n\\s+'+key+':\\s*(\\S+)','m').exec(y)||[])[1]||'').replace(/^["']|["']$/g,'');return {provider:k('provider'),model:k('default')}}
 const users=createUsers(DATA,mailer);
-const starters=createStarters(DATA);
+const starters=createStarters(DATA,{python:enginePython,root});
 const me=async req=>{const id=cookieId(req);return id?await users.user(id):null};
 // The agent a call is for: /gapi/p/<agent>/… or ?profile=<agent> (none = the main agent).
 const agentOf=(p,q)=>{const m=/^\/gapi\/p\/([^/]+)/.exec(p);return m?decodeURIComponent(m[1]):q.get('profile')||q.get('agent')||'default'};

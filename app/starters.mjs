@@ -1,5 +1,5 @@
 // Starter prompts on the empty chat screen, written from what this person recently did with this agent.
-// A small Claude model (Haiku, through Claude Code on the user's plan) suggests four next steps; results are
+// The engine's own small helper model (whatever LLM you set up, no tools) suggests four next steps; results are
 // cached per person and agent for 6 hours, and the defaults show while there's no history yet.
 import {execFile} from 'node:child_process';
 import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
@@ -7,7 +7,6 @@ import {createHash} from 'node:crypto';
 import {homedir} from 'node:os';
 import path from 'node:path';
 
-const CLAUDE=process.env.CLAUDE_BIN||path.join(homedir(),'.local','bin','claude');
 const TTL=6*3600e3;
 const AUTOMATION=/^(cron|webhook|kanban|oneshot|batch)/;
 const DEFAULTS={
@@ -15,11 +14,12 @@ const DEFAULTS={
  member:[['Plan my week','Help me plan this week: ask me what is coming up, then make a simple day-by-day list.'],['Dinner ideas','Suggest five easy dinners for this week with a shopping list.'],['Write a message','Help me write a friendly message. Ask me who it is for and what I want to say.'],['Learn something','Explain something interesting in simple words. Ask me what I am curious about first.']],
 };
 
-export function createStarters(DATA,dash){
+export function createStarters(DATA,{python,root}={}){
  const FILE=path.join(DATA,'starters.json');let cache=null;const busy=new Map();
  const load=async()=>{if(cache)return cache;try{cache=JSON.parse(await readFile(FILE,'utf8'))}catch{cache={}}return cache};
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(cache));await rename(FILE+'.tmp',FILE)};
- const ask=prompt=>new Promise(res=>execFile(CLAUDE,['-p','--model','haiku','--output-format','text',prompt],{timeout:60000,maxBuffer:1e6,cwd:homedir()},(e,out)=>res(e?null:String(out))));
+ // same helper as explain.mjs: the prompt goes in on stdin, the answer text comes back
+ const ask=prompt=>new Promise(async res=>{const py=python&&await python();if(!py)return res(null);const c=execFile(py,[path.join(root,'scripts','aux-llm.py'),path.join(homedir(),'.hermes','hermes-agent')],{timeout:120000,maxBuffer:1e6,cwd:path.join(homedir(),'.hermes')},(err,out)=>res(err?null:String(out)));c.stdin.end(JSON.stringify({system:'You suggest what a person might ask their AI assistant next. Follow the format asked for exactly.',user:prompt,max_tokens:600}))});
 
  async function make(recent){
   const list=recent.map((s,i)=>`${i+1}. ${s.title||''}${s.preview?' — '+s.preview:''}`).join('\n');
@@ -34,7 +34,8 @@ export function createStarters(DATA,dash){
   if(mine.length<2)return {prompts:base,source:'default'};
   const key=userKey+':'+agent,sig=createHash('sha1').update(mine.map(s=>s.id).join(',')).digest('hex').slice(0,12);
   const hit=cache[key];if(hit&&hit.sig===sig&&Date.now()-hit.t<TTL)return {prompts:hit.prompts,source:'recent'};
-  if(hit&&Date.now()-hit.t<TTL*4&&!busy.has(key))refresh(key,sig,mine);   // stale but close: show it, refresh quietly
+  // stale or for older chats: show it, refresh quietly
+  if(hit&&!busy.has(key))refresh(key,sig,mine);
   if(hit)return {prompts:hit.prompts,source:'recent'};
   const fresh=await refresh(key,sig,mine);return fresh?{prompts:fresh,source:'recent'}:{prompts:base,source:'default'};
  }
