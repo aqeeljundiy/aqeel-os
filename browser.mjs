@@ -47,7 +47,7 @@ const ROBOT_JS=`(()=>{const t=(document.title+' '+(document.body?document.body.i
  if(/just a moment|verify you are human|are you a robot|i'm not a robot|unusual traffic|press and hold|security check/.test(t))return 'check';return ''})()`;
 export class SideBrowser{
  constructor(dataDir){this.guardFile=path.join(dataDir,'browser-guard.json');this.guard={sites:[],paused:false};readFile(this.guardFile,'utf8').then(t=>{const g=JSON.parse(t);this.guard.sites=Array.isArray(g.sites)?g.sites:[]}).catch(()=>{});this.dataDir=dataDir;this.profile=path.join(dataDir,'browser-profile');this.pidFile=path.join(dataDir,'browser.pid');this.perms={};this.downloads=null;process.on('exit',()=>killTree(this.child));this.frame=null;this.frameSeq=0;this.waiters=[];this.log=[];this.state='stopped';this.preset='desktop';this.view={...PRESETS.desktop};this.scheme='light';this.tabs=[]}
- status(){return {guard:{sites:this.guard.sites,paused:this.guard.paused,reason:this.guard.reason||'',ask:this.guard.ask?{host:this.guard.ask.host}:null,perm:this.guard.perm?{origin:this.guard.perm.origin,what:this.guard.perm.kinds.map(k=>PERM_NAME[k]||k)}:null,file:this.guard.file?{origin:this.guard.file.origin}:null},state:this.state,url:this.url||'',title:this.title||'',width:this.view.width,height:this.view.height,preset:this.preset,scheme:this.scheme,tabs:this.tabs,tab:this.target||null,aiTab:this.aiTarget||null,error:this.error||null,log:this.log.slice(-40)}}
+ status(){return {guard:{sites:this.guard.sites,paused:this.guard.paused,reason:this.guard.reason||'',ask:this.guard.ask?{host:this.guard.ask.host}:null,perm:this.guard.perm?{origin:this.guard.perm.origin,what:this.guard.perm.kinds.map(k=>PERM_NAME[k]||k)}:null,file:this.guard.file?{origin:this.guard.file.origin}:null},state:this.state,url:this.url||'',title:this.title||'',width:this.view.width,height:this.view.height,preset:this.preset,scheme:this.scheme,tabs:this.tabs,tab:this.target||null,aiTab:this.aiTarget||null,native:Boolean(this.ctlUrl),error:this.error||null,log:this.log.slice(-40)}}
  // may the AI open this address? This computer's own pages and the sites the person allowed
  allowed(u){try{const x=new URL(u);return /^(https?|about):$/.test(x.protocol)}catch{return false}}   // any website; microphone, camera and files still ask
  // a site the AI may not open yet: the browser asks the person (Allow this site / Not now) and the AI waits for the answer
@@ -106,7 +106,16 @@ export class SideBrowser{
  async stayInside(){await this.robotCheck();const u=await this.eval('location.href').catch(()=>this.url);if(this.allowed(u))return;await this.send('Page.navigateToHistoryEntry',{entryId:(await this.send('Page.getNavigationHistory')).entries.slice(-2)[0].id}).catch(()=>{});await this.waitLoad(4000);if(await this.permit(u)){await this.send('Page.navigate',{url:u});await this.waitLoad();return}throw this.refuse(u,true)}
  note(entry){this.log.push({time:Date.now(),...entry});if(this.log.length>200)this.log.shift()}
 
+ // the aqeelOS app's built-in browser: its tabs are real views in the app's window (no Chrome of our own, no picture)
+ async attachDesktop({ctl,debugPort}){if(!/^http:\/\/127\.0\.0\.1:\d+\//.test(String(ctl||'')))throw Error('Not the app.');const was=this.state==='running'&&!this.ctlUrl;this.ctlUrl=String(ctl).replace(/\/$/,'');this.desktopPort=Number(debugPort);
+  if(was||this.child){this.stop();await new Promise(r=>setTimeout(r,500))}this.state='stopped';this.ws=null;this.aiWs=null;this.aiTarget=null;this.tabs=[];this.note({by:'page',action:'app',detail:'Using the aqeelOS app’s built-in browser'});return {ok:true}}
+ async ctl(route,body){const r=await fetch(this.ctlUrl+'/'+route,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body||{}),signal:AbortSignal.timeout(30000)});const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'The aqeelOS app did not answer.');return j}
  async start(){if(this.state==='running')return this.status();if(this.starting)return this.starting;
+  if(this.ctlUrl)return this.starting=(async()=>{try{this.state='starting';this.error=null;this.port=this.desktopPort;
+   await this.ctl('profile',{dir:this.profile,downloads:this.downloads});let info=await this.ctl('info');if(!info.tabs.length){await this.ctl('new',{url:'about:blank'});info=await this.ctl('info')}
+   const page=(await this.devtools('list')).find(t=>t.id===(info.active||info.tabs[0]));if(!page)throw Error('The app’s browser did not open.');
+   await this.connect(page);this.state='running';await this.loadPerms();await this.refreshTabs();return this.status()}
+   catch(e){this.state='failed';this.error=e.message;throw e}finally{this.starting=null}})();
   this.starting=(async()=>{try{this.state='starting';this.error=null;const exe=await findBrowser();if(!exe)throw Error('No Chrome or Edge found on this computer.');
    await mkdir(this.profile,{recursive:true});const port=await freePort(9300);this.port=port;
    // a browser left over from a previous run would keep the profile locked
@@ -122,7 +131,7 @@ export class SideBrowser{
  // Attach to one tab (a DevTools page target). Switching tabs swaps the connection; the old one is ignored.
  connect(page){return new Promise((resolve,reject)=>{
   const old=this.ws;const ws=new WebSocket(page.webSocketDebuggerUrl);this.ws=ws;this.target=page.id;this.url=page.url;this.title=page.title;this.id=0;this.pending=new Map();try{old?.close()}catch{}
-  ws.onopen=async()=>{try{await this.send('Page.enable');await this.send('Runtime.enable');await this.send('Page.addScriptToEvaluateOnNewDocument',{source:ONE_VIEW}).catch(()=>{});await this.send('Page.setDownloadBehavior',this.downloads?{behavior:'allow',downloadPath:this.downloads}:{behavior:'deny'}).catch(()=>{});await this.send('Runtime.addBinding',{name:'__cbaPerm'}).catch(()=>{});await this.send('Page.addScriptToEvaluateOnNewDocument',{source:PERM_JS}).catch(()=>{});await this.send('Page.setInterceptFileChooserDialog',{enabled:true}).catch(()=>{});await this.applyView();resolve()}catch(e){reject(e)}};
+  ws.onopen=async()=>{try{await this.send('Page.enable');await this.send('Runtime.enable');await this.send('Page.addScriptToEvaluateOnNewDocument',{source:ONE_VIEW}).catch(()=>{});await this.send('Page.setDownloadBehavior',this.downloads?{behavior:'allow',downloadPath:this.downloads}:{behavior:'deny'}).catch(()=>{});await this.send('Runtime.addBinding',{name:'__cbaPerm'}).catch(()=>{});await this.send('Page.addScriptToEvaluateOnNewDocument',{source:PERM_JS}).catch(()=>{});if(!this.ctlUrl)await this.send('Page.setInterceptFileChooserDialog',{enabled:true}).catch(()=>{});await this.applyView();resolve()}catch(e){reject(e)}};
   ws.onerror=()=>reject(Error('Could not connect to the browser.'));ws.onclose=()=>{if(this.ws===ws)this.state='stopped'};
   ws.onmessage=ev=>{if(this.ws!==ws)return;const m=JSON.parse(ev.data);if(m.id&&this.pending.has(m.id)){const p=this.pending.get(m.id);this.pending.delete(m.id);m.error?p.reject(Error(m.error.message)):p.resolve(m.result);return}
    if(m.method==='Page.screencastFrame'){this.frame=Buffer.from(m.params.data,'base64');this.frameSeq++;this.send('Page.screencastFrameAck',{sessionId:m.params.sessionId}).catch(()=>{});for(const w of this.waiters.splice(0))w();
@@ -146,7 +155,7 @@ export class SideBrowser{
  connectAi(id){return new Promise(async(resolve,reject)=>{const page=(await this.devtools('list')).find(t=>t.id===id);if(!page)return reject(Error('The AI’s tab is closed.'));
   const old=this.aiWs;const ws=new WebSocket(page.webSocketDebuggerUrl);this.aiWs=ws;this.aiPending=new Map();this.aiN=0;this.aiUrl=page.url;this.aiTitle=page.title;try{old?.close()}catch{}
   const s=(method,params={})=>new Promise((res,rej)=>{const n=++this.aiN;this.aiPending.set(n,{resolve:res,reject:rej});ws.send(JSON.stringify({id:n,method,params}))});
-  ws.onopen=async()=>{try{await s('Page.enable');await s('Runtime.enable');await s('Page.addScriptToEvaluateOnNewDocument',{source:ONE_VIEW}).catch(()=>{});await s('Page.setDownloadBehavior',this.downloads?{behavior:'allow',downloadPath:this.downloads}:{behavior:'deny'}).catch(()=>{});await s('Runtime.addBinding',{name:'__cbaPerm'}).catch(()=>{});await s('Page.addScriptToEvaluateOnNewDocument',{source:PERM_JS}).catch(()=>{});await s('Page.setInterceptFileChooserDialog',{enabled:true}).catch(()=>{});
+  ws.onopen=async()=>{try{await s('Page.enable');await s('Runtime.enable');await s('Page.addScriptToEvaluateOnNewDocument',{source:ONE_VIEW}).catch(()=>{});await s('Page.setDownloadBehavior',this.downloads?{behavior:'allow',downloadPath:this.downloads}:{behavior:'deny'}).catch(()=>{});await s('Runtime.addBinding',{name:'__cbaPerm'}).catch(()=>{});await s('Page.addScriptToEvaluateOnNewDocument',{source:PERM_JS}).catch(()=>{});if(!this.ctlUrl)await s('Page.setInterceptFileChooserDialog',{enabled:true}).catch(()=>{});
    const {width,height,mobile}=this.view;await s('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:this.dpr||1,mobile}).catch(()=>{});resolve()}catch(e){reject(e)}};
   ws.onerror=()=>reject(Error('Could not connect to the AI’s tab.'));ws.onclose=()=>{if(this.aiWs===ws)this.aiWs=null};
   ws.onmessage=ev=>{if(this.aiWs!==ws)return;const m=JSON.parse(ev.data);if(m.id&&this.aiPending.has(m.id)){const p=this.aiPending.get(m.id);this.aiPending.delete(m.id);m.error?p.reject(Error(m.error.message)):p.resolve(m.result);return}
@@ -159,12 +168,13 @@ export class SideBrowser{
 
  // Apply the viewport preset and colour scheme to the current tab, then restart the screencast at that size.
  async applyView(){const {width,height,mobile}=this.view;
+  if(this.ctlUrl&&this.preset==='desktop'){await this.send('Emulation.clearDeviceMetricsOverride').catch(()=>{});await this.send('Emulation.setEmulatedMedia',{features:[{name:'prefers-color-scheme',value:this.scheme==='system'?'':this.scheme}]}).catch(()=>{});return}
   await this.send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:this.dpr||1,mobile});
   await this.send('Emulation.setTouchEmulationEnabled',{enabled:mobile,maxTouchPoints:mobile?5:1});
   await this.send('Emulation.setUserAgentOverride',{userAgent:mobile?MOBILE_UA:''});
   await this.send('Emulation.setEmulatedMedia',{features:[{name:'prefers-color-scheme',value:this.scheme==='system'?'':this.scheme}]});
   await this.send('Page.stopScreencast').catch(()=>{});
-  const k=this.dpr||1;await this.send('Page.startScreencast',{format:'jpeg',quality:90,maxWidth:Math.round(width*k),maxHeight:Math.round(height*k),everyNthFrame:1})}
+  if(this.ctlUrl)return;const k=this.dpr||1;await this.send('Page.startScreencast',{format:'jpeg',quality:90,maxWidth:Math.round(width*k),maxHeight:Math.round(height*k),everyNthFrame:1})}
  async setView({preset,rotate,scheme,dpr}={}){await this.ensure();if(dpr)this.dpr=Math.min(3,Math.max(1,Number(dpr)||1));
   if(preset){if(!PRESETS[preset])throw Error('Unknown screen size.');this.preset=preset;this.view={...PRESETS[preset]}}
   if(rotate)this.view={...this.view,width:this.view.height,height:this.view.width};
@@ -172,7 +182,11 @@ export class SideBrowser{
   await this.applyView();if(preset)await this.send('Page.reload').then(()=>this.waitLoad()).catch(()=>{});return this.status()}
 
  // Tabs: every page target of the one headless browser.
- async devtools(route,method='GET'){const r=await fetch('http://127.0.0.1:'+this.port+'/json/'+route,{method});if(!r.ok)throw Error('The browser refused: '+(await r.text()).slice(0,120));return r.headers.get('content-type')?.includes('json')?r.json():r.text()}
+ async devtools(route,method='GET'){
+  if(this.ctlUrl){if(route==='list'){const info=await this.ctl('info');const all=await (await fetch('http://127.0.0.1:'+this.port+'/json/list')).json();return all.filter(t=>info.tabs.includes(t.id)).map(t=>({...t,type:'page'}))}
+   if(route.startsWith('new?')){const {id}=await this.ctl('new',{url:decodeURI(route.slice(4))});return {id}}
+   if(route.startsWith('activate/'))return this.ctl('show',{id:route.slice(9)});if(route.startsWith('close/'))return this.ctl('close',{id:route.slice(6)})}
+  const r=await fetch('http://127.0.0.1:'+this.port+'/json/'+route,{method});if(!r.ok)throw Error('The browser refused: '+(await r.text()).slice(0,120));return r.headers.get('content-type')?.includes('json')?r.json():r.text()}
  async refreshTabs(){try{const list=await this.devtools('list');this.tabs=list.filter(t=>t.type==='page').reverse().map(t=>({id:t.id,title:t.id===this.target?this.title||t.title:t.title,url:t.id===this.target?this.url||t.url:t.url}));
   if(this.target&&!this.tabs.some(t=>t.id===this.target)&&this.tabs[0])await this.switchTab(this.tabs[0].id)}catch{}return this.tabs}
  async newTab(url='about:blank',by='user'){if(by==='ai')return this.navigate(url,'ai');await this.ensure();const u=normalizeUrl(url);

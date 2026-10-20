@@ -464,6 +464,7 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
    const base=platform.reposHome();await makeDir(base,{recursive:true});let dest=path.join(base,repo.split('/')[1]),n=2;while(true){try{await access(dest);dest=path.join(base,repo.split('/')[1]+'-'+n++)}catch{break}}
    const r=await tool(gh,['repo','clone',repo,dest],{env,timeout:600000});if(r.code!==0)throw Error(r.stderr.trim().slice(-400)||'Clone failed.')
    const p=await store.serialize(()=>store.addFolder(dest,{...(who?{owner:who.uid}:{}),name:repo.split('/')[1],repo,git:true}));return send(200,p),true}
+  if(url.pathname==='/api/workspace/desktop-attach'&&req.method==='POST'){if(!isLoopback(req.socket.remoteAddress))throw Error('Only from this computer.');return send(200,await browser.attachDesktop(data)),true}
   if(url.pathname==='/api/workspace/browser/project'&&req.method==='POST'){const p=store.state.projects.find(x=>x.id===data.projectId);if(!p)return send(200,{ok:false}),true;await browser.useProject(await store.folder(p.id),await resultsDirFor(p.id,null).catch(()=>null));return send(200,{ok:true}),true}
   if(url.pathname.startsWith('/api/workspace/browser/')){const action=url.pathname.slice('/api/workspace/browser/'.length),by=data?.by==='ai'?'ai':'user'
    {const pid=data?.projectId||url.searchParams.get('projectId');const p=pid&&store.state.projects.find(x=>x.id===pid);if(p)await browser.useProject(await store.folder(p.id),await resultsDirFor(p.id,null).catch(()=>null))}

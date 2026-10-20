@@ -633,7 +633,7 @@ if(document.body.classList.contains('embed')){
 // the choices sit in a slim row at the top of the message box; tools and send stay in the bottom row
 if(document.body.classList.contains('embed')){const top=document.createElement('div');top.className='aq-choices';const right=document.querySelector('.model-pickers');
  const keep=[$('mode').closest('.dd'),document.querySelector('.aq-team'),window.__aqPill,document.querySelector('.aq-meter'),$('effort').closest('.dd')].filter(Boolean);top.append(...keep);
- $('chat-prompt').before(top);document.querySelector('.agent-chip')&&top.before(document.querySelector('.agent-chip'));document.querySelector('.team-row')&&top.after(document.querySelector('.team-row'))}
+ $('chat-prompt').before(top);document.querySelector('.agent-chip')&&top.prepend(document.querySelector('.agent-chip'));document.querySelector('.team-row')&&top.after(document.querySelector('.team-row'))}
 
 // New project: shows where it will be kept (Documents\aqeelOS Code\<name>), and Change… picks any folder
 let pickedPlace='',placeChoice='';

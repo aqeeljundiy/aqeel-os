@@ -66,6 +66,10 @@ export function createBrowserUI(ctx){
  view.addEventListener('mouseleave',()=>{outline.hidden=true});const activity=el('div','browser-activity');activity.setAttribute('aria-live','polite');
  const askBar=el('div','browser-ask');askBar.hidden=true;askBar.setAttribute('role','alert');
  root.append(strip,bar,tools,guardBox,askBar,control,stage,activity);
+ // in the aqeelOS app the page is a real browser view the app lays exactly over this area
+ if(window.cbaDesktop){stage.classList.add('native');const over=()=>Boolean(document.querySelector('dialog[open],.menu,.dd-floating,.kit-menu,.palette:not([hidden]),.drawer'));
+  const report=()=>{const r=stage.getBoundingClientRect();window.cbaDesktop.stage({x:r.left,y:r.top,width:r.width,height:r.height,visible:ctx.visible()&&status.state==='running'&&!over()&&r.width>20})};
+  new ResizeObserver(report).observe(stage);addEventListener('resize',report);setInterval(report,400);ctx.nativeReport=report}
  let askedFor='';
  function paintAsk(){const g=status.guard||{},pm=g.perm,fl=g.file;
   if(!g.ask&&(pm||fl)){const key=pm?'perm:'+pm.origin+pm.what:'file:'+fl.origin;askBar.hidden=false;if(askedFor===key)return;askedFor=key;const host=(()=>{try{return new URL((pm||fl).origin).host}catch{return 'This page'}})();
@@ -78,7 +82,7 @@ export function createBrowserUI(ctx){
   yes.addEventListener('click',()=>call('/guard',{answer:true}));no.addEventListener('click',()=>call('/guard',{answer:false}));askBar.replaceChildren(icon('shield'),t,yes,no);ctx.notify('The AI asks to open '+a.host+'. Allow it in the Browser.')}
 
  async function call(route,body){try{status=await ctx.api('/browser'+route,body);paintStatus();ensureLoop()}catch(e){ctx.notify(e.message)}}
- function paintStatus(){paintAsk();if(document.activeElement!==address)address.value=status.url&&status.url!=='about:blank'?status.url:'';empty.hidden=Boolean(seq)&&status.state==='running'&&Boolean(status.url)&&status.url!=='about:blank';if(status.width)size={width:status.width,height:status.height};view.style.maxWidth=size.width+'px';
+ function paintStatus(){paintAsk();ctx.nativeReport?.();if(document.activeElement!==address)address.value=status.url&&status.url!=='about:blank'?status.url:'';empty.hidden=Boolean(seq)&&status.state==='running'&&Boolean(status.url)&&status.url!=='about:blank';if(status.width)size={width:status.width,height:status.height};view.style.maxWidth=size.width+'px';
   for(const b of sizes.children)b.classList.toggle('selected',b.dataset.preset===status.preset);dims.textContent=size.width+' × '+size.height;
   const sc=status.scheme||'light';scheme.replaceChildren(icon(sc==='light'?'sun':sc==='dark'?'moon':'system'),el('span','',sc==='light'?'Light page':sc==='dark'?'Dark page':'System page'));scheme.setAttribute('aria-label','Page colour scheme: '+sc);paintTabs();
   activity.replaceChildren();const items=(status.log||[]).slice(-6).reverse();

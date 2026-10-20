@@ -1538,3 +1538,15 @@ body.embed .composer-controls{padding:6px 0 0}
 .browser-tab .browser-tab-close{width:20px;height:20px;min-height:20px!important;margin:0 5px 0 0;border-radius:50%;opacity:.7;transition:background .15s,opacity .15s,color .15s}
 .browser-tab .browser-tab-close:hover{opacity:1;background:color-mix(in srgb,var(--ink) 10%,transparent);color:var(--ink)}
 .browser-tab .browser-tab-open{padding:4px 6px 4px 10px}
+
+/* the aqeelOS app: its real browser view sits over this area, so the picture and its hints stay out of the way */
+.browser-stage.native{background:var(--surface)}.browser-stage.native .browser-view{visibility:hidden}
+.browser-stage.native .browser-empty{display:none}
+/* the secret box: fields fit the box (no sideways scroll), buttons on the right like every other box */
+.kit-dialog:has(.aq-secret){overflow:hidden;width:min(440px,calc(100vw - 32px))}
+.aq-secret{min-width:0;width:100%;box-sizing:border-box}.aq-secret *{box-sizing:border-box}.aq-secret input{width:100%;max-width:100%}
+.aq-secret .aq-secret-have:empty{display:none}
+.aq-secret .kit-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:6px}.aq-secret .kit-actions button{min-width:84px;min-height:38px}
+/* the composer in aqeelOS: the agent chip sits in the same row as the other choices, all the same height */
+body.embed .aq-choices>.agent-chip{margin:0;min-height:30px;height:30px;padding:0 6px 0 4px;display:inline-flex;align-items:center;gap:6px;border-radius:var(--r-pill);background:var(--soft-2);font-size:12.5px}
+body.embed .aq-choices>.agent-chip .av{width:22px;height:22px}

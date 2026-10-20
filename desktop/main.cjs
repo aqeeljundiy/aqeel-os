@@ -1,0 +1,95 @@
+// aqeelOS desktop app (Windows and Mac). Opens your aqeelOS in its own window and runs Code's engine on this
+// computer. In Code's browser area it places a real browser: one native Chromium view per tab, drawn by the app
+// (sharp, real cookies, history and sign-ins, kept per project in the project's .aqeelos/browser folder). Code's
+// engine drives those tabs over the DevTools protocol, the same way it drives any Chrome, through a small control
+// channel on 127.0.0.1 that only it knows the key to.
+const {app,BrowserWindow,WebContentsView,session,ipcMain,shell,dialog}=require('electron');
+const path=require('node:path'),fs=require('node:fs'),http=require('node:http'),crypto=require('node:crypto'),{spawn}=require('node:child_process');
+
+const CODE_PORT=Number(process.env.CBA_PORT||4321);
+const DEV=!app.isPackaged;
+// Code's files: the repo (while developing) or a writable copy of the bundled files (so Code can update itself)
+const BUNDLED=DEV?path.resolve(__dirname,'..'):path.join(process.resourcesPath,'code');
+const CODE_DIR=DEV?BUNDLED:path.join(app.getPath('userData'),'code');
+const read=(f,d)=>{try{return JSON.parse(fs.readFileSync(f,'utf8'))}catch{return d}};
+const HOME_URL=(process.env.AQEELOS_URL||read(path.join(BUNDLED,'aqeelos.json'),{}).aqeelos?.base||'https://ai.elkiya.com').replace(/\/$/,'');
+
+// one window only
+if(!app.requestSingleInstanceLock()){app.quit()}
+// the DevTools port Code's engine uses to drive the browser tabs (this computer only)
+const DEBUG_PORT=9400+Math.floor(Math.random()*400);
+app.commandLine.appendSwitch('remote-debugging-port',String(DEBUG_PORT));
+app.commandLine.appendSwitch('remote-allow-origins','http://127.0.0.1:'+DEBUG_PORT);
+
+let win=null,server=null;
+const CTL_KEY=crypto.randomBytes(24).toString('hex');
+
+// ---------- Code's engine ----------
+function copyBundled(){if(DEV)return;const want=read(path.join(BUNDLED,'aqeelos.json'),{}).aqeelos?.version||'',have=read(path.join(CODE_DIR,'aqeelos.json'),{}).aqeelos?.version||'';
+ // the bundled copy goes in on first run, or when this app came with a newer Code than the one Code updated itself to
+ if(fs.existsSync(path.join(CODE_DIR,'server.mjs'))&&(!want||have>=want))return;
+ fs.mkdirSync(CODE_DIR,{recursive:true});fs.cpSync(BUNDLED,CODE_DIR,{recursive:true,force:true,filter:src=>!/[\\/]data([\\/]|$)/.test(src.slice(BUNDLED.length))})}
+const up=()=>new Promise(r=>{const q=http.get({host:'127.0.0.1',port:CODE_PORT,path:'/api/status?quick',timeout:1500},res=>{res.resume();r(res.statusCode===200)});q.on('error',()=>r(false));q.on('timeout',()=>{q.destroy();r(false)})});
+async function startCode(){if(await up())return;copyBundled();
+ server=spawn(process.execPath,[path.join(CODE_DIR,'server.mjs')],{cwd:CODE_DIR,env:{...process.env,ELECTRON_RUN_AS_NODE:'1',HUB_PORT:String(CODE_PORT),CBA_DESKTOP:'1'},stdio:'ignore',windowsHide:true});
+ server.on('exit',code=>{server=null;if(!app.isQuitting)setTimeout(()=>startCode().then(attach).catch(()=>{}),code===0?500:3000)});   // updates exit with 0: start the new version
+ for(let i=0;i<60&&!(await up());i++)await new Promise(r=>setTimeout(r,250))}
+// tell Code's engine where the app's browser is (it then uses these tabs instead of a Chrome of its own)
+async function attach(){try{const s=await getJson('/api/session');await postJson('/api/workspace/desktop-attach',{ctl:'http://127.0.0.1:'+ctlPort+'/'+CTL_KEY,debugPort:DEBUG_PORT},s.token)}catch(e){console.warn('attach:',e.message)}}
+const getJson=p=>new Promise((res,rej)=>http.get({host:'127.0.0.1',port:CODE_PORT,path:p},r=>{let b='';r.on('data',d=>b+=d);r.on('end',()=>{try{res(JSON.parse(b))}catch(e){rej(e)}})}).on('error',rej));
+const postJson=(p,body,token)=>new Promise((res,rej)=>{const q=http.request({host:'127.0.0.1',port:CODE_PORT,path:p,method:'POST',headers:{'content-type':'application/json','x-local-token':token}},r=>{let b='';r.on('data',d=>b+=d);r.on('end',()=>r.statusCode<300?res(b):rej(Error(b)))});q.on('error',rej);q.end(JSON.stringify(body))});
+
+// ---------- the browser tabs ----------
+const tabs=new Map();   // targetId -> {view, wc}
+let active=null,profile=null,ses=null,downloads=null,frameRect=null,stageRect=null,shown=false;
+function sessionFor(dir){let s;try{s=session.fromPath?session.fromPath(dir):null}catch{}if(!s)s=session.fromPartition('persist:code-'+crypto.createHash('sha1').update(dir).digest('hex').slice(0,16));
+ // a plain Chrome to sites (Electron's own name left out of the user agent)
+ s.setUserAgent(s.getUserAgent().replace(/\s(Electron|aqeelOS|aqeelos-desktop)\/\S+/gi,''));
+ // microphone, camera, location and notifications: Code asks the person first in its own bar (see browser.mjs);
+ // by the time Chrome asks here, the person has said yes
+ s.setPermissionRequestHandler((wc,perm,cb)=>cb(['media','geolocation','notifications','clipboard-read','clipboard-sanitized-write','fullscreen'].includes(perm)));
+ s.on('will-download',(e,item)=>{if(!downloads)return;fs.mkdirSync(downloads,{recursive:true});let to=path.join(downloads,item.getFilename()),n=2;while(fs.existsSync(to)){const x=path.parse(item.getFilename());to=path.join(downloads,x.name+' ('+(n++)+')'+x.ext)}item.setSavePath(to)});
+ return s}
+async function targetOf(wc){wc.debugger.attach('1.3');try{return (await wc.debugger.sendCommand('Target.getTargetInfo')).targetInfo.targetId}finally{try{wc.debugger.detach()}catch{}}}
+async function newTab(url){if(!ses)ses=sessionFor(profile||path.join(app.getPath('userData'),'browser'));
+ const view=new WebContentsView({webPreferences:{session:ses,contextIsolation:true,sandbox:true}});const wc=view.webContents;
+ // links that would open a new window open in this tab (one view per tab, like Code's browser)
+ wc.setWindowOpenHandler(({url:u})=>{wc.loadURL(u).catch(()=>{});return {action:'deny'}});
+ win.contentView.addChildView(view);view.setVisible(false);const id=await targetOf(wc);tabs.set(id,{view,wc});
+ await wc.loadURL(url&&url!=='about:blank'?url:'about:blank').catch(()=>{});if(!active)show(id);return id}
+function show(id){if(!tabs.has(id))return;active=id;for(const [k,t] of tabs)t.view.setVisible(k===id&&shown);place()}
+function close(id){const t=tabs.get(id);if(!t)return;tabs.delete(id);win.contentView.removeChildView(t.view);try{t.wc.close()}catch{}if(active===id){active=null;const next=[...tabs.keys()][0];if(next)show(next)}}
+function closeAll(){for(const id of [...tabs.keys()])close(id)}
+// where the tab goes: Code's browser area, inside Code's frame, inside aqeelOS
+function place(){const t=active&&tabs.get(active);if(!t)return;if(!shown||!stageRect||!frameRect){t.view.setVisible(false);return}
+ const fx=frameRect?frameRect.x:0,fy=frameRect?frameRect.y:0;
+ t.view.setBounds({x:Math.round(fx+stageRect.x),y:Math.round(fy+stageRect.y),width:Math.max(1,Math.round(stageRect.width)),height:Math.max(1,Math.round(stageRect.height))});t.view.setVisible(true)}
+ipcMain.on('aq:frame',(e,r)=>{frameRect=r&&r.visible?r:null;if(!frameRect){for(const t of tabs.values())t.view.setVisible(false);return}place()});                       // aqeelOS: where Code's frame is in the window
+ipcMain.on('aq:stage',(e,r)=>{stageRect=r&&r.width>0?r:null;shown=Boolean(r&&r.visible);for(const [k,t] of tabs)t.view.setVisible(k===active&&shown);place()});   // Code: its browser area
+ipcMain.handle('aq:info',()=>({desktop:true,platform:process.platform,version:app.getVersion()}));
+
+// the control channel for Code's engine: profile, tabs (127.0.0.1, with the key)
+let ctlPort=0;
+const ctl=http.createServer(async(req,res)=>{const send=(c,o)=>{res.writeHead(c,{'content-type':'application/json'});res.end(JSON.stringify(o))};
+ if(!req.url.startsWith('/'+CTL_KEY+'/'))return send(403,{error:'no'});const route=req.url.slice(CTL_KEY.length+2);let b='';for await(const c of req)b+=c;let d={};try{d=JSON.parse(b||'{}')}catch{}
+ try{if(route==='info')return send(200,{port:DEBUG_PORT,tabs:[...tabs.keys()],active});
+  if(route==='debug'){const t=active&&tabs.get(active);return send(200,{shown,stageRect,frameRect,active,bounds:t?.view.getBounds(),visible:t?.view.getVisible?.(),url:t?.wc.getURL()})}
+  if(route==='profile'){downloads=d.downloads||downloads;if(d.dir&&d.dir!==profile){closeAll();profile=d.dir;fs.mkdirSync(profile,{recursive:true});ses=sessionFor(profile)}return send(200,{ok:true})}
+  if(route==='new'){const id=await newTab(d.url);return send(200,{id})}
+  if(route==='show'){show(d.id);return send(200,{ok:true})}
+  if(route==='close'){close(d.id);return send(200,{ok:true})}
+  return send(404,{error:'Unknown.'})}catch(e){return send(500,{error:e.message})}});
+
+// ---------- the window ----------
+async function open(){win=new BrowserWindow({width:1440,height:920,minWidth:900,minHeight:600,title:'aqeelOS',backgroundColor:'#ffffff',autoHideMenuBar:true,
+  icon:path.join(BUNDLED,'assets',process.platform==='win32'?'icon.ico':'icon-512.png'),
+  webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegrationInSubFrames:true,sandbox:false}});
+ win.webContents.setWindowOpenHandler(({url})=>{if(/^https?:/.test(url))shell.openExternal(url);return {action:'deny'}});
+ win.on('resize',place);
+ await win.loadURL(HOME_URL+'/#/code/code')}
+
+app.whenReady().then(async()=>{await new Promise(r=>ctl.listen(0,'127.0.0.1',()=>{ctlPort=ctl.address().port;if(DEV)console.log('control: http://127.0.0.1:'+ctlPort+'/'+CTL_KEY+'/');r()}));
+ await open();try{await startCode();await attach()}catch(e){dialog.showErrorBox('aqeelOS','Code could not start: '+e.message)}});
+app.on('second-instance',()=>{if(win){if(win.isMinimized())win.restore();win.focus()}});
+app.on('before-quit',()=>{app.isQuitting=true;try{server?.kill()}catch{}});
+app.on('window-all-closed',()=>app.quit());
