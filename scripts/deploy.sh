@@ -28,7 +28,7 @@ tar --force-local -czf ../hui.tgz app assets backlog data engine extension mocku
 CODE_V=$(git log -1 --format=%H -- code | cut -c1-12)
 tar --force-local -czf ../code.tgz --exclude=code/data --exclude=code/node_modules --exclude=code/desktop/node_modules --exclude=code/desktop/dist --exclude=code/scratch code
 scp -q ../hui.tgz ai-vps:/tmp/hui.tgz && scp -q ../code.tgz ai-vps:/tmp/code.tgz && rm ../hui.tgz ../code.tgz
-ssh ai-vps "CODE_V=$CODE_V bash -s" <<'BOX'
+ssh ai-vps "CODE_V=$CODE_V FORCE=${FORCE:-0} bash -s" <<'BOX'
 set -e
 # a reply may have started while the files were on their way: wait again right before the restart (up to 5 minutes)
 for i in $(seq 1 60); do n=$(curl -fs http://127.0.0.1:4400/healthz | grep -o '"busy":[0-9]*' | cut -d: -f2); [ "${n:-0}" = 0 ] && break; [ "$i" = 1 ] && echo "a reply started meanwhile; waiting for it…"; sleep 5; done
