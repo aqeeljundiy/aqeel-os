@@ -45,11 +45,17 @@ let active=null,profile=null,ses=null,downloads=null,frameRect=null,stageRect=nu
 function sessionFor(dir){let s;try{s=session.fromPath?session.fromPath(dir):null}catch{}if(!s)s=session.fromPartition('persist:code-'+crypto.createHash('sha1').update(dir).digest('hex').slice(0,16));
  // a plain Chrome to sites (Electron's own name left out of the user agent)
  s.setUserAgent(s.getUserAgent().replace(/\s(Electron|aqeelOS|aqeelos-desktop)\/\S+/gi,''));
- // microphone, camera, location and notifications: Code asks the person first in its own bar (see browser.mjs);
- // by the time Chrome asks here, the person has said yes
- s.setPermissionRequestHandler((wc,perm,cb)=>cb(['media','geolocation','notifications','clipboard-read','clipboard-sanitized-write','fullscreen'].includes(perm)));
+ // microphone, camera, location and notifications: Code asks the person first in its own bar (see browser.mjs) and
+ // remembers the answer per site in the project's browser-permissions.json; only a site the person said yes to gets
+ // them here, everything else (and reading the clipboard) is refused, never granted silently
+ s.setPermissionRequestHandler((wc,perm,cb,d)=>cb(sitePermit(wc,perm,d||{})));
+ s.setPermissionCheckHandler((wc,perm,origin,d)=>sitePermit(wc,perm,{...(d||{}),requestingUrl:(d&&d.requestingUrl)||origin,mediaTypes:d&&d.mediaType?[d.mediaType]:undefined}));
  s.on('will-download',(e,item)=>{if(!downloads)return;fs.mkdirSync(downloads,{recursive:true});let to=path.join(downloads,item.getFilename()),n=2;while(fs.existsSync(to)){const x=path.parse(item.getFilename());to=path.join(downloads,x.name+' ('+(n++)+')'+x.ext)}item.setSavePath(to)});
  return s}
+function sitePermit(wc,perm,d){if(perm==='fullscreen'||perm==='clipboard-sanitized-write')return true;
+ const kinds=perm==='media'?((d.mediaTypes&&d.mediaTypes.length?d.mediaTypes:['audio','video']).map(t=>t==='audio'?'audioCapture':t==='video'?'videoCapture':'').filter(Boolean)):perm==='geolocation'?['geolocation']:perm==='notifications'?['notifications']:null;
+ if(!kinds||!kinds.length||!profile)return false;let origin='';try{origin=new URL(d.requestingUrl||(wc&&wc.getURL())||'').origin}catch{return false}
+ const saved=read(path.join(path.dirname(profile),'browser-permissions.json'),{})[origin]||{};return kinds.every(k=>saved[k]==='granted')}
 async function targetOf(wc){wc.debugger.attach('1.3');try{return (await wc.debugger.sendCommand('Target.getTargetInfo')).targetInfo.targetId}finally{try{wc.debugger.detach()}catch{}}}
 async function newTab(url){if(!ses)ses=sessionFor(profile||path.join(app.getPath('userData'),'browser'));
  const view=new WebContentsView({webPreferences:{session:ses,contextIsolation:true,sandbox:true}});const wc=view.webContents;
