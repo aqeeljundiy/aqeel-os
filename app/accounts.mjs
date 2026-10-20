@@ -20,6 +20,8 @@ const MAIN={id:'main',label:'Main account',dir:path.join(HOME,'.claude')};
 // Set up a brand-new agent (plugin, model, gateway key); server.mjs also calls it for agents members create.
 export let setupAgentFn=null;
 export const export_setups={running:()=>0,wait:()=>Promise.resolve()};   // setups in progress, counted by /healthz so a deploy waits for them
+// for agent-defaults.mjs: copying skills, and what runs after a new agent is set up
+export const accountHooks={giveSkills:null,afterSetup:null};
 export function createAccounts(DATA){
  const FILE=path.join(DATA,'accounts.json');
  const load=async()=>{try{return JSON.parse(await readFile(FILE,'utf8'))}catch{return {accounts:[],assign:{},auto:{on:false,threshold:90},events:[]}}};
@@ -189,11 +191,12 @@ export function createAccounts(DATA){
  export_setups.running=()=>setups.size;export_setups.wait=n=>setups.get(n)||Promise.resolve();
 
  setupAgentFn=setupAgent;
+ accountHooks.giveSkills=giveSkills;
  return async function handle(req,res,p,send,readBody){
   if(p==='/ui/accounts/setup-agent'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const n=String(b.name||'');
    // a new agent starts with every skill the main agent has (once, here: skills removed later stay removed)
    if(!b.noSkills&&/^[a-z0-9][a-z0-9_-]{0,63}$/.test(n)&&n!=='default')await giveSkills(n).catch(e=>console.warn('skills for',n,e.message));
-   try{return send(res,200,await setupAgent(n))}catch(e){return send(res,400,{error:e.message})}}
+   try{const r=await setupAgent(n);accountHooks.afterSetup?.(n);return send(res,200,r)}catch(e){return send(res,400,{error:e.message})}}
   const d=await load();
   if(p==='/ui/accounts'&&req.method==='GET'){const fresh=new URL(req.url,'http://x').searchParams.has('fresh');const list=await Promise.all(all(d).map(a=>details(a,fresh)));
    const ag=await agents();const prov=await providers(fresh);const route=Object.fromEntries(await Promise.all(ag.map(async n=>[n,{entry:await entryOf(d,n),...await agentRoute(n)}])));

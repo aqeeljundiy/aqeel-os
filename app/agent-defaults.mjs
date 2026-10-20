@@ -1,0 +1,53 @@
+// What every agent gets from aqeelOS itself (decided 20 Oct 2026), not from each agent's own settings:
+//  - every tool bundle on every channel: its own screen and browser (logins through the lock box, downloads), web,
+//    files, terminal, code, images, voice, schedules; and all skills;
+//  - its own Linux user, unless it is one of the owner's trusted agents: its commands, files and code then run as that
+//    user over SSH to the box itself, so it can only reach its own folder (~/workspaces/<agent>), never the owner's
+//    sign-ins, keys, aqeelOS's data or other agents' folders. The box's root startup (scripts/agent-users.sh, started
+//    from the AI box's compose in Dokploy) makes those users for the names aqeelOS lists.
+// The owner's own accounts (Slack, Notion, Google and so on) are never handed out by these defaults; each agent can
+// connect apps with its own sign-in. Applied at every start (an engine update can reset settings) and to new agents.
+import {readFile,writeFile,mkdir,stat} from 'node:fs/promises';
+import path from 'node:path';
+import {homedir} from 'node:os';
+import {execFile} from 'node:child_process';
+import {setKey,readConfig,pick,agentNames,withAgent,HERMES_HOME} from './agentops.mjs';
+
+const PLATFORMS=['whatsapp','telegram','slack','discord','signal','api_server'];
+const bundle=p=>p==='api_server'?'hermes-api-server':'hermes-'+p;
+const run=(c,a)=>new Promise((res,rej)=>execFile(c,a,{timeout:30000},(e,o,er)=>e?rej(Error(String(er||e.message).trim())):res(String(o))));
+
+export function createAgentDefaults({DATA,giveSkills,log=m=>console.log(m)}){
+ const TRUST=path.join(DATA,'agent-trust.json'),ONCE=path.join(DATA,'once-all-skills.json');
+ const REQ=path.join(homedir(),'.aqeelos-agent-users'),KEY=path.join(HERMES_HOME,'agent-ssh','id_ed25519');
+ const userOf=a=>('ag-'+a).slice(0,32);
+ // the owner's own agents use the owner's accounts, so they keep the box's main user (the owner can change the list)
+ async function trusted(){try{return new Set(['default',...(JSON.parse(await readFile(TRUST,'utf8')).trusted||[])])}catch{
+  await writeFile(TRUST,JSON.stringify({trusted:['husband-mode','pixel-agent']},null,1)).catch(()=>{});return new Set(['default','husband-mode','pixel-agent'])}}
+ async function ensureKey(){if(await stat(KEY).catch(()=>null))return;await mkdir(path.dirname(KEY),{recursive:true,mode:0o700});await run('ssh-keygen',['-q','-t','ed25519','-N','','-f',KEY,'-C','aqeelos-agents'])}
+ // the box itself as a known SSH host (the agents' commands go to 127.0.0.1)
+ async function knownHost(){const f=path.join(homedir(),'.ssh','known_hosts');const cur=await readFile(f,'utf8').catch(()=>'');if(/^127\.0\.0\.1 /m.test(cur))return;
+  const k=await run('ssh-keyscan',['-T','5','-t','ed25519','127.0.0.1']).catch(()=>'');if(k.trim()){await mkdir(path.dirname(f),{recursive:true,mode:0o700});await writeFile(f,cur+(cur&&!cur.endsWith('\n')?'\n':'')+k)}}
+ // the root script makes a user for each name listed here (one per line) and writes the users it made to <file>.done
+ async function requestUsers(names){const want=[...names].sort().join('\n')+'\n';if((await readFile(REQ,'utf8').catch(()=>''))!==want)await writeFile(REQ,want)}
+ const ready=async a=>(await readFile(REQ+'.done','utf8').catch(()=>'')).split('\n').includes(userOf(a));
+ async function ensure(a){return withAgent(a,async()=>{const c=await readConfig(a).catch(()=>null);if(!c)return 0;const changes=[];
+  const own=!(await trusted()).has(a),ws=path.join(homedir(),'workspaces',a),isolated=own&&await ready(a);
+  // the full bundles include the terminal: an agent meant to have its own user gets them only once that user exists
+  const pts=pick(c,'platform_toolsets')||{};
+  if(!own||isolated)for(const p of PLATFORMS){const cur=[].concat(pts[p]||[]);if(!cur.includes(bundle(p)))changes.push(['platform_toolsets.'+p,[bundle(p),...cur]])}
+  if(pick(c,'bot_desktop.auto_start')!==true)changes.push(['bot_desktop.auto_start','true']);
+  if(isolated){const want={'terminal.backend':'ssh','terminal.ssh_host':'127.0.0.1','terminal.ssh_user':userOf(a),'terminal.ssh_port':'22','terminal.ssh_key':KEY,'terminal.cwd':ws};
+   for(const [k,v] of Object.entries(want))if(String(pick(c,k)??'')!==v)changes.push([k,v])}
+  else if(!own&&pick(c,'terminal.backend')==='ssh')changes.push(['terminal.backend','local']);
+  for(const [k,v] of changes)await setKey(a,k,v);
+  if(changes.length)log('agent defaults for '+a+': '+changes.map(x=>x[0]).join(', '));return changes.length})}
+ // every agent; all skills go to the existing agents once (later, only new agents get them, so removed skills stay removed)
+ async function all(){await ensureKey().catch(e=>log('agent key: '+e.message));await knownHost().catch(()=>{});const names=await agentNames(),tr=await trusted();
+  await requestUsers(names.filter(a=>!tr.has(a)));
+  if(!await stat(ONCE).catch(()=>null)){for(const a of names)if(a!=='default')await giveSkills(a).catch(()=>{});await writeFile(ONCE,JSON.stringify({at:Date.now()}))}
+  let n=0;for(const a of names)n+=await ensure(a).catch(e=>{log('agent defaults '+a+': '+e.message);return 0});return n}
+ // a new agent: its user (when it is not trusted), then the defaults
+ async function added(a){const names=await agentNames(),tr=await trusted();await requestUsers(names.filter(x=>!tr.has(x)));
+  if(!tr.has(a))for(let i=0;i<8&&!await ready(a);i++)await new Promise(r=>setTimeout(r,2000));return ensure(a)}
+ return {all,ensure,added,trusted,userOf}}

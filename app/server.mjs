@@ -5,7 +5,8 @@
 import {createServer,request as httpRequest} from 'node:http';
 import {readFile,stat,writeFile,mkdir,unlink,rename,realpath,readlink,copyFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
-import {createAccounts,setupAgentFn,export_setups} from './accounts.mjs';
+import {createAccounts,setupAgentFn,export_setups,accountHooks} from './accounts.mjs';
+import {createAgentDefaults} from './agent-defaults.mjs';
 import {createGemini} from './gemini.mjs';
 import {createAntigravity} from './antigravity.mjs';
 import {withAgent,setKey,readConfig,pick,agentNames,isAgent,busy as opsBusy,initStatus,getStatus,setStatus,editEnv,hermes as hcmd,python as enginePython,LIVE_APP} from './agentops.mjs';
@@ -169,6 +170,10 @@ async function identities(req,res,p){
 }
 
 const accountsApi=createAccounts(DATA);
+// every agent's defaults from aqeelOS itself (tools, screen and browser, skills, its own Linux user): at start and for new agents
+const agentDefaults=createAgentDefaults({DATA,giveSkills:n=>accountHooks.giveSkills?.(n)});
+accountHooks.afterSetup=n=>agentDefaults.added(n).catch(e=>console.warn('agent defaults',n,e.message));
+if(PORT===4400)setTimeout(()=>agentDefaults.all().then(n=>{if(n){console.log('agent defaults: '+n+' settings applied; restarting the agents when idle');restartGateway('agent defaults').catch(()=>{})}}).catch(e=>console.warn('agent defaults:',e.message)),60000);
 const mailer=createMail(DATA);
 const usage=createUsage(DASH.origin,DASH_TOKEN);
 const explain=createExplain(DATA,{python:enginePython,root});
@@ -692,7 +697,7 @@ const secretDir=base=>path.join(homedir(),'workspaces',base,'.secrets');
 const RESERVED_KEY=/^(API_SERVER_|HERMES_|TELEGRAM_|WHATSAPP_|SLACK_|DISCORD_|SIGNAL_|MATRIX_|EMAIL_|SMS_|TWILIO_|GATEWAY_|DASHBOARD_|UI_)|_BASE_URL$|^(PATH|HOME|NODE_OPTIONS|PYTHONPATH|LD_PRELOAD)$/;
 async function saveSecret(base,name,value,{admin=false}={}){if(!admin&&RESERVED_KEY.test(name))throw new Error(name+' is part of how aqeelOS itself is wired; pick another name for this secret.');const home=base==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',base);
  await editEnv(path.join(home,'.env'),cur=>{const lines=cur.split('\n').filter(l=>!l.startsWith(name+'='));while(lines.length&&lines[lines.length-1]==='')lines.pop();return [...lines,name+'='+value.replace(/[\r\n]/g,''),''].join('\n')});
- const dir=secretDir(base);await mkdir(dir,{recursive:true,mode:0o700});await writeFile(path.join(dir,name),value,{mode:0o600})}
+ const dir=secretDir(base);await mkdir(dir,{recursive:true,mode:0o770});await writeFile(path.join(dir,name),value,{mode:0o660})}   // group-shared: an agent with its own user reads its own lock box; still closed to other agents
 const secretHow=(base,name)=>'To enter it on your screen, click the field and call type_secret with name '+name+'. In a command use "$(cat ~/workspaces/'+base+'/.secrets/'+name+')". Never print, echo or show the value.';
 async function useSecret(rec,value,{admin=false}={}){
  if(rec.mode==='type'){await screens.typeInto(rec.base,value,{enter:rec.enter});return 'Typed it into the focused field on your screen'+(rec.enter?' and pressed Enter':'')+'. You never saw the value; take a screenshot to check the result.'}
