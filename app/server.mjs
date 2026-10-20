@@ -172,6 +172,8 @@ async function identities(req,res,p){
 
 const accountsApi=createAccounts(DATA);
 // every agent's defaults from aqeelOS itself (tools, screen and browser, skills, its own Linux user): at start and for new agents
+// the settings an agent may change for itself (my_settings): only everyday ones, never what it can reach
+const OWN_SETTINGS=/^(stt|tts).[a-z0-9_.]+$|^timezone$|^display.[a-z0-9_.]+$/;
 const agentDefaults=createAgentDefaults({DATA,giveSkills:n=>accountHooks.giveSkills?.(n)});
 accountHooks.afterSetup=n=>agentDefaults.added(n).catch(e=>console.warn('agent defaults',n,e.message));
 // at start, then every 10 minutes: agents made outside aqeelOS (by Claude, by another agent, from the command line) get them too
@@ -946,6 +948,15 @@ const server=createServer(async(req,res)=>{
     if(!a.project||!a.task)return reply('Give project (from code_projects) and task.',true);
     try{const r=await code.work(base,NAMES[base]||await displayName(base),String(a.project),String(a.task));console.log('code: '+base+' worked on',String(a.project).split(':')[1],'→',r.state);
      return reply((r.state==='complete'?'Done. ':r.state==='running'?'':'It did not finish ('+(r.state||'failed')+'). ')+(r.text||'')+(r.files?.length?'\n\nChanged files: '+r.files.slice(0,30).join(', '):''),r.state!=='complete'&&r.state!=='running')}catch(e){return reply(e.message,true)}}
+   // an agent changes its own everyday settings (voice notes, voice, time zone, how replies show) instead of sending the
+   // person to the owner; nothing here widens what it can reach (no tools, keys, terminal, browser or access settings)
+   if(signed&&msg.method==='tools/call'&&msg.params?.name==='my_settings'){const base=mn[1].split('--')[0],a=msg.params?.arguments||{},key=String(a.key||'').trim();
+    const reply=(text,isError)=>send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text}],...(isError?{isError:true}:{})}});
+    if(!OWN_SETTINGS.test(key))return reply('Only these can be changed this way: stt.* (voice notes, e.g. stt.language: "" = detect each time, "id", "en"), tts.* (your voice), timezone and display.*. Anything else goes through report_bottleneck.',true);
+    if(a.value===undefined){const c=await readConfig(base).catch(()=>null);return reply(key+' = '+JSON.stringify(pick(c,key)??null))}
+    const r=await setKey(base,key,a.value===null?'':a.value).catch(e=>({ok:false,out:e.message}));if(!r.ok)return reply('Could not change it: '+String(r.out||'').trim().slice(-300),true);
+    console.log('own settings: '+base+' set '+key);restartGateway(base+' changed its own '+key).catch(()=>{});
+    return reply('Saved '+key+' = '+JSON.stringify(a.value)+'. It takes effect from your next message (aqeelOS reloads the agents once no reply is running).')}
    // the guarded browser in aqeelOS Code on the agent owner's own computer (no extension; only the sites allowed there)
    if(signed&&msg.method==='tools/call'&&msg.params?.name==='computer_browser'){const base=mn[1].split('--')[0],a=msg.params?.arguments||{};const owner=users.agentOwner(base)||'owner';
     const reply=(text,isError)=>send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text}],...(isError?{isError:true}:{})}});
@@ -957,6 +968,7 @@ const server=createServer(async(req,res)=>{
     {name:'access_list',description:'What you have (apps, Google accounts, plugins, keys) and what the other agents have that you cannot use yet (names only, never values), plus your open access requests.',inputSchema:{type:'object',properties:{}}},
     {name:'request_access',description:'Ask to use something another agent has (from access_list): an app, a Google account, a plugin or a key. An admin decides under Bottlenecks; it is never shared without that. Use it when the work needs it, not just in case.',inputSchema:{type:'object',properties:{kind:{type:'string',enum:['mcp','google','plugin','key']},id:{type:'string',description:'id from access_list'},why:{type:'string',description:'one line: what you need it for'}},required:['kind','id','why']}},
     {name:'offer_access',description:'Offer something you have (from access_list) to another agent that needs it. An admin decides under Bottlenecks.',inputSchema:{type:'object',properties:{kind:{type:'string',enum:['mcp','google','plugin','key']},id:{type:'string'},to:{type:'string',description:'the other agent id'},why:{type:'string'}},required:['kind','id','to','why']}});
+   if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'my_settings',description:'Read or change your own everyday settings yourself, without asking the owner: voice notes (stt.language: "" detects the language each time, or a code like "id" or "en"; stt.*), your voice (tts.*), your time zone (timezone, e.g. Asia/Jakarta) and how replies show (display.*). Leave value out to read the current value. Do this when the person asks for such a change or a setting clearly gets in their way.',inputSchema:{type:'object',properties:{key:{type:'string',description:'e.g. stt.language, tts.provider, timezone'},value:{description:'the new value; leave out to read'}},required:['key']}});
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'report_bottleneck',description:'When you cannot do something because a person has to act first, report it once: access you are missing (a folder, a sheet, an account, a channel), a sign-in, a permission or a setting, or information only they have. Not for ordinary errors you can fix or work around yourself. Say what you were trying to do, what is missing, and what would fix it. It appears under Bottlenecks in aqeelOS with a fix button.',inputSchema:{type:'object',properties:{what:{type:'string',description:'What you were trying to do, in a few words'},missing:{type:'string',description:'What is missing, plainly (for example: access to the Finance folder in Google Drive)'},fix:{type:'string',description:'What would fix it (for example: share the folder with me, or connect Drive for me)'}},required:['missing']}});
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools)&&code.projectsFor(mn[1].split('--')[0]).length)out.body.result.tools.push(
     {name:'code_projects',description:'List the aqeelOS Code projects (apps, websites, decks, docs) you may work on, and where each lives.',inputSchema:{type:'object',properties:{}}},

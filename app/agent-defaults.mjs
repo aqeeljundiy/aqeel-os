@@ -47,6 +47,12 @@ export function createAgentDefaults({DATA,giveSkills,log=m=>console.log(m)}){
    // walled off in its own user, it gets every tool group: tool groups switched off for it earlier come back on
    if([].concat(pick(c,'agent.disabled_toolsets')||[]).length)changes.push(['agent.disabled_toolsets',[]])}
   else if(!own&&pick(c,'terminal.backend')==='ssh')changes.push(['terminal.backend','local']);
+  // voice notes: the language is detected each time, so every agent adapts to whoever speaks (the engine's own default
+  // forces English when an agent sets none), with the same speech model as the main agent
+  // aqeelOS's own tools for the agent (lock box, my_settings, browser choice, bottlenecks) are never cut down to a few
+  if(pick(c,'mcp_servers.aqeelos-notify.tools.include')!==undefined)changes.push(['mcp_servers.aqeelos-notify.tools',{}]);
+  if(pick(c,'stt.language')===undefined)changes.push(['stt.language','']);
+  if(a!=='default'&&pick(c,'stt.local.model')===undefined){const m=pick(await readConfig('default').catch(()=>null),'stt.local.model');if(m)changes.push(['stt.local.model',String(m)])}
   for(const [k,v] of changes)await setKey(a,k,v);
   if(changes.length)log('agent defaults for '+a+': '+changes.map(x=>x[0]).join(', '));return changes.length}
  // every agent always has every skill the main agent (Donna) has: missing ones are copied, the agent's own copies and
