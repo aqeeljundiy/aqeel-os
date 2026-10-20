@@ -51,7 +51,7 @@ export function createBrowserUI(ctx){
   const here=status.url&&/^https?:/.test(status.url)?(()=>{try{return new URL(status.url).hostname.replace(/^www\./,'')}catch{return ''}})():'';
   f.addEventListener('submit',e=>{e.preventDefault();const v=i.value.trim();if(v)setSites([...g.sites,v])});guardBox.append(list,f);
   if(here&&!/^(localhost|127\.0\.0\.1)$/.test(here)&&!g.sites.includes(here)){const b=el('button','ghost small','Allow '+here);b.type='button';b.addEventListener('click',()=>setSites([...g.sites,here]));guardBox.append(b)}}
- const tools=el('div','browser-tools');tools.append(sizes,rotate,dims,guardBtn,scheme);
+ const tools=el('div','browser-tools');tools.append(sizes,rotate,dims,scheme);   // no site list: the AI may open any website
  // while the AI works here: say so, with Take over; while you have it: Hand back
  const control=el('div','browser-control');control.setAttribute('aria-live','polite');const controlText=el('span','');const controlBtn=el('button','small');controlBtn.type='button';control.append(el('i','dot'),controlText,controlBtn);
  controlBtn.addEventListener('click',()=>call('/guard',{paused:!status.guard?.paused}));
@@ -66,7 +66,7 @@ export function createBrowserUI(ctx){
  view.addEventListener('mouseleave',()=>{outline.hidden=true});const activity=el('div','browser-activity');activity.setAttribute('aria-live','polite');
  const askBar=el('div','browser-ask');askBar.hidden=true;askBar.setAttribute('role','alert');
  const device=el('div','device-frame');device.hidden=true;device.setAttribute('aria-hidden','true');device.append(el('i','dev-notch'),el('i','dev-base'));stage.append(device);
- const BEZEL={mobile:{pad:12,base:0},tablet:{pad:16,base:0},laptop:{pad:12,base:20}};let fitSent=0,screenRect=null;
+ const BEZEL={mobile:{pad:14,base:0},tablet:{pad:18,base:0},laptop:{pad:12,base:22}};let fitSent=0,screenRect=null;
  function layoutDevice(){const p=status.preset||'desktop',b=BEZEL[p];stage.classList.toggle('device-on',Boolean(b));device.hidden=!b;device.dataset.kind=p;
   if(!b){screenRect=null;for(const k of ['position','left','top','width','height','maxWidth'])view.style[k]='';view.style.maxWidth=size.width+'px';return}
   const W=stage.clientWidth-28,H=stage.clientHeight-28,w=size.width,h=size.height;const s=Math.min(1,(W-2*b.pad)/w,(H-2*b.pad-b.base)/h);

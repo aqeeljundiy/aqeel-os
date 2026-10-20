@@ -82,7 +82,19 @@ const currentKind=()=>chat()?.kind||kindPick.get(chatId)||'auto';
 const STARTERS={task:['Find and save ','',0],app:['Build a website that ','',0],deck:['Make a slide deck about ','',1],doc:['Write a document about ','',1],design:['Design ','',1],research:['Research ',' and write a short report with sources',0],data:['Analyse the data in ',' and make charts',1],media:['Make an image of ','',0]};
 function insertStarter(id){const [a,b,useDS]=STARTERS[id]||['','',0];const ds=artifactsDS();const tail=b+(useDS&&ds?' using the '+ds+' design':'');
  const ta=$('chat-prompt');ta.value=a+tail;ta.dispatchEvent(new Event('input'));ta.focus();ta.setSelectionRange(a.length,a.length)}
-function startScreen(){const wrap=document.createElement('div');wrap.className='make-start';const k=currentKind();
+// no project yet: Code works inside a project folder, so the start screen asks for one first (the composer stays locked)
+function noProjectScreen(){const wrap=document.createElement('div');wrap.className='make-start no-project';
+ const h=document.createElement('h2');h.textContent='Start with a project';const p=document.createElement('p');p.textContent='Code works inside a project folder. Make one or open one you have, then chat.';
+ const ICON={empty:'<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M12 11v6M9 14h6"/>',folder:'<path d="M3 18V7a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v1"/><path d="M3 18l2.6-6.2A2 2 0 0 1 7.4 10.5H21l-2.8 7A2 2 0 0 1 16.3 19H4a1 1 0 0 1-1-1z"/>',clone:'<circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="8" r="2.2"/><path d="M6 8.2v7.6M18 10.2c0 4-6 3-10.5 6.3"/>'};
+ const clone=async()=>{try{const {accounts}=await api('/github/accounts');if(!accounts.length){gitUI.accountsDialog();notify('Sign in to GitHub first, then clone.');return}}catch{}gitUI.cloneDialog()};
+ const list=document.createElement('div');list.className='np-start';
+ for(const [key,name,text,run] of [['empty','New project','A fresh folder. Describe what to build.',()=>gitUI.newEmpty()],['folder','Open a folder','Work on files already on this computer.',()=>gitUI.openFolder()],['clone','Clone from GitHub','Copy a repository and work on it.',clone]]){
+  const b=document.createElement('button');b.type='button';b.className='np-row'+(key==='empty'?' main':'');const ic=document.createElement('span');ic.className='np-icon';ic.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true">'+ICON[key]+'</svg>';
+  const tx=document.createElement('span');tx.className='mt-t';const st=document.createElement('strong');st.textContent=name;const sm=document.createElement('small');sm.textContent=text;tx.append(st,sm);b.append(ic,tx);b.onclick=run;list.append(b)}
+ wrap.append(h,p,list);return wrap}
+// with no project the composer is locked and says why
+function lockComposer(){const none=!projectId||!project(),ta=$('chat-prompt');ta.disabled=none;$('chat-form').classList.toggle('no-project',none);if(none)ta.placeholder='Make or open a project first';$('send').disabled=none}
+function startScreen(){const wrap=document.createElement('div');wrap.className='make-start';const k=currentKind();if(!projectId||!project())return noProjectScreen();
  // What should Code do? Do a task (nothing to build), or make something; templates fold away; bring existing work stays small
  const h=document.createElement('h2');h.textContent='What should Code do?';const p=document.createElement('p');p.textContent='Pick one to start the sentence, or type anything below. One chat can do several things.';
  const pick=id=>insertStarter(id);
@@ -145,7 +157,7 @@ if(m.outputs?.length){const o=document.createElement('div');o.className='msg-out
  const lastAssistant=[...messages].reverse().find(m=>m.role==='assistant');if(lastAssistant?.mode==='plan'&&!lastAssistant.team&&messages.at(-1)===lastAssistant&&/(^|\n)\s*([-*]|\d+\.|#{1,3})\s/.test(lastAssistant.text||'')&&!agentUI.active(projectId,chatId)){const actions=document.createElement('div');actions.className='plan-actions';const build=document.createElement('button');build.className='primary';build.textContent='Build this plan';build.addEventListener('click',()=>{const back=modes[chatId+':before-plan']||'ask';$('mode').value=back;modes[chatId]=back;saveMode();$('chat-prompt').value='Go ahead and implement the plan above.';$('chat-form').requestSubmit()});const revise=document.createElement('button');revise.textContent='Revise the plan';revise.addEventListener('click',()=>{$('chat-prompt').focus()});actions.append(build,revise);$('messages').lastElementChild?.append(actions)}
  for(const panel of agentUI.panelsFor(chatId))$('messages').append(panel);$('messages').scrollTop=messages.length?$('messages').scrollHeight:0;setBusy();
   if(chatId!==shownChat){shownChat=chatId;const made=[...messages].reverse().find(m=>m.outputs?.length)?.outputs;if(made&&artifactsUI&&!$('artifacts-view').hidden)artifactsUI.show(made.at(-1))} // a chat opens the work it made
- $('chat-prompt').value=drafts[draftKey()]||'';paintKind();paintChapters();
+ $('chat-prompt').value=drafts[draftKey()]||'';paintKind();paintChapters();lockComposer();
 }
 // long chats with chapters get a small contents menu in the chat header
 function paintChapters(){let b=$('chapters-btn');const list=[...$('messages').querySelectorAll('.chat-chapter')];if(!list.length){b?.remove();return}if(!b){b=document.createElement('button');b.id='chapters-btn';b.type='button';b.className='icon-btn head-icon chapters-btn';b.title='Chapters';b.setAttribute('aria-label','Chapters');b.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>';$('new-chat').before(b);b.onclick=()=>openMenu(b,[...$('messages').querySelectorAll('.chat-chapter')].map(c=>({label:c.dataset.chapter,action:()=>c.scrollIntoView({behavior:'smooth',block:'start'})})),{anchor:b,label:'Chapters'})}}
@@ -175,7 +187,7 @@ function ensureArtifacts(){if(artifactsUI)return artifactsUI;artifactsUI=createA
   listChanged:()=>sidebar.render(),
   reveal:()=>{if($('artifacts-view').hidden)switchView('artifacts');mobile?.showWork()},badge:n=>{const b=$('artifacts-badge');b.hidden=!n;b.textContent=n?String(n):''}});
  artifactsUI.designSystems().then(list=>{dsNames=Object.fromEntries(list.map(d=>[d.id,d.name]));paintKind()}).catch(()=>{});return artifactsUI}
-function switchView(view){if(window.cbaDesktop&&view==='preview')view='browser';
+function switchView(view){if(view==='preview')view='browser';
  if(view==='browser'){browserUI??=createBrowserUI({attach:files=>composer.attach(files),insert:text=>insertMessage(text),container:()=>$('browser-view'),api:(r,b)=>api(r,b),token:()=>token,notify:t=>notify(t),visible:()=>!$('browser-view').hidden,onAiActivity:()=>{if($('browser-view').hidden)$('browser-badge').hidden=false}});$('browser-badge').hidden=true}
  if(view==='artifacts'){ensureArtifacts();$('artifacts-badge').hidden=true}
  for(const name of ['preview','artifacts','files','history','browser'])$(name+'-view').hidden=name!==view;for(const b of document.querySelectorAll('[data-view]')){b.classList.toggle('active',b.dataset.view===view);b.setAttribute('aria-current',b.dataset.view===view?'page':'false')}}
@@ -461,7 +473,7 @@ if(document.body.classList.contains('embed'))for(const [v,t,d] of [['ask','Ask m
 // One Browser tab. Its tab strip starts with the project's preview (pinned, with sizes, element picking, editing and
 // error reports) and then the real browser's tabs, where you and the AI open any other site. The AI's browsing
 // shows here as it happens. The old separate Preview and Browser tabs are now this one.
-{const tab=$('browser-tab');tab.hidden=true;let web=Boolean(window.cbaDesktop),primed=false;setTimeout(()=>{primed=true},4000);const sv=switchView;
+{const tab=$('browser-tab');tab.hidden=true;let web=true,primed=false;setTimeout(()=>{primed=true},4000);const sv=switchView;
  const pt=document.querySelector('button[data-view="preview"]');pt.firstChild.textContent='Browser';
  // the strip sits above both views: the preview tab first, then the browser's own tabs
  const bar=document.createElement('div');bar.className='web-tabs';$('preview-view').before(bar);
@@ -469,7 +481,7 @@ if(document.body.classList.contains('embed'))for(const [v,t,d] of [['ask','Ask m
  const dot=document.createElement('i');dot.className='preview-dot';lb.append(dot,document.createElement('span'));lead.append(lb);lb.addEventListener('click',()=>{if(window.cbaDesktop&&projectId){openWeb();ensureBrowser();browserUI.open(devUrl||previewBase+'/preview/'+projectId+'/');return}openProject()});   // in the aqeelOS app: the project opens in a real tab
  // the project's own tab says Your app, and is there only when the project has something to preview (a site or a dev server)
  let hasApp=false;
- const paintLead=()=>{if(!hasApp)return null;lb.lastChild.textContent='Your app';lb.title='Preview of '+(project()?.name||'this project');lead.classList.toggle('on',!web&&!window.cbaDesktop);lb.setAttribute('aria-selected',String(!web&&!window.cbaDesktop));return lead};
+ const paintLead=()=>{return null;lb.lastChild.textContent='Your app';lb.title='Preview of '+(project()?.name||'this project');lead.classList.toggle('on',!web&&!window.cbaDesktop);lb.setAttribute('aria-selected',String(!web&&!window.cbaDesktop));return lead};
  const checkApp=async()=>{if(!projectId){hasApp=false;browserUI?.paint();if(!web&&!$('preview-view').hidden)openWeb();return}try{const {files}=await api('/files?projectId='+projectId);hasApp=(files||[]).some(f=>/(^|\/)index\.html?$/i.test(f))||Boolean(devUrl)}catch{hasApp=true}
   browserUI?.paint();if(!hasApp&&!web&&!$('preview-view').hidden)openWeb()};
  {const rf=refreshFiles;refreshFiles=async(...a)=>{const r=await rf(...a);checkApp();return r}}
@@ -477,10 +489,10 @@ if(document.body.classList.contains('embed'))for(const [v,t,d] of [['ask','Ask m
    lead:paintLead,leadActive:()=>!web,onTabOpen:()=>{if(!web)openWeb()},
    onAiActivity:()=>{if(!primed)return;if(!$('preview-view').hidden||!$('browser-view').hidden)openWeb();else $('preview-badge').hidden=false}});bar.append(browserUI.strip)}return browserUI};
  const mark=()=>{const on=!$('preview-view').hidden||!$('browser-view').hidden;bar.hidden=!on;for(const b of document.querySelectorAll('[data-view="preview"]')){b.classList.toggle('active',on);b.setAttribute('aria-current',on?'page':'false')}};
- switchView=v=>{if(v==='preview'&&(web||window.cbaDesktop))v='browser';const show=v==='browser'&&$('browser-view').hidden;if(v==='browser'){web=true;ensureBrowser()}sv(v);if(show)browserUI.show();if(v==='preview'||v==='browser')$('preview-badge').hidden=true;mark();browserUI?.paint()};
+ switchView=v=>{if(v==='preview')v='browser';const show=v==='browser'&&$('browser-view').hidden;if(v==='browser'){web=true;ensureBrowser()}sv(v);if(show)browserUI.show();if(v==='preview'||v==='browser')$('preview-badge').hidden=true;mark();browserUI?.paint()};
  function openWeb(url){switchView('browser');if(url)Promise.resolve(browserUI.show()).then(()=>browserUI.open(url))}
  // in the aqeelOS app there is no framed preview: the project opens in a real browser tab instead
- function openProject(){if(window.cbaDesktop&&projectId){openWeb();ensureBrowser();const u=devUrl||previewBase+'/preview/'+projectId+'/';const t=browserUI.tabs?.()||[];if(!t.some(x=>String(x.url||'').startsWith(u)))browserUI.open(u);return}web=false;sv('preview');mark();browserUI?.paint()}
+ function openProject(){if(projectId){openWeb();ensureBrowser();const u=devUrl||previewBase+'/preview/'+projectId+'/';const t=browserUI.tabs?.()||[];if(!t.some(x=>String(x.url||'').startsWith(u)))browserUI.open(u);return}web=false;sv('preview');mark();browserUI?.paint()}
  {const sp=selectProject;selectProject=async(...a)=>{const r=await sp(...a);browserUI?.paint();return r}}
  // the AI badge, when it browses while another workspace tab is open
  const badge=document.createElement('span');badge.className='tab-badge';badge.id='preview-badge';badge.hidden=true;badge.textContent='AI';pt.append(badge);
@@ -729,5 +741,5 @@ function publishProject(p){const d=document.createElement('dialog');d.className=
 // costs in the currency aqeelOS uses (US dollars unless the person or the company picked rupiah)
 function costText(usd){let c={code:'USD'};try{c=JSON.parse(localStorage.getItem('cba-currency')||'{}')}catch{}if(c.code==='IDR'){const v=usd*(c.rate||16500);return v<1?'<Rp1':'Rp'+Math.round(v).toLocaleString('id-ID')}return '$'+Number(usd).toFixed(2)}
 
-// the aqeelOS app opens on its real browser (there is no framed preview there)
-if(window.cbaDesktop)setTimeout(()=>{try{switchView('browser');}catch{}},300);
+// Code opens on the side browser: the project's preview is one of its tabs (no separate Your app view)
+setTimeout(()=>{try{switchView('browser');}catch{}},300);

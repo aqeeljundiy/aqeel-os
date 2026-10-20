@@ -1565,3 +1565,33 @@ body.embed .aq-choices>.agent-chip .av{width:22px;height:22px}
 .work-heading nav{display:flex;min-width:0;overflow-x:auto;scrollbar-width:none}.work-heading nav::-webkit-scrollbar{display:none}.work-heading nav .tab{flex:none}
 .work-heading{container-type:inline-size}
 @container (max-width:520px){.work-heading nav .tab{padding-left:8px;padding-right:8px;font-size:13px}}
+
+/* the side browser shows the page, not a log of every action */
+.browser-activity{display:none!important}
+/* devices, refined: a metal body with a soft edge (it reads on light and dark), the island inside the screen, side buttons */
+.device-frame{background:linear-gradient(150deg,#4a4e57 0%,#25272d 38%,#17181c 100%);box-shadow:0 0 0 1px rgba(255,255,255,.10),inset 0 0 0 1.5px rgba(255,255,255,.14),inset 0 0 0 4px #0c0d10,0 40px 80px -40px rgba(0,0,0,.65)}
+.device-frame[data-kind=mobile]{border-radius:52px}
+.device-frame[data-kind=mobile] .dev-notch{top:calc(var(--pad) + 9px);width:92px;height:26px;margin-left:-46px;border-radius:14px;background:#050506;box-shadow:inset 0 0 0 1px rgba(255,255,255,.05)}
+.device-frame[data-kind=mobile]::before,.device-frame[data-kind=mobile]::after{content:'';position:absolute;width:3px;border-radius:2px;background:linear-gradient(#5a5e68,#2f3238)}
+.device-frame[data-kind=mobile]::before{left:-3px;top:18%;height:56px;box-shadow:0 70px 0 #3b3e45}
+.device-frame[data-kind=mobile]::after{right:-3px;top:24%;height:84px}
+.device-frame[data-kind=tablet]{border-radius:34px}
+.device-frame[data-kind=tablet]::after{content:'';position:absolute;left:50%;top:7px;width:6px;height:6px;margin-left:-3px;border-radius:50%;background:#0b0c0f;box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
+.device-frame[data-kind=laptop]{border-radius:16px 16px 6px 6px}
+.device-frame[data-kind=laptop] .dev-base{left:-8%;right:-8%;height:22px;border-radius:2px 2px 16px 16px;background:linear-gradient(#d4d7dd,#9fa3ab);box-shadow:0 18px 30px -18px rgba(0,0,0,.6)}
+.browser-stage.device-on .browser-view{border-radius:10px}
+.browser-stage.device-on:has(.device-frame[data-kind=mobile]) .browser-view{border-radius:38px}
+.browser-stage.device-on:has(.device-frame[data-kind=tablet]) .browser-view{border-radius:16px}
+/* no project yet: three clear ways in, the composer locked until one is picked */
+.make-start.no-project{width:100%;max-width:440px;margin:auto;align-self:center;text-align:center;box-sizing:border-box}
+.make-start.no-project>p{color:var(--muted);margin:0 0 18px}
+.np-start{display:grid;gap:8px;width:100%;text-align:left}
+.np-row{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:12px 14px;border:1px solid var(--border);border-radius:14px;background:var(--surface);color:var(--ink);font:inherit;cursor:pointer;opacity:0;animation:arrive .3s ease-out forwards;transition:border-color .2s ease,box-shadow .2s ease,transform .2s ease}
+.np-row:nth-child(2){animation-delay:.05s}.np-row:nth-child(3){animation-delay:.1s}
+.np-row:hover{border-color:var(--blue);transform:translateY(-1px);box-shadow:0 6px 18px -10px rgba(0,0,0,.45)}
+.np-row:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.np-row .np-icon{flex:none;width:38px;height:38px;background:var(--soft,var(--surface));border:1px solid var(--border)}
+.np-row.main .np-icon{background:var(--blue-soft);color:var(--blue);border-color:transparent}
+.np-row .np-icon svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.np-row .mt-t{display:grid;gap:2px}.np-row small{color:var(--muted);font-size:12.5px}
+#chat-form.no-project{opacity:.6;transition:opacity .2s ease}#chat-form.no-project textarea{cursor:not-allowed}

@@ -117,5 +117,5 @@ export function createGitUI(ctx){
   add.onclick=async()=>{add.disabled=true;try{const before=(await load()).length;const {code}=await ctx.api('/github/account/add',{});status.hidden=false;status.textContent='Your browser opened github.com. Enter the code '+code+' there and approve. This window updates when it is done.';
     poll=setInterval(async()=>{const now=await load();if(now.length>before){clearInterval(poll);status.textContent='Signed in. Switch accounts above.';add.disabled=false}},3000)}catch(e){ctx.notify(e.message);add.disabled=false}};
   await load()}
- return {refresh,newProjectMenu,cloneDialog,publish,accountsDialog};
+ return {refresh,newProjectMenu,cloneDialog,publish,accountsDialog,newEmpty:()=>ctx.newEmpty(),openFolder};
 }
