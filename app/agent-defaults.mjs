@@ -1,7 +1,7 @@
 // What every agent gets from aqeelOS itself (decided 20 Oct 2026), not from each agent's own settings:
 //  - every tool bundle on every channel: its own screen and browser (logins through the lock box, downloads), web,
 //    files, terminal, code, images, voice, schedules; and all skills;
-//  - its own Linux user, unless it is one of the owner's trusted agents: its commands, files and code then run as that
+//  - its own Linux user (every agent but the main one, now and any made later; decided 20 Oct 2026): its commands, files and code then run as that
 //    user over SSH to the box itself, so it can only reach its own folder (~/workspaces/<agent>), never the owner's
 //    sign-ins, keys, aqeelOS's data or other agents' folders. The box's root startup (scripts/agent-users.sh, started
 //    from the AI box's compose in Dokploy) makes those users for the names aqeelOS lists.
@@ -21,9 +21,9 @@ export function createAgentDefaults({DATA,giveSkills,log=m=>console.log(m)}){
  const TRUST=path.join(DATA,'agent-trust.json'),SEEN=path.join(DATA,'agents-seen.json');
  const REQ=path.join(homedir(),'.aqeelos-agent-users'),KEY=path.join(HERMES_HOME,'agent-ssh','id_ed25519');
  const userOf=a=>('ag-'+a).slice(0,32);
- // the owner's own agents use the owner's accounts, so they keep the box's main user (the owner can change the list)
+ // only the main agent keeps the box's main user; agent-trust.json may name others, but by default it names none
  async function trusted(){try{return new Set(['default',...(JSON.parse(await readFile(TRUST,'utf8')).trusted||[])])}catch{
-  await writeFile(TRUST,JSON.stringify({trusted:['husband-mode','pixel-agent']},null,1)).catch(()=>{});return new Set(['default','husband-mode','pixel-agent'])}}
+  await writeFile(TRUST,JSON.stringify({trusted:[]},null,1)).catch(()=>{});return new Set(['default'])}}
  async function ensureKey(){if(await stat(KEY).catch(()=>null))return;await mkdir(path.dirname(KEY),{recursive:true,mode:0o700});await run('ssh-keygen',['-q','-t','ed25519','-N','','-f',KEY,'-C','aqeelos-agents'])}
  // the box itself as a known SSH host (the agents' commands go to 127.0.0.1)
  async function knownHost(){const f=path.join(homedir(),'.ssh','known_hosts');const cur=await readFile(f,'utf8').catch(()=>'');if(/^127\.0\.0\.1 /m.test(cur))return;
@@ -42,7 +42,9 @@ export function createAgentDefaults({DATA,giveSkills,log=m=>console.log(m)}){
   if(isolated){const want={'terminal.backend':'ssh','terminal.ssh_host':'127.0.0.1','terminal.ssh_user':userOf(a),'terminal.ssh_port':'22','terminal.ssh_key':KEY,'terminal.cwd':ws};
    // its browser is the Chrome on its own screen, which runs as its user; the engine then starts no screen of its own for it
    const port=await chromePort(a);if(port){want['browser.cdp_url']='http://127.0.0.1:'+port;want['bot_desktop.auto_start']='false'}
-   for(const [k,v] of Object.entries(want))if(String(pick(c,k)??'')!==v)changes.push([k,v])}
+   for(const [k,v] of Object.entries(want))if(String(pick(c,k)??'')!==v)changes.push([k,v]);
+   // walled off in its own user, it gets every tool group: tool groups switched off for it earlier come back on
+   if([].concat(pick(c,'agent.disabled_toolsets')||[]).length)changes.push(['agent.disabled_toolsets',[]])}
   else if(!own&&pick(c,'terminal.backend')==='ssh')changes.push(['terminal.backend','local']);
   for(const [k,v] of changes)await setKey(a,k,v);
   if(changes.length)log('agent defaults for '+a+': '+changes.map(x=>x[0]).join(', '));return changes.length})}
