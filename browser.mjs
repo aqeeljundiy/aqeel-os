@@ -125,7 +125,9 @@ export class SideBrowser{
   ws.onopen=async()=>{try{await this.send('Page.enable');await this.send('Runtime.enable');await this.send('Page.addScriptToEvaluateOnNewDocument',{source:ONE_VIEW}).catch(()=>{});await this.send('Page.setDownloadBehavior',this.downloads?{behavior:'allow',downloadPath:this.downloads}:{behavior:'deny'}).catch(()=>{});await this.send('Runtime.addBinding',{name:'__cbaPerm'}).catch(()=>{});await this.send('Page.addScriptToEvaluateOnNewDocument',{source:PERM_JS}).catch(()=>{});await this.send('Page.setInterceptFileChooserDialog',{enabled:true}).catch(()=>{});await this.applyView();resolve()}catch(e){reject(e)}};
   ws.onerror=()=>reject(Error('Could not connect to the browser.'));ws.onclose=()=>{if(this.ws===ws)this.state='stopped'};
   ws.onmessage=ev=>{if(this.ws!==ws)return;const m=JSON.parse(ev.data);if(m.id&&this.pending.has(m.id)){const p=this.pending.get(m.id);this.pending.delete(m.id);m.error?p.reject(Error(m.error.message)):p.resolve(m.result);return}
-   if(m.method==='Page.screencastFrame'){this.frame=Buffer.from(m.params.data,'base64');this.frameSeq++;this.send('Page.screencastFrameAck',{sessionId:m.params.sessionId}).catch(()=>{});for(const w of this.waiters.splice(0))w()}
+   if(m.method==='Page.screencastFrame'){this.frame=Buffer.from(m.params.data,'base64');this.frameSeq++;this.send('Page.screencastFrameAck',{sessionId:m.params.sessionId}).catch(()=>{});for(const w of this.waiters.splice(0))w();
+    // the live stream comes at the page's size; once the page holds still, a full-resolution picture replaces it (sharp text)
+    if((this.dpr||1)>1){clearTimeout(this.sharpT);this.sharpT=setTimeout(()=>{if(this.ws!==ws)return;this.send('Page.captureScreenshot',{format:'jpeg',quality:92}).then(r=>{if(this.ws!==ws||!r?.data)return;this.frame=Buffer.from(r.data,'base64');this.frameSeq++;for(const w of this.waiters.splice(0))w()}).catch(()=>{})},350)}}
    if(m.method==='Page.frameNavigated'&&!m.params.frame.parentId){this.url=m.params.frame.url}
    if(m.method==='Page.loadEventFired')this.refreshTitle()
    // a page asking for a file from this computer gets none; downloads are refused too (set below)
