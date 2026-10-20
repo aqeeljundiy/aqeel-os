@@ -9,7 +9,8 @@ PAGES.branding=async(p,el)=>{const b=await UI('/ui/brand');setActions('');
   <div class="brand-prev"><div class="bp light"><span class="wordmark"><img class="mark" src="${esc(Brand.mark())}" alt="">${esc(b.name)}</span></div><div class="bp dark"><span class="wordmark"><img class="mark" src="${esc(Brand.mark())}" alt="">${esc(b.name)}</span></div></div>
   <div class="row-in" style="margin-top:12px"><button data-act="brand-logo">${icon('upload',15)}Upload logo</button>${b.logo?'<button class="ghost" data-act="brand-logo-reset">Use the default logo</button>':''}<input type="file" id="brFile" accept=".svg,image/svg+xml,image/png" hidden></div>
   <p class="hint" style="margin-top:14px">Updates keep coming to this install, and they never reset its name or logo.</p></div>`;
- $('#brFile').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const r=await fetch('/ui/brand/logo',{method:'POST',headers:{'content-type':f.type||'application/octet-stream','x-hui':'1'},body:f});const j=await r.json();if(!r.ok)throw Error(j.error||'Upload failed');await Brand.load();toast('Logo saved');reload()}catch(er){fail(er)}};
+ $('#brFile').onchange=async e=>{const f=e.target.files[0];if(!f)return;const ub=$('[data-act="brand-logo"]'),was=ub?.innerHTML;if(ub){ub.disabled=true;ub.classList.add('is-busy');ub.textContent='Uploading…'}
+  try{const r=await fetch('/ui/brand/logo',{method:'POST',headers:{'content-type':f.type||'application/octet-stream','x-hui':'1'},body:f});const j=await r.json();if(!r.ok)throw Error(j.error||'Upload failed');await Brand.load();toast('Logo saved');reload()}catch(er){fail(er)}finally{if(ub?.isConnected){ub.disabled=false;ub.classList.remove('is-busy');ub.innerHTML=was}}};
 };
 ACT['brand-name']=async()=>{try{await UI('/ui/brand',{method:'POST',body:{name:$('#brName').value.trim()}});await Brand.load();toast('Name saved: everything now says '+Brand.name);location.reload()}catch(e){fail(e)}};
 ACT['brand-logo']=()=>$('#brFile').click();

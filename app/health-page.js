@@ -9,7 +9,9 @@
   const drawStatus=async()=>{const b=document.createElement('div');b.hidden=true;document.body.append(b);try{await oldStatus(p,b,r)}catch(e){b.remove();throw e}
    if(stale()||!sBox.isConnected){b.remove();return}clearTimeout(Pages._statusT);
    for(const l of b.querySelectorAll('.card.list'))if(/Recent sessions/.test(l.querySelector('.list-head')?.textContent||''))l.remove();
-   b.querySelectorAll('.two').forEach(t=>{if(t.children.length===1)t.classList.remove('two')});b.hidden=false;sBox.replaceChildren(b)};
+   b.querySelectorAll('.two').forEach(t=>{if(t.children.length===1)t.classList.remove('two')});
+   // the 15-second refresh swaps in new cards: only the first draw plays the entrance animation
+   if(!sBox.querySelector('.skel'))b.querySelectorAll('.stat,.row,.card,.panel').forEach(x=>x.style.animation='none');b.hidden=false;sBox.replaceChildren(b)};
   const hb=document.createElement('div');hb.hidden=true;document.body.append(hb);
   await Promise.all([drawStatus(),oldHost(p,hb,r).then(()=>{if(stale()){hb.remove();return}hb.hidden=false;hBox.replaceChildren(hb)},e=>{hb.remove();hBox.innerHTML=`<p class="err-line">${esc(e.message)}</p>`})]);
   if(stale())return;
