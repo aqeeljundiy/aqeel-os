@@ -329,7 +329,7 @@ ACT['wh-new-pre']=0;
    try{const r=await post(UI,'/ui/channels/pause',{agent:from,platform:pf,on:false});toast(what+' paused'+(r.restarting?' · the engine restarts once':''));reload()}catch(e){fail(e);s.value=was}return}
   if(to===from){try{const r=await post(UI,'/ui/channels/pause',{agent:from,platform:pf,on:true});toast(ident(from).name+' answers '+what+' again'+(r.restarting?' (the engine restarts once)':''));reload()}catch(e){fail(e);s.value=was}return}
   if(!await confirmBox('Move this channel to '+ident(to).name+'?',ident(to).name+' will answer it from now on. Its settings and approved people move along; the channel restarts for a few seconds.','Move',false)){s.value=from;return}
-  try{await post(UI,'/ui/channels/move',{platform:s.dataset.chmove,from,to});toast('Moved. '+ident(to).name+' answers it now.');reload()}catch(e){fail(e);s.value=from}})}}
+  try{const r=await post(UI,'/ui/channels/move',{platform:s.dataset.chmove,from,to});r?.on===false?toast('Moved, but '+ident(to).name+' couldn’t switch it on. Switch it on under Connections.','err'):toast('Moved. '+ident(to).name+' answers it now.');reload()}catch(e){fail(e);s.value=from}})}}
 
 /* ---------- Used by / Share with other agents (skills, MCP tools, plugins, schedules) ---------- */
 const SHARE_KIND_LABEL={skill:'skill',mcp:'MCP tool',plugin:'plugin',schedule:'schedule'};
