@@ -1474,7 +1474,8 @@ div.skel:not(.loading)::after{content:'';width:26px;height:26px;border-radius:50
 /* memory sections open and close smoothly (height where the browser can, a fade everywhere) */
 .aam-more{interpolate-size:allow-keywords}.aam-more::details-content{block-size:0;overflow:hidden;transition:block-size var(--t-med) var(--ease),content-visibility var(--t-med) allow-discrete}.aam-more[open]::details-content{block-size:auto}
 .aam-more[open]>:not(summary){animation:fade var(--t-med) var(--ease) both}
-@media (max-width:760px){.all-view .all-row .txt>span:not(.aam-ags){white-space:normal;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}}
+@media (max-width:760px){.all-view .all-row .txt>span:not(.aam-ags){white-space:normal;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
+ .aam-ags{gap:4px;margin-top:6px}.aam-ag{height:26px;padding:0 8px 0 3px;font-size:12px}}
 .aam-who{font-weight:600;color:var(--accent,var(--ink))}
 
 /* Bottlenecks always in the top bar; quiet when nothing is stuck */
