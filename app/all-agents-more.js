@@ -30,10 +30,10 @@ Object.assign(ALLVIEW,{
   let t;$('#skQ').oninput=e=>{clearTimeout(t);t=setTimeout(()=>{S.skillQ=e.target.value;S._skReuse=true;PAGES.skills(p,el).then(()=>{const i=$('#skQ');if(i){i.focus();i.setSelectionRange(i.value.length,i.value.length)}})},200)}},
  async memory(p,el){setActions('');const list=await viewAgents();
   const home=a=>'/home/claude/.hermes'+(a==='default'?'':'/profiles/'+a)+'/memories/';
-  const read=async f=>{try{return (await readText(f)).text}catch{return null}};
+  const read=memRead;
   const per=await Promise.all(list.map(async a=>({a,mem:await read(home(a)+'MEMORY.md'),user:await read(home(a)+'USER.md')})));
   const n=t=>String(t||'').split(/\n\s*§\s*\n|^\s*§\s*$/m).map(x=>x.trim()).filter(Boolean).length;
-  el.innerHTML=`<div class="all-view">${per.map(({a,mem,user},i)=>`<div class="panel card" ${st(i)}><h2 class="h-row"><span class="aam-h">${Access.av({id:a,name:ident(a).name},24)}${esc(ident(a).name)}</span>${allOpen(a,'Open')}</h2><p class="sub">${n(mem)} notes about its work · ${n(user)} about you</p>
+  el.innerHTML=`<div class="all-view">${per.map(({a,mem,user},i)=>`<div class="panel card" ${st(i)}><h2 class="h-row"><span class="aam-h">${Access.av({id:a,name:ident(a).name},24)}${esc(ident(a).name)}</span>${allOpen(a,'Open')}</h2><p class="sub">${mem?.err||user?.err?'Couldn’t load some of its notes':n(mem)+' notes about its work · '+n(user)+' about you'}</p>
    <details class="aam-more"><summary>What it has learned</summary>${memCards(mem)}</details><details class="aam-more"><summary>What it knows about you</summary>${memCards(user)}</details></div>`).join('')}</div>`},
  async files(p,el){setActions('');const list=await viewAgents();
   const per=await Promise.all(list.map(async a=>{const path='/home/claude/workspaces/'+a;return {a,path,d:await H('/files'+qp({path})).catch(()=>null)}}));
