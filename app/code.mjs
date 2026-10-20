@@ -76,4 +76,7 @@ export function createCode({DATA,SRC,PUBLIC_URL,ROOT}){
  async function runs(days,uid){const since=Date.now()-days*86400e3;const out={byPerson:{},byAgent:{},byProject:{}};let text='';try{text=await readFile(RUNS,'utf8')}catch{}
   for(const l of text.split('\n')){if(!l)continue;let r;try{r=JSON.parse(l)}catch{continue}if(r.time<since||(uid&&r.user!==uid))continue;
    for(const [m,k] of [['byPerson',r.user],['byAgent',r.agent||'(no agent)'],['byProject',r.project||'(unnamed)']]){const o=out[m][k]??={runs:0,input:0,output:0,cache:0};o.runs++;o.input+=r.input;o.output+=r.output;o.cache+=r.cache}}return out}
- return {addRun,runs,computerOf,browse,usedToday,addUsage,pair,who,devices,unpair,version,update,download,poll,done,projectsFor,work}}
+ // what a computer's Code has connected (GitHub accounts, tool servers), shown under Connected apps › Code
+ async function report(dev,r){await load();const e=Object.entries(db.devices).find(([h])=>h.slice(0,16)===dev.key);if(!e)return;e[1].report={at:Date.now(),github:(Array.isArray(r.github)?r.github:[]).slice(0,10).map(a=>({user:String(a.user||'').slice(0,60),active:Boolean(a.active)})),mcp:(Array.isArray(r.mcp)?r.mcp:[]).slice(0,40).map(m=>String(m).slice(0,60)),version:String(r.version||'').slice(0,40)};await save()}
+ async function allDevices(){await load();return Object.entries(db.devices).map(([h,d])=>({id:h.slice(0,12),name:d.name,user:d.user,last:d.last,report:d.report||null}))}
+ return {report,allDevices,addRun,runs,computerOf,browse,usedToday,addUsage,pair,who,devices,unpair,version,update,download,poll,done,projectsFor,work}}
