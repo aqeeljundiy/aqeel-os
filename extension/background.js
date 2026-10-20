@@ -173,7 +173,7 @@ function snapshot(full){
   if(e.isContentEditable)return 'textbox';if(/^h[1-6]$/.test(t))return 'heading';return t};
  const nameOf=e=>{const l=e.getAttribute('aria-label');if(l)return text(l);const lb=e.getAttribute('aria-labelledby');if(lb){const n=lb.split(' ').map(id=>document.getElementById(id)?.innerText||'').join(' ');if(n.trim())return text(n)}
   if(e.id){const f=document.querySelector('label[for="'+CSS.escape(e.id)+'"]');if(f)return text(f.innerText)}const pl=e.closest('label');if(pl&&pl!==e)return text(pl.innerText);
-  return text(e.innerText||e.value||e.getAttribute('placeholder')||e.getAttribute('title')||e.getAttribute('alt')||'')};
+  return text(e.innerText||(e.type==='password'?'':e.value)||e.getAttribute('placeholder')||e.getAttribute('title')||e.getAttribute('alt')||'')};
  const SEL='a[href],button,input:not([type=hidden]),select,textarea,[role=button],[role=link],[role=checkbox],[role=radio],[role=tab],[role=menuitem],[role=option],[role=combobox],[role=textbox],[role=switch],[contenteditable=true],[onclick],summary';
  const lines=['Page: '+text(document.title)+' ('+location.href+')'];let n=0;
  const walk=el=>{for(const e of el.children){if(n>=500)return;const tag=e.tagName.toLowerCase();if(['script','style','noscript','svg','template','aqeelos-layer'].includes(tag))continue;
@@ -187,7 +187,7 @@ function snapshot(full){
  walk(document.body||document.documentElement);if(n>=500)lines.push('(more elements below: scroll and take a new snapshot)');
  return {text:lines.join('\n'),count:n,captcha,captchaFrame,title:text(document.title||location.hostname)}}
 async function clickRef(ref,st){const e=document.querySelector('[data-aq-ref="'+ref+'"]');if(!e)return {ok:false,error:'element '+ref+' isn’t on the page any more (the page changed). Take a new snapshot.'};
- e.scrollIntoView({block:'center',behavior:'instant'});const name=String(e.getAttribute('aria-label')||e.innerText||e.value||e.title||'').replace(/\s+/g,' ').trim().slice(0,40);
+ e.scrollIntoView({block:'center',behavior:'instant'});const name=String(e.getAttribute('aria-label')||e.innerText||(e.type==='password'?'':e.value)||e.title||'').replace(/\s+/g,' ').trim().slice(0,40);
  if(window.__aq){window.__aq.set({...st,text:(st.agent||'The agent')+' is clicking '+(name?'“'+name+'”':'a button')});await window.__aq.move(e.getBoundingClientRect(),true)}
  if(!e.isConnected)return {ok:false,error:'element '+ref+' disappeared just before the click. Take a new snapshot.'};
  const r=e.getBoundingClientRect(),o={bubbles:true,cancelable:true,composed:true,clientX:r.left+r.width/2,clientY:r.top+r.height/2,button:0,view:window};
