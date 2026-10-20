@@ -260,7 +260,7 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
    // the first signed-in coding AI does it; if it fails (a busy sign-in, a limit), the next one tries once
    let run;for(const provider of ready.slice(0,2)){run=startAgent({projectId:p.id,chatId:c.id,provider,model:'',effort:'',mode:'auto',kind:'app',agent:job.agent,prompt:job.task});await run.finished;if(run.state!=='failed')break}
    return {state:run.state,text:run.result?.text||run.error||'',files:run.changed||[],chat:c.id}}});
- aqeelos?.autoUpdate(()=>[...agents.values()].some(live));
+ aqeelos?.autoUpdate(()=>[...agents.values()].some(live)||[...builds.values(),...commands.values()].some(j=>j.state==='running')||[...dev.servers.values()].some(s=>s.state==='running'));
  // tell aqeelOS what this computer's Code has connected (shown under Connected apps › Code)
  {const tellAqeelos=async()=>{try{let github=[];const gh=await locate('gh',findExecutable).catch(()=>null);if(gh){const r=await tool(gh,['auth','status','--hostname','github.com'],{env,timeout:20000}).catch(()=>null);if(r)github=parseAccounts(r.stdout+'\n'+r.stderr)}
    const s=await readSettings();await aqeelos?.report({github,mcp:(s.mcpServers||[]).filter(m=>m.enabled!==false).map(m=>m.name)})}catch{}};

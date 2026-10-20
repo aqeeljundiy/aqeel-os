@@ -2,7 +2,7 @@
 // Pairing: aqeelOS hands this app its own key through the page (no password typed here). The key lets the app's
 // runs reach the person's aqeelOS agents with all their abilities (aqeelos-mcp.mjs), and lets the app update itself.
 // Only the aqeelOS address this copy came from (aqeelos.json, written by the download) may show the app in a frame.
-import {readFile,writeFile,mkdir,access} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,access,unlink} from 'node:fs/promises';
 import {spawn} from 'node:child_process';
 import path from 'node:path';
 
@@ -39,15 +39,20 @@ export function createAqeelos({root}){
     current version; when it differs and no AI run is working, it fetches the new files, keeps its data, installs new
     dependencies if the list changed, and exits; the starter (Windows) or launchd (Mac) brings it back up at once. */
  let updating=false,busyNow=()=>false;
+ // dependencies an update needs: installed before it counts as done; a failed install is tried again on the next check
+ const PENDING=path.join(root,'data','.deps-pending'),has=f=>access(f).then(()=>true,()=>false);
+ const npmInstall=()=>new Promise(res=>{const p=spawn(process.platform==='win32'?'npm.cmd':'npm',['install','--no-audit','--no-fund','--loglevel=error'],{cwd:root,shell:process.platform==='win32',stdio:'ignore'});p.on('exit',c=>res(c));p.on('error',()=>res(-1))});
  async function checkUpdate(busy=busyNow){await load();if(updating||!link.token||!install.version||process.env.CBA_NO_UPDATE)return {state:'off'};if(await access(path.join(root,'.git')).then(()=>true,()=>false)||await access(path.join(root,'..','.git')).then(()=>true,()=>false))return {state:'dev'};
+  if(await has(PENDING)&&!busy()){updating=true;try{if(await npmInstall()===0)await unlink(PENDING).catch(()=>{})}finally{updating=false}}
   const h={authorization:'Bearer '+link.token};const v=await fetch(link.base+'/ui/code/version',{headers:h,signal:AbortSignal.timeout(15000)}).then(r=>r.json()).catch(()=>({}));
   if(!v.version||v.version===install.version)return {state:'current',version:install.version};if(busy())return {state:'waiting',version:v.version};
   updating=true;try{const r=await fetch(link.base+'/ui/code/update',{headers:h,signal:AbortSignal.timeout(300000)});if(!r.ok)throw Error('aqeelOS answered '+r.status);const buf=Buffer.from(await r.arrayBuffer());
    const before=await readFile(path.join(root,'package.json'),'utf8').catch(()=>'');let n=0;
    for(const [name,data] of unzip(buf)){if(/^(data|node_modules|projects|outputs)\//.test(name)||name.includes('..'))continue;const to=path.join(root,name);await mkdir(path.dirname(to),{recursive:true});await writeFile(to,data);n++}
    const after=await readFile(path.join(root,'package.json'),'utf8').catch(()=>'');const deps=s=>{try{const j=JSON.parse(s);return JSON.stringify([j.dependencies,j.optionalDependencies])}catch{return ''}};
-   if(deps(before)!==deps(after))await new Promise(res=>{const p=spawn(process.platform==='win32'?'npm.cmd':'npm',['install','--no-audit','--no-fund','--loglevel=error'],{cwd:root,shell:process.platform==='win32',stdio:'ignore'});p.on('exit',res);p.on('error',res)});
-   console.log('aqeelOS Code updated to '+v.version+' ('+n+' files); restarting');setTimeout(()=>process.exit(0),500);return {state:'updated',version:v.version}}
+   if(deps(before)!==deps(after)||await has(PENDING)){await mkdir(path.dirname(PENDING),{recursive:true});await writeFile(PENDING,v.version);const code=await npmInstall();if(code!==0)throw Error('installing what the update needs failed (npm exit '+code+'); it is tried again on the next check');await unlink(PENDING).catch(()=>{})}
+   // work started during the download is not cut off: the restart waits until nothing is running
+   console.log('aqeelOS Code updated to '+v.version+' ('+n+' files); restarting when idle');void (async()=>{while(busy())await new Promise(r=>setTimeout(r,15000));setTimeout(()=>process.exit(0),500)})();return {state:'updated',version:v.version}}
   catch(e){updating=false;console.warn('update failed:',e.message);return {state:'failed',error:e.message}}}
  function autoUpdate(busy){busyNow=busy;if(process.env.NODE_TEST_CONTEXT)return;const tick=()=>checkUpdate(busy).catch(()=>{});setTimeout(tick,120000).unref?.();setInterval(tick,1800000).unref?.()}
  // each finished run's tokens go to aqeelOS (System › Usage: Code by person, agent and project)
