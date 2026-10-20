@@ -9,4 +9,5 @@ const Backups={async card(el){if(S.me?.admin===false)return;let d;try{d=await UI
 ACT['backup-run']=async()=>{try{await post(UI,'/ui/backups/run',{});toast('Backing up to Google Drive · takes a few minutes');setTimeout(reload,1500)}catch(e){fail(e)}};
 ACT['backup-test']=async()=>{try{const r=await post(UI,'/ui/backups/test',{});toast('Restore test passed');reload()}catch(e){fail(e)}};
 ACT['backup-key']=async()=>{try{const {key}=await UI('/ui/backups/key');const d=drawer('Backup key','<p class="hint" style="margin:0 0 12px">Backups can only be opened with this key. Keep a copy somewhere safe outside the AI box (your password manager): if the box is ever lost, you need it to restore.</p><div class="secret-card"><div class="sc-row"><input readonly value="'+esc(key)+'"><button class="ghost small" data-act="copy-text" data-text="'+esc(key)+'">Copy</button></div></div>','<button class="ghost" data-act="close">Close</button>')}catch(e){fail(e)}};
-{const base=PAGES.status;PAGES.status=async(p,el)=>{await base(p,el);await Backups.card(el)}}
+// the card goes on System › Health (health-page.js replaced the old status page before this file loads), at its end
+{const base=PAGES.health;PAGES.health=async(p,el,r)=>{await base(p,el,r);const box=document.createElement('div');box.className='backups-slot';el.append(box);await Backups.card(box)}}
