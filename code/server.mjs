@@ -91,7 +91,7 @@ async function run(job){
   job.account=provider.profileLabel||provider.account?.email||'Desktop account';job.switched=Boolean(provider.switched);
   const prompt='Respond to the following prompt using text only. Do not access files or run tools.\n\n'+job.prompt;
   const args=job.provider==='codex'?['exec','--ignore-user-config','--sandbox','read-only','--skip-git-repo-check','--ephemeral','--json','-']:['-p','--output-format','json','--tools','','--strict-mcp-config','--mcp-config','{"mcpServers":{}}','--setting-sources','','--settings','{"disableAllHooks":true}','--no-session-persistence'];
-  const result=await execute(provider.path,args,prompt,90000,{env:job.provider==='codex'?accounts.env(provider.profileId):cleanEnv});
+  const result=await execute(provider.path,args,prompt,90000,{env:job.provider==='codex'?accounts.env(provider.profileId):job.provider==='claude'&&provider.profileId?claudeAccounts.env(provider.profileId):cleanEnv});
   const parsed=parseResponse(job.provider,result.stdout);
   if(result.code!==0||parsed.failed||!parsed.text)throw Error(parsed.error||parsed.text||result.error||result.stderr.trim()||'The provider returned no response.');
   job.text=parsed.text;job.billing=parsed.billing;job.state='complete';
