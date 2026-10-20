@@ -140,7 +140,7 @@ async function cronDetail(j){const {m,r}=schedMeta(j);const prof=j.profile||'def
  let agents=[];try{const pr=await H('/profiles');agents=(Array.isArray(pr)?pr:pr.profiles||[]).map(x=>x.name)}catch{}if(!agents.length)agents=['default'];
  const now=new Date(),mStart=new Date(now.getFullYear(),now.getMonth(),1),lStart=new Date(now.getFullYear(),now.getMonth()-1,1);const day=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
  const per=await Promise.all(agents.map(a=>call('/hapi','/analytics/usage?days=62&profile='+encodeURIComponent(a)).then(u=>({a,u})).catch(()=>({a,u:{daily:[]}}))));
- const sum=(l,from,to)=>l.filter(d=>d.day>=from&&(!to||d.day<to)).reduce((s,d)=>s+(d.estimated_cost||0)+(d.actual_cost||0),0);
+ const sum=(l,from,to)=>l.filter(d=>d.day>=from&&(!to||d.day<to)).reduce((s,d)=>s+(d.estimated_cost||d.actual_cost||0),0);
  const rows=per.map(({a,u})=>{const d=u.daily||[];return {a,month:sum(d,day(mStart)),last:sum(d,day(lStart),day(mStart)),wk:sum(d,day(new Date(Date.now()-7*864e5))),prev:sum(d,day(new Date(Date.now()-35*864e5)),day(new Date(Date.now()-7*864e5)))/4}}).sort((x,y)=>y.month-x.month);
  const total=rows.reduce((s,r)=>s+r.month,0),lastT=rows.reduce((s,r)=>s+r.last,0);const dayOf=now.getDate(),days=new Date(now.getFullYear(),now.getMonth()+1,0).getDate();
  let info=SCHED.info;if(!info?.runs)try{info=SCHED.info=await UI('/ui/schedules/info')}catch{info={runs:{}}}
@@ -157,8 +157,8 @@ ACT['spend-open']=a=>{const j=(Pages.cronJobs||[]).find(x=>x.id===a.dataset.id&&
    keys, logs, settings) carry a "Showing" picker in the header: look at any agent you may use without leaving the
    page or changing who you chat with. It sits in the header so the page never jumps when it loads.
    Skills are grouped into folders by what they are for, each folding open and shut (remembered per person). ---------- */
-async function viewAgents(){if(S._viewList)return S._viewList;let l=[];try{const pr=await H('/profiles?profile=default');l=(Array.isArray(pr)?pr:pr.profiles||[]).map(x=>x.name)}catch{}
- if(S.me&&S.me.admin===false)l=l.filter(a=>S.me.agents?.[a]);return S._viewList=l.filter(a=>!a.includes('--'))}
+async function viewAgents(){if(S._viewList&&Date.now()-S._viewT<30000)return S._viewList;let l=[],ok=false;try{const pr=await H('/profiles?profile=default');l=(Array.isArray(pr)?pr:pr.profiles||[]).map(x=>x.name);ok=true}catch{}
+ if(S.me&&S.me.admin===false)l=l.filter(a=>S.me.agents?.[a]);l=l.filter(a=>!a.includes('--'));if(!ok&&S._viewList)return S._viewList;if(ok){S._viewList=l;S._viewT=Date.now()}return l}
 function viewing(){return agentProfile()||'default'}
 function viewPick(list){const box=$('.page-head .head-actions');if(!box)return;let b=box.querySelector('.view-pick');if(list.length<2){b?.remove();return}
  const i=ident(viewing()),mine=viewing()===(S.profile||'default');
