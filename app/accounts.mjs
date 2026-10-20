@@ -111,15 +111,17 @@ export function createAccounts(DATA){
    d.events.unshift({t:Date.now(),profile,to:e.key,why:why||''});d.events=d.events.slice(0,50);await save(d)}
   if(e.model)await setKey(profile,'model.default',e.model);
  }
- async function usageOf(d,key,det,prov){if(key.startsWith(PLUGIN_KEY)){const v=det[key.slice(PLUGIN_KEY.length)];return v?.signedIn?(v.usage?Math.max(v.usage.session?.used||0,v.usage.week?.used||0):0):null}
-  const p=prov.find(x=>x.slug===key.slice(2));return p?worstOf(p.windows):null}
+ // known: a switch target must have measured usage, so a failed usage check (null) is never taken as room left.
+ // Pay-per-use providers report no windows at all and count as 0.
+ async function usageOf(d,key,det,prov,known){if(key.startsWith(PLUGIN_KEY)){const v=det[key.slice(PLUGIN_KEY.length)];return v?.signedIn?(v.usage?Math.max(v.usage.session?.used||0,v.usage.week?.used||0):known?null:0):null}
+  const p=prov.find(x=>x.slug===key.slice(2));if(!p)return null;const ws=p.windows||[];return known&&ws.length&&!ws.some(w=>w.scope!=='model')?null:worstOf(ws)}
 
  /* ---------- auto-switch: move agents off an account that is nearly used up ---------- */
  async function autoTick(){const d=await load();if(!d.auto?.on)return;const th=Number(d.auto.threshold)||90;const accts=all(d);
   const det=Object.fromEntries(await Promise.all(accts.map(async a=>[a.id,await details(a)])));
   if((d.priority||[]).length){const prov=await providers();
    for(const profile of await agents()){const cur=await entryOf(d,profile);const used=await usageOf(d,cur,det,prov);if(used!==null&&used<th)continue;
-    for(const e of d.priority){if(e.key===cur)continue;const u=await usageOf(d,e.key,det,prov);if(u===null||u>=th)continue;
+    for(const e of d.priority){if(e.key===cur)continue;const u=await usageOf(d,e.key,det,prov,true);if(u===null||u>=th)continue;
      const done=await useEntry(d,profile,e,used===null?'Previous account not available':`Reached ${used}%`).then(()=>true,er=>{console.warn('auto-switch',er.message);return false});if(done)break}}
    return}
   for(const profile of await agents()){const cur=d.assign[profile]||'main';const v=det[cur];if(!v?.usage)continue;
