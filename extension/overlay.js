@@ -25,7 +25,7 @@ root.innerHTML=`<style>
 .need .pill .ic{background:#fbbf24}.idle-soon .pill .ic{background:#9ca3af}.fail .pill .ic{background:#f87171}.control .pill .ic{background:#9ca3af}
 @keyframes spin{to{transform:rotate(360deg)}}
 .pill .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.pill .ch{flex:none;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:rgba(255,255,255,.55);font-size:12px;padding-left:10px;border-left:1px solid rgba(255,255,255,.18)}.pill .ch:empty{display:none}
+.pill .ch{flex:0 1 auto;min-width:0;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:rgba(255,255,255,.55);font-size:12px;padding-left:10px;border-left:1px solid rgba(255,255,255,.18)}.pill .ch:empty{display:none}
 .pill button{flex:none;border:0;border-radius:999px;padding:6px 13px;font-size:12.5px;font-weight:600;cursor:pointer;background:rgba(255,255,255,.14);color:#fff;transition:background .15s}
 .pill button:hover{background:rgba(255,255,255,.24)}
 .pill button.w{background:#fff;color:#111}.pill button.w:hover{background:#e8e8e8}
@@ -36,6 +36,7 @@ root.innerHTML=`<style>
 .box.show{opacity:1}
 .rip{position:fixed;width:10px;height:10px;margin:-5px 0 0 -5px;border-radius:50%;border:2px solid #2563eb;animation:rip .6s ease-out forwards;pointer-events:none}
 @keyframes rip{to{transform:scale(4.6);opacity:0}}
+@media (max-width:480px){.pill .ch{display:none}}
 @media (prefers-reduced-motion:reduce){.cur{transition:opacity .2s}.work .glow{animation:none}}
 </style><div class="w"><div class="glow"></div><div class="box"></div>
 <div class="cur"><svg viewBox="0 0 24 24" width="22" height="22"><path d="M4 2l16 9.5-7 1.6-3.6 6.6z" fill="#2563eb" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg><span></span></div>

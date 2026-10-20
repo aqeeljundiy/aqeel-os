@@ -12,8 +12,10 @@ const online=()=>!!S.ws&&S.ws.readyState===1;
 function lane(session,meta={}){const id=String(session||'default');let L=S.lanes.get(id);
  if(!L){L={session:id,chat:'',agent:'',tab:null,group:null,mode:'idle',text:'',blockUntil:0,blockWhy:'',idleT:null,inflight:null,newTab:null};S.lanes.set(id,L)}
  if(meta.chat&&meta.chat!==L.chat){L.chat=meta.chat;nameGroup(L)}if(meta.agent&&meta.agent!==L.agent){L.agent=meta.agent;nameGroup(L)}return L}
-const save=()=>chrome.storage.session.set({lanes:[...S.lanes.values()].map(L=>({session:L.session,chat:L.chat,agent:L.agent,tab:L.tab,group:L.group}))}).catch(()=>{});
-const restored=chrome.storage.session.get('lanes').then(v=>{for(const x of v.lanes||[]){const L=lane(x.session);Object.assign(L,{chat:x.chat||'',agent:x.agent||'',tab:x.tab||null,group:x.group||null})}}).catch(()=>{});
+// Take over and Stop are kept too, so a restarted worker still waits for the person
+const save=()=>chrome.storage.session.set({lanes:[...S.lanes.values()].map(L=>({session:L.session,chat:L.chat,agent:L.agent,tab:L.tab,group:L.group,control:L.mode==='control',blockUntil:L.blockUntil,blockWhy:L.blockWhy}))}).catch(()=>{});
+const restored=chrome.storage.session.get('lanes').then(v=>{for(const x of v.lanes||[]){const L=lane(x.session);Object.assign(L,{chat:x.chat||'',agent:x.agent||'',tab:x.tab||null,group:x.group||null,blockUntil:+x.blockUntil||0,blockWhy:x.blockWhy||''});
+ if(x.control)setMode(L,'control','You’re in control. '+who(L)+' waits until you hand back.')}}).catch(()=>{});
 const laneOfTab=id=>[...S.lanes.values()].find(L=>L.tab===id);
 const who=L=>L.agent||'The agent';
 
@@ -35,7 +37,7 @@ function paintIcon(){const t=top();const st=!online()?'offline':t?t.mode:'idle';
 async function layer(tabId,state){if(!tabId)return;try{await chrome.scripting.executeScript({target:{tabId},files:['overlay.js']});
  await chrome.scripting.executeScript({target:{tabId},func:s=>window.__aq?.set(s),args:[state]})}catch{}}
 const pushLayer=L=>layer(L.tab,{mode:L.mode,text:L.text,agent:L.agent,chat:L.chat});
-function setMode(L,mode,text){L.mode=mode;L.text=text||'';clearTimeout(L.idleT);paintIcon();const p=pushLayer(L);
+function setMode(L,mode,text){L.mode=mode;L.text=text||'';clearTimeout(L.idleT);paintIcon();save();const p=pushLayer(L);
  // between steps the agent is thinking; if no step comes for a while it has finished
  if(mode==='work')L.idleT=setTimeout(()=>setMode(L,'idle'),45000);
  if(mode==='idle-soon')L.idleT=setTimeout(()=>setMode(L,'idle'),4000);return p}
@@ -56,7 +58,8 @@ async function connect(){const {base,token,replaced}=await chrome.storage.local.
   const gate=blocked(L,m.action);if(gate)return reply({ok:false,error:gate});
   const job={id:m.id,reply};L.inflight=job;
   // one browser step at a time, so two chats never act at once
-  S.queue=S.queue.then(async()=>{if(job.done)return;if(m.action!=='controller.noop'&&L.mode!=='need')L.mode='work';
+  // checked again when its turn comes: a Stop or Take over while it waited in line still holds
+  S.queue=S.queue.then(async()=>{if(job.done)return;const g=blocked(L,m.action);if(g){job.done=true;return reply({ok:false,error:g})}if(m.action!=='controller.noop'&&L.mode!=='need')L.mode='work';
    let r;try{r={ok:true,result:await act(L,m.action,m.arguments||{})}}catch(err){r={ok:false,error:String(err?.message||err)};if(!job.done&&m.action!=='controller.noop')setMode(L,'fail',who(L)+' couldn’t '+VERB[m.action]+': '+forPerson(r.error))}
    if(job.done)return;job.done=true;
    if(r.ok&&!['need','fail'].includes(L.mode)&&m.action!=='controller.noop')setMode(L,'work',who(L)+' is thinking…');
@@ -132,7 +135,7 @@ async function act(L,action,a){
   setMode(L,'work',who(L)+' is opening '+host(url));const t=await agentTab(L);const w=loaded(t.id);await chrome.tabs.update(t.id,{url});await w;
   const tab=await chrome.tabs.get(t.id);
   try{await inPage(L,quiet)}catch(err){if(/error page/i.test(String(err?.message)))throw new Error('the page didn’t load ('+host(url)+'). The address may be wrong, the site may be down, or the internet is off.')}pushLayer(L);const snap=await snapshotAll(L,false);return {success:true,url:tab.url,title:tab.title,snapshot:snap.text,element_count:snap.count}}
- if(action==='browser_snapshot'){setMode(L,'work',who(L)+' is reading the page');const snap=await snapshotAll(L,!!a.full);return {success:true,snapshot:snap.text,element_count:snap.count}}
+ if(action==='browser_snapshot'){if(L.mode!=='need')setMode(L,'work',who(L)+' is reading the page');const snap=await snapshotAll(L,!!a.full);return {success:true,snapshot:snap.text,element_count:snap.count}}
  if(action==='browser_click'){const {frame,ref}=parseRef(a.ref);await setMode(L,'work',who(L)+' is clicking');const r=await inPage(L,clickRef,[ref,state(L)],frame);if(!r?.ok)throw new Error(r?.error||'the click didn’t happen.');
   const s=await settle(L);const tab=await chrome.tabs.get(L.tab);return {success:true,clicked:a.ref,...(s.new_tab?{note:'The click opened a new tab; you are in it now.',url:tab.url,title:tab.title}:{})}}
  if(action==='browser_type'){const {frame,ref}=parseRef(a.ref);await setMode(L,'work',who(L)+' is typing');const r=await inPage(L,typeRef,[ref,String(a.text??''),state(L)],frame);if(!r?.ok)throw new Error(r?.error||'typing didn’t work.');return {success:true,typed:r.secret?'(hidden)':String(a.text??''),element:a.ref,...(r.chose?{chose:r.chose}:{})}}
