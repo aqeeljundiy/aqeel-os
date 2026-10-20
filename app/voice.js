@@ -13,7 +13,7 @@ const Voice={
   try{this.stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}})}
   catch(e){return toast(e.name==='NotAllowedError'?'Microphone access was blocked. Allow it in the browser’s site settings.':'No microphone found.','err')}
   const type=['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/ogg'].find(t=>MediaRecorder.isTypeSupported?.(t))||'';
-  this.chunks=[];this.rec=new MediaRecorder(this.stream,type?{mimeType:type}:undefined);
+  this.key=Chat.draftKey();this.ta=$('#msg');this.chunks=[];this.rec=new MediaRecorder(this.stream,type?{mimeType:type}:undefined);
   this.rec.ondataavailable=e=>{if(e.data?.size)this.chunks.push(e.data)};
   this.rec.onstop=()=>this.transcribe().finally(()=>{this._ok?.();this._ok=this._wait=null});
   this.rec.start(1000);this.on=true;this.t0=Date.now();this.paint();
@@ -27,14 +27,16 @@ const Voice={
   try{const data_url=await new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(r.result);r.onerror=no;r.readAsDataURL(blob)});
    const r=await post(H,'/audio/transcribe?profile=default',{data_url,mime_type:blob.type.split(';')[0]});
    const text=String(r.transcript||'').trim();if(!text){toast('Didn’t catch any words. Try again a little closer to the microphone.','err');return}
+   // switched chats while it transcribed: the words go into the draft of the chat where you spoke
+   if(Chat.draftKey()!==this.key&&$('#msg')!==this.ta){try{const d=localStorage.getItem(this.key)||'';localStorage.setItem(this.key,d+(d&&!/\s$/.test(d)?' ':'')+text)}catch{}return toast('Your dictation was saved in the chat where you started it.')}
    const ta=$('#msg');if(ta){const sep=ta.value&&!/\s$/.test(ta.value)?' ':'';ta.value+=sep+text;ta.dispatchEvent(new Event('input'));ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length)}}
   catch(e){if(/No STT provider|not available|unavailable/i.test(e.message)){this.mode='browser';toast('Transcription on the box isn’t ready yet; using the browser’s dictation for now.','err')}else fail(e)}
   finally{this.busy=false;this.paint()}},
  // fallback: the browser's own live dictation (Chrome, Edge, Safari)
  startBrowser(){const R=window.SpeechRecognition||window.webkitSpeechRecognition;if(!R)return toast('This browser can’t do dictation. Use Chrome, Edge or Safari.','err');
   const ta=$('#msg');if(!ta)return;const rec=new R();rec.interimResults=true;rec.continuous=true;rec.lang=navigator.language||'en-US';
-  const base=ta.value&&!/\s$/.test(ta.value)?ta.value+' ':ta.value;let fin='';
-  rec.onresult=e=>{let mid='';for(let i=e.resultIndex;i<e.results.length;i++){const x=e.results[i];if(x.isFinal)fin+=x[0].transcript;else mid+=x[0].transcript}const b=$('#msg');if(b){b.value=base+fin+mid;b.dispatchEvent(new Event('input'))}};
+  const base=ta.value&&!/\s$/.test(ta.value)?ta.value+' ':ta.value;let fin='';const key=Chat.draftKey();
+  rec.onresult=e=>{let mid='';for(let i=e.resultIndex;i<e.results.length;i++){const x=e.results[i];if(x.isFinal)fin+=x[0].transcript;else mid+=x[0].transcript}const b=$('#msg');if(b&&(Chat.draftKey()===key||b===ta)){b.value=base+fin+mid;b.dispatchEvent(new Event('input'))}else try{localStorage.setItem(key,base+fin)}catch{}};
   rec.onend=()=>{this.recB=null;this.on=false;this.paint()};rec.onerror=()=>{};
   try{rec.start()}catch(e){return toast(e.message,'err')}this.recB=rec;this.on=true;this.t0=Date.now();this.paint()},
  paint(){const b=$('#voiceSlot');if(b)b.innerHTML=this.btn()},

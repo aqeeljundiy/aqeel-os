@@ -63,7 +63,7 @@ document.addEventListener('click',e=>{
   case 'send-mode':Chat.setSendMode(a.dataset.mode);break;
   case 'steer-now':Chat.steerNow();break;
   case 'send-busy':Chat.submit();break;
-  case 'unqueue':{const s=Chat.live[Chat.id];s?.queue?.splice(+a.dataset.i,1);Chat.paintQueue();break}
+  case 'unqueue':{const cid=Chat.id,s=Chat.live[cid],i=+a.dataset.i,m=s?.queue?.splice(i,1)[0];Chat.paintQueue();if(m)toastUndo('Removed from queue',()=>{s.queue.splice(Math.min(i,s.queue.length),0,m);if(Chat.id===cid)Chat.paintQueue();Chat.runQueue(cid)});break}
   case 'queue-go':{const s=Chat.live[Chat.id];if(s){s.paused=false;Chat.runQueue(Chat.id)}break}
   case 'fork':Chat.fork();break;
   case 'rename-current':if(Chat.id)renameSession(Chat.id);break;
