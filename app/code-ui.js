@@ -26,6 +26,11 @@ const CodeUI={where:(()=>{try{const w=localStorage.getItem('aq-code-where');retu
  // the page: the app in a frame, or the lock screen
  async page(p,el){const pg=el.closest('.page');pg?.classList.add('page-full');setActions('');clearTimeout(this.timer);
   if(this.where==='live')return this.livePage(el);
+  // Code works in the aqeelOS app (its real browser lives there); in a normal browser, open the app or get it
+  if(!window.aqDesktop&&!/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)){this.state='lock';this.paintSide();const mac=/Mac/i.test(navigator.platform||navigator.userAgent);
+   el.innerHTML=`<div class="code-host"><div class="code-lock card"><span class="code-lock-ic">${icon('monitor',26)}</span><h2>Code works in the aqeelOS app</h2><p>Code builds with a real browser for your projects, which lives in the aqeelOS app on your computer. Open the app to use Code; everything else in aqeelOS works here too.</p>
+    <div class="code-dl"><a class="btn primary" href="aqeelos://code">${icon('popout',16)}Open the aqeelOS app</a><a class="btn" href="/ui/code/download/${mac?'mac':'windows'}" download>${icon('download',16)}Download for ${mac?'Mac':'Windows'}</a></div>
+    <p class="code-or">Just looking? <button class="linkish" data-act="code-where" data-w="live">See what’s live</button>: the apps your team published.</p></div></div>`;return}
   // on a phone or tablet there is no desktop app to find: say so, and offer what works here (Live)
   if(/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&/Macintosh/.test(navigator.userAgent))){this.state='lock';this.paintSide();el.innerHTML=`<div class="code-host"><div class="code-lock card"><span class="code-lock-ic">${icon('monitor',26)}</span><h2>Code runs in the desktop app</h2><p>Building apps, slides and documents with Code needs the aqeelOS Code app on a Windows or Mac computer. Open aqeelOS on your computer to install it there.</p><p class="code-or">On this phone you can <button class="linkish" data-act="code-where" data-w="live">see what’s live</button>: the apps your team published.</p></div></div>`;return}
   el.innerHTML=`<div class="code-host"><div class="code-wait"><span class="ring"></span><span>${this.where==='online'?'Opening your online projects…':'Looking for aqeelOS Code on this computer…'}</span></div>
