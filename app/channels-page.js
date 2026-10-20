@@ -11,6 +11,8 @@ const CH_TABS=['Connections','Who can message'];
   const tok=S._chtok=(S._chtok||0)+1,stale=()=>tok!==S._chtok;
   el.innerHTML=`${tabs('channels',CH_TABS,tab)}<div id="chtab"><div class="skel" style="height:160px;border-radius:18px"></div></div>`;placePills();
   const live=el.querySelector('#chtab'),box=document.createElement('div');box.hidden=true;document.body.append(box);
-  try{await (tab==='Connections'?oldCh:oldPair)(p,box,r)}finally{if(stale())box.remove()}
-  if(stale())return;box.hidden=false;live.replaceChildren(box);
+  // All agents: the all-agents view (all-agents.js) fills this tab, so one agent's list isn't fetched first
+  const skip=tab==='Who can message'&&showingAll();
+  try{if(!skip)await (tab==='Connections'?oldCh:oldPair)(p,box,r)}finally{if(stale()||skip)box.remove()}
+  if(stale())return;if(!skip){box.hidden=false;live.replaceChildren(box)}
   if(tab==='Who can message')viewAgents().then(l=>{if(!stale())viewPick(l)});else viewPick([])}}
