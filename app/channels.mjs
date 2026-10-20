@@ -44,10 +44,11 @@ export function createChannels({DASH,TOKEN,HERMES_HOME,listAgents,cached,restart
   const pf=path.join(homeOf(from),'platforms','pairing'),pt=path.join(homeOf(to),'platforms','pairing');
   for(const f of await readdir(pf).catch(()=>[]))if(f.startsWith(platform)){await mkdir(pt,{recursive:true});await cp(path.join(pf,f),path.join(pt,f)).catch(()=>{})}
   await api('/messaging/platforms/'+platform+'?profile='+encodeURIComponent(from),{method:'PUT',body:JSON.stringify({enabled:false,env:{}})}).catch(()=>{});
-  await api('/messaging/platforms/'+platform+'?profile='+encodeURIComponent(to),{method:'PUT',body:JSON.stringify({enabled:true,env:{}})}).catch(()=>{});
+  // on:false tells the page the move worked but the channel still has to be switched on
+  const on=await api('/messaging/platforms/'+platform+'?profile='+encodeURIComponent(to),{method:'PUT',body:JSON.stringify({enabled:true,env:{}})}).then(()=>true,()=>false);
   // the proper restart (waits for replies in progress, keeps the engine in its managed session)
   if(restart)restart('moved '+platform+' from '+from+' to '+to).catch(()=>{});else await api('/gateway/restart?profile=default',{method:'POST',body:'{}'}).catch(()=>{});
-  return {ok:true,moved:moving.length}}
+  return {ok:true,moved:moving.length,on}}
  const pretty=a=>a==='default'?'The main agent':a;
  return {list,move};
 }
