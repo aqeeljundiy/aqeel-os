@@ -3,7 +3,7 @@
 // (sharp, real cookies, history and sign-ins, kept per project in the project's .aqeelos/browser folder). Code's
 // engine drives those tabs over the DevTools protocol, the same way it drives any Chrome, through a small control
 // channel on 127.0.0.1 that only it knows the key to.
-const {app,BrowserWindow,WebContentsView,session,ipcMain,shell,dialog}=require('electron');
+const {app,BrowserWindow,WebContentsView,session,ipcMain,shell,dialog,Tray,Menu}=require('electron');
 const path=require('node:path'),fs=require('node:fs'),http=require('node:http'),crypto=require('node:crypto'),{spawn}=require('node:child_process');
 
 const CODE_PORT=Number(process.env.CBA_PORT||4321);
@@ -81,15 +81,24 @@ const ctl=http.createServer(async(req,res)=>{const send=(c,o)=>{res.writeHead(c,
   return send(404,{error:'Unknown.'})}catch(e){return send(500,{error:e.message})}});
 
 // ---------- the window ----------
-async function open(){win=new BrowserWindow({width:1440,height:920,minWidth:900,minHeight:600,title:'aqeelOS',backgroundColor:'#ffffff',autoHideMenuBar:true,
+// started at login with --background: the window is made but stays hidden until you open aqeelOS (Start menu, Dock or tray)
+const BACKGROUND=process.argv.includes('--background');
+async function open(){win=new BrowserWindow({width:1440,height:920,show:!BACKGROUND,minWidth:900,minHeight:600,title:'aqeelOS',backgroundColor:'#ffffff',autoHideMenuBar:true,
   icon:path.join(BUNDLED,'assets',process.platform==='win32'?'icon.ico':'icon-512.png'),
   webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegrationInSubFrames:true,sandbox:false}});
  win.webContents.setWindowOpenHandler(({url})=>{if(/^https?:/.test(url))shell.openExternal(url);return {action:'deny'}});
  win.on('resize',place);
+ // closing the window keeps aqeelOS running in the background (Code keeps working for agents and other browsers); Quit is in the tray
+ win.on('close',e=>{if(!app.isQuitting){e.preventDefault();win.hide()}});
  await win.loadURL(HOME_URL+'/#/code/code')}
 
 app.whenReady().then(async()=>{await new Promise(r=>ctl.listen(0,'127.0.0.1',()=>{ctlPort=ctl.address().port;if(DEV)console.log('control: http://127.0.0.1:'+ctlPort+'/'+CTL_KEY+'/');r()}));
+ if(!DEV)app.setLoginItemSettings({openAtLogin:true,args:['--background']});makeTray();
  await open();try{await startCode();await attach()}catch(e){dialog.showErrorBox('aqeelOS','Code could not start: '+e.message)}});
-app.on('second-instance',()=>{if(win){if(win.isMinimized())win.restore();win.focus()}});
+const showWin=()=>{if(!win)return;if(win.isMinimized())win.restore();win.show();win.focus()};
+app.on('second-instance',showWin);app.on('activate',showWin);
+let tray=null;
+function makeTray(){try{tray=new Tray(path.join(BUNDLED,'assets',process.platform==='win32'?'icon.ico':'icon-180.png'));tray.setToolTip('aqeelOS');
+ tray.setContextMenu(Menu.buildFromTemplate([{label:'Open aqeelOS',click:showWin},{type:'separator'},{label:'Quit aqeelOS',click:()=>{app.isQuitting=true;app.quit()}}]));tray.on('click',showWin)}catch(e){console.warn('tray:',e.message)}}
 app.on('before-quit',()=>{app.isQuitting=true;try{server?.kill()}catch{}});
 app.on('window-all-closed',()=>app.quit());
