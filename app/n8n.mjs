@@ -52,16 +52,16 @@ export function createN8n({BASE='https://n8n.elkiya.com',DATA,setKey,restart,nam
    u=db.users[agent]={email,password,id,made:Date.now()};await save()}
   if(!u.mcp){const s=await login(u.email,u.password);let k=null;try{k=(await rest('/rest/mcp/api-key',{cookie:s.cookie})).data}catch{}
    if(!k?.apiKey)k=(await rest('/rest/mcp/api-key/rotate',{method:'POST',cookie:s.cookie})).data;
-   if(!k?.apiKey)throw new Error('n8n did not give an MCP key.');u.mcp=true;u.key=k.apiKey;await save();
+   if(!k?.apiKey)throw new Error('n8n did not give an MCP key.');u.key=k.apiKey;await save();
    const r=await setKey(agent,'mcp_servers.n8n',{url:db.base+'/mcp-server/http',headers:{Authorization:'Bearer '+k.apiKey},enabled:true});if(!r.ok)throw new Error(r.err||'Could not connect the agent’s n8n tool');
-   restart('n8n connected for '+names(agent))}
+   u.mcp=true;await save();restart('n8n connected for '+names(agent))}
   return {email:u.email}}
 
  // opening n8n without signing in: a one-minute ticket, then the login page on n8n's own address uses it
  const tickets=new Map();
  function ticket(agent){const t=randomBytes(24).toString('base64url');tickets.set(t,{agent,at:Date.now()});setTimeout(()=>tickets.delete(t),60000).unref?.();return t}
- const page=()=>`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Opening n8n</title>
-<style>body{margin:0;height:100vh;display:grid;place-items:center;font:15px system-ui,sans-serif;color:#555;background:#f6f6f8}p{animation:f 1.2s ease-in-out infinite}@keyframes f{50%{opacity:.4}}</style><p id="m">Opening n8n…</p>
+ const page=()=>`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Opening n8n</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600&display=swap">
+<style>body{margin:0;height:100vh;display:grid;place-items:center;font:15px 'Plus Jakarta Sans',system-ui,sans-serif;color:#555;background:#f6f6f8}p{animation:f 1.2s ease-in-out infinite}@keyframes f{50%{opacity:.4}}</style><p id="m">Opening n8n…</p>
 <script>(async()=>{const K='n8n-browserId';let b=localStorage.getItem(K);if(!b){b=(crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random());localStorage.setItem(K,b)}
 const t=new URLSearchParams(location.search).get('t')||'';const go=new URLSearchParams(location.search).get('to')||'/home/workflows';
 try{const r=await fetch('/aqeelos-login/go',{method:'POST',headers:{'content-type':'application/json'},credentials:'include',body:JSON.stringify({t,b})});const j=await r.json();if(!r.ok)throw new Error(j.error||'n8n could not open');location.replace(go.startsWith('/')?go:'/home/workflows')}
