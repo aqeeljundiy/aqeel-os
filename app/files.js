@@ -30,8 +30,9 @@ PAGES.files=async(p,el)=>{
  setActions(`<button data-act="f-mkdir">${icon('folder',16)}New folder</button><button class="primary" data-act="f-upload">${icon('upload',16)}Upload</button>`);
  const parts=d.path.split('/').filter(Boolean);
  // search: this folder and everything inside it
- let found=null;if(FV.q){try{found=await UI('/ui/files/search'+qp({path:d.path,q:FV.q,hidden:FV.hidden?'1':'0'}))}catch{found=null}}
- let items=found?found.results:(d.entries||[]).filter(f=>FV.hidden||!f.name.startsWith('.'));
+ let found=null;if(FV.q){try{found=await UI('/ui/files/search'+qp({path:d.path,q:FV.q,hidden:FV.hidden?'1':'0'}))}catch{found=null;toast('Search is not available, showing names in this folder','err')}}
+ // without search results, still only show this folder's names that match what was typed
+ let items=found?found.results:(d.entries||[]).filter(f=>(FV.hidden||!f.name.startsWith('.'))&&(!FV.q||f.name.toLowerCase().includes(FV.q.toLowerCase())));
  const cmp={name:(a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}),modified:(a,b)=>(b.mtime||0)-(a.mtime||0),size:(a,b)=>(b.size||0)-(a.size||0),type:(a,b)=>kindOf(a).localeCompare(kindOf(b))||a.name.localeCompare(b.name)}[FV.sort];
  items.sort((a,b)=>(b.is_directory-a.is_directory)||cmp(a,b));Pages._items=items;
  const thumb=f=>{const k=kindOf(f);if(k==='image'&&(f.size||0)<6e6)return `<img src="${esc(fileUrl(f.path))}" alt="" loading="lazy" decoding="async">`;return `<span class="fk fk-${k}">${icon(KIND_ICON[k],k==='folder'?30:24)}</span>`};
@@ -69,9 +70,10 @@ function downloadPath(f){const a=document.createElement('a');a.href=fileUrl(f.pa
 
 /* ---------- preview window ---------- */
 let PV=null;
-function closePreview(){if(!PV)return;PV.el.remove();PV.blob&&URL.revokeObjectURL(PV.blob);document.removeEventListener('keydown',PV.keys,true);PV=null}
+// fades out when closed; switching to the next file swaps at once
+function closePreview(animate=true){if(!PV)return;const e=PV.el;if(animate&&!calm()){e.style.pointerEvents='none';e.animate([{opacity:1},{opacity:0}],{duration:200,easing:'cubic-bezier(.4,0,1,1)',fill:'forwards'}).finished.then(()=>e.remove(),()=>e.remove())}else e.remove();PV.blob&&URL.revokeObjectURL(PV.blob);document.removeEventListener('keydown',PV.keys,true);PV=null}
 async function preview(i){const files=(Pages._items||[]).filter(x=>!x.is_directory);const f=Pages._items[i];if(!f)return;let idx=files.indexOf(f);
- closePreview();const el=document.createElement('div');el.className='pv';el.setAttribute('role','dialog');el.setAttribute('aria-label','Preview '+f.name);
+ closePreview(false);const el=document.createElement('div');el.className='pv';el.setAttribute('role','dialog');el.setAttribute('aria-label','Preview '+f.name);
  el.innerHTML=`<div class="pv-head"><span class="fk-sm fk-${kindOf(f)}">${icon(KIND_ICON[kindOf(f)],16)}</span><div class="pv-title"><b>${esc(f.name)}</b><small>${KIND_LABEL[kindOf(f)]} · ${bytes(f.size)}${f.mtime?' · '+ago(f.mtime):''}</small></div><span class="grow"></span>
   <button class="ghost icon" data-pv="prev" aria-label="Previous" ${idx<=0?'disabled':''}>${icon('chevL',18)}</button><button class="ghost icon" data-pv="next" aria-label="Next" ${idx>=files.length-1?'disabled':''}>${icon('chevR',18)}</button>
   <button data-pv="download">${icon('download',15)}Download</button><button class="ghost icon" data-pv="delete" aria-label="Delete">${icon('trash',17)}</button><button class="ghost icon" data-pv="close" aria-label="Close">${icon('x',18)}</button></div><div class="pv-body"><div class="pv-stage"><span class="spinner"></span></div></div>`;
