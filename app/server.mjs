@@ -31,6 +31,7 @@ import {createBottlenecks} from './bottlenecks.mjs';
 import {createLive} from './live.mjs';
 import {createBackups} from './backup.mjs';
 import {readdir} from 'node:fs/promises';
+import {createReadStream} from 'node:fs';
 import {scryptSync,randomBytes,createHmac,timingSafeEqual} from 'node:crypto';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -1231,7 +1232,11 @@ const server=createServer(async(req,res)=>{
    if((p==='/ui/bottlenecks/done'||p==='/ui/bottlenecks/later')&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const id=String(b.id||'');if(!id)return send(res,400,{error:'Which one?'});if(!users.isAdmin(u)&&!id.startsWith('report|'))return send(res,403,{error:'Only admins.'});await (p.endsWith('done')?bottlenecks.done(id):bottlenecks.later(id));return send(res,200,{ok:true})}
    if(p==='/ui/code/devices'&&req.method==='GET')return send(res,200,{devices:await code.devices(u.id)});
    if(p==='/ui/code/unpair'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}await code.unpair(u.id,String(b.id||''));return send(res,200,{ok:true})}
-   {const dm=/^\/ui\/code\/download\/(windows|mac)$/.exec(p);if(dm&&req.method==='GET'){const z=await code.download(dm[1]);res.writeHead(200,{'content-type':'application/zip','content-disposition':'attachment; filename="aqeelOS Code ('+(dm[1]==='mac'?'Mac':'Windows')+').zip"','content-length':z.length,...security});return res.end(z)}}
+   {const dm=/^\/ui\/code\/download\/(windows|mac)$/.exec(p);if(dm&&req.method==='GET'){
+    // the aqeelOS app installer, once one is on the server (Windows: aqeelOS-Setup.exe, Mac: aqeelOS.dmg); else the older zip
+    {const f=path.join(DATA,'desktop',dm[1]==='mac'?'aqeelOS.dmg':'aqeelOS-Setup.exe');const st=await stat(f).catch(()=>null);
+     if(st){res.writeHead(200,{'content-type':'application/octet-stream','content-disposition':'attachment; filename="'+(dm[1]==='mac'?'aqeelOS.dmg':'aqeelOS Setup.exe')+'"','content-length':st.size,...security});return createReadStream(f).pipe(res)}}
+    const z=await code.download(dm[1]);res.writeHead(200,{'content-type':'application/zip','content-disposition':'attachment; filename="aqeelOS Code ('+(dm[1]==='mac'?'Mac':'Windows')+').zip"','content-length':z.length,...security});return res.end(z)}}
    if(p==='/ui/n8n/spaces'&&req.method==='GET'){const mine=users.isAdmin(u)?null:new Set(Object.keys(users.byId(u.id)?.agents||{}));const l=(await n8n.spaces()).filter(x=>!mine||mine.has(x.agent));
     return send(res,200,{spaces:l.map(x=>({...x,name:NAMES[x.agent]||x.agent,shared:x.shared.filter(a=>!mine||mine.has(a))})),agents:(await listAgents()).filter(a=>!mine||mine.has(a)).map(a=>({id:a,name:NAMES[a]||a})),canEdit:users.isAdmin(u)})}
    if(p==='/ui/n8n/share'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can share an agent’s n8n.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}

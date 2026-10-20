@@ -15,7 +15,7 @@ import path from 'node:path';
 const KEEP=14;
 const INCLUDE=['.hermes','apps/hermes-ui-data','apps/hermes-ui.env','workspaces','people','.claude','.claude-accounts'];
 const EXCLUDE=['.hermes/installs','.hermes/hermes-agent','.hermes/tools','.hermes/cache','.hermes/lsp','*-venv','.hermes/bot-desktop','.hermes/profiles/*/cache','.hermes/profiles/*/bot-desktop',
- '*/home/.cache','*/home/.npm','.hermes/home/.cache','.hermes/home/.npm','node_modules','*.log','.claude/projects','.claude/shell-snapshots','.claude/statsig','.claude/todos'];
+ '*/home/.cache','*/home/.npm','.hermes/home/.cache','.hermes/home/.npm','node_modules','*.log','apps/hermes-ui-data/desktop','.claude/projects','.claude/shell-snapshots','.claude/statsig','.claude/todos'];
 // what a restore must bring back for the box to work
 const MUST=['.hermes/config.yaml','.hermes/.env','apps/hermes-ui-data/users.json','apps/hermes-ui.env'];
 
