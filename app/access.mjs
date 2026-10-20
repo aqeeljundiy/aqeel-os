@@ -62,7 +62,8 @@ export function createAccess({HERMES_HOME,DATA,listAgents,readConfig,setKey,herm
 
  async function find(kind,id){const l=await list(kind);const it=l.items.find(x=>x.id===id);if(!it)throw new Error('That connection is gone. Reload the page.');return it}
 
- async function grant(kind,id,to){const it=await find(kind,id);const from=it.owner;if(to===from)return {changed:false};
+ // pick: the agent whose sign-in to copy, when the person chose one (it must be signed in); else the owner's
+ async function grant(kind,id,to,pick){const it=await find(kind,id);const from=pick&&pick!==to&&it.users.some(x=>x.id===pick&&x.signed)?pick:it.owner;if(to===from)return {changed:false};
   if(kind==='mcp'&&own[id]){await own[id].grant(to);return {changed:true}}
   const src=(await holdings(from))[kind][id];
   if(kind==='mcp'){const c=await readConfig(from);const entry=c?.mcp_servers?.[id];if(!entry)throw new Error('The owner no longer has it.');
