@@ -15,10 +15,12 @@ const Voice={
   const type=['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/ogg'].find(t=>MediaRecorder.isTypeSupported?.(t))||'';
   this.chunks=[];this.rec=new MediaRecorder(this.stream,type?{mimeType:type}:undefined);
   this.rec.ondataavailable=e=>{if(e.data?.size)this.chunks.push(e.data)};
-  this.rec.onstop=()=>this.transcribe();
+  this.rec.onstop=()=>this.transcribe().finally(()=>{this._ok?.();this._ok=this._wait=null});
   this.rec.start(1000);this.on=true;this.t0=Date.now();this.paint();
   this.timer=setInterval(()=>{const t=$('.mic-time');if(t)t.textContent=this.clock();if(Date.now()-this.t0>5*60e3)this.stop()},500)},   // at most 5 minutes per recording
- stop(){if(this.recB){try{this.recB.stop()}catch{}return}clearInterval(this.timer);try{this.rec?.stop()}catch{}this.stream?.getTracks().forEach(t=>t.stop());this.on=false;this.paint()},
+ // _wait settles once the words are in the message box (Send waits for it)
+ stop(){if(this.recB){const r=this.recB,end=r.onend;this._wait=new Promise(ok=>{r.onend=e=>{end?.(e);this._wait=null;ok()}});try{r.stop()}catch{r.onend()}return}
+  if(this.rec&&!this._wait)this._wait=new Promise(ok=>this._ok=ok);clearInterval(this.timer);try{this.rec?.stop()}catch{this._ok?.();this._ok=this._wait=null}this.stream?.getTracks().forEach(t=>t.stop());this.on=false;this.paint()},
  async transcribe(){const blob=new Blob(this.chunks,{type:this.rec?.mimeType||'audio/webm'});this.rec=null;this.stream=null;
   if(blob.size<1500)return toast('Didn’t hear anything. Try again.','err');
   this.busy=true;this.paint();

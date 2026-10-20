@@ -139,9 +139,10 @@ const Chat={
 
  /* ---------- history ---------- */
  // a long chat opens with its newest 150 messages (big chats were over 1 MB with every tool output); the rest on request
- async loadHistory(id,all=false){const lim=all?2000:150;
+ // each "Show earlier" doubles the window (2000, 4000…) while full pages keep coming back
+ async loadHistory(id,all=false){const lim=all?Math.max(2000,(this.live[id]?.lim||0)*2):150;
   try{const d=await H('/sessions/'+encodeURIComponent(id)+'/messages?limit='+lim+'&order=latest');if(this.id!==id)return;
-   if(this.live[id]?.running)return;const ms=d.messages||[];this.live[id]={turns:this.toTurns(ms),running:false,seenAt:Date.now()/1000,more:!all&&ms.length>=lim};this._opening=id;this.paint();this.follow(id);
+   if(this.live[id]?.running)return;const ms=d.messages||[];this.live[id]={turns:this.toTurns(ms),running:false,seenAt:Date.now()/1000,more:ms.length>=lim,lim};this._opening=id;this.paint();this.follow(id);
    // the thinking shown while each reply streamed (saved by aqeelOS; some models keep none themselves)
    UI('/ui/thinking?session='+encodeURIComponent(id)).then(x=>{const s=this.live[id];if(!s||s.running||!(x.items||[]).length)return;let changed=false;const T=s.turns;
     for(let i=0;i<T.length-1;i++){if(T[i].role!=='user')continue;const ai=T[i+1];if(ai?.role!=='ai'||ai.think)continue;const q=String(T[i].text||'').slice(0,300);const hit=x.items.find(y=>y.u===q||(q&&y.u.startsWith(q.slice(0,120))));if(hit){ai.think=hit.think;changed=true}}
@@ -177,7 +178,13 @@ const Chat={
   const keep=$$('.step.open',th).map(x=>x.dataset.k);
   // an opened chat shows its history at once (no rise-in for old messages); new turns still animate
   const opening=this._opening===this.id;if(opening){this._opening=null;s._seen={n:1e9,k:new Set()}}   // what is there when a chat opens is history: shown at once
-  th.innerHTML=(s.more?`<div class="hist-more"><button class="ghost" data-act="hist-more">${icon('chevU',15)}Show earlier messages</button></div>`:'')+(s.turns.map((t,i)=>this.turnHtml(t,i,s)).join('')||'');
+  const parts=[s.more?`<div class="hist-more"><button class="ghost" data-act="hist-more">${icon('chevU',15)}Show earlier messages</button></div>`:'',...s.turns.map((t,i)=>this.turnHtml(t,i,s))];
+  // only the messages that changed are redrawn; earlier ones (and their videos and pictures) stay as they are
+  const frag=list=>{const f=document.createDocumentFragment(),n=[];for(const h of list){const x=document.createElement('template');x.innerHTML=h;n.push(x.content.childNodes.length);f.append(x.content)}return {f,n}};
+  const old=th._parts;let j=0;if(old&&th.childNodes.length===th._cnt.reduce((a,b)=>a+b,0)&&old.length<=parts.length){while(j<old.length&&old[j]===parts[j])j++}else{j=-1}
+  if(j<0){const {f,n}=frag(parts);th.replaceChildren(f);th._cnt=n}
+  else if(j<parts.length){let drop=th._cnt.slice(j).reduce((a,b)=>a+b,0);while(drop-->0)th.lastChild?.remove();const {f,n}=frag(parts.slice(j));th.append(f);th._cnt=[...th._cnt.slice(0,j),...n]}
+  th._parts=parts;
   // the thread is redrawn on every streamed word: only messages and steps that are new since the last paint rise in
   const seen=s._seen||(s._seen={n:0,k:new Set()});[...th.children].forEach((el,i)=>{if(i<seen.n)el.classList.add('still')});seen.n=th.children.length;
   th.querySelectorAll('.step[data-k]').forEach(x=>{if(opening||seen.k.has(x.dataset.k))x.classList.add('still');seen.k.add(x.dataset.k)});
@@ -187,7 +194,7 @@ const Chat={
  turnHtml(t,i,s){
   if(t.role==='user')return `<div class="msg user">${this.userHtml(t.text,t)}${t.images&&!(t.imgs||[]).length?`<span class="attach">${icon('clip',12)} ${plural(t.images,'image')}</span>`:''}</div>${t.steer&&t.steer!=='delivered'?`<div class="steer-meta ${t.steer}">${t.steer==='failed'?icon('alert',12)+esc(t.err||'Not delivered'):t.steer==='sending'?'Sending…':`<span class="sm-hint" title="${esc(AGENT())} reads it as soon as the step it is on finishes, without stopping its work">In the reply in progress</span><button class="steer-now" data-act="steer-now" title="Stops the step it is on and sends this message right away">Send now</button>`}</div>`:''}`;
   const last=i===s.turns.length-1;if(!last&&!t.text&&!(t.steps||[]).length&&!t.think&&!t.approval&&!t.error)return '';
-  const think=t.think?`<button class="think" data-act="think">${icon('brain',15)}${s.running&&last&&!t.text?'Thinking…':'Thought'}${t.thinkSecs?' for '+t.thinkSecs+' s':''}${icon('chevR',14)}</button><div class="think-body" hidden>${esc(t.think)}</div>`:'';
+  const think=t.think?`<button class="think" data-act="think" data-i="${i}" aria-expanded="${!!t.thinkOpen}">${icon('brain',15)}${s.running&&last&&!t.text?'Thinking…':'Thought'}${t.thinkSecs?' for '+t.thinkSecs+' s':''}${icon('chevR',14)}</button><div class="think-body" ${t.thinkOpen?'':'hidden'}>${esc(t.think)}</div>`:'';
   // steps stay lean: slim rows; a longer run folds into one line ("Ran 6 steps"), the latest two stay in view while working
   const stp=t.steps||[],live=s.running&&last,fold=live?stp.length>3:stp.length>2;
   const rows=(list,off)=>list.map((x,k)=>this.stepHtml(x,i+'-'+(k+off))).join('');
@@ -199,7 +206,7 @@ const Chat={
   const typing=s.running&&last&&!t.text&&!t.approval&&!(t.steps||[]).some(x=>!x.done);
   const text=t.text?`<div class="text md ${s.running&&last?'streaming':''}">${md(t.text)}</div>`:typing?'<div class="text"><span class="typing"><i></i><i></i><i></i></span></div>':'';
   const err=t.error?`<p class="err-line">${icon('alert',14)} ${esc(t.error)}</p>`:'';
-  const tools=!s.running||!last?`<div class="msg-tools"><button title="Copy" aria-label="Copy" data-act="copymsg" data-i="${i}">${icon('copy',15)}</button>${last?`<button title="Retry" aria-label="Retry" data-act="retry">${icon('retry',15)}</button>`:''}<button title="Fork from here" aria-label="Fork from here" data-act="fork">${icon('fork',15)}</button>${t.meta?`<span class="meta">${esc(t.meta)}</span>`:''}</div>`:'';
+  const tools=!s.running||!last?`<div class="msg-tools"><button title="Copy" aria-label="Copy" data-act="copymsg" data-i="${i}">${icon('copy',15)}</button>${last?`<button title="Retry" aria-label="Retry" data-act="retry">${icon('retry',15)}</button>`:''}${last?`<button title="Fork this chat" aria-label="Fork this chat" data-act="fork">${icon('fork',15)}</button>`:''}${t.meta?`<span class="meta">${esc(t.meta)}</span>`:''}</div>`:'';
   return `<div class="msg ai"><span class="who">${avatarImg(16)}</span><div class="body">${think}${steps}${appr}${text}${err}${tools}</div></div>`},
  stepHtml(x,k){const ic={terminal:'terminal',web_search:'globe',web_extract:'globe',browser_navigate:'globe',read_file:'file',write_file:'file',patch:'edit',search_files:'search'}[x.tool]||(/browser|web/.test(x.tool)?'globe':/file|patch/.test(x.tool)?'file':'terminal');
   const state=!x.done?'<span class="spinner"></span>Running':x.failed?`<span style="color:var(--bad)">${icon('x',14)}</span>Failed`:`<span class="ok-ic">${icon('check',14)}</span>${x.secs?x.secs+' s':'Done'}`;
@@ -216,7 +223,7 @@ const Chat={
 
  /* ---------- sending ---------- */
  async submit(){if(this._sending)return;this._sending=true;try{return await this._submit()}finally{this._sending=false}},
- async _submit(){if(Voice.on)Voice.stop();const ta=$('#msg');const text=ta.value.trim();if(!text&&!this.files.length)return;try{localStorage.removeItem(this.draftKey());localStorage.removeItem('draft:'+(S.profile||'default')+'|new')}catch{}
+ async _submit(){if(Voice.on)Voice.stop();if(Voice._wait)await Promise.race([Voice._wait,sleep(30000)]);const ta=$('#msg');const text=ta.value.trim();if(!text&&!this.files.length)return;try{localStorage.removeItem(this.draftKey());localStorage.removeItem('draft:'+(S.profile||'default')+'|new')}catch{}
   const s=this.live[this.id];
   if(this.files.some(f=>f.kind!=='image'||!f.url)||s?.running&&this.sendMode!=='queue'&&this.files.length){const up=s?.running&&this.sendMode!=='queue'?this.files:this.files.filter(f=>f.kind!=='image'||!f.url);
    const sp=$('#attachList');sp?.classList.add('busy');let paths;try{paths=await this.uploadAtt(up)}catch(e){sp?.classList.remove('busy');return fail(e)}sp?.classList.remove('busy');
@@ -258,8 +265,10 @@ const Chat={
    '-',{label:'Manage tools…',icon:'sliders',run:()=>go('/abilities/mcp')}])},
  async send(text,images=[],target){
   if(this.tools.length&&!target){text='[Use these tools for this: '+this.tools.map(t=>t.label+(t.kind==='mcp'?' (MCP)':'')+' = '+t.name).join(', ').replace(/ = [^,]+/g,'')+']\n\n'+text;this.tools=[];this.paintTools()}
-  let id=target||this.id;
+  let id=target||this.id;const prof=S.profile||'default';
   if(!id){try{const body=this.cwd?{cwd:this.cwd}:{};const d=await post(G,'/api/sessions',body);id=d.session?.id||d.id;}catch(e){return fail(e)}
+   // the agent was switched while the chat was being made: don't send through the new one
+   if((S.profile||'default')!==prof)return toast('You switched agents before the chat started, so the message was not sent','err');
    S.sessions.unshift({id,title:'',preview:text.replace(this.TOOL_RE,'').slice(0,80),source:'api_server',last_active:Date.now()/1000,is_active:true});this.id=id;history.replaceState(null,'','#/chat/'+id);this.live[id]={turns:[],running:false};if($('#scroll'))$('#scroll').innerHTML='<div class="thread" id="thread"></div>'}
   const s=this.live[id]||(this.live[id]={turns:[],running:false});
   s.turns.push({role:'user',text,images:images.length||0,imgs:images.map(f=>f.url),local:this.takeSent()});const ai={role:'ai',steps:[],text:'',think:''};s.turns.push(ai);s.ai=ai;s.runTurns=[ai];
@@ -337,7 +346,7 @@ const Chat={
  async stop(){const s=this.live[this.id];if(!s?.running)return;s.paused=true;try{if(s.runId)await post(G,'/v1/runs/'+s.runId+'/stop')}catch{}setTimeout(()=>s.abort?.abort(),1500);toast('Stopping…')},
  async approve(choice){const s=this.live[this.id];const t=s?.turns[s.turns.length-1];if(!s?.runId||!t?.approval)return;try{await post(G,'/v1/runs/'+s.runId+'/approval',{choice,...(t.approval.request_id?{request_id:t.approval.request_id}:{})});t.approval.resolved=choice;this.paint()}catch(e){fail(e)}},
  async newChat(){this.id=null;go('/chat')},
- async retry(){const s=this.live[this.id];if(!s||s.running)return;const lastUser=[...s.turns].reverse().find(t=>t.role==='user');if(lastUser)this.send(lastUser.text)},
+ async retry(){const s=this.live[this.id];if(!s||s.running)return;const lastUser=[...s.turns].reverse().find(t=>t.role==='user');if(lastUser)this.send(lastUser.text,(lastUser.imgs||[]).filter(Boolean).map(url=>({url})))},
  async fork(){try{const d=await post(G,'/api/sessions/'+encodeURIComponent(this.id)+'/fork',{});const nid=d.session?.id||d.id;await this.loadSessions();if(nid)go('/chat/'+nid);toast('Forked into a new chat')}catch(e){fail(e)}},
 
  /* ---------- slash commands (handled in the app; everything else goes to aqeelOS) ---------- */
@@ -374,7 +383,7 @@ const Secrets={timer:null,
    if(i){i.focus();i.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();this.send(c)}}}this.tick(c,x.expires)}
   if(!items.length&&!Object.values(Chat.live||{}).some(s=>s?.running)){clearInterval(this.timer);this.timer=null}},
  // the chat the agent is working in (a choice applies to that chat)
- runningChat(){const live=Object.entries(Chat.live||{}).find(([,s])=>s?.running);return live?.[0]||Chat.id||''},
+ runningChat(){if(Chat.live[Chat.id]?.running)return Chat.id;const live=Object.entries(Chat.live||{}).find(([,s])=>s?.running);return live?.[0]||Chat.id||''},
  browserCard(x){const who=esc(AGENT()),mine=x.suggest==='yours';
   return `<div class="secret-card choice" data-id="${esc(x.id)}" data-kind="browser"><span class="ic">${icon('globe',17)}</span><div class="sc-main"><b>Where should ${who} do this?</b>
    <span class="hint">${esc(x.task)}${x.why?' · '+esc(x.why):''}</span>

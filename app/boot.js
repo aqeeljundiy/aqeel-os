@@ -49,7 +49,7 @@ document.addEventListener('click',e=>{
   case 'close':closeLayers();break;
   case 'reload':reload();break;
   case 'step':a.closest('.step').classList.toggle('open');break;
-  case 'think':{const b=a.nextElementSibling;b.hidden=!b.hidden;a.querySelector('svg:last-child').style.transform=b.hidden?'':'rotate(90deg)';break}
+  case 'think':{const b=a.nextElementSibling;b.hidden=!b.hidden;a.setAttribute('aria-expanded',String(!b.hidden));const t=Chat.live[Chat.id]?.turns[+a.dataset.i];if(t)t.thinkOpen=!b.hidden;break}
   case 'approval':Chat.approve(a.dataset.choice);break;
   case 'perm-menu':Chat.permMenu(a);break;
   case 'perm-toggle':{if(!Chat.id){toast('Send the first message, then choose Allow all for this chat.');break}const on=!Chat.allowAll(Chat.id);Chat.setAllowAll(Chat.id,on);Chat.paintComposerBar();toast(on?'Allow all in this chat: no approval prompts (blocked commands stay blocked).':'Ask me: risky commands wait for your OK again.');break}

@@ -79,7 +79,9 @@ body{overflow:hidden}
 .page-head h1{font-size:28px;font-weight:600;letter-spacing:-.8px;margin:12px 0 6px}
 .page-head p{margin:0;color:var(--ink-2);font-size:14.5px;line-height:1.55;max-width:620px}
 .tabs{display:inline-flex;gap:2px;background:var(--soft);border:1px solid var(--border);border-radius:var(--r-pill);padding:3px;margin-bottom:20px;position:relative}
-.tabs button{min-height:32px;padding:6px 16px;border:0;background:transparent;box-shadow:none;font-size:13.5px;color:var(--ink-2);position:relative;z-index:1}
+.tabs button{min-height:32px;padding:6px 16px;border:0;background:transparent;box-shadow:none;font-size:13.5px;color:var(--ink-2);position:relative;z-index:1;white-space:nowrap;flex:none}
+/* a long row of tabs scrolls inside its own width on phones */
+.tabs{max-width:100%;overflow-x:auto;scrollbar-width:none}.tabs::-webkit-scrollbar{display:none}
 .tabs button:hover{transform:none;box-shadow:none;color:var(--ink)}
 .tabs button.on{color:var(--ink);font-weight:600}
 .tabs .pill{position:absolute;top:3px;bottom:3px;border-radius:var(--r-pill);background:var(--surface);box-shadow:0 1px 2px rgba(11,12,16,.1);transition:left var(--t-med) var(--ease),width var(--t-med) var(--ease)}
@@ -1007,7 +1009,7 @@ body:has(.drawer.pop) .scrim{backdrop-filter:blur(5px);background:rgba(11,12,16,
 .sd-book .md{max-height:360px;overflow:auto;margin-top:10px;font-size:13.5px}.sd-raw pre{white-space:pre-wrap;font-size:12.5px;margin:10px 0 0;max-height:260px;overflow:auto}
 .sd-runs{display:flex;flex-direction:column;border:1px solid var(--border);border-radius:14px;overflow:hidden}
 .sd-run{display:grid;grid-template-columns:1.4fr .8fr 1fr .8fr 1.2fr;gap:8px;padding:9px 12px;font-size:12.5px;border-top:1px solid var(--border);cursor:pointer}.sd-run:first-child{border-top:0}.sd-run:hover{background:var(--soft)}.sd-run .m{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-@media (max-width:600px){.sd-run{grid-template-columns:1fr 1fr 1fr}.sd-run .m,.sd-run span:nth-child(3){display:none}}
+@media (max-width:600px){.sd-run{grid-template-columns:1fr 1fr 1fr}.sd-run .m,.sd-run:not([style]) span:nth-child(3){display:none}}
 .sj-row .main-c{flex:1;min-width:0}.sj-row .txt{flex:1;min-width:0}.sj-row .txt>span{white-space:normal;overflow:visible}
 
 /* steer: an ordinary bubble; one quiet line under it while it waits (as in Claude) */
@@ -1121,6 +1123,7 @@ body:has(.drawer.pop) .scrim{backdrop-filter:blur(5px);background:rgba(11,12,16,
 .step.open{background:var(--soft)}.step-body pre{font-size:12px;max-height:320px}
 button.think{min-height:28px;padding:2px 8px;font-size:13px;color:var(--muted);background:transparent;box-shadow:none;border:0}
 button.think:hover{color:var(--ink-2);background:var(--soft)}
+button.think svg:last-child{transition:transform var(--t-fast) var(--ease)}button.think[aria-expanded="true"] svg:last-child{transform:rotate(90deg)}
 .think-body{font-size:13px;color:var(--ink-2);line-height:1.6;border-left:2px solid var(--border);padding:2px 0 2px 12px;margin:2px 0 10px 8px;white-space:pre-wrap;max-height:300px;overflow:auto}
 .sched-folder .sf-head{justify-content:flex-start;text-align:left}
 /* a question stacked on top of an open pop-up */
@@ -1304,7 +1307,7 @@ html.in-panel .composer-wrap{padding:0 10px 12px}
 .n8n-row .act{display:grid;grid-template-columns:230px 170px auto auto;align-items:center;gap:10px}
 .n8n-row .n8n-owner{display:inline-flex;align-items:center;gap:8px;white-space:nowrap}.n8n-row .n8n-owner .acc-av{margin:0;box-shadow:none}.n8n-row .n8n-owner b{font-weight:600;font-size:14px}
 .n8n-row .acc-btn{justify-self:start}
-@media (max-width:900px){.n8n-row{flex-wrap:wrap}.n8n-row .act{grid-template-columns:1fr auto auto;width:100%}.n8n-row .acc-btn{display:none}}
+@media (max-width:900px){.n8n-row{flex-wrap:wrap}.n8n-row .act{grid-template-columns:minmax(0,1fr) auto auto;width:100%}.n8n-row .acc-btn{display:none}.n8n-row .n8n-owner{min-width:0;overflow:hidden}.n8n-row .n8n-owner b{overflow:hidden;text-overflow:ellipsis}}
 /* Code: the aqeelOS Code app fills the main area */
 .page.page-full{padding:0;max-width:none;height:calc(100dvh - 60px)}.page.page-full>.page-head{display:none}.page.page-full #pg{height:100%}
 .code-host{position:relative;height:100%;background:var(--bg)}
@@ -1468,6 +1471,10 @@ div.skel:not(.loading)::after{content:'';width:26px;height:26px;border-radius:50
 .aam-ag:disabled{cursor:progress;opacity:.5}
 .aam-h{display:inline-flex;align-items:center;gap:10px}.aam-h .acc-av{margin:0}
 .aam-more{margin-top:10px}.aam-more>summary{cursor:pointer;font-size:13.5px;color:var(--ink-2);padding:6px 0}
+/* memory sections open and close smoothly (height where the browser can, a fade everywhere) */
+.aam-more{interpolate-size:allow-keywords}.aam-more::details-content{block-size:0;overflow:hidden;transition:block-size var(--t-med) var(--ease),content-visibility var(--t-med) allow-discrete}.aam-more[open]::details-content{block-size:auto}
+.aam-more[open]>:not(summary){animation:fade var(--t-med) var(--ease) both}
+@media (max-width:760px){.all-view .all-row .txt>span:not(.aam-ags){white-space:normal;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}}
 .aam-who{font-weight:600;color:var(--accent,var(--ink))}
 
 /* Bottlenecks always in the top bar; quiet when nothing is stuck */
