@@ -4,6 +4,7 @@
 // move ownership first. Changes to apps, plugins and keys apply when the agents restart (once nobody is mid-reply).
 import {readFile,writeFile,readdir,stat,mkdir,copyFile,unlink,cp} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
+import {constants as fsc} from 'node:fs';
 import path from 'node:path';
 
 // keys that are the engine's own wiring, or a chat bot's identity (one bot answers as one agent only)
@@ -70,8 +71,9 @@ export function createAccess({HERMES_HOME,DATA,listAgents,readConfig,setKey,herm
    for(const f of await readdir(td).catch(()=>[]))if(f===id+'.json'||f===id+'.meta.json'||f===id+'.client.json')await copyFile(path.join(td,f),path.join(dd,f));
    restart('access: '+id+' shared with '+names(to));return {changed:true}}
   if(kind==='google'){const mine=Object.values((await holdings(to)).google).find(x=>x.label===id);if(mine)return {changed:false};
-   let f=src.file;if(await stat(path.join(home(to),f)).catch(()=>null))f='google_token_'+id.split('@')[0].replace(/[^\w.-]/g,'').toLowerCase()+'.json';
-   await copyFile(path.join(home(from),src.file),path.join(home(to),f));
+   // a free name from the whole address (two accounts can share the part before @), never over another account's file
+   let f=src.file;const base='google_token_'+id.replace(/[^\w-]/g,'_').toLowerCase();for(let n=1;await stat(path.join(home(to),f)).catch(()=>null);n++)f=base+(n>1?'_'+n:'')+'.json';
+   await copyFile(path.join(home(from),src.file),path.join(home(to),f),fsc.COPYFILE_EXCL);
    if(!await stat(path.join(home(to),'google_client_secret.json')).catch(()=>null))await copyFile(path.join(home(from),'google_client_secret.json'),path.join(home(to),'google_client_secret.json')).catch(()=>{});
    return {changed:true}}
   if(kind==='plugin'){const d=path.join(home(to),'plugins',id);const s0=path.join(home(from),'plugins',id);if(!await stat(d).catch(()=>null)&&await stat(s0).catch(()=>null))await cp(s0,d,{recursive:true});
