@@ -1,0 +1,142 @@
+/* Phase 0 mockup only. Sits on top of the real studio.css so the shell is exactly the app. */
+/* which screen shows what */
+body[data-screen=start] [data-for]:not([data-for~=start]),
+body[data-screen=deck] [data-for]:not([data-for~=deck]),
+body[data-screen=doc] [data-for]:not([data-for~=doc]){display:none!important}
+body{background:var(--bg)}
+.m-grow{flex:1}
+
+/* kind colours: one quiet tint per kind, used for icons and the dots in the sidebar */
+[data-kind=app]{--k:#2f7bff;--kb:#e8f0fe}[data-kind=deck]{--k:#e0702a;--kb:#fdf0e6}[data-kind=doc]{--k:#14928a;--kb:#e3f5f3}
+[data-kind=design]{--k:#c2459b;--kb:#fbe9f5}[data-kind=research]{--k:#6d55d8;--kb:#efecfc}[data-kind=data]{--k:#2f9a4c;--kb:#e7f5ea}[data-kind=media]{--k:#c08a00;--kb:#fbf3dd}
+.dark [data-kind]{--kb:color-mix(in srgb,var(--k) 22%,transparent)}
+.m-kind-dot{width:7px;height:7px;border-radius:50%;background:var(--k);flex:none;margin-left:4px}
+.m-kind-ico{display:grid;place-items:center;width:36px;height:36px;border-radius:10px;background:var(--kb);color:var(--k);flex:none}
+.m-kind-ico svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.m-kind-ico.sm{width:22px;height:22px;border-radius:6px}.m-kind-ico.sm svg{width:13px;height:13px}
+
+/* Screen 1: start by what you want to make */
+.m-start{margin:auto 0;padding:6px 2px 4px;animation:arrive .25s ease-out}
+.m-start h2{font-size:26px;line-height:1.1;letter-spacing:-1px;margin-bottom:8px}
+.m-start>p{font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:16px}
+.m-kinds{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.m-kind{display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;column-gap:10px;row-gap:1px;align-items:center;text-align:left;padding:10px 12px;min-height:0;height:auto;border-radius:var(--r-md);border:1px solid var(--border);background:var(--surface);box-shadow:none;white-space:normal;transition:border-color .15s,background .15s,transform .15s,box-shadow .15s}
+.m-kind .m-kind-ico{grid-row:1/3}
+.m-kind strong{font-size:13px;font-weight:600;align-self:end}
+.m-kind small{font-size:11.5px;color:var(--muted);font-weight:400;align-self:start;line-height:1.35}
+.m-kind:hover{border-color:#cfd2db;transform:translateY(-1px);background:var(--surface)}
+.m-kind.on{border-color:var(--k);box-shadow:0 0 0 3px var(--kb)}
+.m-templates{margin-top:18px}
+.m-templates-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;font-size:12px;font-weight:600;color:var(--ink-2)}
+.m-templates-head a{font-size:12px}
+.m-template-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.m-template{display:grid;gap:6px;padding:0;min-height:0;border:0;background:none;box-shadow:none;font-size:11.5px;font-weight:500;color:var(--ink-2);text-align:left;border-radius:10px}
+.m-template:hover{background:none}
+.m-thumb{position:relative;display:block;aspect-ratio:16/10;border-radius:9px;border:1px solid var(--border);background:var(--surface);overflow:hidden;transition:border-color .15s,box-shadow .15s,transform .15s}
+.m-template:hover .m-thumb{transform:translateY(-1px)}
+.m-template.on .m-thumb{border-color:#e0702a;box-shadow:0 0 0 3px #fdf0e6}
+.m-thumb i{position:absolute;left:10%;top:14%;width:44%;height:16%;border-radius:3px;background:var(--blue)}
+.m-thumb b{position:absolute;left:10%;height:7%;border-radius:2px;background:var(--border)}
+.m-thumb b:nth-of-type(1){top:44%;width:70%}.m-thumb b:nth-of-type(2){top:58%;width:52%}.m-thumb b:nth-of-type(3){top:72%;width:60%}
+.t-pitch{background:linear-gradient(160deg,#0a3f8f,#2f7bff)}.t-pitch i{background:#fff}.t-pitch b{background:rgba(255,255,255,.45)}
+.t-case i{width:36%;height:60%;left:56%;top:20%;background:var(--sky-1)}.t-case b{width:36%!important}
+.t-blank{background:var(--soft-2);border-style:dashed}
+
+/* composer extras: the chosen kind, template and design system as one chip */
+.m-kind-chip{display:flex;align-items:center;gap:6px;margin:10px 12px 0;padding:4px 6px 4px 4px;width:max-content;max-width:calc(100% - 24px);border-radius:var(--r-pill);background:var(--soft-2);font-size:12px;font-weight:500;color:var(--ink-2)}
+.m-kind-chip button{width:20px;height:20px;min-height:20px;padding:0;border:0;background:none;box-shadow:none;color:var(--muted);font-size:15px;line-height:1}
+.m-sep{color:var(--muted)}
+.chat-form textarea[data-for]{min-height:70px}
+
+/* Screens 2 and 3: the AI's live task list, a question as choices, and the next-step box */
+.m-tasks{margin-top:12px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface);padding:10px 12px}
+.m-tasks-head{display:flex;justify-content:space-between;font-size:12px;font-weight:600;margin-bottom:6px}.m-tasks-head small{color:var(--muted);font-weight:500}
+.m-tasks ol{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.m-tasks li{position:relative;padding:3px 0 3px 24px;font-size:12.5px;line-height:1.5;color:var(--muted)}
+.m-tasks li::before{content:'';position:absolute;left:3px;top:7px;width:12px;height:12px;border-radius:50%;border:1.5px solid var(--border);box-sizing:border-box}
+.m-tasks li.done{color:var(--ink-2)}
+.m-tasks li.done::before{border:0;background:var(--blue) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 6.2l2 2 4-4.4' fill='none' stroke='white' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/12px no-repeat}
+.m-tasks li.now{color:var(--ink);font-weight:500}
+.m-tasks li.now::before{border-color:var(--blue);border-right-color:transparent;animation:spin .9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.m-ask{margin-top:12px;padding:12px;border-radius:var(--r-md);background:var(--soft-2)}
+.m-ask p{font-size:13px;font-weight:500;margin-bottom:10px}
+.m-ask-options{display:grid;gap:6px}
+.m-opt{display:grid;gap:2px;text-align:left;height:auto;min-height:0;padding:9px 12px;border-radius:10px;white-space:normal}
+.m-opt strong{font-size:12.5px;font-weight:600}.m-opt small{font-size:11.5px;color:var(--muted);font-weight:400}
+.m-opt.rec{border-color:var(--blue-2)}
+.m-next{border:1px solid var(--border);border-radius:var(--r-md);padding:12px;background:var(--surface);box-shadow:var(--shadow-card);animation:arrive .25s ease-out}
+.m-next p{font-size:12.5px;line-height:1.6;color:var(--ink-2);margin-bottom:10px}
+.m-next-q{display:flex;align-items:center;flex-wrap:wrap;gap:6px}
+.m-next-q span{font-size:12.5px;font-weight:600;margin-right:auto}
+.m-next-q button{min-height:32px;padding:6px 14px;font-size:12px}
+
+/* work panel: the Artifacts tab */
+.m-badge{display:inline-grid;place-items:center;min-width:17px;height:17px;padding:0 5px;margin-left:4px;border-radius:9px;background:var(--blue);color:#fff;font-size:10.5px;font-weight:600}
+.m-art-empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;gap:8px}
+.m-art-empty h3{margin:12px 0 0;font-size:16px;font-weight:600}
+.m-art-empty p{max-width:340px;font-size:12.5px;line-height:1.6;color:var(--muted)}
+.m-ghost{display:flex;gap:10px;width:min(420px,90%);opacity:.9}
+.m-ghost-strip{display:grid;gap:6px;width:22%}
+.m-ghost-strip i,.m-ghost-slide{border-radius:8px;border:1px dashed #c9ccd6;background:var(--surface)}
+.dark .m-ghost-strip i,.dark .m-ghost-slide{border-color:var(--border)}
+.m-ghost-strip i{aspect-ratio:16/9}
+.m-ghost-slide{flex:1;position:relative}
+.m-ghost-slide b{position:absolute;left:10%;height:7%;border-radius:3px;background:var(--soft)}
+.m-ghost-slide b:nth-child(1){top:22%;width:40%;height:12%}.m-ghost-slide b:nth-child(2){top:48%;width:70%}.m-ghost-slide b:nth-child(3){top:62%;width:55%}
+.m-art{flex:1;min-height:0;display:flex;flex-direction:column}
+.m-art-bar{position:relative;z-index:3;display:flex;align-items:center;gap:6px;padding:10px 14px;border-bottom:1px solid var(--border);background:var(--surface)}
+.m-switch,.m-version,.m-tool{display:inline-flex;align-items:center;gap:7px;min-height:32px;height:32px;padding:4px 10px;font-size:12.5px;box-shadow:none;border-color:transparent;background:transparent;white-space:nowrap}
+.m-switch{padding-left:5px}.m-switch strong{font-weight:600}
+.m-switch:hover,.m-version:hover,.m-tool:hover{background:var(--soft-2);border-color:transparent}
+.m-version{color:var(--muted);font-weight:500}
+.m-live{width:7px;height:7px;border-radius:50%;background:#e0702a;animation:pulse 1s ease-in-out infinite}
+.m-tool svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.m-tool.icon{width:32px;padding:0;justify-content:center}
+.m-tool.primary-ish{border-color:var(--border);background:var(--surface)}
+.dd-chev{display:inline-block;width:6px;height:6px;border-right:1.5px solid var(--muted);border-bottom:1.5px solid var(--muted);transform:rotate(45deg) translateY(-2px)}
+.m-dl{position:relative}
+.m-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:5;width:250px;padding:6px;border:1px solid var(--border);border-radius:14px;background:var(--surface);box-shadow:var(--shadow-float);display:grid;animation:arrive .2s ease-out}
+.m-menu button{display:grid;gap:1px;text-align:left;height:auto;min-height:0;padding:8px 10px;border:0;background:none;box-shadow:none;border-radius:9px}
+.m-menu button:hover{background:var(--soft)}
+.m-menu strong{font-size:13px;font-weight:500}.m-menu small{font-size:11.5px;color:var(--muted);font-weight:400}
+.m-deck{flex:1;min-height:0;display:flex;gap:14px;padding:14px}
+.m-strip{width:118px;flex:none;overflow:auto;display:grid;align-content:start;gap:8px;padding:2px}
+.m-thumb-s{position:relative;display:flex;gap:6px;align-items:flex-start;padding:0;min-height:0;height:auto;border:0;background:none;box-shadow:none;border-radius:8px}
+.m-thumb-s:hover{background:none}
+.m-thumb-s span{width:14px;font-size:10.5px;color:var(--muted);text-align:right;padding-top:2px}
+.m-thumb-s i{flex:1;aspect-ratio:16/9;border-radius:6px;border:1px solid var(--border);background:var(--surface);position:relative;overflow:hidden;transition:box-shadow .15s,border-color .15s}
+.m-thumb-s.on i{border-color:var(--blue);box-shadow:0 0 0 2px var(--blue)}
+.m-thumb-s .s-cover{background:linear-gradient(160deg,#0a3f8f,#2f7bff)}
+.m-thumb-s .s-cover::after{content:'';position:absolute;left:12%;top:38%;width:56%;height:14%;border-radius:2px;background:#fff}
+.s-text::before,.s-num::before,.s-two::before,.s-chart::before{content:'';position:absolute;left:12%;top:20%;width:40%;height:11%;border-radius:2px;background:var(--blue)}
+.s-text::after{content:'';position:absolute;left:12%;top:48%;width:70%;height:28%;background:repeating-linear-gradient(var(--border) 0 3px,transparent 3px 7px)}
+.s-num::after{content:'3×';position:absolute;left:12%;top:36%;font-size:15px;font-weight:700;color:#0a3f8f}
+.dark .s-num::after{color:var(--blue)}
+.s-two::after{content:'';position:absolute;left:12%;right:12%;top:46%;height:34%;background:linear-gradient(90deg,var(--sky-1) 0 46%,transparent 46% 54%,var(--sky-1) 54%)}
+.s-chart::after{content:'';position:absolute;left:12%;right:12%;bottom:14%;height:46%;background:linear-gradient(90deg,var(--blue) 0 14%,transparent 14% 28%,var(--blue-2) 28% 42%,transparent 42% 56%,var(--blue) 56% 70%,transparent 70% 84%,var(--blue-2) 84%);-webkit-mask:linear-gradient(transparent 50%,#000 50%);mask:linear-gradient(to top,#000 60%,transparent 60%)}
+.m-thumb-s.writing i{border:1px dashed #e0702a;background:linear-gradient(100deg,var(--soft) 30%,var(--surface) 50%,var(--soft) 70%) 0 0/300% 100%;animation:shimmer 1.4s linear infinite}
+.m-thumb-s.pending i{border:1px dashed #c9ccd6;background:transparent}
+@keyframes shimmer{to{background-position:-150% 0}}
+.m-stage{flex:1;min-width:0;display:flex;flex-direction:column;gap:10px;background:var(--soft);border-radius:var(--r-md);padding:18px}
+.m-slide{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;container-type:size}
+.m-slide-in{position:relative;width:min(100cqw,100cqh*16/9);aspect-ratio:16/9;background:#fff;color:#0b0c10;border-radius:10px;box-shadow:0 1px 2px rgba(11,12,16,.06),0 18px 50px -24px rgba(11,12,16,.35);padding:7% 8%;box-sizing:border-box;container-type:inline-size;display:flex;flex-direction:column}
+.m-eyebrow{font-size:2.2cqw;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#0158cb}
+.m-big{font-size:17cqw;line-height:1;font-weight:700;letter-spacing:-.04em;margin:3cqw 0 2cqw;background:linear-gradient(180deg,#2f7bff,#0a3f8f);-webkit-background-clip:text;background-clip:text;color:transparent}
+.m-lead{font-size:3.1cqw;line-height:1.45;max-width:80%;color:#2e3038}
+.m-foot{margin-top:auto;display:flex;align-items:center;gap:1.2cqw;font-size:1.7cqw;color:#646875}
+.m-foot img{width:2.6cqw;height:2.6cqw}.m-foot span:last-child{margin-left:auto}
+.m-slide-tools{display:flex;align-items:center;flex-wrap:wrap;gap:6px}
+.m-pill{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 10px;border-radius:var(--r-pill);background:var(--surface);font-size:11.5px;font-weight:500;color:var(--ink-2)}
+.m-chip{min-height:28px;height:28px;padding:0 11px;font-size:11.5px;box-shadow:none}
+
+/* mockup switcher (not part of the design) */
+.m-switcher{position:fixed;left:50%;top:13px;transform:translateX(-50%);z-index:50;display:flex;align-items:center;gap:4px;padding:5px;border-radius:var(--r-pill);background:#0b0c10;color:#fff;box-shadow:0 12px 30px -10px rgba(0,0,0,.5)}
+.m-switcher-label{font-size:11px;font-weight:600;color:#9aa0ad;padding:0 8px 0 10px}
+.m-switcher button{min-height:30px;padding:5px 12px;border:0;background:transparent;color:#d9dce3;box-shadow:none;font-size:12px}
+.m-switcher button:hover{background:rgba(255,255,255,.1);color:#fff}
+.m-switcher button.on{background:#fff;color:#0b0c10}
+
+@container (max-width:420px){.m-template-row{grid-template-columns:repeat(2,1fr)}}
+@media (max-width:1100px){.m-strip{width:92px}.m-art-bar .m-tool span{display:none}.m-art-bar .m-tool{width:32px;padding:0;justify-content:center}.m-art-bar .m-tool .dd-chev{display:none}}
+.dark .m-template.on .m-thumb{box-shadow:0 0 0 3px rgba(224,112,42,.3)}

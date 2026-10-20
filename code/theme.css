@@ -1,0 +1,29 @@
+/* Dark mode for the Usage, Connections and Backlog pages (same tokens as the workspace). */
+.dark{--bg:#12151c;--surface:#171c25;--soft:#1d2430;--soft-2:#121722;--blue-soft:#1b3153;--ink:#f0f3fa;--ink-2:#c2c9d5;--muted:#a1adbf;--border:#303a4b;--blue:#6ca9ff;--blue-2:#8fbcff;--blue-deep:#4a8eef;--sky-1:#1b2b45;--sky-2:#171c25;--shadow-card:0 1px 2px rgba(0,0,0,.3),0 12px 40px -24px rgba(0,0,0,.6);--shadow-float:0 30px 80px -30px rgba(0,0,0,.7),0 2px 6px rgba(0,0,0,.3);color-scheme:dark}
+.dark body{background:var(--bg);color:var(--ink)}
+.dark .topbar,.dark header{background:rgba(23,28,37,.78);border-bottom-color:var(--border)}
+.dark button:not(.primary),.dark select,.dark textarea,.dark input{background:var(--surface);color:var(--ink);border-color:var(--border)}
+.dark .primary,.dark .primary:hover{color:#0b0c10}
+.dark .wordmark img,.dark .brand img{filter:invert(1)}
+.dark .switch-option input{background:#3a4250}
+.dark .switch-option input:checked{background:var(--blue)}
+.dark .dev-controls .active{color:var(--bg)}
+.dark #toast{color:var(--bg)}
+.dark .card,.dark dialog{background:var(--surface);color:var(--ink)}
+.dark .connection .ready{color:#5fd38d}
+.dark .seg button{background:transparent}
+.dark .seg button.on{background:var(--blue-soft);color:var(--ink)}
+.dark .page-head{background:transparent}
+/* phones: the page header keeps one row; its links scroll sideways instead of overflowing */
+@media (max-width:700px){
+ header,.topbar{flex-wrap:nowrap;gap:10px;padding-left:16px;padding-right:16px}
+ header>span,.topbar>span{display:none}
+ .page-nav{overflow-x:auto;scrollbar-width:none;flex:1 1 auto;justify-content:flex-end;min-width:0}
+ .page-nav a{white-space:nowrap;padding:7px 10px;font-size:13px}
+ .wordmark{font-size:18px}
+}
+@media (max-width:700px){
+ .wordmark{font-size:0;gap:0}
+ .wordmark img{width:24px;height:24px}
+ .page-nav{justify-content:flex-start;flex:0 1 auto}
+}

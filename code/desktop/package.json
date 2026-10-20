@@ -1,0 +1,83 @@
+{
+  "name": "aqeelos-desktop",
+  "productName": "aqeelOS",
+  "version": "1.0.4",
+  "description": "aqeelOS on your computer, with Code and its real built-in browser",
+  "main": "main.cjs",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "node build.mjs win",
+    "dist:mac": "node build.mjs mac"
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "electron-builder": "26.16.1"
+  },
+  "build": {
+    "appId": "com.elkiya.aqeelos",
+    "productName": "aqeelOS",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "..",
+        "to": "code",
+        "filter": [
+          "**/*",
+          "!desktop/**",
+          "!data/**",
+          "!.git/**",
+          "!scratch/**",
+          "!mockups/**",
+          "!reference/**",
+          "!test-fixtures/**",
+          "!*.test.mjs",
+          "!launcher/**",
+          "!*.exe",
+          "!*.png"
+        ]
+      },
+      {
+        "from": "../node_modules",
+        "to": "code/node_modules",
+        "filter": [
+          "**/*",
+          "!.cache/**"
+        ]
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "../assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "shortcutName": "aqeelOS",
+      "runAfterFinish": true
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "icon": "../assets/icon-512.png",
+      "category": "public.app-category.productivity",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Websites you open in aqeelOS’s browser can ask for your microphone.",
+        "NSCameraUsageDescription": "Websites you open in aqeelOS’s browser can ask for your camera.",
+        "NSLocationUsageDescription": "Websites you open in aqeelOS’s browser can ask for your location."
+      },
+      "artifactName": "aqeelOS-${version}-${arch}.${ext}"
+    },
+    "dmg": {
+      "title": "aqeelOS"
+    }
+  }
+}

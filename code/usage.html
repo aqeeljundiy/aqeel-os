@@ -1,0 +1,19 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>aqeelOS Code · Usage</title><link rel="icon" href="/assets/elkiya-mark.svg"><link rel="stylesheet" href="/planning.css"><link rel="stylesheet" href="/dropdown.css"><link rel="stylesheet" href="/theme.css"><script src="/theme.js"></script><link rel="stylesheet" href="/usage.css"><link rel="stylesheet" href="/native-frame.css"><script src="/native-frame.js" defer></script><script type="module" src="/i18n.js"></script><script type="module" src="/dropdown.js"></script><script type="module" src="/usage-ui.js"></script></head><body>
+<header><a href="/" class="wordmark"><img src="/assets/elkiya-mark.svg" alt="">aqeelOS Code</a><span>Usage</span><nav class="page-nav"><a href="/">Workspace</a><a href="/usage.html" aria-current="page">Usage</a><a href="/connections">Connections</a></nav></header>
+<main class="usage">
+ <div class="usage-head"><div><h1>Usage</h1><p>Tokens every AI run used, by model, account and project. Cost is the API-equivalent price of those tokens; subscriptions are billed by plan, not per token.</p></div></div>
+ <section class="filters" aria-label="Filters">
+  <div class="seg" role="radiogroup" aria-label="Time range" id="range"><button data-range="1" type="button">Today</button><button data-range="7" type="button">7 days</button><button data-range="30" type="button" class="on">30 days</button><button data-range="0" type="button">All time</button></div>
+  <label class="sr-only" for="f-provider">Provider</label><select id="f-provider" data-dd="pill"><option value="">All providers</option><option value="claude">Claude</option><option value="codex">GPT</option></select>
+  <label class="sr-only" for="f-account">Account</label><select id="f-account" data-dd="pill" data-dd-width="280"><option value="">All accounts</option></select>
+  <label class="sr-only" for="f-project">Project</label><select id="f-project" data-dd="pill" data-dd-width="240"><option value="">All projects</option></select>
+ </section>
+ <section class="tiles" id="tiles" aria-label="Totals"></section>
+ <section class="card chart-card" aria-labelledby="chart-title"><div class="card-head"><h2 id="chart-title">Tokens per day</h2><div class="legend" id="legend"></div><button type="button" id="chart-table-toggle" class="small">Show table</button></div><div id="chart" class="chart"></div><div id="chart-table" class="table-wrap" hidden></div></section>
+ <div class="two">
+  <section class="card wide-card" aria-labelledby="models-title"><div class="card-head"><h2 id="models-title">By model</h2></div><div id="by-model" class="table-wrap"></div></section>
+  <section class="card wide-card" aria-labelledby="accounts-title"><div class="card-head"><h2 id="accounts-title">By account</h2></div><div id="by-account" class="table-wrap"></div></section>
+ </div>
+ <section class="card" aria-labelledby="limits-title"><div class="card-head"><h2 id="limits-title">Subscription limits</h2><button type="button" id="limits-refresh" class="small">Refresh</button></div><p class="note">GPT limits are read live for every Codex account. Claude limits are captured from its most recent run.</p><div id="limits" class="limits"></div></section>
+ <section class="card" aria-labelledby="prices-title"><div class="card-head"><h2 id="prices-title">Token prices</h2><div class="actions"><button type="button" id="sync-claude" class="small">Sync with Claude</button><button type="button" id="sync-codex" class="small">Sync with GPT</button><button type="button" id="prices-reset" class="small">Reset</button><button type="button" id="prices-save" class="small primary">Save prices</button></div></div><p class="note" id="prices-source"></p><p class="note" id="sync-status" role="status"></p><div id="prices" class="table-wrap"></div></section>
+</main><div id="toast" role="status" hidden></div></body></html>

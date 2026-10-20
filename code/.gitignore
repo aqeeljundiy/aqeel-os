@@ -1,0 +1,11 @@
+# Your accounts, keys, chats, projects and browser profile live here: never commit it
+data/
+node_modules/
+# Archived reference websites (large, not part of the app)
+reference/
+scratch/
+# Built launcher (rebuild with scripts/build-exe.ps1)
+*.exe
+.DS_Store
+Thumbs.db
+/aqeelos.json

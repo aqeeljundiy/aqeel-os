@@ -1,0 +1,30 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,mkdir,writeFile} from 'node:fs/promises';import path from 'node:path';import os from 'node:os';
+import {listOutputs,kindInstructions,checkSlug,cleanDS,DesignSystems,dsFromPage,deckPptx,docDocx} from './outputs.mjs';
+import {slideHtml,slideBlock,dsStyle} from './deck-render.js';
+import {parse,toHtml} from './md-lite.mjs';
+
+test('lists outputs by folder, reads output.json and falls back to the entry file',async()=>{const dir=await mkdtemp(path.join(os.tmpdir(),'cba-out-'));
+ await mkdir(path.join(dir,'outputs','pitch'),{recursive:true});await writeFile(path.join(dir,'outputs','pitch','deck.json'),'{"slides":[]}');await writeFile(path.join(dir,'outputs','pitch','output.json'),'{"kind":"deck","title":"Pitch"}');
+ await mkdir(path.join(dir,'outputs','notes'),{recursive:true});await writeFile(path.join(dir,'outputs','notes','index.md'),'# Notes');
+ await mkdir(path.join(dir,'outputs','Bad Name'),{recursive:true});await writeFile(path.join(dir,'outputs','Bad Name','index.md'),'x');
+ await mkdir(path.join(dir,'outputs','empty'),{recursive:true});
+ const list=await listOutputs(dir);assert.deepEqual(list.map(o=>o.slug).sort(),['notes','pitch']);
+ assert.equal(list.find(o=>o.slug==='pitch').title,'Pitch');assert.equal(list.find(o=>o.slug==='notes').kind,'doc');assert.deepEqual(await listOutputs(path.join(dir,'missing')),[])});
+test('slugs are checked and kind instructions name the folder and design system',()=>{for(const bad of ['../x','A b','','x/y'])assert.throws(()=>checkSlug(bad));assert.equal(checkSlug('my-deck-2'),'my-deck-2');
+ const t=kindInstructions('deck',{name:'Midnight',colors:{accent:'#6ca9ff'},fonts:{}});assert.match(t,/deck\.json/);assert.match(t,/Midnight/);assert.match(t,/show_output/);assert.equal(kindInstructions('app'),'')});
+test('design systems are cleaned and built-ins cannot be deleted',async()=>{const ds=cleanDS({name:'<b>x</b>'.repeat(20),colors:{accent:'red',ink:'#123456'},fonts:{heading:'Inter;}body{'},radius:99,logo:'javascript:alert(1)'});
+ assert.equal(ds.colors.accent,'#0158cb');assert.equal(ds.colors.ink,'#123456');assert.equal(ds.fonts.heading,'Interbody');assert.equal(ds.radius,40);assert.equal(ds.logo,'');assert.ok(ds.name.length<=40);
+ const store=new DesignSystems(await mkdtemp(path.join(os.tmpdir(),'cba-ds-')));const saved=await store.save({name:'Mine',colors:{accent:'#ff0000'}});assert.equal((await store.get(saved.id)).name,'Mine');
+ await assert.rejects(store.remove('elkiya'));await store.remove(saved.id);assert.equal(await store.get(saved.id),null);
+ const fromSite=dsFromPage({name:'Shop',bg:'#101010',ink:'#fafafa',accent:'#ffcc00',accent2:'',heading:'Inter',body:'Inter',radius:6},'https://shop.example');assert.equal(fromSite.colors.onAccent,'#0b0c10');assert.equal(fromSite.colors.surface,'#1b2130')});
+test('slides escape every field and fall back to bullets for unknown layouts',()=>{const html=slideHtml({layout:'nope',title:'<img src=x onerror=alert(1)>',bullets:['"a"']},{deck:{title:'T'}});
+ assert.match(html,/l-bullets/);assert.ok(!html.includes('<img src=x'));assert.match(html,/&lt;img/);assert.match(html,/&quot;a&quot;/);
+ assert.ok(!slideBlock({layout:'title'},{inline:false}).includes('style='));assert.ok(!dsStyle({colors:{accent:'red;}'}}).includes('red'))});
+test('markdown export blocks and escaping',()=>{const b=parse('# T\n\nHi **b**\n\n- a\n- b\n\n| x | y |\n|---|---|\n| 1 | 2 |\n\n> note');assert.deepEqual(b.map(x=>x.type),['h','p','ul','table','quote']);
+ const h=toHtml('<script>x</script> [a](javascript:alert(1)) [b](https://e.com)');assert.ok(!h.includes('<script>'));assert.ok(!h.includes('javascript:'));assert.match(h,/href="https:\/\/e.com"/)});
+test('exports PowerPoint and Word files',async()=>{const pptx=await deckPptx(os.tmpdir(),{title:'D',slides:[{layout:'title',title:'Hi'},{layout:'chart',title:'C',chart:{type:'bar',labels:['a'],series:[{name:'s',values:[1]}]}},{layout:'table',title:'T',table:{head:['a'],rows:[['1']]}}]});
+ assert.equal(pptx.slice(0,2).toString(),'PK');const docx=await docDocx('# Hi\n\n- one\n\n| a |\n|---|\n| 1 |','Doc');assert.equal(docx.slice(0,2).toString(),'PK')});
+test('GitHub accounts come from gh auth status',async()=>{const {parseAccounts}=await import('./github.mjs');
+ assert.deepEqual(parseAccounts('github.com\n  ✓ Logged in to github.com account a-one (keyring)\n  - Active account: false\n  ✓ Logged in to github.com account b2 (keyring)\n  - Active account: true'),[{user:'a-one',active:false},{user:'b2',active:true}]);assert.deepEqual(parseAccounts('not logged in'),[])});
+test('document blocks keep their source lines',()=>{const b=parse('# T\n\npara one\nline two\n\n- a\n- b');assert.deepEqual(b.map(x=>[x.type,x.start,x.end]),[['h',0,1],['p',2,4],['ul',5,7]]);assert.deepEqual(b[2].at,[5,6])});
+

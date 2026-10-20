@@ -1,0 +1,1 @@
+{"type":"object","properties":{"reply":{"type":"string"},"files":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}}},"required":["reply","files"],"additionalProperties":false}
