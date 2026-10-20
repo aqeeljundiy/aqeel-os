@@ -18,7 +18,7 @@ const bundle=p=>p==='api_server'?'hermes-api-server':'hermes-'+p;
 const run=(c,a)=>new Promise((res,rej)=>execFile(c,a,{timeout:30000},(e,o,er)=>e?rej(Error(String(er||e.message).trim())):res(String(o))));
 
 export function createAgentDefaults({DATA,giveSkills,log=m=>console.log(m)}){
- const TRUST=path.join(DATA,'agent-trust.json'),ONCE=path.join(DATA,'once-all-skills.json');
+ const TRUST=path.join(DATA,'agent-trust.json'),SEEN=path.join(DATA,'agents-seen.json');
  const REQ=path.join(homedir(),'.aqeelos-agent-users'),KEY=path.join(HERMES_HOME,'agent-ssh','id_ed25519');
  const userOf=a=>('ag-'+a).slice(0,32);
  // the owner's own agents use the owner's accounts, so they keep the box's main user (the owner can change the list)
@@ -46,12 +46,20 @@ export function createAgentDefaults({DATA,giveSkills,log=m=>console.log(m)}){
   else if(!own&&pick(c,'terminal.backend')==='ssh')changes.push(['terminal.backend','local']);
   for(const [k,v] of changes)await setKey(a,k,v);
   if(changes.length)log('agent defaults for '+a+': '+changes.map(x=>x[0]).join(', '));return changes.length})}
- // every agent; all skills go to the existing agents once (later, only new agents get them, so removed skills stay removed)
+ // every agent always has every skill the main agent (Donna) has: missing ones are copied, the agent's own copies and
+ // extra skills of its own stay (decided 20 Oct 2026: no agent is treated differently; only the owner's signed-in
+ // accounts are not handed out, and those aren't skills)
+ async function skills(names){let n=0;for(const a of names)if(a!=='default')n+=await giveSkills(a).catch(()=>0)||0;return n}
+ // about every minute: agents made any way (aqeelOS, the engine's command line, another agent) get the defaults once
+ // when first seen (the list survives restarts), and every agent gets the main agent's skills it lacks
+ async function tick(){const names=await agentNames();await skills(names);let seen;try{seen=new Set(JSON.parse(await readFile(SEEN,'utf8')))}catch{seen=null}
+  if(!seen){await writeFile(SEEN,JSON.stringify(names));return 0}let n=0;
+  for(const a of names)if(!seen.has(a)){log('new agent '+a+': giving it the defaults');n+=await added(a).catch(e=>{log('agent defaults '+a+': '+e.message);return 0});seen.add(a);await writeFile(SEEN,JSON.stringify([...seen]))}
+  return n}
  async function all(){await ensureKey().catch(e=>log('agent key: '+e.message));await knownHost().catch(()=>{});const names=await agentNames(),tr=await trusted();
-  await requestUsers(names.filter(a=>!tr.has(a)));
-  if(!await stat(ONCE).catch(()=>null)){for(const a of names)if(a!=='default')await giveSkills(a).catch(()=>{});await writeFile(ONCE,JSON.stringify({at:Date.now()}))}
+  await requestUsers(names.filter(a=>!tr.has(a)));await skills(names);
   let n=0;for(const a of names)n+=await ensure(a).catch(e=>{log('agent defaults '+a+': '+e.message);return 0});return n}
  // a new agent: its user (when it is not trusted), then the defaults
  async function added(a){const names=await agentNames(),tr=await trusted();await requestUsers(names.filter(x=>!tr.has(x)));
   if(!tr.has(a))for(let i=0;i<8&&!await ready(a);i++)await new Promise(r=>setTimeout(r,2000));return ensure(a)}
- return {all,ensure,added,trusted,userOf}}
+ return {all,tick,ensure,added,trusted,userOf}}

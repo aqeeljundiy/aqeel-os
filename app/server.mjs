@@ -176,7 +176,9 @@ const agentDefaults=createAgentDefaults({DATA,giveSkills:n=>accountHooks.giveSki
 accountHooks.afterSetup=n=>agentDefaults.added(n).catch(e=>console.warn('agent defaults',n,e.message));
 // at start, then every 10 minutes: agents made outside aqeelOS (by Claude, by another agent, from the command line) get them too
 const applyDefaults=()=>agentDefaults.all().then(n=>{if(n){console.log('agent defaults: '+n+' settings applied; restarting the agents when idle');restartGateway('agent defaults').catch(()=>{})}}).catch(e=>console.warn('agent defaults:',e.message));
-if(PORT===4400){setTimeout(applyDefaults,60000);setInterval(applyDefaults,600000).unref()}
+// about every minute: new agents (made any way) get the defaults, every agent gets the main agent's skills it lacks
+const defaultsTick=()=>agentDefaults.tick().then(n=>{if(n){console.log('agent defaults: new agent set up; restarting the agents when idle');restartGateway('new agent defaults').catch(()=>{})}}).catch(e=>console.warn('agent defaults tick:',e.message));
+if(PORT===4400){setTimeout(applyDefaults,60000);setInterval(applyDefaults,600000).unref();setTimeout(()=>{defaultsTick();setInterval(defaultsTick,60000).unref()},90000)}
 const mailer=createMail(DATA);
 const usage=createUsage(DASH.origin,DASH_TOKEN);
 const explain=createExplain(DATA,{python:enginePython,root});
