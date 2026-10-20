@@ -34,7 +34,10 @@ export function createAgentDefaults({DATA,giveSkills,log=m=>console.log(m)}){
  // the Chrome on the agent's own screen (the root script keeps one per isolated agent; its port is in ~/.aqeelos-agent-ports)
  const chromePort=async a=>{const l=(await readFile(path.join(homedir(),'.aqeelos-agent-ports'),'utf8').catch(()=>'')).split('\n').find(x=>x.startsWith(a+' '));return l?l.trim().split(' ')[2]:null};
  // no withAgent around this: setKey takes the agent's lock itself (holding it here waited on itself forever)
- async function ensure(a){const c=await readConfig(a).catch(()=>null);if(!c)return 0;const changes=[];
+ // one run per agent at a time (a new agent is seen by the setup hook and the tick together): a second caller joins it
+ const inflight=new Map();
+ function ensure(a){if(!inflight.has(a))inflight.set(a,ensureOnce(a).finally(()=>inflight.delete(a)));return inflight.get(a)}
+ async function ensureOnce(a){const c=await readConfig(a).catch(()=>null);if(!c)return 0;const changes=[];
   const own=!(await trusted()).has(a),ws=path.join(homedir(),'workspaces',a),isolated=own&&await ready(a);
   // the full bundles include the terminal: an agent meant to have its own user gets them only once that user exists
   const pts=pick(c,'platform_toolsets')||{};
