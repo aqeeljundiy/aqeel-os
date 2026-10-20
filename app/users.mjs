@@ -124,7 +124,7 @@ export function createUsers(DATA,mail){
    // agents
    if(rest==='/profiles'&&method==='POST')return !can(u,'create')?no('Ask the owner to let you create agents.'):ownCount(u)>=eff(u).maxAgents?no(eff(u).maxAgents?'You already have '+eff(u).maxAgents+' agents, your limit. Delete one first or ask the owner.':'Your role does not include making agents.'):null;
    if(rest==='/profiles/active'&&G)return null;   // which agent is the CLI default: read-only, fine for anyone signed in
-   const pr=/^\/profiles\/([^/]+)(\/(soul|description|model))?$/.exec(rest);
+   const pr=/^\/profiles\/([^/]+)(\/(soul|description|describe-auto|model))?$/.exec(rest);
    if(pr){const ag=decodeURIComponent(pr[1]);if(!pr[2])return method==='DELETE'?(atLeast(u,ag,'owner')?null:no('Only an owner of this agent can delete it.')):G&&atLeast(u,ag,'chat')?null:no();
     if(pr[3]==='model')return atLeast(u,ag,'edit')&&can(u,'models')?null:no();return atLeast(u,ag,'edit')?null:no('You can chat with this agent but not change it.')}
    // abilities on an agent this person can edit
@@ -185,10 +185,10 @@ export function createUsers(DATA,mail){
    if(u.role==='owner'){db.ownerName=name;db.ownerUsername=un}else{const x=db.users.find(y=>y.id===u.id);x.name=name;x.username=un}await save();return send(res,200,{ok:true,name,username:un})}
   // profile pictures: sent as a data URL (PNG, JPG, WebP or GIF, under 2 MB)
   if(p==='/ui/me/avatar'&&(req.method==='PUT'||req.method==='DELETE')){const x=u.role==='owner'?null:db.users.find(y=>y.id===u.id);const cur=x?x.avatar:db.ownerAvatar;
-   if(cur)await unlink(path.join(AVATARS,cur)).catch(()=>{});let file=null;
+   let file=null;
    if(req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,3e6))}catch{return send(res,413,{error:'Pictures must be under 2 MB.'})}const m=/^data:image\/(png|jpeg|webp|gif);base64,([A-Za-z0-9+/=]+)$/.exec(String(b.data||''));if(!m)return send(res,415,{error:'Use a PNG, JPG, WebP or GIF image.'});
     file=u.id+'-'+Date.now()+'.'+(m[1]==='jpeg'?'jpg':m[1]);await mkdir(AVATARS,{recursive:true});await writeFile(path.join(AVATARS,file),Buffer.from(m[2],'base64'))}
-   if(x)x.avatar=file;else db.ownerAvatar=file;await save();return send(res,200,{ok:true,avatar:file?'/ui/people/avatar/'+u.id+'?v='+file:null})}
+   if(x)x.avatar=file;else db.ownerAvatar=file;await save();if(cur&&cur!==file)await unlink(path.join(AVATARS,cur)).catch(()=>{});return send(res,200,{ok:true,avatar:file?'/ui/people/avatar/'+u.id+'?v='+file:null})}
   const av=/^\/ui\/people\/avatar\/([\w-]+)$/.exec(p);if(av&&req.method==='GET'){const x=byId(av[1]);if(!x?.avatar)return send(res,404,'No picture');
    try{const buf=await readFile(path.join(AVATARS,x.avatar));const ext=x.avatar.split('.').pop();res.writeHead(200,{'content-type':'image/'+(ext==='jpg'?'jpeg':ext),'cache-control':'private, max-age=86400','x-content-type-options':'nosniff'});return res.end(buf)}catch{return send(res,404,'No picture')}}
   if(p==='/ui/people/list'&&req.method==='GET')return send(res,200,[owner(),...db.users].map(x=>({id:x.id,name:x.name,username:x.username||db.ownerUsername||'aqeel',avatar:pub(x).avatar})));
@@ -204,10 +204,10 @@ export function createUsers(DATA,mail){
    await save();return send(res,200,{ok:true})}
   if(!isAdmin(u))return send(res,403,{error:'Only admins can manage people.'});
   const rl=/^\/ui\/roles(?:\/([\w-]+))?$/.exec(p);
-  if(rl){const id=rl[1];const clean=b=>({name:String(b.name||'Role').trim().slice(0,40)||'Role',caps:(Array.isArray(b.caps)?b.caps:[]).filter(k=>k in CAPS&&(k!=='unsafe'||u.role==='owner')),models:Array.isArray(b.models)&&b.models.length?b.models.map(String).slice(0,200):null,limit:b.limit&&+b.limit.tokens>0?{tokens:Math.round(+b.limit.tokens)}:null,maxAgents:Math.max(0,Math.min(50,+b.maxAgents||0))});
+  if(rl){const id=rl[1];const clean=b=>({name:String(b.name||'Role').trim().slice(0,40)||'Role',caps:(Array.isArray(b.caps)?b.caps:[]).filter(k=>k in CAPS&&(k!=='unsafe'||u.role==='owner')),models:Array.isArray(b.models)?b.models.map(String).slice(0,200):null,limit:b.limit&&+b.limit.tokens>0?{tokens:Math.round(+b.limit.tokens)}:null,maxAgents:Math.max(0,Math.min(50,+b.maxAgents||0))});
    if(!id&&req.method==='POST'){const b=await body();let k=String(b.name||'role').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'role';while(db.roles[k])k+='-2';db.roles[k]=clean(b);await save();return send(res,200,{id:k,...db.roles[k]})}
    if(id&&req.method==='PUT'){if(!db.roles[id])return send(res,404,{error:'Unknown role'});db.roles[id]={...db.roles[id],...clean({...db.roles[id],...await body()})};await save();return send(res,200,db.roles[id])}
-   if(id&&req.method==='DELETE'){if(db.users.some(x=>x.roleId===id))return send(res,409,{error:'Someone still has this role. Give them another one first.'});delete db.roles[id];await save();return send(res,200,{ok:true})}}
+   if(id&&req.method==='DELETE'){if(db.users.some(x=>x.roleId===id)||db.invites.some(i=>!i.used&&i.expires>Date.now()&&i.roleId===id))return send(res,409,{error:'Someone or a waiting invite still has this role. Change them first.'});delete db.roles[id];await save();return send(res,200,{ok:true})}}
   if(p==='/ui/mail'&&req.method==='GET')return send(res,200,await mail.settings());
   if(p==='/ui/mail'&&req.method==='PUT'){await mail.update(await body());return send(res,200,await mail.settings())}
   if(p==='/ui/mail/test'&&req.method==='POST'){const b=await body();try{const r=await mail.deliver(String(b.to||'').trim(),'aqeelOS test email','This is a test from aqeelOS. If you can read it, email works.');return send(res,200,{ok:true,reply:r})}catch(e){return send(res,502,{error:e.message})}}
