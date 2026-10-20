@@ -18,8 +18,11 @@ async function loadMe(){
  if(!S.me.admin&&typeof FILE_HOME!=='undefined')FILE_HOME=S.me.home;
 }
 // Members see Chat and their own Files; admins get the People page.
+// The full navigation is copied once, so each call (switching agent or account) starts from all sections again.
+let ALL_SECTIONS=null;
 function applyRole(){
- if(S.me?.admin){const sys=SECTIONS.find(s=>s.id==='system');if(sys&&!sys.pages.some(p=>p.id==='people'))sys.pages.unshift({id:'people',label:'People',icon:'user',desc:'Who can sign in, what they can do, and which agents they can use.'});return}
+ ALL_SECTIONS??=structuredClone(SECTIONS);SECTIONS.splice(0,SECTIONS.length,...structuredClone(ALL_SECTIONS));
+ if(S.me?.admin){if(typeof FILE_HOME!=='undefined')FILE_HOME='/home/claude';const sys=SECTIONS.find(s=>s.id==='system');if(sys&&!sys.pages.some(p=>p.id==='people'))sys.pages.unshift({id:'people',label:'People',icon:'user',desc:'Who can sign in, what they can do, and which agents they can use.'});return}
  const has=k=>(S.me?.caps||[]).includes(k),editsAny=Object.values(S.me?.agents||{}).some(l=>l!=='chat');
  const pg=(sec,id,extra)=>({...SECTIONS.find(s=>s.id===sec).pages.find(p=>p.id===id),...extra});
  const out=[SECTIONS.find(s=>s.id==='chat')];
@@ -197,7 +200,7 @@ ACT['ppl-models']=async a=>{const u=(Pages._ppl?.users||[]).find(x=>x.id===a.dat
 
 /* ---------- System › Usage: by person, by agent, by model ---------- */
 {const base=PAGES.usage;PAGES.usage=async(p,el)=>{await base(p,el);
- const days=+String(S.tab.usage||'7 days').split(' ')[0]||7;let d;try{d=await UI('/ui/usage?days='+days)}catch{return}
+ const days=+String(S.tab.usage||'7 days').split(' ')[0]||7;let d;try{d=await UI('/ui/usage?days='+days+(S.usageAgent&&S.usageAgent!=='*'?'&agent='+encodeURIComponent(S.usageAgent):''))}catch{return}
  const tok=o=>num((o.input||0)+(o.output||0));
  const table=(title,rows,label)=>rows.length?`<div class="panel card" style="margin-top:16px"><h2>${title}</h2><div class="utable"><div class="uh"><span>${label}</span><span>Chats</span><span>Messages</span><span>Tokens</span><span>Cache</span><span>Est. cost</span></div>
   ${rows.map(([k,o,head])=>`<div class="ur">${head}<span>${num(o.chats)}</span><span>${num(o.messages)}</span><span>${tok(o)}</span><span>${num(o.cache)}</span><span>${money(o.cost||0,{cents:true})}</span></div>`).join('')}</div></div>`:'';
@@ -375,7 +378,7 @@ const CronNotify={
   for(const j of jobs){const err=j.last_delivery_error||(j.last_status&&j.last_status!=='ok'?(j.last_error||j.last_status):'');if(!err||!j.last_run_at||Date.now()-new Date(j.last_run_at)>86400e3)continue;
    const k='cronFail:'+(j.profile||'default')+'|'+j.id+'|'+j.last_run_at;try{if(localStorage.getItem(k))continue;localStorage.setItem(k,'1')}catch{continue}
    const plain=/auth|token|expired|401|403|sign.?in|credential/i.test(err)?'A sign-in it needs has expired. Ask the agent to connect it again.':/deliver|chat not found|recipient|not connected|platform/i.test(err)?'It ran, but the result could not be delivered. Check where it sends to.':String(err).slice(0,140);
-   Notices.show({icon:'alert',kind:'warn',title:stripBracket(j.name)+' did not finish',text:plain,life:600000,key:k,actions:[{label:'Fix',run:()=>{go('/automations/schedules');setTimeout(()=>{const x=(Pages.cronJobs||[]).find(y=>y.id===j.id);if(x)cronDetail(x)},900)}}]})}}
+   Notices.show({icon:'alert',kind:'warn',title:stripBracket(j.name)+' did not finish',text:plain,life:600000,key:k,go:'/automations/schedules',actions:[{label:'Fix',run:()=>{go('/automations/schedules');setTimeout(()=>{const x=(Pages.cronJobs||[]).find(y=>y.id===j.id);if(x)cronDetail(x)},900)}}]})}}
 };
 setInterval(()=>CronNotify.check(),30000);setTimeout(()=>CronNotify.check(),4000);
 
@@ -534,7 +537,8 @@ ACT['ch-extra-remove']=async a=>{if(!await confirmBox('Remove '+a.dataset.title+
  el.querySelectorAll('.grid-cards .card[data-id]').forEach(c=>{const pl=(Pages.platforms||[]).find(x=>x.id===c.dataset.id);if(!pl?.configured||['api_server','webhook'].includes(pl.id))return;
   c.querySelector('h3')?.insertAdjacentHTML('afterend','<span class="tile-id" title="Agents use the name '+esc(pl.id)+' to pick this channel">'+esc(accountText(pl.account)||'agents call it '+pl.id)+'</span>');
   if(pl.id==='whatsapp'&&pl.state!=='connected'){c.querySelector('.tile-foot')?.insertAdjacentHTML('beforeend',`<span class="add-another" role="button" tabindex="0" data-act="wa-link" data-agent="${esc(agentProfile()||'default')}">${icon('refresh',14)}Link again</span>`);return}
-  if(pl.state!=='connected')return;
+  // WhatsApp Business setup can't use an extra account yet, so it gets no Add another
+  if(pl.state!=='connected'||pl.id==='whatsapp_cloud')return;
   c.querySelector('.tile-foot')?.insertAdjacentHTML('beforeend',`<span class="add-another" role="button" tabindex="0" data-act="ch-extra-add" data-id="${esc(pl.id)}" title="Connect another ${esc(appName(pl.id))} account to this agent">${icon('plus',14)}Add another</span>`)});
  const [{links=[]},{channels=[]}]=await Promise.all([pL,pC]);if(!links.length)return;
  const st_=n=>channels.find(c=>c.agent===n);
@@ -652,7 +656,7 @@ const ChannelAlert={
   for(const x of items){const k='chAlert:'+x.agent+'|'+x.id;let seen=0;try{seen=+localStorage.getItem(k)||0}catch{}if(Date.now()-seen<6*3600e3)continue;
    if(document.querySelector('.cron-pop[data-k="'+CSS.escape(k)+'"]'))continue;this.show(x,k)}},
  show(x,k){const who=ident(x.base||x.agent).name+(x.agent.includes('--')?' (extra number)':'');
-  Notices.show({icon:'alert',kind:'warn',key:k,life:600000,title:appName(x.id)+' '+(x.needs_link?'logged out':'not connected'),
+  Notices.show({icon:'alert',kind:'warn',key:k,life:600000,go:'/channels/channels',title:appName(x.id)+' '+(x.needs_link?'logged out':'not connected'),
    text:who+(x.account?' · '+accountText(x.account):'')+'. '+(x.needs_link?'Link it again, or remove it if it is no longer used.':'Open Channels to check it.'),
    actions:[x.id==='whatsapp'&&x.needs_link?{label:'Link again',run:()=>ACT['wa-link']({dataset:{agent:x.agent}})}:{label:'Open',go:'/channels/channels'}],
    onClose:()=>{try{localStorage.setItem(k,String(Date.now()))}catch{}}})}};
@@ -666,7 +670,7 @@ setInterval(()=>ChannelAlert.check(),10*60e3);setTimeout(()=>ChannelAlert.check(
  grid.querySelectorAll('.card[data-id]').forEach(c=>{const pl=(Pages.platforms||[]).find(x=>x.id===c.dataset.id);if(!pl)return;
   c.querySelectorAll('h3 .access,.tile-id').forEach(x=>x.remove());const foot=c.querySelector('.tile-foot');if(!foot)return;
   const built=['api_server','webhook'].includes(pl.id),has=pl.configured||pl.account;const ok=pl.state==='connected';
-  const lbl=built?'<span class="cat-note">Built in · every agent</span>':has&&ok?`<span class="add-another" role="button" tabindex="0" data-act="${pl.id==='whatsapp'?'wa-add':'ch-extra-add'}" data-id="${esc(pl.id)}">${icon('plus',14)}Add another</span>`:
+  const lbl=built?'<span class="cat-note">Built in · every agent</span>':has&&ok?pl.id==='whatsapp_cloud'?'':`<span class="add-another" role="button" tabindex="0" data-act="${pl.id==='whatsapp'?'wa-add':'ch-extra-add'}" data-id="${esc(pl.id)}">${icon('plus',14)}Add another</span>`:
    pl.id==='whatsapp'?`<span class="add-another" role="button" tabindex="0" data-act="wa-link" data-agent="${esc(ag)}">${icon('plus',14)}${has?'Link again':'Set up'}</span>`:`<span class="add-another" role="button" tabindex="0" data-act="ch-open" data-id="${esc(pl.id)}">${icon('plus',14)}${has?'Fix':'Set up'}</span>`;
   foot.innerHTML=lbl+'<span style="color:var(--muted)">'+icon('chevR',16)+'</span>'})}}
 ACT['wa-add']=a=>ACT['ch-extra-add']({dataset:{id:'whatsapp'}});

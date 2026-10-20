@@ -22,9 +22,10 @@ function openMenu(el){const k=el.dataset.menu;
  if(k==='profilecard')Pages.profileMenu(el);
 }
 function switchAgent(name){if((S.profile||'default')===name)return;S.profile=name;store.set('profile',name);Chat.live={};Chat.id=null;Chat.model=null;S.sessions=[];S.sessionsLoaded=false;toast('Now talking to '+ident(name).name);go('/chat');boot()}
-function shortcuts(){drawer('Keyboard shortcuts',`<table>${[[MOD+' K','Search and commands'],[MOD+' B','Collapse the sidebar'],[MOD+' 1–7','Jump to Chat, Agents, Automations, Channels, Abilities, Models, System'],['Enter','Send'],['Shift Enter','New line'],['Esc','Stop aqeelOS, or close a panel'],['/','Chat commands'],[MOD+' /','This list']].map(([k,v])=>`<tr><td style="white-space:nowrap"><span class="chip" style="font-family:var(--mono)">${esc(k)}</span></td><td>${esc(v)}</td></tr>`).join('')}</table>`)}
+function shortcuts(){drawer('Keyboard shortcuts',`<table>${[[MOD+' K','Search and commands'],[MOD+' B','Collapse the sidebar'],[MOD+' 1–'+Math.max(...SECTIONS.map(s=>+s.key||0)),'Jump to '+[...SECTIONS].sort((a,b)=>a.key-b.key).map(s=>s.label).join(', ')],['Enter','Send'],['Shift Enter','New line'],['Esc','Stop aqeelOS, or close a panel'],['/','Chat commands'],[MOD+' /','This list']].map(([k,v])=>`<tr><td style="white-space:nowrap"><span class="chip">${esc(k)}</span></td><td>${esc(v)}</td></tr>`).join('')}</table>`)}
 
 document.addEventListener('click',e=>{
+ if($('.app.nav-open')&&!e.target.closest('.side,[data-act="nav"]'))$('.app').classList.remove('nav-open');
  const g=e.target.closest('[data-go]');if(g&&!e.target.closest('[data-menu]')&&!e.target.closest('.switch')){e.preventDefault();go(g.dataset.go);return}
  const m=e.target.closest('[data-menu]');if(m){e.stopPropagation();e.preventDefault();openMenu(m);return}
  const t=e.target.closest('[data-tab]');if(t){const box=t.closest('[data-tabs]');const key=box.dataset.tabs;
@@ -75,9 +76,10 @@ document.addEventListener('keydown',e=>{
  const mod=isMac?e.metaKey:e.ctrlKey;if(!S.signedIn)return;
  if(mod&&e.key.toLowerCase()==='k'){e.preventDefault();palette()}
  if(mod&&e.key.toLowerCase()==='b'){e.preventDefault();$('[data-act="collapse"]')?.click()}
- if(mod&&/^[1-7]$/.test(e.key)&&SECTIONS[+e.key-1]){e.preventDefault();go('/'+SECTIONS[+e.key-1].id)}
+ if(mod&&/^[1-9]$/.test(e.key)){const s=SECTIONS.find(x=>x.key===e.key);if(s){e.preventDefault();go('/'+s.id)}}
  if(mod&&e.key==='/'){e.preventDefault();shortcuts()}
  if(e.key==='Escape'&&$('.palette,.drawer,.menu'))closeLayers();
+ else if(e.key==='Escape')$('.app')?.classList.remove('nav-open');
 });
 addEventListener('hashchange',()=>{if(S.signedIn)render()});
 addEventListener('resize',placePills);
@@ -101,5 +103,5 @@ setInterval(()=>{if(!document.hidden)checkUpdate()},60000);document.addEventList
 boot();
 
 // F26 rows you can reach with Tab (schedules, inbox items, file tiles, agent cards) open with Enter or Space too
-document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches?.('[tabindex="0"][data-act]')&&!e.target.matches('input,textarea,select,button')){e.preventDefault();e.target.click()}});
+document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches?.('[tabindex="0"]:is([data-act],[data-inbox])')&&!e.target.matches('input,textarea,select,button')){e.preventDefault();e.target.click()}});
 ACT['panel-full']=()=>window.open(location.origin+'/'+location.hash,'_blank');
