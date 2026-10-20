@@ -32,7 +32,9 @@ export function createUsers(DATA,mail){
  let db=null;
  const load=async()=>{if(db)return db;try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}
   db.users||=[];db.invites||=[];db.shares||={};db.owners||={};db.agentOwners||={};db.roles||=JSON.parse(JSON.stringify(DEFAULT_ROLES));db.ownerName||='Aqeel';return db};
- const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)};
+ // saves run one after another so two never share the .tmp file; a failed one still lets the next run
+ let saving=Promise.resolve();
+ const save=()=>{const p=saving.then(async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)});saving=p.catch(()=>{});return p};
  const hash=pw=>{const salt=randomBytes(16);return 'scrypt:'+salt.toString('hex')+':'+scryptSync(String(pw),salt,64).toString('hex')};
  const check=(pw,h)=>{const [k,s,x]=String(h||'').split(':');if(k!=='scrypt'||!s||!x)return false;const a=scryptSync(String(pw),Buffer.from(s,'hex'),64),b=Buffer.from(x,'hex');return a.length===b.length&&timingSafeEqual(a,b)};
  const norm=s=>String(s||'').trim().toLowerCase();
