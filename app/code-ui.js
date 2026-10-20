@@ -29,12 +29,14 @@ const CodeUI={where:(()=>{try{const w=localStorage.getItem('aq-code-where');retu
   if(!CodeUI._dl){CodeUI._dl=true;document.addEventListener('click',async e=>{const a=e.target.closest?.('a[href^="/ui/code/download/"]');if(!a||a.dataset.ok)return;e.preventDefault();
    try{const r=await UI(a.getAttribute('href')+'?check=1');if(r.ok){a.dataset.ok='1';a.click();delete a.dataset.ok}else toast('The aqeelOS app for '+(/mac$/.test(a.getAttribute('href'))?'Mac':'Windows')+' isn’t ready yet. Ask an admin.','err')}catch(er){fail(er)}},true)}
   // Code works in the aqeelOS app (its real browser lives there); in a normal browser, open the app or get it
-  if(!window.aqDesktop&&!/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)){this.state='lock';this.paintSide();const mac=/Mac/i.test(navigator.platform||navigator.userAgent);
+  // an iPad in desktop mode reports a Mac: touch points give it away
+  const phone=/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&/Macintosh/.test(navigator.userAgent));
+  if(!window.aqDesktop&&!phone){this.state='lock';this.paintSide();const mac=/Mac/i.test(navigator.platform||navigator.userAgent);
    el.innerHTML=`<div class="code-host"><div class="code-lock card"><span class="code-lock-ic">${icon('monitor',26)}</span><h2>Code works in the aqeelOS app</h2><p>Code builds with a real browser for your projects, which lives in the aqeelOS app on your computer. Open the app to use Code; everything else in aqeelOS works here too.</p>
     <div class="code-dl"><a class="btn primary" href="aqeelos://code">${icon('popout',16)}Open the aqeelOS app</a><a class="btn" href="/ui/code/download/${mac?'mac':'windows'}" download>${icon('download',16)}Download for ${mac?'Mac':'Windows'}</a></div>
     <p class="code-or">Just looking? <button class="linkish" data-act="code-where" data-w="live">See what’s live</button>: the apps your team published.</p></div></div>`;return}
   // on a phone or tablet there is no desktop app to find: say so, and offer what works here (Live)
-  if(/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&/Macintosh/.test(navigator.userAgent))){this.state='lock';this.paintSide();el.innerHTML=`<div class="code-host"><div class="code-lock card"><span class="code-lock-ic">${icon('monitor',26)}</span><h2>Code runs in the desktop app</h2><p>Building apps, slides and documents with Code needs the aqeelOS Code app on a Windows or Mac computer. Open aqeelOS on your computer to install it there.</p><p class="code-or">On this phone you can <button class="linkish" data-act="code-where" data-w="live">see what’s live</button>: the apps your team published.</p></div></div>`;return}
+  if(phone){this.state='lock';this.paintSide();el.innerHTML=`<div class="code-host"><div class="code-lock card"><span class="code-lock-ic">${icon('monitor',26)}</span><h2>Code runs in the desktop app</h2><p>Building apps, slides and documents with Code needs the aqeelOS Code app on a Windows or Mac computer. Open aqeelOS on your computer to install it there.</p><p class="code-or">On this phone you can <button class="linkish" data-act="code-where" data-w="live">see what’s live</button>: the apps your team published.</p></div></div>`;return}
   el.innerHTML=`<div class="code-host"><div class="code-wait"><span class="ring"></span><span>${this.where==='online'?'Opening your online projects…':'Looking for aqeelOS Code on this computer…'}</span></div>
    <iframe class="code-frame" title="aqeelOS Code" allow="local-network-access; clipboard-read; clipboard-write; microphone" hidden></iframe></div>`;
   const f=el.querySelector('iframe');this.frame=f;this.state='wait';this.paintSide();
@@ -89,6 +91,8 @@ ACT['code-newproj']=()=>CodeUI.post({aq:'newProject'});
 ACT['code-chat']=a=>{CodeUI.st.project=a.dataset.p;CodeUI.st.chat=a.dataset.c;CodeUI.post({aq:'open',project:a.dataset.p,chat:a.dataset.c});CodeUI.paintSide()};
 ACT['code-proj']=a=>{const id=a.dataset.id,was=CodeUI.open[id]??id===CodeUI.st.project;CodeUI.open[id]=!was;if(!was&&id!==CodeUI.st.project)CodeUI.post({aq:'open',project:id});CodeUI.paintSide()};
 ACT['code-where']=a=>{CodeUI.where=a.dataset.w;try{localStorage.setItem('aq-code-where',CodeUI.where)}catch{}CodeUI.st={projects:[],project:'',chat:''};CodeUI.state='wait';const el=$('#pg .code-host')?.parentElement||$('#pg');if(el)CodeUI.page(null,el);CodeUI.paintSide()};
+// from other pages: open Code on Live, whichever tab was used last
+ACT['code-open-live']=()=>{CodeUI.where='live';try{localStorage.setItem('aq-code-where','live')}catch{}go('/code/code')};
 ACT['code-menu']=a=>{const f=CodeUI.frame;if(!f)return;const y=a.getBoundingClientRect().top-f.getBoundingClientRect().top;CodeUI.post({aq:'menu',project:a.dataset.p,chat:a.dataset.c||'',y})};
 ACT['code-filter']=a=>{CodeUI.filter=a.dataset.f;CodeUI.paintSide()};
 // the theme switch follows into the app
@@ -101,8 +105,10 @@ Object.assign(CodeUI,{
   return `<div class="side-sub">${this.whereBar()}<div class="side-list live-side">${this.live?apps.map(a=>`<button class="item" data-act="live-jump" data-id="${esc(a.id)}"><i class="live-dot ${esc(a.status)}"></i><span class="t">${esc(a.name)}</span></button>`).join('')||`<div class="live-none"><span class="ln-ico">${icon("globe",20)}</span><b>Nothing is live yet</b><p>Publish a project from Build and it shows up here with its link.</p><button class="btn ln-go" data-act="code-where" data-w="computer">${icon("terminal",14)}Go to Build</button></div>`:'<div class="code-skel" role="status" aria-label="Loading"><span class="ring"></span><i></i><i></i></div>'}</div></div>`},
  async livePage(el){this.frame=null;this.state='live';
   if(!this.live)el.innerHTML=`<div class="code-host live-host"><div class="code-wait"><span class="ring"></span><span>Loading what’s live…</span></div></div>`;
-  try{this.live=await UI('/ui/apps')}catch(e){el.innerHTML=`<div class="code-host live-host"><div class="code-lock card"><h2>Live isn’t available</h2><p>${esc(e.message)}</p></div></div>`;return}
-  this.paintSide();this.paintLive(el);this.watchLive(el)},
+  // the person may have switched to Build or left Code while this loaded: then leave the page alone
+  const gone=()=>this.where!=='live'||!el.isConnected||route().sec?.id!=='code';
+  try{this.live=await UI('/ui/apps')}catch(e){if(gone())return;el.innerHTML=`<div class="code-host live-host"><div class="code-lock card"><h2>Live isn’t available</h2><p>${esc(e.message)}</p></div></div>`;return}
+  if(gone())return;this.paintSide();this.paintLive(el);this.watchLive(el)},
  paintLive(el){const d=this.live,apps=d.apps||[];
   const card=a=>`<article class="live-card card" id="live-${esc(a.id)}">
     <div class="live-top"><h3>${esc(a.name)}</h3><span class="live-st ${esc(a.status)}"><i class="live-dot ${esc(a.status)}"></i>${esc(this.stLabel[a.status]||a.status)}</span></div>
@@ -123,5 +129,7 @@ Object.assign(CodeUI,{
 ACT['live-jump']=a=>{const c=document.getElementById('live-'+a.dataset.id);if(c){c.scrollIntoView({behavior:'smooth',block:'center'});c.classList.remove('flash');void c.offsetWidth;c.classList.add('flash')}};
 ACT['live-remove']=async a=>{const x=(CodeUI.live?.apps||[]).find(y=>y.id===a.dataset.id);if(!x)return;
  if(!await confirmBox('Take '+x.name+' offline?','Its address stops working and the app is removed from the server'+(x.db?', with its database':'')+'. The project itself stays in Code.','Take offline'))return;
- try{await post(UI,'/ui/apps/remove',{id:x.id});toast(x.name+' is offline');CodeUI.live=null;const el=$('#pg .code-host')?.parentElement||$('#pg');if(el)CodeUI.livePage(el)}catch(e){fail(e)}};
-ACT['live-connect']=async()=>{try{await post(UI,'/ui/apps/connect',{url:$('#liveUrl').value,key:$('#liveKey').value});toast('Live is connected');CodeUI.live=null;const el=$('#pg .code-host')?.parentElement||$('#pg');if(el)CodeUI.livePage(el)}catch(e){fail(e)}};
+ const t=liveBusy(a,'Taking offline…');try{await post(UI,'/ui/apps/remove',{id:x.id});toast(x.name+' is offline');CodeUI.live=null;const el=$('#pg .code-host')?.parentElement||$('#pg');if(el)CodeUI.livePage(el)}catch(e){fail(e)}finally{t()}};
+// these can take up to 30 s on the server: the button shows it is working until then
+const liveBusy=(a,txt)=>{const was=a.textContent;a.disabled=true;a.classList.add('is-busy');a.setAttribute('aria-busy','true');a.textContent=txt;return()=>{if(!a.isConnected)return;a.disabled=false;a.classList.remove('is-busy');a.removeAttribute('aria-busy');a.textContent=was}};
+ACT['live-connect']=async a=>{const t=liveBusy(a,'Connecting…');try{await post(UI,'/ui/apps/connect',{url:$('#liveUrl').value,key:$('#liveKey').value});toast('Live is connected');CodeUI.live=null;const el=$('#pg .code-host')?.parentElement||$('#pg');if(el)CodeUI.livePage(el)}catch(e){fail(e)}finally{t()}};
