@@ -1533,4 +1533,8 @@ body.embed .composer-controls{padding:6px 0 0}
 .approval-more>.approval-detail{margin-top:8px;animation:arrive .2s ease-out}
 
 /* the AI's own tab in the side browser */
-.browser-tab.ai-tab{position:relative}.browser-tab.ai-tab::before{content:'AI';margin-right:6px;padding:0 6px;border-radius:var(--r-pill);background:var(--blue);color:#fff;font-size:10px;font-weight:700;line-height:16px}
+.browser-tab.ai-tab{position:relative}.browser-tab.ai-tab .browser-tab-open::before{content:'';width:8px;height:8px;border-radius:50%;background:var(--blue);flex:none;margin-right:6px;display:inline-block;box-shadow:0 0 0 3px color-mix(in srgb,var(--blue) 18%,transparent)}
+/* browser tabs: an even pill; the × is a small round button inside it, not a block at the edge */
+.browser-tab .browser-tab-close{width:20px;height:20px;min-height:20px!important;margin:0 5px 0 0;border-radius:50%;opacity:.7;transition:background .15s,opacity .15s,color .15s}
+.browser-tab .browser-tab-close:hover{opacity:1;background:color-mix(in srgb,var(--ink) 10%,transparent);color:var(--ink)}
+.browser-tab .browser-tab-open{padding:4px 6px 4px 10px}
