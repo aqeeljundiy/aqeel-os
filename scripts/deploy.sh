@@ -23,13 +23,20 @@ BOX
 # 2) Only now pack the files, so what goes live is what is here at this moment (not what was here before the wait).
 node scripts/features.mjs >/dev/null
 tar --force-local -czf ../hui.tgz app assets backlog data engine extension mockup scripts code-installer PRD.md
-scp -q ../hui.tgz ai-vps:/tmp/hui.tgz && rm ../hui.tgz
-ssh ai-vps 'bash -s' <<'BOX'
+# Code (code/ here) goes to the box's own Code copy, ~/apps/aqeel-code (its data and installed packages stay there).
+# VERSION is the last commit that changed Code: aqeelOS serves it, and installed apps update themselves when it differs.
+CODE_V=$(git log -1 --format=%H -- code | cut -c1-12)
+tar --force-local -czf ../code.tgz --exclude=code/data --exclude=code/node_modules --exclude=code/desktop/node_modules --exclude=code/desktop/dist --exclude=code/scratch code
+scp -q ../hui.tgz ai-vps:/tmp/hui.tgz && scp -q ../code.tgz ai-vps:/tmp/code.tgz && rm ../hui.tgz ../code.tgz
+ssh ai-vps "CODE_V=$CODE_V bash -s" <<'BOX'
 set -e
 # a reply may have started while the files were on their way: wait again right before the restart (up to 5 minutes)
 for i in $(seq 1 60); do n=$(curl -fs http://127.0.0.1:4400/healthz | grep -o '"busy":[0-9]*' | cut -d: -f2); [ "${n:-0}" = 0 ] && break; [ "$i" = 1 ] && echo "a reply started meanwhile; waiting for it…"; sleep 5; done
 n=$(curl -fs http://127.0.0.1:4400/healthz | grep -o '"busy":[0-9]*' | cut -d: -f2); if [ "${n:-0}" != 0 ] && [ "${FORCE:-0}" != 1 ]; then echo "✗ still busy; nothing changed on the box. Try again later, or FORCE=1."; rm -f /tmp/hui.tgz; exit 1; fi
 mkdir -p ~/apps/hermes-ui && tar -xzf /tmp/hui.tgz -C ~/apps/hermes-ui && rm /tmp/hui.tgz
+C=~/apps/aqeel-code; mkdir -p $C; before=$(md5sum $C/package-lock.json 2>/dev/null)
+tar -xzf /tmp/code.tgz -C $C --strip-components=1 && rm /tmp/code.tgz && echo "$CODE_V" > $C/VERSION
+[ "$before" = "$(md5sum $C/package-lock.json 2>/dev/null)" ] || (cd $C && npm install --omit=dev --no-audit --no-fund >/dev/null 2>&1 || echo "! Code packages: npm install failed")
 tmux kill-session -t ui 2>/dev/null || true
 node ~/apps/hermes-ui/scripts/apply-skill-patches.mjs || echo "! skill patches: see the message above"
 ~/services.sh; for i in $(seq 1 20); do sleep 1; h=$(curl -fs http://127.0.0.1:4400/healthz) && break; done; [ -n "$h" ] && echo "$h · UI restarted" || { echo "✗ the UI did not answer within 20 s"; exit 1; }

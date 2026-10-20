@@ -2,7 +2,7 @@
 // Pairing works like the browser extension: the person is signed in to aqeelOS, aqeelOS gives the desktop app its own
 // key (no password ever typed into the app), and the app uses that key to reach the person's agents (abilities,
 // channels, automations) and to fetch updates. Downloads are built here from the app's source on the box
-// (~/apps/aqeel-code), with this install's address inside, plus a small installer for Windows and for Mac.
+// (~/apps/aqeel-code, filled from this repo's code/ folder by scripts/deploy.sh), with this install's address inside, plus a small installer for Windows and for Mac.
 import {readFile,writeFile,mkdir,readdir,stat,rename} from 'node:fs/promises';
 import {randomBytes,createHash} from 'node:crypto';
 import path from 'node:path';
@@ -49,7 +49,7 @@ export function createCode({DATA,SRC,PUBLIC_URL,ROOT}){
  async function devices(user){await load();return Object.entries(db.devices).filter(([,d])=>d.user===user).map(([h,d])=>({id:h.slice(0,12),...d}))}
  async function unpair(user,id){await load();for(const [h,d] of Object.entries(db.devices))if(d.user===user&&h.startsWith(id))delete db.devices[h];await save()}
  // the version is the commit the box's copy of the source is at (it changes with every pull)
- const version=async()=>{try{const head=(await readFile(path.join(SRC,'.git','HEAD'),'utf8')).trim();if(!head.startsWith('ref:'))return head.slice(0,12);const ref=head.slice(4).trim();
+ const version=async()=>{const v=(await readFile(path.join(SRC,'VERSION'),'utf8').catch(()=>'')).trim();if(v)return v.slice(0,12);try{const head=(await readFile(path.join(SRC,'.git','HEAD'),'utf8')).trim();if(!head.startsWith('ref:'))return head.slice(0,12);const ref=head.slice(4).trim();
    const sha=await readFile(path.join(SRC,'.git',ref),'utf8').catch(async()=>((await readFile(path.join(SRC,'.git','packed-refs'),'utf8')).split('\n').find(l=>l.endsWith(' '+ref))||'').split(' ')[0]);return String(sha).trim().slice(0,12)||'0'}catch{return '0'}};
  // what an installed app fetches to update itself: the source, and this install's address and version
  async function update(){const v=await version();const files=await walk(SRC);files.push(['aqeelos.json',Buffer.from(JSON.stringify({aqeelos:{base:PUBLIC_URL,origins:[PUBLIC_URL],version:v}},null,1))]);return {version:v,zip:zip(files.map(f=>[f[0],f[1],/\.(command|sh)$/.test(f[0])]))}}

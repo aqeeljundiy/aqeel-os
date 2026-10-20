@@ -39,7 +39,7 @@ export function createAqeelos({root}){
     current version; when it differs and no AI run is working, it fetches the new files, keeps its data, installs new
     dependencies if the list changed, and exits; the starter (Windows) or launchd (Mac) brings it back up at once. */
  let updating=false,busyNow=()=>false;
- async function checkUpdate(busy=busyNow){await load();if(updating||!link.token||!install.version||process.env.CBA_NO_UPDATE)return {state:'off'};if(await access(path.join(root,'.git')).then(()=>true,()=>false))return {state:'dev'};
+ async function checkUpdate(busy=busyNow){await load();if(updating||!link.token||!install.version||process.env.CBA_NO_UPDATE)return {state:'off'};if(await access(path.join(root,'.git')).then(()=>true,()=>false)||await access(path.join(root,'..','.git')).then(()=>true,()=>false))return {state:'dev'};
   const h={authorization:'Bearer '+link.token};const v=await fetch(link.base+'/ui/code/version',{headers:h,signal:AbortSignal.timeout(15000)}).then(r=>r.json()).catch(()=>({}));
   if(!v.version||v.version===install.version)return {state:'current',version:install.version};if(busy())return {state:'waiting',version:v.version};
   updating=true;try{const r=await fetch(link.base+'/ui/code/update',{headers:h,signal:AbortSignal.timeout(300000)});if(!r.ok)throw Error('aqeelOS answered '+r.status);const buf=Buffer.from(await r.arrayBuffer());
