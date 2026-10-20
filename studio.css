@@ -1595,3 +1595,18 @@ body.embed .aq-choices>.agent-chip .av{width:22px;height:22px}
 .np-row .np-icon svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .np-row .mt-t{display:grid;gap:2px}.np-row small{color:var(--muted);font-size:12.5px}
 #chat-form.no-project{opacity:.6;transition:opacity .2s ease}#chat-form.no-project textarea{cursor:not-allowed}
+/* the choices above the message stay balanced when the composer is narrow: the agent gets its own row, the pills share
+   the next row evenly (two by two when it is very narrow) */
+body.embed .chat-form{container:composer/inline-size}
+@container composer (max-width:640px){
+ body.embed .aq-choices{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+ body.embed .aq-choices>[hidden],body.embed .aq-choices>.aq-meter{display:none}
+ body.embed .aq-choices>.agent-chip{grid-column:1/-1;box-sizing:border-box;width:100%;max-width:none;justify-self:stretch}
+ body.embed .aq-choices>.agent-chip>button{margin-left:auto}
+ body.embed .aq-choices>.dd,body.embed .aq-choices>.aq-pill{min-width:0;max-width:none!important;width:100%}
+ body.embed .aq-choices>.dd .dd-btn{width:100%;justify-content:center}
+ body.embed .aq-choices>.aq-pill{justify-content:center}
+}
+@container composer (max-width:440px){body.embed .aq-choices{grid-template-columns:repeat(2,minmax(0,1fr))}}
+/* no project: nothing in the composer can be used */
+#chat-form.no-project{opacity:.5;pointer-events:none;user-select:none}
