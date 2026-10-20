@@ -1219,6 +1219,8 @@ const server=createServer(async(req,res)=>{
     if(p==='/ui/backups/key'&&req.method==='GET')return send(res,200,{key:await backups.key()});
     if(p==='/ui/backups/run'&&req.method==='POST'){backups.run('by hand').catch(()=>{});return send(res,200,{started:true})}
     if(p==='/ui/backups/test'&&req.method==='POST'){try{return send(res,200,await backups.test())}catch(e){return send(res,400,{error:e.message})}}}
+   // which aqeelOS app version is current (the app offers to update itself when it is older)
+   if(p==='/ui/code/app-version'&&req.method==='GET'){let v={};try{v=JSON.parse(await readFile(path.join(DATA,'desktop','version.json'),'utf8'))}catch{}return send(res,200,v)}
    // company-wide defaults (the currency for people who never picked one): everyone reads them, admins set them
    if(p==='/ui/defaults'){const F=path.join(DATA,'defaults.json');let d={};try{d=JSON.parse(await readFile(F,'utf8'))}catch{}
     if(req.method==='GET')return send(res,200,d);if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});let b={};try{b=JSON.parse(await readBody(req,2048))}catch{}
