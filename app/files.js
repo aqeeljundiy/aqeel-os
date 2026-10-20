@@ -86,7 +86,7 @@ async function preview(i){const files=(Pages._items||[]).filter(x=>!x.is_directo
   if(k==='image')stage.innerHTML=`<img class="pv-img" src="${esc(fileUrl(f.path))}" alt="${esc(f.name)}">`;
   else if(k==='video')stage.innerHTML=`<video class="pv-media" src="${esc(fileUrl(f.path,'stream'))}" controls autoplay playsinline></video>`;
   else if(k==='audio')stage.innerHTML=`<div class="pv-audio"><span class="fk fk-audio">${icon('radio',34)}</span><b>${esc(f.name)}</b><audio src="${esc(fileUrl(f.path,'stream'))}" controls autoplay></audio></div>`;
-  else if(k==='pdf'){const r=await H('/files/download'+qp({path:f.path}),{raw:true});if(!r.ok)throw new Error('Could not open the PDF');PV.blob=URL.createObjectURL(new Blob([await r.arrayBuffer()],{type:'application/pdf'}));stage.innerHTML=`<iframe class="pv-pdf" src="${PV.blob}" title="${esc(f.name)}"></iframe>`}
+  else if(k==='pdf'){const r=await H('/files/download'+qp({path:f.path}),{raw:true});if(!PV||PV.f!==f)return;if(!r.ok)throw new Error('Could not open the PDF');const buf=await r.arrayBuffer();if(!PV||PV.f!==f)return;PV.blob=URL.createObjectURL(new Blob([buf],{type:'application/pdf'}));stage.innerHTML=`<iframe class="pv-pdf" src="${PV.blob}" title="${esc(f.name)}"></iframe>`}
   else if(k==='md'||k==='code'||(f.size||0)<512e3){const t=await readText(f.path);if(!PV||PV.f!==f)return;const txt=t.text;
    if(/�/.test(txt.slice(0,2000))&&k!=='md'&&k!=='code')throw new Error('binary');
    stage.innerHTML=k==='md'?`<article class="pv-doc md">${md(txt)}</article>`:`<pre class="pv-code">${esc(txt.length>400000?txt.slice(0,400000)+'\n…':txt)}</pre>`}

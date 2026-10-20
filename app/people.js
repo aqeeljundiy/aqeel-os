@@ -158,7 +158,9 @@ ACT['agent-share']=async name=>{let people=[];try{people=await UI('/ui/people/li
   <label>Shared with</label>${(o.shared||[]).map(row).join('')||'<p class="hint">Nobody yet.</p>'}
   ${notYet.length?`<label>Add someone</label><div class="pshare"><select id="ashWho">${notYet.map(x=>`<option value="${esc(x.id)}">${esc(x.name)} (@${esc(x.username)})</option>`).join('')}</select><select style="width:auto" id="ashLvl">${Object.entries(LEVEL_LABEL).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select><button id="ashAdd">Add</button></div>`:''}
   <p class="hint" style="margin-top:16px">Giving the agent away makes the new person its owner; you keep Can edit.</p>`,`<button class="primary" data-act="close">Done</button>`);
- const call=async(path,body,msg)=>{try{await UI('/ui/agents/'+encodeURIComponent(name)+path,{method:'PUT',body});toast(msg);closeLayers();ACT['agent-share'](name);if(route().page?.id==='profiles')reload()}catch(e){fail(e)}};
+ // one change at a time, and only reopen Sharing if this same dialog is still showing
+ const call=async(path,body,msg)=>{const ctl=[...d.querySelectorAll('select,input,button:not([data-act=close])')];ctl.forEach(c=>c.disabled=true);
+  try{await UI('/ui/agents/'+encodeURIComponent(name)+path,{method:'PUT',body});toast(msg);if(d.isConnected&&!d.classList.contains('closing')){closeLayers();ACT['agent-share'](name)}if(route().page?.id==='profiles')reload()}catch(e){fail(e)}finally{ctl.forEach(c=>c.disabled=false)}};
  d.querySelectorAll('[data-ash]').forEach(s=>s.onchange=()=>call('/share',{user:s.dataset.ash,level:s.value},s.value?'Updated':'Removed'));
  d.querySelector('#ashAdd')?.addEventListener('click',()=>call('/share',{user:$('#ashWho').value,level:$('#ashLvl').value},'Shared'));
  d.querySelector('#ashOwner')?.addEventListener('change',async e=>{if(!e.target.value)return;const who=others.find(x=>x.id===e.target.value);if(!await confirmBox('Give '+ident(name).name+' to '+who.name+'?','They become its owner. You keep Can edit.','Give it away',false)){e.target.value='';return}call('/owner',{user:who.id},'Owner changed')})};
