@@ -39,8 +39,9 @@ export function createBackups({DATA,HOME,HERMES_HOME,TOKEN='google_token_elkiya.
  // pack, encrypt, upload, prune
  async function run(why='scheduled'){if(running)return running;running=(async()=>{await load();const at=Date.now();const name='aqeelos-'+new Date(at+7*3600e3).toISOString().slice(0,16).replace(/[:T]/g,'-')+'.tar.gz.enc';const tmp=path.join('/tmp',name);
   try{const inc=[];for(const p of INCLUDE)if(await stat(path.join(HOME,p)).catch(()=>null))inc.push(p);
-   // (tar complains when a file changes while it reads; that is fine for a backup, so its exit code is not used)
-   await sh('set -o pipefail; { tar -czf - '+EXCLUDE.map(e=>'--exclude='+q(e)).join(' ')+' '+inc.map(q).join(' ')+' 2>/dev/null; true; } | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:AQ_BK -out '+q(tmp),{AQ_BK:await key()});
+   // tar exits 1 when a file changes while it reads (fine for a backup); 2 means it could not read something, so the backup fails with tar's own words
+   const terr=q(tmp+'.err');
+   await sh('set -o pipefail; { tar -czf - '+EXCLUDE.map(e=>'--exclude='+q(e)).join(' ')+' '+inc.map(q).join(' ')+' 2>'+terr+'; c=$?; [ $c -le 1 ] || { tail -2 '+terr+' >&2; rm -f '+terr+'; exit $c; }; rm -f '+terr+'; } | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:AQ_BK -out '+q(tmp),{AQ_BK:await key()});
    const size=(await stat(tmp)).size;if(size<1e6)throw Error('The backup came out too small ('+size+' bytes).');
    const g=await google(),fid=await folder(g);
    const start=await drive(g,'upload/drive/v3/files?uploadType=resumable',{method:'POST',raw:true,headers:{'content-type':'application/json; charset=UTF-8','x-upload-content-type':'application/octet-stream','x-upload-content-length':String(size)},body:JSON.stringify({name,parents:[fid]})});
