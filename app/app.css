@@ -1141,7 +1141,9 @@ button.think:hover{color:var(--ink-2);background:var(--soft)}
 [data-reveal]{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block}
 .row .txt span.kind-chip{flex:none;white-space:nowrap;flex-direction:row}
 /* phones: the top bar shows the page you are on (the section name is in the menu) */
-@media (max-width:760px){.crumbs{font-size:0;gap:0}.crumbs>svg{display:none}.crumbs b{font-size:15px}}
+@media (max-width:760px){.crumbs{font-size:0;gap:0;flex:1}.crumbs>svg{display:none}.crumbs b{font-size:15px}}
+/* phones: room for the page title (light/dark stays in Search and Preferences; My browser needs desktop Chrome) */
+@media (max-width:760px){.top-actions{gap:4px}.top-actions [data-act="screen-mine"],.top-actions [data-act="theme"]{display:none}}
 
 /* folders: each one a neat card; folded by default, opening one shows its rows inside the same card */
 .sched-folder{background:var(--surface);border:1px solid var(--border);border-radius:18px;margin-bottom:8px;overflow:hidden;transition:box-shadow .2s,border-color .2s}
