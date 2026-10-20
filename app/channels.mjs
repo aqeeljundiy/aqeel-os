@@ -35,11 +35,16 @@ export function createChannels({DASH,TOKEN,HERMES_HOME,listAgents,cached,restart
   const fromEnv=path.join(homeOf(from),'.env'),toEnv=path.join(homeOf(to),'.env');
   // both files are edited under the engine's own .env lock
   const isKey=l=>keys.has(l.split('=')[0].trim());const moving=(await readFile(fromEnv,'utf8').catch(()=>'')).split('\n').filter(isKey);
-  if(moving.length){await editEnv(toEnv,cur=>{const d=cur.split('\n').filter(l=>!isKey(l));while(d.length&&d[d.length-1]==='')d.pop();return [...d,...moving,''].join('\n')});
-   await editEnv(fromEnv,cur=>cur.split('\n').filter(l=>!isKey(l)).join('\n'))}
-  // state (e.g. the WhatsApp login) moves too
-  const fromDir=path.join(homeOf(from),'platforms',platform),toDir=path.join(homeOf(to),'platforms',platform);
-  if(await exists(fromDir)){await mkdir(path.dirname(toDir),{recursive:true});await rm(toDir,{recursive:true,force:true});await cp(fromDir,toDir,{recursive:true});await rm(fromDir,{recursive:true,force:true})}
+  // state (e.g. the WhatsApp login) moves too. It is copied first and the old copy removed only once both .env files
+  // are done; if any step fails, the new agent's copy and lines are taken back so the login stays whole on the old one
+  const fromDir=path.join(homeOf(from),'platforms',platform),toDir=path.join(homeOf(to),'platforms',platform),hasDir=await exists(fromDir);
+  let had=[],toDone=false;
+  try{if(hasDir){await mkdir(path.dirname(toDir),{recursive:true});await rm(toDir,{recursive:true,force:true});await cp(fromDir,toDir,{recursive:true})}
+   if(moving.length){await editEnv(toEnv,cur=>{const all=cur.split('\n');had=all.filter(isKey);const d=all.filter(l=>!isKey(l));while(d.length&&d[d.length-1]==='')d.pop();return [...d,...moving,''].join('\n')});toDone=true;
+    await editEnv(fromEnv,cur=>cur.split('\n').filter(l=>!isKey(l)).join('\n'))}}
+  catch(e){if(toDone)await editEnv(toEnv,cur=>{const d=cur.split('\n').filter(l=>!isKey(l));while(d.length&&d[d.length-1]==='')d.pop();return [...d,...had,''].join('\n')}).catch(()=>{});
+   if(hasDir)await rm(toDir,{recursive:true,force:true}).catch(()=>{});throw e}
+  if(hasDir)await rm(fromDir,{recursive:true,force:true});
   // people already approved on this channel stay approved
   const pf=path.join(homeOf(from),'platforms','pairing'),pt=path.join(homeOf(to),'platforms','pairing');
   for(const f of await readdir(pf).catch(()=>[]))if(f.startsWith(platform)){await mkdir(pt,{recursive:true});await cp(path.join(pf,f),path.join(pt,f)).catch(()=>{})}
