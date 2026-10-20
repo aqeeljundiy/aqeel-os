@@ -29,7 +29,8 @@ export function createScreens(){
  const shared=async a=>/cdp_url:\s*['"]?http:\/\/127\.0\.0\.1:9333/.test(await config(a));
  // Running = the launcher process is alive and the socket exists. Never probe the socket itself: Xvnc counts
  // every connect-and-close as a failed login and soon blacklists the screen for all viewers.
- async function alive(a){try{const pid=parseInt(await readFile(path.join(homeOf(a),'bot-desktop','launcher.pid'),'utf8'));if(!pid)return false;process.kill(pid,0);await stat(sockOf(a));return true}catch{return false}}
+ // an agent with its own Linux user runs its screen as that user: asking about its process then says "not yours" (EPERM), which still means it runs
+ async function alive(a){try{const pid=parseInt(await readFile(path.join(homeOf(a),'bot-desktop','launcher.pid'),'utf8'));if(!pid)return false;try{process.kill(pid,0)}catch(e){if(e.code!=='EPERM')return false}await stat(sockOf(a));return true}catch{return false}}
 
  // Hermes' own Python (the gateway's venv), found from the running gateway so a Hermes update keeps working.
  let py=null;
