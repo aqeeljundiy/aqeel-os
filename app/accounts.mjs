@@ -104,9 +104,10 @@ export function createAccounts(DATA){
  async function useEntry(d,profile,e,why){
   if(e.key.startsWith(PLUGIN_KEY)){await assign(d,profile,e.key.slice(PLUGIN_KEY.length),why);await setKey(profile,'model.provider',PLUGIN);}
   else{// only switch an agent to a provider THAT agent is signed in to (sign-ins are per agent)
-   const slug=e.key.slice(2);const ok=await fetch(GATE+(profile==='default'?'':'/p/'+encodeURIComponent(profile))+'/api/model/options',{headers:{authorization:'Bearer '+(process.env.API_SERVER_KEY||'')},signal:AbortSignal.timeout(20000)}).then(r=>r.json()).then(j=>(j.providers||[]).some(p=>p.slug===slug&&p.authenticated)).catch(()=>false);
+   const slug=e.key.slice(2);const ok=await fetch(GATE+(profile==='default'?'':'/p/'+encodeURIComponent(profile))+'/api/model/options',{headers:{authorization:'Bearer '+(process.env.API_SERVER_KEY||'')},signal:AbortSignal.timeout(20000)}).then(r=>r.json()).then(j=>(j.providers||[]).find(p=>p.slug===slug&&p.authenticated)||false).catch(()=>false);
    if(!ok)throw new Error(profile+' is not signed in to '+slug+'; sign in on that agent first');
    const r=await setKey(profile,'model.provider',slug);if(!r.ok)throw new Error('The engine did not accept the change');
+   if(!e.model&&ok.models?.length){const cur=(await agentRoute(profile)).model;if(!ok.models.includes(cur))await setKey(profile,'model.default',ok.models[0])}
    d.events.unshift({t:Date.now(),profile,to:e.key,why:why||''});d.events=d.events.slice(0,50);await save(d)}
   if(e.model)await setKey(profile,'model.default',e.model);
  }
@@ -119,7 +120,7 @@ export function createAccounts(DATA){
   if((d.priority||[]).length){const prov=await providers();
    for(const profile of await agents()){const cur=await entryOf(d,profile);const used=await usageOf(d,cur,det,prov);if(used!==null&&used<th)continue;
     for(const e of d.priority){if(e.key===cur)continue;const u=await usageOf(d,e.key,det,prov);if(u===null||u>=th)continue;
-     await useEntry(d,profile,e,used===null?'Previous account not available':`Reached ${used}%`).catch(er=>console.warn('auto-switch',er.message));break}}
+     const done=await useEntry(d,profile,e,used===null?'Previous account not available':`Reached ${used}%`).then(()=>true,er=>{console.warn('auto-switch',er.message);return false});if(done)break}}
    return}
   for(const profile of await agents()){const cur=d.assign[profile]||'main';const v=det[cur];if(!v?.usage)continue;
    const worst=Math.max(v.usage.session?.used||0,v.usage.week?.used||0);if(worst<th)continue;

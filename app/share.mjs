@@ -49,6 +49,7 @@ export function createShare({DASH,TOKEN,HERMES_HOME,listAgents}){
   return {done,failed}}
 
  async function renameMcp(agent,from,to){if(!NAME.test(from)||!NAME.test(to))throw new Error('Use letters, numbers, dots or dashes.');
+  if(from===to)return {ok:true};const have=((await api('/mcp/servers'+q(agent))).servers||[]).map(x=>x.name);if(have.includes(to))throw new Error(to+' already exists. Pick another name.');
   const block=await mcpBlock(agent,from);await setMcp(agent,to,block);const r=await run(['-p',agent,'config','unset','mcp_servers.'+from]);if(!r.ok)throw new Error('Copied, but the old name could not be removed.');return {ok:true}}
  /* a second copy on the same agent under another name (e.g. two AdsPower logins, or a skill to change separately) */
  async function duplicate(kind,agent,name,to){if(!NAME.test(name)||!NAME.test(to)||name===to)throw new Error('Use letters, numbers, dots or dashes, and a new name.');

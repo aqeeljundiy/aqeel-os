@@ -45,8 +45,13 @@ export function createAntigravity({HERMES_HOME,hcmd,listAgents}){
   await run('tmux',['new-session','-d','-s',SESSION,'-x','200','-y','60','-c',WORK,BIN]);await sleep(6000);
   await run('tmux',['send-keys','-t',SESSION,'-l','/logout']);await run('tmux',['send-keys','-t',SESSION,'Enter']);await sleep(4000);await stop();
   cache={t:0,v:null};login=null;
-  for(const a of await listAgents()){if(a.includes('--'))continue;await hcmd(a,['plugins','disable','antigravity-subscription'],{timeout:150000}).catch(()=>{})}
-  console.log('antigravity signed out');return {ok:true}}
+  // agents that thought with Google move to the main agent's model first, so none is left on a switched-off provider
+  const route=async a=>{const y=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>'');const k=key=>((new RegExp('^model:[\\s\\S]*?\\n\\s+'+key+':\\s*(\\S+)','m').exec(y)||[])[1]||'').replace(/^["']|["']$/g,'');return {provider:k('provider'),model:k('default')}};
+  const main=await route('default'),moved=[],stuck=[];const usable=main.provider&&main.provider!=='antigravity-subscription';
+  for(const a of await listAgents()){if(a.includes('--'))continue;const r=await route(a);
+   if(r.provider==='antigravity-subscription'){if(usable){await hcmd(a,['config','set','model.provider',main.provider],{timeout:60000}).catch(()=>{});if(main.model)await hcmd(a,['config','set','model.default',main.model],{timeout:60000}).catch(()=>{});moved.push(a)}else stuck.push(a)}
+   await hcmd(a,['plugins','disable','antigravity-subscription'],{timeout:150000}).catch(()=>{})}
+  console.log('antigravity signed out');return {ok:true,moved,stuck}}
  // second guard behind the text-only agent: agy's own permission list denies every action it could take
  async function denyAll(){const f=path.join(homedir(),'.gemini','antigravity-cli','settings.json');let cur={};try{cur=JSON.parse(await readFile(f,'utf8'))}catch{}
   const deny=['command(*)','read_file(*)','write_file(*)','read_url(*)','execute_url(*)','mcp(*)','unsandboxed(*)'];
