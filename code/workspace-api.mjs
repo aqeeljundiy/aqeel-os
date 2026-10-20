@@ -236,7 +236,7 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
   if(provider==='claude'){for(const [k,w] of Object.entries(raw.unifiedWindows||{}))windows.push({label:k==='five_hour'?'5-hour':k==='seven_day'?'Weekly':k.replace(/_/g,' '),usedPercent:Math.round((w.utilization||0)*100),resetsAt:w.resetsAt?w.resetsAt*1000:null})}
   else{const b=raw.rateLimitsByLimitId?.codex||raw;for(const [k,w] of [['primary',b.primary],['secondary',b.secondary]])if(w)windows.push({label:w.windowDurationMins>=10000?'Weekly':w.windowDurationMins?Math.round(w.windowDurationMins/60)+'-hour':k,usedPercent:Math.round(w.usedPercent||0),resetsAt:w.resetsAt?w.resetsAt*1000:null});if(b.credits?.balance)windows.push({label:'Credits',balance:b.credits.balance})}
   return {provider,account:account||'default',windows}}
- const multi=createMulti({store,startAgent:job=>startAgent(job),root})
+ const multi=createMulti({store,startAgent:job=>startAgent(job),canStart:n=>[...agents.values()].filter(live).length+n<=4,root})
  async function readSettings(){try{return JSON.parse(await readFile(path.join(root,'data','settings.json'),'utf8'))}catch{return {}}}
  async function instructionsFor(cwd){const s=await readSettings();let out='';if(s.instructions?.trim())out+='\n\nThe user\'s standing instructions for every project:\n'+s.instructions.trim().slice(0,8000);
   for(const f of ['AGENTS.md','CLAUDE.md']){try{const t=await readFile(path.join(cwd,f),'utf8');if(t.trim()){out+='\n\nProject instructions from '+f+':\n'+t.trim().slice(0,20000);break}}catch{}}return out}
