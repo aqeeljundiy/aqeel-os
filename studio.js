@@ -175,7 +175,8 @@ function ensureArtifacts(){if(artifactsUI)return artifactsUI;artifactsUI=createA
   listChanged:()=>sidebar.render(),
   reveal:()=>{if($('artifacts-view').hidden)switchView('artifacts');mobile?.showWork()},badge:n=>{const b=$('artifacts-badge');b.hidden=!n;b.textContent=n?String(n):''}});
  artifactsUI.designSystems().then(list=>{dsNames=Object.fromEntries(list.map(d=>[d.id,d.name]));paintKind()}).catch(()=>{});return artifactsUI}
-function switchView(view){if(view==='browser'){browserUI??=createBrowserUI({attach:files=>composer.attach(files),insert:text=>insertMessage(text),container:()=>$('browser-view'),api:(r,b)=>api(r,b),token:()=>token,notify:t=>notify(t),visible:()=>!$('browser-view').hidden,onAiActivity:()=>{if($('browser-view').hidden)$('browser-badge').hidden=false}});$('browser-badge').hidden=true}
+function switchView(view){if(window.cbaDesktop&&view==='preview')view='browser';
+ if(view==='browser'){browserUI??=createBrowserUI({attach:files=>composer.attach(files),insert:text=>insertMessage(text),container:()=>$('browser-view'),api:(r,b)=>api(r,b),token:()=>token,notify:t=>notify(t),visible:()=>!$('browser-view').hidden,onAiActivity:()=>{if($('browser-view').hidden)$('browser-badge').hidden=false}});$('browser-badge').hidden=true}
  if(view==='artifacts'){ensureArtifacts();$('artifacts-badge').hidden=true}
  for(const name of ['preview','artifacts','files','history','browser'])$(name+'-view').hidden=name!==view;for(const b of document.querySelectorAll('[data-view]')){b.classList.toggle('active',b.dataset.view===view);b.setAttribute('aria-current',b.dataset.view===view?'page':'false')}}
 async function refreshFiles(){void gitUI.refresh();void devUI.refresh();for(const [n,b] of buffers)if(n!==selectedFile&&b.value===b.saved)buffers.delete(n); // reload clean tabs from disk (the AI may have changed them)
@@ -460,7 +461,7 @@ if(document.body.classList.contains('embed'))for(const [v,t,d] of [['ask','Ask m
 // One Browser tab. Its tab strip starts with the project's preview (pinned, with sizes, element picking, editing and
 // error reports) and then the real browser's tabs, where you and the AI open any other site. The AI's browsing
 // shows here as it happens. The old separate Preview and Browser tabs are now this one.
-{const tab=$('browser-tab');tab.hidden=true;let web=false,primed=false;setTimeout(()=>{primed=true},4000);const sv=switchView;
+{const tab=$('browser-tab');tab.hidden=true;let web=Boolean(window.cbaDesktop),primed=false;setTimeout(()=>{primed=true},4000);const sv=switchView;
  const pt=document.querySelector('button[data-view="preview"]');pt.firstChild.textContent='Browser';
  // the strip sits above both views: the preview tab first, then the browser's own tabs
  const bar=document.createElement('div');bar.className='web-tabs';$('preview-view').before(bar);
@@ -476,7 +477,7 @@ if(document.body.classList.contains('embed'))for(const [v,t,d] of [['ask','Ask m
    lead:paintLead,leadActive:()=>!web,onTabOpen:()=>{if(!web)openWeb()},
    onAiActivity:()=>{if(!primed)return;if(!$('preview-view').hidden||!$('browser-view').hidden)openWeb();else $('preview-badge').hidden=false}});bar.append(browserUI.strip)}return browserUI};
  const mark=()=>{const on=!$('preview-view').hidden||!$('browser-view').hidden;bar.hidden=!on;for(const b of document.querySelectorAll('[data-view="preview"]')){b.classList.toggle('active',on);b.setAttribute('aria-current',on?'page':'false')}};
- switchView=v=>{if(v==='preview'&&web)v='browser';const show=v==='browser'&&$('browser-view').hidden;if(v==='browser'){web=true;ensureBrowser()}sv(v);if(show)browserUI.show();if(v==='preview'||v==='browser')$('preview-badge').hidden=true;mark();browserUI?.paint()};
+ switchView=v=>{if(v==='preview'&&(web||window.cbaDesktop))v='browser';const show=v==='browser'&&$('browser-view').hidden;if(v==='browser'){web=true;ensureBrowser()}sv(v);if(show)browserUI.show();if(v==='preview'||v==='browser')$('preview-badge').hidden=true;mark();browserUI?.paint()};
  function openWeb(url){switchView('browser');if(url)Promise.resolve(browserUI.show()).then(()=>browserUI.open(url))}
  // in the aqeelOS app there is no framed preview: the project opens in a real browser tab instead
  function openProject(){if(window.cbaDesktop&&projectId){openWeb();ensureBrowser();const u=devUrl||previewBase+'/preview/'+projectId+'/';const t=browserUI.tabs?.()||[];if(!t.some(x=>String(x.url||'').startsWith(u)))browserUI.open(u);return}web=false;sv('preview');mark();browserUI?.paint()}
@@ -674,7 +675,8 @@ async function paintResults(){$('results-row')?.remove();const chip=$('kind-chip
 
 // Online (the copy on the AI box): no folder windows there. Open a folder lists the box's folders; the project folder
 // menu offers Open in aqeelOS Files, Download as zip and Copy path instead of Explorer and VS Code.
-var isOnline=false;   // var: read by renders that can run before this linefetch('/api/status?quick').then(r=>r.json()).then(s=>{isOnline=Boolean(s.online);document.body.classList.toggle('online',isOnline)}).catch(()=>{});
+var isOnline=false;   // var: read by renders that can run before this line
+fetch('/api/status?quick').then(r=>r.json()).then(s=>{isOnline=Boolean(s.online);document.body.classList.toggle('online',isOnline)}).catch(()=>{});
 async function pickBoxFolder(){const at=await chooseBoxFolder('Open a folder on the AI box','Pick the folder to work on. It stays where it is; removing the project later keeps the folder.','Open this folder');if(!at)return;try{const p=await api('/project/open',{path:at});notify('Opened '+p.name+'.');await refreshState();await selectProject(p.id)}catch(e){notify(e.message)}}
 // a folder on the AI box, picked from a list (there is no folder window on a server)
 function chooseBoxFolder(title,message,confirm){return new Promise(done=>{const d=document.createElement('dialog');d.className='kit-dialog box-folders';d.innerHTML='<form method="dialog"><h2></h2><p class="kit-message"></p><div class="bf-bar"><div class="bf-path"></div><button type="button" class="bf-new">+ New folder</button></div><div class="bf-list" role="listbox" aria-label="Folders"></div><div class="kit-actions bf-actions"><button value="cancel">Cancel</button><button class="primary" value="ok"></button></div></form>';
@@ -726,3 +728,6 @@ function publishProject(p){const d=document.createElement('dialog');d.className=
 
 // costs in the currency aqeelOS uses (US dollars unless the person or the company picked rupiah)
 function costText(usd){let c={code:'USD'};try{c=JSON.parse(localStorage.getItem('cba-currency')||'{}')}catch{}if(c.code==='IDR'){const v=usd*(c.rate||16500);return v<1?'<Rp1':'Rp'+Math.round(v).toLocaleString('id-ID')}return '$'+Number(usd).toFixed(2)}
+
+// the aqeelOS app opens on its real browser (there is no framed preview there)
+if(window.cbaDesktop)setTimeout(()=>{try{switchView('browser');}catch{}},300);

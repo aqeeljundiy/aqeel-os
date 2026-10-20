@@ -62,8 +62,10 @@ function close(id){const t=tabs.get(id);if(!t)return;tabs.delete(id);win.content
 function closeAll(){for(const id of [...tabs.keys()])close(id)}
 // where the tab goes: Code's browser area, inside Code's frame, inside aqeelOS
 function place(){const t=active&&tabs.get(active);if(!t)return;if(!shown||!stageRect||!frameRect){t.view.setVisible(false);return}
- const fx=frameRect?frameRect.x:0,fy=frameRect?frameRect.y:0;
- t.view.setBounds({x:Math.round(fx+stageRect.x),y:Math.round(fy+stageRect.y),width:Math.max(1,Math.round(stageRect.width)),height:Math.max(1,Math.round(stageRect.height))});t.view.setVisible(true)}
+ const fx=frameRect.x,fy=frameRect.y,b={x:Math.round(fx+stageRect.x),y:Math.round(fy+stageRect.y),width:Math.max(1,Math.round(stageRect.width)),height:Math.max(1,Math.round(stageRect.height))};
+ const hit=o=>o.width>0&&o.height>0&&o.x<b.x+b.width&&o.x+o.width>b.x&&o.y<b.y+b.height&&o.y+o.height>b.y;
+ const covered=(frameRect.overlays||[]).some(hit)||(stageRect.overlays||[]).some(o=>hit({...o,x:o.x+fx,y:o.y+fy}));
+ t.view.setBounds(b);t.view.setVisible(!covered)}
 ipcMain.on('aq:frame',(e,r)=>{frameRect=r&&r.visible?r:null;if(!frameRect){for(const t of tabs.values())t.view.setVisible(false);return}place()});                       // aqeelOS: where Code's frame is in the window
 ipcMain.on('aq:stage',(e,r)=>{stageRect=r&&r.width>0?r:null;shown=Boolean(r&&r.visible);for(const [k,t] of tabs)t.view.setVisible(k===active&&shown);place()});   // Code: its browser area
 ipcMain.handle('aq:info',()=>({desktop:true,platform:process.platform,version:app.getVersion()}));
@@ -102,3 +104,33 @@ function makeTray(){try{tray=new Tray(path.join(BUNDLED,'assets',process.platfor
  tray.setContextMenu(Menu.buildFromTemplate([{label:'Open aqeelOS',click:showWin},{type:'separator'},{label:'Quit aqeelOS',click:()=>{app.isQuitting=true;app.quit()}}]));tray.on('click',showWin)}catch(e){console.warn('tray:',e.message)}}
 app.on('before-quit',()=>{app.isQuitting=true;try{server?.kill()}catch{}});
 app.on('window-all-closed',()=>app.quit());
+
+// ---------- the basics of a desktop app: keyboard shortcuts and a right-click menu ----------
+app.whenReady().then(()=>{
+ Menu.setApplicationMenu(Menu.buildFromTemplate([
+  ...(process.platform==='darwin'?[{role:'appMenu'}]:[]),
+  {label:'Edit',submenu:[{role:'undo'},{role:'redo'},{type:'separator'},{role:'cut'},{role:'copy'},{role:'paste'},{role:'pasteAndMatchStyle'},{role:'selectAll'}]},
+  {label:'View',submenu:[{role:'reload'},{role:'forceReload'},{type:'separator'},{role:'resetZoom'},{role:'zoomIn'},{role:'zoomOut'},{type:'separator'},{role:'togglefullscreen'},{role:'toggleDevTools'}]},
+  {role:'windowMenu'}]));
+ const menuFor=(wc,p,inTab)=>{const items=[];
+  if(p.linkURL){items.push({label:'Open link in your browser',click:()=>shell.openExternal(p.linkURL)},{label:'Copy link',click:()=>require('electron').clipboard.writeText(p.linkURL)},{type:'separator'})}
+  if(p.isEditable)items.push({role:'undo',enabled:p.editFlags.canUndo},{role:'redo',enabled:p.editFlags.canRedo},{type:'separator'},{role:'cut',enabled:p.editFlags.canCut},{role:'copy',enabled:p.editFlags.canCopy},{role:'paste',enabled:p.editFlags.canPaste},{role:'selectAll'});
+  else if(p.selectionText)items.push({role:'copy'},{role:'selectAll'});
+  if(inTab){if(items.length)items.push({type:'separator'});items.push({label:'Back',enabled:wc.navigationHistory.canGoBack(),click:()=>wc.navigationHistory.goBack()},{label:'Forward',enabled:wc.navigationHistory.canGoForward(),click:()=>wc.navigationHistory.goForward()},{label:'Reload',click:()=>wc.reload()})}
+  if(items.length)Menu.buildFromTemplate(items).popup()};
+ app.on('web-contents-created',(e,wc)=>wc.on('context-menu',(ev,p)=>menuFor(wc,p,[...tabs.values()].some(t=>t.wc===wc))));
+});
+
+// ---------- the app updates itself: aqeelOS says which version is current; the installer comes with your sign-in ----------
+const newer=(a,b)=>{const x=String(a).split('.').map(Number),y=String(b).split('.').map(Number);for(let i=0;i<3;i++){if((x[i]||0)!==(y[i]||0))return (x[i]||0)>(y[i]||0)}return false};
+let offered='';
+async function checkAppUpdate(){if(DEV||!win)return;try{
+ const v=await win.webContents.executeJavaScript("fetch('/ui/code/app-version',{headers:{'x-hui':'1'},credentials:'same-origin'}).then(r=>r.ok?r.json():{}).catch(()=>({}))");
+ const want=v?.[process.platform==='darwin'?'mac':'windows'];if(!want||!newer(want,app.getVersion())||offered===want)return;offered=want;
+ const r=await dialog.showMessageBox(win,{type:'info',buttons:['Restart and update','Later'],defaultId:0,cancelId:1,title:'aqeelOS',message:'aqeelOS '+want+' is ready',detail:'It takes about a minute. Your projects and chats stay as they are.'});
+ if(r.response!==0)return;
+ const to=path.join(app.getPath('temp'),process.platform==='darwin'?'aqeelOS.dmg':'aqeelOS-Setup.exe');
+ win.webContents.session.once('will-download',(e,item)=>{item.setSavePath(to);item.once('done',(ev,state)=>{if(state!=='completed'){dialog.showErrorBox('aqeelOS','The update did not download. Try again later.');offered='';return}
+  if(process.platform==='win32'){spawn(to,['/S','--force-run'],{detached:true,stdio:'ignore'}).unref();app.isQuitting=true;app.quit()}else shell.openPath(to)})});
+ win.webContents.downloadURL(HOME_URL+'/ui/code/download/'+(process.platform==='darwin'?'mac':'windows'))}catch(e){console.warn('app update:',e.message)}}
+app.whenReady().then(()=>{setTimeout(checkAppUpdate,90000);setInterval(checkAppUpdate,6*3600e3)});

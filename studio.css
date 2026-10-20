@@ -1561,3 +1561,7 @@ body.embed .aq-choices>.agent-chip .av{width:22px;height:22px}
 .device-frame[data-kind=laptop] .dev-base::after{content:'';position:absolute;left:50%;top:0;width:120px;height:7px;margin-left:-60px;border-radius:0 0 8px 8px;background:#8f939c}
 .browser-stage.device-on .browser-view{border-radius:6px;transition:left .3s cubic-bezier(.2,.7,.2,1),top .3s cubic-bezier(.2,.7,.2,1),width .3s cubic-bezier(.2,.7,.2,1),height .3s cubic-bezier(.2,.7,.2,1)}
 .browser-stage.device-on .browser-view{z-index:1}
+/* the work panel's tabs never get cut off: they scroll sideways when the panel is narrow (no scrollbar shown) */
+.work-heading nav{display:flex;min-width:0;overflow-x:auto;scrollbar-width:none}.work-heading nav::-webkit-scrollbar{display:none}.work-heading nav .tab{flex:none}
+.work-heading{container-type:inline-size}
+@container (max-width:520px){.work-heading nav .tab{padding-left:8px;padding-right:8px;font-size:13px}}
