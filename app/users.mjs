@@ -205,10 +205,15 @@ export function createUsers(DATA,mail){
    else{const prev=agentOwner(a);db.agentOwners[a]=to.id;db.shares[a]||={};delete db.shares[a][to.id];if(prev!==to.id&&byId(prev))db.shares[a][prev]='edit'}
    await save();return send(res,200,{ok:true})}
   if(!isAdmin(u))return send(res,403,{error:'Only admins can manage people.'});
+  // a role with terminal, file and code access is the owner's to hand out, like those permissions themselves
+  const unsafeRole=id=>u.role!=='owner'&&!!id&&(db.roles[id]?.caps||[]).includes('unsafe');
+  const UNSAFE_ROLE={error:'Only the owner can give a role that includes terminal, file and code access.'};
   const rl=/^\/ui\/roles(?:\/([\w-]+))?$/.exec(p);
   if(rl){const id=rl[1];const clean=b=>({name:String(b.name||'Role').trim().slice(0,40)||'Role',caps:(Array.isArray(b.caps)?b.caps:[]).filter(k=>k in CAPS&&(k!=='unsafe'||u.role==='owner')),models:Array.isArray(b.models)?b.models.map(String).slice(0,200):null,limit:b.limit&&+b.limit.tokens>0?{tokens:Math.round(+b.limit.tokens)}:null,maxAgents:Math.max(0,Math.min(50,+b.maxAgents||0))});
    if(!id&&req.method==='POST'){const b=await body();let k=String(b.name||'role').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'role';while(db.roles[k])k+='-2';db.roles[k]=clean(b);await save();return send(res,200,{id:k,...db.roles[k]})}
-   if(id&&req.method==='PUT'){if(!db.roles[id])return send(res,404,{error:'Unknown role'});db.roles[id]={...db.roles[id],...clean({...db.roles[id],...await body()})};await save();return send(res,200,db.roles[id])}
+   if(id&&req.method==='PUT'){if(!db.roles[id])return send(res,404,{error:'Unknown role'});const keep=unsafeRole(id),r=clean({...db.roles[id],...await body()});
+    // an admin editing an owner-made role keeps its terminal, file and code access as the owner set it
+    if(keep&&!r.caps.includes('unsafe'))r.caps.push('unsafe');db.roles[id]={...db.roles[id],...r};await save();return send(res,200,db.roles[id])}
    if(id&&req.method==='DELETE'){if(db.users.some(x=>x.roleId===id)||db.invites.some(i=>!i.used&&i.expires>Date.now()&&i.roleId===id))return send(res,409,{error:'Someone or a waiting invite still has this role. Change them first.'});delete db.roles[id];await save();return send(res,200,{ok:true})}}
   if(p==='/ui/mail'&&req.method==='GET')return send(res,200,await mail.settings());
   if(p==='/ui/mail'&&req.method==='PUT'){await mail.update(await body());return send(res,200,await mail.settings())}
@@ -216,7 +221,7 @@ export function createUsers(DATA,mail){
   const ie=/^\/ui\/people\/invite\/([\w-]+)\/email$/.exec(p);if(ie&&req.method==='POST'){const b=await body();const i=db.invites.find(x=>x.code===ie[1]&&!x.used);if(!i)return send(res,404,{error:'That invite is gone.'});
    try{await mail.deliver(String(b.to||'').trim(),(byId(u.id)?.name||'Someone')+' invited you to aqeelOS',`Hi${i.name?' '+i.name:''},\n\n${byId(u.id)?.name||'Someone'} invited you to aqeelOS. Open this link to pick a username and password:\n\n${String(b.link||'')}\n\nThe link works once and expires in 7 days.`);return send(res,200,{ok:true})}catch(e){return send(res,502,{error:e.message})}}
   if(p==='/ui/people'&&req.method==='GET')return send(res,200,{caps:CAPS,presets:PRESETS,owner:pub(owner()),roles:db.roles,users:db.users.map(x=>({...pub(x),roleId:x.roleId||'custom',caps:x.caps||[],models:x.models||null,limit:x.limit||null})),invites:db.invites.filter(i=>!i.used&&i.expires>Date.now()).map(i=>({code:i.code,name:i.name,role:i.role,agents:i.agents,expires:i.expires})),shares:db.shares});
-  if(p==='/ui/people/invite'&&req.method==='POST'){const b=await body();const role=b.role==='admin'&&u.role==='owner'?'admin':'member';
+  if(p==='/ui/people/invite'&&req.method==='POST'){const b=await body();if(b.roleId&&unsafeRole(b.roleId))return send(res,403,UNSAFE_ROLE);const role=b.role==='admin'&&u.role==='owner'?'admin':'member';
    const inv={code:randomBytes(18).toString('base64url'),name:String(b.name||'').trim().slice(0,60),role,roleId:b.roleId&&db.roles[b.roleId]?b.roleId:null,caps:(Array.isArray(b.caps)?b.caps:[]).filter(k=>k in CAPS&&(k!=='unsafe'||u.role==='owner')),agents:b.agents&&typeof b.agents==='object'?Object.fromEntries(Object.entries(b.agents).filter(([a])=>!isPrivate(a)||level(u,a)==='owner')):{},expires:Date.now()+7*864e5,by:u.id};db.invites.push(inv);await save();return send(res,200,inv)}
   const iv=/^\/ui\/people\/invite\/([\w-]+)$/.exec(p);if(iv&&req.method==='DELETE'){db.invites=db.invites.filter(i=>i.code!==iv[1]);await save();return send(res,200,{ok:true})}
   if(p==='/ui/people/share'&&req.method==='PUT'){const b=await body();const a=String(b.agent||''),id=String(b.user||'');if(!/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(a)||!byId(id)||id==='owner')return send(res,400,{error:'Unknown agent or person'});
@@ -224,10 +229,15 @@ export function createUsers(DATA,mail){
    if(isPrivate(a)&&level(u,a)!=='owner')return send(res,403,{error:'Only the owner of this agent can change who has it.'});
    db.shares[a]||={};if(LEVELS.includes(b.level))db.shares[a][id]=b.level;else delete db.shares[a][id];await save();return send(res,200,{ok:true,shares:db.shares[a]})}
   const um=/^\/ui\/people\/([\w-]+)$/.exec(p);
-  if(um&&req.method==='PATCH'){const x=db.users.find(y=>y.id===um[1]);if(!x)return send(res,404,{error:'Not found'});const b=await body();if(b.name)x.name=String(b.name).trim().slice(0,60);if(b.role&&u.role==='owner'&&['admin','member'].includes(b.role))x.role=b.role;if('roleId' in b)x.roleId=b.roleId&&db.roles[b.roleId]?b.roleId:null;if(Array.isArray(b.caps))x.caps=b.caps.filter(k=>k in CAPS&&(k!=='unsafe'||u.role==='owner'));
+  if(um&&req.method==='PATCH'){const x=db.users.find(y=>y.id===um[1]);if(!x)return send(res,404,{error:'Not found'});const b=await body();if(b.roleId&&b.roleId!==x.roleId&&unsafeRole(b.roleId))return send(res,403,UNSAFE_ROLE);if(b.name)x.name=String(b.name).trim().slice(0,60);if(b.role&&u.role==='owner'&&['admin','member'].includes(b.role))x.role=b.role;if('roleId' in b)x.roleId=b.roleId&&db.roles[b.roleId]?b.roleId:null;if(Array.isArray(b.caps))x.caps=b.caps.filter(k=>k in CAPS&&(k!=='unsafe'||u.role==='owner'));
    if('models' in b)x.models=Array.isArray(b.models)?b.models.map(String).slice(0,200):null;
    if('limit' in b)x.limit=b.limit&&+b.limit.tokens>0?{tokens:Math.round(+b.limit.tokens)}:null;await save();return send(res,200,pub(x))}
-  if(um&&req.method==='DELETE'){const id=um[1];db.users=db.users.filter(y=>y.id!==id);for(const a of Object.values(db.shares))delete a[id];await save();return send(res,200,{ok:true})}
+  if(um&&req.method==='DELETE'){const id=um[1],x=byId(id);
+   // their private agents stay private: nobody gets them by default. Only the owner of aqeelOS can take them over, on purpose (?agents=take)
+   const owns=Object.entries(db.agentOwners).filter(([,o])=>o===id).map(([a])=>a);
+   if(owns.length&&x&&!isAdmin(x)){if(!(u.role==='owner'&&new URL(req.url,'http://x').searchParams.get('agents')==='take'))return send(res,409,{code:'owns-agents',agents:owns,error:x.name+' still owns '+owns.join(', ')+', private to them. They can give '+(owns.length>1?'those agents':'it')+' to someone under the agent’s menu › Sharing and owner.'});
+    for(const a of owns)delete db.agentOwners[a]}
+   db.users=db.users.filter(y=>y.id!==id);for(const a of Object.values(db.shares))delete a[id];await save();return send(res,200,{ok:true})}
   return send(res,404,{error:'Not found'})}
 
  /* ---------- accepting an invite (no sign-in yet) ---------- */

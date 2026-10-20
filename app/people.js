@@ -100,7 +100,11 @@ ACT['ppl-share']=a=>{const id=a.dataset.id;const taken=Object.entries(Pages._ppl
  d.querySelector('#shGo').onclick=async()=>{try{for(const [agent,level] of Object.entries(pickedAgents('shPick')))await put(UI,'/ui/people/share',{agent,user:id,level});closeLayers();toast('Shared');reload()}catch(e){fail(e)}}};
 Pages.personMenu=el=>{const u=(Pages._ppl?.users||[]).find(x=>x.id===el.dataset.id);if(!u)return;
  menu(el,[...(S.me?.role==='owner'?[{label:u.role==='admin'?'Make member':'Make admin',icon:'user',run:async()=>{try{await UI('/ui/people/'+u.id,{method:'PATCH',body:{role:u.role==='admin'?'member':'admin'}});reload()}catch(e){fail(e)}}},'-']:[]),
-  {label:'Remove '+u.name,icon:'trash',danger:true,run:async()=>{if(!await confirmBox('Remove '+u.name+'?','They can no longer sign in. Their chats stay on the box.','Remove'))return;try{await del(UI,'/ui/people/'+u.id);toast(u.name+' removed');reload()}catch(e){fail(e)}}}])};
+  {label:'Remove '+u.name,icon:'trash',danger:true,run:async()=>{if(!await confirmBox('Remove '+u.name+'?','They can no longer sign in. Their chats stay on the box.','Remove'))return;try{await del(UI,'/ui/people/'+u.id);toast(u.name+' removed');reload()}catch(e){
+   // they still own private agents: only the owner of aqeelOS may take those over, and only when they say so
+   if(e.status!==409||e.data?.code!=='owns-agents'||S.me?.role!=='owner')return fail(e);const n=(e.data.agents||[]).map(a=>ident(a).name).join(', ');
+   if(!await confirmBox('Take over '+n+'?',u.name+' owns '+n+', private to them. Removing them makes you the owner.','Take over and remove'))return;
+   try{await del(UI,'/ui/people/'+u.id+'?agents=take');toast(u.name+' removed. You now own '+n);reload()}catch(e2){fail(e2)}}}}])};
 ACT['me-profile']=()=>{const me=S.me||{};
  const d=drawer('Your profile',`<div class="prof-pic">${personAva(me,72)}<div><button id="pfPic">${icon('upload',15)}Change picture</button>${me.avatar?`<button class="ghost" id="pfPicDel">Remove</button>`:''}<input type="file" id="pfFile" accept="image/png,image/jpeg,image/webp,image/gif" hidden><p class="hint" style="margin:6px 0 0">PNG, JPG, WebP or GIF, under 2 MB.</p></div></div>
   <label>Name</label><input id="pfName" value="${esc(me.name||'')}" autocomplete="name"><label>Username</label><input id="pfUser" value="${esc(me.username||'')}" autocomplete="username" autocapitalize="none" spellcheck="false"><p class="hint" style="margin:4px 0 0">You sign in with your username.</p>
