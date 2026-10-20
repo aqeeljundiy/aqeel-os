@@ -21,9 +21,12 @@ const folderOf=j=>schedMeta(j).m.folder||bracketOf(j.name)||'General';
 
 PAGES.schedules=async(p,el)=>{
  setActions(`<button class="primary" data-act="cron-new">${icon('plus',16)}New schedule</button>`);
+ // a newer render (the next search keystroke) wins: an older answer arriving late is dropped
+ const gen=SCHED.gen=(SCHED.gen||0)+1;
  const [jobs,info]=await Promise.all([H('/cron/jobs?profile=all'),UI('/ui/schedules/info').catch(()=>null),SCHED.tz!==undefined?null:H('/config?profile=default').then(c=>{SCHED.tz=c.timezone||''}).catch(()=>{SCHED.tz=''})]);
+ if(gen!==SCHED.gen)return;
  Pages.cronJobs=jobs;SCHED.info=info||SCHED.info||{meta:{},runs:{},names:{},folds:{}};
- if(!jobs.length){el.innerHTML=emptyBox('No schedules yet','Have aqeelOS do something on a timetable, like a morning report on Telegram.',`<button class="primary" data-act="cron-new">${icon('plus',16)}New schedule</button>`);return}
+ if(!jobs.length&&!(SCHED.info.folders||[]).length){el.innerHTML=emptyBox('No schedules yet','Have aqeelOS do something on a timetable, like a morning report on Telegram.',`<button class="primary" data-act="cron-new">${icon('plus',16)}New schedule</button>`);return}
  const agents=[...new Set(jobs.map(j=>j.profile||'default'))];if(SCHED.agent&&!agents.includes(SCHED.agent))SCHED.agent='';
  const q=SCHED.q.toLowerCase();
  const shown=jobs.filter(j=>(!SCHED.agent||(j.profile||'default')===SCHED.agent)&&(!q||[j.name,j.prompt,schedMeta(j).m.summary,folderOf(j)].join(' ').toLowerCase().includes(q)));
@@ -54,7 +57,7 @@ PAGES.schedules=async(p,el)=>{
   ${admin?`<button class="ghost" data-act="sched-folder-new">${icon('plus',16)}New folder</button>`:''}</div>
   ${order.length?order.map(f=>{const l=groups[f],shut=folds[f]!==false&&!q;return `<section class="sched-folder ${shut?'shut':''} ${colors[f]?'c-'+colors[f]:''}" data-folder="${esc(f)}"><button class="sf-head" data-act="sched-fold" data-f="${esc(f)}" aria-expanded="${!shut}" ${admin?'draggable="true" title="Drag to reorder"':''}>${icon('chevD',16)}<span class="sf-ic">${icon('folder',16)}</span><b>${esc(f)}</b><span class="n">${l.length}</span>${month(l)?`<span class="sf-cost">≈ ${usd(month(l))} this month</span>`:''}${admin?`<span class="sf-more" data-act="sched-folder-menu" data-f="${esc(f)}" role="button" tabindex="0" aria-label="Folder options">${icon('more',16)}</span>`:''}</button><div class="sf-body"><div class="card list">${l.length?l.map(row).join(''):`<div class="sf-empty">Nothing here yet. Drag a schedule onto this folder, or use ⋯ › Move to folder.</div>`}</div></div></section>`}).join(''):emptyBox('Nothing matches','Try another word or agent.')}`;
  if(admin)schedDrag(el);
- let t;$('#schedQ').oninput=e=>{clearTimeout(t);t=setTimeout(()=>{SCHED.q=e.target.value;PAGES.schedules(p,el).then(()=>{const i=$('#schedQ');i.focus();i.setSelectionRange(i.value.length,i.value.length)})},200)};
+ let t;$('#schedQ').oninput=e=>{clearTimeout(t);t=setTimeout(()=>{SCHED.q=e.target.value;PAGES.schedules(p,el).then(()=>{const i=$('#schedQ');if(!i)return;i.focus();i.setSelectionRange(i.value.length,i.value.length)})},200)};
  // descriptions still being written: look again in a little while
  clearTimeout(SCHED.t);if(jobs.some(j=>!schedMeta(j).m.summary)&&(SCHED.tries=(SCHED.tries||0)+1)<=4)SCHED.t=setTimeout(()=>{if(route().page?.id==='schedules'&&!document.hidden&&!$('.drawer')&&document.activeElement?.id!=='schedQ')PAGES.schedules(p,el).catch(()=>{})},45000);
 };
