@@ -187,7 +187,7 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
    if(!run.system){const sec=await readSecrets();if(Object.keys(sec).length)options.env={...(options.env||process.env),...sec}}
    const hookEnv={CBA_PROJECT:store.project(run.projectId)?.name||'',CBA_PROVIDER:run.provider,CBA_PROMPT:run.prompt.slice(0,4000)}
    for(const h of run.hooks.filter(h=>h.event==='run-start')){const r=await fireHook(run,h,cwd,hookEnv);if(r.code!==0)throw Error('A run-start hook stopped this run'+(r.output?': '+r.output.slice(-300):' (exit code '+r.code+').'))}
-   if(run.provider==='gemini'){options.gemini=provider.gemini;options.env=env;options.onModels=list=>writeFileAsync(path.join(root,'data','gemini-models.json'),JSON.stringify(list.slice(0,30).map(m=>({modelId:m.modelId,name:m.name,description:m.description||''})))).catch(()=>{})}
+   if(run.provider==='gemini'){options.gemini=provider.gemini;options.env={...env,...(run.system?{}:await readSecrets())};options.onModels=list=>writeFileAsync(path.join(root,'data','gemini-models.json'),JSON.stringify(list.slice(0,30).map(m=>({modelId:m.modelId,name:m.name,description:m.description||''})))).catch(()=>{})}
    const go=()=>(run.provider==='codex'?runCodex:run.provider==='gemini'?runGemini:runClaude)(run,options)
    let result=await go()
    // another Claude Code process (for example a desktop session) was refreshing the shared sign-in: wait and try once more
