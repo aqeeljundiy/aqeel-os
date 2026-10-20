@@ -10,16 +10,18 @@ export function createBrowserUI(ctx){
  const strip=el('div','browser-tabs');strip.setAttribute('role','tablist');strip.setAttribute('aria-label','Browser tabs');
  const plus=el('button','browser-tab-new');plus.append(icon('plus'));plus.type='button';plus.title='New tab (Ctrl+T in the browser)';plus.setAttribute('aria-label','New tab');plus.addEventListener('click',()=>{ctx.onTabOpen?.();address.value='';call('/tab',{}).then(()=>address.focus())});
  // your tab order (drag to change) and which tabs were already on screen, so only new ones animate in
- let order=[];try{order=JSON.parse(localStorage.getItem('cba-tab-order')||'[]')}catch{}const seen=new Set();let dragId=null;
+ let order=[];try{order=JSON.parse(localStorage.getItem('cba-tab-order')||'[]')}catch{}const seen=new Set();let dragId=null,lastSig='';
  const saveOrder=()=>{try{localStorage.setItem('cba-tab-order',JSON.stringify(order.slice(-50)))}catch{}};
- function paintTabs(){const tabs=[...(status.tabs||[])];for(const t of tabs)if(!order.includes(t.id))order.push(t.id);tabs.sort((a,b)=>order.indexOf(a.id)-order.indexOf(b.id));strip.replaceChildren();const lead=ctx.lead?.();if(lead)strip.append(lead);const leading=Boolean(ctx.leadActive?.());
+ function paintTabs(){const tabs=[...(status.tabs||[])];for(const t of tabs)if(!order.includes(t.id))order.push(t.id);tabs.sort((a,b)=>order.indexOf(a.id)-order.indexOf(b.id));const lead=ctx.lead?.(),leading=Boolean(ctx.leadActive?.());
+  // the 2-second status poll repaints only when the tabs changed, so keyboard focus and a drag in progress survive
+  const sig=JSON.stringify([tabs.map(t=>[t.id,t.title,t.url]),status.tab,status.aiTab,leading,Boolean(lead)]);if(sig===lastSig&&strip.childNodes.length)return;lastSig=sig;strip.replaceChildren();if(lead)strip.append(lead);
   for(const t of tabs){const chip=el('div','browser-tab'+(t.id===status.tab&&!leading?' on':'')+(seen.size&&!seen.has(t.id)?' entering':''));seen.add(t.id);chip.draggable=true;chip.dataset.id=t.id;if(t.id===status.aiTab){chip.classList.add('ai-tab');chip.title='The AI works in this tab. You can use the others at the same time.'}
    chip.addEventListener('dragstart',e=>{dragId=t.id;chip.classList.add('dragging');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',t.id)});
    chip.addEventListener('dragend',()=>{dragId=null;chip.classList.remove('dragging');strip.querySelectorAll('.drop-before,.drop-after').forEach(c=>c.classList.remove('drop-before','drop-after'))});
    chip.addEventListener('dragover',e=>{if(!dragId||dragId===t.id)return;e.preventDefault();const r=chip.getBoundingClientRect(),after=e.clientX>r.left+r.width/2;chip.classList.toggle('drop-after',after);chip.classList.toggle('drop-before',!after)});
    chip.addEventListener('dragleave',()=>chip.classList.remove('drop-before','drop-after'));
    chip.addEventListener('drop',e=>{e.preventDefault();if(!dragId||dragId===t.id)return;const after=chip.classList.contains('drop-after');order=order.filter(id=>id!==dragId);order.splice(order.indexOf(t.id)+(after?1:0),0,dragId);saveOrder();paintTabs()});const open=el('button','browser-tab-open',!t.url||t.url==='about:blank'?'New tab':t.title||t.url);open.type='button';open.setAttribute('role','tab');open.setAttribute('aria-selected',String(t.id===status.tab));open.title=t.url;open.addEventListener('click',()=>{ctx.onTabOpen?.();if(t.id!==status.tab)call('/tab',{id:t.id})});
-   const x=el('button','browser-tab-close');x.append(icon('close'));x.type='button';x.setAttribute('aria-label','Close tab '+(t.title||''));x.title='Close tab';x.addEventListener('click',e=>{e.stopPropagation();chip.classList.add('leaving');setTimeout(()=>call('/tab',{id:t.id,close:true}),160)});chip.append(open,x);strip.append(chip)}
+   const x=el('button','browser-tab-close');x.append(icon('close'));x.type='button';x.setAttribute('aria-label','Close tab '+(t.title||''));x.title='Close tab';x.addEventListener('click',e=>{e.stopPropagation();chip.classList.add('leaving');lastSig='';setTimeout(()=>call('/tab',{id:t.id,close:true}),160)});chip.append(open,x);strip.append(chip)}
   strip.append(plus)}
  const bar=el('form','browser-bar');bar.setAttribute('role','search');
  const btn=(label,name,fn)=>{const b=el('button','browser-nav');b.append(icon(name));b.type='button';b.setAttribute('aria-label',label);b.title=label;b.addEventListener('click',fn);bar.append(b);return b};
@@ -116,9 +118,20 @@ export function createBrowserUI(ctx){
 
  // map a pointer position on the scaled image to page coordinates
  const point=e=>{const r=view.getBoundingClientRect();return {x:(e.clientX-r.left)*size.width/r.width,y:(e.clientY-r.top)*size.height/r.height}};
- view.addEventListener('click',async e=>{view.focus();const p=point(e);
+ view.addEventListener('click',async e=>{if(Date.now()<noClickUntil)return;const coarse=matchMedia('(pointer:coarse)').matches;if(coarse&&!picking){reset();kb.focus({preventScroll:true})}else view.focus();const p=point(e);
   if(picking){picking=false;pick.classList.remove('on');pick.setAttribute('aria-pressed','false');view.classList.remove('picking');outline.hidden=true;try{const info=await ctx.api('/browser/inspect',p);ctx.insert('In the side browser ('+info.url+'), this element: `'+info.selector+'`'+(info.text?' (text: "'+info.text+'")':'')+'\n```html\n'+info.html+'\n```');ctx.notify('Element added to your message. Say what to change.')}catch(err){ctx.notify(err.message)}return}
-  call('/click',p)});
+  await call('/click',p);if(coarse&&document.activeElement===kb&&!status.editing)kb.blur()});
+ // phones: a swipe on the page scrolls it (a tap still clicks)
+ let touch=null,noClickUntil=0;view.style.touchAction='none';
+ view.addEventListener('pointerdown',e=>{if(e.pointerType==='touch')touch={sx:e.clientX,sy:e.clientY,x:e.clientX,y:e.clientY,dx:0,dy:0,moved:false,frame:0,at:e}});
+ view.addEventListener('pointermove',e=>{if(!touch||e.pointerType!=='touch')return;const k=size.width/(view.getBoundingClientRect().width||1);touch.dx+=(touch.x-e.clientX)*k;touch.dy+=(touch.y-e.clientY)*k;touch.x=e.clientX;touch.y=e.clientY;
+  if(Math.hypot(e.clientX-touch.sx,e.clientY-touch.sy)>8)touch.moved=true;if(!touch.moved||touch.frame)return;const t=touch;t.frame=requestAnimationFrame(()=>{t.frame=0;const dx=t.dx,dy=t.dy;t.dx=0;t.dy=0;if(dx||dy)ctx.api('/browser/scroll',{dx,dy,...point(t.at)}).catch(()=>{})})});
+ const touchEnd=e=>{if(!touch||e.pointerType!=='touch')return;if(touch.moved)noClickUntil=Date.now()+400;touch=null};view.addEventListener('pointerup',touchEnd);view.addEventListener('pointercancel',touchEnd);
+ // phones: tapping a field on the page opens the phone's keyboard; what is typed goes to the page
+ const kb=el('textarea','browser-kb');kb.setAttribute('aria-label','Type into the page');kb.autocapitalize='off';kb.autocomplete='off';kb.spellcheck=false;kb.style.cssText='position:fixed;left:0;bottom:0;width:1px;height:1px;opacity:0;border:0;padding:0;margin:0;font-size:16px;pointer-events:none;resize:none';root.append(kb);
+ const reset=()=>{kb.value=' ';try{kb.setSelectionRange(1,1)}catch{}};let composing=false,typing=Promise.resolve();const kbSend=(r,b)=>{typing=typing.then(()=>ctx.api(r,b)).catch(()=>{})};
+ const flush=()=>{const v=kb.value;if(!v.startsWith(' '))kbSend('/browser/key',{key:'Backspace'});const t=v.startsWith(' ')?v.slice(1):v;const parts=t.split('\n');parts.forEach((s,i)=>{if(s)kbSend('/browser/type',{text:s});if(i<parts.length-1)kbSend('/browser/key',{key:'Enter'})});reset()};
+ kb.addEventListener('compositionstart',()=>{composing=true});kb.addEventListener('compositionend',()=>{composing=false;flush()});kb.addEventListener('input',()=>{if(!composing)flush()});
  view.addEventListener('wheel',e=>{e.preventDefault();const p=point(e);ctx.api('/browser/scroll',{dx:e.deltaX,dy:e.deltaY,...p}).catch(()=>{})},{passive:false});
  view.addEventListener('keydown',e=>{if(picking&&e.key==='Escape'){e.preventDefault();pick.click();return}if(e.ctrlKey||e.metaKey||e.altKey)return;if(KEYS.has(e.key)){e.preventDefault();call('/key',{key:e.key})}else if(e.key.length===1){e.preventDefault();ctx.api('/browser/type',{text:e.key}).catch(()=>{})}});
  view.addEventListener('paste',e=>{const t=e.clipboardData?.getData('text');if(t){e.preventDefault();call('/type',{text:t})}});
