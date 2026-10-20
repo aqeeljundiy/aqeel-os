@@ -1550,3 +1550,14 @@ body.embed .composer-controls{padding:6px 0 0}
 /* the composer in aqeelOS: the agent chip sits in the same row as the other choices, all the same height */
 body.embed .aq-choices>.agent-chip{margin:0;min-height:30px;height:30px;padding:0 6px 0 4px;display:inline-flex;align-items:center;gap:6px;border-radius:var(--r-pill);background:var(--soft-2);font-size:12.5px}
 body.embed .aq-choices>.agent-chip .av{width:22px;height:22px}
+
+/* devices around the page (Mobile, Tablet, Laptop) */
+.browser-stage.device-on{overflow:hidden;align-items:stretch;background:var(--soft-2)}
+.device-frame{position:absolute;box-sizing:border-box;pointer-events:none;background:#16181d;border-radius:46px;box-shadow:0 30px 60px -30px rgba(11,12,16,.55),inset 0 0 0 2px #2a2d35;transition:left .3s cubic-bezier(.2,.7,.2,1),top .3s cubic-bezier(.2,.7,.2,1),width .3s cubic-bezier(.2,.7,.2,1),height .3s cubic-bezier(.2,.7,.2,1);animation:arrive .3s ease-out}
+.device-frame[data-kind=tablet]{border-radius:30px}
+.device-frame[data-kind=laptop]{border-radius:14px 14px 4px 4px;background:#1b1d22}
+.device-frame .dev-notch{display:none}.device-frame[data-kind=mobile] .dev-notch{display:block;position:absolute;left:50%;top:calc(var(--pad) + 8px);width:84px;height:22px;margin-left:-42px;border-radius:12px;background:#000;z-index:2}
+.device-frame .dev-base{display:none}.device-frame[data-kind=laptop] .dev-base{display:block;position:absolute;left:-6%;right:-6%;bottom:0;height:20px;border-radius:0 0 14px 14px;background:linear-gradient(#c9ccd3,#a9adb6)}
+.device-frame[data-kind=laptop] .dev-base::after{content:'';position:absolute;left:50%;top:0;width:120px;height:7px;margin-left:-60px;border-radius:0 0 8px 8px;background:#8f939c}
+.browser-stage.device-on .browser-view{border-radius:6px;transition:left .3s cubic-bezier(.2,.7,.2,1),top .3s cubic-bezier(.2,.7,.2,1),width .3s cubic-bezier(.2,.7,.2,1),height .3s cubic-bezier(.2,.7,.2,1)}
+.browser-stage.device-on .browser-view{z-index:1}

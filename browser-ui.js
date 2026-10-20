@@ -65,10 +65,21 @@ export function createBrowserUI(ctx){
    if(!picking||!info?.rect)return;Object.assign(outline.style,{left:(v.left-s.left+stage.scrollLeft+info.rect.x*k)+'px',top:(v.top-s.top+stage.scrollTop+info.rect.y*k)+'px',width:info.rect.w*k+'px',height:info.rect.h*k+'px'});outlineTag.textContent=info.tag+' · '+Math.round(info.rect.w)+'×'+Math.round(info.rect.h);outline.hidden=false}catch{}finally{hoverBusy=false}});
  view.addEventListener('mouseleave',()=>{outline.hidden=true});const activity=el('div','browser-activity');activity.setAttribute('aria-live','polite');
  const askBar=el('div','browser-ask');askBar.hidden=true;askBar.setAttribute('role','alert');
+ const device=el('div','device-frame');device.hidden=true;device.setAttribute('aria-hidden','true');device.append(el('i','dev-notch'),el('i','dev-base'));stage.append(device);
+ const BEZEL={mobile:{pad:12,base:0},tablet:{pad:16,base:0},laptop:{pad:12,base:20}};let fitSent=0,screenRect=null;
+ function layoutDevice(){const p=status.preset||'desktop',b=BEZEL[p];stage.classList.toggle('device-on',Boolean(b));device.hidden=!b;device.dataset.kind=p;
+  if(!b){screenRect=null;for(const k of ['position','left','top','width','height','maxWidth'])view.style[k]='';view.style.maxWidth=size.width+'px';return}
+  const W=stage.clientWidth-28,H=stage.clientHeight-28,w=size.width,h=size.height;const s=Math.min(1,(W-2*b.pad)/w,(H-2*b.pad-b.base)/h);
+  const sw=Math.round(w*s),sh=Math.round(h*s),fw=sw+2*b.pad,fh=sh+2*b.pad+b.base,left=Math.round((stage.clientWidth-fw)/2),top=Math.round((stage.clientHeight-fh)/2);
+  Object.assign(device.style,{left:left+'px',top:top+'px',width:fw+'px',height:fh+'px','--pad':b.pad+'px'});
+  screenRect={x:left+b.pad,y:top+b.pad,width:sw,height:sh};Object.assign(view.style,{position:'absolute',left:screenRect.x+'px',top:screenRect.y+'px',width:sw+'px',height:sh+'px',maxWidth:'none'});
+  // the app's real browser scales the page into the screen too
+  if(window.cbaDesktop&&Math.abs(s-fitSent)>0.01){fitSent=s;ctx.api('/browser/view',{fit:Math.round(s*1000)/1000}).catch(()=>{})}}
+ new ResizeObserver(()=>layoutDevice()).observe(stage);
  root.append(strip,bar,tools,guardBox,askBar,control,stage,activity);
  // in the aqeelOS app the page is a real browser view the app lays exactly over this area
  if(window.cbaDesktop){stage.classList.add('native');const over=()=>Boolean(document.querySelector('dialog[open],.menu,.dd-floating,.kit-menu,.palette:not([hidden]),.drawer'));
-  const report=()=>{const r=stage.getBoundingClientRect();window.cbaDesktop.stage({x:r.left,y:r.top,width:r.width,height:r.height,visible:ctx.visible()&&status.state==='running'&&!over()&&r.width>20})};
+  const report=()=>{const s=stage.getBoundingClientRect(),r=screenRect?{left:s.left+screenRect.x,top:s.top+screenRect.y,width:screenRect.width,height:screenRect.height}:s;window.cbaDesktop.stage({x:r.left,y:r.top,width:r.width,height:r.height,visible:ctx.visible()&&status.state==='running'&&!over()&&r.width>20})};
   new ResizeObserver(report).observe(stage);addEventListener('resize',report);setInterval(report,400);ctx.nativeReport=report}
  let askedFor='';
  function paintAsk(){const g=status.guard||{},pm=g.perm,fl=g.file;
@@ -82,7 +93,7 @@ export function createBrowserUI(ctx){
   yes.addEventListener('click',()=>call('/guard',{answer:true}));no.addEventListener('click',()=>call('/guard',{answer:false}));askBar.replaceChildren(icon('shield'),t,yes,no);ctx.notify('The AI asks to open '+a.host+'. Allow it in the Browser.')}
 
  async function call(route,body){try{status=await ctx.api('/browser'+route,body);paintStatus();ensureLoop()}catch(e){ctx.notify(e.message)}}
- function paintStatus(){paintAsk();ctx.nativeReport?.();if(document.activeElement!==address)address.value=status.url&&status.url!=='about:blank'?status.url:'';empty.hidden=Boolean(seq)&&status.state==='running'&&Boolean(status.url)&&status.url!=='about:blank';if(status.width)size={width:status.width,height:status.height};view.style.maxWidth=size.width+'px';
+ function paintStatus(){paintAsk();layoutDevice();ctx.nativeReport?.();if(document.activeElement!==address)address.value=status.url&&status.url!=='about:blank'?status.url:'';empty.hidden=Boolean(seq)&&status.state==='running'&&Boolean(status.url)&&status.url!=='about:blank';if(status.width)size={width:status.width,height:status.height};view.style.maxWidth=size.width+'px';
   for(const b of sizes.children)b.classList.toggle('selected',b.dataset.preset===status.preset);dims.textContent=size.width+' × '+size.height;
   const sc=status.scheme||'light';scheme.replaceChildren(icon(sc==='light'?'sun':sc==='dark'?'moon':'system'),el('span','',sc==='light'?'Light page':sc==='dark'?'Dark page':'System page'));scheme.setAttribute('aria-label','Page colour scheme: '+sc);paintTabs();
   activity.replaceChildren();const items=(status.log||[]).slice(-6).reverse();
@@ -110,5 +121,5 @@ export function createBrowserUI(ctx){
 
  async function show(){try{if(!show.dpr){show.dpr=1;ctx.api('/browser/view',{dpr:Math.max(1,window.devicePixelRatio||1)}).catch(()=>{})}status=await ctx.api('/browser/status');if(status.state!=='running'){empty.querySelector('p').textContent='Starting the browser…';status=await ctx.api('/browser/start',{});empty.querySelector('p').textContent='A real browser that you and the AI share. Type an address above to start. The AI can open pages, click, type and read here; you see every action live.'}paintStatus();ensureLoop()}catch(e){empty.querySelector('p').textContent=e.message}}
  setInterval(async()=>{if(!ctx.visible()&&!ctx.watchWhenHidden?.())return;try{status=await ctx.api('/browser/status');paintStatus();ensureLoop()}catch{}},2000);
- return {show,strip,paint:paintTabs,open:url=>{const t=status.tabs||[];const blank=t.length===1&&(!t[0].url||t[0].url==='about:blank');return call(blank?'/navigate':'/tab',{url})}};
+ return {show,strip,paint:paintTabs,tabs:()=>status.tabs||[],open:url=>{const t=status.tabs||[];const blank=t.length===1&&(!t[0].url||t[0].url==='about:blank');return call(blank?'/navigate':'/tab',{url})}};
 }

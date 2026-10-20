@@ -169,13 +169,13 @@ export class SideBrowser{
  // Apply the viewport preset and colour scheme to the current tab, then restart the screencast at that size.
  async applyView(){const {width,height,mobile}=this.view;
   if(this.ctlUrl&&this.preset==='desktop'){await this.send('Emulation.clearDeviceMetricsOverride').catch(()=>{});await this.send('Emulation.setEmulatedMedia',{features:[{name:'prefers-color-scheme',value:this.scheme==='system'?'':this.scheme}]}).catch(()=>{});return}
-  await this.send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:this.dpr||1,mobile});
+  await this.send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:this.dpr||1,mobile,...(this.ctlUrl?{scale:this.fit||1}:{})});
   await this.send('Emulation.setTouchEmulationEnabled',{enabled:mobile,maxTouchPoints:mobile?5:1});
   await this.send('Emulation.setUserAgentOverride',{userAgent:mobile?MOBILE_UA:''});
   await this.send('Emulation.setEmulatedMedia',{features:[{name:'prefers-color-scheme',value:this.scheme==='system'?'':this.scheme}]});
   await this.send('Page.stopScreencast').catch(()=>{});
   if(this.ctlUrl)return;const k=this.dpr||1;await this.send('Page.startScreencast',{format:'jpeg',quality:90,maxWidth:Math.round(width*k),maxHeight:Math.round(height*k),everyNthFrame:1})}
- async setView({preset,rotate,scheme,dpr}={}){await this.ensure();if(dpr)this.dpr=Math.min(3,Math.max(1,Number(dpr)||1));
+ async setView({preset,rotate,scheme,dpr,fit}={}){await this.ensure();if(dpr)this.dpr=Math.min(3,Math.max(1,Number(dpr)||1));if(fit){this.fit=Math.min(1,Math.max(0.1,Number(fit)||1));if(!preset&&!rotate&&!scheme){if(this.ctlUrl&&this.preset!=='desktop')await this.applyView();return this.status()}}
   if(preset){if(!PRESETS[preset])throw Error('Unknown screen size.');this.preset=preset;this.view={...PRESETS[preset]}}
   if(rotate)this.view={...this.view,width:this.view.height,height:this.view.width};
   if(scheme){if(!SCHEMES.has(scheme))throw Error('Unknown colour scheme.');this.scheme=scheme}

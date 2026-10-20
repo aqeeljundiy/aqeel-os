@@ -465,10 +465,10 @@ if(document.body.classList.contains('embed'))for(const [v,t,d] of [['ask','Ask m
  // the strip sits above both views: the preview tab first, then the browser's own tabs
  const bar=document.createElement('div');bar.className='web-tabs';$('preview-view').before(bar);
  const lead=document.createElement('div');lead.className='browser-tab preview-tab';const lb=document.createElement('button');lb.type='button';lb.className='browser-tab-open';lb.setAttribute('role','tab');lb.title='This project’s preview';
- const dot=document.createElement('i');dot.className='preview-dot';lb.append(dot,document.createElement('span'));lead.append(lb);lb.addEventListener('click',()=>openProject());
+ const dot=document.createElement('i');dot.className='preview-dot';lb.append(dot,document.createElement('span'));lead.append(lb);lb.addEventListener('click',()=>{if(window.cbaDesktop&&projectId){openWeb();ensureBrowser();browserUI.open(devUrl||previewBase+'/preview/'+projectId+'/');return}openProject()});   // in the aqeelOS app: the project opens in a real tab
  // the project's own tab says Your app, and is there only when the project has something to preview (a site or a dev server)
  let hasApp=false;
- const paintLead=()=>{if(!hasApp)return null;lb.lastChild.textContent='Your app';lb.title='Preview of '+(project()?.name||'this project');lead.classList.toggle('on',!web);lb.setAttribute('aria-selected',String(!web));return lead};
+ const paintLead=()=>{if(!hasApp)return null;lb.lastChild.textContent='Your app';lb.title='Preview of '+(project()?.name||'this project');lead.classList.toggle('on',!web&&!window.cbaDesktop);lb.setAttribute('aria-selected',String(!web&&!window.cbaDesktop));return lead};
  const checkApp=async()=>{if(!projectId){hasApp=false;browserUI?.paint();if(!web&&!$('preview-view').hidden)openWeb();return}try{const {files}=await api('/files?projectId='+projectId);hasApp=(files||[]).some(f=>/(^|\/)index\.html?$/i.test(f))||Boolean(devUrl)}catch{hasApp=true}
   browserUI?.paint();if(!hasApp&&!web&&!$('preview-view').hidden)openWeb()};
  {const rf=refreshFiles;refreshFiles=async(...a)=>{const r=await rf(...a);checkApp();return r}}
@@ -478,7 +478,8 @@ if(document.body.classList.contains('embed'))for(const [v,t,d] of [['ask','Ask m
  const mark=()=>{const on=!$('preview-view').hidden||!$('browser-view').hidden;bar.hidden=!on;for(const b of document.querySelectorAll('[data-view="preview"]')){b.classList.toggle('active',on);b.setAttribute('aria-current',on?'page':'false')}};
  switchView=v=>{if(v==='preview'&&web)v='browser';const show=v==='browser'&&$('browser-view').hidden;if(v==='browser'){web=true;ensureBrowser()}sv(v);if(show)browserUI.show();if(v==='preview'||v==='browser')$('preview-badge').hidden=true;mark();browserUI?.paint()};
  function openWeb(url){switchView('browser');if(url)Promise.resolve(browserUI.show()).then(()=>browserUI.open(url))}
- function openProject(){web=false;sv('preview');mark();browserUI?.paint()}
+ // in the aqeelOS app there is no framed preview: the project opens in a real browser tab instead
+ function openProject(){if(window.cbaDesktop&&projectId){openWeb();ensureBrowser();const u=devUrl||previewBase+'/preview/'+projectId+'/';const t=browserUI.tabs?.()||[];if(!t.some(x=>String(x.url||'').startsWith(u)))browserUI.open(u);return}web=false;sv('preview');mark();browserUI?.paint()}
  {const sp=selectProject;selectProject=async(...a)=>{const r=await sp(...a);browserUI?.paint();return r}}
  // the AI badge, when it browses while another workspace tab is open
  const badge=document.createElement('span');badge.className='tab-badge';badge.id='preview-badge';badge.hidden=true;badge.textContent='AI';pt.append(badge);
