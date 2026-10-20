@@ -2,7 +2,7 @@
 // schedules, so "share" means: copy it to the agents you pick (settings included), and "used by" means:
 // which agents have one with that name. Renaming an MCP tool is copy-under-new-name, then remove the old.
 import {execFile} from 'node:child_process';
-import {cp,readdir,stat,access,readFile,writeFile} from 'node:fs/promises';
+import {cp,readdir,stat,access,readFile,writeFile,rename} from 'node:fs/promises';
 import path from 'node:path';
 import {homedir} from 'node:os';
 import {hermes as hq} from './agentops.mjs';
@@ -50,7 +50,10 @@ export function createShare({DASH,TOKEN,HERMES_HOME,listAgents}){
 
  async function renameMcp(agent,from,to){if(!NAME.test(from)||!NAME.test(to))throw new Error('Use letters, numbers, dots or dashes.');
   if(from===to)return {ok:true};const have=((await api('/mcp/servers'+q(agent))).servers||[]).map(x=>x.name);if(have.includes(to))throw new Error(to+' already exists. Pick another name.');
-  const block=await mcpBlock(agent,from);await setMcp(agent,to,block);const r=await run(['-p',agent,'config','unset','mcp_servers.'+from]);if(!r.ok)throw new Error('Copied, but the old name could not be removed.');return {ok:true}}
+  const block=await mcpBlock(agent,from);await setMcp(agent,to,block);
+  // its sign-in files are named after the tool, so they move to the new name too
+  const td=path.join(homeOf(agent),'mcp-tokens');for(const s of ['.json','.meta.json','.client.json'])await rename(path.join(td,from+s),path.join(td,to+s)).catch(()=>{});
+  const r=await run(['-p',agent,'config','unset','mcp_servers.'+from]);if(!r.ok)throw new Error('Copied, but the old name could not be removed.');return {ok:true}}
  /* a second copy on the same agent under another name (e.g. two AdsPower logins, or a skill to change separately) */
  async function duplicate(kind,agent,name,to){if(!NAME.test(name)||!NAME.test(to)||name===to)throw new Error('Use letters, numbers, dots or dashes, and a new name.');
   if(kind==='mcp'){const have=((await api('/mcp/servers'+q(agent))).servers||[]).map(x=>x.name);if(have.includes(to))throw new Error(to+' already exists.');await setMcp(agent,to,await mcpBlock(agent,name));return {ok:true,name:to}}
