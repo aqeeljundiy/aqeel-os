@@ -55,7 +55,7 @@ export function createAgentUI(ctx){
  }
 
  function terminalLog(run,e){
-  if(!run.terminal.has(e.key)){run.terminal.add(e.key);ctx.showTerminal()}
+  if(!run.terminal.has(e.key))run.terminal.add(e.key);   // the panel only opens when you open it
   const commands=[...run.nodes.keys()].map(k=>run.events.get(k)).filter(x=>x?.type==='command');
   ctx.setTerminalOutput(commands.map(c=>'AI › '+c.command+'\n'+(c.output||'')+(c.status!=='running'?'\n['+(STATUS[c.status]||c.status)+(typeof c.exitCode==='number'?' · exit '+c.exitCode:'')+']':'')).join('\n\n'));
  }

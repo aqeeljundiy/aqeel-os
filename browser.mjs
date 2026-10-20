@@ -49,7 +49,7 @@ export class SideBrowser{
  constructor(dataDir){this.guardFile=path.join(dataDir,'browser-guard.json');this.guard={sites:[],paused:false};readFile(this.guardFile,'utf8').then(t=>{const g=JSON.parse(t);this.guard.sites=Array.isArray(g.sites)?g.sites:[]}).catch(()=>{});this.dataDir=dataDir;this.profile=path.join(dataDir,'browser-profile');this.pidFile=path.join(dataDir,'browser.pid');this.perms={};this.downloads=null;process.on('exit',()=>killTree(this.child));this.frame=null;this.frameSeq=0;this.waiters=[];this.log=[];this.state='stopped';this.preset='desktop';this.view={...PRESETS.desktop};this.scheme='light';this.tabs=[]}
  status(){return {guard:{sites:this.guard.sites,paused:this.guard.paused,reason:this.guard.reason||'',ask:this.guard.ask?{host:this.guard.ask.host}:null,perm:this.guard.perm?{origin:this.guard.perm.origin,what:this.guard.perm.kinds.map(k=>PERM_NAME[k]||k)}:null,file:this.guard.file?{origin:this.guard.file.origin}:null},state:this.state,url:this.url||'',title:this.title||'',width:this.view.width,height:this.view.height,preset:this.preset,scheme:this.scheme,tabs:this.tabs,tab:this.target||null,aiTab:this.aiTarget||null,error:this.error||null,log:this.log.slice(-40)}}
  // may the AI open this address? This computer's own pages and the sites the person allowed
- allowed(u){try{const x=new URL(u);if(x.protocol==='about:')return true;const h=x.hostname.toLowerCase();return LOCAL.test(h)||this.guard.sites.some(s=>h===s||h.endsWith('.'+s))}catch{return false}}
+ allowed(u){try{const x=new URL(u);return /^(https?|about):$/.test(x.protocol)}catch{return false}}   // any website; microphone, camera and files still ask
  // a site the AI may not open yet: the browser asks the person (Allow this site / Not now) and the AI waits for the answer
  async permit(u){if(this.allowed(u))return true;let h='';try{const x=new URL(u);if(!/^https?:$/.test(x.protocol))return false;h=x.hostname.toLowerCase().replace(/^www\./,'')}catch{return false}
   if(this.guard.ask?.host===h)return this.guard.ask.wait;this.guard.ask?.done(false);
@@ -145,7 +145,7 @@ export class SideBrowser{
   const old=this.aiWs;const ws=new WebSocket(page.webSocketDebuggerUrl);this.aiWs=ws;this.aiPending=new Map();this.aiN=0;this.aiUrl=page.url;this.aiTitle=page.title;try{old?.close()}catch{}
   const s=(method,params={})=>new Promise((res,rej)=>{const n=++this.aiN;this.aiPending.set(n,{resolve:res,reject:rej});ws.send(JSON.stringify({id:n,method,params}))});
   ws.onopen=async()=>{try{await s('Page.enable');await s('Runtime.enable');await s('Page.addScriptToEvaluateOnNewDocument',{source:ONE_VIEW}).catch(()=>{});await s('Page.setDownloadBehavior',this.downloads?{behavior:'allow',downloadPath:this.downloads}:{behavior:'deny'}).catch(()=>{});await s('Runtime.addBinding',{name:'__cbaPerm'}).catch(()=>{});await s('Page.addScriptToEvaluateOnNewDocument',{source:PERM_JS}).catch(()=>{});await s('Page.setInterceptFileChooserDialog',{enabled:true}).catch(()=>{});
-   const {width,height,mobile}=this.view;await s('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile}).catch(()=>{});resolve()}catch(e){reject(e)}};
+   const {width,height,mobile}=this.view;await s('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:this.dpr||1,mobile}).catch(()=>{});resolve()}catch(e){reject(e)}};
   ws.onerror=()=>reject(Error('Could not connect to the AI’s tab.'));ws.onclose=()=>{if(this.aiWs===ws)this.aiWs=null};
   ws.onmessage=ev=>{if(this.aiWs!==ws)return;const m=JSON.parse(ev.data);if(m.id&&this.aiPending.has(m.id)){const p=this.aiPending.get(m.id);this.aiPending.delete(m.id);m.error?p.reject(Error(m.error.message)):p.resolve(m.result);return}
    if(m.method==='Page.frameNavigated'&&!m.params.frame.parentId)this.aiUrl=m.params.frame.url;if(m.method==='Page.fileChooserOpened')this.fileAsk(m.params,'ai');if(m.method==='Runtime.bindingCalled'&&m.params.name==='__cbaPerm')this.permAsk(m.params.payload,'ai');if(m.method==='Page.downloadWillBegin')this.note({by:'page',action:'download',detail:(m.params.suggestedFilename||'a file')+' → '+(this.downloads||'')})}})}
@@ -157,13 +157,13 @@ export class SideBrowser{
 
  // Apply the viewport preset and colour scheme to the current tab, then restart the screencast at that size.
  async applyView(){const {width,height,mobile}=this.view;
-  await this.send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile});
+  await this.send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:this.dpr||1,mobile});
   await this.send('Emulation.setTouchEmulationEnabled',{enabled:mobile,maxTouchPoints:mobile?5:1});
   await this.send('Emulation.setUserAgentOverride',{userAgent:mobile?MOBILE_UA:''});
   await this.send('Emulation.setEmulatedMedia',{features:[{name:'prefers-color-scheme',value:this.scheme==='system'?'':this.scheme}]});
   await this.send('Page.stopScreencast').catch(()=>{});
-  await this.send('Page.startScreencast',{format:'jpeg',quality:70,maxWidth:width,maxHeight:height,everyNthFrame:1})}
- async setView({preset,rotate,scheme}={}){await this.ensure();
+  const k=this.dpr||1;await this.send('Page.startScreencast',{format:'jpeg',quality:90,maxWidth:Math.round(width*k),maxHeight:Math.round(height*k),everyNthFrame:1})}
+ async setView({preset,rotate,scheme,dpr}={}){await this.ensure();if(dpr)this.dpr=Math.min(3,Math.max(1,Number(dpr)||1));
   if(preset){if(!PRESETS[preset])throw Error('Unknown screen size.');this.preset=preset;this.view={...PRESETS[preset]}}
   if(rotate)this.view={...this.view,width:this.view.height,height:this.view.width};
   if(scheme){if(!SCHEMES.has(scheme))throw Error('Unknown colour scheme.');this.scheme=scheme}

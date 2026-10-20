@@ -43,8 +43,8 @@ export function createBrowserUI(ctx){
  const guardBox=el('div','browser-guard-box');guardBox.hidden=true;
  guardBtn.addEventListener('click',()=>{guardBox.hidden=!guardBox.hidden;guardBtn.setAttribute('aria-expanded',String(!guardBox.hidden));if(!guardBox.hidden){paintGuard();guardBox.querySelector('input')?.focus()}});
  const setSites=sites=>call('/guard',{sites}).then(paintGuard);
- function paintGuard(){const g=status.guard||{sites:[]};guardBtn.replaceChildren(icon('shield'),el('span','',g.sites.length?g.sites.length+' site'+(g.sites.length>1?'s':'')+' allowed':'Guarded'));
-  if(guardBox.hidden)return;guardBox.replaceChildren(el('strong','','The AI may open'),el('p','hint','This computer’s own pages (previews, dev servers) always. Other sites only when you add them here. It stays in one view and can’t download files. You can browse anywhere yourself.'));
+ function paintGuard(){const g=status.guard||{sites:[]};guardBtn.replaceChildren(icon('shield'),el('span','','Any website'));
+  if(guardBox.hidden)return;guardBox.replaceChildren(el('strong','','The AI may open'),el('p','hint','Any website, in its own tab, while you keep using yours. It asks you before a site uses your microphone, camera or location, and only you pick files to upload. Downloads go to Downloads › this project. The list below is kept for reference.'));
   const list=el('div','guard-sites');for(const s of g.sites){const c=el('span','guard-site',s);const x=el('button','');x.type='button';x.append(icon('close'));x.setAttribute('aria-label','Remove '+s);x.addEventListener('click',()=>setSites(g.sites.filter(v=>v!==s)));c.append(x);list.append(c)}
   if(!g.sites.length)list.append(el('span','hint','No other sites yet.'));
   const f=el('form','guard-add');const i=el('input','');i.placeholder='docs.google.com';i.setAttribute('aria-label','Site to allow');const add=el('button','','Allow');add.type='submit';f.append(i,add);
@@ -104,7 +104,7 @@ export function createBrowserUI(ctx){
  view.addEventListener('keydown',e=>{if(picking&&e.key==='Escape'){e.preventDefault();pick.click();return}if(e.ctrlKey||e.metaKey||e.altKey)return;if(KEYS.has(e.key)){e.preventDefault();call('/key',{key:e.key})}else if(e.key.length===1){e.preventDefault();ctx.api('/browser/type',{text:e.key}).catch(()=>{})}});
  view.addEventListener('paste',e=>{const t=e.clipboardData?.getData('text');if(t){e.preventDefault();call('/type',{text:t})}});
 
- async function show(){try{status=await ctx.api('/browser/status');if(status.state!=='running'){empty.querySelector('p').textContent='Starting the browser…';status=await ctx.api('/browser/start',{});empty.querySelector('p').textContent='A real browser that you and the AI share. Type an address above to start. The AI can open pages, click, type and read here; you see every action live.'}paintStatus();ensureLoop()}catch(e){empty.querySelector('p').textContent=e.message}}
+ async function show(){try{if(!show.dpr){show.dpr=1;ctx.api('/browser/view',{dpr:Math.max(1,window.devicePixelRatio||1)}).catch(()=>{})}status=await ctx.api('/browser/status');if(status.state!=='running'){empty.querySelector('p').textContent='Starting the browser…';status=await ctx.api('/browser/start',{});empty.querySelector('p').textContent='A real browser that you and the AI share. Type an address above to start. The AI can open pages, click, type and read here; you see every action live.'}paintStatus();ensureLoop()}catch(e){empty.querySelector('p').textContent=e.message}}
  setInterval(async()=>{if(!ctx.visible()&&!ctx.watchWhenHidden?.())return;try{status=await ctx.api('/browser/status');paintStatus();ensureLoop()}catch{}},2000);
  return {show,strip,paint:paintTabs,open:url=>{const t=status.tabs||[];const blank=t.length===1&&(!t[0].url||t[0].url==='about:blank');return call(blank?'/navigate':'/tab',{url})}};
 }

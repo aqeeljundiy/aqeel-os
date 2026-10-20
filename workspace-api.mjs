@@ -171,6 +171,8 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
     const STYLES={concise:'Keep replies short: a few sentences, no preamble.',explanatory:'Explain your reasoning and the trade-offs of what you changed, in plain language.',learning:'Teach as you go: explain concepts briefly and point out what the user could try themselves.'};
     if(!run.system&&(s.agents||[]).length){run.agents=s.agents;if(run.provider!=='claude')run.extraInstructions+='\n\nHelper roles the user defined (take on the matching role when a task fits it):\n'+s.agents.map(a=>'- '+a.name+': '+a.description+(a.instructions?' Instructions: '+a.instructions.slice(0,800):'')).join('\n')}
     if(!run.system)run.extraInstructions+=await memoryInstructions(run.projectId,cwd)
+    // what is installed on this computer, so the AI writes scripts in something that runs here
+    if(!run.system)run.extraInstructions+=await toolsNote();
     // the project's own live preview, so the AI checks its work in the side browser instead of opening files or starting a server
     if(!run.system&&!run.cwd){const pv=previewOrigin(new URL(appUrl()).host)+'/preview/'+run.projectId+'/';run.extraInstructions+='\n\nThis project has a live preview at '+pv+' (index.html is the start page; other pages are '+pv+'<path>). To check your work, open that address in the side browser with browser_open, then look, click and type there; the person sees it live. Never open file:// paths, and for plain HTML, CSS and JavaScript do not start a web server. Only apps that need a dev server (npm run dev and the like) need one: start it, then open its localhost address.'}
     {const names=Object.keys(await readSecrets());if(names.length&&!run.system)run.extraInstructions+='\n\nSaved secrets you can use as environment variables (their values are hidden from you; never print, log or commit them): '+names.join(', ')+'.'}
@@ -284,6 +286,12 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
  // files left loose in the results folder go into their type's subfolder
  // did this run save anything into the folder (so the reply can offer Show folder)?
  async function newFilesIn(dir,since){const walk=async(d,depth)=>{for(const e of await readdir(d,{withFileTypes:true}).catch(()=>[])){const p=path.join(d,e.name);if(e.isDirectory()){if(depth<3&&await walk(p,depth+1))return true}else{try{if((await stat(p)).mtimeMs>=since-2000)return true}catch{}}}return false};return walk(dir,0)}
+ // which script tools this computer has (checked every 10 minutes): Node.js always; Python only if it really runs
+ let toolsSeen={at:0,text:''};
+ async function toolsNote(){if(Date.now()-toolsSeen.at<600000)return toolsSeen.text;const {execFile}=await import('node:child_process');
+  const runs=(exe,args)=>new Promise(r=>execFile(exe,args,{timeout:6000,windowsHide:true},(e,out,err)=>r(!e&&/\d+\.\d+/.test(String(out)+String(err))?String(out||err).trim().split('\n')[0]:'')));
+  const py=await runs('python',['--version'])||await runs('python3',['--version'])||(process.platform==='win32'?await runs('py',['--version']):'');
+  toolsSeen={at:Date.now(),text:'\n\nOn this computer: Node.js '+process.version+' is installed'+(py?'; '+py+' too':'; Python is NOT installed (the python command only opens the Microsoft Store), so write any scripts in Node.js, never Python')+'.'};return toolsSeen.text}
  async function sortResults(dir){const {rename}=await import('node:fs/promises');let n=0;for(const e of await readdir(dir,{withFileTypes:true}).catch(()=>[])){if(!e.isFile()||e.name.startsWith('.'))continue;const t=(RESULT_TYPES.find(([,re])=>re.test(e.name))||['Other'])[0];
    await makeDir(path.join(dir,t),{recursive:true});let to=path.join(dir,t,e.name),i=2;while(await access(to).then(()=>true,()=>false)){const x=path.extname(e.name);to=path.join(dir,t,path.basename(e.name,x)+'-'+i+++x)}await rename(path.join(dir,e.name),to);n++}return n}
  const SECRETS=path.join(root,'data','secrets.json');
