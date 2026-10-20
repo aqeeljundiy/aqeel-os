@@ -11,7 +11,7 @@ import {readFile,writeFile,mkdir,stat} from 'node:fs/promises';
 import path from 'node:path';
 import {homedir} from 'node:os';
 import {execFile} from 'node:child_process';
-import {setKey,readConfig,pick,agentNames,withAgent,HERMES_HOME} from './agentops.mjs';
+import {setKey,readConfig,pick,agentNames,HERMES_HOME} from './agentops.mjs';
 
 const PLATFORMS=['whatsapp','telegram','slack','discord','signal','api_server'];
 const bundle=p=>p==='api_server'?'hermes-api-server':'hermes-'+p;
@@ -33,7 +33,8 @@ export function createAgentDefaults({DATA,giveSkills,log=m=>console.log(m)}){
  const ready=async a=>(await readFile(REQ+'.done','utf8').catch(()=>'')).split('\n').includes(userOf(a));
  // the Chrome on the agent's own screen (the root script keeps one per isolated agent; its port is in ~/.aqeelos-agent-ports)
  const chromePort=async a=>{const l=(await readFile(path.join(homedir(),'.aqeelos-agent-ports'),'utf8').catch(()=>'')).split('\n').find(x=>x.startsWith(a+' '));return l?l.trim().split(' ')[2]:null};
- async function ensure(a){return withAgent(a,async()=>{const c=await readConfig(a).catch(()=>null);if(!c)return 0;const changes=[];
+ // no withAgent around this: setKey takes the agent's lock itself (holding it here waited on itself forever)
+ async function ensure(a){const c=await readConfig(a).catch(()=>null);if(!c)return 0;const changes=[];
   const own=!(await trusted()).has(a),ws=path.join(homedir(),'workspaces',a),isolated=own&&await ready(a);
   // the full bundles include the terminal: an agent meant to have its own user gets them only once that user exists
   const pts=pick(c,'platform_toolsets')||{};
@@ -47,7 +48,7 @@ export function createAgentDefaults({DATA,giveSkills,log=m=>console.log(m)}){
    if([].concat(pick(c,'agent.disabled_toolsets')||[]).length)changes.push(['agent.disabled_toolsets',[]])}
   else if(!own&&pick(c,'terminal.backend')==='ssh')changes.push(['terminal.backend','local']);
   for(const [k,v] of changes)await setKey(a,k,v);
-  if(changes.length)log('agent defaults for '+a+': '+changes.map(x=>x[0]).join(', '));return changes.length})}
+  if(changes.length)log('agent defaults for '+a+': '+changes.map(x=>x[0]).join(', '));return changes.length}
  // every agent always has every skill the main agent (Donna) has: missing ones are copied, the agent's own copies and
  // extra skills of its own stay (decided 20 Oct 2026: no agent is treated differently; only the owner's signed-in
  // accounts are not handed out, and those aren't skills)
