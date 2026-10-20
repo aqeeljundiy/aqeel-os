@@ -8,3 +8,4 @@ scratch/
 *.exe
 .DS_Store
 Thumbs.db
+/aqeelos.json

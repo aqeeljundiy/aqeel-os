@@ -7,8 +7,8 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "dist:win": "electron-builder --win nsis",
-    "dist:mac": "electron-builder --mac dmg zip"
+    "dist:win": "node build.mjs win",
+    "dist:mac": "node build.mjs mac"
   },
   "devDependencies": {
     "electron": "44.5.1",
@@ -17,13 +17,59 @@
   "build": {
     "appId": "com.elkiya.aqeelos",
     "productName": "aqeelOS",
-    "directories": { "output": "dist" },
-    "files": ["main.cjs", "preload.cjs", "package.json"],
-    "extraResources": [
-      { "from": "..", "to": "code", "filter": ["**/*", "!desktop/**", "!data/**", "!.git/**", "!scratch/**", "!mockups/**", "!reference/**", "!test-fixtures/**", "!*.test.mjs", "!launcher/**", "!*.exe", "!*.png"] }
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "package.json"
     ],
-    "win": { "target": "nsis", "icon": "../assets/icon.ico" },
-    "nsis": { "oneClick": true, "perMachine": false, "shortcutName": "aqeelOS", "runAfterFinish": true },
-    "mac": { "target": ["dmg", "zip"], "icon": "../assets/icon-512.png", "category": "public.app-category.productivity" }
+    "extraResources": [
+      {
+        "from": "..",
+        "to": "code",
+        "filter": [
+          "**/*",
+          "!desktop/**",
+          "!data/**",
+          "!.git/**",
+          "!scratch/**",
+          "!mockups/**",
+          "!reference/**",
+          "!test-fixtures/**",
+          "!*.test.mjs",
+          "!launcher/**",
+          "!*.exe",
+          "!*.png"
+        ]
+      },
+      {
+        "from": "../node_modules",
+        "to": "code/node_modules",
+        "filter": [
+          "**/*",
+          "!.cache/**"
+        ]
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "../assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "shortcutName": "aqeelOS",
+      "runAfterFinish": true
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "../assets/icon-512.png",
+      "category": "public.app-category.productivity"
+    }
   }
 }

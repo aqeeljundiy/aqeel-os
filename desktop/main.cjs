@@ -25,10 +25,10 @@ let win=null,server=null;
 const CTL_KEY=crypto.randomBytes(24).toString('hex');
 
 // ---------- Code's engine ----------
-function copyBundled(){if(DEV)return;const want=read(path.join(BUNDLED,'aqeelos.json'),{}).aqeelos?.version||'',have=read(path.join(CODE_DIR,'aqeelos.json'),{}).aqeelos?.version||'';
- // the bundled copy goes in on first run, or when this app came with a newer Code than the one Code updated itself to
- if(fs.existsSync(path.join(CODE_DIR,'server.mjs'))&&(!want||have>=want))return;
- fs.mkdirSync(CODE_DIR,{recursive:true});fs.cpSync(BUNDLED,CODE_DIR,{recursive:true,force:true,filter:src=>!/[\\/]data([\\/]|$)/.test(src.slice(BUNDLED.length))})}
+function copyBundled(){if(DEV)return;const mark=path.join(CODE_DIR,'.app-version');
+ // the bundled copy goes in on first run and after the app itself was updated; between those, Code updates itself
+ if(fs.existsSync(path.join(CODE_DIR,'server.mjs'))&&(()=>{try{return fs.readFileSync(mark,'utf8')===app.getVersion()}catch{return false}})())return;
+ fs.mkdirSync(CODE_DIR,{recursive:true});fs.cpSync(BUNDLED,CODE_DIR,{recursive:true,force:true,filter:src=>!/[\\/]data([\\/]|$)/.test(src.slice(BUNDLED.length))});fs.writeFileSync(mark,app.getVersion())}
 const up=()=>new Promise(r=>{const q=http.get({host:'127.0.0.1',port:CODE_PORT,path:'/api/status?quick',timeout:1500},res=>{res.resume();r(res.statusCode===200)});q.on('error',()=>r(false));q.on('timeout',()=>{q.destroy();r(false)})});
 async function startCode(){if(await up())return;copyBundled();
  server=spawn(process.execPath,[path.join(CODE_DIR,'server.mjs')],{cwd:CODE_DIR,env:{...process.env,ELECTRON_RUN_AS_NODE:'1',HUB_PORT:String(CODE_PORT),CBA_DESKTOP:'1'},stdio:'ignore',windowsHide:true});
