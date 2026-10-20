@@ -77,6 +77,8 @@ export function createAccess({HERMES_HOME,DATA,listAgents,readConfig,setKey,herm
   if(kind==='plugin'){const d=path.join(home(to),'plugins',id);const s0=path.join(home(from),'plugins',id);if(!await stat(d).catch(()=>null)&&await stat(s0).catch(()=>null))await cp(s0,d,{recursive:true});
    const r=await hermes(to,['plugins','enable',id],{timeout:150000});if(!r.ok)throw new Error(r.out?.slice(-200)||'Could not turn it on');restart('access: plugin '+id+' on '+names(to));return {changed:true}}
   if(kind==='key'){if(src.bot)throw new Error('A chat bot answers as one agent only. Give the other agent its own bot instead.');
+   // the other agent may have its own key under the same name: never replace it silently
+   {const theirs=Object.values((await holdings(to)).key).find(x=>x.name===src.name);if(theirs&&theirs.value!==src.value)throw new Error(names(to)+' already has its own '+src.name+'. Remove it there first if you want to replace it.')}
    await editEnv(path.join(home(to),'.env'),cur=>{const lines=cur.split('\n').filter(l=>!l.startsWith(src.name+'='));lines.push(src.name+'='+src.value);return lines.join('\n').replace(/^\n+/,'')});
    restart('access: '+src.name+' shared with '+names(to));return {changed:true}}
   throw new Error('Unknown kind')}

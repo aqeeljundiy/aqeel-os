@@ -68,6 +68,9 @@ export function createUsers(DATA,mail){
  const eff=u=>{const x=byId(u.id)||u;const role=x.roleId&&db.roles[x.roleId];return role?{caps:role.caps||[],models:role.models||null,limit:role.limit||null,maxAgents:role.maxAgents??5,role:x.roleId}:{caps:x.caps||[],models:x.models||null,limit:x.limit||null,maxAgents:5,role:'custom'}};
  const can=(u,cap)=>isAdmin(u)||eff(u).caps.includes(cap);
  const ownCount=u=>Object.values(db.agentOwners).filter(id=>id===u.id).length;
+ // a deleted agent no longer counts against its owner's allowance; who owned it and who had it come back if it is restored
+ async function dropAgent(a){await load();if(!(a in db.agentOwners)&&!db.shares[a])return;(db.goneAgents??={})[a]={owner:db.agentOwners[a],shares:db.shares[a]};delete db.agentOwners[a];delete db.shares[a];await save()}
+ async function restoreAgent(a){await load();const g=db.goneAgents?.[a];if(!g)return;if(g.owner)db.agentOwners[a]=g.owner;if(g.shares)db.shares[a]=g.shares;delete db.goneAgents[a];await save()}
 
  /* ---------- 6-digit codes by email: to confirm an address, and for two-step sign-in ---------- */
  const codes=new Map();   // key → {hash, exp, tries, uid, purpose, email}
@@ -241,5 +244,5 @@ export function createUsers(DATA,mail){
  async function loginCode(u){const me=byId(u.id);return sendCode(me,'login',me.email)}
  function finishLogin(key,code){const v=checkCode(String(key||''),code,'login');if(v.error)return v;const u=byId(v.uid);return u?{ok:true,user:u}:{error:'That person no longer exists.'}}
  const expiredInvites=()=>(db?.invites||[]).filter(i=>!i.used&&i.expires<Date.now()&&i.expires>Date.now()-30*86400e3).map(i=>({code:i.code,name:i.name,role:i.role,roleId:i.roleId||null,caps:i.caps||[],agents:i.agents||{},expired:i.expires}));
- return {expiredInvites,agentOwner,byId,ownerOf,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginCode,finishLogin,created,can,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home,level};
+ return {expiredInvites,agentOwner,byId,ownerOf,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginCode,finishLogin,created,can,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home,level,dropAgent,restoreAgent};
 }

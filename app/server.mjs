@@ -784,7 +784,7 @@ async function hermesCall(req,res,u,url){
  if(p==='/hapi/gateway/stop'&&req.method==='POST'&&(q.get('profile')||'default')==='default')gwStopped=true;   // a deliberate stop: the watch leaves it stopped
  // deleting an agent also removes its extra numbers (copies) and takes it out of channel sharing
  if(delM&&req.method==='DELETE'){const gone=decodeURIComponent(delM[1]);if(!gone.includes('--')){for(const l of await links.list(gone).catch(()=>[]))await links.remove(l.name).catch(e=>console.warn('remove copy',l.name,e.message));
-  setTimeout(async()=>{if(await isAgent(gone))return;const {rm}=await import('node:fs/promises');
+  setTimeout(async()=>{if(await isAgent(gone))return;await users.dropAgent(gone).catch(()=>{});const {rm}=await import('node:fs/promises');
    // anything the engine left behind (a bare logs/ folder) and an agent folder holding only aqeelOS's own notes
    await rm(path.join(HERMES_HOME,'profiles',gone),{recursive:true,force:true}).catch(()=>{});
    const ws=path.join(homedir(),'workspaces',gone);if((await readdir(ws).catch(()=>['?'])).every(x=>x==='AGENTS.md'))await rm(ws,{recursive:true,force:true}).catch(()=>{});
@@ -1093,7 +1093,7 @@ const server=createServer(async(req,res)=>{
     const dir=path.join(HERMES_HOME,'profiles',m[1]);if(await stat(dir).catch(()=>null))return send(res,409,{error:'An agent with that name exists already.'});
     await mkdir(dir,{recursive:true});const {execFile}=await import('node:child_process');
     const ok=await new Promise(r=>execFile('tar',['-xzf',path.join(DATA,'agent-trash',f),'-C',dir],{timeout:180000},e=>r(!e)));if(!ok)return send(res,500,{error:'Could not unpack the backup.'});
-    restartGateway('restored '+m[1]).then(()=>agentHealth(m[1])).catch(()=>{});
+    await users.restoreAgent(m[1]).catch(()=>{});restartGateway('restored '+m[1]).then(()=>agentHealth(m[1])).catch(()=>{});
     return send(res,200,{ok:true,agent:m[1]})}
    // plugins on/off for ONE agent (the engine's own plugin routes always change the main agent)
    if(p==='/ui/plugins/toggle'&&req.method==='POST'&&!users.isAdmin(u))return send(res,403,{error:'Only admins can turn plugins on or off.'});
