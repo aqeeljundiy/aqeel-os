@@ -822,7 +822,7 @@ async function hermesCall(req,res,u,url){
   // a member's tool address may not point inside the box or at a cloud's metadata service
   if(/^\/hapi\/mcp\/servers/.test(p)&&b.url&&await privateAddress(b.url))return send(res,403,{error:'Tools must use a public web address.'});
   // a member's new agent starts empty: copying the main agent would copy its keys and memory
-  if(p==='/hapi/profiles'){b.clone_from_default=false;b.clone_all=false;made=String(b.name||'')}
+  if(p==='/hapi/profiles'){b.clone_from_default=false;b.clone_all=false;if(b.clone_from&&users.level(u,String(b.clone_from))!=='owner')delete b.clone_from;made=String(b.name||'')}
   body=Buffer.from(JSON.stringify(b))}
  const transform=/^\/hapi\/(sessions|sessions\/search|profiles|cron\/jobs)$/.test(p)&&req.method==='GET'?d=>users.filter(u,p,d,agent)
   :/^\/gapi(\/p\/[^/]+)?\/api\/model\/options$/.test(p)&&users.allowedModels(u)?d=>({...d,providers:(d.providers||[]).map(pv=>({...pv,models:(pv.models||[]).filter(m=>users.modelOk(u,pv.slug,m))})).filter(pv=>pv.models.length)})

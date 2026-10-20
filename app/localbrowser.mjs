@@ -17,11 +17,11 @@ function acceptWs(req,sock,head){const key=req.headers['sec-websocket-key'];if(!
   try{sock.write(Buffer.concat([h,p]))}catch{}};
  const read=()=>{for(;;){if(buf.length<2)return;const fin=buf[0]&128,op=buf[0]&15,masked=buf[1]&128;let len=buf[1]&127,off=2;
    if(len===126){if(buf.length<4)return;len=buf.readUInt16BE(2);off=4}else if(len===127){if(buf.length<10)return;len=Number(buf.readBigUInt64BE(2));off=10}
-   const mk=off;if(masked)off+=4;if(buf.length<off+len)return;let data=Buffer.from(buf.subarray(off,off+len));if(masked)for(let i=0;i<data.length;i++)data[i]^=buf[mk+(i&3)];buf=buf.subarray(off+len);
+   if(len>8e6){sock.destroy();return}const mk=off;if(masked)off+=4;if(buf.length<off+len)return;let data=Buffer.from(buf.subarray(off,off+len));if(masked)for(let i=0;i<data.length;i++)data[i]^=buf[mk+(i&3)];buf=buf.subarray(off+len);
    if(op===8){out(Buffer.alloc(0),8);sock.end();return}if(op===9){out(data,10);continue}if(op===10)continue;
-   if(op===1||op===0){frag.push(data);if(fin){const t=Buffer.concat(frag).toString('utf8');frag=[];ev.onmessage?.(t)}}}};
- sock.on('data',d=>{buf=Buffer.concat([buf,d]);read()});read();sock.on('close',()=>ev.onclose?.());sock.on('error',()=>{});
- return {send:t=>out(t),close:()=>{try{out(Buffer.alloc(0),8);sock.end()}catch{}},ev}}
+   if(op===1||op===0){frag.push(data);if(frag.reduce((n,b)=>n+b.length,0)>8e6){sock.destroy();return}if(fin){const t=Buffer.concat(frag).toString('utf8');frag=[];ev.onmessage?.(t)}}}};
+ sock.on('data',d=>{buf=Buffer.concat([buf,d]);if(buf.length>16e6){sock.destroy();return}read()});read();sock.on('close',()=>ev.onclose?.());sock.on('error',()=>{});
+ return {send:t=>out(t),close:()=>{try{out(Buffer.alloc(0),8);sock.end()}catch{}setTimeout(()=>sock.destroy(),2000).unref?.()},ev}}
 
 // a zip of the extension folder (stored, no compression), for the Download button
 const CRC=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return b=>{let c=0xFFFFFFFF;for(const x of b)c=t[(c^x)&255]^(c>>>8);return (c^0xFFFFFFFF)>>>0}})();
