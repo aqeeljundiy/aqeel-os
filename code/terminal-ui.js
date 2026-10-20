@@ -51,7 +51,7 @@ export function createTerminalUI(ctx){
   // called when the panel opens: make sure there is a shell to type into
   async shown(){if(loadedFor!==ctx.projectId())await load();if(!shells.length&&active==='ai'&&!sources.ai.touched)await openShell(true);else{render();poll()}},
   projectChanged:()=>{active='ai';shells=[];sources.dev=null;load().catch(()=>{})},
-  setAI(text,focus){sources.ai.text=text;sources.ai.touched=true;if(focus&&active!=='ai'&&!isShell(active))active='ai';if(focus)active='ai';render()},
+  setAI(text,focus){sources.ai.text=text;sources.ai.touched=true;if(focus&&active!=='ai'&&!isShell(active))active='ai';render()},
   setDev(text,title){if(text===null){sources.dev=null;if(active==='dev')active='ai';render();return}sources.dev={name:title||'Dev server',text};active='dev';render()},
  };
 }
