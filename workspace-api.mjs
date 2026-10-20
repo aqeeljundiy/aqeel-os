@@ -112,10 +112,12 @@ export async function createWorkspaceAPI({aqeelos,claudeAccounts,root,platform,a
  // temporary chats never survive a restart
  for(const p of store.state.projects){const kept=p.chats.filter(c=>!c.temporary);if(kept.length!==p.chats.length){p.chats=kept.length?kept:[{id:randomUUID(),title:'New chat',messages:[]}]}}await store.persist();void store.sweep();const builds=new Map(),commands=new Map(),agents=new Map(),dev=new DevServers(env),browser=new SideBrowser(path.join(root,'data')),terminals=new Terminals(env),usage=new Usage(root)
  // Both providers get the shared side browser as an MCP server that relays to this app.
- const browserMcp=run=>({command:process.execPath,args:[path.join(root,'browser-mcp.mjs')],env:{CBA_URL:appUrl(),CBA_TOKEN:token,...(run&&!run.system?{CBA_PROJECT:run.projectId}:{}),...(run&&!run.system&&!run.cwd?{CBA_PREVIEW:previewOrigin(new URL(appUrl()).host)+'/preview/'+run.projectId+'/'}:{})}});
+ // tool servers run on the engine's own executable: in the aqeelOS app that is the app's .exe, which acts as plain Node only
+ // with ELECTRON_RUN_AS_NODE (some AIs give tool servers only the env listed here; without it a second app started)
+ const browserMcp=run=>({command:process.execPath,args:[path.join(root,'browser-mcp.mjs')],env:{...(process.versions.electron?{ELECTRON_RUN_AS_NODE:'1'}:{}),CBA_URL:appUrl(),CBA_TOKEN:token,...(run&&!run.system?{CBA_PROJECT:run.projectId}:{}),...(run&&!run.system&&!run.cwd?{CBA_PREVIEW:previewOrigin(new URL(appUrl()).host)+'/preview/'+run.projectId+'/'}:{})}});
  // computer use: one desktop tool server per run, so permission requests land in that run's timeline
- const desktop=new Desktop({root});const desktopMcp=run=>({name:'desktop',command:process.execPath,args:[path.join(root,'desktop-mcp.mjs')],env:{CBA_URL:appUrl(),CBA_TOKEN:token,CBA_RUN:run.id}});
- const appMcp=run=>({name:'app',command:process.execPath,args:[path.join(root,'app-mcp.mjs')],env:{CBA_URL:appUrl(),CBA_TOKEN:token,CBA_RUN:run.id}});
+ const desktop=new Desktop({root});const desktopMcp=run=>({name:'desktop',command:process.execPath,args:[path.join(root,'desktop-mcp.mjs')],env:{...(process.versions.electron?{ELECTRON_RUN_AS_NODE:'1'}:{}),CBA_URL:appUrl(),CBA_TOKEN:token,CBA_RUN:run.id}});
+ const appMcp=run=>({name:'app',command:process.execPath,args:[path.join(root,'app-mcp.mjs')],env:{...(process.versions.electron?{ELECTRON_RUN_AS_NODE:'1'}:{}),CBA_URL:appUrl(),CBA_TOKEN:token,CBA_RUN:run.id}});
  const designs=new DesignSystems(path.join(root,'data'));
  const useGithub=async id=>{const user=store.project(id)?.settings?.github;if(!user)return;const gh=await locate('gh',findExecutable);if(gh)await tool(gh,['auth','switch','--hostname','github.com','--user',user],{env,timeout:20000})};
  const sharesFile=path.join(root,'data','shares.json');const readShares=async()=>{try{return JSON.parse(await readFile(sharesFile,'utf8'))}catch{return {}}};const writeShares=list=>writeFileAsync(sharesFile,JSON.stringify(list,null,1));

@@ -26,7 +26,7 @@ export function createAqeelos({root}){
   if(r.ok){agentsList=(j.agents||[]).map(a=>({id:String(a.id),name:String(a.name||a.id),apps:a.apps||[],google:a.google||0}));agentsAt=Date.now()}}catch{}return agentsList}
  async function unpair(){link={};await writeFile(FILE,'{}').catch(()=>{});return state()}
  // every run gets the aqeelOS tools when this computer is paired
- async function mcp(run){await load();if(!link.token)return null;return {name:'aqeelos',command:process.execPath,args:[path.join(root,'aqeelos-mcp.mjs')],env:{AQ_BASE:link.base,AQ_TOKEN:link.token,AQ_PROJECT:String(run?.projectId||''),AQ_AGENT:String(run?.agent||'')}}}
+ async function mcp(run){await load();if(!link.token)return null;return {name:'aqeelos',command:process.execPath,args:[path.join(root,'aqeelos-mcp.mjs')],env:{...(process.versions.electron?{ELECTRON_RUN_AS_NODE:'1'}:{}),AQ_BASE:link.base,AQ_TOKEN:link.token,AQ_PROJECT:String(run?.projectId||''),AQ_AGENT:String(run?.agent||'')}}}
  // ask aqeelOS for work for this computer's projects (agents' code_work), every ~25 s while paired
  let serving=false;function serve({projects,work}){if(serving||process.env.NODE_TEST_CONTEXT)return;serving=true;const wait=ms=>new Promise(r=>setTimeout(r,ms).unref?.());
   (async()=>{for(;;){await load();if(!link.token){await wait(10000);continue}
