@@ -31,13 +31,17 @@ export function createAgentDefaults({DATA,giveSkills,log=m=>console.log(m)}){
  // the root script makes a user for each name listed here (one per line) and writes the users it made to <file>.done
  async function requestUsers(names){const want=[...names].sort().join('\n')+'\n';if((await readFile(REQ,'utf8').catch(()=>''))!==want)await writeFile(REQ,want)}
  const ready=async a=>(await readFile(REQ+'.done','utf8').catch(()=>'')).split('\n').includes(userOf(a));
+ // the Chrome on the agent's own screen (the root script keeps one per isolated agent; its port is in ~/.aqeelos-agent-ports)
+ const chromePort=async a=>{const l=(await readFile(path.join(homedir(),'.aqeelos-agent-ports'),'utf8').catch(()=>'')).split('\n').find(x=>x.startsWith(a+' '));return l?l.trim().split(' ')[2]:null};
  async function ensure(a){return withAgent(a,async()=>{const c=await readConfig(a).catch(()=>null);if(!c)return 0;const changes=[];
   const own=!(await trusted()).has(a),ws=path.join(homedir(),'workspaces',a),isolated=own&&await ready(a);
   // the full bundles include the terminal: an agent meant to have its own user gets them only once that user exists
   const pts=pick(c,'platform_toolsets')||{};
   if(!own||isolated)for(const p of PLATFORMS){const cur=[].concat(pts[p]||[]);if(!cur.includes(bundle(p)))changes.push(['platform_toolsets.'+p,[bundle(p),...cur]])}
-  if(pick(c,'bot_desktop.auto_start')!==true)changes.push(['bot_desktop.auto_start','true']);
+  if(!isolated&&pick(c,'bot_desktop.auto_start')!==true)changes.push(['bot_desktop.auto_start','true']);
   if(isolated){const want={'terminal.backend':'ssh','terminal.ssh_host':'127.0.0.1','terminal.ssh_user':userOf(a),'terminal.ssh_port':'22','terminal.ssh_key':KEY,'terminal.cwd':ws};
+   // its browser is the Chrome on its own screen, which runs as its user; the engine then starts no screen of its own for it
+   const port=await chromePort(a);if(port){want['browser.cdp_url']='http://127.0.0.1:'+port;want['bot_desktop.auto_start']='false'}
    for(const [k,v] of Object.entries(want))if(String(pick(c,k)??'')!==v)changes.push([k,v])}
   else if(!own&&pick(c,'terminal.backend')==='ssh')changes.push(['terminal.backend','local']);
   for(const [k,v] of changes)await setKey(a,k,v);

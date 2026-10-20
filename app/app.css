@@ -1084,7 +1084,7 @@ body:has(.drawer.pop) .scrim{backdrop-filter:blur(5px);background:rgba(11,12,16,
 .row .txt span.kind-chip{display:inline-flex;margin-top:0;white-space:nowrap}
 .kf-more{margin-top:10px}.kf-more>summary{cursor:pointer;font-size:13px;color:var(--blue-deep);font-weight:600;padding:8px 0;list-style:none}.kf-more>summary::-webkit-details-marker{display:none}.dark .kf-more>summary{color:var(--blue-2)}
 /* notifications sit top right, under the bar, clear of the message box */
-.cron-pops{top:72px;bottom:auto;right:18px}
+.cron-pops{top:auto;bottom:20px;right:20px}
 @media (max-width:700px){.cron-pops{top:auto;bottom:12px;right:12px;left:12px;max-width:none}}
 /* the bell and its panel on the right */
 .bell{position:relative}.bell .bell-n{display:none;position:absolute;top:3px;right:2px;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:var(--coral,#ee6351);color:#fff;font-size:10px;font-weight:700;line-height:16px;text-align:center;box-shadow:0 0 0 2px var(--bg)}
@@ -1127,7 +1127,7 @@ button.think:hover{color:var(--ink-2);background:var(--soft)}
 .scrim.stack{z-index:60}.drawer.pop.stack{z-index:61}
 
 /* F22 on phones, notifications sit at the top, clear of the message box */
-@media (max-width:700px){.cron-pops{top:64px;bottom:auto;left:12px;right:12px;max-width:none}}
+@media (max-width:700px){.cron-pops{top:auto;bottom:12px;left:12px;right:12px;max-width:none}}
 /* F27 on touch screens the folder ⋯ and the inbox ✕ are always visible */
 @media (hover:none){.sf-head .sf-more,.ib-item .ib-x{opacity:1}}
 
@@ -1447,7 +1447,7 @@ div.skel:not(.loading)::after{content:'';width:26px;height:26px;border-radius:50
 .ca-t{flex:1;min-width:0;display:grid;gap:2px}.ca-t b{font-size:13.5px}.ca-t span{font-size:12.5px;color:var(--muted);line-height:1.45}
 
 /* in the aqeelOS app, notices sit bottom-left, clear of Code's real browser on the right */
-.aq-desktop .cron-pops{right:auto;left:20px}
+.aq-desktop .cron-pops{right:20px;left:auto;top:auto;bottom:20px}
 /* Live, nothing published yet: a calm centred card in the side list and on the page */
 .live-none{display:grid;justify-items:center;gap:8px;text-align:center;margin:14px 12px;padding:26px 18px 22px;border:1px dashed var(--border);border-radius:var(--r-card);background:var(--soft);animation:rise var(--t-med) var(--ease) both}
 .live-none b{font-size:14px;color:var(--ink)}.live-none p{margin:0;font-size:12.5px;line-height:1.5;color:var(--muted);max-width:220px}
@@ -1455,3 +1455,21 @@ div.skel:not(.loading)::after{content:'';width:26px;height:26px;border-radius:50
 .live-none .ln-go{margin-top:8px;padding:7px 14px;font-size:12.5px;transition:background var(--t-fast) var(--ease),transform var(--t-fast) var(--ease)}
 .live-none .ln-go:hover{background:var(--soft-2);transform:translateY(-1px)}
 .live-empty{animation:rise var(--t-med) var(--ease) both}.live-empty .ln-ico{width:52px;height:52px;margin-bottom:6px}
+/* All agents on Skills, Memory, Logs (all-agents-more.js): one chip per agent, lit when it is on for that agent */
+.aam-ags{display:flex!important;flex-wrap:wrap;gap:6px;margin-top:8px}
+.aam-ag{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px 0 4px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--muted);font:inherit;font-size:12.5px;cursor:pointer;transition:background .18s,color .18s,border-color .18s,opacity .18s;opacity:.7}
+.aam-ag .acc-av{margin:0;box-shadow:none;filter:grayscale(1);transition:filter .18s}
+.aam-ag:hover{opacity:1;border-color:var(--ink-3,var(--muted))}
+.aam-ag.on{opacity:1;color:var(--ink);background:var(--soft);border-color:transparent}.aam-ag.on .acc-av{filter:none}
+.aam-ag:disabled{cursor:progress;opacity:.5}
+.aam-h{display:inline-flex;align-items:center;gap:10px}.aam-h .acc-av{margin:0}
+.aam-more{margin-top:10px}.aam-more>summary{cursor:pointer;font-size:13.5px;color:var(--ink-2);padding:6px 0}
+.aam-who{font-weight:600;color:var(--accent,var(--ink))}
+
+/* Bottlenecks always in the top bar; quiet when nothing is stuck */
+.bn-btn.none{color:var(--muted)}.bn-btn.none .bn-n{display:none}
+/* the owner on every shared row (access.js): its picture with a crown, then who else uses it */
+.acc-own{display:inline-flex;align-items:center;gap:6px;position:relative;margin-right:4px;padding-right:8px;border-right:1px solid var(--border)}
+.acc-own>i{position:absolute;left:13px;top:-5px;width:14px;height:14px;border-radius:50%;background:#f5b301;color:#3b2a00;display:grid;place-items:center;font-style:normal}
+.acc-own>b{font-size:12.5px;font-weight:600;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:700px){.acc-own>b{display:none}}

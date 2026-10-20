@@ -1,7 +1,7 @@
 /* ---------- Notifications in the corner: one system for everything (a schedule finished or failed, a channel
    dropped, a setup finished…). They slide in, count as read after a few seconds in view, leave by themselves
-   after a few minutes (hovering keeps them), and stack neatly: past three, the older ones fold into "+N more". ---------- */
-const Notices={max:3,box(){let b=document.querySelector('.cron-pops');if(!b){b=document.createElement('div');b.className='cron-pops';b.setAttribute('aria-live','polite');document.body.append(b)}return b},
+   after a few minutes (hovering keeps them), and stack neatly: only the newest shows, the older ones fold into "+N more". ---------- */
+const Notices={max:1,box(){let b=document.querySelector('.cron-pops');if(!b){b=document.createElement('div');b.className='cron-pops';b.setAttribute('aria-live','polite');document.body.append(b)}return b},
  // o: {icon, kind:'blue'|'warn'|'ok', title, text, actions:[{label, go | act+data | run, primary}], key, life (ms), onClose}
  show(o){const b=this.box();if(o.key&&b.querySelector('.cron-pop[data-k="'+CSS.escape(o.key)+'"]'))return null;
   const n=document.createElement('div');n.className='cron-pop unread';if(o.key)n.dataset.k=o.key;n.setAttribute('role','status');

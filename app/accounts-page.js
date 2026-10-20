@@ -1,18 +1,18 @@
 // Models › Accounts: every account that does the thinking (Claude accounts plus signed-in providers such as
 // ChatGPT or OpenRouter), how much each has left, the priority order they are used in, and which agent uses what.
 const PLUGIN_ID='claude-subscription-directsdk-experimental';
-const PROV_DOMAINS={'openai-codex':'chatgpt.com','openai-api':'openai.com',openrouter:'openrouter.ai',gemini:'gemini.google.com',xai:'x.ai','xai-oauth':'x.ai',deepseek:'deepseek.com',copilot:'github.com',huggingface:'huggingface.co','kimi-coding':'moonshot.ai',minimax:'minimax.io',zai:'z.ai'};
+const PROV_DOMAINS={'openai-codex':'chatgpt.com','openai-api':'openai.com',openrouter:'openrouter.ai',gemini:'gemini.google.com',antigravity:'gemini.google.com','google-antigravity':'gemini.google.com',agy:'gemini.google.com',xai:'x.ai','xai-oauth':'x.ai',deepseek:'deepseek.com',copilot:'github.com',huggingface:'huggingface.co','kimi-coding':'moonshot.ai',minimax:'minimax.io',zai:'z.ai'};
 function acctSources(d){
  const claudeModels=(Chat.models||[]).filter(m=>m.provider===PLUGIN_ID).map(m=>m.id);
  const claude=d.accounts.map(a=>({key:'claude:'+a.id,name:a.label,sub:a.email||'Claude',logo:'claude.ai',models:claudeModels,ok:a.signedIn,
   used:a.usage?Math.max(a.usage.session?.used||0,a.usage.week?.used||0):null,bars:a.usage?[['Session (5 h)',a.usage.session],['This week',a.usage.week]]:[],menu:a.id}));
- const prov=(d.providers||[]).map(p=>({key:'p:'+p.slug,name:provLabel(p),sub:p.name,logo:PROV_DOMAINS[p.slug]||'',models:p.models,ok:true,
+ const prov=(d.providers||[]).map(p=>({key:'p:'+p.slug,name:provLabel(p),sub:p.name,logo:PROV_DOMAINS[p.slug]||(/antigravity|gemini|google/i.test(p.slug+' '+p.name)?'gemini.google.com':''),models:p.models,ok:true,
   used:p.windows.length?Math.max(0,...p.windows.filter(w=>w.scope!=='model').map(w=>w.used)):null,bars:p.windows.map(w=>[w.label,{used:w.used,resets:w.resets}]),details:p.details}));
  return [...claude,...prov]}
 const usedChip=u=>u==null?'<span class="chip">No limit info</span>':`<span class="chip ${u>=90?'bad':u>=70?'warn':'ok'}"><i class="dot"></i>${u}% used</span>`;
 
 PAGES.accounts=async(p,el)=>{
- setActions(`<button data-act="acct-refresh">${icon('refresh',16)}Refresh</button><button class="primary" data-act="acct-add">${icon('plus',16)}Add Claude account</button>`);
+ setActions(`<button data-act="acct-refresh">${icon('refresh',16)}Refresh</button><button class="primary" data-menu="acct-new">${icon('plus',16)}Add account</button>`);
  const d=await UI('/ui/accounts'+(Pages._acctFresh?'?fresh=1':''));Pages._acctFresh=false;Pages._acct=d;if(!Chat.models)await Chat.loadModels().catch(()=>{});
  const src=acctSources(d);Pages._acctSrc=src;const byKey=Object.fromEntries(src.map(s=>[s.key,s]));
  const users=k=>Object.entries(d.route||{}).filter(([,r])=>r.entry===k).map(([n])=>ident(n).name);
@@ -32,7 +32,7 @@ PAGES.accounts=async(p,el)=>{
  el.innerHTML=`<div class="panel card"><h2>Priority</h2><p class="sub">The order your accounts get used in. When an agent's account passes the limit you set, it moves to the next one with room. Drag to reorder.</p>
   <div class="pri-list">${pri.map(priRow).join('')||'<p class="hint">Nothing here yet. Add your accounts in the order you want them used.</p>'}</div>
   ${left.length?`<button class="ghost" data-menu="pri-add" style="margin-top:10px">${icon('plus',15)}Add to priority</button>`:''}</div>
- <div class="two" style="margin-top:16px"><div class="panel card"><h2>Switch automatically</h2><p class="sub">Checked every 5 minutes. ${pri.length?'Follows the priority list.':'Without a priority list, Claude agents move to the Claude account with the most room.'}</p>
+ <div class="two" style="margin-top:16px"><div class="panel card"><h2>Switch automatically</h2><p class="sub">Checked every 5 minutes. ${pri.length?'Follows the priority list.':'Without a priority list, each agent moves to another account of the same kind with the most room.'}</p>
   <label style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin:6px 0 14px">Switch when an account runs low ${toggle(d.auto.on,'Switch automatically','id="acAuto"')}</label>
   ${fieldRow('Switch at','Session or weekly use',`<select id="acTh">${[70,80,90,95].map(v=>`<option value="${v}" ${+d.auto.threshold===v?'selected':''}>${v}% used</option>`).join('')}</select>`)}
   ${(d.events||[]).length?`<h3 style="font-size:13.5px;margin:16px 0 6px">Recent switches</h3>${d.events.slice(0,6).map(e=>`<p class="hint" style="margin:2px 0">${esc(new Date(e.t).toLocaleString())} · ${esc(ident(e.profile).name)} → ${esc(byKey[e.to]?.name||byKey['claude:'+e.to]?.name||e.to)} · ${esc(e.why)}</p>`).join('')}`:''}</div>
@@ -73,7 +73,7 @@ ACT['gem-out']=async()=>{if(!await confirmBox('Sign Gemini out?','Agents that us
    personal plans): Gemini 4, Gemini Flash and Claude 5.5 on your Google plan. One Google sign-in, link and code. ---------- */
 {const base=PAGES.accounts;PAGES.accounts=async(p,el)=>{await base(p,el);let g;try{g=await UI('/ui/antigravity/status')}catch{return}if(!g.installed)return;
  const admin=S.me?.admin!==false;const box=document.createElement('div');box.className='panel card gem-card';box.style.marginTop='16px';
- box.innerHTML=`<div class="gem-top">${logoImg('antigravity.google','A')}<div class="txt"><h2 style="margin:0">Google AI Pro (Antigravity)</h2>
+ box.innerHTML=`<div class="gem-top">${logoImg('gemini.google.com','G')}<div class="txt"><h2 style="margin:0">Google AI Pro (Antigravity)</h2>
   <p class="sub" style="margin:4px 0 0">${g.signedIn?`Connected. ${g.models?.length?esc(plural(g.models.length,'model'))+' on your Google plan: '+esc(g.models.slice(0,4).join(', '))+(g.models.length>4?'…':'')+'.':''}`:'Use your Google AI Pro plan for Gemini 4, Gemini Flash and Claude 5.5 through Google’s official Antigravity tool, the same way Claude runs on your Claude plan. Sign in once with the Google account that has the plan.'}</p></div>
   ${admin?(g.signedIn?`<button class="ghost" data-act="agy-out">Sign out</button>`:`<button class="primary" data-act="agy-start">${icon('plug',15)}Connect</button>`):''}</div><div id="agyFlow"></div>`;
  el.append(box)}}

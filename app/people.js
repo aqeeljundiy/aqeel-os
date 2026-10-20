@@ -67,7 +67,7 @@ PAGES.people=async(p,el)=>{
 };
 const agentPicker=(id,taken=[])=>`<div id="${id}">${(Pages._agents||[]).filter(a=>!taken.includes(a)).map(a=>`<label class="pick"><input type="checkbox" value="${esc(a)}">${agentAva(a)}<span>${esc(ident(a).name)}</span><select style="width:auto">${Object.entries(LEVEL_LABEL).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></label>`).join('')||'<p class="hint">Every agent is already shared.</p>'}</div>`;
 const pickedAgents=id=>Object.fromEntries([...$$('#'+id+' .pick')].filter(l=>l.querySelector('input').checked).map(l=>[l.querySelector('input').value,l.querySelector('select').value]));
-// A new agent for a family member: own name, Claude plan, no terminal / files / computer use.
+// A new agent for a family member: own name, the main AI account, no terminal / files / computer use.
 async function makeSafeAgent(name){
  const slug=name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,40)||'family';
  let id=slug,n=2;while((Pages._agents||[]).includes(id))id=slug+'-'+n++;
@@ -79,7 +79,7 @@ async function makeSafeAgent(name){
 ACT['ppl-invite']=()=>{const d=drawer('Invite someone',`<label>Their name</label><input id="ivName" placeholder="Sarah"><label>Their email (optional)</label><input id="ivMail" type="email" placeholder="sarah@example.com"><p class="hint" style="margin:4px 0 0">We email them the invite link. You also get it to copy.</p>
   <label>Role</label><select id="ivRole">${Object.entries(Pages._ppl?.roles||{}).map(([k,ro])=>`<option value="${esc(k)}">${esc(ro.name)}: ${esc(roleSummary(ro))}</option>`).join('')}${S.me?.role==='owner'?'<option value="admin">Admin: can do everything</option>':''}</select>
   <div id="ivAgents"><label>Agents they can use</label>${agentPicker('ivPick')}
-  <label class="pick" style="margin-top:10px"><input type="checkbox" id="ivNew" checked><span><b>Also make them their own agent</b><br><small class="hint">Uses your Claude plan. No terminal, files or computer use.</small></span></label>
+  <label class="pick" style="margin-top:10px"><input type="checkbox" id="ivNew" checked><span><b>Also make them their own agent</b><br><small class="hint">Uses your main AI account. No terminal, files or computer use.</small></span></label>
   <input id="ivNewName" placeholder="Name for their agent, e.g. Sarah's assistant" style="margin-top:6px"></div>`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="ivGo">Create invite link</button>`);
  const sync=()=>{$('#ivAgents').hidden=$('#ivRole').value==='admin';$('#ivNewName').hidden=!$('#ivNew').checked};$('#ivRole').onchange=sync;$('#ivNew').onchange=sync;
  $('#ivName').oninput=e=>{const v=e.target.value.trim();$('#ivNewName').placeholder=v?v+"'s assistant":"Name for their agent"};

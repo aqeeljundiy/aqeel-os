@@ -1,5 +1,6 @@
 // Icon set (Lucide-style strokes), shared by every page.
 const ICONS={
+ crown:'<path d="M3 7l4.5 4L12 4l4.5 7L21 7l-2 12H5z"/>',
  chat:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
  zap:'<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>',
  puzzle:'<path d="M19.4 13.7a2.5 2.5 0 1 0 0-3.4V7a1 1 0 0 0-1-1h-3.3a2.5 2.5 0 1 0-3.4 0H8.4a1 1 0 0 0-1 1v3.3a2.5 2.5 0 1 1 0 3.4V17a1 1 0 0 0 1 1h3.3a2.5 2.5 0 1 1 3.4 0h3.3a1 1 0 0 0 1-1z"/>',
