@@ -52,6 +52,8 @@ async function connect(){const {base,token,replaced}=await chrome.storage.local.
   if(m.type==='replaced'){await chrome.storage.local.set({replaced:Date.now()});paintIcon();return}
   if(m.type==='unpaired'){await chrome.storage.local.remove('token');paintIcon();return}
   if(m.type==='frame'||m.type==='focus'){const L=m.session?S.lanes.get(String(m.session)):S.last;let r={};try{r=L?await (m.type==='frame'?frame(L):focus(L)):{none:true}}catch(err){r={error:String(err?.message||err)}}try{ws.send(JSON.stringify({type:'reply',id:m.id,...r}))}catch{}return}
+  // the person wrote again in that chat: a Stop they pressed there is over
+  if(m.type==='turn'){const L=S.lanes.get(String(m.session||''));if(L&&L.blockUntil){L.blockUntil=0;L.blockWhy='';save()}return}
   if(m.type!=='command')return;
   const L=lane(m.session,{chat:m.chat,agent:m.agent});S.last=L;
   const reply=r=>{if(L.inflight?.id===m.id)L.inflight=null;try{ws.send(JSON.stringify({type:'result',id:m.id,...r}))}catch{}};
@@ -72,14 +74,17 @@ async function connect(){const {base,token,replaced}=await chrome.storage.local.
 // Stop, Take over and robot checks: the agent is told plainly, and nothing more runs in that chat until the person says so
 function blocked(L,action){
  if(L.mode==='control')return 'The person has taken over the browser. Stop using it now, and wait until they tell you in chat to continue.';
- if(Date.now()<L.blockUntil){L.blockUntil=Date.now()+20000;return L.blockWhy}
+ if(Date.now()<L.blockUntil)return L.blockWhy;
  if(L.mode==='need'&&action!=='browser_snapshot')return 'The person is still finishing the step you handed them in their browser. Wait until they tell you in chat that it is done.';
  return null}
 function cutInflight(L,error){const j=L.inflight;if(!j||j.done)return;j.done=true;j.reply({ok:false,error})}
+// a Stop holds until the person's next message in that chat (aqeelOS sends "turn"); the long limit only keeps a
+// missed message from locking a chat for good
+const STOP_HOLD=30*60e3;
 const STOPPED='The person pressed Stop in their browser. Stop this task now: do not use the browser again in this turn. Tell them in one or two lines what you had done.';
 chrome.runtime.onMessage.addListener((m,sender,reply)=>{
  if(m&&m.aq){const L=laneOfTab(sender.tab?.id);if(!L)return;
-  if(m.aq==='stop'){L.blockUntil=Date.now()+20000;L.blockWhy=STOPPED;cutInflight(L,STOPPED);setMode(L,'idle-soon','Stopped. '+who(L)+' won’t use the browser until you ask again.')}
+  if(m.aq==='stop'){L.blockUntil=Date.now()+STOP_HOLD;L.blockWhy=STOPPED;cutInflight(L,STOPPED);setMode(L,'idle-soon','Stopped. '+who(L)+' won’t use the browser until you ask again.')}
   if(m.aq==='takeover'){cutInflight(L,'The person has taken over the browser. Stop using it now, and wait until they tell you in chat to continue.');setMode(L,'control','You’re in control. '+who(L)+' waits until you hand back.')}
   if(m.aq==='handback'||m.aq==='continue'){L.blockUntil=0;setMode(L,'idle-soon','Handed back. Tell '+who(L)+' in chat to carry on.')}
   if(m.aq==='dismiss')setMode(L,'idle');

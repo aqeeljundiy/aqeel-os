@@ -80,8 +80,11 @@ export function createLocalBrowser({DATA,GATE,API_KEY,EXT_DIR,NAMES={},PUBLIC_UR
  const linked=session=>lanes.has(session);
  // the chat's name changed (renamed, or titled after its first reply): the tab group follows on the next step
  const retitle=(session,title)=>{const l=lanes.get(session);if(l&&title)l.title=String(title).slice(0,80)};
+ // the person sent a new message in this chat: a Stop pressed in their browser holds until then, so it is lifted
+ // (the sender's browser too, when aqeelOS restarted and no longer knows the chat's link)
+ const turn=(session,user)=>{const s=String(session||'');if(!s)return;const l=lanes.get(s);const w=conns.get(l?.user||user);if(w)w.send(JSON.stringify({type:'turn',session:s}))};
  const zip=()=>zipDir(EXT_DIR,'aqeelos-browser',[['config.json',JSON.stringify({base:PUBLIC_URL})]]);
  // the extension version in this aqeelOS, and the one the person's browser runs
  const latest=async()=>{try{return JSON.parse(await readFile(path.join(EXT_DIR,'manifest.json'),'utf8')).version}catch{return ''}};
  const version=user=>conns.get(user)?.version||'';
- return {pair,upgrade,link,unlink,linked,connected,zip,ask,latest,version,retitle}}
+ return {pair,upgrade,link,unlink,linked,connected,zip,ask,latest,version,retitle,turn}}
