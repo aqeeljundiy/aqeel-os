@@ -69,6 +69,11 @@ export function createUsers(DATA,mail){
  const home=u=>path.join(PEOPLE_DIR,u.id);
  const eff=u=>{const x=byId(u.id)||u;const role=x.roleId&&db.roles[x.roleId];return role?{caps:role.caps||[],models:role.models||null,limit:role.limit||null,maxAgents:role.maxAgents??5,role:x.roleId}:{caps:x.caps||[],models:x.models||null,limit:x.limit||null,maxAgents:5,role:'custom'}};
  const can=(u,cap)=>isAdmin(u)||eff(u).caps.includes(cap);
+ // An agent's owner manages its schedules, skills and connected apps whatever their role; the role decides what they
+ // may do on agents others share with them, and everything beyond (making agents, models, tools, usage)
+ const OWNER_CAPS=['schedules','skills','mcp'];
+ const canOn=(u,cap,agent)=>can(u,cap)||OWNER_CAPS.includes(cap)&&level(u,agent)==='owner';
+ const ownsAny=u=>Object.keys({...db.agentOwners,...db.shares}).some(a=>level(u,a)==='owner');
  const ownCount=u=>Object.values(db.agentOwners).filter(id=>id===u.id).length;
  // a deleted agent no longer counts against its owner's allowance; who owned it and who had it come back if it is restored
  async function dropAgent(a){await load();if(!(a in db.agentOwners)&&!db.shares[a])return;(db.goneAgents??={})[a]={owner:db.agentOwners[a],shares:db.shares[a]};delete db.agentOwners[a];delete db.shares[a];await save()}
@@ -115,9 +120,11 @@ export function createUsers(DATA,mail){
    return no()}
   if(p.startsWith('/hapi/')){
    const rest=p.slice(5),G=method==='GET';
-   const edit=(cap,msg)=>!atLeast(u,a,'edit')?no('You can chat with this agent but not change it.'):cap&&!can(u,cap)?no(msg||'You are not allowed to do that yet. Ask the owner.'):null;
+   const edit=(cap,msg)=>!atLeast(u,a,'edit')?no('You can chat with this agent but not change it.'):cap&&!canOn(u,cap,a)?no(msg||'You are not allowed to do that yet. Ask the owner.'):null;
    // every schedule list across agents: allowed, then filtered to the agents this person can edit
-   if(G&&rest==='/cron/jobs'&&query.get('profile')==='all')return can(u,'schedules')?null:no();
+   if(G&&rest==='/cron/jobs'&&query.get('profile')==='all')return can(u,'schedules')||ownsAny(u)?null:no();
+   // the agent list is trimmed to theirs (filter), whichever agent the page asks it through
+   if(G&&rest==='/profiles')return null;
    if(query.has('profile')&&!atLeast(u,a,'chat'))return no('That agent is not shared with you.');
    if(G&&/^\/(status|profiles|sessions|sessions\/search)$/.test(rest))return null;
    const s=/^\/sessions\/([^/]+)(\/.*)?$/.exec(rest);
@@ -159,7 +166,7 @@ export function createUsers(DATA,mail){
   const keep=id=>mine(u,id);   // chats are private per person; untracked (older, Telegram…) chats are the owner's
   if(/^\/hapi\/sessions$/.test(p)&&Array.isArray(data.sessions)){const s=data.sessions.filter(x=>keep(x.id));return {...data,sessions:s,total:s.length}}
   if(/^\/hapi\/sessions\/search$/.test(p)&&Array.isArray(data.results))return {...data,results:data.results.filter(x=>keep(x.session_id||x.id))};
-  if(/^\/hapi\/cron\/jobs$/.test(p)&&!isAdmin(u)){const jobs=Array.isArray(data)?data:data.jobs;if(Array.isArray(jobs)){const f=jobs.filter(j=>atLeast(u,j.profile||'default','edit'));return Array.isArray(data)?f:{...data,jobs:f}}}
+  if(/^\/hapi\/cron\/jobs$/.test(p)&&!isAdmin(u)){const jobs=Array.isArray(data)?data:data.jobs;if(Array.isArray(jobs)){const f=jobs.filter(j=>atLeast(u,j.profile||'default','edit')&&canOn(u,'schedules',j.profile||'default'));return Array.isArray(data)?f:{...data,jobs:f}}}
   // the hidden copies behind extra connections (WhatsApp 2…) are not agents of their own
   if(/^\/hapi\/profiles$/.test(p)&&Array.isArray(data.profiles))data={...data,profiles:data.profiles.filter(x=>!String(x.name).includes('--'))};
   if(/^\/hapi\/profiles$/.test(p)&&Array.isArray(data.profiles)&&!isAdmin(u))return {...data,profiles:data.profiles.filter(x=>level(u,x.name))};
