@@ -72,9 +72,9 @@ export function createSchedules({DATA,DASH,TOKEN,HERMES_HOME,listAgents,python,r
  // and a fresh one is made behind the scenes, so the page never waits for it again
  let infoCache=null,infoNext=null;
  const infoFresh=()=>infoNext??=(async()=>{const agents=await listAgents();const all=await jobs().catch(()=>[]);const [r,n]=await Promise.all([runs(agents),names(agents,all)]);infoCache={t:Date.now(),runs:r,names:n}})().finally(()=>{infoNext=null});
- // right after a start there is no last answer: up to a second is waited for, then the page gets one without runs
+ // right after a start there is no last answer: a moment is waited for, then the page gets one without runs
  // (partial) and asks again shortly
- async function info(){await load();if(!infoCache){await Promise.race([infoFresh().catch(()=>{}),new Promise(r=>setTimeout(r,1000))]);if(!infoCache)return {...meta(),runs:{},names:{},partial:true}}
+ async function info(){await load();if(!infoCache){await Promise.race([infoFresh().catch(()=>{}),new Promise(r=>setTimeout(r,400))]);if(!infoCache)return {...meta(),runs:{},names:{},partial:true}}
   else if(Date.now()-infoCache.t>60000)infoFresh().catch(()=>{});return {...meta(),runs:{...infoCache.runs},names:{...infoCache.names}}}
  const meta=()=>({meta:JSON.parse(JSON.stringify(db.jobs)),folds:{...db.folds},folders:[...(db.folders||[])],order:[...(db.order||[])],colors:{...(db.colors||{})}})
  async function setMeta(profile,id,b){await load();const k=key(profile,id);const m=db.jobs[k]??={};
