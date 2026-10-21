@@ -15,8 +15,8 @@ ACT['all-sk']=b=>allChipFlip(b,'/skills/toggle',on=>({name:b.dataset.name,enable
 ACT['all-ts']=b=>allChipFlip(b,'/tools/toolsets/'+encodeURIComponent(b.dataset.name),on=>({enabled:on}),b.dataset.name);
 
 Object.assign(ALLVIEW,{
- async skills(p,el){const tab=S.tab.skills||'Installed';setActions('');
-  if(tab==='Find more skills'){await PAGES._skillsOne(p,el);setActions('');el.insertAdjacentHTML('afterbegin',`<p class="hint" style="margin:0 0 12px">Installs go to ${esc(ident().name)}. Pick an agent under Showing to install on another.</p>`);return}
+ async skills(p,el){const tab=S.tab.skills||'Installed';const own=()=>setActions(`<button data-act="sk-update">${icon('refresh',16)}Update all</button><button class="primary" data-act="sk-new">${icon('plus',16)}New skill</button>`);own();
+  if(tab==='Find more skills'){await PAGES._skillsOne(p,el);own();el.insertAdjacentHTML('afterbegin',`<p class="hint" style="margin:0 0 12px">Installs go to ${esc(ident().name)}. Pick an agent under Showing to install on another.</p>`);return}
   if(tab==='Tool groups'){const per=await perAgent(a=>H(prof('/tools/toolsets',a)));const m=new Map();
    for(const {a,d} of per)for(const t of d||[]){const x=m.get(t.name)||{...t,on:[],all:[]};x.all.push(a);if(t.enabled)x.on.push(a);m.set(t.name,x)}
    const rows=[...m.values()].map((t,i)=>allRow(i,`<span class="ic">${icon('layers',17)}</span>`,esc(t.label||t.name),esc(t.description||''),null,`<span class="aam-ags">${t.all.map(a=>allChip('all-ts',a,t.name,t.on.includes(a))).join('')}</span>`));
@@ -37,16 +37,18 @@ Object.assign(ALLVIEW,{
   const n=t=>String(t||'').split(/\n\s*§\s*\n|^\s*§\s*$/m).map(x=>x.trim()).filter(Boolean).length;
   el.innerHTML=`<div class="all-view">${per.map(({a,mem,user},i)=>`<div class="panel card" ${st(i)}><h2 class="h-row"><span class="aam-h">${Access.av({id:a,name:ident(a).name},24)}${esc(ident(a).name)}</span>${allOpen(a,'Open')}</h2><p class="sub">${mem?.err||user?.err?'Couldn’t load some of its notes':n(mem)+' notes about its work · '+n(user)+' about you'}</p>
    <details class="aam-more"><summary>What it has learned</summary>${memCards(mem)}</details><details class="aam-more"><summary>What it knows about you</summary>${memCards(user)}</details></div>`).join('')}</div>`},
- async files(p,el){setActions('');const list=await viewAgents();
+ async files(p,el){setActions(`<button data-act="f-mkdir">${icon('folder',16)}New folder</button><button class="primary" data-act="f-upload">${icon('upload',16)}Upload</button>`);const list=await viewAgents();
   const per=await Promise.all(list.map(async a=>{const path='/home/claude/workspaces/'+a;return {a,path,d:await H('/files'+qp({path})).catch(()=>null)}}));
   const rows=per.map(({a,path,d},i)=>{const items=(d?.entries||[]).filter(f=>!f.name.startsWith('.'));
    return `<div class="row" ${st(i)}><div class="main-c">${Access.av({id:a,name:ident(a).name},34)}<div class="txt"><b>${esc(ident(a).name)}’s folder</b><span>${d?items.length+' item'+(items.length===1?'':'s')+(items.length?' · '+items.slice(0,4).map(f=>esc(f.name)).join(', ')+(items.length>4?'…':''):''):'Not made yet'}</span><span class="acc-from" style="font-family:var(--mono)">${esc(path.replace('/home/claude','~'))}</span></div></div><div class="act">${allOpen(a)}</div></div>`});
-  el.innerHTML=`<div class="all-view">${allSection('Each agent’s own folder',rows,'No agents yet.')}</div>`},
- async logs(p,el){setActions('');const per=await perAgent(a=>H(prof('/logs'+qp({file:'agent',lines:80}),a)));
+  el.innerHTML=`<div class="all-view">${allSection('Each agent’s own folder',rows,'No agents yet.')}</div><p class="hint" style="margin:14px 0 0">New folder and Upload work in ${esc(String(S.filePath||FILE_HOME).replace('/home/claude','~'))}. Open an agent’s folder to work in it.</p>`},
+ async logs(p,el){setActions('');const o=S.logs||(S.logs={file:'agent',level:'ALL',component:'all',lines:200,live:true});const map={Agent:'agent',Channels:'gateway',Errors:'errors'};
+  const per=await perAgent(a=>H(prof('/logs'+qp({file:o.file,lines:80}),a)));
   const lines=per.flatMap(({a,d})=>(d?.lines||[]).map(l=>({a,l:l.replace(/\n$/,'')}))).sort((x,y)=>x.l.slice(0,23)<y.l.slice(0,23)?-1:1).slice(-400);
-  el.innerHTML=`<div class="all-view"><p class="hint" style="margin:0 0 12px">The latest lines from every agent, oldest first. Pick one agent under Showing for its channels and errors, filters and live updates.</p><div class="log" id="logBox">${lines.map(({a,l})=>{const e='<b class="aam-who">'+esc(ident(a).name)+'</b> '+esc(l);return / (ERROR|CRITICAL) /.test(l)?`<span class="e">${e}</span>`:/ WARNING /.test(l)?`<span class="w">${e}</span>`:e}).join('\n')||'Nothing logged yet.'}</div></div>`;
-  const box=$('#logBox');if(box)box.scrollTop=box.scrollHeight},
- async settings(p,el){setActions('');const per=await perAgent(a=>H(prof('/config',a)));
+  el.innerHTML=`<div class="all-view"><div class="toolbar">${tabs('logfile',Object.keys(map),Object.keys(map).find(k=>map[k]===o.file))}</div><p class="hint" style="margin:0 0 12px">The latest lines from every agent, oldest first. Pick one agent under Showing for filters and live updates.</p><div class="log" id="logBox">${lines.map(({a,l})=>{const e='<b class="aam-who">'+esc(ident(a).name)+'</b> '+esc(l);return / (ERROR|CRITICAL) /.test(l)?`<span class="e">${e}</span>`:/ WARNING /.test(l)?`<span class="w">${e}</span>`:e}).join('\n')||'Nothing logged yet.'}</div></div>`;
+  const box=$('#logBox');if(box)box.scrollTop=box.scrollHeight;placePills?.();
+  el.querySelector('[data-tabs=logfile]')?.addEventListener('click',e=>{const b=e.target.closest('[data-tab]');if(b&&map[b.dataset.tab]!==o.file){o.file=map[b.dataset.tab];ALLVIEW.logs(p,el).catch(er=>showError(el,er))}})},
+ async settings(p,el){setActions(`<button data-act="cfg-raw">Raw YAML</button><button data-act="cfg-import">${icon('upload',16)}Import</button><button data-act="cfg-export">${icon('download',16)}Export</button>`);const per=await perAgent(a=>H(prof('/config',a)));
   const g=(c,k)=>k.split('.').reduce((o,x)=>o==null?undefined:o[x],c);
   const rows=per.map(({a,d},i)=>{const own=g(d,'terminal.backend')==='ssh';const bits=[modelLabel(g(d,'model.default')||g(d,'model')||''),own?'Own Linux user':'Main box user',g(d,'approvals.mode')?'Approvals: '+pretty(g(d,'approvals.mode')):'',g(d,'timezone')||''].filter(Boolean);
    return `<div class="row" ${st(i)}><div class="main-c">${Access.av({id:a,name:ident(a).name},34)}<div class="txt"><b>${esc(ident(a).name)}</b><span>${d?bits.map(esc).join(' · '):'Its settings couldn’t be read'}</span></div></div><div class="act">${allOpen(a,'Change')}</div></div>`});

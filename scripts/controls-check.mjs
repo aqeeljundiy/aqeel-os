@@ -11,8 +11,8 @@ const FILE=path.join(path.dirname(new URL(import.meta.url).pathname),'controls-b
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function signIn(body){const r=await fetch(BASE+'/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});if(!r.ok)throw new Error('sign-in '+r.status);return (r.headers.get('set-cookie')||'').split(';')[0]}
 const api=(ck,p,o={})=>fetch(BASE+p,{...o,headers:{'x-hui':'1',cookie:ck,'content-type':'application/json',...(o.headers||{})}}).then(async r=>({s:r.status,j:await r.json().catch(()=>({}))}));
-// a throwaway team member on the test copy's own data (never the live one)
-async function makeMember(owner){const inv=await api(owner,'/ui/people/invite',{method:'POST',body:JSON.stringify({name:'Controls Check',role:'member',caps:[]})});if(!inv.j.code)throw new Error('invite: '+JSON.stringify(inv.j));
+// a throwaway team member with the usual team rights (the creator preset) on the test copy's own data (never the live one)
+async function makeMember(owner){const inv=await api(owner,'/ui/people/invite',{method:'POST',body:JSON.stringify({name:'Controls Check',role:'member',caps:['create','skills','mcp','schedules','models','tools','usage']})});if(!inv.j.code)throw new Error('invite: '+JSON.stringify(inv.j));
  const pw='cc-'+Math.random().toString(36).slice(2)+Math.random().toString(36).slice(2),username='controls-check-'+Date.now().toString(36);
  const r=await fetch(BASE+'/auth/accept',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({code:inv.j.code,name:'Controls Check',password:pw,username})});if(!r.ok)throw new Error('accept '+r.status);
  const ck=(r.headers.get('set-cookie')||'').split(';')[0];const me=await api(ck,'/ui/me');return {ck,id:me.j.id||me.j.user?.id}}
