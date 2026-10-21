@@ -627,6 +627,20 @@ function platformsCached(agent){const k=agent||'default';const c=platCache.get(k
 function platformsFresh(k){const old=platCache.get(k);
  const p=fetch(DASH.origin+'/api/messaging/platforms?profile='+encodeURIComponent(k),{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(async r=>{const v=await r.json();if(!r.ok)throw Object.assign(new Error(v.detail||'HTTP '+r.status),{status:r.status});await trueWhatsApp(k,v);await channelAccounts(k,v).catch(()=>{});platCache.set(k,{t:Date.now(),v});return v}).catch(e=>{if(old?.v)platCache.set(k,{t:Date.now()-10000,v:old.v});else platCache.delete(k);throw e});
  if(!old?.v)platCache.set(k,{p});return p}
+/* An agent's skills: the engine reads every skill folder on each ask (1 to 3 s, longer when several agents are asked
+   at once), and Skills asks every agent. The last answer is used while the skill folders and config.yaml are unchanged
+   (a new, removed or switched skill shows at once); after a minute it is refreshed behind the scenes for edited text. */
+const skCache=new Map();
+async function skillsStamp(a){const home=a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),dir=path.join(home,'skills');
+ const t=async f=>(await stat(f).catch(()=>null))?.mtimeMs||0;const subs=await readdir(dir,{withFileTypes:true}).catch(()=>[]);
+ return [await t(path.join(home,'config.yaml')),await t(dir),...await Promise.all(subs.filter(d=>d.isDirectory()||d.isSymbolicLink()).map(d=>t(path.join(dir,d.name))))].join(',')}
+async function skillsCached(a){const c=skCache.get(a),stamp=await skillsStamp(a);
+ if(c?.v&&c.stamp===stamp&&Date.now()-c.t<600000){if(Date.now()-c.t>60000&&!c.r){c.r=1;skillsFresh(a,stamp).catch(()=>{})}return c.v}
+ return skillsFresh(a,stamp)}
+function skillsFresh(a,stamp){const c=skCache.get(a);if(c?.p&&c.stamp===stamp)return c.p;
+ const p=fetch(DASH.origin+'/api/skills?profile='+encodeURIComponent(a),{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(async r=>{const v=await r.json();if(!r.ok)throw Object.assign(new Error(v.detail||'HTTP '+r.status),{status:r.status});
+  if(skCache.get(a)?.p===p)skCache.set(a,{t:Date.now(),v,stamp});return v}).catch(e=>{const n=skCache.get(a);if(n?.p===p){if(n.v)skCache.set(a,{t:n.t,v:n.v,stamp:n.stamp});else skCache.delete(a)}throw e});
+ skCache.set(a,{...(c?.stamp===stamp?c:{}),p,stamp});return p}
 /* A WhatsApp just paired: stop the pairing connection first (two connections on one login make WhatsApp end
    it), switch the channel on with the engine's own save, and restart the engine the proper way only if the
    running engine cannot pick it up by itself (extra agents are picked up live; the main agent needs a restart). */
@@ -740,6 +754,8 @@ async function hermesCall(req,res,u,url){
   if(e!==null){if(!/^API_SERVER_KEY=/m.test(e)&&API_KEY){await writeFile(envF,(e&&!e.endsWith('\n')?e+'\n':e)+'API_SERVER_KEY='+API_KEY+'\n',{mode:0o600});console.log('added the missing gateway key for',agent);await new Promise(r=>setTimeout(r,1500))}keyOk.add(agent)}}
  if(p==='/hapi/messaging/platforms'&&req.method==='GET'){try{return send(res,200,await platformsCached(q.get('profile')||'default'))}catch(e){return send(res,e.status||502,{error:e.message})}}
  if(p.startsWith('/hapi/messaging/')&&req.method!=='GET')platCache.clear();
+ if(p==='/hapi/skills'&&req.method==='GET'&&/^[\w-]+$/.test(agent||'default')){try{return send(res,200,await skillsCached(agent||'default'))}catch(e){return send(res,e.status||502,{error:e.message})}}
+ if(/^\/hapi\/(skills|config)/.test(p)&&req.method!=='GET')skCache.clear();
  if(/^\/hapi\/messaging\/whatsapp\/onboarding/.test(p)&&req.method==='POST')waLinking.set(q.get('profile')||'default',Date.now());   // someone is linking: the WhatsApp guard stays away
  {const am=/^\/hapi\/messaging\/whatsapp\/onboarding\/([^/]+)\/apply$/.exec(p);
   if(am&&req.method==='POST'){const ag=q.get('profile')||'default';let b={};try{b=JSON.parse((await readRaw(req,65536)).toString('utf8')||'{}')}catch{}
@@ -1520,5 +1536,7 @@ server.on('upgrade',(req,sock,headBuf)=>{
   return screens.upgrade(req,sock,headBuf,ads?null:agent,users.isAdmin(u))}).catch(()=>sock.destroy());
 });
 server.listen(PORT,HOST,()=>console.log(`aqeelOS on http://${HOST}:${PORT} → dashboard ${DASH.origin}, gateway ${GATE.origin}`));
+// Skills and Schedules show at once from the first visit: their slow engine answers are asked for once, one agent at a time
+setTimeout(async()=>{schedules.info().catch(()=>{});try{for(const a of await listAgents())await skillsCached(a).catch(()=>{})}catch{}},3000).unref();
 
 process.on('unhandledRejection',e=>console.error('unhandled:',e?.stack||e));process.on('uncaughtException',e=>console.error('uncaught:',e?.stack||e));
