@@ -92,6 +92,32 @@ body{overflow:hidden}
 .toolbar .search{position:relative;flex:1;max-width:320px}
 .toolbar .search input{padding-left:38px}
 .toolbar .search svg{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--muted)}
+.toolbar .search:has(.s-clear) input{padding-right:40px}
+.toolbar .search .s-clear{position:absolute;right:4px;top:50%;transform:translateY(-50%) scale(.85);width:34px;min-height:34px;height:34px;padding:0;opacity:0;pointer-events:none;transition:opacity var(--t-fast) var(--ease),transform var(--t-fast) var(--ease)}
+.toolbar .search.has-q .s-clear{opacity:1;pointer-events:auto;transform:translateY(-50%) scale(1)}
+.toolbar .search .s-clear svg{position:static;transform:none}
+/* skills hub, tool groups, plugin and app details: quiet extras under the main text */
+.hub-src{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:-6px 0 14px}.hub-src:empty{display:none}.hub-src>.hint{flex-basis:100%}
+.hub-src-l{font-size:12px;color:var(--muted);margin-right:2px}
+.hub-src .chip,.hub-tags .chip,.ts-chips .chip,.hub-pv-head .chip,.cap-chips .chip{font-size:11.5px;padding:1px 8px}
+.row .txt .hub-tags,.hub-tags,.ts-chips,.cap-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.row .txt .hub-id,.hub-id{display:block;font-size:11.5px;color:var(--muted);overflow-wrap:anywhere;margin-top:2px}
+.hub-meta{margin:0 0 8px}.hub-warn{margin:0 0 10px;color:var(--warn)}.hub-warn svg{vertical-align:-2px}
+.hub-pv-head,.hub-scan-head{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
+.hub-files{display:flex;flex-direction:column;gap:2px;padding:4px 0}.hub-files code{font-size:12px;overflow-wrap:anywhere}
+.hub-finds{margin-top:12px}.hub-finds .txt b .chip{margin-right:4px}
+.ts-tools>summary{font-size:12.5px;padding:2px 0}.ts-tools{margin:2px 0 4px}
+.cmd-copy{display:flex;gap:8px;align-items:flex-start;margin:6px 0 0}.cmd-copy code{flex:1;min-width:0;font-size:12px;background:var(--soft-2);border:1px solid var(--border);border-radius:var(--r-sm);padding:6px 10px;overflow-wrap:anywhere;white-space:pre-wrap}
+.cmd-copy button{flex:none}
+.tile .t-meta{font-size:12px;color:var(--muted);margin:2px 0 0;line-height:1.45;overflow-wrap:anywhere}.tile .t-meta a{color:inherit;text-decoration:underline;text-underline-offset:2px}
+.tile .t-warn{font-size:12.5px;color:var(--bad);margin:4px 0 0;line-height:1.45}
+.tile details.aam-more{margin-top:2px}.tile details.aam-more>summary{font-size:12.5px;padding:2px 0}
+.setup-step{border-top:1px solid var(--border);padding:10px 0}.setup-step:first-child{border-top:0}
+.mem-secret{display:flex;gap:6px;align-items:center}.mem-secret input{flex:1;min-width:0}.mem-secret button{flex:none;width:40px;min-height:40px}
+.mem-f{margin-bottom:4px}.mem-f[hidden]{display:none}.mem-warn{margin:0 0 10px}.mem-ctx{border-top:1px solid var(--border);margin:6px -12px 0;padding:12px 12px 0}.mem-deps{margin-top:14px}.mem-res{margin-top:12px}
+.mem-prov .row .txt b .chip,.mem-deps summary .chip{font-size:11px;padding:1px 7px;margin-left:4px;font-weight:500;vertical-align:1px}.aam-mem{margin-top:16px}
+.pl-url{margin-bottom:16px}.pl-url-row{display:flex;gap:8px;margin:0 0 10px}.pl-url-row input{flex:1;min-width:0}.pl-url-row button{flex:none}
+.row[data-pl] .txt b .chip,.hub-finds .txt b .chip{font-size:11px;padding:1px 7px;vertical-align:1px;margin-left:4px;font-weight:500}
 .list{padding:6px 0;overflow:hidden}
 .row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:16px;padding:14px 22px;border-top:1px solid var(--border);animation:rise var(--t-med) var(--ease) both}
 .row:first-child{border-top:0}
