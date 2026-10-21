@@ -29,7 +29,7 @@ export function createBottlenecks({DATA,dash,listAgents,names}){
   sched={at:Date.now(),items:out};return out}
  // the list for one person: system items (admins) and reports from the agents they may use
  async function list({admin,mayUse,signins,invites}){await load();const now=Date.now();const hid=k=>(db.snooze[k]||0)>now||db.fixed[k];const out=[];
-  if(admin){for(const s of signins||[]){const k='signin|'+s.agent+'|'+s.name;if(!hid(k))out.push({id:k,kind:'signin',agent:s.agent,agentName:s.agentName,title:(s.label||s.name)+' needs signing in',text:s.agentName+' can’t '+(s.does||'use it')+' until then.',purpose:s.origin?.purpose||'',from:s.origin?.from||null,signin:s})}
+  if(admin){for(const s of signins||[]){const k='signin|'+s.agent+'|'+s.name;if(!hid(k))out.push({id:k,kind:'signin',agent:s.agent,agentName:s.agentName,title:(s.account?.workspace?(s.app||s.label||s.name)+' ('+s.account.workspace+')':(s.label||s.name))+' needs signing in',text:s.agentName+' can’t '+(s.does||'use it')+' until then.',purpose:s.origin?.purpose||'',from:s.origin?.from||null,signin:s})}
    for(const j of await failedSchedules()){const k='sched|'+j.agent+'|'+j.id+'|'+j.at;if(!hid(k))out.push({id:k,kind:'schedule',agent:j.agent,agentName:names(j.agent),title:'A schedule failed: '+j.name,text:(j.error||j.status).slice(0,200),job:j})}
    for(const i of invites||[]){const k='invite|'+i.code;if(!hid(k))out.push({id:k,kind:'invite',title:'The invite for '+(i.name||'someone')+' expired',text:'They can’t join with the old link.',invite:i})}
    for(const e of db.events){const k='event|'+e.id;if(!hid(k))out.push({id:k,kind:e.kind,title:e.text,text:e.detail||''})}}

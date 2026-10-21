@@ -312,7 +312,11 @@ async function checkSignins(){const h={'x-hermes-session-token':DASH_TOKEN};cons
    else{try{const r=await fetch(DASH.origin+'/api/mcp/servers/'+encodeURIComponent(s.name)+'/test?profile='+encodeURIComponent(a),{method:'POST',headers:h,signal:AbortSignal.timeout(70000)});const j=await r.json();
     if(j.ok===false&&/oauth|unauthori[sz]ed|401|invalid_grant|invalid_token|expired|login/i.test(String(j.error||'')))why='the sign-in ran out'}catch{}}
    const origin=why?await whyOf.app(a,s.name,s.url):null;if(why==='not signed in'&&origin?.by==='setup'){signinsDue.delete(key);continue}
-   if(why){if(!signinsDue.has(key))console.log('sign-in needed:',s.name,'on',a,'('+why+')');signinsDue.set(key,{agent:a,agentName:NAMES[a]||a,name:s.name,why,origin,...appInfo(s.name,s.url),last:(await stat(tok).catch(()=>null))?.mtimeMs||0})}else signinsDue.delete(key)}}
+   // which account it is (kept while the sign-in works), and the agent's other sign-ins to the same app, so a notice says WHICH Slack
+   if(!why){await whyOf.learnAccount(a,s.name,s.url,tok).catch(()=>{});signinsDue.delete(key);continue}
+   const host=u=>String(u||'').replace(/^https?:\/\//,'').split('/')[0],siblings=[];
+   for(const o of list)if(o.name!==s.name&&host(o.url)&&host(o.url)===host(s.url))siblings.push({name:o.name,account:await whyOf.accountOf(a,o.name)});
+   if(!signinsDue.has(key))console.log('sign-in needed:',s.name,'on',a,'('+why+')');signinsDue.set(key,{agent:a,agentName:NAMES[a]||a,name:s.name,why,origin,account:await whyOf.accountOf(a,s.name),siblings,...appInfo(s.name,s.url),last:(await stat(tok).catch(()=>null))?.mtimeMs||0})}}
  for(const k of [...signinsDue.keys()])if(!seen.has(k))signinsDue.delete(k);signinsAt=Date.now()}
 // cheap: only looks at the token files (the full check above also tests each app, every 3 hours)
 async function freshSignins(){for(const [k,x] of [...signinsDue]){const tok=path.join(x.agent==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',x.agent),'mcp-tokens',x.name+'.json');const st=await stat(tok).catch(()=>null);
@@ -1347,7 +1351,9 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/mcp/signins'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,200,{items:[]});await freshSignins();
     // for each, the other agents that are signed in to the same app (their sign-in can be used instead)
     const l=await access.list('mcp').catch(()=>({items:[]}));
-    return send(res,200,{checked:signinsAt,items:[...signinsDue.values()].map(x=>{const it=l.items.find(y=>y.id===x.name);return {...x,others:(it?.users||[]).filter(u2=>u2.signed&&u2.id!==x.agent).map(u2=>({id:u2.id,name:u2.name}))}})})}
+    return send(res,200,{checked:signinsAt,items:await Promise.all([...signinsDue.values()].map(async x=>{const it=l.items.find(y=>y.id===x.name);
+     const siblings=await Promise.all((x.siblings||[]).map(async s=>({...s,account:await whyOf.accountOf(x.agent,s.name)})));
+     return {...x,account:x.account||await whyOf.accountOf(x.agent,x.name),siblings,others:(it?.users||[]).filter(u2=>u2.signed&&u2.id!==x.agent).map(u2=>({id:u2.id,name:u2.name}))}}))})}
    // "Use on other agents": a connected app (its settings and its sign-in) copied to other agents, so a second
    // agent can use n8n, Notion… without signing in again. The agents restart once nobody is mid-reply.
    if(p==='/ui/mcp/share'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can share connected apps between agents.'});
