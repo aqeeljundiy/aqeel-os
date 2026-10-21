@@ -68,8 +68,15 @@ export function createSchedules({DATA,DASH,TOKEN,HERMES_HOME,listAgents,python,r
     if(ph){const n=String(ph).replace(/\D/g,'');out[j.deliver]=byPhone['whatsapp:'+n]||'+'+n;break}}}
   return out}
 
- let infoCache=null;
- async function info(){await load();if(!infoCache||Date.now()-infoCache.t>60000){const agents=await listAgents();const all=await jobs().catch(()=>[]);const [r,n]=await Promise.all([runs(agents),names(agents,all)]);infoCache={t:Date.now(),runs:r,names:n}}return {meta:JSON.parse(JSON.stringify(db.jobs)),folds:{...db.folds},folders:[...(db.folders||[])],order:[...(db.order||[])],colors:{...(db.colors||{})},runs:{...infoCache.runs},names:{...infoCache.names}}}
+ // runs and names take a second or more (every agent's cron sessions): after a minute the last answer is still used
+ // and a fresh one is made behind the scenes, so the page never waits for it again
+ let infoCache=null,infoNext=null;
+ const infoFresh=()=>infoNext??=(async()=>{const agents=await listAgents();const all=await jobs().catch(()=>[]);const [r,n]=await Promise.all([runs(agents),names(agents,all)]);infoCache={t:Date.now(),runs:r,names:n}})().finally(()=>{infoNext=null});
+ // right after a start there is no last answer: up to a second is waited for, then the page gets one without runs
+ // (partial) and asks again shortly
+ async function info(){await load();if(!infoCache){await Promise.race([infoFresh().catch(()=>{}),new Promise(r=>setTimeout(r,1000))]);if(!infoCache)return {...meta(),runs:{},names:{},partial:true}}
+  else if(Date.now()-infoCache.t>60000)infoFresh().catch(()=>{});return {...meta(),runs:{...infoCache.runs},names:{...infoCache.names}}}
+ const meta=()=>({meta:JSON.parse(JSON.stringify(db.jobs)),folds:{...db.folds},folders:[...(db.folders||[])],order:[...(db.order||[])],colors:{...(db.colors||{})}})
  async function setMeta(profile,id,b){await load();const k=key(profile,id);const m=db.jobs[k]??={};
   if(b.folder!==undefined){m.folder=String(b.folder||'').replace(/[\[\]]/g,'').trim().slice(0,30)||'General';m.folderAuto=false}
   if(b.summary!==undefined){m.summary=String(b.summary||'').slice(0,240);m.summaryManual=true}
