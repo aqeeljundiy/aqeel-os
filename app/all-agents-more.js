@@ -41,7 +41,10 @@ Object.assign(ALLVIEW,{
   const per=await Promise.all(list.map(async a=>({a,mem:await read(home(a)+'MEMORY.md'),user:await read(home(a)+'USER.md')})));
   const n=t=>String(t||'').split(/\n\s*§\s*\n|^\s*§\s*$/m).map(x=>x.trim()).filter(Boolean).length;
   el.innerHTML=`<div class="all-view">${per.map(({a,mem,user},i)=>`<div class="panel card" ${st(i)}><h2 class="h-row"><span class="aam-h">${Access.av({id:a,name:ident(a).name},24)}${esc(ident(a).name)}</span>${allOpen(a,'Open')}</h2><p class="sub">${mem?.err||user?.err?'Couldn’t load some of its notes':n(mem)+' notes about its work · '+n(user)+' about you'}</p>
-   <details class="aam-more"><summary>What it has learned</summary>${memCards(mem)}</details><details class="aam-more"><summary>What it knows about you</summary>${memCards(user)}</details></div>`).join('')}</div>`},
+   <details class="aam-more"><summary>What it has learned</summary>${memCards(mem)}</details><details class="aam-more"><summary>What it knows about you</summary>${memCards(user)}</details></div>`).join('')}</div>`;
+  // the memory service and context engine of the agent you chat with (an owner's setting, so only for them)
+  const me=agentProfile()||'default';const [m,hub]=await Promise.all([H('/memory').catch(()=>null),memHub()]);if(!m||!el.isConnected)return;Pages._memInfo=m.providers||[];
+  const box=document.createElement('div');box.className='aam-mem';box.innerHTML=memProvPanel(m,hub,ident(me).name)+`<p class="hint" style="margin:8px 0 0">For ${esc(ident(me).name)}, the agent you chat with. Pick an agent under Showing for another.</p>`;el.querySelector('.all-view')?.append(box);bindMemProv(box)},
  async files(p,el){setActions(`<button data-act="f-mkdir">${icon('folder',16)}New folder</button><button class="primary" data-act="f-upload">${icon('upload',16)}Upload</button>`);const list=await viewAgents();
   const per=await Promise.all(list.map(async a=>{const path='/home/claude/workspaces/'+a;return {a,path,d:await H('/files'+qp({path})).catch(()=>null)}}));
   const rows=per.map(({a,path,d},i)=>{const items=(d?.entries||[]).filter(f=>!f.name.startsWith('.'));
