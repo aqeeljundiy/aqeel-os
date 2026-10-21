@@ -625,7 +625,7 @@ body.dragging .screen-float{transition:none}
 .kbulk{position:absolute;left:50%;bottom:0;width:max-content;max-width:100%;display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:12px 16px;border-radius:20px;background:var(--surface);border:1px solid var(--border);box-shadow:0 18px 44px -20px rgba(11,12,16,.45);transform:translateX(-50%);animation:kbup var(--t-med) var(--ease) both;transition:opacity .2s,transform .2s}
 @keyframes kbup{from{opacity:0;transform:translate(-50%,14px)}to{opacity:1;transform:translate(-50%,0)}}
 .kbulk.closing{opacity:0;transform:translate(-50%,12px)}.kdragging .kbulk{opacity:0;pointer-events:none}
-.kbulk-n{font-size:14px;font-weight:600}.kbulk-acts{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.kbulk .sel-btn{min-height:32px}
+.kbulk-more{display:none}.kbulk-n{font-size:14px;font-weight:600}.kbulk-acts{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.kbulk .sel-btn{min-height:32px}
 /* Task board: the open task */
 .kd-chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}.kd-chips .kid{border:1px solid var(--border);border-radius:var(--r-pill);padding:3px 10px;font-size:12px}
 .kd-acts{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 4px}
@@ -655,7 +655,7 @@ body.dragging .screen-float{transition:none}
 .kd-fold::details-content{block-size:0;overflow:hidden;transition:block-size var(--t-med) var(--ease),content-visibility var(--t-med) allow-discrete}.kd-fold[open]::details-content{block-size:auto}.kd-fold[open]>div{animation:fade var(--t-med) var(--ease) both}
 .kd-reveal{display:grid;grid-template-rows:0fr;transition:grid-template-rows var(--t-med) var(--ease)}.kd-reveal>div{overflow:hidden;min-height:0}.kd-reveal.open{grid-template-rows:1fr}
 .kd-home{display:flex;padding:6px 0}
-@media (max-width:760px){.kchk{opacity:1}.kcolbtn{opacity:1;width:36px;min-height:36px}.ktool .search{max-width:none;flex-basis:100%}.kmode{margin-left:0}.kbulk{bottom:10px;padding:10px 12px}.kd-meta{grid-template-columns:1fr 1fr}}
+@media (max-width:760px){.kchk{opacity:1}.kcolbtn{opacity:1;width:36px;min-height:36px}.ktool .search{max-width:none;flex-basis:100%}.kmode{margin-left:0}.kbulk{padding:10px 12px;gap:8px}.kbulk-x{display:none}.kbulk.open .kbulk-x{display:flex;animation:fade var(--t-med) var(--ease) both}.kbulk-more{display:inline-flex}.kd-meta{grid-template-columns:1fr 1fr}}
 /* ---------- Achievements ---------- */
 .ach-cat{font-size:16px;font-weight:600;margin:22px 0 10px}
 .ach-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
