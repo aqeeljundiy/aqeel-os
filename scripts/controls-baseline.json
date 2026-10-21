@@ -1,0 +1,226 @@
+{
+ "owner": {
+  "all /agents/profiles": [
+   "button: New agent"
+  ],
+  "all /agents/memory": [],
+  "all /agents/files": [
+   "button: New folder",
+   "button: Upload"
+  ],
+  "all /code/code": [],
+  "all /automations/schedules": [
+   "button: New schedule"
+  ],
+  "all /automations/webhooks": [
+   "button: New webhook"
+  ],
+  "all /automations/n8n": [
+   "button: All workflows"
+  ],
+  "all /automations/kanban": [
+   "button: New task",
+   "button: Refresh"
+  ],
+  "all /channels/channels": [
+   "tab: Connections",
+   "tab: Who can message"
+  ],
+  "all /abilities/skills": [
+   "button: New skill",
+   "button: Update all",
+   "tab: Find more skills",
+   "tab: Installed",
+   "tab: Tool groups"
+  ],
+  "all /abilities/mcp": [
+   "button: Add server",
+   "tab: Catalog",
+   "tab: Your servers"
+  ],
+  "all /abilities/plugins": [
+   "button: Rescan",
+   "tab: Browse",
+   "tab: Installed"
+  ],
+  "all /abilities/achievements": [
+   "button: Rescan history"
+  ],
+  "all /models/models": [
+   "button: Add account",
+   "button: Refresh",
+   "tab: Accounts",
+   "tab: Agents’ models",
+   "tab: Pictures",
+   "tab: Team of models"
+  ],
+  "all /system/people": [
+   "button: Invite someone"
+  ],
+  "all /system/usage": [
+   "button: 30 days",
+   "button: 7 days",
+   "button: 90 days",
+   "button: All agents",
+   "button: Rp IDR",
+   "tab: 30 days",
+   "tab: 7 days",
+   "tab: 90 days"
+  ],
+  "all /system/health": [
+   "button: Check for updates",
+   "button: Restart agents"
+  ],
+  "all /system/logs": [
+   "tab: Agent",
+   "tab: Channels",
+   "tab: Errors"
+  ],
+  "all /system/keys": [
+   "button: Add a key"
+  ],
+  "all /system/settings": [
+   "button: Export",
+   "button: Import",
+   "button: Raw YAML"
+  ],
+  "all /system/branding": [],
+  "all /system/guide": [],
+  "one /agents/profiles": [
+   "button: New agent"
+  ],
+  "one /agents/memory": [],
+  "one /agents/files": [
+   "button: New folder",
+   "button: Upload"
+  ],
+  "one /code/code": [],
+  "one /automations/schedules": [
+   "button: New schedule"
+  ],
+  "one /automations/webhooks": [
+   "button: New webhook"
+  ],
+  "one /automations/n8n": [
+   "button: All workflows"
+  ],
+  "one /automations/kanban": [
+   "button: New task",
+   "button: Refresh"
+  ],
+  "one /channels/channels": [
+   "tab: Connections",
+   "tab: Who can message"
+  ],
+  "one /abilities/skills": [
+   "button: New skill",
+   "button: Update all",
+   "tab: Find more skills",
+   "tab: Installed",
+   "tab: Tool groups"
+  ],
+  "one /abilities/mcp": [
+   "button: Add server",
+   "tab: Catalog",
+   "tab: Your servers"
+  ],
+  "one /abilities/plugins": [
+   "button: Rescan",
+   "tab: Browse",
+   "tab: Installed"
+  ],
+  "one /abilities/achievements": [
+   "button: Rescan history"
+  ],
+  "one /models/models": [
+   "button: Add account",
+   "button: Refresh",
+   "tab: Accounts",
+   "tab: Agents’ models",
+   "tab: Pictures",
+   "tab: Team of models"
+  ],
+  "one /system/people": [
+   "button: Invite someone"
+  ],
+  "one /system/usage": [
+   "button: 30 days",
+   "button: 7 days",
+   "button: 90 days",
+   "button: All agents",
+   "button: Rp IDR",
+   "tab: 30 days",
+   "tab: 7 days",
+   "tab: 90 days"
+  ],
+  "one /system/health": [
+   "button: Check for updates",
+   "button: Restart agents"
+  ],
+  "one /system/logs": [
+   "tab: Agent",
+   "tab: Channels",
+   "tab: Errors"
+  ],
+  "one /system/keys": [
+   "button: Add a key"
+  ],
+  "one /system/settings": [
+   "button: Export",
+   "button: Import",
+   "button: Raw YAML",
+   "button: Save"
+  ],
+  "one /system/branding": [],
+  "one /system/guide": []
+ },
+ "member": {
+  "all /code/code": [],
+  "all /agents/profiles": [
+   "button: New agent"
+  ],
+  "all /automations/schedules": [
+   "button: New schedule"
+  ],
+  "all /abilities/skills": [
+   "button: New skill",
+   "button: Update all",
+   "tab: Find more skills",
+   "tab: Installed",
+   "tab: Tool groups"
+  ],
+  "all /abilities/mcp": [
+   "button: Add server",
+   "tab: Catalog",
+   "tab: Your servers"
+  ],
+  "all /abilities/files": [
+   "button: New agent"
+  ],
+  "all /models/accounts": [
+   "button: Add account",
+   "button: Refresh"
+  ],
+  "one /code/code": [],
+  "one /agents/profiles": [
+   "button: New agent"
+  ],
+  "one /automations/schedules": [
+   "button: New schedule"
+  ],
+  "one /abilities/skills": [
+   "button: New skill",
+   "button: Update all"
+  ],
+  "one /abilities/mcp": [
+   "button: Add server"
+  ],
+  "one /abilities/files": [
+   "button: New agent"
+  ],
+  "one /models/accounts": [
+   "button: Add account",
+   "button: Refresh"
+  ]
+ }
+}

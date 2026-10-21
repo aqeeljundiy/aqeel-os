@@ -32,11 +32,11 @@ ID=$(date +%s)-$$;HT=/tmp/hui-$ID.tgz;CT=/tmp/code-$ID.tgz
 scp -q ../hui.tgz ai-vps:$HT && scp -q ../code.tgz ai-vps:$CT && rm ../hui.tgz ../code.tgz
 ssh ai-vps "CODE_V=$CODE_V FORCE=${FORCE:-0} HT=$HT CT=$CT bash -s" <<'BOX'
 set -e
-L=/tmp/aq-live.lock
-for i in $(seq 1 90); do mkdir $L 2>/dev/null && break
+L=/tmp/aq-live.lock;got=0
+for i in $(seq 1 90); do mkdir $L 2>/dev/null && { got=1; break; }
  [ -n "$(find $L -maxdepth 0 -mmin +20 2>/dev/null)" ] && { rmdir $L 2>/dev/null; continue; }
  [ "$i" = 1 ] && echo "· another deploy is going live; waiting for it…"; sleep 10; done
-[ -d $L ] || { echo "✗ another deploy kept going for 15 minutes; nothing changed."; rm -f $HT $CT; exit 1; }
+[ "${got:-0}" = 1 ] || { echo "✗ another deploy kept going for 15 minutes; nothing changed."; rm -f $HT $CT; exit 1; }
 trap 'rmdir /tmp/aq-live.lock 2>/dev/null' EXIT
 # a reply may have started while the files were on their way: wait again right before the restart (up to 5 minutes)
 for i in $(seq 1 60); do n=$(curl -fs http://127.0.0.1:4400/healthz | grep -o '"busy":[0-9]*' | cut -d: -f2); [ "${n:-0}" = 0 ] && break; [ "$i" = 1 ] && echo "a reply started meanwhile; waiting for it…"; sleep 5; done

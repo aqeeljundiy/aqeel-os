@@ -18,12 +18,12 @@ TGZ=/tmp/hui-check-$(date +%s)-$$.tgz
 scp -q ../hui-check.tgz ai-vps:$TGZ && rm ../hui-check.tgz
 ssh ai-vps "MB=$MB TGZ=$TGZ bash -s" <<'BOX'
 set -e
-L=/tmp/aq-check.lock
-for i in $(seq 1 180); do mkdir $L 2>/dev/null && break
+L=/tmp/aq-check.lock;got=0
+for i in $(seq 1 180); do mkdir $L 2>/dev/null && { got=1; break; }
  # a lock left by a run that died more than 40 minutes ago is stale
  [ -n "$(find $L -maxdepth 0 -mmin +40 2>/dev/null)" ] && { rmdir $L 2>/dev/null; continue; }
  [ "$i" = 1 ] && echo "· another check is using the test copy; waiting for it…"; sleep 10; done
-[ -d $L ] || { echo "✗ the test copy stayed busy for 30 minutes"; exit 1; }
+[ "${got:-0}" = 1 ] || { echo "✗ the test copy stayed busy for 30 minutes"; exit 1; }
 trap 'rmdir /tmp/aq-check.lock 2>/dev/null' EXIT
 rm -rf /tmp/aq-stage && mkdir -p /tmp/aq-stage && tar -xzf $TGZ -C /tmp/aq-stage && rm $TGZ
 D=/tmp/ppl

@@ -36,6 +36,6 @@ async function browse(ck){const tools=homedir()+'/.hermes/tools',dir=readdirSync
 const owner=await signIn({password:PW});const result={owner:await browse(owner)};let member=null;
 try{member=await makeMember(owner);result.member=await browse(member.ck)}finally{if(member?.id)await api(owner,'/ui/people/'+encodeURIComponent(member.id),{method:'DELETE'}).catch(()=>{})}
 if(SAVE){writeFileSync(FILE,JSON.stringify(result,null,1)+'\n');const n=Object.values(result).reduce((a,v)=>a+Object.values(v).flat().length,0);console.log('saved '+n+' controls on '+Object.keys(result.owner).length+' page views to '+path.basename(FILE));process.exit(0)}
-const base=JSON.parse(readFileSync(FILE,'utf8'));const missing=[];
+let base;try{base=JSON.parse(readFileSync(FILE,'utf8'))}catch{console.log(JSON.stringify({checked:0,missing:['no baseline: run node scripts/controls-check.mjs --save on the test copy and commit scripts/controls-baseline.json']}));process.exit(1)}const missing=[];
 for(const who of Object.keys(base))for(const [k,want] of Object.entries(base[who])){const have=new Set(result[who]?.[k]||[]);for(const c of want)if(!have.has(c))missing.push(who+' · '+k+' · '+c)}
 console.log(JSON.stringify({checked:Object.keys(base.owner||{}).length,missing}));process.exit(missing.length?1:0);
