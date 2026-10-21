@@ -1552,3 +1552,54 @@ div.skel:not(.loading)::after{content:'';width:26px;height:26px;border-radius:50
 .bn-why{display:grid;grid-template-columns:44px 1fr;gap:8px;font-size:13px;line-height:1.45;color:var(--ink-2)}.bn-why .bn-k{color:var(--muted);font-size:12px}
 .bn-why small,.si-row small{display:block;color:var(--muted);font-size:12px;margin-top:2px}
 [data-why-chat]{all:unset;cursor:pointer;color:var(--blue);font-size:12px;font-weight:600;border-radius:4px;transition:color var(--t-fast) var(--ease)}[data-why-chat]:hover{color:var(--blue-deep);text-decoration:underline}[data-why-chat]:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+
+/* Parity: Files, memory provider settings, channel settings and WhatsApp linking */
+.f-broken{font-size:11px;padding:1px 7px;margin-right:6px;vertical-align:1px}
+.mem-prov .txt .mem-why{display:block;color:var(--muted);font-size:12.5px;line-height:1.45;margin-top:3px;white-space:normal}
+.mem-top{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:0 0 14px;color:var(--ink-2);font-size:13.5px;line-height:1.5}
+.mem-top .chip.access{margin-left:0}
+.mem-f{margin-bottom:4px}.mem-f:not([hidden]){animation:fade var(--t-med,.2s) var(--ease,ease) both}
+.mem-f label .chip.access,.ch-f label .chip.access{vertical-align:1px}
+.mem-f label a,.ch-f .hint a{font-weight:500}
+.mem-bool{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px}.mem-bool label{margin:0}
+.mem-secret{position:relative}.mem-secret input{padding-right:46px}.mem-secret .ghost.icon{position:absolute;right:4px;top:50%;transform:translateY(-50%);min-height:36px;width:38px}.mem-secret .ghost.icon.on{color:var(--blue)}
+.mem-h,.ch-h{font-size:14px;margin:18px 0 8px}
+.mem-dep{margin:0 0 10px}.mem-dep b{display:block;font-size:13.5px;margin-bottom:6px}
+.mem-cmd code{white-space:pre-wrap;word-break:break-all;overflow:visible}
+.mem-res{border:1px solid var(--border);border-radius:var(--r-md,12px);padding:8px 12px;margin:0 0 8px;animation:rise .25s ease both}
+.mem-res summary{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13.5px;list-style:none;min-height:32px}.mem-res summary::-webkit-details-marker{display:none}
+.mem-res summary .chip.access{margin-left:0}
+.mem-res[open]>:not(summary){animation:fade .2s ease both}
+.mem-cmdline{display:block;margin:6px 0;font-size:12px;white-space:pre-wrap;word-break:break-all;color:var(--ink-2)}
+.mem-res .action-log{max-height:220px;margin:6px 0 4px}
+.ch-f.bad input,.ch-f.bad select,.ch-f.bad .allow{border-color:var(--bad)}
+.ch-err{margin:4px 0 0;animation:fade .2s ease both}
+.ch-upd{color:var(--muted);font-size:12px;margin-left:8px;font-weight:400}
+.ch-count{font-size:13px;font-weight:500;color:var(--muted)}
+.ch-envp{margin-top:14px}
+.ch-onrow{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 14px;border:1px solid var(--border);border-radius:var(--r-md,12px);margin:0 0 14px}
+.ch-onrow b{font-size:14px}
+.ch-restart{display:flex;align-items:center;gap:14px;margin-bottom:16px;padding:14px 18px;color:var(--ink);animation:rise .3s ease both}
+.ch-restart>svg{flex:none;color:var(--warn)}
+.ch-restart .txt{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.ch-restart .txt b{font-size:14px}.ch-restart .txt span{font-size:13px;color:var(--ink-2);line-height:1.45}
+.ch-restart.closing{animation:fadeOut .21s ease both}
+.allow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px;border:1px solid var(--border);border-radius:var(--r-md,12px);background:var(--surface);cursor:text;transition:border-color var(--t-fast,.15s) ease}
+.allow:focus-within{border-color:var(--blue)}
+.allow-chip{display:inline-flex;align-items:center;gap:2px;padding:2px 2px 2px 10px;border-radius:var(--r-pill,999px);background:var(--soft);font-size:13px;max-width:100%;animation:rise .2s ease both}
+.allow-chip>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.allow-chip .ghost.icon{width:26px;min-height:26px;height:26px;padding:0}
+.allow-chip.closing{animation:fadeOut .15s ease both}
+.allow .allow-in{flex:1;min-width:140px;border:0;box-shadow:none;background:transparent;padding:6px;min-height:32px}
+.allow .allow-in:focus{outline:none;box-shadow:none}
+.wac-more{margin:14px 0 4px;border-top:1px solid var(--border);padding-top:10px}
+.wac-more summary{cursor:pointer;font-weight:600;font-size:14px;min-height:36px;display:flex;align-items:center}
+.wac-more[open] .wac-more-body{animation:fade .2s ease both}
+.wac-more-body>button{margin-top:12px}
+.wa-opts{margin:0 0 14px;animation:rise .25s ease both}
+.wa-opts.closing{animation:fadeOut .21s ease both}
+.wa-mode{display:flex;width:100%;margin:6px 0 2px}.wa-mode button{flex:1;min-height:34px;white-space:normal;line-height:1.2}
+.wa-acts{display:flex;gap:8px;flex-wrap:wrap}
+.wa-exp{font-variant-numeric:tabular-nums}.wa-exp.bad{color:var(--bad)}
+.wa-rs{margin-top:10px}
+@media (max-width:760px){.ch-restart{flex-wrap:wrap}.ch-restart>button{width:100%}.mem-secret .ghost.icon{min-height:40px;width:40px}}
+@media (prefers-reduced-motion:reduce){.mem-f:not([hidden]),.mem-res,.allow-chip,.ch-restart,.wa-opts{animation:none}}

@@ -333,7 +333,7 @@ ACT['wh-new-pre']=0;
  // extra connections (WhatsApp 2…) sit right under their agent's channels, by name and ID
  d.channels.sort((x,y)=>{const bx=x.agent.split('--')[0],by=y.agent.split('--')[0];return bx===by?(x.agent.includes('--'))-(y.agent.includes('--'))||x.id.localeCompare(y.id):0});const agents=((await pA).profiles||[]).map(x=>x.name);
  panel.innerHTML=`<h2>Every agent's channels</h2><p class="sub">Each connection belongs to one agent, which answers it. Check one any time; aqeelOS also checks them every 2 hours and tells you when one needs linking again. Move one to another agent and its settings, WhatsApp login and approved people go along.</p>
-  ${d.channels.length?d.channels.map((c,i)=>`<div class="row" ${st(i)} style="padding:12px 12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="main-c">${chLogo(c.id,c.name)}<div class="txt"><b>${esc(LK[c.agent]?linkTitle(LK[c.agent]):c.name)}</b>${c.account?'<span class="acct-line">'+(c.account.kind?`<span class="kind-chip ${c.account.kind==='bot'?'bot':'person'}" title="${c.account.kind==='bot'?'A bot account made for the agent':'Someone’s own account: messages come from that person'}">${icon(c.account.kind==='bot'?'zap':'user',11)}${c.account.kind==='bot'?'Bot':'Personal account'}</span> `:'')+esc(accountText(c.account))+'</span>':''}${c.note?'<span class="acct-line ch-note">'+esc(c.note)+'</span>':''}<span title="Agents use the name “${esc(LK[c.agent]?linkId(LK[c.agent]):c.id)}” to pick this channel">${c.paused?'<i class="dot"></i>Paused · nobody answers it':c.state==='connected'?'<i class="dot ok"></i>Connected':esc(chState(c).replace(' · link again',''))}</span></div></div>
+  ${d.channels.length?d.channels.map((c,i)=>`<div class="row" ${st(i)} style="padding:12px 12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="main-c">${chLogo(c.id,c.name)}<div class="txt"><b>${esc(LK[c.agent]?linkTitle(LK[c.agent]):c.name)}</b>${c.account?'<span class="acct-line">'+(c.account.kind?`<span class="kind-chip ${c.account.kind==='bot'?'bot':'person'}" title="${c.account.kind==='bot'?'A bot account made for the agent':'Someone’s own account: messages come from that person'}">${icon(c.account.kind==='bot'?'zap':'user',11)}${c.account.kind==='bot'?'Bot':'Personal account'}</span> `:'')+esc(accountText(c.account))+'</span>':''}${c.note?'<span class="acct-line ch-note">'+esc(c.note)+'</span>':''}<span title="Agents use the name “${esc(LK[c.agent]?linkId(LK[c.agent]):c.id)}” to pick this channel">${c.paused?'<i class="dot"></i>Paused · nobody answers it':c.state==='connected'?'<i class="dot ok"></i>Connected':esc(chState(c).replace(' · link again',''))}${c.updated_at&&!c.paused?` <small class="ch-upd">· updated ${when(c.updated_at)}</small>`:''}</span></div></div>
    <div class="act ch-act">${c.id==='whatsapp'&&!c.paused&&c.state!=='connected'?`<button class="primary small" data-act="wa-link" data-agent="${esc(c.agent)}">${icon('refresh',14)}Link again</button>`:''}${LK[c.agent]?`<span class="hint" style="margin:0">Extra number of</span><b style="font-size:13.5px">${esc(ident(LK[c.agent].agent).name)}</b>`:`<span class="ab-lbl">Owned by</span><select style="width:auto" data-chmove="${esc(c.id)}" data-from="${esc(c.agent)}" data-paused="${c.paused?1:''}" data-acct="${esc(accountText(c.account))}">${agents.map(n=>`<option value="${esc(n)}" ${n===c.agent&&!c.paused?'selected':''}>${esc(ident(n).name)}</option>`).join('')}<option value="" ${c.paused?'selected':''}>Nobody (paused)</option></select>`}<button class="ghost icon ch-more" data-act="ch-more" data-agent="${esc(c.agent)}" data-platform="${esc(c.id)}" data-paused="${c.paused?1:''}" data-state="${esc(c.state||'')}" data-extra="${LK[c.agent]?1:''}" data-note="${esc(c.note||'')}" title="More" aria-label="More for ${esc(c.name)}">${icon('more',18)}</button></div></div>`).join(''):'<p class="hint">No channel is connected yet. Set one up below and it shows here for the whole team.</p>'}`;
  panel.querySelectorAll('select').forEach(enhanceSelect);
  panel.querySelectorAll('[data-chmove]').forEach(s=>s.onchange=async()=>{const to=s.value,from=s.dataset.from,pf=s.dataset.chmove,was=s.dataset.paused?'':from;if(to===was)return;
@@ -454,28 +454,53 @@ const accountText=a=>a?[a.phone||a.username,a.name].filter(Boolean).join(' · ')
 /* ---------- Link WhatsApp: the one way to connect, relink or add a WhatsApp, from every button ----------
    Clears an ended login (kept aside on the box), shows a fresh QR, and once the phone scans it switches the
    channel on. Extra agents pick it up live; the main agent's engine restarts after replies in progress finish. */
-async function linkWhatsApp(agent,{replace=false,title}={}){const q='?profile='+encodeURIComponent(agent);let pid=null,done=false,kept=null;
- const d=sideDrawer(title||'Link WhatsApp · '+ident(agent.split('--')[0]).name,`<div id="waBox" class="wa-link"><p class="hint"><span class="spinner"></span> Getting a fresh QR code…</p></div>`,`<button class="ghost" data-act="close">Close</button>`);
- const box=d.querySelector('#waBox');const live=()=>box.isConnected;
- const cleanup=()=>{if(done)return;const c=pid?del(H,'/messaging/whatsapp/onboarding/'+encodeURIComponent(pid)+q).catch(()=>{}):Promise.resolve();pid=null;
+async function linkWhatsApp(agent,{replace=false,title}={}){const q='?profile='+encodeURIComponent(agent);let pid=null,done=false,kept=null,tick=null,mode='bot',saved=null;
+ const d=sideDrawer(title||'Link WhatsApp · '+ident(agent.split('--')[0]).name,`<div class="wa-opts" id="waOpts"><label>How it is used</label><div class="seg-mini wa-mode" role="radiogroup" aria-label="How it is used"><button type="button" role="radio" data-wamode="bot" class="on" aria-checked="true">A number for the agent</button><button type="button" role="radio" data-wamode="self-chat" aria-checked="false">My own number</button></div><p class="hint" id="waModeHint"></p>
+  <label for="waAllow">Allowed numbers (optional)</label><input id="waAllow" inputmode="tel" autocomplete="off" placeholder="6281234567890, 6289876543210"><p class="hint" id="waAllowHint"></p></div><div id="waBox" class="wa-link"><p class="hint"><span class="spinner"></span> Getting a fresh QR code…</p></div>`,`<button class="ghost" data-act="close">Close</button>`);
+ const box=d.querySelector('#waBox'),opts=d.querySelector('#waOpts'),allow=d.querySelector('#waAllow');const live=()=>box.isConnected;
+ // how it is used: a number just for the agent, or your own WhatsApp (you talk to it in "Message yourself")
+ const paintOpts=()=>{d.querySelectorAll('[data-wamode]').forEach(b=>{const on=b.dataset.wamode===mode;b.classList.toggle('on',on);b.setAttribute('aria-checked',on)});
+  d.querySelector('#waModeHint').textContent=mode==='self-chat'?'Link your own WhatsApp and talk to the agent in your “Message yourself” chat.':'People message this WhatsApp number and the agent answers. Best with a spare number.';
+  const has=!!allow.value.trim(),keep=saved?.allowed_users_set;d.querySelector('#waAllowHint').textContent=has?'These numbers can talk to it at once; anyone else asks first.':keep?'Leave empty to keep the numbers already allowed.':mode==='self-chat'?'Leave empty: your own number is allowed by itself.':'Leave empty: new people ask first, and you approve them under Channels › Who can message.'};
+ d.querySelectorAll('[data-wamode]').forEach(b=>b.onclick=()=>{mode=b.dataset.wamode;paintOpts()});allow.oninput=paintOpts;paintOpts();
+ H('/messaging/platforms'+q).then(r=>{saved=(r.platforms||[]).find(x=>x.id==='whatsapp')?.whatsapp_setup||null;if(/self/i.test(saved?.mode||''))mode='self-chat';if(live())paintOpts()}).catch(()=>{});
+ const cleanup=()=>{clearInterval(tick);if(done)return;const c=pid?del(H,'/messaging/whatsapp/onboarding/'+encodeURIComponent(pid)+q).catch(()=>{}):Promise.resolve();pid=null;
   if(kept){const k=kept;kept=null;c.then(()=>post(UI,'/ui/channels/whatsapp/restore',{agent,kept:k})).catch(()=>{})}};
  new MutationObserver((m,o)=>{if(!d.isConnected){o.disconnect();cleanup()}}).observe(document.body,{childList:true,subtree:true});
- const fail_=(msg,retry=true)=>{box.innerHTML=`<p class="err-line">${esc(msg)}</p>${retry?`<button class="primary" id="waRetry">${icon('refresh',15)}Try again</button>`:''}`;box.querySelector('#waRetry')?.addEventListener('click',()=>{closeLayers();linkWhatsApp(agent,{replace,title})})};
+ const fail_=(msg,retry=true)=>{clearInterval(tick);box.innerHTML=`<p class="err-line">${esc(msg)}</p>${retry?`<button class="primary" id="waRetry">${icon('refresh',15)}Try again</button>`:''}`;box.querySelector('#waRetry')?.addEventListener('click',()=>{closeLayers();linkWhatsApp(agent,{replace,title})})};
+ // the whole setup has a time limit: count it down under the code
+ const countdown=s=>{const at=Date.parse(s.expires_at||'');if(!isFinite(at))return;clearInterval(tick);const paint=()=>{const e=box.querySelector('#waExp');if(!e)return;const left=Math.max(0,Math.round((at-Date.now())/1000));e.textContent=left?'This code works for '+Math.floor(left/60)+':'+String(left%60).padStart(2,'0')+' more':'This code has expired';e.classList.toggle('bad',!left)};paint();tick=setInterval(paint,1000)};
+ const digits=x=>String(x||'').replace(/\D/g,'');
  try{kept=(await post(UI,'/ui/channels/whatsapp/prepare',{agent,replace}))?.kept||null;
-  const start=await post(H,'/messaging/whatsapp/onboarding/start'+q,{mode:'bot'});pid=start.pairing_id||start.id;
-  let s=start,lastQr='';
+  const start=await post(H,'/messaging/whatsapp/onboarding/start'+q,{mode});pid=start.pairing_id||start.id;
+  let s=start,lastQr='',miss=0;
   for(let i=0;i<150&&live();i++){
-   if(s.status==='connected'){box.innerHTML=`<p class="hint">${icon('check',15)} Linked${s.account_phone?' as <b>+'+esc(s.account_phone)+'</b>':''}${s.account_name?' ('+esc(s.account_name)+')':''}. Switching it on…</p>`;
-    const r=await post(H,'/messaging/whatsapp/onboarding/'+encodeURIComponent(pid)+'/apply'+q,{mode:'bot'});done=true;
-    box.innerHTML=`<div class="wa-done"><span class="ic ok">${icon('check',22)}</span><div><b>WhatsApp linked${r.account?.phone?' · '+esc(r.account.phone):''}</b><p class="hint" style="margin:4px 0 0">${r.hot_served?'It is answering now.':r.waiting?'It starts answering as soon as the '+(r.waiting===1?'reply':r.waiting+' replies')+' in progress finish (the engine restarts once).':'The engine restarts once (about 20 seconds), then it answers.'} Send it a message from another phone to try it.</p></div></div>`;
-    const fb=d.querySelector('.drawer-foot [data-act="close"]');if(fb){fb.textContent='Done';fb.classList.replace('ghost','primary')}d.addEventListener('click',e=>{if(e.target.closest('[data-act="close"]'))laterReload(300)});return}
+   if(s.status==='connected'){clearInterval(tick);const phone=s.account_phone?'+'+digits(s.account_phone):'';
+    // look before switching on: the linked account, then Switch it on or Cancel
+    box.innerHTML=`<div class="wa-done"><span class="ic ok">${icon('check',22)}</span><div><b>Linked${phone?' as '+esc(phone):''}${s.account_name?' ('+esc(s.account_name)+')':''}</b><p class="hint" style="margin:4px 0 10px">Check how it is used above, then switch it on.</p><div class="wa-acts"><button class="primary" id="waApply">${icon('power',15)}Switch it on</button><button class="ghost" id="waCancel">Cancel</button></div></div></div>`;
+    const go=await new Promise(res=>{box.querySelector('#waApply').onclick=()=>res(true);box.querySelector('#waCancel').onclick=()=>res(false)});if(!live())return;
+    if(!go){cleanup();box.innerHTML=`<p class="hint">Cancelled. Nothing was changed.</p><button class="primary" id="waRetry">${icon('refresh',15)}Start again</button>`;box.querySelector('#waRetry').onclick=()=>{closeLayers();linkWhatsApp(agent,{replace,title})};return}
+    const ab=box.querySelector('#waApply');ab.disabled=true;box.querySelector('#waCancel').disabled=true;
+    let au=(allow.value.match(/\+?\d[\d\s-]{5,}\d/g)||[]).map(digits).filter(Boolean);if(!au.length&&mode==='self-chat'&&!saved?.allowed_users_set&&s.account_phone)au=[digits(s.account_phone)];
+    let r;try{r=await post(H,'/messaging/whatsapp/onboarding/'+encodeURIComponent(pid)+'/apply'+q,{mode,...(au.length?{allowed_users:[...new Set(au)].join(',')}:{})})}catch(e){cleanup();return fail_(e.message||String(e))}
+    done=true;leave(opts,210);const ph=r.account?.phone||phone,self=mode==='self-chat';
+    box.innerHTML=`<div class="wa-done"><span class="ic ok">${icon('check',22)}</span><div><b>WhatsApp linked${ph?' · '+esc(ph):''}</b><p class="hint" style="margin:4px 0 0">${r.hot_served?'It is answering now.':r.waiting?'It starts answering as soon as the '+(r.waiting===1?'reply':r.waiting+' replies')+' in progress finish (the engine restarts once).':'The engine restarts once (about 20 seconds), then it answers.'} ${self?'Open “Message yourself” in WhatsApp on that phone and send the agent a message.':'Send it a message from another phone to try it.'}</p>${ph?`<p style="margin:8px 0 0"><a href="https://wa.me/${digits(ph)}" target="_blank" rel="noopener">${icon('chat',14)} ${self?'Open “Message yourself”':'Open chat'}</a></p>`:''}<p class="hint wa-rs" id="waRs" hidden></p></div></div>`;
+    const fb=d.querySelector('.drawer-foot [data-act="close"]');if(fb){fb.textContent='Done';fb.classList.replace('ghost','primary')}d.addEventListener('click',e=>{if(e.target.closest('[data-act="close"]'))laterReload(300)});
+    if(r.restarting&&!r.waiting)waWatchRestart(box);return}
    if(/error|expired|cancel/.test(s.status||'')){cleanup();return fail_(/expired/.test(s.status)?'The QR code expired before it was scanned.':'WhatsApp could not start the link: '+(s.error||s.status))}
    if(s.qr_payload&&s.qr_payload!==lastQr){lastQr=s.qr_payload;box.innerHTML=`<img class="wa-qr" src="/ui/qr?d=${encodeURIComponent(s.qr_payload)}" alt="QR code to scan with WhatsApp">
-    <ol class="qr-steps"><li>Open WhatsApp on the phone this agent should use.</li><li>Tap <b>Settings</b> (iPhone) or <b>⋮</b> (Android), then <b>Linked devices</b>.</li><li>Tap <b>Link a device</b> and point the camera at this code.</li></ol><p class="hint">The code refreshes by itself; keep this window open until it says linked.</p>`}
+    <ol class="qr-steps"><li>Open WhatsApp on the phone this agent should use.</li><li>Tap <b>Settings</b> (iPhone) or <b>⋮</b> (Android), then <b>Linked devices</b>.</li><li>Tap <b>Link a device</b> and point the camera at this code.</li></ol><p class="hint">The code refreshes by itself; keep this window open until it says linked.</p><p class="hint wa-exp" id="waExp"></p><p class="hint" id="waNet" hidden></p>`;countdown(s)}
    else if(!s.qr_payload)box.innerHTML='<p class="hint"><span class="spinner"></span> '+(s.status==='installing'?'Preparing WhatsApp on the box…':'Getting a fresh QR code…')+'</p>';
-   await new Promise(r=>setTimeout(r,2000));if(!live())break;s=await H('/messaging/whatsapp/onboarding/'+encodeURIComponent(pid)+q)}
+   await new Promise(r=>setTimeout(r,2000));if(!live())break;
+   // a status check that fails once (a network blip) is retried; only an expired setup or many failures in a row end it
+   try{s=await H('/messaging/whatsapp/onboarding/'+encodeURIComponent(pid)+q);miss=0;const n=box.querySelector('#waNet');if(n)n.hidden=true}
+   catch(e){const exp=Date.parse(s.expires_at||'');if(++miss>=6||(isFinite(exp)&&Date.now()>=exp))throw e;const n=box.querySelector('#waNet');if(n){n.hidden=false;n.textContent='The connection dropped for a moment. Still waiting…'}}}
   cleanup();if(live())fail_('This took too long. Start again for a new code.')}
  catch(e){cleanup();if(e.message&&/connected/i.test(e.message)&&!replace)return fail_(e.message,false);fail_(e.message||String(e))}}
+// after linking restarts the engine: confirm it came back, or say so with a Restart now button
+async function waWatchRestart(box){const out=box.querySelector('#waRs');if(!out)return;out.hidden=false;out.innerHTML='<span class="spinner"></span> Waiting for the engine to come back…';await sleep(15000);
+ for(let i=0;i<35&&out.isConnected;i++){try{const s=await H('/status');if(s.gateway_running){out.innerHTML=icon('check',14)+' The engine is back. WhatsApp is connecting.';return}}catch{}await sleep(3000)}
+ if(out.isConnected)out.innerHTML=`<span class="err-line">The link is saved, but the engine did not come back by itself.</span> <button class="small" data-act="gw-restart">${icon('refresh',14)}Restart now</button>`}
 ACT['wa-link']=a=>linkWhatsApp(a.dataset.agent||agentProfile()||'default');
 ACT['wa-replace']=async a=>{const ag=a.dataset.agent||agentProfile()||'default';if(!await confirmBox('Link a different phone?','The phone linked now stops answering for '+ident(ag.split('--')[0]).name+'. Chats and approved people stay.','Link a different phone',false))return;linkWhatsApp(ag,{replace:true})};
 {const base=PAGES.channels;PAGES.channels=async(p,el)=>{await base(p,el);
@@ -484,7 +509,7 @@ ACT['wa-replace']=async a=>{const ag=a.dataset.agent||agentProfile()||'default';
  d.querySelectorAll('.chip').forEach(ch=>{const t=ch.textContent.trim();const k=Object.keys(CH_STATE).find(k=>pretty(k)===t);if(k)ch.textContent=CH_STATE[k]});
  const c=(Pages.platforms||[]).find(x=>x.id===id);
  if(c?.account)d.querySelector('.logo-lg')?.nextElementSibling?.querySelector('b')?.insertAdjacentHTML('afterend','<div class="hint" style="margin:2px 0 0">'+esc(accountText(c.account))+'</div>');
- if(id!=='whatsapp')return;const err=d.querySelector('.err-line');const g=d.querySelector('[data-act="onboard"]');const ag=agentProfile()||'default';
+ if(id!=='whatsapp')return;const err=d.querySelector('.err-line:not(.ch-err)');const g=d.querySelector('[data-act="onboard"]');const ag=agentProfile()||'default';
  if(err&&/bound by|bridge_conflict|already in use|port \d+/i.test(err.textContent))err.textContent='WhatsApp is starting up after a restart. The link is saved; give it a minute, then refresh.';
  else if(err&&(c?.needs_link||/logged out|died|exit|unlinked/i.test(err.textContent)))err.textContent='This WhatsApp was logged out: the device was removed under Linked devices on the phone, or WhatsApp ended the link. Link it again with a fresh QR code.';
  if(!g)return;g.dataset.agent=ag;
@@ -681,7 +706,7 @@ setInterval(()=>ChannelAlert.check(),10*60e3);setTimeout(()=>ChannelAlert.check(
 /* ---------- Channels page: status lives in "Every agent's channels" at the top; the cards below are only for
    adding (the app, and Set up or Add another). People who don't see the top list keep the status on the cards. ---------- */
 {const base=PAGES.channels;PAGES.channels=async(p,el)=>{await base(p,el);if(S.me?.admin===false||S.chOverride)return;const grid=el.querySelector('.grid-cards');if(!grid)return;
- if(!el.querySelector('.ch-cat-head'))grid.insertAdjacentHTML('beforebegin','<div class="ch-cat-head"><h2>Add a channel</h2><p class="sub">Connect an app, or another account of one this agent already uses. Connected ones are listed above.</p></div>');
+ if(!el.querySelector('.ch-cat-head')){const pl=Pages.platforms||[];grid.insertAdjacentHTML('beforebegin',`<div class="ch-cat-head"><h2 class="h-row">Add a channel<small class="ch-count">${pl.filter(x=>x.configured).length} of ${pl.length} set up</small></h2><p class="sub">Connect an app, or another account of one this agent already uses. Connected ones are listed above.</p></div>`)}
  const ag=agentProfile()||'default';
  grid.querySelectorAll('.card[data-id]').forEach(c=>{const pl=(Pages.platforms||[]).find(x=>x.id===c.dataset.id);if(!pl)return;
   c.querySelectorAll('h3 .access,.tile-id').forEach(x=>x.remove());const foot=c.querySelector('.tile-foot');if(!foot)return;
@@ -728,7 +753,7 @@ ACT['ch-more']=a=>{const ag=a.dataset.agent,pf=a.dataset.platform,paused=!!a.dat
   wa&&{label:'Link a different phone (new QR)',icon:'refresh',run:()=>ACT['wa-replace']({dataset:{agent:ag}})},
   '-',{label:wa?'Remove this WhatsApp':'Remove this connection',icon:'trash',bad:true,run:()=>wa?ACT['wa-remove']({dataset:{agent:ag}}):ACT['ch-remove']({dataset:{agent:ag,platform:pf}})}])};
 async function setPaused(ag,pf,on){const what=appName(pf);
- try{const r=await post(UI,'/ui/channels/pause',{agent:ag,platform:pf,on:!on});const m=what+(on?' paused: stays linked, nobody answers it':' answers again')+(r.restarting?' · the main agent’s channels restart for a moment':'');if(on)toastUndo(m,()=>setPausedQuiet(ag,pf,false));else toast(m);reload()}catch(e){fail(e)}}
+ try{const r=await post(UI,'/ui/channels/pause',{agent:ag,platform:pf,on:!on});const m=what+(on?' paused: stays linked, nobody answers it':' answers again')+(r.restarting?' · the main agent’s channels restart for a moment':'');if(on)toastUndo(m,()=>setPausedQuiet(ag,pf,false));else toast(m);reload();laterReload(4000)}catch(e){fail(e)}}
 async function setPausedQuiet(ag,pf,on){await post(UI,'/ui/channels/pause',{agent:ag,platform:pf,on:!on});reload()}
 // reconnect one channel: on a second agent only that channel restarts; the main agent's channels share the engine
 async function reconnectChannel(ag,pf){const main=ag.split('--')[0]==='default'&&!ag.includes('--');
@@ -758,6 +783,8 @@ ACT['agent-describe']=async(a,e)=>{e?.preventDefault();e?.stopPropagation();cons
 {const base=ACT['ch-open'];ACT['ch-open']=a=>a.dataset.id==='whatsapp_cloud'?waCloudDrawer():base(a)}
 async function waCloudDrawer(){const ag=agentProfile()||'default';let s;try{s=await UI('/ui/channels/wa-cloud?agent='+encodeURIComponent(ag))}catch(e){return fail(e)}
  const c=(Pages.platforms||[]).find(x=>x.id==='whatsapp_cloud')||{};let ready=s.set.phone_number_id&&s.set.access_token;
+ // every other setting the engine has for it (allowlists, policies…), in the engine's own field form
+ const more=(c.env_vars||[]).filter(v=>!/^WHATSAPP_CLOUD_(PHONE_NUMBER_ID|ACCESS_TOKEN|APP_SECRET|VERIFY_TOKEN)$/.test(v.key));
  const copy=(label,v)=>`<div class="wac-copy"><span>${esc(label)}</span><code>${esc(v)}</code><button class="ghost icon" data-act="copy-text" data-text="${esc(v)}" aria-label="Copy ${esc(label)}">${icon('copy',15)}</button></div>`;
  const field=(k,label,hint,secret)=>`<label>${label}</label><input id="wac_${k}" ${secret?'type="password"':''} autocomplete="off" placeholder="${s.set[k]?'Saved · leave empty to keep':''}"><p class="hint">${hint}</p>`;
  const d=drawer('WhatsApp Business',`<div style="display:flex;align-items:center;gap:14px;margin-bottom:14px"><span class="logo-lg">${chLogo('whatsapp','WhatsApp')}</span><div><b style="font-size:15px">WhatsApp Business for ${esc(ident(ag).name)}</b><div style="margin-top:4px">${c.state==='connected'?'<span class="chip ok"><i class="dot"></i>Connected</span>':`<span class="chip">${ready?esc(chState(c)||'Saved'):'Not set up'}</span>`}</div></div></div>
@@ -769,8 +796,12 @@ async function waCloudDrawer(){const ag=agentProfile()||'default';let s;try{s=aw
   ${field('phone_number_id','Phone number ID *','The long number under API Setup, not the phone number itself.')}
   ${field('access_token','Access token *','Starts with EAA…',true)}
   ${field('app_secret','App secret','App settings › Basic › App secret. Lets aqeelOS check that messages really come from Meta.',true)}
+  ${more.length?`<details class="wac-more"><summary>More settings</summary><div class="wac-more-body">${more.map(chField).join('')}<button id="wacMore">Save these settings</button></div></details>`:''}
   <div id="wacOut">${s.verify_token?`<h3 style="font-size:14px;margin:16px 0 8px">Paste these into Meta</h3>${copy('Callback URL',s.callback)}${copy('Verify token',s.verify_token)}`:''}</div>`,
   `<button class="ghost" data-act="close">Close</button><button class="primary" id="wacSave">Save</button>`);
+ chWire(d);
+ d.querySelector('#wacMore')?.addEventListener('click',async e=>{const b=e.currentTarget;const {env,clear,bad}=chCollect(d,more);if(bad)return toast('Check the fields marked in red','err');if(!Object.keys(env).length&&!clear.length)return toast('Nothing to save. Change a setting first.','err');
+  b.disabled=true;try{const r=await put(H,'/messaging/platforms/whatsapp_cloud',{env,...(clear.length?{clear_env:clear}:{})});toast(r.hot_served?'Settings saved':'Settings saved · restart the agents to apply them');if(!r.hot_served&&typeof chNeedRestart==='function')chNeedRestart()}catch(er){fail(er)}finally{b.disabled=false}});
  d.querySelector('#wacSave').onclick=async()=>{const b={};for(const k of ['phone_number_id','access_token','app_secret']){const v=d.querySelector('#wac_'+k).value.trim();if(v)b[k]=v}
   if(!Object.keys(b).length&&ready)return closeLayers();
   try{const r=await post(UI,'/ui/channels/wa-cloud?agent='+encodeURIComponent(ag),b);toast(r.on?'Saved. Now paste the address into Meta':'Saved. Switch the channel on after the agents restart');
