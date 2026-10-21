@@ -16,7 +16,7 @@ const panelsTitled=(root,re)=>[...root.querySelectorAll('.panel')].filter(p=>re.
   // a newer draw (another tab clicked meanwhile) wins: an older one stops at its next step
   const tok=S._mtok=(S._mtok||0)+1,stale=()=>tok!==S._mtok;
   el.innerHTML=`${tabs('models',MODEL_TABS,tab)}<div id="mtab"><div class="skel" style="height:160px;border-radius:18px"></div></div>`;placePills();const live=el.querySelector('#mtab');const box=document.createElement('div');
-  const actions=()=>{setActions(tab==='Accounts'?`<button data-act="acct-refresh">${icon('refresh',16)}Refresh</button><button class="primary" data-menu="acct-new">${icon('plus',16)}Add account</button>`:'');
+  const actions=()=>{setActions(tab==='Accounts'?`<button data-act="acct-refresh">${icon('refresh',16)}Refresh</button><button class="primary" data-menu="acct-new">${icon('plus',16)}Add account</button>`:tab==='Agents’ models'?`<button data-act="acct-refresh" title="Ask every provider for its model list again">${icon('refresh',16)}Refresh models</button>`:'');
    if(tab==='Agents’ models')viewAgents().then(viewPick);else viewPick([])};
   actions();
   if(tab==='Accounts'){
@@ -61,3 +61,46 @@ const MODEL_TAB_DROP={'Accounts':/^(Which agent uses what|Default model|Model fo
  'Agents’ models':/^(Priority|Switch automatically|Sign-ins|Subscriptions you|Images|Who makes pictures|Team of models|Google AI Pro|Gemini)/,'Pictures':/^(?!Images|Who makes pictures)/,'Team of models':/^(?!Team of models)/};
 function pruneModelTab(box,tab){const re=MODEL_TAB_DROP[tab];if(!re)return;const go=()=>{for(const p of box.querySelectorAll('.panel')){const t=(p.querySelector('h2')?.textContent||'').trim();if(t&&re.test(t))p.remove()}};go();
  const mo=new MutationObserver(go);mo.observe(box,{childList:true,subtree:true});setTimeout(()=>mo.disconnect(),15000)}
+/* ---------- System › Usage › By model: each model with its rank, provider, what it is set as, how its tokens split,
+   how busy it was, what it can do, and a Use as menu (the engine's per-model statistics) ---------- */
+{const base=PAGES.usage;PAGES.usage=async(p,el)=>{await base(p,el);if(S.me?.admin===false)return;
+ const days={'7 days':7,'30 days':30,'90 days':90}[S.tab.usage||'7 days'];const list=await viewAgents().catch(()=>[]);
+ const who=S.usageAgent&&(S.usageAgent==='*'||list.includes(S.usageAgent))?S.usageAgent:list.length>1?'*':(S.profile||'default');
+ const panel=[...el.querySelectorAll('.panel')].find(x=>x.querySelector('h2')?.textContent.trim()==='By model');if(!panel)return;
+ const me=who==='*'?(S.profile||'default'):who,agents=who==='*'?(list.length?list:['default']):[who],pq='?profile='+encodeURIComponent(me);
+ const [res,info,aux]=await Promise.all([Promise.all(agents.map(a=>H('/analytics/models?days='+days+'&profile='+encodeURIComponent(a)).catch(()=>null))),H('/model/info'+pq).catch(()=>({})),H('/model/auxiliary'+pq).catch(()=>({tasks:[]}))]);
+ if(!panel.isConnected||!res.some(Boolean))return;
+ // several agents: the same model added together
+ const by=new Map();for(const r of res)for(const m of r?.models||[]){const k=m.model+'|'+m.provider,t=by.get(k);if(!t){by.set(k,{...m});continue}
+  for(const f of ['input_tokens','output_tokens','cache_read_tokens','reasoning_tokens','estimated_cost','actual_cost','sessions','api_calls','tool_calls'])t[f]=(t[f]||0)+(m[f]||0);t.last_used_at=Math.max(t.last_used_at||0,m.last_used_at||0)}
+ const tot=m=>(m.input_tokens||0)+(m.output_tokens||0)+(m.cache_read_tokens||0)+(m.reasoning_tokens||0);
+ const ms=[...by.values()].sort((a,b)=>tot(b)-tot(a));if(!ms.length)return;
+ const stat=[...el.querySelectorAll('.stat')].find(x=>x.querySelector('.th')?.textContent==='Sessions');if(stat){const s=stat.querySelector('small');if(s)s.textContent+=' · '+plural(ms.length,'model')+' used'}
+ const tasks=aux.tasks||[];Pages._umAux=tasks;Pages._umWho=me;
+ const SEG=[['input_tokens','Input','var(--blue)'],['output_tokens','Output','var(--sky-1)'],['cache_read_tokens','Read from cache','var(--fc-teal)'],['reasoning_tokens','Thinking','var(--fc-amber)']];
+ const row=(m,i)=>{const isMain=m.model===info.model&&(!info.provider||!m.provider||m.provider===info.provider);const helper=tasks.find(t=>t.provider&&t.provider!=='auto'&&t.model===m.model);
+  const avg=m.sessions?Math.round(tot(m)/m.sessions):m.avg_tokens_per_session||0,c=m.capabilities||{};
+  const can=[...capWords(c),c.model_family?'Family: '+c.model_family:'',c.context_window?'reads up to '+num(c.context_window)+' tokens':'',c.max_output_tokens?'answers up to '+num(c.max_output_tokens):''].filter(Boolean);
+  return `<div class="um-row" ${st(i)}><div class="um-top"><span class="um-n">${i+1}</span><div class="txt"><b>${esc(modelLabel(m.model))}</b><span>${esc(provLabel({slug:m.provider||'',name:m.provider||''}))} · ${esc(m.model)}</span></div>
+   <span class="um-tags">${isMain?`<span class="chip" title="The main model of ${esc(ident(me).name)}">Default</span>`:''}${helper?`<span class="chip" title="Set by hand for this helper job">Helper · ${esc(auxLabel(helper,tasks))}</span>`:''}</span>
+   <button class="ghost icon" data-act="um-use" data-m="${esc(m.model)}" data-p="${esc(m.provider||'')}" aria-label="Use ${esc(modelLabel(m.model))} as…" title="Use as…">${icon('more',18)}</button></div>
+   <div class="um-bar" role="img" aria-label="${esc(SEG.filter(([k])=>m[k]).map(([k,l])=>l+' '+num(m[k])).join(', '))}">${SEG.map(([k,l,col])=>m[k]?`<i style="flex:${m[k]};background:${col}" title="${l}: ${num(m[k])}"></i>`:'').join('')}</div>
+   <div class="legend um-leg">${SEG.filter(([k])=>m[k]).map(([k,l,col])=>`<span><i style="background:${col}"></i>${l} ${num(m[k])}</span>`).join('')}</div>
+   <p class="um-facts">${esc([plural(m.sessions||0,'session'),num(avg)+' tokens a session',plural(m.api_calls||0,'model call'),plural(m.tool_calls||0,'tool call'),m.last_used_at?'last used '+ago(m.last_used_at):'',money(m.estimated_cost||0,{cents:true})].filter(Boolean).join(' · '))}</p>
+   ${can.length?`<p class="um-can">${esc(can.join(' · '))}</p>`:''}</div>`};
+ const tbl=panel.querySelector('.tbl');const box=document.createElement('div');box.className='um-list';box.innerHTML=ms.map(row).join('');(tbl||panel.lastElementChild).replaceWith(box)}}
+ACT['um-use']=a=>{const m=a.dataset.m,pv=a.dataset.p,who=Pages._umWho||'default',q='?profile='+encodeURIComponent(who),tasks=Pages._umAux||[],nm=ident(who).name;
+ const set=async(body,msg)=>{try{const r=await setModelChecked({provider:pv,model:m,...body},q);if(!r)return;toast(msg);if(body.scope==='main'&&who===(S.profile||'default'))Chat.loadModels().then(()=>paintSide()).catch(()=>{})}catch(e){fail(e)}};
+ menu(a,[{header:'Use '+modelLabel(m)+' for '+nm},{label:'As the main model',icon:'cpu',sub:'New chats, schedules and channels',run:()=>set({scope:'main'},nm+' now uses '+modelLabel(m))},'-',{header:'As a helper model'},
+  {label:'For every helper job',icon:'layers',run:()=>set({scope:'auxiliary',task:''},'Every helper job now uses '+modelLabel(m))},...tasks.map(t=>({label:auxLabel(t,tasks),sub:t.hint||AUX_META[t.task]?.[1]||'',run:()=>set({scope:'auxiliary',task:t.task},auxLabel(t,tasks)+' now uses '+modelLabel(m))}))],{search:tasks.length>8,matchWidth:false})};
+
+/* ---------- The agent picked in "Showing" stays in the address (?showing=<agent>), so a link or a reload opens the
+   same agent's page; and a slim note under the title says whose settings a change lands on ---------- */
+{const v=new URLSearchParams(location.search).get('showing');if(v){S.viewAgent=v;S.viewAll=false}}
+const showingUrl=v=>{const u=new URL(location.href);if(v)u.searchParams.set('showing',v);else u.searchParams.delete('showing');if(u.href!==location.href)history.replaceState(history.state,'',u.pathname+u.search+u.hash)};
+function scopeNote(v){let n=$('.scope-note');if(!v){if(n)leave(n,180);return}const head=$('.page-head');if(!head)return;
+ if(!n||n.classList.contains('closing')){n?.remove();n=document.createElement('p');n.className='scope-note';head.after(n)}
+ n.textContent='Changes here apply to '+ident(v).name+'. Chats still go to '+ident(S.profile||'default').name+'.'}
+{const base=viewPick;viewPick=list=>{base(list);const all=typeof showingAll==='function'&&showingAll();const me=S.profile||'default';
+ if(list.length<2)return scopeNote('');const v=!all&&S.viewAgent&&S.viewAgent!==me&&list.includes(S.viewAgent)?S.viewAgent:'';showingUrl(v);scopeNote(v)}}
+addEventListener('hashchange',()=>{if(!VIEW_RE.test(location.hash)){showingUrl('');$('.scope-note')?.remove()}});
