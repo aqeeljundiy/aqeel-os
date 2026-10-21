@@ -57,14 +57,19 @@ function pressBusy(p){const b=Press.btn;if(!b||Date.now()-Press.at>600||!b.isCon
  const t=setTimeout(()=>{if(b._busyN&&b.isConnected){b.classList.add('is-busy');b.setAttribute('aria-busy','true')}},120);
  p.finally(()=>{if(--b._busyN<=0){b._busyN=0;clearTimeout(t);b.classList.remove('is-busy');b.removeAttribute('aria-busy')}}).catch(()=>{})}
 async function call(base,path,opt={}){const req=callRaw(base,path,opt);pressBusy(req);return req}
+// Leaving a page cancels the reads it still waits for (their answers would be dropped anyway): the browser has only a
+// few connections per site, and slow leftovers made the next page queue behind them
+let NavAbort=new AbortController();
+function navNext(){S._nav=(S._nav||0)+1;NavAbort.abort();NavAbort=new AbortController()}
 async function callRaw(base,path,opt={}){const nav=S._nav,read=!opt.method||opt.method==='GET';
- const init={method:opt.method||'GET',headers:{'x-hui':'1',...(opt.headers||{})},credentials:'same-origin',signal:opt.signal};
+ const init={method:opt.method||'GET',headers:{'x-hui':'1',...(opt.headers||{})},credentials:'same-origin',signal:opt.signal||(read&&!opt.keep&&!opt.raw?NavAbort.signal:undefined)};
  if(opt.body!==undefined){if(opt.body instanceof FormData)init.body=opt.body;else{init.body=JSON.stringify(opt.body);init.headers['content-type']='application/json'}}
- const r=await fetch(base+path,init);if(read&&!opt.keep&&nav!==S._nav)throw STALE();
+ let r;try{r=await fetch(base+path,init)}catch(e){if(e?.name==='AbortError'&&!opt.signal&&nav!==S._nav)throw STALE();throw e}
+ if(read&&!opt.keep&&nav!==S._nav)throw STALE();
  // Only this app's own server says "sign in again"; a 401 from Hermes itself is an ordinary error.
  if(r.status===401&&r.headers.get('x-hui-auth')==='required'){signedOut();throw new ApiError('Signed out',401)}
  if(opt.raw)return r;
- const text=await r.text();let data=null;try{data=text?JSON.parse(text):null}catch{data=text}
+ let text;try{text=await r.text()}catch(e){if(e?.name==='AbortError'&&nav!==S._nav)throw STALE();throw e}let data=null;try{data=text?JSON.parse(text):null}catch{data=text}
  if(!r.ok){const d=data&&typeof data==='object'?data:{};if(Array.isArray(d.detail))d.detail=d.detail.map(x=>(x.loc?x.loc.slice(-1)[0]+': ':'')+(x.msg||'')).join('; ');const msg=d.detail?.message||d.detail||d.error?.message||d.error||d.message||('The server answered '+r.status);throw new ApiError(typeof msg==='string'?msg:JSON.stringify(msg),r.status,data)}
  return data;
 }
@@ -232,7 +237,7 @@ function go(h){if(location.hash==='#'+h)render();else location.hash=h}
 /* ---------- shell ---------- */
 function render(){
  const r=route(),root=$('#root');closeLayers();
- {const k=location.hash.split('?')[0];if(k!==S._navKey){S._navKey=k;S._nav=(S._nav||0)+1}}
+ {const k=location.hash.split('?')[0];if(k!==S._navKey){S._navKey=k;navNext()}}
  if(r.invite!==undefined){root.innerHTML='';inviteView(root,r.invite);return}
  if(r.signin||!S.signedIn){root.innerHTML=signinHtml();bindSignin();return}
  if(!$('.app'))root.innerHTML=`<div class="app"><aside class="side" aria-label="Navigation"></aside><div class="main"><div class="topbar"></div><div id="bannerSlot"></div><div class="view" id="view"></div></div><aside class="screen-pane" id="screenPane" aria-label="Live screen" hidden></aside></div>`;
@@ -244,7 +249,7 @@ function render(){
   // Same page again (after a save, a toggle…): update in place. No skeleton flash, no replayed entrance animations.
   const same=S._pageKey===key&&$('#pg');S._pageKey=key;
   // another agent on the same address: answers still on the way for the old one are dropped
-  if(!same)S._nav=(S._nav||0)+1;
+  if(!same)navNext();
   if(same){const pg=$('#pg');pg.classList.add('soft');if(P)runPage(P,r,pg).finally(()=>setTimeout(()=>pg.classList.remove('soft'),400))}
   else{v.innerHTML=`<div class="page">${head(r.page)}<div id="pg">${skeleton()}</div></div>`;const pg=$('#pg');if(P)runPage(P,r,pg)}}
 // draw a page; if it fails (the engine busy for a moment), try once more quietly before saying so
