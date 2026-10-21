@@ -5,7 +5,7 @@ const Screen={
  open:store.get('screenOpen',false),control:false,mode:store.get('screenMode','dock'),src_:store.get('screenSrc','box'),   // src_: 'box' (the AI box screen) or 'mine' (the agent's tab in my Chrome)
  float:store.get('screenFloat',{w:480,x:null,y:null}),
  st:null,ads:false,pick:null,list:[],_n:0,   // pick: an agent chosen in the picker (null = follow the chat); ads: the shared AdsPower screen
- agent(){return this.pick||S.profile||'default'},
+ agent(){return S.profile||'default'},   // the screen is always the agent you chat with
  chatAgent(){return S.profile||'default'},
  off(){return !this.ads&&this.st&&this.st.agent===this.agent()&&this.st.kind==='desktop'&&!this.st.running},
  src(){return '/screen/vnc.html?autoconnect=1&reconnect=1&reconnect_delay=1500&resize=scale&show_dot=1&path='+encodeURIComponent('screen/websockify?agent='+this.agent()+(this.ads?'&screen=ads':''))+'&view_only='+(this.control?0:1)},
@@ -54,7 +54,7 @@ const Screen={
   <button data-act="lb-focus" title="Bring the agent's tab to the front in Chrome">${icon('mouse',15)}<span>Take over</span></button>
   <button class="ghost icon" data-act="scr-mode" title="${this.mode==='float'?'Dock beside the chat':'Float over the chat'}" aria-label="${this.mode==='float'?'Dock':'Float'}">${icon(this.mode==='float'?'dock':'pip',17)}</button>
   <button class="ghost icon" data-act="screen" title="Close" aria-label="Close screen">${icon('x',18)}</button></div>`;
-  return `<div class="screen-head ${compact?'compact':''}" ${compact?'data-drag="float"':''}><b>${icon('monitor',16)}</b>${this.seg()}${this.picker()}${this.off()?'<span class="chip"><i class="dot"></i>Off</span>':`<span class="chip ${c?'warn':'ok'}"><i class="dot"></i>${c?'You are in control':'Watching'}</span>`}${this.note()?`<span class="chip warn scr-note" title="${esc(this.noteTip())}">${esc(this.note())}</span>`:''}<span class="grow"></span>
+  return `<div class="screen-head ${compact?'compact':''}" ${compact?'data-drag="float"':''}><b>${icon('monitor',16)}</b>${this.seg()}${this.off()?'<span class="chip"><i class="dot"></i>Off</span>':`<span class="chip ${c?'warn':'ok'}"><i class="dot"></i>${c?'You are in control':'Watching'}</span>`}${this.note()?`<span class="chip warn scr-note" title="${esc(this.noteTip())}">${esc(this.note())}</span>`:''}<span class="grow"></span>
   ${this.off()?'':`<button class="${c?'primary':''}" data-act="scr-control" title="${c?'Give control back':'Use mouse and keyboard on the screen'}">${icon('mouse',15)}<span>${c?'Done':'Take over'}</span></button>`}
   ${compact||this.off()?'':`<button class="ghost icon" data-act="scr-browser" title="Open a browser window" aria-label="Open a browser window">${icon('globe',17)}</button>`}
   <button class="ghost icon" data-act="scr-mode" title="${this.mode==='float'?'Dock beside the chat':'Float over the chat'}" aria-label="${this.mode==='float'?'Dock':'Float'}">${icon(this.mode==='float'?'dock':'pip',17)}</button>
@@ -64,6 +64,8 @@ const Screen={
   const n=esc(ident(this.agent()).name);if(this.off())return `<div class="screen-stage"><div class="laptop"><div class="lid"><span class="cam"></span><div class="lcd scr-off"><div>${icon('monitor',28)}<b>${n}'s screen is off</b><span>It turns on by itself when ${n} opens a browser, and off again after 15 quiet minutes.</span><button class="primary" data-act="scr-start">${icon('power',15)}Turn on now</button></div></div></div></div></div>`;
   return `<div class="screen-stage"><div class="laptop"><div class="lid"><span class="cam"></span><div class="lcd"><iframe id="scrFrame" title="Live screen of ${n}" src="${this.src()}" allow="clipboard-read; clipboard-write"></iframe></div></div></div>${this.control?'<div class="screen-hint">You are in control. Ctrl+V pastes your text into the screen; copying on the screen copies to this computer.</div>':'<div class="screen-hint">Watching only. Press Take over to click and type.</div>'}</div>`},
  paint(force){const pane=$('#screenPane'),app=$('.app');if(!pane||!app)return;
+  // switched to another agent: show that agent's screen
+  if(this._for&&this._for!==this.agent()){this._for=this.agent();this.st=null;this.pick=null;if(this.open){force=true;this.refresh()}}else this._for=this.agent();
   const docked=this.open&&this.mode==='dock',floating=this.open&&this.mode==='float';
   app.classList.toggle('screen-open',docked);pane.hidden=!docked;
   let fl=$('#screenFloat');
