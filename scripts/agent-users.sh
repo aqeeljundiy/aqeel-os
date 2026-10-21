@@ -17,6 +17,7 @@ HOMEC=/home/claude
 REQ=$HOMEC/.aqeelos-agent-users
 DONE=$REQ.done
 PORTS=$HOMEC/.aqeelos-agent-ports
+UIDS=$HOMEC/.aqeelos-agent-uids
 KEYS=/etc/ssh/agent-keys
 PUB=$HOMEC/.hermes/agent-ssh/id_ed25519.pub
 CHROME_SRC=$(ls -d $HOMEC/.hermes/tools/chromium-*/chrome-linux64 2>/dev/null | sort | tail -1)
@@ -36,23 +37,39 @@ setup_box(){
 lock_home(){
   # the home: only the claude user (and its group) inside; agents only pass through to their own folder
   chmod 750 "$HOMEC"
+  # the agents allowed through are added again below (make_user); none left over from an earlier start
+  setfacl -b "$HOMEC" 2>/dev/null
   for d in "$HOMEC"/* "$HOMEC"/.[!.]*; do [ -e "$d" ] || continue; [ "$d" = "$HOMEC/workspaces" ] && continue; chmod o-rwx "$d" 2>/dev/null; done
   chmod 711 "$HOMEC/workspaces" 2>/dev/null
   for d in "$HOMEC"/workspaces/*; do [ -d "$d" ] && chmod o-rwx "$d"; done
   # the lists aqeelOS and this script share stay readable by aqeelOS only
-  for f in "$DONE" "$PORTS"; do [ -f "$f" ] && chown claude:claude "$f" && chmod 640 "$f"; done
+  for f in "$DONE" "$PORTS" "$UIDS"; do [ -f "$f" ] && chown claude:claude "$f" && chmod 640 "$f"; done
+}
+
+# each agent keeps the same user number for good (kept in the home volume): files and access lists store numbers,
+# so a rebuild that made the users in another order would hand one agent's folder to another
+uid_of(){
+  local n=$1 line uid
+  line=$(grep "^$n " "$UIDS" 2>/dev/null | head -1)
+  if [ -n "$line" ]; then echo "${line#* }"; return; fi
+  uid=$(( $(cut -d' ' -f2 "$UIDS" 2>/dev/null | sort -n | tail -1) + 1 )); [ "$uid" -lt 2001 ] && uid=2001
+  while getent passwd "$uid" >/dev/null || getent group "$uid" >/dev/null; do uid=$((uid+1)); done
+  echo "$n $uid" >> "$UIDS"; chown claude:claude "$UIDS"; chmod 640 "$UIDS"; echo "$uid"
 }
 
 make_user(){
-  local n=$1 u="ag-$1" ws="$HOMEC/workspaces/$1"
-  u=${u:0:32}
-  id "$u" >/dev/null 2>&1 || useradd -M -d "$ws" -s /bin/bash -U "$u" || return 1
+  local n=$1 u="ag-$1" ws="$HOMEC/workspaces/$1" uid
+  u=${u:0:32}; uid=$(uid_of "$n")
+  if ! id "$u" >/dev/null 2>&1; then groupadd -g "$uid" "$u" && useradd -M -d "$ws" -s /bin/bash -u "$uid" -g "$uid" "$u" || return 1
+  elif [ "$(id -u "$u")" != "$uid" ]; then groupmod -g "$uid" "$u"; usermod -u "$uid" -g "$uid" "$u" || return 1; fi
   mkdir -p "$ws"
   chown -R "$u:claude" "$ws"
   find "$ws" -type d -exec chmod 2770 {} + 2>/dev/null
   find "$ws" -type f -exec chmod ug+rw,o-rwx {} + 2>/dev/null
   # it may pass through the home (not list it) to reach its folder; aqeelOS keeps full access to what it makes
   setfacl -m "u:$u:--x" "$HOMEC"
+  # the folder's access list is made again from nothing: only aqeelOS and this agent, never a user left over from before
+  setfacl -R -b "$ws"
   setfacl -R -m "u:claude:rwX,u:$u:rwX,g:claude:rwX" -m "d:u:claude:rwX,d:u:$u:rwX,d:g:claude:rwX" "$ws"
   if [ -f "$PUB" ]; then install -m 644 "$PUB" "$KEYS/$u"; fi
   echo "$u"
