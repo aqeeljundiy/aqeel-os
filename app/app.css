@@ -1085,6 +1085,19 @@ body:has(.drawer.pop) .scrim{backdrop-filter:blur(5px);background:rgba(11,12,16,
 @keyframes barGrow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
 .row .txt span.kind-chip{display:inline-flex;margin-top:0;white-space:nowrap}
 .kf-more{margin-top:10px}.kf-more>summary{cursor:pointer;font-size:13px;color:var(--blue-deep);font-weight:600;padding:8px 0;list-style:none}.kf-more>summary::-webkit-details-marker{display:none}.dark .kf-more>summary{color:var(--blue-2)}
+/* Settings: section headings, readable labels over the exact key, nested values, search clear */
+.cfg-sec{display:flex;align-items:center;gap:10px;font-size:12px;font-weight:600;color:var(--muted);padding:18px 0 4px;animation:rise .3s var(--ease) both}.cfg-sec::after{content:'';flex:1;border-top:1px solid var(--border)}.cfg-sec+.field{border-top:0}
+.field label small .cfg-key{display:block;font-family:var(--mono);font-size:11px;margin-top:3px;color:var(--muted);overflow-wrap:anywhere}
+.field.wide{grid-template-columns:minmax(0,1fr);gap:10px}.field.wide>div{width:100%}
+.cfg-nest{display:grid;gap:10px;border:1px solid var(--border);border-radius:12px;padding:10px 12px}.cfg-leaf{display:grid;gap:4px;min-width:0}.cfg-leaf>small{font-size:12px;color:var(--muted)}
+.toolbar .search .search-x{position:absolute;right:5px;top:50%;transform:translateY(-50%);width:32px;min-height:32px;padding:0;animation:fade .2s var(--ease) both}.toolbar .search .search-x svg{position:static;transform:none}.toolbar .search:has(.search-x) input{padding-right:40px}
+/* Keys: jump chips, provider groups, tool badges */
+.k-jump{display:flex;gap:8px;flex-wrap:wrap;margin:-4px 0 14px}.k-jump button{min-height:32px;padding:0 12px;font-size:12.5px;font-weight:500;color:var(--ink-2)}
+.kprov{border-top:1px solid var(--border);padding:4px 0}.kprov:first-child{border-top:0}.kprov>summary{display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer;list-style:none;padding:12px 0;font-size:14px;font-weight:600}.kprov>summary::-webkit-details-marker{display:none}.kprov>summary small{font-size:12.5px;font-weight:400;color:var(--muted)}.kprov>summary svg{transition:transform .3s var(--ease);color:var(--muted)}.kprov:not([open])>summary svg{transform:rotate(-90deg)}.kprov[open]>.kprov-b{animation:rise .3s var(--ease) both}
+.k-tools{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}.k-tools span{font-size:11px;color:var(--muted);background:var(--soft-2);border-radius:999px;padding:1px 8px}
+.k-desc{display:block;white-space:normal;margin-top:2px}
+.oa-meta{display:block;font-size:12px;color:var(--muted);margin-top:3px;overflow-wrap:anywhere}.oa-cmd{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:4px}.oa-cmd code{font-family:var(--mono);font-size:11.5px;background:var(--soft-2);border-radius:6px;padding:2px 6px;overflow-wrap:anywhere}.oa-cmd button{min-height:28px;padding:0 8px;font-size:12px}
+.allow-rows{display:grid;gap:6px}.allow-row{display:flex;gap:6px;align-items:center;animation:rise .25s var(--ease) both}.allow-row input{flex:1;min-width:0}
 /* notifications sit top right, under the bar, clear of the message box */
 .cron-pops{top:auto;bottom:20px;right:20px}
 @media (max-width:700px){.cron-pops{top:auto;bottom:12px;right:12px;left:12px;max-width:none}}
