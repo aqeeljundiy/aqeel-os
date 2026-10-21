@@ -25,14 +25,36 @@ let win=null,server=null;
 const CTL_KEY=crypto.randomBytes(24).toString('hex');
 
 // ---------- Code's engine ----------
-function copyBundled(){if(DEV)return;const mark=path.join(CODE_DIR,'.app-version');
- // the bundled copy goes in on first run and after the app itself was updated; between those, Code updates itself
- if(fs.existsSync(path.join(CODE_DIR,'server.mjs'))&&(()=>{try{return fs.readFileSync(mark,'utf8')===app.getVersion()}catch{return false}})())return;
- fs.mkdirSync(CODE_DIR,{recursive:true});fs.cpSync(BUNDLED,CODE_DIR,{recursive:true,force:true,filter:src=>!/[\\/]data([\\/]|$)/.test(src.slice(BUNDLED.length))});fs.writeFileSync(mark,app.getVersion())}
+// the bundled copy goes in on first run and after the app itself was updated (the mark holds the app version it
+// came with); between those, Code updates itself and the mark stays
+const MARK=path.join(CODE_DIR,'.app-version');
+const stale=()=>!DEV&&!(fs.existsSync(path.join(CODE_DIR,'server.mjs'))&&(()=>{try{return fs.readFileSync(MARK,'utf8').trim()===app.getVersion()}catch{return false}})());
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+// file by file, so a file the system still holds (antivirus, an engine just closing) is retried instead of ending the copy;
+// the data folder is Code's own and never overwritten. The mark is written only when every file went in.
+async function copyBundled(){fs.mkdirSync(CODE_DIR,{recursive:true});const failed=[];
+ const walk=async rel=>{for(const e of fs.readdirSync(path.join(BUNDLED,rel),{withFileTypes:true})){const r=path.join(rel,e.name);if(/(^|[\\/])data([\\/]|$)/.test(r))continue;
+  if(e.isDirectory()){fs.mkdirSync(path.join(CODE_DIR,r),{recursive:true});await walk(r);continue}if(!e.isFile())continue;
+  for(let i=0;;i++){try{fs.copyFileSync(path.join(BUNDLED,r),path.join(CODE_DIR,r));break}catch(er){if(i>=8||!/EBUSY|EPERM|EACCES|ETXTBSY/.test(er.code||'')){failed.push(r+': '+er.message);break}await wait(250*(i+1))}}}};
+ await walk('');if(failed.length){console.warn('Code copy left '+failed.length+' file(s) old; trying again next start:',failed.slice(0,5).join(' | '));return false}
+ fs.writeFileSync(MARK,app.getVersion());return true}
 const up=()=>new Promise(r=>{const q=http.get({host:'127.0.0.1',port:CODE_PORT,path:'/api/status?quick',timeout:1500},res=>{res.resume();r(res.statusCode===200)});q.on('error',()=>r(false));q.on('timeout',()=>{q.destroy();r(false)})});
-async function startCode(){if(await up())return;copyBundled();
+const run=(cmd,args)=>new Promise(r=>require('node:child_process').execFile(cmd,args,{windowsHide:true,timeout:15000},(e,out)=>r(String(out||''))));
+// the engine answering on CODE_PORT, when it runs from this app's Code folder (never some other program on that port)
+async function enginePid(){const dir=CODE_DIR.toLowerCase();
+ if(process.platform==='win32'){const out=await run('powershell.exe',['-NoProfile','-NonInteractive','-Command',`Get-NetTCPConnection -LocalPort ${CODE_PORT} -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { "$_" + [char]9 + (Get-CimInstance Win32_Process -Filter "ProcessId=$_").CommandLine }`]);
+  for(const l of out.split(/\r?\n/)){const [pid,cmd='']=l.split('\t');if(Number(pid)&&cmd.toLowerCase().includes(dir))return Number(pid)}return 0}
+ for(const pid of (await run('lsof',['-nP','-iTCP:'+CODE_PORT,'-sTCP:LISTEN','-t'])).split(/\s+/).map(Number).filter(Boolean))if((await run('ps',['-o','command=','-p',String(pid)])).toLowerCase().includes(dir))return pid;
+ return 0}
+// an engine from the old version keeps its files open; it has no exit route of its own (its update route waits until idle), so it is ended
+async function stopEngine(){if(server){const s=server;server=null;try{s.kill()}catch{}}
+ else{const pid=await enginePid();if(!pid){console.warn('Code is running on port '+CODE_PORT+' but not from '+CODE_DIR+'; leaving it');return false}try{process.kill(pid)}catch(e){console.warn('could not stop the old Code:',e.message)}}
+ for(let i=0;i<40&&await up();i++)await wait(250);await wait(500);return !(await up())}
+let updating=false;
+async function startCode(){const old=stale();if(await up()){if(!old)return;updating=true;try{if(!await stopEngine())return}finally{updating=false}}
+ if(old){updating=true;try{await copyBundled()}finally{updating=false}}
  server=spawn(process.execPath,[path.join(CODE_DIR,'server.mjs')],{cwd:CODE_DIR,env:{...process.env,ELECTRON_RUN_AS_NODE:'1',HUB_PORT:String(CODE_PORT),CBA_DESKTOP:'1'},stdio:'ignore',windowsHide:true});
- server.on('exit',code=>{server=null;if(!app.isQuitting)setTimeout(()=>startCode().then(attach).catch(()=>{}),code===0?500:3000)});   // updates exit with 0: start the new version
+ const me=server;me.on('exit',code=>{if(server===me)server=null;if(!app.isQuitting&&!updating&&!server)setTimeout(()=>startCode().then(attach).catch(()=>{}),code===0?500:3000)});   // updates exit with 0: start the new version
  for(let i=0;i<60&&!(await up());i++)await new Promise(r=>setTimeout(r,250))}
 // tell Code's engine where the app's browser is (it then uses these tabs instead of a Chrome of its own)
 async function attach(){try{const s=await getJson('/api/session');await postJson('/api/workspace/desktop-attach',{ctl:'http://127.0.0.1:'+ctlPort+'/'+CTL_KEY,debugPort:DEBUG_PORT},s.token)}catch(e){console.warn('attach:',e.message)}}
