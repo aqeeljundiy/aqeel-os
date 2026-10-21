@@ -2,9 +2,9 @@
 function openMenu(el){const k=el.dataset.menu;
  if(k==='convo'){const id=el.dataset.id;const pinned=store.get('pinned',[]);const isPin=pinned.includes(id);
   menu(el,[{label:'Rename',icon:'edit',run:()=>renameSession(id)},{label:isPin?'Unpin':'Pin',icon:'pin',run:()=>{store.set('pinned',isPin?pinned.filter(x=>x!==id):[id,...pinned]);paintSide()}},{label:'Fork',icon:'fork',run:async()=>{Chat.id=id;await Chat.fork()}},{label:'Export JSON',icon:'download',run:()=>ACT['hist-export']({dataset:{id}})},'-',{label:'Delete',icon:'trash',bad:true,run:()=>deleteSession(id)}])}
- if(k==='model'){const ms=Chat.models||[];const cur=Chat.cur();menu(el,[{label:'Default ('+modelLabel(Chat.defaultModel?.id)+')',icon:'cpu',on:!Chat.model,run:()=>Chat.setModel(null)},'-',...ms.map(m=>({label:m.label+' · '+m.providerName,icon:'cpu',on:!!Chat.model&&m.id===cur.id&&m.provider===cur.provider,run:()=>Chat.setModel(m)})),'-',{label:'Sign in to more models…',icon:'key',run:()=>go('/models/models')}])}
- if(k==='effort')menu(el,EFFORTS.map(e=>({label:e[0].toUpperCase()+e.slice(1),on:e===Chat.effort,run:()=>Chat.setEffort(e)})));
- if(k==='workspace'){H('/chat/workspaces').then(w=>{const items=[{label:'Home (~)',icon:'folder',on:!Chat.cwd,run:()=>{Chat.cwd='';store.set('cwd','');Chat.paintComposerBar()}},...[...(w.projects||[]),...(w.repos||[])].map(x=>{const p=x.path||x;return {label:String(p).replace(/^\/home\/claude/,'~'),icon:'folder',on:Chat.cwd===p,run:()=>{Chat.cwd=p;store.set('cwd',p);Chat.paintComposerBar()}}}),'-',{label:'Other path…',icon:'plus',run:async()=>{const p=await promptBox('Folder for new chats','Full path on the box',Chat.cwd||'/home/claude/');if(p){Chat.cwd=p.trim();store.set('cwd',Chat.cwd);Chat.paintComposerBar()}}},{label:'Rescan for repos',icon:'refresh',run:()=>H('/chat/workspaces?scan=1').then(()=>toast('Rescanned'))}];menu(el,items)}).catch(fail)}
+ if(k==='model')Chat.modelMenu(el);
+ if(k==='effort')Chat.effortMenu(el);
+ if(k==='workspace')Chat.workspaceMenu(el);
  if(k==='profile'){const ad=S.me?.admin!==false;H('/profiles').then(pr=>{const cur=ident(S.profile||'default').name;
   const inCode=route().sec?.id==='code'&&typeof CodeUI!=='undefined'&&CodeUI.state==='on';
   const codeAgents=()=>{const c=CodeUI.st;menu(el,[{header:'Code works with'},{label:'No agent',sub:'Code asks the right agent when it needs one',icon:'user',on:!c.agent,run:()=>CodeUI.post({aq:'agent',id:''})},...(c.agents||[]).map(a=>({label:a.name,icon:'user',on:c.agent===a.id,run:()=>CodeUI.post({aq:'agent',id:a.id})}))],{search:(c.agents||[]).length>7})};
@@ -56,10 +56,14 @@ document.addEventListener('click',e=>{
   case 'attach':pickFile('*/*',f=>Chat.addFiles(f),true);break;
   case 'att-zoom':{const d=document.createElement('div');d.className='att-zoom';d.innerHTML=`<img src="${esc(a.src)}" alt="">`;d.onclick=()=>{d.classList.add('out');setTimeout(()=>d.remove(),200)};document.body.append(d);break}
   case 'unattach':{const f=Chat.files[+a.dataset.i];if(f?.blob&&!Chat._sentAtt)setTimeout(()=>URL.revokeObjectURL(f.blob),60000)}Chat.files.splice(+a.dataset.i,1);Chat.paintFiles();break;
-  case 'copymsg':{const t=Chat.live[Chat.id]?.turns[+a.dataset.i];navigator.clipboard.writeText(t?.text||'').then(()=>toast('Reply copied'));break}
-  case 'copycode':navigator.clipboard.writeText(a.closest('.codeblock').querySelector('pre').textContent).then(()=>toast('Code copied'));break;
-  case 'copy-text':navigator.clipboard.writeText(a.dataset.text).then(()=>toast('Copied'));break;
+  case 'copymsg':{const t=Chat.live[Chat.id]?.turns[+a.dataset.i];copyText(t?.text||'','Reply copied');break}
+  case 'copycode':copyText(a.closest('.codeblock').querySelector('pre').textContent,'Code copied');break;
+  case 'copy-text':copyText(a.dataset.text);break;
   case 'retry':Chat.retry();break;
+  case 'side-refresh':Chat.loadSessions();break;
+  case 'chat-reconnect':Chat.reconnect();break;
+  case 'chat-model':{const b=$('[data-menu=model]');if(b)openMenu(b);break}
+  case 'chat-reload':location.reload();break;
   case 'send-mode':Chat.setSendMode(a.dataset.mode);break;
   case 'steer-now':Chat.steerNow();break;
   case 'send-busy':Chat.submit();break;
@@ -91,10 +95,12 @@ async function boot(){
  if(!S.signedIn)return render();
  await loadMe();
  S.profile=store.get('profile','');if(S.me&&!S.me.admin&&!S.me.agents[S.profile||'default']){const first=Object.keys(S.me.agents)[0]||'';S.profile=first==='default'?'':first}
+ Chat.agentPrefs();
  render();
  await Promise.all([loadIdentities(),refreshStatus(),Chat.loadModels(),Chat.loadSessions(),H('/dashboard/plugins').then(p=>S.dashPlugins=p).catch(()=>{})]);
  $$('.agent-name').forEach(e=>e.textContent=AGENT());const msg=$('#msg');if(msg)msg.placeholder=Chat.placeholder();if(S.signedIn&&$('.app')){paintSide();paintTop();placePills();Screen.paint();if(route().chat!==undefined&&route().chat!=='manage')Chat.paintComposerBar()}
  clearInterval(S.statusT);S.statusT=setInterval(()=>{if(!document.hidden)refreshStatus()},30000);
+ clearInterval(S.sessT);S.sessT=setInterval(()=>Chat.tick().catch(()=>{}),20000);
 }
 // Tell the user when a newer aqeelOS was deployed (checked every minute and when the tab comes back).
 const BUILD=document.querySelector('meta[name=build]')?.content;

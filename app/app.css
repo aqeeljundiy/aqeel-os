@@ -1235,6 +1235,36 @@ html{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adjust:10
 .lb-steps{margin:2px 0 0;padding-left:18px;text-align:left;font-size:12.5px;color:#a9adb8;line-height:1.55}.lb-note .spinner+span{margin-top:2px}
 .tabs:not(:has(.pill[style*="width"])) button.on{background:var(--surface);box-shadow:0 1px 2px rgba(11,12,16,.1);border-radius:var(--r-pill)}
 .hist-more{display:flex;justify-content:center;margin:4px 0 14px}.hist-more button{gap:6px;font-size:13px;color:var(--ink-2)}
+/* chat parity: sidebar refresh and error, search hits, system / handoff cards, reasoning cards, reply errors, connection dot */
+.side-refresh{flex:none;width:38px;min-height:38px;color:var(--muted)}.side-err{padding:14px 12px;display:grid;gap:8px;justify-items:start}.side-err .err-line{margin:0}
+.menu [hidden]{display:none!important}
+.menu mark,mark.hit,.hist-snip mark,.hist-peek mark{background:color-mix(in srgb,var(--warn) 26%,transparent);color:inherit;border-radius:3px;padding:0 1px}
+mark.hit.first{animation:hitFlash 1.4s var(--ease)}@keyframes hitFlash{0%,100%{box-shadow:none}30%{box-shadow:0 0 0 3px color-mix(in srgb,var(--warn) 40%,transparent)}}
+.sys-msg{margin:2px 0 10px;font-size:13px;color:var(--muted)}.sys-msg summary{display:inline-flex;align-items:center;gap:6px;cursor:pointer;list-style:none;padding:4px 8px;border-radius:8px;transition:background var(--t-fast)}.sys-msg summary::-webkit-details-marker{display:none}.sys-msg summary:hover{background:var(--soft)}
+.sys-msg summary svg:last-child{transition:transform var(--t-fast)}.sys-msg[open] summary svg:last-child{transform:rotate(90deg)}.sys-msg[open] .sys-body{animation:rise var(--t-med) var(--ease)}
+.sys-body{white-space:pre-wrap;line-height:1.55;color:var(--ink-2);border-left:2px solid var(--border);padding:4px 0 4px 12px;margin:6px 0 0 8px;max-height:320px;overflow:auto;overflow-wrap:anywhere}
+.thread>.sys-msg{align-self:stretch;max-width:780px;width:100%;margin-left:auto;margin-right:auto}
+.rm-card{border:1px solid var(--border);border-radius:12px;padding:8px 12px;margin:8px 0;background:var(--soft-2)}.rm-card .rm-l{display:block;font-size:11.5px;font-weight:600;color:var(--muted);margin-bottom:2px}.rm-card.result{background:color-mix(in srgb,var(--ok) 7%,var(--surface))}.rm-card>p:last-child{margin-bottom:0}
+.err-box{margin-top:6px}.err-box .err-line{margin:0}.err-acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.err-acts button{min-height:32px;padding:0 10px;font-size:12.5px;gap:6px}
+.step-id{display:block;padding:6px 12px 0 34px;font-size:11.5px;color:var(--muted)}
+.conn{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);padding:0 4px;animation:fade var(--t-med) var(--ease)}.conn i{width:7px;height:7px;border-radius:50%;background:var(--muted);flex:none}
+.conn.live i{background:var(--ok)}.conn.connecting i,.conn.reconnecting i{background:var(--warn);animation:pulse 1.2s ease-in-out infinite}.conn.lost i{background:var(--bad)}.conn.lost{color:var(--bad)}
+.pick.fallback{color:var(--warn)}
+@media (max-width:760px){.conn span{display:none}}
+/* Manage chats: total, clear search, channel picker, live, snippets, rows that open in place */
+.hist-total{font-size:13px;color:var(--muted);white-space:nowrap}
+.search .s-clear{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:30px;min-height:30px;color:var(--muted)}.search:has(.s-clear) input{padding-right:40px}.toolbar .search .s-clear svg{position:static;transform:none}.hist-total~.search{min-width:200px}
+.row .txt b .hist-live{display:inline-flex;white-space:nowrap;align-items:center;gap:4px;margin-left:8px;font-size:11.5px;font-weight:500;color:var(--ok);vertical-align:1px}.hist-live .dot{width:6px;height:6px;border-radius:50%;background:var(--ok);animation:pulse 1.6s ease-in-out infinite}
+.hist-snip{display:block;font-size:12.5px;color:var(--ink-2);white-space:normal;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;margin-top:2px}
+.hist-x{flex:none;width:28px;min-height:28px;color:var(--muted)}.hist-x svg{transition:transform var(--t-fast) var(--ease)}.hist-x.on svg{transform:rotate(90deg)}
+.hist-peek{padding:4px 12px 12px 56px;border-top:1px solid var(--border);animation:rise var(--t-med) var(--ease)}.hist-peek.out{animation:fadeOut .2s var(--ease) forwards}
+.hp-list{max-height:420px;overflow:auto;display:grid;gap:10px;padding:8px 4px 4px;font-size:13.5px;line-height:1.55}
+.hp-u,.hp-a{min-width:0;overflow-wrap:anywhere}.hp-who{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:2px}.hp-a small{font-size:11.5px;color:var(--muted)}.hp-u>div{background:var(--soft-2);border-radius:12px;padding:8px 12px;display:inline-block;max-width:100%}
+.hp-s{font-size:12px;color:var(--muted);font-style:italic}.hp-foot{display:flex;justify-content:flex-end;margin-top:8px}.hp-foot button{min-height:32px;font-size:12.5px;gap:6px}
+.hist-page{display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;margin-top:14px}
+.pr-days{display:flex;align-items:center;gap:10px}.pr-days input{width:120px}.pr-days span{color:var(--ink-2)}
+.status-alert{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;margin-bottom:12px;border-color:color-mix(in srgb,var(--bad) 30%,var(--border));background:color-mix(in srgb,var(--bad) 6%,var(--surface));animation:rise var(--t-med) var(--ease)}.status-alert>svg{color:var(--bad);flex:none;margin-top:2px}.status-alert b{display:block;font-weight:600}.status-alert span{display:block;color:var(--ink-2);font-size:13.5px;overflow-wrap:anywhere}
+@media (max-width:760px){.hist-peek{padding-left:12px}.hist-x{width:40px;min-height:40px}}
 .lb-mirror img[hidden]{display:none!important}
 /* in the small floating window the message stays short so its button fits */
 .screen-float .lb-note{padding:12px 14px;gap:5px}.screen-float .lb-note b{font-size:13.5px}.screen-float .lb-note span{font-size:11.5px}

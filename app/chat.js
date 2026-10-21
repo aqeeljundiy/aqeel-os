@@ -1,7 +1,12 @@
 // Claude-style chat on top of Hermes: conversation list (dashboard API), history, and live turns
 // streamed from the gateway's session-chat SSE endpoint, with tool cards, approvals, stop and steer.
-const EFFORTS=['low','medium','high','xhigh','max'];
-const AUTOMATION_SOURCES=['cron','api_server_runs','tool','acp','webhook'];
+const EFFORTS=['none','minimal','low','medium','high','xhigh','max','ultra'];
+const EFFORT_LABEL={none:'Off',minimal:'Minimal',low:'Low',medium:'Medium',high:'High',xhigh:'Extra high',max:'Max',ultra:'Ultra'};
+const AUTOMATION_SOURCES=['cron','api_server_runs','tool','acp','webhook','oneshot','hermes_flow','vulcan_delegate'];
+// the engine's context-compaction handoff (kept in sync with its context compressor)
+const COMPACT_PREFIXES=['[CONTEXT COMPACTION — REFERENCE ONLY]','[CONTEXT COMPACTION - REFERENCE ONLY]','[CONTEXT SUMMARY]:'];
+const COMPACT_END='--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---';
+const CONN_TEXT={connecting:'Connecting…',live:'Live',reconnecting:'Reconnecting…',lost:'Connection lost'};
 // Where a chat came from, said plainly on hover.
 /* what you have seen: per agent, each chat's last activity when you last had it open (in this browser) */
 const ChatSeen={k:()=>'chatSeen:'+(S.profile||'default'),
@@ -17,6 +22,11 @@ const Chat={
  live:{},        // sessionId → {turns, running, runId, abort}
  cwd:store.get('cwd',''),
  sendMode:store.get('sendMode','steer'),   // while busy: 'steer' (into the running reply) or 'queue' (after it)
+ // folder and effort are kept per agent; an agent's effort starts at its saved default until the person picks one
+ agentPrefs(){const k=S.profile||'default';this.cwd=store.get('cwd:'+k,k==='default'?store.get('cwd',''):'');const e=store.get('effort:'+k,null);
+  if(EFFORTS.includes(e))this.effort=e;else{this.effort=EFFORTS.includes(store.get('effort','medium'))?store.get('effort','medium'):'medium';
+   H('/config',{keep:true}).then(c=>{const v=String(c?.agent?.reasoning_effort||'').trim().toLowerCase();if(EFFORTS.includes(v)&&!store.get('effort:'+k,null)&&(S.profile||'default')===k&&v!==this.effort){this.effort=v;this.paintComposerBar()}}).catch(()=>{})}},
+ setCwd(p){this.cwd=p||'';store.set('cwd:'+(S.profile||'default'),this.cwd);this.paintComposerBar()},
 
  /* ---------- sidebar ---------- */
  sidebar(r){
@@ -27,39 +37,68 @@ const Chat={
   /* each row: where it came from (always), a ring while the agent is really working, a dot when something is new */
   const now=Date.now()/1000;if(r.chat)ChatSeen.mark(r.chat,S.sessions.find(x=>x.id===r.chat)?.last_active);
   const row=c=>{const working=this.live[c.id]?.running||(c.is_active&&now-(c.last_active||0)<120);const unread=!working&&r.chat!==c.id&&ChatSeen.isNew(c);const from=SRC_LABEL[c.source]||('From '+pretty(c.source||'this app'));
-   return `<button class="item ${r.chat===c.id?'on':''} ${unread?'unread':''}" data-go="/chat/${esc(c.id)}"><span class="src ${working?'working':''}" title="${esc(from+(working?' · working now':unread?' · new since you last looked':''))}">${icon(srcIcon(c.source),14)}</span><span class="t">${esc(c.title||c.preview||'Untitled chat')}</span>${unread?'<i class="unread-dot" aria-label="New"></i>':''}<span class="more" role="button" tabindex="0" data-menu="convo" data-id="${esc(c.id)}" aria-label="More">${icon('more',16)}</span></button>`};
-  const body=!S.sessionsLoaded?'<div class="skel skel-row" style="height:30px;margin:12px 10px"></div>'.repeat(5):list.length?`${pins.length?`<div class="group-label">Pinned</div>${pins.map(row).join('')}`:''}${Object.entries(groups).map(([g,l])=>`<div class="group-label">${g}</div>${l.map(row).join('')}`).join('')}`:`<p style="padding:16px 12px;color:var(--muted);font-size:13px">${q?'No chats match.':'No chats yet.'}</p>`;
-  return `<div class="side-sub"><div style="padding:12px 12px 8px"><button style="width:100%" data-act="new">${icon('plus',16)}New chat</button></div>
+   const tip=[ago(c.last_active||c.started_at),c.message_count!=null?plural(c.message_count,'message'):''].filter(Boolean).join(' · ');
+   return `<button class="item ${r.chat===c.id?'on':''} ${unread?'unread':''}" data-go="/chat/${esc(c.id)}" title="${esc(tip)}"><span class="src ${working?'working':''}" title="${esc(from+(working?' · working now':unread?' · new since you last looked':''))}">${icon(srcIcon(c.source),14)}</span><span class="t">${esc(c.title||c.preview||'Untitled chat')}</span>${unread?'<i class="unread-dot" aria-label="New"></i>':''}<span class="more" role="button" tabindex="0" data-menu="convo" data-id="${esc(c.id)}" aria-label="More">${icon('more',16)}</span></button>`};
+  const body=S.sessionsErr&&!S.sessions.length?`<div class="side-err"><p class="err-line">${icon('alert',14)} Couldn't load chats</p><button class="ghost" data-act="side-refresh">${icon('refresh',14)}Try again</button></div>`:!S.sessionsLoaded?'<div class="skel skel-row" style="height:30px;margin:12px 10px"></div>'.repeat(5):list.length?`${pins.length?`<div class="group-label">Pinned</div>${pins.map(row).join('')}`:''}${Object.entries(groups).map(([g,l])=>`<div class="group-label">${g}</div>${l.map(row).join('')}`).join('')}`:`<p style="padding:16px 12px;color:var(--muted);font-size:13px">${q?'No chats match.':'No chats yet.'}</p>`;
+  return `<div class="side-sub"><div style="padding:12px 12px 8px;display:flex;gap:6px"><button style="flex:1" data-act="new">${icon('plus',16)}New chat</button><button class="ghost icon side-refresh" data-act="side-refresh" title="Refresh the chat list" aria-label="Refresh the chat list">${icon('refresh',16)}</button></div>
    <div class="side-search">${icon('search',15)}<input id="chatSearch" placeholder="Search chats" aria-label="Search chats" value="${esc(S.search)}"></div>
    <div style="padding:0 12px 6px"><div class="tabs" data-tabs="chatFilter" style="margin:0;display:flex">${[['chats','Chats'],['automation','Scheduled runs'],['all','All']].map(([k,l])=>`<button class="${S.chatFilter===k?'on':''}" data-tab="${k}" style="flex:1;padding:6px 8px;font-size:12.5px">${l}</button>`).join('')}<span class="pill"></span></div></div>
    <div class="side-list">${body}</div>
    <div style="padding:6px 10px 10px;border-top:1px solid var(--border)"><button class="item ${r.chat==='manage'?'on':''}" data-go="/chat/manage">${icon('list',16)}<span class="t">Manage chats</span><span class="n">${S.sessionsTotal??''}</span></button></div></div>`;
  },
- async loadSessions(){
-  try{const d=await H('/sessions'+qp({limit:100,offset:0,order:'recent'}));const noTools=s=>String(s||'').replace(/^\[Use these tools for this: [^\]]*\]\s*/,'');S.sessions=(d.sessions||[]).map(x=>({...x,preview:noTools(x.preview),title:noTools(x.title)}));S.sessionsTotal=d.total;S.sessionsLoaded=true}catch(e){S.sessionsLoaded=true;fail(e)}
-  if(route().sec.id==='chat'&&$('.side')){paintSide();placePills()}
+ async loadSessions(quiet){
+  try{const d=await H('/sessions'+qp({limit:100,offset:0,order:'recent'}),{keep:quiet});const noTools=s=>String(s||'').replace(/^\[Use these tools for this: [^\]]*\]\s*/,'');S.sessions=(d.sessions||[]).map(x=>({...x,preview:noTools(x.preview),title:noTools(x.title)}));S.sessionsTotal=d.total;S.sessionsLoaded=true;S.sessionsErr=null}catch(e){if(e?.stale)return;S.sessionsLoaded=true;S.sessionsErr=e;if(!quiet&&S.sessions.length)fail(e)}
+  if(route().sec.id==='chat'&&$('.side')){const f=document.activeElement?.id==='chatSearch'?document.activeElement.selectionStart:null,top=$('.side-list')?.scrollTop||0;paintSide();placePills();if($('.topbar'))paintTop();const sl=$('.side-list');if(sl&&top)sl.scrollTop=top;
+   if(f!=null){const i=$('#chatSearch');if(i&&document.activeElement!==i){i.focus();i.setSelectionRange(f,f)}}}
  },
+ // every 20 s while the chat is on screen: the list catches chats started elsewhere (channels, schedules, other tabs);
+ // Manage chats redraws only when its newest chat changed and nothing is selected or opened there
+ async tick(){if(document.hidden||!S.signedIn)return;const r=route();if(r.sec?.id!=='chat')return;await this.loadSessions(true);
+  if(r.chat==='manage'&&!S.histQ&&!$$('.pick-row:checked').length&&!$('.hist-peek')){const h=S.sessions[0]?(S.sessions[0].id+'@'+S.sessions[0].last_active+'#'+S.sessionsTotal):'';if(Pages._histHead!==undefined&&h!==Pages._histHead&&$('#pg'))Pages.manageChats($('#view'),{soft:true});Pages._histHead=h}},
 
  /* ---------- models ---------- */
  async loadModels(){
   try{const d=await G('/api/model/options');const out=[];
    for(const p of d.providers||[]){if(!usableProvider(p))continue;for(const m of p.models||[])out.push({id:m,provider:p.slug,providerName:provLabel(p),label:modelLabel(m),reasoning:p.capabilities?.[m]?.reasoning!==false,current:p.is_current&&m===d.model})}
    this.usage=Object.fromEntries((d.providers||[]).filter(p=>p.usage?.windows?.length).map(p=>[p.slug,p.usage.windows]));this.defProv=d.provider;
+   this.provWarn=Object.fromEntries((d.providers||[]).filter(p=>p.warning).map(p=>[p.slug,String(p.warning)]));this.modelsErr=null;
    // Current provider first, then everything else signed in.
    out.sort((a,b)=>(b.provider===d.provider)-(a.provider===d.provider));
    this.models=out;this.defaultModel={id:d.model,provider:d.provider};S.model=d.model;
    if(!this.model||!out.some(m=>m.id===this.model.id&&m.provider===this.model.provider))this.model=null;
-  }catch(e){this.models=[]}
+  }catch(e){this.modelsErr=e;if(!this.models)this.models=[]}
  },
  cur(){return this.model||this.defaultModel||{}},
  setModel(m){this.model=m?{id:m.id,provider:m.provider}:null;store.set('model',this.model);this.paintComposerBar();toast('Model: '+(m?m.label:'default'))},
- setEffort(e){this.effort=e;store.set('effort',e);this.paintComposerBar()},
+ setEffort(e){this.effort=e;store.set('effort:'+(S.profile||'default'),e);this.paintComposerBar()},
+ // the composer's model list: one group per account ("Provider (n models)"), its warning under it, searchable by name, id or account
+ modelMenu(el){const ms=this.models||[],cur=this.cur(),ad=!S.me||S.me.admin;
+  if(!ms.length&&this.modelsErr)return menu(el,[{header:"Couldn't load models"},{label:'Try again',icon:'refresh',run:()=>this.reloadModels()}]);
+  if(!ms.length)return menu(el,[{header:'No models yet: add a key or sign in'},...(ad?[{label:'Add a key',icon:'key',run:()=>go('/system/keys')},{label:'Sign in to a model',icon:'user',run:()=>go('/models/models')}]:[]),{label:'Refresh models',icon:'refresh',run:()=>this.reloadModels()}]);
+  const groups=new Map();for(const m of ms){if(!groups.has(m.provider))groups.set(m.provider,[]);groups.get(m.provider).push(m)}
+  const items=[{label:'Default ('+modelLabel(this.defaultModel?.id)+')',icon:'cpu',on:!this.model,run:()=>this.setModel(null)}];
+  for(const [slug,l] of groups){items.push('-',{header:l[0].providerName+' ('+plural(l.length,'model')+')',title:slug});if(this.provWarn?.[slug])items.push({label:this.provWarn[slug],icon:'alert',disabled:true,find:slug});
+   items.push(...l.map(m=>({label:m.label,title:m.id,find:m.id+' '+slug+' '+m.providerName,icon:'cpu',on:!!this.model&&m.id===cur.id&&m.provider===cur.provider,run:()=>this.setModel(m)})))}
+  items.push('-',{label:'Refresh models',icon:'refresh',run:()=>this.reloadModels()},...(ad?[{label:'Sign in to more models…',icon:'key',run:()=>go('/models/models')}]:[]));
+  menu(el,items,{search:ms.length>8})},
+ async reloadModels(){const b=$('[data-menu=model]');b?.classList.add('is-busy');await this.loadModels();this.paintComposerBar();const n=$('[data-menu=model]');if(n)this.modelMenu(n);if(this.modelsErr)toast("Couldn't load models: "+(this.modelsErr.message||this.modelsErr),'err')},
+ effortMenu(el){menu(el,[{header:'How hard it thinks'},...EFFORTS.map(e=>({label:EFFORT_LABEL[e],sub:e==='none'?'No thinking: fastest':e==='ultra'?'The most thinking the model allows':'',on:e===this.effort,run:()=>this.setEffort(e)}))])},
+ // the folder a new chat starts in: the agent's projects (one row per folder) and repositories it found, newest first
+ async workspaceMenu(el,w){if(!w){try{w=await H('/chat/workspaces')}catch(e){return fail(e)}}
+  const home=String(w.home||'/home/claude').replace(/\/+$/,''),short=p=>{p=String(p||'');return p===home?'~':p.startsWith(home+'/')?'~'+p.slice(home.length):p};
+  const seen=new Set(),projs=[],repos=[],row=(label,p)=>({label,sub:short(p),find:p,icon:'folder',on:this.cwd===p,run:()=>this.setCwd(p)});
+  for(const pj of w.projects||[]){if(pj.archived)continue;const fs=(pj.folders||[]).length?pj.folders:pj.primary_path?[{path:pj.primary_path}]:[];
+   for(const f of fs){const p=typeof f==='string'?f:f.path;if(!p||seen.has(p))continue;seen.add(p);projs.push(row((pj.name||short(p))+(fs.length>1?' · '+(f.label||short(p)):''),p))}}
+  for(const r of [...(w.repos||[])].sort((a,b)=>(b.last_active||0)-(a.last_active||0))){const p=typeof r==='string'?r:r.root||r.path;if(!p||seen.has(p))continue;seen.add(p);repos.push(row(r.label||short(p).split('/').pop(),p))}
+  menu(el,[{label:'Home ('+short(w.default_cwd||home)+')',icon:'folder',on:!this.cwd,run:()=>this.setCwd('')},...(projs.length?['-',{header:'Projects'},...projs]:[]),...(repos.length?['-',{header:'Repositories'},...repos]:[]),
+   '-',{label:'Other path…',icon:'plus',run:async()=>{const p=await promptBox('Folder for new chats','Full path on the box',this.cwd||home+'/');if(p)this.setCwd(p.trim())}},
+   {label:'Rescan for repos',icon:'refresh',run:async()=>{el.classList.add('is-busy');try{const d=await H('/chat/workspaces?scan=1');el.classList.remove('is-busy');const n=(d.repos||[]).length;toast('Found '+n+' '+(n===1?'repository':'repositories'));if(el.isConnected)this.workspaceMenu(el,d)}catch(e){el.classList.remove('is-busy');fail(e)}}}],{search:projs.length+repos.length>8})},
 
  /* ---------- view ---------- */
  view(el,id){
   if(id==='manage')return Pages.manageChats(el);
   if(this.id!==id&&this.files.length){for(const f of this.files)if(f.blob)URL.revokeObjectURL(f.blob);this.files=[]}
-  this.id=id;
+  this.id=id;this._hit=S.chatHit&&S.chatHit.id===id?S.chatHit:null;S.chatHit=null;
   el.innerHTML=`<div class="chat"><div class="chat-scroll" id="scroll">${id?'<div class="thread" id="thread"><div class="skel" style="height:60px;width:60%;align-self:flex-end"></div><div class="skel" style="height:120px"></div></div>':this.emptyHtml()}</div><div id="secretSlot" class="secret-slot"></div>${this.composerHtml()}</div>`;Secrets.check();
   this.bindComposer();this.paintQueue();
   if(id){const c=(S.sessions||[]).find(x=>x.id===id),s=this.live[id];if(s&&(s.running||!c||!s.seenAt||(c.last_active||0)<=s.seenAt))this.paint();else this.loadHistory(id)}
@@ -85,8 +124,12 @@ const Chat={
   const tip=ws.map(w=>`${w.label}: ${Math.round(w.used_percent||0)}% used${w.resets_at?' · resets '+when(w.resets_at):''}`).join('\n');const c=u>=90?'bad':u>=70?'warn':'ok';const R=7,L=2*Math.PI*R;
   return `<button class="meter ${c}" data-act="meter-card" title="${esc(tip)}" aria-label="${u}% of this account's limit used"><svg width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="${R}" class="trk"/><circle cx="9" cy="9" r="${R}" class="val" stroke-dasharray="${L}" stroke-dashoffset="${L*(1-u/100)}"/></svg><span>${u}%</span></button>`},
  refreshUsage(){clearTimeout(this._uT);this._uT=setTimeout(async()=>{await this.loadModels().catch(()=>{});const m=$('.meter');if(m){const t=document.createElement('div');t.innerHTML=this.meterHtml();const n=t.firstElementChild;if(n)m.replaceWith(n)}},1500)},
- barHtml(){const running=this.live[this.id]?.running;const m=this.cur();const known=(this.models||[]).find(x=>x.id===m.id&&x.provider===m.provider);
-  return `<span class="cb-l"><button class="ghost icon" data-act="attach" title="Attach pictures, videos or files" aria-label="Attach files">${icon('clip',18)}</button><button class="ghost icon" data-act="secret-give" title="Send a password or key securely" aria-label="Send a password or key securely">${icon('lock',18)}</button>${this.canTools()?`<button class="ghost icon ${this.tools.length?'on':''}" data-menu="chat-tools" title="Use a tool" aria-label="Use a tool">${icon('plug',18)}</button>`:''}<span id="voiceSlot" class="voice-slot">${Voice.btn()}</span>${this.id||(S.me&&!S.me.admin)?'':`<button class="pick" data-menu="workspace" title="Folder for this chat">${icon('folder',15)}<span>${esc(this.cwd?this.cwd.replace(/^\/home\/claude/,'~'):'~')}</span></button>`}</span><span class="cb-r">${this.permBtn()}<button class="pick" data-menu="model">${esc(known?known.label:modelLabel(m.id))}${icon('chevD',14)}</button>${this.meterHtml()}${(!known||known.reasoning)?`<button class="pick" data-menu="effort"><span>Effort </span>${esc(this.effort)}${icon('chevD',14)}</button>`:''}
+ barHtml(){const s=this.live[this.id],running=s?.running;const m=this.cur();const known=(this.models||[]).find(x=>x.id===m.id&&x.provider===m.provider);
+  // the engine answered on another model than the one chosen (it fell back): the pill says so while the reply runs
+  const rm=running&&s.runModel&&m.id&&s.runModel!==m.id&&modelLabel(s.runModel)!==modelLabel(m.id)?s.runModel:'';
+  const folder=S.me&&!S.me.admin?'':!this.id?`<button class="pick" data-menu="workspace" title="Folder for this chat">${icon('folder',15)}<span>${esc(this.cwd?this.cwd.replace(/^\/home\/claude/,'~'):'~')}</span></button>`:`<button class="ghost icon" data-menu="workspace" title="Folder for new chats: ${esc(this.cwd?this.cwd.replace(/^\/home\/claude/,'~'):'~')} (this chat keeps its own)" aria-label="Folder for new chats">${icon('folder',17)}</button>`;
+  const conn=s?.conn&&(s.conn!=='live'||running)?`<span class="conn ${s.conn}" role="status" title="${esc(CONN_TEXT[s.conn])}"><i></i><span>${s.conn==='live'?'':esc(CONN_TEXT[s.conn])}</span></span>`:'';
+  return `<span class="cb-l"><button class="ghost icon" data-act="attach" title="Attach pictures, videos or files" aria-label="Attach files">${icon('clip',18)}</button><button class="ghost icon" data-act="secret-give" title="Send a password or key securely" aria-label="Send a password or key securely">${icon('lock',18)}</button>${this.canTools()?`<button class="ghost icon ${this.tools.length?'on':''}" data-menu="chat-tools" title="Use a tool" aria-label="Use a tool">${icon('plug',18)}</button>`:''}<span id="voiceSlot" class="voice-slot">${Voice.btn()}</span>${folder}</span><span class="cb-r">${conn}${this.permBtn()}<button class="pick ${rm?'fallback':''}" data-menu="model" ${rm?`title="${esc('This reply runs on '+modelLabel(rm)+': the chosen model was not available')}"`:''}>${esc(rm?modelLabel(rm)+' (fallback)':known?known.label:modelLabel(m.id))}${icon('chevD',14)}</button>${this.meterHtml()}${(!known||known.reasoning)?`<button class="pick" data-menu="effort"><span>Effort </span>${esc(EFFORT_LABEL[this.effort]||this.effort)}${icon('chevD',14)}</button>`:''}
   ${running?`<button class="pick busy-mode" data-act="send-mode" data-mode="${this.sendMode==='queue'?'steer':'queue'}" title="${this.sendMode==='queue'?'Queue: your message waits until this reply is done. Click to steer instead.':'Steer: your message joins the reply in progress. Click to queue instead.'}">${icon(this.sendMode==='queue'?'clock':'wand',14)}<span>${this.sendMode==='queue'?'Queue':'Steer'}</span></button><button class="ghost icon" data-act="send-busy" title="${this.sendMode==='queue'?'Queue (Enter)':'Steer (Enter)'}" aria-label="${this.sendMode==='queue'?'Queue message':'Steer'}">${icon('send',17)}</button>`:''}<button class="primary send ${running?'stop':''}" id="send" aria-label="${running?'Stop':'Send'}" title="${running?'Stop (Esc)':'Send (Enter)'}">${icon(running?'stop':'send',18)}</button></span>`},
  // per-chat permission level, kept in this browser: 'Ask me' (default) or 'Allow all' (auto-approve)
  allowAll(id){return !!id&&store.get('allowAll:'+id,false)},
@@ -155,18 +198,22 @@ const Chat={
   }catch(e){if(this.id===id)showError($('#scroll'),e)}
  },
  toTurns(msgs){const turns=[];let ai=null;const byCall={};
-  for(const m of msgs){if(m.active===0)continue;
+  for(let m of msgs){if(m.active===0)continue;
+   // a context handoff (the engine summarised the chat so far) shows as its own folded card; a reply merged after it stays a reply
+   if(typeof m.content==='string'&&COMPACT_PREFIXES.some(p=>m.content.trimStart().startsWith(p))){const at=m.content.indexOf(COMPACT_END);turns.push({role:'handoff',text:(at<0?m.content:m.content.slice(0,at)).trim(),at:m.timestamp});ai=null;
+    const rest=at<0?'':m.content.slice(at+COMPACT_END.length).replace(/^\s+/,'');if(!rest)continue;m={...m,content:rest}}
    if(m.role==='user'){ai=null;let text=typeof m.content==='string'?m.content:this.contentText(m.content);text=text.replace(/\[image\]/g,'');const imgs=Array.isArray(m.content)?m.content.filter(p=>p.type==='image_url').map(p=>p.image_url?.url||p.image_url).filter(u=>typeof u==='string'&&/^(data:image|https?:|\/)/.test(u)):[];
     // a steer is saved inside the engine's "[OUT-OF-BAND USER MESSAGE …]" frame (for the model); show what was typed, as a steer
     const st=/^\s*\[OUT-OF-BAND USER MESSAGE[^\]]*\]\s*([\s\S]*?)\s*(?:\[\/OUT-OF-BAND USER MESSAGE\])?\s*$/.exec(text);
-    if(st||m.display_kind==='steer'){turns.push({role:'user',text:st?st[1]:text,steer:'delivered'});continue}
-    turns.push({role:'user',text,imgs,images:imgs.length});continue}
-   if(m.role==='system')continue;
+    if(st||m.display_kind==='steer'){turns.push({role:'user',text:st?st[1]:text,steer:'delivered',at:m.timestamp});continue}
+    turns.push({role:'user',text,imgs,images:imgs.length,at:m.timestamp});continue}
+   if(m.role==='system'){const t=this.contentText(m.content).trim();if(t){if(ai)(ai.sys??=[]).push(t);else turns.push({role:'sys',text:t,at:m.timestamp})}continue}
    if(!ai){ai={role:'ai',steps:[],text:'',think:''};turns.push(ai)}
    if(m.role==='assistant'){const r=m.reasoning_content||m.reasoning;if(r&&typeof r==='string')ai.think+=(ai.think?'\n\n':'')+r;
-    for(const tc of m.tool_calls||[]){let args={};try{args=JSON.parse(tc.function?.arguments||'{}')}catch{}const s={tool:tc.function?.name||'tool',args,sum:this.summary(tc.function?.name,args),out:'',done:true};ai.steps.push(s);byCall[tc.id||tc.call_id]=s}
+    // arguments that are not valid JSON stay readable as they were sent
+    for(const tc of m.tool_calls||[]){const raw=tc.function?.arguments;let args={};if(raw&&typeof raw==='object')args=raw;else try{args=JSON.parse(raw||'{}')}catch{args={_raw:String(raw)}}const s={tool:tc.function?.name||'tool',args,sum:this.summary(tc.function?.name,args),out:'',done:true,at:m.timestamp,callId:tc.id||tc.call_id||''};ai.steps.push(s);byCall[tc.id||tc.call_id]=s}
     const t=this.contentText(m.content);if(t)ai.text+=(ai.text?'\n\n':'')+t;if(m.finish_reason==='stop'&&m.timestamp)ai.meta=new Date(m.timestamp*1000).toLocaleString([], {hour:'2-digit',minute:'2-digit',day:'numeric',month:'short'})}
-   if(m.role==='tool'){const s=byCall[m.tool_call_id];const out=this.toolOut(m.content);if(s){s.out=out;s.failed=/"error":\s*"(?!null)|BLOCKED:/.test(String(m.content||''))}else ai.steps.push({tool:m.tool_name||'tool',sum:m.tool_name||'tool',out,done:true})}
+   if(m.role==='tool'){const s=byCall[m.tool_call_id];const out=this.toolOut(m.content);if(s){s.out=out;s.failed=/"error":\s*"(?!null)|BLOCKED:/.test(String(m.content||''))}else ai.steps.push({tool:m.tool_name||'tool',sum:m.tool_name||'tool',out,done:true,at:m.timestamp,callId:m.tool_call_id||''})}
   }return turns},
  contentText(c){if(c==null)return '';if(typeof c==='string')return c;if(Array.isArray(c))return c.map(p=>p.text||(p.type==='image_url'?'[image]':'')).join('');return String(c)},
  toolOut(c){const s=this.contentText(c);try{const j=JSON.parse(s);if(j&&typeof j==='object'){if('output' in j)return String(j.output??'')+(j.error?'\n'+j.error:'');return JSON.stringify(j,null,2)}}catch{}return s},
@@ -190,11 +237,24 @@ const Chat={
   th.querySelectorAll('.step[data-k]').forEach(x=>{if(opening||seen.k.has(x.dataset.k))x.classList.add('still');seen.k.add(x.dataset.k)});
   keep.forEach(k=>th.querySelector(`.step[data-k="${k}"]`)?.classList.add('open'));
   // jump, never glide: the chat area scrolls smoothly for people, but placing the view must be instant
-  if((follow&&atBottom||opening)&&sc){sc.style.scrollBehavior='auto';sc.scrollTop=sc.scrollHeight;if(opening)requestAnimationFrame(()=>{sc.scrollTop=sc.scrollHeight;requestAnimationFrame(()=>{sc.scrollTop=sc.scrollHeight;sc.style.scrollBehavior=''})});else sc.style.scrollBehavior=''}},
+  if((follow&&atBottom||opening)&&sc&&!this._hit){sc.style.scrollBehavior='auto';sc.scrollTop=sc.scrollHeight;if(opening)requestAnimationFrame(()=>{sc.scrollTop=sc.scrollHeight;requestAnimationFrame(()=>{sc.scrollTop=sc.scrollHeight;sc.style.scrollBehavior=''})});else sc.style.scrollBehavior=''}
+  if(this._hit)this.markHits()},
+ // opened from a search: the words found are marked in the messages and the view jumps to the first one
+ markHits(){const h=this._hit,th=$('#thread'),s=this.live[this.id];if(!h||!th||!s||h.id!==this.id)return;
+  const words=[...new Set(String(h.q||'').toLowerCase().replace(/["*()^:]/g,' ').split(/\s+/).filter(w=>w.length>1&&!/^(and|or|not|near)$/.test(w)))];if(!words.length){this._hit=null;return}
+  const re=new RegExp(words.map(w=>w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).sort((a,b)=>b.length-a.length).join('|'),'gi');let first=null;
+  for(const box of th.querySelectorAll('.text.md,.u-text')){const tw=document.createTreeWalker(box,NodeFilter.SHOW_TEXT,{acceptNode:n=>n.parentElement.closest('mark,pre,code,button')?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT});const ns=[];while(tw.nextNode())ns.push(tw.currentNode);
+   for(const n of ns){const t=n.nodeValue;re.lastIndex=0;if(!re.test(t))continue;re.lastIndex=0;const f=document.createDocumentFragment();let i=0,m;while((m=re.exec(t))){f.append(t.slice(i,m.index));const k=document.createElement('mark');k.className='hit';k.textContent=m[0];f.append(k);first??=k;i=m.index+m[0].length}f.append(t.slice(i));n.replaceWith(f)}}
+  if(!first&&s.more&&!h.deeper){h.deeper=true;return this.loadHistory(this.id,true)}
+  this._hit=null;const sc=$('#scroll');if(!first){if(sc)sc.scrollTop=sc.scrollHeight;return toast('The words you searched for are not in the messages shown here')}
+  setTimeout(()=>{if(!first.isConnected)return;if(sc)sc.style.scrollBehavior='auto';first.scrollIntoView({block:'center'});first.classList.add('first');if(sc)requestAnimationFrame(()=>sc.style.scrollBehavior='')},60)},
  turnHtml(t,i,s){
-  if(t.role==='user')return `<div class="msg user">${this.userHtml(t.text,t)}${t.images&&!(t.imgs||[]).length?`<span class="attach">${icon('clip',12)} ${plural(t.images,'image')}</span>`:''}</div>${t.steer&&t.steer!=='delivered'?`<div class="steer-meta ${t.steer}">${t.steer==='failed'?icon('alert',12)+esc(t.err||'Not delivered'):t.steer==='sending'?'Sending…':`<span class="sm-hint" title="${esc(AGENT())} reads it as soon as the step it is on finishes, without stopping its work">In the reply in progress</span><button class="steer-now" data-act="steer-now" title="Stops the step it is on and sends this message right away">Send now</button>`}</div>`:''}`;
-  const last=i===s.turns.length-1;if(!last&&!t.text&&!(t.steps||[]).length&&!t.think&&!t.approval&&!t.error)return '';
-  const think=t.think?`<button class="think" data-act="think" data-i="${i}" aria-expanded="${!!t.thinkOpen}">${icon('brain',15)}${s.running&&last&&!t.text?'Thinking…':'Thought'}${t.thinkSecs?' for '+t.thinkSecs+' s':''}${icon('chevR',14)}</button><div class="think-body" ${t.thinkOpen?'':'hidden'}>${esc(t.think)}</div>`:'';
+  if(t.role==='sys'||t.role==='handoff')return `<details class="sys-msg ${t.role}"${t.at?` title="${esc(msgStamp(t.at))}"`:''}><summary>${icon(t.role==='handoff'?'layers':'sliders',14)}${t.role==='handoff'?'Context handoff: the chat so far, summarised':'System message'}${icon('chevR',13)}</summary><div class="sys-body">${esc(t.text)}</div></details>`;
+  if(t.role==='user')return `<div class="msg user"${t.at?` title="${esc(msgStamp(t.at))}"`:''}>${this.userHtml(t.text,t)}${t.images&&!(t.imgs||[]).length?`<span class="attach">${icon('clip',12)} ${plural(t.images,'image')}</span>`:''}</div>${t.steer&&t.steer!=='delivered'?`<div class="steer-meta ${t.steer}">${t.steer==='failed'?icon('alert',12)+esc(t.err||'Not delivered'):t.steer==='sending'?'Sending…':`<span class="sm-hint" title="${esc(AGENT())} reads it as soon as the step it is on finishes, without stopping its work">In the reply in progress</span><button class="steer-now" data-act="steer-now" title="Stops the step it is on and sends this message right away">Send now</button>`}</div>`:''}`;
+  const last=i===s.turns.length-1;if(!last&&!t.text&&!(t.steps||[]).length&&!t.think&&!t.approval&&!t.error&&!t.dropped)return '';
+  const rm=t.text?reasonMarkup(t.text):null,thinkTxt=[t.think,rm?.think].filter(Boolean).join('\n\n');
+  const think=thinkTxt?`<button class="think" data-act="think" data-i="${i}" aria-expanded="${!!t.thinkOpen}">${icon('brain',15)}${s.running&&last&&!t.text?'Thinking…':'Thought'}${t.thinkSecs?' for '+t.thinkSecs+' s':''}${icon('chevR',14)}</button><div class="think-body" ${t.thinkOpen?'':'hidden'}>${esc(thinkTxt)}</div>`:'';
+  const sys=(t.sys||[]).map(x=>`<details class="sys-msg"><summary>${icon('sliders',14)}System message${icon('chevR',13)}</summary><div class="sys-body">${esc(x)}</div></details>`).join('');
   // steps stay lean: slim rows; a longer run folds into one line ("Ran 6 steps"), the latest two stay in view while working
   const stp=t.steps||[],live=s.running&&last,fold=live?stp.length>3:stp.length>2;
   const rows=(list,off)=>list.map((x,k)=>this.stepHtml(x,i+'-'+(k+off))).join('');
@@ -204,10 +264,19 @@ const Chat={
    :`<div class="steps"><details class="steps-fold" data-f="${i}" ${this._folds?.has(i+'')?'open':''}><summary>${icon('chevR',13)}Ran ${plural(stp.length,'step')}${failed?` · <span class="bad-t">${failed} failed</span>`:''}</summary>${rows(stp,0)}</details></div>`;
   const appr=t.approval?this.approvalHtml(t.approval):'';
   const typing=s.running&&last&&!t.text&&!t.approval&&!(t.steps||[]).some(x=>!x.done);
-  const text=t.text?`<div class="text md ${s.running&&last?'streaming':''}">${md(t.text)}</div>`:typing?'<div class="text"><span class="typing"><i></i><i></i><i></i></span></div>':'';
-  const err=t.error?`<p class="err-line">${icon('alert',14)} ${esc(t.error)}</p>`:'';
+  const body=t.text?this.replyHtml(t.text,rm):'';
+  const text=t.text?`<div class="text md ${s.running&&last?'streaming':''}">${body}</div>`:typing?'<div class="text"><span class="typing"><i></i><i></i><i></i></span></div>':'';
+  const err=t.error||t.dropped&&!(s.running&&last)?this.errHtml(t,last):'';
   const tools=!s.running||!last?`<div class="msg-tools"><button title="Copy" aria-label="Copy" data-act="copymsg" data-i="${i}">${icon('copy',15)}</button>${last?`<button title="Retry" aria-label="Retry" data-act="retry">${icon('retry',15)}</button>`:''}${last?`<button title="Fork this chat" aria-label="Fork this chat" data-act="fork">${icon('fork',15)}</button>`:''}${t.meta?`<span class="meta">${esc(t.meta)}</span>`:''}</div>`:'';
-  return `<div class="msg ai"><span class="who">${avatarImg(16)}</span><div class="body">${think}${steps}${appr}${text}${err}${tools}</div></div>`},
+  return `<div class="msg ai"><span class="who">${avatarImg(16)}</span><div class="body">${sys}${think}${steps}${appr}${text}${err}${tools}</div></div>`},
+ // a reply's text: tagged reasoning as labelled cards (its thinking goes in the Thought fold), the rest as markdown
+ replyHtml(text,rm=reasonMarkup(text)){return rm?rm.segs.map(x=>x.type==='prose'?md(x.t):`<div class="rm-card ${x.type}"><span class="rm-l">${x.type==='action'?'Action':'Result'}</span>${md(x.t)}</div>`).join(''):md(text)},
+ // what went wrong with a reply, in plain words, and what you can do about it right there
+ errHtml(t,last){const ad=!S.me||S.me.admin,s=this.live[this.id],btn=(act,ic,l,x='')=>`<button class="ghost" ${act.startsWith('/')?`data-go="${act}"`:`data-act="${act}"`} ${x}>${icon(ic,14)}${l}</button>`;
+  if(t.dropped)return `<div class="err-box"><p class="err-line">${icon('alert',14)} ${s?.conn==='reconnecting'?'The connection to this reply dropped. Reconnecting…':'The connection to this reply dropped. '+esc(AGENT())+' may still be working on your AI box.'}</p>${last?`<div class="err-acts">${btn('chat-reconnect','refresh','Reconnect')}${ad?btn('/system/health','server','Check server'):''}</div>`:''}</div>`;
+  const cred=/api[ _-]?key|credential|unauthori[sz]ed|authenticat|not (signed|logged) in|no (api )?key|invalid (x-)?api|permission denied for model|401\b/i.test(t.error);
+  const acts=last?[cred&&ad?btn('/system/keys','key','Add a key'):'',cred?btn('chat-model','cpu','Switch model'):'',t.reload?btn('chat-reload','refresh','Reload page'):'',ad&&!t.reload?btn('/system/logs','list','Open logs'):''].join(''):'';
+  return `<div class="err-box"><p class="err-line">${icon('alert',14)} ${esc(t.error)}</p>${acts?`<div class="err-acts">${acts}</div>`:''}</div>`},
  stepHtml(x,k){const ic={terminal:'terminal',web_search:'globe',web_extract:'globe',browser_navigate:'globe',read_file:'file',write_file:'file',patch:'edit',search_files:'search'}[x.tool]||(/browser|web/.test(x.tool)?'globe':/file|patch/.test(x.tool)?'file':'terminal');
   const state=!x.done?'<span class="spinner"></span>Running':x.failed?`<span style="color:var(--bad)">${icon('x',14)}</span>Failed`:`<span class="ok-ic">${icon('check',14)}</span>${x.secs?x.secs+' s':'Done'}`;
   // tools reached through the lookup step ("tool call") show the real tool and what it was asked
@@ -215,8 +284,10 @@ const Chat={
   if(/^(tool_call|call_tool|use_tool)$/.test(tool)){const calls=Array.isArray(a.calls)?a.calls:[a],c=calls[0]||{};const inner=c.name||c.tool||c.tool_name||c.function;if(inner){tool=String(inner).replace(/^mcp__/,'').replace(/__/g,' · ')+(calls.length>1?' +'+(calls.length-1):'');const ia=c.arguments||c.args||c.input||{};const v=typeof ia==='string'?ia:(ia.prompt||ia.query||ia.url||ia.text||ia.path||ia.command||'');sumText=String(v).slice(0,140)}}
   else if(/^(tool_describe|tool_search)$/.test(tool)){tool='looked up tools';const q=a.names||a.queries||a.query;sumText=Array.isArray(q)?q.join(', '):String(q||'')}
   const sum=x.tool==='terminal'?`<code>${esc(plainPaths(x.sum))}</code>`:`<b>${esc(String(tool).replace(/_/g,' '))}</b> <span class="sub-t">${esc(plainPaths(sumText))}</span>`;
-  const detail=[x.args&&Object.keys(x.args).length?JSON.stringify(x.args,null,2):'',x.out].filter(Boolean).join('\n\n— output —\n');
-  return `<div class="step" data-k="${k}"><button class="step-head" data-act="step"><span class="si">${icon(ic,14)}</span><span class="sum">${sum}</span><span class="state">${state}</span><span class="chev">${icon('chevR',14)}</span></button><div class="step-body"><div><pre>${esc(detail.slice(0,20000)||'(no output)')}</pre></div></div></div>`},
+  // the arguments are shown whole; only a long output is cut
+  const argText=!x.args||!Object.keys(x.args).length?'':typeof x.args._raw==='string'&&Object.keys(x.args).length===1?x.args._raw:JSON.stringify(x.args,null,2);
+  const outText=String(x.out||'');const detail=[argText,outText.length>20000?outText.slice(0,20000)+'\n… (output cut at 20 000 characters)':outText].filter(Boolean).join('\n\n— output —\n');
+  return `<div class="step" data-k="${k}"><button class="step-head" data-act="step"${x.at?` title="${esc(msgStamp(x.at))}"`:''}><span class="si">${icon(ic,14)}</span><span class="sum">${sum}</span><span class="state">${state}</span><span class="chev">${icon('chevR',14)}</span></button><div class="step-body"><div>${x.callId?`<small class="step-id">Call ${esc(x.callId)}</small>`:''}<pre>${esc(detail||'(no output)')}</pre></div></div></div>`},
  approvalHtml(a){if(a.resolved)return `<div class="steps"><div class="step"><div class="step-head"><span class="si">${icon(a.resolved==='deny'?'x':'check',14)}</span><span class="sum">${a.resolved==='deny'?'Denied':a.auto?'Approved automatically (Allow all)':'Approved'}${a.command?': <code>'+esc(a.command)+'</code>':''}</span></div></div></div>`;
   const label={once:'Approve once',session:'Allow for this chat',always:'Always allow',deny:'Deny'};
   return `<div class="approval"><h4>${icon('shield',16)}${esc(a.title||AGENT()+' needs your OK')}</h4><p>${esc(a.description||a.reason||'This command could change or delete things on the box.')}</p>${a.command?`<pre>${esc(a.command)}</pre>`:''}<div class="btns">${(a.choices||['once','deny']).map((c,i)=>`<button class="${i===0?'primary':c==='deny'?'ghost':''}" data-act="approval" data-choice="${esc(c)}">${esc(label[c]||c)}</button>`).join('')}</div></div>`},
@@ -245,6 +316,7 @@ const Chat={
  paintTools(){const el=$('#toolChips');if(el)el.innerHTML=this.toolChipsHtml();$$('[data-menu="chat-tools"]').forEach(b=>b.classList.toggle('on',this.tools.length>0))},
  TOOL_RE:/^\[Use these tools for this: ([^\]]+)\]\n\n/,
  ATT_RE:/\n*\[Attached file: ([^\]\n]+)\]/g,
+ userText(t){return String(t||'').replace(this.TOOL_RE,'').replace(this.ATT_RE,'').trim()},
  takeSent(){const l=this._sentAtt||[];this._sentAtt=null;const m={};for(const f of l)if(f.blob)m[f.name]=f.blob;return m},
  // the attachments of a sent message, as previews: pictures and videos play right in the chat
  attHtml(paths,imgs,local){const one=p=>{const name=p.split('/').pop().replace(/^\d{4}-\d\d-\d\d-(?:[a-z0-9]{8,12}-)?/,''),k=attKind(name),src=(local||{})[name]||fileUrl(p,k==='video'?'stream':'download');
@@ -280,12 +352,18 @@ const Chat={
   // a chat's earlier model name beats the request and runs on the agent's default account
   if(m.id&&m.provider){body.model=m.id;body.provider=m.provider;body.require_model_lock=true}
   body.model_options={reasoning_effort:this.effort};
-  const ctl=new AbortController();s.abort=ctl;
+  const ctl=new AbortController();s.abort=ctl;s.conn='connecting';let gotResp=false;s.runModel='';if(this.id===id)this.paintComposerBar();
   try{const r=await G('/api/sessions/'+encodeURIComponent(id)+'/chat/stream',{method:'POST',body,raw:true,signal:ctl.signal});
-   if(!r.ok){let d={};try{d=await r.json()}catch{}throw new Error(d.error?.message||d.error||d.detail||('The server answered '+r.status))}
+   if(!r.ok){let d={};try{d=await r.json()}catch{}const said=d.error?.message||d.error||d.detail||'';
+    // a refused stream says why in plain words; signed out, not shared or a missing chat need a fresh page
+    const why={401:'You were signed out, or this agent is no longer shared with you.',403:'You are not allowed to chat with this agent here.',404:'This chat was not found. It may have been deleted.',429:'Too many messages at once. Wait a moment and try again.'}[r.status]||(r.status>=500?'The engine had a problem starting this reply (error '+r.status+').':'');
+    throw Object.assign(new Error(why?why+(said&&typeof said==='string'&&said.length<160?' ('+said+')':''):said||('The server answered '+r.status)),{reload:[401,403,404].includes(r.status)})}
+   s.conn='live';gotResp=true;if(this.id===id)this.paintComposerBar();
    await this.readStream(r,ev=>this.onEvent(id,ev));
-  }catch(e){if(e.name!=='AbortError'){(s.ai||ai).error=e.message||String(e)}}
-  finally{s.running=false;s.abort=null;s.runId=null;for(const t of s.runTurns||[ai])t.steps.forEach(x=>{if(!x.done){x.done=true;x.failed=x.failed||!!t.error}});
+  }catch(e){if(e.name!=='AbortError'){const t=s.ai||ai;
+   // the stream broke on the way (network, sleep, proxy): the reply may well still be running on the box
+   if(/network|failed to fetch|load failed|terminated|input stream|body stream|connection (was )?(lost|reset|closed)/i.test(e.message||'')){if(gotResp){t.dropped=true;s.conn='reconnecting'}else t.error="Couldn't reach your AI box. Check your connection, then try again."}else{t.error=e.message||String(e);t.reload=!!e.reload}}}
+  finally{if(s.conn!=='reconnecting')s.conn=null;s.running=false;s.abort=null;s.runId=null;s.runModel='';for(const t of s.runTurns||[ai])t.steps.forEach(x=>{if(!x.done){x.done=true;x.failed=x.failed||!!t.error}});
    for(const t of s.turns)if(t.steer==='sending')t.steer='sent';
    if(s.autoGo){s.autoGo=false;s.paused=false;(s.queue??=[]).unshift({text:'Go ahead in my browser.',images:[]})}   // the person chose their browser: its tools load with this next turn
    const last=s.ai||ai;if(!last.meta)last.meta=[modelLabel(last.model||ai.model||m.id),this.effort,Math.round((Date.now()-s.started)/1000)+' s'].filter(Boolean).join(' · ');
@@ -295,16 +373,24 @@ const Chat={
  async follow(id){const s=this.live[id];if(!s||s.running||s.following)return;s.following=true;
   try{const r=await fetch('/ui/live?agent='+encodeURIComponent(S.profile||'default')+'&session='+encodeURIComponent(id),{headers:{'x-hui':'1'},credentials:'same-origin'});
    if(r.status!==200||!r.body)return;const ai={role:'ai',steps:[],text:'',think:''};let shown=false;
-   s.ai=ai;s.runTurns=[ai];s.running=true;s.started=Date.now();
+   this.undrop(s);s.ai=ai;s.runTurns=[ai];s.running=true;s.started=Date.now();s.conn='live';
    const show=um=>{if(shown)return;shown=true;const txt=typeof um==='string'?um:Array.isArray(um)?um.filter(x=>x.type==='text').map(x=>x.text).join(' '):'';
     const last=s.turns[s.turns.length-1];if(txt&&!(last?.role==='user'&&last.text===txt))s.turns.push({role:'user',text:txt});s.turns.push(ai);if(this.id===id){this.paint();this.paintComposerBar()}paintSide()};
    await this.readStream(r,ev=>{if(!shown)show(ev.type==='run.started'?ev.user_message?.content:'');this.onEvent(id,ev)});
-   s.running=false;s.runId=null;ai.steps.forEach(x=>x.done=true);if(shown&&!ai.meta)ai.meta=[modelLabel(ai.model||''),Math.round((Date.now()-s.started)/1000)+' s'].filter(Boolean).join(' · ');
+   s.running=false;s.runId=null;s.conn=null;s.runModel='';ai.steps.forEach(x=>x.done=true);if(shown&&!ai.meta)ai.meta=[modelLabel(ai.model||''),Math.round((Date.now()-s.started)/1000)+' s'].filter(Boolean).join(' · ');
    if(this.id===id){this.paint();this.paintComposerBar()}this.loadSessions()}
-  catch{if(s.running){s.running=false;if(this.id===id){this.paint();this.paintComposerBar()}}}finally{s.following=false}},
- // other tabs: notice when a reply starts on the open chat
- watchLive(){clearInterval(this._lv);this._lv=setInterval(async()=>{const id=this.id,s=this.live[id];if(!id||document.hidden||!s||s.running||s.following)return;
-  try{const r=await fetch('/ui/live?peek=1&agent='+encodeURIComponent(S.profile||'default')+'&session='+encodeURIComponent(id),{headers:{'x-hui':'1'},credentials:'same-origin'});const j=await r.json();if(j.live&&this.id===id)this.follow(id)}catch{}},3000)},
+  catch{if(s.running){s.running=false;const t=s.ai;if(t&&!t.error){t.dropped=true;s.conn='reconnecting'}if(this.id===id){this.paint();this.paintComposerBar()}}}finally{s.following=false}},
+ // a reply whose connection dropped gives way to the same reply picked up again
+ undrop(s){const t=s.turns[s.turns.length-1];if(t?.dropped){t.dropped=false;if(t.role==='ai')s.turns.pop()}},
+ // other tabs: notice when a reply starts on the open chat; after a dropped connection, pick the reply up again
+ // (or load how it ended). A server that does not answer is asked less and less often.
+ watchLive(){clearInterval(this._lv);this._lv=setInterval(async()=>{const id=this.id,s=this.live[id];if(!id||document.hidden||!s||s.running||s.following)return;if(this._lvSkip>0){this._lvSkip--;return}
+  try{const j=await this.peek(id);this._lvFail=0;if(this.id!==id)return;if(j.live)this.follow(id);else if(s.turns[s.turns.length-1]?.dropped){s.conn=null;this.loadHistory(id)}}
+  catch{this._lvFail=(this._lvFail||0)+1;this._lvSkip=Math.min(2**this._lvFail,20);if(s.conn==='reconnecting'&&this._lvFail>=4&&this.id===id){s.conn='lost';this.paint();this.paintComposerBar()}}},3000)},
+ async peek(id){const r=await fetch('/ui/live?peek=1&agent='+encodeURIComponent(S.profile||'default')+'&session='+encodeURIComponent(id),{headers:{'x-hui':'1'},credentials:'same-origin'});if(!r.ok)throw new Error('The server answered '+r.status);return r.json()},
+ reconnect(){const p=(async()=>{const id=this.id,s=this.live[id];if(!s)return;s.conn='reconnecting';this._lvFail=0;this._lvSkip=0;this.paint();this.paintComposerBar();
+  let j;try{j=await this.peek(id)}catch(e){s.conn='lost';this.paint();this.paintComposerBar();return toast("Couldn't reach your AI box: "+e.message,'err')}
+  if(this.id!==id)return;if(j.live)return this.follow(id);s.conn=null;this.undrop(s);await this.loadHistory(id)})();pressBusy(p);return p},
  async readStream(r,on){const rd=r.body.getReader();const dec=new TextDecoder();let buf='';
   for(;;){const {value,done}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});let i;
    while((i=buf.search(/\r?\n\r?\n/))>=0){const raw=buf.slice(0,i);buf=buf.slice(i).replace(/^\r?\n\r?\n/,'');let ev='message',data='';for(const line of raw.split(/\r?\n/)){if(line.startsWith(':'))continue;if(line.startsWith('event:'))ev=line.slice(6).trim();else if(line.startsWith('data:'))data+=line.slice(5).trimStart()}if(!data)continue;let d;try{d=JSON.parse(data)}catch{d={text:data}}on({type:d.type||ev,...d})}}},
@@ -317,10 +403,10 @@ const Chat={
    if(e.type==='tool.completed'||e.type==='tool.failed'){for(const t of s.turns)if(t.steer==='sent')t.afterStep=true}
    else if(/^(assistant\.(delta|commentary|reasoning)|reasoning\.delta|tool\.started)$/.test(e.type)||e.type==='tool.progress'&&e.tool_name==='_thinking'){for(const t of s.turns)if(t.steer==='sent'&&t.afterStep)t.steer='delivered'}}
   switch(e.type){
-   case 'run.started':Secrets.start();s.runId=e.run_id;ai.model=e.runtime?.model||'';break;
+   case 'run.started':Secrets.start();s.runId=e.run_id;ai.model=e.runtime?.model||'';if(ai.model&&s.runModel!==ai.model){s.runModel=ai.model;if(this.id===id)this.paintComposerBar()}break;
    case 'assistant.delta':ai.text+=e.delta||e.text||'';break;
    case 'assistant.commentary':if(!e.already_streamed&&e.text)ai.text+=(ai.text?'\n\n':'')+e.text;break;
-   case 'tool.started':ai.steps.push({tool:e.tool_name||'tool',args:e.args||{},sum:e.preview||this.summary(e.tool_name,e.args),out:'',done:false,t0:Date.now()});break;
+   case 'tool.started':ai.steps.push({tool:e.tool_name||'tool',args:e.args||{},sum:e.preview||this.summary(e.tool_name,e.args),out:'',done:false,t0:Date.now(),at:Date.now()/1000,callId:e.tool_call_id||e.call_id||''});break;
    case 'tool.completed':case 'tool.failed':{const x=[...ai.steps].reverse().find(t=>!t.done&&t.tool===e.tool_name)||[...ai.steps].reverse().find(t=>!t.done);if(x){x.done=true;x.failed=e.type==='tool.failed';x.secs=((Date.now()-x.t0)/1000).toFixed(1);if(e.result||e.output)x.out=this.toolOut(e.result||e.output)}break}
    case 'tool.progress':if(e.tool_name==='_thinking'){if(!ai.t0think)ai.t0think=Date.now();ai.think+=e.delta||'';ai.thinkSecs=Math.max(1,Math.round((Date.now()-ai.t0think)/1000))}break;
    case 'reasoning.delta':case 'assistant.reasoning':ai.think+=e.delta||e.text||'';break;
@@ -350,13 +436,13 @@ const Chat={
  async fork(){try{const d=await post(G,'/api/sessions/'+encodeURIComponent(this.id)+'/fork',{});const nid=d.session?.id||d.id;await this.loadSessions();if(nid)go('/chat/'+nid);toast('Forked into a new chat')}catch(e){fail(e)}},
 
  /* ---------- slash commands (handled in the app; everything else goes to aqeelOS) ---------- */
- SLASH:[['/new','Start a fresh chat'],['/model','Switch the model for this chat'],['/reasoning','Set effort: low, medium, high, xhigh, max'],['/title','Rename this chat'],['/fork','Branch this chat into a new one'],['/compress','Ask aqeelOS to summarise and shrink this chat'],['/reload','Re-read aqeelOS config.yaml'],['/clear','Same as /new']],
+ SLASH:[['/new','Start a fresh chat'],['/model','Switch the model for this chat'],['/reasoning','Set effort: off, minimal, low, medium, high, xhigh, max, ultra'],['/title','Rename this chat'],['/fork','Branch this chat into a new one'],['/compress','Ask aqeelOS to summarise and shrink this chat'],['/reload','Re-read aqeelOS config.yaml'],['/clear','Same as /new']],
  slash(v){const box=$('#slash');if(!box)return;if(!/^\/\S*$/.test(v)){box.innerHTML='';return}const l=this.SLASH.filter(s=>s[0].startsWith(v));box.innerHTML=l.length?`<div class="card slash">${l.map(s=>`<button class="item" data-cmd="${s[0]}"><b style="font-weight:600">${s[0]}</b><small>${s[1]}</small></button>`).join('')}</div>`:''},
  pickSlash(cmd){const ta=$('#msg');ta.value=cmd+' ';$('#slash').innerHTML='';ta.focus()},
  command(text){const [cmd,...rest]=text.split(/\s+/);const arg=rest.join(' ').trim();const ta=$('#msg');const clear=()=>{ta.value='';$('#slash').innerHTML=''};
   if(cmd==='/new'||cmd==='/clear'){clear();this.newChat();return true}
   if(cmd==='/model'){clear();const b=$('[data-menu=model]');if(b)openMenu(b);return true}
-  if(cmd==='/reasoning'){if(EFFORTS.includes(arg)){this.setEffort(arg);clear();toast('Effort: '+arg)}else{clear();const b=$('[data-menu=effort]');if(b)openMenu(b)}return true}
+  if(cmd==='/reasoning'){const a=arg.toLowerCase()==='off'?'none':arg.toLowerCase();if(EFFORTS.includes(a)){this.setEffort(a);clear();toast('Effort: '+EFFORT_LABEL[a])}else{clear();const b=$('[data-menu=effort]');if(b)openMenu(b)}return true}
   if(cmd==='/title'){clear();if(this.id)renameSession(this.id,arg||undefined);return true}
   if(cmd==='/fork'){clear();if(this.id)this.fork();return true}
   if(cmd==='/reload'){clear();toast('Settings are read fresh on every message, so changes already apply.');return true}
@@ -441,5 +527,20 @@ function dataFile(f){const [h,b]=String(f.url||'').split(',');const bin=atob(b||
 // step lines show the engine's folders in plain words (the exact command stays in the step's details)
 function plainPaths(t){return String(t||'').replace(/\/home\/[\w.-]+\/\.hermes\/profiles\/([\w-]+)/g,(m,a)=>'['+ident(a).name+']').replace(/\/home\/[\w.-]+\/\.hermes(?=\/|\b)/g,'[aqeelOS]').replace(/~\/\.hermes(?=\/|\b)/g,'[aqeelOS]').replace(/(^|[\s;&|(])hermes(?=\s)/g,'$1aqeelos').replace(/(?<![\w\/.-])Hermes Agent\b/g,'aqeelOS').replace(/(?<![\w\/.-])Hermes(?![\w-])/g,'aqeelOS')}
 
+
+function msgStamp(sec){return new Date(sec*1000).toLocaleString([],{hour:'2-digit',minute:'2-digit',day:'numeric',month:'short',year:'numeric'})}
+// replies that think in tags: <thinking> and <reflection> become the folded thinking, <action> and <result> labelled
+// cards; code blocks are left exactly as written, and a tag that is never closed stays text
+function reasonMarkup(text){const src=String(text||'');if(!/<(thinking|reflection|action|result)>/i.test(src))return null;
+ const chunks=[];let buf=[],code=false;for(const l of src.split('\n')){if(/^```/.test(l)){if(!code&&buf.length){chunks.push({code:false,t:buf.join('\n')});buf=[]}buf.push(l);if(code){chunks.push({code:true,t:buf.join('\n')});buf=[]}code=!code;continue}buf.push(l)}if(buf.length)chunks.push({code,t:buf.join('\n')});
+ const think=[],segs=[];const prose=t=>{if(!t)return;const p=segs[segs.length-1];if(p?.type==='prose')p.t+='\n'+t;else segs.push({type:'prose',t})};
+ const parse=(t,inThink)=>{let out=0,from=0;const open=/<(thinking|reflection|action|result)>/gi;
+  for(;;){open.lastIndex=from;const o=open.exec(t);if(!o)break;const tag=o[1].toLowerCase(),re=new RegExp('</?'+tag+'>','gi');re.lastIndex=open.lastIndex;let d=1,c;while((c=re.exec(t))){if(c[0][1]==='/'){if(!--d)break}else d++}
+   if(!c||d){from=open.lastIndex;continue}const before=t.slice(out,o.index);if(inThink)think.push(before);else prose(before);const inner=t.slice(open.lastIndex,c.index);
+   if(tag==='action'||tag==='result'){if(inner.trim())segs.push({type:tag,t:inner.trim()})}else parse(inner,true);out=from=re.lastIndex}
+  const rest=t.slice(out);if(inThink)think.push(rest);else prose(rest)};
+ for(const c of chunks)if(c.code)prose(c.t);else parse(c.t,false);
+ if(!segs.some(x=>x.type!=='prose')&&!think.join('').trim())return null;
+ return {think:think.map(x=>x.trim()).filter(Boolean).join('\n\n'),segs:segs.filter(x=>x.type!=='prose'||x.t.trim())}}
 
 function chatTitle(id){const c=(S.sessions||[]).find(x=>x.id===id);return c?String(c.title||c.preview||'').slice(0,80):''}
