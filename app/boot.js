@@ -75,7 +75,7 @@ document.addEventListener('click',e=>{
   case 'queue-go':{const s=Chat.live[Chat.id];if(s){s.paused=false;Chat.runQueue(Chat.id)}break}
   case 'fork':Chat.fork();break;
   case 'rename-current':if(Chat.id)renameSession(Chat.id);break;
-  case 'plugin-page':window.open(location.protocol+'//'+location.hostname+':9119'+a.dataset.path,'_blank','noopener');toast('Opens in the original dashboard (tunnel needed)');break;
+  case 'plugin-page':Plugins.open(a.dataset.name);break;
  }
 });
 document.addEventListener('input',e=>{if(e.target.id==='chatSearch'){S.search=e.target.value;const pos=e.target.selectionStart;paintSide();placePills();const i=$('#chatSearch');i.focus();i.setSelectionRange(pos,pos)}});
@@ -109,7 +109,7 @@ async function boot(){
  agentUrl();
  Chat.agentPrefs();
  render();
- await Promise.all([loadIdentities(),refreshStatus(),Chat.loadModels(),Chat.loadSessions(),H('/dashboard/plugins').then(p=>S.dashPlugins=p).catch(()=>{})]);
+ await Promise.all([loadIdentities(),refreshStatus(),Chat.loadModels(),Chat.loadSessions(),Plugins.load()]);
  $$('.agent-name').forEach(e=>e.textContent=AGENT());const msg=$('#msg');if(msg)msg.placeholder=Chat.placeholder();if(S.signedIn&&$('.app')){paintSide();paintTop();placePills();Screen.paint();if(route().chat!==undefined&&route().chat!=='manage')Chat.paintComposerBar()}
  clearInterval(S.statusT);S.statusT=setInterval(()=>{if(!document.hidden)refreshStatus()},30000);
  if(S.me?.admin!==false)Metrics.ask();

@@ -252,6 +252,8 @@ function render(){
   if(!same)navNext();
   if(same){const pg=$('#pg');pg.classList.add('soft');if(P)runPage(P,r,pg).finally(()=>setTimeout(()=>pg.classList.remove('soft'),400))}
   else{v.innerHTML=`<div class="page">${head(r.page)}<div id="pg">${skeleton()}</div></div>`;const pg=$('#pg');if(P)runPage(P,r,pg)}}
+ // plugin slots on this page, when some plugin fills one (plugin-host.js)
+ if(Plugins.slotNames.size)Plugins.patch();
 // draw a page; if it fails (the engine busy for a moment), try once more quietly before saying so
 function runPage(P,r,pg){const nav=S._nav;return Promise.resolve(P(r.page,pg,r)).catch(async e=>{if(e?.stale||nav!==S._nav||!pg.isConnected)return;if(e?.status&&e.status<500&&e.status!==429)return showError(pg,e);
  await sleep(1200);if(nav!==S._nav||!pg.isConnected)return;return Promise.resolve(P(r.page,pg,r)).catch(e2=>showError(pg,e2))})}
@@ -275,14 +277,12 @@ function sidebar(r){
  let sub='';
  if(sec.id==='chat')sub=Chat.sidebar(r);
  else if(sec.id==='code'&&typeof CodeUI!=='undefined')sub=CodeUI.sidebar(r);
- else sub=`<div class="side-sub"><div class="side-sub-head"><span class="th">${sec.label}</span></div><div class="side-list">${sec.pages.map(p=>`<button class="item ${r.page.id===p.id?'on':''}" data-go="/${sec.id}/${p.id}">${icon(p.icon,16)}<span class="t">${p.label}</span></button>`).join('')}</div></div>`;
+ else sub=`<div class="side-sub"><div class="side-sub-head"><span class="th">${sec.label}</span></div><div class="side-list">${sec.pages.filter(p=>!p.hidden).map(p=>`<button class="item ${r.page.id===p.id?'on':''}" data-go="/${sec.id}/${p.id}">${icon(p.icon,16)}<span class="t">${p.label}</span></button>`).join('')}</div></div>`;
  const gs=gwState(S.status);
  return `<div class="resizer side-rz" data-drag="side" title="Drag to resize · double-click to reset"></div><div class="side-top"><span class="wordmark"><img class="mark" src="${Brand.mark()}" alt=""><span>${esc(Brand.name)}</span></span><button class="ghost icon collapse-btn" data-act="collapse" title="Collapse sidebar (${MOD}+B)" aria-label="Collapse sidebar">${icon('panel',18)}</button></div>
  <nav class="sections">${S.collapsed?`<button class="sec" data-act="collapse" title="Expand sidebar (${MOD}+B)">${icon('panel',19)}</button>`:''}${sections}</nav>${sub}
  ${(()=>{const cd=r.sec?.id==='code'&&typeof CodeUI!=='undefined'&&CodeUI.state==='on'?CodeUI.agentCard():null;return cd?`<div class="side-foot"><button class="status-btn" data-menu="profile" aria-label="Account and Code's agent"><span class="avatar${cd.none?' none':''}">${esc(cd.initial)}</span><span class="who"><b>${esc(cd.name)}</b><span><i class="dot" style="color:var(--ok)"></i>Code · ${esc(cd.model)}</span></span>`:''})()||`<div class="side-foot"><button class="status-btn" data-menu="profile" aria-label="Account and status"><span class="avatar">${ident().avatar?`<img src="${esc(ident().avatar)}" alt="">`:esc(AGENT()[0].toUpperCase())}</span><span class="who"><b>${esc(AGENT())}</b><span${gs.say?` title="${esc(gs.say)}"`:''}><i class="dot" style="color:${gs.c}"></i>${gs.label} · ${esc(modelLabel(S.model))}</span></span>`}${icon('chevUD',16)}</button></div>`;
 }
-// Hermes dashboard plugins (Kanban, Achievements) open in their own tab of the original dashboard.
-function pluginLinks(sec){const want=sec==='automations'?['kanban']:['hermes-achievements'];return (S.dashPlugins||[]).filter(p=>want.includes(p.name)).map(p=>`<button class="item" data-act="plugin-page" data-name="${esc(p.name)}" data-path="${esc(p.tab?.path||'')}">${icon(sec==='automations'?'list':'sparkle',16)}<span class="t">${esc(p.label)}</span><span class="n">${icon('chevR',13)}</span></button>`).join('')}
 function topbar(r){
  if(PANEL)return panelTop(r);
  let crumbs;
@@ -412,7 +412,7 @@ async function runAction(title,path,body){try{const r=await post(H,path,body);if
 function palette(){openLayer();const p=document.createElement('div');p.className='palette';p.setAttribute('role','dialog');p.setAttribute('aria-label','Search and commands');
  const actions=[{g:'Actions',l:'New chat',ic:'plus',run:()=>Chat.newChat()},{g:'Actions',l:'Restart agents',ic:'refresh',run:()=>restartGateway()},{g:'Actions',l:'Use my browser (set up the extension)',ic:'globe',run:()=>BrowserSetup.open()},{g:'Actions',l:'Toggle light / dark',ic:'moon',run:()=>theme()},{g:'Actions',l:'Check for updates',ic:'download',run:()=>{go('/system/health');const t=setInterval(()=>{const b=document.querySelector('[data-act="upd-check"]');if(b){clearInterval(t);b.click()}},400);setTimeout(()=>clearInterval(t),15000)}},{g:'Actions',l:'Sign out',ic:'logout',run:()=>signOut()},{g:'Actions',l:'Sign out on every device',ic:'logout',run:()=>signOutAll()}];
  const models=(Chat.models||[]).slice(0,12).map(m=>({g:'Switch model',l:m.label+' · '+m.providerName,ic:'cpu',run:()=>Chat.setModel(m)}));
- const pages=SECTIONS.flatMap(s=>s.pages?s.pages.map(x=>({g:'Pages',l:s.label+' › '+x.label,ic:x.icon,run:()=>go('/'+s.id+'/'+x.id)})):[{g:'Pages',l:'Chat',ic:'chat',run:()=>go('/chat')},{g:'Pages',l:'Chat › Manage chats',ic:'list',run:()=>go('/chat/manage')}]);
+ const pages=SECTIONS.flatMap(s=>s.pages?s.pages.filter(x=>!x.hidden).map(x=>({g:'Pages',l:s.label+' › '+x.label,ic:x.icon,run:()=>go('/'+s.id+'/'+x.id)})):[{g:'Pages',l:'Chat',ic:'chat',run:()=>go('/chat')},{g:'Pages',l:'Chat › Manage chats',ic:'list',run:()=>go('/chat/manage')}]);
  const chats=S.sessions.slice(0,60).map(c=>({g:'Chats',l:c.title||c.preview||c.id,ic:srcIcon(c.source),run:()=>go('/chat/'+c.id)}));
  const all=[...actions,...pages,...models,...chats];let sel=0,list=all,remote=[];
  p.innerHTML=`<div class="p-in">${icon('search',18)}<input placeholder="Search pages, chats, skills or run a command" aria-label="Search"></div><div class="p-list"></div><div class="p-foot"><span>↑↓ to move</span><span>Enter to open</span><span>Esc to close</span></div>`;document.body.append(p);trapTab(p);

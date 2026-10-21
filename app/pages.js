@@ -562,7 +562,7 @@ PAGES.plugins=async(p,el)=>{
  el.innerHTML=`${tabs('plugins',['Installed','Browse'])}<div class="card list">${list.map((x,i)=>{const on=x.runtime_status==='enabled';return `<div class="row" ${st(i)}><div class="main-c"><span class="ic ${on?'blue':''}">${icon('layers',17)}</span><div class="txt"><b>${esc(x.name)}</b><span>${esc(x.source)} · v${esc(x.version||'?')} · ${esc((x.description||'').slice(0,110))}</span></div></div><div class="act">${toggle(on,x.name,'data-act="pl-toggle" data-name="'+esc(x.name)+'"')}<button class="ghost icon" data-menu="plugin" data-name="${esc(x.name)}" data-remove="${x.can_remove?1:''}" data-update="${x.can_update_git?1:''}" data-dash="${x.has_dashboard_manifest?1:''}" data-hidden="${x.user_hidden?1:''}" aria-label="More">${icon('more',18)}</button></div></div>`}).join('')}</div>`;placePills();
 };
 ACT['pl-toggle']=async a=>{try{const r=await post(UI,'/ui/plugins/toggle',{agent:(agentProfile()||'default'),name:a.dataset.name,enabled:a.checked});   /* per agent, not always the main one */toast((a.checked?'Enabled':'Disabled')+(r.restart_required?' · restart the agents to apply':''))}catch(e){a.checked=!a.checked;fail(e)}};
-ACT['pl-rescan']=async()=>{try{const r=await H('/dashboard/plugins/rescan');toast('Found '+plural(r.count||0,'plugin'));reload()}catch(e){fail(e)}};
+ACT['pl-rescan']=async()=>{try{const r=await H('/dashboard/plugins/rescan');toast('Found '+plural(r.count||0,'plugin'));await Plugins.load(true);reload()}catch(e){fail(e)}};
 // Browse: install any plugin from GitHub, or one from the reviewed catalog after seeing what it adds
 const plCaps=x=>{const c=x.capabilities||{};const n=(k,w)=>(c[k]||[]).length?`<span class="chip" title="${esc((c[k]||[]).join(', '))}">${plural(c[k].length,w)}</span>`:'';const env=(c.requires_env||[]).map(k=>`<span class="chip warn" title="A key it needs">Needs ${esc(k)}</span>`).join('');const all=n('provides_tools','tool')+n('provides_hooks','hook')+n('provides_middleware','middleware step')+env;return all?`<div class="cap-chips">${all}</div>`:''};
 const plRepo=x=>String(x.repo||'').replace(/^https:\/\/github\.com\//,'').replace(/\.git$/,'');
@@ -589,7 +589,8 @@ ACT['pl-install']=async a=>{const x=(Pages._plCat||[]).find(e=>e.name===a.datase
  a.disabled=true;a.classList.add('is-busy');try{const r=await post(H,'/dashboard/agent-plugins/install',{identifier:'',catalog_name:x.name,force:!!x.installed,enable:false});plInstalled(r,x.name)}catch(e){fail(e)}finally{a.disabled=false;a.classList.remove('is-busy')}};
 // the page a plugin adds to the engine's screen (its override replaces a built-in page)
 const plPage=m=>m?.tab&&!m.tab.hidden?m.tab.override||m.tab.path||'':'';
-ACT['pl-page']=a=>{window.open(location.protocol+'//'+location.hostname+':9119'+a.dataset.path,'_blank','noopener');toast('Opens in the engine’s own screen (needs the tunnel to the box)')};
+// opens inside aqeelOS (plugin-host.js); the Task board and Achievements open aqeelOS's own pages
+ACT['pl-page']=a=>Plugins.open(a.dataset.name);
 // an update that lets the plugin do more waits for your OK; nothing changes until then
 async function plUpdate(n){const base='/dashboard/agent-plugins/'+encodeURIComponent(n);toast('Updating '+n+'…');
  try{let r=await post(H,base+'/update',{accept_capabilities:false});
@@ -597,7 +598,8 @@ async function plUpdate(n){const base='/dashboard/agent-plugins/'+encodeURICompo
   if(r?.ok===false||r?.consent_required)throw new Error(r.error||'The update did not finish.');toast(r?.unchanged?n+' is already up to date':n+' updated');reload()}catch(e){fail(e)}}
 Pages.pluginMenu=el=>{const n=el.dataset.name;const base='/dashboard/agent-plugins/'+encodeURIComponent(n);
  const items=[el.dataset.update&&{label:'Update',icon:'refresh',run:()=>plUpdate(n)},
-  el.dataset.page&&!el.dataset.hidden&&{label:'Open its page',icon:'popout',run:()=>ACT['pl-page']({dataset:{path:el.dataset.page}})},
+  el.dataset.page&&!el.dataset.hidden&&{label:'Open its page',icon:'chevR',run:()=>Plugins.open(n)},
+  Plugins.NATIVE[n]&&el.dataset.dash&&{label:Plugins.optIn(n)?'Use aqeelOS’s own page':'Use the plugin’s own page',icon:'layers',sub:Plugins.optIn(n)?'Back to the page aqeelOS rebuilt':'Instead of the page aqeelOS rebuilt',run:()=>Plugins.setOptIn(n,!Plugins.optIn(n))},
   el.dataset.auth&&{label:'Copy sign-in command',icon:'copy',sub:el.dataset.auth,run:()=>{navigator.clipboard?.writeText(el.dataset.auth).then(()=>toast('Copied. Run it in the box’s terminal to sign in.'),()=>toast(el.dataset.auth))}},
   el.dataset.dash&&{label:el.dataset.hidden?'Show in menu':'Hide from menu',icon:'eye',run:async()=>{try{await post(H,'/dashboard/plugins/'+encodeURIComponent(n)+'/visibility',{hidden:!el.dataset.hidden});toast('Saved');reload()}catch(e){fail(e)}}},
   el.dataset.remove&&'-',el.dataset.remove&&{label:'Remove',icon:'trash',bad:true,run:async()=>{if(!await confirmBox('Remove plugin?',`“${esc(n)}” is deleted from the box.`,'Remove'))return;try{await del(H,base);toast('Removed');reload()}catch(e){fail(e)}}}].filter(Boolean);
