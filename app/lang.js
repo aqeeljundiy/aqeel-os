@@ -71,9 +71,12 @@ const Lang={
  set(l){this.cur=l;try{localStorage.setItem('aq-lang',l)}catch{}document.documentElement.lang=l==='id'?'id':'en';location.reload()},
  t(s){if(this.cur!=='id'||!s)return s;const k=s.trim();const v=ID[k];if(v)return s.replace(k,v);for(const [re,to] of ID_PATTERNS)if(re.test(k))return s.replace(k,k.replace(re,to));return s},
  known(s){const k=(s||'').trim();return !!k&&(k in ID||ID_PATTERNS.some(([re])=>re.test(k)))},
+ // key names (HERMES_QWEN_API_KEY…) are typed exactly by people, so the ones shown as keys keep their real name
+ keys:new Set(),
+ keep(k){if(/^HERMES_/.test(k))this.keys.add(String(k));return k},
  // the name in words changes; of paths only the two that exist under both names on the box (~/.aqeelos and
  // ~/apps/aqeelos-ui are links), so anything copied from the screen still works
- brand(s){return s.replace(/Hermes Agent/g,'aqeelOS').replace(/Nous Research/g,'aqeelOS').replace(/Hermes/g,'aqeelOS').replace(/\/\.hermes(?=\/|\s|$|['")])/g,'/.aqeelos').replace(/\/apps\/hermes-ui(?=\/|\s|$)/g,'/apps/aqeelos-ui').replace(/(?<![\w./~_])hermes(?![\w/_.])/g,'aqeelos').replace(/\$\{?HERMES_HOME\}?/g,'~/.aqeelos').replace(/\bHERMES_(?=[A-Z])/g,'AQEELOS_')
+ brand(s){return s.replace(/Hermes Agent/g,'aqeelOS').replace(/Nous Research/g,'aqeelOS').replace(/Hermes/g,'aqeelOS').replace(/\/\.hermes(?=\/|\s|$|['")])/g,'/.aqeelos').replace(/\/apps\/hermes-ui(?=\/|\s|$)/g,'/apps/aqeelos-ui').replace(/(?<![\w./~_])hermes(?![\w/_.])/g,'aqeelos').replace(/\$\{?HERMES_HOME\}?/g,'~/.aqeelos').replace(/\bHERMES_[A-Z][A-Z0-9_]*/g,m=>this.keys.has(m)?m:'AQEELOS_'+m.slice(7))
   // logs and plugin sources: module names, the engine folder (~/.aqeelos/aqeelos-agent is a real link) and repositories
   .replace(/\bhermes_(?=[a-z])/g,'aqeelos_').replace(/\/hermes-agent(?=\/|\s|$|['")])/g,'/aqeelos-agent').replace(/NousResearch\/hermes-official-plugins/g,'Official plugins').replace(/(\w)\/hermes-(?=[\w-])/g,'$1/')},
  rebrand(s){return Brand.custom&&Brand.name!=='aqeelOS'?String(s).replace(/aqeelOS/g,Brand.name):s},

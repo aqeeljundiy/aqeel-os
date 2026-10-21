@@ -47,7 +47,7 @@ const Chat={
    <div style="padding:6px 10px 10px;border-top:1px solid var(--border)"><button class="item ${r.chat==='manage'?'on':''}" data-go="/chat/manage">${icon('list',16)}<span class="t">Manage chats</span><span class="n">${S.sessionsTotal??''}</span></button></div></div>`;
  },
  async loadSessions(quiet){
-  try{const d=await H('/sessions'+qp({limit:100,offset:0,order:'recent'}),{keep:quiet});const noTools=s=>String(s||'').replace(/^\[Use these tools for this: [^\]]*\]\s*/,'');S.sessions=(d.sessions||[]).map(x=>({...x,preview:noTools(x.preview),title:noTools(x.title)}));S.sessionsTotal=d.total;S.sessionsLoaded=true;S.sessionsErr=null}catch(e){if(e?.stale)return;S.sessionsLoaded=true;S.sessionsErr=e;if(!quiet&&S.sessions.length)fail(e)}
+  try{const d=await H('/sessions'+qp({limit:100,offset:0,order:'recent'}),{keep:quiet});const noTools=s=>String(s||'').replace(/^\[Use these tools for this: [^\]]*\]\s*/,'');S.sessions=(d.sessions||[]).map(x=>({...x,preview:noThink(noTools(x.preview)),title:noTools(x.title)}));S.sessionsTotal=d.total;S.sessionsLoaded=true;S.sessionsErr=null}catch(e){if(e?.stale)return;S.sessionsLoaded=true;S.sessionsErr=e;if(!quiet&&S.sessions.length)fail(e)}
   if(route().sec.id==='chat'&&$('.side')){const f=document.activeElement?.id==='chatSearch'?document.activeElement.selectionStart:null,top=$('.side-list')?.scrollTop||0;paintSide();placePills();if($('.topbar'))paintTop();const sl=$('.side-list');if(sl&&top)sl.scrollTop=top;
    if(f!=null){const i=$('#chatSearch');if(i&&document.activeElement!==i){i.focus();i.setSelectionRange(f,f)}}}
  },

@@ -94,7 +94,7 @@ ACT['ppl-invite']=()=>{const d=drawer('Invite someone',`<label>Their name</label
    const inv=await post(UI,'/ui/people/invite',{name,role,roleId,caps,agents,ownAgent});const to=$('#ivMail').value.trim();closeLayers();
    if(to){try{await post(UI,'/ui/people/invite/'+inv.code+'/email',{to,link:location.origin+'/#invite/'+inv.code});toast('Invite emailed to '+to+'. The link is copied too.')}catch(e){toast('Email failed ('+(e.message||e)+'). The link is copied instead.','err')}}
    await copyInvite(inv.code);reload()}catch(e){fail(e)}finally{b.disabled=false}}};
-async function copyInvite(code){const link=location.origin+'/#invite/'+code;try{await navigator.clipboard.writeText(link);toast('Invite link copied. Send it to them.')}catch{await promptBox('Invite link','Copy this link and send it',link,'Done')}}
+async function copyInvite(code){const link=location.origin+'/#invite/'+code;if(await copyText(link,''))toast('Invite link copied. Send it to them.');else await promptBox('Invite link','Copy this link and send it',link,'Done')}
 ACT['ppl-copy']=a=>copyInvite(a.dataset.code);
 ACT['ppl-uninvite']=async a=>{try{await del(UI,'/ui/people/invite/'+a.dataset.code);toast('Invite cancelled');reload()}catch(e){fail(e)}};
 ACT['ppl-share']=a=>{const id=a.dataset.id;const taken=Object.entries(Pages._ppl?.shares||{}).filter(([,m])=>m[id]).map(([x])=>x);
@@ -384,7 +384,7 @@ const CronNotify={
    this.show(s,text)}
   this.failures()},
  // the first line or two of what it said, without Markdown marks
- gist(t){return String(t||'').replace(/\[([^\]]+)\]\([^)]+\)/g,'$1').replace(/MEDIA:\S+/g,'').replace(/[*_#`>|]+/g,'').replace(/\s+/g,' ').trim().slice(0,170)},
+ gist(t){return noThink(t).replace(/\[([^\]]+)\]\([^)]+\)/g,'$1').replace(/MEDIA:\S+/g,'').replace(/[*_#`>|]+/g,'').replace(/\s+/g,' ').trim().slice(0,170)},
  show(s,text){const name=String(s.title||'Schedule').replace(/ · [A-Z][a-z]{2} \d+ \d\d:\d\d$/,'').replace(/^\s*\[[^\]]*\]\s*/,'');
   Notices.show({icon:'clock',title:name+' finished',text:this.gist(text)||'Done. Open it to see the result.',actions:[{label:'Open',go:'/chat/'+s.id}]})},
  // a schedule that failed, or found nowhere to deliver, says so once, in plain words, with a way to fix it
@@ -631,7 +631,7 @@ async function mcpClientDrawer(name,reason){const agent=(agentProfile()||'defaul
   <label>Client ID</label><input id="ocId" autocomplete="off"><label>Client Secret</label><input id="ocSecret" type="password" autocomplete="new-password">
   ${reason?`<p class="hint" style="margin-top:12px">Engine said: ${esc(reason.split('\n')[0])}</p>`:''}`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="ocGo">Save and sign in</button>`);
  d.querySelector('#ocComposio').onclick=()=>{closeLayers();useComposio(who)};
- d.querySelector('#ocCopy').onclick=()=>{navigator.clipboard?.writeText(redirect);toast('Copied')};
+ d.querySelector('#ocCopy').onclick=()=>copyText(redirect);
  d.querySelector('#ocGo').onclick=async()=>{try{await post(UI,'/ui/mcp/oauth-client',{agent,name,client_id:$('#ocId').value,client_secret:$('#ocSecret').value});closeLayers();await new Promise(r=>setTimeout(r,2500));ACT['mcp-auth']({dataset:{name}})}catch(e){fail(e)}}}
 ACT['mcp-auth']=async a=>{const name=a.dataset.name,agent=(agentProfile()||'default');
  // a tab opened right away (popup blockers allow it only now); it is pointed at the sign-in page once known

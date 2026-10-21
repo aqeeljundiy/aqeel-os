@@ -843,6 +843,8 @@ input[type=checkbox]:not(.switch):hover{border-color:var(--blue-2)}
 input[type=checkbox]:not(.switch):focus-visible{outline:3px solid var(--blue-2);outline-offset:2px}
 input[type=checkbox]:not(.switch):disabled{opacity:.45;cursor:not-allowed}
 .dark input[type=checkbox]:not(.switch){border-color:#4a4e5a}
+/* the checkbox look above sets display, which would show checkboxes kept hidden on purpose */
+input[type=checkbox][hidden],input[hidden]{display:none}
 /* rows of checkboxes line up with their text, in drawers and panels alike */
 .drawer-body label.capt,.panel label.capt,label.capt{display:flex;align-items:center;gap:12px;margin:0 -8px;padding:9px 8px;font-size:13.5px;font-weight:400;color:var(--ink);line-height:1.35}
 .drawer-body label.capt span,label.capt span{flex:1;min-width:0}
