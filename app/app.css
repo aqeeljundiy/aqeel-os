@@ -1671,3 +1671,41 @@ div.skel:not(.loading)::after{content:'';width:26px;height:26px;border-radius:50
 .wa-rs{margin-top:10px}
 @media (max-width:760px){.ch-restart{flex-wrap:wrap}.ch-restart>button{width:100%}.mem-secret .ghost.icon{min-height:40px;width:40px}}
 @media (prefers-reduced-motion:reduce){.mem-f:not([hidden]),.mem-res,.allow-chip,.ch-restart,.wa-opts{animation:none}}
+/* Engine console (health-page.js): the engine's answers in a log, one command line under it */
+.con-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 10px}.con-bar .con-for{font-size:13px;color:var(--ink-2);min-width:0;flex:1}
+.con-bar .chip{transition:color var(--t-med) var(--ease),background-color var(--t-med) var(--ease)}
+.con-out{font-family:var(--mono);font-size:12.5px;line-height:1.6;background:var(--soft-2);border:1px solid var(--border);border-radius:var(--r-md) var(--r-md) 0 0;padding:12px 14px;height:min(52vh,460px);overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
+.con-out>div{animation:fade var(--t-med) var(--ease) both}.con-out .e{color:var(--bad)}.con-out .w{color:var(--warn)}.con-out .d{color:var(--muted)}.con-out .cmd{color:var(--ink);font-weight:600}.con-out a{color:var(--blue)}
+.con-in{display:flex;align-items:center;gap:8px;border:1px solid var(--border);border-top:0;border-radius:0 0 var(--r-md) var(--r-md);padding:4px 12px;background:var(--surface);transition:box-shadow var(--t-med) var(--ease)}
+.con-in:focus-within{box-shadow:0 0 0 3px var(--blue-soft)}
+.con-in span{font-family:var(--mono);font-size:12.5px;color:var(--muted);white-space:nowrap}
+.con-in input{flex:1;min-width:0;border:0;box-shadow:none;background:transparent;font-family:var(--mono);font-size:13px;padding:8px 0;outline:none}
+.con-in input[readonly]{color:var(--muted)}
+/* Share a support report: its links */
+.ds-res{display:grid;gap:8px;margin-top:6px;animation:rise var(--t-med) var(--ease) both}
+.ds-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.ds-meta .ghost{margin-left:auto}
+.ds-link{display:flex;align-items:center;gap:10px;min-width:0;padding:6px 6px 6px 12px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--soft-2)}
+.ds-link .ds-l{font-size:12.5px;color:var(--muted);flex:none;max-width:30%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ds-link a{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:var(--blue)}
+/* System › Health: the engine's latest backup, pooled keys, hook details, a link-like button */
+.eb-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border);animation:rise var(--t-med) var(--ease) both}
+.eb-row .txt{min-width:0;display:grid;gap:2px}.eb-row .txt b{font-size:14px;font-weight:600}.eb-row .txt span{font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pool-keys{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;min-width:0}
+.pool-key{display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:2px 2px 2px 10px;border:1px solid var(--border);border-radius:var(--r-pill);font-size:12.5px}
+.pool-key b{font-weight:600;white-space:nowrap}.pool-key code{font-family:var(--mono);font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.pool-key .chip{font-size:11px;padding:1px 7px}.pool-key .ghost.icon{width:28px;height:28px;min-height:28px;flex:none}
+.hook-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:4px;font-size:12px;color:var(--muted)}.hook-meta .chip{font-size:11px;padding:1px 7px}
+.gw-note{color:var(--warn)}.gw-note[hidden]{display:none}
+.link-btn{all:unset;cursor:pointer;color:var(--blue);font-weight:600;border-radius:4px;transition:color var(--t-fast) var(--ease)}.link-btn:hover{color:var(--blue-deep);text-decoration:underline}.link-btn:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+@media (max-width:700px){.pool-keys{justify-content:flex-start}.pool-key .ghost.icon{width:36px;height:36px;min-height:36px}.row:has(.pool-keys){flex-wrap:wrap}}
+/* Logs: which file and filters are shown */
+.log-sum{margin:-4px 0 10px;font-size:12.5px;color:var(--muted)}
+/* Usage: tables sorted by their headers, the note under the totals */
+th.sortable{padding:0}th.sortable button{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;gap:4px;width:100%;padding:10px 12px;cursor:pointer;font:inherit;letter-spacing:inherit;text-transform:inherit;color:inherit;border-radius:8px;transition:color var(--t-fast) var(--ease)}
+th.sortable.num button{justify-content:flex-end}th.sortable button:hover{color:var(--ink)}th.sortable button:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+.sort-ar{display:inline-block;opacity:0;transition:opacity var(--t-fast) var(--ease),transform var(--t-med) var(--ease)}.sort-ar.on{opacity:1;color:var(--ink)}.sort-ar.up{transform:rotate(180deg)}th.sortable button:hover .sort-ar:not(.on){opacity:.4}
+tbody.resort{animation:fade var(--t-med) var(--ease) both}
+.u-note{margin:-6px 0 16px;font-size:12.5px;color:var(--muted)}
+.u-pick.icon{width:40px;padding:0;justify-content:center}
+.mem-on{margin:0 0 6px;font-size:13.5px;color:var(--ink-2);display:flex;align-items:center;gap:8px;flex-wrap:wrap}.mem-on b{color:var(--ink);font-weight:600}
+.banner.closing{animation:fadeOut .2s var(--ease) both}
