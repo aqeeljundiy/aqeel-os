@@ -1521,3 +1521,14 @@ div.skel:not(.loading)::after{content:'';width:26px;height:26px;border-radius:50
 .gw-note{color:var(--warn)}.gw-note[hidden]{display:none}
 .link-btn{all:unset;cursor:pointer;color:var(--blue);font-weight:600;border-radius:4px;transition:color var(--t-fast) var(--ease)}.link-btn:hover{color:var(--blue-deep);text-decoration:underline}.link-btn:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
 @media (max-width:700px){.pool-keys{justify-content:flex-start}.pool-key .ghost.icon{width:36px;height:36px;min-height:36px}.row:has(.pool-keys){flex-wrap:wrap}}
+/* Logs: which file and filters are shown */
+.log-sum{margin:-4px 0 10px;font-size:12.5px;color:var(--muted)}
+/* Usage: tables sorted by their headers, the note under the totals */
+th.sortable{padding:0}th.sortable button{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;gap:4px;width:100%;padding:10px 12px;cursor:pointer;font:inherit;letter-spacing:inherit;text-transform:inherit;color:inherit;border-radius:8px;transition:color var(--t-fast) var(--ease)}
+th.sortable.num button{justify-content:flex-end}th.sortable button:hover{color:var(--ink)}th.sortable button:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+.sort-ar{display:inline-block;opacity:0;transition:opacity var(--t-fast) var(--ease),transform var(--t-med) var(--ease)}.sort-ar.on{opacity:1;color:var(--ink)}.sort-ar.up{transform:rotate(180deg)}th.sortable button:hover .sort-ar:not(.on){opacity:.4}
+tbody.resort{animation:fade var(--t-med) var(--ease) both}
+.u-note{margin:-6px 0 16px;font-size:12.5px;color:var(--muted)}
+.u-pick.icon{width:40px;padding:0;justify-content:center}
+.mem-on{margin:0 0 6px;font-size:13.5px;color:var(--ink-2);display:flex;align-items:center;gap:8px;flex-wrap:wrap}.mem-on b{color:var(--ink);font-weight:600}
+.banner.closing{animation:fadeOut .2s var(--ease) both}

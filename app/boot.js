@@ -44,7 +44,7 @@ document.addEventListener('click',e=>{
   case 'nav':$('.app').classList.toggle('nav-open');break;
   case 'palette':palette();break;
   case 'theme':theme();break;
-  case 'banner':S.bannerDismissed=a.dataset.key;store.set('bannerDismissed',a.dataset.key);$('#bannerSlot').innerHTML='';break;
+  case 'banner':{const g=bannerGone();if(!g.includes(a.dataset.key))g.push(a.dataset.key);bannerGone(g);const b=a.closest('.banner');if(b)leave(b,200);setTimeout(paintBanner,230);break}
   case 'new':Chat.newChat();break;
   case 'close':closeLayers();break;
   case 'reload':reload();break;

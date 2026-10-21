@@ -299,13 +299,15 @@ function panelTop(r){const c=r.chat&&S.sessions.find(x=>x.id===r.chat);const t=r
 // One calm banner for low memory / disk / out-of-memory restarts (most severe first).
 function paintBanner(){const slot=$('#bannerSlot');if(!slot)return;const st=S.status||{};const rp=st.resource_pressure||st.resources||((st.memory||st.disk||S.box)?{memory:st.memory,disk:st.disk}:null);let msg='',key='';
  if(rp&&typeof rp==='object'){const d=rp.disk?.level||rp.disk?.pressure||rp.disk_level,m=S.box?.memory?.level||rp.memory?.level||rp.memory?.pressure||rp.memory_level,oom=rp.oom_restart||rp.suspected_oom||rp.memory?.last_boot_suspected_oom;
-  if(d==='critical'){msg='<b>Disk is almost full.</b> Free space on the AI box from System › Health.';key='disk-c'}
-  else if(m==='critical'){msg='<b>aqeelOS is almost out of memory</b> and may restart.';key='mem-c'}
-  else if(oom){msg='<b>aqeelOS restarted unexpectedly</b>, most likely because it ran out of memory.';key='oom'}
-  else if(d==='elevated'){msg='<b>Disk is getting full</b> on the AI box.';key='disk-e'}
-  else if(m==='elevated'){msg=`<b>Memory is running low</b> on the AI box${S.box?.memory?.pct?' ('+S.box.memory.pct+'% of its '+bytes(S.box.memory.limit)+')':''}. See System › Health for what uses it.`;key='mem-e'}}
- key=key&&key+':'+(S.status?.gateway_pid||'');
- slot.innerHTML=msg&&S.bannerDismissed!==key?`<div class="banner">${icon('alert',16)}<span>${msg}</span><button data-act="banner" data-key="${esc(key)}">Dismiss</button></div>`:''}
+  const free=rp.disk?.free_mb!=null?' ('+(rp.disk.free_mb>=1024?(rp.disk.free_mb/1024).toFixed(1)+' GB':Math.round(rp.disk.free_mb)+' MB')+' free)':'';
+  const MSG={'disk-c':`<b>Disk is almost full</b> on the AI box${free}. Saving chats, memories and settings may fail. Free space from System › Health.`,'mem-c':'<b>aqeelOS is almost out of memory</b> and may restart.',oom:'<b>aqeelOS restarted unexpectedly</b>, most likely because it ran out of memory.','disk-e':`<b>Disk is getting full</b> on the AI box${free}. Clear old chats and files before saving starts to fail.`,'mem-e':`<b>Memory is running low</b> on the AI box${S.box?.memory?.pct?' ('+S.box.memory.pct+'% of its '+bytes(S.box.memory.limit)+')':''}. See System › Health for what uses it.`};
+  // each warning is dismissed for this engine run only; one that clears and comes back shows again, and hiding the worst one shows the next
+  const boot=rp.memory?.boot_id||st.memory?.boot_id||st.gateway_pid||'',on=[d==='critical'&&'disk-c',m==='critical'&&'mem-c',oom&&'oom',d==='elevated'&&'disk-e',m==='elevated'&&'mem-e'].filter(Boolean);
+  let gone=bannerGone();const kept=gone.filter(k=>!(d==='ok'&&k.startsWith('disk-')||m==='ok'&&k.startsWith('mem-')));if(kept.length!==gone.length)bannerGone(gone=kept);
+  const t=on.find(x=>!gone.includes(x+':'+boot));if(t){msg=MSG[t];key=t+':'+boot}}
+ const was=slot.querySelector('.banner')?.dataset.key;if(was===key&&key)return;
+ slot.innerHTML=msg?`<div class="banner" data-key="${esc(key)}">${icon('alert',16)}<span>${msg}</span><button data-act="banner" data-key="${esc(key)}">Dismiss</button></div>`:''}
+function bannerGone(set){try{if(set){sessionStorage.setItem('hui-bannerGone',JSON.stringify(set.slice(-40)));return set}const v=JSON.parse(sessionStorage.getItem('hui-bannerGone')||'[]');return Array.isArray(v)?v.filter(x=>typeof x==='string'):[]}catch{return set||[]}}
 
 /* ---------- page helpers ---------- */
 function head(p,actions=''){return `<div class="page-head"><div><span class="eyebrow">${route().sec.label}</span><h1>${p.label}</h1><p>${p.desc||''}</p></div><div class="head-actions" style="display:flex;gap:8px;flex-wrap:wrap">${actions}</div></div>`}
