@@ -52,7 +52,8 @@ async function stopEngine(){if(server){const s=server;server=null;try{s.kill()}c
  for(let i=0;i<40&&await up();i++)await wait(250);await wait(500);return !(await up())}
 let updating=false;
 async function startCode(){const old=stale();if(await up()){if(!old)return;updating=true;try{if(!await stopEngine())return}finally{updating=false}}
- if(old){updating=true;try{await copyBundled()}finally{updating=false}}
+ // right after an install the new files can still be held for a moment: a copy that did not finish is tried again 20 s later
+ if(old){updating=true;let ok=false;try{ok=await copyBundled()}finally{updating=false}if(!ok)setTimeout(async()=>{if(!stale()||app.isQuitting)return;updating=true;try{await stopEngine()}finally{updating=false}startCode().then(attach).catch(()=>{})},20000)}
  server=spawn(process.execPath,[path.join(CODE_DIR,'server.mjs')],{cwd:CODE_DIR,env:{...process.env,ELECTRON_RUN_AS_NODE:'1',HUB_PORT:String(CODE_PORT),CBA_DESKTOP:'1'},stdio:'ignore',windowsHide:true});
  const me=server;me.on('exit',code=>{if(server===me)server=null;if(!app.isQuitting&&!updating&&!server)setTimeout(()=>startCode().then(attach).catch(()=>{}),code===0?500:3000)});   // updates exit with 0: start the new version
  for(let i=0;i<60&&!(await up());i++)await new Promise(r=>setTimeout(r,250))}
