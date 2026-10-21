@@ -19,14 +19,17 @@
    "button: All workflows"
   ],
   "all /automations/kanban": [
+   "button: Default",
    "button: New task",
-   "button: Refresh"
+   "button: Refresh",
+   "button: Start ready tasks"
   ],
   "all /channels/channels": [
    "tab: Connections",
    "tab: Who can message"
   ],
   "all /abilities/skills": [
+   "button: Learn a skill",
    "button: New skill",
    "button: Update all",
    "tab: Find more skills",
@@ -62,6 +65,7 @@
    "button: 7 days",
    "button: 90 days",
    "button: All agents",
+   "button: Refresh",
    "button: Rp IDR",
    "tab: 30 days",
    "tab: 7 days",
@@ -69,9 +73,11 @@
   ],
   "all /system/health": [
    "button: Check for updates",
+   "button: Engine console",
    "button: Restart agents"
   ],
   "all /system/logs": [
+   "button: Refresh",
    "tab: Agent",
    "tab: Channels",
    "tab: Errors"
@@ -91,7 +97,9 @@
   ],
   "one /agents/memory": [],
   "one /agents/files": [
+   "button: Go to folder",
    "button: New folder",
+   "button: Refresh this folder",
    "button: Upload"
   ],
   "one /code/code": [],
@@ -105,14 +113,17 @@
    "button: All workflows"
   ],
   "one /automations/kanban": [
+   "button: Default",
    "button: New task",
-   "button: Refresh"
+   "button: Refresh",
+   "button: Start ready tasks"
   ],
   "one /channels/channels": [
    "tab: Connections",
    "tab: Who can message"
   ],
   "one /abilities/skills": [
+   "button: Learn a skill",
    "button: New skill",
    "button: Update all",
    "tab: Find more skills",
@@ -148,6 +159,7 @@
    "button: 7 days",
    "button: 90 days",
    "button: All agents",
+   "button: Refresh",
    "button: Rp IDR",
    "tab: 30 days",
    "tab: 7 days",
@@ -155,9 +167,11 @@
   ],
   "one /system/health": [
    "button: Check for updates",
+   "button: Engine console",
    "button: Restart agents"
   ],
   "one /system/logs": [
+   "button: Refresh",
    "tab: Agent",
    "tab: Channels",
    "tab: Errors"
@@ -183,6 +197,7 @@
    "button: New schedule"
   ],
   "all /abilities/skills": [
+   "button: Learn a skill",
    "button: New skill",
    "button: Update all",
    "tab: Find more skills",
@@ -209,6 +224,7 @@
    "button: New schedule"
   ],
   "one /abilities/skills": [
+   "button: Learn a skill",
    "button: New skill",
    "button: Update all"
   ],
