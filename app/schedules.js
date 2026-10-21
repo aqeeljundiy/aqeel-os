@@ -24,10 +24,10 @@ const promptLine=t=>{const s=String(t||'').replace(/\s+/g,' ').trim();return s.l
 PAGES.schedules=async(p,el)=>{
  setActions(`<button class="primary" data-act="cron-new">${icon('plus',16)}New schedule</button>`);
  // a newer render (the next search keystroke) wins: an older answer arriving late is dropped
- const gen=SCHED.gen=(SCHED.gen||0)+1;
+ const gen=SCHED.gen=(SCHED.gen||0)+1,nav=S._nav;   // nav: the later redraws below happen only on this same visit
  // the timezone only adds "(Jakarta time)", and the engine's config takes seconds: the last one known is used, and
  // the page is drawn again if it changed
- if(SCHED.tz===undefined){SCHED.tz=store.get('schedTz','');H('/config?profile=default').then(c=>{const tz=c.timezone||'';if(tz===SCHED.tz)return;SCHED.tz=tz;store.set('schedTz',tz);if(route().page?.id==='schedules'&&el.isConnected)PAGES.schedules(p,el).catch(()=>{})}).catch(()=>{})}
+ if(SCHED.tz===undefined){SCHED.tz=store.get('schedTz','');H('/config?profile=default').then(c=>{const tz=c.timezone||'';if(tz===SCHED.tz)return;SCHED.tz=tz;store.set('schedTz',tz);if(route().page?.id==='schedules'&&S._nav===nav&&el.isConnected)PAGES.schedules(p,el).catch(()=>{})}).catch(()=>{})}
  const [jobs,info]=await Promise.all([H('/cron/jobs?profile=all'),UI('/ui/schedules/info').catch(()=>null)]);
  if(gen!==SCHED.gen)return;
  Pages.cronJobs=jobs;SCHED.info=info||SCHED.info||{meta:{},runs:{},names:{},folds:{}};
@@ -67,7 +67,7 @@ PAGES.schedules=async(p,el)=>{
  // descriptions still being written: look again in a little while
  clearTimeout(SCHED.t);clearTimeout(SCHED.pt);
  // the server had only just started and sent no runs yet (no costs or "took"): they follow in a few seconds
- if(!info?.partial)SCHED.ptries=0;else if((SCHED.ptries=(SCHED.ptries||0)+1)<=5)SCHED.pt=setTimeout(()=>{if(route().page?.id==='schedules'&&el.isConnected&&!$('.drawer')&&document.activeElement?.id!=='schedQ')PAGES.schedules(p,el).catch(()=>{})},3000);if(jobs.some(j=>!schedMeta(j).m.summary&&!schedMeta(j).m.tries)&&(SCHED.tries=(SCHED.tries||0)+1)<=4)SCHED.t=setTimeout(()=>{if(route().page?.id==='schedules'&&!document.hidden&&!$('.drawer')&&document.activeElement?.id!=='schedQ')PAGES.schedules(p,el).catch(()=>{})},45000);
+ if(!info?.partial)SCHED.ptries=0;else if((SCHED.ptries=(SCHED.ptries||0)+1)<=5)SCHED.pt=setTimeout(()=>{if(route().page?.id==='schedules'&&S._nav===nav&&el.isConnected&&!$('.drawer')&&document.activeElement?.id!=='schedQ')PAGES.schedules(p,el).catch(()=>{})},3000);if(jobs.some(j=>!schedMeta(j).m.summary&&!schedMeta(j).m.tries)&&(SCHED.tries=(SCHED.tries||0)+1)<=4)SCHED.t=setTimeout(()=>{if(route().page?.id==='schedules'&&S._nav===nav&&!document.hidden&&!$('.drawer')&&document.activeElement?.id!=='schedQ')PAGES.schedules(p,el).catch(()=>{})},45000);
 };
 ACT['sched-agent-pick']=a=>{const ag=[...new Set((Pages.cronJobs||[]).map(j=>j.profile||'default'))];
  menu(a,[{label:'All agents',icon:'layers',on:!SCHED.agent,run:()=>{SCHED.agent='';store.set('schedAgent','');reload()}},'-',...ag.map(n=>({label:ident(n).name,icon:'user',on:SCHED.agent===n,sub:plural((Pages.cronJobs||[]).filter(j=>(j.profile||'default')===n).length,'schedule'),run:()=>{SCHED.agent=n;store.set('schedAgent',n);reload()}}))],{search:ag.length>6,matchWidth:true})};
