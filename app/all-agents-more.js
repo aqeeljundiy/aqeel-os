@@ -56,3 +56,12 @@ PAGES._skillsOne=PAGES.skills;
 for(const id of ['skills','files','memory','logs','settings']){const base=PAGES[id];if(!base)continue;PAGES[id]=async(p,el,r)=>{if(!showingAll())return base(p,el,r);viewPick(await viewAgents());return ALLVIEW[id](p,el)}}
 // Plugins draws its own page (people.js), which left out the Showing picker; every page with one keeps it
 for(const id of ['plugins','skills','files','memory','logs','settings','mcp','keys','webhooks']){const base=PAGES[id];if(!base)continue;PAGES[id]=async(p,el,r)=>{if(!showingAll())viewPick(await viewAgents());return base(p,el,r)}}
+// Connected apps and Plugins under "All agents" keep their own tabs and add button (21 Oct 2026): the Catalog and Browse
+// tabs and "Add server" were gone while every agent was shown. The list tab stays the all-agents view; the other tab,
+// and adding, work on the agent you chat with (the hint says so).
+for(const [id,first,tabsOf,act] of [['mcp','Your servers',['Your servers','Catalog'],`<button class="primary" data-act="mcp-add">${icon('plus',16)}Add server</button>`],['plugins','Installed',['Installed','Browse'],`<button data-act="pl-rescan">${icon('refresh',16)}Rescan</button>`]]){
+ const base=PAGES[id];PAGES[id]=async(p,el,r)=>{if(!showingAll())return base(p,el,r);const tab=S.tab[id]||first;
+  // the other tab: drawn as for the agent you chat with, the picker still saying All agents
+  if(tab!==first){S.viewAll=false;try{await base(p,el,r)}finally{S.viewAll=true}viewPick(await viewAgents());return}
+  await base(p,el,r);setActions(act);if(!el.querySelector('[data-tabs="'+id+'"]')){el.insertAdjacentHTML('afterbegin',tabs(id,tabsOf));placePills?.()}
+  if(id==='mcp')el.insertAdjacentHTML('beforeend',`<p class="hint" style="margin:14px 0 0">Add server and Catalog add to ${esc(ident().name)}. Pick an agent under Showing to add to another.</p>`)}}
