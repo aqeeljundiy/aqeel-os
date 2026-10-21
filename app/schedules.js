@@ -18,12 +18,17 @@ function deliverName(j,names){const d=String(j.deliver||'local');if(d==='local')
  if(!id)return app;const who=(names||{})[d]||(names||{})[pf+':'+id.split('@')[0]];return who?who+' on '+app:app}
 function schedMeta(j){const i=SCHED.info||{};const k=(j.profile||'default')+'|'+j.id;return {m:(i.meta||{})[k]||{},r:(i.runs||{})[k]||{runs:[],tokens:0,cost:0}}}
 const folderOf=j=>schedMeta(j).m.folder||bracketOf(j.name)||'General';
+// a description the helper model could not write (it tries again later): the start of the prompt stands in
+const promptLine=t=>{const s=String(t||'').replace(/\s+/g,' ').trim();return s.length>160?s.slice(0,157).replace(/\s\S*$/,'')+'…':s};
 
 PAGES.schedules=async(p,el)=>{
  setActions(`<button class="primary" data-act="cron-new">${icon('plus',16)}New schedule</button>`);
  // a newer render (the next search keystroke) wins: an older answer arriving late is dropped
  const gen=SCHED.gen=(SCHED.gen||0)+1;
- const [jobs,info]=await Promise.all([H('/cron/jobs?profile=all'),UI('/ui/schedules/info').catch(()=>null),SCHED.tz!==undefined?null:H('/config?profile=default').then(c=>{SCHED.tz=c.timezone||''}).catch(()=>{SCHED.tz=''})]);
+ // the timezone only adds "(Jakarta time)", and the engine's config takes seconds: the last one known is used, and
+ // the page is drawn again if it changed
+ if(SCHED.tz===undefined){SCHED.tz=store.get('schedTz','');H('/config?profile=default').then(c=>{const tz=c.timezone||'';if(tz===SCHED.tz)return;SCHED.tz=tz;store.set('schedTz',tz);if(route().page?.id==='schedules'&&el.isConnected)PAGES.schedules(p,el).catch(()=>{})}).catch(()=>{})}
+ const [jobs,info]=await Promise.all([H('/cron/jobs?profile=all'),UI('/ui/schedules/info').catch(()=>null)]);
  if(gen!==SCHED.gen)return;
  Pages.cronJobs=jobs;SCHED.info=info||SCHED.info||{meta:{},runs:{},names:{},folds:{}};
  if(!jobs.length&&!(SCHED.info.folders||[]).length){el.innerHTML=emptyBox('No schedules yet','Have aqeelOS do something on a timetable, like a morning report on Telegram.',`<button class="primary" data-act="cron-new">${icon('plus',16)}New schedule</button>`);return}
@@ -45,7 +50,7 @@ PAGES.schedules=async(p,el)=>{
   const cost=r.runs.length?`<span title="${esc(r.sub?'Covered by your subscription. This is what it would cost on the pay-per-use API.':'Estimated from the model’s price')}">≈ ${usd(r.cost)} this month · ${plural(r.n||r.runs.length,'run')}</span>`:'';
   const bad=j.last_status&&j.last_status!=='ok'||j.last_delivery_error;
   return `<div class="row sj-row" ${st(n++)} ${admin?`draggable="true"`:""} data-act="cron-open" data-id="${esc(j.id)}" data-profile="${esc(j.profile||'default')}" tabindex="0"><div class="main-c"><span class="ic ${on?'blue':''} ${bad?'warn':''}">${icon(bad?'alert':'clock',18)}</span><div class="txt"><b>${esc(stripBracket(j.name)||j.prompt?.slice(0,60)||j.id)}</b>
-   ${m.summary?`<span class="sched-desc">${esc(m.summary)}</span>`:`<span class="sched-desc pending"><i class="skel" style="display:inline-block;width:min(320px,60%);height:10px;border-radius:5px;vertical-align:middle"></i></span>`}
+   ${m.summary?`<span class="sched-desc">${esc(m.summary)}</span>`:m.tries?`<span class="sched-desc">${esc(promptLine(j.prompt))}</span>`:`<span class="sched-desc pending"><i class="skel" style="display:inline-block;width:min(320px,60%);height:10px;border-radius:5px;vertical-align:middle"></i></span>`}
    <span class="sched-meta" title="${esc(j.schedule?.expr||j.schedule_display||'')}">${esc(whenText(j))} · to ${esc(deliverName(j,SCHED.info.names))} · ${on?'next '+when(j.next_run_at):'paused'}${j.last_run_at?' · last '+when(j.last_run_at)+(bad?'':' ✓'):''}${last?.secs?' · took '+secsText(last.secs):''}</span>
    ${model||cost?`<span class="sched-meta">${model}${cost}</span>`:''}
    ${bad?`<span class="err-line" style="white-space:normal">${esc(j.last_delivery_error||j.last_error||'Last run: '+j.last_status)}</span>`:''}</div></div>
@@ -59,7 +64,9 @@ PAGES.schedules=async(p,el)=>{
  if(admin)schedDrag(el);
  let t;$('#schedQ').oninput=e=>{clearTimeout(t);t=setTimeout(()=>{SCHED.q=e.target.value;PAGES.schedules(p,el).then(()=>{const i=$('#schedQ');if(!i)return;i.focus();i.setSelectionRange(i.value.length,i.value.length)})},200)};
  // descriptions still being written: look again in a little while
- clearTimeout(SCHED.t);if(jobs.some(j=>!schedMeta(j).m.summary)&&(SCHED.tries=(SCHED.tries||0)+1)<=4)SCHED.t=setTimeout(()=>{if(route().page?.id==='schedules'&&!document.hidden&&!$('.drawer')&&document.activeElement?.id!=='schedQ')PAGES.schedules(p,el).catch(()=>{})},45000);
+ clearTimeout(SCHED.t);clearTimeout(SCHED.pt);
+ // the server had only just started and sent no runs yet (no costs or "took"): they follow in a few seconds
+ if(!info?.partial)SCHED.ptries=0;else if((SCHED.ptries=(SCHED.ptries||0)+1)<=5)SCHED.pt=setTimeout(()=>{if(route().page?.id==='schedules'&&el.isConnected&&!$('.drawer')&&document.activeElement?.id!=='schedQ')PAGES.schedules(p,el).catch(()=>{})},3000);if(jobs.some(j=>!schedMeta(j).m.summary&&!schedMeta(j).m.tries)&&(SCHED.tries=(SCHED.tries||0)+1)<=4)SCHED.t=setTimeout(()=>{if(route().page?.id==='schedules'&&!document.hidden&&!$('.drawer')&&document.activeElement?.id!=='schedQ')PAGES.schedules(p,el).catch(()=>{})},45000);
 };
 ACT['sched-agent-pick']=a=>{const ag=[...new Set((Pages.cronJobs||[]).map(j=>j.profile||'default'))];
  menu(a,[{label:'All agents',icon:'layers',on:!SCHED.agent,run:()=>{SCHED.agent='';store.set('schedAgent','');reload()}},'-',...ag.map(n=>({label:ident(n).name,icon:'user',on:SCHED.agent===n,sub:plural((Pages.cronJobs||[]).filter(j=>(j.profile||'default')===n).length,'schedule'),run:()=>{SCHED.agent=n;store.set('schedAgent',n);reload()}}))],{search:ag.length>6,matchWidth:true})};
@@ -146,7 +153,7 @@ async function cronDetail(j){const {m,r}=schedMeta(j);const prof=j.profile||'def
  const sum=(l,from,to)=>l.filter(d=>d.day>=from&&(!to||d.day<to)).reduce((s,d)=>s+(d.estimated_cost||d.actual_cost||0),0);
  const rows=per.map(({a,u})=>{const d=u.daily||[];return {a,month:sum(d,day(mStart)),last:sum(d,day(lStart),day(mStart)),wk:sum(d,day(new Date(Date.now()-7*864e5))),prev:sum(d,day(new Date(Date.now()-35*864e5)),day(new Date(Date.now()-7*864e5)))/4}}).sort((x,y)=>y.month-x.month);
  const total=rows.reduce((s,r)=>s+r.month,0),lastT=rows.reduce((s,r)=>s+r.last,0);const dayOf=now.getDate(),days=new Date(now.getFullYear(),now.getMonth()+1,0).getDate();
- let info=SCHED.info;if(!info?.runs)try{info=SCHED.info=await UI('/ui/schedules/info')}catch{info={runs:{}}}
+ let info=SCHED.info;if(!info?.runs||info.partial)try{info=SCHED.info=await UI('/ui/schedules/info')}catch{info={runs:{}}}
  const jobs=Pages.cronJobs||await H('/cron/jobs?profile=all').catch(()=>[]);const top=Object.entries(info.runs||{}).map(([k,r])=>{const [pr,id]=k.split('|');const j=jobs.find(x=>x.id===id&&(x.profile||'default')===pr);return {k,j,r}}).filter(x=>x.r.cost>0).sort((a,b)=>b.r.cost-a.r.cost).slice(0,5);
  const spikes=rows.filter(r=>r.prev>0.5&&r.wk>r.prev*1.8);
  panel.innerHTML=`<h2>Spending overview</h2><p class="sub">Estimated at pay-per-use prices. What a subscription covers is included, so you can see what each part would cost.</p>
