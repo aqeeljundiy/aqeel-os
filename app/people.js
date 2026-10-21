@@ -593,10 +593,12 @@ ACT['mcp-auth']=async a=>{const name=a.dataset.name,agent=(agentProfile()||'defa
   if(!/^https:\/\//i.test(String(url||''))){win?.close();return toast('That sign-in link does not look right, so it was not opened.','err')}
   if(win){win.opener=null;win.location=url}else window.open(url,'_blank','noopener');
   const d=drawer('Sign in to '+pretty(name),`<p style="color:var(--ink-2);margin:0 0 12px">Finish signing in in the tab that opened, then come back here.</p><p><a href="${esc(url)}" target="_blank" rel="noopener">Open the sign-in page again</a></p><p class="hint" id="mcpSt">Waiting for you to sign in…</p>`);
-  const id=f.flow_id;for(let i=0;i<150&&d.isConnected&&id;i++){await new Promise(r=>setTimeout(r,2000));let s;try{s=await H('/mcp/oauth/flows/'+encodeURIComponent(id))}catch{break}
-   const st=s.status||'';d.querySelector('#mcpSt').textContent=/authorization_required|pending/.test(st)?'Waiting for you to sign in…':'Status: '+pretty(st);
-   if(/complete|success|done|connected|authorized/.test(st)){closeLayers();toast('Signed in to '+pretty(name)+(s.tools?.length?' · '+s.tools.length+' tools':''));reload();return}
-   if(/error|fail|expired|cancel/.test(st)){d.querySelector('#mcpSt').textContent='Did not finish: '+(s.error||st);return}}}
+  // a check that fails is tried again a few times; a closed sign-in tab gets a few more checks, then says so
+  const id=f.flow_id;let errs=0,shut=0;for(let i=0;i<150&&d.isConnected&&id;i++){await new Promise(r=>setTimeout(r,2000));let s;try{s=await H('/mcp/oauth/flows/'+encodeURIComponent(id));errs=0}catch(e){if(++errs>=4){d.querySelector('#mcpSt').textContent='Lost touch with the sign-in: '+(e.message||'no answer')+'. Press Sign in again.';return}continue}
+   const st=s.status||'';d.querySelector('#mcpSt').textContent=/authorization_required|pending|starting/.test(st)?'Waiting for you to sign in…':'Status: '+pretty(st);
+   if(/approved|complete|success|done|connected|authorized/.test(st)){closeLayers();toast('Signed in to '+pretty(name)+(s.tools?.length?' · '+s.tools.length+' tools':''));reload();return}
+   if(/error|fail|expired|cancel/.test(st)){d.querySelector('#mcpSt').textContent='Did not finish: '+(s.error||st);return}
+   if(win&&win.closed&&++shut>=4){d.querySelector('#mcpSt').textContent='The sign-in tab was closed before it finished. Press Sign in to try again.';return}}}
  catch(e){win?.close();fail(e)}};
 
 /* ---------- The built-in "notify me" tool (aqeelos-notify): made by aqeelOS, kept on agents that have a
