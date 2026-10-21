@@ -798,6 +798,8 @@ async function hermesCall(req,res,u,url){
  if(cronM&&(req.method==='POST'&&!cronM[1]||req.method==='PUT'&&cronM[1])){let b={};try{b=JSON.parse((body||await readRaw(req,262144)).toString('utf8'))}catch{}
   const holder=req.method==='PUT'?(b.updates||{}):b;const dv=String(holder.deliver||'');
   if(dv.startsWith('relay:')){const [owner,platform]=dv.slice(6).split('|');relayTarget={owner,platform};holder.deliver='local'}else if('deliver' in holder)relayTarget=null;
+  // a script, a work folder, another model address or the terminal/file/code tools on a schedule: only for people allowed the unsafe tools
+  if(!users.isAdmin(u)&&!users.can(u,'unsafe')&&(holder.script||holder.no_agent||holder.workdir||holder.base_url||(Array.isArray(holder.enabled_toolsets)?holder.enabled_toolsets:[]).some(t=>UNSAFE_TOOLSETS.includes(t))))return send(res,403,{error:'Scripts, folders, model addresses and the terminal, file and code tools on a schedule are only for admins.'});
   relayJob=cronM[1]||null;body=Buffer.from(JSON.stringify(b))}
  // deleting an agent: keep a full copy first (30 days), so it can be restored from Agents › Recently deleted
  const delM=/^\/hapi\/profiles\/([^/]+)$/.exec(p);
