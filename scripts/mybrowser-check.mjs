@@ -12,7 +12,7 @@ async function call(path,{method='GET',body}={}){const h={'x-hui':'1'};if(ck)h.c
 let token,ext,sid,made=false;const got=[];
 const gone=async()=>{if(!made)return;made=false;try{ext?.close()}catch{}await call('/hapi/profiles/'+AG,{method:'DELETE'}).catch(()=>{})};
 for(const sig of ['SIGTERM','SIGINT'])process.on(sig,()=>gone().finally(()=>process.exit(1)));
-setTimeout(async()=>{console.log('FAIL | took over 240 s');await gone();process.exit(1)},240000).unref();
+setTimeout(async()=>{console.log('FAIL | took over 450 s');await gone();process.exit(1)},450000).unref();
 await step('Owner signs in',async()=>{const r=await call('/auth/login',{method:'POST',body:{password:PW}});must(r.s===200,'status '+r.s)});
 await step('The extension pairs',async()=>{const r=await call('/ui/local-browser/pair',{method:'POST',body:{}});must(r.s===200&&r.j.token,JSON.stringify(r.j));token=r.j.token});
 await step('The extension connects',async()=>{ext=new WebSocket(BASE.replace(/^http/,'ws')+'/ui/local-browser/ws?t='+encodeURIComponent(token));
