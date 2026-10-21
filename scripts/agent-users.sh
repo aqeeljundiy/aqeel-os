@@ -21,6 +21,7 @@ KEYS=/etc/ssh/agent-keys
 PUB=$HOMEC/.hermes/agent-ssh/id_ed25519.pub
 CHROME_SRC=$(ls -d $HOMEC/.hermes/tools/chromium-*/chrome-linux64 2>/dev/null | sort | tail -1)
 CHROME=/opt/aqeelos/chrome/chrome
+SRC=$HOMEC/apps/hermes-ui/scripts/agent-users.sh
 
 setup_box(){
   # the file permission tools (setfacl) and SSH logins for the agents' users
@@ -100,7 +101,26 @@ once(){
   done < "$REQ"
   printf '%s' "$out" > "$DONE.tmp"; chown claude:claude "$DONE.tmp"; chmod 640 "$DONE.tmp"; mv "$DONE.tmp" "$DONE"
   echo "agent users: $(printf '%s' "$out" | tr '\n' ' ')"
+  remove_gone
   screens
+}
+
+# an agent that no longer exists: its screen and Chrome stop, its user and SSH key go, its control port rule goes, and
+# its folder stays (handed to aqeelOS's claude user)
+remove_gone(){
+  local u n line cdp
+  for u in $(getent passwd | cut -d: -f1 | grep '^ag-'); do
+    n=${u#ag-}
+    grep -qx "$n" "$REQ" 2>/dev/null && continue
+    pkill -KILL -u "$u" 2>/dev/null; sleep 1
+    line=$(grep "^$n " "$PORTS" 2>/dev/null | head -1); cdp=$(echo "$line" | cut -d' ' -f3)
+    [ -n "$cdp" ] && iptables -D OUTPUT -o lo -p tcp --dport "$cdp" -m owner ! --uid-owner claude -m owner ! --uid-owner "$u" -j REJECT 2>/dev/null
+    [ -f "$PORTS" ] && sed -i "/^$n /d" "$PORTS"
+    rm -f "$KEYS/$u"
+    userdel "$u" 2>/dev/null; groupdel "$u" 2>/dev/null
+    [ -d "$HOMEC/workspaces/$n" ] && chown -R claude:claude "$HOMEC/workspaces/$n"
+    echo "agent users: removed $u"
+  done
 }
 
 # every isolated agent's screen stays up (started again if it stopped)
@@ -112,5 +132,5 @@ screens(){
 
 case "${1:-watch}" in
   once) once ;;
-  watch) last=""; n=0; while true; do s=$(stat -c %Y "$REQ" 2>/dev/null || echo none); if [ "$s" != "$last" ]; then once; last=$s; fi; n=$((n+1)); [ $((n % 6)) -eq 0 ] && [ -f "$REQ" ] && screens; sleep 5; done ;;
+  watch) last=""; n=0; while true; do if [ -f "$SRC" ] && [ "$0" != "$SRC" ] && ! cmp -s "$SRC" "$0"; then install -m 755 -o root -g root "$SRC" "$0" && exec "$0" watch; fi; s=$(stat -c %Y "$REQ" 2>/dev/null || echo none); if [ "$s" != "$last" ]; then once; last=$s; fi; n=$((n+1)); [ $((n % 6)) -eq 0 ] && [ -f "$REQ" ] && screens; sleep 5; done ;;
 esac

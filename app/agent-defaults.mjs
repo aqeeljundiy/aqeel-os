@@ -7,7 +7,7 @@
 //    from the AI box's compose in Dokploy) makes those users for the names aqeelOS lists.
 // The owner's own accounts (Slack, Notion, Google and so on) are never handed out by these defaults; each agent can
 // connect apps with its own sign-in. Applied at every start (an engine update can reset settings) and to new agents.
-import {readFile,writeFile,mkdir,stat} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,stat,rename} from 'node:fs/promises';
 import path from 'node:path';
 import {homedir} from 'node:os';
 import {execFile} from 'node:child_process';
@@ -29,7 +29,7 @@ export function createAgentDefaults({DATA,giveSkills,log=m=>console.log(m)}){
  async function knownHost(){const f=path.join(homedir(),'.ssh','known_hosts');const cur=await readFile(f,'utf8').catch(()=>'');if(/^127\.0\.0\.1 /m.test(cur))return;
   const k=await run('ssh-keyscan',['-T','5','-t','ed25519','127.0.0.1']).catch(()=>'');if(k.trim()){await mkdir(path.dirname(f),{recursive:true,mode:0o700});await writeFile(f,cur+(cur&&!cur.endsWith('\n')?'\n':'')+k)}}
  // the root script makes a user for each name listed here (one per line) and writes the users it made to <file>.done
- async function requestUsers(names){const want=[...names].sort().join('\n')+'\n';if((await readFile(REQ,'utf8').catch(()=>''))!==want)await writeFile(REQ,want)}
+ async function requestUsers(names){const want=[...names].sort().join('\n')+'\n';if((await readFile(REQ,'utf8').catch(()=>''))!==want){await writeFile(REQ+'.tmp',want);await rename(REQ+'.tmp',REQ)}}
  const ready=async a=>(await readFile(REQ+'.done','utf8').catch(()=>'')).split('\n').includes(userOf(a));
  // the Chrome on the agent's own screen (the root script keeps one per isolated agent; its port is in ~/.aqeelos-agent-ports)
  const chromePort=async a=>{const l=(await readFile(path.join(homedir(),'.aqeelos-agent-ports'),'utf8').catch(()=>'')).split('\n').find(x=>x.startsWith(a+' '));return l?l.trim().split(' ')[2]:null};
