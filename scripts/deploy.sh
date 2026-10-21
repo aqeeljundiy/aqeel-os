@@ -27,15 +27,23 @@ tar --force-local -czf ../hui.tgz app assets backlog data engine extension mocku
 # VERSION is the last commit that changed Code: aqeelOS serves it, and installed apps update themselves when it differs.
 CODE_V=$(git log -1 --format=%H -- code | cut -c1-12)
 tar --force-local -czf ../code.tgz --exclude=code/data --exclude=code/node_modules --exclude=code/desktop/node_modules --exclude=code/desktop/dist --exclude=code/scratch code
-scp -q ../hui.tgz ai-vps:/tmp/hui.tgz && scp -q ../code.tgz ai-vps:/tmp/code.tgz && rm ../hui.tgz ../code.tgz
-ssh ai-vps "CODE_V=$CODE_V FORCE=${FORCE:-0} bash -s" <<'BOX'
+# each deploy sends its own copies, and only one deploy unpacks and restarts at a time (several sessions deploy from here)
+ID=$(date +%s)-$$;HT=/tmp/hui-$ID.tgz;CT=/tmp/code-$ID.tgz
+scp -q ../hui.tgz ai-vps:$HT && scp -q ../code.tgz ai-vps:$CT && rm ../hui.tgz ../code.tgz
+ssh ai-vps "CODE_V=$CODE_V FORCE=${FORCE:-0} HT=$HT CT=$CT bash -s" <<'BOX'
 set -e
+L=/tmp/aq-live.lock
+for i in $(seq 1 90); do mkdir $L 2>/dev/null && break
+ [ -n "$(find $L -maxdepth 0 -mmin +20 2>/dev/null)" ] && { rmdir $L 2>/dev/null; continue; }
+ [ "$i" = 1 ] && echo "· another deploy is going live; waiting for it…"; sleep 10; done
+[ -d $L ] || { echo "✗ another deploy kept going for 15 minutes; nothing changed."; rm -f $HT $CT; exit 1; }
+trap 'rmdir /tmp/aq-live.lock 2>/dev/null' EXIT
 # a reply may have started while the files were on their way: wait again right before the restart (up to 5 minutes)
 for i in $(seq 1 60); do n=$(curl -fs http://127.0.0.1:4400/healthz | grep -o '"busy":[0-9]*' | cut -d: -f2); [ "${n:-0}" = 0 ] && break; [ "$i" = 1 ] && echo "a reply started meanwhile; waiting for it…"; sleep 5; done
-n=$(curl -fs http://127.0.0.1:4400/healthz | grep -o '"busy":[0-9]*' | cut -d: -f2); if [ "${n:-0}" != 0 ] && [ "${FORCE:-0}" != 1 ]; then echo "✗ still busy; nothing changed on the box. Try again later, or FORCE=1."; rm -f /tmp/hui.tgz; exit 1; fi
-mkdir -p ~/apps/hermes-ui && tar -xzf /tmp/hui.tgz -C ~/apps/hermes-ui && rm /tmp/hui.tgz
+n=$(curl -fs http://127.0.0.1:4400/healthz | grep -o '"busy":[0-9]*' | cut -d: -f2); if [ "${n:-0}" != 0 ] && [ "${FORCE:-0}" != 1 ]; then echo "✗ still busy; nothing changed on the box. Try again later, or FORCE=1."; rm -f $HT $CT; exit 1; fi
+mkdir -p ~/apps/hermes-ui && tar -xzf $HT -C ~/apps/hermes-ui && rm $HT
 C=~/apps/aqeel-code; mkdir -p $C; before=$(md5sum $C/package-lock.json 2>/dev/null)
-tar -xzf /tmp/code.tgz -C $C --strip-components=1 && rm /tmp/code.tgz && echo "$CODE_V" > $C/VERSION
+tar -xzf $CT -C $C --strip-components=1 && rm $CT && echo "$CODE_V" > $C/VERSION
 [ "$before" = "$(md5sum $C/package-lock.json 2>/dev/null)" ] || (cd $C && npm install --omit=dev --no-audit --no-fund >/dev/null 2>&1 || echo "! Code packages: npm install failed")
 tmux kill-session -t ui 2>/dev/null || true
 node ~/apps/hermes-ui/scripts/apply-skill-patches.mjs || echo "! skill patches: see the message above"
