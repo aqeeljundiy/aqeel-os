@@ -25,6 +25,7 @@ import {createLinks,isLink} from './links.mjs';
 import {createLocalBrowser} from './localbrowser.mjs';
 import {createAccess} from './access.mjs';
 import {createAccessRequests} from './access-requests.mjs';
+import {startScreenFollow} from './screen-follow.mjs';
 import {createN8n} from './n8n.mjs';
 import {createCode} from './code.mjs';
 import {createCodeOnline} from './code-online.mjs';
@@ -180,6 +181,8 @@ accountHooks.afterSetup=n=>agentDefaults.added(n).catch(e=>console.warn('agent d
 const applyDefaults=()=>agentDefaults.all().then(n=>{if(n){console.log('agent defaults: '+n+' settings applied; restarting the agents when idle');restartGateway('agent defaults').catch(()=>{})}}).catch(e=>console.warn('agent defaults:',e.message));
 // about every minute: new agents (made any way) get the defaults, every agent gets the main agent's skills it lacks
 const defaultsTick=()=>agentDefaults.tick().then(n=>{if(n){console.log('agent defaults: new agent set up; restarting the agents when idle');restartGateway('new agent defaults').catch(()=>{})}}).catch(e=>console.warn('agent defaults tick:',e.message));
+// the tab an agent works in comes to the front of its screen (screen-follow.mjs)
+if(PORT===4400)startScreenFollow();
 if(PORT===4400){setTimeout(applyDefaults,60000);setInterval(applyDefaults,600000).unref();setTimeout(()=>{defaultsTick();setInterval(defaultsTick,60000).unref()},90000)}
 const mailer=createMail(DATA);
 const usage=createUsage(DASH.origin,DASH_TOKEN);
