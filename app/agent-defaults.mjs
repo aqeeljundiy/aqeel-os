@@ -7,7 +7,7 @@
 //    from the AI box's compose in Dokploy) makes those users for the names aqeelOS lists.
 // The owner's own accounts (Slack, Notion, Google and so on) are never handed out by these defaults; each agent can
 // connect apps with its own sign-in. Applied at every start (an engine update can reset settings) and to new agents.
-import {readFile,writeFile,mkdir,stat,rename} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,stat,rename,readdir} from 'node:fs/promises';
 import path from 'node:path';
 import {homedir} from 'node:os';
 import {execFile} from 'node:child_process';
@@ -37,6 +37,19 @@ export function createAgentDefaults({DATA,giveSkills,log=m=>console.log(m)}){
  // one run per agent at a time (a new agent is seen by the setup hook and the tick together): a second caller joins it
  const inflight=new Map();
  function ensure(a){if(!inflight.has(a))inflight.set(a,ensureOnce(a).finally(()=>inflight.delete(a)));return inflight.get(a)}
+ // one Python for every agent's own user, with what its skills need (Google's libraries), outside the main user's
+ // private folders (~/workspaces lets agents pass through, not look around); each agent's shell finds it first, and
+ // `python` works too (the agents' users have no shell profile of their own otherwise)
+ const PY=path.join(homedir(),'workspaces','.aqeelos-python'),PY_PKGS=['google-api-python-client','google-auth-oauthlib','google-auth-httplib2'];
+ let pyReady=null;
+ const sharedPython=()=>pyReady||=(async()=>{const mark=path.join(PY,'.pkgs');if((await readFile(mark,'utf8').catch(()=>''))===PY_PKGS.join(' '))return;
+  if(!await stat(path.join(PY,'bin','python')).catch(()=>null))await run('/usr/bin/python3',['-m','venv',PY]);
+  await new Promise((res,rej)=>execFile(path.join(PY,'bin','pip'),['install','-q','--disable-pip-version-check',...PY_PKGS],{timeout:600000},e=>e?rej(e):res()));
+  await run('chmod',['-R','a+rX',PY]);await writeFile(mark,PY_PKGS.join(' '));log('agents\' shared Python ready: '+PY_PKGS.join(', '))})().catch(e=>{pyReady=null;throw e});
+ async function agentShell(ws){await sharedPython();const env=path.join(ws,'.aqeelos-env'),line='[ -f ~/.aqeelos-env ] && . ~/.aqeelos-env';
+  const want='# written by aqeelOS: the shared Python (python, python3, pip) with the skills\' libraries\nexport PATH="'+path.join(PY,'bin')+':$HOME/.local/bin:$PATH"\n';
+  if((await readFile(env,'utf8').catch(()=>''))!==want)await writeFile(env,want);
+  for(const f of ['.bashrc','.profile']){const p=path.join(ws,f),cur=await readFile(p,'utf8').catch(()=>'');if(!cur.includes(line))await writeFile(p,cur+(cur&&!cur.endsWith('\n')?'\n':'')+line+'\n')}}
  async function ensureOnce(a){const c=await readConfig(a).catch(()=>null);if(!c)return 0;const changes=[];
   const own=!(await trusted()).has(a),ws=path.join(homedir(),'workspaces',a),isolated=own&&await ready(a);
   // the full bundles include the terminal: an agent meant to have its own user gets them only once that user exists
@@ -48,7 +61,13 @@ export function createAgentDefaults({DATA,giveSkills,log=m=>console.log(m)}){
    const port=await chromePort(a);if(port){want['browser.cdp_url']='http://127.0.0.1:'+port;want['bot_desktop.auto_start']='false'}
    for(const [k,v] of Object.entries(want))if(String(pick(c,k)??'')!==v)changes.push([k,v]);
    // walled off in its own user, it gets every tool group: tool groups switched off for it earlier come back on
-   if([].concat(pick(c,'agent.disabled_toolsets')||[]).length)changes.push(['agent.disabled_toolsets',[]])}
+   if([].concat(pick(c,'agent.disabled_toolsets')||[]).length)changes.push(['agent.disabled_toolsets',[]]);
+   // its Google sign-ins (its own and the ones shared with it) are copied to its own user like the engine's other
+   // credential files; the Google skill alone only names the default one
+   const home=path.join(HERMES_HOME,'profiles',a);
+   const creds=(await readdir(home).catch(()=>[])).filter(f=>/^google_(token|client_secret)(_[\w.-]+)?\.json$/.test(f)).sort();
+   if(JSON.stringify([].concat(pick(c,'terminal.credential_files')||[]).slice().sort())!==JSON.stringify(creds))changes.push(['terminal.credential_files',creds]);
+   await agentShell(ws).catch(e=>log('agent shell '+a+': '+e.message))}
   else if(!own&&pick(c,'terminal.backend')==='ssh')changes.push(['terminal.backend','local']);
   // voice notes: the language is detected each time, so every agent adapts to whoever speaks (the engine's own default
   // forces English when an agent sets none), with the same speech model as the main agent
