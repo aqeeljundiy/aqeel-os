@@ -485,18 +485,18 @@ const Secrets={timer:null,
  card(x){if(x.kind==='browser')return this.browserCard(x);const who=esc(AGENT());const where=x.mode==='type'?'It is typed into the field on '+who+'’s screen'+(x.enter?' and sent':'')+'.':'It is saved as <code>'+esc(x.name)+'</code> for '+who+'.';
   return `<div class="secret-card" data-id="${esc(x.id)}"><span class="ic">${icon('lock',17)}</span><div class="sc-main"><b>${who} needs: ${esc(x.label)}</b>
    <span class="hint">${where} ${who} never sees it, and it is not saved in this chat.</span>
-   <div class="sc-field"><input type="password" data-val autocomplete="off" spellcheck="false" aria-label="${esc(x.label)}" placeholder="Type or paste it here"><button class="ghost icon" data-act="secret-eye" title="Show while typing" aria-label="Show while typing">${icon('eye',16)}</button></div>
+   <div class="sc-lblrow"><span class="sc-lbl">Value</span><button type="button" class="sc-show" data-act="secret-eye" aria-pressed="false">${icon('eye',14)}<span>Show</span></button></div><input type="password" data-val autocomplete="off" spellcheck="false" aria-label="${esc(x.label)}" placeholder="Type or paste it here">
    <span class="sc-err"></span>
    <div class="sc-actions"><span class="sc-left"></span><span class="grow"></span><button class="ghost" data-act="secret-cancel">Not now</button><button class="primary" data-act="secret-send">${icon('lock',14)}Send securely</button></div></div></div>`},
  // the person sends one on their own: what it is (the agent sees this) and the value (it never does)
  nameOf(label){return String(label||'').toUpperCase().replace(/[^A-Z0-9]+/g,'_').replace(/^_+|_+$/g,'').split('_').filter(w=>!/^(MY|THE|A|AN|FOR|OF|TO|AND)$/.test(w)).slice(0,4).join('_').slice(0,40)},
  give(){const slot=$('#secretSlot');if(!slot)return;if(slot.querySelector('.give'))return slot.querySelector('.give [data-ctx]').focus();const who=esc(AGENT());
   slot.insertAdjacentHTML('beforeend',`<div class="secret-card give" data-id="give"><span class="ic">${icon('lock',17)}</span><div class="sc-main"><b>Send a secret to ${who}</b>
-   <span class="hint">${who} sees only what it is, never the value. It is saved on your AI box as a key ${who} can type into a login or use in a command.</span>
-   <label class="sc-lbl">What is it?</label><input data-ctx autocomplete="off" placeholder="e.g. Gmail password for ops@company.com">
-   <label class="sc-lbl">Value</label><div class="sc-field"><input type="password" data-val autocomplete="off" spellcheck="false" placeholder="Type or paste it here"><button class="ghost icon" data-act="secret-eye" title="Show while typing" aria-label="Show while typing">${icon('eye',16)}</button></div>
+   <span class="hint">${who} never sees the value. It stays on your AI box as a key ${who} can type into a login or use in a command.</span>
+   <label class="sc-lbl">What is it?</label><input data-ctx autocomplete="off" placeholder="e.g. Gmail password for ops@company.com"><span class="sc-name"></span>
+   <div class="sc-lblrow"><label class="sc-lbl">Value</label><button type="button" class="sc-show" data-act="secret-eye" aria-pressed="false">${icon('eye',14)}<span>Show</span></button></div><input type="password" data-val autocomplete="off" spellcheck="false" placeholder="Type or paste it here">
    <span class="sc-err"></span>
-   <div class="sc-actions"><span class="sc-left sc-name"></span><span class="grow"></span><button class="ghost" data-act="secret-cancel">Cancel</button><button class="primary" data-act="secret-send">${icon('lock',14)}Send securely</button></div></div></div>`);
+   <div class="sc-actions"><span class="grow"></span><button class="ghost" data-act="secret-cancel">Cancel</button><button class="primary" data-act="secret-send">${icon('lock',14)}Send securely</button></div></div></div>`);
   const c=slot.lastElementChild,ctx=c.querySelector('[data-ctx]'),val=c.querySelector('[data-val]'),nm=c.querySelector('.sc-name');
   ctx.oninput=()=>{const n=this.nameOf(ctx.value);nm.textContent=n?'Saved as '+n:''};ctx.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();val.focus()}};val.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();this.giveSend(c)}};
   c.addEventListener('keydown',e=>{if(e.key==='Escape')this.cancel(c)});ctx.focus()},

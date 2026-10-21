@@ -1019,14 +1019,14 @@ input[type=checkbox]:not(.switch)::after{margin:auto}
 .secret-card .sc-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
 .secret-card .sc-main b{font-size:15px;display:flex;align-items:center;gap:6px;line-height:1.4}
 .secret-card .sc-row{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap}
-.secret-card .sc-row input{flex:1;min-width:180px;font-family:var(--mono);letter-spacing:.5px}
+.secret-card .sc-row input{flex:1;min-width:180px;letter-spacing:.5px}
 .secret-card .sc-foot{display:flex;justify-content:space-between;gap:10px;font-size:12px;color:var(--muted);min-height:16px}
 .secret-card .sc-err{color:var(--bad)}
 .secret-card.done{border-color:color-mix(in srgb,var(--ok) 40%,var(--border))}
 .secret-card.done>.ic{background:color-mix(in srgb,var(--ok) 14%,transparent);color:var(--ok)}
 
 .secret-card .sc-field{display:flex;gap:6px;align-items:center;margin-top:10px}
-.secret-card .sc-field input{flex:1;min-width:0;font-family:var(--mono);letter-spacing:.5px}
+.secret-card .sc-field input{flex:1;min-width:0;letter-spacing:.5px}
 .secret-card [data-ctx]{margin-top:2px}
 .secret-card .sc-lbl{font-size:12.5px;font-weight:600;color:var(--ink-2);margin:10px 0 0}
 .secret-card .sc-lbl+.sc-field{margin-top:4px}
@@ -1827,3 +1827,14 @@ button.plug-danger{background:var(--bad);box-shadow:none}
 .plug-host .h-7{height:28px;min-height:28px}.plug-host .h-8{height:32px;min-height:32px}.plug-host .w-3\.5{width:14px}.plug-host .w-16{width:64px}.plug-host .w-20{width:80px}.plug-host .w-24{width:96px}.plug-host .w-44{width:min(176px,100%)}.plug-host .w-56{width:min(224px,100%)}
 .plug-host .rounded-md{border-radius:var(--r-sm)}.plug-host .rounded-full{border-radius:var(--r-pill)}.plug-host .border{border:1px solid var(--border)}
 .plug-host input.h-8,.plug-host input.h-7{padding-top:4px;padding-bottom:4px}.plug-host .plug-select.h-8 .sel-btn,.plug-host .plug-select.h-7 .sel-btn{min-height:32px;height:32px;padding-top:4px;padding-bottom:4px}
+
+/* secret cards: every field the same width; "Value" with a quiet Show/Hide on its right; the key name a quiet line under "What is it?" */
+.secret-card .sc-main>input{width:100%;box-sizing:border-box;margin-top:4px}
+.secret-card [data-val]{letter-spacing:.5px}
+.secret-card .sc-lblrow{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px}
+.secret-card .sc-lblrow .sc-lbl{margin:0}
+.secret-card .sc-show{display:inline-flex;align-items:center;gap:5px;height:auto;min-height:0;padding:2px 8px;border:0;border-radius:999px;background:none;color:var(--muted);font:inherit;font-size:12px;font-weight:500;cursor:pointer;transition:color .18s,background .18s}
+.secret-card .sc-show:hover,.secret-card .sc-show[aria-pressed=true]{color:var(--ink);background:var(--soft-2,rgba(0,0,0,.05))}
+.secret-card .sc-name{display:block;font-size:12px;color:var(--muted);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:0}
+.secret-card .sc-name:empty{display:none}
+.secret-card .sc-actions{margin-top:16px}

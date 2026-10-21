@@ -736,7 +736,7 @@ ACT['wa-add']=a=>ACT['ch-extra-add']({dataset:{id:'whatsapp'}});
 // the protected secret field (Secrets in chat.js): its buttons
 ACT['secret-send']=a=>Secrets.send(a.closest('.secret-card'));
 ACT['secret-cancel']=a=>Secrets.cancel(a.closest('.secret-card'));
-ACT['secret-eye']=a=>{const i=(a.closest('.sc-field')||a.closest('.sc-row'))?.querySelector('input');if(!i)return;i.type=i.type==='password'?'text':'password';i.focus()};
+ACT['secret-eye']=a=>{const i=(a.closest('.sc-field')||a.closest('.sc-row'))?.querySelector('input')||a.closest('.sc-main')?.querySelector('[data-val]');if(!i)return;const show=i.type==='password';i.type=show?'text':'password';a.setAttribute('aria-pressed',String(show));const t=a.querySelector('span');if(t)t.textContent=show?'Hide':'Show';i.focus()};
 ACT['secret-give']=()=>Secrets.give();
 
 // "Which browser?" card buttons, and the one-time setup of the aqeelOS extension (use my browser)
