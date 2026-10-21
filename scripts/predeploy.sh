@@ -12,10 +12,20 @@ cd "$(dirname "$0")/.."
 last=$(node -e "try{const l=require('./data/deploys.json');console.log(l[l.length-1].commit||'')}catch{}")
 MB=1;if [ -n "$last" ] && ! git diff --name-only "$last" HEAD -- app/localbrowser.mjs app/screen.js app/chat.js extension scripts/mybrowser-check.mjs 2>/dev/null | grep -q .; then MB=0;fi
 tar --force-local -czf ../hui-check.tgz app assets backlog data engine extension mockup scripts code-installer PRD.md
-scp -q ../hui-check.tgz ai-vps:/tmp/hui-check.tgz && rm ../hui-check.tgz
-ssh ai-vps "MB=$MB bash -s" <<'BOX'
+# each run sends its own copy, and only one run uses the test copy at a time: several sessions deploy from this repo,
+# and a second run used to empty /tmp/aq-stage under the first (21 Oct 2026)
+TGZ=/tmp/hui-check-$(date +%s)-$$.tgz
+scp -q ../hui-check.tgz ai-vps:$TGZ && rm ../hui-check.tgz
+ssh ai-vps "MB=$MB TGZ=$TGZ bash -s" <<'BOX'
 set -e
-rm -rf /tmp/aq-stage && mkdir -p /tmp/aq-stage && tar -xzf /tmp/hui-check.tgz -C /tmp/aq-stage && rm /tmp/hui-check.tgz
+L=/tmp/aq-check.lock
+for i in $(seq 1 180); do mkdir $L 2>/dev/null && break
+ # a lock left by a run that died more than 40 minutes ago is stale
+ [ -n "$(find $L -maxdepth 0 -mmin +40 2>/dev/null)" ] && { rmdir $L 2>/dev/null; continue; }
+ [ "$i" = 1 ] && echo "· another check is using the test copy; waiting for it…"; sleep 10; done
+[ -d $L ] || { echo "✗ the test copy stayed busy for 30 minutes"; exit 1; }
+trap 'rmdir /tmp/aq-check.lock 2>/dev/null' EXIT
+rm -rf /tmp/aq-stage && mkdir -p /tmp/aq-stage && tar -xzf $TGZ -C /tmp/aq-stage && rm $TGZ
 D=/tmp/ppl
 # the test copy's own data and password (made again if the box restarted and /tmp was emptied)
 if [ ! -f $D/env ]; then mkdir -p $D; rm -rf $D/data; cp -a ~/apps/hermes-ui-data $D/data
