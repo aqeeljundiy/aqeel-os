@@ -1846,3 +1846,18 @@ button.plug-danger{background:var(--bad);box-shadow:none}
 .screen-float .screen-head .scr-pick{max-width:100%}
 /* docked beside the chat too: the screen's top row wraps rather than cutting off its last buttons */
 .screen-head{flex-wrap:wrap;height:auto;min-height:60px;row-gap:6px;padding-top:8px;padding-bottom:8px}
+
+/* step-by-step progress for long tasks (progressView in core.js): turning ring, then a tick that pops in */
+.prog{padding:6px 2px}.prog ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.prog li{display:flex;gap:12px;align-items:flex-start;padding:10px 4px;transition:opacity .25s var(--ease)}
+.prog li.wait{opacity:.45}.prog li b{font-weight:600;font-size:14px;display:block;line-height:1.4}.prog li small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px;line-height:1.45}.prog li small:empty{display:none}
+.prog .pi{flex:none;width:20px;height:20px;margin-top:1px;border-radius:50%;border:2px solid var(--border);position:relative;transition:border-color .25s,background .25s}
+.prog li.doing .pi{border-color:color-mix(in srgb,var(--blue) 25%,var(--border));border-top-color:var(--blue);animation:spin .8s linear infinite}
+.prog li.done .pi{border-color:var(--ok);background:var(--ok);animation:progPop .32s cubic-bezier(.2,.9,.3,1.4)}
+.prog li.done .pi::after{content:'';position:absolute;left:5px;top:2px;width:5px;height:9px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.prog li.fail .pi{border-color:var(--bad);background:var(--bad)}.prog li.fail .pi::after{content:'!';position:absolute;inset:0;display:grid;place-items:center;color:#fff;font-size:12px;font-weight:700}
+.prog li.fail small{color:var(--bad)}
+.prog-time{margin:10px 4px 0;font-size:12.5px;color:var(--muted);min-height:18px;font-variant-numeric:tabular-nums}
+@keyframes progPop{from{transform:scale(.5)}to{transform:scale(1)}}
+.prog-head{display:flex;align-items:center;gap:8px;margin:0 0 10px;font-size:14px}.prog-head .hint{margin:0;font-variant-numeric:tabular-nums}
+.prog-head.ok b{color:var(--ok)}.prog-head.bad b{color:var(--bad)}

@@ -870,12 +870,19 @@ ACT['prof-new']=async()=>{const admin=S.me?.admin!==false,cmdOk=admin||(S.me?.ca
   const same=keep.size===base.size&&[...base].every(x=>keep.has(x));
   const body={name,description:q('#pfD').value.trim()||undefined,clone_from_default:false,clone_from:/^(cfg|all):/.test(c)?from:undefined,clone_all:ck==='all',no_skills:c==='empty'||undefined,provider:provider||undefined,model:model||undefined,
    keep_skills:c==='fresh'&&!same?[...keep]:undefined,hub_skills:hub.length?hub.map(h=>h.identifier):undefined,mcp_servers:apps.length?apps:undefined};
-  const bt=next.textContent;next.disabled=true;backB.disabled=true;next.textContent='Creating…';
-  try{const r=await post(H,'/profiles',body);S._viewList=null;const st=await post(UI,'/ui/accounts/setup-agent',{name}).catch(e=>({ok:false,failed:[e.message]}));closeLayers();
-   const pend=(r?.hub_installs||[]).filter(h=>h.pid).length;
-   st?.ok===false?toast('Agent created, setup not finished: '+(st.failed||[]).join(' · '),'err'):toast('Agent created'+(pend?' · installing '+plural(pend,'skill')+' in the background':''));
-   if(model&&r?.model_set===false)setTimeout(()=>toast('The agent is made, but its model was not saved. Pick it in Edit agent › Model.','err'),400);
-   reload()}catch(e){next.disabled=false;backB.disabled=false;next.textContent=bt;fail(e)}};
+  const bt=next.textContent;next.disabled=true;backB.disabled=true;backB.hidden=true;next.innerHTML='<span class="spinner tiny"></span>Creating…';
+  // the steps take a minute: show them in the drawer instead of a greyed button
+  const bodyEl=q('.drawer-body'),tabsEl=q('[data-tabs="nbStep"]'),keepHtml=bodyEl.innerHTML;if(tabsEl)tabsEl.style.display='none';
+  const host=document.createElement('div');bodyEl.replaceChildren(host);
+  const P=progressView(host,['Making '+name+' with its model'+(apps.length?' and apps':''),'Giving it aqeelOS’s tools and its own space on the AI box',hub.length?'Adding '+plural(hub.length,'skill')+' from the library':'Its skills','Ready to chat']);
+  P.doing(0);
+  try{const r=await post(H,'/profiles',body);S._viewList=null;P.done(0,model&&r?.model_set===false?'Its model was not saved; pick it in Edit agent › Model':'');P.doing(1,'Its own Linux user, screen and browser are being made; this part takes the longest');
+   const st=await post(UI,'/ui/accounts/setup-agent',{name}).catch(e=>({ok:false,failed:[e.message]}));
+   st?.ok===false?P.fail(1,'Not finished: '+(st.failed||[]).join(' · ')):P.done(1);
+   const pend=(r?.hub_installs||[]).filter(h=>h.pid).length;P.done(2,pend?'Installing '+plural(pend,'skill')+' in the background':'');P.done(3);P.end();
+   next.textContent=st?.ok===false?'Close':'Done';next.disabled=false;next.onclick=()=>{closeLayers();reload()};
+   if(st?.ok!==false){toast('Agent created'+(pend?' · installing '+plural(pend,'skill')+' in the background':''));setTimeout(()=>{if(d.isConnected){closeLayers();reload()}},1400)}}
+  catch(e){P.fail(0,e.message||'Could not make the agent');P.end();setTimeout(()=>{if(!d.isConnected)return;bodyEl.innerHTML=keepHtml;if(tabsEl)tabsEl.style.display='';show(at);next.disabled=false;backB.disabled=false;backB.hidden=false;next.textContent=bt},2600);fail(e)}};
  checkName()};
 Pages.profileMenu=el=>{const n=el.dataset.name;const base='/profiles/'+encodeURIComponent(n);const x=(Pages._profiles||[]).find(p=>p.name===n)||{};
  menu(el,[{label:'Edit identity',icon:'user',run:()=>identityDrawer(n)},'-',{label:'Set as active',icon:'check',run:async()=>{try{await post(H,'/profiles/active',{name:n});toast('The command line now uses '+n);reload()}catch(e){fail(e)}}},{label:'Manage here',icon:'sliders',run:()=>switchAgent(n)}   /* the full switch: chats and running replies follow */,{label:'Change model',icon:'cpu',run:async()=>{const opts=await call('/gapi'+(n==='default'?'':'/p/'+encodeURIComponent(n)),'/api/model/options');   /* that agent's own sign-ins */const authed=(opts.providers||[]).filter(usableProvider);const d=drawer('Model for '+n,`<select id="pmM">${authed.map(pv=>`<optgroup label="${esc(pv.name)}">${pv.models.map(m=>`<option value="${esc(pv.slug+'|'+m)}" ${m===x.model?'selected':''}>${esc(modelLabel(m))}</option>`).join('')}</optgroup>`).join('')}</select>`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="pmGo">Save</button>`);d.querySelector('#pmGo').onclick=async()=>{const [provider,model]=$('#pmM').value.split('|');try{await put(H,base+'/model',{provider,model});closeLayers();toast('Saved');reload()}catch(e){fail(e)}}}},
