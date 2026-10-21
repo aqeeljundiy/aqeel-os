@@ -189,7 +189,7 @@ const usage=createUsage(DASH.origin,DASH_TOKEN);
 const explain=createExplain(DATA,{python:enginePython,root});
 const schedules=createSchedules({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAgents(),python:enginePython,root,live:()=>LIVE_APP||process.env.SCHED_DESCRIBE==='1'});
 setTimeout(()=>schedules.tick(),40000).unref();setInterval(()=>schedules.tick(),10*60000).unref();
-const relay=createRelay({ownerAgent:a=>{const o=users.agentOwner(String(a).split('--')[0]);return !o||o==='owner'},DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,SECRET,listAgents:()=>listAgents(),links:{list:a=>links.list(a)},platformsOf:a=>platformsCached(a),nameOf:a=>NAMES[a]||a});
+const relay=createRelay({ownerAgent:a=>{const o=users.agentOwner(String(a).split('--')[0]);return !o||o==='owner'},DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,SECRET,listAgents:()=>listAgents(),links:{list:a=>links.list(a)},platformsOf:a=>platformsCached(a),nameOf:a=>NAMES[a]||a,ownerName:()=>users.people()[0]?.name});
 const NAMES={};   // agents' display names (refreshed with the agent context), for messages people read
 // names and notes people give their Google accounts, "<agent>|<account name>" → {label, note}
 const FX={idr:16500,at:0,day:''};   // dollar → rupiah, refreshed by /ui/fx
@@ -279,10 +279,12 @@ async function writeAgentContext(){const all=await listAgents();const names={};f
     'The person named these and said what each is for. When they mention one by its name ("from my Elkiya account") or the job fits its note, use that account with the Google Workspace skill; when it is unclear which one, ask.',...gacc]:[]),
    '','## Keep schedules tidy','',
    'Whenever you create or change a schedule, give it a clear title the person understands without opening it (no codes like "x3"), then call organize_schedule (from aqeelos-notify) with its id, the folder it belongs to (the client or project, for example Dagadu, Personal Finance, Elkiya, AdmissionSight; reuse an existing folder when one fits) and one plain sentence on what it does and why. When asked to tidy up, move, rename or explain schedules, do the same for each one.',
+   '','## Your other chats','',
+   'Each chat (here, WhatsApp, Telegram, a schedule run) is its own conversation: you do not see the others, and your memory notes keep only what was saved. Before you say you don\'t know something the person says you did or discussed, and before you take back or "correct" something you said earlier, search your past chats with session_search and go by what they show. Never call something a guess without checking.',
    '','## Passwords, API keys and other secrets','',
    'Never ask the person to type a password, code or API key into the chat, and never ask them to type it on the screen viewer. Call ask_secret (from aqeelos-notify): mode "type" types it into the field you clicked on your screen, mode "save" stores it as a named key. The person can also send you one with the lock button; you then get its name. To enter a saved one, click the field and call type_secret with its name. You never see the values.',
    '','## Channels you can message the person on','',
-   'Urgent or important news for the person who owns you (not the people you chat with) goes through a channel marked "to you" with send_to_person. Never send such an alert back to the person you are chatting with, and never tell them you are passing messages on unless they ask you to.',
+   'Urgent or important news for the person who owns you (not the people you chat with) goes through the channel that says it reaches the owner of aqeelOS, with send_to_person. Never send such an alert back to the person you are chatting with, and never tell them you are passing messages on unless they ask you to.',
    ch.length?'Use the send_to_person tool with one of these IDs when the person asks to be notified on a channel ("notify me on shop-whatsapp"):':'None yet. The person can connect WhatsApp, Telegram and others on the Channels page.',
    ...ch.map(c=>'- '+c.id+' = '+c.name),'<!-- /aqeelos:context -->'].filter(x=>x!==null).join('\n');
   const dir=path.join(homedir(),'workspaces',a),file=path.join(dir,'AGENTS.md');await mkdir(dir,{recursive:true});

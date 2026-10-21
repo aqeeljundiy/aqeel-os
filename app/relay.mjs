@@ -6,7 +6,7 @@ import {randomBytes,createHmac} from 'node:crypto';
 import path from 'node:path';
 import {LIVE_APP} from './agentops.mjs';
 
-export function createRelay({DATA,DASH,TOKEN,HERMES_HOME,SECRET,listAgents,links,platformsOf,nameOf,ownerAgent=()=>false}){
+export function createRelay({DATA,DASH,TOKEN,HERMES_HOME,SECRET,listAgents,links,platformsOf,nameOf,ownerName,ownerAgent=()=>false}){
  // the owner's own chat on the main agent's channel (its home channel), for alerts "to you"
  const homeChat=async p=>{const t=await readFile(path.join(HERMES_HOME,'.env'),'utf8').catch(()=>'');return ((new RegExp('^'+p.toUpperCase()+'_HOME_CHANNEL=["\']?([^"\'\\n]+)','m')).exec(t)||[])[1]||null};
  const FILE=path.join(DATA,'channel-shares.json');let db=null;
@@ -53,7 +53,7 @@ export function createRelay({DATA,DASH,TOKEN,HERMES_HOME,SECRET,listAgents,links
   for(const [k,v] of Object.entries(db.shares)){const [owner,platform]=k.split('|');if(v.senders.includes(agent)&&!out.some(c=>c.owner===owner&&c.platform===platform))out.push({id:platform+'@'+owner,owner,platform,chat:v.chat,name:nice(platform)+' via '+(nameOf?nameOf(owner):owner)})}
   // alerts for you always have a way out: every agent may reach you through the main agent's own channels (to you,
   // the person approved there), even when its own channel only talks to someone else (Husband Mode on WhatsApp)
-  if(agent!=='default'&&!agent.startsWith('default--'))for(const p of await connected('default'))if(!out.some(c=>c.owner==='default'&&c.platform===p))out.push({id:p+'@you',owner:'default',platform:p,toYou:true,name:nice(p)+' to you (via '+(nameOf?nameOf('default'):'the main agent')+')'});
+  if(agent!=='default'&&!agent.startsWith('default--'))for(const p of await connected('default'))if(!out.some(c=>c.owner==='default'&&c.platform===p))out.push({id:p+'@you',owner:'default',platform:p,toYou:true,name:nice(p)+' to '+(ownerName?.()||'you')+', the owner of aqeelOS (via '+(nameOf?nameOf('default'):'the main agent')+')'});
   return out}
  // an agent sends through a shared channel
  async function sendAs(from,owner,platform,text,chat,{person=false,toYou=false}={}){await load();const s=db.shares[key(owner,platform)];
