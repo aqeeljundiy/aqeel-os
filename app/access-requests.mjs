@@ -21,20 +21,20 @@ export function createAccessRequests({DATA,access,names,listAgents}){
   for(const it of l.items)if(!it.bot&&!it.own&&it.users.some(u=>u.id===agent))out.push({kind,what:KINDS[kind],id:it.id,label:it.label,owner:it.owner,ownerName:it.ownerName,users:it.users.map(u=>u.id)})}
   return out}
  // dir "get": `to` wants item; dir "give": `by` (who has it) offers it to `to`
- async function ask({kind,id,to,by,dir='get',why='',person=''}){if(!KINDS[kind])throw Error('Ask for an app, a Google account, a plugin or a key.');
+ async function ask({kind,id,to,by,dir='get',why='',person='',from=null}){if(!KINDS[kind])throw Error('Ask for an app, a Google account, a plugin or a key.');
   const agents=await listAgents();if(!agents.includes(to))throw Error('No agent called '+to+'.');
   const l=await access.list(kind);const it=l.items.find(x=>x.id===id||x.label===id);if(!it)throw Error('No '+KINDS[kind]+' called '+id+'. List what exists first.');
   if(it.bot)throw Error(it.label+' answers as one agent only, so it can’t be shared.');
   if(it.users.some(u=>u.id===to))return {already:true,text:names(to)+' can already use '+it.label+'.'};
   if(dir==='give'&&by&&!it.users.some(u=>u.id===by))throw Error(names(by)+' does not have '+it.label+', so it can’t offer it.');
   await load();let r=db.items.find(x=>!x.done&&x.kind===kind&&x.id===it.id&&x.to===to);
-  if(r){r.count=(r.count||1)+1;r.updated=Date.now();if(why)r.why=String(why).slice(0,300)}
-  else{r={rid:'q'+randomBytes(6).toString('hex'),kind,id:it.id,label:it.label,owner:it.owner,to,by:by||to,dir,why:String(why||'').slice(0,300),person:String(person||'').slice(0,80),created:Date.now(),updated:Date.now(),count:1};db.items.unshift(r);db.items=db.items.slice(0,300)}
+  if(r){r.count=(r.count||1)+1;r.updated=Date.now();if(why)r.why=String(why).slice(0,300);if(from)r.from=from}
+  else{r={rid:'q'+randomBytes(6).toString('hex'),kind,id:it.id,label:it.label,owner:it.owner,to,by:by||to,dir,why:String(why||'').slice(0,300),person:String(person||'').slice(0,80),from,created:Date.now(),updated:Date.now(),count:1};db.items.unshift(r);db.items=db.items.slice(0,300)}
   await save();return r}
  // the open ones, as Bottlenecks items
  async function open(mayUse=()=>true){await load();return db.items.filter(r=>!r.done&&(mayUse(r.to)||mayUse(r.by))).map(r=>({id:'access|'+r.rid,kind:'access',rid:r.rid,agent:r.to,agentName:names(r.to),
   title:r.dir==='give'?names(r.by)+' offers '+r.label+' to '+names(r.to):names(r.to)+' asks to use '+r.label,
-  text:(r.dir==='give'?names(r.by)+' has this '+KINDS[r.kind]+' and thinks '+names(r.to)+' needs it.':'Owned by '+names(r.owner)+'. '+names(r.to)+' can see it exists but can’t use it yet.')+(r.person?' Asked by '+r.person+'.':'')+(r.why?' Why: '+r.why:''),req:r}))}
+  text:(r.dir==='give'?names(r.by)+' has this '+KINDS[r.kind]+' and thinks '+names(r.to)+' needs it.':'Owned by '+names(r.owner)+'. '+names(r.to)+' can see it exists but can’t use it yet.')+(r.person?' Asked by '+r.person+'.':''),purpose:r.why||'',from:r.from||null,req:r}))}
  async function decide(rid,ok,admin){await load();const r=db.items.find(x=>x.rid===rid&&!x.done);if(!r)throw Error('That request was already answered.');
   if(ok)await access.grant(r.kind,r.id,r.to);r.done=Date.now();r.ok=!!ok;r.decidedBy=admin||'';await save();return r}
  // what an agent's own requests came to (so it can tell the person)

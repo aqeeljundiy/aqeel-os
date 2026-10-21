@@ -15,10 +15,10 @@ export function createBottlenecks({DATA,dash,listAgents,names}){
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)};
  const norm=s=>String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().slice(0,120);
  // an agent reports what blocks it (merged with an open report about the same missing thing)
- async function report(agent,{what,missing,fix}){await load();const m=String(missing||'').trim().slice(0,400);if(!m)throw Error('Say what is missing.');
+ async function report(agent,{what,missing,fix,from}){await load();const m=String(missing||'').trim().slice(0,400);if(!m)throw Error('Say what is missing.');
   const key=agent+'|'+norm(m);let r=db.reports.find(x=>x.key===key&&!x.fixed);
-  if(r){r.count=(r.count||1)+1;r.updated=Date.now();if(what)r.what=String(what).slice(0,400);if(fix)r.fix=String(fix).slice(0,400)}
-  else{r={id:'r'+randomBytes(6).toString('hex'),key,agent,what:String(what||'').slice(0,400),missing:m,fix:String(fix||'').slice(0,400),created:Date.now(),updated:Date.now(),count:1};db.reports.unshift(r);db.reports=db.reports.slice(0,200)}
+  if(r){r.count=(r.count||1)+1;r.updated=Date.now();if(what)r.what=String(what).slice(0,400);if(fix)r.fix=String(fix).slice(0,400);if(from)r.from=from}
+  else{r={id:'r'+randomBytes(6).toString('hex'),key,agent,what:String(what||'').slice(0,400),missing:m,fix:String(fix||'').slice(0,400),created:Date.now(),updated:Date.now(),count:1,from:from||null};db.reports.unshift(r);db.reports=db.reports.slice(0,200)}
   await save();return r}
  // something aqeelOS itself noticed once (the server was off): shown until dismissed
  async function event(kind,text,detail){await load();db.events.unshift({id:'e'+randomBytes(6).toString('hex'),kind,text,detail,created:Date.now()});db.events=db.events.slice(0,20);await save()}
@@ -29,11 +29,11 @@ export function createBottlenecks({DATA,dash,listAgents,names}){
   sched={at:Date.now(),items:out};return out}
  // the list for one person: system items (admins) and reports from the agents they may use
  async function list({admin,mayUse,signins,invites}){await load();const now=Date.now();const hid=k=>(db.snooze[k]||0)>now||db.fixed[k];const out=[];
-  if(admin){for(const s of signins||[]){const k='signin|'+s.agent+'|'+s.name;if(!hid(k))out.push({id:k,kind:'signin',agent:s.agent,agentName:s.agentName,title:(s.label||s.name)+' needs signing in',text:s.agentName+' can’t '+(s.does||'use it')+' until then.',signin:s})}
+  if(admin){for(const s of signins||[]){const k='signin|'+s.agent+'|'+s.name;if(!hid(k))out.push({id:k,kind:'signin',agent:s.agent,agentName:s.agentName,title:(s.label||s.name)+' needs signing in',text:s.agentName+' can’t '+(s.does||'use it')+' until then.',purpose:s.origin?.purpose||'',from:s.origin?.from||null,signin:s})}
    for(const j of await failedSchedules()){const k='sched|'+j.agent+'|'+j.id+'|'+j.at;if(!hid(k))out.push({id:k,kind:'schedule',agent:j.agent,agentName:names(j.agent),title:'A schedule failed: '+j.name,text:(j.error||j.status).slice(0,200),job:j})}
    for(const i of invites||[]){const k='invite|'+i.code;if(!hid(k))out.push({id:k,kind:'invite',title:'The invite for '+(i.name||'someone')+' expired',text:'They can’t join with the old link.',invite:i})}
    for(const e of db.events){const k='event|'+e.id;if(!hid(k))out.push({id:k,kind:e.kind,title:e.text,text:e.detail||''})}}
-  for(const r of db.reports){if(r.fixed||!mayUse(r.agent)||hid('report|'+r.id))continue;out.push({id:'report|'+r.id,kind:'report',missing:r.missing,agent:r.agent,agentName:names(r.agent),title:names(r.agent)+' is blocked: '+r.missing,text:(r.what?'Trying to '+r.what.replace(/^to /i,'')+'. ':'')+(r.fix?'Would fix it: '+r.fix:''),count:r.count,at:r.updated})}
+  for(const r of db.reports){if(r.fixed||!mayUse(r.agent)||hid('report|'+r.id))continue;out.push({id:'report|'+r.id,kind:'report',missing:r.missing,agent:r.agent,agentName:names(r.agent),title:names(r.agent)+' is blocked: '+r.missing,text:r.fix?'Would fix it: '+r.fix:'',purpose:r.what?r.what.replace(/^to /i,''):'',from:r.from||null,count:r.count,at:r.updated})}
   return out}
  async function done(id){await load();if(id.startsWith('report|')){const r=db.reports.find(x=>'report|'+x.id===id);if(r){r.fixed=Date.now()}}else db.fixed[id]=Date.now();await save()}
  async function later(id){await load();db.snooze[id]=Date.now()+24*3600e3;await save()}
