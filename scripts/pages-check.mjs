@@ -10,17 +10,18 @@ try{
  const login=await fetch(BASE+'/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:process.env.NAME||undefined,password:pw})});const ck=(login.headers.get('set-cookie')||'').split(';')[0];const [cn,cv]=ck.split('=');
  let tgt;for(let i=0;i<40&&!tgt;i++){await sleep(250);try{tgt=(await (await fetch(`http://127.0.0.1:${port}/json`)).json()).find(t=>t.type==='page')}catch{}}
  const ws=new WebSocket(tgt.webSocketDebuggerUrl);await new Promise(r=>ws.onopen=r);let id=0;const wait=new Map();const errs=[];
- ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id&&wait.has(m.id)){wait.get(m.id)(m);wait.delete(m.id)}if(m.method==='Runtime.exceptionThrown')errs.push((m.params.exceptionDetails.exception?.description||m.params.exceptionDetails.text||'').split('\n')[0])};
+ ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id&&wait.has(m.id)){wait.get(m.id)(m);wait.delete(m.id)}if(m.method==='Runtime.exceptionThrown')errs.push(cur+': '+(m.params.exceptionDetails.exception?.description||m.params.exceptionDetails.text||'').split('\n')[0])};
  const cdp=(method,params={})=>new Promise(r=>{const i=++id;wait.set(i,r);ws.send(JSON.stringify({id:i,method,params}))});
  await cdp('Network.enable');await cdp('Runtime.enable');await cdp('Network.setCookie',{name:cn,value:cv,domain:new URL(BASE).hostname,path:'/'});
  await cdp('Emulation.setDeviceMetricsOverride',{width:W,height:H,deviceScaleFactor:1,mobile:W<700});
  const ev=async js=>(await cdp('Runtime.evaluate',{expression:js,awaitPromise:true,returnByValue:true})).result?.result?.value;
  await cdp('Page.navigate',{url:BASE+'/#/chat'});await sleep(4000);
  let routes=await ev(`(()=>{const out=['/chat'];for(const s of SECTIONS)for(const p of s.pages||[])out.push('/'+s.id+'/'+p.id);return out})()`)||[];if(only.length)routes=only;
- const times={};
- for(const r of routes){const t0=Date.now();await cdp('Page.navigate',{url:BASE+'/#'+r});
-  // ready = the page has content and no loading placeholders left
-  for(let i=0;i<80;i++){await sleep(100);const ok=await ev(`!!document.querySelector('.page,.chat')&&!document.querySelector('#pg .skel,.page .skel')`);if(ok)break}
+ const times={};let cur='';
+ for(const r of routes){cur=r;const t0=Date.now();await cdp('Page.navigate',{url:BASE+'/#'+r});
+  // ready = the page has content and no loading placeholders left (an inline <i class="skel"> is a detail filled in
+  // later, like a schedule's description being written, not the page loading: the same rule as core.js)
+  for(let i=0;i<80;i++){await sleep(100);const ok=await ev(`!!document.querySelector('.page,.chat')&&![...document.querySelectorAll('#pg .skel,.page .skel')].some(n=>n.tagName!=='I')`);if(ok)break}
   times[r]=Date.now()-t0;await sleep(1200);
   const name=W+r.split('/').join('_');writeFileSync(OUT+'/'+name+'.txt',String(await ev(`(document.querySelector('.main')||document.body).innerText`)||''));
   const h=Math.min(4000,Math.max(H,Number(await ev(`Math.max(document.querySelector('.view,#view,.main')?.scrollHeight||0,document.body.scrollHeight)`))||H));
