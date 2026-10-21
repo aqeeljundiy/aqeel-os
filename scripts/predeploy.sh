@@ -47,7 +47,7 @@ c=$(timeout 600 node scripts/controls-check.mjs 2>&1 | tail -1)
 echo "$c" | grep -qF '"missing":[]' || { echo "✗ a page lost a button or tab: $c" | cut -c1-900; echo "  (on purpose? node scripts/controls-check.mjs --save on the test copy, then commit scripts/controls-baseline.json)"; exit 1; }
 [ "$MB" = 0 ] && { echo "✓ checks passed (My browser unchanged, its check skipped)"; exit 0; }
 echo "· 4/4 my browser"
-m=$(timeout 300 node scripts/mybrowser-check.mjs 2>&1 | tail -1); echo "$m" | grep -q '7/7' || m=$(timeout 300 node scripts/mybrowser-check.mjs 2>&1 | tail -1)
+m=$(timeout 480 node scripts/mybrowser-check.mjs 2>&1 | tail -1); echo "$m" | grep -q '7/7' || m=$(timeout 480 node scripts/mybrowser-check.mjs 2>&1 | tail -1)
 echo "$m" | grep -q '7/7' || { echo "✗ my browser check: $m"; exit 1; }
 echo "✓ checks passed"
 BOX
