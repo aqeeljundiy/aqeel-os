@@ -22,16 +22,21 @@ done
 BOX
 # 2) Only now pack the files, so what goes live is what is here at this moment (not what was here before the wait).
 node scripts/features.mjs >/dev/null
-tar --force-local -czf ../hui.tgz app assets backlog data engine extension mockup scripts code-installer PRD.md
+ID=$(date +%s)-$$;LH=../hui-$ID.tgz;LC=../code-$ID.tgz
+tar --force-local -czf $LH app assets backlog data engine extension mockup scripts code-installer PRD.md
 # Code (code/ here) goes to the box's own Code copy, ~/apps/aqeel-code (its data and installed packages stay there).
 # VERSION is the last commit that changed Code: aqeelOS serves it, and installed apps update themselves when it differs.
 CODE_V=$(git log -1 --format=%H -- code | cut -c1-12)
-tar --force-local -czf ../code.tgz --exclude=code/data --exclude=code/node_modules --exclude=code/desktop/node_modules --exclude=code/desktop/dist --exclude=code/scratch code
+tar --force-local -czf $LC --exclude=code/data --exclude=code/node_modules --exclude=code/desktop/node_modules --exclude=code/desktop/dist --exclude=code/scratch code
 # each deploy sends its own copies, and only one deploy unpacks and restarts at a time (several sessions deploy from here)
-ID=$(date +%s)-$$;HT=/tmp/hui-$ID.tgz;CT=/tmp/code-$ID.tgz
-scp -q ../hui.tgz ai-vps:$HT && scp -q ../code.tgz ai-vps:$CT && rm ../hui.tgz ../code.tgz
-ssh ai-vps "CODE_V=$CODE_V FORCE=${FORCE:-0} HT=$HT CT=$CT bash -s" <<'BOX'
+HT=/tmp/hui-$ID.tgz;CT=/tmp/code-$ID.tgz
+for a in $LH $LC; do [ -s "$a" ] && tar --force-local -tzf "$a" >/dev/null 2>&1 || { echo "✗ the archive $a is empty or broken; nothing was sent."; rm -f $LH $LC; exit 1; }; done
+HS=$(wc -c < $LH | tr -d ' ');CS=$(wc -c < $LC | tr -d ' ')
+scp -q $LH ai-vps:$HT && scp -q $LC ai-vps:$CT && rm $LH $LC || { echo '✗ could not send the files to the box; nothing changed.'; rm -f $LH $LC; exit 1; }
+ssh ai-vps "CODE_V=$CODE_V FORCE=${FORCE:-0} HT=$HT CT=$CT HS=$HS CS=$CS bash -s" <<'BOX'
 set -e
+# the files arrived whole: same size as sent, and readable
+for x in "$HT:$HS" "$CT:$CS"; do f=${x%%:*};z=${x##*:};[ "$(wc -c < "$f" 2>/dev/null)" = "$z" ] && tar -tzf "$f" >/dev/null 2>&1 || { echo "✗ $f did not arrive whole; nothing changed."; rm -f $HT $CT; exit 1; }; done
 L=/tmp/aq-live.lock;got=0
 for i in $(seq 1 90); do mkdir $L 2>/dev/null && { got=1; break; }
  [ -n "$(find $L -maxdepth 0 -mmin +20 2>/dev/null)" ] && { rmdir $L 2>/dev/null; continue; }
@@ -41,9 +46,9 @@ trap 'rmdir /tmp/aq-live.lock 2>/dev/null' EXIT
 # a reply may have started while the files were on their way: wait again right before the restart (up to 5 minutes)
 for i in $(seq 1 60); do n=$(curl -fs http://127.0.0.1:4400/healthz | grep -o '"busy":[0-9]*' | cut -d: -f2); [ "${n:-0}" = 0 ] && break; [ "$i" = 1 ] && echo "a reply started meanwhile; waiting for it…"; sleep 5; done
 n=$(curl -fs http://127.0.0.1:4400/healthz | grep -o '"busy":[0-9]*' | cut -d: -f2); if [ "${n:-0}" != 0 ] && [ "${FORCE:-0}" != 1 ]; then echo "✗ still busy; nothing changed on the box. Try again later, or FORCE=1."; rm -f $HT $CT; exit 1; fi
-mkdir -p ~/apps/hermes-ui && tar -xzf $HT -C ~/apps/hermes-ui && rm $HT
+mkdir -p ~/apps/hermes-ui; tar -xzf $HT -C ~/apps/hermes-ui || { echo '✗ unpacking aqeelOS failed; it was not restarted.'; exit 1; }; rm $HT
 C=~/apps/aqeel-code; mkdir -p $C; before=$(md5sum $C/package-lock.json 2>/dev/null)
-tar -xzf $CT -C $C --strip-components=1 && rm $CT && echo "$CODE_V" > $C/VERSION
+tar -xzf $CT -C $C --strip-components=1 || { echo "✗ unpacking Code failed; aqeelOS was not restarted."; exit 1; }; rm $CT; echo "$CODE_V" > $C/VERSION
 [ "$before" = "$(md5sum $C/package-lock.json 2>/dev/null)" ] || (cd $C && npm install --omit=dev --no-audit --no-fund >/dev/null 2>&1 || echo "! Code packages: npm install failed")
 tmux kill-session -t ui 2>/dev/null || true
 node ~/apps/hermes-ui/scripts/apply-skill-patches.mjs || echo "! skill patches: see the message above"
