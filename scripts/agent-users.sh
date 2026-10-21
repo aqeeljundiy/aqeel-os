@@ -78,6 +78,8 @@ screen_up(){
   if [ -f "$sd/launcher.pid" ] && kill -0 "$(cat "$sd/launcher.pid" 2>/dev/null)" 2>/dev/null && [ -S "$sd/rfb.sock" ]; then return 0; fi
   mkdir -p "$sd"; chown "$u:claude" "$sd"; chmod 2770 "$sd"
   rm -f "$sd/rfb.sock" "/tmp/.X$disp-lock" "/tmp/.X11-unix/X$disp"
+  # a lock left by the Chrome of an earlier box (the box was rebuilt, so another host name) makes Chrome refuse to start
+  rm -f "$ws/.browser/SingletonLock" "$ws/.browser/SingletonSocket" "$ws/.browser/SingletonCookie"
   runuser -u "$u" -- bash -c "
     cd '$ws'; export HOME='$ws' DISPLAY=:$disp XAUTHORITY='$sd/Xauthority'
     umask 007; : > \"\$XAUTHORITY\"; xauth -q add :$disp . \$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n') 2>/dev/null
@@ -121,6 +123,9 @@ remove_gone(){
     [ -d "$HOMEC/workspaces/$n" ] && chown -R claude:claude "$HOMEC/workspaces/$n"
     echo "agent users: removed $u"
   done
+  # display and port lines of agents that are gone (their users already went with an earlier box)
+  if [ -f "$PORTS" ]; then local keep; keep=$(while read -r l; do n=${l%% *}; grep -qx "$n" "$REQ" && echo "$l"; done < "$PORTS"); printf "%s
+" "$keep" | sed "/^$/d" > "$PORTS.tmp" && chown claude:claude "$PORTS.tmp" && chmod 640 "$PORTS.tmp" && mv "$PORTS.tmp" "$PORTS"; fi
 }
 
 # every isolated agent's screen stays up (started again if it stopped)
