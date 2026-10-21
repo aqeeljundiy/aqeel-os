@@ -16,13 +16,15 @@ const kbHum=s=>{s=String(s||'').replace(/_/g,' ');return s.charAt(0).toUpperCase
 const kbSevWord={warning:'Needs a look',error:'Problem',critical:'Serious problem'};
 const kbAll=()=>(Pages._kb?.columns||[]).flatMap(c=>c.tasks||[]);
 const kbMeta=()=>{const s=kbSlug()||Pages._kbCur||'default';return (Pages._kbBoards||[]).find(b=>b.slug===s)||null};
+// the board picker's label: its name, and the project it belongs to (quieter)
+const kbPickLabel=m=>esc((m.icon?m.icon+' ':'')+(m.name||m.slug))+(m.project_name?`<small class="kbproj">${esc(m.project_name)}</small>`:'');
 const kbEl=()=>route().page?.id==='kanban'?Pages._kbEl:null;
 const kbRefresh=()=>{const el=kbEl();if(el?.isConnected)kbLoad(el).catch(fail);kbBoards()};
 function kbFilter(t){const q=KF.q.trim().toLowerCase();if(KF.agent&&(KF.agent==='-'?t.assignee:t.assignee!==KF.agent))return false;if(KF.tenant&&t.tenant!==KF.tenant)return false;
  return !q||`${t.id} ${t.title||''} ${t.body||''} ${t.result||''} ${t.latest_summary||''} ${t.assignee||''} ${t.tenant||''}`.toLowerCase().includes(q)}
 
 PAGES.kanban=async(p,el)=>{Pages._kbEl=el;
- setActions(`<button data-act="kb-boards" aria-haspopup="menu" title="Switch boards">${icon('layers',16)}<span id="kbPickN">${esc(kbMeta()?.name||kbMeta()?.slug||'Board')}</span>${icon('chevD',14)}</button><button data-act="kb-dispatch" title="Agents check for Ready tasks every minute. This asks them now.">${icon('play',16)}Start ready tasks</button><button data-act="kb-refresh">${icon('refresh',16)}Refresh</button><button class="primary" data-act="kb-new">${icon('plus',16)}New task</button>`);
+ setActions(`<button data-act="kb-boards" aria-haspopup="menu" title="Switch boards">${icon('layers',16)}<span id="kbPickN">${kbMeta()?kbPickLabel(kbMeta()):'Board'}</span>${icon('chevD',14)}</button><button data-act="kb-dispatch" title="Agents check for Ready tasks every minute. This asks them now.">${icon('play',16)}Start ready tasks</button><button data-act="kb-refresh">${icon('refresh',16)}Refresh</button><button class="primary" data-act="kb-new">${icon('plus',16)}New task</button>`);
  if(!Pages._kbCfg){const c=await KB('/config').catch(()=>null);Pages._kbCfg=c||{};if(!KF.seeded){KF.seeded=true;KF.tenant=c?.default_tenant||'';KF.lanes=c?.lane_by_profile!==false;KF.archived=!!c?.include_archived_by_default}}
  KB('/orchestration').then(o=>{Pages._kbOrch=o;kbTool(el)}).catch(()=>{});kbBoards();
  await kbLoad(el);kbLive();
@@ -32,7 +34,7 @@ PAGES.kanban=async(p,el)=>{Pages._kbEl=el;
 };
 async function kbBoards(){try{const r=await KB('/boards');Pages._kbBoards=r.boards||[];Pages._kbCur=r.current||'default';
  if(kbSlug()&&kbSlug()!=='default'&&!Pages._kbBoards.some(b=>b.slug===kbSlug())){store.set('kb-board','');toast('That board was archived. Showing the main board.');kbRefresh()}
- const n=$('#kbPickN'),m=kbMeta();if(n&&m)n.textContent=(m.icon?m.icon+' ':'')+(m.name||m.slug)}catch{}}
+ const n=$('#kbPickN'),m=kbMeta();if(n&&m)n.innerHTML=kbPickLabel(m)}catch{}}
 async function kbLoad(el){const b=await KB('/board'+qp({tenant:KF.tenant||undefined,include_archived:KF.archived?'true':undefined}));
  const sig=JSON.stringify(b.columns)+'|'+(b.assignees||[]).join()+'|'+(b.tenants||[]).join();const same=Pages._kbSig===sig&&el.querySelector('#kbArea .kboard');Pages._kb=b;Pages._kbSig=sig;if(!el.isConnected)return;
  if(!el.querySelector('#kbArea'))kbFrame(el);kbTool(el);if(!same&&!Pages._kbDrag)kbPaint(el)}

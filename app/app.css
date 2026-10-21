@@ -594,6 +594,7 @@ body.dragging .screen-float{transition:none}
 .ktool-r{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1}
 .ktg,.drawer-body label.ktg{display:inline-flex;align-items:center;gap:10px;font-size:13px;color:var(--ink-2);cursor:pointer;margin:0}.drawer-body label.ktg{display:flex;margin:12px 0 0;font-size:13.5px;color:var(--ink)}.ktg>span{display:flex;flex-direction:column;line-height:1.35}.ktg small{font-size:12px;color:var(--muted)}
 .ktg input[type=checkbox]:not(.switch){width:16px;height:16px;flex:none}
+.kbproj{font-size:12px;font-weight:500;color:var(--muted);margin-left:2px}
 .kmode{cursor:pointer;margin-left:auto;transition:background var(--t-fast)}.kmode:hover{background:var(--blue-soft)}
 .kflex{flex:1}
 .kcol.kx{display:none}.kboard.kdrag .kcol.kx{display:flex;animation:rise var(--t-med) var(--ease) both}
