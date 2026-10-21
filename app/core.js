@@ -386,7 +386,7 @@ function enhanceSelect(sel){if(sel.dataset.enhanced||sel.multiple)return;sel.dat
  sel.classList.add('sel-native');sel.tabIndex=-1;sel.setAttribute('aria-hidden','true');sel.after(btn);
  sel.addEventListener('change',sync);sel._sync=sync;
  btn.onclick=e=>{e.stopPropagation();const items=[];let grp=null;for(const o of sel.options){const g=o.parentElement.tagName==='OPTGROUP'?o.parentElement.label:null;if(g!==grp){grp=g;if(g)items.push({header:g})}items.push({label:o.textContent,on:o.selected,disabled:o.disabled,run:()=>{if(sel.value===o.value)return;sel.value=o.value;sel.dispatchEvent(new Event('input',{bubbles:true}));sel.dispatchEvent(new Event('change',{bubbles:true}))}})}
-  btn.classList.add('open');menu(btn,items,{matchWidth:true,onClose:()=>{btn.classList.remove('open');btn.focus()}});const obs=new MutationObserver(()=>{if(!$('.menu')){btn.classList.remove('open');obs.disconnect()}});obs.observe(document.body,{childList:true})};
+  btn.classList.add('open');menu(btn,items,{matchWidth:true,search:sel.options.length>12,onClose:()=>{btn.classList.remove('open');btn.focus()}});const obs=new MutationObserver(()=>{if(!$('.menu')){btn.classList.remove('open');obs.disconnect()}});obs.observe(document.body,{childList:true})};
  btn.onkeydown=e=>{if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();btn.click()}}}
 new MutationObserver(muts=>{for(const m of muts)for(const n of m.addedNodes){if(n.nodeType!==1)continue;if(n.tagName==='SELECT')enhanceSelect(n);else n.querySelectorAll?.('select').forEach(enhanceSelect)}}).observe(document.documentElement,{childList:true,subtree:true});
 const sideDrawer=(t,b,f)=>drawer(t,b,f,{side:true});
