@@ -20,6 +20,16 @@ function schedMeta(j){const i=SCHED.info||{};const k=(j.profile||'default')+'|'+
 const folderOf=j=>schedMeta(j).m.folder||bracketOf(j.name)||'General';
 // a description the helper model could not write (it tries again later): the start of the prompt stands in
 const promptLine=t=>{const s=String(t||'').replace(/\s+/g,' ').trim();return s.length>160?s.slice(0,157).replace(/\s\S*$/,'')+'…':s};
+// the engine's own job state (a finished one-off, one running now, one that failed), and the checks its dashboard makes:
+// a next run more than 15 min in the past (overdue), a scheduler that stopped ticking, a run the scheduler missed
+const jobState=j=>j.state||(j.enabled===false?'disabled':'scheduled');
+const STATE_LABEL={scheduled:'Active',running:'Running now',paused:'Paused',completed:'Finished',error:'Failed',disabled:'Off'};
+const schedTime=iso=>{const d=new Date(iso);return isNaN(d)?String(iso||''):d.toLocaleString([],{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})};
+const expectsRun=j=>j.enabled!==false&&!['paused','completed'].includes(j.state);
+const overdueOf=j=>{if(!expectsRun(j))return null;const at=Date.parse(j.next_run_at||'');return !isNaN(at)&&Date.now()-at>15*60e3?j.next_run_at:null};
+const staleAge=jobs=>jobs.reduce((m,j)=>typeof j.scheduler_heartbeat_age_s==='number'&&j.scheduler_heartbeat_age_s>200&&expectsRun(j)&&j.scheduler_heartbeat_age_s>(m||0)?j.scheduler_heartbeat_age_s:m,null);
+const repeatText=j=>{const r=j.repeat;if(!r||r.times==null)return 'Until you stop it';const c=r.completed||0;return c>0?c+' of '+plural(r.times,'run')+' done':plural(r.times,'time')};
+const missedLine=j=>j.last_fire_error?.detail?`Missed its run${j.last_fire_error.at?' at '+schedTime(j.last_fire_error.at):''}: ${j.last_fire_error.detail}`:'';
 
 PAGES.schedules=async(p,el)=>{
  setActions(`<button class="primary" data-act="cron-new">${icon('plus',16)}New schedule</button>`);
@@ -49,15 +59,18 @@ PAGES.schedules=async(p,el)=>{
  const row=j=>{const on=j.enabled&&j.state!=='paused';const {m,r}=schedMeta(j);const last=r.runs[0];
   const model=j.model?`<span class="chip sm-chip" title="Runs on this model instead of the agent’s">${icon('cpu',11)}${esc(modelLabel(j.model))}</span>`:'';
   const cost=r.runs.length?`<span title="${esc(r.sub?'Covered by your subscription. This is what it would cost on the pay-per-use API.':'Estimated from the model’s price')}">≈ ${usd(r.cost)} this month · ${plural(r.n||r.runs.length,'run')}</span>`:'';
-  const bad=j.last_status&&j.last_status!=='ok'||j.last_delivery_error;
+  const bad=j.last_status&&j.last_status!=='ok'||j.last_delivery_error||j.last_fire_error?.detail;const late=on&&overdueOf(j),stt=jobState(j);
+  const nextTxt=stt==='completed'?'finished':stt==='running'?'running now':!on?'paused':late?'overdue':'next '+when(j.next_run_at);
   return `<div class="row sj-row" ${st(n++)} ${admin?`draggable="true"`:""} data-act="cron-open" data-id="${esc(j.id)}" data-profile="${esc(j.profile||'default')}" tabindex="0"><div class="main-c"><span class="ic ${on?'blue':''} ${bad?'warn':''}">${icon(bad?'alert':'clock',18)}</span><div class="txt"><b>${esc(stripBracket(j.name)||j.prompt?.slice(0,60)||j.id)}</b>
    ${m.summary?`<span class="sched-desc">${esc(m.summary)}</span>`:m.tries?`<span class="sched-desc">${esc(promptLine(j.prompt))}</span>`:`<span class="sched-desc pending"><i class="skel" style="display:inline-block;width:min(320px,60%);height:10px;border-radius:5px;vertical-align:middle"></i></span>`}
-   <span class="sched-meta" title="${esc(j.schedule?.expr||j.schedule_display||'')}">${esc(whenText(j))} · to ${esc(deliverName(j,SCHED.info.names))} · ${on?'next '+when(j.next_run_at):'paused'}${j.last_run_at?' · last '+when(j.last_run_at)+(bad?'':' ✓'):''}${last?.secs?' · took '+secsText(last.secs):''}</span>
+   <span class="sched-meta" title="${esc(j.schedule?.expr||j.schedule_display||'')}">${esc(whenText(j))} · to ${esc(deliverName(j,SCHED.info.names))} · ${nextTxt}${j.last_run_at?' · last '+when(j.last_run_at)+(bad?'':' ✓'):''}${last?.secs?' · took '+secsText(last.secs):''}</span>
    ${model||cost?`<span class="sched-meta">${model}${cost}</span>`:''}
-   ${bad?`<span class="err-line" style="white-space:normal">${esc(j.last_delivery_error||j.last_error||'Last run: '+j.last_status)}</span>`:''}</div></div>
+   ${bad&&(j.last_status&&j.last_status!=='ok'||j.last_delivery_error)?`<span class="err-line" style="white-space:normal">${esc(j.last_delivery_error||j.last_error||'Last run: '+j.last_status)}</span>`:''}
+   ${missedLine(j)?`<span class="err-line" style="white-space:normal">${esc(missedLine(j))}</span>`:''}${late?`<span class="err-line" style="white-space:normal">Overdue since ${esc(schedTime(late))}</span>`:''}</div></div>
    <div class="act">${toggle(on,'Active','data-act="cron-toggle" data-id="'+esc(j.id)+'" data-profile="'+esc(j.profile||'default')+'"')}<button class="ghost icon" data-menu="cron" data-id="${esc(j.id)}" data-profile="${esc(j.profile||'default')}" aria-label="More">${icon('more',18)}</button></div></div>`};
  const SORTS={custom:'Your order',az:'A to Z',size:'Most schedules',cost:'Costs most'};
- el.innerHTML=`<div class="toolbar sched-bar"><div class="search">${icon('search',16)}<input id="schedQ" placeholder="Search schedules" value="${esc(SCHED.q)}"></div>
+ const stale=staleAge(jobs),staleTxt=stale==null?'':stale<3600?Math.max(1,Math.floor(stale/60))+' min':stale<86400?Math.floor(stale/3600)+' h':Math.floor(stale/86400)+' days';
+ el.innerHTML=`${stale!=null?`<div class="tz-note warn sched-stale">${icon('alert',15)}<span>The schedule clock last checked for due schedules <b>${staleTxt} ago</b>, so schedules are not starting. ${admin?'Restarting the agents usually fixes it.':'Ask an admin to restart the agents.'}</span>${admin?`<button type="button" data-act="gw-restart">Restart agents</button>`:''}</div>`:''}<div class="toolbar sched-bar"><div class="search">${icon('search',16)}<input id="schedQ" placeholder="Search schedules" value="${esc(SCHED.q)}"></div>
   ${agents.length>1?`<button type="button" class="sel-btn inline sched-agent-btn" data-act="sched-agent-pick" aria-haspopup="menu"><span class="sv">${SCHED.agent?esc(ident(SCHED.agent).name):'All agents'}</span>${icon('chevD',15)}</button>`:''}
   <button type="button" class="sel-btn inline" data-act="sched-sort" aria-haspopup="menu" title="How folders are ordered"><span class="sv">${icon('list',14)} ${esc(SORTS[sort])}</span>${icon('chevD',15)}</button>
   ${admin?`<button class="ghost" data-act="sched-folder-new">${icon('plus',16)}New folder</button>`:''}</div>
@@ -123,14 +136,21 @@ async function describeSchedule2(j){const {m}=schedMeta(j);const v=await promptB
 
 // one schedule, explained
 async function cronDetail(j){const {m,r}=schedMeta(j);const prof=j.profile||'default';const on=j.enabled&&j.state!=='paused';
+ const stt=jobState(j),late=on&&overdueOf(j),ctx=cronList(j.context_from),cont=!!j.continuity||ctx.some(x=>x.toLowerCase()==='self'),ups=ctx.filter(x=>x.toLowerCase()!=='self');
+ const nameOf=id=>{const o=(Pages.cronJobs||[]).find(x=>x.id===id&&(x.profile||'default')===prof);return o?stripBracket(o.name)||id:id};
+ const how=j.no_agent?'Its script only (no AI)':j.script?'Its script, then the agent':'The agent';
+ const extra=[['How it runs',how],j.script?['Script',j.script]:null,cronList(j.skills||j.skill).length?['Skills',cronList(j.skills||j.skill).join(', ')]:null,cronList(j.enabled_toolsets).length?['Tool groups',cronList(j.enabled_toolsets).map(pretty).join(', ')]:null,
+  ['Repeats',repeatText(j)],cont?['Remembers','Its last run']:null,ups.length?['Uses results of',ups.map(nameOf).join(', ')]:null,j.workdir?['Works in',j.workdir]:null].filter(Boolean);
  const d=drawer(stripBracket(j.name)||'Schedule',`<div class="sd" data-big>
-  <div class="sd-top"><span class="chip">${icon('folder',12)}${esc(folderOf(j))}</span><span class="chip">${icon('user',12)}${esc(ident(prof).name)}</span>${j.model?`<span class="chip">${icon('cpu',12)}${esc(modelLabel(j.model))}</span>`:''}<span class="chip ${on?'ok':''}">${on?'Active':'Paused'}</span></div>
+  <div class="sd-top"><span class="chip">${icon('folder',12)}${esc(folderOf(j))}</span><span class="chip">${icon('user',12)}${esc(ident(prof).name)}</span>${j.model?`<span class="chip">${icon('cpu',12)}${esc(modelLabel(j.model))}</span>`:''}<span class="chip ${stt==='error'?'warn':on&&stt!=='completed'?'ok':''}">${esc(on||stt==='completed'||stt==='error'?STATE_LABEL[stt]||pretty(stt):'Paused')}</span></div>
   ${m.summary?`<p class="sd-sum">${esc(m.summary)}</p>`:'<p class="sd-sum muted">A description is being written…</p>'}
   ${m.suggest?`<div class="tz-note">${icon('sparkle',15)}<span>A clearer title: <b>${esc(m.suggest)}</b></span><button type="button" data-sd="title">Use it</button></div>`:''}
-  <div class="sd-facts"><div><small>When</small><b>${esc(whenText(j))}</b></div><div><small>Sends to</small><b>${esc(deliverName(j,SCHED.info.names))}</b></div><div><small>Next run</small><b>${on?esc(when(j.next_run_at)):'Paused'}</b></div><div><small>This month</small><b>${r.runs.length?'≈ '+usd(r.cost)+' · '+toks(r.tokens)+' tokens':'No runs yet'}</b></div></div>
+  <div class="sd-facts"><div><small>When</small><b>${esc(whenText(j))}</b></div><div><small>Sends to</small><b>${esc(deliverName(j,SCHED.info.names))}</b></div><div><small>Next run</small><b>${stt==='completed'?'None, it has finished':!on?'Paused':late?'Overdue since '+esc(schedTime(late)):esc(when(j.next_run_at))}</b></div><div><small>This month</small><b>${r.runs.length?'≈ '+usd(r.cost)+' · '+toks(r.tokens)+' tokens':'No runs yet'}</b></div>${extra.map(([k,v])=>`<div><small>${esc(k)}</small><b class="sd-wrap">${esc(v)}</b></div>`).join('')}</div>
+  ${missedLine(j)?`<p class="err-line">${esc(missedLine(j))}</p>`:''}
   ${(m.steps||[]).length?`<h3 class="sd-h">What it does</h3><ol class="sd-steps">${m.steps.map(s=>`<li>${esc(s)}</li>`).join('')}</ol>`:''}
   <div id="sdMore"><div class="skel" style="height:90px;margin-top:16px"></div></div>
-  <details class="sd-raw"><summary>The exact instructions it gets</summary><pre>${esc(j.prompt||'')}</pre></details></div>`,
+  <details class="sd-raw"><summary>The exact instructions it gets</summary><pre>${esc(j.prompt||'')}</pre></details>
+  <p class="hint cj-id">ID ${esc(j.id)} <button type="button" class="ghost small" data-act="copy-text" data-text="${esc(j.id)}">${icon('copy',13)}Copy</button></p></div>`,
   `<button class="ghost" data-sd="move">${icon('folder',15)}Move</button><button class="ghost" data-sd="run">${icon('play',15)}Run now</button><button class="primary" data-sd="edit">${icon('edit',15)}Edit</button>`,{size:'lg'});
  d.addEventListener('click',async e=>{const b=e.target.closest('[data-sd]');if(!b)return;const k=b.dataset.sd;
   if(k==='edit'){closeLayers();setTimeout(()=>cronDrawer(j),220)}

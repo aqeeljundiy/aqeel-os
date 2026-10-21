@@ -376,6 +376,23 @@ input[type=time]{font-variant-numeric:tabular-nums;font-size:15px}
 .tpl small{font-size:11.5px;color:var(--blue);font-weight:500;margin-top:2px}
 .tpl.on{border-color:var(--blue);background:var(--blue-soft)}
 .tpl-form{box-shadow:none;margin:14px 0 0;padding:16px 18px}
+.tpl .tpl-tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}.tpl .tpl-tags i{font-style:normal;font-size:11px;color:var(--muted);background:var(--soft);border-radius:var(--r-pill);padding:1px 8px}
+/* schedule form: several names as chips, the "More options" fold, switches on a label row */
+.np{display:flex;flex-direction:column;gap:6px}
+.np-find{position:relative}.np-find input{padding-left:34px;min-height:36px}.np-find svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--muted)}
+.np-list{display:flex;gap:6px;flex-wrap:wrap;max-height:184px;overflow-y:auto;padding:2px}
+.np-list button{min-height:32px;padding:0 12px;font-size:12.5px;font-weight:500;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:background var(--t-fast,.15s) var(--ease),color var(--t-fast,.15s) var(--ease),border-color var(--t-fast,.15s) var(--ease)}
+.np-list button.on{background:var(--blue-soft);color:var(--blue-deep);border-color:transparent}.dark .np-list button.on{color:var(--blue-2)}
+.np-n{font-size:11.5px;color:var(--muted);min-height:0}.np-n:empty{display:none}
+.cj-adv{interpolate-size:allow-keywords;margin-top:14px;border-top:1px solid var(--border);padding-top:4px}
+.cj-adv::details-content{block-size:0;overflow:hidden;transition:block-size var(--t-med) var(--ease),content-visibility var(--t-med) allow-discrete}.cj-adv[open]::details-content{block-size:auto}
+.cj-adv>summary{display:flex;align-items:center;gap:6px}.cj-adv>summary svg{transform:rotate(-90deg);transition:transform var(--t-med) var(--ease)}.cj-adv[open]>summary svg{transform:none}
+.cj-tg{display:flex!important;align-items:center;justify-content:space-between;gap:12px}
+.cj-pane{animation:fade var(--t-med) var(--ease)}
+.cj-id{display:flex;align-items:center;gap:8px;flex-wrap:wrap;word-break:break-all}
+.sd-facts b.sd-wrap{overflow-wrap:anywhere;font-weight:600}
+.wh-off{opacity:.62;transition:opacity var(--t-med) var(--ease)}.wh-count{margin-top:6px}
+.wh-restart,.sched-stale{animation:fade var(--t-med) var(--ease)}
 .drawer .tabs{display:flex;margin-bottom:6px}
 .drawer .tabs button{flex:1}
 @media (max-width:760px){.tpl-grid{grid-template-columns:1fr}.daychips button{width:calc((100% - 36px)/7);min-width:38px}}
