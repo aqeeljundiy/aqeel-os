@@ -9,7 +9,7 @@ import path from 'node:path';
 const CAPS=['browser_navigate','browser_snapshot','browser_click','browser_type','browser_press','browser_scroll','browser_back'];
 
 // a small WebSocket server side (text frames, ping/pong, close), so no package is needed
-function acceptWs(req,sock,head){const key=req.headers['sec-websocket-key'];if(!key){sock.destroy();return null}
+export function acceptWs(req,sock,head){const key=req.headers['sec-websocket-key'];if(!key){sock.destroy();return null}
  sock.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: '+createHash('sha1').update(key+'258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64')+'\r\n\r\n');
  const ev={onmessage:null,onclose:null};let buf=head?.length?Buffer.from(head):Buffer.alloc(0),frag=[];
  const out=(data,op=1)=>{const p=Buffer.isBuffer(data)?data:Buffer.from(String(data));let h;

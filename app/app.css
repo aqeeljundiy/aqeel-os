@@ -1493,3 +1493,20 @@ div.skel:not(.loading)::after{content:'';width:26px;height:26px;border-radius:50
 .bn-why{display:grid;grid-template-columns:44px 1fr;gap:8px;font-size:13px;line-height:1.45;color:var(--ink-2)}.bn-why .bn-k{color:var(--muted);font-size:12px}
 .bn-why small,.si-row small{display:block;color:var(--muted);font-size:12px;margin-top:2px}
 [data-why-chat]{all:unset;cursor:pointer;color:var(--blue);font-size:12px;font-weight:600;border-radius:4px;transition:color var(--t-fast) var(--ease)}[data-why-chat]:hover{color:var(--blue-deep);text-decoration:underline}[data-why-chat]:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+
+/* Engine console (health-page.js): the engine's answers in a log, one command line under it */
+.con-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 10px}.con-bar .con-for{font-size:13px;color:var(--ink-2);min-width:0;flex:1}
+.con-bar .chip{transition:color var(--t-med) var(--ease),background-color var(--t-med) var(--ease)}
+.con-out{font-family:var(--mono);font-size:12.5px;line-height:1.6;background:var(--soft-2);border:1px solid var(--border);border-radius:var(--r-md) var(--r-md) 0 0;padding:12px 14px;height:min(52vh,460px);overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
+.con-out>div{animation:fade var(--t-med) var(--ease) both}.con-out .e{color:var(--bad)}.con-out .w{color:var(--warn)}.con-out .d{color:var(--muted)}.con-out .cmd{color:var(--ink);font-weight:600}.con-out a{color:var(--blue)}
+.con-in{display:flex;align-items:center;gap:8px;border:1px solid var(--border);border-top:0;border-radius:0 0 var(--r-md) var(--r-md);padding:4px 12px;background:var(--surface);transition:box-shadow var(--t-med) var(--ease)}
+.con-in:focus-within{box-shadow:0 0 0 3px var(--blue-soft)}
+.con-in span{font-family:var(--mono);font-size:12.5px;color:var(--muted);white-space:nowrap}
+.con-in input{flex:1;min-width:0;border:0;box-shadow:none;background:transparent;font-family:var(--mono);font-size:13px;padding:8px 0;outline:none}
+.con-in input[readonly]{color:var(--muted)}
+/* Share a support report: its links */
+.ds-res{display:grid;gap:8px;margin-top:6px;animation:rise var(--t-med) var(--ease) both}
+.ds-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.ds-meta .ghost{margin-left:auto}
+.ds-link{display:flex;align-items:center;gap:10px;min-width:0;padding:6px 6px 6px 12px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--soft-2)}
+.ds-link .ds-l{font-size:12.5px;color:var(--muted);flex:none;max-width:30%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ds-link a{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:var(--blue)}

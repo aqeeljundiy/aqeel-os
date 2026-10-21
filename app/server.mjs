@@ -24,6 +24,7 @@ import {createRelay} from './relay.mjs';
 import {boxMemory} from './boxmem.mjs';
 import {createLinks,isLink} from './links.mjs';
 import {createLocalBrowser} from './localbrowser.mjs';
+import {createEngineConsole} from './engine-console.mjs';
 import {createAccess} from './access.mjs';
 import {createAccessRequests} from './access-requests.mjs';
 import {startScreenFollow} from './screen-follow.mjs';
@@ -505,6 +506,7 @@ const live=createLive({DATA,DOMAIN:env.LIVE_DOMAIN||'app.elkiya.com'});
 const bottlenecks=createBottlenecks({DATA,listAgents:()=>listAgents(),names:a=>NAMES[a]||a,dash:p=>fetch(DASH.origin+'/api'+p,{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(20000)}).then(r=>r.json())});brand.name().then(n=>{globalThis.AQ_BRAND=n}).catch(()=>{});
 const codeOnline=createCodeOnline({SECRET,SECURE:SECURE_COOKIE,users:()=>users,revokedAt:uid=>revoked[uid]||0,HOST:env.CODE_HOST||'code.elkiya.com',PREVIEW_HOST:env.CODE_PREVIEW_HOST||'code-preview.elkiya.com',HOME:PUBLIC_URL||'https://ai.elkiya.com'});
 const localBrowser=createLocalBrowser({DATA,GATE:GATE.origin,API_KEY,EXT_DIR:path.join(root,'extension'),NAMES,PUBLIC_URL});
+const engineConsole=createEngineConsole({DASH,DASH_TOKEN});
 const links=createLinks({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,python:()=>sharing.python(),setupAgent:n=>setupAgentFn?.(n)});
 function listAgents(){return agentNames()}   // real agents only (a folder with a config), not extra-number copies
 async function listAllProfiles(){return [...await listAgents(),...(await links.list()).map(l=>l.name)]}
@@ -1534,6 +1536,9 @@ const server=createServer(async(req,res)=>{
 server.on('upgrade',(req,sock,headBuf)=>{
  const p=new URL(req.url,'http://x').pathname;
  if(p==='/ui/local-browser/ws'){localBrowser.upgrade(req,sock,headBuf).catch(()=>sock.destroy());return}
+ // the engine console: admins only, signed in on this site, for one agent
+ if(p==='/ui/console/ws'){const ag=new URL(req.url,'http://x').searchParams.get('agent')||'default';if(!validCookie(req)||!sameOrigin(req)||!/^[\w-]{1,64}$/.test(ag)){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}
+  me(req).then(u=>{if(!u||!users.isAdmin(u)||users.gate(u,'/hapi/status','GET',new URLSearchParams({profile:ag}),ag)){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}return engineConsole.upgrade(req,sock,headBuf,{agent:ag,user:u.name||u.id})}).catch(()=>sock.destroy());return}
  if(p!=='/screen/websockify'||!validCookie(req)||!sameOrigin(req)){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}
  const agent=new URL(req.url,'http://x').searchParams.get('agent');
  me(req).then(u=>{if(!u||users.gate(u,'/ui/screens/'+(agent||'default'),'GET',new URLSearchParams(),agent||'default')){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}
