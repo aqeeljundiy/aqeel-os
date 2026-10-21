@@ -5,7 +5,9 @@ for(const id of ['skills','files','memory','logs','settings'])ALL_PAGES.add(id);
 const allAv=(a,on=true)=>`<span class="aam-ag${on?' on':''}" title="${esc(ident(a).name)}">${Access.av({id:a,name:ident(a).name},18)}<span>${esc(ident(a).name)}</span></span>`;
 // per agent: a chip that turns the thing on or off for that agent
 const allChip=(act,a,name,on)=>`<button class="aam-ag${on?' on':''}" data-act="${act}" data-agent="${esc(a)}" data-name="${esc(name)}" aria-pressed="${on}" title="${esc(ident(a).name)}: ${on?'on, click to turn off':'off, click to turn on'}">${Access.av({id:a,name:ident(a).name},18)}<span>${esc(ident(a).name)}</span></button>`;
-const perAgent=async(fn)=>{const list=await viewAgents();return Promise.all(list.map(async a=>({a,d:await fn(a).catch(()=>null)})))};
+const perAgent=async(fn,ok=()=>true)=>{const list=(await viewAgents()).filter(ok);return Promise.all(list.map(async a=>({a,d:await fn(a).catch(()=>null)})))};
+// whose skills this person may manage: admins all; members the agents they own, plus those they edit when their role has skills
+const skillsOn=a=>{const me=S.me||{},l=me.agents?.[a];return me.admin!==false||l==='owner'||!!l&&l!=='chat'&&(me.caps||[]).includes('skills')};
 const prof=(p,a)=>p+(p.includes('?')?'&':'?')+'profile='+encodeURIComponent(a);
 async function allChipFlip(b,path,body,label){const on=b.getAttribute('aria-pressed')!=='true',a=b.dataset.agent;b.disabled=true;
  try{await put(H,prof(path,a),body(on));S._skPer=null;b.classList.toggle('on',on);b.setAttribute('aria-pressed',String(on));toast(label+(on?' on for ':' off for ')+ident(a).name)}catch(e){fail(e)}finally{b.disabled=false}}
@@ -21,12 +23,12 @@ Object.assign(ALLVIEW,{
    const bad=per.filter(x=>!x.d).map(x=>ident(x.a).name);
    el.innerHTML=`${tabs('skills',['Installed','Tool groups','Find more skills'])}${bad.length?`<p class="err-line" style="margin:0 0 12px">Couldn’t load ${esc(bad.join(', '))}. <button data-act="reload">Try again</button></p>`:''}<div class="all-view">${allSection('Tool groups',rows,'No tool groups.')}</div>`;return}
   // typing in the search box reuses the last answers (up to 30 s old) instead of asking every agent again; not kept when one failed
-  let per=S._skReuse&&S._skPer&&Date.now()-S._skPer.t<30000?S._skPer.d:null;S._skReuse=false;if(!per){per=await perAgent(a=>H(prof('/skills',a)));S._skPer=per.some(x=>!x.d)?null:{t:Date.now(),d:per}}
+  let per=S._skReuse&&S._skPer&&Date.now()-S._skPer.t<30000?S._skPer.d:null;S._skReuse=false;if(!per){per=await perAgent(a=>H(prof('/skills',a)),skillsOn);S._skPer=per.some(x=>!x.d)?null:{t:Date.now(),d:per}}
   const m=new Map(),bad=per.filter(x=>!x.d).map(x=>ident(x.a).name);
   for(const {a,d} of per)for(const s of d||[]){const x=m.get(s.name)||{...s,on:[],all:[]};x.all.push(a);if(s.enabled)x.on.push(a);m.set(s.name,x)}
   const q=(S.skillQ||'').toLowerCase(),all=[...m.values()].sort((x,y)=>x.name.localeCompare(y.name)),list=all.filter(s=>!q||(s.name+' '+s.description).toLowerCase().includes(q));
   const rows=list.map((s,i)=>allRow(i,`<span class="ic ${s.on.length?'blue':''}">${icon('sparkle',17)}</span>`,esc(s.name),esc(s.description||'')+(s.category?' · '+esc(pretty(s.category)):''),null,`<span class="aam-ags">${s.all.map(a=>allChip('all-sk',a,s.name,s.on.includes(a))).join('')}</span>`));
-  el.innerHTML=`${tabs('skills',['Installed','Tool groups','Find more skills'])}<div class="toolbar"><div class="search">${icon('search',16)}<input id="skQ" placeholder="Search ${all.length} skills on all agents" value="${esc(S.skillQ||'')}"></div><span class="chip">${per.length-bad.length} agents</span></div>${bad.length?`<p class="err-line" style="margin:0 0 12px">Couldn’t load ${esc(bad.join(', '))}. <button data-act="reload">Try again</button></p>`:''}<div class="all-view">${allSection('Skills, and which agents have each on',rows,q?'No skill matches.':'No skills yet.')}</div>`;
+  el.innerHTML=`${tabs('skills',['Installed','Tool groups','Find more skills'])}<div class="toolbar"><div class="search">${icon('search',16)}<input id="skQ" placeholder="Search ${all.length} skills on all agents" value="${esc(S.skillQ||'')}"></div><span class="chip">${plural(per.length-bad.length,'agent')}</span></div>${bad.length?`<p class="err-line" style="margin:0 0 12px">Couldn’t load ${esc(bad.join(', '))}. <button data-act="reload">Try again</button></p>`:''}<div class="all-view">${allSection('Skills, and which agents have each on',rows,q?'No skill matches.':'No skills yet.')}</div>`;
   let t;$('#skQ').oninput=e=>{clearTimeout(t);t=setTimeout(()=>{if(!el.isConnected||route().page?.id!=='skills')return;S.skillQ=e.target.value;S._skReuse=true;PAGES.skills(p,el).then(()=>{const i=$('#skQ');if(i){i.focus();i.setSelectionRange(i.value.length,i.value.length)}})},200)}},
  async memory(p,el){setActions('');const list=await viewAgents();
   const home=a=>'/home/claude/.hermes'+(a==='default'?'':'/profiles/'+a)+'/memories/';

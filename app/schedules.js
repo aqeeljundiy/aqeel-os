@@ -38,7 +38,8 @@ PAGES.schedules=async(p,el)=>{
  const I=SCHED.info,admin=S.me?.admin!==false;
  const groups={};for(const j of shown)(groups[folderOf(j)]??=[]).push(j);
  // folders made on purpose show while still empty, unless you are searching or looking at one agent
- if(!q&&!SCHED.agent)for(const f of I.folders||[])groups[f]??=[];
+ // (admins only: the folders are the admins' own filing, and a member would see folders of schedules they can't see)
+ if(!q&&!SCHED.agent&&admin)for(const f of I.folders||[])groups[f]??=[];
  const month=l=>l.reduce((s,j)=>s+(schedMeta(j).r.cost||0),0);
  const sort=SCHED.sort||'custom',pos=f=>{const i=(I.order||[]).indexOf(f);return i<0?1e6:i};
  const order=Object.keys(groups).sort((a,b)=>sort==='az'?a.localeCompare(b):sort==='cost'?month(groups[b])-month(groups[a])||a.localeCompare(b):sort==='size'?groups[b].length-groups[a].length||a.localeCompare(b)
