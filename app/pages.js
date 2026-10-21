@@ -106,7 +106,7 @@ PAGES.schedules=async(p,el)=>{
  Pages.cronJobs=jobs;
 };
 ACT['cron-toggle']=async a=>{const on=a.checked;try{await post(H,`/cron/jobs/${encodeURIComponent(a.dataset.id)}/${on?'resume':'pause'}?profile=${encodeURIComponent(a.dataset.profile)}`);const back=()=>post(H,`/cron/jobs/${encodeURIComponent(a.dataset.id)}/${on?'pause':'resume'}?profile=${encodeURIComponent(a.dataset.profile)}`).then(()=>reload());toastUndo(on?'Schedule active':'Schedule paused',back)}catch(e){a.checked=!on;fail(e)}};
-ACT['cron-new']=()=>cronDrawer();
+ACT['cron-new']=()=>{const p=cronDrawer();pressBusy(p);return p};   // the button shows it is working while the form gathers its choices
 // Friendly schedule picker: how often → time → days. Builds a cron expression (or "every 2h", or a date for once) underneath.
 const WEEKDAYS=[['1','Mon'],['2','Tue'],['3','Wed'],['4','Thu'],['5','Fri'],['6','Sat'],['0','Sun']];
 const FREQS=[['hourly','Every hour'],['interval','Every few hours'],['daily','Every day'],['weekdays','Weekdays'],['weekly','Weekly'],['monthly','Monthly'],['once','Once'],['custom','Custom']];
