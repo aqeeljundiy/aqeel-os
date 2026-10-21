@@ -23,7 +23,9 @@ let ALL_SECTIONS=null;
 function applyRole(){
  ALL_SECTIONS??=structuredClone(SECTIONS);SECTIONS.splice(0,SECTIONS.length,...structuredClone(ALL_SECTIONS));
  if(S.me?.admin){if(typeof FILE_HOME!=='undefined')FILE_HOME='/home/claude';const sys=SECTIONS.find(s=>s.id==='system');if(sys&&!sys.pages.some(p=>p.id==='people'))sys.pages.unshift({id:'people',label:'People',icon:'user',desc:'Who can sign in, what they can do, and which agents they can use.'});return}
- const has=k=>(S.me?.caps||[]).includes(k),editsAny=Object.values(S.me?.agents||{}).some(l=>l!=='chat');
+ // an agent's owner manages its schedules, skills and connected apps whatever their role (users.mjs, OWNER_CAPS)
+ const owns=Object.values(S.me?.agents||{}).includes('owner');
+ const has=k=>(S.me?.caps||[]).includes(k)||owns&&['schedules','skills','mcp'].includes(k),editsAny=Object.values(S.me?.agents||{}).some(l=>l!=='chat');
  const pg=(sec,id,extra)=>({...SECTIONS.find(s=>s.id===sec).pages.find(p=>p.id===id),...extra});
  const out=[SECTIONS.find(s=>s.id==='chat')];
  // Code on their own computer, with the agents shared with them (online projects stay with admins: the AI box has one Linux user)
