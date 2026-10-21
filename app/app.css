@@ -110,6 +110,8 @@ body{overflow:hidden}
 .tile .t-warn{font-size:12.5px;color:var(--bad);margin:4px 0 0;line-height:1.45}
 .tile details.aam-more{margin-top:2px}.tile details.aam-more>summary{font-size:12.5px;padding:2px 0}
 .setup-step{border-top:1px solid var(--border);padding:10px 0}.setup-step:first-child{border-top:0}
+.pl-url{margin-bottom:16px}.pl-url-row{display:flex;gap:8px;margin:0 0 10px}.pl-url-row input{flex:1;min-width:0}.pl-url-row button{flex:none}
+.row[data-pl] .txt b .chip,.hub-finds .txt b .chip{font-size:11px;padding:1px 7px;vertical-align:1px;margin-left:4px;font-weight:500}
 .list{padding:6px 0;overflow:hidden}
 .row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:16px;padding:14px 22px;border-top:1px solid var(--border);animation:rise var(--t-med) var(--ease) both}
 .row:first-child{border-top:0}
