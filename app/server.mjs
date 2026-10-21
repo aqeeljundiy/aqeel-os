@@ -873,6 +873,8 @@ async function hermesCall(req,res,u,url){
   :relayTarget!==undefined?async d=>{const id=relayJob||(d.job||d).id;if(id)await relay.setJobRelay(agent,id,relayTarget);return d}:undefined;
  if(p.startsWith('/hapi/'))return proxy(req,res,DASH,'/hapi',{'x-hermes-session-token':DASH_TOKEN},{transform,body});
  const live=chatM&&req.method==='POST'?{key:agent+'|'+decodeURIComponent(chatM[1]),user:u.id}:undefined;
+ // a new message starts a new turn: the person's browser lifts a Stop they pressed in this chat
+ if(live)localBrowser.turn(decodeURIComponent(chatM[1]),u.id);
  // a steer: sent to the engine, then added to the live reply so other tabs on the same chat show it too
  {const sm=/^\/gapi(\/p\/[^/]+)?\/v1\/runs\/([^/]+)\/steer$/.exec(p);
   if(sm&&req.method==='POST'){const raw=body||await readRaw(req,65536);

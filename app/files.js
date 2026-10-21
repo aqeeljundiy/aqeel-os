@@ -74,7 +74,7 @@ async function uploadFiles(files){const dir=(S.filePath||FILE_HOME).replace(/\/$
  t.remove();if(ok)toast('Uploaded '+plural(ok,'file'));reload()}
 async function deleteFile(f){if(!await confirmBox('Delete '+(f.is_directory?'folder':'file')+'?',`${esc(f.path)}${f.is_directory?' and everything inside it':''} will be removed from the box.`))return;try{await del(H,'/files',{path:f.path,recursive:!!f.is_directory});toast('Deleted');closePreview();reload()}catch(e){fail(e)}}
 Pages.fileMenu=el=>{const f=Pages._items[+el.dataset.i];if(!f)return;const bl=!!f.broken_link;menu(el,[bl?{header:'Broken link: it points to something that no longer exists'}:f.is_directory?{label:'Open',icon:'folder',run:()=>{S.filePath=f.path;reload()}}:{label:'Preview',icon:'eye',run:()=>preview(+el.dataset.i)},
- !f.is_directory&&!bl&&{label:'Download',icon:'download',run:()=>downloadPath(f)},{label:'Copy path',icon:'copy',run:()=>navigator.clipboard.writeText(f.path).then(()=>toast('Path copied'))},
+ !f.is_directory&&!bl&&{label:'Download',icon:'download',run:()=>downloadPath(f)},{label:'Copy path',icon:'copy',run:()=>copyText(f.path,'Path copied')},
  !f.is_directory&&!bl&&{label:'Ask the agent about it',icon:'chat',run:()=>{go('/chat');setTimeout(()=>{const ta=$('#msg');if(ta){ta.value='Look at the file '+f.path+' and ';ta.focus()}},400)}},'-',{label:'Delete',icon:'trash',bad:true,run:()=>deleteFile(f)}])};
 function downloadPath(f){const a=document.createElement('a');a.href=fileUrl(f.path);a.download=f.name;document.body.append(a);a.click();a.remove()}
 

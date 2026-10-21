@@ -897,6 +897,10 @@ Object.assign(ID,{
  'Email (home address)':'Email (alamat utama)',
  'A GitHub comment needs the GitHub connection; Telegram, Discord, Slack and email go to that channel’s home chat.':'Komentar GitHub butuh koneksi GitHub; Telegram, Discord, Slack, dan email masuk ke obrolan utama saluran itu.',
  'These are saved and start working again once webhooks are on.':'Ini tersimpan dan berfungsi lagi setelah webhook dinyalakan.',
+ 'Greyed ones belong to agents whose webhooks are off. These are saved and start working again once webhooks are on.':'Yang abu-abu milik agen yang webhook-nya mati. Ini tersimpan dan berfungsi lagi setelah webhook dinyalakan.',
+ 'Webhooks are off':'Webhook mati',
+ 'Turn on webhooks':'Nyalakan webhook',
+ 'Turn on the webhook channel so other services can send events to aqeelOS.':'Nyalakan saluran webhook agar layanan lain bisa mengirim event ke aqeelOS.',
  'Outside services post to the address shown on each webhook. Each one must sign its requests with the webhook secret. Changes work at once, without a restart. A webhook that is switched off turns away the events sent to it.':'Layanan luar mengirim ke alamat yang tertera di setiap webhook. Setiap permintaan harus ditandatangani dengan rahasia webhook. Perubahan langsung berlaku, tanpa mulai ulang. Webhook yang dimatikan menolak event yang dikirim kepadanya.',
  'Copy':'Salin',
  // Settings, Keys and Sign-ins (parity with the engine's dashboard)
@@ -1301,7 +1305,7 @@ Object.assign(ID,{
  'aqeelOS’s own page is used again':'Halaman aqeelOS dipakai lagi',
  'Pages plugins add. They open here in aqeelOS.':'Halaman yang ditambahkan plugin. Terbuka di sini, di aqeelOS.',
 });
-ID_PATTERNS.push([/^Works with (.+), the agent you chat with\.$/,'Bekerja dengan $1, agen yang kamu ajak mengobrol.']);
+ID_PATTERNS.push([/^Works with (.+), the agent you chat with\.$/,'Bekerja dengan $1, agen yang kamu ajak mengobrol.'],[/^For (.+), the agent you chat with\.$/,'Untuk $1, agen yang kamu ajak mengobrol.']);
 ID_PATTERNS.push([/^Reset (\d+) settings?\?$/,'Reset $1 pengaturan?'],[/^Item (\d+)$/,'Item $1'],[/^(\d+) settings? reset · press Save to keep the change$/,'$1 pengaturan direset · tekan Simpan untuk menyimpannya'],
  [/^(.+): (?:it goes|they go) back to the default\. Every other setting stays as it is, and nothing is saved until you press Save\.$/,'$1: kembali ke bawaan. Pengaturan lain tetap, dan tidak ada yang disimpan sampai kamu tekan Simpan.'],
  [/^“(.+)” needs a number$/,'“$1” harus berupa angka'],[/^Replace (.+)’s settings\?$/,'Ganti pengaturan $1?'],[/^Replace ([A-Z0-9_]+)\?$/,'Ganti $1?'],[/^([A-Z0-9_]+) is already set\. Saving replaces its value\.$/,'$1 sudah diisi. Menyimpan akan mengganti nilainya.'],
