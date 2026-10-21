@@ -72,6 +72,9 @@ body{overflow:hidden}
 .banner{display:flex;align-items:center;gap:12px;margin:0;padding:10px 24px;background:#fff6e6;color:#6b4100;font-size:13.5px;border-bottom:1px solid #f3dfb8;animation:fade var(--t-med) var(--ease)}
 .dark .banner{background:#2e2414;color:#f0c98a;border-color:#4a3a1f}
 .banner button{margin-left:auto;min-height:30px;padding:0 12px;font-size:12.5px}
+.banner{flex-wrap:wrap}.banner>span{flex:1 1 240px;min-width:0}.banner>span+button{margin-left:auto}.banner>button+button{margin-left:0}.banner small{font-size:12px}
+.banner.closing{animation:fadeOut .2s var(--ease) both}
+@media (max-width:600px){.banner{padding:10px 16px;gap:8px 12px}}
 
 /* page layout */
 .page{max-width:1080px;margin:0 auto;padding:32px 32px 80px}

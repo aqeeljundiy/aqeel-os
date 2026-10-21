@@ -225,7 +225,7 @@ const SECTIONS=[
   {id:'guide',label:'Guide',icon:'list',desc:'How aqeelOS works, in a few minutes.'}]},
 ];
 
-const S={identities:{},collapsed:store.get('collapsed',false),tab:{},status:null,sessions:[],sessionsLoaded:false,chatFilter:['chats','automation','all'].includes(store.get('chatFilter','chats'))?store.get('chatFilter','chats'):'chats',search:'',bannerDismissed:store.get('bannerDismissed',''),signedIn:false};
+const S={identities:{},collapsed:store.get('collapsed',false),tab:{},status:null,sessions:[],sessionsLoaded:false,chatFilter:['chats','automation','all'].includes(store.get('chatFilter','chats'))?store.get('chatFilter','chats'):'chats',search:'',signedIn:false};
 
 // pages that moved keep their old addresses: [new section, page, tab]
 const ROUTE_MOVED={'automations/channels':['channels','channels','Connections'],'automations/pairing':['channels','channels','Who can message'],'system/status':['system','health'],'system/host':['system','health'],'abilities/memory':['agents','memory'],'abilities/files':['agents','files'],'models/keys':['system','keys']};
@@ -276,10 +276,10 @@ function sidebar(r){
  if(sec.id==='chat')sub=Chat.sidebar(r);
  else if(sec.id==='code'&&typeof CodeUI!=='undefined')sub=CodeUI.sidebar(r);
  else sub=`<div class="side-sub"><div class="side-sub-head"><span class="th">${sec.label}</span></div><div class="side-list">${sec.pages.map(p=>`<button class="item ${r.page.id===p.id?'on':''}" data-go="/${sec.id}/${p.id}">${icon(p.icon,16)}<span class="t">${p.label}</span></button>`).join('')}</div></div>`;
- const st=S.status;const gw=st?(st.gateway_running?'Online':'Offline'):'Connecting…';
+ const gs=gwState(S.status);
  return `<div class="resizer side-rz" data-drag="side" title="Drag to resize · double-click to reset"></div><div class="side-top"><span class="wordmark"><img class="mark" src="${Brand.mark()}" alt=""><span>${esc(Brand.name)}</span></span><button class="ghost icon collapse-btn" data-act="collapse" title="Collapse sidebar (${MOD}+B)" aria-label="Collapse sidebar">${icon('panel',18)}</button></div>
  <nav class="sections">${S.collapsed?`<button class="sec" data-act="collapse" title="Expand sidebar (${MOD}+B)">${icon('panel',19)}</button>`:''}${sections}</nav>${sub}
- ${(()=>{const cd=r.sec?.id==='code'&&typeof CodeUI!=='undefined'&&CodeUI.state==='on'?CodeUI.agentCard():null;return cd?`<div class="side-foot"><button class="status-btn" data-menu="profile" aria-label="Account and Code's agent"><span class="avatar${cd.none?' none':''}">${esc(cd.initial)}</span><span class="who"><b>${esc(cd.name)}</b><span><i class="dot" style="color:var(--ok)"></i>Code · ${esc(cd.model)}</span></span>`:''})()||`<div class="side-foot"><button class="status-btn" data-menu="profile" aria-label="Account and status"><span class="avatar">${ident().avatar?`<img src="${esc(ident().avatar)}" alt="">`:esc(AGENT()[0].toUpperCase())}</span><span class="who"><b>${esc(AGENT())}</b><span><i class="dot" style="color:${st&&!st.gateway_running?'var(--bad)':'var(--ok)'}"></i>${gw} · ${esc(modelLabel(S.model))}</span></span>`}${icon('chevUD',16)}</button></div>`;
+ ${(()=>{const cd=r.sec?.id==='code'&&typeof CodeUI!=='undefined'&&CodeUI.state==='on'?CodeUI.agentCard():null;return cd?`<div class="side-foot"><button class="status-btn" data-menu="profile" aria-label="Account and Code's agent"><span class="avatar${cd.none?' none':''}">${esc(cd.initial)}</span><span class="who"><b>${esc(cd.name)}</b><span><i class="dot" style="color:var(--ok)"></i>Code · ${esc(cd.model)}</span></span>`:''})()||`<div class="side-foot"><button class="status-btn" data-menu="profile" aria-label="Account and status"><span class="avatar">${ident().avatar?`<img src="${esc(ident().avatar)}" alt="">`:esc(AGENT()[0].toUpperCase())}</span><span class="who"><b>${esc(AGENT())}</b><span${gs.say?` title="${esc(gs.say)}"`:''}><i class="dot" style="color:${gs.c}"></i>${gs.label} · ${esc(modelLabel(S.model))}</span></span>`}${icon('chevUD',16)}</button></div>`;
 }
 // Hermes dashboard plugins (Kanban, Achievements) open in their own tab of the original dashboard.
 function pluginLinks(sec){const want=sec==='automations'?['kanban']:['hermes-achievements'];return (S.dashPlugins||[]).filter(p=>want.includes(p.name)).map(p=>`<button class="item" data-act="plugin-page" data-name="${esc(p.name)}" data-path="${esc(p.tab?.path||'')}">${icon(sec==='automations'?'list':'sparkle',16)}<span class="t">${esc(p.label)}</span><span class="n">${icon('chevR',13)}</span></button>`).join('')}
@@ -296,16 +296,31 @@ function topbar(r){
 function panelTop(r){const c=r.chat&&S.sessions.find(x=>x.id===r.chat);const t=r.chat===undefined?r.page.label:c?esc(c.title||c.preview||'Chat'):'New chat';
  return `<button class="ghost icon menu-btn" data-act="nav" aria-label="Past chats and pages" title="Past chats and pages">${icon('menu',19)}</button><div class="crumbs"><b>${t}</b></div>
  <div class="top-actions"><button class="ghost icon" data-act="new" title="New chat" aria-label="New chat">${icon('plus',18)}</button><button class="ghost icon bell" data-act="inbox" title="Notifications" aria-label="Notifications">${icon('bell',18)}<span class="bell-n"></span></button><button class="ghost icon" data-act="panel-full" title="Open the full aqeelOS in a tab" aria-label="Open the full aqeelOS">${icon('popout',17)}</button></div>`}
-// One calm banner for low memory / disk / out-of-memory restarts (most severe first).
-function paintBanner(){const slot=$('#bannerSlot');if(!slot)return;const st=S.status||{};const rp=st.resource_pressure||st.resources||((st.memory||st.disk||S.box)?{memory:st.memory,disk:st.disk}:null);let msg='',key='';
+/* Calm banners at the top: agents nobody answers for (a box with several agents whose engine came up serving only one),
+   then low memory / disk / out-of-memory restarts, most severe first. Dismissing hides that one incident for this browser
+   tab only: an engine restart (new boot), a worse level, or the same trouble coming back after it cleared shows it again,
+   and hiding the worst one lets the next one show. */
+const BannerOff={get(){try{const l=JSON.parse(sessionStorage.getItem('hui-bannerOff')||'[]');return Array.isArray(l)?l:[]}catch{return []}},set(l){try{sessionStorage.setItem('hui-bannerOff',JSON.stringify(l.slice(-20)))}catch{}},add(k){const l=this.get();if(!l.includes(k))this.set([...l,k])}};
+function paintBanner(){const slot=$('#bannerSlot');if(!slot)return;const st=S.status||{};const rp=st.resource_pressure||st.resources||((st.memory||st.disk||S.box)?{memory:st.memory,disk:st.disk}:null);const list=[];let off=BannerOff.get();
+ const mux=st.multiplex_standalone_reason;if(mux){const ad=S.me?.admin!==false,quiet=(st.profiles||[]).filter(n=>n!=='default').map(n=>ident(n).name);
+  list.push({key:'mux:'+mux,msg:`<b>Only one agent is answering messages.</b> ${quiet.length?'Not answering: '+esc(quiet.join(', '))+'. ':''}${ad?'Run every agent from one engine to fix it.':'Ask the owner to fix it on System › Health.'} <small style="opacity:.75">Why: ${esc(String(mux).replace(/\bhermes\b/gi,'the engine'))}</small>`,btn:ad?`<button data-act="banner-mux">Fix on Health</button>`:''})}
  if(rp&&typeof rp==='object'){const d=rp.disk?.level||rp.disk?.pressure||rp.disk_level,m=S.box?.memory?.level||rp.memory?.level||rp.memory?.pressure||rp.memory_level,oom=rp.oom_restart||rp.suspected_oom||rp.memory?.last_boot_suspected_oom;
-  if(d==='critical'){msg='<b>Disk is almost full.</b> Free space on the AI box from System › Health.';key='disk-c'}
-  else if(m==='critical'){msg='<b>aqeelOS is almost out of memory</b> and may restart.';key='mem-c'}
-  else if(oom){msg='<b>aqeelOS restarted unexpectedly</b>, most likely because it ran out of memory.';key='oom'}
-  else if(d==='elevated'){msg='<b>Disk is getting full</b> on the AI box.';key='disk-e'}
-  else if(m==='elevated'){msg=`<b>Memory is running low</b> on the AI box${S.box?.memory?.pct?' ('+S.box.memory.pct+'% of its '+bytes(S.box.memory.limit)+')':''}. See System › Health for what uses it.`;key='mem-e'}}
- key=key&&key+':'+(S.status?.gateway_pid||'');
- slot.innerHTML=msg&&S.bannerDismissed!==key?`<div class="banner">${icon('alert',16)}<span>${msg}</span><button data-act="banner" data-key="${esc(key)}">Dismiss</button></div>`:''}
+  // back to normal: dismissals of that kind belong to an episode that is over, so the next one shows
+  const n0=off.length;if(m==='ok')off=off.filter(k=>!k.startsWith('mem-'));if(d==='ok')off=off.filter(k=>!k.startsWith('disk-'));if(off.length!==n0)BannerOff.set(off);
+  const mb=rp.disk?.free_mb??st.disk?.free_mb,free=mb!=null?' ('+bytes(Math.round(mb*1e6))+' free)':'',boot=st.memory?.boot_id||rp.memory?.boot_id||st.gateway_pid||'';const at=k=>k+':'+boot;
+  if(d==='critical')list.push({key:at('disk-c'),msg:`<b>Disk is almost full${free}.</b> Free space on the AI box from System › Health.`});
+  if(m==='critical')list.push({key:at('mem-c'),msg:'<b>aqeelOS is almost out of memory</b> and may restart.'});
+  if(oom)list.push({key:at('oom'),msg:'<b>aqeelOS restarted unexpectedly</b>, most likely because it ran out of memory.'});
+  if(d==='elevated')list.push({key:at('disk-e'),msg:`<b>Disk is getting full</b> on the AI box${free}.`});
+  if(m==='elevated')list.push({key:at('mem-e'),msg:`<b>Memory is running low</b> on the AI box${S.box?.memory?.pct?' ('+S.box.memory.pct+'% of its '+bytes(S.box.memory.limit)+')':''}. See System › Health for what uses it.`})}
+ const show=list.filter(x=>!off.includes(x.key)),res=show.find(x=>!x.key.startsWith('mux:'));
+ const h=[show.find(x=>x.key.startsWith('mux:')),res].filter(Boolean).map(x=>`<div class="banner" role="alert">${icon('alert',16)}<span>${x.msg}</span>${x.btn||''}<button data-act="banner" data-key="${esc(x.key)}">Dismiss</button></div>`).join('');
+ if(slot._h!==h){slot._h=h;slot.innerHTML=h}}
+// what the engine is doing, in plain words (gateway_state); a live process that stopped checking in is "Not responding"
+function gwState(s){if(!s)return {label:'Connecting…',c:'var(--ok)',say:''};const run=s.gateway_running,stale=s.gateway_heartbeat_stale_s;
+ if(stale!=null)return {label:'Not responding',c:'var(--warn)',say:'Running, but it has not checked in for '+(stale<120?Math.round(stale)+' s':Math.round(stale/60)+' min')};
+ const m={running:['Online','var(--ok)',''],starting:['Starting','var(--warn)','Starting up…'],startup_failed:['Could not start','var(--bad)','See System › Logs for why'],degraded:run?['Partly working','var(--warn)','Some channels are offline: see System › Logs']:['Stopped','var(--bad)','A safety check stopped it because it hung: see System › Logs'],stopped:['Offline','var(--bad)','Chats and channels are off']}[s.gateway_state];
+ const [label,c,say]=m&&(run||s.gateway_state!=='running')?m:run?['Online','var(--ok)','']:['Offline','var(--bad)',''];return {label,c,say}}
 
 /* ---------- page helpers ---------- */
 function head(p,actions=''){return `<div class="page-head"><div><span class="eyebrow">${route().sec.label}</span><h1>${p.label}</h1><p>${p.desc||''}</p></div><div class="head-actions" style="display:flex;gap:8px;flex-wrap:wrap">${actions}</div></div>`}
@@ -400,7 +415,11 @@ function palette(){openLayer();const p=document.createElement('div');p.className
  inp.onkeydown=e=>{const L=items();if(e.key==='ArrowDown'){sel=Math.min(sel+1,L.length-1);paint();e.preventDefault()}if(e.key==='ArrowUp'){sel=Math.max(sel-1,0);paint();e.preventDefault()}if(e.key==='Enter'){const it=L[sel];closeLayers();it?.run()}};
  box.onclick=e=>{const b=e.target.closest('[data-i]');if(!b)return;const it=items()[+b.dataset.i];closeLayers();it.run()};paint();inp.focus()}
 function theme(){const d=document.documentElement.classList.toggle('dark');try{localStorage.setItem('hui-theme',d?'dark':'light')}catch{};const tb=$('.topbar');if(tb)paintTop()}
-async function restartGateway(){try{const r=await post(UI,'/ui/gateway/restart');const n=r?.waiting||0;
+// a running engine is restarted only after you saw which agents it interrupts (all of them, when they share one engine)
+async function restartGateway(){try{const s=await H('/status',{keep:true}).catch(()=>S.status);if(s)S.status=s;
+ if(s?.gateway_running){const shared=[...new Set((s.gateway_shared_with||[]).map(n=>String(n).trim()).filter(Boolean))].sort((a,b)=>a==='default'?-1:b==='default'?1:a.localeCompare(b));const wait=' Replies in progress finish first.';
+  const ok=shared.length>1?await confirmBox('Restart all agents?','They share one engine, so every one of them stops for about 25 seconds and its channels reconnect: '+shared.map(n=>ident(n).name).join(', ')+'.'+wait,'Restart all',false):await confirmBox('Restart the agents?','Chats and channels stop for about 25 seconds and reconnect by themselves.'+wait,'Restart',false);if(!ok)return}
+ const r=await post(UI,'/ui/gateway/restart');const n=r?.waiting||0;
  toast(n?'Restarting the engine as soon as '+(n===1?'the reply in progress finishes':n+' replies in progress finish'):'Restarting the engine… back in about 25 seconds');setTimeout(()=>refreshStatus(),n?60000:26000)}catch(e){fail(e)}}
 async function refreshStatus(){try{S.status=await H('/status');if(S.me?.admin!==false)S.box=await UI('/ui/box').catch(()=>S.box);const r=route();if(!r.signin&&$('.side'))paintSide(r),paintBanner()}catch{}}
 
