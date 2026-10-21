@@ -1844,3 +1844,5 @@ button.plug-danger{background:var(--bad);box-shadow:none}
 /* the floating screen's top row wraps instead of cutting off its last buttons */
 .screen-float .screen-head{height:auto;min-height:48px;flex-wrap:wrap;row-gap:6px;padding-top:7px;padding-bottom:7px}
 .screen-float .screen-head .scr-pick{max-width:100%}
+/* docked beside the chat too: the screen's top row wraps rather than cutting off its last buttons */
+.screen-head{flex-wrap:wrap;height:auto;min-height:60px;row-gap:6px;padding-top:8px;padding-bottom:8px}
