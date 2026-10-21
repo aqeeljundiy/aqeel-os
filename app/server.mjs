@@ -1538,12 +1538,25 @@ const server=createServer(async(req,res)=>{
  }catch(e){console.error(e);if(!res.headersSent)send(res,500,{error:'Server error'})}
 });
 // The screen's live connection is a WebSocket: same login, and only from this site (no cross-site hijacking).
+// Task board live updates: the engine's task-event stream, passed through for people who may use the board.
+// The engine's own key is added here and never reaches the browser.
+function kanbanEvents(req,sock,headBuf){
+ const no=()=>sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');if(!validCookie(req)||!sameOrigin(req))return no();
+ const q=new URL(req.url,'http://x').searchParams,agent=q.get('profile')||'default';
+ me(req).then(u=>{if(!u||users.gate(u,'/hapi/plugins/kanban/events','GET',q,agent))return no();
+  const up=new URLSearchParams();for(const k of ['board','since'])if(q.get(k))up.set(k,q.get(k));if(DASH_TOKEN)up.set('token',DASH_TOKEN);
+  const h={host:DASH.host,connection:'Upgrade',upgrade:'websocket','sec-websocket-key':req.headers['sec-websocket-key']||'','sec-websocket-version':req.headers['sec-websocket-version']||'13'};if(req.headers['sec-websocket-extensions'])h['sec-websocket-extensions']=req.headers['sec-websocket-extensions'];
+  const r=httpRequest({hostname:DASH.hostname,port:DASH.port,path:'/api/plugins/kanban/events?'+up,headers:h});
+  r.on('upgrade',(res,us,uh)=>{let head='HTTP/1.1 101 Switching Protocols\r\n';for(let i=0;i<res.rawHeaders.length;i+=2)head+=res.rawHeaders[i]+': '+res.rawHeaders[i+1]+'\r\n';sock.write(head+'\r\n');if(uh?.length)sock.write(uh);if(headBuf?.length)us.write(headBuf);
+   us.pipe(sock);sock.pipe(us);const end=()=>{us.destroy();sock.destroy()};us.on('error',end);sock.on('error',end);us.on('close',end);sock.on('close',end)});
+  r.on('response',res=>{res.resume();sock.end('HTTP/1.1 '+(res.statusCode||502)+' Bad Gateway\r\n\r\n')});r.on('error',()=>sock.destroy());r.end()}).catch(()=>sock.destroy())}
 server.on('upgrade',(req,sock,headBuf)=>{
  const p=new URL(req.url,'http://x').pathname;
  if(p==='/ui/local-browser/ws'){localBrowser.upgrade(req,sock,headBuf).catch(()=>sock.destroy());return}
  // the engine console: admins only, signed in on this site, for one agent
  if(p==='/ui/console/ws'){const ag=new URL(req.url,'http://x').searchParams.get('agent')||'default';if(!validCookie(req)||!sameOrigin(req)||!/^[\w-]{1,64}$/.test(ag)){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}
   me(req).then(u=>{if(!u||!users.isAdmin(u)||users.gate(u,'/hapi/status','GET',new URLSearchParams({profile:ag}),ag)){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}return engineConsole.upgrade(req,sock,headBuf,{agent:ag,user:u.name||u.id})}).catch(()=>sock.destroy());return}
+ if(p==='/hapi/plugins/kanban/events'){kanbanEvents(req,sock,headBuf);return}
  if(p!=='/screen/websockify'||!validCookie(req)||!sameOrigin(req)){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}
  const agent=new URL(req.url,'http://x').searchParams.get('agent');
  me(req).then(u=>{if(!u||users.gate(u,'/ui/screens/'+(agent||'default'),'GET',new URLSearchParams(),agent||'default')){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}
