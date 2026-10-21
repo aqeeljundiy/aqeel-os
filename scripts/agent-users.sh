@@ -124,8 +124,7 @@ remove_gone(){
     echo "agent users: removed $u"
   done
   # display and port lines of agents that are gone (their users already went with an earlier box)
-  if [ -f "$PORTS" ]; then local keep; keep=$(while read -r l; do n=${l%% *}; grep -qx "$n" "$REQ" && echo "$l"; done < "$PORTS"); printf "%s
-" "$keep" | sed "/^$/d" > "$PORTS.tmp" && chown claude:claude "$PORTS.tmp" && chmod 640 "$PORTS.tmp" && mv "$PORTS.tmp" "$PORTS"; fi
+  if [ -f "$PORTS" ]; then local keep; keep=$(while read -r l; do n=${l%% *}; grep -qx "$n" "$REQ" && echo "$l"; done < "$PORTS"); printf "%s\n" "$keep" | sed "/^$/d" > "$PORTS.tmp" && chown claude:claude "$PORTS.tmp" && chmod 640 "$PORTS.tmp" && mv "$PORTS.tmp" "$PORTS"; fi
 }
 
 # every isolated agent's screen stays up (started again if it stopped)
