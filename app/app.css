@@ -1838,3 +1838,9 @@ button.plug-danger{background:var(--bad);box-shadow:none}
 .secret-card .sc-name{display:block;font-size:12px;color:var(--muted);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:0}
 .secret-card .sc-name:empty{display:none}
 .secret-card .sc-actions{margin-top:16px}
+/* corner notices sit under the top bar, never over the message box (bottom right covered the composer's buttons) */
+.cron-pops,.aq-desktop .cron-pops{top:72px!important;bottom:auto!important}
+@media (max-width:700px){.cron-pops{top:64px!important}}
+/* the floating screen's top row wraps instead of cutting off its last buttons */
+.screen-float .screen-head{height:auto;min-height:48px;flex-wrap:wrap;row-gap:6px;padding-top:7px;padding-bottom:7px}
+.screen-float .screen-head .scr-pick{max-width:100%}
