@@ -1861,3 +1861,6 @@ button.plug-danger{background:var(--bad);box-shadow:none}
 @keyframes progPop{from{transform:scale(.5)}to{transform:scale(1)}}
 .prog-head{display:flex;align-items:center;gap:8px;margin:0 0 10px;font-size:14px}.prog-head .hint{margin:0;font-variant-numeric:tabular-nums}
 .prog-head.ok b{color:var(--ok)}.prog-head.bad b{color:var(--bad)}
+/* icon-only buttons (composer icons, the round send button): the spinner replaces the icon, dead centre */
+.icon.is-busy>svg,.send.is-busy>svg,button.is-busy:has(>svg:only-child)>svg{opacity:0}
+.icon.is-busy::after,.send.is-busy::after,button.is-busy:has(>svg:only-child)::after{position:absolute;inset:0;margin:auto;box-sizing:border-box;width:14px;height:14px}
