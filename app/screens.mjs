@@ -101,9 +101,31 @@ export function createScreens(){
  // DISPLAY etc. of a running agent screen, so a spare browser window can open on it.
  async function displayEnv(a){const t=await readFile(path.join(homeOf(a),'bot-desktop','env'),'utf8').catch(()=>'');const e={};for(const l of t.split('\n')){const m=/^(?:export\s+)?([A-Z_]+)=['"]?(.*?)['"]?$/.exec(l.trim());if(m)e[m[1]]=m[2]}return e}
 
+ // A secret goes only into a sign-in field: a password, user name, email or code box on a page. Never a search box,
+ // the address bar or any other field (21 Oct 2026: a password typed while a Google search box had focus became a search).
+ // Agents with their own Chrome are checked through it; otherwise the window's title is the (weaker) check.
+ const SIGNIN=/pass|user|login|log-in|sign.?in|email|e-mail|account|otp|one.?time|code|pin|phone|auth|2fa|verif|token|secret/i;
+ async function focusedField(a){const port=(/cdp_url:\s*['"]?http:\/\/127\.0\.0\.1:(\d+)/.exec(await config(a))||[])[1];if(!port||port==='9333')return null;
+  const pages=await fetch('http://127.0.0.1:'+port+'/json/list',{signal:AbortSignal.timeout(4000)}).then(r=>r.json()).catch(()=>null);if(!Array.isArray(pages))return null;
+  const probe=`(()=>{if(!document.hasFocus())return null;let e=document.activeElement;while(e&&e.shadowRoot&&e.shadowRoot.activeElement)e=e.shadowRoot.activeElement;
+   if(!e||e===document.body||e===document.documentElement)return {kind:'none',url:location.host};const at=k=>String(e.getAttribute&&e.getAttribute(k)||'');
+   return {kind:e.tagName.toLowerCase(),type:String(e.type||'').toLowerCase(),role:at('role').toLowerCase(),words:[e.name,e.id,at('autocomplete'),at('placeholder'),at('aria-label'),at('inputmode')].join(' '),url:location.host}})()`;
+  for(const p of pages.filter(p=>p.type==='page'&&p.webSocketDebuggerUrl)){const r=await new Promise(res=>{let ws;const done=v=>{try{ws.close()}catch{}res(v)};const t=setTimeout(()=>done(null),3000);
+    try{ws=new WebSocket(p.webSocketDebuggerUrl);ws.onerror=()=>{clearTimeout(t);done(null)};ws.onopen=()=>ws.send(JSON.stringify({id:1,method:'Runtime.evaluate',params:{expression:probe,returnByValue:true}}));
+     ws.onmessage=m=>{const j=JSON.parse(m.data);if(j.id===1){clearTimeout(t);done(j.result?.result?.value??null)}}}catch{clearTimeout(t);done(null)}});
+   if(r)return r}
+  return {kind:'none'}}
+ async function secretFieldOk(a,env){const f=await focusedField(a);
+  if(f){if(f.kind==='none')throw new Error('No sign-in field has focus on the screen (the address bar, another window or nothing is focused). Click the password or user name box on the sign-in page, then try again. Nothing was typed.');
+   const search=f.type==='search'||/search|combobox/.test(f.role)||/(^|\s)(q|query|search)(\s|$)/i.test(f.words);
+   const ok=f.kind==='input'&&!search&&(f.type==='password'||['email','tel','number','text',''].includes(f.type)&&SIGNIN.test(f.words));
+   if(!ok)throw new Error('The focused box on '+(f.url||'the page')+' is not a sign-in field'+(search?' (it is a search box)':'')+'. Click the password or user name box, then try again. Nothing was typed.');return}
+  const w=await run('xdotool',['getactivewindow','getwindowname'],env,5000);const name=String(w.out||'').trim();
+  if(/search|google search|bing|duckduckgo|new tab|youtube/i.test(name)&&!/sign.?in|log.?in|account/i.test(name))throw new Error('The window in front ("'+name.slice(0,60)+'") looks like a search page, not a sign-in page. Open the sign-in page and click its password box, then try again. Nothing was typed.')}
  // Typing into a screen: text from the person goes straight to the focused field there. Never logged.
- async function typeInto(a,text,{enter=false,ads=false}={}){
+ async function typeInto(a,text,{enter=false,ads=false,secret=false}={}){
   const onShared=ads||await shared(a)||!await desktopsReady();const env=onShared?{DISPLAY:':99'}:await displayEnv(a);
+  if(secret)await secretFieldOk(a,env);
   if(!onShared&&!await alive(a))throw new Error('This agent’s screen is not running. Open it (or let the agent open its browser) first.');
   if(!env.DISPLAY)throw new Error('The screen is not running.');
   const r=await run('xdotool',['type','--clearmodifiers','--delay','12','--',String(text)],env,90000);if(!r.ok)throw new Error('Could not type into the screen.');

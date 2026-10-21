@@ -737,7 +737,7 @@ async function saveSecret(base,name,value,{admin=false}={}){if(!admin&&RESERVED_
  const dir=secretDir(base);await mkdir(dir,{recursive:true,mode:0o770});await writeFile(path.join(dir,name),value,{mode:0o660})}   // group-shared: an agent with its own user reads its own lock box; still closed to other agents
 const secretHow=(base,name)=>'To enter it on your screen, click the field and call type_secret with name '+name+'. In a command use "$(cat ~/workspaces/'+base+'/.secrets/'+name+')". Never print, echo or show the value.';
 async function useSecret(rec,value,{admin=false}={}){
- if(rec.mode==='type'){await screens.typeInto(rec.base,value,{enter:rec.enter});return 'Typed it into the focused field on your screen'+(rec.enter?' and pressed Enter':'')+'. You never saw the value; take a screenshot to check the result.'}
+ if(rec.mode==='type'){await screens.typeInto(rec.base,value,{enter:rec.enter,secret:true});return 'Typed it into the focused field on your screen'+(rec.enter?' and pressed Enter':'')+'. You never saw the value; take a screenshot to check the result.'}
  await saveSecret(rec.base,rec.name,value,{admin});
  return 'Saved as '+rec.name+' in your settings (the engine and its tools read it from there). '+secretHow(rec.base,rec.name)}
 /* "Which browser?" An agent about to work in a browser asks (choose_browser) once per chat: the person's own
@@ -964,7 +964,7 @@ const server=createServer(async(req,res)=>{
     if(!/^[A-Z][A-Z0-9_]{1,59}$/.test(name))return reply('Give the name of a saved secret, like GMAIL_PASSWORD.',true);
     const value=await readFile(path.join(secretDir(base),name),'utf8').catch(()=>null);
     if(value===null){const have=await readdir(secretDir(base)).catch(()=>[]);return reply('No saved secret called '+name+'.'+(have.length?' Saved ones: '+have.join(', ')+'.':' Ask the person with ask_secret.'),true)}
-    try{await screens.typeInto(base,value,{enter:!!a.press_enter});return reply('Typed '+name+' into the focused field on your screen'+(a.press_enter?' and pressed Enter':'')+'. You did not see it; take a screenshot to check the result.')}catch(e){return reply('Could not type it: '+e.message,true)}}
+    try{await screens.typeInto(base,value,{enter:!!a.press_enter,secret:true});return reply('Typed '+name+' into the focused field on your screen'+(a.press_enter?' and pressed Enter':'')+'. You did not see it; take a screenshot to check the result.')}catch(e){return reply('Could not type it: '+e.message,true)}}
    if(signed&&msg.method==='tools/call'&&msg.params?.name==='ask_secret'){const r=await askSecret(mn[1],msg.params?.arguments||{});return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text:r.text}],...(r.isError?{isError:true}:{})}})}
    // apply_changes: an agent that changed settings, tools or skills (its own or another agent's) makes them take
    // effect itself, through the same careful restart as the Restart agents button: after every reply in progress
