@@ -6,7 +6,7 @@ import {readFile,writeFile,rename,cp,rm,access,readdir,mkdir} from 'node:fs/prom
 import path from 'node:path';
 import {editEnv} from './agentops.mjs';
 
-export function createChannels({DASH,TOKEN,HERMES_HOME,listAgents,cached,restart,paused}){
+export function createChannels({DASH,TOKEN,HERMES_HOME,listAgents,cached,restart,paused,pendingOf}){
  const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const api=(p,o={})=>fetch(DASH+'/api'+p,{signal:AbortSignal.timeout(o.timeout||60000),...o,headers:{'x-hermes-session-token':TOKEN,'content-type':'application/json',...(o.headers||{})}}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||j.error||('HTTP '+r.status));return j});
  const platforms=async a=>{const r=await api('/messaging/platforms?profile='+encodeURIComponent(a));return r.platforms||r};
@@ -16,6 +16,8 @@ export function createChannels({DASH,TOKEN,HERMES_HOME,listAgents,cached,restart
  async function list(){const out=[];const all=await listAgents();const off=paused?await paused():{};const got=await Promise.all(all.map(a=>(cached?cached(a).then(r=>r.platforms||r):platforms(a)).catch(()=>null)));
   for(const [i,a] of all.entries()){const ps=got[i];if(!ps)continue;for(const p of ps)// only connections that exist: a switched-on but never-linked WhatsApp (a started set-up) is not one
    if(!NOT_CHANNELS.has(p.id)&&(p.configured||p.state==='connected'||off[a+'|'+p.id]))out.push({agent:a,id:p.id,name:p.name,paused:!!off[a+'|'+p.id],state:off[a+'|'+p.id]?'paused':p.state,enabled:!!p.enabled,error:p.error_message||null,error_code:p.error_code||null,account:p.account||null,needs_link:!!p.needs_link,updated_at:p.updated_at||null})}
+  // settings changed after a WhatsApp connection started: it only reads them at start, so it needs a reconnect
+  await Promise.all(out.map(async r=>{r.pending=!!(pendingOf&&r.id==='whatsapp'&&!r.paused&&r.state==='connected'&&await pendingOf(r.agent,r.id).catch(()=>false))}));
   return out}
 
  // move one channel's connection from agent `from` to agent `to`

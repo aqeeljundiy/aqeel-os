@@ -38,7 +38,7 @@ import {createBackups} from './backup.mjs';
 import {createPluginHost} from './plugin-host.mjs';
 import {readdir} from 'node:fs/promises';
 import {createReadStream} from 'node:fs';
-import {scryptSync,randomBytes,createHmac,timingSafeEqual} from 'node:crypto';
+import {scryptSync,randomBytes,createHmac,createHash,timingSafeEqual} from 'node:crypto';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
@@ -430,10 +430,13 @@ async function gatewayPid(){const t=await readFile(path.join(HERMES_HOME,'gatewa
 let sysEvents=[],lastGwPid=0,lastOwnRestart=0;
 function noteSys(kind,why){sysEvents.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),t:Date.now(),kind,why:String(why||'').slice(0,160)});sysEvents=sysEvents.slice(-50)}
 let autoRestarts=[];
-function restartGateway(why,{wait=true,auto=false}={}){if(gwRestarting)return gwRestarting;if(auto){autoRestarts=autoRestarts.filter(t=>Date.now()-t<30*60e3);if(autoRestarts.length>=3){if(Date.now()-(globalThis.__rf||0)>30*60e3){globalThis.__rf=Date.now();noteSys('restart-failed','The engine kept stopping, so it was left off. Open System › Host and press Start.')}return Promise.resolve()}autoRestarts.push(Date.now())}if(PORT!==4400){console.log('gateway restart skipped (test copy):',why);return Promise.resolve()}
+function restartGateway(why,{wait=true,auto=false,bridges=false}={}){if(gwRestarting)return gwRestarting;if(auto){autoRestarts=autoRestarts.filter(t=>Date.now()-t<30*60e3);if(autoRestarts.length>=3){if(Date.now()-(globalThis.__rf||0)>30*60e3){globalThis.__rf=Date.now();noteSys('restart-failed','The engine kept stopping, so it was left off. Open System › Host and press Start.')}return Promise.resolve()}autoRestarts.push(Date.now())}if(PORT!==4400){console.log('gateway restart skipped (test copy):',why);return Promise.resolve()}
  gwRestarting=(async()=>{if(wait)for(let i=0;i<120&&liveCount()>0;i++)await new Promise(r=>setTimeout(r,5000));
   console.log('gateway restart:',why);gwStopped=false;lastOwnRestart=Date.now();noteSys('restart',why);
-  await shx('hermes -p default gateway stop >/dev/null 2>&1; for i in $(seq 1 30); do p=$(grep -o "[0-9]*" ~/.hermes/gateway.pid 2>/dev/null | head -1); [ -n "$p" ] && kill -0 "$p" 2>/dev/null || break; sleep 1; done; tmux kill-session -t gateway 2>/dev/null; sleep 1; ~/services.sh >/dev/null 2>&1');
+  await shx('hermes -p default gateway stop >/dev/null 2>&1; for i in $(seq 1 30); do p=$(grep -o "[0-9]*" ~/.hermes/gateway.pid 2>/dev/null | head -1); [ -n "$p" ] && kill -0 "$p" 2>/dev/null || break; sleep 1; done; tmux kill-session -t gateway 2>/dev/null; sleep 1');
+  // a WhatsApp bridge is its own process and reads its settings only when it starts: when channel settings changed, stop them so the engine starts fresh ones
+  if(bridges)for(const a of await listAllProfiles().catch(()=>[]))await stopBridges(a).catch(()=>{});
+  await shx('~/services.sh >/dev/null 2>&1');
   platCache.clear()})().finally(()=>{gwRestarting=null});return gwRestarting}
 async function gatewayWatch(){if(gwStopped||gwRestarting)return;
  const pid=await gatewayPid();const inTmux=(await shx('tmux has-session -t gateway')).ok;
@@ -488,7 +491,7 @@ const sweepGhosts=async()=>{for(const d of await readdir(path.join(HERMES_HOME,'
  if(st&&Date.now()-st.mtimeMs>10*60e3&&inside.every(x=>['logs','plugin-update-checks','cache','sandboxes','plugins'].includes(x))){const {rm}=await import('node:fs/promises');await rm(dir,{recursive:true,force:true}).catch(()=>{});console.log('removed the leftover folder of deleted agent',d.name)}}};
 if(PORT===4400){setTimeout(()=>sweepGhosts().catch(()=>{}),40000);setInterval(()=>sweepGhosts().catch(()=>{}),30*60e3).unref()}
 const sharing=createShare({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAgents()});
-const channels=createChannels({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAllProfiles(),cached:a=>platformsCached(a),restart:why=>restartGateway(why),paused:()=>pausedLoad()});
+const channels=createChannels({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAllProfiles(),cached:a=>platformsCached(a),restart:why=>restartGateway(why),paused:()=>pausedLoad(),pendingOf:(a,id)=>id==='whatsapp'?waSettingsPending(a):false});
 const access=createAccess({HERMES_HOME,DATA,listAgents:()=>listAgents(),readConfig,setKey,hermes:hcmd,editEnv,names:a=>NAMES[a]||(a==='default'?'aqeelOS':a),writeJson:(f,v)=>writeJsonAtomic(f,v),restart:why=>restartGateway(why).catch(()=>{}),
  own:{n8n:{owner:'aqeelOS',note:'every agent has its own n8n user',grant:a=>n8n.ensure(a)}},
  dash:(method,p)=>fetch(DASH.origin+p,{method,headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(r=>r.json().catch(()=>({})))});
@@ -674,6 +677,23 @@ async function stopBridges(agent,{pairOnly=false}={}){const dir=path.join(agent=
  const {execFile}=await import('node:child_process');const out=await new Promise(r=>execFile('ps',['-eo','pid=,args='],(e,o)=>r(String(o||''))));
  const pids=out.split('\n').filter(l=>/whatsapp-bridge\/bridge\.js/.test(l)&&l.includes('--session '+dir)&&(!pairOnly||l.includes('--pair-only'))).map(l=>+l.trim().split(/\s+/)[0]).filter(Boolean);
  for(const pid of pids){try{process.kill(pid,'SIGTERM')}catch{}}if(pids.length)await new Promise(r=>setTimeout(r,1500));for(const pid of pids){try{process.kill(pid,'SIGKILL')}catch{}}return pids.length}
+/* Has this agent's WhatsApp setting changed since its bridge started? The bridge reads WHATSAPP_* from the agent's .env once, at start.
+   A bridge process we have not seen before is trusted when the file has not changed since it started; otherwise the change is
+   pending until the bridge restarts (Reconnect). Remembered per agent in bridge-env.json: the process and what the file said then. */
+const BRIDGE_ENV=path.join(DATA,'bridge-env.json');let bridgeEnv=null;
+async function bridgeInfo(agent){const dir=path.join(agent==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',agent),'platforms','whatsapp','session');
+ const {execFile}=await import('node:child_process');const out=await new Promise(r=>execFile('ps',['-eo','pid=,etime=,args='],(e,o)=>r(String(o||''))));
+ const l=out.split('\n').find(l=>/whatsapp-bridge\/bridge\.js/.test(l)&&l.includes('--session '+dir)&&!l.includes('--pair-only'));const m=l&&/^\s*(\d+)\s+(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)\s/.exec(l);   // etime is [[dd-]hh:]mm:ss on Linux and macOS alike
+ return m?{pid:+m[1],start:Date.now()-((+(m[2]||0)*24+ +(m[3]||0))*60+ +m[4])*60000-(+m[5])*1000}:null}
+async function waSettingsPending(agent){try{
+ const info=await bridgeInfo(agent);if(!info)return false;
+ const file=path.join(agent==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',agent),'.env');const st=await stat(file).catch(()=>null);if(!st)return false;
+ const lines=(await readFile(file,'utf8').catch(()=>'')).split('\n').filter(l=>/^\s*WHATSAPP_/.test(l)).map(l=>l.trim()).sort().join('\n');
+ const hash=createHash('sha1').update(lines).digest('hex');
+ bridgeEnv||=await readFile(BRIDGE_ENV,'utf8').then(JSON.parse).catch(()=>({}));const s=bridgeEnv[agent];
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(BRIDGE_ENV+'.tmp',JSON.stringify(bridgeEnv));await rename(BRIDGE_ENV+'.tmp',BRIDGE_ENV)};
+ if(!s||s.pid!==info.pid||Math.abs(s.start-info.start)>5000){const clean=st.mtimeMs<=info.start+2000;bridgeEnv[agent]={pid:info.pid,start:info.start,hash:clean?hash:null};await save();return !clean}
+ return s.hash===null||s.hash!==hash}catch{return false}}
 /* Channel checks. "Check connection" asks the engine fresh and, for WhatsApp, also looks for its running bridge.
    Every 2 hours (live app) every agent's channels are checked the same way; a logged-out or failing one is listed
    in /ui/channels/attention, which the app shows as a pop-up with Link again / Remove. */
@@ -682,11 +702,11 @@ async function checkChannel(agent,platform){platCache.delete(agent);const pl=awa
  if(c.paused)return {agent,platform,state:'paused',connected:false,paused:true,account:c.account||null,text:'Paused: still linked'+(c.account?' ('+[c.account.phone||c.account.username,c.account.name].filter(Boolean).join(' · ')+')':'')+', but no agent answers it. Pick an agent under Owned by to turn it back on.'};
  let bridge=true;if(platform==='whatsapp'){const dir=path.join(agent==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',agent),'platforms','whatsapp','session');
   const {execFile}=await import('node:child_process');const out=await new Promise(r=>execFile('ps',['-eo','args='],(e,o)=>r(String(o||''))));bridge=out.split('\n').some(l=>/whatsapp-bridge\/bridge\.js/.test(l)&&l.includes('--session '+dir)&&!l.includes('--pair-only'))}
- const connected=c.state==='connected'&&bridge;const acct=c.account?' ('+[c.account.phone||c.account.username,c.account.name].filter(Boolean).join(' · ')+')':'';
- const text=connected?'Connected'+acct+'. Messages are coming in.':c.needs_link?'Logged out'+acct+': the phone removed this linked device, or WhatsApp ended the link. Link it again with a fresh QR code, or remove it.':
+ const connected=c.state==='connected'&&bridge;const pending=platform==='whatsapp'&&connected&&await waSettingsPending(agent);const acct=c.account?' ('+[c.account.phone||c.account.username,c.account.name].filter(Boolean).join(' · ')+')':'';
+ const text=connected?'Connected'+acct+'. Messages are coming in.'+(pending?' WhatsApp settings changed after this connection started: reconnect it to apply them.':''):c.needs_link?'Logged out'+acct+': the phone removed this linked device, or WhatsApp ended the link. Link it again with a fresh QR code, or remove it.':
   c.state==='connected'&&!bridge?'The engine says connected, but the WhatsApp connection is not running. Restart the engine, or link it again.':
   /retrying|connecting|starting/.test(c.state||'')?'Reconnecting right now. Check again in a minute.':(c.enabled===false?'Switched off.':'Not connected'+(c.error_message?': '+String(c.error_message).replace(/\s*\(see \/[^)]*\)/,'').slice(0,160):'.'));
- return {agent,platform,state:c.state,connected,needs_link:!!c.needs_link,account:c.account||null,text}}
+ return {agent,platform,state:c.state,connected,pending,needs_link:!!c.needs_link,account:c.account||null,text}}
 let attention={t:0,list:[]};
 async function channelAttention(fresh){if(!fresh&&Date.now()-attention.t<10*60e3)return attention.list;const list=[];
  for(const a of await listAllProfiles()){if(fresh)platCache.delete(a);const pl=await platformsCached(a).catch(()=>null);
@@ -700,7 +720,7 @@ if(PORT===4400){setTimeout(()=>channelAttention(true).catch(()=>{}),90e3);setInt
    channels live inside the engine, so those are only reported (the pop-up and the bell say so). A number is tried at
    most 3 times in 6 hours; after that it waits for a person. Once a day every WhatsApp login is backed up (last 3 kept),
    so a damaged login can be put back instead of linking again. */
-const waTries=new Map(),waLinking=new Map();   // agent → when someone last started linking its WhatsApp
+const waTries=new Map(),waLinking=new Map(),reconnectAsked=new Map();   // agent → when someone last started linking its WhatsApp
 async function reconnectOne(ag,pf){const h={'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'};
  const put=on=>fetch(DASH.origin+'/api/messaging/platforms/'+pf+'?profile='+encodeURIComponent(ag),{method:'PUT',headers:h,body:JSON.stringify({enabled:on,env:{},profile:ag})}).then(r=>r.json()).catch(()=>({}));
  await put(false);if(pf==='whatsapp')await stopBridges(ag).catch(()=>{});await new Promise(r=>setTimeout(r,2500));const j=await put(true);platCache.delete(ag);attention.t=0;return j}
@@ -973,6 +993,16 @@ const server=createServer(async(req,res)=>{
    if(signed&&msg.method==='tools/call'&&msg.params?.name==='apply_changes'){if(!mayApply)return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{isError:true,content:[{type:'text',text:'Only agents of admins can restart the agents. Ask an admin to press Restart agents on System › Health.'}]}});
     const why=String(msg.params?.arguments?.why||'settings changed').slice(0,120);restartGateway(why+' (asked by '+(NAMES[mn[1].split('--')[0]]||mn[1])+')').catch(()=>{});
     return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text:'aqeelOS restarts the agents as soon as no reply is in progress, this one included: usually within a minute after you finish. Finish your turn now with one short line saying the change is applied in a minute and what the person can try then. Do not check or test it in this turn.'}]}})}
+   if(signed&&msg.method==='tools/call'&&msg.params?.name==='reconnect_channel'){const me=mn[1],reply=(text,isError)=>send(res,200,{jsonrpc:'2.0',id:msg.id,result:{...(isError?{isError:true}:{}),content:[{type:'text',text}]}});
+    const pf=String(msg.params?.arguments?.channel||'').trim().toLowerCase();
+    if(!mayApply)return reply('Only agents of admins can reconnect channels. Ask an admin to press Reconnect on the Channels page.',true);
+    if(!/^[a-z0-9_]{1,40}$/.test(pf)||['api_server','webhook'].includes(pf))return reply('Name one of your own channels, for example whatsapp or telegram.',true);
+    if(Date.now()-(reconnectAsked.get(me)||0)<60e3)return reply('A reconnect was just started for you. Wait a minute before asking again.',true);
+    const pl=await platformsCached(me).catch(()=>null);if(!(pl?.platforms||pl||[]).some(x=>x.id===pf&&(x.configured||x.account)))return reply('You have no '+pf+' channel of your own to reconnect.',true);
+    reconnectAsked.set(me,Date.now());console.log('reconnect_channel:',pf,'asked by',me);
+    if(me==='default')restartGateway('reconnect '+pf+' (asked by '+(NAMES[me]||me)+')',{bridges:pf==='whatsapp'}).catch(()=>{});
+    else setTimeout(()=>reconnectOne(me,pf).catch(e=>console.warn('reconnect_channel',me,pf,e.message)),4000);
+    return reply('Reconnecting '+pf+' for you in a few seconds'+(me==='default'?' (the engine restarts once no reply is in progress, so every agent pauses for about 25 seconds)':'')+'. The connection drops briefly and comes back with its saved login, no new QR. Finish your turn now with one short line saying so. Do not check it in this turn.')}
    // access between agents: see what the others have (names only), ask for it, offer what you have; an admin decides
    if(signed&&msg.method==='tools/call'&&['access_list','request_access','offer_access'].includes(msg.params?.name)){const base=mn[1].split('--')[0],a=msg.params?.arguments||{};const reply=(text,isError)=>send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text}],...(isError?{isError:true}:{})}});
     try{if(msg.params.name==='access_list'){const [o,m,q]=await Promise.all([accessAsk.others(base),accessAsk.mine(base),accessAsk.of(base)]);const nm=x=>NAMES[x]||x;
@@ -1003,6 +1033,7 @@ const server=createServer(async(req,res)=>{
     try{const r=await code.browse([owner],{action:String(a.action||''),url:a.url,ref:a.ref,text:a.text,key:a.key,submit:!!a.submit});return reply(r.text||'(no answer)',r.state==='failed')}catch(e){return reply(e.message,true)}}
    const out=await relay.mcp(mn[1],mn[2],msg);
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools)&&mayApply)out.body.result.tools.push({name:'apply_changes',description:'Make settings changes take effect: after you changed an agent\'s config (yours or another agent\'s), added or shared an MCP tool or connected app, a skill, a plugin or a toolset, call this once. aqeelOS restarts the agents safely when no reply is running. Never restart the gateway any other way.',inputSchema:{type:'object',properties:{why:{type:'string',description:'What changed, in a few words'}},required:['why']}});
+   if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools)&&mayApply)out.body.result.tools.push({name:'reconnect_channel',description:'Make a change to one of YOUR OWN channels take effect, for example after you changed WHATSAPP_GROUP_POLICY or another WHATSAPP_* / TELEGRAM_* setting. A WhatsApp connection is its own process that reads its settings only when it starts, so apply_changes does not reach it: call this instead. It restarts only that connection of yours (saved login kept, no new QR). Never kill or restart processes yourself.',inputSchema:{type:'object',properties:{channel:{type:'string',description:'Your channel, e.g. whatsapp or telegram'}},required:['channel']}});
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'choose_browser',description:'Before a browser job in a chat, ask the person once where to do it: their own Chrome ("yours": a separate window on their computer, with the sign-ins they already have; best for one-off jobs such as Google Cloud or admin consoles) or your screen on the AI box ("server": keeps working when their computer is off; needed for anything scheduled or long-running). When you also have computer_browser, there is a third choice: the guarded browser in aqeelOS Code on their computer ("computer": no extension needed, they watch it live in Code, only the sites they allowed there). Give your suggestion. Wait for the answer, then follow it for the rest of the chat.',inputSchema:{type:'object',properties:{task:{type:'string',description:'What you will do in the browser, in a few words'},suggest:{type:'string',enum:['yours','server']},why:{type:'string',description:'One short reason for your suggestion'}},required:['task','suggest']}},{name:'type_secret',description:'Type a secret the person saved for you (a password, code or key) into the field that has focus on your screen, without seeing it. Click the field first. Saved secrets: '+((await readdir(secretDir(mn[1].split('--')[0])).catch(()=>[])).join(', ')||'none yet (ask with ask_secret)')+'.',inputSchema:{type:'object',properties:{name:{type:'string',description:'The saved name, e.g. GMAIL_PASSWORD'},press_enter:{type:'boolean'}},required:['name']}},{name:'ask_secret',description:'Ask the person for a password, API key or other secret through a protected field in their aqeelOS chat. You never see the value. mode "type": it is typed into the field that has focus on your screen (click the field first; set press_enter to submit). mode "save": it is stored as a named key (name in capitals, e.g. OPENAI_API_KEY) that the engine and your commands can use. Never ask for a secret in plain chat or on the screen viewer; always use this.',inputSchema:{type:'object',properties:{label:{type:'string',description:'What it is, e.g. "Gmail password for ops@company.com"'},mode:{type:'string',enum:['type','save']},name:{type:'string',description:'For save: the key name in capitals'},press_enter:{type:'boolean',description:'For type: press Enter after typing'}},required:['label','mode']}},{name:'organize_schedule',description:'File one of your schedules so the person understands it at a glance: put it in a folder (the project or client it is for, e.g. Dagadu, Personal Finance), give it a clear title and a one-sentence description of what it does and why. Use it right after you create or change a schedule, and when the person asks you to tidy, move or rename schedules.',inputSchema:{type:'object',properties:{job_id:{type:'string',description:'The schedule id (from cronjob list)'},folder:{type:'string',description:'Folder name, 1-2 words'},title:{type:'string',description:'Clear title, max 6 words (optional)'},description:{type:'string',description:'One plain sentence: what it does and why'}},required:['job_id']}},{name:'connect_mcp_tool',description:'Start the sign-in for one of your MCP tools (slack, composio, notion…) and get the link to give the person. Always use this to connect an MCP tool; never a command-line login or a localhost callback.',inputSchema:{type:'object',properties:{tool:{type:'string',description:'The MCP tool name as listed, e.g. "slack" or "composio"'},why:{type:'string',description:'What you need it for, in one line the person understands (e.g. "to read the Q3 numbers in your Notion for the report you asked for"). It is shown on the sign-in notice.'}},required:['tool','why']}});
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push(
     {name:'access_list',description:'What you have (apps, Google accounts, plugins, keys) and what the other agents have that you cannot use yet (names only, never values), plus your open access requests.',inputSchema:{type:'object',properties:{}}},
@@ -1498,7 +1529,7 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/channels/note'&&req.method==='PUT'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can change channels.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const k=String(b.agent||'')+'|'+String(b.platform||'');const f=path.join(DATA,'channel-notes.json');const all=await readFile(f,'utf8').then(JSON.parse).catch(()=>({}));const v=String(b.note||'').trim().slice(0,120);if(v)all[k]=v;else delete all[k];await writeFile(f,JSON.stringify(all,null,1));platCache.clear();return send(res,200,{ok:true})}
    if(p==='/ui/channels/reconnect'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can reconnect channels.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
     const ag=String(b.agent||''),pf=String(b.platform||'');if(!(await listAllProfiles()).includes(ag)||!/^[a-z0-9_]{1,40}$/.test(pf))return send(res,400,{error:'Unknown channel'});
-    if(ag==='default'){restartGateway('reconnect '+pf+' (main agent)').catch(()=>{});return send(res,200,{ok:true,restarting:true,waiting:liveCount()})}
+    if(ag==='default'){restartGateway('reconnect '+pf+' (main agent)',{bridges:pf==='whatsapp'}).catch(()=>{});return send(res,200,{ok:true,restarting:true,waiting:liveCount()})}
     const h={'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'};const put=on=>fetch(DASH.origin+'/api/messaging/platforms/'+pf+'?profile='+encodeURIComponent(ag),{method:'PUT',headers:h,body:JSON.stringify({enabled:on,env:{},profile:ag})}).then(r=>r.json()).catch(()=>({}));
     await put(false);if(pf==='whatsapp')await stopBridges(ag).catch(()=>{});await new Promise(r=>setTimeout(r,2500));const j=await put(true);platCache.clear();attention.t=0;
     console.log('reconnected',pf,'on',ag,j.hot_served?'(live)':'');return send(res,200,{ok:true,restarting:false})}
