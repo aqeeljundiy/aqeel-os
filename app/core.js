@@ -333,7 +333,7 @@ const toggle=(on,label,attrs='')=>`<input type="checkbox" class="switch" ${on?'c
 const st=i=>`style="animation-delay:${Math.min(i,10)*30}ms"`;
 const skeleton=()=>`<div class="skel loading" role="status" aria-label="Loading"><span class="ring"></span></div>`;
 const skeletonRows=(n=4)=>`<div class="card list sk-list" style="padding:6px 22px">${Array.from({length:n},(x,i)=>`<div class="sk-item" style="--d:${i*90}ms"><span class="skel sk-ic"></span><span class="sk-lines"><span class="skel sk-l1" style="width:${[46,58,38,52,44,60][i%6]}%"></span><span class="skel sk-l2" style="width:${[72,64,80,68,76,58][i%6]}%"></span></span><span class="skel sk-end"></span></div>`).join('')}</div>`;
-function showError(el,e,retry){if(!el||e?.stale||!el.isConnected)return;el.innerHTML=`<div class="card state-box err"><b>Couldn't load this</b>${esc(e?.message||e)}<br><button data-act="reload">${icon('refresh',15)}Try again</button></div>`}
+function showError(el,e,retry){if(!el||e?.stale||!el.isConnected)return;el.innerHTML=`<div class="card state-box err"><b>Couldn’t load this</b>${esc(e?.message||e)}<br><button data-act="reload">${icon('refresh',15)}Try again</button></div>`}
 // who an account or connection is, said one way everywhere: the name you gave it (else the account's own name) · its
 // handle (@bot, +phone, email); nothing known: the name agents use to pick it ("agents call it whatsapp")
 const accountText=(a,{label='',id=''}={})=>{const h=a?a.phone||a.username||a.email||'':'',n=label||a?.name||'';return [n,h].filter(Boolean).join(' · ')||(id?'agents call it '+id:'')};

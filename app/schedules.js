@@ -233,7 +233,9 @@ ACT['sk-fold']=a=>{const sec=a.closest('.sched-folder');const s=!sec.classList.c
 const gaccWhat=sc=>[...new Set(sc.map(s=>/gmail/.test(s)?'Gmail':/drive/.test(s)?'Drive':/calendar/.test(s)?'Calendar':/spreadsheets/.test(s)?'Sheets':/documents/.test(s)?'Docs':/presentations/.test(s)?'Slides':/contacts/.test(s)?'Contacts':'').filter(Boolean))].join(', ');
 const gaccTitle=x=>x.label||(x.name?pretty(x.name):'Main Google account');
 {const base=PAGES.mcp;PAGES.mcp=async(p,el)=>{await base(p,el);if((S.tab.mcp||'Your servers')!=='Your servers')return;const ag=viewing();
- let d;try{d=await UI('/ui/google-accounts?agent='+encodeURIComponent(ag))}catch{return}const l=d.accounts||[];Pages._gacc=l;(Pages._gaccBy||={})[ag]=l;
+ let d;try{d=await UI('/ui/google-accounts?agent='+encodeURIComponent(ag))}catch{   // not loaded: the panel says so (never gone, never "no account yet")
+  const panel=document.createElement('div');panel.className='panel card gacc-panel';panel.style.marginBottom='16px';panel.innerHTML=`<h2>Google accounts</h2>${errLine(ident(ag).name+'’s Google accounts')}`;const t=el.querySelector('.tabs,[role=tablist]');t?t.after(panel):el.prepend(panel);return}
+ const l=d.accounts||[];Pages._gacc=l;(Pages._gaccBy||={})[ag]=l;
  const edit=S.me?.admin!==false||['owner','edit'].includes(S.me?.agents?.[ag]);   // an agent's owner may name its accounts too
  const panel=document.createElement('div');panel.className='panel card gacc-panel';panel.style.marginBottom='16px';
  panel.innerHTML=`<h2 class="h-row">Google accounts<span class="chip">${l.length}</span></h2><p class="sub">${l.length?`${esc(ident(ag).name)} can use ${l.length===1?'this account':'these accounts'} for Gmail, Drive, Sheets, Docs and Calendar. Give each a name and say what it is for, and ${esc(ident(ag).name)} picks the right one when you ask (“send it from my Elkiya account”).`:`${esc(ident(ag).name)} has no Google account yet. Connect one to let it read and send Gmail, and work in Drive, Sheets, Docs and Calendar.`}</p>

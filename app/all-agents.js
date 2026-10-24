@@ -29,7 +29,8 @@ ACT['all-more']=a=>{const it=ALL_IT[a.dataset.kind+'|'+a.dataset.id];if(!it)retu
   ALL_EDIT&&!it.bot&&!it.own&&{label:'Who can use',icon:'user',run:()=>Access.open(k,it.id)},
   {label:'Open on '+on,icon:'chevR',run:()=>ACT['all-open']({dataset:{agent:o}})},
   ...(ALL_EDIT&&!it.own&&k!=='plugin'&&!(k==='google'&&!x)?['-',{label:'Remove from '+on,icon:'trash',bad:true,run:()=>k==='mcp'?ACT['mcp-del']({dataset:d}):k==='key'?ACT['key-del']({dataset:{k:it.label,agent:o}}):ACT['gacc-del']({dataset:{agent:o,n:x.name,e:it.id,email:it.id}})}]:[])])};
-const allSection=(title,rows,empty)=>`<h2 class="ach-cat" style="margin-top:0">${esc(title)} <small class="hint">${rows.length}</small></h2>${rows.length?`<div class="card list">${rows.join('')}</div>`:`<p class="hint">${esc(empty)}</p>`}`;
+// an empty section looks like an empty one-agent page (emptyBox)
+const allSection=(title,rows,empty,text='')=>`<h2 class="ach-cat" style="margin-top:0">${esc(title)} <small class="hint">${rows.length}</small></h2>${rows.length?`<div class="card list">${rows.join('')}</div>`:emptyBox(empty,text)}`;
 // set up on some agents but not signed in there: the one sign-in chip, saying on which (Sign in on the first, for apps)
 const notSigned=it=>{const n=it.users.filter(u=>!u.signed);return n.length?`<span class="acc-nosign">${signChip(it.kind==='mcp'&&ALL_EDIT?`data-act="mcp-auth" data-name="${esc(it.id)}" data-agent="${esc(n[0].id)}"`:'')}<small>on ${esc(n.map(u=>u.name).join(', '))}</small></span>`:''};
 
@@ -72,7 +73,7 @@ for(const id of ['mcp','plugins','keys','webhooks']){const base=PAGES[id];PAGES[
  if(id==='plugins'&&(S.tab.plugins||'Installed')==='Browse')return base(p,el,r);return ALLVIEW[id](p,el)}}
 // Who can message and Agents' models live inside tabbed pages: their tab content is swapped for the all-agents view
 {const base=PAGES.channels;PAGES.channels=async(p,el,r)=>{await base(p,el,r);if(!showingAll())return;const box=el.querySelector('#chtab');if(!box)return;
- viewPick(await viewAgents());box.innerHTML='<div class="skel" style="height:140px;border-radius:18px"></div>';try{await ALLVIEW.pairing(box)}catch(e){showError(box,e)}}}
+ viewPick(await viewAgents());box.innerHTML=skeletonRows(3);try{await ALLVIEW.pairing(box)}catch(e){showError(box,e)}}}
 {const base=PAGES.models;PAGES.models=async(p,el,r)=>{await base(p,el,r);if(!showingAll())return;const box=el.querySelector('#mtab');if(!box)return;
  viewPick(await viewAgents());const keep=[...box.querySelectorAll('.panel')].filter(x=>/^(Helper models|Which account each agent uses)/.test(x.querySelector('h2')?.textContent||''));
  const top=document.createElement('div');try{await ALLVIEW.models(top)}catch(e){showError(top,e)}box.replaceChildren(top,...keep.map(k=>{k.style.marginTop='16px';return k}))}}
