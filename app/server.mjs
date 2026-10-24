@@ -731,11 +731,15 @@ async function finishWhatsAppLink(agent,pid,b){const h={'x-hermes-session-token'
  console.log('whatsapp linked on',agent,st.account_phone?'(+'+st.account_phone+')':'',j.hot_served?'· picked up live':'· engine restarting');
  setTimeout(()=>syncNotifyTool().catch(()=>{}),20000);
  return {ok:true,hot_served:!!j.hot_served,restarting:!j.hot_served,waiting,account:{phone:st.account_phone?'+'+st.account_phone:null,name:st.account_name||null}}}
+// the process list, read once for everyone asking within 3 s: the channel list ran ps per WhatsApp channel, and every
+// check and the guard ran it again (lines: "pid etime args"). Killing something forgets it.
+let psHit=null;
+function psList(){if(psHit&&Date.now()-psHit.t<3000)return psHit.p;const p=import('node:child_process').then(({execFile})=>new Promise(r=>execFile('ps',['-eo','pid=,etime=,args='],{maxBuffer:8e6},(e,o)=>r(String(o||'')))));psHit={t:Date.now(),p};return p}
 // every bridge.js using this agent's WhatsApp login (or only the pairing one)
 async function stopBridges(agent,{pairOnly=false}={}){const dir=path.join(agent==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',agent),'platforms','whatsapp','session');
  const {execFile}=await import('node:child_process');const out=await new Promise(r=>execFile('ps',['-eo','pid=,args='],(e,o)=>r(String(o||''))));
  const pids=out.split('\n').filter(l=>/whatsapp-bridge\/bridge\.js/.test(l)&&l.includes('--session '+dir)&&(!pairOnly||l.includes('--pair-only'))).map(l=>+l.trim().split(/\s+/)[0]).filter(Boolean);
- for(const pid of pids){try{process.kill(pid,'SIGTERM')}catch{}}if(pids.length)await new Promise(r=>setTimeout(r,1500));for(const pid of pids){try{process.kill(pid,'SIGKILL')}catch{}}return pids.length}
+ for(const pid of pids){try{process.kill(pid,'SIGTERM')}catch{}}if(pids.length)await new Promise(r=>setTimeout(r,1500));for(const pid of pids){try{process.kill(pid,'SIGKILL')}catch{}}if(pids.length)psHit=null;return pids.length}
 /* Has this agent's WhatsApp setting changed since its bridge started? The bridge reads WHATSAPP_* once, at start.
    Most exact (Linux): the running bridge's own environment (/proc/<pid>/environ) against the .env now. Otherwise a bridge
    process seen for the first time takes the WHATSAPP_* lines as they are now as its baseline (other .env writes, such as a
@@ -743,7 +747,7 @@ async function stopBridges(agent,{pairOnly=false}={}){const dir=path.join(agent=
    Remembered per agent in bridge-env.json: the process and the hash of its WHATSAPP_* settings (wa). */
 const BRIDGE_ENV=path.join(DATA,'bridge-env.json');let bridgeEnv=null;
 async function bridgeInfo(agent){const dir=path.join(agent==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',agent),'platforms','whatsapp','session');
- const {execFile}=await import('node:child_process');const out=await new Promise(r=>execFile('ps',['-eo','pid=,etime=,args='],(e,o)=>r(String(o||''))));
+ const out=await psList();
  const l=out.split('\n').find(l=>/whatsapp-bridge\/bridge\.js/.test(l)&&l.includes('--session '+dir)&&!l.includes('--pair-only'));const m=l&&/^\s*(\d+)\s+(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)\s/.exec(l);   // etime is [[dd-]hh:]mm:ss on Linux and macOS alike
  return m?{pid:+m[1],start:Date.now()-((+(m[2]||0)*24+ +(m[3]||0))*60+ +m[4])*60000-(+m[5])*1000}:null}
 async function waSettingsPending(agent){try{
@@ -768,7 +772,7 @@ async function checkChannel(agent,platform){platCache.delete(agent);const pl=awa
  if(!c)return {state:'missing',connected:false,text:'This channel is not set up on '+(NAMES[agent]||agent)+'.'};
  if(c.paused)return {agent,platform,state:'paused',connected:false,paused:true,account:c.account||null,text:'Paused: still linked'+(c.account?' ('+acctText(c.account)+')':'')+', but no agent answers it. Pick an agent under Owned by to turn it back on.'};
  let bridge=true;if(platform==='whatsapp'){const dir=path.join(agent==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',agent),'platforms','whatsapp','session');
-  const {execFile}=await import('node:child_process');const out=await new Promise(r=>execFile('ps',['-eo','args='],(e,o)=>r(String(o||''))));bridge=out.split('\n').some(l=>/whatsapp-bridge\/bridge\.js/.test(l)&&l.includes('--session '+dir)&&!l.includes('--pair-only'))}
+  const out=await psList();bridge=out.split('\n').some(l=>/whatsapp-bridge\/bridge\.js/.test(l)&&l.includes('--session '+dir)&&!l.includes('--pair-only'))}
  const connected=c.state==='connected'&&bridge;const pending=platform==='whatsapp'&&connected&&await waSettingsPending(agent);const acct=c.account?' ('+acctText(c.account)+')':'';
  const text=connected?'Connected'+acct+'. Messages are coming in.'+(pending?' WhatsApp settings changed after this connection started: reconnect it to apply them.':''):c.needs_link?'Logged out'+acct+': the phone removed this linked device, or WhatsApp ended the link. Link it again with a fresh QR code, or remove it.':
   c.state==='connected'&&!bridge?'The engine says connected, but the WhatsApp connection is not running. Restart the engine, or link it again.':
@@ -830,7 +834,7 @@ async function reconnectOne(ag,pf){const h={'x-hermes-session-token':DASH_TOKEN,
 async function waGuard(){if(gwRestarting)return;
  for(const a of await listAllProfiles()){if(a==='default')continue;
   const sess=path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'platforms','whatsapp','session');if(!await stat(path.join(sess,'creds.json')).catch(()=>null))continue;
-  if(Date.now()-(waLinking.get(a)||0)<20*60e3)continue;{const ps=(await shx('ps -eo args')).out||'';if(ps.split('\n').some(l=>/whatsapp-bridge\/bridge\.js/.test(l)&&l.includes('--pair-only')&&l.includes(sess)))continue}
+  if(Date.now()-(waLinking.get(a)||0)<20*60e3)continue;{const ps=await psList();if(ps.split('\n').some(l=>/whatsapp-bridge\/bridge\.js/.test(l)&&l.includes('--pair-only')&&l.includes(sess)))continue}
   const st=await checkChannel(a,'whatsapp').catch(()=>null);if(!st||st.state==='missing'||st.paused||st.connected||st.needs_link)continue;
   if(/retrying|connecting|starting/.test(st.state||''))continue;   // already on its way back
   const now=Date.now(),l=(waTries.get(a)||[]).filter(t=>now-t<6*3600e3);if(l.length>=3||l.some(t=>now-t<30*60e3))continue;

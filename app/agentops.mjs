@@ -47,10 +47,16 @@ export const pick=(o,k)=>k.split('.').reduce((x,y)=>x&&typeof x==='object'?x[y]:
 
 // a real agent folder: the engine leaves a bare logs/ folder behind when a command runs during a delete
 export async function isAgent(name){return name==='default'||!!await stat(path.join(homeOf(name),'config.yaml')).catch(()=>null)}
-export async function agentNames({copies=false}={}){const n=['default'];
- for(const d of await readdir(path.join(HERMES_HOME,'profiles'),{withFileTypes:true}).catch(()=>[]))
-  if(d.isDirectory()&&!d.name.startsWith('.')&&(copies||!d.name.includes('--'))&&await isAgent(d.name))n.push(d.name);
- return n}
+// asked on most requests (permissions, usage, limits): read once per 2 s and shared, read again at once when the profiles
+// folder changed (an agent made or deleted); each caller gets its own copy
+const namesHit=new Map();
+export async function agentNames({copies=false}={}){const k=copies?1:0,dir=path.join(HERMES_HOME,'profiles');
+ const m=(await stat(dir).catch(()=>null))?.mtimeMs||0,hit=namesHit.get(k);if(hit&&hit.m===m&&Date.now()-hit.t<2000)return [...await hit.p];
+ const p=(async()=>{const n=['default'];
+  for(const d of await readdir(dir,{withFileTypes:true}).catch(()=>[]))
+   if(d.isDirectory()&&!d.name.startsWith('.')&&(copies||!d.name.includes('--'))&&await isAgent(d.name))n.push(d.name);
+  return n})();
+ namesHit.set(k,{t:Date.now(),m,p});p.catch(()=>namesHit.delete(k));return [...await p]}
 
 // .env edits hold the engine's own lock (flock on .env.lock), so a WhatsApp pairing writing at the same time is not lost
 export function editEnv(envF,compute){return new Promise((res,rej)=>{
