@@ -8,7 +8,9 @@ const chrome=spawn(`${tools}/${dir}/chrome-linux64/chrome`,['--headless=new','--
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));mkdirSync(OUT,{recursive:true});
 try{
  const login=await fetch(BASE+'/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:process.env.NAME||undefined,password:pw})});const ck=(login.headers.get('set-cookie')||'').split(';')[0];const [cn,cv]=ck.split('=');
- let tgt;for(let i=0;i<40&&!tgt;i++){await sleep(250);try{tgt=(await (await fetch(`http://127.0.0.1:${port}/json`)).json()).find(t=>t.type==='page')}catch{}}
+ // headless Chrome can take well over 10 s to start on a busy box: wait up to 30 s, and say so instead of crashing
+ let tgt;for(let i=0;i<120&&!tgt;i++){await sleep(250);try{tgt=(await (await fetch(`http://127.0.0.1:${port}/json`)).json()).find(t=>t.type==='page')}catch{}}
+ if(!tgt)throw new Error('headless Chrome did not start within 30 s');
  const ws=new WebSocket(tgt.webSocketDebuggerUrl);await new Promise(r=>ws.onopen=r);let id=0;const wait=new Map();const errs=[];
  ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id&&wait.has(m.id)){wait.get(m.id)(m);wait.delete(m.id)}if(m.method==='Runtime.exceptionThrown')errs.push(cur+': '+(m.params.exceptionDetails.exception?.description||m.params.exceptionDetails.text||'').split('\n')[0])};
  const cdp=(method,params={})=>new Promise(r=>{const i=++id;wait.set(i,r);ws.send(JSON.stringify({id:i,method,params}))});

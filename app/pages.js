@@ -464,6 +464,8 @@ Pages.skillsCache=async()=>Pages._skills||(Pages._skills=await H('/skills').catc
 PAGES.skills=async(p,el)=>{
  const tab=S.tab.skills||'Installed';
  setActions(`<button data-act="sk-update">${icon('refresh',16)}Update all</button><button data-act="sk-learn">${icon('wand',16)}Learn a skill</button><button class="primary" data-act="sk-new">${icon('plus',16)}New skill</button>`);
+ // the tabs and a placeholder at once: the engine's skill and tool lists can take seconds on a busy box
+ if(!el.querySelector('[data-tabs]'))el.innerHTML=tabs('skills',['Installed','Tool groups','Find more skills'])+skeletonRows(6);
  if(tab==='Tool groups')return toolsetsView(el);
  if(tab==='Find more skills')return hubView(el);
  const skills=(await H('/skills')).slice().sort((a,b)=>a.name.localeCompare(b.name));Pages._skills=skills;const catOf=s=>s.category||'other';const cats=[...new Set(skills.map(catOf))].sort();const cat=S.skillCat||'All';const q=(S.skillQ||'').toLowerCase();
