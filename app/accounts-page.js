@@ -5,9 +5,12 @@ const PROV_DOMAINS={'openai-codex':'chatgpt.com','openai-api':'openai.com',openr
 function acctSources(d){
  const claudeModels=(Chat.models||[]).filter(m=>m.provider===PLUGIN_ID).map(m=>m.id);
  const claude=d.accounts.map(a=>({key:'claude:'+a.id,name:a.label,sub:a.email||'Claude',logo:'claude.ai',models:claudeModels,ok:a.signedIn,
-  used:a.usage?Math.max(a.usage.session?.used||0,a.usage.week?.used||0):null,bars:a.usage?[['Session (5 h)',a.usage.session],['This week',a.usage.week]]:[],menu:a.id}));
+  used:a.usage?Math.max(a.usage.session?.used||0,a.usage.week?.used||0):null,bars:a.usage?[['Session (5 h)',a.usage.session],['This week',a.usage.week],['This week, Opus',a.usage.opus],['This week, Sonnet',a.usage.sonnet]].filter(([,w])=>w):[],menu:a.id}));
+ // the ChatGPT pictures limit is its own quota: said in words, never counted as chat use
+ const chatW=p=>p.windows.filter(w=>w.scope!=='model'&&w.scope!=='image');
  const prov=(d.providers||[]).map(p=>({key:'p:'+p.slug,name:provLabel(p),sub:p.name,logo:PROV_DOMAINS[p.slug]||(/antigravity|gemini|google/i.test(p.slug+' '+p.name)?'gemini.google.com':''),models:p.models,ok:true,
-  used:p.windows.some(w=>w.scope!=='model')?Math.max(0,...p.windows.filter(w=>w.scope!=='model').map(w=>w.used)):null,bars:p.windows.map(w=>[w.label,{used:w.used,resets:w.resets}]),details:p.details}));
+  used:chatW(p).length?Math.max(0,...chatW(p).map(w=>w.used)):null,bars:p.windows.filter(w=>w.scope!=='image').map(w=>[w.label,{used:w.used,resets:w.resets}]),
+  details:[...p.windows.filter(w=>w.scope==='image').map(w=>'Pictures limit reached '+new Date(w.at).toLocaleString([],{dateStyle:'medium',timeStyle:'short'})+' (separate from chat use)'),...(p.details||[])]}));
  return [...claude,...prov]}
 const usedChip=u=>u==null?'<span class="chip">No limit info</span>':`<span class="chip ${u>=90?'bad':u>=70?'warn':'ok'}"><i class="dot"></i>${u}% used</span>`;
 
@@ -84,4 +87,7 @@ ACT['agy-start']=async a=>{a.disabled=true;const f=$('#agyFlow');f.innerHTML=`<p
   const go=async()=>{const b=$('#agyGo'),m=$('#agyMsg');b.disabled=true;m.textContent='Checking with Google…';try{const x=await post(UI,'/ui/antigravity/code',{code:$('#agyCode').value});
    if(x.ok){Pages._acctFresh=true;Chat.loadModels().catch(()=>{});toast('Google AI Pro connected');reload()}else{m.innerHTML=esc(x.error)+' <button class="ghost small" data-act="agy-start">Get a new link</button>';b.disabled=false;a.disabled=false}}catch(e){m.textContent=e.message;b.disabled=false}};
   $('#agyGo').onclick=go;$('#agyCode').onkeydown=e=>{if(e.key==='Enter')go()};$('#agyCode').focus()}catch(e){f.innerHTML=`<p class="err-line" style="margin-top:12px">${esc(e.message)}</p>`;a.disabled=false}};
-ACT['agy-out']=async()=>{if(!await confirmBox('Sign Google AI Pro out?','Agents that use one of its models switch to their next account in the priority list.','Sign out'))return;try{await post(UI,'/ui/antigravity/logout');Pages._acctFresh=true;toast('Signed out');reload()}catch(e){fail(e)}};
+ACT['agy-out']=async()=>{if(!await confirmBox('Sign Google AI Pro out?','Agents that use one of its models switch to their next account in the priority list.','Sign out'))return;try{const r=await post(UI,'/ui/antigravity/logout');Pages._acctFresh=true;
+ // who moved where, and anyone it could not move (they stay on Google AI Pro and their next message fails)
+ const mv=Object.entries(r?.moved||{}),stuck=r?.stuck||[];toast('Signed out'+(mv.length?'. Moved '+mv.map(([a])=>ident(a).name).join(', '):''));
+ if(stuck.length)fail(new Error('Could not move '+stuck.map(a=>ident(a).name).join(', ')+'. Pick another model for '+(stuck.length>1?'them':'it')+' under Which agent uses what.'));reload()}catch(e){fail(e)}};

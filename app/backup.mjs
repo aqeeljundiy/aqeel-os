@@ -24,7 +24,10 @@ export function createBackups({DATA,HOME,HERMES_HOME,TOKEN='google_token_elkiya.
  const load=async()=>{if(!state){try{state=JSON.parse(await readFile(STATE,'utf8'))}catch{state={}}}return state};
  const save=async()=>{await writeFile(STATE,JSON.stringify(state,null,1))};
  // the key that encrypts every backup (made once; admins see it under System › Health to keep it somewhere safe)
- async function key(){try{const k=(await readFile(KEYF,'utf8')).trim();if(k.length>=32)return k}catch{}const k=randomBytes(24).toString('base64url');await writeFile(KEYF,k,{mode:0o600});await chmod(KEYF,0o600).catch(()=>{});return k}
+ // a key that went missing after backups were made is never silently replaced: the old backups need the old key
+ const made=()=>!!(state?.made||state?.last?.ok||state?.test?.ok);
+ const NOKEY='The backup key file ('+KEYF+') is missing, and the backups already in Google Drive can only be opened with that key. Put it back from where you kept it; no new backup is made until then.';
+ async function key(){await load();try{const k=(await readFile(KEYF,'utf8')).trim();if(k.length>=32)return k}catch{}if(made())throw Error(NOKEY);const k=randomBytes(24).toString('base64url');await writeFile(KEYF,k,{mode:0o600,flag:'wx'}).catch(e=>{if(e.code!=='EEXIST')throw e});await chmod(KEYF,0o600).catch(()=>{});return (await readFile(KEYF,'utf8')).trim()}
  // Google: an access token from the stored sign-in (refreshed here, the file is left as it is)
  async function google(){const t=JSON.parse(await readFile(path.join(HERMES_HOME,TOKEN),'utf8'));
   const r=await fetch(t.token_uri||'https://oauth2.googleapis.com/token',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({client_id:t.client_id,client_secret:t.client_secret,refresh_token:t.refresh_token,grant_type:'refresh_token'}),signal:AbortSignal.timeout(20000)});
@@ -50,7 +53,7 @@ export function createBackups({DATA,HOME,HERMES_HOME,TOKEN='google_token_elkiya.
    // keep the newest 14 (older ones go to the Drive bin, where Google keeps them 30 more days)
    const l=await drive(g,'drive/v3/files?q='+encodeURIComponent("'"+fid+"' in parents and trashed=false")+'&orderBy=createdTime desc&fields=files(id,name)&pageSize=100');
    for(const f of (l.files||[]).slice(KEEP))await drive(g,'drive/v3/files/'+f.id,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({trashed:true})}).catch(()=>{});
-   state.last={at,ok:true,name,size,id:file.id,account:g.account,why,secs:Math.round((Date.now()-at)/1000)};await save();console.log('backup: '+name+' ('+Math.round(size/1e6)+' MB) uploaded to Google Drive');return state.last}
+   state.last={at,ok:true,name,size,id:file.id,account:g.account,why,secs:Math.round((Date.now()-at)/1000)};state.made=true;await save();console.log('backup: '+name+' ('+Math.round(size/1e6)+' MB) uploaded to Google Drive');return state.last}
   catch(e){state.last={at,ok:false,error:e.message,why};await save();console.warn('backup failed:',e.message);notify('Backup to Google Drive failed',e.message);throw e}
   finally{await rm(tmp,{force:true}).catch(()=>{});running=null}})();return running}
  // a restore test: the newest backup from Drive, decrypted and unpacked into a scratch folder, with the must-have files checked
@@ -68,5 +71,5 @@ export function createBackups({DATA,HOME,HERMES_HOME,TOKEN='google_token_elkiya.
  function schedule(){const tick=async()=>{await load();const j=new Date(Date.now()+7*3600e3);const today=j.toISOString().slice(0,10);
    if(j.getUTCHours()===3&&(!state.last||new Date(state.last.at+7*3600e3).toISOString().slice(0,10)!==today||!state.last.ok&&Date.now()-state.last.at>3600e3)){try{await run();if(j.getUTCDay()===0)await test()}catch{}}};
   setInterval(()=>tick().catch(()=>{}),15*60e3).unref?.()}
- async function status(){await load();return {last:state.last||null,test:state.test||null,running:Boolean(running),keep:KEEP,where:'Google Drive › aqeelOS backups',account:await readFile(path.join(HERMES_HOME,TOKEN),'utf8').then(t=>JSON.parse(t).account||'').catch(()=>'')}}
+ async function status(){await load();const keyError=made()&&!await readFile(KEYF,'utf8').then(k=>k.trim().length>=32,()=>false)?NOKEY:null;return {keyError,last:state.last||null,test:state.test||null,running:Boolean(running),keep:KEEP,where:'Google Drive › aqeelOS backups',account:await readFile(path.join(HERMES_HOME,TOKEN),'utf8').then(t=>JSON.parse(t).account||'').catch(()=>'')}}
  return {run,test,status,key,schedule}}

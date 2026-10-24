@@ -200,7 +200,7 @@ const defaultsTick=()=>agentDefaults.tick().then(n=>{if(n){console.log('agent de
 if(PORT===4400)startScreenFollow();
 if(PORT===4400){setTimeout(applyDefaults,60000);setInterval(applyDefaults,600000).unref();setTimeout(()=>{defaultsTick();setInterval(defaultsTick,60000).unref()},90000)}
 const mailer=createMail(DATA);
-const usage=createUsage(DASH.origin,DASH_TOKEN);
+const usage=createUsage(DASH.origin,DASH_TOKEN,DATA);
 const explain=createExplain(DATA,{python:enginePython,root});
 const schedules=createSchedules({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAgents(),python:enginePython,root,live:()=>LIVE_APP||process.env.SCHED_DESCRIBE==='1',relays:()=>relay.jobRelays()});
 setTimeout(()=>schedules.tick(),40000).unref();setInterval(()=>schedules.tick(),10*60000).unref();
@@ -423,7 +423,7 @@ async function agentHealth(only){const h={'x-hermes-session-token':DASH_TOKEN};c
    environment (~/.local/bin on the PATH, so Claude is found). The dashboard keeps running, so sign-ins in
    progress survive. The watch (every minute) starts a gateway when none runs, and replaces one the engine
    started itself only when THAT gateway cannot reach Claude. A deliberate Stop from the app is respected. */
-let gwStopped=false,gwRestarting=null,gwMissing=0;
+let gwStopped=false,gwRestarting=null,gwMissing=0,sshLock=Promise.resolve();   // sshLock: authorized_keys changes, one at a time
 // Thinking survives a refresh: the engine keeps no thinking text for some models (only a sealed signature), so when
 // a reply streamed through aqeelOS ends, the thinking it showed is saved per chat and shown again when it is reopened.
 async function saveThinking(key,rec){try{const sid=key.split('|').slice(1).join('|');if(!/^[\w.-]{3,120}$/.test(sid))return;
@@ -538,7 +538,7 @@ const links=createLinks({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,pyth
 function listAgents(){return agentNames()}   // real agents only (a folder with a config), not extra-number copies
 async function listAllProfiles(){return [...await listAgents(),...(await links.list()).map(l=>l.name)]}
 const gemini=createGemini({HERMES_HOME,hcmd,listAgents});
-const antigravity=createAntigravity({HERMES_HOME,hcmd,listAgents});
+const antigravity=createAntigravity({HERMES_HOME,hcmd,listAgents,moveOff:(a,k)=>accountHooks.moveOff?accountHooks.moveOff(a,k):null});
 async function agentModel(a){const y=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>'');const k=key=>((new RegExp('^model:[\\s\\S]*?\\n\\s+'+key+':\\s*(\\S+)','m').exec(y)||[])[1]||'').replace(/^["']|["']$/g,'');return {provider:k('provider'),model:k('default')}}
 const users=createUsers(DATA,mailer);
 const starters=createStarters(DATA,{python:enginePython,root});
@@ -866,7 +866,8 @@ async function hermesCall(req,res,u,url){
    const ok=await new Promise(r=>execFile('tar',['-czf',file,'--warning=no-file-changed','--ignore-failed-read','--exclude=./cache','--exclude=./sandboxes','-C',dir,'.',...extra,'-C',meta,'.aqeel-copies.json'],{timeout:180000,maxBuffer:1e6},e=>r(!e||e.code===1)))&&(await stat(file).then(x=>x.size>0,()=>false));
    (await import('node:fs/promises')).rm(meta,{recursive:true,force:true}).catch(()=>{});
    if(!ok)return send(res,500,{error:'Could not save a backup of this agent first, so it was not deleted.'})}}
- if(p==='/hapi/gateway/stop'&&req.method==='POST'&&(q.get('profile')||'default')==='default')gwStopped=true;   // a deliberate stop: the watch leaves it stopped
+ // a deliberate stop: the watch leaves it stopped, once the engine really stopped it (a failed stop keeps the watch on)
+ if(p==='/hapi/gateway/stop'&&req.method==='POST'&&(q.get('profile')||'default')==='default')res.once('finish',()=>{if(res.statusCode>=200&&res.statusCode<300)gwStopped=true});
  // deleting an agent also removes its extra numbers (copies) and takes it out of channel sharing
  // only once the engine really deleted it (2xx): a refused delete keeps the agent's numbers and WhatsApp sessions
  if(delM&&req.method==='DELETE'){const gone=decodeURIComponent(delM[1]);if(!gone.includes('--'))res.once('finish',async()=>{if(res.statusCode>=300)return;
@@ -1298,18 +1299,30 @@ const server=createServer(async(req,res)=>{
    // Who can reach the AI box over SSH: one public key per device or AI tool, added and removed here (admins only).
    // Only public keys are ever handled; the key aqeelOS's own builder uses cannot be removed from here.
    if(p==='/ui/ssh-keys'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can manage access to the AI box.'});
-    const f=path.join(homedir(),'.ssh','authorized_keys');const lines=(await readFile(f,'utf8').catch(()=>'')).split('\n').filter(l=>l.trim()&&!l.trim().startsWith('#'));
-    const {createHash}=await import('node:crypto');const fp=l=>{const b=l.trim().split(/\s+/)[1]||'';try{return 'SHA256:'+createHash('sha256').update(Buffer.from(b,'base64')).digest('base64').replace(/=+$/,'')}catch{return ''}};
-    const list=()=>lines.map(l=>{const [type,,...c]=l.trim().split(/\s+/);return {type,name:c.join(' ')||'(no name)',fp:fp(l),protected:/^windows-pc$/.test(c.join(' '))}});
-    if(req.method==='GET')return send(res,200,{keys:list(),host:SSH_HOST,port:SSH_PORT,user:'claude'});
+    // every other line (comments, blank lines, ones not understood) is kept as it is; key lines may start with options
+    // (from="…",command="…"); the builder's key is known by its fingerprint, recorded the first time (DATA/ssh-protected.json)
+    const f=path.join(homedir(),'.ssh','authorized_keys'),pf=path.join(DATA,'ssh-protected.json');const {createHash}=await import('node:crypto');
+    const KEY=/(?:^|\s)(ssh-ed25519|ssh-rsa|ssh-dss|ecdsa-sha2-nistp(?:256|384|521)|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com)\s+([A-Za-z0-9+/]+={0,3})(?:\s+(.*))?$/;
+    const fpOf=b=>{try{return 'SHA256:'+createHash('sha256').update(Buffer.from(b,'base64')).digest('base64').replace(/=+$/,'')}catch{return ''}};
+    const read=async()=>{const lines=(await readFile(f,'utf8').catch(()=>'')).split('\n');if(lines.length&&lines[lines.length-1]==='')lines.pop();
+     const keys=lines.map((l,i)=>{if(l.trim().startsWith('#'))return null;const m=KEY.exec(l.trim());return m?{i,type:m[1],b64:m[2],name:(m[3]||'').trim()||'(no name)',fp:fpOf(m[2])}:null}).filter(Boolean);
+     let prot=await readFile(pf,'utf8').then(JSON.parse).catch(()=>null);
+     if(!Array.isArray(prot)){prot=keys.filter(k=>k.name==='windows-pc').map(k=>k.fp);await writeJsonAtomic(pf,prot).catch(()=>{})}
+     const pset=new Set([...prot,...String(process.env.SSH_PROTECTED_FP||'').split(',').map(x=>x.trim()).filter(Boolean)]);
+     return {lines,keys,list:keys.map(k=>({type:k.type,name:k.name,fp:k.fp,protected:pset.has(k.fp)}))}};
+    if(req.method==='GET')return send(res,200,{keys:(await read()).list,host:SSH_HOST,port:SSH_PORT,user:'claude'});
     let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
+    // one change at a time, each on a fresh read, so two adds at once both stay
+    const locked=fn=>{const r=sshLock.then(fn);sshLock=r.catch(()=>{});return r};
     if(req.method==='POST'){const k=String(b.key||'').trim().replace(/\s+/g,' ');const name=String(b.name||'').trim().replace(/[^\w .@-]/g,'').slice(0,60);
      const m=/^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(?:256|384|521)|sk-ssh-ed25519@openssh\.com) ([A-Za-z0-9+/=]{60,}) ?(.*)$/.exec(k);if(!m)return send(res,400,{error:'That is not an SSH public key. It starts with ssh-ed25519 (or ssh-rsa) and is one line. Never paste a private key.'});
      if(!name)return send(res,400,{error:'Give it a name, like “Aqeel’s MacBook” or “Codex on the office PC”.'});
-     if(lines.some(l=>l.split(/\s+/)[1]===m[2]))return send(res,400,{error:'That key already has access.'});
-     await mkdir(path.dirname(f),{recursive:true,mode:0o700});await writeFile(f,[...lines,m[1]+' '+m[2]+' '+name.replace(/\s+/g,'-')].join('\n')+'\n',{mode:0o600});console.log('ssh access added:',name,'by',u.name||u.id);return send(res,200,{keys:(lines.push(m[1]+' '+m[2]+' '+name.replace(/\s+/g,'-')),list())})}
-    if(req.method==='DELETE'){const i=list().findIndex(x=>x.fp===b.fp);if(i<0)return send(res,404,{error:'No such key'});if(list()[i].protected)return send(res,400,{error:'This key is how aqeelOS itself is maintained; it stays.'});
-     const name=list()[i].name;lines.splice(i,1);await writeFile(f,lines.join('\n')+'\n',{mode:0o600});console.log('ssh access removed:',name,'by',u.name||u.id);return send(res,200,{keys:list()})}}
+     return locked(async()=>{const r=await read();if(r.keys.some(x=>x.b64===m[2]))return send(res,400,{error:'That key already has access.'});
+      const line=m[1]+' '+m[2]+' '+name.replace(/\s+/g,'-');await mkdir(path.dirname(f),{recursive:true,mode:0o700});await writeFile(f,[...r.lines,line].join('\n')+'\n',{mode:0o600});
+      console.log('ssh access added:',name,'by',u.name||u.id);return send(res,200,{keys:(await read()).list})})}
+    if(req.method==='DELETE')return locked(async()=>{const r=await read();const k=r.keys.find(x=>x.fp===b.fp);if(!k)return send(res,404,{error:'No such key'});
+     if(r.list.find(x=>x.fp===k.fp).protected)return send(res,400,{error:'This key is how aqeelOS itself is maintained; it stays.'});
+     r.lines.splice(k.i,1);await writeFile(f,r.lines.join('\n')+'\n',{mode:0o600});console.log('ssh access removed:',k.name,'by',u.name||u.id);return send(res,200,{keys:(await read()).list})})}
    if(p==='/ui/memory'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Admins only.'});return send(res,200,await memNow())}
    if(p==='/ui/system-events'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,200,{events:[]});return send(res,200,{events:sysEvents})}
    if(p==='/ui/thinking'&&req.method==='GET'){const sid=String(url.searchParams.get('session')||'');if(!/^[\w.-]{3,120}$/.test(sid))return send(res,200,{items:[]});const l=await readFile(path.join(DATA,'thinking',sid+'.json'),'utf8').then(JSON.parse).catch(()=>[]);return send(res,200,{items:l.filter(x=>users.isAdmin(u)||x.by===u.id).map(({u:q,think})=>({u:q,think}))})}
@@ -1383,7 +1396,7 @@ const server=createServer(async(req,res)=>{
    // backups to Google Drive (admins): the state, back up now, a restore test, and the key that unlocks them
    if(p.startsWith('/ui/backups')){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});
     if(p==='/ui/backups'&&req.method==='GET')return send(res,200,await backups.status());
-    if(p==='/ui/backups/key'&&req.method==='GET')return send(res,200,{key:await backups.key()});
+    if(p==='/ui/backups/key'&&req.method==='GET'){try{return send(res,200,{key:await backups.key()})}catch(e){return send(res,409,{error:e.message})}}
     if(p==='/ui/backups/run'&&req.method==='POST'){backups.run('by hand').catch(()=>{});return send(res,200,{started:true})}
     if(p==='/ui/backups/test'&&req.method==='POST'){try{return send(res,200,await backups.test())}catch(e){return send(res,400,{error:e.message})}}}
    // which aqeelOS app version is current (the app offers to update itself when it is older)
@@ -1426,7 +1439,7 @@ const server=createServer(async(req,res)=>{
     if(b.owner){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can open n8n as its owner.'});if(!await n8n.ready())return send(res,409,{error:'n8n is not connected yet.'});const st=await n8n.status(a);return send(res,200,{url:st.base+'/aqeelos-login?t='+n8n.ticket('__owner')})}if(!(await listAgents()).includes(a))return send(res,400,{error:'Unknown agent'});
     if(!users.isAdmin(u)&&!users.atLeast(u,a,'edit'))return send(res,403,{error:'You can chat with this agent but not open its n8n.'});
     try{const r=await n8n.ensure(a);const st=await n8n.status(a);return send(res,200,{url:st.base+'/aqeelos-login?t='+n8n.ticket(a),email:r.email})}catch(e){return send(res,409,{error:e.message})}}
-   if(p==='/ui/models/agents'&&req.method==='GET'){const out=[];for(const a of await listAgents()){if(!users.isAdmin(u)&&!users.byId(u.id)?.agents?.[a])continue;const c=await readConfig(a).catch(()=>null)||{};
+   if(p==='/ui/models/agents'&&req.method==='GET'){const out=[];for(const a of await listAgents()){if(!users.isAdmin(u)&&!users.level(u,a))continue;   // the agents this person may use (owned or shared)const c=await readConfig(a).catch(()=>null)||{};
      out.push({id:a,name:NAMES[a]||await displayName(a),model:c.model?.default||'',provider:c.model?.provider||''})}return send(res,200,{agents:out})}
    // Access: who owns each connection and which agents may use it (see access.mjs). Admins only.
    // asking for access: anyone may see what the other agents have (names only) and ask for it for an agent they use; admins decide
@@ -1620,7 +1633,7 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/explain'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,300000))}catch{}const items=(Array.isArray(b.items)?b.items:[]).slice(0,300).map(x=>({id:String(x?.id||'').slice(0,120),name:String(x?.name||'').slice(0,160),desc:String(x?.desc||'').slice(0,600)}));return send(res,200,await explain.get(String(b.kind||''),items,{write:users.isAdmin(u)}))}
    if(p==='/ui/usage'&&req.method==='GET'){const days=Math.min(365,Math.max(1,+url.searchParams.get('days')||7));const ag=String(url.searchParams.get('agent')||''),every=await listAllProfiles();
     const all=await usage.breakdown(ag&&ag!=='all'?every.filter(x=>x===ag||x.startsWith(ag+'--')):every,days,users.ownerOf);
-    const people=Object.fromEntries(users.people().map(x=>[x.id,{name:x.name,avatar:x.avatar?'/ui/people/avatar/'+x.id:null,limit:x.limit||null}]));
+    const people=Object.fromEntries(users.people().map(x=>[x.id,{name:x.name,avatar:x.avatar?'/ui/people/avatar/'+x.id:null,limit:users.limitOf(x)||null}]));   // the limit that applies (a role's too), not only one set on the person
     if(!users.isAdmin(u))return send(res,200,{days,byPerson:{[u.id]:all.byPerson[u.id]||null},people:{[u.id]:people[u.id]},today:await usage.today(await listAllProfiles(),u.id,users.ownerOf)});
     return send(res,200,{...all,people})}
    if(p==='/ui/starters'){const agent=url.searchParams.get('agent')||'default';if(users.gate(u,'/ui/screens/'+agent,'GET',new URLSearchParams(),agent))return send(res,403,{error:'That agent is not shared with you.'});

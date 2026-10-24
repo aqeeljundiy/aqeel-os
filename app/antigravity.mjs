@@ -12,7 +12,7 @@ const BIN=path.join(homedir(),'.local','bin','agy'),WORK=path.join(homedir(),'.c
 const run=(cmd,args,o={})=>new Promise(res=>execFile(cmd,args,{timeout:o.timeout||20000,cwd:o.cwd,maxBuffer:4e6,env:{...process.env,PATH:path.join(homedir(),'.local','bin')+':'+process.env.PATH}},(e,out,err)=>res({ok:!e,out:String(out||''),err:String(err||e?.message||'')})));
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
-export function createAntigravity({HERMES_HOME,hcmd,listAgents}){
+export function createAntigravity({HERMES_HOME,hcmd,listAgents,moveOff=async()=>null}){
  let login=null,cache={t:0,v:null};
  const pane=async()=>(await run('tmux',['capture-pane','-pt',SESSION,'-S','-300'])).out;
  // signed in = agy can list the account's models (agy keeps its login where it wants: keyring or its own file)
@@ -40,17 +40,21 @@ export function createAntigravity({HERMES_HOME,hcmd,listAgents}){
    if(/invalid|expired|failed|error/i.test(t)&&/code|auth/i.test(t)&&i>1){console.warn('antigravity sign-in refused:',t.replace(/\s+/g,' ').slice(-200));break}
    if(!/authorization code/i.test(t)||i>3){const s=await status(true);if(s.signedIn){login.state='done';console.log('antigravity signed in,',s.models.length,'models');await stop();await enableAll().catch(e=>console.warn('antigravity plugin',e.message));return {ok:true,models:s.models}}}}
   return {ok:false,error:'Google did not accept that code. Press Connect again, sign in with the new link and paste its code (each link works once).'}}
- // signing out also switches the plugin off everywhere, so no agent keeps a model that can no longer answer
- async function logout(){await stop();await mkdir(WORK,{recursive:true});
+ // signing out moves every agent that thinks with Google to another model FIRST (its first usable priority entry, else
+ // the main agent's model); if one can't be moved, nothing is signed out. Then the plugin goes off where nobody uses it.
+ async function logout(){
+  const route=async a=>{const y=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>'');const k=key=>((new RegExp('^model:[\\s\\S]*?\\n\\s+'+key+':\\s*(\\S+)','m').exec(y)||[])[1]||'').replace(/^["']|["']$/g,'');return {provider:k('provider'),model:k('default')}};
+  const AG='antigravity-subscription',main=await route('default'),moved={},stuck=[];const usable=main.provider&&main.provider!==AG;const all=(await listAgents()).filter(a=>!a.includes('--'));
+  for(const a of all){if((await route(a)).provider!==AG)continue;
+   let to=await moveOff(a,'p:'+AG).catch(()=>null);
+   if(!to&&usable&&a!=='default'){const r=await hcmd(a,['config','set','model.provider',main.provider],{timeout:60000}).catch(()=>({ok:false}));if(r.ok&&main.model)await hcmd(a,['config','set','model.default',main.model],{timeout:60000}).catch(()=>{});if(r.ok)to='main'}
+   if(to)moved[a]=to;else stuck.push(a)}
+  if(stuck.length)throw new Error('Still signed in: '+stuck.join(', ')+(stuck.length>1?' use':' uses')+' Google AI Pro and there is no other model to move to. Add another account to Priority, or pick another model for '+(stuck.length>1?'them':'it')+' first.');
+  await stop();await mkdir(WORK,{recursive:true});
   await run('tmux',['new-session','-d','-s',SESSION,'-x','200','-y','60','-c',WORK,BIN]);await sleep(6000);
   await run('tmux',['send-keys','-t',SESSION,'-l','/logout']);await run('tmux',['send-keys','-t',SESSION,'Enter']);await sleep(4000);await stop();
   cache={t:0,v:null};login=null;
-  // agents that thought with Google move to the main agent's model first, so none is left on a switched-off provider
-  const route=async a=>{const y=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>'');const k=key=>((new RegExp('^model:[\\s\\S]*?\\n\\s+'+key+':\\s*(\\S+)','m').exec(y)||[])[1]||'').replace(/^["']|["']$/g,'');return {provider:k('provider'),model:k('default')}};
-  const main=await route('default'),moved=[],stuck=[];const usable=main.provider&&main.provider!=='antigravity-subscription';
-  for(const a of await listAgents()){if(a.includes('--'))continue;const r=await route(a);
-   if(r.provider==='antigravity-subscription'){if(usable){await hcmd(a,['config','set','model.provider',main.provider],{timeout:60000}).catch(()=>{});if(main.model)await hcmd(a,['config','set','model.default',main.model],{timeout:60000}).catch(()=>{});moved.push(a)}else stuck.push(a)}
-   await hcmd(a,['plugins','disable','antigravity-subscription'],{timeout:150000}).catch(()=>{})}
+  for(const a of all)await hcmd(a,['plugins','disable',AG],{timeout:150000}).catch(()=>{});
   console.log('antigravity signed out');return {ok:true,moved,stuck}}
  // second guard behind the text-only agent: agy's own permission list denies every action it could take
  async function denyAll(){const f=path.join(homedir(),'.gemini','antigravity-cli','settings.json');let cur={};try{cur=JSON.parse(await readFile(f,'utf8'))}catch{}

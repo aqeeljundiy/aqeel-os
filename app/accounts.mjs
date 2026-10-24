@@ -22,7 +22,7 @@ const MAIN={id:'main',label:'Main account',dir:path.join(HOME,'.claude')};
 export let setupAgentFn=null;
 export const export_setups={running:()=>0,wait:()=>Promise.resolve()};   // setups in progress, counted by /healthz so a deploy waits for them
 // for agent-defaults.mjs: copying skills, and what runs after a new agent is set up
-export const accountHooks={giveSkills:null,trimSkills:null,afterSetup:null};
+export const accountHooks={giveSkills:null,trimSkills:null,afterSetup:null,moveOff:null};
 export function createAccounts(DATA){
  const FILE=path.join(DATA,'accounts.json');
  const load=async()=>{try{return JSON.parse(await readFile(FILE,'utf8'))}catch{return {accounts:[],assign:{},auto:{on:false,threshold:90},events:[]}}};
@@ -41,7 +41,8 @@ export function createAccounts(DATA){
   const v={id:a.id,label:a.label,main:a.id==='main',signedIn:false};
   // The main account lives in Claude's default place (its email is kept in ~/.claude.json), so no CLAUDE_CONFIG_DIR for it.
   const st=await run(CLAUDE,['auth','status'],a.id==='main'?{}:{CLAUDE_CONFIG_DIR:a.dir},20000);
-  try{const j=JSON.parse(st.out);Object.assign(v,{signedIn:!!j.loggedIn,email:j.email||'',org:j.orgName||'',plan:j.subscriptionType||''})}catch{}
+  // checked: the status really answered (a timed-out check is unknown, not "signed out")
+  try{const j=JSON.parse(st.out);Object.assign(v,{checked:true,signedIn:!!j.loggedIn,email:j.email||'',org:j.orgName||'',plan:j.subscriptionType||''})}catch{}
   let creds=null;try{creds=JSON.parse(await readFile(path.join(a.dir,'.credentials.json'),'utf8')).claudeAiOauth}catch{}
   if(creds){v.plan=v.plan||creds.subscriptionType||'';v.tier=creds.rateLimitTier||'';v.tokenExpires=creds.expiresAt||null}
   if(v.signedIn&&creds?.accessToken){
@@ -54,7 +55,7 @@ export function createAccounts(DATA){
   }
   cache.set(a.id,{t:Date.now(),v});return v;
  }
- const headroom=v=>v?.usage?100-Math.max(v.usage.session?.used||0,v.usage.week?.used||0):-1;
+ const headroom=v=>v?.usage?100-Math.max(v.usage.session?.used||0,v.usage.week?.used||0,v.usage.opus?.used||0,v.usage.sonnet?.used||0):-1;
 
  /* ---------- which agent uses which account ---------- */
  const agents=()=>agentNames();
@@ -71,7 +72,9 @@ export function createAccounts(DATA){
  const logins=new Map(); // id → {child,out,state}
  async function startLogin(label){
   const d=await load();const slug=(String(label||'account').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'account').slice(0,32);
-  let id=slug,n=2;while(all(d).some(a=>a.id===id))id=slug+'-'+n++;
+  // an id no saved account, sign-in in progress or folder on disk has (two sign-ins at once never share a folder)
+  const taken=async id=>all(d).some(a=>a.id===id)||logins.has(id)||await access(path.join(ACCOUNTS_DIR,id)).then(()=>true,()=>false);
+  let id=slug,n=2;while(await taken(id)||logins.has(id))id=slug+'-'+n++;logins.set(id,{state:'starting'});
   const dir=path.join(ACCOUNTS_DIR,id);await mkdir(dir,{recursive:true,mode:0o700});
   const child=spawn(CLAUDE,['auth','login'],{env:{...process.env,CLAUDE_CONFIG_DIR:dir,BROWSER:'true'},stdio:['pipe','pipe','pipe']});
   const s={child,out:'',state:'running',dir,label:String(label||id).slice(0,60)};logins.set(id,s);
@@ -87,50 +90,82 @@ export function createAccounts(DATA){
   if(s.state==='running')return {state:'running',hint:/invalid/i.test(s.out)?'That code was not accepted. Copy the whole code and try again.':'Still checking…'};
   return {state:s.state,hint:s.state==='done'?'Signed in.':'Sign-in failed: '+(s.out.split('\n').filter(Boolean).slice(-2).join(' ')||'try again')}}
 
- /* ---------- every other signed-in provider (ChatGPT, OpenRouter…) with the limits Hermes reports ---------- */
+ /* ---------- every other signed-in provider (ChatGPT, OpenRouter…) with the limits Hermes reports ----------
+    Sign-ins are per agent, so each agent's own gateway is asked (/p/<agent>/…) and cached per agent. */
  const GATE=process.env.HERMES_API||'http://127.0.0.1:8642';
  const SKIP=/^(nous|anthropic|custom)$|claude-subscription/;
- let provCache={t:0,v:[]};
- async function providers(fresh){if(!fresh&&Date.now()-provCache.t<60000)return provCache.v;
-  try{const r=await fetch(GATE+'/api/model/options',{headers:{authorization:'Bearer '+(process.env.API_SERVER_KEY||'')},signal:AbortSignal.timeout(20000)});const j=await r.json();
-   const gem=await stat(path.join(homedir(),'.gemini','oauth_creds.json')).then(()=>true,()=>false);
-   provCache={t:Date.now(),v:(j.providers||[]).filter(p=>p.authenticated&&!SKIP.test(p.slug)&&p.slug!=='gemini-subscription'&&(gem||true)).map(p=>({slug:p.slug,name:p.name,models:p.models||[],
-    windows:(p.usage?.windows||[]).map(w=>({label:w.label,used:Math.round(Number(w.used_percent)||0),resets:w.resets_at||null,scope:w.scope||'account'})),details:p.usage?.details||[]}))}}catch{}
-  return provCache.v}
- const worstOf=ws=>Math.max(0,...(ws||[]).filter(w=>w.scope!=='model').map(w=>w.used||0));
+ // subscriptions report windows; one that reports none has unknown room (only pay-per-use counts as 0)
+ const SUBS=/subscription|codex|antigravity|agy/i;
+ const options=profile=>fetch(GATE+(!profile||profile==='default'?'':'/p/'+encodeURIComponent(profile))+'/api/model/options',{headers:{authorization:'Bearer '+(process.env.API_SERVER_KEY||'')},signal:AbortSignal.timeout(20000)}).then(r=>{if(!r.ok)throw new Error('options '+r.status);return r.json()});
+ const provCache=new Map();   // agent → {t,v}
+ // null when that agent's gateway did not answer (and nothing was read before): callers skip instead of guessing
+ async function providers(fresh,profile='default'){const hit=provCache.get(profile);if(hit&&!fresh&&Date.now()-hit.t<60000)return withPics(hit.v,profile);
+  try{const j=await options(profile);
+   const v=(j.providers||[]).filter(p=>p.authenticated&&!SKIP.test(p.slug)&&p.slug!=='gemini-subscription').map(p=>({slug:p.slug,name:p.name,models:p.models||[],
+    windows:(p.usage?.windows||[]).map(w=>({label:w.label,used:Math.round(Number(w.used_percent)||0),resets:w.resets_at||null,scope:w.scope||'account'})),details:p.usage?.details||[]}));
+   provCache.set(profile,{t:Date.now(),v});return withPics(v,profile)}catch{return hit?withPics(hit.v,profile):null}}
+ const worstOf=ws=>Math.max(0,...(ws||[]).filter(w=>w.scope!=='model'&&w.scope!=='image').map(w=>w.used||0));
+
+ /* ---------- the ChatGPT pictures quota: separate from chat use and not in what the gateway reports. The engine logs
+    "Codex images API returned HTTP 429" when it runs out; that shows as a Pictures window until a later picture
+    works or 5 hours pass. Never counted for switching (scope 'image'). ---------- */
+ const PICS_SLUG='openai-codex',picsHit=new Map();   // agent → {at, agent}
+ const withPics=(v,profile)=>{const h=picsHit.get(profile);if(!h||Date.now()>h.at+5*3600e3)return v;
+  return v.map(p=>p.slug===PICS_SLUG?{...p,windows:[...p.windows,{label:'Pictures',used:100,scope:'image',at:h.at,resets:new Date(h.at+5*3600e3).toISOString()}]}:p)};
+ const logT=l=>Date.parse(l.slice(0,19).replace(' ','T')+'Z');   // engine log lines start "YYYY-MM-DD HH:MM:SS" (read as the watchdog does)
+ async function tailOf(f,n=262144){try{const st=await stat(f);const {open}=await import('node:fs/promises');const h=await open(f,'r');try{const len=Math.min(n,st.size),b=Buffer.alloc(len);await h.read(b,0,len,st.size-len);return b.toString('utf8')}finally{await h.close()}}catch{return ''}}
+ async function picsWatch(){for(const a of await agents()){const dir=a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);let hit=0,ok=0;
+  for(const f of ['agent.log','errors.log'])for(const l of (await tailOf(path.join(dir,'logs',f))).split('\n')){const t=logT(l);if(!t)continue;
+   if(/Codex images API returned HTTP 429/.test(l))hit=Math.max(hit,t);else if(/tool image_generate completed/.test(l))ok=Math.max(ok,t)}
+  if(hit>ok&&Date.now()<hit+5*3600e3)picsHit.set(a,{at:hit,agent:a});else picsHit.delete(a)}}
+ if(LIVE_APP){setInterval(()=>picsWatch().catch(()=>{}),3*60000).unref();setTimeout(()=>picsWatch().catch(()=>{}),15000).unref()}
 
  /* ---------- priority: the order accounts are used in, across providers ----------
     Entries: {key:'claude:<account id>'|'p:<provider slug>', model}. An agent moves down the list
-    when its current entry passes the threshold. */
+    when its current entry passes the threshold, and back up once a higher entry has room again. */
  const PLUGIN_KEY='claude:';
  async function agentRoute(profile){const dir=profile==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',profile);const y=await readFile(path.join(dir,'config.yaml'),'utf8').catch(()=>'');
   const k=key=>((new RegExp('^model:[\\s\\S]*?\\n\\s+'+key+':\\s*(\\S+)','m').exec(y)||[])[1]||'').replace(/^["']|["']$/g,'');return {provider:k('provider'),model:k('default')}}
  async function entryOf(d,profile){const r=await agentRoute(profile);return r.provider===PLUGIN||!r.provider?PLUGIN_KEY+(d.assign[profile]||'main'):'p:'+r.provider}
+ const isClaude=m=>/claude|opus|sonnet|haiku/i.test(String(m||''));
+ const must=async(p,why)=>{const r=await p;if(!r?.ok)throw new Error(why+': '+String(r?.err||r?.out||'the engine did not accept the change').slice(0,200));return r};
  async function useEntry(d,profile,e,why){
-  if(e.key.startsWith(PLUGIN_KEY)){await assign(d,profile,e.key.slice(PLUGIN_KEY.length),why);await setKey(profile,'model.provider',PLUGIN);}
+  if(e.key.startsWith(PLUGIN_KEY)){await assign(d,profile,e.key.slice(PLUGIN_KEY.length),why);await must(setKey(profile,'model.provider',PLUGIN),'Could not switch '+profile+' to Claude');
+   // a Claude account needs a Claude model: one left from another provider (gpt-5…) would fail every message
+   if(!e.model&&!isClaude((await agentRoute(profile)).model)){const pl=await options(profile).then(j=>(j.providers||[]).find(p=>p.slug===PLUGIN)).catch(()=>null);const m=(pl?.models||[]).find(isClaude)||pl?.models?.[0];
+    if(!m)throw new Error('The Claude sign-in on '+profile+' offers no model yet');await must(setKey(profile,'model.default',m),'Could not set the Claude model')}}
   else{// only switch an agent to a provider THAT agent is signed in to (sign-ins are per agent)
-   const slug=e.key.slice(2);const ok=await fetch(GATE+(profile==='default'?'':'/p/'+encodeURIComponent(profile))+'/api/model/options',{headers:{authorization:'Bearer '+(process.env.API_SERVER_KEY||'')},signal:AbortSignal.timeout(20000)}).then(r=>r.json()).then(j=>(j.providers||[]).find(p=>p.slug===slug&&p.authenticated)||false).catch(()=>false);
+   const slug=e.key.slice(2);const ok=await options(profile).then(j=>(j.providers||[]).find(p=>p.slug===slug&&p.authenticated)||false).catch(()=>false);
    if(!ok)throw new Error(profile+' is not signed in to '+slug+'; sign in on that agent first');
-   const r=await setKey(profile,'model.provider',slug);if(!r.ok)throw new Error('The engine did not accept the change');
-   if(!e.model&&ok.models?.length){const cur=(await agentRoute(profile)).model;if(!ok.models.includes(cur))await setKey(profile,'model.default',ok.models[0])}
+   await must(setKey(profile,'model.provider',slug),'Could not switch '+profile);
+   if(!e.model&&ok.models?.length){const cur=(await agentRoute(profile)).model;if(!ok.models.includes(cur))await must(setKey(profile,'model.default',ok.models[0]),'Could not set the model')}
    await update(x=>event(x,{t:Date.now(),profile,to:e.key,why:why||''}))}
-  if(e.model)await setKey(profile,'model.default',e.model);
+  if(e.model)await must(setKey(profile,'model.default',e.model),'Could not set the model');
  }
- // known: a switch target must have measured usage, so a failed usage check (null) is never taken as room left.
- // Pay-per-use providers report no windows at all and count as 0.
- async function usageOf(d,key,det,prov,known){if(key.startsWith(PLUGIN_KEY)){const v=det[key.slice(PLUGIN_KEY.length)];return v?.signedIn?(v.usage?Math.max(v.usage.session?.used||0,v.usage.week?.used||0):known?null:0):null}
-  const p=prov.find(x=>x.slug===key.slice(2));if(!p)return null;const ws=p.windows||[];return known&&ws.length&&!ws.some(w=>w.scope!=='model')?null:worstOf(ws)}
+ // Claude use for a model: the 5-hour and weekly windows, plus the weekly Opus or Sonnet window when the model is one
+ const claudeUsed=(u,model)=>Math.max(u.session?.used||0,u.week?.used||0,/opus/i.test(model||'')?u.opus?.used||0:0,/sonnet/i.test(model||'')?u.sonnet?.used||0:0);
+ // null = unknown (a check that failed or timed out, a subscription that reports no windows): never a reason to move,
+ // never a target. A Claude account that answered "signed out" has no room (100).
+ function usageOf(key,det,prov,model){if(key.startsWith(PLUGIN_KEY)){const v=det[key.slice(PLUGIN_KEY.length)];if(!v?.checked)return null;if(!v.signedIn)return 100;return v.usage?claudeUsed(v.usage,model):null}
+  const p=(prov||[]).find(x=>x.slug===key.slice(2));if(!p)return null;const ws=(p.windows||[]).filter(w=>w.scope!=='model'&&w.scope!=='image');
+  if(!ws.length)return SUBS.test(p.slug+' '+p.name)?null:0;return worstOf(ws)}
 
- /* ---------- auto-switch: move agents off an account that is nearly used up ---------- */
+ /* ---------- auto-switch: move agents off an account that is nearly used up, and back once it has room ---------- */
  async function autoTick(){const d=await load();if(!d.auto?.on)return;const th=Number(d.auto.threshold)||90;const accts=all(d);
   const det=Object.fromEntries(await Promise.all(accts.map(async a=>[a.id,await details(a)])));
-  if((d.priority||[]).length){const prov=await providers();
-   for(const profile of await agents()){const cur=await entryOf(d,profile);const used=await usageOf(d,cur,det,prov);if(used!==null&&used<th)continue;
-    for(const e of d.priority){if(e.key===cur)continue;const u=await usageOf(d,e.key,det,prov,true);if(u===null||u>=th)continue;
-     const done=await useEntry(d,profile,e,used===null?'Previous account not available':`Reached ${used}%`).then(()=>true,er=>{console.warn('auto-switch',er.message);return false});if(done)break}}
+  if((d.priority||[]).length){
+   for(const profile of await agents()){const prov=await providers(false,profile);if(!prov)continue;   // its gateway did not answer: nothing is known this tick
+    const cur=await entryOf(d,profile),model=(await agentRoute(profile)).model;const used=usageOf(cur,det,prov,model);const at=d.priority.findIndex(e=>e.key===cur);
+    const room=(e,lim)=>{const u=usageOf(e.key,det,prov,e.model||(e.key.startsWith(PLUGIN_KEY)&&!isClaude(model)?'':model));return u!==null&&u<lim};
+    // back up the list: a higher entry with room again (10 points under the limit, so it does not flip back and forth);
+    // an agent someone moved by hand stays where they put it
+    const byHand=(d.events||[]).find(e=>e.profile===profile)?.why==='Chosen by hand';
+    const up=at>0&&!byHand?d.priority.slice(0,at).filter(e=>room(e,th-10)):[];
+    const down=used!==null&&used>=th?d.priority.filter(e=>e.key!==cur&&!up.includes(e)&&room(e,th)):[];
+    for(const e of [...up,...down]){const done=await useEntry(d,profile,e,up.includes(e)?'Back to a higher account with room':`Reached ${used}%`).then(()=>true,er=>{console.warn('auto-switch',er.message);return false});if(done)break}}
    return}
   for(const profile of await agents()){const cur=d.assign[profile]||'main';const v=det[cur];if(!v?.usage)continue;
-   const worst=Math.max(v.usage.session?.used||0,v.usage.week?.used||0);if(worst<th)continue;
+   const worst=claudeUsed(v.usage,(await agentRoute(profile)).model);if(worst<th)continue;
    const best=accts.filter(a=>a.id!==cur&&det[a.id]?.signedIn&&det[a.id]?.usage).sort((x,y)=>headroom(det[y.id])-headroom(det[x.id]))[0];
    if(best&&headroom(det[best.id])>100-th)await assign(d,profile,best.id,`${v.label||cur} reached ${worst}%`).catch(e=>console.warn('auto-switch',e.message))}}
  if(LIVE_APP)setInterval(()=>autoTick().catch(()=>{}),5*60000).unref();   // a test copy never switches real agents
@@ -205,6 +240,10 @@ export function createAccounts(DATA){
 
  setupAgentFn=setupAgent;
  accountHooks.giveSkills=giveSkills;accountHooks.trimSkills=trimSkills;
+ // a provider going away (Google AI Pro signed out): the agent's first priority entry it can really use; null when none
+ accountHooks.moveOff=async(profile,key)=>{const d=await load();for(const e of d.priority||[]){if(e.key===key)continue;
+  if(e.key.startsWith(PLUGIN_KEY)){const a=all(d).find(x=>x.id===e.key.slice(PLUGIN_KEY.length));if(!a||!(await details(a)).signedIn)continue}
+  try{await useEntry(d,profile,e,'Google AI Pro signed out');return e.key}catch(er){console.warn('move off',profile,e.key,er.message)}}return null};
  // see: which agents this person may see (others' private agents are left out of route, assign and events, and can't be moved)
  return async function handle(req,res,p,send,readBody,see=()=>true){
   if(p==='/ui/accounts/setup-agent'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const n=String(b.name||'');
@@ -213,7 +252,7 @@ export function createAccounts(DATA){
    try{const r=await setupAgent(n);accountHooks.afterSetup?.(n);return send(res,200,r)}catch(e){return send(res,400,{error:e.message})}}
   const d=await load();
   if(p==='/ui/accounts'&&req.method==='GET'){const fresh=new URL(req.url,'http://x').searchParams.has('fresh');const list=await Promise.all(all(d).map(a=>details(a,fresh)));
-   const ag=(await agents()).filter(see);const prov=await providers(fresh);const route=Object.fromEntries(await Promise.all(ag.map(async n=>[n,{entry:await entryOf(d,n),...await agentRoute(n)}])));
+   const ag=(await agents()).filter(see);const prov=await providers(fresh)||[];const route=Object.fromEntries(await Promise.all(ag.map(async n=>[n,{entry:await entryOf(d,n),...await agentRoute(n)}])));
    return send(res,200,{accounts:list,providers:prov,priority:d.priority||[],route,assign:Object.fromEntries(ag.map(n=>[n,d.assign[n]||'main'])),auto:d.auto||{on:false,threshold:90},events:(d.events||[]).filter(e=>see(e.profile))})}
   if(p==='/ui/accounts/priority'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
    const pr=(Array.isArray(b.priority)?b.priority:[]).filter(e=>e&&typeof e.key==='string'&&/^(claude:[a-z0-9-]+|p:[a-z0-9_.-]+)$/.test(e.key)).slice(0,20).map(e=>({key:e.key,model:String(e.model||'').slice(0,120)}));
@@ -227,7 +266,9 @@ export function createAccounts(DATA){
   m=/^\/ui\/accounts\/([a-z0-9-]+)\/cancel$/.exec(p);if(m&&req.method==='POST'){const s=logins.get(m[1]);if(s?.state==='running'){s.child.kill();s.state='failed'}if(!d.accounts.some(a=>a.id===m[1]))await rm(path.join(ACCOUNTS_DIR,m[1]),{recursive:true,force:true});return send(res,200,{ok:true})}
   m=/^\/ui\/accounts\/([a-z0-9-]+)$/.exec(p);
   if(m&&req.method==='DELETE'){const id=m[1];if(id==='main')return send(res,400,{error:'The main account can’t be removed.'});const a=d.accounts.find(x=>x.id===id);if(!a)return send(res,404,{error:'Not found'});
-   if(Object.values(d.assign).includes(id))return send(res,409,{error:'An agent still uses this account. Move it to another account first.'});
+   // only agents that still exist count: a deleted agent's old choice is dropped
+   const live=new Set(await agents());if(Object.entries(d.assign).some(([n,v])=>v===id&&live.has(n)))return send(res,409,{error:'An agent still uses this account. Move it to another account first.'});
+   await update(x=>{for(const n of Object.keys(x.assign||{}))if(!live.has(n))delete x.assign[n]});
    await run(CLAUDE,['auth','logout'],{CLAUDE_CONFIG_DIR:a.dir},20000);await rm(a.dir,{recursive:true,force:true});await update(x=>{x.accounts=x.accounts.filter(y=>y.id!==id)});cache.delete(id);return send(res,200,{ok:true})}
   if(m&&req.method==='PATCH'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const id=m[1];await update(x=>{const a=x.accounts.find(y=>y.id===id);if(id==='main')x.mainLabel=String(b.label||'').slice(0,60);else if(a)a.label=String(b.label||a.label).slice(0,60)});cache.delete(m[1]);return send(res,200,{ok:true})}
   send(res,404,{error:'Not found'});
