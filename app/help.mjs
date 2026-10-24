@@ -98,9 +98,11 @@ export function createHelp({DATA,root,DASH,DASH_TOKEN,GATE,API_KEY,users,listAge
  const applyModel=async()=>{if(!mayEnsure()||!db.settings.model)return;await setKey(HELP_AGENT,'model.default',db.settings.model);if(db.settings.provider)await setKey(HELP_AGENT,'model.provider',db.settings.provider)};
 
  /* ---------- what Help knows about this person, per message ---------- */
+ // the feature list, read once; code-audit findings (AUDIT-…) are notes for whoever builds aqeelOS, not how it works
  let feats=null;
- async function features(){if(feats)return feats;try{const m=await import(path.join(root,'scripts','features.mjs'));const de=s=>String(s||'').replace(/Hermes Agent/g,'the engine').replace(/\bHermes\b/g,'the engine');
-   feats=(m.FEATURES||[]).map(([id,title,,,status,notes])=>({id,title:de(title),status,notes:de(notes),words:new Set((de(title)+' '+de(notes)).toLowerCase().match(/[a-z0-9]{3,}/g)||[]),tw:new Set(de(title).toLowerCase().match(/[a-z0-9]{3,}/g)||[])}))}catch(e){console.warn('help: feature list',e.message);feats=[]}return feats}
+ async function features(){if(feats)return feats;
+  try{const m=await import(path.join(root,'scripts','features.mjs'));const de=s=>String(s||'').replace(/Hermes Agent/g,'the engine').replace(/\bHermes\b/g,'the engine');
+   feats=(m.FEATURES||[]).filter(f=>!/^AUDIT-/.test(f[0])).map(([id,title,,,status,notes])=>({id,title:de(title),status,notes:de(notes),words:new Set((de(title)+' '+de(notes)).toLowerCase().match(/[a-z0-9]{3,}/g)||[]),tw:new Set(de(title).toLowerCase().match(/[a-z0-9]{3,}/g)||[])}))}catch(e){console.warn('help: feature list',e.message);feats=[]}return feats}
  const STOP=new Set('the and for with that this what how why can not you your are was does did have has from when where which who into about they them their there then than just like get got its out our all any one but been will would could should please help aqeelos agent agents'.split(' '));
  // the entries that match the question and the page best (title words count three times)
  async function relevant(q){const w=[...new Set(String(q).toLowerCase().match(/[a-z0-9]{3,}/g)||[])].filter(x=>!STOP.has(x));if(!w.length)return [];

@@ -18,14 +18,14 @@ const Help={ID:'aqeelos-help',st:null,turns:[],running:false,abort:null,unseen:0
   <textarea id="hMsg" rows="1" placeholder="Ask how something works, or what went wrong" aria-label="Message Help"></textarea>
   <div class="composer-bar"><button type="button" class="ghost small" data-act="help-new" id="hNew" hidden>${icon('plus',14)}New conversation</button><span class="grow"></span><span class="help-left" id="hLeft"></span><button class="primary send" id="hSend" aria-label="Send" title="Send (Enter)">${icon('send',18)}</button></div></div>
   <p class="hint-line" id="hHint">Help explains aqeelOS and checks what went wrong. It can’t change anything: for that, ask your agent.</p></div></div></div>`;
-  this._th=null;this.bind();this.paint();this.load()},
+  this._th=null;this._history=true;this.bind();this.paint(true);this.load()},   // what is already there shows at once, without rising in again
  bind(){const ta=$('#hMsg'),b=$('#hSend');if(!ta)return;const fit=()=>{ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,220)+'px'};
   ta.oninput=fit;ta.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();this.go()}if(e.key==='Escape'&&this.running){e.preventDefault();this.stop()}};
   b.onclick=()=>this.running?this.stop():this.go();setTimeout(()=>{if(matchMedia('(pointer:fine)').matches)ta.focus()},60)},
  async load(){try{const d=await UI('/ui/help/state');this.st=d;this.unseen=0;
    if(!this.running){const seen=d.seenBefore||0,h=(d.turns||[]).map(t=>({...t}));
     // tickets sit under the reply that sent them (the closest one before), notices from admins where they happened
-    for(const t of d.tickets||[]){const ai=[...h].reverse().find(x=>x.role==='ai'&&(x.at||0)<=t.at/1000+120);if(ai&&!ai.ticket)ai.ticket={ticket:t}}
+    for(const t of d.tickets||[]){const ai=[...h].reverse().find(x=>x.role==='ai'&&(x.at||0)<=t.at/1000+10);if(ai&&!ai.ticket)ai.ticket={ticket:t}}
     const all=[...h,...(d.notices||[]).filter(n=>d.session&&h.length?n.at/1000>=(h[0].at||0):n.at>seen).map(n=>({role:'notice',text:n.text,at:n.at/1000,fresh:n.at>seen}))];
     this.turns=all.sort((a,b)=>(a.at||0)-(b.at||0));this._history=true}
    else for(const t of this.turns)if(t.ticket?.ticket){const f=(d.tickets||[]).find(x=>x.id===t.ticket.ticket.id);if(f)t.ticket.ticket=f}}
@@ -57,7 +57,7 @@ const Help={ID:'aqeelos-help',st:null,turns:[],running:false,abort:null,unseen:0
  // the composer: Send or Stop, what is left today when it gets low, closed when Help isn't ready or the limit is reached
  bar(){const b=$('#hSend'),ta=$('#hMsg'),left=$('#hLeft'),hint=$('#hHint'),nw=$('#hNew');if(!b)return;const st=this.st||{},out=st.left===0&&!this.running,off=st.ready===false||out;
   b.classList.toggle('stop',this.running);b.innerHTML=icon(this.running?'stop':'send',18);b.setAttribute('aria-label',this.running?'Stop':'Send');b.title=this.running?'Stop (Esc)':'Send (Enter)';b.disabled=off&&!this.running;
-  ta.disabled=off;if(nw)nw.hidden=!this.turns.length||this.running;
+  ta.disabled=off;if(nw){nw.hidden=!this.turns.length||this.running;nw.style.display=nw.hidden?'none':''}
   if(left)left.textContent=st.left!=null&&st.left<=10&&!out?st.left+' of '+st.limit+' left today':'';
   if(hint){const t=out?'You used today’s '+st.limit+' Help messages. Help is back tomorrow; for anything urgent, ask your agent or an admin.':'Help explains aqeelOS and checks what went wrong. It can’t change anything: for that, ask your agent.';if(hint.textContent!==t)hint.textContent=t;hint.classList.toggle('warn-t',out)}},
  async go(text){const ta=$('#hMsg');text=String(text??ta?.value??'').trim();if(!text||this.running)return;if(this.st?.ready===false)return toast(this.st.why||'Help isn’t ready yet','err');
@@ -96,8 +96,9 @@ Poll.add(()=>Help.peek(),120000,6000);
   const cur=d.model?modelLabel(d.model)+' · '+((d.providers||[]).find(x=>x.slug===d.provider)?.name||d.provider):'The main agent’s model'+(d.fallback?.model?' ('+modelLabel(d.fallback.model)+')':'');
   host.innerHTML=`<div class="help-set-row"><div><b>Help model</b><p class="hint">Picked from the models the engine offers.</p></div><button type="button" class="sel-btn inline" id="hsModel" aria-haspopup="menu"><span class="sv">${esc(cur)}</span>${icon('chevD',15)}</button></div>
    <div class="help-set-row"><div><b>Messages per person a day</b><p class="hint">Shown to people when they reach it.</p></div><button type="button" class="sel-btn inline" id="hsLimit" aria-haspopup="menu"><span class="sv">${d.limit} a day</span>${icon('chevD',15)}</button></div>`;
+  // the page's click handler closes any open menu: these open their own, so the click stops here
   const save=async(body,msg)=>{try{await put(UI,'/ui/help/settings',body);toast(msg);draw()}catch(e){fail(e)}};
-  host.querySelector('#hsModel').onclick=e=>menu(e.currentTarget,[{label:'The main agent’s model',sub:d.fallback?.model?modelLabel(d.fallback.model):'',on:!d.model,run:()=>save({model:'',provider:''},'Help uses the main agent’s model')},
-   ...(d.providers||[]).flatMap(pv=>['-',{header:pv.name},...pv.models.map(m=>({label:modelLabel(m),icon:'cpu',find:pv.name+' '+m,on:d.model===m&&d.provider===pv.slug,run:()=>save({model:m,provider:pv.slug},'Help uses '+modelLabel(m)+' now')}))])],{search:(d.providers||[]).reduce((a,x)=>a+x.models.length,0)>8,matchWidth:true});
-  host.querySelector('#hsLimit').onclick=e=>menu(e.currentTarget,(d.limits||[]).map(n=>({label:n+' a day',on:n===d.limit,run:()=>save({limit:n},'Help limit: '+n+' messages a day')})),{matchWidth:true})};
+  host.querySelector('#hsModel').onclick=e=>{e.stopPropagation();menu(e.currentTarget,[{label:'The main agent’s model',sub:d.fallback?.model?modelLabel(d.fallback.model):'',on:!d.model,run:()=>save({model:'',provider:''},'Help uses the main agent’s model')},
+   ...(d.providers||[]).flatMap(pv=>['-',{header:pv.name},...pv.models.map(m=>({label:modelLabel(m),icon:'cpu',find:pv.name+' '+m,on:d.model===m&&d.provider===pv.slug,run:()=>save({model:m,provider:pv.slug},'Help uses '+modelLabel(m)+' now')}))])],{search:(d.providers||[]).reduce((a,x)=>a+x.models.length,0)>8,matchWidth:true})};
+  host.querySelector('#hsLimit').onclick=e=>{e.stopPropagation();menu(e.currentTarget,(d.limits||[]).map(n=>({label:n+' a day',on:n===d.limit,run:()=>save({limit:n},'Help limit: '+n+' messages a day')})),{matchWidth:true})}};
  draw()}}
