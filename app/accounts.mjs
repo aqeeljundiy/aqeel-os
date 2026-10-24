@@ -26,7 +26,11 @@ export const accountHooks={giveSkills:null,trimSkills:null,afterSetup:null};
 export function createAccounts(DATA){
  const FILE=path.join(DATA,'accounts.json');
  const load=async()=>{try{return JSON.parse(await readFile(FILE,'utf8'))}catch{return {accounts:[],assign:{},auto:{on:false,threshold:90},events:[]}}};
- const save=async d=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(d,null,1));await rename(FILE+'.tmp',FILE)};
+ // every write is a change applied to a fresh read, one after another, so a slow writer (auto-switch, a sign-in
+ // finishing) never saves a stale copy over another's change; each write has its own tmp file
+ let saving=Promise.resolve();
+ const update=fn=>{const p=saving.then(async()=>{const d=await load();const r=await fn(d);await mkdir(DATA,{recursive:true});const tmp=FILE+'.'+process.pid+'.'+Date.now()+'.'+Math.random().toString(36).slice(2)+'.tmp';await writeFile(tmp,JSON.stringify(d,null,1));await rename(tmp,FILE);return r});saving=p.catch(()=>{});return p};
+ const event=(x,e)=>{x.events=[e,...(x.events||[])].slice(0,50)};
  const all=d=>[{...MAIN,label:d.mainLabel||MAIN.label},...d.accounts.filter(a=>a.id!=='main')];
  const run=(cmd,args,env={},timeout=30000)=>new Promise(res=>execFile(cmd,args,{env:{...process.env,...env},timeout,maxBuffer:4e6},(err,stdout,stderr)=>res({ok:!err,out:String(stdout||''),err:String(stderr||err?.message||'')})));
 
@@ -60,7 +64,7 @@ export function createAccounts(DATA){
   // Main account: an empty setting falls back to Claude's default sign-in.
   const r=await hq(profile,['config','set',SETTING,a.id==='main'?'':a.dir]);
   if(!r.ok)throw new Error('The engine did not accept the change: '+(r.err||r.out).slice(0,200));
-  d.assign[profile]=a.id;if(why)d.events.unshift({t:Date.now(),profile,to:a.id,why});d.events=d.events.slice(0,50);await save(d);
+  d.assign[profile]=a.id;await update(x=>{x.assign=x.assign||{};x.assign[profile]=a.id;if(why)event(x,{t:Date.now(),profile,to:a.id,why})});
  }
 
  /* ---------- adding an account: claude auth login in its own folder ---------- */
@@ -72,7 +76,7 @@ export function createAccounts(DATA){
   const child=spawn(CLAUDE,['auth','login'],{env:{...process.env,CLAUDE_CONFIG_DIR:dir,BROWSER:'true'},stdio:['pipe','pipe','pipe']});
   const s={child,out:'',state:'running',dir,label:String(label||id).slice(0,60)};logins.set(id,s);
   const add=b=>{s.out=(s.out+String(b).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g,'')).slice(-8000)};child.stdout.on('data',add);child.stderr.on('data',add);
-  child.on('close',async code=>{try{s.state=code===0?'done':'failed';if(code===0){const d2=await load();if(!d2.accounts.some(a=>a.id===id))d2.accounts.push({id,label:s.label,dir});await save(d2);cache.delete(id)}}catch(e){s.state='failed';console.warn('account sign-in',e.message)}});
+  child.on('close',async code=>{try{s.state=code===0?'done':'failed';if(code===0){await update(d2=>{if(!d2.accounts.some(a=>a.id===id))d2.accounts.push({id,label:s.label,dir})});cache.delete(id)}}catch(e){s.state='failed';console.warn('account sign-in',e.message)}});
   setTimeout(()=>{if(s.state==='running'){s.state='failed';child.kill()}},10*60000).unref();
   for(let i=0;i<40&&!/https:\/\/\S+/.test(s.out);i++)await new Promise(r=>setTimeout(r,250));
   return {id,url:(/https:\/\/\S+/.exec(s.out)||[])[0]||null,state:s.state};
@@ -109,7 +113,7 @@ export function createAccounts(DATA){
    if(!ok)throw new Error(profile+' is not signed in to '+slug+'; sign in on that agent first');
    const r=await setKey(profile,'model.provider',slug);if(!r.ok)throw new Error('The engine did not accept the change');
    if(!e.model&&ok.models?.length){const cur=(await agentRoute(profile)).model;if(!ok.models.includes(cur))await setKey(profile,'model.default',ok.models[0])}
-   d.events.unshift({t:Date.now(),profile,to:e.key,why:why||''});d.events=d.events.slice(0,50);await save(d)}
+   await update(x=>event(x,{t:Date.now(),profile,to:e.key,why:why||''}))}
   if(e.model)await setKey(profile,'model.default',e.model);
  }
  // known: a switch target must have measured usage, so a failed usage check (null) is never taken as room left.
@@ -212,20 +216,20 @@ export function createAccounts(DATA){
    const ag=(await agents()).filter(see);const prov=await providers(fresh);const route=Object.fromEntries(await Promise.all(ag.map(async n=>[n,{entry:await entryOf(d,n),...await agentRoute(n)}])));
    return send(res,200,{accounts:list,providers:prov,priority:d.priority||[],route,assign:Object.fromEntries(ag.map(n=>[n,d.assign[n]||'main'])),auto:d.auto||{on:false,threshold:90},events:(d.events||[]).filter(e=>see(e.profile))})}
   if(p==='/ui/accounts/priority'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
-   d.priority=(Array.isArray(b.priority)?b.priority:[]).filter(e=>e&&typeof e.key==='string'&&/^(claude:[a-z0-9-]+|p:[a-z0-9_.-]+)$/.test(e.key)).slice(0,20).map(e=>({key:e.key,model:String(e.model||'').slice(0,120)}));
-   await save(d);autoTick().catch(()=>{});return send(res,200,{priority:d.priority})}
+   const pr=(Array.isArray(b.priority)?b.priority:[]).filter(e=>e&&typeof e.key==='string'&&/^(claude:[a-z0-9-]+|p:[a-z0-9_.-]+)$/.test(e.key)).slice(0,20).map(e=>({key:e.key,model:String(e.model||'').slice(0,120)}));
+   d.priority=pr;await update(x=>{x.priority=pr});autoTick().catch(()=>{});return send(res,200,{priority:d.priority})}
   if(p==='/ui/accounts/use'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const profile=String(b.profile||'');if(!/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(profile))return send(res,400,{error:'Bad agent name'});if(!see(profile))return send(res,403,{error:'This agent is private to its owner.'});
    try{await useEntry(d,profile,{key:String(b.key||''),model:String(b.model||'')},'Chosen by hand');return send(res,200,{ok:true})}catch(e){return send(res,400,{error:e.message})}}
   if(p==='/ui/accounts'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}return send(res,200,await startLogin(b.label))}
   if(p==='/ui/accounts/assign'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}if(!see(String(b.profile||'')))return send(res,403,{error:'This agent is private to its owner.'});try{await assign(d,String(b.profile||''),String(b.account||''),b.why||'');return send(res,200,{ok:true})}catch(e){return send(res,400,{error:e.message})}}
-  if(p==='/ui/accounts/auto'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}d.auto={on:!!b.on,threshold:Math.min(99,Math.max(50,Number(b.threshold)||90))};await save(d);autoTick().catch(()=>{});return send(res,200,d.auto)}
+  if(p==='/ui/accounts/auto'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const au={on:!!b.on,threshold:Math.min(99,Math.max(50,Number(b.threshold)||90))};d.auto=au;await update(x=>{x.auto=au});autoTick().catch(()=>{});return send(res,200,d.auto)}
   let m=/^\/ui\/accounts\/([a-z0-9-]+)\/code$/.exec(p);if(m&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}try{return send(res,200,await sendCode(m[1],b.code))}catch(e){return send(res,400,{error:e.message})}}
   m=/^\/ui\/accounts\/([a-z0-9-]+)\/cancel$/.exec(p);if(m&&req.method==='POST'){const s=logins.get(m[1]);if(s?.state==='running'){s.child.kill();s.state='failed'}if(!d.accounts.some(a=>a.id===m[1]))await rm(path.join(ACCOUNTS_DIR,m[1]),{recursive:true,force:true});return send(res,200,{ok:true})}
   m=/^\/ui\/accounts\/([a-z0-9-]+)$/.exec(p);
   if(m&&req.method==='DELETE'){const id=m[1];if(id==='main')return send(res,400,{error:'The main account can’t be removed.'});const a=d.accounts.find(x=>x.id===id);if(!a)return send(res,404,{error:'Not found'});
    if(Object.values(d.assign).includes(id))return send(res,409,{error:'An agent still uses this account. Move it to another account first.'});
-   await run(CLAUDE,['auth','logout'],{CLAUDE_CONFIG_DIR:a.dir},20000);await rm(a.dir,{recursive:true,force:true});d.accounts=d.accounts.filter(x=>x.id!==id);await save(d);cache.delete(id);return send(res,200,{ok:true})}
-  if(m&&req.method==='PATCH'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const a=d.accounts.find(x=>x.id===m[1]);if(m[1]==='main'){d.mainLabel=String(b.label||'').slice(0,60)}else if(a)a.label=String(b.label||a.label).slice(0,60);await save(d);cache.delete(m[1]);return send(res,200,{ok:true})}
+   await run(CLAUDE,['auth','logout'],{CLAUDE_CONFIG_DIR:a.dir},20000);await rm(a.dir,{recursive:true,force:true});await update(x=>{x.accounts=x.accounts.filter(y=>y.id!==id)});cache.delete(id);return send(res,200,{ok:true})}
+  if(m&&req.method==='PATCH'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const id=m[1];await update(x=>{const a=x.accounts.find(y=>y.id===id);if(id==='main')x.mainLabel=String(b.label||'').slice(0,60);else if(a)a.label=String(b.label||a.label).slice(0,60)});cache.delete(m[1]);return send(res,200,{ok:true})}
   send(res,404,{error:'Not found'});
  };
 }

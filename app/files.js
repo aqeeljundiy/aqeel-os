@@ -68,9 +68,13 @@ ACT['f-view']=a=>{FV.view=a.dataset.v;store.set('filesView',FV.view);reload()};
 ACT['f-hidden']=()=>{FV.hidden=!FV.hidden;store.set('filesHidden',FV.hidden);reload()};
 ACT['f-mkdir']=async()=>{const n=await promptBox('New folder in '+(S.filePath||FILE_HOME).replace(FILE_HOME,'~'),'Folder name','','Create');if(!n)return;try{await post(H,'/files/mkdir',{path:(S.filePath||FILE_HOME).replace(/\/$/,'')+'/'+n});toast('Folder created');reload()}catch(e){fail(e)}};
 ACT['f-upload']=()=>pickFile('*/*',uploadFiles,true);
-async function uploadFiles(files){const dir=(S.filePath||FILE_HOME).replace(/\/$/,'');let ok=0;const taken=files.filter(f=>(Pages._items||[]).some(x=>!x.is_directory&&x.name===f.name));
+async function uploadFiles(files){const dir=(S.filePath||FILE_HOME).replace(/\/$/,'');let ok=0;
+ // the folder's full listing, not what is on screen (a search or hidden files off would miss a file and replace it unasked);
+ // when the folder can't be listed, uploads never replace anything
+ let have=null;try{have=(await H('/files'+qp({path:dir}))).entries||[]}catch{have=Pages._dir?.path?.replace(/\/$/,'')===dir?Pages._dir.entries||[]:null}
+ const taken=files.filter(f=>(have||[]).some(x=>!x.is_directory&&x.name===f.name));
  if(taken.length&&!await confirmBox('Replace '+plural(taken.length,'file')+'?',taken.map(f=>f.name).join(', ')+(taken.length===1?' is':' are')+' already in this folder. Uploading replaces '+(taken.length===1?'it':'them')+'.','Replace'))return;const t=document.createElement('div');t.className='toast';document.getElementById('toasts').append(t);
- for(const [i,f] of files.entries()){t.innerHTML=`<span class="spinner"></span>Uploading ${i+1} of ${files.length}: ${esc(f.name)}`;const fd=new FormData();fd.append('path',dir+'/'+f.name);fd.append('overwrite','true');fd.append('file',f,f.name);try{await H('/files/upload-stream',{method:'POST',body:fd});ok++}catch(e){fail(e)}}
+ for(const [i,f] of files.entries()){t.innerHTML=`<span class="spinner"></span>Uploading ${i+1} of ${files.length}: ${esc(f.name)}`;const fd=new FormData();fd.append('path',dir+'/'+f.name);fd.append('overwrite',have?'true':'false');fd.append('file',f,f.name);try{await H('/files/upload-stream',{method:'POST',body:fd});ok++}catch(e){fail(e)}}
  t.remove();if(ok)toast('Uploaded '+plural(ok,'file'));reload()}
 async function deleteFile(f){if(!await confirmBox('Delete '+(f.is_directory?'folder':'file')+'?',`${esc(f.path)}${f.is_directory?' and everything inside it':''} will be removed from the box.`))return;try{await del(H,'/files',{path:f.path,recursive:!!f.is_directory});toast('Deleted');closePreview();reload()}catch(e){fail(e)}}
 Pages.fileMenu=el=>{const f=Pages._items[+el.dataset.i];if(!f)return;const bl=!!f.broken_link;menu(el,[bl?{header:'Broken link: it points to something that no longer exists'}:f.is_directory?{label:'Open',icon:'folder',run:()=>{S.filePath=f.path;reload()}}:{label:'Preview',icon:'eye',run:()=>preview(+el.dataset.i)},

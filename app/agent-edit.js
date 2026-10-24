@@ -11,11 +11,12 @@ async function editAgent(name,start='Identity'){
  const admin=S.me?.admin!==false,lvl=admin?'owner':(S.me?.agents?.[name]||'chat'),has=k=>admin||(S.me?.caps||[]).includes(k);
  const owner=Pages._own?.[name]?.access==='owner'||admin&&!Pages._own?.[name];
  const tabsOn=AE_TABS.filter(t=>t!=='Model'||has('models')).filter(t=>t!=='Sharing'||owner);
- const [soulR,opts]=await Promise.all([H(base+'/soul').catch(()=>({})),has('models')?call('/gapi'+(name==='default'?'':'/p/'+encodeURIComponent(name)),'/api/model/options').catch(()=>({providers:[]})):null]);
- const soul=soulR.content||'',authed=((opts||{}).providers||[]).filter(usableProvider);
- let newPic=null,removePic=false;
+ const [soulR,opts]=await Promise.all([H(base+'/soul').catch(()=>null),has('models')?call('/gapi'+(name==='default'?'':'/p/'+encodeURIComponent(name)),'/api/model/options').catch(()=>({providers:[]})):null]);
+ // a SOUL that could not be read is never written back: an empty box would replace the whole personality
+ const soulOk=typeof soulR?.content==='string',soul=soulOk?soulR.content:'',authed=((opts||{}).providers||[]).filter(usableProvider);
+ let newPic=null,removePic=false;if(!soulOk&&start==='Personality')start='Identity';
  const sec=(t,html)=>`<div class="ae-sec" data-sec="${t}" ${t===start?'':'hidden'}>${html}</div>`;
- const d=drawer('Edit '+id.name,`<div class="tabs ae-tabs" style="display:flex;margin:0 0 16px">${tabsOn.map(t=>`<button type="button" class="${t===start?'on':''}" data-ae="${t}">${t}</button>`).join('')}<span class="pill"></span></div>
+ const d=drawer('Edit '+id.name,`<div class="tabs ae-tabs" style="display:flex;margin:0 0 16px">${tabsOn.map(t=>`<button type="button" class="${t===start?'on':''}" data-ae="${t}"${t==='Personality'&&!soulOk?' disabled title="Its personality could not be loaded. Close and open again to edit it."':''}>${t}</button>`).join('')}<span class="pill"></span></div>
   ${sec('Identity',`<div class="ident-top"><div class="ident-ava" id="idAva">${id.avatar?`<img src="${esc(id.avatar)}" alt="">`:esc(id.name[0].toUpperCase())}</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" id="idPick">${icon('upload',15)}Upload picture</button><button type="button" class="ghost" id="idDrop" ${id.avatar?'':'hidden'}>Remove</button></div><p class="hint" style="margin:6px 0 0">PNG, JPG or WebP · square works best · under 2 MB</p></div>
    <label>Name</label><input id="idName" maxlength="60" value="${esc(id.name)}" placeholder="aqeelOS">
    <label>Title</label><input id="idTitle" maxlength="80" value="${esc(id.title)}" placeholder="Operations assistant">
@@ -23,8 +24,9 @@ async function editAgent(name,start='Identity'){
    ${admin?`<details class="ae-adv"><summary>Advanced</summary><p class="hint">Internal name: <code>${esc(name)}</code> (never changes).</p>
     ${prof.path?`<p class="hint ae-path">Folder on the box: <code>${esc(hideEngine(prof.path))}</code><button type="button" class="ghost icon" data-act="copy-text" data-text="${esc(prof.path)}" aria-label="Copy the folder" title="Copy the folder">${icon('copy',14)}</button></p>`:''}
     <p class="hint">Shortcut command on the box: ${prof.has_alias?'yes':'no'} · Own key file: ${prof.has_env?'yes':'no'}${prof.distribution_name?' · Installed from '+esc(prof.distribution_name)+(prof.distribution_version?' '+esc(prof.distribution_version):''):''}</p><div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="ghost" id="aeCmd">${icon('copy',14)}Copy setup command</button><button type="button" class="ghost" id="aeActive">${icon('check',14)}Use on the command line</button></div></details>`:''}`)}
-  ${sec('Personality',`<label style="display:flex;align-items:center;justify-content:space-between;gap:12px">Update how it introduces itself ${toggle(true,'Update introduction','id="idIntro"')}</label><p class="hint">Rewrites the first line so it always calls itself by its name.</p>
-   <label>Personality and standing instructions</label><textarea id="idSoul" rows="16" style="font-size:12.5px;line-height:1.55">${esc(soul)}</textarea>`)}
+  ${soulOk?'':`<p class="hint" style="margin:0 0 12px">Its personality could not be loaded, so it stays as it is. Close and open again to edit it.</p>`}
+  ${soulOk?sec('Personality',`<label style="display:flex;align-items:center;justify-content:space-between;gap:12px">Update how it introduces itself ${toggle(true,'Update introduction','id="idIntro"')}</label><p class="hint">Rewrites the first line so it always calls itself by its name.</p>
+   <label>Personality and standing instructions</label><textarea id="idSoul" rows="16" style="font-size:12.5px;line-height:1.55">${esc(soul)}</textarea>`):''}
   ${tabsOn.includes('Model')?sec('Model',`<label>Model</label><select id="aeModel"><option value="">Keep ${esc(modelLabel(prof.model)||'the current model')}</option>${authed.map(pv=>`<optgroup label="${esc(pv.name)}">${pv.models.map(m=>`<option value="${esc(pv.slug+'|'+m)}">${esc(modelLabel(m))}</option>`).join('')}</optgroup>`).join('')}</select>
    <p class="hint">Its new chats, schedules and channels use this. Effort, helper models and which account it uses are on <a href="#/models/models" data-act="ae-models">Models and accounts › Agents’ models</a>.</p>`):''}
   ${tabsOn.includes('Sharing')?sec('Sharing',`<p class="hint" style="margin:0 0 10px">Who owns ${esc(id.name)} and who else may chat with it or change it.</p><button type="button" id="aeShare">${icon('user',15)}Manage sharing</button>`):''}`,
@@ -36,23 +38,23 @@ async function editAgent(name,start='Identity'){
  // the introduction line follows the name, but only once the name or title is actually changed: opening and saving
  // the window never rewrites the personality on its own
  const renamed=()=>nameIn.value.trim()!==id.name||titleIn.value.trim()!==(id.title||'');
- const preview=()=>{soulBox.value=intro.checked&&renamed()?withIntro(soulBox.dataset.base,nameIn.value.trim()||'aqeelOS',titleIn.value.trim()):soulBox.dataset.base};
- soulBox.dataset.base=soul;soulBox.oninput=()=>{soulBox.dataset.base=soulBox.value};
- nameIn.oninput=preview;titleIn.oninput=preview;intro.onchange=preview;
+ const preview=()=>{if(!soulBox)return;soulBox.value=intro.checked&&renamed()?withIntro(soulBox.dataset.base,nameIn.value.trim()||'aqeelOS',titleIn.value.trim()):soulBox.dataset.base};
+ if(soulBox){soulBox.dataset.base=soul;soulBox.oninput=()=>{soulBox.dataset.base=soulBox.value};intro.onchange=preview}
+ nameIn.oninput=preview;titleIn.oninput=preview;
  d.querySelector('#idPick').onclick=()=>pickFile('image/png,image/jpeg,image/webp,image/gif',f=>{if(f.size>2e6)return toast('Pictures must be under 2 MB','err');newPic=f;removePic=false;ava.innerHTML=`<img src="${URL.createObjectURL(f)}" alt="">`;d.querySelector('#idDrop').hidden=false});
  d.querySelector('#idDrop').onclick=()=>{newPic=null;removePic=true;ava.textContent=(nameIn.value||'a')[0].toUpperCase();d.querySelector('#idDrop').hidden=true};
  d.querySelector('#aeAuto').onclick=async e=>{const b=e.currentTarget;b.disabled=true;try{const r=await post(H,base+'/describe-auto',{overwrite:true});if(r.description){d.querySelector('#idDesc').value=r.description;prof.description=r.description}toast('Description written and saved')}catch(er){fail(er)}b.disabled=false};
  d.querySelector('#aeCmd')?.addEventListener('click',async()=>{try{const r=await H(base+'/setup-command');await copyText(r.command,'Copied: '+r.command)}catch(e){fail(e)}});
  d.querySelector('#aeActive')?.addEventListener('click',async()=>{try{await post(H,'/profiles/active',{name});(S.profile||'default')===name?toast('The command line now uses '+id.name):toastDo('The command line now uses '+id.name,'Manage it here too',()=>{closeLayers();switchAgent(name)})}catch(e){fail(e)}});
  // sharing replaces this window: warn before unsaved edits are lost
- d.querySelector('#aeShare')?.addEventListener('click',async()=>{const dirty=renamed()||soulBox.value!==soul||newPic||removePic||d.querySelector('#idDesc').value.trim()!==(prof.description||'')||d.querySelector('#aeModel')?.value;if(dirty&&!await confirmBox('Leave without saving?','Your changes to this agent are not saved yet.','Leave'))return;ACT['agent-share'](name)});
+ d.querySelector('#aeShare')?.addEventListener('click',async()=>{const dirty=renamed()||soulBox&&soulBox.value!==soul||newPic||removePic||d.querySelector('#idDesc').value.trim()!==(prof.description||'')||d.querySelector('#aeModel')?.value;if(dirty&&!await confirmBox('Leave without saving?','Your changes to this agent are not saved yet.','Leave'))return;ACT['agent-share'](name)});
  d.querySelector('[data-act="ae-models"]')?.addEventListener('click',e=>{e.preventDefault();closeLayers();S.tab.models='Agents’ models';if(name!==(S.profile||'default'))S.viewAgent=name;go('/models/models')});
  d.querySelector('#aeSave').onclick=async()=>{const nm=nameIn.value.trim();if(!nm){show('Identity');return toast('Give it a name','err')}const btn=d.querySelector('#aeSave');btn.disabled=true;
   try{if(nm!==id.name||titleIn.value.trim()!==id.title)await call('','/ui/identities/'+encodeURIComponent(name),{method:'PUT',body:{name:nm,title:titleIn.value.trim()}});
    if(newPic){const r=await fetch('/ui/avatar/'+encodeURIComponent(name),{method:'PUT',headers:{'x-hui':'1','content-type':newPic.type},body:newPic});if(!r.ok)throw new Error((await r.json().catch(()=>({}))).error||'Picture upload failed')}
    if(removePic)await call('','/ui/avatar/'+encodeURIComponent(name),{method:'DELETE'});
    const desc=d.querySelector('#idDesc').value.trim();if(desc!==(prof.description||''))await put(H,base+'/description',{description:desc});
-   if(soulBox.value!==soul)await put(H,base+'/soul',{content:soulBox.value});
+   if(soulOk&&soulBox&&soulBox.value!==soul)await put(H,base+'/soul',{content:soulBox.value});
    const mv=d.querySelector('#aeModel')?.value;if(mv){const [provider,model]=mv.split('|');await put(H,base+'/model',{provider,model})}
    await loadIdentities();closeLayers();toast(nm+' saved');paintSide();if(route().page?.id==='profiles')reload()}
   catch(e){fail(e);btn.disabled=false}}}

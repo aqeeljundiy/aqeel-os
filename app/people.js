@@ -246,11 +246,24 @@ ACT['mcp-dup']=a=>{const m=(Pages._mcp||[]).find(x=>x.name===a.dataset.name);if(
 
 /* ---------- Memory: MEMORY.md and USER.md are plain files the agent reads; you can edit them ---------- */
 const memHome=()=>{const a=agentProfile()||'default';return '/home/claude/.hermes'+(a==='default'?'':'/profiles/'+a)};
-ACT['mem-edit']=async a=>{const f=a.dataset.f,path=memHome()+'/memories/'+f;let cur='';try{cur=(await readText(path)).text||''}catch(e){if(e?.status!==404&&!/not found|no such|does not exist/i.test(e?.message||''))return fail(e)}
+// read the file as it is now ('' when it does not exist yet; null when it could not be read)
+const memNow=async path=>{try{return (await readText(path)).text||''}catch(e){if(e?.status!==404&&!/not found|no such|does not exist/i.test(e?.message||''))throw e;return ''}};
+ACT['mem-edit']=async a=>{const f=a.dataset.f,path=memHome()+'/memories/'+f;let cur='';try{cur=await memNow(path)}catch(e){return fail(e)}
  const d=drawer('Edit '+f,`<p class="hint" style="margin:0 0 8px">${f==='USER.md'?'What the agent knows about you: name, preferences, how you like answers.':'Notes the agent keeps about its work.'} It reads this at the start of every chat. Keep it short; entries are separated by a line with §.</p>
   <textarea id="memT" rows="18" style="font-size:13px;line-height:1.55">${esc(cur)}</textarea>`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="memGo">Save</button>`);
- d.querySelector('#memGo').onclick=async()=>{const fd=new FormData();fd.append('path',path);fd.append('overwrite','true');fd.append('file',new Blob([$('#memT').value],{type:'text/markdown'}),f);
-  try{await H('/files/upload-stream',{method:'POST',body:fd});closeLayers();toast(f+' saved');reload()}catch(e){fail(e)}}};
+ // the agent may have added notes while this was open: read again and never save over them unasked
+ const ents=t=>t.split(/\n\s*§\s*\n/).map(x=>x.trim()).filter(Boolean);
+ const ask=()=>new Promise(res=>{const {d:q,close}=stackPop(f+' changed','<p style="margin:0;color:var(--ink-2);line-height:1.55">The agent changed this file while you were editing. Load the new version (your edit is dropped), or add your new entries to the end of it.</p>',`<button class="ghost" data-x>Cancel</button><button class="ghost" id="mcLoad">Load the new version</button><button class="primary" id="mcAdd">Add my entries</button>`);
+  q.querySelector('#mcLoad').onclick=e=>{e.stopPropagation();close();res('load')};q.querySelector('#mcAdd').onclick=e=>{e.stopPropagation();close();res('add')};q.addEventListener('cancel',()=>res(null));q.querySelectorAll('[data-x]').forEach(x=>x.addEventListener('click',()=>res(null)))});
+ d.querySelector('#memGo').onclick=async()=>{const btn=d.querySelector('#memGo');btn.disabled=true;let text=$('#memT').value;
+  try{const now=await memNow(path);
+   if(now!==cur){const pick=await ask();if(!pick){btn.disabled=false;return}
+    if(pick==='load'){cur=now;$('#memT').value=now;btn.disabled=false;return toast('Loaded the newest version')}
+    const had=new Set(ents(now)),mine=ents(text).filter(x=>!new Set(ents(cur)).has(x)&&!had.has(x));
+    if(!mine.length){cur=now;$('#memT').value=now;btn.disabled=false;return toast('No new entries of yours to add. Loaded the newest version.')}
+    text=now.replace(/\s+$/,'')+(now.trim()?'\n§\n':'')+mine.join('\n§\n')+'\n'}
+   const fd=new FormData();fd.append('path',path);fd.append('overwrite','true');fd.append('file',new Blob([text],{type:'text/markdown'}),f);
+   await H('/files/upload-stream',{method:'POST',body:fd});closeLayers();toast(f+' saved');reload()}catch(e){fail(e);btn.disabled=false}}};
 
 ACT['agent-use']=a=>{switchAgent(a.dataset.name);go('/chat')};
 // the whole card opens a chat with that agent; the gear holds its settings
@@ -339,7 +352,7 @@ ACT['wh-new-pre']=0;
  // extra connections (WhatsApp 2…) sit right under their agent's channels, by name and ID
  d.channels.sort((x,y)=>{const bx=x.agent.split('--')[0],by=y.agent.split('--')[0];return bx===by?(x.agent.includes('--'))-(y.agent.includes('--'))||x.id.localeCompare(y.id):0});const agents=((await pA).profiles||[]).map(x=>x.name);
  panel.innerHTML=`<h2>Every agent's channels</h2><p class="sub">Each connection belongs to one agent, which answers it. Check one any time; aqeelOS also checks them every 2 hours and tells you when one needs linking again. Move one to another agent and its settings, WhatsApp login and approved people go along.</p>
-  ${d.channels.length?d.channels.map((c,i)=>`<div class="row" ${st(i)} style="padding:12px 12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="main-c">${chLogo(c.id,c.name)}<div class="txt"><b>${esc(LK[c.agent]?linkTitle(LK[c.agent]):c.name)}</b>${c.account?'<span class="acct-line">'+(c.account.kind?`<span class="kind-chip ${c.account.kind==='bot'?'bot':'person'}" title="${c.account.kind==='bot'?'A bot account made for the agent':'Someone’s own account: messages come from that person'}">${icon(c.account.kind==='bot'?'zap':'user',11)}${c.account.kind==='bot'?'Bot':'Personal account'}</span> `:'')+esc(accountText(c.account))+'</span>':''}${c.note?'<span class="acct-line ch-note">'+esc(c.note)+'</span>':''}<span title="Agents use the name “${esc(LK[c.agent]?linkId(LK[c.agent]):c.id)}” to pick this channel">${c.paused?'<i class="dot"></i>Paused · nobody answers it':c.state==='connected'?'<i class="dot ok"></i>Connected':esc(chState(c).replace(' · link again',''))}${c.updated_at&&!c.paused?` <small class="ch-upd">· updated ${when(c.updated_at)}</small>`:''}</span>${c.pending?`<span class="acct-line ch-pending">Settings changed since it connected.<button class="link" data-act="ch-apply" data-agent="${esc(c.agent)}" data-platform="${esc(c.id)}">Reconnect to apply</button></span>`:''}</div></div>
+  ${d.channels.length?d.channels.map((c,i)=>`<div class="row" ${st(i)} style="padding:12px 12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="main-c">${chLogo(c.id,c.name)}<div class="txt"><b>${esc(LK[c.agent]?linkTitle(LK[c.agent]):c.name)}</b>${c.account?'<span class="acct-line">'+(c.account.kind?`<span class="kind-chip ${c.account.kind==='bot'?'bot':'person'}" title="${c.account.kind==='bot'?'A bot account made for the agent':'Someone’s own account: messages come from that person'}">${icon(c.account.kind==='bot'?'zap':'user',11)}${c.account.kind==='bot'?'Bot':'Personal account'}</span> `:'')+esc(accountText(c.account))+'</span>':''}${c.note?'<span class="acct-line ch-note">'+esc(c.note)+'</span>':''}<span title="Agents use the name “${esc(LK[c.agent]?linkId(LK[c.agent]):c.id)}” to pick this channel">${c.paused?'<i class="dot"></i>Paused · nobody answers it':c.state==='connected'?'<i class="dot ok"></i>Connected':esc(chState(c).replace(' · link again',''))}${c.updated_at&&!c.paused?` <small class="ch-upd">· updated ${when(c.updated_at)}</small>`:''}</span>${c.pending&&!c.paused?`<span class="acct-line ch-pending">Settings changed since it connected.<button class="link" data-act="ch-apply" data-agent="${esc(c.agent)}" data-platform="${esc(c.id)}">Reconnect to apply</button></span>`:''}</div></div>
    <div class="act ch-act">${c.id==='whatsapp'&&!c.paused&&c.state!=='connected'?`<button class="primary small" data-act="wa-link" data-agent="${esc(c.agent)}">${icon('refresh',14)}Link again</button>`:''}${LK[c.agent]?`<span class="hint" style="margin:0">Extra number of</span><b style="font-size:13.5px">${esc(ident(LK[c.agent].agent).name)}</b>`:`<span class="ab-lbl">Owned by</span><select style="width:auto" data-chmove="${esc(c.id)}" data-from="${esc(c.agent)}" data-paused="${c.paused?1:''}" data-acct="${esc(accountText(c.account))}">${agents.map(n=>`<option value="${esc(n)}" ${n===c.agent&&!c.paused?'selected':''}>${esc(ident(n).name)}</option>`).join('')}<option value="" ${c.paused?'selected':''}>Nobody (paused)</option></select>`}<button class="ghost icon ch-more" data-act="ch-more" data-agent="${esc(c.agent)}" data-platform="${esc(c.id)}" data-paused="${c.paused?1:''}" data-state="${esc(c.state||'')}" data-extra="${LK[c.agent]?1:''}" data-note="${esc(c.note||'')}" title="More" aria-label="More for ${esc(c.name)}">${icon('more',18)}</button></div></div>`).join(''):'<p class="hint">No channel is connected yet. Set one up below and it shows here for the whole team.</p>'}`;
  panel.querySelectorAll('select').forEach(enhanceSelect);
  panel.querySelectorAll('[data-chmove]').forEach(s=>s.onchange=async()=>{const to=s.value,from=s.dataset.from,pf=s.dataset.chmove,was=s.dataset.paused?'':from;if(to===was)return;
@@ -360,7 +373,13 @@ async function shareDrawer(kind,name,label,has=[]){let agents=[];try{agents=((aw
  const d=drawer('Share '+label,`<p class="hint" style="margin:0 0 10px">Copies this ${SHARE_KIND_LABEL[kind]} from ${esc(ident(from).name)} to the agents you tick, with its settings. Each agent keeps its own copy, so later changes stay on the agent you change.</p>
   ${others.length?others.map(a=>`<label class="capt"><input type="checkbox" value="${esc(a)}" ${has.includes(a)?'checked disabled':''}>${agentAva(a)}<span>${esc(ident(a).name)}${has.includes(a)?' <small class="hint">already has it</small>':''}</span></label>`).join(''):'<p class="hint">There are no other agents yet.</p>'}`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="shrGo">Share</button>`);
  d.querySelector('#shrGo').onclick=async()=>{const to=[...d.querySelectorAll('input:checked:not(:disabled)')].map(i=>i.value);if(!to.length)return toast('Tick at least one agent','err');
-  try{const r=await post(UI,'/ui/share',{kind,name,from,to});closeLayers();toast(r.failed?.length?`Shared with ${r.done.length}; ${r.failed.map(f=>ident(f.agent).name+': '+f.error).join('; ')}`:`Shared with ${r.done.map(a=>ident(a).name).join(', ')}`,r.failed?.length?'err':undefined);reload()}catch(e){fail(e)}}}
+  try{let r=await post(UI,'/ui/share',{kind,name,from,to});
+   // an agent with its own copy of the skill: replace it only when the person says so
+   const own=(r.failed||[]).filter(f=>f.exists).map(f=>f.agent);
+   if(own.length&&await confirmBox('Replace their own copy?',own.map(a=>ident(a).name).join(', ')+(own.length===1?' has':' have')+' its own copy of '+label+' already (maybe switched off or changed). Sharing replaces it with this one.','Replace',false)){
+    const r2=await post(UI,'/ui/share',{kind,name,from,to:own,replace:true});r={done:[...r.done,...r2.done],failed:[...r.failed.filter(f=>!f.exists),...r2.failed]}}
+   else if(own.length)r={done:r.done,failed:r.failed.filter(f=>!f.exists)};
+   closeLayers();if(!r.done.length&&!r.failed.length)return toast('Nothing shared');toast(r.failed?.length?`Shared with ${r.done.length}; ${r.failed.map(f=>ident(f.agent).name+': '+f.error).join('; ')}`:`Shared with ${r.done.map(a=>ident(a).name).join(', ')}`,r.failed?.length?'err':undefined);reload()}catch(e){fail(e)}}}
 // add Used by + Share to each row of a list
 async function decorateRows(el,kind,rows){if(S.me?.admin===false&&kind!=='skill')return;const used=await usedByMap(kind);
  for(const {row,name,label} of rows){const act=row.querySelector('.act');if(!act||act.querySelector('.used-by'))continue;const list=used[name]||[];
@@ -477,7 +496,7 @@ const accountText=a=>a?[a.phone||a.username,a.name].filter(Boolean).join(' · ')
 /* ---------- Link WhatsApp: the one way to connect, relink or add a WhatsApp, from every button ----------
    Clears an ended login (kept aside on the box), shows a fresh QR, and once the phone scans it switches the
    channel on. Extra agents pick it up live; the main agent's engine restarts after replies in progress finish. */
-async function linkWhatsApp(agent,{replace=false,title}={}){const q='?profile='+encodeURIComponent(agent);let pid=null,done=false,kept=null,tick=null,mode='bot',saved=null;
+async function linkWhatsApp(agent,{replace=false,title}={}){const q='?profile='+encodeURIComponent(agent);let pid=null,done=false,kept=null,tick=null,mode='bot',saved=null,scanned=false;
  const d=sideDrawer(title||'Link WhatsApp · '+ident(agent.split('--')[0]).name,`<div class="wa-opts" id="waOpts"><label>How it is used</label><div class="seg-mini wa-mode" role="radiogroup" aria-label="How it is used"><button type="button" role="radio" data-wamode="bot" class="on" aria-checked="true">A number for the agent</button><button type="button" role="radio" data-wamode="self-chat" aria-checked="false">My own number</button></div><p class="hint" id="waModeHint"></p>
   <label for="waAllow">Allowed numbers (optional)</label><input id="waAllow" inputmode="tel" autocomplete="off" placeholder="6281234567890, 6289876543210"><p class="hint" id="waAllowHint"></p></div><div id="waBox" class="wa-link"><p class="hint"><span class="spinner"></span> Getting a fresh QR code…</p></div>`,`<button class="ghost" data-act="close">Close</button>`);
  const box=d.querySelector('#waBox'),opts=d.querySelector('#waOpts'),allow=d.querySelector('#waAllow');const live=()=>box.isConnected;
@@ -488,7 +507,8 @@ async function linkWhatsApp(agent,{replace=false,title}={}){const q='?profile='+
  d.querySelectorAll('[data-wamode]').forEach(b=>b.onclick=()=>{mode=b.dataset.wamode;paintOpts()});allow.oninput=paintOpts;paintOpts();
  H('/messaging/platforms'+q).then(r=>{saved=(r.platforms||[]).find(x=>x.id==='whatsapp')?.whatsapp_setup||null;if(/self/i.test(saved?.mode||''))mode='self-chat';if(live())paintOpts()}).catch(()=>{});
  const cleanup=()=>{clearInterval(tick);if(done)return;const c=pid?del(H,'/messaging/whatsapp/onboarding/'+encodeURIComponent(pid)+q).catch(()=>{}):Promise.resolve();pid=null;
-  if(kept){const k=kept;kept=null;c.then(()=>post(UI,'/ui/channels/whatsapp/restore',{agent,kept:k})).catch(()=>{})}};
+  // once a phone was scanned its login is already written: force sets that one aside and puts the old login back
+  if(kept){const k=kept;kept=null;c.then(()=>post(UI,'/ui/channels/whatsapp/restore',{agent,kept:k,force:scanned})).catch(()=>{})}};
  new MutationObserver((m,o)=>{if(!d.isConnected){o.disconnect();cleanup()}}).observe(document.body,{childList:true,subtree:true});
  const fail_=(msg,retry=true)=>{clearInterval(tick);box.innerHTML=`<p class="err-line">${esc(msg)}</p>${retry?`<button class="primary" id="waRetry">${icon('refresh',15)}Try again</button>`:''}`;box.querySelector('#waRetry')?.addEventListener('click',()=>{closeLayers();linkWhatsApp(agent,{replace,title})})};
  // the whole setup has a time limit: count it down under the code
@@ -498,7 +518,7 @@ async function linkWhatsApp(agent,{replace=false,title}={}){const q='?profile='+
   const start=await post(H,'/messaging/whatsapp/onboarding/start'+q,{mode});pid=start.pairing_id||start.id;
   let s=start,lastQr='',miss=0;
   for(let i=0;i<150&&live();i++){
-   if(s.status==='connected'){clearInterval(tick);const phone=s.account_phone?'+'+digits(s.account_phone):'';
+   if(s.status==='connected'){clearInterval(tick);scanned=true;const phone=s.account_phone?'+'+digits(s.account_phone):'';
     // look before switching on: the linked account, then Switch it on or Cancel
     box.innerHTML=`<div class="wa-done"><span class="ic ok">${icon('check',22)}</span><div><b>Linked${phone?' as '+esc(phone):''}${s.account_name?' ('+esc(s.account_name)+')':''}</b><p class="hint" style="margin:4px 0 10px">Check how it is used above, then switch it on.</p><div class="wa-acts"><button class="primary" id="waApply">${icon('power',15)}Switch it on</button><button class="ghost" id="waCancel">Cancel</button></div></div></div>`;
     const go=await new Promise(res=>{box.querySelector('#waApply').onclick=()=>res(true);box.querySelector('#waCancel').onclick=()=>res(false)});if(!live())return;
@@ -773,7 +793,7 @@ ACT['ch-more']=a=>{const ag=a.dataset.agent,pf=a.dataset.platform,paused=!!a.dat
  menu(a,[{label:'Check connection',icon:'activity',run:()=>ACT['ch-check']({dataset:{agent:ag,platform:pf},innerHTML:'',closest:()=>a.closest('.row')})},
   !extra&&{label:'Who can send through it',icon:'user',run:()=>channelShareDrawer(ag,pf)},
   {label:a.dataset.note?'Edit the note':'Add a note (what it is for)',icon:'edit',run:async()=>{const v=await promptBox('Note for '+appName(pf),'What is it for? (only you see this)',a.dataset.note||'','Save');if(v==null)return;try{await put(UI,'/ui/channels/note',{agent:ag,platform:pf,note:v});toast('Saved');reload()}catch(e){fail(e)}}},
-  {label:'Reconnect',icon:'refresh',run:()=>reconnectChannel(ag,pf)},
+  !paused&&{label:'Reconnect',icon:'refresh',run:()=>reconnectChannel(ag,pf)},   // a paused channel stays off until someone picks who answers it
   wa&&{label:'Link a different phone (new QR)',icon:'refresh',run:()=>ACT['wa-replace']({dataset:{agent:ag}})},
   '-',{label:wa?'Remove this WhatsApp':'Remove this connection',icon:'trash',bad:true,run:()=>wa?ACT['wa-remove']({dataset:{agent:ag}}):ACT['ch-remove']({dataset:{agent:ag,platform:pf}})}])};
 async function setPaused(ag,pf,on){const what=appName(pf);

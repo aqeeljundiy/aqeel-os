@@ -6,7 +6,7 @@ import {readFile,writeFile,rename,cp,rm,access,readdir,mkdir} from 'node:fs/prom
 import path from 'node:path';
 import {editEnv} from './agentops.mjs';
 
-export function createChannels({DASH,TOKEN,HERMES_HOME,listAgents,cached,restart,paused,pendingOf}){
+export function createChannels({DASH,TOKEN,HERMES_HOME,listAgents,cached,restart,paused,pendingOf,stop}){
  const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const api=(p,o={})=>fetch(DASH+'/api'+p,{signal:AbortSignal.timeout(o.timeout||60000),...o,headers:{'x-hermes-session-token':TOKEN,'content-type':'application/json',...(o.headers||{})}}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||j.error||('HTTP '+r.status));return j});
  const platforms=async a=>{const r=await api('/messaging/platforms?profile='+encodeURIComponent(a));return r.platforms||r};
@@ -29,10 +29,18 @@ export function createChannels({DASH,TOKEN,HERMES_HOME,listAgents,cached,restart
   const target=(await platforms(to)).find(x=>x.id===platform);if(target?.configured)throw new Error(`${pretty(to)} already has its own ${p.name}. Remove it there first.`);
   // the engine can't tell a linked WhatsApp on other agents; its saved login is the real sign
   if(await exists(path.join(homeOf(to),'platforms',platform,'session','creds.json')))throw new Error(`${pretty(to)} already has its own ${p.name} login. Remove it there first.`);
-  // stop the connector still using this login, so the login is never used twice at once
-  {const {execFile}=await import('node:child_process');const dir=path.join(homeOf(from),'platforms',platform,'session');
-   const out=await new Promise(r=>execFile('ps',['-eo','pid=,args='],(e,o)=>r(String(o||''))));
-   for(const line of out.split('\n')){const m=/^\s*(\d+)\s+(.*)$/.exec(line);if(m&&m[2].includes('bridge.js')&&m[2].includes('--session '+dir))try{process.kill(Number(m[1]))}catch{}}}
+  const put=(a,on)=>api('/messaging/platforms/'+platform+'?profile='+encodeURIComponent(a),{method:'PUT',body:JSON.stringify({enabled:on,env:{}})});
+  // `from` is switched off first and must say so: otherwise the engine could start its connector again on the login being
+  // copied, or both agents would read the same bot. The main agent's channels only stop with an engine restart, so that runs
+  // (and finishes) before anything is copied
+  let off;try{off=await put(from,false)}catch(e){throw new Error(`${pretty(from)} could not switch its ${p.name} off, so nothing moved: ${e.message}`)}
+  let restarted=false;if(from==='default'&&!off?.hot_served&&restart){await restart('switching '+platform+' off on the main agent to move it to '+to);restarted=true}
+  // then the connector still using this login stops (asked, then made to), so the login is never used twice at once
+  if(stop&&platform==='whatsapp')await stop(from).catch(()=>{});
+  else{const {execFile}=await import('node:child_process');const dir=path.join(homeOf(from),'platforms',platform,'session');
+   const out=await new Promise(r=>execFile('ps',['-eo','pid=,args='],(e,o)=>r(String(o||''))));const pids=[];
+   for(const line of out.split('\n')){const m=/^\s*(\d+)\s+(.*)$/.exec(line);if(m&&m[2].includes('bridge.js')&&m[2].includes('--session '+dir))pids.push(Number(m[1]))}
+   for(const pid of pids)try{process.kill(pid,'SIGTERM')}catch{}if(pids.length){await new Promise(r=>setTimeout(r,1500));for(const pid of pids)try{process.kill(pid,'SIGKILL')}catch{}}}
   // settings: the channel's lines leave one .env and join the other
   const fromEnv=path.join(homeOf(from),'.env'),toEnv=path.join(homeOf(to),'.env');
   // both files are edited under the engine's own .env lock
@@ -45,16 +53,17 @@ export function createChannels({DASH,TOKEN,HERMES_HOME,listAgents,cached,restart
    if(moving.length){await editEnv(toEnv,cur=>{const all=cur.split('\n');had=all.filter(isKey);const d=all.filter(l=>!isKey(l));while(d.length&&d[d.length-1]==='')d.pop();return [...d,...moving,''].join('\n')});toDone=true;
     await editEnv(fromEnv,cur=>cur.split('\n').filter(l=>!isKey(l)).join('\n'))}}
   catch(e){if(toDone)await editEnv(toEnv,cur=>{const d=cur.split('\n').filter(l=>!isKey(l));while(d.length&&d[d.length-1]==='')d.pop();return [...d,...had,''].join('\n')}).catch(()=>{});
-   if(hasDir)await rm(toDir,{recursive:true,force:true}).catch(()=>{});throw e}
+   if(hasDir)await rm(toDir,{recursive:true,force:true}).catch(()=>{});
+   // nothing moved: `from` answers again
+   await put(from,true).then(r=>{if(from==='default'&&!r?.hot_served&&restart)restart('move of '+platform+' failed, the main agent answers it again').catch(()=>{})},()=>{});throw e}
   if(hasDir)await rm(fromDir,{recursive:true,force:true});
   // people already approved on this channel stay approved
   const pf=path.join(homeOf(from),'platforms','pairing'),pt=path.join(homeOf(to),'platforms','pairing');
   for(const f of await readdir(pf).catch(()=>[]))if(f.startsWith(platform)){await mkdir(pt,{recursive:true});await cp(path.join(pf,f),path.join(pt,f)).catch(()=>{})}
-  await api('/messaging/platforms/'+platform+'?profile='+encodeURIComponent(from),{method:'PUT',body:JSON.stringify({enabled:false,env:{}})}).catch(()=>{});
-  // on:false tells the page the move worked but the channel still has to be switched on
-  const on=await api('/messaging/platforms/'+platform+'?profile='+encodeURIComponent(to),{method:'PUT',body:JSON.stringify({enabled:true,env:{}})}).then(()=>true,()=>false);
-  // the proper restart (waits for replies in progress, keeps the engine in its managed session)
-  if(restart)restart('moved '+platform+' from '+from+' to '+to).catch(()=>{});else await api('/gateway/restart?profile=default',{method:'POST',body:'{}'}).catch(()=>{});
+  // `from` is really off by now, so `to` may start reading it. on:false tells the page the move worked but the channel still has to be switched on
+  let onR=null;const on=await put(to,true).then(r=>{onR=r;return true},()=>false);
+  // the proper restart (waits for replies in progress, keeps the engine in its managed session), unless it ran already and `to` took it live
+  if(!(restarted&&onR?.hot_served&&to!=='default')){if(restart)restart('moved '+platform+' from '+from+' to '+to).catch(()=>{});else await api('/gateway/restart?profile=default',{method:'POST',body:'{}'}).catch(()=>{})}
   return {ok:true,moved:moving.length,on}}
  const pretty=a=>a==='default'?'The main agent':a;
  return {list,move};

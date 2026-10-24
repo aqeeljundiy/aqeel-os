@@ -27,7 +27,7 @@ export function createShare({DASH,TOKEN,HERMES_HOME,listAgents}){
 
  /* which agents have each item */
  async function usedBy(kind){const out={};for(const a of await listAgents()){let names=[];
-  try{if(kind==='skill')names=((await api('/skills'+q(a))).skills||(await api('/skills'+q(a)))||[]).filter(s=>s.enabled!==false).map(s=>s.name);
+  try{if(kind==='skill')names=((await api('/skills'+q(a))).skills||(await api('/skills'+q(a)))||[]).map(s=>s.name);   // switched-off ones too: the agent still has its own copy
    else if(kind==='mcp')names=((await api('/mcp/servers'+q(a))).servers||[]).map(s=>s.name);
    else if(kind==='plugin')names=((await api('/dashboard/plugins/hub'+q(a))).plugins||[]).filter(p=>p.runtime_status==='enabled').map(p=>p.name)}catch{}
   for(const n of names)(out[n]||=[]).push(a)}return out}
@@ -38,11 +38,14 @@ export function createShare({DASH,TOKEN,HERMES_HOME,listAgents}){
   return walk(root,0)}
 
  /* copy one item from agent `from` to each agent in `to` */
- async function share(kind,name,from,to){if(!NAME.test(name))throw new Error('Bad name');const agents=await listAgents();const done=[],failed=[];
+ async function share(kind,name,from,to,replace=false){if(!NAME.test(name))throw new Error('Bad name');const agents=await listAgents();const done=[],failed=[];
   for(const t of to){if(!agents.includes(t)||t===from)continue;try{
    if(kind==='mcp')await setMcp(t,name,await mcpBlock(from,name));
    else if(kind==='skill'){const src=await findSkillDir(from,name);if(!src)throw new Error('skill folder not found');const rel=path.relative(path.join(homeOf(from),'skills'),src);
-    if(!allowed(rel,t))throw new Error('this skill is only for '+(allowedNames(rel).filter(a=>a!=='default').join(', ')||'the main agent'));await cp(src,path.join(homeOf(t),'skills',rel),{recursive:true,force:true})}
+    if(!allowed(rel,t))throw new Error('this skill is only for '+(allowedNames(rel).filter(a=>a!=='default').join(', ')||'the main agent'));
+    // the agent's own copy (maybe switched off, maybe changed) is only replaced when the person said so
+    if(!replace&&(await findSkillDir(t,name)||await access(path.join(homeOf(t),'skills',rel)).then(()=>1,()=>0))){failed.push({agent:t,error:'it has its own copy already',exists:true});continue}
+    await cp(src,path.join(homeOf(t),'skills',rel),{recursive:true,force:true})}
    else if(kind==='plugin'){const own=path.join(homeOf(from),'plugins',name);if(await stat(own).then(s=>s.isDirectory(),()=>false))await cp(own,path.join(homeOf(t),'plugins',name),{recursive:true,force:true});
     const r=await run(['-p',t,'plugins','enable',name]);if(!r.ok)throw new Error((r.err||r.out).trim().split('\n').pop())}
    else if(kind==='schedule'){const jobs=await api('/cron/jobs'+q(from));const j=(Array.isArray(jobs)?jobs:jobs.jobs||[]).find(x=>x.id===name);if(!j)throw new Error('schedule not found');

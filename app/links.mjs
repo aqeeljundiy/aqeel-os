@@ -74,6 +74,8 @@ if new!=cur:
   for(const f of SHARED){const d=path.join(homeOf(name),f);if((await lstat(d).catch(()=>null))?.isSymbolicLink())await rm(d,{force:true})}
   await api('/profiles/'+encodeURIComponent(name),{method:'DELETE'}).catch(e=>{if(!/not|no profile/i.test(e.message))throw e});
   delete db.links[name];await save()}
+ // a copy brought back by restoring its agent's backup: listed again as it was
+ async function adopt(name,v){if(!isLink(name))throw new Error('Not an extra connection.');await load();db.links[name]={agent:v.agent,platform:String(v.platform||''),n:v.n,label:v.label||null,created:v.created||Date.now()};await save()}
  async function rename_(name,label){await load();if(!db.links[name])throw new Error('Unknown connection.');db.links[name].label=String(label||'').trim().slice(0,40)||null;await save();return db.links[name]}
 
  // keep every copy's settings equal to its agent's (checked every minute; only rewritten after a change)
@@ -82,5 +84,5 @@ if new!=cur:
    const m=(await stat(path.join(homeOf(v.agent),'config.yaml'))).mtimeMs+'|'+((await stat(path.join(homeOf(v.agent),'.env')).catch(()=>null))?.mtimeMs||0);   if(seen.get(name)===m)continue;   // settings or keys unchanged
    await share(name,v.agent);await syncOne(name,v.agent);seen.set(name,m)}catch(e){console.warn('link sync',name,e.message)}}}
  if(LIVE_APP){setInterval(()=>syncAll().catch(()=>{}),60000).unref();setTimeout(()=>syncAll().catch(()=>{}),8000).unref()}
- return {list,create,remove,rename:rename_,syncAll,isLink,baseOf};
+ return {list,create,remove,adopt,rename:rename_,syncAll,isLink,baseOf};
 }

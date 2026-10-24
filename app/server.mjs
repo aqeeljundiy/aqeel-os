@@ -510,7 +510,7 @@ const sweepGhosts=async()=>{for(const d of await readdir(path.join(HERMES_HOME,'
  if(st&&Date.now()-st.mtimeMs>10*60e3&&inside.every(x=>['logs','plugin-update-checks','cache','sandboxes','plugins'].includes(x))){const {rm}=await import('node:fs/promises');await rm(dir,{recursive:true,force:true}).catch(()=>{});console.log('removed the leftover folder of deleted agent',d.name)}}};
 if(PORT===4400){setTimeout(()=>sweepGhosts().catch(()=>{}),40000);setInterval(()=>sweepGhosts().catch(()=>{}),30*60e3).unref()}
 const sharing=createShare({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAgents()});
-const channels=createChannels({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAllProfiles(),cached:a=>platformsCached(a),restart:why=>restartGateway(why),paused:()=>pausedLoad(),pendingOf:(a,id)=>id==='whatsapp'?waSettingsPending(a):false});
+const channels=createChannels({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAllProfiles(),cached:a=>platformsCached(a),restart:why=>restartGateway(why),paused:()=>pausedLoad(),pendingOf:(a,id)=>id==='whatsapp'?waSettingsPending(a):false,stop:a=>stopBridges(a)});
 const access=createAccess({HERMES_HOME,DATA,listAgents:()=>listAgents(),readConfig,setKey,hermes:hcmd,editEnv,names:a=>NAMES[a]||(a==='default'?'aqeelOS':a),writeJson:(f,v)=>writeJsonAtomic(f,v),restart:why=>restartGateway(why).catch(()=>{}),
  own:{n8n:{owner:'aqeelOS',note:'every agent has its own n8n user',grant:a=>n8n.ensure(a)}},
  dash:(method,p)=>fetch(DASH.origin+p,{method,headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(r=>r.json().catch(()=>({})))});
@@ -741,6 +741,8 @@ if(PORT===4400){setTimeout(()=>channelAttention(true).catch(()=>{}),90e3);setInt
    so a damaged login can be put back instead of linking again. */
 const waTries=new Map(),waLinking=new Map(),reconnectAsked=new Map();   // agent → when someone last started linking its WhatsApp
 async function reconnectOne(ag,pf){const h={'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'};
+ // a paused channel stays off: switching it on would answer while the page still says Paused
+ if((await pausedLoad())[ag+'|'+pf])throw new Error('This channel is paused. Pick who answers it under Owned by first.');
  const put=on=>fetch(DASH.origin+'/api/messaging/platforms/'+pf+'?profile='+encodeURIComponent(ag),{method:'PUT',headers:h,body:JSON.stringify({enabled:on,env:{},profile:ag})}).then(r=>r.json()).catch(()=>({}));
  await put(false);if(pf==='whatsapp')await stopBridges(ag).catch(()=>{});await new Promise(r=>setTimeout(r,2500));const j=await put(true);platCache.delete(ag);attention.t=0;return j}
 async function waGuard(){if(gwRestarting)return;
@@ -855,19 +857,27 @@ async function hermesCall(req,res,u,url){
  if(delM&&req.method==='DELETE'){const name=decodeURIComponent(delM[1]);if(name!=='default'&&/^[a-z0-9][a-z0-9_-]{0,63}$/.test(name)&&!/^(rl|nt|lk|dp|kp|sh-a|sh-b)-/.test(name)){
    const dir=path.join(HERMES_HOME,'profiles',name),trash=path.join(DATA,'agent-trash');await mkdir(trash,{recursive:true});
    const file=path.join(trash,name+'__'+new Date().toISOString().replace(/[:.]/g,'-')+'.tgz');const {execFile}=await import('node:child_process');
+   // its extra numbers (copies, with their WhatsApp sessions) go in the same backup, each as <copy>/ plus a list
+   // of them (.aqeel-copies.json), so Restore brings them back too
+   const copies=[];for(const l of await links.list(name).catch(()=>[]))if(await stat(path.join(HERMES_HOME,'profiles',l.name)).catch(()=>null))copies.push(l);
+   const meta=path.join(trash,'.copies-'+process.pid+'-'+Date.now());await mkdir(meta,{recursive:true});await writeFile(path.join(meta,'.aqeel-copies.json'),JSON.stringify(copies));
+   const extra=copies.flatMap(l=>['--exclude='+l.name+'/cache','--exclude='+l.name+'/sandboxes','-C',path.join(HERMES_HOME,'profiles'),l.name]);
    // tar exits 1 when a file changed while it was read (a busy agent); the backup is still good if it was written
-   const ok=await new Promise(r=>execFile('tar',['-czf',file,'--warning=no-file-changed','--ignore-failed-read','--exclude=./cache','--exclude=./sandboxes','-C',dir,'.'],{timeout:180000,maxBuffer:1e6},e=>r(!e||e.code===1)))&&(await stat(file).then(x=>x.size>0,()=>false));
+   const ok=await new Promise(r=>execFile('tar',['-czf',file,'--warning=no-file-changed','--ignore-failed-read','--exclude=./cache','--exclude=./sandboxes','-C',dir,'.',...extra,'-C',meta,'.aqeel-copies.json'],{timeout:180000,maxBuffer:1e6},e=>r(!e||e.code===1)))&&(await stat(file).then(x=>x.size>0,()=>false));
+   (await import('node:fs/promises')).rm(meta,{recursive:true,force:true}).catch(()=>{});
    if(!ok)return send(res,500,{error:'Could not save a backup of this agent first, so it was not deleted.'})}}
  if(p==='/hapi/gateway/stop'&&req.method==='POST'&&(q.get('profile')||'default')==='default')gwStopped=true;   // a deliberate stop: the watch leaves it stopped
  // deleting an agent also removes its extra numbers (copies) and takes it out of channel sharing
- if(delM&&req.method==='DELETE'){const gone=decodeURIComponent(delM[1]);if(!gone.includes('--')){for(const l of await links.list(gone).catch(()=>[]))await links.remove(l.name).catch(e=>console.warn('remove copy',l.name,e.message));
+ // only once the engine really deleted it (2xx): a refused delete keeps the agent's numbers and WhatsApp sessions
+ if(delM&&req.method==='DELETE'){const gone=decodeURIComponent(delM[1]);if(!gone.includes('--'))res.once('finish',async()=>{if(res.statusCode>=300)return;
+  for(const l of await links.list(gone).catch(()=>[]))await links.remove(l.name).catch(e=>console.warn('remove copy',l.name,e.message));
   setTimeout(async()=>{if(await isAgent(gone))return;await users.dropAgent(gone).catch(()=>{});const {rm}=await import('node:fs/promises');
    // anything the engine left behind (a bare logs/ folder) and an agent folder holding only aqeelOS's own notes
    await rm(path.join(HERMES_HOME,'profiles',gone),{recursive:true,force:true}).catch(()=>{});
    const ws=path.join(homedir(),'workspaces',gone);if((await readdir(ws).catch(()=>['?'])).every(x=>x==='AGENTS.md'))await rm(ws,{recursive:true,force:true}).catch(()=>{});
    await setStatus(gone,null);const sh=await relay.shares().catch(()=>({}));
    for(const [k,v] of Object.entries(sh)){const [owner,platform]=k.split('|');if(owner===gone)await relay.setShare(owner,platform,{senders:[],chat:''}).catch(()=>{});else if((v.senders||[]).includes(gone))await relay.setShare(owner,platform,{senders:v.senders.filter(x=>x!==gone),chat:v.chat}).catch(()=>{})}
-   syncNotifyTool().catch(()=>{});if(PORT===4400)writeAgentContext().catch(()=>{});console.log('cleaned up after deleting',gone)},20000)}}
+   syncNotifyTool().catch(()=>{});if(PORT===4400)writeAgentContext().catch(()=>{});console.log('cleaned up after deleting',gone)},20000)})}
  {const whM=/^\/hapi\/webhooks(?:\/([^/]+))?(\/enabled)?$/.exec(p),wa=q.get('profile')||'default';
   // one webhook list serves every agent (the main agent's); each entry is bound to the agent it runs as
   if(whM&&!wa.includes('--')&&req.method==='GET'&&!whM[1]){const h={'x-hermes-session-token':DASH_TOKEN};
@@ -1032,6 +1042,7 @@ const server=createServer(async(req,res)=>{
     if(!/^[a-z0-9_]{1,40}$/.test(pf)||['api_server','webhook'].includes(pf))return reply('Name one of your own channels, for example whatsapp or telegram.',true);
     if(Date.now()-(reconnectAsked.get(me)||0)<60e3)return reply('A reconnect was just started for you. Wait a minute before asking again.',true);
     const pl=await platformsCached(me).catch(()=>null);if(!(pl?.platforms||pl||[]).some(x=>x.id===pf&&(x.configured||x.account)))return reply('You have no '+pf+' channel of your own to reconnect.',true);
+    if((await pausedLoad())[me+'|'+pf])return reply('Your '+pf+' channel is paused by an admin, so nobody answers it on purpose. It is not reconnected. Tell the person an admin can resume it on the Channels page.',true);
     reconnectAsked.set(me,Date.now());console.log('reconnect_channel:',pf,'asked by',me);
     if(me==='default')restartGateway('reconnect '+pf+' (asked by '+(NAMES[me]||me)+')',{bridges:pf==='whatsapp'}).catch(()=>{});
     else setTimeout(()=>reconnectOne(me,pf).catch(e=>console.warn('reconnect_channel',me,pf,e.message)),4000);
@@ -1219,6 +1230,12 @@ const server=createServer(async(req,res)=>{
     const dir=path.join(HERMES_HOME,'profiles',m[1]);if(await stat(dir).catch(()=>null))return send(res,409,{error:'An agent with that name exists already.'});
     await mkdir(dir,{recursive:true});const {execFile}=await import('node:child_process');
     const ok=await new Promise(r=>execFile('tar',['-xzf',path.join(DATA,'agent-trash',f),'-C',dir],{timeout:180000},e=>r(!e)));if(!ok)return send(res,500,{error:'Could not unpack the backup.'});
+    // its extra numbers came back inside it: move each to its own folder and list it again (one that exists already stays as it is)
+    const cl=path.join(dir,'.aqeel-copies.json');let copies=[];try{copies=JSON.parse(await readFile(cl,'utf8'))}catch{}
+    for(const c of Array.isArray(copies)?copies:[]){const cn=String(c?.name||'');if(!cn.startsWith(m[1]+'--')||!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(cn))continue;const src=path.join(dir,cn),dst=path.join(HERMES_HOME,'profiles',cn);
+     if(!await stat(src).catch(()=>null))continue;if(await stat(dst).catch(()=>null)){console.warn('restore: copy exists already',cn);continue}
+     try{await rename(src,dst);await links.adopt(cn,{...c,agent:m[1]})}catch(e){console.warn('restore copy',cn,e.message)}}
+    await unlink(cl).catch(()=>{});
     await users.restoreAgent(m[1]).catch(()=>{});restartGateway('restored '+m[1]).then(()=>agentHealth(m[1])).catch(()=>{});
     return send(res,200,{ok:true,agent:m[1]})}
    // plugins on/off for ONE agent (the engine's own plugin routes always change the main agent)
@@ -1336,7 +1353,7 @@ const server=createServer(async(req,res)=>{
     if(!users.isAdmin(u)&&b.kind==='plugin')return send(res,403,{error:'Only admins can turn plugins on.'});
     if(!users.isAdmin(u)&&b.kind==='skill'&&!to.every(a=>users.canOn(u,'skills',a)))return send(res,403,{error:'Your role does not include adding skills to that agent.'});
     if(!users.isAdmin(u)&&b.kind==='schedule'&&!to.every(a=>users.canOn(u,'schedules',a)))return send(res,403,{error:'Your role does not include schedules on that agent.'});
-    try{return send(res,200,await sharing.share(String(b.kind||''),String(b.name||''),from,to))}catch(e){return send(res,400,{error:e.message})}}
+    try{return send(res,200,await sharing.share(String(b.kind||''),String(b.name||''),from,to,b.replace===true))}catch(e){return send(res,400,{error:e.message})}}
    // a provider without automatic registration (Slack, Google…): its app's client ID/secret, and the return address to give it
    if(p==='/ui/mcp/oauth-client'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can set this.'});let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}
     try{return send(res,200,await sharing.setOauthClient(String(b.agent||'default'),String(b.name||''),String(b.client_id||'').trim(),String(b.client_secret||'').trim(),MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(String(b.name||''))))}catch(e){return send(res,400,{error:e.message})}}
@@ -1547,8 +1564,15 @@ const server=createServer(async(req,res)=>{
     if(!(await listAllProfiles()).includes(ag)||!/^session\.unlinked-[\w-]+$/.test(kept))return send(res,400,{error:'Nothing to restore'});
     if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag.split('--')[0]+'/soul','PUT',new URLSearchParams(),ag.split('--')[0])!==null)return send(res,403,{error:'Not your agent.'});
     const dir=path.join(ag==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',ag),'platforms','whatsapp','session');
-    if(await stat(path.join(dir,'creds.json')).then(()=>true,()=>false))return send(res,200,{ok:true,restored:false});   // a new phone got linked after all
-    await stopBridges(ag,{pairOnly:true});const {rm}=await import('node:fs/promises');await rm(dir,{recursive:true,force:true});await rename(path.join(path.dirname(dir),kept),dir).catch(()=>{});platCache.clear();return send(res,200,{ok:true,restored:true})}
+    const keptDir=path.join(path.dirname(dir),kept);if(!await stat(keptDir).then(x=>x.isDirectory(),()=>false))return send(res,200,{ok:true,restored:false});
+    // a new phone got linked: kept unless the person cancelled after scanning (force), then that login is set aside (never deleted)
+    // and the old one goes back, with every bridge on it stopped first so nothing keeps writing to it
+    if(await stat(path.join(dir,'creds.json')).then(()=>true,()=>false)){if(b.force!==true)return send(res,200,{ok:true,restored:false});
+     await stopBridges(ag);const aside=dir+'.unlinked-'+new Date().toISOString().replace(/[:.]/g,'-')+'-cancelled';
+     try{await rename(dir,aside)}catch(e){return send(res,500,{error:'Could not set the new login aside: '+e.message})}
+     try{await rename(keptDir,dir)}catch(e){await rename(aside,dir).catch(()=>{});return send(res,500,{error:'Could not put the old login back: '+e.message})}
+     platCache.clear();attention.t=0;console.log('whatsapp: cancelled after scanning on',ag,'- new login set aside, old one back');return send(res,200,{ok:true,restored:true,setAside:path.basename(aside)})}
+    await stopBridges(ag,{pairOnly:true});const {rm}=await import('node:fs/promises');await rm(dir,{recursive:true,force:true});await rename(keptDir,dir).catch(()=>{});platCache.clear();return send(res,200,{ok:true,restored:true})}
    if(p==='/ui/channels/shares'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can share channels.'});
     if(req.method==='GET'){const sh=await relay.shares();return send(res,200,{shares:sh})}
     if(req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const v=await relay.setShare(String(b.owner||''),String(b.platform||''),b);syncNotifyTool().catch(e=>console.warn('notify tool',e.message));return send(res,200,{share:v})}}
@@ -1578,6 +1602,7 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/channels/note'&&req.method==='PUT'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can change channels.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const k=String(b.agent||'')+'|'+String(b.platform||'');const f=path.join(DATA,'channel-notes.json');const all=await readFile(f,'utf8').then(JSON.parse).catch(()=>({}));const v=String(b.note||'').trim().slice(0,120);if(v)all[k]=v;else delete all[k];await writeFile(f,JSON.stringify(all,null,1));platCache.clear();return send(res,200,{ok:true})}
    if(p==='/ui/channels/reconnect'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can reconnect channels.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
     const ag=String(b.agent||''),pf=String(b.platform||'');if(!(await listAllProfiles()).includes(ag)||!/^[a-z0-9_]{1,40}$/.test(pf))return send(res,400,{error:'Unknown channel'});
+    if((await pausedLoad())[ag+'|'+pf])return send(res,409,{error:'This channel is paused. Pick who answers it under Owned by first.'});
     if(ag==='default'){restartGateway('reconnect '+pf+' (main agent)',{bridges:pf==='whatsapp'}).catch(()=>{});return send(res,200,{ok:true,restarting:true,waiting:await waitingNow()})}
     const h={'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'};const put=on=>fetch(DASH.origin+'/api/messaging/platforms/'+pf+'?profile='+encodeURIComponent(ag),{method:'PUT',headers:h,body:JSON.stringify({enabled:on,env:{},profile:ag})}).then(r=>r.json()).catch(()=>({}));
     await put(false);if(pf==='whatsapp')await stopBridges(ag).catch(()=>{});await new Promise(r=>setTimeout(r,2500));const j=await put(true);platCache.clear();attention.t=0;
