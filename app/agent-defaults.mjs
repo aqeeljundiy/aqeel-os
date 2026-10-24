@@ -1,6 +1,6 @@
 // What every agent gets from aqeelOS itself (decided 20 Oct 2026), not from each agent's own settings:
 //  - every tool bundle on every channel: its own screen and browser (logins through the lock box, downloads), web,
-//    files, terminal, code, images, voice, schedules; and all skills;
+//    files, terminal, code, images, voice, schedules; and the skills (all but a few for specific agents, skills-policy.mjs);
 //  - its own Linux user (every agent but the main one, now and any made later; decided 20 Oct 2026): its commands, files and code then run as that
 //    user over SSH to the box itself, so it can only reach its own folder (~/workspaces/<agent>), never the owner's
 //    sign-ins, keys, aqeelOS's data or other agents' folders. The box's root startup (scripts/agent-users.sh, started
@@ -17,7 +17,7 @@ const PLATFORMS=['whatsapp','telegram','slack','discord','signal','api_server'];
 const bundle=p=>p==='api_server'?'hermes-api-server':'hermes-'+p;
 const run=(c,a)=>new Promise((res,rej)=>execFile(c,a,{timeout:30000},(e,o,er)=>e?rej(Error(String(er||e.message).trim())):res(String(o))));
 
-export function createAgentDefaults({DATA,giveSkills,log=m=>console.log(m)}){
+export function createAgentDefaults({DATA,giveSkills,trimSkills=async()=>0,log=m=>console.log(m)}){
  const TRUST=path.join(DATA,'agent-trust.json'),SEEN=path.join(DATA,'agents-seen.json');
  const REQ=path.join(homedir(),'.aqeelos-agent-users'),KEY=path.join(HERMES_HOME,'agent-ssh','id_ed25519');
  const userOf=a=>('ag-'+a).slice(0,32);
@@ -77,10 +77,10 @@ export function createAgentDefaults({DATA,giveSkills,log=m=>console.log(m)}){
   if(a!=='default'&&pick(c,'stt.local.model')===undefined){const m=pick(await readConfig('default').catch(()=>null),'stt.local.model');if(m)changes.push(['stt.local.model',String(m)])}
   for(const [k,v] of changes)await setKey(a,k,v);
   if(changes.length)log('agent defaults for '+a+': '+changes.map(x=>x[0]).join(', '));return changes.length}
- // every agent always has every skill the main agent (Donna) has: missing ones are copied, the agent's own copies and
- // extra skills of its own stay (decided 20 Oct 2026: no agent is treated differently; only the owner's signed-in
- // accounts are not handed out, and those aren't skills)
- async function skills(names){let n=0;for(const a of names)if(a!=='default')n+=await giveSkills(a).catch(()=>0)||0;return n}
+ // every agent has the skills the main agent (Donna) has, except the few that are for specific agents (skills-policy.mjs,
+ // decided 24 Oct 2026): missing ones are copied, the agent's own copies and extra skills of its own stay, and skills an
+ // agent must not have are moved out to its skills-removed folder. Only the owner's signed-in accounts are never handed out
+ async function skills(names){let n=0;for(const a of names){if(a!=='default')n+=await giveSkills(a).catch(()=>0)||0;n+=await trimSkills(a).catch(()=>0)||0}return n}
  // about every minute: agents made any way (aqeelOS, the engine's command line, another agent) get the defaults once
  // when first seen (the list survives restarts), and every agent gets the main agent's skills it lacks
  // an agent first seen less than 5 minutes ago is still being set up by whoever made it (this aqeelOS, or the test copy

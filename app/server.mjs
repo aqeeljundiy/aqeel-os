@@ -39,6 +39,10 @@ import {createPluginHost} from './plugin-host.mjs';
 import {readdir} from 'node:fs/promises';
 import {createReadStream} from 'node:fs';
 import {scryptSync,randomBytes,createHmac,createHash,timingSafeEqual} from 'node:crypto';
+import net from 'node:net';
+// Node gives up on each connection attempt after 250 ms; from the box a connect takes 2-4 s, so calls like Anthropic's usage
+// check failed with ETIMEDOUT while curl worked (found 24 Oct 2026). A longer limit costs nothing when the connect is fast.
+net.setDefaultAutoSelectFamilyAttemptTimeout(4000);
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
@@ -179,7 +183,7 @@ const accountsApi=createAccounts(DATA);
 // the settings an agent may change for itself (my_settings): only everyday ones, never what it can reach
 const OWN_SETTINGS=/^(stt|tts)\.[a-z0-9_.]+$|^timezone$|^display\.[a-z0-9_.]+$/;
 const whyOf=createWhy({DATA,HERMES_HOME,python:enginePython});
-const agentDefaults=createAgentDefaults({DATA,giveSkills:n=>accountHooks.giveSkills?.(n)});
+const agentDefaults=createAgentDefaults({DATA,giveSkills:n=>accountHooks.giveSkills?.(n),trimSkills:n=>accountHooks.trimSkills?.(n)});
 accountHooks.afterSetup=n=>agentDefaults.added(n).catch(e=>console.warn('agent defaults',n,e.message));
 // at start, then every 10 minutes: agents made outside aqeelOS (by Claude, by another agent, from the command line) get them too
 const applyDefaults=()=>agentDefaults.all().then(n=>{if(n){console.log('agent defaults: '+n+' settings applied; restarting the agents when idle');restartGateway('agent defaults').catch(()=>{})}}).catch(e=>console.warn('agent defaults:',e.message));

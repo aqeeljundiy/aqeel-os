@@ -7,6 +7,7 @@ import {readFile,writeFile,mkdir,rename,rm,readdir,cp,appendFile,access,stat} fr
 import {homedir} from 'node:os';
 import path from 'node:path';
 import {hermes as hq,setKey,readConfig,pick,editEnv,agentNames,setStatus,getStatus,LIVE_APP} from './agentops.mjs';
+import {allowed,trim} from './skills-policy.mjs';
 
 const HOME=homedir();
 const CLAUDE=process.env.CLAUDE_BIN||path.join(HOME,'.local','bin','claude');
@@ -21,7 +22,7 @@ const MAIN={id:'main',label:'Main account',dir:path.join(HOME,'.claude')};
 export let setupAgentFn=null;
 export const export_setups={running:()=>0,wait:()=>Promise.resolve()};   // setups in progress, counted by /healthz so a deploy waits for them
 // for agent-defaults.mjs: copying skills, and what runs after a new agent is set up
-export const accountHooks={giveSkills:null,afterSetup:null};
+export const accountHooks={giveSkills:null,trimSkills:null,afterSetup:null};
 export function createAccounts(DATA){
  const FILE=path.join(DATA,'accounts.json');
  const load=async()=>{try{return JSON.parse(await readFile(FILE,'utf8'))}catch{return {accounts:[],assign:{},auto:{on:false,threshold:90},events:[]}}};
@@ -144,9 +145,13 @@ export function createAccounts(DATA){
   await access(path.join(HERMES_HOME,'profiles',name,'config.yaml'));
   for(const cat of await readdir(from,{withFileTypes:true}).catch(()=>[])){if(!cat.isDirectory()||cat.name.startsWith('.'))continue;
    for(const sk of await readdir(path.join(from,cat.name),{withFileTypes:true}).catch(()=>[])){if(!sk.isDirectory())continue;const src=path.join(from,cat.name,sk.name),dst=path.join(to,cat.name,sk.name);
-    if(await access(path.join(src,'SKILL.md')).then(()=>false,()=>true))continue;if(await access(dst).then(()=>true,()=>false))continue;
+    if(await access(path.join(src,'SKILL.md')).then(()=>false,()=>true))continue;if(!allowed(cat.name+'/'+sk.name,name))continue;if(await access(dst).then(()=>true,()=>false))continue;
     await mkdir(path.dirname(dst),{recursive:true});await cp(src,dst,{recursive:true});n++}}
   if(n)console.log('gave',n,'skills to',name);return n}
+ // skills an agent must not have (see skills-policy.mjs) are moved to <agent>/skills-removed/<date>, never deleted
+ async function trimSkills(name){const root=name==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',name);
+  const moved=await trim(path.join(root,'skills'),name,path.join(root,'skills-removed',new Date().toISOString().slice(0,10)));
+  if(moved.length)console.log('skills: moved',moved.length,'out of',name+':',moved.join(', '));return moved.length}
  function setupAgent(name){if(!setups.has(name))setups.set(name,doSetup(name).finally(()=>setups.delete(name)));return setups.get(name)}
  async function doSetup(name){
   if(!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(name)||name==='default')throw new Error('Unknown agent');
@@ -195,7 +200,7 @@ export function createAccounts(DATA){
  export_setups.running=()=>setups.size;export_setups.wait=n=>setups.get(n)||Promise.resolve();
 
  setupAgentFn=setupAgent;
- accountHooks.giveSkills=giveSkills;
+ accountHooks.giveSkills=giveSkills;accountHooks.trimSkills=trimSkills;
  return async function handle(req,res,p,send,readBody){
   if(p==='/ui/accounts/setup-agent'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const n=String(b.name||'');
    // a new agent starts with every skill the main agent has (once, here: skills removed later stay removed)
