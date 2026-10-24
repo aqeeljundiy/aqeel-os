@@ -916,6 +916,8 @@ input[type=checkbox]:not(.switch)::after{margin:auto}
 .extra-head .txt span{white-space:normal}
 /* loaded content arrives smoothly (see watchReveal in core.js) */
 .reveal{animation:reveal .42s var(--ease) backwards;animation-delay:calc(min(var(--ri,0),8) * 45ms)}
+/* a page redrawn on the same visit (data-still) keeps still: its rows and cards don't play their entrance again */
+[data-still] .reveal,[data-still] .row,[data-still] .tile,[data-still] .card,[data-still] .toolbar,[data-still] .sched-folder{animation:none!important}
 .reveal .row,.reveal .tile,.reveal .stat{animation-delay:calc(min(var(--ri,0),8) * 45ms + 60ms)}
 @keyframes reveal{from{opacity:0;transform:translateY(8px);filter:blur(2px)}to{opacity:1;transform:none;filter:none}}
 /* placeholders: a soft moving shine so it reads as "loading", not as empty boxes */

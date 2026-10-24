@@ -76,7 +76,7 @@ async function call(base,path,opt={}){const read=(!opt.method||opt.method==='GET
 // Leaving a page cancels the reads it still waits for (their answers would be dropped anyway): the browser has only a
 // few connections per site, and slow leftovers made the next page queue behind them
 let NavAbort=new AbortController();
-function navNext(){S._nav=(S._nav||0)+1;NavAbort.abort();NavAbort=new AbortController()}
+function navNext(){S._nav=(S._nav||0)+1;NavAbort.abort();NavAbort=new AbortController();document.querySelector('[data-still]')?.removeAttribute('data-still')}   // a new visit animates in again
 async function callRaw(base,path,opt={}){const nav=S._nav,read=!opt.method||opt.method==='GET';
  const init={method:opt.method||'GET',headers:{'x-hui':'1',...(opt.fresh?{'x-fresh':'1'}:{}),...(opt.headers||{})},credentials:'same-origin',signal:opt.signal||(read&&!opt.keep&&!opt.raw?NavAbort.signal:undefined)};
  if(opt.body!==undefined){if(opt.body instanceof FormData||opt.body instanceof Blob)init.body=opt.body;else{init.body=JSON.stringify(opt.body);init.headers['content-type']='application/json'}}

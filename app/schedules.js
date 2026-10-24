@@ -40,6 +40,8 @@ PAGES.schedules=async(p,el)=>{
  setActions(`<button class="primary" data-act="cron-new">${icon('plus',16)}New schedule</button>`);
  // a newer render (the next search keystroke) wins: an older answer arriving late is dropped
  const gen=SCHED.gen=(SCHED.gen||0)+1,nav=S._nav;   // nav: the later redraws below happen only on this same visit
+ // a redraw on the same visit (time zones, a partial answer, new summaries) updates in place: no entrance animation again
+ el.toggleAttribute('data-still',SCHED.drawnNav===nav);SCHED.drawnNav=nav;
  SCHED.tzs??=store.get('schedTzs',{});
  // a schedule run through a shared channel is saved as "this app"; where it really goes is kept by aqeelOS
  const [jobs,info,relays]=await Promise.all([H('/cron/jobs?profile=all'),UI('/ui/schedules/info').catch(()=>null),UI('/ui/channels/job-relays').catch(()=>null)]);
