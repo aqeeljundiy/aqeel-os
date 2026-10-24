@@ -214,6 +214,9 @@ const AVA_STEPS=[16,20,24,28,32,40,56,72,84];
 const avaPx=s=>AVA_STEPS.reduce((a,b)=>Math.abs(b-s)<Math.abs(a-s)?b:a);
 const emojiAuto=id=>{if(!EMOJI.length)return '';let h=2166136261;for(const c of String(id))h=Math.imul(h^c.charCodeAt(0),16777619);return EMOJI[(h>>>0)%EMOJI.length].slug};
 const emojiSrc=slug=>slug?'/assets/emoji/'+encodeURIComponent(slug)+'.png':'';
+// an avatar or emoji that failed to load (the server restarting during a deploy) tries once more 2 s later instead of
+// staying a broken picture until the window is reopened
+document.addEventListener('error',e=>{const im=e.target;if(im?.tagName!=='IMG'||im.dataset.retried||!/\/assets\/emoji\/|\/ui\/(avatar|me\/avatar|people-avatar)/.test(im.src))return;im.dataset.retried='1';setTimeout(()=>{if(im.isConnected)im.src=im.src+(im.src.includes('?')?'&':'?')+'r=1'},2000)},true);
 // the bare markup, also for previews in the editor (a picked file or emoji before it is saved)
 const avaHtml=(src,photo,px,alt,attrs='',cls='')=>`<span class="ag-ava ${photo?'photo':'emo'}${cls?' '+cls:''}" style="width:${px}px;height:${px}px"${attrs}>${src?`<img src="${esc(src)}" alt="${esc(alt)}" width="${px}" height="${px}" loading="lazy" decoding="async">`:''}</span>`;
 // agentAvatar(agent id or {id,name}, size, {cls, name, plain: skip the photo and chosen emoji (a private agent), title:false})
