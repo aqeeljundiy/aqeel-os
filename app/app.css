@@ -1578,12 +1578,6 @@ div.skel:not(.loading)::after{content:'';width:26px;height:26px;border-radius:50
 .wordmark img.mark{filter:grayscale(1) contrast(1.05)}
 .dark .wordmark img.mark{filter:grayscale(1) invert(1)}
 
-/* System › Branding */
-.brand-page h2{font-size:16px;margin:0 0 4px}.brand-page .sub{margin:0 0 10px}
-.brand-prev{display:grid;grid-template-columns:1fr 1fr;gap:10px}.brand-prev .bp{border:1px solid var(--border);border-radius:14px;padding:22px;display:grid;place-items:center}
-.brand-prev .bp.light{background:#fff}.brand-prev .bp.dark{background:#111}.brand-prev .bp.light .wordmark{color:#0b0c10}.brand-prev .bp.dark .wordmark{color:#fff}.brand-prev .bp.light img.mark{filter:grayscale(1)!important}.brand-prev .bp.dark img.mark{filter:grayscale(1) invert(1)!important}
-.brand-prev .wordmark{font-size:20px}
-
 .side-foot .avatar.none{background:var(--soft);color:var(--muted)}
 /* a new version is ready */
 .new-version{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:80;display:flex;align-items:center;gap:10px;padding:8px 8px 8px 16px;border-radius:var(--r-pill);background:var(--ink);color:var(--surface);font-size:13.5px;box-shadow:0 18px 40px -16px rgba(15,23,42,.45);animation:toastIn .25s var(--ease) both}

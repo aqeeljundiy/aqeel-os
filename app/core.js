@@ -223,7 +223,6 @@ const SECTIONS=[
   {id:'logs',label:'Logs',icon:'list',desc:'What aqeelOS wrote while working.'},
   {id:'keys',label:'Keys and secrets',icon:'key',desc:'API keys, tokens and passwords, stored on the box and never shown in full.'},
   {id:'settings',label:'Settings',icon:'sliders',desc:'Every aqeelOS setting, grouped and searchable.'},
-  {id:'branding',label:'Branding',icon:'sparkle',desc:'The name and logo of this install. The font and the black-and-white look stay the same.'},
   {id:'guide',label:'Guide',icon:'list',desc:'How aqeelOS works, in a few minutes.'}]},
 ];
 

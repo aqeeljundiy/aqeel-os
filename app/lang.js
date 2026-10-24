@@ -61,7 +61,7 @@ const ID_PATTERNS=[
  [/^What can$/,'Apa yang bisa'],[/^help you with today\?$/,'bantu hari ini?'],[/^can make mistakes\. Check anything important\.$/,'bisa salah. Periksa hal yang penting.'],
  [/^(\d+)% used$/,'$1% terpakai'],[/^Resets in (.+)$/,'Direset dalam $1'],[/^Steer (.+) while it works…$/,'Arahkan $1 saat bekerja…'],
 ];
-/* Branding of this install (System › Branding): the name and logo. aqeelOS until an admin changes it. */
+/* The name and logo of this install (aqeelOS). The Branding page was removed on 24 Oct 2026; the stored values are still read. */
 const Brand={name:'aqeelOS',logo:null,custom:false,
  mark(){return this.logo||'/assets/elkiya-mark.svg'},
  async load(){try{const b=await (await fetch('/ui/brand',{cache:'no-store'})).json();Object.assign(this,b)}catch{}this.apply()},

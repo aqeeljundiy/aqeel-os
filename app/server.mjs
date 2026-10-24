@@ -1337,11 +1337,6 @@ const server=createServer(async(req,res)=>{
       if(isDir&&!SKIP.has(e.name)&&depth<8)queue.push([fp,depth+1])}}
     return send(res,200,{results:out,more:out.length>=200||queue.length>0})}
    if(p==='/ui/files/exist'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}const ok=[];for(const x of (Array.isArray(b.paths)?b.paths:[]).slice(0,20)){const fp=path.resolve(String(x));if(!users.filePathOk(u,fp))continue;try{if((await stat(fp)).isDirectory())ok.push(String(x))}catch{}}return send(res,200,{exist:ok})}
-   if(p.startsWith('/ui/brand')&&req.method!=='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins change the branding.'});
-    try{let r;if(p==='/ui/brand'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}r=await brand.setName(b.name)}
-     else if(p==='/ui/brand/logo'&&req.method==='POST')r=await brand.setLogo(await readRaw(req,600*1024),String(req.headers['content-type']||''));
-     else if(p==='/ui/brand/logo'&&req.method==='DELETE')r=await brand.clearLogo();else return send(res,404,{error:'Not found'});
-     globalThis.AQ_BRAND=r.name;console.log('branding changed by',u.name||u.id,'→',r.name);return send(res,200,r)}catch(e){return send(res,400,{error:e.message})}}
    if(p==='/ui/code/usage'&&req.method==='GET'){const days=Math.min(365,Math.max(1,+url.searchParams.get('days')||7));const d=await code.runs(days,users.isAdmin(u)?null:u.id);const people={};for(const id of Object.keys(d.byPerson)){const x=users.byId(id);people[id]={name:x?.name||id,avatar:x?.avatar?'/ui/people/avatar/'+id:null}}return send(res,200,{...d,people})}
    // Bottlenecks: what is stuck until a person acts (admins also see what aqeelOS itself noticed)
    // Live: every published app (everyone sees them; publisher or admin takes one offline; admins connect the server)
