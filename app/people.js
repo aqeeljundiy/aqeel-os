@@ -619,9 +619,9 @@ ACT['ch-extra-add']=async a=>{const agent=S.profile||'default',platform=a.datase
   ACT['ch-extra-open']({dataset:{name:l.name,platform,n:l.n,agent}})}catch(e){fail(e)}};
 ACT['ch-extra-open']=a=>{S.chOverride=a.dataset.name;S.chOverrideInfo={platform:a.dataset.platform,n:a.dataset.n,agent:a.dataset.agent||S.profile||'default',label:a.dataset.label||''};reload()};
 ACT['ch-extra-done']=()=>{S.chOverride=null;S.chOverrideInfo=null;reload()};
-ACT['ch-extra-rename']=async a=>{const v=prompt('Name for this connection (for example "Shop WhatsApp")',a.dataset.label||'');if(v==null)return;try{await put(UI,'/ui/channels/links',{agent:a.dataset.agent,name:a.dataset.name,label:v});toast('Renamed');reload()}catch(e){fail(e)}};
+ACT['ch-extra-rename']=async a=>{const was=a.dataset.label||'This connection';const v=await promptBox('Rename '+was,'Name for this connection (for example “Shop WhatsApp”)',a.dataset.label||'','Rename');if(v==null||v.trim()===(a.dataset.label||''))return;try{await put(UI,'/ui/channels/links',{agent:a.dataset.agent,name:a.dataset.name,label:v});toast(was+' renamed to '+(v.trim()||'its app name'));reload()}catch(e){fail(e)}};
 ACT['ch-extra-remove']=async a=>{if(!await confirmBox('Remove '+a.dataset.title+'?','Its login and settings are deleted. '+ident(a.dataset.agent).name+' and its other channels are not touched.','Remove'))return;
- try{await del(UI,'/ui/channels/links',{agent:a.dataset.agent,name:a.dataset.name});toast('Removed');S.chOverride=null;reload()}catch(e){fail(e)}};
+ try{await del(UI,'/ui/channels/links',{agent:a.dataset.agent,name:a.dataset.name});toast(a.dataset.title+' removed from '+ident(a.dataset.agent).name);S.chOverride=null;reload()}catch(e){fail(e)}};
 {const base=PAGES.channels;PAGES.channels=async(p,el)=>{
  const o=S.chOverrideInfo;
  if(S.chOverride&&o){await base(p,el);
@@ -808,7 +808,7 @@ ACT['lb-off']=async()=>{try{await post(UI,'/ui/local-browser/off',{session:Chat.
 ACT['ch-more']=a=>{const ag=a.dataset.agent,pf=a.dataset.platform,paused=!!a.dataset.paused,extra=!!a.dataset.extra,wa=pf==='whatsapp';
  menu(a,[{label:'Check connection',icon:'activity',run:()=>ACT['ch-check']({dataset:{agent:ag,platform:pf},innerHTML:'',closest:()=>a.closest('.row')})},
   !extra&&{label:'Who can send through it',icon:'user',run:()=>channelShareDrawer(ag,pf)},
-  {label:a.dataset.note?'Edit the note':'Add a note (what it is for)',icon:'edit',run:async()=>{const v=await promptBox('Note for '+appName(pf),'What is it for? (only you see this)',a.dataset.note||'','Save');if(v==null)return;try{await put(UI,'/ui/channels/note',{agent:ag,platform:pf,note:v});toast('Saved');reload()}catch(e){fail(e)}}},
+  {label:a.dataset.note?'Edit the note':'Add a note (what it is for)',icon:'edit',run:async()=>{const v=await promptBox('Note for '+appName(pf),'What is it for? (only you see this)',a.dataset.note||'','Save');if(v==null)return;try{await put(UI,'/ui/channels/note',{agent:ag,platform:pf,note:v});toast(appName(pf)+' note saved');reload()}catch(e){fail(e)}}},
   !paused&&{label:'Reconnect',icon:'refresh',run:()=>reconnectChannel(ag,pf)},   // a paused channel stays off until someone picks who answers it
   wa&&{label:'Link a different phone (new QR)',icon:'refresh',run:()=>ACT['wa-replace']({dataset:{agent:ag}})},
   '-',{label:wa?'Remove this WhatsApp':'Remove this connection',icon:'trash',bad:true,run:()=>wa?ACT['wa-remove']({dataset:{agent:ag}}):ACT['ch-remove']({dataset:{agent:ag,platform:pf}})}])};

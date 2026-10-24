@@ -26,7 +26,7 @@ const Access={
    const act=r.querySelector('.act');act?.insertAdjacentHTML('afterbegin',this.owner(it,data.agents,data.canEdit)+(data.canEdit?this.btn(it):this.who(it)));r.querySelectorAll('.share-box,.chip.access').forEach(x=>x.remove());
    r.querySelector('[data-act="mcp-share"]')?.remove();
    if(it.owner!==ag){r.querySelector('.txt')?.insertAdjacentHTML('beforeend',this.from(it));
-    const mine=it.users.find(u=>u.id===ag);if(data.canEdit&&mine&&!mine.signed&&it.ownerSigned)act?.insertAdjacentHTML('afterbegin',`<button class="small acc-use" data-act="acc-use" data-kind="${kind}" data-id="${esc(it.id)}">Use ${esc(it.ownerName)}’s sign-in</button>`);
+    const mine=it.users.find(u=>u.id===ag);if(data.canEdit&&mine&&!mine.signed&&it.ownerSigned)act?.insertAdjacentHTML('afterbegin',`<button class="small acc-use" data-act="acc-use" data-kind="${kind}" data-id="${esc(it.id)}" data-label="${esc(it.label)}">Use ${esc(it.ownerName)}’s sign-in</button>`);
     shared.push(r)}else own.push(r)}
   const host=where(el,rows[0]);if(!host)return;
   const mk=(title,list)=>{if(!list.length)return null;const g=document.createElement('div');g.className='acc-group';g.innerHTML=`<div class="acc-grp">${title}</div><div class="card list"></div>`;list.forEach(r=>g.lastChild.append(r));return g};
@@ -51,7 +51,7 @@ const Access={
   if(agent===it.owner)throw new Error(ident(agent).name+' owns '+it.label+' and '+it.users.filter(u=>u.id!==agent).map(u=>u.name).join(', ')+' also '+(it.users.length>2?'use':'uses')+' it. Make another agent the owner first (Who can use), or turn it off for them.');
   if(S.me?.admin===false)return false;await post(UI,'/ui/access',{kind,id:it.id,agent,on:false});return true}};   // a member removes its own copy directly
 ACT['acc-open']=a=>Access.open(a.dataset.kind,a.dataset.id);
-ACT['acc-use']=async a=>{a.disabled=true;const was=a.innerHTML;a.innerHTML='<span class="spinner tiny"></span>Sharing…';try{await post(UI,'/ui/access',{kind:a.dataset.kind,id:a.dataset.id,agent:viewing(),on:true});toast('Done · ready in about a minute');reload()}catch(e){a.disabled=false;a.innerHTML=was;fail(e)}};
+ACT['acc-use']=async a=>{a.disabled=true;const was=a.innerHTML;a.innerHTML='<span class="spinner tiny"></span>Sharing…';try{await post(UI,'/ui/access',{kind:a.dataset.kind,id:a.dataset.id,agent:viewing(),on:true});toast((a.dataset.label||'It')+' on for '+ident(viewing()).name+' · ready in about a minute');reload()}catch(e){a.disabled=false;a.innerHTML=was;fail(e)}};
 
 // Connected apps, its Google accounts panel, Plugins and Keys: each gets the same groups
 // members get the same decoration, read-only: Owned by as a name and who uses it (no switches, nothing that would be refused)
