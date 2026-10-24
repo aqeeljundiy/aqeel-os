@@ -45,6 +45,7 @@ import net from 'node:net';
 net.setDefaultAutoSelectFamilyAttemptTimeout(4000);
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {readPicture,emojiSlugs,emojiAuto,AVATAR_TYPES} from './avatar-file.mjs';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
 const root=path.resolve(here,'..');
@@ -166,29 +167,28 @@ async function setDisplayName(profile,name){
  y=/^display_name:.*$/m.test(y)?y.replace(/^display_name:.*$/m,line):(y&&!y.endsWith('\n')?y+'\n':y)+line+'\n';
  try{await writeFile(f,y)}catch(e){console.warn('profile.yaml not written:',e.message)}
 }
-const IMG={'image/png':'png','image/jpeg':'jpg','image/webp':'webp','image/gif':'gif'};
-// emoji avatars: the slugs in assets/emoji/list.json (Fluent Emoji 3D, MIT). A photo and an emoji never both stand:
-// choosing one clears the other. With neither, the agent gets one from its id (the same hash as emojiAuto in core.js)
-let EMOJI=null;const emojiList=async()=>{if(!EMOJI){try{EMOJI=JSON.parse(await readFile(path.join(root,'assets','emoji','list.json'),'utf8')).map(e=>e.slug)}catch{return []}}return EMOJI};
-const emojiAuto=(id,l)=>{if(!l.length)return '';let h=2166136261;for(const c of String(id))h=Math.imul(h^c.charCodeAt(0),16777619);return l[(h>>>0)%l.length]};
+// agent pictures: a photo (cropped to 256x256 in the browser, checked by its first bytes, one file per agent) or an emoji
+// from assets/emoji (avatar-file.mjs). The two replace each other. With neither, the agent gets an automatic emoji from its
+// id. avatarV changes with every new photo, so /ui/avatar/<agent>?v= shows the new one everywhere at once
 async function identities(req,res,p){
  if(p==='/ui/identities'&&req.method==='GET')return send(res,200,await readIds());
  const m=/^\/ui\/(identities|avatar)\/([^/]+)$/.exec(p);if(!m)return send(res,404,{error:'Not found'});
  const profile=decodeURIComponent(m[2]);if(!okProfile(profile))return send(res,400,{error:'Bad profile name'});
- const ids=await readIds();const cur=ids[profile]||{};
+ const ids=await readIds();const cur=ids[profile]||{};const dropPhoto=async x=>{if(cur.avatar)await unlink(path.join(DATA,'avatars',cur.avatar)).catch(()=>{});delete x.avatar;delete x.avatarV};
  if(m[1]==='identities'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{return send(res,400,{error:'Bad JSON'})}
   const name='name' in b?String(b.name||'').trim().slice(0,60):cur.name||'',title='title' in b?String(b.title||'').trim().slice(0,80):cur.title||'';   // a body with only the emoji keeps the name
   const next={...cur,name,title,updated:Date.now()};
-  if('emoji' in b){const e=String(b.emoji||'');if(e&&!(await emojiList()).includes(e))return send(res,400,{error:'Pick one of the listed emoji.'});
-   if(!e)delete next.emoji;else{next.emoji=e;if(cur.avatar){await unlink(path.join(DATA,'avatars',cur.avatar)).catch(()=>{});delete next.avatar}}}   // an emoji replaces the photo
+  if('emoji' in b){const e=String(b.emoji||'');if(e&&!(await emojiSlugs()).includes(e))return send(res,400,{error:'Pick one of the listed emoji.'});
+   if(!e)delete next.emoji;else{next.emoji=e;await dropPhoto(next)}}   // an emoji replaces the photo
   ids[profile]=next;await writeIds(ids);await setDisplayName(profile,name);return send(res,200,ids[profile])}
  // no photo: send the agent's emoji (chosen or automatic) so anything outside the app that asks for the picture still gets one
- if(m[1]==='avatar'&&req.method==='GET'){if(!cur.avatar){const l=await emojiList(),e=l.includes(cur.emoji)?cur.emoji:emojiAuto(profile,l);if(!e)return send(res,404,'No picture');res.writeHead(302,{location:'/assets/emoji/'+e+'.png','cache-control':'private, max-age=300',...security});return res.end()}try{const body=await readFile(path.join(DATA,'avatars',cur.avatar));res.writeHead(200,{'content-type':'image/'+(cur.avatar.split('.').pop()==='jpg'?'jpeg':cur.avatar.split('.').pop()),'cache-control':'private, max-age=86400',...security});return res.end(body)}catch{return send(res,404,'No picture')}}
- if(m[1]==='avatar'&&req.method==='PUT'){const type=String(req.headers['content-type']||'').split(';')[0];const ext=IMG[type];if(!ext)return send(res,415,{error:'Use a PNG, JPG, WebP or GIF image.'});
-  const chunks=[];let size=0;for await(const c of req){size+=c.length;if(size>2e6)return send(res,413,{error:'Pictures must be under 2 MB.'});chunks.push(c)}
-  await mkdir(path.join(DATA,'avatars'),{recursive:true});if(cur.avatar)await unlink(path.join(DATA,'avatars',cur.avatar)).catch(()=>{});
-  const file=profile+'-'+Date.now()+'.'+ext;await writeFile(path.join(DATA,'avatars',file),Buffer.concat(chunks));const {emoji:_e,...rest}=cur;ids[profile]={...rest,avatar:file};await writeIds(ids);return send(res,200,ids[profile])}   // a photo replaces the emoji
- if(m[1]==='avatar'&&req.method==='DELETE'){if(cur.avatar)await unlink(path.join(DATA,'avatars',cur.avatar)).catch(()=>{});delete cur.avatar;ids[profile]=cur;await writeIds(ids);return send(res,200,cur)}
+ if(m[1]==='avatar'&&req.method==='GET'){if(!cur.avatar){const l=await emojiSlugs(),e=l.includes(cur.emoji)?cur.emoji:emojiAuto(profile,l);if(!e)return send(res,404,'No picture');res.writeHead(302,{location:'/assets/emoji/'+e+'.png','cache-control':'private, max-age=300',...security});return res.end()}
+  try{const body=await readFile(path.join(DATA,'avatars',cur.avatar));res.writeHead(200,{'content-type':AVATAR_TYPES[cur.avatar.split('.').pop()]||'application/octet-stream','cache-control':'private, max-age=86400',...security});return res.end(body)}catch{return send(res,404,'No picture')}}
+ if(m[1]==='avatar'&&req.method==='PUT'){const r=await readPicture(req);if(r.error)return send(res,r.status,{error:r.error});
+  const dir=path.join(DATA,'avatars'),file=profile+'.'+r.ext;await mkdir(dir,{recursive:true});await writeFile(path.join(dir,file+'.tmp'),r.buf);await rename(path.join(dir,file+'.tmp'),path.join(dir,file));
+  if(cur.avatar&&cur.avatar!==file)await unlink(path.join(dir,cur.avatar)).catch(()=>{});   // one file per agent
+  const {emoji:_e,...rest}=cur;ids[profile]={...rest,avatar:file,avatarV:Date.now()};await writeIds(ids);return send(res,200,ids[profile])}   // a photo replaces the emoji
+ if(m[1]==='avatar'&&req.method==='DELETE'){await dropPhoto(cur);ids[profile]=cur;await writeIds(ids);return send(res,200,cur)}   // back to its emoji, or the automatic one
  send(res,405,{error:'Method not allowed'});
 }
 
@@ -1769,7 +1769,7 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/explain'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,300000))}catch{}const items=(Array.isArray(b.items)?b.items:[]).slice(0,300).map(x=>({id:String(x?.id||'').slice(0,120),name:String(x?.name||'').slice(0,160),desc:String(x?.desc||'').slice(0,600)}));return send(res,200,await explain.get(String(b.kind||''),items,{write:users.isAdmin(u)}))}
    if(p==='/ui/usage'&&req.method==='GET'){const days=Math.min(365,Math.max(1,+url.searchParams.get('days')||7));const ag=String(url.searchParams.get('agent')||''),every=await listAllProfiles();
     const all=await usage.breakdown(ag&&ag!=='all'?every.filter(x=>x===ag||x.startsWith(ag+'--')):every,days,users.ownerOf);
-    const people=Object.fromEntries(users.people().map(x=>[x.id,{name:x.name,avatar:x.avatar?'/ui/people/avatar/'+x.id:null,limit:users.limitOf(x)||null}]));   // the limit that applies (a role's too), not only one set on the person
+    const people=Object.fromEntries(users.people().map(x=>[x.id,{...users.face(x),name:x.name,limit:users.limitOf(x)||null}]));   // the limit that applies (a role's too), not only one set on the person
     if(!users.isAdmin(u))return send(res,200,{days,byPerson:{[u.id]:all.byPerson[u.id]||null},people:{[u.id]:people[u.id]},today:await usage.today(await listAllProfiles(),u.id,users.ownerOf)});
     return send(res,200,{...all,people})}
    if(p==='/ui/starters'){const agent=url.searchParams.get('agent')||'default';if(users.gate(u,'/ui/screens/'+agent,'GET',new URLSearchParams(),agent))return send(res,403,{error:'That agent is not shared with you.'});

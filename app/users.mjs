@@ -5,6 +5,7 @@ import {readFile,writeFile,mkdir,rename,unlink} from 'node:fs/promises';
 import {scryptSync,randomBytes,timingSafeEqual,randomInt} from 'node:crypto';
 import {homedir} from 'node:os';
 import path from 'node:path';
+import {readPicture,emojiSlugs,AVATAR_TYPES} from './avatar-file.mjs';
 
 export const LEVELS=['chat','edit','owner'];           // per-agent share levels, weakest first
 // What a member may do beyond chatting. Admins can do everything. Each one only ever applies to agents
@@ -38,7 +39,7 @@ export function createUsers(DATA,mail){
  const hash=pw=>{const salt=randomBytes(16);return 'scrypt:'+salt.toString('hex')+':'+scryptSync(String(pw),salt,64).toString('hex')};
  const check=(pw,h)=>{const [k,s,x]=String(h||'').split(':');if(k!=='scrypt'||!s||!x)return false;const a=scryptSync(String(pw),Buffer.from(s,'hex'),64),b=Buffer.from(x,'hex');return a.length===b.length&&timingSafeEqual(a,b)};
  const norm=s=>String(s||'').trim().toLowerCase();
- const owner=()=>({id:'owner',name:db.ownerName,username:db.ownerUsername||'aqeel',role:'owner',avatar:db.ownerAvatar||null,email:db.ownerEmail||'',emailVerified:!!db.ownerEmailVerified,twoStep:!!db.ownerTwoStep});
+ const owner=()=>({id:'owner',name:db.ownerName,username:db.ownerUsername||'aqeel',role:'owner',avatar:db.ownerAvatar||null,avatarV:db.ownerAvatarV||null,emoji:db.ownerEmoji||null,email:db.ownerEmail||'',emailVerified:!!db.ownerEmailVerified,twoStep:!!db.ownerTwoStep});
  // write one field on a person (the owner's live at the top level of users.json)
  const setF=(u,k,v)=>{if(u.id==='owner')db['owner'+k[0].toUpperCase()+k.slice(1)]=v;else{const x=db.users.find(y=>y.id===u.id);if(x)x[k]=v}};
  const USERNAME=/^[a-z0-9][a-z0-9._-]{2,31}$/;
@@ -47,7 +48,9 @@ export function createUsers(DATA,mail){
  let envOwnerCheck=()=>false;   // the original UI_PASSWORD_HASH, until the owner picks a new password here
  const byId=id=>id==='owner'?owner():db.users.find(u=>u.id===id)||null;
  const isAdmin=u=>u&&(u.role==='owner'||u.role==='admin');
- const pub=u=>({id:u.id,name:u.name,username:u.username||'',email:u.email||'',emailVerified:!!u.emailVerified,twoStep:!!u.twoStep,role:u.role,created:u.created,last:u.last,avatar:u.avatar?'/ui/people/avatar/'+u.id+'?v='+encodeURIComponent(u.avatar):null});
+ const pub=u=>({id:u.id,name:u.name,username:u.username||'',email:u.email||'',emailVerified:!!u.emailVerified,twoStep:!!u.twoStep,role:u.role,created:u.created,last:u.last,...face(u)});
+ // a person's picture: their photo (versioned, so a new one shows at once) or their emoji; the initial is drawn in the browser
+ const face=u=>({avatar:u.avatar?'/ui/people/avatar/'+u.id+'?v='+encodeURIComponent(u.avatarV||u.avatar):null,emoji:u.emoji||null});
  const AVATARS=path.join(DATA,'people-avatars');
  const ownerPwOk=pw=>db.ownerPw?check(pw,db.ownerPw):envOwnerCheck(pw);
  const nameTaken=(name,id)=>norm(name)===norm(db.ownerName)&&id!=='owner'||db.users.some(u=>u.id!==id&&norm(u.name)===norm(name));
@@ -207,18 +210,20 @@ export function createUsers(DATA,mail){
   if(p==='/ui/me'&&req.method==='PUT'){const b=await body();const name=String(b.name||'').trim().slice(0,60);const un=norm(b.username);if(!name)return send(res,400,{error:'Your name is empty.'});if(nameTaken(name,u.id))return send(res,400,{error:'Someone already uses that name.'});
    if(!USERNAME.test(un))return send(res,400,{error:'Usernames are 3–32 characters: letters, numbers, dots, dashes or underscores.'});if(userTaken(un,u.id))return send(res,400,{error:'That username is taken.'});
    if(u.role==='owner'){db.ownerName=name;db.ownerUsername=un}else{const x=db.users.find(y=>y.id===u.id);x.name=name;x.username=un}await save();return send(res,200,{ok:true,name,username:un})}
-  // profile pictures: sent as a data URL (PNG, JPG, WebP or GIF, under 2 MB)
-  if(p==='/ui/me/avatar'&&(req.method==='PUT'||req.method==='DELETE')){const x=u.role==='owner'?null:db.users.find(y=>y.id===u.id);const cur=x?x.avatar:db.ownerAvatar;
-   let file=null;
-   if(req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,3e6))}catch{return send(res,413,{error:'Pictures must be under 2 MB.'})}const m=/^data:image\/(png|jpeg|webp|gif);base64,([A-Za-z0-9+/=]+)$/.exec(String(b.data||''));if(!m)return send(res,415,{error:'Use a PNG, JPG, WebP or GIF image.'});
-    file=u.id+'-'+Date.now()+'.'+(m[1]==='jpeg'?'jpg':m[1]);await mkdir(AVATARS,{recursive:true});await writeFile(path.join(AVATARS,file),Buffer.from(m[2],'base64'))}
-   if(x)x.avatar=file;else db.ownerAvatar=file;await save();if(cur&&cur!==file)await unlink(path.join(AVATARS,cur)).catch(()=>{});return send(res,200,{ok:true,avatar:file?'/ui/people/avatar/'+u.id+'?v='+file:null})}
+  // your own picture only (/ui/me: nobody sets another person's). A photo arrives as the bytes of the browser's 256x256
+  // crop, checked like agents' (avatar-file.mjs), one file per person; an emoji from the same set. Each replaces the other
+  if(p==='/ui/me/avatar'&&(req.method==='PUT'||req.method==='DELETE')){const cur=byId(u.id)?.avatar;let file=null;
+   if(req.method==='PUT'){const r=await readPicture(req);if(r.error)return send(res,r.status,{error:r.error});
+    file=u.id+'.'+r.ext;await mkdir(AVATARS,{recursive:true});await writeFile(path.join(AVATARS,file+'.tmp'),r.buf);await rename(path.join(AVATARS,file+'.tmp'),path.join(AVATARS,file));setF(u,'emoji',null)}
+   setF(u,'avatar',file);setF(u,'avatarV',file?Date.now():null);await save();if(cur&&cur!==file)await unlink(path.join(AVATARS,cur)).catch(()=>{});return send(res,200,{ok:true,...face(byId(u.id))})}
+  if(p==='/ui/me/emoji'&&req.method==='PUT'){const b=await body();const e=String(b.emoji||'');if(e&&!(await emojiSlugs()).includes(e))return send(res,400,{error:'Pick one of the listed emoji.'});
+   const cur=byId(u.id)?.avatar;if(e&&cur){await unlink(path.join(AVATARS,cur)).catch(()=>{});setF(u,'avatar',null);setF(u,'avatarV',null)}setF(u,'emoji',e||null);await save();return send(res,200,{ok:true,...face(byId(u.id))})}
   const av=/^\/ui\/people\/avatar\/([\w-]+)$/.exec(p);if(av&&req.method==='GET'){const x=byId(av[1]);if(!x?.avatar)return send(res,404,'No picture');
-   try{const buf=await readFile(path.join(AVATARS,x.avatar));const ext=x.avatar.split('.').pop();res.writeHead(200,{'content-type':'image/'+(ext==='jpg'?'jpeg':ext),'cache-control':'private, max-age=86400','x-content-type-options':'nosniff'});return res.end(buf)}catch{return send(res,404,'No picture')}}
-  if(p==='/ui/people/list'&&req.method==='GET')return send(res,200,[owner(),...db.users].map(x=>({id:x.id,name:x.name,username:x.username||db.ownerUsername||'aqeel',avatar:pub(x).avatar})));
+   try{const buf=await readFile(path.join(AVATARS,x.avatar));const ext=x.avatar.split('.').pop();res.writeHead(200,{'content-type':AVATAR_TYPES[ext]||'image/'+ext,'cache-control':'private, max-age=86400','x-content-type-options':'nosniff'});return res.end(buf)}catch{return send(res,404,'No picture')}}
+  if(p==='/ui/people/list'&&req.method==='GET')return send(res,200,[owner(),...db.users].map(x=>({id:x.id,name:x.name,username:x.username||db.ownerUsername||'aqeel',...face(x)})));
   if(p==='/ui/agents'&&req.method==='GET'){const names=String(new URL(req.url,'http://x').searchParams.get('names')||'').split(',').filter(Boolean).slice(0,200);const out={};
    for(const a of names){const lv=level(u,a);if(!lv&&!isAdmin(u))continue;const o=byId(agentOwner(a))||owner();
-    out[a]={access:lv,private:isPrivate(a),owner:{id:o.id,name:o.name,avatar:pub(o).avatar},shared:lv?Object.entries(db.shares[a]||{}).filter(([id])=>id!==o.id&&byId(id)).map(([id,l])=>{const x=byId(id);return {id,name:x.name,avatar:pub(x).avatar,level:l}}):[]}}
+    out[a]={access:lv,private:isPrivate(a),owner:{id:o.id,name:o.name,...face(o)},shared:lv?Object.entries(db.shares[a]||{}).filter(([id])=>id!==o.id&&byId(id)).map(([id,l])=>{const x=byId(id);return {id,name:x.name,...face(x),level:l}}):[]}}
    return send(res,200,out)}
   const ag=/^\/ui\/agents\/([^/]+)\/(share|owner)$/.exec(p);
   if(ag&&req.method==='PUT'){const a=decodeURIComponent(ag[1]),b=await body();if(level(u,a)!=='owner')return send(res,403,{error:'Only the owner of this agent can change who has it.'});
@@ -289,5 +294,5 @@ export function createUsers(DATA,mail){
  async function loginCode(u){const me=byId(u.id);return sendCode(me,'login',me.email)}
  function finishLogin(key,code){const v=checkCode(String(key||''),code,'login');if(v.error)return v;const u=byId(v.uid);return u?{ok:true,user:u}:{error:'That person no longer exists.'}}
  const expiredInvites=()=>(db?.invites||[]).filter(i=>!i.used&&i.expires<Date.now()&&i.expires>Date.now()-30*86400e3).map(i=>({code:i.code,name:i.name,role:i.role,roleId:i.roleId||null,caps:i.caps||[],agents:i.agents||{},ownAgent:i.ownAgent||null,expired:i.expires}));
- return {expiredInvites,agentOwner,byId,ownerOf,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginCode,finishLogin,created,can,canOn,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home,level,atLeast,schedOk,dropAgent,restoreAgent};
+ return {face,expiredInvites,agentOwner,byId,ownerOf,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginCode,finishLogin,created,can,canOn,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home,level,atLeast,schedOk,dropAgent,restoreAgent};
 }
