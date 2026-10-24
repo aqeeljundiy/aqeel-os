@@ -28,9 +28,9 @@ const shortWhen=t=>{const d=new Date(t),n=new Date(),tm=d.toLocaleTimeString([],
  return days===0?'Today '+tm:days===1?'Yesterday '+tm:d.toLocaleDateString([],{day:'numeric',month:'short',...(d.getFullYear()!==n.getFullYear()?{year:'numeric'}:{})})};
 const miniBar=(l,w)=>w?`<div class="mbar"><span class="mb-l">${l}</span><span class="mb-t"><i class="${w.used>=90?'bad':w.used>=70?'warn':'ok'}" style="width:${Math.min(100,w.used)}%"></i></span><b>${w.used}%</b>${w.resets?`<small>${esc(when(w.resets))}</small>`:''}</div>`:'';
 
-PAGES.accounts=async(p,el)=>{
+PAGES.accounts=async(p,el)=>{const gone=pageTok(el);
  setActions(`<button data-act="acct-refresh">${icon('refresh',16)}Refresh</button><button class="primary" data-menu="acct-new">${icon('plus',16)}Add account</button>`);
- const [d,oa]=await Promise.all([UI('/ui/accounts'+(Pages._acctFresh?'?fresh=1':'')),H('/providers/oauth?profile=default').catch(()=>null)]);Pages._acctFresh=false;Pages._acct=d;if(!Chat.models)await Chat.loadModels().catch(()=>{});
+ const [d,oa]=await Promise.all([UI('/ui/accounts'+(Pages._acctFresh?'?fresh=1':'')),H('/providers/oauth?profile=default').catch(()=>null)]);Pages._acctFresh=false;Pages._acct=d;if(!Chat.models)await Chat.loadModels().catch(()=>{});if(gone())return;
  const oauth=new Set((oa?.providers||[]).map(x=>x.id));
  const src=acctSources(d,oauth);Pages._acctSrc=src;const admin=S.me?.admin!==false;const byKey=Object.fromEntries(src.map(s=>[s.key,s]));
  // Used by: the agents really on it now (their route), not the old per-account choice
@@ -122,7 +122,7 @@ function acctAgents(s){const d=Pages._acct||{},src=Pages._acctSrc||[],route=d.ro
 
 /* ---------- Gemini through your Google AI subscription (Pro / Ultra), via the official Gemini CLI: one Google sign-in,
    then it is a model like any other (Models, the chat model menu, the priority list). ---------- */
-{const base=PAGES.accounts;PAGES.accounts=async(p,el)=>{await base(p,el);let g;try{g=await UI('/ui/gemini/status')}catch{return}if(!g.installed||g.retired)return;
+{const base=PAGES.accounts;PAGES.accounts=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;let g;try{g=await UI('/ui/gemini/status')}catch{return}if(gone())return;if(!g.installed||g.retired)return;
  const admin=S.me?.admin!==false;const box=document.createElement('div');box.className='panel card gem-card';box.style.marginTop='16px';
  box.innerHTML=`<div class="gem-top">${logoImg('gemini.google.com','G')}<div class="txt"><h2 style="margin:0">Gemini with your Google AI plan</h2>
   <p class="sub" style="margin:4px 0 0">${g.signedIn?`Connected${g.account?' as <b>'+esc(accountText({email:g.account}))+'</b>':''}. Gemini models now show up under Models and in the chat's model menu.`:'Use Gemini through your Google AI Pro or Ultra subscription, the same way Claude runs on your Claude plan. Sign in once with the Google account that has the plan.'}</p></div>
@@ -139,7 +139,7 @@ ACT['gem-out']=async()=>{if(!await confirmBox('Sign Gemini out?','Agents that us
 
 /* ---------- Google AI Pro / Ultra through Antigravity (Google's official agy tool, which replaced the Gemini CLI for
    personal plans): Gemini 4, Gemini Flash and Claude 5.5 on your Google plan. One Google sign-in, link and code. ---------- */
-{const base=PAGES.accounts;PAGES.accounts=async(p,el)=>{await base(p,el);let g;try{g=await UI('/ui/antigravity/status')}catch{return}if(!g.installed||g.partial)return;
+{const base=PAGES.accounts;PAGES.accounts=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;let g;try{g=await UI('/ui/antigravity/status')}catch{return}if(gone())return;if(!g.installed||g.partial)return;
  const admin=S.me?.admin!==false;const box=document.createElement('div');box.className='panel card gem-card';box.style.marginTop='16px';
  box.innerHTML=`<div class="gem-top">${logoImg('gemini.google.com','G')}<div class="txt"><h2 style="margin:0">Google AI Pro (Antigravity)</h2>
   <p class="sub" style="margin:4px 0 0">${g.signedIn?`Connected${g.account?' as <b>'+esc(accountText({email:g.account}))+'</b>':''}. ${g.models?.length?esc(plural(g.models.length,'model'))+' on your Google plan: '+esc(g.models.slice(0,4).join(', '))+(g.models.length>4?'…':'')+'.':''}`:'Use your Google AI Pro plan for Gemini 4, Gemini Flash and Claude 5.5 through Google’s official Antigravity tool, the same way Claude runs on your Claude plan. Sign in once with the Google account that has the plan.'}</p></div>
@@ -161,7 +161,7 @@ ACT['agy-out']=async()=>{if(!await confirmBox('Sign Google AI Pro out?','Agents 
    agents' accounts from this page now, so these are only listed: a Claude one can be moved in as an account here (the
    same kind of folder), a Codex one only removed (the engine's ChatGPT sign-in is kept differently). Nothing is removed
    without asking first. ---------- */
-{const base=PAGES.accounts;PAGES.accounts=async(p,el)=>{await base(p,el);if(S.me?.admin===false)return;let r;try{r=await UI('/ui/accounts/old-code')}catch{return}const l=r.signins||[];if(!l.length||!el.isConnected)return;
+{const base=PAGES.accounts;PAGES.accounts=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;if(S.me?.admin===false)return;let r;try{r=await UI('/ui/accounts/old-code')}catch{return}if(gone())return;const l=r.signins||[];if(!l.length||!el.isConnected)return;
  const box=document.createElement('div');box.className='panel card old-code';box.style.marginTop='16px';
  box.innerHTML=`<h2>Old Code sign-ins</h2><p class="sub">Accounts Code signed in to by itself on the AI box. Code now uses the account each agent is on here, so these are no longer needed. Move a Claude one in to keep using it, or remove it.</p>
   ${l.map(x=>`<div class="ca-row">${logoImg(x.provider==='claude'?'claude.ai':'chatgpt.com',x.provider==='claude'?'C':'G')}<div class="ca-t"><b>${esc(x.label)}</b><span>${esc([x.provider==='claude'?'Claude':'Codex (ChatGPT)',x.signedIn?(x.email?accountText({email:x.email}):'Signed in'):'Not signed in',x.active?'Code’s choice right now':''].filter(Boolean).join(' · '))}</span></div>

@@ -1,6 +1,6 @@
 // Connected apps › Code: what each person's Code app has connected on their computer (GitHub accounts and tool
 // servers stay on that computer: each person signs in to their own GitHub there), and the server Live publishes to.
-{const base=PAGES.mcp;PAGES.mcp=async(p,el)=>{await base(p,el);if(S.me?.admin===false||(S.tab.mcp||'Your servers')!=='Your servers')return;let d;try{d=await UI('/ui/code/connected')}catch{return}
+{const base=PAGES.mcp;PAGES.mcp=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;if(S.me?.admin===false||(S.tab.mcp||'Your servers')!=='Your servers')return;let d;try{d=await UI('/ui/code/connected')}catch{return}if(gone())return;
  const ago2=t=>t?ago(Math.round(t/1000)):'never';const box=document.createElement('div');box.className='panel card code-apps';
  box.innerHTML='<h2>Code</h2><p class="sub">Apps connected inside Code on people’s computers. GitHub sign-ins stay on each computer, so everyone pushes as themselves.</p>'
   +'<div class="ca-row"><span class="ca-ic">'+icon('server',16)+'</span><div class="ca-t"><b>Live (Dokploy)</b><span>'+(d.live.connected?'Connected: apps published from Code go live on the server':'Not connected yet: an admin connects it under Code › Live')+'</span></div><button class="ghost small" data-act="code-open-live">Open Live</button></div>'

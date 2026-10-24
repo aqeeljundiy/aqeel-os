@@ -57,18 +57,18 @@ ACT['acc-use']=async a=>{a.disabled=true;const was=a.innerHTML;a.innerHTML='<spa
 
 // Connected apps, its Google accounts panel, Plugins and Keys: each gets the same groups
 // members get the same decoration, read-only: Owned by as a name and who uses it (no switches, nothing that would be refused)
-{const base=PAGES.mcp;PAGES.mcp=async(p,el)=>{await base(p,el);if((S.tab.mcp||'Your servers')!=='Your servers')return;
- const [m,g]=await Promise.all([Access.load('mcp'),Access.load('google')]);if(!m&&(Pages._mcp||[]).length||!g&&(Pages._gacc||[]).length)Access.failed(el,'who owns and uses each connection');
+{const base=PAGES.mcp;PAGES.mcp=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;if((S.tab.mcp||'Your servers')!=='Your servers')return;
+ const [m,g]=await Promise.all([Access.load('mcp'),Access.load('google')]);if(gone())return;if(!m&&(Pages._mcp||[]).length||!g&&(Pages._gacc||[]).length)Access.failed(el,'who owns and uses each connection');
  Access.group(el,'mcp',m,e=>[...e.querySelectorAll('.row[data-mcp]')],r=>r.dataset.mcp,(e,r)=>r.closest('.card.list'));
  if(g){const ag=viewing();for(const r of el.querySelectorAll('.gacc-row')){const i=[...el.querySelectorAll('.gacc-row')].indexOf(r);const x=(Pages._gacc||[])[i];const it=x&&g.items.find(y=>y.id===x.email);if(!it||r.dataset.acc)continue;r.dataset.acc='1';
   r.querySelector('.act')?.insertAdjacentHTML('afterbegin',Access.owner(it,g.agents,g.canEdit)+(g.canEdit?Access.btn(it):Access.who(it)));if(it.owner!==ag)r.querySelector('.txt')?.insertAdjacentHTML('beforeend',Access.from(it))}Access.bindOwners(el)}}}
-{const base=PAGES.plugins;PAGES.plugins=async(p,el)=>{await base(p,el);if((S.tab.plugins||'Installed')!=='Installed')return;
+{const base=PAGES.plugins;PAGES.plugins=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;if((S.tab.plugins||'Installed')!=='Installed')return;
  // plugins stay in their groups (model providers, browser…); each row gets who uses it, and the page may redraw itself
- const d=await Access.load('plugin');if(!d)return Access.failed(el,'who owns and uses each plugin');const ag=viewing();
+ const d=await Access.load('plugin');if(gone())return;if(!d)return Access.failed(el,'who owns and uses each plugin');const ag=viewing();
  const deco=()=>{for(const r of el.querySelectorAll('.row[data-pl]:not([data-acc])')){const it=d.items.find(x=>x.id===r.dataset.pl);r.dataset.acc='1';if(!it)continue;
   r.querySelectorAll('.share-box,.chip.access').forEach(x=>x.remove());r.querySelector('.act')?.insertAdjacentHTML('afterbegin',Access.owner(it,d.agents,d.canEdit)+(d.canEdit?Access.btn(it):Access.who(it)));if(it.owner!==ag)r.querySelector('.txt')?.insertAdjacentHTML('beforeend',Access.from(it))}Access.bindOwners(el)};
  deco();const mo=new MutationObserver(()=>{if(!el.isConnected||route().page?.id!=='plugins')return mo.disconnect();deco()});mo.observe(el,{childList:true,subtree:true})}}
-{const base=PAGES.keys;PAGES.keys=async(p,el)=>{await base(p,el);if(S.me?.admin===false)return;const d=await Access.load('key');if(!d)return Access.failed(el,'who owns and uses each key');const ag=viewing();
+{const base=PAGES.keys;PAGES.keys=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;if(S.me?.admin===false)return;const d=await Access.load('key');if(gone())return;if(!d)return Access.failed(el,'who owns and uses each key');const ag=viewing();
  for(const b of el.querySelectorAll('[data-act="key-edit"]')){const k=b.dataset.k;const it=d.items.find(x=>x.label===k&&x.users.some(u=>u.id===ag));if(!it)continue;const row=b.closest('.field')||b.parentElement;if(row.dataset.acc)continue;row.dataset.acc='1';
   b.parentElement.insertAdjacentHTML('afterbegin',Access.owner(it,d.agents,d.canEdit)+(it.bot?Access.who(it):Access.btn(it)));if(it.owner!==ag)row.querySelector('label')?.insertAdjacentHTML('beforeend','<small>'+Access.from(it)+'</small>')}Access.bindOwners(el)}}
 

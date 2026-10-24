@@ -141,7 +141,7 @@ const Metrics={c:{},
  async ask(){const k='hui-metricsAsked:'+this.who();try{if(sessionStorage.getItem(k))return;sessionStorage.setItem(k,'1')}catch{}
   const c=await H('/shared-metrics/consent',{keep:true}).catch(()=>null);if(!c||c.managed||(c.decided&&!c.reask))return;this.c[this.who()]=c;
   Notices.show({icon:'chart',kind:'blue',key:'metrics-ask',life:600000,title:c.reask?'Usage stats: asking once more':'Share anonymous usage stats?',text:c.reask?'An older version could save “No thanks” before you saw this question. To share, choose on System › Settings.':'Only counts, never what you write or your files. You choose per agent.',actions:[c.reask?{label:'No thanks',run:()=>this.save(false,false)}:{label:'Choose',go:'/system/settings'}]})}};
-{const settings=PAGES.settings;PAGES.settings=async(p,el,r)=>{await settings(p,el,r);Metrics.mount(el)}}
+{const settings=PAGES.settings;PAGES.settings=async(p,el,r)=>{const gone=pageTok(el);await settings(p,el,r);if(gone())return;Metrics.mount(el)}}
 boot();
 
 // F26 rows you can reach with Tab (schedules, inbox items, file tiles, agent cards) open with Enter or Space too

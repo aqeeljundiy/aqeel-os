@@ -51,7 +51,7 @@ PAGES.schedules=async(p,el)=>{
  // agent is read once a visit, and the page is drawn again if one changed
  if(SCHED.tzNav!==nav){SCHED.tzNav=nav;const ags=[...new Set(jobs.map(j=>j.profile||'default'))];
   Promise.all(ags.map(a=>H('/config?profile='+encodeURIComponent(a)).then(c=>[a,c.timezone||''],()=>null))).then(l=>{let ch=false;for(const x of l)if(x&&SCHED.tzs[x[0]]!==x[1]){SCHED.tzs[x[0]]=x[1];ch=true}
-   if(!ch)return;store.set('schedTzs',SCHED.tzs);if(route().page?.id==='schedules'&&S._nav===nav&&el.isConnected)PAGES.schedules(p,el).catch(()=>{})})}
+   if(!ch)return;store.set('schedTzs',SCHED.tzs);if(route().page?.id==='schedules'&&S._nav===nav&&el.isConnected)(pageRun(el),PAGES.schedules(p,el)).catch(()=>{})})}
  const I=SCHED.info,admin=S.me?.admin!==false;
  // empty folders are the admins' filing: a member with no schedules of their own sees the empty page, not "Nothing matches"
  if(!jobs.length&&!(admin&&(I.folders||[]).length)){el.innerHTML=emptyBox('No schedules yet','Have aqeelOS do something on a timetable, like a morning report on Telegram.',`<button class="primary" data-act="cron-new">${icon('plus',16)}New schedule</button>`);return}
@@ -89,11 +89,11 @@ PAGES.schedules=async(p,el)=>{
   ${admin?`<button class="ghost" data-act="sched-folder-new">${icon('plus',16)}New folder</button>`:''}</div>
   ${order.length?order.map(f=>{const l=groups[f],shut=folds[f]!==false&&!q;return `<section class="sched-folder ${shut?'shut':''} ${colors[f]?'c-'+colors[f]:''}" data-folder="${esc(f)}"><button class="sf-head" data-act="sched-fold" data-f="${esc(f)}" aria-expanded="${!shut}" ${admin?'draggable="true" title="Drag to reorder"':''}>${icon('chevD',16)}<span class="sf-ic">${icon('folder',16)}</span><b>${esc(f)}</b><span class="n">${l.length}</span>${month(l)?`<span class="sf-cost">≈ ${usd(month(l))} this month</span>`:''}${admin?`<span class="sf-more" data-act="sched-folder-menu" data-f="${esc(f)}" role="button" tabindex="0" aria-label="Folder options">${icon('more',16)}</span>`:''}</button><div class="sf-body"><div class="card list">${l.length?l.map(row).join(''):`<div class="sf-empty">Nothing here yet. Drag a schedule onto this folder, or use ⋯ › Move to folder.</div>`}</div></div></section>`}).join(''):emptyBox('Nothing matches','Try another word or agent.')}`;
  if(admin)schedDrag(el);
- let t;$('#schedQ').oninput=e=>{clearTimeout(t);t=setTimeout(()=>{SCHED.q=e.target.value;PAGES.schedules(p,el).then(()=>{const i=$('#schedQ');if(!i)return;i.focus();i.setSelectionRange(i.value.length,i.value.length)})},200)};
+ let t;$('#schedQ').oninput=e=>{clearTimeout(t);t=setTimeout(()=>{SCHED.q=e.target.value;(pageRun(el),PAGES.schedules(p,el)).then(()=>{const i=$('#schedQ');if(!i)return;i.focus();i.setSelectionRange(i.value.length,i.value.length)})},200)};
  // descriptions still being written: look again in a little while
  clearTimeout(SCHED.t);clearTimeout(SCHED.pt);
  // the server had only just started and sent no runs yet (no costs or "took"): they follow in a few seconds
- if(!info?.partial)SCHED.ptries=0;else if((SCHED.ptries=(SCHED.ptries||0)+1)<=5)SCHED.pt=setTimeout(()=>{if(route().page?.id==='schedules'&&S._nav===nav&&el.isConnected&&!$('.drawer')&&document.activeElement?.id!=='schedQ')PAGES.schedules(p,el).catch(()=>{})},3000);if(jobs.some(j=>!schedMeta(j).m.summary&&!schedMeta(j).m.tries)&&(SCHED.tries=(SCHED.tries||0)+1)<=4)SCHED.t=setTimeout(()=>{if(route().page?.id==='schedules'&&S._nav===nav&&!document.hidden&&!$('.drawer')&&document.activeElement?.id!=='schedQ')PAGES.schedules(p,el).catch(()=>{})},45000);
+ if(!info?.partial)SCHED.ptries=0;else if((SCHED.ptries=(SCHED.ptries||0)+1)<=5)SCHED.pt=setTimeout(()=>{if(route().page?.id==='schedules'&&S._nav===nav&&el.isConnected&&!$('.drawer')&&document.activeElement?.id!=='schedQ')(pageRun(el),PAGES.schedules(p,el)).catch(()=>{})},3000);if(jobs.some(j=>!schedMeta(j).m.summary&&!schedMeta(j).m.tries)&&(SCHED.tries=(SCHED.tries||0)+1)<=4)SCHED.t=setTimeout(()=>{if(route().page?.id==='schedules'&&S._nav===nav&&!document.hidden&&!$('.drawer')&&document.activeElement?.id!=='schedQ')(pageRun(el),PAGES.schedules(p,el)).catch(()=>{})},45000);
 };
 ACT['sched-agent-pick']=a=>{const ag=[...new Set((Pages.cronJobs||[]).map(j=>j.profile||'default'))];
  menu(a,[{label:'All agents',icon:'layers',on:!SCHED.agent,run:()=>{SCHED.agent='';store.set('schedAgent','');reload()}},'-',...ag.map(n=>({label:ident(n).name,icon:'user',ava:agentAvatar(n,20,{title:false}),on:SCHED.agent===n,sub:plural((Pages.cronJobs||[]).filter(j=>(j.profile||'default')===n).length,'schedule'),run:()=>{SCHED.agent=n;store.set('schedAgent',n);reload()}}))],{search:ag.length>6,matchWidth:true})};
@@ -179,17 +179,17 @@ async function cronDetail(j){const {m,r}=schedMeta(j);const prof=j.profile||'def
 
 /* ---------- Models › Usage: where the money goes. This month by agent and by schedule, against last month, with a
    warning when the last week costs much more than usual. Subscription use is shown at pay-per-use prices. ---------- */
-{const base=PAGES.usage;PAGES.usage=async(p,el)=>{await base(p,el);if(S.me?.admin===false)return;
+{const base=PAGES.usage;PAGES.usage=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;if(S.me?.admin===false)return;
  const panel=document.createElement('div');panel.className='panel card spend';panel.innerHTML='<h2>Spending overview</h2><p class="sub">Estimated at pay-per-use prices. What a subscription covers is included, so you can see what each part would cost.</p><div class="skel" style="height:120px"></div>';
  el.prepend(panel);
- let agents=[];try{const pr=await H('/profiles');agents=(Array.isArray(pr)?pr:pr.profiles||[]).map(x=>x.name)}catch{}if(!agents.length)agents=['default'];
+ let agents=[];try{const pr=await H('/profiles');agents=(Array.isArray(pr)?pr:pr.profiles||[]).map(x=>x.name)}catch{}if(gone())return;if(!agents.length)agents=['default'];
  const now=new Date(),mStart=new Date(now.getFullYear(),now.getMonth(),1),lStart=new Date(now.getFullYear(),now.getMonth()-1,1);const day=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
- const per=await Promise.all(agents.map(a=>call('/hapi','/analytics/usage?days=62&profile='+encodeURIComponent(a)).then(u=>({a,u})).catch(()=>({a,u:{daily:[]}}))));
+ const per=await Promise.all(agents.map(a=>call('/hapi','/analytics/usage?days=62&profile='+encodeURIComponent(a)).then(u=>({a,u})).catch(()=>({a,u:{daily:[]}}))));if(gone())return;
  const sum=(l,from,to)=>l.filter(d=>d.day>=from&&(!to||d.day<to)).reduce((s,d)=>s+(d.estimated_cost||d.actual_cost||0),0);
  const rows=per.map(({a,u})=>{const d=u.daily||[];return {a,month:sum(d,day(mStart)),last:sum(d,day(lStart),day(mStart)),wk:sum(d,day(new Date(Date.now()-7*864e5))),prev:sum(d,day(new Date(Date.now()-35*864e5)),day(new Date(Date.now()-7*864e5)))/4}}).sort((x,y)=>y.month-x.month);
  const total=rows.reduce((s,r)=>s+r.month,0),lastT=rows.reduce((s,r)=>s+r.last,0);const dayOf=now.getDate(),days=new Date(now.getFullYear(),now.getMonth()+1,0).getDate();
- let info=SCHED.info;if(!info?.runs||info.partial)try{info=SCHED.info=await UI('/ui/schedules/info')}catch{info={runs:{}}}
- const jobs=Pages.cronJobs||await H('/cron/jobs?profile=all').catch(()=>[]);const top=Object.entries(info.runs||{}).map(([k,r])=>{const [pr,id]=k.split('|');const j=jobs.find(x=>x.id===id&&(x.profile||'default')===pr);return {k,j,r}}).filter(x=>x.r.cost>0).sort((a,b)=>b.r.cost-a.r.cost).slice(0,5);
+ let info=SCHED.info;if(!info?.runs||info.partial)try{info=SCHED.info=await UI('/ui/schedules/info')}catch{info={runs:{}}}if(gone())return;
+ const jobs=Pages.cronJobs||await H('/cron/jobs?profile=all').catch(()=>[]);if(gone())return;const top=Object.entries(info.runs||{}).map(([k,r])=>{const [pr,id]=k.split('|');const j=jobs.find(x=>x.id===id&&(x.profile||'default')===pr);return {k,j,r}}).filter(x=>x.r.cost>0).sort((a,b)=>b.r.cost-a.r.cost).slice(0,5);
  const spikes=rows.filter(r=>r.prev>0.5&&r.wk>r.prev*1.8);
  panel.innerHTML=`<h2>Spending overview</h2><p class="sub">Estimated at pay-per-use prices. What a subscription covers is included, so you can see what each part would cost.</p>
   <div class="sd-facts"><div><small>This month so far</small><b>≈ ${usd(total)}</b></div><div><small>On pace for</small><b>≈ ${usd(total/dayOf*days)}</b></div><div><small>Last month</small><b>${lastT<0.01?'No use yet':'≈ '+usd(lastT)}</b></div></div>
@@ -215,11 +215,11 @@ function viewPick(list){const box=$('.page-head .head-actions');if(!box)return;l
  b.innerHTML=`${agentAvatar(viewing(),32,{cls:'vp-ava',title:false})}<span class="vp-t"><small>Showing</small><b>${esc(i.name)}</b></span>${icon('chevD',15)}`}
 for(const id of ['skills','mcp','plugins','webhooks','pairing','files','memory','models','keys','logs','settings']){const base=PAGES[id];if(!base)continue;PAGES[id]=async(p,el)=>{
  // the agent being looked at decides whose data loads (cleared again on other pages, see agentProfile)
- viewPick(await viewAgents());return base(p,el)}}
+ const gone=pageTok(el);viewPick(await viewAgents());if(!gone())return base(p,el)}}
 ACT['view-pick']=async a=>{const list=await viewAgents(),me=S.profile||'default';
  menu(a,[{header:'Show whose'},...list.map(n=>({label:ident(n).name,icon:'user',ava:agentAvatar(n,20,{title:false}),on:n===viewing(),sub:n===me?'You chat with this one':'',run:()=>{if(n===viewing())return;S.viewAgent=n===me?null:n;Pages._toolCache=null;Pages._dirty=null;reload()}}))],{search:list.length>6,matchWidth:true})};
 // skills in folders by category
-{const base=PAGES.skills;PAGES.skills=async(p,el)=>{await base(p,el);if((S.tab.skills||'Installed')!=='Installed'||S.skillQ||(S.skillCat&&S.skillCat!=='All'))return;
+{const base=PAGES.skills;PAGES.skills=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;if((S.tab.skills||'Installed')!=='Installed'||S.skillQ||(S.skillCat&&S.skillCat!=='All'))return;
  const card=el.querySelector('.card.list');const rows=[...card?.querySelectorAll('.row[data-act="sk-open"]')||[]];if(rows.length<8)return;
  const cat=n=>(Pages._skills||[]).find(s=>s.name===n)?.category||'other';const groups={};for(const r of rows)(groups[cat(r.dataset.name)]??=[]).push(r);
  const shut=store.get('skFold',{});const box=document.createElement('div');
@@ -234,10 +234,10 @@ ACT['sk-fold']=a=>{const sec=a.closest('.sched-folder');const s=!sec.classList.c
    picks the right one. Connect another asks the agent, which sends a one-click Google sign-in link. ---------- */
 const gaccWhat=sc=>[...new Set(sc.map(s=>/gmail/.test(s)?'Gmail':/drive/.test(s)?'Drive':/calendar/.test(s)?'Calendar':/spreadsheets/.test(s)?'Sheets':/documents/.test(s)?'Docs':/presentations/.test(s)?'Slides':/contacts/.test(s)?'Contacts':'').filter(Boolean))].join(', ');
 const gaccTitle=x=>x.label||(x.name?pretty(x.name):'Main Google account');
-{const base=PAGES.mcp;PAGES.mcp=async(p,el)=>{await base(p,el);if((S.tab.mcp||'Your servers')!=='Your servers')return;const ag=viewing();
- let d;try{d=await UI('/ui/google-accounts?agent='+encodeURIComponent(ag))}catch{   // not loaded: the panel says so (never gone, never "no account yet")
+{const base=PAGES.mcp;PAGES.mcp=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;if((S.tab.mcp||'Your servers')!=='Your servers')return;const ag=viewing();
+ let d;try{d=await UI('/ui/google-accounts?agent='+encodeURIComponent(ag))}catch{if(gone())return;   // not loaded: the panel says so (never gone, never "no account yet")
   const panel=document.createElement('div');panel.className='panel card gacc-panel';panel.style.marginBottom='16px';panel.innerHTML=`<h2>Google accounts</h2>${errLine(ident(ag).name+'’s Google accounts')}`;const t=el.querySelector('.tabs,[role=tablist]');t?t.after(panel):el.prepend(panel);return}
- const l=d.accounts||[];Pages._gacc=l;(Pages._gaccBy||={})[ag]=l;
+ if(gone())return;const l=d.accounts||[];Pages._gacc=l;(Pages._gaccBy||={})[ag]=l;
  const edit=mayEdit(ag);   // an agent's owner (or editor) may name its accounts too, as the server allows
  const panel=document.createElement('div');panel.className='panel card gacc-panel';panel.style.marginBottom='16px';
  panel.innerHTML=`<h2 class="h-row">Google accounts<span class="chip">${l.length}</span></h2><p class="sub">${l.length?`${esc(ident(ag).name)} can use ${l.length===1?'this account':'these accounts'} for Gmail, Drive, Sheets, Docs and Calendar. Give each a name and say what it is for, and ${esc(ident(ag).name)} picks the right one when you ask (“send it from my Elkiya account”).`:`${esc(ident(ag).name)} has no Google account yet. Connect one to let it read and send Gmail, and work in Drive, Sheets, Docs and Calendar.`}</p>
@@ -259,7 +259,7 @@ ACT['gacc-del']=async a=>{const ag=a.dataset.agent||viewing(),who=ident(ag).name
  try{if(!(a.dataset.email&&await Access.removeShared('google',a.dataset.email,ag)))await del(UI,'/ui/google-accounts?agent='+encodeURIComponent(ag)+'&name='+encodeURIComponent(a.dataset.n));toast(a.dataset.e+' removed from '+who);reload()}catch(e){fail(e)}};   // shared: the access rules decide (Access.removeShared)
 
 /* ---------- System › Host: who can reach the AI box over SSH (a teammate's laptop, Codex or Cursor on a PC…) ---------- */
-{const base=PAGES.host;PAGES.host=async(p,el)=>{await base(p,el);if(S.me?.admin===false)return;let d;try{d=await UI('/ui/ssh-keys')}catch{return}
+{const base=PAGES.host;PAGES.host=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;if(S.me?.admin===false)return;let d;try{d=await UI('/ui/ssh-keys')}catch{return}if(gone())return;
  const panel=document.createElement('div');panel.className='panel card';panel.style.marginTop='16px';
  const paint=()=>{panel.innerHTML=`<h2>Access to the AI box</h2><p class="sub">Each laptop or AI tool (Codex, Cursor, Claude Code on another PC) gets its own key, so you can remove one without touching the others. Only the public key is ever pasted here.</p>
   ${d.keys.map((k,i)=>`<div class="row" ${st(i)} style="padding:10px 0;border-top:1px solid var(--border)"><div class="main-c"><span class="ic blue">${icon('key',16)}</span><div class="txt"><b>${esc(k.name.replace(/-/g,' '))}</b><span style="font-family:var(--mono);font-size:11.5px">${esc(k.type)} · ${esc(k.fp)}${k.protected?' · used by aqeelOS’s builder':''}</span></div></div><div class="act">${k.protected?'':`<button class="ghost" data-act="ssh-del" data-fp="${esc(k.fp)}" data-n="${esc(k.name)}" style="color:var(--bad)">${icon('trash',15)}Remove</button>`}</div></div>`).join('')}

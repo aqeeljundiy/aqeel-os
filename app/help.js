@@ -92,10 +92,10 @@ addEventListener('hashchange',e=>{const old='#'+(String(e.oldURL||'').split('#')
 Poll.add(()=>Help.peek(),120000,6000);
 
 /* ---------- System › Settings › Help (admins): one model for everyone, and the daily message limit ---------- */
-{const settings=PAGES.settings;PAGES.settings=async(p,el,r)=>{await settings(p,el,r);if(S.me?.admin===false||el.querySelector('#helpSet'))return;
+{const settings=PAGES.settings;PAGES.settings=async(p,el,r)=>{const gone=pageTok(el);await settings(p,el,r);if(gone())return;if(S.me?.admin===false||el.querySelector('#helpSet'))return;
  const box=document.createElement('div');box.className='panel card help-set';box.style.marginBottom='16px';box.innerHTML=`<h2>Help</h2><p class="sub">The help chat at the bottom of the menu. Everyone uses this model, whatever their role; people’s own model lists and daily limits don’t apply to it.</p><div id="helpSet">${skeleton()}</div>`;
  const mail=el.querySelector('#mailBox')?.closest('.panel');mail?mail.after(box):el.prepend(box);
- const draw=async()=>{const host=box.querySelector('#helpSet');let d;try{d=await UI('/ui/help/settings')}catch(e){if(!e.stale)host.innerHTML=errLine('the Help settings');return}
+ const draw=async()=>{const host=box.querySelector('#helpSet');let d;try{d=await UI('/ui/help/settings')}catch(e){if(!e.stale&&box.isConnected)host.innerHTML=errLine('the Help settings');return}if(!box.isConnected)return;
   const cur=d.model?modelLabel(d.model)+' · '+((d.providers||[]).find(x=>x.slug===d.provider)?.name||d.provider):'The main agent’s model'+(d.fallback?.model?' ('+modelLabel(d.fallback.model)+')':'');
   host.innerHTML=`<div class="help-set-row"><div><b>Help model</b><p class="hint">Picked from the models the engine offers.</p></div><button type="button" class="sel-btn inline" id="hsModel" aria-haspopup="menu"><span class="sv">${esc(cur)}</span>${icon('chevD',15)}</button></div>
    <div class="help-set-row"><div><b>Messages per person a day</b><p class="hint">Shown to people when they reach it.</p></div><button type="button" class="sel-btn inline" id="hsLimit" aria-haspopup="menu"><span class="sv">${d.limit} a day</span>${icon('chevD',15)}</button></div>`;

@@ -4,7 +4,7 @@
 // their request_access and offer_access tools.
 const ASK_KIND={mcp:['mcp','google'],plugins:['plugin'],keys:['key']};
 const ASK_ICON={mcp:'plug',google:'mail',plugin:'layers',key:'key'};
-async function askSection(id,el){const ag=viewing();let d;try{d=await UI('/ui/access/others?agent='+encodeURIComponent(ag))}catch{return}
+async function askSection(id,el,gone){const ag=viewing();let d;try{d=await UI('/ui/access/others?agent='+encodeURIComponent(ag))}catch{return}if(gone?.())return;
  const items=(d.items||[]).filter(x=>ASK_KIND[id].includes(x.kind));el.querySelector('.ask-others')?.remove();if(!items.length)return;
  const admin=S.me?.admin!==false,asked=new Set(d.asked||[]),me=ident(ag).name;
  const box=document.createElement('div');box.className='acc-group ask-others';
@@ -15,5 +15,5 @@ async function askSection(id,el){const ag=viewing();let d;try{d=await UI('/ui/ac
 ACT['ask-give']=async a=>{a.disabled=true;a.innerHTML='<span class="spinner tiny"></span>Giving…';try{await post(UI,'/ui/access',{kind:a.dataset.kind,id:a.dataset.id,agent:viewing(),on:true});toast(ident(viewing()).name+' can use it · ready in about a minute');reload()}catch(e){a.disabled=false;fail(e)}};
 ACT['ask-get']=async a=>{const why=await promptBox('Ask for '+a.dataset.label,'What '+ident(viewing()).name+' needs it for (an admin reads this)','','Ask');if(why==null)return;
  a.disabled=true;a.innerHTML='<span class="spinner tiny"></span>Asking…';try{await post(UI,'/ui/access/ask',{kind:a.dataset.kind,id:a.dataset.id,agent:viewing(),why});a.outerHTML='<span class="chip">Asked · waiting</span>';toast('Asked · an admin decides under Bottlenecks')}catch(e){a.disabled=false;fail(e)}};
-for(const id of Object.keys(ASK_KIND)){const base=PAGES[id];if(!base)continue;PAGES[id]=async(p,el,r)=>{await base(p,el,r);if(showingAll())return;
- if(id==='mcp'&&(S.tab.mcp||'Your servers')!=='Your servers')return;if(id==='plugins'&&(S.tab.plugins||'Installed')!=='Installed')return;await askSection(id,el)}}
+for(const id of Object.keys(ASK_KIND)){const base=PAGES[id];if(!base)continue;PAGES[id]=async(p,el,r)=>{const gone=pageTok(el);await base(p,el,r);if(gone())return;if(showingAll())return;
+ if(id==='mcp'&&(S.tab.mcp||'Your servers')!=='Your servers')return;if(id==='plugins'&&(S.tab.plugins||'Installed')!=='Installed')return;await askSection(id,el,gone)}}

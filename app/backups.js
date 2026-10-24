@@ -1,5 +1,5 @@
 // Backups (System › Health): the last backup to Google Drive, the last restore test, and buttons for both
-const Backups={async card(el){if(S.me?.admin===false)return;let d;try{d=await UI('/ui/backups')}catch{return}
+const Backups={async card(el,gone){if(S.me?.admin===false)return;let d;try{d=await UI('/ui/backups')}catch{return}if(gone?.())return;   // a newer drawing of the page adds its own card
   const box=document.createElement('div');box.className='panel card backups-card';const last=d.last,t=d.test;
   const when=x=>x?new Date(x).toLocaleString([], {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'';
   box.innerHTML='<div class="bk-head"><div><h2>Backups</h2><p class="sub">Every night at 03:00 to '+esc(d.where)+(d.account?' ('+esc(d.account)+')':'')+', encrypted. The newest '+d.keep+' are kept.</p></div><div class="bk-acts"><button class="ghost small" data-act="backup-key">Backup key</button><button class="ghost small" data-act="backup-test">Test a restore</button><button class="primary small" data-act="backup-run">Back up now</button></div></div>'
@@ -10,4 +10,4 @@ ACT['backup-run']=async()=>{try{await post(UI,'/ui/backups/run',{});toast('Backi
 ACT['backup-test']=async()=>{try{const r=await post(UI,'/ui/backups/test',{});toast('Restore test passed');reload()}catch(e){fail(e)}};
 ACT['backup-key']=async()=>{try{const {key}=await UI('/ui/backups/key');const d=drawer('Backup key','<p class="hint" style="margin:0 0 12px">Backups can only be opened with this key. Keep a copy somewhere safe outside the AI box (your password manager): if the box is ever lost, you need it to restore.</p><div class="secret-card"><div class="sc-row"><input readonly value="'+esc(key)+'"><button class="ghost small" data-act="copy-text" data-text="'+esc(key)+'">Copy</button></div></div>','<button class="ghost" data-act="close">Close</button>')}catch(e){fail(e)}};
 // the card goes on System › Health (health-page.js replaced the old status page before this file loads), at its end
-{const base=PAGES.health;PAGES.health=async(p,el,r)=>{await base(p,el,r);const box=document.createElement('div');box.className='backups-slot';el.append(box);await Backups.card(box)}}
+{const base=PAGES.health;PAGES.health=async(p,el,r)=>{const gone=pageTok(el);await base(p,el,r);if(gone())return;const box=document.createElement('div');box.className='backups-slot';el.append(box);await Backups.card(box,gone)}}

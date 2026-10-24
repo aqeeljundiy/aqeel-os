@@ -53,9 +53,9 @@ async function inviteView(root,code){
    S.signedIn=true;history.replaceState(null,'','/#/chat');await boot()}finally{b.disabled=false}}}
 
 /* ---------- People page (System › People) ---------- */
-PAGES.people=async(p,el)=>{
+PAGES.people=async(p,el)=>{const gone=pageTok(el);
  setActions(`<button class="primary" data-act="ppl-invite">${icon('plus',16)}Invite someone</button>`);
- const [d,pr]=await Promise.all([UI('/ui/people'),H('/profiles').catch(()=>({profiles:[]}))]);Pages._ppl=d;Pages._agents=(pr.profiles||[]).map(x=>x.name);
+ const [d,pr]=await Promise.all([UI('/ui/people'),H('/profiles').catch(()=>({profiles:[]}))]);if(gone())return;Pages._ppl=d;Pages._agents=(pr.profiles||[]).map(x=>x.name);
  const sharesOf=id=>Object.entries(d.shares||{}).filter(([,m])=>m[id]).map(([a,m])=>[a,m[id]]);
  const person=(u,i)=>{const sh=sharesOf(u.id);const self=u.id===S.me?.id;return `<div class="card person" ${st(i)}><div class="person-head ${self?'self':''}" ${self?'data-act="me-profile" role="button" tabindex="0"':''}>${personAva(u,40)}<div class="txt"><b>${esc(u.name)}</b><span>${u.username?'@'+esc(u.username)+' · ':''}${esc(ROLE_LABEL[u.role])}${self?' · edit your profile':''}${u.last?' · seen '+ago(u.last/1000):''}</span></div></div>
    ${u.role==='owner'||self||u.role==='admin'&&S.me?.role!=='owner'?'':`<button class="ghost icon-btn more" data-menu="person" data-id="${esc(u.id)}" aria-label="More">${icon('more',18)}</button>`}
@@ -187,7 +187,7 @@ ACT['agent-share']=async name=>{let people=[];try{people=await UI('/ui/people/li
  const real=window.menu;window.menu=(a,items,...rest)=>{window.menu=real;const extra=o?.access==='owner'?[{label:'Sharing and owner…',icon:'user',run:()=>ACT['agent-share'](n)},'-']:[];return real(a,[...extra,...items],...rest)};
  try{withShare(el)}catch(e){window.menu=real;throw e}}}
 
-async function mailPanel(){const box=$('#mailBox');if(!box)return;let m;try{m=await UI('/ui/mail')}catch(e){box.innerHTML='<p class="hint">Only admins can change this.</p>';return}
+async function mailPanel(){const box=$('#mailBox');if(!box)return;let m;try{m=await UI('/ui/mail')}catch(e){if(box.isConnected)box.innerHTML='<p class="hint">Only admins can change this.</p>';return}if(!box.isConnected)return;   // the page was drawn again meanwhile
  box.innerHTML=`<label>Send email</label><select id="mlMode"><option value="direct" ${m.mode==='direct'?'selected':''}>Straight from the server (free, often in spam)</option><option value="smtp" ${m.mode==='smtp'?'selected':''}>Through a mail account (reliable)</option></select>
   <label>From</label><input id="mlFrom" value="${esc(m.from)}">
   <div id="mlSmtp" ${m.mode==='smtp'?'':'hidden'}><div class="sched-row"><div><label>Server</label><input id="mlHost" value="${esc(m.host)}" placeholder="smtp.gmail.com"></div><div><label>Port</label><input id="mlPort" value="${esc(String(m.port||''))}" placeholder="587"></div></div>
@@ -198,7 +198,7 @@ async function mailPanel(){const box=$('#mailBox');if(!box)return;let m;try{m=aw
  $('#mlSave').onclick=async()=>{try{await put(UI,'/ui/mail',{mode:$('#mlMode').value,from:$('#mlFrom').value,host:$('#mlHost').value,port:$('#mlPort').value,user:$('#mlUser').value,pass:$('#mlPass').value||undefined});toast('Email settings saved')}catch(e){fail(e)}};
  $('#mlTest').onclick=async()=>{const b=$('#mlTest');b.disabled=true;try{await post(UI,'/ui/mail/test',{to:$('#mlTo').value});toast('Test sent. Check the inbox and spam.')}catch(e){fail(e)}finally{b.disabled=false}}}
 // Email sending lives on Settings (agreed layout, 18 Oct): sign-in codes and invites
-{const settings=PAGES.settings;PAGES.settings=async(p,el)=>{await settings(p,el);if(S.me?.admin===false||el.querySelector('#mailBox'))return;
+{const settings=PAGES.settings;PAGES.settings=async(p,el)=>{const gone=pageTok(el);await settings(p,el);if(gone())return;if(S.me?.admin===false||el.querySelector('#mailBox'))return;
  const box=document.createElement('div');box.className='panel card';box.style.marginBottom='16px';box.innerHTML=`<h2>Email sending</h2><p class="sub">Used for sign-in codes and invites.</p><div id="mailBox">${skeleton(1)}</div>`;el.prepend(box);mailPanel()}}
 
 /* ---------- per person: which models, and a daily limit ---------- */
@@ -211,7 +211,7 @@ ACT['ppl-models']=async a=>{const u=(Pages._ppl?.users||[]).find(x=>x.id===a.dat
  d.querySelector('#pmAll').onchange=e=>d.querySelector('#pmList').hidden=e.target.checked;
  d.querySelector('#pmGo').onclick=async()=>{const all=d.querySelector('#pmAll').checked;const list=[...d.querySelectorAll('#pmList input:checked')].map(i=>i.value);if(!all&&!list.length)return toast('Pick at least one model','err');
   try{await UI('/ui/people/'+u.id,{method:'PATCH',body:{models:all?null:list}});closeLayers();toast('Saved');reload()}catch(e){fail(e)}}};
-{const people=PAGES.people;PAGES.people=async(p,el)=>{await people(p,el);
+{const people=PAGES.people;PAGES.people=async(p,el)=>{const gone=pageTok(el);await people(p,el);if(gone())return;
  el.querySelectorAll('.person').forEach(card=>{const id=card.querySelector('[data-cap]')?.dataset.user;const u=(Pages._ppl?.users||[]).find(x=>x.id===id);if(!u||u.role!=='member')return;
   const box=document.createElement('div');box.className='pcaps';box.innerHTML=`<span class="th">Models and limit</span>
    <div class="pshare"><b>Models</b><button type="button" class="sel-btn inline" data-act="ppl-models" data-id="${esc(u.id)}" aria-haspopup="dialog" title="${esc(modelSummary(u))}"><span class="sv">${esc(modelSummary(u))}</span>${icon('chevD',15)}</button></div>
@@ -220,8 +220,8 @@ ACT['ppl-models']=async a=>{const u=(Pages._ppl?.users||[]).find(x=>x.id===a.dat
  el.querySelectorAll('[data-limit]').forEach(s=>s.onchange=async()=>{try{await UI('/ui/people/'+s.dataset.limit,{method:'PATCH',body:{limit:+s.value?{tokens:+s.value}:null}});toast('Saved')}catch(e){fail(e)}})}}
 
 /* ---------- System › Usage: by person, by agent, by model ---------- */
-{const base=PAGES.usage;PAGES.usage=async(p,el)=>{await base(p,el);
- const days=+String(S.tab.usage||'7 days').split(' ')[0]||7;let d;try{d=await UI('/ui/usage?days='+days+(S.usageAgent&&S.usageAgent!=='*'?'&agent='+encodeURIComponent(S.usageAgent):''))}catch{return}
+{const base=PAGES.usage;PAGES.usage=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;
+ const days=+String(S.tab.usage||'7 days').split(' ')[0]||7;let d;try{d=await UI('/ui/usage?days='+days+(S.usageAgent&&S.usageAgent!=='*'?'&agent='+encodeURIComponent(S.usageAgent):''))}catch{return}if(gone())return;
  const tok=o=>num((o.input||0)+(o.output||0));
  const table=(title,rows,label)=>rows.length?`<div class="panel card" style="margin-top:16px"><h2>${title}</h2><div class="utable"><div class="uh"><span>${label}</span><span>Chats</span><span>Messages</span><span>Tokens</span><span>Cache</span><span>Est. cost</span></div>
   ${rows.map(([k,o,head])=>`<div class="ur">${head}<span>${num(o.chats)}</span><span>${num(o.messages)}</span><span>${tok(o)}</span><span>${num(o.cache)}</span><span>${money(o.cost||0,{cents:true})}</span></div>`).join('')}</div></div>`:'';
@@ -231,7 +231,7 @@ ACT['ppl-models']=async a=>{const u=(Pages._ppl?.users||[]).find(x=>x.id===a.dat
  const box=document.createElement('div');box.innerHTML=(d.today?`<div class="panel card" style="margin-top:16px"><h2>You today</h2><p class="sub" style="margin:0">${num(d.today.tokens)} tokens in ${num(d.today.messages)} messages${d.people?.[S.me?.id]?.limit?` of your ${num(d.people[S.me.id].limit.tokens)} a day`:''}.</p></div>`:'')
   +(d.failed?.length?alertBox(`Chats of ${esc(d.failed.map(a=>ident(a).name).join(', '))} couldn’t be read, so the tables below are incomplete.`,{style:'margin:16px 0 0'}):'')+table('By person',ppl,'Person')+table('By agent',ags,'Agent');el.append(box);
  // Code runs (desktop app and online), by person, agent and project
- let c;try{c=await UI('/ui/code/usage?days='+days)}catch{return}const ctab=(title,rows,label)=>rows.length?`<div class="panel card" style="margin-top:16px"><h2>${title}</h2><div class="utable ucode"><div class="uh"><span>${label}</span><span>Runs</span><span>Tokens</span><span>Cache</span></div>${rows.map(([k,o,head])=>`<div class="ur">${head}<span>${num(o.runs)}</span><span>${tok(o)}</span><span>${num(o.cache)}</span></div>`).join('')}</div></div>`:'';
+ let c;try{c=await UI('/ui/code/usage?days='+days)}catch{return}if(gone())return;const ctab=(title,rows,label)=>rows.length?`<div class="panel card" style="margin-top:16px"><h2>${title}</h2><div class="utable ucode"><div class="uh"><span>${label}</span><span>Runs</span><span>Tokens</span><span>Cache</span></div>${rows.map(([k,o,head])=>`<div class="ur">${head}<span>${num(o.runs)}</span><span>${tok(o)}</span><span>${num(o.cache)}</span></div>`).join('')}</div></div>`:'';
  const srt=o=>Object.entries(o||{}).sort((a,b)=>(b[1].input+b[1].output)-(a[1].input+a[1].output));
  const cp=srt(c.byPerson).map(([id,o])=>{const x=c.people?.[id]||{name:id};return [id,o,`<span class="uname">${personAva({id,...x},24)}${esc(id===S.me?.id?'You':x.name)}</span>`]});
  const ca=srt(c.byAgent).map(([a,o])=>[a,o,`<span class="uname">${a==='(no agent)'?esc('No agent'):agentAva(a)+esc(ident(a).name)}</span>`]);const cj=srt(c.byProject).map(([n,o])=>[n,o,`<span class="uname">${icon('folder',16)}${esc(n)}</span>`]);
@@ -294,22 +294,22 @@ function paintExplained(el,kind,sel,idOf){el.querySelectorAll(sel).forEach(r=>{c
  if(s&&v.summary){s.dataset.orig=s.textContent;s.textContent=v.summary;s.title=s.dataset.orig}})}
 
 // Skills
-{const base=PAGES.skills;PAGES.skills=async(p,el)=>{await base(p,el);const rows=[...el.querySelectorAll('[data-act="sk-open"][data-name]')];if(!rows.length)return;
+{const base=PAGES.skills;PAGES.skills=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;const rows=[...el.querySelectorAll('[data-act="sk-open"][data-name]')];if(!rows.length)return;
  rows.forEach(r=>{const ic=r.querySelector('.ic');if(ic)ic.innerHTML=icon('wand',17)});
  const items=rows.map(r=>({id:r.dataset.name,name:r.dataset.name,desc:r.querySelector('.txt span')?.textContent||''}));
  explainFor('skill',items,()=>paintExplained(el,'skill','[data-act="sk-open"][data-name]',r=>r.dataset.name))}}
 
 // MCP servers
-{const base=PAGES.mcp;PAGES.mcp=async(p,el)=>{await base(p,el);const list=Pages._mcp||[];if(!list.length||S.tab.mcp==='Catalog')return;
+{const base=PAGES.mcp;PAGES.mcp=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;const list=Pages._mcp||[];if(!list.length||S.tab.mcp==='Catalog')return;
  const rows=[...el.querySelectorAll('.card.list .row')];rows.forEach((r,i)=>{if(list[i])r.dataset.mcp=list[i].name});
  explainFor('mcp',list.map(m=>({id:m.name,name:m.name,desc:(m.url||m.command||'')+' '+(Array.isArray(m.tools)?m.tools:[]).map(t=>t.name||t).slice(0,12).join(', ')})),()=>paintExplained(el,'mcp','.row[data-mcp]',r=>r.dataset.mcp))}}
 
 // Plugins, grouped by what kind of thing they are
 const PLUGIN_GROUPS={browser:'Browser backends',dashboard_auth:'Sign-in methods',auth:'Sign-in methods',image_gen:'Image generation',image:'Image generation',memory:'Memory',model_providers:'Model providers',providers:'Model providers',cron:'Scheduling',platforms:'Channels',messaging:'Channels',tools:'Tools',observability:'Monitoring',context:'Context'};
 const pluginGroup=x=>{const m=/\/plugins\/([^/]+)\//.exec(x.path||'');const g=m?m[1]:'';return PLUGIN_GROUPS[g]||(g?pretty(g):'Other')};
-{const base=PAGES.plugins;PAGES.plugins=async(p,el)=>{if((S.tab.plugins||'Installed')==='Browse')return base(p,el);
+{const base=PAGES.plugins;PAGES.plugins=async(p,el)=>{if((S.tab.plugins||'Installed')==='Browse')return base(p,el);const gone=pageTok(el);
  setActions(`<button data-act="pl-rescan">${icon('refresh',16)}Rescan</button>`);const admin=S.me?.admin!==false;   // the server lets only admins switch plugins
- const h=await H('/dashboard/plugins/hub');const list=h.plugins||[];const groups={};list.forEach(x=>(groups[pluginGroup(x)]||=[]).push(x));
+ const h=await H('/dashboard/plugins/hub');if(gone())return;const list=h.plugins||[];const groups={};list.forEach(x=>(groups[pluginGroup(x)]||=[]).push(x));
  const row=(x,i)=>{const on=x.runtime_status==='enabled',v=ex('plugin',x.name);const page=plPage(x.dashboard_manifest);const slots=x.dashboard_manifest?.slots||[];
   const meta=[x.source,x.version?'v'+x.version:'',slots.length?'Adds to '+[...new Set(slots.map(s=>Plugins.slotLabel(s)))].join(', '):x.has_dashboard_manifest?'':'No page of its own'].filter(Boolean).join(' · ');
   const flags=(x.runtime_status==='inactive'?' <span class="chip warn" title="Switched on, but not loaded right now">Inactive</span>':'')+(x.auth_required?' '+signChip('',x.auth_command?'Sign in by running: '+x.auth_command:'It needs you to sign in first'):'')+(x.removed_reason?` <span class="chip bad" title="${esc(x.removed_reason)}">Removed from catalog</span>`:'');
@@ -317,7 +317,7 @@ const pluginGroup=x=>{const m=/\/plugins\/([^/]+)\//.exec(x.path||'');const g=m?
  // plugin pages you can open: hidden ones (⋯ › Hide from menu) drop out; dashboard-only plugins are listed too
  const pages=[...list.filter(x=>plPage(x.dashboard_manifest)&&!x.user_hidden).map(x=>({name:x.name,label:x.dashboard_manifest.label||pretty(x.name),desc:x.dashboard_manifest.description||x.description,path:plPage(x.dashboard_manifest)})),...(h.orphan_dashboard_plugins||[]).filter(m=>plPage(m)).map(m=>({name:m.name,label:m.label||pretty(m.name),desc:m.description,path:plPage(m),only:true}))];
  const pageSec=pages.length?`<h2 class="ach-cat">Plugin pages <small class="hint">${pages.length}</small></h2><p class="hint" style="margin:-4px 0 10px">Pages plugins add. They open here in aqeelOS.</p><div class="card list">${pages.map((g,i)=>`<div class="row" ${st(i)}><div class="main-c"><span class="ic">${icon('layers',16)}</span><div class="txt"><b>${esc(g.label)}${g.only?' <span class="chip" title="A page with no plugin row above">Page only</span>':''}</b><span>${esc(g.desc||g.name)}</span></div></div><div class="act"><button class="ghost small" data-act="pl-page" data-name="${esc(g.name)}" data-path="${esc(g.path)}">Open${icon('chevR',14)}</button></div></div>`).join('')}</div>`:'';
- const paint=()=>{if(route().page?.id!=='plugins')return;el.innerHTML=`${tabs('plugins',['Installed','Browse'])}${admin?'':'<p class="hint" style="margin:0 0 12px">Only admins turn plugins on or off. Ask one if you need a plugin on.</p>'}${Object.entries(groups).sort((a,b)=>a[0]==='Other'?1:b[0]==='Other'?-1:a[0].localeCompare(b[0])).map(([g,xs])=>`<h2 class="ach-cat">${esc(g)} <small class="hint">${xs.length}</small></h2><div class="card list">${xs.map(row).join('')}</div>`).join('')}${pageSec}`;placePills()};
+ const paint=()=>{if(gone()||route().page?.id!=='plugins')return;el.innerHTML=`${tabs('plugins',['Installed','Browse'])}${admin?'':'<p class="hint" style="margin:0 0 12px">Only admins turn plugins on or off. Ask one if you need a plugin on.</p>'}${Object.entries(groups).sort((a,b)=>a[0]==='Other'?1:b[0]==='Other'?-1:a[0].localeCompare(b[0])).map(([g,xs])=>`<h2 class="ach-cat">${esc(g)} <small class="hint">${xs.length}</small></h2><div class="card list">${xs.map(row).join('')}</div>`).join('')}${pageSec}`;placePills()};
  paint();explainFor('plugin',list.map(x=>({id:x.name,name:x.name,desc:x.description||''})),paint)}}
 
 /* ---------- Roles: define once (permissions, models, daily limit, how many agents), give each person one ---------- */
@@ -337,7 +337,7 @@ async function roleDrawer(id){const d0=Pages._ppl||{};const ro=id?d0.roles[id]:{
   try{await UI('/ui/roles'+(id?'/'+id:''),{method:id?'PUT':'POST',body});closeLayers();toast(id?'Role saved':'Role created');reload()}catch(e){fail(e)}};
  d.querySelector('#roDel')?.addEventListener('click',async()=>{if(!await confirmBox('Delete '+ro.name+'?','People must have another role first.','Delete'))return;try{await UI('/ui/roles/'+id,{method:'DELETE'});closeLayers();toast('Role deleted');reload()}catch(e){fail(e)}})}
 ACT['role-new']=()=>roleDrawer(null);ACT['role-open']=a=>roleDrawer(a.dataset.id);
-{const people=PAGES.people;PAGES.people=async(p,el)=>{await people(p,el);const d=Pages._ppl||{};if(!d.roles)return;
+{const people=PAGES.people;PAGES.people=async(p,el)=>{const gone=pageTok(el);await people(p,el);if(gone())return;const d=Pages._ppl||{};if(!d.roles)return;
  // each member: one role picker; per-person settings show only for Custom
  el.querySelectorAll('.person').forEach(card=>{const id=card.querySelector('[data-cap]')?.dataset.user;const u=(d.users||[]).find(x=>x.id===id);if(!u||u.role!=='member')return;
   const box=document.createElement('div');box.className='pcaps prole';box.innerHTML=`<span class="th">Role</span><div class="pshare"><span class="psay">${u.roleId==='custom'?'Their own settings below.':esc(roleSummary(d.roles[u.roleId]||{}))}</span><select style="width:auto" data-role="${esc(u.id)}" aria-label="Role of ${esc(u.name)}">${Object.entries(d.roles).map(([k,ro])=>`<option value="${esc(k)}" ${u.roleId===k?'selected':''}>${esc(ro.name)}</option>`).join('')}<option value="custom" ${u.roleId==='custom'?'selected':''}>Custom</option></select></div>`;
@@ -355,13 +355,13 @@ ACT['role-new']=()=>roleDrawer(null);ACT['role-open']=a=>roleDrawer(a.dataset.id
 {const base=PAGES.channels;PAGES.channels=async(p,el)=>{
  // load the team list together with the page, and hold its place while it loads (no late pop-in)
  const admin=S.me?.admin!==false&&!S.chOverride;const pK=admin?UI('/ui/channels/links').catch(()=>({links:[]})):null,pD=admin?UI('/ui/channels').catch(()=>null):null,pA=admin?H('/profiles').catch(()=>({profiles:[]})):null;
- await base(p,el);if(!admin)return;
+ const gone=pageTok(el);await base(p,el);if(gone()||!admin)return;
  const panel=document.createElement('div');panel.className='panel card';panel.style.marginBottom='16px';
  panel.innerHTML=`<h2>Every agent's channels</h2><p class="sub">Each connection belongs to one agent, which answers it.</p>${'<div class="row skel-row" style="padding:12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="skel" style="height:18px;width:40%"></div></div>'.repeat(2)}`;
  el.querySelector('.grid-cards')?.before(panel);
- const d=await pD;if(!d){panel.remove();return}const LK=Object.fromEntries(((await pK)?.links||[]).map(l=>[l.name,l]));
+ const d=await pD;if(gone()||!d){panel.remove();return}const LK=Object.fromEntries(((await pK)?.links||[]).map(l=>[l.name,l]));if(gone())return panel.remove();
  // extra connections (WhatsApp 2…) sit right under their agent's channels, by name and ID
- const agents=((await pA).profiles||[]).map(x=>x.name),ord=a=>{const i=agents.indexOf(a.split('--')[0]);return i<0?1e6:i};
+ const agents=((await pA).profiles||[]).map(x=>x.name);if(gone())return panel.remove();const ord=a=>{const i=agents.indexOf(a.split('--')[0]);return i<0?1e6:i};
  d.channels.sort((x,y)=>ord(x.agent)-ord(y.agent)||(x.agent.includes('--'))-(y.agent.includes('--'))||x.agent.localeCompare(y.agent)||x.id.localeCompare(y.id));
  // the engine did not answer for some agents: say so, never "nothing connected"
  // a cold first read answers within 3 s with the agents it has; say who is still loading and fetch again by itself
@@ -400,14 +400,14 @@ async function shareDrawer(kind,name,label,has=[]){let agents=[];try{agents=((aw
    else if(own.length)r={done:r.done,failed:r.failed.filter(f=>!f.exists)};
    closeLayers();if(!r.done.length&&!r.failed.length)return toast('Nothing shared');toast(r.failed?.length?`Shared with ${r.done.length}; ${r.failed.map(f=>ident(f.agent).name+': '+f.error).join('; ')}`:`Shared with ${r.done.map(a=>ident(a).name).join(', ')}`,r.failed?.length?'err':undefined);reload()}catch(e){fail(e)}}}
 // add Used by (Access.btn, the one component; each agent keeps its own copy, so no owner) to each row; it opens Share
-async function decorateRows(el,kind,rows){if(S.me?.admin===false&&kind!=='skill')return;const used=await usedByMap(kind);const here=agentProfile()||'default';
+async function decorateRows(el,kind,rows){if(S.me?.admin===false&&kind!=='skill')return;const used=await usedByMap(kind);if(!el.isConnected)return;const here=agentProfile()||'default';
  for(const {row,name,label} of rows){const act=row.querySelector('.act');if(!act||act.querySelector('.share-box'))continue;const list=used[name]||[];
   const users=[here,...list.filter(a=>a!==here)].map(a=>({id:a,name:ident(a).name}));
   const box=document.createElement('span');box.className='share-box';box.innerHTML=Access.btn({copies:true,label:label||name,users},'type="button"');
   box.querySelector('button').onclick=e=>{e.stopPropagation();shareDrawer(kind,name,label||name,list)};act.prepend(box)}}
-{const base=PAGES.skills;PAGES.skills=async(p,el)=>{await base(p,el);const rows=[...el.querySelectorAll('[data-act="sk-open"][data-name]')].map(r=>({row:r,name:r.dataset.name,label:ex('skill',r.dataset.name)?.title||r.dataset.name}));if(rows.length)decorateRows(el,'skill',rows)}}
-{const base=PAGES.plugins;PAGES.plugins=async(p,el)=>{await base(p,el);const go=()=>{const rows=[...el.querySelectorAll('.row[data-pl]')].map(r=>({row:r,name:r.dataset.pl,label:ex('plugin',r.dataset.pl)?.title||r.dataset.pl}));if(rows.length)decorateRows(el,'plugin',rows)};go();setTimeout(go,9000)}}
-{const base=PAGES.mcp;PAGES.mcp=async(p,el)=>{await base(p,el);const rows=[...el.querySelectorAll('.row[data-mcp]')].map(r=>({row:r,name:r.dataset.mcp,label:ex('mcp',r.dataset.mcp)?.title||r.dataset.mcp}));if(!rows.length)return;
+{const base=PAGES.skills;PAGES.skills=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;const rows=[...el.querySelectorAll('[data-act="sk-open"][data-name]')].map(r=>({row:r,name:r.dataset.name,label:ex('skill',r.dataset.name)?.title||r.dataset.name}));if(rows.length)decorateRows(el,'skill',rows)}}
+{const base=PAGES.plugins;PAGES.plugins=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;const go=()=>{const rows=[...el.querySelectorAll('.row[data-pl]')].map(r=>({row:r,name:r.dataset.pl,label:ex('plugin',r.dataset.pl)?.title||r.dataset.pl}));if(rows.length)decorateRows(el,'plugin',rows)};go();setTimeout(()=>{if(!gone())go()},9000)}}
+{const base=PAGES.mcp;PAGES.mcp=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;const rows=[...el.querySelectorAll('.row[data-mcp]')].map(r=>({row:r,name:r.dataset.mcp,label:ex('mcp',r.dataset.mcp)?.title||r.dataset.mcp}));if(!rows.length)return;
  decorateRows(el,'mcp',rows);
  if(S.me?.admin!==false)rows.forEach(({row,name})=>{const act=row.querySelector('.act');const b=document.createElement('button');b.className='ghost icon';b.title='Rename';b.setAttribute('aria-label','Rename');b.innerHTML=icon('edit',16);
   b.dataset.act='mcp-rename';b.dataset.name=name;act.querySelector('[data-act="mcp-del"]')?.before(b)})}}
@@ -445,13 +445,13 @@ const CronNotify={
 /* ---------- Access: one small badge on every row saying who can use it ---------- */
 const accessChip=(text,tip,kind='')=>`<span class="chip access ${kind}" title="${esc(tip)}">${icon(kind==='shared'?'user':kind==='public'?'globe':'lock',11)}${esc(text)}</span>`;
 // schedules: each runs on exactly one agent
-{const base=PAGES.schedules;PAGES.schedules=async(p,el)=>{await base(p,el);el.querySelectorAll('[data-menu="cron"][data-profile]').forEach(m=>{const row=m.closest('.row,.card');const t=row?.querySelector('.txt b,h3');if(!t||t.querySelector('.access'))return;
+{const base=PAGES.schedules;PAGES.schedules=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;el.querySelectorAll('[data-menu="cron"][data-profile]').forEach(m=>{const row=m.closest('.row,.card');const t=row?.querySelector('.txt b,h3');if(!t||t.querySelector('.access'))return;
  t.insertAdjacentHTML('beforeend',' '+accessChip('Only '+ident(m.dataset.profile).name,'Runs on '+ident(m.dataset.profile).name+'. Use Copy to another agent to reuse it.'))})}}
 // webhooks: the address is public (anyone with it and the secret can send), one agent handles each
-{const base=PAGES.webhooks;PAGES.webhooks=async(p,el)=>{await base(p,el);el.querySelectorAll('[data-act="wh-del"][data-name]').forEach(b=>{const row=b.closest('.row');const t=row?.querySelector('.txt b');if(!t||t.querySelector('.access'))return;
+{const base=PAGES.webhooks;PAGES.webhooks=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;el.querySelectorAll('[data-act="wh-del"][data-name]').forEach(b=>{const row=b.closest('.row');const t=row?.querySelector('.txt b');if(!t||t.querySelector('.access'))return;
  t.insertAdjacentHTML('beforeend',' '+accessChip('Public address · runs on '+ident((agentProfile()||'default')).name,'Any service with the address and its secret can send events. '+ident((agentProfile()||'default')).name+' handles them.','public'))})}}
 // channels: one agent answers each connection
-{const base=PAGES.channels;PAGES.channels=async(p,el)=>{await base(p,el);el.querySelectorAll('[data-act="ch-open"][data-id]').forEach(c=>{const st=c.querySelector('.tile-foot .chip');if(!st||/Not set up/i.test(st.textContent)||c.querySelector('.access'))return;
+{const base=PAGES.channels;PAGES.channels=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;el.querySelectorAll('[data-act="ch-open"][data-id]').forEach(c=>{const st=c.querySelector('.tile-foot .chip');if(!st||/Not set up/i.test(st.textContent)||c.querySelector('.access'))return;
  const id=c.dataset.id;const shared=id==='api_server'||id==='webhook';c.querySelector('h3')?.insertAdjacentHTML('beforeend',' '+(shared?accessChip('Every agent','The same address serves all agents; each request names its agent.','shared'):accessChip('Only '+ident(S.profile||'default').name,'This connection belongs to '+ident(S.profile||'default').name+'. Move it from "Every agent\'s channels" to give it to another agent.')))})}}
 
 /* ---------- Telegram: set up with Telegram's own @BotFather (no outside pairing service) ---------- */
@@ -463,7 +463,7 @@ const accessChip=(text,tip,kind='')=>`<span class="chip access ${kind}" title="$
  a.hidden=true;document.querySelector('.drawer [data-env="TELEGRAM_BOT_TOKEN"]')?.focus()}}
 
 /* ---------- Models › Mixture of agents: several models advise, one writes the answer ---------- */
-async function moaPanel(el){let c;try{c=await H('/config')}catch{return}const moa=c.moa||{};const presets=moa.presets||{};if(!Chat.models)await Chat.loadModels().catch(()=>{});
+async function moaPanel(el,gone=pageTok(el)){let c;try{c=await H('/config')}catch{return}const moa=c.moa||{};const presets=moa.presets||{};if(!Chat.models)await Chat.loadModels().catch(()=>{});if(gone())return;   // drawn again meanwhile: that drawing adds its own
  const ok=new Set((Chat.models||[]).map(m=>m.provider));const usable=pr=>[...(pr.reference_models||[]),pr.aggregator||{}].every(s=>!s.provider||ok.has(s.provider));
  const label=s=>s?modelLabel(s.model)+((Chat.models||[]).find(m=>m.provider===s.provider)?'':' (not signed in)'):'—';
  const box=document.createElement('div');box.className='panel card';box.style.marginTop='16px';
@@ -501,7 +501,7 @@ async function moaDrawer(name){const {c,presets}=Pages._moa||{};const moa=c?.moa
  // the default and the active team never point at a team that is gone
  d.querySelector('#moDel')?.addEventListener('click',async()=>{if(!await confirmBox('Delete '+pretty(name)+'?','Chats using it switch back to a normal model.','Delete'))return;try{await write(m=>{delete m.presets[name];const first=Object.keys(m.presets)[0]||'';if(m.default_preset===name)m.default_preset=first;if(m.active_preset===name)m.active_preset=first});closeLayers();toast('Team deleted');reload()}catch(e){fail(e)}})}
 ACT['moa-new']=()=>moaDrawer(null);ACT['moa-edit']=a=>moaDrawer(a.dataset.n);
-{const base=PAGES.models;PAGES.models=async(p,el)=>{await base(p,el);if(S.me?.admin===false)return;moaPanel(el)}}
+{const base=PAGES.models;PAGES.models=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;if(S.me?.admin===false)return;moaPanel(el,gone)}}
 
 /* ---------- channel states in plain words, and relinking WhatsApp ---------- */
 const CH_STATE={connected:'Connected',pending_restart:'Restart needed',retrying:'Reconnecting',starting:'Starting',connecting:'Connecting',disabled:'Off',failed:'Not connected',error:'Not connected',stopped:'Off'};
@@ -569,7 +569,7 @@ ACT['wa-link']=a=>linkWhatsApp(a.dataset.agent||agentProfile()||'default');
 ACT['wa-replace']=async a=>{const ag=a.dataset.agent||agentProfile()||'default';if(!await confirmBox('Link a different phone?','The phone linked now stops answering for '+ident(ag.split('--')[0]).name+'. Chats and approved people stay.','Link a different phone',false))return;linkWhatsApp(ag,{replace:true})};
 // an engine word left on a chip ("Pending restart") in plain words; only its text changes, so its dot stays
 const chWord=ch=>{const t=ch.textContent.trim();const k=Object.keys(CH_STATE).find(k=>pretty(k)===t);if(!k||CH_STATE[k]===t)return;const n=[...ch.childNodes].reverse().find(x=>x.nodeType===3);if(n)n.textContent=CH_STATE[k]};
-{const base=PAGES.channels;PAGES.channels=async(p,el)=>{await base(p,el);
+{const base=PAGES.channels;PAGES.channels=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;
  el.querySelectorAll('.chip').forEach(chWord)}}
 {const base=ACT['ch-open'];ACT['ch-open']=async a=>{await base(a);const id=a.dataset.id;const d=$('.drawer');if(!d)return;
  d.querySelectorAll('.chip').forEach(chWord);
@@ -607,7 +607,7 @@ async function channelShareDrawer(owner,platform){let sh={},rec=[],agents=[];
  d.querySelector('#csTest').onclick=async()=>{const b=d.querySelector('#csTest');b.disabled=true;const v=vals();const from=v.senders[0]||owner;
   try{await put(UI,'/ui/channels/shares',v);await post(UI,'/ui/channels/send',{from,owner,platform,chat:v.chat,text:'Test from aqeelOS: sending through this channel works.'});toast('Sent as '+ident(from).name+'. Check your '+pretty(platform)+'.')}catch(e){fail(e)}finally{b.disabled=false}}}
 ACT['ch-share']=a=>channelShareDrawer(a.dataset.owner,a.dataset.platform);
-{const base=PAGES.channels;PAGES.channels=async(p,el)=>{await base(p,el);if(S.me?.admin===false||S.chOverride)return;let sh={};try{sh=(await UI('/ui/channels/shares')).shares||{}}catch{}
+{const base=PAGES.channels;PAGES.channels=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;if(S.me?.admin===false||S.chOverride)return;let sh={};try{sh=(await UI('/ui/channels/shares')).shares||{}}catch{}if(gone())return;
  el.querySelectorAll('[data-chmove][data-from]').forEach(s=>{const row=s.closest('.row');const act=row?.querySelector('.act');if(!act||act.querySelector('[data-act="ch-share"]'))return;
   const owner=s.dataset.from,platform=s.dataset.chmove;const cur=sh[owner+'|'+platform];const n=cur?.senders?.length||0;
   const t=row.querySelector('.txt b');if(t&&n&&!t.querySelector('.access'))t.insertAdjacentHTML('beforeend',' '+accessChip('Shared · '+(n+1)+' can send',ident(owner).name+' receives. Also sends: '+cur.senders.map(a=>ident(a).name).join(', '),'shared'))})}}
@@ -630,14 +630,14 @@ ACT['ch-extra-rename']=async a=>{const was=a.dataset.label||'This connection';co
 ACT['ch-extra-remove']=async a=>{if(!await confirmBox('Remove '+a.dataset.title+'?','Its login and settings are deleted. '+ident(a.dataset.agent).name+' and its other channels are not touched.','Remove'))return;
  try{await del(UI,'/ui/channels/links',{agent:a.dataset.agent,name:a.dataset.name});toast(a.dataset.title+' removed from '+ident(a.dataset.agent).name);S.chOverride=null;reload()}catch(e){fail(e)}};
 {const base=PAGES.channels;PAGES.channels=async(p,el)=>{
- const o=S.chOverrideInfo;
- if(S.chOverride&&o){await base(p,el);
+ const o=S.chOverrideInfo,gone=pageTok(el);
+ if(S.chOverride&&o){await base(p,el);if(gone())return;
   // setting up an extra connection: only that app, with a clear header
   el.querySelectorAll('.grid-cards [data-id]').forEach(c=>{if(c.dataset.id!==o.platform)c.remove()});
   el.insertAdjacentHTML('afterbegin',`<div class="panel card extra-head" style="margin-bottom:16px"><div class="row" style="padding:0;border:0"><div class="main-c">${chLogo(o.platform,pretty(o.platform))}<div class="txt"><b>${esc(o.label||pretty(o.platform)+' '+o.n)} for ${esc(ident(o.agent).name)}</b><span>Answers as ${esc(ident(o.agent).name)}: same personality, memory, skills and tools. Open the card below to connect it.</span></div></div><div class="act"><button class="primary" data-act="ch-extra-done">${icon('check',15)}Done</button></div></div></div>`);
   return}
  const agent=S.profile||'default';const pL=UI('/ui/channels/links?agent='+encodeURIComponent(agent)).catch(()=>({links:[]}));const pC=UI('/ui/channels').catch(()=>({channels:[]}));
- await base(p,el);
+ await base(p,el);if(gone())return;
  // "Add another" on every app this agent already uses
  el.querySelectorAll('.grid-cards .card[data-id]').forEach(c=>{const pl=(Pages.platforms||[]).find(x=>x.id===c.dataset.id);if(!pl?.configured||['api_server','webhook'].includes(pl.id))return;
   c.querySelector('h3')?.insertAdjacentHTML('afterend','<span class="tile-id" title="Agents use the name '+esc(pl.id)+' to pick this channel">'+esc(accountText(pl.account,{id:pl.id}))+'</span>'+(pl.identity_error?'<span class="tile-id ch-pending">'+esc(pl.identity_error)+'</span>':''));
@@ -645,7 +645,7 @@ ACT['ch-extra-remove']=async a=>{if(!await confirmBox('Remove '+a.dataset.title+
   // WhatsApp Business setup can't use an extra account yet, so it gets no Add another
   if(pl.state!=='connected'||pl.id==='whatsapp_cloud')return;
   c.querySelector('.tile-foot')?.insertAdjacentHTML('beforeend',`<span class="add-another" role="button" tabindex="0" data-act="ch-extra-add" data-id="${esc(pl.id)}" title="Connect another ${esc(appName(pl.id))} account to this agent">${icon('plus',14)}Add another</span>`)});
- const [{links=[]},{channels=[]}]=await Promise.all([pL,pC]);if(!links.length)return;
+ const [{links=[]},{channels=[]}]=await Promise.all([pL,pC]);if(gone()||!links.length)return;
  const st_=n=>channels.find(c=>c.agent===n);
  const panel=document.createElement('div');panel.className='panel card';panel.style.marginBottom='16px';
  panel.innerHTML=`<h2>Extra connections</h2><p class="sub">More accounts of the same app for ${esc(ident(agent).name)}. Each answers as ${esc(ident(agent).name)}. To have it message you on one, name its ID, for example “notify me on <code>${esc(linkId(links[0]))}</code>”. The first account of each app has the app’s name as ID (<code>${esc(links[0].platform)}</code>).</p>${links.map((l,i)=>{const c=st_(l.name);return `<div class="row" ${st(i)} style="padding:12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="main-c">${chLogo(l.platform,pretty(l.platform))}<div class="txt"><b>${esc(linkTitle(l))}</b><span>${c?chDot(c)+esc(chState(c)):'<i class="dot"></i>Not connected yet'} · <span class="id-code" title="The ID agents use for this connection">ID ${esc(linkId(l))}</span></span></div></div>
@@ -656,16 +656,16 @@ ACT['ch-extra-remove']=async a=>{if(!await confirmBox('Remove '+a.dataset.title+
 async function duplicateItem(kind,name){const v=await promptBox('Duplicate '+name,kind==='mcp'?'Name for the copy. It keeps the same settings; change its keys or login after.':'Name for the copy. Edit it separately afterwards.',name+'-2',kind==='mcp'?'Duplicate':'Duplicate');if(!v)return;
  try{const r=await post(UI,'/ui/share/duplicate',{kind,agent:(agentProfile()||'default'),name,to:v.trim().toLowerCase().replace(/[^a-z0-9._-]+/g,'-')});toast('Added '+r.name+'.');reload()}catch(e){fail(e)}}
 // (MCP rows already have their own Duplicate button in pages.js)
-{const base=PAGES.skills;PAGES.skills=async(p,el)=>{await base(p,el);el.querySelectorAll('[data-act="sk-open"][data-name]').forEach(row=>{const act=row.querySelector('.act');if(!act||act.querySelector('.dup-btn'))return;
+{const base=PAGES.skills;PAGES.skills=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;el.querySelectorAll('[data-act="sk-open"][data-name]').forEach(row=>{const act=row.querySelector('.act');if(!act||act.querySelector('.dup-btn'))return;
  const b=document.createElement('button');b.className='ghost icon dup-btn';b.title='Duplicate (a copy to change separately)';b.setAttribute('aria-label','Duplicate');b.innerHTML=icon('copy',16);b.onclick=e=>{e.stopPropagation();duplicateItem('skill',row.dataset.name)};act.prepend(b)})}}
 
 /* ---------- Models › Images: which service makes pictures (any chat model can ask it) ---------- */
 const IMG_FRIENDLY={'OpenAI (Codex auth)':'ChatGPT, with your sign-in (GPT Image 2)','OpenRouter (image)':'OpenRouter (Gemini, GPT Image, Krea…)','FAL.ai':'FAL (Gemini Nano Banana, Flux…)','xAI Grok Imagine (image)':'Grok Imagine'};
-{const base=PAGES.models;PAGES.models=async(p,el)=>{const pc=H('/tools/toolsets/image_gen/config').catch(()=>null);await base(p,el);if(S.me?.admin===false)return;
+{const base=PAGES.models;PAGES.models=async(p,el)=>{const pc=H('/tools/toolsets/image_gen/config').catch(()=>null),gone=pageTok(el);await base(p,el);if(gone()||S.me?.admin===false)return;
  const panel=document.createElement('div');panel.className='panel card';
  panel.innerHTML=`<h2>Images</h2><p class="sub">Who makes pictures when you ask any agent for one, whatever chat model it uses.</p><div class="row" style="padding:12px 0 0;border:0"><div class="main-c"><span class="ic blue">${icon('sparkle',16)}</span><div class="txt"><b class="img-now"><span class="skel" style="display:inline-block;width:180px;height:14px"></span></b><span>Images show right in the chat.</span></div></div><div class="act"><button data-act="ts-setup" data-name="image_gen">${icon('sliders',15)}Change</button></div></div>`;
  const anchor=[...el.querySelectorAll('.panel h2')].find(h=>/Helper models/.test(h.textContent))?.closest('.panel');(anchor||el.querySelector('.panel'))?.after(panel);
- const cfg=await pc;const now=(cfg?.providers||[]).find(x=>x.is_active);const b=panel.querySelector('.img-now');if(b)b.textContent=now?(IMG_FRIENDLY[now.name]||now.name):'Not set up yet';}}
+ const cfg=await pc;if(gone())return;const now=(cfg?.providers||[]).find(x=>x.is_active);const b=panel.querySelector('.img-now');if(b)b.textContent=now?(IMG_FRIENDLY[now.name]||now.name):'Not set up yet';}}
 
 /* ---------- MCP sign-in (OAuth). Sign-ins come back to this site; a service without automatic app
    registration (Slack, Google…) first needs its own app's Client ID and Secret, asked for here. ---------- */
@@ -700,7 +700,7 @@ ACT['mcp-auth']=async a=>{const name=a.dataset.name,agent=a.dataset.agent||agent
 
 /* ---------- The built-in "notify me" tool (aqeelos-notify): made by aqeelOS, kept on agents that have a
    channel. It can be switched off, not deleted or signed in to. ---------- */
-{const base=PAGES.mcp;PAGES.mcp=async(p,el)=>{await base(p,el);const row=el.querySelector('.row[data-mcp="aqeelos-notify"]');if(!row)return;
+{const base=PAGES.mcp;PAGES.mcp=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;const row=el.querySelector('.row[data-mcp="aqeelos-notify"]');if(!row)return;
  row.querySelectorAll('.act button').forEach(b=>{if(!b.closest('.switch')&&!b.closest('.share-box'))b.remove()});row.querySelector('.share-box')?.remove();
  const txt=row.querySelector('.txt');if(txt){const sub=txt.querySelector('span:not(.access):not(.chip)');if(sub)sub.textContent='Lets this agent message you on WhatsApp, Telegram and your other channels ("notify me on whatsapp"). Added by aqeelOS; switch it off to stop.';
   txt.querySelector('b')?.insertAdjacentHTML('beforeend',' <span class="chip blue" title="Part of aqeelOS, kept on every agent that has a channel">Built in</span>')}}}
@@ -730,7 +730,7 @@ async function useComposio(app){const agent=(agentProfile()||'default');
   ACT['mcp-auth']({dataset:{name}});toast('Sign in to Composio in the new tab'+(app?', then connect '+app+' there':''))}catch(e){fail(e)}}
 ACT['use-composio']=a=>useComposio(a.dataset.app||'');
 // catalog: apps that need their own app (no automatic sign-in) get a Composio shortcut
-{const base=PAGES.mcp;PAGES.mcp=async(p,el)=>{await base(p,el);if(S.me?.admin===false)return;
+{const base=PAGES.mcp;PAGES.mcp=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;if(S.me?.admin===false)return;
  const tabs_=el.querySelector('.tabs, [role=tablist]');if(!el.querySelector('.composio-note')&&!(Pages._mcp||[]).some(m=>/composio/.test((m.name||'')+' '+(m.url||'')))){const n=document.createElement('div');n.className='panel card composio-note';
   n.innerHTML=`<div class="row" style="padding:0;border:0"><div class="main-c"><span class="ic blue">${icon('plug',16)}</span><div class="txt"><b>Last resort for hard-to-connect apps: Composio</b><span>One sign-in reaches 500+ apps, but its free plan has a limit on actions and costs money beyond it. Agents try an app’s own tool, a built-in skill or the browser first, and ask before using Composio.</span></div></div><div class="act"><button data-act="use-composio">${icon('plug',15)}Set up Composio</button></div></div>`;
   (tabs_||el.firstElementChild)?.after(n)}}}
@@ -772,7 +772,7 @@ Poll.add(()=>ChannelAlert.check(),10*60e3,6000);
 
 /* ---------- Channels page: status lives in "Every agent's channels" at the top; the cards below are only for
    adding (the app, and Set up or Add another). People who don't see the top list keep the status on the cards. ---------- */
-{const base=PAGES.channels;PAGES.channels=async(p,el)=>{await base(p,el);if(S.me?.admin===false||S.chOverride)return;const grid=el.querySelector('.grid-cards');if(!grid)return;
+{const base=PAGES.channels;PAGES.channels=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;if(S.me?.admin===false||S.chOverride)return;const grid=el.querySelector('.grid-cards');if(!grid)return;
  if(!el.querySelector('.ch-cat-head')){const pl=Pages.platforms||[];grid.insertAdjacentHTML('beforebegin',`<div class="ch-cat-head"><h2 class="h-row">Add a channel<small class="ch-count">${pl.filter(x=>x.configured).length} of ${pl.length} set up</small></h2><p class="sub">Connect an app, or another account of one this agent already uses. Connected ones are listed above.</p></div>`)}
  const ag=agentProfile()||'default';
  grid.querySelectorAll('.card[data-id]').forEach(c=>{const pl=(Pages.platforms||[]).find(x=>x.id===c.dataset.id);if(!pl)return;

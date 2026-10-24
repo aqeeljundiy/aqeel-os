@@ -63,13 +63,13 @@ function pruneModelTab(box,tab){const re=MODEL_TAB_DROP[tab];if(!re)return;const
  const mo=new MutationObserver(go);mo.observe(box,{childList:true,subtree:true});setTimeout(()=>mo.disconnect(),15000)}
 /* ---------- System › Usage › By model: each model with its rank, provider, what it is set as, how its tokens split,
    how busy it was, what it can do, and a Use as menu (the engine's per-model statistics) ---------- */
-{const base=PAGES.usage;PAGES.usage=async(p,el)=>{await base(p,el);if(S.me?.admin===false)return;
- const days={'7 days':7,'30 days':30,'90 days':90}[S.tab.usage||'7 days'];const list=await viewAgents().catch(()=>[]);
+{const base=PAGES.usage;PAGES.usage=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;if(S.me?.admin===false)return;
+ const days={'7 days':7,'30 days':30,'90 days':90}[S.tab.usage||'7 days'];const list=await viewAgents().catch(()=>[]);if(gone())return;
  const who=S.usageAgent&&(S.usageAgent==='*'||list.includes(S.usageAgent))?S.usageAgent:list.length>1?'*':(S.profile||'default');
  const panel=[...el.querySelectorAll('.panel')].find(x=>x.querySelector('h2')?.textContent.trim()==='By model');if(!panel)return;
  const me=who==='*'?(S.profile||'default'):who,agents=who==='*'?(list.length?list:['default']):[who],pq='?profile='+encodeURIComponent(me);
  const [res,info,aux]=await Promise.all([Promise.all(agents.map(a=>H('/analytics/models?days='+days+'&profile='+encodeURIComponent(a)).catch(()=>null))),H('/model/info'+pq).catch(()=>({})),H('/model/auxiliary'+pq).catch(()=>({tasks:[]}))]);
- if(!panel.isConnected||!res.some(Boolean))return;
+ if(gone()||!panel.isConnected||!res.some(Boolean))return;
  // several agents: the same model added together
  const by=new Map();for(const r of res)for(const m of r?.models||[]){const k=m.model+'|'+m.provider,t=by.get(k);if(!t){by.set(k,{...m});continue}
   for(const f of ['input_tokens','output_tokens','cache_read_tokens','reasoning_tokens','estimated_cost','actual_cost','sessions','api_calls','tool_calls'])t[f]=(t[f]||0)+(m[f]||0);t.last_used_at=Math.max(t.last_used_at||0,m.last_used_at||0)}
