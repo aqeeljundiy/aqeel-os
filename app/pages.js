@@ -100,9 +100,9 @@ function pickFile(accept,cb,multiple){const i=document.createElement('input');i.
 function downloadBlob(blob,name){const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),2000)}
 
 /* ===================== Automations › Schedules ===================== */
-PAGES.schedules=async(p,el)=>{
+PAGES.schedules=async(p,el)=>{const gone=pageTok(el);
  setActions(`<button class="primary" data-act="cron-new">${icon('plus',16)}New schedule</button>`);
- const jobs=await H('/cron/jobs?profile=all');
+ const jobs=await H('/cron/jobs?profile=all');if(gone())return;
  el.innerHTML=jobs.length?`<div class="card list">${jobs.map((j,i)=>{const on=j.enabled&&j.state!=='paused';return `<div class="row" ${st(i)}><div class="main-c"><span class="ic ${on?'blue':''}">${icon('clock',18)}</span><div class="txt"><b>${esc(j.name||j.prompt?.slice(0,60)||j.id)}</b><span title="${esc(j.schedule?.expr||j.schedule_display||'')}">${esc(cronText(j.schedule?.expr||j.schedule_display||j.schedule?.display||''))} · to ${esc(j.deliver==='local'?'this app':j.deliver||'this app')} · ${on?'next '+when(j.next_run_at):'paused'}${j.last_run_at?' · last '+when(j.last_run_at):''}${j.last_status&&j.last_status!=='ok'?' · '+esc(j.last_status):''}</span>${j.last_error?`<span class="err-line" style="white-space:normal">${esc(j.last_error)}</span>`:''}</div></div><div class="act">${toggle(on,'Active','data-act="cron-toggle" data-id="'+esc(j.id)+'" data-profile="'+esc(j.profile||'default')+'"')}<button class="ghost icon" data-menu="cron" data-id="${esc(j.id)}" data-profile="${esc(j.profile||'default')}" aria-label="More">${icon('more',18)}</button></div></div>`}).join('')}</div>`:emptyBox('No schedules yet','Have aqeelOS do something on a timetable, like a morning report on Telegram.',`<button class="primary" data-act="cron-new">${icon('plus',16)}New schedule</button>`);
  Pages.cronJobs=jobs;
 };
@@ -283,9 +283,9 @@ const chLogo=(id,name)=>CH_DOMAINS[id]?logoImg(CH_DOMAINS[id],(name||id)[0].toUp
 // plain card text where the engine's description is technical (setup details stay in the setup window)
 const CH_PLAIN={slack:'Talk to your agents in Slack.',google_chat:'Talk to your agents in Google Chat.',a2a:'Let other AI agents send work to your agents.',buzz:'Talk to your agents in Buzz.',signal:'Talk to your agents in Signal.',email:'Talk to your agents by email.',teams:'Talk to your agents in Microsoft Teams chats.',line:'Talk to your agents in LINE.',simplex:'Talk to your agents in SimpleX Chat.',weixin:'Talk to your agents from a personal WeChat account.',wecom_callback:'Two-way chat with your agents in WeCom.',whatsapp_cloud:'Talk to your agents in WhatsApp through Meta’s own service.',relay:'Connect your agents to other chat apps through a relay.'};
 const CH_COLORS={telegram:'#229ED9',discord:'#5865F2',whatsapp:'#25D366',slack:'#4A154B',email:'#0158cb',signal:'#3A76F0',sms:'#F22F46',matrix:'#0b0c10',mattermost:'#1E325C'};
-PAGES.channels=async(p,el)=>{
+PAGES.channels=async(p,el)=>{const gone=pageTok(el);
  setActions('');
- const d=await H('/messaging/platforms');const list=(d.platforms||[]).sort((a,b)=>(b.state==='connected')-(a.state==='connected')||(b.configured-a.configured));Pages.platforms=list;Pages._chEnv=d.env_path||null;
+ const d=await H('/messaging/platforms');if(gone())return;const list=(d.platforms||[]).sort((a,b)=>(b.state==='connected')-(a.state==='connected')||(b.configured-a.configured));Pages.platforms=list;Pages._chEnv=d.env_path||null;
  // saved changes that wait for a restart stay announced here until the agents restart
  if(!list.some(c=>c.state==='pending_restart')&&S._chRestart&&Date.now()-(S._chRestartAt||0)>90000)S._chRestart=false;
  const waitN=list.filter(c=>c.state==='pending_restart').length;
@@ -371,8 +371,8 @@ ACT['onboard']=async a=>{const id=a.dataset.id;const box=$('#onboard');a.disable
 ACT['onboard-cancel']=async a=>{try{await del(H,`/messaging/${a.dataset.id}/onboarding/${encodeURIComponent(a.dataset.pid)}`)}catch{}$('#onboard').innerHTML='';toast('Setup cancelled')};
 
 /* ===================== Automations › Webhooks ===================== */
-PAGES.webhooks=async(p,el)=>{
- const d=await H('/webhooks');
+PAGES.webhooks=async(p,el)=>{const gone=pageTok(el);
+ const d=await H('/webhooks');if(gone())return;
  setActions(d.enabled?`<button class="primary" data-act="wh-new">${icon('plus',16)}New webhook</button>`:'');
  const subs=d.subscriptions||[];
  const list=subs.length?`<h3 class="sd-h wh-count">${plural(subs.length,'webhook')}</h3><div class="card list ${d.enabled?'':'wh-off'}">${subs.map((w,i)=>{const url=location.origin+(w.url_path||'/webhooks/'+encodeURIComponent(w.name));return `<div class="row" ${st(i)}><div class="main-c"><span class="ic ${w.enabled!==false&&d.enabled?'blue':''}">${icon('hook',18)}</span><div class="txt"><b>${esc(w.name)}${w.deliver_only?` <span class="chip sm-chip" title="Sent on as it arrives, without the agent">Direct</span>`:''}</b>${w.description?`<span class="sched-desc">${esc(w.description)}</span>`:''}<span>${esc(url)} · ${esc((w.events||[]).join(', ')||'any event')} · ${esc(whDeliverName(w.deliver))}</span></div></div><div class="act"><button class="ghost icon" title="Copy URL" aria-label="Copy URL" data-act="copy-text" data-text="${esc(url)}">${icon('copy',16)}</button>${toggle(w.enabled!==false,'Enabled','data-act="wh-toggle" data-name="'+esc(w.name)+'"')}<button class="ghost icon" title="Delete" aria-label="Delete" data-act="wh-del" data-name="${esc(w.name)}">${icon('trash',16)}</button></div></div>`}).join('')}</div>`:'';
@@ -409,9 +409,9 @@ ACT['wh-new']=async()=>{const tg=(await H('/cron/delivery-targets?profile='+enco
   try{const r=await post(H,'/webhooks?profile='+encodeURIComponent($('#whAgent')?.value||(agentProfile()||'default')),body);const pubUrl=location.origin+(r.url_path||'/webhooks/'+encodeURIComponent(r.name||body.name));drawer('Webhook created',`<p style="margin:0 0 14px;color:var(--ink-2)">Copy these into the other service. <b>The secret is shown only once.</b></p><label>URL</label><div style="display:flex;gap:8px"><input readonly value="${esc(pubUrl)}"><button data-act="copy-text" data-text="${esc(pubUrl)}">Copy</button></div><label>Secret</label><div style="display:flex;gap:8px"><input readonly value="${esc(r.secret||'')}" style="font-family:var(--mono)"><button data-act="copy-text" data-text="${esc(r.secret||'')}">Copy</button></div>`,`<button class="primary" data-act="close" onclick="render()">Done</button>`)}catch(er){fail(er)}finally{go.disabled=false}}};
 
 /* ===================== Channels › Who can message ===================== */
-PAGES.pairing=async(p,el)=>{
- const me=(agentProfile()||'default');let links=[];try{links=(await UI('/ui/channels/links?agent='+encodeURIComponent(me))).links||[]}catch{}
- const lists=await Promise.all([{prof:me,label:''},...links.map(l=>({prof:l.name,label:linkTitle(l)}))].map(async x=>({...x,d:await H('/pairing?profile='+encodeURIComponent(x.prof)).catch(()=>({pending:[],approved:[],err:true}))})));
+PAGES.pairing=async(p,el)=>{const gone=pageTok(el);
+ const me=(agentProfile()||'default');let links=[];try{links=(await UI('/ui/channels/links?agent='+encodeURIComponent(me))).links||[]}catch{}if(gone())return;
+ const lists=await Promise.all([{prof:me,label:''},...links.map(l=>({prof:l.name,label:linkTitle(l)}))].map(async x=>({...x,d:await H('/pairing?profile='+encodeURIComponent(x.prof)).catch(()=>({pending:[],approved:[],err:true}))})));if(gone())return;
  const tag=(u)=>u.__label?' · '+esc(u.__label):'',bad=lists.filter(x=>x.d.err).map(x=>x.label||ident(x.prof).name);
  const d={pending:lists.flatMap(x=>(x.d.pending||[]).map(u=>({...u,__prof:x.prof,__label:x.label}))),approved:lists.flatMap(x=>(x.d.approved||[]).map(u=>({...u,__prof:x.prof,__label:x.label})))};
  const who=u=>`${logoImg(CH_DOMAINS[u.platform],(u.platform||'?')[0].toUpperCase(),CH_COLORS[u.platform])}<div class="txt"><b>${esc(u.user_name||u.user_id)} · ${esc(pretty(u.platform))}${tag(u)}</b><span>${[u.request_id?'Code '+esc(u.request_id):'',u.age_minutes!=null?(u.age_minutes<90?Math.round(u.age_minutes)+' min ago':ago(Date.now()/1000-u.age_minutes*60)):'',u.user_name&&u.user_id?'ID '+esc(u.user_id):''].filter(Boolean).join(' · ')}</span></div>`;
@@ -461,19 +461,19 @@ const SK_ICONS=[[/mail/,'mail'],[/social|chat|messag|communic/,'chat'],[/devops|
  [/pixel|brand|ads?\b|advert/,'zap'],[/schedul|cron/,'clock'],[/diagram|visual/,'layers']];
 const skIcon=c=>{const k=String(c||'').toLowerCase();return (SK_ICONS.find(([r])=>r.test(k))||[])[1]||'puzzle'};
 Pages.skillsCache=async()=>Pages._skills||(Pages._skills=await H('/skills').catch(()=>[]));
-PAGES.skills=async(p,el)=>{
+PAGES.skills=async(p,el)=>{const gone=pageTok(el);
  const tab=S.tab.skills||'Installed';
  setActions(`<button data-act="sk-update">${icon('refresh',16)}Update all</button><button data-act="sk-learn">${icon('wand',16)}Learn a skill</button><button class="primary" data-act="sk-new">${icon('plus',16)}New skill</button>`);
  // the tabs and a placeholder at once: the engine's skill and tool lists can take seconds on a busy box
  if(!el.querySelector('[data-tabs]'))el.innerHTML=tabs('skills',['Installed','Tool groups','Find more skills'])+skeletonRows(6);
  if(tab==='Tool groups')return toolsetsView(el);
  if(tab==='Find more skills')return hubView(el);
- const skills=(await H('/skills')).slice().sort((a,b)=>a.name.localeCompare(b.name));Pages._skills=skills;const catOf=s=>s.category||'other';const cats=[...new Set(skills.map(catOf))].sort();const cat=S.skillCat||'All';const q=(S.skillQ||'').toLowerCase();
+ const skills=(await H('/skills')).slice().sort((a,b)=>a.name.localeCompare(b.name));if(gone())return;Pages._skills=skills;const catOf=s=>s.category||'other';const cats=[...new Set(skills.map(catOf))].sort();const cat=S.skillCat||'All';const q=(S.skillQ||'').toLowerCase();
  // while searching, every category is searched (the picked one would hide matches)
  const list=skills.filter(s=>q?(s.name+' '+(s.description||'')+' '+catOf(s)+' '+pretty(catOf(s))).toLowerCase().includes(q):cat==='All'||catOf(s)===cat);
  el.innerHTML=`${tabs('skills',['Installed','Tool groups','Find more skills'])}<div class="toolbar"><div class="search${S.skillQ?' has-q':''}">${icon('search',16)}<input id="skQ" placeholder="Search ${skills.length} skills" value="${esc(S.skillQ||'')}"><button class="ghost icon s-clear" data-act="sk-clear" aria-label="Clear search" title="Clear search">${icon('x',14)}</button></div><select id="skCat" style="width:auto" aria-label="Category"><option value="All">All (${skills.length})</option>${cats.map(c=>`<option ${c===cat?'selected':''} value="${esc(c)}">${esc(pretty(c))} (${skills.filter(s=>catOf(s)===c).length})</option>`).join('')}</select><span class="chip">${skills.filter(s=>s.enabled).length} on</span></div>
  <div class="card list">${list.map((s,i)=>`<div class="row clickable" ${st(i)} data-act="sk-open" data-name="${esc(s.name)}"><div class="main-c"><span class="ic" title="${esc(pretty(s.category||'other'))}">${icon(skIcon(s.category),17)}</span><div class="txt"><b>${esc(s.name)}</b><span>${esc(s.description)} · ${esc(pretty(s.category))}${s.provenance&&s.provenance!=='bundled'?' · '+esc(s.provenance):''}</span></div></div><div class="act">${toggle(s.enabled,s.name,'data-act="sk-toggle" data-name="'+esc(s.name)+'"')}</div></div>`).join('')||'<div class="state-box">No skills match.</div>'}</div>`;
- placePills();let t;$('#skQ').oninput=e=>{e.target.closest('.search')?.classList.toggle('has-q',!!e.target.value);clearTimeout(t);t=setTimeout(()=>{if(!el.isConnected||route().page?.id!=='skills')return;S.skillQ=e.target.value;PAGES.skills(p,el).then(()=>{const i=$('#skQ');if(!i)return;i.focus();i.setSelectionRange(i.value.length,i.value.length)})},200)};$('#skCat').onchange=e=>{S.skillCat=e.target.value;PAGES.skills(p,el)};
+ placePills();let t;$('#skQ').oninput=e=>{e.target.closest('.search')?.classList.toggle('has-q',!!e.target.value);clearTimeout(t);t=setTimeout(()=>{if(!el.isConnected||route().page?.id!=='skills')return;S.skillQ=e.target.value;(pageRun(el),PAGES.skills(p,el)).then(()=>{const i=$('#skQ');if(!i)return;i.focus();i.setSelectionRange(i.value.length,i.value.length)})},200)};$('#skCat').onchange=e=>{S.skillCat=e.target.value;(pageRun(el),PAGES.skills(p,el))};
 };
 ACT['sk-toggle']=async a=>{try{await put(H,'/skills/toggle',{name:a.dataset.name,enabled:a.checked});toast(a.dataset.name+(a.checked?' on for ':' off for ')+ident(viewing()).name+' · applies to new chats')}catch(e){a.checked=!a.checked;fail(e)}};
 ACT['sk-open']=(a,e)=>{if(e.target.closest('.switch'))return;Pages.openSkill(a.dataset.name)};
@@ -598,10 +598,10 @@ const mcpConnMeta=m=>{const http=m.transport==='http'||!!m.url&&!m.command;const
 const mcpCatMeta=(m,diag)=>{const run=m.url?`Connects to ${esc(m.url)}`:m.command?`Runs <code>${esc([m.command,...(m.args||[])].join(' '))}</code>`:'';const src=/^https?:\/\//.test(m.source||'')?`<a href="${esc(m.source)}" target="_blank" rel="noopener">Source</a>`:m.source?'From '+esc(m.source):'';
  const warn=(diag||[]).filter(x=>x.name===m.name);
  return `${src||run?`<p class="t-meta">${[src,run].filter(Boolean).join(' · ')}</p>`:''}${m.install_url?`<p class="t-meta">Installs from <a href="${esc(m.install_url)}" target="_blank" rel="noopener">${esc(m.install_url.replace(/^https:\/\/github\.com\//,''))}</a>${m.install_ref?' at '+esc(m.install_ref):''}</p>`:''}${(m.bootstrap||[]).length?`<details class="aam-more"><summary>Commands it runs to install (${m.bootstrap.length})</summary><pre>${esc(m.bootstrap.join('\n'))}</pre></details>`:''}${m.post_install?`<details class="aam-more"><summary>Setup notes</summary><p class="hint" style="white-space:pre-wrap">${esc(m.post_install)}</p></details>`:''}${warn.map(x=>`<p class="t-warn">${icon('alert',13)} ${esc(x.message||pretty(x.kind||''))}</p>`).join('')}`};
-PAGES.mcp=async(p,el)=>{
+PAGES.mcp=async(p,el)=>{const gone=pageTok(el);
  const tab=S.tab.mcp||'Your servers';setActions(`<button class="primary" data-act="mcp-add">${icon('plus',16)}Add server</button>`);
- if(tab==='Catalog'){el.innerHTML=`${tabs('mcp',['Your servers','Catalog'])}<div class="grid-cards">${'<div class="card tile"><div class="skel" style="height:120px"></div></div>'.repeat(6)}</div>`;let c;try{c=await H('/mcp/catalog');if(!(c.entries||[]).length)throw new Error('The catalog came back empty.')}catch(e){el.innerHTML=`${tabs('mcp',['Your servers','Catalog'])}<div class="panel card"><h2>The catalog did not load</h2><p class="sub">${esc(e.message||'The engine did not answer.')} The engine may be busy or restarting.</p><button class="primary" data-act="reload">Try again</button></div>`;return}Pages._mcpCat=c.entries||[];Pages._mcpDiag=c.diagnostics||[];el.innerHTML=`${tabs('mcp',['Your servers','Catalog'])}<div class="grid-cards">${(c.entries||[]).map((m,i)=>`<div class="card tile" ${st(i)} style="cursor:default"><div class="tile-top">${logoImg(mcpDomain(m),m.name[0].toUpperCase())}<div><h3>${esc(pretty(m.name))}</h3><span style="font-size:12.5px;color:var(--muted)">${esc(m.transport)}${m.auth_type?' · '+esc(m.auth_type):''}</span></div></div><p>${esc(m.description)}</p>${mcpCatMeta(m,c.diagnostics||[])}<div class="tile-foot">${m.installed?chipState(m.enabled,'Installed','Installed · off')+(m.url&&!(m.bootstrap||[]).length?`<button class="ghost small" data-act="mcp-install" data-copy="1" data-name="${esc(m.name)}" data-env="${esc((m.required_env||[]).map(v=>v.name||v.key||v).join(','))}">${icon('plus',14)}Add another</button>`:''):`<button data-act="mcp-install" data-name="${esc(m.name)}" data-env="${esc((m.required_env||[]).map(v=>v.name||v.key||v).join(','))}">Install</button>`}</div></div>`).join('')}</div>`;placePills();return}
- const d=await H('/mcp/servers');const list=d.servers||[];Pages._mcp=list;
+ if(tab==='Catalog'){el.innerHTML=`${tabs('mcp',['Your servers','Catalog'])}<div class="grid-cards">${'<div class="card tile"><div class="skel" style="height:120px"></div></div>'.repeat(6)}</div>`;let c;try{c=await H('/mcp/catalog');if(!(c.entries||[]).length)throw new Error('The catalog came back empty.')}catch(e){if(gone())return;el.innerHTML=`${tabs('mcp',['Your servers','Catalog'])}<div class="panel card"><h2>The catalog did not load</h2><p class="sub">${esc(e.message||'The engine did not answer.')} The engine may be busy or restarting.</p><button class="primary" data-act="reload">Try again</button></div>`;return}if(gone())return;Pages._mcpCat=c.entries||[];Pages._mcpDiag=c.diagnostics||[];el.innerHTML=`${tabs('mcp',['Your servers','Catalog'])}<div class="grid-cards">${(c.entries||[]).map((m,i)=>`<div class="card tile" ${st(i)} style="cursor:default"><div class="tile-top">${logoImg(mcpDomain(m),m.name[0].toUpperCase())}<div><h3>${esc(pretty(m.name))}</h3><span style="font-size:12.5px;color:var(--muted)">${esc(m.transport)}${m.auth_type?' · '+esc(m.auth_type):''}</span></div></div><p>${esc(m.description)}</p>${mcpCatMeta(m,c.diagnostics||[])}<div class="tile-foot">${m.installed?chipState(m.enabled,'Installed','Installed · off')+(m.url&&!(m.bootstrap||[]).length?`<button class="ghost small" data-act="mcp-install" data-copy="1" data-name="${esc(m.name)}" data-env="${esc((m.required_env||[]).map(v=>v.name||v.key||v).join(','))}">${icon('plus',14)}Add another</button>`:''):`<button data-act="mcp-install" data-name="${esc(m.name)}" data-env="${esc((m.required_env||[]).map(v=>v.name||v.key||v).join(','))}">Install</button>`}</div></div>`).join('')}</div>`;placePills();return}
+ const d=await H('/mcp/servers');if(gone())return;const list=d.servers||[];Pages._mcp=list;
  el.innerHTML=`${tabs('mcp',['Your servers','Catalog'])}${list.length?`<div class="card list">${list.map((m,i)=>`<div class="row" ${st(i)}><div class="main-c">${m.url?logoImg(baseDomain(hostOf(m.url)),m.name[0].toUpperCase()):`<span class="ic ${m.enabled!==false?'blue':''}">${icon('plug',17)}</span>`}<div class="txt"><b>${esc(m.name)}</b><span>${esc(m.url||[m.command,...(m.args||[])].join(' '))}${m.tool_count!=null?' · '+plural(m.tool_count,'tool'):''}</span>${m.auth_required||m.needs_auth?`<span class="acc-nosign">${signChip()}</span>`:''}<span class="hub-id">${esc(mcpConnMeta(m))}</span></div></div><div class="act">${m.auth==='oauth'||m.auth_required||m.needs_auth?`<button data-act="mcp-auth" data-name="${esc(m.name)}">Sign in</button>`:''}<button data-act="mcp-test" data-name="${esc(m.name)}">Test</button>${toggle(m.enabled!==false,m.name,'data-act="mcp-toggle" data-name="'+esc(m.name)+'"')}<button class="ghost icon" title="Duplicate" aria-label="Duplicate" data-act="mcp-dup" data-name="${esc(m.name)}">${icon('copy',16)}</button><button class="ghost icon" title="Remove" aria-label="Remove" data-act="mcp-del" data-name="${esc(m.name)}">${icon('trash',16)}</button></div></div>`).join('')}</div>`:emptyBox('No MCP servers yet','Add one by URL or command, or install from the catalog.',`<button data-tabset="mcp:Catalog">Open catalog</button>`)}`;placePills();
 };
 // data-agent: an All agents row acts on that agent's copy (its owner); without it, on the agent being shown
@@ -631,10 +631,10 @@ ACT['mcp-install']=async a=>{const ce=(Pages._mcpCat||[]).find(x=>x.name===a.dat
   S.tab.mcp='Your servers';reload()}catch(er){fail(er)}};
 
 /* ===================== Abilities › Plugins ===================== */
-PAGES.plugins=async(p,el)=>{
+PAGES.plugins=async(p,el)=>{const gone=pageTok(el);
  const tab=S.tab.plugins||'Installed';setActions(`<button data-act="pl-rescan">${icon('refresh',16)}Rescan</button>`);
- if(tab==='Browse')return pluginBrowse(el);
- const h=await H('/dashboard/plugins/hub');const list=h.plugins||[];
+ if(tab==='Browse')return pluginBrowse(el,gone);
+ const h=await H('/dashboard/plugins/hub');if(gone())return;const list=h.plugins||[];
  el.innerHTML=`${tabs('plugins',['Installed','Browse'])}<div class="card list">${list.map((x,i)=>{const on=x.runtime_status==='enabled';return `<div class="row" ${st(i)}><div class="main-c"><span class="ic ${on?'blue':''}">${icon('layers',17)}</span><div class="txt"><b>${esc(x.name)}</b><span>${esc(x.source)} · v${esc(x.version||'?')} · ${esc((x.description||'').slice(0,110))}</span></div></div><div class="act">${toggle(on,x.name,'data-act="pl-toggle" data-name="'+esc(x.name)+'"')}<button class="ghost icon" data-menu="plugin" data-name="${esc(x.name)}" data-remove="${x.can_remove?1:''}" data-update="${x.can_update_git?1:''}" data-dash="${x.has_dashboard_manifest?1:''}" data-hidden="${x.user_hidden?1:''}" aria-label="More">${icon('more',18)}</button></div></div>`}).join('')}</div>`;placePills();
 };
 ACT['pl-toggle']=async a=>{try{const r=await post(UI,'/ui/plugins/toggle',{agent:(agentProfile()||'default'),name:a.dataset.name,enabled:a.checked});   /* per agent, not always the main one */toast(a.dataset.name+(a.checked?' on for ':' off for ')+ident(viewing()).name+(r.restart_required?' · applies after the agents restart':' · works at once'))}catch(e){a.checked=!a.checked;fail(e)}};
@@ -647,7 +647,7 @@ const plTile=(x,i,removed)=>{const rm=removed[x.name];const repo=plRepo(x);const
  const meta=[x.maintainer?'By '+esc(x.maintainer):'',x.sha_short&&gh?`<a href="${esc(gh)}/tree/${esc(x.sha||x.sha_short)}" target="_blank" rel="noopener" title="The exact version that installs">version ${esc(x.sha_short)}</a>`:'',x.docs_url?`<a href="${esc(x.docs_url)}" target="_blank" rel="noopener">Docs</a>`:''].filter(Boolean).join(' · ');
  const compat=[x.requires_hermes?'Needs engine '+esc(x.requires_hermes):'',(x.platforms||[]).length?'Works on '+esc(x.platforms.map(pretty).join(', ')):''].filter(Boolean).join(' · ');
  return `<div class="card tile" ${st(i)} style="cursor:default"><div class="tile-top"><span class="logo" style="background:var(--ink)">${esc(x.name[0].toUpperCase())}</span><div><h3>${esc(x.name)}</h3><span style="font-size:12.5px;color:var(--muted)">${esc(repo)}${x.tier?' · '+esc(x.tier==='official'?'Official':'Community'):''}</span></div></div><p>${esc((x.description||'').slice(0,220))}${(x.description||'').length>220?'…':''}</p>${meta?`<p class="t-meta">${meta}</p>`:''}${compat?`<p class="t-meta">${compat}</p>`:''}${plCaps(x)}${rm?`<p class="t-warn">${icon('alert',13)} Taken out of the catalog${rm.date?' on '+esc(rm.date):''}: ${esc(rm.reason||'no reason given')}</p>`:''}<div class="tile-foot">${foot}</div></div>`};
-async function pluginBrowse(el){const c=await H('/dashboard/plugins/catalog');const removed=Object.fromEntries((c.removed||[]).map(r=>[r.name,r]));Pages._plCat=c.entries||[];Pages._plRemoved=removed;
+async function pluginBrowse(el,gone=pageTok(el)){const c=await H('/dashboard/plugins/catalog');if(gone())return;const removed=Object.fromEntries((c.removed||[]).map(r=>[r.name,r]));Pages._plCat=c.entries||[];Pages._plRemoved=removed;
  const q=(S.plQ||'').toLowerCase();const list=(c.entries||[]).filter(x=>!q||[x.name,x.description,x.maintainer,...(x.capabilities?.provides_tools||[])].join(' ').toLowerCase().includes(q));
  el.innerHTML=`${tabs('plugins',['Installed','Browse'])}<div class="panel card pl-url"><h2>Install from GitHub</h2><p class="sub">Any plugin by its GitHub name (owner/repo, or owner/repo/folder) or its web address.</p><div class="pl-url-row"><input id="plId" placeholder="owner/repo or https://github.com/owner/repo" autocomplete="off"><button class="primary" id="plGo">Install</button></div><label class="capt"><input type="checkbox" id="plForce"><span>Replace it if it is already installed</span></label><label class="capt"><input type="checkbox" id="plOn" checked><span>Switch it on after installing</span></label><p class="err-line" id="plErr" role="alert" hidden></p></div>
   <div class="toolbar"><div class="search${S.plQ?' has-q':''}">${icon('search',16)}<input id="plQ" placeholder="Search ${(c.entries||[]).length} catalog plugins" value="${esc(S.plQ||'')}"><button class="ghost icon s-clear" data-act="pl-clear" aria-label="Clear search" title="Clear search">${icon('x',14)}</button></div></div>
@@ -689,10 +689,10 @@ Pages.pluginMenu=el=>{const n=el.dataset.name;const base='/dashboard/agent-plugi
 const memRead=async f=>{try{return (await readText(f)).text}catch(e){return e.status===404||/not found|no such|does not exist|ENOENT/i.test(e.message)?null:{err:e.message}}};
 const memSize=(f,t)=>t?.err?'':` · ${f} ${typeof t==='string'?bytes(new TextEncoder().encode(t).length):'not created yet'}`;
 const memCards=t=>{if(t?.err)return errLine('these notes');const l=String(t||'').split(/\n\s*§\s*\n|^\s*§\s*$/m).map(x=>x.trim()).filter(Boolean);return l.length?`<div class="mem-cards">${l.map(x=>`<div class="mem-card">${md(x)}</div>`).join('')}</div>`:'<p class="hint">Nothing yet. It adds notes here as it learns.</p>'};
-PAGES.memory=async(p,el)=>{
- const [m,hub]=await Promise.all([H('/memory'),memHub()]);const home=memHome();
+PAGES.memory=async(p,el)=>{const gone=pageTok(el);
+ const [m,hub]=await Promise.all([H('/memory'),memHub()]);if(gone())return;const home=memHome();
  const read=n=>memRead(home+'/memories/'+n);
- const [mem,user]=await Promise.all([read('MEMORY.md'),read('USER.md')]);
+ const [mem,user]=await Promise.all([read('MEMORY.md'),read('USER.md')]);if(gone())return;
  el.innerHTML=`<div class="two"><div><div class="panel card"><h2 class="h-row">What ${esc(ident(agentProfile()||'default').name)} has learned<button class="ghost" data-act="mem-edit" data-f="MEMORY.md">${icon('edit',15)}Edit</button></h2><p class="sub">Notes it keeps about its work, one per card${memSize('MEMORY.md',mem)}</p>${memCards(mem)}</div><div class="panel card"><h2 class="h-row">What ${esc(ident(agentProfile()||'default').name)} knows about you<button class="ghost" data-act="mem-edit" data-f="USER.md">${icon('edit',15)}Edit</button></h2><p class="sub">Your preferences and facts it remembers${memSize('USER.md',user)}</p>${memCards(user)}</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button data-act="mem-reset" data-t="memory">Reset MEMORY.md</button><button data-act="mem-reset" data-t="user">Reset USER.md</button><button class="ghost" data-act="mem-reset" data-t="all" style="color:var(--bad)">Reset both</button></div></div>
  ${memProvPanel(m,hub)}</div>`;
  Pages._memInfo=m.providers||[];bindMemProv(el);
@@ -752,8 +752,8 @@ async function setModelChecked(body,q=''){const r=await post(H,'/model/set'+q,bo
 // file paths and messages from the engine name its folder: people see "(engine folder)" instead
 const hideEngine=s=>String(s||'').replace(/[^\s()]*[\\/]\.hermes(?=[\\/]|\b)/gi,'(engine folder)').replace(/hermes/gi,'engine');
 const capWords=c=>[c?.supports_tools&&'Uses tools',c?.supports_vision&&'Sees pictures',c?.supports_reasoning&&'Thinks step by step'].filter(Boolean);
-PAGES.models=async(p,el)=>{
- const [info,opts,aux,cfg,oauth]=await Promise.all([H('/model/info'),G('/api/model/options'),H('/model/auxiliary'),H('/config'),H('/providers/oauth')]);
+PAGES.models=async(p,el)=>{const gone=pageTok(el);
+ const [info,opts,aux,cfg,oauth]=await Promise.all([H('/model/info'),G('/api/model/options'),H('/model/auxiliary'),H('/config'),H('/providers/oauth')]);if(gone())return;
  const authed=(opts.providers||[]).filter(usableProvider);Pages._mAuthed=authed;
  const effort=cfg.agent?.reasoning_effort||'medium';const ov=cfg.agent?.reasoning_overrides||{};
  const tasks=aux.tasks||[];Pages._auxTasks=tasks;const pinned=t=>!!t.provider&&t.provider!=='auto';const nHand=tasks.filter(pinned).length;
@@ -843,8 +843,8 @@ const kRank=k=>/_(API_KEY|TOKEN)$/.test(k)?0:/_BASE_URL$/.test(k)?1:2;
 const kProvBody=(rows,q)=>{const m=new Map();for(const r of rows){const [n,pr]=kProv(r[0]);if(!m.has(n))m.set(n,{n,pr,rows:[]});m.get(n).rows.push(r)}
  const gs=[...m.values()].sort((a,b)=>a.pr-b.pr||a.n.localeCompare(b.n));
  return {total:gs.length,ready:gs.filter(g=>g.rows.some(r=>r[1].is_set)).length,html:gs.map(g=>{const ns=g.rows.filter(r=>r[1].is_set).length;g.rows.sort((a,b)=>kRank(a[0])-kRank(b[0]));return `<details class="kprov" ${ns||q?'open':''}><summary><span>${esc(g.n)} <small>· ${ns} of ${g.rows.length} set</small></span>${icon('chevD',16)}</summary><div class="kprov-b">${g.rows.map(KROW).join('')}</div></details>`}).join('')}};
-PAGES.keys=async(p,el)=>{
- const env=await H('/env');const adv=!!S.keysAdv;
+PAGES.keys=async(p,el)=>{const gone=pageTok(el);
+ const env=await H('/env');if(gone())return;const adv=!!S.keysAdv;
  setActions(`<label style="display:flex;align-items:center;gap:10px;font-size:13.5px;color:var(--ink-2)">${toggle(adv,'Show advanced keys','data-act="keys-adv"')}Show advanced</label><button class="primary" data-act="key-add">${icon('plus',16)}Add a key</button>`);
  const groups={};for(const [k,v] of Object.entries(env)){if(k==='API_SERVER_KEY'||/^HERMES_/.test(k)&&v.category!=='provider')continue;   /* the engine's own wiring (session token, internal switches): not a key people set; its provider keys (HERMES_QWEN_…) do show */
   if(v.advanced&&!adv&&!v.is_set)continue;(groups[v.category||'other']??=[]).push([k,v])}
@@ -853,7 +853,7 @@ PAGES.keys=async(p,el)=>{
  el.innerHTML=`<div class="toolbar"><div class="search">${icon('search',16)}<input id="kQ" placeholder="Search keys" value="${esc(S.keysQ||'')}"></div></div><p class="hint" style="margin:-6px 0 12px">Saved in this agent’s .env file on the AI box. New chats use a change right away; channels pick it up after Restart agents.</p><div class="k-jump">${list.map(([g])=>`<button class="ghost" data-act="keys-jump" data-g="${esc(g)}">${esc(label[g]||pretty(g))}</button>`).join('')}<button class="ghost" data-act="keys-signins">${icon('user',14)}Sign-ins</button></div>`+list.map(([g,ks],gi)=>{const rows=ks.filter(([k,v])=>!q||(k+' '+v.description+' '+(g==='provider'?kProv(k)[0]:'')).toLowerCase().includes(q));if(!rows.length)return '';rows.sort((x,y)=>(y[1].is_set?1:0)-(x[1].is_set?1:0)||(g==='custom'?x[0].localeCompare(y[0]):0));const nset=rows.filter(r=>r[1].is_set).length;const open=!!q||store.get('keysOpen:'+g,false);const pv=g==='provider'?kProvBody(rows,q):null;
   const body=pv?pv.html:`${(q?rows:rows.filter(r=>r[1].is_set)).map(KROW).join('')}${!q&&rows.some(r=>!r[1].is_set)?`<details class="kf-more"><summary>${nset?'Show '+(rows.length-nset)+' more you can add':'Show the '+rows.length+' keys you can add'}</summary>${rows.filter(r=>!r[1].is_set).map(KROW).join('')}</details>`:''}`;
   return `<div class="panel card kfold ${open?'':'shut'}" data-g="${esc(g)}" ${st(gi)}><button class="kf-head" data-act="keys-fold" data-g="${esc(g)}" aria-expanded="${open}"><span><h2>${esc(label[g]||pretty(g))}</h2><p class="sub">${pv?`${pv.ready} of ${plural(pv.total,'provider')} set up · ${nset} of ${rows.length} keys set`:`${nset} of ${rows.length} set`}</p></span>${icon('chevD',18)}</button><div class="kf-body"><div>${body}</div></div></div>`}).join('');
- let t;$('#kQ').oninput=e=>{clearTimeout(t);t=setTimeout(()=>{S.keysQ=e.target.value;PAGES.keys(p,el).then(()=>{const i=$('#kQ');i.focus();i.setSelectionRange(i.value.length,i.value.length)})},250)};
+ let t;$('#kQ').oninput=e=>{clearTimeout(t);t=setTimeout(()=>{S.keysQ=e.target.value;(pageRun(el),PAGES.keys(p,el)).then(()=>{const i=$('#kQ');i.focus();i.setSelectionRange(i.value.length,i.value.length)})},250)};
 };
 ACT['keys-adv']=a=>{S.keysAdv=a.checked;reload()};
 ACT['key-save']=async a=>{const k=a.dataset.k;const v=$(`[data-kin="${CSS.escape(k)}"]`).value.trim();if(!v)return toast('Paste a value first','err');try{await put(H,'/env',{key:k,value:v});toast(k+' saved');reload()}catch(e){fail(e)}};
@@ -867,8 +867,8 @@ ACT['keys-jump']=a=>{const c=$(`.kfold[data-g="${CSS.escape(a.dataset.g)}"]`);if
 ACT['keys-signins']=()=>{S.tab.models='Accounts';go('/models/models');let n=0;const t=setInterval(()=>{const h=[...document.querySelectorAll('.panel h2')].find(x=>/^Subscriptions you are signed in to|^Sign-ins/.test(x.textContent));if(h||++n>30){clearInterval(t);h?.closest('.panel').scrollIntoView({behavior:'smooth',block:'start'})}},150)};
 
 /* ===================== Models › Profiles ===================== */
-PAGES.profiles=async(p,el)=>{
- const [pr,act]=await Promise.all([H('/profiles'),H('/profiles/active')]);Pages._profiles=pr.profiles||[];
+PAGES.profiles=async(p,el)=>{const gone=pageTok(el);
+ const [pr,act]=await Promise.all([H('/profiles'),H('/profiles/active')]);if(gone())return;Pages._profiles=pr.profiles||[];
  setActions(S.me?.admin===false&&!(S.me.caps||[]).includes('create')?'':`<button class="primary" data-act="prof-new">${icon('plus',16)}New agent</button>`);
  el.innerHTML=`<div class="grid-cards">${Pages._profiles.map((x,i)=>{const id=ident(x.name);return `<div class="card tile" ${st(i)} data-act="ident-open" data-name="${esc(x.name)}"><div class="tile-top">${agentAvatar(x.name,40,{title:false})}<div style="min-width:0"><h3>${esc(id.name)}</h3><span style="font-size:12.5px;color:var(--muted)">${esc(id.title||'Agent')} · ${esc(modelLabel(x.model))} · ${plural(x.skill_count||0,'skill')}</span></div></div><p>${esc(x.description||'No description yet.')}</p><div class="tile-foot"><span style="display:flex;gap:6px;flex-wrap:wrap">${act.active===x.name?'<span class="chip blue">Active</span>':''}${x.is_default?'<span class="chip blue">Default</span>':''}${chipState(x.gateway_running,'Online','Offline')}</span><button class="ghost icon" data-menu="profilecard" data-name="${esc(x.name)}" aria-label="More">${icon('more',18)}</button></div></div>`}).join('')}</div>`;
 };
@@ -973,9 +973,9 @@ Pages.profileMenu=el=>{const n=el.dataset.name;const base='/profiles/'+encodeURI
    reload()}catch(e){fail(e)}}}])};
 
 /* ===================== System › Status ===================== */
-PAGES.status=async(p,el)=>{
+PAGES.status=async(p,el)=>{const gone=pageTok(el);
  setActions(`<button data-act="gw-restart">${icon('refresh',16)}Restart agents</button>`);
- const [s,ses]=await Promise.all([H('/status'),H('/sessions'+qp({limit:8,offset:0,order:'recent'}))]);S.status=s;paintSide();paintBanner();
+ const [s,ses]=await Promise.all([H('/status'),H('/sessions'+qp({limit:8,offset:0,order:'recent'}))]);if(gone())return;S.status=s;paintSide();paintBanner();
  const plats=Object.entries(s.gateway_platforms||{});const connected=plats.filter(([,v])=>v.state==='connected');
  // why the agents or a channel stopped, said up front (the engine records the reason)
  const gwDown=/^(startup_failed|stopped|gateway_stopped)$/.test(s.gateway_state||'')||(!s.gateway_running&&s.gateway_exit_reason);
@@ -984,7 +984,7 @@ PAGES.status=async(p,el)=>{
  el.innerHTML=`${alerts.map(([t,d])=>`<div class="card status-alert" role="alert">${icon('alert',16)}<div><b>${esc(t)}</b><span>${esc(d)}</span></div></div>`).join('')}<div class="stats">${[['Agents',gwState(s).label,esc(gwState(s).say||(s.gateway_pid?'process '+s.gateway_pid:''))],['Active now',String(s.active_sessions??'—'),'in the last 5 minutes'],['Connected',String(connected.length),connected.map(([k])=>pretty(k)).join(', ')||'nothing yet'],['Version',esc(s.version),s.release_date?'released '+esc(s.release_date):'']].map(([a,b,c],i)=>`<div class="card stat" ${st(i)}><span class="th">${a}</span><b>${b}</b><small>${c}</small></div>`).join('')}</div>
  <div class="two"><div class="card list"><div class="list-head"><span class="th">Recent sessions</span><span class="th">Tokens</span></div>${(ses.sessions||[]).map((c,i)=>`<div class="row clickable" ${st(i)} data-go="/chat/${esc(c.id)}"><div class="main-c"><span class="ic">${icon(srcIcon(c.source),16)}</span><div class="txt"><b>${esc(c.title||noThink(c.preview)||c.id)}</b><span>${ago(c.last_active)} · ${esc(modelLabel(c.model))} · ${plural(c.message_count||0,'message')}</span></div></div><div class="act" style="font-variant-numeric:tabular-nums;color:var(--ink-2)">${num((c.input_tokens||0)+(c.output_tokens||0)+(c.cache_read_tokens||0))}</div></div>`).join('')||'<div class="state-box">No sessions yet.</div>'}</div>
  <div class="card list" style="align-self:start"><div class="list-head"><span class="th">Parts</span><span class="th">State</span></div>${plats.map(([k,v])=>`<div class="row"><div class="txt"><b>${esc(pretty(k))}</b><span>${esc([v.listener_base,v.error_message,upd(v)].filter(Boolean).join(' · '))}</span></div><div class="act">${v.state==='connected'?'<span class="chip ok"><i class="dot"></i>Connected</span>':`<span class="chip ${v.needs_attention?'warn':''}">${esc(pretty(v.state))}</span>`}</div></div>`).join('')||`<div class="state-box">${s.gateway_running?'Running. No channels connected yet.':'Agents are not running.'}</div>`}</div></div>`;
- clearTimeout(Pages._statusT);Pages._statusT=setTimeout(()=>{if(route().page?.id==='status'&&!document.hidden)PAGES.status(p,el).catch(()=>{})},5000);
+ clearTimeout(Pages._statusT);Pages._statusT=setTimeout(()=>{if(route().page?.id==='status'&&!document.hidden)(pageRun(el),PAGES.status(p,el)).catch(()=>{})},5000);
 };
 
 /* ===================== System › Usage ===================== */
@@ -1005,14 +1005,14 @@ ACT['usage-pick']=async a=>{const list=await viewAgents();const who=S.usageAgent
 ACT['currency-pick']=a=>{const c=currency(),admin=S.me?.admin!==false,def=S.defaults?.currency||'USD';
  menu(a,[{header:'Show costs in'},{label:'US dollars',sub:'$',on:c==='USD',run:()=>setCurrency('USD')},{label:'Rupiah',sub:'Rp, at today’s rate',on:c==='IDR',run:()=>setCurrency('IDR')},...(admin&&c!==def?['-',{label:'Use '+(c==='IDR'?'rupiah':'US dollars')+' for everyone',icon:'user',sub:'For people who haven’t picked one',run:()=>ACT['currency-default']()}]:[])],{matchWidth:false})};
 ACT['currency-default']=async()=>{try{await post(UI,'/ui/defaults',{currency:currency()});S.defaults={...(S.defaults||{}),currency:currency()};toast('Everyone who hasn’t picked a currency now sees '+(currency()==='IDR'?'rupiah':'US dollars'));reload()}catch(e){fail(e)}};
-PAGES.usage=async(p,el)=>{
+PAGES.usage=async(p,el)=>{const gone=pageTok(el);
  const days={'7 days':7,'30 days':30,'90 days':90}[S.tab.usage||'7 days'];
  // dollars or rupiah: the tab sets the person's choice, which every cost in the app follows
- const list=await viewAgents().catch(()=>[]);const who=S.usageAgent&&(S.usageAgent==='*'||list.includes(S.usageAgent))?S.usageAgent:list.length>1?'*':(S.profile||'default');
+ const list=await viewAgents().catch(()=>[]);if(gone())return;const who=S.usageAgent&&(S.usageAgent==='*'||list.includes(S.usageAgent))?S.usageAgent:list.length>1?'*':(S.profile||'default');
  const cur=currency()==='IDR'?'Rp IDR':'$ USD',isDefault=currency()===(S.defaults?.currency||'USD');
  setActions('<div class="u-bar">'+(list.length>1?`<button class="u-pick" data-act="usage-pick" aria-haspopup="menu" title="Whose usage to show">${icon(who==='*'?'layers':'user',15)}<span>${who==='*'?'All agents':esc(ident(who).name)}</span>${icon('chevD',14)}</button>`:'')+`<button class="u-pick" data-act="currency-pick" aria-haspopup="menu" title="Currency for costs"><span>${cur}</span>${icon('chevD',14)}</button>`+tabs('usage',['7 days','30 days','90 days'])+`<button class="u-pick icon" data-act="reload" title="Refresh" aria-label="Refresh">${icon('refresh',15)}</button></div>`);placePills();
  const bad=[],one=a=>H('/analytics/usage?days='+days+'&profile='+encodeURIComponent(a)).catch(()=>{bad.push(ident(a).name);return{daily:[],by_model:[]}});
- const u=who==='*'?mergeUsage(await Promise.all((list.length?list:['default']).map(one))):await one(who);const daily=u.daily||[];
+ const u=who==='*'?mergeUsage(await Promise.all((list.length?list:['default']).map(one))):await one(who);if(gone())return;const daily=u.daily||[];
  const sum=k=>daily.reduce((a,d)=>a+(d[k]||0),0);const inp=sum('input_tokens'),out=sum('output_tokens'),cache=sum('cache_read_tokens'),cost=sum('estimated_cost'),actual=sum('actual_cost'),ses=sum('sessions');
  const hit=inp+cache?Math.round(cache/(inp+cache)*100):0;
  const series=Array.from({length:days},(_,i)=>{const d=new Date(Date.now()-(days-1-i)*864e5).toISOString().slice(0,10);const r=daily.find(x=>x.day===d)||{};return {d,i:(r.input_tokens||0)+(r.cache_read_tokens||0),o:r.output_tokens||0,c:r.estimated_cost||0}});
@@ -1059,11 +1059,11 @@ const logLine=(l,pre='')=>{const c=logCls(l),e=pre+esc(l.replace(/\n$/,''));retu
 const CFG_WORDS=[['hermes-cli','aqeelos-cli'],['hermes gateway','aqeelos gateway'],['Hermes','aqeelOS']];
 const cfgShow=v=>{if(v==null)return v;const t=typeof v==='string'?v:JSON.stringify(v);if(!/hermes/i.test(t))return v;let o=t;for(const [a,b] of CFG_WORDS)o=o.split(a).join(b);try{return typeof v==='string'?o:JSON.parse(o)}catch{return v}};
 const cfgSave=v=>{if(typeof v!=='string')return v;let o=v;for(const [a,b] of CFG_WORDS.slice(0,2))o=o.split(b).join(a);return o};
-PAGES.settings=async(p,el)=>{
+PAGES.settings=async(p,el)=>{const gone=pageTok(el);
  setActions(`<button data-act="cfg-raw">Raw YAML</button><button data-act="cfg-import">${icon('upload',16)}Import</button><button data-act="cfg-export">${icon('download',16)}Export</button><button class="primary" data-act="cfg-save">Save</button>`);
  // searching, switching groups and Load defaults redraw from the unsaved copy instead of fetching it again
  const reuse=Pages._cfgReuse&&Pages._cfg;Pages._cfgReuse=false;
- const [cfg,schema,consent]=await Promise.all([reuse?Pages._cfg:H('/config'),H('/config/schema'),null]);if(!reuse){Pages._cfgChanged=false;Pages._loadedDefaults=false}Pages._cfg=cfg;Pages._dirty={};
+ const [cfg,schema,consent]=await Promise.all([reuse?Pages._cfg:H('/config'),H('/config/schema'),null]);if(gone())return;if(!reuse){Pages._cfgChanged=false;Pages._loadedDefaults=false}Pages._cfg=cfg;Pages._dirty={};
  const get=k=>cfgShow(k.split('.').reduce((o,x)=>o==null?undefined:o[x],cfg));
  const fields=Object.entries(schema.fields||{});const catOf=f=>f.category||'general';const allCats=[...new Set(fields.map(f=>catOf(f[1])))];const order=schema.category_order||[];
  // the engine's order first, then any group it left out, A to Z
@@ -1086,7 +1086,7 @@ PAGES.settings=async(p,el)=>{
  <div style="align-self:start;display:grid;gap:16px"><div class="panel card" style="margin:0"><h2>Groups</h2><p class="sub">Jump to a section</p>${cats.map(c=>`<button class="item ${c===cur&&!q?'on':''}" data-act="cfg-cat" data-c="${esc(c)}">${esc(pretty(c))}<span class="n">${fields.filter(f=>catOf(f[1])===c).length}</span></button>`).join('')}</div>
  <div class="panel card" style="margin:0"><h2>Reset</h2><p class="sub">${q?'Put the settings found by this search back to their defaults':'Put the settings in this group back to their defaults'}. Nothing else changes, and you still need to Save.</p><button data-act="cfg-defaults" ${shown.length?'':'disabled'}>${q?'Reset these results':'Reset this group'}</button></div></div></div>`;placePills();
  el.addEventListener('input',e=>{const i=e.target.closest('[data-cfg]');if(i)Pages._dirty[i.dataset.cfg]=i});el.addEventListener('change',e=>{const i=e.target.closest('[data-cfg]');if(i)Pages._dirty[i.dataset.cfg]=i});
- let t;$('#cfQ').oninput=e=>{clearTimeout(t);t=setTimeout(()=>{try{cfgApply()}catch(er){return cfgFail(er)}Pages._cfgReuse=true;S.cfgQ=e.target.value;PAGES.settings(p,el).then(()=>{const i=$('#cfQ');i.focus();i.setSelectionRange(i.value.length,i.value.length)})},250)};
+ let t;$('#cfQ').oninput=e=>{clearTimeout(t);t=setTimeout(()=>{try{cfgApply()}catch(er){return cfgFail(er)}Pages._cfgReuse=true;S.cfgQ=e.target.value;(pageRun(el),PAGES.settings(p,el)).then(()=>{const i=$('#cfQ');i.focus();i.setSelectionRange(i.value.length,i.value.length)})},250)};
  
 };
 // folds the edited fields into the unsaved copy of the settings
@@ -1112,8 +1112,8 @@ ACT['cfg-defaults']=async()=>{const ks=Pages._cfgShown||[];if(!ks.length)return 
 ACT['cfg-raw']=async()=>{try{const r=await H('/config/raw');const d=drawer('config.yaml',`<p class="hint" style="margin:0 0 8px">${esc(r.path||'')}</p><textarea id="rawY" rows="28" style="font-family:var(--mono);font-size:12px;line-height:1.5">${esc(r.yaml)}</textarea>`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="rawGo">Save YAML</button>`);d.style.width='min(720px,100vw)';d.querySelector('#rawGo').onclick=async()=>{try{await put(H,'/config/raw',{yaml_text:$('#rawY').value});closeLayers();toast('config.yaml saved');reload()}catch(e){fail(e)}}}catch(e){fail(e)}};
 
 /* ===================== System › Host ===================== */
-PAGES.host=async(p,el)=>{
- const [s,cur,hooks,ck,stat,pool,plan,box]=await Promise.all([H('/system/stats'),H('/curator').catch(()=>null),H('/ops/hooks').catch(()=>({hooks:[]})),H('/ops/checkpoints').catch(()=>null),S.status?Promise.resolve(S.status):H('/status').catch(()=>null),H('/credentials/pool').catch(()=>({providers:[]})),H('/gateway/migrate/plan').catch(()=>null),UI('/ui/box').catch(()=>null)]);
+PAGES.host=async(p,el)=>{const gone=pageTok(el);
+ const [s,cur,hooks,ck,stat,pool,plan,box]=await Promise.all([H('/system/stats'),H('/curator').catch(()=>null),H('/ops/hooks').catch(()=>({hooks:[]})),H('/ops/checkpoints').catch(()=>null),S.status?Promise.resolve(S.status):H('/status').catch(()=>null),H('/credentials/pool').catch(()=>({providers:[]})),H('/gateway/migrate/plan').catch(()=>null),UI('/ui/box').catch(()=>null)]);if(gone())return;
  const canUpd=stat?.can_update_hermes!==false;
  setActions(canUpd?`<button class="primary" data-act="upd-check">${icon('refresh',16)}Check for updates</button>`:'');
  const bm=box?.memory?.limit?box.memory:null,sm=s.memory||{},pct=x=>x==null?'':' ('+Math.round(x)+'%)';

@@ -26,7 +26,7 @@ PAGES.files=async(p,el)=>{const stale=pageTok(el);
  if(!S._placesOk){const all=placesFor();S._placesOk=new Set([fWork(),FILE_HOME]);UI('/ui/files/exist',{method:'POST',body:{paths:all.map(x=>x[1])}}).then(r=>{for(const x of r.exist||[])S._placesOk.add(x);paintPlaces()}).catch(()=>{S._placesOk=new Set(all.map(x=>x[1]));paintPlaces()})}
  const path=S.filePath||fWork();let d;
  // the engine can lock Files to one folder (a hosted box): then it opens there and offers nothing above it
- try{d=await H('/files'+qp({path}))}catch(e){if(e.stale)throw e;if(path!==FILE_HOME){S.filePath=FILE_HOME;toast(S._fileJump?'Couldn’t open '+path+'. It may not exist, or it is not yours.':'That folder doesn’t exist yet','err');S._fileJump=false;return PAGES.files(p,el)}try{d=await H('/files')}catch{throw e}}
+ try{d=await H('/files'+qp({path}))}catch(e){if(e.stale)throw e;if(stale())return;if(path!==FILE_HOME){S.filePath=FILE_HOME;toast(S._fileJump?'Couldn’t open '+path+'. It may not exist, or it is not yours.':'That folder doesn’t exist yet','err');S._fileJump=false;return PAGES.files(p,el)}try{d=await H('/files')}catch{throw e}}
  if(stale())return; S._fileJump=false;S.filePath=d.path;Pages._dir=d;const lock=d.can_change_path===false&&d.locked_root?d.locked_root.replace(/\/$/,''):null;S._fileLock=lock;
  const under=x=>!lock||x===lock||x.startsWith(lock+'/');const PLACES=lock?(placesFor().filter(x=>under(x[1])).length?placesFor().filter(x=>under(x[1])):[['Files',lock,'folder','agent']]):placesFor();if(lock)S._placesOk.add(lock);
  setActions(`<button class="ghost icon" data-act="reload" title="Refresh this folder" aria-label="Refresh this folder">${icon('refresh',16)}</button>${lock?'':`<button class="ghost" data-act="f-go" title="Type the path of any folder">${icon('search',16)}Go to folder</button>`}<button data-act="f-mkdir">${icon('folder',16)}New folder</button><button class="primary" data-act="f-upload">${icon('upload',16)}Upload</button>`);
@@ -55,8 +55,8 @@ PAGES.files=async(p,el)=>{const stale=pageTok(el);
   ${items.length?(FV.view==='grid'?`<div class="fgrid">${upTile}${items.map(tile).join('')}</div>`:`<div class="card list">${upRow}${items.map(row).join('')}</div>`)
    :emptyBox(FV.q?'Nothing matches':'This folder is empty',FV.q?'Nothing in this folder or inside it has that in its name.':'Drop files here to upload them, or create a folder.',upOk&&!FV.q?`<button class="ghost" data-act="f-cd" data-path="${esc(d.parent)}">${icon('chevL',15)}Up to ${esc(d.parent.split('/').pop()||'/')}</button>`:'')}${found?.more?'<p class="hint" style="margin:10px 4px">'+(found.results.length>=200?'Showing the first 200 matches.':'This folder is very large, so not every folder inside it was searched.')+' Type more of the name, or open a folder closer to what you need.</p>':''}
   <div class="fdrop">${icon('upload',28)}<b>Drop to upload</b><span>into ${esc(d.path.replace(FILE_HOME,'~'))}</span></div></div>`;
- let t;$('#fQ').oninput=e=>{clearTimeout(t);t=setTimeout(()=>{FV.q=e.target.value;$('.fsearch')?.classList.add('busy');PAGES.files(p,el).then(()=>{const i=$('#fQ');i.focus();i.setSelectionRange(i.value.length,i.value.length)})},250)};
- $('#fSort').onchange=e=>{FV.sort=e.target.value;store.set('filesSort',FV.sort);PAGES.files(p,el)};
+ let t;$('#fQ').oninput=e=>{clearTimeout(t);t=setTimeout(()=>{FV.q=e.target.value;$('.fsearch')?.classList.add('busy');pageRun(el);PAGES.files(p,el).then(()=>{const i=$('#fQ');i.focus();i.setSelectionRange(i.value.length,i.value.length)})},250)};
+ $('#fSort').onchange=e=>{FV.sort=e.target.value;store.set('filesSort',FV.sort);pageRun(el);PAGES.files(p,el)};
  const w=$('#fwrap');let depth=0;w.ondragenter=e=>{if(e.dataTransfer?.types?.includes('Files')){depth++;w.classList.add('dropping')}};w.ondragleave=()=>{if(--depth<=0){depth=0;w.classList.remove('dropping')}};w.ondragover=e=>e.preventDefault();w.ondrop=e=>{e.preventDefault();depth=0;w.classList.remove('dropping');if(e.dataTransfer.files.length)uploadFiles([...e.dataTransfer.files])};
 };
 ACT['f-cd']=(a,e)=>{if(e.target.closest('[data-menu]'))return;S.filePath=a.dataset.path;FV.q='';reload()};
@@ -107,8 +107,9 @@ async function preview(i){const files=(Pages._items||[]).filter(x=>!x.is_directo
   else throw new Error('binary');
  }catch(e){stage.innerHTML=`<div class="pv-none"><span class="fk fk-${k}">${icon(KIND_ICON[k],34)}</span><b>No preview for this file</b><span>${esc(f.name)} · ${bytes(f.size)}</span><button class="primary" data-pv="download">${icon('download',15)}Download</button></div>`}
 }
-// the "Showing" agent picker (Files loads after the other pages got theirs, so it is added here)
-{const base=PAGES.files;PAGES.files=async(p,el)=>{const stale=pageRun(el);viewPick(await viewAgents());if(!stale())return base(p,el)}}
+// the "Showing" agent picker (Files loads after the other pages got theirs, so it is added here); render starts the
+// drawing (runPage), a search or sort here starts its own (pageRun before calling)
+{const base=PAGES.files;PAGES.files=async(p,el)=>{const stale=pageTok(el);viewPick(await viewAgents());if(!stale())return base(p,el)}}
 
 // redraw only the quick places once we know which exist
 function paintPlaces(){const box=$('.fplaces');if(!box||!S._placesOk)return;for(const b of box.querySelectorAll('[data-path]'))b.hidden=!S._placesOk.has(b.dataset.path)}

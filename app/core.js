@@ -361,8 +361,9 @@ function render(){
  // plugin slots on this page, when some plugin fills one (plugin-host.js)
  if(Plugins.slotNames.size)Plugins.patch();
 // draw a page; if it fails (the engine busy for a moment), try once more quietly before saying so
-function runPage(P,r,pg){const nav=S._nav;pageRun(pg);return Promise.resolve(P(r.page,pg,r)).catch(async e=>{if(e?.stale||nav!==S._nav||!pg.isConnected)return;if(e?.status&&e.status<500&&e.status!==429)return showError(pg,e);
- await sleep(1200);if(nav!==S._nav||!pg.isConnected)return;pageRun(pg);return Promise.resolve(P(r.page,pg,r)).catch(e2=>showError(pg,e2))})}
+// a drawing that failed after a newer one began says nothing: the newer one owns the page
+function runPage(P,r,pg){const nav=S._nav;let gone=pageRun(pg);return Promise.resolve(P(r.page,pg,r)).catch(async e=>{if(e?.stale||gone()||nav!==S._nav||!pg.isConnected)return;if(e?.status&&e.status<500&&e.status!==429)return showError(pg,e);
+ await sleep(1200);if(gone()||nav!==S._nav||!pg.isConnected)return;gone=pageRun(pg);return Promise.resolve(P(r.page,pg,r)).catch(e2=>{if(!gone())showError(pg,e2)})})}
 }
 function paintSide(r){const el=$('.side'),h=sidebar(r||route());if(el._h!==h){el._h=h;el.innerHTML=h}}
 function paintTop(r){const el=$('.topbar'),h=topbar(r||route());if(el._h!==h){el._h=h;el.innerHTML=h}}
@@ -453,7 +454,9 @@ const mayEdit=(a,cap)=>{const me=S.me||{},l=me.agents?.[a];return me.admin!==fal
 // data attributes on that button (already escaped), icon: its icon
 const alertBox=(html,{act='reload',id='',label='Try again',style='',cls='',attrs='',ic='refresh'}={})=>`<div class="alert${cls?' '+cls:''}" role="alert"${style?` style="${style}"`:''}>${icon('alert',16)}<span class="alert-t">${html}</span>${act||id?`<button class="ghost small"${id?` id="${id}"`:` data-act="${act}"`}${attrs?' '+attrs:''}>${icon(ic,14)}${esc(label)}</button>`:''}</div>`;
 // each drawing of a page gets a number; work that ends after a newer drawing began is dropped (two quick reloads drew
-// the Agents page twice, a slow Files answer replaced a newer folder). pageRun starts a drawing, pageTok joins the current one
+// the Agents page twice, a slow Files answer replaced a newer folder). pageRun starts a drawing (render does, in runPage;
+// a search box or a timer that redraws the page itself calls it first), pageTok joins the current one: every page and every
+// layer wrapped round it takes const gone=pageTok(el) before its first await and stops after each await if gone()
 const pageRun=el=>{const t=el._rt=(el._rt||0)+1;return ()=>el._rt!==t||!el.isConnected};
 const pageTok=el=>{const t=el._rt;return ()=>el._rt!==t||!el.isConnected};
 // a part of a page that failed to load: says what, with Try again (never drawn as an empty list)

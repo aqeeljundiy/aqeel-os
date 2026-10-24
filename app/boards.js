@@ -23,11 +23,11 @@ const kbRefresh=()=>{const el=kbEl();if(el?.isConnected)kbLoad(el).catch(fail);k
 function kbFilter(t){const q=KF.q.trim().toLowerCase();if(KF.agent&&(KF.agent==='-'?t.assignee:t.assignee!==KF.agent))return false;if(KF.tenant&&t.tenant!==KF.tenant)return false;
  return !q||`${t.id} ${t.title||''} ${t.body||''} ${t.result||''} ${t.latest_summary||''} ${t.assignee||''} ${t.tenant||''}`.toLowerCase().includes(q)}
 
-PAGES.kanban=async(p,el)=>{Pages._kbEl=el;
+PAGES.kanban=async(p,el)=>{Pages._kbEl=el;const gone=pageTok(el);
  setActions(`<button data-act="kb-boards" aria-haspopup="menu" title="Switch boards">${icon('layers',16)}<span id="kbPickN">${kbMeta()?kbPickLabel(kbMeta()):'Board'}</span>${icon('chevD',14)}</button><button data-act="kb-dispatch" title="Agents check for Ready tasks every minute. This asks them now.">${icon('play',16)}Start ready tasks</button><button data-act="kb-refresh">${icon('refresh',16)}Refresh</button><button class="primary" data-act="kb-new">${icon('plus',16)}New task</button>`);
- if(!Pages._kbCfg){const c=await KB('/config').catch(()=>null);Pages._kbCfg=c||{};if(!KF.seeded){KF.seeded=true;KF.tenant=c?.default_tenant||'';KF.lanes=c?.lane_by_profile!==false;KF.archived=!!c?.include_archived_by_default}}
+ if(!Pages._kbCfg){const c=await KB('/config').catch(()=>null);Pages._kbCfg=c||{};if(!KF.seeded){KF.seeded=true;KF.tenant=c?.default_tenant||'';KF.lanes=c?.lane_by_profile!==false;KF.archived=!!c?.include_archived_by_default}if(gone())return}
  KB('/orchestration').then(o=>{Pages._kbOrch=o;kbTool(el)}).catch(()=>{});kbBoards();
- await kbLoad(el);kbLive();
+ await kbLoad(el);if(gone())return;kbLive();
  // without the live stream (or when it drops) look again every 10 s; a drag in progress is never redrawn under the pointer
  const tick=()=>{if(route().page?.id!=='kanban')return;if(document.hidden||Pages._kbWsOn||Pages._kbDrag){Pages._kbT=setTimeout(tick,10000);return}kbLoad(el).then(()=>kbDrawerLive()).catch(()=>{}).finally(()=>{clearTimeout(Pages._kbT);Pages._kbT=setTimeout(tick,10000)})};
  clearTimeout(Pages._kbT);Pages._kbT=setTimeout(tick,10000);
@@ -318,13 +318,13 @@ ACT['kb-del']=a=>kbDelete([a.dataset.id]);
 const TIER_COLORS={Copper:'#b87333',Silver:'#9aa3ad',Gold:'#d4a017',Diamond:'#4fc3f7',Olympian:'#8e5cff'};
 const ACH_F={cat:'All',vis:'all'};
 const achDeH=s=>String(s||'').replace(/Hermes Agent/g,'aqeelOS').replace(/Hermes/g,'aqeelOS');
-PAGES.achievements=async(p,el)=>{
+PAGES.achievements=async(p,el)=>{const gone=pageTok(el);
  setActions(`<button data-act="ach-rescan">${icon('refresh',16)}Rescan history</button>`);
- const [a,recent,scan]=await Promise.all([H('/plugins/hermes-achievements/achievements'),H('/plugins/hermes-achievements/recent-unlocks').catch(()=>null),H('/plugins/hermes-achievements/scan-status').catch(()=>null)]);
+ const [a,recent,scan]=await Promise.all([H('/plugins/hermes-achievements/achievements'),H('/plugins/hermes-achievements/recent-unlocks').catch(()=>null),H('/plugins/hermes-achievements/scan-status').catch(()=>null)]);if(gone())return;
  Pages._ach={a,recent,scan,list:(a.achievements||[]).map(x=>({...x,name:achDeH(x.name),description:achDeH(x.description),criteria:achDeH(x.criteria)}))};achPaint(el);
  // while a scan runs, badges arrive as it goes: look again every 4 s until it is done
  const m=a.scan_meta||{},busy=['pending','in_progress'].includes(m.mode)||m.status?.state==='running'||scan?.state==='running';
- clearTimeout(Pages._achT);if(busy)Pages._achT=setTimeout(()=>{if(route().page?.id==='achievements')PAGES.achievements(p,el).catch(()=>{})},4000);
+ clearTimeout(Pages._achT);if(busy)Pages._achT=setTimeout(()=>{if(route().page?.id==='achievements')(pageRun(el),PAGES.achievements(p,el)).catch(()=>{})},4000);
 };
 const achState=x=>x.state||(x.unlocked?'unlocked':'discovered');
 function achBadge(x,i){const s=achState(x),col=TIER_COLORS[x.tier||x.next_tier]||'var(--muted)',sec=s==='secret';
