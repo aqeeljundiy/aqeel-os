@@ -63,7 +63,10 @@ export function createHelp({DATA,root,DASH,DASH_TOKEN,GATE,API_KEY,users,listAge
  const today=()=>{const d=new Date();return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate()};
  const limitOf=()=>LIMITS.includes(+db.settings.limit)?+db.settings.limit:LIMIT_DEFAULT;
  const used=pp=>pp.day===today()?pp.n:0;
- const clip=(s,n)=>String(s??'').replace(/\s+/g,' ').trim().slice(0,n);
+ // nothing from the browser may look like the context block or a ticket marker (or close one early): those tags,
+ // and lookalikes, are taken out of every field and of the message itself
+ const untag=s=>String(s??'').replace(/<\s*\/?\s*(?:aqeelos[\w-]*|[\w-]*context[\w-]*)\b[^>]*>/gi,'').replace(/\[\[\s*\/?\s*ticket\s*\]\]/gi,'');
+ const clip=(s,n)=>untag(s).replace(/\s+/g,' ').trim().slice(0,n);
  const dash=(p,opt={})=>fetch(DASH+'/api'+p,{...opt,headers:{'x-hermes-session-token':DASH_TOKEN,...(opt.body?{'content-type':'application/json'}:{}),...(opt.headers||{})},signal:opt.signal||AbortSignal.timeout(20000)});
  const PRE='/p/'+encodeURIComponent(HELP_AGENT),GH={authorization:'Bearer '+API_KEY,'content-type':'application/json'};
  const gate=(p,opt={})=>fetch(GATE+PRE+p,{...opt,headers:{...GH,...(opt.headers||{})},signal:opt.signal||AbortSignal.timeout(30000)});
@@ -74,7 +77,7 @@ export function createHelp({DATA,root,DASH,DASH_TOKEN,GATE,API_KEY,users,listAge
  let lockHit={t:0,v:null};
  async function locked(fresh){if(!fresh&&lockHit.v!==null&&Date.now()-lockHit.t<60000)return lockHit.v;let v=false;
   try{if(await isAgent(HELP_AGENT)){const [t,m]=await Promise.all([dash('/tools/toolsets?profile='+HELP_AGENT).then(json),dash('/mcp/servers?profile='+HELP_AGENT).then(json)]);
-    const ts=Array.isArray(t)?t:t.toolsets;const ms=Array.isArray(m)?m:m.servers;v=Array.isArray(ts)&&Array.isArray(ms||[])&&!ts.some(x=>x.enabled)&&!(ms||[]).length}}catch{v=false}
+    const ts=Array.isArray(t)?t:t.toolsets;const ms=Array.isArray(m)?m:m.servers;v=Array.isArray(ts)&&Array.isArray(ms)&&!ts.some(x=>x.enabled)&&!ms.length}}catch{v=false}
   lockHit={t:Date.now(),v};return v}
  let ensuring=null;
  // HELP_ENSURE=1 lets a test copy set it up too (against its own engine); the live app always does
@@ -128,30 +131,31 @@ export function createHelp({DATA,root,DASH,DASH_TOKEN,GATE,API_KEY,users,listAge
   if(si.length)L.push('Sign-ins that need renewing (admins renew them in Bottlenecks; whoever may change the agent can sign in again on Connected apps): '+si.join('; '));
   if(users.can(u,'usage')){try{const d=await Promise.race([accounts(u),new Promise(r=>setTimeout(()=>r(null),5000))]);const ac=(d?.accounts||[]).map(x=>clip(x.label,30)+': '+(x.signedIn?'signed in'+(x.usage?.session?', session '+x.usage.session.used+'% used':'')+(x.usage?.week?', week '+x.usage.week.used+'%':''):'signed out'));if(ac.length)L.push('Accounts: '+ac.join('; '))}catch{}}
   const errs=(Array.isArray(b.errors)?b.errors:[]).slice(-8).map(e=>'['+clip(e?.at,8)+' '+clip(e?.kind,10)+(e?.page?' on '+clip(e.page,40):'')+'] '+clip(e?.text,220)).filter(x=>x.length>6);
-  L.push('Recent errors in their tab: '+(errs.length?errs.join(' | '):'none'));
+  L.push('Recent errors in their tab (reported by the browser, not checked here): '+(errs.length?errs.join(' | '):'none'));
   const open=db.tickets.filter(t=>t.uid===u.id&&t.status==='open');
   L.push('Their open tickets: '+(open.length?open.map(t=>'"'+clip(t.what,100)+'"').join('; '):'none')+' · tickets left today: '+Math.max(0,TICKETS_PER_DAY-ticketsToday(u.id)));
   const fs=await relevant(String(b.text||'')+' '+String(b.pageName||''));if(fs.length)L.push('Feature list entries that may matter:\n'+fs.map(f=>'- '+f.id+' '+f.title+' ['+f.status+']: '+clip(f.notes,260)).join('\n'));
   // the same context as last time is said in one line (keeps long conversations short)
   const text=L.join('\n'),h=createHash('sha1').update(text.replace(/^Now: .*$/m,'')).digest('hex').slice(0,12);
   if(pp.ctx===h&&pp.ctxSession===pp.session)return CTX_OPEN+'Same as the last message (now: '+new Date().toString().slice(0,24)+').'+CTX_CLOSE;
-  pp.ctx=h;pp.ctxSession=pp.session;return CTX_OPEN+'\n'+text+'\n'+CTX_CLOSE}
+  pp.ctxNext={h,session:pp.session};return CTX_OPEN+'\n'+text+'\n'+CTX_CLOSE}   // remembered only once the engine took the message
 
  /* ---------- tickets ---------- */
  const norm=s=>String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().slice(0,160);
  const ticketsToday=uid=>{const d=new Date();d.setHours(0,0,0,0);return db.tickets.filter(t=>t.uid===uid&&t.at>=d.getTime()).length};
  async function file(u,raw,b){let x={};try{x=JSON.parse(String(raw).trim())}catch{return {error:'unreadable'}}
-  const what=clip(x.what,300);if(!what)return {error:'unreadable'};const error=clip(x.error,400)||clip((Array.isArray(b.errors)?b.errors:[]).slice(-1)[0]?.text,400);
-  const key=u.id+'|'+norm(what)+'|'+norm(error);const same=db.tickets.find(t=>t.key===key&&t.status==='open');
+  const what=clip(x.what,300);if(!what)return {error:'unreadable'};const error=clip(x.error,400),browser=clip((Array.isArray(b.errors)?b.errors:[]).slice(-1)[0]?.text,400);
+  const key=u.id+'|'+norm(what)+'|'+norm(error||browser);const same=db.tickets.find(t=>t.key===key&&t.status==='open');
   if(same){same.count=(same.count||1)+1;same.updated=Date.now();await save();return {ticket:pub(same),dup:true}}
   if(ticketsToday(u.id)>=TICKETS_PER_DAY)return {error:'limit'};
-  const t={id:'t'+randomBytes(6).toString('hex'),key,uid:u.id,who:clip(u.name,60),role:u.role,what,checked:clip(x.checked,400),error,page:clip(b.page,100),pageName:clip(b.pageName,60),at:Date.now(),updated:Date.now(),status:'open',count:1};
+  const t={id:'t'+randomBytes(6).toString('hex'),key,uid:u.id,who:clip(u.name,60),role:u.role,what,checked:clip(x.checked,400),error,browser,said:clip(b.text,300),page:clip(b.page,100),pageName:clip(b.pageName,60),at:Date.now(),updated:Date.now(),status:'open',count:1};
   db.tickets.unshift(t);db.tickets=db.tickets.slice(0,500);await save();console.log('help: ticket from',u.name||u.id+':',what.slice(0,80));return {ticket:pub(t)}}
  const pub=t=>({id:t.id,what:t.what,status:t.status,at:t.at,resolvedAt:t.resolvedAt||null,count:t.count||1});
  // Bottlenecks for admins (TICKETS_TO): the open ones not put off with Not now
  async function items(u){await load();if(TICKETS_TO==='admins'&&!users.isAdmin(u))return [];const now=Date.now();
-  return db.tickets.filter(t=>t.status==='open'&&!((t.snooze||0)>now)).map(t=>({id:'ticket|'+t.id,kind:'ticket',title:'Help ticket from '+t.who+': '+t.what,
-   text:[t.checked&&'Help checked: '+t.checked,t.error&&'Error: '+t.error,'Page: '+(t.pageName||t.page||'unknown'),new Date(t.at).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})].filter(Boolean).join(' · '),count:t.count,at:t.updated}))}
+  // "Reported via Help": the person's own words, what Help checked and the browser's error text, each said apart
+  return db.tickets.filter(t=>t.status==='open'&&!((t.snooze||0)>now)).map(t=>({id:'ticket|'+t.id,kind:'ticket',title:'Reported via Help by '+t.who+': '+t.what,
+   text:[t.said&&t.who+' wrote: “'+t.said+'”',t.checked&&'Help checked: '+t.checked,t.error&&'Error Help found: '+t.error,t.browser&&'Error reported by the browser: '+t.browser,'Page: '+(t.pageName||t.page||'unknown'),new Date(t.at).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})].filter(Boolean).join(' · '),count:t.count,at:t.updated}))}
  async function decide(id,how,u){await load();if(!users.isAdmin(u))throw Object.assign(Error('Only admins.'),{status:403});const t=db.tickets.find(x=>'ticket|'+x.id===id);if(!t||t.status!=='open')throw Object.assign(Error('That one is already gone.'),{status:404});
   if(how==='later')t.snooze=Date.now()+24*3600e3;
   else{t.status='resolved';t.resolvedAt=Date.now();t.by=u.name||u.id;person(t.uid).notices.push({at:Date.now(),ticket:t.id,text:'An admin resolved your ticket: “'+t.what+'”. If it still isn’t working, tell me what you see now.'});const pp=person(t.uid);pp.notices=pp.notices.slice(-30)}
@@ -185,13 +189,14 @@ export function createHelp({DATA,root,DASH,DASH_TOKEN,GATE,API_KEY,users,listAge
     if(b.model!==undefined){const m=String(b.model||''),pv=String(b.provider||'');if(m){const ok=(await options()).some(x=>x.slug===pv&&x.models.includes(m));if(!ok)return send(res,400,{error:'Pick one of the models the engine offers.'})}db.settings.model=m;db.settings.provider=m?pv:'';applyModel().catch(e=>console.warn('help model',e.message))}
     if(b.limit!==undefined){if(!LIMITS.includes(+b.limit))return send(res,400,{error:'Pick one of the limits shown.'});db.settings.limit=+b.limit}
     await save();console.log('help: settings changed by',u.name||u.id);return send(res,200,{ok:true,model:db.settings.model||'',provider:db.settings.provider||'',limit:limitOf()})}}
-  if(p==='/ui/help/send'&&M==='POST'){const b=await body();const text=String(b.text||'').trim().slice(0,8000);if(!text)return send(res,400,{error:'Write your question first.'});
+  if(p==='/ui/help/send'&&M==='POST'){const b=await body();const text=untag(String(b.text||'')).trim().slice(0,8000);if(!text)return send(res,400,{error:'Write your question first.'});
    b.page=clip(b.page,100);b.agent=/^[\w-]{1,64}$/.test(String(b.agent||''))?String(b.agent):'';b.errors=(Array.isArray(b.errors)?b.errors:[]).slice(-8);b.text=text;
    if(runs.has(u.id))return send(res,409,{error:'Help is still answering. Wait a moment or press Stop.'});
    if(used(pp)>=limitOf())return send(res,429,{error:'You used today’s '+limitOf()+' Help messages. Help is back tomorrow; for anything urgent, ask your agent or an admin.',limit:true});
-   if(!await isAgent(HELP_AGENT)||!await locked()){ensure();return send(res,503,{error:notReady()})}
-   const run={runId:'',stop:false};runs.set(u.id,run);
-   try{let sid=pp.session&&users.ownerOf(pp.session)===u.id?pp.session:null;
+   // taken before any wait, so two messages sent at once can't both pass the one-at-a-time rule or the daily limit
+   const run={runId:'',stop:false};runs.set(u.id,run);const was={day:pp.day,n:pp.n};pp.day===today()?pp.n++:(pp.day=today(),pp.n=1);let sent=false;
+   try{if(!await isAgent(HELP_AGENT)||!await locked()){ensure();return send(res,503,{error:notReady()})}
+    let sid=pp.session&&users.ownerOf(pp.session)===u.id?pp.session:null;
     const start=async()=>{if(!sid){sid=await newSession(u);pp.session=sid;pp.ctx=null}
      const ctx=await context(u,b,pp),m=await model(),msg={message:ctx+'\n\n'+text};if(m.model){msg.model=m.model;if(m.provider)msg.provider=m.provider;msg.require_model_lock=true}
      return gate('/api/sessions/'+encodeURIComponent(sid)+'/chat/stream',{method:'POST',headers:{accept:'text/event-stream'},body:JSON.stringify(msg),signal:AbortSignal.timeout(900000)}).catch(e=>({ok:false,status:502,text:async()=>e.message}))};
@@ -199,7 +204,7 @@ export function createHelp({DATA,root,DASH,DASH_TOKEN,GATE,API_KEY,users,listAge
     // a Help chat that is gone from the engine (deleted, or the engine reset): a fresh one, once
     if(up.status===404&&sid){sid=null;up=await start()}
     if(!up.ok||!up.body){const t=await up.text().catch(()=>'');let said=t;try{const j=JSON.parse(t);said=j.error?.message||j.error||j.detail||t}catch{}return send(res,up.status===429?429:502,{error:'Help couldn’t answer right now ('+up.status+')'+(said?': '+clip(said,160):'')+'. Try again in a moment.'})}
-    pp.day===today()?pp.n++:(pp.day=today(),pp.n=1);await save();
+    sent=true;if(pp.ctxNext){pp.ctx=pp.ctxNext.h;pp.ctxSession=pp.ctxNext.session;pp.ctxNext=null}await save();
     res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-cache','x-accel-buffering':'no',...security});res.socket?.setNoDelay(true);
     const out=s=>{if(!res.writableEnded&&!res.destroyed)res.write(s)};
     out('event: aqeelos.help\ndata: '+JSON.stringify({type:'aqeelos.help',session:sid,left:Math.max(0,limitOf()-used(pp))})+'\n\n');
@@ -212,7 +217,7 @@ export function createHelp({DATA,root,DASH,DASH_TOKEN,GATE,API_KEY,users,listAge
     const m=TICKET_RE.exec(done||said);if(m){const r=await file(u,m[1],b).catch(e=>({error:e.message}));out('event: aqeelos.ticket\ndata: '+JSON.stringify({type:'aqeelos.ticket',...r})+'\n\n')}
     if(!res.writableEnded)res.end()}
    catch(e){if(!res.headersSent)return send(res,502,{error:e.message});if(!res.writableEnded)res.end()}
-   finally{runs.delete(u.id)}return}
+   finally{runs.delete(u.id);pp.ctxNext=null;if(!sent){pp.day=was.day;pp.n=was.n}}return}
   return send(res,404,{error:'Not found'})}
  if(mayEnsure())setTimeout(()=>ensure(),15000).unref?.();
  return {handle,items,decide,ensure,HELP_AGENT,NAME:HELP_NAME}}

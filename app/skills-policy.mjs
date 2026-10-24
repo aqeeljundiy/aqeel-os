@@ -1,7 +1,7 @@
 // Which skills reach which agents (decided 24 Oct 2026). Every skill the main agent has goes to every agent, except the
 // ones listed here: those go only to the agents named (the main agent and its extra numbers always keep everything).
 // Skills are instructions only; the owner's signed-in accounts are never handed out by any of this.
-import {mkdir,rename,access} from 'node:fs/promises';
+import {mkdir,rename,access,readdir} from 'node:fs/promises';
 import path from 'node:path';
 
 const CONTINUE=['default','cont-socmed'];                 // Continue's social media: only that agent (nothing Continue-related reaches PixelAgent)
@@ -40,9 +40,15 @@ export const allowed=(key,agent)=>{if(removedKey(key))return false;const r=ruleF
 export const allowedNames=key=>ruleFor(key)||[];
 
 // Moves the skills this agent must not have out of its skills folder into backupDir (nothing is deleted); returns what moved.
-export async function trim(skillsDir,agent,backupDir){const moved=[];
- for(const key of [...REMOVED,...Object.keys(RESTRICTED)]){if(allowed(key,agent))continue;
-  const src=path.join(skillsDir,key);if(await access(src).then(()=>false,()=>true))continue;
+// Every skill in the folder is checked (<category>/<skill>, or a skill right at the top), not only the listed keys, so a
+// copy under another category or one installed from the hub is caught by its name too.
+export async function trim(skillsDir,agent,backupDir){const moved=[],keys=[];
+ const isSkill=d=>access(path.join(d,'SKILL.md')).then(()=>true,()=>false);
+ for(const e of await readdir(skillsDir,{withFileTypes:true}).catch(()=>[])){if(!e.isDirectory()||e.name.startsWith('.'))continue;const d=path.join(skillsDir,e.name);
+  if(await isSkill(d)){keys.push(e.name);continue}
+  for(const f of await readdir(d,{withFileTypes:true}).catch(()=>[]))if(f.isDirectory()&&!f.name.startsWith('.'))keys.push(e.name+'/'+f.name)}
+ for(const key of keys){if(allowed(key,agent))continue;
+  const src=path.join(skillsDir,key);
   let dst=path.join(backupDir,key);if(await access(dst).then(()=>true,()=>false))dst+='-'+Date.now();
   await mkdir(path.dirname(dst),{recursive:true});await rename(src,dst);moved.push(key)}
  return moved}

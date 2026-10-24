@@ -7,8 +7,9 @@ const Help={ID:'aqeelos-help',st:null,turns:[],running:false,abort:null,unseen:0
  // the ticket marker Help ends a reply with is read by the server; people never see it, not even half-written
  TICKET_RE:/\[\[ticket\]\][\s\S]*?(\[\[\/ticket\]\]|$)/gi,
  shown(t){let s=String(t||'').replace(this.TICKET_RE,'');const k=s.lastIndexOf('[[');if(k>=0&&s.length-k<11&&'[[ticket]]'.startsWith(s.slice(k).toLowerCase()))s=s.slice(0,k);return s.trim()},
- // a page Help names ([Health](#/system/health)) is a link that only opens that page
- html(t){return md(this.shown(t)).replace(/\[([^\]<>]{1,80})\]\(#(\/[\w\/-]{0,80})\)/g,(m,l,h)=>`<button type="button" class="link help-go" data-go="${esc(h)}">${l}</button>`)},
+ // a page Help names ([Health](#/system/health)) is a link that only opens that page; any other link (a web address,
+ // a file, a picture) shows as its plain words, so a reply never leads out of aqeelOS
+ html(t){return md(this.shown(t)).replace(/<a\b[^>]*>([\s\S]*?)<\/a>/gi,(m,inner)=>'<span class="help-nolink">'+inner.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim()+'</span>').replace(/<img\b[^>]*>/gi,'').replace(/\[([^\]<>]{1,80})\]\(#(\/[\w\/-]{0,80})\)/g,(m,l,h)=>`<button type="button" class="link help-go" data-go="${esc(h)}">${l}</button>`)},
  sidebar(){const tk=this.st?.tickets||[];
   return `<div class="side-sub"><div class="side-sub-head"><span class="th">Help</span></div><div class="side-list"><button class="item on" data-go="/help">${icon('chat',16)}<span class="t">Conversation</span></button><button class="item" data-act="help-new">${icon('plus',16)}<span class="t">New conversation</span></button>
    ${tk.length?`<div class="group-label">Your tickets</div>${tk.slice(0,8).map(t=>`<div class="item help-tk" title="${esc(t.what)}">${icon(t.status==='resolved'?'check':'mail',15)}<span class="t">${esc(t.what)}</span><span class="chip ${t.status==='resolved'?'ok':'warn'}">${t.status==='resolved'?'Resolved':'Open'}</span></div>`).join('')}`:''}</div></div>`},

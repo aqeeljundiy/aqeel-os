@@ -6,6 +6,7 @@ import {createServer,request as httpRequest} from 'node:http';
 import {readFile,stat,writeFile,mkdir,unlink,rename,realpath,readlink,copyFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {createAccounts,setupAgentFn,export_setups,accountHooks} from './accounts.mjs';
+import {allowed as skillAllowed} from './skills-policy.mjs';
 import {createAgentDefaults} from './agent-defaults.mjs';
 import {createWhy} from './why.mjs';
 import {createGemini} from './gemini.mjs';
@@ -166,7 +167,11 @@ const HERMES_HOME=env.HERMES_HOME||path.join(homedir(),'.hermes');
 const IDS=path.join(DATA,'identities.json');
 const okProfile=n=>/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(n);
 async function readIds(){try{return JSON.parse(await readFile(IDS,'utf8'))}catch{return {}}}
-async function writeIds(ids){await mkdir(DATA,{recursive:true});await writeFile(IDS+'.tmp',JSON.stringify(ids,null,1));await rename(IDS+'.tmp',IDS)}
+// for a change: missing is empty, but a file that does not parse stops it (never saved over, so nobody's identity is lost)
+async function readIdsForWrite(){let t;try{t=await readFile(IDS,'utf8')}catch(e){if(e.code==='ENOENT')return {};throw e}const j=JSON.parse(t);if(!j||typeof j!=='object'||Array.isArray(j))throw Error('not an object');return j}
+async function writeIds(ids){await mkdir(DATA,{recursive:true});const t=IDS+'.'+process.pid+'.'+randomBytes(4).toString('hex')+'.tmp';await writeFile(t,JSON.stringify(ids,null,1));await rename(t,IDS)}
+// one change at a time, each on the file as it is then (read inside the queue, after its upload is in)
+let idsChain=Promise.resolve();const withIds=fn=>{const r=idsChain.then(async()=>{let ids;try{ids=await readIdsForWrite()}catch(e){throw Object.assign(Error('The agents’ names and pictures could not be read, so nothing was changed. Try again, or ask an admin to check identities.json.'),{status:500,cause:e})}return fn(ids)});idsChain=r.catch(()=>{});return r};
 async function setDisplayName(profile,name){
  const dir=profile==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',profile);const f=path.join(dir,'profile.yaml');
  let y='';try{y=await readFile(f,'utf8')}catch{}
@@ -177,25 +182,31 @@ async function setDisplayName(profile,name){
 // agent pictures: a photo (cropped to 256x256 in the browser, checked by its first bytes, one file per agent) or an emoji
 // from assets/emoji (avatar-file.mjs). The two replace each other. With neither, the agent gets an automatic emoji from its
 // id. avatarV changes with every new photo, so /ui/avatar/<agent>?v= shows the new one everywhere at once
-async function identities(req,res,p){
+async function identities(req,res,p,u){
  if(p==='/ui/identities'&&req.method==='GET')return send(res,200,await readIds());
  const m=/^\/ui\/(identities|avatar)\/([^/]+)$/.exec(p);if(!m)return send(res,404,{error:'Not found'});
  const profile=decodeURIComponent(m[2]);if(!okProfile(profile))return send(res,400,{error:'Bad profile name'});
- const ids=await readIds();const cur=ids[profile]||{};const dropPhoto=async x=>{if(cur.avatar)await unlink(path.join(DATA,'avatars',cur.avatar)).catch(()=>{});delete x.avatar;delete x.avatarV};
+ const dropPhoto=async(cur,x)=>{if(cur.avatar)await unlink(path.join(DATA,'avatars',cur.avatar)).catch(()=>{});delete x.avatar;delete x.avatarV};
+ const fail=e=>send(res,e.status||500,{error:e.message});
  if(m[1]==='identities'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{return send(res,400,{error:'Bad JSON'})}
-  const name='name' in b?String(b.name||'').trim().slice(0,60):cur.name||'',title='title' in b?String(b.title||'').trim().slice(0,80):cur.title||'';   // a body with only the emoji keeps the name
-  const next={...cur,name,title,updated:Date.now()};
-  if('emoji' in b){const e=String(b.emoji||'');if(e&&!(await emojiSlugs()).includes(e))return send(res,400,{error:'Pick one of the listed emoji.'});
-   if(!e)delete next.emoji;else{next.emoji=e;await dropPhoto(next)}}   // an emoji replaces the photo
-  ids[profile]=next;await writeIds(ids);await setDisplayName(profile,name);return send(res,200,ids[profile])}
- // no photo: send the agent's emoji (chosen or automatic) so anything outside the app that asks for the picture still gets one
- if(m[1]==='avatar'&&req.method==='GET'){if(!cur.avatar){const l=await emojiSlugs(),e=l.includes(cur.emoji)?cur.emoji:emojiAuto(profile,l);if(!e)return send(res,404,'No picture');res.writeHead(302,{location:'/assets/emoji/'+e+'.png','cache-control':'private, max-age=300',...security});return res.end()}
+  if('emoji' in b){const e=String(b.emoji||'');if(e&&!(await emojiSlugs()).includes(e))return send(res,400,{error:'Pick one of the listed emoji.'})}
+  return withIds(async ids=>{const cur=ids[profile]||{};
+   const name='name' in b?String(b.name||'').trim().slice(0,60):cur.name||'',title='title' in b?String(b.title||'').trim().slice(0,80):cur.title||'';   // a body with only the emoji keeps the name
+   const next={...cur,name,title,updated:Date.now()};
+   if('emoji' in b){const e=String(b.emoji||'');if(!e)delete next.emoji;else{next.emoji=e;await dropPhoto(cur,next)}}   // an emoji replaces the photo
+   ids[profile]=next;await writeIds(ids);await setDisplayName(profile,name);return send(res,200,ids[profile])}).catch(fail)}
+ // no photo: send the agent's emoji (chosen or automatic) so anything outside the app that asks for the picture still gets one.
+ // A private agent the person may not open shows only its automatic emoji, never its photo or chosen picture.
+ if(m[1]==='avatar'&&req.method==='GET'){const cur=(await readIds())[profile]||{},base=profile.split('--')[0],ow=users.byId(users.agentOwner(base));
+  const hidden=!!u&&!!ow&&!users.isAdmin(ow)&&!users.level(u,base);
+  if(!cur.avatar||hidden){const l=await emojiSlugs(),e=!hidden&&l.includes(cur.emoji)?cur.emoji:emojiAuto(profile,l);if(!e)return send(res,404,'No picture');res.writeHead(302,{location:'/assets/emoji/'+e+'.png','cache-control':'private, max-age=300',...security});return res.end()}
   try{const body=await readFile(path.join(DATA,'avatars',cur.avatar));res.writeHead(200,{'content-type':AVATAR_TYPES[cur.avatar.split('.').pop()]||'application/octet-stream','cache-control':'private, max-age=86400',...security});return res.end(body)}catch{return send(res,404,'No picture')}}
  if(m[1]==='avatar'&&req.method==='PUT'){const r=await readPicture(req);if(r.error)return send(res,r.status,{error:r.error});
-  const dir=path.join(DATA,'avatars'),file=profile+'.'+r.ext;await mkdir(dir,{recursive:true});await writeFile(path.join(dir,file+'.tmp'),r.buf);await rename(path.join(dir,file+'.tmp'),path.join(dir,file));
-  if(cur.avatar&&cur.avatar!==file)await unlink(path.join(dir,cur.avatar)).catch(()=>{});   // one file per agent
-  const {emoji:_e,...rest}=cur;ids[profile]={...rest,avatar:file,avatarV:Date.now()};await writeIds(ids);return send(res,200,ids[profile])}   // a photo replaces the emoji
- if(m[1]==='avatar'&&req.method==='DELETE'){await dropPhoto(cur);ids[profile]=cur;await writeIds(ids);return send(res,200,cur)}   // back to its emoji, or the automatic one
+  return withIds(async ids=>{const cur=ids[profile]||{};
+   const dir=path.join(DATA,'avatars'),file=profile+'.'+r.ext,tmp=path.join(dir,file+'.'+randomBytes(4).toString('hex')+'.tmp');await mkdir(dir,{recursive:true});await writeFile(tmp,r.buf);await rename(tmp,path.join(dir,file));
+   if(cur.avatar&&cur.avatar!==file)await unlink(path.join(dir,cur.avatar)).catch(()=>{});   // one file per agent
+   const {emoji:_e,...rest}=cur;ids[profile]={...rest,avatar:file,avatarV:Date.now()};await writeIds(ids);return send(res,200,ids[profile])}).catch(fail)}   // a photo replaces the emoji
+ if(m[1]==='avatar'&&req.method==='DELETE')return withIds(async ids=>{const cur=ids[profile]||{};await dropPhoto(cur,cur);ids[profile]=cur;await writeIds(ids);return send(res,200,cur)}).catch(fail);   // back to its emoji, or the automatic one
  send(res,405,{error:'Method not allowed'});
 }
 
@@ -422,7 +433,8 @@ async function agentHealth(only){const h={'x-hermes-session-token':DASH_TOKEN};c
    if(await editEnv(envF,cur=>/^API_SERVER_KEY=/m.test(cur)?null:cur+(cur&&!cur.endsWith('\n')?'\n':'')+'API_SERVER_KEY='+API_KEY+'\n').catch(()=>false))console.log('health',a,'added the gateway key')}
   if(!copy){await ensureChatHint(a).catch(async e=>{if(await isAgent(a))console.warn('chat hint',a,e.message)});await screens.ensure(a).catch(()=>{})}
   if(a!=='default')await loopGuard(a,await listAllProfiles()).catch(e=>console.warn('loop guard',a,e.message));
-  if(!copy&&a!=='default'&&lockedAgent(a,st))await lockTools(a).catch(e=>console.warn('lock tools',a,e.message));
+  // a copy (agent--2) is locked with its agent: the same tools stay off on it
+  if(a.split('--')[0]!=='default'&&lockedAgent(a.split('--')[0],st))await lockTools(a).catch(e=>console.warn('lock tools',a,e.message));
   {const cf=path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml');const y=await readFile(cf,'utf8').catch(()=>'');
    // every agent can work in the person's own browser when they choose it (the engine's browser-extension control)
    if(y&&!/extension_control:\s*\n\s+enabled:\s*true/.test(y)){const r=await setKey(a,'browser.extension_control.enabled','true');if(r.ok)console.log('health',a,'can now use the person’s own browser when chosen')}
@@ -660,13 +672,13 @@ const envOf=async a=>envParse(await readFile(path.join(a==='default'?HERMES_HOME
    email, Signal, SMS and Matrix show the address the engine is set to use (Mattermost saves only a server and a token, so none).
    Kept in channel-identity.json per agent|platform: a good answer 6 h, a failure 10 min, asked again at once when the token
    changes (fp). A token the service rejects clears the account and says why on the row, instead of failing silently. */
-const IDENT_FILE=path.join(DATA,'channel-identity.json');let identDb=null;
+const IDENT_FILE=path.join(DATA,'channel-identity.json');let identDb=null,identLoad=null;
 const IDENT_CFG={email:['EMAIL_ADDRESS','username'],signal:['SIGNAL_ACCOUNT','phone'],sms:['TWILIO_PHONE_NUMBER','phone'],matrix:['MATRIX_USER_ID','username']};
 async function channelIdentity(agent,c,env){const cfg=IDENT_CFG[c.id];
  // only a setting the engine lists for this channel (its env_vars), never a guessed name
  if(cfg){if(Array.isArray(c.env_vars)&&!c.env_vars.some(v=>v.key===cfg[0]))return null;return env[cfg[0]]?{account:{[cfg[1]]:env[cfg[0]],name:null}}:null}
  const tok=c.id==='telegram'?env.TELEGRAM_BOT_TOKEN:c.id==='slack'?(env.SLACK_BOT_TOKEN||env.SLACK_USER_TOKEN):c.id==='discord'?env.DISCORD_BOT_TOKEN:null;if(!tok)return null;
- const k=agent+'|'+c.id,fp=createHash('sha1').update(tok).digest('hex').slice(0,8);identDb||=await readFile(IDENT_FILE,'utf8').then(JSON.parse).catch(()=>({}));const s=identDb[k];
+ const k=agent+'|'+c.id,fp=createHash('sha1').update(tok).digest('hex').slice(0,8);identDb||=await (identLoad||=readFile(IDENT_FILE,'utf8').then(JSON.parse).catch(()=>({})));const s=identDb[k];   // one load for every channel asked at once (each its own copy lost the others' answers)
  if(s&&s.fp===fp&&Date.now()-s.t<(s.err||s.miss?10*60e3:6*3600e3))return {account:s.v||null,error:s.err||null};
  const bad=m=>Object.assign(new Error(m),{bad:true}),sig=AbortSignal.timeout(6000);let v=null,err=null,miss=false;
  try{if(c.id==='telegram'){const j=await fetch('https://api.telegram.org/bot'+tok+'/getMe',{signal:sig}).then(r=>r.json());if(!j.ok)throw bad('Telegram rejected the bot token ('+(j.description||j.error_code||'refused')+')');v={username:'@'+j.result.username,name:j.result.first_name||null,kind:'bot'}}
@@ -796,6 +808,8 @@ async function checkChannel(agent,platform){platCache.delete(agent);const pl=awa
    cannot run is the file written here in the same shape (tmp + rename, one write at a time, other entries kept as they are).
    Who added whom, with the note, is kept in approvals-added.json for the "Added by hand" mark. */
 const ADDED_FILE=path.join(DATA,'approvals-added.json');
+// one change at a time (two adds at once each read the old file and one was lost); a file that does not parse is left alone
+let addedChain=Promise.resolve();const editAdded=fn=>{const r=addedChain.then(async()=>{const all=await readFile(ADDED_FILE,'utf8').then(JSON.parse,e=>{if(e.code==='ENOENT')return {};throw e});if(!all||typeof all!=='object'||Array.isArray(all))throw Error('approvals-added.json is not in the expected shape');if(fn(all)!==false)await writeJsonAtomic(ADDED_FILE,all)});addedChain=r.catch(()=>{});return r};
 const PERSON_HELP={whatsapp:'WhatsApp',telegram:'Telegram',slack:'Slack',discord:'Discord',email:'Email'};
 function personId(pf,raw){let v=String(raw||'').trim();if(!v)throw new Error('Type their ID first.');
  if(pf==='whatsapp'){v=v.replace(/[\s().-]/g,'');if(/^0(?!0)/.test(v))throw new Error('Add the country code instead of the leading 0, for example 6281234567890 for an Indonesian number.');
@@ -811,8 +825,11 @@ let approveChain=Promise.resolve();
 async function approvePerson(agent,pf,id,name){const home=agent==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',agent);
  const run=approveChain.then(async()=>{const py=await enginePython().catch(()=>null);
   if(py){const {execFile}=await import('node:child_process');const code='import sys,json\nsys.path.insert(0,sys.argv[1])\nfrom gateway.pairing import PairingStore\ns=PairingStore(sys.argv[2] or None)\nwith (s._locked() if hasattr(s,"_locked") else s._lock):\n    s._approve_user(sys.argv[3],sys.argv[4],sys.argv[5])\nprint(json.dumps({"ok":True,"dir":str(s._dir)}))';
-   const out=await new Promise(r=>execFile(py,['-c',code,path.join(HERMES_HOME,'hermes-agent'),agent==='default'?'':agent,pf,id,name],{timeout:30000,cwd:path.join(HERMES_HOME,'hermes-agent'),env:{...process.env,HERMES_HOME}},(e,o,er)=>r(e?{err:String(er||e.message).trim().split('\n').pop()}:{ok:true})));
-   if(out.ok)return 'engine';console.warn('approve person: the engine store did not run ('+out.err+'), writing the file directly')}
+   const out=await new Promise(r=>execFile(py,['-c',code,path.join(HERMES_HOME,'hermes-agent'),agent==='default'?'':agent,pf,id,name],{timeout:30000,cwd:path.join(HERMES_HOME,'hermes-agent'),env:{...process.env,HERMES_HOME:HERMES_HOME}},(e,o,er)=>{if(e)return r({err:String(er||e.message).trim().split('\n').pop()});let d=null;try{d=JSON.parse(String(o).trim().split('\n').pop())}catch{}r({ok:true,dir:String(d?.dir||'')})}));
+   // only when the engine's store wrote into this agent's own pairing folder (a wrong one would approve them elsewhere)
+   const want=path.join(home,'platforms','pairing'),got=out.ok&&out.dir?await realpath(out.dir).catch(()=>out.dir):'';
+   if(out.ok&&got&&(got===want||got===await realpath(want).catch(()=>want)))return 'engine';
+   console.warn('approve person: '+(out.ok?'the engine store used '+(out.dir||'no folder')+', not '+want:'the engine store did not run ('+out.err+')')+', writing the file directly')}
   const f=path.join(home,'platforms','pairing',pf+'-approved.json');await mkdir(path.dirname(f),{recursive:true});
   const cur=await readFile(f,'utf8').then(JSON.parse,e=>{if(e.code==='ENOENT')return {};throw new Error('The approved list for '+pf+' could not be read, so nothing was changed.')});
   if(!cur||typeof cur!=='object'||Array.isArray(cur))throw new Error('The approved list for '+pf+' is not in the shape expected, so nothing was changed.');
@@ -1013,6 +1030,16 @@ async function hermesCall(req,res,u,url){
    if(whM[1]&&(req.method==='DELETE'||req.method==='PUT')){let store={};try{store=JSON.parse(await readFile(path.join(HERMES_HOME,'webhook_subscriptions.json'),'utf8'))}catch{}
     if(store[decodeURIComponent(whM[1])]?.profile!==wa)return send(res,404,{error:'No webhook with that name on this agent.'});const r=await fetch(DASH.origin+'/api/webhooks/'+whM[1]+(whM[2]||'')+'?profile=default',{method:req.method,headers:h,body:req.method==='PUT'?(body||await readRaw(req,65536)):undefined});
     const t=await r.text();res.writeHead(r.status,{'content-type':'application/json',...security});return res.end(t)}}}
+ // a locked agent (its owner may not use unsafe tools), or a "--" copy of one: terminal, files, code and computer use
+ // can't be switched on here by anyone, admins included (the page hides the switch; this is the rule itself)
+ {const ts=/^\/hapi\/tools\/toolsets\/([^/]+)$/.exec(p);if(ts&&req.method==='PUT'&&UNSAFE_TOOLSETS.includes(decodeURIComponent(ts[1]))){const base=String(agent||'default').split('--')[0];
+  if(base!=='default'&&lockedAgent(base,await getStatus().catch(()=>({})))){let b={};try{body=body||await readRaw(req,65536);b=JSON.parse(body.toString('utf8'))}catch{}
+   if(b.enabled!==false)return send(res,403,{error:'This agent’s terminal, file, code and computer tools are locked: its owner’s role does not allow them. An admin can change that role in People.'})}}}
+ // a skill from the hub follows the same rule as the ones given out (skills-policy.mjs): one this agent may not have is
+ // refused by its name, and the agent's folder is checked again once the install (it runs in the background) is done
+ if(req.method==='POST'&&/^\/hapi\/skills\/hub\/(install|update)$/.test(p)){const a=agent||'default';let b={};try{body=body||await readRaw(req,65536);b=JSON.parse(body.toString('utf8'))}catch{}
+  const nm=String(b.identifier||b.name||'').split(/[/:@]/).filter(Boolean).pop()||'';if(nm&&!skillAllowed(nm,a))return send(res,403,{error:'That skill is kept for other agents, so it can’t be added to this one.'});
+  for(const d of [20e3,90e3,300e3])setTimeout(()=>accountHooks.trimSkills?.(a).catch(()=>{}),d).unref?.()}
  let made=null;
  if(!users.isAdmin(u)&&(req.method==='POST'&&(p==='/hapi/mcp/servers'||p==='/hapi/profiles')||/^(PUT|PATCH)$/.test(req.method)&&/^\/hapi\/mcp\/servers\/[^/]+$/.test(p))){
   let b={};try{b=JSON.parse((body||await readRaw(req,65536)).toString('utf8'))}catch{}
@@ -1754,14 +1781,15 @@ const server=createServer(async(req,res)=>{
     if(!pr)return send(res,502,{error:'The engine did not answer, so nobody was added. Try again in a moment.'});
     const dup=(pr.approved||[]).find(x=>x.platform===pf&&samePerson(pf,x.user_id,id));if(dup)return send(res,409,{error:(dup.user_name||id)+' is already approved on this '+PERSON_HELP[pf]+'.'});
     let how;try{how=await approvePerson(ag,pf,id,name)}catch(e){return send(res,500,{error:e.message})}
-    const all=await readFile(ADDED_FILE,'utf8').then(JSON.parse).catch(()=>({}));all[ag+'|'+pf+'|'+id]={by:u.name||u.id,name,note,t:Date.now()};await writeJsonAtomic(ADDED_FILE,all);
+    await editAdded(all=>{all[ag+'|'+pf+'|'+id]={by:u.name||u.id,name,note,t:Date.now()}}).catch(e=>console.warn('approvals added: the mark was not saved:',e.message));
     console.log('approved by hand on',ag,pf,'('+how+') by',u.name||u.id);return send(res,200,{ok:true,id})}
    if(p==='/ui/channels/approvals-added'&&req.method==='GET'){const all=await readFile(ADDED_FILE,'utf8').then(JSON.parse).catch(()=>({}));if(users.isAdmin(u))return send(res,200,all);
-    const out={};for(const [k,v] of Object.entries(all)){const a=k.split('|')[0].split('--')[0];if(!users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a))out[k]=v}return send(res,200,out)}
+    // only the agents they may edit, as for adding someone (who added whom is not for everyone who can chat with it)
+    const out={};for(const [k,v] of Object.entries(all)){const a=k.split('|')[0].split('--')[0];if(users.gate(u,'/hapi/profiles/'+a+'/soul','PUT',new URLSearchParams(),a)===null)out[k]=v}return send(res,200,out)}
    // Remove access on a person added by hand: the engine's revoke runs from the page; this forgets the mark
    if(p==='/ui/channels/approve-person/forget'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||''),base=ag.split('--')[0];
     if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+base+'/soul','PUT',new URLSearchParams(),base)!==null)return send(res,403,{error:'Not your agent.'});
-    const all=await readFile(ADDED_FILE,'utf8').then(JSON.parse).catch(()=>({}));const k=ag+'|'+String(b.platform||'')+'|'+String(b.id||'');if(all[k]){delete all[k];await writeJsonAtomic(ADDED_FILE,all)}return send(res,200,{ok:true})}
+    const k=ag+'|'+String(b.platform||'')+'|'+String(b.id||'');try{await editAdded(all=>{if(!all[k])return false;delete all[k]})}catch(e){return send(res,500,{error:'The mark could not be removed: '+e.message})}return send(res,200,{ok:true})}
    if(p==='/ui/channels/check'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||'default'),pf=String(b.platform||'');
     if(!(await listAllProfiles()).includes(ag)||!/^[a-z0-9_]{1,40}$/.test(pf))return send(res,400,{error:'Unknown channel'});
     if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+ag.split('--')[0],'GET',new URLSearchParams(),ag.split('--')[0]))return send(res,403,{error:'Not your agent.'});
@@ -1888,7 +1916,7 @@ const server=createServer(async(req,res)=>{
    if(p.startsWith('/ui/accounts/old-code')&&!users.isAdmin(u))return send(res,403,{error:'Only admins.'});
    if(p.startsWith('/ui/accounts'))return accountsApi(req,res,p,send,readBody,a=>!!users.level(u,a));
    if(p==='/ui/logo')return logo(req,res);
-   return identities(req,res,p);
+   return identities(req,res,p,u);
   }
   if(p.startsWith('/hapi/')||p.startsWith('/gapi/')){
    const u=await me(req);if(!u)return send(res,401,{error:'Sign in first.'},{'x-hui-auth':'required'});
