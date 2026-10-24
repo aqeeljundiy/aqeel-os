@@ -46,9 +46,11 @@ body{overflow:hidden}
 .status-btn:hover{background:var(--soft-2);transform:none;box-shadow:none}
 .status-btn .avatar{width:30px;height:30px;border-radius:50%;background:linear-gradient(180deg,var(--blue-2),var(--blue));color:#fff;display:grid;place-items:center;font-size:12.5px;font-weight:600;flex:none}
 .status-btn .who{flex:1;min-width:0;line-height:1.25}
-.status-btn .who b{display:block;font-size:13.5px;font-weight:600}
-.status-btn .who span{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.status-btn .who .dot{color:var(--ok);width:7px;height:7px}
+.status-btn .who b{display:block;font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.status-btn .who span{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden}
+.status-btn .who em{font-style:normal;min-width:0;overflow:hidden;text-overflow:ellipsis} /* a flex line can't ellipsize a bare text node, so the label sits in its own box */
+.status-btn .who .dot{color:var(--ok);width:7px;height:7px;flex:none}
+.status-btn>svg{flex:none} /* long agent names stop before the chevron instead of running under it */
 .collapsed .status-btn{justify-content:center;padding:8px 0}
 .collapsed .status-btn .who,.collapsed .status-btn>svg{display:none}
 
