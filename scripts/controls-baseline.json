@@ -90,7 +90,6 @@
    "button: Import",
    "button: Raw YAML"
   ],
-  "all /system/guide": [],
   "one /agents/profiles": [
    "button: New agent"
   ],
@@ -183,8 +182,7 @@
    "button: Import",
    "button: Raw YAML",
    "button: Save"
-  ],
-  "one /system/guide": []
+  ]
  },
  "member": {
   "all /code/code": [],

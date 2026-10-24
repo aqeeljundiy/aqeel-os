@@ -2,7 +2,7 @@
 // All agents on the way, then checks each page once it settles: no "Couldn't load", no null/undefined text,
 // no script errors, and no flicker (a fade-in replaying after the page has settled). Returns JSON {out:[...], bad:n}.
 (async()=>{const errs=[];window.addEventListener('error',e=>errs.push('script error: '+e.message));
-const pages=['#/chat','#/code/code','#/agents/profiles','#/agents/memory','#/agents/files','#/automations/schedules','#/automations/webhooks','#/automations/n8n','#/channels/channels','#/abilities/skills','#/abilities/mcp','#/abilities/plugins','#/models/models','#/system/people','#/system/usage','#/system/health','#/system/logs','#/system/keys','#/system/settings','#/system/guide'];
+const pages=['#/chat','#/code/code','#/agents/profiles','#/agents/memory','#/agents/files','#/automations/schedules','#/automations/webhooks','#/automations/n8n','#/channels/channels','#/abilities/skills','#/abilities/mcp','#/abilities/plugins','#/models/models','#/system/people','#/system/usage','#/system/health','#/system/logs','#/system/keys','#/system/settings','#/help'];
 const sl=ms=>new Promise(r=>setTimeout(r,ms));const out=[];let bad=0;
 let settled=Infinity,shown=new Set();const flick=[];const sig=t=>(t.textContent||'').replace(/s+/g,' ').trim().slice(0,80);
  const snap=()=>{shown=new Set();for(const el of document.querySelectorAll('#view *')){const x=sig(el);if(x.length>3)shown.add(x)}};
