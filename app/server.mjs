@@ -754,12 +754,14 @@ async function waSettingsPending(agent){try{
 /* Channel checks. "Check connection" asks the engine fresh and, for WhatsApp, also looks for its running bridge.
    Every 2 hours (live app) every agent's channels are checked the same way; a logged-out or failing one is listed
    in /ui/channels/attention, which the app shows as a pop-up with Link again / Remove. */
+// which account a channel is, in the app's words (accountText in core.js): its name · its handle
+const acctText=a=>a?[a.name,a.phone||a.username||a.email].filter(Boolean).join(' · '):'';
 async function checkChannel(agent,platform){platCache.delete(agent);const pl=await platformsCached(agent);const c=(pl?.platforms||pl||[]).find(x=>x.id===platform);
  if(!c)return {state:'missing',connected:false,text:'This channel is not set up on '+(NAMES[agent]||agent)+'.'};
- if(c.paused)return {agent,platform,state:'paused',connected:false,paused:true,account:c.account||null,text:'Paused: still linked'+(c.account?' ('+[c.account.phone||c.account.username,c.account.name].filter(Boolean).join(' · ')+')':'')+', but no agent answers it. Pick an agent under Owned by to turn it back on.'};
+ if(c.paused)return {agent,platform,state:'paused',connected:false,paused:true,account:c.account||null,text:'Paused: still linked'+(c.account?' ('+acctText(c.account)+')':'')+', but no agent answers it. Pick an agent under Owned by to turn it back on.'};
  let bridge=true;if(platform==='whatsapp'){const dir=path.join(agent==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',agent),'platforms','whatsapp','session');
   const {execFile}=await import('node:child_process');const out=await new Promise(r=>execFile('ps',['-eo','args='],(e,o)=>r(String(o||''))));bridge=out.split('\n').some(l=>/whatsapp-bridge\/bridge\.js/.test(l)&&l.includes('--session '+dir)&&!l.includes('--pair-only'))}
- const connected=c.state==='connected'&&bridge;const pending=platform==='whatsapp'&&connected&&await waSettingsPending(agent);const acct=c.account?' ('+[c.account.phone||c.account.username,c.account.name].filter(Boolean).join(' · ')+')':'';
+ const connected=c.state==='connected'&&bridge;const pending=platform==='whatsapp'&&connected&&await waSettingsPending(agent);const acct=c.account?' ('+acctText(c.account)+')':'';
  const text=connected?'Connected'+acct+'. Messages are coming in.'+(pending?' WhatsApp settings changed after this connection started: reconnect it to apply them.':''):c.needs_link?'Logged out'+acct+': the phone removed this linked device, or WhatsApp ended the link. Link it again with a fresh QR code, or remove it.':
   c.state==='connected'&&!bridge?'The engine says connected, but the WhatsApp connection is not running. Restart the engine, or link it again.':
   /retrying|connecting|starting/.test(c.state||'')?'Reconnecting right now. Check again in a minute.':(c.enabled===false?'Switched off.':'Not connected'+(c.error_message?': '+String(c.error_message).replace(/\s*\(see \/[^)]*\)/,'').slice(0,160):'.'));

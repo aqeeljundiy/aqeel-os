@@ -4,7 +4,7 @@ const PLUGIN_ID='claude-subscription-directsdk-experimental';
 const PROV_DOMAINS={'openai-codex':'chatgpt.com','openai-api':'openai.com',openrouter:'openrouter.ai',gemini:'gemini.google.com',antigravity:'gemini.google.com','google-antigravity':'gemini.google.com',agy:'gemini.google.com',xai:'x.ai','xai-oauth':'x.ai',deepseek:'deepseek.com',copilot:'github.com',huggingface:'huggingface.co','kimi-coding':'moonshot.ai',minimax:'minimax.io',zai:'z.ai'};
 function acctSources(d){
  const claudeModels=(Chat.models||[]).filter(m=>m.provider===PLUGIN_ID).map(m=>m.id);
- const claude=d.accounts.map(a=>({key:'claude:'+a.id,name:a.label,sub:a.email||'Claude',logo:'claude.ai',models:claudeModels,ok:a.signedIn,
+ const claude=d.accounts.map(a=>({key:'claude:'+a.id,name:a.label,sub:accountText({email:a.email})||'Claude',logo:'claude.ai',models:claudeModels,ok:a.signedIn,
   used:a.usage?Math.max(a.usage.session?.used||0,a.usage.week?.used||0):null,bars:a.usage?[['Session (5 h)',a.usage.session],['This week',a.usage.week],['This week, Opus',a.usage.opus],['This week, Sonnet',a.usage.sonnet]].filter(([,w])=>w):[],menu:a.id}));
  // the ChatGPT pictures limit is its own quota: said in words, never counted as chat use
  const chatW=p=>p.windows.filter(w=>w.scope!=='model'&&w.scope!=='image');
@@ -60,7 +60,7 @@ Pages.priAddMenu=el=>{const used=new Set(Pages._pri.map(e=>e.key));menu(el,Pages
 {const base=PAGES.accounts;PAGES.accounts=async(p,el)=>{await base(p,el);let g;try{g=await UI('/ui/gemini/status')}catch{return}if(!g.installed||g.retired)return;
  const admin=S.me?.admin!==false;const box=document.createElement('div');box.className='panel card gem-card';box.style.marginTop='16px';
  box.innerHTML=`<div class="gem-top">${logoImg('gemini.google.com','G')}<div class="txt"><h2 style="margin:0">Gemini with your Google AI plan</h2>
-  <p class="sub" style="margin:4px 0 0">${g.signedIn?`Connected${g.account?' as <b>'+esc(g.account)+'</b>':''}. Gemini models now show up under Models and in the chat's model menu.`:'Use Gemini through your Google AI Pro or Ultra subscription, the same way Claude runs on your Claude plan. Sign in once with the Google account that has the plan.'}</p></div>
+  <p class="sub" style="margin:4px 0 0">${g.signedIn?`Connected${g.account?' as <b>'+esc(accountText({email:g.account}))+'</b>':''}. Gemini models now show up under Models and in the chat's model menu.`:'Use Gemini through your Google AI Pro or Ultra subscription, the same way Claude runs on your Claude plan. Sign in once with the Google account that has the plan.'}</p></div>
   ${admin?(g.signedIn?`<button class="ghost" data-act="gem-out">Sign out</button>`:`<button class="primary" data-act="gem-start">${icon('plug',15)}Connect</button>`):''}</div><div id="gemFlow"></div>`;
  el.append(box)}}
 ACT['gem-start']=async a=>{a.disabled=true;const f=$('#gemFlow');f.innerHTML=`<p class="hint" style="margin-top:12px"><span class="spinner"></span> Getting the Google sign-in link…</p>`;
@@ -77,7 +77,7 @@ ACT['gem-out']=async()=>{if(!await confirmBox('Sign Gemini out?','Agents that us
 {const base=PAGES.accounts;PAGES.accounts=async(p,el)=>{await base(p,el);let g;try{g=await UI('/ui/antigravity/status')}catch{return}if(!g.installed)return;
  const admin=S.me?.admin!==false;const box=document.createElement('div');box.className='panel card gem-card';box.style.marginTop='16px';
  box.innerHTML=`<div class="gem-top">${logoImg('gemini.google.com','G')}<div class="txt"><h2 style="margin:0">Google AI Pro (Antigravity)</h2>
-  <p class="sub" style="margin:4px 0 0">${g.signedIn?`Connected. ${g.models?.length?esc(plural(g.models.length,'model'))+' on your Google plan: '+esc(g.models.slice(0,4).join(', '))+(g.models.length>4?'…':'')+'.':''}`:'Use your Google AI Pro plan for Gemini 4, Gemini Flash and Claude 5.5 through Google’s official Antigravity tool, the same way Claude runs on your Claude plan. Sign in once with the Google account that has the plan.'}</p></div>
+  <p class="sub" style="margin:4px 0 0">${g.signedIn?`Connected${g.account?' as <b>'+esc(accountText({email:g.account}))+'</b>':''}. ${g.models?.length?esc(plural(g.models.length,'model'))+' on your Google plan: '+esc(g.models.slice(0,4).join(', '))+(g.models.length>4?'…':'')+'.':''}`:'Use your Google AI Pro plan for Gemini 4, Gemini Flash and Claude 5.5 through Google’s official Antigravity tool, the same way Claude runs on your Claude plan. Sign in once with the Google account that has the plan.'}</p></div>
   ${admin?(g.signedIn?`<button class="ghost" data-act="agy-out">Sign out</button>`:`<button class="primary" data-act="agy-start">${icon('plug',15)}Connect</button>`):''}</div><div id="agyFlow"></div>`;
  el.append(box)}}
 ACT['agy-start']=async a=>{a.disabled=true;const f=$('#agyFlow');f.innerHTML=`<p class="hint" style="margin-top:12px"><span class="spinner"></span> Getting the Google sign-in link…</p>`;

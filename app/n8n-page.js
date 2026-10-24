@@ -15,7 +15,7 @@ PAGES.n8n=async(p,el)=>{viewPick([]);const admin=S.me?.admin!==false;
  const d=await UI('/ui/n8n/spaces');for(const x of d.spaces)x.name=ident(x.agent).name;for(const g of d.agents)g.name=ident(g.id).name;N8N.d=d;
  const row=(x,i)=>{const users=[{id:x.agent,name:x.name},...x.shared.map(a=>({id:a,name:ident(a).name}))];
   return `<div class="row n8n-row" ${st(i)}><div class="main-c">${logoImg('n8n.io','n')}<div class="txt"><b>${esc(x.name)}’s n8n</b>
-    <span>${x.workflows==null?'':plural(x.workflows,'workflow')+' · '}${esc(x.email)}</span></div></div>
+    <span>${x.workflows==null?'':plural(x.workflows,'workflow')+' · '}${esc(accountText({email:x.email},{id:'n8n'}))}</span></div></div>
    <div class="act">${Access.owner(N8N_OWN)}${Access.btn({kind:'n8n',id:x.agent,label:x.name+'’s n8n',owner:x.agent,ownerName:x.name,users},`data-act="n8n-who" data-space="${esc(x.agent)}"`)}
     <button data-act="n8n-open" data-space="${esc(x.agent)}">${icon('popout',15)}Open</button>
     <button class="ghost icon" data-act="n8n-more" data-space="${esc(x.agent)}" aria-label="More">${icon('more',18)}</button></div></div>`};
