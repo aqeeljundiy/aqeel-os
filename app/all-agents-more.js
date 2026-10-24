@@ -44,6 +44,8 @@ Object.assign(ALLVIEW,{
   // New skill, Learn a skill and Update all work on the agent you chat with: every tab says so, like Find more skills
   const forMe=`<p class="hint" style="margin:0 0 12px">New skill, Learn a skill, Update all and installs go to ${esc(ident().name)}, the agent you chat with. Pick an agent under Showing for another.</p>`;
   if(tab==='Find more skills'){await PAGES._skillsOne(p,el);own();el.insertAdjacentHTML('afterbegin',forMe);return}
+  // the tabs and a placeholder at once: every agent is asked, and one slow answer must not leave the page blank
+  if(tab!=='Find more skills'&&!el.querySelector('[data-tabs]'))el.innerHTML=tabs('skills',['Installed','Tool groups','Find more skills'])+skeletonRows(6);
   if(tab==='Tool groups'){const per=await perAgent(a=>H(prof('/tools/toolsets',a)),a=>mayEdit(a));const m=new Map();
    for(const {a,d} of per)for(const t of d||[]){const x=m.get(t.name)||{...t,on:[],all:[]};x.all.push(a);if(t.enabled)x.on.push(a);m.set(t.name,x)}
    const ags=per.filter(x=>x.d).map(x=>x.a),locks=await tsLocks(ags),tall=[...m.values()].sort((x,y)=>tsName(x).localeCompare(tsName(y))),bad=per.filter(x=>!x.d).map(x=>ident(x.a).name);

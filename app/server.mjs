@@ -487,7 +487,7 @@ function restartGateway(why,{wait=true,auto=false,bridges=false}={}){if(gwRestar
   // a WhatsApp bridge is its own process and reads its settings only when it starts: when channel settings changed, stop them so the engine starts fresh ones
   if(run.bridges)for(const a of await listAllProfiles().catch(()=>[]))await stopBridges(a).catch(()=>{});
   await shx('~/services.sh >/dev/null 2>&1');
-  platCache.clear();hapiStatus.drop()})().finally(()=>{gwRestarting=null});return gwRestarting}
+  platCache.clear();hapiStatus.drop();hapiLists.drop()})().finally(()=>{gwRestarting=null});return gwRestarting}
 async function gatewayWatch(){if(gwStopped||gwRestarting)return;
  const pid=await gatewayPid();const inTmux=(await shx('tmux has-session -t gateway')).ok;
  if(pid&&lastGwPid&&pid!==lastGwPid&&Date.now()-lastOwnRestart>180000)noteSys('restart-self','');if(pid)lastGwPid=pid;
@@ -648,6 +648,9 @@ const chList=swr({fresh:20000,cap:3000});
 const channelList=fresh=>chList.get('all',()=>channels.list(),{force:fresh,partial:()=>channels.list({wait:0})}).then(d=>channels.live(d));
 const platCache=new PlatCache();
 const hapiStatus=swr({fresh:5000});   // GET /hapi/status, per query
+// an agent's tool groups (measured 11.7 s on the box) and skills list (up to 4.4 s): the All agents views ask every agent,
+// so the last answer (20 s) comes at once and is read again behind the scenes; any engine change drops it
+const hapiLists=swr({fresh:20000});
 // the slow status reads are read once soon after start (read-only), so even the first page that asks answers from them
 setTimeout(()=>{channelList(false).catch(()=>{});antigravity.status().catch(()=>{});n8n.spaces().catch(()=>{})},15000).unref();
 /* The engine reports WhatsApp on any agent but the main one as "not set up", even when linked and connected (its
@@ -936,7 +939,7 @@ async function hermesCall(req,res,u,url){
  {const am=/^\/hapi\/analytics\/(usage|models)$/.exec(p);if(am&&req.method==='GET'){const days=Math.min(365,Math.max(1,+q.get('days')||30));try{return send(res,200,await usage.report(am[1],q.get('profile')||'default',days))}catch(e){return send(res,e.status||504,{error:e.name==='TimeoutError'?'The engine took too long to add up this agent’s usage.':e.message})}}}
  if(p==='/hapi/messaging/platforms'&&req.method==='GET'){try{return send(res,200,await platformsCached(q.get('profile')||'default'))}catch(e){return send(res,e.status||502,{error:e.message})}}
  if(p.startsWith('/hapi/messaging/')&&req.method!=='GET')platCache.clear();
- if(p.startsWith('/hapi/')&&req.method!=='GET')hapiStatus.drop();   // any engine change: the next status is read new
+ if(p.startsWith('/hapi/')&&req.method!=='GET'){hapiStatus.drop();hapiLists.drop()}   // any engine change: the next status is read new
  if(p==='/hapi/skills'&&req.method==='GET'&&/^[\w-]+$/.test(agent||'default')){try{return send(res,200,await skillsCached(agent||'default'))}catch(e){return send(res,e.status||502,{error:e.message})}}
  if(/^\/hapi\/(skills|config)/.test(p)&&req.method!=='GET')skCache.clear();
  if(/^\/hapi\/messaging\/whatsapp\/onboarding/.test(p)&&req.method==='POST')waLinking.set(q.get('profile')||'default',Date.now());   // someone is linking: the WhatsApp guard stays away
@@ -1100,6 +1103,9 @@ async function hermesCall(req,res,u,url){
   const read=()=>fetch(DASH.origin+'/api/status'+(k?'?'+k:''),{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(async r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json()});
   if(hit&&'v' in hit&&!req.headers['x-fresh'])return send(res,200,transform(await hapiStatus.get(k,read)));
   try{return send(res,200,transform(await hapiStatus.get(k,read,{force:true})))}catch{}}
+ if((p==='/hapi/tools/toolsets'||p==='/hapi/skills')&&req.method==='GET'&&!req.headers['x-fresh']){const k=p+'?'+q.toString();
+  const read=()=>fetch(DASH.origin+'/api'+p.slice(5)+'?'+q.toString(),{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(async r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json()});
+  try{return send(res,200,transform(await hapiLists.get(k,read)))}catch{}}   // the engine failed: the plain pass-through below says why
  if(p.startsWith('/hapi/'))return proxy(req,res,DASH,'/hapi',{'x-hermes-session-token':DASH_TOKEN},{transform,body});
  const live=chatM&&req.method==='POST'?{key:agent+'|'+decodeURIComponent(chatM[1]),user:u.id}:undefined;
  // a new message starts a new turn: the person's browser lifts a Stop they pressed in this chat
