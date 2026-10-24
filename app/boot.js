@@ -91,7 +91,8 @@ document.addEventListener('keydown',e=>{
 });
 addEventListener('hashchange',()=>{if(S.signedIn)render()});
 addEventListener('resize',placePills);
-document.addEventListener('visibilitychange',()=>{if(!document.hidden&&S.signedIn){refreshStatus();Chat.loadSessions()}});
+// back on the tab: status and the chat list again, at most every 15 s (flipping tabs quickly asked each time)
+document.addEventListener('visibilitychange',()=>{if(document.hidden||!S.signedIn||Date.now()-(S._visAt||0)<15000)return;S._visAt=Date.now();refreshStatus();Chat.loadSessions()});
 
 async function boot(){
  await Brand.load();
@@ -139,10 +140,6 @@ const Metrics={c:{},
   const c=await H('/shared-metrics/consent',{keep:true}).catch(()=>null);if(!c||c.managed||(c.decided&&!c.reask))return;this.c[this.who()]=c;
   Notices.show({icon:'chart',kind:'blue',key:'metrics-ask',life:600000,title:c.reask?'Usage stats: asking once more':'Share anonymous usage stats?',text:c.reask?'An older version could save “No thanks” before you saw this question. To share, choose on System › Settings.':'Only counts, never what you write or your files. You choose per agent.',actions:[c.reask?{label:'No thanks',run:()=>this.save(false,false)}:{label:'Choose',go:'/system/settings'}]})}};
 {const settings=PAGES.settings;PAGES.settings=async(p,el,r)=>{await settings(p,el,r);Metrics.mount(el)}}
-// Tell the user when a newer aqeelOS was deployed (checked every minute and when the tab comes back).
-const BUILD=document.querySelector('meta[name=build]')?.content;
-async function checkUpdate(){if(!BUILD||$('#updBanner'))return;try{const r=await (await fetch('/healthz',{cache:'no-store'})).json();if(r.build&&r.build!==BUILD){const b=document.createElement('div');b.id='updBanner';b.className='toast';b.style.cssText='position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:70;gap:12px';b.innerHTML=`${icon('sparkle',15)}aqeelOS was updated<button class="primary" style="min-height:30px;padding:0 14px;font-size:12.5px">Reload</button>`;b.querySelector('button').onclick=()=>location.reload();document.body.append(b)}}catch{}}
-setInterval(()=>{if(!document.hidden)checkUpdate()},60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkUpdate()});
 boot();
 
 // F26 rows you can reach with Tab (schedules, inbox items, file tiles, agent cards) open with Enter or Space too

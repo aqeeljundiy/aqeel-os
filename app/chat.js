@@ -479,7 +479,7 @@ document.addEventListener('toggle',e=>{const d=e.target;if(!d?.matches?.('detail
    part of the chat, and the agent never sees it. ---------- */
 const Secrets={timer:null,
  start(){if(!this.timer)this.timer=setInterval(()=>this.check(),2500);this.check()},
- async check(){const slot=$('#secretSlot');if(!slot)return;let items=[];try{items=(await UI('/ui/secrets/pending?agent='+encodeURIComponent(agentProfile()||'default'))).items||[]}catch{return}
+ async check(){const slot=$('#secretSlot');if(!slot||document.hidden)return;let items=[];try{items=(await UI('/ui/secrets/pending?agent='+encodeURIComponent(agentProfile()||'default'))).items||[]}catch{return}
   const ids=new Set(items.map(x=>x.id));slot.querySelectorAll('.secret-card:not(.done):not(.give)').forEach(c=>{if(!ids.has(c.dataset.id)){Secrets.drop(c)}});
   for(const x of items)if(!slot.querySelector('[data-id="'+x.id+'"]')){slot.insertAdjacentHTML('beforeend',this.card(x));const c=slot.lastElementChild;const i=c.querySelector('input');
    if(i){i.focus();i.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();this.send(c)}}}this.tick(c,x.expires)}

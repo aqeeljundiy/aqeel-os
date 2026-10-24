@@ -12,7 +12,7 @@ const Screen={
  async refresh(){const a=this.agent();try{const st=await call('','/ui/screens/'+encodeURIComponent(a));const was=this.st;this.st=st;
   if(!was||was.agent!==st.agent||was.running!==st.running||was.kind!==st.kind)this.paint(true)}catch{}},
  // While the screen is open, notice when the agent changes or its screen turns on/off by itself.
- watch(){clearInterval(this._t);if(!this.open)return;this.refresh();this.loadList().then(()=>this.paint(true));this._t=setInterval(()=>{if(++this._n%6===0)this.loadList();if(document.hidden)return;if(this.st?.agent!==this.agent()){this.st=null;this.ads=false}this.refresh()},5000)},
+ watch(){clearInterval(this._t);if(!this.open)return;this.refresh();this.loadList().then(()=>this.paint(true));this._t=setInterval(()=>{if(document.hidden)return;if(++this._n%6===0)this.loadList();if(this.st?.agent!==this.agent()){this.st=null;this.ads=false}this.refresh()},5000)},
  // the agent started using AdsPower: show where AdsPower draws (only for agents that have their own screen)
  // which screen: every agent's own screen, the shared AdsPower screen, or simply follow the chat's agent
  // every agent by name; an AdsPower agent's screen is the shared AdsPower one, so picking it shows that

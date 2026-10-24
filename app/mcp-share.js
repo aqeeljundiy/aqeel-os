@@ -57,4 +57,4 @@ const Signins={shown:new Set(),
   d.querySelector('[data-si="remove"]').onclick=async()=>{if(!await confirmBox('Remove '+(x.label||x.name)+' from '+x.agentName+'?',x.agentName+' stops trying to use it. Other agents keep theirs.','Remove'))return;
    try{await del(H,'/mcp/servers/'+encodeURIComponent(x.name)+'?profile='+encodeURIComponent(x.agent));done('Removed from '+x.agentName)}catch(e){fail(e)}};
   d.querySelector('[data-si="later"]').onclick=()=>{this.snooze(k);done('We’ll remind you tomorrow')}}};
-setTimeout(()=>Signins.check(),20000);setInterval(()=>Signins.check(),15*60e3);
+Poll.add(()=>Signins.check(),15*60e3,20000);

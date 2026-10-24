@@ -17,4 +17,4 @@ const Bottlenecks={items:[],
   if(x.kind==='report')return [['Ask '+x.agentName+' to try again',async()=>{await done();closeLayers();if((S.profile||'default')!==x.agent&&typeof switchAgent==='function')switchAgent(x.agent);go(x.from?.chat?'/chat/'+x.from.chat:'/chat');setTimeout(()=>{const t=document.querySelector('.composer textarea');if(t){t.value='That should be fixed now: '+x.title.replace(/^.*? is blocked: /,'')+'. Please try again.';t.dispatchEvent(new Event('input'));t.focus()}},600);return new Promise(()=>{})},true],['It’s fixed',async()=>{await done();toast('Marked as fixed')}],['Not now',later]];
   return [['Got it',done,true]]}};
 ACT['bottlenecks']=()=>Bottlenecks.open();
-setInterval(()=>Bottlenecks.check(),120000);setTimeout(()=>Bottlenecks.check(),2500);
+Poll.add(()=>Bottlenecks.check(),120000,2500);

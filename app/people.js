@@ -440,7 +440,7 @@ const CronNotify={
    const plain=/auth|token|expired|401|403|sign.?in|credential/i.test(err)?'A sign-in it needs has expired. Ask the agent to connect it again.':/deliver|chat not found|recipient|not connected|platform/i.test(err)?'It ran, but the result could not be delivered. Check where it sends to.':String(err).slice(0,140);
    Notices.show({icon:'alert',kind:'warn',title:stripBracket(j.name)+' did not finish',text:plain,life:600000,key:k,go:'/automations/schedules',actions:[{label:'Fix',run:()=>{go('/automations/schedules');setTimeout(()=>{const x=(Pages.cronJobs||[]).find(y=>y.id===j.id);if(x)cronDetail(x)},900)}}]})}}
 };
-setInterval(()=>CronNotify.check(),30000);setTimeout(()=>CronNotify.check(),4000);
+{let n=0;Poll.add(()=>{if(route().sec?.id==='automations'||++n%4===0)return CronNotify.check()},30000,4000)}
 
 /* ---------- Access: one small badge on every row saying who can use it ---------- */
 const accessChip=(text,tip,kind='')=>`<span class="chip access ${kind}" title="${esc(tip)}">${icon(kind==='shared'?'user':kind==='public'?'globe':'lock',11)}${esc(text)}</span>`;
@@ -768,7 +768,7 @@ const ChannelAlert={
    text:who+(x.account?' · '+accountText(x.account):'')+'. '+(x.needs_link?'Link it again, or remove it if it is no longer used.':'Open Channels to check it.'),
    actions:[x.id==='whatsapp'&&x.needs_link?{label:'Link again',run:()=>ACT['wa-link']({dataset:{agent:x.agent}})}:{label:'Open',go:'/channels/channels'}],
    onClose:()=>{try{localStorage.setItem(k,String(Date.now()))}catch{}}})}};
-setInterval(()=>ChannelAlert.check(),10*60e3);setTimeout(()=>ChannelAlert.check(),6000);
+Poll.add(()=>ChannelAlert.check(),10*60e3,6000);
 
 /* ---------- Channels page: status lives in "Every agent's channels" at the top; the cards below are only for
    adding (the app, and Set up or Add another). People who don't see the top list keep the status on the cards. ---------- */
@@ -830,7 +830,7 @@ async function reconnectChannel(ag,pf){const main=ag.split('--')[0]==='default'&
 
 // the bell (Inbox lives in notices.js, which loads before the action table)
 ACT['inbox']=()=>{if($('.drawer.inbox'))return closeLayers();Inbox.open()};
-setTimeout(()=>Inbox.paintBell(),300);setInterval(()=>Inbox.paintBell(),2000);addEventListener('storage',e=>{if(e.key==='hui-inbox')Inbox.paintBell()});
+setTimeout(()=>Inbox.paintBell(),300);setInterval(()=>{if(!document.hidden)Inbox.paintBell()},2000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)Inbox.paintBell()});addEventListener('storage',e=>{if(e.key==='hui-inbox')Inbox.paintBell()});
 
 // engine restarts land in the bell with the reason in plain words (so a channel dropping for a moment is explained)
 const SysEvents={async check(){if(document.hidden||!S.signedIn||S.me?.admin===false)return;let ev=[];try{ev=(await UI('/ui/system-events')).events||[]}catch{return}
@@ -840,7 +840,7 @@ const SysEvents={async check(){if(document.hidden||!S.signedIn||S.me?.admin===fa
   if(/^memory/.test(e.kind)){Inbox.add({key:'sys:'+e.id,icon:'activity',kind:e.kind==='memory'?'warn':'blue',title:e.kind==='memory'?'The AI box is low on memory':'Memory freed',text:e.kind==='memory'?e.why+'. Heavy jobs may fail; idle browsers close by themselves.':e.why,go:'/system/health',actions:[{label:'Host',go:'/system/health'}]});continue}
   Inbox.add({key:'sys:'+e.id,icon:'refresh',kind:'blue',title:'Agents restarted for a moment',text:why+' Channels (WhatsApp, Telegram, Slack) reconnected by themselves.',go:'/channels/channels',actions:[{label:'Channels',go:'/channels/channels'}]})}
  if(n)store.set('sysSeen',[...seen].slice(-100))}};
-setInterval(()=>SysEvents.check(),60000);setTimeout(()=>SysEvents.check(),8000);
+Poll.add(()=>SysEvents.check(),60000,8000);
 
 // an agent without a description: one click to write one
 ACT['agent-describe']=async(a,e)=>{e?.preventDefault();e?.stopPropagation();const n=a.dataset.name;const v=await promptBox('Describe '+ident(n).name,'What does it do? (one sentence)','','Save');if(!v)return;
