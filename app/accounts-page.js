@@ -4,7 +4,7 @@ const PLUGIN_ID='claude-subscription-directsdk-experimental';
 const PROV_DOMAINS={'openai-codex':'chatgpt.com','openai-api':'openai.com',openrouter:'openrouter.ai',gemini:'gemini.google.com',antigravity:'gemini.google.com','google-antigravity':'gemini.google.com',agy:'gemini.google.com',xai:'x.ai','xai-oauth':'x.ai',deepseek:'deepseek.com',copilot:'github.com',huggingface:'huggingface.co','kimi-coding':'moonshot.ai',minimax:'minimax.io',zai:'z.ai'};
 function acctSources(d){
  const claudeModels=(Chat.models||[]).filter(m=>m.provider===PLUGIN_ID).map(m=>m.id);
- const claude=d.accounts.map(a=>({key:'claude:'+a.id,name:a.label,sub:accountText({email:a.email})||'Claude',logo:'claude.ai',models:claudeModels,ok:a.signedIn,
+ const claude=d.accounts.map(a=>({key:'claude:'+a.id,name:a.label,sub:accountText({email:a.email})||'Claude',logo:'claude.ai',models:claudeModels,ok:a.partial||a.signedIn,details:a.partial?['Still checking this account. Refresh in a moment.']:[],
   used:a.usage?Math.max(a.usage.session?.used||0,a.usage.week?.used||0):null,bars:a.usage?[['Session (5 h)',a.usage.session],['This week',a.usage.week],['This week, Opus',a.usage.opus],['This week, Sonnet',a.usage.sonnet]].filter(([,w])=>w):[],menu:a.id}));
  // the ChatGPT pictures limit is its own quota: said in words, never counted as chat use
  const chatW=p=>p.windows.filter(w=>w.scope!=='model'&&w.scope!=='image');

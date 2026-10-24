@@ -8,6 +8,7 @@ import {homedir} from 'node:os';
 import path from 'node:path';
 import {hermes as hq,setKey,readConfig,pick,editEnv,agentNames,setStatus,getStatus,LIVE_APP} from './agentops.mjs';
 import {allowed,trim} from './skills-policy.mjs';
+import {swr} from './swr.mjs';
 
 const HOME=homedir();
 const CLAUDE=process.env.CLAUDE_BIN||path.join(HOME,'.local','bin','claude');
@@ -33,10 +34,12 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
  const all=d=>[{...MAIN,label:d.mainLabel||MAIN.label},...d.accounts.filter(a=>a.id!=='main')];
  const run=(cmd,args,env={},timeout=30000)=>new Promise(res=>execFile(cmd,args,{env:{...process.env,...env},timeout,maxBuffer:4e6},(err,stdout,stderr)=>res({ok:!err,out:String(stdout||''),err:String(stderr||err?.message||'')})));
 
- /* ---------- account details (cached briefly) ---------- */
- const cache=new Map();
- async function details(a,fresh){
-  const hit=cache.get(a.id);if(hit&&!fresh&&Date.now()-hit.t<60000)return hit.v;
+ /* ---------- account details: `claude auth status` (a CLI run) and Anthropic's usage call per account. The last answer
+    is used at once and read again behind the scenes after 60 s; sign-in, sign-out, rename and ?fresh=1 read it new.
+    With quick (the Accounts page) an account never read yet waits at most 3 s, then shows as not checked yet. ---------- */
+ const cache=swr({fresh:60000,cap:3000});
+ const details=(a,fresh,quick)=>cache.get(a.id,()=>readDetails(a),{force:!!fresh,partial:quick?()=>({id:a.id,label:a.label,main:a.id==='main',signedIn:false,partial:true}):undefined});
+ async function readDetails(a){
   const v={id:a.id,label:a.label,main:a.id==='main',signedIn:false};
   // The main account lives in Claude's default place (its email is kept in ~/.claude.json), so no CLAUDE_CONFIG_DIR for it.
   const st=await run(CLAUDE,['auth','status'],a.id==='main'?{}:{CLAUDE_CONFIG_DIR:a.dir},20000);
@@ -52,7 +55,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
     else v.usageError=r.status===401?'Sign-in expired. It refreshes the next time this account is used.':'Usage unavailable ('+r.status+')'}
    catch{v.usageError='Could not reach Anthropic.'}
   }
-  cache.set(a.id,{t:Date.now(),v});return v;
+  return v;
  }
  const headroom=v=>v?.usage?100-Math.max(v.usage.session?.used||0,v.usage.week?.used||0,v.usage.opus?.used||0,v.usage.sonnet?.used||0):-1;
 
@@ -80,7 +83,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
   const s={child,out:'',state:'running',dir,label:String(label||id).slice(0,60)};logins.set(id,s);
   child.on('error',e=>{s.state='failed';s.out+='\n'+e.message});
   const add=b=>{s.out=(s.out+String(b).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g,'')).slice(-8000)};child.stdout.on('data',add);child.stderr.on('data',add);
-  child.on('close',async code=>{try{s.state=code===0?'done':'failed';if(code===0){await update(d2=>{if(!d2.accounts.some(a=>a.id===id))d2.accounts.push({id,label:s.label,dir})});cache.delete(id)}}catch(e){s.state='failed';console.warn('account sign-in',e.message)}});
+  child.on('close',async code=>{try{s.state=code===0?'done':'failed';if(code===0){await update(d2=>{if(!d2.accounts.some(a=>a.id===id))d2.accounts.push({id,label:s.label,dir})});cache.drop(id)}}catch(e){s.state='failed';console.warn('account sign-in',e.message)}});
   setTimeout(()=>{if(s.state==='running'){s.state='failed';child.kill()}},10*60000).unref();
   for(let i=0;i<40&&!/https:\/\/\S+/.test(s.out);i++)await new Promise(r=>setTimeout(r,250));
   return {id,url:(/https:\/\/\S+/.exec(s.out)||[])[0]||null,state:s.state};
@@ -100,11 +103,13 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
  const options=profile=>fetch(GATE+(!profile||profile==='default'?'':'/p/'+encodeURIComponent(profile))+'/api/model/options',{headers:{authorization:'Bearer '+(process.env.API_SERVER_KEY||'')},signal:AbortSignal.timeout(20000)}).then(r=>{if(!r.ok)throw new Error('options '+r.status);return r.json()});
  const provCache=new Map();   // agent → {t,v}
  // null when that agent's gateway did not answer (and nothing was read before): callers skip instead of guessing
- async function providers(fresh,profile='default'){const hit=provCache.get(profile);if(hit&&!fresh&&Date.now()-hit.t<60000)return withPics(hit.v,profile);
+ async function providers(fresh,profile='default'){const hit=provCache.get(profile);
+  // the last answer at once; one read behind the scenes once it is a minute old
+  if(hit&&!fresh){if(Date.now()-hit.t>=60000&&!hit.r){hit.r=1;providers(true,profile).catch(()=>{})}return withPics(hit.v,profile)}
   try{const j=await options(profile);
    const v=(j.providers||[]).filter(p=>p.authenticated&&!SKIP.test(p.slug)&&p.slug!=='gemini-subscription').map(p=>({slug:p.slug,name:p.name,models:p.models||[],
     windows:(p.usage?.windows||[]).map(w=>({label:w.label,used:Math.round(Number(w.used_percent)||0),resets:w.resets_at||null,scope:w.scope||'account'})),details:p.usage?.details||[]}));
-   provCache.set(profile,{t:Date.now(),v});return withPics(v,profile)}catch{return hit?withPics(hit.v,profile):null}}
+   provCache.set(profile,{t:Date.now(),v});return withPics(v,profile)}catch{if(hit)hit.r=0;return hit?withPics(hit.v,profile):null}}
  const worstOf=ws=>Math.max(0,...(ws||[]).filter(w=>w.scope!=='model'&&w.scope!=='image').map(w=>w.used||0));
 
  /* ---------- the ChatGPT pictures quota: separate from chat use and not in what the gateway reports. The engine logs
@@ -285,7 +290,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
   const dir=path.join(ACCOUNTS_DIR,nid);await mkdir(ACCOUNTS_DIR,{recursive:true,mode:0o700});
   // moved, not copied: two copies of one sign-in would each refresh it and sign the other out
   try{await rename(src,dir)}catch(e){if(e.code!=='EXDEV')throw e;await cp(src,dir,{recursive:true});await rm(src,{recursive:true,force:true})}
-  await update(x=>{if(!x.accounts.some(a=>a.id===nid))x.accounts.push({id:nid,label,dir})});await dropOld('claude',id);cache.delete(nid);return {id:nid,label}}
+  await update(x=>{if(!x.accounts.some(a=>a.id===nid))x.accounts.push({id:nid,label,dir})});await dropOld('claude',id);cache.drop(nid);return {id:nid,label}}
  async function removeOld(k,id){if(!OLD[k]||!OLD_ID.test(id))throw new Error('Unknown sign-in');await dropOld(k,id);await rm(path.join(CODE_DATA,OLD[k],id),{recursive:true,force:true})}
 
  // see: which agents this person may see (others' private agents are left out of route, assign and events, and can't be moved)
@@ -300,7 +305,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    if(!b.noSkills&&/^[a-z0-9][a-z0-9_-]{0,63}$/.test(n)&&n!=='default')await giveSkills(n).catch(e=>console.warn('skills for',n,e.message));
    try{const r=await setupAgent(n);accountHooks.afterSetup?.(n);return send(res,200,r)}catch(e){return send(res,400,{error:e.message})}}
   const d=await load();
-  if(p==='/ui/accounts'&&req.method==='GET'){const fresh=new URL(req.url,'http://x').searchParams.has('fresh');const list=await Promise.all(all(d).map(a=>details(a,fresh)));
+  if(p==='/ui/accounts'&&req.method==='GET'){const fresh=new URL(req.url,'http://x').searchParams.has('fresh');const list=await Promise.all(all(d).map(a=>details(a,fresh,true)));
    const ag=(await agents()).filter(see);const prov=await providers(fresh)||[];const route=Object.fromEntries(await Promise.all(ag.map(async n=>[n,{entry:await entryOf(d,n),...await agentRoute(n)}])));
    return send(res,200,{accounts:list,providers:prov,priority:d.priority||[],route,assign:Object.fromEntries(ag.map(n=>[n,d.assign[n]||'main'])),auto:d.auto||{on:false,threshold:90},events:(d.events||[]).filter(e=>see(e.profile))})}
   if(p==='/ui/accounts/priority'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
@@ -318,8 +323,8 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    // only agents that still exist count: a deleted agent's old choice is dropped
    const live=new Set(await agents());if(Object.entries(d.assign).some(([n,v])=>v===id&&live.has(n)))return send(res,409,{error:'An agent still uses this account. Move it to another account first.'});
    await update(x=>{for(const n of Object.keys(x.assign||{}))if(!live.has(n))delete x.assign[n]});
-   await run(CLAUDE,['auth','logout'],{CLAUDE_CONFIG_DIR:a.dir},20000);await rm(a.dir,{recursive:true,force:true});await update(x=>{x.accounts=x.accounts.filter(y=>y.id!==id)});cache.delete(id);return send(res,200,{ok:true})}
-  if(m&&req.method==='PATCH'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const id=m[1];await update(x=>{const a=x.accounts.find(y=>y.id===id);if(id==='main')x.mainLabel=String(b.label||'').slice(0,60);else if(a)a.label=String(b.label||a.label).slice(0,60)});cache.delete(m[1]);return send(res,200,{ok:true})}
+   await run(CLAUDE,['auth','logout'],{CLAUDE_CONFIG_DIR:a.dir},20000);await rm(a.dir,{recursive:true,force:true});await update(x=>{x.accounts=x.accounts.filter(y=>y.id!==id)});cache.drop(id);return send(res,200,{ok:true})}
+  if(m&&req.method==='PATCH'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const id=m[1];await update(x=>{const a=x.accounts.find(y=>y.id===id);if(id==='main')x.mainLabel=String(b.label||'').slice(0,60);else if(a)a.label=String(b.label||a.label).slice(0,60)});cache.drop(m[1]);return send(res,200,{ok:true})}
   send(res,404,{error:'Not found'});
  },{codeRoute});
 }
