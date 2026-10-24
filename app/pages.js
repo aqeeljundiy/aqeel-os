@@ -967,7 +967,7 @@ Pages.profileMenu=el=>{const n=el.dataset.name;const base='/profiles/'+encodeURI
   // (folder rename removed: it orphaned the owner, sharing, extra numbers and logins; Edit identity renames the visible name)
   !x.is_default&&'-',!x.is_default&&{label:'Delete',icon:'trash',bad:true,run:async()=>{const typed=await promptBox('Delete '+ident(n).name+'?','Its settings, skills, memory and chats are removed. A backup is kept for 30 days (Agents › Recently deleted). '+(x.gateway_running?'It is online now and stops answering on its channels at once. ':'')+'Type the agent’s ID "'+n+'" to confirm.','','Delete');if(typed==null)return;if(typed.trim()!==n)return toast('The name did not match, so nothing was deleted.','err');try{await del(H,base);S._viewList=null;toast('Deleted');
    // the agent you were talking to is gone: back to the main agent (chats, the address and this browser's choice)
-   if((S.profile||'default')===n){S.profile='';store.set('profile','default');agentUrl();Chat.live={};Chat.id=null;Chat.model=null;S.sessions=[];S.sessionsLoaded=false;Chat.agentPrefs();Chat.loadSessions(true);Chat.loadModels().catch(()=>{})}
+   if((S.profile||'default')===n){S.profile='';store.set('profile','default');agentUrl();Chat.resetLive(n);Chat.id=null;Chat.model=null;S.sessions=[];S.sessionsLoaded=false;Chat.agentPrefs();Chat.loadSessions(true);Chat.loadModels().catch(()=>{})}
    reload()}catch(e){fail(e)}}}])};
 
 /* ===================== System › Status ===================== */

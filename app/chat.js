@@ -187,7 +187,10 @@ const Chat={
  // each "Show earlier" doubles the window (2000, 4000…) while full pages keep coming back
  async loadHistory(id,all=false){const lim=all?Math.max(2000,(this.live[id]?.lim||0)*2):150;
   try{const d=await H('/sessions/'+encodeURIComponent(id)+'/messages?limit='+lim+'&order=latest');if(this.id!==id)return;
-   if(this.live[id]?.running)return;const ms=d.messages||[];this.live[id]={turns:this.toTurns(ms),running:false,seenAt:Date.now()/1000,more:ms.length>=lim,lim};this._opening=id;this.paint();this.follow(id);
+   if(this.live[id]?.running)return;const ms=d.messages||[];
+   // messages queued for this chat (here, or before switching agents) wait on through the reload
+   const pk=this.parked?.[S.profile||'default'],old=this.live[id]||pk?.[id];if(pk)delete pk[id];
+   this.live[id]={turns:this.toTurns(ms),running:false,seenAt:Date.now()/1000,more:ms.length>=lim,lim,queue:old?.queue||[],paused:!!old?.paused};this._opening=id;this.paint();this.follow(id);
    // the thinking shown while each reply streamed (saved by aqeelOS; some models keep none themselves)
    UI('/ui/thinking?session='+encodeURIComponent(id)).then(x=>{const s=this.live[id];if(!s||s.running||!(x.items||[]).length)return;let changed=false;const T=s.turns;
     for(let i=0;i<T.length-1;i++){if(T[i].role!=='user')continue;const ai=T[i+1];if(ai?.role!=='ai'||ai.think)continue;const q=String(T[i].text||'').slice(0,300);const hit=x.items.find(y=>y.u===q||(q&&y.u.startsWith(q.slice(0,120))));if(hit){ai.think=hit.think;changed=true}}
@@ -292,7 +295,7 @@ const Chat={
   return `<div class="step" data-k="${k}"><button class="step-head" data-act="step"${x.at?` title="${esc(msgStamp(x.at))}"`:''}><span class="si">${icon(ic,14)}</span><span class="sum">${sum}</span><span class="state">${state}</span><span class="chev">${icon('chevR',14)}</span></button><div class="step-body"><div>${x.callId?`<small class="step-id">Call ${esc(x.callId)}</small>`:''}<pre>${esc(detail||'(no output)')}</pre></div></div></div>`},
  approvalHtml(a){if(a.resolved)return `<div class="steps"><div class="step"><div class="step-head"><span class="si">${icon(a.resolved==='deny'?'x':'check',14)}</span><span class="sum">${a.resolved==='deny'?'Denied':a.auto?'Approved automatically (Allow all)':'Approved'}${a.command?': <code>'+esc(a.command)+'</code>':''}</span></div></div></div>`;
   const label={once:'Approve once',session:'Allow for this chat',always:'Always allow',deny:'Deny'};
-  return `<div class="approval"><h4>${icon('shield',16)}${esc(a.title||AGENT()+' needs your OK')}</h4><p>${esc(a.description||a.reason||'This command could change or delete things on the box.')}</p>${a.command?`<pre>${esc(a.command)}</pre>`:''}<div class="btns">${(a.choices||['once','deny']).map((c,i)=>`<button class="${i===0?'primary':c==='deny'?'ghost':''}" data-act="approval" data-choice="${esc(c)}">${esc(label[c]||c)}</button>`).join('')}</div></div>`},
+  return `<div class="approval"><h4>${icon('shield',16)}${esc(a.title||AGENT()+' needs your OK')}</h4><p>${esc(a.description||a.reason||'This command could change or delete things on the box.')}</p>${a.command?`<pre>${esc(a.command)}</pre>`:''}<div class="btns">${(a.choices||['once','deny']).map((c,i)=>`<button class="${i===0?'primary':c==='deny'?'ghost':''}" data-act="approval" data-choice="${esc(c)}"${a.request_id?` data-rid="${esc(a.request_id)}"`:''}>${esc(label[c]||c)}</button>`).join('')}</div></div>`},
 
  /* ---------- sending ---------- */
  async submit(){if(this._sending)return;this._sending=true;try{return await this._submit()}finally{this._sending=false}},
@@ -302,14 +305,18 @@ const Chat={
    const sp=$('#attachList');sp?.classList.add('busy');let paths;try{paths=await this.uploadAtt(up)}catch(e){sp?.classList.remove('busy');return fail(e)}sp?.classList.remove('busy');
    this._sentAtt=up;this.files=this.files.filter(f=>!up.includes(f));this.paintFiles();ta.value=(text+'\n\n'+paths.map(p=>'[Attached file: '+p+']').join('\n')).trim();return this._submit()}
   if(s?.running&&this.sendMode==='queue'){const images=this.files;this.files=[];this.paintFiles();(s.queue??=[]).push({text,images});ta.value='';ta.style.height='';this.paintQueue();return}
-  if(s?.running){if(!s.runId)return toast(AGENT()+' is starting, try again in a second');ta.value='';ta.style.height='';
-   const u={role:'user',text,steer:'sending',local:this.takeSent()};const n={role:'ai',steps:[],text:'',think:''};s.turns.push(u,n);s.ai=n;s.runTurns.push(n);this.paint();
-   try{await post(G,'/v1/runs/'+s.runId+'/steer',{text});if(u.steer==='sending')u.steer='sent'}catch(e){u.steer='failed';u.err=e.message;s.turns.splice(s.turns.indexOf(n),1);s.runTurns.pop();s.ai=s.runTurns[s.runTurns.length-1]}this.paint();return}
+  if(s?.running){if(!s.runId)return toast(AGENT()+' is starting, try again in a second');ta.value='';ta.style.height='';return this.steer(this.id,text,this.takeSent())}
   if(s)s.paused=false;
   if(text.startsWith('/')&&this.command(text))return;
   ta.value='';ta.style.height='';$('#slash').innerHTML='';
   const images=this.files;this.files=[];this.paintFiles();
   this.send(text,images)},
+ async steer(id,text,local={}){const s=this.live[id];if(!s?.runId)return;
+  const u={role:'user',text,steer:'sending',local};const n={role:'ai',steps:[],text:'',think:''};s.turns.push(u,n);s.ai=n;s.runTurns.push(n);if(this.id===id)this.paint();
+  try{await post(G,'/v1/runs/'+s.runId+'/steer',{text});if(u.steer==='sending')u.steer='sent'}catch(e){u.steer='failed';u.err=e.message;s.turns.splice(s.turns.indexOf(n),1);s.runTurns.pop();s.ai=s.runTurns[s.runTurns.length-1]}if(this.id===id)this.paint()},
+ // a message from the app itself (a secret's note): steers a running reply, waits in the queue while one starts, else
+ // is sent; the composer's draft and attachments stay as they are
+ tell(text,id=this.id){const s=id&&this.live[id];if(s?.running){if(s.runId)return this.steer(id,text);(s.queue??=[]).unshift({text,images:[]});if(this.id===id)this.paintQueue();return}return this.send(text,[],id)},
  // Tools picked for the next message (MCP servers or built-in tools). Hermes has no per-message tool switch,
  // so they travel as a short instruction in front of the message; the bubble shows them as chips.
  tools:[],
@@ -365,7 +372,7 @@ const Chat={
   }catch(e){if(e.name!=='AbortError'){const t=s.ai||ai;
    // the stream broke on the way (network, sleep, proxy): the reply may well still be running on the box
    if(/network|failed to fetch|load failed|terminated|input stream|body stream|connection (was )?(lost|reset|closed)/i.test(e.message||'')){if(gotResp){t.dropped=true;s.conn='reconnecting'}else t.error="Couldn't reach your AI box. Check your connection, then try again."}else{t.error=e.message||String(e);t.reload=!!e.reload}}}
-  finally{if(s.conn!=='reconnecting')s.conn=null;s.running=false;s.abort=null;s.runId=null;s.runModel='';for(const t of s.runTurns||[ai])t.steps.forEach(x=>{if(!x.done){x.done=true;x.failed=x.failed||!!t.error}});
+  finally{if(s.conn!=='reconnecting')s.conn=null;s.running=false;s.abort=null;s.runId=null;s.runModel='';s.stopWanted=false;s.seenAt=Date.now()/1000;for(const t of s.runTurns||[ai])t.steps.forEach(x=>{if(!x.done){x.done=true;x.failed=x.failed||!!t.error}});
    for(const t of s.turns)if(t.steer==='sending')t.steer='sent';
    if(s.autoGo){s.autoGo=false;s.paused=false;(s.queue??=[]).unshift({text:'Go ahead in my browser.',images:[]})}   // the person chose their browser: its tools load with this next turn
    const last=s.ai||ai;if(!last.meta)last.meta=[modelLabel(last.model||ai.model||m.id),this.effort,Math.round((Date.now()-s.started)/1000)+' s'].filter(Boolean).join(' · ');
@@ -373,15 +380,16 @@ const Chat={
  },
  /* A reply still running (sent before a refresh, or from another tab): pick it up from the start and follow it. */
  async follow(id){const s=this.live[id];if(!s||s.running||s.following)return;s.following=true;
-  try{const r=await fetch('/ui/live?agent='+encodeURIComponent(S.profile||'default')+'&session='+encodeURIComponent(id),{headers:{'x-hui':'1'},credentials:'same-origin'});
+  const ctl=new AbortController();   // switching agents stops reading it (the reply goes on on the box)
+  try{const r=await fetch('/ui/live?agent='+encodeURIComponent(S.profile||'default')+'&session='+encodeURIComponent(id),{headers:{'x-hui':'1'},credentials:'same-origin',signal:ctl.signal});
    if(r.status!==200||!r.body)return;const ai={role:'ai',steps:[],text:'',think:''};let shown=false;
-   this.undrop(s);s.ai=ai;s.runTurns=[ai];s.running=true;s.started=Date.now();s.conn='live';
+   this.undrop(s);s.ai=ai;s.runTurns=[ai];s.running=true;s.started=Date.now();s.conn='live';s.abort=ctl;
    const show=um=>{if(shown)return;shown=true;const txt=typeof um==='string'?um:Array.isArray(um)?um.filter(x=>x.type==='text').map(x=>x.text).join(' '):'';
     const last=s.turns[s.turns.length-1];if(txt&&!(last?.role==='user'&&last.text===txt))s.turns.push({role:'user',text:txt});s.turns.push(ai);if(this.id===id){this.paint();this.paintComposerBar()}paintSide()};
    await this.readStream(r,ev=>{if(!shown)show(ev.type==='run.started'?ev.user_message?.content:'');this.onEvent(id,ev)});
-   s.running=false;s.runId=null;s.conn=null;s.runModel='';ai.steps.forEach(x=>x.done=true);if(shown&&!ai.meta)ai.meta=[modelLabel(ai.model||''),Math.round((Date.now()-s.started)/1000)+' s'].filter(Boolean).join(' · ');
+   s.running=false;s.runId=null;s.conn=null;s.runModel='';s.seenAt=Date.now()/1000;ai.steps.forEach(x=>x.done=true);if(shown&&!ai.meta)ai.meta=[modelLabel(ai.model||''),Math.round((Date.now()-s.started)/1000)+' s'].filter(Boolean).join(' · ');
    if(this.id===id){this.paint();this.paintComposerBar()}this.loadSessions()}
-  catch{if(s.running){s.running=false;const t=s.ai;if(t&&!t.error){t.dropped=true;s.conn='reconnecting'}if(this.id===id){this.paint();this.paintComposerBar()}}}finally{s.following=false}},
+  catch{if(s.running){s.running=false;s.runId=null;const t=s.ai;if(t&&!t.error&&!ctl.signal.aborted){t.dropped=true;s.conn='reconnecting'}if(this.id===id){this.paint();this.paintComposerBar()}}}finally{s.following=false;if(s.abort===ctl)s.abort=null;if(!s.running&&s.conn!=='reconnecting')this.runQueue(id)}},
  // a reply whose connection dropped gives way to the same reply picked up again
  undrop(s){const t=s.turns[s.turns.length-1];if(t?.dropped){t.dropped=false;if(t.role==='ai')s.turns.pop()}},
  // other tabs: notice when a reply starts on the open chat; after a dropped connection, pick the reply up again
@@ -405,7 +413,7 @@ const Chat={
    if(e.type==='tool.completed'||e.type==='tool.failed'){for(const t of s.turns)if(t.steer==='sent')t.afterStep=true}
    else if(/^(assistant\.(delta|commentary|reasoning)|reasoning\.delta|tool\.started)$/.test(e.type)||e.type==='tool.progress'&&e.tool_name==='_thinking'){for(const t of s.turns)if(t.steer==='sent'&&t.afterStep)t.steer='delivered'}}
   switch(e.type){
-   case 'run.started':Secrets.start();s.runId=e.run_id;ai.model=e.runtime?.model||'';if(ai.model&&s.runModel!==ai.model){s.runModel=ai.model;if(this.id===id)this.paintComposerBar()}break;
+   case 'run.started':Secrets.start();s.runId=e.run_id;if(s.stopWanted){s.stopWanted=false;post(G,'/v1/runs/'+s.runId+'/stop').catch(()=>{});setTimeout(()=>s.abort?.abort(),1500)}ai.model=e.runtime?.model||'';if(ai.model&&s.runModel!==ai.model){s.runModel=ai.model;if(this.id===id)this.paintComposerBar()}break;
    case 'assistant.delta':ai.text+=e.delta||e.text||'';break;
    case 'assistant.commentary':if(!e.already_streamed&&e.text)ai.text+=(ai.text?'\n\n':'')+e.text;break;
    case 'tool.started':ai.steps.push({tool:e.tool_name||'tool',args:e.args||{},sum:e.preview||this.summary(e.tool_name,e.args),out:'',done:false,t0:Date.now(),at:Date.now()/1000,callId:e.tool_call_id||e.call_id||''});break;
@@ -431,8 +439,14 @@ const Chat={
   for(const t of wait){const i=s.turns.indexOf(t);const nx=s.turns[i+1];s.turns.splice(i,nx&&nx.role==='ai'&&!nx.text&&!(nx.steps||[]).length?2:1);if(s.ai===nx){s.runTurns=s.runTurns.filter(x=>x!==nx);s.ai=s.runTurns[s.runTurns.length-1]||s.turns[s.turns.length-1]}}
   (s.queue??=[]).unshift(...wait.map(t=>({text:t.text,images:[]})));s.paused=false;this.paint();this.paintQueue();
   try{if(s.runId)await post(G,'/v1/runs/'+s.runId+'/stop')}catch{}setTimeout(()=>s.abort?.abort(),1500);toast('Stopping the current step; your message goes next')},
- async stop(){const s=this.live[this.id];if(!s?.running)return;s.paused=true;try{if(s.runId)await post(G,'/v1/runs/'+s.runId+'/stop')}catch{}setTimeout(()=>s.abort?.abort(),1500);toast('Stopping…')},
- async approve(choice){const s=this.live[this.id];const t=s?.turns[s.turns.length-1];if(!s?.runId||!t?.approval)return;try{await post(G,'/v1/runs/'+s.runId+'/approval',{choice,...(t.approval.request_id?{request_id:t.approval.request_id}:{})});t.approval.resolved=choice;this.paint()}catch(e){fail(e)}},
+ // pressed before the run has an id: remembered and sent when run.started arrives (cutting the stream alone leaves the
+ // reply running on the box); a run that never starts is let go after 10 s
+ async stop(){const s=this.live[this.id];if(!s?.running)return;s.paused=true;toast('Stopping…');
+  if(!s.runId){s.stopWanted=true;const a=s.abort;setTimeout(()=>{if(s.stopWanted&&s.abort===a)a?.abort()},10000);return}
+  try{await post(G,'/v1/runs/'+s.runId+'/stop')}catch{}setTimeout(()=>s.abort?.abort(),1500)},
+ // the button's own turn (found by request_id): an earlier turn's Approve used to look only at the last turn
+ async approve(choice,rid){const s=this.live[this.id];const t=rid?s?.turns.find(x=>x.approval?.request_id===rid):[...(s?.turns||[])].reverse().find(x=>x.approval&&!x.approval.resolved);if(!s?.runId||!t?.approval)return;try{await post(G,'/v1/runs/'+s.runId+'/approval',{choice,...(t.approval.request_id?{request_id:t.approval.request_id}:{})});t.approval.resolved=choice;this.paint()}catch(e){fail(e)}},
+ resetLive(from){const keep={};for(const [id,s] of Object.entries(this.live||{})){s?.abort?.abort();if(s?.queue?.length)keep[id]={queue:s.queue,paused:s.paused}}(this.parked??={})[from||'default']=keep;this.live={}},
  async newChat(){this.id=null;go('/chat')},
  async retry(){const s=this.live[this.id];if(!s||s.running)return;const lastUser=[...s.turns].reverse().find(t=>t.role==='user');if(lastUser)this.send(lastUser.text,(lastUser.imgs||[]).filter(Boolean).map(url=>({url})))},
  async fork(id=this.id){if(!id)return;try{const d=await post(G,'/api/sessions/'+encodeURIComponent(id)+'/fork',{});const nid=d.session?.id||d.id;await this.loadSessions();if(nid)go('/chat/'+nid);toast('Forked into a new chat')}catch(e){fail(e)}},
@@ -508,7 +522,7 @@ const Secrets={timer:null,
   try{const r=await post(UI,'/ui/secrets/give',{agent:agentProfile()||'default',label:ctx.value.trim(),name:this.nameOf(ctx.value),value:val.value});val.value='';c.classList.add('done');
    c.querySelector('.sc-main').innerHTML='<b>'+icon('check',15)+' Saved as '+esc(r.name)+'</b><span class="hint">'+esc(AGENT())+' now knows it has “'+esc(ctx.value.trim())+'” and can use it without seeing it.</span>';setTimeout(()=>{Secrets.drop(c)},3500);
    // tell the agent (as a steer while it is working, otherwise as a message); the value is not in it
-   const ta=$('#msg');if(ta){const keep=ta.value;ta.value=r.message;await Chat.submit();if(keep)setTimeout(()=>{const t=$('#msg');if(t&&!t.value){t.value=keep;t.dispatchEvent(new Event('input'))}},50)}}
+   await Chat.tell(r.message,Chat.id)}
   catch(e){err.textContent=e.message;b.disabled=false}},
  drop(c){const slot=c.parentElement;if(!slot)return;c.classList.add('out');if(![...slot.children].some(x=>!x.classList.contains('out')))slot.classList.add('closing');
   setTimeout(()=>{c.remove();if(!slot.children.length)slot.classList.remove('closing')},calm()?0:260)},

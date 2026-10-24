@@ -49,7 +49,11 @@ export function createCode({DATA,SRC,PUBLIC_URL,ROOT}){
   jobs.set(j.id,j);if(e.wake)e.wake(j.job);else e.queue.push(j.job);return result}
 
  async function devices(user){await load();return Object.entries(db.devices).filter(([,d])=>d.user===user).map(([h,d])=>({id:h.slice(0,12),...d}))}
- async function unpair(user,id){await load();for(const [h,d] of Object.entries(db.devices))if(d.user===user&&h.startsWith(id))delete db.devices[h];await save()}
+ // the id is the 12 characters devices() shows: an empty or short one used to match (and remove) every computer of theirs;
+ // a removed computer also leaves the live list at once (its key is the hash's first 16), so agents stop sending it work
+ async function unpair(user,id){id=String(id||'');if(!/^[0-9a-f]{12,64}$/.test(id))return 0;await load();let n=0;
+  for(const [h,d] of Object.entries(db.devices))if(d.user===user&&h.startsWith(id)){delete db.devices[h];n++;const e=live.get(h.slice(0,16));if(e?.user===user){e.wake?.(null);live.delete(h.slice(0,16))}}
+  if(n)await save();return n}
  // the version is the commit the box's copy of the source is at (it changes with every pull)
  const version=async()=>{const v=(await readFile(path.join(SRC,'VERSION'),'utf8').catch(()=>'')).trim();if(v)return v.slice(0,12);try{const head=(await readFile(path.join(SRC,'.git','HEAD'),'utf8')).trim();if(!head.startsWith('ref:'))return head.slice(0,12);const ref=head.slice(4).trim();
    const sha=await readFile(path.join(SRC,'.git',ref),'utf8').catch(async()=>((await readFile(path.join(SRC,'.git','packed-refs'),'utf8')).split('\n').find(l=>l.endsWith(' '+ref))||'').split(' ')[0]);return String(sha).trim().slice(0,12)||'0'}catch{return '0'}};

@@ -24,7 +24,7 @@ function openMenu(el){const k=el.dataset.menu;
 }
 // the agent you chat with rides in the address (?agent=<name>), so a reloaded or shared link opens on the same agent
 function agentUrl(){try{const u=new URL(location.href),n=S.profile||'default';if(u.searchParams.get('agent')===n)return;u.searchParams.set('agent',n);history.replaceState(history.state,'',u)}catch{}}
-function switchAgent(name){if((S.profile||'default')===name)return;S.profile=name;store.set('profile',name);agentUrl();Chat.live={};Chat.id=null;Chat.model=null;S.sessions=[];S.sessionsLoaded=false;toast('Now talking to '+ident(name).name);go('/chat');boot()}
+function switchAgent(name){const was=S.profile||'default';if(was===name)return;S.profile=name;store.set('profile',name);agentUrl();Chat.resetLive(was);Chat.id=null;Chat.model=null;S.sessions=[];S.sessionsLoaded=false;toast('Now talking to '+ident(name).name);go('/chat');boot()}
 function shortcuts(){drawer('Keyboard shortcuts',`<table>${[[MOD+' K','Search and commands'],[MOD+' B','Collapse the sidebar'],[MOD+' 1–'+Math.max(...SECTIONS.map(s=>+s.key||0)),'Jump to '+[...SECTIONS].sort((a,b)=>a.key-b.key).map(s=>s.label).join(', ')],['Enter','Send'],['Shift Enter','New line'],['Esc','Stop aqeelOS, or close a panel'],['/','Chat commands'],[MOD+' /','This list']].map(([k,v])=>`<tr><td style="white-space:nowrap"><span class="chip">${esc(k)}</span></td><td>${esc(v)}</td></tr>`).join('')}</table>`)}
 
 document.addEventListener('click',e=>{
@@ -54,7 +54,7 @@ document.addEventListener('click',e=>{
   case 'reload':reload();break;
   case 'step':a.closest('.step').classList.toggle('open');break;
   case 'think':{const b=a.nextElementSibling;b.hidden=!b.hidden;a.setAttribute('aria-expanded',String(!b.hidden));const t=Chat.live[Chat.id]?.turns[+a.dataset.i];if(t)t.thinkOpen=!b.hidden;break}
-  case 'approval':Chat.approve(a.dataset.choice);break;
+  case 'approval':Chat.approve(a.dataset.choice,a.dataset.rid);break;
   case 'perm-menu':Chat.permMenu(a);break;
   case 'perm-toggle':{if(!Chat.id){toast('Send the first message, then choose Allow all for this chat.');break}const on=!Chat.allowAll(Chat.id);Chat.setAllowAll(Chat.id,on);Chat.paintComposerBar();toast(on?'Allow all in this chat: no approval prompts (blocked commands stay blocked).':'Ask me: risky commands wait for your OK again.');break}
   case 'attach':pickFile('*/*',f=>Chat.addFiles(f),true);break;

@@ -1539,7 +1539,7 @@ const server=createServer(async(req,res)=>{
     else{if(!admin)return send(res,403,{error:'Only admins.'});const cur=await bottlenecks.list({admin:true,mayUse:()=>false,signins:[...signinsDue.values()],invites:users.expiredInvites()});if(!cur.some(x=>x.id===id))return send(res,404,{error:'That one is already gone.'})}
     await (p.endsWith('done')?bottlenecks.done(id):bottlenecks.later(id,admin?null:u.id));return send(res,200,{ok:true})}
    if(p==='/ui/code/devices'&&req.method==='GET')return send(res,200,{devices:await code.devices(u.id)});
-   if(p==='/ui/code/unpair'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}await code.unpair(u.id,String(b.id||''));return send(res,200,{ok:true})}
+   if(p==='/ui/code/unpair'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const n=await code.unpair(u.id,String(b.id||''));return n?send(res,200,{ok:true}):send(res,400,{error:'That computer was not found.'})}
    {const dm=/^\/ui\/code\/download\/(windows|mac)$/.exec(p);if(dm&&req.method==='GET'){
     // the aqeelOS app installer (Windows: aqeelOS-Setup.exe, Mac: aqeelOS.dmg). ?check=1 says whether it is there; without one
     // there is nothing to give (the older zip ran Code outside the app, which the browser no longer opens)
