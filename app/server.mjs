@@ -785,7 +785,7 @@ const samePerson=(pf,a,b)=>pf==='whatsapp'?String(a).split('@')[0].split(':')[0]
 let approveChain=Promise.resolve();
 async function approvePerson(agent,pf,id,name){const home=agent==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',agent);
  const run=approveChain.then(async()=>{const py=await enginePython().catch(()=>null);
-  if(py){const {execFile}=await import('node:child_process');const code='import sys,json\nsys.path.insert(0,sys.argv[1])\nfrom gateway.pairing import PairingStore\ns=PairingStore(sys.argv[2] or None)\nwith s._locked():\n    s._approve_user(sys.argv[3],sys.argv[4],sys.argv[5])\nprint(json.dumps({"ok":True,"dir":str(s._dir)}))';
+  if(py){const {execFile}=await import('node:child_process');const code='import sys,json\nsys.path.insert(0,sys.argv[1])\nfrom gateway.pairing import PairingStore\ns=PairingStore(sys.argv[2] or None)\nwith (s._locked() if hasattr(s,"_locked") else s._lock):\n    s._approve_user(sys.argv[3],sys.argv[4],sys.argv[5])\nprint(json.dumps({"ok":True,"dir":str(s._dir)}))';
    const out=await new Promise(r=>execFile(py,['-c',code,path.join(HERMES_HOME,'hermes-agent'),agent==='default'?'':agent,pf,id,name],{timeout:30000,cwd:path.join(HERMES_HOME,'hermes-agent'),env:{...process.env,HERMES_HOME}},(e,o,er)=>r(e?{err:String(er||e.message).trim().split('\n').pop()}:{ok:true})));
    if(out.ok)return 'engine';console.warn('approve person: the engine store did not run ('+out.err+'), writing the file directly')}
   const f=path.join(home,'platforms','pairing',pf+'-approved.json');await mkdir(path.dirname(f),{recursive:true});
