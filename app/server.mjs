@@ -10,7 +10,7 @@ import {createAgentDefaults} from './agent-defaults.mjs';
 import {createWhy} from './why.mjs';
 import {createGemini} from './gemini.mjs';
 import {createAntigravity} from './antigravity.mjs';
-import {withAgent,setKey,readConfig,pick,agentNames,isAgent,busy as opsBusy,initStatus,getStatus,setStatus,editEnv,hermes as hcmd,python as enginePython,LIVE_APP} from './agentops.mjs';
+import {withAgent,setKey,readConfig,pick,agentNames,isAgent,busy as opsBusy,initStatus,getStatus,setStatus,editEnv,hermes as hcmd,python as enginePython,LIVE_APP,HELP_AGENT} from './agentops.mjs';
 import {createSchedules} from './schedules.mjs';
 import {createScreens} from './screens.mjs';
 import {createUsers,UNSAFE_TOOLSETS} from './users.mjs';
@@ -33,6 +33,7 @@ import {createCode} from './code.mjs';
 import {createCodeOnline} from './code-online.mjs';
 import {createBrand} from './brand.mjs';
 import {createBottlenecks} from './bottlenecks.mjs';
+import {createHelp} from './help.mjs';
 import {createLive} from './live.mjs';
 import {createBackups} from './backup.mjs';
 import {createPluginHost} from './plugin-host.mjs';
@@ -561,6 +562,9 @@ const gemini=createGemini({HERMES_HOME,hcmd,listAgents});
 const antigravity=createAntigravity({HERMES_HOME,hcmd,listAgents,moveOff:(a,k)=>accountHooks.moveOff?accountHooks.moveOff(a,k):null});
 async function agentModel(a){const y=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>'');const k=key=>((new RegExp('^model:[\\s\\S]*?\\n\\s+'+key+':\\s*(\\S+)','m').exec(y)||[])[1]||'').replace(/^["']|["']$/g,'');return {provider:k('provider'),model:k('default')}}
 const users=createUsers(DATA,mailer);
+// Help: the person's own help chat (help.mjs); account usage is read through the Accounts page's own handler, as that person
+const help=createHelp({DATA,root,DASH:DASH.origin,DASH_TOKEN,GATE:GATE.origin,API_KEY,users,listAgents:()=>listAgents(),names:a=>NAMES[a]||(a==='default'?'aqeelOS':a),platforms:a=>platformsCached(a),signins:()=>[...signinsDue.values()],agentModel:a=>agentModel(a),security,send,readBody,
+ accounts:u=>new Promise(r=>Promise.resolve(accountsApi({method:'GET',url:'/ui/accounts',headers:{}},null,'/ui/accounts',(x,code,data)=>r(code===200?data:null),readBody,a=>!!users.level(u,a))).catch(()=>r(null)))});
 const starters=createStarters(DATA,{python:enginePython,root});
 const me=async req=>{const id=cookieId(req);return id?await users.user(id):null};
 // The agent a call is for: /gapi/p/<agent>/… or ?profile=<agent> (none = the main agent).
@@ -890,6 +894,8 @@ async function privateAddress(u){let url;try{url=new URL(String(u))}catch{return
 async function hermesCall(req,res,u,url){
  const p=url.pathname,q=url.searchParams,agent=agentOf(p,q);
  if(['profile','path','name','agent'].some(k=>q.getAll(k).length>1))return send(res,400,{error:'Each setting may appear only once.'});
+ // Help's profile only through /ui/help (help.mjs): nobody, admins included, opens its chats, settings or usage here
+ if(agent===HELP_AGENT||decodeURIComponent((/^\/hapi\/profiles\/([^/?]+)/.exec(p)||[])[1]||'')===HELP_AGENT)return send(res,403,{error:'Help chats are private to each person.'});
  const no=users.gate(u,p,req.method,q,agent);if(no)return send(res,no.status,{error:no.error});
  {const rm=/\/v1\/runs\/([^/]+)/.exec(p);if(rm&&!users.isAdmin(u)){const own=runOwner.get(decodeURIComponent(rm[1]));if(!own||own.user!==u.id)return send(res,403,{error:'That reply is not yours.'})}}
  if(p.startsWith('/gapi/p/')&&agent&&agent!=='default'&&!keyOk.has(agent)){const envF=path.join(HERMES_HOME,'profiles',agent,'.env');const e=await readFile(envF,'utf8').catch(()=>null);
@@ -917,7 +923,8 @@ async function hermesCall(req,res,u,url){
   try{raw=(await readRaw(req,30e6)).toString('utf8')}catch{return send(res,413,{error:'That is too large to send.'})}try{b=raw?JSON.parse(raw):{}}catch{return send(res,400,{error:'The request body is not valid JSON.'})}
   if(b&&typeof b==='object'&&!Array.isArray(b)&&(!b.profile||!users.isAdmin(u)))b.profile=q.get('profile');if(b!==null)body=Buffer.from(JSON.stringify(b))}
  // a member's JSON body without ?profile= may not name another agent either
- if(!users.isAdmin(u)&&!q.get('profile')&&p.startsWith('/hapi/')&&req.method!=='GET'&&body===undefined&&/json/.test(String(req.headers['content-type']||''))&&!p.startsWith('/hapi/files')){const raw=await readRaw(req,30e6);body=raw;try{const b=JSON.parse(raw.toString('utf8')||'null');if(b&&typeof b==='object'&&!Array.isArray(b)&&b.profile&&b.profile!==(agent||'default'))return send(res,403,{error:'That agent is not shared with you.'})}catch{}}
+ // and nobody's may name Help's profile (or make an agent with its name)
+ if(!q.get('profile')&&p.startsWith('/hapi/')&&req.method!=='GET'&&body===undefined&&/json/.test(String(req.headers['content-type']||''))&&!p.startsWith('/hapi/files')){const raw=await readRaw(req,30e6);body=raw;try{const b=JSON.parse(raw.toString('utf8')||'null');if(b&&typeof b==='object'&&!Array.isArray(b)){if(b.profile===HELP_AGENT||p==='/hapi/profiles'&&b.name===HELP_AGENT)return send(res,403,{error:'That name is taken by Help.'});if(!users.isAdmin(u)&&b.profile&&b.profile!==(agent||'default'))return send(res,403,{error:'That agent is not shared with you.'})}}catch{}}
  // a member's file calls must stay in their own folder
  if(!users.isAdmin(u)&&p.startsWith('/hapi/files')){
   // no path would list the engine's own default folder: a member's goes to their home instead
@@ -1024,6 +1031,7 @@ async function hermesCall(req,res,u,url){
   if(!plain&&!users.can(u,'unsafe'))return send(res,403,{error:'Only admins can add tools that run a command on the box. Use a server URL instead.'});
   if(e.url&&await privateAddress(e.url))return send(res,403,{error:'Tools must use a public web address.'})}
  const transform=/^\/hapi\/(sessions|sessions\/search|profiles|cron\/jobs)$/.test(p)&&req.method==='GET'?d=>users.filter(u,p,d,agent)
+  :p==='/hapi/status'&&req.method==='GET'?d=>Array.isArray(d?.profiles)?{...d,profiles:d.profiles.filter(x=>(x?.name||x)!==HELP_AGENT)}:d
   :/^\/gapi(\/p\/[^/]+)?\/api\/model\/options$/.test(p)&&users.allowedModels(u)?d=>({...d,providers:(d.providers||[]).map(pv=>({...pv,models:(pv.models||[]).filter(m=>users.modelOk(u,pv.slug,m))})).filter(pv=>pv.models.length)})
   :/^\/gapi(\/p\/[^/]+)?\/api\/sessions$/.test(p)&&req.method==='POST'?async d=>{await users.own(d.id||d.session?.id||d.session_id,u);return d}
   // a fork belongs to the person who forked it (else it would count as the owner's and they could not open it)
@@ -1369,6 +1377,7 @@ const server=createServer(async(req,res)=>{
    const u=await me(req);if(!u)return send(res,401,{error:'Sign in first.'},{'x-hui-auth':'required'});
    if(req.method!=='GET'&&req.headers['x-hui']!=='1')return send(res,403,{error:'Missing request header.'});
    if(p.startsWith('/ui/plugin-'))return plugins.handle(req,res,u,url);
+   if(p.startsWith('/ui/help/'))return help.handle(req,res,u,url);
    // a new password signs out every other browser and phone; this one gets a fresh sign-in
    if(p==='/ui/me/password'&&req.method==='PUT')return users.api(u,req,res,p,async(r,code,data,h)=>{if(code===200){await revokeSessions(u.id);return send(r,code,data,{...(h||{}),'set-cookie':'hui='+makeCookie(u.id)+'; '+cookieAttrs(SESSION_DAYS*86400)})}return send(r,code,data,h)},readBody);
    if(p==='/ui/me'||p.startsWith('/ui/me/')||p.startsWith('/ui/people')||p.startsWith('/ui/agents')||p.startsWith('/ui/mail')||p.startsWith('/ui/roles'))return users.api(u,req,res,p,send,readBody);
@@ -1591,10 +1600,12 @@ const server=createServer(async(req,res)=>{
     try{if(p==='/ui/apps/check'){const a=await live.check(String(b.id||''));return send(res,200,{status:a.status,error:a.error||''})}
      if(p==='/ui/apps/remove')return send(res,200,await live.remove(u,users.isAdmin(u),String(b.id||'')));
      if(p==='/ui/apps/connect'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,await live.connect(b))}}catch(e){return send(res,400,{error:e.message})}}
-   if(p==='/ui/bottlenecks'&&req.method==='GET'){const admin=users.isAdmin(u);if(admin)await freshSignins();const items=await bottlenecks.list({admin,uid:admin?null:u.id,mayUse:a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a),signins:admin?[...signinsDue.values()]:[],invites:admin?users.expiredInvites():[]});const mayU=a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a);items.push(...await accessAsk.open(admin?()=>true:mayU).catch(()=>[]));
+   if(p==='/ui/bottlenecks'&&req.method==='GET'){const admin=users.isAdmin(u);if(admin)await freshSignins();const items=await bottlenecks.list({admin,uid:admin?null:u.id,mayUse:a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a),signins:admin?[...signinsDue.values()]:[],invites:admin?users.expiredInvites():[]});const mayU=a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a);items.push(...await accessAsk.open(admin?()=>true:mayU).catch(()=>[]));items.push(...await help.items(u).catch(()=>[]));
     // the message that led to it is from the agent's newest chat, whoever's: a member sees it only when that chat is theirs
     return send(res,200,{items:admin?items:items.map(x=>x.from&&users.ownerOf(x.from.chat)!==u.id?{...x,from:null}:x)})}
    if((p==='/ui/bottlenecks/done'||p==='/ui/bottlenecks/later')&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const id=String(b.id||'').slice(0,300);if(!id)return send(res,400,{error:'Which one?'});const admin=users.isAdmin(u);
+    // a Help ticket: admins resolve it (the person is told in their Help chat) or put it off a day
+    if(id.startsWith('ticket|')){try{return send(res,200,await help.decide(id,p.endsWith('/done')?'done':'later',u))}catch(e){return send(res,e.status||400,{error:e.message})}}
     // only what this person is shown: a report from an agent they may use, anything else for admins and only when it is there
     if(id.startsWith('report|')){const r=await bottlenecks.find(id);if(!r)return send(res,404,{error:'That one is already gone.'});if(users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),r.agent))return send(res,403,{error:'That agent is not shared with you.'})}
     else{if(!admin)return send(res,403,{error:'Only admins.'});const cur=await bottlenecks.list({admin:true,mayUse:()=>false,signins:[...signinsDue.values()],invites:users.expiredInvites()});if(!cur.some(x=>x.id===id))return send(res,404,{error:'That one is already gone.'})}
@@ -1842,7 +1853,7 @@ const server=createServer(async(req,res)=>{
     try{const mod=await import(path.join(HERMES_HOME,'hermes-agent','node_modules','qrcode','lib','index.js'));const QR=mod.default||mod;const svg=await QR.toString(d,{type:'svg',margin:1,errorCorrectionLevel:'M',color:{dark:'#0b0c10',light:'#ffffff'}});
      res.writeHead(200,{'content-type':'image/svg+xml','cache-control':'no-store','x-content-type-options':'nosniff'});return res.end(svg)}catch(e){return send(res,500,{error:'QR could not be drawn: '+e.message})}}
    if(p==='/ui/explain'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,300000))}catch{}const items=(Array.isArray(b.items)?b.items:[]).slice(0,300).map(x=>({id:String(x?.id||'').slice(0,120),name:String(x?.name||'').slice(0,160),desc:String(x?.desc||'').slice(0,600)}));return send(res,200,await explain.get(String(b.kind||''),items,{write:users.isAdmin(u)}))}
-   if(p==='/ui/usage'&&req.method==='GET'){const days=Math.min(365,Math.max(1,+url.searchParams.get('days')||7));const ag=String(url.searchParams.get('agent')||''),every=await listAllProfiles();
+   if(p==='/ui/usage'&&req.method==='GET'){const days=Math.min(365,Math.max(1,+url.searchParams.get('days')||7));const ag=String(url.searchParams.get('agent')||''),every=[...await listAllProfiles(),HELP_AGENT];   // Help's chats are each person's: its own line on Usage
     const all=await usage.breakdown(ag&&ag!=='all'?every.filter(x=>x===ag||x.startsWith(ag+'--')):every,days,users.ownerOf);
     const people=Object.fromEntries(users.people().map(x=>[x.id,{...users.face(x),name:x.name,limit:users.limitOf(x)||null}]));   // the limit that applies (a role's too), not only one set on the person
     if(!users.isAdmin(u))return send(res,200,{days,byPerson:{[u.id]:all.byPerson[u.id]||null},people:{[u.id]:people[u.id]},today:await usage.today(await listAllProfiles(),u.id,users.ownerOf)});

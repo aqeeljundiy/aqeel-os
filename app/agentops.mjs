@@ -13,6 +13,9 @@ export const HERMES_HOME=process.env.HERMES_HOME||path.join(HOME,'.hermes');
 export const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
 // only the live app (port 4400) runs background jobs that change agents; a test copy on another port must not
 export const LIVE_APP=(Number(process.env.UI_PORT)||4400)===4400;
+// Help's own engine profile (help.mjs): no tools, no skills, no channels. It is not an agent, so agentNames leaves it
+// out and with it every list built from that (defaults, skills, schedules, channels, usage per agent, Models)
+export const HELP_AGENT=process.env.HELP_AGENT||'aqeelos-help';
 
 const queues=new Map();
 export function withAgent(agent,fn){const prev=queues.get(agent)||Promise.resolve();
@@ -54,7 +57,7 @@ export async function agentNames({copies=false}={}){const k=copies?1:0,dir=path.
  const m=(await stat(dir).catch(()=>null))?.mtimeMs||0,hit=namesHit.get(k);if(hit&&hit.m===m&&Date.now()-hit.t<2000)return [...await hit.p];
  const p=(async()=>{const n=['default'];
   for(const d of await readdir(dir,{withFileTypes:true}).catch(()=>[]))
-   if(d.isDirectory()&&!d.name.startsWith('.')&&(copies||!d.name.includes('--'))&&await isAgent(d.name))n.push(d.name);
+   if(d.isDirectory()&&!d.name.startsWith('.')&&d.name!==HELP_AGENT&&(copies||!d.name.includes('--'))&&await isAgent(d.name))n.push(d.name);
   return n})();
  namesHit.set(k,{t:Date.now(),m,p});p.catch(()=>namesHit.delete(k));return [...await p]}
 

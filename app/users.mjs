@@ -6,6 +6,7 @@ import {scryptSync,randomBytes,timingSafeEqual,randomInt} from 'node:crypto';
 import {homedir} from 'node:os';
 import path from 'node:path';
 import {readPicture,emojiSlugs,AVATAR_TYPES} from './avatar-file.mjs';
+import {HELP_AGENT} from './agentops.mjs';
 
 export const LEVELS=['chat','edit','owner'];           // per-agent share levels, weakest first
 // What a member may do beyond chatting. Admins can do everything. Each one only ever applies to agents
@@ -181,7 +182,8 @@ export function createUsers(DATA,mail){
   // schedules: an admin sees every agent's but a private one's (as the gate does), a member those they may change
   if(/^\/hapi\/cron\/jobs$/.test(p)){const jobs=Array.isArray(data)?data:data.jobs;if(Array.isArray(jobs)){const f=jobs.filter(j=>schedOk(u,j.profile||'default'));return Array.isArray(data)?f:{...data,jobs:f}}}
   // the hidden copies behind extra connections (WhatsApp 2…) are not agents of their own
-  if(/^\/hapi\/profiles$/.test(p)&&Array.isArray(data.profiles))data={...data,profiles:data.profiles.filter(x=>!String(x.name).includes('--'))};
+  // nor is Help's profile: it belongs to nobody's agent list (help.mjs)
+  if(/^\/hapi\/profiles$/.test(p)&&Array.isArray(data.profiles))data={...data,profiles:data.profiles.filter(x=>!String(x.name).includes('--')&&x.name!==HELP_AGENT)};
   if(/^\/hapi\/profiles$/.test(p)&&Array.isArray(data.profiles)&&!isAdmin(u))return {...data,profiles:data.profiles.filter(x=>level(u,x.name))};
   return data}
  // a continuation (compacted chat, reset) or a fork made outside aqeelOS belongs to whoever owns the chat it came
