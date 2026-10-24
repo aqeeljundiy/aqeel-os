@@ -144,7 +144,7 @@ async function serveFile(res,rel){
  if(!file.startsWith(root+path.sep)||/\.(mjs|env|md)$|[\\/]\./i.test(rel))return send(res,404,'Not found');
  try{const st=await stat(file);if(!st.isFile())throw 0;const body=await readFile(file);const ext=path.extname(file);
   const etag='"'+st.size.toString(36)+'-'+Math.round(st.mtimeMs).toString(36)+'"';if(res.req?.headers?.['if-none-match']===etag){res.writeHead(304,{etag,'cache-control':'no-cache'});return res.end()}
-  res.writeHead(200,{'content-type':types[ext]||'application/octet-stream','cache-control':ext==='.woff2'||ext==='.svg'||ext==='.png'?'public, max-age=86400':'no-cache',etag,...security});res.end(body)}
+  res.writeHead(200,{'content-type':types[ext]||'application/octet-stream','cache-control':ext==='.png'&&rel.startsWith('assets/emoji/')?'public, max-age=604800':ext==='.woff2'||ext==='.svg'||ext==='.png'?'public, max-age=86400':'no-cache',etag,...security});res.end(body)}
  catch{send(res,404,'Not found')}
 }
 
@@ -167,19 +167,27 @@ async function setDisplayName(profile,name){
  try{await writeFile(f,y)}catch(e){console.warn('profile.yaml not written:',e.message)}
 }
 const IMG={'image/png':'png','image/jpeg':'jpg','image/webp':'webp','image/gif':'gif'};
+// emoji avatars: the slugs in assets/emoji/list.json (Fluent Emoji 3D, MIT). A photo and an emoji never both stand:
+// choosing one clears the other. With neither, the agent gets one from its id (the same hash as emojiAuto in core.js)
+let EMOJI=null;const emojiList=async()=>{if(!EMOJI){try{EMOJI=JSON.parse(await readFile(path.join(root,'assets','emoji','list.json'),'utf8')).map(e=>e.slug)}catch{return []}}return EMOJI};
+const emojiAuto=(id,l)=>{if(!l.length)return '';let h=2166136261;for(const c of String(id))h=Math.imul(h^c.charCodeAt(0),16777619);return l[(h>>>0)%l.length]};
 async function identities(req,res,p){
  if(p==='/ui/identities'&&req.method==='GET')return send(res,200,await readIds());
  const m=/^\/ui\/(identities|avatar)\/([^/]+)$/.exec(p);if(!m)return send(res,404,{error:'Not found'});
  const profile=decodeURIComponent(m[2]);if(!okProfile(profile))return send(res,400,{error:'Bad profile name'});
  const ids=await readIds();const cur=ids[profile]||{};
  if(m[1]==='identities'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{return send(res,400,{error:'Bad JSON'})}
-  const name=String(b.name||'').trim().slice(0,60),title=String(b.title||'').trim().slice(0,80);
-  ids[profile]={...cur,name,title,updated:Date.now()};await writeIds(ids);await setDisplayName(profile,name);return send(res,200,ids[profile])}
- if(m[1]==='avatar'&&req.method==='GET'){if(!cur.avatar)return send(res,404,'No picture');try{const body=await readFile(path.join(DATA,'avatars',cur.avatar));res.writeHead(200,{'content-type':'image/'+(cur.avatar.split('.').pop()==='jpg'?'jpeg':cur.avatar.split('.').pop()),'cache-control':'private, max-age=86400',...security});return res.end(body)}catch{return send(res,404,'No picture')}}
+  const name='name' in b?String(b.name||'').trim().slice(0,60):cur.name||'',title='title' in b?String(b.title||'').trim().slice(0,80):cur.title||'';   // a body with only the emoji keeps the name
+  const next={...cur,name,title,updated:Date.now()};
+  if('emoji' in b){const e=String(b.emoji||'');if(e&&!(await emojiList()).includes(e))return send(res,400,{error:'Pick one of the listed emoji.'});
+   if(!e)delete next.emoji;else{next.emoji=e;if(cur.avatar){await unlink(path.join(DATA,'avatars',cur.avatar)).catch(()=>{});delete next.avatar}}}   // an emoji replaces the photo
+  ids[profile]=next;await writeIds(ids);await setDisplayName(profile,name);return send(res,200,ids[profile])}
+ // no photo: send the agent's emoji (chosen or automatic) so anything outside the app that asks for the picture still gets one
+ if(m[1]==='avatar'&&req.method==='GET'){if(!cur.avatar){const l=await emojiList(),e=l.includes(cur.emoji)?cur.emoji:emojiAuto(profile,l);if(!e)return send(res,404,'No picture');res.writeHead(302,{location:'/assets/emoji/'+e+'.png','cache-control':'private, max-age=300',...security});return res.end()}try{const body=await readFile(path.join(DATA,'avatars',cur.avatar));res.writeHead(200,{'content-type':'image/'+(cur.avatar.split('.').pop()==='jpg'?'jpeg':cur.avatar.split('.').pop()),'cache-control':'private, max-age=86400',...security});return res.end(body)}catch{return send(res,404,'No picture')}}
  if(m[1]==='avatar'&&req.method==='PUT'){const type=String(req.headers['content-type']||'').split(';')[0];const ext=IMG[type];if(!ext)return send(res,415,{error:'Use a PNG, JPG, WebP or GIF image.'});
   const chunks=[];let size=0;for await(const c of req){size+=c.length;if(size>2e6)return send(res,413,{error:'Pictures must be under 2 MB.'});chunks.push(c)}
   await mkdir(path.join(DATA,'avatars'),{recursive:true});if(cur.avatar)await unlink(path.join(DATA,'avatars',cur.avatar)).catch(()=>{});
-  const file=profile+'-'+Date.now()+'.'+ext;await writeFile(path.join(DATA,'avatars',file),Buffer.concat(chunks));ids[profile]={...cur,avatar:file};await writeIds(ids);return send(res,200,ids[profile])}
+  const file=profile+'-'+Date.now()+'.'+ext;await writeFile(path.join(DATA,'avatars',file),Buffer.concat(chunks));const {emoji:_e,...rest}=cur;ids[profile]={...rest,avatar:file};await writeIds(ids);return send(res,200,ids[profile])}   // a photo replaces the emoji
  if(m[1]==='avatar'&&req.method==='DELETE'){if(cur.avatar)await unlink(path.join(DATA,'avatars',cur.avatar)).catch(()=>{});delete cur.avatar;ids[profile]=cur;await writeIds(ids);return send(res,200,cur)}
  send(res,405,{error:'Method not allowed'});
 }
