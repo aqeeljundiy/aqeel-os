@@ -236,7 +236,7 @@ const gaccTitle=x=>x.label||(x.name?pretty(x.name):'Main Google account');
  let d;try{d=await UI('/ui/google-accounts?agent='+encodeURIComponent(ag))}catch{   // not loaded: the panel says so (never gone, never "no account yet")
   const panel=document.createElement('div');panel.className='panel card gacc-panel';panel.style.marginBottom='16px';panel.innerHTML=`<h2>Google accounts</h2>${errLine(ident(ag).name+'’s Google accounts')}`;const t=el.querySelector('.tabs,[role=tablist]');t?t.after(panel):el.prepend(panel);return}
  const l=d.accounts||[];Pages._gacc=l;(Pages._gaccBy||={})[ag]=l;
- const edit=S.me?.admin!==false||['owner','edit'].includes(S.me?.agents?.[ag]);   // an agent's owner may name its accounts too
+ const edit=mayEdit(ag);   // an agent's owner (or editor) may name its accounts too, as the server allows
  const panel=document.createElement('div');panel.className='panel card gacc-panel';panel.style.marginBottom='16px';
  panel.innerHTML=`<h2 class="h-row">Google accounts<span class="chip">${l.length}</span></h2><p class="sub">${l.length?`${esc(ident(ag).name)} can use ${l.length===1?'this account':'these accounts'} for Gmail, Drive, Sheets, Docs and Calendar. Give each a name and say what it is for, and ${esc(ident(ag).name)} picks the right one when you ask (“send it from my Elkiya account”).`:`${esc(ident(ag).name)} has no Google account yet. Connect one to let it read and send Gmail, and work in Drive, Sheets, Docs and Calendar.`}</p>
   ${l.map((x,i)=>`<div class="row gacc-row" ${st(i)}><div class="main-c">${logoImg('google.com','G')}<div class="txt"><b>${esc(accountText({email:x.email},{label:gaccTitle(x)}))}${x.renews?'':' '+signChip('data-act="gacc-add"')}</b>

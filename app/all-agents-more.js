@@ -6,8 +6,9 @@ const allAv=(a,on=true)=>`<span class="aam-ag${on?' on':''}" title="${esc(ident(
 // per agent: a chip that turns the thing on or off for that agent
 const allChip=(act,a,name,on)=>`<button class="aam-ag${on?' on':''}" data-act="${act}" data-agent="${esc(a)}" data-name="${esc(name)}" aria-pressed="${on}" title="${esc(ident(a).name)}: ${on?'on, click to turn off':'off, click to turn on'}">${Access.av({id:a,name:ident(a).name},18)}<span>${esc(ident(a).name)}</span></button>`;
 const perAgent=async(fn,ok=()=>true)=>{const list=(await viewAgents()).filter(ok);return Promise.all(list.map(async a=>({a,d:await fn(a).catch(()=>null)})))};
-// whose skills this person may manage: admins all; members the agents they own, plus those they edit when their role has skills
-const skillsOn=a=>{const me=S.me||{},l=me.agents?.[a];return me.admin!==false||l==='owner'||!!l&&l!=='chat'&&(me.caps||[]).includes('skills')};
+// whose skills this person may manage (mayEdit); tool groups: listed on agents they may edit, switched where their role
+// may turn tools on (terminal, files and code only for those allowed unsafe tools), as the server decides
+const skillsOn=a=>mayEdit(a,'skills'),TS_UNSAFE=['terminal','file','code_execution','computer_use'];   // users.mjs UNSAFE_TOOLSETS
 // send(agent,on) makes the change; when(answer) says when it applies, for the toast
 async function allChipFlip(b,send,label,when){const on=b.getAttribute('aria-pressed')!=='true',a=b.dataset.agent;b.disabled=true;
  try{const r=await send(a,on);S._skPer=null;b.classList.toggle('on',on);b.setAttribute('aria-pressed',String(on));toast(label+(on?' on for ':' off for ')+ident(a).name+' · '+when(r,on))}catch(e){fail(e)}finally{b.disabled=false}}
@@ -21,10 +22,10 @@ Object.assign(ALLVIEW,{
   // New skill, Learn a skill and Update all work on the agent you chat with: every tab says so, like Find more skills
   const forMe=`<p class="hint" style="margin:0 0 12px">New skill, Learn a skill, Update all and installs go to ${esc(ident().name)}, the agent you chat with. Pick an agent under Showing for another.</p>`;
   if(tab==='Find more skills'){await PAGES._skillsOne(p,el);own();el.insertAdjacentHTML('afterbegin',forMe);return}
-  if(tab==='Tool groups'){const per=await perAgent(a=>H(prof('/tools/toolsets',a)));const m=new Map();
+  if(tab==='Tool groups'){const per=await perAgent(a=>H(prof('/tools/toolsets',a)),a=>mayEdit(a));const m=new Map();
    for(const {a,d} of per)for(const t of d||[]){const x=m.get(t.name)||{...t,on:[],all:[]};x.all.push(a);if(t.enabled)x.on.push(a);m.set(t.name,x)}
    const tq=(S.tsQ||'').toLowerCase(),tall=[...m.values()];
-   const rows=tall.filter(t=>!tq||[t.name,t.label,t.description].join(' ').toLowerCase().includes(tq)).map((t,i)=>allRow(i,`<span class="ic">${icon('layers',17)}</span>`,esc(t.label||t.name),esc(t.description||''),null,`<span class="aam-ags">${t.all.map(a=>allChip('all-ts',a,t.name,t.on.includes(a))).join('')}</span>`+tsTools({...t,enabled:t.on.length>0})));
+   const rows=tall.filter(t=>!tq||[t.name,t.label,t.description].join(' ').toLowerCase().includes(tq)).map((t,i)=>allRow(i,`<span class="ic">${icon('layers',17)}</span>`,esc(t.label||t.name),esc(t.description||''),null,`<span class="aam-ags">${t.all.map(a=>mayEdit(a,TS_UNSAFE.includes(t.name)?'unsafe':'tools')?allChip('all-ts',a,t.name,t.on.includes(a)):allAv(a,t.on.includes(a))).join('')}</span>`+tsTools({...t,enabled:t.on.length>0})));
    const bad=per.filter(x=>!x.d).map(x=>ident(x.a).name);
    el.innerHTML=`${tabs('skills',['Installed','Tool groups','Find more skills'])}<div class="toolbar"><div class="search${S.tsQ?' has-q':''}">${icon('search',16)}<input id="tsQ" placeholder="Search ${tall.length} tool groups" value="${esc(S.tsQ||'')}"><button class="ghost icon s-clear" data-act="ts-clear" aria-label="Clear search" title="Clear search">${icon('x',14)}</button></div></div>${bad.length?`<p class="err-line" style="margin:0 0 12px">Couldn’t load ${esc(bad.join(', '))}. <button data-act="reload">Try again</button></p>`:''}${forMe}<div class="all-view">${allSection('Tool groups',rows,tq?'No tool group matches.':'No tool groups.')}</div>`;
    // searching filters what is on screen; nothing is asked of the agents again
@@ -39,7 +40,8 @@ Object.assign(ALLVIEW,{
   el.innerHTML=`${tabs('skills',['Installed','Tool groups','Find more skills'])}<div class="toolbar"><div class="search${S.skillQ?' has-q':''}">${icon('search',16)}<input id="skQ" placeholder="Search ${all.length} skills on all agents" value="${esc(S.skillQ||'')}"><button class="ghost icon s-clear" data-act="sk-clear" aria-label="Clear search" title="Clear search">${icon('x',14)}</button></div><select id="skCat" style="width:auto" aria-label="Category"><option value="All">All (${all.length})</option>${cats.map(c=>`<option ${c===cat?'selected':''} value="${esc(c)}">${esc(pretty(c))} (${all.filter(s=>catOf(s)===c).length})</option>`).join('')}</select><span class="chip">${plural(per.length-bad.length,'agent')}</span></div>${bad.length?`<p class="err-line" style="margin:0 0 12px">Couldn’t load ${esc(bad.join(', '))}. <button data-act="reload">Try again</button></p>`:''}${forMe}<div class="all-view">${allSection('Skills, and which agents have each on',rows,q||cat!=='All'?'No skill matches.':'No skills yet.')}</div>`;
   $('#skCat').onchange=e=>{S.skillCat=e.target.value;S._skReuse=true;PAGES.skills(p,el)};
   let t;$('#skQ').oninput=e=>{e.target.closest('.search')?.classList.toggle('has-q',!!e.target.value);clearTimeout(t);t=setTimeout(()=>{if(!el.isConnected||route().page?.id!=='skills')return;S.skillQ=e.target.value;S._skReuse=true;PAGES.skills(p,el).then(()=>{const i=$('#skQ');if(i){i.focus();i.setSelectionRange(i.value.length,i.value.length)}})},200)}},
- async memory(p,el){setActions('');const list=await viewAgents();
+ async memory(p,el){setActions('');const list=(await viewAgents()).filter(a=>S.me?.admin!==false||S.me?.agents?.[a]==='owner');   // memory is for an agent's owners (users.mjs)
+  if(!list.length){el.innerHTML=emptyBox('No memory to show','Only an agent’s owners see what it remembers. Pick an agent you own under Showing.');return}
   const home=a=>'/home/claude/.hermes'+(a==='default'?'':'/profiles/'+a)+'/memories/';
   const read=memRead;
   const per=await Promise.all(list.map(async a=>({a,mem:await read(home(a)+'MEMORY.md'),user:await read(home(a)+'USER.md')})));

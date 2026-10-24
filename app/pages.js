@@ -180,7 +180,7 @@ async function cronDrawer(job){let jobAgent=job?.profile||S.profile||'default'; 
  const hasBp=!job&&bps.blueprints?.length;let mode='own';let bp=null;let picker=null;
  const admin=S.me?.admin!==false,unsafeOk=admin||(S.me?.caps||[]).includes('unsafe');
  // a new schedule can belong to any agent you may change (the one you chat with is picked first)
- const owners=job?[]:[...new Set([jobAgent,...(agl||[])])].filter(n=>admin||n===jobAgent||['edit','owner'].includes(S.me?.agents?.[n]));
+ const owners=job?[]:[...new Set([jobAgent,...(agl||[])])].filter(n=>n===jobAgent||mayEdit(n));
  const d=drawer(job?'Edit schedule':'New schedule',`${tzNote}${hasBp?tabs('cronMode',['Write my own','From a template'],'Write my own'):''}<div id="cjBody"><div id="cjOwn" class="cj-pane"></div><div id="cjTpl" class="cj-pane" hidden></div></div>`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="cjSave">${job?'Save changes':'Create schedule'}</button>`);
  const body=d.querySelector('#cjBody'),ownBox=d.querySelector('#cjOwn'),tplBox=d.querySelector('#cjTpl');
  d.querySelector('[data-act=tz-use]')?.addEventListener('click',async e=>{e.stopPropagation();const b=e.currentTarget;try{await saveConfigPatch(c=>{c.timezone=b.dataset.tz},jobAgent);toast('aqeelOS now uses '+b.dataset.tz);

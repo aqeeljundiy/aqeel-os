@@ -340,6 +340,9 @@ const accountText=(a,{label='',id=''}={})=>{const h=a?a.phone||a.username||a.ema
 // a sign-in that has to be done again, said one way everywhere: the warn chip, and Sign in where the page has one
 // (act: that button's data attributes); tip: what it is about, on hover
 const signChip=(act='',tip='')=>`<span class="chip warn sign-chip"${tip?` title="${esc(tip)}"`:''}>Needs signing in again</span>${act?`<button class="link sign-go" ${act}>Sign in</button>`:''}`;
+// what this person may change on an agent, as users.mjs decides: admins every agent; members the agents they own, and
+// the ones they may edit (for a right such as 'skills' or 'tools', only when their role has it)
+const mayEdit=(a,cap)=>{const me=S.me||{},l=me.agents?.[a];return me.admin!==false||l==='owner'||l==='edit'&&(!cap||(me.caps||[]).includes(cap))};
 // a part of a page that failed to load: says what, with Try again (never drawn as an empty list)
 const errLine=(what,style='')=>`<p class="err-line"${style?` style="${style}"`:''}>Couldn’t load ${esc(what)}. <button data-act="reload">Try again</button></p>`;
 const emptyBox=(title,text,btn='')=>`<div class="empty-hero"><b style="display:block;font-size:17px;margin-bottom:6px">${esc(title)}</b><span style="color:var(--ink-2)">${esc(text)}</span>${btn?`<div style="margin-top:16px">${btn}</div>`:''}</div>`;
