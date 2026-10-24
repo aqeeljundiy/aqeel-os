@@ -44,8 +44,14 @@ let py=null;
 export async function python(){if(py&&await stat(py).then(()=>true,()=>false))return py;py=null;const base=path.join(HERMES_HOME,'installs');const found=[];
  for(const i of await readdir(base).catch(()=>[]))for(const e of await readdir(path.join(base,i,'environments')).catch(()=>[])){const p=path.join(base,i,'environments',e,'venv','bin','python');const s=await stat(p).catch(()=>null);if(s)found.push([s.mtimeMs,p])}
  for(const [,p] of found.sort((a,b)=>b[0]-a[0])){const ok=await new Promise(r=>execFile(p,['-c','import ruamel.yaml'],{timeout:10000},e=>r(!e)));if(ok){py=p;return py}}return null}
-export async function readConfig(agent){const p=await python();if(!p)return null;
- return new Promise(res=>execFile(p,['-c','import sys,json;from ruamel.yaml import YAML;print(json.dumps(YAML(typ="safe").load(open(sys.argv[1])) or {},default=str))',path.join(homeOf(agent),'config.yaml')],{timeout:20000,maxBuffer:8e6},(e,o)=>{try{res(e?null:JSON.parse(String(o)))}catch{res(null)}}))}
+// each read started a Python (~0.3 s, more on a busy box) and pages ask per agent: kept while config.yaml's mtime and size
+// stay the same (every writer rewrites the file), shared by everyone asking at once; each caller gets its own copy
+const cfgHit=new Map();
+export async function readConfig(agent){const f=path.join(homeOf(agent),'config.yaml'),st=await stat(f).catch(()=>null);if(!st)return null;
+ const k=st.mtimeMs+'|'+st.size,h=cfgHit.get(f),own=v=>v==null?null:structuredClone(v);if(h?.k===k)return own(await h.p);
+ const p=readConfigNow(f);cfgHit.set(f,{k,p});p.then(v=>{if(v==null&&cfgHit.get(f)?.p===p)cfgHit.delete(f)});return own(await p)}   // a failed read is not kept
+async function readConfigNow(f){const p=await python();if(!p)return null;
+ return new Promise(res=>execFile(p,['-c','import sys,json;from ruamel.yaml import YAML;print(json.dumps(YAML(typ="safe").load(open(sys.argv[1])) or {},default=str))',f],{timeout:20000,maxBuffer:8e6},(e,o)=>{try{res(e?null:JSON.parse(String(o)))}catch{res(null)}}))}
 export const pick=(o,k)=>k.split('.').reduce((x,y)=>x&&typeof x==='object'?x[y]:undefined,o);
 
 // a real agent folder: the engine leaves a bare logs/ folder behind when a command runs during a delete

@@ -20,6 +20,7 @@ import {createMail} from './mail.mjs';
 import {createUsage} from './usage.mjs';
 import {createExplain} from './explain.mjs';
 import {createChannels} from './channels.mjs';
+import {swr,limiter} from './swr.mjs';
 import {createShare} from './share.mjs';
 import {createRelay} from './relay.mjs';
 import {boxMemory} from './boxmem.mjs';
@@ -571,6 +572,7 @@ const codeOnline=createCodeOnline({SECRET,SECURE:SECURE_COOKIE,users:()=>users,r
 const localBrowser=createLocalBrowser({DATA,GATE:GATE.origin,API_KEY,EXT_DIR:path.join(root,'extension'),NAMES,PUBLIC_URL});
 const engineConsole=createEngineConsole({DASH,DASH_TOKEN});
 const links=createLinks({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,python:()=>sharing.python(),setupAgent:n=>setupAgentFn?.(n)});
+const cfgLimit=limiter(4);   // per-agent config reads on a page: a few side by side, never a burst of Pythons
 function listAgents(){return agentNames()}   // real agents only (a folder with a config), not extra-number copies
 async function listAllProfiles(){return [...await listAgents(),...(await links.list()).map(l=>l.name)]}
 const gemini=createGemini({HERMES_HOME,hcmd,listAgents});
@@ -1676,9 +1678,9 @@ const server=createServer(async(req,res)=>{
     if(b.owner){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can open n8n as its owner.'});if(!await n8n.ready())return send(res,409,{error:'n8n is not connected yet.'});const st=await n8n.status(a);return send(res,200,{url:st.base+'/aqeelos-login?t='+n8n.ticket('__owner')})}if(!(await listAgents()).includes(a))return send(res,400,{error:'Unknown agent'});
     if(!users.isAdmin(u)&&!users.atLeast(u,a,'edit'))return send(res,403,{error:'You can chat with this agent but not open its n8n.'});
     try{const r=await n8n.ensure(a);const st=await n8n.status(a);return send(res,200,{url:st.base+'/aqeelos-login?t='+n8n.ticket(a),email:r.email})}catch(e){return send(res,409,{error:e.message})}}
-   if(p==='/ui/models/agents'&&req.method==='GET'){const out=[];for(const a of await listAgents()){if(!users.isAdmin(u)&&!users.level(u,a))continue;   // the agents this person may use (owned or shared)
-     const c=await readConfig(a).catch(()=>null)||{};
-     out.push({id:a,name:NAMES[a]||await displayName(a),model:c.model?.default||'',provider:c.model?.provider||''})}return send(res,200,{agents:out})}
+   if(p==='/ui/models/agents'&&req.method==='GET'){const ag=(await listAgents()).filter(a=>users.isAdmin(u)||users.level(u,a));   // the agents this person may use (owned or shared)
+    // side by side, a few at a time (each a config read; it was one after another)
+    const out=await Promise.all(ag.map(a=>cfgLimit(async()=>{const c=await readConfig(a).catch(()=>null)||{};return {id:a,name:NAMES[a]||await displayName(a),model:c.model?.default||'',provider:c.model?.provider||''}})));return send(res,200,{agents:out})}
    // Access: who owns each connection and which agents may use it (see access.mjs). Admins only.
    // asking for access: anyone may see what the other agents have (names only) and ask for it for an agent they use; admins decide
    if(p==='/ui/access/others'&&req.method==='GET'){const agent=String(url.searchParams.get('agent')||'default');const mayU=a=>users.isAdmin(u)||!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a);if(!mayU(agent))return send(res,403,{error:'Not your agent.'});
