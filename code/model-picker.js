@@ -1,6 +1,7 @@
 // Pickers: model (grouped by AI, so it also picks the provider) and effort. A hidden #model select holds the combined "model|effort" value the app reads;
 // the visible Model and Effort pickers write to it and follow it when it changes.
-// Models come from /api/models: Codex reports its live catalog with per-model effort levels; Claude uses its CLI aliases.
+// Models come from /api/models: Codex reports its live catalog with per-model effort levels; Claude uses its CLI aliases;
+// paired with aqeelOS, the agent's models from aqeelOS replace them (see modelsForAgent).
 const $=id=>document.getElementById(id);
 const EFFORT_LABELS={none:'None',minimal:'Minimal',low:'Low',medium:'Medium',high:'High',xhigh:'Extra high',max:'Max',ultra:'Ultra'};
 export const effortLabel=e=>EFFORT_LABELS[e]||e;
@@ -40,12 +41,17 @@ $('model-name').addEventListener('change',()=>{const [provider,id]=pickedModel()
  const m=(catalog[provider]||[]).find(x=>x.id===id),levels=EFFORTS(provider,m),cur=$('effort').value;
  setCombined(id,levels.includes(cur)?cur:provider==='claude'?'':m?.defaultEffort||levels[0]||'')});
 $('effort').addEventListener('change',()=>setCombined(pickedModel()[1],$('effort').value));
+let signedIn=[],forAgent='';
+// paired with aqeelOS, the list is the one the chat's model menu has for the agent picked here (a member: only the
+// models they may use, so an AI with none of those is not offered)
+function applyReady(){ready=catalog.restricted?signedIn.filter(p=>(catalog[p]||[]).length):signedIn;
+ for(const o of $('provider-pick').options){o.disabled=!ready.includes(o.value);o.textContent=providerName(o.value)+(o.disabled?(signedIn.includes(o.value)?' · not allowed':' · not connected'):'')}
+ const cur=$('provider-pick').value,preferred=[ready.includes(cur)?cur:'',saved.provider,'claude','codex','gemini'].find(p=>p&&ready.includes(p));if(preferred)$('provider-pick').value=preferred}
+async function loadCatalog(){try{const r=await fetch('/api/models?agent='+encodeURIComponent(forAgent));if(r.ok)catalog=await r.json()}catch{}}
 export async function setupModelPicker(readyIds){
- ready=readyIds;
- for(const o of $('provider-pick').options){o.disabled=!ready.includes(o.value);o.textContent=providerName(o.value)+(o.disabled?' · not connected':'')}
- const preferred=[saved.provider,'claude','codex','gemini'].find(p=>p&&ready.includes(p));if(preferred)$('provider-pick').value=preferred;
- try{const r=await fetch('/api/models');if(r.ok)catalog=await r.json()}catch{}
- fillModels()}
+ signedIn=readyIds;forAgent=$('agent-pick')?.value||'';await loadCatalog();applyReady();fillModels()}
+// the agent changed: its models (the agent's own model first when nothing was chosen for this AI yet)
+export async function modelsForAgent(agent){agent=String(agent||'');if(agent===forAgent&&catalog.managed!==undefined)return;forAgent=agent;await loadCatalog();applyReady();fillModels()}
 
 export function getChoice(){const [model='',effort='']=$('model').value.split('|');return {provider:$('provider-pick').value,model,effort}}
 

@@ -160,9 +160,24 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
   if(hasSession){const last=earlier.map(m=>m.role==='assistant'&&m.provider===provider).lastIndexOf(true);since=earlier.slice(last+1)}
   since=since.slice(-12).filter(m=>m.role!=='error').map(m=>(m.role==='user'?'User':label(m.provider)+(m.model&&m.model!=='default'?' ('+m.model+')':''))+': '+m.text.slice(0,4000))
   return (since.length?(hasSession?'Since your last reply, the conversation continued with another AI model in this app:\n':'Earlier conversation in this project (it may include other AI models):\n')+since.join('\n\n')+'\n\n':'')+'User request: '+prompt}
+ /* A run for an aqeelOS agent uses the account that agent is on in aqeelOS › Models. On the AI box (the copy aqeelOS runs
+    next to itself) a Claude account is that account's own folder, so the run counts on its card there and follows a
+    switch at once. On a person's computer those folders are not there: it keeps this computer's own sign-in and says
+    so. Codex and Gemini keep Code's own sign-in everywhere (the engine's ChatGPT sign-in is not in a form Codex reads,
+    and sharing one would sign the other out when either refreshes it). */
+ async function agentAccount(agent,provider){if(!agent||!aqeelos)return null;const r=await aqeelos.agentModel(agent);if(!r)return null;const own=provider==='codex'?'Codex':label(provider);
+  const mine={route:r,note:r.where==='box'?'Using Code’s own '+own+' sign-in on the AI box':'Using this computer’s '+own+' sign-in'};
+  if(r.where!=='box'||provider!=='claude'||r.provider!=='claude')return mine;
+  const home=homedir(),dir=r.main?path.join(home,'.claude'):path.resolve(String(r.configDir||''));if(!r.main&&(!r.configDir||!dir.startsWith(home+path.sep)))return mine;
+  if(!await access(path.join(dir,'.credentials.json')).then(()=>true,()=>false))return mine;   // Code in its own container: the folder is not here
+  const exe=await findExecutable('claude');if(!exe)return mine;const e={...env};if(r.main)delete e.CLAUDE_CONFIG_DIR;else e.CLAUDE_CONFIG_DIR=dir;
+  return {route:r,env:e,provider:{ready:true,path:exe,account:{email:null},profileLabel:r.account?.label},account:(r.account?.label||'Agent account')+' (aqeelOS Models)',note:'Using '+(r.account?.label||'the agent’s account')+' from aqeelOS › Models'}}
  async function runAgent(run){
-  try{const provider=await status(run.provider);if(!provider.ready)throw Error(provider.message)
-   run.account=run.provider==='codex'?(provider.profileLabel||'Desktop account'):run.provider==='gemini'?(provider.account?.email||(provider.method==='gemini-api-key'?'API key':'Google account')):(provider.account?.email||provider.profileLabel||'Claude account');run.switched=Boolean(provider.switched)
+  try{const acct=run.system?null:await agentAccount(run.agent,run.provider);run.accountNote=acct?.note||''
+   // the agent's own model on its own account, unless one was picked
+   if(acct?.env&&!run.model&&acct.route.model)run.model=acct.route.model
+   const provider=acct?.provider||await status(run.provider);if(!provider.ready)throw Error(provider.message)
+   run.account=acct?.account||(run.provider==='codex'?(provider.profileLabel||'Desktop account'):run.provider==='gemini'?(provider.account?.email||(provider.method==='gemini-api-key'?'API key':'Google account')):(provider.account?.email||provider.profileLabel||'Claude account'));run.switched=Boolean(provider.switched)
    const chat=run.system?{messages:[],sessions:{}}:store.chat(run.projectId,run.chatId);chat.sessions??={}
    const cwd=run.cwd||await store.folder(run.projectId),session=run.cwd?null:chat.sessions[run.provider]
    const before=run.cwd||run.system?null:await store.snapshot(run.projectId);run.before=before
@@ -183,7 +198,7 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
     else if(run.kind&&run.kind!=='app'&&!run.system)run.extraInstructions+=kindInstructions(run.kind,await projectDS(run.projectId))
     if(STYLES[s.outputStyle])run.extraInstructions+='\n\nResponse style: '+STYLES[s.outputStyle];if(!run.webAccess)run.extraInstructions+='\n\nDo not access the internet in this session.'
     if(!run.system){const g=store.chat(run.projectId,run.chatId).goal;if(g)run.extraInstructions+='\n\nThis chat has a long-running goal. Keep working toward it and finish each reply with a one-line progress note.\nGoal: '+g}}
-   const options={extraMcp:run.extraMcp,browserMcp:run.webAccess===false?null:browserMcp(run),executable:provider.path,env:run.provider==='codex'?accounts.env(provider.profileId):provider.profileId&&claudeAccounts?claudeAccounts.env(provider.profileId):env,cwd,prompt:(run.fullPrompt||agentPrompt(chat,run.provider,run.prompt,Boolean(session)))+(run.mentions?.length?'\n\nFiles the user pointed to: '+run.mentions.join(', '):'')+(run.images?.length?'\n\n'+run.images.length+' image'+(run.images.length>1?'s are':' is')+' attached.':'')+(run.attachText||''),threadId:session,sessionId:session,mcpConfig:run.mcpConfig,onSession:id=>{if(!run.cwd)chat.sessions[run.provider]=id}}
+   const options={extraMcp:run.extraMcp,browserMcp:run.webAccess===false?null:browserMcp(run),executable:provider.path,env:acct?.env?acct.env:run.provider==='codex'?accounts.env(provider.profileId):provider.profileId&&claudeAccounts?claudeAccounts.env(provider.profileId):env,cwd,prompt:(run.fullPrompt||agentPrompt(chat,run.provider,run.prompt,Boolean(session)))+(run.mentions?.length?'\n\nFiles the user pointed to: '+run.mentions.join(', '):'')+(run.images?.length?'\n\n'+run.images.length+' image'+(run.images.length>1?'s are':' is')+' attached.':'')+(run.attachText||''),threadId:session,sessionId:session,mcpConfig:run.mcpConfig,onSession:id=>{if(!run.cwd)chat.sessions[run.provider]=id}}
    if(!run.system){const sec=await readSecrets();if(Object.keys(sec).length)options.env={...(options.env||process.env),...sec}}
    const hookEnv={CBA_PROJECT:store.project(run.projectId)?.name||'',CBA_PROVIDER:run.provider,CBA_PROMPT:run.prompt.slice(0,4000)}
    for(const h of run.hooks.filter(h=>h.event==='run-start')){const r=await fireHook(run,h,cwd,hookEnv);if(r.code!==0)throw Error('A run-start hook stopped this run'+(r.output?': '+r.output.slice(-300):' (exit code '+r.code+').'))}
@@ -254,7 +269,9 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
  // shows what was asked and done, and the answer goes back to the agent
  aqeelos?.serve({projects:async()=>store.state.projects.filter(p=>!p.archived&&(p.settings?.agent||p.settings?.shareAgents?.length)).map(p=>({id:p.id,name:p.name,agent:p.settings?.agent||'',agents:p.settings?.shareAgents||[],where:process.env.CBA_ONLINE?'online':'computer'})),
   work:async job=>{if(job.kind==='browser')return browserJob(job);const p=store.project(job.project);if(!p||p.archived)throw Error('That project is not here any more.');if(p.settings?.agent!==job.agent&&!(p.settings?.shareAgents||[]).includes(job.agent))throw Error('That project is not shared with you.');
-   const ready=[];for(const id of new Set([p.settings?.provider,'claude','codex','gemini']))if(id&&(await status(id).catch(()=>({}))).ready)ready.push(id);if(!ready.length)throw Error('No coding AI is signed in on that computer.');
+   // the agent's own provider first (aqeelOS › Models); on the AI box its Claude account counts as signed in
+   const route=await aqeelos.agentModel(job.agent).catch(()=>null);
+   const ready=[];for(const id of new Set([route?.provider,p.settings?.provider,'claude','codex','gemini']))if(id&&PROVIDERS.includes(id)&&((await agentAccount(job.agent,id).catch(()=>null))?.env||(await status(id).catch(()=>({}))).ready))ready.push(id);if(!ready.length)throw Error('No coding AI is signed in on that computer.');
    const c=await store.serialize(()=>store.createChat(p.id));c.title=shorten((job.agentName||job.agent)+': '+job.task,60);
    await addUserMessage({projectId:p.id,chatId:c.id,prompt:'From '+(job.agentName||job.agent)+' (aqeelOS): '+job.task});
    // the first signed-in coding AI does it; if it fails (a busy sign-in, a limit), the next one tries once

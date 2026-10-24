@@ -12,12 +12,21 @@ import {createPlanning} from './planning.mjs';
 import {Accounts,readCodexAccount} from './accounts.mjs';
 import * as platform from './platform.mjs';
 import {Remote,isLoopback,pairPage} from './remote.mjs';
-import {CLAUDE_MODELS,listCodexModels} from './models.mjs';
+import {CLAUDE_MODELS,EFFORTS,listCodexModels} from './models.mjs';
 import {GEMINI_MODELS,locateGemini,geminiAuth,geminiSignIn} from './gemini.mjs';
 let codexModels={at:0,list:[]};
-async function models(){if(Date.now()-codexModels.at>600000||!codexModels.list.length){const exe=await findExecutable('codex');codexModels={at:Date.now(),list:exe?await listCodexModels(exe,accounts.env(),work):[]}}// Gemini's own list is saved after a run (data/gemini-models.json); until then its tier aliases
+async function models(agent){if(Date.now()-codexModels.at>600000||!codexModels.list.length){const exe=await findExecutable('codex');codexModels={at:Date.now(),list:exe?await listCodexModels(exe,accounts.env(),work):[]}}// Gemini's own list is saved after a run (data/gemini-models.json); until then its tier aliases
  let gemini=GEMINI_MODELS;try{const saved=JSON.parse(await readFile(path.join(root,'data','gemini-models.json'),'utf8'));if(saved.length)gemini=[GEMINI_MODELS[0],...saved.map(m=>({id:m.modelId,name:m.name||m.modelId,description:m.description||'',efforts:[],defaultEffort:''}))]}catch{}
- return {codex:codexModels.list,claude:CLAUDE_MODELS,gemini}}
+ const own={codex:codexModels.list,claude:CLAUDE_MODELS,gemini};
+ // paired: the models the chat's menu lists for this agent in aqeelOS (Code's own levels kept where it knows the model).
+ // A member sees only those; an admin keeps Code's own list for an AI aqeelOS has no models of.
+ const r=agent===undefined?null:await aqeelos.agentModel(agent).catch(()=>null);if(!r?.models)return own;
+ const out={managed:true,restricted:Boolean(r.restricted),agentModel:r.provider&&r.model?{provider:r.provider,model:r.model}:null};
+ for(const p of ['claude','codex','gemini']){const ids=r.models[p]||[];out[p]=!ids.length?(r.restricted?[]:own[p]):ids.map(id=>{const c=own[p].find(m=>m.id===id);
+  return {id,name:c?.name||niceModel(id),description:c?.description||'',efforts:c?.efforts?.length?c.efforts:p==='codex'?['low','medium','high']:EFFORTS[p],defaultEffort:c?.defaultEffort||'',isDefault:r.provider===p&&r.model===id}})}
+ return out}
+// claude-opus-4-5-20251101 → Opus 4.5, gpt-5.1-codex-max → GPT-5.1 Codex Max (a model Code has no name for)
+const niceModel=id=>String(id).replace(/^claude-/,'').replace(/-\d{8}$/,'').replace(/-(\d+)-(\d+)(?=-|$)/g,' $1.$2').split(/[-\s]+/).map(w=>/^gpt$/i.test(w)?'GPT':w.charAt(0).toUpperCase()+w.slice(1)).join(' ').replace(/^GPT (\d)/,'GPT-$1');
 const root=path.dirname(fileURLToPath(import.meta.url));
 const aqeelos=createAqeelos({root});
 const work=path.join(root,'scratch');
@@ -76,7 +85,7 @@ async function status(name,profileId){
  const ready=result.code===0&&auth?.loggedIn===true&&auth?.authMethod==='claude.ai';
  return {id:name,installed:true,ready,path:exe,profileId:cp.id,profileLabel:cp.label,account:{email:auth?.email||null,name:auth?.name||null,plan:auth?.subscriptionType||null},message:ready?'Signed in with Claude account; billing depends on provider policy':'Claude subscription login not confirmed. Sign in through Claude Code.'};
 }
-async function selectAccount(name){if(name==='codex')return accounts.choose(id=>status('codex',id));if(name==='claude'&&claudeAccounts.state.profiles.length>1)return claudeAccounts.choose(async id=>{const s=await status('claude',id);return {...s,exhausted:s.ready&&await claudeExhausted(s.account?.email)}});return status(name)}
+async function selectAccount(name){await store(name==='claude'?'claude':'codex').reload();if(name==='codex')return accounts.choose(id=>status('codex',id));if(name==='claude'&&claudeAccounts.state.profiles.length>1)return claudeAccounts.choose(async id=>{const s=await status('claude',id);return {...s,exhausted:s.ready&&await claudeExhausted(s.account?.email)}});return status(name)}
 // a Claude account is spent when a window recorded from its last runs is at 100% and has not reset yet
 async function claudeExhausted(email){if(!email)return false;try{const l=JSON.parse(await readFile(path.join(root,'data','limits.json'),'utf8'))['claude:'+email];return Boolean(l?.windows?.some(w=>w.usedPercent>=100&&(!w.resetsAt||w.resetsAt>Date.now())))}catch{return false}}
 export function parseResponse(name,stdout){
@@ -112,6 +121,8 @@ const server=http.createServer(async(req,res)=>{
   if(!open&&!remote.device(req.headers.cookie)){if(req.method==='GET'&&!url.pathname.startsWith('/api/')){res.writeHead(303,{Location:'/pair'});return res.end()}return send(401,{error:'Pair this device first.'})}
   if(url.pathname.startsWith('/api/remote'))return send(403,{error:'Manage phone access from the computer.'})}
  try{
+  // online (the AI box): runs use the agents' accounts from aqeelOS › Models, so Code's own sign-ins are only shown, never changed here
+  if(process.env.CBA_ONLINE&&req.method==='POST'&&(url.pathname.startsWith('/api/login/')||url.pathname==='/api/accounts'))return send(403,{error:'Models are managed on aqeelOS › Models.'});
   if(process.env.CBA_ONLINE&&req.headers['x-aq-user']&&req.headers['x-aq-role']!=='admin'&&req.method==='POST'&&/^\/api\/(accounts|login|aqeelos|development|remote)/.test(url.pathname))return send(403,{error:'Only admins can change this.'});
   if(req.method==='POST'||url.pathname==='/api/login'||url.pathname==='/api/accounts'){
    const origin=req.headers.origin;if(origin&&origin!==`http://${req.headers.host}`)return send(403,{error:'Origin rejected.'});
@@ -135,10 +146,10 @@ const server=http.createServer(async(req,res)=>{
    if(url.pathname==='/api/login/stop')return send(200,{session:loginConsole.stop(data.id)});
    return send(404,{error:'Not found.'});
   }
-  if(req.method==='GET'&&url.pathname==='/api/models')return send(200,await models());
+  if(req.method==='GET'&&url.pathname==='/api/models')return send(200,await models(url.searchParams.has('agent')?String(url.searchParams.get('agent')).slice(0,64):undefined));
   if(req.method==='GET'&&url.pathname==='/api/share-hosts'){const port=server.address().port;return send(200,{lan:remote.state.enabled?remote.addresses(port).map(a=>'http://'+new URL(a.url).hostname+':'+(port+1)):[]})}
-  if(req.method==='GET'&&url.pathname==='/api/status')return send(200,{online:Boolean(process.env.CBA_ONLINE),token,preview:previewOrigin(req.headers.host),platform:{os:process.platform,shell:platform.shell('').label,prompt:platform.shell('').prompt,fileManager:platform.fileManagerName},providers:url.searchParams.has('quick')?[]:await Promise.all(['codex','claude','gemini'].map(name=>status(name)))});
-  if(req.method==='GET'&&url.pathname==='/api/accounts'){const prov=url.searchParams.get('provider')==='claude'?'claude':'codex',s=store(prov);return send(200,{...s.state,provider:prov,profiles:await Promise.all(s.state.profiles.map(async p=>({...await status(prov,p.id),...p})))})}
+  if(req.method==='GET'&&url.pathname==='/api/status')return send(200,{online:Boolean(process.env.CBA_ONLINE),...(process.env.CBA_ONLINE?{modelsAt:(await aqeelos.origins()).find(o=>!/\/\/(127\.|localhost)/.test(o))||''}:{}),token,preview:previewOrigin(req.headers.host),platform:{os:process.platform,shell:platform.shell('').label,prompt:platform.shell('').prompt,fileManager:platform.fileManagerName},providers:url.searchParams.has('quick')?[]:await Promise.all(['codex','claude','gemini'].map(name=>status(name)))});
+  if(req.method==='GET'&&url.pathname==='/api/accounts'){const prov=url.searchParams.get('provider')==='claude'?'claude':'codex',s=await store(prov).reload();return send(200,{...s.state,provider:prov,profiles:await Promise.all(s.state.profiles.map(async p=>({...await status(prov,p.id),...p})))})}
   if(req.method==='POST'&&url.pathname==='/api/accounts'){let input='';for await(const c of req){input+=c;if(input.length>4000)throw Error('Account input too large.')}{const body=JSON.parse(input);return send(200,await store(body.provider==='claude'?'claude':'codex').update(body))}}
   if(req.method==='GET'&&url.pathname==='/api/session')return send(200,{token});
   if(req.method==='GET'&&url.pathname==='/api/development')return send(200,await planning.get());

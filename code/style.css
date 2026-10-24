@@ -17,3 +17,5 @@ button,select,textarea,input{font:inherit}button{display:inline-flex;align-items
 .page-nav a{padding:7px 12px;border-radius:9999px;font-size:13.5px;color:var(--ink-2);text-decoration:none;transition:background .15s,color .15s}
 .page-nav a:hover{background:var(--soft-2,#f5f6f8);color:var(--ink)}
 .page-nav a[aria-current=page]{background:var(--blue-soft,#e8f0fe);color:var(--blue,#0158cb);font-weight:600}
+/* online: Code's own sign-ins are shown only (models are managed on aqeelOS › Models) */
+.managed-note{padding:18px 22px;margin:0 0 24px;color:var(--ink-2);line-height:1.6}.managed-note a{color:var(--blue-deep);font-weight:600}.managed .connection button,.managed .account-actions,.managed .account-panel form,.managed .account-panel label:has(input[type=checkbox]),.managed #login-panel{display:none!important}

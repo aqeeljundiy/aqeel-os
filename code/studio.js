@@ -2,7 +2,7 @@ import {openCustomize,openDiagnostics,openGuide} from './customize.js';
 import {lang,setLang} from './i18n.js';
 import {icon} from './icons.js';
 import {createFileTree} from './file-tree.js';
-import {setupModelPicker,getChoice,effortLabel,choiceFor,providerName,partnerFor} from './model-picker.js';
+import {setupModelPicker,modelsForAgent,getChoice,effortLabel,choiceFor,providerName,partnerFor} from './model-picker.js';
 import {createAgentUI,nextBox} from './agent-ui.js';
 import {createArtifactsUI} from './artifacts-ui.js';
 import {KINDS,kind as kindOf} from './kinds.js';
@@ -449,6 +449,7 @@ let share=()=>{};
     else if(m.aq==='newChat'){if(m.project&&m.project!==projectId)await selectProject(m.project);await newChat();post({type:'state',...summary()})}
     else if(m.aq==='newProject')$('new-project')?.click();
     else if(m.aq==='menu'){const p=(projects||[]).find(x=>x.id===m.project);const c=p&&m.chat?(p.chats||[]).find(x=>x.id===m.chat):null;if(p&&(!m.chat||c))openMenu({x:12,y:Math.max(8,Math.min(Number(m.y)||60,innerHeight-60))},sidebar.items(p,c),{label:c?'Chat actions':'Project actions'})}
+    else if(m.aq==='viewing'){viewingAgent=String(m.id||'');pickAgent();share()}   // the agent open in aqeelOS: the default for a project with no choice yet
     else if(m.aq==='agent'){const sel=$('agent-pick');const v=String(m.id||'');if([...sel.options].some(o=>o.value===v)){sel.value=v;sel.dispatchEvent(new Event('change'))}share()}
     else if(m.aq==='ping'){const ok=await fetch('/api/status?quick',{cache:'no-store',signal:AbortSignal.timeout(5000)}).then(r=>r.ok,()=>false);if(ok)post({type:'pong'})}   // only while the app itself still answers
     else if(m.aq==='brand'&&m.name&&m.name!=='aqeelOS')rebrand(String(m.name).slice(0,24));
@@ -467,9 +468,9 @@ let share=()=>{};
 async function loadAgents(){try{const {agents}=await (await fetch('/api/aqeelos/agents')).json();const sel=$('agent-pick');if(!agents?.length)return;
  sel.replaceChildren(new Option('No agent',''),...agents.map(a=>{const o=new Option(a.name,a.id);o.dataset.desc=a.apps.length||a.google?'With '+[...a.apps,...(a.google?['Google']:[])].slice(0,5).join(', '):'An aqeelOS agent';return o}));
  sel.options[0].dataset.desc='The coding AI on its own, with this project’s tools.';sel.closest('.model-pickers')?.classList.add('has-agents');aqAgents=agents;pickAgent()}catch{}}
-let aqAgents=[];
-function pickAgent(){const sel=$('agent-pick');if(!aqAgents.length)return;let v='';try{v=localStorage.getItem('cba-agent2-'+projectId)??''}catch{}/* no agent unless you pick one: the coding AI asks the right agent itself when it needs that agent's access */if(![...sel.options].some(o=>o.value===v))v='';if(sel.value!==v){sel.value=v;sel.dispatchEvent(new Event('change'))}}
-$('agent-pick').addEventListener('change',()=>{try{localStorage.setItem('cba-agent2-'+projectId,$('agent-pick').value)}catch{}});
+let aqAgents=[],viewingAgent='';
+function pickAgent(){const sel=$('agent-pick');if(!aqAgents.length)return;let v='';try{v=localStorage.getItem('cba-agent2-'+projectId)??viewingAgent}catch{}/* a project nobody chose for yet: the agent being viewed in aqeelOS (none outside aqeelOS); the coding AI asks other agents itself when it needs their access */if(![...sel.options].some(o=>o.value===v))v='';if(sel.value!==v){sel.value=v;sel.dispatchEvent(new Event('change'))}}
+$('agent-pick').addEventListener('change',()=>{try{localStorage.setItem('cba-agent2-'+projectId,$('agent-pick').value)}catch{}void modelsForAgent($('agent-pick').value)});   // the picked agent's models (aqeelOS › Models)
 {const sp=selectProject;selectProject=async(...a)=>{const r=await sp(...a);pickAgent();return r}}
 // the project list arrives after the agents on a fresh load: pick the project's agent once it is there
 {const rs=refreshState;let once=false;refreshState=async(...a)=>{const r=await rs(...a);if(!once&&projects?.length){once=true;pickAgent()}return r}}

@@ -45,7 +45,7 @@ export class AgentRun{
  emit(event){event.seq=++this.seq;event.key=event.seq;event.time=Date.now();this.events.push(event);if(this.events.length>MAX_EVENTS)this.events.splice(0,this.events.length-MAX_EVENTS);return event}
  update(event,patch){Object.assign(event,patch);event.seq=++this.seq}
  since(after){return this.events.filter(e=>e.seq>after)}
- view(after=0){return {id:this.id,projectId:this.projectId,chatId:this.chatId,provider:this.provider,team:this.team||null,draft:Boolean(this.cwd),model:this.model,effort:this.effort,account:this.account,state:this.state,error:this.error||null,warning:this.warning||null,seq:this.seq,events:this.since(after)}}
+ view(after=0){return {id:this.id,projectId:this.projectId,chatId:this.chatId,provider:this.provider,team:this.team||null,draft:Boolean(this.cwd),model:this.model,effort:this.effort,account:this.account,accountNote:this.accountNote||'',state:this.state,error:this.error||null,warning:this.warning||null,seq:this.seq,events:this.since(after)}}
  ask(kind,title,detail,respond){const event=this.emit({type:'approval',kind,title,detail,status:'pending'});this.pending.set(event.key,{event,respond});this.state='waiting';return event}
  decide(key,decision){const p=this.pending.get(Number(key));if(!p)throw Error('This approval is no longer pending.');if(!['accept','acceptForSession','decline'].includes(decision))throw Error('Unknown decision.');
   this.pending.delete(Number(key));this.update(p.event,{status:decision==='decline'?'denied':'approved',decision});if(!this.pending.size&&this.state==='waiting')this.state='running';p.respond(decision)}

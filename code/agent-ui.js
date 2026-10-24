@@ -68,7 +68,7 @@ export function createAgentUI(ctx){
 
  function paint(run){
   const v=run.view;ensurePanel(run);
-  run.title.textContent=speaker(v)+(v.account&&v.provider==='codex'?' · '+v.account:'');
+  run.title.textContent=speaker(v)+(v.accountNote?' · '+v.accountNote:v.account&&v.provider==='codex'?' · '+v.account:'');   // whose sign-in a run for an agent uses
   const waiting=v.state==='waiting';run.state.textContent=waiting?'Needs your approval':v.state==='running'?'Working…':v.state==='complete'?'Finished':v.state==='stopped'?'Stopped':'Failed';
   run.panel.classList.toggle('waiting',waiting);
   if(!run.list.childElementCount&&v.state==='running'){run.list.append(run.placeholder??=el('div','ev ev-thinking','Starting '+label(v.provider)+'…'))}

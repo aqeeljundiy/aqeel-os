@@ -28,10 +28,12 @@ export function readCodexAccount(executable,env,cwd){return new Promise(resolve=
 export class Accounts {
  constructor(root,env,provider='codex'){this.provider=provider;this.name=provider==='claude'?'Claude':'Codex';this.root=path.join(root,'data',provider==='codex'?'accounts':'accounts-claude');this.file=path.join(this.root,'profiles.json');this.baseEnv=env;this.queue=Promise.resolve()}
  async init(){await mkdir(this.root,{recursive:true});try{this.state=JSON.parse(await readFile(this.file,'utf8'))}catch(e){if(e.code!=='ENOENT')throw e;this.state={profiles:[{id:'desktop',label:'Desktop account',provider:this.provider}],active:'desktop',autoSwitch:false};await this.save()}return this}
+ // aqeelOS (Models › Old Code sign-ins) may take a profile out of the file: read it again before using or changing it
+ async reload(){try{const s=JSON.parse(await readFile(this.file,'utf8'));if(Array.isArray(s?.profiles)&&s.profiles.some(p=>p.id===s.active))this.state=s}catch{}return this}
  async save(){await writeFile(this.file+'.tmp',JSON.stringify(this.state,null,2));await rename(this.file+'.tmp',this.file)}
  profile(id=this.state.active){const p=this.state.profiles.find(p=>p.id===id);if(!p)throw Error('Account profile not found.');return p}
  env(id){const p=this.profile(id);return p.id==='desktop'?{...this.baseEnv}:{...this.baseEnv,[this.provider==='codex'?'CODEX_HOME':'CLAUDE_CONFIG_DIR']:path.join(this.root,p.id)}}
- async update(input){const pending=this.queue.then(async()=>{
+ async update(input){const pending=this.queue.then(async()=>{await this.reload();
   if(input.action==='create'){if(typeof input.label!=='string'||!input.label.trim()||input.label.length>60)throw Error('Name the account (up to 60 characters).');if(this.state.profiles.length>=12)throw Error('Up to 12 profiles are supported.');const p={id:randomUUID(),label:input.label.trim(),provider:this.provider};await mkdir(path.join(this.root,p.id));if(this.provider==='codex')await writeFile(path.join(this.root,p.id,'config.toml'),'cli_auth_credentials_store = "file"\n');this.state.profiles.push(p)}
   else if(input.action==='select'){this.profile(input.id);this.state.active=input.id}
   else if(input.action==='settings'){if(typeof input.autoSwitch!=='boolean')throw Error('Invalid switching preference.');this.state.autoSwitch=input.autoSwitch}
