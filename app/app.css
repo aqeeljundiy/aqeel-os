@@ -129,7 +129,7 @@ body{overflow:hidden}
 .tile>button:last-child{align-self:flex-start}
 .row .main-c{display:flex;align-items:center;gap:14px;min-width:0}
 .row .ic{width:38px;height:38px;border-radius:var(--r-md);background:var(--soft);display:grid;place-items:center;color:var(--ink-2);flex:none}
-.row .ic.blue{background:var(--blue-soft);color:var(--blue)}
+.row .ic.blue{background:var(--soft);color:var(--ink-2)} /* one neutral tile for every list row icon (skills, schedules, tool groups, apps); on/off is the switch's job, warn keeps its colour */
 .row .txt{min-width:0}
 .row .txt b{display:block;font-size:14.5px;font-weight:600;letter-spacing:-.15px}
 .row .txt span{display:block;font-size:13px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -1493,6 +1493,9 @@ html.in-panel .composer-wrap{padding:0 10px 12px}
 .acc-av{border-radius:50%;display:inline-grid;place-items:center;flex:none;overflow:hidden;font-size:10.5px;font-weight:700;color:#fff;background:hsl(var(--h,220) 55% 52%);box-shadow:0 0 0 2px var(--surface);margin-left:-6px;transition:transform var(--t-fast) var(--ease)}
 .acc-who .acc-av:first-child{margin-left:0}.acc-who:hover .acc-av{transform:translateX(2px)}.acc-who:hover .acc-av:first-child{transform:none}
 .acc-av img{width:100%;height:100%;object-fit:cover}
+/* an avatar inside a row's text (agent chips, "For <agent>", "Owned by"): the row's text-line style made it a block with a 13px letter
+   that spilled out of the circle; keep it a centred circle with its small initial */
+.row .txt .acc-av{display:inline-grid;place-items:center;font-size:10.5px;line-height:1;margin-top:0;padding-block:0;white-space:nowrap;overflow:hidden;text-overflow:clip}
 .acc-more{font-size:11.5px;color:var(--muted);margin-left:6px}
 .acc-from{display:inline-flex!important;align-items:center;gap:6px;font-size:12px;color:var(--muted);margin-top:2px}.acc-from .acc-av{margin:0;box-shadow:none}
 .share-agents .share-row .acc-av{margin:0;box-shadow:none;font-size:13px}
@@ -1702,7 +1705,7 @@ button.primary:focus-visible{outline-offset:2px}button:focus:not(:focus-visible)
 .live-empty{animation:rise var(--t-med) var(--ease) both}.live-empty .ln-ico{width:52px;height:52px;margin-bottom:6px}
 /* All agents on Skills, Memory, Logs (all-agents-more.js): one chip per agent, lit when it is on for that agent */
 .aam-ags{display:flex!important;flex-wrap:wrap;gap:6px;margin-top:8px}
-.aam-ag{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px 0 4px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--muted);font:inherit;font-size:12.5px;cursor:pointer;transition:background .18s,color .18s,border-color .18s,opacity .18s;opacity:.7}
+.aam-ag{display:inline-flex;align-items:center;gap:6px;height:28px;min-height:28px;padding:0 10px 0 4px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--muted);font:inherit;font-size:12.5px;cursor:pointer;transition:background .18s,color .18s,border-color .18s,opacity .18s;opacity:.7}
 .aam-ag .acc-av{margin:0;box-shadow:none;filter:grayscale(1);transition:filter .18s}
 .aam-ag:hover{opacity:1;border-color:var(--ink-3,var(--muted))}
 .aam-ag.on{opacity:1;color:var(--ink);background:var(--soft);border-color:transparent}.aam-ag.on .acc-av{filter:none}
@@ -1724,7 +1727,7 @@ summary{list-style:none}summary::-webkit-details-marker{display:none}
 .aam-more{interpolate-size:allow-keywords}.aam-more::details-content{block-size:0;overflow:hidden;transition:block-size var(--t-med) var(--ease),content-visibility var(--t-med) allow-discrete}.aam-more[open]::details-content{block-size:auto}
 .aam-more[open]>:not(summary){animation:fade var(--t-med) var(--ease) both}
 @media (max-width:760px){.all-view .all-row .txt>span:not(.aam-ags){white-space:normal;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
- .aam-ags{gap:4px;margin-top:6px}.aam-ag{height:26px;padding:0 8px 0 3px;font-size:12px}}
+ .aam-ags{gap:4px;margin-top:6px}.aam-ag{height:26px;min-height:26px;padding:0 8px 0 3px;font-size:12px}}
 .aam-who{font-weight:600;color:var(--accent,var(--ink))}
 
 /* Bottlenecks always in the top bar; quiet when nothing is stuck */
@@ -1904,3 +1907,6 @@ button.plug-danger{background:var(--bad);box-shadow:none}
 @keyframes progPop{from{transform:scale(.5)}to{transform:scale(1)}}
 .prog-head{display:flex;align-items:center;gap:8px;margin:0 0 10px;font-size:14px}.prog-head .hint{margin:0;font-variant-numeric:tabular-nums}
 .prog-head.ok b{color:var(--ok)}.prog-head.bad b{color:var(--bad)}
+
+/* list rows on touch screens: a tap leaves :hover stuck on the row under the finger, so only real pointers get the hover tint */
+@media (hover:none){.row:hover,.sj-row:hover{background:transparent}}
