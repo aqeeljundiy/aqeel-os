@@ -375,6 +375,17 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .sel-btn.open{border-color:var(--blue);box-shadow:0 0 0 3px rgba(1,88,203,.18)}
 .sel-btn.open svg{transform:rotate(180deg)}
 .sel-btn.inline{width:auto;min-width:140px}
+/* time and date pickers (timePick, dateTimePick, datePop in core.js) */
+.tp-wrap{position:relative;display:block}.tp-wrap input{padding-right:44px;font-variant-numeric:tabular-nums}.tp-wrap .tp-btn{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:34px;min-height:34px;height:34px;color:var(--muted)}
+.tp-wrap .tp-btn:hover{transform:translateY(-50%);color:var(--ink)}.tp-wrap.open input{border-color:var(--blue);box-shadow:0 0 0 3px rgba(1,88,203,.18)}
+.dtp{display:grid;grid-template-columns:minmax(0,1fr) 128px;gap:8px}.dtp .sel-btn.open svg{transform:rotate(180deg)}
+.date-menu{padding:10px;min-width:276px!important;max-height:none!important;overflow:visible}
+.dp-head{display:flex;align-items:center;justify-content:space-between;gap:6px;margin:0 0 6px}.dp-head b{font-size:14px;font-weight:600;flex:1;text-align:center}.dp-head .ghost.icon{width:32px;min-height:32px;height:32px}
+.dp-grid{display:grid;grid-template-columns:repeat(7,36px);gap:2px}.dp-w{font-size:11px;color:var(--muted);text-align:center;padding:4px 0}
+.dp-d{width:36px;height:34px;min-height:34px;padding:0;border:0;border-radius:9px;background:none;box-shadow:none;font-size:13px;font-variant-numeric:tabular-nums;color:var(--ink);transition:background-color var(--t-fast),color var(--t-fast)}
+.dp-d:hover{background:var(--soft);transform:none}.dp-d.out{color:var(--muted);opacity:.55}.dp-d.today{font-weight:700;color:var(--blue-deep)}.dark .dp-d.today{color:var(--blue-2)}
+.dp-d.cur{background:linear-gradient(180deg,var(--blue-2),var(--blue));color:#fff}.dark .dp-d.cur{color:#0b0c10}.dp-d:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+@media (max-width:420px){.dtp{grid-template-columns:1fr}}
 .dark .sel-btn:hover{border-color:#43506a}
 .menu{max-height:min(380px,60vh);overflow-y:auto;scrollbar-width:thin}
 .menu .mh{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:10px 10px 4px}
@@ -1681,6 +1692,17 @@ div.skel:not(.loading)::after{content:'';width:26px;height:26px;border-radius:50
 .aam-ag:disabled{cursor:progress;opacity:.5}
 .aam-h{display:inline-flex;align-items:center;gap:10px}.aam-h .acc-av{margin:0}
 .aam-more{margin-top:10px}.aam-more>summary{cursor:pointer;font-size:13.5px;color:var(--ink-2);padding:6px 0}
+/* disclosure: never the browser's triangle anywhere; folds without an icon of their own get the app's chevron (the
+   Board's kd-fold one), which turns as it opens, and open and close ease their height */
+summary{list-style:none}summary::-webkit-details-marker{display:none}
+.aam-more>summary,.sd-raw>summary,.sd-book>summary,.wac-more>summary,.ae-adv>summary,.code-new>summary,.kf-more:not(.cj-adv)>summary{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none}
+.aam-more>summary::before,.sd-raw>summary::before,.wac-more>summary::before,.ae-adv>summary::before,.code-new>summary::before,.kf-more:not(.cj-adv)>summary::before,.sd-book>summary::after{content:"";width:6px;height:6px;border-right:1.8px solid currentColor;border-bottom:1.8px solid currentColor;transform:rotate(-45deg);transition:transform var(--t-med) var(--ease);flex:none;opacity:.75}
+.sd-book>summary::after{margin-left:auto}
+.aam-more[open]>summary::before,.sd-raw[open]>summary::before,.wac-more[open]>summary::before,.ae-adv[open]>summary::before,.code-new[open]>summary::before,.kf-more:not(.cj-adv)[open]>summary::before,.sd-book[open]>summary::after{transform:rotate(45deg)}
+.sd-raw,.sd-book,.wac-more,.ae-adv,.code-new,.kf-more{interpolate-size:allow-keywords}
+.sd-raw::details-content,.sd-book::details-content,.wac-more::details-content,.ae-adv::details-content,.code-new::details-content,.kf-more::details-content{block-size:0;overflow:hidden;transition:block-size var(--t-med) var(--ease),content-visibility var(--t-med) allow-discrete}
+.sd-raw[open]::details-content,.sd-book[open]::details-content,.wac-more[open]::details-content,.ae-adv[open]::details-content,.code-new[open]::details-content,.kf-more[open]::details-content{block-size:auto}
+@media (prefers-reduced-motion:reduce){summary::before,summary::after{transition:none}details::details-content{transition:none}}
 /* memory sections open and close smoothly (height where the browser can, a fade everywhere) */
 .aam-more{interpolate-size:allow-keywords}.aam-more::details-content{block-size:0;overflow:hidden;transition:block-size var(--t-med) var(--ease),content-visibility var(--t-med) allow-discrete}.aam-more[open]::details-content{block-size:auto}
 .aam-more[open]>:not(summary){animation:fade var(--t-med) var(--ease) both}
