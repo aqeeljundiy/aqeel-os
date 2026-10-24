@@ -26,14 +26,16 @@ export function createCode({DATA,SRC,PUBLIC_URL,ROOT}){
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1),{mode:0o600});await rename(FILE+'.tmp',FILE)};
  const hash=t=>createHash('sha256').update(String(t)).digest('hex');
  // a new key for one person's computer; only its hash is kept here
- async function pair(user,name){await load();const token='aqc_'+randomBytes(24).toString('base64url');db.devices[hash(token)]={user,name:String(name||'Computer').slice(0,60),created:Date.now(),last:0};await save();return token}
+ async function pair(user,name,{box=false}={}){await load();const token='aqc_'+randomBytes(24).toString('base64url');db.devices[hash(token)]={user,name:String(name||'Computer').slice(0,60),created:Date.now(),last:0,...(box?{box:true}:{})};await save();return token}
+ // the box's own copy is known by this flag (set only by aqeelOS itself when it pairs it), never by the device's name
+ async function markBox(token){await load();const d=db.devices[hash(token||'')];if(d&&!d.box){d.box=true;await save()}}
  async function who(token){await load();const h=hash(token||''),d=db.devices[h];if(!d)return null;if(Date.now()-d.last>60000){d.last=Date.now();save().catch(()=>{})}return {...d,key:h.slice(0,16)}}
  /* Agents work on projects: every paired Code app (a person's computer, or the box's own copy for online projects)
     asks here for work about every 25 s and says which of its projects agents may use (a project's own agent, and the
     agents it is shared with). An agent's code_work goes to the app that has the project; the answer comes back here. */
  const live=new Map(),jobs=new Map();let seq=0;
  function poll(dev,projects){const k=dev.key,cur=live.get(k);if(cur?.wake)cur.wake(null);
-  const e={user:dev.user,name:dev.name,seen:Date.now(),projects:(Array.isArray(projects)?projects:[]).slice(0,300).map(p=>({id:String(p.id).slice(0,80),name:String(p.name||'').slice(0,120),agent:String(p.agent||''),agents:(Array.isArray(p.agents)?p.agents:[]).map(String).slice(0,40),where:p.where==='online'?'online':'computer'})),queue:cur?.queue||[]};live.set(k,e);
+  const e={user:dev.user,name:dev.name,box:!!dev.box,seen:Date.now(),projects:(Array.isArray(projects)?projects:[]).slice(0,300).map(p=>({id:String(p.id).slice(0,80),name:String(p.name||'').slice(0,120),agent:String(p.agent||''),agents:(Array.isArray(p.agents)?p.agents:[]).map(String).slice(0,40),where:p.where==='online'?'online':'computer'})),queue:cur?.queue||[]};live.set(k,e);
   if(e.queue.length)return Promise.resolve(e.queue.shift());
   return new Promise(r=>{const t=setTimeout(()=>{e.wake=null;r(null)},25000);e.wake=j=>{clearTimeout(t);e.wake=null;r(j)}})}
  // a job handed to a long-poll whose connection had already dropped goes back to the front (or to the poll waiting now)
@@ -71,7 +73,7 @@ export function createCode({DATA,SRC,PUBLIC_URL,ROOT}){
  async function usedToday(uid){await uload();return ub.u[uid]||0}
  async function addUsage(uid,tokens){await uload();ub.u[uid]=(ub.u[uid]||0)+Math.max(0,Number(tokens)||0);await writeFile(UFILE,JSON.stringify(ub)).catch(()=>{})}
  // the guarded browser on a person's own computer: the most recently connected computer of these people (never the AI box's copy)
- function computerOf(uids){let best=null;for(const [k,e] of live)if(uids.includes(e.user)&&Date.now()-e.seen<120000&&!/AI box/.test(e.name||'')&&(!best||e.seen>best[1].seen))best=[k,e];return best?{key:best[0],name:best[1].name}:null}
+ function computerOf(uids){let best=null;for(const [k,e] of live)if(uids.includes(e.user)&&Date.now()-e.seen<120000&&!e.box&&!/AI box/.test(e.name||'')&&(!best||e.seen>best[1].seen))best=[k,e];return best?{key:best[0],name:best[1].name}:null}
  function browse(uids,payload,ms=150000){const c=computerOf(uids);if(!c)return Promise.reject(Error('No computer of yours has aqeelOS Code running right now.'));const e=live.get(c.key);
   const j={id:String(++seq)+'-'+Date.now().toString(36),dev:c.key,job:null};j.job={id:j.id,kind:'browser',...payload};
   const result=new Promise(res=>{j.resolve=res;setTimeout(()=>{if(jobs.has(j.id)){jobs.delete(j.id);res({state:'failed',text:'The computer did not answer in time.'})}},ms)});jobs.set(j.id,j);if(e.wake)e.wake(j.job);else e.queue.push(j.job);return result}
@@ -85,4 +87,4 @@ export function createCode({DATA,SRC,PUBLIC_URL,ROOT}){
  // what a computer's Code has connected (GitHub accounts, tool servers), shown under Connected apps › Code
  async function report(dev,r){await load();const e=Object.entries(db.devices).find(([h])=>h.slice(0,16)===dev.key);if(!e)return;e[1].report={at:Date.now(),github:(Array.isArray(r.github)?r.github:[]).slice(0,10).map(a=>({user:String(a.user||'').slice(0,60),active:Boolean(a.active)})),mcp:(Array.isArray(r.mcp)?r.mcp:[]).slice(0,40).map(m=>String(m).slice(0,60)),version:String(r.version||'').slice(0,40)};await save()}
  async function allDevices(){await load();return Object.entries(db.devices).map(([h,d])=>({id:h.slice(0,12),name:d.name,user:d.user,last:d.last,report:d.report||null}))}
- return {report,allDevices,addRun,runs,computerOf,browse,usedToday,addUsage,pair,who,devices,unpair,version,update,download,poll,requeue,done,projectsFor,work}}
+ return {report,allDevices,addRun,runs,computerOf,browse,usedToday,addUsage,pair,markBox,who,devices,unpair,version,update,download,poll,requeue,done,projectsFor,work}}

@@ -15,12 +15,12 @@ import {Remote,isLoopback,pairPage} from './remote.mjs';
 import {CLAUDE_MODELS,EFFORTS,listCodexModels} from './models.mjs';
 import {GEMINI_MODELS,locateGemini,geminiAuth,geminiSignIn} from './gemini.mjs';
 let codexModels={at:0,list:[]};
-async function models(agent){if(Date.now()-codexModels.at>600000||!codexModels.list.length){const exe=await findExecutable('codex');codexModels={at:Date.now(),list:exe?await listCodexModels(exe,accounts.env(),work):[]}}// Gemini's own list is saved after a run (data/gemini-models.json); until then its tier aliases
+async function models(agent,act){if(Date.now()-codexModels.at>600000||!codexModels.list.length){const exe=await findExecutable('codex');codexModels={at:Date.now(),list:exe?await listCodexModels(exe,accounts.env(),work):[]}}// Gemini's own list is saved after a run (data/gemini-models.json); until then its tier aliases
  let gemini=GEMINI_MODELS;try{const saved=JSON.parse(await readFile(path.join(root,'data','gemini-models.json'),'utf8'));if(saved.length)gemini=[GEMINI_MODELS[0],...saved.map(m=>({id:m.modelId,name:m.name||m.modelId,description:m.description||'',efforts:[],defaultEffort:''}))]}catch{}
  const own={codex:codexModels.list,claude:CLAUDE_MODELS,gemini};
  // paired: the models the chat's menu lists for this agent in aqeelOS (Code's own levels kept where it knows the model).
  // A member sees only those; an admin keeps Code's own list for an AI aqeelOS has no models of.
- const r=agent===undefined?null:await aqeelos.agentModel(agent).catch(()=>null);if(!r?.models)return own;
+ const r=agent===undefined?null:await aqeelos.agentModel(agent,act).catch(()=>null);if(!r?.models)return own;
  const out={managed:true,restricted:Boolean(r.restricted),agentModel:r.provider&&r.model?{provider:r.provider,model:r.model}:null};
  for(const p of ['claude','codex','gemini']){const ids=r.models[p]||[];out[p]=!ids.length?(r.restricted?[]:own[p]):ids.map(id=>{const c=own[p].find(m=>m.id===id);
   return {id,name:c?.name||niceModel(id),description:c?.description||'',efforts:c?.efforts?.length?c.efforts:p==='codex'?['low','medium','high']:EFFORTS[p],defaultEffort:c?.defaultEffort||'',isDefault:r.provider===p&&r.model===id}})}
@@ -84,7 +84,8 @@ function execute(exe,args,input='',timeout=90000,options={}){return new Promise(
 async function status(name,profileId){
  // aqeelOS models: the box's own copy, paired, with the projects on the box (not in a container of its own)
  if(name==='aqeelos'){if(!process.env.CBA_ONLINE)return {id:name,installed:false,ready:false,message:'Runs projects on the AI box. Projects on this computer use Claude Code, Codex or Gemini CLI.'};
-  const r=await aqeelos.agentModel('').catch(()=>null);const ok=Boolean(r?.engine);return {id:name,installed:true,ready:ok,path:'',account:{email:null},profileLabel:'aqeelOS Models',message:ok?'Runs on the agents’ own models in aqeelOS':r?'Online Code runs in its own container, so agents cannot reach its projects.':'Pair this copy with aqeelOS first.'}}
+  const r=await aqeelos.agentModel('',aqeelos.anyAct()).catch(()=>null);const ok=Boolean(r?.engine);   // ready or not only: any signed-in person's note will do
+  return {id:name,installed:true,ready:ok,path:'',account:{email:null},profileLabel:'aqeelOS Models',message:ok?'Runs on the agents’ own models in aqeelOS':r?'Online Code runs in its own container, so agents cannot reach its projects.':'Pair this copy with aqeelOS first.'}}
  if(name==='codex'&&process.env.CBA_ONLINE)await syncCodexFromEngine().catch(e=>console.warn('codex sign-in from the engine:',e.message));
  if(name==='gemini'){const g=await locateGemini({appRoot:root,findOnPath:platform.findOnPath});if(!g)return {id:'gemini',installed:false,ready:false,message:'Not installed. Run: npm install -g @google/gemini-cli'};const a=await geminiAuth(cleanEnv);return {id:'gemini',installed:true,ready:a.ready,gemini:g,path:g.command,method:a.method||null,account:{email:a.email||null},message:a.message}}
  const exe=await findExecutable(name);if(!exe)return {id:name,installed:false,ready:false,message:'Not found on this PC'};
@@ -110,7 +111,10 @@ async function engineCodex(){let j;try{j=JSON.parse(await readFile(path.join(os.
 async function syncCodexFromEngine(){const e=await engineCodex();if(!e)return false;let cur=null;try{cur=JSON.parse(await readFile(CODEX_AUTH,'utf8'))}catch{}
  const had=cur?.tokens?.access_token||'';if(had===e.tokens.access_token&&cur?.tokens?.refresh_token===e.tokens.refresh_token)return true;
  if(had&&jwtExp(had)>=jwtExp(e.tokens.access_token))return true;   // Codex refreshed it since: the engine takes that one over, not the other way round
- const out={...(cur&&typeof cur==='object'?cur:{}),OPENAI_API_KEY:null,tokens:e.tokens,last_refresh:e.last_refresh||new Date().toISOString()};
+ // Codex parses tokens.id_token as a JWT: keep the one it has, else the access token (a JWT carrying the same auth claims); never ''
+ const isJwt=t=>typeof t==='string'&&t.split('.').length===3&&t.split('.').every(Boolean);
+ const idt=[e.tokens.id_token,cur?.tokens?.id_token,e.tokens.access_token].find(isJwt);if(!idt)return false;
+ const out={...(cur&&typeof cur==='object'?cur:{}),OPENAI_API_KEY:null,tokens:{...(cur?.tokens&&typeof cur.tokens==='object'?cur.tokens:{}),...e.tokens,id_token:idt,account_id:e.tokens.account_id||cur?.tokens?.account_id||null},last_refresh:e.last_refresh||new Date().toISOString()};
  await mkdir(path.dirname(CODEX_AUTH),{recursive:true,mode:0o700});const tmp=CODEX_AUTH+'.'+process.pid+'.tmp';await writeFile(tmp,JSON.stringify(out,null,2),{mode:0o600});await chmod(tmp,0o600);await rename(tmp,CODEX_AUTH);return true}
 async function selectAccount(name){if(name==='aqeelos')return status(name);
  // the box: Codex always on the engine's sign-in when there is one (Code's own ChatGPT profiles are not used for runs)
@@ -151,6 +155,8 @@ const server=http.createServer(async(req,res)=>{
   if(!open&&!remote.device(req.headers.cookie)){if(req.method==='GET'&&!url.pathname.startsWith('/api/')){res.writeHead(303,{Location:'/pair'});return res.end()}return send(401,{error:'Pair this device first.'})}
   if(url.pathname.startsWith('/api/remote'))return send(403,{error:'Manage phone access from the computer.'})}
  try{
+  // Code online: the short signed note of who sent this (aqeelOS checks it; kept as that person's newest)
+  const act=process.env.CBA_ONLINE?aqeelos.noteAct(req.headers['x-aq-act']):'';
   // online (the AI box): runs use the agents' accounts from aqeelOS › Models, so Code's own sign-ins are only shown, never changed here
   if(process.env.CBA_ONLINE&&req.method==='POST'&&(url.pathname.startsWith('/api/login/')||url.pathname==='/api/accounts'))return send(403,{error:'Models are managed on aqeelOS › Models.'});
   if(process.env.CBA_ONLINE&&req.headers['x-aq-user']&&req.headers['x-aq-role']!=='admin'&&req.method==='POST'&&/^\/api\/(accounts|login|aqeelos|development|remote)/.test(url.pathname))return send(403,{error:'Only admins can change this.'});
@@ -162,7 +168,7 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/api/aqeelos'&&req.method==='GET')return send(200,await aqeelos.state());
   if(url.pathname==='/api/aqeelos/pair'&&req.method==='POST'){let body='';for await(const c of req){body+=c;if(body.length>4000)return send(413,{error:'Too large.'})}const d=JSON.parse(body||'{}');try{return send(200,await aqeelos.pair(String(d.base||''),String(d.token||'')))}catch(e){return send(400,{error:e.message})}}
   if(url.pathname==='/api/aqeelos/update'&&req.method==='POST')return send(200,await aqeelos.checkUpdate());
-  if(url.pathname==='/api/aqeelos/agents'&&req.method==='GET')return send(200,{agents:await aqeelos.agents()});
+  if(url.pathname==='/api/aqeelos/agents'&&req.method==='GET')return send(200,{agents:await aqeelos.agents(act)});
   if(url.pathname==='/api/aqeelos/unpair'&&req.method==='POST')return send(200,await aqeelos.unpair());
   if(url.pathname==='/api/remote'&&req.method==='GET')return send(200,remote.view(server.address().port));
   if(url.pathname==='/api/remote'&&req.method==='POST'){let body='';for await(const c of req){body+=c;if(body.length>2000)return send(413,{error:'Too large.'})}const d=JSON.parse(body||'{}');
@@ -176,7 +182,7 @@ const server=http.createServer(async(req,res)=>{
    if(url.pathname==='/api/login/stop')return send(200,{session:loginConsole.stop(data.id)});
    return send(404,{error:'Not found.'});
   }
-  if(req.method==='GET'&&url.pathname==='/api/models')return send(200,await models(url.searchParams.has('agent')?String(url.searchParams.get('agent')).slice(0,64):undefined));
+  if(req.method==='GET'&&url.pathname==='/api/models')return send(200,await models(url.searchParams.has('agent')?String(url.searchParams.get('agent')).slice(0,64):undefined,act));
   if(req.method==='GET'&&url.pathname==='/api/share-hosts'){const port=server.address().port;return send(200,{lan:remote.state.enabled?remote.addresses(port).map(a=>'http://'+new URL(a.url).hostname+':'+(port+1)):[]})}
   if(req.method==='GET'&&url.pathname==='/api/status')return send(200,{online:Boolean(process.env.CBA_ONLINE),...(process.env.CBA_ONLINE?{modelsAt:(await aqeelos.origins()).find(o=>!/\/\/(127\.|localhost)/.test(o))||''}:{}),token,preview:previewOrigin(req.headers.host),platform:{os:process.platform,shell:platform.shell('').label,prompt:platform.shell('').prompt,fileManager:platform.fileManagerName},providers:url.searchParams.has('quick')?[]:await Promise.all(['codex','claude','gemini',...(process.env.CBA_ONLINE?['aqeelos']:[])].map(name=>status(name)))});
   if(req.method==='GET'&&url.pathname==='/api/accounts'){const prov=url.searchParams.get('provider')==='claude'?'claude':'codex',s=await store(prov).reload();return send(200,{...s.state,provider:prov,profiles:await Promise.all(s.state.profiles.map(async p=>({...await status(prov,p.id),...p})))})}

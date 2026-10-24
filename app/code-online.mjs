@@ -28,7 +28,7 @@ export function createCodeOnline({SECRET,SECURE,users,revokedAt=()=>0,HOST='code
  // every request also carries a short signed note of who sent it (x-aq-act, nine minutes): with it the box's Code may
  // start a run on aqeelOS models as that person (server.mjs checks it), never as the owner its key belongs to
  const act=uid=>{const exp=Date.now()+540e3;return uid+'.'+exp+'.'+createHmac('sha256',SECRET).update('code-act:'+uid+'.'+exp).digest('base64url')};
- function pass(req,res,target,who){const [host,port]=target.split(':');const h={...req.headers};delete h.cookie;delete h['x-aq-user'];delete h['x-aq-role'];delete h['x-aq-act'];h.host=target;h['x-aq-user']=who.id;h['x-aq-role']=roleOf(who);h['x-aq-act']=act(who.id);
+ function pass(req,res,target,who){const [host,port]=target.split(':');const h={...req.headers};delete h.cookie;delete h['x-aq-user'];delete h['x-aq-role'];delete h['x-aq-act'];h.host=target;h['x-aq-user']=who.id;h['x-aq-role']=roleOf(who);if(target===APP)h['x-aq-act']=act(who.id);   // the app only: a preview runs the project's own code, which must never get the note
   if(h.origin)h.origin='http://'+target;if(h.referer)h.referer=h.referer.replace(/^https?:\/\/[^/]+/,'http://'+target);
   delete h['x-forwarded-host'];delete h['x-forwarded-for'];delete h['x-real-ip'];
   const up=httpRequest({host,port:Number(port),method:req.method,path:req.url,headers:h},r=>{const out={...r.headers};

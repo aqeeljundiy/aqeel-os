@@ -7,7 +7,9 @@ export async function locate(name,findExecutable){
  for(const p of FALLBACK[name]||[]){try{await access(p);return p}catch{}}return null;
 }
 
-export function tool(exe,args,{cwd,env,timeout=180000}={}){return new Promise(resolve=>{
+// on the AI box agents' own users may write in a project, so the repo's own hooks and fsmonitor (run as this user) are off
+const HARDEN=['-c','core.fsmonitor=','-c','core.hooksPath=/dev/null'];
+export function tool(exe,args,{cwd,env,timeout=180000}={}){if(process.env.CBA_ONLINE&&/^git(\.exe)?$/i.test(String(exe).split(/[\\/]/).pop()))args=[...HARDEN,...args];return new Promise(resolve=>{
  let stdout='',stderr='',done=false;const child=spawn(exe,args,{cwd,env,windowsHide:true,shell:false});
  const finish=r=>{if(done)return;done=true;clearTimeout(timer);resolve(r)};
  const timer=setTimeout(()=>{child.kill();finish({code:-1,stdout,stderr:stderr+'\nTimed out.'})},timeout);

@@ -6,7 +6,10 @@ const BASE=process.env.AQ_BASE||'',TOKEN=process.env.AQ_TOKEN||'',PROJECT=proces
 const TOOLS=[
  {name:'aqeelos_agents',description:'List the person\'s aqeelOS agents you can ask, with what each is for and which apps it has (Google Sheets, n8n, Notion, Slack, WhatsApp…).',inputSchema:{type:'object',properties:{}}},
  {name:'aqeelos_ask',description:'Ask one of the person\'s aqeelOS agents to do or find something with its own abilities, and get its answer. Use it for anything outside this project folder: read or update a Google Sheet, run or build an n8n workflow, send a WhatsApp or Slack message, set up a schedule, look something up in Notion or memory. Say exactly what you need back (for example "the product list as JSON with name, price, image").',inputSchema:{type:'object',properties:{agent:{type:'string',description:'Agent id from aqeelos_agents. Pick the agent whose apps and abilities fit the task (for example the one with Google Sheets, or the one with the shop WhatsApp); if unsure, call aqeelos_agents first.'},task:{type:'string',description:'What the agent should do or find, in plain words'}},required:['task']}}];
-async function call(p,body){const r=await fetch(BASE+p,{method:body?'POST':'GET',headers:{authorization:'Bearer '+TOKEN,'content-type':'application/json'},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(600000)});
+// Code online: who the run is for (x-aq-act, a few minutes); Code keeps the person's newest note in AQ_ACT_FILE, read on every call
+import {readFileSync} from 'node:fs';
+const act=()=>{let a='';try{if(process.env.AQ_ACT_FILE)a=readFileSync(process.env.AQ_ACT_FILE,'utf8').trim()}catch{}const exp=s=>Number(String(s||'').split('.')[1])||0;const e=process.env.AQ_ACT||'';return exp(a)>=exp(e)?a:e};
+async function call(p,body){const a=act();const r=await fetch(BASE+p,{method:body?'POST':'GET',headers:{authorization:'Bearer '+TOKEN,'content-type':'application/json',...(a?{'x-aq-act':a}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(600000)});
  const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||('aqeelOS answered '+r.status));return j}
 async function run(name,a){
  if(name==='aqeelos_agents'){const j=await call('/ui/code/agents');return JSON.stringify(j.agents||[],null,1)}

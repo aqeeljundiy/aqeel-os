@@ -114,6 +114,9 @@ async function readBody(req,limit=1e6){return (await readRaw(req,limit)).toStrin
 const LIVE=new Map();
 const runOwner=new Map();   // run id → person, so Approve / Stop work as long as the run lives
 const codeRuns=new Map();   // Code's engine runs (aqeelOS models): handle → agent, run id, person, for Stop and approvals
+// fetch cuts a response body silent for 5 minutes (undici's bodyTimeout): an engine turn waiting on an approval is read
+// through a copy of fetch's own client without that limit (none made yet, or another Node: the default one)
+let longOne=null;const longFetch=()=>{if(!longOne){const d=globalThis[Symbol.for('undici.globalDispatcher.1')];try{if(d?.constructor)longOne=new d.constructor({bodyTimeout:0})}catch{}}return longOne?{dispatcher:longOne}:{}};
 // a provider's name as the chat's model menu shows it (core.js provLabel)
 const codeProvName=p=>{const s=String(p?.slug||''),n=String(p?.name||s);if(s==='moa')return 'Team of models';if(/claude-subscription|^claude-code/.test(s))return 'Claude';if(/codex/.test(s))return 'ChatGPT';if(s==='openrouter')return 'OpenRouter';if(/gemini/.test(s))return 'Gemini';return n.replace(/\s*\((experimental|beta)\)$/i,'')};
 function liveStart(key,user){const rec={user,chunks:[],size:0,subs:new Set(),done:false,t:Date.now(),last:Date.now()};LIVE.set(key,rec);return rec}
@@ -539,8 +542,8 @@ const accessAsk=createAccessRequests({DATA,access,listAgents:()=>listAgents(),na
 const n8n=createN8n({BASE:N8N_URL,readConfig,removeMcp:(a,name)=>fetch(DASH.origin+'/api/mcp/servers/'+encodeURIComponent(name)+'?profile='+encodeURIComponent(a),{method:'DELETE',headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(r=>{if(!r.ok&&r.status!==404)throw new Error('Could not remove the tool ('+r.status+')');return true}),DATA,setKey,restart:why=>restartGateway(why).catch(()=>{}),names:a=>NAMES[a]||a});
 const code=createCode({DATA,SRC:path.join(homedir(),'apps','aqeel-code'),PUBLIC_URL,ROOT:root});
 // the box's own Code copy (online projects) is paired with this aqeelOS by itself, and again if its key is lost
-if(LIVE_APP)setTimeout(async()=>{try{const f=path.join(homedir(),'apps','aqeel-code','data','aqeelos.json');let l={};try{l=JSON.parse(await readFile(f,'utf8'))}catch{}if(l.token&&await code.who(l.token))return;
- const token=await code.pair('owner','AI box · online');await mkdir(path.dirname(f),{recursive:true});await writeFile(f,JSON.stringify({base:'http://127.0.0.1:'+PORT,token,user:'Aqeel',pairedAt:Date.now()},null,1),{mode:0o600});console.log('code: paired the online copy')}catch(e){console.warn('code: online pairing',e.message)}},8000).unref();
+if(LIVE_APP)setTimeout(async()=>{try{const f=path.join(homedir(),'apps','aqeel-code','data','aqeelos.json');let l={};try{l=JSON.parse(await readFile(f,'utf8'))}catch{}if(l.token&&await code.who(l.token)){await code.markBox(l.token);return}
+ const token=await code.pair('owner','AI box · online',{box:true});await mkdir(path.dirname(f),{recursive:true});await writeFile(f,JSON.stringify({base:'http://127.0.0.1:'+PORT,token,user:'Aqeel',pairedAt:Date.now()},null,1),{mode:0o600});console.log('code: paired the online copy')}catch(e){console.warn('code: online pairing',e.message)}},8000).unref();
 // After the server was off: tell the owner on the main agent's channel how long (it cannot report while it is off;
 // a check from outside, .github/workflows/uptime.yml, emails while it is down). A heartbeat every minute marks it alive.
 if(LIVE_APP){const HB=path.join(DATA,'heartbeat.json');readFile(HB,'utf8').then(t=>JSON.parse(t).t||0).catch(()=>0).then(last=>{const beat=()=>writeFile(HB,JSON.stringify({t:Date.now()})).catch(()=>{});beat();setInterval(beat,60000).unref();
@@ -1231,8 +1234,10 @@ const server=createServer(async(req,res)=>{
   if(p.startsWith('/ui/code/')&&/^Bearer aqc_/.test(req.headers.authorization||'')){const dev=await code.who(String(req.headers.authorization).slice(7));if(!dev)return send(res,401,{error:'This computer is not paired any more. Open Code in aqeelOS to pair it again.'});
    let who=users.byId(dev.user);if(!who)return send(res,401,{error:'The person this computer was paired for no longer exists.'});
    // the box's own Code copy is paired as the owner but used by everyone on Code online: listing and asking agents and
-   // publishing act only as a person aqeelOS signed for (x-aq-act: <uid>.<exp>.<sig>, a few minutes), never as the owner
-   if(dev.user==='owner'&&dev.name==='AI box · online'&&/^\/ui\/code\/(ask|publish|agents|engine\/run)$/.test(p)){const [uid,exp,sg]=String(req.headers['x-aq-act']||'').split('.');
+   // publishing, models and engine runs act only as a person aqeelOS signed for (x-aq-act: <uid>.<exp>.<sig>, a few
+   // minutes), never as the owner. The box's copy is known by the flag aqeelOS set when it paired it, not by its name.
+   const BOX=dev.user==='owner'&&dev.box===true;
+   if(BOX&&/^\/ui\/code\/(ask|publish|agents|agent-model|engine\/(run|stop|approval))$/.test(p)){const [uid,exp,sg]=String(req.headers['x-aq-act']||'').split('.');
     const ok=!!uid&&Number(exp)>Date.now()&&Number(exp)<Date.now()+600e3&&!!sg&&(()=>{const x=Buffer.from(sg),y=Buffer.from(sign('code-act:'+uid+'.'+exp));return x.length===y.length&&timingSafeEqual(x,y)})();
     who=ok?users.byId(uid):null;if(!who)return send(res,403,{error:'Online Code can do this only for a signed-in person. Use Code on your own computer for now.'})}
    const mine=a=>!users.gate(who,'/gapi/api/model/options','GET',new URLSearchParams(),a);   // the agents this person may chat with (shared, owned, not someone's private one)
@@ -1251,7 +1256,7 @@ const server=createServer(async(req,res)=>{
    // they may use) and the account it is on (Models page), asked again for every run, so a switch counts at once. Only
    // the box's own copy, on this machine, gets the Claude account's folder; a person's computer keeps its own
    // sign-in and is never sent an account path or secret. No agent: the models of the agent this person would chat with.
-   if(p==='/ui/code/agent-model'&&req.method==='GET'){const box=dev.user==='owner'&&dev.name==='AI box · online';const may=(await listAgents()).filter(mine),want=String(url.searchParams.get('agent')||'');
+   if(p==='/ui/code/agent-model'&&req.method==='GET'){const box=BOX;const may=(await listAgents()).filter(mine),want=String(url.searchParams.get('agent')||'');
     if(want&&!may.includes(want))return send(res,403,{error:'You can’t use that agent.'});const a=want||(may.includes('default')?'default':may[0]||'');
     const r=want?await accountsApi.codeRoute(want).catch(()=>null):null;let models=null,engineModels=null;
     try{const o=await fetch(GATE.origin+(a&&a!=='default'?'/p/'+encodeURIComponent(a):'')+'/api/model/options',{headers:{authorization:'Bearer '+API_KEY},signal:AbortSignal.timeout(20000)}).then(x=>x.ok?x.json():null);
@@ -1267,7 +1272,7 @@ const server=createServer(async(req,res)=>{
       who sent it (x-aq-act): the agents they may use, their models, their daily limit. The engine's events stream
       back as they come (also to /ui/live, so the chat page can follow the same turn); stop and approvals go by the
       handle sent first, so they keep working after the person's short note has run out. */
-   if(p.startsWith('/ui/code/engine/')){const box=dev.user==='owner'&&dev.name==='AI box · online';if(!box)return send(res,403,{error:'Only the AI box’s Code runs on aqeelOS models. Projects on a computer use Claude Code, Codex or Gemini CLI.'});
+   if(p.startsWith('/ui/code/engine/')){const box=BOX;if(!box)return send(res,403,{error:'Only the AI box’s Code runs on aqeelOS models. Projects on a computer use Claude Code, Codex or Gemini CLI.'});
     if(p==='/ui/code/engine/run'&&req.method==='POST'){if(codeOnline.remote())return send(res,409,{error:'Online Code runs in its own container here, so agents cannot reach its folders. Use Claude Code, Codex or Gemini CLI.'});
      let b={};try{b=JSON.parse(await readBody(req,40e6))}catch{return send(res,400,{error:'The request was not valid JSON.'})}
      // no agent picked in Code: the one this person would chat with (as agent-model answers)
@@ -1283,7 +1288,6 @@ const server=createServer(async(req,res)=>{
      const AREA=path.join(homedir(),'code-projects');let dir='';try{dir=await realpath(String(b.path||''))}catch{}
      // a folder right inside it: the agent is let through that one folder only
      if(!dir.startsWith(AREA+path.sep)||dir.slice(AREA.length+1).includes(path.sep)||!(await stat(dir).catch(()=>null))?.isDirectory())return send(res,400,{error:'Only projects right inside online Code’s project folder (~/code-projects) can run on aqeelOS models.'});
-     try{await agentDefaults.codeAccess(a,dir,AREA)}catch(e){return send(res,409,{error:e.message})}
      const pre=a!=='default'?'/p/'+encodeURIComponent(a):'',H={authorization:'Bearer '+API_KEY,'content-type':'application/json'};
      // the same engine chat again for the same Code chat (only the person's own), else a new one that is theirs
      let sid=String(b.session||'');if(sid&&(!/^[\w.:-]{1,128}$/.test(sid)||users.ownerOf(sid)!==who.id))sid='';
@@ -1295,19 +1299,29 @@ const server=createServer(async(req,res)=>{
      // a model picked in Code is locked for this turn on its own account; "Default" leaves the agent's own choice (and auto-switch) in charge
      if(model){msg.model=model;if(provider)msg.provider=provider;msg.require_model_lock=true}
      if(/^(none|minimal|low|medium|high|xhigh|max|ultra)$/.test(String(b.effort||'')))msg.model_options={reasoning_effort:b.effort};
-     const up=await fetch(GATE.origin+pre+'/api/sessions/'+encodeURIComponent(sid)+'/chat/stream',{method:'POST',headers:{...H,accept:'text/event-stream'},body:JSON.stringify(msg)}).catch(e=>({ok:false,status:502,text:async()=>e.message}));
-     if(!up.ok||!up.body){const t=await up.text().catch(()=>'');let said=t;try{const j=JSON.parse(t);said=j.error?.message||j.error||j.detail||t}catch{}return send(res,up.status===429?429:502,{error:'The engine did not take the turn ('+up.status+')'+(said?': '+String(said).slice(0,200):'')})}
+     // the agent's own user is let into the folder for this turn only (taken away again when it ends, also when it does not start)
+     try{await agentDefaults.codeAccess(a,dir,AREA)}catch(e){return send(res,409,{error:e.message})}const after=()=>agentDefaults.codeAccessAfter(a,dir,AREA).catch(()=>{});
+     const up=await fetch(GATE.origin+pre+'/api/sessions/'+encodeURIComponent(sid)+'/chat/stream',{method:'POST',headers:{...H,accept:'text/event-stream'},body:JSON.stringify(msg),...longFetch()}).catch(e=>({ok:false,status:502,text:async()=>e.message}));
+     if(!up.ok||!up.body){void after();const t=await up.text().catch(()=>'');let said=t;try{const j=JSON.parse(t);said=j.error?.message||j.error||j.detail||t}catch{}return send(res,up.status===429?429:502,{error:'The engine did not take the turn ('+up.status+')'+(said?': '+String(said).slice(0,200):'')})}
      const route=await accountsApi.codeRoute(a).catch(()=>null),handle=randomBytes(18).toString('base64url'),h={agent:a,pre,user:who.id,runId:'',stop:false};codeRuns.set(handle,h);
      res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-cache','x-accel-buffering':'no',...security});res.socket?.setNoDelay(true);
      res.write('event: aqeelos.code\ndata: '+JSON.stringify({type:'aqeelos.code',handle,session:sid,agent:a,agentName:name,provider:provider||route?.engine||'',model:model||route?.model||'',account:model&&provider&&route?.engine!==provider?'':route?.account?.label||''})+'\n\n');
      const key=a+'|'+sid,rec=liveStart(key,who.id);console.log('code: '+(who.name||who.id)+' ran',a,'on aqeelOS models');
      // the turn goes on on the engine when Code goes away (like a chat reply): read to its end either way
+     // a comment line every 20 s while the engine is quiet (a pending approval, a long command), so no reader times out
+     const beat=setInterval(()=>{if(!res.writableEnded&&!res.destroyed)res.write(': keep-alive\n\n')},20000);beat.unref?.();
+     // the events read whole (one may span network chunks): the run id from run.started, approvals by their type
+     const dec=new TextDecoder();let pend='';const onEvent=raw=>{let ev='',data='';for(const line of raw.split(/\r?\n/)){if(line.startsWith('event:'))ev=line.slice(6).trim();else if(line.startsWith('data:'))data+=line.slice(5).trimStart()}
+      let d=null;try{d=JSON.parse(data)}catch{}const type=d?.type||ev;
+      if(!rec.runId&&(type==='run.started'||d?.run_id)){const id=String(d?.run_id||d?.run?.id||d?.id||'');if(id&&/^[\w.:-]{1,200}$/.test(id)){rec.runId=h.runId=id;runOwner.set(id,{user:who.id,t:Date.now()});if(h.stop)fetch(GATE.origin+pre+'/v1/runs/'+encodeURIComponent(id)+'/stop',{method:'POST',headers:H}).catch(()=>{})}}
+      if(type==='approval.request')rec.asking=true;else if(type==='approval.responded')rec.asking=false};
      try{for await(const c of up.body){const buf=Buffer.from(c);rec.last=Date.now();rec.size+=buf.length;rec.chunks.push(buf);if(rec.size>8e6){rec.size-=rec.chunks.splice(40,Math.max(0,rec.chunks.length-200)).reduce((x,y)=>x+y.length,0)}
-       const t=buf.toString('utf8');if(!rec.runId){const m=/"run_id"\s*:\s*"([^"]+)"/.exec(t);if(m){rec.runId=h.runId=m[1];runOwner.set(m[1],{user:who.id,t:Date.now()});if(h.stop)fetch(GATE.origin+pre+'/v1/runs/'+encodeURIComponent(m[1])+'/stop',{method:'POST',headers:H}).catch(()=>{})}}
-       if(/approval\.request/.test(t))rec.asking=true;if(/approval\.responded/.test(t))rec.asking=false;if(!res.writableEnded&&!res.destroyed)res.write(buf);for(const sub of rec.subs)sub.write(buf)}}catch{}
-     liveEnd(key,rec);if(!res.writableEnded)res.end();setTimeout(()=>codeRuns.delete(handle),600e3).unref?.();
-     await agentDefaults.codeAccessAfter(a,dir).catch(()=>{});return}
+       pend+=dec.decode(buf,{stream:true});let i;while((i=pend.search(/\r?\n\r?\n/))>=0){const raw=pend.slice(0,i);pend=pend.slice(i).replace(/^\r?\n\r?\n/,'');onEvent(raw)}if(pend.length>4e6)pend='';
+       if(!res.writableEnded&&!res.destroyed)res.write(buf);for(const sub of rec.subs)sub.write(buf)}}catch{}
+     clearInterval(beat);liveEnd(key,rec);if(!res.writableEnded)res.end();setTimeout(()=>codeRuns.delete(handle),600e3).unref?.();
+     await after();return}
     let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const h=codeRuns.get(String(b.handle||''));if(!h)return send(res,404,{error:'That run has already finished.'});
+    if(h.user!==who.id)return send(res,403,{error:'Only the person who started this run can stop it or answer it.'});   // (who: the person on the note)
     const go=(what,body)=>fetch(GATE.origin+h.pre+'/v1/runs/'+encodeURIComponent(h.runId)+'/'+what,{method:'POST',headers:{authorization:'Bearer '+API_KEY,'content-type':'application/json'},body:JSON.stringify(body||{}),signal:AbortSignal.timeout(20000)}).then(async r=>send(res,r.ok?200:502,r.ok?{ok:true}:{error:'The engine answered '+r.status+': '+(await r.text()).slice(0,200)}),e=>send(res,502,{error:e.message}));
     if(p==='/ui/code/engine/stop'&&req.method==='POST'){if(!h.runId){h.stop=true;return send(res,200,{ok:true,later:true})}return go('stop')}
     if(p==='/ui/code/engine/approval'&&req.method==='POST'){const choice=String(b.choice||'');if(!/^(once|session|always|deny)$/.test(choice)||!h.runId)return send(res,400,{error:'Nothing to answer.'});return go('approval',{choice,...(b.request_id?{request_id:String(b.request_id).slice(0,200)}:{})})}
@@ -1321,7 +1335,9 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/code/report'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}await code.report(dev,b);return send(res,200,{ok:true})}
    if(p==='/ui/code/run-usage'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}await code.addRun(dev,b);return send(res,200,{ok:true})}
    if(p==='/ui/code/update'){const u=await code.update();res.writeHead(200,{'content-type':'application/zip','content-length':u.zip.length,'x-code-version':u.version,'cache-control':'no-store'});return res.end(u.zip)}
-   if(p==='/ui/code/poll'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,262144))}catch{}const allowedA=new Set((await listAgents()).filter(mine));let gone=false;res.once('close',()=>{gone=true});const job=await code.poll(dev,(Array.isArray(b.projects)?b.projects:[]).map(x=>({...x,agent:allowedA.has(x?.agent)?x.agent:'',agents:(Array.isArray(x?.agents)?x.agents:[]).filter(a=>allowedA.has(a))})));if(gone||res.destroyed){code.requeue(dev,job);return}return send(res,200,{job})}
+   if(p==='/ui/code/poll'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,262144))}catch{}const allowedA=new Set((await listAgents()).filter(mine));let gone=false;res.once('close',()=>{gone=true});const job=await code.poll(dev,(Array.isArray(b.projects)?b.projects:[]).map(x=>({...x,agent:allowedA.has(x?.agent)?x.agent:'',agents:(Array.isArray(x?.agents)?x.agents:[]).filter(a=>allowedA.has(a))})));if(gone||res.destroyed){code.requeue(dev,job);return}
+    // the box's copy: an agent's job runs for the person the copy is paired as, so its models and aqeelOS tools answer (a note, as for a person)
+    if(job&&BOX){const exp=Date.now()+540e3;return send(res,200,{job:{...job,act:dev.user+'.'+exp+'.'+sign('code-act:'+dev.user+'.'+exp)}})}return send(res,200,{job})}
    if(p==='/ui/code/done'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,262144))}catch{}return send(res,200,{ok:code.done(dev,b.id,{state:String(b.state||''),text:String(b.text||'').slice(0,20000),files:(b.files||[]).slice(0,200).map(String),chat:String(b.chat||'')})})}
    return send(res,404,{error:'Not found'})}
   if(p==='/ui/brand'&&req.method==='GET')return send(res,200,await brand.get());

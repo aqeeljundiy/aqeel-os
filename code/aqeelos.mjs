@@ -6,6 +6,10 @@ import {readFile,writeFile,mkdir,access,unlink} from 'node:fs/promises';
 import {spawn} from 'node:child_process';
 import path from 'node:path';
 
+// fetch's built-in client cuts a response body that is silent for 5 minutes (a run waiting on an approval, a long
+// command): engine streams use a copy of it without that limit (Node's bundled undici, reached through the dispatcher
+// fetch has made; none yet, or another Node: the default one, and aqeelOS's keep-alive lines every 20 s keep it open)
+let longOne=null;const longDispatcher=()=>{if(longOne)return longOne;const d=globalThis[Symbol.for('undici.globalDispatcher.1')];try{if(d?.constructor)longOne=new d.constructor({bodyTimeout:0})}catch{}return longOne||undefined};
 export function createAqeelos({root}){
  const FILE=path.join(root,'data','aqeelos.json');let link=null,install=null;
  // (a file saved by Windows tools may start with a byte-order mark)
@@ -19,29 +23,43 @@ export function createAqeelos({root}){
  async function pair(base,token){const o=clean(base);if(!(await origins()).includes(o))throw Error('That aqeelOS address is not allowed for this copy.');
   const r=await fetch(o+'/ui/code/whoami',{headers:{authorization:'Bearer '+token},signal:AbortSignal.timeout(15000)});const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'aqeelOS did not accept the key.');
   link={base:o,token,user:j.name||'',pairedAt:Date.now()};await mkdir(path.dirname(FILE),{recursive:true});await writeFile(FILE,JSON.stringify(link,null,1),{mode:0o600});return state()}
- // the person's aqeelOS agents this computer may ask (what Code's picker lists)
- let agentsAt=0,agentsList=[];
- async function agents(){await load();if(!link.token)return [];if(Date.now()-agentsAt<60000)return agentsList;
-  try{const r=await fetch(link.base+'/ui/code/agents',{headers:{authorization:'Bearer '+link.token},signal:AbortSignal.timeout(15000)});const j=await r.json().catch(()=>({}));if(r.status===401){link={};await writeFile(FILE,'{}').catch(()=>{});agentsList=[];return []}   // aqeelOS no longer knows this key: unpaired, so the page pairs it again
-  if(r.ok){agentsList=(j.agents||[]).map(a=>({id:String(a.id),name:String(a.name||a.id),apps:a.apps||[],google:a.google||0}));agentsAt=Date.now()}}catch{}return agentsList}
+ /* The box's own copy is paired as the owner but used by everyone on Code online: aqeelOS answers its agent list, models,
+    runs and publishing only for the person on the short signed note (x-aq-act, nine minutes) it puts on every request.
+    The newest note per person is kept here (and in data/acts/, which a run's aqeelOS tools read again on every call),
+    so a queued message or a long run keeps acting as that person, never as the owner. Elsewhere there is no note. */
+ const acts=new Map(),ACTS=path.join(root,'data','acts');
+ const actParts=a=>{const [uid,exp,sg]=String(a||'').split('.');return uid&&/^[\w-]{1,80}$/.test(uid)&&Number(exp)>0&&sg?{uid,exp:Number(exp)}:null};
+ function noteAct(a){const p=actParts(a);if(!p||p.exp<Date.now()||p.exp>Date.now()+600e3)return '';const cur=acts.get(p.uid);
+  if(!cur||p.exp>cur.exp){acts.set(p.uid,{act:String(a),exp:p.exp});if(!cur||p.exp-(cur.saved||0)>60e3){acts.get(p.uid).saved=p.exp;void mkdir(ACTS,{recursive:true,mode:0o700}).then(()=>writeFile(path.join(ACTS,p.uid),String(a),{mode:0o600})).catch(()=>{})}}return String(a)}
+ // the newest note of the person an older note was for ('' when it has run out)
+ const freshAct=a=>{const p=actParts(a);if(!p)return '';const cur=acts.get(p.uid),best=cur&&cur.exp>p.exp?cur:{act:String(a),exp:p.exp};return best.exp>Date.now()+5000?best.act:''};
+ const actFile=a=>{const p=actParts(a);return p?path.join(ACTS,p.uid):''};
+ const anyAct=()=>{let b=null;for(const v of acts.values())if(!b||v.exp>b.exp)b=v;return b&&b.exp>Date.now()+5000?b.act:''};
+ const H=(act,more)=>({authorization:'Bearer '+link.token,...(act?{'x-aq-act':freshAct(act)||act}:{}),...more});
+ const who=act=>actParts(act)?.uid||'';
+ // the person's aqeelOS agents this computer may ask (what Code's picker lists), kept a minute per person
+ const agentsBy=new Map();
+ async function agents(act){await load();if(!link.token)return [];const k=who(act),hit=agentsBy.get(k);if(hit&&Date.now()-hit.t<60000)return hit.v;let list=hit?.v||[];
+  try{const r=await fetch(link.base+'/ui/code/agents',{headers:H(act),signal:AbortSignal.timeout(15000)});const j=await r.json().catch(()=>({}));if(r.status===401){link={};await writeFile(FILE,'{}').catch(()=>{});agentsBy.clear();return []}   // aqeelOS no longer knows this key: unpaired, so the page pairs it again
+  if(r.ok){list=(j.agents||[]).map(a=>({id:String(a.id),name:String(a.name||a.id),apps:a.apps||[],google:a.google||0}));agentsBy.set(k,{t:Date.now(),v:list})}}catch{}return list}
  // an agent's account and models from aqeelOS › Models (null: not paired, or aqeelOS did not answer). Kept 5 s only, so
- // an account switch there (by hand or automatic) reaches the next run
+ // an account switch there (by hand or automatic) reaches the next run; per person and agent (the answer is that person's)
  const routes=new Map();
- async function agentModel(agent){await load();if(!link.token)return null;const k=String(agent||''),hit=routes.get(k);if(hit&&Date.now()-hit.t<5000)return hit.v;
-  let v=null;try{const r=await fetch(link.base+'/ui/code/agent-model?agent='+encodeURIComponent(k),{headers:{authorization:'Bearer '+link.token},signal:AbortSignal.timeout(20000)});if(r.ok)v=await r.json()}catch{}
-  routes.set(k,{t:Date.now(),v});return v}
+ async function agentModel(agent,act){await load();if(!link.token)return null;const a=String(agent||''),k=who(act)+'|'+a,hit=routes.get(k);if(hit&&Date.now()-hit.t<5000)return hit.v;
+  let v=null;try{const r=await fetch(link.base+'/ui/code/agent-model?agent='+encodeURIComponent(a),{headers:H(act),signal:AbortSignal.timeout(20000)});if(r.ok)v=await r.json()}catch{}
+  routes.set(k,{t:Date.now(),v});if(routes.size>500)routes.delete(routes.keys().next().value);return v}
  // "aqeelOS models" (the box's copy): aqeelOS runs one turn for an agent on its engine and streams the events back.
  // act is the short signed note aqeelOS put on the person's request (x-aq-act), so the turn runs as them, not as the
  // owner this copy's key belongs to. The stream has no time limit (a turn may take long); signal stops reading it.
- async function engineRun(body,act,signal){await load();if(!link.token)throw Error('This copy of Code is not paired with aqeelOS.');if(!act)throw Error('Open Code from aqeelOS to run on aqeelOS models.');
-  const r=await fetch(link.base+'/ui/code/engine/run',{method:'POST',headers:{authorization:'Bearer '+link.token,'content-type':'application/json','x-aq-act':act},body:JSON.stringify(body),signal});
+ async function engineRun(body,act,signal){await load();if(!link.token)throw Error('This copy of Code is not paired with aqeelOS.');act=freshAct(act);if(!act)throw Error('Open Code from aqeelOS again to run on aqeelOS models (your sign-in note ran out).');
+  const r=await fetch(link.base+'/ui/code/engine/run',{method:'POST',headers:H(act,{'content-type':'application/json'}),body:JSON.stringify(body),signal,...(longDispatcher()?{dispatcher:longDispatcher()}:{})});
   if(!r.ok||!r.body){const j=await r.json().catch(()=>({}));throw Error(j.error||'aqeelOS did not start the run ('+r.status+').')}return r}
  // stop or answer an approval of an engine run, by the handle aqeelOS sent first
- async function engine(what,body){await load();const r=await fetch(link.base+'/ui/code/engine/'+what,{method:'POST',headers:{authorization:'Bearer '+link.token,'content-type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(25000)});
+ async function engine(what,body,act){await load();const r=await fetch(link.base+'/ui/code/engine/'+what,{method:'POST',headers:H(act,{'content-type':'application/json'}),body:JSON.stringify(body),signal:AbortSignal.timeout(25000)});
   const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'aqeelOS answered '+r.status);return j}
  async function unpair(){link={};await writeFile(FILE,'{}').catch(()=>{});return state()}
  // every run gets the aqeelOS tools when this computer is paired
- async function mcp(run){await load();if(!link.token)return null;return {name:'aqeelos',command:process.execPath,args:[path.join(root,'aqeelos-mcp.mjs')],env:{...(process.versions.electron?{ELECTRON_RUN_AS_NODE:'1'}:{}),AQ_BASE:link.base,AQ_TOKEN:link.token,AQ_PROJECT:String(run?.projectId||''),AQ_AGENT:String(run?.agent||'')}}}
+ async function mcp(run){await load();if(!link.token)return null;return {name:'aqeelos',command:process.execPath,args:[path.join(root,'aqeelos-mcp.mjs')],env:{...(process.versions.electron?{ELECTRON_RUN_AS_NODE:'1'}:{}),AQ_BASE:link.base,AQ_TOKEN:link.token,AQ_PROJECT:String(run?.projectId||''),AQ_AGENT:String(run?.agent||''),...(run?.act?{AQ_ACT:freshAct(run.act)||run.act,AQ_ACT_FILE:actFile(run.act)}:{})}}}
  // ask aqeelOS for work for this computer's projects (agents' code_work), every ~25 s while paired
  let serving=false;function serve({projects,work}){if(serving||process.env.NODE_TEST_CONTEXT)return;serving=true;const wait=ms=>new Promise(r=>setTimeout(r,ms).unref?.());
   (async()=>{for(;;){await load();if(!link.token){await wait(10000);continue}
@@ -76,12 +94,12 @@ export function createAqeelos({root}){
  async function people(){await load();if(!link.token)return [];if(Date.now()-peopleAt<60000)return peopleList;
   try{const r=await fetch(link.base+'/ui/code/people',{headers:{authorization:'Bearer '+link.token},signal:AbortSignal.timeout(10000)});if(r.ok){peopleList=(await r.json()).people||[];peopleAt=Date.now()}}catch{}return peopleList}
  // Live: send a project (zip) to aqeelOS, which runs it on the server at <slug>.app.elkiya.com
- async function publish(zip,{name,slug,repo,db}){await load();if(!link.token)throw Error('Connect this app to aqeelOS first (open Code in aqeelOS).');
+ async function publish(zip,{name,slug,repo,db},act){await load();if(!link.token)throw Error('Connect this app to aqeelOS first (open Code in aqeelOS).');
   const q=new URLSearchParams({name:name||'',slug:slug||'',repo:repo||'',db:db?'1':''});
-  const r=await fetch(link.base+'/ui/code/publish?'+q,{method:'POST',headers:{authorization:'Bearer '+link.token,'content-type':'application/zip'},body:zip,signal:AbortSignal.timeout(600000)});
+  const r=await fetch(link.base+'/ui/code/publish?'+q,{method:'POST',headers:H(act,{'content-type':'application/zip'}),body:zip,signal:AbortSignal.timeout(600000)});
   const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'aqeelOS did not take it ('+r.status+').');return j}
  async function report(r){await load();if(!link.token)return;await fetch(link.base+'/ui/code/report',{method:'POST',headers:{authorization:'Bearer '+link.token,'content-type':'application/json'},body:JSON.stringify({...r,version:install.version||'dev'}),signal:AbortSignal.timeout(15000)}).catch(()=>{})}
- return {origins,state,pair,unpair,mcp,agents,agentModel,engineRun,engine,serve,checkUpdate,autoUpdate,reportUsage,people,publish,report}}
+ return {origins,state,pair,unpair,mcp,agents,noteAct,freshAct,anyAct,agentModel,engineRun,engine,serve,checkUpdate,autoUpdate,reportUsage,people,publish,report}}
 // the entries of a stored (uncompressed) zip, as aqeelOS makes them
 function unzip(buf){const out=[];let i=0;while(i+30<=buf.length&&buf.readUInt32LE(i)===0x04034b50){const size=buf.readUInt32LE(i+18),nl=buf.readUInt16LE(i+26),xl=buf.readUInt16LE(i+28);
   const name=buf.slice(i+30,i+30+nl).toString();const start=i+30+nl+xl;out.push([name,buf.slice(start,start+size)]);i=start+size}return out}

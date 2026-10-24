@@ -53,7 +53,7 @@ export function runHook(hook,{cwd,env={},timeout=60000}){return new Promise(reso
 export function validateSchedules(list,projectIds){if(!Array.isArray(list)||list.length>20)throw Error('Add up to 20 schedules.');
  return list.map(s=>{const name=String(s.name||'').trim().slice(0,60);if(!name)throw Error('Name each schedule.');if(!projectIds.includes(s.projectId))throw Error('Choose a project for '+name+'.');
   const prompt=String(s.prompt||'').trim();if(!prompt||prompt.length>20000)throw Error('Write the prompt for '+name+'.');if(!EVERY.includes(s.every))throw Error('Choose how often '+name+' runs.');
-  if(!/^([01]\d|2[0-3]):[0-5]\d$/.test(s.time||''))throw Error('Use a time like 09:00 for '+name+'.');if(!['codex','claude','gemini'].includes(s.provider))throw Error('Choose Claude, GPT or Gemini for '+name+'.');
+  if(!/^([01]\d|2[0-3]):[0-5]\d$/.test(s.time||''))throw Error('Use a time like 09:00 for '+name+'.');if(s.provider==='aqeelos')throw Error(name+': scheduled runs use Claude, GPT or Gemini. aqeelOS models need a signed-in person, so they cannot run on a schedule.');if(!['codex','claude','gemini'].includes(s.provider))throw Error('Choose Claude, GPT or Gemini for '+name+'.');
   return {id:/^[\w-]{1,40}$/.test(s.id||'')?s.id:randomUUID(),name,projectId:s.projectId,prompt,every:s.every,time:s.time,day:Math.max(0,Math.min(6,Number(s.day)||1)),provider:s.provider,model:String(s.model||'').slice(0,80),effort:String(s.effort||'').slice(0,20),mode:s.mode==='auto'?'auto':'plan',enabled:s.enabled!==false}})}
 
 // The next run strictly after `from` (local time). Hourly runs at the minute of `time`.

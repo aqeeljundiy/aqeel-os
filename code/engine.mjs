@@ -23,7 +23,7 @@ async function readSSE(body,on){const dec=new TextDecoder();let buf='';
 export function runEngine(run,{aqeelos,act,path:dir,prompt,session,onSession}){return new Promise(async resolve=>{
  const ctl=new AbortController();let done=false,handle='',msg=null,think=null,finalText='',all='',completed=false,failure='';const steps=[];
  const finish=(state,error)=>{if(done)return;done=true;run.denyAll();if(error&&state==='failed')run.emit({type:'error',text:error});if(msg)run.update(msg,{final:true});ctl.abort();resolve({state,error:error||null,text:finalText||all.trim()})};
- run.stop=async()=>{run.stopped=true;run.denyAll();if(handle)await aqeelos.engine('stop',{handle}).catch(()=>{});setTimeout(()=>finish('stopped'),15000).unref?.()};
+ run.stop=async()=>{run.stopped=true;run.denyAll();if(handle)await aqeelos.engine('stop',{handle},act).catch(()=>{});setTimeout(()=>finish('stopped'),15000).unref?.()};
  const say=t=>{if(!t)return;think=null;all+=t;if(!msg)msg=run.emit({type:'message',text:'',final:false});run.update(msg,{text:msg.text+t})};
  const on=e=>{switch(e.type){
   case 'aqeelos.code':handle=e.handle;if(e.session)onSession?.(e.session);run.engineInfo={agent:e.agent,agentName:e.agentName,provider:e.provider,model:e.model,account:e.account};if(e.account)run.account=e.account+' (aqeelOS Models)';break;
@@ -40,11 +40,12 @@ export function runEngine(run,{aqeelos,act,path:dir,prompt,session,onSession}){r
   case 'tool.completed':case 'tool.failed':{const i=steps.map(s=>s.name===e.tool_name).lastIndexOf(true),s=steps.splice(i>=0?i:steps.length-1,1)[0];if(!s)break;
    run.update(s.ev,{status:e.type==='tool.failed'?'failed':'completed',...(s.ev.type==='command'?{output:clip(outText(e.result??e.output))}:{})});break}
   case 'approval.request':{const rid=e.request_id,choices=e.choices||['once','deny'];
-   const answer=d=>{const c=CHOICE[d]||'deny';aqeelos.engine('approval',{handle,choice:choices.includes(c)?c:c==='session'?'once':c,...(rid?{request_id:rid}:{})}).catch(er=>run.emit({type:'error',text:'The answer did not reach the engine: '+er.message}))};
+   const answer=d=>{const c=CHOICE[d]||'deny';aqeelos.engine('approval',{handle,choice:choices.includes(c)?c:c==='session'?'once':c,...(rid?{request_id:rid}:{})},act).catch(er=>run.emit({type:'error',text:'The answer did not reach the engine: '+er.message}))};
    // Full access: no prompts (blocked commands stay blocked on the engine), as Allow all in the chat
    if(run.mode==='full'){answer('acceptForSession');break}
-   run.ask('command',e.title||e.description||e.reason||'Allow this command?',String(e.command||e.description||'(command)'),answer);break}
-  case 'approval.responded':for(const [k,p] of run.pending)if(!p.question){run.pending.delete(k);run.update(p.event,{status:e.choice==='deny'?'denied':'approved'})}if(!run.pending.size&&run.state==='waiting')run.state='running';break;
+   const ev=run.ask('command',e.title||e.description||e.reason||'Allow this command?',String(e.command||e.description||'(command)'),answer);const pe=run.pending.get(ev.key);if(pe)pe.rid=rid||'';break}
+  // only the approval that was answered (by request id; none given: the engine has one at a time, so every open one)
+  case 'approval.responded':for(const [k,p] of run.pending)if(!p.question&&(!e.request_id||!p.rid||p.rid===e.request_id)){run.pending.delete(k);run.update(p.event,{status:e.choice==='deny'?'denied':'approved'})}if(!run.pending.size&&run.state==='waiting')run.state='running';break;
   case 'assistant.completed':{const c=contentText(e.content);if(c)finalText=c;if(e.runtime?.model)run.actualModel=e.runtime.model;break}
   case 'run.completed':{completed=true;const u=e.usage||e.run?.usage;if(u){const x=run.usage,inp=u.input_tokens??u.prompt_tokens??0,out=u.output_tokens??u.completion_tokens??0;x.calls++;x.input+=inp;x.output+=out;x.cachedInput+=u.cache_read_tokens??u.cached_tokens??0}finish(run.stopped?'stopped':'complete');break}
   case 'run.failed':failure=String(e.error?.message||e.error||'The engine stopped with an error.');finish(run.stopped?'stopped':'failed',run.stopped?null:failure);break;
