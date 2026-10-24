@@ -396,6 +396,8 @@ function enhanceSelect(sel){if(sel.dataset.enhanced||sel.multiple)return;sel.dat
  const sync=()=>{const o=sel.options[sel.selectedIndex];btn.innerHTML=`<span class="sv">${esc(o?o.textContent:'Choose…')}</span>${icon('chevD',15)}`;btn.disabled=sel.disabled};sync();
  sel.classList.add('sel-native');sel.tabIndex=-1;sel.setAttribute('aria-hidden','true');sel.after(btn);
  sel.addEventListener('change',sync);sel._sync=sync;
+ // set from code (a cancelled or failed change put back, a picker held while saving): the button follows at once
+ for(const k of ['value','selectedIndex','disabled']){const pd=Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,k);if(pd?.set)Object.defineProperty(sel,k,{configurable:true,get(){return pd.get.call(this)},set(v){pd.set.call(this,v);sync()}})}
  btn.onclick=e=>{e.stopPropagation();const items=[];let grp=null;for(const o of sel.options){const g=o.parentElement.tagName==='OPTGROUP'?o.parentElement.label:null;if(g!==grp){grp=g;if(g)items.push({header:g})}items.push({label:o.textContent,on:o.selected,disabled:o.disabled,run:()=>{if(sel.value===o.value)return;sel.value=o.value;sel.dispatchEvent(new Event('input',{bubbles:true}));sel.dispatchEvent(new Event('change',{bubbles:true}))}})}
   btn.classList.add('open');menu(btn,items,{matchWidth:true,search:sel.options.length>12,onClose:()=>{btn.classList.remove('open');btn.focus()}});const obs=new MutationObserver(()=>{if(!$('.menu')){btn.classList.remove('open');obs.disconnect()}});obs.observe(document.body,{childList:true})};
  btn.onkeydown=e=>{if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();btn.click()}}}
