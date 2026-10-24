@@ -92,3 +92,18 @@ ACT['agy-out']=async()=>{if(!await confirmBox('Sign Google AI Pro out?','Agents 
  // who moved where, and anyone it could not move (they stay on Google AI Pro and their next message fails)
  const mv=Object.entries(r?.moved||{}),stuck=r?.stuck||[];toast('Signed out'+(mv.length?'. Moved '+mv.map(([a])=>ident(a).name).join(', '):''));
  if(stuck.length)fail(new Error('Could not move '+stuck.map(a=>ident(a).name).join(', ')+'. Pick another model for '+(stuck.length>1?'them':'it')+' under Which agent uses what.'));reload()}catch(e){fail(e)}};
+
+/* ---------- Old Code sign-ins: the accounts aqeelOS Code signed in to by itself on the AI box. Code's runs there use the
+   agents' accounts from this page now, so these are only listed: a Claude one can be moved in as an account here (the
+   same kind of folder), a Codex one only removed (the engine's ChatGPT sign-in is kept differently). Nothing is removed
+   without asking first. ---------- */
+{const base=PAGES.accounts;PAGES.accounts=async(p,el)=>{await base(p,el);if(S.me?.admin===false)return;let r;try{r=await UI('/ui/accounts/old-code')}catch{return}const l=r.signins||[];if(!l.length||!el.isConnected)return;
+ const box=document.createElement('div');box.className='panel card old-code';box.style.marginTop='16px';
+ box.innerHTML=`<h2>Old Code sign-ins</h2><p class="sub">Accounts Code signed in to by itself on the AI box. Code now uses the account each agent is on here, so these are no longer needed. Move a Claude one in to keep using it, or remove it.</p>
+  ${l.map(x=>`<div class="ca-row">${logoImg(x.provider==='claude'?'claude.ai':'chatgpt.com',x.provider==='claude'?'C':'G')}<div class="ca-t"><b>${esc(x.label)}</b><span>${esc([x.provider==='claude'?'Claude':'Codex (ChatGPT)',x.signedIn?(x.email?accountText({email:x.email}):'Signed in'):'Not signed in',x.active?'Code’s choice right now':''].filter(Boolean).join(' · '))}</span></div>
+   <span class="pri-btns">${x.provider==='claude'&&x.signedIn?`<button class="ghost small" data-act="oldcode-import" data-id="${esc(x.id)}" data-l="${esc(x.label)}">Move in</button>`:''}<button class="ghost small" data-act="oldcode-remove" data-p="${esc(x.provider)}" data-id="${esc(x.id)}" data-l="${esc(x.label)}">Remove</button></span></div>`).join('')}`;
+ el.append(box)}}
+ACT['oldcode-import']=async a=>{if(!await confirmBox('Move '+a.dataset.l+' into aqeelOS?','It becomes one of your Claude accounts here, with its usage on its own card, and you can give it to agents. Code stops using it as its own.','Move in',false))return;
+ a.disabled=true;try{const r=await post(UI,'/ui/accounts/old-code/import',{id:a.dataset.id});Pages._acctFresh=true;toast(r.label+' is now one of your accounts');reload()}catch(e){a.disabled=false;fail(e)}};
+ACT['oldcode-remove']=async a=>{if(!await confirmBox('Remove '+a.dataset.l+'?','Its sign-in folder is deleted from the AI box. This cannot be undone; you can sign in to that account again here at any time.','Remove'))return;
+ a.disabled=true;try{await del(UI,'/ui/accounts/old-code/'+a.dataset.p+'/'+a.dataset.id);toast(a.dataset.l+' removed');reload()}catch(e){a.disabled=false;fail(e)}};

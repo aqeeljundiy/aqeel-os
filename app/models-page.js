@@ -58,7 +58,7 @@ Pages.acctNewMenu=async el=>{let o={providers:[]};try{o=await H('/providers/oaut
   '-',{label:'Another provider',sub:'OpenRouter, xAI and more, with an API key',icon:'key',run:()=>{store.set('keysOpen:LLM providers',true);go('/system/keys')}}],{matchWidth:true})};
 // panels that some pages add a moment later (Team of models, Google AI Pro) land on their own tab only
 const MODEL_TAB_DROP={'Accounts':/^(Which agent uses what|Default model|Model for|Helper models|Images|Who makes pictures|Team of models)/,
- 'Agents’ models':/^(Priority|Switch automatically|Sign-ins|Subscriptions you|Images|Who makes pictures|Team of models|Google AI Pro|Gemini)/,'Pictures':/^(?!Images|Who makes pictures)/,'Team of models':/^(?!Team of models)/};
+ 'Agents’ models':/^(Priority|Switch automatically|Sign-ins|Subscriptions you|Images|Who makes pictures|Team of models|Google AI Pro|Gemini|Old Code sign-ins)/,'Pictures':/^(?!Images|Who makes pictures)/,'Team of models':/^(?!Team of models)/};
 function pruneModelTab(box,tab){const re=MODEL_TAB_DROP[tab];if(!re)return;const go=()=>{for(const p of box.querySelectorAll('.panel')){const t=(p.querySelector('h2')?.textContent||'').trim();if(t&&re.test(t))p.remove()}};go();
  const mo=new MutationObserver(go);mo.observe(box,{childList:true,subtree:true});setTimeout(()=>mo.disconnect(),15000)}
 /* ---------- System › Usage › By model: each model with its rank, provider, what it is set as, how its tokens split,
