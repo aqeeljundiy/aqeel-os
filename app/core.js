@@ -220,7 +220,6 @@ const avaHtml=(src,photo,px,alt,attrs='',cls='')=>`<span class="ag-ava ${photo?'
 function agentAvatar(a,size=28,o={}){const id=(a&&typeof a==='object'?a.id:a)||'default',i=ident(id),px=avaPx(size),n=o.name||(a&&typeof a==='object'&&a.name)||i.name;
  const photo=!o.plain&&i.avatar,src=photo||emojiSrc(!o.plain&&i.emoji||emojiAuto(id));
  return avaHtml(src,!!photo,px,n,` data-ava="${esc(id)}" data-sz="${px}"${o.cls?` data-cls="${esc(o.cls)}"`:''}${o.plain?' data-plain':''}${o.title===false?'':` title="${esc(n)}"`}`,[o.cls,o.anim&&'ava-in'].filter(Boolean).join(' '))}
-const avatarImg=s=>agentAvatar(S.profile||'default',s);
 // personAvatar({id,name,avatar,emoji}, size): the same component for people. Their photo > their emoji > their initial on
 // a soft colour from their id (people get no automatic emoji: the letter says who it is at a glance)
 function personAvatar(u,size=28,o={}){u=u||{};const px=avaPx(size),n=u.name||'?',src=u.avatar||emojiSrc(EMOJI.some(e=>e.slug===u.emoji)?u.emoji:'');

@@ -13,7 +13,6 @@ const skillsOn=a=>mayEdit(a,'skills');   // TS_UNSAFE (pages.js) mirrors users.m
 async function allChipFlip(b,send,label,when){const on=b.getAttribute('aria-pressed')!=='true',a=b.dataset.agent;b.disabled=true;
  try{const r=await send(a,on);S._skPer=null;b.classList.toggle('on',on);b.setAttribute('aria-pressed',String(on));toast(label+(on?' on for ':' off for ')+ident(a).name+' · '+when(r,on))}catch(e){fail(e)}finally{b.disabled=false}}
 ACT['all-sk']=b=>allChipFlip(b,(a,on)=>put(H,prof('/skills/toggle',a),{name:b.dataset.name,enabled:on}),b.dataset.name,()=>'applies to new chats');
-ACT['all-ts']=b=>allChipFlip(b,(a,on)=>put(H,prof('/tools/toolsets/'+encodeURIComponent(b.dataset.name),a),{enabled:on}),b.dataset.name,()=>'applies to new chats');
 // a plugin: turning it on copies it from an agent that has it (Who can use does the same); off switches it off there
 ACT['all-pl']=b=>allChipFlip(b,(a,on)=>on?post(UI,'/ui/access',{kind:'plugin',id:b.dataset.name,agent:a,on:true}):post(UI,'/ui/plugins/toggle',{agent:a,name:b.dataset.name,enabled:false}),b.dataset.name,(r,on)=>on||r?.restart_required?'applies after the agents restart':'works at once');
 

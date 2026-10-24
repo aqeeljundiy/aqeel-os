@@ -143,7 +143,6 @@ ACT['me-profile']=()=>{const me=S.me||{};
    const name=$('#pfName').value.trim(),username=$('#pfUser').value.trim().toLowerCase();if(name!==me.name||username!==(me.username||''))await put(UI,'/ui/me',{name,username});
    if($('#pwC').value||$('#pwN').value)await put(UI,'/ui/me/password',{current:$('#pwC').value,next:$('#pwN').value});
    await loadMe();closeLayers();toast('Profile saved');if(route().page?.id==='people')reload()}catch(e){fail(e)}finally{b.disabled=false}}};
-ACT['me-password']=()=>ACT['me-profile']();
 
 /* ---------- members on the Agents page: only what their share level and permissions allow ---------- */
 {const full=Pages.profileMenu;
@@ -279,7 +278,6 @@ ACT['mem-edit']=async a=>{const f=a.dataset.f,path=memHome()+'/memories/'+f;let 
    const fd=new FormData();fd.append('path',path);fd.append('overwrite','true');fd.append('file',new Blob([text],{type:'text/markdown'}),f);
    await H('/files/upload-stream',{method:'POST',body:fd});closeLayers();toast(f+' saved');reload()}catch(e){fail(e);btn.disabled=false}}};
 
-ACT['agent-use']=a=>{switchAgent(a.dataset.name);go('/chat')};
 // the whole card opens a chat with that agent; the gear holds its settings
 ACT['agent-card']=(a,e)=>{if(e.target.closest('[data-menu],button,a,select,input'))return;if((S.profile||'default')!==a.dataset.name)switchAgent(a.dataset.name);go('/chat')};
 
@@ -353,7 +351,6 @@ ACT['role-new']=()=>roleDrawer(null);ACT['role-open']=a=>roleDrawer(a.dataset.id
  el.querySelector('.people-grid')?.after(panel)}}
 
 /* ---------- Channels for the whole team: which agent answers each one, and moving it ---------- */
-ACT['wh-new-pre']=0;
 {const base=ACT['wh-new'];ACT['wh-new']=async a=>{try{S.agentsCache=((await H('/profiles')).profiles||[]).map(x=>x.name)}catch{}return base(a)}}
 {const base=PAGES.channels;PAGES.channels=async(p,el)=>{
  // load the team list together with the page, and hold its place while it loads (no late pop-in)

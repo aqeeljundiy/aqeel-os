@@ -15,8 +15,6 @@ const ChatSeen={k:()=>'chatSeen:'+(S.profile||'default'),
  mark(id,t){const v=this.db();const at=Math.max(t||0,Date.now()/1000);if((v.c[id]||0)<at-1){v.c[id]=at;this.save(v)}},
  isNew(c){const v=this.db();return (c.last_active||c.started_at||0)>(v.c[c.id]||v.base)+2}};
 const SRC_LABEL={api_server:'Started in this app',whatsapp:'From WhatsApp',telegram:'From Telegram',cron:'A schedule ran this',webhook:'Started by a webhook',cli:'From the command line',tui:'From the command line',oneshot:'A one-off task',discord:'From Discord',slack:'From Slack',email:'From email'};
-// Shown until the server has starters written from recent chats.
-const STARTER_DEFAULTS={admin:[['Check my sites','See if every site on the VPS is up, and tell me if anything is slow.'],['Plan a schedule','Every weekday at 8, send me a short report on how my sites are doing.'],['Tidy the server','Find what is using disk space on this box and suggest a safe clean-up.'],['Research','Find three new AI tools worth trying this week and say what each one is good for.']],member:[['Plan my week','Help me plan this week: ask me what is coming up, then make a simple day-by-day list.'],['Dinner ideas','Suggest five easy dinners for this week with a shopping list.'],['Write a message','Help me write a friendly message. Ask me who it is for and what I want to say.'],['Learn something','Explain something interesting in simple words. Ask me what I am curious about first.']]};
 const Chat={
  models:null,model:store.get('model',null),effort:store.get('effort','medium'),
  live:{},        // sessionId → {turns, running, runId, abort}
@@ -110,11 +108,6 @@ const Chat={
   const hi='Welcome to aqeelOS';
   return `<div class="chat-empty"><div class="halo">${agentAvatar(S.profile||'default',56,{title:false})}</div><h1>${hi}</h1><p>${S.me&&!S.me.admin?`What can <span class="agent-name">${esc(AGENT())}</span> help you with today?`:`What should <span class="agent-name">${esc(AGENT())}</span> work on? It runs on your AI box, so it keeps going when you close this tab.`}</p>
   </div>`},
- // Starter prompts come from the person's recent chats with this agent (server: starters.mjs); cached here per agent.
- starters:{},
- startersHtml(list){return (list||[]).map(([a,b])=>`<button class="card prompt" data-prompt="${esc(b)}"><b>${esc(a)}</b>${esc(b)}</button>`).join('')},
- async loadStarters(){const k=S.profile||'default';try{const d=await UI('/ui/starters?agent='+encodeURIComponent(k));const same=JSON.stringify(d.prompts)===JSON.stringify(this.starters[k]);this.starters[k]=d.prompts;const el=$('#starters');
-  if(el&&!same&&(S.profile||'default')===k){el.classList.add('swap');setTimeout(()=>{el.innerHTML=this.startersHtml(d.prompts);el.classList.remove('swap')},180)}}catch{}},
  composerHtml(){const running=this.live[this.id]?.running;
   return `<div class="composer-wrap"><div style="position:relative;max-width:780px;margin:0 auto"><div id="slash"></div><div class="composer" id="composer">
   <div id="queueList"></div><div id="toolChips" class="tool-chips">${this.toolChipsHtml()}</div><div id="attachList" style="display:flex;gap:6px;flex-wrap:wrap"></div>
