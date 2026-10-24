@@ -1631,7 +1631,8 @@ const server=createServer(async(req,res)=>{
     if(b.owner){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can open n8n as its owner.'});if(!await n8n.ready())return send(res,409,{error:'n8n is not connected yet.'});const st=await n8n.status(a);return send(res,200,{url:st.base+'/aqeelos-login?t='+n8n.ticket('__owner')})}if(!(await listAgents()).includes(a))return send(res,400,{error:'Unknown agent'});
     if(!users.isAdmin(u)&&!users.atLeast(u,a,'edit'))return send(res,403,{error:'You can chat with this agent but not open its n8n.'});
     try{const r=await n8n.ensure(a);const st=await n8n.status(a);return send(res,200,{url:st.base+'/aqeelos-login?t='+n8n.ticket(a),email:r.email})}catch(e){return send(res,409,{error:e.message})}}
-   if(p==='/ui/models/agents'&&req.method==='GET'){const out=[];for(const a of await listAgents()){if(!users.isAdmin(u)&&!users.level(u,a))continue;   // the agents this person may use (owned or shared)const c=await readConfig(a).catch(()=>null)||{};
+   if(p==='/ui/models/agents'&&req.method==='GET'){const out=[];for(const a of await listAgents()){if(!users.isAdmin(u)&&!users.level(u,a))continue;   // the agents this person may use (owned or shared)
+     const c=await readConfig(a).catch(()=>null)||{};
      out.push({id:a,name:NAMES[a]||await displayName(a),model:c.model?.default||'',provider:c.model?.provider||''})}return send(res,200,{agents:out})}
    // Access: who owns each connection and which agents may use it (see access.mjs). Admins only.
    // asking for access: anyone may see what the other agents have (names only) and ask for it for an agent they use; admins decide
