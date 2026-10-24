@@ -268,5 +268,5 @@ export function createUsers(DATA,mail){
  async function loginCode(u){const me=byId(u.id);return sendCode(me,'login',me.email)}
  function finishLogin(key,code){const v=checkCode(String(key||''),code,'login');if(v.error)return v;const u=byId(v.uid);return u?{ok:true,user:u}:{error:'That person no longer exists.'}}
  const expiredInvites=()=>(db?.invites||[]).filter(i=>!i.used&&i.expires<Date.now()&&i.expires>Date.now()-30*86400e3).map(i=>({code:i.code,name:i.name,role:i.role,roleId:i.roleId||null,caps:i.caps||[],agents:i.agents||{},ownAgent:i.ownAgent||null,expired:i.expires}));
- return {expiredInvites,agentOwner,byId,ownerOf,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginCode,finishLogin,created,can,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home,level,dropAgent,restoreAgent};
+ return {expiredInvites,agentOwner,byId,ownerOf,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginCode,finishLogin,created,can,canOn,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home,level,dropAgent,restoreAgent};
 }

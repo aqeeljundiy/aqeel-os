@@ -1,6 +1,7 @@
 // Sharing abilities between agents. In the engine every agent keeps its own skills, MCP tools, plugins and
 // schedules, so "share" means: copy it to the agents you pick (settings included), and "used by" means:
 // which agents have one with that name. Renaming an MCP tool is copy-under-new-name, then remove the old.
+import {allowed,restricted,allowedNames} from './skills-policy.mjs';
 import {execFile} from 'node:child_process';
 import {cp,readdir,stat,access,readFile,writeFile,rename} from 'node:fs/promises';
 import path from 'node:path';
@@ -40,7 +41,8 @@ export function createShare({DASH,TOKEN,HERMES_HOME,listAgents}){
  async function share(kind,name,from,to){if(!NAME.test(name))throw new Error('Bad name');const agents=await listAgents();const done=[],failed=[];
   for(const t of to){if(!agents.includes(t)||t===from)continue;try{
    if(kind==='mcp')await setMcp(t,name,await mcpBlock(from,name));
-   else if(kind==='skill'){const src=await findSkillDir(from,name);if(!src)throw new Error('skill folder not found');const rel=path.relative(path.join(homeOf(from),'skills'),src);await cp(src,path.join(homeOf(t),'skills',rel),{recursive:true,force:true})}
+   else if(kind==='skill'){const src=await findSkillDir(from,name);if(!src)throw new Error('skill folder not found');const rel=path.relative(path.join(homeOf(from),'skills'),src);
+    if(!allowed(rel,t))throw new Error('this skill is only for '+(allowedNames(rel).filter(a=>a!=='default').join(', ')||'the main agent'));await cp(src,path.join(homeOf(t),'skills',rel),{recursive:true,force:true})}
    else if(kind==='plugin'){const own=path.join(homeOf(from),'plugins',name);if(await stat(own).then(s=>s.isDirectory(),()=>false))await cp(own,path.join(homeOf(t),'plugins',name),{recursive:true,force:true});
     const r=await run(['-p',t,'plugins','enable',name]);if(!r.ok)throw new Error((r.err||r.out).trim().split('\n').pop())}
    else if(kind==='schedule'){const jobs=await api('/cron/jobs'+q(from));const j=(Array.isArray(jobs)?jobs:jobs.jobs||[]).find(x=>x.id===name);if(!j)throw new Error('schedule not found');
@@ -58,6 +60,7 @@ export function createShare({DASH,TOKEN,HERMES_HOME,listAgents}){
  async function duplicate(kind,agent,name,to){if(!NAME.test(name)||!NAME.test(to)||name===to)throw new Error('Use letters, numbers, dots or dashes, and a new name.');
   if(kind==='mcp'){const have=((await api('/mcp/servers'+q(agent))).servers||[]).map(x=>x.name);if(have.includes(to))throw new Error(to+' already exists.');await setMcp(agent,to,await mcpBlock(agent,name));return {ok:true,name:to}}
   if(kind==='skill'){const src=await findSkillDir(agent,name);if(!src)throw new Error('Skill folder not found.');const dst=path.join(path.dirname(src),to);
+   if(restricted(path.relative(path.join(homeOf(agent),'skills'),src)))throw new Error('This skill is only for certain agents, so it cannot be copied under a new name.');
    if(await stat(dst).then(()=>true,()=>false))throw new Error(to+' already exists.');await cp(src,dst,{recursive:true});
    const md=path.join(dst,'SKILL.md');let t=await readFile(md,'utf8');t=t.replace(/^(---[\s\S]*?\nname:\s*)(.+)$/m,(m,a)=>a+to);await writeFile(md,t);return {ok:true,name:to}}
   throw new Error('Only MCP tools and skills can be duplicated. A plugin runs once per agent.')}

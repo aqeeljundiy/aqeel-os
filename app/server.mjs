@@ -1306,6 +1306,10 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/share'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const from=String(b.from||''),to=(Array.isArray(b.to)?b.to:[]).map(String);
     const may=a=>users.isAdmin(u)||users.gate(u,'/hapi/profiles/'+a+'/soul','PUT',new URLSearchParams(),a)===null;if(!may(from)||!to.every(may))return send(res,403,{error:'You can only share between agents you can edit.'});
     if(!users.isAdmin(u)&&b.kind==='mcp')return send(res,403,{error:'Only admins can copy MCP tools between agents.'});
+    // the same rights as doing it on each agent directly: plugins are admin-only, skills and schedules need that permission
+    if(!users.isAdmin(u)&&b.kind==='plugin')return send(res,403,{error:'Only admins can turn plugins on.'});
+    if(!users.isAdmin(u)&&b.kind==='skill'&&!to.every(a=>users.canOn(u,'skills',a)))return send(res,403,{error:'Your role does not include adding skills to that agent.'});
+    if(!users.isAdmin(u)&&b.kind==='schedule'&&!to.every(a=>users.canOn(u,'schedules',a)))return send(res,403,{error:'Your role does not include schedules on that agent.'});
     try{return send(res,200,await sharing.share(String(b.kind||''),String(b.name||''),from,to))}catch(e){return send(res,400,{error:e.message})}}
    // a provider without automatic registration (Slack, Google…): its app's client ID/secret, and the return address to give it
    if(p==='/ui/mcp/oauth-client'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can set this.'});let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}

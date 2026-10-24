@@ -31,7 +31,13 @@ export const RESTRICTED={
 export const REMOVED=['apple/findmy'];
 
 export const baseOf=a=>String(a).split('--')[0];   // an extra number ("default--whatsapp-2") is the same agent
-export const allowed=(key,agent)=>{if(REMOVED.includes(key))return false;const r=RESTRICTED[key];return !r||r.includes(baseOf(agent))};
+// a rule matches the skill's own name too, so a copy in another category is still covered (not a renamed copy: share.mjs refuses those)
+const nameOf=k=>String(k).split('/').pop();
+const ruleFor=key=>RESTRICTED[key]||Object.entries(RESTRICTED).find(([k])=>nameOf(k)===nameOf(key))?.[1];
+export const removedKey=key=>REMOVED.some(k=>k===key||nameOf(k)===nameOf(key));
+export const restricted=key=>removedKey(key)||!!ruleFor(key);
+export const allowed=(key,agent)=>{if(removedKey(key))return false;const r=ruleFor(key);return !r||r.includes(baseOf(agent))};
+export const allowedNames=key=>ruleFor(key)||[];
 
 // Moves the skills this agent must not have out of its skills folder into backupDir (nothing is deleted); returns what moved.
 export async function trim(skillsDir,agent,backupDir){const moved=[];
