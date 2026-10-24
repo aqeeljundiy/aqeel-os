@@ -4,8 +4,12 @@
 (async()=>{const errs=[];window.addEventListener('error',e=>errs.push('script error: '+e.message));
 const pages=['#/chat','#/code/code','#/agents/profiles','#/agents/memory','#/agents/files','#/automations/schedules','#/automations/webhooks','#/automations/n8n','#/channels/channels','#/abilities/skills','#/abilities/mcp','#/abilities/plugins','#/models/models','#/system/people','#/system/usage','#/system/health','#/system/logs','#/system/keys','#/system/settings','#/help'];
 const sl=ms=>new Promise(r=>setTimeout(r,ms));const out=[];let bad=0;
-let settled=Infinity,shown=new Set();const flick=[];const sig=t=>(t.textContent||'').replace(/s+/g,' ').trim().slice(0,80);
- const snap=()=>{shown=new Set();for(const el of document.querySelectorAll('#view *')){const x=sig(el);if(x.length>3)shown.add(x)}};
+let settled=Infinity,shown=new Set();const flick=[];const sig=t=>(t.textContent||'').replace(/\s+/g,' ').trim().slice(0,80);
+ // only what has settled counts as shown: content drawn a moment before this look is still in its first entrance (its
+ // fade starts a frame later, or after its stagger), which is not a replay (a slow page landing at 2.5 s, 24 Oct 2026)
+ const snap=()=>{shown=new Set();for(const el of document.querySelectorAll('#view *')){if(el.getAnimations().some(a=>Calm.entry().has(a.animationName)&&a.playState!=='finished'))continue;const x=sig(el);if(x.length>3)shown.add(x)}};
+ // and once that first entrance is over, it is shown too: from then on a fade-in of the same content is a replay
+ document.addEventListener('animationend',e=>{if(performance.now()>=settled&&e.target.closest?.('#view')&&Calm.entry().has(e.animationName)){const x=sig(e.target);if(x.length>3)shown.add(x)}},true);
 document.addEventListener('animationstart',e=>{if(performance.now()<settled||typeof Calm==='undefined'||!Calm.entry().has(e.animationName))return;const t=e.target;if(t.closest?.('.menu,.toast,dialog,.drawer,.notice,[data-anim],.aq-menu'))return;if(!shown.has(sig(t)))return;
  setTimeout(()=>{if(t.isConnected&&t.getAnimations().some(a=>a.animationName===e.animationName&&a.playState==='running'))flick.push(e.animationName+' on '+(t.id?'#'+t.id:String(t.className||t.tagName).slice(0,40)))},40)},true);
 for(let i=0;i<pages.length;i++){const p=pages[i];
