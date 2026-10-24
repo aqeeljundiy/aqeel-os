@@ -60,7 +60,7 @@ PAGES.people=async(p,el)=>{
    ${u.role==='owner'||self||u.role==='admin'&&S.me?.role!=='owner'?'':`<button class="ghost icon-btn more" data-menu="person" data-id="${esc(u.id)}" aria-label="More">${icon('more',18)}</button>`}
    ${u.role==='member'?`<div class="pshares"><span class="th">Agents</span>${sh.length?sh.map(([a,l])=>`<div class="pshare">${agentAva(a)}<b>${esc(ident(a).name)}</b><span class="chip">${esc(LEVEL_LABEL[l]||l)}</span><button class="ghost" data-act="ppl-share-open" data-a="${esc(a)}" style="margin-left:auto;min-height:30px;padding:0 10px;font-size:12.5px">Change</button></div>`).join(''):'<p class="hint" style="margin:4px 0">No agents shared yet.</p>'}
     <button class="ghost" data-act="ppl-share" data-id="${esc(u.id)}" style="margin-top:6px">${icon('plus',15)}Share an agent</button></div>
-   <div class="pcaps"><span class="th">Allowed to</span>${Object.entries(d.caps||{}).map(([k,l])=>`<label class="capt ${k==='unsafe'?'risky':''}"><input type="checkbox" data-cap="${k}" data-user="${esc(u.id)}" ${(u.caps||[]).includes(k)?'checked':''} ${k==='unsafe'&&S.me?.role!=='owner'?'disabled':''}><span>${esc(l)}</span></label>`).join('')}</div>`:`<p class="hint" style="margin:10px 0 0">${u.role==='owner'?'Everything, including people and keys.':'Everything except changing the owner.'}</p>`}</div>`};
+   <div class="pcaps"><span class="th">Allowed to</span>${Object.entries(d.caps||{}).map(([k,l])=>`<label class="capt ${k==='unsafe'?'risky':''}"><input type="checkbox" data-cap="${k}" data-user="${esc(u.id)}" ${(u.caps||[]).includes(k)?'checked':''} ${k==='unsafe'&&S.me?.role!=='owner'?'disabled':''}><span>${esc(l)}</span></label>`).join('')}</div>`:`<div class="pcaps"><span class="th">Allowed to</span><p class="psay">${u.role==='owner'?'Everything, including people and keys.':'Everything except changing the owner.'}</p></div>`}</div>`};
  const inv=(d.invites||[]).map((x,i)=>`<div class="row" ${st(i)} style="padding:12px 12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="txt"><b>${esc(x.name||'Anyone with the link')} · ${esc(ROLE_LABEL[x.role])}</b><span>Expires ${new Date(x.expires).toLocaleDateString()}${Object.keys(x.agents||{}).length?' · '+Object.keys(x.agents).map(a=>esc(ident(a).name)).join(', '):''}</span></div><div class="act"><button data-act="ppl-copy" data-code="${esc(x.code)}">${icon('copy',15)}Copy link</button><button class="ghost" data-act="ppl-uninvite" data-code="${esc(x.code)}" aria-label="Cancel invite">${icon('x',16)}</button></div></div>`).join('');
  el.innerHTML=`<div class="people-grid">${[d.owner,...d.users].map(person).join('')}</div>
   ${inv?`<div class="panel card" style="margin-top:16px"><h2>Waiting to join</h2><p class="sub">Links work once and expire after 7 days.</p>${inv}</div>`:''}
@@ -196,7 +196,7 @@ async function mailPanel(){const box=$('#mailBox');if(!box)return;let m;try{m=aw
 
 /* ---------- per person: which models, and a daily limit ---------- */
 const LIMITS=[[0,'No limit'],[50000,'50k tokens a day'],[200000,'200k tokens a day'],[1000000,'1M tokens a day'],[5000000,'5M tokens a day']];
-const modelSummary=u=>!u.models?'Every model you have on':u.models.length===1?modelLabel(u.models[0].split('|').pop()):u.models.length+' models';
+const modelSummary=u=>!u.models?'All your models':u.models.length===1?modelLabel(u.models[0].split('|').pop()):u.models.length+' models';
 ACT['ppl-models']=async a=>{const u=(Pages._ppl?.users||[]).find(x=>x.id===a.dataset.id);if(!u)return;if(!Chat.models)await Chat.loadModels().catch(()=>{});
  const ms=Chat.models||[];const on=k=>!u.models||u.models.includes(k);
  const d=drawer('Models for '+u.name,`<label class="pick"><input type="checkbox" id="pmAll" ${!u.models?'checked':''}><span><b>Every model you have on</b><br><small class="hint">New models are included automatically.</small></span></label>
@@ -207,7 +207,7 @@ ACT['ppl-models']=async a=>{const u=(Pages._ppl?.users||[]).find(x=>x.id===a.dat
 {const people=PAGES.people;PAGES.people=async(p,el)=>{await people(p,el);
  el.querySelectorAll('.person').forEach(card=>{const id=card.querySelector('[data-cap]')?.dataset.user;const u=(Pages._ppl?.users||[]).find(x=>x.id===id);if(!u||u.role!=='member')return;
   const box=document.createElement('div');box.className='pcaps';box.innerHTML=`<span class="th">Models and limit</span>
-   <div class="pshare"><b>${esc(modelSummary(u))}</b><button class="ghost" data-act="ppl-models" data-id="${esc(u.id)}">Choose</button></div>
+   <div class="pshare"><b>Models</b><button type="button" class="sel-btn inline" data-act="ppl-models" data-id="${esc(u.id)}" aria-haspopup="dialog" title="${esc(modelSummary(u))}"><span class="sv">${esc(modelSummary(u))}</span>${icon('chevD',15)}</button></div>
    <div class="pshare"><b>Daily limit</b><select style="width:auto" data-limit="${esc(u.id)}">${LIMITS.map(([v,l])=>`<option value="${v}" ${(u.limit?.tokens||0)===v?'selected':''}>${l}</option>`).join('')}</select></div>`;
   card.append(box);enhanceSelect(box.querySelector('select'))});
  el.querySelectorAll('[data-limit]').forEach(s=>s.onchange=async()=>{try{await UI('/ui/people/'+s.dataset.limit,{method:'PATCH',body:{limit:+s.value?{tokens:+s.value}:null}});toast('Saved')}catch(e){fail(e)}})}}
@@ -315,7 +315,7 @@ const pluginGroup=x=>{const m=/\/plugins\/([^/]+)\//.exec(x.path||'');const g=m?
  paint();explainFor('plugin',list.map(x=>({id:x.name,name:x.name,desc:x.description||''})),paint)}}
 
 /* ---------- Roles: define once (permissions, models, daily limit, how many agents), give each person one ---------- */
-const roleSummary=ro=>{const n=(ro.caps||[]).length;return (n?n+' permission'+(n>1?'s':''):'chat only')+(ro.models?' · '+ro.models.length+' model'+(ro.models.length>1?'s':''):'')+(ro.limit?' · '+num(ro.limit.tokens)+'/day':'')+(ro.maxAgents?' · up to '+ro.maxAgents+' agents':'')};
+const roleSummary=ro=>{const n=(ro.caps||[]).length;return (n?n+' permission'+(n>1?'s':''):'Chat only')+(ro.models?' · '+ro.models.length+' model'+(ro.models.length>1?'s':''):'')+(ro.limit?' · '+num(ro.limit.tokens)+'/day':'')+(ro.maxAgents?' · up to '+ro.maxAgents+' agents':'')};
 async function roleDrawer(id){const d0=Pages._ppl||{};const ro=id?d0.roles[id]:{name:'',caps:[],models:null,limit:null,maxAgents:0};if(!Chat.models)await Chat.loadModels().catch(()=>{});const ms=Chat.models||[];
  const d=drawer(id?'Role · '+ro.name:'New role',`<label>Name</label><input id="roN" value="${esc(ro.name)}" placeholder="Family">
   <label>Allowed to</label>${Object.entries(d0.caps||{}).map(([k,l])=>`<label class="capt ${k==='unsafe'?'risky':''}"><input type="checkbox" data-rcap="${k}" ${(ro.caps||[]).includes(k)?'checked':''} ${k==='unsafe'&&S.me?.role!=='owner'?'disabled':''}><span>${esc(l)}</span></label>`).join('')}
@@ -334,7 +334,7 @@ ACT['role-new']=()=>roleDrawer(null);ACT['role-open']=a=>roleDrawer(a.dataset.id
 {const people=PAGES.people;PAGES.people=async(p,el)=>{await people(p,el);const d=Pages._ppl||{};if(!d.roles)return;
  // each member: one role picker; per-person settings show only for Custom
  el.querySelectorAll('.person').forEach(card=>{const id=card.querySelector('[data-cap]')?.dataset.user;const u=(d.users||[]).find(x=>x.id===id);if(!u||u.role!=='member')return;
-  const box=document.createElement('div');box.className='pcaps prole';box.innerHTML=`<div class="pshare"><b>Role</b><select style="width:auto" data-role="${esc(u.id)}">${Object.entries(d.roles).map(([k,ro])=>`<option value="${esc(k)}" ${u.roleId===k?'selected':''}>${esc(ro.name)}</option>`).join('')}<option value="custom" ${u.roleId==='custom'?'selected':''}>Custom</option></select></div><p class="hint" style="margin:2px 0 0">${u.roleId==='custom'?'Their own settings below.':esc(roleSummary(d.roles[u.roleId]||{}))}</p>`;
+  const box=document.createElement('div');box.className='pcaps prole';box.innerHTML=`<span class="th">Role</span><div class="pshare"><span class="psay">${u.roleId==='custom'?'Their own settings below.':esc(roleSummary(d.roles[u.roleId]||{}))}</span><select style="width:auto" data-role="${esc(u.id)}" aria-label="Role of ${esc(u.name)}">${Object.entries(d.roles).map(([k,ro])=>`<option value="${esc(k)}" ${u.roleId===k?'selected':''}>${esc(ro.name)}</option>`).join('')}<option value="custom" ${u.roleId==='custom'?'selected':''}>Custom</option></select></div>`;
   const first=card.querySelector('.pshares');(first||card.lastChild).after(box);enhanceSelect(box.querySelector('select'));
   if(u.roleId!=='custom')card.querySelectorAll('.pcaps:not(.prole)').forEach(x=>x.hidden=true)});
  el.querySelectorAll('[data-role]').forEach(s=>s.onchange=async()=>{try{await UI('/ui/people/'+s.dataset.role,{method:'PATCH',body:{roleId:s.value==='custom'?null:s.value}});toast('Role changed');reload()}catch(e){fail(e)}});

@@ -1952,3 +1952,10 @@ button.plug-danger{background:var(--bad);box-shadow:none}
 .tsg-sum{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px;font-size:13.5px}.tsg-sum small{color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tsg-bar button{flex:none}
 @media (max-width:560px){.tsg-bar{flex-wrap:wrap;border-radius:18px;padding:12px}.tsg-sum{flex-basis:100%}.tsg-bar .primary{flex:1}}
+/* ---------- people: every card is the same shape (head, then titled sections); the owner's "Everything" sits in a section too ---------- */
+.person .pshares,.person .pcaps{margin-top:14px;padding-top:12px}
+.person .psay{margin:0;font-size:12.5px;line-height:1.45;color:var(--ink-2)}
+.pshare .psay{flex:1;min-width:0;color:var(--muted)}   /* what the picked role allows, read as its description */
+/* Role, Models and Daily limit: one menu-button look, one width, right-aligned */
+.pshare .sel-btn.inline{min-height:34px;width:176px;min-width:0;max-width:62%;padding:6px 10px 6px 12px;font-size:13px;flex:none}
+@media (max-width:760px){.pshare .sel-btn.inline{font-size:16px;width:168px}}
