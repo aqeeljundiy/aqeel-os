@@ -1219,14 +1219,7 @@ function claudeLogin(st,label,again){if(!st.url)return toast('Claude did not sta
  const watch=()=>setTimeout(async function tick(){if(!d.isConnected)return;const l=await UI('/ui/accounts/'+st.id+'/login').catch(()=>null);if(!d.isConnected)return;
   if(l?.state==='done')ok();else if(l?.state==='failed'){d.querySelector('#acHint').textContent=l.hint;over=true}else setTimeout(tick,4000)},4000);
 }
-Pages.acctMenu=el=>{const id=el.dataset.id;const admin=S.me?.admin!==false;
- // a provider's card (p:<slug>): Reconnect is all it has here; its sign-out stays under Subscriptions you are signed in to
- if(id.startsWith('p:'))return menu(el,[{label:'Reconnect',sub:'Sign in again, or a new key',icon:'plug',run:()=>Pages.reconnect(id,el.dataset.name||id.slice(2))}]);
- const a=(Pages._acct?.accounts||[]).find(x=>x.id===id)||{};
- menu(el,[...(admin?[{label:'Reconnect',sub:'Sign in again as this account',icon:'plug',run:()=>Pages.reconnect('claude:'+id,a.label||id)},'-']:[]),{label:'Rename',icon:'edit',run:async()=>{const v=await promptBox('Rename account','Name',a.label);if(!v||v.trim()===a.label)return;try{await UI('/ui/accounts/'+id,{method:'PATCH',body:{label:v}});toast(a.label+' renamed to '+v.trim());reload()}catch(e){fail(e)}}},
-  ...(Object.keys(Pages._acct?.assign||{}).map(n=>({label:'Use for '+ident(n).name,icon:'user',ava:agentAvatar(n,20,{title:false}),on:Pages._acct.assign[n]===id,run:async()=>{try{await UI('/ui/accounts/assign',{method:'POST',body:{profile:n,account:id}});toast(ident(n).name+' now uses '+a.label);reload()}catch(e){fail(e)}}}))),
-  id!=='main'&&'-',id!=='main'&&{label:'Remove account',icon:'trash',bad:true,run:async()=>{if(!await confirmBox('Remove '+a.label+'?','It is signed out and removed from the box. Agents must use another account first.','Remove'))return;try{await UI('/ui/accounts/'+id,{method:'DELETE'});toast(a.label+' removed');reload()}catch(e){fail(e)}}}])};
-
+// the ⋯ menu on every account card is in accounts-page.js (Pages.acctMenu)
 /* ---------- Reconnect: any account card, the signed-out banner on Models and the Bottlenecks item open the sign-in its
    kind already has, for the account that is there (nothing new is made): Claude its own sign-in again (/reconnect),
    ChatGPT and the engine's other subscriptions their sign-in (oauth-in), Google AI Pro its Connect on Models, a
@@ -1246,9 +1239,9 @@ Pages.reconnect=async(key,name)=>{
 ACT['acct-reconnect']=a=>Pages.reconnect(a.dataset.key,a.dataset.name||'this account');
 // the provider's key name, from the main agent's keys: its own prefix (OPENROUTER_…), the one already set first
 const KEY_PRE={'openai-api':'OPENAI_',huggingface:'HF_','kimi-coding':'KIMI_',zai:'ZAI_','xai-oauth':'XAI_',gemini:'GEMINI_'};
-async function acctKey(slug,name){let env={};try{env=await H('/env?profile=default')}catch(e){return fail(e)}
- const pre=KEY_PRE[slug]||slug.split(/[-_.]/)[0].toUpperCase()+'_';
- const k=Object.entries(env).filter(([n])=>n.startsWith(pre)&&/_(API_KEY|TOKEN)$/.test(n)).sort((x,y)=>(y[1].is_set?1:0)-(x[1].is_set?1:0)||(/_API_KEY$/.test(y[0])?1:0)-(/_API_KEY$/.test(x[0])?1:0))[0]?.[0];
+async function provKeyName(slug){const env=await H('/env?profile=default');const pre=KEY_PRE[slug]||slug.split(/[-_.]/)[0].toUpperCase()+'_';
+ return Object.entries(env).filter(([n])=>n.startsWith(pre)&&/_(API_KEY|TOKEN)$/.test(n)).sort((x,y)=>(y[1].is_set?1:0)-(x[1].is_set?1:0)||(/_API_KEY$/.test(y[0])?1:0)-(/_API_KEY$/.test(x[0])?1:0))[0]?.[0]||''}
+async function acctKey(slug,name){let k;try{k=await provKeyName(slug)}catch(e){return fail(e)}
  if(!k){store.set('keysOpen:LLM providers',true);go('/system/keys');return toast('Set the key for '+name+' here')}
  const d=drawer('Reconnect '+name,`<p style="margin:0 0 12px;color:var(--ink-2);line-height:1.55">Paste a new key for ${esc(name)}. It replaces the saved one (<code>${esc(k)}</code>) and is never shown again.</p><label for="rkV">Key</label><input id="rkV" type="password" autocomplete="new-password" spellcheck="false">`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="rkGo" disabled>Save key</button>`);
  const v=d.querySelector('#rkV'),b=d.querySelector('#rkGo');v.oninput=()=>{b.disabled=!v.value.trim()};v.onkeydown=e=>{if(e.key==='Enter'&&!b.disabled){e.preventDefault();b.click()}};

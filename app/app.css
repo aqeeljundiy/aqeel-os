@@ -161,6 +161,8 @@ body{overflow:hidden}
 .panel h2{font-size:16px;font-weight:600;letter-spacing:-.2px;margin:0 0 4px}
 .panel .sub{font-size:13px;color:var(--muted);margin:0 0 16px}
 .two{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:16px}
+/* a lone panel in a pair (its partner moved to another tab) takes the whole row */
+.two>.panel:only-child{grid-column:1/-1}
 .field{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,260px);gap:16px;align-items:center;padding:14px 0;border-top:1px solid var(--border)}
 .field:first-of-type{border-top:0}
 .field label{font-size:14px;font-weight:500}
@@ -571,7 +573,25 @@ body.dragging .screen-float{transition:none}
 .ubar-track i.warn{background:linear-gradient(90deg,#f0b35a,var(--warn))}
 .ubar-track i.bad{background:linear-gradient(90deg,#ff8a8a,var(--bad))}
 .ubar small{font-size:11.5px;color:var(--muted)}
-.acct-agents{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.acct-agents{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:auto;padding-top:12px;border-top:1px solid var(--border)}
+/* one account card for every kind: header with ⋯, one status, limits (or why there are none), Used by at the foot */
+.acct{display:flex;flex-direction:column;gap:12px}.acct .tile-top{margin:0;align-items:flex-start}.acct-id{min-width:0;flex:1}.acct-id h3{margin:0}
+.acct-more-btn{margin:-6px -8px 0 0;flex:none}.acct-st{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:24px}
+.acct-none{margin:0}.acct-names{font-size:13px;color:var(--ink-2)}
+/* Switch automatically: the switch and the level side by side when there is room; recent switches as tidy rows */
+.auto-ctl{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;align-items:stretch;margin:4px 0 6px}
+.auto-on,.auto-th{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border:1px solid var(--border);border-radius:14px;min-width:0}.auto-on>span,.auto-th>span{min-width:0}.auto-th .sel-btn{flex:none}
+.auto-on b,.auto-th b{display:block;font-size:13.5px;font-weight:600;color:var(--ink)}.auto-on small,.auto-th small{display:block;font-size:12px;color:var(--muted);font-weight:400;margin-top:2px}
+.sw-h{font-size:13.5px;margin:18px 0 6px}
+.sw-list{display:flex;flex-direction:column}.sw-row{display:grid;grid-template-columns:118px minmax(0,1fr) auto;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--border);font-size:13px}
+.sw-t{color:var(--muted);font-size:12.5px;white-space:nowrap;font-variant-numeric:tabular-nums}.sw-who{display:flex;align-items:center;gap:6px;min-width:0;color:var(--ink-2)}.sw-who b{font-weight:600;color:var(--ink)}.sw-who>span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sw-who svg{flex:none;opacity:.55}
+.sw-why{font-size:11px;padding:1px 8px;font-weight:500;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sw-more{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows var(--t-med) var(--ease),opacity var(--t-med) var(--ease)}.sw-more>.sw-list{overflow:hidden;min-height:0}.sw-more.open{grid-template-rows:1fr;opacity:1}
+.sw-all{margin-top:8px}
+@container (max-width:520px){.sw-row{grid-template-columns:minmax(0,1fr);row-gap:4px}.sw-why{justify-self:start;max-width:100%}}
+/* Choose agents: one row per agent with its switch */
+.ag-pick{display:flex;flex-direction:column}.ag-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--border)}.ag-row:first-child{border-top:0}
+.ag-row .t{flex:1;min-width:0}.ag-row .t b{display:block;font-size:14px}.ag-row .t small{display:block;font-size:12.5px;color:var(--muted)}
 .acct-agents .th{margin-right:4px}
 
 /* real service logos */
@@ -764,7 +784,7 @@ body.dragging .screen-float{transition:none}
 
 /* ---------- Accounts: priority list ---------- */
 .pri-list{display:flex;flex-direction:column;gap:8px}
-.pri-row{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:16px;background:var(--surface);cursor:grab;animation:rise var(--t-med) var(--ease) both;transition:border-color var(--t-fast),box-shadow var(--t-fast),transform var(--t-fast) var(--ease)}
+.pri-row{display:grid;grid-template-columns:24px 32px minmax(150px,1fr) minmax(220px,1.3fr) auto;grid-template-areas:'n logo txt lim btn' '. . use sel sel';align-items:center;column-gap:12px;row-gap:8px;padding:10px 12px;border:1px solid var(--border);border-radius:16px;background:var(--surface);cursor:grab;animation:rise var(--t-med) var(--ease) both;transition:border-color var(--t-fast),box-shadow var(--t-fast),transform var(--t-fast) var(--ease)}
 .pri-row:hover{box-shadow:0 10px 24px -18px rgba(11,12,16,.35)}
 .pri-row.dragging{opacity:.45}.pri-row.over{border-color:var(--blue-2);transform:translateY(2px)}
 .pri-n{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:var(--blue-soft);color:var(--blue-deep);font-size:12px;font-weight:600;flex:none}
@@ -773,9 +793,22 @@ body.dragging .screen-float{transition:none}
 .pri-btns{display:flex;gap:2px}.pri-btns .icon-btn{width:30px;height:30px;min-height:30px;padding:0;display:grid;place-items:center}
 .acct-more{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;border-style:dashed;color:var(--ink-2);min-height:180px;text-decoration:none}
 .acct-more b{color:var(--ink)}.acct-more span{font-size:12.5px;max-width:240px}
-/* a narrow panel: the name keeps the first line, model, usage and buttons go under it lined up with the name */
-@container (max-width:640px){.pri-row{flex-wrap:wrap;row-gap:8px}.pri-row .txt{flex:1 1 calc(100% - 200px)}.pri-row>.sel-btn,.pri-row>.chip{order:2}.pri-row>.sel-btn{margin-left:80px;flex:1 1 160px;min-width:0;max-width:300px}}
-@container (max-width:400px){.pri-row>.sel-btn{flex-basis:calc(100% - 80px);max-width:none}.pri-row>.chip{margin-left:80px}}
+/* each priority row is a live overview: status, session and week, who is on it, its model */
+.pri-n{grid-area:n}.pri-row>.logo{grid-area:logo}.pri-row>.txt{grid-area:txt}.pri-lim{grid-area:lim;display:grid;gap:5px;min-width:0}.pri-use{grid-area:use}.pri-sel{grid-area:sel;min-width:0}.pri-row>.pri-btns{grid-area:btn}
+.pri-row .txt b{display:flex;align-items:center;gap:8px;min-width:0}.pri-row .txt .pri-active{display:inline-flex;flex:none;font-size:11px;padding:1px 8px;font-weight:600;color:var(--ok);background:var(--ok-soft,rgba(22,163,74,.1));border-color:transparent;overflow:visible}
+.pri-row .txt .pri-st{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted)}.pri-st .dot{width:7px;height:7px;border-radius:50%;background:var(--muted);flex:none}
+.pri-st.on{color:var(--ok)}.pri-st.on .dot{background:var(--ok)}.pri-st.out{color:var(--bad)}.pri-st.out .dot{background:var(--bad)}
+.mbar{display:grid;grid-template-columns:52px minmax(40px,1fr) 34px auto;align-items:center;gap:8px;font-size:12px;color:var(--muted);min-width:0}
+.mbar b{font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums;text-align:right}.mbar small{font-size:11.5px;white-space:nowrap}
+.mb-t{height:6px;border-radius:var(--r-pill);background:var(--soft);overflow:hidden}.mb-t i{display:block;height:100%;border-radius:inherit;transition:width .6s var(--ease)}
+.mb-t i.ok{background:linear-gradient(90deg,var(--blue-2),var(--blue))}.mb-t i.warn{background:linear-gradient(90deg,#f0b35a,var(--warn))}.mb-t i.bad{background:linear-gradient(90deg,#ff8a8a,var(--bad))}
+.pri-lim .hint{margin:0;font-size:12.5px}
+.pri-use{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-2);white-space:nowrap}.pri-use .acc-who{margin:0}
+.pri-sel{justify-self:end}.pri-sel .sel-btn{max-width:240px}.pri-use{min-height:34px}
+/* a narrower panel (Models at 800 px): name, who and buttons on the first line; limits, then the model, under the name */
+@container (max-width:640px){.pri-row{grid-template-columns:24px 32px minmax(0,1fr) auto;grid-template-areas:'n logo txt btn' '. . lim lim' '. . use use' '. . sel sel'}.pri-sel{justify-self:start;max-width:100%}.pri-lim{max-width:460px}.pri-use{min-height:0}}
+/* a phone: who is on it gets its own line too, the model picker the full width */
+@container (max-width:480px){.pri-row{column-gap:10px;grid-template-areas:'n logo txt btn' '. . lim lim' '. . use use' 'sel sel sel sel'}.pri-sel,.pri-sel .sel-btn{justify-self:stretch;max-width:none;width:100%}.pri-btns .icon-btn{width:28px}}
 /* chat: account usage ring next to the model */
 .meter{display:inline-flex;align-items:center;gap:5px;min-height:34px;padding:0 10px 0 8px;border:0;background:transparent;box-shadow:none;font-size:12.5px;color:var(--ink-2);border-radius:var(--r-pill);transition:background var(--t-fast)}
 .meter:hover{background:var(--soft);transform:none;box-shadow:none}
