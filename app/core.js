@@ -443,14 +443,15 @@ function showError(el,e,retry){if(!el||e?.stale||!el.isConnected)return;Oops.add
 // handle (@bot, +phone, email); nothing known: the name agents use to pick it ("agents call it whatsapp")
 const accountText=(a,{label='',id=''}={})=>{const h=a?a.phone||a.username||a.email||'':'',n=label||a?.name||'';return [n,h].filter(Boolean).join(' · ')||(id?'agents call it '+id:'')};
 // a sign-in that has to be done again, said one way everywhere: the warn chip, and Sign in where the page has one
-// (act: that button's data attributes); tip: what it is about, on hover
-const signChip=(act='',tip='')=>`<span class="chip warn sign-chip"${tip?` title="${esc(tip)}"`:''}>Needs signing in again</span>${act?`<button class="link sign-go" ${act}>Sign in</button>`:''}`;
+// (act: that button's data attributes); tip: what it is about, on hover; label: the button's word (Reconnect on Models)
+const signChip=(act='',tip='',label='Sign in')=>`<span class="chip warn sign-chip"${tip?` title="${esc(tip)}"`:''}>Needs signing in again</span>${act?`<button class="link sign-go" ${act}>${esc(label)}</button>`:''}`;
 // what this person may change on an agent, as users.mjs decides: admins every agent; members the agents they own, and
 // the ones they may edit (for a right such as 'skills' or 'tools', only when their role has it)
 const mayEdit=(a,cap)=>{const me=S.me||{},l=me.agents?.[a];return me.admin!==false||l==='owner'||l==='edit'&&(!cap||(me.caps||[]).includes(cap))};
 // one soft warning box for every failed or incomplete part: icon, the message (html, already escaped) and a small
-// Try again on the same line (wraps under when narrow); act:'' for none, id for a button a flow wires itself
-const alertBox=(html,{act='reload',id='',label='Try again',style='',cls=''}={})=>`<div class="alert${cls?' '+cls:''}" role="alert"${style?` style="${style}"`:''}>${icon('alert',16)}<span class="alert-t">${html}</span>${act||id?`<button class="ghost small"${id?` id="${id}"`:` data-act="${act}"`}>${icon('refresh',14)}${esc(label)}</button>`:''}</div>`;
+// Try again on the same line (wraps under when narrow); act:'' for none, id for a button a flow wires itself; attrs: more
+// data attributes on that button (already escaped), icon: its icon
+const alertBox=(html,{act='reload',id='',label='Try again',style='',cls='',attrs='',ic='refresh'}={})=>`<div class="alert${cls?' '+cls:''}" role="alert"${style?` style="${style}"`:''}>${icon('alert',16)}<span class="alert-t">${html}</span>${act||id?`<button class="ghost small"${id?` id="${id}"`:` data-act="${act}"`}${attrs?' '+attrs:''}>${icon(ic,14)}${esc(label)}</button>`:''}</div>`;
 // each drawing of a page gets a number; work that ends after a newer drawing began is dropped (two quick reloads drew
 // the Agents page twice, a slow Files answer replaced a newer folder). pageRun starts a drawing, pageTok joins the current one
 const pageRun=el=>{const t=el._rt=(el._rt||0)+1;return ()=>el._rt!==t||!el.isConnected};

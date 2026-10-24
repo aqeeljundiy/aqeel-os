@@ -10,14 +10,16 @@ function acctSources(d){
  const chatW=p=>p.windows.filter(w=>w.scope!=='model'&&w.scope!=='image');
  const prov=(d.providers||[]).map(p=>({key:'p:'+p.slug,name:provLabel(p),sub:p.name,logo:PROV_DOMAINS[p.slug]||(/antigravity|gemini|google/i.test(p.slug+' '+p.name)?'gemini.google.com':''),models:p.models,ok:true,
   used:chatW(p).length?Math.max(0,...chatW(p).map(w=>w.used)):null,bars:p.windows.filter(w=>w.scope!=='image').map(w=>[w.label,{used:w.used,resets:w.resets}]),
-  details:[...p.windows.filter(w=>w.scope==='image').map(w=>'Pictures limit reached '+new Date(w.at).toLocaleString([],{dateStyle:'medium',timeStyle:'short'})+' (separate from chat use)'),...(p.details||[])]}));
- return [...claude,...prov]}
+  details:[...p.windows.filter(w=>w.scope==='image').map(w=>'Pictures limit reached '+new Date(w.at).toLocaleString([],{dateStyle:'medium',timeStyle:'short'})+' (separate from chat use)'),...(p.details||[])],menu:S.me?.admin!==false?'p:'+p.slug:''}));
+ // a provider that signed out is gone from the engine's list: its card stays, signed out, with Reconnect
+ const gone=(d.signedOut||[]).filter(x=>x.key.startsWith('p:')&&!prov.some(p=>p.key===x.key)).map(x=>({key:x.key,name:x.name,sub:'Signed out',logo:PROV_DOMAINS[x.key.slice(2)]||(/antigravity|gemini|google/i.test(x.key+' '+x.name)?'gemini.google.com':''),models:[],ok:false,used:null,bars:[],details:[],menu:S.me?.admin!==false?x.key:''}));
+ return [...claude,...prov,...gone]}
 const usedChip=u=>u==null?'<span class="chip">No limit info</span>':`<span class="chip ${u>=90?'bad':u>=70?'warn':'ok'}"><i class="dot"></i>${u}% used</span>`;
 
 PAGES.accounts=async(p,el)=>{
  setActions(`<button data-act="acct-refresh">${icon('refresh',16)}Refresh</button><button class="primary" data-menu="acct-new">${icon('plus',16)}Add account</button>`);
  const d=await UI('/ui/accounts'+(Pages._acctFresh?'?fresh=1':''));Pages._acctFresh=false;Pages._acct=d;if(!Chat.models)await Chat.loadModels().catch(()=>{});
- const src=acctSources(d);Pages._acctSrc=src;const byKey=Object.fromEntries(src.map(s=>[s.key,s]));
+ const src=acctSources(d);Pages._acctSrc=src;const admin=S.me?.admin!==false;const byKey=Object.fromEntries(src.map(s=>[s.key,s]));
  const users=k=>Object.entries(d.route||{}).filter(([,r])=>r.entry===k).map(([n])=>ident(n).name);
  const usedBy=k=>Object.entries(d.route||{}).filter(([,r])=>r.entry===k).map(([n])=>({id:n,name:ident(n).name}));   // Used by: the shared component (Access.who)
  const pri=(d.priority||[]).filter(e=>byKey[e.key]);Pages._pri=pri;
@@ -25,15 +27,17 @@ PAGES.accounts=async(p,el)=>{
   ${logoImg(s.logo,s.name[0].toUpperCase())}<div class="txt"><b>${esc(s.name)}</b><span>${u.length?'In use by '+esc(u.join(', ')):'Standby'}</span></div>
   <select data-pri-model="${i}" style="width:auto"><option value="">Keep each agent's model</option>${s.models.map(m=>`<option value="${esc(m)}" ${m===e.model?'selected':''}>${esc(modelLabel(m))}</option>`).join('')}</select>
   ${usedChip(s.used)}<span class="pri-btns"><button class="ghost icon-btn" data-act="pri-move" data-i="${i}" data-dir="-1" aria-label="Move up" ${i?'':'disabled'}>${icon('chevU',16)}</button><button class="ghost icon-btn" data-act="pri-move" data-i="${i}" data-dir="1" aria-label="Move down" ${i<pri.length-1?'':'disabled'}>${icon('chevD',16)}</button><button class="ghost icon-btn" data-act="pri-del" data-i="${i}" aria-label="Remove">${icon('x',16)}</button></span></div>`};
- const card=(s,i)=>`<div class="card tile acct" ${st(i)} style="cursor:default"><div class="tile-top">${logoImg(s.logo,s.name[0].toUpperCase())}<div style="min-width:0;flex:1"><h3>${esc(s.name)}</h3><span class="acct-mail">${esc(s.sub)}</span></div>${s.isTeam?'':s.ok===false?signChip():usedChip(s.used)}</div>
-  ${s.isTeam?'':s.bars.length?`<div class="ubars">${s.bars.map(([l,w])=>pctBar(l,w)).join('')}</div>`:`<p class="hint">${s.ok?(s.key.startsWith('p:')?'This provider does not report limits.'+(/subscription|codex|antigravity/i.test(s.key)?'':' It is billed per use.'):'Usage appears after the first chat.'):'Sign in again to use this account.'}</p>`}
+ const card=(s,i)=>`<div class="card tile acct" ${st(i)} style="cursor:default"><div class="tile-top">${logoImg(s.logo,s.name[0].toUpperCase())}<div style="min-width:0;flex:1"><h3>${esc(s.name)}</h3><span class="acct-mail">${esc(s.sub)}</span></div>${s.isTeam?'':s.ok===false?signChip(admin?`data-act="acct-reconnect" data-key="${esc(s.key)}" data-name="${esc(s.name)}"`:'','',`Reconnect`):usedChip(s.used)}</div>
+  ${s.isTeam?'':s.bars.length?`<div class="ubars">${s.bars.map(([l,w])=>pctBar(l,w)).join('')}</div>`:`<p class="hint">${s.ok?(s.key.startsWith('p:')?'This provider does not report limits.'+(/subscription|codex|antigravity/i.test(s.key)?'':' It is billed per use.'):'Usage appears after the first chat.'):'Reconnect it to use this account again.'}</p>`}
   ${(s.details||[]).map(x=>`<p class="hint" style="margin:4px 0">${esc(x)}</p>`).join('')}
   <div class="acct-agents"><span class="th">Used by</span>${usedBy(s.key).length?Access.who({users:usedBy(s.key)})+`<span class="hint" style="margin:0">${esc(users(s.key).join(', '))}</span>`:'<span class="hint" style="margin:0">No agent yet</span>'}</div>
-  ${s.menu?`<div class="tile-foot"><span></span><button class="ghost icon" data-menu="acct" data-id="${esc(s.menu)}" aria-label="More">${icon('more',18)}</button></div>`:''}</div>`;
+  ${s.menu?`<div class="tile-foot"><span></span><button class="ghost icon" data-menu="acct" data-id="${esc(s.menu)}" data-name="${esc(s.name)}" aria-label="More">${icon('more',18)}</button></div>`:''}</div>`;
  // the 'Team of models' (Mixture of Agents) is not an account of its own: it borrows the others. Say so, and only show it when an agent uses it
  for(const s of src)if(/moa|mixture/i.test(s.key+' '+s.name)){s.isTeam=true;s.name='Team of models';s.sub='Several models answer, one combines them';s.details=['It runs on your other accounts above, so it has no limits of its own. Set it up under Models › Team of models.']}
  const left=src.filter(s=>!pri.some(e=>e.key===s.key)&&!(s.isTeam&&!users(s.key).length));
- el.innerHTML=`<div class="panel card"><h2>Priority</h2><p class="sub">The order your accounts get used in. When an agent's account passes the limit you set, it moves to the next one with room. Drag to reorder.</p>
+ // signed out: one line each, with the same Reconnect as the card (it goes once the account works again)
+ const outs=admin?(d.signedOut||[]):[];
+ el.innerHTML=`${outs.map(x=>alertBox(`<b>${esc(x.name)}</b> signed out${x.since?' '+esc(ago(x.since/1000)):''}. Agents that use it can’t answer with it until it is reconnected.`,{act:'acct-reconnect',label:'Reconnect',ic:'plug',cls:'acct-out',attrs:`data-key="${esc(x.key)}" data-name="${esc(x.name)}"`})).join('')}<div class="panel card"><h2>Priority</h2><p class="sub">The order your accounts get used in. When an agent's account passes the limit you set, it moves to the next one with room. Drag to reorder.</p>
   <div class="pri-list">${pri.map(priRow).join('')||'<p class="hint">Nothing here yet. Add your accounts in the order you want them used.</p>'}</div>
   ${left.length?`<button class="ghost" data-menu="pri-add" style="margin-top:10px">${icon('plus',15)}Add to priority</button>`:''}</div>
  <div class="two" style="margin-top:16px"><div class="panel card"><h2>Switch automatically</h2><p class="sub">Checked every 5 minutes. ${pri.length?'Follows the priority list.':'Without a priority list, each agent moves to another account of the same kind with the most room.'}</p>

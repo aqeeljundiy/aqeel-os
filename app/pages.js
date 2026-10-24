@@ -1203,15 +1203,53 @@ const pctBar=(label,w)=>{if(!w)return '';const c=w.used>=90?'bad':w.used>=70?'wa
 ACT['acct-refresh']=async()=>{Pages._acctFresh=true;try{await G('/api/model/options?refresh=1')}catch{}await Chat.loadModels().catch(()=>{});reload()};
 ACT['acct-add']=async()=>{const label=await promptBox('Add a Claude account','A name for this account (e.g. Work Max)','','Continue');if(!label)return;
  let st;try{st=await UI('/ui/accounts',{method:'POST',body:{label}})}catch(e){return fail(e)}
- if(!st.url)return toast('Claude did not start a sign-in. Try again.','err');
- const d=drawer('Sign in: '+label,`<ol style="padding-left:18px;line-height:1.8;color:var(--ink-2);margin:0 0 12px"><li><a href="${esc(st.url)}" target="_blank" rel="noopener">Open the Claude sign-in page</a>. Use the account you want to add. If Claude emails you a link, open it in the same browser.</li><li>Approve, then copy the code it shows (use its Copy button).</li><li>Paste it here.</li></ol><label>Code</label><input id="acCode" autocomplete="off"><p class="hint" id="acHint"></p>`,`<button class="ghost" id="acCancel">Cancel</button><button class="primary" id="acGo">Finish sign-in</button>`);
+ claudeLogin(st,label,false)};
+// the Claude sign-in window, for a new account and for Reconnect (the same account, its own folder): open the link,
+// paste the code, Finish. Closing it any way cancels the sign-in, so a Reconnect puts the old sign-in file back.
+function claudeLogin(st,label,again){if(!st.url)return toast('Claude did not start a sign-in. Try again.','err');let over=false;
+ const d=drawer((again?'Reconnect: ':'Sign in: ')+label,`<ol style="padding-left:18px;line-height:1.8;color:var(--ink-2);margin:0 0 12px"><li><a href="${esc(st.url)}" target="_blank" rel="noopener">Open the Claude sign-in page</a>. Use ${again?'the account this card is for':'the account you want to add'}. If Claude emails you a link, open it in the same browser.</li><li>Approve, then copy the code it shows (use its Copy button).</li><li>Paste it here.</li></ol><label>Code</label><input id="acCode" autocomplete="off"><p class="hint" id="acHint">${again?'Its name, priority and agents stay as they are.':''}</p>`,`<button class="ghost" id="acCancel">Cancel</button><button class="primary" id="acGo">Finish sign-in</button>`);
  window.open(st.url,'_blank','noopener');
- d.querySelector('#acCancel').onclick=async()=>{await UI('/ui/accounts/'+st.id+'/cancel',{method:'POST'}).catch(()=>{});closeLayers()};
- d.querySelector('#acGo').onclick=async()=>{const b=d.querySelector('#acGo');b.disabled=true;d.querySelector('#acHint').textContent='Checking…';try{const r=await UI('/ui/accounts/'+st.id+'/code',{method:'POST',body:{code:$('#acCode').value}});d.querySelector('#acHint').textContent=r.hint||'';if(r.state==='done'){closeLayers();toast(label+' added');Pages._acctFresh=true;reload()}else{b.disabled=false;if(r.state==='running'&&!d._watch)d._watch=watch()}}catch(e){fail(e);b.disabled=false}};
- // a slow sign-in can finish after the code wait: look for the new account while this window stays open
- const watch=()=>setTimeout(async function tick(){if(!d.isConnected)return;const l=await UI('/ui/accounts').catch(()=>null);if(!d.isConnected)return;if((l?.accounts||[]).some(x=>x.id===st.id)){closeLayers();toast(label+' added');Pages._acctFresh=true;reload()}else setTimeout(tick,4000)},4000);
-};
-Pages.acctMenu=el=>{const id=el.dataset.id;const a=(Pages._acct?.accounts||[]).find(x=>x.id===id)||{};
- menu(el,[{label:'Rename',icon:'edit',run:async()=>{const v=await promptBox('Rename account','Name',a.label);if(!v||v.trim()===a.label)return;try{await UI('/ui/accounts/'+id,{method:'PATCH',body:{label:v}});toast(a.label+' renamed to '+v.trim());reload()}catch(e){fail(e)}}},
+ const cancel=()=>{if(over)return;over=true;UI('/ui/accounts/'+st.id+'/cancel',{method:'POST'}).catch(()=>{})};
+ const ok=()=>{over=true;closeLayers();toast(label+(again?' is signed in again':' added'));Pages._acctFresh=true;if(typeof Bottlenecks!=='undefined')Bottlenecks.check();reload()};
+ d.querySelector('#acCancel').onclick=()=>{cancel();closeLayers()};
+ const obs=new MutationObserver(()=>{if(!d.isConnected){obs.disconnect();cancel()}});obs.observe(document.body,{childList:true});
+ const go=d.querySelector('#acGo'),code=d.querySelector('#acCode');code.onkeydown=e=>{if(e.key==='Enter'&&!go.disabled){e.preventDefault();go.click()}};
+ go.onclick=async()=>{go.disabled=true;d.querySelector('#acHint').textContent='Checking…';try{const r=await UI('/ui/accounts/'+st.id+'/code',{method:'POST',body:{code:code.value}});d.querySelector('#acHint').textContent=r.hint||'';if(r.state==='done')ok();else{go.disabled=false;if(r.state==='running'&&!d._watch)d._watch=watch()}}catch(e){fail(e);go.disabled=false}};
+ // a slow sign-in can finish after the code wait: ask how it went while this window stays open
+ const watch=()=>setTimeout(async function tick(){if(!d.isConnected)return;const l=await UI('/ui/accounts/'+st.id+'/login').catch(()=>null);if(!d.isConnected)return;
+  if(l?.state==='done')ok();else if(l?.state==='failed'){d.querySelector('#acHint').textContent=l.hint;over=true}else setTimeout(tick,4000)},4000);
+}
+Pages.acctMenu=el=>{const id=el.dataset.id;const admin=S.me?.admin!==false;
+ // a provider's card (p:<slug>): Reconnect is all it has here; its sign-out stays under Subscriptions you are signed in to
+ if(id.startsWith('p:'))return menu(el,[{label:'Reconnect',sub:'Sign in again, or a new key',icon:'plug',run:()=>Pages.reconnect(id,el.dataset.name||id.slice(2))}]);
+ const a=(Pages._acct?.accounts||[]).find(x=>x.id===id)||{};
+ menu(el,[...(admin?[{label:'Reconnect',sub:'Sign in again as this account',icon:'plug',run:()=>Pages.reconnect('claude:'+id,a.label||id)},'-']:[]),{label:'Rename',icon:'edit',run:async()=>{const v=await promptBox('Rename account','Name',a.label);if(!v||v.trim()===a.label)return;try{await UI('/ui/accounts/'+id,{method:'PATCH',body:{label:v}});toast(a.label+' renamed to '+v.trim());reload()}catch(e){fail(e)}}},
   ...(Object.keys(Pages._acct?.assign||{}).map(n=>({label:'Use for '+ident(n).name,icon:'user',ava:agentAvatar(n,20,{title:false}),on:Pages._acct.assign[n]===id,run:async()=>{try{await UI('/ui/accounts/assign',{method:'POST',body:{profile:n,account:id}});toast(ident(n).name+' now uses '+a.label);reload()}catch(e){fail(e)}}}))),
   id!=='main'&&'-',id!=='main'&&{label:'Remove account',icon:'trash',bad:true,run:async()=>{if(!await confirmBox('Remove '+a.label+'?','It is signed out and removed from the box. Agents must use another account first.','Remove'))return;try{await UI('/ui/accounts/'+id,{method:'DELETE'});toast(a.label+' removed');reload()}catch(e){fail(e)}}}])};
+
+/* ---------- Reconnect: any account card, the signed-out banner on Models and the Bottlenecks item open the sign-in its
+   kind already has, for the account that is there (nothing new is made): Claude its own sign-in again (/reconnect),
+   ChatGPT and the engine's other subscriptions their sign-in (oauth-in), Google AI Pro its Connect on Models, a
+   provider with an API key a window for the new key (never shown). ---------- */
+Pages.reconnect=async(key,name)=>{
+ if(key.startsWith('claude:')){let st;try{st=await post(UI,'/ui/accounts/'+encodeURIComponent(key.slice(7))+'/reconnect')}catch(e){return fail(e)}return claudeLogin(st,name,true)}
+ const slug=key.slice(2);
+ // Google's sign-ins live on their card on Models › Accounts: open it there and press its Connect
+ const onCard=(flow,act)=>{const run=()=>ACT[act]({});if($(flow))return run();S.tab.models='Accounts';go('/models/models');const t0=Date.now(),t=()=>{if($(flow))return run();if(Date.now()-t0<8000)setTimeout(t,250);else toast('Open Models › Accounts and press Connect on '+name,'err')};setTimeout(t,300)};
+ if(/antigravity|^agy/.test(slug))return onCard('#agyFlow','agy-start');
+ if(slug==='gemini-subscription')return onCard('#gemFlow','gem-start');
+ let o={providers:[]};try{o=await H('/providers/oauth?profile=default')}catch{}
+ const x=(o.providers||[]).find(p=>p.id===slug);
+ if(x&&x.flow!=='external')return ACT['oauth-in']({dataset:{id:x.id,name}});
+ if(x)return toast(name+' signs in through its own app on the AI box'+(x.cli_command&&!/hermes/i.test(x.cli_command)?': '+x.cli_command:''),'err');
+ return acctKey(slug,name)};
+ACT['acct-reconnect']=a=>Pages.reconnect(a.dataset.key,a.dataset.name||'this account');
+// the provider's key name, from the main agent's keys: its own prefix (OPENROUTER_…), the one already set first
+const KEY_PRE={'openai-api':'OPENAI_',huggingface:'HF_','kimi-coding':'KIMI_',zai:'ZAI_','xai-oauth':'XAI_',gemini:'GEMINI_'};
+async function acctKey(slug,name){let env={};try{env=await H('/env?profile=default')}catch(e){return fail(e)}
+ const pre=KEY_PRE[slug]||slug.split(/[-_.]/)[0].toUpperCase()+'_';
+ const k=Object.entries(env).filter(([n])=>n.startsWith(pre)&&/_(API_KEY|TOKEN)$/.test(n)).sort((x,y)=>(y[1].is_set?1:0)-(x[1].is_set?1:0)||(/_API_KEY$/.test(y[0])?1:0)-(/_API_KEY$/.test(x[0])?1:0))[0]?.[0];
+ if(!k){store.set('keysOpen:LLM providers',true);go('/system/keys');return toast('Set the key for '+name+' here')}
+ const d=drawer('Reconnect '+name,`<p style="margin:0 0 12px;color:var(--ink-2);line-height:1.55">Paste a new key for ${esc(name)}. It replaces the saved one (<code>${esc(k)}</code>) and is never shown again.</p><label for="rkV">Key</label><input id="rkV" type="password" autocomplete="new-password" spellcheck="false">`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="rkGo" disabled>Save key</button>`);
+ const v=d.querySelector('#rkV'),b=d.querySelector('#rkGo');v.oninput=()=>{b.disabled=!v.value.trim()};v.onkeydown=e=>{if(e.key==='Enter'&&!b.disabled){e.preventDefault();b.click()}};
+ b.onclick=async()=>{b.disabled=true;try{await put(H,'/env?profile=default',{key:k,value:v.value.trim()});closeLayers();toast(name+' has its new key');ACT['acct-refresh']()}catch(e){b.disabled=false;fail(e)}}}

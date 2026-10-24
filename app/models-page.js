@@ -39,7 +39,7 @@ const panelsTitled=(root,re)=>[...root.querySelectorAll('.panel')].filter(p=>re.
    const dm=panelsTitled(a,/^Default model/)[0];if(dm){dm.querySelector('h2').textContent='Model for '+ident(agentProfile()||'default').name;
     const sub=dm.querySelector('.sub');if(sub)sub.textContent=sub.textContent.replace('Used for new chats','Used for its new chats')}
    const tw=a.querySelector('.two');if(tw&&tw.children.length===1)tw.classList.remove('two');
-   b.querySelector('h2.ach-cat')?.remove();b.querySelector('.acct-grid')?.remove();for(const x of panelsTitled(b,/^(Priority|Switch automatically)/))x.remove();b.querySelectorAll('.gem-card').forEach(x=>x.remove());
+   b.querySelector('h2.ach-cat')?.remove();b.querySelector('.acct-grid')?.remove();for(const x of panelsTitled(b,/^(Priority|Switch automatically)/))x.remove();b.querySelectorAll('.gem-card,.acct-out').forEach(x=>x.remove());
    panelsTitled(b,/^Which agent uses what/)[0]?.querySelector('h2')?.replaceChildren('Which account each agent uses')}
   else{const want=tab==='Pictures'?/^Images/:/^Team of models/;box.hidden=true;document.body.append(box);await oldModels(p,box);if(stale()){box.remove();return}box.hidden=false;
    for(const x of [...box.querySelectorAll('.panel')])if(!want.test((x.querySelector('h2')?.textContent||'').trim()))x.remove();
