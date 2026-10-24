@@ -19,6 +19,8 @@ import {HELP_AGENT,LIVE_APP,isAgent,setKey,homeOf} from './agentops.mjs';
 import {CAPS} from './users.mjs';
 
 // decide-later (owner, 24 Oct): the name people see, who gets tickets ('admins' = the owner and every admin), the limits
+// tool groups that can't act on anything: speech-to-text only turns a voice message into text, and the engine keeps it on
+const HARMLESS=new Set(['stt']);
 export const HELP_NAME='Help';
 const TICKETS_TO='admins';
 const LIMIT_DEFAULT=40,LIMITS=[20,40,80,150],TICKETS_PER_DAY=5;
@@ -77,7 +79,7 @@ export function createHelp({DATA,root,DASH,DASH_TOKEN,GATE,API_KEY,users,listAge
  let lockHit={t:0,v:null};
  async function locked(fresh){if(!fresh&&lockHit.v!==null&&Date.now()-lockHit.t<60000)return lockHit.v;let v=false;
   try{if(await isAgent(HELP_AGENT)){const [t,m]=await Promise.all([dash('/tools/toolsets?profile='+HELP_AGENT).then(json),dash('/mcp/servers?profile='+HELP_AGENT).then(json)]);
-    const ts=Array.isArray(t)?t:t.toolsets;const ms=Array.isArray(m)?m:m.servers;v=Array.isArray(ts)&&Array.isArray(ms)&&!ts.some(x=>x.enabled)&&!ms.length}}catch{v=false}
+    const ts=Array.isArray(t)?t:t.toolsets;const ms=Array.isArray(m)?m:m.servers;v=Array.isArray(ts)&&Array.isArray(ms)&&!ts.some(x=>x.enabled&&!HARMLESS.has(x.name))&&!ms.length}}catch{v=false}
   lockHit={t:Date.now(),v};return v}
  let ensuring=null;
  // HELP_ENSURE=1 lets a test copy set it up too (against its own engine); the live app always does
