@@ -1229,6 +1229,18 @@ const server=createServer(async(req,res)=>{
       body:JSON.stringify({model,stream:false,messages:[{role:'user',content:'(Asked from aqeelOS Code by '+(who.name||who.id)+(b.project?', project '+String(b.project).slice(0,80):'')+'. Do it with your own tools and reply with exactly what was asked for.)\n\n'+task}]})});
      const j=await r.json().catch(()=>({}));if(!r.ok)return send(res,502,{error:j.error?.message||j.error||'The agent did not answer ('+r.status+').'});
      if(j.usage?.total_tokens)await code.addUsage(who.id,j.usage.total_tokens);console.log('code: '+(who.name||who.id)+' asked',a,'from aqeelOS Code');return send(res,200,{agent:a,agentName:NAMES[a]||await displayName(a),text:j.choices?.[0]?.message?.content||''})}catch(e){return send(res,504,{error:'The agent took too long: '+e.message})}}
+   // Code's models and account for one agent: the models the chat's menu lists for that agent (a member: only the ones
+   // they may use) and the account it is on (Models page), asked again for every run, so a switch counts at once. Only
+   // the box's own copy, on this machine, gets the Claude account's folder; a person's computer keeps its own
+   // sign-in and is never sent an account path or secret. No agent: the models of the agent this person would chat with.
+   if(p==='/ui/code/agent-model'&&req.method==='GET'){const box=dev.user==='owner'&&dev.name==='AI box · online';const may=(await listAgents()).filter(mine),want=String(url.searchParams.get('agent')||'');
+    if(want&&!may.includes(want))return send(res,403,{error:'You can’t use that agent.'});const a=want||(may.includes('default')?'default':may[0]||'');
+    const r=want?await accountsApi.codeRoute(want).catch(()=>null):null;let models=null;
+    try{const o=await fetch(GATE.origin+(a&&a!=='default'?'/p/'+encodeURIComponent(a):'')+'/api/model/options',{headers:{authorization:'Bearer '+API_KEY},signal:AbortSignal.timeout(20000)}).then(x=>x.ok?x.json():null);
+     // only the providers Code's own tools run: Claude Code (the Claude plugin), Codex (ChatGPT) and Gemini CLI
+     if(o){models={claude:[],codex:[],gemini:[]};for(const pv of o.providers||[]){if(!pv.authenticated)continue;const k=pv.slug==='claude-subscription-directsdk-experimental'?'claude':pv.slug==='openai-codex'?'codex':/^gemini/.test(pv.slug)?'gemini':'';if(!k)continue;
+      for(const m of pv.models||[])if(typeof m==='string'&&users.modelOk(who,pv.slug,m)&&!models[k].includes(m))models[k].push(m)}}}catch{}
+    return send(res,200,{agent:want,where:box?'box':'computer',restricted:!!users.allowedModels(who),models,...(r?{provider:r.provider,model:r.model,account:{label:r.account.label,kind:r.account.kind},...(box&&r.provider==='claude'?{main:r.main,configDir:r.configDir}:{})}:{})})}
    if(p==='/ui/code/version')return send(res,200,{version:await code.version()});
    // Live: Code publishes a project as a zip (the body), as the person this computer is paired for
    if(p==='/ui/code/publish'&&req.method==='POST'){const chunks=[];let n=0;for await(const c of req){n+=c.length;if(n>90e6)return send(res,413,{error:'The project is over 90 MB. Leave big files (videos, data) out of it.'});chunks.push(c)}
@@ -1780,6 +1792,7 @@ const server=createServer(async(req,res)=>{
     if(users.level(u,n)!=='owner')return send(res,403,{error:'Only the owner of this agent can finish its setup.'});
     return accountsApi(req,res,p,send,async()=>JSON.stringify({name:n}),a=>users.level(u,a)==='owner')}
    const no=users.gate(u,p,req.method,url.searchParams,'default');if(no)return send(res,no.status,{error:no.error});
+   if(p.startsWith('/ui/accounts/old-code')&&!users.isAdmin(u))return send(res,403,{error:'Only admins.'});
    if(p.startsWith('/ui/accounts'))return accountsApi(req,res,p,send,readBody,a=>!!users.level(u,a));
    if(p==='/ui/logo')return logo(req,res);
    return identities(req,res,p);

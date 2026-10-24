@@ -23,7 +23,7 @@ export let setupAgentFn=null;
 export const export_setups={running:()=>0,wait:()=>Promise.resolve()};   // setups in progress, counted by /healthz so a deploy waits for them
 // for agent-defaults.mjs: copying skills, and what runs after a new agent is set up
 export const accountHooks={giveSkills:null,trimSkills:null,forgetSkills:null,afterSetup:null,moveOff:null};
-export function createAccounts(DATA){
+export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code')}={}){
  const FILE=path.join(DATA,'accounts.json');
  const load=async()=>{try{return JSON.parse(await readFile(FILE,'utf8'))}catch{return {accounts:[],assign:{},auto:{on:false,threshold:90},events:[]}}};
  // every write is a change applied to a fresh read, one after another, so a slow writer (auto-switch, a sign-in
@@ -254,8 +254,46 @@ export function createAccounts(DATA){
  accountHooks.moveOff=async(profile,key)=>{const d=await load();for(const e of d.priority||[]){if(e.key===key)continue;
   if(e.key.startsWith(PLUGIN_KEY)){const a=all(d).find(x=>x.id===e.key.slice(PLUGIN_KEY.length));if(!a||!(await details(a)).signedIn)continue}
   try{await useEntry(d,profile,e,'Google AI Pro signed out');return e.key}catch(er){console.warn('move off',profile,e.key,er.message)}}return null};
+ /* ---------- Code: a run for an agent uses the account that agent is on here ----------
+    Claude: the account's folder (main: Claude's default place, so no folder). Another provider: its name only; Code
+    has no way to use the engine's own sign-in for it (see codeRoute's caller in server.mjs). */
+ async function codeRoute(profile){const d=await load();const r=await agentRoute(profile),e=await entryOf(d,profile);
+  if(e.startsWith(PLUGIN_KEY)){const as=all(d),a=as.find(x=>x.id===e.slice(PLUGIN_KEY.length))||as[0];   // a removed account's old choice is the main one, as for the engine
+   return {provider:'claude',engine:PLUGIN,model:isClaude(r.model)?r.model:'',account:{key:PLUGIN_KEY+a.id,label:a.label,kind:'claude'},main:a.id==='main',configDir:a.id==='main'?null:a.dir}}
+  const slug=e.slice(2),pv=(await providers(false,profile)||[]).find(x=>x.slug===slug);
+  return {provider:slug==='openai-codex'?'codex':/^gemini/.test(slug)?'gemini':'',engine:slug,model:r.model,account:{key:e,label:pv?.name||slug,kind:'provider'}}}
+
+ /* ---------- Code's own old sign-ins (<Code>/data/accounts-claude and data/accounts, one folder per profile) ----------
+    Code on the AI box now runs on the agents' accounts from here, so the profiles it signed in to itself are listed on
+    the Models page to move in or remove. A Claude profile folder is a CLAUDE_CONFIG_DIR, the same layout as an account
+    here, so it can be moved in. A Codex profile is a CODEX_HOME, which the engine's ChatGPT sign-in does not read, so
+    it can only be removed. Code's "desktop" profile is the default ~/.claude or ~/.codex this box shares: never listed. */
+ const CODE_DATA=path.join(codeRoot,'data'),OLD={claude:'accounts-claude',codex:'accounts'},OLD_ID=/^[0-9a-f-]{36}$/;
+ const oldFile=k=>path.join(CODE_DATA,OLD[k],'profiles.json');
+ const readOld=async k=>{try{return JSON.parse(await readFile(oldFile(k),'utf8'))}catch{return null}};
+ // Code reads this file again before each change of its own, so a profile taken out here stays out
+ async function dropOld(k,id){const s=await readOld(k);if(!s)return;s.profiles=(s.profiles||[]).filter(p=>p.id!==id);if(s.active===id)s.active='desktop';const t=oldFile(k)+'.'+process.pid+'.tmp';await writeFile(t,JSON.stringify(s,null,2));await rename(t,oldFile(k))}
+ async function oldCode(){const out=[];for(const k of Object.keys(OLD)){const s=await readOld(k);for(const p of s?.profiles||[]){if(p.id==='desktop'||!OLD_ID.test(p.id))continue;const dir=path.join(CODE_DATA,OLD[k],p.id);if(!await access(dir).then(()=>1,()=>0))continue;
+   const v={provider:k,id:p.id,label:String(p.label||'Code account').slice(0,60),active:s.active===p.id,signedIn:false,email:''};
+   if(k==='claude'){const st=await run(CLAUDE,['auth','status'],{CLAUDE_CONFIG_DIR:dir},20000);try{const j=JSON.parse(st.out);v.signedIn=!!j.loggedIn;v.email=j.email||''}catch{}}
+   else v.signedIn=await access(path.join(dir,'auth.json')).then(()=>true,()=>false);
+   out.push(v)}}return out}
+ async function importOld(id){if(!OLD_ID.test(id))throw new Error('Unknown sign-in');const p=((await readOld('claude'))?.profiles||[]).find(x=>x.id===id);if(!p)throw new Error('That Code sign-in is not there any more.');
+  const src=path.join(CODE_DATA,OLD.claude,id),label=String(p.label||'Code account').slice(0,60),d=await load();const slug=(label.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'account').slice(0,24);
+  let nid='code-'+slug,n=2;while(all(d).some(a=>a.id===nid)||logins.has(nid)||await access(path.join(ACCOUNTS_DIR,nid)).then(()=>true,()=>false))nid='code-'+slug+'-'+n++;
+  const dir=path.join(ACCOUNTS_DIR,nid);await mkdir(ACCOUNTS_DIR,{recursive:true,mode:0o700});
+  // moved, not copied: two copies of one sign-in would each refresh it and sign the other out
+  try{await rename(src,dir)}catch(e){if(e.code!=='EXDEV')throw e;await cp(src,dir,{recursive:true});await rm(src,{recursive:true,force:true})}
+  await update(x=>{if(!x.accounts.some(a=>a.id===nid))x.accounts.push({id:nid,label,dir})});await dropOld('claude',id);cache.delete(nid);return {id:nid,label}}
+ async function removeOld(k,id){if(!OLD[k]||!OLD_ID.test(id))throw new Error('Unknown sign-in');await dropOld(k,id);await rm(path.join(CODE_DATA,OLD[k],id),{recursive:true,force:true})}
+
  // see: which agents this person may see (others' private agents are left out of route, assign and events, and can't be moved)
- return async function handle(req,res,p,send,readBody,see=()=>true){
+ return Object.assign(async function handle(req,res,p,send,readBody,see=()=>true){
+  // Code's old sign-ins (admins only, checked in server.mjs); removing asks the person first on the page
+  if(p==='/ui/accounts/old-code'&&req.method==='GET')return send(res,200,{signins:await oldCode()});
+  if(p==='/ui/accounts/old-code/import'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{return send(res,200,await importOld(String(b.id||'')))}catch(e){return send(res,400,{error:e.message})}}
+  {const m=/^\/ui\/accounts\/old-code\/(claude|codex)\/([0-9a-f-]{36})$/.exec(p);if(m&&req.method==='DELETE'){try{await removeOld(m[1],m[2]);return send(res,200,{ok:true})}catch(e){return send(res,400,{error:e.message})}}
+   if(p.startsWith('/ui/accounts/old-code'))return send(res,404,{error:'Not found'})}
   if(p==='/ui/accounts/setup-agent'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const n=String(b.name||'');
    // a new agent starts with every skill the main agent has (once, here: skills removed later stay removed)
    if(!b.noSkills&&/^[a-z0-9][a-z0-9_-]{0,63}$/.test(n)&&n!=='default')await giveSkills(n).catch(e=>console.warn('skills for',n,e.message));
@@ -282,5 +320,5 @@ export function createAccounts(DATA){
    await run(CLAUDE,['auth','logout'],{CLAUDE_CONFIG_DIR:a.dir},20000);await rm(a.dir,{recursive:true,force:true});await update(x=>{x.accounts=x.accounts.filter(y=>y.id!==id)});cache.delete(id);return send(res,200,{ok:true})}
   if(m&&req.method==='PATCH'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const id=m[1];await update(x=>{const a=x.accounts.find(y=>y.id===id);if(id==='main')x.mainLabel=String(b.label||'').slice(0,60);else if(a)a.label=String(b.label||a.label).slice(0,60)});cache.delete(m[1]);return send(res,200,{ok:true})}
   send(res,404,{error:'Not found'});
- };
+ },{codeRoute});
 }
