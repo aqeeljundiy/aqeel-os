@@ -8,7 +8,7 @@ const allChip=(act,a,name,on)=>`<button class="aam-ag${on?' on':''}" data-act="$
 const perAgent=async(fn,ok=()=>true)=>{const list=(await viewAgents()).filter(ok);return Promise.all(list.map(async a=>({a,d:await fn(a).catch(()=>null)})))};
 // whose skills this person may manage (mayEdit); tool groups: listed on agents they may edit, switched where their role
 // may turn tools on (terminal, files and code only for those allowed unsafe tools), as the server decides
-const skillsOn=a=>mayEdit(a,'skills'),TS_UNSAFE=['terminal','file','code_execution','computer_use'];   // users.mjs UNSAFE_TOOLSETS
+const skillsOn=a=>mayEdit(a,'skills');   // TS_UNSAFE (pages.js) mirrors users.mjs UNSAFE_TOOLSETS
 // send(agent,on) makes the change; when(answer) says when it applies, for the toast
 async function allChipFlip(b,send,label,when){const on=b.getAttribute('aria-pressed')!=='true',a=b.dataset.agent;b.disabled=true;
  try{const r=await send(a,on);S._skPer=null;b.classList.toggle('on',on);b.setAttribute('aria-pressed',String(on));toast(label+(on?' on for ':' off for ')+ident(a).name+' · '+when(r,on))}catch(e){fail(e)}finally{b.disabled=false}}
@@ -17,6 +17,28 @@ ACT['all-ts']=b=>allChipFlip(b,(a,on)=>put(H,prof('/tools/toolsets/'+encodeURICo
 // a plugin: turning it on copies it from an agent that has it (Who can use does the same); off switches it off there
 ACT['all-pl']=b=>allChipFlip(b,(a,on)=>on?post(UI,'/ui/access',{kind:'plugin',id:b.dataset.name,agent:a,on:true}):post(UI,'/ui/plugins/toggle',{agent:a,name:b.dataset.name,enabled:false}),b.dataset.name,(r,on)=>on||r?.restart_required?'applies after the agents restart':'works at once');
 
+// Tool groups on all agents: one grid, groups down the side and agents across, a switch in each cell. Switches only
+// mark a change; Apply sends them all and restarts the agents once (one restart per switch would cut every chat each time)
+const TSP=new Map();   // "agent|group" → on/off waiting for Apply
+const tsCell=(t,a,locks)=>{const nm=ident(a).name,unsafe=TS_UNSAFE.includes(t.name),on=t.on.includes(a),lbl=tsName(t)+' for '+nm;
+ if(!t.all.includes(a))return `<td class="tsg-c"><i class="tsg-na" title="${esc(nm)} doesn’t have this group" aria-label="${esc(nm)}: not available"></i></td>`;
+ if(unsafe&&locks[a])return `<td class="tsg-c">${tsLock(locks[a])}</td>`;
+ if(!mayEdit(a,unsafe?'unsafe':'tools'))return `<td class="tsg-c"><span class="tsg-ro" title="${esc(unsafe?'Only people allowed terminal, files and code can change this.':'Your role can’t change '+nm+'’s tools.')}">${toggle(on,lbl,'disabled')}</span></td>`;
+ return `<td class="tsg-c">${toggle(on,lbl,`data-act="tsg" data-agent="${esc(a)}" data-name="${esc(t.name)}" data-was="${on?1:0}"`)}</td>`};
+const tsGrid=(list,ags,locks)=>`<div class="card tsg-wrap"><table class="tsg"><thead><tr><th class="tsg-g" scope="col">Tool group</th>${ags.map(a=>`<th scope="col" class="tsg-a"><span title="${esc(ident(a).name)}">${Access.av({id:a,name:ident(a).name},26)}<b>${esc(ident(a).name)}</b></span></th>`).join('')}</tr></thead>
+ <tbody>${list.map((t,i)=>`<tr ${st(i)} data-ts="${esc(t.name)}"><th scope="row" class="tsg-g"><div class="tsg-head">${tsHead({...t,enabled:t.on.length>0})}</div></th>${ags.map(a=>tsCell(t,a,locks)).join('')}</tr>`).join('')}</tbody></table></div>`;
+// the bar under the grid: how many changes wait, which ones, Undo and Apply
+function tsBar(){const b=$('#tsgBar');if(!b)return;const n=TSP.size;b.classList.toggle('show',n>0);b.setAttribute('aria-hidden',String(!n));if(!n)return;
+ const say=[...TSP].map(([k,on])=>{const [a,g]=k.split('|');const t=(Pages._tsAll||{})[g];return (t?tsName(t):pretty(g))+(on?' on for ':' off for ')+ident(a).name});
+ b.querySelector('.tsg-sum').innerHTML=`<b>${plural(n,'change')}</b><small>${esc(say.slice(0,2).join(', ')+(say.length>2?' and '+(say.length-2)+' more':''))}</small>`}
+ACT['tsg']=c=>{const k=c.dataset.agent+'|'+c.dataset.name;if(c.checked===(c.dataset.was==='1'))TSP.delete(k);else TSP.set(k,c.checked);c.closest('td')?.classList.toggle('dirty',TSP.has(k));tsBar()};
+ACT['tsg-undo']=()=>{for(const c of $$('.tsg input[data-act="tsg"]')){c.checked=c.dataset.was==='1';c.closest('td')?.classList.remove('dirty')}TSP.clear();tsBar()};
+// one change at a time (each writes that agent's settings), then one restart for all of them; what failed stays marked
+ACT['tsg-apply']=async b=>{if(!TSP.size||b.classList.contains('is-busy'))return;const list=[...TSP].map(([k,on])=>{const [a,n]=k.split('|');return {k,a,n,on}});b.classList.add('is-busy');b.setAttribute('aria-busy','true');let ok=0;const bad=[];
+ for(const x of list){try{await put(H,prof('/tools/toolsets/'+encodeURIComponent(x.n),x.a),{enabled:x.on});ok++;TSP.delete(x.k);const c=$(`.tsg input[data-act="tsg"][data-agent="${CSS.escape(x.a)}"][data-name="${CSS.escape(x.n)}"]`);if(c){c.dataset.was=x.on?'1':'0';c.closest('td')?.classList.remove('dirty')}}catch(e){bad.push(ident(x.a).name+': '+(e.message||'failed'))}}
+ b.classList.remove('is-busy');b.removeAttribute('aria-busy');tsBar();
+ if(bad.length)toast((ok?plural(ok,'change')+' saved. ':'')+'Not saved: '+bad.join('; '),'err');
+ if(!ok)return;if(!bad.length)toast(plural(ok,'change')+' saved'+(S.me?.admin!==false?'':' · applies to new chats'));if(S.me?.admin!==false)await restartGateway()};
 Object.assign(ALLVIEW,{
  async skills(p,el){const tab=S.tab.skills||'Installed';const own=()=>setActions(`<button data-act="sk-update">${icon('refresh',16)}Update all</button><button data-act="sk-learn">${icon('wand',16)}Learn a skill</button><button class="primary" data-act="sk-new">${icon('plus',16)}New skill</button>`);own();
   // New skill, Learn a skill and Update all work on the agent you chat with: every tab says so, like Find more skills
@@ -24,12 +46,14 @@ Object.assign(ALLVIEW,{
   if(tab==='Find more skills'){await PAGES._skillsOne(p,el);own();el.insertAdjacentHTML('afterbegin',forMe);return}
   if(tab==='Tool groups'){const per=await perAgent(a=>H(prof('/tools/toolsets',a)),a=>mayEdit(a));const m=new Map();
    for(const {a,d} of per)for(const t of d||[]){const x=m.get(t.name)||{...t,on:[],all:[]};x.all.push(a);if(t.enabled)x.on.push(a);m.set(t.name,x)}
-   const tq=(S.tsQ||'').toLowerCase(),tall=[...m.values()];
-   const rows=tall.filter(t=>!tq||[t.name,t.label,t.description].join(' ').toLowerCase().includes(tq)).map((t,i)=>allRow(i,`<span class="ic">${icon('layers',17)}</span>`,esc(t.label||t.name),esc(t.description||''),null,`<span class="aam-ags">${t.all.map(a=>mayEdit(a,TS_UNSAFE.includes(t.name)?'unsafe':'tools')?allChip('all-ts',a,t.name,t.on.includes(a)):allAv(a,t.on.includes(a))).join('')}</span>`+tsTools({...t,enabled:t.on.length>0})));
-   const bad=per.filter(x=>!x.d).map(x=>ident(x.a).name);
-   el.innerHTML=`${tabs('skills',['Installed','Tool groups','Find more skills'])}<div class="toolbar"><div class="search${S.tsQ?' has-q':''}">${icon('search',16)}<input id="tsQ" placeholder="Search ${tall.length} tool groups" value="${esc(S.tsQ||'')}"><button class="ghost icon s-clear" data-act="ts-clear" aria-label="Clear search" title="Clear search">${icon('x',14)}</button></div></div>${bad.length?`<p class="err-line" style="margin:0 0 12px">Couldn’t load ${esc(bad.join(', '))}. <button data-act="reload">Try again</button></p>`:''}${forMe}<div class="all-view">${allSection('Tool groups',rows,tq?'No tool group matches.':'No tool groups.')}</div>`;
+   const ags=per.filter(x=>x.d).map(x=>x.a),locks=await tsLocks(ags),tall=[...m.values()].sort((x,y)=>tsName(x).localeCompare(tsName(y))),bad=per.filter(x=>!x.d).map(x=>ident(x.a).name);
+   TSP.clear();Pages._tsAll=Object.fromEntries(tall.map(t=>[t.name,t]));const admin=S.me?.admin!==false;
+   el.innerHTML=`${tabs('skills',['Installed','Tool groups','Find more skills'])}<div class="toolbar"><div class="search${S.tsQ?' has-q':''}">${icon('search',16)}<input id="tsQ" placeholder="Search ${tall.length} tool groups" value="${esc(S.tsQ||'')}"><button class="ghost icon s-clear" data-act="ts-clear" aria-label="Clear search" title="Clear search">${icon('x',14)}</button></div></div>${bad.length?`<p class="err-line" style="margin:0 0 12px">Couldn’t load ${esc(bad.join(', '))}. <button data-act="reload">Try again</button></p>`:''}${forMe}
+    <div class="all-view"><h2 class="ach-cat" style="margin-top:0">Tool groups, and which agents have each on <small class="hint">${tall.length}</small></h2><p class="hint tsg-note">Switch as many as you like, then press Apply${admin?': the agents restart once for all of them':''}.</p>${tall.length?tsGrid(tall,ags,locks):emptyBox('No tool groups','None of these agents answered with its tool groups.')}</div>
+    <div class="tsg-bar" id="tsgBar" role="region" aria-label="Changes waiting" aria-hidden="true"><span class="tsg-sum"></span><button class="ghost" data-act="tsg-undo">Undo</button><button class="primary" data-act="tsg-apply">${admin?'Apply (restarts agents once)':'Apply'}</button></div>`;
    // searching filters what is on screen; nothing is asked of the agents again
-   $('#tsQ').oninput=e=>{const v=e.target.value.toLowerCase();e.target.closest('.search')?.classList.toggle('has-q',!!v);S.tsQ=e.target.value;el.querySelectorAll('.all-view .row').forEach(r=>{r.hidden=!!v&&!r.textContent.toLowerCase().includes(v)})};return}
+   const filt=v=>el.querySelectorAll('.tsg tbody tr').forEach(r=>{r.hidden=!!v&&!r.querySelector('.tsg-g').textContent.toLowerCase().includes(v)});filt((S.tsQ||'').toLowerCase());
+   $('#tsQ').oninput=e=>{const v=e.target.value.toLowerCase();e.target.closest('.search')?.classList.toggle('has-q',!!v);S.tsQ=e.target.value;filt(v)};return}
   // typing in the search box reuses the last answers (up to 30 s old) instead of asking every agent again; not kept when one failed
   let per=S._skReuse&&S._skPer&&Date.now()-S._skPer.t<30000?S._skPer.d:null;S._skReuse=false;if(!per){per=await perAgent(a=>H(prof('/skills',a)),skillsOn);S._skPer=per.some(x=>!x.d)?null:{t:Date.now(),d:per}}
   const m=new Map(),bad=per.filter(x=>!x.d).map(x=>ident(x.a).name);

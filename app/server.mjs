@@ -1450,6 +1450,11 @@ const server=createServer(async(req,res)=>{
     if(!await isAgent(ag)||ag==='default')return send(res,400,{error:'Unknown agent'});
     if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag+'/soul','PUT',new URLSearchParams(),ag)!==null)return send(res,403,{error:'You can only change agents you may edit.'});
     try{await setStatus(ag,{safe:true});await lockTools(ag);return send(res,200,{ok:true})}catch(e){return send(res,400,{error:e.message})}}
+   // which agents are locked to safe tools, and why (the Tool groups grid shows a lock with this reason instead of a switch)
+   if(p==='/ui/agent-locks'&&req.method==='GET'){const st=await getStatus();const out={};
+    for(const a of String(url.searchParams.get('names')||'').split(',').filter(Boolean).slice(0,200)){if(a==='default'||!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a)!==null||!lockedAgent(a,st))continue;
+     const ow=users.byId(users.agentOwner(a));out[a]=st[a]?.safe?'An admin locked this agent to safe tools: terminal, files, code and computer use stay off.':'Its owner'+(ow?.name?' '+ow.name:'')+' isn’t allowed terminal, files, code or computer use, so this agent can’t have them either.'}
+    return send(res,200,out)}
    // abilities across agents: who has what, copy to other agents, rename an MCP tool (admins, or owners of both agents)
    if(p==='/ui/share/used'&&req.method==='GET'){const kind=url.searchParams.get('kind')||'';const all=await sharing.usedBy(kind);if(!users.isAdmin(u)){for(const k of Object.keys(all))all[k]=all[k].filter(a=>users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a)===null)}return send(res,200,all)}
    if(p==='/ui/share'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const from=String(b.from||''),to=(Array.isArray(b.to)?b.to:[]).map(String);

@@ -128,7 +128,7 @@ body{overflow:hidden}
 .tile .tile-foot .switch{margin-left:auto}
 .tile>button:last-child{align-self:flex-start}
 .row .main-c{display:flex;align-items:center;gap:14px;min-width:0}
-.row .ic{width:38px;height:38px;border-radius:var(--r-md);background:var(--soft);display:grid;place-items:center;color:var(--ink-2);flex:none}
+.row .ic,.tsg-head .ic{width:38px;height:38px;border-radius:var(--r-md);background:var(--soft);display:grid;place-items:center;color:var(--ink-2);flex:none}
 .row .ic.blue{background:var(--soft);color:var(--ink-2)} /* one neutral tile for every list row icon (skills, schedules, tool groups, apps); on/off is the switch's job, warn keeps its colour */
 .row .txt{min-width:0}
 .row .txt b{display:block;font-size:14.5px;font-weight:600;letter-spacing:-.15px}
@@ -1910,3 +1910,45 @@ button.plug-danger{background:var(--bad);box-shadow:none}
 
 /* list rows on touch screens: a tap leaves :hover stuck on the row under the finger, so only real pointers get the hover tint */
 @media (hover:none){.row:hover,.sj-row:hover{background:transparent}}
+/* ---------- tool groups: what each does, a warning on the powerful ones, its tools under the app's chevron ---------- */
+.ts-row{align-items:start}.ts-row .main-c{align-items:flex-start}.ts-row .act{padding-top:4px}
+.ts-row .txt>span,.tsg-head .txt>span{white-space:normal;overflow:visible;text-overflow:clip}
+.tsg-head{display:flex;gap:12px;align-items:flex-start;font-weight:400;text-align:left}.tsg-head .txt{min-width:0}
+.tsg-head .txt b{display:block;font-size:14px;font-weight:600;color:var(--ink)}.tsg-head .txt>span{display:block;font-size:12.5px;color:var(--muted);margin-top:2px;line-height:1.45}
+.row .txt .ts-say,.tsg-head .ts-say{color:var(--ink-2);line-height:1.45}
+.row .txt .ts-risk,.tsg-head .txt .ts-risk{display:flex;align-items:flex-start;gap:6px;margin-top:4px;font-size:12.5px;line-height:1.45;color:var(--warn)}.ts-risk svg{flex:none;margin-top:2px}
+.row .txt .ts-none,.ts-none{display:block;font-size:12.5px;color:var(--muted);margin-top:4px;white-space:normal}
+.ts-x{margin:4px 0 0 -6px}
+.ts-xb{min-height:28px;padding:0 8px 0 4px;gap:4px;border:0;background:none;box-shadow:none;font-size:12.5px;font-weight:500;color:var(--ink-2);border-radius:8px}
+.ts-xb:hover{background:var(--soft);transform:none;box-shadow:none}.ts-xb svg{transition:transform var(--t-fast) var(--ease);color:var(--muted)}.ts-x.open .ts-xb svg{transform:rotate(90deg)}
+.ts-xl{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows var(--t-med) var(--ease),opacity var(--t-med) var(--ease)}.ts-x.open .ts-xl{grid-template-rows:1fr;opacity:1}
+.ts-xl>ul{min-height:0;overflow:hidden;margin:0;padding:0 0 0 28px;list-style:none}
+.ts-xl li{display:flex;flex-wrap:wrap;gap:2px 8px;align-items:baseline;padding:3px 0;font-size:12.5px;line-height:1.45}.ts-xl li:first-child{padding-top:6px}
+.ts-xl code{font-family:var(--mono);font-size:12px;color:var(--ink);background:var(--soft);padding:1px 6px;border-radius:6px}
+.row .txt .ts-xl span,.ts-xl span{display:inline;white-space:normal;overflow:visible;margin:0;color:var(--muted);font-size:12.5px}
+/* all agents: groups down the side, agents across; only the grid scrolls sideways, the group column stays put */
+.tsg-note{margin:-4px 0 12px}
+.card.tsg-wrap{padding:0;overflow-x:auto;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch}
+.tsg{width:100%;border-collapse:separate;border-spacing:0;font-size:13px}
+.tsg th,.tsg td{border-top:1px solid var(--border);padding:14px 10px;vertical-align:middle;transition:background var(--t-fast) var(--ease)}
+.tsg thead th{border-top:0;padding-top:16px;padding-bottom:12px;vertical-align:bottom}
+.tsg .tsg-g{position:sticky;left:0;z-index:1;background:var(--surface);width:44%;min-width:280px;max-width:420px;padding-left:18px;padding-right:16px;box-shadow:1px 0 0 var(--border)}
+.tsg thead .tsg-g{font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:600;text-align:left}
+.tsg-a{min-width:96px;font-weight:500}.tsg-a>span{display:flex;flex-direction:column;align-items:center;gap:6px}.tsg-a .acc-av{margin:0;box-shadow:none;font-size:11px}
+.tsg-a b{font-size:12.5px;font-weight:600;max-width:112px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tsg-c{text-align:center}.tsg-c .switch{margin:0 auto}
+.tsg tbody tr{animation:fade var(--t-med) var(--ease) both}
+@media (hover:hover){.tsg tbody tr:hover>*{background:var(--soft-2)}}
+.tsg td.dirty,.tsg tbody tr:hover>td.dirty{background:var(--blue-soft)} /* changed, waiting for Apply */
+.tsg-lock{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--soft);color:var(--muted);cursor:help;vertical-align:middle}
+.tsg-lock:focus-visible{outline:2px solid var(--blue-2);outline-offset:1px}
+.tsg-ro{display:inline-flex;cursor:not-allowed;vertical-align:middle}.tsg-ro .switch{opacity:.5;pointer-events:none}
+.tsg-na{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--border);vertical-align:middle}
+@media (max-width:760px){.tsg .tsg-g{min-width:220px;width:auto;padding-left:14px}.tsg-head .ic{display:none}.tsg-a{min-width:84px}}
+@media (max-width:560px){.tsg .tsg-g{min-width:176px;max-width:200px}.tsg-a{min-width:76px}.tsg-a b{max-width:80px}}
+/* the waiting changes: slides up under the grid, away again once applied or undone (it keeps its space, so nothing jumps) */
+.tsg-bar{position:sticky;bottom:16px;z-index:5;display:flex;align-items:center;gap:8px;margin:14px 0 0;padding:8px 8px 8px 18px;border-radius:999px;background:var(--surface);border:1px solid var(--border);box-shadow:0 14px 34px -14px rgba(11,12,16,.35);opacity:0;transform:translateY(12px);visibility:hidden;pointer-events:none;transition:opacity var(--t-med) var(--ease),transform var(--t-med) var(--ease),visibility 0s linear var(--t-med)}
+.tsg-bar.show{opacity:1;transform:none;visibility:visible;pointer-events:auto;transition-delay:0s}
+.tsg-sum{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px;font-size:13.5px}.tsg-sum small{color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tsg-bar button{flex:none}
+@media (max-width:560px){.tsg-bar{flex-wrap:wrap;border-radius:18px;padding:12px}.tsg-sum{flex-basis:100%}.tsg-bar .primary{flex:1}}
