@@ -3,7 +3,7 @@
 // Each account is its own Claude Code config folder (CLAUDE_CONFIG_DIR); the main one is ~/.claude.
 // Hermes' Claude plugin is pointed at an account per agent with its `claude_config_dir` setting.
 import {spawn,execFile} from 'node:child_process';
-import {readFile,writeFile,mkdir,rename,rm,readdir,cp,access,stat} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,rename,rm,readdir,cp,access,stat,copyFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import path from 'node:path';
 import {hermes as hq,setKey,readConfig,pick,editEnv,agentNames,setStatus,getStatus,LIVE_APP} from './agentops.mjs';
@@ -27,9 +27,9 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
  const FILE=path.join(DATA,'accounts.json');
  const load=async()=>{try{return JSON.parse(await readFile(FILE,'utf8'))}catch{return {accounts:[],assign:{},auto:{on:false,threshold:90},events:[]}}};
  // every write is a change applied to a fresh read, one after another, so a slow writer (auto-switch, a sign-in
- // finishing) never saves a stale copy over another's change; each write has its own tmp file
+ // finishing) never saves a stale copy over another's change; each write has its own tmp file; a change that returns false saves nothing
  let saving=Promise.resolve();
- const update=fn=>{const p=saving.then(async()=>{const d=await load();const r=await fn(d);await mkdir(DATA,{recursive:true});const tmp=FILE+'.'+process.pid+'.'+Date.now()+'.'+Math.random().toString(36).slice(2)+'.tmp';await writeFile(tmp,JSON.stringify(d,null,1));await rename(tmp,FILE);return r});saving=p.catch(()=>{});return p};
+ const update=fn=>{const p=saving.then(async()=>{const d=await load();const r=await fn(d);if(r===false)return r;await mkdir(DATA,{recursive:true});const tmp=FILE+'.'+process.pid+'.'+Date.now()+'.'+Math.random().toString(36).slice(2)+'.tmp';await writeFile(tmp,JSON.stringify(d,null,1));await rename(tmp,FILE);return r});saving=p.catch(()=>{});return p};
  const event=(x,e)=>{x.events=[e,...(x.events||[])].slice(0,50)};
  const all=d=>[{...MAIN,label:d.mainLabel||MAIN.label},...d.accounts.filter(a=>a.id!=='main')];
  const run=(cmd,args,env={},timeout=30000)=>new Promise(res=>execFile(cmd,args,{env:{...process.env,...env},timeout,maxBuffer:4e6},(err,stdout,stderr)=>res({ok:!err,out:String(stdout||''),err:String(stderr||err?.message||'')})));
@@ -41,11 +41,17 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
  const details=(a,fresh,quick)=>cache.get(a.id,()=>readDetails(a),{force:!!fresh,partial:quick?()=>({id:a.id,label:a.label,main:a.id==='main',signedIn:false,partial:true}):undefined});
  async function readDetails(a){
   const v={id:a.id,label:a.label,main:a.id==='main',signedIn:false};
-  // The main account lives in Claude's default place (its email is kept in ~/.claude.json), so no CLAUDE_CONFIG_DIR for it.
-  const st=await run(CLAUDE,['auth','status'],a.id==='main'?{}:{CLAUDE_CONFIG_DIR:a.dir},20000);
-  // checked: the status really answered (a timed-out check is unknown, not "signed out")
-  try{const j=JSON.parse(st.out);Object.assign(v,{checked:true,signedIn:!!j.loggedIn,email:j.email||'',org:j.orgName||'',plan:j.subscriptionType||''})}catch{}
+  // Read-only: the sign-in file and Claude's own account file, never a CLI run that could renew the login (the engine
+  // renews ~/.claude itself under its own lock, so every extra renewer is one more chance to spend the single-use
+  // refresh token twice). expiresAt 0 is how Claude marks a login it gave up on. The main account's email is in
+  // ~/.claude.json, another account's in <its folder>/.claude.json.
   let creds=null;try{creds=JSON.parse(await readFile(path.join(a.dir,'.credentials.json'),'utf8')).claudeAiOauth}catch{}
+  if(creds){const acc=await readFile(a.id==='main'?path.join(HOME,'.claude.json'):path.join(a.dir,'.claude.json'),'utf8').then(t=>JSON.parse(t).oauthAccount||{},()=>({}));
+   Object.assign(v,{checked:true,signedIn:!!(creds.accessToken||creds.refreshToken)&&Number(creds.expiresAt)>0,email:acc.emailAddress||'',org:acc.organizationName||'',plan:creds.subscriptionType||''})}
+  else{// no file (a keychain login, or a folder that never signed in): ask the CLI, which has nothing here to renew
+   const st=await run(CLAUDE,['auth','status'],a.id==='main'?{}:{CLAUDE_CONFIG_DIR:a.dir},20000);
+   // checked: the status really answered (a timed-out check is unknown, not "signed out")
+   try{const j=JSON.parse(st.out);Object.assign(v,{checked:true,signedIn:!!j.loggedIn,email:j.email||'',org:j.orgName||'',plan:j.subscriptionType||''})}catch{}}
   if(creds){v.plan=v.plan||creds.subscriptionType||'';v.tier=creds.rateLimitTier||'';v.tokenExpires=creds.expiresAt||null}
   if(v.signedIn&&creds?.accessToken){
    try{const r=await fetch('https://api.anthropic.com/api/oauth/usage',{headers:{authorization:'Bearer '+creds.accessToken,'anthropic-beta':'oauth-2025-04-20',accept:'application/json','user-agent':'claude-code/2.1.0'},signal:AbortSignal.timeout(15000)});
@@ -77,17 +83,40 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
   // an id no saved account, sign-in in progress or folder on disk has (two sign-ins at once never share a folder)
   const taken=async id=>all(d).some(a=>a.id===id)||logins.has(id)||await access(path.join(ACCOUNTS_DIR,id)).then(()=>true,()=>false);
   let id=slug,n=2;while(await taken(id)||logins.has(id))id=slug+'-'+n++;logins.set(id,{state:'starting'});
-  const dir=path.join(ACCOUNTS_DIR,id);let child;
+  const dir=path.join(ACCOUNTS_DIR,id);
   // the id is reserved above: a folder or start that fails gives it back (no sign-in is left "starting" for ever)
-  try{await mkdir(dir,{recursive:true,mode:0o700});child=spawn(CLAUDE,['auth','login'],{env:{...process.env,CLAUDE_CONFIG_DIR:dir,BROWSER:'true'},stdio:['pipe','pipe','pipe']})}catch(e){logins.delete(id);throw new Error('Could not start the sign-in: '+e.message)}
-  const s={child,out:'',state:'running',dir,label:String(label||id).slice(0,60)};logins.set(id,s);
-  child.on('error',e=>{s.state='failed';s.out+='\n'+e.message});
-  const add=b=>{s.out=(s.out+String(b).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g,'')).slice(-8000)};child.stdout.on('data',add);child.stderr.on('data',add);
-  child.on('close',async code=>{try{s.state=code===0?'done':'failed';if(code===0){await update(d2=>{if(!d2.accounts.some(a=>a.id===id))d2.accounts.push({id,label:s.label,dir})});cache.drop(id)}}catch(e){s.state='failed';console.warn('account sign-in',e.message)}});
-  setTimeout(()=>{if(s.state==='running'){s.state='failed';child.kill()}},10*60000).unref();
-  for(let i=0;i<40&&!/https:\/\/\S+/.test(s.out);i++)await new Promise(r=>setTimeout(r,250));
-  return {id,url:(/https:\/\/\S+/.exec(s.out)||[])[0]||null,state:s.state};
+  try{await mkdir(dir,{recursive:true,mode:0o700})}catch(e){logins.delete(id);throw new Error('Could not start the sign-in: '+e.message)}
+  return runLogin(id,{dir,label:String(label||id).slice(0,60)},{CLAUDE_CONFIG_DIR:dir},async()=>{await update(d2=>{if(!d2.accounts.some(a=>a.id===id))d2.accounts.push({id,label:s0(id).label,dir})})});
  }
+ const s0=id=>logins.get(id)||{};
+ // one `claude auth login` run: output kept for the code step, done() on success, fail() on any other end (cancel,
+ // a refused code, the 10-minute limit). env {} = the main account in Claude's default place.
+ async function runLogin(id,s,env,done,fail=async()=>{}){let child;
+  const e={...process.env,BROWSER:'true',...env};if(!env.CLAUDE_CONFIG_DIR)delete e.CLAUDE_CONFIG_DIR;
+  try{child=spawn(CLAUDE,['auth','login'],{env:e,stdio:['pipe','pipe','pipe']})}catch(er){logins.delete(id);await fail().catch(()=>{});throw new Error('Could not start the sign-in: '+er.message)}
+  Object.assign(s,{child,out:'',state:'running'});logins.set(id,s);let end;s.closed=new Promise(r=>end=r);
+  child.on('error',er=>{s.state='failed';s.out+='\n'+er.message});
+  const add=b=>{s.out=(s.out+String(b).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g,'')).slice(-8000)};child.stdout.on('data',add);child.stderr.on('data',add);
+  child.on('close',async code=>{try{s.state=code===0?'done':'failed';if(code===0)await done();else await fail()}catch(er){s.state='failed';console.warn('account sign-in',er.message)}finally{cache.drop(id);end()}});
+  setTimeout(()=>{if(s.state==='running'){s.state='failed';child.kill()}},10*60000).unref();
+  for(let i=0;i<40&&!/https:\/\/\S+/.test(s.out)&&s.state==='running';i++)await new Promise(r=>setTimeout(r,250));
+  return {id,url:(/https:\/\/\S+/.exec(s.out)||[])[0]||null,state:s.state}}
+ /* ---------- reconnecting an account that is there already: the same sign-in, in that account's own folder (main: Claude's
+    default place), so its id, name, priority and agents stay. Its sign-in file is copied to .credentials.json.bak-<time>
+    first and put back if the sign-in is cancelled or fails, unless something renewed the login meanwhile. ---------- */
+ const credsOf=t=>{try{return JSON.parse(t).claudeAiOauth||null}catch{return null}};
+ async function reconnect(id){const d=await load();const a=all(d).find(x=>x.id===id);if(!a)throw new Error('Unknown account');
+  // one sign-in per account: an unfinished one (its window closed without Cancel) ends first and puts its copy back
+  const old=logins.get(id);if(old?.state==='running'){old.child.kill();await old.closed}
+  const f=path.join(a.dir,'.credentials.json'),bak=f+'.bak-'+Date.now();
+  const before=await readFile(f,'utf8').catch(()=>null);if(before!==null)await copyFile(f,bak);
+  const restore=async()=>{if(before===null)return;const now=await readFile(f,'utf8').catch(()=>null);if(now===before)return;
+   const c=credsOf(now),b=credsOf(before);if(c?.refreshToken&&c.refreshToken!==b?.refreshToken&&Number(c.expiresAt)>Date.now()){console.log('reconnect',id,'ended; kept the newer sign-in that appeared meanwhile');return}
+   const t=f+'.'+process.pid+'.tmp';await copyFile(bak,t);await rename(t,f);console.log('reconnect',id,'ended without signing in; sign-in file put back')};
+  // the five newest copies are kept, older ones go (each is a whole sign-in)
+  const prune=async()=>{const l=(await readdir(a.dir).catch(()=>[])).filter(n=>/^\.credentials\.json\.bak-\d+$/.test(n)).sort().reverse();for(const n of l.slice(5))await rm(path.join(a.dir,n),{force:true})};
+  return runLogin(id,{dir:a.dir,label:a.label,reconnect:true},a.id==='main'?{}:{CLAUDE_CONFIG_DIR:a.dir},async()=>{console.log('reconnect',id,'signed in');await forget('claude:'+id,true);await prune()},async()=>{await restore();await prune()})}
+ const loginState=id=>{const s=logins.get(id);return s?{state:s.state,hint:s.state==='done'?'Signed in.':s.state==='failed'?'Sign-in failed: '+(s.out.split('\n').filter(Boolean).slice(-2).join(' ')||'try again'):''}:{state:'gone'}};
  async function sendCode(id,code){const s=logins.get(id);if(!s||s.state!=='running')throw new Error('This sign-in is not running any more. Start again.');
   if(typeof code!=='string'||!code.trim()||code.length>4096)throw new Error('Paste the code from the sign-in page.');
   s.child.stdin.write(code.trim()+'\n');for(let i=0;i<60&&s.state==='running';i++)await new Promise(r=>setTimeout(r,500));
@@ -175,6 +204,21 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    const best=accts.filter(a=>a.id!==cur&&det[a.id]?.signedIn&&det[a.id]?.usage).sort((x,y)=>headroom(det[y.id])-headroom(det[x.id]))[0];
    if(best&&headroom(det[best.id])>100-th)await assign(d,profile,best.id,`${v.label||cur} reached ${worst}%`).catch(e=>console.warn('auto-switch',e.message))}}
  if(LIVE_APP)setInterval(()=>autoTick().catch(()=>{}),5*60000).unref();   // a test copy never switches real agents
+
+ /* ---------- signed out: an account that stopped working until someone reconnects it (Bottlenecks, the Models banner).
+    A Claude account that answers "signed out" always counts (each one was signed in once). A provider counts when it
+    was signed in before (seen) and is gone from the main agent's sign-ins now; signing out on purpose forgets it.
+    One entry per account (d.signedOut[key]) until it works again. ---------- */
+ async function note(det,prov){const now=Date.now();await update(x=>{const so=x.signedOut||={},seen=x.seen||={};let ch=false;const out=(k,name)=>{if(!so[k]){so[k]={key:k,name,since:now};ch=true;console.log('signed out:',name)}};const back=k=>{if(so[k]){delete so[k];ch=true}};
+   for(const a of all(x)){const v=det[a.id],k=PLUGIN_KEY+a.id;if(!v?.checked)continue;if(v.signedIn)back(k);else out(k,x.mainLabel&&a.id==='main'?x.mainLabel:a.label)}
+   for(const k of Object.keys(so))if(k.startsWith(PLUGIN_KEY)&&!all(x).some(a=>PLUGIN_KEY+a.id===k))back(k);   // a removed account
+   if(prov){for(const p of prov){const k='p:'+p.slug;if(seen[k]?.name!==p.name){seen[k]={name:p.name};ch=true}back(k)}
+    for(const [k,s] of Object.entries(seen))if(!prov.some(p=>'p:'+p.slug===k))out(k,s.name)}
+   return ch})}
+ async function forget(key,keepSeen){await update(x=>{if(x.signedOut)delete x.signedOut[key];if(!keepSeen&&x.seen)delete x.seen[key]})}
+ async function signinTick(){const d=await load();const det=Object.fromEntries(await Promise.all(all(d).map(async a=>[a.id,await details(a)])));await note(det,await providers(false,'default'))}
+ if(LIVE_APP){setInterval(()=>signinTick().catch(()=>{}),5*60000).unref();setTimeout(()=>signinTick().catch(()=>{}),20000).unref()}
+ const signedOut=async()=>Object.values((await load()).signedOut||{});
 
  /* ---------- HTTP ---------- */
  /* ---------- a new agent gets everything it needs, checked step by step (any model provider) ----------
@@ -306,8 +350,10 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    try{const r=await setupAgent(n);accountHooks.afterSetup?.(n);return send(res,200,r)}catch(e){return send(res,400,{error:e.message})}}
   const d=await load();
   if(p==='/ui/accounts'&&req.method==='GET'){const fresh=new URL(req.url,'http://x').searchParams.has('fresh');const list=await Promise.all(all(d).map(a=>details(a,fresh,true)));
-   const ag=(await agents()).filter(see);const prov=await providers(fresh)||[];const route=Object.fromEntries(await Promise.all(ag.map(async n=>[n,{entry:await entryOf(d,n),...await agentRoute(n)}])));
-   return send(res,200,{accounts:list,providers:prov,priority:d.priority||[],route,assign:Object.fromEntries(ag.map(n=>[n,d.assign[n]||'main'])),auto:d.auto||{on:false,threshold:90},events:(d.events||[]).filter(e=>see(e.profile))})}
+   const ag=(await agents()).filter(see);const pv=await providers(fresh),prov=pv||[];
+   // what is signed out right now, from what this read already has (the banner and the card's Reconnect)
+   await note(Object.fromEntries(list.map(v=>[v.id,v])),pv).catch(e=>console.warn('signed-out note',e.message));const route=Object.fromEntries(await Promise.all(ag.map(async n=>[n,{entry:await entryOf(d,n),...await agentRoute(n)}])));
+   return send(res,200,{accounts:list,providers:prov,priority:d.priority||[],route,assign:Object.fromEntries(ag.map(n=>[n,d.assign[n]||'main'])),auto:d.auto||{on:false,threshold:90},events:(d.events||[]).filter(e=>see(e.profile)),signedOut:await signedOut()})}
   if(p==='/ui/accounts/priority'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
    const pr=(Array.isArray(b.priority)?b.priority:[]).filter(e=>e&&typeof e.key==='string'&&/^(claude:[a-z0-9-]+|p:[a-z0-9_.-]+)$/.test(e.key)).slice(0,20).map(e=>({key:e.key,model:String(e.model||'').slice(0,120)}));
    d.priority=pr;await update(x=>{x.priority=pr});autoTick().catch(()=>{});return send(res,200,{priority:d.priority})}
@@ -317,7 +363,11 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
   if(p==='/ui/accounts/assign'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}if(!see(String(b.profile||'')))return send(res,403,{error:'This agent is private to its owner.'});try{await assign(d,String(b.profile||''),String(b.account||''),b.why||'');return send(res,200,{ok:true})}catch(e){return send(res,400,{error:e.message})}}
   if(p==='/ui/accounts/auto'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const au={on:!!b.on,threshold:Math.min(99,Math.max(50,Number(b.threshold)||90))};d.auto=au;await update(x=>{x.auto=au});autoTick().catch(()=>{});return send(res,200,d.auto)}
   let m=/^\/ui\/accounts\/([a-z0-9-]+)\/code$/.exec(p);if(m&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}try{return send(res,200,await sendCode(m[1],b.code))}catch(e){return send(res,400,{error:e.message})}}
-  m=/^\/ui\/accounts\/([a-z0-9-]+)\/cancel$/.exec(p);if(m&&req.method==='POST'){const s=logins.get(m[1]);if(s?.state==='running'){s.child.kill();s.state='failed'}if(!d.accounts.some(a=>a.id===m[1]))await rm(path.join(ACCOUNTS_DIR,m[1]),{recursive:true,force:true});return send(res,200,{ok:true})}
+  // Reconnect (admins only, checked in server.mjs too): the same sign-in for an account that is there already
+  m=/^\/ui\/accounts\/([a-z0-9-]+)\/reconnect$/.exec(p);if(m&&req.method==='POST'){try{return send(res,200,await reconnect(m[1]))}catch(e){return send(res,400,{error:e.message})}}
+  m=/^\/ui\/accounts\/([a-z0-9-]+)\/login$/.exec(p);if(m&&req.method==='GET')return send(res,200,loginState(m[1]));
+  // a reconnect's folder is the account's own: only a new account's half-made folder is removed (the copy goes back by itself)
+  m=/^\/ui\/accounts\/([a-z0-9-]+)\/cancel$/.exec(p);if(m&&req.method==='POST'){const s=logins.get(m[1]);if(s?.state==='running'){s.child.kill();s.state='failed'}if(!s?.reconnect&&!all(d).some(a=>a.id===m[1]))await rm(path.join(ACCOUNTS_DIR,m[1]),{recursive:true,force:true});return send(res,200,{ok:true})}
   m=/^\/ui\/accounts\/([a-z0-9-]+)$/.exec(p);
   if(m&&req.method==='DELETE'){const id=m[1];if(id==='main')return send(res,400,{error:'The main account can’t be removed.'});const a=d.accounts.find(x=>x.id===id);if(!a)return send(res,404,{error:'Not found'});
    // only agents that still exist count: a deleted agent's old choice is dropped
@@ -326,5 +376,5 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    await run(CLAUDE,['auth','logout'],{CLAUDE_CONFIG_DIR:a.dir},20000);await rm(a.dir,{recursive:true,force:true});await update(x=>{x.accounts=x.accounts.filter(y=>y.id!==id)});cache.drop(id);return send(res,200,{ok:true})}
   if(m&&req.method==='PATCH'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const id=m[1];await update(x=>{const a=x.accounts.find(y=>y.id===id);if(id==='main')x.mainLabel=String(b.label||'').slice(0,60);else if(a)a.label=String(b.label||a.label).slice(0,60)});cache.drop(m[1]);return send(res,200,{ok:true})}
   send(res,404,{error:'Not found'});
- },{codeRoute});
+ },{codeRoute,signedOut,forget});
 }

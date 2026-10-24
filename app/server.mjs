@@ -940,6 +940,7 @@ async function hermesCall(req,res,u,url){
  if(p==='/hapi/messaging/platforms'&&req.method==='GET'){try{return send(res,200,await platformsCached(q.get('profile')||'default'))}catch(e){return send(res,e.status||502,{error:e.message})}}
  if(p.startsWith('/hapi/messaging/')&&req.method!=='GET')platCache.clear();
  if(p.startsWith('/hapi/')&&req.method!=='GET'){hapiStatus.drop();hapiLists.drop()}   // any engine change: the next status is read new
+ {const m=req.method==='DELETE'&&/^\/hapi\/providers\/oauth\/([^/]+)$/.exec(p);if(m&&users.isAdmin(u)&&(q.get('profile')||'default')==='default')accountsApi.forget('p:'+decodeURIComponent(m[1])).catch(()=>{})}   // signed out on purpose: no "is signed out" notice
  if(p==='/hapi/skills'&&req.method==='GET'&&/^[\w-]+$/.test(agent||'default')){try{return send(res,200,await skillsCached(agent||'default'))}catch(e){return send(res,e.status||502,{error:e.message})}}
  if(/^\/hapi\/(skills|config)/.test(p)&&req.method!=='GET')skCache.clear();
  if(/^\/hapi\/messaging\/whatsapp\/onboarding/.test(p)&&req.method==='POST')waLinking.set(q.get('profile')||'default',Date.now());   // someone is linking: the WhatsApp guard stays away
@@ -1508,7 +1509,7 @@ const server=createServer(async(req,res)=>{
    if(p.startsWith('/ui/antigravity/')){const act=p.slice(16);if(act==='status'&&req.method==='GET')return send(res,200,await antigravity.status(url.searchParams.has('fresh')));
     if(!users.isAdmin(u))return send(res,403,{error:'Only admins can connect Google AI Pro.'});if(req.method!=='POST')return send(res,405,{error:'POST only'});
     let b={};try{b=JSON.parse(await readBody(req,8192)||'{}')}catch{}
-    try{if(act==='start')return send(res,200,await antigravity.start());if(act==='code')return send(res,200,await antigravity.code(b.code));if(act==='logout')return send(res,200,await antigravity.logout())}catch(e){return send(res,400,{error:e.message})}
+    try{if(act==='start')return send(res,200,await antigravity.start());if(act==='code')return send(res,200,await antigravity.code(b.code));if(act==='logout'){const r=await antigravity.logout();await accountsApi.forget('p:antigravity-subscription').catch(()=>{});return send(res,200,r)}}catch(e){return send(res,400,{error:e.message})}
     return send(res,404,{error:'Unknown'})}
    if(p.startsWith('/ui/gemini/')){const act=p.slice(11);if(act==='status'&&req.method==='GET')return send(res,200,await gemini.status());
     if(!users.isAdmin(u))return send(res,403,{error:'Only admins can connect Gemini.'});if(req.method!=='POST')return send(res,405,{error:'POST only'});
@@ -1670,7 +1671,7 @@ const server=createServer(async(req,res)=>{
     try{if(p==='/ui/apps/check'){const a=await live.check(String(b.id||''));return send(res,200,{status:a.status,error:a.error||''})}
      if(p==='/ui/apps/remove')return send(res,200,await live.remove(u,users.isAdmin(u),String(b.id||'')));
      if(p==='/ui/apps/connect'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,await live.connect(b))}}catch(e){return send(res,400,{error:e.message})}}
-   if(p==='/ui/bottlenecks'&&req.method==='GET'){const admin=users.isAdmin(u);if(admin)await freshSignins();const items=await bottlenecks.list({admin,uid:admin?null:u.id,mayUse:a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a),signins:admin?[...signinsDue.values()]:[],invites:admin?users.expiredInvites():[]});const mayU=a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a);items.push(...await accessAsk.open(admin?()=>true:mayU).catch(()=>[]));items.push(...await help.items(u).catch(()=>[]));
+   if(p==='/ui/bottlenecks'&&req.method==='GET'){const admin=users.isAdmin(u);if(admin)await freshSignins();const items=await bottlenecks.list({admin,uid:admin?null:u.id,mayUse:a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a),signins:admin?[...signinsDue.values()]:[],invites:admin?users.expiredInvites():[],accounts:admin?await accountsApi.signedOut().catch(()=>[]):[]});const mayU=a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a);items.push(...await accessAsk.open(admin?()=>true:mayU).catch(()=>[]));items.push(...await help.items(u).catch(()=>[]));
     // the message that led to it is from the agent's newest chat, whoever's: a member sees it only when that chat is theirs
     return send(res,200,{items:admin?items:items.map(x=>x.from&&users.ownerOf(x.from.chat)!==u.id?{...x,from:null}:x)})}
    if((p==='/ui/bottlenecks/done'||p==='/ui/bottlenecks/later')&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const id=String(b.id||'').slice(0,300);if(!id)return send(res,400,{error:'Which one?'});const admin=users.isAdmin(u);
@@ -1678,7 +1679,7 @@ const server=createServer(async(req,res)=>{
     if(id.startsWith('ticket|')){try{return send(res,200,await help.decide(id,p.endsWith('/done')?'done':'later',u))}catch(e){return send(res,e.status||400,{error:e.message})}}
     // only what this person is shown: a report from an agent they may use, anything else for admins and only when it is there
     if(id.startsWith('report|')){const r=await bottlenecks.find(id);if(!r)return send(res,404,{error:'That one is already gone.'});if(users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),r.agent))return send(res,403,{error:'That agent is not shared with you.'})}
-    else{if(!admin)return send(res,403,{error:'Only admins.'});const cur=await bottlenecks.list({admin:true,mayUse:()=>false,signins:[...signinsDue.values()],invites:users.expiredInvites()});if(!cur.some(x=>x.id===id))return send(res,404,{error:'That one is already gone.'})}
+    else{if(!admin)return send(res,403,{error:'Only admins.'});const cur=await bottlenecks.list({admin:true,mayUse:()=>false,signins:[...signinsDue.values()],invites:users.expiredInvites(),accounts:await accountsApi.signedOut().catch(()=>[])});if(!cur.some(x=>x.id===id))return send(res,404,{error:'That one is already gone.'})}
     await (p.endsWith('done')?bottlenecks.done(id):bottlenecks.later(id,admin?null:u.id));return send(res,200,{ok:true})}
    if(p==='/ui/code/devices'&&req.method==='GET')return send(res,200,{devices:await code.devices(u.id)});
    if(p==='/ui/code/unpair'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const n=await code.unpair(u.id,String(b.id||''));return n?send(res,200,{ok:true}):send(res,400,{error:'That computer was not found.'})}
@@ -1938,7 +1939,7 @@ const server=createServer(async(req,res)=>{
     if(users.level(u,n)!=='owner')return send(res,403,{error:'Only the owner of this agent can finish its setup.'});
     return accountsApi(req,res,p,send,async()=>JSON.stringify({name:n}),a=>users.level(u,a)==='owner')}
    const no=users.gate(u,p,req.method,url.searchParams,'default');if(no)return send(res,no.status,{error:no.error});
-   if(p.startsWith('/ui/accounts/old-code')&&!users.isAdmin(u))return send(res,403,{error:'Only admins.'});
+   if((p.startsWith('/ui/accounts/old-code')||/^\/ui\/accounts\/[a-z0-9-]+\/(reconnect|login)$/.test(p))&&!users.isAdmin(u))return send(res,403,{error:'Only admins.'});
    if(p.startsWith('/ui/accounts'))return accountsApi(req,res,p,send,readBody,a=>!!users.level(u,a));
    if(p==='/ui/logo')return logo(req,res);
    return identities(req,res,p,u);
