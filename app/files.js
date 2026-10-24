@@ -20,14 +20,14 @@ const fWork=()=>S.me&&!S.me.admin?FILE_HOME:FILE_HOME+'/workspaces/'+fAgent();
 const placesFor=()=>!S.me?.admin&&S.me?[['My files',FILE_HOME,'folder','own']]:[['Workspace',fWork(),'folder','agent'],['Memory',fAgentHome()+'/memories','brain','agent'],['Skills',fAgentHome()+'/skills','sparkle','agent'],['Home',FILE_HOME,'folder','box'],['Apps',FILE_HOME+'/apps','layers','box'],['Code projects',FILE_HOME+'/code-projects','folder','box']];
 
 const FV={view:store.get('filesView','grid'),sort:store.get('filesSort','name'),hidden:store.get('filesHidden',false),q:''};
-PAGES.files=async(p,el)=>{
+PAGES.files=async(p,el)=>{const stale=pageTok(el);
  if(S._fileAgent!==fAgent()){S._fileAgent=fAgent();S.filePath=fWork();S._placesOk=null}
  // quick places that exist (Workspace and Home always); checked once per agent
  if(!S._placesOk){const all=placesFor();S._placesOk=new Set([fWork(),FILE_HOME]);UI('/ui/files/exist',{method:'POST',body:{paths:all.map(x=>x[1])}}).then(r=>{for(const x of r.exist||[])S._placesOk.add(x);paintPlaces()}).catch(()=>{S._placesOk=new Set(all.map(x=>x[1]));paintPlaces()})}
  const path=S.filePath||fWork();let d;
  // the engine can lock Files to one folder (a hosted box): then it opens there and offers nothing above it
  try{d=await H('/files'+qp({path}))}catch(e){if(e.stale)throw e;if(path!==FILE_HOME){S.filePath=FILE_HOME;toast(S._fileJump?'Couldn’t open '+path+'. It may not exist, or it is not yours.':'That folder doesn’t exist yet','err');S._fileJump=false;return PAGES.files(p,el)}try{d=await H('/files')}catch{throw e}}
- S._fileJump=false;S.filePath=d.path;Pages._dir=d;const lock=d.can_change_path===false&&d.locked_root?d.locked_root.replace(/\/$/,''):null;S._fileLock=lock;
+ if(stale())return; S._fileJump=false;S.filePath=d.path;Pages._dir=d;const lock=d.can_change_path===false&&d.locked_root?d.locked_root.replace(/\/$/,''):null;S._fileLock=lock;
  const under=x=>!lock||x===lock||x.startsWith(lock+'/');const PLACES=lock?(placesFor().filter(x=>under(x[1])).length?placesFor().filter(x=>under(x[1])):[['Files',lock,'folder','agent']]):placesFor();if(lock)S._placesOk.add(lock);
  setActions(`<button class="ghost icon" data-act="reload" title="Refresh this folder" aria-label="Refresh this folder">${icon('refresh',16)}</button>${lock?'':`<button class="ghost" data-act="f-go" title="Type the path of any folder">${icon('search',16)}Go to folder</button>`}<button data-act="f-mkdir">${icon('folder',16)}New folder</button><button class="primary" data-act="f-upload">${icon('upload',16)}Upload</button>`);
  const lockParts=lock?lock.split('/').filter(Boolean).length-1:0;const parts=d.path.split('/').filter(Boolean);
@@ -36,7 +36,7 @@ PAGES.files=async(p,el)=>{
  const upTile=upOk?`<div class="ftile up" data-act="f-cd" data-path="${esc(d.parent)}" tabindex="0"><div class="fthumb"><span class="fk">${icon('chevL',26)}</span></div><div class="fname">Up</div><div class="fmeta">${esc(d.parent.split('/').pop()||'/')}</div></div>`:'';
  const upRow=upOk?`<div class="row clickable frow" data-act="f-cd" data-path="${esc(d.parent)}" tabindex="0"><div class="main-c"><span class="fk-sm fk-folder">${icon('chevL',16)}</span><div class="txt"><b>Up</b><small class="frel">${esc(d.parent.split('/').pop()||'/')}</small></div></div></div>`:'';
  // search: this folder and everything inside it
- let found=null;if(FV.q){try{found=await UI('/ui/files/search'+qp({path:d.path,q:FV.q,hidden:FV.hidden?'1':'0'}))}catch{found=null;toast('Search is not available, showing names in this folder','err')}}
+ let found=null;if(FV.q){try{found=await UI('/ui/files/search'+qp({path:d.path,q:FV.q,hidden:FV.hidden?'1':'0'}))}catch{found=null;toast('Search is not available, showing names in this folder','err')}if(stale())return}
  // without search results, still only show this folder's names that match what was typed
  let items=found?found.results:(d.entries||[]).filter(f=>(FV.hidden||!f.name.startsWith('.'))&&(!FV.q||f.name.toLowerCase().includes(FV.q.toLowerCase())));
  const cmp={name:(a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}),modified:(a,b)=>(b.mtime||0)-(a.mtime||0),size:(a,b)=>(b.size||0)-(a.size||0),type:(a,b)=>kindOf(a).localeCompare(kindOf(b))||a.name.localeCompare(b.name)}[FV.sort];
@@ -108,7 +108,7 @@ async function preview(i){const files=(Pages._items||[]).filter(x=>!x.is_directo
  }catch(e){stage.innerHTML=`<div class="pv-none"><span class="fk fk-${k}">${icon(KIND_ICON[k],34)}</span><b>No preview for this file</b><span>${esc(f.name)} · ${bytes(f.size)}</span><button class="primary" data-pv="download">${icon('download',15)}Download</button></div>`}
 }
 // the "Showing" agent picker (Files loads after the other pages got theirs, so it is added here)
-{const base=PAGES.files;PAGES.files=async(p,el)=>{viewPick(await viewAgents());return base(p,el)}}
+{const base=PAGES.files;PAGES.files=async(p,el)=>{const stale=pageRun(el);viewPick(await viewAgents());if(!stale())return base(p,el)}}
 
 // redraw only the quick places once we know which exist
 function paintPlaces(){const box=$('.fplaces');if(!box||!S._placesOk)return;for(const b of box.querySelectorAll('[data-path]'))b.hidden=!S._placesOk.has(b.dataset.path)}

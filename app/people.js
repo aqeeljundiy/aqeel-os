@@ -155,15 +155,15 @@ ACT['me-password']=()=>ACT['me-profile']();
 ACT['tool-off']=a=>{Chat.tools.splice(+a.dataset.i,1);Chat.paintTools()};
 
 /* ---------- Agents page with owners: who owns each agent, who it is shared with, private ones locked ---------- */
-PAGES.profiles=async(p,el)=>{
- const [pr,act]=await Promise.all([H('/profiles'),H('/profiles/active').catch(()=>({}))]);Pages._profiles=pr.profiles||[];
- const own=await UI('/ui/agents?names='+encodeURIComponent(Pages._profiles.map(x=>x.name).join(','))).catch(()=>({}));Pages._own=own;
+PAGES.profiles=async(p,el)=>{const stale=pageTok(el);
+ const [pr,act]=await Promise.all([H('/profiles'),H('/profiles/active').catch(()=>({}))]);if(stale())return;Pages._profiles=pr.profiles||[];
+ const own=await UI('/ui/agents?names='+encodeURIComponent(Pages._profiles.map(x=>x.name).join(','))).catch(()=>({}));if(stale())return;Pages._own=own;
  const list=Pages._profiles.filter(x=>own[x.name]||S.me?.admin!==false);
  setActions(`<span class="head-count">${esc(plural(list.length,'agent'))}</span>`+(S.me?.admin===false&&!(S.me.caps||[]).includes('create')?'':`<button class="primary" data-act="prof-new">${icon('plus',16)}New agent</button>`));
  el.innerHTML=`<div class="grid-cards">${list.map((x,i)=>{const id=ident(x.name),o=own[x.name]||{},locked=o.access===null&&o.private;
   return `<div class="card tile agent-card ${locked?'locked':''}" ${st(i)} ${locked?`data-act="agent-locked" data-owner="${esc(o.owner?.name||'')}"`:`data-act="agent-card" tabindex="0" title="Chat with ${esc(id.name)}"`} data-name="${esc(x.name)}">
   <div class="tile-top">${agentAvatar(x.name,40,{plain:locked,title:false})}<div style="min-width:0"><h3>${esc(id.name)}</h3><span style="font-size:12.5px;color:var(--muted)">${locked?'Private':esc(id.title||'Agent')+' · '+esc(modelLabel(x.model))+' · '+plural(x.skill_count||0,'skill')}</span></div>${locked?`<span class="chip">${icon('lock',12)}Private</span>`:''}</div>
-  ${locked?`<p class="hint">Only ${esc(o.owner?.name||'its owner')} and the people they share it with can open it.</p>`:(x.description?`<p>${esc(x.description)}</p>`:`<p class="hint"><a href="#" data-act="agent-describe" data-name="${esc(x.name)}">Add a description</a> (for example: Handles finance and the monthly close)</p>`)}
+  ${locked?`<p class="hint">Only ${esc(o.owner?.name||'its owner')} and the people they share it with can open it.</p>`:(x.description?`<p>${esc(x.description)}</p>`:mayEdit(x.name)?`<p class="hint"><a href="#" data-act="agent-describe" data-name="${esc(x.name)}">Add a description</a> (for example: Handles finance and the monthly close)</p>`:'<p class="hint">No description yet.</p>')}
   <div class="agent-people">${o.owner?`<span class="aowner" title="Owner">${personAva(o.owner,22)}<span>${esc(o.owner.id===S.me?.id?'You':o.owner.name)}</span><small>owner</small></span>`:''}${(o.shared||[]).length?`<span class="ashared">${o.shared.slice(0,5).map(s=>`<span title="${esc(s.name)} · ${esc(LEVEL_LABEL[s.level]||s.level)}">${personAva(s,22)}</span>`).join('')}${o.shared.length>5?`<small>+${o.shared.length-5}</small>`:''}</span>`:''}</div>
   <div class="agent-tags">${x.is_default?'<span class="chip blue">Default</span>':''}${!locked&&act.active===x.name?'<span class="chip" title="Commands typed on the box use this agent unless they name another">Command line</span>':''}${!locked&&x.description_auto&&x.description?'<span class="chip" title="aqeelOS wrote this description. Read it and change it if it is off; editing it removes this note.">Written for you · check it</span>':''}${locked?'':chipState(x.gateway_running,'Online','Offline')}</div><div class="tile-foot agent-foot"><span>${locked?'':(S.profile||'default')===x.name?'<span class="chip ok"><i class="dot"></i>In use</span>':`<span class="agent-go">${icon('chat',14)}Chat with ${esc(id.name)}</span>`}</span>${locked?'':`<button class="ghost icon agent-gear" data-menu="profilecard" data-name="${esc(x.name)}" aria-label="Settings for ${esc(id.name)}" title="Settings">${icon('settings',18)}</button>`}</div></div>`}).join('')}</div>`;
 };
@@ -706,12 +706,12 @@ ACT['mcp-auth']=async a=>{const name=a.dataset.name,agent=a.dataset.agent||agent
   txt.querySelector('b')?.insertAdjacentHTML('beforeend',' <span class="chip blue" title="Part of aqeelOS, kept on every agent that has a channel">Built in</span>')}}}
 
 /* ---------- Agents › Recently deleted: every deleted agent is kept for 30 days and can be restored ---------- */
-{const base=PAGES.profiles;PAGES.profiles=async(p,el)=>{await base(p,el);if(S.me?.admin===false)return;let items=[];try{items=(await UI('/ui/agent-trash')).items||[]}catch{return}if(!items.length)return;
+{const base=PAGES.profiles;PAGES.profiles=async(p,el)=>{const stale=pageTok(el);await base(p,el);if(stale()||S.me?.admin===false)return;let items=[];try{items=(await UI('/ui/agent-trash')).items||[]}catch{return}if(stale()||!items.length)return;
  const panel=document.createElement('div');panel.className='panel card';panel.style.marginTop='16px';
  panel.innerHTML=`<h2>Recently deleted</h2><p class="sub">Deleted agents are kept for 30 days. Restoring brings back its settings, skills, memory and chats.</p>${items.map((x,i)=>`<div class="row" ${st(i)} style="padding:12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="main-c">${agentAva(x.agent)}<div class="txt"><b>${esc(ident(x.agent).name)}</b><span>Deleted ${esc(when(x.deleted))} · ${esc(bytes(x.size))}</span></div></div><div class="act"><button class="ghost" data-act="agent-purge" data-file="${esc(x.file)}" data-name="${esc(ident(x.agent).name)}" style="color:var(--bad)">${icon('trash',15)}Delete forever</button><button data-act="agent-restore" data-file="${esc(x.file)}" data-name="${esc(ident(x.agent).name)}">${icon('refresh',15)}Restore</button></div></div>`).join('')}`;
  el.append(panel)}}
 /* ---------- Agents: an agent whose setup did not finish says so, with one click to finish it ---------- */
-{const base=PAGES.profiles;PAGES.profiles=async(p,el)=>{await base(p,el);let st={};try{st=(await UI('/ui/agent-setup')).agents||{}}catch{return}
+{const base=PAGES.profiles;PAGES.profiles=async(p,el)=>{const stale=pageTok(el);await base(p,el);if(stale())return;let st={};try{st=(await UI('/ui/agent-setup')).agents||{}}catch{return}if(stale())return;
  for(const [n,v] of Object.entries(st)){if(v.ok)continue;const tags=el.querySelector('.agent-card[data-name="'+CSS.escape(n)+'"] .agent-tags');if(!tags)continue;
   tags.insertAdjacentHTML('beforeend',`<span class="chip warn" title="${esc((v.failed||[]).join(' · '))}">${icon('alert',12)}Setup not finished</span><button class="small" data-act="agent-fix" data-name="${esc(n)}">Finish setup</button>`)}}}
 ACT['agent-fix']=async a=>{a.disabled=true;const was=a.textContent;a.textContent='Finishing…';

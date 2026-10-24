@@ -79,7 +79,10 @@ export function createUsers(DATA,mail){
  // whose schedules (with their runbooks, results and costs) a person may see
  const schedOk=(u,agent)=>isAdmin(u)?!!level(u,agent):atLeast(u,agent,'edit')&&canOn(u,'schedules',agent);
  const ownsAny=u=>Object.keys({...db.agentOwners,...db.shares}).some(a=>level(u,a)==='owner');
- const ownCount=u=>Object.values(db.agentOwners).filter(id=>id===u.id).length;
+ // agents being made right now count too: two quick New agent clicks both passed the limit before either was recorded
+ const making=new Map(),ownCount=u=>Object.values(db.agentOwners).filter(id=>id===u.id).length+(making.get(u.id)||0);
+ // holds a place under the limit until the engine has answered (release); null when the limit is reached
+ const reserve=u=>{if(ownCount(u)>=eff(u).maxAgents)return null;making.set(u.id,(making.get(u.id)||0)+1);let on=true;return ()=>{if(!on)return;on=false;const n=(making.get(u.id)||1)-1;n?making.set(u.id,n):making.delete(u.id)}};
  // a deleted agent no longer counts against its owner's allowance; who owned it and who had it come back if it is restored
  async function dropAgent(a){await load();if(!(a in db.agentOwners)&&!db.shares[a])return;(db.goneAgents??={})[a]={owner:db.agentOwners[a],shares:db.shares[a]};delete db.agentOwners[a];delete db.shares[a];await save()}
  async function restoreAgent(a){await load();const g=db.goneAgents?.[a];if(!g)return;if(g.owner)db.agentOwners[a]=g.owner;if(g.shares)db.shares[a]=g.shares;delete db.goneAgents[a];await save()}
@@ -286,7 +289,8 @@ export function createUsers(DATA,mail){
   if(i.ownAgent&&agentOwner(i.ownAgent)===i.by){db.agentOwners[i.ownAgent]=u.id;delete db.shares[i.ownAgent]?.[u.id]}
   i.used=Date.now();await save();await mkdir(home(u),{recursive:true}).catch(()=>{});return u}
 
- async function created(u,agent){await load();db.agentOwners[agent]=u.id;await save()}
+ // a new agent starts with no shares: ones left under that name (shared before it existed, or from an older agent) go
+ async function created(u,agent){await load();db.agentOwners[agent]=u.id;delete db.shares[agent];await save()}
  // models: null = any model the owner has enabled; otherwise a list of "provider|model" keys (or bare model ids)
  const modelOk=(u,provider,model)=>{if(isAdmin(u))return true;const l=eff(u).models;if(!l)return true;return l.includes(provider+'|'+model)||l.includes(model)};
  const allowedModels=u=>isAdmin(u)?null:eff(u).models;
@@ -294,5 +298,5 @@ export function createUsers(DATA,mail){
  async function loginCode(u){const me=byId(u.id);return sendCode(me,'login',me.email)}
  function finishLogin(key,code){const v=checkCode(String(key||''),code,'login');if(v.error)return v;const u=byId(v.uid);return u?{ok:true,user:u}:{error:'That person no longer exists.'}}
  const expiredInvites=()=>(db?.invites||[]).filter(i=>!i.used&&i.expires<Date.now()&&i.expires>Date.now()-30*86400e3).map(i=>({code:i.code,name:i.name,role:i.role,roleId:i.roleId||null,caps:i.caps||[],agents:i.agents||{},ownAgent:i.ownAgent||null,expired:i.expires}));
- return {face,expiredInvites,agentOwner,byId,ownerOf,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginCode,finishLogin,created,can,canOn,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home,level,atLeast,schedOk,dropAgent,restoreAgent};
+ return {face,expiredInvites,agentOwner,byId,ownerOf,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginCode,finishLogin,created,reserve,can,canOn,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home,level,atLeast,schedOk,dropAgent,restoreAgent};
 }

@@ -338,9 +338,13 @@ function render(){
   else{v.innerHTML=`<div class="page">${head(r.page)}<div id="pg">${skeleton()}</div></div>`;const pg=$('#pg');if(P)runPage(P,r,pg)}}
  // plugin slots on this page, when some plugin fills one (plugin-host.js)
  if(Plugins.slotNames.size)Plugins.patch();
+// each drawing of a page gets a number; work that ends after a newer drawing began is dropped (two quick reloads drew
+// the Agents page twice, a slow Files answer replaced a newer folder). pageRun starts a drawing, pageTok joins the current one
+const pageRun=el=>{const t=el._rt=(el._rt||0)+1;return ()=>el._rt!==t||!el.isConnected};
+const pageTok=el=>{const t=el._rt;return ()=>el._rt!==t||!el.isConnected};
 // draw a page; if it fails (the engine busy for a moment), try once more quietly before saying so
-function runPage(P,r,pg){const nav=S._nav;return Promise.resolve(P(r.page,pg,r)).catch(async e=>{if(e?.stale||nav!==S._nav||!pg.isConnected)return;if(e?.status&&e.status<500&&e.status!==429)return showError(pg,e);
- await sleep(1200);if(nav!==S._nav||!pg.isConnected)return;return Promise.resolve(P(r.page,pg,r)).catch(e2=>showError(pg,e2))})}
+function runPage(P,r,pg){const nav=S._nav;pageRun(pg);return Promise.resolve(P(r.page,pg,r)).catch(async e=>{if(e?.stale||nav!==S._nav||!pg.isConnected)return;if(e?.status&&e.status<500&&e.status!==429)return showError(pg,e);
+ await sleep(1200);if(nav!==S._nav||!pg.isConnected)return;pageRun(pg);return Promise.resolve(P(r.page,pg,r)).catch(e2=>showError(pg,e2))})}
 }
 function paintSide(r){const el=$('.side'),h=sidebar(r||route());if(el._h!==h){el._h=h;el.innerHTML=h}}
 function paintTop(r){const el=$('.topbar'),h=topbar(r||route());if(el._h!==h){el._h=h;el.innerHTML=h}}

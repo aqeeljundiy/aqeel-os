@@ -1003,7 +1003,8 @@ async function hermesCall(req,res,u,url){
   // a member's tool address may not point inside the box or at a cloud's metadata service
   if(/^\/hapi\/mcp\/servers/.test(p)&&b.url&&await privateAddress(b.url))return send(res,403,{error:'Tools must use a public web address.'});
   // a member's new agent starts empty: copying the main agent would copy its keys and memory
-  if(p==='/hapi/profiles'){b.clone_from_default=false;b.clone_all=false;if(b.clone_from&&users.level(u,String(b.clone_from))!=='owner')delete b.clone_from;made=String(b.name||'');
+  if(p==='/hapi/profiles'){const rel=users.reserve(u);if(!rel)return send(res,403,{error:'You reached the number of agents your role allows. Delete one first or ask the owner.'});res.once('close',rel);
+   b.clone_from_default=false;b.clone_all=false;if(b.clone_from&&users.level(u,String(b.clone_from))!=='owner')delete b.clone_from;made=String(b.name||'');
    // the apps and library skills a new agent starts with follow the same rules as adding them later
    delete b.hub_skills;const ms=Array.isArray(b.mcp_servers)?b.mcp_servers:[];if(ms.some(s=>s&&(s.command||s.args||s.transport==='stdio'))&&!users.can(u,'unsafe'))return send(res,403,{error:'Only admins can add tools that run a command on the box. Use a server URL instead.'});
    for(const s of ms)if(s?.url&&await privateAddress(s.url))return send(res,403,{error:'Tools must use a public web address.'})}
@@ -1020,7 +1021,7 @@ async function hermesCall(req,res,u,url){
   :/^\/gapi(\/p\/[^/]+)?\/api\/sessions$/.test(p)&&req.method==='POST'?async d=>{await users.own(d.id||d.session?.id||d.session_id,u);return d}
   // a fork belongs to the person who forked it (else it would count as the owner's and they could not open it)
   :/^\/(gapi(\/p\/[^/]+)?\/api|hapi)\/sessions\/[^/]+\/fork$/.test(p)&&req.method==='POST'?async d=>{await users.own(d?.session?.id||d?.id||d?.session_id||d?.new_session_id,u);return d}
-  :made?async d=>{await memberAgent(u,made);return d}
+  :made?async d=>{await memberAgent(u,String(d?.name||d?.profile?.name||made));return d}
   :p==='/hapi/profiles'&&req.method==='POST'?async d=>{const n=d?.name||d?.profile?.name;if(n){noteMade(n);(setupAgentFn?setupAgentFn(n):Promise.resolve()).catch(e=>console.warn('setup',n,e.message)).finally(async()=>{await agentHealth(n).catch(()=>{});await syncNotifyTool().catch(()=>{});if(PORT===4400)writeAgentContext().catch(()=>{});
    const {execFile}=await import('node:child_process');execFile(process.execPath,[path.join(root,'scripts','apply-skill-patches.mjs')],{timeout:180000},e=>{if(e)console.warn('skill patches',n,e.message)})})}return d}
   :relayTarget!==undefined?async d=>{const id=relayJob||(d.job||d).id;if(id)await relay.setJobRelay(agent,id,relayTarget);return d}:undefined;
