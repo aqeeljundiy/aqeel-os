@@ -2,7 +2,7 @@
 // to one agent, and one connection can only be read by one agent at a time. aqeelOS shows them for the
 // whole team and can hand a working connection to another agent (its settings, WhatsApp login and
 // approved people move along), so nobody sets the same channel up twice.
-import {readFile,writeFile,rename,cp,rm,access,readdir,mkdir} from 'node:fs/promises';
+import {readFile,cp,rm,access,readdir,mkdir} from 'node:fs/promises';
 import path from 'node:path';
 import {editEnv} from './agentops.mjs';
 

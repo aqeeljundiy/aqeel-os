@@ -3,7 +3,7 @@
 // Each account is its own Claude Code config folder (CLAUDE_CONFIG_DIR); the main one is ~/.claude.
 // Hermes' Claude plugin is pointed at an account per agent with its `claude_config_dir` setting.
 import {spawn,execFile} from 'node:child_process';
-import {readFile,writeFile,mkdir,rename,rm,readdir,cp,appendFile,access,stat} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,rename,rm,readdir,cp,access,stat} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import path from 'node:path';
 import {hermes as hq,setKey,readConfig,pick,editEnv,agentNames,setStatus,getStatus,LIVE_APP} from './agentops.mjs';
@@ -11,7 +11,6 @@ import {allowed,trim} from './skills-policy.mjs';
 
 const HOME=homedir();
 const CLAUDE=process.env.CLAUDE_BIN||path.join(HOME,'.local','bin','claude');
-const HERMES=process.env.HERMES_BIN||path.join(HOME,'.local','bin','hermes');
 const HERMES_HOME=process.env.HERMES_HOME||path.join(HOME,'.hermes');
 const PLUGIN='claude-subscription-directsdk-experimental';
 const SETTING=`plugins.entries.${PLUGIN}.settings.claude_config_dir`;

@@ -22,7 +22,7 @@ import {Terminals} from './terminals.mjs';
 import {Usage,extractJson,SEED} from './usage.mjs';
 import {readCodexAccount} from './accounts.mjs';
 import {findBrowser} from './platform.mjs';
-import {KINDS,kindInstructions,flexInstructions,listOutputs,checkSlug,DesignSystems,cleanDS,EXTRACT_SCRIPT,dsFromPage,deckPptx,deckFile,docDocx,docPdf,printUrl,officeText,shareSnapshot} from './outputs.mjs';
+import {KINDS,kindInstructions,flexInstructions,listOutputs,checkSlug,DesignSystems,EXTRACT_SCRIPT,dsFromPage,deckPptx,deckFile,docDocx,docPdf,printUrl,officeText,shareSnapshot} from './outputs.mjs';
 import {DEFAULT_DS} from './deck-render.js';
 import {isLoopback} from './remote.mjs';
 // settings that make the computer run commands can only change from the computer itself, never from a paired phone

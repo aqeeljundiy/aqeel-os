@@ -26,7 +26,6 @@ export const PRESETS={member:[],creator:['create','skills','mcp','schedules','mo
 // The owner defines them once (People › Roles) and gives each person one. "Custom" = per-person settings.
 const DEFAULT_ROLES={member:{name:'Member',caps:[],models:null,limit:null,maxAgents:0},creator:{name:'Creator',caps:PRESETS.creator,models:null,limit:null,maxAgents:5}};
 export const UNSAFE_TOOLSETS=['terminal','file','code_execution','computer_use'];
-const MAX_OWN_AGENTS=5;
 const PEOPLE_DIR=path.join(homedir(),'people');      // members' own folders: ~/people/<id>
 
 export function createUsers(DATA,mail,{ownerCheck}={}){

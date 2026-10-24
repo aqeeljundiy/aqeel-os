@@ -23,7 +23,7 @@ import {createChannels} from './channels.mjs';
 import {createShare} from './share.mjs';
 import {createRelay} from './relay.mjs';
 import {boxMemory} from './boxmem.mjs';
-import {createLinks,isLink} from './links.mjs';
+import {createLinks} from './links.mjs';
 import {createLocalBrowser} from './localbrowser.mjs';
 import {createEngineConsole} from './engine-console.mjs';
 import {createAccess} from './access.mjs';
@@ -454,10 +454,10 @@ let gwStopped=false,gwRestarting=null,gwMissing=0,sshLock=Promise.resolve();   /
 // Thinking survives a refresh: the engine keeps no thinking text for some models (only a sealed signature), so when
 // a reply streamed through aqeelOS ends, the thinking it showed is saved per chat and shown again when it is reopened.
 async function saveThinking(key,rec){try{const sid=key.split('|').slice(1).join('|');if(!/^[\w.-]{3,120}$/.test(sid))return;
- let user='',think='',secs=0,t0=0,t1=0;
+ let user='',think='';
  for(const ev of Buffer.concat(rec.chunks).toString('utf8').split('\n\n')){const name=(/^event: *(.+)$/m.exec(ev)||[])[1];const dl=ev.split('\n').filter(l=>l.startsWith('data:')).map(l=>l.slice(5)).join('');if(!dl)continue;let e;try{e=JSON.parse(dl)}catch{continue}const ty=e.type||name;
   if(ty==='run.started'){const c=e.user_message?.content;user=typeof c==='string'?c:Array.isArray(c)?c.map(x=>x.text||'').join(''):''}
-  if(ty==='reasoning.delta'||ty==='assistant.reasoning'||(ty==='tool.progress'&&e.tool_name==='_thinking')){const d=e.delta||e.text||'';if(d){if(!t0)t0=Date.now();think+=d}}}
+  if(ty==='reasoning.delta'||ty==='assistant.reasoning'||(ty==='tool.progress'&&e.tool_name==='_thinking')){const d=e.delta||e.text||'';if(d)think+=d}}
  if(!think.trim()||!user)return;const f=path.join(DATA,'thinking',sid+'.json');const l=await readFile(f,'utf8').then(JSON.parse).catch(()=>[]);
  l.push({u:user.slice(0,300),think:think.slice(0,20000),by:rec.user,t:Date.now()});await mkdir(path.dirname(f),{recursive:true});await writeFile(f,JSON.stringify(l.slice(-200)))}catch(e){console.warn('save thinking',e.message)}}
 const liveCount=()=>[...LIVE.values()].filter(r=>!r.done).length;

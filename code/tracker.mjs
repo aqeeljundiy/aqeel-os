@@ -1,4 +1,3 @@
-import {readFile,appendFile} from 'node:fs/promises';
 const endpoint='http://127.0.0.1:4317/api/development';
 let board=await fetch(endpoint).then(r=>r.json());
 const title=process.env.TRACKER_TITLE||'Local AI connection tester (separate prototype)';

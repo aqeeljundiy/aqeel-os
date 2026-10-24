@@ -12,7 +12,6 @@ import {createServer} from 'node:net';
 import {setKey,agentNames,LIVE_APP} from './agentops.mjs';
 
 const HOME=homedir();
-const HERMES=process.env.HERMES_BIN||path.join(HOME,'.local','bin','hermes');
 const HERMES_HOME=process.env.HERMES_HOME||path.join(HOME,'.hermes');
 const AGENT_SRC=path.join(HERMES_HOME,'hermes-agent');
 const WORKSPACES=path.join(HOME,'workspaces');

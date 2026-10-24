@@ -12,7 +12,7 @@
 //    in the person's Help chat.
 // One model for everyone (System › Settings › Help, admins), its own daily message limit; members' model lists and
 // chat limits don't apply. Its usage shows as its own "Help" line on System › Usage.
-import {readFile,writeFile,mkdir,rename,stat} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
 import path from 'node:path';
 import {randomBytes,createHash} from 'node:crypto';
 import {HELP_AGENT,LIVE_APP,isAgent,setKey,homeOf} from './agentops.mjs';
