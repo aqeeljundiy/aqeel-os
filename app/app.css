@@ -1659,12 +1659,23 @@ div.skel:not(.loading)::after{content:'';width:26px;height:26px;border-radius:50
 .u-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}.u-bar .tabs{margin:0}
 .u-pick{display:inline-flex;align-items:center;gap:8px;height:40px;min-height:40px;padding:0 14px;border-radius:var(--r-pill);background:var(--soft);border:1px solid var(--border);box-shadow:none;font-size:13.5px;font-weight:600;color:var(--ink);white-space:nowrap;transition:background var(--t-fast) var(--ease),border-color var(--t-fast) var(--ease)}
 .u-pick:hover{background:var(--surface);border-color:var(--ink-3,#c4c8d0);transform:none}.u-pick svg{color:var(--muted)}
-/* a pressed button waiting on the server: a small spinner next to its label, not clickable again until it's done */
+/* a pressed button waiting on the server: a spinner in place, the button keeps its exact size, not clickable again until it's done */
 .is-busy{pointer-events:none;position:relative}
-.is-busy::after{content:'';display:inline-block;flex:none;width:13px;height:13px;margin-left:8px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;opacity:.75;vertical-align:-2px;animation:busySpin .7s linear infinite}
-.icon.is-busy>svg,.ghost.icon.is-busy>svg{opacity:0}.icon.is-busy::after{position:absolute;left:50%;top:50%;margin:-6.5px 0 0 -6.5px}
+/* with an icon (icon-only or icon + label): the icon's own box turns into the spinner, so it never covers the label and nothing moves */
+.is-busy>svg:first-of-type{box-sizing:border-box;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;opacity:.8;animation:busySvg .7s linear infinite,busyIn var(--t-fast,.15s) var(--ease) both}
+.is-busy>svg:first-of-type>*{opacity:0}
+/* text only: the label hides in place (width held) and the spinner sits dead centre, never on top of the letters */
+.is-busy:not(:has(>svg)):not(.say)::after{content:'';position:absolute;inset:0;margin:auto;box-sizing:border-box;width:14px;height:14px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;opacity:.8;animation:busySpin .7s linear infinite,busyIn var(--t-fast,.15s) var(--ease) both}
+.is-busy:not(:has(>svg)):not(.say){-webkit-text-fill-color:transparent}.is-busy:not(:has(>svg)):not(.say)>*{opacity:0}
+/* a button that says what it is doing ("Connecting…"): the spinner goes before those words */
+.is-busy.say::before{content:'';display:inline-block;flex:none;box-sizing:border-box;width:14px;height:14px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;opacity:.8;animation:busySpin .7s linear infinite,busyIn var(--t-fast,.15s) var(--ease) both}
+@keyframes busyIn{from{opacity:0}}
 @keyframes busySpin{to{transform:rotate(360deg)}}
-@media (prefers-reduced-motion:reduce){.is-busy::after{animation-duration:2s}}
+@keyframes busySvg{from{transform:scale(.8) rotate(0)}to{transform:scale(.8) rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.is-busy::after,.is-busy::before,.is-busy>svg:first-of-type{animation-duration:2s,.01s}}
+/* one focus ring: it hugs the button's own border instead of floating 2px outside it (border + gap + ring read as a double outline) */
+button:focus-visible{outline:2px solid var(--blue-2);outline-offset:0;border-color:var(--blue-2)}
+button.primary:focus-visible{outline-offset:2px}button:focus:not(:focus-visible){outline:none}
 
 /* System › Health: backups */
 .backups-card{margin-bottom:16px}.bk-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap}.bk-head h2{margin:0 0 4px}.bk-head .sub{margin:0}
@@ -1889,6 +1900,3 @@ button.plug-danger{background:var(--bad);box-shadow:none}
 @keyframes progPop{from{transform:scale(.5)}to{transform:scale(1)}}
 .prog-head{display:flex;align-items:center;gap:8px;margin:0 0 10px;font-size:14px}.prog-head .hint{margin:0;font-variant-numeric:tabular-nums}
 .prog-head.ok b{color:var(--ok)}.prog-head.bad b{color:var(--bad)}
-/* icon-only buttons (composer icons, the round send button): the spinner replaces the icon, dead centre */
-.icon.is-busy>svg,.send.is-busy>svg,button.is-busy:has(>svg:only-child)>svg{opacity:0}
-.icon.is-busy::after,.send.is-busy::after,button.is-busy:has(>svg:only-child)::after{position:absolute;inset:0;margin:auto;box-sizing:border-box;width:14px;height:14px}
