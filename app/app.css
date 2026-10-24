@@ -44,7 +44,7 @@ body{overflow:hidden}
 .side-foot{flex:none;border-top:1px solid var(--border);padding:10px}
 .status-btn{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:8px 10px;border:0;border-radius:var(--r-md);background:transparent;box-shadow:none;justify-content:flex-start;text-align:left}
 .status-btn:hover{background:var(--soft-2);transform:none;box-shadow:none}
-.status-btn .avatar{width:30px;height:30px;border-radius:50%;background:linear-gradient(180deg,var(--blue-2),var(--blue));color:#fff;display:grid;place-items:center;font-size:12.5px;font-weight:600;flex:none}
+.status-btn .avatar{width:32px;height:32px;border-radius:50%;background:linear-gradient(180deg,var(--blue-2),var(--blue));color:#fff;display:grid;place-items:center;font-size:12.5px;font-weight:600;flex:none}
 .status-btn .who{flex:1;min-width:0;line-height:1.25}
 .status-btn .who b{display:block;font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .status-btn .who span{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden}
@@ -190,9 +190,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .msg{animation:rise var(--t-med) var(--ease) both}
 .msg.user{align-self:flex-end;max-width:78%;background:var(--surface);border:1px solid var(--border);border-radius:20px 20px 6px 20px;padding:12px 16px;font-size:15px;line-height:1.6;box-shadow:0 1px 2px rgba(11,12,16,.04)}
 .msg.ai{display:flex;gap:14px}
-.msg.ai .who{width:30px;height:30px;border-radius:50%;background:var(--surface);border:1px solid var(--border);display:grid;place-items:center;flex:none;margin-top:2px}
-.msg.ai .who img{width:16px;height:16px}
-.dark .msg.ai .who img{filter:invert(1)}
+.msg.ai .who{width:28px;height:28px;display:grid;place-items:center;flex:none;margin-top:2px}
 .msg.ai .body{flex:1;min-width:0;font-size:15px;line-height:1.7;color:var(--ink)}
 .msg.ai .body p{margin:0 0 12px}
 .msg.ai .body p:last-child{margin-bottom:0}
@@ -255,9 +253,8 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .slash .item{min-height:40px}
 .slash .item small{margin-left:auto;color:var(--muted);font-weight:400;font-size:12.5px}
 .chat-empty{max-width:780px;margin:0 auto;padding:12vh 28px 24px;text-align:center}
-.chat-empty .halo{width:64px;height:64px;margin:0 auto 18px;border-radius:20px;display:grid;place-items:center;background:linear-gradient(180deg,var(--sky-1),var(--sky-2));border:1px solid var(--border)}
-.chat-empty .halo img{width:30px;height:30px}
-.dark .chat-empty .halo img{filter:invert(1)}
+.chat-empty .halo{width:56px;height:56px;margin:0 auto 18px;display:grid;place-items:center}
+.chat-empty .halo .ag-ava{box-shadow:0 0 0 1px var(--border),0 2px 10px rgba(11,12,16,.06)}
 .chat-empty h1{font-size:30px;font-weight:600;letter-spacing:-1px;margin:0 0 8px}
 .chat-empty p{color:var(--ink-2);margin:0 0 28px}
 .prompts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;text-align:left}
@@ -442,12 +439,11 @@ input[type=time]{font-variant-numeric:tabular-nums;font-size:15px}
 @media (max-width:900px){.two,.two.wide-main{grid-template-columns:minmax(0,1fr)}}
 
 /* ---------- agent pictures ---------- */
-.logo.ava,.status-btn .avatar,.msg.ai .who,.ident-ava,.chat-empty .halo{overflow:hidden}
+.logo.ava,.status-btn .avatar{overflow:hidden}
 .logo.ava{background:linear-gradient(180deg,var(--blue-2),var(--blue))}
-.logo.ava img,.status-btn .avatar img,.ident-ava img,.msg.ai .who img.ava-img,.chat-empty .halo img.ava-img{width:100%;height:100%;object-fit:cover;display:block}
-.dark .msg.ai .who img.ava-img,.dark .chat-empty .halo img.ava-img{filter:none}
+.logo.ava img{width:100%;height:100%;object-fit:cover;display:block}
 .ident-top{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:6px}
-.ident-ava{width:84px;height:84px;border-radius:24px;background:linear-gradient(180deg,var(--blue-2),var(--blue));color:#fff;display:grid;place-items:center;font-size:32px;font-weight:600;flex:none;box-shadow:var(--shadow-card)}
+.ag-ava.ident-ava{box-shadow:var(--shadow-card)}
 .tile[data-act=ident-open]{cursor:pointer}
 
 
@@ -1266,7 +1262,7 @@ body:has(.drawer.pop) .scrim{backdrop-filter:blur(5px);background:rgba(11,12,16,
 .dark .ib-item .ic.blue{color:var(--blue-2)}
 .view-pick{display:inline-flex;align-items:center;gap:10px;min-height:42px;padding:5px 12px 5px 6px;border-radius:var(--r-pill);background:var(--surface);border:1px solid var(--border);box-shadow:none;font-weight:500;transition:border-color var(--t-fast) var(--ease),background var(--t-fast) var(--ease)}
 .view-pick:hover{border-color:var(--muted)}.view-pick.other{border-color:var(--blue);background:var(--blue-soft)}
-.view-pick .vp-ava{width:30px;height:30px;border-radius:50%;overflow:hidden;display:grid;place-items:center;background:var(--soft);font-size:13px;font-weight:600;flex:none}.view-pick .vp-ava img{width:100%;height:100%;object-fit:cover}
+.view-pick .vp-ava{width:32px;height:32px;border-radius:50%;overflow:hidden;display:grid;place-items:center;background:var(--soft);font-size:13px;font-weight:600;flex:none}.view-pick .vp-ava img{width:100%;height:100%;object-fit:cover}
 .view-pick .vp-t{display:flex;flex-direction:column;align-items:flex-start;line-height:1.15}.view-pick .vp-t small{font-size:11px;color:var(--muted);font-weight:400}.view-pick .vp-t b{font-size:13.5px;font-weight:600;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mi-find{position:sticky;top:-6px;margin:-6px -6px 6px;padding:8px 10px;display:flex;align-items:center;gap:8px;background:var(--surface);border-bottom:1px solid var(--border);color:var(--muted)}.mi-find input{border:0;outline:0;background:none;padding:2px 0;font:inherit;font-size:14px;width:100%;color:var(--ink);box-shadow:none;min-height:0}
 
@@ -1428,7 +1424,6 @@ mark.hit.first{animation:hitFlash 1.4s var(--ease)}@keyframes hitFlash{0%,100%{b
 /* in the small floating window the message stays short so its button fits */
 .screen-float .lb-note{padding:12px 14px;gap:5px}.screen-float .lb-note b{font-size:13.5px}.screen-float .lb-note span{font-size:11.5px}
 .screen-float .lb-steps{display:none}.screen-float .lb-note button{margin-top:2px;min-height:30px;padding:0 12px;font-size:12.5px}
-.chat-empty .halo{background:#fff;box-shadow:0 2px 10px rgba(11,12,16,.06)}.dark .chat-empty .halo{background:#fff}.dark .chat-empty .halo img{filter:none}
 .gem-top{display:flex;align-items:center;gap:14px}.gem-top .txt{flex:1;min-width:0}
 .gem-top>.logo{width:44px;height:44px;flex:none;border-radius:12px}.gem-top>.logo img{width:28px;height:28px}
 .ae-adv{margin-top:18px;border-top:1px solid var(--border);padding-top:12px}.ae-adv summary{cursor:pointer;font-size:13.5px;color:var(--ink-2);font-weight:600}.ae-adv[open] summary{margin-bottom:8px}.ae-tabs button{flex:1}
@@ -1490,7 +1485,7 @@ html.in-panel .composer-wrap{padding:0 10px 12px}
 .acc-group{margin:0 0 16px;animation:lbUp var(--t-med) var(--ease) both}
 .acc-grp{font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin:4px 2px 8px}
 .acc-who{display:inline-flex;align-items:center;margin-right:4px}
-.acc-av{border-radius:50%;display:inline-grid;place-items:center;flex:none;overflow:hidden;font-size:10.5px;font-weight:700;color:#fff;background:hsl(var(--h,220) 55% 52%);box-shadow:0 0 0 2px var(--surface);margin-left:-6px;transition:transform var(--t-fast) var(--ease)}
+.acc-av{border-radius:50%;display:inline-grid;place-items:center;flex:none;overflow:hidden;box-shadow:0 0 0 2px var(--surface);margin-left:-6px;transition:transform var(--t-fast) var(--ease)}
 .acc-who .acc-av:first-child{margin-left:0}.acc-who:hover .acc-av{transform:translateX(2px)}.acc-who:hover .acc-av:first-child{transform:none}
 .acc-av img{width:100%;height:100%;object-fit:cover}
 /* an avatar inside a row's text (agent chips, "For <agent>", "Owned by"): the row's text-line style made it a block with a 13px letter
@@ -1959,3 +1954,15 @@ button.plug-danger{background:var(--bad);box-shadow:none}
 /* Role, Models and Daily limit: one menu-button look, one width, right-aligned */
 .pshare .sel-btn.inline{min-height:34px;width:176px;min-width:0;max-width:62%;padding:6px 10px 6px 12px;font-size:13px;flex:none}
 @media (max-width:760px){.pshare .sel-btn.inline{font-size:16px;width:168px}}
+/* agent avatars (agentAvatar in core.js): round, a fixed size so nothing moves while the picture loads; an emoji sits
+   on a soft neutral disc, a photo fills it. Last in the file and a little more specific so older per-place rules
+   (status button, Showing picker, tiles) can't stretch an emoji or paint a coloured background behind it */
+.ag-ava{display:inline-grid;place-items:center;flex:none;border-radius:50%!important;overflow:hidden;background:var(--soft);padding:0;line-height:0;vertical-align:middle;color:inherit}
+span.ag-ava img{width:100%;height:100%;object-fit:cover;display:block;border-radius:inherit}
+span.ag-ava.emo img{width:78%;height:78%;object-fit:contain;border-radius:0}
+.status-btn span.ag-ava.avatar,.view-pick span.ag-ava.vp-ava{background:var(--soft)}
+span.ag-ava.ava-in img{animation:avaIn .26s var(--ease) both}
+@keyframes avaIn{from{opacity:0;transform:scale(.86)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){span.ag-ava.ava-in img{animation:none}}
+/* people: their own picture or initial, on the agents' sizes and the same round shape */
+.logo.ava.person-ava{border-radius:50%}

@@ -210,7 +210,7 @@ function viewPick(list){const box=$('.page-head .head-actions');if(!box)return;l
  const i=ident(viewing()),mine=viewing()===(S.profile||'default');
  if(!b){b=document.createElement('button');b.type='button';b.className='view-pick';b.dataset.act='view-pick';b.setAttribute('aria-haspopup','menu');box.prepend(b)}
  b.title=mine?'You are chatting with this agent. Pick another to look at theirs.':'Looking at '+i.name+'’s. You still chat with '+ident().name+'.';b.classList.toggle('other',!mine);
- b.innerHTML=`<span class="vp-ava">${i.avatar?`<img src="${esc(i.avatar)}" alt="">`:esc(i.name[0]||'?')}</span><span class="vp-t"><small>Showing</small><b>${esc(i.name)}</b></span>${icon('chevD',15)}`}
+ b.innerHTML=`${agentAvatar(viewing(),32,{cls:'vp-ava',title:false})}<span class="vp-t"><small>Showing</small><b>${esc(i.name)}</b></span>${icon('chevD',15)}`}
 for(const id of ['skills','mcp','plugins','webhooks','pairing','files','memory','models','keys','logs','settings']){const base=PAGES[id];if(!base)continue;PAGES[id]=async(p,el)=>{
  // the agent being looked at decides whose data loads (cleared again on other pages, see agentProfile)
  viewPick(await viewAgents());return base(p,el)}}

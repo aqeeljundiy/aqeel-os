@@ -8,7 +8,7 @@ const CodeUI={where:(()=>{try{const w=localStorage.getItem('aq-code-where');retu
  // this computer (the desktop app) or online (the copy on the AI box, behind sign-in)
  online(){return true},   // everyone: online projects are private to each person until their owner shares them
  // the bottom-left card in Code: Code's agent (No agent by default) and its model
- agentCard(){const a=(this.st.agents||[]).find(x=>x.id===this.st.agent);return {name:a?a.name:'No agent',initial:a?a.name.trim()[0].toUpperCase():'–',model:this.st.model||'Default',none:!a}},
+ agentCard(){const a=(this.st.agents||[]).find(x=>x.id===this.st.agent);return {id:a?a.id:'',name:a?a.name:'No agent',model:this.st.model||'Default',none:!a}},
  whereBar(){if(!this.online())return '';return `<div class="code-where" role="tablist" aria-label="Build or Live">${[['computer','Build','terminal'],['live','Live','globe']].map(([k,t,i])=>`<button role="tab" aria-selected="${this.where===k}" class="${this.where===k?'on':''}" data-act="code-where" data-w="${k}">${icon(i,14)}${t}</button>`).join('')}</div>`},
  // the left list, under the aqeelOS sections, like the chat list
  sidebar(){if(this.where==='live')return this.liveSide();const ps=this.st.projects||[],q=this.q.toLowerCase();

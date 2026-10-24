@@ -187,10 +187,27 @@ function md(src){
 }
 
 /* ---------- agent identity (name, title, picture per profile) ---------- */
-function ident(p=S.profile||'default'){const i=S.identities[p]||{};return {name:i.name||(p==='default'?'aqeelOS':p[0].toUpperCase()+p.slice(1)),title:i.title||'',avatar:i.avatar?'/ui/avatar/'+encodeURIComponent(p)+'?v='+encodeURIComponent(i.avatar):''}}
+function ident(p=S.profile||'default'){const i=S.identities[p]||{};return {name:i.name||(p==='default'?'aqeelOS':p[0].toUpperCase()+p.slice(1)),title:i.title||'',avatar:i.avatar?'/ui/avatar/'+encodeURIComponent(p)+'?v='+encodeURIComponent(i.avatar):'',emoji:EMOJI.some(e=>e.slug===i.emoji)?i.emoji:''}}
 const AGENT=()=>ident().name;
-const avatarImg=s=>ident().avatar?`<img src="${esc(ident().avatar)}" alt="${esc(AGENT())}" class="ava-img" style="width:100%;height:100%;object-fit:cover;border-radius:inherit">`:`<img src="/assets/elkiya-mark.svg" alt="${esc(AGENT())}" style="width:${s}px;height:${s}px">`;
-async function loadIdentities(){try{S.identities=await call('','/ui/identities')}catch{}}
+/* ---------- agent avatars: one look everywhere ----------
+   photo > chosen emoji > an automatic emoji from the agent's id (stable across renames; the same hash as the server's
+   emojiAuto), so no agent shows a bare letter. Round, one set of sizes, fixed width and height so nothing moves while
+   the picture loads. data-ava lets repaintAvatars swap them in place after an edit, without repainting the page. */
+let EMOJI=[];   // [{slug,name,keywords}] from /assets/emoji/list.json, loaded with the identities
+const AVA_STEPS=[16,20,24,28,32,40,56,72,84];
+const avaPx=s=>AVA_STEPS.reduce((a,b)=>Math.abs(b-s)<Math.abs(a-s)?b:a);
+const emojiAuto=id=>{if(!EMOJI.length)return '';let h=2166136261;for(const c of String(id))h=Math.imul(h^c.charCodeAt(0),16777619);return EMOJI[(h>>>0)%EMOJI.length].slug};
+const emojiSrc=slug=>slug?'/assets/emoji/'+encodeURIComponent(slug)+'.png':'';
+// the bare markup, also for previews in the editor (a picked file or emoji before it is saved)
+const avaHtml=(src,photo,px,alt,attrs='',cls='')=>`<span class="ag-ava ${photo?'photo':'emo'}${cls?' '+cls:''}" style="width:${px}px;height:${px}px"${attrs}>${src?`<img src="${esc(src)}" alt="${esc(alt)}" width="${px}" height="${px}" loading="lazy" decoding="async">`:''}</span>`;
+// agentAvatar(agent id or {id,name}, size, {cls, name, plain: skip the photo and chosen emoji (a private agent), title:false})
+function agentAvatar(a,size=28,o={}){const id=(a&&typeof a==='object'?a.id:a)||'default',i=ident(id),px=avaPx(size),n=o.name||(a&&typeof a==='object'&&a.name)||i.name;
+ const photo=!o.plain&&i.avatar,src=photo||emojiSrc(!o.plain&&i.emoji||emojiAuto(id));
+ return avaHtml(src,!!photo,px,n,` data-ava="${esc(id)}" data-sz="${px}"${o.cls?` data-cls="${esc(o.cls)}"`:''}${o.plain?' data-plain':''}${o.title===false?'':` title="${esc(n)}"`}`,[o.cls,o.anim&&'ava-in'].filter(Boolean).join(' '))}
+const avatarImg=s=>agentAvatar(S.profile||'default',s);
+// after an identity changes: every avatar of that agent (or all) on screen takes the new picture, with a short fade
+function repaintAvatars(id){for(const el of document.querySelectorAll(id?`[data-ava="${CSS.escape(id)}"]`:'[data-ava]'))el.outerHTML=agentAvatar(el.dataset.ava,+el.dataset.sz,{cls:el.dataset.cls,plain:'plain' in el.dataset,title:el.hasAttribute('title')?undefined:false,anim:true})}
+async function loadIdentities(){const [ids,em]=await Promise.all([call('','/ui/identities').catch(()=>null),EMOJI.length?null:fetch('/assets/emoji/list.json').then(r=>r.ok?r.json():[]).catch(()=>[])]);if(ids)S.identities=ids;if(Array.isArray(em)&&em.length)EMOJI=em}
 
 // Model providers worth showing: signed in, and not Nous or the pay-per-use Anthropic API (no key on this box).
 // Gemini via the Google AI plan counts only once someone signed in to it (the engine lists it as soon as the CLI exists)
@@ -284,7 +301,7 @@ function sidebar(r){
  const gs=gwState(S.status);
  return `<div class="resizer side-rz" data-drag="side" title="Drag to resize · double-click to reset"></div><div class="side-top"><span class="wordmark"><img class="mark" src="${Brand.mark()}" alt=""><span>${esc(Brand.name)}</span></span><button class="ghost icon collapse-btn" data-act="collapse" title="Collapse sidebar (${MOD}+B)" aria-label="Collapse sidebar">${icon('panel',18)}</button></div>
  <nav class="sections">${S.collapsed?`<button class="sec" data-act="collapse" title="Expand sidebar (${MOD}+B)">${icon('panel',19)}</button>`:''}${sections}</nav>${sub}
- ${(()=>{const cd=r.sec?.id==='code'&&typeof CodeUI!=='undefined'&&CodeUI.state==='on'?CodeUI.agentCard():null;return cd?`<div class="side-foot"><button class="status-btn" data-menu="profile" aria-label="Account and Code's agent"><span class="avatar${cd.none?' none':''}">${esc(cd.initial)}</span><span class="who" title="${esc(cd.name)} · Code · ${esc(cd.model)}"><b>${esc(cd.name)}</b><span><i class="dot" style="color:var(--ok)"></i><em>Code · ${esc(cd.model)}</em></span></span>`:''})()||`<div class="side-foot"><button class="status-btn" data-menu="profile" aria-label="Account and status"><span class="avatar">${ident().avatar?`<img src="${esc(ident().avatar)}" alt="">`:esc(AGENT()[0].toUpperCase())}</span><span class="who" title="${esc(AGENT())} · ${gs.label} · ${esc(modelLabel(S.model))}"><b>${esc(AGENT())}</b><span${gs.say?` title="${esc(gs.say)}"`:''}><i class="dot" style="color:${gs.c}"></i><em>${gs.label} · ${esc(modelLabel(S.model))}</em></span></span>`}${icon('chevUD',16)}</button></div>`;
+ ${(()=>{const cd=r.sec?.id==='code'&&typeof CodeUI!=='undefined'&&CodeUI.state==='on'?CodeUI.agentCard():null;return cd?`<div class="side-foot"><button class="status-btn" data-menu="profile" aria-label="Account and Code's agent">${cd.none?`<span class="avatar none">${icon('user',15)}</span>`:agentAvatar({id:cd.id,name:cd.name},32,{cls:'avatar',title:false})}<span class="who" title="${esc(cd.name)} · Code · ${esc(cd.model)}"><b>${esc(cd.name)}</b><span><i class="dot" style="color:var(--ok)"></i><em>Code · ${esc(cd.model)}</em></span></span>`:''})()||`<div class="side-foot"><button class="status-btn" data-menu="profile" aria-label="Account and status">${agentAvatar(S.profile||'default',32,{cls:'avatar',title:false})}<span class="who" title="${esc(AGENT())} · ${gs.label} · ${esc(modelLabel(S.model))}"><b>${esc(AGENT())}</b><span${gs.say?` title="${esc(gs.say)}"`:''}><i class="dot" style="color:${gs.c}"></i><em>${gs.label} · ${esc(modelLabel(S.model))}</em></span></span>`}${icon('chevUD',16)}</button></div>`;
 }
 function topbar(r){
  if(PANEL)return panelTop(r);

@@ -108,7 +108,7 @@ const Chat={
  },
  emptyHtml(){if(S.me&&!S.me.admin&&!Object.keys(S.me.agents||{}).length)return `<div class="chat-empty"><div class="halo">${icon('user',28)}</div><h1>Welcome, ${esc(S.me.name)}</h1><p>No agents are shared with you yet. Ask the person who invited you to share one, then refresh this page.</p></div>`;
   const hi='Welcome to aqeelOS';
-  return `<div class="chat-empty"><div class="halo">${avatarImg(30)}</div><h1>${hi}</h1><p>${S.me&&!S.me.admin?`What can <span class="agent-name">${esc(AGENT())}</span> help you with today?`:`What should <span class="agent-name">${esc(AGENT())}</span> work on? It runs on your AI box, so it keeps going when you close this tab.`}</p>
+  return `<div class="chat-empty"><div class="halo">${agentAvatar(S.profile||'default',56,{title:false})}</div><h1>${hi}</h1><p>${S.me&&!S.me.admin?`What can <span class="agent-name">${esc(AGENT())}</span> help you with today?`:`What should <span class="agent-name">${esc(AGENT())}</span> work on? It runs on your AI box, so it keeps going when you close this tab.`}</p>
   </div>`},
  // Starter prompts come from the person's recent chats with this agent (server: starters.mjs); cached here per agent.
  starters:{},
@@ -270,7 +270,7 @@ const Chat={
   const text=t.text?`<div class="text md ${s.running&&last?'streaming':''}">${body}</div>`:typing?'<div class="text"><span class="typing"><i></i><i></i><i></i></span></div>':'';
   const err=t.error||t.dropped&&!(s.running&&last)?this.errHtml(t,last):'';
   const tools=!s.running||!last?`<div class="msg-tools"><button title="Copy" aria-label="Copy" data-act="copymsg" data-i="${i}">${icon('copy',15)}</button>${last?`<button title="Retry" aria-label="Retry" data-act="retry">${icon('retry',15)}</button>`:''}${last?`<button title="Fork this chat" aria-label="Fork this chat" data-act="fork">${icon('fork',15)}</button>`:''}${t.meta?`<span class="meta">${esc(t.meta)}</span>`:''}</div>`:'';
-  return `<div class="msg ai"><span class="who">${avatarImg(16)}</span><div class="body">${sys}${think}${steps}${appr}${text}${err}${tools}</div></div>`},
+  return `<div class="msg ai"><span class="who">${agentAvatar(S.profile||'default',28,{title:false})}</span><div class="body">${sys}${think}${steps}${appr}${text}${err}${tools}</div></div>`},
  // a reply's text: tagged reasoning as labelled cards (its thinking goes in the Thought fold), the rest as markdown
  replyHtml(text,rm=reasonMarkup(text)){return rm?rm.segs.map(x=>x.type==='prose'?md(x.t):`<div class="rm-card ${x.type}"><span class="rm-l">${x.type==='action'?'Action':'Result'}</span>${md(x.t)}</div>`).join(''):md(text)},
  // what went wrong with a reply, in plain words, and what you can do about it right there

@@ -3,7 +3,7 @@
 // members see the same Owned by and Used by, read-only.
 const Access={
  async load(kind){try{return await UI('/ui/access?kind='+kind)}catch{return null}},
- av(a,sz=22){const i=ident(a.id||a);const n=a.name||i.name||a;return `<span class="acc-av" style="width:${sz}px;height:${sz}px;--h:${[...String(a.id||a)].reduce((s,c)=>s+c.charCodeAt(0),0)%360}" title="${esc(n)}">${i.avatar?`<img src="${esc(i.avatar)}" alt="">`:esc(String(n)[0].toUpperCase())}</span>`},
+ av(a,sz=22){const id=a.id||a;return agentAvatar(id,sz,{cls:'acc-av',name:a.name||ident(id).name})},   // the one agent avatar; acc-av only adds the stacked ring
  who(it){return `<span class="acc-who" aria-label="Used by ${esc(it.users.map(u=>u.name).join(', '))}">${it.users.slice(0,5).map(u=>this.av(u)).join('')}${it.users.length>5?`<span class="acc-more">+${it.users.length-5}</span>`:''}</span>`},
  from(it){return it.own?`<span class="acc-from">Owned by ${esc(it.ownerName)} · ${esc(it.ownNote)}</span>`:`<span class="acc-from">${this.av({id:it.owner,name:it.ownerName},16)}Owned by ${esc(it.ownerName)}</span>`},
  // "Owned by": one control on every row of every page. A picker for admins where ownership can move, else the name;

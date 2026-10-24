@@ -868,7 +868,7 @@ ACT['keys-signins']=()=>{S.tab.models='Accounts';go('/models/models');let n=0;co
 PAGES.profiles=async(p,el)=>{
  const [pr,act]=await Promise.all([H('/profiles'),H('/profiles/active')]);Pages._profiles=pr.profiles||[];
  setActions(S.me?.admin===false&&!(S.me.caps||[]).includes('create')?'':`<button class="primary" data-act="prof-new">${icon('plus',16)}New agent</button>`);
- el.innerHTML=`<div class="grid-cards">${Pages._profiles.map((x,i)=>{const id=ident(x.name);return `<div class="card tile" ${st(i)} data-act="ident-open" data-name="${esc(x.name)}"><div class="tile-top"><span class="logo ava">${id.avatar?`<img src="${esc(id.avatar)}" alt="">`:esc(id.name[0].toUpperCase())}</span><div style="min-width:0"><h3>${esc(id.name)}</h3><span style="font-size:12.5px;color:var(--muted)">${esc(id.title||'Agent')} · ${esc(modelLabel(x.model))} · ${plural(x.skill_count||0,'skill')}</span></div></div><p>${esc(x.description||'No description yet.')}</p><div class="tile-foot"><span style="display:flex;gap:6px;flex-wrap:wrap">${act.active===x.name?'<span class="chip blue">Active</span>':''}${x.is_default?'<span class="chip blue">Default</span>':''}${chipState(x.gateway_running,'Online','Offline')}</span><button class="ghost icon" data-menu="profilecard" data-name="${esc(x.name)}" aria-label="More">${icon('more',18)}</button></div></div>`}).join('')}</div>`;
+ el.innerHTML=`<div class="grid-cards">${Pages._profiles.map((x,i)=>{const id=ident(x.name);return `<div class="card tile" ${st(i)} data-act="ident-open" data-name="${esc(x.name)}"><div class="tile-top">${agentAvatar(x.name,40,{title:false})}<div style="min-width:0"><h3>${esc(id.name)}</h3><span style="font-size:12.5px;color:var(--muted)">${esc(id.title||'Agent')} · ${esc(modelLabel(x.model))} · ${plural(x.skill_count||0,'skill')}</span></div></div><p>${esc(x.description||'No description yet.')}</p><div class="tile-foot"><span style="display:flex;gap:6px;flex-wrap:wrap">${act.active===x.name?'<span class="chip blue">Active</span>':''}${x.is_default?'<span class="chip blue">Default</span>':''}${chipState(x.gateway_running,'Online','Offline')}</span><button class="ghost icon" data-menu="profilecard" data-name="${esc(x.name)}" aria-label="More">${icon('more',18)}</button></div></div>`}).join('')}</div>`;
 };
 // New agent: a few steps (name, model, skills, connected apps, a last look) and nothing is made until Create.
 // Members start fresh (a copy would carry the source agent's keys and memory); the library search and
@@ -1185,34 +1185,8 @@ const soulIntro=(name,title)=>`You are ${name}${title?', '+title:''}, the AI age
 function withIntro(soul,name,title){const s=String(soul||'');const intro=soulIntro(name,title);
  if(/^You are [^\n]*?(Nous Research|aqeelOS)[^\n]*?\./.test(s))return s.replace(/^You are [^\n]*?(?:built by Nous Research\.|Claude\.|aqeelOS\.)(?: Always call yourself[^.]*\.)?(?: Never (?:say|claim)[^.]*\.)?(?:[^.]*(?:run on Claude|running on)\.)?/,intro);
  return intro+(s?' '+s:'')}
-async function identityDrawer(name){
- const prof=(Pages._profiles||[]).find(p=>p.name===name)||{name};const id=ident(name);let soul='';
- try{soul=(await H('/profiles/'+encodeURIComponent(name)+'/soul')).content||''}catch{}
- let newPic=null,removePic=false;
- const d=drawer('Edit identity',`<div class="ident-top"><div class="ident-ava" id="idAva">${id.avatar?`<img src="${esc(id.avatar)}" alt="">`:esc(id.name[0].toUpperCase())}</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" id="idPick">${icon('upload',15)}Upload picture</button><button type="button" class="ghost" id="idDrop" ${id.avatar?'':'hidden'}>Remove</button></div><p class="hint" style="margin:6px 0 0">PNG, JPG or WebP · square works best · under 2 MB</p></div>
-  <label>Name</label><input id="idName" maxlength="60" value="${esc(id.name)}" placeholder="aqeelOS">
-  <label>Title</label><input id="idTitle" maxlength="80" value="${esc(id.title)}" placeholder="Operations assistant">
-  <label>Description</label><input id="idDesc" value="${esc(prof.description||'')}" placeholder="What this agent is for">
-  <label style="display:flex;align-items:center;justify-content:space-between;gap:12px">Update how it introduces itself ${toggle(true,'Update introduction','id="idIntro"')}</label><p class="hint">Rewrites the first line of its personality so it always calls itself by this name.</p>
-  <label>Personality (SOUL)</label><textarea id="idSoul" rows="12" style="font-size:13px;line-height:1.55">${esc(soul)}</textarea>
-  <p class="hint">Profile folder: <code>${esc(name)}</code> (the internal name stays the same)</p>`,
-  `<button class="ghost" data-act="close">Cancel</button><button class="primary" id="idSave">Save identity</button>`);
- const ava=d.querySelector('#idAva'),soulBox=d.querySelector('#idSoul'),intro=d.querySelector('#idIntro');
- const preview=()=>{if(intro.checked)soulBox.value=withIntro(soulBox.dataset.base??soulBox.value,d.querySelector('#idName').value.trim()||'aqeelOS',d.querySelector('#idTitle').value.trim())};
- soulBox.dataset.base=soul;soulBox.oninput=()=>{soulBox.dataset.base=soulBox.value};preview();
- d.querySelector('#idName').oninput=preview;d.querySelector('#idTitle').oninput=preview;intro.onchange=()=>{if(!intro.checked)soulBox.value=soulBox.dataset.base;else preview()};
- d.querySelector('#idPick').onclick=()=>pickFile('image/png,image/jpeg,image/webp,image/gif',f=>{if(f.size>2e6)return toast('Pictures must be under 2 MB','err');newPic=f;removePic=false;ava.innerHTML=`<img src="${URL.createObjectURL(f)}" alt="">`;d.querySelector('#idDrop').hidden=false});
- d.querySelector('#idDrop').onclick=()=>{newPic=null;removePic=true;ava.textContent=(d.querySelector('#idName').value||'a')[0].toUpperCase();d.querySelector('#idDrop').hidden=true};
- d.querySelector('#idSave').onclick=async()=>{const nm=d.querySelector('#idName').value.trim();if(!nm)return toast('Give it a name','err');const btn=d.querySelector('#idSave');btn.disabled=true;
-  try{const base='/ui/'+'identities/'+encodeURIComponent(name);
-   await call('',base,{method:'PUT',body:{name:nm,title:d.querySelector('#idTitle').value.trim()}});
-   if(newPic){const r=await fetch('/ui/avatar/'+encodeURIComponent(name),{method:'PUT',headers:{'x-hui':'1','content-type':newPic.type},body:newPic});if(!r.ok)throw new Error((await r.json().catch(()=>({}))).error||'Picture upload failed')}
-   if(removePic)await call('','/ui/avatar/'+encodeURIComponent(name),{method:'DELETE'});
-   const desc=d.querySelector('#idDesc').value.trim();if(desc!==(prof.description||''))await put(H,'/profiles/'+encodeURIComponent(name)+'/description',{description:desc});
-   if(soulBox.value!==soul)await put(H,'/profiles/'+encodeURIComponent(name)+'/soul',{content:soulBox.value});
-   await loadIdentities();closeLayers();toast(nm+' saved · new chats use the new personality');paintSide();if(route().page?.id==='profiles')reload();document.title='aqeelOS'}
-  catch(e){fail(e);btn.disabled=false}};
-}
+// the old identity window: the agent editor (agent-edit.js) is the one place for name, picture and personality now
+function identityDrawer(name){return editAgent(name)}
 
 ACT['key-add']=()=>{const d=drawer('Add a key',`<label>Name</label><input id="kaN" placeholder="ADSPOWER_API_KEY" style="font-family:var(--mono)" autocomplete="off"><p class="hint">Capital letters, digits and underscores, e.g. ADSPOWER_API_KEY.</p><label>Value</label><input id="kaV" type="password" autocomplete="off"><p class="hint">Stored in this agent’s .env file on the AI box only and never shown in full again.</p><p class="err-line" id="kaDup" hidden></p>`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="kaGo">Save key</button>`);
  // the names already set, so adding one twice asks before it overwrites

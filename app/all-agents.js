@@ -82,7 +82,7 @@ for(const id of ['mcp','plugins','keys','webhooks']){const base=PAGES[id];PAGES[
  const list=await viewAgents();const box=$('.page-head .head-actions');if(!box||list.length<2)return;let b=box.querySelector('.view-pick');
  if(!b){b=document.createElement('button');b.type='button';b.className='view-pick';b.dataset.act='ch-pick';box.prepend(b)}b.dataset.act='ch-pick';
  const a=S.chAgent&&list.includes(S.chAgent)?S.chAgent:'';const i=a?ident(a):null;b.classList.toggle('other',!!a);
- b.innerHTML=a?`<span class="vp-ava">${i.avatar?`<img src="${esc(i.avatar)}" alt="">`:esc(i.name[0]||'?')}</span><span class="vp-t"><small>Showing</small><b>${esc(i.name)}</b></span>${icon('chevD',15)}`:`<span class="vp-ava all">${icon('layers',14)}</span><span class="vp-t"><small>Showing</small><b>All agents</b></span>${icon('chevD',15)}`;
+ b.innerHTML=a?`${agentAvatar(a,32,{cls:'vp-ava',title:false})}<span class="vp-t"><small>Showing</small><b>${esc(i.name)}</b></span>${icon('chevD',15)}`:`<span class="vp-ava all">${icon('layers',14)}</span><span class="vp-t"><small>Showing</small><b>All agents</b></span>${icon('chevD',15)}`;
  const apply=()=>{for(const row of el.querySelectorAll('.row[data-from]'))row.hidden=!!a&&row.dataset.from.split('--')[0]!==a};apply();   // every row says whose it is, extra numbers too
  const mo=new MutationObserver(apply);mo.observe(el,{childList:true,subtree:true});setTimeout(()=>mo.disconnect(),20000)}}
 ACT['ch-pick']=async a=>{const list=await viewAgents();menu(a,[{header:'Show whose channels'},{label:'All agents',icon:'layers',on:!S.chAgent,run:()=>{S.chAgent='';reload()}},'-',
