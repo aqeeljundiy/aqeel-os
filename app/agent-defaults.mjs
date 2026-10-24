@@ -9,7 +9,7 @@
 // connect apps with its own sign-in. Applied at every start (an engine update can reset settings) and to new agents.
 import {readFile,writeFile,mkdir,stat,rename,readdir} from 'node:fs/promises';
 import path from 'node:path';
-import {homedir} from 'node:os';
+import {homedir,userInfo} from 'node:os';
 import {execFile} from 'node:child_process';
 import {setKey,readConfig,pick,agentNames,HERMES_HOME} from './agentops.mjs';
 import {UNSAFE_TOOLSETS} from './users.mjs';
@@ -102,4 +102,26 @@ export function createAgentDefaults({DATA,giveSkills,trimSkills=async()=>0,locke
  // a new agent: its user (when it is not trusted), then the defaults
  async function added(a){const names=await agentNames(),tr=await trusted();await requestUsers(names.filter(x=>!tr.has(x)));
   if(!tr.has(a))for(let i=0;i<8&&!await ready(a);i++)await new Promise(r=>setTimeout(r,2000));return ensure(a)}
- return {all,tick,ensure,added,trusted,userOf}}
+ /* ---------- Code projects on the box, worked on by the engine ("aqeelOS models" in Code) ----------
+    An agent with its own Linux user reaches a Code project folder (~/code-projects/<name>) only through access-list
+    entries: passage (--x) through the projects folder, read/write on the project, and the same for files made later
+    (default entries). The mask is reset each time: files written with mode 644 cap every named entry at read-only.
+    Other projects stay closed to it ("others" get nothing on them). After the turn the files the agent made (owned by
+    its user, so only it may change their list) get the same reset over its own SSH login, so Code can edit them. */
+ const ME=(()=>{try{return userInfo().username}catch{return process.env.USER||'claude'}})();
+ // the agent's own user ('' for the main agent and trusted ones, which run as this user), or null when not made yet
+ async function codeUser(a){if((await trusted()).has(a))return '';return await ready(a)?userOf(a):null}
+ // terminal or file tools switched off for the agent (a locked agent): it cannot work on code
+ async function codeLocked(a){const c=await readConfig(a).catch(()=>null);const off=[].concat(pick(c||{},'agent.disabled_toolsets')||[]).flatMap(x=>String(x).split(',')).map(x=>x.trim());return off.includes('terminal')||off.includes('file')}
+ const facl=(u,me)=>'u:'+u+':rwX,u:'+me+':rwX,m::rwX,d:u:'+u+':rwX,d:u:'+me+':rwX,d:m::rwX';
+ const quiet=(c,a,t=180000)=>new Promise(res=>execFile(c,a,{timeout:t,maxBuffer:4e6},(e,o,er)=>res({ok:!e,err:String(er||e?.message||'')})));
+ async function codeAccess(a,dir,area){const u=await codeUser(a);if(u===null)throw Error('This agent’s own user on the box is not ready yet. Try again in a minute.');if(!u)return;
+  if(!(await quiet('setfacl',['--version'],10000)).ok)throw Error('The box has no setfacl, so the agent cannot be given the project folder.');
+  await quiet('chmod',['o-rwx',area]);for(const e of await readdir(area,{withFileTypes:true}).catch(()=>[]))if(e.isDirectory())await quiet('chmod',['o-rwx',path.join(area,e.name)]);
+  await quiet('setfacl',['-m','u:'+u+':--x',area]);
+  // files the agent made in an earlier turn are its own: the list on them is not ours to change (fixed after each turn)
+  await quiet('setfacl',['-R','-m',facl(u,ME),dir])}
+ async function codeAccessAfter(a,dir){const u=await codeUser(a);if(!u)return;const q="'"+String(dir).replace(/'/g,"'\\''")+"'";
+  const r=await quiet('ssh',['-i',KEY,'-o','BatchMode=yes','-o','ConnectTimeout=10','-o','StrictHostKeyChecking=yes','-p','22',u+'@127.0.0.1','setfacl -R -m '+facl(u,ME)+' -- '+q+' 2>/dev/null; true'],120000);
+  if(!r.ok)log('code access after a turn ('+a+'): '+r.err.slice(0,200))}
+ return {all,tick,ensure,added,trusted,userOf,codeUser,codeLocked,codeAccess,codeAccessAfter}}
