@@ -93,6 +93,8 @@ export function createAccess({HERMES_HOME,DATA,listAgents,readConfig,setKey,herm
 
  async function revoke(kind,id,from){const it=await find(kind,id);if(from===it.owner&&!it.own)throw new Error(names(from)+' owns it. Make another agent the owner first.');
   const mine=(await holdings(from))[kind][id];if(!mine)return {changed:false};
+  // an agent's own connection that only shares the name (another address or sign-in) is not the owner's to take back
+  if(kind==='mcp'&&!it.own){const src=(await holdings(it.owner)).mcp[id];if(src&&(mine.detail!==src.detail||(mine.fp&&src.fp&&mine.fp!==src.fp)))throw new Error('This is '+names(from)+'’s own '+id+' connection, not a copy of '+names(it.owner)+'’s. Remove it on that agent instead.')}
   if(kind==='mcp'){await dash('DELETE','/api/mcp/servers/'+encodeURIComponent(id)+'?profile='+encodeURIComponent(from));
    for(const f of [id+'.json',id+'.meta.json',id+'.client.json'])await unlink(path.join(home(from),'mcp-tokens',f)).catch(()=>{});
    restart('access: '+id+' taken from '+names(from));return {changed:true}}

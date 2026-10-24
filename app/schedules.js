@@ -201,7 +201,10 @@ ACT['spend-open']=a=>{const j=(Pages.cronJobs||[]).find(x=>x.id===a.dataset.id&&
    page or changing who you chat with. It sits in the header so the page never jumps when it loads.
    Skills are grouped into folders by what they are for, each folding open and shut (remembered per person). ---------- */
 async function viewAgents(){if(S._viewList&&Date.now()-S._viewT<30000)return S._viewList;let l=[],ok=false;try{const pr=await H('/profiles?profile=default');l=(Array.isArray(pr)?pr:pr.profiles||[]).map(x=>x.name);ok=true}catch{}
- if(S.me&&S.me.admin===false)l=l.filter(a=>S.me.agents?.[a]);l=l.filter(a=>!a.includes('--'));if(!ok&&S._viewList)return S._viewList;if(ok){S._viewList=l;S._viewT=Date.now()}return l}
+ if(S.me&&S.me.admin===false)l=l.filter(a=>S.me.agents?.[a]);l=l.filter(a=>!a.includes('--'));
+ // admins too: a member's private agent (not shared with them) is not theirs to look into (its memory, its files)
+ if(ok&&S.me?.admin&&l.length){const inf=await UI('/ui/agents?names='+encodeURIComponent(l.slice(0,200).join(','))).catch(()=>null);if(inf)l=l.filter(a=>!(inf[a]?.private&&!inf[a]?.access))}
+ if(!ok&&S._viewList)return S._viewList;if(ok){S._viewList=l;S._viewT=Date.now()}return l}
 function viewing(){return agentProfile()||'default'}
 function viewPick(list){const box=$('.page-head .head-actions');if(!box)return;let b=box.querySelector('.view-pick');if(list.length<2){b?.remove();return}
  const i=ident(viewing()),mine=viewing()===(S.profile||'default');

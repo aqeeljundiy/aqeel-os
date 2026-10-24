@@ -201,22 +201,23 @@ export function createAccounts(DATA){
 
  setupAgentFn=setupAgent;
  accountHooks.giveSkills=giveSkills;accountHooks.trimSkills=trimSkills;
- return async function handle(req,res,p,send,readBody){
+ // see: which agents this person may see (others' private agents are left out of route, assign and events, and can't be moved)
+ return async function handle(req,res,p,send,readBody,see=()=>true){
   if(p==='/ui/accounts/setup-agent'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const n=String(b.name||'');
    // a new agent starts with every skill the main agent has (once, here: skills removed later stay removed)
    if(!b.noSkills&&/^[a-z0-9][a-z0-9_-]{0,63}$/.test(n)&&n!=='default')await giveSkills(n).catch(e=>console.warn('skills for',n,e.message));
    try{const r=await setupAgent(n);accountHooks.afterSetup?.(n);return send(res,200,r)}catch(e){return send(res,400,{error:e.message})}}
   const d=await load();
   if(p==='/ui/accounts'&&req.method==='GET'){const fresh=new URL(req.url,'http://x').searchParams.has('fresh');const list=await Promise.all(all(d).map(a=>details(a,fresh)));
-   const ag=await agents();const prov=await providers(fresh);const route=Object.fromEntries(await Promise.all(ag.map(async n=>[n,{entry:await entryOf(d,n),...await agentRoute(n)}])));
-   return send(res,200,{accounts:list,providers:prov,priority:d.priority||[],route,assign:Object.fromEntries(ag.map(n=>[n,d.assign[n]||'main'])),auto:d.auto||{on:false,threshold:90},events:d.events||[]})}
+   const ag=(await agents()).filter(see);const prov=await providers(fresh);const route=Object.fromEntries(await Promise.all(ag.map(async n=>[n,{entry:await entryOf(d,n),...await agentRoute(n)}])));
+   return send(res,200,{accounts:list,providers:prov,priority:d.priority||[],route,assign:Object.fromEntries(ag.map(n=>[n,d.assign[n]||'main'])),auto:d.auto||{on:false,threshold:90},events:(d.events||[]).filter(e=>see(e.profile))})}
   if(p==='/ui/accounts/priority'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
    d.priority=(Array.isArray(b.priority)?b.priority:[]).filter(e=>e&&typeof e.key==='string'&&/^(claude:[a-z0-9-]+|p:[a-z0-9_.-]+)$/.test(e.key)).slice(0,20).map(e=>({key:e.key,model:String(e.model||'').slice(0,120)}));
    await save(d);autoTick().catch(()=>{});return send(res,200,{priority:d.priority})}
-  if(p==='/ui/accounts/use'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const profile=String(b.profile||'');if(!/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(profile))return send(res,400,{error:'Bad agent name'});
+  if(p==='/ui/accounts/use'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const profile=String(b.profile||'');if(!/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(profile))return send(res,400,{error:'Bad agent name'});if(!see(profile))return send(res,403,{error:'This agent is private to its owner.'});
    try{await useEntry(d,profile,{key:String(b.key||''),model:String(b.model||'')},'Chosen by hand');return send(res,200,{ok:true})}catch(e){return send(res,400,{error:e.message})}}
   if(p==='/ui/accounts'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}return send(res,200,await startLogin(b.label))}
-  if(p==='/ui/accounts/assign'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{await assign(d,String(b.profile||''),String(b.account||''),b.why||'');return send(res,200,{ok:true})}catch(e){return send(res,400,{error:e.message})}}
+  if(p==='/ui/accounts/assign'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}if(!see(String(b.profile||'')))return send(res,403,{error:'This agent is private to its owner.'});try{await assign(d,String(b.profile||''),String(b.account||''),b.why||'');return send(res,200,{ok:true})}catch(e){return send(res,400,{error:e.message})}}
   if(p==='/ui/accounts/auto'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}d.auto={on:!!b.on,threshold:Math.min(99,Math.max(50,Number(b.threshold)||90))};await save(d);autoTick().catch(()=>{});return send(res,200,d.auto)}
   let m=/^\/ui\/accounts\/([a-z0-9-]+)\/code$/.exec(p);if(m&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}try{return send(res,200,await sendCode(m[1],b.code))}catch(e){return send(res,400,{error:e.message})}}
   m=/^\/ui\/accounts\/([a-z0-9-]+)\/cancel$/.exec(p);if(m&&req.method==='POST'){const s=logins.get(m[1]);if(s?.state==='running'){s.child.kill();s.state='failed'}if(!d.accounts.some(a=>a.id===m[1]))await rm(path.join(ACCOUNTS_DIR,m[1]),{recursive:true,force:true});return send(res,200,{ok:true})}

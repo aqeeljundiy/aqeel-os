@@ -12,12 +12,13 @@ import path from 'node:path';
 import {homedir} from 'node:os';
 import {execFile} from 'node:child_process';
 import {setKey,readConfig,pick,agentNames,HERMES_HOME} from './agentops.mjs';
+import {UNSAFE_TOOLSETS} from './users.mjs';
 
 const PLATFORMS=['whatsapp','telegram','slack','discord','signal','api_server'];
 const bundle=p=>p==='api_server'?'hermes-api-server':'hermes-'+p;
 const run=(c,a)=>new Promise((res,rej)=>execFile(c,a,{timeout:30000},(e,o,er)=>e?rej(Error(String(er||e.message).trim())):res(String(o))));
 
-export function createAgentDefaults({DATA,giveSkills,trimSkills=async()=>0,log=m=>console.log(m)}){
+export function createAgentDefaults({DATA,giveSkills,trimSkills=async()=>0,locked=async()=>false,log=m=>console.log(m)}){
  const TRUST=path.join(DATA,'agent-trust.json'),SEEN=path.join(DATA,'agents-seen.json');
  const REQ=path.join(homedir(),'.aqeelos-agent-users'),KEY=path.join(HERMES_HOME,'agent-ssh','id_ed25519');
  const userOf=a=>('ag-'+a).slice(0,32);
@@ -61,7 +62,9 @@ export function createAgentDefaults({DATA,giveSkills,trimSkills=async()=>0,log=m
    const port=await chromePort(a);if(port){want['browser.cdp_url']='http://127.0.0.1:'+port;want['bot_desktop.auto_start']='false'}
    for(const [k,v] of Object.entries(want))if(String(pick(c,k)??'')!==v)changes.push([k,v]);
    // walled off in its own user, it gets every tool group: tool groups switched off for it earlier come back on
-   if([].concat(pick(c,'agent.disabled_toolsets')||[]).length)changes.push(['agent.disabled_toolsets',[]]);
+   // except an agent locked to safe tools (its owner lacks "unsafe", or an admin locked it): terminal, files and code stay off
+   const off=[].concat(pick(c,'agent.disabled_toolsets')||[]).flatMap(x=>String(x).split(',')).map(x=>x.trim()).filter(Boolean),wantOff=await locked(a.split('--')[0]).catch(()=>true)?UNSAFE_TOOLSETS:[];
+   if(off.length!==wantOff.length||wantOff.some(x=>!off.includes(x)))changes.push(['agent.disabled_toolsets',wantOff]);
    // its Google sign-ins (its own and the ones shared with it) are copied to its own user like the engine's other
    // credential files; the Google skill alone only names the default one
    const home=path.join(HERMES_HOME,'profiles',a);

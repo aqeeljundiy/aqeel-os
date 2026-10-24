@@ -66,6 +66,8 @@ export function createShare({DASH,TOKEN,HERMES_HOME,listAgents}){
   throw new Error('Only MCP tools and skills can be duplicated. A plugin runs once per agent.')}
  // sign-ins return to the public site (set per tool, so the engine's own public-URL setting and its login gate stay off)
  async function prepareSignin(agent,name,redirect,client){if(!NAME.test(name))throw new Error('Bad name');const b=await mcpBlock(agent,name);if(!b?.url)throw new Error('Only tools with an address sign in this way.');
+  // a tool that already signs in with a key or token (a header, a bearer) keeps it: switching it to oauth would break it
+  if(b.auth&&b.auth!=='oauth'||b.bearer||b.bearer_token||b.token||Object.keys(b.headers||{}).some(k=>/auth|token|key|bearer/i.test(k)))throw new Error('This tool signs in with its own key or token, not a sign-in page. Change its key in its settings instead.');
   // the public return address wins; a local callback port (what 'hermes mcp login' uses) cannot reach the person's browser
   const o={...(b.oauth||{}),redirect_uri:redirect};delete o.redirect_port;if(client?.id)o.client_id=client.id;if(client?.secret)o.client_secret=client.secret;
   const own=!!o.client_id;   // the person's own app: its settings must list our Redirect URL

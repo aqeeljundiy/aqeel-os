@@ -110,6 +110,8 @@ export function createUsers(DATA,mail){
   const no=(error='You do not have access to that.')=>({status:403,error});
   // dictation: the box's own speech-to-text (it runs on the main agent's setup) turns anyone's voice into text, nothing more
   if(p==='/hapi/audio/transcribe'&&method==='POST')return null;
+  // the owner of aqeelOS is never locked out of an agent, whoever holds it now
+  if(u.role==='owner')return null;
   if(isAdmin(u)){const t=agentTarget(p,query,agent||'default');return t&&!level(u,t)&&!(method==='GET'&&/^\/ui\/(identities|avatar\/[^/]+)$/.test(p))?no('This agent is private to its owner. Ask them to share it.'):null}
   const a=agent||'default';
   if(p.startsWith('/gapi/')){
@@ -141,6 +143,8 @@ export function createUsers(DATA,mail){
    // abilities on an agent this person can edit
    if(/^\/skills(\/(content|toggle))?$/.test(rest))return edit('skills');
    if(/^\/mcp\/servers(\/[^/]+(\/(enabled|test))?)?$/.test(rest))return edit('mcp');   // a command server needs "unsafe": checked on the body
+   // a sign-in's progress and the catalog, on agents they can connect tools to; a catalog install is checked like adding a server
+   if(G&&(/^\/mcp\/oauth\/flows\/[^/]+$/.test(rest)||rest==='/mcp/catalog')||rest==='/mcp/catalog/install'&&method==='POST')return edit('mcp');
    if(/^\/tools\/toolsets$/.test(rest)&&G)return edit();
    const ts=/^\/tools\/toolsets\/([^/]+)$/.exec(rest);if(ts&&method==='PUT')return edit(UNSAFE_TOOLSETS.includes(decodeURIComponent(ts[1]))?'unsafe':'tools',UNSAFE_TOOLSETS.includes(decodeURIComponent(ts[1]))?'Terminal, files and code tools are only for admins.':'Your role does not include turning tools on or off.');
    if(/^\/cron\/jobs(\/[^/]+(\/(pause|resume|trigger|runs))?)?$/.test(rest))return edit('schedules');
@@ -159,8 +163,8 @@ export function createUsers(DATA,mail){
    if(p==='/ui/files/search'||p==='/ui/files/exist'||p==='/ui/code/usage'||p.startsWith('/ui/bottlenecks')||p==='/ui/apps'||p.startsWith('/ui/apps/')||p==='/ui/defaults'||p==='/ui/code/app-version')return null;   // the handler keeps members inside their own folder
    return no()}
   return no()}
- // A member's file calls must stay inside ~/people/<id>.
- function filePathOk(u,fp){if(isAdmin(u))return true;const base=home(u);const r=path.resolve(String(fp||''));return r===base||r.startsWith(base+path.sep)}
+ // A member's file calls must stay inside ~/people/<id>. A change (delete, rename, write) is for what is in it, never the folder itself.
+ function filePathOk(u,fp,change){if(isAdmin(u))return true;const base=home(u);const r=path.resolve(String(fp||''));return !change&&r===base||r.startsWith(base+path.sep)}
 
  /* ---------- filtering what comes back ---------- */
  function filter(u,p,data,agent){
@@ -183,7 +187,9 @@ export function createUsers(DATA,mail){
   if(p==='/ui/me/password'&&req.method==='PUT'){const b=await body();const x=u.role==='owner'?null:db.users.find(y=>y.id===u.id);
    if(u.role==='owner'?!ownerPwOk(b.current):!x||!check(b.current,x.pw))return send(res,400,{error:'Your current password is not right.'});if(String(b.next||'').length<8)return send(res,400,{error:'Use at least 8 characters.'});
    if(x)x.pw=hash(b.next);else db.ownerPw=hash(b.next);await save();return send(res,200,{ok:true})}
-  if(p==='/ui/me/email'&&req.method==='PUT'){const b=await body();const email=String(b.email||'').trim().toLowerCase();
+  // turning two-step off and changing or clearing a set email (which turns it off) take the current password, like a new password does
+  const pwOk=pw=>u.role==='owner'?ownerPwOk(pw):check(pw,db.users.find(y=>y.id===u.id)?.pw);const PW_BAD={error:'Your current password is not right.'};
+  if(p==='/ui/me/email'&&req.method==='PUT'){const b=await body();const email=String(b.email||'').trim().toLowerCase();if(byId(u.id)?.email&&!pwOk(b.current))return send(res,400,PW_BAD);
    if(!email){setF(u,'email','');setF(u,'emailVerified',false);setF(u,'twoStep',false);await save();return send(res,200,{ok:true})}
    if(!EMAIL.test(email))return send(res,400,{error:'That email address does not look right.'});if([owner(),...db.users].some(x=>x.id!==u.id&&norm(x.email)===email))return send(res,400,{error:'Someone already uses that email.'});
    setF(u,'email',email);setF(u,'emailVerified',false);setF(u,'twoStep',false);await save();
@@ -191,7 +197,7 @@ export function createUsers(DATA,mail){
   if(p==='/ui/me/email/resend'&&req.method==='POST'){const me=byId(u.id);if(!me.email)return send(res,400,{error:'Add an email first.'});try{return send(res,200,{ok:true,key:await sendCode(me,'verify',me.email)})}catch(e){return send(res,502,{error:'The code could not be sent: '+e.message})}}
   if(p==='/ui/me/email/verify'&&req.method==='POST'){const b=await body();const v=checkCode(String(b.key||''),b.code,'verify');if(v.error)return send(res,400,{error:v.error});
    if(v.uid!==u.id||norm(byId(u.id).email)!==v.email)return send(res,400,{error:'That code was for another address.'});setF(u,'emailVerified',true);await save();return send(res,200,{ok:true})}
-  if(p==='/ui/me/two-step'&&req.method==='PUT'){const b=await body();const me=byId(u.id);if(b.on&&!me.emailVerified)return send(res,400,{error:'Confirm your email first.'});setF(u,'twoStep',!!b.on);await save();return send(res,200,{ok:true})}
+  if(p==='/ui/me/two-step'&&req.method==='PUT'){const b=await body();const me=byId(u.id);if(b.on&&!me.emailVerified)return send(res,400,{error:'Confirm your email first.'});if(!b.on&&me.twoStep&&!pwOk(b.current))return send(res,400,PW_BAD);setF(u,'twoStep',!!b.on);await save();return send(res,200,{ok:true})}
   if(p==='/ui/me'&&req.method==='PUT'){const b=await body();const name=String(b.name||'').trim().slice(0,60);const un=norm(b.username);if(!name)return send(res,400,{error:'Your name is empty.'});if(nameTaken(name,u.id))return send(res,400,{error:'Someone already uses that name.'});
    if(!USERNAME.test(un))return send(res,400,{error:'Usernames are 3–32 characters: letters, numbers, dots, dashes or underscores.'});if(userTaken(un,u.id))return send(res,400,{error:'That username is taken.'});
    if(u.role==='owner'){db.ownerName=name;db.ownerUsername=un}else{const x=db.users.find(y=>y.id===u.id);x.name=name;x.username=un}await save();return send(res,200,{ok:true,name,username:un})}
@@ -211,6 +217,10 @@ export function createUsers(DATA,mail){
   const ag=/^\/ui\/agents\/([^/]+)\/(share|owner)$/.exec(p);
   if(ag&&req.method==='PUT'){const a=decodeURIComponent(ag[1]),b=await body();if(level(u,a)!=='owner')return send(res,403,{error:'Only the owner of this agent can change who has it.'});
    const to=byId(String(b.user||''));if(!to)return send(res,400,{error:'Unknown person'});
+   // handing the agent over is for its real owner (or the owner of aqeelOS), not someone shared it at "Owner": taking an
+   // admin's agent would make it private and lock every admin out
+   if(ag[2]==='owner'&&agentOwner(a)!==u.id&&u.role!=='owner')return send(res,403,{error:'Only the person who owns this agent can give it to someone else.'});
+   if(ag[2]==='owner'&&!isAdmin(u)&&to.id===u.id&&isAdmin(byId(agentOwner(a))))return send(res,403,{error:'This agent belongs to an admin. Ask them to give it to you.'});
    if(ag[2]==='share'){if(to.id===agentOwner(a))return send(res,400,{error:'They already own it.'});db.shares[a]||={};if(LEVELS.includes(b.level))db.shares[a][to.id]=b.level;else delete db.shares[a][to.id]}
    else{const prev=agentOwner(a);db.agentOwners[a]=to.id;db.shares[a]||={};delete db.shares[a][to.id];if(prev!==to.id&&byId(prev))db.shares[a][prev]='edit'}
    await save();return send(res,200,{ok:true})}
@@ -241,6 +251,8 @@ export function createUsers(DATA,mail){
    if(isPrivate(a)&&level(u,a)!=='owner')return send(res,403,{error:'Only the owner of this agent can change who has it.'});
    db.shares[a]||={};if(LEVELS.includes(b.level))db.shares[a][id]=b.level;else delete db.shares[a][id];await save();return send(res,200,{ok:true,shares:db.shares[a]})}
   const um=/^\/ui\/people\/([\w-]+)$/.exec(p);
+  // admins are the owner's to change or remove, not each other's
+  if(um&&(req.method==='PATCH'||req.method==='DELETE')&&isAdmin(byId(um[1]))&&u.role!=='owner')return send(res,403,{error:'Only the owner can change or remove an admin.'});
   if(um&&req.method==='PATCH'){const x=db.users.find(y=>y.id===um[1]);if(!x)return send(res,404,{error:'Not found'});const b=await body();if(b.roleId&&b.roleId!==x.roleId&&unsafeRole(b.roleId))return send(res,403,UNSAFE_ROLE);if(b.name)x.name=String(b.name).trim().slice(0,60);if(b.role&&u.role==='owner'&&['admin','member'].includes(b.role))x.role=b.role;if('roleId' in b)x.roleId=b.roleId&&db.roles[b.roleId]?b.roleId:null;if(Array.isArray(b.caps))x.caps=b.caps.filter(k=>k in CAPS&&(k!=='unsafe'||u.role==='owner'));
    if('models' in b)x.models=Array.isArray(b.models)?b.models.map(String).slice(0,200):null;
    if('limit' in b)x.limit=b.limit&&+b.limit.tokens>0?{tokens:Math.round(+b.limit.tokens)}:null;await save();return send(res,200,pub(x))}

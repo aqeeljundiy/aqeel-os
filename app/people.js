@@ -57,7 +57,7 @@ PAGES.people=async(p,el)=>{
  const [d,pr]=await Promise.all([UI('/ui/people'),H('/profiles').catch(()=>({profiles:[]}))]);Pages._ppl=d;Pages._agents=(pr.profiles||[]).map(x=>x.name);
  const sharesOf=id=>Object.entries(d.shares||{}).filter(([,m])=>m[id]).map(([a,m])=>[a,m[id]]);
  const person=(u,i)=>{const sh=sharesOf(u.id);const self=u.id===S.me?.id;return `<div class="card person" ${st(i)}><div class="person-head ${self?'self':''}" ${self?'data-act="me-profile" role="button" tabindex="0"':''}>${personAva(u,40)}<div class="txt"><b>${esc(u.name)}</b><span>${u.username?'@'+esc(u.username)+' · ':''}${esc(ROLE_LABEL[u.role])}${self?' · edit your profile':''}${u.last?' · seen '+ago(u.last/1000):''}</span></div></div>
-   ${u.role==='owner'||self?'':`<button class="ghost icon-btn more" data-menu="person" data-id="${esc(u.id)}" aria-label="More">${icon('more',18)}</button>`}
+   ${u.role==='owner'||self||u.role==='admin'&&S.me?.role!=='owner'?'':`<button class="ghost icon-btn more" data-menu="person" data-id="${esc(u.id)}" aria-label="More">${icon('more',18)}</button>`}
    ${u.role==='member'?`<div class="pshares"><span class="th">Agents</span>${sh.length?sh.map(([a,l])=>`<div class="pshare">${agentAva(a)}<b>${esc(ident(a).name)}</b><span class="chip">${esc(LEVEL_LABEL[l]||l)}</span><button class="ghost" data-act="ppl-share-open" data-a="${esc(a)}" style="margin-left:auto;min-height:30px;padding:0 10px;font-size:12.5px">Change</button></div>`).join(''):'<p class="hint" style="margin:4px 0">No agents shared yet.</p>'}
     <button class="ghost" data-act="ppl-share" data-id="${esc(u.id)}" style="margin-top:6px">${icon('plus',15)}Share an agent</button></div>
    <div class="pcaps"><span class="th">Allowed to</span>${Object.entries(d.caps||{}).map(([k,l])=>`<label class="capt ${k==='unsafe'?'risky':''}"><input type="checkbox" data-cap="${k}" data-user="${esc(u.id)}" ${(u.caps||[]).includes(k)?'checked':''} ${k==='unsafe'&&S.me?.role!=='owner'?'disabled':''}><span>${esc(l)}</span></label>`).join('')}</div>`:`<p class="hint" style="margin:10px 0 0">${u.role==='owner'?'Everything, including people and keys.':'Everything except changing the owner.'}</p>`}</div>`};
@@ -123,9 +123,15 @@ ACT['me-profile']=()=>{const me=S.me||{};
  d.querySelector('#pfCodeGo').onclick=async()=>{if(!vkey){const r=await post(UI,'/ui/me/email/resend').catch(e=>{fail(e)});if(!r)return;vkey=r.key;return toast('New code sent. Enter it.')}
   try{await post(UI,'/ui/me/email/verify',{key:vkey,code:$('#pfCode').value});await loadMe();toast('Email confirmed');closeLayers();ACT['me-profile']()}catch(e){fail(e)}};
  d.querySelector('#pfResend').onclick=async()=>{try{vkey=(await post(UI,'/ui/me/email/resend')).key;toast('Code sent. Check spam too.')}catch(e){fail(e)}};
- d.querySelector('#pf2s').onchange=async e=>{try{await put(UI,'/ui/me/two-step',{on:e.target.checked});await loadMe();toast(e.target.checked?'Two-step sign-in on':'Two-step sign-in off')}catch(er){e.target.checked=!e.target.checked;fail(er)}};
+ d.querySelector('#pf2s').onchange=async e=>{try{
+   // turning it off asks for the password, so a signed-in browser left open cannot switch it off
+   let current;if(!e.target.checked){current=await promptBox('Turn off two-step sign-in','Your current password','','Turn off','password');if(current===null){e.target.checked=true;return}}
+   await put(UI,'/ui/me/two-step',{on:e.target.checked,current});await loadMe();toast(e.target.checked?'Two-step sign-in on':'Two-step sign-in off')}catch(er){e.target.checked=!e.target.checked;fail(er)}};
  d.querySelector('#pfGo').onclick=async()=>{const b=d.querySelector('#pfGo');b.disabled=true;try{
-   const mailNow=$('#pfMail').value.trim().toLowerCase();if(mailNow!==(me.email||'')){const r=await put(UI,'/ui/me/email',{email:mailNow}).catch(e=>{fail(e);return null});if(r?.key){vkey=r.key;await loadMe();showVerify(true);d.querySelector('#pfMailState').textContent='Not confirmed';d.querySelector('#pfMailState').className='chip warn';toast('We sent a code to '+mailNow+'. Enter it below.');b.disabled=false;return}}
+   const mailNow=$('#pfMail').value.trim().toLowerCase();if(mailNow!==(me.email||'')){
+    // changing or clearing a set email (it turns two-step off) needs the current password: the one typed below, or asked now
+    const current=me.email?($('#pwC').value||await promptBox(mailNow?'Change your email':'Remove your email','Your current password','',mailNow?'Change':'Remove','password')):'';if(current===null){b.disabled=false;return}
+    const r=await put(UI,'/ui/me/email',{email:mailNow,current}).catch(e=>{fail(e);return null});if(!r&&me.email){b.disabled=false;return}if(r?.key){vkey=r.key;await loadMe();showVerify(true);d.querySelector('#pfMailState').textContent='Not confirmed';d.querySelector('#pfMailState').className='chip warn';toast('We sent a code to '+mailNow+'. Enter it below.');b.disabled=false;return}}
    const name=$('#pfName').value.trim(),username=$('#pfUser').value.trim().toLowerCase();if(name!==me.name||username!==(me.username||''))await put(UI,'/ui/me',{name,username});
    if($('#pwC').value||$('#pwN').value)await put(UI,'/ui/me/password',{current:$('#pwC').value,next:$('#pwN').value});
    await loadMe();closeLayers();toast('Profile saved');if(route().page?.id==='people')reload()}catch(e){fail(e)}finally{b.disabled=false}}};

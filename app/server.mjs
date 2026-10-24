@@ -95,6 +95,12 @@ function limited(ip){const now=Date.now(),a=(attempts.get(ip)||[]).filter(t=>now
 
 /* ---------- helpers ---------- */
 function send(res,status,body,headers={}){const data=typeof body==='string'||Buffer.isBuffer(body)?body:JSON.stringify(body);res.writeHead(status,{'content-type':typeof body==='object'&&!Buffer.isBuffer(body)?'application/json; charset=utf-8':'text/plain; charset=utf-8','cache-control':'no-store',...security,...headers});res.end(data)}
+// every "path" field of a multipart upload, however its Content-Disposition spells it (quoted or not, any case);
+// null when the body cannot be read the strict way, so nothing the engine might read differently gets past
+function formPaths(raw,ct){const bm=/boundary=(?:"([^"]+)"|([^;\s]+))/i.exec(String(ct||''));if(!bm)return null;const t=raw.toString('latin1'),parts=t.split('--'+(bm[1]||bm[2]));if(parts.length<3||!parts.at(-1).startsWith('--'))return null;const out=[];
+ for(const pt of parts.slice(1,-1)){const x=pt.replace(/^\r\n/,''),i=x.indexOf('\r\n\r\n');if(i<0)return null;const cds=x.slice(0,i).split('\r\n').filter(l=>/^\s*content-disposition\s*:/i.test(l));if(cds.length!==1||/;\s*name\*/i.test(cds[0]))return null;
+  const nms=[...cds[0].matchAll(/[;:]\s*name\s*=\s*(?:"([^"]*)"|([^;\s]*))/gi)];if(nms.length>1)return null;const nm=nms[0];if(nm&&String(nm[1]??nm[2]).trim().toLowerCase()==='path')out.push(Buffer.from(x.slice(i+4).replace(/\r\n$/,''),'latin1').toString('utf8'))}
+ return out}
 async function readRaw(req,limit=1e6){let size=0;const chunks=[];for await(const c of req){size+=c.length;if(size>limit)throw Error('too large');chunks.push(c)}return Buffer.concat(chunks)}
 async function readBody(req,limit=1e6){return (await readRaw(req,limit)).toString('utf8')}
 
@@ -183,7 +189,8 @@ const accountsApi=createAccounts(DATA);
 // the settings an agent may change for itself (my_settings): only everyday ones, never what it can reach
 const OWN_SETTINGS=/^(stt|tts)\.[a-z0-9_.]+$|^timezone$|^display\.[a-z0-9_.]+$/;
 const whyOf=createWhy({DATA,HERMES_HOME,python:enginePython});
-const agentDefaults=createAgentDefaults({DATA,giveSkills:n=>accountHooks.giveSkills?.(n),trimSkills:n=>accountHooks.trimSkills?.(n)});
+// locked agents (owner without "unsafe", or the admin's safe lock) keep terminal, files and code off through the defaults too
+const agentDefaults=createAgentDefaults({DATA,giveSkills:n=>accountHooks.giveSkills?.(n),trimSkills:n=>accountHooks.trimSkills?.(n),locked:async a=>{await users.load();return a!=='default'&&lockedAgent(a,await getStatus())}});
 accountHooks.afterSetup=n=>agentDefaults.added(n).catch(e=>console.warn('agent defaults',n,e.message));
 // at start, then every 10 minutes: agents made outside aqeelOS (by Claude, by another agent, from the command line) get them too
 const applyDefaults=()=>agentDefaults.all().then(n=>{if(n){console.log('agent defaults: '+n+' settings applied; restarting the agents when idle');restartGateway('agent defaults').catch(()=>{})}}).catch(e=>console.warn('agent defaults:',e.message));
@@ -820,10 +827,11 @@ async function hermesCall(req,res,u,url){
  if(!users.isAdmin(u)&&!q.get('profile')&&p.startsWith('/hapi/')&&req.method!=='GET'&&body===undefined&&/json/.test(String(req.headers['content-type']||''))&&!p.startsWith('/hapi/files')){const raw=await readRaw(req,30e6);body=raw;try{const b=JSON.parse(raw.toString('utf8')||'null');if(b&&typeof b==='object'&&!Array.isArray(b)&&b.profile&&b.profile!==(agent||'default'))return send(res,403,{error:'That agent is not shared with you.'})}catch{}}
  // a member's file calls must stay in their own folder
  if(!users.isAdmin(u)&&p.startsWith('/hapi/files')){
-  if(req.method==='GET'){if(!users.filePathOk(u,q.get('path')||users.home(u)))return send(res,403,{error:'That folder is not yours.'})}
+  // no path would list the engine's own default folder: a member's goes to their home instead
+  if(req.method==='GET'){if(!q.get('path')){q.set('path',users.home(u));req.url=p+'?'+q}if(!users.filePathOk(u,q.get('path')))return send(res,403,{error:'That folder is not yours.'})}
   else{const raw=await readRaw(req,p.endsWith('upload-stream')?200e6:65536);body=raw;
-   let fp=null;if(p.endsWith('upload-stream')){const t=raw.toString('latin1');if((t.match(/name="path"/g)||[]).length!==1)return send(res,400,{error:'Upload one file location at a time.'});fp=(/name="path"\r\n\r\n([^\r\n]*)/.exec(t)||[])[1]}else{try{fp=JSON.parse(raw.toString('utf8')).path}catch{}}
-   if(!users.filePathOk(u,fp))return send(res,403,{error:'That folder is not yours.'})}}
+   let fp=null;if(p.endsWith('upload-stream')){const f=formPaths(raw,req.headers['content-type']);if(!f||f.length!==1)return send(res,400,{error:'Upload one file location at a time.'});fp=f[0]}else{try{fp=JSON.parse(raw.toString('utf8')).path}catch{}}
+   if(!users.filePathOk(u,fp,true)||q.has('path')&&!users.filePathOk(u,q.get('path'),true))return send(res,403,{error:'That folder is not yours.'})}}
  // a member's message: within their daily limit, and only on models they may use
  const chatM=/^\/gapi(?:\/p\/[^/]+)?\/api\/sessions\/([^/]+)\/chat\/stream$/.exec(p);
  if(chatM&&!users.isAdmin(u)&&req.method==='POST'){
@@ -902,6 +910,13 @@ async function hermesCall(req,res,u,url){
    delete b.hub_skills;const ms=Array.isArray(b.mcp_servers)?b.mcp_servers:[];if(ms.some(s=>s&&(s.command||s.args||s.transport==='stdio'))&&!users.can(u,'unsafe'))return send(res,403,{error:'Only admins can add tools that run a command on the box. Use a server URL instead.'});
    for(const s of ms)if(s?.url&&await privateAddress(s.url))return send(res,403,{error:'Tools must use a public web address.'})}
   body=Buffer.from(JSON.stringify(b))}
+ // a member's catalog install: the same rules as adding that server by hand (a plain public address, or "unsafe" for anything that runs on the box)
+ if(!users.isAdmin(u)&&req.method==='POST'&&p==='/hapi/mcp/catalog/install'){let b={};try{b=JSON.parse((body||await readRaw(req,65536)).toString('utf8'))}catch{}body=Buffer.from(JSON.stringify(b));
+  const cat=await fetch(DASH.origin+'/api/mcp/catalog?profile='+encodeURIComponent(agent||'default'),{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(20000)}).then(r=>r.json()).catch(()=>null);
+  const e=(cat?.entries||[]).find(x=>x.name===String(b.name||''));if(!e)return send(res,404,{error:'That tool is not in the catalog.'});
+  const plain=e.url&&!e.command&&!e.args&&e.transport!=='stdio'&&!(e.bootstrap||[]).length&&!e.needs_install;
+  if(!plain&&!users.can(u,'unsafe'))return send(res,403,{error:'Only admins can add tools that run a command on the box. Use a server URL instead.'});
+  if(e.url&&await privateAddress(e.url))return send(res,403,{error:'Tools must use a public web address.'})}
  const transform=/^\/hapi\/(sessions|sessions\/search|profiles|cron\/jobs)$/.test(p)&&req.method==='GET'?d=>users.filter(u,p,d,agent)
   :/^\/gapi(\/p\/[^/]+)?\/api\/model\/options$/.test(p)&&users.allowedModels(u)?d=>({...d,providers:(d.providers||[]).map(pv=>({...pv,models:(pv.models||[]).filter(m=>users.modelOk(u,pv.slug,m))})).filter(pv=>pv.models.length)})
   :/^\/gapi(\/p\/[^/]+)?\/api\/sessions$/.test(p)&&req.method==='POST'?async d=>{await users.own(d.id||d.session?.id||d.session_id,u);return d}
@@ -1087,7 +1102,12 @@ const server=createServer(async(req,res)=>{
    return page('Google account connected',(hit.acct?'<b>'+esc(hit.acct)+'</b> is ':'Your Google account is ')+'connected to '+esc(NAMES[hit.a]||hit.a)+'. You can close this tab and go back to aqeelOS.')}
   // aqeelOS Code (the desktop app) calls these with the key it got when it was paired; nothing else may
   if(p.startsWith('/ui/code/')&&/^Bearer aqc_/.test(req.headers.authorization||'')){const dev=await code.who(String(req.headers.authorization).slice(7));if(!dev)return send(res,401,{error:'This computer is not paired any more. Open Code in aqeelOS to pair it again.'});
-   const who=users.byId(dev.user);if(!who)return send(res,401,{error:'The person this computer was paired for no longer exists.'});
+   let who=users.byId(dev.user);if(!who)return send(res,401,{error:'The person this computer was paired for no longer exists.'});
+   // the box's own Code copy is paired as the owner but used by everyone on Code online: listing and asking agents and
+   // publishing act only as a person aqeelOS signed for (x-aq-act: <uid>.<exp>.<sig>, a few minutes), never as the owner
+   if(dev.user==='owner'&&dev.name==='AI box · online'&&/^\/ui\/code\/(ask|publish|agents)$/.test(p)){const [uid,exp,sg]=String(req.headers['x-aq-act']||'').split('.');
+    const ok=!!uid&&Number(exp)>Date.now()&&Number(exp)<Date.now()+600e3&&!!sg&&(()=>{const x=Buffer.from(sg),y=Buffer.from(sign('code-act:'+uid+'.'+exp));return x.length===y.length&&timingSafeEqual(x,y)})();
+    who=ok?users.byId(uid):null;if(!who)return send(res,403,{error:'Online Code can do this only for a signed-in person. Use Code on your own computer for now.'})}
    const mine=a=>!users.gate(who,'/gapi/api/model/options','GET',new URLSearchParams(),a);   // the agents this person may chat with (shared, owned, not someone's private one)
    if(p==='/ui/code/whoami')return send(res,200,{name:who.name||who.id,user:who.id});
    if(p==='/ui/code/agents'){const out=[];for(const a of await listAgents()){if(!mine(a)||await isTestAgent(a))continue;const c=await readConfig(a).catch(()=>null)||{};out.push({id:a,name:NAMES[a]||await displayName(a),apps:Object.keys(c.mcp_servers||{}).filter(n=>n!=='aqeelos-notify'),google:(await googleContext(a).catch(()=>[])).length})}return send(res,200,{agents:out})}
@@ -1360,8 +1380,14 @@ const server=createServer(async(req,res)=>{
     try{if(p==='/ui/apps/check'){const a=await live.check(String(b.id||''));return send(res,200,{status:a.status,error:a.error||''})}
      if(p==='/ui/apps/remove')return send(res,200,await live.remove(u,users.isAdmin(u),String(b.id||'')));
      if(p==='/ui/apps/connect'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,await live.connect(b))}}catch(e){return send(res,400,{error:e.message})}}
-   if(p==='/ui/bottlenecks'&&req.method==='GET'){const admin=users.isAdmin(u);if(admin)await freshSignins();const items=await bottlenecks.list({admin,mayUse:a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a),signins:admin?[...signinsDue.values()]:[],invites:admin?users.expiredInvites():[]});const mayU=a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a);items.push(...await accessAsk.open(admin?()=>true:mayU).catch(()=>[]));return send(res,200,{items})}
-   if((p==='/ui/bottlenecks/done'||p==='/ui/bottlenecks/later')&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const id=String(b.id||'');if(!id)return send(res,400,{error:'Which one?'});if(!users.isAdmin(u)&&!id.startsWith('report|'))return send(res,403,{error:'Only admins.'});await (p.endsWith('done')?bottlenecks.done(id):bottlenecks.later(id));return send(res,200,{ok:true})}
+   if(p==='/ui/bottlenecks'&&req.method==='GET'){const admin=users.isAdmin(u);if(admin)await freshSignins();const items=await bottlenecks.list({admin,uid:admin?null:u.id,mayUse:a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a),signins:admin?[...signinsDue.values()]:[],invites:admin?users.expiredInvites():[]});const mayU=a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a);items.push(...await accessAsk.open(admin?()=>true:mayU).catch(()=>[]));
+    // the message that led to it is from the agent's newest chat, whoever's: a member sees it only when that chat is theirs
+    return send(res,200,{items:admin?items:items.map(x=>x.from&&users.ownerOf(x.from.chat)!==u.id?{...x,from:null}:x)})}
+   if((p==='/ui/bottlenecks/done'||p==='/ui/bottlenecks/later')&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const id=String(b.id||'').slice(0,300);if(!id)return send(res,400,{error:'Which one?'});const admin=users.isAdmin(u);
+    // only what this person is shown: a report from an agent they may use, anything else for admins and only when it is there
+    if(id.startsWith('report|')){const r=await bottlenecks.find(id);if(!r)return send(res,404,{error:'That one is already gone.'});if(users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),r.agent))return send(res,403,{error:'That agent is not shared with you.'})}
+    else{if(!admin)return send(res,403,{error:'Only admins.'});const cur=await bottlenecks.list({admin:true,mayUse:()=>false,signins:[...signinsDue.values()],invites:users.expiredInvites()});if(!cur.some(x=>x.id===id))return send(res,404,{error:'That one is already gone.'})}
+    await (p.endsWith('done')?bottlenecks.done(id):bottlenecks.later(id,admin?null:u.id));return send(res,200,{ok:true})}
    if(p==='/ui/code/devices'&&req.method==='GET')return send(res,200,{devices:await code.devices(u.id)});
    if(p==='/ui/code/unpair'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}await code.unpair(u.id,String(b.id||''));return send(res,200,{ok:true})}
    {const dm=/^\/ui\/code\/download\/(windows|mac)$/.exec(p);if(dm&&req.method==='GET'){
@@ -1576,7 +1602,7 @@ const server=createServer(async(req,res)=>{
     let recent=[];try{const r=await fetch(`${DASH.origin}/api/sessions?limit=60${agent==='default'?'':'&profile='+encodeURIComponent(agent)}`,{headers:{'x-hermes-session-token':DASH_TOKEN}});recent=users.filter(u,'/hapi/sessions',await r.json()).sessions||[]}catch{}
     return send(res,200,await starters.get(u.id,users.isAdmin(u)?'admin':'member',agent,recent))}
    const no=users.gate(u,p,req.method,url.searchParams,'default');if(no)return send(res,no.status,{error:no.error});
-   if(p.startsWith('/ui/accounts'))return accountsApi(req,res,p,send,readBody);
+   if(p.startsWith('/ui/accounts'))return accountsApi(req,res,p,send,readBody,a=>!!users.level(u,a));
    if(p==='/ui/logo')return logo(req,res);
    return identities(req,res,p);
   }
