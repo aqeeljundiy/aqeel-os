@@ -78,7 +78,7 @@ async function call(base,path,opt={}){const read=(!opt.method||opt.method==='GET
 let NavAbort=new AbortController();
 function navNext(){S._nav=(S._nav||0)+1;NavAbort.abort();NavAbort=new AbortController()}
 async function callRaw(base,path,opt={}){const nav=S._nav,read=!opt.method||opt.method==='GET';
- const init={method:opt.method||'GET',headers:{'x-hui':'1',...(opt.headers||{})},credentials:'same-origin',signal:opt.signal||(read&&!opt.keep&&!opt.raw?NavAbort.signal:undefined)};
+ const init={method:opt.method||'GET',headers:{'x-hui':'1',...(opt.fresh?{'x-fresh':'1'}:{}),...(opt.headers||{})},credentials:'same-origin',signal:opt.signal||(read&&!opt.keep&&!opt.raw?NavAbort.signal:undefined)};
  if(opt.body!==undefined){if(opt.body instanceof FormData||opt.body instanceof Blob)init.body=opt.body;else{init.body=JSON.stringify(opt.body);init.headers['content-type']='application/json'}}
  let r;try{r=await fetch(base+path,init)}catch(e){if(e?.name==='AbortError'&&!opt.signal&&nav!==S._nav)throw STALE();if(e?.name!=='AbortError')Oops.add('request',init.method+' '+path.split('?')[0]+': '+(e?.message||e));throw e}
  if(read&&!opt.keep&&nav!==S._nav)throw STALE();

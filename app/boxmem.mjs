@@ -13,9 +13,12 @@ const GROUPS=[
  ['Tools and connectors',/npx|npm exec|mcp|adspower-bridge|browser_harness/],
  ['aqeelOS app',/hermes-ui\/app\/server\.mjs/],
 ];
-let cache={t:0,v:null};
+let cache={t:0,v:null},reading=null;
+// a ps over every process takes ~0.6 s on a busy box: once known, the last answer at once and one read behind the scenes
 export async function boxMemory(){
- if(Date.now()-cache.t<10000&&cache.v)return cache.v;
+ if(cache.v){if(Date.now()-cache.t>=10000&&!reading)reading=readNow().catch(()=>{}).finally(()=>{reading=null});return cache.v}
+ return readNow()}
+async function readNow(){
  const [used,limit,peak,events]=await Promise.all([num('memory.current'),num('memory.max'),num('memory.peak'),readFile(CG+'memory.events','utf8').catch(()=>'')]);
  const kills=Number((/oom_kill (\d+)/.exec(events)||[])[1]||0);
  const ps=await new Promise(res=>execFile('ps',['-eo','rss=,args='],{maxBuffer:8e6},(e,o)=>res(e?'':String(o))));
