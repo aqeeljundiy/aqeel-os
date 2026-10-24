@@ -638,8 +638,14 @@ async function startSignin(agent,tool){const k=agent+'|'+tool,prev=signinFlows.g
 const esc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const keyOk=new Set();   // agents checked for their gateway key
 /* The channel lists, per agent. clear()/delete() also move a stamp on, so a slow refresh that started before a change
-   never stores what it read from before it (platformsFresh only keeps its answer while the stamp is the same). */
-class PlatCache extends Map{all=0;g=new Map();clear(){this.all++;return super.clear()}delete(k){this.g.set(k,(this.g.get(k)||0)+1);return super.delete(k)}stamp(k){return this.all+':'+(this.g.get(k)||0)}}
+   never stores what it read from before it (platformsFresh only keeps its answer while the stamp is the same).
+   Any change also forgets the whole team list (chList), so Channels shows it right after. */
+class PlatCache extends Map{all=0;g=new Map();clear(){this.all++;chList.drop();return super.clear()}delete(k,quiet){this.g.set(k,(this.g.get(k)||0)+1);if(!quiet)chList.drop();return super.delete(k)}stamp(k){return this.all+':'+(this.g.get(k)||0)}}
+/* /ui/channels (every agent's channels) took 15 s cold: the engine checks each connection, then each bot is asked who it is.
+   The last list answers at once and is read again behind the scenes after 20 s; only the first ask waits, at most 3 s,
+   then shows the agents read so far ({partial:true}, the rest in loading) while the others finish for the next ask. */
+const chList=swr({fresh:20000,cap:3000});
+const channelList=fresh=>chList.get('all',()=>channels.list(),{force:fresh,partial:()=>channels.list({wait:0})}).then(d=>channels.live(d));
 const platCache=new PlatCache();
 /* The engine reports WhatsApp on any agent but the main one as "not set up", even when linked and connected (its
    check needs env keys WhatsApp doesn't have). The truth: switched on + a saved login (creds.json) = set up, and the
@@ -722,7 +728,7 @@ function platformsCached(agent){const k=agent||'default';const c=platCache.get(k
  if(c?.v&&Date.now()-c.t<600000){if(!c.r){c.r=1;platformsFresh(k).catch(()=>{})}return Promise.resolve(c.v)}
  return platformsFresh(k)}
 function platformsFresh(k){const old=platCache.get(k),at=platCache.stamp(k);
- const p=fetch(DASH.origin+'/api/messaging/platforms?profile='+encodeURIComponent(k),{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(async r=>{const v=await r.json();if(!r.ok)throw Object.assign(new Error(v.detail||'HTTP '+r.status),{status:r.status});await trueWhatsApp(k,v);await channelAccounts(k,v).catch(()=>{});if(platCache.stamp(k)===at)platCache.set(k,{t:Date.now(),v});return v}).catch(e=>{if(platCache.stamp(k)===at){if(old?.v)platCache.set(k,{t:Date.now()-10000,v:old.v});else platCache.delete(k)}throw e});
+ const p=fetch(DASH.origin+'/api/messaging/platforms?profile='+encodeURIComponent(k),{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(async r=>{const v=await r.json();if(!r.ok)throw Object.assign(new Error(v.detail||'HTTP '+r.status),{status:r.status});await trueWhatsApp(k,v);await channelAccounts(k,v).catch(()=>{});if(platCache.stamp(k)===at)platCache.set(k,{t:Date.now(),v});return v}).catch(e=>{if(platCache.stamp(k)===at){if(old?.v)platCache.set(k,{t:Date.now()-10000,v:old.v});else platCache.delete(k,true)}throw e});   // a failed read is no change: the team list stays
  if(!old?.v)platCache.set(k,{p});return p}
 /* An agent's skills: the engine reads every skill folder on each ask (1 to 3 s, longer when several agents are asked
    at once), and Skills asks every agent. The last answer is used while the skill folders and config.yaml are unchanged
@@ -1732,7 +1738,7 @@ const server=createServer(async(req,res)=>{
     try{return send(res,200,await sharing.duplicate(String(b.kind||''),ag,String(b.name||''),String(b.to||'')))}catch(e){return send(res,400,{error:e.message})}}
    if(p==='/ui/share/rename-mcp'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can rename MCP tools.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{return send(res,200,await sharing.renameMcp(String(b.agent||'default'),String(b.from||''),String(b.to||'')))}catch(e){return send(res,400,{error:e.message})}}
    // channels across all agents (admins), and handing one to another agent
-   if(p==='/ui/channels'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can see every channel.'});return send(res,200,await channels.list())}
+   if(p==='/ui/channels'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can see every channel.'});return send(res,200,await channelList(url.searchParams.has('fresh')))}
    // WhatsApp: clear a login that WhatsApp has ended, so a fresh QR can link the phone again
    if(p==='/ui/secrets/give'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,20000))}catch{}const base=String(b.agent||'default').split('--')[0];
     if(!(await listAgents()).includes(base))return send(res,400,{error:'Unknown agent'});

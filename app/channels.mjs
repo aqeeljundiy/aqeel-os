@@ -13,13 +13,19 @@ export function createChannels({DASH,TOKEN,HERMES_HOME,listAgents,cached,restart
  const exists=f=>access(f).then(()=>true,()=>false);
  const NOT_CHANNELS=new Set(['api_server','webhook']);   // shared by every agent already
 
- // an agent whose list the engine did not give (it is down or slow) is named in failed, so the page never says "nothing connected"
- async function list(){const out=[],failed=[];const all=await listAgents();const off=paused?await paused():{};const got=await Promise.all(all.map(a=>(cached?cached(a).then(r=>r.platforms||r):platforms(a)).catch(()=>null)));
-  for(const [i,a] of all.entries()){const ps=got[i];if(!Array.isArray(ps)){failed.push(a);continue}for(const p of ps)// only connections that exist: a switched-on but never-linked WhatsApp (a started set-up) is not one
-   if(!NOT_CHANNELS.has(p.id)&&(p.configured||p.state==='connected'||off[a+'|'+p.id]))out.push({agent:a,id:p.id,name:p.name,paused:!!off[a+'|'+p.id],state:off[a+'|'+p.id]?'paused':p.state,enabled:!!p.enabled,error:p.error_message||null,error_code:p.error_code||null,account:p.account||null,identity_error:p.identity_error||null,needs_link:!!p.needs_link,updated_at:p.updated_at||null,moving:busy.get(a+'|'+p.id)?.from===a?{to:busy.get(a+'|'+p.id).to,stage:busy.get(a+'|'+p.id).stage}:null})}
+ // an agent whose list the engine did not give (it is down or slow) is named in failed, so the page never says "nothing connected".
+ // wait (ms): agents still being read by then are left out and named in loading ({partial:true}); their reads go on for the next ask
+ const LOADING=Symbol('loading');
+ async function list({wait}={}){const out=[],failed=[],loading=[];const all=await listAgents();const off=paused?await paused():{};
+  const got=await Promise.all(all.map(a=>{const p=(cached?cached(a).then(r=>r.platforms||r):platforms(a)).catch(()=>null);return wait==null?p:Promise.race([p,new Promise(r=>setTimeout(()=>r(LOADING),wait))])}));
+  for(const [i,a] of all.entries()){const ps=got[i];if(ps===LOADING){loading.push(a);continue}if(!Array.isArray(ps)){failed.push(a);continue}for(const p of ps)// only connections that exist: a switched-on but never-linked WhatsApp (a started set-up) is not one
+   if(!NOT_CHANNELS.has(p.id)&&(p.configured||p.state==='connected'||off[a+'|'+p.id]))out.push({agent:a,id:p.id,name:p.name,paused:!!off[a+'|'+p.id],state:off[a+'|'+p.id]?'paused':p.state,enabled:!!p.enabled,error:p.error_message||null,error_code:p.error_code||null,account:p.account||null,identity_error:p.identity_error||null,needs_link:!!p.needs_link,updated_at:p.updated_at||null,moving:mv({agent:a,id:p.id})})}
   // settings changed after a WhatsApp connection started: it only reads them at start, so it needs a reconnect
   await Promise.all(out.map(async r=>{r.pending=!!(pendingOf&&r.id==='whatsapp'&&!r.paused&&r.state==='connected'&&await pendingOf(r.agent,r.id).catch(()=>false))}));
-  return {channels:out,failed}}
+  return {channels:out,failed,...(loading.length?{partial:true,loading}:{})}}
+ // a kept list with each row's move as it is right now (a move's stages change without a new read)
+ const mv=r=>{const j=busy.get(r.agent+'|'+r.id);return j?.from===r.agent?{to:j.to,stage:j.stage}:null};
+ const live=d=>d&&Array.isArray(d.channels)?{...d,channels:d.channels.map(r=>({...r,moving:mv(r)}))}:d;
 
  /* move one channel's connection from agent `from` to agent `to`. One move per channel at a time (from|platform and
     to|platform are held until it is done). Off the main agent the engine has to restart first, which can take minutes
@@ -87,5 +93,5 @@ export function createChannels({DASH,TOKEN,HERMES_HOME,listAgents,cached,restart
   if(!(restarted&&onR?.hot_served&&to!=='default')){if(restart)restart('moved '+platform+' from '+from+' to '+to).catch(()=>{});else await api('/gateway/restart?profile=default',{method:'POST',body:'{}'}).catch(()=>{})}
   await Promise.resolve(moved?.(platform,from,to)).catch(e=>console.warn('after moving',platform,e.message));return {ok:true,moved:moving.length,on}}
  const pretty=a=>a==='default'?'The main agent':a;
- return {list,move};
+ return {list,live,move};
 }
