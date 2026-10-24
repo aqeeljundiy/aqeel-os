@@ -423,6 +423,14 @@ async function saveThinking(key,rec){try{const sid=key.split('|').slice(1).join(
  if(!think.trim()||!user)return;const f=path.join(DATA,'thinking',sid+'.json');const l=await readFile(f,'utf8').then(JSON.parse).catch(()=>[]);
  l.push({u:user.slice(0,300),think:think.slice(0,20000),by:rec.user,t:Date.now()});await mkdir(path.dirname(f),{recursive:true});await writeFile(f,JSON.stringify(l.slice(-200)))}catch(e){console.warn('save thinking',e.message)}}
 const liveCount=()=>[...LIVE.values()].filter(r=>!r.done).length;
+/* Agents the engine itself has mid-turn (a long task, a job from WhatsApp or a schedule, not only replies aqeelOS proxies).
+   Read from the same /api/status the watchdog uses; kept 4 s so loops don't hammer it; 0 when the engine does not answer,
+   so a restart is never blocked by an engine that is down. The engine's own restart drain is off (restart_drain_timeout 0). */
+let engAgents={t:0,n:0};
+async function engineAgents(){if(Date.now()-engAgents.t<4000)return engAgents.n;let n=0;
+ try{const r=await fetch(DASH.origin+'/api/status',{signal:AbortSignal.timeout(5000)});n=Number((await r.json()).active_agents)||0}catch{}
+ engAgents={t:Date.now(),n};return n}
+const waitingNow=async()=>Math.max(liveCount(),await engineAgents());
 const shx=async c=>{const {execFile}=await import('node:child_process');return new Promise(r=>execFile('bash',['-c',c],{timeout:150000,env:{...process.env,PATH:homedir()+'/.local/bin:'+process.env.PATH}},(e,o)=>r({ok:!e,out:String(o||'')})))};
 async function gatewayPid(){const t=await readFile(path.join(HERMES_HOME,'gateway.pid'),'utf8').catch(()=>'');const pid=Number((/\d+/.exec(t)||[])[0]);if(!pid)return 0;try{process.kill(pid,0);return pid}catch{return 0}}
 // Every engine restart is noted (ours with the reason, and ones the engine does by itself), so the bell can say why
@@ -431,7 +439,7 @@ let sysEvents=[],lastGwPid=0,lastOwnRestart=0;
 function noteSys(kind,why){sysEvents.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),t:Date.now(),kind,why:String(why||'').slice(0,160)});sysEvents=sysEvents.slice(-50)}
 let autoRestarts=[];
 function restartGateway(why,{wait=true,auto=false,bridges=false}={}){if(gwRestarting)return gwRestarting;if(auto){autoRestarts=autoRestarts.filter(t=>Date.now()-t<30*60e3);if(autoRestarts.length>=3){if(Date.now()-(globalThis.__rf||0)>30*60e3){globalThis.__rf=Date.now();noteSys('restart-failed','The engine kept stopping, so it was left off. Open System › Host and press Start.')}return Promise.resolve()}autoRestarts.push(Date.now())}if(PORT!==4400){console.log('gateway restart skipped (test copy):',why);return Promise.resolve()}
- gwRestarting=(async()=>{if(wait)for(let i=0;i<120&&liveCount()>0;i++)await new Promise(r=>setTimeout(r,5000));
+ gwRestarting=(async()=>{if(wait){let said=false;for(let i=0;i<360&&(liveCount()>0||await engineAgents()>0);i++){if(!said&&i===12){said=true;console.log('gateway restart: still waiting for',Math.max(liveCount(),engAgents.n),'agent(s) at work:',why)}await new Promise(r=>setTimeout(r,5000))}}
   console.log('gateway restart:',why);gwStopped=false;lastOwnRestart=Date.now();noteSys('restart',why);
   await shx('hermes -p default gateway stop >/dev/null 2>&1; for i in $(seq 1 30); do p=$(grep -o "[0-9]*" ~/.hermes/gateway.pid 2>/dev/null | head -1); [ -n "$p" ] && kill -0 "$p" 2>/dev/null || break; sleep 1; done; tmux kill-session -t gateway 2>/dev/null; sleep 1');
   // a WhatsApp bridge is its own process and reads its settings only when it starts: when channel settings changed, stop them so the engine starts fresh ones
@@ -602,7 +610,7 @@ async function setChannelOn(agent,platform,on){const h={'x-hermes-session-token'
  const ps=await pausedLoad();const k=agent+'|'+platform;if(on)delete ps[k];else ps[k]={t:Date.now()};await pausedSave(ps);platCache.clear();attention.t=0;
  const afterOff=()=>platform==='whatsapp'&&!on?stopBridges(agent).catch(()=>{}):null;   // its connection stops too; the login stays
  if(!j.hot_served)restartGateway((on?'resumed ':'paused ')+platform+' on '+agent).then(afterOff).catch(()=>{});else setTimeout(afterOff,3000);
- console.log('channel',platform,'on',agent,on?'resumed':'paused');return {ok:true,paused:!on,restarting:!j.hot_served,waiting:liveCount()}}
+ console.log('channel',platform,'on',agent,on?'resumed':'paused');return {ok:true,paused:!on,restarting:!j.hot_served,waiting:await waitingNow()}}
 const tgNames=new Map();
 /* The engine reports "gateway stopped" for apps on a second agent although the shared engine serves them (it only
    records live state for the main agent). The truth is in the engine's own log: its last "✓ <app> connected /
@@ -667,7 +675,7 @@ async function finishWhatsAppLink(agent,pid,b){const h={'x-hermes-session-token'
  const env={WHATSAPP_ENABLED:'true',WHATSAPP_MODE:String(b.mode||st.mode||'bot'),WHATSAPP_DM_POLICY:'pairing'};if(b.allowed_users)env.WHATSAPP_ALLOWED_USERS=String(b.allowed_users);
  const r=await fetch(DASH.origin+'/api/messaging/platforms/whatsapp'+pq,{method:'PUT',headers:h,body:JSON.stringify({enabled:true,env,profile:agent})});const j=await r.json().catch(()=>({}));
  if(!r.ok)throw new Error(j.detail||j.error||'Could not switch WhatsApp on.');
- platCache.clear();const waiting=liveCount();
+ platCache.clear();const waiting=await waitingNow();
  if(!j.hot_served)restartGateway('WhatsApp linked on '+agent).catch(()=>{});
  console.log('whatsapp linked on',agent,st.account_phone?'(+'+st.account_phone+')':'',j.hot_served?'· picked up live':'· engine restarting');
  setTimeout(()=>syncNotifyTool().catch(()=>{}),20000);
@@ -959,7 +967,7 @@ const server=createServer(async(req,res)=>{
  try{
   await users.load();   // people (owners, shares) are read before any route uses them, also right after a restart
   if(codeOnline.handle(req,res))return;   // code.elkiya.com and code-preview.elkiya.com: Code online, behind sign-in
-  if(p==='/healthz')return send(res,200,{ok:true,build:BUILD,live:liveCount(),busy:liveCount()+export_setups.running()+opsBusy()+relay.sending()+(gwRestarting?1:0)});
+  if(p==='/healthz')return send(res,200,{ok:true,build:BUILD,live:liveCount(),engine:(void engineAgents(),engAgents.n),busy:liveCount()+export_setups.running()+opsBusy()+relay.sending()+(gwRestarting?1:0)});
   // the "notify me" tool agents call (from this box only; each agent's address is signed)
   const mn=/^\/mcp\/notify\/([\w-]+)\/([\w-]+)$/.exec(p);
   if(mn){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method==='GET')return send(res,405,'POST only');
@@ -992,7 +1000,7 @@ const server=createServer(async(req,res)=>{
    const mayApply=!lockedAgent(mn[1].split('--')[0],{});
    if(signed&&msg.method==='tools/call'&&msg.params?.name==='apply_changes'){if(!mayApply)return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{isError:true,content:[{type:'text',text:'Only agents of admins can restart the agents. Ask an admin to press Restart agents on System › Health.'}]}});
     const why=String(msg.params?.arguments?.why||'settings changed').slice(0,120);restartGateway(why+' (asked by '+(NAMES[mn[1].split('--')[0]]||mn[1])+')').catch(()=>{});
-    return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text:'aqeelOS restarts the agents as soon as no reply is in progress, this one included: usually within a minute after you finish. Finish your turn now with one short line saying the change is applied in a minute and what the person can try then. Do not check or test it in this turn.'}]}})}
+    return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text:'aqeelOS restarts the agents as soon as no agent is replying or running a task, this one included: usually within a minute after you finish, longer if another agent is in the middle of a long task. Finish your turn now with one short line saying the change is applied in a minute and what the person can try then. Do not check or test it in this turn.'}]}})}
    if(signed&&msg.method==='tools/call'&&msg.params?.name==='reconnect_channel'){const me=mn[1],reply=(text,isError)=>send(res,200,{jsonrpc:'2.0',id:msg.id,result:{...(isError?{isError:true}:{}),content:[{type:'text',text}]}});
     const pf=String(msg.params?.arguments?.channel||'').trim().toLowerCase();
     if(!mayApply)return reply('Only agents of admins can reconnect channels. Ask an admin to press Reconnect on the Channels page.',true);
@@ -1264,7 +1272,7 @@ const server=createServer(async(req,res)=>{
     res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-cache','x-accel-buffering':'no',...security});res.socket?.setNoDelay(true);
     for(const c of rec.chunks)res.write(c);rec.subs.add(res);res.on('close',()=>rec.subs.delete(res));return}
    if(p==='/ui/gateway/restart'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can restart the gateway.'});
-    const waiting=liveCount();restartGateway('restart from the app ('+(u.name||u.id)+')').catch(()=>{});return send(res,200,{ok:true,waiting})}
+    const waiting=await waitingNow();restartGateway('restart from the app ('+(u.name||u.id)+')').catch(()=>{});return send(res,200,{ok:true,waiting})}
    // each agent's setup result, for the Agents page (what failed, so it can be finished with one click)
    if(p==='/ui/agent-setup'&&req.method==='GET'){const st=await getStatus();const out={};for(const [a,v] of Object.entries(st))if(users.isAdmin(u)||users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a)===null)out[a]={ok:v.ok!==false,failed:v.failed||[],t:v.t||0};return send(res,200,{agents:out})}
    // an agent for someone who must not have terminal, files, code or computer use: locked on every channel, and kept so
@@ -1529,7 +1537,7 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/channels/note'&&req.method==='PUT'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can change channels.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const k=String(b.agent||'')+'|'+String(b.platform||'');const f=path.join(DATA,'channel-notes.json');const all=await readFile(f,'utf8').then(JSON.parse).catch(()=>({}));const v=String(b.note||'').trim().slice(0,120);if(v)all[k]=v;else delete all[k];await writeFile(f,JSON.stringify(all,null,1));platCache.clear();return send(res,200,{ok:true})}
    if(p==='/ui/channels/reconnect'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can reconnect channels.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
     const ag=String(b.agent||''),pf=String(b.platform||'');if(!(await listAllProfiles()).includes(ag)||!/^[a-z0-9_]{1,40}$/.test(pf))return send(res,400,{error:'Unknown channel'});
-    if(ag==='default'){restartGateway('reconnect '+pf+' (main agent)',{bridges:pf==='whatsapp'}).catch(()=>{});return send(res,200,{ok:true,restarting:true,waiting:liveCount()})}
+    if(ag==='default'){restartGateway('reconnect '+pf+' (main agent)',{bridges:pf==='whatsapp'}).catch(()=>{});return send(res,200,{ok:true,restarting:true,waiting:await waitingNow()})}
     const h={'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'};const put=on=>fetch(DASH.origin+'/api/messaging/platforms/'+pf+'?profile='+encodeURIComponent(ag),{method:'PUT',headers:h,body:JSON.stringify({enabled:on,env:{},profile:ag})}).then(r=>r.json()).catch(()=>({}));
     await put(false);if(pf==='whatsapp')await stopBridges(ag).catch(()=>{});await new Promise(r=>setTimeout(r,2500));const j=await put(true);platCache.clear();attention.t=0;
     console.log('reconnected',pf,'on',ag,j.hot_served?'(live)':'');return send(res,200,{ok:true,restarting:false})}
