@@ -64,7 +64,7 @@ Object.assign(ID,{
  'Set by your organisation’s policy, so it can’t be changed here.':'Diatur oleh kebijakan organisasimu, jadi tidak bisa diubah di sini.',
  'Asking once more: an older version could save “No thanks” before you saw this question.':'Bertanya sekali lagi: versi lama bisa menyimpan “Tidak, terima kasih” sebelum kamu melihat pertanyaan ini.',
  'This agent’s choice couldn’t be loaded.':'Pilihan agen ini tidak bisa dimuat.',
- 'Your choice couldn’t be saved. Try again.':'Pilihanmu tidak bisa disimpan. Coba lagi.',
+ 'Your choice couldn’t be saved. Try again.':'Pilihanmu tidak bisa disimpan. Coba lagi.','Your choice couldn’t be saved.':'Pilihanmu tidak bisa disimpan.',
  'Share anonymous usage stats?':'Bagikan statistik penggunaan anonim?',
  'Usage stats: asking once more':'Statistik penggunaan: bertanya sekali lagi',
  'An older version could save “No thanks” before you saw this question. To share, choose on System › Settings.':'Versi lama bisa menyimpan “Tidak, terima kasih” sebelum kamu melihat pertanyaan ini. Untuk berbagi, pilih di Sistem › Pengaturan.',
@@ -1316,7 +1316,7 @@ Object.assign(ID,{'Needs signing in again':'Perlu masuk lagi','Can use it':'Bisa
  'Pick a time':'Pilih jam','Pick a day':'Pilih hari','Previous month':'Bulan sebelumnya','Next month':'Bulan berikutnya','Type a time like 08:30':'Ketik jam seperti 08:30',
  'Only admins turn plugins on or off. Ask one if you need a plugin on.':'Hanya admin yang menyalakan atau mematikan plugin. Minta admin jika kamu perlu plugin menyala.','Only admins turn plugins on or off':'Hanya admin yang menyalakan atau mematikan plugin',
  'No memory to show':'Tidak ada memori untuk ditampilkan','Couldn’t read it':'Tidak bisa dibaca','Take it away':'Ambil kembali','Move':'Pindahkan'});
-ID_PATTERNS.push([/^Couldn’t load (.+)\.$/,'$1 tidak bisa dimuat.'],[/^Move this to (.+)\?$/,'Pindahkan ke $1?'],[/^Remove from (.+)$/,'Hapus dari $1'],[/^Open on (.+)$/,'Buka di $1']);
+ID_PATTERNS.push([/^Couldn’t load (.+)\.$/,'$1 tidak bisa dimuat.'],[/^Usage for (.+) couldn’t be loaded, so these totals are incomplete\.$/,'Pemakaian $1 tidak bisa dimuat, jadi total ini belum lengkap.'],[/^Move this to (.+)\?$/,'Pindahkan ke $1?'],[/^Remove from (.+)$/,'Hapus dari $1'],[/^Open on (.+)$/,'Buka di $1']);
 // tool groups (one line each, the warnings, the all-agents grid) and the people cards
 Object.assign(ID,{'Tool group':'Grup alat','Tool groups, and which agents have each on':'Grup alat, dan agen mana yang menyalakannya','Apply':'Terapkan','Apply (restarts agents once)':'Terapkan (agen dimulai ulang sekali)','Undo':'Urungkan',
  'Switch as many as you like, then press Apply: the agents restart once for all of them.':'Ubah sebanyak yang kamu mau, lalu tekan Terapkan: agen dimulai ulang sekali untuk semuanya.','Switch as many as you like, then press Apply.':'Ubah sebanyak yang kamu mau, lalu tekan Terapkan.',

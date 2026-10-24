@@ -81,7 +81,7 @@ Object.assign(ALLVIEW,{
   const bad=per.filter(x=>x.d?.err).map(x=>ident(x.a).name);
   const rows=per.map(({a,path,d},i)=>{const items=(d?.entries||[]).filter(f=>!f.name.startsWith('.'));
    return `<div class="row" ${st(i)}><div class="main-c">${Access.av({id:a,name:ident(a).name},34)}<div class="txt"><b>${esc(ident(a).name)}’s folder</b><span>${d?.err?'Couldn’t read it':d?items.length+' item'+(items.length===1?'':'s')+(items.length?' · '+items.slice(0,4).map(f=>esc(f.name)).join(', ')+(items.length>4?'…':''):''):'Not made yet'}</span><span class="acc-from" style="font-family:var(--mono)">${esc(path.replace('/home/claude','~'))}</span></div></div><div class="act">${Access.owner({owner:a})}${allOpen(a)}</div></div>`});
-  el.innerHTML=`${bad.length?errLine(bad.join(', ')+(bad.length>1?'’s folders':'’s folder'),'margin:0 0 12px'):''}<div class="all-view">${allSection('Each agent’s own folder',rows,'No agents yet.')}</div><p class="hint" style="margin:14px 0 0">New folder and Upload work in ${esc(String(S.filePath||FILE_HOME).replace('/home/claude','~'))}. Open an agent’s folder to work in it.</p>`},
+  el.innerHTML=`${bad.length?errLine(bad.join(', ')+(bad.length>1?'’s folders':'’s folder')):''}<div class="all-view">${allSection('Each agent’s own folder',rows,'No agents yet.')}</div><p class="hint" style="margin:14px 0 0">New folder and Upload work in ${esc(String(S.filePath||FILE_HOME).replace('/home/claude','~'))}. Open an agent’s folder to work in it.</p>`},
  async logs(p,el){setActions(`<button data-act="reload" title="Load the latest lines now">${icon('refresh',16)}Refresh</button>`);const o=S.logs||(S.logs={file:'agent',level:'ALL',component:'all',lines:200,live:true});const map={Agent:'agent',Channels:'gateway',Errors:'errors'};
   const per=await perAgent(a=>H(prof('/logs'+qp({file:o.file,lines:80}),a)));
   const lines=per.flatMap(({a,d})=>(d?.lines||[]).map(l=>({a,l:l.replace(/\n$/,'')}))).sort((x,y)=>x.l.slice(0,23)<y.l.slice(0,23)?-1:1).slice(-400),bad=per.filter(x=>!x.d).map(x=>ident(x.a).name);
@@ -93,7 +93,7 @@ Object.assign(ALLVIEW,{
   const rows=per.map(({a,d},i)=>{const own=g(d,'terminal.backend')==='ssh';const bits=[modelLabel(g(d,'model.default')||g(d,'model')||''),own?'Own Linux user':'Main box user',g(d,'approvals.mode')?'Approvals: '+pretty(g(d,'approvals.mode')):'',g(d,'timezone')||''].filter(Boolean);
    return `<div class="row" ${st(i)}><div class="main-c">${Access.av({id:a,name:ident(a).name},34)}<div class="txt"><b>${esc(ident(a).name)}</b><span>${d?bits.map(esc).join(' · '):'Its settings couldn’t be read'}</span></div></div><div class="act">${Access.owner({owner:a})}${allOpen(a,'Change')}</div></div>`});
   const bad=per.filter(x=>!x.d).map(x=>ident(x.a).name);
-  el.innerHTML=`${bad.length?errLine(bad.join(', ')+(bad.length>1?'’s settings':'’s settings'),'margin:0 0 12px'):''}<div class="all-view">${allSection('Each agent’s settings',rows,'No agents yet.')}</div>`}});
+  el.innerHTML=`${bad.length?errLine(bad.join(', ')+'’s settings'):''}<div class="all-view">${allSection('Each agent’s settings',rows,'No agents yet.')}</div>`}});
 
 PAGES._skillsOne=PAGES.skills;
 for(const id of ['skills','files','memory','logs','settings']){const base=PAGES[id];if(!base)continue;PAGES[id]=async(p,el,r)=>{if(!showingAll())return base(p,el,r);viewPick(await viewAgents());return ALLVIEW[id](p,el)}}

@@ -424,8 +424,11 @@ const signChip=(act='',tip='')=>`<span class="chip warn sign-chip"${tip?` title=
 // what this person may change on an agent, as users.mjs decides: admins every agent; members the agents they own, and
 // the ones they may edit (for a right such as 'skills' or 'tools', only when their role has it)
 const mayEdit=(a,cap)=>{const me=S.me||{},l=me.agents?.[a];return me.admin!==false||l==='owner'||l==='edit'&&(!cap||(me.caps||[]).includes(cap))};
+// one soft warning box for every failed or incomplete part: icon, the message (html, already escaped) and a small
+// Try again on the same line (wraps under when narrow); act:'' for none, id for a button a flow wires itself
+const alertBox=(html,{act='reload',id='',label='Try again',style='',cls=''}={})=>`<div class="alert${cls?' '+cls:''}" role="alert"${style?` style="${style}"`:''}>${icon('alert',16)}<span class="alert-t">${html}</span>${act||id?`<button class="ghost small"${id?` id="${id}"`:` data-act="${act}"`}>${icon('refresh',14)}${esc(label)}</button>`:''}</div>`;
 // a part of a page that failed to load: says what, with Try again (never drawn as an empty list)
-const errLine=(what,style='')=>`<p class="err-line"${style?` style="${style}"`:''}>Couldn’t load ${esc(what)}. <button data-act="reload">Try again</button></p>`;
+const errLine=(what,style='',cls='')=>alertBox(`Couldn’t load ${esc(what)}.`,{style,cls});
 const emptyBox=(title,text,btn='')=>`<div class="empty-hero"><b style="display:block;font-size:17px;margin-bottom:6px">${esc(title)}</b><span style="color:var(--ink-2)">${esc(text)}</span>${btn?`<div style="margin-top:16px">${btn}</div>`:''}</div>`;
 // Tab bars are often re-rendered on switch, so each bar remembers where its pill was and a fresh pill
 // glides from there instead of appearing in place.

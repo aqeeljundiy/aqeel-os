@@ -32,7 +32,7 @@ const Access={
   const mk=(title,list)=>{if(!list.length)return null;const g=document.createElement('div');g.className='acc-group';g.innerHTML=`<div class="acc-grp">${title}</div><div class="card list"></div>`;list.forEach(r=>g.lastChild.append(r));return g};
   const a=mk('Owned by '+esc(me),own),b=mk('Shared with '+esc(me),shared);host.replaceWith(...[a,b].filter(Boolean));this.bindOwners(el)},
  // the owner and Used by decoration did not load: one line with Try again above the list, instead of rows quietly without them
- failed(el,what){if(!el.isConnected||el.querySelector('.acc-fail'))return;const t=el.querySelector('.tabs,[role=tablist]');const h=errLine(what,'margin:0 0 12px').replace('class="err-line"','class="err-line acc-fail"');t?t.insertAdjacentHTML('afterend',h):el.insertAdjacentHTML('afterbegin',h)},
+ failed(el,what){if(!el.isConnected||el.querySelector('.acc-fail'))return;const t=el.querySelector('.tabs,[role=tablist]');const h=errLine(what,'','acc-fail');t?t.insertAdjacentHTML('afterend',h):el.insertAdjacentHTML('afterbegin',h)},
  async open(kind,id){const data=await this.load(kind);const it=data?.items.find(x=>x.id===id);if(!it)return toast('That connection is gone. Reload the page.','err');
   const what={mcp:'with the same sign-in',google:'with the same Google sign-in',plugin:'turned on',key:'with the same value (still hidden)'}[kind];
   const d=drawer('Who can use '+it.label,`<p class="hint" style="margin:0 0 14px">${it.bot?'A chat bot answers as one agent only, so it can’t be shared.':`Owned by ${esc(it.ownerName)}. Turning another agent on gives it ${esc(it.label)} ${what}; turning it off takes it away. ${kind==='google'?'It works straight away.':'The agents restart by themselves once nobody is mid-reply.'}`}</p>

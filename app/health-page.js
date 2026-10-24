@@ -14,7 +14,7 @@
    // the 15-second refresh swaps in new cards: only the first draw plays the entrance animation
    if(!sBox.querySelector('.skel'))b.querySelectorAll('.stat,.row,.card,.panel').forEach(x=>x.style.animation='none');b.hidden=false;sBox.replaceChildren(b)};
   const hb=document.createElement('div');hb.hidden=true;document.body.append(hb);
-  await Promise.all([drawStatus(),oldHost(p,hb,r).then(()=>{if(stale()){hb.remove();return}hb.hidden=false;hBox.replaceChildren(hb)},e=>{hb.remove();hBox.innerHTML=`<p class="err-line">${esc(e.message)}</p>`})]);
+  await Promise.all([drawStatus(),oldHost(p,hb,r).then(()=>{if(stale()){hb.remove();return}hb.hidden=false;hBox.replaceChildren(hb)},e=>{hb.remove();hBox.innerHTML=alertBox(esc(e.message))})]);
   if(stale())return;
   setActions(`${S.me?.admin!==false?`<button data-act="console-open" title="Type the engine’s own commands">${icon('terminal',16)}Engine console</button>`:''}<button data-act="gw-restart">${icon('refresh',16)}Restart agents</button>${S.status?.can_update_hermes===false?'':`<button class="primary" data-act="upd-check">${icon('refresh',16)}Check for updates</button>`}`);
   // agents and channels change often: refresh that part only, while the page is open and visible
