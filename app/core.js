@@ -56,7 +56,18 @@ const Press={btn:null,at:0};document.addEventListener('click',e=>{const b=e.targ
 function pressBusy(p){const b=Press.btn;if(!b||Date.now()-Press.at>600||!b.isConnected)return;b._busyN=(b._busyN||0)+1;
  const t=setTimeout(()=>{if(b._busyN&&b.isConnected){b.classList.add('is-busy');b.setAttribute('aria-busy','true')}},120);
  p.finally(()=>{if(--b._busyN<=0){b._busyN=0;clearTimeout(t);b.classList.remove('is-busy');b.removeAttribute('aria-busy')}}).catch(()=>{})}
-async function call(base,path,opt={}){const req=callRaw(base,path,opt);pressBusy(req);return req}
+// The same read asked for by several parts of one page (every wrapper of a page used to fetch the agents, identities,
+// status, config or channels again) is one request: identical reads in flight share it, and a short list of lookups is
+// kept 5 s. Cleared by every page draw (reload too) and by any change, so a save never shows old data. Each caller gets
+// its own copy: one part sorting a list can't change another's.
+const ReadShare={m:new Map(),keep:/^(\/ui\/(identities|agents|access|channels|box)|\/hapi\/(profiles|status|config|skills|messaging\/platforms))(\?|$)/,clear(){this.m.clear()}};
+async function call(base,path,opt={}){const read=(!opt.method||opt.method==='GET')&&!opt.raw&&!opt.signal;if(!read)ReadShare.clear();
+ const k=read&&(S._nav||0)+'|'+base+path,hit=k&&ReadShare.m.get(k);
+ if(hit&&(hit.live||Date.now()-hit.t<5000))return hit.p.then(d=>d&&typeof d==='object'?structuredClone(d):d);
+ const req=callRaw(base,path,opt);pressBusy(req);if(!read){req.finally(()=>ReadShare.clear()).catch(()=>{});return req}
+ const e={p:req,live:true,t:0};ReadShare.m.set(k,e);
+ req.then(()=>{e.live=false;e.t=Date.now();if(!ReadShare.keep.test(base+path)&&ReadShare.m.get(k)===e)ReadShare.m.delete(k)},()=>{if(ReadShare.m.get(k)===e)ReadShare.m.delete(k)});
+ return req.then(d=>d&&typeof d==='object'?structuredClone(d):d)}
 // Leaving a page cancels the reads it still waits for (their answers would be dropped anyway): the browser has only a
 // few connections per site, and slow leftovers made the next page queue behind them
 let NavAbort=new AbortController();
@@ -320,7 +331,7 @@ function go(h){if(location.hash==='#'+h)render();else location.hash=h}
 
 /* ---------- shell ---------- */
 function render(){
- const r=route(),root=$('#root');closeLayers();
+ const r=route(),root=$('#root');closeLayers();ReadShare.clear();
  {const k=location.hash.split('?')[0];if(k!==S._navKey){S._navKey=k;navNext()}}
  if(r.invite!==undefined){root.innerHTML='';inviteView(root,r.invite);return}
  if(r.signin||!S.signedIn){root.innerHTML=signinHtml();bindSignin();return}
