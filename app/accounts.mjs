@@ -22,7 +22,7 @@ const MAIN={id:'main',label:'Main account',dir:path.join(HOME,'.claude')};
 export let setupAgentFn=null;
 export const export_setups={running:()=>0,wait:()=>Promise.resolve()};   // setups in progress, counted by /healthz so a deploy waits for them
 // for agent-defaults.mjs: copying skills, and what runs after a new agent is set up
-export const accountHooks={giveSkills:null,trimSkills:null,afterSetup:null,moveOff:null};
+export const accountHooks={giveSkills:null,trimSkills:null,forgetSkills:null,afterSetup:null,moveOff:null};
 export function createAccounts(DATA){
  const FILE=path.join(DATA,'accounts.json');
  const load=async()=>{try{return JSON.parse(await readFile(FILE,'utf8'))}catch{return {accounts:[],assign:{},auto:{on:false,threshold:90},events:[]}}};
@@ -179,18 +179,28 @@ export function createAccounts(DATA){
  const QUIET=[['display.busy_ack_enabled',false],['display.busy_steer_ack_enabled',false],['display.busy_ack_detail',false],['display.suppress_warning_notifications',true],['display.long_running_notifications',false]];
  const FROM_MAIN=['timezone','browser.headed','browser.inactivity_timeout','agent.max_turns','agent.reasoning_effort'];
  const setups=new Map();
+ // what each agent was given or already had (DATA/skills-given.json, agent → {skill: time}): a skill on that list that is
+ // gone now was removed by a person, so it is not copied back. An agent not on it yet (first run, a new agent) is
+ // recorded as it is first; a deleted agent's list is dropped, so a new agent with the same name starts fresh.
+ const GIVEN=path.join(DATA,'skills-given.json');let given=null,gFirst=null,gSave=Promise.resolve();
+ const gLoad=async()=>given||(given=await (gFirst||=readFile(GIVEN,'utf8').then(JSON.parse).catch(()=>({})))) ;
+ const gKeep=()=>{const snap=JSON.stringify(given);gSave=gSave.then(async()=>{await mkdir(DATA,{recursive:true});const t=GIVEN+'.'+process.pid+'.tmp';await writeFile(t,snap);await rename(t,GIVEN)}).catch(e=>console.warn('skills given',e.message))};
  // copy each skill folder the agent does not have yet from the main agent (never overwrites its own)
  async function giveSkills(name){const from=path.join(HERMES_HOME,'skills'),to=path.join(HERMES_HOME,'profiles',name,'skills');let n=0;
-  await access(path.join(HERMES_HOME,'profiles',name,'config.yaml'));
+  await access(path.join(HERMES_HOME,'profiles',name,'config.yaml'));const rec=await gLoad();let ch=!rec[name];const mine=rec[name]||={};
   for(const cat of await readdir(from,{withFileTypes:true}).catch(()=>[])){if(!cat.isDirectory()||cat.name.startsWith('.'))continue;
-   for(const sk of await readdir(path.join(from,cat.name),{withFileTypes:true}).catch(()=>[])){if(!sk.isDirectory())continue;const src=path.join(from,cat.name,sk.name),dst=path.join(to,cat.name,sk.name);
-    if(await access(path.join(src,'SKILL.md')).then(()=>false,()=>true))continue;if(!allowed(cat.name+'/'+sk.name,name))continue;if(await access(dst).then(()=>true,()=>false))continue;
-    await mkdir(path.dirname(dst),{recursive:true});await cp(src,dst,{recursive:true});n++}}
-  if(n)console.log('gave',n,'skills to',name);return n}
- // skills an agent must not have (see skills-policy.mjs) are moved to <agent>/skills-removed/<date>, never deleted
+   for(const sk of await readdir(path.join(from,cat.name),{withFileTypes:true}).catch(()=>[])){if(!sk.isDirectory())continue;const src=path.join(from,cat.name,sk.name),dst=path.join(to,cat.name,sk.name),key=cat.name+'/'+sk.name;
+    if(await access(path.join(src,'SKILL.md')).then(()=>false,()=>true))continue;if(!allowed(key,name))continue;
+    if(await access(dst).then(()=>true,()=>false)){if(!mine[key]){mine[key]=Date.now();ch=true}continue}
+    if(mine[key])continue;   // it had it and someone took it off: it stays off
+    await mkdir(path.dirname(dst),{recursive:true});await cp(src,dst,{recursive:true});mine[key]=Date.now();ch=true;n++}}
+  if(ch)gKeep();if(n)console.log('gave',n,'skills to',name);return n}
+ // skills an agent must not have (see skills-policy.mjs) are moved to <agent>/skills-removed/<date>, never deleted;
+ // they leave its given list too, so a later policy that allows them gives them again
  async function trimSkills(name){const root=name==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',name);
   const moved=await trim(path.join(root,'skills'),name,path.join(root,'skills-removed',new Date().toISOString().slice(0,10)));
-  if(moved.length)console.log('skills: moved',moved.length,'out of',name+':',moved.join(', '));return moved.length}
+  if(moved.length){const rec=await gLoad();if(rec[name]){for(const k of moved)delete rec[name][k];gKeep()}console.log('skills: moved',moved.length,'out of',name+':',moved.join(', '))}return moved.length}
+ const forgetSkills=async name=>{const rec=await gLoad();if(rec[name]){delete rec[name];gKeep()}};
  function setupAgent(name){if(!setups.has(name))setups.set(name,doSetup(name).finally(()=>setups.delete(name)));return setups.get(name)}
  async function doSetup(name){
   if(!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(name)||name==='default')throw new Error('Unknown agent');
@@ -239,7 +249,7 @@ export function createAccounts(DATA){
  export_setups.running=()=>setups.size;export_setups.wait=n=>setups.get(n)||Promise.resolve();
 
  setupAgentFn=setupAgent;
- accountHooks.giveSkills=giveSkills;accountHooks.trimSkills=trimSkills;
+ accountHooks.giveSkills=giveSkills;accountHooks.trimSkills=trimSkills;accountHooks.forgetSkills=forgetSkills;
  // a provider going away (Google AI Pro signed out): the agent's first priority entry it can really use; null when none
  accountHooks.moveOff=async(profile,key)=>{const d=await load();for(const e of d.priority||[]){if(e.key===key)continue;
   if(e.key.startsWith(PLUGIN_KEY)){const a=all(d).find(x=>x.id===e.key.slice(PLUGIN_KEY.length));if(!a||!(await details(a)).signedIn)continue}

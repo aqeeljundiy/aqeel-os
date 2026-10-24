@@ -65,9 +65,14 @@ export function createAccess({HERMES_HOME,DATA,listAgents,readConfig,setKey,herm
 
  async function find(kind,id){const l=await list(kind);const it=l.items.find(x=>x.id===id);if(!it)throw new Error('That connection is gone. Reload the page.');return it}
 
- // pick: the agent whose sign-in to copy, when the person chose one (it must be signed in); else the owner's
- async function grant(kind,id,to,pick){const it=await find(kind,id);const from=pick&&pick!==to&&it.users.some(x=>x.id===pick&&x.signed)?pick:it.owner;if(to===from)return {changed:false};
-  if(kind==='mcp'&&own[id]){await own[id].grant(to);return {changed:true}}
+ // pick: the agent whose sign-in to copy, when the person chose one (it must be signed in); else the owner's when it
+ // is signed in, else another agent that is (a signed-out copy would hand on a dead sign-in); none signed in: refused
+ async function grant(kind,id,to,pick){const it=await find(kind,id);
+  if(kind==='mcp'&&own[id]){if(to===it.owner)return {changed:false};await own[id].grant(to);return {changed:true}}   // aqeelOS's own tools: nothing to copy
+  const ok=a=>a&&a!==to&&it.users.some(x=>x.id===a&&x.signed);
+  const from=ok(pick)?pick:ok(it.owner)?it.owner:it.users.find(x=>x.signed&&x.id!==to)?.id;
+  if(!from){if(it.users.some(x=>x.id===to&&x.signed))return {changed:false};throw new Error('No agent is signed in to '+it.label+' right now, so there is nothing to share. Sign in on one agent first.')}
+  if(to===from)return {changed:false};
   const src=(await holdings(from))[kind][id];
   if(kind==='mcp'){const c=await readConfig(from);const entry=c?.mcp_servers?.[id];if(!entry)throw new Error('The owner no longer has it.');
    // never replace another agent's own connection that only shares the name

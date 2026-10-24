@@ -875,7 +875,7 @@ async function hermesCall(req,res,u,url){
  // only once the engine really deleted it (2xx): a refused delete keeps the agent's numbers and WhatsApp sessions
  if(delM&&req.method==='DELETE'){const gone=decodeURIComponent(delM[1]);if(!gone.includes('--'))res.once('finish',async()=>{if(res.statusCode>=300)return;
   for(const l of await links.list(gone).catch(()=>[]))await links.remove(l.name).catch(e=>console.warn('remove copy',l.name,e.message));
-  setTimeout(async()=>{if(await isAgent(gone))return;await users.dropAgent(gone).catch(()=>{});const {rm}=await import('node:fs/promises');
+  setTimeout(async()=>{if(await isAgent(gone))return;await users.dropAgent(gone).catch(()=>{});await accountHooks.forgetSkills?.(gone).catch(()=>{});const {rm}=await import('node:fs/promises');
    // anything the engine left behind (a bare logs/ folder) and an agent folder holding only aqeelOS's own notes
    await rm(path.join(HERMES_HOME,'profiles',gone),{recursive:true,force:true}).catch(()=>{});
    const ws=path.join(homedir(),'workspaces',gone);if((await readdir(ws).catch(()=>['?'])).every(x=>x==='AGENTS.md'))await rm(ws,{recursive:true,force:true}).catch(()=>{});

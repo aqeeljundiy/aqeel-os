@@ -234,7 +234,7 @@ const gaccWhat=sc=>[...new Set(sc.map(s=>/gmail/.test(s)?'Gmail':/drive/.test(s)
 const gaccTitle=x=>x.label||(x.name?pretty(x.name):'Main Google account');
 {const base=PAGES.mcp;PAGES.mcp=async(p,el)=>{await base(p,el);if((S.tab.mcp||'Your servers')!=='Your servers')return;const ag=viewing();
  let d;try{d=await UI('/ui/google-accounts?agent='+encodeURIComponent(ag))}catch{return}const l=d.accounts||[];Pages._gacc=l;
- const edit=S.me?.admin!==false||S.me?.agents?.[ag]==='edit';
+ const edit=S.me?.admin!==false||['owner','edit'].includes(S.me?.agents?.[ag]);   // an agent's owner may name its accounts too
  const panel=document.createElement('div');panel.className='panel card gacc-panel';panel.style.marginBottom='16px';
  panel.innerHTML=`<h2 class="h-row">Google accounts<span class="chip">${l.length}</span></h2><p class="sub">${l.length?`${esc(ident(ag).name)} can use ${l.length===1?'this account':'these accounts'} for Gmail, Drive, Sheets, Docs and Calendar. Give each a name and say what it is for, and ${esc(ident(ag).name)} picks the right one when you ask (“send it from my Elkiya account”).`:`${esc(ident(ag).name)} has no Google account yet. Connect one to let it read and send Gmail, and work in Drive, Sheets, Docs and Calendar.`}</p>
   ${l.map((x,i)=>`<div class="row gacc-row" ${st(i)}><div class="main-c">${logoImg('google.com','G')}<div class="txt"><b>${esc(gaccTitle(x))}${x.renews?'':` <span class="chip warn">Needs signing in again</span>`}</b>

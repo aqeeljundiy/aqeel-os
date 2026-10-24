@@ -238,10 +238,15 @@ ACT['mcp-dup']=a=>{const m=(Pages._mcp||[]).find(x=>x.name===a.dataset.name);if(
   <label>Name</label><input id="mdN" value="${esc(base+'-'+n)}">
   ${m.url?`<label>Server URL</label><input id="mdU" value="${esc(m.url)}">`:`<label>Command</label><input id="mdC" value="${esc(m.command||'')}"><label>Arguments</label><input id="mdA" value="${esc((m.args||[]).join(' '))}">`}
   <label>Settings (one KEY=value per line)</label><textarea id="mdE" rows="5" placeholder="ADSPOWER_PROFILE=Shop 2">${esc(env)}</textarea>
-  <p class="hint" style="margin:4px 0 0">Secret values are never copied. Type them again if this copy needs them.</p>`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="mdGo">Add copy</button>`);
+  <p class="hint" style="margin:4px 0 0">Secret values are never copied. Type them again if this copy needs them.${m.auth==='oauth'?' Its sign-in is not copied either: press Sign in on the copy once it is added.':m.auth||m.headers||m.bearer_token?' Its token is copied only when this page can read it; if the copy cannot connect, enter the token again on it.':''}</p>`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="mdGo">Add copy</button>`);
  d.querySelector('#mdGo').onclick=async()=>{const name=$('#mdN').value.trim();if(!/^[\w.-]{1,64}$/.test(name))return toast('Use letters, numbers, dots or dashes for the name','err');
   const body={name,env:Object.fromEntries($('#mdE').value.split('\n').map(l=>l.split('=')).filter(x=>x[0]&&x.length>1).map(([k,...v])=>[k.trim(),v.join('=').trim()]))};
   if(m.url)body.url=$('#mdU').value.trim();else{body.command=$('#mdC').value.trim();body.args=$('#mdA').value.trim().split(/\s+/).filter(Boolean)}
+  // how it signs in goes along (sign-in kind, OAuth settings with this copy's own return address, readable headers and token)
+  const plain=v=>v!=null&&v!==''&&!/^\*+|•/.test(String(v));
+  if(m.auth)body.auth=m.auth;if(plain(m.bearer_token))body.bearer_token=m.bearer_token;
+  if(m.oauth&&typeof m.oauth==='object'){body.oauth={...m.oauth};const ru=String(body.oauth.redirect_uri||''),tail='/'+encodeURIComponent(m.name);if(ru.endsWith(tail))body.oauth.redirect_uri=ru.slice(0,-tail.length)+'/'+encodeURIComponent(name)}
+  const hd=Object.fromEntries(Object.entries(m.headers||{}).filter(([,v])=>plain(v)));if(Object.keys(hd).length)body.headers=hd;
   try{await post(H,'/mcp/servers',body);closeLayers();toast(name+' added');reload()}catch(e){fail(e)}}};
 
 /* ---------- Memory: MEMORY.md and USER.md are plain files the agent reads; you can edit them ---------- */
@@ -424,7 +429,7 @@ setInterval(()=>CronNotify.check(),30000);setTimeout(()=>CronNotify.check(),4000
 /* ---------- Access: one small badge on every row saying who can use it ---------- */
 const accessChip=(text,tip,kind='')=>`<span class="chip access ${kind}" title="${esc(tip)}">${icon(kind==='shared'?'user':kind==='public'?'globe':'lock',11)}${esc(text)}</span>`;
 function accessFor(list,here){const n=(list||[]).length;return n>1?accessChip('Shared · '+n+' agents','Used by '+list.map(a=>ident(a).name).join(', '),'shared'):accessChip('Only this agent','Only '+ident(here).name+' has it. Use Share to copy it to others.')}
-{const deco=decorateRows;decorateRows=async(el,kind,rows)=>{await deco(el,kind,rows);if(S.me?.admin===false&&kind!=='skill')return;const used=await usedByMap(kind);const here=S.profile||'default';
+{const deco=decorateRows;decorateRows=async(el,kind,rows)=>{await deco(el,kind,rows);if(S.me?.admin===false&&kind!=='skill')return;const used=await usedByMap(kind);const here=agentProfile()||'default';   // the agent whose page this is (an admin viewing another agent too)
  rows.forEach(({row,name})=>{const t=row.querySelector('.txt b');if(!t||t.querySelector('.access'))return;t.insertAdjacentHTML('beforeend',' '+accessFor(used[name],here))})}}
 // schedules: each runs on exactly one agent
 {const base=PAGES.schedules;PAGES.schedules=async(p,el)=>{await base(p,el);el.querySelectorAll('[data-menu="cron"][data-profile]').forEach(m=>{const row=m.closest('.row,.card');const t=row?.querySelector('.txt b,h3');if(!t||t.querySelector('.access'))return;

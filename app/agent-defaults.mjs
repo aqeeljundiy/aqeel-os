@@ -81,7 +81,7 @@ export function createAgentDefaults({DATA,giveSkills,trimSkills=async()=>0,locke
   for(const [k,v] of changes)await setKey(a,k,v);
   if(changes.length)log('agent defaults for '+a+': '+changes.map(x=>x[0]).join(', '));return changes.length}
  // every agent has the skills the main agent (Donna) has, except the few that are for specific agents (skills-policy.mjs,
- // decided 24 Oct 2026): missing ones are copied, the agent's own copies and extra skills of its own stay, and skills an
+ // decided 24 Oct 2026): missing ones are copied (not ones a person removed from it: giveSkills keeps a list), the agent's own copies and extra skills of its own stay, and skills an
  // agent must not have are moved out to its skills-removed folder. Only the owner's signed-in accounts are never handed out
  async function skills(names){let n=0;for(const a of names){if(a!=='default')n+=await giveSkills(a).catch(()=>0)||0;n+=await trimSkills(a).catch(()=>0)||0}return n}
  // about every minute: agents made any way (aqeelOS, the engine's command line, another agent) get the defaults once
