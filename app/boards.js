@@ -35,7 +35,8 @@ PAGES.kanban=async(p,el)=>{Pages._kbEl=el;
 async function kbBoards(){try{const r=await KB('/boards');Pages._kbBoards=r.boards||[];Pages._kbCur=r.current||'default';
  if(kbSlug()&&kbSlug()!=='default'&&!Pages._kbBoards.some(b=>b.slug===kbSlug())){store.set('kb-board','');toast('That board was archived. Showing the main board.');kbRefresh()}
  const n=$('#kbPickN'),m=kbMeta();if(n&&m)n.innerHTML=kbPickLabel(m)}catch{}}
-async function kbLoad(el){const b=await KB('/board'+qp({tenant:KF.tenant||undefined,include_archived:KF.archived?'true':undefined}));
+// the newest load wins: an older answer arriving late (a slow poll after a filter change) is dropped
+async function kbLoad(el){const g=Pages._kbGen=(Pages._kbGen||0)+1;const b=await KB('/board'+qp({tenant:KF.tenant||undefined,include_archived:KF.archived?'true':undefined}));if(g!==Pages._kbGen)return;
  const sig=JSON.stringify(b.columns)+'|'+(b.assignees||[]).join()+'|'+(b.tenants||[]).join();const same=Pages._kbSig===sig&&el.querySelector('#kbArea .kboard');Pages._kb=b;Pages._kbSig=sig;if(!el.isConnected)return;
  if(!el.querySelector('#kbArea'))kbFrame(el);kbTool(el);if(!same&&!Pages._kbDrag)kbPaint(el)}
 function kbFrame(el){el.innerHTML=`<div class="toolbar ktool"><div class="search">${icon('search',16)}<input id="kbQ" type="search" placeholder="Search tasks" aria-label="Search tasks" value="${esc(KF.q)}"></div><div class="ktool-r" id="kbToolR"></div></div><div id="kbWarn"></div><div id="kbArea"></div><div class="kfoot"><div class="ktrash" id="kbTrash" aria-hidden="true">${icon('trash',16)}Drop here to delete</div><div id="kbBulk"></div></div>`;
@@ -196,15 +197,16 @@ ACT['kb-new']=a=>{const col=a?.dataset?.col||'todo';const b=Pages._kb||{};const 
  const wk=d.querySelector('#ktWk'),wb=d.querySelector('#ktWb'),wh=d.querySelector('#ktWh');const ws=()=>{wb.classList.toggle('open',wk.value!=='scratch');wh.textContent=wk.value==='worktree'?'The Git project to copy. Leave empty to use the board\'s folder.':'Needed unless the board has a folder.'};wk.onchange=ws;ws();
  d.querySelector('#ktG').onchange=e=>d.querySelector('#ktGb').classList.toggle('open',e.target.checked);
  d.querySelector('#ktT').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();d.querySelector('#ktGo').click()}};
- d.querySelector('#ktGo').onclick=async()=>{const title=$('#ktT').value.trim();if(!title)return toast('Give the task a title','err');const status=$('#ktS').value;
+ d.querySelector('#ktGo').onclick=async e=>{const go=e.currentTarget;if(go.disabled)return;const title=$('#ktT').value.trim();if(!title)return toast('Give the task a title','err');const status=$('#ktS').value;
   const body={title,body:$('#ktB').value.trim()||undefined,assignee:$('#ktA').value||undefined,priority:parseInt($('#ktP').value,10)||0,triage:status==='triage'};
   const w=$('#ktW')?.value;if(w)body.parents=[w];const sk=$('#ktK').value.split(',').map(x=>x.trim()).filter(Boolean);if(sk.length)body.skills=sk;
   if(wk.value!=='scratch'){body.workspace_kind=wk.value;const pth=$('#ktWp').value.trim();if(pth)body.workspace_path=pth}
   if($('#ktG').checked){body.goal_mode=true;const g=parseInt($('#ktGn').value,10);if(g>0)body.goal_max_turns=g}
-  try{const r=await post(KB,'/tasks',body);const id=r?.task?.id;let note=r?.warning?kbPlain(r.warning):'';
+  // one task per press: the button (and Enter, which presses it) waits for the answer
+  go.disabled=true;try{const r=await post(KB,'/tasks',body);const id=r?.task?.id;let note=r?.warning?kbPlain(r.warning):'';
    // the engine decides where a new task lands (no parents: Ready when it has an agent); put it where the person chose
    if(id&&status!=='triage'&&r.task.status!==status&&!(w&&status==='ready'))try{await KB('/tasks/'+encodeURIComponent(id),{method:'PATCH',body:{status}})}catch(e2){note=kbPlain(e2.message)}
-   closeLayers();toast(note||'Task added',note&&!r?.warning?'err':undefined);kbRefresh()}catch(e){fail(e)}}};
+   closeLayers();toast(note||'Task added',note&&!r?.warning?'err':undefined);kbRefresh()}catch(e){fail(e)}finally{go.disabled=false}}};
 
 /* ---------- one task ---------- */
 const kbStatusBtns=k=>{const s=k.status,id=esc(k.id),b=(lab,st,ok,ic,x='')=>ok?`<button class="small" data-act="kb-status" data-id="${id}" data-s="${st}" ${x}>${ic?icon(ic,14):''}${lab}</button>`:'';
@@ -267,7 +269,8 @@ ACT['kb-open']=async(a,e)=>{const id=a.dataset.id;
  d.querySelector('#kdC').onkeydown=e2=>{if(e2.key==='Enter'&&!e2.shiftKey){e2.preventDefault();d.querySelector('[data-act="kb-comment"]').click()}};
  d.querySelector('#kdUp').onchange=e2=>kbUpload(task.id,[...e2.target.files]).finally(()=>{e2.target.value=''});
  d.querySelector('#kdLog').addEventListener('toggle',e2=>{if(e2.target.open)kbLog(d,task.id)});
- d.querySelector('#kdGo').onclick=async()=>{const body={},cur=Pages._kbD?.t?.task||task;const T=$('#kdT').value.trim(),B=$('#kdB').value,A=$('#kdA').value,P=parseInt($('#kdP').value,10)||0,M=$('#kdM').value;
+ // only what the person changed since the drawer opened is sent: comparing with a fresher copy would undo others' changes
+ d.querySelector('#kdGo').onclick=async()=>{const body={},cur=task;const T=$('#kdT').value.trim(),B=$('#kdB').value,A=$('#kdA').value,P=parseInt($('#kdP').value,10)||0,M=$('#kdM').value;
   if(!T)return toast('A task needs a title','err');if(T!==cur.title)body.title=T;if(B!==(cur.body||''))body.body=B;if(A!==(cur.assignee||''))body.assignee=A||'';if(P!==(cur.priority||0))body.priority=P;
   if(M!==mo&&M!=='__type'){if(!M)body.clear_model_override=true;else{const i=M.indexOf('\u0000');if(i<0)body.model_override=M;else{body.provider_override=M.slice(0,i);body.model_override=M.slice(i+1)}}}
   if(!Object.keys(body).length)return closeLayers();try{const r=await KB('/tasks/'+encodeURIComponent(task.id),{method:'PATCH',body});closeLayers();toast(r?.warning?kbPlain(r.warning):'Task saved');kbRefresh()}catch(e2){fail({...e2,message:kbPlain(e2.message)})}}};
@@ -293,8 +296,9 @@ ACT['kb-runs-all']=a=>{Pages._kbRunsAll=a.dataset.id;const D=Pages._kbD;const l2
 ACT['kb-status']=a=>kbMove([a.dataset.id],a.dataset.s,{unblock:!!a.dataset.unblock});
 ACT['kb-specify']=async a=>{const m=$('#kdMsg');try{const r=await post(KB,'/tasks/'+encodeURIComponent(a.dataset.id)+'/specify',{author:S.me?.name||undefined});
  if(m)m.innerHTML=r?.ok?`<p class="ok-line">${icon('check',14)}Written out${r.new_title?': now called “'+esc(r.new_title)+'”':''}.</p>`:`<p class="err-line">Could not write it out: ${esc(kbPlain(r?.reason||'no reason given'))}</p>`;if(r?.ok){kbDrawerLive();kbRefresh()}}catch(e){fail(e)}};
-ACT['kb-decompose']=async a=>{const m=$('#kdMsg');try{const r=await post(KB,'/tasks/'+encodeURIComponent(a.dataset.id)+'/decompose',{author:S.me?.name||undefined});
- if(m)m.innerHTML=!r?.ok?`<p class="err-line">Could not split it: ${esc(kbPlain(r?.reason||'no reason given'))}</p>`:r.fanout&&r.child_ids?.length?`<p class="ok-line">${icon('check',14)}Split into ${plural(r.child_ids.length,'task')}. They are on the board now.</p>`:`<p class="ok-line">${icon('check',14)}Kept as one task${r.new_title?', now called “'+esc(r.new_title)+'”':''}.</p>`;if(r?.ok){kbDrawerLive();kbRefresh()}}catch(e){fail(e)}};
+// one split at a time per task (the button is redrawn while it works, so a flag, not the button, remembers)
+ACT['kb-decompose']=async a=>{const id=a.dataset.id;if((Pages._kbSplit??=new Set()).has(id))return;Pages._kbSplit.add(id);const m=$('#kdMsg');try{const r=await post(KB,'/tasks/'+encodeURIComponent(id)+'/decompose',{author:S.me?.name||undefined});
+ if(m)m.innerHTML=!r?.ok?`<p class="err-line">Could not split it: ${esc(kbPlain(r?.reason||'no reason given'))}</p>`:r.fanout&&r.child_ids?.length?`<p class="ok-line">${icon('check',14)}Split into ${plural(r.child_ids.length,'task')}. They are on the board now.</p>`:`<p class="ok-line">${icon('check',14)}Kept as one task${r.new_title?', now called “'+esc(r.new_title)+'”':''}.</p>`;if(r?.ok){kbDrawerLive();kbRefresh()}}catch(e){fail(e)}finally{Pages._kbSplit.delete(id)}};
 ACT['kb-reclaim']=async a=>{try{await post(KB,'/tasks/'+encodeURIComponent(a.dataset.id)+'/reclaim',{reason:'recovery action for '+a.dataset.kind});toast('Taken back. The task is Ready again.');kbDrawerLive();kbRefresh()}catch(e){fail({...e,message:kbPlain(e.message)})}};
 ACT['kb-reassign']=async a=>{const v=a.closest('.kd-give')?.querySelector('select')?.value||'';try{await post(KB,'/tasks/'+encodeURIComponent(a.dataset.id)+'/reassign',{profile:v||null,reclaim_first:!!a.dataset.rf,reason:'recovery action for '+a.dataset.kind});toast(v?'Given to '+ident(v).name:'Unassigned');kbDrawerLive();kbRefresh()}catch(e){fail({...e,message:kbPlain(e.message)})}};
 ACT['kb-copycmd']=a=>navigator.clipboard?.writeText(a.dataset.cmd).then(()=>toast('Command copied. Paste it in a terminal on the AI box.'),()=>toast('Could not copy','err'));
@@ -307,7 +311,7 @@ async function kbUpload(id,files){if(!files.length)return;const b=$('[data-act="
 ACT['kb-att-get']=async a=>{try{const r=await KB('/attachments/'+encodeURIComponent(a.dataset.aid),{raw:true});if(!r.ok){let m='The server answered '+r.status;try{m=(await r.json()).detail||m}catch{}throw new Error(m)}
  const u=URL.createObjectURL(await r.blob()),x=document.createElement('a');x.href=u;x.download=a.dataset.name||'file';document.body.append(x);x.click();x.remove();setTimeout(()=>URL.revokeObjectURL(u),2000)}catch(e){fail(e)}};
 ACT['kb-att-del']=async a=>{if(!await confirmBox('Delete this file?',(a.dataset.name||'The file')+' is removed from the task.'))return;try{await del(KB,'/attachments/'+encodeURIComponent(a.dataset.aid));toast('File deleted');kbDrawerLive()}catch(e){fail(e)}};
-ACT['kb-comment']=async a=>{const c=$('#kdC'),v=c?.value.trim();if(!v)return;try{await post(KB,'/tasks/'+encodeURIComponent(a.dataset.id)+'/comments',{body:v,author:S.me?.name||'dashboard'});c.value='';toast('Comment added');kbDrawerLive();kbRefresh()}catch(e){fail(e)}};
+ACT['kb-comment']=async a=>{const c=$('#kdC'),v=c?.value.trim();if(!v||a.disabled)return;a.disabled=true;try{await post(KB,'/tasks/'+encodeURIComponent(a.dataset.id)+'/comments',{body:v,author:S.me?.name||'dashboard'});c.value='';toast('Comment added');kbDrawerLive();kbRefresh()}catch(e){fail(e)}finally{a.disabled=false}};   // Enter presses the button, so a disabled one ignores both
 ACT['kb-del']=a=>kbDelete([a.dataset.id]);
 
 /* ===================== Achievements ===================== */

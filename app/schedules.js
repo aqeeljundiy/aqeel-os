@@ -9,12 +9,16 @@ const bracketOf=n=>(/^\s*\[([^\]]{1,40})\]/.exec(n||'')||[])[1]?.trim()||'';
 const usd=c=>money(c);   // dollars, or rupiah when the person picked that (core.js)
 const toks=n=>!n?'0':n<1000?String(n):n<1e6?(n/1e3).toFixed(n<1e4?1:0)+'k':(n/1e6).toFixed(1)+'M';
 const secsText=s=>s==null?'':s<60?s+' s':s<3600?Math.round(s/60)+' min':(s/3600).toFixed(1)+' h';
-function whenText(j){const sc=j.schedule||{};const disp=String(sc.display||j.schedule_display||'');const zone=SCHED.tz?' ('+SCHED.tz.split('/').pop().replace(/_/g,' ')+' time)':'';
+// each agent runs its schedules in its own time zone (none set is UTC), so the label is always said
+const zoneOf=a=>(SCHED.tzs||{})[a||'default']||'';
+function whenText(j){const sc=j.schedule||{};const disp=String(sc.display||j.schedule_display||'');const tz=zoneOf(j.profile),zone=' ('+(tz?tz.split('/').pop().replace(/_/g,' '):'UTC')+' time)';
  const iv=/^every\s+(\d+)\s*([smhd])$/i.exec(disp);if(iv){const n=+iv[1],u={s:'second',m:'minute',h:'hour',d:'day'}[iv[2].toLowerCase()];return 'Every '+(n===1?u:n+' '+u+'s')}
  const once=/^once at (\d{4}-\d\d-\d\d)[ T](\d\d:\d\d)/i.exec(disp);if(once){const d=new Date(once[1]+'T12:00:00');return 'Once, '+d.toLocaleDateString([],{weekday:'short',day:'numeric',month:'short'})+' at '+once[2]+zone}
  const t=cronText(sc.expr||disp);return (t?t.charAt(0).toUpperCase()+t.slice(1):disp)+(sc.expr&&/\d\d:\d\d/.test(t)?zone:'')}
-function deliverName(j,names){const d=String(j.deliver||'local');if(d==='local')return 'this app';if(d==='origin')return 'the chat it was made in';
- const [pf,...rest]=d.split(':');const id=rest.join(':');const app=({whatsapp:'WhatsApp',telegram:'Telegram',slack:'Slack',discord:'Discord',email:'Email',signal:'Signal'})[pf]||pretty(pf);
+const APP_NAMES={whatsapp:'WhatsApp',telegram:'Telegram',slack:'Slack',discord:'Discord',email:'Email',signal:'Signal'};
+function deliverName(j,names){const d=String(j.deliver||'local');const rl=j.id&&(SCHED.relays||{})[(j.profile||'default')+'|'+j.id];
+ if(d==='local'&&rl)return (APP_NAMES[rl.platform]||pretty(rl.platform))+' (shared by '+ident(String(rl.owner).split('--')[0]).name+')';if(d==='local')return 'this app';if(d==='origin')return 'the chat it was made in';
+ const [pf,...rest]=d.split(':');const id=rest.join(':');const app=APP_NAMES[pf]||pretty(pf);
  if(!id)return app;const who=(names||{})[d]||(names||{})[pf+':'+id.split('@')[0]];return who?who+' on '+app:app}
 function schedMeta(j){const i=SCHED.info||{};const k=(j.profile||'default')+'|'+j.id;return {m:(i.meta||{})[k]||{},r:(i.runs||{})[k]||{runs:[],tokens:0,cost:0}}}
 const folderOf=j=>schedMeta(j).m.folder||bracketOf(j.name)||'General';
@@ -26,7 +30,8 @@ const jobState=j=>j.state||(j.enabled===false?'disabled':'scheduled');
 const STATE_LABEL={scheduled:'Active',running:'Running now',paused:'Paused',completed:'Finished',error:'Failed',disabled:'Off'};
 const schedTime=iso=>{const d=new Date(iso);return isNaN(d)?String(iso||''):d.toLocaleString([],{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})};
 const expectsRun=j=>j.enabled!==false&&!['paused','completed'].includes(j.state);
-const overdueOf=j=>{if(!expectsRun(j))return null;const at=Date.parse(j.next_run_at||'');return !isNaN(at)&&Date.now()-at>15*60e3?j.next_run_at:null};
+// a run longer than 15 min keeps its old next time until it ends: running is not overdue
+const overdueOf=j=>{if(!expectsRun(j)||j.state==='running')return null;const at=Date.parse(j.next_run_at||'');return !isNaN(at)&&Date.now()-at>15*60e3?j.next_run_at:null};
 const staleAge=jobs=>jobs.reduce((m,j)=>typeof j.scheduler_heartbeat_age_s==='number'&&j.scheduler_heartbeat_age_s>200&&expectsRun(j)&&j.scheduler_heartbeat_age_s>(m||0)?j.scheduler_heartbeat_age_s:m,null);
 const repeatText=j=>{const r=j.repeat;if(!r||r.times==null)return 'Until you stop it';const c=r.completed||0;return c>0?c+' of '+plural(r.times,'run')+' done':plural(r.times,'time')};
 const missedLine=j=>j.last_fire_error?.detail?`Missed its run${j.last_fire_error.at?' at '+schedTime(j.last_fire_error.at):''}: ${j.last_fire_error.detail}`:'';
@@ -35,17 +40,22 @@ PAGES.schedules=async(p,el)=>{
  setActions(`<button class="primary" data-act="cron-new">${icon('plus',16)}New schedule</button>`);
  // a newer render (the next search keystroke) wins: an older answer arriving late is dropped
  const gen=SCHED.gen=(SCHED.gen||0)+1,nav=S._nav;   // nav: the later redraws below happen only on this same visit
- // the timezone only adds "(Jakarta time)", and the engine's config takes seconds: the last one known is used, and
- // the page is drawn again if it changed
- if(SCHED.tz===undefined){SCHED.tz=store.get('schedTz','');H('/config?profile=default').then(c=>{const tz=c.timezone||'';if(tz===SCHED.tz)return;SCHED.tz=tz;store.set('schedTz',tz);if(route().page?.id==='schedules'&&S._nav===nav&&el.isConnected)PAGES.schedules(p,el).catch(()=>{})}).catch(()=>{})}
- const [jobs,info]=await Promise.all([H('/cron/jobs?profile=all'),UI('/ui/schedules/info').catch(()=>null)]);
+ SCHED.tzs??=store.get('schedTzs',{});
+ // a schedule run through a shared channel is saved as "this app"; where it really goes is kept by aqeelOS
+ const [jobs,info,relays]=await Promise.all([H('/cron/jobs?profile=all'),UI('/ui/schedules/info').catch(()=>null),UI('/ui/channels/job-relays').catch(()=>null)]);
  if(gen!==SCHED.gen)return;
- Pages.cronJobs=jobs;SCHED.info=info||SCHED.info||{meta:{},runs:{},names:{},folds:{}};
- if(!jobs.length&&!(SCHED.info.folders||[]).length){el.innerHTML=emptyBox('No schedules yet','Have aqeelOS do something on a timetable, like a morning report on Telegram.',`<button class="primary" data-act="cron-new">${icon('plus',16)}New schedule</button>`);return}
+ Pages.cronJobs=jobs;SCHED.info=info||SCHED.info||{meta:{},runs:{},names:{},folds:{}};if(relays)SCHED.relays=relays;
+ // the time zone only adds "(Jakarta time)", and each agent's config takes seconds: the last ones known are used, each
+ // agent is read once a visit, and the page is drawn again if one changed
+ if(SCHED.tzNav!==nav){SCHED.tzNav=nav;const ags=[...new Set(jobs.map(j=>j.profile||'default'))];
+  Promise.all(ags.map(a=>H('/config?profile='+encodeURIComponent(a)).then(c=>[a,c.timezone||''],()=>null))).then(l=>{let ch=false;for(const x of l)if(x&&SCHED.tzs[x[0]]!==x[1]){SCHED.tzs[x[0]]=x[1];ch=true}
+   if(!ch)return;store.set('schedTzs',SCHED.tzs);if(route().page?.id==='schedules'&&S._nav===nav&&el.isConnected)PAGES.schedules(p,el).catch(()=>{})})}
+ const I=SCHED.info,admin=S.me?.admin!==false;
+ // empty folders are the admins' filing: a member with no schedules of their own sees the empty page, not "Nothing matches"
+ if(!jobs.length&&!(admin&&(I.folders||[]).length)){el.innerHTML=emptyBox('No schedules yet','Have aqeelOS do something on a timetable, like a morning report on Telegram.',`<button class="primary" data-act="cron-new">${icon('plus',16)}New schedule</button>`);return}
  const agents=[...new Set(jobs.map(j=>j.profile||'default'))];if(SCHED.agent&&!agents.includes(SCHED.agent))SCHED.agent='';
  const q=SCHED.q.toLowerCase();
  const shown=jobs.filter(j=>(!SCHED.agent||(j.profile||'default')===SCHED.agent)&&(!q||[j.name,j.prompt,schedMeta(j).m.summary,folderOf(j)].join(' ').toLowerCase().includes(q)));
- const I=SCHED.info,admin=S.me?.admin!==false;
  const groups={};for(const j of shown)(groups[folderOf(j)]??=[]).push(j);
  // folders made on purpose show while still empty, unless you are searching or looking at one agent
  // (admins only: the folders are the admins' own filing, and a member would see folders of schedules they can't see)
@@ -55,7 +65,8 @@ PAGES.schedules=async(p,el)=>{
  const order=Object.keys(groups).sort((a,b)=>sort==='az'?a.localeCompare(b):sort==='cost'?month(groups[b])-month(groups[a])||a.localeCompare(b):sort==='size'?groups[b].length-groups[a].length||a.localeCompare(b)
   :pos(a)-pos(b)||(a==='General')-(b==='General')||a.localeCompare(b));
  SCHED.shownOrder=order;
- const folds=I.folds||{},colors=I.colors||{};let n=0;
+ // a member's open and shut folders are their own (kept in this browser; the shared ones are the admins')
+ const folds=admin?I.folds||{}:store.get('schedFolds',{}),colors=I.colors||{};let n=0;
  const row=j=>{const on=j.enabled&&j.state!=='paused';const {m,r}=schedMeta(j);const last=r.runs[0];
   const model=j.model?`<span class="chip sm-chip" title="Runs on this model instead of the agent’s">${icon('cpu',11)}${esc(modelLabel(j.model))}</span>`:'';
   const cost=r.runs.length?`<span title="${esc(r.sub?'Covered by your subscription. This is what it would cost on the pay-per-use API.':'Estimated from the model’s price')}">≈ ${usd(r.cost)} this month · ${plural(r.n||r.runs.length,'run')}</span>`:'';
@@ -85,6 +96,7 @@ PAGES.schedules=async(p,el)=>{
 ACT['sched-agent-pick']=a=>{const ag=[...new Set((Pages.cronJobs||[]).map(j=>j.profile||'default'))];
  menu(a,[{label:'All agents',icon:'layers',on:!SCHED.agent,run:()=>{SCHED.agent='';store.set('schedAgent','');reload()}},'-',...ag.map(n=>({label:ident(n).name,icon:'user',on:SCHED.agent===n,sub:plural((Pages.cronJobs||[]).filter(j=>(j.profile||'default')===n).length,'schedule'),run:()=>{SCHED.agent=n;store.set('schedAgent',n);reload()}}))],{search:ag.length>6,matchWidth:true})};
 ACT['sched-fold']=(a,e)=>{if(e.target.closest('[data-act="sched-folder-menu"]'))return;const f=a.dataset.f;const sec=a.closest('.sched-folder');const shut=!sec.classList.contains('shut');sec.classList.toggle('shut',shut);a.setAttribute('aria-expanded',!shut);
+ if(S.me?.admin===false){const l=store.get('schedFolds',{});l[f]=shut;store.set('schedFolds',l);return}
  (SCHED.info.folds??={})[f]=shut;post(UI,'/ui/schedules/folder',{from:f,fold:shut}).catch(()=>{})};
 /* folders: make, rename, colour, reorder (menu or drag), delete; schedules move by drag or from their ⋯ menu.
    Deleting a folder never deletes a schedule: they go back to General. */
@@ -155,7 +167,7 @@ async function cronDetail(j){const {m,r}=schedMeta(j);const prof=j.profile||'def
  d.addEventListener('click',async e=>{const b=e.target.closest('[data-sd]');if(!b)return;const k=b.dataset.sd;
   if(k==='edit'){closeLayers();setTimeout(()=>cronDrawer(j),220)}
   if(k==='move'){closeLayers();setTimeout(()=>moveSchedule(j),220)}
-  if(k==='run'){try{await post(H,`/cron/jobs/${encodeURIComponent(j.id)}/trigger?profile=${encodeURIComponent(prof)}`);toast('Running now · the result arrives where it delivers')}catch(er){fail(er)}}
+  if(k==='run'){if(b.disabled)return;b.disabled=true;try{await post(H,`/cron/jobs/${encodeURIComponent(j.id)}/trigger?profile=${encodeURIComponent(prof)}`);toast('Running now · the result arrives where it delivers')}catch(er){fail(er)}finally{b.disabled=false}}   // one run per press
   if(k==='title'){const br=bracketOf(j.name);const name=(br?'['+br+'] ':'')+m.suggest;try{await put(H,`/cron/jobs/${encodeURIComponent(j.id)}?profile=${encodeURIComponent(prof)}`,{updates:{name}});await put(UI,'/ui/schedules/meta',{profile:prof,id:j.id,dismissSuggest:true});closeLayers();toast('Renamed');reload()}catch(er){fail(er)}}});
  let x={};try{x=await UI('/ui/schedules/detail?profile='+encodeURIComponent(prof)+'&id='+encodeURIComponent(j.id))}catch{}
  const box=d.querySelector('#sdMore');if(!box)return;

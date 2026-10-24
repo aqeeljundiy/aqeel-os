@@ -73,6 +73,8 @@ export function createUsers(DATA,mail){
  // may do on agents others share with them, and everything beyond (making agents, models, tools, usage)
  const OWNER_CAPS=['schedules','skills','mcp'];
  const canOn=(u,cap,agent)=>can(u,cap)||OWNER_CAPS.includes(cap)&&level(u,agent)==='owner';
+ // whose schedules (with their runbooks, results and costs) a person may see
+ const schedOk=(u,agent)=>isAdmin(u)?!!level(u,agent):atLeast(u,agent,'edit')&&canOn(u,'schedules',agent);
  const ownsAny=u=>Object.keys({...db.agentOwners,...db.shares}).some(a=>level(u,a)==='owner');
  const ownCount=u=>Object.values(db.agentOwners).filter(id=>id===u.id).length;
  // a deleted agent no longer counts against its owner's allowance; who owned it and who had it come back if it is restored
@@ -166,7 +168,8 @@ export function createUsers(DATA,mail){
   const keep=id=>mine(u,id);   // chats are private per person; untracked (older, Telegram…) chats are the owner's
   if(/^\/hapi\/sessions$/.test(p)&&Array.isArray(data.sessions)){const s=data.sessions.filter(x=>keep(x.id));return {...data,sessions:s,total:s.length}}
   if(/^\/hapi\/sessions\/search$/.test(p)&&Array.isArray(data.results))return {...data,results:data.results.filter(x=>keep(x.session_id||x.id))};
-  if(/^\/hapi\/cron\/jobs$/.test(p)&&!isAdmin(u)){const jobs=Array.isArray(data)?data:data.jobs;if(Array.isArray(jobs)){const f=jobs.filter(j=>atLeast(u,j.profile||'default','edit')&&canOn(u,'schedules',j.profile||'default'));return Array.isArray(data)?f:{...data,jobs:f}}}
+  // schedules: an admin sees every agent's but a private one's (as the gate does), a member those they may change
+  if(/^\/hapi\/cron\/jobs$/.test(p)){const jobs=Array.isArray(data)?data:data.jobs;if(Array.isArray(jobs)){const f=jobs.filter(j=>schedOk(u,j.profile||'default'));return Array.isArray(data)?f:{...data,jobs:f}}}
   // the hidden copies behind extra connections (WhatsApp 2…) are not agents of their own
   if(/^\/hapi\/profiles$/.test(p)&&Array.isArray(data.profiles))data={...data,profiles:data.profiles.filter(x=>!String(x.name).includes('--'))};
   if(/^\/hapi\/profiles$/.test(p)&&Array.isArray(data.profiles)&&!isAdmin(u))return {...data,profiles:data.profiles.filter(x=>level(u,x.name))};
@@ -268,5 +271,5 @@ export function createUsers(DATA,mail){
  async function loginCode(u){const me=byId(u.id);return sendCode(me,'login',me.email)}
  function finishLogin(key,code){const v=checkCode(String(key||''),code,'login');if(v.error)return v;const u=byId(v.uid);return u?{ok:true,user:u}:{error:'That person no longer exists.'}}
  const expiredInvites=()=>(db?.invites||[]).filter(i=>!i.used&&i.expires<Date.now()&&i.expires>Date.now()-30*86400e3).map(i=>({code:i.code,name:i.name,role:i.role,roleId:i.roleId||null,caps:i.caps||[],agents:i.agents||{},ownAgent:i.ownAgent||null,expired:i.expires}));
- return {expiredInvites,agentOwner,byId,ownerOf,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginCode,finishLogin,created,can,canOn,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home,level,dropAgent,restoreAgent};
+ return {expiredInvites,agentOwner,byId,ownerOf,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginCode,finishLogin,created,can,canOn,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home,level,atLeast,schedOk,dropAgent,restoreAgent};
 }
