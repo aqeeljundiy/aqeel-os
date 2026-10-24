@@ -108,11 +108,12 @@ async function boot(){
  if(want&&want!==(pf||'default')){const ok=S.me&&!S.me.admin?!!S.me.agents?.[want]:await H('/profiles',{keep:true}).then(r=>(r.profiles||[]).some(x=>x.name===want)).catch(()=>false);if(ok){pf=want;store.set('profile',want)}}
  else if(pf==null&&S.me?.admin!==false){const a=await H('/profiles/active',{keep:true}).catch(()=>null);if(a?.active&&a.active!=='default')pf=a.active}
  S.profile=pf||'';if(S.me&&!S.me.admin&&!S.me.agents[S.profile||'default']){const first=Object.keys(S.me.agents)[0]||'';S.profile=first==='default'?'':first}
- // an admin's remembered agent may have been deleted (here or elsewhere): back to the main agent then (unknown = keep it)
- else if(S.profile&&S.profile!=='default'&&!await H('/profiles',{keep:true}).then(r=>(r.profiles||[]).some(x=>x.name===S.profile)).catch(()=>true)){S.profile='';store.set('profile','default')}
  agentUrl();
  Chat.agentPrefs();
  render();
+ // an admin's remembered agent may have been deleted (here or elsewhere): checked after the page is drawn, since the agent
+ // list can take seconds on a busy engine; gone = back to the main agent (unknown = keep it)
+ if(S.profile&&S.profile!=='default'&&S.me?.admin!==false)H('/profiles',{keep:true}).then(r=>{if(!(r.profiles||[]).some(x=>x.name===S.profile))switchAgent('default')}).catch(()=>{});
  await Promise.all([loadIdentities(),refreshStatus(),Chat.loadModels(),Chat.loadSessions(),Plugins.load()]);
  $$('.agent-name').forEach(e=>e.textContent=AGENT());const msg=$('#msg');if(msg)msg.placeholder=Chat.placeholder();if(S.signedIn&&$('.app')){paintSide();paintTop();placePills();Screen.paint();if(route().chat!==undefined&&route().chat!=='manage')Chat.paintComposerBar()}
  clearInterval(S.statusT);S.statusT=setInterval(()=>{if(!document.hidden)refreshStatus()},30000);
