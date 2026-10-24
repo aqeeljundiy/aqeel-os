@@ -361,10 +361,11 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .err-line{color:var(--bad);font-size:13.5px}
 /* the shared warning box (alertBox/errLine): warn tint like .kwarn, card-like corners, 16px under it like the cards */
 .alert{display:flex;align-items:center;flex-wrap:wrap;gap:8px 10px;margin:0 0 16px;padding:8px 8px 8px 14px;min-height:48px;border:1px solid color-mix(in srgb,var(--warn) 35%,var(--border));background:color-mix(in srgb,var(--warn) 7%,var(--surface));border-radius:18px;color:var(--ink-2);font-size:13.5px;line-height:1.45;animation:rise var(--t-med) var(--ease) both}
-.alert>svg{flex:none;color:var(--warn)}.alert-t{flex:1 1 220px;min-width:0;overflow-wrap:anywhere}
+.alert>svg{flex:none;color:var(--warn)}.alert-t{flex:1 1 0;min-width:120px;overflow-wrap:anywhere}
 .alert>button{flex:none;margin-left:auto;min-height:32px;padding:0 12px;color:var(--ink)}.alert>button:hover{background:color-mix(in srgb,var(--warn) 12%,transparent)}
 .alert:not(:has(>button)){padding-right:14px}
 .panel .alert:last-child,.drawer-body .alert:last-child{margin-bottom:0}
+@media (max-width:520px){.alert-t{min-width:calc(100% - 26px)}}   /* phones: Try again goes under the message */
 .oauth-code{font-family:var(--mono);font-size:22px;letter-spacing:.12em;text-align:center;padding:14px;border:1px dashed var(--border);border-radius:var(--r-md);margin:10px 0}
 .action-log{font-family:var(--mono);font-size:12px;line-height:1.6;background:var(--soft-2);border:1px solid var(--border);border-radius:var(--r-md);padding:12px 14px;max-height:320px;overflow:auto;white-space:pre-wrap}
 .file-crumbs{display:flex;gap:4px;flex-wrap:wrap;align-items:center;font-size:13px;margin-bottom:12px}
