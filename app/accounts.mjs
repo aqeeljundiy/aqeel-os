@@ -353,7 +353,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    const ag=(await agents()).filter(see);const pv=await providers(fresh),prov=pv||[];
    // what is signed out right now, from what this read already has (the banner and the card's Reconnect)
    await note(Object.fromEntries(list.map(v=>[v.id,v])),pv).catch(e=>console.warn('signed-out note',e.message));const route=Object.fromEntries(await Promise.all(ag.map(async n=>[n,{entry:await entryOf(d,n),...await agentRoute(n)}])));
-   return send(res,200,{accounts:list,providers:prov,priority:d.priority||[],route,assign:Object.fromEntries(ag.map(n=>[n,d.assign[n]||'main'])),auto:d.auto||{on:false,threshold:90},events:(d.events||[]).filter(e=>see(e.profile)),signedOut:await signedOut()})}
+   return send(res,200,{accounts:list,providers:prov,priority:d.priority||[],labels:d.labels||{},route,assign:Object.fromEntries(ag.map(n=>[n,d.assign[n]||'main'])),auto:d.auto||{on:false,threshold:90},events:(d.events||[]).filter(e=>see(e.profile)),signedOut:await signedOut()})}
   if(p==='/ui/accounts/priority'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
    const pr=(Array.isArray(b.priority)?b.priority:[]).filter(e=>e&&typeof e.key==='string'&&/^(claude:[a-z0-9-]+|p:[a-z0-9_.-]+)$/.test(e.key)).slice(0,20).map(e=>({key:e.key,model:String(e.model||'').slice(0,120)}));
    d.priority=pr;await update(x=>{x.priority=pr});autoTick().catch(()=>{});return send(res,200,{priority:d.priority})}
@@ -362,6 +362,12 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
   if(p==='/ui/accounts'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{return send(res,200,await startLogin(b.label))}catch(e){return send(res,500,{error:e.message})}}
   if(p==='/ui/accounts/assign'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}if(!see(String(b.profile||'')))return send(res,403,{error:'This agent is private to its owner.'});try{await assign(d,String(b.profile||''),String(b.account||''),b.why||'');return send(res,200,{ok:true})}catch(e){return send(res,400,{error:e.message})}}
   if(p==='/ui/accounts/auto'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const au={on:!!b.on,threshold:Math.min(99,Math.max(50,Number(b.threshold)||90))};d.auto=au;await update(x=>{x.auto=au});autoTick().catch(()=>{});return send(res,200,d.auto)}
+  // a provider's own name here (a Claude account is renamed with PATCH below): an empty name goes back to the provider's
+  if(p==='/ui/accounts/label'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const k=String(b.key||'');if(!/^p:[a-z0-9_.-]+$/.test(k))return send(res,400,{error:'Unknown account'});
+   const l=String(b.label||'').trim().slice(0,60);await update(x=>{x.labels||={};if(l)x.labels[k]=l;else delete x.labels[k]});return send(res,200,{ok:true})}
+  // a provider that signed out and is not coming back: its card and banner go (signing in again brings it back)
+  if(p==='/ui/accounts/forget'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const k=String(b.key||'');if(!/^p:[a-z0-9_.-]+$/.test(k))return send(res,400,{error:'Unknown account'});
+   await forget(k);await update(x=>{if(x.labels)delete x.labels[k];if(x.priority)x.priority=x.priority.filter(e=>e.key!==k)});return send(res,200,{ok:true})}
   let m=/^\/ui\/accounts\/([a-z0-9-]+)\/code$/.exec(p);if(m&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}try{return send(res,200,await sendCode(m[1],b.code))}catch(e){return send(res,400,{error:e.message})}}
   // Reconnect (admins only, checked in server.mjs too): the same sign-in for an account that is there already
   m=/^\/ui\/accounts\/([a-z0-9-]+)\/reconnect$/.exec(p);if(m&&req.method==='POST'){try{return send(res,200,await reconnect(m[1]))}catch(e){return send(res,400,{error:e.message})}}
