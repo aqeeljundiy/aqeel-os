@@ -29,7 +29,7 @@ export const UNSAFE_TOOLSETS=['terminal','file','code_execution','computer_use']
 const MAX_OWN_AGENTS=5;
 const PEOPLE_DIR=path.join(homedir(),'people');      // members' own folders: ~/people/<id>
 
-export function createUsers(DATA,mail){
+export function createUsers(DATA,mail,{ownerCheck}={}){
  const FILE=path.join(DATA,'users.json');
  let db=null;
  const load=async()=>{if(db)return db;try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}
@@ -46,7 +46,7 @@ export function createUsers(DATA,mail){
  const USERNAME=/^[a-z0-9][a-z0-9._-]{2,31}$/;
  const slugName=s=>norm(s).replace(/[^a-z0-9._-]+/g,'.').replace(/^[._-]+|[._-]+$/g,'').slice(0,32);
  const userTaken=(un,id)=>id!=='owner'&&norm(un)===norm(db.ownerUsername||'aqeel')||db.users.some(u=>u.id!==id&&norm(u.username)===norm(un));
- let envOwnerCheck=()=>false;   // the original UI_PASSWORD_HASH, until the owner picks a new password here
+ let envOwnerCheck=ownerCheck||(()=>false);   // the original UI_PASSWORD_HASH, until the owner picks a new password here (given at start, so it works before any sign-in)
  const byId=id=>id==='owner'?owner():db.users.find(u=>u.id===id)||null;
  const isAdmin=u=>u&&(u.role==='owner'||u.role==='admin');
  const pub=u=>({id:u.id,name:u.name,username:u.username||'',email:u.email||'',emailVerified:!!u.emailVerified,twoStep:!!u.twoStep,role:u.role,created:u.created,last:u.last,...face(u)});
@@ -63,7 +63,8 @@ export function createUsers(DATA,mail){
  const isPrivate=a=>{const o=byId(agentOwner(a));return !!o&&!isAdmin(o)};
  function level(u,agent){
   if(typeof agent==='string'&&agent.includes('--'))agent=agent.split('--')[0];   // a copy has its agent's rights
-  if(agentOwner(agent)===u.id)return 'owner';const shared=(db.shares[agent]||{})[u.id]||null;
+  // the owner of aqeelOS goes everywhere (as the gate lets them), so every check built on this sees them as an agent's owner
+  if(agentOwner(agent)===u.id||u.role==='owner')return 'owner';const shared=(db.shares[agent]||{})[u.id]||null;
   if(isAdmin(u))return isPrivate(agent)?shared:'owner';return shared}
  // which agent a call is about, when it is about one
  function agentTarget(p,query,a){let m;if((m=/^\/gapi\/p\/([^/]+)/.exec(p)))return decodeURIComponent(m[1]);if(p.startsWith('/gapi/'))return 'default';
@@ -100,7 +101,7 @@ export function createUsers(DATA,mail){
   if(++v.tries>5){codes.delete(key);return {error:'Too many tries. Ask for a new code.'}}
   if(!check(String(code||'').trim(),v.hash))return {error:'That code is not right.'};codes.delete(key);return {ok:true,uid:v.uid,email:v.email}}
  /* ---------- signing in ---------- */
- async function login(name,pw,ownerCheck){await load();envOwnerCheck=ownerCheck;const n=norm(name);
+ async function login(name,pw,ownerCheck){await load();if(ownerCheck)envOwnerCheck=ownerCheck;const n=norm(name);
   if(!n||n===norm(db.ownerName)||n===norm(db.ownerUsername||'aqeel')){if(ownerPwOk(pw))return owner()}
   const u=db.users.find(x=>norm(x.username)===n||norm(x.name)===n);if(u&&check(pw,u.pw)){u.last=Date.now();await save();return u}
   return null}

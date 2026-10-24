@@ -75,9 +75,11 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
   // an id no saved account, sign-in in progress or folder on disk has (two sign-ins at once never share a folder)
   const taken=async id=>all(d).some(a=>a.id===id)||logins.has(id)||await access(path.join(ACCOUNTS_DIR,id)).then(()=>true,()=>false);
   let id=slug,n=2;while(await taken(id)||logins.has(id))id=slug+'-'+n++;logins.set(id,{state:'starting'});
-  const dir=path.join(ACCOUNTS_DIR,id);await mkdir(dir,{recursive:true,mode:0o700});
-  const child=spawn(CLAUDE,['auth','login'],{env:{...process.env,CLAUDE_CONFIG_DIR:dir,BROWSER:'true'},stdio:['pipe','pipe','pipe']});
+  const dir=path.join(ACCOUNTS_DIR,id);let child;
+  // the id is reserved above: a folder or start that fails gives it back (no sign-in is left "starting" for ever)
+  try{await mkdir(dir,{recursive:true,mode:0o700});child=spawn(CLAUDE,['auth','login'],{env:{...process.env,CLAUDE_CONFIG_DIR:dir,BROWSER:'true'},stdio:['pipe','pipe','pipe']})}catch(e){logins.delete(id);throw new Error('Could not start the sign-in: '+e.message)}
   const s={child,out:'',state:'running',dir,label:String(label||id).slice(0,60)};logins.set(id,s);
+  child.on('error',e=>{s.state='failed';s.out+='\n'+e.message});
   const add=b=>{s.out=(s.out+String(b).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g,'')).slice(-8000)};child.stdout.on('data',add);child.stderr.on('data',add);
   child.on('close',async code=>{try{s.state=code===0?'done':'failed';if(code===0){await update(d2=>{if(!d2.accounts.some(a=>a.id===id))d2.accounts.push({id,label:s.label,dir})});cache.delete(id)}}catch(e){s.state='failed';console.warn('account sign-in',e.message)}});
   setTimeout(()=>{if(s.state==='running'){s.state='failed';child.kill()}},10*60000).unref();
@@ -307,7 +309,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    d.priority=pr;await update(x=>{x.priority=pr});autoTick().catch(()=>{});return send(res,200,{priority:d.priority})}
   if(p==='/ui/accounts/use'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const profile=String(b.profile||'');if(!/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(profile))return send(res,400,{error:'Bad agent name'});if(!see(profile))return send(res,403,{error:'This agent is private to its owner.'});
    try{await useEntry(d,profile,{key:String(b.key||''),model:String(b.model||'')},'Chosen by hand');return send(res,200,{ok:true})}catch(e){return send(res,400,{error:e.message})}}
-  if(p==='/ui/accounts'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}return send(res,200,await startLogin(b.label))}
+  if(p==='/ui/accounts'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{return send(res,200,await startLogin(b.label))}catch(e){return send(res,500,{error:e.message})}}
   if(p==='/ui/accounts/assign'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}if(!see(String(b.profile||'')))return send(res,403,{error:'This agent is private to its owner.'});try{await assign(d,String(b.profile||''),String(b.account||''),b.why||'');return send(res,200,{ok:true})}catch(e){return send(res,400,{error:e.message})}}
   if(p==='/ui/accounts/auto'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const au={on:!!b.on,threshold:Math.min(99,Math.max(50,Number(b.threshold)||90))};d.auto=au;await update(x=>{x.auto=au});autoTick().catch(()=>{});return send(res,200,d.auto)}
   let m=/^\/ui\/accounts\/([a-z0-9-]+)\/code$/.exec(p);if(m&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}try{return send(res,200,await sendCode(m[1],b.code))}catch(e){return send(res,400,{error:e.message})}}

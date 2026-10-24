@@ -44,13 +44,16 @@ export function createChannels({DASH,TOKEN,HERMES_HOME,listAgents,cached,restart
   // (and finishes) before anything is copied
   let off;try{off=await put(from,false)}catch(e){throw new Error(`${pretty(from)} could not switch its ${p.name} off, so nothing moved: ${e.message}`)}
   if(from==='default'&&!off?.hot_served&&restart){job.stage='restart';goLater();
-   (async()=>{try{await restart('switching '+platform+' off on the main agent to move it to '+to);job.stage='moving';await finish(platform,from,to,p,keys,true)}
+   (async()=>{try{await restart('switching '+platform+' off on the main agent to move it to '+to);job.stage='moving';await finish(platform,from,to,p,keys,true,job)}
     catch(e){if(job.stage==='restart')await put(from,true).catch(()=>{});   // the restart itself failed: nothing was copied, `from` answers again
-     job.stage='failed';console.warn('channel move',platform,from,'→',to,'failed:',e.message);notify?.(pretty(from)+' could not hand its '+p.name+' to '+pretty(to),e.message+' Nothing moved; '+pretty(from)+' answers it again. Try the move again from Channels.')}
+     job.stage='failed';console.warn('channel move',platform,from,'→',to,'failed:',e.message);
+     // the notice says what really happened: copied (the login and settings are on `to` now) or not (`from` is on again)
+     if(job.copied)notify?.(pretty(from)+'’s '+p.name+' moved to '+pretty(to)+', but the move did not finish',e.message+' The login and settings are on '+pretty(to)+' now. Open Channels and switch '+p.name+' on there if it is off.');
+     else{await put(from,true).catch(()=>{});notify?.(pretty(from)+' could not hand its '+p.name+' to '+pretty(to),e.message+' Nothing moved; '+pretty(from)+' answers it again. Try the move again from Channels.')}}
     finally{job.release()}})();
    return {ok:true,pending:'restart'}}
   return finish(platform,from,to,p,keys,false)}
- async function finish(platform,from,to,p,keys,restarted){
+ async function finish(platform,from,to,p,keys,restarted,job={}){
   const put=(a,on)=>api('/messaging/platforms/'+platform+'?profile='+encodeURIComponent(a),{method:'PUT',body:JSON.stringify({enabled:on,env:{}})});
   // then the connector still using this login stops (asked, then made to), so the login is never used twice at once
   if(stop&&platform==='whatsapp')await stop(from).catch(()=>{});
@@ -73,7 +76,8 @@ export function createChannels({DASH,TOKEN,HERMES_HOME,listAgents,cached,restart
    if(hasDir)await rm(toDir,{recursive:true,force:true}).catch(()=>{});
    // nothing moved: `from` answers again
    await put(from,true).then(r=>{if(from==='default'&&!r?.hot_served&&restart)restart('move of '+platform+' failed, the main agent answers it again').catch(()=>{})},()=>{});throw e}
-  if(hasDir)await rm(fromDir,{recursive:true,force:true});
+  job.copied=true;   // from here on the login and settings are `to`'s: a later failure must not say nothing moved
+  if(hasDir)await rm(fromDir,{recursive:true,force:true}).catch(e=>console.warn('channel move: the old copy of',platform,'on',from,'was not removed:',e.message));   // `from` is off, so a leftover is never read
   // people already approved on this channel stay approved
   const pf=path.join(homeOf(from),'platforms','pairing'),pt=path.join(homeOf(to),'platforms','pairing');
   for(const f of await readdir(pf).catch(()=>[]))if(f.startsWith(platform)){await mkdir(pt,{recursive:true});await cp(path.join(pf,f),path.join(pt,f)).catch(()=>{})}

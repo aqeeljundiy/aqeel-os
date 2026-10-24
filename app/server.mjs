@@ -564,7 +564,7 @@ async function listAllProfiles(){return [...await listAgents(),...(await links.l
 const gemini=createGemini({HERMES_HOME,hcmd,listAgents});
 const antigravity=createAntigravity({HERMES_HOME,hcmd,listAgents,moveOff:(a,k)=>accountHooks.moveOff?accountHooks.moveOff(a,k):null});
 async function agentModel(a){const y=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>'');const k=key=>((new RegExp('^model:[\\s\\S]*?\\n\\s+'+key+':\\s*(\\S+)','m').exec(y)||[])[1]||'').replace(/^["']|["']$/g,'');return {provider:k('provider'),model:k('default')}}
-const users=createUsers(DATA,mailer);
+const users=createUsers(DATA,mailer,{ownerCheck:pw=>!!PW_HASH&&checkPassword(pw)});
 // Help: the person's own help chat (help.mjs); account usage is read through the Accounts page's own handler, as that person
 const help=createHelp({DATA,root,DASH:DASH.origin,DASH_TOKEN,GATE:GATE.origin,API_KEY,users,listAgents:()=>listAgents(),names:a=>NAMES[a]||(a==='default'?'aqeelOS':a),platforms:a=>platformsCached(a),signins:()=>[...signinsDue.values()],agentModel:a=>agentModel(a),security,send,readBody,
  accounts:u=>new Promise(r=>Promise.resolve(accountsApi({method:'GET',url:'/ui/accounts',headers:{}},null,'/ui/accounts',(x,code,data)=>r(code===200?data:null),readBody,a=>!!users.level(u,a))).catch(()=>r(null)))});
@@ -764,10 +764,11 @@ async function waSettingsPending(agent){try{
  const info=await bridgeInfo(agent);if(!info)return false;
  const file=path.join(agent==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',agent),'.env');const text=await readFile(file,'utf8').catch(()=>null);if(text==null)return false;
  const now=Object.fromEntries(Object.entries(envParse(text)).filter(([k])=>k.startsWith('WHATSAPP_')));
- // what the bridge really started with: a saved setting it lacks or holds differently is pending (keys only it has are engine defaults)
+ // what the bridge really started with: a setting it was given that now differs is pending. Only keys it has count: the
+ // rest (WHATSAPP_DM_POLICY and the like) are read by the engine, not handed to the bridge, so they never wait on it
  const envi=await readFile('/proc/'+info.pid+'/environ','utf8').catch(()=>null);
  if(envi){const run={};for(const kv of envi.split('\0')){const i=kv.indexOf('=');if(i>0&&kv.startsWith('WHATSAPP_'))run[kv.slice(0,i)]=kv.slice(i+1)}
-  if(Object.keys(run).length)return Object.entries(now).some(([k,v])=>run[k]!==v)}
+  if(Object.keys(run).length)return Object.entries(now).some(([k,v])=>k in run&&run[k]!==v)}
  const hash=createHash('sha1').update(Object.keys(now).sort().map(k=>k+'='+now[k]).join('\n')).digest('hex');
  bridgeEnv||=await readFile(BRIDGE_ENV,'utf8').then(JSON.parse).catch(()=>({}));const s=bridgeEnv[agent];
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(BRIDGE_ENV+'.tmp',JSON.stringify(bridgeEnv));await rename(BRIDGE_ENV+'.tmp',BRIDGE_ENV)};
@@ -1046,12 +1047,13 @@ async function hermesCall(req,res,u,url){
  // the chat list is filtered per person AFTER the engine pages it: page on (at most 10 engine pages of 100) until the
  // asked-for rows are left, skipping `offset` filtered rows, so a member's list and its total are real ("more" past the cap)
  if(p==='/hapi/sessions'&&req.method==='GET'){const lim=Math.min(200,Math.max(1,+q.get('limit')||100)),skip=Math.max(0,+q.get('offset')||0),out=[];let seen=0,end=false,raw={};
-  for(let i=0;i<10;i++){const qq=new URLSearchParams(q);qq.set('limit','100');qq.set('offset',String(i*100));
-   const r=await fetch(DASH.origin+'/api/sessions?'+qq,{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).catch(()=>null);
+  // no more pages than needed: stop once the asked-for rows are in, or after about 8 s ("more" either way)
+  const t0=Date.now();for(let i=0;i<10;i++){const qq=new URLSearchParams(q);qq.set('limit','100');qq.set('offset',String(i*100));
+   const r=await fetch(DASH.origin+'/api/sessions?'+qq,{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(i?Math.max(1500,8000-(Date.now()-t0)):30000)}).catch(()=>null);
    if(!r?.ok){if(!i)return send(res,r?.status||502,{error:'Could not load the chats. Try again in a moment.'});break}
    raw=await r.json().catch(()=>({}));const page=raw.sessions||[];
    for(const x of users.filter(u,p,{sessions:page},agent).sessions){if(seen>=skip&&out.length<lim)out.push(x);seen++}
-   if(page.length<100){end=true;break}}
+   if(page.length<100){end=true;break}if(out.length>=lim||Date.now()-t0>8000)break}
   return send(res,200,{...raw,sessions:out,total:seen,...(end?{}:{more:true})})}
  if(p.startsWith('/hapi/'))return proxy(req,res,DASH,'/hapi',{'x-hermes-session-token':DASH_TOKEN},{transform,body});
  const live=chatM&&req.method==='POST'?{key:agent+'|'+decodeURIComponent(chatM[1]),user:u.id}:undefined;
