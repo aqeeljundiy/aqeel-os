@@ -3,7 +3,7 @@
 // ticket Help files at the end of a reply; this view sends the page they came from and their recent errors in this
 // tab (Oops, core.js), streams the answer with Chat's reader and draws it with the same message styles. It is the same
 // whichever agent is picked, and never part of any agent's chats.
-const Help={ID:'aqeelos-help',st:null,turns:[],running:false,abort:null,unseen:0,from:null,nodes:[],_th:null,
+const Help={ID:'aqeelos-help',st:null,draft:'',turns:[],running:false,abort:null,unseen:0,from:null,nodes:[],_th:null,
  // the ticket marker Help ends a reply with is read by the server; people never see it, not even half-written
  TICKET_RE:/\[\[ticket\]\][\s\S]*?(\[\[\/ticket\]\]|$)/gi,
  shown(t){let s=String(t||'').replace(this.TICKET_RE,'');const k=s.lastIndexOf('[[');if(k>=0&&s.length-k<11&&'[[ticket]]'.startsWith(s.slice(k).toLowerCase()))s=s.slice(0,k);return s.trim()},
@@ -21,7 +21,9 @@ const Help={ID:'aqeelos-help',st:null,turns:[],running:false,abort:null,unseen:0
   <p class="hint-line" id="hHint">Help explains aqeelOS and checks what went wrong. It can’t change anything: for that, ask your agent.</p></div></div></div>`;
   this._th=null;this._history=true;this.bind();this.paint(true);this.load()},   // what is already there shows at once, without rising in again
  bind(){const ta=$('#hMsg'),b=$('#hSend');if(!ta)return;const fit=()=>{ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,220)+'px'};
-  ta.oninput=fit;ta.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();this.go()}if(e.key==='Escape'&&this.running){e.preventDefault();this.stop()}};
+  // the half-written question outlives a redraw of Help (a page draw, a reload of its state)
+  if(this.draft&&!ta.value){ta.value=this.draft;fit()}
+  ta.oninput=()=>{this.draft=ta.value;fit()};ta.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();this.go()}if(e.key==='Escape'&&this.running){e.preventDefault();this.stop()}};
   b.onclick=()=>this.running?this.stop():this.go();setTimeout(()=>{if(matchMedia('(pointer:fine)').matches)ta.focus()},60)},
  async load(){try{const d=await UI('/ui/help/state');this.st=d;this.unseen=0;
    if(!this.running){const seen=d.seenBefore||0,h=(d.turns||[]).map(t=>({...t}));
@@ -62,7 +64,7 @@ const Help={ID:'aqeelos-help',st:null,turns:[],running:false,abort:null,unseen:0
   if(left)left.textContent=st.left!=null&&st.left<=10&&!out?st.left+' of '+st.limit+' left today':'';
   if(hint){const t=out?'You used today’s '+st.limit+' Help messages. Help is back tomorrow; for anything urgent, ask your agent or an admin.':'Help explains aqeelOS and checks what went wrong. It can’t change anything: for that, ask your agent.';if(hint.textContent!==t)hint.textContent=t;hint.classList.toggle('warn-t',out)}},
  async go(text){const ta=$('#hMsg');text=String(text??ta?.value??'').trim();if(!text||this.running)return;if(this.st?.ready===false)return toast(this.st.why||'Help isn’t ready yet','err');
-  if(ta&&!arguments.length){ta.value='';ta.style.height='auto'}
+  if(ta&&!arguments.length){ta.value='';this.draft='';ta.style.height='auto'}
   const from=this.from,ai={role:'ai',text:''};this.turns.push({role:'user',text,at:Date.now()/1000},ai);this.running=true;this.paint(true);
   const ctl=new AbortController();this.abort=ctl;
   try{const r=await callRaw('','/ui/help/send',{method:'POST',raw:true,signal:ctl.signal,body:{text,page:from||'(opened Help directly)',pageName:from?this.pageOf(from):'',agent:S.profile||'default',errors:Oops.recent()}});

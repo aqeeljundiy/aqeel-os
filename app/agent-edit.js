@@ -59,7 +59,7 @@ async function editAgent(name,start='Identity'){
  d.querySelector('[data-act="ae-models"]')?.addEventListener('click',e=>{e.preventDefault();closeLayers();S.tab.models='Agents’ models';if(name!==(S.profile||'default'))S.viewAgent=name;go('/models/models')});
  d.querySelector('#aeSave').onclick=async()=>{const nm=nameIn.value.trim();if(!nm){show('Identity');return toast('Give it a name','err')}const btn=d.querySelector('#aeSave');btn.disabled=true;
   try{if(nm!==id.name||titleIn.value.trim()!==id.title||emoChanged())await call('','/ui/identities/'+encodeURIComponent(name),{method:'PUT',body:{name:nm,title:titleIn.value.trim(),...(emoChanged()?{emoji:emo}:{})}});   // an emoji also clears the photo on the server
-   if(newPic){const r=await fetch('/ui/avatar/'+encodeURIComponent(name),{method:'PUT',headers:{'x-hui':'1','content-type':newPic.type},body:newPic});if(!r.ok)throw new Error((await r.json().catch(()=>({}))).error||'Picture upload failed')}
+   if(newPic)await call('','/ui/avatar/'+encodeURIComponent(name),{method:'PUT',headers:{'content-type':newPic.type},body:newPic});   // through call(): the shared reads are dropped, so the old picture can't come back
    if(removePic&&!emo)await call('','/ui/avatar/'+encodeURIComponent(name),{method:'DELETE'});
    const desc=d.querySelector('#idDesc').value.trim();if(desc!==(prof.description||''))await put(H,base+'/description',{description:desc});
    if(soulOk&&soulBox&&soulBox.value!==soul)await put(H,base+'/soul',{content:soulBox.value});

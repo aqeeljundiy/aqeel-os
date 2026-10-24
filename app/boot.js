@@ -86,6 +86,8 @@ document.addEventListener('keydown',e=>{
  if(mod&&e.key.toLowerCase()==='b'){e.preventDefault();$('[data-act="collapse"]')?.click()}
  if(mod&&/^[1-9]$/.test(e.key)){const s=SECTIONS.find(x=>x.key===e.key);if(s){e.preventDefault();go('/'+s.id)}}
  if(mod&&e.key==='/'){e.preventDefault();shortcuts()}
+ // an open menu (a picker inside a drawer) closes alone; the drawer under it stays
+ if(e.key==='Escape'&&$('.menu:not(.closing)')){leave($('.menu:not(.closing)'),150);return}
  if(e.key==='Escape'&&$('.palette,.drawer,.menu'))closeLayers();
  else if(e.key==='Escape')$('.app')?.classList.remove('nav-open');
 });

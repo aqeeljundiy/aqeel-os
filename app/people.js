@@ -125,7 +125,7 @@ ACT['me-profile']=()=>{const me=S.me||{};
  const saved=r=>{S.me={...S.me,avatar:r.avatar||null,emoji:r.emoji||null};paintMe()};
  const setE=EMOJI.length?emojiPicker(d.querySelector('#pfEmo'),{cur:me.avatar?null:me.emoji||null,label:'Or an emoji',onPick:async e=>{try{saved(await put(UI,'/ui/me/emoji',{emoji:e}));toast('Picture updated')}catch(er){fail(er)}}}):()=>{};
  pfPic.onclick=()=>pickFile(AVA_ACCEPT,async f=>{pfPic.disabled=true;const b=await avatarCrop(d.querySelector('#pfCrop'),f);if(!b){pfPic.disabled=false;return}
-  try{const r=await fetch('/ui/me/avatar',{method:'PUT',headers:{'x-hui':'1','content-type':b.type},body:b});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'Photo upload failed');saved(j);toast('Photo updated')}catch(e){fail(e)}pfPic.disabled=false});
+  try{saved(await call('','/ui/me/avatar',{method:'PUT',headers:{'content-type':b.type},body:b}));toast('Photo updated')}catch(e){fail(e)}pfPic.disabled=false});
  rm.onclick=async()=>{try{saved(S.me.avatar?await del(UI,'/ui/me/avatar'):await put(UI,'/ui/me/emoji',{emoji:''}));toast('Picture removed')}catch(e){fail(e)}};
  let vkey=null;const showVerify=on=>{d.querySelector('#pfVerify').hidden=!on};
  d.querySelector('#pfCodeGo').onclick=async()=>{if(!vkey){const r=await post(UI,'/ui/me/email/resend').catch(e=>{fail(e)});if(!r)return;vkey=r.key;return toast('New code sent. Enter it.')}
@@ -564,7 +564,7 @@ async function linkWhatsApp(agent,{replace=false,title}={}){const q='?profile='+
  catch(e){cleanup();if(e.message&&/connected/i.test(e.message)&&!replace)return fail_(e.message,false);fail_(e.message||String(e))}}
 // after linking restarts the engine: confirm it came back, or say so with a Restart now button
 async function waWatchRestart(box){const out=box.querySelector('#waRs');if(!out)return;out.hidden=false;out.innerHTML='<span class="spinner"></span> Waiting for the engine to come back…';await sleep(15000);
- for(let i=0;i<35&&out.isConnected;i++){try{const s=await H('/status');if(s.gateway_running){out.innerHTML=icon('check',14)+' The engine is back. WhatsApp is connecting.';return}}catch{}await sleep(3000)}
+ for(let i=0;i<35&&out.isConnected;i++){try{const s=await H('/status',{fresh:true});if(s.gateway_running){out.innerHTML=icon('check',14)+' The engine is back. WhatsApp is connecting.';return}}catch{}await sleep(3000)}
  if(out.isConnected)out.innerHTML=`<span class="err-line">The link is saved, but the engine did not come back by itself.</span> <button class="small" data-act="gw-restart">${icon('refresh',14)}Restart now</button>`}
 ACT['wa-link']=a=>linkWhatsApp(a.dataset.agent||agentProfile()||'default');
 ACT['wa-replace']=async a=>{const ag=a.dataset.agent||agentProfile()||'default';if(!await confirmBox('Link a different phone?','The phone linked now stops answering for '+ident(ag.split('--')[0]).name+'. Chats and approved people stay.','Link a different phone',false))return;linkWhatsApp(ag,{replace:true})};

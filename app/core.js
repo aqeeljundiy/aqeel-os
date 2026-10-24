@@ -64,12 +64,12 @@ function pressBusy(p){const b=Press.btn;if(!b||Date.now()-Press.at>600||!b.isCon
 // The same read asked for by several parts of one page (every wrapper of a page used to fetch the agents, identities,
 // status, config or channels again) is one request: identical reads in flight share it, and a short list of lookups is
 // kept 5 s. Cleared by every page draw (reload too) and by any change, so a save never shows old data. Each caller gets
-// its own copy: one part sorting a list can't change another's.
+// its own copy: one part sorting a list can't change another's. opt.fresh: a polling loop (waiting for a restart) always asks the server.
 const ReadShare={m:new Map(),keep:/^(\/ui\/(identities|agents|access|channels|box)|\/hapi\/(profiles|status|config|skills|messaging\/platforms))(\?|$)/,clear(){this.m.clear()}};
 async function call(base,path,opt={}){const read=(!opt.method||opt.method==='GET')&&!opt.raw&&!opt.signal;if(!read)ReadShare.clear();
- const k=read&&(S._nav||0)+'|'+base+path,hit=k&&ReadShare.m.get(k);
+ const k=read&&!opt.fresh&&(S._nav||0)+'|'+base+path,hit=k&&ReadShare.m.get(k);
  if(hit&&(hit.live||Date.now()-hit.t<5000))return hit.p.then(d=>d&&typeof d==='object'?structuredClone(d):d);
- const req=callRaw(base,path,opt);pressBusy(req);if(!read){req.finally(()=>ReadShare.clear()).catch(()=>{});return req}
+ const req=callRaw(base,path,opt);pressBusy(req);if(!read){req.finally(()=>ReadShare.clear()).catch(()=>{});return req}if(!k)return req;
  const e={p:req,live:true,t:0};ReadShare.m.set(k,e);
  req.then(()=>{e.live=false;e.t=Date.now();if(!ReadShare.keep.test(base+path)&&ReadShare.m.get(k)===e)ReadShare.m.delete(k)},()=>{if(ReadShare.m.get(k)===e)ReadShare.m.delete(k)});
  return req.then(d=>d&&typeof d==='object'?structuredClone(d):d)}
@@ -79,7 +79,7 @@ let NavAbort=new AbortController();
 function navNext(){S._nav=(S._nav||0)+1;NavAbort.abort();NavAbort=new AbortController()}
 async function callRaw(base,path,opt={}){const nav=S._nav,read=!opt.method||opt.method==='GET';
  const init={method:opt.method||'GET',headers:{'x-hui':'1',...(opt.headers||{})},credentials:'same-origin',signal:opt.signal||(read&&!opt.keep&&!opt.raw?NavAbort.signal:undefined)};
- if(opt.body!==undefined){if(opt.body instanceof FormData)init.body=opt.body;else{init.body=JSON.stringify(opt.body);init.headers['content-type']='application/json'}}
+ if(opt.body!==undefined){if(opt.body instanceof FormData||opt.body instanceof Blob)init.body=opt.body;else{init.body=JSON.stringify(opt.body);init.headers['content-type']='application/json'}}
  let r;try{r=await fetch(base+path,init)}catch(e){if(e?.name==='AbortError'&&!opt.signal&&nav!==S._nav)throw STALE();if(e?.name!=='AbortError')Oops.add('request',init.method+' '+path.split('?')[0]+': '+(e?.message||e));throw e}
  if(read&&!opt.keep&&nav!==S._nav)throw STALE();
  // Only this app's own server says "sign in again"; a 401 from Hermes itself is an ordinary error.
@@ -260,7 +260,9 @@ function avatarCrop(host,file){return new Promise(done=>{
    g.drawImage(img,w/2-x/s-sw/2,h/2-y/s-sw/2,sw,sw,0,0,256,256);c.toBlob(b=>b&&b.type==='image/webp'?close(b):c.toBlob(close,'image/png'),'image/webp',.9)};
   vp.onkeydown=e=>{const st=e.shiftKey?32:8,m={ArrowLeft:[-st,0],ArrowRight:[st,0],ArrowUp:[0,-st],ArrowDown:[0,st]}[e.key];
    if(m){e.preventDefault();x+=m[0];y+=m[1];draw()}else if(e.key==='+'||e.key==='='){e.preventDefault();zoomTo(z*1.1)}else if(e.key==='-'){e.preventDefault();zoomTo(z/1.1)}
-   else if(e.key==='Enter'){e.preventDefault();ok()}else if(e.key==='Escape'){e.preventDefault();e.stopPropagation();close(null)}};
+   else if(e.key==='Enter'){e.preventDefault();ok()}};
+  // Escape from anywhere in the editor (the photo, the slider, the buttons) cancels it alone; the window under it stays
+  host.querySelector('.crop-in').onkeydown=e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();close(null)}};
   zr.oninput=()=>zoomTo(+zr.value);host.querySelector('[data-c="no"]').onclick=()=>close(null);host.querySelector('[data-c="ok"]').onclick=ok;
   draw();requestAnimationFrame(()=>{host.classList.add('open');vp.focus({preventScroll:true})})};
  img.src=url})}
@@ -499,7 +501,7 @@ function menu(anchor,items,opt={}){$$('.menu').forEach(e=>e.remove());const m=do
  if(opt.matchWidth)m.style.minWidth=Math.max(220,anchor.offsetWidth)+'px';document.body.append(m);
  const r=anchor.getBoundingClientRect(),w=m.offsetWidth;let h=m.offsetHeight;let x=Math.min(r.left,innerWidth-w-12),y=r.bottom+6;const below=innerHeight-r.bottom-18,above=r.top-18;if(h>below&&above>below){m.style.maxHeight=Math.min(h,above)+'px';h=m.offsetHeight;y=r.top-h-6}else m.style.maxHeight=Math.max(160,below)+'px';m.style.left=Math.max(12,x)+'px';m.style.top=Math.max(12,y)+'px';
  m.onclick=e=>{const b=e.target.closest('[data-mi]');if(!b)return;const it=list[+b.dataset.mi];leave(m,150);it?.run?.();opt.onClose?.()};
- m.onkeydown=e=>{const bs=$$('button.item:not([disabled])',m);const i=bs.indexOf(document.activeElement);if(e.key==='ArrowDown'){e.preventDefault();bs[Math.min(i+1,bs.length-1)]?.focus()}if(e.key==='ArrowUp'){e.preventDefault();bs[Math.max(i-1,0)]?.focus()}if(e.key==='Escape'){leave(m,150);anchor.focus();opt.onClose?.()}if(e.key==='Tab')leave(m,150)};
+ m.onkeydown=e=>{const bs=$$('button.item:not([disabled])',m);const i=bs.indexOf(document.activeElement);if(e.key==='ArrowDown'){e.preventDefault();bs[Math.min(i+1,bs.length-1)]?.focus()}if(e.key==='ArrowUp'){e.preventDefault();bs[Math.max(i-1,0)]?.focus()}if(e.key==='Escape'){e.stopPropagation();leave(m,150);anchor.focus();opt.onClose?.()}if(e.key==='Tab')leave(m,150)};
  (m.querySelector('.mi-find input')||m.querySelector('.cur')||m.querySelector('button.item'))?.focus();m.querySelector('.cur')?.scrollIntoView({block:'nearest'});opt.onOpen?.(m)}
 
 /* ---------- brand dropdowns: every <select> becomes an Elkiya menu button ---------- */
@@ -525,7 +527,9 @@ function timePick(inp,step=5){if(inp.dataset.picked)return;inp.dataset.picked='1
  const b=document.createElement('button');b.type='button';b.className='ghost icon tp-btn';b.setAttribute('aria-label','Pick a time');b.setAttribute('aria-haspopup','listbox');b.innerHTML=icon('clock',15);wrap.append(b);
  const set=v=>{if(v===inp.value)return;inp.value=v;inp.dispatchEvent(new Event('input',{bubbles:true}));inp.dispatchEvent(new Event('change',{bubbles:true}))};
  const open=()=>{const cur=timeNorm(inp.value),items=[];for(let t=0;t<1440;t+=step){const v=pad2(t/60|0)+':'+pad2(t%60);items.push({label:v,on:v===cur,find:v.replace(':','')+' '+(t/60|0)+':'+pad2(t%60),run:()=>{set(v);last=v}})}
-  if(cur&&!items.some(i=>i.on))items.unshift({label:cur,on:true,run:()=>{}});wrap.classList.add('open');menu(wrap,items,{search:true,matchWidth:true,onClose:()=>{wrap.classList.remove('open');inp.focus()}})};
+  if(cur&&!items.some(i=>i.on))items.unshift({label:cur,on:true,run:()=>{}});wrap.classList.add('open');menu(wrap,items,{search:true,matchWidth:true,onClose:()=>{wrap.classList.remove('open');inp.focus()}});
+  // closed by an outside click or Tab too: the field stops looking open
+  const m=$('.menu'),obs=new MutationObserver(()=>{if(!m?.isConnected){wrap.classList.remove('open');obs.disconnect()}});obs.observe(document.body,{childList:true})};
  b.onclick=e=>{e.stopPropagation();open()};inp.addEventListener('keydown',e=>{if(e.key==='ArrowDown'&&e.altKey){e.preventDefault();open()}});
  // typed: tidied when you leave the field; something that is not a time goes back to the last good one
  let last=timeNorm(inp.value)||inp.value;inp.addEventListener('blur',()=>{const v=timeNorm(inp.value);if(v){last=v;if(v!==inp.value)set(v)}else if(inp.value!==last){set(last);toast('Type a time like 08:30','err')}})}
@@ -567,7 +571,7 @@ const plainText=t=>{const x=document.createElement('template');x.innerHTML=Strin
 function confirmBox(title,text,okLabel='Delete',danger=true){return new Promise(res=>{const {d,close}=stackPop(title,'<p style="margin:0;color:var(--ink-2);line-height:1.55"></p>',`<button class="ghost" data-x>Cancel</button><button class="primary" id="cfm-ok" ${danger?'style="background:var(--bad);box-shadow:none"':''}>${esc(okLabel)}</button>`);
  d.querySelector('p').textContent=plainText(text);const ok=d.querySelector('#cfm-ok');ok.onclick=e=>{e.stopPropagation();close();res(true)};d.addEventListener('cancel',()=>res(false));d.querySelectorAll('[data-x]').forEach(b=>b.addEventListener('click',()=>res(false)));setTimeout(()=>ok.focus(),30)})}
 // type 'password' asks for a password (current-password autofill, nothing shown)
-function promptBox(title,label,value='',okLabel='Save',type='text'){return new Promise(res=>{const {d,close}=stackPop(title,`<label>${esc(label)}</label><input id="pb-in"${type==='password'?' type="password" autocomplete="current-password"':''}>`,`<button class="ghost" data-x>Cancel</button><button class="primary" id="pb-ok">${esc(okLabel)}</button>`);
+function promptBox(title,label,value='',okLabel='Save',type='text'){return new Promise(res=>{const {d,close}=stackPop(title,`<label>${esc(label)}</label><input id="pb-in"${type==='password'?' type="password" autocomplete="current-password"':type==='secret'?' type="password" autocomplete="new-password" spellcheck="false"':''}>`,`<button class="ghost" data-x>Cancel</button><button class="primary" id="pb-ok">${esc(okLabel)}</button>`);
  const inp=d.querySelector('#pb-in');inp.value=value;const ok=()=>{const v=inp.value;close();res(v)};d.querySelector('#pb-ok').onclick=e=>{e.stopPropagation();ok()};inp.onkeydown=e=>{if(e.key==='Enter')ok()};d.addEventListener('cancel',()=>res(null));d.querySelectorAll('[data-x]').forEach(b=>b.addEventListener('click',()=>res(null)));setTimeout(()=>{inp.focus();inp.select()},30)})}
 // Live log of a Hermes background action in a drawer.
 // Long tasks show their steps: the current one turns, finished ones tick, a failed one says why, and the time so far
@@ -600,12 +604,12 @@ function palette(){openLayer();const p=document.createElement('div');p.className
  box.onclick=e=>{const b=e.target.closest('[data-i]');if(!b)return;const it=items()[+b.dataset.i];closeLayers();it.run()};paint();inp.focus()}
 function theme(){const d=document.documentElement.classList.toggle('dark');try{localStorage.setItem('hui-theme',d?'dark':'light')}catch{};const tb=$('.topbar');if(tb)paintTop()}
 // a running engine is restarted only after you saw which agents it interrupts (all of them, when they share one engine)
-async function restartGateway(){try{const s=await H('/status',{keep:true}).catch(()=>S.status);if(s)S.status=s;
+async function restartGateway(){try{const s=await H('/status',{keep:true,fresh:true}).catch(()=>S.status);if(s)S.status=s;
  if(s?.gateway_running){const shared=[...new Set((s.gateway_shared_with||[]).map(n=>String(n).trim()).filter(Boolean))].sort((a,b)=>a==='default'?-1:b==='default'?1:a.localeCompare(b));const wait=' Replies in progress finish first'+(s.active_agents>0?', and so does the work '+(s.active_agents===1?'1 agent is':s.active_agents+' agents are')+' doing right now (this can take a while).':'.');
   const ok=shared.length>1?await confirmBox('Restart all agents?','They share one engine, so every one of them stops for about 25 seconds and its channels reconnect: '+shared.map(n=>ident(n).name).join(', ')+'.'+wait,'Restart all',false):await confirmBox('Restart the agents?','Chats and channels stop for about 25 seconds and reconnect by themselves.'+wait,'Restart',false);if(!ok)return}
  const r=await post(UI,'/ui/gateway/restart');const n=r?.waiting||0;
  toast(n?'Restarting the engine as soon as '+(n===1?'the reply in progress finishes':n+' replies in progress finish'):'Restarting the engine… back in about 25 seconds');setTimeout(()=>refreshStatus(),n?60000:26000)}catch(e){fail(e)}}
-async function refreshStatus(){try{S.status=await H('/status');if(S.me?.admin!==false)S.box=await UI('/ui/box').catch(()=>S.box);const r=route();if(!r.signin&&$('.side'))paintSide(r),paintBanner()}catch{}}
+async function refreshStatus(){try{S.status=await H('/status',{fresh:true});if(S.me?.admin!==false)S.box=await UI('/ui/box').catch(()=>S.box);const r=route();if(!r.signin&&$('.side'))paintSide(r),paintBanner()}catch{}}
 
 /* ---------- sign-in ---------- */
 function signinHtml(){return `<div class="signin"><form class="card" id="signin"><span class="wordmark"><img class="mark" src="${Brand.mark()}" alt="">${esc(Brand.name)}</span><h1>Welcome back</h1><p>Sign in to aqeelOS.</p><label for="nm">Username</label><input id="nm" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="aqeel"><label for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" placeholder="Your password"><p class="err" id="err" role="alert"></p><button class="primary" type="submit">Sign in</button><p class="foot">${icon('lock',13)} Private · ${esc(location.host)}</p></form></div>`}
@@ -664,10 +668,10 @@ async function signOutAll(){if(!await confirmBox('Sign out everywhere?','Every b
 addEventListener('unhandledrejection',e=>{if(e.reason?.stale)e.preventDefault()});
 /* Background checks (bell, alerts, status): nothing is asked while the tab is hidden; when it comes back, each check
    that is due runs at once (due: not run for its own interval, or a minute for slow ones), so a quick tab flip doesn't
-   fire them all again. first: the delay before the first run. */
-const Poll={l:[],add(fn,ms,first){const e={fn,ms,at:0,run(){if(document.hidden)return;e.at=Date.now();try{Promise.resolve(fn()).catch(()=>{})}catch{}}};
+   fire them all again; one skipped before its first run (the tab opened hidden) runs on return too. first: the delay before the first run. */
+const Poll={l:[],add(fn,ms,first){const e={fn,ms,at:0,run(){if(document.hidden){e.missed=true;return}e.missed=false;e.at=Date.now();try{Promise.resolve(fn()).catch(()=>{})}catch{}}};
   setInterval(()=>e.run(),ms);if(first!=null)setTimeout(()=>e.run(),first);this.l.push(e);return e}};
-document.addEventListener('visibilitychange',()=>{if(document.hidden)return;const t=Date.now();for(const e of Poll.l)if(e.at&&t-e.at>=Math.min(e.ms,60000))e.run()});
+document.addEventListener('visibilitychange',()=>{if(document.hidden)return;const t=Date.now();for(const e of Poll.l)if(e.missed&&!e.at||e.at&&t-e.at>=Math.min(e.ms,60000))e.run()});   // missed: skipped while hidden before it ever ran
 /* A new version is ready: after a deploy, an open tab offers Reload instead of quietly running the old version
    (the build number is in this page's script addresses and in /healthz). Checked every two minutes and on return. */
 {const loaded=(document.querySelector('script[src*="/app/core.js"]')?.src.match(/[?&]v=(\d+)/)||[])[1];let shown=false;

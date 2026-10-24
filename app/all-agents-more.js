@@ -34,11 +34,12 @@ function tsBar(){const b=$('#tsgBar');if(!b)return;const n=TSP.size;b.classList.
 ACT['tsg']=c=>{const k=c.dataset.agent+'|'+c.dataset.name;if(c.checked===(c.dataset.was==='1'))TSP.delete(k);else TSP.set(k,c.checked);c.closest('td')?.classList.toggle('dirty',TSP.has(k));tsBar()};
 ACT['tsg-undo']=()=>{for(const c of $$('.tsg input[data-act="tsg"]')){c.checked=c.dataset.was==='1';c.closest('td')?.classList.remove('dirty')}TSP.clear();tsBar()};
 // one change at a time (each writes that agent's settings), then one restart for all of them; what failed stays marked
-ACT['tsg-apply']=async b=>{if(!TSP.size||b.classList.contains('is-busy'))return;const list=[...TSP].map(([k,on])=>{const [a,n]=k.split('|');return {k,a,n,on}});b.classList.add('is-busy');b.setAttribute('aria-busy','true');let ok=0;const bad=[];
+// held by its own flag for the whole run (the press spinner lets go after the first save, so is-busy alone let a second click in)
+ACT['tsg-apply']=async b=>{if(!TSP.size||b._applying)return;b._applying=true;b.disabled=true;try{const list=[...TSP].map(([k,on])=>{const [a,n]=k.split('|');return {k,a,n,on}});b.classList.add('is-busy');b.setAttribute('aria-busy','true');let ok=0;const bad=[];
  for(const x of list){try{await put(H,prof('/tools/toolsets/'+encodeURIComponent(x.n),x.a),{enabled:x.on});ok++;TSP.delete(x.k);const c=$(`.tsg input[data-act="tsg"][data-agent="${CSS.escape(x.a)}"][data-name="${CSS.escape(x.n)}"]`);if(c){c.dataset.was=x.on?'1':'0';c.closest('td')?.classList.remove('dirty')}}catch(e){bad.push(ident(x.a).name+': '+(e.message||'failed'))}}
  b.classList.remove('is-busy');b.removeAttribute('aria-busy');tsBar();
  if(bad.length)toast((ok?plural(ok,'change')+' saved. ':'')+'Not saved: '+bad.join('; '),'err');
- if(!ok)return;if(!bad.length)toast(plural(ok,'change')+' saved'+(S.me?.admin!==false?'':' · applies to new chats'));if(S.me?.admin!==false)await restartGateway()};
+ if(!ok)return;if(!bad.length)toast(plural(ok,'change')+' saved'+(S.me?.admin!==false?'':' · applies to new chats'));if(S.me?.admin!==false)await restartGateway()}finally{b._applying=false;b.disabled=false}};
 Object.assign(ALLVIEW,{
  async skills(p,el){const tab=S.tab.skills||'Installed';const own=()=>setActions(`<button data-act="sk-update">${icon('refresh',16)}Update all</button><button data-act="sk-learn">${icon('wand',16)}Learn a skill</button><button class="primary" data-act="sk-new">${icon('plus',16)}New skill</button>`);own();
   // New skill, Learn a skill and Update all work on the agent you chat with: every tab says so, like Find more skills

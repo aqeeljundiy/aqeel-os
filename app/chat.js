@@ -49,7 +49,7 @@ const Chat={
  async loadSessions(quiet){
   // the tab's sources go to the engine, so scheduled runs never crowd chats out of the newest 100 (and the reverse)
   const src=S.chatFilter==='chats'?{exclude_sources:AUTOMATION_SOURCES.join(',')}:S.chatFilter==='automation'?{sources:AUTOMATION_SOURCES.join(',')}:{};
-  try{const d=await H('/sessions'+qp({limit:100,offset:0,order:'recent',...src}),{keep:quiet});const noTools=s=>String(s||'').replace(/^\[Use these tools for this: [^\]]*\]\s*/,'');S.sessions=(d.sessions||[]).map(x=>({...x,preview:noThink(noTools(x.preview)),title:noTools(x.title)}));S.sessionsTotal=d.more?num(d.total)+'+':d.total;S.sessionsLoaded=true;S.sessionsErr=null}catch(e){if(e?.stale)return;S.sessionsLoaded=true;S.sessionsErr=e;if(!quiet&&S.sessions.length)fail(e)}
+  try{const d=await H('/sessions'+qp({limit:100,offset:0,order:'recent',...src}),{keep:quiet});const noTools=s=>String(s||'').replace(/^\[Use these tools for this: [^\]]*\]\s*/,'');S.sessions=(d.sessions||[]).map(x=>({...x,preview:noThink(noTools(x.preview)),title:noTools(x.title)}));S.sessionsTotal=d.more?num(d.total??S.sessions.length)+'+':d.total;S.sessionsLoaded=true;S.sessionsErr=null}catch(e){if(e?.stale)return;S.sessionsLoaded=true;S.sessionsErr=e;if(!quiet&&S.sessions.length)fail(e)}
   if(route().sec.id==='chat'&&$('.side')){const f=document.activeElement?.id==='chatSearch'?document.activeElement.selectionStart:null,top=$('.side-list')?.scrollTop||0;paintSide();placePills();if($('.topbar'))paintTop();const sl=$('.side-list');if(sl&&top)sl.scrollTop=top;
    if(f!=null){const i=$('#chatSearch');if(i&&document.activeElement!==i){i.focus();i.setSelectionRange(f,f)}}}
  },
