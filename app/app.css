@@ -1160,6 +1160,7 @@ body:has(.drawer.pop) .scrim{backdrop-filter:blur(5px);background:rgba(11,12,16,
 .sd-runs{display:flex;flex-direction:column;border:1px solid var(--border);border-radius:14px;overflow:hidden}
 .sd-run{display:grid;grid-template-columns:1.4fr .8fr 1fr .8fr 1.2fr;gap:8px;padding:9px 12px;font-size:12.5px;border-top:1px solid var(--border);cursor:pointer}.sd-run:first-child{border-top:0}.sd-run:hover{background:var(--soft)}.sd-run .m{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media (max-width:600px){.sd-run{grid-template-columns:1fr 1fr 1fr}.sd-run .m,.sd-run:not([style]) span:nth-child(3){display:none}}
+@container (max-width:420px){.sj-row .main-c>.ic{display:none}.sj-row{column-gap:10px}}   /* phones: the name gets the icon's room (a failing run still says so in its line) */
 .sj-row .main-c{flex:1;min-width:0}.sj-row .txt{flex:1;min-width:0}.sj-row .txt>span{white-space:normal;overflow:visible}
 /* a schedule's description and its when/where/cost lines wrap inside the card: the folder body's grid column may shrink, and the cost line is never an ellipsis */
 .sf-body{grid-template-columns:minmax(0,1fr)}.sf-body>.card{min-width:0}
