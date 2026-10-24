@@ -104,6 +104,8 @@ const CODEX_AUTH=path.join(cleanEnv.CODEX_HOME||path.join(os.homedir(),'.codex')
 const jwtExp=t=>{try{return Number(JSON.parse(Buffer.from(String(t).split('.')[1],'base64url').toString('utf8')).exp)||0}catch{return 0}};
 async function engineCodex(){let j;try{j=JSON.parse(await readFile(path.join(os.homedir(),'.hermes','auth.json'),'utf8'))}catch{return null}const e=j?.providers?.['openai-codex'],t=e?.tokens;
  const pick=(...k)=>{for(const x of k)if(typeof t?.[x]==='string'&&t[x])return t[x];return ''};const v={id_token:pick('id_token','idToken'),access_token:pick('access_token','accessToken'),refresh_token:pick('refresh_token','refreshToken'),account_id:pick('account_id','accountId')||null};
+ // the engine keeps no id_token or account id; the account id is a claim inside the access token, which Codex needs
+ if(!v.account_id)try{v.account_id=JSON.parse(Buffer.from(v.access_token.split('.')[1],'base64url').toString('utf8'))?.['https://api.openai.com/auth']?.chatgpt_account_id||null}catch{}
  return v.access_token&&v.refresh_token?{tokens:v,last_refresh:typeof e.last_refresh==='string'?e.last_refresh:null}:null}
 async function syncCodexFromEngine(){const e=await engineCodex();if(!e)return false;let cur=null;try{cur=JSON.parse(await readFile(CODEX_AUTH,'utf8'))}catch{}
  const had=cur?.tokens?.access_token||'';if(had===e.tokens.access_token&&cur?.tokens?.refresh_token===e.tokens.refresh_token)return true;
