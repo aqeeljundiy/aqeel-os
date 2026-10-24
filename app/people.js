@@ -371,8 +371,8 @@ ACT['wh-new-pre']=0;
  panel.querySelectorAll('[data-chmove]').forEach(s=>s.onchange=async()=>{const to=s.value,from=s.dataset.from,pf=s.dataset.chmove,was=s.dataset.paused?'':from;if(to===was)return;
   const what=appName(pf)+(s.dataset.acct?' ('+s.dataset.acct+')':'');
   // nobody: it stays linked and ready, it just isn't answered
-  if(to===''){if(!await confirmBox('Pause this '+appName(pf)+'?',what+' stays linked and ready, but no agent answers it until you pick one again under Owned by. Nothing needs to be scanned or set up again.','Pause',false)){s.value=was;return}
-   hold(s,true);try{const r=await post(UI,'/ui/channels/pause',{agent:from,platform:pf,on:false});toast(what+' paused'+(r.restarting?' · the engine restarts once':''));reload()}catch(e){fail(e);s.value=was;hold(s,false)}return}
+  // pausing is undone from its toast, the same way everywhere (setPaused)
+  if(to===''){hold(s,true);if(!await setPaused(from,pf,true,what)){s.value=was;hold(s,false)}return}
   if(to===from){hold(s,true);try{const r=await post(UI,'/ui/channels/pause',{agent:from,platform:pf,on:true});toast(ident(from).name+' answers '+what+' again'+(r.restarting?' (the engine restarts once)':''));reload()}catch(e){fail(e);s.value=was;hold(s,false)}return}
   if(!await confirmBox('Move this channel to '+ident(to).name+'?',ident(to).name+' will answer it from now on. Its settings and approved people move along; the channel restarts for a few seconds.','Move',false)){s.value=from;s._sync?.();return}
   hold(s,true);try{const r=await post(UI,'/ui/channels/move',{platform:s.dataset.chmove,from,to});r?.pending==='restart'?toast('Moving after the engine restarts (replies in progress finish first). This list updates by itself.'):r?.on===false?toast('Moved, but '+ident(to).name+' couldn’t switch it on. Switch it on under Connections.','err'):toast('Moved. '+ident(to).name+' answers it now.');reload()}catch(e){fail(e);s.value=from;hold(s,false)}})}}
@@ -812,8 +812,9 @@ ACT['ch-more']=a=>{const ag=a.dataset.agent,pf=a.dataset.platform,paused=!!a.dat
   !paused&&{label:'Reconnect',icon:'refresh',run:()=>reconnectChannel(ag,pf)},   // a paused channel stays off until someone picks who answers it
   wa&&{label:'Link a different phone (new QR)',icon:'refresh',run:()=>ACT['wa-replace']({dataset:{agent:ag}})},
   '-',{label:wa?'Remove this WhatsApp':'Remove this connection',icon:'trash',bad:true,run:()=>wa?ACT['wa-remove']({dataset:{agent:ag}}):ACT['ch-remove']({dataset:{agent:ag,platform:pf}})}])};
-async function setPaused(ag,pf,on){const what=appName(pf);
- try{const r=await post(UI,'/ui/channels/pause',{agent:ag,platform:pf,on:!on});const m=what+(on?' paused: stays linked, nobody answers it':' answers again')+(r.restarting?' · the main agent’s channels restart for a moment':'');if(on)toastUndo(m,()=>setPausedQuiet(ag,pf,false));else toast(m);reload();laterReload(4000)}catch(e){fail(e)}}
+// pause or resume a channel: a pause says it stays linked, with Undo in the toast; true when it went through
+async function setPaused(ag,pf,on,what=appName(pf)){
+ try{const r=await post(UI,'/ui/channels/pause',{agent:ag,platform:pf,on:!on});const m=what+(on?' paused · stays linked, nobody answers it until you pick an agent under Owned by':' answers again')+(r.restarting?' · the main agent’s channels restart for a moment':'');if(on)toastUndo(m,()=>setPausedQuiet(ag,pf,false));else toast(m);reload();laterReload(4000);return true}catch(e){fail(e);return false}}
 async function setPausedQuiet(ag,pf,on){await post(UI,'/ui/channels/pause',{agent:ag,platform:pf,on:!on});reload()}
 // reconnect one channel: on a second agent only that channel restarts; the main agent's channels share the engine
 async function reconnectChannel(ag,pf){const main=ag.split('--')[0]==='default'&&!ag.includes('--');

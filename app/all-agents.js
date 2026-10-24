@@ -28,7 +28,7 @@ ACT['all-more']=a=>{const it=ALL_IT[a.dataset.kind+'|'+a.dataset.id];if(!it)retu
   k==='key'&&ALL_EDIT&&!it.bot&&{label:'Change value',icon:'edit',run:()=>ACT['key-edit']({dataset:{k:it.label,agent:o}})},
   ALL_EDIT&&!it.bot&&!it.own&&{label:'Who can use',icon:'user',run:()=>Access.open(k,it.id)},
   {label:'Open on '+on,icon:'chevR',run:()=>ACT['all-open']({dataset:{agent:o}})},
-  ...(ALL_EDIT&&!it.own&&k!=='plugin'&&!(k==='google'&&!x)?['-',{label:'Remove from '+on,icon:'trash',bad:true,run:()=>k==='mcp'?ACT['mcp-del']({dataset:d}):k==='key'?ACT['key-del']({dataset:{k:it.label,agent:o}}):ACT['gacc-del']({dataset:{agent:o,n:x.name,e:it.id}})}]:[])])};
+  ...(ALL_EDIT&&!it.own&&k!=='plugin'&&!(k==='google'&&!x)?['-',{label:'Remove from '+on,icon:'trash',bad:true,run:()=>k==='mcp'?ACT['mcp-del']({dataset:d}):k==='key'?ACT['key-del']({dataset:{k:it.label,agent:o}}):ACT['gacc-del']({dataset:{agent:o,n:x.name,e:it.id,email:it.id}})}]:[])])};
 const allSection=(title,rows,empty)=>`<h2 class="ach-cat" style="margin-top:0">${esc(title)} <small class="hint">${rows.length}</small></h2>${rows.length?`<div class="card list">${rows.join('')}</div>`:`<p class="hint">${esc(empty)}</p>`}`;
 // set up on some agents but not signed in there: the one sign-in chip, saying on which (Sign in on the first, for apps)
 const notSigned=it=>{const n=it.users.filter(u=>!u.signed);return n.length?`<span class="acc-nosign">${signChip(it.kind==='mcp'&&ALL_EDIT?`data-act="mcp-auth" data-name="${esc(it.id)}" data-agent="${esc(n[0].id)}"`:'')}<small>on ${esc(n.map(u=>u.name).join(', '))}</small></span>`:''};
