@@ -839,8 +839,11 @@ async function hermesCall(req,res,u,url){
  if(chatM&&!users.isAdmin(u)&&req.method==='POST'){
   const lim=users.limitOf(u);if(lim?.tokens){const t=await usage.today(await listAllProfiles(),u.id,users.ownerOf);if(t.tokens+await code.usedToday(u.id)>=lim.tokens)return send(res,429,{error:'You reached today\'s limit. It resets at midnight.'})}
   const allowed=users.allowedModels(u);if(allowed){let b={};try{b=JSON.parse((await readRaw(req,40e6)).toString('utf8'))}catch{}
-   if(b.model){if(!users.modelOk(u,b.provider||'',b.model))return send(res,403,{error:'You can\'t use that model. Ask the owner.'})}
-   else{const d=await agentModel(agent);if(!users.modelOk(u,d.provider,d.model)){const [pv,...m]=String(allowed[0]).split('|');if(m.length){b.provider=pv;b.model=m.join('|')}else b.model=pv}}
+   // the chat bar always sends the model it shows, "Default" included: the agent's own default gets the same
+   // fallback as no model at all (the first allowed one), only another model picked by hand is refused
+   const d=await agentModel(agent),isDef=!b.model||b.model===d.model&&(!b.provider||b.provider===d.provider);
+   if(!isDef){if(!users.modelOk(u,b.provider||'',b.model))return send(res,403,{error:'You can\'t use that model. Ask the owner.'})}
+   else if(!users.modelOk(u,d.provider,d.model)){const [pv,...m]=String(allowed[0]).split('|');if(m.length){b.provider=pv;b.model=m.join('|')}else{b.model=pv;delete b.provider}}
    body=Buffer.from(JSON.stringify(b))}}
  let relayTarget=undefined,relayJob=null;
  const cronM=/^\/hapi\/cron\/jobs(?:\/([^/]+))?$/.exec(p);
@@ -931,10 +934,22 @@ async function hermesCall(req,res,u,url){
  const transform=/^\/hapi\/(sessions|sessions\/search|profiles|cron\/jobs)$/.test(p)&&req.method==='GET'?d=>users.filter(u,p,d,agent)
   :/^\/gapi(\/p\/[^/]+)?\/api\/model\/options$/.test(p)&&users.allowedModels(u)?d=>({...d,providers:(d.providers||[]).map(pv=>({...pv,models:(pv.models||[]).filter(m=>users.modelOk(u,pv.slug,m))})).filter(pv=>pv.models.length)})
   :/^\/gapi(\/p\/[^/]+)?\/api\/sessions$/.test(p)&&req.method==='POST'?async d=>{await users.own(d.id||d.session?.id||d.session_id,u);return d}
+  // a fork belongs to the person who forked it (else it would count as the owner's and they could not open it)
+  :/^\/(gapi(\/p\/[^/]+)?\/api|hapi)\/sessions\/[^/]+\/fork$/.test(p)&&req.method==='POST'?async d=>{await users.own(d?.session?.id||d?.id||d?.session_id||d?.new_session_id,u);return d}
   :made?async d=>{await memberAgent(u,made);return d}
   :p==='/hapi/profiles'&&req.method==='POST'?async d=>{const n=d?.name||d?.profile?.name;if(n){noteMade(n);(setupAgentFn?setupAgentFn(n):Promise.resolve()).catch(e=>console.warn('setup',n,e.message)).finally(async()=>{await agentHealth(n).catch(()=>{});await syncNotifyTool().catch(()=>{});if(PORT===4400)writeAgentContext().catch(()=>{});
    const {execFile}=await import('node:child_process');execFile(process.execPath,[path.join(root,'scripts','apply-skill-patches.mjs')],{timeout:180000},e=>{if(e)console.warn('skill patches',n,e.message)})})}return d}
   :relayTarget!==undefined?async d=>{const id=relayJob||(d.job||d).id;if(id)await relay.setJobRelay(agent,id,relayTarget);return d}:undefined;
+ // the chat list is filtered per person AFTER the engine pages it: page on (at most 10 engine pages of 100) until the
+ // asked-for rows are left, skipping `offset` filtered rows, so a member's list and its total are real ("more" past the cap)
+ if(p==='/hapi/sessions'&&req.method==='GET'){const lim=Math.min(200,Math.max(1,+q.get('limit')||100)),skip=Math.max(0,+q.get('offset')||0),out=[];let seen=0,end=false,raw={};
+  for(let i=0;i<10;i++){const qq=new URLSearchParams(q);qq.set('limit','100');qq.set('offset',String(i*100));
+   const r=await fetch(DASH.origin+'/api/sessions?'+qq,{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).catch(()=>null);
+   if(!r?.ok){if(!i)return send(res,r?.status||502,{error:'Could not load the chats. Try again in a moment.'});break}
+   raw=await r.json().catch(()=>({}));const page=raw.sessions||[];
+   for(const x of users.filter(u,p,{sessions:page},agent).sessions){if(seen>=skip&&out.length<lim)out.push(x);seen++}
+   if(page.length<100){end=true;break}}
+  return send(res,200,{...raw,sessions:out,total:seen,...(end?{}:{more:true})})}
  if(p.startsWith('/hapi/'))return proxy(req,res,DASH,'/hapi',{'x-hermes-session-token':DASH_TOKEN},{transform,body});
  const live=chatM&&req.method==='POST'?{key:agent+'|'+decodeURIComponent(chatM[1]),user:u.id}:undefined;
  // a new message starts a new turn: the person's browser lifts a Stop they pressed in this chat
@@ -1141,7 +1156,7 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/code/report'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}await code.report(dev,b);return send(res,200,{ok:true})}
    if(p==='/ui/code/run-usage'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}await code.addRun(dev,b);return send(res,200,{ok:true})}
    if(p==='/ui/code/update'){const u=await code.update();res.writeHead(200,{'content-type':'application/zip','content-length':u.zip.length,'x-code-version':u.version,'cache-control':'no-store'});return res.end(u.zip)}
-   if(p==='/ui/code/poll'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,262144))}catch{}const allowedA=new Set((await listAgents()).filter(mine));const job=await code.poll(dev,(Array.isArray(b.projects)?b.projects:[]).map(x=>({...x,agent:allowedA.has(x?.agent)?x.agent:'',agents:(Array.isArray(x?.agents)?x.agents:[]).filter(a=>allowedA.has(a))})));return send(res,200,{job})}
+   if(p==='/ui/code/poll'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,262144))}catch{}const allowedA=new Set((await listAgents()).filter(mine));let gone=false;res.once('close',()=>{gone=true});const job=await code.poll(dev,(Array.isArray(b.projects)?b.projects:[]).map(x=>({...x,agent:allowedA.has(x?.agent)?x.agent:'',agents:(Array.isArray(x?.agents)?x.agents:[]).filter(a=>allowedA.has(a))})));if(gone||res.destroyed){code.requeue(dev,job);return}return send(res,200,{job})}
    if(p==='/ui/code/done'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,262144))}catch{}return send(res,200,{ok:code.done(dev,b.id,{state:String(b.state||''),text:String(b.text||'').slice(0,20000),files:(b.files||[]).slice(0,200).map(String),chat:String(b.chat||'')})})}
    return send(res,404,{error:'Not found'})}
   if(p==='/ui/brand'&&req.method==='GET')return send(res,200,await brand.get());

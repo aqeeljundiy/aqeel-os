@@ -170,14 +170,20 @@ export function createUsers(DATA,mail){
  function filter(u,p,data,agent){
   if(!data||typeof data!=='object')return data;
   const keep=id=>mine(u,id);   // chats are private per person; untracked (older, Telegram…) chats are the owner's
-  if(/^\/hapi\/sessions$/.test(p)&&Array.isArray(data.sessions)){const s=data.sessions.filter(x=>keep(x.id));return {...data,sessions:s,total:s.length}}
-  if(/^\/hapi\/sessions\/search$/.test(p)&&Array.isArray(data.results))return {...data,results:data.results.filter(x=>keep(x.session_id||x.id))};
+  if(/^\/hapi\/sessions$/.test(p)&&Array.isArray(data.sessions)){inherit(data.sessions);const s=data.sessions.filter(x=>keep(x.id));return {...data,sessions:s,total:s.length}}
+  if(/^\/hapi\/sessions\/search$/.test(p)&&Array.isArray(data.results)){inherit(data.results);return {...data,results:data.results.filter(x=>keep(x.session_id||x.id))}}
   // schedules: an admin sees every agent's but a private one's (as the gate does), a member those they may change
   if(/^\/hapi\/cron\/jobs$/.test(p)){const jobs=Array.isArray(data)?data:data.jobs;if(Array.isArray(jobs)){const f=jobs.filter(j=>schedOk(u,j.profile||'default'));return Array.isArray(data)?f:{...data,jobs:f}}}
   // the hidden copies behind extra connections (WhatsApp 2…) are not agents of their own
   if(/^\/hapi\/profiles$/.test(p)&&Array.isArray(data.profiles))data={...data,profiles:data.profiles.filter(x=>!String(x.name).includes('--'))};
   if(/^\/hapi\/profiles$/.test(p)&&Array.isArray(data.profiles)&&!isAdmin(u))return {...data,profiles:data.profiles.filter(x=>level(u,x.name))};
   return data}
+ // a continuation (compacted chat, reset) or a fork made outside aqeelOS belongs to whoever owns the chat it came
+ // from; recorded, so opening it passes the same check. Cron runs: the job's creator is not recorded, so they stay the owner's.
+ function inherit(list){let n=0;const par=new Map(list.map(x=>[x.session_id||x.id,x.parent_session_id]));
+  for(const x of list){const id=x.session_id||x.id;if(!id||db.owners[id])continue;let up=x.parent_session_id;for(let i=0;up&&i<20&&!db.owners[up];i++)up=par.get(up);
+   if(up&&db.owners[up]){db.owners[id]=db.owners[up];n++}}
+  if(n)save().catch(()=>{})}
 
  /* ---------- the People page API (admins only) ---------- */
  async function api(u,req,res,p,send,readBody){

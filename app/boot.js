@@ -1,7 +1,7 @@
 // Event wiring and startup.
 function openMenu(el){const k=el.dataset.menu;
  if(k==='convo'){const id=el.dataset.id;const pinned=store.get('pinned',[]);const isPin=pinned.includes(id);
-  menu(el,[{label:'Rename',icon:'edit',run:()=>renameSession(id)},{label:isPin?'Unpin':'Pin',icon:'pin',run:()=>{store.set('pinned',isPin?pinned.filter(x=>x!==id):[id,...pinned]);paintSide()}},{label:'Fork',icon:'fork',run:async()=>{Chat.id=id;await Chat.fork()}},{label:'Export JSON',icon:'download',run:()=>ACT['hist-export']({dataset:{id}})},'-',{label:'Delete',icon:'trash',bad:true,run:()=>deleteSession(id)}])}
+  menu(el,[{label:'Rename',icon:'edit',run:()=>renameSession(id)},{label:isPin?'Unpin':'Pin',icon:'pin',run:()=>{store.set('pinned',isPin?pinned.filter(x=>x!==id):[id,...pinned]);paintSide()}},{label:'Fork',icon:'fork',run:()=>Chat.fork(id)},{label:'Export JSON',icon:'download',run:()=>ACT['hist-export']({dataset:{id}})},'-',{label:'Delete',icon:'trash',bad:true,run:()=>deleteSession(id)}])}
  if(k==='model')Chat.modelMenu(el);
  if(k==='effort')Chat.effortMenu(el);
  if(k==='workspace')Chat.workspaceMenu(el);
@@ -32,7 +32,7 @@ document.addEventListener('click',e=>{
  const g=e.target.closest('[data-go]');if(g&&!e.target.closest('[data-menu]')&&!e.target.closest('.switch')){e.preventDefault();go(g.dataset.go);return}
  const m=e.target.closest('[data-menu]');if(m){e.stopPropagation();e.preventDefault();openMenu(m);return}
  const t=e.target.closest('[data-tab]');if(t){const box=t.closest('[data-tabs]');const key=box.dataset.tabs;
-  if(key==='chatFilter'){S.chatFilter=t.dataset.tab;store.set('chatFilter',S.chatFilter);paintSide();placePills();return}
+  if(key==='chatFilter'){S.chatFilter=t.dataset.tab;store.set('chatFilter',S.chatFilter);paintSide();placePills();Chat.loadSessions(true);return}
   S.tab[key]=t.dataset.tab;box.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b===t));placePills();
   if(['skills','mcp','plugins','usage','currency','models','channels','hist'].includes(key)){if(key==='hist')Pages.manageChats($('#view'));else reload()}return}
  const ts=e.target.closest('[data-tabset]');if(ts){const [k,v]=ts.dataset.tabset.split(':');S.tab[k]=v;reload();return}

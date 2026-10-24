@@ -36,6 +36,8 @@ export function createCode({DATA,SRC,PUBLIC_URL,ROOT}){
   const e={user:dev.user,name:dev.name,seen:Date.now(),projects:(Array.isArray(projects)?projects:[]).slice(0,300).map(p=>({id:String(p.id).slice(0,80),name:String(p.name||'').slice(0,120),agent:String(p.agent||''),agents:(Array.isArray(p.agents)?p.agents:[]).map(String).slice(0,40),where:p.where==='online'?'online':'computer'})),queue:cur?.queue||[]};live.set(k,e);
   if(e.queue.length)return Promise.resolve(e.queue.shift());
   return new Promise(r=>{const t=setTimeout(()=>{e.wake=null;r(null)},25000);e.wake=j=>{clearTimeout(t);e.wake=null;r(j)}})}
+ // a job handed to a long-poll whose connection had already dropped goes back to the front (or to the poll waiting now)
+ function requeue(dev,job){const e=live.get(dev.key);if(!e||!job||!jobs.has(job.id))return;if(e.wake)e.wake(job);else e.queue.unshift(job)}
  function done(dev,id,out){const j=jobs.get(String(id));if(!j||j.dev!==dev.key)return false;jobs.delete(j.id);j.resolve(out||{});return true}
  // the projects an agent may work on, on computers that asked for work in the last two minutes
  function projectsFor(agent){const out=[];for(const [k,e] of live)if(Date.now()-e.seen<120000)for(const p of e.projects)if(p.agent===agent||p.agents.includes(agent))out.push({project:k+':'+p.id,name:p.name,where:p.where==='online'?'online (the AI box)':'on '+e.name,owner:p.agent===agent});return out}
@@ -79,4 +81,4 @@ export function createCode({DATA,SRC,PUBLIC_URL,ROOT}){
  // what a computer's Code has connected (GitHub accounts, tool servers), shown under Connected apps › Code
  async function report(dev,r){await load();const e=Object.entries(db.devices).find(([h])=>h.slice(0,16)===dev.key);if(!e)return;e[1].report={at:Date.now(),github:(Array.isArray(r.github)?r.github:[]).slice(0,10).map(a=>({user:String(a.user||'').slice(0,60),active:Boolean(a.active)})),mcp:(Array.isArray(r.mcp)?r.mcp:[]).slice(0,40).map(m=>String(m).slice(0,60)),version:String(r.version||'').slice(0,40)};await save()}
  async function allDevices(){await load();return Object.entries(db.devices).map(([h,d])=>({id:h.slice(0,12),name:d.name,user:d.user,last:d.last,report:d.report||null}))}
- return {report,allDevices,addRun,runs,computerOf,browse,usedToday,addUsage,pair,who,devices,unpair,version,update,download,poll,done,projectsFor,work}}
+ return {report,allDevices,addRun,runs,computerOf,browse,usedToday,addUsage,pair,who,devices,unpair,version,update,download,poll,requeue,done,projectsFor,work}}

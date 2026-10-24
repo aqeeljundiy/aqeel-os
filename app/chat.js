@@ -47,7 +47,9 @@ const Chat={
    <div style="padding:6px 10px 10px;border-top:1px solid var(--border)"><button class="item ${r.chat==='manage'?'on':''}" data-go="/chat/manage">${icon('list',16)}<span class="t">Manage chats</span><span class="n">${S.sessionsTotal??''}</span></button></div></div>`;
  },
  async loadSessions(quiet){
-  try{const d=await H('/sessions'+qp({limit:100,offset:0,order:'recent'}),{keep:quiet});const noTools=s=>String(s||'').replace(/^\[Use these tools for this: [^\]]*\]\s*/,'');S.sessions=(d.sessions||[]).map(x=>({...x,preview:noThink(noTools(x.preview)),title:noTools(x.title)}));S.sessionsTotal=d.total;S.sessionsLoaded=true;S.sessionsErr=null}catch(e){if(e?.stale)return;S.sessionsLoaded=true;S.sessionsErr=e;if(!quiet&&S.sessions.length)fail(e)}
+  // the tab's sources go to the engine, so scheduled runs never crowd chats out of the newest 100 (and the reverse)
+  const src=S.chatFilter==='chats'?{exclude_sources:AUTOMATION_SOURCES.join(',')}:S.chatFilter==='automation'?{sources:AUTOMATION_SOURCES.join(',')}:{};
+  try{const d=await H('/sessions'+qp({limit:100,offset:0,order:'recent',...src}),{keep:quiet});const noTools=s=>String(s||'').replace(/^\[Use these tools for this: [^\]]*\]\s*/,'');S.sessions=(d.sessions||[]).map(x=>({...x,preview:noThink(noTools(x.preview)),title:noTools(x.title)}));S.sessionsTotal=d.more?num(d.total)+'+':d.total;S.sessionsLoaded=true;S.sessionsErr=null}catch(e){if(e?.stale)return;S.sessionsLoaded=true;S.sessionsErr=e;if(!quiet&&S.sessions.length)fail(e)}
   if(route().sec.id==='chat'&&$('.side')){const f=document.activeElement?.id==='chatSearch'?document.activeElement.selectionStart:null,top=$('.side-list')?.scrollTop||0;paintSide();placePills();if($('.topbar'))paintTop();const sl=$('.side-list');if(sl&&top)sl.scrollTop=top;
    if(f!=null){const i=$('#chatSearch');if(i&&document.activeElement!==i){i.focus();i.setSelectionRange(f,f)}}}
  },
@@ -433,7 +435,7 @@ const Chat={
  async approve(choice){const s=this.live[this.id];const t=s?.turns[s.turns.length-1];if(!s?.runId||!t?.approval)return;try{await post(G,'/v1/runs/'+s.runId+'/approval',{choice,...(t.approval.request_id?{request_id:t.approval.request_id}:{})});t.approval.resolved=choice;this.paint()}catch(e){fail(e)}},
  async newChat(){this.id=null;go('/chat')},
  async retry(){const s=this.live[this.id];if(!s||s.running)return;const lastUser=[...s.turns].reverse().find(t=>t.role==='user');if(lastUser)this.send(lastUser.text,(lastUser.imgs||[]).filter(Boolean).map(url=>({url})))},
- async fork(){try{const d=await post(G,'/api/sessions/'+encodeURIComponent(this.id)+'/fork',{});const nid=d.session?.id||d.id;await this.loadSessions();if(nid)go('/chat/'+nid);toast('Forked into a new chat')}catch(e){fail(e)}},
+ async fork(id=this.id){if(!id)return;try{const d=await post(G,'/api/sessions/'+encodeURIComponent(id)+'/fork',{});const nid=d.session?.id||d.id;await this.loadSessions();if(nid)go('/chat/'+nid);toast('Forked into a new chat')}catch(e){fail(e)}},
 
  /* ---------- slash commands (handled in the app; everything else goes to aqeelOS) ---------- */
  SLASH:[['/new','Start a fresh chat'],['/model','Switch the model for this chat'],['/reasoning','Set effort: off, minimal, low, medium, high, xhigh, max, ultra'],['/title','Rename this chat'],['/fork','Branch this chat into a new one'],['/compress','Ask aqeelOS to summarise and shrink this chat'],['/reload','Re-read aqeelOS config.yaml'],['/clear','Same as /new']],
