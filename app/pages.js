@@ -801,7 +801,7 @@ PAGES.profiles=async(p,el)=>{
  el.innerHTML=`<div class="grid-cards">${Pages._profiles.map((x,i)=>{const id=ident(x.name);return `<div class="card tile" ${st(i)} data-act="ident-open" data-name="${esc(x.name)}"><div class="tile-top"><span class="logo ava">${id.avatar?`<img src="${esc(id.avatar)}" alt="">`:esc(id.name[0].toUpperCase())}</span><div style="min-width:0"><h3>${esc(id.name)}</h3><span style="font-size:12.5px;color:var(--muted)">${esc(id.title||'Agent')} · ${esc(modelLabel(x.model))} · ${plural(x.skill_count||0,'skill')}</span></div></div><p>${esc(x.description||'No description yet.')}</p><div class="tile-foot"><span style="display:flex;gap:6px;flex-wrap:wrap">${act.active===x.name?'<span class="chip blue">Active</span>':''}${x.is_default?'<span class="chip blue">Default</span>':''}${chipState(x.gateway_running,'Online','Offline')}</span><button class="ghost icon" data-menu="profilecard" data-name="${esc(x.name)}" aria-label="More">${icon('more',18)}</button></div></div>`}).join('')}</div>`;
 };
 // New agent: a few steps (name, model, skills, connected apps, a last look) and nothing is made until Create.
-// Members start fresh or empty (a copy would carry the source agent's keys and memory); the library search and
+// Members start fresh (a copy would carry the source agent's keys and memory); the library search and
 // apps that run a command on the box stay with the people allowed to use them (the server checks it again).
 const AGENT_ID_OK=/^[a-z0-9][a-z0-9_-]{0,63}$/;
 ACT['prof-new']=async()=>{const admin=S.me?.admin!==false,cmdOk=admin||(S.me?.caps||[]).includes('unsafe');
@@ -812,12 +812,9 @@ ACT['prof-new']=async()=>{const admin=S.me?.admin!==false,cmdOk=admin||(S.me?.ca
  const d=drawer('New agent',`<div class="nb-steps">${tabs('nbStep',STEPS,'Basics')}</div>
   <div class="nb-step" data-step="0"><label>Name</label><input id="pfN" placeholder="research" autocomplete="off" maxlength="64" autocapitalize="off" spellcheck="false"><p class="hint" id="pfNh" style="margin:4px 0 0">Lowercase letters, numbers, - and _. It never changes; you can give it a display name later.</p>
    <label>Description</label><input id="pfD" placeholder="Long reading and summarising jobs">
-   <label>Start from</label><select id="pfC"><option value="fresh">A fresh setup (every skill, no memory)</option><option value="empty">An empty setup (no skills)</option>${copies}</select><p class="hint" style="margin:4px 0 0">A copy brings that agent’s keys, model and skills. A fresh one starts clean.</p></div>
+   <label>Start from</label><select id="pfC"><option value="fresh">A fresh setup (every skill, no memory)</option>${copies}</select><p class="hint" style="margin:4px 0 0">A copy brings that agent’s keys, model and skills. A fresh one starts clean.</p></div>
   <div class="nb-step" data-step="1" hidden><label>Model</label><select id="pfM"><option value="">Same as the main agent</option>${authed.map(pv=>`<optgroup label="${esc(pv.name)} · ${esc(plural(pv.models.length,'model'))}">${pv.models.map(m=>`<option value="${esc(pv.slug+'|'+m)}">${esc(modelLabel(m))} · ${esc(m)}</option>`).join('')}</optgroup>`).join('')}</select><p class="hint">You can change it any time in Edit agent › Model.</p></div>
   <div class="nb-step" data-step="2" hidden><p class="hint" id="nbSkIntro" style="margin:0 0 10px"></p>
-   <div id="nbSkBox"><div class="nb-find"><input id="nbSkQ" placeholder="Search skills" autocomplete="off"><select id="nbSkCat" style="width:auto" aria-label="Kind of skill"><option value="">Every kind</option>${cats.map(c=>`<option value="${esc(c)}">${esc(pretty(c))}</option>`).join('')}</select></div>
-    <div class="nb-bar"><span class="hint" id="nbSkN" style="margin:0"></span><span><button type="button" class="ghost small" id="nbAll">Keep all</button><button type="button" class="ghost small" id="nbNone">Keep none</button></span></div>
-    <div class="nb-list">${skills.map(s=>`<label class="capt" data-skrow data-cat="${esc(s.category||'Other')}" data-q="${esc((s.name+' '+(s.description||'')+' '+(s.category||'')).toLowerCase())}"><input type="checkbox" data-sk="${esc(s.name)}" ${keep.has(s.name)?'checked':''}><span>${esc(pretty(s.name))}<small class="hint">${esc(pretty(s.category||'Other'))}${s.description?' · '+esc(s.description):''}</small></span></label>`).join('')||'<p class="hint">No skills to choose from.</p>'}</div></div>
    ${admin?`<h3 class="nb-h">Add from the skill library</h3><div class="nb-find"><input id="nbHq" placeholder="For example: pdf, calendar, invoices" autocomplete="off"><button type="button" id="nbHgo">${icon('search',15)}Search</button></div><div id="nbHres"></div><div id="nbHq2"></div>`:''}</div>
   <div class="nb-step" data-step="3" hidden><p class="hint" style="margin:0 0 10px">Connected apps give it tools, such as GitHub or a database. Add them now, or later on Connected apps.</p><div id="nbAppL"></div>
    <div class="nb-form"><label>Name</label><input id="nbAn" placeholder="github" autocomplete="off">${cmdOk?`<div style="margin-top:12px">${tabs('nbKind',['Web address','Command'],'Web address')}</div>`:''}
@@ -831,13 +828,9 @@ ACT['prof-new']=async()=>{const admin=S.me?.admin!==false,cmdOk=admin||(S.me?.ca
  const checkName=()=>{const v=nameIn.value.trim(),h=q('#pfNh');const bad=!!v&&!nameOk();h.classList.toggle('err-line',bad);h.textContent=bad?'Use only lowercase letters, numbers, - and _, starting with a letter or number.':'Lowercase letters, numbers, - and _. It never changes; you can give it a display name later.';next.disabled=!nameOk()};
  nameIn.oninput=checkName;nameIn.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();if(!next.disabled)next.click()}};
  const src=()=>q('#pfC').value;
- // skills: the standard set is kept unless you untick some; a copy or an empty agent only adds from the library
- const paintSkills=()=>{const c=src();q('#nbSkBox').hidden=c!=='fresh';q('#nbSkIntro').textContent=c==='empty'?'It starts with no skills.'+(admin?' You can still add some from the library below.':''):c!=='fresh'?'A copy brings '+ident(c.split(':')[1]).name+'’s skills.'+(admin?' You can add more from the library below.':''):'Untick the skills it should not have. You can turn skills on and off later too.';
-  const f=q('#nbSkQ').value.trim().toLowerCase(),cat=q('#nbSkCat').value;let shown=0;d.querySelectorAll('[data-skrow]').forEach(r=>{const h=(f&&!r.dataset.q.includes(f))||(cat&&r.dataset.cat!==cat);r.hidden=h;if(!h)shown++});
-  q('#nbSkN').textContent=keep.size+' of '+skills.length+' kept'+(f||cat?' · '+shown+' shown':'')};
- d.querySelectorAll('[data-sk]').forEach(i=>i.onchange=()=>{i.checked?keep.add(i.dataset.sk):keep.delete(i.dataset.sk);paintSkills()});
- q('#nbSkQ').oninput=paintSkills;q('#nbSkCat').onchange=paintSkills;
- const setAll=on=>{d.querySelectorAll('[data-skrow]:not([hidden]) [data-sk]').forEach(i=>{i.checked=on;on?keep.add(i.dataset.sk):keep.delete(i.dataset.sk)});paintSkills()};q('#nbAll').onclick=()=>setAll(true);q('#nbNone').onclick=()=>setAll(false);
+ // skills: every agent gets the main agent's skills except restricted ones (policy, 24 Oct), so the form offers no
+ // "no skills" or untick choice it could not keep; skills are turned off per agent after it is made
+ const paintSkills=()=>{const c=src();q('#nbSkIntro').textContent=c!=='fresh'?'A copy brings '+ident(c.split(':')[1]).name+'’s skills.'+(admin?' You can add more from the library below.':''):'It gets every skill the main agent has ('+base.size+'), except ones kept for certain agents. To leave some out, turn them off on its Skills page once it is made.'+(admin?' You can add more from the library below.':'')};
  // the skill library: search, add to the list, take off again
  const paintHub=()=>{const box=q('#nbHq2');if(!box)return;box.innerHTML=hub.length?`<p class="hint" style="margin:10px 0 4px">Installed after it is made:</p><div class="nb-chips">${hub.map((h,i)=>`<span class="chip">${esc(h.name)}<button type="button" class="ghost icon" style="width:18px;min-height:18px" data-hrm="${i}" aria-label="Take ${esc(h.name)} off">${icon('x',11)}</button></span>`).join('')}</div>`:'';
   box.querySelectorAll('[data-hrm]').forEach(b=>b.onclick=()=>{hub.splice(+b.dataset.hrm,1);paintHub();paintRes()})};
@@ -861,7 +854,7 @@ ACT['prof-new']=async()=>{const admin=S.me?.admin!==false,cmdOk=admin||(S.me?.ca
    if(au==='Token'){const t=q('#nbAt').value.trim();if(!t)return toast('Paste the token, or pick None','err');a.auth='header';a.bearer_token=t}else if(au==='Sign in later')a.auth='oauth'}
   const i=apps.findIndex(x=>x.name===name);i>=0?apps.splice(i,1,a):apps.push(a);['#nbAn','#nbAu','#nbAt','#nbAc','#nbAa','#nbAe'].forEach(s=>{if(q(s))q(s).value=''});paintApps();q('#nbAn').focus()};
  // a last look before anything is written
- const paintReview=()=>{const c=src(),m=q('#pfM'),mo=m.options[m.selectedIndex];const kept=c==='fresh'?(keep.size===base.size&&[...base].every(x=>keep.has(x))?'Every standard skill ('+keep.size+')':keep.size+' of '+skills.length+' standard skills'):c==='empty'?'None':'Copied from '+ident(c.split(':')[1]).name;
+ const paintReview=()=>{const c=src(),m=q('#pfM'),mo=m.options[m.selectedIndex];const kept=c==='fresh'?'Every standard skill ('+base.size+')':'Copied from '+ident(c.split(':')[1]).name;
   const row=(k,v)=>`<div class="nb-rev"><span class="th">${esc(k)}</span><div>${v}</div></div>`;
   q('#nbRev').innerHTML=row('Name',esc(nameIn.value.trim()))+row('Description',esc(q('#pfD').value.trim())||'<span class="hint" style="margin:0">None yet</span>')+row('Starts from',esc(q('#pfC').options[q('#pfC').selectedIndex].textContent))+row('Model',esc(m.value?mo.textContent:'Same as the main agent'))
    +row('Skills',esc(kept)+(hub.length?'<br>'+esc('Plus from the library: '+hub.map(h=>h.name).join(', ')):''))+row('Connected apps',apps.length?apps.map(a=>esc(a.name)+' <small class="hint" style="margin:0">'+esc(appSub(a))+'</small>').join('<br>'):'<span class="hint" style="margin:0">None</span>')
@@ -872,13 +865,13 @@ ACT['prof-new']=async()=>{const admin=S.me?.admin!==false,cmdOk=admin||(S.me?.ca
  backB.onclick=()=>show(Math.max(0,at-1));
  next.onclick=()=>at<STEPS.length-1?show(at+1):create();
  const create=async()=>{const name=nameIn.value.trim();if(!nameOk())return show(0);const c=src(),[ck,from]=c.split(':'),[provider,model]=(q('#pfM').value||'|').split('|');
-  const same=keep.size===base.size&&[...base].every(x=>keep.has(x));
-  const body={name,description:q('#pfD').value.trim()||undefined,clone_from_default:false,clone_from:/^(cfg|all):/.test(c)?from:undefined,clone_all:ck==='all',no_skills:c==='empty'||undefined,provider:provider||undefined,model:model||undefined,
-   keep_skills:c==='fresh'&&!same?[...keep]:undefined,hub_skills:hub.length?hub.map(h=>h.identifier):undefined,mcp_servers:apps.length?apps:undefined};
+  const body={name,description:q('#pfD').value.trim()||undefined,clone_from_default:false,clone_from:/^(cfg|all):/.test(c)?from:undefined,clone_all:ck==='all',provider:provider||undefined,model:model||undefined,
+   hub_skills:hub.length?hub.map(h=>h.identifier):undefined,mcp_servers:apps.length?apps:undefined};
   const bt=next.textContent;next.disabled=true;backB.disabled=true;backB.hidden=true;next.innerHTML='<span class="spinner tiny"></span>Creating…';
   // the steps take a minute: show them in the drawer instead of a greyed button
-  const bodyEl=q('.drawer-body'),tabsEl=q('[data-tabs="nbStep"]'),keepHtml=bodyEl.innerHTML;if(tabsEl)tabsEl.style.display='none';
-  const host=document.createElement('div');bodyEl.replaceChildren(host);
+  // the form's own nodes are hidden, not saved as HTML: after a failed try they come back with their values and handlers
+  const bodyEl=q('.drawer-body'),tabsEl=q('[data-tabs="nbStep"]'),form=[...bodyEl.children];if(tabsEl)tabsEl.style.display='none';
+  form.forEach(x=>{x.dataset.wasHidden=x.hidden?'1':'';x.hidden=true});const host=document.createElement('div');bodyEl.append(host);
   const P=progressView(host,['Making '+name+' with its model'+(apps.length?' and apps':''),'Giving it aqeelOS’s tools and its own space on the AI box',hub.length?'Adding '+plural(hub.length,'skill')+' from the library':'Its skills','Ready to chat']);
   P.doing(0);
   try{const r=await post(H,'/profiles',body);S._viewList=null;P.done(0,model&&r?.model_set===false?'Its model was not saved; pick it in Edit agent › Model':'');P.doing(1,'Its own Linux user, screen and browser are being made; this part takes the longest');
@@ -887,7 +880,7 @@ ACT['prof-new']=async()=>{const admin=S.me?.admin!==false,cmdOk=admin||(S.me?.ca
    const pend=(r?.hub_installs||[]).filter(h=>h.pid).length;P.done(2,pend?'Installing '+plural(pend,'skill')+' in the background':'');P.done(3);P.end();
    next.textContent=st?.ok===false?'Close':'Done';next.disabled=false;next.onclick=()=>{closeLayers();reload()};
    if(st?.ok!==false){toast('Agent created'+(pend?' · installing '+plural(pend,'skill')+' in the background':''));setTimeout(()=>{if(d.isConnected){closeLayers();reload()}},1400)}}
-  catch(e){P.fail(0,e.message||'Could not make the agent');P.end();setTimeout(()=>{if(!d.isConnected)return;bodyEl.innerHTML=keepHtml;if(tabsEl)tabsEl.style.display='';show(at);next.disabled=false;backB.disabled=false;backB.hidden=false;next.textContent=bt},2600);fail(e)}};
+  catch(e){P.fail(0,e.message||'Could not make the agent');P.end();setTimeout(()=>{if(!d.isConnected)return;host.remove();form.forEach(x=>{x.hidden=x.dataset.wasHidden==='1';delete x.dataset.wasHidden});if(tabsEl)tabsEl.style.display='';show(at);next.disabled=false;backB.disabled=false;backB.hidden=false;next.textContent=bt},2600);fail(e)}};
  checkName()};
 Pages.profileMenu=el=>{const n=el.dataset.name;const base='/profiles/'+encodeURIComponent(n);const x=(Pages._profiles||[]).find(p=>p.name===n)||{};
  menu(el,[{label:'Edit identity',icon:'user',run:()=>identityDrawer(n)},'-',{label:'Set as active',icon:'check',run:async()=>{try{await post(H,'/profiles/active',{name:n});toast('The command line now uses '+n);reload()}catch(e){fail(e)}}},{label:'Manage here',icon:'sliders',run:()=>switchAgent(n)}   /* the full switch: chats and running replies follow */,{label:'Change model',icon:'cpu',run:async()=>{const opts=await call('/gapi'+(n==='default'?'':'/p/'+encodeURIComponent(n)),'/api/model/options');   /* that agent's own sign-ins */const authed=(opts.providers||[]).filter(usableProvider);const d=drawer('Model for '+n,`<select id="pmM">${authed.map(pv=>`<optgroup label="${esc(pv.name)}">${pv.models.map(m=>`<option value="${esc(pv.slug+'|'+m)}" ${m===x.model?'selected':''}>${esc(modelLabel(m))}</option>`).join('')}</optgroup>`).join('')}</select>`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="pmGo">Save</button>`);d.querySelector('#pmGo').onclick=async()=>{const [provider,model]=$('#pmM').value.split('|');try{await put(H,base+'/model',{provider,model});closeLayers();toast('Saved');reload()}catch(e){fail(e)}}}},
@@ -902,7 +895,10 @@ Pages.profileMenu=el=>{const n=el.dataset.name;const base='/profiles/'+encodeURI
     await loadIdentities();paintSide();toast('Renamed to '+v.trim());reload()}catch(e){fail(e)}}},
   // The internal folder name is technical; Hermes doesn't allow it for the main agent.
   // (folder rename removed: it orphaned the owner, sharing, extra numbers and logins; Edit identity renames the visible name)
-  !x.is_default&&'-',!x.is_default&&{label:'Delete',icon:'trash',bad:true,run:async()=>{const typed=await promptBox('Delete '+ident(n).name+'?','Its settings, skills, memory and chats are removed. A backup is kept for 30 days (Agents › Recently deleted). '+(x.gateway_running?'It is online now and stops answering on its channels at once. ':'')+'Type the agent’s ID "'+n+'" to confirm.','','Delete');if(typed==null)return;if(typed.trim()!==n)return toast('The name did not match, so nothing was deleted.','err');try{await del(H,base);S._viewList=null;toast('Deleted');reload()}catch(e){fail(e)}}}])};
+  !x.is_default&&'-',!x.is_default&&{label:'Delete',icon:'trash',bad:true,run:async()=>{const typed=await promptBox('Delete '+ident(n).name+'?','Its settings, skills, memory and chats are removed. A backup is kept for 30 days (Agents › Recently deleted). '+(x.gateway_running?'It is online now and stops answering on its channels at once. ':'')+'Type the agent’s ID "'+n+'" to confirm.','','Delete');if(typed==null)return;if(typed.trim()!==n)return toast('The name did not match, so nothing was deleted.','err');try{await del(H,base);S._viewList=null;toast('Deleted');
+   // the agent you were talking to is gone: back to the main agent (chats, the address and this browser's choice)
+   if((S.profile||'default')===n){S.profile='';store.set('profile','default');agentUrl();Chat.live={};Chat.id=null;Chat.model=null;S.sessions=[];S.sessionsLoaded=false;Chat.agentPrefs();Chat.loadSessions(true);Chat.loadModels().catch(()=>{})}
+   reload()}catch(e){fail(e)}}}])};
 
 /* ===================== System › Status ===================== */
 PAGES.status=async(p,el)=>{

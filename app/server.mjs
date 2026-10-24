@@ -1236,7 +1236,10 @@ const server=createServer(async(req,res)=>{
     try{const buf=await readFile(real);res.writeHead(200,{'content-type':'image/'+(ext.toLowerCase()==='jpg'?'jpeg':ext.toLowerCase()),'cache-control':'private, max-age=86400',...security});return res.end(buf)}catch{return send(res,404,{error:'Not found'})}}
    // recently deleted agents (backups) and restoring one
    if(p==='/ui/agent-trash'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Admins only.'});const trash=path.join(DATA,'agent-trash');const out=[];
-    for(const f of await readdir(trash).catch(()=>[])){const m=/^(.+)__(.+)\.tgz$/.exec(f);if(!m)continue;const st=await stat(path.join(trash,f)).catch(()=>null);if(!st)continue;
+    for(const f of await readdir(trash).catch(()=>[])){
+     // a restored agent's backup is kept aside (.restored) for the same 30 days, out of this list
+     if(f.endsWith('.tgz.restored')){const st=await stat(path.join(trash,f)).catch(()=>null);if(st&&Date.now()-st.mtimeMs>30*864e5)await unlink(path.join(trash,f)).catch(()=>{});continue}
+     const m=/^(.+)__(.+)\.tgz$/.exec(f);if(!m)continue;const st=await stat(path.join(trash,f)).catch(()=>null);if(!st)continue;
      if(Date.now()-st.mtimeMs>30*864e5){await unlink(path.join(trash,f)).catch(()=>{});continue}out.push({file:f,agent:m[1],deleted:st.mtimeMs,size:st.size})}
     return send(res,200,{items:out.sort((a,b)=>b.deleted-a.deleted)})}
    if(p==='/ui/agent-trash/purge'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Admins only.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
@@ -1245,14 +1248,15 @@ const server=createServer(async(req,res)=>{
     const f=String(b.file||'');const m=/^([a-z0-9][a-z0-9_-]{0,63})__[\w-]+\.tgz$/.exec(f);if(!m)return send(res,400,{error:'Unknown backup.'});
     const dir=path.join(HERMES_HOME,'profiles',m[1]);if(await stat(dir).catch(()=>null))return send(res,409,{error:'An agent with that name exists already.'});
     await mkdir(dir,{recursive:true});const {execFile}=await import('node:child_process');
-    const ok=await new Promise(r=>execFile('tar',['-xzf',path.join(DATA,'agent-trash',f),'-C',dir],{timeout:180000},e=>r(!e)));if(!ok)return send(res,500,{error:'Could not unpack the backup.'});
+    // a failed unpack leaves no half agent folder behind
+    const ok=await new Promise(r=>execFile('tar',['-xzf',path.join(DATA,'agent-trash',f),'-C',dir],{timeout:180000},e=>r(!e)));if(!ok){await (await import('node:fs/promises')).rm(dir,{recursive:true,force:true}).catch(()=>{});return send(res,500,{error:'Could not unpack the backup.'})}
     // its extra numbers came back inside it: move each to its own folder and list it again (one that exists already stays as it is)
     const cl=path.join(dir,'.aqeel-copies.json');let copies=[];try{copies=JSON.parse(await readFile(cl,'utf8'))}catch{}
     for(const c of Array.isArray(copies)?copies:[]){const cn=String(c?.name||'');if(!cn.startsWith(m[1]+'--')||!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(cn))continue;const src=path.join(dir,cn),dst=path.join(HERMES_HOME,'profiles',cn);
      if(!await stat(src).catch(()=>null))continue;if(await stat(dst).catch(()=>null)){console.warn('restore: copy exists already',cn);continue}
      try{await rename(src,dst);await links.adopt(cn,{...c,agent:m[1]})}catch(e){console.warn('restore copy',cn,e.message)}}
     await unlink(cl).catch(()=>{});
-    await users.restoreAgent(m[1]).catch(()=>{});restartGateway('restored '+m[1]).then(()=>agentHealth(m[1])).catch(()=>{});
+    await users.restoreAgent(m[1]).catch(()=>{});await rename(path.join(DATA,'agent-trash',f),path.join(DATA,'agent-trash',f+'.restored')).catch(()=>{});restartGateway('restored '+m[1]).then(()=>agentHealth(m[1])).catch(()=>{});
     return send(res,200,{ok:true,agent:m[1]})}
    // plugins on/off for ONE agent (the engine's own plugin routes always change the main agent)
    if(p==='/ui/plugins/toggle'&&req.method==='POST'&&!users.isAdmin(u))return send(res,403,{error:'Only admins can turn plugins on or off.'});
@@ -1654,6 +1658,10 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/starters'){const agent=url.searchParams.get('agent')||'default';if(users.gate(u,'/ui/screens/'+agent,'GET',new URLSearchParams(),agent))return send(res,403,{error:'That agent is not shared with you.'});
     let recent=[];try{const r=await fetch(`${DASH.origin}/api/sessions?limit=60${agent==='default'?'':'&profile='+encodeURIComponent(agent)}`,{headers:{'x-hermes-session-token':DASH_TOKEN}});recent=users.filter(u,'/hapi/sessions',await r.json()).sessions||[]}catch{}
     return send(res,200,await starters.get(u.id,users.isAdmin(u)?'admin':'member',agent,recent))}
+   // a member finishing the setup of an agent they own (New agent, Finish setup): the same steps the app runs for it
+   if(p==='/ui/accounts/setup-agent'&&req.method==='POST'&&!users.isAdmin(u)){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const n=String(b.name||'');
+    if(users.level(u,n)!=='owner')return send(res,403,{error:'Only the owner of this agent can finish its setup.'});
+    return accountsApi(req,res,p,send,async()=>JSON.stringify({name:n}),a=>users.level(u,a)==='owner')}
    const no=users.gate(u,p,req.method,url.searchParams,'default');if(no)return send(res,no.status,{error:no.error});
    if(p.startsWith('/ui/accounts'))return accountsApi(req,res,p,send,readBody,a=>!!users.level(u,a));
    if(p==='/ui/logo')return logo(req,res);

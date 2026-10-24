@@ -106,6 +106,8 @@ async function boot(){
  if(want&&want!==(pf||'default')){const ok=S.me&&!S.me.admin?!!S.me.agents?.[want]:await H('/profiles',{keep:true}).then(r=>(r.profiles||[]).some(x=>x.name===want)).catch(()=>false);if(ok){pf=want;store.set('profile',want)}}
  else if(pf==null&&S.me?.admin!==false){const a=await H('/profiles/active',{keep:true}).catch(()=>null);if(a?.active&&a.active!=='default')pf=a.active}
  S.profile=pf||'';if(S.me&&!S.me.admin&&!S.me.agents[S.profile||'default']){const first=Object.keys(S.me.agents)[0]||'';S.profile=first==='default'?'':first}
+ // an admin's remembered agent may have been deleted (here or elsewhere): back to the main agent then (unknown = keep it)
+ else if(S.profile&&S.profile!=='default'&&!await H('/profiles',{keep:true}).then(r=>(r.profiles||[]).some(x=>x.name===S.profile)).catch(()=>true)){S.profile='';store.set('profile','default')}
  agentUrl();
  Chat.agentPrefs();
  render();

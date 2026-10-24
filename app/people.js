@@ -696,7 +696,7 @@ ACT['agent-fix']=async a=>{a.disabled=true;const was=a.textContent;a.textContent
 ACT['agent-purge']=async a=>{if(!await confirmBox('Delete '+a.dataset.name+' forever?','Its kept backup (settings, skills, memory and chats) is removed now. This cannot be undone.','Delete forever'))return;a.disabled=true;
  try{await post(UI,'/ui/agent-trash/purge',{file:a.dataset.file});toast(a.dataset.name+' deleted for good');const row=a.closest('.row');row?.classList.add('closing');laterReload(300)}catch(e){a.disabled=false;fail(e)}};
 ACT['agent-restore']=async a=>{if(!await confirmBox('Restore '+a.dataset.name+'?','It comes back as it was when it was deleted.','Restore',false))return;a.disabled=true;
- try{await post(UI,'/ui/agent-restore',{file:a.dataset.file});toast(a.dataset.name+' is back');laterReload(1500)}catch(e){a.disabled=false;fail(e)}};
+ try{await post(UI,'/ui/agent-restore',{file:a.dataset.file});S._viewList=null;toast(a.dataset.name+' is back');laterReload(1500)}catch(e){a.disabled=false;fail(e)}};
 
 /* Composio: one sign-in for hundreds of apps (Slack, Gmail, Google Drive, GitHub…). The rule: an app's own
    MCP tool when it connects easily, otherwise Composio. Added to the agent on first use. */
