@@ -21,7 +21,8 @@ export function createLinks({DATA,DASH,TOKEN,HERMES_HOME,python,setupAgent}){
  // single files the copy uses as-is: model sign-ins (auth.json) and the Google Workspace logins, whatever accounts exist
  const SHARED_FILES=a=>readdir(homeOf(a)).then(l=>l.filter(n=>n==='auth.json'||/^google_(token|client_secret)[\w-]*\.json$/.test(n))).catch(()=>[]);
  // .env lines that belong to one channel connection stay the copy's own; every other key (API keys…) comes from the agent
- const CHANNEL_KEY=/^(WHATSAPP|TELEGRAM|DISCORD|SLACK_BOT|SLACK_APP|SIGNAL|MATRIX|MATTERMOST|EMAIL|SMS|TWILIO|LINE|WECOM|WEIXIN|FEISHU|DINGTALK|QQ|YUANBAO|HOMEASSISTANT|TEAMS|GOOGLE_CHAT)_/;
+ // (every SLACK_ key: a copy's own allowed users and ignored channels must not be overwritten by the agent's)
+ const CHANNEL_KEY=/^(WHATSAPP|TELEGRAM|DISCORD|SLACK|SIGNAL|MATRIX|MATTERMOST|EMAIL|SMS|TWILIO|LINE|WECOM|WEIXIN|FEISHU|DINGTALK|QQ|YUANBAO|HOMEASSISTANT|TEAMS|GOOGLE_CHAT)_/;
 
  // the copy's settings = the agent's settings, keeping only the copy's own channels
  const SYNC=`import sys,os

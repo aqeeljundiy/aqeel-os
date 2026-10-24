@@ -448,13 +448,16 @@ async function gatewayPid(){const t=await readFile(path.join(HERMES_HOME,'gatewa
 // Slack or WhatsApp dropped for a moment instead of it being a mystery.
 let sysEvents=[],lastGwPid=0,lastOwnRestart=0;
 function noteSys(kind,why){sysEvents.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),t:Date.now(),kind,why:String(why||'').slice(0,160)});sysEvents=sysEvents.slice(-50)}
-let autoRestarts=[];
-function restartGateway(why,{wait=true,auto=false,bridges=false}={}){if(gwRestarting)return gwRestarting;if(auto){autoRestarts=autoRestarts.filter(t=>Date.now()-t<30*60e3);if(autoRestarts.length>=3){if(Date.now()-(globalThis.__rf||0)>30*60e3){globalThis.__rf=Date.now();noteSys('restart-failed','The engine kept stopping, so it was left off. Open System › Host and press Start.')}return Promise.resolve()}autoRestarts.push(Date.now())}if(PORT!==4400){console.log('gateway restart skipped (test copy):',why);return Promise.resolve()}
- gwRestarting=(async()=>{if(wait){let said=false;for(let i=0;i<360&&(liveCount()>0||await engineAgents()>0);i++){if(!said&&i===12){said=true;console.log('gateway restart: still waiting for',Math.max(liveCount(),engAgents.n),'agent(s) at work:',why)}await new Promise(r=>setTimeout(r,5000))}}
-  console.log('gateway restart:',why);gwStopped=false;lastOwnRestart=Date.now();noteSys('restart',why);
+let autoRestarts=[],gwRun=null,gwAgain=null;
+/* A request while a restart runs: before that restart has stopped the engine it is simply part of it (its bridges:true is
+   merged in); after, one more pass is queued (all such requests share it), so a change saved meanwhile is not lost. */
+function restartGateway(why,{wait=true,auto=false,bridges=false}={}){if(gwRestarting){if(!gwRun.stopping){gwRun.bridges||=bridges;return gwRestarting}
+  gwAgain={why:gwAgain?.why||why,bridges:!!(gwAgain?.bridges||bridges)};return gwRestarting.then(()=>{if(!gwAgain)return gwRestarting||undefined;const a=gwAgain;gwAgain=null;return restartGateway(a.why,{bridges:a.bridges})})}if(auto){autoRestarts=autoRestarts.filter(t=>Date.now()-t<30*60e3);if(autoRestarts.length>=3){if(Date.now()-(globalThis.__rf||0)>30*60e3){globalThis.__rf=Date.now();noteSys('restart-failed','The engine kept stopping, so it was left off. Open System › Host and press Start.')}return Promise.resolve()}autoRestarts.push(Date.now())}if(PORT!==4400){console.log('gateway restart skipped (test copy):',why);return Promise.resolve()}
+ const run=gwRun={bridges,stopping:false};gwRestarting=(async()=>{if(wait){let said=false;for(let i=0;i<360&&(liveCount()>0||await engineAgents()>0);i++){if(!said&&i===12){said=true;console.log('gateway restart: still waiting for',Math.max(liveCount(),engAgents.n),'agent(s) at work:',why)}await new Promise(r=>setTimeout(r,5000))}}
+  console.log('gateway restart:',why);gwStopped=false;lastOwnRestart=Date.now();noteSys('restart',why);run.stopping=true;
   await shx('hermes -p default gateway stop >/dev/null 2>&1; for i in $(seq 1 30); do p=$(grep -o "[0-9]*" ~/.hermes/gateway.pid 2>/dev/null | head -1); [ -n "$p" ] && kill -0 "$p" 2>/dev/null || break; sleep 1; done; tmux kill-session -t gateway 2>/dev/null; sleep 1');
   // a WhatsApp bridge is its own process and reads its settings only when it starts: when channel settings changed, stop them so the engine starts fresh ones
-  if(bridges)for(const a of await listAllProfiles().catch(()=>[]))await stopBridges(a).catch(()=>{});
+  if(run.bridges)for(const a of await listAllProfiles().catch(()=>[]))await stopBridges(a).catch(()=>{});
   await shx('~/services.sh >/dev/null 2>&1');
   platCache.clear()})().finally(()=>{gwRestarting=null});return gwRestarting}
 async function gatewayWatch(){if(gwStopped||gwRestarting)return;
@@ -510,7 +513,13 @@ const sweepGhosts=async()=>{for(const d of await readdir(path.join(HERMES_HOME,'
  if(st&&Date.now()-st.mtimeMs>10*60e3&&inside.every(x=>['logs','plugin-update-checks','cache','sandboxes','plugins'].includes(x))){const {rm}=await import('node:fs/promises');await rm(dir,{recursive:true,force:true}).catch(()=>{});console.log('removed the leftover folder of deleted agent',d.name)}}};
 if(PORT===4400){setTimeout(()=>sweepGhosts().catch(()=>{}),40000);setInterval(()=>sweepGhosts().catch(()=>{}),30*60e3).unref()}
 const sharing=createShare({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAgents()});
-const channels=createChannels({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAllProfiles(),cached:a=>platformsCached(a),restart:why=>restartGateway(why),paused:()=>pausedLoad(),pendingOf:(a,id)=>id==='whatsapp'?waSettingsPending(a):false,stop:a=>stopBridges(a)});
+const channels=createChannels({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAllProfiles(),cached:a=>platformsCached(a),restart:why=>restartGateway(why),paused:()=>pausedLoad(),pendingOf:(a,id)=>id==='whatsapp'?waSettingsPending(a):false,stop:a=>stopBridges(a),
+ // after a move: a pause, the sharing, schedules relayed through it and its note follow the channel to its new agent
+ moved:async(pf,from,to)=>{const ps=await pausedLoad();if(ps[from+'|'+pf]||ps[to+'|'+pf]){delete ps[from+'|'+pf];delete ps[to+'|'+pf];await pausedSave(ps)}
+  if(await relay.moveOwner(from,to,pf).catch(()=>false))syncNotifyTool().catch(()=>{});
+  const nf=path.join(DATA,'channel-notes.json'),notes=await readFile(nf,'utf8').then(JSON.parse).catch(()=>null);if(notes?.[from+'|'+pf]){notes[to+'|'+pf]=notes[from+'|'+pf];delete notes[from+'|'+pf];await writeJsonAtomic(nf,notes)}
+  platCache.clear();attention.t=0},
+ notify:(title,detail)=>bottlenecks.event('channel',title,detail).catch(()=>{})});
 const access=createAccess({HERMES_HOME,DATA,listAgents:()=>listAgents(),readConfig,setKey,hermes:hcmd,editEnv,names:a=>NAMES[a]||(a==='default'?'aqeelOS':a),writeJson:(f,v)=>writeJsonAtomic(f,v),restart:why=>restartGateway(why).catch(()=>{}),
  own:{n8n:{owner:'aqeelOS',note:'every agent has its own n8n user',grant:a=>n8n.ensure(a)}},
  dash:(method,p)=>fetch(DASH.origin+p,{method,headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(r=>r.json().catch(()=>({})))});
@@ -596,7 +605,10 @@ async function startSignin(agent,tool){const k=agent+'|'+tool,prev=signinFlows.g
  if(j.flow_id){signinFlows.set(k,j.flow_id);saveFlows();if(j.authorization_url)linkSeen.set(j.flow_id+'|'+j.authorization_url,Date.now())}if(!r.ok&&!j.error)j.error=j.detail||('HTTP '+r.status);return j}
 const esc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const keyOk=new Set();   // agents checked for their gateway key
-const platCache=new Map();
+/* The channel lists, per agent. clear()/delete() also move a stamp on, so a slow refresh that started before a change
+   never stores what it read from before it (platformsFresh only keeps its answer while the stamp is the same). */
+class PlatCache extends Map{all=0;g=new Map();clear(){this.all++;return super.clear()}delete(k){this.g.set(k,(this.g.get(k)||0)+1);return super.delete(k)}stamp(k){return this.all+':'+(this.g.get(k)||0)}}
+const platCache=new PlatCache();
 /* The engine reports WhatsApp on any agent but the main one as "not set up", even when linked and connected (its
    check needs env keys WhatsApp doesn't have). The truth: switched on + a saved login (creds.json) = set up, and the
    live state the gateway records for "<agent>:whatsapp". */
@@ -677,8 +689,8 @@ async function channelAccounts(agent,v){await trueStates(agent,v).catch(()=>{});
 function platformsCached(agent){const k=agent||'default';const c=platCache.get(k);if(c&&(c.p||Date.now()-c.t<15000))return c.p||Promise.resolve(c.v);
  if(c?.v&&Date.now()-c.t<600000){if(!c.r){c.r=1;platformsFresh(k).catch(()=>{})}return Promise.resolve(c.v)}
  return platformsFresh(k)}
-function platformsFresh(k){const old=platCache.get(k);
- const p=fetch(DASH.origin+'/api/messaging/platforms?profile='+encodeURIComponent(k),{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(async r=>{const v=await r.json();if(!r.ok)throw Object.assign(new Error(v.detail||'HTTP '+r.status),{status:r.status});await trueWhatsApp(k,v);await channelAccounts(k,v).catch(()=>{});platCache.set(k,{t:Date.now(),v});return v}).catch(e=>{if(old?.v)platCache.set(k,{t:Date.now()-10000,v:old.v});else platCache.delete(k);throw e});
+function platformsFresh(k){const old=platCache.get(k),at=platCache.stamp(k);
+ const p=fetch(DASH.origin+'/api/messaging/platforms?profile='+encodeURIComponent(k),{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(async r=>{const v=await r.json();if(!r.ok)throw Object.assign(new Error(v.detail||'HTTP '+r.status),{status:r.status});await trueWhatsApp(k,v);await channelAccounts(k,v).catch(()=>{});if(platCache.stamp(k)===at)platCache.set(k,{t:Date.now(),v});return v}).catch(e=>{if(platCache.stamp(k)===at){if(old?.v)platCache.set(k,{t:Date.now()-10000,v:old.v});else platCache.delete(k)}throw e});
  if(!old?.v)platCache.set(k,{p});return p}
 /* An agent's skills: the engine reads every skill folder on each ask (1 to 3 s, longer when several agents are asked
    at once), and Skills asks every agent. The last answer is used while the skill folders and config.yaml are unchanged
@@ -702,10 +714,11 @@ async function finishWhatsAppLink(agent,pid,b){const h={'x-hermes-session-token'
  if(st.status!=='connected')throw Object.assign(new Error('WhatsApp is not linked yet. Scan the code first.'),{status:409});
  await fetch(DASH.origin+'/api/messaging/whatsapp/onboarding/'+encodeURIComponent(pid),{method:'DELETE',headers:h}).catch(()=>{});
  await stopBridges(agent,{pairOnly:true});
- const env={WHATSAPP_ENABLED:'true',WHATSAPP_MODE:String(b.mode||st.mode||'bot'),WHATSAPP_DM_POLICY:'pairing'};if(b.allowed_users)env.WHATSAPP_ALLOWED_USERS=String(b.allowed_users);
+ // who may write stays as chosen: "ask first" (pairing) only when no policy was ever saved
+ const env={WHATSAPP_ENABLED:'true',WHATSAPP_MODE:String(b.mode||st.mode||'bot')};if(!(await envOf(agent)).WHATSAPP_DM_POLICY)env.WHATSAPP_DM_POLICY='pairing';if(b.allowed_users)env.WHATSAPP_ALLOWED_USERS=String(b.allowed_users);
  const r=await fetch(DASH.origin+'/api/messaging/platforms/whatsapp'+pq,{method:'PUT',headers:h,body:JSON.stringify({enabled:true,env,profile:agent})});const j=await r.json().catch(()=>({}));
  if(!r.ok)throw new Error(j.detail||j.error||'Could not switch WhatsApp on.');
- platCache.clear();const waiting=await waitingNow();
+ platCache.clear();waPrepOff.delete(agent);const waiting=await waitingNow();
  if(!j.hot_served)restartGateway('WhatsApp linked on '+agent).catch(()=>{});
  console.log('whatsapp linked on',agent,st.account_phone?'(+'+st.account_phone+')':'',j.hot_served?'· picked up live':'· engine restarting');
  setTimeout(()=>syncNotifyTool().catch(()=>{}),20000);
@@ -715,9 +728,11 @@ async function stopBridges(agent,{pairOnly=false}={}){const dir=path.join(agent=
  const {execFile}=await import('node:child_process');const out=await new Promise(r=>execFile('ps',['-eo','pid=,args='],(e,o)=>r(String(o||''))));
  const pids=out.split('\n').filter(l=>/whatsapp-bridge\/bridge\.js/.test(l)&&l.includes('--session '+dir)&&(!pairOnly||l.includes('--pair-only'))).map(l=>+l.trim().split(/\s+/)[0]).filter(Boolean);
  for(const pid of pids){try{process.kill(pid,'SIGTERM')}catch{}}if(pids.length)await new Promise(r=>setTimeout(r,1500));for(const pid of pids){try{process.kill(pid,'SIGKILL')}catch{}}return pids.length}
-/* Has this agent's WhatsApp setting changed since its bridge started? The bridge reads WHATSAPP_* from the agent's .env once, at start.
-   A bridge process we have not seen before is trusted when the file has not changed since it started; otherwise the change is
-   pending until the bridge restarts (Reconnect). Remembered per agent in bridge-env.json: the process and what the file said then. */
+/* Has this agent's WhatsApp setting changed since its bridge started? The bridge reads WHATSAPP_* once, at start.
+   Most exact (Linux): the running bridge's own environment (/proc/<pid>/environ) against the .env now. Otherwise a bridge
+   process seen for the first time takes the WHATSAPP_* lines as they are now as its baseline (other .env writes, such as a
+   Slack or key sync, never count), and only a later change to those lines is pending until it restarts (Reconnect).
+   Remembered per agent in bridge-env.json: the process and the hash of its WHATSAPP_* settings (wa). */
 const BRIDGE_ENV=path.join(DATA,'bridge-env.json');let bridgeEnv=null;
 async function bridgeInfo(agent){const dir=path.join(agent==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',agent),'platforms','whatsapp','session');
  const {execFile}=await import('node:child_process');const out=await new Promise(r=>execFile('ps',['-eo','pid=,etime=,args='],(e,o)=>r(String(o||''))));
@@ -725,13 +740,17 @@ async function bridgeInfo(agent){const dir=path.join(agent==='default'?HERMES_HO
  return m?{pid:+m[1],start:Date.now()-((+(m[2]||0)*24+ +(m[3]||0))*60+ +m[4])*60000-(+m[5])*1000}:null}
 async function waSettingsPending(agent){try{
  const info=await bridgeInfo(agent);if(!info)return false;
- const file=path.join(agent==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',agent),'.env');const st=await stat(file).catch(()=>null);if(!st)return false;
- const lines=(await readFile(file,'utf8').catch(()=>'')).split('\n').filter(l=>/^\s*WHATSAPP_/.test(l)).map(l=>l.trim()).sort().join('\n');
- const hash=createHash('sha1').update(lines).digest('hex');
+ const file=path.join(agent==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',agent),'.env');const text=await readFile(file,'utf8').catch(()=>null);if(text==null)return false;
+ const now=Object.fromEntries(Object.entries(envParse(text)).filter(([k])=>k.startsWith('WHATSAPP_')));
+ // what the bridge really started with: a saved setting it lacks or holds differently is pending (keys only it has are engine defaults)
+ const envi=await readFile('/proc/'+info.pid+'/environ','utf8').catch(()=>null);
+ if(envi){const run={};for(const kv of envi.split('\0')){const i=kv.indexOf('=');if(i>0&&kv.startsWith('WHATSAPP_'))run[kv.slice(0,i)]=kv.slice(i+1)}
+  if(Object.keys(run).length)return Object.entries(now).some(([k,v])=>run[k]!==v)}
+ const hash=createHash('sha1').update(Object.keys(now).sort().map(k=>k+'='+now[k]).join('\n')).digest('hex');
  bridgeEnv||=await readFile(BRIDGE_ENV,'utf8').then(JSON.parse).catch(()=>({}));const s=bridgeEnv[agent];
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(BRIDGE_ENV+'.tmp',JSON.stringify(bridgeEnv));await rename(BRIDGE_ENV+'.tmp',BRIDGE_ENV)};
- if(!s||s.pid!==info.pid||Math.abs(s.start-info.start)>5000){const clean=st.mtimeMs<=info.start+2000;bridgeEnv[agent]={pid:info.pid,start:info.start,hash:clean?hash:null};await save();return !clean}
- return s.hash===null||s.hash!==hash}catch{return false}}
+ if(!s||s.pid!==info.pid||Math.abs(s.start-info.start)>5000||!s.wa){bridgeEnv[agent]={pid:info.pid,start:info.start,wa:hash};await save();return false}   // first sight (or a record from before this rule): its baseline
+ return s.wa!==hash}catch{return false}}
 /* Channel checks. "Check connection" asks the engine fresh and, for WhatsApp, also looks for its running bridge.
    Every 2 hours (live app) every agent's channels are checked the same way; a logged-out or failing one is listed
    in /ui/channels/attention, which the app shows as a pop-up with Link again / Remove. */
@@ -758,12 +777,17 @@ if(PORT===4400){setTimeout(()=>channelAttention(true).catch(()=>{}),90e3);setInt
    channels live inside the engine, so those are only reported (the pop-up and the bell say so). A number is tried at
    most 3 times in 6 hours; after that it waits for a person. Once a day every WhatsApp login is backed up (last 3 kept),
    so a damaged login can be put back instead of linking again. */
-const waTries=new Map(),waLinking=new Map(),reconnectAsked=new Map();   // agent → when someone last started linking its WhatsApp
+const waTries=new Map(),waLinking=new Map(),reconnectAsked=new Map(),waPrepOff=new Map();   // waPrepOff: agent → the login set aside by a prepare that switched WhatsApp off   // agent → when someone last started linking its WhatsApp
 async function reconnectOne(ag,pf){const h={'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'};
  // a paused channel stays off: switching it on would answer while the page still says Paused
  if((await pausedLoad())[ag+'|'+pf])throw new Error('This channel is paused. Pick who answers it under Owned by first.');
- const put=on=>fetch(DASH.origin+'/api/messaging/platforms/'+pf+'?profile='+encodeURIComponent(ag),{method:'PUT',headers:h,body:JSON.stringify({enabled:on,env:{},profile:ag})}).then(r=>r.json()).catch(()=>({}));
- await put(false);if(pf==='whatsapp')await stopBridges(ag).catch(()=>{});await new Promise(r=>setTimeout(r,2500));const j=await put(true);platCache.delete(ag);attention.t=0;return j}
+ // the engine's answer counts, not just that it answered: a refused off or on is an error, not "reconnected"
+ const put=on=>fetch(DASH.origin+'/api/messaging/platforms/'+pf+'?profile='+encodeURIComponent(ag),{method:'PUT',headers:h,body:JSON.stringify({enabled:on,env:{},profile:ag}),signal:AbortSignal.timeout(30000)}).then(async r=>({ok:r.ok,j:await r.json().catch(()=>({}))}),e=>({ok:false,j:{detail:e.message}}));
+ const why=x=>x.j.detail||x.j.error||'no answer';
+ const off=await put(false);if(!off.ok)throw new Error('The engine did not switch '+pf+' off ('+why(off)+'), so nothing changed.');
+ if(pf==='whatsapp')await stopBridges(ag).catch(()=>{});await new Promise(r=>setTimeout(r,2500));
+ let on=await put(true);if(!on.ok){await new Promise(r=>setTimeout(r,3000));on=await put(true)}platCache.delete(ag);attention.t=0;   // the on is tried twice
+ if(!on.ok)throw new Error(pf+' was switched off, but the engine did not switch it back on ('+why(on)+'). Press Reconnect again.');return on.j}
 async function waGuard(){if(gwRestarting)return;
  for(const a of await listAllProfiles()){if(a==='default')continue;
   const sess=path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'platforms','whatsapp','session');if(!await stat(path.join(sess,'creds.json')).catch(()=>null))continue;
@@ -1530,7 +1554,7 @@ const server=createServer(async(req,res)=>{
     try{return send(res,200,await sharing.duplicate(String(b.kind||''),ag,String(b.name||''),String(b.to||'')))}catch(e){return send(res,400,{error:e.message})}}
    if(p==='/ui/share/rename-mcp'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can rename MCP tools.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{return send(res,200,await sharing.renameMcp(String(b.agent||'default'),String(b.from||''),String(b.to||'')))}catch(e){return send(res,400,{error:e.message})}}
    // channels across all agents (admins), and handing one to another agent
-   if(p==='/ui/channels'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can see every channel.'});return send(res,200,{channels:await channels.list()})}
+   if(p==='/ui/channels'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can see every channel.'});return send(res,200,await channels.list())}
    // WhatsApp: clear a login that WhatsApp has ended, so a fresh QR can link the phone again
    if(p==='/ui/secrets/give'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,20000))}catch{}const base=String(b.agent||'default').split('--')[0];
     if(!(await listAgents()).includes(base))return send(res,400,{error:'Unknown agent'});
@@ -1588,12 +1612,16 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/channels/whatsapp/remove'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||'default');
     if(!(await listAllProfiles()).includes(ag))return send(res,400,{error:'Unknown agent'});
     if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag.split('--')[0]+'/soul','PUT',new URLSearchParams(),ag.split('--')[0])!==null)return send(res,403,{error:'You can only change agents you may edit.'});
-    if(ag.includes('--')){await links.remove(ag).catch(()=>{});platCache.clear();attention.t=0;return send(res,200,{ok:true,removed:'extra'})}
+    // a paused one goes too: its Paused row has nothing left to resume
+    const unpause=async()=>{const ps=await pausedLoad();if(ps[ag+'|whatsapp']){delete ps[ag+'|whatsapp'];await pausedSave(ps)}};
+    if(ag.includes('--')){await links.remove(ag).catch(()=>{});await unpause();platCache.clear();attention.t=0;return send(res,200,{ok:true,removed:'extra'})}
+    // switched off first, and only when the engine says so is the login set aside
+    const h={'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'};
+    const r=await fetch(DASH.origin+'/api/messaging/platforms/whatsapp?profile='+encodeURIComponent(ag),{method:'PUT',headers:h,body:JSON.stringify({enabled:false,env:{WHATSAPP_ENABLED:'false'},profile:ag})}).catch(e=>({ok:false,json:async()=>({detail:e.message})}));const j=await r.json().catch(()=>({}));
+    if(!r.ok)return send(res,400,{error:j.detail||j.error||'The engine did not accept it, so nothing was removed.'});
     await stopBridges(ag);const dir=path.join(ag==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',ag),'platforms','whatsapp','session');
     if(await stat(dir).then(()=>true,()=>false))await rename(dir,dir+'.unlinked-'+new Date().toISOString().replace(/[:.]/g,'-')).catch(()=>{});
-    const h={'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'};
-    const r=await fetch(DASH.origin+'/api/messaging/platforms/whatsapp?profile='+encodeURIComponent(ag),{method:'PUT',headers:h,body:JSON.stringify({enabled:false,env:{WHATSAPP_ENABLED:'false'},profile:ag})}).then(r=>r.json()).catch(()=>({}));
-    platCache.clear();attention.t=0;if(!r.hot_served&&ag==='default')restartGateway('WhatsApp removed from '+ag).catch(()=>{});console.log('whatsapp removed from',ag);return send(res,200,{ok:true})}
+    await unpause();platCache.clear();attention.t=0;if(!j.hot_served&&ag==='default')restartGateway('WhatsApp removed from '+ag).catch(()=>{});console.log('whatsapp removed from',ag);return send(res,200,{ok:true})}
    if((p==='/ui/channels/whatsapp/prepare'||p==='/ui/channels/whatsapp-reset')&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}waLinking.set(String(b.agent||'default'),Date.now());
     const ag=String(b.agent||'default');if(!(await listAllProfiles()).includes(ag))return send(res,400,{error:'Unknown agent'});
     if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag.split('--')[0]+'/soul','PUT',new URLSearchParams(),ag.split('--')[0])!==null)return send(res,403,{error:'You can only link channels of agents you may edit.'});
@@ -1601,14 +1629,18 @@ const server=createServer(async(req,res)=>{
     platCache.delete(ag);const pl=await platformsCached(ag).catch(()=>null);const w=(pl?.platforms||pl||[]).find?.(x=>x.id==='whatsapp');
     // a working link is never thrown away by accident: replacing it (another phone) has to be asked for
     if(w?.state==='connected'&&!b.replace)return send(res,409,{error:'This WhatsApp is connected'+(w.account?.phone?' ('+w.account.phone+')':'')+'. To link a different phone, choose “Link a different phone”.',connected:true,account:w.account||null});
-    // the engine still retrying the old login would fight the new QR on the same files: switch it off first
-    if(w&&/retrying|reconnecting|connecting|starting/.test(w.state||'')){const h={'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'};
-     const r=await fetch(DASH.origin+'/api/messaging/platforms/whatsapp?profile='+encodeURIComponent(ag),{method:'PUT',headers:h,body:JSON.stringify({enabled:false,env:{},profile:ag})}).then(r=>r.json()).catch(()=>({}));
-     if(!r.hot_served)await restartGateway('stopping WhatsApp retries on '+ag+' before linking')}
+    // a login that is only starting or reconnecting is not set aside unless the person asked to replace it
+    const busy=w&&/retrying|reconnecting|connecting|starting/.test(w.state||'');
+    if(busy&&!w.needs_link&&!b.replace)return send(res,409,{error:'This WhatsApp is reconnecting with its saved login'+(w.account?.phone?' ('+w.account.phone+')':'')+'. Give it a minute. To link a different phone, choose “Link a different phone”.',connected:true,account:w.account||null});
+    // the engine still retrying the old login would fight the new QR on the same files: switch it off first (and back on if the QR is not used)
+    let switchedOff=false;if(busy){const h={'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'};
+     const r=await fetch(DASH.origin+'/api/messaging/platforms/whatsapp?profile='+encodeURIComponent(ag),{method:'PUT',headers:h,body:JSON.stringify({enabled:false,env:{},profile:ag})}).catch(()=>null);const j=await r?.json().catch(()=>({}))||{};
+     if(r?.ok){switchedOff=true;if(!j.hot_served)await restartGateway('stopping WhatsApp retries on '+ag+' before linking')}}
     const stopped=await stopBridges(ag);
     let kept=null;if(await stat(dir).then(()=>true,()=>false)){const keep=dir+'.unlinked-'+new Date().toISOString().replace(/[:.]/g,'-');kept=path.basename(keep);await rename(dir,keep).catch(async()=>{const {rm}=await import('node:fs/promises');await rm(dir,{recursive:true,force:true})});
      const parent=path.dirname(dir);const old=(await readdir(parent).catch(()=>[])).filter(n=>n.startsWith('session.unlinked-')).sort().reverse().slice(2);   // keep the last two ended logins only
      const {rm}=await import('node:fs/promises');for(const o of old)await rm(path.join(parent,o),{recursive:true,force:true}).catch(()=>{})}
+    if(switchedOff)waPrepOff.set(ag,kept||'');else waPrepOff.delete(ag);
     platCache.clear();console.log('whatsapp: cleared the ended login of',ag,stopped?'(stopped '+stopped+' bridge)':'');return send(res,200,{ok:true,was:w?.account||null,kept})}
    // the QR window closed before a phone was linked: the ended login goes back, so the channel still shows (Logged out · Link again)
    if(p==='/ui/channels/whatsapp/restore'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||'default'),kept=String(b.kept||'');
@@ -1616,14 +1648,18 @@ const server=createServer(async(req,res)=>{
     if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag.split('--')[0]+'/soul','PUT',new URLSearchParams(),ag.split('--')[0])!==null)return send(res,403,{error:'Not your agent.'});
     const dir=path.join(ag==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',ag),'platforms','whatsapp','session');
     const keptDir=path.join(path.dirname(dir),kept);if(!await stat(keptDir).then(x=>x.isDirectory(),()=>false))return send(res,200,{ok:true,restored:false});
+    // prepare switched it off to make room for the QR: the old login goes back on as it was
+    const backOn=async()=>{if(waPrepOff.get(ag)!==kept)return;waPrepOff.delete(ag);const h={'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'};
+     const r=await fetch(DASH.origin+'/api/messaging/platforms/whatsapp?profile='+encodeURIComponent(ag),{method:'PUT',headers:h,body:JSON.stringify({enabled:true,env:{},profile:ag})}).catch(()=>null);const j=await r?.json().catch(()=>({}))||{};
+     if(!r?.ok)console.warn('whatsapp: could not switch',ag,'back on after a cancelled link:',j.detail||j.error||'no answer');else if(!j.hot_served)restartGateway('WhatsApp back on '+ag+' after a cancelled link').catch(()=>{})};
     // a new phone got linked: kept unless the person cancelled after scanning (force), then that login is set aside (never deleted)
     // and the old one goes back, with every bridge on it stopped first so nothing keeps writing to it
     if(await stat(path.join(dir,'creds.json')).then(()=>true,()=>false)){if(b.force!==true)return send(res,200,{ok:true,restored:false});
      await stopBridges(ag);const aside=dir+'.unlinked-'+new Date().toISOString().replace(/[:.]/g,'-')+'-cancelled';
      try{await rename(dir,aside)}catch(e){return send(res,500,{error:'Could not set the new login aside: '+e.message})}
      try{await rename(keptDir,dir)}catch(e){await rename(aside,dir).catch(()=>{});return send(res,500,{error:'Could not put the old login back: '+e.message})}
-     platCache.clear();attention.t=0;console.log('whatsapp: cancelled after scanning on',ag,'- new login set aside, old one back');return send(res,200,{ok:true,restored:true,setAside:path.basename(aside)})}
-    await stopBridges(ag,{pairOnly:true});const {rm}=await import('node:fs/promises');await rm(dir,{recursive:true,force:true});await rename(keptDir,dir).catch(()=>{});platCache.clear();return send(res,200,{ok:true,restored:true})}
+     await backOn();platCache.clear();attention.t=0;console.log('whatsapp: cancelled after scanning on',ag,'- new login set aside, old one back');return send(res,200,{ok:true,restored:true,setAside:path.basename(aside)})}
+    await stopBridges(ag,{pairOnly:true});const {rm}=await import('node:fs/promises');await rm(dir,{recursive:true,force:true});await rename(keptDir,dir).catch(()=>{});await backOn();platCache.clear();return send(res,200,{ok:true,restored:true})}
    if(p==='/ui/channels/shares'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can share channels.'});
     if(req.method==='GET'){const sh=await relay.shares();return send(res,200,{shares:sh})}
     if(req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const v=await relay.setShare(String(b.owner||''),String(b.platform||''),b);syncNotifyTool().catch(e=>console.warn('notify tool',e.message));return send(res,200,{share:v})}}
@@ -1655,15 +1691,13 @@ const server=createServer(async(req,res)=>{
     const ag=String(b.agent||''),pf=String(b.platform||'');if(!(await listAllProfiles()).includes(ag)||!/^[a-z0-9_]{1,40}$/.test(pf))return send(res,400,{error:'Unknown channel'});
     if((await pausedLoad())[ag+'|'+pf])return send(res,409,{error:'This channel is paused. Pick who answers it under Owned by first.'});
     if(ag==='default'){restartGateway('reconnect '+pf+' (main agent)',{bridges:pf==='whatsapp'}).catch(()=>{});return send(res,200,{ok:true,restarting:true,waiting:await waitingNow()})}
-    const h={'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'};const put=on=>fetch(DASH.origin+'/api/messaging/platforms/'+pf+'?profile='+encodeURIComponent(ag),{method:'PUT',headers:h,body:JSON.stringify({enabled:on,env:{},profile:ag})}).then(r=>r.json()).catch(()=>({}));
-    await put(false);if(pf==='whatsapp')await stopBridges(ag).catch(()=>{});await new Promise(r=>setTimeout(r,2500));const j=await put(true);platCache.clear();attention.t=0;
+    let j;try{j=await reconnectOne(ag,pf)}catch(e){platCache.clear();return send(res,502,{error:e.message})}platCache.clear();
     console.log('reconnected',pf,'on',ag,j.hot_served?'(live)':'');return send(res,200,{ok:true,restarting:false})}
    if(p==='/ui/channels/pause'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can pause channels.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
     const ag=String(b.agent||''),pf=String(b.platform||'');if(!(await listAllProfiles()).includes(ag)||!/^[a-z0-9_]{1,40}$/.test(pf)||['api_server','webhook'].includes(pf))return send(res,400,{error:'Unknown channel'});
     try{return send(res,200,await setChannelOn(ag,pf,b.on===true))}catch(e){return send(res,400,{error:e.message})}}
    if(p==='/ui/channels/move'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can move channels.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
-    try{const pf=String(b.platform||''),from=String(b.from||''),to=String(b.to||'');const r=await channels.move(pf,from,to);
-     const ps=await pausedLoad();if(ps[from+'|'+pf]||ps[to+'|'+pf]){delete ps[from+'|'+pf];delete ps[to+'|'+pf];await pausedSave(ps)}return send(res,200,r)}catch(e){return send(res,400,{error:e.message})}}
+    try{return send(res,200,await channels.move(String(b.platform||''),String(b.from||''),String(b.to||'')))}catch(e){return send(res,400,{error:e.message})}}   // the pause, sharing and note follow in channels' moved hook
    // QR codes (WhatsApp linking…): drawn here with the qrcode library that ships with the engine
    if(p==='/ui/qr'&&req.method==='GET'){const d=String(url.searchParams.get('d')||'');if(!d||d.length>2000)return send(res,400,'bad');
     try{const mod=await import(path.join(HERMES_HOME,'hermes-agent','node_modules','qrcode','lib','index.js'));const QR=mod.default||mod;const svg=await QR.toString(d,{type:'svg',margin:1,errorCorrectionLevel:'M',color:{dark:'#0b0c10',light:'#ffffff'}});

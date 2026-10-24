@@ -39,6 +39,11 @@ export function createRelay({DATA,DASH,TOKEN,HERMES_HOME,SECRET,listAgents,links
  async function shares(){await load();return db.shares}
  async function setShare(owner,platform,b){await load();const k=key(owner,platform);const agents=await listAgents();
   db.shares[k]={senders:(Array.isArray(b.senders)?b.senders:[]).filter(a=>agents.includes(a)&&a!==owner),chat:String(b.chat||'').slice(0,80)};if(!db.shares[k].senders.length&&!db.shares[k].chat)delete db.shares[k];await save();return db.shares[k]||null}
+ // a channel moved to another agent: who may send through it, and schedules relayed through it, go along with it
+ async function moveOwner(from,to,platform){await load();const a=key(from,platform),b=key(to,platform);let ch=false;
+  if(db.shares[a]){const v=db.shares[a];delete db.shares[a];v.senders=v.senders.filter(x=>x!==to);if(v.senders.length||v.chat)db.shares[b]=v;ch=true}   // the new owner sends on its own channel anyway
+  for(const t of Object.values(db.jobs))if(t.owner===from&&t.platform===platform){t.owner=to;ch=true}
+  if(ch)await save();return ch}
  /* every channel an agent can message the person on, each with a short ID it can be told to use:
     its own (whatsapp), its extra connections (whatsapp-2, or the name you gave it: shop-whatsapp),
     and other agents' channels shared with it (whatsapp@ads-manager) */
@@ -100,5 +105,5 @@ export function createRelay({DATA,DASH,TOKEN,HERMES_HOME,SECRET,listAgents,links
    if(!c)return reply({content:[{type:'text',text:'No channel matches. Available IDs: '+(ch.map(c=>c.id).join(', ')||'none')}],isError:true});
    try{await sendAs(agent,c.owner,c.platform,a.text,null,{toYou:!!c.toYou});return reply({content:[{type:'text',text:'Sent on '+c.name+' ('+c.id+').'}]})}catch(e){return reply({content:[{type:'text',text:e.message.startsWith('Not ')?e.message:'Not sent: '+e.message}],isError:true})}}
   return {status:200,body:{jsonrpc:'2.0',id:msg.id,error:{code:-32601,message:'Method not found'}}}}
- return {sending:()=>sending,recipients,send,sendAs,shares,setShare,setJobRelay,jobRelays,mcp,sig,channelsFor};
+ return {sending:()=>sending,recipients,send,sendAs,shares,setShare,moveOwner,setJobRelay,jobRelays,mcp,sig,channelsFor};
 }
