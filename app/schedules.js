@@ -233,7 +233,7 @@ ACT['sk-fold']=a=>{const sec=a.closest('.sched-folder');const s=!sec.classList.c
 const gaccWhat=sc=>[...new Set(sc.map(s=>/gmail/.test(s)?'Gmail':/drive/.test(s)?'Drive':/calendar/.test(s)?'Calendar':/spreadsheets/.test(s)?'Sheets':/documents/.test(s)?'Docs':/presentations/.test(s)?'Slides':/contacts/.test(s)?'Contacts':'').filter(Boolean))].join(', ');
 const gaccTitle=x=>x.label||(x.name?pretty(x.name):'Main Google account');
 {const base=PAGES.mcp;PAGES.mcp=async(p,el)=>{await base(p,el);if((S.tab.mcp||'Your servers')!=='Your servers')return;const ag=viewing();
- let d;try{d=await UI('/ui/google-accounts?agent='+encodeURIComponent(ag))}catch{return}const l=d.accounts||[];Pages._gacc=l;
+ let d;try{d=await UI('/ui/google-accounts?agent='+encodeURIComponent(ag))}catch{return}const l=d.accounts||[];Pages._gacc=l;(Pages._gaccBy||={})[ag]=l;
  const edit=S.me?.admin!==false||['owner','edit'].includes(S.me?.agents?.[ag]);   // an agent's owner may name its accounts too
  const panel=document.createElement('div');panel.className='panel card gacc-panel';panel.style.marginBottom='16px';
  panel.innerHTML=`<h2 class="h-row">Google accounts<span class="chip">${l.length}</span></h2><p class="sub">${l.length?`${esc(ident(ag).name)} can use ${l.length===1?'this account':'these accounts'} for Gmail, Drive, Sheets, Docs and Calendar. Give each a name and say what it is for, and ${esc(ident(ag).name)} picks the right one when you ask (“send it from my Elkiya account”).`:`${esc(ident(ag).name)} has no Google account yet. Connect one to let it read and send Gmail, and work in Drive, Sheets, Docs and Calendar.`}</p>
@@ -242,7 +242,8 @@ const gaccTitle=x=>x.label||(x.name?pretty(x.name):'Main Google account');
    <div class="act">${edit?`<button class="ghost icon" data-act="gacc-edit" data-i="${i}" title="Name and note" aria-label="Name and note">${icon('edit',16)}</button>`:''}${S.me?.admin!==false?`<button class="ghost icon" data-act="gacc-del" data-n="${esc(x.name)}" data-e="${esc(x.email||gaccTitle(x))}" aria-label="Remove" title="Remove" style="color:var(--bad)">${icon('trash',15)}</button>`:''}</div></div>`).join('')}
   <button data-act="gacc-add" style="margin-top:10px">${icon('plus',15)}Connect ${l.length?'another':'a'} Google account</button>`;
  const t=el.querySelector('.tabs,[role=tablist]');t?t.after(panel):el.prepend(panel)}}
-ACT['gacc-edit']=a=>{const x=(Pages._gacc||[])[+a.dataset.i];if(!x)return;const ag=viewing();
+// data-agent (an All agents row): that agent's account, found by its file name; else the row's place on this page
+ACT['gacc-edit']=a=>{const ag=a.dataset.agent||viewing();const x=a.dataset.agent?(Pages._gaccBy?.[ag]||[]).find(y=>y.name===a.dataset.n):(Pages._gacc||[])[+a.dataset.i];if(!x)return;
  const d=drawer('Name and note',`<label>Name</label><input id="gaName" maxlength="60" placeholder="${esc(x.name?pretty(x.name):'Main Google account')}" value="${esc(x.label)}">
   <p class="hint">What you call it, for example “Elkiya work” or “Personal”.${x.email?' It is '+esc(x.email)+'.':''}</p>
   <label>What it is for</label><textarea id="gaNote" rows="3" maxlength="400" placeholder="For example: client emails and invoices for Elkiya. Use it for anything about Dagadu.">${esc(x.note)}</textarea>
@@ -250,8 +251,8 @@ ACT['gacc-edit']=a=>{const x=(Pages._gacc||[])[+a.dataset.i];if(!x)return;const 
   `<button class="ghost" data-act="close">Cancel</button><button class="primary" id="gaSave">Save</button>`,{size:'sm'});
  d.querySelector('#gaSave').onclick=async()=>{try{await put(UI,'/ui/google-accounts?agent='+encodeURIComponent(ag),{name:x.name,label:$('#gaName').value,note:$('#gaNote').value});closeLayers();toast('Saved. '+ident(ag).name+' goes by it from the next message.');reload()}catch(e){fail(e)}}};
 ACT['gacc-add']=()=>{if(viewing()!==(S.profile||'default'))switchAgent(viewing());go('/chat');setTimeout(()=>{const ta=$('#msg');if(ta){ta.value='Connect another Google account for me (Gmail, Drive, Sheets, Docs, Calendar). Give it a short name, send me the sign-in link, and tell me when it is connected.';ta.focus()}},400)};
-ACT['gacc-del']=async a=>{if(!await confirmBox('Remove '+a.dataset.e+'?',esc(ident(viewing()).name)+' can no longer use this Google account until it is connected again.','Remove'))return;
- try{await del(UI,'/ui/google-accounts?agent='+encodeURIComponent(viewing())+'&name='+encodeURIComponent(a.dataset.n));toast('Removed');reload()}catch(e){fail(e)}};
+ACT['gacc-del']=async a=>{const ag=a.dataset.agent||viewing(),who=ident(ag).name;if(!await confirmBox('Remove '+a.dataset.e+' from '+who+'?',who+' can no longer use this Google account until it is connected again.','Remove'))return;
+ try{await del(UI,'/ui/google-accounts?agent='+encodeURIComponent(ag)+'&name='+encodeURIComponent(a.dataset.n));toast(a.dataset.e+' removed from '+who);reload()}catch(e){fail(e)}};
 
 /* ---------- System › Host: who can reach the AI box over SSH (a teammate's laptop, Codex or Cursor on a PC…) ---------- */
 {const base=PAGES.host;PAGES.host=async(p,el)=>{await base(p,el);if(S.me?.admin===false)return;let d;try{d=await UI('/ui/ssh-keys')}catch{return}

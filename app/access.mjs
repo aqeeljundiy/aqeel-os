@@ -59,8 +59,8 @@ export function createAccess({HERMES_HOME,DATA,listAgents,readConfig,setKey,herm
    if(!users.some(seen))continue;const x=per[owner][id];const o=kind==='mcp'&&own[id];
    // same name on two agents but a different address or sign-in: say so rather than pass them off as one
    const mixed=kind==='mcp'&&!o&&users.some(a=>per[a][id].detail!==x.detail||(per[a][id].fp&&x.fp&&per[a][id].fp!==x.fp));
-   items.push({kind,id,label:x.label,detail:x.detail,mixed,bot:!!x.bot,owner,ownerName:o?o.owner:names(owner),own:!!o,ownNote:o?.note||'',
-    users:users.filter(seen).map(a=>({id:a,name:names(a),signed:per[a][id].signed})),ownerSigned:per[owner][id].signed})}
+   items.push({kind,id,label:x.label,detail:x.detail,mixed,bot:!!x.bot,owner,ownerName:o?o.owner:names(owner),own:!!o,ownNote:o?.note||'',oauth:!!x.oauth,off:!!x.off,   // off: switched off on the owner (the row says so)
+    users:users.filter(seen).map(a=>({id:a,name:names(a),signed:per[a][id].signed,off:!!per[a][id].off})),ownerSigned:per[owner][id].signed})}
   return {agents:agents.filter(seen).map(a=>({id:a,name:names(a)})),items:items.sort((p,q)=>p.label.localeCompare(q.label))}}
 
  async function find(kind,id){const l=await list(kind);const it=l.items.find(x=>x.id===id);if(!it)throw new Error('That connection is gone. Reload the page.');return it}

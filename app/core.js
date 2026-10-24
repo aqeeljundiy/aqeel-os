@@ -82,6 +82,8 @@ const agentProfile=()=>{if(S.chOverride)return S.chOverride;   // chOverride: se
 // Every dashboard call names its agent, the main one too: Hermes serves several agents from one backend
 // and refuses some writes (e.g. deleting a webhook) that don't say which.
 const withProfile=p=>{if(/[?&]profile=/.test(p))return p;return p+(p.includes('?')?'&':'?')+'profile='+encodeURIComponent(agentProfile()||'default')};
+// one agent's copy of a path (an All agents row acting on its owner); no agent: the page's own (withProfile)
+const prof=(p,a)=>a?p+(p.includes('?')?'&':'?')+'profile='+encodeURIComponent(a):p;
 const H=(p,o)=>call('/hapi',withProfile(p),o);          // Hermes dashboard API (settings, sessions, admin)
 const G=(p,o)=>call('/gapi'+(agentProfile()?'/p/'+encodeURIComponent(agentProfile()):''),p,o);          // Hermes gateway API (chat, runs)
 const post=(fn,p,body)=>fn(p,{method:'POST',body:body===undefined?{}:body});
@@ -332,6 +334,8 @@ const st=i=>`style="animation-delay:${Math.min(i,10)*30}ms"`;
 const skeleton=()=>`<div class="skel loading" role="status" aria-label="Loading"><span class="ring"></span></div>`;
 const skeletonRows=(n=4)=>`<div class="card list sk-list" style="padding:6px 22px">${Array.from({length:n},(x,i)=>`<div class="sk-item" style="--d:${i*90}ms"><span class="skel sk-ic"></span><span class="sk-lines"><span class="skel sk-l1" style="width:${[46,58,38,52,44,60][i%6]}%"></span><span class="skel sk-l2" style="width:${[72,64,80,68,76,58][i%6]}%"></span></span><span class="skel sk-end"></span></div>`).join('')}</div>`;
 function showError(el,e,retry){if(!el||e?.stale||!el.isConnected)return;el.innerHTML=`<div class="card state-box err"><b>Couldn't load this</b>${esc(e?.message||e)}<br><button data-act="reload">${icon('refresh',15)}Try again</button></div>`}
+// a part of a page that failed to load: says what, with Try again (never drawn as an empty list)
+const errLine=(what,style='')=>`<p class="err-line"${style?` style="${style}"`:''}>Couldn’t load ${esc(what)}. <button data-act="reload">Try again</button></p>`;
 const emptyBox=(title,text,btn='')=>`<div class="empty-hero"><b style="display:block;font-size:17px;margin-bottom:6px">${esc(title)}</b><span style="color:var(--ink-2)">${esc(text)}</span>${btn?`<div style="margin-top:16px">${btn}</div>`:''}</div>`;
 // Tab bars are often re-rendered on switch, so each bar remembers where its pill was and a fresh pill
 // glides from there instead of appearing in place.

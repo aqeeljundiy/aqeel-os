@@ -231,10 +231,11 @@ ACT['ppl-models']=async a=>{const u=(Pages._ppl?.users||[]).find(x=>x.id===a.dat
  if(cp.length||ca.length||cj.length){const cb=document.createElement('div');cb.innerHTML=`<h2 class="ach-cat" style="margin-top:26px">Code</h2>`+ctab('Code by person',cp,'Person')+ctab('Code by agent',ca,'Agent')+ctab('Code by project',cj,'Project');el.append(cb)}}}
 
 /* ---------- MCP: run the same server more than once (e.g. three AdsPower setups), each with its own name and settings ---------- */
-ACT['mcp-dup']=a=>{const m=(Pages._mcp||[]).find(x=>x.name===a.dataset.name);if(!m)return;
- let n=2;const base=m.name.replace(/-\d+$/,'');while((Pages._mcp||[]).some(x=>x.name===base+'-'+n))n++;
+// data-agent (an All agents row): the copy goes on that agent, from its own list
+ACT['mcp-dup']=async a=>{const ag=a.dataset.agent;let all=Pages._mcp||[];if(ag){try{all=(await H(prof('/mcp/servers',ag))).servers||[]}catch(e){return fail(e)}}const m=all.find(x=>x.name===a.dataset.name);if(!m)return;
+ let n=2;const base=m.name.replace(/-\d+$/,'');while(all.some(x=>x.name===base+'-'+n))n++;
  const env=Object.entries(m.env||{}).map(([k,v])=>k+'='+(v&&!/^\*+|•/.test(String(v))?v:'')).join('\n');
- const d=drawer('Duplicate '+m.name,`<p class="hint" style="margin:0 0 8px">A second copy of this tool under its own name. Give it different settings (for example another profile or key) so each copy does its own job.</p>
+ const d=drawer('Duplicate '+m.name+(ag?' on '+ident(ag).name:''),`<p class="hint" style="margin:0 0 8px">A second copy of this tool under its own name. Give it different settings (for example another profile or key) so each copy does its own job.</p>
   <label>Name</label><input id="mdN" value="${esc(base+'-'+n)}">
   ${m.url?`<label>Server URL</label><input id="mdU" value="${esc(m.url)}">`:`<label>Command</label><input id="mdC" value="${esc(m.command||'')}"><label>Arguments</label><input id="mdA" value="${esc((m.args||[]).join(' '))}">`}
   <label>Settings (one KEY=value per line)</label><textarea id="mdE" rows="5" placeholder="ADSPOWER_PROFILE=Shop 2">${esc(env)}</textarea>
@@ -247,7 +248,7 @@ ACT['mcp-dup']=a=>{const m=(Pages._mcp||[]).find(x=>x.name===a.dataset.name);if(
   if(m.auth)body.auth=m.auth;if(plain(m.bearer_token))body.bearer_token=m.bearer_token;
   if(m.oauth&&typeof m.oauth==='object'){body.oauth={...m.oauth};const ru=String(body.oauth.redirect_uri||''),tail='/'+encodeURIComponent(m.name);if(ru.endsWith(tail))body.oauth.redirect_uri=ru.slice(0,-tail.length)+'/'+encodeURIComponent(name)}
   const hd=Object.fromEntries(Object.entries(m.headers||{}).filter(([,v])=>plain(v)));if(Object.keys(hd).length)body.headers=hd;
-  try{await post(H,'/mcp/servers',body);closeLayers();toast(name+' added');reload()}catch(e){fail(e)}}};
+  try{await post(H,prof('/mcp/servers',ag),body);closeLayers();toast(name+' added to '+ident(ag||viewing()).name);reload()}catch(e){fail(e)}}};
 
 /* ---------- Memory: MEMORY.md and USER.md are plain files the agent reads; you can edit them ---------- */
 const memHome=()=>{const a=agentProfile()||'default';return '/home/claude/.hermes'+(a==='default'?'':'/profiles/'+a)};
@@ -402,8 +403,9 @@ async function decorateRows(el,kind,rows){if(S.me?.admin===false&&kind!=='skill'
 {const base=PAGES.mcp;PAGES.mcp=async(p,el)=>{await base(p,el);const rows=[...el.querySelectorAll('.row[data-mcp]')].map(r=>({row:r,name:r.dataset.mcp,label:ex('mcp',r.dataset.mcp)?.title||r.dataset.mcp}));if(!rows.length)return;
  decorateRows(el,'mcp',rows);
  if(S.me?.admin!==false)rows.forEach(({row,name})=>{const act=row.querySelector('.act');const b=document.createElement('button');b.className='ghost icon';b.title='Rename';b.setAttribute('aria-label','Rename');b.innerHTML=icon('edit',16);
-  b.onclick=async e=>{e.stopPropagation();const v=await promptBox('Rename '+name,'New name (letters, numbers, dots or dashes)',name,'Rename');if(!v||v===name)return;
-   try{await post(UI,'/ui/share/rename-mcp',{agent:(agentProfile()||'default'),from:name,to:v.trim()});toast('Renamed to '+v.trim()+'. It reconnects on the next message.');reload()}catch(er){fail(er)}};act.querySelector('[data-act="mcp-del"]')?.before(b)})}}
+  b.dataset.act='mcp-rename';b.dataset.name=name;act.querySelector('[data-act="mcp-del"]')?.before(b)})}}
+ACT['mcp-rename']=async a=>{const name=a.dataset.name,ag=a.dataset.agent||viewing();const v=await promptBox('Rename '+name,'New name (letters, numbers, dots or dashes)',name,'Rename');if(!v||v.trim()===name)return;
+ try{await post(UI,'/ui/share/rename-mcp',{agent:ag,from:name,to:v.trim()});toast(name+' renamed to '+v.trim()+' · it reconnects on the next message');reload()}catch(er){fail(er)}};
 // schedules: copy one to another agent from its ⋯ menu
 {const base=Pages.cronMenu;Pages.cronMenu=el=>{const id=el.dataset.id,prof=el.dataset.profile||'default';const real=window.menu;
  window.menu=(a,items,...rest)=>{window.menu=real;return real(a,[{label:'Copy to another agent…',icon:'fork',run:()=>{const keep=S.profile;S.profile=prof==='default'?'':prof;shareDrawer('schedule',id,(Pages.cronJobs||[]).find(x=>x.id===id)?.name||'schedule').finally(()=>{S.profile=keep})}},'-',...items],...rest)};
@@ -661,7 +663,7 @@ const IMG_FRIENDLY={'OpenAI (Codex auth)':'ChatGPT, with your sign-in (GPT Image
 const OAUTH_APP_HELP={slack:['Slack','https://api.slack.com/apps','Create New App › From scratch. Under OAuth & Permissions add the Redirect URL below and the scopes the Slack MCP needs, then copy the Client ID and Client Secret from Basic Information.'],
  google:['Google','https://console.cloud.google.com/apis/credentials','Create an OAuth client (Web application) and add the Redirect URL below as an authorised redirect URI.'],
  github:['GitHub','https://github.com/settings/developers','New OAuth App, with the Redirect URL below as the callback URL.']};
-async function mcpClientDrawer(name,reason){const agent=(agentProfile()||'default');let redirect='';try{redirect=(await UI('/ui/mcp/oauth-redirect?name='+encodeURIComponent(name))).redirect}catch{}
+async function mcpClientDrawer(name,reason,agent=agentProfile()||'default'){let redirect='';try{redirect=(await UI('/ui/mcp/oauth-redirect?name='+encodeURIComponent(name))).redirect}catch{}
  const key=Object.keys(OAUTH_APP_HELP).find(k=>name.toLowerCase().includes(k));const [who,link,how]=OAUTH_APP_HELP[key]||[pretty(name),'','Create an OAuth app with this service, add the Redirect URL below to it, then paste its Client ID and Secret.'];
  const d=drawer('Connect '+pretty(name),`<div class="panel card" style="box-shadow:none;margin:0 0 14px;padding:14px 16px"><b style="font-size:13.5px">Can’t create an app?</b><p class="hint" style="margin:4px 0 10px">Composio has a ready-made ${esc(who)} connection: one click on Allow. Its free plan has a limit on actions and costs money beyond it, so the steps below (free) come first.</p><button id="ocComposio">${icon('plug',15)}Use Composio instead</button></div>
   <p class="hint" style="margin:0 0 10px"><b>Or set up your own app.</b> ${esc(who)} does not let apps register themselves, so it needs an app of your own (one time). ${esc(how)}${link?` <a href="${esc(link)}" target="_blank" rel="noopener">Open ${esc(who)}’s app page</a>`:''}</p>
@@ -670,17 +672,17 @@ async function mcpClientDrawer(name,reason){const agent=(agentProfile()||'defaul
   ${reason?`<p class="hint" style="margin-top:12px">Engine said: ${esc(reason.split('\n')[0])}</p>`:''}`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="ocGo">Save and sign in</button>`);
  d.querySelector('#ocComposio').onclick=()=>{closeLayers();useComposio(who)};
  d.querySelector('#ocCopy').onclick=()=>copyText(redirect);
- d.querySelector('#ocGo').onclick=async()=>{try{await post(UI,'/ui/mcp/oauth-client',{agent,name,client_id:$('#ocId').value,client_secret:$('#ocSecret').value});closeLayers();await new Promise(r=>setTimeout(r,2500));ACT['mcp-auth']({dataset:{name}})}catch(e){fail(e)}}}
-ACT['mcp-auth']=async a=>{const name=a.dataset.name,agent=(agentProfile()||'default');
+ d.querySelector('#ocGo').onclick=async()=>{try{await post(UI,'/ui/mcp/oauth-client',{agent,name,client_id:$('#ocId').value,client_secret:$('#ocSecret').value});closeLayers();await new Promise(r=>setTimeout(r,2500));ACT['mcp-auth']({dataset:{name,agent}})}catch(e){fail(e)}}}
+ACT['mcp-auth']=async a=>{const name=a.dataset.name,agent=a.dataset.agent||agentProfile()||'default';
  // a tab opened right away (popup blockers allow it only now); it is pointed at the sign-in page once known
  const win=window.open('about:blank','_blank');
  try{const f=await post(UI,'/ui/mcp/start-signin',{agent,name});const url=f.authorization_url||f.auth_url||f.url;
-  if(!url){win?.close();const err=f.error||'';if(/client registration|client_id|client id/i.test(err))return mcpClientDrawer(name,err);return fail(new Error(err||'The service did not offer a sign-in.'))}
+  if(!url){win?.close();const err=f.error||'';if(/client registration|client_id|client id/i.test(err))return mcpClientDrawer(name,err,agent);return fail(new Error(err||'The service did not offer a sign-in.'))}
   if(!/^https:\/\//i.test(String(url||''))){win?.close();return toast('That sign-in link does not look right, so it was not opened.','err')}
   if(win){win.opener=null;win.location=url}else window.open(url,'_blank','noopener');
   const d=drawer('Sign in to '+pretty(name),`<p style="color:var(--ink-2);margin:0 0 12px">Finish signing in in the tab that opened, then come back here.</p><p><a href="${esc(url)}" target="_blank" rel="noopener">Open the sign-in page again</a></p><p class="hint" id="mcpSt">Waiting for you to sign in…</p>`);
   // a check that fails is tried again a few times; a closed sign-in tab gets a few more checks, then says so
-  const id=f.flow_id;let errs=0,shut=0;for(let i=0;i<150&&d.isConnected&&id;i++){await new Promise(r=>setTimeout(r,2000));let s;try{s=await H('/mcp/oauth/flows/'+encodeURIComponent(id));errs=0}catch(e){if(++errs>=4){d.querySelector('#mcpSt').textContent='Lost touch with the sign-in: '+(e.message||'no answer')+'. Press Sign in again.';return}continue}
+  const id=f.flow_id;let errs=0,shut=0;for(let i=0;i<150&&d.isConnected&&id;i++){await new Promise(r=>setTimeout(r,2000));let s;try{s=await H(prof('/mcp/oauth/flows/'+encodeURIComponent(id),agent));errs=0}catch(e){if(++errs>=4){d.querySelector('#mcpSt').textContent='Lost touch with the sign-in: '+(e.message||'no answer')+'. Press Sign in again.';return}continue}
    const st=s.status||'';d.querySelector('#mcpSt').textContent=/authorization_required|pending|starting/.test(st)?'Waiting for you to sign in…':'Status: '+pretty(st);
    if(/approved|complete|success|done|connected|authorized/.test(st)){closeLayers();toast('Signed in to '+pretty(name)+(s.tools?.length?' · '+s.tools.length+' tools':''));reload();return}
    if(/error|fail|expired|cancel/.test(st)){d.querySelector('#mcpSt').textContent='Did not finish: '+(s.error||st);return}
