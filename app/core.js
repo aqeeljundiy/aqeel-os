@@ -338,10 +338,6 @@ function render(){
   else{v.innerHTML=`<div class="page">${head(r.page)}<div id="pg">${skeleton()}</div></div>`;const pg=$('#pg');if(P)runPage(P,r,pg)}}
  // plugin slots on this page, when some plugin fills one (plugin-host.js)
  if(Plugins.slotNames.size)Plugins.patch();
-// each drawing of a page gets a number; work that ends after a newer drawing began is dropped (two quick reloads drew
-// the Agents page twice, a slow Files answer replaced a newer folder). pageRun starts a drawing, pageTok joins the current one
-const pageRun=el=>{const t=el._rt=(el._rt||0)+1;return ()=>el._rt!==t||!el.isConnected};
-const pageTok=el=>{const t=el._rt;return ()=>el._rt!==t||!el.isConnected};
 // draw a page; if it fails (the engine busy for a moment), try once more quietly before saying so
 function runPage(P,r,pg){const nav=S._nav;pageRun(pg);return Promise.resolve(P(r.page,pg,r)).catch(async e=>{if(e?.stale||nav!==S._nav||!pg.isConnected)return;if(e?.status&&e.status<500&&e.status!==429)return showError(pg,e);
  await sleep(1200);if(nav!==S._nav||!pg.isConnected)return;pageRun(pg);return Promise.resolve(P(r.page,pg,r)).catch(e2=>showError(pg,e2))})}
@@ -431,6 +427,10 @@ const mayEdit=(a,cap)=>{const me=S.me||{},l=me.agents?.[a];return me.admin!==fal
 // one soft warning box for every failed or incomplete part: icon, the message (html, already escaped) and a small
 // Try again on the same line (wraps under when narrow); act:'' for none, id for a button a flow wires itself
 const alertBox=(html,{act='reload',id='',label='Try again',style='',cls=''}={})=>`<div class="alert${cls?' '+cls:''}" role="alert"${style?` style="${style}"`:''}>${icon('alert',16)}<span class="alert-t">${html}</span>${act||id?`<button class="ghost small"${id?` id="${id}"`:` data-act="${act}"`}>${icon('refresh',14)}${esc(label)}</button>`:''}</div>`;
+// each drawing of a page gets a number; work that ends after a newer drawing began is dropped (two quick reloads drew
+// the Agents page twice, a slow Files answer replaced a newer folder). pageRun starts a drawing, pageTok joins the current one
+const pageRun=el=>{const t=el._rt=(el._rt||0)+1;return ()=>el._rt!==t||!el.isConnected};
+const pageTok=el=>{const t=el._rt;return ()=>el._rt!==t||!el.isConnected};
 // a part of a page that failed to load: says what, with Try again (never drawn as an empty list)
 const errLine=(what,style='',cls='')=>alertBox(`Couldn’t load ${esc(what)}.`,{style,cls});
 const emptyBox=(title,text,btn='')=>`<div class="empty-hero"><b style="display:block;font-size:17px;margin-bottom:6px">${esc(title)}</b><span style="color:var(--ink-2)">${esc(text)}</span>${btn?`<div style="margin-top:16px">${btn}</div>`:''}</div>`;
