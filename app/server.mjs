@@ -606,7 +606,7 @@ async function trueWhatsApp(agent,v){const list=v?.platforms||v;if(!Array.isArra
  const linked=await stat(path.join(home,'platforms','whatsapp','session','creds.json')).then(()=>true,()=>false);
  if(!(on&&linked))return;w.configured=true;w.enabled=true;
  try{const g=JSON.parse(await readFile(path.join(HERMES_HOME,'gateway_state.json'),'utf8'));const st=g.platforms?.[agent==='default'?'whatsapp':agent+':whatsapp'];
-  if(st){w.state=st.state||w.state;w.error_message=st.error_message||null;w.error_code=st.error_code||null}else if(w.state==='not_configured')w.state='starting'}catch{}}
+  if(st){w.state=st.state||w.state;w.error_message=st.error_message||null;w.error_code=st.error_code||null;w.updated_at=st.updated_at||w.updated_at||null}else if(w.state==='not_configured')w.state='starting'}catch{}}
 /* Which account each channel is: the WhatsApp number and name from its saved login, the Telegram bot's
    @username (asked from Telegram once an hour). A WhatsApp whose login WhatsApp ended (logged out on the phone,
    or the bridge stopped) is marked needs_link, so every screen offers the same "Link again". */
@@ -622,7 +622,29 @@ async function setChannelOn(agent,platform,on){const h={'x-hermes-session-token'
  const afterOff=()=>platform==='whatsapp'&&!on?stopBridges(agent).catch(()=>{}):null;   // its connection stops too; the login stays
  if(!j.hot_served)restartGateway((on?'resumed ':'paused ')+platform+' on '+agent).then(afterOff).catch(()=>{});else setTimeout(afterOff,3000);
  console.log('channel',platform,'on',agent,on?'resumed':'paused');return {ok:true,paused:!on,restarting:!j.hot_served,waiting:await waitingNow()}}
-const tgNames=new Map();
+// one .env reader for channel settings: `export KEY=…`, quotes, trailing spaces, \r and an inline # comment (after a space)
+function envParse(t){const o={};for(const raw of String(t||'').split('\n')){const m=/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(raw.replace(/\r$/,''));if(!m)continue;
+ let v=m[2].trim();const q=/^(["'])(.*?)\1/.exec(v);v=q?q[2]:v.replace(/(^|\s+)#.*$/,'').trim().replace(/^["']/,'');o[m[1]]=v}return o}
+const envOf=async a=>envParse(await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'.env'),'utf8').catch(()=>''));
+/* Which account a channel is. Bots are asked from the service itself (Telegram getMe, Slack auth.test, Discord /users/@me);
+   email, Signal, SMS and Matrix show the address the engine is set to use (Mattermost saves only a server and a token, so none).
+   Kept in channel-identity.json per agent|platform: a good answer 6 h, a failure 10 min, asked again at once when the token
+   changes (fp). A token the service rejects clears the account and says why on the row, instead of failing silently. */
+const IDENT_FILE=path.join(DATA,'channel-identity.json');let identDb=null;
+const IDENT_CFG={email:['EMAIL_ADDRESS','username'],signal:['SIGNAL_ACCOUNT','phone'],sms:['TWILIO_PHONE_NUMBER','phone'],matrix:['MATRIX_USER_ID','username']};
+async function channelIdentity(agent,c,env){const cfg=IDENT_CFG[c.id];
+ // only a setting the engine lists for this channel (its env_vars), never a guessed name
+ if(cfg){if(Array.isArray(c.env_vars)&&!c.env_vars.some(v=>v.key===cfg[0]))return null;return env[cfg[0]]?{account:{[cfg[1]]:env[cfg[0]],name:null}}:null}
+ const tok=c.id==='telegram'?env.TELEGRAM_BOT_TOKEN:c.id==='slack'?(env.SLACK_BOT_TOKEN||env.SLACK_USER_TOKEN):c.id==='discord'?env.DISCORD_BOT_TOKEN:null;if(!tok)return null;
+ const k=agent+'|'+c.id,fp=createHash('sha1').update(tok).digest('hex').slice(0,8);identDb||=await readFile(IDENT_FILE,'utf8').then(JSON.parse).catch(()=>({}));const s=identDb[k];
+ if(s&&s.fp===fp&&Date.now()-s.t<(s.err||s.miss?10*60e3:6*3600e3))return {account:s.v||null,error:s.err||null};
+ const bad=m=>Object.assign(new Error(m),{bad:true}),sig=AbortSignal.timeout(6000);let v=null,err=null,miss=false;
+ try{if(c.id==='telegram'){const j=await fetch('https://api.telegram.org/bot'+tok+'/getMe',{signal:sig}).then(r=>r.json());if(!j.ok)throw bad('Telegram rejected the bot token ('+(j.description||j.error_code||'refused')+')');v={username:'@'+j.result.username,name:j.result.first_name||null,kind:'bot'}}
+  else if(c.id==='slack'){const j=await fetch('https://slack.com/api/auth.test',{method:'POST',headers:{authorization:'Bearer '+tok},signal:sig}).then(r=>r.json());if(!j.ok)throw bad('Slack rejected the token ('+(j.error||'refused')+')');v={username:j.user?'@'+j.user:null,name:j.team||null,kind:tok.startsWith('xoxp-')?'person':'bot'}}
+  else{const r=await fetch('https://discord.com/api/v10/users/@me',{headers:{authorization:'Bot '+tok},signal:sig});const j=await r.json().catch(()=>({}));if(!r.ok)throw bad('Discord rejected the bot token ('+(j.message||'HTTP '+r.status)+')');v={username:'@'+j.username,name:j.global_name||null,kind:'bot'}}}
+ // a rejected token is reported; the service not answering (a network blip) keeps the last good answer and asks again in 10 min
+ catch(e){if(e.bad)err=e.message;else{miss=true;v=s?.fp===fp?s.v||null:null}}
+ identDb[k]={fp,v,err,miss,t:Date.now()};await writeJsonAtomic(IDENT_FILE,identDb).catch(()=>{});return {account:v,error:err}}
 /* The engine reports "gateway stopped" for apps on a second agent although the shared engine serves them (it only
    records live state for the main agent). The truth is in the engine's own log: its last "✓ <app> connected /
    disconnected (profile: <agent>)" line for that agent. */
@@ -633,7 +655,9 @@ async function trueStates(agent,v){const list=v?.platforms||v;if(!Array.isArray(
   const esc_=x=>x.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');const re=new RegExp('✓ '+esc_(c.id)+' (connected|disconnected)[^\\n]*\\(profile: '+esc_(agent)+'\\)|✗ '+esc_(c.id)+' failed to connect \\(profile: '+esc_(agent)+'\\)','g');
   let last=null,m;while((m=re.exec(log)))last=m;if(!last)continue;
   const p=await gatewayPid();if(!p)continue;   // the engine is not running at all: keep what it says
-  c.state=last[1]==='connected'?'connected':last[1]==='disconnected'?'disconnected':'failed';if(c.state==='connected'){c.configured=true;c.enabled=true}}}
+  c.state=last[1]==='connected'?'connected':last[1]==='disconnected'?'disconnected':'failed';if(c.state==='connected'){c.configured=true;c.enabled=true}
+  // when: the timestamp that line starts with (the same "YYYY-MM-DD HH:MM:SS" gatewayWatch reads)
+  const ls=log.lastIndexOf('\n',last.index)+1,t=Date.parse(log.slice(ls,ls+19).replace(' ','T')+'Z');if(t)c.updated_at=new Date(t).toISOString()}}
 async function channelAccounts(agent,v){await trueStates(agent,v).catch(()=>{});const list=v?.platforms||v;if(!Array.isArray(list))return;const ps=await pausedLoad();for(const c of list)if(ps[agent+'|'+c.id]){c.paused=true;c.state='paused'}const home=agent==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',agent);
  const w=list.find(x=>x.id==='whatsapp');
  if(w){try{const c=JSON.parse(await readFile(path.join(home,'platforms','whatsapp','session','creds.json'),'utf8'));const id=String(c.me?.id||c.me?.lid||'');const digits=id.split('@')[0].split(':')[0].replace(/\D/g,'');
@@ -641,15 +665,10 @@ async function channelAccounts(agent,v){await trueStates(agent,v).catch(()=>{});
   const err=(w.error_code||'')+' '+(w.error_message||'');const log=await readFile(path.join(home,'platforms','whatsapp','bridge.log'),'utf8').then(t=>t.slice(-3000)).catch(()=>'');
   const lastOut=log.lastIndexOf('Logged out'),lastOk=log.lastIndexOf('WhatsApp connected');
   w.needs_link=!w.paused&&w.state!=='connected'&&(!!w.account||w.configured)&&(/logged out|died|exit|bridge_exited|unlinked/i.test(err)||lastOut>lastOk)}
- const t=list.find(x=>x.id==='telegram');
- if(t&&(t.configured||t.state==='connected')){const tok=((await readFile(path.join(home,'.env'),'utf8').catch(()=>'')).match(/^TELEGRAM_BOT_TOKEN=["']?([^"'\n]+)/m)||[])[1];
-  if(tok){let n=tgNames.get(tok);if(!n||Date.now()-n.t>3600e3){const j=await fetch('https://api.telegram.org/bot'+tok+'/getMe',{signal:AbortSignal.timeout(5000)}).then(r=>r.json()).catch(()=>null);n={t:Date.now(),v:j?.ok?{username:'@'+j.result.username,name:j.result.first_name||null}:n?.v||null};tgNames.set(tok,n)}
-   if(n.v)t.account=n.v}}
- // Slack: which workspace, and whether it posts as a bot app or as a person's own Slack account
- const sl=list.find(x=>x.id==='slack');
- if(sl&&(sl.configured||sl.state==='connected')){const envT=await readFile(path.join(home,'.env'),'utf8').catch(()=>'');const tok=(envT.match(/^SLACK_BOT_TOKEN=["']?([^"'\n]+)/m)||envT.match(/^SLACK_USER_TOKEN=["']?([^"'\n]+)/m)||[])[1];
-  if(tok){let n=tgNames.get(tok);if(!n||Date.now()-n.t>3600e3){const j=await fetch('https://slack.com/api/auth.test',{method:'POST',headers:{authorization:'Bearer '+tok},signal:AbortSignal.timeout(5000)}).then(r=>r.json()).catch(()=>null);n={t:Date.now(),v:j?.ok?{username:j.user?'@'+j.user:null,name:j.team||null,kind:tok.startsWith('xoxp-')?'person':'bot'}:n?.v||null};tgNames.set(tok,n)}
-   if(n.v)sl.account=n.v}}
+ // every other channel: the bot or address it is (Slack also says whether it posts as a bot app or a person's own account)
+ const env=await envOf(agent);
+ await Promise.all(list.map(async c=>{if(c.id==='whatsapp'||['api_server','webhook'].includes(c.id)||!(c.configured||c.state==='connected'||c.paused))return;
+  const r=await channelIdentity(agent,c,env).catch(()=>null);if(!r)return;c.account=r.account||null;if(r.error)c.identity_error=r.error}));
  // what kind of account each one is: a bot, or someone's own account
  for(const c of list){if(!c.account)continue;c.account.kind??=c.id==='whatsapp'?'person':/^(telegram|discord)$/.test(c.id)?'bot':undefined}
  const notes=await readFile(path.join(DATA,'channel-notes.json'),'utf8').then(JSON.parse).catch(()=>({}));for(const c of list){const n=notes[agent+'|'+c.id];if(n)c.note=n}}

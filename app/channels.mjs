@@ -15,7 +15,7 @@ export function createChannels({DASH,TOKEN,HERMES_HOME,listAgents,cached,restart
 
  async function list(){const out=[];const all=await listAgents();const off=paused?await paused():{};const got=await Promise.all(all.map(a=>(cached?cached(a).then(r=>r.platforms||r):platforms(a)).catch(()=>null)));
   for(const [i,a] of all.entries()){const ps=got[i];if(!ps)continue;for(const p of ps)// only connections that exist: a switched-on but never-linked WhatsApp (a started set-up) is not one
-   if(!NOT_CHANNELS.has(p.id)&&(p.configured||p.state==='connected'||off[a+'|'+p.id]))out.push({agent:a,id:p.id,name:p.name,paused:!!off[a+'|'+p.id],state:off[a+'|'+p.id]?'paused':p.state,enabled:!!p.enabled,error:p.error_message||null,error_code:p.error_code||null,account:p.account||null,needs_link:!!p.needs_link,updated_at:p.updated_at||null})}
+   if(!NOT_CHANNELS.has(p.id)&&(p.configured||p.state==='connected'||off[a+'|'+p.id]))out.push({agent:a,id:p.id,name:p.name,paused:!!off[a+'|'+p.id],state:off[a+'|'+p.id]?'paused':p.state,enabled:!!p.enabled,error:p.error_message||null,error_code:p.error_code||null,account:p.account||null,identity_error:p.identity_error||null,needs_link:!!p.needs_link,updated_at:p.updated_at||null})}
   // settings changed after a WhatsApp connection started: it only reads them at start, so it needs a reconnect
   await Promise.all(out.map(async r=>{r.pending=!!(pendingOf&&r.id==='whatsapp'&&!r.paused&&r.state==='connected'&&await pendingOf(r.agent,r.id).catch(()=>false))}));
   return out}
