@@ -1152,6 +1152,10 @@ body:has(.drawer.pop) .scrim{backdrop-filter:blur(5px);background:rgba(11,12,16,
 .sd-run{display:grid;grid-template-columns:1.4fr .8fr 1fr .8fr 1.2fr;gap:8px;padding:9px 12px;font-size:12.5px;border-top:1px solid var(--border);cursor:pointer}.sd-run:first-child{border-top:0}.sd-run:hover{background:var(--soft)}.sd-run .m{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media (max-width:600px){.sd-run{grid-template-columns:1fr 1fr 1fr}.sd-run .m,.sd-run:not([style]) span:nth-child(3){display:none}}
 .sj-row .main-c{flex:1;min-width:0}.sj-row .txt{flex:1;min-width:0}.sj-row .txt>span{white-space:normal;overflow:visible}
+/* a schedule's description and its when/where/cost lines wrap inside the card: the folder body's grid column may shrink, and the cost line is never an ellipsis */
+.sf-body{grid-template-columns:minmax(0,1fr)}.sf-body>.card{min-width:0}
+.sj-row .txt .sched-desc,.sj-row .txt .sched-meta{overflow-wrap:anywhere;text-overflow:clip;min-width:0}
+.sj-row .txt .sched-meta span:not(.chip){display:inline;white-space:normal;overflow:visible;text-overflow:clip;margin:0;min-width:0}.sj-row .txt .sched-meta .chip{flex:none;white-space:nowrap}
 
 /* steer: an ordinary bubble; one quiet line under it while it waits (as in Claude) */
 .steer-meta{align-self:flex-end;display:flex;align-items:center;gap:10px;margin:-8px 4px 0;font-size:12.5px;color:var(--muted);animation:fadeIn .25s var(--ease) both}
