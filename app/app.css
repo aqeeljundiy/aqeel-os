@@ -62,6 +62,9 @@ body{overflow:hidden}
 .crumbs{display:flex;align-items:center;gap:8px;min-width:0;font-size:14px;color:var(--muted)}
 .crumbs b{color:var(--ink);font-weight:600;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .crumbs svg{flex:none;opacity:.6}
+/* a narrow main area: the trail shortens, the buttons never slide over it */
+.crumbs{flex:1 1 auto;overflow:hidden}.crumbs>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}.crumbs b{flex:0 1 auto;min-width:0}.topbar .top-actions{flex:none}
+@media (min-width:761px) and (max-width:1020px){.app:not(.collapsed) .k-btn .k-label,.app:not(.collapsed) .k-btn kbd{display:none}.app:not(.collapsed) .k-btn{padding:0 10px}}
 .top-actions{margin-left:auto;display:flex;align-items:center;gap:8px}
 .k-btn{min-height:36px;padding:0 10px 0 12px;color:var(--muted);gap:10px;font-size:13px;background:var(--surface)}
 .k-btn kbd{font:inherit;font-size:11.5px;font-weight:600;color:var(--ink-2);background:var(--soft);border:1px solid var(--border);border-radius:6px;padding:2px 6px}
@@ -87,12 +90,19 @@ body{overflow:hidden}
 .tabs button{min-height:32px;padding:6px 16px;border:0;background:transparent;box-shadow:none;font-size:13.5px;color:var(--ink-2);position:relative;z-index:1;white-space:nowrap;flex:none}
 /* a long row of tabs scrolls inside its own width on phones */
 .tabs{max-width:100%;overflow-x:auto;scrollbar-width:none}.tabs::-webkit-scrollbar{display:none}
+/* tabs wider than the screen scroll in their bar; the cut edge fades so it reads as "more this way" (a bar that fits has no fade) */
+@property --tf-l{syntax:'<length>';inherits:false;initial-value:0px}@property --tf-r{syntax:'<length>';inherits:false;initial-value:0px}
+@keyframes tabFade{0%{--tf-l:0px;--tf-r:32px}12%{--tf-l:32px}88%{--tf-r:32px}100%{--tf-l:32px;--tf-r:0px}}
+@supports (animation-timeline:scroll()){.tabs{-webkit-mask-image:linear-gradient(to right,transparent 0,#000 var(--tf-l),#000 calc(100% - var(--tf-r)),transparent 100%);mask-image:linear-gradient(to right,transparent 0,#000 var(--tf-l),#000 calc(100% - var(--tf-r)),transparent 100%);animation:tabFade linear both;animation-timeline:scroll(self inline)}
+ .tabs.reveal{animation:reveal .42s var(--ease) backwards,tabFade linear both;animation-timeline:auto,scroll(self inline);animation-delay:calc(min(var(--ri,0),8) * 45ms),0s}}   /* keeps its entrance */
 .tabs button:hover{transform:none;box-shadow:none;color:var(--ink)}
 .tabs button.on{color:var(--ink);font-weight:600}
 .tabs .pill{position:absolute;top:3px;bottom:3px;border-radius:var(--r-pill);background:var(--surface);box-shadow:0 1px 2px rgba(11,12,16,.1);transition:left var(--t-med) var(--ease),width var(--t-med) var(--ease)}
 .toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px}
 .toolbar .search{position:relative;flex:1;max-width:320px}
 .toolbar .search input{padding-left:38px}
+/* phones: search gets its own full line, the filters share the next one */
+@container page (max-width:520px){.toolbar .search{flex:1 1 100%;max-width:none}.toolbar>.sel-btn{flex:1 1 0;min-width:0;width:auto}}
 .toolbar .search svg{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--muted)}
 .toolbar .search:has(.s-clear) input{padding-right:40px}
 .toolbar .search .s-clear{position:absolute;right:4px;top:50%;transform:translateY(-50%) scale(.85);width:34px;min-height:34px;height:34px;padding:0;opacity:0;pointer-events:none;transition:opacity var(--t-fast) var(--ease),transform var(--t-fast) var(--ease)}
@@ -763,7 +773,9 @@ body.dragging .screen-float{transition:none}
 .pri-btns{display:flex;gap:2px}.pri-btns .icon-btn{width:30px;height:30px;min-height:30px;padding:0;display:grid;place-items:center}
 .acct-more{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;border-style:dashed;color:var(--ink-2);min-height:180px;text-decoration:none}
 .acct-more b{color:var(--ink)}.acct-more span{font-size:12.5px;max-width:240px}
-@media (max-width:760px){.pri-row{flex-wrap:wrap}.pri-row .txt{flex-basis:calc(100% - 90px)}}
+/* a narrow panel: the name keeps the first line, model, usage and buttons go under it lined up with the name */
+@container (max-width:640px){.pri-row{flex-wrap:wrap;row-gap:8px}.pri-row .txt{flex:1 1 calc(100% - 200px)}.pri-row>.sel-btn,.pri-row>.chip{order:2}.pri-row>.sel-btn{margin-left:80px;flex:1 1 160px;min-width:0;max-width:300px}}
+@container (max-width:400px){.pri-row>.sel-btn{flex-basis:calc(100% - 80px);max-width:none}.pri-row>.chip{margin-left:80px}}
 /* chat: account usage ring next to the model */
 .meter{display:inline-flex;align-items:center;gap:5px;min-height:34px;padding:0 10px 0 8px;border:0;background:transparent;box-shadow:none;font-size:12.5px;color:var(--ink-2);border-radius:var(--r-pill);transition:background var(--t-fast)}
 .meter:hover{background:var(--soft);transform:none;box-shadow:none}
@@ -980,7 +992,24 @@ input[type=checkbox]:not(.switch)::after{margin:auto}
 @container (max-width:520px){.field{grid-template-columns:minmax(0,1fr);gap:8px;align-items:start}.field>div{width:100%}}
 /* list rows: the name gets the room, the chips/buttons wrap under it when tight */
 .row .txt{min-width:0}.row .txt b,.row .txt span{overflow-wrap:anywhere}
-@container (max-width:460px){.row{grid-template-columns:minmax(0,1fr);gap:8px}.row .act{justify-content:flex-start;flex-wrap:wrap}}
+/* controls on the right never crush the text: when the row is too narrow for both, they move under it, lined up with
+   the text (past the icon). A picker (Owned by, a model) needs room sooner; a lone switch or ⋯ stays on the right */
+.row>.act{min-width:0}
+@container (max-width:640px){.row:has(>.act :is(.sel-btn,.acc-ownbox)){grid-template-columns:minmax(0,1fr);row-gap:10px}
+ .row>.act:has(:is(.sel-btn,.acc-ownbox)){justify-content:flex-start;flex-wrap:wrap;width:100%}
+ .row>.act>.sel-btn{flex:1 1 0;min-width:120px;max-width:300px}.row>.act>.ch-more{margin-left:auto}
+ .row>.act.ch-act .ab-lbl{display:inline}}
+@container (max-width:400px){.row>.act.ch-act .ab-lbl{display:none}}   /* phones: picker and ⋯ stay on one line */
+@container (max-width:460px){.row:has(>.act>:not(.switch,.icon,.tsg-ro,.chip,.sel-native,.ch-more)){grid-template-columns:minmax(0,1fr);row-gap:8px}
+ .row>.act:has(>:not(.switch,.icon,.tsg-ro,.chip,.sel-native,.ch-more)){justify-content:flex-start;flex-wrap:wrap;width:100%}}
+/* the indent is the icon plus its gap; rows without an icon start at the text edge */
+@container (max-width:640px){.row:has(>.main-c>.txt:not(:first-child))>.act:has(:is(.sel-btn,.acc-ownbox)){padding-left:52px}}
+@container (max-width:460px){.row:has(>.main-c>.txt:not(:first-child))>.act:has(>:not(.switch,.icon,.tsg-ro,.chip,.sel-native,.ch-more)){padding-left:52px}
+ .row>.act>button.ghost:not(.icon):first-child{margin-left:-18px}}   /* a borderless text button: its words line up, not its padding */
+/* who an account is and how it is doing wrap instead of being cut; a chip stays whole */
+.row .txt span.acct-line,.row .txt span.ch-status{white-space:normal;overflow:visible;text-overflow:clip}
+.row .txt .acct-line>.kind-chip{max-width:100%;min-width:0}
+.row .txt span.acct-line.ch-pending{display:block}.row .txt .ch-pending>svg{display:inline-block;vertical-align:-2px;margin-right:5px}   /* the warning sign leads its sentence, not a line of its own */
 .list-head{gap:12px}
 /* usage tables follow their panel's width, not the window's */
 .utable{min-width:0;overflow-x:auto}
