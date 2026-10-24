@@ -75,7 +75,7 @@ ACT['gem-out']=async()=>{if(!await confirmBox('Sign Gemini out?','Agents that us
 
 /* ---------- Google AI Pro / Ultra through Antigravity (Google's official agy tool, which replaced the Gemini CLI for
    personal plans): Gemini 4, Gemini Flash and Claude 5.5 on your Google plan. One Google sign-in, link and code. ---------- */
-{const base=PAGES.accounts;PAGES.accounts=async(p,el)=>{await base(p,el);let g;try{g=await UI('/ui/antigravity/status')}catch{return}if(!g.installed)return;
+{const base=PAGES.accounts;PAGES.accounts=async(p,el)=>{await base(p,el);let g;try{g=await UI('/ui/antigravity/status')}catch{return}if(!g.installed||g.partial)return;
  const admin=S.me?.admin!==false;const box=document.createElement('div');box.className='panel card gem-card';box.style.marginTop='16px';
  box.innerHTML=`<div class="gem-top">${logoImg('gemini.google.com','G')}<div class="txt"><h2 style="margin:0">Google AI Pro (Antigravity)</h2>
   <p class="sub" style="margin:4px 0 0">${g.signedIn?`Connected${g.account?' as <b>'+esc(accountText({email:g.account}))+'</b>':''}. ${g.models?.length?esc(plural(g.models.length,'model'))+' on your Google plan: '+esc(g.models.slice(0,4).join(', '))+(g.models.length>4?'…':'')+'.':''}`:'Use your Google AI Pro plan for Gemini 4, Gemini Flash and Claude 5.5 through Google’s official Antigravity tool, the same way Claude runs on your Claude plan. Sign in once with the Google account that has the plan.'}</p></div>

@@ -6,6 +6,7 @@
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import {randomBytes,randomUUID} from 'node:crypto';
 import path from 'node:path';
+import {swr,limiter} from './swr.mjs';
 
 export function createN8n({BASE='https://n8n.elkiya.com',DATA,setKey,restart,names,readConfig,removeMcp}){
  const FILE=path.join(DATA,'n8n.json');let db=null;
@@ -80,8 +81,14 @@ catch(e){document.getElementById('m').textContent=e.message+'. Close this and op
   if(on){const k=await keyOf(space);if(!k)throw new Error('The n8n key of that space is missing.');const r=await setKey(to,'mcp_servers.'+toolName(space),{url:db.base+'/mcp-server/http',headers:{Authorization:'Bearer '+k},enabled:true});if(!r.ok)throw new Error(r.err||'Could not give access');u.shared.push(to)}
   else await removeMcp(to,toolName(space));
   await save();restart('n8n '+names(space)+(on?' shared with ':' taken from ')+names(to));return {ok:true}}
- // every space: its owner, its n8n user, how many workflows it has, and who else may use it
- async function spaces(){await load();const out=[];for(const [a,u] of Object.entries(db.users)){let n=null;try{const s=await login(u.email,u.password);const w=(await rest('/rest/workflows?take=200',{cookie:s.cookie})).data;n=Array.isArray(w)?w.length:(w?.count??null)}catch{}
-  out.push({agent:a,email:u.email,workflows:n,shared:u.shared||[]})}return out}
+ // every space: its owner, its n8n user, how many workflows it has, and who else may use it. The count is a sign-in and a
+ // list per space (it was one space after another, ~10 s): read three at a time, kept 60 s and then answered at once while
+ // read again behind the scenes; a space with no count yet waits at most 3 s (workflows:null, partial). Owner, user and
+ // sharing come from aqeelOS's own data on every ask, so a share change shows at once.
+ const counts=swr({fresh:60000,cap:3000}),nLimit=limiter(3);
+ const countOf=u=>nLimit(async()=>{const s=await login(u.email,u.password);const w=(await rest('/rest/workflows?take=200',{cookie:s.cookie})).data;return Array.isArray(w)?w.length:(w?.count??null)});   // a failed count is not kept
+ async function spaces({fresh=false}={}){await load();let part=false;
+  const out=await Promise.all(Object.entries(db.users).map(async([a,u])=>({agent:a,email:u.email,workflows:await counts.get(a+'|'+u.email,()=>countOf(u),{force:fresh,partial:()=>{part=true;return null}}).catch(()=>null),shared:u.shared||[]})));
+  if(part)out.partial=true;return out}
  const status=async agent=>{await load();return {ready:await ready(),base:db.base,user:db.users[agent]?{email:db.users[agent].email}:null,users:Object.fromEntries(Object.entries(db.users).map(([a,u])=>[a,u.email]))}};
  return {ready,setOwner,ensure,ticket,page,go,status,share,spaces}}

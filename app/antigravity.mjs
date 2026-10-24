@@ -7,20 +7,23 @@ import {execFile} from 'node:child_process';
 import {mkdir,cp,readdir,stat,readFile,writeFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import path from 'node:path';
+import {swr} from './swr.mjs';
 
 const BIN=path.join(homedir(),'.local','bin','agy'),WORK=path.join(homedir(),'.cache','agy-work'),SESSION='agy-login';
 const run=(cmd,args,o={})=>new Promise(res=>execFile(cmd,args,{timeout:o.timeout||20000,cwd:o.cwd,maxBuffer:4e6,env:{...process.env,PATH:path.join(homedir(),'.local','bin')+':'+process.env.PATH}},(e,out,err)=>res({ok:!e,out:String(out||''),err:String(err||e?.message||'')})));
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 export function createAntigravity({HERMES_HOME,hcmd,listAgents,moveOff=async()=>null}){
- let login=null,cache={t:0,v:null};
+ // signed in or not is agy listing models (a CLI run of 5-30 s): the last answer is used at once and asked again behind the
+ // scenes after 10 min; only the very first ask waits, at most 3 s ({partial:true}, the page then leaves the card out)
+ let login=null;const seen=swr({fresh:10*60000,cap:3000});
  const pane=async()=>(await run('tmux',['capture-pane','-pt',SESSION,'-S','-300'])).out;
  // signed in = agy can list the account's models (agy keeps its login where it wants: keyring or its own file)
  async function models(){const r=await run(BIN,['models'],{timeout:30000,cwd:WORK});if(!r.ok||/not signed in|sign in|login/i.test(r.out+r.err)&&!/gemini|claude/i.test(r.out))return null;
   return r.out.split('\n').map(l=>l.trim()).filter(l=>/^[\w.-]+$/.test(l)||/^[-*•]\s*[\w.-]+/.test(l)).map(l=>l.replace(/^[-*•]\s*/,'').split(/\s/)[0]).filter(Boolean)}
  async function status(fresh){const installed=await stat(BIN).then(()=>true,()=>false);if(!installed)return {installed:false,signedIn:false};
-  if(fresh||Date.now()-cache.t>10*60000){const m=await models();cache={t:Date.now(),v:m}}
-  return {installed,signedIn:!!cache.v,models:cache.v||[],login:login?.state||null}}
+  let part=false;const m=await seen.get('models',models,{force:!!fresh,partial:fresh?undefined:()=>{part=true;return null}});
+  return {installed,signedIn:!!m,models:m||[],login:login?.state||null,...(part?{partial:true}:{})}}
  async function stop(){await run('tmux',['kill-session','-t',SESSION])}
  // the link sits between two ruled lines and is wrapped over several screen lines: join them back together
  const linkIn=t=>{const m=/Open the URL below[\s\S]*?─{10,}\s*\n([\s\S]*?)\n\s*─{10,}/.exec(t);return m?(m[1].replace(/\s+/g,'').match(/https:\/\/accounts\.google\.com\/\S+/)||[])[0]:null};
@@ -53,7 +56,7 @@ export function createAntigravity({HERMES_HOME,hcmd,listAgents,moveOff=async()=>
   await stop();await mkdir(WORK,{recursive:true});
   await run('tmux',['new-session','-d','-s',SESSION,'-x','200','-y','60','-c',WORK,BIN]);await sleep(6000);
   await run('tmux',['send-keys','-t',SESSION,'-l','/logout']);await run('tmux',['send-keys','-t',SESSION,'Enter']);await sleep(4000);await stop();
-  cache={t:0,v:null};login=null;
+  seen.drop();login=null;
   for(const a of all)await hcmd(a,['plugins','disable',AG],{timeout:150000}).catch(()=>{});
   console.log('antigravity signed out');return {ok:true,moved,stuck}}
  // second guard behind the text-only agent: agy's own permission list denies every action it could take
