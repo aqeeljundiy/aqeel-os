@@ -380,7 +380,6 @@ ACT['wh-new-pre']=0;
 /* ---------- Used by / Share with other agents (skills, MCP tools, plugins, schedules) ---------- */
 const SHARE_KIND_LABEL={skill:'skill',mcp:'MCP tool',plugin:'plugin',schedule:'schedule'};
 async function usedByMap(kind){try{return await UI('/ui/share/used?kind='+kind)}catch{return {}}}
-const agentDots=list=>`<span class="used-by" title="Used by ${esc(list.map(a=>ident(a).name).join(', '))}">${list.slice(0,4).map(a=>agentAva(a)).join('')}${list.length>4?`<small>+${list.length-4}</small>`:''}</span>`;
 async function shareDrawer(kind,name,label,has=[]){let agents=[];try{agents=((await H('/profiles')).profiles||[]).map(x=>x.name)}catch(e){return fail(e)}
  const from=(agentProfile()||'default');const others=agents.filter(a=>a!==from);
  const d=drawer('Share '+label,`<p class="hint" style="margin:0 0 10px">Copies this ${SHARE_KIND_LABEL[kind]} from ${esc(ident(from).name)} to the agents you tick, with its settings. Each agent keeps its own copy, so later changes stay on the agent you change.</p>
@@ -393,10 +392,11 @@ async function shareDrawer(kind,name,label,has=[]){let agents=[];try{agents=((aw
     const r2=await post(UI,'/ui/share',{kind,name,from,to:own,replace:true});r={done:[...r.done,...r2.done],failed:[...r.failed.filter(f=>!f.exists),...r2.failed]}}
    else if(own.length)r={done:r.done,failed:r.failed.filter(f=>!f.exists)};
    closeLayers();if(!r.done.length&&!r.failed.length)return toast('Nothing shared');toast(r.failed?.length?`Shared with ${r.done.length}; ${r.failed.map(f=>ident(f.agent).name+': '+f.error).join('; ')}`:`Shared with ${r.done.map(a=>ident(a).name).join(', ')}`,r.failed?.length?'err':undefined);reload()}catch(e){fail(e)}}}
-// add Used by + Share to each row of a list
-async function decorateRows(el,kind,rows){if(S.me?.admin===false&&kind!=='skill')return;const used=await usedByMap(kind);
- for(const {row,name,label} of rows){const act=row.querySelector('.act');if(!act||act.querySelector('.used-by'))continue;const list=used[name]||[];
-  const box=document.createElement('span');box.className='share-box';box.innerHTML=`${list.length?agentDots(list):''}<button class="ghost icon" title="Share with other agents" aria-label="Share with other agents">${icon('fork',16)}</button>`;
+// add Used by (Access.btn, the one component; each agent keeps its own copy, so no owner) to each row; it opens Share
+async function decorateRows(el,kind,rows){if(S.me?.admin===false&&kind!=='skill')return;const used=await usedByMap(kind);const here=agentProfile()||'default';
+ for(const {row,name,label} of rows){const act=row.querySelector('.act');if(!act||act.querySelector('.share-box'))continue;const list=used[name]||[];
+  const users=[here,...list.filter(a=>a!==here)].map(a=>({id:a,name:ident(a).name}));
+  const box=document.createElement('span');box.className='share-box';box.innerHTML=Access.btn({copies:true,label:label||name,users},'type="button"');
   box.querySelector('button').onclick=e=>{e.stopPropagation();shareDrawer(kind,name,label||name,list)};act.prepend(box)}}
 {const base=PAGES.skills;PAGES.skills=async(p,el)=>{await base(p,el);const rows=[...el.querySelectorAll('[data-act="sk-open"][data-name]')].map(r=>({row:r,name:r.dataset.name,label:ex('skill',r.dataset.name)?.title||r.dataset.name}));if(rows.length)decorateRows(el,'skill',rows)}}
 {const base=PAGES.plugins;PAGES.plugins=async(p,el)=>{await base(p,el);const go=()=>{const rows=[...el.querySelectorAll('.row[data-pl]')].map(r=>({row:r,name:r.dataset.pl,label:ex('plugin',r.dataset.pl)?.title||r.dataset.pl}));if(rows.length)decorateRows(el,'plugin',rows)};go();setTimeout(go,9000)}}
@@ -437,9 +437,6 @@ setInterval(()=>CronNotify.check(),30000);setTimeout(()=>CronNotify.check(),4000
 
 /* ---------- Access: one small badge on every row saying who can use it ---------- */
 const accessChip=(text,tip,kind='')=>`<span class="chip access ${kind}" title="${esc(tip)}">${icon(kind==='shared'?'user':kind==='public'?'globe':'lock',11)}${esc(text)}</span>`;
-function accessFor(list,here){const n=(list||[]).length;return n>1?accessChip('Shared · '+n+' agents','Used by '+list.map(a=>ident(a).name).join(', '),'shared'):accessChip('Only this agent','Only '+ident(here).name+' has it. Use Share to copy it to others.')}
-{const deco=decorateRows;decorateRows=async(el,kind,rows)=>{await deco(el,kind,rows);if(S.me?.admin===false&&kind!=='skill')return;const used=await usedByMap(kind);const here=agentProfile()||'default';   // the agent whose page this is (an admin viewing another agent too)
- rows.forEach(({row,name})=>{const t=row.querySelector('.txt b');if(!t||t.querySelector('.access'))return;t.insertAdjacentHTML('beforeend',' '+accessFor(used[name],here))})}}
 // schedules: each runs on exactly one agent
 {const base=PAGES.schedules;PAGES.schedules=async(p,el)=>{await base(p,el);el.querySelectorAll('[data-menu="cron"][data-profile]').forEach(m=>{const row=m.closest('.row,.card');const t=row?.querySelector('.txt b,h3');if(!t||t.querySelector('.access'))return;
  t.insertAdjacentHTML('beforeend',' '+accessChip('Only '+ident(m.dataset.profile).name,'Runs on '+ident(m.dataset.profile).name+'. Use Copy to another agent to reuse it.'))})}}

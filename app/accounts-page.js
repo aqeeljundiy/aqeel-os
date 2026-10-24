@@ -19,6 +19,7 @@ PAGES.accounts=async(p,el)=>{
  const d=await UI('/ui/accounts'+(Pages._acctFresh?'?fresh=1':''));Pages._acctFresh=false;Pages._acct=d;if(!Chat.models)await Chat.loadModels().catch(()=>{});
  const src=acctSources(d);Pages._acctSrc=src;const byKey=Object.fromEntries(src.map(s=>[s.key,s]));
  const users=k=>Object.entries(d.route||{}).filter(([,r])=>r.entry===k).map(([n])=>ident(n).name);
+ const usedBy=k=>Object.entries(d.route||{}).filter(([,r])=>r.entry===k).map(([n])=>({id:n,name:ident(n).name}));   // Used by: the shared component (Access.who)
  const pri=(d.priority||[]).filter(e=>byKey[e.key]);Pages._pri=pri;
  const priRow=(e,i)=>{const s=byKey[e.key];const u=users(e.key);return `<div class="pri-row" draggable="true" data-pri="${i}" ${st(i)}><span class="pri-n">${i+1}</span>
   ${logoImg(s.logo,s.name[0].toUpperCase())}<div class="txt"><b>${esc(s.name)}</b><span>${u.length?'In use by '+esc(u.join(', ')):'Standby'}</span></div>
@@ -27,7 +28,7 @@ PAGES.accounts=async(p,el)=>{
  const card=(s,i)=>`<div class="card tile acct" ${st(i)} style="cursor:default"><div class="tile-top">${logoImg(s.logo,s.name[0].toUpperCase())}<div style="min-width:0;flex:1"><h3>${esc(s.name)}</h3><span class="acct-mail">${esc(s.sub)}</span></div>${s.isTeam?'':s.ok===false?signChip():usedChip(s.used)}</div>
   ${s.isTeam?'':s.bars.length?`<div class="ubars">${s.bars.map(([l,w])=>pctBar(l,w)).join('')}</div>`:`<p class="hint">${s.ok?(s.key.startsWith('p:')?'This provider does not report limits.'+(/subscription|codex|antigravity/i.test(s.key)?'':' It is billed per use.'):'Usage appears after the first chat.'):'Sign in again to use this account.'}</p>`}
   ${(s.details||[]).map(x=>`<p class="hint" style="margin:4px 0">${esc(x)}</p>`).join('')}
-  <div class="acct-agents"><span class="th">Used by</span>${users(s.key).map(n=>`<span class="chip">${esc(n)}</span>`).join('')||'<span class="hint" style="margin:0">No agent yet</span>'}</div>
+  <div class="acct-agents"><span class="th">Used by</span>${usedBy(s.key).length?Access.who({users:usedBy(s.key)})+`<span class="hint" style="margin:0">${esc(users(s.key).join(', '))}</span>`:'<span class="hint" style="margin:0">No agent yet</span>'}</div>
   ${s.menu?`<div class="tile-foot"><span></span><button class="ghost icon" data-menu="acct" data-id="${esc(s.menu)}" aria-label="More">${icon('more',18)}</button></div>`:''}</div>`;
  // the 'Team of models' (Mixture of Agents) is not an account of its own: it borrows the others. Say so, and only show it when an agent uses it
  for(const s of src)if(/moa|mixture/i.test(s.key+' '+s.name)){s.isTeam=true;s.name='Team of models';s.sub='Several models answer, one combines them';s.details=['It runs on your other accounts above, so it has no limits of its own. Set it up under Models › Team of models.']}
