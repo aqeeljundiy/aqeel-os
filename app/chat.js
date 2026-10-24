@@ -371,7 +371,7 @@ const Chat={
    await this.readStream(r,ev=>this.onEvent(id,ev));
   }catch(e){if(e.name!=='AbortError'){const t=s.ai||ai;
    // the stream broke on the way (network, sleep, proxy): the reply may well still be running on the box
-   if(/network|failed to fetch|load failed|terminated|input stream|body stream|connection (was )?(lost|reset|closed)/i.test(e.message||'')){if(gotResp){t.dropped=true;s.conn='reconnecting'}else t.error="Couldn't reach your AI box. Check your connection, then try again."}else{t.error=e.message||String(e);t.reload=!!e.reload}}}
+   if(/network|failed to fetch|load failed|terminated|input stream|body stream|connection (was )?(lost|reset|closed)/i.test(e.message||'')){if(gotResp){t.dropped=true;s.conn='reconnecting'}else t.error="Couldn't reach your AI box. Check your connection, then try again."}else{t.error=e.message||String(e);t.reload=!!e.reload}if(t.error)Oops.add('chat',AGENT()+': '+t.error)}}
   finally{if(s.conn!=='reconnecting')s.conn=null;s.running=false;s.abort=null;s.runId=null;s.runModel='';s.stopWanted=false;s.seenAt=Date.now()/1000;for(const t of s.runTurns||[ai])t.steps.forEach(x=>{if(!x.done){x.done=true;x.failed=x.failed||!!t.error}});
    for(const t of s.turns)if(t.steer==='sending')t.steer='sent';
    if(s.autoGo){s.autoGo=false;s.paused=false;(s.queue??=[]).unshift({text:'Go ahead in my browser.',images:[]})}   // the person chose their browser: its tools load with this next turn
@@ -427,7 +427,7 @@ const Chat={
    case 'assistant.completed':{let c=this.contentText(e.content||'');const prev=(s.runTurns||[]).filter(t=>t!==ai).map(t=>t.text).join('');if(prev&&c.startsWith(prev))c=c.slice(prev.length).trim();if(c&&(!ai.text||c.length>=ai.text.length))ai.text=c}ai.model=e.runtime?.model||ai.model;break;
    case 'run.completed':this.refreshUsage();if(!e.pending_steer)for(const t of s.turns){if(t.steer==='sent')t.steer='delivered'}   // nothing left unread: the agent took every steer in
    if(e.pending_steer){/* the reply ended before the agent read it: send it as the next message instead */const u=[...s.turns].reverse().find(t=>t.steer&&t.steer!=='delivered');if(u){const i=s.turns.indexOf(u);const nx=s.turns[i+1];s.turns.splice(i,nx&&nx.role==='ai'&&!nx.text&&!(nx.steps||[]).length?2:1);if(s.ai===nx)s.ai=s.turns[s.turns.length-1];(s.queue??=[]).unshift({text:u.text,images:[]})}}if(e.messages){/* fill tool outputs from the final transcript */const t=this.toTurns(e.messages.map(m=>({...m,active:1})));const last=t[t.length-1];if(last?.role==='ai'){last.steps.forEach((x,k)=>{if(ai.steps[k]&&!ai.steps[k].out)ai.steps[k].out=x.out});if(!ai.text)ai.text=last.text}}const u=e.usage;if(u)ai.usage=u;break;
-   case 'run.failed':ai.error=e.error?.message||e.error||AGENT()+' stopped with an error.';break;
+   case 'run.failed':ai.error=e.error?.message||e.error||AGENT()+' stopped with an error.';Oops.add('chat',AGENT()+': '+ai.error);break;
    case 'aqeelos.steer':{if(e.text&&!s.turns.some(t=>t.steer&&t.text===e.text)){const n={role:'ai',steps:[],text:'',think:''};s.turns.push({role:'user',text:e.text,steer:'sent'},n);s.ai=n;(s.runTurns??=[]).push(n)}break}
    case 'run.steered':{const u=[...s.turns].reverse().find(t=>t.steer==='sending'||t.steer==='sent');if(u)u.steer='delivered';break}
    case 'run.cancelled':case 'run.interrupted':ai.text+=(ai.text?'\n\n':'')+'*Stopped.*';break;

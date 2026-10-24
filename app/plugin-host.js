@@ -9,13 +9,13 @@ const Plugins={list:[],slotNames:new Set(),reg:new Map(),slotReg:new Map(),errs:
  // plugins aqeelOS has rebuilt itself: their own page shows only when the owner picks it (Plugins › ⋯)
  NATIVE:{kanban:'automations/kanban','hermes-achievements':'abilities/achievements'},
  // the engine's page addresses → aqeelOS's sections and pages
- ROUTES:{chat:'chat',sessions:'chat',analytics:'system/usage',logs:'system/logs',cron:'automations/schedules',skills:'abilities/skills',plugins:'abilities/plugins',config:'system/settings',env:'system/keys',docs:'system/guide',mcp:'abilities/mcp',models:'models/models',profiles:'agents/profiles',files:'agents/files',memory:'agents/memory',kanban:'automations/kanban',achievements:'abilities/achievements',status:'system/health',webhooks:'automations/webhooks',channels:'channels/channels',messaging:'channels/channels'},
+ ROUTES:{chat:'chat',sessions:'chat',analytics:'system/usage',logs:'system/logs',cron:'automations/schedules',skills:'abilities/skills',plugins:'abilities/plugins',config:'system/settings',env:'system/keys',docs:'help',mcp:'abilities/mcp',models:'models/models',profiles:'agents/profiles',files:'agents/files',memory:'agents/memory',kanban:'automations/kanban',achievements:'abilities/achievements',status:'system/health',webhooks:'automations/webhooks',channels:'channels/channels',messaging:'channels/channels'},
  // aqeelOS page → the engine's name for the slots at its top and bottom
- PAGE_SLOTS:{logs:'logs',usage:'analytics',settings:'config',keys:'env',skills:'skills',plugins:'plugins',schedules:'cron',guide:'docs'},
+ PAGE_SLOTS:{logs:'logs',usage:'analytics',settings:'config',keys:'env',skills:'skills',plugins:'plugins',schedules:'cron'},
  ICONS:{package:'layers',star:'sparkle',puzzle:'puzzle',trophy:'trophy',chart:'chart',barchart:'chart',activity:'activity',list:'list',kanban:'list',bot:'user',user:'user',settings:'settings',zap:'zap',clock:'clock',globe:'globe',terminal:'terminal',file:'file',folder:'folder',brain:'brain',shield:'shield',key:'key',bell:'bell',mic:'mic',monitor:'monitor'},
  agent:()=>S.profile||'default',
  // where a slot shows, in plain words (Plugins › Installed says "Adds to Skills, Chat")
- slotLabel(s){const k=String(s).split(':')[0];return {sessions:'Chats',analytics:'Usage',logs:'Logs',cron:'Schedules',skills:'Skills',plugins:'Plugins',config:'Settings',env:'Keys',docs:'Guide',chat:'Chat','header-left':'Top bar','header-right':'Top bar','header-banner':'Top bar',sidebar:'Sidebar','pre-main':'Every page','post-main':'Every page','footer-left':'Every page','footer-right':'Every page',overlay:'Whole screen',backdrop:'Whole screen'}[k]||pretty(k)},
+ slotLabel(s){const k=String(s).split(':')[0];return {sessions:'Chats',analytics:'Usage',logs:'Logs',cron:'Schedules',skills:'Skills',plugins:'Plugins',config:'Settings',env:'Keys',docs:'Help',chat:'Chat','header-left':'Top bar','header-right':'Top bar','header-banner':'Top bar',sidebar:'Sidebar','pre-main':'Every page','post-main':'Every page','footer-left':'Every page','footer-right':'Every page',overlay:'Whole screen',backdrop:'Whole screen'}[k]||pretty(k)},
  seg:p=>String(p||'').replace(/^\/+/,'').split(/[/?#]/)[0].toLowerCase(),
  icon(n){return this.ICONS[String(n||'').toLowerCase().replace(/[^a-z]/g,'')]||'puzzle'},
  optIn(n){return !!store.get('plugOwn',{})[n]},

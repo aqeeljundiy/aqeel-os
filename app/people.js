@@ -34,6 +34,7 @@ function applyRole(){
  if(has('schedules'))out.push({id:'automations',label:'Automations',icon:'zap',pages:[pg('automations','schedules')]});
  out.push({id:'abilities',label:'Abilities',icon:'puzzle',pages:[...(has('skills')?[pg('abilities','skills')]:[]),...(has('mcp')?[pg('abilities','mcp')]:[]),pg('agents','files',{desc:'Your own folder. Your agents can read what you put here.'})]});
  if(has('usage'))out.push({id:'models',label:'Models',icon:'cpu',pages:[{id:'accounts',label:'Accounts',icon:'user',desc:'How much of each account is used.'}]});
+ {const h=SECTIONS.find(s=>s.id==='help');if(h)out.push(h)}   // Help is everyone's, last in the menu
  out.forEach((s,i)=>{if(s.id!=='chat')s.key=String(i+1)});
  SECTIONS.splice(0,SECTIONS.length,...out);
 }
@@ -226,7 +227,7 @@ ACT['ppl-models']=async a=>{const u=(Pages._ppl?.users||[]).find(x=>x.id===a.dat
  const table=(title,rows,label)=>rows.length?`<div class="panel card" style="margin-top:16px"><h2>${title}</h2><div class="utable"><div class="uh"><span>${label}</span><span>Chats</span><span>Messages</span><span>Tokens</span><span>Cache</span><span>Est. cost</span></div>
   ${rows.map(([k,o,head])=>`<div class="ur">${head}<span>${num(o.chats)}</span><span>${num(o.messages)}</span><span>${tok(o)}</span><span>${num(o.cache)}</span><span>${money(o.cost||0,{cents:true})}</span></div>`).join('')}</div></div>`:'';
  const ppl=Object.entries(d.byPerson||{}).filter(([,o])=>o).sort((a,b)=>(b[1].input+b[1].output)-(a[1].input+a[1].output)).map(([id,o])=>{const x=d.people?.[id]||{name:id};return [id,o,`<span class="uname">${personAva({id,...x},24)}${esc(id===S.me?.id?'You':x.name)}${x.limit?`<small>limit ${num(x.limit.tokens)}/day</small>`:''}</span>`]});
- const ags=Object.entries(d.byAgent||{}).sort((a,b)=>(b[1].input+b[1].output)-(a[1].input+a[1].output)).map(([a,o])=>[a,o,`<span class="uname">${agentAva(a)}${esc(ident(a).name)}</span>`]);
+ const ags=Object.entries(d.byAgent||{}).sort((a,b)=>(b[1].input+b[1].output)-(a[1].input+a[1].output)).map(([a,o])=>[a,o,typeof Help!=='undefined'&&a===Help.ID?`<span class="uname"><span class="help-ava sm">${icon('help',14)}</span>Help</span>`:`<span class="uname">${agentAva(a)}${esc(ident(a).name)}</span>`]);
  const mds=Object.entries(d.byModel||{}).sort((a,b)=>(b[1].input+b[1].output)-(a[1].input+a[1].output)).map(([m,o])=>[m,o,`<span class="uname">${esc(modelLabel(m))}</span>`]);
  const box=document.createElement('div');box.innerHTML=(d.today?`<div class="panel card" style="margin-top:16px"><h2>You today</h2><p class="sub" style="margin:0">${num(d.today.tokens)} tokens in ${num(d.today.messages)} messages${d.people?.[S.me?.id]?.limit?` of your ${num(d.people[S.me.id].limit.tokens)} a day`:''}.</p></div>`:'')
   +(d.failed?.length?alertBox(`Chats of ${esc(d.failed.map(a=>ident(a).name).join(', '))} couldn’t be read, so the tables below are incomplete.`,{style:'margin:16px 0 0'}):'')+table('By person',ppl,'Person')+table('By agent',ags,'Agent');el.append(box);

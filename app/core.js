@@ -49,6 +49,11 @@ class ApiError extends Error{constructor(msg,status,data){super(msg);this.status
 // A page that is still loading when you move to another page must not draw into the new one: a read (GET) that
 // started on an earlier page is dropped when it comes back (a quiet "stale" error nobody sees). Changes (POST,
 // PUT, DELETE) always finish.
+// What went wrong in this tab lately (failed requests, error toasts, "Couldn't load" lines, chat errors), newest last:
+// Help sends it with each question so it can tell what happened. Only this tab, only the last few, no query strings.
+const Oops={list:[],add(kind,text){text=String(text||'').replace(/\s+/g,' ').trim().slice(0,240);if(!text)return;const page=location.hash.split('?')[0].slice(1,80),l=this.list,x=l[l.length-1];
+ if(x&&x.text===text&&x.page===page){x.n=(x.n||1)+1;x.t=Date.now();return}l.push({t:Date.now(),at:new Date().toTimeString().slice(0,5),kind,text,page});if(l.length>12)l.shift()},
+ recent(){const t=Date.now()-3600e3;return this.list.filter(x=>x.t>t).map(({at,kind,text,page,n})=>({at,kind,text:n>1?text+' ('+n+' times)':text,page}))}};
 const STALE=()=>Object.assign(new Error('That page was left before it finished loading.'),{stale:true});
 // A button you press shows a spinner while what it started is still talking to the server (anything it starts within
 // 0.6 s of the click), so it never looks like nothing happened. Works for every button, however its click is wired.
@@ -75,13 +80,13 @@ function navNext(){S._nav=(S._nav||0)+1;NavAbort.abort();NavAbort=new AbortContr
 async function callRaw(base,path,opt={}){const nav=S._nav,read=!opt.method||opt.method==='GET';
  const init={method:opt.method||'GET',headers:{'x-hui':'1',...(opt.headers||{})},credentials:'same-origin',signal:opt.signal||(read&&!opt.keep&&!opt.raw?NavAbort.signal:undefined)};
  if(opt.body!==undefined){if(opt.body instanceof FormData)init.body=opt.body;else{init.body=JSON.stringify(opt.body);init.headers['content-type']='application/json'}}
- let r;try{r=await fetch(base+path,init)}catch(e){if(e?.name==='AbortError'&&!opt.signal&&nav!==S._nav)throw STALE();throw e}
+ let r;try{r=await fetch(base+path,init)}catch(e){if(e?.name==='AbortError'&&!opt.signal&&nav!==S._nav)throw STALE();if(e?.name!=='AbortError')Oops.add('request',init.method+' '+path.split('?')[0]+': '+(e?.message||e));throw e}
  if(read&&!opt.keep&&nav!==S._nav)throw STALE();
  // Only this app's own server says "sign in again"; a 401 from Hermes itself is an ordinary error.
  if(r.status===401&&r.headers.get('x-hui-auth')==='required'){signedOut();throw new ApiError('Signed out',401)}
  if(opt.raw)return r;
  let text;try{text=await r.text()}catch(e){if(e?.name==='AbortError'&&nav!==S._nav)throw STALE();throw e}let data=null;try{data=text?JSON.parse(text):null}catch{data=text}
- if(!r.ok){const d=data&&typeof data==='object'?data:{};if(Array.isArray(d.detail))d.detail=d.detail.map(x=>(x.loc?x.loc.slice(-1)[0]+': ':'')+(x.msg||'')).join('; ');const msg=d.detail?.message||d.detail||d.error?.message||d.error||d.message||('The server answered '+r.status);throw new ApiError(typeof msg==='string'?msg:JSON.stringify(msg),r.status,data)}
+ if(!r.ok){const d=data&&typeof data==='object'?data:{};if(Array.isArray(d.detail))d.detail=d.detail.map(x=>(x.loc?x.loc.slice(-1)[0]+': ':'')+(x.msg||'')).join('; ');const msg=d.detail?.message||d.detail||d.error?.message||d.error||d.message||('The server answered '+r.status);if(!path.startsWith('/ui/help/'))Oops.add('request',init.method+' '+path.split('?')[0]+' answered '+r.status+': '+(typeof msg==='string'?msg:JSON.stringify(msg)));throw new ApiError(typeof msg==='string'?msg:JSON.stringify(msg),r.status,data)}
  return data;
 }
 // The active agent (Hermes profile): dashboard calls get ?profile=, gateway calls go through /p/<profile>/.
@@ -316,15 +321,16 @@ const SECTIONS=[
   {id:'health',label:'Health',icon:'activity',desc:'Is everything running, and the AI box itself: resources, updates and maintenance.'},
   {id:'logs',label:'Logs',icon:'list',desc:'What aqeelOS wrote while working.'},
   {id:'keys',label:'Keys and secrets',icon:'key',desc:'API keys, tokens and passwords, stored on the box and never shown in full.'},
-  {id:'settings',label:'Settings',icon:'sliders',desc:'Every aqeelOS setting, grouped and searchable.'},
-  {id:'guide',label:'Guide',icon:'list',desc:'How aqeelOS works, in a few minutes.'}]},
+  {id:'settings',label:'Settings',icon:'sliders',desc:'Every aqeelOS setting, grouped and searchable.'}]},
+ // Help: a chat of the person's own about how aqeelOS works and what went wrong (help.js); replaced System › Guide
+ {id:'help',label:'Help',icon:'help',key:'9'},
 ];
 
 const S={identities:{},collapsed:store.get('collapsed',false),tab:{},status:null,sessions:[],sessionsLoaded:false,chatFilter:['chats','automation','all'].includes(store.get('chatFilter','chats'))?store.get('chatFilter','chats'):'chats',search:'',signedIn:false};
 
 // pages that moved keep their old addresses: [new section, page, tab]
-const ROUTE_MOVED={'automations/channels':['channels','channels','Connections'],'automations/pairing':['channels','channels','Who can message'],'system/status':['system','health'],'system/host':['system','health'],'abilities/memory':['agents','memory'],'abilities/files':['agents','files'],'models/keys':['system','keys']};
-function route(){let p=location.hash.replace(/^#\/?/,'').split('/').map(decodeURIComponent);{const mv=ROUTE_MOVED[p[0]+'/'+p[1]];if(mv){if(mv[2])S.tab[mv[1]]=mv[2];p=[mv[0],mv[1],...p.slice(2)];history.replaceState(null,'','#/'+p.map(encodeURIComponent).join('/'))}}if(p[0]==='signin')return{signin:true};if(p[0]==='invite')return{invite:p[1]||''};const sec=SECTIONS.find(s=>s.id===p[0])||SECTIONS[0];if(sec.id==='chat')return{sec,chat:p[1]||null};const page=sec.pages.find(x=>x.id===p[1])||sec.pages[0];return{sec,page,arg:p.slice(2)}}
+const ROUTE_MOVED={'automations/channels':['channels','channels','Connections'],'automations/pairing':['channels','channels','Who can message'],'system/status':['system','health'],'system/host':['system','health'],'abilities/memory':['agents','memory'],'abilities/files':['agents','files'],'models/keys':['system','keys'],'system/guide':['help','']};
+function route(){let p=location.hash.replace(/^#\/?/,'').split('/').map(decodeURIComponent);{const mv=ROUTE_MOVED[p[0]+'/'+p[1]];if(mv){if(mv[2])S.tab[mv[1]]=mv[2];p=[mv[0],mv[1],...p.slice(2)];history.replaceState(null,'','#/'+p.map(encodeURIComponent).join('/'))}}if(p[0]==='signin')return{signin:true};if(p[0]==='invite')return{invite:p[1]||''};const sec=SECTIONS.find(s=>s.id===p[0])||SECTIONS[0];if(sec.id==='chat')return{sec,chat:p[1]||null};if(sec.id==='help')return{sec,help:true,page:{id:'help',label:'Help'}};const page=sec.pages.find(x=>x.id===p[1])||sec.pages[0];return{sec,page,arg:p.slice(2)}}
 // aqeelOS inside the browser extension's side panel: a compact chat, with the full app one click away
 const PANEL=new URLSearchParams(location.search).has('panel');if(PANEL){document.documentElement.classList.add('in-panel');if(!location.hash.startsWith('#/chat'))history.replaceState(null,'','#/chat')}
 function go(h){if(location.hash==='#'+h)render();else location.hash=h}
@@ -340,6 +346,7 @@ function render(){
  paintSide(r);paintTop(r);paintBanner();if(typeof Screen!=='undefined')Screen.paint();
  const v=$('#view');{const key=location.hash.split('?')[0];if(v._key!==key){v._key=key;Calm.opening();v.classList.remove('enter');void v.offsetWidth;v.classList.add('enter')}}watchReveal(v);
  if(r.chat!==undefined)Chat.view(v,r.chat);
+ else if(r.help){S._pageKey=null;Help.view(v)}
  else{const P=PAGES[r.page.id];const key=r.sec.id+'/'+r.page.id+'/'+(r.arg||[]).join('/')+'@'+(agentProfile()||'')+'/'+String(S.viewAll)+'/'+(S.chAgent||'');
   // Same page again (after a save, a toggle…): update in place. No skeleton flash, no replayed entrance animations.
   const same=S._pageKey===key&&$('#pg');S._pageKey=key;
@@ -368,9 +375,10 @@ new MutationObserver(list=>{for(const m of list)for(const n of m.addedNodes)if(n
 Calm.opening(1500);
 function sidebar(r){
  const sec=r.sec;
- const sections=SECTIONS.map(s=>`<button class="sec ${s.id===sec.id?'on':''}" data-go="/${s.id}" title="${s.label} (${MOD}+${s.key})" aria-current="${s.id===sec.id?'page':'false'}">${icon(s.icon,19)}<span class="label">${s.label}</span><span class="kbd">${MOD} ${s.key}</span></button>`).join('');
+ const sections=SECTIONS.map(s=>`<button class="sec ${s.id===sec.id?'on':''}" data-go="/${s.id}" title="${s.label} (${MOD}+${s.key})" aria-current="${s.id===sec.id?'page':'false'}">${icon(s.icon,19)}<span class="label">${s.label}</span>${s.id==='help'&&typeof Help!=='undefined'&&Help.unseen?'<i class="sec-dot" title="News about your tickets"></i>':''}<span class="kbd">${MOD} ${s.key}</span></button>`).join('');
  let sub='';
  if(sec.id==='chat')sub=Chat.sidebar(r);
+ else if(sec.id==='help')sub=Help.sidebar(r);
  else if(sec.id==='code'&&typeof CodeUI!=='undefined')sub=CodeUI.sidebar(r);
  else sub=`<div class="side-sub"><div class="side-sub-head"><span class="th">${sec.label}</span></div><div class="side-list">${sec.pages.filter(p=>!p.hidden).map(p=>`<button class="item ${r.page.id===p.id?'on':''}" data-go="/${sec.id}/${p.id}">${icon(p.icon,16)}<span class="t">${p.label}</span></button>`).join('')}</div></div>`;
  const gs=gwState(S.status);
@@ -383,6 +391,7 @@ function topbar(r){
  let crumbs;
  if(r.chat==='manage')crumbs=`<span>Chat</span>${icon('chevR',14)}<b>Manage chats</b>`;
  else if(r.chat!==undefined){const c=S.sessions.find(x=>x.id===r.chat);crumbs=`<b data-act="rename-current" title="Rename" style="cursor:text">${c?esc(c.title||c.preview||'Chat'):'New chat'}</b>`}
+ else if(r.help)crumbs=`<b>${esc(r.sec.label)}</b>`;
  else crumbs=`<span>${r.sec.label}</span>${icon('chevR',14)}<b>${r.page.label}</b>`;
  return `<button class="ghost icon menu-btn" data-act="nav" aria-label="Open navigation">${icon('menu',20)}</button><div class="crumbs">${crumbs}</div>
  <div class="top-actions"><button class="ghost icon ${Screen.open&&Screen.src_!=='mine'?'on':''}" data-act="screen-box" title="The agent's screen on the AI box" aria-label="The agent's screen on the AI box" aria-pressed="${Screen.open&&Screen.src_!=='mine'}">${icon('monitor',18)}</button><button class="ghost icon ${Screen.open&&Screen.src_==='mine'?'on':''}" data-act="screen-mine" title="My browser: the agent's tab in your own Chrome" aria-label="My browser" aria-pressed="${Screen.open&&Screen.src_==='mine'}">${icon('globe',18)}</button><button class="ghost icon bn-btn" data-act="bottlenecks" title="Bottlenecks: what is stuck until you act" aria-label="Bottlenecks" ${typeof Bottlenecks!=='undefined'&&Bottlenecks.items.length?'':'data-none'}>${icon('alert',18)}<span class="bn-n">${typeof Bottlenecks!=='undefined'&&Bottlenecks.items.length?Math.min(Bottlenecks.items.length,9):''}</span></button><button class="ghost icon bell" data-act="inbox" title="Notifications" aria-label="Notifications">${icon('bell',18)}<span class="bell-n"></span></button><button class="k-btn" data-act="palette" aria-label="Search and commands">${icon('search',15)}<span class="k-label">Search or run a command</span><kbd>${MOD} K</kbd></button>
@@ -425,7 +434,7 @@ const toggle=(on,label,attrs='')=>`<input type="checkbox" class="switch" ${on?'c
 const st=i=>`style="animation-delay:${Math.min(i,10)*30}ms"`;
 const skeleton=()=>`<div class="skel loading" role="status" aria-label="Loading"><span class="ring"></span></div>`;
 const skeletonRows=(n=4)=>`<div class="card list sk-list" style="padding:6px 22px">${Array.from({length:n},(x,i)=>`<div class="sk-item" style="--d:${i*90}ms"><span class="skel sk-ic"></span><span class="sk-lines"><span class="skel sk-l1" style="width:${[46,58,38,52,44,60][i%6]}%"></span><span class="skel sk-l2" style="width:${[72,64,80,68,76,58][i%6]}%"></span></span><span class="skel sk-end"></span></div>`).join('')}</div>`;
-function showError(el,e,retry){if(!el||e?.stale||!el.isConnected)return;el.innerHTML=`<div class="card state-box err"><b>Couldn’t load this</b>${esc(e?.message||e)}<br><button data-act="reload">${icon('refresh',15)}Try again</button></div>`}
+function showError(el,e,retry){if(!el||e?.stale||!el.isConnected)return;Oops.add('page','Couldn’t load this page: '+(e?.message||e));el.innerHTML=`<div class="card state-box err"><b>Couldn’t load this</b>${esc(e?.message||e)}<br><button data-act="reload">${icon('refresh',15)}Try again</button></div>`}
 // who an account or connection is, said one way everywhere: the name you gave it (else the account's own name) · its
 // handle (@bot, +phone, email); nothing known: the name agents use to pick it ("agents call it whatsapp")
 const accountText=(a,{label='',id=''}={})=>{const h=a?a.phone||a.username||a.email||'':'',n=label||a?.name||'';return [n,h].filter(Boolean).join(' · ')||(id?'agents call it '+id:'')};
@@ -443,7 +452,7 @@ const alertBox=(html,{act='reload',id='',label='Try again',style='',cls=''}={})=
 const pageRun=el=>{const t=el._rt=(el._rt||0)+1;return ()=>el._rt!==t||!el.isConnected};
 const pageTok=el=>{const t=el._rt;return ()=>el._rt!==t||!el.isConnected};
 // a part of a page that failed to load: says what, with Try again (never drawn as an empty list)
-const errLine=(what,style='',cls='')=>alertBox(`Couldn’t load ${esc(what)}.`,{style,cls});
+const errLine=(what,style='',cls='')=>(Oops.add('page','Couldn’t load '+what),alertBox(`Couldn’t load ${esc(what)}.`,{style,cls}));
 const emptyBox=(title,text,btn='')=>`<div class="empty-hero"><b style="display:block;font-size:17px;margin-bottom:6px">${esc(title)}</b><span style="color:var(--ink-2)">${esc(text)}</span>${btn?`<div style="margin-top:16px">${btn}</div>`:''}</div>`;
 // Tab bars are often re-rendered on switch, so each bar remembers where its pill was and a fresh pill
 // glides from there instead of appearing in place.
@@ -467,7 +476,7 @@ function closeLayers(animate=true,{keepScrim=false}={}){const back=animate?docum
  if(back)setTimeout(()=>{if(back.isConnected&&!document.querySelector('.drawer:not(.closing),.palette:not(.closing)')&&(!document.activeElement||document.activeElement===document.body||!document.activeElement.isConnected||document.activeElement.closest('.drawer')))try{back.focus({preventScroll:true})}catch{}},0)}
 const openLayer=()=>{const had=document.querySelector('.scrim:not(.closing)'),open=document.querySelector('.drawer:not(.closing)'),a=document.activeElement;
  Layer.back=open?open._back||null:a&&a!==document.body&&!a.closest('.drawer,.palette,.menu')?a:null;closeLayers(false,{keepScrim:true});if(!had)scrim()};
-function toast(msg,kind){const t=document.createElement('div');t.className='toast';t.innerHTML=icon(kind==='err'?'alert':'check',15)+esc(msg);$('#toasts').append(t);setTimeout(()=>{t.classList.add('out');setTimeout(()=>t.remove(),260)},kind==='err'?6000:2800)}
+function toast(msg,kind){if(kind==='err')Oops.add('toast',msg);const t=document.createElement('div');t.className='toast';t.innerHTML=icon(kind==='err'?'alert':'check',15)+esc(msg);$('#toasts').append(t);setTimeout(()=>{t.classList.add('out');setTimeout(()=>t.remove(),260)},kind==='err'?6000:2800)}
 const fail=e=>{if(e?.stale)return;if(e?.status!==401)toast(e?.message||String(e),'err')};
 // copying works without the clipboard API too (plain http, older browsers): a hidden text box is copied instead
 async function copyText(text,done='Copied'){text=String(text??'');let ok=false;try{if(navigator.clipboard&&isSecureContext){await navigator.clipboard.writeText(text);ok=true}}catch{}
@@ -577,7 +586,7 @@ async function runAction(title,path,body){try{const r=await post(H,path,body);if
 function palette(){openLayer();const p=document.createElement('div');p.className='palette';p.setAttribute('role','dialog');p.setAttribute('aria-label','Search and commands');
  const actions=[{g:'Actions',l:'New chat',ic:'plus',run:()=>Chat.newChat()},{g:'Actions',l:'Restart agents',ic:'refresh',run:()=>restartGateway()},{g:'Actions',l:'Use my browser (set up the extension)',ic:'globe',run:()=>BrowserSetup.open()},{g:'Actions',l:'Toggle light / dark',ic:'moon',run:()=>theme()},{g:'Actions',l:'Check for updates',ic:'download',run:()=>{go('/system/health');const t=setInterval(()=>{const b=document.querySelector('[data-act="upd-check"]');if(b){clearInterval(t);b.click()}},400);setTimeout(()=>clearInterval(t),15000)}},{g:'Actions',l:'Sign out',ic:'logout',run:()=>signOut()},{g:'Actions',l:'Sign out on every device',ic:'logout',run:()=>signOutAll()}];
  const models=(Chat.models||[]).slice(0,12).map(m=>({g:'Switch model',l:m.label+' · '+m.providerName,ic:'cpu',run:()=>Chat.setModel(m)}));
- const pages=SECTIONS.flatMap(s=>s.pages?s.pages.filter(x=>!x.hidden).map(x=>({g:'Pages',l:s.label+' › '+x.label,ic:x.icon,run:()=>go('/'+s.id+'/'+x.id)})):[{g:'Pages',l:'Chat',ic:'chat',run:()=>go('/chat')},{g:'Pages',l:'Chat › Manage chats',ic:'list',run:()=>go('/chat/manage')}]);
+ const pages=SECTIONS.flatMap(s=>s.pages?s.pages.filter(x=>!x.hidden).map(x=>({g:'Pages',l:s.label+' › '+x.label,ic:x.icon,run:()=>go('/'+s.id+'/'+x.id)})):s.id==='chat'?[{g:'Pages',l:'Chat',ic:'chat',run:()=>go('/chat')},{g:'Pages',l:'Chat › Manage chats',ic:'list',run:()=>go('/chat/manage')}]:[{g:'Pages',l:s.label,ic:s.icon,run:()=>go('/'+s.id)}]);
  const chats=S.sessions.slice(0,60).map(c=>({g:'Chats',l:c.title||c.preview||c.id,ic:srcIcon(c.source),run:()=>go('/chat/'+c.id)}));
  const all=[...actions,...pages,...models,...chats];let sel=0,list=all,remote=[];
  p.innerHTML=`<div class="p-in">${icon('search',18)}<input placeholder="Search pages, chats, skills or run a command" aria-label="Search"></div><div class="p-list"></div><div class="p-foot"><span>↑↓ to move</span><span>Enter to open</span><span>Esc to close</span></div>`;document.body.append(p);trapTab(p);

@@ -1534,9 +1534,6 @@ html.in-panel .composer-wrap{padding:0 10px 12px}
 .n8n-wait{position:absolute;inset:0;display:grid;place-items:center;align-content:center;gap:10px;color:var(--muted);font-size:14px}
 .n8n-setup input{max-width:420px}
 /* System › Guide */
-.guide{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}@media (max-width:860px){.guide{grid-template-columns:1fr}}
-.guide-card{display:flex;gap:14px;padding:18px 20px;animation:lbUp var(--t-med) var(--ease) both}
-.guide-card .ic{flex:none}.guide-card h2{font-size:16px;margin:0 0 4px}.guide-card p{margin:0;color:var(--ink-2);font-size:14px;line-height:1.55}
 .n8n-head{margin:0 0 10px}.n8n-own{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}.n8n-own b{color:var(--ink-2);font-weight:600}
 .n8n-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px}
 .n8n-tab{display:inline-flex;align-items:center;gap:8px;padding:5px 12px 5px 6px;border-radius:999px;border:1px solid var(--border);background:var(--surface);font:inherit;font-size:13.5px;cursor:pointer;transition:background var(--t-fast),border-color var(--t-fast),color var(--t-fast)}
@@ -2008,3 +2005,28 @@ span.ag-ava.ava-in img{animation:avaIn .26s var(--ease) both}
 @media (prefers-reduced-motion:reduce){.ava-crop{transition:none}}
 .prof-pic .ident-ava-box{width:72px;height:72px}
 span.ag-ava.ini.ava-in{animation:avaIn .26s var(--ease) both}
+/* ---------- Help (help.js): the person's own help chat ---------- */
+.help-ava{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:var(--blue-soft);color:var(--blue);flex:none}
+.help-ava.sm{width:24px;height:24px}.help-ava.lg{width:56px;height:56px}.dark .help-ava{color:var(--blue-2)}
+.uname .help-ava.sm{margin-right:8px}
+.help-empty>button{margin-top:-8px}.help-empty .alert{max-width:520px;margin:0 auto}
+.help-go{appearance:none;border:0;background:none;box-shadow:none;padding:0;min-height:0;font:inherit;color:var(--blue);font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:3px;text-decoration-color:color-mix(in srgb,var(--blue) 35%,transparent);transition:color var(--t-fast) var(--ease)}
+.help-go:hover{color:var(--blue-deep);transform:none;box-shadow:none}.dark .help-go{color:var(--blue-2)}
+.help-ticket{display:flex;align-items:center;flex-wrap:wrap;gap:8px 10px;margin:12px 0 0;padding:10px 12px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface);font-size:13.5px;line-height:1.5;animation:rise var(--t-med) var(--ease) both}
+.help-ticket>svg{flex:none;color:var(--blue)}.help-ticket>span:not(.chip){flex:1 1 0;min-width:160px;color:var(--ink-2)}.help-ticket b{color:var(--ink);font-weight:600}
+.help-ticket.ok>svg{color:var(--ok)}.help-ticket.bad>svg{color:var(--warn)}.help-ticket .chip{font-size:11.5px;padding:1px 8px;margin-left:auto}
+.help-notice{display:flex;align-items:center;gap:10px;align-self:center;max-width:92%;padding:10px 14px;border-radius:var(--r-pill);background:var(--soft-2);color:var(--ink-2);font-size:13.5px;line-height:1.5}
+.help-notice>svg{flex:none;color:var(--ok)}.help-notice small{color:var(--muted);white-space:nowrap}
+.help-notice.fresh{background:var(--blue-soft);color:var(--ink)}
+.thread .help-notice.still{animation:none}
+.help-left{font-size:12px;color:var(--muted);margin-right:6px}
+.hint-line.warn-t{color:var(--warn)}
+.help-chat .composer textarea:disabled{opacity:.55;cursor:not-allowed}
+.help-tk{cursor:default}.help-tk .chip{flex:none;font-size:11px;padding:0 7px}.help-tk:hover{background:transparent}
+.sec-dot{width:7px;height:7px;border-radius:50%;background:var(--blue);margin-left:auto;flex:none;animation:rise var(--t-med) var(--ease) both}
+.sec-dot+.kbd{margin-left:8px}.collapsed .sec-dot{position:absolute;top:8px;right:10px;margin:0}
+.bn-ic.bn-ticket{background:var(--blue-soft);color:var(--blue)}.dark .bn-ic.bn-ticket{color:var(--blue-2)}
+.help-set-row{display:flex;align-items:center;justify-content:space-between;gap:12px 20px;flex-wrap:wrap;padding:12px 0;border-top:1px solid var(--border)}
+.help-set-row:first-child{border-top:0;padding-top:4px}.help-set-row b{font-size:14px;font-weight:600}.help-set-row .hint{margin:2px 0 0}
+.help-set-row .sel-btn{width:auto;min-width:220px;max-width:100%}
+@media (max-width:560px){.help-set-row .sel-btn{width:100%;min-width:0}.help-notice{border-radius:var(--r-md)}}
