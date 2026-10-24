@@ -44,7 +44,7 @@ Object.assign(ALLVIEW,{
   const read=memRead;
   const per=await Promise.all(list.map(async a=>({a,mem:await read(home(a)+'MEMORY.md'),user:await read(home(a)+'USER.md')})));
   const n=t=>String(t||'').split(/\n\s*§\s*\n|^\s*§\s*$/m).map(x=>x.trim()).filter(Boolean).length;
-  el.innerHTML=`<div class="all-view">${per.map(({a,mem,user},i)=>`<div class="panel card" ${st(i)}><h2 class="h-row"><span class="aam-h">${Access.av({id:a,name:ident(a).name},24)}${esc(ident(a).name)}</span>${allOpen(a,'Open')}</h2><p class="sub">${mem?.err||user?.err?'Couldn’t load some of its notes':n(mem)+' notes about its work · '+n(user)+' about you'+memSize('MEMORY.md',mem)+memSize('USER.md',user)}</p>
+  el.innerHTML=`<div class="all-view">${per.map(({a,mem,user},i)=>`<div class="panel card" ${st(i)}><h2 class="h-row"><span class="aam-h">${Access.av({id:a,name:ident(a).name},24)}${esc(ident(a).name)}</span><span class="aam-hact">${Access.owner({owner:a})}${allOpen(a,'Open')}</span></h2><p class="sub">${mem?.err||user?.err?'Couldn’t load some of its notes':n(mem)+' notes about its work · '+n(user)+' about you'+memSize('MEMORY.md',mem)+memSize('USER.md',user)}</p>
    <details class="aam-more"><summary>What it has learned</summary>${memCards(mem)}</details><details class="aam-more"><summary>What it knows about you</summary>${memCards(user)}</details></div>`).join('')}</div>`;
   // the memory service and context engine of the agent you chat with (an owner's setting, so only for them)
   const me=agentProfile()||'default';const [m,hub]=await Promise.all([H('/memory').catch(()=>null),memHub()]);if(!m||!el.isConnected)return;Pages._memInfo=m.providers||[];
@@ -52,7 +52,7 @@ Object.assign(ALLVIEW,{
  async files(p,el){setActions(`<button data-act="f-mkdir">${icon('folder',16)}New folder</button><button class="primary" data-act="f-upload">${icon('upload',16)}Upload</button>`);const list=await viewAgents();
   const per=await Promise.all(list.map(async a=>{const path='/home/claude/workspaces/'+a;return {a,path,d:await H('/files'+qp({path})).catch(()=>null)}}));
   const rows=per.map(({a,path,d},i)=>{const items=(d?.entries||[]).filter(f=>!f.name.startsWith('.'));
-   return `<div class="row" ${st(i)}><div class="main-c">${Access.av({id:a,name:ident(a).name},34)}<div class="txt"><b>${esc(ident(a).name)}’s folder</b><span>${d?items.length+' item'+(items.length===1?'':'s')+(items.length?' · '+items.slice(0,4).map(f=>esc(f.name)).join(', ')+(items.length>4?'…':''):''):'Not made yet'}</span><span class="acc-from" style="font-family:var(--mono)">${esc(path.replace('/home/claude','~'))}</span></div></div><div class="act">${allOpen(a)}</div></div>`});
+   return `<div class="row" ${st(i)}><div class="main-c">${Access.av({id:a,name:ident(a).name},34)}<div class="txt"><b>${esc(ident(a).name)}’s folder</b><span>${d?items.length+' item'+(items.length===1?'':'s')+(items.length?' · '+items.slice(0,4).map(f=>esc(f.name)).join(', ')+(items.length>4?'…':''):''):'Not made yet'}</span><span class="acc-from" style="font-family:var(--mono)">${esc(path.replace('/home/claude','~'))}</span></div></div><div class="act">${Access.owner({owner:a})}${allOpen(a)}</div></div>`});
   el.innerHTML=`<div class="all-view">${allSection('Each agent’s own folder',rows,'No agents yet.')}</div><p class="hint" style="margin:14px 0 0">New folder and Upload work in ${esc(String(S.filePath||FILE_HOME).replace('/home/claude','~'))}. Open an agent’s folder to work in it.</p>`},
  async logs(p,el){setActions(`<button data-act="reload" title="Load the latest lines now">${icon('refresh',16)}Refresh</button>`);const o=S.logs||(S.logs={file:'agent',level:'ALL',component:'all',lines:200,live:true});const map={Agent:'agent',Channels:'gateway',Errors:'errors'};
   const per=await perAgent(a=>H(prof('/logs'+qp({file:o.file,lines:80}),a)));
@@ -63,7 +63,7 @@ Object.assign(ALLVIEW,{
  async settings(p,el){setActions(`<button data-act="cfg-raw">Raw YAML</button><button data-act="cfg-import">${icon('upload',16)}Import</button><button data-act="cfg-export">${icon('download',16)}Export</button>`);const per=await perAgent(a=>H(prof('/config',a)));
   const g=(c,k)=>k.split('.').reduce((o,x)=>o==null?undefined:o[x],c);
   const rows=per.map(({a,d},i)=>{const own=g(d,'terminal.backend')==='ssh';const bits=[modelLabel(g(d,'model.default')||g(d,'model')||''),own?'Own Linux user':'Main box user',g(d,'approvals.mode')?'Approvals: '+pretty(g(d,'approvals.mode')):'',g(d,'timezone')||''].filter(Boolean);
-   return `<div class="row" ${st(i)}><div class="main-c">${Access.av({id:a,name:ident(a).name},34)}<div class="txt"><b>${esc(ident(a).name)}</b><span>${d?bits.map(esc).join(' · '):'Its settings couldn’t be read'}</span></div></div><div class="act">${allOpen(a,'Change')}</div></div>`});
+   return `<div class="row" ${st(i)}><div class="main-c">${Access.av({id:a,name:ident(a).name},34)}<div class="txt"><b>${esc(ident(a).name)}</b><span>${d?bits.map(esc).join(' · '):'Its settings couldn’t be read'}</span></div></div><div class="act">${Access.owner({owner:a})}${allOpen(a,'Change')}</div></div>`});
   el.innerHTML=`<div class="all-view">${allSection('Each agent’s settings',rows,'No agents yet.')}</div>`}});
 
 PAGES._skillsOne=PAGES.skills;

@@ -1,5 +1,5 @@
 // Automations › n8n, laid out like Channels: one n8n (owned by aqeelOS), and in it one space per agent with its own
-// workflows. Each row says which agent owns that space and which other agents may use it (they get a second n8n
+// workflows. Each row says who owns it (aqeelOS: every agent has its own n8n user, as on Connected apps) and which agents may use the space (they get a second n8n
 // tool acting in that space). Open opens the space's n8n in a new tab, already signed in; admins can also open
 // every workflow as the n8n owner.
 PAGES.n8n=async(p,el)=>{viewPick([]);const admin=S.me?.admin!==false;
@@ -16,13 +16,14 @@ PAGES.n8n=async(p,el)=>{viewPick([]);const admin=S.me?.admin!==false;
  const row=(x,i)=>{const users=[{id:x.agent,name:x.name},...x.shared.map(a=>({id:a,name:ident(a).name}))];
   return `<div class="row n8n-row" ${st(i)}><div class="main-c">${logoImg('n8n.io','n')}<div class="txt"><b>${esc(x.name)}’s n8n</b>
     <span>${x.workflows==null?'':plural(x.workflows,'workflow')+' · '}${esc(x.email)}</span></div></div>
-   <div class="act"><span class="n8n-owner"><span class="ab-lbl">Owned by</span>${Access.av({id:x.agent,name:x.name},22)}<b>${esc(x.name)}</b></span>
-    <button class="ghost small acc-btn" data-act="n8n-who" data-space="${esc(x.agent)}" title="Who can use ${esc(x.name)}’s n8n"><span class="acc-who">${users.slice(0,5).map(u=>Access.av(u)).join('')}</span><span>${users.length>1?users.length+' agents':'Only '+esc(x.name)}</span></button>
+   <div class="act">${Access.owner(N8N_OWN)}${Access.btn({kind:'n8n',id:x.agent,label:x.name+'’s n8n',owner:x.agent,ownerName:x.name,users},`data-act="n8n-who" data-space="${esc(x.agent)}"`)}
     <button data-act="n8n-open" data-space="${esc(x.agent)}">${icon('popout',15)}Open</button>
     <button class="ghost icon" data-act="n8n-more" data-space="${esc(x.agent)}" aria-label="More">${icon('more',18)}</button></div></div>`};
  el.innerHTML=`<div class="panel card"><h2>Every agent’s n8n</h2><p class="sub">One n8n, owned by aqeelOS. Each agent has its own space there with its own workflows; give other agents access and they can run that space’s workflows too. Open goes straight in, without signing in. Turn on “Available in MCP” in a workflow’s settings so agents can run it.</p>
   <div class="n8n-list">${d.spaces.map(row).join('')||'<p class="hint">No agent has n8n yet. It is made for every agent within a few minutes.</p>'}</div></div>`};
 const N8N={};
+// the same owner story as Connected apps (server.mjs access own.n8n): the service is aqeelOS's, each agent has its own user
+const N8N_OWN={own:true,ownerName:'aqeelOS',ownNote:'every agent has its own n8n user'};
 ACT['n8n-open']=async a=>{const w=window.open('about:blank','_blank');try{const r=await post(UI,'/ui/n8n/open',a.dataset.owner?{owner:true}:{agent:a.dataset.space});if(w)w.location=r.url;else window.open(r.url,'_blank')}catch(e){w?.close();fail(e)}};
 ACT['n8n-more']=a=>menu(a,[{label:'Open in a new tab',icon:'popout',run:()=>ACT['n8n-open'](a)},N8N.d?.canEdit&&{label:'Who can use',icon:'user',run:()=>ACT['n8n-who'](a)}].filter(Boolean));
 // who can use a space: the owner always, others with one switch each

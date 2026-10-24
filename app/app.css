@@ -1490,6 +1490,10 @@ html.in-panel .composer-wrap{padding:0 10px 12px}
 .all-view{animation:lbUp var(--t-med) var(--ease) both}
 .all-view .act{gap:8px}
 .acc-nosign{font-size:12.5px;color:var(--muted);display:inline-flex;align-items:center;gap:6px;white-space:nowrap}.acc-nosign::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--warn,#d97706)}
+/* Owned by: one control on every row (Access.owner) */
+.acc-ownbox{display:inline-flex;align-items:center;gap:8px;white-space:nowrap;min-width:0}.acc-ownbox .ab-lbl{font-size:13px;color:var(--muted)}.acc-ownbox select.acc-owner{width:auto;min-width:140px;height:38px}.acc-ownbox .acc-owner-name{font-size:14px;font-weight:500}.acc-ownbox .acc-own-note{font-size:12px;color:var(--muted);max-width:180px;overflow:hidden;text-overflow:ellipsis}
+.aam-hact{display:inline-flex;align-items:center;gap:10px}
+@media (max-width:720px){.acc-ownbox .ab-lbl,.acc-ownbox .acc-own-note{display:none}}
 .all-row .act{display:flex;align-items:center;gap:10px}
 .all-row .ab-lbl{font-size:13px;color:var(--muted);white-space:nowrap}
 .all-row select.acc-owner{width:auto;min-width:140px;height:38px}
@@ -1512,9 +1516,8 @@ html.in-panel .composer-wrap{padding:0 10px 12px}
 .n8n-tab .acc-av{margin:0;box-shadow:none}.n8n-tab .ic{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:var(--soft)}.n8n-tab small{font-size:11px;color:var(--muted)}
 .n8n-row .act{display:flex;align-items:center;gap:10px}.n8n-row .ab-lbl{font-size:13px;color:var(--muted)}.n8n-row .acc-owner-name{min-width:90px}
 .n8n-row .act{display:grid;grid-template-columns:230px 170px auto auto;align-items:center;gap:10px}
-.n8n-row .n8n-owner{display:inline-flex;align-items:center;gap:8px;white-space:nowrap}.n8n-row .n8n-owner .acc-av{margin:0;box-shadow:none}.n8n-row .n8n-owner b{font-weight:600;font-size:14px}
 .n8n-row .acc-btn{justify-self:start}
-@media (max-width:900px){.n8n-row{flex-wrap:wrap}.n8n-row .act{grid-template-columns:minmax(0,1fr) auto auto;width:100%}.n8n-row .acc-btn{display:none}.n8n-row .n8n-owner{min-width:0;overflow:hidden}.n8n-row .n8n-owner b{overflow:hidden;text-overflow:ellipsis}}
+@media (max-width:900px){.n8n-row{flex-wrap:wrap}.n8n-row .act{grid-template-columns:minmax(0,1fr) auto auto;width:100%}.n8n-row .acc-btn{display:none}.n8n-row .acc-ownbox{overflow:hidden}}
 /* Code: the aqeelOS Code app fills the main area */
 .page.page-full{padding:0;max-width:none;height:calc(100dvh - 60px)}.page.page-full>.page-head{display:none}.page.page-full #pg{height:100%}
 .code-host{position:relative;height:100%;background:var(--bg)}

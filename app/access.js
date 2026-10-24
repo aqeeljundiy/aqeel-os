@@ -5,19 +5,27 @@ const Access={
  av(a,sz=22){const i=ident(a.id||a);const n=a.name||i.name||a;return `<span class="acc-av" style="width:${sz}px;height:${sz}px;--h:${[...String(a.id||a)].reduce((s,c)=>s+c.charCodeAt(0),0)%360}" title="${esc(n)}">${i.avatar?`<img src="${esc(i.avatar)}" alt="">`:esc(String(n)[0].toUpperCase())}</span>`},
  who(it){return `<span class="acc-who" aria-label="Used by ${esc(it.users.map(u=>u.name).join(', '))}">${it.users.slice(0,5).map(u=>this.av(u)).join('')}${it.users.length>5?`<span class="acc-more">+${it.users.length-5}</span>`:''}</span>`},
  from(it){return it.own?`<span class="acc-from">Owned by ${esc(it.ownerName)} · ${esc(it.ownNote)}</span>`:`<span class="acc-from">${this.av({id:it.owner,name:it.ownerName},16)}Owned by ${esc(it.ownerName)}</span>`},
- btn(it){return `<button class="ghost small acc-btn" data-act="acc-open" data-kind="${it.kind}" data-id="${esc(it.id)}" title="Owned by ${esc(it.ownerName)}. Who can use ${esc(it.label)}" aria-label="Owned by ${esc(it.ownerName)}. Who can use ${esc(it.label)}: ${esc(it.users.map(u=>u.name).join(', '))}"><span class="acc-own" title="Owner: ${esc(ident(it.owner).name||it.ownerName)}">${this.av({id:it.owner,name:ident(it.owner).name||it.ownerName})}<i>${icon('crown',9)}</i><b>${esc(ident(it.owner).name||it.ownerName)}</b></span>${this.who({...it,users:it.users.filter(u=>u.id!==it.owner)})}<span>${it.users.length>1?'+'+(it.users.length-1):'Only owner'}</span></button>`},
+ // "Owned by": one control on every row of every page. A picker for admins where ownership can move, else the name;
+ // a connection with no owner agent (n8n: every agent has its own user) names who owns the service, with why
+ owner(it,agents=[],edit=false){const l='<span class="ab-lbl">Owned by</span>',n=it.ownerName||ident(it.owner).name;
+  return `<span class="acc-ownbox">${it.own?`${l}<b class="acc-owner-name" title="${esc(it.ownNote)}">${esc(n)}</b>${it.ownNote?`<small class="acc-own-note">${esc(it.ownNote)}</small>`:''}`:edit&&!it.bot&&agents.length>1?`${l}<select class="acc-owner" style="width:auto" data-kind="${it.kind}" data-id="${esc(it.id)}" data-was="${esc(it.owner)}" aria-label="Owner of ${esc(it.label)}">${agents.map(a=>`<option value="${esc(a.id)}" ${a.id===it.owner?'selected':''}>${esc(a.name)}</option>`).join('')}</select>`:`${l}<b class="acc-owner-name">${esc(n)}</b>`}</span>`},
+ // a new owner: it gets the connection first if it did not have it yet
+ bindOwners(el){el.querySelectorAll('select.acc-owner:not([data-bound])').forEach(s=>{s.dataset.bound='1';s.onchange=async()=>{const to=s.value,was=s.dataset.was,kind=s.dataset.kind,id=s.dataset.id;s.disabled=true;
+  try{const d=await this.load(kind);const it=d?.items.find(x=>x.id===id);if(it&&!it.users.some(u=>u.id===to))await post(UI,'/ui/access',{kind,id,agent:to,on:true});await post(UI,'/ui/access/owner',{kind,id,agent:to});s.dataset.was=to;toast(ident(to).name+' now owns '+(it?.label||id));reload()}catch(e){s.value=was;fail(e);reload()}finally{s.disabled=false}}})},   // a grant that went through before the owner change failed shows after the reload
+ // attrs: what pressing it opens (Who can use by default)
+ btn(it,attrs){return `<button class="ghost small acc-btn" ${attrs||`data-act="acc-open" data-kind="${it.kind}" data-id="${esc(it.id)}"`} title="Owned by ${esc(it.ownerName)}. Who can use ${esc(it.label)}" aria-label="Owned by ${esc(it.ownerName)}. Who can use ${esc(it.label)}: ${esc(it.users.map(u=>u.name).join(', '))}"><span class="acc-own" title="Owner: ${esc(ident(it.owner).name||it.ownerName)}">${this.av({id:it.owner,name:ident(it.owner).name||it.ownerName})}<i>${icon('crown',9)}</i><b>${esc(ident(it.owner).name||it.ownerName)}</b></span>${this.who({...it,users:it.users.filter(u=>u.id!==it.owner)})}<span>${it.users.length>1?'+'+(it.users.length-1):'Only owner'}</span></button>`},
  // put the rows of a list into "Owned by" and "Shared with" groups, and add who uses each
  group(el,kind,data,rowsOf,idOf,where){if(!data)return;const ag=viewing();const me=ident(ag).name;const by=new Map(data.items.map(x=>[x.id,x]));
   const rows=rowsOf(el).filter(r=>by.has(idOf(r)));if(!rows.length)return;
   const own=[],shared=[];for(const r of rows){const it=by.get(idOf(r));if(r.dataset.acc)continue;r.dataset.acc='1';
-   const act=r.querySelector('.act');act?.insertAdjacentHTML('afterbegin',this.btn(it));r.querySelectorAll('.share-box,.chip.access').forEach(x=>x.remove());
+   const act=r.querySelector('.act');act?.insertAdjacentHTML('afterbegin',this.owner(it,data.agents,data.canEdit)+this.btn(it));r.querySelectorAll('.share-box,.chip.access').forEach(x=>x.remove());
    r.querySelector('[data-act="mcp-share"]')?.remove();
    if(it.owner!==ag){r.querySelector('.txt')?.insertAdjacentHTML('beforeend',this.from(it));
     const mine=it.users.find(u=>u.id===ag);if(mine&&!mine.signed&&it.ownerSigned)act?.insertAdjacentHTML('afterbegin',`<button class="small acc-use" data-act="acc-use" data-kind="${kind}" data-id="${esc(it.id)}">Use ${esc(it.ownerName)}’s sign-in</button>`);
     shared.push(r)}else own.push(r)}
   const host=where(el,rows[0]);if(!host)return;
   const mk=(title,list)=>{if(!list.length)return null;const g=document.createElement('div');g.className='acc-group';g.innerHTML=`<div class="acc-grp">${title}</div><div class="card list"></div>`;list.forEach(r=>g.lastChild.append(r));return g};
-  const a=mk('Owned by '+esc(me),own),b=mk('Shared with '+esc(me),shared);host.replaceWith(...[a,b].filter(Boolean))},
+  const a=mk('Owned by '+esc(me),own),b=mk('Shared with '+esc(me),shared);host.replaceWith(...[a,b].filter(Boolean));this.bindOwners(el)},
  async open(kind,id){const data=await this.load(kind);const it=data?.items.find(x=>x.id===id);if(!it)return toast('That connection is gone. Reload the page.','err');
   const what={mcp:'with the same sign-in',google:'with the same Google sign-in',plugin:'turned on',key:'with the same value (still hidden)'}[kind];
   const d=drawer('Who can use '+it.label,`<p class="hint" style="margin:0 0 14px">${it.bot?'A chat bot answers as one agent only, so it can’t be shared.':`Owned by ${esc(it.ownerName)}. Turning another agent on gives it ${esc(it.label)} ${what}; turning it off takes it away. ${kind==='google'?'It works straight away.':'The agents restart by themselves once nobody is mid-reply.'}`}</p>
@@ -35,16 +43,16 @@ ACT['acc-use']=async a=>{a.disabled=true;const was=a.innerHTML;a.innerHTML='<spa
  const [m,g]=await Promise.all([Access.load('mcp'),Access.load('google')]);
  Access.group(el,'mcp',m,e=>[...e.querySelectorAll('.row[data-mcp]')],r=>r.dataset.mcp,(e,r)=>r.closest('.card.list'));
  if(g){const ag=viewing();for(const r of el.querySelectorAll('.gacc-row')){const i=[...el.querySelectorAll('.gacc-row')].indexOf(r);const x=(Pages._gacc||[])[i];const it=x&&g.items.find(y=>y.id===x.email);if(!it||r.dataset.acc)continue;r.dataset.acc='1';
-  r.querySelector('.act')?.insertAdjacentHTML('afterbegin',Access.btn(it));if(it.owner!==ag)r.querySelector('.txt')?.insertAdjacentHTML('beforeend',Access.from(it))}}}}
+  r.querySelector('.act')?.insertAdjacentHTML('afterbegin',Access.owner(it,g.agents,g.canEdit)+Access.btn(it));if(it.owner!==ag)r.querySelector('.txt')?.insertAdjacentHTML('beforeend',Access.from(it))}Access.bindOwners(el)}}}
 {const base=PAGES.plugins;PAGES.plugins=async(p,el)=>{await base(p,el);if(S.me?.admin===false||(S.tab.plugins||'Installed')!=='Installed')return;
  // plugins stay in their groups (model providers, browser…); each row gets who uses it, and the page may redraw itself
  const d=await Access.load('plugin');if(!d)return;const ag=viewing();
  const deco=()=>{for(const r of el.querySelectorAll('.row[data-pl]:not([data-acc])')){const it=d.items.find(x=>x.id===r.dataset.pl);r.dataset.acc='1';if(!it)continue;
-  r.querySelectorAll('.share-box,.chip.access').forEach(x=>x.remove());r.querySelector('.act')?.insertAdjacentHTML('afterbegin',Access.btn(it));if(it.owner!==ag)r.querySelector('.txt')?.insertAdjacentHTML('beforeend',Access.from(it))}};
+  r.querySelectorAll('.share-box,.chip.access').forEach(x=>x.remove());r.querySelector('.act')?.insertAdjacentHTML('afterbegin',Access.owner(it,d.agents,d.canEdit)+Access.btn(it));if(it.owner!==ag)r.querySelector('.txt')?.insertAdjacentHTML('beforeend',Access.from(it))}Access.bindOwners(el)};
  deco();const mo=new MutationObserver(()=>{if(!el.isConnected||route().page?.id!=='plugins')return mo.disconnect();deco()});mo.observe(el,{childList:true,subtree:true})}}
 {const base=PAGES.keys;PAGES.keys=async(p,el)=>{await base(p,el);if(S.me?.admin===false)return;const d=await Access.load('key');if(!d)return;const ag=viewing();
  for(const b of el.querySelectorAll('[data-act="key-edit"]')){const k=b.dataset.k;const it=d.items.find(x=>x.label===k&&x.users.some(u=>u.id===ag));if(!it)continue;const row=b.closest('.field')||b.parentElement;if(row.dataset.acc)continue;row.dataset.acc='1';
-  b.parentElement.insertAdjacentHTML('afterbegin',it.bot?Access.who(it):Access.btn(it));if(it.owner!==ag)row.querySelector('label')?.insertAdjacentHTML('beforeend','<small>'+Access.from(it)+'</small>')}}}
+  b.parentElement.insertAdjacentHTML('afterbegin',Access.owner(it,d.agents,d.canEdit)+(it.bot?Access.who(it):Access.btn(it)));if(it.owner!==ag)row.querySelector('label')?.insertAdjacentHTML('beforeend','<small>'+Access.from(it)+'</small>')}Access.bindOwners(el)}}
 
 // apps and plugins are shared through Access (owner and switches); the older copy-to badges stay for skills and schedules
 {const d0=decorateRows;decorateRows=async(el,kind,rows)=>{if((kind==='mcp'||kind==='plugin')&&S.me?.admin!==false)return;return d0(el,kind,rows)}}
