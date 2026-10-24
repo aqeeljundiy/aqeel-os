@@ -1,7 +1,7 @@
 // People: who can sign in to aqeelOS, what they may do, and which agents are shared with them.
 // The server enforces every rule (users.mjs); this file only shows the right things.
 // A person's picture, or their first letter.
-const personAva=(u,s=32)=>{s=avaPx(s);return `<span class="logo ava person-ava" style="width:${s}px;height:${s}px;font-size:${Math.round(s*.42)}px">${u?.avatar?`<img src="${esc(u.avatar)}" alt="">`:esc((u?.name||'?')[0].toUpperCase())}</span>`};   // people keep their initial, on the agents' sizes and shape
+const personAva=(u,s=32)=>personAvatar(u,s,{title:false});   // people: the shared component (core.js), same sizes and shape as agents
 // An agent's picture, or its first letter on the brand blue.
 const agentAva=a=>agentAvatar(a,28,{title:false});
 const LEVEL_LABEL={chat:'Can chat',edit:'Can edit',owner:'Owner'};
@@ -108,7 +108,8 @@ Pages.personMenu=el=>{const u=(Pages._ppl?.users||[]).find(x=>x.id===el.dataset.
    if(!await confirmBox('Take over '+n+'?',u.name+' owns '+n+', private to them. Removing them makes you the owner.','Take over and remove'))return;
    try{await del(UI,'/ui/people/'+u.id+'?agents=take');toast(u.name+' removed. You now own '+n);reload()}catch(e2){fail(e2)}}}}])};
 ACT['me-profile']=()=>{const me=S.me||{};
- const d=drawer('Your profile',`<div class="prof-pic">${personAva(me,72)}<div><button id="pfPic">${icon('upload',15)}Change picture</button>${me.avatar?`<button class="ghost" id="pfPicDel">Remove</button>`:''}<input type="file" id="pfFile" accept="image/png,image/jpeg,image/webp,image/gif" hidden><p class="hint" style="margin:6px 0 0">PNG, JPG, WebP or GIF, under 2 MB.</p></div></div>
+ const d=drawer('Your profile',`<div class="prof-pic"><div id="pfAva" class="ident-ava-box">${personAva(me,72)}</div><div><div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" id="pfPic">${icon('upload',15)}Upload photo</button><button type="button" class="ghost" id="pfPicDel" ${me.avatar||me.emoji?'':'hidden'}>${me.avatar?'Remove photo':'Remove emoji'}</button></div><p class="hint" style="margin:6px 0 0">JPG, PNG or WebP. You place it in the circle next. Or pick an emoji below.</p></div></div>
+  <div class="ava-crop" id="pfCrop"></div><div id="pfEmo"${EMOJI.length?'':' hidden'}></div>
   <label>Name</label><input id="pfName" value="${esc(me.name||'')}" autocomplete="name"><label>Username</label><input id="pfUser" value="${esc(me.username||'')}" autocomplete="username" autocapitalize="none" spellcheck="false"><p class="hint" style="margin:4px 0 0">You sign in with your username.</p>
   <h3 class="prof-h">Email</h3><label>Email address</label><div class="row-in"><input id="pfMail" type="email" value="${esc(me.email||'')}" placeholder="you@example.com" autocomplete="email"><span class="chip ${me.email?(me.emailVerified?'ok':'warn'):''}" id="pfMailState">${me.email?(me.emailVerified?'Confirmed':'Not confirmed'):'None'}</span></div>
   <div id="pfVerify" ${me.email&&!me.emailVerified?'':'hidden'}><label>Code from the email</label><div class="row-in"><input id="pfCode" inputmode="numeric" maxlength="6" placeholder="123456" autocomplete="one-time-code"><button id="pfCodeGo">Confirm</button><button class="ghost" id="pfResend">Send again</button></div><p class="hint" style="margin:4px 0 0">Check spam too. Codes work for 10 minutes.</p></div>
@@ -116,9 +117,15 @@ ACT['me-profile']=()=>{const me=S.me||{};
   <h3 class="prof-h">Devices</h3><p class="hint" style="margin:0 0 8px">Signed in on a computer or phone you no longer use?</p><button class="ghost" data-act="sign-out-all">${icon('logout',15)}Sign out on every device</button>
   <h3 class="prof-h">Password</h3><label>Current password</label><input id="pwC" type="password" autocomplete="current-password"><label>New password</label><input id="pwN" type="password" autocomplete="new-password" placeholder="At least 8 characters">
   <p class="hint" style="margin:6px 0 0">Leave both empty to keep your password.</p>`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="pfGo">Save</button>`);
- const pick=d.querySelector('#pfFile');d.querySelector('#pfPic').onclick=()=>pick.click();
- pick.onchange=()=>{const f=pick.files[0];if(!f)return;if(f.size>2e6)return toast('Pictures must be under 2 MB.','err');const rd=new FileReader();rd.onload=async()=>{try{await put(UI,'/ui/me/avatar',{data:rd.result});await loadMe();toast('Picture updated');closeLayers();ACT['me-profile']();paintSide()}catch(e){fail(e)}};rd.readAsDataURL(f)};
- d.querySelector('#pfPicDel')?.addEventListener('click',async()=>{try{await del(UI,'/ui/me/avatar');await loadMe();toast('Picture removed');closeLayers();ACT['me-profile']()}catch(e){fail(e)}});
+ // your picture saves as soon as you choose it (photo, emoji or removing either) and changes in place everywhere on screen;
+ // a photo and an emoji replace each other, and without either your initial shows
+ const pfPic=d.querySelector('#pfPic'),rm=d.querySelector('#pfPicDel');
+ const paintMe=()=>{d.querySelector('#pfAva').innerHTML=personAvatar(S.me,72,{title:false,anim:true});rm.hidden=!S.me.avatar&&!S.me.emoji;rm.textContent=S.me.avatar?'Remove photo':'Remove emoji';setE(S.me.avatar?null:S.me.emoji||null);repaintPeople(S.me.id,{avatar:S.me.avatar,emoji:S.me.emoji})};
+ const saved=r=>{S.me={...S.me,avatar:r.avatar||null,emoji:r.emoji||null};paintMe()};
+ const setE=EMOJI.length?emojiPicker(d.querySelector('#pfEmo'),{cur:me.avatar?null:me.emoji||null,label:'Or an emoji',onPick:async e=>{try{saved(await put(UI,'/ui/me/emoji',{emoji:e}));toast('Picture updated')}catch(er){fail(er)}}}):()=>{};
+ pfPic.onclick=()=>pickFile(AVA_ACCEPT,async f=>{pfPic.disabled=true;const b=await avatarCrop(d.querySelector('#pfCrop'),f);if(!b){pfPic.disabled=false;return}
+  try{const r=await fetch('/ui/me/avatar',{method:'PUT',headers:{'x-hui':'1','content-type':b.type},body:b});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'Photo upload failed');saved(j);toast('Photo updated')}catch(e){fail(e)}pfPic.disabled=false});
+ rm.onclick=async()=>{try{saved(S.me.avatar?await del(UI,'/ui/me/avatar'):await put(UI,'/ui/me/emoji',{emoji:''}));toast('Picture removed')}catch(e){fail(e)}};
  let vkey=null;const showVerify=on=>{d.querySelector('#pfVerify').hidden=!on};
  d.querySelector('#pfCodeGo').onclick=async()=>{if(!vkey){const r=await post(UI,'/ui/me/email/resend').catch(e=>{fail(e)});if(!r)return;vkey=r.key;return toast('New code sent. Enter it.')}
   try{await post(UI,'/ui/me/email/verify',{key:vkey,code:$('#pfCode').value});await loadMe();toast('Email confirmed');closeLayers();ACT['me-profile']()}catch(e){fail(e)}};
@@ -218,7 +225,7 @@ ACT['ppl-models']=async a=>{const u=(Pages._ppl?.users||[]).find(x=>x.id===a.dat
  const tok=o=>num((o.input||0)+(o.output||0));
  const table=(title,rows,label)=>rows.length?`<div class="panel card" style="margin-top:16px"><h2>${title}</h2><div class="utable"><div class="uh"><span>${label}</span><span>Chats</span><span>Messages</span><span>Tokens</span><span>Cache</span><span>Est. cost</span></div>
   ${rows.map(([k,o,head])=>`<div class="ur">${head}<span>${num(o.chats)}</span><span>${num(o.messages)}</span><span>${tok(o)}</span><span>${num(o.cache)}</span><span>${money(o.cost||0,{cents:true})}</span></div>`).join('')}</div></div>`:'';
- const ppl=Object.entries(d.byPerson||{}).filter(([,o])=>o).sort((a,b)=>(b[1].input+b[1].output)-(a[1].input+a[1].output)).map(([id,o])=>{const x=d.people?.[id]||{name:id};return [id,o,`<span class="uname">${personAva({name:x.name,avatar:x.avatar},24)}${esc(id===S.me?.id?'You':x.name)}${x.limit?`<small>limit ${num(x.limit.tokens)}/day</small>`:''}</span>`]});
+ const ppl=Object.entries(d.byPerson||{}).filter(([,o])=>o).sort((a,b)=>(b[1].input+b[1].output)-(a[1].input+a[1].output)).map(([id,o])=>{const x=d.people?.[id]||{name:id};return [id,o,`<span class="uname">${personAva({id,...x},24)}${esc(id===S.me?.id?'You':x.name)}${x.limit?`<small>limit ${num(x.limit.tokens)}/day</small>`:''}</span>`]});
  const ags=Object.entries(d.byAgent||{}).sort((a,b)=>(b[1].input+b[1].output)-(a[1].input+a[1].output)).map(([a,o])=>[a,o,`<span class="uname">${agentAva(a)}${esc(ident(a).name)}</span>`]);
  const mds=Object.entries(d.byModel||{}).sort((a,b)=>(b[1].input+b[1].output)-(a[1].input+a[1].output)).map(([m,o])=>[m,o,`<span class="uname">${esc(modelLabel(m))}</span>`]);
  const box=document.createElement('div');box.innerHTML=(d.today?`<div class="panel card" style="margin-top:16px"><h2>You today</h2><p class="sub" style="margin:0">${num(d.today.tokens)} tokens in ${num(d.today.messages)} messages${d.people?.[S.me?.id]?.limit?` of your ${num(d.people[S.me.id].limit.tokens)} a day`:''}.</p></div>`:'')
@@ -226,7 +233,7 @@ ACT['ppl-models']=async a=>{const u=(Pages._ppl?.users||[]).find(x=>x.id===a.dat
  // Code runs (desktop app and online), by person, agent and project
  let c;try{c=await UI('/ui/code/usage?days='+days)}catch{return}const ctab=(title,rows,label)=>rows.length?`<div class="panel card" style="margin-top:16px"><h2>${title}</h2><div class="utable ucode"><div class="uh"><span>${label}</span><span>Runs</span><span>Tokens</span><span>Cache</span></div>${rows.map(([k,o,head])=>`<div class="ur">${head}<span>${num(o.runs)}</span><span>${tok(o)}</span><span>${num(o.cache)}</span></div>`).join('')}</div></div>`:'';
  const srt=o=>Object.entries(o||{}).sort((a,b)=>(b[1].input+b[1].output)-(a[1].input+a[1].output));
- const cp=srt(c.byPerson).map(([id,o])=>{const x=c.people?.[id]||{name:id};return [id,o,`<span class="uname">${personAva({name:x.name,avatar:x.avatar},24)}${esc(id===S.me?.id?'You':x.name)}</span>`]});
+ const cp=srt(c.byPerson).map(([id,o])=>{const x=c.people?.[id]||{name:id};return [id,o,`<span class="uname">${personAva({id,...x},24)}${esc(id===S.me?.id?'You':x.name)}</span>`]});
  const ca=srt(c.byAgent).map(([a,o])=>[a,o,`<span class="uname">${a==='(no agent)'?esc('No agent'):agentAva(a)+esc(ident(a).name)}</span>`]);const cj=srt(c.byProject).map(([n,o])=>[n,o,`<span class="uname">${icon('folder',16)}${esc(n)}</span>`]);
  if(cp.length||ca.length||cj.length){const cb=document.createElement('div');cb.innerHTML=`<h2 class="ach-cat" style="margin-top:26px">Code</h2>`+ctab('Code by person',cp,'Person')+ctab('Code by agent',ca,'Agent')+ctab('Code by project',cj,'Project');el.append(cb)}}}
 
@@ -875,6 +882,6 @@ ACT['hist-more']=async a=>{const id=Chat.id;if(!id)return;a.disabled=true;a.inne
 
 // People › Share an agent / Change: the agent's own sharing window (one place to change sharing)
 ACT['ppl-share-open']=a=>ACT['agent-share'](a.dataset.a);
-ACT['ppl-share']=a=>{const list=(Pages._agents||[]).filter(n=>!n.includes('--'));menu(a,[{header:'Share which agent?'},...list.map(n=>({label:ident(n).name,icon:'user',run:()=>ACT['agent-share'](n)}))],{matchWidth:true})};
+ACT['ppl-share']=a=>{const list=(Pages._agents||[]).filter(n=>!n.includes('--'));menu(a,[{header:'Share which agent?'},...list.map(n=>({label:ident(n).name,icon:'user',ava:agentAvatar(n,20,{title:false}),run:()=>ACT['agent-share'](n)}))],{matchWidth:true})};
 
 ACT['sign-out-all']=()=>signOutAll();

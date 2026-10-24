@@ -1966,3 +1966,38 @@ span.ag-ava.ava-in img{animation:avaIn .26s var(--ease) both}
 @media (prefers-reduced-motion:reduce){span.ag-ava.ava-in img{animation:none}}
 /* people: their own picture or initial, on the agents' sizes and the same round shape */
 .logo.ava.person-ava{border-radius:50%}
+/* agent editor › Identity: the emoji grid next to Upload photo. Fixed height so searching never moves the window;
+   "No emoji match" sits over the empty grid instead of adding a line under it */
+.ident-ava-box{width:84px;height:84px;flex:none;display:grid;place-items:center}
+.emo-pick{position:relative}
+.emo-q{position:relative}.emo-q>svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none}.emo-q input{padding-left:34px}
+.emo-grid{display:grid;grid-template-columns:repeat(auto-fill,46px);grid-auto-rows:46px;justify-content:space-between;align-content:start;gap:6px;height:204px;overflow-y:auto;overscroll-behavior:contain;margin-top:8px;padding:8px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--soft-2)}
+.emo-grid .emo{position:relative;display:grid;place-items:center;width:46px;height:46px;min-height:0;min-width:0;padding:6px;margin:0;border-radius:12px;border:1px solid transparent;background:transparent;box-shadow:none;cursor:pointer;transition:background var(--t-fast) var(--ease),border-color var(--t-fast) var(--ease),transform var(--t-fast) var(--ease)}
+.emo-grid .emo[hidden]{display:none}
+.emo-grid .emo img{width:34px;height:34px;object-fit:contain;pointer-events:none}
+@media (hover:hover){.emo-grid .emo:hover{background:var(--surface);transform:translateY(-1px)}}
+.emo-grid .emo:active{transform:scale(.94)}
+.emo-grid .emo.on{background:var(--blue-soft);border-color:var(--blue)}
+.emo-grid .emo:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+.emo-grid .emo.auto small{position:absolute;left:50%;bottom:1px;transform:translateX(-50%);font-size:9.5px;font-weight:700;line-height:1;padding:2px 5px;border-radius:6px;background:var(--surface);color:var(--muted);box-shadow:0 0 0 1px var(--border)}
+.emo-pick .emo-none{position:absolute;left:0;right:0;bottom:0;height:204px;margin:0;display:grid;place-items:center;pointer-events:none;animation:avaIn .2s var(--ease) both}
+.emo-pick .emo-none[hidden]{display:none}
+/* a person without a photo or emoji: their initial on a soft colour from their id */
+.ag-ava.ini{line-height:1;font-weight:650;letter-spacing:-.01em;background:hsl(var(--h,220) 70% 92%);color:hsl(var(--h,220) 45% 32%)}
+.dark .ag-ava.ini{background:hsl(var(--h,220) 30% 24%);color:hsl(var(--h,220) 70% 84%)}
+.menu .item .ag-ava{margin-right:2px}
+/* photo crop (avatarCrop in core.js): opens inside the window and slides open and shut */
+.ava-crop{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows .28s var(--ease),opacity .2s var(--ease),margin .28s var(--ease)}
+.ava-crop>div{min-height:0;overflow:hidden}
+.ava-crop.open{grid-template-rows:1fr;opacity:1;margin:6px 0 14px}
+.crop-in{display:flex;gap:20px;align-items:center;flex-wrap:wrap;padding:6px}
+.crop-vp{position:relative;width:220px;height:220px;border-radius:50%;overflow:hidden;background:var(--soft);cursor:grab;touch-action:none;flex:none;box-shadow:0 0 0 1px var(--border);outline:none;transition:box-shadow var(--t-fast) var(--ease)}
+.crop-vp:focus-visible{box-shadow:0 0 0 3px var(--blue)}
+.crop-vp.drag{cursor:grabbing}
+.crop-vp img{position:absolute;left:50%;top:50%;max-width:none;user-select:none;-webkit-user-select:none;pointer-events:none;will-change:transform}
+.crop-side{flex:1;min-width:180px}.crop-side label{margin-top:0}
+.crop-side input[type=range]{width:100%;accent-color:var(--blue);padding:0;border:0;background:none;min-height:28px}
+.crop-acts{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
+@media (prefers-reduced-motion:reduce){.ava-crop{transition:none}}
+.prof-pic .ident-ava-box{width:72px;height:72px}
+span.ag-ava.ini.ava-in{animation:avaIn .26s var(--ease) both}

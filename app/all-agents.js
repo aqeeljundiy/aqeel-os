@@ -10,7 +10,7 @@ const showingAll=()=>(S.viewAll??true)&&allHere()&&!(['keys','files'].includes(r
  b.innerHTML=`<span class="vp-ava all">${icon('layers',14)}</span><span class="vp-t"><small>Showing</small><b>All agents</b></span>${icon('chevD',15)}`}}
 ACT['view-pick']=async a=>{const list=await viewAgents(),me=S.profile||'default';
  menu(a,[{header:'Show whose'},...(allHere()?[{label:'All agents',icon:'layers',on:showingAll(),sub:'Everything at once, with owners',run:()=>{S.viewAll=true;S.viewAgent=null;reload()}},'-']:[]),
-  ...list.map(n=>({label:ident(n).name,icon:'user',on:!showingAll()&&n===viewing(),sub:n===me?'You chat with this one':'',run:()=>{S.viewAll=false;S.viewAgent=n===me?null:n;Pages._toolCache=null;Pages._dirty=null;reload()}}))],{search:list.length>6,matchWidth:true})};
+  ...list.map(n=>({label:ident(n).name,icon:'user',ava:agentAvatar(n,20,{title:false}),on:!showingAll()&&n===viewing(),sub:n===me?'You chat with this one':'',run:()=>{S.viewAll=false;S.viewAgent=n===me?null:n;Pages._toolCache=null;Pages._dirty=null;reload()}}))],{search:list.length>6,matchWidth:true})};
 ACT['all-open']=a=>{S.viewAll=false;const n=a.dataset.agent,me=S.profile||'default';S.viewAgent=n===me?null:n;Pages._toolCache=null;reload()};
 const allOpen=(agent,label='Open')=>`<button class="ghost small" data-act="all-open" data-agent="${esc(agent)}" title="Open on ${esc(ident(agent).name)}">${esc(label)}${icon('chevR',14)}</button>`;
 let ALL_AGENTS=[],ALL_EDIT=false,ALL_IT={};   // ALL_IT: the rows on screen by kind|id, for their ⋯ menu
@@ -86,7 +86,7 @@ for(const id of ['mcp','plugins','keys','webhooks']){const base=PAGES[id];PAGES[
  const apply=()=>{for(const row of el.querySelectorAll('.row[data-from]'))row.hidden=!!a&&row.dataset.from.split('--')[0]!==a};apply();   // every row says whose it is, extra numbers too
  const mo=new MutationObserver(apply);mo.observe(el,{childList:true,subtree:true});setTimeout(()=>mo.disconnect(),20000)}}
 ACT['ch-pick']=async a=>{const list=await viewAgents();menu(a,[{header:'Show whose channels'},{label:'All agents',icon:'layers',on:!S.chAgent,run:()=>{S.chAgent='';reload()}},'-',
- ...list.map(n=>({label:ident(n).name,icon:'user',on:S.chAgent===n,run:()=>{S.chAgent=n;reload()}}))],{matchWidth:true})};
+ ...list.map(n=>({label:ident(n).name,icon:'user',ava:agentAvatar(n,20,{title:false}),on:S.chAgent===n,run:()=>{S.chAgent=n;reload()}}))],{matchWidth:true})};
 // the shared AdsPower screen says which agents can draw on it, so one screen per agent stays clear
 // (screen.js loads after this file)
 addEventListener('load',()=>{if(typeof Screen==='undefined'||typeof Screen.picker!=='function'||typeof Screen.noteTip!=='function')return;const ads={who:'',at:0};const load=async()=>{if(Date.now()-ads.at<300000||S.me?.admin===false)return;ads.at=Date.now();const d=await Access.load('mcp');const it=d?.items.find(x=>/adspower/i.test(x.id));ads.who=it?it.users.map(u=>u.name).join(', '):''};

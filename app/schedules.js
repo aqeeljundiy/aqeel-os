@@ -94,7 +94,7 @@ PAGES.schedules=async(p,el)=>{
  if(!info?.partial)SCHED.ptries=0;else if((SCHED.ptries=(SCHED.ptries||0)+1)<=5)SCHED.pt=setTimeout(()=>{if(route().page?.id==='schedules'&&S._nav===nav&&el.isConnected&&!$('.drawer')&&document.activeElement?.id!=='schedQ')PAGES.schedules(p,el).catch(()=>{})},3000);if(jobs.some(j=>!schedMeta(j).m.summary&&!schedMeta(j).m.tries)&&(SCHED.tries=(SCHED.tries||0)+1)<=4)SCHED.t=setTimeout(()=>{if(route().page?.id==='schedules'&&S._nav===nav&&!document.hidden&&!$('.drawer')&&document.activeElement?.id!=='schedQ')PAGES.schedules(p,el).catch(()=>{})},45000);
 };
 ACT['sched-agent-pick']=a=>{const ag=[...new Set((Pages.cronJobs||[]).map(j=>j.profile||'default'))];
- menu(a,[{label:'All agents',icon:'layers',on:!SCHED.agent,run:()=>{SCHED.agent='';store.set('schedAgent','');reload()}},'-',...ag.map(n=>({label:ident(n).name,icon:'user',on:SCHED.agent===n,sub:plural((Pages.cronJobs||[]).filter(j=>(j.profile||'default')===n).length,'schedule'),run:()=>{SCHED.agent=n;store.set('schedAgent',n);reload()}}))],{search:ag.length>6,matchWidth:true})};
+ menu(a,[{label:'All agents',icon:'layers',on:!SCHED.agent,run:()=>{SCHED.agent='';store.set('schedAgent','');reload()}},'-',...ag.map(n=>({label:ident(n).name,icon:'user',ava:agentAvatar(n,20,{title:false}),on:SCHED.agent===n,sub:plural((Pages.cronJobs||[]).filter(j=>(j.profile||'default')===n).length,'schedule'),run:()=>{SCHED.agent=n;store.set('schedAgent',n);reload()}}))],{search:ag.length>6,matchWidth:true})};
 ACT['sched-fold']=(a,e)=>{if(e.target.closest('[data-act="sched-folder-menu"]'))return;const f=a.dataset.f;const sec=a.closest('.sched-folder');const shut=!sec.classList.contains('shut');sec.classList.toggle('shut',shut);a.setAttribute('aria-expanded',!shut);
  if(S.me?.admin===false){const l=store.get('schedFolds',{});l[f]=shut;store.set('schedFolds',l);return}
  (SCHED.info.folds??={})[f]=shut;post(UI,'/ui/schedules/folder',{from:f,fold:shut}).catch(()=>{})};
@@ -215,7 +215,7 @@ for(const id of ['skills','mcp','plugins','webhooks','pairing','files','memory',
  // the agent being looked at decides whose data loads (cleared again on other pages, see agentProfile)
  viewPick(await viewAgents());return base(p,el)}}
 ACT['view-pick']=async a=>{const list=await viewAgents(),me=S.profile||'default';
- menu(a,[{header:'Show whose'},...list.map(n=>({label:ident(n).name,icon:'user',on:n===viewing(),sub:n===me?'You chat with this one':'',run:()=>{if(n===viewing())return;S.viewAgent=n===me?null:n;Pages._toolCache=null;Pages._dirty=null;reload()}}))],{search:list.length>6,matchWidth:true})};
+ menu(a,[{header:'Show whose'},...list.map(n=>({label:ident(n).name,icon:'user',ava:agentAvatar(n,20,{title:false}),on:n===viewing(),sub:n===me?'You chat with this one':'',run:()=>{if(n===viewing())return;S.viewAgent=n===me?null:n;Pages._toolCache=null;Pages._dirty=null;reload()}}))],{search:list.length>6,matchWidth:true})};
 // skills in folders by category
 {const base=PAGES.skills;PAGES.skills=async(p,el)=>{await base(p,el);if((S.tab.skills||'Installed')!=='Installed'||S.skillQ||(S.skillCat&&S.skillCat!=='All'))return;
  const card=el.querySelector('.card.list');const rows=[...card?.querySelectorAll('.row[data-act="sk-open"]')||[]];if(rows.length<8)return;

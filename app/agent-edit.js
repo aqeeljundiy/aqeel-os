@@ -1,5 +1,5 @@
 /* ---------- Agents › Edit agent (agreed layout, 18 Oct): one window with tabs instead of seven menu items.
-   Identity     picture, name, title, description (or have it written), and the rarely used extras
+   Identity     picture (a photo or an emoji), name, title, description (or have it written), and the rarely used extras
    Personality  how it introduces itself and its standing instructions (SOUL)
    Model        the model this agent thinks with (its own sign-ins)
    Sharing      owner and who may use it (the owner only)
@@ -14,10 +14,11 @@ async function editAgent(name,start='Identity'){
  const [soulR,opts]=await Promise.all([H(base+'/soul').catch(()=>null),has('models')?call('/gapi'+(name==='default'?'':'/p/'+encodeURIComponent(name)),'/api/model/options').catch(()=>({providers:[]})):null]);
  // a SOUL that could not be read is never written back: an empty box would replace the whole personality
  const soulOk=typeof soulR?.content==='string',soul=soulOk?soulR.content:'',authed=((opts||{}).providers||[]).filter(usableProvider);
- let newPic=null,removePic=false;if(!soulOk&&start==='Personality')start='Identity';
+ let newPic=null,removePic=false,emo=id.avatar?null:id.emoji;if(!soulOk&&start==='Personality')start='Identity';
  const sec=(t,html)=>`<div class="ae-sec" data-sec="${t}" ${t===start?'':'hidden'}>${html}</div>`;
  const d=drawer('Edit '+id.name,`<div class="tabs ae-tabs" style="display:flex;margin:0 0 16px">${tabsOn.map(t=>`<button type="button" class="${t===start?'on':''}" data-ae="${t}"${t==='Personality'&&!soulOk?' disabled title="Its personality could not be loaded. Close and open again to edit it."':''}>${t}</button>`).join('')}<span class="pill"></span></div>
-  ${sec('Identity',`<div class="ident-top"><div class="ident-ava" id="idAva">${id.avatar?`<img src="${esc(id.avatar)}" alt="">`:esc(id.name[0].toUpperCase())}</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" id="idPick">${icon('upload',15)}Upload picture</button><button type="button" class="ghost" id="idDrop" ${id.avatar?'':'hidden'}>Remove</button></div><p class="hint" style="margin:6px 0 0">PNG, JPG or WebP · square works best · under 2 MB</p></div>
+  ${sec('Identity',`<div class="ident-top"><div id="idAva" class="ident-ava-box">${agentAvatar(name,84,{cls:'ident-ava',title:false})}</div><div><div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" id="idPick">${icon('upload',15)}Upload photo</button><button type="button" class="ghost" id="idDrop" ${id.avatar?'':'hidden'}>Remove photo</button></div><p class="hint" style="margin:6px 0 0">JPG, PNG or WebP. You place it in the circle next. Or pick an emoji below.</p></div></div>
+   <div class="ava-crop" id="idCrop"></div><div id="idEmoBox"${EMOJI.length?'':' hidden'}></div>
    <label>Name</label><input id="idName" maxlength="60" value="${esc(id.name)}" placeholder="aqeelOS">
    <label>Title</label><input id="idTitle" maxlength="80" value="${esc(id.title)}" placeholder="Operations assistant">
    <label class="h-row">Description <button type="button" class="ghost" id="aeAuto" style="min-height:28px;padding:0 10px;font-size:12.5px">${icon('sparkle',13)}Write it for me</button></label><input id="idDesc" value="${esc(prof.description||'')}" placeholder="What this agent is for">
@@ -41,22 +42,29 @@ async function editAgent(name,start='Identity'){
  const preview=()=>{if(!soulBox)return;soulBox.value=intro.checked&&renamed()?withIntro(soulBox.dataset.base,nameIn.value.trim()||'aqeelOS',titleIn.value.trim()):soulBox.dataset.base};
  if(soulBox){soulBox.dataset.base=soul;soulBox.oninput=()=>{soulBox.dataset.base=soulBox.value};intro.onchange=preview}
  nameIn.oninput=preview;titleIn.oninput=preview;
- d.querySelector('#idPick').onclick=()=>pickFile('image/png,image/jpeg,image/webp,image/gif',f=>{if(f.size>2e6)return toast('Pictures must be under 2 MB','err');newPic=f;removePic=false;ava.innerHTML=`<img src="${URL.createObjectURL(f)}" alt="">`;d.querySelector('#idDrop').hidden=false});
- d.querySelector('#idDrop').onclick=()=>{newPic=null;removePic=true;ava.textContent=(nameIn.value||'a')[0].toUpperCase();d.querySelector('#idDrop').hidden=true};
+ // picture: a photo and an emoji replace each other. emo is '' (automatic), a slug, or null while a photo stands
+ const drop=d.querySelector('#idDrop'),pickBtn=d.querySelector('#idPick'),initEmo=emo;let blob='';
+ const paintAva=()=>{const photo=newPic?blob:emo===null&&!removePic?id.avatar:'';ava.innerHTML=avaHtml(photo||emojiSrc(emo||emojiAuto(name)),!!photo,84,nameIn.value.trim()||id.name,'','ident-ava ava-in');drop.hidden=!photo;setEmo(photo?null:emo)};
+ const setEmo=EMOJI.length?emojiPicker(d.querySelector('#idEmoBox'),{cur:emo,auto:emojiAuto(name),label:'Or an emoji',onPick:e=>{emo=e;newPic=null;removePic=!!id.avatar;paintAva()}}):()=>{};
+ pickBtn.onclick=()=>pickFile(AVA_ACCEPT,async f=>{pickBtn.disabled=true;const b=await avatarCrop(d.querySelector('#idCrop'),f);pickBtn.disabled=false;if(!b)return;
+  if(blob)URL.revokeObjectURL(blob);newPic=b;blob=URL.createObjectURL(b);removePic=false;emo=null;paintAva()});
+ drop.onclick=()=>{newPic=null;removePic=!!id.avatar;if(emo===null)emo=initEmo===null?'':initEmo;paintAva()};   // back to its emoji (automatic if it had a photo)
+ const emoChanged=()=>emo!==null&&emo!==initEmo;
+ paintAva();
  d.querySelector('#aeAuto').onclick=async e=>{const b=e.currentTarget;b.disabled=true;try{const r=await post(H,base+'/describe-auto',{overwrite:true});if(r.description){d.querySelector('#idDesc').value=r.description;prof.description=r.description}toast('Description written and saved')}catch(er){fail(er)}b.disabled=false};
  d.querySelector('#aeCmd')?.addEventListener('click',async()=>{try{const r=await H(base+'/setup-command');await copyText(r.command,'Copied: '+r.command)}catch(e){fail(e)}});
  d.querySelector('#aeActive')?.addEventListener('click',async()=>{try{await post(H,'/profiles/active',{name});(S.profile||'default')===name?toast('The command line now uses '+id.name):toastDo('The command line now uses '+id.name,'Manage it here too',()=>{closeLayers();switchAgent(name)})}catch(e){fail(e)}});
  // sharing replaces this window: warn before unsaved edits are lost
- d.querySelector('#aeShare')?.addEventListener('click',async()=>{const dirty=renamed()||soulBox&&soulBox.value!==soul||newPic||removePic||d.querySelector('#idDesc').value.trim()!==(prof.description||'')||d.querySelector('#aeModel')?.value;if(dirty&&!await confirmBox('Leave without saving?','Your changes to this agent are not saved yet.','Leave'))return;ACT['agent-share'](name)});
+ d.querySelector('#aeShare')?.addEventListener('click',async()=>{const dirty=renamed()||soulBox&&soulBox.value!==soul||newPic||removePic||emoChanged()||d.querySelector('#idDesc').value.trim()!==(prof.description||'')||d.querySelector('#aeModel')?.value;if(dirty&&!await confirmBox('Leave without saving?','Your changes to this agent are not saved yet.','Leave'))return;ACT['agent-share'](name)});
  d.querySelector('[data-act="ae-models"]')?.addEventListener('click',e=>{e.preventDefault();closeLayers();S.tab.models='Agents’ models';if(name!==(S.profile||'default'))S.viewAgent=name;go('/models/models')});
  d.querySelector('#aeSave').onclick=async()=>{const nm=nameIn.value.trim();if(!nm){show('Identity');return toast('Give it a name','err')}const btn=d.querySelector('#aeSave');btn.disabled=true;
-  try{if(nm!==id.name||titleIn.value.trim()!==id.title)await call('','/ui/identities/'+encodeURIComponent(name),{method:'PUT',body:{name:nm,title:titleIn.value.trim()}});
+  try{if(nm!==id.name||titleIn.value.trim()!==id.title||emoChanged())await call('','/ui/identities/'+encodeURIComponent(name),{method:'PUT',body:{name:nm,title:titleIn.value.trim(),...(emoChanged()?{emoji:emo}:{})}});   // an emoji also clears the photo on the server
    if(newPic){const r=await fetch('/ui/avatar/'+encodeURIComponent(name),{method:'PUT',headers:{'x-hui':'1','content-type':newPic.type},body:newPic});if(!r.ok)throw new Error((await r.json().catch(()=>({}))).error||'Picture upload failed')}
-   if(removePic)await call('','/ui/avatar/'+encodeURIComponent(name),{method:'DELETE'});
+   if(removePic&&!emo)await call('','/ui/avatar/'+encodeURIComponent(name),{method:'DELETE'});
    const desc=d.querySelector('#idDesc').value.trim();if(desc!==(prof.description||''))await put(H,base+'/description',{description:desc});
    if(soulOk&&soulBox&&soulBox.value!==soul)await put(H,base+'/soul',{content:soulBox.value});
    const mv=d.querySelector('#aeModel')?.value;if(mv){const [provider,model]=mv.split('|');await put(H,base+'/model',{provider,model})}
-   await loadIdentities();closeLayers();toast(nm+' saved');paintSide();if(route().page?.id==='profiles')reload()}
+   await loadIdentities();closeLayers();toast(nm+' saved');repaintAvatars(name);paintSide();if(route().page?.id==='profiles')reload()}   // its avatar changes in place everywhere on screen
   catch(e){fail(e);btn.disabled=false}}}
 // the card menu: Edit, Chat with it, Delete (each only when allowed)
 {const full=Pages.profileMenu;

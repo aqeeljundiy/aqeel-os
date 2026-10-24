@@ -187,7 +187,7 @@ function md(src){
 }
 
 /* ---------- agent identity (name, title, picture per profile) ---------- */
-function ident(p=S.profile||'default'){const i=S.identities[p]||{};return {name:i.name||(p==='default'?'aqeelOS':p[0].toUpperCase()+p.slice(1)),title:i.title||'',avatar:i.avatar?'/ui/avatar/'+encodeURIComponent(p)+'?v='+encodeURIComponent(i.avatar):'',emoji:EMOJI.some(e=>e.slug===i.emoji)?i.emoji:''}}
+function ident(p=S.profile||'default'){const i=S.identities[p]||{};return {name:i.name||(p==='default'?'aqeelOS':p[0].toUpperCase()+p.slice(1)),title:i.title||'',avatar:i.avatar?'/ui/avatar/'+encodeURIComponent(p)+'?v='+encodeURIComponent(i.avatarV||i.avatar):'',emoji:EMOJI.some(e=>e.slug===i.emoji)?i.emoji:''}}
 const AGENT=()=>ident().name;
 /* ---------- agent avatars: one look everywhere ----------
    photo > chosen emoji > an automatic emoji from the agent's id (stable across renames; the same hash as the server's
@@ -205,9 +205,73 @@ function agentAvatar(a,size=28,o={}){const id=(a&&typeof a==='object'?a.id:a)||'
  const photo=!o.plain&&i.avatar,src=photo||emojiSrc(!o.plain&&i.emoji||emojiAuto(id));
  return avaHtml(src,!!photo,px,n,` data-ava="${esc(id)}" data-sz="${px}"${o.cls?` data-cls="${esc(o.cls)}"`:''}${o.plain?' data-plain':''}${o.title===false?'':` title="${esc(n)}"`}`,[o.cls,o.anim&&'ava-in'].filter(Boolean).join(' '))}
 const avatarImg=s=>agentAvatar(S.profile||'default',s);
+// personAvatar({id,name,avatar,emoji}, size): the same component for people. Their photo > their emoji > their initial on
+// a soft colour from their id (people get no automatic emoji: the letter says who it is at a glance)
+function personAvatar(u,size=28,o={}){u=u||{};const px=avaPx(size),n=u.name||'?',src=u.avatar||emojiSrc(EMOJI.some(e=>e.slug===u.emoji)?u.emoji:'');
+ const attrs=` data-person="${esc(u.id||'')}" data-name="${esc(n)}" data-sz="${px}"${o.cls?` data-cls="${esc(o.cls)}"`:''}${o.title===false?'':` title="${esc(n)}"`}`,cls=[o.cls,o.anim&&'ava-in'].filter(Boolean).join(' ');
+ if(src)return avaHtml(src,!!u.avatar,px,n,attrs,cls);
+ return `<span class="ag-ava ini${cls?' '+cls:''}" style="width:${px}px;height:${px}px;--h:${[...String(u.id||n)].reduce((h,c)=>(h*31+c.charCodeAt(0))%360,7)};font-size:${Math.round(px*.42)}px"${attrs} role="img" aria-label="${esc(n)}">${esc(n.trim()[0]?.toUpperCase()||'?')}</span>`}
+// after someone changes their own picture: their avatars on screen take it, with the same fade
+function repaintPeople(id,face){for(const el of document.querySelectorAll(`[data-person="${CSS.escape(id)}"]`))el.outerHTML=personAvatar({id,name:el.dataset.name,...face},+el.dataset.sz,{cls:el.dataset.cls,title:el.hasAttribute('title')?undefined:false,anim:true})}
+
+/* ---------- picture editing, shared by the agent editor and Your profile ----------
+   avatarCrop: the picked photo in a round frame (drag to move; slider, wheel or pinch to zoom; arrows and + or - from the
+   keyboard), exported as a square 256 px WebP (PNG where the browser can't write WebP), so uploads are small and square.
+   It opens inside the window (no second dialog) and slides open and shut. Resolves the Blob, or null if cancelled */
+const AVA_OK=f=>/^image\/(png|jpeg|webp|heic|heif)$/.test(f.type)||/\.(png|jpe?g|webp|heic|heif)$/i.test(f.name);
+const AVA_ACCEPT='image/png,image/jpeg,image/webp,image/heic,image/heif,.heic,.heif';
+function avatarCrop(host,file){return new Promise(done=>{
+ if(!AVA_OK(file)){toast('Use a JPG, PNG or WebP photo.','err');return done(null)}
+ if(file.size>30e6){toast('That photo is over 30 MB. Pick a smaller one.','err');return done(null)}
+ const url=URL.createObjectURL(file),img=new Image(),V=220;
+ img.onerror=()=>{URL.revokeObjectURL(url);toast(/hei[cf]/i.test(file.type+file.name)?'This browser can’t open HEIC photos. Save it as JPG or PNG first.':'That photo could not be opened.','err');done(null)};
+ img.onload=()=>{const w=img.naturalWidth,h=img.naturalHeight,base=Math.max(V/w,V/h);let z=1,x=0,y=0,fin=false;
+  host.innerHTML=`<div><div class="crop-in"><div class="crop-vp" tabindex="0" role="group" aria-label="Photo position: drag or use the arrow keys to move, plus and minus to zoom"><img alt="" draggable="false"></div>
+   <div class="crop-side"><label for="cropZ">Zoom</label><input type="range" id="cropZ" min="1" max="4" step="0.01" value="1"><p class="hint">Drag to move. Pinch, scroll or use the slider to zoom.</p><div class="crop-acts"><button type="button" class="ghost" data-c="no">Cancel</button><button type="button" class="primary" data-c="ok">Use photo</button></div></div></div></div>`;
+  const vp=host.querySelector('.crop-vp'),pic=vp.querySelector('img'),zr=host.querySelector('#cropZ');pic.src=url;pic.style.width=w*base+'px';pic.style.height=h*base+'px';
+  const draw=()=>{const s=base*z,mx=Math.max(0,(w*s-V)/2),my=Math.max(0,(h*s-V)/2);x=Math.min(mx,Math.max(-mx,x));y=Math.min(my,Math.max(-my,y));   // the photo always covers the circle
+   pic.style.transform=`translate(-50%,-50%) translate(${x}px,${y}px) scale(${z})`;zr.value=z};
+  const zoomTo=(nz,cx=0,cy=0)=>{nz=Math.min(4,Math.max(1,nz));x=cx-(cx-x)*nz/z;y=cy-(cy-y)*nz/z;z=nz;draw()};   // the point under the finger stays put
+  const pts=new Map();
+  vp.onpointerdown=e=>{vp.setPointerCapture(e.pointerId);pts.set(e.pointerId,{x:e.clientX,y:e.clientY});vp.classList.add('drag')};
+  vp.onpointermove=e=>{const p=pts.get(e.pointerId);if(!p)return;
+   if(pts.size===2){const [a,b]=[...pts.values()],d0=Math.hypot(a.x-b.x,a.y-b.y);p.x=e.clientX;p.y=e.clientY;const d1=Math.hypot(a.x-b.x,a.y-b.y);if(d0)zoomTo(z*d1/d0);return}
+   x+=e.clientX-p.x;y+=e.clientY-p.y;p.x=e.clientX;p.y=e.clientY;draw()};
+  const up=e=>{pts.delete(e.pointerId);if(!pts.size)vp.classList.remove('drag')};vp.onpointerup=up;vp.onpointercancel=up;
+  vp.addEventListener('wheel',e=>{e.preventDefault();const r=vp.getBoundingClientRect();zoomTo(z*Math.exp(-e.deltaY/400),e.clientX-r.left-V/2,e.clientY-r.top-V/2)},{passive:false});
+  const close=r=>{if(fin)return;fin=true;host.classList.remove('open');setTimeout(()=>{if(!host.classList.contains('open'))host.innerHTML='';URL.revokeObjectURL(url)},300);done(r)};
+  const ok=()=>{const c=document.createElement('canvas');c.width=c.height=256;const g=c.getContext('2d'),s=base*z,sw=V/s;g.imageSmoothingQuality='high';
+   g.drawImage(img,w/2-x/s-sw/2,h/2-y/s-sw/2,sw,sw,0,0,256,256);c.toBlob(b=>b&&b.type==='image/webp'?close(b):c.toBlob(close,'image/png'),'image/webp',.9)};
+  vp.onkeydown=e=>{const st=e.shiftKey?32:8,m={ArrowLeft:[-st,0],ArrowRight:[st,0],ArrowUp:[0,-st],ArrowDown:[0,st]}[e.key];
+   if(m){e.preventDefault();x+=m[0];y+=m[1];draw()}else if(e.key==='+'||e.key==='='){e.preventDefault();zoomTo(z*1.1)}else if(e.key==='-'){e.preventDefault();zoomTo(z/1.1)}
+   else if(e.key==='Enter'){e.preventDefault();ok()}else if(e.key==='Escape'){e.preventDefault();e.stopPropagation();close(null)}};
+  zr.oninput=()=>zoomTo(+zr.value);host.querySelector('[data-c="no"]').onclick=()=>close(null);host.querySelector('[data-c="ok"]').onclick=ok;
+  draw();requestAnimationFrame(()=>{host.classList.add('open');vp.focus({preventScroll:true})})};
+ img.src=url})}
+/* emojiPicker: the searchable grid of the emoji set. One tab stop (roving focus); arrows by one or by a row, Home/End,
+   up from the first row back to the search, Enter in the search picks the first match. A fixed height, so filtering never
+   moves the window. auto: the slug shown on an "Auto" tile (agents), or none (people). onPick(slug, '' for Auto).
+   Returns set(slug or null) to move the highlight from outside (null: a photo stands, nothing highlighted) */
+function emojiPicker(host,{cur=null,auto='',label='Emoji',onPick}){
+ const tile=(e,k,name,extra='')=>`<button type="button" role="radio" class="emo${extra}" data-e="${esc(e)}" data-k="${esc(k)}" aria-label="${esc(name)}" title="${esc(name)}"><img src="${esc(emojiSrc(e||auto))}" alt="" width="34" height="34" loading="lazy">${e?'':'<small>Auto</small>'}</button>`;
+ host.innerHTML=`<label for="emoQ">${esc(label)}</label><div class="emo-pick"><div class="emo-q">${icon('search',15)}<input id="emoQ" placeholder="Search, for example owl or rocket" autocomplete="off" aria-controls="emoGrid"></div>
+  <div class="emo-grid" id="emoGrid" role="radiogroup" aria-label="${esc(label)}">${auto?tile('','','Automatic: picked from its name',' auto'):''}${EMOJI.map(e=>tile(e.slug,(e.name+' '+e.keywords.join(' ')).toLowerCase(),e.name)).join('')}</div>
+  <p class="hint emo-none" hidden>No emoji match. Try another word.</p></div>`;
+ const grid=host.querySelector('.emo-grid'),q=host.querySelector('#emoQ'),all=[...grid.children],vis=()=>all.filter(b=>!b.hidden);
+ const set=v=>{cur=v;all.forEach(b=>{const on=v!==null&&b.dataset.e===v;b.classList.toggle('on',on);b.setAttribute('aria-checked',on)});const f=vis().find(b=>b.classList.contains('on'))||vis()[0];all.forEach(b=>b.tabIndex=b===f?0:-1)};
+ const pick=b=>{set(b.dataset.e);onPick(b.dataset.e)};
+ grid.onclick=e=>{const b=e.target.closest('.emo');if(b)pick(b)};
+ grid.onkeydown=e=>{const v=vis(),i=v.indexOf(document.activeElement);if(i<0)return;const cols=v.filter(b=>b.offsetTop===v[0].offsetTop).length||1;
+  if(e.key==='ArrowUp'&&i<cols){e.preventDefault();return q.focus()}
+  const k={ArrowRight:1,ArrowLeft:-1,ArrowDown:cols,ArrowUp:-cols,Home:-i,End:v.length-1-i}[e.key];if(k===undefined)return;e.preventDefault();
+  const n=v[Math.min(v.length-1,Math.max(0,i+k))];all.forEach(b=>b.tabIndex=-1);n.tabIndex=0;n.focus();n.scrollIntoView({block:'nearest'})};
+ q.oninput=()=>{const w=q.value.trim().toLowerCase().split(/\s+/).filter(Boolean);all.forEach(b=>b.hidden=!!w.length&&!(b.dataset.k&&w.every(t=>b.dataset.k.split(' ').some(k=>k.startsWith(t)))));
+  host.querySelector('.emo-none').hidden=!!vis().length;grid.scrollTop=0;set(cur)};
+ q.onkeydown=e=>{const f=vis()[0];if(!f)return;if(e.key==='ArrowDown'){e.preventDefault();f.focus()}else if(e.key==='Enter'){e.preventDefault();pick(f);f.focus()}};
+ set(cur);return set}
 // after an identity changes: every avatar of that agent (or all) on screen takes the new picture, with a short fade
-function repaintAvatars(id){for(const el of document.querySelectorAll(id?`[data-ava="${CSS.escape(id)}"]`:'[data-ava]'))el.outerHTML=agentAvatar(el.dataset.ava,+el.dataset.sz,{cls:el.dataset.cls,plain:'plain' in el.dataset,title:el.hasAttribute('title')?undefined:false,anim:true})}
-async function loadIdentities(){const [ids,em]=await Promise.all([call('','/ui/identities').catch(()=>null),EMOJI.length?null:fetch('/assets/emoji/list.json').then(r=>r.ok?r.json():[]).catch(()=>[])]);if(ids)S.identities=ids;if(Array.isArray(em)&&em.length)EMOJI=em}
+function repaintAvatars(id,empty){for(const el of document.querySelectorAll(id?`[data-ava="${CSS.escape(id)}"]`:'[data-ava]'))if(!empty||!el.querySelector('img'))el.outerHTML=agentAvatar(el.dataset.ava,+el.dataset.sz,{cls:el.dataset.cls,plain:'plain' in el.dataset,title:el.hasAttribute('title')?undefined:false,anim:true})}
+async function loadIdentities(){const [ids,em]=await Promise.all([call('','/ui/identities').catch(()=>null),EMOJI.length?null:fetch('/assets/emoji/list.json').then(r=>r.ok?r.json():[]).catch(()=>[])]);if(ids)S.identities=ids;if(Array.isArray(em)&&em.length){EMOJI=em;repaintAvatars('',true)}}   // anything painted before the list arrived gets its emoji now
 
 // Model providers worth showing: signed in, and not Nous or the pay-per-use Anthropic API (no key on this box).
 // Gemini via the Google AI plan counts only once someone signed in to it (the engine lists it as soon as the CLI exists)
@@ -399,7 +463,7 @@ function drawer(title,body,foot='',opt={}){openLayer();const d=document.createEl
 function trapTab(el){el.addEventListener('keydown',e=>{if(e.key!=='Tab')return;const f=[...el.querySelectorAll('button,input,select,textarea,[tabindex]')].filter(x=>!x.disabled&&x.offsetParent&&x.tabIndex>=0);if(!f.length)return;const i=f.indexOf(document.activeElement);if(e.shiftKey&&i<=0){e.preventDefault();f[f.length-1].focus()}else if(!e.shiftKey&&i===f.length-1){e.preventDefault();f[0].focus()}})}
 // opt.html: content of its own instead of items (the date grid), wired by opt.onOpen(menu) once it is placed
 function menu(anchor,items,opt={}){$$('.menu').forEach(e=>e.remove());const m=document.createElement('div');m.className='menu';m.setAttribute('role','menu');const list=items.filter(Boolean);
- m.innerHTML=opt.html||list.map((i,ix)=>i==='-'?'<hr>':i.header?`<div class="mh"${i.title?` title="${esc(i.title)}"`:''}>${esc(i.header)}</div>`:`<button class="item ${i.bad?'bad':''} ${i.on?'cur':''}" role="menuitem" data-mi="${ix}" ${i.disabled?'disabled':''}${i.title?` title="${esc(i.title)}"`:''}${i.find?` data-find="${esc(String(i.find).toLowerCase())}"`:''}>${i.icon?icon(i.icon,16):''}<span class="t"><span class="mi-l">${esc(i.label)}</span>${i.sub?`<small class="mi-sub">${esc(i.sub)}</small>`:''}</span>${i.on?`<span style="color:var(--blue)">${icon('check',15)}</span>`:''}${i.kbd?`<small style="margin-left:auto;color:var(--muted)">${esc(i.kbd)}</small>`:''}</button>`).join('');
+ m.innerHTML=opt.html||list.map((i,ix)=>i==='-'?'<hr>':i.header?`<div class="mh"${i.title?` title="${esc(i.title)}"`:''}>${esc(i.header)}</div>`:`<button class="item ${i.bad?'bad':''} ${i.on?'cur':''}" role="menuitem" data-mi="${ix}" ${i.disabled?'disabled':''}${i.title?` title="${esc(i.title)}"`:''}${i.find?` data-find="${esc(String(i.find).toLowerCase())}"`:''}>${i.ava||(i.icon?icon(i.icon,16):'')}<span class="t"><span class="mi-l">${esc(i.label)}</span>${i.sub?`<small class="mi-sub">${esc(i.sub)}</small>`:''}</span>${i.on?`<span style="color:var(--blue)">${icon('check',15)}</span>`:''}${i.kbd?`<small style="margin-left:auto;color:var(--muted)">${esc(i.kbd)}</small>`:''}</button>`).join('');
  // long lists get a search box that narrows the items as you type (Enter picks the first one left); the letters found are marked
  if(opt.search){m.insertAdjacentHTML('afterbegin',`<div class="mi-find">${icon('search',14)}<input placeholder="Search" aria-label="Search the list"></div>`);const inp=m.querySelector('.mi-find input');
   inp.oninput=()=>{const q=inp.value.trim().toLowerCase();$$('button.item',m).forEach(b=>{const l=b.querySelector('.mi-l'),txt=l?l.textContent:'';b.hidden=!!q&&!(b.textContent.toLowerCase().includes(q)||(b.dataset.find||'').includes(q));
