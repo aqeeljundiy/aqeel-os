@@ -1311,3 +1311,9 @@ ID_PATTERNS.push([/^Reset (\d+) settings?\?$/,'Reset $1 pengaturan?'],[/^Item (\
  [/^“(.+)” needs a number$/,'“$1” harus berupa angka'],[/^Replace (.+)’s settings\?$/,'Ganti pengaturan $1?'],[/^Replace ([A-Z0-9_]+)\?$/,'Ganti $1?'],[/^([A-Z0-9_]+) is already set\. Saving replaces its value\.$/,'$1 sudah diisi. Menyimpan akan mengganti nilainya.'],
  [/^(\d+) of (\d+) providers? set up · (\d+) of (\d+) keys set$/,'$1 dari $2 penyedia siap · $3 dari $4 kunci diisi'],[/^· (\d+) of (\d+) set$/,'· $1 dari $2 diisi'],[/^(\d+) of (\d+) signed in$/,'$1 dari $2 sudah masuk'],
  [/^Expires in (\d+) min$/,'Berakhir dalam $1 menit'],[/^Expires in (\d+) h$/,'Berakhir dalam $1 jam'],[/^Expires in (\d+) days$/,'Berakhir dalam $1 hari'],[/^Time left (\d+:\d\d)$/,'Sisa waktu $1']);
+// aqeelOS made consistent across pages (24 Oct 2026): the shared words
+Object.assign(ID,{'Needs signing in again':'Perlu masuk lagi','Can use it':'Bisa memakainya','Turn on':'Nyalakan','Turn off':'Matikan','Sign in again':'Masuk lagi','Change value':'Ubah nilai',
+ 'Pick a time':'Pilih jam','Pick a day':'Pilih hari','Previous month':'Bulan sebelumnya','Next month':'Bulan berikutnya','Type a time like 08:30':'Ketik jam seperti 08:30',
+ 'Only admins turn plugins on or off. Ask one if you need a plugin on.':'Hanya admin yang menyalakan atau mematikan plugin. Minta admin jika kamu perlu plugin menyala.','Only admins turn plugins on or off':'Hanya admin yang menyalakan atau mematikan plugin',
+ 'No memory to show':'Tidak ada memori untuk ditampilkan','Couldn’t read it':'Tidak bisa dibaca','Take it away':'Ambil kembali','Move':'Pindahkan'});
+ID_PATTERNS.push([/^Couldn’t load (.+)\.$/,'$1 tidak bisa dimuat.'],[/^Move this to (.+)\?$/,'Pindahkan ke $1?'],[/^Remove from (.+)$/,'Hapus dari $1'],[/^Open on (.+)$/,'Buka di $1']);
