@@ -30,7 +30,8 @@ ACT['all-more']=a=>{const it=ALL_IT[a.dataset.kind+'|'+a.dataset.id];if(!it)retu
   {label:'Open on '+on,icon:'chevR',run:()=>ACT['all-open']({dataset:{agent:o}})},
   ...(ALL_EDIT&&!it.own&&k!=='plugin'&&!(k==='google'&&!x)?['-',{label:'Remove from '+on,icon:'trash',bad:true,run:()=>k==='mcp'?ACT['mcp-del']({dataset:d}):k==='key'?ACT['key-del']({dataset:{k:it.label,agent:o}}):ACT['gacc-del']({dataset:{agent:o,n:x.name,e:it.id}})}]:[])])};
 const allSection=(title,rows,empty)=>`<h2 class="ach-cat" style="margin-top:0">${esc(title)} <small class="hint">${rows.length}</small></h2>${rows.length?`<div class="card list">${rows.join('')}</div>`:`<p class="hint">${esc(empty)}</p>`}`;
-const notSigned=it=>{const n=it.users.filter(u=>!u.signed).map(u=>u.name);return n.length?`<span class="acc-nosign" title="Set up but not signed in">Not signed in on ${esc(n.join(', '))}</span>`:''};
+// set up on some agents but not signed in there: the one sign-in chip, saying on which (Sign in on the first, for apps)
+const notSigned=it=>{const n=it.users.filter(u=>!u.signed);return n.length?`<span class="acc-nosign">${signChip(it.kind==='mcp'&&ALL_EDIT?`data-act="mcp-auth" data-name="${esc(it.id)}" data-agent="${esc(n[0].id)}"`:'')}<small>on ${esc(n.map(u=>u.name).join(', '))}</small></span>`:''};
 
 const ALLVIEW={
  async mcp(p,el){setActions('');const [m,g]=await Promise.all([Access.load('mcp'),Access.load('google')]);if(!m)throw new Error('Your agents’ apps couldn’t be loaded.');ALL_AGENTS=m.agents;ALL_EDIT=!!m.canEdit;
@@ -39,7 +40,7 @@ const ALLVIEW={
   const gOwn=[...new Set((g?.items||[]).map(it=>it.owner))],gl=Object.fromEntries(await Promise.all(gOwn.map(async a=>[a,await UI('/ui/google-accounts?agent='+encodeURIComponent(a)).then(r=>r.accounts||[]).catch(()=>null)])));
   for(const [a,l] of Object.entries(gl))if(l)(Pages._gaccBy||={})[a]=l;
   const gRow=(it,i)=>{const x=(gl[it.owner]||[]).find(y=>y.email===it.id);it.gacc=x;it.gEdit=S.me?.admin!==false||['owner','edit'].includes(S.me?.agents?.[it.owner]);
-   return allRow(i,logoImg('google.com','G'),esc(accountText({email:it.id},{label:x?gaccTitle(x):''}))+(x&&!x.renews?` <span class="chip warn">Needs signing in again</span>`:''),esc(x?gaccWhat(x.scopes)||plural(x.scopes.length,'permission'):it.detail),it,(x?.note?`<span class="gacc-note">${icon('edit',12)}${esc(x.note)}</span>`:'')+notSigned(it))};
+   return allRow(i,logoImg('google.com','G'),esc(accountText({email:it.id},{label:x?gaccTitle(x):''}))+(x&&!x.renews?' '+signChip('data-act="gacc-add"','Sign in asks '+ident().name+', the agent you chat with'):''),esc(x?gaccWhat(x.scopes)||plural(x.scopes.length,'permission'):it.detail),it,(x?.note?`<span class="gacc-note">${icon('edit',12)}${esc(x.note)}</span>`:'')+notSigned(it))};
   const gBox=g?allSection('Google accounts',g.items.map(gRow),'No Google accounts yet.')+`<button data-act="gacc-add" style="margin-top:10px">${icon('plus',15)}Connect ${g.items.length?'another':'a'} Google account</button><p class="hint" style="margin:6px 0 0">Asks ${esc(ident().name)}, the agent you chat with, for a sign-in link. Pick an agent under Showing to connect one there.</p>`:`<h2 class="ach-cat" style="margin-top:0">Google accounts</h2>${errLine('your agents’ Google accounts')}`;
   el.innerHTML=`<div class="all-view">${allSection('Connected apps',m.items.map((it,i)=>allRow(i,host(it.detail)?logoImg(baseDomain(host(it.detail)),it.label[0].toUpperCase()):`<span class="ic">${icon('plug',17)}</span>`,esc(it.label)+(it.off?' <span class="chip">Off</span>':''),esc(host(it.detail)||it.detail)+(it.mixed?' · not the same account on every agent':''),it,notSigned(it))),'No connected apps yet.')}
    <div style="height:18px"></div>${gBox}</div>`;Access.bindOwners(el)},

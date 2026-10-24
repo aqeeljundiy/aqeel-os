@@ -337,6 +337,9 @@ function showError(el,e,retry){if(!el||e?.stale||!el.isConnected)return;el.inner
 // who an account or connection is, said one way everywhere: the name you gave it (else the account's own name) · its
 // handle (@bot, +phone, email); nothing known: the name agents use to pick it ("agents call it whatsapp")
 const accountText=(a,{label='',id=''}={})=>{const h=a?a.phone||a.username||a.email||'':'',n=label||a?.name||'';return [n,h].filter(Boolean).join(' · ')||(id?'agents call it '+id:'')};
+// a sign-in that has to be done again, said one way everywhere: the warn chip, and Sign in where the page has one
+// (act: that button's data attributes); tip: what it is about, on hover
+const signChip=(act='',tip='')=>`<span class="chip warn sign-chip"${tip?` title="${esc(tip)}"`:''}>Needs signing in again</span>${act?`<button class="link sign-go" ${act}>Sign in</button>`:''}`;
 // a part of a page that failed to load: says what, with Try again (never drawn as an empty list)
 const errLine=(what,style='')=>`<p class="err-line"${style?` style="${style}"`:''}>Couldn’t load ${esc(what)}. <button data-act="reload">Try again</button></p>`;
 const emptyBox=(title,text,btn='')=>`<div class="empty-hero"><b style="display:block;font-size:17px;margin-bottom:6px">${esc(title)}</b><span style="color:var(--ink-2)">${esc(text)}</span>${btn?`<div style="margin-top:16px">${btn}</div>`:''}</div>`;
