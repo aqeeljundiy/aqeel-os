@@ -764,6 +764,35 @@ async function checkChannel(agent,platform){platCache.delete(agent);const pl=awa
   c.state==='connected'&&!bridge?'The engine says connected, but the WhatsApp connection is not running. Restart the engine, or link it again.':
   /retrying|connecting|starting/.test(c.state||'')?'Reconnecting right now. Check again in a minute.':(c.enabled===false?'Switched off.':'Not connected'+(c.error_message?': '+String(c.error_message).replace(/\s*\(see \/[^)]*\)/,'').slice(0,160):'.'));
  return {agent,platform,state:c.state,connected,pending,needs_link:!!c.needs_link,account:c.account||null,text}}
+/* Approve a person before they message: the engine keeps each agent's approved people in
+   <home>/platforms/pairing/<platform>-approved.json ({<id>: {user_name, approved_at}}) and re-reads it when the file changes
+   (its cache is keyed on the file itself, so a replaced file is seen on the next message). There is no engine call to add one
+   without a pairing code, so the engine's own store does it (its file lock, its ID rules, its allowlist mirror); only if that
+   cannot run is the file written here in the same shape (tmp + rename, one write at a time, other entries kept as they are).
+   Who added whom, with the note, is kept in approvals-added.json for the "Added by hand" mark. */
+const ADDED_FILE=path.join(DATA,'approvals-added.json');
+const PERSON_HELP={whatsapp:'WhatsApp',telegram:'Telegram',slack:'Slack',discord:'Discord',email:'Email'};
+function personId(pf,raw){let v=String(raw||'').trim();if(!v)throw new Error('Type their ID first.');
+ if(pf==='whatsapp'){v=v.replace(/[\s().-]/g,'');if(/^0(?!0)/.test(v))throw new Error('Add the country code instead of the leading 0, for example 6281234567890 for an Indonesian number.');
+  v=v.startsWith('+')?v.slice(1):v.startsWith('00')?v.slice(2):v;if(!/^\d{8,15}$/.test(v))throw new Error('Type the WhatsApp number with its country code, digits only, for example 6281234567890.');return v}
+ if(pf==='telegram'){if(v.startsWith('@')||/[a-z]/i.test(v))throw new Error('A Telegram bot cannot look up an @username before that person has written to it. Use their numeric user ID: ask them to message @userinfobot, which replies with it.');
+  if(!/^\d{5,15}$/.test(v))throw new Error('A Telegram user ID is a number, like 123456789.');return v}
+ if(pf==='slack'){v=v.toUpperCase();if(!/^[UW][A-Z0-9]{6,20}$/.test(v))throw new Error('A Slack member ID starts with U or W, like U0123ABCD. In Slack: their profile, ⋮, Copy member ID.');return v}
+ if(pf==='discord'){if(!/^\d{15,21}$/.test(v))throw new Error('A Discord user ID is a long number. In Discord: Settings, Advanced, switch on Developer Mode, then right-click the person and Copy User ID.');return v}
+ if(pf==='email'){v=v.toLowerCase();if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v))throw new Error('Type a full email address, like name@example.com.');return v}
+ throw new Error('Adding people by hand works for WhatsApp, Telegram, Slack, Discord and email.')}
+const samePerson=(pf,a,b)=>pf==='whatsapp'?String(a).split('@')[0].split(':')[0].replace(/\D/g,'')===String(b).replace(/\D/g,''):String(a).toLowerCase()===String(b).toLowerCase();
+let approveChain=Promise.resolve();
+async function approvePerson(agent,pf,id,name){const home=agent==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',agent);
+ const run=approveChain.then(async()=>{const py=await enginePython().catch(()=>null);
+  if(py){const {execFile}=await import('node:child_process');const code='import sys,json\nsys.path.insert(0,sys.argv[1])\nfrom gateway.pairing import PairingStore\ns=PairingStore(sys.argv[2] or None)\nwith s._locked():\n    s._approve_user(sys.argv[3],sys.argv[4],sys.argv[5])\nprint(json.dumps({"ok":True,"dir":str(s._dir)}))';
+   const out=await new Promise(r=>execFile(py,['-c',code,path.join(HERMES_HOME,'hermes-agent'),agent==='default'?'':agent,pf,id,name],{timeout:30000,cwd:path.join(HERMES_HOME,'hermes-agent'),env:{...process.env,HERMES_HOME}},(e,o,er)=>r(e?{err:String(er||e.message).trim().split('\n').pop()}:{ok:true})));
+   if(out.ok)return 'engine';console.warn('approve person: the engine store did not run ('+out.err+'), writing the file directly')}
+  const f=path.join(home,'platforms','pairing',pf+'-approved.json');await mkdir(path.dirname(f),{recursive:true});
+  const cur=await readFile(f,'utf8').then(JSON.parse,e=>{if(e.code==='ENOENT')return {};throw new Error('The approved list for '+pf+' could not be read, so nothing was changed.')});
+  if(!cur||typeof cur!=='object'||Array.isArray(cur))throw new Error('The approved list for '+pf+' is not in the shape expected, so nothing was changed.');
+  cur[id]={user_name:name,approved_at:Date.now()/1000};const t=f+'.'+process.pid+'.'+Date.now().toString(36)+'.tmp';await writeFile(t,JSON.stringify(cur,null,2),{mode:0o600});await rename(t,f);return 'file'});
+ approveChain=run.catch(()=>{});return run}
 let attention={t:0,list:[]};
 async function channelAttention(fresh){if(!fresh&&Date.now()-attention.t<10*60e3)return attention.list;const list=[];
  for(const a of await listAllProfiles()){if(fresh)platCache.delete(a);const pl=await platformsCached(a).catch(()=>null);
@@ -1593,6 +1622,26 @@ const server=createServer(async(req,res)=>{
     const value=String(b.value||'');if(!value||value.length>8000)return send(res,400,{error:'Type or paste the value first.'});
     try{const text=await useSecret(rec,value,{admin:users.isAdmin(u)});secretAsks.delete(rec.id);rec.resolve({text});console.log('secret given to',rec.agent,'('+rec.mode+(rec.name?' '+rec.name:'')+')');return send(res,200,{ok:true,text:rec.mode==='type'?'Typed into the screen.':'Saved as '+rec.name+'.'})}
     catch(e){return send(res,409,{error:e.message})}}}   // stays open: the person can fix it (open the screen) and send again
+   // approve a person on one of an agent's channels before they message it (admins, or members who may edit that agent)
+   if(p==='/ui/channels/approve-person'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const ag=String(b.agent||''),pf=String(b.platform||''),base=ag.split('--')[0];
+    if(!(await listAllProfiles()).includes(ag))return send(res,400,{error:'Unknown agent.'});
+    if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+base+'/soul','PUT',new URLSearchParams(),base)!==null)return send(res,403,{error:'You can only add people to agents you may edit.'});
+    if(!PERSON_HELP[pf])return send(res,400,{error:'Adding people by hand works for WhatsApp, Telegram, Slack, Discord and email.'});
+    const pl=await platformsCached(ag).catch(()=>null);const c=(pl?.platforms||pl||[]).find?.(x=>x.id===pf);if(!c||!(c.configured||c.state==='connected'||c.paused))return send(res,400,{error:(NAMES[base]||base)+' has no '+PERSON_HELP[pf]+' connected.'});
+    let id;try{id=personId(pf,b.id)}catch(e){return send(res,400,{error:e.message})}
+    const name=String(b.name||'').trim().slice(0,80),note=String(b.note||'').trim().slice(0,140);if(!name)return send(res,400,{error:'Give their name, so everyone knows who it is.'});
+    const pr=await fetch(DASH.origin+'/api/pairing?profile='+encodeURIComponent(ag),{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(20000)}).then(r=>r.ok?r.json():null).catch(()=>null);
+    if(!pr)return send(res,502,{error:'The engine did not answer, so nobody was added. Try again in a moment.'});
+    const dup=(pr.approved||[]).find(x=>x.platform===pf&&samePerson(pf,x.user_id,id));if(dup)return send(res,409,{error:(dup.user_name||id)+' is already approved on this '+PERSON_HELP[pf]+'.'});
+    let how;try{how=await approvePerson(ag,pf,id,name)}catch(e){return send(res,500,{error:e.message})}
+    const all=await readFile(ADDED_FILE,'utf8').then(JSON.parse).catch(()=>({}));all[ag+'|'+pf+'|'+id]={by:u.name||u.id,name,note,t:Date.now()};await writeJsonAtomic(ADDED_FILE,all);
+    console.log('approved by hand on',ag,pf,'('+how+') by',u.name||u.id);return send(res,200,{ok:true,id})}
+   if(p==='/ui/channels/approvals-added'&&req.method==='GET'){const all=await readFile(ADDED_FILE,'utf8').then(JSON.parse).catch(()=>({}));if(users.isAdmin(u))return send(res,200,all);
+    const out={};for(const [k,v] of Object.entries(all)){const a=k.split('|')[0].split('--')[0];if(!users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a))out[k]=v}return send(res,200,out)}
+   // Remove access on a person added by hand: the engine's revoke runs from the page; this forgets the mark
+   if(p==='/ui/channels/approve-person/forget'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||''),base=ag.split('--')[0];
+    if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+base+'/soul','PUT',new URLSearchParams(),base)!==null)return send(res,403,{error:'Not your agent.'});
+    const all=await readFile(ADDED_FILE,'utf8').then(JSON.parse).catch(()=>({}));const k=ag+'|'+String(b.platform||'')+'|'+String(b.id||'');if(all[k]){delete all[k];await writeJsonAtomic(ADDED_FILE,all)}return send(res,200,{ok:true})}
    if(p==='/ui/channels/check'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||'default'),pf=String(b.platform||'');
     if(!(await listAllProfiles()).includes(ag)||!/^[a-z0-9_]{1,40}$/.test(pf))return send(res,400,{error:'Unknown channel'});
     if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+ag.split('--')[0],'GET',new URLSearchParams(),ag.split('--')[0]))return send(res,403,{error:'Not your agent.'});
