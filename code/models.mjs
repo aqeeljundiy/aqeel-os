@@ -1,7 +1,7 @@
 import {spawn} from 'node:child_process';
 
 // Effort levels each CLI accepts; the build request is validated against these.
-export const EFFORTS={codex:['none','minimal','low','medium','high','xhigh','max','ultra'],claude:['low','medium','high','xhigh','max'],gemini:[]};
+export const EFFORTS={codex:['none','minimal','low','medium','high','xhigh','max','ultra'],claude:['low','medium','high','xhigh','max'],gemini:[],aqeelos:['none','minimal','low','medium','high','xhigh','max','ultra']};   // aqeelos: the chat's effort levels (engine runs)
 
 // Claude Code takes aliases that always resolve to the newest model of each family.
 export const CLAUDE_MODELS=[

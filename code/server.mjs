@@ -1,6 +1,6 @@
 import http from 'node:http';
 import {spawn} from 'node:child_process';
-import {readFile, readdir, access, mkdir} from 'node:fs/promises';
+import {readFile, readdir, access, mkdir, writeFile, rename, chmod} from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import {fileURLToPath} from 'node:url';
@@ -24,6 +24,11 @@ async function models(agent){if(Date.now()-codexModels.at>600000||!codexModels.l
  const out={managed:true,restricted:Boolean(r.restricted),agentModel:r.provider&&r.model?{provider:r.provider,model:r.model}:null};
  for(const p of ['claude','codex','gemini']){const ids=r.models[p]||[];out[p]=!ids.length?(r.restricted?[]:own[p]):ids.map(id=>{const c=own[p].find(m=>m.id===id);
   return {id,name:c?.name||niceModel(id),description:c?.description||'',efforts:c?.efforts?.length?c.efforts:p==='codex'?['low','medium','high']:EFFORTS[p],defaultEffort:c?.defaultEffort||'',isDefault:r.provider===p&&r.model===id}})}
+ // the box's own copy: "aqeelOS models" lists every model the chat's menu has for the agent, any provider ("Default":
+ // the agent's own model, with the Models page's priority list and auto-switch). Ids are <provider>::<model>.
+ if(r.engine&&r.engineModels){const d=r.agentDefault||{};out.engineDefault=d.model?{provider:d.provider,model:d.model}:null;
+  out.aqeelos=[{id:'',name:'Default'+(d.model?' ('+niceModel(d.model)+')':''),description:'The agent’s own model on its own account, with the Models page’s priority list and auto-switch.',efforts:EFFORTS.aqeelos,defaultEffort:'',isDefault:true},
+   ...r.engineModels.flatMap(pv=>pv.models.map(m=>({id:pv.provider+'::'+m,name:niceModel(m.split('/').pop())+' · '+pv.name,description:pv.name+(pv.provider===d.provider&&m===d.model?' · the agent’s own model':''),efforts:EFFORTS.aqeelos,defaultEffort:''})))].filter(m=>!m.id||/^[a-zA-Z0-9._:/-]{1,80}$/.test(m.id))}
  return out}
 // claude-opus-4-5-20251101 → Opus 4.5, gpt-5.1-codex-max → GPT-5.1 Codex Max (a model Code has no name for)
 const niceModel=id=>String(id).replace(/^claude-/,'').replace(/-\d{8}$/,'').replace(/-(\d+)-(\d+)(?=-|$)/g,' $1.$2').split(/[-\s]+/).map(w=>/^gpt$/i.test(w)?'GPT':w.charAt(0).toUpperCase()+w.slice(1)).join(' ').replace(/^GPT (\d)/,'GPT-$1');
@@ -77,6 +82,10 @@ function execute(exe,args,input='',timeout=90000,options={}){return new Promise(
  child.stdin.on('error',()=>{});child.stdin.end(input);
 })}
 async function status(name,profileId){
+ // aqeelOS models: the box's own copy, paired, with the projects on the box (not in a container of its own)
+ if(name==='aqeelos'){if(!process.env.CBA_ONLINE)return {id:name,installed:false,ready:false,message:'Runs projects on the AI box. Projects on this computer use Claude Code, Codex or Gemini CLI.'};
+  const r=await aqeelos.agentModel('').catch(()=>null);const ok=Boolean(r?.engine);return {id:name,installed:true,ready:ok,path:'',account:{email:null},profileLabel:'aqeelOS Models',message:ok?'Runs on the agents’ own models in aqeelOS':r?'Online Code runs in its own container, so agents cannot reach its projects.':'Pair this copy with aqeelOS first.'}}
+ if(name==='codex'&&process.env.CBA_ONLINE)await syncCodexFromEngine().catch(e=>console.warn('codex sign-in from the engine:',e.message));
  if(name==='gemini'){const g=await locateGemini({appRoot:root,findOnPath:platform.findOnPath});if(!g)return {id:'gemini',installed:false,ready:false,message:'Not installed. Run: npm install -g @google/gemini-cli'};const a=await geminiAuth(cleanEnv);return {id:'gemini',installed:true,ready:a.ready,gemini:g,path:g.command,method:a.method||null,account:{email:a.email||null},message:a.message}}
  const exe=await findExecutable(name);if(!exe)return {id:name,installed:false,ready:false,message:'Not found on this PC'};
  if(name==='codex'){const profile=accounts.profile(profileId);const info=await readCodexAccount(exe,accounts.env(profile.id),work);const ready=info.account?.type==='chatgpt';return {id:name,installed:true,ready,path:exe,...info,profileId:profile.id,profileLabel:profile.label,message:ready?'Signed in with ChatGPT':'Sign in to this Codex profile.'}}
@@ -85,7 +94,26 @@ async function status(name,profileId){
  const ready=result.code===0&&auth?.loggedIn===true&&auth?.authMethod==='claude.ai';
  return {id:name,installed:true,ready,path:exe,profileId:cp.id,profileLabel:cp.label,account:{email:auth?.email||null,name:auth?.name||null,plan:auth?.subscriptionType||null},message:ready?'Signed in with Claude account; billing depends on provider policy':'Claude subscription login not confirmed. Sign in through Claude Code.'};
 }
-async function selectAccount(name){await store(name==='claude'?'claude':'codex').reload();if(name==='codex')return accounts.choose(id=>status('codex',id));if(name==='claude'&&claudeAccounts.state.profiles.length>1)return claudeAccounts.choose(async id=>{const s=await status('claude',id);return {...s,exhausted:s.ready&&await claudeExhausted(s.account?.email)}});return status(name)}
+/* Codex on the AI box runs on the engine's own ChatGPT sign-in (aqeelOS › Models), not on one of Code's: right before
+   a run its current tokens (~/.hermes/auth.json, providers['openai-codex'].tokens) are written to Codex's default home
+   in the Codex CLI's auth.json form. Codex refreshes them there; the engine picks a refreshed set up from that file by
+   itself (hermes_cli/auth_codex.py, _recover_codex_tokens_from_cli), so the newer set always wins and an older one never
+   overwrites it (one sign-in, two readers, nobody signed out). Only on the box's own copy, never on a person's computer,
+   and nothing is sent anywhere. Nothing to sync (Code in its own container, or ChatGPT not signed in): Code's own sign-in. */
+const CODEX_AUTH=path.join(cleanEnv.CODEX_HOME||path.join(os.homedir(),'.codex'),'auth.json');
+const jwtExp=t=>{try{return Number(JSON.parse(Buffer.from(String(t).split('.')[1],'base64url').toString('utf8')).exp)||0}catch{return 0}};
+async function engineCodex(){let j;try{j=JSON.parse(await readFile(path.join(os.homedir(),'.hermes','auth.json'),'utf8'))}catch{return null}const e=j?.providers?.['openai-codex'],t=e?.tokens;
+ const pick=(...k)=>{for(const x of k)if(typeof t?.[x]==='string'&&t[x])return t[x];return ''};const v={id_token:pick('id_token','idToken'),access_token:pick('access_token','accessToken'),refresh_token:pick('refresh_token','refreshToken'),account_id:pick('account_id','accountId')||null};
+ return v.access_token&&v.refresh_token?{tokens:v,last_refresh:typeof e.last_refresh==='string'?e.last_refresh:null}:null}
+async function syncCodexFromEngine(){const e=await engineCodex();if(!e)return false;let cur=null;try{cur=JSON.parse(await readFile(CODEX_AUTH,'utf8'))}catch{}
+ const had=cur?.tokens?.access_token||'';if(had===e.tokens.access_token&&cur?.tokens?.refresh_token===e.tokens.refresh_token)return true;
+ if(had&&jwtExp(had)>=jwtExp(e.tokens.access_token))return true;   // Codex refreshed it since: the engine takes that one over, not the other way round
+ const out={...(cur&&typeof cur==='object'?cur:{}),OPENAI_API_KEY:null,tokens:e.tokens,last_refresh:e.last_refresh||new Date().toISOString()};
+ await mkdir(path.dirname(CODEX_AUTH),{recursive:true,mode:0o700});const tmp=CODEX_AUTH+'.'+process.pid+'.tmp';await writeFile(tmp,JSON.stringify(out,null,2),{mode:0o600});await chmod(tmp,0o600);await rename(tmp,CODEX_AUTH);return true}
+async function selectAccount(name){if(name==='aqeelos')return status(name);
+ // the box: Codex always on the engine's sign-in when there is one (Code's own ChatGPT profiles are not used for runs)
+ if(name==='codex'&&process.env.CBA_ONLINE&&await engineCodex()){const s=await status('codex','desktop');return {...s,profileLabel:'ChatGPT (aqeelOS Models)',fromEngine:true,message:s.ready?s.message:'The ChatGPT sign-in on aqeelOS › Models did not work for Codex. Sign in again there.'}}
+await store(name==='claude'?'claude':'codex').reload();if(name==='codex')return accounts.choose(id=>status('codex',id));if(name==='claude'&&claudeAccounts.state.profiles.length>1)return claudeAccounts.choose(async id=>{const s=await status('claude',id);return {...s,exhausted:s.ready&&await claudeExhausted(s.account?.email)}});return status(name)}
 // a Claude account is spent when a window recorded from its last runs is at 100% and has not reset yet
 async function claudeExhausted(email){if(!email)return false;try{const l=JSON.parse(await readFile(path.join(root,'data','limits.json'),'utf8'))['claude:'+email];return Boolean(l?.windows?.some(w=>w.usedPercent>=100&&(!w.resetsAt||w.resetsAt>Date.now())))}catch{return false}}
 export function parseResponse(name,stdout){
@@ -148,7 +176,7 @@ const server=http.createServer(async(req,res)=>{
   }
   if(req.method==='GET'&&url.pathname==='/api/models')return send(200,await models(url.searchParams.has('agent')?String(url.searchParams.get('agent')).slice(0,64):undefined));
   if(req.method==='GET'&&url.pathname==='/api/share-hosts'){const port=server.address().port;return send(200,{lan:remote.state.enabled?remote.addresses(port).map(a=>'http://'+new URL(a.url).hostname+':'+(port+1)):[]})}
-  if(req.method==='GET'&&url.pathname==='/api/status')return send(200,{online:Boolean(process.env.CBA_ONLINE),...(process.env.CBA_ONLINE?{modelsAt:(await aqeelos.origins()).find(o=>!/\/\/(127\.|localhost)/.test(o))||''}:{}),token,preview:previewOrigin(req.headers.host),platform:{os:process.platform,shell:platform.shell('').label,prompt:platform.shell('').prompt,fileManager:platform.fileManagerName},providers:url.searchParams.has('quick')?[]:await Promise.all(['codex','claude','gemini'].map(name=>status(name)))});
+  if(req.method==='GET'&&url.pathname==='/api/status')return send(200,{online:Boolean(process.env.CBA_ONLINE),...(process.env.CBA_ONLINE?{modelsAt:(await aqeelos.origins()).find(o=>!/\/\/(127\.|localhost)/.test(o))||''}:{}),token,preview:previewOrigin(req.headers.host),platform:{os:process.platform,shell:platform.shell('').label,prompt:platform.shell('').prompt,fileManager:platform.fileManagerName},providers:url.searchParams.has('quick')?[]:await Promise.all(['codex','claude','gemini',...(process.env.CBA_ONLINE?['aqeelos']:[])].map(name=>status(name)))});
   if(req.method==='GET'&&url.pathname==='/api/accounts'){const prov=url.searchParams.get('provider')==='claude'?'claude':'codex',s=await store(prov).reload();return send(200,{...s.state,provider:prov,profiles:await Promise.all(s.state.profiles.map(async p=>({...await status(prov,p.id),...p})))})}
   if(req.method==='POST'&&url.pathname==='/api/accounts'){let input='';for await(const c of req){input+=c;if(input.length>4000)throw Error('Account input too large.')}{const body=JSON.parse(input);return send(200,await store(body.provider==='claude'?'claude':'codex').update(body))}}
   if(req.method==='GET'&&url.pathname==='/api/session')return send(200,{token});

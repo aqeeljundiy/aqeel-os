@@ -1262,7 +1262,8 @@ const server=createServer(async(req,res)=>{
    if(p.startsWith('/ui/code/engine/')){const box=dev.user==='owner'&&dev.name==='AI box · online';if(!box)return send(res,403,{error:'Only the AI box’s Code runs on aqeelOS models. Projects on a computer use Claude Code, Codex or Gemini CLI.'});
     if(p==='/ui/code/engine/run'&&req.method==='POST'){if(codeOnline.remote())return send(res,409,{error:'Online Code runs in its own container here, so agents cannot reach its folders. Use Claude Code, Codex or Gemini CLI.'});
      let b={};try{b=JSON.parse(await readBody(req,40e6))}catch{return send(res,400,{error:'The request was not valid JSON.'})}
-     const a=String(b.agent||'default');if(!(await listAgents()).includes(a)||!mine(a)||await isTestAgent(a))return send(res,403,{error:'You can’t use that agent.'});
+     // no agent picked in Code: the one this person would chat with (as agent-model answers)
+     const may=(await listAgents()).filter(mine),a=String(b.agent||'')||(may.includes('default')?'default':may[0]||'');if(!may.includes(a)||await isTestAgent(a))return send(res,403,{error:'You can’t use that agent.'});
      const name=NAMES[a]||await displayName(a);if(await agentDefaults.codeLocked(a))return send(res,403,{error:name+'’s terminal and file tools are locked, so it cannot work on code. Pick Claude Code, Codex or Gemini CLI, or ask an admin.'});
      // a member: within their daily limit (Chat and Code together) and only on models they may use, as in Chat
      let provider=String(b.provider||''),model=String(b.model||'');if(!/^[\w.:/@+-]{0,120}$/.test(provider+model))return send(res,400,{error:'Invalid model name.'});

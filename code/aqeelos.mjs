@@ -30,6 +30,15 @@ export function createAqeelos({root}){
  async function agentModel(agent){await load();if(!link.token)return null;const k=String(agent||''),hit=routes.get(k);if(hit&&Date.now()-hit.t<5000)return hit.v;
   let v=null;try{const r=await fetch(link.base+'/ui/code/agent-model?agent='+encodeURIComponent(k),{headers:{authorization:'Bearer '+link.token},signal:AbortSignal.timeout(20000)});if(r.ok)v=await r.json()}catch{}
   routes.set(k,{t:Date.now(),v});return v}
+ // "aqeelOS models" (the box's copy): aqeelOS runs one turn for an agent on its engine and streams the events back.
+ // act is the short signed note aqeelOS put on the person's request (x-aq-act), so the turn runs as them, not as the
+ // owner this copy's key belongs to. The stream has no time limit (a turn may take long); signal stops reading it.
+ async function engineRun(body,act,signal){await load();if(!link.token)throw Error('This copy of Code is not paired with aqeelOS.');if(!act)throw Error('Open Code from aqeelOS to run on aqeelOS models.');
+  const r=await fetch(link.base+'/ui/code/engine/run',{method:'POST',headers:{authorization:'Bearer '+link.token,'content-type':'application/json','x-aq-act':act},body:JSON.stringify(body),signal});
+  if(!r.ok||!r.body){const j=await r.json().catch(()=>({}));throw Error(j.error||'aqeelOS did not start the run ('+r.status+').')}return r}
+ // stop or answer an approval of an engine run, by the handle aqeelOS sent first
+ async function engine(what,body){await load();const r=await fetch(link.base+'/ui/code/engine/'+what,{method:'POST',headers:{authorization:'Bearer '+link.token,'content-type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(25000)});
+  const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'aqeelOS answered '+r.status);return j}
  async function unpair(){link={};await writeFile(FILE,'{}').catch(()=>{});return state()}
  // every run gets the aqeelOS tools when this computer is paired
  async function mcp(run){await load();if(!link.token)return null;return {name:'aqeelos',command:process.execPath,args:[path.join(root,'aqeelos-mcp.mjs')],env:{...(process.versions.electron?{ELECTRON_RUN_AS_NODE:'1'}:{}),AQ_BASE:link.base,AQ_TOKEN:link.token,AQ_PROJECT:String(run?.projectId||''),AQ_AGENT:String(run?.agent||'')}}}
@@ -72,7 +81,7 @@ export function createAqeelos({root}){
   const r=await fetch(link.base+'/ui/code/publish?'+q,{method:'POST',headers:{authorization:'Bearer '+link.token,'content-type':'application/zip'},body:zip,signal:AbortSignal.timeout(600000)});
   const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'aqeelOS did not take it ('+r.status+').');return j}
  async function report(r){await load();if(!link.token)return;await fetch(link.base+'/ui/code/report',{method:'POST',headers:{authorization:'Bearer '+link.token,'content-type':'application/json'},body:JSON.stringify({...r,version:install.version||'dev'}),signal:AbortSignal.timeout(15000)}).catch(()=>{})}
- return {origins,state,pair,unpair,mcp,agents,agentModel,serve,checkUpdate,autoUpdate,reportUsage,people,publish,report}}
+ return {origins,state,pair,unpair,mcp,agents,agentModel,engineRun,engine,serve,checkUpdate,autoUpdate,reportUsage,people,publish,report}}
 // the entries of a stored (uncompressed) zip, as aqeelOS makes them
 function unzip(buf){const out=[];let i=0;while(i+30<=buf.length&&buf.readUInt32LE(i)===0x04034b50){const size=buf.readUInt32LE(i+18),nl=buf.readUInt16LE(i+26),xl=buf.readUInt16LE(i+28);
   const name=buf.slice(i+30,i+30+nl).toString();const start=i+30+nl+xl;out.push([name,buf.slice(start,start+size)]);i=start+size}return out}

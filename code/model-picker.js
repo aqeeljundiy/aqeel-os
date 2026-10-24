@@ -5,8 +5,8 @@
 const $=id=>document.getElementById(id);
 const EFFORT_LABELS={none:'None',minimal:'Minimal',low:'Low',medium:'Medium',high:'High',xhigh:'Extra high',max:'Max',ultra:'Ultra'};
 export const effortLabel=e=>EFFORT_LABELS[e]||e;
-export const providerName=p=>({claude:'Claude',codex:'GPT',gemini:'Gemini'})[p]||p;
-let catalog={codex:[],claude:[],gemini:[]},ready=[];
+export const providerName=p=>({claude:'Claude',codex:'GPT',gemini:'Gemini',aqeelos:'aqeelOS models'})[p]||p;
+let catalog={codex:[],claude:[],gemini:[],aqeelos:[]},ready=[];
 let saved={};try{saved=JSON.parse(localStorage.getItem('cba-model')||'{}')}catch{}
 const persist=()=>{try{localStorage.setItem('cba-model',JSON.stringify(saved))}catch{}};
 
@@ -29,7 +29,7 @@ function fillModels(){
 const EFFORTS=(provider,m)=>provider==='gemini'?[]:[...(provider==='claude'?['']:[]),...(m?.efforts?.length?m.efforts:[])];
 function syncVisible(){const provider=$('provider-pick').value,list=catalog[provider]||[],[id='',effort='']=$('model').value.split('|');
  const name=$('model-name'),groups=[];
- for(const p of ['claude','codex','gemini'].filter(x=>ready.includes(x)||x===provider)){const g=document.createElement('optgroup');g.label=providerName(p);const models=catalog[p]||[];
+ for(const p of ['aqeelos','claude','codex','gemini'].filter(x=>ready.includes(x)||x===provider)){const g=document.createElement('optgroup');g.label=providerName(p);const models=catalog[p]||[];
   for(const m of models.length?models:[{id:'',name:'Default model'}]){const o=new Option(m.name,p+':'+m.id);o.dataset.desc=m.description||'';g.append(o)}groups.push(g)}
  name.replaceChildren(...groups);name.value=provider+':'+id;
  const m=list.find(x=>x.id===id),levels=EFFORTS(provider,m),eff=$('effort');eff.replaceChildren(...levels.map(e=>{const o=new Option((e?effortLabel(e):'Auto')+(e&&e===m?.defaultEffort?' (default)':''),e,false,e===effort);if(!e)o.dataset.desc='Claude Code decides';return o}));eff.value=effort;
@@ -44,9 +44,10 @@ $('effort').addEventListener('change',()=>setCombined(pickedModel()[1],$('effort
 let signedIn=[],forAgent='';
 // paired with aqeelOS, the list is the one the chat's model menu has for the agent picked here (a member: only the
 // models they may use, so an AI with none of those is not offered)
-function applyReady(){ready=catalog.restricted?signedIn.filter(p=>(catalog[p]||[]).length):signedIn;
+// on the box, aqeelOS models comes first unless another AI was picked (Claude being merely the old first choice)
+function applyReady(){ready=(catalog.restricted?signedIn.filter(p=>(catalog[p]||[]).length):signedIn).filter(p=>p!=='aqeelos'||(catalog.aqeelos||[]).length);
  for(const o of $('provider-pick').options){o.disabled=!ready.includes(o.value);o.textContent=providerName(o.value)+(o.disabled?(signedIn.includes(o.value)?' · not allowed':' · not connected'):'')}
- const cur=$('provider-pick').value,preferred=[ready.includes(cur)?cur:'',saved.provider,'claude','codex','gemini'].find(p=>p&&ready.includes(p));if(preferred)$('provider-pick').value=preferred}
+ const cur=$('provider-pick').value,preferred=[ready.includes(cur)&&!(cur==='claude'&&ready.includes('aqeelos'))?cur:'',saved.provider,'aqeelos','claude','codex','gemini'].find(p=>p&&ready.includes(p));if(preferred)$('provider-pick').value=preferred}
 async function loadCatalog(){try{const r=await fetch('/api/models?agent='+encodeURIComponent(forAgent));if(r.ok)catalog=await r.json()}catch{}}
 export async function setupModelPicker(readyIds){
  signedIn=readyIds;forAgent=$('agent-pick')?.value||'';await loadCatalog();applyReady();fillModels()}
@@ -63,4 +64,4 @@ export function choiceFor(provider){const list=catalog[provider]||[];const want=
  if(want){const [model,effort='']=want.split('|');if(list.some(m=>m.id===model))return {provider,model,effort}}
  const def=list.find(m=>m.isDefault)||list[0];return {provider,model:def?.id||'',effort:provider==='claude'?'':def?.defaultEffort||''}}
 // the second AI for Compare, Team and "retry with": the first other connected provider
-export function partnerFor(p){const order={claude:['codex','gemini'],codex:['claude','gemini'],gemini:['claude','codex']}[p]||['claude','codex'];return order.find(x=>ready.includes(x))||order[0]}
+export function partnerFor(p){if(p==='aqeelos')p='claude';const order={claude:['codex','gemini'],codex:['claude','gemini'],gemini:['claude','codex']}[p]||['claude','codex'];return order.find(x=>ready.includes(x))||order[0]}

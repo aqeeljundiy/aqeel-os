@@ -517,7 +517,7 @@ if(document.body.classList.contains('embed'))for(const [v,t,d] of [['ask','Ask m
 if(document.body.classList.contains('embed')){
  const host=document.querySelector('.model-pickers');host.classList.add('aq-picker');
  const pill=document.createElement('button');pill.type='button';pill.className='aq-pill';pill.setAttribute('aria-haspopup','menu');pill.setAttribute('aria-expanded','false');host.prepend(pill);
- const NAMES={claude:'Claude Code',codex:'Codex',gemini:'Gemini'};
+ const NAMES={claude:'Claude Code',codex:'Codex',gemini:'Gemini',aqeelos:'aqeelOS models'};
  const agentName=()=>{const v=$('agent-pick').value;return v?($('agent-pick').selectedOptions[0]?.textContent||v):''};
  const modelName=()=>{const o=$('model-name').selectedOptions[0];const n=o?.textContent||'Default';return n==='Default model'?'Default':n};
  const chev='<svg class="aq-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
