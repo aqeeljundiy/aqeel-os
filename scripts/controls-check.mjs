@@ -28,10 +28,12 @@ async function browse(ck){const tools=homedir()+'/.hermes/tools',dir=readdirSync
   for(const view of ['all','one'])for(const r of routes){
    await ev(`S.viewAll=${view==='all'};S.viewAgent=null;location.hash='#${r}'`);
    for(let i=0;i<80;i++){await sleep(100);if(await ev(`!!document.querySelector('.page,.chat')&&![...document.querySelectorAll('#pg .skel,.page .skel')].some(n=>n.tagName!=='I')`))break}await sleep(900);
-   // the page's own buttons (top right) and its tabs; drawers, menus and the Showing picker don't count
-   seen[view+' '+r]=await ev(`(()=>{const t=x=>(x.innerText||x.getAttribute('aria-label')||x.title||'').replace(/\\s+/g,' ').trim();const out=new Set();
+   // the page's own buttons (top right) and its tabs; drawers, menus and the Showing picker don't count. A page that asks
+   // slow agents draws its buttons late: read until two reads 700 ms apart agree (up to about 8 s), so timing isn't a miss
+   const read=()=>ev(`(()=>{const t=x=>(x.innerText||x.getAttribute('aria-label')||x.title||'').replace(/\\s+/g,' ').trim();const out=new Set();
     for(const b of document.querySelectorAll('.head-actions button,.head-actions a'))if(!b.closest('.view-pick')&&t(b))out.add('button: '+t(b));
-    for(const b of document.querySelectorAll('#pg [data-tabs] [data-tab],.page [data-tabs] [data-tab]'))if(!b.closest('.drawer,dialog'))out.add('tab: '+b.dataset.tab);return [...out].sort()})()`)||[]}
+    for(const b of document.querySelectorAll('#pg [data-tabs] [data-tab],.page [data-tabs] [data-tab]'))if(!b.closest('.drawer,dialog'))out.add('tab: '+b.dataset.tab);return [...out].sort()})()`).then(x=>x||[]);
+   let cur=await read();for(let i=0;i<11;i++){await sleep(700);const nx=await read();if(JSON.stringify(nx)===JSON.stringify(cur)&&nx.length)break;cur=nx}seen[view+' '+r]=cur}
   return seen}finally{chrome.kill('SIGKILL')}}
 const owner=await signIn({password:PW});const result={owner:await browse(owner)};let member=null;
 try{member=await makeMember(owner);result.member=await browse(member.ck)}finally{if(member?.id)await api(owner,'/ui/people/'+encodeURIComponent(member.id),{method:'DELETE'}).catch(()=>{})}
