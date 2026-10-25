@@ -26,7 +26,8 @@ On the computer, click **Phone** and turn on phone access. Then open the address
 **Projects and chats.** Projects expand into their chats. Right-click or use ⋯ to rename, pin, archive, fork, move, export or delete. There are also temporary chats, search across every transcript, sections with drag-ordering, and per-project settings. You can open existing folders, clone from GitHub, or import earlier Claude Code / Codex CLI sessions for a folder (project menu › *Open a past CLI session*). An imported session resumes natively.
 
 **Agent runs.**
-- Two dropdowns: provider, then model · effort.
+- One model list, the one aqeelOS has for the first attached agent (Models page; Default follows its priority list and auto-switch). The model decides where it runs: Claude models on Claude Code, ChatGPT models on Codex, every other model on the aqeelOS engine (projects on the AI box only; on a computer those show as unavailable). Then effort.
+- Agents: attach one or more of your aqeelOS agents above the message. The AI asks them for what they can reach with their own access (Docs, Drive, Gmail, Slack, Notion, n8n, WhatsApp) and their files land in `from-agents/<agent>/`. Agents never change a project themselves (one way, since 25 Oct 2026); in a chat they can offer an "Open in Code" link instead.
 - Permission modes: Ask, Auto-edit, Plan only and Full access. Shift+Tab cycles the first three.
 - Approval cards for commands and file changes, and questions from the AI.
 - A live checklist and reasoning summaries.
