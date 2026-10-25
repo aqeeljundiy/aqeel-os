@@ -32,6 +32,7 @@ import {createAccessRequests} from './access-requests.mjs';
 import {startScreenFollow} from './screen-follow.mjs';
 import {createN8n} from './n8n.mjs';
 import {createCode} from './code.mjs';
+import {createCodeAgents,FILE_MAX,FILES_TOTAL} from './code-agents.mjs';
 import {createCodeOnline} from './code-online.mjs';
 import {createBrand} from './brand.mjs';
 import {createBottlenecks} from './bottlenecks.mjs';
@@ -554,6 +555,20 @@ const access=createAccess({HERMES_HOME,DATA,listAgents:()=>listAgents(),readConf
 const accessAsk=createAccessRequests({DATA,access,listAgents:()=>listAgents(),names:a=>NAMES[a]||(a==='default'?'aqeelOS':a)});
 const n8n=createN8n({BASE:N8N_URL,readConfig,removeMcp:(a,name)=>fetch(DASH.origin+'/api/mcp/servers/'+encodeURIComponent(name)+'?profile='+encodeURIComponent(a),{method:'DELETE',headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(r=>{if(!r.ok&&r.status!==404)throw new Error('Could not remove the tool ('+r.status+')');return true}),DATA,setKey,restart:why=>restartGateway(why).catch(()=>{}),names:a=>NAMES[a]||a});
 const code=createCode({DATA,SRC:path.join(homedir(),'apps','aqeel-code'),PUBLIC_URL,ROOT:root});
+const codeAgents=createCodeAgents({HERMES_HOME,DATA,sign,readIds,outboxAccess:(a,d)=>agentDefaults.outboxAccess(a,d)});
+/* A Code run asks one of its attached agents (aqeelos_ask in Code, code_ask_agent on the engine): one chat turn for
+   that agent, as the person who sent the run (their daily limit and the models they may use, as in Chat), with a
+   folder of its own to save files in. The answer's text and files come back; where the files go is the caller's. */
+async function codeAsk(who,a,task,{project='',plan=false}={}){const pre=a!=='default'?'/p/'+encodeURIComponent(a):'';
+ let model='default';if(!users.isAdmin(who)){const lim=users.limitOf(who);if(lim?.tokens){const t=await usage.today(await listAllProfiles(),who.id,users.ownerOf);if(t.tokens+await code.usedToday(who.id)>=lim.tokens)throw Object.assign(Error('You reached today\'s limit. It resets at midnight.'),{status:429})}
+  const allowed=users.allowedModels(who);if(allowed){const d=await agentModel(a);if(!users.modelOk(who,d.provider,d.model)){const [pv,...m]=String(allowed[0]).split('|');model=m.length?m.join('|'):pv}}}
+ const box=await codeAgents.outbox(a).catch(()=>'');
+ const note='(Asked from aqeelOS Code by '+(who.name||who.id)+(project?', project '+String(project).slice(0,80):'')+'. Do it with your own tools and reply with exactly what was asked for. You cannot change the Code project yourself.'+(box?' If the answer includes files (a document exported as a file, pictures, attachments), save each one in '+box+' and name them in your reply'+(plan?'':'; they are copied into the project')+'. Never put passwords or keys in a file or in the reply.':'')+')';
+ try{const r=await fetch(GATE.origin+pre+'/v1/chat/completions',{method:'POST',headers:{authorization:'Bearer '+API_KEY,'content-type':'application/json'},signal:AbortSignal.timeout(900000),body:JSON.stringify({model,stream:false,messages:[{role:'user',content:note+'\n\n'+String(task).slice(0,20000)}]})});
+  const j=await r.json().catch(()=>({}));if(!r.ok)throw Object.assign(Error(j.error?.message||j.error||'The agent did not answer ('+r.status+').'),{status:502});
+  if(j.usage?.total_tokens)await code.addUsage(who.id,j.usage.total_tokens);const text=j.choices?.[0]?.message?.content||'';
+  return {agent:a,agentName:NAMES[a]||await displayName(a),text,files:box?await codeAgents.collect(a,box,text):[]}}
+ catch(e){if(box)await codeAgents.collect(a,box,'').catch(()=>{});if(e.status)throw e;throw Object.assign(Error('The agent took too long: '+e.message),{status:504})}}
 // the box's own Code copy (online projects) is paired with this aqeelOS by itself, and again if its key is lost
 if(LIVE_APP)setTimeout(async()=>{try{const f=path.join(homedir(),'apps','aqeel-code','data','aqeelos.json');let l={};try{l=JSON.parse(await readFile(f,'utf8'))}catch{}if(l.token&&await code.who(l.token)){await code.markBox(l.token);return}
  const token=await code.pair('owner','AI box · online',{box:true});await mkdir(path.dirname(f),{recursive:true});await writeFile(f,JSON.stringify({base:'http://127.0.0.1:'+PORT,token,user:'Aqeel',pairedAt:Date.now()},null,1),{mode:0o600});console.log('code: paired the online copy')}catch(e){console.warn('code: online pairing',e.message)}},8000).unref();
@@ -1247,6 +1262,17 @@ const server=createServer(async(req,res)=>{
    if(signed&&msg.method==='tools/call'&&msg.params?.name==='computer_browser'){const base=mn[1].split('--')[0],a=msg.params?.arguments||{};const owner=users.agentOwner(base)||'owner';
     const reply=(text,isError)=>send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text}],...(isError?{isError:true}:{})}});
     try{const r=await code.browse([owner],{action:String(a.action||''),url:a.url,ref:a.ref,text:a.text,key:a.key,submit:!!a.submit});return reply(r.text||'(no answer)',r.state==='failed')}catch(e){return reply(e.message,true)}}
+   // a Code run on the engine (aqeelOS models) asks another agent attached to it, as the person who sent the run; files
+   // in the answer are saved into that run's project (not in Plan only)
+   if(signed&&msg.method==='tools/call'&&msg.params?.name==='code_ask_agent'){const base=mn[1].split('--')[0],a=msg.params?.arguments||{};const reply=(text,isError)=>send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text}],...(isError?{isError:true}:{})}});
+    const target=String(a.agent||''),f=codeAgents.runFor(base,target);if(f.error)return reply(f.error,true);if(target===base)return reply('That is you. Do it yourself.',true);const who=users.byId(f.run.user);
+    if(!who||users.gate(who,'/gapi/api/model/options','GET',new URLSearchParams(),target))return reply('The person who started this run may not use that agent.',true);if(!String(a.task||'').trim())return reply('Say what the agent should do.',true);
+    try{const r=await codeAsk(who,target,String(a.task),{project:f.run.project,plan:f.run.plan});let saved=[];if(r.files.length&&!f.run.plan)saved=await codeAgents.saveInto(f.run.dir,r.agentName,r.files,a.save_to);console.log('code: '+base+' asked',target,'in a Code run'+(saved.length?' ('+saved.length+' files)':''));
+     return reply(r.agentName+': '+(r.text||'(no answer)')+(saved.length?'\n\nSaved in the project: '+saved.join(', '):'')+(f.run.plan&&r.files.length?'\n\nIt had files ('+r.files.map(x=>x.name).join(', ')+'); they are not saved in Plan only.':''))}catch(e){return reply(e.message,true)}}
+   // "Open in Code": the agent keeps a build request and gets a link that opens Code with it filled in and itself attached
+   if(signed&&msg.method==='tools/call'&&msg.params?.name==='open_in_code'){const base=mn[1].split('--')[0],a=msg.params?.arguments||{};const reply=(text,isError)=>send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text}],...(isError?{isError:true}:{})}});
+    const t=String(a.request||'').trim();if(!t)return reply('Give the request in plain words.',true);try{const id=await codeAgents.handoff(base,t),link=PUBLIC_URL+'/#/code/code/'+id;
+     return reply('Give the person this link in your reply, on a line of its own: [Open in Code]('+link+')\nIt opens aqeelOS Code (the desktop app on their computer) with the request filled in and you attached. Nothing runs until they press send. Do not start building it yourself.')}catch(e){return reply(e.message,true)}}
    const out=await relay.mcp(mn[1],mn[2],msg);
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools)&&mayApply)out.body.result.tools.push({name:'apply_changes',description:'Make settings changes take effect: after you changed an agent\'s config (yours or another agent\'s), added or shared an MCP tool or connected app, a skill, a plugin or a toolset, call this once. aqeelOS restarts the agents safely when no reply is running. Never restart the gateway any other way.',inputSchema:{type:'object',properties:{why:{type:'string',description:'What changed, in a few words'}},required:['why']}});
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools)&&mayApply)out.body.result.tools.push({name:'reconnect_channel',description:'Make a change to one of YOUR OWN channels take effect, for example after you changed WHATSAPP_GROUP_POLICY or another WHATSAPP_* / TELEGRAM_* setting. A WhatsApp connection is its own process that reads its settings only when it starts, so apply_changes does not reach it: call this instead. It restarts only that connection of yours (saved login kept, no new QR). Never kill or restart processes yourself.',inputSchema:{type:'object',properties:{channel:{type:'string',description:'Your channel, e.g. whatsapp or telegram'}},required:['channel']}});
@@ -1257,6 +1283,9 @@ const server=createServer(async(req,res)=>{
     {name:'offer_access',description:'Offer something you have (from access_list) to another agent that needs it. An admin decides under Bottlenecks.',inputSchema:{type:'object',properties:{kind:{type:'string',enum:['mcp','google','plugin','key']},id:{type:'string'},to:{type:'string',description:'the other agent id'},why:{type:'string'}},required:['kind','id','to','why']}});
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'my_settings',description:'Read or change your own everyday settings yourself, without asking the owner: voice notes (stt.language: "" detects the language each time, or a code like "id" or "en"; stt.*), your voice (tts.*), your time zone (timezone, e.g. Asia/Jakarta) and how replies show (display.*). Leave value out to read the current value. Do this when the person asks for such a change or a setting clearly gets in their way.',inputSchema:{type:'object',properties:{key:{type:'string',description:'e.g. stt.language, tts.provider, timezone'},value:{description:'the new value; leave out to read'}},required:['key']}});
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'report_bottleneck',description:'When you cannot do something because a person has to act first, report it once (aqeelOS adds the chat and message that led to it, so say the purpose plainly in what): access you are missing (a folder, a sheet, an account, a channel), a sign-in, a permission or a setting, or information only they have. Not for ordinary errors you can fix or work around yourself. Say what you were trying to do, what is missing, and what would fix it. It appears under Bottlenecks in aqeelOS with a fix button.',inputSchema:{type:'object',properties:{what:{type:'string',description:'What you were trying to do, in a few words'},missing:{type:'string',description:'What is missing, plainly (for example: access to the Finance folder in Google Drive)'},fix:{type:'string',description:'What would fix it (for example: share the folder with me, or connect Drive for me)'}},required:['missing']}});
+   if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'open_in_code',description:'When someone asks you to build something in code (a website, an app, a tool, a deck or a document made with code), do not build it in the chat: call this with their request and reply with the link it gives. The link opens aqeelOS Code with the request filled in and you attached; they press send there.',inputSchema:{type:'object',properties:{request:{type:'string',description:'What to build, in their words, with the details they gave'}},required:['request']}});
+   // always listed (the engine may keep the list it read first); it answers only during a Code run with other agents attached
+   if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'code_ask_agent',description:'Only in an aqeelOS Code run: ask one of the other agents attached to it (named in the run\'s note) to fetch or do something with its own access, and get its answer. Files it returns are saved in the project (from-agents/<agent>/, or save_to). You may ask several agents at once.',inputSchema:{type:'object',properties:{agent:{type:'string',description:'The attached agent id'},task:{type:'string',description:'What it should do or find, and exactly what to send back'},save_to:{type:'string',description:'Optional folder in the project for its files, e.g. assets/images'}},required:['agent','task']}});
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools)&&code.computerOf([users.agentOwner(mn[1].split('--')[0])||'owner']))out.body.result.tools.push({name:'computer_browser',description:'Browse in the guarded browser of aqeelOS Code on the person\'s own computer (no extension needed; the person sees it live in Code › Browser and can take over). It only opens their computer\'s own pages and the sites they allowed there; anything else is refused with the list, and a robot check is handed to them. Actions: open (url), snapshot (the page and its numbered elements), click (ref from snapshot), type (ref, text, submit), press (key), read (the page text), back.',inputSchema:{type:'object',properties:{action:{type:'string',enum:['open','snapshot','click','type','press','read','back']},url:{type:'string'},ref:{type:'string'},text:{type:'string'},key:{type:'string'},submit:{type:'boolean'}},required:['action']}});
    if(out.body==null){res.writeHead(out.status);return res.end()}return send(res,out.status,out.body)}
   // Incoming webhooks (GitHub, Stripe…) reach Hermes' webhook listener here. No sign-in: each
@@ -1287,21 +1316,28 @@ const server=createServer(async(req,res)=>{
    // publishing, models and engine runs act only as a person aqeelOS signed for (x-aq-act: <uid>.<exp>.<sig>, a few
    // minutes), never as the owner. The box's copy is known by the flag aqeelOS set when it paired it, not by its name.
    const BOX=dev.user==='owner'&&dev.box===true;
-   if(BOX&&/^\/ui\/code\/(ask|publish|agents|agent-model|engine\/(run|stop|approval))$/.test(p)){const [uid,exp,sg]=String(req.headers['x-aq-act']||'').split('.');
+   if(BOX&&/^\/ui\/code\/(ask|publish|agents|agent-model|run-ticket|engine\/(run|stop|approval))$/.test(p)){const [uid,exp,sg]=String(req.headers['x-aq-act']||'').split('.');
     const ok=!!uid&&Number(exp)>Date.now()&&Number(exp)<Date.now()+600e3&&!!sg&&(()=>{const x=Buffer.from(sg),y=Buffer.from(sign('code-act:'+uid+'.'+exp));return x.length===y.length&&timingSafeEqual(x,y)})();
     who=ok?users.byId(uid):null;if(!who)return send(res,403,{error:'Online Code can do this only for a signed-in person. Use Code on your own computer for now.'})}
    const mine=a=>!users.gate(who,'/gapi/api/model/options','GET',new URLSearchParams(),a);   // the agents this person may chat with (shared, owned, not someone's private one)
    if(p==='/ui/code/whoami')return send(res,200,{name:who.name||who.id,user:who.id});
-   if(p==='/ui/code/agents'){const out=[];for(const a of await listAgents()){if(!mine(a)||await isTestAgent(a))continue;const c=await readConfig(a).catch(()=>null)||{};out.push({id:a,name:NAMES[a]||await displayName(a),apps:Object.keys(c.mcp_servers||{}).filter(n=>n!=='aqeelos-notify'),google:(await googleContext(a).catch(()=>[])).length})}return send(res,200,{agents:out})}
-   if(p==='/ui/code/ask'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,65536))}catch{}const a=String(b.agent||'default');if(!(await listAgents()).includes(a)||!mine(a))return send(res,403,{error:'You can’t ask that agent.'});
-    const task=String(b.task||'').slice(0,20000);if(!task)return send(res,400,{error:'Say what the agent should do.'});const pre=a!=='default'?'/p/'+encodeURIComponent(a):'';
-    // a member: within their daily limit (Chat and Code together) and on a model they may use, as in Chat
-    let model='default';if(!users.isAdmin(who)){const lim=users.limitOf(who);if(lim?.tokens){const t=await usage.today(await listAllProfiles(),who.id,users.ownerOf);if(t.tokens+await code.usedToday(who.id)>=lim.tokens)return send(res,429,{error:'You reached today\'s limit. It resets at midnight.'})}
-     const allowed=users.allowedModels(who);if(allowed){const d=await agentModel(a);if(!users.modelOk(who,d.provider,d.model)){const [pv,...m]=String(allowed[0]).split('|');model=m.length?m.join('|'):pv}}}
-    try{const r=await fetch(GATE.origin+pre+'/v1/chat/completions',{method:'POST',headers:{authorization:'Bearer '+API_KEY,'content-type':'application/json'},signal:AbortSignal.timeout(900000),
-      body:JSON.stringify({model,stream:false,messages:[{role:'user',content:'(Asked from aqeelOS Code by '+(who.name||who.id)+(b.project?', project '+String(b.project).slice(0,80):'')+'. Do it with your own tools and reply with exactly what was asked for.)\n\n'+task}]})});
-     const j=await r.json().catch(()=>({}));if(!r.ok)return send(res,502,{error:j.error?.message||j.error||'The agent did not answer ('+r.status+').'});
-     if(j.usage?.total_tokens)await code.addUsage(who.id,j.usage.total_tokens);console.log('code: '+(who.name||who.id)+' asked',a,'from aqeelOS Code');return send(res,200,{agent:a,agentName:NAMES[a]||await displayName(a),text:j.choices?.[0]?.message?.content||''})}catch(e){return send(res,504,{error:'The agent took too long: '+e.message})}}
+   // the agents this person may use in Code; intro=1 adds each one's introduction for a run (what it is for, its skills by
+   // name, and for an agent they own a short digest of its work notes), for the ids asked (ids=a,b) only
+   if(p==='/ui/code/agents'){const intro=url.searchParams.get('intro')==='1',want=intro?new Set(String(url.searchParams.get('ids')||'').split(',').filter(Boolean).slice(0,8)):null;const out=[];
+    for(const a of await listAgents()){if(!mine(a)||await isTestAgent(a)||want&&!want.has(a))continue;const c=await readConfig(a).catch(()=>null)||{};
+     out.push({id:a,name:NAMES[a]||await displayName(a),apps:Object.keys(c.mcp_servers||{}).filter(n=>n!=='aqeelos-notify'),google:(await googleContext(a).catch(()=>[])).length,...(intro?await codeAgents.intro(a,{memory:users.level(who,a)==='owner'}):{})})}return send(res,200,{agents:out})}
+   // a run's ticket: the agents attached to one Code message, each one this person may chat with; aqeelos_ask may then
+   // ask only those (checked here again on every ask)
+   if(p==='/ui/code/run-ticket'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const all=await listAgents();
+    const list=[...new Set((Array.isArray(b.agents)?b.agents:[]).map(String))].slice(0,6);for(const a of list)if(!all.includes(a)||!mine(a)||await isTestAgent(a))return send(res,403,{error:'You can’t use one of those agents.'});
+    return send(res,200,{ticket:codeAgents.ticket(who.id,list,b.project),agents:await Promise.all(list.map(async a=>({id:a,name:NAMES[a]||await displayName(a)})))})}
+   // one ask from a run: only an agent attached to it (the ticket), that this person may still chat with; files come
+   // back with the answer (Code saves them in the project; nothing is written on the person's computer from here)
+   if(p==='/ui/code/ask'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,65536))}catch{}const a=String(b.agent||'');const t=codeAgents.ticketAgents(b.ticket,who.id);
+    if(!t||!t.agents.includes(a))return send(res,403,{error:'Only the agents attached to this message in Code can be asked'+(t?.agents.length?' ('+t.agents.join(', ')+')':'')+'.'});
+    if(!(await listAgents()).includes(a)||!mine(a))return send(res,403,{error:'You can’t ask that agent.'});const task=String(b.task||'').slice(0,20000);if(!task)return send(res,400,{error:'Say what the agent should do.'});
+    try{const r=await codeAsk(who,a,task,{project:b.project,plan:!!b.plan});console.log('code: '+(who.name||who.id)+' asked',a,'from aqeelOS Code'+(r.files.length?' ('+r.files.length+' files)':''));
+     return send(res,200,{agent:a,agentName:r.agentName,text:r.text,files:b.plan?r.files.map(f=>({name:f.name,size:f.data.length})):r.files.map(f=>({name:f.name,size:f.data.length,data:f.data.toString('base64')}))})}catch(e){return send(res,e.status||502,{error:e.message})}}
    // Code's models and account for one agent: the models the chat's menu lists for that agent (a member: only the ones
    // they may use) and the account it is on (Models page), asked again for every run, so a switch counts at once. Only
    // the box's own copy, on this machine, gets the Claude account's folder; a person's computer keeps its own
@@ -1310,12 +1346,12 @@ const server=createServer(async(req,res)=>{
     if(want&&!may.includes(want))return send(res,403,{error:'You can’t use that agent.'});const a=want||(may.includes('default')?'default':may[0]||'');
     const r=want?await accountsApi.codeRoute(want).catch(()=>null):null;let models=null,engineModels=null;
     try{const o=await fetch(GATE.origin+(a&&a!=='default'?'/p/'+encodeURIComponent(a):'')+'/api/model/options',{headers:{authorization:'Bearer '+API_KEY},signal:AbortSignal.timeout(20000)}).then(x=>x.ok?x.json():null);
-     // only the providers Code's own tools run: Claude Code (the Claude plugin), Codex (ChatGPT) and Gemini CLI
-     // and every model the chat's menu has, for Code's "aqeelOS models" engine (the box's own copy): any provider
-     if(o&&box)engineModels=(o.providers||[]).filter(pv=>pv.authenticated&&(pv.models||[]).length&&!/nous/i.test((pv.slug||'')+' '+(pv.name||''))).map(pv=>({provider:pv.slug,name:codeProvName(pv),models:(pv.models||[]).filter(m=>typeof m==='string'&&users.modelOk(who,pv.slug,m))})).filter(x=>x.models.length);
+     // every model the chat's menu has (any provider): Code's one model list, for a person's computer too (25 Oct 2026);
+     // Code runs Claude models on Claude Code, ChatGPT models on Codex and the rest on the engine (the box's copy only)
+     if(o)engineModels=(o.providers||[]).filter(pv=>pv.authenticated&&(pv.models||[]).length&&!/nous/i.test((pv.slug||'')+' '+(pv.name||''))).map(pv=>({provider:pv.slug,name:codeProvName(pv),models:(pv.models||[]).filter(m=>typeof m==='string'&&users.modelOk(who,pv.slug,m))})).filter(x=>x.models.length);
      if(o){models={claude:[],codex:[],gemini:[]};for(const pv of o.providers||[]){if(!pv.authenticated)continue;const k=pv.slug==='claude-subscription-directsdk-experimental'?'claude':pv.slug==='openai-codex'?'codex':/^gemini/.test(pv.slug)?'gemini':'';if(!k)continue;
       for(const m of pv.models||[])if(typeof m==='string'&&users.modelOk(who,pv.slug,m)&&!models[k].includes(m))models[k].push(m)}}}catch{}
-    return send(res,200,{agent:want,where:box?'box':'computer',restricted:!!users.allowedModels(who),models,...(box?{engine:!codeOnline.remote(),engineModels,agentDefault:a?await agentModel(a):null}:{}),...(r?{provider:r.provider,model:r.model,account:{label:r.account.label,kind:r.account.kind},...(box&&r.provider==='claude'?{main:r.main,configDir:r.configDir}:{})}:{})})}
+    return send(res,200,{agent:want,where:box?'box':'computer',restricted:!!users.allowedModels(who),models,engineModels,agentDefault:a?await agentModel(a):null,...(box?{engine:!codeOnline.remote()}:{}),...(r?{provider:r.provider,model:r.model,account:{label:r.account.label,kind:r.account.kind},...(box&&r.provider==='claude'?{main:r.main,configDir:r.configDir}:{})}:{})})}
    /* Code's "aqeelOS models" engine (the box's own Code copy only): one turn for an agent, run by the engine exactly
       like a chat message (the agent's own model and account, the Models page's priority list and auto-switch, any
       provider, its tools and their locks), in the project's folder on the box. The chat's rules apply to the person
@@ -1327,7 +1363,9 @@ const server=createServer(async(req,res)=>{
      let b={};try{b=JSON.parse(await readBody(req,40e6))}catch{return send(res,400,{error:'The request was not valid JSON.'})}
      // no agent picked in Code: the one this person would chat with (as agent-model answers)
      const may=(await listAgents()).filter(mine),a=String(b.agent||'')||(may.includes('default')?'default':may[0]||'');if(!may.includes(a)||await isTestAgent(a))return send(res,403,{error:'You can’t use that agent.'});
-     const name=NAMES[a]||await displayName(a);if(await agentDefaults.codeLocked(a))return send(res,403,{error:name+'’s terminal and file tools are locked, so it cannot work on code. Pick Claude Code, Codex or Gemini CLI, or ask an admin.'});
+     const name=NAMES[a]||await displayName(a);if(await agentDefaults.codeLocked(a))return send(res,403,{error:name+'’s terminal and file tools are locked, so it cannot work on code. Pick a Claude or ChatGPT model, or ask an admin.'});
+     // the other agents attached to this message: the engine may ask them (code_ask_agent) while the turn goes on
+     const attached=[a,...new Set((Array.isArray(b.agents)?b.agents:[]).map(String).filter(x=>x!==a))].slice(0,6);for(const x of attached.slice(1))if(!may.includes(x)||await isTestAgent(x))return send(res,403,{error:'You can’t use one of the attached agents.'});
      // a member: within their daily limit (Chat and Code together) and only on models they may use, as in Chat
      let provider=String(b.provider||''),model=String(b.model||'');if(!/^[\w.:/@+-]{0,120}$/.test(provider+model))return send(res,400,{error:'Invalid model name.'});
      if(!users.isAdmin(who)){const lim=users.limitOf(who);if(lim?.tokens){const t=await usage.today(await listAllProfiles(),who.id,users.ownerOf);if(t.tokens+await code.usedToday(who.id)>=lim.tokens)return send(res,429,{error:'You reached today\'s limit. It resets at midnight.'})}
@@ -1339,23 +1377,29 @@ const server=createServer(async(req,res)=>{
      // a folder right inside it: the agent is let through that one folder only
      if(!dir.startsWith(AREA+path.sep)||dir.slice(AREA.length+1).includes(path.sep)||!(await stat(dir).catch(()=>null))?.isDirectory())return send(res,400,{error:'Only projects right inside online Code’s project folder (~/code-projects) can run on aqeelOS models.'});
      const pre=a!=='default'?'/p/'+encodeURIComponent(a):'',H={authorization:'Bearer '+API_KEY,'content-type':'application/json'};
+     // Plan only: the turn works in a read-only copy of the project in a chat of its own (codeAgents.planCopy), so it can
+     // only read and propose; the copy goes when the turn ends
+     const real=dir;let planDir='';if(b.plan){try{planDir=await codeAgents.planCopy(dir,AREA)}catch(e){return send(res,413,{error:e.message})}dir=planDir}
      // the same engine chat again for the same Code chat (only the person's own), else a new one that is theirs
-     let sid=String(b.session||'');if(sid&&(!/^[\w.:-]{1,128}$/.test(sid)||users.ownerOf(sid)!==who.id))sid='';
+     let sid=planDir?'':String(b.session||'');if(sid&&(!/^[\w.:-]{1,128}$/.test(sid)||users.ownerOf(sid)!==who.id))sid='';
      if(!sid){try{const d=await fetch(GATE.origin+pre+'/api/sessions',{method:'POST',headers:H,body:JSON.stringify({cwd:dir}),signal:AbortSignal.timeout(30000)}).then(async x=>x.ok?x.json():Promise.reject(Error((await x.text()).slice(0,200)||'HTTP '+x.status)));
-       sid=String(d.session?.id||d.id||d.session_id||'');if(!sid)throw Error('no chat id');await users.own(sid,who)}catch(e){return send(res,502,{error:'The engine could not start a chat for '+name+': '+e.message})}}
-     const text=String(b.prompt||'').slice(0,400000);if(!text.trim())return send(res,400,{error:'Say what to do.'});
+       sid=String(d.session?.id||d.id||d.session_id||'');if(!sid)throw Error('no chat id');await users.own(sid,who)}catch(e){void codeAgents.planDrop(planDir);return send(res,502,{error:'The engine could not start a chat for '+name+': '+e.message})}}
+     let text=String(b.prompt||'').slice(0,400000);if(!text.trim()){void codeAgents.planDrop(planDir);return send(res,400,{error:'Say what to do.'})}
+     if(planDir)text='PLAN ONLY: you are in a read-only copy of the project. Change nothing; read, then propose.\n\n'+text.split(String(b.path)).join(planDir).split(real).join(planDir);
      const imgs=(Array.isArray(b.images)?b.images:[]).slice(0,6).map(String).filter(u=>/^data:image\/(png|jpeg|webp|gif);base64,/.test(u));
      const msg={message:imgs.length?[{type:'text',text},...imgs.map(u=>({type:'image_url',image_url:{url:u}}))]:text};
      // a model picked in Code is locked for this turn on its own account; "Default" leaves the agent's own choice (and auto-switch) in charge
      if(model){msg.model=model;if(provider)msg.provider=provider;msg.require_model_lock=true}
      if(/^(none|minimal|low|medium|high|xhigh|max|ultra)$/.test(String(b.effort||'')))msg.model_options={reasoning_effort:b.effort};
      // the agent's own user is let into the folder for this turn only (taken away again when it ends, also when it does not start)
-     try{await agentDefaults.codeAccess(a,dir,AREA)}catch(e){return send(res,409,{error:e.message})}const after=()=>agentDefaults.codeAccessAfter(a,dir,AREA).catch(()=>{});
+     let unrun=()=>{};try{await agentDefaults.codeAccess(a,dir,AREA,{read:!!planDir})}catch(e){void codeAgents.planDrop(planDir);return send(res,409,{error:e.message})}
+     const after=async()=>{unrun();await agentDefaults.codeAccessAfter(a,dir,AREA).catch(()=>{});await codeAgents.planDrop(planDir)};
      const up=await fetch(GATE.origin+pre+'/api/sessions/'+encodeURIComponent(sid)+'/chat/stream',{method:'POST',headers:{...H,accept:'text/event-stream'},body:JSON.stringify(msg),...longFetch()}).catch(e=>({ok:false,status:502,text:async()=>e.message}));
      if(!up.ok||!up.body){void after();const t=await up.text().catch(()=>'');let said=t;try{const j=JSON.parse(t);said=j.error?.message||j.error||j.detail||t}catch{}return send(res,up.status===429?429:502,{error:'The engine did not take the turn ('+up.status+')'+(said?': '+String(said).slice(0,200):'')})}
      const route=await accountsApi.codeRoute(a).catch(()=>null),handle=randomBytes(18).toString('base64url'),h={agent:a,pre,user:who.id,runId:'',stop:false};codeRuns.set(handle,h);
+     unrun=codeAgents.runStart(a,{user:who.id,agents:attached,dir:real,plan:!!planDir,project:path.basename(real)});
      res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-cache','x-accel-buffering':'no',...security});res.socket?.setNoDelay(true);
-     res.write('event: aqeelos.code\ndata: '+JSON.stringify({type:'aqeelos.code',handle,session:sid,agent:a,agentName:name,provider:provider||route?.engine||'',model:model||route?.model||'',account:model&&provider&&route?.engine!==provider?'':route?.account?.label||''})+'\n\n');
+     res.write('event: aqeelos.code\ndata: '+JSON.stringify({type:'aqeelos.code',handle,session:sid,plan:!!planDir,agent:a,agentName:name,provider:provider||route?.engine||'',model:model||route?.model||'',account:model&&provider&&route?.engine!==provider?'':route?.account?.label||''})+'\n\n');
      const key=a+'|'+sid,rec=liveStart(key,who.id);console.log('code: '+(who.name||who.id)+' ran',a,'on aqeelOS models');
      // the turn goes on on the engine when Code goes away (like a chat reply): read to its end either way
      // a comment line every 20 s while the engine is quiet (a pending approval, a long command), so no reader times out
@@ -1630,6 +1674,9 @@ const server=createServer(async(req,res)=>{
     // every agent's n8n address is for admins only; a member sees an agent's own only when they have that agent
     // (the n8n page always asks for the main agent, so no access still answers, just without the address)
     const s=await n8n.status(a);if(!users.isAdmin(u)){delete s.users;if(users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a))s.user=null}return send(res,200,s)}
+   // "Open in Code" from a chat: the request an agent kept, for a person who may chat with that agent
+   if(p==='/ui/code/handoff'&&req.method==='GET'){const v=await codeAgents.handoffGet(url.searchParams.get('id'));if(!v)return send(res,404,{error:'This link has expired. Ask the agent again.'});
+    if(users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),v.agent))return send(res,403,{error:'You can’t use that agent.'});return send(res,200,{agent:v.agent,agentName:NAMES[v.agent]||await displayName(v.agent),text:v.text})}
    if(p==='/ui/code/pair'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}return send(res,200,{token:await code.pair(u.id,b.name)})}
    if(p==='/ui/code/online'&&req.method==='GET'){return send(res,200,{url:codeOnline.url(u.id),origin:new URL(codeOnline.url(u.id)).origin})}
    // Files: search a folder and everything inside it (names only), and which of the quick places exist

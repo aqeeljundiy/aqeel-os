@@ -166,7 +166,8 @@ export function createUsers(DATA,mail,{ownerCheck}={}){
    if(/^\/ui\/(identities|avatar)\/([^/]+)$/.test(p))return atLeast(u,decodeURIComponent(p.split('/')[3]),'edit')?null:no('You can chat with this agent but not change it.');
    if(p.startsWith('/ui/screens')||p==='/ui/screen/browser')return atLeast(u,a,'chat')?null:no();
    // Code on their own computer: pair it, see and unpair their computers, download the app (online projects are for admins)
-   if(/^\/ui\/code\/(pair|devices|unpair|online|download\/(windows|mac))$/.test(p))return null;
+   // "Open in Code" links (the handler checks the person may chat with the agent that made it)
+   if(/^\/ui\/code\/(pair|devices|unpair|online|handoff|download\/(windows|mac))$/.test(p))return null;
    if(p==='/ui/files/search'||p==='/ui/files/exist'||p==='/ui/code/usage'||p.startsWith('/ui/bottlenecks')||p==='/ui/apps'||p.startsWith('/ui/apps/')||p==='/ui/defaults'||p==='/ui/code/app-version')return null;   // the handler keeps members inside their own folder
    return no()}
   return no()}

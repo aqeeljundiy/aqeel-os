@@ -119,14 +119,15 @@ export function createAgentDefaults({DATA,giveSkills,trimSkills=async()=>0,locke
  const CONFIG=['.git','.claude','.codex'];
  // turns now going per agent and folder: the entries are taken away when the last one ends
  const inUse=new Map(),use=(k,d)=>{const n=(inUse.get(k)||0)+d;if(n>0)inUse.set(k,n);else inUse.delete(k);return n};
- async function codeAccess(a,dir,area){const u=await codeUser(a);if(u===null)throw Error('This agent’s own user on the box is not ready yet. Try again in a minute.');if(!u)return;
+ // read: Plan only (25 Oct 2026): the agent may read the folder but not change it (r-X entries, no write)
+ async function codeAccess(a,dir,area,{read=false}={}){const u=await codeUser(a);if(u===null)throw Error('This agent’s own user on the box is not ready yet. Try again in a minute.');if(!u)return;
   if(!(await quiet('setfacl',['--version'],10000)).ok)throw Error('The box has no setfacl, so the agent cannot be given the project folder.');
   await quiet('chmod',['o-rwx',area]);for(const e of await readdir(area,{withFileTypes:true}).catch(()=>[]))if(e.isDirectory())await quiet('chmod',['o-rwx',path.join(area,e.name)]);
   use(u+'|'+area,1);use(u+'|'+dir,1);await quiet('setfacl',['-m','u:'+u+':--x',area]);
   // .claude and .codex made here first (ours), so the agent cannot make its own; with .git they are read-only to it
   for(const c of CONFIG.slice(1))await mkdir(path.join(dir,c),{recursive:true,mode:0o700}).catch(()=>{});
   // files the agent made in an earlier turn are its own: the list on them is not ours to change (fixed after each turn)
-  await quiet('setfacl',['-R','-m',facl(u,ME),dir]);
+  await quiet('setfacl',['-R','-m',read?'u:'+u+':rX,u:'+ME+':rwX,m::rwX,d:u:'+u+':rX,d:u:'+ME+':rwX,d:m::rwX':facl(u,ME),dir]);
   for(const c of CONFIG){const f=path.join(dir,c);if(await stat(f).catch(()=>null))await quiet('setfacl',['-R','-m','u:'+u+':rX,d:u:'+u+':rX',f])}}
  async function codeAccessAfter(a,dir,area){const u=await codeUser(a);if(!u)return;const q="'"+String(dir).replace(/'/g,"'\\''")+"'";
   const r=await quiet('ssh',['-i',KEY,'-o','BatchMode=yes','-o','ConnectTimeout=10','-o','StrictHostKeyChecking=yes','-p','22',u+'@127.0.0.1','setfacl -R -m '+facl(u,ME)+' -- '+q+' 2>/dev/null; true'],120000);
@@ -134,4 +135,7 @@ export function createAgentDefaults({DATA,giveSkills,trimSkills=async()=>0,locke
   // the turn is over: the agent's entries go (on the project, and passage through the projects folder once no turn needs it)
   if(!use(u+'|'+dir,-1))await quiet('setfacl',['-R','-x','u:'+u+',d:u:'+u,dir]);
   if(area&&!use(u+'|'+area,-1))await quiet('setfacl',['-x','u:'+u,area])}
- return {all,tick,ensure,added,trusted,userOf,codeUser,codeLocked,codeAccess,codeAccessAfter}}
+ // a folder an agent saves files into for a Code run that asked it (its own workspace's code-outbox/<id>): write for
+ // its user, if it has one; aqeelOS reads the files and removes the folder afterwards
+ async function outboxAccess(a,dir){const u=await codeUser(a);if(u)await quiet('setfacl',['-m','u:'+u+':rwx,m::rwx',dir],20000)}
+ return {all,tick,ensure,added,trusted,userOf,codeUser,codeLocked,codeAccess,codeAccessAfter,outboxAccess}}
