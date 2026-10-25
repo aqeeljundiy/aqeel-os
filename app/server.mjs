@@ -35,6 +35,7 @@ import {createCode} from './code.mjs';
 import {createCodeAgents,safeRel} from './code-agents.mjs';
 import {createCodeBridge} from './code-bridge.mjs';
 import {createCodeOnline} from './code-online.mjs';
+import {createTeamFolders} from './team-folders.mjs';
 import {createBrand} from './brand.mjs';
 import {createBottlenecks} from './bottlenecks.mjs';
 import {createHelp} from './help.mjs';
@@ -565,6 +566,8 @@ const access=createAccess({HERMES_HOME,DATA,listAgents:()=>listAgents(),readConf
 const accessAsk=createAccessRequests({DATA,access,listAgents:()=>listAgents(),names:a=>NAMES[a]||(a==='default'?'aqeelOS':a)});
 const n8n=createN8n({BASE:N8N_URL,readConfig,removeMcp:(a,name)=>fetch(DASH.origin+'/api/mcp/servers/'+encodeURIComponent(name)+'?profile='+encodeURIComponent(a),{method:'DELETE',headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(r=>{if(!r.ok&&r.status!==404)throw new Error('Could not remove the tool ('+r.status+')');return true}),DATA,setKey,restart:why=>restartGateway(why).catch(()=>{}),names:a=>NAMES[a]||a});
 const code=createCode({DATA,SRC:path.join(homedir(),'apps','aqeel-code'),PUBLIC_URL,ROOT:root});
+// team folders (Plan 4): Code project folders shared with team members, one bare git repo each, served only through here
+const teamFolders=createTeamFolders({DATA,names:uid=>{const x=users.byId(uid);return x?.name||x?.username||'Someone'},known:uid=>{const x=users.byId(uid);return !!x&&!x.disabled}});
 const codeAgents=createCodeAgents({HERMES_HOME,DATA,sign,readIds,outboxAccess:(a,d)=>agentDefaults.outboxAccess(a,d)});
 // every aqeelOS model for Code projects on a person's computer: the engine reaches the project through this bridge only
 const codeBridge=createCodeBridge({PORT,DATA,sign,code,mayUse:(uid,a)=>{const w=users.byId(uid);return !!w&&!users.gate(w,'/gapi/api/model/options','GET',new URLSearchParams(),a)},workspaces:a=>path.join(homedir(),'workspaces',a),access:(a,d)=>agentDefaults.outboxAccess(a,d)});
@@ -1341,6 +1344,19 @@ const server=createServer(async(req,res)=>{
    if(BOX&&/^\/ui\/code\/(ask|publish|agents|agent-model|run-ticket|engine\/(run|stop|approval))$/.test(p)){const [uid,exp,sg]=String(req.headers['x-aq-act']||'').split('.');
     const ok=!!uid&&Number(exp)>Date.now()&&Number(exp)<Date.now()+600e3&&!!sg&&(()=>{const x=Buffer.from(sg),y=Buffer.from(sign('code-act:'+uid+'.'+exp));return x.length===y.length&&timingSafeEqual(x,y)})();
     who=ok?users.byId(uid):null;if(!who)return send(res,403,{error:'Online Code can do this only for a signed-in person. Use Code on your own computer for now.'})}
+   /* Team folders (Plan 4, 25 Oct 2026): a person's own Code shares a project folder, pushes and pulls, as the person the
+      device key is for. git's smart HTTP is at /ui/code/team/git/<id>.git/...; the rest are small JSON calls. The box's own
+      copy is used by everyone, so it has no team folders: they live on each person's computer. */
+   if(p.startsWith('/ui/code/team')){if(BOX)return send(res,403,{error:'Team folders work in Code on your own computer.'});
+    if(p.startsWith('/ui/code/team/git/'))return teamFolders.serve(req,res,who.id,p.slice(18),url.searchParams);
+    let b={};if(req.method==='POST'){try{b=JSON.parse(await readBody(req,65536)||'{}')}catch{}}const q=url.searchParams;
+    try{if(p==='/ui/code/team'&&req.method==='GET')return send(res,200,{me:who.id,folders:await teamFolders.list(who.id)});
+     if(p==='/ui/code/team/folder'&&req.method==='GET')return send(res,200,await teamFolders.get(String(q.get('id')||''),who.id));
+     if(p==='/ui/code/team/history'&&req.method==='GET')return send(res,200,{pushes:await teamFolders.history(String(q.get('id')||''),who.id)});
+     if(p==='/ui/code/team/share'&&req.method==='POST'){const f=await teamFolders.create(who.id,{name:b.name,members:b.members,chats:b.chats});console.log('team folders: '+(who.name||who.id)+' shared',f.id);return send(res,200,f)}
+     if(p==='/ui/code/team/update'&&req.method==='POST')return send(res,200,await teamFolders.update(String(b.id||''),who.id,{name:b.name,members:b.members,chats:b.chats}));
+     if(p==='/ui/code/team/unshare'&&req.method==='POST')return send(res,200,await teamFolders.unshare(String(b.id||''),who.id))}catch(e){return send(res,e.status||400,{error:e.message})}
+    return send(res,404,{error:'Not found'})}
    const mine=a=>!users.gate(who,'/gapi/api/model/options','GET',new URLSearchParams(),a);   // the agents this person may chat with (shared, owned, not someone's private one)
    if(p==='/ui/code/whoami')return send(res,200,{name:who.name||who.id,user:who.id});
    // the agents this person may use in Code; intro=1 adds each one's introduction for a run (what it is for, its skills by
@@ -1762,6 +1778,8 @@ const server=createServer(async(req,res)=>{
     if(id.startsWith('report|')){const r=await bottlenecks.find(id);if(!r)return send(res,404,{error:'That one is already gone.'});if(users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),r.agent))return send(res,403,{error:'That agent is not shared with you.'})}
     else{if(!admin)return send(res,403,{error:'Only admins.'});const cur=await bottlenecks.list({admin:true,mayUse:()=>false,signins:[...signinsDue.values()],invites:users.expiredInvites(),accounts:await accountsApi.signedOut().catch(()=>[])});if(!cur.some(x=>x.id===id))return send(res,404,{error:'That one is already gone.'})}
     await (p.endsWith('done')?bottlenecks.done(id):bottlenecks.later(id,admin?null:u.id));return send(res,200,{ok:true})}
+   // Code › Live › Team folders: the shared folders a person is in (admins see every one), read only
+   if(p==='/ui/team-folders'&&req.method==='GET')return send(res,200,{folders:await teamFolders.list(u.id,{all:users.isAdmin(u)})});
    if(p==='/ui/code/devices'&&req.method==='GET')return send(res,200,{devices:await code.devices(u.id)});
    if(p==='/ui/code/unpair'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const n=await code.unpair(u.id,String(b.id||''));return n?send(res,200,{ok:true}):send(res,400,{error:'That computer was not found.'})}
    {const dm=/^\/ui\/code\/download\/(windows|mac)$/.exec(p);if(dm&&req.method==='GET'){
