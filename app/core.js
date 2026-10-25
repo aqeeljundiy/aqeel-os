@@ -145,6 +145,9 @@ function lkInfo(u){const raw=u.replace(/&amp;/g,'&');let host='',deep=false;try{
  const s=LK_SITES.find(([re])=>re.test(raw));const site=s?s[1]:host.split('.').slice(-2,-1)[0]?.replace(/^./,c=>c.toUpperCase())||host;
  return {raw,host,site,fallback:s?s[2]:host+(deep?'/…':'')}}
 const lkFav=host=>host?`<img class="lk-fav" src="/ui/logo?d=${encodeURIComponent(host)}&v=3" alt="" loading="lazy">`:'';
+// "Open in Code" from an agent (its open_in_code tool): a link to this aqeelOS's Code page opens Code here, not a new tab
+function codeOpen(u,text){const m=/^(https?:\/\/[^/]+)\/#\/code\/code\/([\w-]{10,40})$/.exec(String(u).replace(/&amp;/g,'&'));if(!m||m[1]!==location.origin)return '';
+ return `<a class="btn small code-open" href="#/code/code/${m[2]}">${icon('terminal',14)}<span>${text||'Open in Code'}</span></a>`}
 function linkChip(u,text){const {host,site,fallback}=lkInfo(u);const label=text||fallback;
  return `<a class="lk" href="${u}" target="_blank" rel="noopener" title="${u}">${lkFav(host)}${icon('link',13)}<span>${label}</span>${text&&site&&site.toLowerCase()!==String(label).toLowerCase()?`<small>${esc(site)}</small>`:''}</a>`}
 // a link on a line of its own becomes a small card: icon, name, site, Open
@@ -168,7 +171,7 @@ function md(src){
    .replace(/\[\[([^\[\]\n]{1,24})\]\]/g,(m,w)=>put(statusChip(w.trim())))
    .replace(/!\[([^\]]*)\]\(((?:data:image\/[a-z+.-]+;base64,[A-Za-z0-9+/=]+)|(?:https?:\/\/[^)\s]+)|(?:\/ui\/media\?path=[^)\s]+))\)/g,(m,alt,u)=>put(`<img class="md-img" src="${esc(u)}" alt="${esc(alt)}" loading="lazy">`));
   t=esc(t).replace(/(?<![\w\/.-])Hermes Agent\b/g,'aqeelOS').replace(/(?<![\w\/.-])Hermes(?![\w-])/g,'aqeelOS').replace(/(?<![\w\/.-])hermes(?=[\s-])/g,'aqeelos').replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>').replace(/__([^_]+)__/g,'<b>$1</b>').replace(/(^|[^*\w])\*([^*\s][^*]*)\*/g,'$1<i>$2</i>').replace(/~~([^~]+)~~/g,'<s>$1</s>')
-   .replace(/\[([^\]]+)\]\((mailto:[^)\s"]+)\)/g,(m,t,u)=>`<a href="${u}">${t}</a>`).replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,(m,t,u)=>linkChip(u,t)).replace(/(^|\s)(https?:\/\/[^\s<]+)/g,(m,pre,u)=>pre+linkChip(u));
+   .replace(/\[([^\]]+)\]\((mailto:[^)\s"]+)\)/g,(m,t,u)=>`<a href="${u}">${t}</a>`).replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,(m,t,u)=>codeOpen(u,t)||linkChip(u,t)).replace(/(^|\s)(https?:\/\/[^\s<]+)/g,(m,pre,u)=>pre+linkChip(u));
   return t.replace(/\u0000(\d+)\u0000/g,(m,n)=>keep[+n])};
  const isItem=l=>/^\s*(?:[-*+]|\d+[.)])\s+/.test(l),indent=l=>l.match(/^\s*/)[0].replace(/\t/g,'  ').length;
  // a list block, nested by indentation; indented lines under an item continue it
@@ -196,7 +199,7 @@ function md(src){
   if(isItem(l)){out.push(list());continue}
   if(/^\|.*\|\s*$/.test(l)&&/^\|[\s:|-]+\|\s*$/.test(lines[i+1]||'')){const row=r=>r.trim().replace(/^\||\|$/g,'').split('|').map(c=>c.trim());const head=row(l);i+=2;const body=[];while(i<lines.length&&/^\|.*\|\s*$/.test(lines[i]))body.push(row(lines[i++]));out.push(`<div class="table-wrap"><table><thead><tr>${head.map(h=>`<th>${inline(h)}</th>`).join('')}</tr></thead><tbody>${body.map(r=>`<tr>${r.map(c=>`<td>${inline(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`);continue}
   if(/^>\s?/.test(l)){const b=[];while(i<lines.length&&/^>\s?/.test(lines[i]))b.push(lines[i++].replace(/^>\s?/,''));const warn=/^\s*(⚠|❗|\*\*(warning|heads up|careful|note)\b)/i.test(b[0]||'');out.push('<blockquote'+(warn?' class="warn"':'')+'>'+md(b.join('\n'))+'</blockquote>');continue}
-  {const lc=/^\s*\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)\s*$/.exec(l);if(lc&&/^\s*$/.test(lines[i+1]||'')){out.push(linkCard(esc(lc[2]),esc(lc[1])));i++;continue}}
+  {const lc=/^\s*\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)\s*$/.exec(l);if(lc&&/^\s*$/.test(lines[i+1]||'')){out.push(codeOpen(lc[2],esc(lc[1]))&&'<p>'+codeOpen(lc[2],esc(lc[1]))+'</p>'||linkCard(esc(lc[2]),esc(lc[1])));i++;continue}}
   const p=[];while(i<lines.length&&!/^\s*$/.test(lines[i])&&!/^\s*```|^#{1,6}\s|^>\s?|^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(lines[i])&&!(isItem(lines[i])&&p.length===0)&&!(isItem(lines[i])))p.push(inline(lines[i++]));out.push('<p>'+p.join('<br>')+'</p>');
  }
  return out.join('');

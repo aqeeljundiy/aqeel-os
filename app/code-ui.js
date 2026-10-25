@@ -80,13 +80,15 @@ const CodeUI={where:(()=>{try{const w=localStorage.getItem('aq-code-where');retu
    const f=this.frame;if(f){f.hidden=false;f.closest('.code-host')?.querySelector('.code-wait')?.remove()}
    this.post({aq:'theme',dark:document.documentElement.classList.contains('dark')});if(typeof Brand!=='undefined'&&Brand.custom)this.post({aq:'brand',name:Brand.name});this.post({aq:'lang',lang:(typeof Lang!=='undefined'&&Lang.cur)||'en'});this.post({aq:'currency',code:currency(),rate:FX.rate});
    this.post({aq:'viewing',id:S.profile||'default'});   // the agent you are on here is Code's agent for a project nobody chose one for yet
+   if(this.handoff){const id=this.handoff;this.handoff=null;UI('/ui/code/handoff?id='+encodeURIComponent(id)).then(h=>this.post({aq:'prefill',prompt:h.text,agent:h.agent})).catch(fail)}
    if(!m.paired&&this.where!=='online'){try{const r=await post(UI,'/ui/code/pair',{name:(/Mac/i.test(navigator.platform)?'Mac':/Win/i.test(navigator.platform)?'Windows PC':'Computer')+(()=>{const b=navigator.userAgentData?.brands?.find(b=>/Chrome|Edge/.test(b.brand))?.brand;return b?' · '+b:''})()});this.post({aq:'pair',token:r.token,base:location.origin})}catch(er){fail(er)}}
    this.paintSide()}
   if(m.type==='state'){const st={projects:m.projects||[],project:m.project,chat:m.chat,agent:m.agent||'',agents:m.agents||[],model:m.model||''};if(JSON.stringify(st)===JSON.stringify(this.st))return;const foot=st.agent!==this.st.agent||st.model!==this.st.model||JSON.stringify(st.agents)!==JSON.stringify(this.st.agents);this.st=st;this.paintSide();if(foot&&typeof paintSide==='function')paintSide()}
   if(m.type==='paired'){if(m.ok)toast('This computer is paired with aqeelOS');else toast('Pairing didn’t work: '+(m.error||'unknown'),'err')}
   if(m.type==='error')toast(m.error,'err')}};
 addEventListener('message',e=>CodeUI.onMessage(e));
-PAGES.code=(p,el)=>CodeUI.page(p,el);
+// "Open in Code" from a chat (#/code/code/<id>): Build opens, and once the app answers it gets the request and the agent
+PAGES.code=(p,el)=>{const id=route().arg?.[0]||'';if(/^[\w-]{10,40}$/.test(id)){CodeUI.handoff=id;CodeUI.where='computer';history.replaceState(null,'','#/code/code')}return CodeUI.page(p,el)};
 ACT['code-new']=()=>CodeUI.post({aq:'newChat',project:CodeUI.st.project});
 ACT['code-newproj']=()=>CodeUI.post({aq:'newProject'});
 ACT['code-chat']=a=>{CodeUI.st.project=a.dataset.p;CodeUI.st.chat=a.dataset.c;CodeUI.post({aq:'open',project:a.dataset.p,chat:a.dataset.c});CodeUI.paintSide()};

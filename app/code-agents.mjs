@@ -62,7 +62,7 @@ export function createCodeAgents({HERMES_HOME,DATA,sign,readIds,outboxAccess}){
  const engineRuns=new Map();
  function runStart(agent,r){const k=randomBytes(9).toString('hex');engineRuns.set(k,{...r,agent,t:Date.now()});return ()=>engineRuns.delete(k)}
  const runsOf=agent=>[...engineRuns.values()].filter(r=>r.agent===agent&&r.agents.length>1);
- function runFor(agent,target){const l=runsOf(agent).filter(r=>r.agents.includes(target));if(!l.length)return {error:'That agent is not attached to this Code run. Only the agents attached in Code can be asked.'};
+ function runFor(agent,target){if(!runsOf(agent).length)return {error:'This only works during an aqeelOS Code run that has other agents attached.'};const l=runsOf(agent).filter(r=>r.agents.includes(target));if(!l.length)return {error:'That agent is not attached to this Code run. Only the agents attached in Code can be asked.'};
   if(new Set(l.map(r=>r.user)).size>1)return {error:'Several people have Code runs going with you right now, so this ask cannot be matched to one of them. Answer without it.'};return {run:l.sort((x,y)=>y.t-x.t)[0]}}
  /* Plan only on the engine (any model): the turn works in a copy of the project (next to it, .plan-<id>), which the
     agent may only read (its user gets read entries; aqeelOS removes the copy after the turn), so whatever it tries to

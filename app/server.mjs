@@ -32,7 +32,7 @@ import {createAccessRequests} from './access-requests.mjs';
 import {startScreenFollow} from './screen-follow.mjs';
 import {createN8n} from './n8n.mjs';
 import {createCode} from './code.mjs';
-import {createCodeAgents,FILE_MAX,FILES_TOTAL} from './code-agents.mjs';
+import {createCodeAgents,safeRel} from './code-agents.mjs';
 import {createCodeOnline} from './code-online.mjs';
 import {createBrand} from './brand.mjs';
 import {createBottlenecks} from './bottlenecks.mjs';
@@ -1266,7 +1266,7 @@ const server=createServer(async(req,res)=>{
    // in the answer are saved into that run's project (not in Plan only)
    if(signed&&msg.method==='tools/call'&&msg.params?.name==='code_ask_agent'){const base=mn[1].split('--')[0],a=msg.params?.arguments||{};const reply=(text,isError)=>send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text}],...(isError?{isError:true}:{})}});
     const target=String(a.agent||''),f=codeAgents.runFor(base,target);if(f.error)return reply(f.error,true);if(target===base)return reply('That is you. Do it yourself.',true);const who=users.byId(f.run.user);
-    if(!who||users.gate(who,'/gapi/api/model/options','GET',new URLSearchParams(),target))return reply('The person who started this run may not use that agent.',true);if(!String(a.task||'').trim())return reply('Say what the agent should do.',true);
+    if(!who||users.gate(who,'/gapi/api/model/options','GET',new URLSearchParams(),target))return reply('The person who started this run may not use that agent.',true);if(!String(a.task||'').trim())return reply('Say what the agent should do.',true);if(a.save_to&&safeRel(a.save_to)===null)return reply('Save files to a folder inside the project, for example from-agents or assets.',true);
     try{const r=await codeAsk(who,target,String(a.task),{project:f.run.project,plan:f.run.plan});let saved=[];if(r.files.length&&!f.run.plan)saved=await codeAgents.saveInto(f.run.dir,r.agentName,r.files,a.save_to);console.log('code: '+base+' asked',target,'in a Code run'+(saved.length?' ('+saved.length+' files)':''));
      return reply(r.agentName+': '+(r.text||'(no answer)')+(saved.length?'\n\nSaved in the project: '+saved.join(', '):'')+(f.run.plan&&r.files.length?'\n\nIt had files ('+r.files.map(x=>x.name).join(', ')+'); they are not saved in Plan only.':''))}catch(e){return reply(e.message,true)}}
    // "Open in Code": the agent keeps a build request and gets a link that opens Code with it filled in and itself attached
