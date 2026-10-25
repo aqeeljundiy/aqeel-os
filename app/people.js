@@ -235,7 +235,10 @@ ACT['ppl-models']=async a=>{const u=(Pages._ppl?.users||[]).find(x=>x.id===a.dat
  const srt=o=>Object.entries(o||{}).sort((a,b)=>(b[1].input+b[1].output)-(a[1].input+a[1].output));
  const cp=srt(c.byPerson).map(([id,o])=>{const x=c.people?.[id]||{name:id};return [id,o,`<span class="uname">${personAva({id,...x},24)}${esc(id===S.me?.id?'You':x.name)}</span>`]});
  const ca=srt(c.byAgent).map(([a,o])=>[a,o,`<span class="uname">${a==='(no agent)'?esc('No agent'):agentAva(a)+esc(ident(a).name)}</span>`]);const cj=srt(c.byProject).map(([n,o])=>[n,o,`<span class="uname">${icon('folder',16)}${esc(n)}</span>`]);
- if(cp.length||ca.length||cj.length){const cb=document.createElement('div');cb.innerHTML=`<h2 class="ach-cat" style="margin-top:26px">Code</h2>`+ctab('Code by person',cp,'Person')+ctab('Code by agent',ca,'Agent')+ctab('Code by project',cj,'Project');el.append(cb)}}}
+ // admins: what agents did in projects on people's computers (the code bridge, 25 Oct 2026), newest first
+ const br=(c.bridge||[]).map(x=>`<div class="ur"><span class="uname">${agentAva(x.agent)}${esc(ident(x.agent).name)}<small>${esc(x.tool.replace(/^project_/,''))} ${esc(x.what||'')}</small></span><span>${esc(x.userName||'')}<small>${esc(x.device||'')}</small></span><span>${esc(x.project||'')}</span><span${x.ok?'':' class="err-line"'}>${x.ok?esc(ago(x.time/1000)):esc('Refused: '+(x.note||''))}</span></div>`).join('');
+ if(cp.length||ca.length||cj.length||br){const cb=document.createElement('div');cb.innerHTML=`<h2 class="ach-cat" style="margin-top:26px">Code</h2>`+ctab('Code by person',cp,'Person')+ctab('Code by agent',ca,'Agent')+ctab('Code by project',cj,'Project')
+  +(br?`<div class="panel card" style="margin-top:16px"><h2>Agents in projects on computers</h2><p class="sub" style="margin:0 0 10px">Every file read, change and command an agent made through Code on someone's computer, newest first.</p><div class="utable ucode"><div class="uh"><span>Agent and what</span><span>From Code on</span><span>Project</span><span>When</span></div>${br}</div></div>`:'');el.append(cb)}}}
 
 /* ---------- MCP: run the same server more than once (e.g. three AdsPower setups), each with its own name and settings ---------- */
 // data-agent (an All agents row): the copy goes on that agent, from its own list
