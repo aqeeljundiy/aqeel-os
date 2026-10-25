@@ -34,7 +34,7 @@ export function createBottlenecks({DATA,dash,listAgents,names}){
    for(const i of invites||[]){const k='invite|'+i.code;if(!hid(k))out.push({id:k,kind:'invite',title:'The invite for '+(i.name||'someone')+' expired',text:'They can’t join with the old link.',invite:i})}
    // an AI account that signed out (accounts.mjs keeps one per account until it works again; the time keeps a
    // "Not now" to that one time, so a later sign-out shows again)
-   for(const a of accounts||[]){const k='account|'+a.key+'|'+a.since;if(!hid(k))out.push({id:k,kind:'account',title:a.name+' is signed out',text:'Agents that use it can’t answer with it until it is reconnected.',account:a,at:a.since})}
+   for(const a of accounts||[]){const k='account|'+a.key+'|'+a.since;if(!hid(k))out.push({id:k,kind:'account',title:a.name+(a.state==='rejected'?': key rejected':a.state==='credit'?': out of credit':': needs sign-in'),text:'Agents that use it can’t answer with it until it is reconnected.',account:a,at:a.since})}
    for(const e of db.events){const k='event|'+e.id;if(!hid(k))out.push({id:k,kind:e.kind,title:e.text,text:e.detail||''})}}
   for(const r of db.reports){if(r.fixed||!mayUse(r.agent)||hid('report|'+r.id))continue;out.push({id:'report|'+r.id,kind:'report',missing:r.missing,agent:r.agent,agentName:names(r.agent),title:names(r.agent)+' is blocked: '+r.missing,text:r.fix?'Would fix it: '+r.fix:'',purpose:r.what?r.what.replace(/^to /i,''):'',from:r.from||null,count:r.count,at:r.updated})}
   return out}

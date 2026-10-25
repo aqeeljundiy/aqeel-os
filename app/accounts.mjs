@@ -9,6 +9,7 @@ import path from 'node:path';
 import {hermes as hq,setKey,readConfig,pick,editEnv,agentNames,setStatus,getStatus,LIVE_APP} from './agentops.mjs';
 import {allowed,trim} from './skills-policy.mjs';
 import {swr} from './swr.mjs';
+import {createClaudeRenew} from './claude-renew.mjs';
 
 const HOME=homedir();
 const CLAUDE=process.env.CLAUDE_BIN||path.join(HOME,'.local','bin','claude');
@@ -22,7 +23,7 @@ const MAIN={id:'main',label:'Main account',dir:path.join(HOME,'.claude')};
 export let setupAgentFn=null;
 export const export_setups={running:()=>0,wait:()=>Promise.resolve()};   // setups in progress, counted by /healthz so a deploy waits for them
 // for agent-defaults.mjs: copying skills, and what runs after a new agent is set up
-export const accountHooks={giveSkills:null,trimSkills:null,forgetSkills:null,afterSetup:null,moveOff:null};
+export const accountHooks={giveSkills:null,trimSkills:null,forgetSkills:null,afterSetup:null,moveOff:null,keyStatus:null,keyCheck:null};   // keyStatus/keyCheck: connect.mjs (API keys tested)
 export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code')}={}){
  const FILE=path.join(DATA,'accounts.json');
  const load=async()=>{try{return JSON.parse(await readFile(FILE,'utf8'))}catch{return {accounts:[],assign:{},auto:{on:false,threshold:90},events:[]}}};
@@ -41,10 +42,10 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
  const details=(a,fresh,quick)=>cache.get(a.id,()=>readDetails(a),{force:!!fresh,partial:quick?()=>({id:a.id,label:a.label,main:a.id==='main',signedIn:false,partial:true}):undefined});
  async function readDetails(a){
   const v={id:a.id,label:a.label,main:a.id==='main',signedIn:false};
-  // Read-only: the sign-in file and Claude's own account file, never a CLI run that could renew the login (the engine
-  // renews ~/.claude itself under its own lock, so every extra renewer is one more chance to spend the single-use
-  // refresh token twice). expiresAt 0 is how Claude marks a login it gave up on. The main account's email is in
-  // ~/.claude.json, another account's in <its folder>/.claude.json.
+  // Read-only here: the sign-in file and Claude's own account file, never a CLI run that could renew the login.
+  // Renewing is done in one place only, claude-renew.mjs, under the engine's and Claude Code's locks (25 Oct). expiresAt 0
+  // is how Claude marks a login it gave up on; a login the renewer found dead counts as signed out too. The main
+  // account's email is in ~/.claude.json, another account's in <its folder>/.claude.json.
   let creds=null;try{creds=JSON.parse(await readFile(path.join(a.dir,'.credentials.json'),'utf8')).claudeAiOauth}catch{}
   if(creds){const acc=await readFile(a.id==='main'?path.join(HOME,'.claude.json'):path.join(a.dir,'.claude.json'),'utf8').then(t=>JSON.parse(t).oauthAccount||{},()=>({}));
    Object.assign(v,{checked:true,signedIn:!!(creds.accessToken||creds.refreshToken)&&Number(creds.expiresAt)>0,email:acc.emailAddress||'',org:acc.organizationName||'',plan:creds.subscriptionType||''})}
@@ -53,6 +54,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    // checked: the status really answered (a timed-out check is unknown, not "signed out")
    try{const j=JSON.parse(st.out);Object.assign(v,{checked:true,signedIn:!!j.loggedIn,email:j.email||'',org:j.orgName||'',plan:j.subscriptionType||''})}catch{}}
   if(creds){v.plan=v.plan||creds.subscriptionType||'';v.tier=creds.rateLimitTier||'';v.tokenExpires=creds.expiresAt||null}
+  const lost=renew.out(a.id);if(lost&&v.signedIn){v.signedIn=false;v.usageError=lost.why}
   if(v.signedIn&&creds?.accessToken){
    try{const r=await fetch('https://api.anthropic.com/api/oauth/usage',{headers:{authorization:'Bearer '+creds.accessToken,'anthropic-beta':'oauth-2025-04-20',accept:'application/json','user-agent':'claude-code/2.1.0'},signal:AbortSignal.timeout(15000)});
     if(r.ok){const u=await r.json();const win=k=>u[k]?{used:Math.round(Number(u[k].utilization)||0),resets:u[k].resets_at||null}:null;
@@ -79,7 +81,8 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
  /* ---------- adding an account: claude auth login in its own folder ---------- */
  const logins=new Map(); // id → {child,out,state}
  async function startLogin(label){
-  const d=await load();const slug=(String(label||'account').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'account').slice(0,32);
+  // no name asked first (25 Oct): "Claude account 2", 3… and Rename later
+  const d=await load();label=String(label||'').trim()||'Claude account '+(all(d).length+1);const slug=(String(label||'account').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'account').slice(0,32);
   // an id no saved account, sign-in in progress or folder on disk has (two sign-ins at once never share a folder)
   const taken=async id=>all(d).some(a=>a.id===id)||logins.has(id)||await access(path.join(ACCOUNTS_DIR,id)).then(()=>true,()=>false);
   let id=slug,n=2;while(await taken(id)||logins.has(id))id=slug+'-'+n++;logins.set(id,{state:'starting'});
@@ -89,6 +92,8 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
   return runLogin(id,{dir,label:String(label||id).slice(0,60)},{CLAUDE_CONFIG_DIR:dir},async()=>{await update(d2=>{if(!d2.accounts.some(a=>a.id===id))d2.accounts.push({id,label:s0(id).label,dir})})});
  }
  const s0=id=>logins.get(id)||{};
+ // the one renewer of every Claude login (see claude-renew.mjs); an account in the middle of signing in is left alone
+ const renew=createClaudeRenew({accounts:async()=>all(await load()),busy:id=>/^(starting|running)$/.test(logins.get(id)?.state||''),live:LIVE_APP});
  // one `claude auth login` run: output kept for the code step, done() on success, fail() on any other end (cancel,
  // a refused code, the 10-minute limit). env {} = the main account in Claude's default place.
  async function runLogin(id,s,env,done,fail=async()=>{}){let child;
@@ -126,7 +131,9 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
  /* ---------- every other signed-in provider (ChatGPT, OpenRouter…) with the limits Hermes reports ----------
     Sign-ins are per agent, so each agent's own gateway is asked (/p/<agent>/…) and cached per agent. */
  const GATE=process.env.HERMES_API||'http://127.0.0.1:8642';
- const SKIP=/^(nous|anthropic|custom)$|claude-subscription/;
+ // Nous and Anthropic are left out unless someone connected them on purpose through the Connect dialog (d.allow): the engine
+ // calls them signed in on its own (Anthropic through the borrowed Claude login), which is not an account of yours
+ const SKIP=/^(nous|anthropic|custom)$|claude-subscription/,ALLOWABLE=/^(nous|anthropic)$/;
  // subscriptions report windows; one that reports none has unknown room (only pay-per-use counts as 0)
  const SUBS=/subscription|codex|antigravity|agy/i;
  const options=profile=>fetch(GATE+(!profile||profile==='default'?'':'/p/'+encodeURIComponent(profile))+'/api/model/options',{headers:{authorization:'Bearer '+(process.env.API_SERVER_KEY||'')},signal:AbortSignal.timeout(20000)}).then(r=>{if(!r.ok)throw new Error('options '+r.status);return r.json()});
@@ -136,7 +143,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
   // the last answer at once; one read behind the scenes once it is a minute old
   if(hit&&!fresh){if(Date.now()-hit.t>=60000&&!hit.r){hit.r=1;providers(true,profile).catch(()=>{})}return withPics(hit.v,profile)}
   try{const j=await options(profile);
-   const v=(j.providers||[]).filter(p=>p.authenticated&&!SKIP.test(p.slug)&&p.slug!=='gemini-subscription').map(p=>({slug:p.slug,name:p.name,models:p.models||[],
+   const allow=(await load()).allow||[];const v=(j.providers||[]).filter(p=>p.authenticated&&(!SKIP.test(p.slug)||allow.includes(p.slug))&&p.slug!=='gemini-subscription').map(p=>({slug:p.slug,name:p.name,models:p.models||[],
     windows:(p.usage?.windows||[]).map(w=>({label:w.label,used:Math.round(Number(w.used_percent)||0),resets:w.resets_at||null,scope:w.scope||'account'})),details:p.usage?.details||[]}));
    provCache.set(profile,{t:Date.now(),v});return withPics(v,profile)}catch{if(hit)hit.r=0;return hit?withPics(hit.v,profile):null}}
  const worstOf=ws=>Math.max(0,...(ws||[]).filter(w=>w.scope!=='model'&&w.scope!=='image').map(w=>w.used||0));
@@ -216,9 +223,12 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
     for(const [k,s] of Object.entries(seen))if(!prov.some(p=>'p:'+p.slug===k))out(k,s.name)}
    return ch})}
  async function forget(key,keepSeen){await update(x=>{if(x.signedOut)delete x.signedOut[key];if(!keepSeen&&x.seen)delete x.seen[key]})}
- async function signinTick(){const d=await load();const det=Object.fromEntries(await Promise.all(all(d).map(async a=>[a.id,await details(a)])));await note(det,await providers(false,'default'))}
+ // the saved API keys are tested again in the same 5-minute round (connect.mjs: Key rejected, Out of credit)
+ async function signinTick(){const d=await load();const det=Object.fromEntries(await Promise.all(all(d).map(async a=>[a.id,await details(a)])));await note(det,await providers(false,'default'));await accountHooks.keyCheck?.()}
  if(LIVE_APP){setInterval(()=>signinTick().catch(()=>{}),5*60000).unref();setTimeout(()=>signinTick().catch(()=>{}),20000).unref()}
- const signedOut=async()=>Object.values((await load()).signedOut||{});
+ // and a key the provider refuses or that has no credit left: the same list, with its state (Bottlenecks, the banner)
+ const signedOut=async()=>{const x=await load(),ks=accountHooks.keyStatus?.()||{};
+  return [...Object.values(x.signedOut||{}),...Object.entries(ks).filter(([k,c])=>c.since&&!x.signedOut?.[k]).map(([k,c])=>({key:k,name:x.labels?.[k]||x.seen?.[k]?.name||k.slice(2),since:c.since,state:c.state}))]};
 
  /* ---------- HTTP ---------- */
  /* ---------- a new agent gets everything it needs, checked step by step (any model provider) ----------
@@ -353,7 +363,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    const ag=(await agents()).filter(see);const pv=await providers(fresh),prov=pv||[];
    // what is signed out right now, from what this read already has (the banner and the card's Reconnect)
    await note(Object.fromEntries(list.map(v=>[v.id,v])),pv).catch(e=>console.warn('signed-out note',e.message));const route=Object.fromEntries(await Promise.all(ag.map(async n=>[n,{entry:await entryOf(d,n),...await agentRoute(n)}])));
-   return send(res,200,{accounts:list,providers:prov,priority:d.priority||[],labels:d.labels||{},route,assign:Object.fromEntries(ag.map(n=>[n,d.assign[n]||'main'])),auto:d.auto||{on:false,threshold:90},events:(d.events||[]).filter(e=>see(e.profile)),signedOut:await signedOut()})}
+   return send(res,200,{accounts:list,providers:prov,priority:d.priority||[],labels:d.labels||{},route,assign:Object.fromEntries(ag.map(n=>[n,d.assign[n]||'main'])),auto:d.auto||{on:false,threshold:90},events:(d.events||[]).filter(e=>see(e.profile)),signedOut:await signedOut(),keys:accountHooks.keyStatus?.()||{},allow:d.allow||[]})}
   if(p==='/ui/accounts/priority'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
    const pr=(Array.isArray(b.priority)?b.priority:[]).filter(e=>e&&typeof e.key==='string'&&/^(claude:[a-z0-9-]+|p:[a-z0-9_.-]+)$/.test(e.key)).slice(0,20).map(e=>({key:e.key,model:String(e.model||'').slice(0,120)}));
    d.priority=pr;await update(x=>{x.priority=pr});autoTick().catch(()=>{});return send(res,200,{priority:d.priority})}
@@ -362,12 +372,20 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
   if(p==='/ui/accounts'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{return send(res,200,await startLogin(b.label))}catch(e){return send(res,500,{error:e.message})}}
   if(p==='/ui/accounts/assign'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}if(!see(String(b.profile||'')))return send(res,403,{error:'This agent is private to its owner.'});try{await assign(d,String(b.profile||''),String(b.account||''),b.why||'');return send(res,200,{ok:true})}catch(e){return send(res,400,{error:e.message})}}
   if(p==='/ui/accounts/auto'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const au={on:!!b.on,threshold:Math.min(99,Math.max(50,Number(b.threshold)||90))};d.auto=au;await update(x=>{x.auto=au});autoTick().catch(()=>{});return send(res,200,d.auto)}
-  // a provider's own name here (a Claude account is renamed with PATCH below): an empty name goes back to the provider's
-  if(p==='/ui/accounts/label'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const k=String(b.key||'');if(!/^p:[a-z0-9_.-]+$/.test(k))return send(res,400,{error:'Unknown account'});
-   const l=String(b.label||'').trim().slice(0,60);await update(x=>{x.labels||={};if(l)x.labels[k]=l;else delete x.labels[k]});return send(res,200,{ok:true})}
+  // Rename, one way for every account (25 Oct): a Claude account's own label, another account's name here; an empty
+  // name goes back to the provider's (a Claude account's stays)
+  if(p==='/ui/accounts/label'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const k=String(b.key||''),l=String(b.label||'').trim().slice(0,60);
+   const cm=/^claude:([a-z0-9-]+)$/.exec(k);if(cm){const id=cm[1];if(!all(d).some(a=>a.id===id))return send(res,404,{error:'Unknown account'});if(!l&&id!=='main')return send(res,400,{error:'Type a name.'});
+    await update(x=>{const a=x.accounts.find(y=>y.id===id);if(id==='main')x.mainLabel=l;else if(a)a.label=l});cache.drop(id);return send(res,200,{ok:true})}
+   if(!/^p:[a-z0-9_.-]+$/.test(k))return send(res,400,{error:'Unknown account'});
+   await update(x=>{x.labels||={};if(l)x.labels[k]=l;else delete x.labels[k]});return send(res,200,{ok:true})}
+  // connected on purpose through the Connect dialog: Nous and Anthropic show as accounts from then on (see SKIP)
+  if(p==='/ui/accounts/allow'&&req.method==='GET')return send(res,200,{allow:d.allow||[]});
+  if(p==='/ui/accounts/allow'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const s=String(b.key||'').replace(/^p:/,'');if(!ALLOWABLE.test(s))return send(res,200,{allow:d.allow||[]});
+   await update(x=>{x.allow=[...new Set([...(x.allow||[]),s])]});provCache.clear();return send(res,200,{ok:true})}
   // a provider that signed out and is not coming back: its card and banner go (signing in again brings it back)
   if(p==='/ui/accounts/forget'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const k=String(b.key||'');if(!/^p:[a-z0-9_.-]+$/.test(k))return send(res,400,{error:'Unknown account'});
-   await forget(k);await update(x=>{if(x.labels)delete x.labels[k];if(x.priority)x.priority=x.priority.filter(e=>e.key!==k)});return send(res,200,{ok:true})}
+   await forget(k);await update(x=>{if(x.labels)delete x.labels[k];if(x.priority)x.priority=x.priority.filter(e=>e.key!==k);if(x.allow)x.allow=x.allow.filter(s=>'p:'+s!==k)});provCache.clear();return send(res,200,{ok:true})}
   let m=/^\/ui\/accounts\/([a-z0-9-]+)\/code$/.exec(p);if(m&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}try{return send(res,200,await sendCode(m[1],b.code))}catch(e){return send(res,400,{error:e.message})}}
   // Reconnect (admins only, checked in server.mjs too): the same sign-in for an account that is there already
   m=/^\/ui\/accounts\/([a-z0-9-]+)\/reconnect$/.exec(p);if(m&&req.method==='POST'){try{return send(res,200,await reconnect(m[1]))}catch(e){return send(res,400,{error:e.message})}}
@@ -380,7 +398,6 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    const live=new Set(await agents());if(Object.entries(d.assign).some(([n,v])=>v===id&&live.has(n)))return send(res,409,{error:'An agent still uses this account. Move it to another account first.'});
    await update(x=>{for(const n of Object.keys(x.assign||{}))if(!live.has(n))delete x.assign[n]});
    await run(CLAUDE,['auth','logout'],{CLAUDE_CONFIG_DIR:a.dir},20000);await rm(a.dir,{recursive:true,force:true});await update(x=>{x.accounts=x.accounts.filter(y=>y.id!==id)});cache.drop(id);return send(res,200,{ok:true})}
-  if(m&&req.method==='PATCH'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const id=m[1];await update(x=>{const a=x.accounts.find(y=>y.id===id);if(id==='main')x.mainLabel=String(b.label||'').slice(0,60);else if(a)a.label=String(b.label||a.label).slice(0,60)});cache.drop(m[1]);return send(res,200,{ok:true})}
   send(res,404,{error:'Not found'});
  },{codeRoute,signedOut,forget});
 }
