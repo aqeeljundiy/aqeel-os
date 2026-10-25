@@ -1,0 +1,21 @@
+// Automations on System › Health (25 Oct 2026, admins): each agent's tool servers (working, fixed by aqeelOS, needs a
+// sign-in, broken) and the schedules whose last run said a tool was not there, with Fix now and Run now. The checks and
+// the fixes run on the server (automation-guard.mjs); this only shows them. Working tool servers are one line per agent.
+const AutoCard={
+ when:t=>new Date(t).toLocaleString([],{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}),
+ async card(b){if(!b||S.me?.admin===false)return;const tok=b._agTok=(b._agTok||0)+1;let d;try{d=await UI('/ui/automations')}catch{return}if(tok!==b._agTok||!b.isConnected)return;
+  let box=b.querySelector('.ag-card');if(box)box.innerHTML=this.html(d);else{box=document.createElement('div');box.className='panel card ag-card';box.innerHTML=this.html(d);b.append(box)}   // redrawn in place, no flash
+  const busy=d.agents.some(a=>a.servers.some(s=>s.state==='fixing'))||(d.venvs||[]).some(v=>v.state==='fixing');clearTimeout(b._agT);if(busy)b._agT=setTimeout(()=>{if(box.isConnected)this.card(b)},5000)},
+ chip(s){return s.state==='fixing'?'<span class="chip"><span class="spinner tiny"></span>Fixing</span>':s.state==='repaired'?'<span class="chip ok">Fixed '+esc(this.when(s.repairedAt||s.at))+'</span>':s.state==='signin'?'<span class="chip warn">Needs sign-in</span>':'<span class="chip bad">Broken</span>'},
+ html(d){const rows=[],bad=[];
+  for(const a of d.agents){const ok=a.servers.filter(s=>s.state==='ok'),odd=a.servers.filter(s=>s.state!=='ok');const items=[];
+   for(const s of odd){const why=s.state==='repaired'?s.fixed:s.reason;if(s.state==='broken'||s.state==='signin')bad.push(s);
+    items.push('<span class="eu-log ag-row"><span><b>'+esc(s.name)+'</b> '+this.chip(s)+(s.state==='broken'?' <button class="link-btn" data-act="ag-fix" data-a="'+esc(a.agent)+'" data-s="'+esc(s.name)+'">Fix now</button>':s.state==='signin'?' <button class="link-btn" data-act="bottlenecks">Sign in</button>':'')+'</span>'+(why?'<small>'+esc(why)+'</small>':'')+'</span>')}
+   for(const j of a.jobs)items.push('<span class="eu-log ag-row"><span>Schedule <b>'+esc(j.name)+'</b> <span class="chip warn">Last run: a tool was missing</span>'+(j.offer?' <button class="link-btn" data-act="ag-run" data-a="'+esc(a.agent)+'" data-j="'+esc(j.id)+'">Run now</button>':'')+'</span><small>'+esc(this.when(j.at))+(j.reason?' · '+esc(j.reason):'')+'</small></span>');
+   if(ok.length)items.push('<span class="eu-log"><span>'+(odd.length?'The other ':'')+plural(ok.length,'tool server')+' working</span></span>');
+   rows.push('<div class="bk-row"><span class="bk-k">'+esc(a.name)+'</span><span class="eu-list">'+items.join('')+'</span></div>')}
+  for(const v of d.venvs||[])rows.push('<div class="bk-row"><span class="bk-k">Python</span><span class="eu-list"><span class="eu-log ag-row"><span><b>'+esc(v.dir.split('/').slice(-2).join('/'))+'</b> '+this.chip(v)+(v.state==='broken'?' <button class="link-btn" data-act="ag-fix" data-a="default" data-s="'+esc(v.dir)+'">Fix now</button>':'')+'</span>'+(v.why?'<small>'+esc(v.why)+'</small>':'')+'</span></span></div>');
+  const sub=bad.length?'Something needs you. Fix now tries the same fix aqeelOS runs by itself.':'aqeelOS checks every tool server and schedule every few minutes and fixes what breaks by itself.';
+  return '<div class="bk-head"><div><h2>Automations</h2><p class="sub">'+esc(sub)+(d.at?' Last check '+esc(this.when(d.at))+'.':'')+'</p></div></div><div class="bk-rows">'+(rows.join('')||'<div class="bk-row"><span class="bk-k">Tool servers</span><span>None set up yet</span></div>')+'</div>'}};
+ACT['ag-fix']=async a=>{a.disabled=true;try{await post(UI,'/ui/automations/fix',{agent:a.dataset.a,server:a.dataset.s});toast('Fixing '+a.dataset.s.split('/').pop()+' · this can take a few minutes');AutoCard.card($('#autoBox'))}catch(e){a.disabled=false;fail(e)}};
+ACT['ag-run']=async a=>{a.disabled=true;try{await post(UI,'/ui/automations/run',{agent:a.dataset.a,job:a.dataset.j});toast('Running the schedule now');AutoCard.card($('#autoBox'))}catch(e){a.disabled=false;fail(e)}};

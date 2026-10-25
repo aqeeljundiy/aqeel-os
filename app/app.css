@@ -1716,6 +1716,7 @@ button.primary:focus-visible{outline-offset:2px}button:focus:not(:focus-visible)
 .bk-acts{display:flex;gap:8px;flex-wrap:wrap}.bk-rows{display:grid;gap:8px;margin-top:14px}.bk-row{display:grid;grid-template-columns:120px 1fr;gap:12px;font-size:13.5px;line-height:1.5}.bk-k{color:var(--muted)}
 @media (max-width:620px){.bk-row{grid-template-columns:1fr;gap:2px}}
 /* Automatic engine updates (engine-updates.js): the card under Updates, its last tries one per line */
+.ag-card{margin-bottom:16px;animation:rise var(--t-med) var(--ease) both}.ag-row>span{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.ag-row small{overflow-wrap:anywhere}
 .eu-card{margin-bottom:16px;animation:rise var(--t-med) var(--ease) both}.eu-list{display:grid;gap:8px}.eu-log{display:grid;gap:2px}.eu-log small{color:var(--muted);font-size:12.5px}.eu-rolled-back b,.eu-check-failed b,.eu-failed b{color:var(--warn)}
 @media (max-width:620px){.eu-card .seg-mini{width:100%}.eu-card .seg-mini button{flex:1}}
 

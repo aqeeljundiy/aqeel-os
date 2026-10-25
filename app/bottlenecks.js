@@ -18,6 +18,8 @@ const Bottlenecks={items:[],
   if(x.kind==='invite')return [['Make a new link',async()=>{const i=x.invite;const r=await post(UI,'/ui/people/invite',{name:i.name,role:i.role,roleId:i.roleId,caps:i.caps,agents:i.agents,ownAgent:i.ownAgent});const link=location.origin+'/#invite/'+r.code;await navigator.clipboard.writeText(link).catch(()=>{});await done();toast('New invite link copied · valid for 7 days')},true],['Not now',later]];
   if(x.kind==='report')return [['Ask '+x.agentName+' to try again',async()=>{await done();closeLayers();if((S.profile||'default')!==x.agent&&typeof switchAgent==='function')switchAgent(x.agent);go(x.from?.chat?'/chat/'+x.from.chat:'/chat');setTimeout(()=>{const t=document.querySelector('.composer textarea');if(t){t.value='That should be fixed now: '+x.title.replace(/^.*? is blocked: /,'')+'. Please try again.';t.dispatchEvent(new Event('input'));t.focus()}},600);return new Promise(()=>{})},true],['It’s fixed',async()=>{await done();toast('Marked as fixed')}],['Not now',later]];
   // a Help ticket (help.mjs): resolving it tells the person in their Help chat
+  // the automations guard (automation-guard.mjs) found or fixed a tool server: its card is on System › Health
+  if(x.kind==='automations')return [['Open Health',async()=>{await done();closeLayers();go('/system/health')},true],['Got it',done]];
   if(x.kind==='ticket')return [['Resolve',async()=>{await done();toast('Resolved · they’ll see it in Help')},true],['Not now',later]];
   return [['Got it',done,true]]}};
 ACT['bottlenecks']=()=>Bottlenecks.open();
