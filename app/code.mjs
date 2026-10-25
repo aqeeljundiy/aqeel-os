@@ -40,7 +40,13 @@ export function createCode({DATA,SRC,PUBLIC_URL,ROOT}){
   if(e.queue.length)return Promise.resolve(e.queue.shift());
   return new Promise(r=>{const t=setTimeout(()=>{e.wake=null;r(null)},25000);e.wake=j=>{clearTimeout(t);e.wake=null;r(j)}})}
  // a job handed to a long-poll whose connection had already dropped goes back to the front (or to the poll waiting now)
- function requeue(dev,job){const e=live.get(dev.key);if(!e||!job||!jobs.has(job.id))return;if(e.wake)e.wake(job);else e.queue.unshift(job)}
+ function requeue(dev,job){const e=live.get(dev.key);if(!e||!job||!jobs.has(job.id)&&!pushed.get(job.id)?.())return;if(e.wake)e.wake(job);else e.queue.unshift(job)}
+ /* A job for one computer's Code by its key, from another module (the code bridge, app/code-bridge.mjs, 25 Oct 2026):
+    handed to its long-poll at once, or queued for the next one; alive() says whether it is still wanted, so a job given to
+    a poll whose connection had dropped goes back only while its caller still waits. seen() is when it last asked. */
+ const pushed=new Map();
+ function push(key,job,alive){const e=live.get(key);if(!e)return false;pushed.set(job.id,alive);if(pushed.size>500)for(const [k,f] of pushed)if(!f())pushed.delete(k);if(e.wake)e.wake(job);else e.queue.push(job);return true}
+ const seen=key=>live.get(key)?.seen||0;
  function done(dev,id,out){const j=jobs.get(String(id));if(!j||j.dev!==dev.key)return false;jobs.delete(j.id);j.resolve(out||{});return true}
 
  async function devices(user){await load();return Object.entries(db.devices).filter(([,d])=>d.user===user).map(([h,d])=>({id:h.slice(0,12),...d}))}
@@ -80,4 +86,4 @@ export function createCode({DATA,SRC,PUBLIC_URL,ROOT}){
  // what a computer's Code has connected (GitHub accounts, tool servers), shown under Connected apps › Code
  async function report(dev,r){await load();const e=Object.entries(db.devices).find(([h])=>h.slice(0,16)===dev.key);if(!e)return;e[1].report={at:Date.now(),github:(Array.isArray(r.github)?r.github:[]).slice(0,10).map(a=>({user:String(a.user||'').slice(0,60),active:Boolean(a.active)})),mcp:(Array.isArray(r.mcp)?r.mcp:[]).slice(0,40).map(m=>String(m).slice(0,60)),version:String(r.version||'').slice(0,40)};await save()}
  async function allDevices(){await load();return Object.entries(db.devices).map(([h,d])=>({id:h.slice(0,12),name:d.name,user:d.user,last:d.last,report:d.report||null}))}
- return {report,allDevices,addRun,runs,computerOf,browse,usedToday,addUsage,pair,markBox,who,devices,unpair,version,update,download,poll,requeue,done}}
+ return {report,allDevices,addRun,runs,computerOf,browse,push,seen,usedToday,addUsage,pair,markBox,who,devices,unpair,version,update,download,poll,requeue,done}}

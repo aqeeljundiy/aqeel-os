@@ -33,6 +33,7 @@ import {startScreenFollow} from './screen-follow.mjs';
 import {createN8n} from './n8n.mjs';
 import {createCode} from './code.mjs';
 import {createCodeAgents,safeRel} from './code-agents.mjs';
+import {createCodeBridge} from './code-bridge.mjs';
 import {createCodeOnline} from './code-online.mjs';
 import {createBrand} from './brand.mjs';
 import {createBottlenecks} from './bottlenecks.mjs';
@@ -258,6 +259,8 @@ async function syncNotifyOnce(){
  const mcp=(a,m,p,b)=>fetch(`${DASH.origin}/api/mcp/servers${p}?profile=${encodeURIComponent(a)}`,{method:m,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:b?JSON.stringify(b):undefined}).then(async r=>{if(!r.ok&&r.status!==404)throw new Error('MCP '+m+' '+r.status+' '+(await r.text().catch(()=>'')).slice(0,120))});
  for(const a of await listAllProfiles()){if(PORT!==4400&&!madeHere.has(a))continue;if(PORT===4400&&await isTestAgent(a))continue;
   try{const url=`http://127.0.0.1:${PORT}/mcp/notify/${a}/${relay.sig(a)}`;const cfg=()=>readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>'');
+   // the code bridge (aqeelos-code) too, the same way (app/code-bridge.mjs)
+   if(!(await cfg()).includes(codeBridge.url(a))&&await withAgent(a,async()=>codeBridge.ensure(a,await cfg(),mcp)).catch(e=>{console.warn('code bridge tool',a,e.message);return false}))console.log('code bridge tool set for',a);
    if((await cfg()).includes(url))continue;
    const set=await withAgent(a,async()=>{const y=await cfg();if(!y||y.includes(url))return false;   // read again inside the queue
     if(y.includes('aqeelos-notify'))await mcp(a,'DELETE','/aqeelos-notify');
@@ -556,6 +559,8 @@ const accessAsk=createAccessRequests({DATA,access,listAgents:()=>listAgents(),na
 const n8n=createN8n({BASE:N8N_URL,readConfig,removeMcp:(a,name)=>fetch(DASH.origin+'/api/mcp/servers/'+encodeURIComponent(name)+'?profile='+encodeURIComponent(a),{method:'DELETE',headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(r=>{if(!r.ok&&r.status!==404)throw new Error('Could not remove the tool ('+r.status+')');return true}),DATA,setKey,restart:why=>restartGateway(why).catch(()=>{}),names:a=>NAMES[a]||a});
 const code=createCode({DATA,SRC:path.join(homedir(),'apps','aqeel-code'),PUBLIC_URL,ROOT:root});
 const codeAgents=createCodeAgents({HERMES_HOME,DATA,sign,readIds,outboxAccess:(a,d)=>agentDefaults.outboxAccess(a,d)});
+// every aqeelOS model for Code projects on a person's computer: the engine reaches the project through this bridge only
+const codeBridge=createCodeBridge({PORT,DATA,sign,code,mayUse:(uid,a)=>{const w=users.byId(uid);return !!w&&!users.gate(w,'/gapi/api/model/options','GET',new URLSearchParams(),a)},workspaces:a=>path.join(homedir(),'workspaces',a),access:(a,d)=>agentDefaults.outboxAccess(a,d)});
 /* A Code run asks one of its attached agents (aqeelos_ask in Code, code_ask_agent on the engine): one chat turn for
    that agent, as the person who sent the run (their daily limit and the models they may use, as in Chat), with a
    folder of its own to save files in. The answer's text and files come back; where the files go is the caller's. */
@@ -1194,6 +1199,8 @@ const server=createServer(async(req,res)=>{
   await users.load();   // people (owners, shares) are read before any route uses them, also right after a restart
   if(codeOnline.handle(req,res))return;   // code.elkiya.com and code-preview.elkiya.com: Code online, behind sign-in
   if(p==='/healthz')return send(res,200,{ok:true,build:BUILD,live:liveCount(),engine:(void engineAgents(),engAgents.n),busy:liveCount()+export_setups.running()+opsBusy()+relay.sending()+(gwRestarting?1:0)});
+  // the code bridge agents' engines call during a Code run for a computer project (app/code-bridge.mjs)
+  if(p.startsWith('/mcp/code/')&&await codeBridge.handle(req,res,{send,readBody}))return;
   // the "notify me" tool agents call (from this box only; each agent's address is signed)
   const mn=/^\/mcp\/notify\/([\w-]+)\/([\w-]+)$/.exec(p);
   if(mn){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method==='GET')return send(res,405,'POST only');
@@ -1267,8 +1274,8 @@ const server=createServer(async(req,res)=>{
    if(signed&&msg.method==='tools/call'&&msg.params?.name==='code_ask_agent'){const base=mn[1].split('--')[0],a=msg.params?.arguments||{};const reply=(text,isError)=>send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text}],...(isError?{isError:true}:{})}});
     const target=String(a.agent||''),f=codeAgents.runFor(base,target);if(f.error)return reply(f.error,true);if(target===base)return reply('That is you. Do it yourself.',true);const who=users.byId(f.run.user);
     if(!who||users.gate(who,'/gapi/api/model/options','GET',new URLSearchParams(),target))return reply('The person who started this run may not use that agent.',true);if(!String(a.task||'').trim())return reply('Say what the agent should do.',true);if(a.save_to&&safeRel(a.save_to)===null)return reply('Save files to a folder inside the project, for example from-agents or assets.',true);
-    try{const r=await codeAsk(who,target,String(a.task),{project:f.run.project,plan:f.run.plan});let saved=[];if(r.files.length&&!f.run.plan)saved=await codeAgents.saveInto(f.run.dir,r.agentName,r.files,a.save_to);console.log('code: '+base+' asked',target,'in a Code run'+(saved.length?' ('+saved.length+' files)':''));
-     return reply(r.agentName+': '+(r.text||'(no answer)')+(saved.length?'\n\nSaved in the project: '+saved.join(', '):'')+(f.run.plan&&r.files.length?'\n\nIt had files ('+r.files.map(x=>x.name).join(', ')+'); they are not saved in Plan only.':''))}catch(e){return reply(e.message,true)}}
+    try{const r=await codeAsk(who,target,String(a.task),{project:f.run.project,plan:f.run.plan});let saved=[];if(r.files.length&&!f.run.plan&&f.run.dir)saved=await codeAgents.saveInto(f.run.dir,r.agentName,r.files,a.save_to);console.log('code: '+base+' asked',target,'in a Code run'+(saved.length?' ('+saved.length+' files)':''));
+     return reply(r.agentName+': '+(r.text||'(no answer)')+(saved.length?'\n\nSaved in the project: '+saved.join(', '):'')+(f.run.plan&&r.files.length?'\n\nIt had files ('+r.files.map(x=>x.name).join(', ')+'); they are not saved in Plan only.':!f.run.dir&&r.files.length?'\n\nIt had files ('+r.files.map(x=>x.name).join(', ')+'); this project is on the person\'s computer, so they are not saved. Ask the agent for the text itself if you need it.':''))}catch(e){return reply(e.message,true)}}
    // "Open in Code": the agent keeps a build request and gets a link that opens Code with it filled in and itself attached
    if(signed&&msg.method==='tools/call'&&msg.params?.name==='open_in_code'){const base=mn[1].split('--')[0],a=msg.params?.arguments||{};const reply=(text,isError)=>send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text}],...(isError?{isError:true}:{})}});
     const t=String(a.request||'').trim();if(!t)return reply('Give the request in plain words.',true);try{const id=await codeAgents.handoff(base,t),link=PUBLIC_URL+'/#/code/code/'+id;
@@ -1351,15 +1358,19 @@ const server=createServer(async(req,res)=>{
      if(o)engineModels=(o.providers||[]).filter(pv=>pv.authenticated&&(pv.models||[]).length&&!/nous/i.test((pv.slug||'')+' '+(pv.name||''))).map(pv=>({provider:pv.slug,name:codeProvName(pv),models:(pv.models||[]).filter(m=>typeof m==='string'&&users.modelOk(who,pv.slug,m))})).filter(x=>x.models.length);
      if(o){models={claude:[],codex:[],gemini:[]};for(const pv of o.providers||[]){if(!pv.authenticated)continue;const k=pv.slug==='claude-subscription-directsdk-experimental'?'claude':pv.slug==='openai-codex'?'codex':/^gemini/.test(pv.slug)?'gemini':'';if(!k)continue;
       for(const m of pv.models||[])if(typeof m==='string'&&users.modelOk(who,pv.slug,m)&&!models[k].includes(m))models[k].push(m)}}}catch{}
-    return send(res,200,{agent:want,where:box?'box':'computer',restricted:!!users.allowedModels(who),models,engineModels,agentDefault:a?await agentModel(a):null,...(box?{engine:!codeOnline.remote()}:{}),...(r?{provider:r.provider,model:r.model,account:{label:r.account.label,kind:r.account.kind},...(box&&r.provider==='claude'?{main:r.main,configDir:r.configDir}:{})}:{})})}
-   /* Code's "aqeelOS models" engine (the box's own Code copy only): one turn for an agent, run by the engine exactly
+    // engine: every model (and Default with the priority list) runs on the engine; a computer's projects through the code bridge
+    return send(res,200,{agent:want,where:box?'box':'computer',restricted:!!users.allowedModels(who),models,engineModels,agentDefault:a?await agentModel(a):null,engine:box?!codeOnline.remote():true,...(r?{provider:r.provider,model:r.model,account:{label:r.account.label,kind:r.account.kind},...(box&&r.provider==='claude'?{main:r.main,configDir:r.configDir}:{})}:{})})}
+   /* Code's "aqeelOS models" engine (the box's own Code copy; a computer's below): one turn for an agent, run by the engine exactly
       like a chat message (the agent's own model and account, the Models page's priority list and auto-switch, any
       provider, its tools and their locks), in the project's folder on the box. The chat's rules apply to the person
       who sent it (x-aq-act): the agents they may use, their models, their daily limit. The engine's events stream
       back as they come (also to /ui/live, so the chat page can follow the same turn); stop and approvals go by the
       handle sent first, so they keep working after the person's short note has run out. */
-   if(p.startsWith('/ui/code/engine/')){const box=BOX;if(!box)return send(res,403,{error:'Only the AI box’s Code runs on aqeelOS models. Projects on a computer use Claude Code, Codex or Gemini CLI.'});
-    if(p==='/ui/code/engine/run'&&req.method==='POST'){if(codeOnline.remote())return send(res,409,{error:'Online Code runs in its own container here, so agents cannot reach its folders. Use Claude Code, Codex or Gemini CLI.'});
+   /* A person's computer (25 Oct 2026): the same turn, for a project in a folder there. The engine's chat starts in an
+      empty folder of the agent's own here and reaches the project only through the code bridge (app/code-bridge.mjs):
+      this turn is bound to that computer's run (b.bridge) while it goes on, and nothing of the project is on the box. */
+   if(p.startsWith('/ui/code/engine/')){const box=BOX,far=!BOX;
+    if(p==='/ui/code/engine/run'&&req.method==='POST'){if(box&&codeOnline.remote())return send(res,409,{error:'Online Code runs in its own container here, so agents cannot reach its folders. Use Claude Code, Codex or Gemini CLI.'});
      let b={};try{b=JSON.parse(await readBody(req,40e6))}catch{return send(res,400,{error:'The request was not valid JSON.'})}
      // no agent picked in Code: the one this person would chat with (as agent-model answers)
      const may=(await listAgents()).filter(mine),a=String(b.agent||'')||(may.includes('default')?'default':may[0]||'');if(!may.includes(a)||await isTestAgent(a))return send(res,403,{error:'You can’t use that agent.'});
@@ -1373,18 +1384,21 @@ const server=createServer(async(req,res)=>{
        if(!isDef){if(!users.modelOk(who,provider,model))return send(res,403,{error:'You can\'t use that model. Ask the owner.'})}
        else if(!users.modelOk(who,d.provider,d.model)){const [pv,...m]=String(allowed[0]).split('|');if(m.length){provider=pv;model=m.join('|')}else{model=pv;provider=''}}}}
      // the project folder: one of online Code's own (~/code-projects/<name>), as it really is (no link out of it)
-     const AREA=path.join(homedir(),'code-projects');let dir='';try{dir=await realpath(String(b.path||''))}catch{}
+     const AREA=path.join(homedir(),'code-projects');let dir='';const bridgeId=String(b.bridge||''),project=String(b.projectName||'').replace(/[\u0000-\u001f]/g,'').slice(0,80)||'project';
+     if(far){if(!/^[0-9a-f]{24}$/.test(bridgeId))return send(res,400,{error:'Update aqeelOS Code on this computer to run this model.'});try{dir=await codeBridge.room(a,who.id,project)}catch(e){return send(res,500,{error:'Could not make the agent’s folder for this run: '+e.message})}}
+     else{try{dir=await realpath(String(b.path||''))}catch{}
      // a folder right inside it: the agent is let through that one folder only
-     if(!dir.startsWith(AREA+path.sep)||dir.slice(AREA.length+1).includes(path.sep)||!(await stat(dir).catch(()=>null))?.isDirectory())return send(res,400,{error:'Only projects right inside online Code’s project folder (~/code-projects) can run on aqeelOS models.'});
+     if(!dir.startsWith(AREA+path.sep)||dir.slice(AREA.length+1).includes(path.sep)||!(await stat(dir).catch(()=>null))?.isDirectory())return send(res,400,{error:'Only projects right inside online Code’s project folder (~/code-projects) can run on aqeelOS models.'})}
      const pre=a!=='default'?'/p/'+encodeURIComponent(a):'',H={authorization:'Bearer '+API_KEY,'content-type':'application/json'};
      // Plan only: the turn works in a read-only copy of the project in a chat of its own (codeAgents.planCopy), so it can
      // only read and propose; the copy goes when the turn ends
-     const real=dir;let planDir='';if(b.plan){try{planDir=await codeAgents.planCopy(dir,AREA)}catch(e){return send(res,413,{error:e.message})}dir=planDir}
+     const real=dir;let planDir='';if(b.plan&&!far){try{planDir=await codeAgents.planCopy(dir,AREA)}catch(e){return send(res,413,{error:e.message})}dir=planDir}
      // the same engine chat again for the same Code chat (only the person's own), else a new one that is theirs
      let sid=planDir?'':String(b.session||'');if(sid&&(!/^[\w.:-]{1,128}$/.test(sid)||users.ownerOf(sid)!==who.id))sid='';
      if(!sid){try{const d=await fetch(GATE.origin+pre+'/api/sessions',{method:'POST',headers:H,body:JSON.stringify({cwd:dir}),signal:AbortSignal.timeout(30000)}).then(async x=>x.ok?x.json():Promise.reject(Error((await x.text()).slice(0,200)||'HTTP '+x.status)));
        sid=String(d.session?.id||d.id||d.session_id||'');if(!sid)throw Error('no chat id');await users.own(sid,who)}catch(e){void codeAgents.planDrop(planDir);return send(res,502,{error:'The engine could not start a chat for '+name+': '+e.message})}}
      let text=String(b.prompt||'').slice(0,400000);if(!text.trim()){void codeAgents.planDrop(planDir);return send(res,400,{error:'Say what to do.'})}
+     if(far&&b.plan)text='PLAN ONLY: change nothing; read with the project tools, then propose.\n\n'+text;
      if(planDir)text='PLAN ONLY: you are in a read-only copy of the project. Change nothing; read, then propose.\n\n'+text.split(String(b.path)).join(planDir).split(real).join(planDir);
      const imgs=(Array.isArray(b.images)?b.images:[]).slice(0,6).map(String).filter(u=>/^data:image\/(png|jpeg|webp|gif);base64,/.test(u));
      const msg={message:imgs.length?[{type:'text',text},...imgs.map(u=>({type:'image_url',image_url:{url:u}}))]:text};
@@ -1392,15 +1406,18 @@ const server=createServer(async(req,res)=>{
      if(model){msg.model=model;if(provider)msg.provider=provider;msg.require_model_lock=true}
      if(/^(none|minimal|low|medium|high|xhigh|max|ultra)$/.test(String(b.effort||'')))msg.model_options={reasoning_effort:b.effort};
      // the agent's own user is let into the folder for this turn only (taken away again when it ends, also when it does not start)
-     let unrun=()=>{};try{await agentDefaults.codeAccess(a,dir,AREA,{read:!!planDir})}catch(e){void codeAgents.planDrop(planDir);return send(res,409,{error:e.message})}
-     const after=async()=>{unrun();await agentDefaults.codeAccessAfter(a,dir,AREA).catch(()=>{});await codeAgents.planDrop(planDir)};
+     let unrun=()=>{};if(!far)try{await agentDefaults.codeAccess(a,dir,AREA,{read:!!planDir})}catch(e){void codeAgents.planDrop(planDir);return send(res,409,{error:e.message})}
+     // a computer's turn is bound to its run until it ends, also when it does not start (unbound at once then)
+     const bound=far?codeBridge.bind({agent:a,user:who.id,dev:dev.key,devName:dev.name,project,mode:b.plan?'plan':'run',bridge:bridgeId}):'';
+     const after=async()=>{unrun();if(bound)codeBridge.unbind(bound);if(!far)await agentDefaults.codeAccessAfter(a,dir,AREA).catch(()=>{});await codeAgents.planDrop(planDir)};
      const up=await fetch(GATE.origin+pre+'/api/sessions/'+encodeURIComponent(sid)+'/chat/stream',{method:'POST',headers:{...H,accept:'text/event-stream'},body:JSON.stringify(msg),...longFetch()}).catch(e=>({ok:false,status:502,text:async()=>e.message}));
      if(!up.ok||!up.body){void after();const t=await up.text().catch(()=>'');let said=t;try{const j=JSON.parse(t);said=j.error?.message||j.error||j.detail||t}catch{}return send(res,up.status===429?429:502,{error:'The engine did not take the turn ('+up.status+')'+(said?': '+String(said).slice(0,200):'')})}
      const route=await accountsApi.codeRoute(a).catch(()=>null),handle=randomBytes(18).toString('base64url'),h={agent:a,pre,user:who.id,runId:'',stop:false};codeRuns.set(handle,h);
-     unrun=codeAgents.runStart(a,{user:who.id,agents:attached,dir:real,plan:!!planDir,project:path.basename(real)});
+     // (a computer's project is not on the box: an ask's files are named in the answer, not saved, see code_ask_agent)
+     unrun=codeAgents.runStart(a,{user:who.id,agents:attached,dir:far?'':real,plan:!!planDir||far&&!!b.plan,project:far?project:path.basename(real)});
      res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-cache','x-accel-buffering':'no',...security});res.socket?.setNoDelay(true);
      res.write('event: aqeelos.code\ndata: '+JSON.stringify({type:'aqeelos.code',handle,session:sid,plan:!!planDir,agent:a,agentName:name,provider:provider||route?.engine||'',model:model||route?.model||'',account:model&&provider&&route?.engine!==provider?'':route?.account?.label||''})+'\n\n');
-     const key=a+'|'+sid,rec=liveStart(key,who.id);console.log('code: '+(who.name||who.id)+' ran',a,'on aqeelOS models');
+     const key=a+'|'+sid,rec=liveStart(key,who.id);console.log('code: '+(who.name||who.id)+' ran',a,'on aqeelOS models'+(far?' for '+project+' on '+dev.name:''));
      // the turn goes on on the engine when Code goes away (like a chat reply): read to its end either way
      // a comment line every 20 s while the engine is quiet (a pending approval, a long command), so no reader times out
      const beat=setInterval(()=>{if(!res.writableEnded&&!res.destroyed)res.write(': keep-alive\n\n')},20000);beat.unref?.();
@@ -1408,7 +1425,7 @@ const server=createServer(async(req,res)=>{
      const dec=new TextDecoder();let pend='';const onEvent=raw=>{let ev='',data='';for(const line of raw.split(/\r?\n/)){if(line.startsWith('event:'))ev=line.slice(6).trim();else if(line.startsWith('data:'))data+=line.slice(5).trimStart()}
       let d=null;try{d=JSON.parse(data)}catch{}const type=d?.type||ev;
       if(!rec.runId&&(type==='run.started'||d?.run_id)){const id=String(d?.run_id||d?.run?.id||d?.id||'');if(id&&/^[\w.:-]{1,200}$/.test(id)){rec.runId=h.runId=id;runOwner.set(id,{user:who.id,t:Date.now()});if(h.stop)fetch(GATE.origin+pre+'/v1/runs/'+encodeURIComponent(id)+'/stop',{method:'POST',headers:H}).catch(()=>{})}}
-      if(type==='approval.request')rec.asking=true;else if(type==='approval.responded')rec.asking=false};
+      if(type==='approval.request')rec.asking=true;else if(type==='approval.responded')rec.asking=false;if(bound&&/^tool\./.test(type))codeBridge.event(bound,type,d)};
      try{for await(const c of up.body){const buf=Buffer.from(c);rec.last=Date.now();rec.size+=buf.length;rec.chunks.push(buf);if(rec.size>8e6){rec.size-=rec.chunks.splice(40,Math.max(0,rec.chunks.length-200)).reduce((x,y)=>x+y.length,0)}
        pend+=dec.decode(buf,{stream:true});let i;while((i=pend.search(/\r?\n\r?\n/))>=0){const raw=pend.slice(0,i);pend=pend.slice(i).replace(/^\r?\n\r?\n/,'');onEvent(raw)}if(pend.length>4e6)pend='';
        if(!res.writableEnded&&!res.destroyed)res.write(buf);for(const sub of rec.subs)sub.write(buf)}}catch{}
@@ -1431,6 +1448,7 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/code/update'){const u=await code.update();res.writeHead(200,{'content-type':'application/zip','content-length':u.zip.length,'x-code-version':u.version,'cache-control':'no-store'});return res.end(u.zip)}
    // the long-poll for browser jobs (computer_browser); the box's copy has no browser jobs to run for a person
    if(p==='/ui/code/poll'&&req.method==='POST'){await readBody(req,262144).catch(()=>'');let gone=false;res.once('close',()=>{gone=true});const job=await code.poll(dev);if(gone||res.destroyed){code.requeue(dev,job);return}return send(res,200,{job})}
+   if(p==='/ui/code/bridge-done'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4e6))}catch{}return send(res,200,{ok:codeBridge.done(dev,b)})}
    if(p==='/ui/code/done'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,262144))}catch{}return send(res,200,{ok:code.done(dev,b.id,{state:String(b.state||''),text:String(b.text||'').slice(0,20000),files:(b.files||[]).slice(0,200).map(String),chat:String(b.chat||'')})})}
    return send(res,404,{error:'Not found'})}
   if(p==='/ui/brand'&&req.method==='GET')return send(res,200,await brand.get());
@@ -1689,7 +1707,9 @@ const server=createServer(async(req,res)=>{
       if(isDir&&!SKIP.has(e.name)&&depth<8)queue.push([fp,depth+1])}}
     return send(res,200,{results:out,more:out.length>=200||queue.length>0})}
    if(p==='/ui/files/exist'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}const ok=[];for(const x of (Array.isArray(b.paths)?b.paths:[]).slice(0,20)){const fp=path.resolve(String(x));if(!users.filePathOk(u,fp))continue;try{if((await stat(fp)).isDirectory())ok.push(String(x))}catch{}}return send(res,200,{exist:ok})}
-   if(p==='/ui/code/usage'&&req.method==='GET'){const days=Math.min(365,Math.max(1,+url.searchParams.get('days')||7));const d=await code.runs(days,users.isAdmin(u)?null:u.id);const people={};for(const id of Object.keys(d.byPerson)){const x=users.byId(id);people[id]={name:x?.name||id,avatar:x?.avatar?'/ui/people/avatar/'+id:null}}return send(res,200,{...d,people})}
+   if(p==='/ui/code/usage'&&req.method==='GET'){const days=Math.min(365,Math.max(1,+url.searchParams.get('days')||7));const d=await code.runs(days,users.isAdmin(u)?null:u.id);const people={};for(const id of Object.keys(d.byPerson)){const x=users.byId(id);people[id]={name:x?.name||id,avatar:x?.avatar?'/ui/people/avatar/'+id:null}}
+    // admins: the latest calls agents made into projects on people's computers (the code bridge), newest first
+    const bridge=users.isAdmin(u)?(await codeBridge.recent(40)).map(x=>({...x,userName:users.byId(x.user)?.name||x.user||''})):undefined;return send(res,200,{...d,people,...(bridge?{bridge}:{})})}
    // Bottlenecks: what is stuck until a person acts (admins also see what aqeelOS itself noticed)
    // Live: every published app (everyone sees them; publisher or admin takes one offline; admins connect the server)
    // Connected apps › Code (admins): every computer's Code with its GitHub accounts and tool servers, and Live's server
