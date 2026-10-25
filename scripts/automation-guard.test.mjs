@@ -23,7 +23,9 @@ test('log: failed to connect, and the summary line names the failed ones',()=>{
  assert.deepEqual(parseLogLine(L.failed).map(e=>[e.kind,e.server,e.reason]),[['failed','pixel','Connection closed']]);
  assert.deepEqual(parseLogLine(L.summary).map(e=>[e.kind,e.server]),[['failed','pixel']]);
  assert.deepEqual(parseLogLine(L.summary2).map(e=>[e.kind,e.server]),[['failed','AdsPower'],['signin','composio']]);
- assert.deepEqual(splitFailed("a (x (y)); b (z)").map(x=>x.server),['a','b'])});
+ assert.deepEqual(splitFailed("a (x (y)); b (z)").map(x=>x.server),['a','b']);
+ // an agent copy skips a server another copy already connects: not a failure (seen on the box, 25 Oct)
+ assert.deepEqual(parseLogLine("2026-10-25 07:20:05,598 INFO tools.mcp_tool:   MCP: 372 tool(s) from 9 server(s) (1 failed: AdsPower (not attempted (in retry cooldown)))"),[])});
 test('log: sign-ins, self-probing, revived, registered, reconciled, unknown tools',()=>{
  assert.equal(parseLogLine(L.auth)[0].kind,'signin');assert.equal(parseLogLine(L.oauth)[0].kind,'signin');assert.equal(parseLogLine(L.oauth)[0].server,'composio');
  assert.equal(parseLogLine(L.probing)[0].kind,'probing');assert.equal(parseLogLine(L.revived)[0].kind,'ok');assert.equal(parseLogLine(L.registered)[0].kind,'ok');

@@ -40,7 +40,8 @@ export function parseLogLine(l){const m=TS.exec(l||'');if(!m)return [];const t=D
  if(x=/MCP server '([^']+)' failed after \d+ reconnection attempts, parking; will self-probe/.exec(l))return [{t,kind:'probing',server:x[1]}];
  if((x=/MCP server '([^']+)': revived/.exec(l))||(x=/MCP server '([^']+)' \(\w+\): registered \d+ tool/.exec(l)))return [{t,kind:'ok',server:x[1]}];
  if(x=/Failed to connect to MCP server '([^']+)'(?: \(command=[^)]*\))?: (.*)$/.exec(l))return [{t,kind:AUTHY.test(x[2])?'signin':'failed',server:x[1],reason:x[2].slice(0,200)}];
- if(x=/MCP: (?:registered )?\d+ tool\(s\) from \d+ server\(s\) \(\d+ failed: (.*)\)\s*$/.exec(l))return splitFailed(x[1]).map(f=>({t,kind:AUTHY.test(f.reason)?'signin':'failed',server:f.server,reason:f.reason.slice(0,200)}));
+ if(x=/MCP: (?:registered )?\d+ tool\(s\) from \d+ server\(s\) \(\d+ failed: (.*)\)\s*$/.exec(l))return splitFailed(x[1]).filter(f=>!/not attempted|retry cooldown/i.test(f.reason)).map(f=>(   // skipped for its cooldown (another copy holds it) is not a failure
+  {t,kind:AUTHY.test(f.reason)?'signin':'failed',server:f.server,reason:f.reason.slice(0,200)}));
  if(x=/MCP servers reconciled with config \(([^)]*)\): removed=\[([^\]]*)\] added=\[([^\]]*)\]/.exec(l))return [{t,kind:'reconciled',label:x[1],removed:names(x[2]),added:names(x[3])}];
  if(x=/'([^']+)' is not a known tool name/.exec(l))return [{t,kind:'unknown-tool',tool:x[1]}];
  return []}
