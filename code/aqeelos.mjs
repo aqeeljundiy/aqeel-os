@@ -60,10 +60,11 @@ export function createAqeelos({root}){
  async function unpair(){link={};await writeFile(FILE,'{}').catch(()=>{});return state()}
  // every run gets the aqeelOS tools when this computer is paired
  async function mcp(run){await load();if(!link.token)return null;return {name:'aqeelos',command:process.execPath,args:[path.join(root,'aqeelos-mcp.mjs')],env:{...(process.versions.electron?{ELECTRON_RUN_AS_NODE:'1'}:{}),AQ_BASE:link.base,AQ_TOKEN:link.token,AQ_PROJECT:String(run?.projectId||''),AQ_AGENT:String(run?.agent||''),...(run?.act?{AQ_ACT:freshAct(run.act)||run.act,AQ_ACT_FILE:actFile(run.act)}:{})}}}
- // ask aqeelOS for work for this computer's projects (agents' code_work), every ~25 s while paired
- let serving=false;function serve({projects,work}){if(serving||process.env.NODE_TEST_CONTEXT)return;serving=true;const wait=ms=>new Promise(r=>setTimeout(r,ms).unref?.());
+ // ask aqeelOS every ~25 s for browser jobs for this computer (an agent's computer_browser). Code is one-way
+ // (25 Oct 2026): agents never change Code projects, so this computer reports no projects and takes no project work.
+ let serving=false;function serve({work}){if(serving||process.env.NODE_TEST_CONTEXT)return;serving=true;const wait=ms=>new Promise(r=>setTimeout(r,ms).unref?.());
   (async()=>{for(;;){await load();if(!link.token){await wait(10000);continue}
-   try{const r=await fetch(link.base+'/ui/code/poll',{method:'POST',headers:{authorization:'Bearer '+link.token,'content-type':'application/json'},body:JSON.stringify({projects:await projects()}),signal:AbortSignal.timeout(40000)});
+   try{const r=await fetch(link.base+'/ui/code/poll',{method:'POST',headers:{authorization:'Bearer '+link.token,'content-type':'application/json'},body:'{}',signal:AbortSignal.timeout(40000)});
     if(r.status===401){await wait(60000);continue}const j=await r.json().catch(()=>({}));if(!r.ok){await wait(15000);continue}
     if(j.job){const job=j.job;void (async()=>{let out;try{out=await work(job)}catch(e){out={state:'failed',text:e.message}}
      await fetch(link.base+'/ui/code/done',{method:'POST',headers:{authorization:'Bearer '+link.token,'content-type':'application/json'},body:JSON.stringify({id:job.id,...out})}).catch(()=>{})})()}}

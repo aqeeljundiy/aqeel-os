@@ -31,29 +31,21 @@ export function createCode({DATA,SRC,PUBLIC_URL,ROOT}){
  // the box's own copy is known by this flag (set only by aqeelOS itself when it pairs it), never by the device's name
  async function markBox(token){await load();const d=db.devices[hash(token||'')];if(d&&!d.box){d.box=true;await save()}}
  async function who(token){await load();const h=hash(token||''),d=db.devices[h];if(!d)return null;if(Date.now()-d.last>60000){d.last=Date.now();save().catch(()=>{})}return {...d,key:h.slice(0,16)}}
- /* Agents work on projects: every paired Code app (a person's computer, or the box's own copy for online projects)
-    asks here for work about every 25 s and says which of its projects agents may use (a project's own agent, and the
-    agents it is shared with). An agent's code_work goes to the app that has the project; the answer comes back here. */
+ /* Every paired Code app (a person's computer, or the box's own copy) asks here for work about every 25 s: the guarded
+    browser jobs agents send to a person's own computer (computer_browser). Code is one-way (25 Oct 2026): agents never
+    change Code projects, so no project work comes this way any more; a Code run asks agents instead (/ui/code/ask). */
  const live=new Map(),jobs=new Map();let seq=0;
- function poll(dev,projects){const k=dev.key,cur=live.get(k);if(cur?.wake)cur.wake(null);
-  const e={user:dev.user,name:dev.name,box:!!dev.box,seen:Date.now(),projects:(Array.isArray(projects)?projects:[]).slice(0,300).map(p=>({id:String(p.id).slice(0,80),name:String(p.name||'').slice(0,120),agent:String(p.agent||''),agents:(Array.isArray(p.agents)?p.agents:[]).map(String).slice(0,40),where:p.where==='online'?'online':'computer'})),queue:cur?.queue||[]};live.set(k,e);
+ function poll(dev){const k=dev.key,cur=live.get(k);if(cur?.wake)cur.wake(null);
+  const e={user:dev.user,name:dev.name,box:!!dev.box,seen:Date.now(),queue:cur?.queue||[]};live.set(k,e);
   if(e.queue.length)return Promise.resolve(e.queue.shift());
   return new Promise(r=>{const t=setTimeout(()=>{e.wake=null;r(null)},25000);e.wake=j=>{clearTimeout(t);e.wake=null;r(j)}})}
  // a job handed to a long-poll whose connection had already dropped goes back to the front (or to the poll waiting now)
  function requeue(dev,job){const e=live.get(dev.key);if(!e||!job||!jobs.has(job.id))return;if(e.wake)e.wake(job);else e.queue.unshift(job)}
  function done(dev,id,out){const j=jobs.get(String(id));if(!j||j.dev!==dev.key)return false;jobs.delete(j.id);j.resolve(out||{});return true}
- // the projects an agent may work on, on computers that asked for work in the last two minutes
- function projectsFor(agent){const out=[];for(const [k,e] of live)if(Date.now()-e.seen<120000)for(const p of e.projects)if(p.agent===agent||p.agents.includes(agent))out.push({project:k+':'+p.id,name:p.name,where:p.where==='online'?'online (the AI box)':'on '+e.name,owner:p.agent===agent});return out}
- function work(agent,agentName,ref,task,ms=540000){const [k,id]=String(ref).split(':');const e=live.get(k);const p=e?.projects.find(x=>x.id===id);
-  if(!e||Date.now()-e.seen>120000)return Promise.reject(Error('The computer with that project is not connected right now. It must be on, with aqeelOS Code running.'));
-  if(!p||(p.agent!==agent&&!p.agents.includes(agent)))return Promise.reject(Error('You may not work on that project. Its owner can share it with you in Code › project settings.'));
-  const j={id:String(++seq)+'-'+Date.now().toString(36),dev:k,job:null};j.job={id:j.id,project:id,agent,agentName,task:String(task).slice(0,20000)};
-  const result=new Promise((res,rej)=>{j.resolve=res;setTimeout(()=>{if(jobs.has(j.id)){jobs.delete(j.id);res({state:'running',text:'Still working after 9 minutes. It carries on in Code; check back with code_projects later or look in Code.'})}},ms)});
-  jobs.set(j.id,j);if(e.wake)e.wake(j.job);else e.queue.push(j.job);return result}
 
  async function devices(user){await load();return Object.entries(db.devices).filter(([,d])=>d.user===user).map(([h,d])=>({id:h.slice(0,12),...d}))}
  // the id is the 12 characters devices() shows: an empty or short one used to match (and remove) every computer of theirs;
- // a removed computer also leaves the live list at once (its key is the hash's first 16), so agents stop sending it work
+ // a removed computer also leaves the live list at once (its key is the hash's first 16), so agents stop sending it browser jobs
  async function unpair(user,id){id=String(id||'');if(!/^[0-9a-f]{12,64}$/.test(id))return 0;await load();let n=0;
   for(const [h,d] of Object.entries(db.devices))if(d.user===user&&h.startsWith(id)){delete db.devices[h];n++;const e=live.get(h.slice(0,16));if(e?.user===user){e.wake?.(null);live.delete(h.slice(0,16))}}
   if(n)await save();return n}
@@ -88,4 +80,4 @@ export function createCode({DATA,SRC,PUBLIC_URL,ROOT}){
  // what a computer's Code has connected (GitHub accounts, tool servers), shown under Connected apps › Code
  async function report(dev,r){await load();const e=Object.entries(db.devices).find(([h])=>h.slice(0,16)===dev.key);if(!e)return;e[1].report={at:Date.now(),github:(Array.isArray(r.github)?r.github:[]).slice(0,10).map(a=>({user:String(a.user||'').slice(0,60),active:Boolean(a.active)})),mcp:(Array.isArray(r.mcp)?r.mcp:[]).slice(0,40).map(m=>String(m).slice(0,60)),version:String(r.version||'').slice(0,40)};await save()}
  async function allDevices(){await load();return Object.entries(db.devices).map(([h,d])=>({id:h.slice(0,12),name:d.name,user:d.user,last:d.last,report:d.report||null}))}
- return {report,allDevices,addRun,runs,computerOf,browse,usedToday,addUsage,pair,markBox,who,devices,unpair,version,update,download,poll,requeue,done,projectsFor,work}}
+ return {report,allDevices,addRun,runs,computerOf,browse,usedToday,addUsage,pair,markBox,who,devices,unpair,version,update,download,poll,requeue,done}}
