@@ -39,6 +39,7 @@ import {createHelp} from './help.mjs';
 import {createLive} from './live.mjs';
 import {createBackups} from './backup.mjs';
 import {createPluginHost} from './plugin-host.mjs';
+import {createEngineUpdates} from './engine-updates.mjs';
 import {readdir} from 'node:fs/promises';
 import {createReadStream} from 'node:fs';
 import {scryptSync,randomBytes,createHmac,createHash,timingSafeEqual} from 'node:crypto';
@@ -502,11 +503,17 @@ if(PORT===4400){setInterval(()=>gatewayWatch().catch(()=>{}),60000).unref()}
 /* After an engine update (from the app or by itself), the renames are applied again and, once nothing is in
    progress, the engine restarts once so people see aqeelOS again in channel messages, prompts and errors. */
 const engineHead={v:null,t:0};
-async function engineWatch(){const r=await shx('git -C ~/.hermes/hermes-agent rev-parse HEAD 2>/dev/null');const h=String(r.out||'').trim();if(!/^[0-9a-f]{40}$/.test(h))return;
+async function engineWatch(){if(engineUpd.busy())return;   // an update aqeelOS runs or follows (engine-updates.mjs) applies them itself, then checks the engine
+ const r=await shx('git -C ~/.hermes/hermes-agent rev-parse HEAD 2>/dev/null');const h=String(r.out||'').trim();if(!/^[0-9a-f]{40}$/.test(h))return;
  const clean=(await shx('git -C ~/.hermes/hermes-agent diff --quiet && echo clean')).out.trim()==='clean';
- if(engineHead.v===null){engineHead.v=h;if(!clean)return}else if(h===engineHead.v&&!clean)return;if(h===engineHead.v)return;engineHead.v=h;console.log('engine updated to',h.slice(0,8),'- applying aqeelOS patches again');
+ if(engineHead.v===null){engineHead.v=h;if(!clean)return}else if(h===engineHead.v&&!clean)return;if(h===engineHead.v)return;console.log('engine updated to',h.slice(0,8),'- applying aqeelOS patches again');
+ const n=await enginePatches();if(n)restartGateway('engine updated: aqeelOS wording applied again').catch(()=>{})}
+// the patch step on its own: the version it was applied to is noted, so the watch above does not apply it a second time
+async function enginePatches(){const h=String((await shx('git -C ~/.hermes/hermes-agent rev-parse HEAD 2>/dev/null')).out||'').trim();if(/^[0-9a-f]{40}$/.test(h))engineHead.v=h;
  const {execFile}=await import('node:child_process');const out=await new Promise(res=>execFile(process.execPath,[path.join(root,'scripts','apply-skill-patches.mjs')],{timeout:600000,maxBuffer:8e6},(e,o)=>res(String(o||''))));
- const n=Number((/(\d+) change\(s\)/.exec(out)||[])[1]||0);console.log('engine patches after update:',n,'change(s)');if(n)restartGateway('engine updated: aqeelOS wording applied again').catch(()=>{})}
+ const n=Number((/(\d+) change\(s\)/.exec(out)||[])[1]||0);console.log('engine patches after update:',n,'change(s)');return n}
+// an engine update starts from the engine's own files (see /hapi/hermes/update)
+async function engineReset(){const r=await shx('git -C ~/.hermes/hermes-agent checkout -- . 2>&1');console.log('engine update: renamed files reset first',r.ok?'':'('+String(r.out||'').slice(0,120)+')');engineHead.v=null}
 if(PORT===4400){setInterval(()=>engineWatch().catch(()=>{}),5*60000).unref();setTimeout(()=>engineWatch().catch(()=>{}),20000).unref()}
 /* Memory guard. The AI box has a fixed memory limit; when it runs full, the engine or the dashboard is killed.
    Every 2 minutes: above 80% the bell says so (once an hour); above 90%, with no reply, schedule, setup or relay in
@@ -568,6 +575,13 @@ const brand=createBrand({DATA});
 const backups=createBackups({DATA,HOME:homedir(),HERMES_HOME,notify:(t,d)=>bottlenecks.event('backup',t,d+' Open System › Health to try again.').catch(()=>{})});if(PORT===4400)backups.schedule();
 const live=createLive({DATA,DOMAIN:env.LIVE_DOMAIN||'app.elkiya.com'});
 const bottlenecks=createBottlenecks({DATA,listAgents:()=>listAgents(),names:a=>NAMES[a]||a,dash:p=>fetch(DASH.origin+'/api'+p,{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(20000)}).then(r=>r.json())});brand.name().then(n=>{globalThis.AQ_BRAND=n}).catch(()=>{});
+// engine updates at night, checked after; the owner is told on the main agent's channel (as when the server was off)
+const engineUpd=createEngineUpdates({DATA,HERMES_HOME,PORT,LIVE:LIVE_APP,readConfig,python:enginePython,patches:enginePatches,restartGateway,resetForUpdate:engineReset,
+ dash:(p,o={})=>fetch(DASH.origin+'/api'+p,{...o,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},signal:AbortSignal.timeout(60000)}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||j.error||'HTTP '+r.status);return j}),
+ busy:()=>liveCount()+export_setups.running()+opsBusy()+relay.sending()+(gwRestarting?1:0),
+ stopGateway:async()=>{gwStopped=true;await shx('hermes -p default gateway stop >/dev/null 2>&1; for i in $(seq 1 60); do p=$(grep -o "[0-9]*" ~/.hermes/gateway.pid 2>/dev/null | head -1); [ -n "$p" ] && kill -0 "$p" 2>/dev/null || break; sleep 1; done; tmux kill-session -t gateway 2>/dev/null; true')},
+ tellOwner:async(text,{bell,kind,detail}={})=>{if(bell||/failed|rolled-back/.test(kind||''))await bottlenecks.event('update',text,detail||'').catch(()=>{});if(bell)return;
+  const ch=await relay.channelsFor('default');const c=ch.find(x=>x.platform==='whatsapp')||ch[0];if(!c)throw new Error('no channel to the owner');await relay.sendAs('default',c.owner,c.platform,text,null,{toYou:true})}});
 const codeOnline=createCodeOnline({SECRET,SECURE:SECURE_COOKIE,users:()=>users,revokedAt:uid=>revoked[uid]||0,HOST:env.CODE_HOST||'code.elkiya.com',PREVIEW_HOST:env.CODE_PREVIEW_HOST||'code-preview.elkiya.com',HOME:PUBLIC_URL||'https://ai.elkiya.com'});
 const localBrowser=createLocalBrowser({DATA,GATE:GATE.origin,API_KEY,EXT_DIR:path.join(root,'extension'),NAMES,PUBLIC_URL});
 const engineConsole=createEngineConsole({DASH,DASH_TOKEN});
@@ -956,7 +970,8 @@ async function hermesCall(req,res,u,url){
  // agent and the JSON body doesn't, the body gets it too. Uploads and non-JSON bodies are left alone.
  // An engine update starts from the engine's own files: aqeelOS's renames (aqeelOS instead of Hermes in what people
  // read) are put back to the original first, so the update never clashes with them; they are applied again after it.
- if(p==='/hapi/hermes/update'&&req.method==='POST'&&users.isAdmin(u)){const r=await shx('git -C ~/.hermes/hermes-agent checkout -- . 2>&1');console.log('engine update: renamed files reset first',r.ok?'':'('+String(r.out||'').slice(0,120)+')');engineHead.v=null;setTimeout(()=>engineWatch().catch(()=>{}),120000)}
+ // What was true before is kept first, so the same check as a night update runs after it (engine-updates.mjs).
+ if(p==='/hapi/hermes/update'&&req.method==='POST'&&users.isAdmin(u)){if(await engineUpd.beforeManual().catch(e=>{console.warn('engine update: before',e.message);return true})===false)return send(res,409,{error:'An engine update is already running.'});await engineReset();setTimeout(()=>engineWatch().catch(()=>{}),120000)}
  if(p.startsWith('/hapi/')&&req.method!=='GET'&&q.get('profile')&&/json/.test(String(req.headers['content-type']||''))&&!p.startsWith('/hapi/files')){let b=null,raw;
   // the body is read up front, so a bad one is answered here (passing it on would forward a body that is already gone)
   try{raw=(await readRaw(req,30e6)).toString('utf8')}catch{return send(res,413,{error:'That is too large to send.'})}try{b=raw?JSON.parse(raw):{}}catch{return send(res,400,{error:'The request body is not valid JSON.'})}
@@ -1178,7 +1193,7 @@ const server=createServer(async(req,res)=>{
  try{
   await users.load();   // people (owners, shares) are read before any route uses them, also right after a restart
   if(codeOnline.handle(req,res))return;   // code.elkiya.com and code-preview.elkiya.com: Code online, behind sign-in
-  if(p==='/healthz')return send(res,200,{ok:true,build:BUILD,live:liveCount(),engine:(void engineAgents(),engAgents.n),busy:liveCount()+export_setups.running()+opsBusy()+relay.sending()+(gwRestarting?1:0)});
+  if(p==='/healthz')return send(res,200,{ok:true,build:BUILD,live:liveCount(),engine:(void engineAgents(),engAgents.n),busy:liveCount()+export_setups.running()+opsBusy()+relay.sending()+(gwRestarting?1:0)+(engineUpd.busy()?1:0)});
   // the "notify me" tool agents call (from this box only; each agent's address is signed)
   const mn=/^\/mcp\/notify\/([\w-]+)\/([\w-]+)$/.exec(p);
   if(mn){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method==='GET')return send(res,405,'POST only');
@@ -1657,6 +1672,11 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/code/connected'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});const names=Object.fromEntries(users.people().map(x=>[x.id,x.name||x.username||'Someone']));
     return send(res,200,{devices:(await code.allDevices()).map(d=>({...d,person:names[d.user]||'Someone'})),live:{connected:(await live.list(u,true)).connected}})}
    // backups to Google Drive (admins): the state, back up now, a restore test, and the key that unlocks them
+   // engine updates (engine-updates.mjs): the setting, "Update tonight", and the list of attempts
+   if(p.startsWith('/ui/engine-updates')){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});let b={};if(req.method==='POST'){try{b=JSON.parse(await readBody(req,4096)||'{}')}catch{}}
+    try{if(p==='/ui/engine-updates'&&req.method==='GET')return send(res,200,await engineUpd.status());
+     if(p==='/ui/engine-updates/mode'&&req.method==='POST')return send(res,200,await engineUpd.setMode(String(b.mode||'')));
+     if(p==='/ui/engine-updates/tonight'&&req.method==='POST')return send(res,200,await engineUpd.setTonight(!!b.on))}catch(e){return send(res,400,{error:e.message})}}
    if(p.startsWith('/ui/backups')){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});
     if(p==='/ui/backups'&&req.method==='GET')return send(res,200,await backups.status());
     if(p==='/ui/backups/key'&&req.method==='GET'){try{return send(res,200,{key:await backups.key()})}catch(e){return send(res,409,{error:e.message})}}
