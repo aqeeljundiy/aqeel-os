@@ -111,7 +111,7 @@ const Connect={
   go_.onclick=async()=>{go_.disabled=true;stEl.classList.remove('err-line','t-ok');stEl.innerHTML='<span class="spinner tiny"></span> Testing it with '+esc(p.name)+'…';
    try{const r=await post(UI,'/ui/connect/key',{provider:cu?'custom':p.key.slug,key:k.value.trim(),base:bs?.value.trim()||'',name:d.querySelector('#cxName')?.value.trim()||'',id:again?.id||''});if(!d.isConnected)return;
     if(!r.ok){stEl.textContent=r.message||'It did not work.';stEl.classList.add('err-line');ready();return}
-    k.value='';stEl.textContent=r.message||'Works';stEl.classList.add('t-ok');setTimeout(()=>Connect.done(p,again,r.state==='credit'?'It works, but it has no credit left':''),700)}
+    k.value='';stEl.textContent=r.message||'Works';stEl.classList.add('t-ok');setTimeout(()=>Connect.done(p,again,r.state==='credit'?'It works, but it has no credit left':r.state==='untested'?'Saved without a test':''),r.state==='untested'?1800:700)}
    catch(e){stEl.textContent=e.message||'It did not work.';stEl.classList.add('err-line');ready()}}},
  done(p,again,note){if(document.querySelector('.drawer.cx'))closeLayers();toast((again?.name||p.name)+(again?' is connected again':' connected')+(note?'. '+note:''));Pages._acctFresh=true;Chat.loadModels().catch(()=>{});if(typeof Bottlenecks!=='undefined')Bottlenecks.check?.();reload()},
  // Reconnect: the same dialog for that account (key 'claude:<id>' or 'p:<slug>'), straight at its way of connecting
