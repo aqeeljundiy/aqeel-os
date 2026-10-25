@@ -64,10 +64,12 @@ export function createGitUI(ctx){
  function newProjectMenu(){
   const ICON={empty:'<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M12 11v6M9 14h6"/>',
    folder:'<path d="M3 18V7a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v1"/><path d="M3 18l2.6-6.2A2 2 0 0 1 7.4 10.5H21l-2.8 7A2 2 0 0 1 16.3 19H4a1 1 0 0 1-1-1z"/>',
-   clone:'<circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="8" r="2.2"/><path d="M6 8.2v7.6M18 10.2c0 4-6 3-10.5 6.3"/>'};
+   clone:'<circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="8" r="2.2"/><path d="M6 8.2v7.6M18 10.2c0 4-6 3-10.5 6.3"/>',
+   team:'<circle cx="9" cy="8" r="3.2"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0"/><circle cx="17" cy="9" r="2.5"/><path d="M15.5 14.2A4.5 4.5 0 0 1 21 18.5"/>'};
   const choices=[['empty','Empty project','A fresh folder made by the app. Describe what to build in the chat.',()=>ctx.newEmpty()],
    ['folder','Open a folder','Work on files you already have on this computer.',openFolder],
-   ['clone','Clone from GitHub','Copy one of your repositories, or any public one, and work on it.',cloneDialog]];
+   ['clone','Clone from GitHub','Copy one of your repositories, or any public one, and work on it.',cloneDialog],
+   ...(ctx.teamJoin&&!ctx.online?.()?[['team','From your team','Get a folder a teammate shared with you, then push and pull together.',()=>ctx.teamJoin()]]:[])];
   const d=el('dialog','kit-dialog new-project-dialog');d.setAttribute('aria-labelledby','np-title');
   const head=el('div','np-head');const title=el('h2','','New project');title.id='np-title';const x=el('button','dialog-x','×');x.type='button';x.setAttribute('aria-label','Close');x.title='Close';head.append(title,x);
   const grid=el('div','np-cards');

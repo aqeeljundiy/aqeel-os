@@ -65,7 +65,7 @@ export function createSidebar(ctx){
  function chatRow(p,c){
   const li=el('li','tree-chat');li.dataset.chat=c.id;const s=status(p,c);
   const b=el('button','chat-row'+(c.id===ctx.chatId()?' current':''));b.type='button';b.title=c.title+(lastTime(c)?' · '+new Date(lastTime(c)).toLocaleString():'');if(c.id===ctx.chatId())b.setAttribute('aria-current','true');
-  b.append(dot(s),el('span','chat-title',c.title));if(c.pinned)b.append(el('span','pin','Pinned'));if(c.temporary){b.classList.add('temporary');b.append(el('span','pin','Temporary'))}
+  b.append(dot(s),el('span','chat-title',c.title));if(c.shared)b.append(el('span','pin from','from '+c.shared.fromName));if(c.pinned)b.append(el('span','pin','Pinned'));if(c.temporary){b.classList.add('temporary');b.append(el('span','pin','Temporary'))}
   b.addEventListener('click',()=>ctx.openChat(p.id,c.id));
   b.addEventListener('dblclick',e=>{e.preventDefault();inlineRename(b.querySelector('.chat-title'),c.title,title=>ctx.api('/chat/update',{projectId:p.id,chatId:c.id,title}))});
   const more=el('button','tree-more','⋯');more.type='button';more.setAttribute('aria-label','Chat actions for '+c.title);more.setAttribute('aria-haspopup','menu');
