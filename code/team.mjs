@@ -38,17 +38,19 @@ export function parseUnmerged(text){const by=new Map();for(const e of String(tex
 const pairs=t=>{const a=String(t).split('\0').filter(Boolean),o=[];for(let i=0;i+1<a.length;i+=2)o.push([a[i],a[i+1]]);return o};
 // chats that leave this computer: only what a teammate needs to read and continue them, with keys and tokens hidden
 export const redact=t=>String(t||'').replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,'[hidden key]').replace(/\b(aqc_[\w-]{10,}|sk-ant-[\w-]{10,}|sk-[\w-]{16,}|gh[pousr]_\w{20,}|github_pat_\w{20,}|xox[abpr]-[\w-]{10,}|AKIA[0-9A-Z]{16}|AIza[\w-]{30,})/g,'[hidden]').replace(/(Bearer\s+)[\w.~+/-]{16,}=*/gi,'$1[hidden]');
-const KEEP=['role','text','time','agent','provider','model','mode','steered'];
-export function cleanChat(c){return {id:c.id,title:String(c.title||'Chat').slice(0,120),updated:Math.max(0,...(c.messages||[]).map(m=>+m.time||0)),
- messages:(c.messages||[]).slice(-500).map(m=>{const o={};for(const k of KEEP)if(m[k]!==undefined)o[k]=k==='text'?redact(m[k]).slice(0,100000):m[k];for(const k of ['files','outputs'])if(Array.isArray(m[k]))o[k]=m[k].slice(0,100).map(String);return o})}}
+const KEEP=['role','text','time','agent','provider','model','mode','steered','by'];
+// (each request keeps who wrote it, so a teammate's copy shows their name instead of "You")
+export function cleanChat(c,me=''){return {id:c.id,title:String(c.title||'Chat').slice(0,120),updated:Math.max(0,...(c.messages||[]).map(m=>+m.time||0)),
+ messages:(c.messages||[]).slice(-500).map(m=>{const o={};for(const k of KEEP)if(m[k]!==undefined)o[k]=k==='text'?redact(m[k]).slice(0,100000):m[k];if(m.role==='user'&&!o.by&&me)o.by=me;for(const k of ['files','outputs'])if(Array.isArray(m[k]))o[k]=m[k].slice(0,100).map(String);return o})}}
 /* Chats coming in from teammates ({uid,name,chat}), merged into this project's chats. An imported chat is "t-<who>-<id>"
    here, labelled with who wrote it; a newer version replaces it while nobody here wrote in it. Once someone here
    continues it, it becomes theirs (a new id, so the next import of the original has its own place again). */
-export function mergeChats(chats,incoming,me,newId=randomUUID){const renamed={};let added=0,updated=0;
+export function mergeChats(chats,incoming,me,newId=randomUUID,people={}){const renamed={};let added=0,updated=0;
  for(const {uid,name,chat:x} of incoming){if(!/^[\w-]{1,80}$/.test(String(uid||''))||uid===me||!x||!/^[\w-]{1,100}$/.test(String(x.id||''))||!Array.isArray(x.messages))continue;const id='t-'+uid+'-'+x.id;const cur=chats.find(c=>c.id===id);
-  const fresh=()=>({id,title:String(x.title||'Chat').slice(0,120),messages:x.messages,shared:{from:uid,fromName:name||'Someone',count:x.messages.length}});
+  const msgs=x.messages.map(m=>{if(m?.role!=='user')return m;const by=/^[\w-]{1,80}$/.test(String(m.by||''))?m.by:uid;return {...m,by,...(by!==me?{byName:people[by]||(by===uid?name:'')||'Someone'}:{})}});
+  const fresh=()=>({id,title:String(x.title||'Chat').slice(0,120),messages:msgs,shared:{from:uid,fromName:name||'Someone',count:x.messages.length}});
   if(!cur){chats.unshift(fresh());added++;continue}
-  if(cur.messages.length<=(cur.shared?.count??0)){if(JSON.stringify(cur.messages)!==JSON.stringify(x.messages)||cur.title!==x.title){Object.assign(cur,fresh());updated++}continue}
+  if(cur.messages.length<=(cur.shared?.count??0)){if(JSON.stringify(cur.messages)!==JSON.stringify(msgs)||cur.title!==x.title){Object.assign(cur,fresh());updated++}continue}
   const old=cur.id;cur.id=newId();cur.forkedFrom=old;delete cur.shared;renamed[old]=cur.id;chats.unshift(fresh());added++}
  return {added,updated,renamed}}
 
@@ -57,7 +59,7 @@ export function createTeam({store,aqeelos,gitPath,env,busy,placeFor}){
  const G=async(cwd,args,extra={},timeout=300000)=>{const git=await gitPath();if(!git)throw Error('git is not installed. Install it from git-scm.com, then try again.');return tool(git,args,{cwd,env:{...env,...extra},timeout})};
  // the team address gets this computer's key as a header (only for that address); no saved passwords, no pop-ups
  const auth=async()=>{const l=await aqeelos.teamGit();return {GIT_TERMINAL_PROMPT:'0',GCM_INTERACTIVE:'never',GIT_CONFIG_COUNT:'2',GIT_CONFIG_KEY_0:'credential.helper',GIT_CONFIG_VALUE_0:'',GIT_CONFIG_KEY_1:'http.'+l.base+'/ui/code/team/.extraHeader',GIT_CONFIG_VALUE_1:'Authorization: Bearer '+l.token}};
- const friendly=t=>{t=String(t||'');if(/\b401\b/.test(t))return 'This computer is not paired with aqeelOS any more. Open Code in aqeelOS to pair it again.';
+ const friendly=t=>{t=String(t||'');if(/\b401\b|could not read Username|Authentication failed/i.test(t))return 'This computer is not paired with aqeelOS any more. Open Code in aqeelOS to pair it again.';
   if(/\b403\b|not push/i.test(t))return 'You can pull from this team folder but not push. Ask the person who shared it to let you push.';
   if(/\b404\b|not in it/i.test(t))return 'This team folder is gone from aqeelOS, or you were removed from it.';
   if(/\b413\b|too large|maxInputSize|over \d+ MB/i.test(t))return 'This push is too big for a team folder (200 MB at most). Leave big files out: add them to .gitignore.';
@@ -90,12 +92,12 @@ export function createTeam({store,aqeelos,gitPath,env,busy,placeFor}){
  // my chats into .code-team/chats/<me>/ (a chat I continued from someone else becomes mine first)
  async function exportChats(p,cwd){const me=p.team.me;if(!/^[\w-]{1,80}$/.test(me))return {};const dir=path.join(cwd,'.code-team','chats',me),renamed={};await mkdir(dir,{recursive:true});const keep=new Set();
   for(const c of p.chats){if(c.temporary||!c.messages?.length)continue;if(c.shared&&c.shared.from!==me){if(c.messages.length<=c.shared.count)continue;const old=c.id;c.id=randomUUID();c.forkedFrom=old;delete c.shared;renamed[old]=c.id}
-   if(!/^[\w-]{1,100}$/.test(c.id))continue;const f=path.join(dir,c.id+'.json'),text=JSON.stringify(cleanChat(c),null,1)+'\n';keep.add(c.id+'.json');if(await readFile(f,'utf8').catch(()=>'')!==text)await writeFile(f,text)}
+   if(!/^[\w-]{1,100}$/.test(c.id))continue;const f=path.join(dir,c.id+'.json'),text=JSON.stringify(cleanChat(c,me),null,1)+'\n';keep.add(c.id+'.json');if(await readFile(f,'utf8').catch(()=>'')!==text)await writeFile(f,text)}
   for(const n of await readdir(dir).catch(()=>[]))if(n.endsWith('.json')&&!keep.has(n))await unlink(path.join(dir,n)).catch(()=>{});
   if(Object.keys(renamed).length)await save();return renamed}
  async function importChats(p,cwd){if(!p.team.chats)return {};const base=path.join(cwd,'.code-team','chats'),incoming=[];
   for(const uid of await readdir(base).catch(()=>[])){if(!/^[\w-]{1,80}$/.test(uid)||uid===p.team.me)continue;for(const n of await readdir(path.join(base,uid)).catch(()=>[])){if(!n.endsWith('.json'))continue;try{incoming.push({uid,name:p.team.people?.[uid]||'Someone',chat:JSON.parse(await readFile(path.join(base,uid,n),'utf8'))})}catch{}}}
-  const r=mergeChats(p.chats,incoming,p.team.me);if(r.added||r.updated)await save();return r.renamed}
+  const r=mergeChats(p.chats,incoming,p.team.me,randomUUID,p.team.people||{});if(r.added||r.updated)await save();return r.renamed}
  // everything changed here goes into one local commit (not sent yet), after the size check
  async function commitLocal(p,cwd){let renamed={};if(p.team.chats)renamed=await exportChats(p,cwd);else await G(cwd,['rm','-r','-q','--cached','--ignore-unmatch','.code-team']);
   const cand=(await G(cwd,['ls-files','-z','-o','-m','--exclude-standard'])).stdout.split('\0').filter(Boolean);const sizes=[];for(const f of [...new Set(cand)]){const s=await stat(path.join(cwd,f)).catch(()=>null);if(s?.isFile())sizes.push({path:f,size:s.size})}checkSizes(sizes);

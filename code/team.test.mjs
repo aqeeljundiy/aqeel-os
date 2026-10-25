@@ -31,7 +31,7 @@ test('conflicts: both changed the same file, one deleted what the other changed'
  await git(b,'fetch','-q','origin');const m=await git(b,'merge','--no-edit','origin/main');assert.notEqual(m.code,0);
  const c=parseUnmerged((await git(b,'ls-files','-u','-z')).out).sort((x,y)=>x.path.localeCompare(y.path));
  assert.deepEqual(c,[{path:'about.html',mine:false,theirs:true},{path:'index.html',mine:true,theirs:true}]);assert.deepEqual(parseUnmerged(''),[])});
-test('chats: secrets hidden, only what a teammate needs',()=>{const c=cleanChat({id:'c1',title:'Hero',sessions:{claude:'s-123'},messages:[{role:'user',text:'use key sk-ant-api03-abcdefghijklmnop and Bearer abcdefghijklmnopqrstuv',time:5,by:'x',account:'work'},{role:'assistant',text:'ok',files:['index.html'],billing:'$1',savedTo:'/Users/x',time:9}]});
+test('chats: secrets hidden, only what a teammate needs',()=>{assert.equal(cleanChat({id:'a',messages:[{role:'user',text:'x'}]},'aqeel').messages[0].by,'aqeel');const c=cleanChat({id:'c1',title:'Hero',sessions:{claude:'s-123'},messages:[{role:'user',text:'use key sk-ant-api03-abcdefghijklmnop and Bearer abcdefghijklmnopqrstuv',time:5,by:'x',account:'work'},{role:'assistant',text:'ok',files:['index.html'],billing:'$1',savedTo:'/Users/x',time:9}]});
  assert.equal(c.sessions,undefined);assert.equal(c.updated,9);assert.match(c.messages[0].text,/\[hidden\].*Bearer \[hidden\]/);assert.equal(c.messages[0].account,undefined);assert.equal(c.messages[1].billing,undefined);assert.equal(c.messages[1].savedTo,undefined);assert.deepEqual(c.messages[1].files,['index.html']);
  assert.equal(redact('aqc_ABCDEFGHIJKLMNOPQRSTUVWX ghp_abcdefghijklmnopqrstuvwxyz'),'[hidden] [hidden]')});
 test('chats: imported with who wrote them, updated until continued here, then kept as mine',()=>{let n=0;const id=()=>'new'+(++n);const chats=[{id:'own',title:'Mine',messages:[{role:'user',text:'a'}]}];
@@ -40,4 +40,5 @@ test('chats: imported with who wrote them, updated until continued here, then ke
  r=mergeChats(chats,inc([{role:'user',text:'1'},{role:'assistant',text:'2'}]),'me',id);assert.equal(r.updated,1);assert.equal(chats.find(c=>c.id==='t-rina-c1').messages.length,2);
  chats.find(c=>c.id==='t-rina-c1').messages.push({role:'user',text:'mine now'});
  r=mergeChats(chats,inc([{role:'user',text:'1'},{role:'assistant',text:'2'},{role:'user',text:'3'}]),'me',id);assert.deepEqual(r.renamed,{'t-rina-c1':'new1'});
+ assert.equal(chats.find(c=>c.id==='t-rina-c1').messages[0].byName,'Rina','a teammate’s request shows their name');
  const kept=chats.find(c=>c.id==='new1');assert.equal(kept.shared,undefined);assert.equal(kept.messages.at(-1).text,'mine now');assert.equal(chats.find(c=>c.id==='t-rina-c1').messages.length,3);assert.equal(chats.length,3)});
