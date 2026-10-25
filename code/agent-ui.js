@@ -5,6 +5,8 @@ import {renderMarkdown} from './md.js';
 const el=(tag,cls,text)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e};
 const STATUS={running:'Running',completed:'Done',failed:'Failed',declined:'Declined',pending:'Waiting for you',approved:'Approved',denied:'Denied'};
 const label=p=>({claude:'Claude',codex:'GPT',gemini:'Gemini',aqeelos:'aqeelOS models'})[p]||p;
+// the harness a model ran on (the run header says it with the model and the account, 25 Oct 2026)
+const HARNESS={claude:'Claude Code',codex:'Codex',gemini:'Gemini CLI',aqeelos:'aqeelOS engine'};
 
 // The end of a turn: a short recap and up to two one-click next steps (sent as your next message)
 export function nextBox(next,send,extra=[]){const box=el('div','next-box');box.append(el('p','next-recap',next.recap||''));
@@ -69,8 +71,8 @@ export function createAgentUI(ctx){
  function paint(run){
   const v=run.view;ensurePanel(run);
   // an engine run says which engine, agent, model and account did it (what the engine reports once it starts)
-  if(v.provider==='aqeelos'){const e=v.engine||{},m=v.actualModel||e.model||String(v.model||'').split('::').pop();run.title.textContent=['aqeelOS models',e.agentName||v.agent||'',m||'Default',e.account||''].filter(Boolean).join(' · ')}else
-  run.title.textContent=speaker(v)+(v.accountNote?' · '+v.accountNote:v.account&&v.provider==='codex'?' · '+v.account:'');   // whose sign-in a run for an agent uses
+  if(v.provider==='aqeelos'){const e=v.engine||{},m=v.actualModel||e.model||String(v.model||'').split('::').pop();run.title.textContent=['aqeelOS engine',e.agentName||v.agent||'',m||'Default',e.account||''].filter(Boolean).join(' · ')}else
+  run.title.textContent=(v.team?speaker(v):(v.draft?'Compare draft · ':'')+[HARNESS[v.provider]||label(v.provider),v.actualModel||v.model||'Default',v.accountNote||v.account||''].filter(Boolean).join(' · '));   // the harness, model and account (whose sign-in a run for an agent uses)
   const waiting=v.state==='waiting';run.state.textContent=waiting?'Needs your approval':v.state==='running'?'Working…':v.state==='complete'?'Finished':v.state==='stopped'?'Stopped':'Failed';
   run.panel.classList.toggle('waiting',waiting);
   if(!run.list.childElementCount&&v.state==='running'){run.list.append(run.placeholder??=el('div','ev ev-thinking','Starting '+label(v.provider)+'…'))}

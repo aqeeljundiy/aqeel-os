@@ -1387,8 +1387,18 @@ body.embed .aq-meter{display:inline-flex;align-items:center;gap:4px;flex:none;fo
 body.embed .aq-meter svg{width:18px;height:18px;transform:rotate(-90deg)}
 body.embed .aq-meter circle{fill:none;stroke-width:2.6}.aq-meter .t{stroke:var(--soft)}.aq-meter .v{stroke:var(--blue);stroke-linecap:round;transition:stroke-dasharray .4s}
 body.embed .aq-meter.hot .v{stroke:#d1453b}
-body.embed .agent-chip{margin:2px 0 6px}
-body.embed .agent-chip .av{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;background:var(--blue);color:#fff;font-size:10.5px;font-weight:600}
+/* the agents attached to a message (chips above it), 25 Oct 2026 */
+.agent-chips{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:10px 12px 0}
+.agent-chips[hidden]{display:none}
+.agent-chip-one{display:inline-flex;align-items:center;gap:6px;padding:3px 4px 3px 3px;border-radius:var(--r-pill);background:var(--soft-2);font-size:12px;font-weight:500;color:var(--ink-2);animation:arrive .2s ease-out}
+.agent-chip-one .av{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;background:var(--blue);color:#fff;font-size:10.5px;font-weight:600}
+.agent-chip-one button{width:20px;height:20px;min-height:20px;padding:0!important;border:0;border-radius:50%;background:none;box-shadow:none;color:var(--muted);font-size:15px;line-height:1;display:grid;place-items:center;transition:background .15s,color .15s}
+.agent-chip-one button:hover{color:var(--ink);background:var(--soft)}
+.agent-chip-one.out{opacity:0;transform:scale(.92);transition:opacity .14s ease,transform .14s ease}
+.agent-chip-add{min-height:26px!important;height:26px;padding:0 10px!important;border:1px dashed var(--border)!important;border-radius:var(--r-pill);background:none!important;box-shadow:none!important;font-size:12px;font-weight:500;color:var(--muted)!important;transition:color .15s,border-color .15s}
+.agent-chip-add:hover{color:var(--blue)!important;border-color:var(--blue)!important}
+body.embed .agent-chips{margin:2px 0 6px}
+.aq-menu .item.off{opacity:.55;cursor:default}.aq-menu .item.off:hover{background:transparent}
 .team-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;margin:2px 0 6px;font-size:12.5px;color:var(--muted);animation:aqMenuIn .2s ease}
 .team-row[hidden]{display:none}
 .team-role{display:inline-flex;align-items:center;gap:6px}.team-role>span{color:var(--muted)}.team-role b{font-weight:600;color:var(--ink)}
@@ -1548,8 +1558,10 @@ body.embed .composer-controls{padding:6px 0 0}
 .aq-secret .aq-secret-have:empty{display:none}
 .aq-secret .kit-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:6px}.aq-secret .kit-actions button{min-width:84px;min-height:38px}
 /* the composer in aqeelOS: the agent chip sits in the same row as the other choices, all the same height */
-body.embed .aq-choices>.agent-chip{margin:0;min-height:30px;height:30px;padding:0 6px 0 4px;display:inline-flex;align-items:center;gap:6px;border-radius:var(--r-pill);background:var(--soft-2);font-size:12.5px}
-body.embed .aq-choices>.agent-chip .av{width:22px;height:22px}
+body.embed .aq-choices>.agent-chips{margin:0;display:inline-flex;flex-wrap:wrap;gap:6px}
+body.embed .aq-choices .agent-chip-one{min-height:30px;height:30px;padding:0 6px 0 4px;font-size:12.5px}
+body.embed .aq-choices .agent-chip-one .av{width:22px;height:22px}
+body.embed .aq-choices .agent-chip-add{min-height:30px!important;height:30px}
 
 /* devices around the page (Mobile, Tablet, Laptop) */
 .browser-stage.device-on{overflow:hidden;align-items:stretch;background:var(--soft-2)}
@@ -1601,8 +1613,7 @@ body.embed .chat-form{container:composer/inline-size}
 @container composer (max-width:640px){
  body.embed .aq-choices{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
  body.embed .aq-choices>[hidden],body.embed .aq-choices>.aq-meter{display:none}
- body.embed .aq-choices>.agent-chip{grid-column:1/-1;box-sizing:border-box;width:100%;max-width:none;justify-self:stretch}
- body.embed .aq-choices>.agent-chip>button{margin-left:auto}
+ body.embed .aq-choices>.agent-chips{grid-column:1/-1;box-sizing:border-box;width:100%;max-width:none;justify-self:stretch}
  body.embed .aq-choices>.dd,body.embed .aq-choices>.aq-pill{min-width:0;max-width:none!important;width:100%}
  body.embed .aq-choices>.dd .dd-btn{width:100%;justify-content:center}
  body.embed .aq-choices>.aq-pill{justify-content:center}

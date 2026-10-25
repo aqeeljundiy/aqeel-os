@@ -18,17 +18,24 @@ let codexModels={at:0,list:[]};
 async function models(agent,act){if(Date.now()-codexModels.at>600000||!codexModels.list.length){const exe=await findExecutable('codex');codexModels={at:Date.now(),list:exe?await listCodexModels(exe,accounts.env(),work):[]}}// Gemini's own list is saved after a run (data/gemini-models.json); until then its tier aliases
  let gemini=GEMINI_MODELS;try{const saved=JSON.parse(await readFile(path.join(root,'data','gemini-models.json'),'utf8'));if(saved.length)gemini=[GEMINI_MODELS[0],...saved.map(m=>({id:m.modelId,name:m.name||m.modelId,description:m.description||'',efforts:[],defaultEffort:''}))]}catch{}
  const own={codex:codexModels.list,claude:CLAUDE_MODELS,gemini};
- // paired: the models the chat's menu lists for this agent in aqeelOS (Code's own levels kept where it knows the model).
- // A member sees only those; an admin keeps Code's own list for an AI aqeelOS has no models of.
+ // paired: one model list, the one the chat's menu has for this agent in aqeelOS (25 Oct 2026). Each model runs on the
+ // harness that fits it: Claude models on Claude Code (the Claude account), ChatGPT models on Codex (the ChatGPT
+ // sign-in), every other model on the aqeelOS engine, which only the box's own copy reaches (elsewhere those are listed
+ // as unavailable, with why). "Default" is the agent's own model with the Models page's priority list and auto-switch:
+ // on the engine where it can run there, else on the CLI of the agent's provider. Ids: <model> for a CLI, and
+ // <provider>::<model> on the engine. A member sees only the models they may use.
  const r=agent===undefined?null:await aqeelos.agentModel(agent,act).catch(()=>null);if(!r?.models)return own;
  const out={managed:true,restricted:Boolean(r.restricted),agentModel:r.provider&&r.model?{provider:r.provider,model:r.model}:null};
- for(const p of ['claude','codex','gemini']){const ids=r.models[p]||[];out[p]=!ids.length?(r.restricted?[]:own[p]):ids.map(id=>{const c=own[p].find(m=>m.id===id);
-  return {id,name:c?.name||niceModel(id),description:c?.description||'',efforts:c?.efforts?.length?c.efforts:p==='codex'?['low','medium','high']:EFFORTS[p],defaultEffort:c?.defaultEffort||'',isDefault:r.provider===p&&r.model===id}})}
- // the box's own copy: "aqeelOS models" lists every model the chat's menu has for the agent, any provider ("Default":
- // the agent's own model, with the Models page's priority list and auto-switch). Ids are <provider>::<model>.
- if(r.engine&&r.engineModels){const d=r.agentDefault||{};out.engineDefault=d.model?{provider:d.provider,model:d.model}:null;
-  out.aqeelos=[{id:'',name:'Default'+(d.model?' ('+niceModel(d.model)+')':''),description:'The agent’s own model on its own account, with the Models page’s priority list and auto-switch.',efforts:EFFORTS.aqeelos,defaultEffort:'',isDefault:true},
-   ...r.engineModels.flatMap(pv=>pv.models.map(m=>({id:pv.provider+'::'+m,name:niceModel(m.split('/').pop())+' · '+pv.name,description:pv.name+(pv.provider===d.provider&&m===d.model?' · the agent’s own model':''),efforts:EFFORTS.aqeelos,defaultEffort:''})))].filter(m=>!m.id||/^[a-zA-Z0-9._:/-]{1,80}$/.test(m.id))}
+ if(!r.engineModels){for(const p of ['claude','codex','gemini']){const ids=r.models[p]||[];out[p]=!ids.length?(r.restricted?[]:own[p]):ids.map(id=>{const c=own[p].find(m=>m.id===id);
+  return {id,name:c?.name||niceModel(id),description:c?.description||'',efforts:c?.efforts?.length?c.efforts:p==='codex'?['low','medium','high']:EFFORTS[p],defaultEffort:c?.defaultEffort||'',isDefault:r.provider===p&&r.model===id}})}return out}
+ const H=slug=>slug==='claude-subscription-directsdk-experimental'?'claude':slug==='openai-codex'?'codex':'aqeelos',engine=Boolean(r.engine);
+ const why=h=>h!=='aqeelos'||engine?'':process.env.CBA_ONLINE?'Online Code runs in its own container here, so this model cannot reach the project.':'Runs only for projects on the AI box. On this computer, pick a Claude or ChatGPT model.';
+ const d=r.agentDefault||{},dh=engine?'aqeelos':H(d.provider)!=='aqeelos'?H(d.provider):'claude';
+ for(const h of ['claude','codex','aqeelos','gemini'])out[h]=[];out.gemini=[];out.list=[];
+ const add=(h,m)=>{if(m.id&&!/^[a-zA-Z0-9._:/-]{1,80}$/.test(m.id))return;const off=why(h);out[h].push(m);out.list.push({harness:h,id:m.id,name:m.name,description:off||m.description,off})};
+ add(dh,{id:'',name:'Default'+(d.model?' ('+niceModel(String(d.model).split('/').pop())+')':''),description:'The agent’s own model, with the Models page’s priority list and auto-switch.',efforts:EFFORTS[dh],defaultEffort:'',isDefault:true});
+ for(const pv of r.engineModels)for(const m of pv.models){const h=H(pv.provider),c=h==='codex'?own.codex.find(x=>x.id===m):h==='claude'?own.claude.find(x=>x.id===m):null;
+  add(h,{id:h==='aqeelos'?pv.provider+'::'+m:m,name:niceModel(String(m).split('/').pop())+' · '+pv.name,description:pv.name+(pv.provider===d.provider&&m===d.model?' · the agent’s own model':''),efforts:c?.efforts?.length?c.efforts:h==='codex'?['low','medium','high']:EFFORTS[h],defaultEffort:c?.defaultEffort||''})}
  return out}
 // claude-opus-4-5-20251101 → Opus 4.5, gpt-5.1-codex-max → GPT-5.1 Codex Max (a model Code has no name for)
 const niceModel=id=>String(id).replace(/^claude-/,'').replace(/-\d{8}$/,'').replace(/-(\d+)-(\d+)(?=-|$)/g,' $1.$2').split(/[-\s]+/).map(w=>/^gpt$/i.test(w)?'GPT':w.charAt(0).toUpperCase()+w.slice(1)).join(' ').replace(/^GPT (\d)/,'GPT-$1');

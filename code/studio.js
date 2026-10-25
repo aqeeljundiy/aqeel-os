@@ -210,7 +210,7 @@ const review=createReview({comment:text=>{const t=$('chat-prompt');t.value=(t.va
  afterChange:async()=>{savedContent=$('editor').value;selectedFile='';await refreshState();await refreshFiles();refreshPreview()}});
 const seenVersions={};function renderVersions(){review.render();const n=project()?.versions.length||0;if(!projectId)return;if(seenVersions[projectId]===undefined||!$('history-view').hidden)seenVersions[projectId]=n;const fresh=n-seenVersions[projectId];$('changes-badge').hidden=fresh<=0;$('changes-badge').textContent=String(fresh)}
 document.querySelector('.tab[data-view=history]').addEventListener('click',()=>{if(projectId)seenVersions[projectId]=project()?.versions.length||0;$('changes-badge').hidden=true});
-let modelAppliedFor=null;function applyProjectModel(){const s=project()?.settings;if(!s?.provider||modelAppliedFor===chatId||chat()?.messages.length)return;modelAppliedFor=chatId;$('provider-pick').value=s.provider;$('provider-pick').dispatchEvent(new Event('change',{bubbles:true}));if(s.model){$('model').value=s.model;$('model').dispatchEvent(new Event('change',{bubbles:true}))}}
+let modelAppliedFor=null;function applyProjectModel(){const s=project()?.settings;if(!s?.provider||modelAppliedFor===chatId||chat()?.messages.length)return;modelAppliedFor=chatId;$('provider-pick').value=s.provider;$('provider-pick').dispatchEvent(new Event('change',{bubbles:true}));if(s.model){const o=[...$('model').options].find(o=>o.value===s.model)||[...$('model').options].find(o=>o.value.split('|')[0]===String(s.model).split('|')[0]);if(o){$('model').value=o.value;$('model').dispatchEvent(new Event('change',{bubbles:true}))}}}
 async function projectSettings(p){const d=document.createElement('dialog');d.className='kit-dialog';const f=document.createElement('form');f.innerHTML='<h2></h2><p class="kit-message">New chats in this project start with these choices. Leave a field on Default to use your general settings.</p>';f.querySelector('h2').textContent=p.name+' settings';
  const field=(text,select)=>{const l=document.createElement('label');l.className='set-row';const s=document.createElement('span');s.className='set-label';const st=document.createElement('strong');st.textContent=text;s.append(st);l.append(s,select);f.append(l);return select};
  // one model list, as in aqeelOS (the harness follows the model); its value is "<harness>:<model>"
@@ -303,7 +303,7 @@ async function sendMessage(){const pickedKind=currentKind();if(!(await ensurePro
  if(multi==='compare'){try{const r=await api('/compare',{projectId,chatId,prompt:$('chat-prompt').value,mode:$('mode').value,variants:[{provider,model,effort},choiceFor(other)]});clearSent();$('chat-prompt').focus();growPrompt();await refreshState();for(const x of r.runs)void agentUI.follow({id:x.id,projectId,chatId,provider:x.provider,draft:true,state:'running'})}catch(e){notify(e.message)}return}
  if(multi==='team'){try{const img=window.__teamImages?.()||'';const r=await api('/team',{projectId,chatId,prompt:$('chat-prompt').value+(img?'\n\n(For any images, ask '+img+' through aqeelos_ask.)':''),mode:$('mode').value,planner:{provider,model,effort},builder:window.__teamBuilder?.()||choiceFor(other)});clearSent();$('chat-prompt').focus();growPrompt();await refreshState();for(const x of r.runs)void agentUI.follow({id:x.id,projectId,chatId,provider:x.provider,team:{stage:x.stage},state:'running'})}catch(e){notify(e.message)}return}
  if(composer.pending()){notify('Wait for the images to finish attaching.');return}
- try{const view=await api('/agent',{projectId,chatId,provider,model,effort,agent:$('agent-pick').value,mode:$('mode').value,...(currentKind()==='auto'?{}:{kind:currentKind()}),attachments:composer.attachments(),prompt:$('chat-prompt').value});composer.clear();clearSent();$('chat-prompt').focus();growPrompt();await refreshState();void agentUI.follow(view)}catch(e){notify(e.message)}}
+ try{const view=await api('/agent',{projectId,chatId,provider,model,effort,agent:attached[0]||'',agents:attached,mode:$('mode').value,...(currentKind()==='auto'?{}:{kind:currentKind()}),attachments:composer.attachments(),prompt:$('chat-prompt').value});composer.clear();clearSent();$('chat-prompt').focus();growPrompt();await refreshState();void agentUI.follow(view)}catch(e){notify(e.message)}}
 $('chat-prompt').addEventListener('input',saveDraft);
 $('multi').addEventListener('change',()=>{const p0=getChoice().provider,p=p0==='aqeelos'&&$('multi').value!=='single'?partnerFor(p0):p0,a=providerName(p),b=providerName(partnerFor(p));$('composer-hint').textContent=$('multi').value==='compare'?a+' and '+b+' each work in a draft copy and edit it without asking. Nothing reaches your project until you keep one.':$('multi').value==='team'?a+' plans, '+b+' builds it, then '+a+' reviews. Approvals still apply while building.':'Switch models between messages. Files and chat stay with your project.'});
 $('mode').addEventListener('change',async()=>{const v=$('mode').value;$('chat-form').dataset.mode=v;if(v==='full'&&!(await confirmDialog({title:'Allow full access?',message:'The AI will run any command and change any file on this PC without asking, outside the project sandbox. Use this only for tasks you trust.',confirm:'Allow full access',danger:true}))){$('mode').value=modes[chatId]||'ask';return}if(v==='plan'&&modes[chatId]!=='plan')modes[chatId+':before-plan']=modes[chatId]||'ask';modes[chatId]=v;saveMode()});
@@ -437,7 +437,7 @@ let share=()=>{};
 {const EMBED=new URLSearchParams(location.search).get('embed')==='aqeelos';
  if(EMBED){document.body.classList.add('embed');{const t=document.querySelector('.topbar .top-actions');if(t)document.querySelector('.work-heading')?.append(t)}let allowed=[],parentOrigin='';
   const post=m=>{if(parentOrigin)parent.postMessage({cba:1,...m},parentOrigin)};
-  const summary=()=>({agent:$('agent-pick')?.value||'',agents:[...($('agent-pick')?.options||[])].filter(o=>o.value).map(o=>({id:o.value,name:o.textContent})),model:document.querySelector('.aq-choices .aq-pill:not(.aq-team) span')?.textContent||'',project:projectId,chat:chatId,projects:(projects||[]).filter(p=>!p.archived).map(p=>({id:p.id,name:p.name,pinned:!!p.pinned,where:p.path?'folder':'app',
+  const summary=()=>({agent:$('agent-pick')?.value||'',attached:[...attached],agents:[...($('agent-pick')?.options||[])].filter(o=>o.value).map(o=>({id:o.value,name:o.textContent})),model:document.querySelector('.aq-choices .aq-pill:not(.aq-team) span')?.textContent||'',project:projectId,chat:chatId,projects:(projects||[]).filter(p=>!p.archived).map(p=>({id:p.id,name:p.name,pinned:!!p.pinned,where:p.path?'folder':'app',
    chats:(p.chats||[]).filter(c=>!c.archived&&!c.temporary).map(c=>({id:c.id,title:c.title||'New chat',updated:c.updatedAt||c.updated||c.createdAt||0,busy:['running','waiting'].includes(sidebar.state(p,c)),unread:['unread','failed'].includes(sidebar.state(p,c))}))}))});
   const ready=fetch('/api/aqeelos').then(r=>r.json()).then(s=>{allowed=s.origins||[];return s}).catch(()=>({origins:[]}));
   addEventListener('message',async e=>{await ready;if(!allowed.includes(e.origin)||!e.data||!e.data.aq)return;parentOrigin=e.origin;const m=e.data;
@@ -449,7 +449,9 @@ let share=()=>{};
     else if(m.aq==='newProject')$('new-project')?.click();
     else if(m.aq==='menu'){const p=(projects||[]).find(x=>x.id===m.project);const c=p&&m.chat?(p.chats||[]).find(x=>x.id===m.chat):null;if(p&&(!m.chat||c))openMenu({x:12,y:Math.max(8,Math.min(Number(m.y)||60,innerHeight-60))},sidebar.items(p,c),{label:c?'Chat actions':'Project actions'})}
     else if(m.aq==='viewing'){viewingAgent=String(m.id||'');pickAgent();share()}   // the agent open in aqeelOS: the default for a project with no choice yet
-    else if(m.aq==='agent'){const sel=$('agent-pick');const v=String(m.id||'');if([...sel.options].some(o=>o.value===v)){sel.value=v;sel.dispatchEvent(new Event('change'))}share()}
+    else if(m.aq==='agent'){const v=String(m.id||'');if(aqAgents.some(a=>a.id===v))setAttached([v,...attached.filter(x=>x!==v)]);share()}
+    // "Open in Code" from a chat: a new chat with the request filled in and that agent attached; nothing is sent
+    else if(m.aq==='prefill'){if(!aqAgents.length)await loadAgents();if(projectId&&chat()?.messages?.length)await newChat();const v=String(m.agent||'');if(aqAgents.some(a=>a.id===v))setAttached([v]);const t=$('chat-prompt');t.value=String(m.prompt||'').slice(0,12000);t.dispatchEvent(new Event('input'));t.focus();notify('The request from '+(aqAgents.find(a=>a.id===v)?.name||'the chat')+' is ready. Check it, then send.');post({type:'state',...summary()})}
     else if(m.aq==='ping'){const ok=await fetch('/api/status?quick',{cache:'no-store',signal:AbortSignal.timeout(5000)}).then(r=>r.ok,()=>false);if(ok)post({type:'pong'})}   // only while the app itself still answers
     else if(m.aq==='brand'&&m.name&&m.name!=='aqeelOS')rebrand(String(m.name).slice(0,24));
     else if(m.aq==='theme')theme(!!m.dark);
@@ -462,16 +464,30 @@ let share=()=>{};
   const rp=renderProjects;renderProjects=(...a)=>{const r=rp(...a);share();return r};
   setInterval(share,5000)}}
 
-// aqeelOS agents in the composer: who the run works for (its abilities come along through aqeelos_ask). The project's
-// own agent is chosen by default; the choice is remembered per project.
+// aqeelOS agents attached to a message (25 Oct 2026: Code uses agents, one way): chips above the message box. The run
+// asks them for what they can reach with their own access; they never change the project. A project starts with its
+// own agent (project settings), else the agent being viewed in aqeelOS; more can be added from the person's agents,
+// and the list is remembered per project. The first one picks the model list (its models in aqeelOS › Models), and the
+// hidden #agent-pick holds it, so everything that reads the agent keeps working.
 async function loadAgents(){try{const {agents}=await (await fetch('/api/aqeelos/agents')).json();const sel=$('agent-pick');if(!agents?.length)return;
- sel.replaceChildren(new Option('No agent',''),...agents.map(a=>{const o=new Option(a.name,a.id);o.dataset.desc=a.apps.length||a.google?'With '+[...a.apps,...(a.google?['Google']:[])].slice(0,5).join(', '):'An aqeelOS agent';return o}));
- sel.options[0].dataset.desc='The coding AI on its own, with this project’s tools.';sel.closest('.model-pickers')?.classList.add('has-agents');aqAgents=agents;pickAgent()}catch{}}
-let aqAgents=[],viewingAgent='';
-function pickAgent(){const sel=$('agent-pick');if(!aqAgents.length)return;let v='';try{v=localStorage.getItem('cba-agent2-'+projectId)??viewingAgent}catch{}/* a project nobody chose for yet: the agent being viewed in aqeelOS (none outside aqeelOS); the coding AI asks other agents itself when it needs their access */if(![...sel.options].some(o=>o.value===v))v='';if(sel.value!==v){sel.value=v;sel.dispatchEvent(new Event('change'))}}
-$('agent-pick').addEventListener('change',()=>{try{localStorage.setItem('cba-agent2-'+projectId,$('agent-pick').value)}catch{}void modelsForAgent($('agent-pick').value)});   // the picked agent's models (aqeelOS › Models)
+ sel.replaceChildren(new Option('No agent',''),...agents.map(a=>new Option(a.name,a.id)));aqAgents=agents;pickAgent()}catch{}}
+let aqAgents=[],viewingAgent='',attached=[];
+const attachedKey=()=>'cba-agents3-'+projectId;
+function setAttached(list,{save=true}={}){const known=new Set(aqAgents.map(a=>a.id));attached=[...new Set(list.map(String))].filter(a=>known.has(a)).slice(0,6);if(save)try{localStorage.setItem(attachedKey(),JSON.stringify(attached))}catch{}
+ const sel=$('agent-pick'),v=attached[0]||'';if(sel.value!==v){sel.value=v;sel.dispatchEvent(new Event('change'))}paintAgentChips();share()}
+function pickAgent(){if(!aqAgents.length)return;let list=null;try{list=JSON.parse(localStorage.getItem(attachedKey())||'null')}catch{}
+ if(!Array.isArray(list)){const own=project()?.settings?.agent;list=[own||viewingAgent].filter(Boolean)}setAttached(list,{save:false})}
+$('agent-pick').addEventListener('change',()=>void modelsForAgent($('agent-pick').value));   // the first agent's models (aqeelOS › Models)
+$('agent-pick').closest('.dd')?.setAttribute('hidden','');$('agent-pick').hidden=true;
+const agentChips=document.createElement('div');agentChips.className='agent-chips agent-chip';agentChips.hidden=true;$('chat-prompt').before(agentChips);
+function paintAgentChips(){agentChips.replaceChildren();agentChips.hidden=!aqAgents.length;if(!aqAgents.length)return;
+ for(const id of attached){const a=aqAgents.find(x=>x.id===id);if(!a)continue;const c=document.createElement('span');c.className='agent-chip-one';const av=document.createElement('span');av.className='av';av.textContent=(a.name.trim()[0]||'?').toUpperCase();
+  const t=document.createElement('span');t.textContent=a.name;const apps=[...(a.apps||[]),...(a.google?['Google']:[])];c.title=a.name+(apps.length?' · '+apps.slice(0,6).join(', '):'')+'. The AI can ask it for things; it never changes the project.';
+  const x=document.createElement('button');x.type='button';x.textContent='×';x.title='Remove '+a.name;x.setAttribute('aria-label','Remove '+a.name);x.addEventListener('click',()=>{c.classList.add('out');setTimeout(()=>setAttached(attached.filter(y=>y!==id)),140)});c.append(av,t,x);agentChips.append(c)}
+ const rest=aqAgents.filter(a=>!attached.includes(a.id));if(rest.length&&attached.length<6){const add=document.createElement('button');add.type='button';add.className='agent-chip-add';add.textContent=attached.length?'+ Agent':'+ Add an agent';add.title='Attach another agent: the AI can ask it to fetch things with its own access';
+  add.addEventListener('click',e=>{e.stopPropagation();openMenu(add,rest.map(a=>({label:a.name,hint:[...(a.apps||[]),...(a.google?['Google']:[])].slice(0,4).join(', '),action:()=>setAttached([...attached,a.id])})),{label:'Attach an agent'})});agentChips.append(add)}}
 {const sp=selectProject;selectProject=async(...a)=>{const r=await sp(...a);pickAgent();return r}}
-// the project list arrives after the agents on a fresh load: pick the project's agent once it is there
+// the project list arrives after the agents on a fresh load: pick the project's agents once it is there
 {const rs=refreshState;let once=false;refreshState=async(...a)=>{const r=await rs(...a);if(!once&&projects?.length){once=true;pickAgent()}return r}}
 void loadAgents();setInterval(()=>{if(!aqAgents.length)void loadAgents()},30000);
 // inside aqeelOS the approval levels carry aqeelOS's names
@@ -571,7 +587,7 @@ if(document.body.classList.contains('embed')){
  let menu=null,menuFor=null;const close=()=>{if(!menu)return;const m=menu;menu=null;menuFor?.setAttribute('aria-expanded','false');menuFor=null;m.classList.add('out');setTimeout(()=>m.remove(),140)};
  function openMenu(anchor,build,{search=false}={}){if(menuFor===anchor){close();return}close();const m=document.createElement('div');m.className='aq-menu';m.setAttribute('role','menu');const rows=[];
   const api={head:t=>{const h=document.createElement('div');h.className='mh';h.textContent=t;m.append(h)},sep:()=>m.append(document.createElement('hr')),
-   item:(label,{on=false,icon,lead,sub,run}={})=>{const b=document.createElement('button');b.type='button';b.className='item'+(on?' cur':'');b.setAttribute('role','menuitem');
+   item:(label,{on=false,icon,lead,sub,run,off=false}={})=>{const b=document.createElement('button');b.type='button';b.className='item'+(on?' cur':'')+(off?' off':'');b.setAttribute('role','menuitem');if(off){b.disabled=true;b.setAttribute('aria-disabled','true')}
     if(icon)b.insertAdjacentHTML('beforeend',svg(ICON[icon]).replace('<svg','<svg class="mi-ic"'));if(lead){const a=document.createElement('span');a.className='av';a.textContent=lead;b.append(a)}
     const s=document.createElement('span');s.className='t';s.textContent=label;if(sub){const x=document.createElement('small');x.className='mi-sub';x.textContent=sub;s.append(x)}b.append(s);if(on)b.insertAdjacentHTML('beforeend',svg(ICON.check).replace('<svg','<svg class="aq-check"'));
     b.addEventListener('click',()=>{close();run?.();anchor.focus()});m.append(b);rows.push(b)}};
@@ -602,10 +618,6 @@ if(document.body.classList.contains('embed')){
  const paintFolder=async()=>{const p=project();if(!p){folder.hidden=true;return}folder.hidden=false;folder.querySelector('span').textContent=p.name;try{const {path:fp}=await api('/folder?projectId='+p.id);folder.title2=fp;folder.title=fp}catch{}};
  const modeDd=$('mode').closest('.dd'),multiDd=$('multi').closest('.dd');multiDd?.setAttribute('hidden','');
  tools.replaceChildren(...[attach,secret,tool,mic,folder,multiDd].filter(Boolean));paintFolder();{const rs=refreshState;refreshState=async(...x)=>{const r=await rs(...x);paintFolder();return r}}{const sp=selectProject;selectProject=async(...a)=>{const r=await sp(...a);paintFolder();return r}}
- // the agent you work with, above the message (Use a tool › Work with an agent)
- const chip=document.createElement('div');chip.className='kind-chip agent-chip';chip.hidden=true;$('chat-prompt').before(chip);
- const paintChip=()=>{const v=$('agent-pick').value;chip.hidden=!v;if(!v)return;chip.replaceChildren();const a=document.createElement('span');a.className='av';a.textContent=($('agent-pick').selectedOptions[0]?.textContent||v).trim()[0].toUpperCase();const t=document.createElement('span');t.textContent='With '+($('agent-pick').selectedOptions[0]?.textContent||v);const x=document.createElement('button');x.type='button';x.textContent='×';x.title='Work without an agent';x.setAttribute('aria-label','Work without an agent');x.addEventListener('click',()=>{$('agent-pick').value='';$('agent-pick').dispatchEvent(new Event('change'))});chip.append(a,t,x)};
- $('agent-pick').addEventListener('change',()=>{paintChip();share()});new MutationObserver(paintChip).observe($('agent-pick'),{childList:true});paintChip();
  // ── right: mode (Ask me), One model / Team, model, usage, effort ──
  for(const [v,t,d] of [['ask','Ask me','Approve each command and file change.'],['auto','Smart','Edits and commands inside the project run; anything outside asks you.'],['full','Allow all','No prompts and no sandbox. Only for trusted tasks.']]){const o=modeDd?.querySelector('select')?.querySelector('option[value="'+v+'"]');if(o){o.textContent=t;o.dataset.desc=d}}
  const team=document.createElement('button');team.type='button';team.className='aq-pill aq-team';team.setAttribute('aria-haspopup','menu');
@@ -615,7 +627,7 @@ if(document.body.classList.contains('embed')){
  // who does what in a Team, in plain words (shown only when Team is on)
  const teamRow=document.createElement('div');teamRow.className='team-row';teamRow.hidden=true;
  const selFrom=(label,opts,val)=>{const l=document.createElement('label');l.className='team-role';const s=document.createElement('select');s.dataset.dd='pill';s.setAttribute('aria-label',label);for(const [v,t] of opts)s.append(new Option(t,v));s.value=val;l.append(Object.assign(document.createElement('span'),{textContent:label}),s);return [l,s]};
- const modelOpts=()=>[...$('model-name').querySelectorAll('option')].map(o=>{const prov=o.value.split(':')[0];return [o.value,pretty(prov,o.textContent)+' · '+(PROV[prov]||prov)]});
+ const modelOpts=()=>[...$('model-name').querySelectorAll('option')].filter(o=>!o.disabled&&/^(claude|codex|gemini):/.test(o.value)).map(o=>{const prov=o.value.split(':')[0];return [o.value,$('model-name').querySelector('optgroup')?.label==='Models'?o.textContent:pretty(prov,o.textContent)+' · '+(PROV[prov]||prov)]});   // a Team builds on Claude Code or Codex
  let buildSel,imgSel;const paintTeamRow=()=>{teamRow.replaceChildren();const plans=document.createElement('span');plans.className='team-role';plans.innerHTML='<span>Plans</span><b></b>';plans.querySelector('b').textContent=pillText();
   const opts=modelOpts();const cur=$('model-name').value;const other=opts.find(o=>o[0].split(':')[0]!==cur.split(':')[0])||opts.find(o=>o[0]!==cur)||opts[0];
   let b;[b,buildSel]=selFrom('Builds',opts,(buildSel&&opts.some(o=>o[0]===buildSel.value))?buildSel.value:other?.[0]);
@@ -635,6 +647,8 @@ if(document.body.classList.contains('embed')){
  const fresh=pill.cloneNode(false);pill.replaceWith?.(fresh);const P=fresh;Object.defineProperty(window,'__aqPill',{value:P,configurable:true});
  const paint=()=>{P.innerHTML='<span></span><svg class="aq-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';P.firstChild.textContent=pillText();if($('multi').value==='team')paintTeamRow()};
  P.addEventListener('click',e=>{e.stopPropagation();openMenu(P,m=>{const groups=[...$('model-name').querySelectorAll('optgroup')];let first=true;
+  // one model list (aqeelOS's, for the first attached agent): names as aqeelOS gives them; one this copy cannot run says why
+  if(groups.length===1&&groups[0].label==='Models'){for(const o of groups[0].querySelectorAll('option'))m.item(o.textContent,{icon:'cpu',on:o.value===$('model-name').value,off:o.disabled,sub:o.disabled?o.dataset.desc:'',run:()=>{$('model-name').value=o.value;$('model-name').dispatchEvent(new Event('change'))}});m.sep();m.item('Models and accounts are set in aqeelOS › Models',{icon:'cpu',off:true});return}
   for(const g of groups){const prov=(g.querySelector('option')?.value||'').split(':')[0];for(const o of g.querySelectorAll('option')){const name=pretty(prov,o.textContent);
     m.item(name==='Default'?'Default · '+(PROV[prov]||prov):name+' · '+(PROV[prov]||prov),{icon:'cpu',on:o.value===$('model-name').value,run:()=>{$('model-name').value=o.value;$('model-name').dispatchEvent(new Event('change'))}})}
    if(first){first=false}}
