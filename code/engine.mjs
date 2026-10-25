@@ -2,7 +2,8 @@
 // turn like a chat message (the agent's model and account, the Models page's priority list and auto-switch, any
 // provider, the agent's own tools) in the project's folder on the box, and streams the engine's events, which are
 // turned here into the same timeline the CLI engines give (agent.mjs): message, thinking, command, file, tool,
-// approval, error. Stop and approvals go back to aqeelOS by the handle it sends first.
+// approval, error. Stop and approvals go back to aqeelOS by the handle it sends first. Plan only (25 Oct 2026): aqeelOS
+// runs the turn in a read-only copy of the project, and anything it asks to run is refused here.
 import {readFile} from 'node:fs/promises';
 
 // a tool call as Code shows it: a command, a file change, or another tool
@@ -26,7 +27,8 @@ export function runEngine(run,{aqeelos,act,path:dir,prompt,session,onSession}){r
  run.stop=async()=>{run.stopped=true;run.denyAll();if(handle)await aqeelos.engine('stop',{handle},act).catch(()=>{});setTimeout(()=>finish('stopped'),15000).unref?.()};
  const say=t=>{if(!t)return;think=null;all+=t;if(!msg)msg=run.emit({type:'message',text:'',final:false});run.update(msg,{text:msg.text+t})};
  const on=e=>{switch(e.type){
-  case 'aqeelos.code':handle=e.handle;if(e.session)onSession?.(e.session);run.engineInfo={agent:e.agent,agentName:e.agentName,provider:e.provider,model:e.model,account:e.account};if(e.account)run.account=e.account+' (aqeelOS Models)';break;
+  case 'aqeelos.code':handle=e.handle;if(e.session&&!e.plan)onSession?.(e.session);   // a Plan only turn has a chat of its own (in the read-only copy): the next turn goes on in the real one
+  run.engineInfo={agent:e.agent,agentName:e.agentName,provider:e.provider,model:e.model,account:e.account};if(e.account)run.account=e.account+' (aqeelOS Models)';break;
   case 'run.started':if(e.runtime?.model)run.actualModel=e.runtime.model;if(e.runtime?.provider)run.engineInfo={...run.engineInfo,provider:e.runtime.provider};break;
   case 'assistant.delta':say(e.delta||e.text||'');break;
   case 'assistant.commentary':if(!e.already_streamed&&e.text)say((msg?.text?'\n\n':'')+e.text);break;
@@ -35,7 +37,7 @@ export function runEngine(run,{aqeelos,act,path:dir,prompt,session,onSession}){r
   case 'tool.started':{if(msg){run.update(msg,{final:false});msg=null}think=null;const n=String(e.tool_name||'tool'),a=e.args||{};
    const ev=COMMAND.test(n)?run.emit({type:'command',command:String(a.command||a.cmd||e.preview||''),status:'running',output:''})
     :FILE.test(n)?run.emit({type:'file',paths:[String(a.path||a.file_path||a.file||e.preview||'')].filter(Boolean),status:'running'})
-    :run.emit({type:'tool',name:n.replace(/^mcp_/,'').replace(/_/g,' '),detail:String(e.preview||JSON.stringify(a)).slice(0,300),status:'running'});
+    :run.emit({type:'tool',name:n.replace(/^mcp_/,'').replace(/_/g,' '),detail:String(/code_ask_agent/.test(n)?JSON.stringify(a):e.preview||JSON.stringify(a)).slice(0,300),status:'running'});
    steps.push({ev,name:n});break}
   case 'tool.completed':case 'tool.failed':{const i=steps.map(s=>s.name===e.tool_name).lastIndexOf(true),s=steps.splice(i>=0?i:steps.length-1,1)[0];if(!s)break;
    run.update(s.ev,{status:e.type==='tool.failed'?'failed':'completed',...(s.ev.type==='command'?{output:clip(outText(e.result??e.output))}:{})});break}
@@ -43,6 +45,8 @@ export function runEngine(run,{aqeelos,act,path:dir,prompt,session,onSession}){r
    const answer=d=>{const c=CHOICE[d]||'deny';aqeelos.engine('approval',{handle,choice:choices.includes(c)?c:c==='session'?'once':c,...(rid?{request_id:rid}:{})},act).catch(er=>run.emit({type:'error',text:'The answer did not reach the engine: '+er.message}))};
    // Full access: no prompts (blocked commands stay blocked on the engine), as Allow all in the chat
    if(run.mode==='full'){answer('acceptForSession');break}
+   // Plan only: anything the engine asks to run is refused (it works in a read-only copy anyway)
+   if(run.mode==='plan'){answer('decline');run.emit({type:'tool',name:'Refused in Plan only',detail:String(e.command||e.description||'(command)').slice(0,300),status:'failed'});break}
    const ev=run.ask('command',e.title||e.description||e.reason||'Allow this command?',String(e.command||e.description||'(command)'),answer);const pe=run.pending.get(ev.key);if(pe)pe.rid=rid||'';break}
   // only the approval that was answered (by request id; none given: the engine has one at a time, so every open one)
   case 'approval.responded':for(const [k,p] of run.pending)if(!p.question&&(!e.request_id||!p.rid||p.rid===e.request_id)){run.pending.delete(k);run.update(p.event,{status:e.choice==='deny'?'denied':'approved'})}if(!run.pending.size&&run.state==='waiting')run.state='running';break;
@@ -51,7 +55,7 @@ export function runEngine(run,{aqeelos,act,path:dir,prompt,session,onSession}){r
   case 'run.failed':failure=String(e.error?.message||e.error||'The engine stopped with an error.');finish(run.stopped?'stopped':'failed',run.stopped?null:failure);break;
   case 'run.cancelled':case 'run.interrupted':finish('stopped');break}};
  try{const images=[];for(const i of run.images||[])images.push('data:'+i.type+';base64,'+(await readFile(i.path)).toString('base64'));
-  const r=await aqeelos.engineRun({agent:run.agent||'',provider:run.engineProvider||'',model:run.engineModel||'',effort:run.effort||'',path:dir,session:session||'',prompt,images},act,ctl.signal);
+  const r=await aqeelos.engineRun({agent:run.agent||'',agents:(run.agentList||[]).map(a=>a.id),plan:run.mode==='plan',provider:run.engineProvider||'',model:run.engineModel||'',effort:run.effort||'',path:dir,session:session||'',prompt,images},act,ctl.signal);
   await readSSE(r.body,e=>{try{on(e)}catch(er){console.warn('engine event',e.type,er.message)}});
   finish(run.stopped?'stopped':completed?'complete':'failed',failure||'The engine stopped before finishing this turn.')}
  catch(e){finish(run.stopped?'stopped':'failed',e.name==='AbortError'?null:e.message)}})}

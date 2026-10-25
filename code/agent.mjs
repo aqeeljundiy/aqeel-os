@@ -42,7 +42,10 @@ const MAX_EVENTS=600,MAX_OUTPUT=20000;
 
 export class AgentRun{
  constructor(job){Object.assign(this,job);this.id=randomUUID();this.usage={calls:0,input:0,cachedInput:0,cacheWrite:0,output:0,reasoning:0,models:{}};this.state='running';this.events=[];this.seq=0;this.pending=new Map();this.startedAt=Date.now()}
- emit(event){event.seq=++this.seq;event.key=event.seq;event.time=Date.now();this.events.push(event);if(this.events.length>MAX_EVENTS)this.events.splice(0,this.events.length-MAX_EVENTS);return event}
+ // an ask to an attached aqeelOS agent shows as one plain step: "Asked Donna", with what was asked
+ emit(event){if(event.type==='tool'&&/aqeelos[_ ]ask|code[_ ]ask[_ ]agent/.test(event.name||'')){const d=String(event.detail||''),id=(/"agent"\s*:\s*"([\w-]+)"/.exec(d)||[])[1]||'',task=(/"task"\s*:\s*"((?:[^"\\]|\\.)*)/.exec(d)||[])[1]||'';
+  event.name='Asked '+((this.agentList||[]).find(a=>a.id===id)?.name||id||'an agent');event.detail=task.replace(/\\n/g,' ').replace(/\\"/g,'"').slice(0,240)}
+  event.seq=++this.seq;event.key=event.seq;event.time=Date.now();this.events.push(event);if(this.events.length>MAX_EVENTS)this.events.splice(0,this.events.length-MAX_EVENTS);return event}
  update(event,patch){Object.assign(event,patch);event.seq=++this.seq}
  since(after){return this.events.filter(e=>e.seq>after)}
  view(after=0){return {id:this.id,projectId:this.projectId,chatId:this.chatId,provider:this.provider,team:this.team||null,draft:Boolean(this.cwd),model:this.model,effort:this.effort,account:this.account,accountNote:this.accountNote||'',agent:this.agent||'',engine:this.engineInfo||null,actualModel:this.actualModel||'',state:this.state,error:this.error||null,warning:this.warning||null,seq:this.seq,events:this.since(after)}}

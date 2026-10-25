@@ -42,6 +42,14 @@ export function createAqeelos({root}){
  async function agents(act){await load();if(!link.token)return [];const k=who(act),hit=agentsBy.get(k);if(hit&&Date.now()-hit.t<60000)return hit.v;let list=hit?.v||[];
   try{const r=await fetch(link.base+'/ui/code/agents',{headers:H(act),signal:AbortSignal.timeout(15000)});const j=await r.json().catch(()=>({}));if(r.status===401){link={};await writeFile(FILE,'{}').catch(()=>{});agentsBy.clear();return []}   // aqeelOS no longer knows this key: unpaired, so the page pairs it again
   if(r.ok){list=(j.agents||[]).map(a=>({id:String(a.id),name:String(a.name||a.id),apps:a.apps||[],google:a.google||0}));agentsBy.set(k,{t:Date.now(),v:list})}}catch{}return list}
+ // the attached agents' introductions for a run (what each is for, its apps and skills by name, a short digest of its
+ // work notes for an agent the person owns), kept a minute per person and list
+ const introsBy=new Map();
+ async function intros(ids,act){await load();if(!link.token||!ids?.length)return [];const k=who(act)+'|'+ids.join(','),hit=introsBy.get(k);if(hit&&Date.now()-hit.t<60000)return hit.v;
+  try{const r=await fetch(link.base+'/ui/code/agents?intro=1&ids='+encodeURIComponent(ids.join(',')),{headers:H(act),signal:AbortSignal.timeout(20000)});if(!r.ok)return [];const v=((await r.json()).agents||[]);introsBy.set(k,{t:Date.now(),v});if(introsBy.size>200)introsBy.delete(introsBy.keys().next().value);return v}catch{return []}}
+ // the ticket for one run: aqeelOS signs which agents it may ask (aqeelos_ask asks only those)
+ async function ticket(agents,project,act){await load();if(!link.token||!agents?.length)return null;const r=await fetch(link.base+'/ui/code/run-ticket',{method:'POST',headers:H(act,{'content-type':'application/json'}),body:JSON.stringify({agents,project}),signal:AbortSignal.timeout(20000)});
+  const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'aqeelOS did not accept the attached agents ('+r.status+').');return j}
  // an agent's account and models from aqeelOS › Models (null: not paired, or aqeelOS did not answer). Kept 5 s only, so
  // an account switch there (by hand or automatic) reaches the next run; per person and agent (the answer is that person's)
  const routes=new Map();
@@ -58,8 +66,9 @@ export function createAqeelos({root}){
  async function engine(what,body,act){await load();const r=await fetch(link.base+'/ui/code/engine/'+what,{method:'POST',headers:H(act,{'content-type':'application/json'}),body:JSON.stringify(body),signal:AbortSignal.timeout(25000)});
   const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'aqeelOS answered '+r.status);return j}
  async function unpair(){link={};await writeFile(FILE,'{}').catch(()=>{});return state()}
- // every run gets the aqeelOS tools when this computer is paired
- async function mcp(run){await load();if(!link.token)return null;return {name:'aqeelos',command:process.execPath,args:[path.join(root,'aqeelos-mcp.mjs')],env:{...(process.versions.electron?{ELECTRON_RUN_AS_NODE:'1'}:{}),AQ_BASE:link.base,AQ_TOKEN:link.token,AQ_PROJECT:String(run?.projectId||''),AQ_AGENT:String(run?.agent||''),...(run?.act?{AQ_ACT:freshAct(run.act)||run.act,AQ_ACT_FILE:actFile(run.act)}:{})}}}
+ // a run with attached agents gets the aqeelOS tools when this computer is paired: the agents (ids and names), the run's
+ // ticket, and the project folder the answers' files are saved in (none in Plan only)
+ async function mcp(run){await load();if(!link.token||!run?.ticket)return null;return {name:'aqeelos',command:process.execPath,args:[path.join(root,'aqeelos-mcp.mjs')],env:{...(process.versions.electron?{ELECTRON_RUN_AS_NODE:'1'}:{}),AQ_BASE:link.base,AQ_TOKEN:link.token,AQ_PROJECT:String(run?.projectId||''),AQ_AGENTS:JSON.stringify(run.agentList||[]),AQ_TICKET:String(run.ticket),AQ_DIR:String(run.projectDir||''),AQ_PLAN:run.mode==='plan'?'1':'',...(run?.act?{AQ_ACT:freshAct(run.act)||run.act,AQ_ACT_FILE:actFile(run.act)}:{})}}}
  // ask aqeelOS every ~25 s for browser jobs for this computer (an agent's computer_browser). Code is one-way
  // (25 Oct 2026): agents never change Code projects, so this computer reports no projects and takes no project work.
  let serving=false;function serve({work}){if(serving||process.env.NODE_TEST_CONTEXT)return;serving=true;const wait=ms=>new Promise(r=>setTimeout(r,ms).unref?.());
@@ -100,7 +109,7 @@ export function createAqeelos({root}){
   const r=await fetch(link.base+'/ui/code/publish?'+q,{method:'POST',headers:H(act,{'content-type':'application/zip'}),body:zip,signal:AbortSignal.timeout(600000)});
   const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'aqeelOS did not take it ('+r.status+').');return j}
  async function report(r){await load();if(!link.token)return;await fetch(link.base+'/ui/code/report',{method:'POST',headers:{authorization:'Bearer '+link.token,'content-type':'application/json'},body:JSON.stringify({...r,version:install.version||'dev'}),signal:AbortSignal.timeout(15000)}).catch(()=>{})}
- return {origins,state,pair,unpair,mcp,agents,noteAct,freshAct,anyAct,agentModel,engineRun,engine,serve,checkUpdate,autoUpdate,reportUsage,people,publish,report}}
+ return {origins,state,pair,unpair,mcp,agents,intros,ticket,noteAct,freshAct,anyAct,agentModel,engineRun,engine,serve,checkUpdate,autoUpdate,reportUsage,people,publish,report}}
 // the entries of a stored (uncompressed) zip, as aqeelOS makes them
 function unzip(buf){const out=[];let i=0;while(i+30<=buf.length&&buf.readUInt32LE(i)===0x04034b50){const size=buf.readUInt32LE(i+18),nl=buf.readUInt16LE(i+26),xl=buf.readUInt16LE(i+28);
   const name=buf.slice(i+30,i+30+nl).toString();const start=i+30+nl+xl;out.push([name,buf.slice(start,start+size)]);i=start+size}return out}
