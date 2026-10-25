@@ -97,7 +97,8 @@ export function createAutomationGuard({DATA,HERMES_HOME,LIVE,listAgents,readConf
  const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const FILE=path.join(DATA,'automation-guard.json');let db=null;
  const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}for(const k of ['offsets','servers','jobs','venvs','told'])db[k]||={};db.digest||=[]}return db};
- const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)};
+ // fixes run side by side (one per agent), so writes take turns
+ let saving=Promise.resolve();const save=()=>saving=saving.then(async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)}).catch(e=>console.warn('automations: saving',e.message));
  const key=(a,s)=>a+'|'+s;
  const rec=(a,s)=>db.servers[key(a,s)]||=({agent:a,name:s,state:'ok'});
  const say=async(k,text,o={})=>{if(!shouldTell(db.told,k,Date.now(),o.every))return;db.told[k]=Date.now();console.log('automations:',text,o.detail?'('+o.detail.slice(0,160)+')':'');
@@ -233,25 +234,26 @@ export function createAutomationGuard({DATA,HERMES_HOME,LIVE,listAgents,readConf
   await say('fixed|'+key(a,s)+'|'+r.repairedAt,nameOf(a)+': the tool server "'+s+'" works again',{detail:'aqeelOS '+steps.join(', ')+'. '+(why?'It had: '+why+'. ':'')+'The engine’s Test passes ('+t2.tools+' tools).',every:Infinity});
   return {ok:true,steps,tools:t2.tools}})}
  async function fail(a,s,why,steps){const r=rec(a,s);r.state=r.state==='ok'?'broken':r.state;r.failedAt=Date.now();r.failWhy=why;await save();
-  await say('srv|'+key(a,s)+'|failed',nameOf(a)+': the tool server "'+s+'" is broken and the automatic fix did not work',{detail:why+(steps.length?' (done so far: '+steps.join(', ')+')':'')+'. Open System › Health to try again.',whatsapp:true,every:6*3600e3});
+  await say('srv|'+key(a,s)+'|failed',nameOf(a)+': the tool server "'+s+'" is broken and the automatic fix did not work',{detail:String(why).replace(/\.$/,'')+(steps.length?' (done so far: '+steps.join(', ')+')':'')+'. Open System › Health to try again.',whatsapp:true,every:6*3600e3});
   return {ok:false,why,steps}}
  // a Python environment that no tool server names (the PDF tool's): rebuilt, nothing to reconnect
  async function repairVenv(dir){const x=db.venvs[dir]||={};const now=Date.now();if(!mayTry(x,now))return {ok:false,wait:true};x.lastTry=now;await save();await quiet();
   const b=await rebuildVenv(dir);if(b.ok){if(!b.already){db.digest.push({at:Date.now(),text:'rebuilt '+dir});await save();await say('venv|'+dir+'|fixed|'+Date.now(),'The Python environment '+path.basename(dir)+' was built again',{detail:dir+' pointed at a Python the engine removed. It now uses the engine’s current Python with the same '+b.packages+' packages; the old one is kept as '+path.basename(b.old)+'.',every:Infinity})}return b}
-  x.failWhy=b.why;await save();await say('venv|'+dir+'|failed','The Python environment '+path.basename(dir)+' is broken and could not be built again',{detail:b.why+'. Open System › Health to try again.',whatsapp:true});return b}
+  x.failWhy=b.why;await save();await say('venv|'+dir+'|failed','The Python environment '+path.basename(dir)+' is broken and could not be built again',{detail:String(b.why).replace(/\.$/,'')+'. Open System › Health to try again.',whatsapp:true});return b}
 
  /* ---------- the passes ---------- */
  async function fixPass(){const now=Date.now();const out=[];
   for(const r of Object.values(db.servers)){const st=nextStep(r,now,{stdio:!!r.stdio});
    if(st==='signin'){await say('srv|'+key(r.agent,r.name)+'|signin',nameOf(r.agent)+': "'+r.name+'" needs someone to sign in',{detail:'Its tools stay off until then: '+(r.reason||'').slice(0,160)+'. Sign in under Bottlenecks or System › Health. aqeelOS will not retry it by itself.',every:Infinity});continue}
    if(st!=='repair')continue;
-   await say('srv|'+key(r.agent,r.name)+'|found|'+(r.since||0),nameOf(r.agent)+': the tool server "'+r.name+'" '+(r.state==='broken'?'is broken':r.state==='missing'?'is missing its tools':'stopped connecting'),{detail:(r.reason||'')+'. aqeelOS is fixing it.',every:Infinity});
+   await say('srv|'+key(r.agent,r.name)+'|found|'+(r.since||0),nameOf(r.agent)+': the tool server "'+r.name+'" '+(r.state==='broken'?'is broken':r.state==='missing'?'is missing its tools':'stopped connecting'),{detail:String(r.reason||'').replace(/\.$/,'')+'. aqeelOS is fixing it.',every:Infinity});
    out.push(repair(r.agent,r.name,{why:r.reason}).catch(e=>({ok:false,why:e.message})))}
   for(const [dir,v] of Object.entries(db.venvs))if(v.state==='broken'&&!Object.values(db.servers).some(r=>r.venvs?.includes(dir))&&mayTry(v,now))out.push(repairVenv(dir).catch(e=>({ok:false,why:e.message})));
   return Promise.all(out)}
+ // the fixes of earlier days, once a day in the daytime (today's wait for tomorrow)
  async function digest(){if(!db.digest.length)return;const now=Date.now(),tz=await zone(),day=localDate(now,tz);if(db.digestDay===day||!isDaytime(now,tz))return;
-  const l=db.digest.splice(0);db.digestDay=day;await save();
-  if(LIVE&&!readOnly)await tell('aqeelOS fixed '+l.length+' automation'+(l.length>1?'s':'')+' by itself since yesterday: '+l.map(x=>x.text).join('; ')+'. Everything is working again.',{bell:false,whatsapp:true}).catch(e=>console.warn('automations: day summary',e.message))}
+  const l=db.digest.filter(x=>localDate(x.at,tz)<day);if(!l.length)return;db.digest=db.digest.filter(x=>!l.includes(x));db.digestDay=day;await save();
+  if(LIVE&&!readOnly)await tell('Yesterday aqeelOS fixed '+l.length+' automation'+(l.length>1?'s':'')+' by itself: '+l.map(x=>x.text).join('; ')+'. Everything is working again.',{bell:false,whatsapp:true}).catch(e=>console.warn('automations: day summary',e.message))}
  let ticking=null;
  // a look (and, live, the fixes): logs and replies every time, programs and environments every 15 min
  function tick({fix=true,deep=false}={}){if(ticking)return ticking;ticking=(async()=>{await load();await scanLogs();await scanJobs();if(deep||Date.now()-(db.staticAt||0)>=15*60e3)await staticCheck();db.at=Date.now();await save();
@@ -268,7 +270,7 @@ export function createAutomationGuard({DATA,HERMES_HOME,LIVE,listAgents,readConf
    if(!bad&&c.command){const t=await test(a,s);if(!t.ok){if(AUTHY.test(t.why)){signin.push(k);continue}bad=true;r.reason=t.why;if(r.state==='ok'){r.state='broken';r.since=Date.now()}}}
    if(!bad)continue;
    if(fix&&!readOnly){const x=await repair(a,s,{force:true,why:why||r.reason});if(x.ok){fixed.push(nameOf(a)+' '+s);continue}if(x.signin){signin.push(k);continue}}
-   if(!was.has(k))probs.push(nameOf(a)+': tool server '+s+' '+(r.failWhy||r.reason||'does not work'))}
+   if(!was.has(k))probs.push(nameOf(a)+': tool server '+s+': '+(r.failWhy||r.reason||'it does not work'))}
   for(const [dir,v] of Object.entries(db.venvs)){if(v.state!=='broken')continue;if(fix&&!readOnly){const b=await repairVenv(dir);if(b.ok){fixed.push(dir);continue}}if(!was.has('venv|'+dir))probs.push('the Python environment '+dir+' points at a Python that is gone')}
   await save();return {problems:probs,fixed,signin}}
  // before an engine update: every tool server that runs as a program and the Pythons it starts, and what is already broken
@@ -283,9 +285,10 @@ export function createAutomationGuard({DATA,HERMES_HOME,LIVE,listAgents,readConf
   for(const a of await listAgents()){const cfg=await servers(a);const sv=[];for(const [s,c] of Object.entries(cfg)){if(!enabled(c))continue;const r=db.servers[key(a,s)]||{state:'ok'};
     const state=r.state==='signin'?'signin':r.state==='ok'?(r.repairedAt&&now-r.repairedAt<24*3600e3?'repaired':'ok'):r.state==='failing'||r.state==='probing'?(nextStep(r,now,{stdio:!!c.command})==='none'?'ok':'broken'):'broken';
     sv.push({name:s,state:fixing.has(key(a,s))?'fixing':state,repairedAt:r.repairedAt||null,fixed:r.fixed||'',reason:state==='broken'?(r.failWhy||r.reason||''):state==='signin'?r.reason||'':'',program:!!c.command})}
-   const jobs=Object.values(db.jobs).filter(j=>j.agent===a&&j.fail&&now-j.at<24*3600e3).map(j=>({id:j.id,name:j.name,at:j.at,reason:j.reason,servers:j.servers,offer:now-j.at<6*3600e3&&(!!j.offer||j.servers.length>0&&j.servers.every(s=>{const r=db.servers[key(a,s)];return !r||r.state==='ok'&&Math.max(r.repairedAt||0,r.okAt||0)>j.at}))}));
+   const jobs=Object.values(db.jobs).filter(j=>j.agent===a&&j.fail&&now-j.at<24*3600e3).map(j=>({id:j.id,name:j.name,at:j.at,reason:j.reason,servers:j.servers,offer:!j.ranAt&&now-j.at<6*3600e3&&(!!j.offer||j.servers.length>0&&j.servers.every(s=>{const r=db.servers[key(a,s)];return !r||r.state==='ok'&&Math.max(r.repairedAt||0,r.okAt||0)>j.at}))}));
    if(sv.length||jobs.length)agents.push({agent:a,name:nameOf(a),servers:sv,jobs})}
-  const venvs=Object.entries(db.venvs).filter(([,v])=>v.state==='broken'||v.rebuiltAt&&now-v.rebuiltAt<24*3600e3).map(([dir,v])=>({dir,state:fixing.has(key('default',dir))?'fixing':v.state==='broken'?'broken':'repaired',at:v.rebuiltAt||null,why:v.failWhy||''}));
+  const used=new Set(Object.values(db.servers).flatMap(r=>r.venvs||[]));
+  const venvs=Object.entries(db.venvs).filter(([d,v])=>!used.has(d)&&(v.state==='broken'||v.rebuiltAt&&now-v.rebuiltAt<24*3600e3)).map(([dir,v])=>({dir,state:fixing.has(key('default',dir))?'fixing':v.state==='broken'?'broken':'repaired',at:v.rebuiltAt||null,why:v.failWhy||''}));
   return {at:db.at||null,agents,venvs}}
  // "Run now" for a schedule that failed because of a tool server: the engine's own run-now
  async function runJob(a,id){await load();const j=db.jobs[key(a,id)];const r=await dash('POST','/api/cron/jobs/'+encodeURIComponent(id)+'/trigger'+q(a),{});if(!r.ok)throw new Error(String(r.j?.detail||'The engine did not start it ('+r.status+')'));if(j){j.offer=false;j.ranAt=Date.now();await save()}return {ok:true}}
