@@ -794,7 +794,9 @@ async function waSettingsPending(agent){try{
  // rest (WHATSAPP_DM_POLICY and the like) are read by the engine, not handed to the bridge, so they never wait on it
  const envi=await readFile('/proc/'+info.pid+'/environ','utf8').catch(()=>null);
  if(envi){const run={};for(const kv of envi.split('\0')){const i=kv.indexOf('=');if(i>0&&kv.startsWith('WHATSAPP_'))run[kv.slice(0,i)]=kv.slice(i+1)}
-  if(Object.keys(run).length)return Object.entries(now).some(([k,v])=>k in run&&run[k]!==v)}
+  // a list (allowed users, group lists) is the same list in another order or spacing: the engine reorders it when it starts the bridge
+  const same=(a,b)=>{const n=x=>String(x).split(/[,;\s]+/).map(y=>y.trim()).filter(Boolean).sort().join(',');return a===b||n(a)===n(b)};
+  if(Object.keys(run).length)return Object.entries(now).some(([k,v])=>k in run&&!same(run[k],v))}
  const hash=createHash('sha1').update(Object.keys(now).sort().map(k=>k+'='+now[k]).join('\n')).digest('hex');
  bridgeEnv||=await readFile(BRIDGE_ENV,'utf8').then(JSON.parse).catch(()=>({}));const s=bridgeEnv[agent];
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(BRIDGE_ENV+'.tmp',JSON.stringify(bridgeEnv));await rename(BRIDGE_ENV+'.tmp',BRIDGE_ENV)};
