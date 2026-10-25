@@ -2047,3 +2047,29 @@ span.ag-ava.ini.ava-in{animation:avaIn .26s var(--ease) both}
 .help-set-row:first-child{border-top:0;padding-top:4px}.help-set-row b{font-size:14px;font-weight:600}.help-set-row .hint{margin:2px 0 0}
 .help-set-row .sel-btn{width:auto;min-width:220px;max-width:100%}
 @media (max-width:560px){.help-set-row .sel-btn{width:100%;min-width:0}.help-notice{border-radius:var(--r-md)}}
+/* Connect a model account (connect.js, 25 Oct): one dialog, each step eases in; the list, the two ways, the sign-in steps */
+.drawer.cx .drawer-body{min-height:120px}
+.cx-step{animation:viewIn var(--t-med) var(--ease) both}
+.cx-q{position:relative;margin:4px 0 10px}.cx-q input{padding-left:38px}.cx-q svg{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--muted)}
+.cx-list{display:flex;flex-direction:column;gap:2px;max-height:min(52vh,460px);overflow-y:auto;margin:0 -8px;padding:0 8px}
+.cx-row{display:flex;align-items:center;gap:12px;width:100%;min-height:56px;padding:8px 10px;border:0;border-radius:var(--r-md);background:none;color:var(--ink);text-align:left;font:inherit;cursor:pointer;animation:rise var(--t-med) var(--ease) both;transition:background var(--t-fast,.15s) var(--ease)}
+.cx-row:hover,.cx-row:focus-visible{background:var(--soft)}.cx-row[hidden]{display:none}
+.cx-row .logo{width:36px;height:36px;border-radius:10px;flex:none;display:grid;place-items:center;font-weight:700}
+.cx-row .txt{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.cx-row .txt b{font-size:14px;font-weight:600}.cx-row .txt small{font-size:12.5px;color:var(--muted)}
+.cx-row .txt .chip{font-size:11px;padding:1px 8px;margin-left:6px;vertical-align:1px}.cx-row>svg{color:var(--muted);flex:none}
+.cx-one{margin:12px 0 0;font-size:12.5px}
+.cx-ways{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:520px){.cx-ways{grid-template-columns:1fr}}
+.cx-opt{display:flex;flex-direction:column;align-items:flex-start;gap:6px;min-height:132px;padding:18px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface);color:var(--ink);text-align:left;font:inherit;cursor:pointer;transition:border-color var(--t-fast,.15s) var(--ease),box-shadow var(--t-fast,.15s) var(--ease),transform var(--t-fast,.15s) var(--ease)}
+.cx-opt:hover,.cx-opt:focus-visible{border-color:var(--blue);box-shadow:0 2px 10px rgba(11,12,16,.06)}.cx-opt:active{transform:scale(.99)}
+.cx-opt>svg{color:var(--blue)}.cx-opt b{font-size:15px}.cx-opt small{font-size:12.5px;color:var(--ink-2);line-height:1.45}.cx-have{font-size:12px;color:var(--muted);margin-top:auto}
+.cx-steps{list-style:none;counter-reset:cx;margin:4px 0 6px;padding:0;display:flex;flex-direction:column;gap:14px}
+.cx-steps li{counter-increment:cx;position:relative;padding-left:38px;display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+.cx-steps li::before{content:counter(cx);position:absolute;left:0;top:-1px;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:var(--soft);color:var(--ink-2);font-size:13px;font-weight:600}
+.cx-steps li b{font-size:14px}.cx-steps li span{font-size:13px;color:var(--ink-2);line-height:1.5}.cx-steps li input{width:100%}.cx-steps .oauth-code{margin:2px 0;align-self:stretch}
+.cx-open{display:inline-flex;align-items:center;gap:8px;text-decoration:none;padding:8px 16px;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--ink);font-weight:600;font-size:13.5px}
+.cx-open:hover{border-color:var(--blue)}
+.cx-st{min-height:1.4em;margin:10px 0 0}.cx-st.t-ok{color:var(--ok)}.cx-t{margin:2px 0 0;font-variant-numeric:tabular-nums}.cx-p{margin:0 0 12px;color:var(--ink-2);line-height:1.55}
+.cx-wait{display:flex;align-items:center;gap:8px;margin:18px 0}
+button.acct-more{font:inherit;cursor:pointer;width:100%;background:var(--surface)}
+@media (prefers-reduced-motion:reduce){.cx-step,.cx-row{animation:none}}

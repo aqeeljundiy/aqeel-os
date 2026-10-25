@@ -65,8 +65,10 @@ export function createConnect({HERMES_HOME,DASH,DASH_TOKEN,live=false}){
   const r=await test(slug,key);if(r.state==='rejected'||r.state==='error'||r.state==='unreachable')return {ok:false,...r};
   await dash('/env?profile=default',{method:'PUT',body:JSON.stringify({key:v,value:key,provider_setup:true})});keep('p:'+slug,r);
   return {ok:true,state:r.state,message:r.state==='untested'?'Saved. aqeelOS has no test for this provider yet, so it was not checked.':r.message,key:'p:'+slug}}
- async function remove(b){const slug=String(b.provider||'');if(b.custom){await dash('/providers/custom-endpoints/'+encodeURIComponent(slug)+'?profile=default',{method:'DELETE'});checks.delete('p:'+slug);return {ok:true}}
-  const v=await keyVar(slug);if(!v)throw new Error('The engine has no key for this provider.');await dash('/env?profile=default',{method:'DELETE',body:JSON.stringify({key:v})});checks.delete('p:'+slug);return {ok:true}}
+ // a provider's key, or one of your own endpoints (the account's slug is the endpoint's id)
+ async function remove(b){const slug=String(b.provider||'');if(!/^[\w.:@-]{1,120}$/.test(slug))throw new Error('Unknown account');const v=await keyVar(slug);
+  if(!v){const l=(await dash('/providers/custom-endpoints?profile=default')).endpoints||[];if(!l.some(e=>e.id===slug))throw new Error('The engine has no key for this account.');
+   await dash('/providers/custom-endpoints/'+encodeURIComponent(slug)+'?profile=default',{method:'DELETE'});checks.delete('p:'+slug);return {ok:true}}await dash('/env?profile=default',{method:'DELETE',body:JSON.stringify({key:v})});checks.delete('p:'+slug);return {ok:true}}
  // every saved key, the same test as before saving, one after another
  let checking=null;
  function checkAll(){return checking||=(async()=>{try{const env=await dash('/env?profile=default'),vals=await envFile(),done=new Set();
