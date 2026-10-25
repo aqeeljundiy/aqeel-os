@@ -7,6 +7,9 @@
 //   - After every update (the button too) the engine is checked: it is back, every channel that was connected is again,
 //     every profile_routes entry still reaches its agent (the engine's own matcher, under the main home and the
 //     agent's home: the 24 Oct problem), no new profile_mismatch or error spike in agent.log, and aqeelOS answers.
+//   - Every tool server that runs as a program still starts (the 24 Oct problem: an update removed the Python two of
+//     them were built on): the automations guard (automation-guard.mjs) checks each one and the Python it starts,
+//     rebuilds a broken environment and reconnects the server first; only what it cannot fix counts as a failed check.
 //     When a check fails, the engine goes back to the version it had (the update's receipt says which), the same way
 //     the engine's docs describe: stop, check out that version, prepare its dependencies, start.
 //   - The owner gets one message the next morning; every attempt is listed next to the setting.
@@ -62,7 +65,7 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const run=(cmd,args,{timeout=120000,env,cwd}={})=>new Promise(res=>execFile(cmd,args,{timeout,maxBuffer:16e6,env:env||process.env,cwd:cwd||homedir()},(e,o,er)=>res({ok:!e,code:e?(typeof e.code==='number'?e.code:-1):0,out:String(o||''),err:String(er||'')})));
 const lastLine=s=>String(s||'').trim().split('\n').filter(Boolean).pop()?.slice(0,200)||'';
 
-export function createEngineUpdates({DATA,HERMES_HOME,PORT,LIVE,dash,busy,readConfig,python,patches,restartGateway,stopGateway,resetForUpdate,tellOwner}){
+export function createEngineUpdates({guard=null,DATA,HERMES_HOME,PORT,LIVE,dash,busy,readConfig,python,patches,restartGateway,stopGateway,resetForUpdate,tellOwner}){
  const REPO=path.join(HERMES_HOME,'hermes-agent'),HERMES=process.env.HERMES_BIN||path.join(homedir(),'.local','bin','hermes');
  const git=(...a)=>run('git',['-C',REPO,...a]);
  const FILE=path.join(DATA,'engine-updates.json');let db=null,active=null;
@@ -120,13 +123,17 @@ export function createEngineUpdates({DATA,HERMES_HOME,PORT,LIVE,dash,busy,readCo
  const healthOk=async()=>{try{const r=await fetch('http://127.0.0.1:'+PORT+'/healthz',{signal:AbortSignal.timeout(10000)});return r.ok&&(await r.json()).ok===true}catch{return false}};
  // what is true just before an update: the self-check compares against it
  async function snapshot(){const now=Date.now(),st=await gwState();
-  return {at:now,sha:await head(),version:st.code_version||null,channels:connected(st),routes:await routeCheck(),log:R.countLog(await logText(),now-60*60e3,now)}}
+  return {at:now,sha:await head(),version:st.code_version||null,channels:connected(st),routes:await routeCheck(),log:R.countLog(await logText(),now-60*60e3,now),tools:guard?await guard.snapshot().catch(e=>({error:e.message})):null}}
  // the engine back, then every channel that was connected (up to 10 min), and at least 5 min of the new engine's log
  async function selfCheck(pre,since){let st={};
   for(let i=0;i<40;i++){st=await gwState();if(st.gateway_state==='running'&&alive(+st.pid)&&pre.channels.every(c=>st.platforms?.[c]?.state==='connected'))break;await sleep(15000)}
   const wait=since+5*60e3-Date.now();if(wait>0)await sleep(wait);st=await gwState();
   const after={gatewayUp:st.gateway_state==='running'&&alive(+st.pid),channels:Object.fromEntries(Object.entries(st.platforms||{}).map(([k,v])=>[k,v?.state])),routes:await routeCheck(),log:R.countLog(await logText(),since,Date.now()),healthOk:await healthOk()};
-  return R.verdict(pre,after)}
+  const v=R.verdict(pre,after);if(!guard)return v;
+  // tool servers: broken ones are fixed first (a Python environment built again, the server reconnected); what is still
+  // wrong and was fine before the update fails the check
+  step('checking tool servers');const g=await guard.fullCheck({repair:true,since,before:pre.tools,why:'after the engine update'}).catch(e=>({problems:['the tool server check could not run: '+e.message],fixed:[]}));
+  if(g.fixed?.length)v.fixed=g.fixed;if(g.problems?.length){v.ok=false;v.problems=[...v.problems,...g.problems]}return v}
  // the engine's record of its newest update run (started after `since`)
  async function receipt(since){const dir=path.join(HERMES_HOME,'logs','update_receipts');const f=(await readdir(dir).catch(()=>[])).filter(x=>/^update_.*\.json$/.test(x)).sort().pop();if(!f)return null;
   try{const r=JSON.parse(await readFile(path.join(dir,f),'utf8'));return Date.parse(r.started_at||'')>=since-120e3?r:null}catch{return null}}
@@ -153,7 +160,7 @@ export function createEngineUpdates({DATA,HERMES_HOME,PORT,LIVE,dash,busy,readCo
    return record({kind:'failed',trigger,from:pre.version,to:toV,reason:why})}
   const n=await patches();let since=Date.parse(rc?.finished_at||'')||Date.now();if(n){since=Date.now();await restartGateway('engine updated: aqeelOS wording applied again',{wait:false})}
   step('checking the engine');const check=await selfCheck(pre,since);
-  if(check.ok)return record({kind:'updated',trigger,from:pre.version,to:toV});
+  if(check.ok)return record({kind:'updated',trigger,from:pre.version,to:toV,...(check.fixed?{fixed:check.fixed}:{})});
   const plan=R.rollbackPlan({check,receipt:rc,head:h,knowsRuntime:await knowsRuntime(rc?.pre_update?.sha)});
   if(!plan.rollback)return record({kind:'check-failed',trigger,from:pre.version,to:toV,problems:check.problems,reason:plan.reason});
   try{const at=await rollback(plan.to);step('checking the engine again');const again=await selfCheck(pre,at);return record({kind:'rolled-back',trigger,from:plan.version,to:toV,problems:check.problems,after:again.problems})}

@@ -121,7 +121,7 @@ export function rollbackPlan({check,receipt,head,knowsRuntime}){
 
 // the one message for the owner the next morning
 export function ownerText(e,tz){const at=clock(e.at,tz),v=x=>x?'v'+String(x).replace(/^v/,''):'the new version';
- if(e.kind==='updated')return 'Updated the engine to '+v(e.to)+' at '+at+', all checks passed.';
+ if(e.kind==='updated')return 'Updated the engine to '+v(e.to)+' at '+at+', all checks passed.'+(e.fixed?.length?' Fixed by itself after it: '+e.fixed.join(', ')+'.':'');
  if(e.kind==='rolled-back')return 'Rolled back: '+(e.problems||[]).slice(0,3).join('; ')+'. The engine is on '+v(e.from)+' again'+(e.after?.length?', but some checks still fail: '+e.after.slice(0,2).join('; '):', and the checks pass')+'.';
  if(e.kind==='check-failed')return 'Updated the engine to '+v(e.to)+' at '+at+', but checks failed: '+(e.problems||[]).slice(0,3).join('; ')+'. Not rolled back: '+e.reason+'.';
  if(e.kind==='failed')return 'The engine update to '+v(e.to)+' did not finish: '+e.reason+'. The engine is still on '+v(e.from)+'.';

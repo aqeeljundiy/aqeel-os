@@ -275,15 +275,19 @@ export function createAutomationGuard({DATA,HERMES_HOME,LIVE,listAgents,readConf
  async function snapshot(){await load();await staticCheck();await save();const list=[];
   for(const r of Object.values(db.servers))if(r.stdio)list.push({agent:r.agent,name:r.name,interps:r.interps||[]});
   return {servers:list,bad:[...Object.values(db.servers).filter(r=>r.state!=='ok').map(r=>key(r.agent,r.name)),...Object.entries(db.venvs).filter(([,v])=>v.state==='broken').map(([d])=>'venv|'+d)]}}
+ // Fix now runs in the background (it can take minutes: the engine removes and adds the server on its own clock); the
+ // card shows "Fixing" until it is done
+ const fixing=new Set();
+ function startFix(a,s){const k=key(a,s);if(fixing.has(k))return {started:true};fixing.add(k);fixNow(a,s).catch(e=>({ok:false,why:e.message})).then(r=>{if(!r.ok)console.log('automations: Fix now',k,r.why||'');}).finally(()=>fixing.delete(k));return {started:true}}
  async function status(){await load();if(!LIVE&&Date.now()-(db.at||0)>2*60e3)await tick({fix:false}).catch(()=>{});const agents=[],now=Date.now();
   for(const a of await listAgents()){const cfg=await servers(a);const sv=[];for(const [s,c] of Object.entries(cfg)){if(!enabled(c))continue;const r=db.servers[key(a,s)]||{state:'ok'};
     const state=r.state==='signin'?'signin':r.state==='ok'?(r.repairedAt&&now-r.repairedAt<24*3600e3?'repaired':'ok'):r.state==='failing'||r.state==='probing'?(nextStep(r,now,{stdio:!!c.command})==='none'?'ok':'broken'):'broken';
-    sv.push({name:s,state,repairedAt:r.repairedAt||null,fixed:r.fixed||'',reason:state==='broken'?(r.failWhy||r.reason||''):state==='signin'?r.reason||'':'',program:!!c.command})}
+    sv.push({name:s,state:fixing.has(key(a,s))?'fixing':state,repairedAt:r.repairedAt||null,fixed:r.fixed||'',reason:state==='broken'?(r.failWhy||r.reason||''):state==='signin'?r.reason||'':'',program:!!c.command})}
    const jobs=Object.values(db.jobs).filter(j=>j.agent===a&&j.fail&&now-j.at<24*3600e3).map(j=>({id:j.id,name:j.name,at:j.at,reason:j.reason,servers:j.servers,offer:now-j.at<6*3600e3&&(!!j.offer||j.servers.length>0&&j.servers.every(s=>{const r=db.servers[key(a,s)];return !r||r.state==='ok'&&Math.max(r.repairedAt||0,r.okAt||0)>j.at}))}));
    if(sv.length||jobs.length)agents.push({agent:a,name:nameOf(a),servers:sv,jobs})}
-  const venvs=Object.entries(db.venvs).filter(([,v])=>v.state==='broken'||v.rebuiltAt&&now-v.rebuiltAt<24*3600e3).map(([dir,v])=>({dir,state:v.state==='broken'?'broken':'repaired',at:v.rebuiltAt||null,why:v.failWhy||''}));
+  const venvs=Object.entries(db.venvs).filter(([,v])=>v.state==='broken'||v.rebuiltAt&&now-v.rebuiltAt<24*3600e3).map(([dir,v])=>({dir,state:fixing.has(key('default',dir))?'fixing':v.state==='broken'?'broken':'repaired',at:v.rebuiltAt||null,why:v.failWhy||''}));
   return {at:db.at||null,agents,venvs}}
  // "Run now" for a schedule that failed because of a tool server: the engine's own run-now
  async function runJob(a,id){await load();const j=db.jobs[key(a,id)];const r=await dash('POST','/api/cron/jobs/'+encodeURIComponent(id)+'/trigger'+q(a),{});if(!r.ok)throw new Error(String(r.j?.detail||'The engine did not start it ('+r.status+')'));if(j){j.offer=false;j.ranAt=Date.now();await save()}return {ok:true}}
- async function fixNow(a,s){await load();if(s.startsWith('/')){const b=await rebuildVenv(s);if(b.ok&&db.venvs[s])db.venvs[s].state=b.already?'ok':'repaired';await save();return b}return repair(a,s,{force:true,why:'Fix now'})}
- return {tick,fullCheck,snapshot,status,runJob,fixNow,repair,_db:async()=>load(),_handshake:handshake,_inspect:inspect}}
+ async function fixNow(a,s){await load();if(s.startsWith('/')){if(!db.venvs[s])return {ok:false,why:'aqeelOS does not know that environment'};const b=await rebuildVenv(s);if(b.ok&&db.venvs[s])db.venvs[s].state=b.already?'ok':'repaired';await save();return b}return repair(a,s,{force:true,why:'Fix now'})}
+ return {tick,fullCheck,snapshot,status,runJob,fixNow,startFix,repair,_db:async()=>load(),_handshake:handshake,_inspect:inspect}}

@@ -43,6 +43,8 @@ import {createLive} from './live.mjs';
 import {createBackups} from './backup.mjs';
 import {createPluginHost} from './plugin-host.mjs';
 import {createEngineUpdates} from './engine-updates.mjs';
+import {createAutomationGuard} from './automation-guard.mjs';
+import {isDaytime as dayNow,local as localAt} from './engine-update-rules.mjs';
 import {readdir} from 'node:fs/promises';
 import {createReadStream} from 'node:fs';
 import {scryptSync,randomBytes,createHmac,createHash,timingSafeEqual} from 'node:crypto';
@@ -493,7 +495,10 @@ function restartGateway(why,{wait=true,auto=false,bridges=false}={}){if(gwRestar
   // a WhatsApp bridge is its own process and reads its settings only when it starts: when channel settings changed, stop them so the engine starts fresh ones
   if(run.bridges)for(const a of await listAllProfiles().catch(()=>[]))await stopBridges(a).catch(()=>{});
   await shx('~/services.sh >/dev/null 2>&1');
-  platCache.clear();hapiStatus.drop();hapiLists.drop()})().finally(()=>{gwRestarting=null});return gwRestarting}
+  platCache.clear();hapiStatus.drop();hapiLists.drop();guardAfterRestart(Date.now())})().finally(()=>{gwRestarting=null});return gwRestarting}
+// a minute after aqeelOS restarted the engine, every tool server is checked and fixed (automation-guard.mjs); an engine
+// update runs its own check after its restarts
+let guardT=null;function guardAfterRestart(since){if(!LIVE_APP)return;clearTimeout(guardT);guardT=setTimeout(()=>{if(engineUpd.busy())return;guard.fullCheck({repair:true,since,why:'checked after an engine restart'}).then(r=>{if(r.problems.length||r.fixed.length)console.log('automations after restart: fixed',r.fixed.join(', ')||'nothing','· still wrong:',r.problems.join('; ')||'nothing')}).catch(e=>console.warn('automations after restart',e.message))},60000);guardT.unref?.()}
 async function gatewayWatch(){if(gwStopped||gwRestarting)return;
  const pid=await gatewayPid();const inTmux=(await shx('tmux has-session -t gateway')).ok;
  if(pid&&lastGwPid&&pid!==lastGwPid&&Date.now()-lastOwnRestart>180000)noteSys('restart-self','');if(pid)lastGwPid=pid;
@@ -598,13 +603,21 @@ const brand=createBrand({DATA});
 const backups=createBackups({DATA,HOME:homedir(),HERMES_HOME,notify:(t,d)=>bottlenecks.event('backup',t,d+' Open System › Health to try again.').catch(()=>{})});if(PORT===4400)backups.schedule();
 const live=createLive({DATA,DOMAIN:env.LIVE_DOMAIN||'app.elkiya.com'});
 const bottlenecks=createBottlenecks({DATA,listAgents:()=>listAgents(),names:a=>NAMES[a]||a,dash:p=>fetch(DASH.origin+'/api'+p,{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(20000)}).then(r=>r.json())});brand.name().then(n=>{globalThis.AQ_BRAND=n}).catch(()=>{});
+// the owner on the main agent's WhatsApp (as when the server was off, or after a night update)
+async function toOwner(text){const ch=await relay.channelsFor('default');const c=ch.find(x=>x.platform==='whatsapp')||ch[0];if(!c)throw new Error('no channel to the owner');await relay.sendAs('default',c.owner,c.platform,text,null,{toYou:true})}
+/* Automations guard (automation-guard.mjs, 25 Oct 2026): tool servers that stop connecting or whose Python went away
+   are fixed by themselves; problems and fixes ring the bell, a failed fix also goes to WhatsApp at once. Agent copies
+   (agent--2) have their own tool servers and logs, so they are watched too. */
+const guard=createAutomationGuard({DATA,HERMES_HOME,LIVE:LIVE_APP,readConfig,withAgent,setKey,listAgents:()=>agentNames({copies:true}),nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a),
+ dash:(method,p,body)=>fetch(DASH.origin+p,{method,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:body&&method!=='GET'&&method!=='DELETE'?JSON.stringify(body):undefined,signal:AbortSignal.timeout(90000)}).then(async r=>({ok:r.ok,status:r.status,j:await r.json().catch(()=>({}))})),
+ busy:()=>liveCount()+engAgents.n,paused:()=>engineUpd.busy()||!!gwRestarting,zone:async()=>(await readConfig('default').catch(()=>null))?.timezone||'Asia/Jakarta',isDaytime:dayNow,localDate:(ms,tz)=>localAt(ms,tz).date,
+ tell:async(text,{detail,whatsapp,bell=true}={})=>{if(bell)await bottlenecks.event('automations',text,detail||'').catch(()=>{});if(whatsapp)await toOwner(text+(detail?'\n'+detail:''))}});
 // engine updates at night, checked after; the owner is told on the main agent's channel (as when the server was off)
-const engineUpd=createEngineUpdates({DATA,HERMES_HOME,PORT,LIVE:LIVE_APP,readConfig,python:enginePython,patches:enginePatches,restartGateway,resetForUpdate:engineReset,
+const engineUpd=createEngineUpdates({guard,DATA,HERMES_HOME,PORT,LIVE:LIVE_APP,readConfig,python:enginePython,patches:enginePatches,restartGateway,resetForUpdate:engineReset,
  dash:(p,o={})=>fetch(DASH.origin+'/api'+p,{...o,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},signal:AbortSignal.timeout(60000)}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||j.error||'HTTP '+r.status);return j}),
  busy:()=>liveCount()+export_setups.running()+opsBusy()+relay.sending()+(gwRestarting?1:0),
  stopGateway:async()=>{gwStopped=true;await shx('hermes -p default gateway stop >/dev/null 2>&1; for i in $(seq 1 60); do p=$(grep -o "[0-9]*" ~/.hermes/gateway.pid 2>/dev/null | head -1); [ -n "$p" ] && kill -0 "$p" 2>/dev/null || break; sleep 1; done; tmux kill-session -t gateway 2>/dev/null; true')},
- tellOwner:async(text,{bell,kind,detail}={})=>{if(bell||/failed|rolled-back/.test(kind||''))await bottlenecks.event('update',text,detail||'').catch(()=>{});if(bell)return;
-  const ch=await relay.channelsFor('default');const c=ch.find(x=>x.platform==='whatsapp')||ch[0];if(!c)throw new Error('no channel to the owner');await relay.sendAs('default',c.owner,c.platform,text,null,{toYou:true})}});
+ tellOwner:async(text,{bell,kind,detail}={})=>{if(bell||/failed|rolled-back/.test(kind||''))await bottlenecks.event('update',text,detail||'').catch(()=>{});if(bell)return;await toOwner(text)}});
 const codeOnline=createCodeOnline({SECRET,SECURE:SECURE_COOKIE,users:()=>users,revokedAt:uid=>revoked[uid]||0,HOST:env.CODE_HOST||'code.elkiya.com',PREVIEW_HOST:env.CODE_PREVIEW_HOST||'code-preview.elkiya.com',HOME:PUBLIC_URL||'https://ai.elkiya.com'});
 const localBrowser=createLocalBrowser({DATA,GATE:GATE.origin,API_KEY,EXT_DIR:path.join(root,'extension'),NAMES,PUBLIC_URL});
 const engineConsole=createEngineConsole({DASH,DASH_TOKEN});
@@ -1747,6 +1760,11 @@ const server=createServer(async(req,res)=>{
     try{if(p==='/ui/engine-updates'&&req.method==='GET')return send(res,200,await engineUpd.status());
      if(p==='/ui/engine-updates/mode'&&req.method==='POST')return send(res,200,await engineUpd.setMode(String(b.mode||'')));
      if(p==='/ui/engine-updates/tonight'&&req.method==='POST')return send(res,200,await engineUpd.setTonight(!!b.on))}catch(e){return send(res,400,{error:e.message})}}
+   // automations (automation-guard.mjs): every agent's tool servers and schedules that hit a missing tool; Fix now, Run now
+   if(p.startsWith('/ui/automations')){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});let b={};if(req.method==='POST'){try{b=JSON.parse(await readBody(req,4096)||'{}')}catch{}}
+    try{if(p==='/ui/automations'&&req.method==='GET')return send(res,200,await guard.status());const a=String(b.agent||'');if(!(await agentNames({copies:true})).includes(a))return send(res,400,{error:'Unknown agent'});
+     if(p==='/ui/automations/fix'&&req.method==='POST')return send(res,200,guard.startFix(a,String(b.server||'')));   // runs in the background; the card shows Fixing until it is done
+     if(p==='/ui/automations/run'&&req.method==='POST')return send(res,200,await guard.runJob(a,String(b.job||'')))}catch(e){return send(res,400,{error:e.message})}}
    if(p.startsWith('/ui/backups')){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});
     if(p==='/ui/backups'&&req.method==='GET')return send(res,200,await backups.status());
     if(p==='/ui/backups/key'&&req.method==='GET'){try{return send(res,200,{key:await backups.key()})}catch(e){return send(res,409,{error:e.message})}}
