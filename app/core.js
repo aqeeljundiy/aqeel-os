@@ -121,7 +121,8 @@ const noThink=s=>String(s??'').replace(/<(thinking|reflection)>[\s\S]*?(?:<\/\1>
 const bytes=n=>n==null?'—':n>=1e9?(n/1e9).toFixed(1)+' GB':n>=1e6?(n/1e6).toFixed(1)+' MB':n>=1e3?(n/1e3).toFixed(1)+' KB':n+' B';
 const plural=(n,w)=>n+' '+w+(n===1?'':'s');
 // Short provider names, the way people say them (Claude, ChatGPT…), not Hermes' plugin titles.
-const provLabel=p=>{const s=String(p?.slug||p||''),n=String(p?.name||s);if(s==='moa')return 'Team of models';if(/claude-subscription|^claude-code/.test(s))return 'Claude';if(/codex/.test(s))return 'ChatGPT';if(s==='openrouter')return 'OpenRouter';if(/gemini/.test(s))return 'Gemini';return n.replace(/\s*\((experimental|beta)\)$/i,'')};
+// an object with an empty slug is '' (it read "[object Object]", 25 Oct 2026)
+const provLabel=p=>{const s=String(typeof p==='object'&&p?p.slug||'':p||''),n=String((typeof p==='object'&&p?p.name:'')||s);if(s==='moa')return 'Team of models';if(/claude-subscription|^claude-code/.test(s))return 'Claude';if(/codex/.test(s))return 'ChatGPT';if(s==='openrouter')return 'OpenRouter';if(/gemini/.test(s))return 'Gemini';return n.replace(/\s*\((experimental|beta)\)$/i,'')};
 const modelLabel=m=>{if(!m)return 'Default';const s=String(m).replace(/\[1m\]$/,'').replace(/^(?:anthropic\/)?claude-/,'');const mm=/^(opus|sonnet|haiku|fable)-(\d+)(?:[-.](\d+))?(?:-\d{8})?$/.exec(s.replace(/^anthropic\//,''));if(mm)return mm[1][0].toUpperCase()+mm[1].slice(1)+' '+mm[2]+(mm[3]?'.'+mm[3]:'');if(/^(opus|sonnet|haiku|fable)$/.test(s))return s[0].toUpperCase()+s.slice(1);return niceModel(s)};
 // any other model id in plain words: "gpt-6.1-sol" → "GPT-6.1 Sol", "gpt-6-luna-900k" → "GPT-6 Luna · 900k",
 // "gemini-2.5-pro" → "Gemini 2.5 Pro", "qwen3-coder-plus" → "Qwen3 Coder Plus"
