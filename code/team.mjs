@@ -156,6 +156,9 @@ export function createTeam({store,aqeelos,gitPath,env,busy,placeFor}){
   const proj=()=>{const p=store.project(data?.projectId||q.get('projectId'));if(!p.team)throw Error('This project is not shared with your team.');return p};
   const free=p=>{if(busy(p.id))throw Error('Wait for the AI to finish in this project first.');return p};
   if(r==='/folders'&&GET){const j=await aqeelos.team('');return send(200,{me:j.me,folders:j.folders.map(f=>({...f,here:store.state.projects.find(p=>p.team?.id===f.id)?.id||null}))}),true}
+  // the project's other remotes (GitHub and so on): team pushes go to its main branch, so "files and chats" would carry
+  // the .code-team chats there too on its next push; the share dialog says so (25 Oct 2026)
+  if(r==='/remotes'&&GET){const p=store.project(q.get('projectId'));const g=await G(await store.folder(p.id),['remote']);return send(200,{remotes:g.code===0?g.stdout.split('\n').map(s=>s.trim()).filter(s=>s&&s!=='team'):[]}),true}
   if(r==='/people'&&GET){const j=await aqeelos.team('');return send(200,{me:j.me,people:(await aqeelos.people()).filter(x=>x.id!==j.me)}),true}
   if(r==='/share'&&!GET){const p=store.project(data.projectId);if(p.team)throw Error('This project is already shared with your team.');free(p);const me=(await aqeelos.team('')).me;
    const f=await aqeelos.team('/share',{name:String(data.name||p.name),members:data.members,chats:Boolean(data.chats)});
