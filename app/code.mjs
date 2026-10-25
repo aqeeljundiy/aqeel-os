@@ -23,7 +23,8 @@ async function walk(dir,base=''){const out=[];for(const f of await readdir(dir).
 export function createCode({DATA,SRC,PUBLIC_URL,ROOT}){
  const FILE=path.join(DATA,'code-devices.json');let db=null;
  const load=async()=>{if(db)return db;try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.devices||={};return db};
- const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1),{mode:0o600});await rename(FILE+'.tmp',FILE)};
+ // one write at a time with its own temp name: two quick saves shared one .tmp and the second rename failed (ENOENT, 25 Oct)
+ let saving=Promise.resolve();const save=()=>saving=saving.catch(()=>{}).then(async()=>{await mkdir(DATA,{recursive:true});const t=FILE+'.'+process.pid+'.'+Date.now()+'.tmp';await writeFile(t,JSON.stringify(db,null,1),{mode:0o600});await rename(t,FILE)});
  const hash=t=>createHash('sha256').update(String(t)).digest('hex');
  // a new key for one person's computer; only its hash is kept here
  async function pair(user,name,{box=false}={}){await load();const token='aqc_'+randomBytes(24).toString('base64url');db.devices[hash(token)]={user,name:String(name||'Computer').slice(0,60),created:Date.now(),last:0,...(box?{box:true}:{})};await save();return token}
