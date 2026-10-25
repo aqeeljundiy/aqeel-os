@@ -96,6 +96,7 @@ const FIRST=1e6;   // the first look at a log reads its last 1 MB
 
 export function createAutomationGuard({DATA,HERMES_HOME,LIVE,listAgents,readConfig,withAgent,setKey,dash,busy=()=>0,paused=()=>false,tell=async()=>{},zone=async()=>'UTC',nameOf=a=>a,readOnly=false,isDaytime=()=>true,localDate=ms=>new Date(ms).toISOString().slice(0,10)}){
  const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
+ const signedBefore=(a,n)=>stat(path.join(homeOf(a),'mcp-tokens',n+'.json')).then(()=>true,()=>false);
  const FILE=path.join(DATA,'automation-guard.json');let db=null;
  const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}for(const k of ['offsets','servers','jobs','venvs','told'])db[k]||={};db.digest||=[]}return db};
  // fixes run side by side (one per agent), so writes take turns
@@ -245,7 +246,10 @@ export function createAutomationGuard({DATA,HERMES_HOME,LIVE,listAgents,readConf
  /* ---------- the passes ---------- */
  async function fixPass(){const now=Date.now();const out=[];
   for(const r of Object.values(db.servers)){const st=nextStep(r,now,{stdio:!!r.stdio});
-   if(st==='signin'){await say('srv|'+key(r.agent,r.name)+'|signin',nameOf(r.agent)+': "'+r.name+'" needs someone to sign in',{detail:'Its tools stay off until then: '+(r.reason||'').slice(0,160)+'. Sign in under Bottlenecks or System › Health. aqeelOS will not retry it by itself.',every:Infinity});continue}
+   // an app nobody ever signed in to for this agent (no saved sign-in, e.g. Sesa's Composio, kept unsigned on purpose
+   // 25 Oct 2026) is not a problem: it stays quiet; only a sign-in that existed and was lost is reported
+   if(st==='signin'&&!await signedBefore(r.agent,r.name)){r.unused=true;continue}
+   if(st==='signin'){r.unused=false;await say('srv|'+key(r.agent,r.name)+'|signin',nameOf(r.agent)+': "'+r.name+'" needs someone to sign in',{detail:'Its tools stay off until then: '+(r.reason||'').slice(0,160)+'. Sign in under Bottlenecks or System › Health. aqeelOS will not retry it by itself.',every:Infinity});continue}
    if(st!=='repair')continue;
    await say('srv|'+key(r.agent,r.name)+'|found|'+(r.since||0),nameOf(r.agent)+': the tool server "'+r.name+'" '+(r.state==='broken'?'is broken':r.state==='missing'?'is missing its tools':'stopped connecting'),{detail:String(r.reason||'').replace(/\.$/,'')+'. aqeelOS is fixing it.',every:Infinity});
    out.push(repair(r.agent,r.name,{why:r.reason}).catch(e=>({ok:false,why:e.message})))}
@@ -284,7 +288,7 @@ export function createAutomationGuard({DATA,HERMES_HOME,LIVE,listAgents,readConf
  function startFix(a,s){const k=key(a,s);if(fixing.has(k))return {started:true};fixing.add(k);fixNow(a,s).catch(e=>({ok:false,why:e.message})).then(r=>{if(!r.ok)console.log('automations: Fix now',k,r.why||'');}).finally(()=>fixing.delete(k));return {started:true}}
  async function status(){await load();if(!LIVE&&Date.now()-(db.at||0)>2*60e3)await tick({fix:false}).catch(()=>{});const agents=[],now=Date.now();
   for(const a of await listAgents()){const cfg=await servers(a);const sv=[];for(const [s,c] of Object.entries(cfg)){if(!enabled(c))continue;const r=db.servers[key(a,s)]||{state:'ok'};
-    const state=r.state==='signin'?'signin':r.state==='ok'?(r.repairedAt&&now-r.repairedAt<24*3600e3?'repaired':'ok'):r.state==='failing'||r.state==='probing'?(nextStep(r,now,{stdio:!!c.command})==='none'?'ok':'broken'):'broken';
+    const state=r.state==='signin'?(r.unused?'unused':'signin'):r.state==='ok'?(r.repairedAt&&now-r.repairedAt<24*3600e3?'repaired':'ok'):r.state==='failing'||r.state==='probing'?(nextStep(r,now,{stdio:!!c.command})==='none'?'ok':'broken'):'broken';
     sv.push({name:s,state:fixing.has(key(a,s))?'fixing':state,repairedAt:r.repairedAt||null,fixed:r.fixed||'',reason:state==='broken'?(r.failWhy||r.reason||''):state==='signin'?r.reason||'':'',program:!!c.command})}
    const jobs=Object.values(db.jobs).filter(j=>j.agent===a&&j.fail&&now-j.at<24*3600e3).map(j=>({id:j.id,name:j.name,at:j.at,reason:j.reason,servers:j.servers,offer:!j.ranAt&&now-j.at<6*3600e3&&(!!j.offer||j.servers.length>0&&j.servers.every(s=>{const r=db.servers[key(a,s)];return !r||r.state==='ok'&&Math.max(r.repairedAt||0,r.okAt||0)>j.at}))}));
    if(sv.length||jobs.length)agents.push({agent:a,name:nameOf(a),servers:sv,jobs})}
