@@ -112,8 +112,14 @@ export function createAqeelos({root}){
   const q=new URLSearchParams({name:name||'',slug:slug||'',repo:repo||'',db:db?'1':''});
   const r=await fetch(link.base+'/ui/code/publish?'+q,{method:'POST',headers:H(act,{'content-type':'application/zip'}),body:zip,signal:AbortSignal.timeout(600000)});
   const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'aqeelOS did not take it ('+r.status+').');return j}
+ /* Team folders (Plan 4, 25 Oct 2026): the hub's small calls (share, members, history), and the address and key git uses
+    for the team remote. The key goes to git only as a header for that address while Code runs it, never into a file. */
+ async function team(route,body){await load();if(!link.token)throw Error('Connect this app to aqeelOS first (open Code in aqeelOS).');
+  const r=await fetch(link.base+'/ui/code/team'+route,{method:body?'POST':'GET',headers:{authorization:'Bearer '+link.token,...(body?{'content-type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(30000)});
+  const j=await r.json().catch(()=>({}));if(!r.ok){const e=Error(j.error||'aqeelOS answered '+r.status);e.status=r.status;throw e}return j}
+ async function teamGit(){await load();if(!link.token)throw Error('Connect this app to aqeelOS first (open Code in aqeelOS).');return {base:link.base,token:link.token}}
  async function report(r){await load();if(!link.token)return;await fetch(link.base+'/ui/code/report',{method:'POST',headers:{authorization:'Bearer '+link.token,'content-type':'application/json'},body:JSON.stringify({...r,version:install.version||'dev'}),signal:AbortSignal.timeout(15000)}).catch(()=>{})}
- return {origins,state,pair,unpair,mcp,agents,intros,ticket,noteAct,freshAct,anyAct,agentModel,engineRun,engine,serve,checkUpdate,autoUpdate,reportUsage,people,publish,report}}
+ return {origins,state,pair,unpair,mcp,agents,intros,ticket,noteAct,freshAct,anyAct,agentModel,engineRun,engine,serve,checkUpdate,autoUpdate,reportUsage,people,publish,report,team,teamGit}}
 // the entries of a stored (uncompressed) zip, as aqeelOS makes them
 function unzip(buf){const out=[];let i=0;while(i+30<=buf.length&&buf.readUInt32LE(i)===0x04034b50){const size=buf.readUInt32LE(i+18),nl=buf.readUInt16LE(i+26),xl=buf.readUInt16LE(i+28);
   const name=buf.slice(i+30,i+30+nl).toString();const start=i+30+nl+xl;out.push([name,buf.slice(start,start+size)]);i=start+size}return out}

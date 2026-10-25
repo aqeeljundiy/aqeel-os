@@ -12,6 +12,7 @@ import {runEngine} from './engine.mjs';
 import {createBridge} from './bridge.mjs';
 import {Desktop,appKey} from './desktop.mjs';
 import {locate,tool,normalizeRepo,parseStatus,parseAccounts} from './github.mjs';
+import {createTeam} from './team.mjs';
 import {mkdir as makeDir,writeFile as writeFileAsync} from 'node:fs/promises';
 import {DevServers,detect} from './devservers.mjs';
 
@@ -314,6 +315,8 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
  const inArea=p=>{const r=path.resolve(String(p||''));return r===AREA||r.startsWith(AREA+path.sep)};
  const placeFor=async name=>{const base=process.env.CBA_ONLINE?path.join(homedir(),'code-projects'):path.join(homedir(),'Documents','aqeelOS Code');const clean=String(name).replace(/[<>:"/\\|?*\x00-\x1f]/g,'').replace(/[. ]+$/,'').trim().slice(0,60)||'Project';
   for(let i=1;i<200;i++){const p=path.join(base,i===1?clean:clean+' '+i);try{const e=await readdir(p);if(!e.length&&!store.state.projects.some(x=>x.path===p))return p}catch{return p}}return path.join(base,clean+' '+Date.now())};
+ // team folders (team.mjs): share a project with team members through aqeelOS, then push and pull
+ const team=createTeam({store,aqeelos,gitPath:()=>locate('git',findExecutable).catch(()=>null),env,busy:id=>busy(id),placeFor});
  // an aqeelOS agent browsing on this computer (computer_browser): the same guarded browser and rules as the coding AI
  async function browserJob(j){const call=async(route,body)=>{const r=await fetch(appUrl()+'/api/workspace/browser/'+route,{method:'POST',headers:{'content-type':'application/json','x-local-token':token,origin:appUrl()},body:JSON.stringify({...(body||{}),by:'ai'})});const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(d.error||'The browser did not answer.');return d};
   const page=s=>'Page: '+(s.title||'(untitled)')+'\nURL: '+(s.url||'');
@@ -419,6 +422,7 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
     if(/\/project\/(delete|share)$/.test(url.pathname)&&a!=='owner')return send(403,{error:'Only the project’s owner can do that.'}),true}
    if(!who.admin&&req.method==='POST'&&/^\/api\/workspace\/(settings|secret|extensions|github\/account|usage\/|schedules|desktop\/)/.test(url.pathname))return send(403,{error:'Only admins can change this.'}),true;
    if(data)data.by=who.uid}
+  if(await team(url,req,data,send))return true;
   if(url.pathname==='/api/workspace'&&req.method==='GET')return send(200,{projects:who?store.state.projects.filter(p=>accessOf(p,who)).map(p=>({...p,access:accessOf(p,who)})):store.state.projects,me:who?.uid||''}),true;
   // Live: publish a project from this computer (zip of its folder, without node_modules, .git or hidden files like .env)
   if(url.pathname==='/api/workspace/publish'&&req.method==='POST'){if(process.env.CBA_ONLINE)throw Error('Publish from Code on your computer.');const p=store.project(data.projectId);const folder=await store.folder(p.id);
