@@ -20,16 +20,17 @@ async function models(agent,act){if(Date.now()-codexModels.at>600000||!codexMode
  const own={codex:codexModels.list,claude:CLAUDE_MODELS,gemini};
  // paired: one model list, the one the chat's menu has for this agent in aqeelOS (25 Oct 2026). Each model runs on the
  // harness that fits it: Claude models on Claude Code (the Claude account), ChatGPT models on Codex (the ChatGPT
- // sign-in), every other model on the aqeelOS engine, which only the box's own copy reaches (elsewhere those are listed
- // as unavailable, with why). "Default" is the agent's own model with the Models page's priority list and auto-switch:
- // on the engine where it can run there, else on the CLI of the agent's provider. Ids: <model> for a CLI, and
+ // sign-in), every other model on the aqeelOS engine: in the box's own copy in the folder there, on a person's computer
+ // through aqeelOS's code bridge (25 Oct 2026, bridge.mjs). Only Online Code in a container of its own cannot reach it
+ // (those are listed as unavailable, with why). "Default" is the agent's own model with the Models page's priority list
+ // and auto-switch, on the engine (else on the CLI of the agent's provider). Ids: <model> for a CLI, and
  // <provider>::<model> on the engine. A member sees only the models they may use.
  const r=agent===undefined?null:await aqeelos.agentModel(agent,act).catch(()=>null);if(!r?.models)return own;
  const out={managed:true,restricted:Boolean(r.restricted),agentModel:r.provider&&r.model?{provider:r.provider,model:r.model}:null};
  if(!r.engineModels){for(const p of ['claude','codex','gemini']){const ids=r.models[p]||[];out[p]=!ids.length?(r.restricted?[]:own[p]):ids.map(id=>{const c=own[p].find(m=>m.id===id);
   return {id,name:c?.name||niceModel(id),description:c?.description||'',efforts:c?.efforts?.length?c.efforts:p==='codex'?['low','medium','high']:EFFORTS[p],defaultEffort:c?.defaultEffort||'',isDefault:r.provider===p&&r.model===id}})}return out}
  const H=slug=>slug==='claude-subscription-directsdk-experimental'?'claude':slug==='openai-codex'?'codex':'aqeelos',engine=Boolean(r.engine);
- const why=h=>h!=='aqeelos'||engine?'':process.env.CBA_ONLINE?'Online Code runs in its own container here, so this model cannot reach the project.':'Runs only for projects on the AI box. On this computer, pick a Claude or ChatGPT model.';
+ const why=h=>h!=='aqeelos'||engine?'':process.env.CBA_ONLINE?'Online Code runs in its own container here, so this model cannot reach the project.':'Update aqeelOS to run this model for projects on this computer.';
  const d=r.agentDefault||{},dh=engine?'aqeelos':H(d.provider)!=='aqeelos'?H(d.provider):'claude';
  for(const h of ['claude','codex','aqeelos','gemini'])out[h]=[];out.gemini=[];out.list=[];
  const add=(h,m)=>{if(m.id&&!/^[a-zA-Z0-9._:/-]{1,80}$/.test(m.id))return;const off=why(h);out[h].push(m);out.list.push({harness:h,id:m.id,name:m.name,description:off||m.description,off})};
@@ -89,10 +90,10 @@ function execute(exe,args,input='',timeout=90000,options={}){return new Promise(
  child.stdin.on('error',()=>{});child.stdin.end(input);
 })}
 async function status(name,profileId){
- // aqeelOS models: the box's own copy, paired, with the projects on the box (not in a container of its own)
- if(name==='aqeelos'){if(!process.env.CBA_ONLINE)return {id:name,installed:false,ready:false,message:'Runs projects on the AI box. Projects on this computer use Claude Code, Codex or Gemini CLI.'};
-  const r=await aqeelos.agentModel('',aqeelos.anyAct()).catch(()=>null);const ok=Boolean(r?.engine);   // ready or not only: any signed-in person's note will do
-  return {id:name,installed:true,ready:ok,path:'',account:{email:null},profileLabel:'aqeelOS Models',message:ok?'Runs on the agents’ own models in aqeelOS':r?'Online Code runs in its own container, so agents cannot reach its projects.':'Pair this copy with aqeelOS first.'}}
+ // aqeelOS models: paired, and the box's own copy not in a container of its own; a person's computer reaches its
+ // projects through the code bridge (bridge.mjs), so it is ready as soon as it is paired with an aqeelOS that has it
+ if(name==='aqeelos'){const r=await aqeelos.agentModel('',process.env.CBA_ONLINE?aqeelos.anyAct():'').catch(()=>null);const ok=Boolean(r?.engine);   // ready or not only: any signed-in person's note will do
+  return {id:name,installed:true,ready:ok,path:'',account:{email:null},profileLabel:'aqeelOS Models',message:ok?'Runs on the agents’ own models in aqeelOS':!r?'Pair this copy with aqeelOS first.':process.env.CBA_ONLINE?'Online Code runs in its own container, so agents cannot reach its projects.':'Update aqeelOS to run its models for projects on this computer.'}}
  if(name==='codex'&&process.env.CBA_ONLINE)await syncCodexFromEngine().catch(e=>console.warn('codex sign-in from the engine:',e.message));
  if(name==='gemini'){const g=await locateGemini({appRoot:root,findOnPath:platform.findOnPath});if(!g)return {id:'gemini',installed:false,ready:false,message:'Not installed. Run: npm install -g @google/gemini-cli'};const a=await geminiAuth(cleanEnv);return {id:'gemini',installed:true,ready:a.ready,gemini:g,path:g.command,method:a.method||null,account:{email:a.email||null},message:a.message}}
  const exe=await findExecutable(name);if(!exe)return {id:name,installed:false,ready:false,message:'Not found on this PC'};

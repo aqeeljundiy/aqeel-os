@@ -56,10 +56,11 @@ export function createAqeelos({root}){
  async function agentModel(agent,act){await load();if(!link.token)return null;const a=String(agent||''),k=who(act)+'|'+a,hit=routes.get(k);if(hit&&Date.now()-hit.t<5000)return hit.v;
   let v=null;try{const r=await fetch(link.base+'/ui/code/agent-model?agent='+encodeURIComponent(a),{headers:H(act),signal:AbortSignal.timeout(20000)});if(r.ok)v=await r.json()}catch{}
   routes.set(k,{t:Date.now(),v});if(routes.size>500)routes.delete(routes.keys().next().value);return v}
- // "aqeelOS models" (the box's copy): aqeelOS runs one turn for an agent on its engine and streams the events back.
- // act is the short signed note aqeelOS put on the person's request (x-aq-act), so the turn runs as them, not as the
- // owner this copy's key belongs to. The stream has no time limit (a turn may take long); signal stops reading it.
- async function engineRun(body,act,signal){await load();if(!link.token)throw Error('This copy of Code is not paired with aqeelOS.');act=freshAct(act);if(!act)throw Error('Open Code from aqeelOS again to run on aqeelOS models (your sign-in note ran out).');
+ // "aqeelOS models": aqeelOS runs one turn for an agent on its engine and streams the events back. On the box's copy act
+ // is the short signed note aqeelOS put on the person's request (x-aq-act), so the turn runs as them, not as the owner
+ // this copy's key belongs to. A person's computer (25 Oct 2026) has no note: its key is that person's, and the engine
+ // reaches the project here through the code bridge (bridge.mjs). The stream has no time limit; signal stops reading it.
+ async function engineRun(body,act,signal){await load();if(!link.token)throw Error('This copy of Code is not paired with aqeelOS.');act=freshAct(act);if(!act&&process.env.CBA_ONLINE)throw Error('Open Code from aqeelOS again to run on aqeelOS models (your sign-in note ran out).');
   const r=await fetch(link.base+'/ui/code/engine/run',{method:'POST',headers:H(act,{'content-type':'application/json'}),body:JSON.stringify(body),signal,...(longDispatcher()?{dispatcher:longDispatcher()}:{})});
   if(!r.ok||!r.body){const j=await r.json().catch(()=>({}));throw Error(j.error||'aqeelOS did not start the run ('+r.status+').')}return r}
  // stop or answer an approval of an engine run, by the handle aqeelOS sent first
@@ -71,12 +72,15 @@ export function createAqeelos({root}){
  async function mcp(run){await load();if(!link.token||!run?.ticket)return null;return {name:'aqeelos',command:process.execPath,args:[path.join(root,'aqeelos-mcp.mjs')],env:{...(process.versions.electron?{ELECTRON_RUN_AS_NODE:'1'}:{}),AQ_BASE:link.base,AQ_TOKEN:link.token,AQ_PROJECT:String(run?.projectId||''),AQ_AGENTS:JSON.stringify(run.agentList||[]),AQ_TICKET:String(run.ticket),AQ_DIR:String(run.projectDir||''),AQ_PLAN:run.mode==='plan'?'1':'',...(run?.act?{AQ_ACT:freshAct(run.act)||run.act,AQ_ACT_FILE:actFile(run.act)}:{})}}}
  // ask aqeelOS every ~25 s for browser jobs for this computer (an agent's computer_browser). Code is one-way
  // (25 Oct 2026): agents never change Code projects, so this computer reports no projects and takes no project work.
+ // The other jobs are code bridge calls of a run this computer started itself (bridge.mjs), answered on bridge-done.
  let serving=false;function serve({work}){if(serving||process.env.NODE_TEST_CONTEXT)return;serving=true;const wait=ms=>new Promise(r=>setTimeout(r,ms).unref?.());
   (async()=>{for(;;){await load();if(!link.token){await wait(10000);continue}
    try{const r=await fetch(link.base+'/ui/code/poll',{method:'POST',headers:{authorization:'Bearer '+link.token,'content-type':'application/json'},body:'{}',signal:AbortSignal.timeout(40000)});
     if(r.status===401){await wait(60000);continue}const j=await r.json().catch(()=>({}));if(!r.ok){await wait(15000);continue}
     if(j.job){const job=j.job;void (async()=>{let out;try{out=await work(job)}catch(e){out={state:'failed',text:e.message}}
-     await fetch(link.base+'/ui/code/done',{method:'POST',headers:{authorization:'Bearer '+link.token,'content-type':'application/json'},body:JSON.stringify({id:job.id,...out})}).catch(()=>{})})()}}
+     // (a bridge answer is tried a second time after a short wait: the engine is waiting on it)
+     const tell=()=>fetch(link.base+(job.kind==='bridge'?'/ui/code/bridge-done':'/ui/code/done'),{method:'POST',headers:{authorization:'Bearer '+link.token,'content-type':'application/json'},body:JSON.stringify({id:job.id,...out}),signal:AbortSignal.timeout(30000)});
+     await tell().catch(()=>job.kind==='bridge'?wait(2000).then(tell):null).catch(()=>{})})()}}
    catch{await wait(15000)}}})()}
  /* Self-update (an installed app only, never a developer's git checkout): every 30 minutes it asks aqeelOS for the
     current version; when it differs and no AI run is working, it fetches the new files, keeps its data, installs new

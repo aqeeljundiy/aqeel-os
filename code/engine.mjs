@@ -4,10 +4,13 @@
 // turned here into the same timeline the CLI engines give (agent.mjs): message, thinking, command, file, tool,
 // approval, error. Stop and approvals go back to aqeelOS by the handle it sends first. Plan only (25 Oct 2026): aqeelOS
 // runs the turn in a read-only copy of the project, and anything it asks to run is refused here.
+// A project on a person's computer (25 Oct 2026): the same turn, and the engine reaches the project through aqeelOS's
+// code bridge (bridge.mjs does each call here and shows it in the timeline itself, so its tool events are left out).
 import {readFile} from 'node:fs/promises';
+import path from 'node:path';
 
 // a tool call as Code shows it: a command, a file change, or another tool
-const COMMAND=/^(terminal|shell|bash|run_command|execute_command|exec|process)$/i,FILE=/^(write_file|patch|apply_patch|edit_file|create_file|str_replace|replace_in_file|multi_edit)$/i;
+const BRIDGE=/(^|_)project_(read|list|search|write|edit|run)$/,COMMAND=/^(terminal|shell|bash|run_command|execute_command|exec|process)$/i,FILE=/^(write_file|patch|apply_patch|edit_file|create_file|str_replace|replace_in_file|multi_edit)$/i;
 const clip=(s,n=20000)=>{s=String(s??'');return s.length>n?'…'+s.slice(-n):s};
 const outText=v=>typeof v==='string'?v:v==null?'':Array.isArray(v)?v.map(x=>x?.text??(typeof x==='string'?x:JSON.stringify(x))).join('\n'):v.output??v.stdout??v.text??JSON.stringify(v);
 const contentText=c=>typeof c==='string'?c:Array.isArray(c)?c.map(p=>p?.text||'').join(''):'';
@@ -34,12 +37,12 @@ export function runEngine(run,{aqeelos,act,path:dir,prompt,session,onSession}){r
   case 'assistant.commentary':if(!e.already_streamed&&e.text)say((msg?.text?'\n\n':'')+e.text);break;
   case 'reasoning.delta':case 'assistant.reasoning':{const t=e.delta||e.text||'';if(!t)break;if(!think)think=run.emit({type:'thinking',text:''});run.update(think,{text:clip(think.text+t,6000)});break}
   case 'tool.progress':if(e.tool_name==='_thinking'&&e.delta){if(!think)think=run.emit({type:'thinking',text:''});run.update(think,{text:clip(think.text+e.delta,6000)})}break;
-  case 'tool.started':{if(msg){run.update(msg,{final:false});msg=null}think=null;const n=String(e.tool_name||'tool'),a=e.args||{};
+  case 'tool.started':{if(msg){run.update(msg,{final:false});msg=null}think=null;const n=String(e.tool_name||'tool'),a=e.args||{};if(run.bridge&&BRIDGE.test(n))break;
    const ev=COMMAND.test(n)?run.emit({type:'command',command:String(a.command||a.cmd||e.preview||''),status:'running',output:''})
     :FILE.test(n)?run.emit({type:'file',paths:[String(a.path||a.file_path||a.file||e.preview||'')].filter(Boolean),status:'running'})
     :run.emit({type:'tool',name:n.replace(/^mcp_/,'').replace(/_/g,' '),detail:String(/code_ask_agent/.test(n)?JSON.stringify(a):e.preview||JSON.stringify(a)).slice(0,300),status:'running'});
    steps.push({ev,name:n});break}
-  case 'tool.completed':case 'tool.failed':{const i=steps.map(s=>s.name===e.tool_name).lastIndexOf(true),s=steps.splice(i>=0?i:steps.length-1,1)[0];if(!s)break;
+  case 'tool.completed':case 'tool.failed':{if(run.bridge&&BRIDGE.test(String(e.tool_name||'')))break;const i=steps.map(s=>s.name===e.tool_name).lastIndexOf(true),s=steps.splice(i>=0?i:steps.length-1,1)[0];if(!s)break;
    run.update(s.ev,{status:e.type==='tool.failed'?'failed':'completed',...(s.ev.type==='command'?{output:clip(outText(e.result??e.output))}:{})});break}
   case 'approval.request':{const rid=e.request_id,choices=e.choices||['once','deny'];
    const answer=d=>{const c=CHOICE[d]||'deny';aqeelos.engine('approval',{handle,choice:choices.includes(c)?c:c==='session'?'once':c,...(rid?{request_id:rid}:{})},act).catch(er=>run.emit({type:'error',text:'The answer did not reach the engine: '+er.message}))};
@@ -55,7 +58,7 @@ export function runEngine(run,{aqeelos,act,path:dir,prompt,session,onSession}){r
   case 'run.failed':failure=String(e.error?.message||e.error||'The engine stopped with an error.');finish(run.stopped?'stopped':'failed',run.stopped?null:failure);break;
   case 'run.cancelled':case 'run.interrupted':finish('stopped');break}};
  try{const images=[];for(const i of run.images||[])images.push('data:'+i.type+';base64,'+(await readFile(i.path)).toString('base64'));
-  const r=await aqeelos.engineRun({agent:run.agent||'',agents:(run.agentList||[]).map(a=>a.id),plan:run.mode==='plan',provider:run.engineProvider||'',model:run.engineModel||'',effort:run.effort||'',path:dir,session:session||'',prompt,images},act,ctl.signal);
+  const r=await aqeelos.engineRun({agent:run.agent||'',agents:(run.agentList||[]).map(a=>a.id),plan:run.mode==='plan',provider:run.engineProvider||'',model:run.engineModel||'',effort:run.effort||'',path:dir,session:session||'',prompt,images,...(run.bridge?{bridge:run.bridge,projectName:run.projectName||path.basename(dir)}:{})},act,ctl.signal);
   await readSSE(r.body,e=>{try{on(e)}catch(er){console.warn('engine event',e.type,er.message)}});
   finish(run.stopped?'stopped':completed?'complete':'failed',failure||'The engine stopped before finishing this turn.')}
  catch(e){finish(run.stopped?'stopped':'failed',e.name==='AbortError'?null:e.message)}})}
