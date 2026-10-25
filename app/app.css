@@ -2052,7 +2052,7 @@ span.ag-ava.ini.ava-in{animation:avaIn .26s var(--ease) both}
 .cx-step{animation:viewIn var(--t-med) var(--ease) both}
 .cx-q{position:relative;margin:4px 0 10px}.cx-q input{padding-left:38px}.cx-q svg{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--muted)}
 .cx-list{display:flex;flex-direction:column;gap:2px;max-height:min(52vh,460px);overflow-y:auto;margin:0 -8px;padding:0 8px}
-.cx-row{display:flex;align-items:center;gap:12px;width:100%;min-height:56px;padding:8px 10px;border:0;border-radius:var(--r-md);background:none;color:var(--ink);text-align:left;font:inherit;cursor:pointer;animation:rise var(--t-med) var(--ease) both;transition:background var(--t-fast,.15s) var(--ease)}
+.cx-row{display:flex;align-items:center;gap:12px;width:100%;min-width:0;white-space:normal;min-height:56px;padding:8px 10px;border:0;border-radius:var(--r-md);background:none;color:var(--ink);text-align:left;font:inherit;cursor:pointer;animation:rise var(--t-med) var(--ease) both;transition:background var(--t-fast,.15s) var(--ease)}
 .cx-row:hover,.cx-row:focus-visible{background:var(--soft)}.cx-row[hidden]{display:none}
 .cx-row .logo{width:36px;height:36px;border-radius:10px;flex:none;display:grid;place-items:center;font-weight:700}
 .cx-row .txt{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.cx-row .txt b{font-size:14px;font-weight:600}.cx-row .txt small{font-size:12.5px;color:var(--muted)}
@@ -2060,7 +2060,7 @@ span.ag-ava.ini.ava-in{animation:avaIn .26s var(--ease) both}
 .cx-one{margin:12px 0 0;font-size:12.5px}
 .cx-ways{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 @media (max-width:520px){.cx-ways{grid-template-columns:1fr}}
-.cx-opt{display:flex;flex-direction:column;align-items:flex-start;gap:6px;min-height:132px;padding:18px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface);color:var(--ink);text-align:left;font:inherit;cursor:pointer;transition:border-color var(--t-fast,.15s) var(--ease),box-shadow var(--t-fast,.15s) var(--ease),transform var(--t-fast,.15s) var(--ease)}
+.cx-opt{display:flex;flex-direction:column;align-items:flex-start;gap:6px;min-width:0;white-space:normal;min-height:132px;padding:18px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface);color:var(--ink);text-align:left;font:inherit;cursor:pointer;transition:border-color var(--t-fast,.15s) var(--ease),box-shadow var(--t-fast,.15s) var(--ease),transform var(--t-fast,.15s) var(--ease)}
 .cx-opt:hover,.cx-opt:focus-visible{border-color:var(--blue);box-shadow:0 2px 10px rgba(11,12,16,.06)}.cx-opt:active{transform:scale(.99)}
 .cx-opt>svg{color:var(--blue)}.cx-opt b{font-size:15px}.cx-opt small{font-size:12.5px;color:var(--ink-2);line-height:1.45}.cx-have{font-size:12px;color:var(--muted);margin-top:auto}
 .cx-steps{list-style:none;counter-reset:cx;margin:4px 0 6px;padding:0;display:flex;flex-direction:column;gap:14px}

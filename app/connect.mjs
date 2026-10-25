@@ -14,10 +14,10 @@ const PROBE={
  xai:{url:'https://api.x.ai/v1/models'},
  deepseek:{url:'https://api.deepseek.com/user/balance',credit:j=>j&&j.is_available===false},
  gemini:{url:'https://generativelanguage.googleapis.com/v1beta/models',head:k=>({'x-goog-api-key':k})},
- nous:{url:'https://inference-api.nousresearch.com/v1/models'}};
+ huggingface:{url:'https://huggingface.co/api/whoami-v2'}};
 const BASES={zai:'https://api.z.ai/api/paas/v4','kimi-coding':'https://api.moonshot.ai/v1','kimi-coding-cn':'https://api.moonshot.cn/v1',arcee:'https://api.arcee.ai/api/v1',gmi:'https://api.gmi-serving.com/v1',
  alibaba:'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',nvidia:'https://integrate.api.nvidia.com/v1','ai-gateway':'https://ai-gateway.vercel.sh/v1','opencode-zen':'https://opencode.ai/zen/v1','opencode-go':'https://opencode.ai/zen/go/v1',
- huggingface:'https://router.huggingface.co/v1',xiaomi:'https://api.xiaomimimo.com/v1','tencent-tokenhub':'https://tokenhub.tencentmaas.com/v1',lmstudio:'http://127.0.0.1:1234/v1'};
+ nous:'https://inference-api.nousresearch.com/v1',xiaomi:'https://api.xiaomimimo.com/v1','tencent-tokenhub':'https://tokenhub.tencentmaas.com/v1',lmstudio:'http://127.0.0.1:1234/v1'};
 // not keys, though the engine lists them with Anthropic's: a Claude plan token
 const NOT_KEYS=/^(ANTHROPIC_TOKEN|CLAUDE_CODE_OAUTH_TOKEN)$/;
 const customEnv=id=>{const s=String(id||'').toUpperCase().replace(/[^A-Z0-9]+/g,'_').replace(/^_+|_+$/g,'');return s?'HERMES_CUSTOM_'+s+'_API_KEY':'HERMES_CUSTOM_API_KEY'};
@@ -35,10 +35,12 @@ export function createConnect({HERMES_HOME,DASH,DASH_TOKEN,live=false}){
   let r=await go(url);
   // an address typed without /v1 (or with it, when the server has none): the other one, as the engine's own probe does
   if(!p&&base&&!r.err&&r.status===404){const b=url.slice(0,-7),alt=/\/v1$/i.test(b)?b.slice(0,-3):b+'/v1';const r2=await go(alt+'/models');if(!r2.err&&r2.ok){r=r2;base=alt}}
-  if(r.err)return {state:'unreachable',message:'Could not reach '+new URL(url).host+': '+String(r.err.cause?.code||r.err.message||'no answer')};
+  if(r.err)return {state:'unreachable',message:'Could not reach '+new URL(url).host+': '+String(r.err.cause?.code||r.err.cause?.errors?.[0]?.code||r.err.cause?.message||r.err.message||'no answer')};
   if(r.ok){const j=await r.json().catch(()=>null);const models=Array.isArray(j?.data)?j.data.map(x=>x?.id).filter(Boolean):Array.isArray(j?.models)?j.models.map(x=>x?.id||x?.name).filter(Boolean):[];
    if(p?.credit?.(j))return {state:'credit',message:'The key works, but the account has no credit left.',models};
    if(!p&&base&&!models.length)return {state:'error',message:'That address answered, but it lists no models. Check the address.'};
+   // some providers list their models to anyone (Nous): then the answer says nothing about the key
+   if(!p&&!base&&key){const r0=await fetch(url,{headers:{accept:'application/json'},signal:AbortSignal.timeout(15000)}).catch(()=>null);if(r0?.ok)return {state:'untested',message:'Saved. '+new URL(url).host+' lists its models to anyone, so aqeelOS could not check the key itself.'}}
    return {state:'ok',message:'Works',models,base}}
   const m=await why(r,key),cr=/credit|balance|billing|quota|payment|insufficient/i.test(m);
   if(r.status===402||cr&&(r.status===429||r.status===403||r.status===400))return {state:'credit',message:m||'Out of credit'};
@@ -64,7 +66,7 @@ export function createConnect({HERMES_HOME,DASH,DASH_TOKEN,live=false}){
   const v=await keyVar(slug);if(!v)throw new Error('The engine has no key for this provider.');
   const r=await test(slug,key);if(r.state==='rejected'||r.state==='error'||r.state==='unreachable')return {ok:false,...r};
   await dash('/env?profile=default',{method:'PUT',body:JSON.stringify({key:v,value:key,provider_setup:true})});keep('p:'+slug,r);
-  return {ok:true,state:r.state,message:r.state==='untested'?'Saved. aqeelOS has no test for this provider yet, so it was not checked.':r.message,key:'p:'+slug}}
+  return {ok:true,state:r.state,message:r.state==='untested'?(/^Saved/.test(r.message)?r.message:'Saved. aqeelOS has no test for this provider yet, so it was not checked.'):r.message,key:'p:'+slug}}
  // a provider's key, or one of your own endpoints (the account's slug is the endpoint's id)
  async function remove(b){const slug=String(b.provider||'');if(!/^[\w.:@-]{1,120}$/.test(slug))throw new Error('Unknown account');const v=await keyVar(slug);
   if(!v){const l=(await dash('/providers/custom-endpoints?profile=default')).endpoints||[];if(!l.some(e=>e.id===slug))throw new Error('The engine has no key for this account.');
@@ -84,6 +86,8 @@ export function createConnect({HERMES_HOME,DASH,DASH_TOKEN,live=false}){
   try{if(p==='/ui/connect/key'&&req.method==='POST')return send(res,200,await save(b));
    if(p==='/ui/connect/test'&&req.method==='POST'){const r=await test(String(b.provider||''),String(b.key||'').trim(),String(b.base||''));return send(res,200,{state:r.state,message:r.message,models:(r.models||[]).slice(0,50)})}
    if(p==='/ui/connect/key'&&req.method==='DELETE')return send(res,200,await remove(b));
+   // Refresh on Models › Accounts: every saved key tested now instead of at the next 5-minute round
+   if(p==='/ui/connect/check'&&req.method==='POST'){await checkAll();return send(res,200,{keys:status()})}
    if(p==='/ui/connect/custom'&&req.method==='GET')return send(res,200,{endpoints:((await dash('/providers/custom-endpoints?profile=default')).endpoints||[]).map(e=>({id:e.id,name:e.name,base_url:e.base_url}))})}
   catch(e){return send(res,400,{error:e.message})}
   return send(res,404,{error:'Not found'})}

@@ -1167,7 +1167,7 @@ const UI=(path,o)=>call('',path,o);
 const pctBar=(label,w)=>{if(!w)return '';const c=w.used>=90?'bad':w.used>=70?'warn':'ok';return `<div class="ubar"><div class="ubar-top"><span>${esc(label)}</span><b>${w.used}% used</b></div><div class="ubar-track"><i class="${c}" style="width:${Math.min(100,w.used)}%"></i></div><small>${w.resets?'Resets '+when(w.resets):''}</small></div>`};
 // PAGES.accounts lives in accounts-page.js
 // Refresh also asks every provider for its model list again, so new models show without waiting
-ACT['acct-refresh']=async()=>{Pages._acctFresh=true;try{await G('/api/model/options?refresh=1')}catch{}await Chat.loadModels().catch(()=>{});reload()};
+ACT['acct-refresh']=async()=>{Pages._acctFresh=true;await Promise.all([G('/api/model/options?refresh=1').catch(()=>{}),S.me?.admin!==false?post(UI,'/ui/connect/check').catch(()=>{}):null]);await Chat.loadModels().catch(()=>{});reload()};
 // the ⋯ menu on every account card is in accounts-page.js (Pages.acctMenu)
 /* ---------- Reconnect: any account card, the banner on Models and the Bottlenecks item open the Connect dialog for the
    account that is there (connect.js), so nothing new is made and its name, priority and agents stay ---------- */

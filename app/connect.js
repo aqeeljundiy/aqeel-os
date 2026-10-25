@@ -60,12 +60,12 @@ const Connect={
    cancel:()=>{if(id)post(UI,'/ui/accounts/'+encodeURIComponent(id)+'/cancel').catch(()=>{})}}},
   engine:p=>{const oid=encodeURIComponent(p.signin.id),P='/providers/oauth/',q='?profile=default';let s=null;return {
    start:async()=>{s=await post(H,P+oid+'/start'+q,{});const pk=s.flow==='pkce';return {url:pk?s.auth_url:s.verification_url,paste:pk,code:pk?'':s.user_code,expires:+s.expires_in>0?s.expires_in*1000:9e5,every:(s.poll_interval||3)*1000,
-    tips:['Sign in with the '+p.name+' account you want to use.',pk?'Approve, then copy the code it shows.':'Approve there. This window finishes by itself.']}},
+    tips:['Sign in with the '+p.name+' account you want to use.',pk?'Then copy the code it shows.':'This window finishes by itself once you approve.']}},
    submit:async code=>{const r=await post(H,P+oid+'/submit'+q,{session_id:s.session_id,code});return r.ok===false||r.status==='error'?{error:(r.message||'That code did not work')+'. Paste it again, or press Try again.'}:{done:true}},
    poll:async()=>{const r=await callRaw('/hapi',P+oid+'/poll/'+encodeURIComponent(s.session_id)+q,{keep:true});return r.status==='approved'?'done':r.status==='pending'?'pending':{error:r.error_message||(r.status==='denied'?'The sign-in was refused.':r.status==='expired'?'This code ran out of time.':'The sign-in did not finish.')}},
    cancel:()=>{if(s?.session_id)del(H,P+'sessions/'+encodeURIComponent(s.session_id)+q).catch(()=>{})}}},
   google:()=>({start:async()=>{const r=await post(UI,'/ui/antigravity/start');return r.signedIn?{done:true}:{url:r.url,paste:true,expires:20*60000,
-    tips:['Choose the Google account that has Google AI Pro.','Allow access. Google then shows a code: copy it.']}},
+    tips:['Choose the Google account that has Google AI Pro.','Allow access, then copy the code Google shows.']}},
    submit:async code=>{const x=await post(UI,'/ui/antigravity/code',{code});return x.ok?{done:true}:{error:x.error||'Google did not accept that code.'}},
    cancel:()=>post(UI,'/ui/antigravity/cancel').catch(()=>{})})},
  async signin(d,p,again,back){const title=(again?'Reconnect ':'Connect ')+(again?.name||p.name),s=p.signin;
