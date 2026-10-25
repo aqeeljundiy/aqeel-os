@@ -33,7 +33,7 @@ const miniBar=(l,w)=>w?`<div class="mbar"><span class="mb-l">${l}</span><span cl
 
 PAGES.accounts=async(p,el)=>{const gone=pageTok(el);
  setActions(`<button data-act="acct-refresh">${icon('refresh',16)}Refresh</button>${S.me?.admin!==false?`<button class="primary" data-act="acct-new">${icon('plus',16)}Add account</button>`:''}`);
- const [d,oa]=await Promise.all([UI('/ui/accounts'+(Pages._acctFresh?'?fresh=1':'')),H('/providers/oauth?profile=default').catch(()=>null)]);Pages._acctFresh=false;Pages._acct=d;if(!Chat.models)await Chat.loadModels().catch(()=>{});if(gone())return;
+ const [d,oa]=await Promise.all([UI('/ui/accounts'+(Pages._acctFresh?'?fresh=1':'')),H('/providers/oauth?profile=default').catch(()=>null)]);Pages._acctFresh=false;Pages._acct=d;if(d.allow)S.acctAllow=d.allow;if(!Chat.models)await Chat.loadModels().catch(()=>{});if(gone())return;
  const oauth=new Set((oa?.providers||[]).map(x=>x.id));
  const src=acctSources(d,oauth);Pages._acctSrc=src;const admin=S.me?.admin!==false;const byKey=Object.fromEntries(src.map(s=>[s.key,s]));
  // Used by: the agents really on it now (their route), not the old per-account choice

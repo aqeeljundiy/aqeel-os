@@ -91,7 +91,8 @@ const Connect={
   const until=Date.now()+r.expires;
   timer=setInterval(()=>{if(!d.isConnected||over)return clearInterval(timer);const left=until-Date.now();if(left>0){tEl.textContent='The sign-in works for '+cxLeft(left)+' more';return}
    clearInterval(timer);tEl.textContent='';if(goB)goB.disabled=true;over=true;F.cancel();trouble('This sign-in ran out of time. Press Try again for a new one.')},1000);
-  const ok=()=>{if(over&&!d.isConnected)return;clearInterval(timer);over=true;Connect.done(p,again)};
+  // Nous and Anthropic show as accounts once connected on purpose (accounts.mjs SKIP): say so before the page redraws
+  const ok=async()=>{if(over&&!d.isConnected)return;clearInterval(timer);over=true;const k=Connect.acctKey(p,'signin');if(k)await post(UI,'/ui/accounts/allow',{key:k}).catch(()=>{});Connect.done(p,again)};
   // ask how it is going until it is done, refused or out of time; three failed asks in a row say so
   const watch=async()=>{let bad=0;while(d.isConnected&&!over&&Date.now()<until){await sleep(r.every||3000);if(!d.isConnected||over)return;
    try{const x=await F.poll();bad=0;if(x==='done')return ok();if(x!=='pending'){over=true;clearInterval(timer);tEl.textContent='';return trouble(x.error)}}catch(e){if(++bad>=3)trouble('Could not check the sign-in: '+(e.message||'no answer')+'. Still trying.')}}};
@@ -111,7 +112,7 @@ const Connect={
   go_.onclick=async()=>{go_.disabled=true;stEl.classList.remove('err-line','t-ok');stEl.innerHTML='<span class="spinner tiny"></span> Testing it with '+esc(p.name)+'…';
    try{const r=await post(UI,'/ui/connect/key',{provider:cu?'custom':p.key.slug,key:k.value.trim(),base:bs?.value.trim()||'',name:d.querySelector('#cxName')?.value.trim()||'',id:again?.id||''});if(!d.isConnected)return;
     if(!r.ok){stEl.textContent=r.message||'It did not work.';stEl.classList.add('err-line');ready();return}
-    k.value='';stEl.textContent=r.message||'Works';stEl.classList.add('t-ok');setTimeout(()=>Connect.done(p,again,r.state==='credit'?'It works, but it has no credit left':r.state==='untested'?'Saved without a test':''),r.state==='untested'?1800:700)}
+    if(r.key)await post(UI,'/ui/accounts/allow',{key:r.key}).catch(()=>{});k.value='';stEl.textContent=r.message||'Works';stEl.classList.add('t-ok');setTimeout(()=>Connect.done(p,again,r.state==='credit'?'It works, but it has no credit left':r.state==='untested'?'Saved without a test':''),r.state==='untested'?1800:700)}
    catch(e){stEl.textContent=e.message||'It did not work.';stEl.classList.add('err-line');ready()}}},
  done(p,again,note){if(document.querySelector('.drawer.cx'))closeLayers();toast((again?.name||p.name)+(again?' is connected again':' connected')+(note?'. '+note:''));Pages._acctFresh=true;Chat.loadModels().catch(()=>{});if(typeof Bottlenecks!=='undefined')Bottlenecks.check?.();reload()},
  // Reconnect: the same dialog for that account (key 'claude:<id>' or 'p:<slug>'), straight at its way of connecting

@@ -131,7 +131,9 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
  /* ---------- every other signed-in provider (ChatGPT, OpenRouter…) with the limits Hermes reports ----------
     Sign-ins are per agent, so each agent's own gateway is asked (/p/<agent>/…) and cached per agent. */
  const GATE=process.env.HERMES_API||'http://127.0.0.1:8642';
- const SKIP=/^(nous|anthropic|custom)$|claude-subscription/;
+ // Nous and Anthropic are left out unless someone connected them on purpose through the Connect dialog (d.allow): the engine
+ // calls them signed in on its own (Anthropic through the borrowed Claude login), which is not an account of yours
+ const SKIP=/^(nous|anthropic|custom)$|claude-subscription/,ALLOWABLE=/^(nous|anthropic)$/;
  // subscriptions report windows; one that reports none has unknown room (only pay-per-use counts as 0)
  const SUBS=/subscription|codex|antigravity|agy/i;
  const options=profile=>fetch(GATE+(!profile||profile==='default'?'':'/p/'+encodeURIComponent(profile))+'/api/model/options',{headers:{authorization:'Bearer '+(process.env.API_SERVER_KEY||'')},signal:AbortSignal.timeout(20000)}).then(r=>{if(!r.ok)throw new Error('options '+r.status);return r.json()});
@@ -141,7 +143,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
   // the last answer at once; one read behind the scenes once it is a minute old
   if(hit&&!fresh){if(Date.now()-hit.t>=60000&&!hit.r){hit.r=1;providers(true,profile).catch(()=>{})}return withPics(hit.v,profile)}
   try{const j=await options(profile);
-   const v=(j.providers||[]).filter(p=>p.authenticated&&!SKIP.test(p.slug)&&p.slug!=='gemini-subscription').map(p=>({slug:p.slug,name:p.name,models:p.models||[],
+   const allow=(await load()).allow||[];const v=(j.providers||[]).filter(p=>p.authenticated&&(!SKIP.test(p.slug)||allow.includes(p.slug))&&p.slug!=='gemini-subscription').map(p=>({slug:p.slug,name:p.name,models:p.models||[],
     windows:(p.usage?.windows||[]).map(w=>({label:w.label,used:Math.round(Number(w.used_percent)||0),resets:w.resets_at||null,scope:w.scope||'account'})),details:p.usage?.details||[]}));
    provCache.set(profile,{t:Date.now(),v});return withPics(v,profile)}catch{if(hit)hit.r=0;return hit?withPics(hit.v,profile):null}}
  const worstOf=ws=>Math.max(0,...(ws||[]).filter(w=>w.scope!=='model'&&w.scope!=='image').map(w=>w.used||0));
@@ -361,7 +363,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    const ag=(await agents()).filter(see);const pv=await providers(fresh),prov=pv||[];
    // what is signed out right now, from what this read already has (the banner and the card's Reconnect)
    await note(Object.fromEntries(list.map(v=>[v.id,v])),pv).catch(e=>console.warn('signed-out note',e.message));const route=Object.fromEntries(await Promise.all(ag.map(async n=>[n,{entry:await entryOf(d,n),...await agentRoute(n)}])));
-   return send(res,200,{accounts:list,providers:prov,priority:d.priority||[],labels:d.labels||{},route,assign:Object.fromEntries(ag.map(n=>[n,d.assign[n]||'main'])),auto:d.auto||{on:false,threshold:90},events:(d.events||[]).filter(e=>see(e.profile)),signedOut:await signedOut(),keys:accountHooks.keyStatus?.()||{}})}
+   return send(res,200,{accounts:list,providers:prov,priority:d.priority||[],labels:d.labels||{},route,assign:Object.fromEntries(ag.map(n=>[n,d.assign[n]||'main'])),auto:d.auto||{on:false,threshold:90},events:(d.events||[]).filter(e=>see(e.profile)),signedOut:await signedOut(),keys:accountHooks.keyStatus?.()||{},allow:d.allow||[]})}
   if(p==='/ui/accounts/priority'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
    const pr=(Array.isArray(b.priority)?b.priority:[]).filter(e=>e&&typeof e.key==='string'&&/^(claude:[a-z0-9-]+|p:[a-z0-9_.-]+)$/.test(e.key)).slice(0,20).map(e=>({key:e.key,model:String(e.model||'').slice(0,120)}));
    d.priority=pr;await update(x=>{x.priority=pr});autoTick().catch(()=>{});return send(res,200,{priority:d.priority})}
@@ -377,9 +379,13 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
     await update(x=>{const a=x.accounts.find(y=>y.id===id);if(id==='main')x.mainLabel=l;else if(a)a.label=l});cache.drop(id);return send(res,200,{ok:true})}
    if(!/^p:[a-z0-9_.-]+$/.test(k))return send(res,400,{error:'Unknown account'});
    await update(x=>{x.labels||={};if(l)x.labels[k]=l;else delete x.labels[k]});return send(res,200,{ok:true})}
+  // connected on purpose through the Connect dialog: Nous and Anthropic show as accounts from then on (see SKIP)
+  if(p==='/ui/accounts/allow'&&req.method==='GET')return send(res,200,{allow:d.allow||[]});
+  if(p==='/ui/accounts/allow'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const s=String(b.key||'').replace(/^p:/,'');if(!ALLOWABLE.test(s))return send(res,200,{allow:d.allow||[]});
+   await update(x=>{x.allow=[...new Set([...(x.allow||[]),s])]});provCache.clear();return send(res,200,{ok:true})}
   // a provider that signed out and is not coming back: its card and banner go (signing in again brings it back)
   if(p==='/ui/accounts/forget'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const k=String(b.key||'');if(!/^p:[a-z0-9_.-]+$/.test(k))return send(res,400,{error:'Unknown account'});
-   await forget(k);await update(x=>{if(x.labels)delete x.labels[k];if(x.priority)x.priority=x.priority.filter(e=>e.key!==k)});return send(res,200,{ok:true})}
+   await forget(k);await update(x=>{if(x.labels)delete x.labels[k];if(x.priority)x.priority=x.priority.filter(e=>e.key!==k);if(x.allow)x.allow=x.allow.filter(s=>'p:'+s!==k)});provCache.clear();return send(res,200,{ok:true})}
   let m=/^\/ui\/accounts\/([a-z0-9-]+)\/code$/.exec(p);if(m&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}try{return send(res,200,await sendCode(m[1],b.code))}catch(e){return send(res,400,{error:e.message})}}
   // Reconnect (admins only, checked in server.mjs too): the same sign-in for an account that is there already
   m=/^\/ui\/accounts\/([a-z0-9-]+)\/reconnect$/.exec(p);if(m&&req.method==='POST'){try{return send(res,200,await reconnect(m[1]))}catch(e){return send(res,400,{error:e.message})}}

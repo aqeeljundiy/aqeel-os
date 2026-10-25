@@ -296,7 +296,8 @@ async function loadIdentities(){const [ids,em]=await Promise.all([call('','/ui/i
 // Model providers worth showing: signed in, and not Nous or the pay-per-use Anthropic API (no key on this box).
 // Gemini via the Google AI plan counts only once someone signed in to it (the engine lists it as soon as the CLI exists)
 // gemini-subscription: the Gemini CLI plugin some agents still have on; Google retired it for personal plans (17 Oct)
-const usableProvider=p=>p.authenticated&&p.slug!=='gemini-subscription'&&(p.models||[]).length&&!/nous/i.test((p.slug||'')+' '+(p.name||''))&&!(p.slug==='anthropic'&&!S.anthropicKey);
+// Nous and Anthropic only once connected on purpose through Add account (S.acctAllow, accounts.mjs SKIP)
+const usableProvider=p=>p.authenticated&&p.slug!=='gemini-subscription'&&(p.models||[]).length&&(!/nous/i.test((p.slug||'')+' '+(p.name||''))||(S.acctAllow||[]).includes(p.slug))&&(p.slug!=='anthropic'||(S.acctAllow||[]).includes('anthropic'));
 
 /* ---------- navigation model ---------- */
 const SECTIONS=[
