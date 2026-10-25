@@ -9,6 +9,7 @@ import {Workspace,buildSchema,isImage} from './workspace.mjs';
 import {AgentRun,runCodex,runClaude,MODES} from './agent.mjs';
 import {runGemini} from './gemini.mjs';
 import {runEngine} from './engine.mjs';
+import {createBridge} from './bridge.mjs';
 import {Desktop,appKey} from './desktop.mjs';
 import {locate,tool,normalizeRepo,parseStatus,parseAccounts} from './github.mjs';
 import {mkdir as makeDir,writeFile as writeFileAsync} from 'node:fs/promises';
@@ -156,9 +157,13 @@ function checkParallel(projectId,chatId){if([...builds.values()].some(j=>j.proje
 // first n characters of a prompt, cut at a word boundary
 const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)return t;const cut=t.slice(0,n);return cut.slice(0,cut.lastIndexOf(' ')>n*.6?cut.lastIndexOf(' '):n).replace(/[\s.,;:]+$/,'')+'…'}
  const PROVIDERS=['codex','claude','gemini']
- // "aqeelOS models": the turn runs on the aqeelOS engine for the agent (engine.mjs), only in the AI box's own copy, only
- // in the project's own folder: no Compare or Team drafts, no internal runs, no compacting (the engine does its own)
- const ENGINE='aqeelos'
+ // "aqeelOS models": the turn runs on the aqeelOS engine for the agent (engine.mjs), in the project's own folder: no
+ // Compare or Team drafts, no internal runs, no compacting (the engine does its own). On the AI box's own copy the engine
+ // works in the folder there; on a person's computer (25 Oct 2026) it reaches the folder here through the code bridge
+ // (bridge.mjs): aqeelOS relays each project_* call to this app, which does it with this run's permission mode.
+ const ENGINE='aqeelos',bridge=createBridge()
+ const shellName=process.platform==='win32'?'PowerShell on Windows':(path.basename(process.env.SHELL||(process.platform==='darwin'?'/bin/zsh':'/bin/bash')))+' on '+(process.platform==='darwin'?'macOS':'Linux')
+ const computerPrompt=(name,extra,prompt)=>'You are working in aqeelOS Code on the project "'+name+'", which is in a folder on the person\'s own computer, not on the AI box. Reach it only with the project tools (project_list, project_read, project_search, project_write, project_edit, project_run), with paths relative to the project folder. Your own terminal and file tools work on the AI box and cannot see this project: do not use them for it. project_run runs a command in the project folder on that computer ('+shellName+'). The person may be asked to allow each change or command; if one is declined, do not try it another way. For new websites prefer static HTML, CSS and JavaScript with index.html as the entry point, unless the project already uses another stack. Never push to git or publish anything unless asked. Finish with a short plain-language summary of what you did and what the person should check.'+(extra||'')+'\n\n'+prompt
  const enginePrompt=(cwd,extra,prompt)=>'You are working in aqeelOS Code on the project in this folder on the AI box: '+cwd+'\nWork only inside that folder: start every terminal command with cd '+JSON.stringify(cwd)+' && …, and give file tools absolute paths in it. Keep every change inside it. For new websites prefer static HTML, CSS and JavaScript with index.html as the entry point, unless the project already uses another stack. Never push to git or publish anything unless asked. Finish with a short plain-language summary of what you did and what the person should check.'+(extra||'')+'\n\n'+prompt
  const AUTO_COMPACT=0.85
  function agentPrompt(chat,provider,prompt,hasSession){const earlier=chat.messages.slice(0,-1);let since=earlier
@@ -193,7 +198,7 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
   try{const eng=run.provider===ENGINE;const acct=run.system||eng?null:await agentAccount(run.agent,run.provider,run.act);run.accountNote=acct?.note||''
    if(eng){const [pv,...m]=String(run.model||'').split('::');run.engineProvider=m.length?pv:'';run.engineModel=m.length?m.join('::'):''}
    // said plainly: on the engine Ask before changes asks only about the commands the engine flags, not every file change
-   if(eng&&(run.mode||'ask')==='ask'&&!run.silent)run.emit({type:'tool',name:'Ask before changes on aqeelOS models',detail:'You are asked only about commands the engine flags as risky. File changes are made without asking; every change is kept as a version you can undo.',status:'completed'})
+   if(eng&&process.env.CBA_ONLINE&&(run.mode||'ask')==='ask'&&!run.silent)run.emit({type:'tool',name:'Ask before changes on aqeelOS models',detail:'You are asked only about commands the engine flags as risky. File changes are made without asking; every change is kept as a version you can undo.',status:'completed'})
    // the agent's own model on its own account, unless one was picked
    if(acct?.env&&!run.model&&acct.route.model)run.model=acct.route.model
    const provider=acct?.provider||await status(run.provider);if(!provider.ready)throw Error(provider.message)
@@ -226,7 +231,9 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
    const hookEnv={CBA_PROJECT:store.project(run.projectId)?.name||'',CBA_PROVIDER:run.provider,CBA_PROMPT:run.prompt.slice(0,4000)}
    for(const h of run.hooks.filter(h=>h.event==='run-start')){const r=await fireHook(run,h,cwd,hookEnv);if(r.code!==0)throw Error('A run-start hook stopped this run'+(r.output?': '+r.output.slice(-300):' (exit code '+r.code+').'))}
    if(run.provider==='gemini'){options.gemini=provider.gemini;options.env={...env,...(run.system?{}:await readSecrets())};options.onModels=list=>writeFileAsync(path.join(root,'data','gemini-models.json'),JSON.stringify(list.slice(0,30).map(m=>({modelId:m.modelId,name:m.name,description:m.description||''})))).catch(()=>{})}
-   const go=()=>eng?runEngine(run,{aqeelos,act:run.act,path:cwd,prompt:enginePrompt(cwd,run.extraInstructions,(run.mode==='plan'?'PLAN MODE: do not change files or run commands that change anything. Look around if needed, then reply with a short numbered plan, the files you would change and any questions. The person approves the plan before you build it.\n\n':'')+options.prompt),session,onSession:id=>{chat.sessions[ENGINE]=(run.agent||'')+'|'+id}}):(run.provider==='codex'?runCodex:run.provider==='gemini'?runGemini:runClaude)(run,options)
+   // a project on this computer: the bridge is open for this run only (closed in finally below)
+   if(eng&&!process.env.CBA_ONLINE){run.bridge=bridge.open(run);run.projectName=store.project(run.projectId)?.name||path.basename(cwd)}
+   const go=()=>eng?runEngine(run,{aqeelos,act:run.act,path:cwd,prompt:(run.bridge?(e,p)=>computerPrompt(run.projectName,e,p):(e,p)=>enginePrompt(cwd,e,p))(run.extraInstructions,(run.mode==='plan'?'PLAN MODE: do not change files or run commands that change anything. Look around if needed, then reply with a short numbered plan, the files you would change and any questions. The person approves the plan before you build it.\n\n':'')+options.prompt),session,onSession:id=>{chat.sessions[ENGINE]=(run.agent||'')+'|'+id}}):(run.provider==='codex'?runCodex:run.provider==='gemini'?runGemini:runClaude)(run,options)
    let result=await go()
    // another Claude Code process (for example a desktop session) was refreshing the shared sign-in: wait and try once more
    // (other Claude programs on this computer share it, so wait a little longer each time, up to three tries)
@@ -247,7 +254,7 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
    if(!run.silent)await store.serialize(async()=>{chat.messages.push(result.text||result.state==='complete'?{role:'assistant',agent:true,text:result.text||(result.state==='stopped'?'Stopped.':'Done.'),provider:run.provider,account:run.account,switched:run.switched,model:run.model||'default',effort:run.effort||'',mode:run.mode||'ask',...(run.team?{team:run.team}:{}),...(run.nextEvent?{next:{recap:run.nextEvent.recap,actions:run.nextEvent.actions}}:{}),...(run.outputs?.size?{outputs:[...run.outputs]}:{}),...(run.savedTo?{savedTo:run.savedTo}:{}),...(run.chapters?.length?{chapters:run.chapters}:{}),...((s=>s.length?{sources:s}:{})(sourcesOf(run))),files:changed,versionId:recorded?.id||null,usage:run.usage?.calls?{model:run.actualModel||run.model||'default',input:run.usage.input+run.usage.cacheWrite,cached:run.usage.cachedInput,output:run.usage.output,reasoning:run.usage.reasoning}:null,commands,state:result.state,billing:typeof result.cost==='number'?'CLI estimate: $'+result.cost.toFixed(4)+'; actual billing is not confirmed.':null,time:Date.now()}:{role:'error',text:result.error||'The agent stopped before finishing.',time:Date.now()});await store.persist()})
    run.state=result.state==='complete'?'complete':result.state==='stopped'?'stopped':'failed';run.error=result.state==='failed'?result.error:null
   }catch(e){run.state='failed';run.error=e.message;run.emit({type:'error',text:e.message});if(!run.silent)await store.serialize(async()=>{store.chat(run.projectId,run.chatId).messages.push({role:'error',text:e.message,time:Date.now()});await store.persist()})}
-  finally{run.finishedAt=Date.now();run.done?.()}
+  finally{if(run.bridge)bridge.close(run.bridge);run.finishedAt=Date.now();run.done?.()}
   if(run.then&&run.state!=='stopped'){try{startAgent(run.then)}catch(e){await store.serialize(async()=>{store.chat(run.projectId,run.chatId).messages.push({role:'error',text:'Your message was not sent: '+e.message,time:Date.now()});await store.persist()})}}
   if(run.queue?.length&&run.state==='complete'&&!run.silent){try{startAgent({projectId:run.projectId,chatId:run.chatId,provider:run.provider,model:run.model,effort:run.effort,mode:run.mode,agent:run.agent,attached:run.attached,act:aqeelos?.freshAct(run.act)||run.act,prompt:run.queue.join('\n\n')})}catch(e){run.emit({type:'error',text:'Queued message not sent: '+e.message})}}
   return run}
@@ -291,7 +298,8 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
    startAgent({projectId:p.id,chatId,provider:p.settings?.provider||'claude',model:'',effort:'',mode:'auto',kind:'app',prompt:'Fix the failing checks on '+pr.url+' ('+failing.map(f=>f.name||f.context).join(', ')+'). Commit and push the fix.'+(log?'\n\nFailed log (end):\n'+log:'')})}catch{}}},180000).unref?.();
  // aqeelOS sends this computer only browser jobs (an agent's computer_browser); agents never work on Code projects
  // (one-way since 25 Oct 2026: a Code run uses agents through aqeelos_ask, an agent never changes a project)
- aqeelos?.serve({work:async job=>{if(job.kind==='browser')return browserJob(job);throw Error('Agents cannot work on Code projects. Ask in Code instead.')}});
+ // and the code bridge's calls of a run on aqeelOS models that this computer started itself (bridge.mjs refuses others)
+ aqeelos?.serve({work:async job=>{if(job.kind==='browser')return browserJob(job);if(job.kind==='bridge')return bridge.job(job);throw Error('Agents cannot work on Code projects. Ask in Code instead.')}});
  aqeelos?.autoUpdate(()=>[...agents.values()].some(live)||[...builds.values(),...commands.values()].some(j=>j.state==='running')||[...dev.servers.values()].some(s=>s.state==='running'));
  // tell aqeelOS what this computer's Code has connected (shown under Connected apps › Code)
  {const tellAqeelos=async()=>{try{let github=[];const gh=await locate('gh',findExecutable).catch(()=>null);if(gh){const r=await tool(gh,['auth','status','--hostname','github.com'],{env,timeout:20000}).catch(()=>null);if(r)github=parseAccounts(r.stdout+'\n'+r.stderr)}
@@ -334,7 +342,7 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
    await makeDir(path.join(dir,t),{recursive:true});let to=path.join(dir,t,e.name),i=2;while(await access(to).then(()=>true,()=>false)){const x=path.extname(e.name);to=path.join(dir,t,path.basename(e.name,x)+'-'+i+++x)}await rename(path.join(dir,e.name),to);n++}return n}
  const SECRETS=path.join(root,'data','secrets.json');
  const readSecrets=async()=>{try{return JSON.parse(await readFile(SECRETS,'utf8'))}catch{return {}}};
- function startAgent(job){if(!PROVIDERS.includes(job.provider)&&job.provider!==ENGINE)throw Error('Choose a connected provider.');if(job.provider===ENGINE&&(job.cwd||job.system||job.compact||!process.env.CBA_ONLINE))throw Error(process.env.CBA_ONLINE?'This runs on a Claude or ChatGPT model only.':'This model runs only for projects on the AI box. On this computer, pick a Claude or ChatGPT model.');
+ function startAgent(job){if(!PROVIDERS.includes(job.provider)&&job.provider!==ENGINE)throw Error('Choose a connected provider.');if(job.provider===ENGINE&&(job.cwd||job.system||job.compact))throw Error('This runs on a Claude or ChatGPT model only.');if(job.provider===ENGINE&&!process.env.CBA_ONLINE&&!aqeelos)throw Error('Connect this app to aqeelOS first to use its models.');
   // Plan only on the engine (25 Oct 2026): aqeelOS runs the turn in a read-only copy of the project (engine.mjs)
   if([...agents.values()].filter(live).length>=4)throw Error('Four AI runs are already working. Wait for one to finish.')
   const run=new AgentRun(job);run.finished=new Promise(r=>run.done=r);agents.set(run.id,run);void runAgent(run);return run}
