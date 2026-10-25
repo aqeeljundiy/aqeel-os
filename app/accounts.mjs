@@ -9,6 +9,7 @@ import path from 'node:path';
 import {hermes as hq,setKey,readConfig,pick,editEnv,agentNames,setStatus,getStatus,LIVE_APP} from './agentops.mjs';
 import {allowed,trim} from './skills-policy.mjs';
 import {swr} from './swr.mjs';
+import {createClaudeRenew} from './claude-renew.mjs';
 
 const HOME=homedir();
 const CLAUDE=process.env.CLAUDE_BIN||path.join(HOME,'.local','bin','claude');
@@ -41,10 +42,10 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
  const details=(a,fresh,quick)=>cache.get(a.id,()=>readDetails(a),{force:!!fresh,partial:quick?()=>({id:a.id,label:a.label,main:a.id==='main',signedIn:false,partial:true}):undefined});
  async function readDetails(a){
   const v={id:a.id,label:a.label,main:a.id==='main',signedIn:false};
-  // Read-only: the sign-in file and Claude's own account file, never a CLI run that could renew the login (the engine
-  // renews ~/.claude itself under its own lock, so every extra renewer is one more chance to spend the single-use
-  // refresh token twice). expiresAt 0 is how Claude marks a login it gave up on. The main account's email is in
-  // ~/.claude.json, another account's in <its folder>/.claude.json.
+  // Read-only here: the sign-in file and Claude's own account file, never a CLI run that could renew the login.
+  // Renewing is done in one place only, claude-renew.mjs, under the engine's and Claude Code's locks (25 Oct). expiresAt 0
+  // is how Claude marks a login it gave up on; a login the renewer found dead counts as signed out too. The main
+  // account's email is in ~/.claude.json, another account's in <its folder>/.claude.json.
   let creds=null;try{creds=JSON.parse(await readFile(path.join(a.dir,'.credentials.json'),'utf8')).claudeAiOauth}catch{}
   if(creds){const acc=await readFile(a.id==='main'?path.join(HOME,'.claude.json'):path.join(a.dir,'.claude.json'),'utf8').then(t=>JSON.parse(t).oauthAccount||{},()=>({}));
    Object.assign(v,{checked:true,signedIn:!!(creds.accessToken||creds.refreshToken)&&Number(creds.expiresAt)>0,email:acc.emailAddress||'',org:acc.organizationName||'',plan:creds.subscriptionType||''})}
@@ -53,6 +54,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    // checked: the status really answered (a timed-out check is unknown, not "signed out")
    try{const j=JSON.parse(st.out);Object.assign(v,{checked:true,signedIn:!!j.loggedIn,email:j.email||'',org:j.orgName||'',plan:j.subscriptionType||''})}catch{}}
   if(creds){v.plan=v.plan||creds.subscriptionType||'';v.tier=creds.rateLimitTier||'';v.tokenExpires=creds.expiresAt||null}
+  const lost=renew.out(a.id);if(lost&&v.signedIn){v.signedIn=false;v.usageError=lost.why}
   if(v.signedIn&&creds?.accessToken){
    try{const r=await fetch('https://api.anthropic.com/api/oauth/usage',{headers:{authorization:'Bearer '+creds.accessToken,'anthropic-beta':'oauth-2025-04-20',accept:'application/json','user-agent':'claude-code/2.1.0'},signal:AbortSignal.timeout(15000)});
     if(r.ok){const u=await r.json();const win=k=>u[k]?{used:Math.round(Number(u[k].utilization)||0),resets:u[k].resets_at||null}:null;
@@ -79,7 +81,8 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
  /* ---------- adding an account: claude auth login in its own folder ---------- */
  const logins=new Map(); // id → {child,out,state}
  async function startLogin(label){
-  const d=await load();const slug=(String(label||'account').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'account').slice(0,32);
+  // no name asked first (25 Oct): "Claude account 2", 3… and Rename later
+  const d=await load();label=String(label||'').trim()||'Claude account '+(all(d).length+1);const slug=(String(label||'account').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'account').slice(0,32);
   // an id no saved account, sign-in in progress or folder on disk has (two sign-ins at once never share a folder)
   const taken=async id=>all(d).some(a=>a.id===id)||logins.has(id)||await access(path.join(ACCOUNTS_DIR,id)).then(()=>true,()=>false);
   let id=slug,n=2;while(await taken(id)||logins.has(id))id=slug+'-'+n++;logins.set(id,{state:'starting'});
@@ -89,6 +92,8 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
   return runLogin(id,{dir,label:String(label||id).slice(0,60)},{CLAUDE_CONFIG_DIR:dir},async()=>{await update(d2=>{if(!d2.accounts.some(a=>a.id===id))d2.accounts.push({id,label:s0(id).label,dir})})});
  }
  const s0=id=>logins.get(id)||{};
+ // the one renewer of every Claude login (see claude-renew.mjs); an account in the middle of signing in is left alone
+ const renew=createClaudeRenew({accounts:async()=>all(await load()),busy:id=>/^(starting|running)$/.test(logins.get(id)?.state||''),live:LIVE_APP});
  // one `claude auth login` run: output kept for the code step, done() on success, fail() on any other end (cancel,
  // a refused code, the 10-minute limit). env {} = the main account in Claude's default place.
  async function runLogin(id,s,env,done,fail=async()=>{}){let child;
