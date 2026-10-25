@@ -37,12 +37,14 @@ export function createAntigravity({HERMES_HOME,hcmd,listAgents,moveOff=async()=>
    if(!/not signed in|Select login method|Open the URL/i.test(t)&&i>16){const s=await status(true);if(s.signedIn){await stop();me.state='done';return {signedIn:true}}}}
   throw new Error('The Antigravity sign-in did not show a link. Try again.')}
  async function code(c){c=String(c||'').trim();if(!c||c.length>2048||/[\s'"`$\\]/.test(c))throw new Error('Paste the whole code from the Google page.');
-  if(login?.state!=='waiting')throw new Error('This sign-in is not running any more. Press Connect again.');
+  if(login?.state!=='waiting')throw new Error('This sign-in is not running any more. Press Try again.');
   console.log('antigravity sign-in: code received');await run('tmux',['send-keys','-t',SESSION,'-l',c]);await run('tmux',['send-keys','-t',SESSION,'Enter']);
   for(let i=0;i<12;i++){await sleep(2500);const t=(await pane()).slice(-1500);
    if(/invalid|expired|failed|error/i.test(t)&&/code|auth/i.test(t)&&i>1){console.warn('antigravity sign-in refused:',t.replace(/\s+/g,' ').slice(-200));break}
    if(!/authorization code/i.test(t)||i>3){const s=await status(true);if(s.signedIn){login.state='done';console.log('antigravity signed in,',s.models.length,'models');await stop();await enableAll().catch(e=>console.warn('antigravity plugin',e.message));return {ok:true,models:s.models}}}}
-  return {ok:false,error:'Google did not accept that code. Press Connect again, sign in with the new link and paste its code (each link works once).'}}
+  return {ok:false,error:'Google did not accept that code. Press Try again, sign in with the new link and paste its code (each link works once).'}}
+ // closing the Connect dialog ends the sign-in here too (25 Oct): the hidden terminal goes and a code sent later is refused
+ async function cancel(){if(login?.state==='waiting'){login.state='cancelled';console.log('antigravity sign-in cancelled');await stop()}return {ok:true}}
  // signing out moves every agent that thinks with Google to another model FIRST (its first usable priority entry, else
  // the main agent's model); if one can't be moved, nothing is signed out. Then the plugin goes off where nobody uses it.
  async function logout(){
@@ -69,4 +71,4 @@ export function createAntigravity({HERMES_HOME,hcmd,listAgents,moveOff=async()=>
    await mkdir(dst,{recursive:true});for(const f of await readdir(src))await cp(path.join(src,f),path.join(dst,f),{recursive:true});
    const r=await hcmd(a,['plugins','enable','antigravity-subscription'],{timeout:150000});if(!r.ok)console.warn('antigravity plugin for',a,(r.err||'').slice(0,200))}
   console.log('antigravity subscription plugin ready')}
- return {status,start,code,logout,enableAll}}
+ return {status,start,code,cancel,logout,enableAll}}

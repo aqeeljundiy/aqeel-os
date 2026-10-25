@@ -9,7 +9,7 @@ import {createAccounts,setupAgentFn,export_setups,accountHooks} from './accounts
 import {allowed as skillAllowed} from './skills-policy.mjs';
 import {createAgentDefaults} from './agent-defaults.mjs';
 import {createWhy} from './why.mjs';
-import {createGemini} from './gemini.mjs';
+import {createConnect} from './connect.mjs';
 import {createAntigravity} from './antigravity.mjs';
 import {withAgent,setKey,readConfig,pick,agentNames,isAgent,busy as opsBusy,initStatus,getStatus,setStatus,editEnv,hermes as hcmd,python as enginePython,LIVE_APP,HELP_AGENT} from './agentops.mjs';
 import {createSchedules} from './schedules.mjs';
@@ -575,7 +575,8 @@ const links=createLinks({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,pyth
 const cfgLimit=limiter(4);   // per-agent config reads on a page: a few side by side, never a burst of Pythons
 function listAgents(){return agentNames()}   // real agents only (a folder with a config), not extra-number copies
 async function listAllProfiles(){return [...await listAgents(),...(await links.list()).map(l=>l.name)]}
-const gemini=createGemini({HERMES_HOME,hcmd,listAgents});
+// API keys for model accounts: tested before saving and every 5 minutes after (connect.mjs, 25 Oct)
+const connect=createConnect({HERMES_HOME,DASH,DASH_TOKEN,live:LIVE_APP});accountHooks.keyStatus=()=>connect.status();accountHooks.keyCheck=()=>connect.checkAll();
 const antigravity=createAntigravity({HERMES_HOME,hcmd,listAgents,moveOff:(a,k)=>accountHooks.moveOff?accountHooks.moveOff(a,k):null});
 async function agentModel(a){const y=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>'');const k=key=>((new RegExp('^model:[\\s\\S]*?\\n\\s+'+key+':\\s*(\\S+)','m').exec(y)||[])[1]||'').replace(/^["']|["']$/g,'');return {provider:k('provider'),model:k('default')}}
 const users=createUsers(DATA,mailer,{ownerCheck:pw=>!!PW_HASH&&checkPassword(pw)});
@@ -1505,19 +1506,13 @@ const server=createServer(async(req,res)=>{
     if(!(await listAllProfiles()).includes(ag))return send(res,400,{error:'Unknown agent'});
     const r=await hcmd(ag,['plugins',b.enabled?'enable':'disable',name],{timeout:150000});
     return r.ok?send(res,200,{ok:true,restart_required:/restart/i.test(r.out)}):send(res,400,{error:(r.err||'Could not change the plugin').slice(0,300)})}
-   // today's US dollar → rupiah rate, so costs can be shown in rupiah (fetched twice a day, last good one kept)
-   // Gemini through the Google AI subscription: status for everyone, signing in and out for admins
-   // Google AI Pro through Antigravity (Google's agy tool): same flow as Gemini had
+   // Google AI Pro through Antigravity (Google's agy tool): status for everyone, connecting, cancelling and removing for admins
    if(p.startsWith('/ui/antigravity/')){const act=p.slice(16);if(act==='status'&&req.method==='GET')return send(res,200,await antigravity.status(url.searchParams.has('fresh')));
     if(!users.isAdmin(u))return send(res,403,{error:'Only admins can connect Google AI Pro.'});if(req.method!=='POST')return send(res,405,{error:'POST only'});
     let b={};try{b=JSON.parse(await readBody(req,8192)||'{}')}catch{}
-    try{if(act==='start')return send(res,200,await antigravity.start());if(act==='code')return send(res,200,await antigravity.code(b.code));if(act==='logout'){const r=await antigravity.logout();await accountsApi.forget('p:antigravity-subscription').catch(()=>{});return send(res,200,r)}}catch(e){return send(res,400,{error:e.message})}
+    try{if(act==='start')return send(res,200,await antigravity.start());if(act==='code')return send(res,200,await antigravity.code(b.code));if(act==='cancel')return send(res,200,await antigravity.cancel());if(act==='logout'){const r=await antigravity.logout();await accountsApi.forget('p:antigravity-subscription').catch(()=>{});return send(res,200,r)}}catch(e){return send(res,400,{error:e.message})}
     return send(res,404,{error:'Unknown'})}
-   if(p.startsWith('/ui/gemini/')){const act=p.slice(11);if(act==='status'&&req.method==='GET')return send(res,200,await gemini.status());
-    if(!users.isAdmin(u))return send(res,403,{error:'Only admins can connect Gemini.'});if(req.method!=='POST')return send(res,405,{error:'POST only'});
-    let b={};try{b=JSON.parse(await readBody(req,8192)||'{}')}catch{}
-    try{if(act==='start')return send(res,200,await gemini.start());if(act==='code')return send(res,200,await gemini.code(b.code));if(act==='logout')return send(res,200,await gemini.logout())}catch(e){return send(res,400,{error:e.message})}
-    return send(res,404,{error:'Unknown'})}
+   // today's US dollar → rupiah rate, so costs can be shown in rupiah (fetched twice a day, last good one kept)
    if(p==='/ui/fx'&&req.method==='GET'){if(!FX.at||Date.now()-FX.at>12*3600e3){try{const r=await fetch('https://open.er-api.com/v6/latest/USD',{signal:AbortSignal.timeout(8000)});const j=await r.json();const v=+j?.rates?.IDR;if(v>1000&&v<100000)Object.assign(FX,{idr:v,at:Date.now(),day:(j.time_last_update_utc||'').slice(5,16)})}catch{}}
     return send(res,200,{IDR:FX.idr,updated:FX.day||null})}
    if(p==='/ui/box'&&req.method==='GET')return send(res,200,await boxMemory());
@@ -1941,7 +1936,11 @@ const server=createServer(async(req,res)=>{
     if(users.level(u,n)!=='owner')return send(res,403,{error:'Only the owner of this agent can finish its setup.'});
     return accountsApi(req,res,p,send,async()=>JSON.stringify({name:n}),a=>users.level(u,a)==='owner')}
    const no=users.gate(u,p,req.method,url.searchParams,'default');if(no)return send(res,no.status,{error:no.error});
-   if((p.startsWith('/ui/accounts/old-code')||/^\/ui\/accounts\/[a-z0-9-]+\/(reconnect|login)$/.test(p))&&!users.isAdmin(u))return send(res,403,{error:'Only admins.'});
+   // connecting, reconnecting, renaming and removing a model account, its priority and switching: admins only, every
+   // route the same way (25 Oct; before, adding a Claude account and sending its code were open to any signed-in admin
+   // check that passed the gate, while Google checked inside its own handler). Reading the list stays as the gate says.
+   if((p.startsWith('/ui/accounts/old-code')||/^\/ui\/accounts\/[a-z0-9-]+\/login$/.test(p)||p.startsWith('/ui/accounts')&&req.method!=='GET')&&!users.isAdmin(u))return send(res,403,{error:'Only admins can change model accounts.'});
+   if(p.startsWith('/ui/connect/')){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can change model accounts.'});return connect.handle(req,res,p,send,readBody)}
    if(p.startsWith('/ui/accounts'))return accountsApi(req,res,p,send,readBody,a=>!!users.level(u,a));
    if(p==='/ui/logo')return logo(req,res);
    return identities(req,res,p,u);

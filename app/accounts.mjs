@@ -23,7 +23,7 @@ const MAIN={id:'main',label:'Main account',dir:path.join(HOME,'.claude')};
 export let setupAgentFn=null;
 export const export_setups={running:()=>0,wait:()=>Promise.resolve()};   // setups in progress, counted by /healthz so a deploy waits for them
 // for agent-defaults.mjs: copying skills, and what runs after a new agent is set up
-export const accountHooks={giveSkills:null,trimSkills:null,forgetSkills:null,afterSetup:null,moveOff:null};
+export const accountHooks={giveSkills:null,trimSkills:null,forgetSkills:null,afterSetup:null,moveOff:null,keyStatus:null,keyCheck:null};   // keyStatus/keyCheck: connect.mjs (API keys tested)
 export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code')}={}){
  const FILE=path.join(DATA,'accounts.json');
  const load=async()=>{try{return JSON.parse(await readFile(FILE,'utf8'))}catch{return {accounts:[],assign:{},auto:{on:false,threshold:90},events:[]}}};
@@ -221,9 +221,12 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
     for(const [k,s] of Object.entries(seen))if(!prov.some(p=>'p:'+p.slug===k))out(k,s.name)}
    return ch})}
  async function forget(key,keepSeen){await update(x=>{if(x.signedOut)delete x.signedOut[key];if(!keepSeen&&x.seen)delete x.seen[key]})}
- async function signinTick(){const d=await load();const det=Object.fromEntries(await Promise.all(all(d).map(async a=>[a.id,await details(a)])));await note(det,await providers(false,'default'))}
+ // the saved API keys are tested again in the same 5-minute round (connect.mjs: Key rejected, Out of credit)
+ async function signinTick(){const d=await load();const det=Object.fromEntries(await Promise.all(all(d).map(async a=>[a.id,await details(a)])));await note(det,await providers(false,'default'));await accountHooks.keyCheck?.()}
  if(LIVE_APP){setInterval(()=>signinTick().catch(()=>{}),5*60000).unref();setTimeout(()=>signinTick().catch(()=>{}),20000).unref()}
- const signedOut=async()=>Object.values((await load()).signedOut||{});
+ // and a key the provider refuses or that has no credit left: the same list, with its state (Bottlenecks, the banner)
+ const signedOut=async()=>{const x=await load(),ks=accountHooks.keyStatus?.()||{};
+  return [...Object.values(x.signedOut||{}),...Object.entries(ks).filter(([k,c])=>c.since&&!x.signedOut?.[k]).map(([k,c])=>({key:k,name:x.labels?.[k]||x.seen?.[k]?.name||k.slice(2),since:c.since,state:c.state}))]};
 
  /* ---------- HTTP ---------- */
  /* ---------- a new agent gets everything it needs, checked step by step (any model provider) ----------
@@ -358,7 +361,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    const ag=(await agents()).filter(see);const pv=await providers(fresh),prov=pv||[];
    // what is signed out right now, from what this read already has (the banner and the card's Reconnect)
    await note(Object.fromEntries(list.map(v=>[v.id,v])),pv).catch(e=>console.warn('signed-out note',e.message));const route=Object.fromEntries(await Promise.all(ag.map(async n=>[n,{entry:await entryOf(d,n),...await agentRoute(n)}])));
-   return send(res,200,{accounts:list,providers:prov,priority:d.priority||[],labels:d.labels||{},route,assign:Object.fromEntries(ag.map(n=>[n,d.assign[n]||'main'])),auto:d.auto||{on:false,threshold:90},events:(d.events||[]).filter(e=>see(e.profile)),signedOut:await signedOut()})}
+   return send(res,200,{accounts:list,providers:prov,priority:d.priority||[],labels:d.labels||{},route,assign:Object.fromEntries(ag.map(n=>[n,d.assign[n]||'main'])),auto:d.auto||{on:false,threshold:90},events:(d.events||[]).filter(e=>see(e.profile)),signedOut:await signedOut(),keys:accountHooks.keyStatus?.()||{}})}
   if(p==='/ui/accounts/priority'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
    const pr=(Array.isArray(b.priority)?b.priority:[]).filter(e=>e&&typeof e.key==='string'&&/^(claude:[a-z0-9-]+|p:[a-z0-9_.-]+)$/.test(e.key)).slice(0,20).map(e=>({key:e.key,model:String(e.model||'').slice(0,120)}));
    d.priority=pr;await update(x=>{x.priority=pr});autoTick().catch(()=>{});return send(res,200,{priority:d.priority})}
@@ -367,9 +370,13 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
   if(p==='/ui/accounts'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{return send(res,200,await startLogin(b.label))}catch(e){return send(res,500,{error:e.message})}}
   if(p==='/ui/accounts/assign'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}if(!see(String(b.profile||'')))return send(res,403,{error:'This agent is private to its owner.'});try{await assign(d,String(b.profile||''),String(b.account||''),b.why||'');return send(res,200,{ok:true})}catch(e){return send(res,400,{error:e.message})}}
   if(p==='/ui/accounts/auto'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const au={on:!!b.on,threshold:Math.min(99,Math.max(50,Number(b.threshold)||90))};d.auto=au;await update(x=>{x.auto=au});autoTick().catch(()=>{});return send(res,200,d.auto)}
-  // a provider's own name here (a Claude account is renamed with PATCH below): an empty name goes back to the provider's
-  if(p==='/ui/accounts/label'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const k=String(b.key||'');if(!/^p:[a-z0-9_.-]+$/.test(k))return send(res,400,{error:'Unknown account'});
-   const l=String(b.label||'').trim().slice(0,60);await update(x=>{x.labels||={};if(l)x.labels[k]=l;else delete x.labels[k]});return send(res,200,{ok:true})}
+  // Rename, one way for every account (25 Oct): a Claude account's own label, another account's name here; an empty
+  // name goes back to the provider's (a Claude account's stays)
+  if(p==='/ui/accounts/label'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const k=String(b.key||''),l=String(b.label||'').trim().slice(0,60);
+   const cm=/^claude:([a-z0-9-]+)$/.exec(k);if(cm){const id=cm[1];if(!all(d).some(a=>a.id===id))return send(res,404,{error:'Unknown account'});if(!l&&id!=='main')return send(res,400,{error:'Type a name.'});
+    await update(x=>{const a=x.accounts.find(y=>y.id===id);if(id==='main')x.mainLabel=l;else if(a)a.label=l});cache.drop(id);return send(res,200,{ok:true})}
+   if(!/^p:[a-z0-9_.-]+$/.test(k))return send(res,400,{error:'Unknown account'});
+   await update(x=>{x.labels||={};if(l)x.labels[k]=l;else delete x.labels[k]});return send(res,200,{ok:true})}
   // a provider that signed out and is not coming back: its card and banner go (signing in again brings it back)
   if(p==='/ui/accounts/forget'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const k=String(b.key||'');if(!/^p:[a-z0-9_.-]+$/.test(k))return send(res,400,{error:'Unknown account'});
    await forget(k);await update(x=>{if(x.labels)delete x.labels[k];if(x.priority)x.priority=x.priority.filter(e=>e.key!==k)});return send(res,200,{ok:true})}
@@ -385,7 +392,6 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    const live=new Set(await agents());if(Object.entries(d.assign).some(([n,v])=>v===id&&live.has(n)))return send(res,409,{error:'An agent still uses this account. Move it to another account first.'});
    await update(x=>{for(const n of Object.keys(x.assign||{}))if(!live.has(n))delete x.assign[n]});
    await run(CLAUDE,['auth','logout'],{CLAUDE_CONFIG_DIR:a.dir},20000);await rm(a.dir,{recursive:true,force:true});await update(x=>{x.accounts=x.accounts.filter(y=>y.id!==id)});cache.drop(id);return send(res,200,{ok:true})}
-  if(m&&req.method==='PATCH'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const id=m[1];await update(x=>{const a=x.accounts.find(y=>y.id===id);if(id==='main')x.mainLabel=String(b.label||'').slice(0,60);else if(a)a.label=String(b.label||a.label).slice(0,60)});cache.drop(m[1]);return send(res,200,{ok:true})}
   send(res,404,{error:'Not found'});
  },{codeRoute,signedOut,forget});
 }
