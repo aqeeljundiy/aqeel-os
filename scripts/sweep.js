@@ -9,7 +9,14 @@ let settled=Infinity,shown=new Set();const flick=[];const sig=t=>(t.textContent|
  // fade starts a frame later, or after its stagger), which is not a replay (a slow page landing at 2.5 s, 24 Oct 2026)
  const snap=()=>{shown=new Set();for(const el of document.querySelectorAll('#view *')){if(el.getAnimations().some(a=>Calm.entry().has(a.animationName)&&a.playState!=='finished'))continue;const x=sig(el);if(x.length>3)shown.add(x)}};
  // and once that first entrance is over, it is shown too: from then on a fade-in of the same content is a replay
- document.addEventListener('animationend',e=>{if(performance.now()>=settled&&e.target.closest?.('#view')&&Calm.entry().has(e.animationName)){const x=sig(e.target);if(x.length>3)shown.add(x)}},true);
+ // but only what is no longer fading: Calm ends a late panel's own rise at once while watchReveal fades its block (or
+ // the rows inside it) in, so that panel, or a box whose rows are still coming in, was never on screen settled (Memory
+ // and Settings › Help landing at 4 s read as replays of themselves, 25 Oct 2026). What settled, and the blocks round
+ // it once all of them have, count from then on
+ document.addEventListener('animationend',e=>{const t=e.target,v=$('#view');if(performance.now()<settled||!t.closest?.('#view')||!Calm.entry().has(e.animationName))return;
+  const fl=v.getAnimations({subtree:true}).filter(a=>Calm.entry().has(a.animationName)&&a.playState!=='finished').map(a=>a.effect?.target).filter(Boolean),free=n=>!fl.some(f=>f.contains(n)||n.contains(f));
+  const up=[];for(let n=t.parentElement;n&&n!==v;n=n.parentElement)up.push(n);
+  for(const el of [...up,t,...t.querySelectorAll('*')])if(free(el)){const x=sig(el);if(x.length>3)shown.add(x)}},true);
 document.addEventListener('animationstart',e=>{if(performance.now()<settled||typeof Calm==='undefined'||!Calm.entry().has(e.animationName))return;const t=e.target;if(t.closest?.('.menu,.toast,dialog,.drawer,.notice,[data-anim],.aq-menu'))return;if(!shown.has(sig(t)))return;
  setTimeout(()=>{if(t.isConnected&&t.getAnimations().some(a=>a.animationName===e.animationName&&a.playState==='running'))flick.push(e.animationName+' on '+(t.id?'#'+t.id:String(t.className||t.tagName).slice(0,40)))},40)},true);
 for(let i=0;i<pages.length;i++){const p=pages[i];
