@@ -39,12 +39,23 @@ export function createBackups({DATA,HOME,HERMES_HOME,TOKEN='google_token_elkiya.
   return (await drive(g,'drive/v3/files',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:'aqeelOS backups',mimeType:'application/vnd.google-apps.folder'})})).id}
  const sh=(cmd,envx)=>new Promise((res,rej)=>{const p=spawn('bash',['-c',cmd],{cwd:HOME,env:{...process.env,...envx},stdio:['ignore','ignore','pipe']});let err='';p.stderr.on('data',d=>err+=d);p.on('close',c=>c===0?res():rej(Error(err.trim().split('\n').slice(-2).join(' ')||'exit '+c)))});
  const q=s=>"'"+String(s).replace(/'/g,"'\\''")+"'";
+ // each isolated agent (terminal over SSH as its own ag-* user) re-grants aqeelOS read access to the files it owns
+ async function grantRead(){const prof=path.join(HOME,'.hermes','profiles');for(const a of await readdir(prof).catch(()=>[])){
+  const y=await readFile(path.join(prof,a,'config.yaml'),'utf8').catch(()=>'');const u=/\n\s*ssh_user:\s*['"]?(ag-[\w-]+)/.exec(y)?.[1],k=/\n\s*ssh_key:\s*['"]?([^'"\n]+)/.exec(y)?.[1]?.trim(),ws=path.join(HOME,'workspaces',a);
+  if(!u||!k||!await stat(ws).catch(()=>null))continue;
+  await sh('ssh -i '+q(k)+' -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=15 '+q(u+'@127.0.0.1')+' '+q('find '+q(ws)+' -user '+u+' \\( -type d -o -type f \\) -print0 2>/dev/null | xargs -0 -r setfacl -m u:claude:rwX,m::rwX 2>/dev/null; true')).catch(e=>console.warn('backup: read access for',a,e.message))}}
  // pack, encrypt, upload, prune
  async function run(why='scheduled'){if(running)return running;running=(async()=>{await load();const at=Date.now();const name='aqeelos-'+new Date(at+7*3600e3).toISOString().slice(0,16).replace(/[:T]/g,'-')+'.tar.gz.enc';const tmp=path.join('/tmp',name);
   try{const inc=[];for(const p of INCLUDE)if(await stat(path.join(HOME,p)).catch(()=>null))inc.push(p);
-   // tar exits 1 when a file changes while it reads (fine for a backup); 2 means it could not read something, so the backup fails with tar's own words
-   const terr=q(tmp+'.err');
-   await sh('set -o pipefail; { tar -czf - '+EXCLUDE.map(e=>'--exclude='+q(e)).join(' ')+' '+inc.map(q).join(' ')+' 2>'+terr+'; c=$?; [ $c -le 1 ] || { tail -2 '+terr+' >&2; rm -f '+terr+'; exit $c; }; rm -f '+terr+'; } | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:AQ_BK -out '+q(tmp),{AQ_BK:await key()});
+   // agents with their own Linux user own their workspace files, and some programs write them private, so tar could not
+   // read them and every nightly backup failed from 24 Oct (30 Oct 2026). Before packing, each agent's own user (the SSH
+   // login its terminal already uses) gives aqeelOS read access to its files again; the owner of a file may do that
+   await grantRead();
+   // tar exits 1 when a file changes while it reads (fine for a backup). A file that still can't be read (a browser's lock
+   // link) is skipped and counted instead of failing the whole backup; anything else tar can't do still fails it
+   const terr=q(tmp+'.err'),tcnt=q(tmp+'.skipped');
+   await sh('set -o pipefail; { tar -czf - --ignore-failed-read '+EXCLUDE.map(e=>'--exclude='+q(e)).join(' ')+' '+inc.map(q).join(' ')+' 2>'+terr+'; c=$?; grep -c "Cannot open\\|Cannot stat\\|Cannot read" '+terr+' >'+tcnt+'; [ $c -le 1 ] || { grep -v "socket ignored\\|Cannot open\\|Cannot stat\\|Cannot read" '+terr+' | tail -2 >&2; rm -f '+terr+'; exit $c; }; rm -f '+terr+'; } | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:AQ_BK -out '+q(tmp),{AQ_BK:await key()});
+   const skipped=Number((await readFile(tmp+'.skipped','utf8').catch(()=>'0')).trim())||0;await rm(tmp+'.skipped',{force:true}).catch(()=>{});
    const size=(await stat(tmp)).size;if(size<1e6)throw Error('The backup came out too small ('+size+' bytes).');
    const g=await google(),fid=await folder(g);
    const start=await drive(g,'upload/drive/v3/files?uploadType=resumable',{method:'POST',raw:true,headers:{'content-type':'application/json; charset=UTF-8','x-upload-content-type':'application/octet-stream','x-upload-content-length':String(size)},body:JSON.stringify({name,parents:[fid]})});
@@ -53,7 +64,7 @@ export function createBackups({DATA,HOME,HERMES_HOME,TOKEN='google_token_elkiya.
    // keep the newest 14 (older ones go to the Drive bin, where Google keeps them 30 more days)
    const l=await drive(g,'drive/v3/files?q='+encodeURIComponent("'"+fid+"' in parents and trashed=false")+'&orderBy=createdTime desc&fields=files(id,name)&pageSize=100');
    for(const f of (l.files||[]).slice(KEEP))await drive(g,'drive/v3/files/'+f.id,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({trashed:true})}).catch(()=>{});
-   state.last={at,ok:true,name,size,id:file.id,account:g.account,why,secs:Math.round((Date.now()-at)/1000)};state.made=true;await save();console.log('backup: '+name+' ('+Math.round(size/1e6)+' MB) uploaded to Google Drive');return state.last}
+   state.last={at,ok:true,name,size,id:file.id,account:g.account,why,secs:Math.round((Date.now()-at)/1000),skipped};state.made=true;await save();console.log('backup: '+name+' ('+Math.round(size/1e6)+' MB) uploaded to Google Drive'+(skipped?', '+skipped+' unreadable file(s) skipped':''));return state.last}
   catch(e){state.last={at,ok:false,error:e.message,why};await save();console.warn('backup failed:',e.message);notify('Backup to Google Drive failed',e.message);throw e}
   finally{await rm(tmp,{force:true}).catch(()=>{});running=null}})();return running}
  // a restore test: the newest backup from Drive, decrypted and unpacked into a scratch folder, with the must-have files checked
