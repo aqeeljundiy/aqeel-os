@@ -167,4 +167,68 @@ for(const h of homes){const sp=path.join(h,'skills','productivity','google-works
   if(!s.includes('https://hermes-agent.nousresearch.com/docs')){const t=pf+'.aq.tmp';await writeFile(t,s);
    const {execFileSync}=await import('node:child_process');try{execFileSync('python3',['-c','import ast,sys;ast.parse(open(sys.argv[1]).read())',t]);await rename(t,pf);changed++;console.log('engine help text gives no outside link')}catch(e){await rm(t,{force:true});console.warn('! engine help text: would not compile, left alone')}}
   else console.warn('! engine help text changed upstream: link still there')}}
+// 13) Backup models (30 Oct 2026, with app/backup-models.mjs). When every model failed, the person got the engine's own
+//     words ("Claude Subscription DirectSDK (Experimental) didn't answer after 3 attempts ... add a backup provider with
+//     `hermes fallback add`. Provider said: ..."). Now: "I couldn't reach any of my models just now (Claude and GPT). Please
+//     send it again in a minute." The engine has no setting or hook for that text (the failed reply skips the
+//     transform_llm_output hook), so the copy is changed where it is made, and the gateway's "Your request was not
+//     processed" is not added under it (it is still saved in the chat's history). When a backup model answered, the reply
+//     ends with one short line: "(Answered with GPT, Claude was down.)" (the engine's own notice of this is hidden by
+//     suppress_warning_notifications, and names the engine's providers). A plain name per model: Claude, GPT, Gemini.
+{const brand=`def _aq_brand(p, m):
+                s = str(m or "").lower(); q = str(p or "").lower()
+                for k, n in (("claude", "Claude"), ("opus", "Claude"), ("sonnet", "Claude"), ("haiku", "Claude"), ("gpt", "GPT"), ("codex", "GPT"), ("gemini", "Gemini")):
+                    if k in s: return n
+                for k, n in (("claude", "Claude"), ("anthropic", "Claude"), ("openai", "GPT"), ("codex", "GPT"), ("gemini", "Gemini"), ("antigravity", "Gemini"), ("google", "Gemini")):
+                    if k in q: return n
+                return "another model"`;
+ const P=[{f:'agent/turn_recovery.py',tag:'aqeelos:plain-failure',
+   from:`    result = _failed_turn_result(_final_response, messages, api_call_count, _final_summary)`,
+   to:`    # aqeelos:plain-failure: every model failed: one plain sentence naming the models tried, no engine words
+    if not _is_billing and not _free_tier_kind:
+        try:
+            ${brand}
+            _aq_seen = []
+            _aq_prim = getattr(agent, "_primary_runtime", None) or {}
+            for _p, _m in [(_aq_prim.get("provider"), _aq_prim.get("model"))] + [(f.get("provider"), f.get("model")) for f in (getattr(agent, "_fallback_chain", None) or [])] + [(provider, model)]:
+                if _p and _aq_brand(_p, _m) not in _aq_seen: _aq_seen.append(_aq_brand(_p, _m))
+            _aq_names = " and ".join(_aq_seen) if len(_aq_seen) < 3 else ", ".join(_aq_seen[:-1]) + " and " + _aq_seen[-1]
+            _final_response = f"I couldn't reach any of my models just now ({_aq_names}). Please send it again in a minute."
+            if _reset_at and _reset_at - time.time() >= 120:
+                from agent.retry_utils import format_reset_window
+                _final_response = f"I couldn't reach any of my models just now ({_aq_names}). {_aq_seen[0]}'s limit resets in {format_reset_window(_reset_at - time.time())}."
+        except Exception:
+            pass
+    result = _failed_turn_result(_final_response, messages, api_call_count, _final_summary)`},
+  {f:'gateway/run_turn_persistence.py',tag:'aqeelos:plain-failure',
+   from:`        response = str(response or "").strip()
+        return f"{response}\\n\\n{notice}" if response else notice`,
+   to:`        response = str(response or "").strip()
+        if response.startswith("I couldn't reach any of my models just now"):  # aqeelos:plain-failure (it says what to do)
+            return response
+        return f"{response}\\n\\n{notice}" if response else notice`},
+  {f:'agent/turn_finalizer.py',tag:'aqeelos:backup-note',
+   from:`    agent._llm_output_transform = (turn_id, transformed, pre_transform)
+    return final_response, transformed, pre_transform`,
+   to:`    # aqeelos:backup-note: a backup model answered this turn: one short line under the reply
+    try:
+        _aq_fb = getattr(agent, "_provider_fallback_route", None) if getattr(agent, "_provider_fallback_active", False) else None
+        if isinstance(_aq_fb, (list, tuple)) and len(_aq_fb) == 2 and isinstance(final_response, str) and final_response.strip():
+            ${brand}
+            _aq_prim = getattr(agent, "_primary_runtime", None) or {}
+            _aq_new, _aq_old = _aq_brand(_aq_fb[1], _aq_fb[0]), _aq_brand(_aq_prim.get("provider"), _aq_prim.get("model"))
+            if _aq_new != _aq_old and "(Answered with " not in final_response:
+                if not transformed:
+                    pre_transform = final_response
+                final_response, transformed = f"{final_response}\\n\\n(Answered with {_aq_new}, {_aq_old} was down.)", True
+    except Exception:
+        pass
+    agent._llm_output_transform = (turn_id, transformed, pre_transform)
+    return final_response, transformed, pre_transform`}];
+ const {execFileSync}=await import('node:child_process');
+ for(const x of P){const pf=path.join(HOME,'hermes-agent',x.f);let s=await readFile(pf,'utf8').catch(()=>null);if(s==null)continue;
+  if(s.includes(x.tag))continue;   // in place already
+  if(s.split(x.from).length!==2){console.warn('! backup models: '+x.f+' changed upstream; its plain words are not in place');continue}
+  const t=pf+'.aq.tmp';await rawWrite(t,s.replace(x.from,x.to));
+  try{execFileSync('python3',['-c','import ast,sys;ast.parse(open(sys.argv[1]).read())',t]);await rename(t,pf);changed++;console.log('backup models: plain words in',x.f)}catch(e){await rm(t,{force:true});console.warn('! backup models: '+x.f+' would not compile, left alone')}}}
 console.log(changed?changed+' change(s)':'skill patches already in place');
