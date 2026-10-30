@@ -23,7 +23,7 @@ const MAIN={id:'main',label:'Main account',dir:path.join(HOME,'.claude')};
 export let setupAgentFn=null;
 export const export_setups={running:()=>0,wait:()=>Promise.resolve()};   // setups in progress, counted by /healthz so a deploy waits for them
 // for agent-defaults.mjs: copying skills, and what runs after a new agent is set up
-export const accountHooks={giveSkills:null,trimSkills:null,forgetSkills:null,afterSetup:null,moveOff:null,keyStatus:null,keyCheck:null};   // keyStatus/keyCheck: connect.mjs (API keys tested)
+export const accountHooks={giveSkills:null,trimSkills:null,forgetSkills:null,afterSetup:null,moveOff:null,keyStatus:null,keyCheck:null,held:null,backupSync:null};   // keyStatus/keyCheck: connect.mjs (API keys tested); held/backupSync: backup-models.mjs
 export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code')}={}){
  const FILE=path.join(DATA,'accounts.json');
  const load=async()=>{try{return JSON.parse(await readFile(FILE,'utf8'))}catch{return {accounts:[],assign:{},auto:{on:false,threshold:90},events:[]}}};
@@ -102,7 +102,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
   Object.assign(s,{child,out:'',state:'running'});logins.set(id,s);let end;s.closed=new Promise(r=>end=r);
   child.on('error',er=>{s.state='failed';s.out+='\n'+er.message});
   const add=b=>{s.out=(s.out+String(b).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g,'')).slice(-8000)};child.stdout.on('data',add);child.stderr.on('data',add);
-  child.on('close',async code=>{try{s.state=code===0?'done':'failed';if(code===0)await done();else await fail()}catch(er){s.state='failed';console.warn('account sign-in',er.message)}finally{cache.drop(id);end()}});
+  child.on('close',async code=>{try{s.state=code===0?'done':'failed';if(code===0)await done();else await fail()}catch(er){s.state='failed';console.warn('account sign-in',er.message)}finally{cache.drop(id);end();accountHooks.backupSync?.('sign-in')}});
   setTimeout(()=>{if(s.state==='running'){s.state='failed';child.kill()}},10*60000).unref();
   for(let i=0;i<40&&!/https:\/\/\S+/.test(s.out)&&s.state==='running';i++)await new Promise(r=>setTimeout(r,250));
   return {id,url:(/https:\/\/\S+/.exec(s.out)||[])[0]||null,state:s.state}}
@@ -183,6 +183,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    if(!e.model&&ok.models?.length){const cur=(await agentRoute(profile)).model;if(!ok.models.includes(cur))await must(setKey(profile,'model.default',ok.models[0]),'Could not set the model')}
    await update(x=>event(x,{t:Date.now(),profile,to:e.key,why:why||''}))}
   if(e.model)await must(setKey(profile,'model.default',e.model),'Could not set the model');
+  accountHooks.backupSync?.('model changed');   // its backup list starts below where it is now (backup-models.mjs)
  }
  // Claude use for a model: the 5-hour and weekly windows, plus the weekly Opus or Sonnet window when the model is one
  const claudeUsed=(u,model)=>Math.max(u.session?.used||0,u.week?.used||0,/opus/i.test(model||'')?u.opus?.used||0:0,/sonnet/i.test(model||'')?u.sonnet?.used||0:0);
@@ -198,7 +199,8 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
   if((d.priority||[]).length){
    for(const profile of await agents()){const prov=await providers(false,profile);if(!prov)continue;   // its gateway did not answer: nothing is known this tick
     const cur=await entryOf(d,profile),model=(await agentRoute(profile)).model;const used=usageOf(cur,det,prov,model);const at=d.priority.findIndex(e=>e.key===cur);
-    const room=(e,lim)=>{const u=usageOf(e.key,det,prov,e.model||(e.key.startsWith(PLUGIN_KEY)&&!isClaude(model)?'':model));return u!==null&&u<lim};
+    // a provider in an outage (backup-models.mjs) has no room, so nobody is moved back up to it before it works again
+    const room=(e,lim)=>{if(accountHooks.held?.(e.key))return false;const u=usageOf(e.key,det,prov,e.model||(e.key.startsWith(PLUGIN_KEY)&&!isClaude(model)?'':model));return u!==null&&u<lim};
     // back up the list: a higher entry with room again (10 points under the limit, so it does not flip back and forth);
     // an agent someone moved by hand stays where they put it
     const byHand=(d.events||[]).find(e=>e.profile===profile)?.why==='Chosen by hand';
@@ -221,7 +223,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    for(const k of Object.keys(so))if(k.startsWith(PLUGIN_KEY)&&!all(x).some(a=>PLUGIN_KEY+a.id===k))back(k);   // a removed account
    if(prov){for(const p of prov){const k='p:'+p.slug;if(seen[k]?.name!==p.name){seen[k]={name:p.name};ch=true}back(k)}
     for(const [k,s] of Object.entries(seen))if(!prov.some(p=>'p:'+p.slug===k))out(k,s.name)}
-   return ch})}
+   if(ch)accountHooks.backupSync?.('sign-in status');return ch})}
  async function forget(key,keepSeen){await update(x=>{if(x.signedOut)delete x.signedOut[key];if(!keepSeen&&x.seen)delete x.seen[key]})}
  // the saved API keys are tested again in the same 5-minute round (connect.mjs: Key rejected, Out of credit)
  async function signinTick(){const d=await load();const det=Object.fromEntries(await Promise.all(all(d).map(async a=>[a.id,await details(a)])));await note(det,await providers(false,'default'));await accountHooks.keyCheck?.()}
@@ -365,7 +367,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    return send(res,200,{accounts:list,providers:prov,priority:d.priority||[],labels:d.labels||{},route,assign:Object.fromEntries(ag.map(n=>[n,d.assign[n]||'main'])),auto:d.auto||{on:false,threshold:90},events:(d.events||[]).filter(e=>see(e.profile)),signedOut:await signedOut(),keys:accountHooks.keyStatus?.()||{},allow:d.allow||[]})}
   if(p==='/ui/accounts/priority'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
    const pr=(Array.isArray(b.priority)?b.priority:[]).filter(e=>e&&typeof e.key==='string'&&/^(claude:[a-z0-9-]+|p:[a-z0-9_.-]+)$/.test(e.key)).slice(0,20).map(e=>({key:e.key,model:String(e.model||'').slice(0,120)}));
-   d.priority=pr;await update(x=>{x.priority=pr});autoTick().catch(()=>{});return send(res,200,{priority:d.priority})}
+   d.priority=pr;await update(x=>{x.priority=pr});autoTick().catch(()=>{});accountHooks.backupSync?.('priority');return send(res,200,{priority:d.priority})}
   if(p==='/ui/accounts/use'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const profile=String(b.profile||'');if(!/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(profile))return send(res,400,{error:'Bad agent name'});if(!see(profile))return send(res,403,{error:'This agent is private to its owner.'});
    try{await useEntry(d,profile,{key:String(b.key||''),model:String(b.model||'')},'Chosen by hand');return send(res,200,{ok:true})}catch(e){return send(res,400,{error:e.message})}}
   if(p==='/ui/accounts'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{return send(res,200,await startLogin(b.label))}catch(e){return send(res,500,{error:e.message})}}
@@ -384,7 +386,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    await update(x=>{x.allow=[...new Set([...(x.allow||[]),s])]});provCache.clear();return send(res,200,{ok:true})}
   // a provider that signed out and is not coming back: its card and banner go (signing in again brings it back)
   if(p==='/ui/accounts/forget'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const k=String(b.key||'');if(!/^p:[a-z0-9_.-]+$/.test(k))return send(res,400,{error:'Unknown account'});
-   await forget(k);await update(x=>{if(x.labels)delete x.labels[k];if(x.priority)x.priority=x.priority.filter(e=>e.key!==k);if(x.allow)x.allow=x.allow.filter(s=>'p:'+s!==k)});provCache.clear();return send(res,200,{ok:true})}
+   await forget(k);await update(x=>{if(x.labels)delete x.labels[k];if(x.priority)x.priority=x.priority.filter(e=>e.key!==k);if(x.allow)x.allow=x.allow.filter(s=>'p:'+s!==k)});provCache.clear();accountHooks.backupSync?.('account removed');return send(res,200,{ok:true})}
   let m=/^\/ui\/accounts\/([a-z0-9-]+)\/code$/.exec(p);if(m&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}try{return send(res,200,await sendCode(m[1],b.code))}catch(e){return send(res,400,{error:e.message})}}
   // Reconnect (admins only, checked in server.mjs too): the same sign-in for an account that is there already
   m=/^\/ui\/accounts\/([a-z0-9-]+)\/reconnect$/.exec(p);if(m&&req.method==='POST'){try{return send(res,200,await reconnect(m[1]))}catch(e){return send(res,400,{error:e.message})}}
@@ -398,5 +400,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    await update(x=>{for(const n of Object.keys(x.assign||{}))if(!live.has(n))delete x.assign[n]});
    await run(CLAUDE,['auth','logout'],{CLAUDE_CONFIG_DIR:a.dir},20000);await rm(a.dir,{recursive:true,force:true});await update(x=>{x.accounts=x.accounts.filter(y=>y.id!==id)});cache.drop(id);return send(res,200,{ok:true})}
   send(res,404,{error:'Not found'});
- },{codeRoute,signedOut,forget});
+ },{codeRoute,signedOut,forget,
+  // what backup-models.mjs needs to build each agent's backup list and to move agents in an outage
+  backup:{load,all,details:a=>details(a),options,entryOf,agentRoute,useEntry,keyStatus:()=>accountHooks.keyStatus?.()||{}}});
 }

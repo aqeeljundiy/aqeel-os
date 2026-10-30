@@ -44,7 +44,8 @@ import {createBackups} from './backup.mjs';
 import {createPluginHost} from './plugin-host.mjs';
 import {createEngineUpdates} from './engine-updates.mjs';
 import {createAutomationGuard} from './automation-guard.mjs';
-import {isDaytime as dayNow,local as localAt} from './engine-update-rules.mjs';
+import {createBackupModels,engineProbe,RULES as BM_RULES} from './backup-models.mjs';
+import {isDaytime as dayNow,local as localAt,clock as clockAt} from './engine-update-rules.mjs';
 import {readdir} from 'node:fs/promises';
 import {createReadStream} from 'node:fs';
 import {scryptSync,randomBytes,createHmac,createHash,timingSafeEqual} from 'node:crypto';
@@ -612,6 +613,18 @@ const guard=createAutomationGuard({DATA,HERMES_HOME,LIVE:LIVE_APP,readConfig,wit
  dash:(method,p,body)=>fetch(DASH.origin+p,{method,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:body&&method!=='GET'&&method!=='DELETE'?JSON.stringify(body):undefined,signal:AbortSignal.timeout(90000)}).then(async r=>({ok:r.ok,status:r.status,j:await r.json().catch(()=>({}))})),
  busy:()=>liveCount()+engAgents.n,paused:()=>engineUpd.busy()||!!gwRestarting,zone:async()=>(await readConfig('default').catch(()=>null))?.timezone||'Asia/Jakarta',isDaytime:dayNow,localDate:(ms,tz)=>localAt(ms,tz).date,
  tell:async(text,{detail,whatsapp,bell=true}={})=>{if(bell)await bottlenecks.event('automations',text,detail||'').catch(()=>{});if(whatsapp)await toOwner(text+(detail?'\n'+detail:''))}});
+/* Backup models (backup-models.mjs, 30 Oct 2026): every agent's engine backup list from the Models page order, and the
+   outage switch when one provider keeps failing replies (agents move to their first backup and back once it works).
+   Its alerts go the way the automations guard's do: the bell and WhatsApp. Only the live app writes and moves agents
+   (a copy on another port with its own engine home may, for testing: BACKUP_MODELS_TEST=1). */
+let tzNow='Asia/Jakarta';const bmTest=!LIVE_APP&&env.BACKUP_MODELS_TEST==='1'&&path.resolve(HERMES_HOME)!==path.join(homedir(),'.hermes');
+const backupModels=createBackupModels({DATA,HERMES_HOME,live:LIVE_APP||bmTest,...(bmTest&&env.BACKUP_MODELS_RULES?{R:{...BM_RULES,...JSON.parse(env.BACKUP_MODELS_RULES)}}:{}),   // a test copy may shorten the times
+ agents:async()=>{const l=await agentNames({copies:true});if(await isAgent(HELP_AGENT))l.push(HELP_AGENT);return l},acc:accountsApi.backup,readConfig,setKey,ready:async()=>{await users.load();const c=await readConfig('default').catch(()=>null);if(c?.timezone)tzNow=c.timezone},
+ // an agent a member owns gets only backups that member's role allows (people's "models", users.mjs)
+ modelOk:(a,p,m)=>{const o=users.byId(users.agentOwner(String(a).split('--')[0]));return !o||users.modelOk(o,p,m)},
+ probe:engineProbe({python:enginePython,root,engine:path.join(HERMES_HOME,'hermes-agent')}),nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a),clock:ms=>clockAt(ms,tzNow),
+ tell:async(text,{detail,whatsapp,bell=true}={})=>{if(bell)await bottlenecks.event('automations',text,detail||'').catch(()=>{});if(whatsapp)await toOwner(text+(detail?'\n'+detail:''))}});
+accountHooks.held=k=>backupModels.held(k);accountHooks.backupSync=why=>backupModels.soon(why);
 // engine updates at night, checked after; the owner is told on the main agent's channel (as when the server was off)
 const engineUpd=createEngineUpdates({guard,DATA,HERMES_HOME,PORT,LIVE:LIVE_APP,readConfig,python:enginePython,patches:enginePatches,restartGateway,resetForUpdate:engineReset,
  dash:(p,o={})=>fetch(DASH.origin+'/api'+p,{...o,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},signal:AbortSignal.timeout(60000)}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||j.error||'HTTP '+r.status);return j}),
@@ -1762,7 +1775,9 @@ const server=createServer(async(req,res)=>{
      if(p==='/ui/engine-updates/tonight'&&req.method==='POST')return send(res,200,await engineUpd.setTonight(!!b.on))}catch(e){return send(res,400,{error:e.message})}}
    // automations (automation-guard.mjs): every agent's tool servers and schedules that hit a missing tool; Fix now, Run now
    if(p.startsWith('/ui/automations')){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});let b={};if(req.method==='POST'){try{b=JSON.parse(await readBody(req,4096)||'{}')}catch{}}
-    try{if(p==='/ui/automations'&&req.method==='GET')return send(res,200,await guard.status());const a=String(b.agent||'');if(!(await agentNames({copies:true})).includes(a))return send(res,400,{error:'Unknown agent'});
+    // with each agent's backup models and an outage switch going on (backup-models.mjs); Check now writes the lists at once
+    try{if(p==='/ui/automations'&&req.method==='GET')return send(res,200,{...await guard.status(),models:await backupModels.status().catch(()=>null)});
+     if(p==='/ui/automations/models'&&req.method==='POST'){const r=await backupModels.sync('Check now');await backupModels.tick();return send(res,200,{lists:r,...await backupModels.status()})}const a=String(b.agent||'');if(!(await agentNames({copies:true})).includes(a))return send(res,400,{error:'Unknown agent'});
      if(p==='/ui/automations/fix'&&req.method==='POST')return send(res,200,guard.startFix(a,String(b.server||'')));   // runs in the background; the card shows Fixing until it is done
      if(p==='/ui/automations/run'&&req.method==='POST')return send(res,200,await guard.runJob(a,String(b.job||'')))}catch(e){return send(res,400,{error:e.message})}}
    if(p.startsWith('/ui/backups')){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});
