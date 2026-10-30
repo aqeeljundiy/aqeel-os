@@ -179,5 +179,5 @@ export function createBackupModels({DATA,HERMES_HOME,live=false,agents,acc,readC
 // The probe: one short, tool-free question through the engine's own provider code (scripts/probe-model.py), with the
 // agent's engine home so it uses that agent's sign-in. True when anything came back.
 export function engineProbe({python,root,engine}){return async({provider,model,home})=>{const py=await python();if(!py)return false;
- return new Promise(res=>{const c=execFile(py,[path.join(root,'scripts','probe-model.py'),engine],{timeout:120000,maxBuffer:1e6,cwd:home,env:{...process.env,HERMES_HOME:home}},(e,o)=>res(!e&&/\S/.test(String(o||''))));
-  c.stdin.end(JSON.stringify({provider,model}))})}}
+ return new Promise(res=>{const c=execFile(py,[path.join(root,'scripts','probe-model.py'),engine,JSON.stringify({provider,model})],{timeout:120000,maxBuffer:1e6,cwd:home,env:{...process.env,HERMES_HOME:home}},(e,o)=>res(!e&&/\S/.test(String(o||''))));
+  c.stdin.end()})}}
