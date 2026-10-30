@@ -15,7 +15,8 @@ const AutoCard={
   l.push('<span class="eu-log"><span>'+esc(!ag.length?'Backup models are not checked yet.':none.length?'No backup model for '+and(none)+'. Sign in to another model (ChatGPT, Google AI Pro) on the Models page.':'Every agent has a backup model ('+and(all)+') for when its own does not answer.')+'</span></span>');
   return '<div class="bk-row"><span class="bk-k">Models</span><span class="eu-list">'+l.join('')+'</span></div>'},
  html(d){const rows=[],bad=[];
-  for(const a of d.agents){const fine=s=>s.state==='ok'||s.state==='unused',ok=a.servers.filter(fine),odd=a.servers.filter(s=>!fine(s));   // unused: an app never signed in for this agent, kept on purposeconst items=[];
+  // unused: an app never signed in for this agent, kept on purpose (25 Oct 2026); it counts as fine
+  for(const a of d.agents){const fine=s=>s.state==='ok'||s.state==='unused',ok=a.servers.filter(fine),odd=a.servers.filter(s=>!fine(s));const items=[];
    for(const s of odd){const why=s.state==='repaired'?s.fixed:s.state==='signin'&&/^needs someone to sign in$/.test(s.reason)?'':s.reason;if(s.state==='broken'||s.state==='signin')bad.push(s);
     items.push('<span class="eu-log ag-row"><span><b>'+esc(s.name)+'</b> '+this.chip(s)+(s.state==='broken'?' <button class="link-btn" data-act="ag-fix" data-a="'+esc(a.agent)+'" data-s="'+esc(s.name)+'">Fix now</button>':s.state==='signin'?' <button class="link-btn" data-act="bottlenecks">Sign in</button>':'')+'</span>'+(why?'<small>'+esc(why)+'</small>':'')+'</span>')}
    for(const j of a.jobs)items.push('<span class="eu-log ag-row"><span>Schedule <b>'+esc(j.name)+'</b> <span class="chip warn">Last run: a tool was missing</span>'+(j.offer?' <button class="link-btn" data-act="ag-run" data-a="'+esc(a.agent)+'" data-j="'+esc(j.id)+'">Run now</button>':'')+'</span><small>'+esc(this.when(j.at))+(j.reason?' · '+esc(j.reason):'')+'</small></span>');
