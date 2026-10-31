@@ -242,12 +242,15 @@ export function createAutomationGuard({DATA,HERMES_HOME,LIVE,listAgents,readConf
   // 3. the engine connects it again
   const rc=await reconnect(a,s,c);if(!rc.ok)return fail(a,s,rc.why,steps);steps.push('reconnected'+(rc.added?'':' (the engine did not confirm it yet)'));
   const t2=await test(a,s);if(!t2.ok)return fail(a,s,'after reconnecting, the engine’s Test fails: '+t2.why,steps);
-  r.state='ok';r.since=0;r.reason='';r.conn='up';r.repairedAt=Date.now();r.fixed=steps.join(', ');r.tries=0;forget('srv|'+key(a,s)+'|');
+  r.state='ok';r.since=0;r.reason='';r.conn='up';r.repairedAt=Date.now();r.fixed=steps.join(', ');r.tries=0;r.failRun=0;forget('srv|'+key(a,s)+'|');
   for(const j of Object.values(db.jobs))if(j.agent===a&&j.fail&&j.servers?.includes(s)&&Date.now()-j.at<6*3600e3)j.offer=true;   // a schedule that failed because of it is offered again
   db.digest.push({at:Date.now(),text:nameOf(a)+': '+s+' ('+steps.join(', ')+')'});await save();
   await say('fixed|'+key(a,s)+'|'+r.repairedAt,nameOf(a)+': the tool server "'+s+'" works again',{detail:'aqeelOS '+steps.join(', ')+'. '+(why?'It had: '+why+'. ':'')+'The engine’s Test passes ('+t2.tools+' tools).',every:Infinity});
   return {ok:true,steps,tools:t2.tools}})}
- async function fail(a,s,why,steps){const r=rec(a,s);r.state=r.state==='ok'?'broken':r.state;r.failedAt=Date.now();r.failWhy=why;await save();
+ // only what needs the owner reaches the owner (31 Oct 2026): one failed fix can be a passing blip (the engine busy, a
+ // network hiccup), so it is tried again on the next pass; the second failure in a row is told
+ async function fail(a,s,why,steps){const r=rec(a,s);r.state=r.state==='ok'?'broken':r.state;r.failedAt=Date.now();r.failWhy=why;r.failRun=(r.failRun||0)+1;await save();
+  if(r.failRun<2)return {ok:false,why,steps};
   await say('srv|'+key(a,s)+'|failed',nameOf(a)+': the tool server "'+s+'" is broken and the automatic fix did not work',{detail:String(why).replace(/\.$/,'')+(steps.length?' (done so far: '+steps.join(', ')+')':'')+'. Open System › Health to try again.',whatsapp:true,every:6*3600e3});
   return {ok:false,why,steps}}
  // a Python environment that no tool server names (the PDF tool's): rebuilt, nothing to reconnect
@@ -263,7 +266,7 @@ export function createAutomationGuard({DATA,HERMES_HOME,LIVE,listAgents,readConf
    if(st==='signin'&&!await signedBefore(r.agent,r.name)){r.unused=true;continue}
    if(st==='signin'){r.unused=false;await say('srv|'+key(r.agent,r.name)+'|signin',nameOf(r.agent)+': "'+r.name+'" needs someone to sign in',{detail:'Its tools stay off until then: '+(r.reason||'').slice(0,160)+'. Sign in under Bottlenecks or System › Health. aqeelOS will not retry it by itself.',every:Infinity});continue}
    if(st!=='repair')continue;
-   await say('srv|'+key(r.agent,r.name)+'|found|'+(r.since||0),nameOf(r.agent)+': the tool server "'+r.name+'" '+(r.state==='broken'?'is broken':r.state==='missing'?'is missing its tools':'stopped connecting'),{detail:String(r.reason||'').replace(/\.$/,'')+'. aqeelOS is fixing it.',every:Infinity});
+   await say('srv|'+key(r.agent,r.name)+'|found|'+(r.since||0),nameOf(r.agent)+': the tool server "'+r.name+'" '+(r.state==='broken'?'is broken':r.state==='missing'?'is missing its tools':'stopped connecting'),{info:true,detail:String(r.reason||'').replace(/\.$/,'')+'. aqeelOS is fixing it.',every:Infinity});
    out.push(repair(r.agent,r.name,{why:r.reason}).catch(e=>({ok:false,why:e.message})))}
   for(const [dir,v] of Object.entries(db.venvs))if(v.state==='broken'&&!Object.values(db.servers).some(r=>r.venvs?.includes(dir))&&mayTry(v,now))out.push(repairVenv(dir).catch(e=>({ok:false,why:e.message})));
   return Promise.all(out)}

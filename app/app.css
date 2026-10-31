@@ -1762,7 +1762,7 @@ summary{list-style:none}summary::-webkit-details-marker{display:none}
 .aam-who{font-weight:600;color:var(--accent,var(--ink))}
 
 /* Bottlenecks always in the top bar; quiet when nothing is stuck */
-.bn-btn.none{color:var(--muted)}.bn-btn.none .bn-n{display:none}
+.bn-btn.none,.bn-btn[data-none]{color:var(--muted)}.bn-btn.none .bn-n,.bn-btn[data-none] .bn-n,.bn-btn .bn-n:empty{display:none}   /* before the first count too: no empty dot (31 Oct 2026) */
 /* the owner on every shared row (access.js): its picture with a crown, then who else uses it */
 .acc-own{display:inline-flex;align-items:center;gap:6px;position:relative;margin-right:4px;padding-right:8px;border-right:1px solid var(--border)}
 .acc-own>i{position:absolute;left:13px;top:-5px;width:14px;height:14px;border-radius:50%;background:#f5b301;color:#3b2a00;display:grid;place-items:center;font-style:normal}

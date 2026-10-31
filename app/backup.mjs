@@ -80,7 +80,10 @@ export function createBackups({DATA,HOME,HERMES_HOME,TOKEN='google_token_elkiya.
    const l=await drive(g,'drive/v3/files?q='+encodeURIComponent("'"+fid+"' in parents and trashed=false")+'&orderBy=createdTime desc&fields=files(id,name)&pageSize=100');
    for(const f of (l.files||[]).slice(KEEP))await drive(g,'drive/v3/files/'+f.id,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({trashed:true})}).catch(()=>{});
    state.last={at,ok:true,name,size,id:file.id,account:g.account,why,secs:Math.round((Date.now()-at)/1000),skipped};state.made=true;await save();console.log('backup: '+name+' ('+Math.round(size/1e6)+' MB) uploaded to Google Drive'+(skipped?', '+skipped+' unreadable file(s) skipped':''));solved();return state.last}
-  catch(e){state.last={at,ok:false,error:e.message,why};await save();console.warn('backup failed:',e.message);notify('Backup to Google Drive failed',e.message);throw e}
+  // a failed scheduled backup is tried again within the hour, 3 times a morning; only the third failure is told (a
+  // dropped upload is usually gone an hour later). A manual one shows its result on Health, so it never rings the bell
+  catch(e){const day=new Date(at+7*3600e3).toISOString().slice(0,10);state.tries=state.tries?.day===day?{day,n:state.tries.n+1}:{day,n:1};
+   state.last={at,ok:false,error:e.message,why};await save();console.warn('backup failed ('+state.tries.n+' today):',e.message);if(why==='scheduled'&&state.tries.n>=3)notify('Backup to Google Drive failed 3 times this morning',e.message);throw e}
   finally{await rm(tmp,{force:true}).catch(()=>{});running=null}})();return running}
  // a restore test: the newest backup from Drive, decrypted and unpacked into a scratch folder, with the must-have files checked
  async function test(){await load();const at=Date.now();const dir=path.join('/tmp','aqeelos-restore-test-'+at),enc=dir+'.enc';
@@ -95,7 +98,8 @@ export function createBackups({DATA,HOME,HERMES_HOME,TOKEN='google_token_elkiya.
   finally{await rm(dir,{recursive:true,force:true}).catch(()=>{});await rm(enc,{force:true}).catch(()=>{})}}
  // 03:00 Jakarta every night; a restore test every Sunday after it
  function schedule(){const tick=async()=>{await load();const j=new Date(Date.now()+7*3600e3);const today=j.toISOString().slice(0,10);
-   if(j.getUTCHours()===3&&(!state.last||new Date(state.last.at+7*3600e3).toISOString().slice(0,10)!==today||!state.last.ok&&Date.now()-state.last.at>3600e3)){try{await run();if(j.getUTCDay()===0)await test()}catch{}}};
+   const tries=state.tries?.day===today?state.tries.n:0,doneToday=state.last?.ok&&new Date(state.last.at+7*3600e3).toISOString().slice(0,10)===today;
+   if(j.getUTCHours()>=3&&j.getUTCHours()<9&&!doneToday&&tries<3&&(!state.last||state.last.ok||Date.now()-state.last.at>3600e3)){try{await run();if(j.getUTCDay()===0)await test()}catch{}}};
   setInterval(()=>tick().catch(()=>{}),15*60e3).unref?.()}
  async function status(){await load();const keyError=made()&&!await readFile(KEYF,'utf8').then(k=>k.trim().length>=32,()=>false)?NOKEY:null;return {keyError,last:state.last||null,test:state.test||null,running:Boolean(running),keep:KEEP,where:'Google Drive › aqeelOS backups',account:await readFile(path.join(HERMES_HOME,TOKEN),'utf8').then(t=>JSON.parse(t).account||'').catch(()=>'')}}
  return {run,test,status,key,schedule}}

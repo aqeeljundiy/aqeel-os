@@ -601,7 +601,8 @@ if(LIVE_APP)setTimeout(async()=>{try{const f=path.join(homedir(),'apps','aqeel-c
 if(LIVE_APP){const HB=path.join(DATA,'heartbeat.json');readFile(HB,'utf8').then(t=>JSON.parse(t).t||0).catch(()=>0).then(last=>{const beat=()=>writeFile(HB,JSON.stringify({t:Date.now()})).catch(()=>{});beat();setInterval(beat,60000).unref();
  const gap=Date.now()-last;if(!last||gap<5*60e3)return;setTimeout(async()=>{try{const ch=await relay.channelsFor('default');const c=ch.find(x=>x.platform==='whatsapp')||ch[0];if(!c)return;
   const at=t=>new Date(t).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Jakarta'}),mins=Math.round(gap/60000);
-  await bottlenecks.event('down','aqeelOS was off for '+mins+' min','From about '+at(last)+' to '+at(Date.now())+' (Jakarta time). Everything started again by itself. If it happens often, check the server in the Contabo panel.').catch(()=>{});
+  // it started again by itself, so a short break is not something to act on (31 Oct 2026); an hour or more is shown
+  await bottlenecks.event('down','aqeelOS was off for '+mins+' min','From about '+at(last)+' to '+at(Date.now())+' (Jakarta time). Everything started again by itself. If it happens often, check the server in the Contabo panel.').catch(()=>{},{info:mins<60});
   await relay.sendAs('default',c.owner,c.platform,'aqeelOS was off from about '+at(last)+' to '+at(Date.now())+' (Jakarta time, '+mins+' min). It is running again.',null,{toYou:true});console.log('told the owner about '+mins+' min off')}catch(e){console.warn('downtime note:',e.message)}},120000).unref()})}
 const brand=createBrand({DATA});
 const backups=createBackups({DATA,HOME:homedir(),HERMES_HOME,notify:(t,d)=>bottlenecks.event('backup',t,d+' Open System › Health to try again.',{topic:'backup'}).catch(()=>{}),solved:()=>bottlenecks.resolve('backup').catch(()=>{})});if(PORT===4400)backups.schedule();

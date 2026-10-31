@@ -154,7 +154,7 @@ export function createBackupModels({DATA,HERMES_HOME,live=false,agents,acc,readC
   p.model||=p.lastModel||'';p.brand=brand||brandOf(slug,p.model);p.pinned=pinned;await save();const moved=Object.keys(p.moved);
   console.log('backup models:',p.brand,'outage ('+p.why+'); moved',moved.join(', ')||'nobody');sync('outage').catch(()=>{});
   if(moved.length&&!db.told[slug+':'+now+':start']){db.told[slug+':'+now+':start']=Date.now();await save();
-   await tell(p.brand+' kept dropping; agents moved to '+names(to.length?to:['their backup'])+' at '+clock(now),{topic:'outage|'+p.provider,detail:p.why[0].toUpperCase()+p.why.slice(1)+'. Moved: '+moved.map(nameOf).join(', ')+(pinned.length?'. Left where they were put by hand: '+pinned.map(nameOf).join(', '):'')+'. aqeelOS tries '+p.brand+' every 5 minutes and moves them back once it works again.',whatsapp:true}).catch(e=>console.warn('backup models: telling the owner',e.message))}}
+   await tell(p.brand+' kept dropping; agents moved to '+names(to.length?to:['their backup'])+' at '+clock(now),{topic:'outage|'+p.provider,info:to.length>0,detail:p.why[0].toUpperCase()+p.why.slice(1)+'. Moved: '+moved.map(nameOf).join(', ')+(pinned.length?'. Left where they were put by hand: '+pinned.map(nameOf).join(', '):'')+'. aqeelOS tries '+p.brand+' every 5 minutes and moves them back once it works again.',whatsapp:!to.length}).catch(e=>console.warn('backup models: telling the owner',e.message))}}
  async function end(slug,now){const d=await acc.load(),p=rec(slug),back=[],stay=[];
   for(const [profile,m] of Object.entries(p.moved||{})){if(m.would)continue;const cur=await acc.entryOf(d,profile).catch(()=>null);
    // someone moved it since (by hand, or the usage switch): it stays where it is now
