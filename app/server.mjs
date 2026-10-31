@@ -14,6 +14,7 @@ import {createAntigravity} from './antigravity.mjs';
 import {withAgent,setKey,readConfig,pick,agentNames,isAgent,busy as opsBusy,initStatus,getStatus,setStatus,editEnv,hermes as hcmd,python as enginePython,LIVE_APP,HELP_AGENT} from './agentops.mjs';
 import {createSchedules} from './schedules.mjs';
 import {createScreens} from './screens.mjs';
+import {createAgentAdspower} from './agent-adspower.mjs';
 import {createUsers,UNSAFE_TOOLSETS} from './users.mjs';
 import {createStarters} from './starters.mjs';
 import {createMail} from './mail.mjs';
@@ -1227,7 +1228,10 @@ async function logo(req,res){
 }
 
 /* ---------- live screens: the shared one (noVNC on 127.0.0.1:6080) and one per agent (screens.mjs) ---------- */
-const screens=createScreens();
+const screens=createScreens({keepOn:a=>agentAds.keepOn(a)});
+// every agent's own AdsPower on its own screen, as its own user, with its own port and sign-in (app/agent-adspower.mjs, 1 Nov 2026)
+const agentAds=createAgentAdspower({DATA,HERMES_HOME,screens,codeUser:a=>agentDefaults.codeUser(a),agentNames,readConfig,pick,withAgent,live:LIVE_APP,nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a),skip:async a=>a===HELP_AGENT||await isTestAgent(a),
+ mcp:(a,m,p,b)=>fetch(`${DASH.origin}/api/mcp/servers${p}?profile=${encodeURIComponent(a)}`,{method:m,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:b?JSON.stringify(b):undefined,signal:AbortSignal.timeout(30000)}).then(async r=>{if(!r.ok&&r.status!==404)throw new Error('MCP '+m+' '+r.status+' '+(await r.text().catch(()=>'')).slice(0,120))})});
 const SCREEN=new URL(env.UI_SCREEN||'http://127.0.0.1:6080');
 const BUILD=String(Date.now());
 const sameOrigin=req=>{const o=req.headers.origin;if(!o)return true;try{return new URL(o).host===req.headers.host}catch{return false}};
@@ -1552,7 +1556,9 @@ const server=createServer(async(req,res)=>{
    const sm=/^\/ui\/screens\/([^/]+)/.exec(p);if(p==='/ui/screens'&&!users.isAdmin(u))return send(res,200,{screens:[]});
    const no=users.gate(u,p,req.method,url.searchParams,sm?decodeURIComponent(sm[1]):agentOf(p,url.searchParams));if(no)return send(res,no.status,{error:no.error});
    if(/\/type$/.test(p)&&url.searchParams.get('screen')==='ads'&&!users.isAdmin(u))return send(res,403,{error:'Only admins can type into the shared screen.'});
+   if(/^\/ui\/screens\/[^/]+\/adspower(\/(start|stop))?$/.test(p))return agentAds.handle(req,res,p,send,{admin:users.isAdmin(u)});
    return p==='/ui/screen/browser'?openBrowser(res,url.searchParams.get('agent')):screens.handle(req,res,p,send)}
+  if(p==='/ui/adspower'){const u=await me(req);if(!u)return send(res,401,{error:'Sign in first.'});return agentAds.handle(req,res,p,send,{admin:users.isAdmin(u)})}
   if(p==='/auth/login'&&req.method==='POST'){
    const ip=clientIp(req);if(limited(ip))return send(res,429,{error:'Too many attempts. Try again in a few minutes.'});
    let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}

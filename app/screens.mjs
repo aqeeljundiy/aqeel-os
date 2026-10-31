@@ -19,7 +19,7 @@ const SHARED={port:6080};                 // noVNC for the :99 screen (AdsPower)
 const NAME=/^[a-z0-9][a-z0-9_-]{0,63}$/;
 const run=(cmd,args,env={},timeout=60000)=>new Promise(res=>execFile(cmd,args,{env:{...process.env,...env},timeout,maxBuffer:4e6,cwd:HOME},(err,stdout,stderr)=>res({ok:!err,out:String(stdout||''),err:String(stderr||err?.message||'')})));
 
-export function createScreens(){
+export function createScreens({keepOn=()=>false}={}){   // keepOn(agent): something runs on its screen (its own AdsPower), so it is never stopped as idle
  const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const sockOf=a=>path.join(homeOf(a),'bot-desktop','rfb.sock');
  const agents=async()=>(await agentNames()).filter(n=>NAME.test(n));
@@ -151,12 +151,14 @@ export function createScreens(){
  // bot_desktop.idle_stop_minutes is turned off. Hermes turns it back on the next time the agent browses.
  async function reap(){
   for(const a of await agents()){
-   if(!await alive(a)||await shared(a)||await ownUser(a)||(bridges.get(a)?.viewers>0))continue;
+   if(!await alive(a)||await shared(a)||await ownUser(a)||(bridges.get(a)?.viewers>0)||keepOn(a))continue;
    const mins=Number((/^bot_desktop:[\s\S]*?\n\s+idle_stop_minutes:\s*([\d.]+)/m.exec(await config(a))||[])[1]??15);if(!(mins>0))continue;
    let last=0;for(const f of ['activity','env'])try{last=Math.max(last,(await stat(path.join(homeOf(a),'bot-desktop',f))).mtimeMs)}catch{}
    if(last&&Date.now()-last>mins*60000)await runtime(a,'stop_if_idle()').catch(()=>{})}}
  if(LIVE_APP){setInterval(()=>reap().catch(()=>{}),60000).unref();setTimeout(()=>ensureAll().catch(()=>{}),5000)}
  // viewers left running by an earlier run of the app (their parent is gone) are stopped
  if(LIVE_APP)run('bash',['-c',"ps -eo pid=,ppid=,args= | awk '$2==1 && /websockify 127.0.0.1:61[0-9][0-9] --unix-target=/ {print $1}' | xargs -r kill"],{},10000).catch(()=>{});
- return {handle,upgrade,status,displayEnv,homeOf,valid,shared,ensure,typeInto};
+ // turns an engine screen on (an agent's own AdsPower needs it); an own-user agent's screen is kept on by the box itself
+ async function start(a){if(await shared(a)||await ownUser(a)||await alive(a))return status(a);const r=await runtime(a,'start()');if(r&&r.running===false)throw new Error(r.blocker||('Missing on the box: '+(r.missing||[]).join(', ')));return status(a)}
+ return {handle,upgrade,status,displayEnv,homeOf,valid,shared,ensure,typeInto,start,alive};
 }
