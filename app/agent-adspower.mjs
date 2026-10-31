@@ -29,7 +29,9 @@ export function assignPorts(db,names){const ports={...(db.ports||{})};let next=M
 // gets a new key), waits while the screen is off, and keeps the log small. $0 of the loop is its marker. The port is
 // written as $P, never spelled out next to "--api-port=" or the marker, so the stop patterns never match this line itself.
 export function launchLine({bin,home,envFile,port}){if(![bin,home,envFile].every(x=>/^\/[\w./-]+$/.test(String(x)))||!(port>0&&port<65536&&Number.isInteger(port)))throw Error('bad AdsPower launch values');
- const loop=`P=${port}; cd ${home}; mkdir -p .adspower; while :; do L=.adspower/adspower.log; [ -f $L ] && [ $(stat -c%s $L) -gt 5000000 ] && mv -f $L $L.old; unset DISPLAY XAUTHORITY; set -a; . ${envFile} 2>/dev/null; set +a; if [ -n "$DISPLAY" ]; then HOME=${home} ${bin} --no-sandbox --disable-dev-shm-usage --api-port=$P >> $L 2>&1; fi; sleep 5; done`;
+ // the screen's env sets XDG_* to the screen's own folder (Donna's: ~/.hermes/bot-desktop/xdg, left out of backups and
+ // reset with the screen), so AdsPower's data would land there; unset, it stays in the agent's folder (1 Nov 2026)
+ const loop=`P=${port}; cd ${home}; mkdir -p .adspower; while :; do L=.adspower/adspower.log; [ -f $L ] && [ $(stat -c%s $L) -gt 5000000 ] && mv -f $L $L.old; unset DISPLAY XAUTHORITY; set -a; . ${envFile} 2>/dev/null; set +a; unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_CACHE_HOME; if [ -n "$DISPLAY" ]; then HOME=${home} ${bin} --no-sandbox --disable-dev-shm-usage --api-port=$P >> $L 2>&1; fi; sleep 5; done`;
  return `P=${port}; ${stopLine({home,port})}; setsid nohup bash -c '${loop}' aqeelos-adspower-$P >/dev/null 2>&1 </dev/null &`}
 export const marker=port=>'aqeelos-adspower-'+port;
 // pkill patterns written so they never match the shell that runs them ("5040[0]" matches 50400, the line itself does not)
