@@ -21,7 +21,7 @@ const Screen={
   const opt=(v,l)=>`<option value="${esc(v)}" ${v===cur?'selected':''}>${esc(l)}</option>`;
   return `<select id="scrPick" class="scr-pick" aria-label="Which screen" title="Which screen to watch">${opt('','Follow this chat ('+ident(this.chatAgent()).name+')')}
    ${ag.map(x=>opt(x.agent,ident(x.agent).name+"'s screen"+(x.running===false?' · off':''))).join('')}
-   ${!adsAgent&&this.ads?opt('ads','AdsPower screen'):''}</select>`},
+   ${!adsAgent&&(this.ads||S.me?.admin)?opt('ads','AdsPower screen'):''}</select>`},   // admins can always open it, even when no agent browses through AdsPower (31 Oct 2026)
  note(){if(this.ads&&this.st?.kind!=='shared')return 'AdsPower';if(this.pick&&this.pick!==this.chatAgent())return 'Other agent';return ''},
  noteTip(){return this.ads?'AdsPower browsers: any agent that uses AdsPower draws here':'Not the agent of this chat'},
  async loadList(){try{this.list=(await call('','/ui/screens')).screens||[]}catch{}},
