@@ -57,7 +57,7 @@ export function createAgentAdspower({DATA,HERMES_HOME,screens,codeUser,agentName
  const run=(c,a,t=60000)=>new Promise(res=>execFile(c,a,{timeout:t,maxBuffer:4e6},(e,o,er)=>res({ok:!e,out:String(o||''),err:String(er||e?.message||'')})));
  const wsOf=a=>path.join(HOME,'workspaces',a);
  let db=null;const load=async()=>db||=await readFile(FILE,'utf8').then(JSON.parse).catch(()=>({ports:{},next:0,off:{}}));
- let realPort={};   // agent → the port its copy really listens on (found by tools())
+ let realPort={};   // agent → the port its copy really listens on, when not its own (found by tick and tools)
  // the CDP bridge (scripts/adspower-bridge.mjs) reads this to find an agent's own copy
  const writePorts=()=>writeFile(PORTS,Object.entries(db.ports).map(([a,p])=>a+' '+(realPort[a]||p)).join('\n')+'\n').catch(()=>{});
  const save=async()=>{await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE);await writePorts()};
@@ -119,7 +119,7 @@ export function createAgentAdspower({DATA,HERMES_HOME,screens,codeUser,agentName
   await as(a,stopLine({home:wsOf(a),port}));log('AdsPower stopped for '+a);return status(a)}
  // Running (signed in), Not signed in, Off; for one agent or all
  async function status(a,run_=null){a=baseOf(a);const port=await portOf(a);if(!port)return {agent:a,state:'none'};await load();const p=(run_||await running()).get(port)||{};
-  const lp=!p.loop&&!p.app?null:await livePort(a);if(lp)realPort[a]=lp;
+  const lp=!p.loop&&!p.app?null:await livePort(a);
   const state=!p.loop&&!p.app?'off':lp?'running':p.app?'signed-out':'starting';
   return {agent:a,name:nameOf(a),port:lp||port,own:port,state,kept:!db.off[a],user:(await codeUser(a).catch(()=>null))||'this box user'}}
  async function list(){const r=await running();return Promise.all((await agents()).map(a=>status(a,r)))}
@@ -130,7 +130,7 @@ export function createAgentAdspower({DATA,HERMES_HOME,screens,codeUser,agentName
  // (DELETE then POST, one agent at a time) so the running engine picks it up
  async function tools(){const p=await ports(),seen={};
   // its tool talks to the port its copy really listens on (its own one, once the copy runs with the shim)
-  for(const a of await agents())if(p[a]){const lp=await livePort(a).catch(()=>null);if(lp)realPort[a]=lp;seen[a]=realPort[a]||p[a]}
+  for(const a of await agents())if(p[a]){const lp=await livePort(a).catch(()=>null);if(lp&&lp!==p[a])realPort[a]=lp;else delete realPort[a];seen[a]=lp||p[a]}
   await writePorts();
   for(const a of await agentNames({copies:true})){if(!NAME.test(a)||await skip(a)||!p[baseOf(a)])continue;
    const want={ADSPOWER_PORT:String(seen[baseOf(a)]||p[baseOf(a)]),ADSPOWER_AGENT:baseOf(a),ADSPOWER_NAME:nameOf(baseOf(a))};
@@ -174,7 +174,8 @@ its own data and its own sign-in. No other agent uses it.
   for(const a of await agents()){await load();const port=(await ports())[a];if(!port||db.off[a])continue;const p=r.get(port)||{};
    if(!p.loop){const e=await start(a,{why:p.app?'loop started again':'started'}).then(()=>'',e=>e.message);if(e&&errs.get(a)!==e)log('AdsPower '+a+': '+e);errs.set(a,e)}
    // signed in on another port than its tool knows (just signed in, or restarted with the shim): the tools follow
-   if(p.app){const lp=await livePort(a).catch(()=>null);if(lp&&lp!==(realPort[a]||port)){realPort[a]=lp;moved=true}}
+   // (or back to its own port once its copy no longer listens elsewhere)
+   const lp=p.app?await livePort(a).catch(()=>null):null;if((lp||port)!==(realPort[a]||port)){if(lp&&lp!==port)realPort[a]=lp;else delete realPort[a];moved=true}
    if(!await codeUser(a).catch(()=>null)){keep.add(a);const t=new Date();await utimes(path.join(screens.homeOf(a),'bot-desktop','activity'),t,t).catch(()=>{})}}
   keepSet=keep;if(moved)tools().catch(()=>{})}finally{ticking=false}}
  if(live){setTimeout(()=>{tick().catch(e=>log('AdsPower tick: '+e.message));tools().catch(()=>{});skill().catch(()=>{})},45000).unref?.();
