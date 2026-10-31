@@ -322,6 +322,7 @@ const SECTIONS=[
  {id:'abilities',label:'Abilities',icon:'puzzle',key:'5',pages:[
   {id:'skills',label:'Skills',icon:'wand',desc:'Reusable know-how aqeelOS can pick up for a task.'},
   {id:'mcp',label:'Connected apps',icon:'plug',desc:'Outside apps and services your agents can use, like Notion, Slack or GitHub.'},
+  {id:'logins',label:'Connected accounts',icon:'shield',desc:'Logins where an agent acts as you.'},
   {id:'plugins',label:'Plugins',icon:'layers',desc:'Extensions for aqeelOS itself, such as model providers.'},
   {id:'achievements',label:'Achievements',icon:'trophy',desc:'Badges for what you and your agents have done, from your whole history.'}]},
  {id:'models',label:'Models',icon:'cpu',key:'6',pages:[
@@ -339,7 +340,7 @@ const SECTIONS=[
 const S={identities:{},collapsed:store.get('collapsed',false),tab:{},status:null,sessions:[],sessionsLoaded:false,chatFilter:['chats','automation','all'].includes(store.get('chatFilter','chats'))?store.get('chatFilter','chats'):'chats',search:'',signedIn:false};
 
 // pages that moved keep their old addresses: [new section, page, tab]
-const ROUTE_MOVED={'automations/channels':['channels','channels','Connections'],'automations/pairing':['channels','channels','Who can message'],'system/status':['system','health'],'system/host':['system','health'],'abilities/memory':['agents','memory'],'abilities/files':['agents','files'],'models/keys':['system','keys'],'system/guide':['help','']};
+const ROUTE_MOVED={'automations/channels':['channels','channels','Connections'],'automations/pairing':['channels','channels','Who can message'],'system/status':['system','health'],'system/host':['system','health'],'abilities/memory':['agents','memory'],'abilities/files':['agents','files'],'models/keys':['system','keys'],'system/guide':['help',''],'abilities/accounts':['abilities','logins']};
 function route(){let p=location.hash.replace(/^#\/?/,'').split('/').map(decodeURIComponent);{const mv=ROUTE_MOVED[p[0]+'/'+p[1]];if(mv){if(mv[2])S.tab[mv[1]]=mv[2];p=[mv[0],mv[1],...p.slice(2)];history.replaceState(null,'','#/'+p.map(encodeURIComponent).join('/'))}}if(p[0]==='signin')return{signin:true};if(p[0]==='invite')return{invite:p[1]||''};const sec=SECTIONS.find(s=>s.id===p[0])||SECTIONS[0];if(sec.id==='chat')return{sec,chat:p[1]||null};if(sec.id==='help')return{sec,help:true,page:{id:'help',label:'Help'}};const page=sec.pages.find(x=>x.id===p[1])||sec.pages[0];return{sec,page,arg:p.slice(2)}}
 // aqeelOS inside the browser extension's side panel: a compact chat, with the full app one click away
 const PANEL=new URLSearchParams(location.search).has('panel');if(PANEL){document.documentElement.classList.add('in-panel');if(!location.hash.startsWith('#/chat'))history.replaceState(null,'','#/chat')}

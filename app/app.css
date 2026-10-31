@@ -2078,3 +2078,45 @@ span.ag-ava.ini.ava-in{animation:avaIn .26s var(--ease) both}
 .cx-wait{display:flex;align-items:center;gap:8px;margin:18px 0}
 button.acct-more{font:inherit;cursor:pointer;width:100%;background:var(--surface)}
 @media (prefers-reduced-motion:reduce){.cx-step,.cx-row{animation:none}}
+
+/* Abilities › Connected accounts (connected-accounts.js, 31 Oct 2026) */
+.ca-grid{grid-template-columns:repeat(auto-fill,minmax(min(320px,100%),1fr))}
+.ca-card{gap:12px;min-width:0}
+.ca-card.ca-new{border-color:color-mix(in srgb,var(--warn) 45%,var(--border))}
+.ca-card .acct-id h3{overflow-wrap:anywhere}
+.ca-reg{flex:none;font-size:11.5px}
+.ca-note{margin:-4px 0 0;font-size:12.5px;color:var(--ink-2);line-height:1.45}
+.ca-used{font-size:12.5px;color:var(--muted)}
+.ca-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px}
+.ca-row .th,.ca-card .acct-agents .th{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.ca-can-l{display:inline-flex;align-items:center;gap:6px}
+.ca-can-l i{font-style:normal;color:var(--muted)}
+.ca-c{color:var(--muted);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--muted) 60%,transparent);transition:color var(--t-med) var(--ease)}
+.ca-c.on{color:var(--ink);text-decoration:none;font-weight:600}
+.ca-edit{margin-left:auto;min-height:28px;padding:0 10px}
+.ca-recent ul,.ca-full{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.ca-recent .hint{margin:0;font-size:12.5px;color:var(--muted)}
+.ca-a{display:flex;align-items:center;gap:8px;min-width:0;font-size:13px;animation:rise var(--t-med) var(--ease) both}
+.ca-a .ca-at{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink-2)}
+.ca-a time{flex:none;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.ca-a.bad .ca-at{color:var(--bad)}
+.ca-all{display:inline-block;margin-top:8px;font-size:12.5px}
+.ca-full{gap:2px}
+.ca-full .ca-a{padding:8px 0;border-bottom:1px solid var(--border);align-items:flex-start}
+.ca-full .ca-a:last-child{border-bottom:0}
+.ca-full .ca-at{white-space:normal}
+.ca-full .ca-at b{display:block;font-weight:600;color:var(--ink)}
+.ca-full .ca-at small{display:block;margin-top:2px;font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.ca-btns{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding-top:12px;border-top:1px solid var(--border)}
+.ca-card .acct-agents{border-top:0;padding-top:0}
+.ca-dis{margin-left:auto;color:var(--bad)}
+.ca-dis:hover:not(:disabled){background:color-mix(in srgb,var(--bad) 10%,transparent)}
+.ca-foot{margin:16px 0 0;font-size:12.5px;color:var(--muted)}
+.menu.ca-menu{min-width:280px;max-width:min(320px,calc(100vw - 24px));padding:8px 6px}
+.ca-pop .mh{padding:4px 8px 6px}
+.ca-pr{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px;border-radius:var(--r-md);cursor:pointer;transition:background-color var(--t-fast) var(--ease)}
+.ca-pr:hover{background:var(--soft)}
+.ca-pr span{display:grid;gap:2px}.ca-pr b{font-size:13.5px;font-weight:600}.ca-pr small{font-size:12px;color:var(--muted)}
+.ca-pop .hint{margin:6px 8px 2px;font-size:12px;color:var(--muted);line-height:1.45}
+@media (max-width:560px){.ca-edit,.ca-dis{margin-left:0}.ca-btns button{flex:1 1 auto;justify-content:center}}
+@media (prefers-reduced-motion:reduce){.ca-a{animation:none}}
