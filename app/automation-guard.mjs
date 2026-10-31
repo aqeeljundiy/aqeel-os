@@ -88,6 +88,18 @@ export function toolFailed(reply){const r=String(reply||'');if(!r.trim())return 
  if(/tidak tersedia|not available|unavailable|gagal jalan/i.test(m[0])&&!TOOLISH.test(r))return null;
  const i=Math.max(0,m.index-120);return r.slice(i,m.index+120).replace(/\s+/g,' ').trim()}
 
+/* ---------- reading logs as they grow (also used by connected-accounts.mjs) ---------- */
+export async function readRange(f,from,to){const h=await open(f,'r').catch(()=>null);if(!h)return Buffer.alloc(0);try{const n=Math.max(0,Math.min(to-from,8e6)),b=Buffer.alloc(n);await h.read(b,0,n,from);return b}finally{await h.close()}}
+// the log lines written since the last look; a log that was rotated: the rest of agent.log.1 first. A line still being
+// written waits for the next look. offsets(): the object that keeps where each file was read up to (saved by the caller);
+// the first look at a file reads its last `first` bytes.
+export function createTail(offsets,first=1e6){return async function readNew(f){const st=await stat(f).catch(()=>null);if(!st)return '';const db={offsets:offsets()};const o=db.offsets[f];let pre=Buffer.alloc(0),from;
+  if(!o)from=Math.max(0,st.size-first);
+  else if(o.ino!==st.ino||st.size<o.pos){const old=await stat(f+'.1').catch(()=>null);if(old&&old.ino===o.ino&&old.size>o.pos){pre=await readRange(f+'.1',o.pos,old.size);pre=pre.subarray(0,pre.lastIndexOf(10)+1)}from=0}
+  else from=o.pos;
+  let b=await readRange(f,from,st.size);if(!o&&from>0){const i=b.indexOf(10)+1;b=b.subarray(i);from+=i}
+  const cut=b.lastIndexOf(10)+1;db.offsets[f]={ino:st.ino,pos:from+cut};return pre.toString('utf8')+b.subarray(0,cut).toString('utf8')}}
+
 /* ---------- the guard ---------- */
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const run=(cmd,args,{timeout=600000,env,cwd}={})=>new Promise(res=>execFile(cmd,args,{timeout,maxBuffer:16e6,env:env||process.env,cwd:cwd||homedir()},(e,o,er)=>res({ok:!e,out:String(o||''),err:String(er||'')})));
@@ -112,15 +124,7 @@ export function createAutomationGuard({DATA,HERMES_HOME,LIVE,listAgents,readConf
  const enabled=c=>c&&c.enabled!==false&&c.enabled!=='false';
  async function toolsOf(a){try{const j=JSON.parse(await readFile(path.join(homeOf(a),'cache','mcp_schema_cache.json'),'utf8'));const out={};
    for(const [s,v] of Object.entries(j||{}))out[s]=(Array.isArray(v?.tools)?v.tools:[]).map(t=>t?.name).filter(Boolean);return out}catch{return {}}}
- async function readRange(f,from,to){const h=await open(f,'r').catch(()=>null);if(!h)return Buffer.alloc(0);try{const n=Math.max(0,Math.min(to-from,8e6)),b=Buffer.alloc(n);await h.read(b,0,n,from);return b}finally{await h.close()}}
- // the log lines written since the last look; a log that was rotated: the rest of agent.log.1 first. A line still being
- // written waits for the next look.
- async function readNew(f){const st=await stat(f).catch(()=>null);if(!st)return '';const o=db.offsets[f];let pre=Buffer.alloc(0),from;
-  if(!o)from=Math.max(0,st.size-FIRST);
-  else if(o.ino!==st.ino||st.size<o.pos){const old=await stat(f+'.1').catch(()=>null);if(old&&old.ino===o.ino&&old.size>o.pos){pre=await readRange(f+'.1',o.pos,old.size);pre=pre.subarray(0,pre.lastIndexOf(10)+1)}from=0}
-  else from=o.pos;
-  let b=await readRange(f,from,st.size);if(!o&&from>0){const i=b.indexOf(10)+1;b=b.subarray(i);from+=i}
-  const cut=b.lastIndexOf(10)+1;db.offsets[f]={ino:st.ino,pos:from+cut};return pre.toString('utf8')+b.subarray(0,cut).toString('utf8')}
+ const readNew=createTail(()=>db.offsets,FIRST);
  const which=async(cmd)=>{if(path.isAbsolute(cmd))return cmd;const tools=path.join(HERMES_HOME,'tools');const extra=[];for(const d of await readdir(tools).catch(()=>[]))extra.push(path.join(tools,d,'bin'));
   for(const d of [...String(process.env.PATH||'').split(':'),path.join(homedir(),'.local','bin'),'/usr/local/bin','/usr/bin','/bin',...extra].filter(Boolean)){const p=path.join(d,cmd);if(await stat(p).catch(()=>null))return p}return null};
  // a path that should run: there (or a link to nothing), and which Python environment it belongs to
