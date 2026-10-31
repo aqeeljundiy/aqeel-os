@@ -15,7 +15,12 @@ import path from 'node:path';
 const KEEP=14;
 const INCLUDE=['.hermes','apps/hermes-ui-data','apps/hermes-ui.env','workspaces','people','.claude','.claude-accounts'];
 const EXCLUDE=['.hermes/installs','.hermes/hermes-agent','.hermes/tools','.hermes/cache','.hermes/lsp','*-venv','.hermes/bot-desktop','.hermes/profiles/*/cache','.hermes/profiles/*/bot-desktop',
- '*/home/.cache','*/home/.npm','.hermes/home/.cache','.hermes/home/.npm','node_modules','*.log','apps/hermes-ui-data/desktop','.claude/projects','.claude/shell-snapshots','.claude/statsig','.claude/todos'];
+ '*/home/.cache','*/home/.npm','.hermes/home/.cache','.hermes/home/.npm','node_modules','*.log','apps/hermes-ui-data/desktop','.claude/projects','.claude/shell-snapshots','.claude/statsig','.claude/todos',
+ // rebuildable or junk, so a backup is ~9 GB instead of ~35 GB and uploads in time (31 Oct 2026): build output, caches, browser
+ // caches (the browser profiles with their logins stay), runtimes aqeelOS or the guard can install again, old exports
+ '.cache','.npm','.next','.turbo','.vercel','dist','build','out','coverage','playwright-report','test-results','__pycache__',
+ 'Cache','Code Cache','GPUCache','CacheStorage','ScriptCache','GrShaderCache','ShaderCache','*venv.broken*','.claude/remote',
+ '.hermes/home/.local','.hermes/profile-exports','workspaces/.aqeelos-python'];
 // what a restore must bring back for the box to work
 const MUST=['.hermes/config.yaml','.hermes/.env','apps/hermes-ui-data/users.json','apps/hermes-ui.env'];
 
@@ -39,6 +44,16 @@ export function createBackups({DATA,HOME,HERMES_HOME,TOKEN='google_token_elkiya.
   return (await drive(g,'drive/v3/files',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:'aqeelOS backups',mimeType:'application/vnd.google-apps.folder'})})).id}
  const sh=(cmd,envx)=>new Promise((res,rej)=>{const p=spawn('bash',['-c',cmd],{cwd:HOME,env:{...process.env,...envx},stdio:['ignore','ignore','pipe']});let err='';p.stderr.on('data',d=>err+=d);p.on('close',c=>c===0?res():rej(Error(err.trim().split('\n').slice(-2).join(' ')||'exit '+c)))});
  const q=s=>"'"+String(s).replace(/'/g,"'\\''")+"'";
+ // the upload in 64 MB pieces on Google's resumable session: one dropped connection no longer loses a multi-GB upload
+ // ("fetch failed", "aborted due to timeout" on 30 and 31 Oct 2026). A failed piece asks Google how much it has and goes on
+ // from there, up to 5 times in a row
+ async function sendFile(loc,file,size){const PIECE=64*1024*1024;let at=0,fails=0;
+  const have=async()=>{const r=await fetch(loc,{method:'PUT',headers:{'content-length':'0','content-range':'bytes */'+size},signal:AbortSignal.timeout(60000)});
+   if(r.ok)return {done:await r.json()};if(r.status!==308)throw Error('Google lost the upload ('+r.status+').');const g=/bytes=0-(\d+)/.exec(r.headers.get('range')||'');return {at:g?Number(g[1])+1:0}};
+  while(true){const end=Math.min(at+PIECE,size)-1;
+   try{const r=await fetch(loc,{method:'PUT',headers:{'content-length':String(end-at+1),'content-range':'bytes '+at+'-'+end+'/'+size,'content-type':'application/octet-stream'},body:Readable.toWeb(createReadStream(file,{start:at,end})),duplex:'half',signal:AbortSignal.timeout(15*60000)});
+    if(r.ok)return await r.json();if(r.status!==308)throw Error('The upload stopped ('+r.status+').');const g=/bytes=0-(\d+)/.exec(r.headers.get('range')||'');at=g?Number(g[1])+1:end+1;fails=0}
+   catch(e){if(++fails>5)throw Error('The upload kept dropping: '+e.message);await new Promise(r=>setTimeout(r,fails*15000));const h=await have().catch(()=>null);if(h?.done)return h.done;if(h)at=h.at}}}
  // each isolated agent (terminal over SSH as its own ag-* user) re-grants aqeelOS read access to the files it owns
  async function grantRead(){const prof=path.join(HOME,'.hermes','profiles');for(const a of await readdir(prof).catch(()=>[])){
   const y=await readFile(path.join(prof,a,'config.yaml'),'utf8').catch(()=>'');const u=/\n\s*ssh_user:\s*['"]?(ag-[\w-]+)/.exec(y)?.[1],k=/\n\s*ssh_key:\s*['"]?([^'"\n]+)/.exec(y)?.[1]?.trim(),ws=path.join(HOME,'workspaces',a);
@@ -59,8 +74,7 @@ export function createBackups({DATA,HOME,HERMES_HOME,TOKEN='google_token_elkiya.
    const size=(await stat(tmp)).size;if(size<1e6)throw Error('The backup came out too small ('+size+' bytes).');
    const g=await google(),fid=await folder(g);
    const start=await drive(g,'upload/drive/v3/files?uploadType=resumable',{method:'POST',raw:true,headers:{'content-type':'application/json; charset=UTF-8','x-upload-content-type':'application/octet-stream','x-upload-content-length':String(size)},body:JSON.stringify({name,parents:[fid]})});
-   const up=await fetch(start.headers.get('location'),{method:'PUT',headers:{'content-length':String(size),'content-type':'application/octet-stream'},body:Readable.toWeb(createReadStream(tmp)),duplex:'half',signal:AbortSignal.timeout(3600000)});
-   if(!up.ok)throw Error('The upload stopped ('+up.status+').');const file=await up.json();
+   const file=await sendFile(start.headers.get('location'),tmp,size);
    // keep the newest 14 (older ones go to the Drive bin, where Google keeps them 30 more days)
    const l=await drive(g,'drive/v3/files?q='+encodeURIComponent("'"+fid+"' in parents and trashed=false")+'&orderBy=createdTime desc&fields=files(id,name)&pageSize=100');
    for(const f of (l.files||[]).slice(KEEP))await drive(g,'drive/v3/files/'+f.id,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({trashed:true})}).catch(()=>{});

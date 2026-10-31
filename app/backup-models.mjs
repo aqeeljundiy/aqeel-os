@@ -95,8 +95,14 @@ export function createBackupModels({DATA,HERMES_HOME,live=false,agents,acc,readC
  const byHand=(d,profile,after=0)=>{const e=(d.events||[]).find(x=>x.profile===profile);return e?.why==='Chosen by hand'&&e.t>=after};
 
  /* the list one agent should have now; null when its gateway did not answer (nothing is known then) */
+ // the engine sometimes answers with a shorter model list for a provider (the WhatsApp copies flipped between two Gemini
+ // backups every few minutes, 31 Oct 2026): what a provider offered an agent in the last day is remembered and added in
+ const seen=new Map();
+ const fuller=(profile,slug,models)=>{const k=profile+'|'+slug,id=m=>typeof m==='string'?m:m?.id,now=Date.now(),was=seen.get(k);
+  const keep=was&&now-was.at<24*3600e3?was.models.filter(m=>!models.some(x=>id(x)===id(m))):[];const all=[...models,...keep];
+  if(models.length>=(was?.models.length||0)||!was||now-was.at>=24*3600e3)seen.set(k,{models:all,at:now});return all};
  async function wanted(profile,d,det){const opts=await acc.options(profile).catch(()=>null);if(!opts)return null;
-  const provs=(opts.providers||[]).filter(p=>p.authenticated),r=await acc.agentRoute(profile),cur=await acc.entryOf(d,profile),assigned=d.assign?.[profile]||'main';
+  const provs=(opts.providers||[]).filter(p=>p.authenticated).map(p=>({...p,models:fuller(profile,p.slug,p.models||[])})),r=await acc.agentRoute(profile),cur=await acc.entryOf(d,profile),assigned=d.assign?.[profile]||'main';
   const ks=acc.keyStatus()||{},so=d.signedOut||{};
   // a Claude entry can only be this agent's own Claude account (the engine's Claude sign-in is one per agent)
   const usable=e=>{if(so[e.key]||/^(rejected|credit)$/.test(ks[e.key]?.state||''))return null;
