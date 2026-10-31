@@ -20,6 +20,8 @@ const Bottlenecks={items:[],
   // a Help ticket (help.mjs): resolving it tells the person in their Help chat
   // the automations guard (automation-guard.mjs) found or fixed a tool server: its card is on System › Health
   if(x.kind==='automations')return [['Open Health',async()=>{await done();closeLayers();go('/system/health')},true],['Got it',done]];
+  // a login acting as the owner that no agent registered (connected-accounts.mjs): approved or disconnected on its page
+  if(x.kind==='accounts')return [['Open Connected accounts',async()=>{await done();closeLayers();go('/abilities/logins')},true],['Got it',done]];
   if(x.kind==='ticket')return [['Resolve',async()=>{await done();toast('Resolved · they’ll see it in Help')},true],['Not now',later]];
   return [['Got it',done,true]]}};
 ACT['bottlenecks']=()=>Bottlenecks.open();

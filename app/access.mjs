@@ -111,4 +111,8 @@ export function createAccess({HERMES_HOME,DATA,listAgents,readConfig,setKey,herm
  async function setOwner(kind,id,agent){const it=await find(kind,id);if(it.own)throw new Error(it.label+' has no owner agent: '+it.ownNote);if(!it.users.some(u=>u.id===agent))throw new Error(names(agent)+' doesn’t have it yet. Turn it on first.');
   await loadReg();reg.owners[kind+'|'+id]=agent;await saveReg();return {ok:true}}
 
- return {list,grant,revoke,setOwner}}
+ // a connection that is gone everywhere (Connected accounts › Disconnect, 31 Oct 2026): its owner note goes too, so a
+ // new sign-in by the same name starts with no owner carried over
+ async function forget(kind,id){await loadReg();const k=kind+'|'+id;if(!(k in reg.owners))return {changed:false};delete reg.owners[k];await saveReg();cfgCache.clear();return {changed:true}}
+
+ return {list,grant,revoke,setOwner,forget}}

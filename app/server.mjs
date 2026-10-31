@@ -4,7 +4,7 @@
 // No dependencies. Run: node app/server.mjs (configuration via environment, see README).
 import {createServer,request as httpRequest} from 'node:http';
 import {readFile,stat,writeFile,mkdir,unlink,rename,realpath,readlink,copyFile} from 'node:fs/promises';
-import {homedir} from 'node:os';
+import {homedir,userInfo} from 'node:os';
 import {createAccounts,setupAgentFn,export_setups,accountHooks} from './accounts.mjs';
 import {allowed as skillAllowed} from './skills-policy.mjs';
 import {createAgentDefaults} from './agent-defaults.mjs';
@@ -44,6 +44,7 @@ import {createBackups} from './backup.mjs';
 import {createPluginHost} from './plugin-host.mjs';
 import {createEngineUpdates} from './engine-updates.mjs';
 import {createAutomationGuard} from './automation-guard.mjs';
+import {createConnectedAccounts} from './connected-accounts.mjs';
 import {createBackupModels,engineProbe,RULES as BM_RULES} from './backup-models.mjs';
 import {isDaytime as dayNow,local as localAt,clock as clockAt} from './engine-update-rules.mjs';
 import {readdir} from 'node:fs/promises';
@@ -326,6 +327,8 @@ async function writeAgentContext(){const all=await listAgents();const names={};f
    'Which browser: before your first browser step in a chat, call choose_browser (from aqeelos-notify) with the task and your suggestion: "yours" (the person\'s own Chrome, where they are already signed in) for one-off jobs in web consoles, "server" (your screen on the AI box) for anything scheduled, long-running or done while they are away. Follow their answer for the rest of that chat.',
    '','## Connecting an MCP tool that needs a sign-in','',
    'Never use manage_connections (authorize/install/enable) or “hermes mcp login” for MCP tools, and never a 127.0.0.1 / localhost callback: the person is not at this server, so that page never opens for them. Add the tool (with its client ID/secret if the service needs its own app), then call the connect_mcp_tool tool (from aqeelos-notify) and send the person its steps exactly as written. Never make up steps, addresses or commands for connecting: the people using this are often not technical, so keep it to what the tool says. When the tool recommends Composio, offer that first. aqeelOS sets the return address itself: '+PUBLIC_URL+'/mcp-oauth/api/mcp/oauth/callback/<tool name> (this is what goes in the service’s Redirect URLs).',
+   '','## Logins that act as the person','',
+   'When you create a login that acts as the person (their own Google account, a Slack or Notion sign-in as them, their personal Telegram account, anything where what you do goes out under their name), call register_account (from aqeelos-notify) right after, with what it is, what they agreed you may do (read, draft, send) and where the credential is stored. Bots and services (n8n, Composio, API keys) are not this. The owner sees these under Abilities › Connected accounts and can pause or disconnect them; a paused account says so when you use it: then stop and tell the person.',
    ...(gacc.length?['','## Your Google accounts','',
     'The person named these and said what each is for. When they mention one by its name ("from my Elkiya account") or the job fits its note, use that account with the Google Workspace skill; when it is unclear which one, ask.',...gacc]:[]),
    '','## Keep schedules tidy','',
@@ -625,6 +628,16 @@ const backupModels=createBackupModels({DATA,HERMES_HOME,live:LIVE_APP||bmTest,..
  probe:engineProbe({python:enginePython,root,engine:path.join(HERMES_HOME,'hermes-agent')}),nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a),clock:ms=>clockAt(ms,tzNow),
  tell:async(text,{detail,whatsapp,bell=true,topic,info,resolve}={})=>{if(resolve)await bottlenecks.resolve(resolve).catch(()=>{});if(!text)return;if(bell)await bottlenecks.event('automations',text,detail||'',{topic,info}).catch(()=>{});if(whatsapp)await toOwner(text+(detail?'\n'+detail:''))}});
 accountHooks.held=k=>backupModels.held(k);accountHooks.backupSync=why=>backupModels.soon(why);
+/* Connected accounts (connected-accounts.mjs, 31 Oct 2026): every login where an agent acts as the owner (Google, Slack
+   and Notion sign-ins, a personal Telegram session), with Pause, allowed actions and Disconnect. Only the live app looks
+   by itself and rings the bell; a copy on another port with its own engine home may, for testing (ACCOUNTS_TEST=1, and
+   ACCOUNTS_SLACK_API / ACCOUNTS_GOOGLE_REVOKE point the provider calls at a stub). */
+const caTest=!LIVE_APP&&env.ACCOUNTS_TEST==='1'&&path.resolve(HERMES_HOME)!==path.join(userInfo().homedir,'.hermes');   // the account's own home, even when HOME points at a fake one
+const connAccounts=createConnectedAccounts({DATA,HERMES_HOME,active:LIVE_APP||caTest,listAgents:()=>agentNames({copies:true}),readConfig,setKey,withAgent,python:enginePython,access,whyOf,nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a),
+ ...(caTest?{WORK:env.ACCOUNTS_WORK||path.join(path.dirname(HERMES_HOME),'workspaces'),ends:{slack:env.ACCOUNTS_SLACK_API,revoke:env.ACCOUNTS_GOOGLE_REVOKE},STEP:1000}:{}),
+ googleLabel:async(a,n)=>((await googleLabels())[a+'|'+n]||{}).label||'',signinNeeded:(a,n)=>signinsDue.has(a+'|'+n),
+ dash:(method,p,body)=>fetch(DASH.origin+p,{method,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:body&&method!=='GET'&&method!=='DELETE'?JSON.stringify(body):undefined,signal:AbortSignal.timeout(60000)}).then(async r=>({ok:r.ok,status:r.status,j:await r.json().catch(()=>({}))})),
+ bell:(text,detail)=>bottlenecks.event('accounts',text,detail||'')});
 // engine updates at night, checked after; the owner is told on the main agent's channel (as when the server was off)
 const engineUpd=createEngineUpdates({guard,DATA,HERMES_HOME,PORT,LIVE:LIVE_APP,readConfig,python:enginePython,patches:enginePatches,restartGateway,resetForUpdate:engineReset,
  dash:(p,o={})=>fetch(DASH.origin+'/api'+p,{...o,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},signal:AbortSignal.timeout(60000)}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||j.error||'HTTP '+r.status);return j}),
@@ -1297,6 +1310,9 @@ const server=createServer(async(req,res)=>{
      if(!a.kind||!a.id)return reply('Give kind (mcp, google, plugin or key) and id, from access_list.',true);
      const from=await whyOf.from(base);const r=msg.params.name==='request_access'?await accessAsk.ask({kind:String(a.kind),id:String(a.id),to:base,by:base,dir:'get',why:a.why,from}):await accessAsk.ask({kind:String(a.kind),id:String(a.id),to:String(a.to||''),by:base,dir:'give',why:a.why,from});
      console.log('access asked by agent',base,msg.params.name,a.kind,a.id);return reply(r.already?r.text:'Asked. It shows under Bottlenecks in aqeelOS; nothing is shared until an admin allows it. Tell the person in one line what you asked for and why, then go on without it.')}catch(e){return reply(e.message,true)}}
+   // register_account: an agent that made a login acting as the owner says so (Abilities › Connected accounts)
+   if(signed&&msg.method==='tools/call'&&msg.params?.name==='register_account'){const base=mn[1].split('--')[0];const r=await connAccounts.register(base,msg.params?.arguments||{}).catch(e=>({isError:true,text:e.message}));console.log('account registered by',base+':',String(msg.params?.arguments?.label||'').slice(0,80));
+    return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text:r.text}],...(r.isError?{isError:true}:{})}})}
    // report_bottleneck: an agent says what blocks it (missing access, a sign-in, a permission, something only the person can give)
    if(signed&&msg.method==='tools/call'&&msg.params?.name==='report_bottleneck'){const base=mn[1].split('--')[0],a=msg.params?.arguments||{};try{await bottlenecks.report(base,{what:a.what,missing:a.missing,fix:a.fix,from:await whyOf.from(base)});console.log('bottleneck reported by',base+':',String(a.missing).slice(0,80));return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text:'Reported. The person sees it under Bottlenecks with what would fix it. Tell them briefly in your reply too, then carry on with anything you can still do.'}]}})}catch(e){return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{isError:true,content:[{type:'text',text:e.message}]}})}}
    // aqeelOS Code is one-way (25 Oct 2026): a Code run may ask agents for things, but an agent never changes a Code
@@ -1334,6 +1350,7 @@ const server=createServer(async(req,res)=>{
     {name:'request_access',description:'Ask to use something another agent has (from access_list): an app, a Google account, a plugin or a key. An admin decides under Bottlenecks; it is never shared without that. Use it when the work needs it, not just in case.',inputSchema:{type:'object',properties:{kind:{type:'string',enum:['mcp','google','plugin','key']},id:{type:'string',description:'id from access_list'},why:{type:'string',description:'one line: what you need it for'}},required:['kind','id','why']}},
     {name:'offer_access',description:'Offer something you have (from access_list) to another agent that needs it. An admin decides under Bottlenecks.',inputSchema:{type:'object',properties:{kind:{type:'string',enum:['mcp','google','plugin','key']},id:{type:'string'},to:{type:'string',description:'the other agent id'},why:{type:'string'}},required:['kind','id','to','why']}});
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'my_settings',description:'Read or change your own everyday settings yourself, without asking the owner: voice notes (stt.language: "" detects the language each time, or a code like "id" or "en"; stt.*), your voice (tts.*), your time zone (timezone, e.g. Asia/Jakarta) and how replies show (display.*). Leave value out to read the current value. Do this when the person asks for such a change or a setting clearly gets in their way.',inputSchema:{type:'object',properties:{key:{type:'string',description:'e.g. stt.language, tts.provider, timezone'},value:{description:'the new value; leave out to read'}},required:['key']}});
+   if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'register_account',description:'Call this right after you create a login that acts AS THE PERSON (their own Google account, a Slack or Notion sign-in as them, their personal Telegram account, any account where what you do goes out under their name), not a bot and not a service such as n8n or Composio. It shows in aqeelOS under Abilities › Connected accounts, where the owner sees what you do with it and can pause or disconnect it. A login that is not registered is flagged to the owner.',inputSchema:{type:'object',properties:{kind:{type:'string',enum:['google','mcp-oauth','telegram-user','other'],description:'google (a google_token file), mcp-oauth (an app sign-in), telegram-user (a personal Telegram session), other'},label:{type:'string',description:'Plain name, e.g. "Slack, Aqeel (Pixel & Profits)" or "Google, Elkiya"'},can:{type:'array',items:{type:'string',enum:['read','draft','send']},description:'What you may do with it, as the person agreed'},where:{type:'string',description:'Where the credential is stored, e.g. ~/.hermes/mcp-tokens/slack-pixel.json'},note:{type:'string',description:'What it is for, in one line'}},required:['kind','label','where']}});
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'report_bottleneck',description:'When you cannot do something because a person has to act first, report it once (aqeelOS adds the chat and message that led to it, so say the purpose plainly in what): access you are missing (a folder, a sheet, an account, a channel), a sign-in, a permission or a setting, or information only they have. Not for ordinary errors you can fix or work around yourself. Say what you were trying to do, what is missing, and what would fix it. It appears under Bottlenecks in aqeelOS with a fix button.',inputSchema:{type:'object',properties:{what:{type:'string',description:'What you were trying to do, in a few words'},missing:{type:'string',description:'What is missing, plainly (for example: access to the Finance folder in Google Drive)'},fix:{type:'string',description:'What would fix it (for example: share the folder with me, or connect Drive for me)'}},required:['missing']}});
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'open_in_code',description:'When someone asks you to build something in code (a website, an app, a tool, a deck or a document made with code), do not build it in the chat: call this with their request and reply with the link it gives. The link opens aqeelOS Code with the request filled in and you attached; they press send there.',inputSchema:{type:'object',properties:{request:{type:'string',description:'What to build, in their words, with the details they gave'}},required:['request']}});
    // always listed (the engine may keep the list it read first); it answers only during a Code run with other agents attached
@@ -1834,6 +1851,20 @@ const server=createServer(async(req,res)=>{
     const out=await Promise.all(ag.map(a=>cfgLimit(async()=>{const c=await readConfig(a).catch(()=>null)||{};return {id:a,name:NAMES[a]||await displayName(a),model:c.model?.default||'',provider:c.model?.provider||''}})));return send(res,200,{agents:out})}
    // Access: who owns each connection and which agents may use it (see access.mjs). Admins only.
    // asking for access: anyone may see what the other agents have (names only) and ask for it for an agent they use; admins decide
+   // Abilities › Connected accounts (connected-accounts.mjs): the owner's own logins the agents use; admins only
+   if(p.startsWith('/ui/connected-accounts')){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can see the logins agents use as the owner.'});let b={};if(req.method==='POST'){try{b=JSON.parse(await readBody(req,8192)||'{}')}catch{}}
+    const id=String(b.id||url.searchParams.get('id')||'');
+    try{if(p==='/ui/connected-accounts'&&req.method==='GET')return send(res,200,await connAccounts.list({fresh:url.searchParams.get('fresh')==='1'}));
+     if(p==='/ui/connected-accounts/actions'&&req.method==='GET')return send(res,200,await connAccounts.actions(id));
+     if(req.method!=='POST')return send(res,405,{error:'POST only'});
+     const who=u.name||u.email||'';let r;
+     if(p==='/ui/connected-accounts/pause')r=await connAccounts.pause(id,!!b.on,who);
+     else if(p==='/ui/connected-accounts/can')r=await connAccounts.setCan(id,b.can);
+     else if(p==='/ui/connected-accounts/approve')r=await connAccounts.approve(id,who);
+     else if(p==='/ui/connected-accounts/check'){await connAccounts.check(id);r={ok:true}}
+     else if(p==='/ui/connected-accounts/disconnect')r=await connAccounts.disconnect(id);   // no restart: the engine drops a removed app at its next look
+     else return send(res,404,{error:'Not found'});
+     console.log('connected accounts:',p.split('/').pop(),id,'by',who);return send(res,200,{ok:true,...r})}catch(e){return send(res,409,{error:e.message})}}
    if(p==='/ui/access/others'&&req.method==='GET'){const agent=String(url.searchParams.get('agent')||'default');const mayU=a=>users.isAdmin(u)||!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a);if(!mayU(agent))return send(res,403,{error:'Not your agent.'});
     return send(res,200,{items:await accessAsk.others(agent),asked:(await accessAsk.of(agent)).filter(r=>!r.done).map(r=>r.kind+'|'+r.id)})}
    if(p==='/ui/access/ask'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const to=String(b.agent||''),by=String(b.by||to);const mayU=a=>users.isAdmin(u)||!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a);
