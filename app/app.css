@@ -2120,3 +2120,12 @@ button.acct-more{font:inherit;cursor:pointer;width:100%;background:var(--surface
 .ca-pop .hint{margin:6px 8px 2px;font-size:12px;color:var(--muted);line-height:1.45}
 @media (max-width:560px){.ca-edit,.ca-dis{margin-left:0}.ca-btns button{flex:1 1 auto;justify-content:center}}
 @media (prefers-reduced-motion:reduce){.ca-a{animation:none}}
+/* the agent's own AdsPower on its screen (1 Nov 2026): one quiet row under the screen's top bar */
+.scr-ads{display:flex;align-items:center;gap:8px;padding:6px 14px;font-size:12px;border-bottom:1px solid var(--border);min-height:36px;animation:rise var(--t-med) var(--ease) both}
+.scr-ads:empty{display:none}
+.scr-ads>b{font-weight:600}
+.scr-ads .scr-ads-tip{color:var(--muted);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.screen-float .scr-ads .scr-ads-tip{display:none}
+.ads-grid{margin-top:8px}
+.ads-sec{margin-top:28px}
+.ads-sec h2{font-size:15px;margin:0 0 4px}

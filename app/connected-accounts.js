@@ -11,8 +11,8 @@ const caCan=x=>`<span class="ca-can-l" aria-label="Can ${esc(x.can.map(c=>CA_CAN
 const caAct=(e,i)=>`<li class="ca-a${e.ok?'':' bad'}" ${st(i)}>${agentAvatar(e.agent,18,{title:false})}<span class="ca-at">${esc(e.text)}</span><time title="${esc(new Date(e.at).toLocaleString())}">${esc(ago(e.at/1000))}</time></li>`;
 PAGES.logins=async(p,el)=>{const gone=pageTok(el);
  setActions(`<button data-act="ca-refresh">${icon('refresh',16)}Check now</button>`);
- const d=await UI('/ui/connected-accounts'+(Pages._caFresh?'?fresh=1':''));Pages._caFresh=false;if(gone())return;Pages._ca=d.items;
- if(!d.items.length){el.innerHTML=emptyBox('No logins as you yet','When an agent signs in to Google, Slack, Notion or Telegram as you, it shows here with what it did, and you can pause or disconnect it.');return}
+ const [d,ads]=await Promise.all([UI('/ui/connected-accounts'+(Pages._caFresh?'?fresh=1':'')),UI('/ui/adspower').catch(()=>({items:[]}))]);Pages._caFresh=false;if(gone())return;Pages._ca=d.items;
+ if(!d.items.length){el.innerHTML=emptyBox('No logins as you yet','When an agent signs in to Google, Slack, Notion or Telegram as you, it shows here with what it did, and you can pause or disconnect it.')+caAds(ads.items);return}
  const card=(x,i)=>`<div class="card tile acct ca-card${x.registered?'':' ca-new'}" data-ca="${esc(x.id)}" ${st(i)}>
   <div class="tile-top">${logoImg(x.logo,(x.app||'?')[0].toUpperCase())}<div class="acct-id"><h3>${esc(x.label)}</h3><span class="acct-mail" title="${esc(x.where)}">${esc(x.identity||x.where)}</span></div>${x.registered?'':'<span class="chip warn ca-reg">Not registered</span>'}</div>
   ${x.registered?'':`<p class="hint ca-note">An agent signed in as you without registering it. Approve it if you meant it, or disconnect it.</p>`}
@@ -26,9 +26,19 @@ PAGES.logins=async(p,el)=>{const gone=pageTok(el);
  const fresh=d.items.filter(x=>!x.registered).length;
  el.innerHTML=`${fresh?alertBox(`<b>${fresh===1?'1 login':fresh+' logins'} acting as you ${fresh===1?'was':'were'} not registered by the agent that made ${fresh===1?'it':'them'}.</b> Approve or disconnect ${fresh===1?'it':'each one'} below.`,{act:''}):''}
   <div class="grid-cards acct-grid ca-grid">${d.items.map(card).join('')}</div>
+  ${caAds(ads.items)}
   <p class="hint ca-foot">Bots people message are under Channels; services like n8n and Composio, and keys, under Connected apps and Keys.</p>`;
  // a Pause, Resume or change still going (the engine drops and adds an app on its own clock): looked at again shortly
  clearTimeout(Pages._caT);if(d.items.some(caBusy))Pages._caT=setTimeout(()=>{if(route().page?.id==='logins'&&!document.hidden)(pageRun(el),PAGES.logins(p,el)).catch(()=>{})},4000)};
+/* Each agent's own AdsPower (1 Nov 2026): it runs on that agent's screen with its own sign-in, which you make yourself
+   there. One card per agent: Signed in, Not signed in or Off, with Open its screen and Start / Stop. */
+const CA_ADS={running:['ok','Signed in'],'signed-out':['warn','Not signed in'],starting:['','Starting…'],off:['','Off']};
+const caAds=items=>!items?.length?'':`<section class="ads-sec"><h2>AdsPower on each agent’s screen</h2><p class="hint" style="margin:0">Every agent has its own AdsPower with its own login. Open its screen and sign in yourself; its AdsPower tool works once it is signed in.</p>
+ <div class="grid-cards acct-grid ads-grid">${items.map((x,i)=>{const [c,t]=CA_ADS[x.state]||['',x.state];return `<div class="card tile acct" ${st(i)}>
+  <div class="tile-top">${logoImg('adspower.com','A')}<div class="acct-id"><h3>AdsPower, ${esc(ident(x.agent).name)}</h3><span class="acct-mail">On ${esc(ident(x.agent).name)}’s screen · port ${esc(x.port)}</span></div></div>
+  <div class="acct-st"><span class="chip${c?' '+c:''}"><i class="dot"></i>${esc(t)}</span><span class="ca-used">${x.state==='signed-out'?'Sign in on its screen':x.state==='off'?'Not running':x.state==='starting'?'Opening on its screen':'Its tool works'}</span></div>
+  <div class="ca-btns"><button class="${x.state==='signed-out'?'primary ':''}small" data-act="ads-screen" data-agent="${esc(x.agent)}">${icon('monitor',14)}Open its screen</button>
+   ${x.state==='off'?`<button class="small" data-act="ads-start" data-agent="${esc(x.agent)}">${icon('power',14)}Start AdsPower</button>`:`<button class="ghost small" data-act="ads-stop" data-agent="${esc(x.agent)}">${icon('pause',14)}Stop</button>`}</div></div>`}).join('')}</div></section>`;
 const caItem=id=>(Pages._ca||[]).find(x=>x.id===id);
 ACT['ca-refresh']=()=>{Pages._caFresh=true;reload()};
 ACT['ca-approve']=async a=>{const x=caItem(a.dataset.id);a.disabled=true;try{await post(UI,'/ui/connected-accounts/approve',{id:a.dataset.id});toast((x?.label||'It')+' is registered');reload()}catch(e){a.disabled=false;fail(e)}};

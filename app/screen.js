@@ -10,7 +10,17 @@ const Screen={
  off(){return !this.ads&&this.st&&this.st.agent===this.agent()&&this.st.kind==='desktop'&&!this.st.running},
  src(){return '/screen/vnc.html?autoconnect=1&reconnect=1&reconnect_delay=1500&resize=scale&show_dot=1&path='+encodeURIComponent('screen/websockify?agent='+this.agent()+(this.ads?'&screen=ads':''))+'&view_only='+(this.control?0:1)},
  async refresh(){const a=this.agent();try{const st=await call('','/ui/screens/'+encodeURIComponent(a));const was=this.st;this.st=st;
-  if(!was||was.agent!==st.agent||was.running!==st.running||was.kind!==st.kind)this.paint(true)}catch{}},
+  if(!was||was.agent!==st.agent||was.running!==st.running||was.kind!==st.kind)this.paint(true)}catch{}
+  this.adsLoad(a)},
+ /* The agent's own AdsPower on this screen (1 Nov 2026): signed in, not signed in (the person signs in here, with Take
+    over) or off (admins can start it). Drawn in its own small row, so the live screen is never reloaded for it. */
+ adsSt:null,
+ async adsLoad(a){if(this.src_!=='box'||this.ads){this.adsPaint();return}try{const r=await call('','/ui/screens/'+encodeURIComponent(a)+'/adspower');this.adsSt=r.state==='none'?null:r}catch{this.adsSt=null}this.adsPaint()},
+ adsHtml(){const x=this.adsSt;if(!x||x.agent!==this.agent().split('--')[0]||this.src_!=='box'||this.ads)return '';
+  const [c,t]={running:['ok','Signed in'],'signed-out':['warn','Not signed in'],starting:['','Starting…'],off:['','Off']}[x.state]||['',x.state];
+  const tip={running:'Its AdsPower tool works. Profiles open as windows on this screen.','signed-out':'Press Take over and sign in to AdsPower on this screen yourself.',starting:'AdsPower is opening on this screen.',off:'AdsPower is not running for this agent.'}[x.state]||'';
+  return `<b>AdsPower</b><span class="chip ${c}"><i class="dot"></i>${esc(t)}</span><span class="scr-ads-tip">${esc(tip)}</span>${x.state==='off'&&S.me?.admin?`<button class="small" data-act="ads-start" data-agent="${esc(x.agent)}">${icon('power',14)}Start AdsPower</button>`:''}`},
+ adsPaint(){for(const el of document.querySelectorAll('#scrAds')){const h=this.adsHtml();if(el.dataset.h!==h){el.dataset.h=h;el.innerHTML=h}}},
  // While the screen is open, notice when the agent changes or its screen turns on/off by itself.
  watch(){clearInterval(this._t);if(!this.open)return;this.refresh();this.loadList().then(()=>this.paint(true));this._t=setInterval(()=>{if(document.hidden)return;if(++this._n%6===0)this.loadList();if(this.st?.agent!==this.agent()){this.st=null;this.ads=false}this.refresh()},5000)},
  // the agent started using AdsPower: show where AdsPower draws (only for agents that have their own screen)
@@ -71,9 +81,9 @@ const Screen={
   let fl=$('#screenFloat');
   if(!floating&&fl){fl.remove();fl=null}
   if(!docked)pane.innerHTML='';
-  if(docked&&(force||!pane.querySelector('iframe'))){pane.innerHTML=`<div class="resizer" data-drag="screen" title="Drag to resize"></div>${this.head(false)}${this.laptop()}`;this.tidy()}
+  if(docked&&(force||!pane.querySelector('iframe'))){pane.innerHTML=`<div class="resizer" data-drag="screen" title="Drag to resize"></div>${this.head(false)}<div class="scr-ads" id="scrAds"></div>${this.laptop()}`;this.tidy();this.adsPaint()}
   if(floating&&(force||!fl)){if(!fl){fl=document.createElement('div');fl.id='screenFloat';fl.className='screen-float';document.body.append(fl)}
-   fl.innerHTML=`${this.head(true)}${this.laptop()}<div class="corner" data-drag="floatsize" title="Drag to resize"></div>`;this.placeFloat();this.tidy()}
+   fl.innerHTML=`${this.head(true)}<div class="scr-ads" id="scrAds"></div>${this.laptop()}<div class="corner" data-drag="floatsize" title="Drag to resize"></div>`;this.placeFloat();this.tidy();this.adsPaint()}
   const sw=store.get('screenW',null);if(sw)app.style.setProperty('--screen-w',sw+'px');
  },
  placeFloat(){const fl=$('#screenFloat');if(!fl)return;const w=Math.max(300,Math.min(this.float.w||480,innerWidth-24));fl.style.width=w+'px';
@@ -100,6 +110,11 @@ ACT['scr-control']=()=>Screen.setControl(!Screen.control);
 ACT['scr-mode']=()=>Screen.setMode(Screen.mode==='float'?'dock':'float');
 ACT['scr-pop']=()=>window.open(Screen.src().replace('view_only=1','view_only=0'),'_blank','noopener');
 ACT['scr-start']=async a=>{a.disabled=true;a.innerHTML='<span class="spinner"></span>Turning on…';try{Screen.st=await post((p,o)=>call('',p,o),'/ui/screens/'+encodeURIComponent(Screen.agent())+'/start');Screen.paint(true)}catch(e){fail(e);a.disabled=false;a.textContent='Turn on now'}};
+// start an agent's own AdsPower (admins), from the screen or from Connected accounts
+ACT['ads-start']=async a=>{const ag=a.dataset.agent;a.disabled=true;a.innerHTML='<span class="spinner tiny"></span>Starting…';try{const r=await post((p,o)=>call('',p,o),'/ui/screens/'+encodeURIComponent(ag)+'/adspower/start');if(Screen.agent().split('--')[0]===ag){Screen.adsSt=r;Screen.adsPaint()}toast('AdsPower is starting on '+ident(ag).name+'’s screen');if(route().page?.id==='logins')reload()}catch(e){a.disabled=false;a.innerHTML=icon('power',14)+'Start AdsPower';fail(e)}};
+ACT['ads-stop']=async a=>{const ag=a.dataset.agent;a.disabled=true;try{await post((p,o)=>call('',p,o),'/ui/screens/'+encodeURIComponent(ag)+'/adspower/stop');toast('AdsPower stopped for '+ident(ag).name);reload()}catch(e){a.disabled=false;fail(e)}};
+// open an agent's screen on the AI box in its own tab, ready to click and type (to sign in to its AdsPower)
+ACT['ads-screen']=a=>window.open('/screen/vnc.html?autoconnect=1&reconnect=1&reconnect_delay=1500&resize=scale&show_dot=1&path='+encodeURIComponent('screen/websockify?agent='+a.dataset.agent)+'&view_only=0','_blank','noopener');
 ACT['scr-browser']=async()=>{try{await post((p,o)=>call('',p,o),'/ui/screen/browser?agent='+encodeURIComponent(Screen.agent()));toast('Opening a browser on the screen…')}catch(e){fail(e)}};
 
 /* ---------- dragging: sidebar width, screen width, floating window move/resize ---------- */
