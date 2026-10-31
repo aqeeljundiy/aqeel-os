@@ -39,6 +39,9 @@ export function parseLogLine(l){const m=TS.exec(l||'');if(!m)return [];const t=D
  if(x=/MCP server '([^']+)' failed initial .*?parking (?:until a reconnect is requested|without retries)(?:[^(]*\(state: [^)]*\))?(?::\s*(.*))?$/.exec(l))return [{t,kind:'parked',server:x[1],reason:(x[2]||'').slice(0,200)}];
  if(x=/MCP server '([^']+)' failed after \d+ reconnection attempts, parking; will self-probe/.exec(l))return [{t,kind:'probing',server:x[1]}];
  if((x=/MCP server '([^']+)': revived/.exec(l))||(x=/MCP server '([^']+)' \(\w+\): registered \d+ tool/.exec(l)))return [{t,kind:'ok',server:x[1]}];
+ // a tool of a server that just worked is the best proof it works (the engine's Test crashed with HTTP 500 on Donna's
+ // two Slack servers while she used them all day, 31 Oct 2026): its name is the server's with - as _
+ if(x=/agent\.tool_executor: tool mcp__([a-z0-9_]+?)__[\w-]+ completed/i.exec(l))return [{t,kind:'ok',server:x[1],used:true}];
  if(x=/Failed to connect to MCP server '([^']+)'(?: \(command=[^)]*\))?: (.*)$/.exec(l))return [{t,kind:AUTHY.test(x[2])?'signin':'failed',server:x[1],reason:x[2].slice(0,200)}];
  if(x=/MCP: (?:registered )?\d+ tool\(s\) from \d+ server\(s\) \(\d+ failed: (.*)\)\s*$/.exec(l))return splitFailed(x[1]).filter(f=>!/not attempted|retry cooldown/i.test(f.reason)).map(f=>(   // skipped for its cooldown (another copy holds it) is not a failure
   {t,kind:AUTHY.test(f.reason)?'signin':'failed',server:f.server,reason:f.reason.slice(0,200)}));
@@ -147,6 +150,7 @@ export function createAutomationGuard({DATA,HERMES_HOME,LIVE,listAgents,readConf
    for(const l of lines){if(!/MCP|not a known tool name/.test(l))continue;for(const ev of parseLogLine(l)){
     if(ev.kind==='reconciled')continue;
     if(ev.kind==='unknown-tool'){tools||=await toolsOf(a);const s=serverOfTool(ev.tool,tools);if(!s||!cfg[s]||!enabled(cfg[s]))continue;apply(rec(a,s),ev);continue}
+    if(ev.used){const k=Object.keys(cfg).find(n=>n.toLowerCase().replace(/[^a-z0-9]/g,'_')===ev.server.toLowerCase());if(!k)continue;ev={...ev,server:k}}
     if(!cfg[ev.server]||!enabled(cfg[ev.server]))continue;const r=rec(a,ev.server);const was=r.state;apply(r,ev);if(r.state==='ok'&&was!=='ok')forget('srv|'+key(a,ev.server)+'|')}}}}
  // programs, Pythons, environments: true problems are set on the record as "broken" (cleared again when they are fine)
  async function staticCheck(){const found=[];for(const a of await listAgents())for(const [s,c] of Object.entries(await servers(a))){if(!enabled(c)||!c.command)continue;const x=await inspect(c);const r=rec(a,s);r.stdio=true;r.interps=x.interps.map(i=>({path:i.path,target:i.target||null}));r.venvs=x.venvs;
@@ -226,7 +230,9 @@ export function createAutomationGuard({DATA,HERMES_HOME,LIVE,listAgents,readConf
    const left=(await inspect(c)).problems;if(left.length)return fail(a,s,left.join('; '),steps);
    if(steps.length){const h=await handshake(a,c);if(!h.ok)return fail(a,s,'it still does not start: '+h.why,steps);steps.push('it answers again')}}
   // 2. the engine's own Test (a fresh copy); the live one may still be parked
-  const t=await test(a,s);if(!t.ok){if(AUTHY.test(t.why)){r.state='signin';r.reason=t.why;await save();return {ok:false,signin:true,why:t.why}}return fail(a,s,'the engine’s Test fails: '+t.why,steps)}
+  // a Test that crashes (HTTP 5xx) while the server's tools worked in the last 6 hours says nothing about the server
+  const t=await test(a,s);if(!t.ok&&/HTTP 5\d\d|Internal Server Error/i.test(t.why)&&r.okAt&&now-r.okAt<6*3600e3){r.state='ok';r.since=0;r.reason='';await save();return {ok:true,already:true,steps:['its tools worked '+Math.round((now-r.okAt)/60e3)+' min ago; the engine’s Test is what failed']}}
+  if(!t.ok){if(AUTHY.test(t.why)){r.state='signin';r.reason=t.why;await save();return {ok:false,signin:true,why:t.why}}return fail(a,s,'the engine’s Test fails: '+t.why,steps)}
   // 3. the engine connects it again
   const rc=await reconnect(a,s,c);if(!rc.ok)return fail(a,s,rc.why,steps);steps.push('reconnected'+(rc.added?'':' (the engine did not confirm it yet)'));
   const t2=await test(a,s);if(!t2.ok)return fail(a,s,'after reconnecting, the engine’s Test fails: '+t2.why,steps);
