@@ -18,7 +18,8 @@ const EXCLUDE=['.hermes/installs','.hermes/hermes-agent','.hermes/tools','.herme
  '*/home/.cache','*/home/.npm','.hermes/home/.cache','.hermes/home/.npm','node_modules','*.log','apps/hermes-ui-data/desktop','.claude/projects','.claude/shell-snapshots','.claude/statsig','.claude/todos',
  // rebuildable or junk, so a backup is ~9 GB instead of ~35 GB and uploads in time (31 Oct 2026): build output, caches, browser
  // caches (the browser profiles with their logins stay), runtimes aqeelOS or the guard can install again, old exports
- '.cache','.npm','.next','.turbo','.vercel','dist','build','out','coverage','playwright-report','test-results','__pycache__',
+ // (not 'out', 'build' or 'dist': Continue social keeps its finished videos in work/**/out)
+ '.cache','.npm','.next','.turbo','.vercel','playwright-report','test-results','__pycache__',
  'Cache','Code Cache','GPUCache','CacheStorage','ScriptCache','GrShaderCache','ShaderCache','*venv.broken*','.claude/remote',
  '.hermes/home/.local','.hermes/profile-exports','workspaces/.aqeelos-python'];
 // what a restore must bring back for the box to work
