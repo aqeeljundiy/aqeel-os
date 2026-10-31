@@ -213,7 +213,14 @@ for i in range(2,len(sys.argv),2):
                 if 'gapi.py' not in cmd and 'google_api.py' not in cmd:
                     continue
                 r=c.execute("select content from messages where tool_call_id=? and role='tool' limit 1",(x.get('id') or '',)).fetchone()
-                rows.append([mid,ts,sid,cmd[:4000],not (r and '"error"' in (r[0] or '')[:4000])])
+                ok=True
+                if r and r[0]:
+                    try:
+                        j=json.loads(r[0])
+                        ok=j.get('exit_code') in (0,None) and '{"error"' not in str(j.get('output') or '')[:4000] if isinstance(j,dict) else True
+                    except Exception:
+                        ok='{"error"' not in r[0][:4000]
+                rows.append([mid,ts,sid,cmd[:4000],ok])
         c.close()
     except Exception:
         pass
@@ -279,6 +286,8 @@ export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir
 
  /* ---------- who it is and whether it works (cheap, at most every 30 min per login) ---------- */
  async function slackTest(tok){try{const r=await fetch(API.slack+'/auth.test',{method:'POST',headers:{authorization:'Bearer '+tok},signal:AbortSignal.timeout(15000)}).then(r=>r.json());return r}catch(e){return {ok:false,error:'unreachable',net:true}}}
+ // the person's own name in that workspace (auth.test gives only the handle)
+ async function slackName(tok,id){if(!id)return '';try{const r=await fetch(API.slack+'/users.info?user='+encodeURIComponent(id),{headers:{authorization:'Bearer '+tok},signal:AbortSignal.timeout(15000)}).then(r=>r.json());const p=r.user?.profile||{};return p.real_name||p.display_name||r.user?.real_name||''}catch{return ''}}
  async function check(x,{force=false}={}){const now=Date.now();if(!force&&x.checkedAt&&now-x.checkedAt<30*60e3)return;x.checkedAt=now;let state='connected',why='';
   if(x.paused)return save();
   if(x.kind==='google'){const f=x.files.find(f=>!f.paused);const gapi=path.join(HERMES_HOME,'scripts','gapi.py');const py=await python().catch(()=>null);
@@ -288,7 +297,7 @@ export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir
    else{const j=await readJson(f.path);if(!j?.refresh_token){state='signed-out';why='The sign-in does not renew'}}}
   else if(x.kind==='mcp-oauth'){const t=x.tokens?.[0];const tok=t?await readJson(t.path):null;
    if(!tok?.access_token&&!tok?.refresh_token){state='signed-out';why='No saved sign-in'}
-   else if(x.provider==='slack'&&/^xoxp-/.test(tok.access_token||'')){const r=await slackTest(tok.access_token);if(r.ok)x.who={user:String(r.user||'').replace(/^./,c=>c.toUpperCase()),workspace:r.team||''};else if(!r.net){state='signed-out';why='Slack says: '+String(r.error||'not signed in').replace(/_/g,' ')}}
+   else if(x.provider==='slack'&&/^xoxp-/.test(tok.access_token||'')){const r=await slackTest(tok.access_token);if(r.ok){const name=await slackName(tok.access_token,r.user_id);x.who={user:name||String(r.user||'').replace(/^./,c=>c.toUpperCase()),workspace:r.team||''}}else if(!r.net){state='signed-out';why='Slack says: '+String(r.error||'not signed in').replace(/_/g,' ')}}
    else if(tok.expires_at&&tok.expires_at*1000<now&&!tok.refresh_token){state='signed-out';why='The sign-in ran out'}
    if(state==='connected'&&x.agents?.some(a=>signinNeeded(a,x.mcp))){state='signed-out';why='It needs someone to sign in again'}
    if(x.provider!=='slack'&&whyOf&&x.agents?.length){const a=x.agents[0];let acc=await whyOf.accountOf(a,x.mcp).catch(()=>null);if(!acc&&state==='connected'&&x.url&&t)acc=await whyOf.learnAccount(a,x.mcp,x.url,t.path).catch(()=>null);
@@ -399,7 +408,7 @@ export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir
  async function approve(id,by=''){await load();const x=db.accounts[id];if(!x)throw new Error('That login is gone. Reload the page.');x.registered=true;x.registeredBy='owner'+(by?': '+by:'');await save();return {ok:true}}
 
  /* ---------- what the page shows ---------- */
- async function list({fresh=false}={}){await load();if(fresh||!db.scanAt||Date.now()-db.scanAt>2*60e3)await scan();if(fresh||!db.actionsAt||Date.now()-db.actionsAt>2*60e3)await readActions();
+ async function list({fresh=false}={}){await load();if(fresh||!db.scanAt||Date.now()-db.scanAt>2*60e3)await scan();if(fresh||!db.actionsAt)await readActions();else if(Date.now()-db.actionsAt>2*60e3)readActions().catch(()=>{});   // older ones show while the logs are read again
   if(fresh)await checkAll({force:true});else checkAll().catch(()=>{});
   const acc={};for(const k of ['mcp','google']){try{acc[k]=await access?.list?.(k)}catch{acc[k]=null}}
   const items=Object.values(db.accounts).map(x=>{const it=x.kind==='mcp-oauth'?acc.mcp?.items?.find(y=>y.id===x.mcp):x.kind==='google'?acc.google?.items?.find(y=>y.id===x.identity):null;
