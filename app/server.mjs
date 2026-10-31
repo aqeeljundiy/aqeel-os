@@ -601,7 +601,7 @@ if(LIVE_APP){const HB=path.join(DATA,'heartbeat.json');readFile(HB,'utf8').then(
   await bottlenecks.event('down','aqeelOS was off for '+mins+' min','From about '+at(last)+' to '+at(Date.now())+' (Jakarta time). Everything started again by itself. If it happens often, check the server in the Contabo panel.').catch(()=>{});
   await relay.sendAs('default',c.owner,c.platform,'aqeelOS was off from about '+at(last)+' to '+at(Date.now())+' (Jakarta time, '+mins+' min). It is running again.',null,{toYou:true});console.log('told the owner about '+mins+' min off')}catch(e){console.warn('downtime note:',e.message)}},120000).unref()})}
 const brand=createBrand({DATA});
-const backups=createBackups({DATA,HOME:homedir(),HERMES_HOME,notify:(t,d)=>bottlenecks.event('backup',t,d+' Open System › Health to try again.').catch(()=>{})});if(PORT===4400)backups.schedule();
+const backups=createBackups({DATA,HOME:homedir(),HERMES_HOME,notify:(t,d)=>bottlenecks.event('backup',t,d+' Open System › Health to try again.',{topic:'backup'}).catch(()=>{}),solved:()=>bottlenecks.resolve('backup').catch(()=>{})});if(PORT===4400)backups.schedule();
 const live=createLive({DATA,DOMAIN:env.LIVE_DOMAIN||'app.elkiya.com'});
 const bottlenecks=createBottlenecks({DATA,listAgents:()=>listAgents(),names:a=>NAMES[a]||a,dash:p=>fetch(DASH.origin+'/api'+p,{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(20000)}).then(r=>r.json())});brand.name().then(n=>{globalThis.AQ_BRAND=n}).catch(()=>{});
 // the owner on the main agent's WhatsApp (as when the server was off, or after a night update)
@@ -612,7 +612,7 @@ async function toOwner(text){const ch=await relay.channelsFor('default');const c
 const guard=createAutomationGuard({DATA,HERMES_HOME,LIVE:LIVE_APP,readConfig,withAgent,setKey,listAgents:()=>agentNames({copies:true}),nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a),
  dash:(method,p,body)=>fetch(DASH.origin+p,{method,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:body&&method!=='GET'&&method!=='DELETE'?JSON.stringify(body):undefined,signal:AbortSignal.timeout(90000)}).then(async r=>({ok:r.ok,status:r.status,j:await r.json().catch(()=>({}))})),
  busy:()=>liveCount()+engAgents.n,paused:()=>engineUpd.busy()||!!gwRestarting,zone:async()=>(await readConfig('default').catch(()=>null))?.timezone||'Asia/Jakarta',isDaytime:dayNow,localDate:(ms,tz)=>localAt(ms,tz).date,
- tell:async(text,{detail,whatsapp,bell=true}={})=>{if(bell)await bottlenecks.event('automations',text,detail||'').catch(()=>{});if(whatsapp)await toOwner(text+(detail?'\n'+detail:''))}});
+ tell:async(text,{detail,whatsapp,bell=true,topic,info,resolve}={})=>{if(resolve)await bottlenecks.resolve(resolve).catch(()=>{});if(!text)return;if(bell)await bottlenecks.event('automations',text,detail||'',{topic,info}).catch(()=>{});if(whatsapp)await toOwner(text+(detail?'\n'+detail:''))}});
 /* Backup models (backup-models.mjs, 30 Oct 2026): every agent's engine backup list from the Models page order, and the
    outage switch when one provider keeps failing replies (agents move to their first backup and back once it works).
    Its alerts go the way the automations guard's do: the bell and WhatsApp. Only the live app writes and moves agents
@@ -623,7 +623,7 @@ const backupModels=createBackupModels({DATA,HERMES_HOME,live:LIVE_APP||bmTest,..
  // an agent a member owns gets only backups that member's role allows (people's "models", users.mjs)
  modelOk:(a,p,m)=>{const o=users.byId(users.agentOwner(String(a).split('--')[0]));return !o||users.modelOk(o,p,m)},
  probe:engineProbe({python:enginePython,root,engine:path.join(HERMES_HOME,'hermes-agent')}),nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a),clock:ms=>clockAt(ms,tzNow),
- tell:async(text,{detail,whatsapp,bell=true}={})=>{if(bell)await bottlenecks.event('automations',text,detail||'').catch(()=>{});if(whatsapp)await toOwner(text+(detail?'\n'+detail:''))}});
+ tell:async(text,{detail,whatsapp,bell=true,topic,info,resolve}={})=>{if(resolve)await bottlenecks.resolve(resolve).catch(()=>{});if(!text)return;if(bell)await bottlenecks.event('automations',text,detail||'',{topic,info}).catch(()=>{});if(whatsapp)await toOwner(text+(detail?'\n'+detail:''))}});
 accountHooks.held=k=>backupModels.held(k);accountHooks.backupSync=why=>backupModels.soon(why);
 // engine updates at night, checked after; the owner is told on the main agent's channel (as when the server was off)
 const engineUpd=createEngineUpdates({guard,DATA,HERMES_HOME,PORT,LIVE:LIVE_APP,readConfig,python:enginePython,patches:enginePatches,restartGateway,resetForUpdate:engineReset,

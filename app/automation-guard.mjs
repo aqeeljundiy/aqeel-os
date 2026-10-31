@@ -107,8 +107,10 @@ export function createAutomationGuard({DATA,HERMES_HOME,LIVE,listAgents,readConf
  const key=(a,s)=>a+'|'+s;
  const rec=(a,s)=>db.servers[key(a,s)]||=({agent:a,name:s,state:'ok'});
  const say=async(k,text,o={})=>{if(!shouldTell(db.told,k,Date.now(),o.every))return;db.told[k]=Date.now();console.log('automations:',text,o.detail?'('+o.detail.slice(0,160)+')':'');
-  if(!LIVE||readOnly)return;await tell(text,o).catch(e=>console.warn('automations: telling the owner',e.message))};
- const forget=prefix=>{for(const k of Object.keys(db.told))if(k.startsWith(prefix))delete db.told[k]};
+  // the bell list keeps one item per problem (its topic) and drops it when it works again (31 Oct 2026); "fixed" news is told, not listed
+  const parts=k.split('|'),fixed=parts.includes('fixed'),topic=parts[0]==='fixed'?'srv|'+parts[1]+'|'+parts[2]:parts[0]==='srv'?parts.slice(0,3).join('|'):parts[0]==='venv'?'venv|'+parts[1]:k;
+  if(!LIVE||readOnly)return;await tell(text,{...o,topic,info:fixed||o.info,resolve:fixed?topic:undefined}).catch(e=>console.warn('automations: telling the owner',e.message))};
+ const forget=prefix=>{for(const k of Object.keys(db.told))if(k.startsWith(prefix))delete db.told[k];if(LIVE&&!readOnly&&/^srv\|/.test(prefix))tell('',{info:true,resolve:prefix.replace(/\|$/,'')}).catch(()=>{})};
 
  /* ---------- facts ---------- */
  const servers=async a=>{const c=await readConfig(a).catch(()=>null);const m=c?.mcp_servers;return m&&typeof m==='object'?m:{}};

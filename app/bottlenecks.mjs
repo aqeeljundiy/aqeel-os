@@ -20,8 +20,16 @@ export function createBottlenecks({DATA,dash,listAgents,names}){
   if(r){r.count=(r.count||1)+1;r.updated=Date.now();if(what)r.what=String(what).slice(0,400);if(fix)r.fix=String(fix).slice(0,400);if(from)r.from=from}
   else{r={id:'r'+randomBytes(6).toString('hex'),key,agent,what:String(what||'').slice(0,400),missing:m,fix:String(fix||'').slice(0,400),created:Date.now(),updated:Date.now(),count:1,from:from||null};db.reports.unshift(r);db.reports=db.reports.slice(0,200)}
   await save();return r}
- // something aqeelOS itself noticed once (the server was off): shown until dismissed
- async function event(kind,text,detail){await load();db.events.unshift({id:'e'+randomBytes(6).toString('hex'),kind,text,detail,created:Date.now()});db.events=db.events.slice(0,20);await save()}
+ // something aqeelOS itself noticed (the server was off, a backup failed, a tool server broke): shown until it is solved
+ // or dismissed (31 Oct 2026, the owner: "if it's solved we shouldn't still show it"). topic: the problem it is about; a
+ // newer event on the same topic replaces the older one, and resolve(topic) takes it away once it works again. info:
+ // "it works again" news, which is told (WhatsApp, log) but never sits in the list. Nothing stays longer than 7 days
+ const KEEP_MS={down:2*24*3600e3},WEEK=7*24*3600e3;
+ const prune=()=>{const now=Date.now();db.events=db.events.filter(e=>now-e.created<(KEEP_MS[e.kind]||WEEK))};
+ async function event(kind,text,detail,{topic,info}={}){await load();if(info)return;if(topic)db.events=db.events.filter(e=>e.topic!==topic);
+  db.events.unshift({id:'e'+randomBytes(6).toString('hex'),kind,text,detail,created:Date.now(),...(topic?{topic}:{})});prune();db.events=db.events.slice(0,20);await save()}
+ async function resolve(topic){await load();const n=db.events.length;const t=String(topic||'');if(!t)return 0;db.events=db.events.filter(e=>!(e.topic===t||e.topic?.startsWith(t+'|')||(!e.topic&&e.kind===t)));
+  if(db.events.length!==n)await save();return n-db.events.length}
  let sched={at:0,items:[]};
  async function failedSchedules(){if(Date.now()-sched.at<120000)return sched.items;const out=[];
   for(const a of await listAgents().catch(()=>[])){let l;try{l=await dash('/cron/jobs?profile='+encodeURIComponent(a))}catch{continue}
@@ -35,7 +43,7 @@ export function createBottlenecks({DATA,dash,listAgents,names}){
    // an AI account that signed out (accounts.mjs keeps one per account until it works again; the time keeps a
    // "Not now" to that one time, so a later sign-out shows again)
    for(const a of accounts||[]){const k='account|'+a.key+'|'+a.since;if(!hid(k))out.push({id:k,kind:'account',title:a.name+(a.state==='rejected'?': key rejected':a.state==='credit'?': out of credit':': needs sign-in'),text:'Agents that use it can’t answer with it until it is reconnected.',account:a,at:a.since})}
-   for(const e of db.events){const k='event|'+e.id;if(!hid(k))out.push({id:k,kind:e.kind,title:e.text,text:e.detail||''})}}
+   prune();for(const e of db.events){const k='event|'+e.id;if(!hid(k))out.push({id:k,kind:e.kind,title:e.text,text:e.detail||''})}}
   for(const r of db.reports){if(r.fixed||!mayUse(r.agent)||hid('report|'+r.id))continue;out.push({id:'report|'+r.id,kind:'report',missing:r.missing,agent:r.agent,agentName:names(r.agent),title:names(r.agent)+' is blocked: '+r.missing,text:r.fix?'Would fix it: '+r.fix:'',purpose:r.what?r.what.replace(/^to /i,''):'',from:r.from||null,count:r.count,at:r.updated})}
   return out}
  async function done(id){await load();if(id.startsWith('report|')){const r=db.reports.find(x=>'report|'+x.id===id);if(r){r.fixed=Date.now()}}else db.fixed[id]=Date.now();await save()}
@@ -43,4 +51,4 @@ export function createBottlenecks({DATA,dash,listAgents,names}){
  async function later(id,uid){await load();const now=Date.now();for(const [k,t] of Object.entries(db.snooze))if(t<now)delete db.snooze[k];db.snooze[uid?uid+'#'+id:id]=now+24*3600e3;await save()}
  // the open report behind a "report|<id>", so the caller can check who may act on it
  async function find(id){await load();return db.reports.find(x=>'report|'+x.id===id&&!x.fixed)||null}
- return {report,event,list,done,later,find}}
+ return {report,event,resolve,list,done,later,find}}

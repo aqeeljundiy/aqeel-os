@@ -25,7 +25,7 @@ const EXCLUDE=['.hermes/installs','.hermes/hermes-agent','.hermes/tools','.herme
 // what a restore must bring back for the box to work
 const MUST=['.hermes/config.yaml','.hermes/.env','apps/hermes-ui-data/users.json','apps/hermes-ui.env'];
 
-export function createBackups({DATA,HOME,HERMES_HOME,TOKEN='google_token_elkiya.json',notify=()=>{}}){
+export function createBackups({DATA,HOME,HERMES_HOME,TOKEN='google_token_elkiya.json',notify=()=>{},solved=()=>{}}){
  const STATE=path.join(DATA,'backups.json'),KEYF=path.join(DATA,'backup-key');let state=null,running=null;
  const load=async()=>{if(!state){try{state=JSON.parse(await readFile(STATE,'utf8'))}catch{state={}}}return state};
  const save=async()=>{await writeFile(STATE,JSON.stringify(state,null,1))};
@@ -79,7 +79,7 @@ export function createBackups({DATA,HOME,HERMES_HOME,TOKEN='google_token_elkiya.
    // keep the newest 14 (older ones go to the Drive bin, where Google keeps them 30 more days)
    const l=await drive(g,'drive/v3/files?q='+encodeURIComponent("'"+fid+"' in parents and trashed=false")+'&orderBy=createdTime desc&fields=files(id,name)&pageSize=100');
    for(const f of (l.files||[]).slice(KEEP))await drive(g,'drive/v3/files/'+f.id,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({trashed:true})}).catch(()=>{});
-   state.last={at,ok:true,name,size,id:file.id,account:g.account,why,secs:Math.round((Date.now()-at)/1000),skipped};state.made=true;await save();console.log('backup: '+name+' ('+Math.round(size/1e6)+' MB) uploaded to Google Drive'+(skipped?', '+skipped+' unreadable file(s) skipped':''));return state.last}
+   state.last={at,ok:true,name,size,id:file.id,account:g.account,why,secs:Math.round((Date.now()-at)/1000),skipped};state.made=true;await save();console.log('backup: '+name+' ('+Math.round(size/1e6)+' MB) uploaded to Google Drive'+(skipped?', '+skipped+' unreadable file(s) skipped':''));solved();return state.last}
   catch(e){state.last={at,ok:false,error:e.message,why};await save();console.warn('backup failed:',e.message);notify('Backup to Google Drive failed',e.message);throw e}
   finally{await rm(tmp,{force:true}).catch(()=>{});running=null}})();return running}
  // a restore test: the newest backup from Drive, decrypted and unpacked into a scratch folder, with the must-have files checked
