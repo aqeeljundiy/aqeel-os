@@ -4,7 +4,7 @@
 // No dependencies. Run: node app/server.mjs (configuration via environment, see README).
 import {createServer,request as httpRequest} from 'node:http';
 import {readFile,stat,writeFile,mkdir,unlink,rename,realpath,readlink,copyFile} from 'node:fs/promises';
-import {homedir} from 'node:os';
+import {homedir,userInfo} from 'node:os';
 import {createAccounts,setupAgentFn,export_setups,accountHooks} from './accounts.mjs';
 import {allowed as skillAllowed} from './skills-policy.mjs';
 import {createAgentDefaults} from './agent-defaults.mjs';
@@ -632,7 +632,7 @@ accountHooks.held=k=>backupModels.held(k);accountHooks.backupSync=why=>backupMod
    and Notion sign-ins, a personal Telegram session), with Pause, allowed actions and Disconnect. Only the live app looks
    by itself and rings the bell; a copy on another port with its own engine home may, for testing (ACCOUNTS_TEST=1, and
    ACCOUNTS_SLACK_API / ACCOUNTS_GOOGLE_REVOKE point the provider calls at a stub). */
-const caTest=!LIVE_APP&&env.ACCOUNTS_TEST==='1'&&path.resolve(HERMES_HOME)!==path.join(homedir(),'.hermes');
+const caTest=!LIVE_APP&&env.ACCOUNTS_TEST==='1'&&path.resolve(HERMES_HOME)!==path.join(userInfo().homedir,'.hermes');   // the account's own home, even when HOME points at a fake one
 const connAccounts=createConnectedAccounts({DATA,HERMES_HOME,active:LIVE_APP||caTest,listAgents:()=>agentNames({copies:true}),readConfig,setKey,withAgent,python:enginePython,access,whyOf,nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a),
  ...(caTest?{WORK:env.ACCOUNTS_WORK||path.join(path.dirname(HERMES_HOME),'workspaces'),ends:{slack:env.ACCOUNTS_SLACK_API,revoke:env.ACCOUNTS_GOOGLE_REVOKE},STEP:1000}:{}),
  googleLabel:async(a,n)=>((await googleLabels())[a+'|'+n]||{}).label||'',signinNeeded:(a,n)=>signinsDue.has(a+'|'+n),

@@ -245,7 +245,7 @@ export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir
     const rp=await realpath(p).catch(()=>p);if(seenPath.has(rp))continue;seenPath.add(rp);const j=await readJson(p);if(!j)continue;
     const email=j.account||db.alias[h8(j.refresh_token||rp)]||'';const id='google:'+(email||h8(j.refresh_token||rp));
     const x=add(id,{kind:'google',provider:'google',identity:email,refresh:h8(j.refresh_token||'')});if(!x.agents.includes(a))x.agents.push(a);x.paths.push(p);x.files.push({agent:a,path:p,name:m[1]||'',paused:!!m[2]});
-    if(!x.label){const l=await googleLabel(a,m[1]||'').catch(()=>'');x.label='Google, '+(l||(m[1]?m[1].replace(/^./,c=>c.toUpperCase()):email||'main account'))}}}
+    if(!x.label){const l=await googleLabel(a,m[1]||'').catch(()=>'');x.label='Google, '+(l||(m[1]?m[1].replace(/^./,c=>c.toUpperCase()):'main account'))}}}
   // apps signed in as a person: every agent's mcp_servers with its saved sign-in; the same name with another address is another login
   const tokOf=async(a,n)=>{const d=path.join(homeOf(a),'mcp-tokens');const p=path.join(d,n+'.json');return {p,rp:await realpath(p).catch(()=>p),tok:await readJson(p),meta:await readJson(path.join(d,n+'.meta.json'))}};
   const named=new Set();
