@@ -5,13 +5,17 @@
 //   ADSPOWER_API_KEY  Local API key (AdsPower › Automation › API)
 //   ADSPOWER_PROFILE  the profile to use: its name, remark or id. Never guessed among business profiles.
 //                     Not set: the profile that is already open (e.g. the agent opened it with its AdsPower tool).
-// Env: ADSPOWER_API (default http://127.0.0.1:50325), BRIDGE_PORT (default 9333).
+// Env: ADSPOWER_API (default: the own AdsPower of BRIDGE_AGENT, else http://127.0.0.1:50325), BRIDGE_PORT (default 9333).
+// Every agent has its own AdsPower now (app/agent-adspower.mjs, 1 Nov 2026): without ADSPOWER_API the bridge talks to the
+// copy of BRIDGE_AGENT (default: the main agent), found fresh on every call in ~/.aqeelos-adspower-ports.
 import {createServer,request} from 'node:http';
 import {connect} from 'node:net';
 import {readFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 
-const API=process.env.ADSPOWER_API||'http://127.0.0.1:50325';
+const AGENT=process.env.BRIDGE_AGENT||'default';
+const ownPort=()=>{try{const l=readFileSync(homedir()+'/.aqeelos-adspower-ports','utf8').split('\n').find(x=>x.startsWith(AGENT+' '));return l?Number(l.split(' ')[1])||0:0}catch{return 0}};
+const apiBase=()=>process.env.ADSPOWER_API||(ownPort()?'http://127.0.0.1:'+ownPort():'http://127.0.0.1:50325');
 const PORT=Number(process.env.BRIDGE_PORT)||9333;
 const ENV_FILES=[homedir()+'/.hermes/profiles/facebook-manager/.env',homedir()+'/.hermes/.env'];
 const setting=name=>{for(const file of ENV_FILES){try{const line=readFileSync(file,'utf8').split('\n').find(l=>l.startsWith(name+'='));const v=line?line.slice(name.length+1).trim().replace(/^["']|["']$/g,''):'';if(v)return v}catch{}}return process.env[name]||''};
@@ -19,7 +23,7 @@ const headers=()=>{const k=setting('ADSPOWER_API_KEY');return {'content-type':'a
 const log=(...a)=>console.log(new Date().toISOString(),...a);
 
 async function api(method,path,body){
- const r=await fetch(API+path,{method,headers:headers(),body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(60000)});
+ const r=await fetch(apiBase()+path,{method,headers:headers(),body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(60000)});
  const j=await r.json().catch(()=>({}));if(j.code!==0)throw new Error(`AdsPower ${path}: ${j.msg||r.status}`);return j.data||{};
 }
 let profileId='',chosenFor=null;
@@ -63,4 +67,4 @@ server.on('upgrade',async(req,sock,head)=>{
   const end=()=>{sock.destroy();up.destroy()};up.on('error',end);sock.on('error',end);
  }catch(e){log(e.message);sock.end('HTTP/1.1 503 Service Unavailable\r\n\r\n'+e.message)}
 });
-server.listen(PORT,'127.0.0.1',()=>log(`AdsPower bridge on http://127.0.0.1:${PORT} → ${API}`));
+server.listen(PORT,'127.0.0.1',()=>log(`AdsPower bridge on http://127.0.0.1:${PORT} → ${apiBase()}`));
