@@ -39,18 +39,18 @@
   "all /abilities/mcp": [
    "button: Add",
    "button: Check now",
-   "tab: Accounts",
    "tab: All",
    "tab: Apps",
+   "tab: Logins",
    "tab: Plugins",
    "tab: Skills"
   ],
   "all /abilities/connections": [
    "button: Add",
    "button: Check now",
-   "tab: Accounts",
    "tab: All",
    "tab: Apps",
+   "tab: Logins",
    "tab: Plugins",
    "tab: Skills"
   ],
@@ -65,7 +65,7 @@
   "all /models/models": [
    "button: Add account",
    "button: Refresh",
-   "tab: Accounts",
+   "tab: AI accounts",
    "tab: Agents’ models",
    "tab: Pictures",
    "tab: Team of models"
@@ -77,7 +77,6 @@
    "button: 30 days",
    "button: 7 days",
    "button: 90 days",
-   "button: All agents",
    "button: Refresh",
    "button: Rp IDR",
    "tab: 30 days",
@@ -144,18 +143,18 @@
   "one /abilities/mcp": [
    "button: Add",
    "button: Check now",
-   "tab: Accounts",
    "tab: All",
    "tab: Apps",
+   "tab: Logins",
    "tab: Plugins",
    "tab: Skills"
   ],
   "one /abilities/connections": [
    "button: Add",
    "button: Check now",
-   "tab: Accounts",
    "tab: All",
    "tab: Apps",
+   "tab: Logins",
    "tab: Plugins",
    "tab: Skills"
   ],
@@ -170,7 +169,7 @@
   "one /models/models": [
    "button: Add account",
    "button: Refresh",
-   "tab: Accounts",
+   "tab: AI accounts",
    "tab: Agents’ models",
    "tab: Pictures",
    "tab: Team of models"
@@ -182,7 +181,6 @@
    "button: 30 days",
    "button: 7 days",
    "button: 90 days",
-   "button: All agents",
    "button: Refresh",
    "button: Rp IDR",
    "tab: 30 days",
@@ -237,9 +235,6 @@
   "all /abilities/files": [
    "button: New agent"
   ],
-  "all /models/accounts": [
-   "button: Refresh"
-  ],
   "one /code/code": [],
   "one /agents/profiles": [
    "button: New agent"
@@ -263,8 +258,23 @@
   "one /abilities/files": [
    "button: New agent"
   ],
-  "one /models/accounts": [
-   "button: Refresh"
+  "all /models/usage": [
+   "button: 30 days",
+   "button: 7 days",
+   "button: 90 days",
+   "button: Refresh",
+   "tab: 30 days",
+   "tab: 7 days",
+   "tab: 90 days"
+  ],
+  "one /models/usage": [
+   "button: 30 days",
+   "button: 7 days",
+   "button: 90 days",
+   "button: Refresh",
+   "tab: 30 days",
+   "tab: 7 days",
+   "tab: 90 days"
   ]
  }
 }

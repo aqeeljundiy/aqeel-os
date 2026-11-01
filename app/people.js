@@ -33,7 +33,8 @@ function applyRole(){
  if(has('create')||editsAny)out.push({id:'agents',label:'Agents',icon:'user',pages:[pg('agents','profiles',{desc:'Agents you can use and change.'})]});
  if(has('schedules'))out.push({id:'automations',label:'Automations',icon:'zap',pages:[pg('automations','schedules')]});
  out.push({id:'abilities',label:'Abilities',icon:'puzzle',pages:[...(has('skills')?[pg('abilities','skills')]:[]),...(has('mcp')?[pg('abilities','mcp')]:[]),pg('agents','files',{desc:'Your own folder. Your agents can read what you put here.'})]});
- if(has('usage'))out.push({id:'models',label:'Models',icon:'cpu',pages:[{id:'accounts',label:'Accounts',icon:'user',desc:'How much of each account is used.'}]});
+ // their Usage page: the same page as admins', for them only, with how full each AI account is (1 Nov 2026; it was called Accounts)
+ if(has('usage'))out.push({id:'models',label:'Models',icon:'cpu',pages:[{id:'usage',label:'Usage',icon:'chart',desc:'What you used, and how much of each AI account is used.'}]});
  {const h=SECTIONS.find(s=>s.id==='help');if(h)out.push(h)}   // Help is everyone's, last in the menu
  out.forEach((s,i)=>{if(s.id!=='chat')s.key=String(i+1)});
  SECTIONS.splice(0,SECTIONS.length,...out);
@@ -168,24 +169,25 @@ PAGES.profiles=async(p,el)=>{const stale=pageTok(el);
   <div class="agent-tags">${x.is_default?'<span class="chip blue">Default</span>':''}${!locked&&act.active===x.name?'<span class="chip" title="Commands typed on the box use this agent unless they name another">Command line</span>':''}${!locked&&x.description_auto&&x.description?'<span class="chip" title="aqeelOS wrote this description. Read it and change it if it is off; editing it removes this note.">Written for you · check it</span>':''}${locked?'':chipState(x.gateway_running,'Online','Offline')}</div><div class="tile-foot agent-foot"><span>${locked?'':(S.profile||'default')===x.name?'<span class="chip ok"><i class="dot"></i>In use</span>':`<span class="agent-go">${icon('chat',14)}Chat with ${esc(id.name)}</span>`}</span>${locked?'':`<button class="ghost icon agent-gear" data-menu="profilecard" data-name="${esc(x.name)}" aria-label="Settings for ${esc(id.name)}" title="Settings">${icon('settings',18)}</button>`}</div></div>`}).join('')}</div>`;
 };
 ACT['agent-locked']=a=>toast('This agent is private to '+(a.dataset.owner||'its owner')+'. Ask them to share it with you.');
-// Sharing and owner, from an agent's ⋯ menu (its owner only)
-ACT['agent-share']=async name=>{let people=[];try{people=await UI('/ui/people/list')}catch(e){return fail(e)}
- const o=(await UI('/ui/agents?names='+encodeURIComponent(name)).catch(()=>({})))[name]||{};const others=people.filter(x=>x.id!==o.owner?.id);
- const row=s=>`<div class="pshare">${personAva(s,28)}<b>${esc(s.name)}</b><select style="width:auto" data-ash="${esc(s.id)}">${Object.entries(LEVEL_LABEL).map(([k,v])=>`<option value="${k}" ${k===s.level?'selected':''}>${v}</option>`).join('')}<option value="">Remove</option></select></div>`;
- const notYet=others.filter(x=>!(o.shared||[]).some(s=>s.id===x.id));
- const d=drawer('Sharing · '+ident(name).name,`<label>Owner</label><div class="pshare">${personAva(o.owner,28)}<b>${esc(o.owner?.name||'')}</b>${others.length?`<select style="width:auto" id="ashOwner"><option value="">Keep owner</option>${others.map(x=>`<option value="${esc(x.id)}">Give to ${esc(x.name)}</option>`).join('')}</select>`:''}</div>
-  <label>Shared with</label>${(o.shared||[]).map(row).join('')||'<p class="hint">Nobody yet.</p>'}
-  ${notYet.length?`<label>Add someone</label><div class="pshare"><select id="ashWho">${notYet.map(x=>`<option value="${esc(x.id)}">${esc(x.name)} (@${esc(x.username)})</option>`).join('')}</select><select style="width:auto" id="ashLvl">${Object.entries(LEVEL_LABEL).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select><button id="ashAdd">Add</button></div>`:''}
-  <p class="hint" style="margin-top:16px">Giving the agent away makes the new person its owner; you keep Can edit.</p>`,`<button class="primary" data-act="close">Done</button>`);
- // one change at a time, and only reopen Sharing if this same dialog is still showing
- const call=async(path,body,msg)=>{const ctl=[...d.querySelectorAll('select,input,button:not([data-act=close])')];ctl.forEach(c=>c.disabled=true);
-  try{await UI('/ui/agents/'+encodeURIComponent(name)+path,{method:'PUT',body});toast(msg);if(d.isConnected&&!d.classList.contains('closing')){closeLayers();ACT['agent-share'](name)}if(route().page?.id==='profiles')reload()}catch(e){fail(e)}finally{ctl.forEach(c=>c.disabled=false)}};
- d.querySelectorAll('[data-ash]').forEach(s=>s.onchange=()=>call('/share',{user:s.dataset.ash,level:s.value},s.value?'Updated':'Removed'));
- d.querySelector('#ashAdd')?.addEventListener('click',()=>call('/share',{user:$('#ashWho').value,level:$('#ashLvl').value},'Shared'));
- d.querySelector('#ashOwner')?.addEventListener('change',async e=>{if(!e.target.value)return;const who=others.find(x=>x.id===e.target.value);if(!await confirmBox('Give '+ident(name).name+' to '+who.name+'?','They become its owner. You keep Can edit.','Give it away',false)){e.target.value='';return}call('/owner',{user:who.id},'Owner changed')})};
-{const withShare=Pages.profileMenu;Pages.profileMenu=el=>{const n=el.dataset.name,o=Pages._own?.[n];
- const real=window.menu;window.menu=(a,items,...rest)=>{window.menu=real;const extra=o?.access==='owner'?[{label:'Sharing and owner…',icon:'user',run:()=>ACT['agent-share'](n)},'-']:[];return real(a,[...extra,...items],...rest)};
- try{withShare(el)}catch(e){window.menu=real;throw e}}}
+/* ---------- Sharing an agent (1 Nov 2026): one home, Edit agent › Sharing. People › Share an agent and Change open it
+   there; it was also a window of its own and a ⋯ item, three ways to do one thing. A person owns an agent; it is shared
+   with others at a level. Each change saves at once and the tab draws again in place (no window closing and opening). */
+ACT['agent-share']=(name,opt={})=>editAgent(name,'Sharing',opt);
+async function shareInto(box,name,opt={}){const gone=pageRun(box);let people=[];try{people=await UI('/ui/people/list')}catch(e){if(!gone())box.innerHTML=errLine('the people this agent can be shared with');return}
+ const o=(await UI('/ui/agents?names='+encodeURIComponent(name)).catch(()=>({})))[name]||{};if(gone())return;const others=people.filter(x=>x.id!==o.owner?.id);
+ const lv=(cur,extra='')=>Object.entries(LEVEL_LABEL).map(([k,v])=>`<option value="${k}" ${k===cur?'selected':''}>${v}</option>`).join('')+extra;
+ const notYet=others.filter(x=>!(o.shared||[]).some(s=>s.id===x.id)),pre=notYet.some(x=>x.id===opt.add)?opt.add:'';
+ box.innerHTML=`<label>Owner</label><div class="pshare">${personAva(o.owner,28)}<b>${esc(o.owner?.name||'Nobody yet')}</b>${others.length?`<select style="width:auto;margin-left:auto" id="ashOwner" aria-label="Give it to someone else"><option value="">Keep as owner</option>${others.map(x=>`<option value="${esc(x.id)}">Give to ${esc(x.name)}</option>`).join('')}</select>`:''}</div>
+  <label>Shared with</label>${(o.shared||[]).map(s=>`<div class="pshare">${personAva(s,28)}<b>${esc(s.name)}</b><select style="width:auto;margin-left:auto" data-ash="${esc(s.id)}" aria-label="What ${esc(s.name)} may do">${lv(s.level,'<option value="">Remove</option>')}</select></div>`).join('')||'<p class="hint" style="margin:4px 0 0">Nobody yet.</p>'}
+  ${notYet.length?`<label>Add someone</label><div class="pshare ash-add"><select id="ashWho" aria-label="Who">${notYet.map(x=>`<option value="${esc(x.id)}" ${x.id===pre?'selected':''}>${esc(x.name)} (@${esc(x.username)})</option>`).join('')}</select><select style="width:auto" id="ashLvl" aria-label="What they may do">${lv('chat')}</select><button type="button" id="ashAdd">Add</button></div>`:''}
+  <p class="hint" style="margin-top:16px">Giving the agent away makes the new person its owner; you keep Can edit.</p>`;
+ box.querySelectorAll('select').forEach(s=>typeof enhanceSelect==='function'&&enhanceSelect(s));
+ // one change at a time; the tab draws again with what the server now says
+ const call=async(path,body,msg)=>{const ctl=[...box.querySelectorAll('select,button')];ctl.forEach(c=>{c.disabled=true;c._sync?.()});
+  try{await UI('/ui/agents/'+encodeURIComponent(name)+path,{method:'PUT',body});toast(msg);if(route().page?.id==='profiles'||route().page?.id==='people')laterReload(400);if(box.isConnected)shareInto(box,name)}catch(e){fail(e);ctl.forEach(c=>{c.disabled=false;c._sync?.()})}};
+ box.querySelectorAll('[data-ash]').forEach(s=>s.onchange=()=>call('/share',{user:s.dataset.ash,level:s.value},s.value?'Updated':'No longer shared'));
+ box.querySelector('#ashAdd')?.addEventListener('click',()=>call('/share',{user:box.querySelector('#ashWho').value,level:box.querySelector('#ashLvl').value},'Shared'));
+ box.querySelector('#ashOwner')?.addEventListener('change',async e=>{if(!e.target.value)return;const who=others.find(x=>x.id===e.target.value);if(!await confirmBox('Give '+ident(name).name+' to '+who.name+'?','They become its owner. You keep Can edit.','Give it away',false)){e.target.value='';e.target._sync?.();return}call('/owner',{user:who.id},who.name+' owns '+ident(name).name+' now')})}
 
 async function mailPanel(){const box=$('#mailBox');if(!box)return;let m;try{m=await UI('/ui/mail')}catch(e){if(box.isConnected)box.innerHTML='<p class="hint">Only admins can change this.</p>';return}if(!box.isConnected)return;   // the page was drawn again meanwhile
  box.innerHTML=`<label>Send email</label><select id="mlMode"><option value="direct" ${m.mode==='direct'?'selected':''}>Straight from the server (free, often in spam)</option><option value="smtp" ${m.mode==='smtp'?'selected':''}>Through a mail account (reliable)</option></select>
@@ -200,6 +202,15 @@ async function mailPanel(){const box=$('#mailBox');if(!box)return;let m;try{m=aw
 // Email sending lives on Settings (agreed layout, 18 Oct): sign-in codes and invites
 {const settings=PAGES.settings;PAGES.settings=async(p,el)=>{const gone=pageTok(el);await settings(p,el);if(gone())return;if(S.me?.admin===false||el.querySelector('#mailBox'))return;
  const box=document.createElement('div');box.className='panel card';box.style.marginBottom='16px';box.innerHTML=`<h2>Email sending</h2><p class="sub">Used for sign-in codes and invites.</p><div id="mailBox">${skeleton(1)}</div>`;el.prepend(box);mailPanel()}}
+// Settings › Agent settings: the settings kept in the agent's .env file. They were a group on Keys, which holds secrets
+// only now (1 Nov 2026). The same rows as Keys (change, show, remove), for the agent shown.
+{const settings=PAGES.settings;PAGES.settings=async(p,el)=>{const gone=pageTok(el);await settings(p,el);if(gone()||S.me?.admin===false)return;
+ const env=await H('/env').catch(()=>null);if(gone()||!env||!el.isConnected)return;const q=(S.cfgQ||'').toLowerCase();
+ const rows=Object.entries(env).filter(([k,v])=>v.category==='setting'&&!/^HERMES_/.test(k)&&(v.is_set||!v.advanced)&&(!q||(k+' '+(v.description||'')).toLowerCase().includes(q))).sort((x,y)=>(y[1].is_set?1:0)-(x[1].is_set?1:0));if(!rows.length)return;
+ const set=rows.filter(r=>r[1].is_set),more=rows.filter(r=>!r[1].is_set);
+ const box=document.createElement('div');box.className='panel card cfg-env';box.style.marginTop='16px';
+ box.innerHTML=`<h2>Agent settings</h2><p class="sub">Kept in this agent’s .env file on the AI box, next to its keys. Each change saves at once; channels pick it up after Restart agents.</p>${(q?rows:set).map(KROW).join('')}${!q&&more.length?`<details class="kf-more"><summary>${set.length?'Show '+more.length+' more you can set':'Show the '+more.length+' settings you can set'}</summary>${more.map(KROW).join('')}</details>`:''}`;
+ el.append(box);if(S.cfgAgentEnv){S.cfgAgentEnv=false;box.scrollIntoView({behavior:'smooth',block:'start'})}}}
 
 /* ---------- per person: which models, and a daily limit ---------- */
 const LIMITS=[[0,'No limit'],[50000,'50k tokens a day'],[200000,'200k tokens a day'],[1000000,'1M tokens a day'],[5000000,'5M tokens a day']];
@@ -219,17 +230,21 @@ ACT['ppl-models']=async a=>{const u=(Pages._ppl?.users||[]).find(x=>x.id===a.dat
   card.append(box);enhanceSelect(box.querySelector('select'))});
  el.querySelectorAll('[data-limit]').forEach(s=>s.onchange=async()=>{try{await UI('/ui/people/'+s.dataset.limit,{method:'PATCH',body:{limit:+s.value?{tokens:+s.value}:null}});toast('Saved')}catch(e){fail(e)}})}}
 
-/* ---------- System › Usage: by person, by agent, by model ---------- */
+/* ---------- System › Usage: by person (aqeelOS knows who started each chat; the engine does not), and Code. By agent and
+   by model come from the engine on the page above, so each number has one source (1 Nov 2026). A member sees this part
+   only, for themselves: today, their own totals and their Code runs. ---------- */
 {const base=PAGES.usage;PAGES.usage=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;
- const days=+String(S.tab.usage||'7 days').split(' ')[0]||7;let d;try{d=await UI('/ui/usage?days='+days+(S.usageAgent&&S.usageAgent!=='*'?'&agent='+encodeURIComponent(S.usageAgent):''))}catch{return}if(gone())return;
+ const days=+String(S.tab.usage||'7 days').split(' ')[0]||7,member=S.me?.admin===false;const who=member?'*':usageWho(await viewAgents().catch(()=>[]));if(gone())return;let d;try{d=await UI('/ui/usage?days='+days+(who!=='*'?'&agent='+encodeURIComponent(who):''))}catch{return}if(gone())return;
  const tok=o=>num((o.input||0)+(o.output||0));
- const table=(title,rows,label)=>rows.length?`<div class="panel card" style="margin-top:16px"><h2>${title}</h2><div class="utable"><div class="uh"><span>${label}</span><span>Chats</span><span>Messages</span><span>Tokens</span><span>Cache</span><span>Est. cost</span></div>
+ const table=(title,rows,label,sub='')=>rows.length?`<div class="panel card" style="margin-top:16px"><h2>${title}</h2>${sub?`<p class="sub">${esc(sub)}</p>`:''}<div class="utable"><div class="uh"><span>${label}</span><span>Chats</span><span>Messages</span><span>Tokens</span><span>Cache</span><span>Est. cost</span></div>
   ${rows.map(([k,o,head])=>`<div class="ur">${head}<span>${num(o.chats)}</span><span>${num(o.messages)}</span><span>${tok(o)}</span><span>${num(o.cache)}</span><span>${money(o.cost||0,{cents:true})}</span></div>`).join('')}</div></div>`:'';
  const ppl=Object.entries(d.byPerson||{}).filter(([,o])=>o).sort((a,b)=>(b[1].input+b[1].output)-(a[1].input+a[1].output)).map(([id,o])=>{const x=d.people?.[id]||{name:id};return [id,o,`<span class="uname">${personAva({id,...x},24)}${esc(id===S.me?.id?'You':x.name)}${x.limit?`<small>limit ${num(x.limit.tokens)}/day</small>`:''}</span>`]});
- const ags=Object.entries(d.byAgent||{}).sort((a,b)=>(b[1].input+b[1].output)-(a[1].input+a[1].output)).map(([a,o])=>[a,o,typeof Help!=='undefined'&&a===Help.ID?`<span class="uname"><span class="help-ava sm">${icon('help',14)}</span>Help</span>`:`<span class="uname">${agentAva(a)}${esc(ident(a).name)}</span>`]);
- const mds=Object.entries(d.byModel||{}).sort((a,b)=>(b[1].input+b[1].output)-(a[1].input+a[1].output)).map(([m,o])=>[m,o,`<span class="uname">${esc(modelLabel(m))}</span>`]);
  const box=document.createElement('div');box.innerHTML=(d.today?`<div class="panel card" style="margin-top:16px"><h2>You today</h2><p class="sub" style="margin:0">${num(d.today.tokens)} tokens in ${num(d.today.messages)} messages${d.people?.[S.me?.id]?.limit?` of your ${num(d.people[S.me.id].limit.tokens)} a day`:''}.</p></div>`:'')
-  +(d.failed?.length?alertBox(`Chats of ${esc(d.failed.map(a=>ident(a).name).join(', '))} couldn’t be read, so the tables below are incomplete.`,{style:'margin:16px 0 0'}):'')+table('By person',ppl,'Person')+table('By agent',ags,'Agent');el.append(box);
+  +(d.failed?.length?alertBox(`Chats of ${esc(d.failed.map(a=>ident(a).name).join(', '))} couldn’t be read, so the tables below are incomplete.`,{style:'margin:16px 0 0'}):'')+table(member?'Your usage':'By person',ppl,'Person','Counted from the chats '+(member?'you':'each person')+' started in the last '+days+' days, so it can differ a little from the engine’s totals.');el.append(box);
+ // a member: how full each AI account is, the cards from Models › AI accounts (read only); its header buttons stay this page's
+ if(member){const ab=document.createElement('div');ab.innerHTML=`<h2 class="ach-cat" style="margin-top:26px">AI accounts</h2><p class="hint" style="margin:-4px 0 12px">How much of each account your agents run on is used. When one is nearly full, agents move to the next.</p><div>${skeleton(2)}</div>`;el.append(ab);
+  const ha=$('.head-actions'),keep=ha?[...ha.childNodes]:[],run=PAGES.accounts(p,ab.lastElementChild);if(ha)ha.replaceChildren(...keep);placePills();
+  try{await run}catch{ab.remove();return}if(gone())return;for(const x of panelsTitled(ab,/^(Priority|If an account fails|Switch automatically|Which agent uses what)/))x.remove();ab.querySelectorAll('.two').forEach(t=>{if(!t.querySelector('.panel'))t.remove()});ab.lastElementChild.querySelector('h2.ach-cat')?.remove()}
  // Code runs (desktop app and online), by person, agent and project
  let c;try{c=await UI('/ui/code/usage?days='+days)}catch{return}if(gone())return;const ctab=(title,rows,label)=>rows.length?`<div class="panel card" style="margin-top:16px"><h2>${title}</h2><div class="utable ucode"><div class="uh"><span>${label}</span><span>Runs</span><span>Tokens</span><span>Cache</span></div>${rows.map(([k,o,head])=>`<div class="ur">${head}<span>${num(o.runs)}</span><span>${tok(o)}</span><span>${num(o.cache)}</span></div>`).join('')}</div></div>`:'';
  const srt=o=>Object.entries(o||{}).sort((a,b)=>(b[1].input+b[1].output)-(a[1].input+a[1].output));
@@ -240,26 +255,8 @@ ACT['ppl-models']=async a=>{const u=(Pages._ppl?.users||[]).find(x=>x.id===a.dat
  if(cp.length||ca.length||cj.length||br){const cb=document.createElement('div');cb.innerHTML=`<h2 class="ach-cat" style="margin-top:26px">Code</h2>`+ctab('Code by person',cp,'Person')+ctab('Code by agent',ca,'Agent')+ctab('Code by project',cj,'Project')
   +(br?`<div class="panel card" style="margin-top:16px"><h2>Agents in projects on computers</h2><p class="sub" style="margin:0 0 10px">Every file read, change and command an agent made through Code on someone's computer, newest first.</p><div class="utable ucode"><div class="uh"><span>Agent and what</span><span>From Code on</span><span>Project</span><span>When</span></div>${br}</div></div>`:'');el.append(cb)}}}
 
-/* ---------- MCP: run the same server more than once (e.g. three AdsPower setups), each with its own name and settings ---------- */
-// data-agent (an All agents row): the copy goes on that agent, from its own list
-ACT['mcp-dup']=async a=>{const ag=a.dataset.agent;let all=Pages._mcp||[];if(ag){try{all=(await H(prof('/mcp/servers',ag))).servers||[]}catch(e){return fail(e)}}const m=all.find(x=>x.name===a.dataset.name);if(!m)return;
- let n=2;const base=m.name.replace(/-\d+$/,'');while(all.some(x=>x.name===base+'-'+n))n++;
- const env=Object.entries(m.env||{}).map(([k,v])=>k+'='+(v&&!/^\*+|•/.test(String(v))?v:'')).join('\n');
- const d=drawer('Duplicate '+m.name+(ag?' on '+ident(ag).name:''),`<p class="hint" style="margin:0 0 8px">A second copy of this tool under its own name. Give it different settings (for example another profile or key) so each copy does its own job.</p>
-  <label>Name</label><input id="mdN" value="${esc(base+'-'+n)}">
-  ${m.url?`<label>Server URL</label><input id="mdU" value="${esc(m.url)}">`:`<label>Command</label><input id="mdC" value="${esc(m.command||'')}"><label>Arguments</label><input id="mdA" value="${esc((m.args||[]).join(' '))}">`}
-  <label>Settings (one KEY=value per line)</label><textarea id="mdE" rows="5" placeholder="ADSPOWER_PROFILE=Shop 2">${esc(env)}</textarea>
-  <p class="hint" style="margin:4px 0 0">Secret values are never copied. Type them again if this copy needs them.${m.auth==='oauth'?' Its sign-in is not copied either: press Sign in on the copy once it is added.':m.auth||m.headers||m.bearer_token?' Its token is copied only when this page can read it; if the copy cannot connect, enter the token again on it.':''}</p>`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="mdGo">Add copy</button>`);
- d.querySelector('#mdGo').onclick=async()=>{const name=$('#mdN').value.trim();if(!/^[\w.-]{1,64}$/.test(name))return toast('Use letters, numbers, dots or dashes for the name','err');
-  const body={name,env:Object.fromEntries($('#mdE').value.split('\n').map(l=>l.split('=')).filter(x=>x[0]&&x.length>1).map(([k,...v])=>[k.trim(),v.join('=').trim()]))};
-  if(m.url)body.url=$('#mdU').value.trim();else{body.command=$('#mdC').value.trim();body.args=$('#mdA').value.trim().split(/\s+/).filter(Boolean)}
-  // how it signs in goes along (sign-in kind, OAuth settings with this copy's own return address, readable headers and token)
-  const plain=v=>v!=null&&v!==''&&!/^\*+|•/.test(String(v));
-  if(m.auth)body.auth=m.auth;if(plain(m.bearer_token))body.bearer_token=m.bearer_token;
-  if(m.oauth&&typeof m.oauth==='object'){body.oauth={...m.oauth};const ru=String(body.oauth.redirect_uri||''),tail='/'+encodeURIComponent(m.name);if(ru.endsWith(tail))body.oauth.redirect_uri=ru.slice(0,-tail.length)+'/'+encodeURIComponent(name)}
-  const hd=Object.fromEntries(Object.entries(m.headers||{}).filter(([,v])=>plain(v)));if(Object.keys(hd).length)body.headers=hd;
-  try{await post(H,prof('/mcp/servers',ag),body);closeLayers();toast(name+' added to '+ident(ag||viewing()).name);reload()}catch(e){fail(e)}}};
-
+/* The MCP Duplicate window ("run the same server more than once, e.g. three AdsPower setups") went on 1 Nov 2026: every
+   agent has its own AdsPower now (agent-adspower.mjs), and Connections adds an app to another agent with Add agent. */
 /* ---------- Memory: MEMORY.md and USER.md are plain files the agent reads; you can edit them ---------- */
 const memHome=()=>{const a=agentProfile()||'default';return '/home/claude/.hermes'+(a==='default'?'':'/profiles/'+a)};
 // read the file as it is now ('' when it does not exist yet; null when it could not be read)
@@ -372,7 +369,7 @@ ACT['role-new']=()=>roleDrawer(null);ACT['role-open']=a=>roleDrawer(a.dataset.id
  const failNote=(d.failed||[]).length?errLine((d.failed||[]).map(a=>ident(a.split('--')[0]).name+(a.includes('--')?' (extra number)':'')).join(', ')+'’s channels','','ch-fail'):'';
  panel.innerHTML=`<h2>Every agent's channels</h2><p class="sub">Each connection belongs to one agent, which answers it. Check one any time; aqeelOS also checks them every 2 hours and tells you when one needs linking again. Move one to another agent and its settings, WhatsApp login and approved people go along.</p>
   ${loadNote}${failNote}${d.channels.length?d.channels.map((c,i)=>`<div class="row" data-from="${esc(c.agent)}" ${st(i)} style="padding:12px 12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="main-c">${chLogo(c.id,c.name)}<div class="txt"><b>${esc(LK[c.agent]?linkTitle(LK[c.agent]):c.name)}</b>${c.account?'<span class="acct-line">'+(c.account.kind?`<span class="kind-chip ${c.account.kind==='bot'?'bot':'person'}" title="${c.account.kind==='bot'?'A bot account made for the agent':'Someone’s own account: messages come from that person'}">${icon(c.account.kind==='bot'?'zap':'user',11)}${c.account.kind==='bot'?'Bot':'Personal account'}</span> `:'')+esc(accountText(c.account))+'</span>':c.identity_error?'':`<span class="acct-line" title="The name agents use to pick this channel">${esc(accountText(null,{id:LK[c.agent]?linkId(LK[c.agent]):c.id}))}</span>`}${c.identity_error?`<span class="acct-line ch-pending" title="Which account this is could not be checked">${icon('alert',12)}${esc(c.identity_error)}</span>`:''}${c.note?'<span class="acct-line ch-note">'+esc(c.note)+'</span>':''}<span class="ch-status" title="Agents use the name “${esc(LK[c.agent]?linkId(LK[c.agent]):c.id)}” to pick this channel">${c.moving?'<span class="spinner"></span>'+(c.moving.stage==='restart'?'Moving to '+esc(ident(c.moving.to).name)+' after the engine restarts':'Moving to '+esc(ident(c.moving.to).name)+'…'):chDot(c)+(c.paused?'Paused · nobody answers it':esc(chState(c).replace(' · link again','')))}${c.updated_at&&!c.paused?` <small class="ch-upd">· updated ${when(c.updated_at)}</small>`:''}</span>${c.pending&&!c.paused?`<span class="acct-line ch-pending">Settings changed since it connected.<button class="link" data-act="ch-apply" data-agent="${esc(c.agent)}" data-platform="${esc(c.id)}">Reconnect to apply</button></span>`:''}</div></div>
-   <div class="act ch-act">${c.id==='whatsapp'&&c.needs_link?`<button class="primary small" data-act="wa-link" data-agent="${esc(c.agent)}">${icon('refresh',14)}Link again</button>`:''}${LK[c.agent]?`<span class="hint" style="margin:0">Extra number of</span><b style="font-size:13.5px">${esc(ident(LK[c.agent].agent).name)}</b>`:`<span class="ab-lbl">Owned by</span><select style="width:auto" data-chmove="${esc(c.id)}" data-from="${esc(c.agent)}" data-paused="${c.paused?1:''}" data-acct="${esc(accountText(c.account))}">${agents.map(n=>`<option value="${esc(n)}" ${n===c.agent&&!c.paused?'selected':''}>${esc(ident(n).name)}</option>`).join('')}<option value="" ${c.paused?'selected':''}>Nobody (paused)</option></select>`}<button class="ghost icon ch-more" data-act="ch-more" data-agent="${esc(c.agent)}" data-platform="${esc(c.id)}" data-paused="${c.paused?1:''}" data-state="${esc(c.state||'')}" data-extra="${LK[c.agent]?1:''}" data-note="${esc(c.note||'')}" title="More" aria-label="More for ${esc(c.name)}">${icon('more',18)}</button></div></div>`).join(''):failNote?'':'<p class="hint">No channel is connected yet. Set one up below and it shows here for the whole team.</p>'}`;
+   <div class="act ch-act">${c.id==='whatsapp'&&c.needs_link?`<button class="primary small" data-act="wa-link" data-agent="${esc(c.agent)}">${icon('refresh',14)}Link again</button>`:''}${LK[c.agent]?`<span class="hint" style="margin:0">Extra number of</span><b style="font-size:13.5px">${esc(ident(LK[c.agent].agent).name)}</b>`:`<span class="ab-lbl">Belongs to</span><select style="width:auto" data-chmove="${esc(c.id)}" data-from="${esc(c.agent)}" data-paused="${c.paused?1:''}" data-acct="${esc(accountText(c.account))}">${agents.map(n=>`<option value="${esc(n)}" ${n===c.agent&&!c.paused?'selected':''}>${esc(ident(n).name)}</option>`).join('')}<option value="" ${c.paused?'selected':''}>Nobody (paused)</option></select>`}<button class="ghost icon ch-more" data-act="ch-more" data-agent="${esc(c.agent)}" data-platform="${esc(c.id)}" data-paused="${c.paused?1:''}" data-state="${esc(c.state||'')}" data-extra="${LK[c.agent]?1:''}" data-note="${esc(c.note||'')}" title="More" aria-label="More for ${esc(c.name)}">${icon('more',18)}</button></div></div>`).join(''):failNote?'':'<p class="hint">No channel is connected yet. Set one up below and it shows here for the whole team.</p>'}`;
  if(d.channels.some(c=>c.moving))laterReload(8000);else if((d.loading||[]).length)laterReload(4000);   // a move finishing after the engine restart: the list follows it
  panel.querySelectorAll('select').forEach(enhanceSelect);
  panel.querySelectorAll('[data-chmove]').forEach(s=>{if(d.channels.find(c=>c.agent===s.dataset.from&&c.id===s.dataset.chmove)?.moving){s.disabled=true;s._sync?.()}});
@@ -810,11 +807,11 @@ ACT['browser-setup']=()=>BrowserSetup.open();
 
 // remove a channel connection: it goes off and its token or login is deleted (the agent and its chats stay)
 ACT['ch-remove']=async a=>{const ag=a.dataset.agent,pf=a.dataset.platform,name=ident(ag.split('--')[0]).name;
- if(!await confirmBox('Remove '+appName(pf)+' from '+name+'?','Its connection stops and its saved token is deleted. Chats and the agent stay. To only stop answers for a while, choose “Nobody (paused)” under Owned by instead.','Remove'))return;
+ if(!await confirmBox('Remove '+appName(pf)+' from '+name+'?','Its connection stops and its saved token is deleted. Chats and the agent stay. To only stop answers for a while, choose “Nobody (paused)” under Belongs to instead.','Remove'))return;
  try{await post(UI,'/ui/channels/remove',{agent:ag,platform:pf});toast(appName(pf)+' removed from '+name);reload()}catch(e){fail(e)}};
 ACT['lb-off']=async()=>{try{await post(UI,'/ui/local-browser/off',{session:Chat.id});toast('This chat uses the AI box screen again');Chat.paintComposerBar()}catch(e){fail(e)}};
 
-// the ⋯ menu on a channel row: everything except "Owned by", in one place
+// the ⋯ menu on a channel row: everything except "Belongs to", in one place
 ACT['ch-more']=a=>{const ag=a.dataset.agent,pf=a.dataset.platform,paused=!!a.dataset.paused,extra=!!a.dataset.extra,wa=pf==='whatsapp';
  menu(a,[{label:'Check connection',icon:'activity',run:()=>ACT['ch-check']({dataset:{agent:ag,platform:pf},innerHTML:'',closest:()=>a.closest('.row')})},
   !extra&&{label:'Who can send through it',icon:'user',run:()=>channelShareDrawer(ag,pf)},
@@ -824,7 +821,7 @@ ACT['ch-more']=a=>{const ag=a.dataset.agent,pf=a.dataset.platform,paused=!!a.dat
   '-',{label:wa?'Remove this WhatsApp':'Remove this connection',icon:'trash',bad:true,run:()=>wa?ACT['wa-remove']({dataset:{agent:ag}}):ACT['ch-remove']({dataset:{agent:ag,platform:pf}})}])};
 // pause or resume a channel: a pause says it stays linked, with Undo in the toast; true when it went through
 async function setPaused(ag,pf,on,what=appName(pf)){
- try{const r=await post(UI,'/ui/channels/pause',{agent:ag,platform:pf,on:!on});const m=what+(on?' paused · stays linked, nobody answers it until you pick an agent under Owned by':' answers again')+(r.restarting?' · the main agent’s channels restart for a moment':'');if(on)toastUndo(m,()=>setPausedQuiet(ag,pf,false));else toast(m);reload();laterReload(4000);return true}catch(e){fail(e);return false}}
+ try{const r=await post(UI,'/ui/channels/pause',{agent:ag,platform:pf,on:!on});const m=what+(on?' paused · stays linked, nobody answers it until you pick an agent under Belongs to':' answers again')+(r.restarting?' · the main agent’s channels restart for a moment':'');if(on)toastUndo(m,()=>setPausedQuiet(ag,pf,false));else toast(m);reload();laterReload(4000);return true}catch(e){fail(e);return false}}
 async function setPausedQuiet(ag,pf,on){await post(UI,'/ui/channels/pause',{agent:ag,platform:pf,on:!on});reload()}
 // reconnect one channel: on a second agent only that channel restarts; the main agent's channels share the engine
 async function reconnectChannel(ag,pf){const main=ag.split('--')[0]==='default'&&!ag.includes('--');
@@ -883,8 +880,8 @@ async function waCloudDrawer(){const ag=agentProfile()||'default';let s;try{s=aw
 ACT['hist-more']=async a=>{const id=Chat.id;if(!id)return;a.disabled=true;a.innerHTML='<span class="spinner"></span>Loading earlier messages…';const sc=$('#scroll');const from=sc?sc.scrollHeight-sc.scrollTop:0;
  await Chat.loadHistory(id,true);if(sc)requestAnimationFrame(()=>{sc.scrollTop=sc.scrollHeight-from})};
 
-// People › Share an agent / Change: the agent's own sharing window (one place to change sharing)
+// People › Share an agent (a quick pick of the agent, then its Edit agent › Sharing tab with this person picked) and Change
 ACT['ppl-share-open']=a=>ACT['agent-share'](a.dataset.a);
-ACT['ppl-share']=a=>{const list=(Pages._agents||[]).filter(n=>!n.includes('--'));menu(a,[{header:'Share which agent?'},...list.map(n=>({label:ident(n).name,icon:'user',ava:agentAvatar(n,20,{title:false}),run:()=>ACT['agent-share'](n)}))],{matchWidth:true})};
+ACT['ppl-share']=a=>{const list=(Pages._agents||[]).filter(n=>!n.includes('--'));menu(a,[{header:'Share which agent?'},...list.map(n=>({label:ident(n).name,icon:'user',ava:agentAvatar(n,20,{title:false}),run:()=>ACT['agent-share'](n,{add:a.dataset.id})}))],{matchWidth:true})};
 
 ACT['sign-out-all']=()=>signOutAll();
