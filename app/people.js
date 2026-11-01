@@ -32,7 +32,7 @@ function applyRole(){
  {const c=SECTIONS.find(s=>s.id==='code');if(c)out.push(c)}
  if(has('create')||editsAny)out.push({id:'agents',label:'Agents',icon:'user',pages:[pg('agents','profiles',{desc:'Agents you can use and change.'})]});
  if(has('schedules'))out.push({id:'automations',label:'Automations',icon:'zap',pages:[pg('automations','schedules')]});
- out.push({id:'abilities',label:'Abilities',icon:'puzzle',pages:[...(has('skills')?[pg('abilities','skills')]:[]),...(has('mcp')?[pg('abilities','mcp')]:[]),pg('agents','files',{desc:'Your own folder. Your agents can read what you put here.'})]});
+ out.push({id:'abilities',label:'Abilities',icon:'puzzle',pages:[...(has('skills')?[pg('abilities','skills')]:[]),...(has('mcp')?[pg('abilities',SECTIONS.find(x=>x.id==='abilities')?.pages.some(q=>q.id==='connections')?'connections':'mcp')]:[])   /* Connected apps became Connections (1 Nov 2026): members with the apps right get the new page */,pg('agents','files',{desc:'Your own folder. Your agents can read what you put here.'})]});
  // their Usage page: the same page as admins', for them only, with how full each AI account is (1 Nov 2026; it was called Accounts)
  if(has('usage'))out.push({id:'models',label:'Models',icon:'cpu',pages:[{id:'usage',label:'Usage',icon:'chart',desc:'What you used, and how much of each AI account is used.'}]});
  {const h=SECTIONS.find(s=>s.id==='help');if(h)out.push(h)}   // Help is everyone's, last in the menu
