@@ -21,3 +21,6 @@ test('one refresh at a time, and fresh waits for a new answer',async()=>{const e
 
 test('too old to show: waits for a new answer',async()=>{const e=await engine(60);const u=createUsage(e.url,'t',null,{ttl:10,stale:40});
  await u.report('usage','c',62);await sleep(70);assert.equal((await u.report('usage','c',62)).read,2);e.close()});
+
+test('each answer says when it was read, so the page can say "as of" once it is old',async()=>{const e=await engine(10);const u=createUsage(e.url,'t',null,{ttl:1000});
+ const a=await u.report('usage','d',7);assert.ok(Math.abs(a.read_at-Date.now()/1000)<5);e.close()});

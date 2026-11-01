@@ -183,9 +183,9 @@ async function cronDetail(j){const {m,r}=schedMeta(j);const prof=j.profile||'def
  const panel=document.createElement('div');panel.className='panel card spend';panel.innerHTML='<h2>Spending overview</h2><p class="sub">Estimated at pay-per-use prices. What a subscription covers is included, so you can see what each part would cost.</p><div class="skel" style="height:120px"></div>';
  el.prepend(panel);
  // the agent shown under Showing, or every agent and Help (1 Nov 2026: it showed every agent's totals for one agent too)
- const who=usageWho(await viewAgents().catch(()=>[]));if(gone())return;let agents=[];if(who!=='*')agents=[who];else{try{const pr=await H('/profiles');agents=(Array.isArray(pr)?pr:pr.profiles||[]).map(x=>x.name)}catch{}if(gone())return;if(!agents.length)agents=['default'];agents.push(HELP_ID)}
+ const vl=await viewAgents().catch(()=>[]),who=usageWho(vl);if(gone())return;const agents=who==='*'?[...(vl.length?vl:['default']),HELP_ID]:[who];   /* the same agents as the rest of the page */
  const now=new Date(),mStart=new Date(now.getFullYear(),now.getMonth(),1),lStart=new Date(now.getFullYear(),now.getMonth()-1,1);const day=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
- const per=await Promise.all(agents.map(a=>call('/hapi','/analytics/usage?days=62&profile='+encodeURIComponent(a)).then(u=>({a,u})).catch(()=>({a,u:{daily:[]}}))));if(gone())return;
+ const per=await Promise.all(agents.map(a=>call('/hapi','/analytics/usage?days=62&profile='+encodeURIComponent(a),Pages._uFresh?{fresh:true}:{}).then(u=>({a,u})).catch(()=>({a,u:{daily:[]}}))));if(gone())return;
  const sum=(l,from,to)=>l.filter(d=>d.day>=from&&(!to||d.day<to)).reduce((s,d)=>s+(d.estimated_cost||d.actual_cost||0),0);
  const rows=per.map(({a,u})=>{const d=u.daily||[];return {a,month:sum(d,day(mStart)),last:sum(d,day(lStart),day(mStart)),wk:sum(d,day(new Date(Date.now()-7*864e5))),prev:sum(d,day(new Date(Date.now()-35*864e5)),day(new Date(Date.now()-7*864e5)))/4}}).sort((x,y)=>y.month-x.month);
  const total=rows.reduce((s,r)=>s+r.month,0),lastT=rows.reduce((s,r)=>s+r.last,0);const dayOf=now.getDate(),days=new Date(now.getFullYear(),now.getMonth()+1,0).getDate();

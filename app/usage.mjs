@@ -36,7 +36,7 @@ export function createUsage(DASH,TOKEN,DATA,opt={}){
  function reread(k,kind,agent,days,hit){
   const p=(async()=>{await slot();try{for(let i=0;;i++){try{const r=await fetch(`${DASH}/api/analytics/${kind}?days=${days}&profile=${encodeURIComponent(agent)}`,{headers:{'x-hermes-session-token':TOKEN},signal:AbortSignal.timeout(45000)});
      if(!r.ok){const t=await r.text().catch(()=>'');throw Object.assign(new Error((()=>{try{const j=JSON.parse(t);return j.detail?.message||j.detail||j.error}catch{}})()||'the engine answered '+r.status),{status:r.status})}
-     const d=await r.json();rep.set(k,{t:Date.now(),d});return d}
+     const d=await r.json();if(d&&typeof d==='object')d.read_at=Math.round(Date.now()/1000);rep.set(k,{t:Date.now(),d});return d}
     catch(e){if(i<1&&e.name!=='TimeoutError'&&!(e.status>=400&&e.status<500))continue;if(hit?.d&&Date.now()-hit.t<1800000){console.warn('usage report',agent,e.message,'(serving the last one)');rep.set(k,{...hit,p:null});return {...hit.d,stale_at:Math.round(hit.t/1000)}}
      rep.set(k,{...(hit||{t:0}),p:null});console.warn('usage report',agent,e.message);throw e}}}finally{free()}})();
   rep.set(k,{...(hit||{t:0}),p});return p}

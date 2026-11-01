@@ -70,8 +70,8 @@ function pruneModelTab(box,tab){const re=MODEL_TAB_DROP[tab];if(!re)return;const
  const days={'7 days':7,'30 days':30,'90 days':90}[S.tab.usage||'7 days'];const list=await viewAgents().catch(()=>[]);if(gone())return;
  const who=usageWho(list);
  const panel=[...el.querySelectorAll('.panel')].find(x=>x.querySelector('h2')?.textContent.trim()==='By model');if(!panel)return;
- const me=who==='*'?(S.profile||'default'):who,agents=who==='*'?(list.length?list:['default']):[who],pq='?profile='+encodeURIComponent(me);
- const [res,info,aux]=await Promise.all([Promise.all(agents.map(a=>H('/analytics/models?days='+days+'&profile='+encodeURIComponent(a)).catch(()=>null))),H('/model/info'+pq).catch(()=>({})),H('/model/auxiliary'+pq).catch(()=>({tasks:[]}))]);
+ const me=who==='*'?(S.profile||'default'):who,agents=who==='*'?[...(list.length?list:['default']),HELP_ID]:[who],pq='?profile='+encodeURIComponent(me);   /* Help too, as the note says */
+ const [res,info,aux]=await Promise.all([Promise.all(agents.map(a=>H('/analytics/models?days='+days+'&profile='+encodeURIComponent(a),Pages._uFresh?{fresh:true}:undefined).catch(()=>null))),H('/model/info'+pq).catch(()=>({})),H('/model/auxiliary'+pq).catch(()=>({tasks:[]}))]);
  if(gone()||!panel.isConnected||!res.some(Boolean))return;
  // several agents: the same model added together
  const by=new Map();for(const r of res)for(const m of r?.models||[]){const k=m.model+'|'+m.provider,t=by.get(k);if(!t){by.set(k,{...m});continue}
