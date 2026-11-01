@@ -780,12 +780,28 @@ async function setModelChecked(body,q=''){const r=await post(H,'/model/set'+q,bo
 // file paths and messages from the engine name its folder: people see "(engine folder)" instead
 const hideEngine=s=>String(s||'').replace(/[^\s()]*[\\/]\.hermes(?=[\\/]|\b)/gi,'(engine folder)').replace(/hermes/gi,'engine');
 const capWords=c=>[c?.supports_tools&&'Uses tools',c?.supports_vision&&'Sees pictures',c?.supports_reasoning&&'Thinks step by step'].filter(Boolean);
+/* ---------- An agent's model, one component (1 Nov 2026): the choices (its current model first when its accounts no longer
+   offer it, so the picker never shows another model as current) and the one write path, /model/set. Models › Agents'
+   models draws it as a select; a member, who has no Models page, gets the same choices in a popover from "Change". */
+function modelChoices(authed,cur,curProv){const listed=authed.some(pv=>(!curProv||pv.slug===curProv)&&pv.models.includes(cur));
+ return [...(cur&&!listed?[{group:'Now',value:(curProv||'')+'|'+cur,label:modelLabel(cur),sub:'Its accounts no longer offer it',on:true}]:[]),...authed.flatMap(pv=>pv.models.map(m=>({group:pv.name+' · '+plural(pv.models.length,'model'),value:pv.slug+'|'+m,label:modelLabel(m),sub:m,on:m===cur&&(!curProv||pv.slug===curProv)})))]}
+async function setMainModel(agent,val,was){const [provider,...mm]=val.split('|'),model=mm.join('|'),q='?profile='+encodeURIComponent(agent);const r=await setModelChecked({scope:'main',provider,model},q);if(!r)return false;
+ const mine=agent===(S.profile||'default'),again=()=>{if(mine)Chat.loadModels().then(()=>paintSide()).catch(()=>{})};again();const [wp,...wmm]=(was||'|').split('|'),wm=wmm.join('|'),nm=ident(agent).name;
+ const undo=async()=>{try{if(await setModelChecked({scope:'main',provider:wp,model:wm},q)){again();modelLinesSay(agent,wm);if(route().page?.id==='models')reload()}}catch(e){fail(e)}};
+ modelLinesSay(agent,model);wm&&typeof toastUndo==='function'?toastUndo(nm+' now uses '+modelLabel(model),undo):toast(nm+' now uses '+modelLabel(model));return true}
+// every "Model: X" line of that agent on screen says the new model
+function modelLinesSay(agent,model){document.querySelectorAll(`.model-line[data-agent="${CSS.escape(agent)}"] b`).forEach(b=>b.textContent=modelLabel(model)||'Not set yet')}
+async function pickModel(a,agent){let o,info;try{[o,info]=await Promise.all([call('/gapi'+(agent==='default'?'':'/p/'+encodeURIComponent(agent)),'/api/model/options'),H('/model/info?profile='+encodeURIComponent(agent))])}catch(e){return fail(e)}if(!a.isConnected)return;
+ const ch=modelChoices((o.providers||[]).filter(usableProvider),info.model,info.provider),was=(info.provider||'')+'|'+(info.model||'');let g='';const items=[{header:'Model for '+ident(agent).name}];
+ for(const c of ch){if(c.group!==g){g=c.group;items.push({header:g})}items.push({label:c.label,sub:c.sub,icon:'cpu',on:c.on,run:async()=>{if(c.on)return;try{await setMainModel(agent,c.value,was)}catch(e){fail(e)}}})}
+ if(!ch.length)items.push({label:'No models yet: ask an admin to add an AI account',icon:'alert',disabled:true});menu(a,items,{search:ch.length>8,matchWidth:false})}
 PAGES.models=async(p,el)=>{const gone=pageTok(el);
  const [info,opts,aux,cfg]=await Promise.all([H('/model/info'),G('/api/model/options'),H('/model/auxiliary'),H('/config')]);if(gone())return;
  const authed=(opts.providers||[]).filter(usableProvider);Pages._mAuthed=authed;
  const effort=cfg.agent?.reasoning_effort||'medium';const ov=cfg.agent?.reasoning_overrides||{};
  const tasks=aux.tasks||[];Pages._auxTasks=tasks;const pinned=t=>!!t.provider&&t.provider!=='auto';const nHand=tasks.filter(pinned).length;
- const modelSelect=(id,cur,curProv,auto)=>`<select id="${id}">${auto?`<option value="auto|">${esc(auto)}</option>`:''}${authed.map(pv=>`<optgroup label="${esc(pv.name)} · ${esc(plural(pv.models.length,'model'))}">${pv.models.map(m=>`<option value="${esc(pv.slug+'|'+m)}" ${m===cur&&pv.slug===curProv?'selected':''}>${esc(modelLabel(m))} · ${esc(m)}</option>`).join('')}</optgroup>`).join('')}</select>`;
+ const modelSelect=(id,cur,curProv,auto)=>{const ch=modelChoices(authed,auto&&(!curProv||curProv==='auto')?'':cur,curProv),gs=[...new Set(ch.map(c=>c.group))];
+  return `<select id="${id}">${auto?`<option value="auto|">${esc(auto)}</option>`:''}${gs.map(g=>`<optgroup label="${esc(g)}">${ch.filter(c=>c.group===g).map(c=>`<option value="${esc(c.value)}" ${c.on?'selected':''}>${esc(c.label)}${c.group==='Now'?' (now)':' · '+esc(c.sub)}</option>`).join('')}</optgroup>`).join('')}</select>`};
  const cap=info.capabilities||{},ctx=`Context: ${num(info.effective_context_length)} tokens`+(info.config_context_length?` (set by hand; detected ${num(info.auto_context_length)})`:' (detected)')+'.';
  const facts=[cap.model_family?'Family: '+esc(cap.model_family):'',cap.max_output_tokens?'Answers up to '+num(cap.max_output_tokens)+' tokens':''].filter(Boolean).join(' · ');
  // what an automatic helper runs on right now: a plugin job follows its parent job, the rest follow the main model
@@ -811,7 +827,7 @@ PAGES.models=async(p,el)=>{const gone=pageTok(el);
    else{const t=tasks.find(x=>x.task===task)||{task};if(val==='auto|'){t.provider='auto';t.model=''}else{t.provider=provider;t.model=model}const n=tasks.filter(pinned).length;
     const nw=el.querySelector(`[data-now="${CSS.escape(task)}"]`);if(nw)nw.textContent=nowUses(t);const c=el.querySelector('#auxCount');if(c)c.textContent=n?n+' set by hand · '+(tasks.length-n)+' automatic':'All '+tasks.length+' automatic';
     toast(auxLabel(task,tasks)+(val==='auto|'?' is automatic again':' model saved'))}}catch(e){back(sel);fail(e)}};
- $('#mMain').onchange=e=>setModel('main',e.target.value,'',e.target);
+ $('#mMain').onchange=async e=>{const s=e.target;try{if(await setMainModel(viewing(),s.value,s.dataset.was)){s.dataset.was=s.value;markCurrent(s)}else back(s)}catch(er){back(s);fail(er)}};
  $$('[data-aux]').forEach(s=>s.onchange=e=>setModel('auxiliary',e.target.value,s.dataset.aux,s));
  $('#mEffort').onchange=async e=>{try{await saveConfigPatch(c=>{c.agent=c.agent||{};c.agent.reasoning_effort=e.target.value});Chat.setEffort(e.target.value);toast('Default effort: '+(EFFORT_LABEL[e.target.value]||e.target.value))}catch(er){fail(er)}};
 };

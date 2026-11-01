@@ -50,8 +50,12 @@ const panelsTitled=(root,re)=>[...root.querySelectorAll('.panel')].filter(p=>re.
    showed a picker (Edit agent, Usage › By model "Use as…") now shows one read-only line, "Model: X · Change", and
    Change opens that same editor on that agent. A schedule's own model and the chat picker stay: they are overrides for
    that schedule or that chat only. ---------- */
-const modelLine=(agent,model,attrs='')=>`<div class="model-line">${icon('cpu',15)}<span>Model: <b>${esc(modelLabel(model)||'Not set yet')}</b></span><button type="button" class="ghost small" ${attrs||`data-act="model-change" data-agent="${esc(agent)}"`}>Change</button></div>`;
-ACT['model-change']=a=>{const n=a.dataset.agent||viewing(),me=S.profile||'default';closeLayers();S.tab.models='Agents’ models';S.viewAll=false;S.viewAgent=n===me?null:n;Pages._toolCache=null;go('/models/models')};
+// model undefined: not known yet ("…", filled in once read); '' : the agent has none
+const modelLine=(agent,model,attrs='')=>`<div class="model-line" data-agent="${esc(agent)}">${icon('cpu',15)}<span>Model: <b>${model===undefined?'…':esc(modelLabel(model)||'Not set yet')}</b></span><button type="button" class="ghost small" ${attrs||'data-act="model-change"'} data-agent="${esc(agent)}" aria-haspopup="${S.me?.admin===false?'menu':'false'}">Change</button></div>`;
+// admins: the editor on Models › Agents' models, on that agent (the All agents choice comes back once you leave Models);
+// a member has no Models page: the same choices in a popover right here (pickModel, pages.js)
+ACT['model-change']=a=>{const n=a.dataset.agent||viewing(),me=S.profile||'default';if(S.me?.admin===false)return pickModel(a,n);
+ closeLayers();S.tab.models='Agents’ models';if(S._viewAllWas===undefined)S._viewAllWas=S.viewAll;S.viewAll=false;S.viewAgent=n===me?null:n;Pages._toolCache=null;go('/models/models')};
 // one Add account button: the Connect dialog (connect.js); data-menu="acct-new" from an older page lands here too
 Pages.acctNewMenu=()=>Connect.add();
 // panels that some pages add a moment later (Team of models, Google AI Pro) land on their own tab only
@@ -97,4 +101,5 @@ function scopeNote(v){let n=$('.scope-note');if(!v){if(n)leave(n,180);return}con
  n.textContent='Changes here apply to '+ident(v).name+'. Chats still go to '+ident(S.profile||'default').name+'.'}
 {const base=viewPick;viewPick=list=>{base(list);const all=typeof showingAll==='function'&&showingAll();const me=S.profile||'default';
  if(list.length<2)return scopeNote('');const v=!all&&S.viewAgent&&S.viewAgent!==me&&list.includes(S.viewAgent)?S.viewAgent:'';showingUrl(v);scopeNote(v)}}
-addEventListener('hashchange',()=>{if(!VIEW_RE.test(location.hash)){showingUrl('');$('.scope-note')?.remove()}});
+addEventListener('hashchange',()=>{if(!VIEW_RE.test(location.hash)){showingUrl('');$('.scope-note')?.remove()}
+ if(S._viewAllWas!==undefined&&!/^#\/models\/models/.test(location.hash)){S.viewAll=S._viewAllWas;delete S._viewAllWas}});
