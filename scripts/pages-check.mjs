@@ -11,8 +11,8 @@ try{
  // headless Chrome can take well over 10 s to start on a busy box: wait up to 30 s, and say so instead of crashing
  let tgt;for(let i=0;i<120&&!tgt;i++){await sleep(250);try{tgt=(await (await fetch(`http://127.0.0.1:${port}/json`)).json()).find(t=>t.type==='page')}catch{}}
  if(!tgt)throw new Error('headless Chrome did not start within 30 s');
- const ws=new WebSocket(tgt.webSocketDebuggerUrl);await new Promise(r=>ws.onopen=r);let id=0;const wait=new Map();const errs=[];
- ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id&&wait.has(m.id)){wait.get(m.id)(m);wait.delete(m.id)}if(m.method==='Runtime.exceptionThrown')errs.push(cur+': '+(m.params.exceptionDetails.exception?.description||m.params.exceptionDetails.text||'').split('\n')[0])};
+ const ws=new WebSocket(tgt.webSocketDebuggerUrl);await new Promise(r=>ws.onopen=r);let id=0;const wait=new Map();const errs=[];let crashed=false;
+ ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id&&wait.has(m.id)){wait.get(m.id)(m);wait.delete(m.id)}if(m.method==='Inspector.targetCrashed'){crashed=true;errs.push(cur+': the browser tab crashed here')}if(m.method==='Runtime.exceptionThrown')errs.push(cur+': '+(m.params.exceptionDetails.exception?.description||m.params.exceptionDetails.text||'').split('\n')[0])};
  // every browser step has 30 s: a stalled one says which page and step instead of the whole run being cut off with no
  // output by the deploy's time limit (1 Nov 2026: a run stalled after Skills and printed nothing)
  const cdp=(method,params={})=>new Promise((r,j)=>{const i=++id;const t=setTimeout(()=>{wait.delete(i);j(new Error(method+' took over 30 s'))},30000);wait.set(i,m=>{clearTimeout(t);r(m)});ws.send(JSON.stringify({id:i,method,params}))});
@@ -22,7 +22,11 @@ try{
  await cdp('Page.navigate',{url:BASE+'/#/chat'});await sleep(4000);
  let routes=await ev(`(()=>{const out=['/chat'];for(const s of SECTIONS)for(const p of s.pages||[])out.push('/'+s.id+'/'+p.id);return out})()`)||[];if(only.length)routes=only;
  const times={};let cur='';
- for(const r of routes){cur=r;const t0=Date.now();try{await cdp('Page.navigate',{url:BASE+'/#'+r});
+ // pages are opened the way a person moves between them (the address part after # changes, the app stays loaded), not
+ // 23 full reloads in a row: those let the test browser's memory pile up until its tab crashed (1 Nov 2026, measured).
+ // A real crash is still caught (Inspector.targetCrashed) and named
+ await cdp('Inspector.enable').catch(()=>{});
+ for(const r of routes){cur=r;const t0=Date.now();try{if(crashed)throw new Error('the browser tab had crashed');await ev('location.hash='+JSON.stringify('#'+r)+';1');
   // ready = the page has content and no loading placeholders left (an inline <i class="skel"> is a detail filled in
   // later, like a schedule's description being written, not the page loading: the same rule as core.js)
   for(let i=0;i<80;i++){await sleep(100);const ok=await ev(`!!document.querySelector('.page,.chat')&&![...document.querySelectorAll('#pg .skel,.page .skel')].some(n=>n.tagName!=='I')`);if(ok)break}
