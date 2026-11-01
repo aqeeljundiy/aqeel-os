@@ -67,6 +67,11 @@ export async function agentNames({copies=false}={}){const k=copies?1:0,dir=path.
   return n})();
  namesHit.set(k,{t:Date.now(),m,p});p.catch(()=>namesHit.delete(k));return [...await p]}
 
+// run fn while holding an flock on lockFile (the engine's own locks are flocks: .env.lock, a pairing folder's .lock)
+export function withFlock(lockFile,fn,wait=20){return new Promise((res,rej)=>{
+ const p=spawn('flock',['-w',String(wait),lockFile,'-c','echo locked; read _'],{stdio:['pipe','pipe','ignore']});let got=false;
+ p.on('error',rej);p.on('exit',c=>{if(!got)rej(new Error(c?'The file is busy; try again.':'lock ended early'))});
+ p.stdout.once('data',async()=>{got=true;try{res(await fn())}catch(e){rej(e)}finally{p.stdin.end()}})})}
 // .env edits hold the engine's own lock (flock on .env.lock), so a WhatsApp pairing writing at the same time is not lost
 export function editEnv(envF,compute){return new Promise((res,rej)=>{
  const p=spawn('flock',['-w','20',envF+'.lock','-c','echo locked; read _'],{stdio:['pipe','pipe','ignore']});let got=false;
