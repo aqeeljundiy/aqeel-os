@@ -736,13 +736,11 @@ const hapiStatus=swr({fresh:5000});   // GET /hapi/status, per query
 // an agent's tool groups (measured 11.7 s on the box) and skills list (up to 4.4 s): the All agents views ask every agent,
 // so the last answer (20 s) comes at once and is read again behind the scenes; any engine change drops it
 const hapiLists=swr({fresh:20000});
-// the engine's usage reports for System › Usage (see the /hapi/analytics route): not dropped by a settings change, they
-// only count what was used; read once soon after start for every agent (7 days, and the 62 the Spending overview needs), so a first visit is quick too
-const hapiUsage=swr({fresh:60000}),usageLimit=limiter(3);
-const usageRead=(p,profile,days)=>usageLimit(()=>fetch(DASH.origin+'/api'+p.slice(5)+'?days='+encodeURIComponent(days)+'&profile='+encodeURIComponent(profile),{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(45000)}).then(async r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json()}));
-setTimeout(async()=>{for(const a of await listAgents().catch(()=>[]))for(const [p,d] of [['/hapi/analytics/usage','7'],['/hapi/analytics/usage','62'],['/hapi/analytics/models','7']])hapiUsage.get(p+'|'+a+'|'+d,()=>usageRead(p,a,d)).catch(()=>{})},25000).unref();
 // the slow status reads are read once soon after start (read-only), so even the first page that asks answers from them
 setTimeout(()=>{channelList(false).catch(()=>{});antigravity.status().catch(()=>{});n8n.spaces().catch(()=>{})},15000).unref();
+// System › Usage's engine reports (last 7 days, and the 62 the Spending overview needs) for every agent, once after start, so
+// even the first visit answers at once; after that each visit refreshes them behind the scenes (usage.mjs, 1 Nov 2026)
+setTimeout(async()=>{for(const a of await listAgents().catch(()=>[]))for(const [k,d] of [['usage',7],['usage',62],['models',7]])usage.report(k,a,d).catch(()=>{})},25000).unref();
 /* The engine reports WhatsApp on any agent but the main one as "not set up", even when linked and connected (its
    check needs env keys WhatsApp doesn't have). The truth: switched on + a saved login (creds.json) = set up, and the
    live state the gateway records for "<agent>:whatsapp". */
@@ -1028,7 +1026,7 @@ async function hermesCall(req,res,u,url){
  if(p.startsWith('/gapi/p/')&&agent&&agent!=='default'&&!keyOk.has(agent)){const envF=path.join(HERMES_HOME,'profiles',agent,'.env');const e=await readFile(envF,'utf8').catch(()=>null);
   if(e!==null){if(!/^API_SERVER_KEY=/m.test(e)&&API_KEY){await writeFile(envF,(e&&!e.endsWith('\n')?e+'\n':e)+'API_SERVER_KEY='+API_KEY+'\n',{mode:0o600});console.log('added the missing gateway key for',agent);await new Promise(r=>setTimeout(r,1500))}keyOk.add(agent)}}
  // the engine's usage reports, per agent: cached, a few at a time, with a time limit and the last good answer on failure (usage.mjs)
- {const am=/^\/hapi\/analytics\/(usage|models)$/.exec(p);if(am&&req.method==='GET'){const days=Math.min(365,Math.max(1,+q.get('days')||30));try{return send(res,200,await usage.report(am[1],q.get('profile')||'default',days))}catch(e){return send(res,e.status||504,{error:e.name==='TimeoutError'?'The engine took too long to add up this agent’s usage.':e.message})}}}
+ {const am=/^\/hapi\/analytics\/(usage|models)$/.exec(p);if(am&&req.method==='GET'){const days=Math.min(365,Math.max(1,+q.get('days')||30));try{return send(res,200,await usage.report(am[1],q.get('profile')||'default',days,{fresh:!!req.headers['x-fresh']}))}catch(e){return send(res,e.status||504,{error:e.name==='TimeoutError'?'The engine took too long to add up this agent’s usage.':e.message})}}}
  if(p==='/hapi/messaging/platforms'&&req.method==='GET'){try{return send(res,200,await platformsCached(q.get('profile')||'default'))}catch(e){return send(res,e.status||502,{error:e.message})}}
  if(p.startsWith('/hapi/messaging/')&&req.method!=='GET')platCache.clear();
  if(p.startsWith('/hapi/')&&req.method!=='GET'){hapiStatus.drop();hapiLists.drop()}   // any engine change: the next status is read new
@@ -1201,10 +1199,6 @@ async function hermesCall(req,res,u,url){
  if((p==='/hapi/tools/toolsets'||p==='/hapi/skills')&&req.method==='GET'&&!req.headers['x-fresh']){const k=p+'?'+q.toString();
   const read=()=>fetch(DASH.origin+'/api'+p.slice(5)+'?'+q.toString(),{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(async r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json()});
   try{return send(res,200,transform(await hapiLists.get(k,read)))}catch{}}   // the engine failed: the plain pass-through below says why
- // Usage shows at once (1 Nov 2026: ~9 s on the box, the slowest page): the engine's usage and per-model reports, per agent
- // and number of days, answer from the last read and are read again behind the scenes after a minute; only the first waits
- if((p==='/hapi/analytics/usage'||p==='/hapi/analytics/models')&&req.method==='GET'&&!req.headers['x-fresh']){const k=p+'|'+(q.get('profile')||'default')+'|'+(q.get('days')||'');
-  try{return send(res,200,transform(await hapiUsage.get(k,()=>usageRead(p,q.get('profile')||'default',q.get('days')||''))))}catch{}}
  if(p.startsWith('/hapi/'))return proxy(req,res,DASH,'/hapi',{'x-hermes-session-token':DASH_TOKEN},{transform,body});
  const live=chatM&&req.method==='POST'?{key:agent+'|'+decodeURIComponent(chatM[1]),user:u.id}:undefined;
  // a new message starts a new turn: the person's browser lifts a Stop they pressed in this chat

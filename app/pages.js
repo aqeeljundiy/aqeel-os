@@ -999,6 +999,7 @@ function sortTable(id,cols,rows,row,def,empty){const s=TblSort.state[id]||(TblSo
  return `<table data-tsort="${id}"><thead><tr>${cols.map(x=>x.k?`<th class="th${x.num?' num':''} sortable" data-k="${x.k}" aria-sort="${x.k===s.k?(s.dir==='asc'?'ascending':'descending'):'none'}"><button type="button">${esc(x.l)}<span class="sort-ar${x.k===s.k?' on':''}${x.k===s.k&&s.dir==='asc'?' up':''}" aria-hidden="true">↓</span></button></th>`:`<th class="th${x.num?' num':''}">${esc(x.l)}</th>`).join('')}</tr></thead><tbody>${list.map(row).join('')||`<tr><td colspan="${cols.length}" style="color:var(--muted)">${esc(empty)}</td></tr>`}</tbody></table>`}
 function sortClicks(el){el.addEventListener('click',e=>{const b=e.target.closest('th.sortable button');if(!b)return;const t=b.closest('[data-tsort]'),id=t?.dataset.tsort,k=b.parentElement.dataset.k,s=TblSort.state[id];if(!s||!TblSort.draw[id])return;
  if(s.k===k)s.dir=s.dir==='asc'?'desc':'asc';else{s.k=k;s.dir=b.parentElement.classList.contains('num')?'desc':'asc'}t.outerHTML=TblSort.draw[id]();const n=el.querySelector(`[data-tsort="${id}"]`);n?.querySelector('tbody')?.classList.add('resort');n?.querySelector(`th[data-k="${k}"] button`)?.focus()})}
+ACT['usage-fresh']=()=>{S._uFresh=true;reload()};
 // whose usage: the one Showing picker in the header (All agents, or one agent), as on every page that has it (1 Nov 2026)
 const usageWho=list=>list.length<2?(list[0]||S.profile||'default'):typeof showingAll==='function'&&showingAll()?'*':viewing();
 ACT['currency-pick']=a=>{const c=currency(),admin=S.me?.admin!==false,def=S.defaults?.currency||'USD';
@@ -1010,9 +1011,10 @@ PAGES.usage=async(p,el)=>{const gone=pageTok(el);
  // a member sees the same page for themselves: their own chats only (people.js adds them), never every agent's totals
  const member=S.me?.admin===false;const list=member?[]:await viewAgents().catch(()=>[]);if(gone())return;const who=usageWho(list);
  const cur=currency()==='IDR'?'Rp IDR':'$ USD',isDefault=currency()===(S.defaults?.currency||'USD');
- setActions('<div class="u-bar">'+`<button class="u-pick" data-act="currency-pick" aria-haspopup="menu" title="Currency for costs"><span>${cur}</span>${icon('chevD',14)}</button>`+tabs('usage',['7 days','30 days','90 days'])+`<button class="u-pick icon" data-act="reload" title="Refresh" aria-label="Refresh">${icon('refresh',15)}</button></div>`);placePills();if(member){el.innerHTML='';return}viewPick(list);
+ setActions('<div class="u-bar">'+`<button class="u-pick" data-act="currency-pick" aria-haspopup="menu" title="Currency for costs"><span>${cur}</span>${icon('chevD',14)}</button>`+tabs('usage',['7 days','30 days','90 days'])+`<button class="u-pick icon" data-act="usage-fresh" title="Read it again now" aria-label="Refresh">${icon('refresh',15)}</button></div>`);placePills();if(member){el.innerHTML='';return}viewPick(list);
 
- const bad=[],one=a=>H('/analytics/usage?days='+days+'&profile='+encodeURIComponent(a)).catch(()=>{bad.push(ident(a).name);return{daily:[],by_model:[]}});
+ // the server answers its last read at once and reads again behind; Refresh waits for a new one (usage-fresh)
+ const fresh=S._uFresh;S._uFresh=false;const bad=[],one=a=>H('/analytics/usage?days='+days+'&profile='+encodeURIComponent(a),fresh?{fresh:true}:undefined).catch(()=>{bad.push(ident(a).name);return{daily:[],by_model:[]}});
  const perP=who==='*'?Promise.all((list.length?list:['default']).map(async a=>({a,u:await one(a)}))):null,oneP=perP?null:one(who);
  // the parts other files add below (By model, By person, Spending) start reading now, right behind this page's own reads,
  // side by side instead of one after another; the server answers the same reads once (1 Nov 2026)

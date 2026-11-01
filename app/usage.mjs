@@ -2,7 +2,7 @@
 // aqeelOS knows who started it). Used by System › Usage and by per-person daily limits.
 import {readFile,writeFile,rename,mkdir} from 'node:fs/promises';
 import path from 'node:path';
-export function createUsage(DASH,TOKEN,DATA){
+export function createUsage(DASH,TOKEN,DATA,opt={}){
  const cache=new Map(),flying=new Map();   // agent → {t,full,since,list}; agent → the read in progress
  const at=(s,active)=>active?Math.max(s.last_active||0,s.started_at||0):(s.started_at||0);
  const TTL=60000,FULL=600000,PAGE_MS=15000,CAP=5000;
@@ -22,11 +22,18 @@ export function createUsage(DASH,TOKEN,DATA){
   const p=read(agent,since).finally(()=>{if(flying.get(agent)?.p===p)flying.delete(agent)});flying.set(agent,{since,p});return pick(await p)}
  // a few agents at a time: the engine answers every agent from one process
  const each=async(list,fn,n=3)=>{const out=new Array(list.length);let i=0;await Promise.all(Array.from({length:Math.min(n,list.length)},async()=>{while(i<list.length){const k=i++;out[k]=await fn(list[k])}}));return out};
- // the engine's own usage report for one agent (System › Usage, Schedules' cost line): cached a minute, a few at a time,
- // with a time limit and one retry; when the engine fails, the last good answer (up to 30 min old) is served instead
+ // the engine's own usage report for one agent (System › Usage, Schedules' cost line): a few at a time, with a time limit
+ // and one retry; when the engine fails, the last good answer (up to 30 min old) is served instead.
+ // Shown at once (1 Nov 2026: Usage took ~9 s on the box): the last answer is given straight away and, once it is older than
+ // a minute, read again behind the scenes for the next visit (stale-while-revalidate). Only an answer older than 6 hours,
+ // or none yet, waits; fresh=true always waits for a new one.
+ const REP_TTL=opt.ttl??60000,REP_STALE=opt.stale??6*3600e3;
  const rep=new Map();let running=0;const waiting=[];
  const slot=()=>running<3?(running++,Promise.resolve()):new Promise(r=>waiting.push(r)),free=()=>{const n=waiting.shift();n?n():running--};
- async function report(kind,agent,days){const k=kind+'|'+agent+'|'+days,hit=rep.get(k);if(hit&&Date.now()-hit.t<TTL)return hit.d;if(hit?.p)return hit.p;
+ async function report(kind,agent,days,{fresh=false}={}){const k=kind+'|'+agent+'|'+days,hit=rep.get(k),age=hit?.d?Date.now()-hit.t:Infinity;
+  if(!fresh&&age<REP_STALE){if(age>=REP_TTL&&!hit.p)reread(k,kind,agent,days,hit).catch(()=>{});return hit.d}
+  if(hit?.p)return hit.p;return reread(k,kind,agent,days,hit)}
+ function reread(k,kind,agent,days,hit){
   const p=(async()=>{await slot();try{for(let i=0;;i++){try{const r=await fetch(`${DASH}/api/analytics/${kind}?days=${days}&profile=${encodeURIComponent(agent)}`,{headers:{'x-hermes-session-token':TOKEN},signal:AbortSignal.timeout(45000)});
      if(!r.ok){const t=await r.text().catch(()=>'');throw Object.assign(new Error((()=>{try{const j=JSON.parse(t);return j.detail?.message||j.detail||j.error}catch{}})()||'the engine answered '+r.status),{status:r.status})}
      const d=await r.json();rep.set(k,{t:Date.now(),d});return d}
