@@ -2218,3 +2218,5 @@ button.acct-more{font:inherit;cursor:pointer;width:100%;background:var(--surface
 .ch-who{display:flex;align-items:center;gap:6px;margin-top:14px}
 .ash-add select:first-child{flex:1;min-width:0}
 @media (max-width:760px){.fb-row{flex-wrap:wrap}.fb-row small{margin-left:0}.model-line{flex-wrap:wrap}.model-line>span{white-space:normal}}
+.pp-pol{display:flex;align-items:flex-start;gap:7px;margin:0 0 6px;font-size:12.5px;color:var(--ink-2);line-height:1.45}.pp-pol svg{flex:none;margin-top:2px;color:var(--muted)}.pp-pol.pol-anyone svg{color:var(--warn,#b45309)}
+.pp-head .ic.logo{background:var(--soft-2);color:var(--ink-2);border:1px solid var(--border)}.pp-none{margin:0;padding:8px 0 2px 4px;border-top:1px solid var(--border)}
