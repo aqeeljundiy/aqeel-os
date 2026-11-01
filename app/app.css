@@ -2220,3 +2220,5 @@ button.acct-more{font:inherit;cursor:pointer;width:100%;background:var(--surface
 @media (max-width:760px){.fb-row{flex-wrap:wrap}.fb-row small{margin-left:0}.model-line{flex-wrap:wrap}.model-line>span{white-space:normal}}
 .pp-pol{display:flex;align-items:flex-start;gap:7px;margin:0 0 6px;font-size:12.5px;color:var(--ink-2);line-height:1.45}.pp-pol svg{flex:none;margin-top:2px;color:var(--muted)}.pp-pol.pol-anyone svg{color:var(--warn,#b45309)}
 .pp-head .ic.logo{background:var(--soft-2);color:var(--ink-2);border:1px solid var(--border)}.pp-none{margin:0;padding:8px 0 2px 4px;border-top:1px solid var(--border)}
+/* Usage at phone width (1 Nov 2026): the day tabs get their own row, currency and Refresh share the next; By agent drops Sessions so the cost stays in view */
+@media (max-width:560px){.u-bar{justify-content:flex-start}.u-bar .tabs{order:-1;flex:1 1 100%;display:flex}.u-bar .tabs>button{flex:1}.u-bar>.u-pick.icon{margin-left:auto}[data-tsort=uagent] th:nth-child(2),[data-tsort=uagent] td:nth-child(2){display:none}[data-tsort=uagent] .uname{min-width:0}}

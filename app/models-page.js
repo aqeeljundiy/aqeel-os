@@ -100,6 +100,6 @@ function scopeNote(v){let n=$('.scope-note');if(!v){if(n)leave(n,180);return}con
  if(!n||n.classList.contains('closing')){n?.remove();n=document.createElement('p');n.className='scope-note';head.after(n)}
  n.textContent='Changes here apply to '+ident(v).name+'. Chats still go to '+ident(S.profile||'default').name+'.'}
 {const base=viewPick;viewPick=list=>{base(list);const all=typeof showingAll==='function'&&showingAll();const me=S.profile||'default';
- if(list.length<2)return scopeNote('');const v=!all&&S.viewAgent&&S.viewAgent!==me&&list.includes(S.viewAgent)?S.viewAgent:'';showingUrl(v);scopeNote(v)}}
+ if(list.length<2||route().page?.id==='usage')return scopeNote('');   /* Usage only reads: nothing there lands on an agent */const v=!all&&S.viewAgent&&S.viewAgent!==me&&list.includes(S.viewAgent)?S.viewAgent:'';showingUrl(v);scopeNote(v)}}
 addEventListener('hashchange',()=>{if(!VIEW_RE.test(location.hash)){showingUrl('');$('.scope-note')?.remove()}
  if(S._viewAllWas!==undefined&&!/^#\/models\/models/.test(location.hash)){S.viewAll=S._viewAllWas;delete S._viewAllWas}});
