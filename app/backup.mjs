@@ -5,7 +5,7 @@
 // downloads the newest backup, decrypts and unpacks it into a scratch folder and checks the important files.
 // Restoring a whole box: RESTORE.md.
 import {spawn} from 'node:child_process';
-import {readFile,writeFile,mkdir,rm,stat,readdir,chmod} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,rm,stat,readdir,chmod,rename} from 'node:fs/promises';
 import {createReadStream,createWriteStream} from 'node:fs';
 import {Readable} from 'node:stream';
 import {pipeline} from 'node:stream/promises';
@@ -40,6 +40,36 @@ export const dbFiles=paths=>paths.filter(f=>/\.(db|sqlite3?)$/.test(f));
 // the space a restore needs before it starts (bytes): the download and the unpacked agents in /tmp (unpacked is up to about 2
 // times the packed size, plus room to spare) and the safety copy of today's agents in the home folder (about the backup's size)
 export function spaceNeeded(size,sameDisk){const tmp=size+size*2+2e9,home=size*1.2+1e9;return sameDisk?{tmp:tmp+home,home:tmp+home}:{tmp,home}}
+// a bash command in cwd; rejects with its last error line and exit code
+export const shell=(cmd,{cwd,env}={})=>new Promise((res,rej)=>{const p=spawn('bash',['-c',cmd],{cwd,env:{...process.env,...env},stdio:['ignore','pipe','pipe']});let o='',e='';p.stdout.on('data',d=>o+=d);p.stderr.on('data',d=>e+=d);p.on('close',c=>c===0?res(o):rej(Object.assign(Error(e.trim().split('\n').pop()||'exit '+c),{code:c})))});
+const sq=s=>"'"+String(s).replace(/'/g,"'\\''")+"'";
+/* The part of a restore that changes the box (1 Nov 2026, second review), in this order, so a step that fails leaves the
+   box as it was:
+   1. rsync must be there, before anything stops;
+   2. the agents and the dashboard stop (stopEngine throws when they don't: nothing is changed, they start again);
+   3. today's agents are packed while stopped (so their databases are whole) into <name>.part, renamed only when complete;
+      a failed pack is deleted and nothing is changed; the newest two complete copies are kept;
+   4. the box's -wal and -shm of every database the backup holds are moved aside (not deleted);
+   5. rsync copies the backup over (restoreRules). If it fails, today's copy is unpacked again and the -wal/-shm go back,
+      so the box is as before; if even that fails, the error says plainly the files are mixed and where today's copy is;
+   6. the agents start again, whatever happened after they stopped. */
+export async function applyRestore({src,HERMES_HOME,HOME,at=Date.now(),stopEngine,startEngine,rsync='rsync',tar='tar',run=shell,onSafety=()=>{}}){
+ try{await run('command -v '+sq(rsync)+' >/dev/null')}catch{throw Error('rsync is not installed on the box, so nothing was changed.')}
+ const dbs=dbFiles((await run('find . -type f',{cwd:src})).split('\n').map(x=>x.replace(/^\.\//,'')).filter(Boolean));
+ const parent=path.dirname(HERMES_HOME),base=path.basename(HERMES_HOME),safety=path.join(HOME,'aqeelos-before-restore-'+new Date(at+7*3600e3).toISOString().slice(0,19).replace(/[:T]/g,'-')+'.tar.gz'),part=safety+'.part',held=[];
+ let stopped=false;
+ try{stopped=true;try{await stopEngine()}catch(e){throw Error('The agents did not stop ('+e.message+'), so nothing was changed.')}
+  try{await run('set -o pipefail; '+sq(tar)+' -czf '+sq(part)+' --ignore-failed-read '+EXCLUDE.filter(e=>!/^(apps|workspaces|\.claude)\//.test(e)).map(e=>sq('--exclude='+e.replace(/^\.hermes\//,base+'/'))).join(' ')+' -C '+sq(parent)+' '+sq(base)+'; c=$?; [ $c -le 1 ] || exit $c; [ -s '+sq(part)+' ] || { echo "the copy came out empty" >&2; exit 1; }');await rename(part,safety)}
+  catch(e){await rm(part,{force:true});throw Error('Today\'s agents could not be saved first ('+e.message+'), so nothing was changed.')}
+  await run('ls -1t '+sq(HOME)+'/aqeelos-before-restore-*.tar.gz 2>/dev/null | tail -n +3 | xargs rm -f');await onSafety(safety);
+  for(const d of dbs)for(const x of ['-wal','-shm']){const f=path.join(HERMES_HOME,d+x);try{await rename(f,f+'.aqeelos-held');held.push(f)}catch{}}
+  try{await run(sq(rsync)+' '+restoreRules().map(sq).join(' ')+' '+sq(src+'/')+' '+sq(HERMES_HOME+'/'))}
+  catch(e){let back=false;try{await run(sq(tar)+' -xzf '+sq(safety)+' -C '+sq(parent));back=true}catch{}
+   if(back){for(const f of held)await rename(f+'.aqeelos-held',f).catch(()=>{});throw Error('Copying the backup failed ('+e.message+'). Today\'s agents were put back from '+path.basename(safety)+', so nothing changed.')}
+   throw Error('Copying the backup failed ('+e.message+') and putting today\'s agents back failed too, so their files are a mix of the backup and today. Today\'s copy is '+safety+': unpack it into '+parent+' by hand.')}
+  for(const f of held)await rm(f+'.aqeelos-held',{force:true});
+  return {safety}}
+ finally{if(stopped)await Promise.resolve().then(startEngine).catch(e=>console.warn('backup: starting the agents after the restore',e.message))}}
 // what a restore must bring back for the box to work
 const MUST=['.hermes/config.yaml','.hermes/.env','apps/hermes-ui-data/users.json','apps/hermes-ui.env'];
 
@@ -66,7 +96,6 @@ export function createBackups({DATA,HOME,HERMES_HOME,TOKEN='google_token_elkiya.
   return (await drive(g,'drive/v3/files',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:'aqeelOS backups',mimeType:'application/vnd.google-apps.folder'})})).id}
  const sh=(cmd,envx)=>new Promise((res,rej)=>{const p=spawn('bash',['-c',cmd],{cwd:HOME,env:{...process.env,...envx},stdio:['ignore','ignore','pipe']});let err='';p.stderr.on('data',d=>err+=d);p.on('close',c=>c===0?res():rej(Error(err.trim().split('\n').slice(-2).join(' ')||'exit '+c)))});
  const q=s=>"'"+String(s).replace(/'/g,"'\\''")+"'";
- const sh2=cmd=>new Promise((res,rej)=>{const p=spawn('bash',['-c',cmd],{cwd:HOME,stdio:['ignore','pipe','pipe']});let o='',err='';p.stdout.on('data',d=>o+=d);p.stderr.on('data',d=>err+=d);p.on('close',c=>c===0?res(o):rej(Error(err.trim().split('\n').pop()||'exit '+c)))});
  // the upload in 64 MB pieces on Google's resumable session: one dropped connection no longer loses a multi-GB upload
  // ("fetch failed", "aborted due to timeout" on 30 and 31 Oct 2026). A failed piece asks Google how much it has and goes on
  // from there, up to 5 times in a row
@@ -107,10 +136,18 @@ export function createBackups({DATA,HOME,HERMES_HOME,TOKEN='google_token_elkiya.
   catch(e){const day=new Date(at+7*3600e3).toISOString().slice(0,10);state.tries=state.tries?.day===day?{day,n:state.tries.n+1}:{day,n:1};
    state.last={at,ok:false,error:e.message,why};await save();console.warn('backup failed ('+state.tries.n+' today):',e.message);if(why==='scheduled'&&state.tries.n>=3)notify('Backup to Google Drive failed 3 times this morning',e.message);throw e}
   finally{await rm(tmp,{force:true}).catch(()=>{});running=null}})();return running}
+ // a backup from Drive to a file, 256 MB at a time (each piece has 20 minutes and 5 tries), so a long download is never cut
+ // off by one timeout (1 Nov 2026, second review)
+ async function download(g,id,file,size){await rm(file,{force:true});const PIECE=256*1024*1024;let at=0,fails=0;
+  while(at<size){const end=Math.min(at+PIECE,size)-1;
+   try{const r=await fetch('https://www.googleapis.com/drive/v3/files/'+id+'?alt=media',{headers:{authorization:'Bearer '+g.token,range:'bytes='+at+'-'+end},signal:AbortSignal.timeout(20*60000)});
+    if(r.status!==206&&!(r.status===200&&at===0))throw Error('Google Drive said '+r.status);   // 200 is the whole file: only right from the start
+    await pipeline(Readable.fromWeb(r.body),createWriteStream(file,{flags:'a'}));at=(await stat(file)).size;fails=0}
+   catch(e){if(++fails>5)throw Error('The download kept dropping: '+e.message);await new Promise(r=>setTimeout(r,fails*15000));at=(await stat(file).catch(()=>({size:0}))).size;if(e.message.includes('401'))g=await google()}}}
  // a restore test: the newest backup from Drive, decrypted and unpacked into a scratch folder, with the must-have files checked
  async function test(){if(restoring)throw Error('A restore is running. Test after it finishes.');if(testing)return testing;testing=(async()=>{await load();const at=Date.now();const dir=path.join('/tmp','aqeelos-restore-test-'+at),enc=dir+'.enc';
   try{const g=await google(),fid=await folder(g);const l=await drive(g,'drive/v3/files?q='+encodeURIComponent("'"+fid+"' in parents and trashed=false")+'&orderBy=createdTime desc&fields=files(id,name,size)&pageSize=1');const f=l.files?.[0];if(!f)throw Error('There is no backup in Google Drive yet.');
-   const r=await drive(g,'drive/v3/files/'+f.id+'?alt=media',{raw:true,long:true});await pipeline(Readable.fromWeb(r.body),createWriteStream(enc));
+   await download(g,f.id,enc,Number(f.size)||0);
    await mkdir(dir,{recursive:true});await sh('set -o pipefail; openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AQ_BK -in '+q(enc)+' | tar -xzf - -C '+q(dir),{AQ_BK:await key()});
    const missing=[];for(const m of MUST){const s=await stat(path.join(dir,m)).catch(()=>null);if(!s||!s.size)missing.push(m)}
    let agents=0;try{agents=(await readdir(path.join(dir,'.hermes','profiles'))).length+1}catch{}
@@ -136,25 +173,15 @@ export function createBackups({DATA,HOME,HERMES_HOME,TOKEN='google_token_elkiya.
    if(t.free<need.tmp||h.free<need.home)throw Error('Not enough free space: a restore of this backup needs about '+gb(need.tmp)+' in /tmp'+(t.dev===h.dev?'':' and '+gb(need.home)+' in the home folder')+', and there is '+gb(t.free)+(t.dev===h.dev?'':' and '+gb(h.free))+'. Nothing was changed.');
    state.restore={at,running:true,name:f.name};await save()}
   catch(e){restoring=null;go();throw e}
-  (async()=>{let stopped=false;try{const r=await drive(await google(),'drive/v3/files/'+f.id+'?alt=media',{raw:true,long:true});await pipeline(Readable.fromWeb(r.body),createWriteStream(enc));
+  (async()=>{try{await download(await google(),f.id,enc,Number(f.size)||0);
     await mkdir(dir,{recursive:true});await sh('set -o pipefail; openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AQ_BK -in '+q(enc)+' | tar -xzf - -C '+q(dir)+' .hermes',{AQ_BK:await key()});await rm(enc,{force:true});
     const s=await stat(path.join(dir,'.hermes','config.yaml')).catch(()=>null);if(!s?.size)throw Error('The backup has no agent settings, so nothing was changed.');
-    // a restore can't be undone, so today's agents are packed first (1 Nov 2026, review): the same parts a backup takes,
-    // into the home folder outside .hermes (the restore never touches it); the newest two such copies are kept
-    const safety=path.join(HOME,'aqeelos-before-restore-'+new Date(at+7*3600e3).toISOString().slice(0,16).replace(/[:T]/g,'-')+'.tar.gz');
-    await sh('set -o pipefail; tar -czf '+q(safety)+' --ignore-failed-read '+EXCLUDE.filter(e=>!/^(apps|workspaces|\.claude)\//.test(e)).map(e=>'--exclude='+q(e)).join(' ')+' .hermes; c=$?; [ $c -le 1 ] || exit $c');
-    await sh('ls -1t '+q(HOME)+'/aqeelos-before-restore-*.tar.gz 2>/dev/null | tail -n +3 | xargs -r rm -f');
-    state.restore={...state.restore,safety};await save();
-    const dbs=dbFiles((await sh2('cd '+q(path.join(dir,'.hermes'))+' && find . -type f')).split('\n').map(x=>x.replace(/^\.\//,'')).filter(Boolean));
-    // the agents and the engine's dashboard both keep the databases and settings open: both stop, both start after
-    stopped=true;await stopEngine();
-    for(const d of dbs)for(const x of ['-wal','-shm'])await rm(path.join(HERMES_HOME,d+x),{force:true});
-    await sh('command -v rsync >/dev/null || { echo "rsync is not installed on the box" >&2; exit 1; }; rsync '+restoreRules().map(q).join(' ')+' '+q(path.join(dir,'.hermes')+'/')+' '+q(HERMES_HOME+'/'));
+    const {safety}=await applyRestore({src:path.join(dir,'.hermes'),HERMES_HOME,HOME,at,stopEngine,startEngine,onSafety:async x=>{state.restore={...state.restore,safety:x};await save()}});
     state.restore={at,ok:true,name:f.name,safety,secs:Math.round((Date.now()-at)/1000)};await save();console.log('backup: restored the agents from',f.name);
     restored(true,'The agents were restored from '+f.name,'Today\'s agents before it are kept in '+safety+'.')}
    catch(e){state.restore={at,ok:false,name:f.name,error:e.message,...(state.restore?.safety?{safety:state.restore.safety}:{})};await save();console.warn('backup: restore failed:',e.message);
-    restored(false,'The restore from '+f.name+' did not finish',e.message+(stopped?' The agents were started again.':' Nothing was changed.'))}
-   finally{if(stopped)await startEngine().catch(e=>console.warn('backup: starting the agents after the restore',e.message));await rm(dir,{recursive:true,force:true}).catch(()=>{});await rm(enc,{force:true}).catch(()=>{});restoring=null;go()}})();
+    restored(false,'The restore from '+f.name+' did not finish',e.message)}
+   finally{await rm(dir,{recursive:true,force:true}).catch(()=>{});await rm(enc,{force:true}).catch(()=>{});restoring=null;go()}})();
   return {started:true,name:f.name}}
  // 03:00 Jakarta every night; a restore test every Sunday after it
  function schedule(){const tick=async()=>{await load();const j=new Date(Date.now()+7*3600e3);const today=j.toISOString().slice(0,10);
