@@ -2062,9 +2062,11 @@ span.ag-ava.ini.ava-in{animation:avaIn .26s var(--ease) both}
 .ha-item{display:flex;gap:12px 16px;align-items:flex-start;justify-content:space-between;padding:12px 14px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface);animation:rise var(--t-med) var(--ease) both;transition:opacity .2s,transform .2s}
 .ha-item.out{opacity:0;transform:translateX(12px)}.ha-item.later{background:var(--soft)}
 .ha-item .txt{display:grid;gap:3px;min-width:0}.ha-item .txt b{font-size:14px;font-weight:600;line-height:1.4}.ha-item .txt p{margin:2px 0 0;font-size:13px;line-height:1.5;color:var(--ink-2);overflow-wrap:anywhere}
-.ha-meta{font-size:12.5px;color:var(--muted)}.ha-acts{display:flex;gap:8px;align-items:center;flex:none}
-.ha-two{align-items:start}.ha-report .sub{margin-bottom:14px}
-@media (max-width:620px){.ha-item{flex-direction:column}.ha-acts{width:100%;flex-wrap:wrap}.ha-acts button{flex:1}}
+.ha-meta{font-size:12.5px;color:var(--muted)}.ha-meta .chip{font-size:11.5px;padding:1px 8px}
+/* Resolve sits in the same place on every row: the second slot is as wide whether it holds Not now or nothing */
+.ha-acts{display:grid;grid-template-columns:auto 88px;gap:8px;align-items:center;flex:none}.ha-acts>*:nth-child(2){width:100%}
+.ha-two{align-items:stretch}.ha-two>.panel{margin-bottom:0;display:flex;flex-direction:column}.ha-report .sub{margin-bottom:14px}.ha-report>button{align-self:flex-start}
+@media (max-width:620px){.ha-item{flex-direction:column}.ha-acts{width:100%;grid-template-columns:1fr 1fr}.ha-acts>span:empty{display:none}.ha-acts>button:only-of-type{grid-column:1/-1}}
 /* Connect a model account (connect.js, 25 Oct): one dialog, each step eases in; the list, the two ways, the sign-in steps */
 .drawer.cx .drawer-body{min-height:120px}
 .cx-step{animation:viewIn var(--t-med) var(--ease) both}

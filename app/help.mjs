@@ -8,9 +8,10 @@
 //    the page, their recent errors in this tab, their agents, channels, sign-ins, accounts, the engine's state, the
 //    few feature-list entries that match the question), never anyone else's data;
 //  - a ticket is the one thing it may cause: a marker at the end of its reply ([[ticket]]{...}[[/ticket]]) that this
-//    server reads, rate-limits (TICKETS_PER_DAY) and dedupes. Admins get it in Bottlenecks; resolving it puts a notice
+//    server reads, rate-limits (TICKETS_PER_DAY) and dedupes. Admins read it on Help › Tickets and settings (Bottlenecks
+//    points there); resolving it puts a notice
 //    in the person's Help chat.
-// One model for everyone (System › Settings › Help, admins), its own daily message limit; members' model lists and
+// One model for everyone (Help › Tickets and settings, admins), its own daily message limit; members' model lists and
 // chat limits don't apply. Its usage shows as its own "Help" line on System › Usage.
 import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
 import path from 'node:path';
