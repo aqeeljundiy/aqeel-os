@@ -1,9 +1,10 @@
-// "All agents" in the Showing picker: on Connected apps, Plugins, Keys, Webhooks, Who can message and Agents' models
+// "All agents" in the Showing picker: on Plugins, Keys, Webhooks, Channels (both tabs), Agents' models and Usage
 // you can look at every agent's at once, each row saying which agent owns it, instead of switching one by one.
 // Changing something still happens on the owner: "Open" switches the page to that agent. (Scheduled runs already
 // show every agent with their own filter.)
-const ALL_PAGES=new Set(['mcp','plugins','keys','webhooks','channels','models']);
-const allHere=()=>{const id=route().page?.id;if(!ALL_PAGES.has(id))return false;if(id==='channels')return (S.tab.channels||'Connections')==='Who can message';if(id==='models')return S.tab.models==='Agents’ models';return true};
+// the one picker for "whose" (1 Nov 2026): Usage and Channels › Connections had pickers of their own, now gone
+const ALL_PAGES=new Set(['mcp','plugins','keys','webhooks','channels','models','usage']);
+const allHere=()=>{const id=route().page?.id;if(!ALL_PAGES.has(id))return false;if(id==='models')return S.tab.models==='Agents’ models';return true};
 const showingAll=()=>(S.viewAll??true)&&allHere()&&!(['keys','files'].includes(route().page?.id)&&S.me?.admin===false);
 // the picker says "All agents" while that is what you see
 {const base=viewPick;viewPick=list=>{base(list);if(!showingAll())return;const b=$('.page-head .head-actions .view-pick');if(!b)return;b.classList.add('other');b.title='Every agent’s, each with its owner';
@@ -21,7 +22,6 @@ ACT['all-more']=a=>{const it=ALL_IT[a.dataset.kind+'|'+a.dataset.id];if(!it)retu
   k==='mcp'&&ALL_EDIT&&it.oauth&&{label:'Sign in',icon:'user',run:()=>ACT['mcp-auth']({dataset:d})},
   k==='mcp'&&{label:'Test',icon:'activity',run:()=>ACT['mcp-test']({dataset:d})},
   k==='mcp'&&ALL_EDIT&&!it.own&&{label:it.off?'Turn on':'Turn off',icon:'power',run:async()=>{if(await ACT['mcp-toggle']({dataset:d,checked:!!it.off}))reload()}},
-  k==='mcp'&&ALL_EDIT&&!it.own&&{label:'Duplicate',icon:'copy',run:()=>ACT['mcp-dup']({dataset:d})},
   k==='mcp'&&ALL_EDIT&&!it.own&&{label:'Rename',icon:'edit',run:()=>ACT['mcp-rename']({dataset:d})},
   k==='google'&&x&&it.gEdit&&{label:'Name and note',icon:'edit',run:()=>ACT['gacc-edit']({dataset:{agent:o,n:x.name}})},
   k==='google'&&x&&!x.renews&&{label:'Sign in again',icon:'user',run:()=>ACT['gacc-add']()},
@@ -60,12 +60,12 @@ const ALLVIEW={
   el.innerHTML=`<div class="all-view">${bad.length?errLine('webhooks for '+bad.join(', ')):''}${offNote}${off.size&&all.some(s=>off.has(s.__a))?`<p class="hint" style="margin:0 0 12px">${allOff?'':'Greyed ones belong to agents whose webhooks are off. '}These are saved and start working again once webhooks are on.</p>`:''}${allSection('Webhooks',all.map(row),'No webhooks on any agent.')}</div>`},
  async pairing(el,gone=pageTok(el)){const base=await viewAgents();const lk=((await UI('/ui/channels/links').catch(()=>({links:[]}))).links||[]).filter(l=>base.includes(l.agent)&&l.name),extra=lk.map(l=>l.name);const list=[...base,...extra.filter(n=>!base.includes(n))];if(gone())return;
   Pages._pairAdd={profs:list.map(a=>{const l=lk.find(x=>x.name===a);return {prof:a,label:l?linkTitle(l):''}}),all:true};
-  const per=await Promise.all(list.map(async a=>({a,d:await H('/pairing?profile='+encodeURIComponent(a)).catch(()=>({pending:[],approved:[],err:true}))})));if(gone())return;const bad=[...new Set(per.filter(x=>x.d.err).map(x=>ident(x.a.split('--')[0]).name))];
+  const [per,allow]=await Promise.all([Promise.all(list.map(async a=>({a,d:await H('/pairing?profile='+encodeURIComponent(a)).catch(()=>({pending:[],approved:[],err:true}))}))),pairAllow(Pages._pairAdd.profs)]);if(gone())return;const bad=[...new Set(per.filter(x=>x.d.err).map(x=>ident(x.a.split('--')[0]).name))];
   const who=(u,a)=>`${logoImg(CH_DOMAINS[u.platform],(u.platform||'?')[0].toUpperCase(),CH_COLORS[u.platform])}<div class="txt"><b>${esc(u.user_name||u.user_id)} · ${esc(pretty(u.platform))}</b><span>${u.request_id?'Code '+esc(u.request_id)+' · ':''}${u.age_minutes!=null?Math.round(u.age_minutes)+' min ago':'ID '+esc(u.user_id)}</span><span class="acc-from">${Access.av({id:a.split('--')[0],name:ident(a.split('--')[0]).name},16)}For ${esc(ident(a.split('--')[0]).name)}</span></div>`;
   const pend=per.flatMap(x=>(x.d.pending||[]).map(u=>({u,a:x.a}))),appr=per.flatMap(x=>(x.d.approved||[]).map(u=>({u,a:x.a})));
   Pages._pairProfs=[...new Set(pend.map(x=>x.a))];setActions(pend.length?`<button class="ghost" data-act="pair-clear">Decline all waiting</button>`:'');
   el.innerHTML=`${bad.length?errLine('requests for '+bad.join(', ')):''}<div class="panel card"><h2>People waiting</h2><p class="sub">Someone messaged one of your agents’ channels and needs your OK before the agent answers them.</p>${pend.map(({u,a})=>`<div class="row" style="padding:12px;margin:0 -12px;border:0"><div class="main-c">${who(u,a)}</div><div class="act"><button class="primary" data-act="pair-ok" data-p="${esc(u.platform)}" data-r="${esc(u.request_id)}" data-prof="${esc(a)}">Approve</button></div></div>`).join('')||'<p class="hint" style="margin:0">Nobody is waiting.</p>'}</div>
-   <div class="panel card"><div class="h-row"><h2 style="margin:0">Approved</h2><button data-act="pair-add">${icon('plus',15)}Add a person</button></div><p class="sub">Who can message which agent.</p>${appr.map(({u,a})=>`<div class="row" style="padding:12px;margin:0 -12px;border:0"><div class="main-c">${who(u,a)}</div><div class="act"><button class="ghost" data-act="pair-revoke" data-p="${esc(u.platform)}" data-u="${esc(u.user_id)}" data-prof="${esc(a)}">Remove access</button></div></div>`).join('')||'<p class="hint" style="margin:0">No one yet.</p>'}</div>`;pairMarks(el)},
+   ${pairPeople(appr.map(({u,a})=>({u,a,label:Pages._pairAdd.profs.find(x=>x.prof===a)?.label||''})),allow,true)}`;pairMarks(el)},
  // el is a detached box (Models swaps it in): the page's drawing says when it is stale
  async models(el,gone=()=>false){let d={agents:[]};try{d=await UI('/ui/models/agents')}catch(e){if(gone())return;throw e}if(gone())return;
   el.innerHTML=`<div class="all-view">${allSection('Each agent’s model',d.agents.map((a,i)=>`<div class="row" ${st(i)}><div class="main-c">${Access.av({id:a.id,name:a.name},34)}<div class="txt"><b>${esc(a.name)}</b><span>${esc(modelLabel(a.model))}${a.provider?' · '+esc(pretty(String(a.provider).replace(/-subscription.*$/,'').replace(/^custom:/,''))):''}</span></div></div><div class="act">${Access.owner({owner:a.id,ownerName:a.name})}${allOpen(a.id,'Change')}</div></div>`),'No agents yet.')}</div>`}};
@@ -73,23 +73,16 @@ const ALLVIEW={
 for(const id of ['mcp','plugins','keys','webhooks']){const base=PAGES[id];PAGES[id]=async(p,el,r)=>{if(!showingAll())return base(p,el,r);const gone=pageTok(el);viewPick(await viewAgents());if(gone())return;
  if(id==='plugins'&&(S.tab.plugins||'Installed')==='Browse')return base(p,el,r);return ALLVIEW[id](p,el)}}
 // Who can message and Agents' models live inside tabbed pages: their tab content is swapped for the all-agents view
-{const base=PAGES.channels;PAGES.channels=async(p,el,r)=>{const gone=pageTok(el);await base(p,el,r);if(gone())return;if(!showingAll())return;const box=el.querySelector('#chtab');if(!box)return;
+{const base=PAGES.channels;PAGES.channels=async(p,el,r)=>{const gone=pageTok(el);await base(p,el,r);if(gone())return;if(!showingAll()||S.tab.channels!=='Who can message')return;const box=el.querySelector('#chtab');if(!box)return;
  viewPick(await viewAgents());if(gone())return;box.innerHTML=skeletonRows(3);try{await ALLVIEW.pairing(box,gone)}catch(e){if(!gone())showError(box,e)}}}
 {const base=PAGES.models;PAGES.models=async(p,el,r)=>{const gone=pageTok(el);await base(p,el,r);if(gone())return;if(!showingAll())return;const box=el.querySelector('#mtab');if(!box)return;
  viewPick(await viewAgents());if(gone())return;const keep=[...box.querySelectorAll('.panel')].filter(x=>/^(Helper models|Which account each agent uses)/.test(x.querySelector('h2')?.textContent||''));
  const top=document.createElement('div');try{await ALLVIEW.models(top,gone)}catch(e){showError(top,e)}if(gone())return;box.replaceChildren(top,...keep.map(k=>{k.style.marginTop='16px';return k}))}}
-// Channels › Connections lists every agent's channels; the same picker narrows it to one agent's (rows stay, others fold away)
+
+// Channels › Connections lists every agent's channels (All agents); the same Showing picker narrows it to one agent's,
+// and that agent's channels are the ones set up from the cards below it (1 Nov 2026: it had its own picker)
 {const base=PAGES.channels;PAGES.channels=async(p,el,r)=>{const gone=pageTok(el);await base(p,el,r);if(gone())return;if((S.tab.channels||'Connections')!=='Connections')return;
- const list=await viewAgents();if(gone())return;const box=$('.page-head .head-actions');if(!box||list.length<2)return;let b=box.querySelector('.view-pick');
- if(!b){b=document.createElement('button');b.type='button';b.className='view-pick';b.dataset.act='ch-pick';box.prepend(b)}b.dataset.act='ch-pick';
- const a=S.chAgent&&list.includes(S.chAgent)?S.chAgent:'';const i=a?ident(a):null;b.classList.toggle('other',!!a);
- b.innerHTML=a?`${agentAvatar(a,32,{cls:'vp-ava',title:false})}<span class="vp-t"><small>Showing</small><b>${esc(i.name)}</b></span>${icon('chevD',15)}`:`<span class="vp-ava all">${icon('layers',14)}</span><span class="vp-t"><small>Showing</small><b>All agents</b></span>${icon('chevD',15)}`;
- const apply=()=>{for(const row of el.querySelectorAll('.row[data-from]'))row.hidden=!!a&&row.dataset.from.split('--')[0]!==a};apply();   // every row says whose it is, extra numbers too
+ const list=await viewAgents();if(gone())return;viewPick(list);const a=showingAll()||list.length<2?'':viewing();
+ const apply=()=>{for(const row of el.querySelectorAll('.row[data-from]'))row.hidden=!!a&&row.dataset.from.split('--')[0]!==a;   // every row says whose it is, extra numbers too
+  const h=[...el.querySelectorAll('.panel h2')].find(x=>/channels$/.test(x.textContent)),t=a?ident(a).name+'’s channels':'Every agent’s channels';if(h&&h.textContent!==t)h.textContent=t};apply();
  const mo=new MutationObserver(apply);mo.observe(el,{childList:true,subtree:true});setTimeout(()=>mo.disconnect(),20000)}}
-ACT['ch-pick']=async a=>{const list=await viewAgents();menu(a,[{header:'Show whose channels'},{label:'All agents',icon:'layers',on:!S.chAgent,run:()=>{S.chAgent='';reload()}},'-',
- ...list.map(n=>({label:ident(n).name,icon:'user',ava:agentAvatar(n,20,{title:false}),on:S.chAgent===n,run:()=>{S.chAgent=n;reload()}}))],{matchWidth:true})};
-// the shared AdsPower screen says which agents can draw on it, so one screen per agent stays clear
-// (screen.js loads after this file)
-addEventListener('load',()=>{if(typeof Screen==='undefined'||typeof Screen.picker!=='function'||typeof Screen.noteTip!=='function')return;const ads={who:'',at:0};const load=async()=>{if(Date.now()-ads.at<300000||S.me?.admin===false)return;ads.at=Date.now();const d=await Access.load('mcp');const it=d?.items.find(x=>/adspower/i.test(x.id));ads.who=it?it.users.map(u=>u.name).join(', '):''};
- const base=Screen.picker.bind(Screen);Screen.picker=function(){load().catch(()=>{});return base().split('AdsPower screen').join(ads.who?'AdsPower screen (shared: '+ads.who+')':'AdsPower screen')};
- const tip=Screen.noteTip.bind(Screen);Screen.noteTip=function(){return this.ads&&ads.who?'AdsPower browsers of '+ads.who+' draw here, on one shared screen':tip()}});

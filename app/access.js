@@ -1,14 +1,14 @@
 // Access on every connection page: for the agent you are showing, what it owns and what other agents share with it,
 // who else uses each connection, and "Who can use" (one switch per agent, the owner always on). Admins change it;
-// members see the same Owned by and Used by, read-only.
+// members see the same Belongs to and Used by, read-only.
 const Access={
  async load(kind){try{return await UI('/ui/access?kind='+kind)}catch{return null}},
  av(a,sz=22){const id=a.id||a;return agentAvatar(id,sz,{cls:'acc-av',name:a.name||ident(id).name})},   // the one agent avatar; acc-av only adds the stacked ring
  who(it){return `<span class="acc-who" aria-label="Used by ${esc(it.users.map(u=>u.name).join(', '))}">${it.users.slice(0,5).map(u=>this.av(u)).join('')}${it.users.length>5?`<span class="acc-more">+${it.users.length-5}</span>`:''}</span>`},
- from(it){return it.own?`<span class="acc-from">Owned by ${esc(it.ownerName)} · ${esc(it.ownNote)}</span>`:`<span class="acc-from">${this.av({id:it.owner,name:it.ownerName},16)}Owned by ${esc(it.ownerName)}</span>`},
- // "Owned by": one control on every row of every page. A picker for admins where ownership can move, else the name;
+ from(it){return it.own?`<span class="acc-from">Belongs to ${esc(it.ownerName)} · ${esc(it.ownNote)}</span>`:`<span class="acc-from">${this.av({id:it.owner,name:it.ownerName},16)}Belongs to ${esc(it.ownerName)}</span>`},
+ // "Belongs to": one control on every row of every page. A picker for admins where ownership can move, else the name;
  // a connection with no owner agent (n8n: every agent has its own user) names who owns the service, with why
- owner(it,agents=[],edit=false){const l='<span class="ab-lbl">Owned by</span>',n=it.ownerName||ident(it.owner).name;
+ owner(it,agents=[],edit=false){const l='<span class="ab-lbl">Belongs to</span>',n=it.ownerName||ident(it.owner).name;
   return `<span class="acc-ownbox">${it.own?`${l}<b class="acc-owner-name" title="${esc(it.ownNote)}">${esc(n)}</b>${it.ownNote?`<small class="acc-own-note">${esc(it.ownNote)}</small>`:''}`:edit&&!it.bot&&agents.length>1?`${l}<select class="acc-owner" style="width:auto" data-kind="${it.kind}" data-id="${esc(it.id)}" data-was="${esc(it.owner)}" aria-label="Owner of ${esc(it.label)}">${agents.map(a=>`<option value="${esc(a.id)}" ${a.id===it.owner?'selected':''}>${esc(a.name)}</option>`).join('')}</select>`:`${l}<b class="acc-owner-name">${esc(n)}</b>`}</span>`},
  // a new owner: it gets the connection first if it did not have it yet
  bindOwners(el){el.querySelectorAll('select.acc-owner:not([data-bound])').forEach(s=>{s.dataset.bound='1';s.onchange=async()=>{const to=s.value,was=s.dataset.was,kind=s.dataset.kind,id=s.dataset.id;s.disabled=true;
@@ -17,9 +17,9 @@ const Access={
  // "Used by": the one component for who uses a thing. attrs: what pressing it opens (Who can use by default).
  // copies (skills: each agent keeps its own copy): the first agent leads without the owner's crown. The count is always
  // the others ("+2"), or "Only <name>" when nobody else has it.
- btn(it,attrs){const lead=it.owner||it.users[0]?.id,ln=ident(lead).name||it.ownerName||lead,names=it.users.map(u=>u.name).join(', '),tip=it.copies?'Used by '+names+'. Share with other agents':'Owned by '+ln+'. Who can use '+it.label;
+ btn(it,attrs){const lead=it.owner||it.users[0]?.id,ln=ident(lead).name||it.ownerName||lead,names=it.users.map(u=>u.name).join(', '),tip=it.copies?'Used by '+names+'. Share with other agents':'Belongs to '+ln+'. Who can use '+it.label;
   return `<button class="ghost small acc-btn" ${attrs||`data-act="acc-open" data-kind="${it.kind}" data-id="${esc(it.id)}"`} title="${esc(tip)}" aria-label="${esc(tip)}: ${esc(names)}">${it.copies?`<span class="acc-own">${this.av({id:lead,name:ln})}<b>${esc(ln)}</b></span>`:`<span class="acc-own" title="Owner: ${esc(ln)}">${this.av({id:lead,name:ln})}<i>${icon('crown',9)}</i><b>${esc(ln)}</b></span>`}${this.who({...it,users:it.users.filter(u=>u.id!==lead)})}<span>${it.users.length>1?'+'+(it.users.length-1):'Only '+esc(ln)}</span></button>`},
- // put the rows of a list into "Owned by" and "Shared with" groups, and add who uses each
+ // put the rows of a list into "Belongs to" and "Shared with" groups, and add who uses each
  group(el,kind,data,rowsOf,idOf,where){if(!data)return;const ag=viewing();const me=ident(ag).name;const by=new Map(data.items.map(x=>[x.id,x]));
   const rows=rowsOf(el).filter(r=>by.has(idOf(r)));if(!rows.length)return;
   const own=[],shared=[];for(const r of rows){const it=by.get(idOf(r));if(r.dataset.acc)continue;r.dataset.acc='1';
@@ -30,12 +30,12 @@ const Access={
     shared.push(r)}else own.push(r)}
   const host=where(el,rows[0]);if(!host)return;
   const mk=(title,list)=>{if(!list.length)return null;const g=document.createElement('div');g.className='acc-group';g.innerHTML=`<div class="acc-grp">${title}</div><div class="card list"></div>`;list.forEach(r=>g.lastChild.append(r));return g};
-  const a=mk('Owned by '+esc(me),own),b=mk('Shared with '+esc(me),shared);host.replaceWith(...[a,b].filter(Boolean));this.bindOwners(el)},
+  const a=mk('Belongs to '+esc(me),own),b=mk('Shared with '+esc(me),shared);host.replaceWith(...[a,b].filter(Boolean));this.bindOwners(el)},
  // the owner and Used by decoration did not load: one line with Try again above the list, instead of rows quietly without them
  failed(el,what){if(!el.isConnected||el.querySelector('.acc-fail'))return;const t=el.querySelector('.tabs,[role=tablist]');const h=errLine(what,'','acc-fail');t?t.insertAdjacentHTML('afterend',h):el.insertAdjacentHTML('afterbegin',h)},
  async open(kind,id){const data=await this.load(kind);const it=data?.items.find(x=>x.id===id);if(!it)return toast('That connection is gone. Reload the page.','err');
   const what={mcp:'with the same sign-in',google:'with the same Google sign-in',plugin:'turned on',key:'with the same value (still hidden)'}[kind];
-  const d=drawer('Who can use '+it.label,`<p class="hint" style="margin:0 0 14px">${it.bot?'A chat bot answers as one agent only, so it can’t be shared.':`Owned by ${esc(it.ownerName)}. Turning another agent on gives it ${esc(it.label)} ${what}; turning it off takes it away. ${kind==='google'?'It works straight away.':'The agents restart by themselves once nobody is mid-reply.'}`}</p>
+  const d=drawer('Who can use '+it.label,`<p class="hint" style="margin:0 0 14px">${it.bot?'A chat bot answers as one agent only, so it can’t be shared.':`Belongs to ${esc(it.ownerName)}. Turning another agent on gives it ${esc(it.label)} ${what}; turning it off takes it away. ${kind==='google'?'It works straight away.':'The agents restart by themselves once nobody is mid-reply.'}`}</p>
    <div class="share-agents">${data.agents.map((a,i)=>{const u=it.users.find(x=>x.id===a.id),owner=a.id===it.owner;return `<div class="share-row${owner?' has':''}" ${st(i)}>${this.av(a,34)}<span class="txt"><b>${esc(a.name)}</b><span>${owner?'Owner':u?(u.signed?'Can use it':signChip()):'Not yet'}</span></span>${owner?'<span class="chip blue">Owner</span>':u&&!it.bot?`<button class="ghost small" data-own="${esc(a.id)}">Make owner</button>`:''}${toggle(!!u,a.name,'data-ag="'+esc(a.id)+'"'+(owner||it.bot?' disabled':''))}</div>`}).join('')}</div>`,`<button class="primary" data-act="close">Done</button>`);
   let changed=false;const mo=new MutationObserver(()=>{if(!d.isConnected){mo.disconnect();if(changed)reload()}});mo.observe(document.body,{childList:true,subtree:true});
   d.querySelectorAll('.share-agents input[data-ag]').forEach(c=>c.onchange=async()=>{const name=data.agents.find(a=>a.id===c.dataset.ag)?.name,u=it.users.find(x=>x.id===c.dataset.ag);
@@ -56,7 +56,7 @@ ACT['acc-open']=a=>Access.open(a.dataset.kind,a.dataset.id);
 ACT['acc-use']=async a=>{a.disabled=true;const was=a.innerHTML;a.innerHTML='<span class="spinner tiny"></span>Sharing…';try{await post(UI,'/ui/access',{kind:a.dataset.kind,id:a.dataset.id,agent:viewing(),on:true});toast((a.dataset.label||'It')+' on for '+ident(viewing()).name+' · ready in about a minute');reload()}catch(e){a.disabled=false;a.innerHTML=was;fail(e)}};
 
 // Connected apps, its Google accounts panel, Plugins and Keys: each gets the same groups
-// members get the same decoration, read-only: Owned by as a name and who uses it (no switches, nothing that would be refused)
+// members get the same decoration, read-only: Belongs to as a name and who uses it (no switches, nothing that would be refused)
 {const base=PAGES.mcp;PAGES.mcp=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;if((S.tab.mcp||'Your servers')!=='Your servers')return;
  const [m,g]=await Promise.all([Access.load('mcp'),Access.load('google')]);if(gone())return;if(!m&&(Pages._mcp||[]).length||!g&&(Pages._gacc||[]).length)Access.failed(el,'who owns and uses each connection');
  Access.group(el,'mcp',m,e=>[...e.querySelectorAll('.row[data-mcp]')],r=>r.dataset.mcp,(e,r)=>r.closest('.card.list'));
