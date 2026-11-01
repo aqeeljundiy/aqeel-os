@@ -2065,7 +2065,8 @@ span.ag-ava.ini.ava-in{animation:avaIn .26s var(--ease) both}
 .ha-meta{font-size:12.5px;color:var(--muted)}.ha-meta .chip{font-size:11.5px;padding:1px 8px}
 /* Resolve sits in the same place on every row: the second slot is as wide whether it holds Not now or nothing */
 .ha-acts{display:grid;grid-template-columns:auto 88px;gap:8px;align-items:center;flex:none}.ha-acts>*:nth-child(2){width:100%}
-.ha-two{align-items:stretch}.ha-two>.panel{margin-bottom:0;display:flex;flex-direction:column}.ha-report .sub{margin-bottom:14px}.ha-report>button{align-self:flex-start}
+/* one card per row, so none stands half empty next to a taller one */
+.ha-tickets,.help-set,.ha-report{margin-bottom:16px}.help-set-row{gap:12px 20px}@media (min-width:900px){#helpSet{display:grid;grid-template-columns:1fr 1fr;gap:0 28px}#helpSet .help-set-row{border-top:0;padding-top:4px}}
 @media (max-width:620px){.ha-item{flex-direction:column}.ha-acts{width:100%;grid-template-columns:1fr 1fr}.ha-acts>span:empty{display:none}.ha-acts>button:only-of-type{grid-column:1/-1}}
 /* Connect a model account (connect.js, 25 Oct): one dialog, each step eases in; the list, the two ways, the sign-in steps */
 .drawer.cx .drawer-body{min-height:120px}
