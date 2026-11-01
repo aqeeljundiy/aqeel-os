@@ -12,8 +12,8 @@
 //     dashboard (that is what makes the engine drop it at once) and added back switched off, its settings kept here to
 //     put back; a Google sign-in file is moved aside (<file>.paused), and gapi.py says "paused in aqeelOS";
 //   - Disconnect: revoked at Google or Slack, the saved sign-in deleted, the app removed from every agent and from Access.
-// A login that appears without the agent calling register_account (an aqeelOS tool) shows "Not registered", rings the
-// bell once and waits for the owner to approve or disconnect it. The logins there were when this first ran count as
+// A login that appears without the agent calling register_account (an aqeelOS tool) shows "Not registered", adds one
+// Bottlenecks item and waits for the owner to approve or disconnect it. The logins there were when this first ran count as
 // registered. The parts that only decide are exported and tested in scripts/connected-accounts.test.mjs.
 import {readFile,writeFile,mkdir,rename,readdir,stat,lstat,realpath,unlink} from 'node:fs/promises';
 import {execFile} from 'node:child_process';

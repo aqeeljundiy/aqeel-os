@@ -39,6 +39,7 @@ import {createCodeOnline} from './code-online.mjs';
 import {createTeamFolders} from './team-folders.mjs';
 import {createBrand} from './brand.mjs';
 import {createBottlenecks} from './bottlenecks.mjs';
+import {createNews} from './news.mjs';
 import {createHelp} from './help.mjs';
 import {createLive} from './live.mjs';
 import {createBackups} from './backup.mjs';
@@ -485,10 +486,10 @@ async function engineAgents(){if(Date.now()-engAgents.t<4000)return engAgents.n;
 const waitingNow=async()=>Math.max(liveCount(),await engineAgents());
 const shx=async c=>{const {execFile}=await import('node:child_process');return new Promise(r=>execFile('bash',['-c',c],{timeout:150000,env:{...process.env,PATH:homedir()+'/.local/bin:'+process.env.PATH}},(e,o)=>r({ok:!e,out:String(o||'')})))};
 async function gatewayPid(){const t=await readFile(path.join(HERMES_HOME,'gateway.pid'),'utf8').catch(()=>'');const pid=Number((/\d+/.exec(t)||[])[0]);if(!pid)return 0;try{process.kill(pid,0);return pid}catch{return 0}}
-// Every engine restart is noted (ours with the reason, and ones the engine does by itself), so the bell can say why
+// Every engine restart is noted (ours with the reason, and ones the engine does by itself), so the bell's list can say why
 // Slack or WhatsApp dropped for a moment instead of it being a mystery.
 let sysEvents=[],lastGwPid=0,lastOwnRestart=0;
-function noteSys(kind,why){sysEvents.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),t:Date.now(),kind,why:String(why||'').slice(0,160)});sysEvents=sysEvents.slice(-50)}
+function noteSys(kind,why){if(kind==='restart-failed')bottlenecks.event('down','The agents kept stopping and were left off',String(why||''),{topic:'engine-off'}).catch(()=>{});else if(kind==='restart')bottlenecks.resolve('engine-off').catch(()=>{});sysEvents.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),t:Date.now(),kind,why:String(why||'').slice(0,160)});sysEvents=sysEvents.slice(-50)}
 let autoRestarts=[],gwRun=null,gwAgain=null;
 /* A request while a restart runs: before that restart has stopped the engine it is simply part of it (its bridges:true is
    merged in); after, one more pass is queued (all such requests share it), so a change saved meanwhile is not lost. */
@@ -531,7 +532,7 @@ async function enginePatches(){const h=String((await shx('git -C ~/.hermes/herme
 async function engineReset(){const r=await shx('git -C ~/.hermes/hermes-agent checkout -- . 2>&1');console.log('engine update: renamed files reset first',r.ok?'':'('+String(r.out||'').slice(0,120)+')');engineHead.v=null}
 if(PORT===4400){setInterval(()=>engineWatch().catch(()=>{}),5*60000).unref();setTimeout(()=>engineWatch().catch(()=>{}),20000).unref()}
 /* Memory guard. The AI box has a fixed memory limit; when it runs full, the engine or the dashboard is killed.
-   Every 2 minutes: above 80% the bell says so (once an hour); above 90%, with no reply, schedule, setup or relay in
+   Every 2 minutes: above 80% the bell's list says so (once an hour); above 90%, with no reply, schedule, setup or relay in
    progress, the AdsPower browsers are closed (AdsPower itself stays open and a browser reopens when an agent needs it).
    The Host page shows the numbers in plain words. */
 async function memNow(){const n=async f=>Number((await readFile(f,'utf8').catch(()=>'')).trim())||0;
@@ -539,12 +540,12 @@ async function memNow(){const n=async f=>Number((await readFile(f,'utf8').catch(
  const m=await readFile('/proc/meminfo','utf8').catch(()=>'');const kb=k=>Number((new RegExp('^'+k+':\\s+(\\d+)','m').exec(m)||[])[1]||0)*1024;return {used:kb('MemTotal')-kb('MemAvailable'),max:kb('MemTotal')}}
 let memWarned=0,memActed=0;
 async function memGuard(){const {used,max}=await memNow();if(!max)return;const pct=used/max;
- if(pct>0.8&&Date.now()-memWarned>3600e3){memWarned=Date.now();noteSys('memory',Math.round(pct*100)+'% of memory in use ('+(used/1e9).toFixed(1)+' of '+(max/1e9).toFixed(1)+' GB)')}
+ if(pct>0.8&&Date.now()-memWarned>3600e3){memWarned=Date.now();noteSys('memory',Math.round(pct*100)+'% of RAM in use ('+(used/1e9).toFixed(1)+' of '+(max/1e9).toFixed(1)+' GB)')}
  if(pct<=0.9||Date.now()-memActed<30*60e3)return;const eng=await fetch(DASH.origin+'/api/status',{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(8000)}).then(r=>r.json()).catch(()=>null);if(!eng||Number(eng.active_sessions||0)>0)return;if(liveCount()>0||opsBusy()>0||relay.sending()>0||export_setups.running()>0||gwRestarting)return;
  const key=((await readFile(path.join(HERMES_HOME,'.env'),'utf8').catch(()=>'')).match(/^ADSPOWER_API_KEY=["']?([^"'\n]+)/m)||[])[1]||'';const h=key?{authorization:'Bearer '+key}:{};
  const act=await fetch('http://127.0.0.1:50325/api/v1/browser/local-active',{headers:h,signal:AbortSignal.timeout(5000)}).then(r=>r.json()).catch(()=>null);const list=act?.data?.list||[];let n=0;
  for(const b of list){const id=b.user_id||b.profile_id;if(!id)continue;const r=await fetch('http://127.0.0.1:50325/api/v1/browser/stop?user_id='+encodeURIComponent(id),{headers:h,signal:AbortSignal.timeout(8000)}).then(r=>r.json()).catch(()=>null);if(r?.code===0)n++}
- if(n)memActed=Date.now();if(n){console.warn('memory guard: memory at',Math.round(pct*100)+'%, closed',n,'AdsPower browser(s)');noteSys('memory-freed','Memory was almost full, so '+n+' AdsPower browser'+(n>1?'s were':' was')+' closed. They reopen when an agent needs them.')}}
+ if(n)memActed=Date.now();if(n){console.warn('memory guard: memory at',Math.round(pct*100)+'%, closed',n,'AdsPower browser(s)');noteSys('memory-freed','RAM was almost full, so '+n+' AdsPower browser'+(n>1?'s were':' was')+' closed. They reopen when an agent needs them.')}}
 if(PORT===4400)setInterval(()=>memGuard().catch(e=>console.warn('memory guard',e.message)),120000).unref();
 // the dashboard (settings, channels, sign-ins, dictation) can be killed when the box runs out of memory: if it does
 // not answer twice in a row, it is started again (in its managed session, like the engine)
@@ -603,16 +604,21 @@ if(LIVE_APP){const HB=path.join(DATA,'heartbeat.json');readFile(HB,'utf8').then(
  const gap=Date.now()-last;if(!last||gap<5*60e3)return;setTimeout(async()=>{try{const ch=await relay.channelsFor('default');const c=ch.find(x=>x.platform==='whatsapp')||ch[0];if(!c)return;
   const at=t=>new Date(t).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Jakarta'}),mins=Math.round(gap/60000);
   // it started again by itself, so a short break is not something to act on (31 Oct 2026); an hour or more is shown
-  await bottlenecks.event('down','aqeelOS was off for '+mins+' min','From about '+at(last)+' to '+at(Date.now())+' (Jakarta time). Everything started again by itself. If it happens often, check the server in the Contabo panel.').catch(()=>{},{info:mins<60});
+  await bottlenecks.event('down','aqeelOS was off for '+mins+' min','From about '+at(last)+' to '+at(Date.now())+' (Jakarta time). Everything started again by itself. If it happens often, check the server in the Contabo panel.',{info:mins<60}).catch(()=>{});
   await relay.sendAs('default',c.owner,c.platform,'aqeelOS was off from about '+at(last)+' to '+at(Date.now())+' (Jakarta time, '+mins+' min). It is running again.',null,{toYou:true});console.log('told the owner about '+mins+' min off')}catch(e){console.warn('downtime note:',e.message)}},120000).unref()})}
 const brand=createBrand({DATA});
-const backups=createBackups({DATA,HOME:homedir(),HERMES_HOME,notify:(t,d)=>bottlenecks.event('backup',t,d+' Open System › Health to try again.',{topic:'backup'}).catch(()=>{}),solved:()=>bottlenecks.resolve('backup').catch(()=>{})});if(PORT===4400)backups.schedule();
+const backups=createBackups({DATA,HOME:homedir(),HERMES_HOME,notify:(t,d)=>bottlenecks.event('backup',t,d+' Open System › Health to try again.',{topic:'backup'}).catch(()=>{}),solved:()=>bottlenecks.resolve('backup').catch(()=>{}),
+ stopEngine:async()=>{gwStopped=true;await shx('hermes -p default gateway stop >/dev/null 2>&1; for i in $(seq 1 60); do p=$(grep -o "[0-9]*" ~/.hermes/gateway.pid 2>/dev/null | head -1); [ -n "$p" ] && kill -0 "$p" 2>/dev/null || break; sleep 1; done; tmux kill-session -t gateway 2>/dev/null; true')},startEngine:async()=>{gwStopped=false;await restartGateway('agents restored from a backup',{wait:false,bridges:true})}});if(PORT===4400)backups.schedule();
 const live=createLive({DATA,DOMAIN:env.LIVE_DOMAIN||'app.elkiya.com'});
-const bottlenecks=createBottlenecks({DATA,listAgents:()=>listAgents(),names:a=>NAMES[a]||a,dash:p=>fetch(DASH.origin+'/api'+p,{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(20000)}).then(r=>r.json())});brand.name().then(n=>{globalThis.AQ_BRAND=n}).catch(()=>{});
+// two places for what aqeelOS tells (1 Nov 2026): Bottlenecks is the to-do list (needs someone), the bell's list (news.mjs)
+// the history (done, fixed, works again). Every event goes to one of them, never both: info:true means the bell
+const news=createNews({DATA});
+const newsInfo=(kind,text,detail)=>{const ok=/works again|fixed|back on|working again|passed/i.test(text);return news.add({aud:'admins',key:'ev|'+kind+'|'+text+'|'+Math.floor(Date.now()/3600e3),icon:kind==='down'?'activity':ok?'check':'refresh',kind:ok?'ok':'blue',title:text,text:detail,go:'/system/health',label:'Health'})};
+const bottlenecks=createBottlenecks({DATA,onInfo:newsInfo,listAgents:()=>listAgents(),names:a=>NAMES[a]||a,dash:p=>fetch(DASH.origin+'/api'+p,{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(20000)}).then(r=>r.json())});brand.name().then(n=>{globalThis.AQ_BRAND=n}).catch(()=>{});
 // the owner on the main agent's WhatsApp (as when the server was off, or after a night update)
 async function toOwner(text){const ch=await relay.channelsFor('default');const c=ch.find(x=>x.platform==='whatsapp')||ch[0];if(!c)throw new Error('no channel to the owner');await relay.sendAs('default',c.owner,c.platform,text,null,{toYou:true})}
 /* Automations guard (automation-guard.mjs, 25 Oct 2026): tool servers that stop connecting or whose Python went away
-   are fixed by themselves; problems and fixes ring the bell, a failed fix also goes to WhatsApp at once. Agent copies
+   are fixed by themselves; problems go to Bottlenecks and fixes to the bell's list, a failed fix also goes to WhatsApp at once. Agent copies
    (agent--2) have their own tool servers and logs, so they are watched too. */
 const guard=createAutomationGuard({DATA,HERMES_HOME,LIVE:LIVE_APP,readConfig,withAgent,setKey,listAgents:()=>agentNames({copies:true}),nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a),
  dash:(method,p,body)=>fetch(DASH.origin+p,{method,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:body&&method!=='GET'&&method!=='DELETE'?JSON.stringify(body):undefined,signal:AbortSignal.timeout(90000)}).then(async r=>({ok:r.ok,status:r.status,j:await r.json().catch(()=>({}))})),
@@ -620,7 +626,7 @@ const guard=createAutomationGuard({DATA,HERMES_HOME,LIVE:LIVE_APP,readConfig,wit
  tell:async(text,{detail,whatsapp,bell=true,topic,info,resolve}={})=>{if(resolve)await bottlenecks.resolve(resolve).catch(()=>{});if(!text)return;if(bell)await bottlenecks.event('automations',text,detail||'',{topic,info}).catch(()=>{});if(whatsapp)await toOwner(text+(detail?'\n'+detail:''))}});
 /* Backup models (backup-models.mjs, 30 Oct 2026): every agent's engine backup list from the Models page order, and the
    outage switch when one provider keeps failing replies (agents move to their first backup and back once it works).
-   Its alerts go the way the automations guard's do: the bell and WhatsApp. Only the live app writes and moves agents
+   Its alerts go the way the automations guard's do: Bottlenecks (or the bell's list once it is automatic or over) and WhatsApp. Only the live app writes and moves agents
    (a copy on another port with its own engine home may, for testing: BACKUP_MODELS_TEST=1). */
 let tzNow='Asia/Jakarta';const bmTest=!LIVE_APP&&env.BACKUP_MODELS_TEST==='1'&&path.resolve(HERMES_HOME)!==path.join(homedir(),'.hermes');
 const backupModels=createBackupModels({DATA,HERMES_HOME,live:LIVE_APP||bmTest,...(bmTest&&env.BACKUP_MODELS_RULES?{R:{...BM_RULES,...JSON.parse(env.BACKUP_MODELS_RULES)}}:{}),   // a test copy may shorten the times
@@ -632,7 +638,7 @@ const backupModels=createBackupModels({DATA,HERMES_HOME,live:LIVE_APP||bmTest,..
 accountHooks.held=k=>backupModels.held(k);accountHooks.backupSync=why=>backupModels.soon(why);
 /* Connected accounts (connected-accounts.mjs, 31 Oct 2026): every login where an agent acts as the owner (Google, Slack
    and Notion sign-ins, a personal Telegram session), with Pause, allowed actions and Disconnect. Only the live app looks
-   by itself and rings the bell; a copy on another port with its own engine home may, for testing (ACCOUNTS_TEST=1, and
+   by itself and adds a Bottlenecks item; a copy on another port with its own engine home may, for testing (ACCOUNTS_TEST=1, and
    ACCOUNTS_SLACK_API / ACCOUNTS_GOOGLE_REVOKE point the provider calls at a stub). */
 const caTest=!LIVE_APP&&env.ACCOUNTS_TEST==='1'&&path.resolve(HERMES_HOME)!==path.join(userInfo().homedir,'.hermes');   // the account's own home, even when HOME points at a fake one
 const connAccounts=createConnectedAccounts({DATA,HERMES_HOME,active:LIVE_APP||caTest,listAgents:()=>agentNames({copies:true}),readConfig,setKey,withAgent,python:enginePython,access,whyOf,nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a),
@@ -645,7 +651,7 @@ const engineUpd=createEngineUpdates({guard,DATA,HERMES_HOME,PORT,LIVE:LIVE_APP,r
  dash:(p,o={})=>fetch(DASH.origin+'/api'+p,{...o,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},signal:AbortSignal.timeout(60000)}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||j.error||'HTTP '+r.status);return j}),
  busy:()=>liveCount()+export_setups.running()+opsBusy()+relay.sending()+(gwRestarting?1:0),
  stopGateway:async()=>{gwStopped=true;await shx('hermes -p default gateway stop >/dev/null 2>&1; for i in $(seq 1 60); do p=$(grep -o "[0-9]*" ~/.hermes/gateway.pid 2>/dev/null | head -1); [ -n "$p" ] && kill -0 "$p" 2>/dev/null || break; sleep 1; done; tmux kill-session -t gateway 2>/dev/null; true')},
- tellOwner:async(text,{bell,kind,detail}={})=>{if(bell||/failed|rolled-back/.test(kind||''))await bottlenecks.event('update',text,detail||'').catch(()=>{});if(bell)return;await toOwner(text)}});
+ tellOwner:async(text,{bell,kind,detail}={})=>{if(bell||/failed|rolled-back/.test(kind||''))await bottlenecks.event('update',text,detail||'').catch(()=>{});else await bottlenecks.event('update',text,detail||'',{info:true}).catch(()=>{});if(bell)return;await toOwner(text)}});
 const codeOnline=createCodeOnline({SECRET,SECURE:SECURE_COOKIE,users:()=>users,revokedAt:uid=>revoked[uid]||0,HOST:env.CODE_HOST||'code.elkiya.com',PREVIEW_HOST:env.CODE_PREVIEW_HOST||'code-preview.elkiya.com',HOME:PUBLIC_URL||'https://ai.elkiya.com'});
 const localBrowser=createLocalBrowser({DATA,GATE:GATE.origin,API_KEY,EXT_DIR:path.join(root,'extension'),NAMES,PUBLIC_URL});
 const engineConsole=createEngineConsole({DASH,DASH_TOKEN});
@@ -940,7 +946,7 @@ async function channelAttention(fresh){if(!fresh&&Date.now()-attention.t<10*60e3
 if(PORT===4400){setTimeout(()=>channelAttention(true).catch(()=>{}),90e3);setInterval(()=>channelAttention(true).catch(()=>{}),2*3600e3).unref()}
 /* WhatsApp that stays connected. Every 10 minutes (live app) a linked number that dropped is reconnected on its own,
    with its saved login (no new QR): only that number's connection restarts, never the engine. The main agent's own
-   channels live inside the engine, so those are only reported (the pop-up and the bell say so). A number is tried at
+   channels live inside the engine, so those are only reported (a pop-up and Bottlenecks say so). A number is tried at
    most 3 times in 6 hours; after that it waits for a person. Once a day every WhatsApp login is backed up (last 3 kept),
    so a damaged login can be put back instead of linking again. */
 const waTries=new Map(),waLinking=new Map(),reconnectAsked=new Map(),waPrepOff=new Map();   // waPrepOff: agent → the login set aside by a prepare that switched WhatsApp off   // agent → when someone last started linking its WhatsApp
@@ -1712,7 +1718,13 @@ const server=createServer(async(req,res)=>{
      if(r.list.find(x=>x.fp===k.fp).protected)return send(res,400,{error:'This key is how aqeelOS itself is maintained; it stays.'});
      r.lines.splice(k.i,1);await writeFile(f,r.lines.join('\n')+'\n',{mode:0o600});console.log('ssh access removed:',k.name,'by',u.name||u.id);return send(res,200,{keys:(await read()).list})})}
    if(p==='/ui/memory'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Admins only.'});return send(res,200,await memNow())}
-   if(p==='/ui/system-events'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,200,{events:[]});return send(res,200,{events:sysEvents})}
+   if(p==='/ui/system-events'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,200,{events:[]});return send(res,200,{events:sysEvents.filter(e=>e.kind!=='restart-failed')})}   // that one is a Bottlenecks item (noteSys)
+   // the bell's list (news.mjs): the same on every device, read and cleared per person; the app adds a person's own news
+   if(p==='/ui/news'&&req.method==='GET')return send(res,200,{items:await news.list(u,users.isAdmin(u))});
+   if(p.startsWith('/ui/news')&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const admin=users.isAdmin(u);
+    if(p==='/ui/news')return send(res,200,{item:await news.add({...b,aud:'u:'+u.id})});
+    if(p==='/ui/news/read')return send(res,200,{n:await news.read(u,admin,{ids:Array.isArray(b.ids)?b.ids.map(String).slice(0,200):[],all:!!b.all})});
+    if(p==='/ui/news/hide')return send(res,200,{n:await news.hide(u,admin,{id:b.id?String(b.id):'',read:!!b.read})})}
    if(p==='/ui/thinking'&&req.method==='GET'){const sid=String(url.searchParams.get('session')||'');if(!/^[\w.-]{3,120}$/.test(sid))return send(res,200,{items:[]});const l=await readFile(path.join(DATA,'thinking',sid+'.json'),'utf8').then(JSON.parse).catch(()=>[]);return send(res,200,{items:l.filter(x=>users.isAdmin(u)||x.by===u.id).map(({u:q,think})=>({u:q,think}))})}
    if(p==='/ui/live'&&req.method==='GET'){const rec=LIVE.get((url.searchParams.get('agent')||'default')+'|'+(url.searchParams.get('session')||''));
     if(!rec||rec.done||rec.user!==u.id)return send(res,url.searchParams.has('peek')?200:204,url.searchParams.has('peek')?{live:false}:'');
@@ -1808,7 +1820,10 @@ const server=createServer(async(req,res)=>{
     if(p==='/ui/backups'&&req.method==='GET')return send(res,200,await backups.status());
     if(p==='/ui/backups/key'&&req.method==='GET'){try{return send(res,200,{key:await backups.key()})}catch(e){return send(res,409,{error:e.message})}}
     if(p==='/ui/backups/run'&&req.method==='POST'){backups.run('by hand').catch(()=>{});return send(res,200,{started:true})}
-    if(p==='/ui/backups/test'&&req.method==='POST'){try{return send(res,200,await backups.test())}catch(e){return send(res,400,{error:e.message})}}}
+    if(p==='/ui/backups/test'&&req.method==='POST'){try{return send(res,200,await backups.test())}catch(e){return send(res,400,{error:e.message})}}
+    if(p==='/ui/backups/list'&&req.method==='GET'){try{return send(res,200,{items:await backups.list()})}catch(e){return send(res,400,{error:e.message})}}
+    // a restore stops and starts the real agents, so only the live app does it (a test copy shares the box's engine)
+    if(p==='/ui/backups/restore'&&req.method==='POST'){if(!LIVE_APP)return send(res,409,{error:'Only the live app restores backups.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{return send(res,200,await backups.restore(String(b.id||'')))}catch(e){return send(res,400,{error:e.message})}}}
    // which aqeelOS app version is current (the app offers to update itself when it is older)
    if(p==='/ui/code/app-version'&&req.method==='GET'){let v={};try{v=JSON.parse(await readFile(path.join(DATA,'desktop','version.json'),'utf8'))}catch{}return send(res,200,v)}
    // company-wide defaults (the currency for people who never picked one): everyone reads them, admins set them
@@ -1820,7 +1835,7 @@ const server=createServer(async(req,res)=>{
     try{if(p==='/ui/apps/check'){const a=await live.check(String(b.id||''));return send(res,200,{status:a.status,error:a.error||''})}
      if(p==='/ui/apps/remove')return send(res,200,await live.remove(u,users.isAdmin(u),String(b.id||'')));
      if(p==='/ui/apps/connect'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,await live.connect(b))}}catch(e){return send(res,400,{error:e.message})}}
-   if(p==='/ui/bottlenecks'&&req.method==='GET'){const admin=users.isAdmin(u);if(admin)await freshSignins();const items=await bottlenecks.list({admin,uid:admin?null:u.id,mayUse:a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a),signins:admin?[...signinsDue.values()]:[],invites:admin?users.expiredInvites():[],accounts:admin?await accountsApi.signedOut().catch(()=>[]):[]});const mayU=a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a);items.push(...await accessAsk.open(admin?()=>true:mayU).catch(()=>[]));items.push(...await help.items(u).catch(()=>[]));
+   if(p==='/ui/bottlenecks'&&req.method==='GET'){const admin=users.isAdmin(u);if(admin)await freshSignins();const items=await bottlenecks.list({admin,uid:admin?null:u.id,mayUse:a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a),signins:admin?[...signinsDue.values()]:[],invites:admin?users.expiredInvites():[],accounts:admin?await accountsApi.signedOut().catch(()=>[]):[],channels:admin?await channelAttention(false).catch(()=>[]):[]});const mayU=a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a);items.push(...await accessAsk.open(admin?()=>true:mayU).catch(()=>[]));items.push(...await help.items(u).catch(()=>[]));
     // the message that led to it is from the agent's newest chat, whoever's: a member sees it only when that chat is theirs
     return send(res,200,{items:admin?items:items.map(x=>x.from&&users.ownerOf(x.from.chat)!==u.id?{...x,from:null}:x)})}
    if((p==='/ui/bottlenecks/done'||p==='/ui/bottlenecks/later')&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const id=String(b.id||'').slice(0,300);if(!id)return send(res,400,{error:'Which one?'});const admin=users.isAdmin(u);
@@ -1828,7 +1843,7 @@ const server=createServer(async(req,res)=>{
     if(id.startsWith('ticket|')){try{return send(res,200,await help.decide(id,p.endsWith('/done')?'done':'later',u))}catch(e){return send(res,e.status||400,{error:e.message})}}
     // only what this person is shown: a report from an agent they may use, anything else for admins and only when it is there
     if(id.startsWith('report|')){const r=await bottlenecks.find(id);if(!r)return send(res,404,{error:'That one is already gone.'});if(users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),r.agent))return send(res,403,{error:'That agent is not shared with you.'})}
-    else{if(!admin)return send(res,403,{error:'Only admins.'});const cur=await bottlenecks.list({admin:true,mayUse:()=>false,signins:[...signinsDue.values()],invites:users.expiredInvites(),accounts:await accountsApi.signedOut().catch(()=>[])});if(!cur.some(x=>x.id===id))return send(res,404,{error:'That one is already gone.'})}
+    else{if(!admin)return send(res,403,{error:'Only admins.'});const cur=await bottlenecks.list({admin:true,mayUse:()=>false,signins:[...signinsDue.values()],invites:users.expiredInvites(),accounts:await accountsApi.signedOut().catch(()=>[]),channels:await channelAttention(false).catch(()=>[])});if(!cur.some(x=>x.id===id))return send(res,404,{error:'That one is already gone.'})}
     await (p.endsWith('done')?bottlenecks.done(id):bottlenecks.later(id,admin?null:u.id));return send(res,200,{ok:true})}
    // Code › Live › Team folders: the shared folders a person is in (admins see every one), read only
    if(p==='/ui/team-folders'&&req.method==='GET')return send(res,200,{folders:await teamFolders.list(u.id,{all:users.isAdmin(u)})});
