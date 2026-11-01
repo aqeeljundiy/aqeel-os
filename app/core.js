@@ -91,7 +91,7 @@ async function callRaw(base,path,opt={}){const nav=S._nav,read=!opt.method||opt.
 }
 // The active agent (Hermes profile): dashboard calls get ?profile=, gateway calls go through /p/<profile>/.
 // pages that belong to one agent: a picker in the header shows another agent's without switching who you chat with
-const VIEW_RE=/^#\/(abilities\/(skills|mcp|plugins)|agents\/(files|memory)|automations\/(webhooks|n8n)|channels\/channels|models\/models|system\/(keys|logs|settings))(\/|$)/;
+const VIEW_RE=/^#\/(abilities\/(skills|mcp|plugins)|agents\/(files|memory)|automations\/(webhooks|n8n)|channels\/channels|models\/models|system\/(keys|logs|settings|usage))(\/|$)/;
 const agentProfile=()=>{if(S.chOverride)return S.chOverride;   // chOverride: setting up an extra connection (WhatsApp 2…)
  if(S.viewAgent){if(VIEW_RE.test(location.hash))return S.viewAgent==='default'?'':S.viewAgent;S.viewAgent=null}
  return S.profile&&S.profile!=='default'?S.profile:''};
@@ -358,7 +358,7 @@ function render(){
  const v=$('#view');{const key=location.hash.split('?')[0];if(v._key!==key){v._key=key;Calm.opening();v.classList.remove('enter');void v.offsetWidth;v.classList.add('enter')}}watchReveal(v);
  if(r.chat!==undefined)Chat.view(v,r.chat);
  else if(r.help){S._pageKey=null;Help.view(v)}
- else{const P=PAGES[r.page.id];const key=r.sec.id+'/'+r.page.id+'/'+(r.arg||[]).join('/')+'@'+(agentProfile()||'')+'/'+String(S.viewAll)+'/'+(S.chAgent||'');
+ else{const P=PAGES[r.page.id];const key=r.sec.id+'/'+r.page.id+'/'+(r.arg||[]).join('/')+'@'+(agentProfile()||'')+'/'+String(S.viewAll);
   // Same page again (after a save, a toggle…): update in place. No skeleton flash, no replayed entrance animations.
   const same=S._pageKey===key&&$('#pg');S._pageKey=key;
   // another agent on the same address: answers still on the way for the old one are dropped

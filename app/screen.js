@@ -1,10 +1,12 @@
 // Live screen: watch (and take over) the selected agent's own screen on the box, streamed with noVNC.
-// Every agent has its own screen that starts when it browses and stops when idle; AdsPower agents share :99.
+// Every agent has its own screen that starts when it browses and stops when idle, and its own AdsPower on it (1 Nov
+// 2026: the AdsPower copy every agent shared on :99 is gone, and so is the picker's AdsPower screen). This panel is where
+// an agent's AdsPower is started and stopped; Connections shows its row.
 // Shown as a laptop, either docked beside the chat (resizable) or floating like a mini player.
 const Screen={
  open:store.get('screenOpen',false),control:false,mode:store.get('screenMode','dock'),src_:store.get('screenSrc','box'),   // src_: 'box' (the AI box screen) or 'mine' (the agent's tab in my Chrome)
  float:store.get('screenFloat',{w:480,x:null,y:null}),
- st:null,ads:false,pick:null,list:[],_n:0,   // pick: an agent chosen in the picker (null = follow the chat); ads: the shared AdsPower screen
+ st:null,ads:false,pick:null,list:[],_n:0,   // pick: an agent chosen in the picker (null = follow the chat); ads: never set any more (the shared AdsPower screen is gone)
  agent(){return S.profile||'default'},   // the screen is always the agent you chat with
  chatAgent(){return S.profile||'default'},
  off(){return !this.ads&&this.st&&this.st.agent===this.agent()&&this.st.kind==='desktop'&&!this.st.running},
@@ -24,19 +26,16 @@ const Screen={
  // While the screen is open, notice when the agent changes or its screen turns on/off by itself.
  watch(){clearInterval(this._t);if(!this.open)return;this.refresh();this.loadList().then(()=>this.paint(true));this._t=setInterval(()=>{if(document.hidden)return;if(++this._n%6===0)this.loadList();if(this.st?.agent!==this.agent()){this.st=null;this.ads=false}this.refresh()},5000)},
  // the agent started using AdsPower: show where AdsPower draws (only for agents that have their own screen)
- // which screen: every agent's own screen, the shared AdsPower screen, or simply follow the chat's agent
- // every agent by name; an AdsPower agent's screen is the shared AdsPower one, so picking it shows that
- picker(){const ag=this.list.length?this.list:[{agent:this.chatAgent()}];const adsAgent=ag.find(x=>x.kind==='shared')?.agent;
-  const cur=this.ads?(adsAgent||'ads'):this.pick||'';
+ // which screen: every agent's own screen by name, or simply follow the chat's agent
+ picker(){const ag=this.list.length?this.list:[{agent:this.chatAgent()}];
+  const cur=this.pick||'';
   const opt=(v,l)=>`<option value="${esc(v)}" ${v===cur?'selected':''}>${esc(l)}</option>`;
   return `<select id="scrPick" class="scr-pick" aria-label="Which screen" title="Which screen to watch">${opt('','Follow this chat ('+ident(this.chatAgent()).name+')')}
-   ${ag.map(x=>opt(x.agent,ident(x.agent).name+"'s screen"+(x.running===false?' · off':''))).join('')}
-   ${!adsAgent&&(this.ads||S.me?.admin)?opt('ads','AdsPower screen'):''}</select>`},   // admins can always open it, even when no agent browses through AdsPower (31 Oct 2026)
+   ${ag.map(x=>opt(x.agent,ident(x.agent).name+"'s screen"+(x.running===false?' · off':''))).join('')}</select>`},
  note(){if(this.ads&&this.st?.kind!=='shared')return 'AdsPower';if(this.pick&&this.pick!==this.chatAgent())return 'Other agent';return ''},
- noteTip(){return this.ads?'AdsPower browsers: any agent that uses AdsPower draws here':'Not the agent of this chat'},
+ noteTip(){return 'Not the agent of this chat'},
  async loadList(){try{this.list=(await call('','/ui/screens')).screens||[]}catch{}},
  choose(v){this.ads=v==='ads';this.pick=v&&v!=='ads'?v:null;this.st=null;this.paint(true);this.refresh()},
- useAds(){if(this.pick)return;if(this.ads||this.st?.kind==='shared'||S.me?.admin===false)return;this.ads=true;if(this.open)this.paint(true)},
  toggle(){this.open=!this.open;store.set('screenOpen',this.open);this.paint(true);this.watch();this.mirror();paintTop()},
  /* My browser view: a live picture of the agent's tab in your Chrome (the aqeelOS extension sends it), every 1.5 s
     while this view is open and the page is visible. Take over brings that tab to the front. */

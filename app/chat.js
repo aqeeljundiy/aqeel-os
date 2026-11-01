@@ -76,7 +76,8 @@ const Chat={
   if(!ms.length&&this.modelsErr)return menu(el,[{header:"Couldn't load models"},{label:'Try again',icon:'refresh',run:()=>this.reloadModels()}]);
   if(!ms.length)return menu(el,[{header:'No models yet: add a key or sign in'},...(ad?[{label:'Add a key',icon:'key',run:()=>go('/system/keys')},{label:'Sign in to a model',icon:'user',run:()=>go('/models/models')}]:[]),{label:'Refresh models',icon:'refresh',run:()=>this.reloadModels()}]);
   const groups=new Map();for(const m of ms){if(!groups.has(m.provider))groups.set(m.provider,[]);groups.get(m.provider).push(m)}
-  const items=[{label:'Default ('+modelLabel(this.defaultModel?.id)+')',icon:'cpu',on:!this.model,run:()=>this.setModel(null)}];
+  // a pick here is for this chat only; the agent's own model is set on Models › Agents' models (1 Nov 2026)
+  const items=[{header:'Model for this chat only'},{label:'Default ('+modelLabel(this.defaultModel?.id)+')',sub:'The agent’s own model',icon:'cpu',on:!this.model,run:()=>this.setModel(null)}];
   for(const [slug,l] of groups){items.push('-',{header:l[0].providerName+' ('+plural(l.length,'model')+')',title:slug});if(this.provWarn?.[slug])items.push({label:this.provWarn[slug],icon:'alert',disabled:true,find:slug});
    items.push(...l.map(m=>({label:m.label,title:m.id,find:m.id+' '+slug+' '+m.providerName,icon:'cpu',on:!!this.model&&m.id===cur.id&&m.provider===cur.provider,run:()=>this.setModel(m)})))}
   items.push('-',{label:'Refresh models',icon:'refresh',run:()=>this.reloadModels()},...(ad?[{label:'Sign in to more models…',icon:'key',run:()=>go('/models/models')}]:[]));
@@ -398,7 +399,6 @@ const Chat={
   for(;;){const {value,done}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});let i;
    while((i=buf.search(/\r?\n\r?\n/))>=0){const raw=buf.slice(0,i);buf=buf.slice(i).replace(/^\r?\n\r?\n/,'');let ev='message',data='';for(const line of raw.split(/\r?\n/)){if(line.startsWith(':'))continue;if(line.startsWith('event:'))ev=line.slice(6).trim();else if(line.startsWith('data:'))data+=line.slice(5).trimStart()}if(!data)continue;let d;try{d=JSON.parse(data)}catch{d={text:data}}on({type:d.type||ev,...d})}}},
  onEvent(id,e){const s=this.live[id];if(!s)return;const ai=s.ai;if(!ai)return;
-  if(e.type==='tool.started'&&id===this.id&&/adspower|:9333|:50325/i.test(JSON.stringify([e.tool_name,e.preview,e.args])))Screen.useAds?.();
   // The engine slips a steer in right before the agent's next model call (once the step it is on finishes) and
   // says nothing on this stream when it does. So a steer that was waiting when a step finished has been read as
   // soon as the agent shows anything new after that step.

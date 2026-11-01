@@ -182,18 +182,19 @@ async function cronDetail(j){const {m,r}=schedMeta(j);const prof=j.profile||'def
 {const base=PAGES.usage;PAGES.usage=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;if(S.me?.admin===false)return;
  const panel=document.createElement('div');panel.className='panel card spend';panel.innerHTML='<h2>Spending overview</h2><p class="sub">Estimated at pay-per-use prices. What a subscription covers is included, so you can see what each part would cost.</p><div class="skel" style="height:120px"></div>';
  el.prepend(panel);
- let agents=[];try{const pr=await H('/profiles');agents=(Array.isArray(pr)?pr:pr.profiles||[]).map(x=>x.name)}catch{}if(gone())return;if(!agents.length)agents=['default'];
+ // the agent shown under Showing, or every agent and Help (1 Nov 2026: it showed every agent's totals for one agent too)
+ const vl=await viewAgents().catch(()=>[]),who=usageWho(vl);if(gone())return;const agents=who==='*'?[...(vl.length?vl:['default']),HELP_ID]:[who];   /* the same agents as the rest of the page */
  const now=new Date(),mStart=new Date(now.getFullYear(),now.getMonth(),1),lStart=new Date(now.getFullYear(),now.getMonth()-1,1);const day=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
- const per=await Promise.all(agents.map(a=>call('/hapi','/analytics/usage?days=62&profile='+encodeURIComponent(a)).then(u=>({a,u})).catch(()=>({a,u:{daily:[]}}))));if(gone())return;
+ const per=await Promise.all(agents.map(a=>call('/hapi','/analytics/usage?days=62&profile='+encodeURIComponent(a),Pages._uFresh?{fresh:true}:{}).then(u=>({a,u})).catch(()=>({a,u:{daily:[]}}))));if(gone())return;
  const sum=(l,from,to)=>l.filter(d=>d.day>=from&&(!to||d.day<to)).reduce((s,d)=>s+(d.estimated_cost||d.actual_cost||0),0);
  const rows=per.map(({a,u})=>{const d=u.daily||[];return {a,month:sum(d,day(mStart)),last:sum(d,day(lStart),day(mStart)),wk:sum(d,day(new Date(Date.now()-7*864e5))),prev:sum(d,day(new Date(Date.now()-35*864e5)),day(new Date(Date.now()-7*864e5)))/4}}).sort((x,y)=>y.month-x.month);
  const total=rows.reduce((s,r)=>s+r.month,0),lastT=rows.reduce((s,r)=>s+r.last,0);const dayOf=now.getDate(),days=new Date(now.getFullYear(),now.getMonth()+1,0).getDate();
  let info=SCHED.info;if(!info?.runs||info.partial)try{info=SCHED.info=await UI('/ui/schedules/info')}catch{info={runs:{}}}if(gone())return;
- const jobs=Pages.cronJobs||await H('/cron/jobs?profile=all').catch(()=>[]);if(gone())return;const top=Object.entries(info.runs||{}).map(([k,r])=>{const [pr,id]=k.split('|');const j=jobs.find(x=>x.id===id&&(x.profile||'default')===pr);return {k,j,r}}).filter(x=>x.r.cost>0).sort((a,b)=>b.r.cost-a.r.cost).slice(0,5);
+ const jobs=Pages.cronJobs||await H('/cron/jobs?profile=all').catch(()=>[]);if(gone())return;const top=Object.entries(info.runs||{}).map(([k,r])=>{const [pr,id]=k.split('|');const j=jobs.find(x=>x.id===id&&(x.profile||'default')===pr);return {k,j,r}}).filter(x=>x.r.cost>0&&(who==='*'||x.k.split('|')[0]===who)).sort((a,b)=>b.r.cost-a.r.cost).slice(0,5);
  const spikes=rows.filter(r=>r.prev>0.5&&r.wk>r.prev*1.8);
- panel.innerHTML=`<h2>Spending overview</h2><p class="sub">Estimated at pay-per-use prices. What a subscription covers is included, so you can see what each part would cost.</p>
+ panel.innerHTML=`<h2>Spending overview${who==='*'?'':' · '+esc(ident(who).name)}</h2><p class="sub">Estimated at pay-per-use prices. What a subscription covers is included, so you can see what each part would cost.</p>
   <div class="sd-facts"><div><small>This month so far</small><b>≈ ${usd(total)}</b></div><div><small>On pace for</small><b>≈ ${usd(total/dayOf*days)}</b></div><div><small>Last month</small><b>${lastT<0.01?'No use yet':'≈ '+usd(lastT)}</b></div></div>
-  ${spikes.map(r=>`<div class="tz-note warn">${icon('alert',15)}<span><b>${esc(ident(r.a).name)}</b> cost ≈ ${usd(r.wk)} in the last 7 days, about ${Math.round(r.wk/r.prev)}× a usual week.</span></div>`).join('')}
+  ${spikes.map(r=>`<div class="tz-note warn">${icon('alert',15)}<span><b>${esc(usageName(r.a))}</b> cost ≈ ${usd(r.wk)} in the last 7 days, about ${Math.round(r.wk/r.prev)}× a usual week.</span></div>`).join('')}
   
   ${top.length?`<h3 class="sd-h">Costliest schedules this month</h3><div class="sd-runs">${top.map(x=>`<div class="sd-run" style="grid-template-columns:2fr 1fr 1fr" ${x.j?`data-act="spend-open" data-id="${esc(x.j.id)}" data-profile="${esc(x.j.profile||'default')}"`:''}><span>${esc(stripBracket(x.j?.name||x.k))}</span><span>${plural(x.r.runs.length,'run')}</span><span>≈ ${usd(x.r.cost)}</span></div>`).join('')}</div>`:''}`}}
 ACT['spend-open']=a=>{const j=(Pages.cronJobs||[]).find(x=>x.id===a.dataset.id&&(x.profile||'default')===a.dataset.profile);if(j)cronDetail(j);else go('/automations/schedules')};

@@ -157,6 +157,7 @@ Object.assign(ID,{
  'Bot':'Bot',
  'Connected':'Terhubung',
  'Owned by':'Dimiliki oleh',
+ 'Belongs to':'Milik','AI accounts':'Akun AI','Your AI accounts':'Akun AI Anda','Logins':'Login','If an account fails':'Jika akun gagal','Extra keys':'Kunci tambahan','Old Code sign-ins':'Login Code lama','Old sign-ins':'Login lama','Every channel':'Semua saluran','Your usage':'Pemakaian Anda','An account runs low':'Akun hampir habis','A model stops answering':'Model berhenti menjawab',
  'Nobody (paused)':'Tidak ada (dijeda)',
  'Personal account':'Akun pribadi',
  'Add a channel':'Tambah saluran',

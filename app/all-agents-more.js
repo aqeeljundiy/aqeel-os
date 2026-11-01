@@ -94,7 +94,7 @@ Object.assign(ALLVIEW,{
  async settings(p,el){setActions(`<button data-act="cfg-raw">Raw YAML</button><button data-act="cfg-import">${icon('upload',16)}Import</button><button data-act="cfg-export">${icon('download',16)}Export</button>`);const gone=pageTok(el),per=await perAgent(a=>H(prof('/config',a)));if(gone())return;
   const g=(c,k)=>k.split('.').reduce((o,x)=>o==null?undefined:o[x],c);
   const rows=per.map(({a,d},i)=>{const own=g(d,'terminal.backend')==='ssh';const bits=[modelLabel(g(d,'model.default')||g(d,'model')||''),own?'Own Linux user':'Main box user',g(d,'approvals.mode')?'Approvals: '+pretty(g(d,'approvals.mode')):'',g(d,'timezone')||''].filter(Boolean);
-   return `<div class="row" ${st(i)}><div class="main-c">${Access.av({id:a,name:ident(a).name},34)}<div class="txt"><b>${esc(ident(a).name)}</b><span>${d?bits.map(esc).join(' · '):'Its settings couldn’t be read'}</span></div></div><div class="act">${Access.owner({owner:a})}${allOpen(a,'Change')}</div></div>`});
+   return `<div class="row" ${st(i)}><div class="main-c">${Access.av({id:a,name:ident(a).name},34)}<div class="txt"><b>${esc(ident(a).name)}</b><span>${d?bits.map(esc).join(' · '):'Its settings couldn’t be read'}</span></div></div><div class="act">${allOpen(a,"Change")}</div></div>`});
   const bad=per.filter(x=>!x.d).map(x=>ident(x.a).name);
   el.innerHTML=`${bad.length?errLine(bad.join(', ')+'’s settings'):''}<div class="all-view">${allSection('Each agent’s settings',rows,'No agents yet.')}</div>`}});
 
@@ -111,3 +111,17 @@ for(const [id,first,tabsOf,act] of [['mcp','Your servers',['Your servers','Catal
   if(tab!==first){S.viewAll=false;try{await base(p,el,r)}finally{S.viewAll=true}if(gone())return;viewPick(await viewAgents());if(gone())return;el.querySelector('[data-tabs="'+id+'"]')?.insertAdjacentHTML('afterend',`<p class="hint" style="margin:0 0 12px">Installs go to ${esc(ident().name)}. Pick an agent under Showing to install on another.</p>`);return}
   await base(p,el,r);if(gone())return;setActions(act);if(!el.querySelector('[data-tabs="'+id+'"]')){el.insertAdjacentHTML('afterbegin',tabs(id,tabsOf));placePills?.()}
   if(id==='mcp')el.insertAdjacentHTML('beforeend',`<p class="hint" style="margin:14px 0 0">Add server and Catalog add to ${esc(ident().name)}. Pick an agent under Showing to add to another.</p>`)}}
+
+// Settings › Agent settings: the settings kept in an agent's .env file, and the gateway-wide ones (GATEWAY_*: who may message
+// every channel). They were groups on Keys, which holds secrets only now (1 Nov 2026). The same rows as Keys (change,
+// show, remove). It sits here, after the All agents view above, so it shows there too: for the agent picked, or else the
+// agent you chat with, and says which.
+{const settings=PAGES.settings;PAGES.settings=async(p,el,r)=>{const gone=pageTok(el);await settings(p,el,r);if(gone()||S.me?.admin===false)return;
+ const who=viewing(),env=await H(prof('/env',who)).catch(()=>null);if(gone()||!env||!el.isConnected)return;const q=(S.cfgQ||'').toLowerCase(),all=showingAll();
+ const rows=Object.entries(env).filter(([k,v])=>(v.category==='setting'&&!/^HERMES_/.test(k)||/^GATEWAY_/.test(k)&&!v.is_password)&&(v.is_set||!v.advanced||/^GATEWAY_/.test(k))&&(all||!q||(k+' '+(v.description||'')).toLowerCase().includes(q))).sort((x,y)=>(y[1].is_set?1:0)-(x[1].is_set?1:0));if(!rows.length)return;
+ const set=rows.filter(r=>r[1].is_set),more=rows.filter(r=>!r[1].is_set);
+ // who may message every channel is changed in one place, Channels › Who can message: shown here, not edited
+ const ROW=([k,v])=>k!=='GATEWAY_ALLOWED_USERS'?KROW([k,v]):fieldRow(esc(v.description||'People who may message every channel'),`<span style="font-size:11.5px">${esc(k)}</span>`,`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${v.is_set?`<span class="chip ok" style="font-family:var(--mono)">${esc(v.redacted_value||'set')}</span>`:'<span class="chip">Nobody</span>'}<a href="#/channels/channels" data-act="ch-who">Change on Who can message</a></div>`);
+ const box=document.createElement('div');box.className='panel card cfg-env';box.style.marginTop='16px';
+ box.innerHTML=`<h2>Agent settings</h2><p class="sub">${all?'For '+esc(ident(who).name)+(who===(S.profile||'default')?', the agent you chat with':'')+'. Pick an agent under Showing for another’s. ':''}Kept in its .env file on the AI box, next to its keys. Each change saves at once; channels pick it up after Restart agents.</p>${(q&&!all?rows:set).map(ROW).join('')}${(!q||all)&&more.length?`<details class="kf-more"><summary>${set.length?'Show '+more.length+' more you can set':'Show the '+more.length+' settings you can set'}</summary>${more.map(ROW).join('')}</details>`:''}`;
+ el.append(box);if(S.cfgAgentEnv){S.cfgAgentEnv=false;box.scrollIntoView({behavior:'smooth',block:'start'})}}}

@@ -11,7 +11,7 @@ import {createAgentDefaults} from './agent-defaults.mjs';
 import {createWhy} from './why.mjs';
 import {createConnect} from './connect.mjs';
 import {createAntigravity} from './antigravity.mjs';
-import {withAgent,setKey,readConfig,pick,agentNames,isAgent,busy as opsBusy,initStatus,getStatus,setStatus,editEnv,hermes as hcmd,python as enginePython,LIVE_APP,HELP_AGENT} from './agentops.mjs';
+import {withAgent,withFlock,setKey,readConfig,pick,agentNames,isAgent,busy as opsBusy,initStatus,getStatus,setStatus,editEnv,hermes as hcmd,python as enginePython,LIVE_APP,HELP_AGENT} from './agentops.mjs';
 import {createSchedules} from './schedules.mjs';
 import {createScreens} from './screens.mjs';
 import {createAgentAdspower} from './agent-adspower.mjs';
@@ -52,7 +52,7 @@ import {createConnections} from './connections.mjs';
 import {createBackupModels,engineProbe,RULES as BM_RULES} from './backup-models.mjs';
 import {isDaytime as dayNow,local as localAt,clock as clockAt} from './engine-update-rules.mjs';
 import {readdir} from 'node:fs/promises';
-import {createReadStream} from 'node:fs';
+import {createReadStream,readFileSync,readdirSync} from 'node:fs';
 import {scryptSync,randomBytes,createHmac,createHash,timingSafeEqual} from 'node:crypto';
 import net from 'node:net';
 // Node gives up on each connection attempt after 250 ms; from the box a connect takes 2-4 s, so calls like Anthropic's usage
@@ -61,6 +61,7 @@ net.setDefaultAutoSelectFamilyAttemptTimeout(4000);
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {readPicture,emojiSlugs,emojiAuto,AVATAR_TYPES} from './avatar-file.mjs';
+import {parseEnv,setEnvLine,channelWho,globalWho,removePerson,engineChange,approvedWithout,samePerson as allowSame} from './allowlist.mjs';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
 const root=path.resolve(here,'..');
@@ -288,10 +289,10 @@ async function ensureChatHint(a){const cfgFile=path.join(a==='default'?HERMES_HO
  if(y.split('shows these as small coloured labels').length>2)return;   // already the current wording, twice
  for(const k of ['api_server','local']){const r=await setKey(a,'agent.platform_hints.'+k,{replace:CHAT_HINT});if(!r.ok)throw new Error(r.err)}}
 async function writeAgentContext(){const all=await listAgents();const names={};for(const a of all)names[a]=NAMES[a]=await displayName(a);
- const ads=[];for(const a of all)if(await screens.shared(a).catch(()=>false))ads.push(a);
- for(const a of all){await ensureChatHint(a).catch(e=>console.warn('chat hint',a,e.message));try{const me=names[a],adsNames=ads.map(x=>names[x]+"'s screen").join(' / ')||'the AdsPower screen';
-  const own=ads.includes(a)?`You browse through AdsPower, so your browser shows on the shared AdsPower screen, listed as "${me}'s screen".`:`Your own screen is "${me}'s screen". Your browser tool opens pages there; it starts by itself when you browse.`;
-  const others=all.filter(x=>x!==a&&!ads.includes(x)).map(x=>'"'+names[x]+"'s screen\"").join(', ');
+ for(const a of all){await ensureChatHint(a).catch(e=>console.warn('chat hint',a,e.message));try{const me=names[a];
+  // every agent has its own screen and its own AdsPower on it (1 Nov 2026: the AdsPower copy agents shared is gone)
+  const own=`Your own screen is "${me}'s screen". Your browser tool opens pages there; it starts by itself when you browse.`;
+  const others=all.filter(x=>x!==a).map(x=>'"'+names[x]+"'s screen\"").join(', ');
   const ch=await relay.channelsFor(a).catch(()=>[]);const gacc=await googleContext(a).catch(()=>[]);
   // an agent without terminal and files cannot change its own settings: it says where they change instead of
   // guessing ("an admin has to…", an outside website)
@@ -301,9 +302,9 @@ async function writeAgentContext(){const all=await listAgents();const names={};f
   const body=['<!-- aqeelos:context (written by aqeelOS and kept up to date; edit outside this block) -->','# Working in aqeelOS','','## Screens','',
    'The person can watch screens live in aqeelOS: the monitor button at the top right, then the screen picker.',
    '- '+own,
-   '- AdsPower browsers, opened by any agent, show on the shared AdsPower screen, listed as '+adsNames+'.',
+   '- Your AdsPower is your own: it runs on your own screen with its own sign-in, and its browsers open there.',   // each agent's own AdsPower (1 Nov 2026); the shared copy is gone
    others?'- Other agents have their own screens: '+others+'.':null,
-   'When you start working in a browser or in AdsPower, say which screen to watch, for example: "I am working on '+(ads.includes(a)?me+"'s screen":me+"'s screen")+'." If the person needs to sign in or solve a check themselves, tell them to open that screen and press Take over.',
+   'When you start working in a browser or in AdsPower, say which screen to watch, for example: "I am working on '+me+"'s screen"+'." If the person needs to sign in or solve a check themselves, tell them to open that screen and press Take over.',
    ...(locked?['','## Changing settings','',
     'You have no terminal or file tools, so you cannot change your own settings, and that is on purpose. When someone asks to change how you or your channels behave (notices such as "Redirected current run", your model, what you may use, who may message you), say plainly that you cannot change it yourself and that it is changed in aqeelOS on the Settings page (System › Settings, with "Showing: '+me+'" picked at the top). Who may message you is on Channels › Who can message (that page approves people; which Slack channels you listen to is not on any page yet, so say the aqeelOS owner changes it on the AI box); apps are on Abilities › Connected apps.',
     'Never send anyone to a website or to documentation for this, and never say "an admin" has to do it.']
@@ -432,11 +433,22 @@ const lockedAgent=(a,st)=>{if(st[a]?.safe)return true;const ow=users.agentOwner(
    phone that another agent (like Husband Mode) also runs on. */
 async function waIds(a){const c=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'platforms','whatsapp','session','creds.json'),'utf8').then(JSON.parse).catch(()=>null);
  return [c?.me?.id,c?.me?.lid].filter(Boolean).map(x=>String(x).split('@')[0].split(':')[0].replace(/\D/g,'')).filter(Boolean)}
+/* One .env change at a time inside aqeelOS (1 Nov 2026): the WhatsApp loop guard and Who can message's removals both
+   read, change and write an agent's lists; each also holds the engine's own .env lock while it writes (editEnv). */
+const envQueues=new Map();
+function envQueue(file,fn){const prev=envQueues.get(file)||Promise.resolve();const run=prev.then(fn,fn);const tail=run.catch(()=>{});envQueues.set(file,tail);tail.then(()=>{if(envQueues.get(file)===tail)envQueues.delete(file)});return run}
+// an agent's WhatsApp lid-mapping files, read only as asked for (the main agent has over 2,000), in the folder the engine
+// uses (gateway/whatsapp_identity.py, hermes_constants.get_hermes_dir: the old whatsapp/session when it has files, else
+// platforms/whatsapp/session); one reader per request, remembering what it read
+function waMapping(home){const old=path.join(home,'whatsapp','session');let dir;try{dir=readdirSync(old).length?old:null}catch{}dir||=path.join(home,'platforms','whatsapp','session');
+ const seen=new Map();return n=>{if(!/^lid-mapping-[A-Za-z0-9@.+\-]+\.json$/.test(n))return null;if(!seen.has(n)){let t=null;try{t=readFileSync(path.join(dir,n),'utf8')}catch{}seen.set(n,t)}return seen.get(n)}}
+// an agent's own pairing store folder (gateway/pairing.py: the old pairing/ when it has files, else platforms/pairing)
+function pairingDir(home){const old=path.join(home,'pairing');try{if(readdirSync(old).length)return old}catch{}return path.join(home,'platforms','pairing')}
 async function loopGuard(a,all){if(a.split('--')[0]==='default')return;const home=path.join(HERMES_HOME,'profiles',a);
  const others=new Set();for(const b of all)if(b!==a)for(const id of await waIds(b))others.add(id);if(!others.size)return;const removed=[];
  const envF=path.join(home,'.env');
- await editEnv(envF,cur=>{let changed=false;const next=cur.split('\n').map(l=>{const m=/^(WHATSAPP_ALLOWED_USERS=)["']?([^"'\n]*)["']?$/.exec(l);if(!m)return l;
-  const keep=m[2].split(',').map(x=>x.trim()).filter(x=>{const d=x.replace(/\D/g,'');if(d&&others.has(d)){removed.push(x);changed=true;return false}return !!x});return m[1]+keep.join(',')});return changed?next.join('\n'):null}).catch(()=>{});
+  await envQueue(envF,()=>editEnv(envF,cur=>{let changed=false;const next=cur.split('\n').map(l=>{const m=/^(WHATSAPP_ALLOWED_USERS=)["']?([^"'\n]*)["']?$/.exec(l);if(!m)return l;
+  const keep=m[2].split(',').map(x=>x.trim()).filter(x=>{const d=x.replace(/\D/g,'');if(d&&others.has(d)){removed.push(x);changed=true;return false}return !!x});return m[1]+keep.join(',')});return changed?next.join('\n'):null})).catch(()=>{});
  const apF=path.join(home,'platforms','pairing','whatsapp-approved.json');const ap=await readFile(apF,'utf8').then(JSON.parse).catch(()=>null);
  if(ap&&typeof ap==='object'){let ch=false;for(const k of Object.keys(ap))if(others.has(k.replace(/\D/g,''))){delete ap[k];removed.push(k);ch=true}
   if(ch){await writeFile(apF+'.tmp',JSON.stringify(ap));await rename(apF+'.tmp',apF)}}
@@ -676,7 +688,7 @@ const engineConsole=createEngineConsole({DASH,DASH_TOKEN});
 const links=createLinks({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,python:()=>sharing.python(),setupAgent:n=>setupAgentFn?.(n)});
 const cfgLimit=limiter(4);   // per-agent config reads on a page: a few side by side, never a burst of Pythons
 function listAgents(){return agentNames()}   // real agents only (a folder with a config), not extra-number copies
-async function listAllProfiles(){return [...await listAgents(),...(await links.list()).map(l=>l.name)]}
+async function listAllProfiles(){return [...await listAgents(),...(await links.list()).map(l=>l.name)].filter(n=>!String(n).startsWith('.'))}   // never profiles/.deleted and the like
 // API keys for model accounts: tested before saving and every 5 minutes after (connect.mjs, 25 Oct)
 const connect=createConnect({HERMES_HOME,DASH,DASH_TOKEN,live:LIVE_APP});accountHooks.keyStatus=()=>connect.status();accountHooks.keyCheck=()=>connect.checkAll();
 const antigravity=createAntigravity({HERMES_HOME,hcmd,listAgents,moveOff:(a,k)=>accountHooks.moveOff?accountHooks.moveOff(a,k):null});
@@ -756,6 +768,9 @@ const hapiStatus=swr({fresh:5000});   // GET /hapi/status, per query
 const hapiLists=swr({fresh:20000});
 // the slow status reads are read once soon after start (read-only), so even the first page that asks answers from them
 setTimeout(()=>{channelList(false).catch(()=>{});antigravity.status().catch(()=>{});n8n.spaces().catch(()=>{})},15000).unref();
+// System › Usage's engine reports (last 7 days, and the 62 the Spending overview needs) for every agent, once after start, so
+// even the first visit answers at once; after that each visit refreshes them behind the scenes (usage.mjs, 1 Nov 2026). Only the live app (port 4400): a test copy reads nothing it is not asked for
+if(PORT===4400)setTimeout(async()=>{for(const a of [...await listAgents().catch(()=>[]),HELP_AGENT])for(const [k,d] of [['usage',7],['usage',62],['models',7]])usage.report(k,a,d).catch(()=>{})},25000).unref();
 /* The engine reports WhatsApp on any agent but the main one as "not set up", even when linked and connected (its
    check needs env keys WhatsApp doesn't have). The truth: switched on + a saved login (creds.json) = set up, and the
    live state the gateway records for "<agent>:whatsapp". */
@@ -939,7 +954,7 @@ function personId(pf,raw){let v=String(raw||'').trim();if(!v)throw new Error('Ty
  if(pf==='discord'){if(!/^\d{15,21}$/.test(v))throw new Error('A Discord user ID is a long number. In Discord: Settings, Advanced, switch on Developer Mode, then right-click the person and Copy User ID.');return v}
  if(pf==='email'){v=v.toLowerCase();if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v))throw new Error('Type a full email address, like name@example.com.');return v}
  throw new Error('Adding people by hand works for WhatsApp, Telegram, Slack, Discord and email.')}
-const samePerson=(pf,a,b)=>pf==='whatsapp'?String(a).split('@')[0].split(':')[0].replace(/\D/g,'')===String(b).replace(/\D/g,''):String(a).toLowerCase()===String(b).toLowerCase();
+const samePerson=allowSame;   // allowlist.mjs (1 Nov 2026)
 let approveChain=Promise.resolve();
 async function approvePerson(agent,pf,id,name){const home=agent==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',agent);
  const run=approveChain.then(async()=>{const py=await enginePython().catch(()=>null);
@@ -1038,14 +1053,16 @@ async function privateAddress(u){let url;try{url=new URL(String(u))}catch{return
 async function hermesCall(req,res,u,url){
  const p=url.pathname,q=url.searchParams,agent=agentOf(p,q);
  if(['profile','path','name','agent'].some(k=>q.getAll(k).length>1))return send(res,400,{error:'Each setting may appear only once.'});
- // Help's profile only through /ui/help (help.mjs): nobody, admins included, opens its chats, settings or usage here
- if(agent===HELP_AGENT||decodeURIComponent((/^\/hapi\/profiles\/([^/?]+)/.exec(p)||[])[1]||'')===HELP_AGENT)return send(res,403,{error:'Help chats are private to each person.'});
+ // Help's profile only through /ui/help (help.mjs): nobody, admins included, opens its chats or settings here. Its usage
+ // totals are the one exception, for admins on System › Usage (numbers per day and model, never what was said; 1 Nov 2026)
+ const helpTotals=agent===HELP_AGENT&&users.isAdmin(u)&&req.method==='GET'&&/^\/hapi\/analytics\/(usage|models)$/.test(p);
+ if(!helpTotals&&(agent===HELP_AGENT||decodeURIComponent((/^\/hapi\/profiles\/([^/?]+)/.exec(p)||[])[1]||'')===HELP_AGENT))return send(res,403,{error:'Help chats are private to each person.'});
  const no=users.gate(u,p,req.method,q,agent);if(no)return send(res,no.status,{error:no.error});
  {const rm=/\/v1\/runs\/([^/]+)/.exec(p);if(rm&&!users.isAdmin(u)){const own=runOwner.get(decodeURIComponent(rm[1]));if(!own||own.user!==u.id)return send(res,403,{error:'That reply is not yours.'})}}
  if(p.startsWith('/gapi/p/')&&agent&&agent!=='default'&&!keyOk.has(agent)){const envF=path.join(HERMES_HOME,'profiles',agent,'.env');const e=await readFile(envF,'utf8').catch(()=>null);
   if(e!==null){if(!/^API_SERVER_KEY=/m.test(e)&&API_KEY){await writeFile(envF,(e&&!e.endsWith('\n')?e+'\n':e)+'API_SERVER_KEY='+API_KEY+'\n',{mode:0o600});console.log('added the missing gateway key for',agent);await new Promise(r=>setTimeout(r,1500))}keyOk.add(agent)}}
  // the engine's usage reports, per agent: cached, a few at a time, with a time limit and the last good answer on failure (usage.mjs)
- {const am=/^\/hapi\/analytics\/(usage|models)$/.exec(p);if(am&&req.method==='GET'){const days=Math.min(365,Math.max(1,+q.get('days')||30));try{return send(res,200,await usage.report(am[1],q.get('profile')||'default',days))}catch(e){return send(res,e.status||504,{error:e.name==='TimeoutError'?'The engine took too long to add up this agent’s usage.':e.message})}}}
+ {const am=/^\/hapi\/analytics\/(usage|models)$/.exec(p);if(am&&req.method==='GET'){const days=Math.min(365,Math.max(1,+q.get('days')||30));try{return send(res,200,await usage.report(am[1],q.get('profile')||'default',days,{fresh:!!req.headers['x-fresh']}))}catch(e){return send(res,e.status||504,{error:e.name==='TimeoutError'?'The engine took too long to add up this agent’s usage.':e.message})}}}
  if(p==='/hapi/messaging/platforms'&&req.method==='GET'){try{return send(res,200,await platformsCached(q.get('profile')||'default'))}catch(e){return send(res,e.status||502,{error:e.message})}}
  if(p.startsWith('/hapi/messaging/')&&req.method!=='GET')platCache.clear();
  if(p.startsWith('/hapi/')&&req.method!=='GET'){hapiStatus.drop();hapiLists.drop()}   // any engine change: the next status is read new
@@ -1896,6 +1913,8 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/models/agents'&&req.method==='GET'){const ag=(await listAgents()).filter(a=>users.isAdmin(u)||users.level(u,a));   // the agents this person may use (owned or shared)
     // side by side, a few at a time (each a config read; it was one after another)
     const out=await Promise.all(ag.map(a=>cfgLimit(async()=>{const c=await readConfig(a).catch(()=>null)||{};return {id:a,name:NAMES[a]||await displayName(a),model:c.model?.default||'',provider:c.model?.provider||''}})));return send(res,200,{agents:out})}
+   // Models › AI accounts › If an account fails: each agent's fallback models, as backup-models.mjs keeps them (admins; 1 Nov 2026)
+   if(p==='/ui/models/fallbacks'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});const st=await backupModels.status().catch(()=>({agents:[],outages:[]}));return send(res,200,{...st,agents:(st.agents||[]).filter(x=>users.level(u,x.agent))})}   // like /ui/models/agents: not a member's private agent
    // Access: who owns each connection and which agents may use it (see access.mjs). Admins only.
    // asking for access: anyone may see what the other agents have (names only) and ask for it for an agent they use; admins decide
    // Abilities › Connected accounts (connected-accounts.mjs): the owner's own logins the agents use; admins only
@@ -2028,6 +2047,45 @@ const server=createServer(async(req,res)=>{
     let how;try{how=await approvePerson(ag,pf,id,name)}catch(e){return send(res,500,{error:e.message})}
     await editAdded(all=>{all[ag+'|'+pf+'|'+id]={by:u.name||u.id,name,note,t:Date.now()}}).catch(e=>console.warn('approvals added: the mark was not saved:',e.message));
     console.log('approved by hand on',ag,pf,'('+how+') by',u.name||u.id);return send(res,200,{ok:true,id})}
+   /* Who can message (1-2 Nov 2026): read straight from the agent's own .env, config.yaml, pairing store and WhatsApp
+      lid-mapping files, never from the 10-minute platforms cache (allowlist.mjs decides; it matches the engine and the
+      WhatsApp bridge). GET: per channel the people who may message (one row per person, every alias; groups apart) and
+      what strangers get; the list for every channel. POST remove-person: one person (or "*", or clear:true for one whole
+      list) off the lists the row stands for and out of the approvals, then everything read again.
+      Writing touches only the agent asked about, never another's files:
+      - a list: under the engine's own .env lock (editEnv) and in the same in-app queue as the WhatsApp loop guard, worked
+        out from the file as it is then; the engine is then told that value for this profile (PUT without `enabled`, so a
+        paused channel stays paused), which makes a named agent's gateway apply it at once. The main agent's gateway keeps
+        its old list in memory until the agents restart, and the answer says so.
+      - an approval: in this agent's own pairing store, under the store's own lock (its folder's .lock), never through the
+        engine's revoke: that also rewrites the dashboard's own scope, the MAIN agent's .env, whatever profile was asked.
+      For an agent other than the main one the check afterwards also proves the main agent's .env did not change. */
+   if((p==='/ui/channels/who'&&req.method==='GET')||(p==='/ui/channels/remove-person'&&req.method==='POST')){const post_=req.method==='POST';let b={};if(post_){try{b=JSON.parse(await readBody(req,4096))}catch{}}
+    const ag=String(post_?b.agent:url.searchParams.get('agent')||'default'),base=ag.split('--')[0];if(ag.startsWith('.')||!(await listAllProfiles()).includes(ag))return send(res,400,{error:'Unknown agent.'});
+    if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+base+'/soul','PUT',new URLSearchParams(),base)!==null)return send(res,403,{error:'You can only see and change who may message agents you may edit.'});
+    const home=ag==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',ag),envF=path.join(home,'.env'),hh={'x-hermes-session-token':DASH_TOKEN},pdir=pairingDir(home);
+    // the store's own approvals ({platform}-approved.json); the engine's /api/pairing would add the .env entries again
+    const approvals=async()=>{const out=[];for(const n of await readdir(pdir).catch(()=>[])){const m=/^(.+)-approved\.json$/.exec(n);if(!m)continue;let d={};try{d=JSON.parse(await readFile(path.join(pdir,n),'utf8'))}catch{continue}
+     for(const [uid,v] of Object.entries(d&&typeof d==='object'?d:{}))out.push({platform:m[1],user_id:uid,user_name:v?.user_name||''})}return out};
+    const read=async()=>{const [env,approved,conf]=await Promise.all([readFile(envF,'utf8').catch(()=>'').then(parseEnv),approvals(),readConfig(ag).catch(()=>({}))]);return {env,approved,mapping:waMapping(home),conf:conf||{}}};
+    if(!post_){const st=await read();const pl=await platformsCached(ag).catch(()=>null);
+     const on=(pl?.platforms||pl||[]).filter?.(c=>(c.configured||c.state==='connected'||c.paused)&&!['api_server','webhook'].includes(c.id)).map(c=>c.id)||[];
+     const ids=[...new Set([...on,...st.approved.map(x=>x.platform),...Object.keys(st.env).map(k=>/^([A-Z0-9]+)_ALLOWED_USERS$/.exec(k)?.[1]).filter(x=>x&&x!=='GATEWAY').map(x=>x==='QQ'?'qqbot':x.toLowerCase())])];
+     return send(res,200,{agent:ag,channels:ids.map(pf=>channelWho(st.env,pf,st.approved,st.mapping,st.conf)),global:globalWho(st.env,st.mapping,st.conf)})}
+    const pf=String(b.platform||''),id=String(b.id??''),every=!!b.every,clear=b.clear===true;if(!/^[a-z0-9_]{1,40}$/.test(pf)&&!every)return send(res,400,{error:'Unknown channel.'});
+    const io={read,
+     setList:(k,fn)=>envQueue(envF,async()=>{let val=null;const changed=await editEnv(envF,t=>setEnvLine(t,k,old=>{const v=fn(old??'');val=v;return v}));if(!changed)return {changed:false,hot:true};
+      // tell the engine for this profile (this channel's own list only; the list for every channel is read at its start)
+      const kp=/^([A-Z0-9]+)_ALLOWED_USERS$/.exec(k)?.[1];if(!kp||kp==='GATEWAY')return {changed:true,hot:false};
+      const r=await fetch(DASH.origin+'/api/messaging/platforms/'+encodeURIComponent(kp==='QQ'?'qqbot':kp.toLowerCase())+'?profile='+encodeURIComponent(ag),{method:'PUT',headers:{...hh,'content-type':'application/json'},body:JSON.stringify(engineChange(k,val)),signal:AbortSignal.timeout(30000)}).catch(()=>null);
+      return {changed:true,hot:!!(r?.ok&&(await r.json().catch(()=>({}))).hot_served)}}),
+     revoke:(platform,ids)=>envQueue(envF,()=>withFlock(path.join(pdir,'.lock'),async()=>{const f=path.join(pdir,platform+'-approved.json');let d;try{d=JSON.parse(await readFile(f,'utf8'))}catch(e){if(e.code==='ENOENT')return;throw new Error('The approved list for '+platform+' could not be read, so it was left as it is.')}
+      const {data,gone}=approvedWithout(d,platform,ids,waMapping(home));if(!gone.length)return;const t=f+'.'+process.pid+'.tmp';await writeFile(t,JSON.stringify(data,null,2),{mode:0o600});await rename(t,f)},10)),
+     ...(ag==='default'?{}:{mainEnv:()=>readFile(path.join(HERMES_HOME,'.env'),'utf8').catch(()=>'')})};
+    let out;try{out=await removePerson(io,{pf,id,every,clear})}catch(e){platCache.delete(ag);return send(res,e.status||500,{error:e.message})}
+    if(id&&id!=='*'){const mp=waMapping(home);await editAdded(all=>{let ch=false;for(const k2 of Object.keys(all)){const [a2,p2,...r2]=k2.split('|');if(a2===ag&&(every||p2===pf)&&samePerson(p2,r2.join('|'),id,mp)){delete all[k2];ch=true}}return ch?undefined:false}).catch(()=>{})}
+    platCache.delete(ag);console.log('who can message:',u.name||u.id,'removed',clear?'(the whole list)':id,'from',ag,every?'every channel':pf,out.still?'(still there: '+out.why.join(', ')+')':'');
+    return send(res,200,{ok:!out.still,...out,main:ag==='default'})}
    if(p==='/ui/channels/approvals-added'&&req.method==='GET'){const all=await readFile(ADDED_FILE,'utf8').then(JSON.parse).catch(()=>({}));if(users.isAdmin(u))return send(res,200,all);
     // only the agents they may edit, as for adding someone (who added whom is not for everyone who can chat with it)
     const out={};for(const [k,v] of Object.entries(all)){const a=k.split('|')[0].split('--')[0];if(users.gate(u,'/hapi/profiles/'+a+'/soul','PUT',new URLSearchParams(),a)===null)out[k]=v}return send(res,200,out)}
@@ -2201,7 +2259,7 @@ server.on('upgrade',(req,sock,headBuf)=>{
  if(p!=='/screen/websockify'||!validCookie(req)||!sameOrigin(req)){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}
  const agent=new URL(req.url,'http://x').searchParams.get('agent');
  me(req).then(u=>{if(!u||users.gate(u,'/ui/screens/'+(agent||'default'),'GET',new URLSearchParams(),agent||'default')){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}
-  // screen=ads: the shared AdsPower screen, whichever agent is driving it (admins only)
+  // screen=ads: the old shared :99 screen, no longer offered in the app (each agent has its own AdsPower); admins only
   const ads=new URL(req.url,'http://x').searchParams.get('screen')==='ads';if(ads&&!users.isAdmin(u)){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}
   return screens.upgrade(req,sock,headBuf,ads?null:agent,users.isAdmin(u))}).catch(()=>sock.destroy());
 });
