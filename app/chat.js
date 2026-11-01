@@ -334,9 +334,9 @@ const Chat={
   explainFor('mcp',d.mcp.map(s=>({id:s.name,name:s.name,desc:s.url||s.command||''})));explainFor('tool',d.built.map(t=>({id:t.name,name:t.label||t.name,desc:t.description||''})));
   const has=(kind,name)=>this.tools.some(t=>t.kind===kind&&t.name===name);
   const flip=(kind,name,label)=>{const i=this.tools.findIndex(t=>t.kind===kind&&t.name===name);if(i>=0)this.tools.splice(i,1);else this.tools.push({kind,name,label});this.paintTools();$('#msg')?.focus()};
-  menu(el,[{header:'MCP tools'},...(d.mcp.length?d.mcp.map(s=>({label:ex('mcp',s.name)?.title||pretty(s.name),sub:ex('mcp',s.name)?.summary,icon:'plug',on:has('mcp',s.name),run:()=>flip('mcp',s.name,pretty(s.name))})):[{label:'No MCP tools yet',icon:'plug',run:()=>go('/abilities/mcp')}]),
+  menu(el,[{header:'MCP tools'},...(d.mcp.length?d.mcp.map(s=>({label:ex('mcp',s.name)?.title||pretty(s.name),sub:ex('mcp',s.name)?.summary,icon:'plug',on:has('mcp',s.name),run:()=>flip('mcp',s.name,pretty(s.name))})):[{label:'No MCP tools yet',icon:'plug',run:()=>go('/abilities/connections')}]),
    '-',{header:'Built-in tools'},...d.built.map(t=>({label:t.label||pretty(t.name),sub:ex('tool',t.name)?.summary||String(t.description||'').slice(0,90),icon:'zap',on:has('tool',t.name),run:()=>flip('tool',t.name,t.label||pretty(t.name))})),
-   '-',{label:'Manage tools…',icon:'sliders',run:()=>go('/abilities/mcp')}])},
+   '-',{label:'Manage tools…',icon:'sliders',run:()=>go('/abilities/connections')}])},
  async send(text,images=[],target){
   if(this.tools.length&&!target){text='[Use these tools for this: '+this.tools.map(t=>t.label+(t.kind==='mcp'?' (MCP)':'')+' = '+t.name).join(', ').replace(/ = [^,]+/g,'')+']\n\n'+text;this.tools=[];this.paintTools()}
   let id=target||this.id;const prof=S.profile||'default';
