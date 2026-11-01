@@ -432,27 +432,30 @@ const pairWho=profs=>Promise.all(profs.map(async x=>({...x,d:await UI('/ui/chann
 const pairSame=(pf,a,b)=>pf==='whatsapp'?String(a).split('@')[0].split(':')[0].replace(/\D/g,'')===String(b).split('@')[0].split(':')[0].replace(/\D/g,''):String(a).toLowerCase()===String(b).toLowerCase();
 const WHO_IC={anyone:'globe',ask:'user',ignored:'lock'};
 function pairPeople(whos,all,whoName){const ag=a=>a.split('--')[0],btn=(attrs,t='Remove access')=>`<button class="ghost small" ${attrs}>${t}</button>`;
- const groups=[];for(const w of whos){if(!w.d)continue;for(const c of w.d.channels)groups.push({...c,prof:w.prof,label:w.label});
-  if(w.d.global.list.length||w.d.global.allowAll)groups.push({every:true,prof:w.prof,label:w.label,rows:w.d.global.list.filter(x=>x!=='*').map(id=>({id,raw:id,listed:true})),star:w.d.global.list.includes('*'),allowAll:w.d.global.allowAll})}
+ // "Every channel" comes first: it applies to each channel listed under it
+ const groups=[];for(const w of whos){if(!w.d)continue;const g=w.d.global;
+  if(g.list.length||g.allowAll)groups.push({every:true,prof:w.prof,label:w.label,rows:g.list.filter(x=>x!=='*').map(id=>({id,raw:id,listed:true,after:g.after})),star:g.star,starAfter:'',allowAll:g.allowAll});
+  for(const c of w.d.channels)groups.push({...c,prof:w.prof,label:w.label})}
  const bad=whos.filter(w=>!w.d).map(w=>w.label||ident(ag(w.prof)).name);
- groups.sort((x,y)=>(x.every-y.every)||String(x.platform||'').localeCompare(String(y.platform||''))||x.prof.localeCompare(y.prof));
- const row=(G,r,i)=>{const nm=r.name||r.id,sub=[r.name?'ID '+r.id:'',r.approved&&r.listed?'Approved, on its list':r.approved?'Approved':G.every?'On the list for every channel':'On its allowlist'].filter(Boolean).join(' · ');
-  return `<div class="pp-row" ${st(i)}><span class="ic">${icon('user',15)}</span><div class="txt"><b>${esc(nm)}</b><span>${esc(sub)}</span></div>${btn(`data-act="pair-revoke" data-prof="${esc(G.prof)}" data-p="${esc(G.platform||'')}" data-u="${esc(r.raw||r.id)}" data-n="${esc(nm)}" ${G.every?'data-every="1"':''} ${r.last?'data-last="1"':''}`)}</div>`};
+ groups.sort((x,y)=>(y.every?1:0)-(x.every?1:0)||String(x.platform||'').localeCompare(String(y.platform||''))||x.prof.localeCompare(y.prof));
+ const row=(G,r,i)=>{const nm=r.name||r.id,sub=[r.name?'ID '+r.id:'',r.aliases?.length?'also '+r.aliases.join(', '):'',r.approved&&r.listed?'Approved, on its list':r.approved?'Approved':G.every?'On the list for every channel':'On its allowlist'].filter(Boolean).join(' · ');
+  return `<div class="pp-row" ${st(i)}><span class="ic">${icon('user',15)}</span><div class="txt"><b>${esc(nm)}</b><span>${esc(sub)}</span></div>${btn(`data-act="pair-revoke" data-prof="${esc(G.prof)}" data-p="${esc(G.platform||'')}" data-u="${esc(r.raw||r.id)}" data-n="${esc(nm)}" data-after="${esc(r.after||'')}" ${G.every?'data-every="1"':''}`)}</div>`};
  const head=G=>G.every?`<span class="ic logo">${icon('layers',14)}</span><b>Every channel</b>`:`${chLogo(G.platform,appName(G.platform))}<b>${esc(appName(G.platform))}${G.label?' · '+esc(G.label):''}</b>`;
- const words=G=>G.every?(G.allowAll&&!G.rows.length?'With no list, anyone may message every channel (GATEWAY_ALLOW_ALL_USERS).':'These people may message every channel of this agent.'):G.words;
- const anyone=(G,i)=>G.star?`<div class="pp-row" ${st(i)}><span class="ic warn">${icon('alert',15)}</span><div class="txt"><b>Anyone</b><span>The list says * , so everyone who finds ${G.every?'any channel':'this channel'} may write</span></div>${btn(`data-act="pair-revoke" data-prof="${esc(G.prof)}" data-p="${esc(G.platform||'')}" data-u="*" data-pol="${esc(G.policy||'')}" data-left="${G.rows.length}" ${G.every?'data-every="1"':''}`,'Stop')}</div>`:'';
+ const words=G=>G.every?(G.allowAll&&!G.rows.length?'With no list, anyone may message every channel that has no list of its own (GATEWAY_ALLOW_ALL_USERS).':'These people may message every channel of this agent.'):G.words;
+ const anyone=(G,i)=>G.star?`<div class="pp-row" ${st(i)}><span class="ic warn">${icon('alert',15)}</span><div class="txt"><b>Anyone</b><span>The list says * , so everyone who finds ${G.every?'any channel':'this channel'} may write</span></div>${btn(`data-act="pair-revoke" data-prof="${esc(G.prof)}" data-p="${esc(G.platform||'')}" data-u="*" data-after="${esc(G.starAfter||'')}" ${G.every?'data-every="1"':''}`,'Stop')}</div>`:'';
  return `${bad.length?errLine('who may message '+bad.join(', ')):''}<div class="panel card pp"><div class="h-row"><h2 style="margin:0">Who can message</h2><button data-act="pair-add">${icon('plus',15)}Add a person</button></div><p class="sub">${all?'Everyone who may message your agents, per channel.':'Everyone who may message '+esc(whoName)+', per channel.'} Remove someone and the agent stops answering them.</p>
   ${groups.map(G=>`<div class="pp-ch"><div class="pp-head">${head(G)}${all?`<span class="acc-from">${Access.av({id:ag(G.prof),name:ident(ag(G.prof)).name},16)}${esc(ident(ag(G.prof)).name)}</span>`:''}</div>
-   <p class="pp-pol pol-${G.every?'every':G.newPeople}">${icon(G.every?'layers':WHO_IC[G.newPeople]||'user',13)}<span>${esc(words(G))}${G.allowAll&&!G.every?' Its settings let anyone write.':''}${G.every||G.newPeople!=='ignored'||G.policy!=='allowlist'?'':' Its DM policy is allowlist.'}${G.every?` <a href="#/system/settings" data-act="keys-settings" data-agent="${esc(ag(G.prof))}">Settings › Agent settings</a>`:''}</span></p>
+   <p class="pp-pol pol-${G.every?'every':G.newPeople}">${icon(G.every?'layers':WHO_IC[G.newPeople]||'user',13)}<span>${esc(words(G))}${G.allowAll&&!G.every?' Its settings let anyone write.':''}${G.every?` <a href="#/system/settings" data-act="keys-settings" data-agent="${esc(ag(G.prof))}">Settings › Agent settings</a>`:''}</span></p>
    ${anyone(G,0)}${G.rows.map((r,i)=>row(G,r,i+1)).join('')||(G.star?'':`<p class="hint pp-none">${G.newPeople==='ignored'?'Nobody can message it now.':'Nobody yet.'}</p>`)}</div>`).join('')||'<p class="hint" style="margin:0">No channel yet. Connect one under Connections, then approve people here.</p>'}</div>`}
-// Remove access: off the allowlist and out of the approved list at once, on the server, which reads both again to check
-ACT['pair-revoke']=async a=>{const {prof:pr,p:pf,u:id,n,every,last,pol,left}=a.dataset,nm=ident((pr||'default').split('--')[0]).name,app=every?'every channel':appName(pf);
- const nobody=last?' Nobody else can message '+nm+' on '+app+' then, and new people can’t ask: to let them ask, set its DM policy to pairing in its settings.':'';
- const t=id==='*'?['Stop letting anyone message '+nm+'?','Only the people listed can message it on '+app+' then.'+(pol!=='pairing'&&(pol==='allowlist'||pol==='disabled'||+left>0)?' New people get no answer and can’t ask.':' New people ask first and wait for your OK.'),'Stop']
-  :['Remove access for '+(n||id)+'?','They can no longer message '+nm+' on '+app+'.'+nobody,'Remove access'];
+// Remove access: every alias off the lists the row stands for and out of the approvals, on the server, which reads
+// everything again and says if they still can and why. The confirm says what the channel is like afterwards (`after`,
+// worked out on the server from the channel as it will be).
+ACT['pair-revoke']=async a=>{const {prof:pr,p:pf,u:id,n,every,after}=a.dataset,nm=ident((pr||'default').split('--')[0]).name,app=every?'every channel':appName(pf);
+ const t=id==='*'?['Stop letting anyone message '+nm+'?','Only the people listed can message it on '+app+' then.'+(after?' '+after:''),'Stop']
+  :['Remove access for '+(n||id)+'?','They can no longer message '+nm+' on '+app+(every?', from any list or approval':'')+'.'+(after?' '+after:''),'Remove access'];
  if(!await confirmBox(...t))return;a.disabled=true;
  try{const r=await post(UI,'/ui/channels/remove-person',{agent:pr||'default',platform:pf,id,every:!!every});if(r.restart)chNeedRestart();
-  if(r.still){fail(new Error((n||id)+' can still message '+nm+'. Try again, or check the channel’s settings.'));a.disabled=false;return}
+  if(r.still){fail(new Error((id==='*'?'Anyone can still message ':(n||id)+' can still message ')+nm+': '+(r.why||[]).join('; ')+'.'));a.disabled=false;reload();return}
   toast((id==='*'?'Only listed people can message '+nm+' now':'Access removed')+(r.restart?' · applies after the agents restart':''));reload()}catch(e){fail(e);a.disabled=false}};
 /* Add a person by hand: approve someone on one of the agent's channels before they message it. The server checks the ID
    per app and writes the approval the engine's own way; such people show "Added by hand" with the note. */

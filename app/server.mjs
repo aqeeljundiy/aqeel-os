@@ -59,7 +59,7 @@ net.setDefaultAutoSelectFamilyAttemptTimeout(4000);
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {readPicture,emojiSlugs,emojiAuto,AVATAR_TYPES} from './avatar-file.mjs';
-import {split as allowSplit,parseEnv,channelWho,removePerson,samePerson as allowSame} from './allowlist.mjs';
+import {parseEnv,setEnvLine,channelWho,globalWho,removePerson,engineChange,samePerson as allowSame} from './allowlist.mjs';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
 const root=path.resolve(here,'..');
@@ -431,11 +431,21 @@ const lockedAgent=(a,st)=>{if(st[a]?.safe)return true;const ow=users.agentOwner(
    phone that another agent (like Husband Mode) also runs on. */
 async function waIds(a){const c=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'platforms','whatsapp','session','creds.json'),'utf8').then(JSON.parse).catch(()=>null);
  return [c?.me?.id,c?.me?.lid].filter(Boolean).map(x=>String(x).split('@')[0].split(':')[0].replace(/\D/g,'')).filter(Boolean)}
+/* One .env change at a time inside aqeelOS (1 Nov 2026): the WhatsApp loop guard and Who can message's removals both
+   read, change and write an agent's lists; each also holds the engine's own .env lock while it writes (editEnv). */
+const envQueues=new Map();
+function envQueue(file,fn){const prev=envQueues.get(file)||Promise.resolve();const run=prev.then(fn,fn);const tail=run.catch(()=>{});envQueues.set(file,tail);tail.then(()=>{if(envQueues.get(file)===tail)envQueues.delete(file)});return run}
+// an agent's WhatsApp lid-mapping files ({name: text}), in the folder the engine uses (gateway/whatsapp_identity.py and
+// hermes_constants.get_hermes_dir: the old whatsapp/session when it has files, else platforms/whatsapp/session)
+async function waMapping(home){const old=path.join(home,'whatsapp','session'),cur=path.join(home,'platforms','whatsapp','session');
+ const dir=(await readdir(old).catch(()=>[])).length?old:cur,out={};
+ for(const n of await readdir(dir).catch(()=>[]))if(/^lid-mapping-[A-Za-z0-9@.+\-]+\.json$/.test(n))out[n]=await readFile(path.join(dir,n),'utf8').catch(()=>null);
+ return out}
 async function loopGuard(a,all){if(a.split('--')[0]==='default')return;const home=path.join(HERMES_HOME,'profiles',a);
  const others=new Set();for(const b of all)if(b!==a)for(const id of await waIds(b))others.add(id);if(!others.size)return;const removed=[];
  const envF=path.join(home,'.env');
- await editEnv(envF,cur=>{let changed=false;const next=cur.split('\n').map(l=>{const m=/^(WHATSAPP_ALLOWED_USERS=)["']?([^"'\n]*)["']?$/.exec(l);if(!m)return l;
-  const keep=m[2].split(',').map(x=>x.trim()).filter(x=>{const d=x.replace(/\D/g,'');if(d&&others.has(d)){removed.push(x);changed=true;return false}return !!x});return m[1]+keep.join(',')});return changed?next.join('\n'):null}).catch(()=>{});
+  await envQueue(envF,()=>editEnv(envF,cur=>{let changed=false;const next=cur.split('\n').map(l=>{const m=/^(WHATSAPP_ALLOWED_USERS=)["']?([^"'\n]*)["']?$/.exec(l);if(!m)return l;
+  const keep=m[2].split(',').map(x=>x.trim()).filter(x=>{const d=x.replace(/\D/g,'');if(d&&others.has(d)){removed.push(x);changed=true;return false}return !!x});return m[1]+keep.join(',')});return changed?next.join('\n'):null})).catch(()=>{});
  const apF=path.join(home,'platforms','pairing','whatsapp-approved.json');const ap=await readFile(apF,'utf8').then(JSON.parse).catch(()=>null);
  if(ap&&typeof ap==='object'){let ch=false;for(const k of Object.keys(ap))if(others.has(k.replace(/\D/g,''))){delete ap[k];removed.push(k);ch=true}
   if(ch){await writeFile(apF+'.tmp',JSON.stringify(ap));await rename(apF+'.tmp',apF)}}
@@ -2002,31 +2012,36 @@ const server=createServer(async(req,res)=>{
     let how;try{how=await approvePerson(ag,pf,id,name)}catch(e){return send(res,500,{error:e.message})}
     await editAdded(all=>{all[ag+'|'+pf+'|'+id]={by:u.name||u.id,name,note,t:Date.now()}}).catch(e=>console.warn('approvals added: the mark was not saved:',e.message));
     console.log('approved by hand on',ag,pf,'('+how+') by',u.name||u.id);return send(res,200,{ok:true,id})}
-   /* Who can message (1 Nov 2026): read straight from the agent's .env and the engine's pairing store, never from the 10-minute
-      platforms cache, so a page and a removal see what really holds (allowlist.mjs). GET: per channel the people who may
-      message and what new people get; the list for every channel. POST remove-person: off the allowlist (the channel's, or
-      every channel's) and out of the approved list, both, then read again to say whether they still can. */
+   /* Who can message (1 Nov 2026): read straight from the agent's .env, the engine's pairing store and its WhatsApp
+      lid-mapping files, never from the 10-minute platforms cache, so a page and a removal see what really holds
+      (allowlist.mjs). GET: per channel the people who may message (one row per person, every alias) and what new
+      people get; the list for every channel. POST remove-person: every alias off the lists the row stands for and out of
+      the approvals, then everything read again: it says if they still can, and why.
+      Writing: each list changes under the engine's own .env lock (editEnv; the engine's save_env_value takes the same
+      flock on .env.lock) and inside the same in-app queue as the WhatsApp loop guard, computed from the file as it is at
+      that moment, so a number the guard took off is never written back. The engine is then told the value the file now
+      holds (PUT without `enabled`, so a paused channel stays paused), which makes it apply at once. */
    if((p==='/ui/channels/who'&&req.method==='GET')||(p==='/ui/channels/remove-person'&&req.method==='POST')){const post_=req.method==='POST';let b={};if(post_){try{b=JSON.parse(await readBody(req,4096))}catch{}}
     const ag=String(post_?b.agent:url.searchParams.get('agent')||'default'),base=ag.split('--')[0];if(!(await listAllProfiles()).includes(ag))return send(res,400,{error:'Unknown agent.'});
     if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+base+'/soul','PUT',new URLSearchParams(),base)!==null)return send(res,403,{error:'You can only see and change who may message agents you may edit.'});
     const home=ag==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',ag),envF=path.join(home,'.env'),hh={'x-hermes-session-token':DASH_TOKEN};
-    const fresh=async()=>{const env=parseEnv(await readFile(envF,'utf8').catch(()=>''));const pr=await fetch(DASH.origin+'/api/pairing?profile='+encodeURIComponent(ag),{headers:hh,signal:AbortSignal.timeout(20000)}).then(r=>r.ok?r.json():null).catch(()=>null);return {env,pr}};
-    if(!post_){const {env,pr}=await fresh();if(!pr)return send(res,502,{error:'The engine did not answer.'});const pl=await platformsCached(ag).catch(()=>null);
+    const read=async()=>{const [env,pr,mapping]=await Promise.all([readFile(envF,'utf8').catch(()=>'').then(parseEnv),fetch(DASH.origin+'/api/pairing?profile='+encodeURIComponent(ag),{headers:hh,signal:AbortSignal.timeout(20000)}).then(r=>r.ok?r.json():null).catch(()=>null),waMapping(home)]);
+     if(!pr)throw Object.assign(new Error('The engine did not answer, so nothing was changed. Try again in a moment.'),{status:502});return {env,approved:pr.approved||[],mapping}};
+    if(!post_){let st;try{st=await read()}catch(e){return send(res,e.status||502,{error:e.message})}const pl=await platformsCached(ag).catch(()=>null);
      const on=(pl?.platforms||pl||[]).filter?.(c=>(c.configured||c.state==='connected'||c.paused)&&!['api_server','webhook'].includes(c.id)).map(c=>c.id)||[];
-     const ids=[...new Set([...on,...(pr.approved||[]).map(x=>x.platform),...Object.keys(env).map(k=>/^([A-Z0-9]+)_ALLOWED_USERS$/.exec(k)?.[1]?.toLowerCase()).filter(x=>x&&x!=='gateway'&&!/_group$/.test(x))])];
-     return send(res,200,{agent:ag,channels:ids.map(pf=>channelWho(env,pf,pr.approved||[])),global:{list:allowSplit(env.GATEWAY_ALLOWED_USERS),allowAll:/^(1|true|yes|on)$/i.test(String(env.GATEWAY_ALLOW_ALL_USERS||'').trim())}})}
+     const ids=[...new Set([...on,...st.approved.map(x=>x.platform),...Object.keys(st.env).map(k=>/^([A-Z0-9]+)_ALLOWED_USERS$/.exec(k)?.[1]?.toLowerCase()).filter(x=>x&&x!=='gateway')])];
+     return send(res,200,{agent:ag,channels:ids.map(pf=>channelWho(st.env,pf,st.approved,st.mapping)),global:globalWho(st.env)})}
     const pf=String(b.platform||''),id=String(b.id??''),every=!!b.every;if(!/^[a-z0-9_]{1,40}$/.test(pf)&&!every)return send(res,400,{error:'Unknown channel.'});
-        // the reading and writing for removePerson (allowlist.mjs): this channel's list through the engine (it applies it), every
-    // channel's list in the .env (read at the engine's start), approvals through the engine; read fresh every time
-    const io={read:async()=>{const f=await fresh();if(!f.pr)throw Object.assign(new Error('The engine did not answer, so nothing was changed. Try again in a moment.'),{status:502});return {env:f.env,approved:f.pr.approved||[]}},
-     setGlobal:rest=>editEnv(envF,t=>t.split('\n').map(l=>/^\s*GATEWAY_ALLOWED_USERS\s*=/.test(l)?'GATEWAY_ALLOWED_USERS='+rest.join(','):l).join('\n')),
-     setList:async(k,rest)=>{const pl=await fetch(DASH.origin+'/api/messaging/platforms?profile='+encodeURIComponent(ag),{headers:hh,signal:AbortSignal.timeout(20000)}).then(r=>r.ok?r.json():null).catch(()=>null),c=(pl?.platforms||[]).find(x=>x.id===pf);
-      const r=await fetch(DASH.origin+'/api/messaging/platforms/'+encodeURIComponent(pf)+'?profile='+encodeURIComponent(ag),{method:'PUT',headers:{...hh,'content-type':'application/json'},body:JSON.stringify({enabled:c?!!c.enabled:true,env:rest.length?{[k]:rest.join(',')}:{},...(rest.length?{}:{clear_env:[k]})}),signal:AbortSignal.timeout(30000)});
-      if(!r.ok)throw Object.assign(new Error('The engine refused the change ('+r.status+'), so they can still message.'),{status:502});return !!(await r.json().catch(()=>({}))).hot_served},
-     revoke:async uid=>{const r=await fetch(DASH.origin+'/api/pairing/revoke?profile='+encodeURIComponent(ag),{method:'POST',headers:{...hh,'content-type':'application/json'},body:JSON.stringify({platform:pf,user_id:uid,profile:ag}),signal:AbortSignal.timeout(20000)});if(!r.ok)throw Object.assign(new Error('The engine refused to remove their approval ('+r.status+').'),{status:502})}};
+    const io={read,
+     setList:(k,fn)=>envQueue(envF,async()=>{let val=null;const changed=await editEnv(envF,t=>{const next=setEnvLine(t,k,old=>{const v=fn(old??'');val=v;return v});return next});if(!changed)return {changed:false,hot:true};
+      // tell the engine (this channel's own list only; the list for every channel is read at its start)
+      const kp=/^([A-Z0-9]+)_ALLOWED_USERS$/.exec(k)?.[1]?.toLowerCase();if(!kp||kp==='gateway')return {changed:true,hot:false};
+      const r=await fetch(DASH.origin+'/api/messaging/platforms/'+encodeURIComponent(kp)+'?profile='+encodeURIComponent(ag),{method:'PUT',headers:{...hh,'content-type':'application/json'},body:JSON.stringify(engineChange(k,val)),signal:AbortSignal.timeout(30000)}).catch(()=>null);
+      return {changed:true,hot:!!(r?.ok&&(await r.json().catch(()=>({}))).hot_served)}}),
+     revoke:async(platform,uid)=>{const r=await fetch(DASH.origin+'/api/pairing/revoke?profile='+encodeURIComponent(ag),{method:'POST',headers:{...hh,'content-type':'application/json'},body:JSON.stringify({platform,user_id:uid,profile:ag}),signal:AbortSignal.timeout(20000)});if(!r.ok)throw Object.assign(new Error('The engine refused to remove their approval ('+r.status+').'),{status:502})}};
     let out;try{out=await removePerson(io,{pf,id,every})}catch(e){platCache.delete(ag);return send(res,e.status||500,{error:e.message})}
-    if(id&&!every)await editAdded(all=>{let ch=false;for(const k2 of Object.keys(all)){const [a2,p2,...r2]=k2.split('|');if(a2===ag&&p2===pf&&samePerson(pf,r2.join('|'),id)){delete all[k2];ch=true}}return ch?undefined:false}).catch(()=>{});
-    platCache.delete(ag);console.log('who can message:',u.name||u.id,'removed',id||'(the whole list)','from',ag,every?'every channel':pf,out.still?'(still there)':'');
+    if(id&&id!=='*'){const mp=await waMapping(home);await editAdded(all=>{let ch=false;for(const k2 of Object.keys(all)){const [a2,p2,...r2]=k2.split('|');if(a2===ag&&(every||p2===pf)&&samePerson(p2,r2.join('|'),id,mp)){delete all[k2];ch=true}}return ch?undefined:false}).catch(()=>{})}
+    platCache.delete(ag);console.log('who can message:',u.name||u.id,'removed',id||'(the whole list)','from',ag,every?'every channel':pf,out.still?'(still there: '+out.why.join(', ')+')':'');
     return send(res,200,{ok:!out.still,...out})}
    if(p==='/ui/channels/approvals-added'&&req.method==='GET'){const all=await readFile(ADDED_FILE,'utf8').then(JSON.parse).catch(()=>({}));if(users.isAdmin(u))return send(res,200,all);
     // only the agents they may edit, as for adding someone (who added whom is not for everyone who can chat with it)
