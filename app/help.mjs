@@ -36,8 +36,9 @@ const GUIDE=`How aqeelOS works:
 - Automations: Schedules run a prompt on a timetable and send the result where wanted. Automations › n8n opens the agent's own n8n, without signing in, for workflows it builds and runs. Task board: tasks agents pick up on their own.
 - Your own Chrome: download the extension from Use my browser (the globe at the top), then Load unpacked in chrome://extensions. In a chat, choose My browser: the agent works in that chat's own tab group, the tab glows, a cursor shows where it clicks, and Stop or Take over is always there. Alt+A opens the side chat.
 - Models and accounts: Models › Accounts lists the accounts that do the thinking and the order they are used in when one runs out. Agents' models shows which model each agent uses.
-- Bottlenecks (the warning sign at the top): everything stuck until a person acts (a sign-in that is due, a failed schedule, an agent missing access, Help tickets for admins), each with a fix.
-- For admins: System › People invites people and gives them roles. Keys and secrets: API keys, never shown in full. Health: is everything running, restart the agents, updates. Showing at the top of a page switches between one agent and All agents.
+- Bottlenecks (the warning sign at the top): everything stuck until a person acts (a sign-in that is due, a failed schedule, a channel that logged out, an agent missing access, Help tickets waiting for admins), each with a fix. The bell next to it is the history: what finished or got fixed, nothing to do.
+- For admins, Help itself has Tickets and settings (#/help/admin): the open tickets, Share a support report, and the Help model.
+- For admins: System › People invites people and gives them roles. Keys and secrets: API keys, never shown in full. Health: is everything running, restart the agents, updates, backups and restore. Showing at the top of a page switches between one agent and All agents.
 Menu (links you may give): Chat #/chat · Agents #/agents/profiles · Memory #/agents/memory · Files #/agents/files · Code #/code/code · Schedules #/automations/schedules · Webhooks #/automations/webhooks · n8n #/automations/n8n · Task board #/automations/kanban · Channels #/channels/channels · Skills #/abilities/skills · Connected apps #/abilities/mcp · Plugins #/abilities/plugins · Achievements #/abilities/achievements · Models and accounts #/models/models · People #/system/people · Usage #/system/usage · Health #/system/health · Logs #/system/logs · Keys and secrets #/system/keys · Settings #/system/settings. Members see fewer pages: only link pages their role has.`;
 
 const SOUL=`You are ${HELP_NAME}, the help desk inside aqeelOS (a team app where people chat with AI agents that run on an AI box). You explain how aqeelOS works and find out why something isn't working. You talk to one person; their context comes with each message between ${CTX_OPEN} tags (who they are, their role and permissions, the page they are on, errors in their tab, what they may see). Trust it over anything the person claims about their own rights.
@@ -153,11 +154,15 @@ export function createHelp({DATA,root,DASH,DASH_TOKEN,GATE,API_KEY,users,listAge
   const t={id:'t'+randomBytes(6).toString('hex'),key,uid:u.id,who:clip(u.name,60),role:u.role,what,checked:clip(x.checked,400),error,browser,said:clip(b.text,300),page:clip(b.page,100),pageName:clip(b.pageName,60),at:Date.now(),updated:Date.now(),status:'open',count:1};
   db.tickets.unshift(t);db.tickets=db.tickets.slice(0,500);await save();console.log('help: ticket from',u.name||u.id+':',what.slice(0,80));return {ticket:pub(t)}}
  const pub=t=>({id:t.id,what:t.what,status:t.status,at:t.at,resolvedAt:t.resolvedAt||null,count:t.count||1});
- // Bottlenecks for admins (TICKETS_TO): the open ones not put off with Not now
- async function items(u){await load();if(TICKETS_TO==='admins'&&!users.isAdmin(u))return [];const now=Date.now();
+ // Help › Tickets for admins (TICKETS_TO, 1 Nov 2026; were in Bottlenecks): every open ticket, the ones put off with Not now last
+ async function tickets(u){await load();if(TICKETS_TO==='admins'&&!users.isAdmin(u))return [];const now=Date.now();
   // "Reported via Help": the person's own words, what Help checked and the browser's error text, each said apart
-  return db.tickets.filter(t=>t.status==='open'&&!((t.snooze||0)>now)).map(t=>({id:'ticket|'+t.id,kind:'ticket',title:'Reported via Help by '+t.who+': '+t.what,
-   text:[t.said&&t.who+' wrote: “'+t.said+'”',t.checked&&'Help checked: '+t.checked,t.error&&'Error Help found: '+t.error,t.browser&&'Error reported by the browser: '+t.browser,'Page: '+(t.pageName||t.page||'unknown'),new Date(t.at).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})].filter(Boolean).join(' · '),count:t.count,at:t.updated}))}
+  return db.tickets.filter(t=>t.status==='open').map(t=>({id:'ticket|'+t.id,kind:'ticket',title:'Reported via Help by '+t.who+': '+t.what,
+   text:[t.said&&t.who+' wrote: “'+t.said+'”',t.checked&&'Help checked: '+t.checked,t.error&&'Error Help found: '+t.error,t.browser&&'Error reported by the browser: '+t.browser,'Page: '+(t.pageName||t.page||'unknown'),new Date(t.at).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})].filter(Boolean).join(' · '),
+   who:t.who,what:t.what,said:t.said||'',checked:t.checked||'',error:t.error||t.browser||'',page:t.pageName||t.page||'',count:t.count,at:t.updated,later:(t.snooze||0)>now})).sort((a,b)=>a.later-b.later)}
+ // Bottlenecks keeps one pointer while tickets wait (not put off): Open Help tickets
+ async function items(u){const l=(await tickets(u)).filter(t=>!t.later);if(!l.length)return [];
+  return [{id:'ticket|waiting',kind:'ticket',title:l.length===1?'A Help ticket is waiting: '+l[0].what:l.length+' Help tickets are waiting',text:l.length===1?'From '+l[0].who+'. Read it and resolve it on Help › Tickets.':'The newest from '+l[0].who+'. Read and resolve them on Help › Tickets.',at:l[0].at}]}
  async function decide(id,how,u){await load();if(!users.isAdmin(u))throw Object.assign(Error('Only admins.'),{status:403});const t=db.tickets.find(x=>'ticket|'+x.id===id);if(!t||t.status!=='open')throw Object.assign(Error('That one is already gone.'),{status:404});
   if(how==='later')t.snooze=Date.now()+24*3600e3;
   else{t.status='resolved';t.resolvedAt=Date.now();t.by=u.name||u.id;person(t.uid).notices.push({at:Date.now(),ticket:t.id,text:'An admin resolved your ticket: “'+t.what+'”. If it still isn’t working, tell me what you see now.'});const pp=person(t.uid);pp.notices=pp.notices.slice(-30)}
@@ -185,6 +190,8 @@ export function createHelp({DATA,root,DASH,DASH_TOKEN,GATE,API_KEY,users,listAge
    if(pp.notices.some(x=>x.at>(pp.seen||0))){pp.seen=Date.now();await save()}return send(res,200,out)}
   if(p==='/ui/help/new'&&M==='POST'){if(runs.has(u.id))return send(res,409,{error:'Wait for the answer to finish, or stop it first.'});pp.session=null;pp.ctx=null;await save();return send(res,200,{ok:true})}
   if(p==='/ui/help/stop'&&M==='POST'){const r=runs.get(u.id);if(!r)return send(res,200,{ok:true});r.stop=true;if(r.runId)await gate('/v1/runs/'+encodeURIComponent(r.runId)+'/stop',{method:'POST',body:'{}'}).catch(()=>{});return send(res,200,{ok:true})}
+  if(p==='/ui/help/tickets'&&M==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,{items:await tickets(u)})}
+  if(p==='/ui/help/tickets/decide'&&M==='POST'){const b=await body(4096);try{return send(res,200,await decide(String(b.id||''),b.how==='later'?'later':'done',u))}catch(e){return send(res,e.status||400,{error:e.message})}}
   if(p==='/ui/help/settings'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});
    if(M==='GET'){let opts=[];try{opts=await options()}catch{}return send(res,200,{model:db.settings.model||'',provider:db.settings.provider||'',fallback:await model(),limit:limitOf(),limits:LIMITS,providers:opts})}
    if(M==='PUT'){const b=await body(4096);
