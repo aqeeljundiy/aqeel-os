@@ -4,7 +4,7 @@
    left out: the chat list and Manage chats already show it. #/system/status and #/system/host open this page. ---------- */
 {const oldStatus=PAGES.status,oldHost=PAGES.host;
  PAGES.health=async(p,el,r)=>{const tok=S._htok=(S._htok||0)+1,stale=()=>tok!==S._htok;
-  el.innerHTML=`<h2 class="ach-cat" style="margin-top:0">Agents</h2><div id="hStatus"><div class="skel" style="height:110px;border-radius:18px"></div></div><h2 class="ach-cat">The AI box</h2><div id="hHost"><div class="skel" style="height:160px;border-radius:18px"></div></div>`;
+  setActions('');el.innerHTML=`<h2 class="ach-cat" style="margin-top:0">Agents</h2><div id="hStatus"><div class="skel" style="height:110px;border-radius:18px"></div></div><h2 class="ach-cat">The AI box</h2><div id="hHost"><div class="skel" style="height:160px;border-radius:18px"></div></div>`;
   const sBox=el.querySelector('#hStatus'),hBox=el.querySelector('#hHost');
   // a refresh keeps this page's buttons (the Agents part sets its own as it starts)
   const drawStatus=async()=>{const b=document.createElement('div');b.hidden=true;document.body.append(b);const ha=$('.head-actions'),keep=sBox.querySelector('.skel')?null:ha?.innerHTML;try{const run=oldStatus(p,b,r);if(keep!=null&&ha.isConnected)ha.innerHTML=keep;await run}catch(e){b.remove();throw e}

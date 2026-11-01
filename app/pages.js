@@ -941,7 +941,7 @@ Pages.profileMenu=el=>{const n=el.dataset.name;const base='/profiles/'+encodeURI
 
 /* ===================== System › Status ===================== */
 PAGES.status=async(p,el)=>{const gone=pageTok(el);
- setActions(`<button data-act="gw-restart">${icon('refresh',16)}Restart agents</button>`);
+ // no header buttons of its own (1 Nov 2026): it is drawn inside Health, whose Restart is in Start and stop agents
  const [s,ses]=await Promise.all([H('/status'),H('/sessions'+qp({limit:8,offset:0,order:'recent'}))]);if(gone())return;S.status=s;paintSide();paintBanner();
  const plats=Object.entries(s.gateway_platforms||{});const connected=plats.filter(([,v])=>v.state==='connected');
  // why the agents or a channel stopped, said up front (the engine records the reason)
