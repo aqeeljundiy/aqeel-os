@@ -549,8 +549,8 @@ async function memGuard(){const {used,max}=await memNow();if(!max)return;const p
 if(PORT===4400)setInterval(()=>memGuard().catch(e=>console.warn('memory guard',e.message)),120000).unref();
 // the dashboard (settings, channels, sign-ins, dictation) can be killed when the box runs out of memory: if it does
 // not answer twice in a row, it is started again (in its managed session, like the engine)
-let dashMissing=0,dashRestarted=0,dashTries=0;
-if(PORT===4400)setInterval(async()=>{const ok=await fetch(DASH.origin+'/api/status',{signal:AbortSignal.timeout(8000)}).then(r=>r.status<500,()=>false);
+let dashMissing=0,dashRestarted=0,dashTries=0,dashStopped=false;   // dashStopped: a restore stopped it on purpose
+if(PORT===4400)setInterval(async()=>{if(dashStopped)return;const ok=await fetch(DASH.origin+'/api/status',{signal:AbortSignal.timeout(8000)}).then(r=>r.status<500,()=>false);
  if(ok){dashMissing=0;dashTries=0;return}if(Date.now()-dashRestarted<Math.min(60,5*2**dashTries)*60e3)return;if(++dashMissing<2)return;dashMissing=0;dashRestarted=Date.now();dashTries++;console.warn('dashboard watch: the dashboard stopped answering; starting it again');
  await shx('tmux kill-session -t dashboard 2>/dev/null; ~/services.sh >/dev/null 2>&1')},60000).unref();
 // only the live app (port 4400) sets agents' tools; a test copy on another port must not repoint them
@@ -608,7 +608,12 @@ if(LIVE_APP){const HB=path.join(DATA,'heartbeat.json');readFile(HB,'utf8').then(
   await relay.sendAs('default',c.owner,c.platform,'aqeelOS was off from about '+at(last)+' to '+at(Date.now())+' (Jakarta time, '+mins+' min). It is running again.',null,{toYou:true});console.log('told the owner about '+mins+' min off')}catch(e){console.warn('downtime note:',e.message)}},120000).unref()})}
 const brand=createBrand({DATA});
 const backups=createBackups({DATA,HOME:homedir(),HERMES_HOME,notify:(t,d)=>bottlenecks.event('backup',t,d+' Open System › Health to try again.',{topic:'backup'}).catch(()=>{}),solved:()=>bottlenecks.resolve('backup').catch(()=>{}),
- stopEngine:async()=>{gwStopped=true;await shx('hermes -p default gateway stop >/dev/null 2>&1; for i in $(seq 1 60); do p=$(grep -o "[0-9]*" ~/.hermes/gateway.pid 2>/dev/null | head -1); [ -n "$p" ] && kill -0 "$p" 2>/dev/null || break; sleep 1; done; tmux kill-session -t gateway 2>/dev/null; true')},startEngine:async()=>{gwStopped=false;await restartGateway('agents restored from a backup',{wait:false,bridges:true})}});if(PORT===4400)backups.schedule();
+ restored:(ok,text,detail)=>bottlenecks.event('backup',text,detail,ok?{info:true}:{topic:'restore'}).catch(()=>{}),   // done: the bell; failed: Bottlenecks
+ // a restore stops the agents and the engine's dashboard (it keeps the chats database and settings open too), and the
+ // watches leave both alone until it starts them again (services.sh starts both)
+ stopEngine:async()=>{gwStopped=true;dashStopped=true;await shx('hermes -p default gateway stop >/dev/null 2>&1; for i in $(seq 1 60); do p=$(grep -o "[0-9]*" ~/.hermes/gateway.pid 2>/dev/null | head -1); [ -n "$p" ] && kill -0 "$p" 2>/dev/null || break; sleep 1; done; tmux kill-session -t gateway 2>/dev/null; tmux kill-session -t dashboard 2>/dev/null; true');
+  for(let i=0;i<30&&await fetch(DASH.origin+'/api/status',{signal:AbortSignal.timeout(2000)}).then(()=>true,()=>false);i++)await new Promise(r=>setTimeout(r,1000))},
+ startEngine:async()=>{dashStopped=false;gwStopped=false;await restartGateway('agents restored from a backup',{wait:false,bridges:true})}});if(PORT===4400)backups.schedule();
 const live=createLive({DATA,DOMAIN:env.LIVE_DOMAIN||'app.elkiya.com'});
 // two places for what aqeelOS tells (1 Nov 2026): Bottlenecks is the to-do list (needs someone), the bell's list (news.mjs)
 // the history (done, fixed, works again). Every event goes to one of them, never both: info:true means the bell
@@ -649,7 +654,7 @@ const connAccounts=createConnectedAccounts({DATA,HERMES_HOME,active:LIVE_APP||ca
 // engine updates at night, checked after; the owner is told on the main agent's channel (as when the server was off)
 const engineUpd=createEngineUpdates({guard,DATA,HERMES_HOME,PORT,LIVE:LIVE_APP,readConfig,python:enginePython,patches:enginePatches,restartGateway,resetForUpdate:engineReset,
  dash:(p,o={})=>fetch(DASH.origin+'/api'+p,{...o,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},signal:AbortSignal.timeout(60000)}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||j.error||'HTTP '+r.status);return j}),
- busy:()=>liveCount()+export_setups.running()+opsBusy()+relay.sending()+(gwRestarting?1:0),
+ busy:()=>liveCount()+export_setups.running()+opsBusy()+relay.sending()+(gwRestarting?1:0)+(backups.busy()?1:0),   // never during a restore
  stopGateway:async()=>{gwStopped=true;await shx('hermes -p default gateway stop >/dev/null 2>&1; for i in $(seq 1 60); do p=$(grep -o "[0-9]*" ~/.hermes/gateway.pid 2>/dev/null | head -1); [ -n "$p" ] && kill -0 "$p" 2>/dev/null || break; sleep 1; done; tmux kill-session -t gateway 2>/dev/null; true')},
  tellOwner:async(text,{bell,kind,detail}={})=>{if(bell||/failed|rolled-back/.test(kind||''))await bottlenecks.event('update',text,detail||'').catch(()=>{});else await bottlenecks.event('update',text,detail||'',{info:true}).catch(()=>{});if(bell)return;await toOwner(text)}});
 const codeOnline=createCodeOnline({SECRET,SECURE:SECURE_COOKIE,users:()=>users,revokedAt:uid=>revoked[uid]||0,HOST:env.CODE_HOST||'code.elkiya.com',PREVIEW_HOST:env.CODE_PREVIEW_HOST||'code-preview.elkiya.com',HOME:PUBLIC_URL||'https://ai.elkiya.com'});
@@ -1042,7 +1047,7 @@ async function hermesCall(req,res,u,url){
  // An engine update starts from the engine's own files: aqeelOS's renames (aqeelOS instead of Hermes in what people
  // read) are put back to the original first, so the update never clashes with them; they are applied again after it.
  // What was true before is kept first, so the same check as a night update runs after it (engine-updates.mjs).
- if(p==='/hapi/hermes/update'&&req.method==='POST'&&users.isAdmin(u)){if(await engineUpd.beforeManual().catch(e=>{console.warn('engine update: before',e.message);return true})===false)return send(res,409,{error:'An engine update is already running.'});await engineReset();setTimeout(()=>engineWatch().catch(()=>{}),120000)}
+ if(p==='/hapi/hermes/update'&&req.method==='POST'&&users.isAdmin(u)){if(backups.busy())return send(res,409,{error:'A restore is running. Update after it finishes.'});if(await engineUpd.beforeManual().catch(e=>{console.warn('engine update: before',e.message);return true})===false)return send(res,409,{error:'An engine update is already running.'});await engineReset();setTimeout(()=>engineWatch().catch(()=>{}),120000)}
  if(p.startsWith('/hapi/')&&req.method!=='GET'&&q.get('profile')&&/json/.test(String(req.headers['content-type']||''))&&!p.startsWith('/hapi/files')){let b=null,raw;
   // the body is read up front, so a bad one is answered here (passing it on would forward a body that is already gone)
   try{raw=(await readRaw(req,30e6)).toString('utf8')}catch{return send(res,413,{error:'That is too large to send.'})}try{b=raw?JSON.parse(raw):{}}catch{return send(res,400,{error:'The request body is not valid JSON.'})}
@@ -1819,11 +1824,11 @@ const server=createServer(async(req,res)=>{
    if(p.startsWith('/ui/backups')){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});
     if(p==='/ui/backups'&&req.method==='GET')return send(res,200,await backups.status());
     if(p==='/ui/backups/key'&&req.method==='GET'){try{return send(res,200,{key:await backups.key()})}catch(e){return send(res,409,{error:e.message})}}
-    if(p==='/ui/backups/run'&&req.method==='POST'){backups.run('by hand').catch(()=>{});return send(res,200,{started:true})}
+    if(p==='/ui/backups/run'&&req.method==='POST'){if(backups.busy())return send(res,409,{error:'A restore is running. Back up after it finishes.'});backups.run('by hand').catch(()=>{});return send(res,200,{started:true})}
     if(p==='/ui/backups/test'&&req.method==='POST'){try{return send(res,200,await backups.test())}catch(e){return send(res,400,{error:e.message})}}
     if(p==='/ui/backups/list'&&req.method==='GET'){try{return send(res,200,{items:await backups.list()})}catch(e){return send(res,400,{error:e.message})}}
     // a restore stops and starts the real agents, so only the live app does it (a test copy shares the box's engine)
-    if(p==='/ui/backups/restore'&&req.method==='POST'){if(!LIVE_APP)return send(res,409,{error:'Only the live app restores backups.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{return send(res,200,await backups.restore(String(b.id||'')))}catch(e){return send(res,400,{error:e.message})}}}
+    if(p==='/ui/backups/restore'&&req.method==='POST'){if(!LIVE_APP)return send(res,409,{error:'Only the live app restores backups.'});if(engineUpd.busy())return send(res,409,{error:'The engine is updating. Restore after it finishes.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{return send(res,200,await backups.restore(String(b.id||'')))}catch(e){return send(res,400,{error:e.message})}}}
    // which aqeelOS app version is current (the app offers to update itself when it is older)
    if(p==='/ui/code/app-version'&&req.method==='GET'){let v={};try{v=JSON.parse(await readFile(path.join(DATA,'desktop','version.json'),'utf8'))}catch{}return send(res,200,v)}
    // company-wide defaults (the currency for people who never picked one): everyone reads them, admins set them
