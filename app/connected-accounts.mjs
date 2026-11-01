@@ -15,6 +15,9 @@
 // A login that appears without the agent calling register_account (an aqeelOS tool) shows "Not registered", rings the
 // bell once and waits for the owner to approve or disconnect it. The logins there were when this first ran count as
 // registered. The parts that only decide are exported and tested in scripts/connected-accounts.test.mjs.
+// 1 Nov 2026 (Abilities › Connections): a login's name is always the service and who it is ("Google · a@b.com",
+// "Slack · Pixel & Profits"), never what an agent called it (register_account's label is kept as a note), and what
+// it may do is per agent: canBy[agent] (Read, Read & draft, Full) over the login's own can.
 import {readFile,writeFile,mkdir,rename,readdir,stat,lstat,realpath,unlink} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
 import {createHash} from 'node:crypto';
@@ -84,6 +87,10 @@ export function actionOf(provider,fn,{verbLast=false}={}){const tok=String(fn||'
  return {kind,verb,noun}}
 // may an action of this kind run with these allowed actions (read always may)
 export const allowed=(kind,can)=>kind==='read'||(kind==='draft'?can.includes('draft'):can.includes('send'));
+// what one app tool needs (1 Nov 2026): read, draft or send. A comment counts as a draft (it stays a note on the thing,
+// not a message out), so Read & draft may comment; everything else that changes or sends needs Full.
+export function toolNeed(prov,tool){const a=actionOf(prov,tool);if(a.kind==='read'||a.kind==='draft')return a.kind;
+ const t=String(tool||'').toLowerCase().split(/[._\s-]+/);return t.some(w=>/^comments?$/.test(w))&&t.some(w=>/^(create|add|reply|post|insert)$/.test(w))?'draft':'send'}
 const PROV_WORD={gmail:'Gmail',drive:'Drive',sheets:'Sheets',docs:'Docs',calendar:'Calendar',slack:'Slack',notion:'Notion'};
 const pl=(n,w)=>n===1?w:w==='person'?'people':w==='sharing'?w:/(s|sh|ch|x)$/.test(w)?w+'es':w+'s';
 // "Read 4 Slack channels", "Saved 1 draft", "Searched Notion 3 times", "Sent 1 email"
@@ -112,20 +119,29 @@ export function withCan(entry,blocked,orig){const e=structuredClone(entry||{});c
  e.tools=t;return e}
 export const pausedEntry=entry=>({...structuredClone(entry||{}),enabled:false});
 // the tools of an app the allowed actions leave out
-export const blockedTools=(tools,can,prov)=>(tools||[]).filter(t=>!allowed(actionOf(prov,t).kind,can));
+export const blockedTools=(tools,can,prov)=>(tools||[]).filter(t=>{const n=toolNeed(prov,t);return n!=='read'&&!can.includes(n)});
 // does a registration an agent made (register_account) describe this login: the same place, or the same kind and app
 const tilde=(p,home)=>String(p||'').replace(/^~(?=\/|$)/,home||homedir());
 export function matches(reg,acct,home){if(!reg||!acct)return false;const w=tilde(reg.where,home);
  if(w&&(acct.paths||[]).some(p=>p===w||p===w+'.paused'||path.basename(p)===path.basename(w)&&w.includes(path.sep)===false))return true;
  if(w&&acct.mcp&&(path.basename(w).replace(/\.json$/,'')===acct.mcp))return true;
  const k=String(reg.kind||'').toLowerCase();if(k&&k!==acct.kind)return false;
- const words=String(reg.label||'').toLowerCase().split(/[^a-z0-9@.]+/).filter(x=>x.length>2);const hay=[acct.label,acct.identity,acct.mcp,acct.provider].join(' ').toLowerCase();
+ const words=String(reg.label||'').toLowerCase().split(/[^a-z0-9@.]+/).filter(x=>x.length>2);const hay=[acct.label||displayName(acct),acct.identity,acct.mcp,acct.provider].join(' ').toLowerCase();
  return words.length>0&&words.filter(x=>hay.includes(x)).length>=Math.min(2,words.length)}
+// a login's name (1 Nov 2026): the service, then who it is, from what the service itself says; never an agent's label
+const SERVICE_CASE={n8n:'n8n',github:'GitHub',adspower:'AdsPower',aqeelos:'aqeelOS',hubspot:'HubSpot',composio:'Composio'};
+export const serviceName=(id,fallback='')=>SERVICE_CASE[String(id).toLowerCase()]||(PROVIDERS.find(p=>p.id===id)?.name)||fallback||String(id||'').replace(/[-_]+/g,' ').replace(/^./,c=>c.toUpperCase());
+export function displayName(x={}){const who=x.who||{};
+ if(x.kind==='google')return 'Google · '+(x.identity||'not checked yet');
+ if(x.kind==='mcp-oauth'){const p=providerOf(x.mcp,x.url,x.provider);const last=String(x.identity||'').split(' · ').pop();return serviceName(p.id,p.name)+' · '+(who.workspace||who.user||who.email||last||x.mcp)}
+ if(x.kind==='telegram-user')return 'Telegram · '+(x.identity||path.basename(String(x.paths?.[0]||x.files?.[0]?.path||'')).replace(/\.session(\.paused)?$/,'')||'personal account');
+ const p=providerOf(x.provider);return serviceName(p.id,p.name)+' · '+(x.identity||path.basename(String(x.where||''))||x.id)}
 export const normCan=v=>{const l=(Array.isArray(v)?v:String(v||'').split(/[\s,·]+/)).map(x=>String(x).toLowerCase().trim()).map(x=>x==='write'?'send':x).filter(x=>CAN.includes(x));return CAN.filter(c=>l.includes(c))};
 
 /* ---------- gapi.py: the paused marker and the allowed actions (an idempotent patch, applied at start) ---------- */
-const GAPI_TAG='aqeelos:accounts-guard';
-const GAPI_FNS=`
+const GAPI_TAG='aqeelos:accounts-guard',GAPI_V2='aqeelos:accounts-guard-v2';
+// the first guard (31 Oct 2026), exactly as it went in: a gapi.py that has it gets the per-agent one in its place
+const GAPI_V1=`
 # ${GAPI_TAG} (31 Oct 2026): aqeelOS (Abilities, Connected accounts) can pause a Google account (its token file is
 # moved aside as <file>.paused) or limit what it may do (read, draft, send, in aqeelos-accounts.json). Nothing changes
 # while neither is set.
@@ -177,8 +193,65 @@ def _aq_guard(account, cmd, rest):
         sys.exit(2)
 
 `;
+const GAPI_FNS=`
+# ${GAPI_TAG} (31 Oct 2026, ${GAPI_V2} 1 Nov 2026): aqeelOS (Abilities, Connections) can pause a Google account (its
+# token file is moved aside as <file>.paused) or limit what each agent may do with it (read, draft, send, in
+# aqeelos-accounts.json: google.<email>.agents.<agent>, else google.<email>.can). Nothing changes while neither is set.
+def _aq_policy():
+    for d in (HOME, HOME.parent.parent, Path.home() / ".hermes"):
+        f = d / "aqeelos-accounts.json"
+        if f.is_file():
+            try:
+                return json.loads(f.read_text()) or {}
+            except Exception:
+                return {}
+    return {}
+
+
+def _aq_paused(account):
+    name = f"google_token_{account}.json" if account else "google_token.json"
+    if not (HOME / name).exists() and (HOME / (name + ".paused")).exists():
+        raise SystemExit(json.dumps({"error": "this Google account is paused in aqeelOS (Abilities, Connections). "
+                                              "Do not retry; tell the person it is paused and ask them to resume it there."}))
+
+
+def _aq_guard(account, cmd, rest):
+    _aq_paused(account)
+    pol = (_aq_policy().get("google") or {})
+    if not pol:
+        return
+    name = f"google_token_{account}.json" if account else "google_token.json"
+    try:
+        email = json.loads((HOME / name).read_text()).get("account", "")
+    except Exception:
+        return
+    ent = pol.get(email) or {}
+    # the agent running this: its own engine home is .../profiles/<agent>, the main one is "default"
+    me = HOME.name if HOME.parent.name == "profiles" else "default"
+    per = ent.get("agents") if isinstance(ent.get("agents"), dict) else {}
+    can = per.get(me, per.get(me.split("--")[0], ent.get("can")))
+    if not isinstance(can, list):
+        return
+    need = None
+    if cmd == "draft":
+        need = "draft"
+    elif cmd == "upload":
+        need = "send"
+    elif cmd == "call" and len(rest) >= 3:
+        parts = rest[2].split(".")
+        if rest[0] == "gmail" and "drafts" in parts and parts[-1] in ("create", "update"):
+            need = "draft"
+        elif not parts[-1].endswith(("get", "list", "batchGet", "getByDataFilter", "batchGetByDataFilter", "export", "getProfile")):
+            need = "send"
+    if need and need not in can:
+        print(json.dumps({"error": "aqeelOS does not let this Google account " + ("save drafts" if need == "draft" else "send or change things")
+                                   + " (Abilities, Connections). Do not retry; tell the person what you would have done."}))
+        sys.exit(2)
+
+`;
 // gapi.py with the guard in, or null when its known places are not there (a newer gapi.py: left alone, said once)
-export function patchGapiText(s){if(s.includes(GAPI_TAG))return s;
+export function patchGapiText(s){if(s.includes(GAPI_V2))return s;
+ if(s.includes(GAPI_TAG)){const v1=GAPI_V1.split('\n').slice(1).join('\n'),v2=GAPI_FNS.split('\n').slice(1).join('\n');return s.split(v1).length===2?s.replace(v1,v2):null}
  const a='HOME = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))\n',b='def _creds(account):\n',c='    _readonly_guard(account, cmd, rest)\n';
  if(s.split(a).length!==2||s.split(b).length!==2||s.split(c).length!==2)return null;
  return s.replace(a,a+'\n'+GAPI_FNS).replace(b,b+'    _aq_paused(account)  # '+GAPI_TAG+'\n').replace(c,'    _aq_guard(account, cmd, rest)  # '+GAPI_TAG+'\n'+c)}
@@ -232,7 +305,10 @@ export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir
  const API={slack:ends.slack||'https://slack.com/api',revoke:ends.revoke||'https://oauth2.googleapis.com/revoke'};
  const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const FILE=path.join(DATA,'connected-accounts.json');let db=null;
- const load=async()=>{if(!db){db=await readJson(FILE)||{};for(const k of ['accounts','offsets','chats','events','alias','told'])db[k]||={};db.pending||=[]}return db};
+ const load=async()=>{if(!db){db=await readJson(FILE)||{};for(const k of ['accounts','offsets','chats','events','alias','told'])db[k]||={};db.pending||=[];
+  // names are worked out now (1 Nov 2026): what an agent called a login becomes its note, the owner's own name for a
+  // Google account stays as ownerLabel, and no stored label is shown as the name any more
+  for(const x of Object.values(db.accounts)){if(x.labelBy==='agent'&&x.label)x.agentLabel||=x.label;delete x.label;delete x.labelBy}}return db};
  let saving=Promise.resolve();const save=()=>saving=saving.then(async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1),{mode:0o600});await rename(FILE+'.tmp',FILE)}).catch(e=>console.warn('accounts: saving',e.message));
  const tail=createTail(()=>db.offsets,3e6);
  const servers=async a=>{const c=await readConfig(a).catch(()=>null);const m=c?.mcp_servers;return m&&typeof m==='object'?m:{}};
@@ -252,37 +328,37 @@ export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir
     const rp=await realpath(p).catch(()=>p);if(seenPath.has(rp))continue;seenPath.add(rp);const j=await readJson(p);if(!j)continue;
     const email=j.account||db.alias[h8(j.refresh_token||rp)]||'';const id='google:'+(email||h8(j.refresh_token||rp));
     const x=add(id,{kind:'google',provider:'google',identity:email,refresh:h8(j.refresh_token||'')});if(!x.agents.includes(a))x.agents.push(a);x.paths.push(p);x.files.push({agent:a,path:p,name:m[1]||'',paused:!!m[2]});
-    if(!x.label){const l=await googleLabel(a,m[1]||'').catch(()=>'');x.label='Google, '+(l||(m[1]?m[1].replace(/^./,c=>c.toUpperCase()):'main account'))}}}
+    if(x.ownerLabel===undefined){x.ownerLabel=await googleLabel(a,m[1]||'').catch(()=>'')||''}}}
   // apps signed in as a person: every agent's mcp_servers with its saved sign-in; the same name with another address is another login
   const tokOf=async(a,n)=>{const d=path.join(homeOf(a),'mcp-tokens');const p=path.join(d,n+'.json');return {p,rp:await realpath(p).catch(()=>p),tok:await readJson(p),meta:await readJson(path.join(d,n+'.meta.json'))}};
   const named=new Set();
   for(const a of agents)for(const [n,e] of Object.entries(await servers(a))){if(!e||typeof e!=='object')continue;named.add(n);const t=await tokOf(a,n);const c=classify({type:'mcp',name:n,entry:e,token:t.tok,meta:t.meta});if(c.as!=='me')continue;
    const host=(/https?:\/\/([^/\s:]+)/.exec(e.url||'')||[])[1]||'';let id='mcp:'+n;const prev=found.get(id);if(prev&&prev.host!==host)id='mcp:'+n+'@'+a;
-   const pv=providerOf(n,e.url,t.tok?.hermes_issuer);const x=add(id,{kind:'mcp-oauth',provider:pv.id,mcp:n,host,url:e.url||'',label:''});if(!x.agents.includes(a))x.agents.push(a);
+   const pv=providerOf(n,e.url,t.tok?.hermes_issuer);const x=add(id,{kind:'mcp-oauth',provider:pv.id,mcp:n,host,url:e.url||''});if(!x.agents.includes(a))x.agents.push(a);
    if(!x.paths.includes(t.rp))x.paths.push(t.rp);x.tokens||=[];if(!x.tokens.some(y=>y.rp===t.rp))x.tokens.push({agent:a,path:t.p,rp:t.rp});x.off=(x.off??true)&&e.enabled===false;x.expires=t.tok?.expires_at||null;x.refreshable=!!t.tok?.refresh_token}
   // a saved sign-in no agent has in its settings any more (left behind, or made by hand): still a login as the owner
   for(const a of agents){const d=path.join(homeOf(a),'mcp-tokens');for(const f of await readdir(d).catch(()=>[])){const m=/^([\w.-]+)\.json$/.exec(f);if(!m||/\.(meta|client)$/.test(m[1])||named.has(m[1]))continue;
     const t=await tokOf(a,m[1]);if([...found.values()].some(x=>x.paths.includes(t.rp)))continue;const c=classify({type:'mcp',name:m[1],entry:{},token:t.tok,meta:t.meta});if(c.as!=='me')continue;
-    const pv=providerOf(m[1],t.meta?.issuer,t.tok?.hermes_issuer);const x=add('mcp:'+m[1],{kind:'mcp-oauth',provider:pv.id,mcp:m[1],host:'',url:'',label:'',orphan:true});if(!x.paths.includes(t.rp))x.paths.push(t.rp);x.tokens||=[];x.tokens.push({agent:a,path:t.p,rp:t.rp})}}
+    const pv=providerOf(m[1],t.meta?.issuer,t.tok?.hermes_issuer);const x=add('mcp:'+m[1],{kind:'mcp-oauth',provider:pv.id,mcp:m[1],host:'',url:'',orphan:true});if(!x.paths.includes(t.rp))x.paths.push(t.rp);x.tokens||=[];x.tokens.push({agent:a,path:t.p,rp:t.rp})}}
   // a personal Telegram session (made by a script or a skill; aqeelOS does not make one yet)
-  for(const p of await sessions()){const x=add('telegram:'+h8(p),{kind:'telegram-user',provider:'telegram',label:'Telegram, '+path.basename(p).replace(/\.session(\.paused)?$/,''),identity:''});x.paths.push(p);x.files.push({path:p,paused:p.endsWith('.paused')})}
+  for(const p of await sessions()){const x=add('telegram:'+h8(p),{kind:'telegram-user',provider:'telegram',identity:''});x.paths.push(p);x.files.push({path:p,paused:p.endsWith('.paused')})}
   return found}
  // the scan written into the registry: new logins (registered when this is the first look or an agent said so), gone ones dropped
  let scanning=null;
  function scan(){if(scanning)return scanning;scanning=(async()=>{const found=await scanNow();const now=Date.now(),first=!db.seeded,fresh=[];
    for(const [id,f] of found){let x=db.accounts[id];
-    if(!x){const reg=db.pending.find(r=>matches(r,f,homedir()));x=db.accounts[id]={id,kind:f.kind,provider:f.provider,label:'',identity:'',can:[...CAN],canSet:false,registered:first||!!reg,registeredBy:first?'seed':reg?reg.by:'',firstSeen:now};
-     if(reg){db.pending=db.pending.filter(r=>r!==reg);if(reg.label)x.label=reg.label,x.labelBy='agent';if(reg.can?.length){x.can=reg.can;x.canSet=true;x.wantCan=true}if(reg.note)x.note=reg.note}
+    if(!x){const reg=db.pending.find(r=>matches(r,f,homedir()));x=db.accounts[id]={id,kind:f.kind,provider:f.provider,identity:'',can:[...CAN],canSet:false,canBy:{},registered:first||!!reg,registeredBy:first?'seed':reg?reg.by:'',firstSeen:now};
+     if(reg){db.pending=db.pending.filter(r=>r!==reg);if(reg.label)x.agentLabel=reg.label;if(reg.can?.length){x.can=reg.can;x.canSet=true;x.wantCan=true}if(reg.note)x.note=reg.note}
      if(!x.registered)fresh.push(x)}
     for(const k of ['kind','provider','mcp','host','url','agents','paths','files','tokens','off','expires','refreshable','orphan','refresh'])x[k]=f[k];
-    if(!x.labelBy&&f.label)x.label=f.label;if(f.identity&&!x.identity)x.identity=f.identity;x.seenAt=now}
+    if(f.ownerLabel!==undefined)x.ownerLabel=f.ownerLabel;if(f.identity&&!x.identity)x.identity=f.identity;x.seenAt=now}
    for(const id of Object.keys(db.accounts))if(!found.has(id)&&!db.accounts[id].manual){delete db.accounts[id];delete db.events[id]}
    db.pending=db.pending.filter(r=>now-r.at<24*3600e3);db.seeded=true;db.scanAt=now;await save();
    if(fresh.length&&active)for(const x of fresh){if(db.told[x.id])continue;db.told[x.id]=now;await save();
-    await bell('A login acting as you was found: '+labelOf(x),'An agent signed in as you ('+(x.identity||x.mcp||x.kind)+') without registering it. Open Abilities › Connected accounts to approve it or disconnect it.').catch(()=>{})}
+    await bell('A login acting as you was found: '+labelOf(x),'An agent signed in as you ('+(x.identity||x.mcp||x.kind)+') without registering it. Open Abilities › Connections to approve it or disconnect it.').catch(()=>{})}
    for(const x of Object.values(db.accounts))if(x.wantCan){delete x.wantCan;applyCan(x).catch(e=>console.warn('accounts: allowed actions',x.id,e.message))}
    return found})().finally(()=>{scanning=null});return scanning}
- const labelOf=x=>x.label||(x.kind==='mcp-oauth'?providerOf(x.mcp,x.url).name+', '+x.mcp:x.id);
+ const labelOf=x=>displayName(x);
 
  /* ---------- who it is and whether it works (cheap, at most every 30 min per login) ---------- */
  async function slackTest(tok){try{const r=await fetch(API.slack+'/auth.test',{method:'POST',headers:{authorization:'Bearer '+tok},signal:AbortSignal.timeout(15000)}).then(r=>r.json());return r}catch(e){return {ok:false,error:'unreachable',net:true}}}
@@ -304,7 +380,7 @@ export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir
     if(acc)x.who={user:acc.user||'',workspace:acc.workspace||'',email:acc.email||''}}
    // "Slack, Aqeel (Pixel & Profits)": the user, then the workspace
    const u=x.who?.user,w=x.who?.workspace;if(x.who)x.identity=[u,w].filter(Boolean).join(' · ')||x.who.email||x.identity;
-   if(!x.labelBy)x.label=providerOf(x.mcp,x.url).name+', '+(u&&w?u+' ('+w+')':u||w||x.who?.email||x.mcp)}
+   }
   else if(x.kind==='telegram-user'){if(!x.files?.some(f=>!f.paused)){state='signed-out';why='The session file is gone'}}
   else if(x.manual&&x.where){if(!await stat(tilde(x.where)).catch(()=>null)){state='signed-out';why='Its saved sign-in is not there any more'}}
   x.state=state;x.why=why;await save()}
@@ -359,22 +435,33 @@ export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir
    x.paused=Object.values(res).some(v=>v.startsWith('failed'))?{...p,state:'failed',agents:res}:null;x.checkedAt=0;await save();console.log('accounts: resumed',id,JSON.stringify(res))});return {ok:true,background:true}}
 
  // allowed actions: Google in aqeelos-accounts.json (gapi.py reads it), apps by leaving their tools out
- async function writePolicy(){const g={};for(const x of Object.values(db.accounts))if(x.kind==='google'&&x.identity&&x.canSet&&x.can.length<CAN.length)g[x.identity]={can:x.can};
+ async function writePolicy(){const g={};for(const x of Object.values(db.accounts)){if(x.kind!=='google'||!x.identity)continue;const e={};if(x.canSet&&x.can.length<CAN.length)e.can=x.can;
+   const per=Object.entries(x.canBy||{}).filter(([,c])=>c.length<CAN.length);if(per.length)e.agents=Object.fromEntries(per);if(e.can||e.agents)g[x.identity]=e}
   const f=path.join(HERMES_HOME,'aqeelos-accounts.json');const cur=await readJson(f)||{};if(JSON.stringify(cur.google||{})===JSON.stringify(g))return;cur.google=g;await writeFile(f+'.tmp',JSON.stringify(cur,null,1));await rename(f+'.tmp',f)}
  async function toolsOf(a,name){try{const j=JSON.parse(await readFile(path.join(homeOf(a),'cache','mcp_schema_cache.json'),'utf8'));const l=(j?.[name]?.tools||[]).map(t=>t?.name).filter(Boolean);if(l.length)return l}catch{}
   const r=await dash('POST','/api/mcp/servers/'+encodeURIComponent(name)+'/test'+q(a),{}).catch(()=>null);return (r?.j?.tools||[]).map(t=>typeof t==='string'?t:t?.name).filter(Boolean)}
+ // one app on one agent with only the tools these allowed actions leave (orig: where its own tools setting from before
+ // aqeelOS changed it is kept, per agent). paused: the settings to put back on Resume, changed instead of the live ones.
+ // Used for logins as the owner here and for every other app by Connections (connections.mjs).
+ async function applyTools(a,name,can,prov,orig,paused=null){const cur=(paused||{})[a]||(await servers(a))[name];if(!cur)return {ok:true,none:true};if(!(a in orig))orig[a]=cur.tools===undefined?null:cur.tools;
+  // the engine's list may already lack the tools aqeelOS left out before: those count too
+  const o=orig[a]===null?undefined:orig[a],before=Array.isArray(o?.include)?o.include.filter(t=>!(cur.tools?.include||[]).includes(t)):(cur.tools?.exclude||[]).filter(t=>!(o?.exclude||[]).includes(t));
+  const all=[...new Set([...await toolsOf(a,name),...before])],blocked=blockedTools(all,can,prov);const next=withCan(cur,blocked,o);if(!blocked.length)delete orig[a];
+  if(JSON.stringify(next)===JSON.stringify(cur))return {ok:true,same:true,tools:all.length,left:all.length-blocked.length};if(paused){paused[a]=next;return {ok:true,paused:true}}
+  const r=await swap(a,name,next,cur);return {...r,tools:all.length,left:all.length-blocked.length}}
+ // what one agent may do with a login: its own (canBy, by its agent name without the extra number) or the login's
+ const canFor=(x,a)=>x.canBy?.[String(a).split('--')[0]]||x.can||[...CAN];
  async function applyCan(x){if(x.kind==='google')return writePolicy();if(x.kind!=='mcp-oauth')return;
   return bg(x.id,async()=>{x.applying=true;await save();x.origTools||={};
-   for(const a of x.agents||[]){const cur=(x.paused?.entries||{})[a]||(await servers(a))[x.mcp];if(!cur)continue;if(!(a in x.origTools))x.origTools[a]=cur.tools===undefined?null:cur.tools;
-    // the engine's list may already lack the tools aqeelOS left out before: those count too
-    const orig=x.origTools[a]===null?undefined:x.origTools[a],before=Array.isArray(orig?.include)?orig.include.filter(t=>!(cur.tools?.include||[]).includes(t)):(cur.tools?.exclude||[]).filter(t=>!(orig?.exclude||[]).includes(t));
-    const blocked=blockedTools([...new Set([...await toolsOf(a,x.mcp),...before])],x.can,x.provider);const next=withCan(cur,blocked,orig);if(!blocked.length)delete x.origTools[a];
-    if(JSON.stringify(next)===JSON.stringify(cur))continue;if(x.paused){x.paused.entries[a]=next;continue}
-    const r=await swap(a,x.mcp,next,cur);if(!r.ok)console.warn('accounts: allowed actions on',a,r.why)}
+   for(const a of x.agents||[]){const r=await applyTools(a,x.mcp,canFor(x,a),x.provider,x.origTools,x.paused?.entries||null);if(!r.ok)console.warn('accounts: allowed actions on',a,r.why)}
    x.applying=false;await save()})}
  async function setCan(id,can){await load();const x=db.accounts[id];if(!x)throw new Error('That login is gone. Reload the page.');const c=normCan(can);
   if(x.kind==='google'&&!x.identity)throw new Error('aqeelOS does not know this account’s email yet. Try again after its check.');
   x.can=c;x.canSet=true;await save();await applyCan(x);return {ok:true,can:c,background:x.kind==='mcp-oauth'}}
+ // what one agent may do (Connections, 1 Nov 2026); null takes its own setting away (the login's can again)
+ async function setAgentCan(id,agent,can){await load();const x=db.accounts[id];if(!x)throw new Error('That login is gone. Reload the page.');const b=String(agent).split('--')[0];
+  if(x.kind==='google'&&!x.identity)throw new Error('aqeelOS does not know this account’s email yet. Try again after its check.');
+  x.canBy||={};if(can==null)delete x.canBy[b];else x.canBy[b]=normCan(can);await save();await applyCan(x);return {ok:true,can:canFor(x,b),background:x.kind==='mcp-oauth'}}
 
  /* ---------- Disconnect ---------- */
  const rmF=f=>unlink(f).then(()=>true,()=>false);
@@ -400,11 +487,11 @@ export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir
   if(!label)return {isError:true,text:'Give a label, for example "Slack, Aqeel (Pixel & Profits)".'};
   await scan();const r={kind,label,where,can,note,by:agent,at:Date.now()};
   const hit=Object.values(db.accounts).find(x=>matches(r,x,homedir())&&(!x.registered||x.registeredBy==='seed'||x.registeredBy===agent));
-  if(hit){hit.registered=true;hit.registeredBy=agent;hit.label=label;hit.labelBy='agent';if(note)hit.note=note;if(can.length){hit.can=can;hit.canSet=true}await save();if(can.length)await applyCan(hit).catch(()=>{});
-   return {text:'Registered "'+label+'". The owner sees it under Abilities › Connected accounts'+(can.length?', allowed to: '+can.join(', '):'')+'.'}}
-  if(kind==='other'&&where&&await stat(tilde(where)).catch(()=>null)){const id='other:'+h8(tilde(where));db.accounts[id]={id,kind:'other',provider:providerOf(label).id,label,labelBy:'agent',identity:'',where,paths:[tilde(where)],agents:[agent],can:can.length?can:[...CAN],canSet:!!can.length,registered:true,registeredBy:agent,manual:true,firstSeen:Date.now(),note};await save();return {text:'Registered "'+label+'".'}}
+  if(hit){hit.registered=true;hit.registeredBy=agent;hit.agentLabel=label;if(note)hit.note=note;if(can.length){hit.can=can;hit.canSet=true}await save();if(can.length)await applyCan(hit).catch(()=>{});
+   return {text:'Registered "'+label+'" as '+displayName(hit)+'. The owner sees it under Abilities › Connections'+(can.length?', allowed to: '+can.join(', '):'')+'.'}}
+  if(kind==='other'&&where&&await stat(tilde(where)).catch(()=>null)){const id='other:'+h8(tilde(where));db.accounts[id]={id,kind:'other',provider:providerOf(label).id,agentLabel:label,identity:'',where,paths:[tilde(where)],agents:[agent],can:can.length?can:[...CAN],canSet:!!can.length,registered:true,registeredBy:agent,manual:true,firstSeen:Date.now(),note};await save();return {text:'Registered "'+label+'".'}}
   db.pending=db.pending.filter(x=>!(x.by===agent&&x.label===label));db.pending.push(r);await save();
-  return {text:'Noted "'+label+'". It shows under Abilities › Connected accounts as soon as aqeelOS sees the sign-in (within 2 minutes). Say where the credential is stored (where) if it does not show.'}}
+  return {text:'Noted "'+label+'". It shows under Abilities › Connections as soon as aqeelOS sees the sign-in (within 2 minutes). Say where the credential is stored (where) if it does not show.'}}
  async function approve(id,by=''){await load();const x=db.accounts[id];if(!x)throw new Error('That login is gone. Reload the page.');x.registered=true;x.registeredBy='owner'+(by?': '+by:'');await save();return {ok:true}}
 
  /* ---------- what the page shows ---------- */
@@ -415,7 +502,8 @@ export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir
    const pv=x.kind==='mcp-oauth'?providerOf(x.mcp,x.url,x.provider):providerOf(x.provider);
    const users=(it?.users||[]).map(u=>({id:u.id,name:u.name}));for(const a of x.agents||[]){const b=String(a).split('--')[0];if(!users.some(u=>u.id===b))users.push({id:b,name:nameOf(b)})}
    const state=x.paused?(x.paused.state==='paused'?'paused':x.paused.state==='failed'?'failed':x.paused.state):x.applying||busy(x.id)?'applying':x.off?'off':x.state||'checking';
-   return {id:x.id,kind:x.kind,provider:pv.id,logo:pv.logo,app:pv.name,label:labelOf(x),identity:x.identity||'',agents:users,owner:it?.owner||users[0]?.id||null,can:x.can||[...CAN],canSet:!!x.canSet,
+   return {id:x.id,kind:x.kind,provider:pv.id,logo:pv.logo,app:serviceName(pv.id,pv.name),label:labelOf(x),name:labelOf(x),identity:x.identity||'',mcp:x.mcp||'',who:x.who||null,ownerLabel:x.ownerLabel||'',agentLabel:x.agentLabel||'',
+    agents:users,owner:it?.owner||users[0]?.id||null,can:x.can||[...CAN],canSet:!!x.canSet,canBy:Object.fromEntries(users.map(u=>[u.id,canFor(x,u.id)])),
     state,why:x.paused?.state==='failed'?Object.entries(x.paused.agents||{}).filter(([,v])=>v.startsWith('failed')).map(([a,v])=>nameOf(a)+': '+v.slice(8)).join('; '):x.why||'',pausedAt:x.paused?.at||null,
     lastUsed:x.lastUsed||null,recent:summarise(db.events[x.id]),registered:!!x.registered,registeredBy:x.registeredBy||'',where:(x.where||x.paths?.[0]||'').replace(homedir(),'~'),note:x.note||'',
     enforce:x.kind==='google'?'gapi':x.kind==='mcp-oauth'?'tools':'note',mayPause:['google','mcp-oauth','telegram-user'].includes(x.kind),firstSeen:x.firstSeen||null}});
@@ -429,4 +517,4 @@ export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir
   if(n===s)return {changed:false};const st=await stat(f);await writeFile(f+'.aq.tmp',n,{mode:st.mode});await rename(f+'.aq.tmp',f);console.log('accounts: gapi.py now honours Pause and allowed actions');return {changed:true}}
  if(active){const tick=()=>(async()=>{await patchGapi().catch(e=>console.warn('accounts: gapi.py',e.message));await scan();await readActions();await checkAll()})().catch(e=>console.warn('accounts',e.message));
   setTimeout(tick,8000).unref?.();setInterval(tick,2*60e3).unref?.()}
- return {list,actions,scan,readActions,pause,setCan,disconnect,register,approve,patchGapi,check:async id=>{await load();const x=db.accounts[id];if(x)await check(x,{force:true})},_db:async()=>load()}}
+ return {list,actions,scan,readActions,pause,setCan,setAgentCan,applyTools,toolsOf,busy,disconnect,register,approve,patchGapi,check:async id=>{await load();const x=db.accounts[id];if(x)await check(x,{force:true})},_db:async()=>load()}}
