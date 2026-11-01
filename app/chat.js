@@ -399,7 +399,6 @@ const Chat={
   for(;;){const {value,done}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});let i;
    while((i=buf.search(/\r?\n\r?\n/))>=0){const raw=buf.slice(0,i);buf=buf.slice(i).replace(/^\r?\n\r?\n/,'');let ev='message',data='';for(const line of raw.split(/\r?\n/)){if(line.startsWith(':'))continue;if(line.startsWith('event:'))ev=line.slice(6).trim();else if(line.startsWith('data:'))data+=line.slice(5).trimStart()}if(!data)continue;let d;try{d=JSON.parse(data)}catch{d={text:data}}on({type:d.type||ev,...d})}}},
  onEvent(id,e){const s=this.live[id];if(!s)return;const ai=s.ai;if(!ai)return;
-  if(e.type==='tool.started'&&id===this.id&&/adspower|:9333|:50325/i.test(JSON.stringify([e.tool_name,e.preview,e.args])))Screen.useAds?.();
   // The engine slips a steer in right before the agent's next model call (once the step it is on finishes) and
   // says nothing on this stream when it does. So a steer that was waiting when a step finished has been read as
   // soon as the agent shows anything new after that step.

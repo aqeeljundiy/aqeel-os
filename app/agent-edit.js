@@ -30,10 +30,15 @@ async function editAgent(name,start='Identity',opt={}){
   ${soulOk?'':`<p class="hint" style="margin:0 0 12px">Its personality could not be loaded, so it stays as it is. Close and open again to edit it.</p>`}
   ${soulOk?sec('Personality',`<label style="display:flex;align-items:center;justify-content:space-between;gap:12px">Update how it introduces itself ${toggle(true,'Update introduction','id="idIntro"')}</label><p class="hint">Rewrites the first line so it always calls itself by its name.</p>
    <label>Personality and standing instructions</label><textarea id="idSoul" rows="16" style="font-size:12.5px;line-height:1.55">${esc(soul)}</textarea>`):''}
-  ${tabsOn.includes('Sharing')?sec('Sharing',`<p class="hint" style="margin:0 0 12px">Who owns ${esc(id.name)} and who else may chat with it or change it. Changes here save at once.</p><div id="aeShareBox">${skeleton(2)}</div>`):''}`,
+  ${tabsOn.includes('Sharing')?sec('Sharing',`<p class="hint" style="margin:0 0 12px">Who owns ${esc(id.name)} and who else may chat with it or change it. Each change here saves as you make it.</p><div id="aeShareBox">${skeleton(2)}</div>`):''}`,
   `<button class="ghost" data-act="close">Cancel</button><button class="primary" id="aeSave">Save</button>`,{size:'lg'});
  // tabs inside the window
- const show=t=>{d.querySelectorAll('[data-ae]').forEach(b=>b.classList.toggle('on',b.dataset.ae===t));d.querySelectorAll('.ae-sec').forEach(s=>s.hidden=s.dataset.sec!==t);placePills()};
+ // the window keeps the height of its tallest tab so far (no jump when switching); on Sharing, which saves each change at
+ // once, the footer says Done unless another tab has unsaved changes
+ const show=t=>{const body=d.querySelector('.drawer-body');if(body)body.style.minHeight=Math.max(parseFloat(body.style.minHeight)||0,body.offsetHeight)+'px';
+  d.querySelectorAll('[data-ae]').forEach(b=>b.classList.toggle('on',b.dataset.ae===t));d.querySelectorAll('.ae-sec').forEach(s=>s.hidden=s.dataset.sec!==t);placePills();
+  const sv=d.querySelector('#aeSave'),cx=d.querySelector('.drawer-foot [data-act=close]'),only=t==='Sharing'&&!isDirty?.();if(sv)sv.hidden=only;if(cx){cx.textContent=only?'Done':'Cancel';cx.classList.toggle('primary',only);cx.classList.toggle('ghost',!only)}};
+ let isDirty=null;
  d.querySelectorAll('[data-ae]').forEach(b=>b.onclick=()=>show(b.dataset.ae));requestAnimationFrame(placePills);
  const soulBox=d.querySelector('#idSoul'),intro=d.querySelector('#idIntro'),ava=d.querySelector('#idAva'),nameIn=d.querySelector('#idName'),titleIn=d.querySelector('#idTitle');
  // the introduction line follows the name, but only once the name or title is actually changed: opening and saving
@@ -50,6 +55,7 @@ async function editAgent(name,start='Identity',opt={}){
   if(blob)URL.revokeObjectURL(blob);newPic=b;blob=URL.createObjectURL(b);removePic=false;emo=null;paintAva()});
  drop.onclick=()=>{newPic=null;removePic=!!id.avatar;if(emo===null)emo=initEmo===null?'':initEmo;paintAva()};   // back to its emoji (automatic if it had a photo)
  const emoChanged=()=>emo!==null&&emo!==initEmo;
+ isDirty=()=>renamed()||soulBox&&soulBox.value!==soul||newPic||removePic||emoChanged()||d.querySelector('#idDesc').value.trim()!==(prof.description||'');if(start==='Sharing')show('Sharing');
  paintAva();
  d.querySelector('#aeAuto').onclick=async e=>{const b=e.currentTarget;b.disabled=true;try{const r=await post(H,base+'/describe-auto',{overwrite:true});if(r.description){d.querySelector('#idDesc').value=r.description;prof.description=r.description}toast('Description written and saved')}catch(er){fail(er)}b.disabled=false};
  d.querySelector('#aeCmd')?.addEventListener('click',async()=>{try{const r=await H(base+'/setup-command');await copyText(r.command,'Copied: '+r.command)}catch(e){fail(e)}});
@@ -57,7 +63,7 @@ async function editAgent(name,start='Identity',opt={}){
  // its model: from the Agents list when loaded, else read now (opened from People before Agents, it said "Not set yet")
  if(has('models')&&prof.model===undefined)H('/model/info?profile='+encodeURIComponent(name)).then(i=>{if(d.isConnected)modelLinesSay(name,i?.model||'')}).catch(()=>{});
  // admins: Change leaves this window for Models › Agents' models, so warn before unsaved edits are lost; a member picks in place
- d.querySelector('#aeModelGo')?.addEventListener('click',async e=>{const b=e.currentTarget;if(S.me?.admin===false)return ACT['model-change'](b);const dirty=renamed()||soulBox&&soulBox.value!==soul||newPic||removePic||emoChanged()||d.querySelector('#idDesc').value.trim()!==(prof.description||'');if(dirty&&!await confirmBox('Leave without saving?','Your changes to this agent are not saved yet.','Leave'))return;ACT['model-change'](b)});
+ d.querySelector('#aeModelGo')?.addEventListener('click',async e=>{const b=e.currentTarget;if(S.me?.admin===false)return ACT['model-change'](b);if(isDirty()&&!await confirmBox('Leave without saving?','Your changes to this agent are not saved yet.','Leave'))return;ACT['model-change'](b)});
  // sharing is drawn right in its tab and saves each change at once (shareInto, people.js)
  const shareBox=d.querySelector('#aeShareBox');if(shareBox)shareInto(shareBox,name,opt);
  d.querySelector('#aeSave').onclick=async()=>{const nm=nameIn.value.trim();if(!nm){show('Identity');return toast('Give it a name','err')}const btn=d.querySelector('#aeSave');btn.disabled=true;
