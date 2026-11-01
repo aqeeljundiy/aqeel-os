@@ -338,7 +338,7 @@ ACT['role-new']=()=>roleDrawer(null);ACT['role-open']=a=>roleDrawer(a.dataset.id
  // the roles themselves
  const panel=document.createElement('div');panel.className='panel card';panel.style.marginTop='16px';
  panel.innerHTML=`<div class="h-row"><h2 style="margin:0">Roles</h2><button data-act="role-new">${icon('plus',15)}New role</button></div><p class="sub">What each kind of person may do, which models they get, a daily limit and how many agents they may own.</p>
-  <div class="role-grid">${Object.entries(d.roles).map(([k,ro],i)=>`<button class="card role-card" ${st(i)} data-act="role-open" data-id="${esc(k)}"><b>${esc(ro.name)}</b><span>${esc(roleSummary(ro))}</span><small>${(d.users||[]).filter(x=>x.roleId===k).length} people</small></button>`).join('')}</div>`;
+  <div class="role-grid">${Object.entries(d.roles).map(([k,ro],i)=>`<button class="card role-card" ${st(i)} data-act="role-open" data-id="${esc(k)}"><b>${esc(ro.name)}</b><span>${esc(roleSummary(ro))}</span><small>${(n=>n===1?'1 person':n+' people')((d.users||[]).filter(x=>x.roleId===k).length)}</small></button>`).join('')}</div>`;
  el.querySelector('.people-grid')?.after(panel)}}
 
 /* ---------- Channels for the whole team: which agent answers each one, and moving it ---------- */

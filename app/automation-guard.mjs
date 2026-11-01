@@ -110,6 +110,12 @@ const run=(cmd,args,{timeout=600000,env,cwd}={})=>new Promise(res=>execFile(cmd,
 const lastLine=s=>String(s||'').trim().split('\n').filter(Boolean).pop()?.slice(0,200)||'';
 const FIRST=1e6;   // the first look at a log reads its last 1 MB
 
+// System › Health lists people's agents: an extra number (default--whatsapp-2) is the same agent to a person, so its row folds
+// into the agent's; a copy's server shows (as "(extra number)") only when its state differs from the agent's (2 Nov 2026)
+export function foldCopies(agents,nameOf=a=>a){const out=agents.filter(x=>!x.agent.includes('--')).map(x=>({...x,servers:[...x.servers],jobs:[...x.jobs]}));
+ for(const c of agents.filter(x=>x.agent.includes('--'))){const b=c.agent.split('--')[0];let m=out.find(x=>x.agent===b);if(!m){m={agent:b,name:nameOf(b),servers:[],jobs:[]};out.push(m)}
+  for(const s of c.servers)if(!m.servers.some(x=>x.name===s.name&&x.state===s.state))m.servers.push({...s,agent:c.agent,label:s.name+' (extra number)'});m.jobs.push(...c.jobs.map(j=>({...j,agent:c.agent})))}
+ return out}
 export function createAutomationGuard({DATA,HERMES_HOME,LIVE,listAgents,readConfig,withAgent,setKey,dash,busy=()=>0,paused=()=>false,tell=async()=>{},zone=async()=>'UTC',nameOf=a=>a,readOnly=false,isDaytime=()=>true,localDate=ms=>new Date(ms).toISOString().slice(0,10)}){
  const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const signedBefore=(a,n)=>stat(path.join(homeOf(a),'mcp-tokens',n+'.json')).then(()=>true,()=>false);
@@ -265,7 +271,9 @@ export function createAutomationGuard({DATA,HERMES_HOME,LIVE,listAgents,readConf
    // an app nobody ever signed in to for this agent (no saved sign-in, e.g. Sesa's Composio, kept unsigned on purpose
    // 25 Oct 2026) is not a problem: it stays quiet; only a sign-in that existed and was lost is reported
    if(st==='signin'&&!await signedBefore(r.agent,r.name)){r.unused=true;continue}
-   if(st==='signin'){r.unused=false;await say('srv|'+key(r.agent,r.name)+'|signin',nameOf(r.agent)+': "'+r.name+'" needs someone to sign in',{detail:'Its tools stay off until then: '+(r.reason||'').slice(0,160)+'. Sign in under Bottlenecks or System › Health. aqeelOS will not retry it by itself.',every:Infinity});continue}
+   // an extra number (default--whatsapp-2) shares its agent's sign-ins (links.mjs links mcp-tokens): the agent's own alert covers it
+   if(st==='signin'&&r.agent.includes('--')&&db.servers[key(r.agent.split('--')[0],r.name)]?.state==='signin'){r.unused=false;continue}
+   if(st==='signin'){r.unused=false;await say('srv|'+key(r.agent,r.name)+'|signin',nameOf(r.agent)+': "'+r.name+'" needs someone to sign in',{detail:'Its sign-in ran out, so its tools stay off until someone signs in again. Sign in under Bottlenecks or System › Health. aqeelOS will not retry it by itself.',every:Infinity});continue}
    if(st!=='repair')continue;
    await say('srv|'+key(r.agent,r.name)+'|found|'+(r.since||0),nameOf(r.agent)+': the tool server "'+r.name+'" '+(r.state==='broken'?'is broken':r.state==='missing'?'is missing its tools':'stopped connecting'),{info:true,detail:String(r.reason||'').replace(/\.$/,'')+'. aqeelOS is fixing it.',every:Infinity});
    out.push(repair(r.agent,r.name,{why:r.reason}).catch(e=>({ok:false,why:e.message})))}
@@ -310,7 +318,7 @@ export function createAutomationGuard({DATA,HERMES_HOME,LIVE,listAgents,readConf
    if(sv.length||jobs.length)agents.push({agent:a,name:nameOf(a),servers:sv,jobs})}
   const used=new Set(Object.values(db.servers).flatMap(r=>r.venvs||[]));
   const venvs=Object.entries(db.venvs).filter(([d,v])=>!used.has(d)&&(v.state==='broken'||v.rebuiltAt&&now-v.rebuiltAt<24*3600e3)).map(([dir,v])=>({dir,state:fixing.has(key('default',dir))?'fixing':v.state==='broken'?'broken':'repaired',at:v.rebuiltAt||null,why:v.failWhy||''}));
-  return {at:db.at||null,agents,venvs}}
+  return {at:db.at||null,agents:foldCopies(agents,nameOf),venvs}}
  // "Run now" for a schedule that failed because of a tool server: the engine's own run-now
  async function runJob(a,id){await load();const j=db.jobs[key(a,id)];const r=await dash('POST','/api/cron/jobs/'+encodeURIComponent(id)+'/trigger'+q(a),{});if(!r.ok)throw new Error(String(r.j?.detail||'The engine did not start it ('+r.status+')'));if(j){j.offer=false;j.ranAt=Date.now();await save()}return {ok:true}}
  async function fixNow(a,s){await load();if(s.startsWith('/')){if(!db.venvs[s])return {ok:false,why:'aqeelOS does not know that environment'};const b=await rebuildVenv(s);if(b.ok&&db.venvs[s])db.venvs[s].state=b.already?'ok':'repaired';await save();return b}return repair(a,s,{force:true,why:'Fix now'})}

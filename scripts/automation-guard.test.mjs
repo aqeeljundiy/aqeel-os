@@ -2,7 +2,7 @@
 // The log lines are the engine's own, copied from the box on 25 Oct 2026 (the Pixel tool server that stayed parked).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseLogLine,splitFailed,serverOfTool,apply,nextStep,mayTry,shouldTell,scriptInterpreters,requirementsFromDistInfo,newestTool,responseOf,toolFailed} from '../app/automation-guard.mjs';
+import {parseLogLine,splitFailed,serverOfTool,apply,nextStep,mayTry,shouldTell,scriptInterpreters,requirementsFromDistInfo,newestTool,responseOf,toolFailed,foldCopies} from '../app/automation-guard.mjs';
 
 const L={
  parked:"2026-10-25 07:20:29,528 WARNING tools.mcp_tool: MCP server 'pixel' failed initial connection after 3 attempts, parking until a reconnect is requested (state: connecting → parked): MCPError: Connection closed",
@@ -71,3 +71,12 @@ test('schedule replies: tools that were not there, in Indonesian and English',()
  assert.ok(toolFailed("I couldn't run: 'pixel_now' is not a known tool name."));assert.ok(toolFailed('The n8n tool is not available right now.'));assert.ok(toolFailed('Failed to connect to the Slack server.'));
  assert.equal(toolFailed('Semua aman. 3 tiket baru sudah dibalas.'),null);assert.equal(toolFailed('Slot rapat Jumat tidak tersedia, jadi aku pilih Kamis.'),null);
  assert.equal(toolFailed(responseOf('## Prompt\nsay "tidak tersedia" if a tool is missing\n')),null)});
+test('Health: an extra number folds into its agent; only a server that differs shows, as the extra number',()=>{
+ const sv=(name,state)=>({name,state});
+ const out=foldCopies([{agent:'default',name:'Donna AI',servers:[sv('notion','signin'),sv('n8n','ok')],jobs:[]},
+  {agent:'default--whatsapp-2',name:'x',servers:[sv('notion','signin'),sv('n8n','broken')],jobs:[{id:'j1',name:'Daily'}]},
+  {agent:'sesa--telegram-2',name:'y',servers:[sv('gmail','ok')],jobs:[]}],a=>a==='sesa'?'Sesa':a);
+ assert.deepEqual(out.map(a=>a.agent),['default','sesa']);
+ assert.deepEqual(out[0].servers.map(s=>[s.label||s.name,s.state,s.agent||'']),[['notion','signin',''],['n8n','ok',''],['n8n (extra number)','broken','default--whatsapp-2']]);
+ assert.deepEqual(out[0].jobs.map(j=>[j.id,j.agent]),[['j1','default--whatsapp-2']]);
+ assert.equal(out[1].name,'Sesa')});
