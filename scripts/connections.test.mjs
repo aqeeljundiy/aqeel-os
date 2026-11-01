@@ -35,6 +35,7 @@ test('levels: which tools each level lets an agent use',()=>{
  assert.deepEqual(blockedTools(slack,canOf('read'),'slack').sort(),slack.filter(t=>toolLevel('slack',t)!=='read').sort());
  assert.deepEqual(blockedTools(slack,canOf('draft'),'slack').sort(),slack.filter(t=>toolLevel('slack',t)==='full').sort());
  assert.deepEqual(blockedTools(slack,canOf('full'),'slack'),[]);
+ assert.deepEqual(['COMPOSIO_SEARCH_TOOLS','COMPOSIO_EXECUTE','COMPOSIO_MANAGE_CONNECTIONS'].map(t=>toolLevel('composio',t)),['read','full','full']);
  assert.equal(levelOf(['read']),'read');assert.equal(levelOf(['read','draft']),'draft');assert.equal(levelOf(['read','draft','send']),'full');assert.equal(levelOf(undefined),'full')});
 
 // the sources as the box has them: one login shared by three agents, an app, a plugin, a key, skills, AdsPower

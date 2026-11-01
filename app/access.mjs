@@ -100,7 +100,7 @@ export function createAccess({HERMES_HOME,DATA,listAgents,readConfig,setKey,herm
   const mine=(await holdings(from))[kind][id];if(!mine)return {changed:false};
   // an agent's own connection that only shares the name (another address or sign-in) is not the owner's to take back
   if(kind==='mcp'&&!it.own){const src=(await holdings(it.owner)).mcp[id];if(src&&(mine.detail!==src.detail||(mine.fp&&src.fp&&mine.fp!==src.fp)))throw new Error('This is '+names(from)+'’s own '+id+' connection, not a copy of '+names(it.owner)+'’s. Remove it on that agent instead.')}
-  if(kind==='mcp'){await dash('DELETE','/api/mcp/servers/'+encodeURIComponent(id)+'?profile='+encodeURIComponent(from));
+  if(kind==='mcp'){await dash('DELETE','/api/mcp/servers/'+encodeURIComponent(id)+'?profile='+encodeURIComponent(from));cfgCache.delete(from);   // removed through the dashboard: its settings read again (1 Nov 2026)
    for(const f of [id+'.json',id+'.meta.json',id+'.client.json'])await unlink(path.join(home(from),'mcp-tokens',f)).catch(()=>{});
    restart('access: '+id+' taken from '+names(from));return {changed:true}}
   if(kind==='google'){await unlink(path.join(home(from),mine.file));return {changed:true}}
@@ -115,4 +115,6 @@ export function createAccess({HERMES_HOME,DATA,listAgents,readConfig,setKey,herm
  // new sign-in by the same name starts with no owner carried over
  async function forget(kind,id){await loadReg();const k=kind+'|'+id;if(!(k in reg.owners))return {changed:false};delete reg.owners[k];await saveReg();cfgCache.clear();return {changed:true}}
 
- return {list,grant,revoke,setOwner,forget}}
+ // "Check now" and a change made elsewhere (an app added through the dashboard): every agent's settings read again
+ const fresh=()=>cfgCache.clear();
+ return {list,grant,revoke,setOwner,forget,fresh}}

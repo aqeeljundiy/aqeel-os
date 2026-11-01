@@ -88,8 +88,9 @@ export function actionOf(provider,fn,{verbLast=false}={}){const tok=String(fn||'
 // may an action of this kind run with these allowed actions (read always may)
 export const allowed=(kind,can)=>kind==='read'||(kind==='draft'?can.includes('draft'):can.includes('send'));
 // what one app tool needs (1 Nov 2026): read, draft or send. A comment counts as a draft (it stays a note on the thing,
-// not a message out), so Read & draft may comment; everything else that changes or sends needs Full.
-export function toolNeed(prov,tool){const a=actionOf(prov,tool);if(a.kind==='read'||a.kind==='draft')return a.kind;
+// not a message out), so Read & draft may comment; everything else that changes or sends needs Full, and so does a tool
+// whose name does not say what it does.
+export function toolNeed(prov,tool){const a=actionOf(prov,tool);if(a.kind==='draft'||a.kind==='read'&&a.verb!=='Used')return a.kind;   // a tool whose name says nothing known (COMPOSIO_EXECUTE) needs Full
  const t=String(tool||'').toLowerCase().split(/[._\s-]+/);return t.some(w=>/^comments?$/.test(w))&&t.some(w=>/^(create|add|reply|post|insert)$/.test(w))?'draft':'send'}
 const PROV_WORD={gmail:'Gmail',drive:'Drive',sheets:'Sheets',docs:'Docs',calendar:'Calendar',slack:'Slack',notion:'Notion'};
 const pl=(n,w)=>n===1?w:w==='person'?'people':w==='sharing'?w:/(s|sh|ch|x)$/.test(w)?w+'es':w+'s';
@@ -442,11 +443,12 @@ export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir
   const r=await dash('POST','/api/mcp/servers/'+encodeURIComponent(name)+'/test'+q(a),{}).catch(()=>null);return (r?.j?.tools||[]).map(t=>typeof t==='string'?t:t?.name).filter(Boolean)}
  // one app on one agent with only the tools these allowed actions leave (orig: where its own tools setting from before
  // aqeelOS changed it is kept, per agent). paused: the settings to put back on Resume, changed instead of the live ones.
- // Used for logins as the owner here and for every other app by Connections (connections.mjs).
- async function applyTools(a,name,can,prov,orig,paused=null){const cur=(paused||{})[a]||(await servers(a))[name];if(!cur)return {ok:true,none:true};if(!(a in orig))orig[a]=cur.tools===undefined?null:cur.tools;
+ // Used for logins as the owner here and for every other app by Connections (connections.mjs). known: tools another
+ // agent's copy has, for an agent that has not listed them yet (a copy just given).
+ async function applyTools(a,name,can,prov,orig,paused=null,known=[]){const cur=(paused||{})[a]||(await servers(a))[name];if(!cur)return {ok:true,none:true};if(!(a in orig))orig[a]=cur.tools===undefined?null:cur.tools;
   // the engine's list may already lack the tools aqeelOS left out before: those count too
   const o=orig[a]===null?undefined:orig[a],before=Array.isArray(o?.include)?o.include.filter(t=>!(cur.tools?.include||[]).includes(t)):(cur.tools?.exclude||[]).filter(t=>!(o?.exclude||[]).includes(t));
-  const all=[...new Set([...await toolsOf(a,name),...before])],blocked=blockedTools(all,can,prov);const next=withCan(cur,blocked,o);if(!blocked.length)delete orig[a];
+  const all=[...new Set([...await toolsOf(a,name),...known,...before])],blocked=blockedTools(all,can,prov);const next=withCan(cur,blocked,o);if(!blocked.length)delete orig[a];
   if(JSON.stringify(next)===JSON.stringify(cur))return {ok:true,same:true,tools:all.length,left:all.length-blocked.length};if(paused){paused[a]=next;return {ok:true,paused:true}}
   const r=await swap(a,name,next,cur);return {...r,tools:all.length,left:all.length-blocked.length}}
  // what one agent may do with a login: its own (canBy, by its agent name without the extra number) or the login's

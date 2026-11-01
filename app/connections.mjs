@@ -80,8 +80,8 @@ export function buildRows(i){const names=i.names||(a=>a),out=[],acc=i.acc||{};co
  const seen=new Map();for(const r of out)seen.set(r.name,(seen.get(r.name)||0)+1);for(const r of out)if(seen.get(r.name)>1&&r.kind==='mcp')r.name+=' ('+r.id+')';
  for(const r of out){r.ownerName||=r.owner?names(r.owner):'';r.canUse=r.users.filter(u=>u.level!=='off').map(u=>u.id)}
  // what needs you first (a login nobody registered, a sign-in to make), then logins, apps, plugins, keys, skills
- const rank=r=>(r.registered===false?0:2)+(r.status==='signin'?0:1);
- return out.sort((a,b)=>rank(a)-rank(b)||TYPE_ORDER[a.type]-TYPE_ORDER[b.type]||a.name.localeCompare(b.name))}
+ const rank=r=>(r.registered===false?0:4)+(r.status==='signin'?0:2)+(r.status==='off'?1:0);
+ return out.sort((a,b)=>(rank(a)>>1)-(rank(b)>>1)||TYPE_ORDER[a.type]-TYPE_ORDER[b.type]||(rank(a)&1)-(rank(b)&1)||a.name.localeCompare(b.name))}
 
 // may this person change it. p: {admin, level:a=>'chat'|'edit'|'owner'|null, canOn:(cap,a)=>bool}; what: level | add |
 // remove | owner. Admins may do everything. An agent's owner manages its skills and apps (users.mjs OWNER_CAPS); adding
@@ -107,17 +107,19 @@ export function createConnections({DATA,access,accounts,listAgents,listCopies=as
   const ad=only||!ads?[]:await ads().catch(()=>[]);const cd=only||!code?null:await code().catch(()=>null);
   return {agents:agents.filter(seen).map(a=>({id:a,name:names(a)})),acc,accounts:ca,skills:sk,ads:ad,code:cd,partial:Object.entries(acc).filter(([,v])=>!v).map(([k])=>k)}}
  async function list(perm={admin:true},{fresh=false}={}){await load();const only=perm.admin?null:new Set((await listAgents()).filter(a=>perm.level?.(a)));const k=only?[...only].sort().join(','):'*';
-  if(fresh)drop();if(!cache||cache.k!==k||Date.now()-cache.at>20000)cache={k,at:Date.now(),g:await gather(only)};const g=cache.g;
+  if(fresh){drop();access.fresh?.()}if(!cache||cache.k!==k||Date.now()-cache.at>20000)cache={k,at:Date.now(),g:await gather(only)};const g=cache.g;
   const rows=buildRows({...g,levels:db.levels,busy,names}).map(r=>({...r,may:{level:mayChange(perm,r,'level',r.owner)||r.users.some(u=>mayChange(perm,r,'level',u.id)),owner:mayChange(perm,r,'owner',perm.admin?r.owner:null)||g.agents.some(a=>mayChange(perm,r,'owner',a.id)),add:g.agents.some(a=>!has(r.users,a.id)&&mayChange(perm,r,'add',a.id))}}));
   return {rows,agents:g.agents,canEdit:!!perm.admin,partial:g.partial,at:cache.at}}
  async function find(key,perm){const l=await list({admin:true});const r=l.rows.find(x=>x.key===key);if(!r)throw Object.assign(new Error('That connection is gone. Reload the page.'),{status:404});return {r,agents:l.agents}}
  const check=(perm,r,what,agent)=>{if(!mayChange(perm,r,what,agent))throw Object.assign(new Error(what==='owner'?'Only an admin or the owner of both agents can move this.':'You can’t change who uses '+r.name+'. Ask an admin.'),{status:403})};
  const job=(key,fn)=>{busy.add(key);drop();return Promise.resolve().then(fn).catch(e=>console.warn('connections:',key,e.message)).finally(()=>{busy.delete(key);drop()})};
  // one app's level on an agent and its extra numbers (default--whatsapp-2 has its own settings)
- async function applyApp(r,agent){const name=r.id,lv=db.levels['mcp|'+name]?.[agent]||'full';const orig=db.orig['mcp|'+name]||={};const prov=providerOf(name).id;const out=[];
-  for(const a of [agent,...(await listCopies()).filter(c=>baseOf(c)===agent&&c!==agent)]){const x=await accounts.applyTools(a,name,canOf(lv),prov,orig);out.push([a,x]);if(!x.ok)console.warn('connections: level on',a,name,x.why)}
+ async function applyApp(r,agent){const name=r.id,lv=db.levels['mcp|'+name]?.[agent]||'full';const orig=db.orig['mcp|'+name]||={};const prov=providerOf(name).id;const out=[];const known=await toolsAny(r);
+  for(const a of [agent,...(await listCopies()).filter(c=>baseOf(c)===agent&&c!==agent)]){const x=await accounts.applyTools(a,name,canOf(lv),prov,orig,null,known);out.push([a,x]);if(!x.ok)console.warn('connections: level on',a,name,x.why)}
   if(!Object.keys(orig).length)delete db.orig['mcp|'+name];await save();return out}
 
+ // an app's tools as the owner's copy lists them, else any other agent's (the engine lists them once it connects)
+ const toolsAny=async r=>{for(const a of [r.owner,...r.users.map(u=>u.id)].filter(Boolean)){const t=await accounts.toolsOf(a,r.id).catch(()=>[]);if(t.length)return t}return []};
  async function setLevel(key,agent,level,perm){const {r}=await find(key);check(perm,r,'level',agent);const u=r.users.find(x=>x.id===agent);if(!u)throw Object.assign(new Error(names(agent)+' doesn’t have '+r.name+'.'),{status:409});
   if(r.levels==='onoff'){if(!['on','off'].includes(level))throw new Error('On or Off');
    if(r.kind==='skill'){if(level==='on'&&!skillOk(r.category?r.category+'/'+r.id:r.id,agent))throw new Error(r.name+' is kept for '+(r.only||[]).map(names).join(', ')+' only.');
@@ -134,6 +136,8 @@ export function createConnections({DATA,access,accounts,listAgents,listCopies=as
   if(r.kind==='skill'){const from=r.users.find(u=>u.level==='on')?.id||r.owner;const x=await sharing.share('skill',r.id,from,[agent]);if(x.failed?.length)throw new Error(x.failed[0].error);await engine('PUT','/api/skills/toggle?profile='+encodeURIComponent(agent),{name:r.id,enabled:true});drop();return {ok:true,level:'on'}}
   if(r.kind==='ads'||r.kind==='code'||r.kind==='telegram-user'||r.kind==='other')throw new Error(r.name+' belongs to one agent only.');
   if(r.bot)throw new Error('A chat bot answers as one agent only. Give the other agent its own bot instead.');
+  // the owner stays the owner: Access otherwise names the first agent signed in, which a new agent can be
+  if(r.owner&&!r.own&&r.kind!=='skill')await access.setOwner(r.kind,r.id,r.owner).catch(()=>{});
   await access.grant(r.kind,r.id,agent);drop();
   if(r.type==='account'&&r.caId){await accounts.scan().catch(()=>{});await accounts.setAgentCan(r.caId,agent,canOf('read')).catch(e=>console.warn('connections: read on',agent,e.message));return {ok:true,level:'read'}}
   return {ok:true,level:r.levels==='onoff'?'on':'full'}}
@@ -151,6 +155,6 @@ export function createConnections({DATA,access,accounts,listAgents,listCopies=as
   await access.forget?.('mcp',r.id).catch(()=>{});delete db.levels['mcp|'+r.id];delete db.orig['mcp|'+r.id];await save();drop();return {ok:true}}
  // one row in full: for an app, how many of its tools each level leaves (from the owner's tool list)
  async function detail(key,perm){const l=await list(perm);const r=l.rows.find(x=>x.key===key);if(!r)throw Object.assign(new Error('That connection is gone. Reload the page.'),{status:404});let tools=null;
-  if(r.kind==='mcp'&&r.levels==='level'&&r.owner){const t=await accounts.toolsOf(r.owner,r.id).catch(()=>[]);if(t.length)tools=toolCounts(t,providerOf(r.id).id)}
+  if(r.kind==='mcp'&&r.levels==='level'){const t=await toolsAny(r);if(t.length)tools=toolCounts(t,providerOf(r.id).id)}
   let recent=r.recent;if(r.caId&&perm.admin){try{recent=(await accounts.actions(r.caId)).items}catch{}}return {...r,tools,recent}}
  return {list,detail,setLevel,add,remove,setOwner,disconnect,_db:load}}
