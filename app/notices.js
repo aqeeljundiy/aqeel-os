@@ -29,9 +29,9 @@ const Inbox={items:[],ids:{},
  all(){return this.items},
  async load(){if(!S.signedIn||document.hidden)return;await this.migrate();try{const d=await UI('/ui/news');this.items=d.items||[]}catch{return}this.paintBell();if($('.drawer.inbox'))this.paintList()},
  // the list this browser kept before it moved to the server (1 Nov 2026): the last week's news goes up once, read ones stay read
- async migrate(){const old=store.get('inbox',null);if(!Array.isArray(old))return;store.set('inbox',null);const read=[];
-  for(const x of old.filter(x=>Date.now()-x.t<7*864e5&&!this.todo({key:x.id})).slice(0,30)){try{const r=await post(UI,'/ui/news',{key:'old:'+x.id,icon:x.icon,kind:x.kind,title:x.title,text:x.text,go:x.go,label:x.label});if(x.read&&r.item?.id)read.push(r.item.id)}catch{}}
-  if(read.length)await post(UI,'/ui/news/read',{ids:read}).catch(()=>{})},
+ async migrate(){const old=store.get('inbox',null);if(!Array.isArray(old))return;store.set('inbox',null);
+  const items=old.filter(x=>Date.now()-x.t<7*864e5&&!this.todo({key:x.id})).slice(0,30).map(x=>({key:'old:'+x.id,icon:x.icon,kind:x.kind,title:x.title,text:x.text,go:x.go,label:x.label,read:!!x.read}));
+  if(items.length)await post(UI,'/ui/news/import',{items}).catch(()=>{})},
  add(o){if(this.todo(o)){if(typeof Bottlenecks!=='undefined')setTimeout(()=>Bottlenecks.check(),500);return null}
   const key=o.key?o.key+(o.repeat===false?'':'@'+Math.floor(Date.now()/3600e3)):'',lid='l'+Date.now()+Math.random().toString(36).slice(2,6);
   const it={id:lid,key,t:Date.now(),icon:o.icon||'clock',kind:o.kind||'blue',title:o.title||'',text:noThink(o.text).slice(0,200),go:(o.actions||[]).find(a=>a.go)?.go||o.go||'',label:(o.actions||[])[0]?.label||'Open',read:false};

@@ -29,3 +29,13 @@ test('own items: only to the person, never another audience, and rate limited',a
 test('read and cleared are per person',async()=>{const D=dir();try{const n=createNews({DATA:D});const a=await n.add({aud:'admins',title:'news'});
  const admin2={id:'a2'};await n.read(owner,true,{ids:[a.id]});assert.equal((await n.list(owner,true))[0].read,true);assert.equal((await n.list(admin2,true))[0].read,false);
  await n.hide(owner,true,{read:true});assert.equal((await n.list(owner,true)).length,0);assert.equal((await n.list(admin2,true)).length,1)}finally{rmSync(D,{recursive:true,force:true})}});
+
+test('rate limit: only new items count, so duplicates never use it up',async()=>{const D=dir();try{const n=createNews({DATA:D});
+ for(let i=0;i<RATE.n*2;i++)await n.addOwn(mem,{key:'same',title:'again'});
+ for(let i=1;i<RATE.n;i++)await n.addOwn(mem,{key:'k'+i,title:'new '+i});
+ await assert.rejects(()=>n.addOwn(mem,{key:'over',title:'one too many'}),e=>e.status===429)}finally{rmSync(D,{recursive:true,force:true})}});
+test('import: once per person, at most 30, outside the limit, read ones stay read',async()=>{const D=dir();try{const n=createNews({DATA:D});
+ for(let i=0;i<RATE.n;i++)await n.addOwn(mem,{key:'x'+i,title:'t'});
+ const items=Array.from({length:40},(_,i)=>({key:'old:'+i,title:'old '+i,read:i===0}));
+ assert.equal(await n.importOwn(mem,items),30);assert.equal(await n.importOwn(mem,items),0);
+ const l=await n.list(mem,false);assert.equal(l.find(x=>x.key==='old:0').read,true);assert.equal(l.find(x=>x.key==='old:1').read,false)}finally{rmSync(D,{recursive:true,force:true})}});
