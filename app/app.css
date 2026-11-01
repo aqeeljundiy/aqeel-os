@@ -2220,3 +2220,4 @@ button.acct-more{font:inherit;cursor:pointer;width:100%;background:var(--surface
 .cn-cat .row .txt span{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 @media (prefers-reduced-motion:reduce){.cn-p.cn-in>*{animation:none}}
 .restore-note{border-color:color-mix(in srgb,var(--blue) 30%,var(--border));background:color-mix(in srgb,var(--blue) 6%,var(--surface))}.restore-note>svg{color:var(--blue);animation:spin 1.6s linear infinite}
+.cn-more{display:block;width:100%;padding:12px;border-top:1px solid var(--border);border-radius:0 0 var(--radius-lg) var(--radius-lg);color:var(--muted);font-size:13px;transition:color .15s,background .15s}.cn-more:hover{color:var(--ink,inherit);background:var(--soft)}   /* Connections: the rest of a long list, 1 Nov 2026 */

@@ -222,10 +222,6 @@
    "tab: Installed",
    "tab: Tool groups"
   ],
-  "all /abilities/mcp": [
-   "button: Add",
-   "button: Check now"
-  ],
   "all /abilities/connections": [
    "button: Add",
    "button: Check now"
@@ -247,10 +243,6 @@
    "button: Learn a skill",
    "button: New skill",
    "button: Update all"
-  ],
-  "one /abilities/mcp": [
-   "button: Add",
-   "button: Check now"
   ],
   "one /abilities/connections": [
    "button: Add",
