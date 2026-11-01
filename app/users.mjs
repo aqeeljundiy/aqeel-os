@@ -276,7 +276,7 @@ export function createUsers(DATA,mail,{ownerCheck}={}){
   if(um&&req.method==='DELETE'){const id=um[1],x=byId(id);
    // their private agents stay private: nobody gets them by default. Only the owner of aqeelOS can take them over, on purpose (?agents=take)
    const owns=Object.entries(db.agentOwners).filter(([,o])=>o===id).map(([a])=>a);
-   if(owns.length&&x&&!isAdmin(x)){if(!(u.role==='owner'&&new URL(req.url,'http://x').searchParams.get('agents')==='take'))return send(res,409,{code:'owns-agents',agents:owns,error:x.name+' still owns '+owns.join(', ')+', private to them. They can give '+(owns.length>1?'those agents':'it')+' to someone under the agent’s menu › Sharing and owner.'});
+   if(owns.length&&x&&!isAdmin(x)){if(!(u.role==='owner'&&new URL(req.url,'http://x').searchParams.get('agents')==='take'))return send(res,409,{code:'owns-agents',agents:owns,error:x.name+' still owns '+owns.join(', ')+', private to them. They can give '+(owns.length>1?'those agents':'it')+' to someone under Edit agent › Sharing.'});
     for(const a of owns)delete db.agentOwners[a]}
    db.users=db.users.filter(y=>y.id!==id);for(const a of Object.values(db.shares))delete a[id];await save();return send(res,200,{ok:true})}
   return send(res,404,{error:'Not found'})}

@@ -76,7 +76,8 @@ const Chat={
   if(!ms.length&&this.modelsErr)return menu(el,[{header:"Couldn't load models"},{label:'Try again',icon:'refresh',run:()=>this.reloadModels()}]);
   if(!ms.length)return menu(el,[{header:'No models yet: add a key or sign in'},...(ad?[{label:'Add a key',icon:'key',run:()=>go('/system/keys')},{label:'Sign in to a model',icon:'user',run:()=>go('/models/models')}]:[]),{label:'Refresh models',icon:'refresh',run:()=>this.reloadModels()}]);
   const groups=new Map();for(const m of ms){if(!groups.has(m.provider))groups.set(m.provider,[]);groups.get(m.provider).push(m)}
-  const items=[{label:'Default ('+modelLabel(this.defaultModel?.id)+')',icon:'cpu',on:!this.model,run:()=>this.setModel(null)}];
+  // a pick here is for this chat only; the agent's own model is set on Models › Agents' models (1 Nov 2026)
+  const items=[{header:'Model for this chat only'},{label:'Default ('+modelLabel(this.defaultModel?.id)+')',sub:'The agent’s own model',icon:'cpu',on:!this.model,run:()=>this.setModel(null)}];
   for(const [slug,l] of groups){items.push('-',{header:l[0].providerName+' ('+plural(l.length,'model')+')',title:slug});if(this.provWarn?.[slug])items.push({label:this.provWarn[slug],icon:'alert',disabled:true,find:slug});
    items.push(...l.map(m=>({label:m.label,title:m.id,find:m.id+' '+slug+' '+m.providerName,icon:'cpu',on:!!this.model&&m.id===cur.id&&m.provider===cur.provider,run:()=>this.setModel(m)})))}
   items.push('-',{label:'Refresh models',icon:'refresh',run:()=>this.reloadModels()},...(ad?[{label:'Sign in to more models…',icon:'key',run:()=>go('/models/models')}]:[]));
