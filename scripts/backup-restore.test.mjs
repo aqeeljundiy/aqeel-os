@@ -7,7 +7,7 @@ import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,existsSync,rmSync} from
 import {execFileSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {restoreRules,dbFiles,spaceNeeded} from '../app/backup.mjs';
+import {restoreRules,dbFiles,spaceNeeded,RESTORE_ENABLED} from '../app/backup.mjs';
 
 test('rules: never delete, no sockets or devices',()=>{const r=restoreRules();
  assert.ok(!r.some(x=>x.startsWith('--delete')));assert.ok(r.includes('--no-specials'));assert.ok(r.includes('--no-devices'));
@@ -20,7 +20,10 @@ test('space: download plus unpacked plus the safety copy, together when one disk
  assert.equal(a.tmp,9e9*3+2e9);assert.equal(a.home,9e9*1.2+1e9);assert.equal(b.tmp,a.tmp+a.home);assert.equal(b.home,b.tmp)});
 
 let rsync=true;try{execFileSync('rsync',['--version'],{stdio:'ignore'})}catch{rsync=false}
-test('rsync: restores what the backup holds, keeps what it does not, copies no left-out part',{skip:!rsync&&'rsync is not installed'},()=>{
+// the tests that copy files skip while restore is switched off (1 Nov 2026: backup.mjs RESTORE_ENABLED) or where rsync is
+// missing (the box today); the rules above are plain functions and run everywhere
+const SKIP=!RESTORE_ENABLED?'restore from a backup is switched off (backup.mjs RESTORE_ENABLED)':!rsync?'rsync is not installed':false;
+test('rsync: restores what the backup holds, keeps what it does not, copies no left-out part',{skip:SKIP},()=>{
  const T=mkdtempSync(path.join(tmpdir(),'aq-restore-')),src=path.join(T,'b'),dst=path.join(T,'h');const w=(f,t)=>{mkdirSync(path.dirname(f),{recursive:true});writeFileSync(f,t)};
  try{w(path.join(src,'config.yaml'),'old');w(path.join(src,'profiles/a/config.yaml'),'old-a');w(path.join(src,'profiles/a/deep/x/cache/c'),'c');w(path.join(src,'profiles/a/cache/c'),'c');
   w(path.join(src,'installs/i'),'i');w(path.join(src,'gateway.pid'),'1');w(path.join(src,'logs/agent.log'),'l');
@@ -44,23 +47,29 @@ function box(){const T=mkdtempSync(path.join(tmpdir(),'aq-apply-')),HOME=path.jo
 // the box has GNU tar; a Mac's bsdtar lacks --ignore-failed-read, so here a small stand-in leaves that one option out
 let gnu=true;try{gnu=/GNU/.test(execFileSync('tar',['--version'],{encoding:'utf8'}))}catch{}
 const opts=(b,x={})=>({src:b.src,HERMES_HOME:b.H,HOME:b.HOME,stopEngine:b.stopEngine,startEngine:b.startEngine,...(gnu?{}:{tar:b.script('tar-gnuish','for a; do shift; [ "$a" = --ignore-failed-read ] || set -- "$@" "$a"; done; exec tar "$@"')}),...x});
-test('apply: rsync missing stops before anything (agents keep running, -wal untouched)',async()=>{const b=box();try{
+test('apply: rsync missing stops before anything (agents keep running, -wal untouched)',{skip:SKIP},async()=>{const b=box();try{
  await assert.rejects(()=>applyRestore(opts(b,{rsync:'/no/such/rsync'})),/rsync is not installed/);
  assert.deepEqual(b.n,{stop:0,start:0});assert.equal(b.read('state.db-wal'),'wal today');assert.equal(b.read('config.yaml'),'today')}finally{b.done()}});
-test('apply: agents that do not stop: nothing changes, they start again',async()=>{const b=box();try{
+test('apply: agents that do not stop: nothing changes, they start again',{skip:SKIP},async()=>{const b=box();try{
  await assert.rejects(()=>applyRestore(opts(b,{stopEngine:async()=>{throw Error('the dashboard still answers')}})),/did not stop/);
  assert.equal(b.n.start,1);assert.equal(b.read('state.db-wal'),'wal today');assert.equal(b.read('config.yaml'),'today')}finally{b.done()}});
-test('apply: a safety copy that fails leaves no half file and changes nothing',async()=>{const b=box();try{
+test('apply: a safety copy that fails leaves no half file and changes nothing',{skip:SKIP},async()=>{const b=box();try{
  const tar=b.script('tar','echo half > "$2"; exit 2');
  await assert.rejects(()=>applyRestore(opts(b,{tar})),/could not be saved first/);
  assert.deepEqual(readdirSync(b.HOME).filter(f=>f.startsWith('aqeelos-before-restore')),[]);assert.equal(b.read('state.db-wal'),'wal today');assert.deepEqual(b.n,{stop:1,start:1})}finally{b.done()}});
-test('apply: rsync that fails halfway puts today back, -wal included',{skip:!rsync&&'rsync is not installed'},async()=>{const b=box();try{
+test('apply: rsync that fails halfway puts today back, -wal included',{skip:SKIP},async()=>{const b=box();try{
  // copies one file of the backup, then fails like a permission error (exit 23)
  const bad=b.script('rsync','for a; do p="$q"; q="$a"; done; cp "${p}config.yaml" "${q}config.yaml"; exit 23');
  await assert.rejects(()=>applyRestore(opts(b,{rsync:bad})),/were put back/);
  assert.equal(b.read('config.yaml'),'today');assert.equal(b.read('state.db'),'db today');assert.equal(b.read('state.db-wal'),'wal today');
  assert.ok(!existsSync(path.join(b.H,'state.db-wal.aqeelos-held')));assert.deepEqual(b.n,{stop:1,start:1})}finally{b.done()}});
-test('apply: success copies the backup, drops today\'s -wal, keeps agents made after, keeps two safety copies',{skip:!rsync&&'rsync is not installed'},async()=>{const b=box();try{
+test('apply: success copies the backup, drops today\'s -wal, keeps agents made after, keeps two safety copies',{skip:SKIP},async()=>{const b=box();try{
  for(let i=0;i<3;i++){const r=await applyRestore(opts(b,{at:Date.UTC(2026,10,1,1,0,i)}));assert.ok(existsSync(r.safety))}
  assert.equal(b.read('config.yaml'),'backup');assert.equal(b.read('state.db'),'db backup!');assert.ok(!existsSync(path.join(b.H,'state.db-wal')));assert.ok(!existsSync(path.join(b.H,'state.db-wal.aqeelos-held')));
  assert.equal(b.read('profiles/new/config.yaml'),'made after');assert.equal(readdirSync(b.HOME).filter(f=>/^aqeelos-before-restore-.*\.tar\.gz$/.test(f)).length,2);assert.deepEqual(b.n,{stop:3,start:3})}finally{b.done()}});
+
+import {createBackups} from '../app/backup.mjs';
+test('switched off: a restore is refused before anything (no Drive, no lock), and the card is told so',{skip:RESTORE_ENABLED&&'restore is switched on'},async()=>{
+ const D=mkdtempSync(path.join(tmpdir(),'aq-off-'));try{const b=createBackups({DATA:D,HOME:D,HERMES_HOME:D});
+  await assert.rejects(()=>b.restore('any'),e=>e.status===409&&/not switched on/.test(e.message));assert.equal(b.busy(),false);
+  assert.equal((await b.status()).restoreEnabled,false)}finally{rmSync(D,{recursive:true,force:true})}});
