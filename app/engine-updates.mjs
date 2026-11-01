@@ -145,7 +145,7 @@ export function createEngineUpdates({guard=null,DATA,HERMES_HOME,PORT,LIVE,dash,
 
  /* ---------- actions ---------- */
  const step=s=>{if(active)active.step=s};
- // one line in the list; a night's result is told the next morning, a press of the button only rings the bell when it went wrong
+ // one line in the list; a night's result is told the next morning, a press of the button only adds a Bottlenecks item when it went wrong
  async function record(e){await load();const x={at:Date.now(),...e};x.tell??=x.trigger!=='by hand';db.log.unshift(x);db.log=db.log.slice(0,40);delete db.running;await save();console.log('engine update:',x.kind,x.to||'',x.reason||'',(x.problems||[]).join('; '));
   if(x.trigger==='by hand'&&x.kind!=='updated')tellOwner(R.ownerText(x,await zone()),{bell:true,kind:x.kind}).catch(()=>{});return x}
  // back to `to`: stop the engine, check out that version, let the engine prepare its dependencies, put aqeelOS's changes on, start

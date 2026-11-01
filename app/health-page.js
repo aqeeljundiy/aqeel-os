@@ -1,22 +1,25 @@
 /* ---------- System › Health (agreed layout, 18 Oct): Status and Host on one page, put together from the two old
    pages so every control works as before. Agents: what is running and connected (refreshed every 15 s while you
-   look). The AI box: resources, what uses memory, background helpers, maintenance, access. "Recent sessions" is
+   look). The AI box: resources, what uses RAM, background helpers, maintenance, access. "Recent sessions" is
    left out: the chat list and Manage chats already show it. #/system/status and #/system/host open this page. ---------- */
 {const oldStatus=PAGES.status,oldHost=PAGES.host;
  PAGES.health=async(p,el,r)=>{const tok=S._htok=(S._htok||0)+1,stale=()=>tok!==S._htok;
-  el.innerHTML=`<h2 class="ach-cat" style="margin-top:0">Agents</h2><div id="hStatus"><div class="skel" style="height:110px;border-radius:18px"></div></div><h2 class="ach-cat">The AI box</h2><div id="hHost"><div class="skel" style="height:160px;border-radius:18px"></div></div>`;
+  setActions('');el.innerHTML=`<h2 class="ach-cat" style="margin-top:0">Agents</h2><div id="hStatus"><div class="skel" style="height:110px;border-radius:18px"></div></div><h2 class="ach-cat">The AI box</h2><div id="hHost"><div class="skel" style="height:160px;border-radius:18px"></div></div>`;
   const sBox=el.querySelector('#hStatus'),hBox=el.querySelector('#hHost');
   // a refresh keeps this page's buttons (the Agents part sets its own as it starts)
   const drawStatus=async()=>{const b=document.createElement('div');b.hidden=true;document.body.append(b);const ha=$('.head-actions'),keep=sBox.querySelector('.skel')?null:ha?.innerHTML;try{const run=oldStatus(p,b,r);if(keep!=null&&ha.isConnected)ha.innerHTML=keep;await run}catch(e){b.remove();throw e}
    if(stale()||!sBox.isConnected){b.remove();return}clearTimeout(Pages._statusT);
    for(const l of b.querySelectorAll('.card.list'))if(/Recent sessions/.test(l.querySelector('.list-head')?.textContent||''))l.remove();
+   // the version is in the engine updates card below (1 Nov 2026), so the Agents part does not repeat it
+   for(const c of b.querySelectorAll('.stats .stat'))if(c.querySelector('.th')?.textContent==='Version')c.remove();
    b.querySelectorAll('.two').forEach(t=>{if(t.children.length===1)t.classList.remove('two')});
    // the 15-second refresh swaps in new cards: only the first draw plays the entrance animation
    if(!sBox.querySelector('.skel'))b.querySelectorAll('.stat,.row,.card,.panel').forEach(x=>x.style.animation='none');b.hidden=false;sBox.replaceChildren(b)};
   const hb=document.createElement('div');hb.hidden=true;document.body.append(hb);
   await Promise.all([drawStatus(),oldHost(p,hb,r).then(()=>{if(stale()){hb.remove();return}hb.hidden=false;hBox.replaceChildren(hb)},e=>{hb.remove();hBox.innerHTML=alertBox(esc(e.message))})]);
   if(stale())return;
-  setActions(`${S.me?.admin!==false?`<button data-act="console-open" title="Type the engine’s own commands">${icon('terminal',16)}Engine console</button>`:''}<button data-act="gw-restart">${icon('refresh',16)}Restart agents</button>${S.status?.can_update_hermes===false?'':`<button class="primary" data-act="upd-check">${icon('refresh',16)}Check for updates</button>`}`);
+  // one button here (1 Nov 2026): Restart is in Start and stop agents, Check again in the engine updates card
+  setActions(S.me?.admin!==false?`<button data-act="console-open" title="Type the engine’s own commands">${icon('terminal',16)}Engine console</button>`:'');
   // agents and channels change often: refresh that part only, while the page is open and visible
   const tick=()=>{clearTimeout(Pages._healthT);Pages._healthT=setTimeout(async()=>{if(stale()||route().page?.id!=='health')return;if(!document.hidden)await drawStatus().catch(()=>{});tick()},15000)};tick()}}
 
@@ -58,15 +61,3 @@ ACT['console-open']=()=>{if(S.me?.admin===false)return toast('Only admins can us
   if(k==='enter'){e.preventDefault();if(state!=='ready')return;const line=inp.value.trim();inp.value='';hi=null;write(pr.textContent+' '+line,'cmd');
    if(pending!=null){const c=pending;pending=null;pr.textContent=prompt;if(/^(y|yes)$/i.test(line)){setSt('running');send({type:'confirm',command:c})}else{setSt('running');send({type:'cancel'})}return}
    if(!line)return;EngConsole.hist=[...EngConsole.hist.filter(x=>x!==line),line].slice(-200);setSt('running');if(!send({type:'input',line})){write('The console is not connected.','e');setSt('error')}}}};
-
-/* ---------- Share a support report: the engine uploads system details and recent logs to a public paste site and
-   hands back links to send to whoever helps (they delete themselves after a few hours). ---------- */
-ACT['debug-share']=()=>{const d=drawer('Share a support report',`<p class="sub" style="margin:0 0 14px">Uploads system details and the latest logs to a public paste site and gives you links to send to whoever helps you. Anyone with a link can read it until it deletes itself.</p><div class="field" style="border:0;padding-top:0"><label>Hide keys and passwords first<small>Recommended. Anything that looks like a key or token is blanked out.</small></label><div>${toggle(true,'Hide keys and passwords','id="dsR"')}</div></div><div id="dsOut"></div>`,`<button class="ghost" data-act="close">Close</button><button class="primary" id="dsGo">${icon('upload',15)}Create links</button>`,{size:'md'});
- const outEl=d.querySelector('#dsOut'),go=d.querySelector('#dsGo');let busy=false;
- go.onclick=async()=>{if(busy)return;const redact=d.querySelector('#dsR').checked;if(!redact&&!await confirmBox('Upload without hiding keys?','Keys and passwords in the logs would be readable by anyone with the link.','Upload anyway'))return;
-  busy=true;go.classList.add('is-busy');go.setAttribute('aria-busy','true');outEl.innerHTML='<div class="skel" style="height:96px;border-radius:14px;margin-top:6px"></div>';
-  try{const r=await post(H,'/ops/debug-share',{redact,lines:200});const urls=Object.entries(r.urls||{}),hrs=Math.max(1,Math.round((r.auto_delete_seconds||21600)/3600));
-   outEl.innerHTML=`<div class="ds-res"><div class="ds-meta"><span class="chip ok">${icon('check',13)}Uploaded</span>${r.redacted?'<span class="chip">Keys hidden</span>':'<span class="chip warn">Keys not hidden</span>'}<span class="chip">${icon('clock',13)}Deletes itself in ${plural(hrs,'hour')}</span>${urls.length>1?`<button class="ghost" data-ds-copy="${esc(urls.map(([l,u])=>l+': '+u).join('\n'))}">${icon('copy',15)}Copy all</button>`:''}</div>${urls.map(([l,u])=>`<div class="ds-link"><span class="ds-l">${esc(l)}</span><a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(u)}</a><button class="ghost icon" data-ds-copy="${esc(u)}" aria-label="Copy the ${esc(l)} link" title="Copy">${icon('copy',15)}</button></div>`).join('')||'<p class="hint">Nothing was uploaded.</p>'}${(r.failures||[]).length?`<p class="err-line" style="margin:8px 0 0">Some logs could not be uploaded: ${esc(r.failures.join('; '))}</p>`:''}</div>`;
-   toast(plural(urls.length,'link')+' ready'+(r.redacted?' · keys hidden':''))}
-  catch(e){outEl.innerHTML='';fail(e)}finally{busy=false;go.classList.remove('is-busy');go.removeAttribute('aria-busy')}};
- outEl.addEventListener('click',e=>{const b=e.target.closest('[data-ds-copy]');if(!b)return;copyText(b.dataset.dsCopy,'').then(ok=>{if(!ok)return toast('Couldn’t copy','err');const was=b.innerHTML;b.innerHTML=icon('check',15)+(b.classList.contains('icon')?'':'Copied');setTimeout(()=>{if(b.isConnected)b.innerHTML=was},1500)})})};

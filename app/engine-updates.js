@@ -1,4 +1,4 @@
-// Automatic engine updates (25 Oct 2026), under Updates on System › Health: Off / Ask me first / Adaptive, the quiet hours
+// Engine updates (25 Oct 2026; one card with the update check since 1 Nov 2026) on System › Health: Check again, Update now, Off / Ask me first / Adaptive, the quiet hours
 // aqeelOS found, what waits for tonight, and the last tries. Update now / Update tonight ask here too (engine-updates.mjs).
 const EngUpd={last:null,
  MODES:[['off','Off'],['ask','Ask me first'],['adaptive','Adaptive']],
@@ -8,12 +8,16 @@ const EngUpd={last:null,
  v:x=>x?'v'+String(x).replace(/^v/,''):'',
  line(e){const to=this.v(e.to),from=this.v(e.from);
   return e.kind==='updated'?'Updated to '+(to||'the new version')+', all checks passed':e.kind==='rolled-back'?'Rolled back to '+(from||'the earlier version')+(e.after?.length?', some checks still fail':', checks pass again'):e.kind==='check-failed'?'Updated to '+(to||'the new version')+', but checks failed':e.kind==='failed'?'Update'+(to?' to '+to:'')+' did not finish: '+e.reason:'Skipped'+(to?' '+to:'')+': '+e.reason},
- async card(b){if(!b||S.me?.admin===false)return;const tok=b._euTok=(b._euTok||0)+1;let d;try{d=this.last=await UI('/ui/engine-updates')}catch{return}if(tok!==b._euTok||!b.isConnected)return;
+ async card(b){if(!b||S.me?.admin===false)return;const tok=b._euTok=(b._euTok||0)+1;let d;try{d=this.last=await UI('/ui/engine-updates')}catch{d={log:[]}}if(tok!==b._euTok||!b.isConnected)return;   // the check still shows when the automatic part can't load
   let box=b.querySelector('.eu-card');if(box)box.innerHTML=this.html(d);else{box=document.createElement('div');box.className='panel card eu-card';box.innerHTML=this.html(d);b.append(box)}   // redrawn in place, no flash
   if(d.running)setTimeout(()=>{if(box.isConnected)this.card(b)},15000)},
- html(d){const w=d.window,run=d.running,log=d.log||[];
-  return '<div class="bk-head"><div><h2>Automatic updates</h2><p class="sub">'+esc(this.TEXT[d.mode]||'')+'</p></div><div class="seg-mini" role="radiogroup" aria-label="Automatic updates">'+this.MODES.map(([k,l])=>'<button type="button" role="radio" aria-checked="'+(d.mode===k)+'" class="'+(d.mode===k?'on':'')+'" data-act="eu-mode" data-m="'+k+'">'+l+'</button>').join('')+'</div></div>'
-   +'<div class="bk-rows">'+(w?'<div class="bk-row"><span class="bk-k">Quiet hours</span><span>Quietest: <b>'+esc(w.label)+'</b> · from the last 4 weeks of messages</span></div>':'')
+ // the check (pages.js updFill): Up to date or Update available, with Check again and Update now in the card's head
+ head(){const r=this.chk||{};if(r.error)return ['Couldn’t check for updates',r.error,''];const sub=[r.message,r.current_version,r.rollback_to?'newer than v'+r.rollback_to:r.behind>0?plural(r.behind,'commit')+' behind':''].filter(Boolean).join(' · ');
+  return [r.update_available?'Update available':r.behind==null?'Couldn’t check for updates':'Up to date',conText(sub),r.update_available?(r.can_apply?'<button class="primary small" data-act="upd-go" data-n="'+esc(r.behind)+'">Update now</button>':''):'']},
+ html(d){const w=d.window,run=d.running,log=d.log||[],[h,sub,go]=this.head(),r=this.chk||{};
+  return '<div class="bk-head"><div><h2>'+esc(h)+'</h2><p class="sub">'+esc(sub)+'</p></div><div class="bk-acts"><button class="ghost small" data-act="upd-check">Check again</button>'+go+'</div></div>'
+   +(r.update_available&&!r.can_apply&&r.update_command?'<p class="hint" style="margin:10px 0 0">Run on the AI box: <code>'+esc(r.update_command)+'</code></p>':'')
+   +'<div class="bk-rows"><div class="bk-row"><span class="bk-k">Automatic</span><span class="eu-mode"><span class="seg-mini" role="radiogroup" aria-label="Automatic updates">'+this.MODES.map(([k,l])=>'<button type="button" role="radio" aria-checked="'+(d.mode===k)+'" class="'+(d.mode===k?'on':'')+'" data-act="eu-mode" data-m="'+k+'">'+l+'</button>').join('')+'</span><small>'+esc(this.TEXT[d.mode]||'')+'</small></span></div>'+(w?'<div class="bk-row"><span class="bk-k">Quiet hours</span><span>Quietest: <b>'+esc(w.label)+'</b> · from the last 4 weeks of messages</span></div>':'')
    +(run?'<div class="bk-row"><span class="bk-k">Now</span><span><span class="spinner tiny"></span> '+esc(run.to?'Updating to '+this.v(run.to):'Updating')+' · '+esc(run.step)+'</span></div>'
     :d.tonight?'<div class="bk-row"><span class="bk-k">Tonight</span><span>Updates in the quiet hours'+(d.waiting?' · waiting: '+esc(d.waiting):'')+' <button class="link-btn" data-act="eu-tonight" data-on="0">Cancel</button></span></div>'
     :d.mode==='adaptive'&&d.waiting?'<div class="bk-row"><span class="bk-k">Tonight</span><span>Waiting: '+esc(d.waiting)+'</span></div>':'')
