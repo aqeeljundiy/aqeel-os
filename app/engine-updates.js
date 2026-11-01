@@ -8,7 +8,7 @@ const EngUpd={last:null,
  v:x=>x?'v'+String(x).replace(/^v/,''):'',
  line(e){const to=this.v(e.to),from=this.v(e.from);
   return e.kind==='updated'?'Updated to '+(to||'the new version')+', all checks passed':e.kind==='rolled-back'?'Rolled back to '+(from||'the earlier version')+(e.after?.length?', some checks still fail':', checks pass again'):e.kind==='check-failed'?'Updated to '+(to||'the new version')+', but checks failed':e.kind==='failed'?'Update'+(to?' to '+to:'')+' did not finish: '+e.reason:'Skipped'+(to?' '+to:'')+': '+e.reason},
- async card(b){if(!b||S.me?.admin===false)return;const tok=b._euTok=(b._euTok||0)+1;let d;try{d=this.last=await UI('/ui/engine-updates')}catch{d={log:[]}}   // the check still shows when the automatic part can't loadif(tok!==b._euTok||!b.isConnected)return;
+ async card(b){if(!b||S.me?.admin===false)return;const tok=b._euTok=(b._euTok||0)+1;let d;try{d=this.last=await UI('/ui/engine-updates')}catch{d={log:[]}}if(tok!==b._euTok||!b.isConnected)return;   // the check still shows when the automatic part can't load
   let box=b.querySelector('.eu-card');if(box)box.innerHTML=this.html(d);else{box=document.createElement('div');box.className='panel card eu-card';box.innerHTML=this.html(d);b.append(box)}   // redrawn in place, no flash
   if(d.running)setTimeout(()=>{if(box.isConnected)this.card(b)},15000)},
  // the check (pages.js updFill): Up to date or Update available, with Check again and Update now in the card's head
