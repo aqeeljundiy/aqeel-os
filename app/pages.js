@@ -429,24 +429,31 @@ const pairWaitHead=n=>`<div class="h-row"><h2 class="h-row" style="margin:0">Peo
    they are ignored, or anyone may write). The server reads the agent's .env and the engine's approvals fresh (allowlist.mjs);
    Remove access takes a person off both and reads again to check. Add a person approves someone (the one way to add). */
 const pairWho=profs=>Promise.all(profs.map(async x=>({...x,d:await UI('/ui/channels/who?agent='+encodeURIComponent(x.prof)).catch(()=>null)})));
-const pairSame=(pf,a,b)=>pf==='whatsapp'?String(a).split('@')[0].split(':')[0].replace(/\D/g,'')===String(b).split('@')[0].split(':')[0].replace(/\D/g,''):String(a).toLowerCase()===String(b).toLowerCase();
-const WHO_IC={anyone:'globe',ask:'user',ignored:'lock'};
+// one ID against another the engine's way (WhatsApp: no +, device or domain part); a row carries every alias of its
+// person (data-ids, from the server's lid-mapping read), so matching any of them is the alias-aware rule
+const pairNorm=(pf,v)=>/^whatsapp/.test(pf)?String(v??'').trim().replace('+','').split(':')[0].split('@')[0]:String(v??'').trim().toLowerCase();
+const pairSame=(pf,a,b)=>String(a).split('\n').some(x=>pairNorm(pf,x)===pairNorm(pf,b));
+const WHO_IC={anyone:'globe',ask:'user',silent:'clock',ignored:'lock'};
 function pairPeople(whos,all,whoName){const ag=a=>a.split('--')[0],btn=(attrs,t='Remove access')=>`<button class="ghost small" ${attrs}>${t}</button>`;
  // "Every channel" comes first: it applies to each channel listed under it
  const groups=[];for(const w of whos){if(!w.d)continue;const g=w.d.global;
-  if(g.list.length||g.allowAll)groups.push({every:true,prof:w.prof,label:w.label,rows:g.list.filter(x=>x!=='*').map(id=>({id,raw:id,listed:true,after:g.after})),star:g.star,starAfter:'',allowAll:g.allowAll});
+  if(g.list.length||g.allowAll)groups.push({every:true,prof:w.prof,label:w.label,rows:(g.rows||[]).map(r=>({...r,listed:true,after:g.after})),star:g.star,starAfter:'',allowAll:g.allowAll});
   for(const c of w.d.channels)groups.push({...c,prof:w.prof,label:w.label})}
  const bad=whos.filter(w=>!w.d).map(w=>w.label||ident(ag(w.prof)).name);
  groups.sort((x,y)=>(y.every?1:0)-(x.every?1:0)||String(x.platform||'').localeCompare(String(y.platform||''))||x.prof.localeCompare(y.prof));
- const row=(G,r,i)=>{const nm=r.name||r.id,sub=[r.name?'ID '+r.id:'',r.aliases?.length?'also '+r.aliases.join(', '):'',r.approved&&r.listed?'Approved, on its list':r.approved?'Approved':G.every?'On the list for every channel':'On its allowlist'].filter(Boolean).join(' · ');
-  return `<div class="pp-row" ${st(i)}><span class="ic">${icon('user',15)}</span><div class="txt"><b>${esc(nm)}</b><span>${esc(sub)}</span></div>${btn(`data-act="pair-revoke" data-prof="${esc(G.prof)}" data-p="${esc(G.platform||'')}" data-u="${esc(r.raw||r.id)}" data-n="${esc(nm)}" data-after="${esc(r.after||'')}" ${G.every?'data-every="1"':''}`)}</div>`};
+ // list-only rows have no name of their own (the engine's "(added in settings file)" is never shown as one)
+ const row=(G,r,i)=>{const nm=r.name||r.id,how=r.blocked?'Approved, but WhatsApp lets in only its list':r.approved&&r.listed?'Approved and on its list':r.approved?'Approved':G.every?'On the list for every channel':'On its list';
+  const sub=[r.name?'ID '+r.id:'',r.aliases?.length?'also '+r.aliases.join(', '):'',how].filter(Boolean).join(' · ');
+  return `<div class="pp-row${r.blocked?' blocked':''}" ${st(i)}><span class="ic">${icon(r.blocked?'lock':'user',15)}</span><div class="txt"><b>${esc(nm)}</b><span>${esc(sub)}</span></div>${btn(`data-act="pair-revoke" data-prof="${esc(G.prof)}" data-p="${esc(G.platform||'')}" data-u="${esc(r.raw||r.id)}" data-ids="${esc([r.id,...(r.aliases||[]),...(r.ids||[])].join('\n'))}" data-n="${esc(nm)}" data-after="${esc(r.after||'')}" ${G.every?'data-every="1"':''}`)}</div>`};
+ // groups that may talk to the channel: shown, not changed here
+ const grp=G=>G.groups?.length?`<p class="pp-pol pp-grp">${icon('layers',13)}<span>${esc(plural(G.groups.length,'group'))} may also talk to it (${esc(G.groups.map(x=>x.id).join(', '))}). Groups are not changed here: they are set in ${esc([...new Set(G.groups.map(x=>/^config/.test(x.where)?'config.yaml (Settings)':'its settings file ('+x.where+')'))].join(' and '))}.</span></p>`:'';
  const head=G=>G.every?`<span class="ic logo">${icon('layers',14)}</span><b>Every channel</b>`:`${chLogo(G.platform,appName(G.platform))}<b>${esc(appName(G.platform))}${G.label?' · '+esc(G.label):''}</b>`;
  const words=G=>G.every?(G.allowAll&&!G.rows.length?'With no list, anyone may message every channel that has no list of its own (GATEWAY_ALLOW_ALL_USERS).':'These people may message every channel of this agent.'):G.words;
  const anyone=(G,i)=>G.star?`<div class="pp-row" ${st(i)}><span class="ic warn">${icon('alert',15)}</span><div class="txt"><b>Anyone</b><span>The list says * , so everyone who finds ${G.every?'any channel':'this channel'} may write</span></div>${btn(`data-act="pair-revoke" data-prof="${esc(G.prof)}" data-p="${esc(G.platform||'')}" data-u="*" data-after="${esc(G.starAfter||'')}" ${G.every?'data-every="1"':''}`,'Stop')}</div>`:'';
  return `${bad.length?errLine('who may message '+bad.join(', ')):''}<div class="panel card pp"><div class="h-row"><h2 style="margin:0">Who can message</h2><button data-act="pair-add">${icon('plus',15)}Add a person</button></div><p class="sub">${all?'Everyone who may message your agents, per channel.':'Everyone who may message '+esc(whoName)+', per channel.'} Remove someone and the agent stops answering them.</p>
   ${groups.map(G=>`<div class="pp-ch"><div class="pp-head">${head(G)}${all?`<span class="acc-from">${Access.av({id:ag(G.prof),name:ident(ag(G.prof)).name},16)}${esc(ident(ag(G.prof)).name)}</span>`:''}</div>
    <p class="pp-pol pol-${G.every?'every':G.newPeople}">${icon(G.every?'layers':WHO_IC[G.newPeople]||'user',13)}<span>${esc(words(G))}${G.allowAll&&!G.every?' Its settings let anyone write.':''}${G.every?` <a href="#/system/settings" data-act="keys-settings" data-agent="${esc(ag(G.prof))}">Settings › Agent settings</a>`:''}</span></p>
-   ${anyone(G,0)}${G.rows.map((r,i)=>row(G,r,i+1)).join('')||(G.star?'':`<p class="hint pp-none">${G.newPeople==='ignored'?'Nobody can message it now.':'Nobody yet.'}</p>`)}</div>`).join('')||'<p class="hint" style="margin:0">No channel yet. Connect one under Connections, then approve people here.</p>'}</div>`}
+   ${grp(G)}${anyone(G,0)}${G.rows.map((r,i)=>row(G,r,i+1)).join('')||(G.star?'':`<p class="hint pp-none">${G.newPeople==='ignored'?'Nobody can message it now.':'Nobody yet.'}</p>`)}</div>`).join('')||'<p class="hint" style="margin:0">No channel yet. Connect one under Connections, then approve people here.</p>'}</div>`}
 // Remove access: every alias off the lists the row stands for and out of the approvals, on the server, which reads
 // everything again and says if they still can and why. The confirm says what the channel is like afterwards (`after`,
 // worked out on the server from the channel as it will be).
@@ -456,7 +463,9 @@ ACT['pair-revoke']=async a=>{const {prof:pr,p:pf,u:id,n,every,after}=a.dataset,n
  if(!await confirmBox(...t))return;a.disabled=true;
  try{const r=await post(UI,'/ui/channels/remove-person',{agent:pr||'default',platform:pf,id,every:!!every});if(r.restart)chNeedRestart();
   if(r.still){fail(new Error((id==='*'?'Anyone can still message ':(n||id)+' can still message ')+nm+': '+(r.why||[]).join('; ')+'.'));a.disabled=false;reload();return}
-  toast((id==='*'?'Only listed people can message '+nm+' now':'Access removed')+(r.restart?' · applies after the agents restart':''));reload()}catch(e){fail(e);a.disabled=false}};
+  // the main agent's gateway (and the list for every channel) keep the old list in memory until the agents restart
+  if(r.restart)toastDo((id==='*'?'Saved. ':'Removed. ')+nm+' keeps the old list until the agents restart: until then '+(id==='*'?'anyone':'they')+' can still write.','Restart now',()=>{restartGateway();S._chRestart=false;laterReload(26000)});
+  else toast(id==='*'?'Only listed people can message '+nm+' now':'Access removed');reload()}catch(e){fail(e);a.disabled=false}};
 /* Add a person by hand: approve someone on one of the agent's channels before they message it. The server checks the ID
    per app and writes the approval the engine's own way; such people show "Added by hand" with the note. */
 const PAIR_HELP={whatsapp:['Phone number','6281234567890','Their WhatsApp number with the country code (62 for Indonesia). Spaces, dashes and a leading + are fine; a number starting with 0 needs its country code instead.','tel'],
@@ -480,7 +489,7 @@ ACT['pair-add']=()=>pairAddDrawer(Pages._pairAdd||{profs:[{prof:agentProfile()||
 // people added by hand: marked on their Approved row, with the note, and the mark is forgotten when access is removed
 async function pairMarks(el){let all={};try{all=await UI('/ui/channels/approvals-added')}catch{return}const list=Object.entries(all);if(!list.length)return;
  const same=pairSame;
- el.querySelectorAll('[data-act="pair-revoke"]').forEach(btn=>{const {prof,p,u}=btn.dataset;const hit=list.find(([k])=>{const [a,pf,...r]=k.split('|');return a===prof&&pf===p&&same(p,u,r.join('|'))});if(!hit)return;
+ el.querySelectorAll('[data-act="pair-revoke"]').forEach(btn=>{const {prof,p,u}=btn.dataset,ids=btn.dataset.ids||u;const hit=list.find(([k])=>{const [a,pf,...r]=k.split('|');return a===prof&&pf===p&&same(p,ids,r.join('|'))});if(!hit)return;
   const [k,v]=hit;btn.dataset.hand=k.split('|').slice(2).join('|');const t=btn.closest('.row,.pp-row')?.querySelector('.txt');if(!t||t.querySelector('.hand-chip'))return;
   t.querySelector('b')?.insertAdjacentHTML('beforeend',` <span class="chip hand-chip" title="Added by ${esc(v.by||'someone')}${v.t?' '+esc(when(new Date(v.t).toISOString())):''}">Added by hand</span>`);
   if(v.note)t.querySelector('b')?.insertAdjacentHTML('afterend',`<span class="ch-note">${esc(v.note)}</span>`)})}
