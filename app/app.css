@@ -2144,3 +2144,4 @@ button.acct-more{font:inherit;cursor:pointer;width:100%;background:var(--surface
 .ads-sec h2{font-size:15px;margin:0 0 4px}
 .help-set-row .hint{font-size:12.5px;color:var(--muted);line-height:1.45}.ha-item .txt p.err-line{color:var(--bad)}
 .bk-head>div:first-child{flex:1 1 320px;min-width:0}
+.bk-sub{display:block;margin-top:4px;font-size:12.5px;color:var(--muted);line-height:1.4}   /* a note under a Backups row (where the safety copy is), 1 Nov 2026 */
