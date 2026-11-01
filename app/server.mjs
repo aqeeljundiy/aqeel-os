@@ -43,7 +43,7 @@ import {createNews} from './news.mjs';
 import {mayStartAgents,busyTotal,guardPaused} from './busy.mjs';
 import {createHelp} from './help.mjs';
 import {createLive} from './live.mjs';
-import {createBackups} from './backup.mjs';
+import {createBackups,RESTORE_ENABLED} from './backup.mjs';
 import {createPluginHost} from './plugin-host.mjs';
 import {createEngineUpdates} from './engine-updates.mjs';
 import {createAutomationGuard} from './automation-guard.mjs';
@@ -1848,7 +1848,7 @@ const server=createServer(async(req,res)=>{
     if(p==='/ui/backups/test'&&req.method==='POST'){try{return send(res,200,await backups.test())}catch(e){return send(res,400,{error:e.message})}}
     if(p==='/ui/backups/list'&&req.method==='GET'){try{return send(res,200,{items:await backups.list()})}catch(e){return send(res,400,{error:e.message})}}
     // a restore stops and starts the real agents, so only the live app does it (a test copy shares the box's engine)
-    if(p==='/ui/backups/restore'&&req.method==='POST'){if(!LIVE_APP)return send(res,409,{error:'Only the live app restores backups.'});if(engineUpd.busy())return send(res,409,{error:'The engine is updating. Restore after it finishes.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{return send(res,200,await backups.restore(String(b.id||'')))}catch(e){return send(res,400,{error:e.message})}}}
+    if(p==='/ui/backups/restore'&&req.method==='POST'){if(!RESTORE_ENABLED)return send(res,409,{error:'Restoring from a backup is not switched on yet.'});if(!LIVE_APP)return send(res,409,{error:'Only the live app restores backups.'});if(engineUpd.busy())return send(res,409,{error:'The engine is updating. Restore after it finishes.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{return send(res,200,await backups.restore(String(b.id||'')))}catch(e){return send(res,400,{error:e.message})}}}
    // which aqeelOS app version is current (the app offers to update itself when it is older)
    if(p==='/ui/code/app-version'&&req.method==='GET'){let v={};try{v=JSON.parse(await readFile(path.join(DATA,'desktop','version.json'),'utf8'))}catch{}return send(res,200,v)}
    // company-wide defaults (the currency for people who never picked one): everyone reads them, admins set them

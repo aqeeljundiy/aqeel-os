@@ -22,6 +22,32 @@ const EXCLUDE=['.hermes/installs','.hermes/hermes-agent','.hermes/tools','.herme
  '.cache','.npm','.next','.turbo','.vercel','playwright-report','test-results','__pycache__',
  'Cache','Code Cache','GPUCache','CacheStorage','ScriptCache','GrShaderCache','ShaderCache','*venv.broken*','.claude/remote',
  '.hermes/home/.local','.hermes/profile-exports','workspaces/.aqeelos-python'];
+/* RESTORE FROM DRIVE IS SWITCHED OFF (1 Nov 2026, after a third review that ran it against the box's real tools). The code
+   below stays for a later project of its own; with RESTORE_ENABLED false, /ui/backups/restore answers 409 and the app
+   shows no Restore button. Back up now, Test a restore (unpacks into a scratch folder only) and the backup key stay on.
+   To do before it is switched on (every open finding, so nothing is lost):
+   - the box has no rsync: every restore downloads and decrypts the whole backup, then stops. Install rsync with the box
+     setup, or copy with tar or node instead, and check for it before the download (not only before the agents stop);
+   - WhatsApp bridges keep running and can write their session during the copy: stopEngine must stop every bridge
+     (stopBridges for each agent) and check the gateway process really ended, not only ask it to stop;
+   - roll back fails when a path changed between file and folder since the safety copy (seen with GNU tar 1.35 on the box):
+     clear the clashing paths first, or roll back into an empty folder and swap it in;
+   - after a roll back, files the copy added stay (a deleted agent comes back), yet the message says nothing changed:
+     roll back must remove what the copy added (list the copied paths first), or say plainly what stayed;
+   - many timers and routes still write ~/.hermes during a restore: agent create, delete and restore, agentHealth,
+     applyDefaults and defaultsTick, writeAgentContext, n8nForAll, waGuard and waBackup, the daily hermes pm gc and
+     sweepGhosts. Each must ask backups.busy() (busy.mjs) and wait or skip;
+   - restarts asked for during the download are dropped (restartGateway returns without doing it): queue one for after
+     the restore instead;
+   - a restore cut off halfway (aqeelOS stopped) is only marked Interrupted: on start, roll back from the safety copy when
+     the copy step had begun;
+   - files the safety copy could not read (tar --ignore-failed-read skips them) have no way back: stop on unreadable
+     files, or list them in the result;
+   - no --delete on purpose: a file deleted since the backup comes back. Decide if that is what a restore should do;
+   - the free-space estimate (unpacked about twice the packed size) is a guess: measure a real backup;
+   - the restore tests that run rsync skip where it is missing (the box today); they must run where restore will.
+*/
+export const RESTORE_ENABLED=false;
 /* Restore rules (1 Nov 2026, review). A restore copies the backup's .hermes over the box's with rsync and never deletes:
    - no --delete: a file that is on the box but not in the backup stays. That keeps agents made after the backup, files
      tar could not read when the backup was made (it skips them), sockets and everything the backup leaves out; what the
@@ -165,7 +191,7 @@ export function createBackups({DATA,HOME,HERMES_HOME,TOKEN='google_token_elkiya.
     nobody is signed out halfway; a whole new box is set up from a backup by hand. */
  // free space on the disk that holds dir (bytes), and which disk it is
  const disk=async dir=>{const o=await new Promise(res=>{const p=spawn('df',['-Pk',dir]);let t='';p.stdout.on('data',d=>t+=d);p.on('close',()=>res(t))});const l=o.trim().split('\n')[1]?.split(/\s+/)||[];return {free:Number(l[3])*1024||0,dev:l[0]||dir}};
- async function restore(id){if(restoring||running||testing)throw Error(restoring?'A restore is already running.':running?'A backup is running. Wait for it to finish.':'A restore test is running. Wait for it to finish.');
+ async function restore(id){if(!RESTORE_ENABLED)throw Object.assign(Error('Restoring from a backup is not switched on yet.'),{status:409});if(restoring||running||testing)throw Error(restoring?'A restore is already running.':running?'A backup is running. Wait for it to finish.':'A restore test is running. Wait for it to finish.');
   // taken before the first wait, so a second click (or a backup) can't slip in while Drive is asked
   let go;restoring=new Promise(r=>go=r);const at=Date.now(),dir=path.join('/tmp','aqeelos-restore-'+at),enc=dir+'.enc';let f;
   try{await load();const g=await google(),fid=await folder(g);f=await drive(g,'drive/v3/files/'+encodeURIComponent(id)+'?fields=id,name,parents,size');if(!(f.parents||[]).includes(fid))throw Error('That file is not one of the backups.');
@@ -188,5 +214,5 @@ export function createBackups({DATA,HOME,HERMES_HOME,TOKEN='google_token_elkiya.
    const tries=state.tries?.day===today?state.tries.n:0,doneToday=state.last?.ok&&new Date(state.last.at+7*3600e3).toISOString().slice(0,10)===today;
    if(j.getUTCHours()>=3&&j.getUTCHours()<9&&!doneToday&&tries<3&&(!state.last||state.last.ok||Date.now()-state.last.at>3600e3)){try{await run();if(j.getUTCDay()===0)await test()}catch{}}};
   setInterval(()=>tick().catch(()=>{}),15*60e3).unref?.()}
- async function status(){await load();const keyError=made()&&!await readFile(KEYF,'utf8').then(k=>k.trim().length>=32,()=>false)?NOKEY:null;return {keyError,last:state.last||null,test:state.test||null,running:Boolean(running),testing:Boolean(testing),restoring:Boolean(restoring),restore:restoring?state.restore:state.restore?.running?null:state.restore||null,keep:KEEP,where:'Google Drive › aqeelOS backups',account:await readFile(path.join(HERMES_HOME,TOKEN),'utf8').then(t=>JSON.parse(t).account||'').catch(()=>'')}}
+ async function status(){await load();const keyError=made()&&!await readFile(KEYF,'utf8').then(k=>k.trim().length>=32,()=>false)?NOKEY:null;return {keyError,last:state.last||null,test:state.test||null,running:Boolean(running),testing:Boolean(testing),restoring:Boolean(restoring),restoreEnabled:RESTORE_ENABLED,restore:restoring?state.restore:state.restore?.running?null:state.restore||null,keep:KEEP,where:'Google Drive › aqeelOS backups',account:await readFile(path.join(HERMES_HOME,TOKEN),'utf8').then(t=>JSON.parse(t).account||'').catch(()=>'')}}
  return {run,test,status,key,schedule,list,restore,busy:()=>!!restoring}}
