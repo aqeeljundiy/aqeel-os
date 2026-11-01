@@ -112,11 +112,17 @@ export function createBackups({DATA,HOME,HERMES_HOME,TOKEN='google_token_elkiya.
     const s=await stat(path.join(dir,'.hermes','config.yaml')).catch(()=>null);if(!s?.size)throw Error('The backup has no agent settings, so nothing was changed.');
     // excluded parts are not in the backup; rsync leaves them in place (it only removes files the backup has no copy of)
     const keep=EXCLUDE.filter(e=>!/^(apps|workspaces|\.claude)\//.test(e)).map(e=>e.replace(/^\.hermes\//,'/')).concat(['*.pid','*.lock']);   // a running program's pid and lock files stay the box's own
+    // a restore can't be undone, so today's agents are packed first (1 Nov 2026, review): the same parts a backup takes,
+    // into the home folder outside .hermes (the restore never touches it); the newest two such copies are kept
+    const safety=path.join(HOME,'aqeelos-before-restore-'+new Date(at+7*3600e3).toISOString().slice(0,16).replace(/[:T]/g,'-')+'.tar.gz');
+    await sh('set -o pipefail; tar -czf '+q(safety)+' --ignore-failed-read '+EXCLUDE.filter(e=>!/^(apps|workspaces|\.claude)\//.test(e)).map(e=>'--exclude='+q(e)).join(' ')+' .hermes; c=$?; [ $c -le 1 ] || exit $c');
+    await sh('ls -1t '+q(HOME)+'/aqeelos-before-restore-*.tar.gz 2>/dev/null | tail -n +3 | xargs -r rm -f');
+    state.restore={...state.restore,safety};await save();
     await stopEngine();
     try{await sh('if command -v rsync >/dev/null; then rsync -a --delete '+keep.map(e=>'--exclude='+q(e)).join(' ')+' '+q(path.join(dir,'.hermes')+'/')+' '+q(HERMES_HOME+'/')+'; else cp -a '+q(path.join(dir,'.hermes')+'/.')+' '+q(HERMES_HOME)+'; fi')}
     finally{await startEngine()}
-    state.restore={at,ok:true,name:f.name,secs:Math.round((Date.now()-at)/1000)};await save();console.log('backup: restored the agents from',f.name)}
-   catch(e){state.restore={at,ok:false,name:f.name,error:e.message};await save();console.warn('backup: restore failed:',e.message)}
+    state.restore={at,ok:true,name:f.name,safety,secs:Math.round((Date.now()-at)/1000)};await save();console.log('backup: restored the agents from',f.name)}
+   catch(e){state.restore={at,ok:false,name:f.name,error:e.message,...(state.restore?.safety?{safety:state.restore.safety}:{})};await save();console.warn('backup: restore failed:',e.message)}
    finally{await rm(dir,{recursive:true,force:true}).catch(()=>{});await rm(enc,{force:true}).catch(()=>{});restoring=null}})();
   return {started:true,name:f.name}}
  // 03:00 Jakarta every night; a restore test every Sunday after it
