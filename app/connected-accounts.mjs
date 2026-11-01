@@ -131,7 +131,7 @@ export function matches(reg,acct,home){if(!reg||!acct)return false;const w=tilde
  return words.length>0&&words.filter(x=>hay.includes(x)).length>=Math.min(2,words.length)}
 // a login's name (1 Nov 2026): the service, then who it is, from what the service itself says; never an agent's label
 const SERVICE_CASE={n8n:'n8n',github:'GitHub',adspower:'AdsPower',aqeelos:'aqeelOS',hubspot:'HubSpot',composio:'Composio'};
-export const serviceName=(id,fallback='')=>SERVICE_CASE[String(id).toLowerCase()]||(PROVIDERS.find(p=>p.id===id)?.name)||fallback||String(id||'').replace(/[-_]+/g,' ').replace(/^./,c=>c.toUpperCase());
+export const serviceName=(id,fallback='')=>SERVICE_CASE[String(id).toLowerCase()]||(PROVIDERS.find(p=>p.id===id)?.name)||fallback||String(id||'').split(/[-_\s]+/).filter(Boolean).map((w,i)=>SERVICE_CASE[w.toLowerCase()]||(i?w:w.replace(/^./,c=>c.toUpperCase()))).join(' ');
 export function displayName(x={}){const who=x.who||{};
  if(x.kind==='google')return 'Google · '+(x.identity||'not checked yet');
  if(x.kind==='mcp-oauth'){const p=providerOf(x.mcp,x.url,x.provider);const last=String(x.identity||'').split(' · ').pop();return serviceName(p.id,p.name)+' · '+(who.workspace||who.user||who.email||last||x.mcp)}

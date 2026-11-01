@@ -29,10 +29,12 @@ const has=(l,id)=>l.some(u=>u.id===id);
 
 // an app's name: the service it is, then the server's own name when that says more ("Slack · slack-bot")
 export function appName(id,url){const p=PROVIDERS.find(x=>x.re.test(id))||PROVIDERS.find(x=>x.re.test(url||''));const svc=p?p.name:serviceName(id),slug=String(id).toLowerCase();
- return slug===svc.toLowerCase()||slug===p?.id?svc:svc+' · '+id}
+ const norm=x=>String(x).toLowerCase().replace(/[-_\s]+/g,' ');return norm(svc)===norm(id)||slug===p?.id?svc:svc+' · '+id}
 
 const STATE={connected:'connected','signed-out':'signin',paused:'paused',pausing:'paused',resuming:'paused',failed:'paused',off:'off',applying:'connected',checking:'connected'};
 const ADS={running:'connected','signed-out':'signin',off:'off',starting:'connected'};
+// aqeelOS's own tools on every agent: the code bridge, and the AdsPower tool (its rows are "AdsPower · <agent>")
+const INTERNAL=/^(aqeelos-notify|aqeelos-code|adspower)$/i;
 const TYPE_ORDER={account:0,app:1,plugin:2,key:3,skill:4};
 
 // every connection as one row. in: {agents:[{id,name}], acc:{mcp,google,plugin,key} (access.mjs lists, null when not
@@ -52,7 +54,7 @@ export function buildRows(i){const names=i.names||(a=>a),out=[],acc=i.acc||{};co
    note:[x.ownerLabel?'You call it '+x.ownerLabel:'',x.agentLabel?'Registered as “'+x.agentLabel+'”':'',x.note||''].filter(Boolean).join(' · '),registered:x.registered!==false,mayPause:!!x.mayPause,paused:st==='paused',
    levels:x.kind==='google'||x.kind==='mcp-oauth'?'level':'none',enforce:x.kind==='google'?'gapi':x.kind==='mcp-oauth'?'tools':'note',ownerFixed:!it,where:x.where||''})}
  // apps (every other MCP server) and Google accounts aqeelOS has not checked as a login yet
- for(const it of acc.mcp?.items||[]){if(taken.has('mcp|'+it.id))continue;const lv=i.levels?.['mcp|'+it.id]||{};
+ for(const it of acc.mcp?.items||[]){if(taken.has('mcp|'+it.id)||INTERNAL.test(it.id))continue;const lv=i.levels?.['mcp|'+it.id]||{};
   const st=it.off?'off':it.users.some(u=>!u.signed)||it.ownerSigned===false?'signin':'connected';const host=(/https?:\/\/([^/\s:]+)/.exec(it.detail||'')||[])[1]||'';
   out.push({key:'mcp:'+it.id,type:'app',kind:'mcp',id:it.id,name:appName(it.id,it.detail),service:appName(it.id,it.detail).split(' · ')[0],logo:host?host.split('.').slice(-2).join('.'):'',what:it.own?it.ownNote:host?'An app at '+host:'A tool that runs on the AI box',
    owner:it.own?null:it.owner,ownerName:it.own?it.ownerName:'',users:it.users.map(u=>({id:u.id,name:u.name,level:lv[u.id]||'full',signed:u.signed,off:u.off})),status:st,busy:i.busy?.has('mcp:'+it.id),oauth:!!it.oauth,own:!!it.own,mixed:!!it.mixed,
@@ -76,8 +78,9 @@ export function buildRows(i){const names=i.names||(a=>a),out=[],acc=i.acc||{};co
  // Code on people's computers: each person signs in to their own GitHub there
  if(i.code)out.push({key:'code:computers',type:'app',kind:'code',id:'computers',name:'Code · people’s computers',service:'Code',what:'Apps connected inside Code on people’s computers',owner:null,ownerName:'Each person',users:[],
   status:i.code.live?.connected?'connected':'off',levels:'none',ownerFixed:true,code:i.code,lastUsed:null,recent:[]});
- // the same name twice (two Notion sign-ins to one workspace): the server's own name tells them apart
- const seen=new Map();for(const r of out)seen.set(r.name,(seen.get(r.name)||0)+1);for(const r of out)if(seen.get(r.name)>1&&r.kind==='mcp')r.name+=' ('+r.id+')';
+ // the same name twice: the server's own name tells two Notion sign-ins to one workspace apart, the owner two
+ // agents' own bots (TELEGRAM_BOT_TOKEN)
+ const seen=new Map();for(const r of out)seen.set(r.name,(seen.get(r.name)||0)+1);for(const r of out)if(seen.get(r.name)>1)r.name+=r.kind==='mcp'?' ('+r.id+')':r.owner?' · '+names(r.owner):'';
  for(const r of out){r.ownerName||=r.owner?names(r.owner):'';r.canUse=r.users.filter(u=>u.level!=='off').map(u=>u.id)}
  // what needs you first (a login nobody registered, a sign-in to make), then logins, apps, plugins, keys, skills
  const rank=r=>(r.registered===false?0:4)+(r.status==='signin'?0:2)+(r.status==='off'?1:0);

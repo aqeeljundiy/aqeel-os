@@ -22,7 +22,7 @@ test('names: the service and who it is, never an agent label',()=>{
  assert.equal(appName('composio','https://connect.composio.dev/mcp'),'Composio');
  assert.equal(appName('n8n','https://n8n.elkiya.com/mcp-server/http'),'n8n');
  assert.equal(appName('slack-bot','https://mcp.slack.com/mcp'),'Slack · slack-bot');
- assert.equal(appName('pixel',''),'Pixel');
+ assert.equal(appName('pixel',''),'Pixel');assert.equal(appName('n8n-default','https://n8n.elkiya.com/mcp-server/http'),'n8n default');assert.equal(appName('sesi-schedule',''),'Sesi schedule');
  assert.equal(appName('github','https://api.githubcopilot.com/mcp/'),'GitHub')});
 
 test('levels: which tools each level lets an agent use',()=>{
