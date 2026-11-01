@@ -741,7 +741,7 @@ const hapiLists=swr({fresh:20000});
 setTimeout(()=>{channelList(false).catch(()=>{});antigravity.status().catch(()=>{});n8n.spaces().catch(()=>{})},15000).unref();
 // System › Usage's engine reports (last 7 days, and the 62 the Spending overview needs) for every agent, once after start, so
 // even the first visit answers at once; after that each visit refreshes them behind the scenes (usage.mjs, 1 Nov 2026)
-setTimeout(async()=>{for(const a of await listAgents().catch(()=>[]))for(const [k,d] of [['usage',7],['usage',62],['models',7]])usage.report(k,a,d).catch(()=>{})},25000).unref();
+setTimeout(async()=>{for(const a of [...await listAgents().catch(()=>[]),HELP_AGENT])for(const [k,d] of [['usage',7],['usage',62],['models',7]])usage.report(k,a,d).catch(()=>{})},25000).unref();
 /* The engine reports WhatsApp on any agent but the main one as "not set up", even when linked and connected (its
    check needs env keys WhatsApp doesn't have). The truth: switched on + a saved login (creds.json) = set up, and the
    live state the gateway records for "<agent>:whatsapp". */
@@ -1020,8 +1020,10 @@ async function privateAddress(u){let url;try{url=new URL(String(u))}catch{return
 async function hermesCall(req,res,u,url){
  const p=url.pathname,q=url.searchParams,agent=agentOf(p,q);
  if(['profile','path','name','agent'].some(k=>q.getAll(k).length>1))return send(res,400,{error:'Each setting may appear only once.'});
- // Help's profile only through /ui/help (help.mjs): nobody, admins included, opens its chats, settings or usage here
- if(agent===HELP_AGENT||decodeURIComponent((/^\/hapi\/profiles\/([^/?]+)/.exec(p)||[])[1]||'')===HELP_AGENT)return send(res,403,{error:'Help chats are private to each person.'});
+ // Help's profile only through /ui/help (help.mjs): nobody, admins included, opens its chats or settings here. Its usage
+ // totals are the one exception, for admins on System › Usage (numbers per day and model, never what was said; 1 Nov 2026)
+ const helpTotals=agent===HELP_AGENT&&users.isAdmin(u)&&req.method==='GET'&&/^\/hapi\/analytics\/(usage|models)$/.test(p);
+ if(!helpTotals&&(agent===HELP_AGENT||decodeURIComponent((/^\/hapi\/profiles\/([^/?]+)/.exec(p)||[])[1]||'')===HELP_AGENT))return send(res,403,{error:'Help chats are private to each person.'});
  const no=users.gate(u,p,req.method,q,agent);if(no)return send(res,no.status,{error:no.error});
  {const rm=/\/v1\/runs\/([^/]+)/.exec(p);if(rm&&!users.isAdmin(u)){const own=runOwner.get(decodeURIComponent(rm[1]));if(!own||own.user!==u.id)return send(res,403,{error:'That reply is not yours.'})}}
  if(p.startsWith('/gapi/p/')&&agent&&agent!=='default'&&!keyOk.has(agent)){const envF=path.join(HERMES_HOME,'profiles',agent,'.env');const e=await readFile(envF,'utf8').catch(()=>null);
