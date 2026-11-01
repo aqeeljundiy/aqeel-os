@@ -11,7 +11,7 @@
 //     mcp_servers.<name>.tools.exclude (the engine registers only the rest), applied the way Pause does it (removed
 //     through the dashboard, written back); skills and plugins are On or Off.
 // The parts that only decide are exported and tested in scripts/connections.test.mjs.
-import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,rename,rm} from 'node:fs/promises';
 import path from 'node:path';
 import {providerOf,toolNeed,serviceName,displayName,PROVIDERS,CAN} from './connected-accounts.mjs';
 import {allowed as skillOk,allowedNames} from './skills-policy.mjs';
@@ -100,7 +100,13 @@ export function createConnections({DATA,access,accounts,listAgents,listCopies=as
  const FILE=path.join(DATA,'connections.json');let db=null;
  const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.levels||={};db.orig||={}}return db};
  let saving=Promise.resolve();const save=()=>saving=saving.then(async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)}).catch(e=>console.warn('connections: saving',e.message));
- const busy=new Set();let cache=null;const drop=()=>{cache=null};
+ // shown at once, refreshed behind (1 Nov 2026: gathering every app, login, skill and key took ~10 s, the page waited):
+ // the last list per viewer is answered straight away and a newer one is gathered in the background; the owner's list is
+ // kept on disk too, so it is instant after a restart. ?fresh=1 (Check now, a change) still waits for a new one
+ const busy=new Set(),CACHE=path.join(DATA,'connections-cache.json');const caches=new Map(),pending=new Map();let gen=0;const drop=()=>{gen++;caches.clear();rm(CACHE,{force:true}).catch(()=>{})};   // a change: no stale list from memory or disk
+ const regather=(k,only)=>{if(pending.has(k))return pending.get(k);const g0=gen;const p=gather(only).then(g=>{const c={at:Date.now(),g};if(g0===gen){caches.set(k,c);if(k==='*')writeFile(CACHE,JSON.stringify(c)).catch(()=>{})}return c}).finally(()=>pending.delete(k));pending.set(k,p);return p};
+ async function cached(k,only,fresh){let c=caches.get(k);if(!c&&k==='*'&&!fresh){try{c=JSON.parse(await readFile(CACHE,'utf8'));caches.set(k,c)}catch{}}
+  if(fresh||!c)return regather(k,only);if(Date.now()-c.at>20000)regather(k,only).catch(()=>{});return c}
  const skillsOf=async a=>{const r=await engine('GET','/api/skills?profile='+encodeURIComponent(a)).catch(()=>null);const l=Array.isArray(r?.j)?r.j:r?.j?.skills;return Array.isArray(l)?l:null};
  // everything, for an admin; a member gets the agents they may use only, and no logins as you, keys, AdsPower or Code
  async function gather(only){const agents=await listAgents();const seen=a=>!only||only.has(a);const acc={};
@@ -110,7 +116,7 @@ export function createConnections({DATA,access,accounts,listAgents,listCopies=as
   const ad=only||!ads?[]:await ads().catch(()=>[]);const cd=only||!code?null:await code().catch(()=>null);
   return {agents:agents.filter(seen).map(a=>({id:a,name:names(a)})),acc,accounts:ca,skills:sk,ads:ad,code:cd,partial:Object.entries(acc).filter(([,v])=>!v).map(([k])=>k)}}
  async function list(perm={admin:true},{fresh=false}={}){await load();const only=perm.admin?null:new Set((await listAgents()).filter(a=>perm.level?.(a)));const k=only?[...only].sort().join(','):'*';
-  if(fresh){drop();access.fresh?.()}if(!cache||cache.k!==k||Date.now()-cache.at>20000)cache={k,at:Date.now(),g:await gather(only)};const g=cache.g;
+  if(fresh){drop();access.fresh?.()}const cache=await cached(k,only,fresh);const g=cache.g;
   const rows=buildRows({...g,levels:db.levels,busy,names}).map(r=>({...r,may:{level:mayChange(perm,r,'level',r.owner)||r.users.some(u=>mayChange(perm,r,'level',u.id)),owner:mayChange(perm,r,'owner',perm.admin?r.owner:null)||g.agents.some(a=>mayChange(perm,r,'owner',a.id)),add:g.agents.some(a=>!has(r.users,a.id)&&mayChange(perm,r,'add',a.id))}}));
   return {rows,agents:g.agents,canEdit:!!perm.admin,partial:g.partial,at:cache.at}}
  async function find(key,perm){const l=await list({admin:true});const r=l.rows.find(x=>x.key===key);if(!r)throw Object.assign(new Error('That connection is gone. Reload the page.'),{status:404});return {r,agents:l.agents}}
