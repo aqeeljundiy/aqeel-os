@@ -140,7 +140,7 @@ test('end to end on a fake engine home',async()=>{
  await writeFile(path.join(H,'profiles','pixel-agent','google_token_elkiya.json'),JSON.stringify({token:'t',refresh_token:'r2',account:'aqeel@elkiya.test'}));
  l=await ca.list({fresh:true});const g2=l.items.find(x=>x.id==='google:aqeel@elkiya.test');assert.ok(g2&&!g2.registered);assert.equal(l.items[0].id,g2.id);   // not registered comes first
  const r=await ca.register('pixel-agent',{kind:'google',label:'Google, Elkiya',where:'~/.hermes/profiles/pixel-agent/google_token_elkiya.json',can:['read','draft']});assert.ok(!r.isError,r.text);
- const g3=(await ca.list()).items.find(x=>x.id==='google:aqeel@elkiya.test');assert.ok(g3.registered);assert.equal(g3.label,'Google, Elkiya');assert.deepEqual(g3.can,['read','draft']);
+ const g3=(await ca.list()).items.find(x=>x.id==='google:aqeel@elkiya.test');assert.ok(g3.registered);assert.equal(g3.label,'Google · aqeel@elkiya.test');assert.equal(g3.agentLabel,'Google, Elkiya');assert.deepEqual(g3.can,['read','draft']);
  assert.deepEqual(JSON.parse(await readFile(path.join(H,'aqeelos-accounts.json'),'utf8')).google['aqeel@elkiya.test'].can,['read','draft']);
  // Disconnect: the files are gone, the app off every agent
  await ca.disconnect('google:aqeel@elkiya.test');assert.equal(await stat(path.join(H,'profiles','pixel-agent','google_token_elkiya.json')).catch(()=>null),null);

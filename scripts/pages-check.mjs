@@ -13,14 +13,16 @@ try{
  if(!tgt)throw new Error('headless Chrome did not start within 30 s');
  const ws=new WebSocket(tgt.webSocketDebuggerUrl);await new Promise(r=>ws.onopen=r);let id=0;const wait=new Map();const errs=[];
  ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id&&wait.has(m.id)){wait.get(m.id)(m);wait.delete(m.id)}if(m.method==='Runtime.exceptionThrown')errs.push(cur+': '+(m.params.exceptionDetails.exception?.description||m.params.exceptionDetails.text||'').split('\n')[0])};
- const cdp=(method,params={})=>new Promise(r=>{const i=++id;wait.set(i,r);ws.send(JSON.stringify({id:i,method,params}))});
+ // every browser step has 30 s: a stalled one says which page and step instead of the whole run being cut off with no
+ // output by the deploy's time limit (1 Nov 2026: a run stalled after Skills and printed nothing)
+ const cdp=(method,params={})=>new Promise((r,j)=>{const i=++id;const t=setTimeout(()=>{wait.delete(i);j(new Error(method+' took over 30 s'))},30000);wait.set(i,m=>{clearTimeout(t);r(m)});ws.send(JSON.stringify({id:i,method,params}))});
  await cdp('Network.enable');await cdp('Runtime.enable');await cdp('Network.setCookie',{name:cn,value:cv,domain:new URL(BASE).hostname,path:'/'});
  await cdp('Emulation.setDeviceMetricsOverride',{width:W,height:H,deviceScaleFactor:1,mobile:W<700});
  const ev=async js=>(await cdp('Runtime.evaluate',{expression:js,awaitPromise:true,returnByValue:true})).result?.result?.value;
  await cdp('Page.navigate',{url:BASE+'/#/chat'});await sleep(4000);
  let routes=await ev(`(()=>{const out=['/chat'];for(const s of SECTIONS)for(const p of s.pages||[])out.push('/'+s.id+'/'+p.id);return out})()`)||[];if(only.length)routes=only;
  const times={};let cur='';
- for(const r of routes){cur=r;const t0=Date.now();await cdp('Page.navigate',{url:BASE+'/#'+r});
+ for(const r of routes){cur=r;const t0=Date.now();try{await cdp('Page.navigate',{url:BASE+'/#'+r});
   // ready = the page has content and no loading placeholders left (an inline <i class="skel"> is a detail filled in
   // later, like a schedule's description being written, not the page loading: the same rule as core.js)
   for(let i=0;i<80;i++){await sleep(100);const ok=await ev(`!!document.querySelector('.page,.chat')&&![...document.querySelectorAll('#pg .skel,.page .skel')].some(n=>n.tagName!=='I')`);if(ok)break}
@@ -29,6 +31,6 @@ try{
   const h=Math.min(4000,Math.max(H,Number(await ev(`Math.max(document.querySelector('.view,#view,.main')?.scrollHeight||0,document.body.scrollHeight)`))||H));
   await cdp('Emulation.setDeviceMetricsOverride',{width:W,height:h,deviceScaleFactor:1,mobile:W<700});await sleep(400);
   const s=await cdp('Page.captureScreenshot',{format:'png'});writeFileSync(OUT+'/'+name+'.png',Buffer.from(s.result.data,'base64'));
-  await cdp('Emulation.setDeviceMetricsOverride',{width:W,height:H,deviceScaleFactor:1,mobile:W<700})}
+  await cdp('Emulation.setDeviceMetricsOverride',{width:W,height:H,deviceScaleFactor:1,mobile:W<700})}catch(e){errs.push(r+': stalled: '+e.message);times[r]=Date.now()-t0;await cdp('Page.navigate',{url:'about:blank'}).catch(()=>{});await sleep(500)}}
  console.log(JSON.stringify({pages:routes.length,ms:times,errors:[...new Set(errs)]}));
 }finally{chrome.kill('SIGKILL')}

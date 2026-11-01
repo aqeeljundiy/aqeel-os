@@ -24,7 +24,7 @@ const Bottlenecks={items:[],
   // the automations guard (automation-guard.mjs) found or fixed a tool server: its card is on System › Health
   if(x.kind==='automations')return [['Open Health',async()=>{await done();closeLayers();go('/system/health')},true],['Got it',done]];
   // a login acting as the owner that no agent registered (connected-accounts.mjs): approved or disconnected on its page
-  if(x.kind==='accounts')return [['Open Connected accounts',async()=>{await done();closeLayers();go('/abilities/logins')},true],['Got it',done]];
+  if(x.kind==='accounts')return [['Open Connections',async()=>{await done();closeLayers();go('/abilities/connections')},true],['Got it',done]];
   // a channel that logged out or keeps failing (server.mjs channelAttention): Link again for WhatsApp, else its page
   if(x.kind==='channel'){const c=x.channel||{};return [c.id==='whatsapp'&&c.needs_link?['Link again',()=>{closeLayers();ACT['wa-link']({dataset:{agent:c.agent}});return new Promise(()=>{})},true]:['Open Channels',()=>{closeLayers();go('/channels/channels');return new Promise(()=>{})},true],['Not now',later]]}
   // Help tickets (help.mjs) are read and resolved on Help › Tickets; here is only the pointer while some wait (1 Nov 2026)

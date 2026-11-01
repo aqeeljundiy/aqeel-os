@@ -37,9 +37,22 @@
    "tab: Tool groups"
   ],
   "all /abilities/mcp": [
-   "button: Add server",
-   "tab: Catalog",
-   "tab: Your servers"
+   "button: Add",
+   "button: Check now",
+   "tab: Accounts",
+   "tab: All",
+   "tab: Apps",
+   "tab: Plugins",
+   "tab: Skills"
+  ],
+  "all /abilities/connections": [
+   "button: Add",
+   "button: Check now",
+   "tab: Accounts",
+   "tab: All",
+   "tab: Apps",
+   "tab: Plugins",
+   "tab: Skills"
   ],
   "all /abilities/plugins": [
    "button: Rescan",
@@ -127,9 +140,22 @@
    "tab: Tool groups"
   ],
   "one /abilities/mcp": [
-   "button: Add server",
-   "tab: Catalog",
-   "tab: Your servers"
+   "button: Add",
+   "button: Check now",
+   "tab: Accounts",
+   "tab: All",
+   "tab: Apps",
+   "tab: Plugins",
+   "tab: Skills"
+  ],
+  "one /abilities/connections": [
+   "button: Add",
+   "button: Check now",
+   "tab: Accounts",
+   "tab: All",
+   "tab: Apps",
+   "tab: Plugins",
+   "tab: Skills"
   ],
   "one /abilities/plugins": [
    "button: Rescan",
@@ -197,9 +223,12 @@
    "tab: Tool groups"
   ],
   "all /abilities/mcp": [
-   "button: Add server",
-   "tab: Catalog",
-   "tab: Your servers"
+   "button: Add",
+   "button: Check now"
+  ],
+  "all /abilities/connections": [
+   "button: Add",
+   "button: Check now"
   ],
   "all /abilities/files": [
    "button: New agent"
@@ -220,7 +249,12 @@
    "button: Update all"
   ],
   "one /abilities/mcp": [
-   "button: Add server"
+   "button: Add",
+   "button: Check now"
+  ],
+  "one /abilities/connections": [
+   "button: Add",
+   "button: Check now"
   ],
   "one /abilities/files": [
    "button: New agent"
