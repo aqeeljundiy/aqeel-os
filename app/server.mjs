@@ -1727,7 +1727,7 @@ const server=createServer(async(req,res)=>{
    // the bell's list (news.mjs): the same on every device, read and cleared per person; the app adds a person's own news
    if(p==='/ui/news'&&req.method==='GET')return send(res,200,{items:await news.list(u,users.isAdmin(u))});
    if(p.startsWith('/ui/news')&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const admin=users.isAdmin(u);
-    if(p==='/ui/news')return send(res,200,{item:await news.add({...b,aud:'u:'+u.id})});
+    if(p==='/ui/news'){try{return send(res,200,{item:await news.addOwn(u,b)})}catch(e){return send(res,e.status||400,{error:e.message})}}
     if(p==='/ui/news/read')return send(res,200,{n:await news.read(u,admin,{ids:Array.isArray(b.ids)?b.ids.map(String).slice(0,200):[],all:!!b.all})});
     if(p==='/ui/news/hide')return send(res,200,{n:await news.hide(u,admin,{id:b.id?String(b.id):'',read:!!b.read})})}
    if(p==='/ui/thinking'&&req.method==='GET'){const sid=String(url.searchParams.get('session')||'');if(!/^[\w.-]{3,120}$/.test(sid))return send(res,200,{items:[]});const l=await readFile(path.join(DATA,'thinking',sid+'.json'),'utf8').then(JSON.parse).catch(()=>[]);return send(res,200,{items:l.filter(x=>users.isAdmin(u)||x.by===u.id).map(({u:q,think})=>({u:q,think}))})}

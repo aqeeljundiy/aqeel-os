@@ -27,7 +27,11 @@ const Inbox={items:[],ids:{},
  // to-dos that live in Bottlenecks (their pop-ups come from people.js and mcp-share.js), and the usage-stats question (boot.js)
  todo:o=>!!o.todo||/^(cronFail:|chAlert:|signin\||metrics-ask)/.test(o.key||''),
  all(){return this.items},
- async load(){if(!S.signedIn||document.hidden)return;try{const d=await UI('/ui/news');this.items=d.items||[]}catch{return}this.paintBell();if($('.drawer.inbox'))this.paintList()},
+ async load(){if(!S.signedIn||document.hidden)return;await this.migrate();try{const d=await UI('/ui/news');this.items=d.items||[]}catch{return}this.paintBell();if($('.drawer.inbox'))this.paintList()},
+ // the list this browser kept before it moved to the server (1 Nov 2026): the last week's news goes up once, read ones stay read
+ async migrate(){const old=store.get('inbox',null);if(!Array.isArray(old))return;store.set('inbox',null);const read=[];
+  for(const x of old.filter(x=>Date.now()-x.t<7*864e5&&!this.todo({key:x.id})).slice(0,30)){try{const r=await post(UI,'/ui/news',{key:'old:'+x.id,icon:x.icon,kind:x.kind,title:x.title,text:x.text,go:x.go,label:x.label});if(x.read&&r.item?.id)read.push(r.item.id)}catch{}}
+  if(read.length)await post(UI,'/ui/news/read',{ids:read}).catch(()=>{})},
  add(o){if(this.todo(o)){if(typeof Bottlenecks!=='undefined')setTimeout(()=>Bottlenecks.check(),500);return null}
   const key=o.key?o.key+(o.repeat===false?'':'@'+Math.floor(Date.now()/3600e3)):'',lid='l'+Date.now()+Math.random().toString(36).slice(2,6);
   const it={id:lid,key,t:Date.now(),icon:o.icon||'clock',kind:o.kind||'blue',title:o.title||'',text:noThink(o.text).slice(0,200),go:(o.actions||[]).find(a=>a.go)?.go||o.go||'',label:(o.actions||[])[0]?.label||'Open',read:false};
@@ -40,7 +44,8 @@ const Inbox={items:[],ids:{},
  unread(){return this.items.filter(x=>!x.read).length},
  paintBell(){const n=this.unread();$$('[data-act="inbox"]').forEach(b=>{if(b.dataset.n===String(n))return;b.dataset.n=String(n);b.classList.toggle('has',n>0);const c=b.querySelector('.bell-n');if(c)c.textContent=n>99?'99+':String(n);b.setAttribute('aria-label',n?n+' unread notifications':'Notifications')})},
  open(){const d=sideDrawer('Notifications','<div class="inbox-bar"><button class="ghost small" data-ib="read">'+icon('check',14)+'Mark all read</button><button class="ghost small" data-ib="clear">'+icon('trash',14)+'Clear read</button></div><div id="inboxList"></div>','');d.classList.add('inbox');
-  d.addEventListener('click',async e=>{const b=e.target.closest('[data-ib]');if(b){if(b.dataset.ib==='read'){this.items.forEach(x=>x.read=true);post(UI,'/ui/news/read',{all:true}).catch(fail)}else{this.items=this.items.filter(x=>!x.read);post(UI,'/ui/news/hide',{read:true}).catch(fail)}this.paintBell();this.paintList();return}
+  d.addEventListener('click',async e=>{const b=e.target.closest('[data-ib]');if(b){if(b.dataset.ib==='read'){this.items.forEach(x=>x.read=true);post(UI,'/ui/news/read',{all:true}).catch(fail);this.paintBell();this.paintList();return}
+    const gone=$$('#inboxList .ib-item:not(.unread)');gone.forEach(n=>n.classList.add('out'));post(UI,'/ui/news/hide',{read:true}).catch(fail);setTimeout(()=>{this.items=this.items.filter(x=>!x.read);this.paintBell();this.paintList()},gone.length?220:0);return}
    const it=e.target.closest('[data-inbox]');if(!it)return;const x=this.items.find(y=>y.id===it.dataset.inbox);if(!x)return;this.read(x.id);
    if(e.target.closest('[data-ib-x]')){const n=it;n.classList.add('out');setTimeout(()=>{this.items=this.items.filter(y=>y!==x);this.paintList()},200);this.sid(x.id).then(s=>post(UI,'/ui/news/hide',{id:s})).catch(()=>{});return}
    if(x.go){closeLayers();go(x.go)}else this.paintList()});

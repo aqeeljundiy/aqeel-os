@@ -6,8 +6,12 @@ import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
 import path from 'node:path';
 import {randomBytes} from 'node:crypto';
 
-const KEEP=300,DAYS=30;
-export function createNews({DATA}){
+// each list has its own cap (1 Nov 2026, review: one person's app could push the admins' history out); a person's app may
+// add 30 items in 10 minutes, more are refused
+export const CAPS={admins:300,person:150},RATE={n:30,ms:10*60e3},DAYS=30;
+// keep: the newest of every audience up to its cap, nothing older than DAYS
+export function trim(items,now=Date.now()){const seen={};return items.filter(x=>{if(now-x.t>DAYS*864e5)return false;const cap=x.aud==='admins'?CAPS.admins:CAPS.person;seen[x.aud]=(seen[x.aud]||0)+1;return seen[x.aud]<=cap})}
+export function createNews({DATA}){const sent=new Map();   // aud -> times of recent adds from a person's app
  const FILE=path.join(DATA,'news.json');let db=null,saving=Promise.resolve();
  const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.items||=[]}return db};
  const save=()=>saving=saving.then(async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db));await rename(FILE+'.tmp',FILE)}).catch(e=>console.warn('news: saving',e.message));
@@ -18,10 +22,13 @@ export function createNews({DATA}){
  async function add({aud='admins',key,icon,kind,title,text,go,label}){await load();title=clip(title,140);if(!title)return null;key=key?clip(key,160):'';
   const had=key&&db.items.find(x=>x.key===key&&x.aud===aud);if(had)return pub(had);
   const it={id:'n'+randomBytes(6).toString('hex'),t:Date.now(),aud,key,icon:clip(icon||'clock',24),kind:['blue','ok','warn'].includes(kind)?kind:'blue',title,text:clip(text,240),go:/^\/[\w\/.-]{0,120}$/.test(go||'')?go:'',label:clip(label||'Open',24),read:[],gone:[]};
-  const old=Date.now()-DAYS*864e5;db.items=[it,...db.items.filter(x=>x.t>old)].slice(0,KEEP);await save();return pub(it)}
+  db.items=trim([it,...db.items]);await save();return pub(it)}
+ // from a person's own app (POST /ui/news): their list only, and not too many
+ async function addOwn(u,b){const aud='u:'+u.id,now=Date.now(),l=(sent.get(aud)||[]).filter(t=>now-t<RATE.ms);if(l.length>=RATE.n)throw Object.assign(Error('Too many notifications at once. Try again in a few minutes.'),{status:429});
+  l.push(now);sent.set(aud,l);return add({key:b.key,icon:b.icon,kind:b.kind,title:b.title,text:b.text,go:b.go,label:b.label,aud})}
  async function list(u,admin){await load();return db.items.filter(x=>sees(x,u,admin)&&!x.gone.includes(u.id)).slice(0,60).map(({aud,read,gone,...x})=>({...x,read:read.includes(u.id)}))}
  // ids: those; all: everything this person sees
  async function read(u,admin,{ids,all}){await load();const want=new Set(ids||[]);let n=0;for(const x of db.items)if(sees(x,u,admin)&&(all||want.has(x.id))&&!x.read.includes(u.id)){x.read.push(u.id);n++}if(n)await save();return n}
  // remove one, or clear: every read one goes from this person's list (others keep theirs)
  async function hide(u,admin,{id,read:onlyRead}){await load();let n=0;for(const x of db.items)if(sees(x,u,admin)&&(id?x.id===id:onlyRead&&x.read.includes(u.id))&&!x.gone.includes(u.id)){x.gone.push(u.id);n++}if(n)await save();return n}
- return {add,list,read,hide}}
+ return {add,addOwn,list,read,hide}}

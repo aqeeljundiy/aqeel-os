@@ -435,7 +435,7 @@ const CronNotify={
  // the first line or two of what it said, without Markdown marks
  gist(t){return noThink(t).replace(/\[([^\]]+)\]\([^)]+\)/g,'$1').replace(/MEDIA:\S+/g,'').replace(/[*_#`>|]+/g,'').replace(/\s+/g,' ').trim().slice(0,170)},
  show(s,text){const name=String(s.title||'Schedule').replace(/ · [A-Z][a-z]{2} \d+ \d\d:\d\d$/,'').replace(/^\s*\[[^\]]*\]\s*/,'');
-  Notices.show({icon:'clock',title:name+' finished',text:this.gist(text)||'Done. Open it to see the result.',actions:[{label:'Open',go:'/chat/'+s.id}]})},
+  Notices.show({icon:'clock',key:'cron:'+s.id,repeat:false,title:name+' finished',text:this.gist(text)||'Done. Open it to see the result.',actions:[{label:'Open',go:'/chat/'+s.id}]})},   // the key: one item per run on every device
  // a schedule that failed, or found nowhere to deliver, says so once, in plain words, with a way to fix it
  async failures(){let jobs=[];try{jobs=await H('/cron/jobs?profile=all')}catch{return}
   for(const j of jobs){const err=j.last_delivery_error||(j.last_status&&j.last_status!=='ok'?(j.last_error||j.last_status):'');if(!err||!j.last_run_at||Date.now()-new Date(j.last_run_at)>86400e3)continue;
@@ -833,15 +833,15 @@ async function reconnectChannel(ag,pf){const main=ag.split('--')[0]==='default'&
 
 // the bell (Inbox lives in notices.js, which loads before the action table)
 ACT['inbox']=()=>{if($('.drawer.inbox'))return closeLayers();Inbox.open()};
-setTimeout(()=>Inbox.paintBell(),300);setInterval(()=>{if(!document.hidden)Inbox.paintBell()},2000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)Inbox.paintBell()});addEventListener('storage',e=>{if(e.key==='hui-inbox')Inbox.paintBell()});
+setTimeout(()=>Inbox.paintBell(),300);setInterval(()=>{if(!document.hidden)Inbox.paintBell()},2000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)Inbox.load()});
 
 // engine restarts land in the bell with the reason in plain words (so a channel dropping for a moment is explained)
 const SysEvents={async check(){if(document.hidden||!S.signedIn||S.me?.admin===false)return;let ev=[];try{ev=(await UI('/ui/system-events')).events||[]}catch{return}
  const seen=new Set(store.get('sysSeen',[]));let n=0;
  for(const e of ev){if(seen.has(e.id))continue;seen.add(e.id);n++;const w=e.why||'';
   const why=e.kind==='restart-self'?'The engine restarted on its own, usually after a settings change.':/^restart from the app/.test(w)?'Someone pressed Restart agents.':/WhatsApp linked/.test(w)?'A WhatsApp number was linked.':/removed from/.test(w)?'A channel was removed.':/^reconnect/.test(w)?'A channel of the main agent was reconnected.':/^(paused|resumed)/.test(w)?'A channel was paused or resumed.':/no gateway was running/.test(w)?'It had stopped, so it was started again.':/restored/.test(w)?'An agent was restored.':/cannot reach/.test(w)?'It had lost its model sign-in, so it was restarted properly.':w;
-  if(/^memory/.test(e.kind)){Inbox.add({key:'sys:'+e.id,icon:'activity',kind:e.kind==='memory'?'warn':'blue',title:e.kind==='memory'?'The AI box is low on memory':'Memory freed',text:e.kind==='memory'?e.why+'. Heavy jobs may fail; idle browsers close by themselves.':e.why,go:'/system/health',actions:[{label:'Host',go:'/system/health'}]});continue}
-  Inbox.add({key:'sys:'+e.id,icon:'refresh',kind:'blue',title:'Agents restarted for a moment',text:why+' Channels (WhatsApp, Telegram, Slack) reconnected by themselves.',go:'/channels/channels',actions:[{label:'Channels',go:'/channels/channels'}]})}
+  if(/^memory/.test(e.kind)){Inbox.add({key:'sys:'+e.id,repeat:false,icon:'activity',kind:e.kind==='memory'?'warn':'blue',title:e.kind==='memory'?'The AI box is low on RAM':'RAM freed',text:e.kind==='memory'?e.why+'. Heavy jobs may fail; idle browsers close by themselves.':e.why,go:'/system/health',actions:[{label:'Health',go:'/system/health'}]});continue}
+  Inbox.add({key:'sys:'+e.id,repeat:false,icon:'refresh',kind:'blue',title:'Agents restarted for a moment',text:why+' Channels (WhatsApp, Telegram, Slack) reconnected by themselves.',go:'/channels/channels',actions:[{label:'Channels',go:'/channels/channels'}]})}
  if(n)store.set('sysSeen',[...seen].slice(-100))}};
 Poll.add(()=>SysEvents.check(),60000,8000);
 
