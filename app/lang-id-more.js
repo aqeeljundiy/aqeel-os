@@ -531,7 +531,7 @@ Object.assign(ID,{
  'State':'Keadaan',
  'Disk':'Disk',
  'Uptime':'Waktu aktif',
- 'What uses memory':'Apa yang memakai memori',
+ 'What uses RAM':'Apa yang memakai RAM',
  'Engine (chats, channels, schedules)':'Mesin (obrolan, saluran, jadwal)',
  'Agent screens and browsers':'Layar dan browser agen',
  'Tools and connectors':'Alat dan konektor',

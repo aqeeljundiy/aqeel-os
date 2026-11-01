@@ -16,7 +16,7 @@
 //     dropped connection, and never sooner than 20 min after the move (40 or 60 min when it already happened in the 2 hours
 //     before), so agents do not flip back and forth. While it is out, auto-switch does not move anyone back up to it. An
 //     agent someone moved by hand stays where they put it.
-//   - one bell and one WhatsApp message when a switch starts and one when it ends; a line on System › Health › Automations.
+//   - one message when a switch starts and one when it ends (the bell's list once agents moved, else Bottlenecks; and WhatsApp); a line on System › Health › Tools and schedules. In the app these are "fallback models" (1 Nov 2026), so "backup" means data backups only.
 // The engine's own words for "every model failed" and the note under a reply a backup gave are in
 // scripts/apply-skill-patches.mjs (13). The parts that only decide are exported and tested in scripts/backup-models.test.mjs.
 import {readFile,writeFile,mkdir,rename,stat,open} from 'node:fs/promises';
@@ -154,7 +154,7 @@ export function createBackupModels({DATA,HERMES_HOME,live=false,agents,acc,readC
   p.model||=p.lastModel||'';p.brand=brand||brandOf(slug,p.model);p.pinned=pinned;await save();const moved=Object.keys(p.moved);
   console.log('backup models:',p.brand,'outage ('+p.why+'); moved',moved.join(', ')||'nobody');sync('outage').catch(()=>{});
   if(moved.length&&!db.told[slug+':'+now+':start']){db.told[slug+':'+now+':start']=Date.now();await save();
-   await tell(p.brand+' kept dropping; agents moved to '+names(to.length?to:['their backup'])+' at '+clock(now),{topic:'outage|'+p.provider,info:to.length>0,detail:p.why[0].toUpperCase()+p.why.slice(1)+'. Moved: '+moved.map(nameOf).join(', ')+(pinned.length?'. Left where they were put by hand: '+pinned.map(nameOf).join(', '):'')+'. aqeelOS tries '+p.brand+' every 5 minutes and moves them back once it works again.',whatsapp:!to.length}).catch(e=>console.warn('backup models: telling the owner',e.message))}}
+   await tell(p.brand+' kept dropping; agents moved to '+names(to.length?to:['their fallback'])+' at '+clock(now),{topic:'outage|'+p.provider,info:to.length>0,detail:p.why[0].toUpperCase()+p.why.slice(1)+'. Moved: '+moved.map(nameOf).join(', ')+(pinned.length?'. Left where they were put by hand: '+pinned.map(nameOf).join(', '):'')+'. aqeelOS tries '+p.brand+' every 5 minutes and moves them back once it works again.',whatsapp:!to.length}).catch(e=>console.warn('backup models: telling the owner',e.message))}}
  async function end(slug,now){const d=await acc.load(),p=rec(slug),back=[],stay=[];
   for(const [profile,m] of Object.entries(p.moved||{})){if(m.would)continue;const cur=await acc.entryOf(d,profile).catch(()=>null);
    // someone moved it since (by hand, or the usage switch): it stays where it is now

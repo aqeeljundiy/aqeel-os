@@ -25,8 +25,8 @@ const EXCLUDE=['.hermes/installs','.hermes/hermes-agent','.hermes/tools','.herme
 // what a restore must bring back for the box to work
 const MUST=['.hermes/config.yaml','.hermes/.env','apps/hermes-ui-data/users.json','apps/hermes-ui.env'];
 
-export function createBackups({DATA,HOME,HERMES_HOME,TOKEN='google_token_elkiya.json',notify=()=>{},solved=()=>{}}){
- const STATE=path.join(DATA,'backups.json'),KEYF=path.join(DATA,'backup-key');let state=null,running=null;
+export function createBackups({DATA,HOME,HERMES_HOME,TOKEN='google_token_elkiya.json',notify=()=>{},solved=()=>{},stopEngine=async()=>{},startEngine=async()=>{}}){
+ const STATE=path.join(DATA,'backups.json'),KEYF=path.join(DATA,'backup-key');let state=null,running=null,restoring=null;
  const load=async()=>{if(!state){try{state=JSON.parse(await readFile(STATE,'utf8'))}catch{state={}}}return state};
  const save=async()=>{await writeFile(STATE,JSON.stringify(state,null,1))};
  // the key that encrypts every backup (made once; admins see it under System › Health to keep it somewhere safe)
@@ -81,7 +81,7 @@ export function createBackups({DATA,HOME,HERMES_HOME,TOKEN='google_token_elkiya.
    for(const f of (l.files||[]).slice(KEEP))await drive(g,'drive/v3/files/'+f.id,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({trashed:true})}).catch(()=>{});
    state.last={at,ok:true,name,size,id:file.id,account:g.account,why,secs:Math.round((Date.now()-at)/1000),skipped};state.made=true;await save();console.log('backup: '+name+' ('+Math.round(size/1e6)+' MB) uploaded to Google Drive'+(skipped?', '+skipped+' unreadable file(s) skipped':''));solved();return state.last}
   // a failed scheduled backup is tried again within the hour, 3 times a morning; only the third failure is told (a
-  // dropped upload is usually gone an hour later). A manual one shows its result on Health, so it never rings the bell
+  // dropped upload is usually gone an hour later). A manual one shows its result on Health, so it never goes to Bottlenecks
   catch(e){const day=new Date(at+7*3600e3).toISOString().slice(0,10);state.tries=state.tries?.day===day?{day,n:state.tries.n+1}:{day,n:1};
    state.last={at,ok:false,error:e.message,why};await save();console.warn('backup failed ('+state.tries.n+' today):',e.message);if(why==='scheduled'&&state.tries.n>=3)notify('Backup to Google Drive failed 3 times this morning',e.message);throw e}
   finally{await rm(tmp,{force:true}).catch(()=>{});running=null}})();return running}
@@ -96,10 +96,33 @@ export function createBackups({DATA,HOME,HERMES_HOME,TOKEN='google_token_elkiya.
    state.test={at,ok:true,name:f.name,detail:'Unpacked '+f.name+': settings, people, aqeelOS data and '+agents+' agents are all there.'};await save();return state.test}
   catch(e){state.test={at,ok:false,error:e.message};await save();notify('The backup restore test failed',e.message);throw e}
   finally{await rm(dir,{recursive:true,force:true}).catch(()=>{});await rm(enc,{force:true}).catch(()=>{})}}
+ // the backups in Drive, newest first, for Restore… on System › Health (1 Nov 2026)
+ async function list(){const g=await google(),fid=await folder(g);const l=await drive(g,'drive/v3/files?q='+encodeURIComponent("'"+fid+"' in parents and trashed=false")+'&orderBy=createdTime desc&fields=files(id,name,size,createdTime)&pageSize=30');
+  return (l.files||[]).map(f=>({id:f.id,name:f.name,size:Number(f.size)||0,at:Date.parse(f.createdTime)||0}))}
+ /* Restore (1 Nov 2026, one Restore… for every backup): the agents come back from one Drive backup: their settings, skills,
+    memories, chats and sign-ins (the .hermes part). It is downloaded, decrypted and unpacked into a scratch folder first and
+    checked like a restore test; only then the agents stop, their files are replaced (programs, caches and logs, which a
+    backup leaves out, stay as they are) and they start again. aqeelOS's own data and people's files are left alone, so
+    nobody is signed out halfway; a whole new box is set up from a backup by hand. */
+ async function restore(id){if(restoring||running)throw Error(restoring?'A restore is already running.':'A backup is running. Wait for it to finish.');await load();
+  const g=await google(),fid=await folder(g);const f=await drive(g,'drive/v3/files/'+encodeURIComponent(id)+'?fields=id,name,parents,size');if(!(f.parents||[]).includes(fid))throw Error('That file is not one of the backups.');
+  const at=Date.now(),dir=path.join('/tmp','aqeelos-restore-'+at),enc=dir+'.enc';state.restore={at,running:true,name:f.name};await save();
+  restoring=(async()=>{try{const r=await drive(g,'drive/v3/files/'+f.id+'?alt=media',{raw:true,long:true});await pipeline(Readable.fromWeb(r.body),createWriteStream(enc));
+    await mkdir(dir,{recursive:true});await sh('set -o pipefail; openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AQ_BK -in '+q(enc)+' | tar -xzf - -C '+q(dir)+' .hermes',{AQ_BK:await key()});
+    const s=await stat(path.join(dir,'.hermes','config.yaml')).catch(()=>null);if(!s?.size)throw Error('The backup has no agent settings, so nothing was changed.');
+    // excluded parts are not in the backup; rsync leaves them in place (it only removes files the backup has no copy of)
+    const keep=EXCLUDE.filter(e=>!/^(apps|workspaces|\.claude)\//.test(e)).map(e=>e.replace(/^\.hermes\//,'/')).concat(['*.pid','*.lock']);   // a running program's pid and lock files stay the box's own
+    await stopEngine();
+    try{await sh('if command -v rsync >/dev/null; then rsync -a --delete '+keep.map(e=>'--exclude='+q(e)).join(' ')+' '+q(path.join(dir,'.hermes')+'/')+' '+q(HERMES_HOME+'/')+'; else cp -a '+q(path.join(dir,'.hermes')+'/.')+' '+q(HERMES_HOME)+'; fi')}
+    finally{await startEngine()}
+    state.restore={at,ok:true,name:f.name,secs:Math.round((Date.now()-at)/1000)};await save();console.log('backup: restored the agents from',f.name)}
+   catch(e){state.restore={at,ok:false,name:f.name,error:e.message};await save();console.warn('backup: restore failed:',e.message)}
+   finally{await rm(dir,{recursive:true,force:true}).catch(()=>{});await rm(enc,{force:true}).catch(()=>{});restoring=null}})();
+  return {started:true,name:f.name}}
  // 03:00 Jakarta every night; a restore test every Sunday after it
  function schedule(){const tick=async()=>{await load();const j=new Date(Date.now()+7*3600e3);const today=j.toISOString().slice(0,10);
    const tries=state.tries?.day===today?state.tries.n:0,doneToday=state.last?.ok&&new Date(state.last.at+7*3600e3).toISOString().slice(0,10)===today;
    if(j.getUTCHours()>=3&&j.getUTCHours()<9&&!doneToday&&tries<3&&(!state.last||state.last.ok||Date.now()-state.last.at>3600e3)){try{await run();if(j.getUTCDay()===0)await test()}catch{}}};
   setInterval(()=>tick().catch(()=>{}),15*60e3).unref?.()}
- async function status(){await load();const keyError=made()&&!await readFile(KEYF,'utf8').then(k=>k.trim().length>=32,()=>false)?NOKEY:null;return {keyError,last:state.last||null,test:state.test||null,running:Boolean(running),keep:KEEP,where:'Google Drive › aqeelOS backups',account:await readFile(path.join(HERMES_HOME,TOKEN),'utf8').then(t=>JSON.parse(t).account||'').catch(()=>'')}}
- return {run,test,status,key,schedule}}
+ async function status(){await load();const keyError=made()&&!await readFile(KEYF,'utf8').then(k=>k.trim().length>=32,()=>false)?NOKEY:null;return {keyError,last:state.last||null,test:state.test||null,running:Boolean(running),restoring:Boolean(restoring),restore:restoring?state.restore:state.restore?.running?null:state.restore||null,keep:KEEP,where:'Google Drive › aqeelOS backups',account:await readFile(path.join(HERMES_HOME,TOKEN),'utf8').then(t=>JSON.parse(t).account||'').catch(()=>'')}}
+ return {run,test,status,key,schedule,list,restore}}

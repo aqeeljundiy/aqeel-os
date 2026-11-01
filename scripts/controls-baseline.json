@@ -72,9 +72,7 @@
    "tab: 90 days"
   ],
   "all /system/health": [
-   "button: Check for updates",
-   "button: Engine console",
-   "button: Restart agents"
+   "button: Engine console"
   ],
   "all /system/logs": [
    "button: Refresh",
@@ -164,9 +162,7 @@
    "tab: 90 days"
   ],
   "one /system/health": [
-   "button: Check for updates",
-   "button: Engine console",
-   "button: Restart agents"
+   "button: Engine console"
   ],
   "one /system/logs": [
    "button: Refresh",
