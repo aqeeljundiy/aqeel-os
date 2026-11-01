@@ -202,15 +202,6 @@ async function mailPanel(){const box=$('#mailBox');if(!box)return;let m;try{m=aw
 // Email sending lives on Settings (agreed layout, 18 Oct): sign-in codes and invites
 {const settings=PAGES.settings;PAGES.settings=async(p,el)=>{const gone=pageTok(el);await settings(p,el);if(gone())return;if(S.me?.admin===false||el.querySelector('#mailBox'))return;
  const box=document.createElement('div');box.className='panel card';box.style.marginBottom='16px';box.innerHTML=`<h2>Email sending</h2><p class="sub">Used for sign-in codes and invites.</p><div id="mailBox">${skeleton(1)}</div>`;el.prepend(box);mailPanel()}}
-// Settings › Agent settings: the settings kept in the agent's .env file. They were a group on Keys, which holds secrets
-// only now (1 Nov 2026). The same rows as Keys (change, show, remove), for the agent shown.
-{const settings=PAGES.settings;PAGES.settings=async(p,el)=>{const gone=pageTok(el);await settings(p,el);if(gone()||S.me?.admin===false)return;
- const env=await H('/env').catch(()=>null);if(gone()||!env||!el.isConnected)return;const q=(S.cfgQ||'').toLowerCase();
- const rows=Object.entries(env).filter(([k,v])=>v.category==='setting'&&!/^HERMES_/.test(k)&&(v.is_set||!v.advanced)&&(!q||(k+' '+(v.description||'')).toLowerCase().includes(q))).sort((x,y)=>(y[1].is_set?1:0)-(x[1].is_set?1:0));if(!rows.length)return;
- const set=rows.filter(r=>r[1].is_set),more=rows.filter(r=>!r[1].is_set);
- const box=document.createElement('div');box.className='panel card cfg-env';box.style.marginTop='16px';
- box.innerHTML=`<h2>Agent settings</h2><p class="sub">Kept in this agent’s .env file on the AI box, next to its keys. Each change saves at once; channels pick it up after Restart agents.</p>${(q?rows:set).map(KROW).join('')}${!q&&more.length?`<details class="kf-more"><summary>${set.length?'Show '+more.length+' more you can set':'Show the '+more.length+' settings you can set'}</summary>${more.map(KROW).join('')}</details>`:''}`;
- el.append(box);if(S.cfgAgentEnv){S.cfgAgentEnv=false;box.scrollIntoView({behavior:'smooth',block:'start'})}}}
 
 /* ---------- per person: which models, and a daily limit ---------- */
 const LIMITS=[[0,'No limit'],[50000,'50k tokens a day'],[200000,'200k tokens a day'],[1000000,'1M tokens a day'],[5000000,'5M tokens a day']];
