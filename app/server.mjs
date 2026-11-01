@@ -946,7 +946,8 @@ async function channelAttention(fresh){if(!fresh&&Date.now()-attention.t<10*60e3
  for(const a of await listAllProfiles()){if(fresh)platCache.delete(a);const pl=await platformsCached(a).catch(()=>null);
   for(const c of (pl?.platforms||pl||[])){if(['api_server','webhook'].includes(c.id)||!(c.configured||c.account))continue;
    if(!c.paused&&(c.needs_link||(c.enabled&&/fatal|error|failed/.test(c.state||''))))list.push({agent:a,base:a.split('--')[0],id:c.id,name:c.name,account:c.account||null,needs_link:!!c.needs_link,state:c.state})}}
- const before=new Set(attention.list.map(x=>x.agent+'|'+x.id));for(const x of list)if(!before.has(x.agent+'|'+x.id))console.warn('channel check:',x.name,'on',x.agent,x.needs_link?'is logged out':'is '+x.state);
+ const before=new Map(attention.list.map(x=>[x.agent+'|'+x.id,x]));for(const x of list){const b=before.get(x.agent+'|'+x.id);x.since=b?.since||Date.now()}   // since: when it first went wrong (Bottlenecks keys on it)
+ for(const x of list)if(!before.has(x.agent+'|'+x.id))console.warn('channel check:',x.name,'on',x.agent,x.needs_link?'is logged out':'is '+x.state);
  attention={t:Date.now(),list};return list}
 if(PORT===4400){setTimeout(()=>channelAttention(true).catch(()=>{}),90e3);setInterval(()=>channelAttention(true).catch(()=>{}),2*3600e3).unref()}
 /* WhatsApp that stays connected. Every 10 minutes (live app) a linked number that dropped is reconnected on its own,
