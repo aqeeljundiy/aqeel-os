@@ -33,10 +33,12 @@ async function editAgent(name,start='Identity',opt={}){
   ${tabsOn.includes('Sharing')?sec('Sharing',`<p class="hint" style="margin:0 0 12px">Who owns ${esc(id.name)} and who else may chat with it or change it. Each change here saves as you make it.</p><div id="aeShareBox">${skeleton(2)}</div>`):''}`,
   `<button class="ghost" data-act="close">Cancel</button><button class="primary" id="aeSave">Save</button>`,{size:'lg'});
  // tabs inside the window
- // the window keeps the height of its tallest tab so far (no jump when switching); on Sharing, which saves each change at
- // once, the footer says Done unless another tab has unsaved changes
- const show=t=>{const body=d.querySelector('.drawer-body');if(body)body.style.minHeight=Math.max(parseFloat(body.style.minHeight)||0,body.offsetHeight)+'px';
+ // each tab has its own height, and the window grows or shrinks to it smoothly (no jump, no tall empty space); on
+ // Sharing, which saves each change at once, the footer says Done unless another tab has unsaved changes
+ const show=t=>{const body=d.querySelector('.drawer-body'),h1=body?.offsetHeight||0;
   d.querySelectorAll('[data-ae]').forEach(b=>b.classList.toggle('on',b.dataset.ae===t));d.querySelectorAll('.ae-sec').forEach(s=>s.hidden=s.dataset.sec!==t);placePills();
+  if(body&&h1&&!matchMedia('(prefers-reduced-motion: reduce)').matches){clearTimeout(body._ht);body.style.transition='none';body.style.height='';const h2=body.offsetHeight;
+   if(Math.abs(h2-h1)>2){body.style.height=h1+'px';void body.offsetHeight;body.style.transition='height .24s cubic-bezier(.2,.7,.2,1)';body.style.height=h2+'px';body._ht=setTimeout(()=>{body.style.height='';body.style.transition=''},280)}}
   const sv=d.querySelector('#aeSave'),cx=d.querySelector('.drawer-foot [data-act=close]'),only=t==='Sharing'&&!isDirty?.();if(sv)sv.hidden=only;if(cx){cx.textContent=only?'Done':'Cancel';cx.classList.toggle('primary',only);cx.classList.toggle('ghost',!only)}};
  let isDirty=null;
  d.querySelectorAll('[data-ae]').forEach(b=>b.onclick=()=>show(b.dataset.ae));requestAnimationFrame(placePills);

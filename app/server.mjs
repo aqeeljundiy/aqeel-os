@@ -287,10 +287,10 @@ async function ensureChatHint(a){const cfgFile=path.join(a==='default'?HERMES_HO
  if(y.split('shows these as small coloured labels').length>2)return;   // already the current wording, twice
  for(const k of ['api_server','local']){const r=await setKey(a,'agent.platform_hints.'+k,{replace:CHAT_HINT});if(!r.ok)throw new Error(r.err)}}
 async function writeAgentContext(){const all=await listAgents();const names={};for(const a of all)names[a]=NAMES[a]=await displayName(a);
- const ads=[];for(const a of all)if(await screens.shared(a).catch(()=>false))ads.push(a);
- for(const a of all){await ensureChatHint(a).catch(e=>console.warn('chat hint',a,e.message));try{const me=names[a],adsNames=ads.map(x=>names[x]+"'s screen").join(' / ')||'the AdsPower screen';
-  const own=ads.includes(a)?`You browse through AdsPower, so your browser shows on the shared AdsPower screen, listed as "${me}'s screen".`:`Your own screen is "${me}'s screen". Your browser tool opens pages there; it starts by itself when you browse.`;
-  const others=all.filter(x=>x!==a&&!ads.includes(x)).map(x=>'"'+names[x]+"'s screen\"").join(', ');
+ for(const a of all){await ensureChatHint(a).catch(e=>console.warn('chat hint',a,e.message));try{const me=names[a];
+  // every agent has its own screen and its own AdsPower on it (1 Nov 2026: the AdsPower copy agents shared is gone)
+  const own=`Your own screen is "${me}'s screen". Your browser tool opens pages there; it starts by itself when you browse.`;
+  const others=all.filter(x=>x!==a).map(x=>'"'+names[x]+"'s screen\"").join(', ');
   const ch=await relay.channelsFor(a).catch(()=>[]);const gacc=await googleContext(a).catch(()=>[]);
   // an agent without terminal and files cannot change its own settings: it says where they change instead of
   // guessing ("an admin has to…", an outside website)
@@ -302,7 +302,7 @@ async function writeAgentContext(){const all=await listAgents();const names={};f
    '- '+own,
    '- Your AdsPower is your own: it runs on your own screen with its own sign-in, and its browsers open there.',   // each agent's own AdsPower (1 Nov 2026); the shared copy is gone
    others?'- Other agents have their own screens: '+others+'.':null,
-   'When you start working in a browser or in AdsPower, say which screen to watch, for example: "I am working on '+(ads.includes(a)?me+"'s screen":me+"'s screen")+'." If the person needs to sign in or solve a check themselves, tell them to open that screen and press Take over.',
+   'When you start working in a browser or in AdsPower, say which screen to watch, for example: "I am working on '+me+"'s screen"+'." If the person needs to sign in or solve a check themselves, tell them to open that screen and press Take over.',
    ...(locked?['','## Changing settings','',
     'You have no terminal or file tools, so you cannot change your own settings, and that is on purpose. When someone asks to change how you or your channels behave (notices such as "Redirected current run", your model, what you may use, who may message you), say plainly that you cannot change it yourself and that it is changed in aqeelOS on the Settings page (System › Settings, with "Showing: '+me+'" picked at the top). Who may message you is on Channels › Who can message (that page approves people; which Slack channels you listen to is not on any page yet, so say the aqeelOS owner changes it on the AI box); apps are on Abilities › Connected apps.',
     'Never send anyone to a website or to documentation for this, and never say "an admin" has to do it.']
@@ -750,8 +750,8 @@ const hapiLists=swr({fresh:20000});
 // the slow status reads are read once soon after start (read-only), so even the first page that asks answers from them
 setTimeout(()=>{channelList(false).catch(()=>{});antigravity.status().catch(()=>{});n8n.spaces().catch(()=>{})},15000).unref();
 // System › Usage's engine reports (last 7 days, and the 62 the Spending overview needs) for every agent, once after start, so
-// even the first visit answers at once; after that each visit refreshes them behind the scenes (usage.mjs, 1 Nov 2026)
-setTimeout(async()=>{for(const a of [...await listAgents().catch(()=>[]),HELP_AGENT])for(const [k,d] of [['usage',7],['usage',62],['models',7]])usage.report(k,a,d).catch(()=>{})},25000).unref();
+// even the first visit answers at once; after that each visit refreshes them behind the scenes (usage.mjs, 1 Nov 2026). Only the live app (port 4400): a test copy reads nothing it is not asked for
+if(PORT===4400)setTimeout(async()=>{for(const a of [...await listAgents().catch(()=>[]),HELP_AGENT])for(const [k,d] of [['usage',7],['usage',62],['models',7]])usage.report(k,a,d).catch(()=>{})},25000).unref();
 /* The engine reports WhatsApp on any agent but the main one as "not set up", even when linked and connected (its
    check needs env keys WhatsApp doesn't have). The truth: switched on + a saved login (creds.json) = set up, and the
    live state the gateway records for "<agent>:whatsapp". */
@@ -1879,7 +1879,7 @@ const server=createServer(async(req,res)=>{
     // side by side, a few at a time (each a config read; it was one after another)
     const out=await Promise.all(ag.map(a=>cfgLimit(async()=>{const c=await readConfig(a).catch(()=>null)||{};return {id:a,name:NAMES[a]||await displayName(a),model:c.model?.default||'',provider:c.model?.provider||''}})));return send(res,200,{agents:out})}
    // Models › AI accounts › If an account fails: each agent's fallback models, as backup-models.mjs keeps them (admins; 1 Nov 2026)
-   if(p==='/ui/models/fallbacks'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,await backupModels.status().catch(()=>({agents:[],outages:[]})))}
+   if(p==='/ui/models/fallbacks'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});const st=await backupModels.status().catch(()=>({agents:[],outages:[]}));return send(res,200,{...st,agents:(st.agents||[]).filter(x=>users.level(u,x.agent))})}   // like /ui/models/agents: not a member's private agent
    // Access: who owns each connection and which agents may use it (see access.mjs). Admins only.
    // asking for access: anyone may see what the other agents have (names only) and ask for it for an agent they use; admins decide
    // Abilities › Connected accounts (connected-accounts.mjs): the owner's own logins the agents use; admins only
@@ -2216,7 +2216,7 @@ server.on('upgrade',(req,sock,headBuf)=>{
  if(p!=='/screen/websockify'||!validCookie(req)||!sameOrigin(req)){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}
  const agent=new URL(req.url,'http://x').searchParams.get('agent');
  me(req).then(u=>{if(!u||users.gate(u,'/ui/screens/'+(agent||'default'),'GET',new URLSearchParams(),agent||'default')){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}
-  // screen=ads: the shared AdsPower screen, whichever agent is driving it (admins only)
+  // screen=ads: the old shared :99 screen, no longer offered in the app (each agent has its own AdsPower); admins only
   const ads=new URL(req.url,'http://x').searchParams.get('screen')==='ads';if(ads&&!users.isAdmin(u)){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}
   return screens.upgrade(req,sock,headBuf,ads?null:agent,users.isAdmin(u))}).catch(()=>sock.destroy());
 });
