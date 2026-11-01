@@ -19,7 +19,7 @@ const cxOwner=(r,sz=20)=>r.owner?`<span class="cn-o">${agentAvatar(r.owner,sz,{t
 const cxRow=(r,i)=>{const u=cxUsing(r);return `<div class="row clickable cn-row" data-act="cn-open" data-key="${esc(r.key)}" tabindex="0" role="button" aria-label="${esc(r.name)}: owned by ${esc(r.ownerName||'nobody')}, ${esc((CX_ST[r.status]||['',r.status])[1])}" ${st(i)}>
  <div class="main-c">${cxLogo(r)}<div class="txt"><b>${esc(r.name)}${r.registered===false?' <span class="chip warn cn-new">Not registered</span>':''}</b><span>${esc(CX_TYPE[r.type]||'')}${r.what?' · '+esc(r.what):''}</span></div></div>
  <div class="cn-own"><small class="cn-lbl">Owner</small>${cxOwner(r)}</div>
- <div class="cn-who"><small class="cn-lbl">Who can use</small>${u.length?Access.who({users:u})+(u.length===1?'':`<small class="cn-n">${u.length}</small>`):'<span class="cn-o none">Nobody yet</span>'}</div>
+ <div class="cn-who"><small class="cn-lbl">Who can use</small>${u.length?`<span class="acc-who" aria-label="Used by ${esc(u.map(x=>x.name).join(', '))}">${u.slice(0,3).map(x=>Access.av(x)).join('')}${u.length>3?`<span class="acc-more">+${u.length-3}</span>`:''}</span>`:'<span class="cn-o none">Nobody yet</span>'}</div>
  <div class="cn-st">${cxChip(r)}</div></div>`};
 
 PAGES.connections=async(p,el)=>{const gone=pageTok(el);Pages._cxEl=el;
@@ -45,8 +45,11 @@ const Cx={
   return [r.name,r.what,r.service,r.ownerName,CX_TYPE[r.type],...r.users.map(u=>u.name)].join(' ').toLowerCase().includes(q)},
  // the list only (search and the filter change it without asking the server); "needs you" above it
  paintList(el,first=false){const box=el.querySelector('.cn-rows');if(!box)return;const all=this.rows(),l=all.filter(r=>this.match(r));
-  box.innerHTML=l.length?l.map((r,i)=>cxRow(r,first?i:0)).join(''):`<div class="state-box">${S.cxQ?`Nothing matches “${esc(S.cxQ)}”. <button class="link" data-act="cn-clear">Clear the search</button>`:'Nothing of this kind is connected yet.'}</div>`;
-  if(!first)box.querySelectorAll('.cn-row').forEach(x=>x.style.animation='none');
+  // light enough for any machine (1 Nov 2026: 110 rows, ~3000 elements and ~480 avatars at once froze a busy browser):
+  // the first 40 rows, then Show more; search and the filter still look at all of them; only the first 12 fade in
+  if(first||this._for!==(S.tab.connections||'All')+'|'+(S.cxQ||'')){this.shown=40;this._for=(S.tab.connections||'All')+'|'+(S.cxQ||'')}const vis=l.slice(0,this.shown);
+  box.innerHTML=l.length?vis.map((r,i)=>cxRow(r,first&&i<12?i:0)).join('')+(l.length>vis.length?`<button class="ghost cn-more" data-act="cn-more">Show ${Math.min(60,l.length-vis.length)} more of ${l.length-vis.length}</button>`:''):`<div class="state-box">${S.cxQ?`Nothing matches “${esc(S.cxQ)}”. <button class="link" data-act="cn-clear">Clear the search</button>`:'Nothing of this kind is connected yet.'}</div>`;
+  box.querySelectorAll('.cn-row').forEach((x,i)=>{if(!first||i>=12)x.style.animation='none'});
   const need=all.filter(r=>r.registered===false||r.status==='signin'),slot=el.querySelector('.cn-needs-slot');
   if(slot)slot.innerHTML=need.length?alertBox(`<b>${need.length===1?'1 needs you':need.length+' need you'}:</b> ${need.slice(0,3).map(r=>esc(r.name)+(r.registered===false?' was not registered by the agent that made it':' needs someone to sign in again')).join('; ')}${need.length>3?'; and '+(need.length-3)+' more':''}. Open ${need.length===1?'it':'each one'} to fix it.`,{act:''}):''},
  // looked at again while something is still being applied (the engine drops and adds an app on its own clock)
@@ -130,6 +133,7 @@ ACT['cn-test']=async a=>{const r=Cx.cur;if(!r)return;const st_=Cx.d?.querySelect
  catch(e){fail(e)}finally{if(a.isConnected){a.disabled=false;a.innerHTML=was}}};
 /* Adding something new: a quick pick, then a dialog for the setup (an app from the catalog or by its address, for the
    agent you pick); Google accounts are made by an agent in chat, skills and plugins on their own pages */
+ACT['cn-more']=()=>{const el=Pages._cxEl;if(!el?.isConnected)return;const box=el.querySelector('.cn-rows'),y=box?.lastElementChild;Cx.shown=(Cx.shown||40)+60;Cx.paintList(el);y?.blur?.()};
 ACT['cn-add']=a=>menu(a,[{header:'Add'},{label:'An app from the catalog',icon:'plug',sub:'Slack, Notion, GitHub and more',run:()=>Cx.catalog()},{label:'An app by its address',icon:'link',sub:'A web address, or a command on the AI box',run:()=>Cx.byAddress()},
  {label:'A Google account',icon:'mail',sub:'Asks '+ident().name+' for a sign-in link in chat',run:()=>ACT['gacc-add']()},'-',
  {label:'A skill',icon:'wand',sub:'From the skill hub',run:()=>{S.tab.skills='Find more skills';go('/abilities/skills')}},{label:'A plugin',icon:'layers',run:()=>{S.tab.plugins='Browse';go('/abilities/plugins')}},...(Pages._cx?.canEdit?[{label:'A key',icon:'key',run:()=>go('/system/keys')}]:[])]);
