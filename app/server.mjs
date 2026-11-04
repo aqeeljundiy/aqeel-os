@@ -49,6 +49,7 @@ import {createEngineUpdates} from './engine-updates.mjs';
 import {createAutomationGuard} from './automation-guard.mjs';
 import {createConnectedAccounts} from './connected-accounts.mjs';
 import {createConnections} from './connections.mjs';
+import {createSecretLinks,createLimiter} from './secret-links.mjs';
 import {createBackupModels,engineProbe,RULES as BM_RULES} from './backup-models.mjs';
 import {isDaytime as dayNow,local as localAt,clock as clockAt} from './engine-update-rules.mjs';
 import {readdir} from 'node:fs/promises';
@@ -343,7 +344,7 @@ async function writeAgentContext(){const all=await listAgents();const names={};f
    '','## Your other chats','',
    'Each chat (here, WhatsApp, Telegram, a schedule run) is its own conversation: you do not see the others, and your memory notes keep only what was saved. Before you say you don\'t know something the person says you did or discussed, and before you take back or "correct" something you said earlier, search your past chats with session_search and go by what they show. Never call something a guess without checking.',
    '','## Passwords, API keys and other secrets','',
-   'Never ask the person to type a password, code or API key into the chat, and never ask them to type it on the screen viewer. Call ask_secret (from aqeelos-notify): mode "type" types it into the field you clicked on your screen, mode "save" stores it as a named key. The person can also send you one with the lock button; you then get its name. To enter a saved one, click the field and call type_secret with its name. You never see the values.',
+   'Never ask the person to type a password, code or API key into the chat, and never ask them to type it on the screen viewer. Call ask_secret (from aqeelos-notify): mode "type" types it into the field you clicked on your screen, mode "save" stores it as a named key. The person can also send you one with the lock button; you then get its name. To enter a saved one, click the field and call type_secret with its name. You never see the values. When the person is talking to you on Telegram, WhatsApp or another channel (not the aqeelOS chat) and you need a key to save, call request_secret_link instead and send them the link it gives: they open it on their phone and paste it there. Then call secret_link_status with wait true (or when they say it is saved) and carry on.',
    '','## Channels you can message the person on','',
    'Urgent or important news for the person who owns you (not the people you chat with) goes through the channel that says it reaches the owner of aqeelOS, with send_to_person. Never send such an alert back to the person you are chatting with, and never tell them you are passing messages on unless they ask you to.',
    ch.length?'Use the send_to_person tool with one of these IDs when the person asks to be notified on a channel ("notify me on shop-whatsapp"):':'None yet. The person can connect WhatsApp, Telegram and others on the Channels page.',
@@ -1035,6 +1036,59 @@ async function useSecret(rec,value,{admin=false}={}){
  if(rec.mode==='type'){await screens.typeInto(rec.base,value,{enter:rec.enter,secret:true});return 'Typed it into the focused field on your screen'+(rec.enter?' and pressed Enter':'')+'. You never saw the value; take a screenshot to check the result.'}
  await saveSecret(rec.base,rec.name,value,{admin});
  return 'Saved as '+rec.name+' in your settings (the engine and its tools read it from there). '+secretHow(rec.base,rec.name)}
+/* One-time secret links (secret-links.mjs, 4 Nov 2026): request_secret_link gives the agent a link to send on Telegram or
+   WhatsApp; the person opens it on their phone, outside aqeelOS, and the value is saved like ask_secret's "save" (never as
+   an admin, so the keys that wire aqeelOS stay out of reach). The page (/secret) is public: the token after # is the credential. */
+const secretLinks=createSecretLinks({DATA,PUBLIC_URL,save:(base,name,value)=>saveSecret(base,name,value),reserved:n=>RESERVED_KEY.test(n),
+ isAgent:async a=>a!==HELP_AGENT&&!a.includes('--')&&await isAgent(a)&&!(PORT===4400&&await isTestAgent(a)),nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a),
+ exists:async(base,name)=>!!await stat(path.join(secretDir(base),name)).catch(()=>null)||(await readFile(path.join(base==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',base),'.env'),'utf8').catch(()=>'')).split('\n').some(l=>l.startsWith(name+'=')),
+ tell:(text,detail)=>bottlenecks.event('secrets',text,detail,{info:true})});
+const secretHits=createLimiter(30,600e3);
+// the page: a phone-sized form, its own small script; strict headers (no caching, no referrer, no framing, not indexed)
+function secretPage(nonce){return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Save a key · aqeelOS</title>
+<style nonce="${nonce}">@font-face{font-family:'Plus Jakarta Sans';font-weight:200 800;font-display:swap;src:url('/assets/plus-jakarta-sans.woff2') format('woff2')}
+:root{--bg:#f5f6f8;--surface:#fff;--ink:#0b0c10;--muted:#646875;--border:#e2e3e9;--blue:#0158cb;--ok:#1f6b3a;--bad:#c62f2f;--soft:#edeef2;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#12151c;--surface:#171c25;--ink:#f0f3fa;--muted:#a1adbf;--border:#303a4b;--blue:#6ca9ff;--ok:#5fd38d;--bad:#ff8a8a;--soft:#1d2430;color-scheme:dark}}
+*{box-sizing:border-box}body{margin:0;min-height:100dvh;display:grid;place-items:center;padding:24px 16px;background:var(--bg);color:var(--ink);font:15px/1.5 'Plus Jakarta Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+main{width:100%;max-width:420px;background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:26px 22px;opacity:0;transform:translateY(6px);transition:opacity .25s ease,transform .25s ease}
+main.in{opacity:1;transform:none}h1{font-size:20px;line-height:1.3;margin:0 0 6px;letter-spacing:-.01em}p{margin:0 0 16px;color:var(--muted)}.who b{color:var(--ink);font-weight:600}
+label{display:block;font-weight:600;font-size:13px;margin:0 0 6px}.key{font-weight:500;color:var(--muted);font-size:12px;overflow-wrap:anywhere}
+input{width:100%;height:48px;padding:0 14px;font:inherit;font-size:16px;color:var(--ink);background:var(--surface);border:1px solid var(--border);border-radius:12px;outline:none;transition:border-color .15s,box-shadow .15s}
+input:focus{border-color:var(--blue);box-shadow:0 0 0 3px color-mix(in srgb,var(--blue) 22%,transparent)}
+button{width:100%;height:48px;margin-top:14px;border:0;border-radius:999px;background:var(--blue);color:#fff;font:inherit;font-weight:600;font-size:15px;cursor:pointer;transition:opacity .15s,transform .1s}
+button:active{transform:scale(.98)}button:disabled{opacity:.55;cursor:default}.note{font-size:13px;margin:10px 0 0}.err{color:var(--bad);min-height:20px}.warn{background:var(--soft);border-radius:10px;padding:9px 12px;font-size:13px;color:var(--ink);margin:0 0 14px}
+.done{color:var(--ok);font-weight:600;font-size:17px;margin:0 0 6px}.m0{margin:0}</style></head><body><main id="m" aria-live="polite"><p id="wait">Opening…</p></main>
+<script nonce="${nonce}">(()=>{const m=document.getElementById('m'),ss=(k,v)=>{try{return v===undefined?sessionStorage.getItem(k):v===null?sessionStorage.removeItem(k):sessionStorage.setItem(k,v)}catch{return null}};
+const t=location.hash.slice(1)||ss('aqeelos-secret-link')||'';if(t)ss('aqeelos-secret-link',t);history.replaceState(null,'',location.pathname);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const show=h=>{m.classList.remove('in');setTimeout(()=>{m.innerHTML=h;requestAnimationFrame(()=>m.classList.add('in'))},m.innerHTML.includes('Opening')?0:160)};
+const gone=()=>{ss('aqeelos-secret-link',null);show('<h1>This link no longer works</h1><p class="m0">This link was already used or expired, ask for a new one.</p>')};
+const post=(u,b)=>fetch(u,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b),cache:'no-store',credentials:'omit',referrerPolicy:'same-origin'}).then(async r=>({s:r.status,j:await r.json().catch(()=>({}))}));
+if(!t)return gone();
+post('/secret/peek',{token:t}).then(({s,j})=>{if(s===429)return show('<h1>Too many tries</h1><p class="m0">Wait a few minutes, then open the link again.</p>');if(s!==200)return gone();
+ const left=Math.max(1,Math.round((j.exp-Date.now())/60000));
+ show('<h1>'+esc(j.label)+'</h1><p class="who">For <b>'+esc(j.agentName)+'</b>. Only it can use what you save here; nobody sees it again.</p>'+
+  '<form id="f" autocomplete="off"><label for="v">Paste it here <span class="key">'+esc(j.name)+'</span></label><input id="v" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" required><button id="b" type="submit">Save</button><p class="note err" id="e"></p></form><p class="note">This link works once, for about '+left+' more minute'+(left>1?'s':'')+'.</p>');
+ setTimeout(()=>{const f=document.getElementById('f');if(!f)return;document.getElementById('v').focus();
+  f.addEventListener('submit',ev=>{ev.preventDefault();const v=document.getElementById('v'),b=document.getElementById('b'),e=document.getElementById('e');if(!v.value.trim()){e.textContent='Paste the value first.';return}
+   b.disabled=true;b.textContent='Saving…';e.textContent='';
+   post('/secret/save',{token:t,value:v.value}).then(({s,j:r})=>{if(s===200&&r.ok){v.value='';ss('aqeelos-secret-link',null);return show('<p class="done">Saved</p><p class="m0">'+esc(r.name)+' is saved for '+esc(r.agentName)+'. Go back to the chat and tell it you saved it. You can close this page.</p>')}
+    if(s===410)return gone();e.textContent=s===429?'Too many tries. Wait a few minutes.':(r.error||'It could not be saved. Try again.');b.disabled=false;b.textContent='Save'}).catch(()=>{e.textContent='No connection. Try again.';b.disabled=false;b.textContent='Save'})})},200)}).catch(gone)})();</script></body></html>`}
+async function secretRoute(req,res,p){try{return await secretRouteIn(req,res,p)}catch(e){console.warn('secret link page:',String(e.message||e).slice(0,160));if(!res.headersSent)return send(res,500,{error:'Something went wrong. Try again in a moment.'},{'cache-control':'no-store','referrer-policy':'no-referrer'})}}
+async function secretRouteIn(req,res,p){
+ const nonce=randomBytes(16).toString('base64');
+ const H={'cache-control':'no-store','referrer-policy':'no-referrer','x-robots-tag':'noindex, nofollow','x-frame-options':'DENY','x-content-type-options':'nosniff',
+  'content-security-policy':"default-src 'none'; script-src 'nonce-"+nonce+"'; style-src 'nonce-"+nonce+"'; font-src 'self'; connect-src 'self'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'"};
+ if(p==='/secret'&&req.method==='GET')return send(res,200,secretPage(nonce),{...H,'content-type':'text/html; charset=utf-8'});
+ if(req.method!=='POST'||!['/secret/peek','/secret/save'].includes(p))return send(res,405,{error:'Not here.'},H);
+ // from the page itself only: same origin, JSON, at most 8 KB; a few tries per address
+ const og=String(req.headers.origin||''),same=og===new URL(PUBLIC_URL).origin||((!og||og==='null')&&req.headers['sec-fetch-site']==='same-origin');
+ if(!same||!/^application\/json\b/i.test(String(req.headers['content-type']||'')))return send(res,403,{error:'Open the link you were sent.'},H);
+ if(secretHits(clientIp(req)))return send(res,429,{error:'Too many tries. Wait a few minutes.'},H);
+ if(+(req.headers['content-length']||0)>8192)return send(res,413,{error:'That is too much.'},{...H,connection:'close'});
+ let raw;try{raw=await readBody(req,8192)}catch{return send(res,413,{error:'That is too much.'},{...H,connection:'close'})}let b;try{b=JSON.parse(raw)}catch{return send(res,400,{error:'Open the link you were sent.'},H)}
+ if(p==='/secret/peek'){const r=await secretLinks.peek(b?.token);return r?send(res,200,r,H):send(res,410,{gone:true},H)}
+ const r=await secretLinks.consume(b?.token,b?.value);return send(res,r.ok?200:r.gone?410:400,r.ok?{ok:true,name:r.name,agentName:r.agentName}:r.gone?{gone:true}:{error:r.error},H)}
 /* "Which browser?" An agent about to work in a browser asks (choose_browser) once per chat: the person's own
    Chrome (one-off jobs where they are already signed in) or the agent's screen on the AI box (anything that must
    keep running). The person answers on a card in the chat; their answer links that chat to their browser or not. */
@@ -1338,6 +1392,19 @@ const server=createServer(async(req,res)=>{
     const value=await readFile(path.join(secretDir(base),name),'utf8').catch(()=>null);
     if(value===null){const have=await readdir(secretDir(base)).catch(()=>[]);return reply('No saved secret called '+name+'.'+(have.length?' Saved ones: '+have.join(', ')+'.':' Ask the person with ask_secret.'),true)}
     try{await screens.typeInto(base,value,{enter:!!a.press_enter,secret:true});return reply('Typed '+name+' into the focused field on your screen'+(a.press_enter?' and pressed Enter':'')+'. You did not see it; take a screenshot to check the result.')}catch(e){return reply('Could not type it: '+e.message,true)}}
+   // one-time secret links (secret-links.mjs): for the calling agent; the main agent may also ask for an agent of the owner's
+   if(signed&&msg.method==='tools/call'&&['request_secret_link','secret_link_status'].includes(msg.params?.name)){const base=mn[1].split('--')[0],a=msg.params?.arguments||{};
+    const reply=(text,isError)=>send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text}],...(isError?{isError:true}:{})}});
+    const target=String(a.agent||'').trim()||base;const own=o=>!o||o==='owner';
+    if(target!==base&&(!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(target)||target.includes('--')))return reply('Give the agent id, like biomarkers-support.',true);
+    if(target!==base&&!(base==='default'&&own(users.agentOwner(target))))return reply('You can only ask for keys for yourself'+(base==='default'?' or for an agent the owner owns':'')+'.',true);
+    const tz=(await readConfig('default').catch(()=>null))?.timezone||'Asia/Jakarta',when=t=>{const x=localAt(t,tz);return String(x.h).padStart(2,'0')+':'+String(x.min).padStart(2,'0')};
+    try{if(msg.params.name==='request_secret_link'){const r=await secretLinks.create({agent:target,name:a.name,label:a.label,by:base});console.log('secret link made by',base,'for',r.link.agent+':',r.link.name);
+      return reply('Send the person this link exactly (it works once, until '+when(r.exp)+', about 30 minutes):\n\n'+r.url+'\n\nTell them: open it, paste '+r.link.label+' there and press Save. Never ask them to paste it in the chat. Then call secret_link_status with name '+r.link.name+(target!==base?' and agent '+target:'')+' and wait true (or when they say it is saved). '+secretHow(r.link.agent,r.link.name))}
+     const r=a.wait?await secretLinks.wait(target,a.name,Math.min(240e3,Math.max(5e3,(+a.wait_seconds||240)*1000))):await secretLinks.status(target,a.name);
+     if(!r)return reply('There is no secret link for '+String(a.name||'').toUpperCase()+(target!==base?' on '+target:'')+'. Make one with request_secret_link.',true);
+     const say={open:'Not saved yet. The link works until '+when(r.exp)+'. Call again with wait true, or when they say it is saved.',saved:'Saved '+r.name+' at '+when(r.done)+'. '+secretHow(r.agent,r.name),expired:'The link expired at '+when(r.exp)+' without being used. Make a new one if you still need it.',replaced:'A newer link replaced this one. Check that one.',cancelled:'The owner cancelled this link in aqeelOS. Ask them before making a new one.',saving:'It is being saved right now. Check again in a moment.'}[r.state]||r.state;
+     return reply(say,r.state==='expired'||r.state==='cancelled')}catch(e){return reply(e.message,true)}}
    if(signed&&msg.method==='tools/call'&&msg.params?.name==='ask_secret'){const r=await askSecret(mn[1],msg.params?.arguments||{});return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text:r.text}],...(r.isError?{isError:true}:{})}})}
    // apply_changes: an agent that changed settings, tools or skills (its own or another agent's) makes them take
    // effect itself, through the same careful restart as the Restart agents button: after every reply in progress
@@ -1403,6 +1470,9 @@ const server=createServer(async(req,res)=>{
     {name:'access_list',description:'What you have (apps, Google accounts, plugins, keys) and what the other agents have that you cannot use yet (names only, never values), plus your open access requests.',inputSchema:{type:'object',properties:{}}},
     {name:'request_access',description:'Ask to use something another agent has (from access_list): an app, a Google account, a plugin or a key. An admin decides under Bottlenecks; it is never shared without that. Use it when the work needs it, not just in case.',inputSchema:{type:'object',properties:{kind:{type:'string',enum:['mcp','google','plugin','key']},id:{type:'string',description:'id from access_list'},why:{type:'string',description:'one line: what you need it for'}},required:['kind','id','why']}},
     {name:'offer_access',description:'Offer something you have (from access_list) to another agent that needs it. An admin decides under Bottlenecks.',inputSchema:{type:'object',properties:{kind:{type:'string',enum:['mcp','google','plugin','key']},id:{type:'string'},to:{type:'string',description:'the other agent id'},why:{type:'string'}},required:['kind','id','to','why']}});
+   if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push(
+    {name:'request_secret_link',description:'When you need a token, password or API key saved and the person is talking to you on Telegram, WhatsApp or another channel (not the aqeelOS chat): get a one-time link to send them. They open it on their phone and paste the value; it is saved as the key you name, exactly like ask_secret mode "save". You never see it. The link works once, for 30 minutes.'+(mn[1].split('--')[0]==='default'?' You may also ask for a key for another agent the owner owns (agent).':''),inputSchema:{type:'object',properties:{label:{type:'string',description:'What it is, in words the person recognises, e.g. "Biomarkers Telegram bot token"'},name:{type:'string',description:'The key name in capitals, e.g. BIOMARKERS_SUPPORT_BOT_TOKEN'},...(mn[1].split('--')[0]==='default'?{agent:{type:'string',description:'Optional: the agent id the key is for (default: you)'}}:{})},required:['label','name']}},
+    {name:'secret_link_status',description:'Whether the person saved the key through the link from request_secret_link. With wait true it waits up to 4 minutes for them to save it.',inputSchema:{type:'object',properties:{name:{type:'string',description:'The key name you asked for'},wait:{type:'boolean',description:'Wait (up to 4 minutes) until it is saved'},...(mn[1].split('--')[0]==='default'?{agent:{type:'string',description:'The agent id, if you asked for another agent'}}:{})},required:['name']}});
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'my_settings',description:'Read or change your own everyday settings yourself, without asking the owner: voice notes (stt.language: "" detects the language each time, or a code like "id" or "en"; stt.*), your voice (tts.*), your time zone (timezone, e.g. Asia/Jakarta) and how replies show (display.*). Leave value out to read the current value. Do this when the person asks for such a change or a setting clearly gets in their way.',inputSchema:{type:'object',properties:{key:{type:'string',description:'e.g. stt.language, tts.provider, timezone'},value:{description:'the new value; leave out to read'}},required:['key']}});
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'register_account',description:'Call this right after you create a login that acts AS THE PERSON (their own Google account, a Slack or Notion sign-in as them, their personal Telegram account, any account where what you do goes out under their name), not a bot and not a service such as n8n or Composio. It shows in aqeelOS under Abilities › Connections, where the owner sees what you do with it and can pause or disconnect it. A login that is not registered is flagged to the owner.',inputSchema:{type:'object',properties:{kind:{type:'string',enum:['google','mcp-oauth','telegram-user','other'],description:'google (a google_token file), mcp-oauth (an app sign-in), telegram-user (a personal Telegram session), other'},label:{type:'string',description:'Plain name, e.g. "Slack, Aqeel (Pixel & Profits)" or "Google, Elkiya"'},can:{type:'array',items:{type:'string',enum:['read','draft','send']},description:'What you may do with it, as the person agreed'},where:{type:'string',description:'Where the credential is stored, e.g. ~/.hermes/mcp-tokens/slack-pixel.json'},note:{type:'string',description:'What it is for, in one line'}},required:['kind','label','where']}});
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'report_bottleneck',description:'When you cannot do something because a person has to act first, report it once (aqeelOS adds the chat and message that led to it, so say the purpose plainly in what): access you are missing (a folder, a sheet, an account, a channel), a sign-in, a permission or a setting, or information only they have. Not for ordinary errors you can fix or work around yourself. Say what you were trying to do, what is missing, and what would fix it. It appears under Bottlenecks in aqeelOS with a fix button.',inputSchema:{type:'object',properties:{what:{type:'string',description:'What you were trying to do, in a few words'},missing:{type:'string',description:'What is missing, plainly (for example: access to the Finance folder in Google Drive)'},fix:{type:'string',description:'What would fix it (for example: share the folder with me, or connect Drive for me)'}},required:['missing']}});
@@ -1418,6 +1488,8 @@ const server=createServer(async(req,res)=>{
   // WhatsApp Business (Meta's Cloud API) calls here: GET is Meta's address check, POST the messages. No sign-in:
   // the engine checks Meta's signature with the app secret. The main agent's listener serves every agent (/p/<agent>/…).
   {const cm=/^\/whatsapp-cloud(?:\/([a-z0-9][a-z0-9_-]{0,63}))?$/.exec(p);if(cm&&(req.method==='GET'||req.method==='POST')){req.url=(cm[1]&&cm[1]!=='default'?'/p/'+cm[1]:'')+'/whatsapp/webhook'+url.search;return proxy(req,res,WA_CLOUD,'',{})}}
+  // one-time secret links (no sign-in: the token after # is the credential)
+  if(p==='/secret'||p.startsWith('/secret/'))return await secretRoute(req,res,p);
   // MCP sign-in (OAuth) returns here from Slack, Notion…; the engine checks the one-time state. No sign-in needed.
   // Google sign-ins (Google Workspace skill with a Web-application client) return here, and aqeelOS finishes them:
   // it finds the agent and account whose pending sign-in has this state and runs the skill's --auth-code step.
@@ -1853,6 +1925,11 @@ const server=createServer(async(req,res)=>{
     try{if(p==='/ui/engine-updates'&&req.method==='GET')return send(res,200,await engineUpd.status());
      if(p==='/ui/engine-updates/mode'&&req.method==='POST')return send(res,200,await engineUpd.setMode(String(b.mode||'')));
      if(p==='/ui/engine-updates/tonight'&&req.method==='POST')return send(res,200,await engineUpd.setTonight(!!b.on))}catch(e){return send(res,400,{error:e.message})}}
+   // one-time secret links (admins, System › Keys and secrets): open links (cancel) and what happened, never a value
+   if(p==='/ui/secret-links'||p==='/ui/secret-links/cancel'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});
+    if(req.method==='GET'&&p==='/ui/secret-links')return send(res,200,await secretLinks.list());
+    if(req.method==='POST'&&p==='/ui/secret-links/cancel'){let b={};try{b=JSON.parse(await readBody(req,4096)||'{}')}catch{}return send(res,200,{ok:await secretLinks.cancel(String(b.id||''),u.id)})}
+    return send(res,405,{error:'Not here.'})}
    // automations (automation-guard.mjs): every agent's tool servers and schedules that hit a missing tool; Fix now, Run now
    if(p.startsWith('/ui/automations')){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});let b={};if(req.method==='POST'){try{b=JSON.parse(await readBody(req,4096)||'{}')}catch{}}
     // with each agent's backup models and an outage switch going on (backup-models.mjs); Check now writes the lists at once
