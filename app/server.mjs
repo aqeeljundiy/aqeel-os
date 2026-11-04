@@ -1040,7 +1040,7 @@ async function useSecret(rec,value,{admin=false}={}){
    WhatsApp; the person opens it on their phone, outside aqeelOS, and the value is saved like ask_secret's "save" (never as
    an admin, so the keys that wire aqeelOS stay out of reach). The page (/secret) is public: the token after # is the credential. */
 const secretLinks=createSecretLinks({DATA,PUBLIC_URL,save:(base,name,value)=>saveSecret(base,name,value),reserved:n=>RESERVED_KEY.test(n),
- isAgent:async a=>a!==HELP_AGENT&&!a.includes('--')&&await isAgent(a)&&!(PORT===4400&&await isTestAgent(a)),nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a),
+ isAgent:async a=>a!==HELP_AGENT&&!a.includes('--')&&await isAgent(a)&&!(PORT===4400&&await isTestAgent(a)),nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a[0].toUpperCase()+a.slice(1)),
  exists:async(base,name)=>!!await stat(path.join(secretDir(base),name)).catch(()=>null)||(await readFile(path.join(base==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',base),'.env'),'utf8').catch(()=>'')).split('\n').some(l=>l.replace(/^\s*export\s+/,'').startsWith(name+'=')),
  tell:(text,detail)=>bottlenecks.event('secrets',text,detail,{info:true})});
 const secretHits=createLimiter(30,600e3);
