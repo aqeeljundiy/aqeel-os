@@ -36,8 +36,10 @@ test('refused: wiring keys, bad names, unknown agents, empty or multi-line value
  await assert.rejects(s.create({agent:'default',name:'1BAD',label:'x'}),/capitals/);
  await assert.rejects(s.create({agent:'nobody',name:'A_KEY',label:'x'}),/no agent/);
  for(const a of ['bob--x','x/../bob','..','default--whatsapp-2','Default'])await assert.rejects(s.create({agent:a,name:'A_KEY',label:'x'}),/no agent/);
- for(const n of ['BASH_ENV','LD_PRELOAD','PYTHONSTARTUP','PYTHONPATH','PERL5LIB','RUBYOPT','GIT_SSH_COMMAND','HTTPS_PROXY','NODE_EXTRA_CA_CERTS','OPENAI_API_KEY','ANTHROPIC_API_KEY','PATH','SOME_BASE_URL'])await assert.rejects(s.create({agent:'default',name:n,label:'x'}),/changes how/,n);
+ for(const n of ['BASH_ENV','LD_PRELOAD','PYTHONSTARTUP','PYTHONPATH','PERL5LIB','RUBYOPT','GIT_SSH_COMMAND','HTTPS_PROXY','NODE_EXTRA_CA_CERTS','OPENAI_API_KEY','ANTHROPIC_API_KEY','PATH','SOME_BASE_URL','LESSOPEN','MANPAGER','ZDOTDIR','CC','MAKEFLAGS','KIMI_API_KEY','GITHUB_COPILOT_TOKEN'])await assert.rejects(s.create({agent:'default',name:n,label:'x'}),/ends in|changes how/,n);
  await assert.rejects(s.create({agent:'biomarkers-support',name:'OLD_KEY',label:'x'}),/already set/);
+ for(const n of ['LESSOPEN','MANPAGER','CC','SHOP_URL'])await assert.rejects(s.create({agent:'default',name:n,label:'x'}),/ends in|changes how/,n);
+ for(const n of ['BIOMARKERS_SUPPORT_BOT_TOKEN','SHOPIFY_API_KEY','STRIPE_SECRET','DB_PASSWORD','GITHUB_PAT'])assert.ok((await s.create({agent:'biomarkers-support',name:n,label:'x'})).url,n);
  await assert.rejects(s.create({agent:'default',name:'A_KEY',label:' '}),/label/);
  const {url}=await s.create({agent:'default',name:'A_KEY',label:'x'});
  assert.match((await s.consume(tok(url),'  ')).error,/Paste/);assert.match((await s.consume(tok(url),'a\nb')).error,/one line/);assert.match((await s.consume(tok(url),'a\tb')).error,/one line/);assert.match((await s.consume(tok(url),'a\u2028b')).error,/one line/);assert.match((await s.consume(tok(url),'x'.repeat(5000))).error,/longer/);
@@ -54,7 +56,7 @@ test('a new link for the same key replaces the old one; cancel closes a link; 5 
  const a=await s.create({agent:'default',name:'A_KEY',label:'x'}),b=await s.create({agent:'default',name:'A_KEY',label:'x'});
  assert.equal(await s.peek(tok(a.url)),null);assert.ok(await s.peek(tok(b.url)));
  assert.equal(await s.cancel(b.link.id,'owner'),true);assert.equal(await s.peek(tok(b.url)),null);
- for(const n of ['K1','K2','K3','K4','K5'])await s.create({agent:'default',name:n,label:'x'});await assert.rejects(s.create({agent:'default',name:'K6',label:'x'}),/5 open/);
+ for(const n of ['K1_KEY','K2_KEY','K3_KEY','K4_KEY','K5_KEY'])await s.create({agent:'default',name:n,label:'x'});await assert.rejects(s.create({agent:'default',name:'K6_KEY',label:'x'}),/5 open/);
  });
 
 test('limiter: max hits per 10 minutes per address',()=>{let t=0;const l=createLimiter(3,600e3,()=>t);assert.deepEqual([l('a'),l('a'),l('a'),l('a'),l('b')],[false,false,false,true,false]);t=601e3;assert.equal(l('a'),false)});

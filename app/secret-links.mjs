@@ -13,9 +13,12 @@ export const LIFE=30*60e3;
 export const NAME=/^[A-Z][A-Z0-9_]{1,59}$/;
 export const AGENT=/^[a-z0-9][a-z0-9_-]{0,63}$/;
 export const MAX_VALUE=4096;
+// only names that are plainly a secret (a block list of risky names is never complete: review, 4 Nov 2026); TEST_SECRET_LINK
+// is the end-to-end test's dummy key
+export const SECRETISH=/(_KEY|_TOKEN|_SECRET|_PASSWORD|_PASSPHRASE|_PAT)$|^TEST_SECRET_LINK$/;
 // names a program reads to decide how it runs (shell start-up, libraries, interpreters, proxies, certificates, git/ssh),
 // and the model providers' own keys: never through a link, whatever the agent was told
-export const RISKY=/^(BASH_ENV|ENV|SHELL|SHELLOPTS|BASHOPTS|PROMPT_COMMAND|PATH|HOME|USER|LOGNAME|TMPDIR|TEMP|TMP|LANG|LANGUAGE|TZ|IFS|PS[1-4]|EDITOR|VISUAL|PAGER|BROWSER|DISPLAY|TERM)$|^(LC|LD|DYLD|PYTHON|PIP|UV|CONDA|VIRTUAL|NODE|NPM|YARN|PNPM|BUN|DENO|GIT|SSH|GPG|GNUPG|PERL|RUBY|GEM|BUNDLE|JAVA|JDK|MAVEN|GRADLE|CARGO|RUST|GO|DOCKER|KUBE|XDG|SSL|OPENSSL|CURL|WGET|REQUESTS|HTTPLIB|AWS|AZURE|GCLOUD|CLOUDSDK|OPENAI|ANTHROPIC|CLAUDE|GEMINI|GOOGLE|OPENROUTER|GROQ|MISTRAL|DEEPSEEK|XAI|COHERE|TOGETHER|FIREWORKS|PERPLEXITY|OLLAMA|LITELLM|HF|HUGGINGFACE)_|^(PYTHON|PERL|RUBY|JAVA|NODE|GIT|SSH)[A-Z0-9]*$|_PROXY$|_CA_BUNDLE$|_CA_CERTS?$|_BASE_URL$|_ENDPOINT$|_HOST$/;
+export const RISKY=/^(BASH_ENV|ENV|SHELL|SHELLOPTS|BASHOPTS|PROMPT_COMMAND|PATH|HOME|USER|LOGNAME|TMPDIR|TEMP|TMP|LANG|LANGUAGE|TZ|IFS|PS[1-4]|EDITOR|VISUAL|PAGER|BROWSER|DISPLAY|TERM)$|^(LC|LD|DYLD|PYTHON|PIP|UV|CONDA|VIRTUAL|NODE|NPM|YARN|PNPM|BUN|DENO|GIT|SSH|GPG|GNUPG|PERL|RUBY|GEM|BUNDLE|JAVA|JDK|MAVEN|GRADLE|CARGO|RUST|GO|DOCKER|KUBE|XDG|SSL|OPENSSL|CURL|WGET|REQUESTS|HTTPLIB|AWS|AZURE|GCLOUD|CLOUDSDK|OPENAI|ANTHROPIC|CLAUDE|GEMINI|GOOGLE|OPENROUTER|GROQ|MISTRAL|DEEPSEEK|XAI|COHERE|TOGETHER|FIREWORKS|PERPLEXITY|OLLAMA|LITELLM|HF|HUGGINGFACE|KIMI|MOONSHOT|ZAI|GLM|ZHIPU|MINIMAX|NOUS|DASHSCOPE|QWEN|ALIBABA|NVIDIA|NIM|VERTEX|BEDROCK|REPLICATE|CEREBRAS|SAMBANOVA|LMSTUDIO|VLLM|AI21|VOYAGE|JINA|HERMES|GH|GITHUB_COPILOT|COPILOT)_|^(PYTHON|PERL|RUBY|JAVA|NODE|GIT|SSH)[A-Z0-9]*$|_PROXY$|_CA_BUNDLE$|_CA_CERTS?$|_BASE_URL$|_ENDPOINT$|_HOST$/;
 const hash=t=>createHash('sha256').update(String(t)).digest('hex');
 // the token goes after # in the link: browsers never send that part, so it is in no server or proxy log and link previews cannot use it
 export const TOKEN=/^[A-Za-z0-9_-]{43}$/;
@@ -24,7 +27,7 @@ export function createSecretLinks({DATA,save,reserved=()=>false,exists=async()=>
  const FILE=path.join(DATA,'secret-links.json');let db=null,loading=null,chain=Promise.resolve();
  // read once (the first caller's promise is shared); a link that was being saved when aqeelOS stopped stays closed
  const load=()=>db?Promise.resolve(db):loading||=(async()=>{let d={};try{d=JSON.parse(await readFile(FILE,'utf8'))}catch{}d.links||={};d.audit||=[];
-  for(const r of Object.values(d.links))if(r.state==='saving'){r.state='interrupted';r.done=now()}db=d;return d})();
+  db=d;for(const r of Object.values(d.links))if(r.state==='saving'){r.state='interrupted';r.done=now();log(r,'interrupted')}return d})();
  const write=async()=>{await mkdir(DATA,{recursive:true});const tmp=FILE+'.'+process.pid+'.'+random(4).toString('hex')+'.tmp';await writeFile(tmp,JSON.stringify(db,null,1),{mode:0o600});await rename(tmp,FILE)};
  // every change, and every write, one at a time: two taps on Save cannot both get through, and writes never overlap
  const queue=fn=>{const p=chain.then(fn);chain=p.catch(()=>{});return p};
@@ -42,6 +45,7 @@ export function createSecretLinks({DATA,save,reserved=()=>false,exists=async()=>
   const base=String(agent||'').trim();name=String(name||'').trim().toUpperCase();label=String(label||'').replace(/[\u0000-\u001f\u007f\u2028\u2029]/g,' ').replace(/\s+/g,' ').trim().slice(0,140);
   if(!AGENT.test(base)||base.includes('--'))throw Error('There is no agent called '+base.slice(0,64)+'.');
   if(!NAME.test(name))throw Error('Give the key a name in capitals, like OPENAI_API_KEY.');
+  if(!SECRETISH.test(name))throw Error('A link can only save a key whose name ends in _KEY, _TOKEN, _SECRET or _PASSWORD (for example SHOPIFY_API_KEY). Pick such a name.');
   if(reserved(name)||RISKY.test(name))throw Error(name+' changes how aqeelOS or its programs run, so a link cannot set it. Ask the owner to set it on Keys and secrets in aqeelOS.');
   if(!label)throw Error('Give a label the person recognises, like "Biomarkers Telegram bot token".');
   if(!await isAgent(base))throw Error('There is no agent called '+base+'.');
@@ -67,7 +71,7 @@ export function createSecretLinks({DATA,save,reserved=()=>false,exists=async()=>
   if(value.length>MAX_VALUE)return {ok:false,error:'That is longer than a key can be ('+MAX_VALUE+' characters).'};
   if(/[\u0000-\u001f\u007f\u2028\u2029]/.test(value))return {ok:false,error:'A key is one line of plain text. Paste it again without line breaks or tabs.'};
   if(await exists(r.base,r.name).catch(()=>true))return {ok:false,error:'This key was set another way meanwhile, so the link no longer can. Ask for a new one if it is wrong.'};
-  r.state='saving';await write();
+  r.state='saving';try{await write()}catch(e){r.state='open';console.warn('secret link: record',e.message);return {ok:false,error:'It could not be saved. Try again in a moment.'}}
   try{await save(r.base,r.name,value)}catch(e){console.warn('secret link: saving',r.name,'for',r.base,'failed:',String(e.message||e).slice(0,160));r.state='open';await write().catch(()=>{});return {ok:false,error:'It could not be saved. Try again in a moment.'}}
   r.state='saved';r.done=now();log(r,'saved');await write().catch(e=>console.warn('secret link: record',e.message));
   tell(nameOf(r.base)+': '+r.name+' was saved through a secret link','"'+r.label+'". The value was never shown to anyone.').catch(()=>{});
