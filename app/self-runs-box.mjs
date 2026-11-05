@@ -27,11 +27,19 @@ for sid,tc in c.execute("select session_id,tool_calls from messages where role='
   try: calls=json.loads(tc) or []
   except Exception: continue
   for x in calls:
-    f=x.get('function') or {}; n=str(f.get('name') or '')
-    if not (n.endswith('__'+tool) and 'aqeelos_self' in n): continue
-    cid=x.get('id') or x.get('call_id')
+    f=x.get('function') or {}; n=str(f.get('name') or ''); cid=x.get('id') or x.get('call_id')
+    # the call itself, or inside the engine's helper that runs deferred tools (tool_call {"calls":[{name, arguments}]})
+    inner=[]
+    if n.endswith('__'+tool) and 'aqeelos_self' in n: inner=[f.get('arguments') or '']
+    else:
+      try: a=json.loads(f.get('arguments') or '{}')
+      except Exception: a={}
+      for y in (a.get('calls') if isinstance(a,dict) and isinstance(a.get('calls'),list) else []):
+        yn=str((y or {}).get('name') or '')
+        if yn.endswith('__'+tool) and 'aqeelos_self' in yn: inner.append(y.get('arguments') if isinstance(y.get('arguments'),str) else json.dumps(y.get('arguments') or {}))
+    if not inner: continue
     if c.execute("select 1 from messages where session_id=? and role='tool' and tool_call_id=? limit 1",(sid,cid)).fetchone(): continue
-    out.append({'session':sid,'call':cid,'args':f.get('arguments') or ''})
+    for args in inner: out.append({'session':sid,'call':cid,'args':args})
 cols='id,source,user_id,chat_id,chat_type,thread_id,display_name,origin_json,title,parent_session_id'
 chains={}
 for m in out:
