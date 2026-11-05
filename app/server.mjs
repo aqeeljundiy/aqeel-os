@@ -1091,7 +1091,9 @@ async function srPlace(a){const c=await readConfig(a).catch(()=>null);if(!c)retu
   const r=srPlacement({pf,cur:pick(c,'platform_toolsets.'+pf),servers,hide,managed:!!m[a+'|'+pf]});
   if(r.want){const s=await setKey(a,'platform_toolsets.'+pf,r.want);if(!s.ok)throw new Error(String(s.err||s.out||'could not save').slice(-200));changed=true;console.log('self-run tool',hide?'kept off':'back on',pf,'for',a)}
   if(r.managed)m[a+'|'+pf]=true;else delete m[a+'|'+pf]}
- if(JSON.stringify(m)!==before)await writeFile(SR_PLACED,JSON.stringify(m));if(changed)restartGateway('run_self kept off customer channels').catch(()=>{})}
+ // no restart of its own (each one is a gap where agents drop, 5 Nov 2026): the lists take effect at the engine's next
+ // restart, and until then run_self is refused on those channels anyway (judge in self-runs.mjs)
+ if(JSON.stringify(m)!==before)await writeFile(SR_PLACED,JSON.stringify(m));if(changed)console.log('self-run tool lists updated for',a,'(in effect from the next engine restart)')}
 // the chat a call came from: the waiting call with these very arguments in the agent's own chat database
 async function srOrigin(a,tool,args){let calls=[];
  // a busy database (right after an engine restart) is tried again, like a call not saved yet
