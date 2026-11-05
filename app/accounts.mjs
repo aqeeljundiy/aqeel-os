@@ -39,6 +39,23 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
     is used at once and read again behind the scenes after 60 s; sign-in, sign-out, rename and ?fresh=1 read it new.
     With quick (the Accounts page) an account never read yet waits at most 3 s, then shows as not checked yet. ---------- */
  const cache=swr({fresh:60000,cap:3000});
+ // Anthropic answers its usage call only now and then: asked often, it refuses with 429 (5 Nov 2026: the Accounts page
+ // went blank, and switching lost its numbers). So each account is asked at most every 5 minutes, one ask at a time;
+ // the last good reading is kept with its time and shown until a newer one comes; after a refusal it waits (its
+ // Retry-After, else 5 minutes, doubling up to 30). Only an expired sign-in (401) clears what is shown.
+ const usageSeen=new Map(),USAGE_EVERY=5*60e3;
+ async function usageOf(id,token){const s=usageSeen.get(id)||{};usageSeen.set(id,s);const now=Date.now();
+  if(s.asking)return s;if(s.at&&now-s.at<USAGE_EVERY||now<(s.next||0))return s;
+  s.asking=(async()=>{try{const r=await fetch('https://api.anthropic.com/api/oauth/usage',{headers:{authorization:'Bearer '+token,'anthropic-beta':'oauth-2025-04-20',accept:'application/json','user-agent':'claude-code/2.1.0'},signal:AbortSignal.timeout(15000)});
+    if(r.ok){const u=await r.json();const win=k=>u[k]?{used:Math.round(Number(u[k].utilization)||0),resets:u[k].resets_at||null}:null;
+     s.usage={session:win('five_hour'),week:win('seven_day'),opus:win('seven_day_opus'),sonnet:win('seven_day_sonnet')};
+     const ex=u.extra_usage;s.extra=ex?.is_enabled?{used:ex.used_credits,limit:ex.monthly_limit,currency:ex.currency||'USD'}:null;
+     Object.assign(s,{at:Date.now(),next:0,wait:0,error:null,dead:false})}
+    else if(r.status===401){Object.assign(s,{usage:null,extra:null,dead:true,error:'Sign-in expired. It refreshes the next time this account is used.',next:Date.now()+60e3})}
+    else{const ra=Number(r.headers.get('retry-after'))||0;s.wait=Math.min(30*60e3,Math.max(5*60e3,ra*1000,(s.wait||0)*2));s.next=Date.now()+s.wait;s.dead=false;
+     s.error=r.status===429?'Anthropic is not giving out usage right now. It tries again by itself.':'Usage unavailable ('+r.status+')'}}
+   catch{s.wait=Math.min(30*60e3,Math.max(5*60e3,(s.wait||0)*2));s.next=Date.now()+s.wait;s.error='Could not reach Anthropic.'}})().finally(()=>{s.asking=null});
+  await s.asking;return s}
  const details=(a,fresh,quick)=>cache.get(a.id,()=>readDetails(a),{force:!!fresh,partial:quick?()=>({id:a.id,label:a.label,main:a.id==='main',signedIn:false,partial:true}):undefined});
  async function readDetails(a){
   const v={id:a.id,label:a.label,main:a.id==='main',signedIn:false};
@@ -55,14 +72,9 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    try{const j=JSON.parse(st.out);Object.assign(v,{checked:true,signedIn:!!j.loggedIn,email:j.email||'',org:j.orgName||'',plan:j.subscriptionType||''})}catch{}}
   if(creds){v.plan=v.plan||creds.subscriptionType||'';v.tier=creds.rateLimitTier||'';v.tokenExpires=creds.expiresAt||null}
   const lost=renew.out(a.id);if(lost&&v.signedIn){v.signedIn=false;v.usageError=lost.why}
-  if(v.signedIn&&creds?.accessToken){
-   try{const r=await fetch('https://api.anthropic.com/api/oauth/usage',{headers:{authorization:'Bearer '+creds.accessToken,'anthropic-beta':'oauth-2025-04-20',accept:'application/json','user-agent':'claude-code/2.1.0'},signal:AbortSignal.timeout(15000)});
-    if(r.ok){const u=await r.json();const win=k=>u[k]?{used:Math.round(Number(u[k].utilization)||0),resets:u[k].resets_at||null}:null;
-     v.usage={session:win('five_hour'),week:win('seven_day'),opus:win('seven_day_opus'),sonnet:win('seven_day_sonnet')};
-     const ex=u.extra_usage;if(ex?.is_enabled)v.extra={used:ex.used_credits,limit:ex.monthly_limit,currency:ex.currency||'USD'}}
-    else v.usageError=r.status===401?'Sign-in expired. It refreshes the next time this account is used.':'Usage unavailable ('+r.status+')'}
-   catch{v.usageError='Could not reach Anthropic.'}
-  }
+  if(v.signedIn&&creds?.accessToken){const s=await usageOf(a.id,creds.accessToken);
+   if(s.usage){v.usage=s.usage;if(s.extra)v.extra=s.extra;v.usageAt=s.at}
+   if(s.error&&(!s.usage||s.dead))v.usageError=s.error}
   return v;
  }
  const headroom=v=>v?.usage?100-Math.max(v.usage.session?.used||0,v.usage.week?.used||0,v.usage.opus?.used||0,v.usage.sonnet?.used||0):-1;

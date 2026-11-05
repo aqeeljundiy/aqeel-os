@@ -514,13 +514,13 @@ function noteSys(kind,why){if(kind==='restart-failed')bottlenecks.event('down','
 let autoRestarts=[],gwRun=null,gwAgain=null;
 /* A request while a restart runs: before that restart has stopped the engine it is simply part of it (its bridges:true is
    merged in); after, one more pass is queued (all such requests share it), so a change saved meanwhile is not lost. */
-function restartGateway(why,{wait=true,auto=false,bridges=false,restore=false}={}){
+function restartGateway(why,{wait=true,waitMax=360,auto=false,bridges=false,restore=false}={}){
  // never during a restore: every caller (Restart, Start, a hook or channel change, the watches) waits for its end, and the
  // restore starts the agents itself when it is done (busy.mjs)
  if(!mayStartAgents({restoring:restoreBusy(),forRestore:restore})){console.log('gateway restart left for after the restore:',why);return Promise.resolve()}
  if(gwRestarting){if(!gwRun.stopping){gwRun.bridges||=bridges;return gwRestarting}
   gwAgain={why:gwAgain?.why||why,bridges:!!(gwAgain?.bridges||bridges)};return gwRestarting.then(()=>{if(!gwAgain)return gwRestarting||undefined;const a=gwAgain;gwAgain=null;return restartGateway(a.why,{bridges:a.bridges})})}if(auto){autoRestarts=autoRestarts.filter(t=>Date.now()-t<30*60e3);if(autoRestarts.length>=3){if(Date.now()-(globalThis.__rf||0)>30*60e3){globalThis.__rf=Date.now();noteSys('restart-failed','The engine kept stopping, so it was left off. Open System › Host and press Start.')}return Promise.resolve()}autoRestarts.push(Date.now())}if(PORT!==4400){console.log('gateway restart skipped (test copy):',why);return Promise.resolve()}
- const run=gwRun={bridges,stopping:false};gwRestarting=(async()=>{if(wait){let said=false;for(let i=0;i<360&&(liveCount()>0||await engineAgents()>0);i++){if(!said&&i===12){said=true;console.log('gateway restart: still waiting for',Math.max(liveCount(),engAgents.n),'agent(s) at work:',why)}await new Promise(r=>setTimeout(r,5000))}}
+ const run=gwRun={bridges,stopping:false};gwRestarting=(async()=>{if(wait){let said=false;for(let i=0;i<waitMax&&(liveCount()>0||await engineAgents()>0);i++){if(!said&&i===12){said=true;console.log('gateway restart: still waiting for',Math.max(liveCount(),engAgents.n),'agent(s) at work:',why)}await new Promise(r=>setTimeout(r,5000))}}
   console.log('gateway restart:',why);gwStopped=false;lastOwnRestart=Date.now();noteSys('restart',why);run.stopping=true;
   // --yes: the engine refuses to stop while chats are live, and then nothing restarted at all (5 Nov 2026: a gateway the
   // engine started kept running without a Claude login for an hour); the wait above already gave them their time
@@ -538,6 +538,10 @@ async function gatewayWatch(){if(gwStopped||gwRestarting)return;
  // nothing running at all, twice in a row (so an engine restart in progress is not cut off): start it
  if(!pid&&!inTmux){if(++gwMissing<2)return;gwMissing=0;console.warn('gateway watch: no gateway was running');return restartGateway('no gateway was running',{wait:false,auto:true})}
  gwMissing=0;if(inTmux||!pid)return;
+ // an engine a chat run started while the engine was down (audit, 5 Nov 2026): with the tools' home (~/.hermes/home)
+ // it has no Claude login and every agent falls back to another model; it is replaced at once (replies at work get 2 minutes)
+ const gwHome=(await readFile('/proc/'+pid+'/environ','latin1').catch(()=>'')).split('\0').find(x=>x.startsWith('HOME='))?.slice(5);
+ if(gwHome&&path.resolve(gwHome)!==path.resolve(homedir())){console.warn('gateway watch: the running engine has the home',gwHome,'(no Claude login there); restarting it properly');return restartGateway('an engine was started with the wrong home folder (no Claude login there)',{auto:true,waitMax:24})}
  const up=Number((await shx('ps -o etimes= -p '+pid)).out.trim())||0;const since=Date.now()-up*1000;
  const log=(await shx('tail -400 ~/.hermes/logs/agent.log')).out.split('\n').filter(l=>/ClaudeCodeLoggedOut|no usable login/.test(l));
  const bad=log.some(l=>{const t=Date.parse(l.slice(0,19).replace(' ','T')+'Z');return t&&t>since+5000&&Date.now()-t<10*60e3});
@@ -558,6 +562,11 @@ async function enginePatches(){const h=String((await shx('git -C ~/.hermes/herme
 // an engine update starts from the engine's own files (see /hapi/hermes/update)
 async function engineReset(){const r=await shx('git -C ~/.hermes/hermes-agent checkout -- . 2>&1');console.log('engine update: renamed files reset first',r.ok?'':'('+String(r.out||'').slice(0,120)+')');engineHead.v=null}
 if(PORT===4400){setInterval(()=>engineWatch().catch(()=>{}),5*60000).unref();setTimeout(()=>engineWatch().catch(()=>{}),20000).unref()}
+// tabs agents left open: closed after 3 idle hours, every hour (app/browser-tidy.mjs)
+{const {createBrowserTidy}=await import('./browser-tidy.mjs');
+ const tidy=createBrowserTidy({lastActive:async a=>{const r=await fetch(DASH.origin+'/api/sessions?limit=5&profile='+encodeURIComponent(a),{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(20000)});if(!r.ok)return null;
+   const l=(await r.json())?.sessions||[];return l.length?Math.max(...l.map(x=>Math.max(Number(x.last_active)||0,Number(x.started_at)||0)))*1000:0}});
+ if(PORT===4400){setInterval(()=>tidy.tick().catch(e=>console.warn('browser tidy',e.message)),3600e3).unref();setTimeout(()=>tidy.tick().catch(()=>{}),10*60e3).unref()}}
 /* Memory guard. The AI box has a fixed memory limit; when it runs full, the engine or the dashboard is killed.
    Every 2 minutes: above 80% the bell's list says so (once an hour); above 90%, with no reply, schedule, setup or relay in
    progress, the AdsPower browsers are closed (AdsPower itself stays open and a browser reopens when an agent needs it).

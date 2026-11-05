@@ -90,6 +90,7 @@ Object.assign(ID,{
  'Ask me: commands that could change things wait for your OK. Click to change.':'Tanya aku: perintah yang bisa mengubah sesuatu menunggu persetujuanmu. Klik untuk ganti.',
  'Send (Enter)':'Kirim (Enter)',
  'Send':'Kirim',
+ 'Anthropic is not giving out usage right now. It tries again by itself.':'Anthropic sedang tidak memberikan data pemakaian. Nanti dicoba lagi otomatis.',
  'Live screen':'Layar langsung',
  'Default':'Bawaan',
  'In use':'Dipakai',

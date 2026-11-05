@@ -5,6 +5,15 @@ set -e
 cd "$(dirname "$0")/.."
 node scripts/check-globals.mjs
 for f in app/*.js app/*.mjs; do node --check "$f" || { echo "✗ $f does not parse"; exit 1; }; done
+# 0) Never take the box back (5 Nov 2026: two sessions deployed at once and the later one dropped the other's work).
+#    What goes live must be committed, and must contain the commit the box runs now; the box keeps that commit in
+#    ~/apps/hermes-ui/.deployed-commit. DIRTY_OK=1 allows uncommitted changes (they still must contain the box's commit).
+SHA=$(git rev-parse HEAD)
+if [ "${DIRTY_OK:-0}" != 1 ] && [ -n "$(git status --porcelain -- app scripts assets engine extension code code-installer mockup backlog PRD.md)" ]; then
+ echo "✗ there are uncommitted changes here; commit them first so the box can tell versions apart (or DIRTY_OK=1)."; exit 1; fi
+BOX_SHA=$(ssh ai-vps 'cat ~/apps/hermes-ui/.deployed-commit 2>/dev/null' || true)
+if [ -n "$BOX_SHA" ] && ! git merge-base --is-ancestor "$BOX_SHA" HEAD 2>/dev/null; then
+ echo "✗ the box runs commit ${BOX_SHA:0:8}, which this copy does not have: deploying would remove that work. Merge it in first (git fetch / merge main)."; exit 1; fi
 # the new version must pass the checks on the private test copy first (about 5 minutes; SKIP_CHECKS=1 skips them)
 [ "${SKIP_CHECKS:-0}" = 1 ] || bash scripts/predeploy.sh
 # 1) Never cut off work in progress (a reply, an agent being set up, a settings change, an engine restart):
@@ -33,7 +42,7 @@ HT=/tmp/hui-$ID.tgz;CT=/tmp/code-$ID.tgz
 for a in $LH $LC; do [ -s "$a" ] && tar --force-local -tzf "$a" >/dev/null 2>&1 || { echo "✗ the archive $a is empty or broken; nothing was sent."; rm -f $LH $LC; exit 1; }; done
 HS=$(wc -c < $LH | tr -d ' ');CS=$(wc -c < $LC | tr -d ' ')
 scp -q $LH ai-vps:$HT && scp -q $LC ai-vps:$CT && rm $LH $LC || { echo '✗ could not send the files to the box; nothing changed.'; rm -f $LH $LC; exit 1; }
-ssh ai-vps "CODE_V=$CODE_V FORCE=${FORCE:-0} HT=$HT CT=$CT HS=$HS CS=$CS bash -s" <<'BOX'
+ssh ai-vps "CODE_V=$CODE_V FORCE=${FORCE:-0} HT=$HT CT=$CT HS=$HS CS=$CS SHA=$SHA BOX_SHA=$BOX_SHA bash -s" <<'BOX'
 set -e
 # the files arrived whole: same size as sent, and readable
 for x in "$HT:$HS" "$CT:$CS"; do f=${x%%:*};z=${x##*:};[ "$(wc -c < "$f" 2>/dev/null)" = "$z" ] && tar -tzf "$f" >/dev/null 2>&1 || { echo "✗ $f did not arrive whole; nothing changed."; rm -f $HT $CT; exit 1; }; done
@@ -43,10 +52,13 @@ for i in $(seq 1 90); do mkdir $L 2>/dev/null && { got=1; break; }
  [ "$i" = 1 ] && echo "· another deploy is going live; waiting for it…"; sleep 10; done
 [ "${got:-0}" = 1 ] || { echo "✗ another deploy kept going for 15 minutes; nothing changed."; rm -f $HT $CT; exit 1; }
 trap 'rmdir /tmp/aq-live.lock 2>/dev/null' EXIT
+# another deploy went live while this one was checked and sent: it may hold work this one lacks
+NOW_SHA=$(cat ~/apps/hermes-ui/.deployed-commit 2>/dev/null || true)
+if [ "$NOW_SHA" != "$BOX_SHA" ] && [ "$NOW_SHA" != "$SHA" ]; then echo "✗ another deploy (${NOW_SHA:0:8}) went live meanwhile; nothing changed. Merge it in and deploy again."; rm -f $HT $CT; exit 1; fi
 # a reply may have started while the files were on their way: wait again right before the restart (up to 5 minutes)
 for i in $(seq 1 60); do n=$(curl -fs http://127.0.0.1:4400/healthz | grep -o '"busy":[0-9]*' | cut -d: -f2); [ "${n:-0}" = 0 ] && break; [ "$i" = 1 ] && echo "a reply started meanwhile; waiting for it…"; sleep 5; done
 n=$(curl -fs http://127.0.0.1:4400/healthz | grep -o '"busy":[0-9]*' | cut -d: -f2); if [ "${n:-0}" != 0 ] && [ "${FORCE:-0}" != 1 ]; then echo "✗ still busy; nothing changed on the box. Try again later, or FORCE=1."; rm -f $HT $CT; exit 1; fi
-mkdir -p ~/apps/hermes-ui; tar -xzf $HT -C ~/apps/hermes-ui || { echo '✗ unpacking aqeelOS failed; it was not restarted.'; exit 1; }; rm $HT
+mkdir -p ~/apps/hermes-ui; tar -xzf $HT -C ~/apps/hermes-ui || { echo '✗ unpacking aqeelOS failed; it was not restarted.'; exit 1; }; rm $HT; echo "$SHA" > ~/apps/hermes-ui/.deployed-commit
 C=~/apps/aqeel-code; mkdir -p $C; before=$(md5sum $C/package-lock.json 2>/dev/null)
 tar -xzf $CT -C $C --strip-components=1 || { echo "✗ unpacking Code failed; aqeelOS was not restarted."; exit 1; }; rm $CT; echo "$CODE_V" > $C/VERSION
 [ "$before" = "$(md5sum $C/package-lock.json 2>/dev/null)" ] || (cd $C && npm install --omit=dev --no-audit --no-fund >/dev/null 2>&1 || echo "! Code packages: npm install failed")
