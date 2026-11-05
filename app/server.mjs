@@ -666,7 +666,7 @@ const channels=createChannels({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,lis
 // an agent locked to its own Google files (google-files.mjs) holds no key; aqeelOS calls Google for it, signed per agent
 const gfLevel=async(email,agent)=>{const l=await connAccounts.levelFor?.(email,agent).catch(()=>null);return l||'edit'};
 const googleFiles=createGoogleFiles({HERMES_HOME,WORK:path.join(homedir(),'workspaces'),PORT,sig:a=>sign('google-files:'+a).slice(0,32),levelOf:gfLevel,token:(email,level)=>googleShares.keyFor(email,level)});
-const googleShares=createGoogleShares({HERMES_HOME,DATA,agents:()=>agentNames(),levelOf:gfLevel,held:a=>googleFiles.locked(a)});
+const googleShares=createGoogleShares({HERMES_HOME,DATA,WORK:path.join(homedir(),'workspaces'),agents:()=>agentNames(),levelOf:gfLevel,held:a=>googleFiles.locked(a)});
 if(LIVE_APP){const t=()=>googleFiles.ensureClients().catch(e=>console.warn('google files',e.message));setTimeout(t,30e3).unref();setInterval(t,5*60e3).unref()}
 if(LIVE_APP){const t=()=>googleShares.renew().then(r=>{if(r.renewed||r.removed)console.log('google shares: renewed',r.renewed,'removed',r.removed)}).catch(e=>console.warn('google shares',e.message));setInterval(t,5*60e3).unref();setTimeout(t,60e3).unref()}
 const access=createAccess({googleShares,HERMES_HOME,DATA,listAgents:()=>listAgents(),readConfig,setKey,hermes:hcmd,editEnv,names:a=>NAMES[a]||(a==='default'?'aqeelOS':a),writeJson:(f,v)=>writeJsonAtomic(f,v),restart:why=>restartGateway(why).catch(()=>{}),
@@ -779,7 +779,7 @@ if(LIVE_APP)setTimeout(()=>{import('./apply-on-start.mjs').then(({applyOnStart})
   const db=await connAccounts._db();const x=Object.values(db.accounts||{}).find(y=>y.kind==='google'&&String(y.identity||'').toLowerCase()===String(email).toLowerCase());if(!x)throw Error('no Google login '+email);
   return (await connAccounts.setAgentCan(x.id,agent,L)).can},
  share:({email,agent})=>googleShares.share(email,agent),
- migrate:({agent,file})=>googleShares.migrate(agent,file)}})).catch(e=>console.warn('apply-on-start',e.message))},45000).unref();
+ migrate:({agent,file,email})=>googleShares.migrate(agent,file,email)}})).catch(e=>console.warn('apply-on-start',e.message))},45000).unref();
 
 /* Abilities › Connections (connections.mjs, 1 Nov 2026): every app, login as you, skill, plugin and key in one list, who
    owns it, who may use it and how much (Read, Read & draft, Full; On or Off). AdsPower and Code come in when asked. */

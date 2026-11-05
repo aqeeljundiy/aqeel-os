@@ -10,7 +10,12 @@
 //   edit  + edit Sheets and Docs
 //   draft + mail drafts, Drive, Calendar (not sending)
 //   full  everything the owner signed in with
-import {readFile,writeFile,rename,readdir,unlink,mkdir,copyFile,stat} from 'node:fs/promises';
+// 5 Nov 2026 (Phase 1 finish): agents also kept hand-placed full copies in their own workspace, where their commands run
+// as the agent's own user: <workspace>/.tools/google_token*.json (read by .tools/sheet) and <workspace>/.hermes/ files the
+// engine does not copy in itself. Those places get managed keys too (readable by the agent's user), renewed and removed
+// with the rest. Note Google refuses read-only Sheets keys (the owner never signed in with them), so reading Sheets needs
+// the edit level.
+import {readFile,writeFile,rename,readdir,unlink,mkdir,copyFile,stat,chmod} from 'node:fs/promises';
 import path from 'node:path';
 
 const G='https://www.googleapis.com/auth/';
@@ -24,16 +29,28 @@ export function scopesFor(level,ownerScopes){const own=(ownerScopes||[]).map(Str
 const isToken=f=>/^google_token(_[\w.-]+)?\.json$/.test(f);
 
 // held(agent): an agent locked to its own files (google-files.mjs) gets no key file at all; aqeelOS calls Google for it
-export function createGoogleShares({HERMES_HOME,DATA,agents,levelOf,held=async()=>false,fetchImpl=fetch,now=()=>Date.now(),log=m=>console.log(m)}){
+export function createGoogleShares({HERMES_HOME,DATA,WORK=path.join(path.dirname(HERMES_HOME),'workspaces'),agents,levelOf,held=async()=>false,fetchImpl=fetch,now=()=>Date.now(),log=m=>console.log(m)}){
  const home=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const readJson=async f=>{try{return JSON.parse(await readFile(f,'utf8'))}catch{return null}};
- const put=async(f,v)=>{const t=f+'.'+process.pid+'.'+Math.random().toString(36).slice(2,8)+'.tmp';await writeFile(t,JSON.stringify(v,null,2),{mode:0o600});await rename(t,f)};
+ // a workspace file must stay readable by the agent's own user (the folder's shared group), a profile file only by aqeelOS
+ const inWork=f=>f.startsWith(WORK+path.sep);
+ const put=async(f,v)=>{const t=f+'.'+process.pid+'.'+Math.random().toString(36).slice(2,8)+'.tmp';await writeFile(t,JSON.stringify(v,null,2),{mode:0o600});if(inWork(f))await chmod(t,0o660);await rename(t,f)};
+ // the files the engine copies from the profile into the workspace .hermes itself (terminal.credential_files in config.yaml)
+ async function engineCopies(a){const t=await readFile(path.join(home(a),'config.yaml'),'utf8').catch(()=>'');const m=/\n\s*credential_files:\s*\n((?:\s+-\s*\S+\s*\n)+)/.exec('\n'+t+'\n');
+  return m?m[1].split('\n').map(l=>l.replace(/^\s*-\s*/,'').trim().replace(/^['"]|['"]$/g,'')).filter(Boolean):[]}
+ // where an agent's key files can be: its profile, its workspace .tools, and workspace .hermes files the engine does not copy in
+ async function places(a){const out=(await readdir(home(a)).catch(()=>[])).filter(isToken).map(f=>({dir:home(a),file:f,where:''}));const eng=await engineCopies(a);
+  for(const sub of ['.tools','.hermes']){const d=path.join(WORK,a,sub);for(const f of (await readdir(d).catch(()=>[])).filter(isToken))if(sub==='.tools'||!eng.includes(f))out.push({dir:d,file:f,where:sub+'/'})}
+  return out}
+ // a migrate step's file: a key file name in the profile, or .tools/<name> or .hermes/<name> in the agent's workspace
+ const where=(a,file)=>{const m=/^(?:(\.tools|\.hermes)\/)?(google_token(?:_[\w.-]+)?\.json)$/.exec(String(file||''));if(!m)throw Error('file is a google_token*.json name, or .tools/ or .hermes/ and one');
+  return m[1]?path.join(WORK,a,m[1],m[2]):path.join(home(a),m[2])};
  // the owner's sign-ins (the main agent's own files, never a managed key), by email
  async function owners(){const out={};for(const f of (await readdir(HERMES_HOME).catch(()=>[])).filter(isToken)){const d=await readJson(path.join(HERMES_HOME,f));
   if(d&&!d.aqeelos_managed&&d.refresh_token&&d.account)out[String(d.account).toLowerCase()]={file:f,data:d}}return out}
  // every managed key on every agent: {agent,file,email,level,expiry}
  async function list(){const out=[];for(const a of await agents()){if(a==='default'||a.includes('--'))continue;
-  for(const f of (await readdir(home(a)).catch(()=>[])).filter(isToken)){const d=await readJson(path.join(home(a),f));if(d?.aqeelos_managed)out.push({agent:a,file:f,email:String(d.account||'').toLowerCase(),level:d.aqeelos_level||'read',expiry:Date.parse(d.expiry||'')||0})}}
+  for(const p of await places(a)){const d=await readJson(path.join(p.dir,p.file));if(d?.aqeelos_managed)out.push({agent:a,file:p.where+p.file,path:path.join(p.dir,p.file),email:String(d.account||'').toLowerCase(),level:d.aqeelos_level||'read',expiry:Date.parse(d.expiry||'')||0})}}
   return out}
  async function mint(owner,level){const d=owner.data;const scopes=scopesFor(level,d.scopes);if(!scopes.length)throw Error('The owner\'s Google sign-in has none of the scopes this level needs.');
   let cid=d.client_id,sec=d.client_secret;if(!cid||!sec){const c=await readJson(path.join(HERMES_HOME,'google_client_secret.json'));const x=c?.installed||c?.web||c||{};cid=cid||x.client_id;sec=sec||x.client_secret}
@@ -52,19 +69,24 @@ export function createGoogleShares({HERMES_HOME,DATA,agents,levelOf,held=async()
   let f=own.file;if(files.includes(f)){const base='google_token_'+email.replace(/[^\w-]/g,'_');f=base+'.json';for(let n=2;files.includes(f);n++)f=base+'_'+n+'.json'}
   const level=await levelOf(email,agent);await put(path.join(dir,f),await mint(own,level));log('google share: '+email+' for '+agent+' ('+level+')');return {file:f,changed:true}}
  async function unshare(email,agent){email=String(email).toLowerCase();let n=0;
-  for(const k of (await list()).filter(k=>k.agent===agent&&k.email===email)){await unlink(path.join(home(agent),k.file)).catch(()=>{});n++}return n}
+  for(const k of (await list()).filter(k=>k.agent===agent&&k.email===email)){await unlink(k.path).catch(()=>{});n++}return n}
  // keys near their end, or whose level changed, are renewed; a key whose owner sign-in is gone is removed
  async function renew(){const own=await owners();let renewed=0,removed=0;
-  for(const k of await list()){if(await held(k.agent)){await unlink(path.join(home(k.agent),k.file)).catch(()=>{});removed++;log('google share: '+k.email+' key removed from '+k.agent+' (locked to its own files; aqeelOS calls Google for it)');continue}
-   const o=own[k.email];if(!o){await unlink(path.join(home(k.agent),k.file)).catch(()=>{});removed++;log('google share: '+k.email+' removed from '+k.agent+' (the owner has no sign-in for it any more)');continue}
+  for(const k of await list()){if(await held(k.agent)){await unlink(k.path).catch(()=>{});removed++;log('google share: '+k.email+' key removed from '+k.agent+' (locked to its own files; aqeelOS calls Google for it)');continue}
+   const o=own[k.email];if(!o){await unlink(k.path).catch(()=>{});removed++;log('google share: '+k.email+' removed from '+k.agent+' (the owner has no sign-in for it any more)');continue}
    const level=await levelOf(k.email,k.agent).catch(()=>k.level);if(k.level===level&&k.expiry-now()>RENEW_BEFORE)continue;
-   try{await put(path.join(home(k.agent),k.file),await mint(o,level));renewed++}catch(e){log('google share: '+k.email+' for '+k.agent+': '+e.message)}}
+   try{await put(k.path,await mint(o,level));renewed++}catch(e){log('google share: '+k.email+' for '+k.agent+': '+e.message)}}
   return {renewed,removed}}
  // an agent's own full copy of an account the owner has: kept in aqeelOS's backup, replaced by a managed key
- async function migrate(agent,file){const p=path.join(home(agent),file);const d=await readJson(p);if(!d||d.aqeelos_managed)return {changed:false};
-  const email=String(d.account||'').toLowerCase();const own=(await owners())[email];if(!own)throw Error('The owner agent has no sign-in for '+email+'; the copy stays.');
-  const bk=path.join(DATA,'google-copies-backup');await mkdir(bk,{recursive:true,mode:0o700});await copyFile(p,path.join(bk,agent+'__'+file+'.'+new Date(now()).toISOString().slice(0,10)));
-  const level=await levelOf(email,agent);await put(p,await mint(own,level));log('google share: '+agent+'\'s own copy of '+email+' replaced by a shared key ('+level+')');return {changed:true,email,level}}
+ // a copy aqeelOS cannot read (a hand-placed file only the agent's user may open) is moved whole into the backup when the
+ // step names its email; the folder lets aqeelOS move it, and the agent's user can still read the backup's owner field
+ async function migrate(agent,file,email0){const p=where(agent,file);const d=await readJson(p);if(d?.aqeelos_managed)return {changed:false};
+  let unreadable=false;if(!d){if(!email0)throw Error('The copy at '+file+' is missing or unreadable; name its email to replace it.');await stat(p);unreadable=true}
+  const email=String(d?.account||email0||'').toLowerCase();if(d&&email0&&email!==String(email0).toLowerCase())throw Error('The copy at '+file+' is for '+email+', not '+email0+'.');
+  const own=(await owners())[email];if(!own)throw Error('The owner agent has no sign-in for '+email+'; the copy stays.');
+  const bk=path.join(DATA,'google-copies-backup');await mkdir(bk,{recursive:true,mode:0o700});const to=path.join(bk,agent+'__'+String(file).replace(/\//g,'_')+'.'+new Date(now()).toISOString().slice(0,10));
+  const level=await levelOf(email,agent);const key=await mint(own,level);
+  if(unreadable)await rename(p,to);else await copyFile(p,to);await put(p,key);log('google share: '+agent+'\'s own copy of '+email+' ('+file+') replaced by a shared key ('+level+')');return {changed:true,email,level,backup:path.basename(to)}}
  // a key kept in aqeelOS only (google-files.mjs), never written to an agent's folder; cached until 10 minutes before its end
  const cache=new Map();
  async function keyFor(email,level){email=String(email).toLowerCase();const c=cache.get(email+'|'+level);if(c&&c.until-now()>10*60e3)return c.token;

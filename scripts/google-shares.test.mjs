@@ -1,7 +1,7 @@
 // Tests for shared Google logins as limited keys (app/google-shares.mjs). Run: node --test scripts/google-shares.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,writeFile,readFile,mkdir,readdir} from 'node:fs/promises';
+import {mkdtemp,writeFile,readFile,mkdir,readdir,stat,chmod} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {createGoogleShares,scopesFor} from '../app/google-shares.mjs';
@@ -13,7 +13,7 @@ async function make(levels={}){const H=await mkdtemp(path.join(tmpdir(),'gs-')),
  await writeFile(path.join(H,'google_token.json'),JSON.stringify({account:'me@gmail.com',client_id:'cid',client_secret:'csec',refresh_token:'RT-OWNER',token:'x',scopes:OWNER_SCOPES,token_uri:'https://oauth2.googleapis.com/token'}));
  let t=1e12;const asked=[];
  const fetchImpl=async(url,o)=>{const b=new URLSearchParams(o.body);asked.push(b.get('scope'));assert.equal(b.get('refresh_token'),'RT-OWNER');return {ok:true,json:async()=>({access_token:'AT'+asked.length,expires_in:3599,scope:b.get('scope')})}};
- const s=createGoogleShares({HERMES_HOME:H,DATA,agents:async()=>['default','continue-threads','pixel-agent'],levelOf:async(e,a)=>levels[a]||'edit',fetchImpl,now:()=>t,log:()=>{}});
+ const s=createGoogleShares({HERMES_HOME:H,DATA,WORK:path.join(H,'work'),agents:async()=>['default','continue-threads','pixel-agent'],levelOf:async(e,a)=>levels[a]||'edit',fetchImpl,now:()=>t,log:()=>{}});
  return {s,H,asked,tick:ms=>{t+=ms}}}
 const read=async(H,a,f='google_token.json')=>JSON.parse(await readFile(path.join(H,'profiles',a,f),'utf8'));
 
@@ -41,3 +41,26 @@ test('an agent\'s own full copy is backed up and replaced; a share never writes 
  const r=await s.migrate('pixel-agent','google_token.json');assert.equal(r.changed,true);const k=await read(H,'pixel-agent');assert.equal(k.aqeelos_managed,true);assert.equal(k.refresh_token,'');
  const bk=await readdir(path.join(H,'data','google-copies-backup'));assert.equal(bk.length,1);assert.match(bk[0],/^pixel-agent__google_token\.json\./);
  assert.equal((await s.migrate('pixel-agent','google_token.json')).changed,false)});
+
+test('hand-placed copies in the workspace (.tools, .hermes) become keys the agent\'s user can read, renewed and unshared with the rest',async()=>{const {s,H,tick}=await make();
+ const W=path.join(H,'work','continue-threads');await mkdir(path.join(W,'.tools'),{recursive:true});await mkdir(path.join(W,'.hermes'),{recursive:true});
+ await writeFile(path.join(W,'.tools','google_token.json'),JSON.stringify({account:'me@gmail.com',refresh_token:'RT-OWNER'}));
+ await writeFile(path.join(W,'.hermes','google_token_elkiya.json'),JSON.stringify({account:'me@gmail.com',refresh_token:'RT-OWNER'}),{mode:0o600});await chmod(path.join(W,'.hermes','google_token_elkiya.json'),0o000);
+ await assert.rejects(s.migrate('continue-threads','../x/google_token.json'),/file is/);
+ const r=await s.migrate('continue-threads','.tools/google_token.json');assert.equal(r.changed,true);
+ const k=JSON.parse(await readFile(path.join(W,'.tools','google_token.json'),'utf8'));assert.equal(k.aqeelos_managed,true);assert.equal(k.refresh_token,'');
+ assert.equal((await stat(path.join(W,'.tools','google_token.json'))).mode&0o777,0o660);
+ // an unreadable copy needs its email, and is moved whole into the backup
+ await assert.rejects(s.migrate('continue-threads','.hermes/google_token_elkiya.json'),/unreadable/);
+ assert.equal((await s.migrate('continue-threads','.hermes/google_token_elkiya.json','me@gmail.com')).changed,true);
+ assert.equal((await readdir(path.join(H,'data','google-copies-backup'))).length,2);
+ // the profile share sits beside them; all three are listed, renewed and removed together
+ await s.share('me@gmail.com','continue-threads');assert.deepEqual((await s.list()).map(k=>k.file).sort(),['.hermes/google_token_elkiya.json','.tools/google_token.json','google_token.json']);
+ tick(25*60e3);assert.deepEqual(await s.renew(),{renewed:3,removed:0});
+ assert.equal(await s.unshare('me@gmail.com','continue-threads'),3);assert.deepEqual(await s.list(),[])});
+
+test('a workspace .hermes file the engine copies in from the profile (credential_files) is left to the engine',async()=>{const {s,H}=await make();
+ const W=path.join(H,'work','continue-threads','.hermes');await mkdir(W,{recursive:true});await s.share('me@gmail.com','continue-threads');
+ await writeFile(path.join(H,'profiles','continue-threads','config.yaml'),'terminal:\n  backend: ssh\n  credential_files:\n    - google_token.json\ntools:\n  x: 1\n');
+ await writeFile(path.join(W,'google_token.json'),await readFile(path.join(H,'profiles','continue-threads','google_token.json')));
+ assert.deepEqual((await s.list()).map(k=>k.file),['google_token.json'])});
