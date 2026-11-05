@@ -117,6 +117,8 @@ def the_delivery_id_comes_from_what_was_signed():
     b = wh._kirim_delivery_id({"X-Kirim-Signature": header(t, s), "X-Request-ID": "two"}, BODY)
     assert a.startswith("kirim-") and a == b
     assert wh._kirim_delivery_id({"X-Kirim-Signature": header(t, s)}, BODY + b"x") != a
+    t2, s2 = sign(BODY, int(t) + 30)  # Kirimdev's retry: the same body signed again with a new t
+    assert wh._kirim_delivery_id({"X-Kirim-Signature": header(t2, s2)}, BODY) == a, "a retry is the same delivery"
     assert wh._kirim_delivery_id({"X-Request-ID": "r"}, BODY) == ""
     assert wh._kirim_delivery_id({"X-Kirim-Signature": "garbage"}, BODY) == ""
 
@@ -150,9 +152,14 @@ def http_signed_is_accepted_bad_or_old_is_401_and_a_replay_wakes_nothing():
             r = await post({"X-Kirim-Signature": header(t, s), "X-Request-ID": "fresh-id"})
             assert r.status == 200 and (await r.json()).get("status") == "duplicate", (r.status, await r.text())
             assert a.handle_message.await_count == 1
-            # a new event (new t) goes through
+            # Kirimdev's own retry (signed again, new t): still the same delivery
             t2, s2 = sign(BODY, int(time.time()) + 1)
             r = await post({"X-Kirim-Signature": header(t2, s2)})
+            assert r.status == 200 and (await r.json()).get("status") == "duplicate", (r.status, await r.text())
+            # a new message (a new body) goes through
+            body3 = BODY.replace(b"halo", b"halo lagi")
+            t3, s3 = sign(body3)
+            r = await post({"X-Kirim-Signature": header(t3, s3)}, body3)
             assert r.status == 202, (r.status, await r.text())
             assert a.handle_message.await_count == 2
     asyncio.run(run())

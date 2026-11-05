@@ -59,7 +59,8 @@ def _validate_kirim_signature(body: bytes, secret: str, header: str) -> bool:
 
 
 def _kirim_delivery_id(headers, body: bytes) -> str:
-    """A Kirimdev delivery's id from what it signed, so a replayed request is the same delivery; "" otherwise."""
+    """A Kirimdev delivery's id from its body (Meta's JSON, with the message's own wamid), so a replay or one of Kirimdev's
+    retries (signed again with a new t) is the same delivery; "" without a valid Kirimdev header."""
     try:
         header = headers.get("X-Kirim-Signature", "") or headers.get("x-kirim-signature", "") or ""
     except Exception:
@@ -67,7 +68,7 @@ def _kirim_delivery_id(headers, body: bytes) -> str:
     parts = _kirim_signature_parts(header) if header else None
     if not parts:
         return ""
-    return "kirim-" + hashlib.sha256(parts[0].encode() + b"." + body).hexdigest()[:40]
+    return "kirim-" + hashlib.sha256(body).hexdigest()[:40]  # aqeelos:kirim-delivery-v2
 
 
 `;
@@ -96,7 +97,11 @@ const ROUTES=[{why:'the route list home',
 export const PATCHES=[{tag:TAG,name:'Kirimdev signatures',edits:EDITS},{tag:ROUTES_TAG,name:'webhook routes for agents',edits:ROUTES}];
 
 // each patch all or nothing: {out, applied:[names], errors:[text]}; out is null when nothing changed
+const FIXUPS=[{name:'Kirimdev retries are one delivery',from:'    return "kirim-" + hashlib.sha256(parts[0].encode() + b"." + body).hexdigest()[:40]\n',
+ to:'    return "kirim-" + hashlib.sha256(body).hexdigest()[:40]  # aqeelos:kirim-delivery-v2\n'}];
 export function kirimPatch(src){let out=src;const applied=[],errors=[];
+ // already patched with an earlier version: small in-place corrections (nothing to do when they are in)
+ for(const f of FIXUPS)if(out.split(f.from).length===2){out=out.replace(f.from,()=>f.to);applied.push(f.name)}
  for(const p of PATCHES){if(out.includes(p.tag))continue;let next=out,bad=null;
   for(const e of p.edits){if(next.split(e.from).length!==2){bad=p.name+': the place for '+e.why+' changed upstream';break}next=next.replace(e.from,()=>e.to)}
   if(bad)errors.push(bad);else{out=next;applied.push(p.name)}}
