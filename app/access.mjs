@@ -105,7 +105,8 @@ export function createAccess({HERMES_HOME,DATA,listAgents,readConfig,setKey,herm
   if(kind==='mcp'){await dash('DELETE','/api/mcp/servers/'+encodeURIComponent(id)+'?profile='+encodeURIComponent(from));cfgCache.delete(from);   // removed through the dashboard: its settings read again (1 Nov 2026)
    for(const f of [id+'.json',id+'.meta.json',id+'.client.json'])await unlink(path.join(home(from),'mcp-tokens',f)).catch(()=>{});
    restart('access: '+id+' taken from '+names(from));return {changed:true}}
-  if(kind==='google'){await unlink(path.join(home(from),mine.file));return {changed:true}}
+  // a shared key also has copies in the agent's workspace (google-shares.mjs): taking the share away removes them all
+  if(kind==='google'){await unlink(path.join(home(from),mine.file));if(googleShares)await googleShares.unshare(id,from).catch(()=>{});return {changed:true}}
   if(kind==='plugin'){const r=await hermes(from,['plugins','disable',id],{timeout:150000});if(!r.ok)throw new Error(r.out?.slice(-200)||'Could not turn it off');restart('access: plugin '+id+' off on '+names(from));return {changed:true}}
   if(kind==='key'){await editEnv(path.join(home(from),'.env'),cur=>cur.split('\n').filter(l=>!l.startsWith(mine.name+'=')).join('\n'));restart('access: '+mine.name+' taken from '+names(from));return {changed:true}}
   throw new Error('Unknown kind')}
