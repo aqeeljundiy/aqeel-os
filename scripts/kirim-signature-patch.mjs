@@ -4,11 +4,15 @@
 // When that header is there it is the only check used: a bad Kirimdev signature never falls through to an older,
 // weaker check. The delivery id comes from what was signed (t and the body), so the same request sent again (with
 // any unsigned header changed) is the same delivery and the engine's own replay guard turns it away.
-// apply-skill-patches.mjs applies this on every deploy and engine update. To test on a copy:
+// Also (same file, own tag): webhook routes bound to an agent (--route-profile) never reached it. While handing an
+// event to that agent the engine read the route list from the agent's own folder, which has none, so the route
+// seemed gone and every delivery got 503 "Admission unavailable". The list belongs to the gateway (the main agent's
+// folder, where `hermes -p default webhook subscribe --route-profile` writes it), so it is read from there.
+// apply-skill-patches.mjs applies these on every deploy and engine update. To test on a copy:
 //   node scripts/kirim-signature-patch.mjs <webhook.py> <patched copy>
 import {readFile,writeFile} from 'node:fs/promises';
 
-export const TAG='aqeelos:kirim-signature';
+export const TAG='aqeelos:kirim-signature',ROUTES_TAG='aqeelos:webhook-routes-home';
 
 const FUNCS=`# ${TAG}: Kirimdev signs "<t>.<raw body>" (hex HMAC-SHA256) in X-Kirim-Signature: t=<unix>,v1=<hex>[,v1=<hex>...]
 _KIRIM_MAX_HEADER = 2048
@@ -84,13 +88,20 @@ const EDITS=[
   to:`        headers = request.headers
         delivery_id = _kirim_delivery_id(headers, raw_body) or _header_delivery_id(headers)  # ${TAG}\n`}];
 
-// {out} with every edit made, {same:true} when it is in place already, or {error} when the engine changed upstream
-export function kirimPatch(src){
- if(src.includes(TAG))return {same:true};
- let out=src;
- for(const e of EDITS){if(out.split(e.from).length!==2)return {error:'the place for '+e.why+' changed upstream'};out=out.replace(e.from,()=>e.to)}
- return {out}}
+const ROUTES=[{why:'the route list home',
+  from:'        from hermes_constants import get_hermes_home\n        subs_path = get_hermes_home() / _DYNAMIC_ROUTES_FILENAME\n',
+  to:`        # ${ROUTES_TAG}: the gateway's own list, also while an event is handed to a routed agent (its home has none)
+        from hermes_constants import get_routing_process_hermes_home
+        subs_path = get_routing_process_hermes_home() / _DYNAMIC_ROUTES_FILENAME\n`}];
+export const PATCHES=[{tag:TAG,name:'Kirimdev signatures',edits:EDITS},{tag:ROUTES_TAG,name:'webhook routes for agents',edits:ROUTES}];
+
+// each patch all or nothing: {out, applied:[names], errors:[text]}; out is null when nothing changed
+export function kirimPatch(src){let out=src;const applied=[],errors=[];
+ for(const p of PATCHES){if(out.includes(p.tag))continue;let next=out,bad=null;
+  for(const e of p.edits){if(next.split(e.from).length!==2){bad=p.name+': the place for '+e.why+' changed upstream';break}next=next.replace(e.from,()=>e.to)}
+  if(bad)errors.push(bad);else{out=next;applied.push(p.name)}}
+ return {out:applied.length?out:null,applied,errors}}
 
 if(import.meta.url===`file://${process.argv[1]}`){const [,,inp,outp]=process.argv;
- const r=kirimPatch(await readFile(inp,'utf8'));if(r.error){console.error('✗ '+r.error);process.exit(1)}
- await writeFile(outp,r.same?await readFile(inp,'utf8'):r.out);console.log(r.same?'already patched, copied':'patched copy written')}
+ const src=await readFile(inp,'utf8'),r=kirimPatch(src);for(const e of r.errors)console.error('✗ '+e);
+ await writeFile(outp,r.out??src);console.log(r.applied.length?'patched copy written: '+r.applied.join(', '):'nothing to change, copied');if(r.errors.length)process.exit(1)}

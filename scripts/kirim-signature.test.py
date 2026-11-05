@@ -158,6 +158,28 @@ def http_signed_is_accepted_bad_or_old_is_401_and_a_replay_wakes_nothing():
     asyncio.run(run())
 
 
+@test
+def a_route_bound_to_an_agent_is_still_found_while_its_event_is_handed_over():
+    import hermes_constants as hc
+    from gateway.platforms.webhook_delivery import route_digest
+    gw, agent_home = os.path.join(TMP_HOME, "gw"), os.path.join(TMP_HOME, "agent")
+    os.makedirs(gw), os.makedirs(agent_home)
+    with open(os.path.join(gw, "webhook_subscriptions.json"), "w") as f:
+        json.dump({"kirim": {"secret": SECRET, "profile": "continue-support", "prompt": "x", "deliver": "log"}}, f)
+    hc.pin_process_hermes_home(gw)  # the gateway's own home, as in the running engine
+    a = adapter()
+    a._reload_dynamic_routes()
+    assert "kirim" in a._routes
+    token = hc.set_hermes_home_override(agent_home)  # inside the routed agent's scope, whose home has no list
+    try:
+        chat = wh._WebhookDeliveryIdentity.from_parts("continue-support", "kirim", "kirim-abc").session_chat_id
+        assert route_digest(a, chat), "route digest"
+        assert "kirim" in a._routes, "the route stayed"
+    finally:
+        hc._HERMES_HOME_OVERRIDE.reset(token)
+        hc.pin_process_hermes_home(None)
+
+
 failed = 0
 for fn in tests:
     try:

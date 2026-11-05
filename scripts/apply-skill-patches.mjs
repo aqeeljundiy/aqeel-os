@@ -231,13 +231,13 @@ for(const h of homes){const sp=path.join(h,'skills','productivity','google-works
   if(s.split(x.from).length!==2){console.warn('! backup models: '+x.f+' changed upstream; its plain words are not in place');continue}
   const t=pf+'.aq.tmp';await rawWrite(t,s.replace(x.from,x.to));
   try{execFileSync('python3',['-c','import ast,sys;ast.parse(open(sys.argv[1]).read())',t]);await rename(t,pf);changed++;console.log('backup models: plain words in',x.f)}catch(e){await rm(t,{force:true});console.warn('! backup models: '+x.f+' would not compile, left alone')}}}
-// 14) Engine: Kirimdev's webhook signatures (X-Kirim-Signature), see scripts/kirim-signature-patch.mjs. All three
-//     edits or none, and the file must still compile before it replaces the engine's.
+// 14) Engine: Kirimdev's webhook signatures (X-Kirim-Signature), and webhook routes bound to an agent reaching it; see
+//     scripts/kirim-signature-patch.mjs. Each fix all or nothing, and the file must still compile before it replaces the engine's.
 {const {kirimPatch}=await import('./kirim-signature-patch.mjs');const pf=path.join(HOME,'hermes-agent','gateway','platforms','webhook.py');
  const s=await readFile(pf,'utf8').catch(()=>null);
  if(s!=null){const r=kirimPatch(s);
-  if(r.error)console.warn('! Kirimdev signatures: webhook.py '+r.error+'; Kirimdev webhooks are refused until this is fixed');
-  else if(r.out){const {execFileSync}=await import('node:child_process');const t=pf+'.aq.tmp';await rawWrite(t,r.out);
-   try{execFileSync('python3',['-c','import ast,sys;ast.parse(open(sys.argv[1]).read())',t]);await rename(t,pf);changed++;console.log('Kirimdev signatures: in place in webhook.py')}
-   catch{await rm(t,{force:true});console.warn('! Kirimdev signatures: webhook.py would not compile, left alone')}}}}
+  for(const e of r.errors)console.warn('! webhook.py: '+e+'; left as it is');
+  if(r.out){const {execFileSync}=await import('node:child_process');const t=pf+'.aq.tmp';await rawWrite(t,r.out);
+   try{execFileSync('python3',['-c','import ast,sys;ast.parse(open(sys.argv[1]).read())',t]);await rename(t,pf);changed++;console.log('webhook.py: '+r.applied.join(', ')+' in place')}
+   catch{await rm(t,{force:true});console.warn('! webhook.py would not compile with '+r.applied.join(', ')+', left alone')}}}}
 console.log(changed?changed+' change(s)':'skill patches already in place');
