@@ -892,7 +892,7 @@ Object.assign(ID,{
  'Webhooks are off':'Webhook mati',
  'Turn on webhooks':'Nyalakan webhook',
  'Turn on the webhook channel so other services can send events to aqeelOS.':'Nyalakan saluran webhook agar layanan lain bisa mengirim event ke aqeelOS.',
- 'Outside services post to the address shown on each webhook. Each one must sign its requests with the webhook secret. Changes work at once, without a restart. A webhook that is switched off turns away the events sent to it.':'Layanan luar mengirim ke alamat yang tertera di setiap webhook. Setiap permintaan harus ditandatangani dengan rahasia webhook. Perubahan langsung berlaku, tanpa mulai ulang. Webhook yang dimatikan menolak event yang dikirim kepadanya.',
+ 'Outside services post to the address shown on each webhook. Each one must sign its requests with the webhook secret; Kirimdev\'s own signature works as it is. Changes work at once, without a restart. A webhook that is switched off turns away the events sent to it.':'Layanan luar mengirim ke alamat yang tertera di setiap webhook. Setiap permintaan harus ditandatangani dengan rahasia webhook; tanda tangan Kirimdev sendiri langsung bisa dipakai. Perubahan langsung berlaku, tanpa mulai ulang. Webhook yang dimatikan menolak event yang dikirim kepadanya.',
  'Copy':'Salin',
  // Settings, Keys and Sign-ins (parity with the engine's dashboard)
  'Search results':'Hasil pencarian','Clear search':'Hapus pencarian','Reset this group':'Reset grup ini','Reset these results':'Reset hasil ini',
