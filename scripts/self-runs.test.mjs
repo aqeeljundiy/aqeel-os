@@ -32,6 +32,7 @@ test('judge: aqeelOS chat of an editor, own schedules and trusted people pass; e
  assert.equal(judge(c({source:'subagent'},{source:'cron'}),OWNER).ok,true);
  assert.equal(judge(c({source:'subagent'},{source:'webhook'}),OWNER).ok,false);
  assert.match(judge(c({source:'run_self'}),OWNER).why,/cannot start another/);
+ assert.match(judge(c({source:'subagent'},{source:'tool'}),OWNER).why,/cannot start another/);
  assert.match(judge(c({source:'subagent'},{source:'run_self'},{source:'cron'}),OWNER).why,/cannot start another/);
  assert.equal(judge([],OWNER).ok,false);
  // switches

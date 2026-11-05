@@ -7,6 +7,8 @@ import path from 'node:path';
 import {homedir} from 'node:os';
 import {LOCK_WAIT} from './self-runs.mjs';
 
+// (source "tool": the engine accepts only its own labels, and keeps these chats out of chat lists; run_self judges
+// a "tool" chat as one inside a run, so a run cannot start another)
 // the run, in its own session (so Stop reaches everything it started): wait for the lock on fd 3 when there is one,
 // then the agent's own engine with the prompt read from a file (never through a shell), its exit code in <dir>/exit
 const SCRIPT=`set -u
@@ -14,7 +16,7 @@ dir="$1"; agent="$2"; secs="$3"; budget="$4"; lockwait="$5"; haslock="$6"; bin="
 fin(){ printf '%s' "$1" > "$dir/exit.tmp"; mv -f "$dir/exit.tmp" "$dir/exit"; }
 if [ "$haslock" = 1 ]; then flock -w "$lockwait" 3 || { echo "aqeelOS: the lock stayed taken for $lockwait seconds"; fin 75; exit 75; }; fi
 date +%s > "$dir/started"
-timeout -k 20 "$secs" "$bin" -p "$agent" chat --query-file "$dir/prompt.txt" -Q --source run_self --run-budget "$budget" < /dev/null 3>&-
+timeout -k 20 "$secs" "$bin" -p "$agent" chat --query-file "$dir/prompt.txt" -Q --source tool --run-budget "$budget" < /dev/null 3>&-
 fin "$?"`;
 
 // the waiting run_self calls in an agent's chat database (the engine saves a tool call before running it), and for

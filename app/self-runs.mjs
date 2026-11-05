@@ -33,7 +33,8 @@ const clip=(s,n)=>String(s??'').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g,' 
    Returns {ok, by:{kind, platform, who, uid, chat, thread, session}, why} */
 export function judge(chain,o){const set=o.settings||{};
  if(!Array.isArray(chain)||!chain.length)return {ok:false,why:'aqeelOS could not find the chat this call came from, so it is refused.'};
- if(chain.some(s=>s.source==='run_self'))return {ok:false,why:'A run started with run_self cannot start another one.'};
+ // a run_self run is a "tool" chat (the engine's label for a chat a program started, not a person)
+ if(chain.some(s=>s.source==='run_self'||s.source==='tool'))return {ok:false,why:'A run started with run_self cannot start another one.'};
  const root=chain[chain.length-1],pf=String(root.platform||root.source||'');
  const by={kind:root.source,platform:pf,session:chain[0].id,root:root.id,chat:root.chat_id||null,thread:root.thread_id||null,uid:root.user_id||null,who:root.user_name||root.display_name||null};
  if(root.source==='cron'){if(set.cron===false)return {ok:false,by,why:'Runs from your schedules are switched off for this agent in aqeelOS (Automations › Runs itself).'};return {ok:true,by:{...by,who:'schedule'+(root.title?': '+clip(root.title,60):'')}}}
@@ -117,7 +118,7 @@ export function createSelfRuns({DATA,now=()=>Date.now(),day=t=>new Date(t).toISO
  async function finish(r,code){const t=now();r.exit=code;r.done=t;
   r.state=r.stoppedBy?'stopped':code===0?'ok':code===124||code===137||r.overtime?'timeout':code===75&&!r.started?'failed':'failed';
   if(code===75&&!r.started)r.error='The lock stayed taken for '+LOCK_WAIT/60+' minutes.';
-  const tail=await readOut(r).catch(()=>'');r.answer=clip(tail,4000);
+  const tail=await readOut(r).catch(()=>'');r.answer=clip(tail,4000);r.session=(/session_id:\s*(\S+)/.exec(tail)||[])[1]||null;
   audit({event:r.state,run:r.id,agent:r.agent,exit:code,secs:Math.round((t-(r.started||r.at))/1000)});
   if(r.state==='ok')db.fails[r.agent]=0;
   else if(r.state==='failed'||r.state==='timeout'){db.fails[r.agent]=(db.fails[r.agent]||0)+1;
