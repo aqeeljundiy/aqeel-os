@@ -93,7 +93,7 @@ export function createSelfRunsBox({HERMES_HOME,DATA,python,bin=path.join(homedir
   return b.toString('utf8').replace(/\x1b\[[0-9;?]*[A-Za-z]/g,'').replace(/\r/g,'').trim().slice(-6000)}finally{await h.close()}}
  // the chats a waiting call (tool, with these arguments) is in: [{session, call, args, chain}]
  async function lookup(agent,tool){const p=await python();if(!p)throw Error('aqeelOS could not read the chat database.');
-  const r=await run(p,['-c',LOOKUP,path.join(home(agent),'state.db'),tool],20000);if(!r.ok)throw Error('aqeelOS could not read the chat database.');
+  const r=await run(p,['-c',LOOKUP,path.join(home(agent),'state.db'),tool],30000);if(!r.ok)throw Object.assign(Error('aqeelOS could not read the chat database.'),{detail:r.err.trim().split('\n').slice(-2).join(' ').slice(0,300)});
   const j=JSON.parse(r.out);return j.calls.map(c=>({...c,chain:j.chains[c.session]||[]}))}
  // trusted-person codes in messages to any agent since `since` (ms)
  async function findCodes(agents,since){const p=await python();if(!p)return [];const dbs=[];for(const a of agents){const f=path.join(home(a),'state.db');if(await stat(f).catch(()=>null))dbs.push(f)}

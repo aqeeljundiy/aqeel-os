@@ -522,7 +522,9 @@ function restartGateway(why,{wait=true,auto=false,bridges=false,restore=false}={
   gwAgain={why:gwAgain?.why||why,bridges:!!(gwAgain?.bridges||bridges)};return gwRestarting.then(()=>{if(!gwAgain)return gwRestarting||undefined;const a=gwAgain;gwAgain=null;return restartGateway(a.why,{bridges:a.bridges})})}if(auto){autoRestarts=autoRestarts.filter(t=>Date.now()-t<30*60e3);if(autoRestarts.length>=3){if(Date.now()-(globalThis.__rf||0)>30*60e3){globalThis.__rf=Date.now();noteSys('restart-failed','The engine kept stopping, so it was left off. Open System › Host and press Start.')}return Promise.resolve()}autoRestarts.push(Date.now())}if(PORT!==4400){console.log('gateway restart skipped (test copy):',why);return Promise.resolve()}
  const run=gwRun={bridges,stopping:false};gwRestarting=(async()=>{if(wait){let said=false;for(let i=0;i<360&&(liveCount()>0||await engineAgents()>0);i++){if(!said&&i===12){said=true;console.log('gateway restart: still waiting for',Math.max(liveCount(),engAgents.n),'agent(s) at work:',why)}await new Promise(r=>setTimeout(r,5000))}}
   console.log('gateway restart:',why);gwStopped=false;lastOwnRestart=Date.now();noteSys('restart',why);run.stopping=true;
-  await shx('hermes -p default gateway stop >/dev/null 2>&1; for i in $(seq 1 30); do p=$(grep -o "[0-9]*" ~/.hermes/gateway.pid 2>/dev/null | head -1); [ -n "$p" ] && kill -0 "$p" 2>/dev/null || break; sleep 1; done; tmux kill-session -t gateway 2>/dev/null; sleep 1');
+  // --yes: the engine refuses to stop while chats are live, and then nothing restarted at all (5 Nov 2026: a gateway the
+  // engine started kept running without a Claude login for an hour); the wait above already gave them their time
+  await shx('hermes -p default gateway stop --yes >/dev/null 2>&1; for i in $(seq 1 30); do p=$(grep -o "[0-9]*" ~/.hermes/gateway.pid 2>/dev/null | head -1); [ -n "$p" ] && kill -0 "$p" 2>/dev/null || break; sleep 1; done; tmux kill-session -t gateway 2>/dev/null; sleep 1');
   // a WhatsApp bridge is its own process and reads its settings only when it starts: when channel settings changed, stop them so the engine starts fresh ones
   if(run.bridges)for(const a of await listAllProfiles().catch(()=>[]))await stopBridges(a).catch(()=>{});
   await shx('~/services.sh >/dev/null 2>&1');
@@ -1092,8 +1094,10 @@ async function srPlace(a){const c=await readConfig(a).catch(()=>null);if(!c)retu
  if(JSON.stringify(m)!==before)await writeFile(SR_PLACED,JSON.stringify(m));if(changed)restartGateway('run_self kept off customer channels').catch(()=>{})}
 // the chat a call came from: the waiting call with these very arguments in the agent's own chat database
 async function srOrigin(a,tool,args){let calls=[];
- for(let i=0;i<5;i++){try{calls=(await srBox.lookup(a,tool)).filter(c=>{let x;try{x=typeof c.args==='string'?JSON.parse(c.args||'{}'):c.args}catch{return false}return srFp(x)===srFp(args)})}catch(e){return {ok:false,why:e.message}}
-  if(calls.length)break;await new Promise(r=>setTimeout(r,800))}
+ // a busy database (right after an engine restart) is tried again, like a call not saved yet
+ let err=null;for(let i=0;i<6;i++){try{err=null;calls=(await srBox.lookup(a,tool)).filter(c=>{let x;try{x=typeof c.args==='string'?JSON.parse(c.args||'{}'):c.args}catch{return false}return srFp(x)===srFp(args)})}catch(e){err=e;console.warn('self-run: reading',a+'\'s chats failed:',e.detail||e.message)}
+  if(calls.length)break;await new Promise(r=>setTimeout(r,err?2000:800))}
+ if(!calls.length&&err)return {ok:false,why:err.message+' Try again in a minute.'};
  const settings=await selfRuns.settings(a),trusted=await selfRuns.trusted();
  const sessionUser=id=>{const uid=users.sessionOwner(id),w=uid&&users.byId(uid);return w?{name:w.name||w.username||uid,ok:users.atLeast(w,a,'edit')}:null};
  if(!calls.length)return srJudge([],{settings,trusted,sessionUser});
