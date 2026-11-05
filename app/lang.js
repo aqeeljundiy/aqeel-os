@@ -56,6 +56,7 @@ const ID={
 // Sentences with a name inside them (the name sits in its own element, so the pieces are matched apart).
 const ID_PATTERNS=[
  [/^Last checked (.+)$/,'Terakhir dicek $1'],
+ [/^Test: answers only (.+)\.$/,'Tes: hanya menjawab $1.'],[/^Last message (.+)\.$/,'Pesan terakhir $1.'],
  [/^Message (.+)… \(type \/ for commands\)$/,'Kirim pesan ke $1… (ketik / untuk perintah)'],
  [/^What should$/,'Mau minta'],[/^work on\? It runs on your AI box, so it keeps going when you close this tab\.$/,'mengerjakan apa? Ia berjalan di server AI-mu, jadi tetap bekerja walau tab ini ditutup.'],
  [/^runs on your AI box and can use its terminal, files and the web\.$/,'berjalan di server AI-mu dan bisa memakai terminal, file, dan web.'],
