@@ -50,6 +50,8 @@ import {createAutomationGuard} from './automation-guard.mjs';
 import {createConnectedAccounts} from './connected-accounts.mjs';
 import {createConnections} from './connections.mjs';
 import {createSecretLinks,createLimiter} from './secret-links.mjs';
+import {createSelfRuns,judge as srJudge,safeLock,fp as srFp,AGENT as SR_AGENT,MAX_MIN as SR_MAX,DEFAULT_MIN as SR_DEF,PRETTY as SR_PRETTY} from './self-runs.mjs';
+import {createSelfRunsBox,placement as srPlacement} from './self-runs-box.mjs';
 import {createBackupModels,engineProbe,RULES as BM_RULES} from './backup-models.mjs';
 import {isDaytime as dayNow,local as localAt,clock as clockAt} from './engine-update-rules.mjs';
 import {readdir} from 'node:fs/promises';
@@ -273,6 +275,8 @@ async function syncNotifyOnce(){
   try{const url=`http://127.0.0.1:${PORT}/mcp/notify/${a}/${relay.sig(a)}`;const cfg=()=>readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>'');
    // the code bridge (aqeelos-code) too, the same way (app/code-bridge.mjs)
    if(!(await cfg()).includes(codeBridge.url(a))&&await withAgent(a,async()=>codeBridge.ensure(a,await cfg(),mcp)).catch(e=>{console.warn('code bridge tool',a,e.message);return false}))console.log('code bridge tool set for',a);
+   // run_self (aqeelos-self): every agent with its own Linux user, now and made later; kept off customer channels
+   await srEnsure(a,cfg,mcp).catch(e=>console.warn('self-run tool',a,e.message));
    if((await cfg()).includes(url))continue;
    const set=await withAgent(a,async()=>{const y=await cfg();if(!y||y.includes(url))return false;   // read again inside the queue
     if(y.includes('aqeelos-notify'))await mcp(a,'DELETE','/aqeelos-notify');
@@ -1044,6 +1048,91 @@ const secretLinks=createSecretLinks({DATA,PUBLIC_URL,save:(base,name,value)=>sav
  exists:async(base,name)=>!!await stat(path.join(secretDir(base),name)).catch(()=>null)||(await readFile(path.join(base==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',base),'.env'),'utf8').catch(()=>'')).split('\n').some(l=>l.replace(/^\s*export\s+/,'').startsWith(name+'=')),
  tell:(text,detail)=>bottlenecks.event('secrets',text,detail,{info:true})});
 const secretHits=createLimiter(30,600e3);
+/* "Run myself" (self-runs.mjs, 5 Nov 2026): run_self, run_self_status and run_self_list on their own tool server
+   (aqeelos-self, one signed address per agent, from this box only), given to every agent with its own Linux user. The
+   agent is the one in the signed address, never one it names; who asked is read from the chat the call is in. Settings,
+   trusted people, the audit and Stop/Resume are on Automations › Runs itself. */
+let SR_TZ='Asia/Jakarta';const srTz=()=>readConfig('default').then(c=>{if(c?.timezone)SR_TZ=c.timezone}).catch(()=>{});srTz();setInterval(srTz,600e3).unref();
+const srName=a=>NAMES[a]||(a==='default'?'aqeelOS':a[0].toUpperCase()+a.slice(1));
+const srBox=createSelfRunsBox({HERMES_HOME,DATA,python:enginePython});
+const srSig=a=>sign('self-runs:'+a).slice(0,32),srUrl=a=>`http://127.0.0.1:${PORT}/mcp/self/${a}/${srSig(a)}`;
+const srDur=s=>s==null?'':s<60?s+' s':Math.round(s/60)+' min';
+const SR_SAY={ok:'finished',failed:'failed',timeout:'ran out of time on',stopped:'stopped',interrupted:'lost (aqeelOS restarted during)'};
+const SR_CHAT=new Set(['telegram','whatsapp','slack','discord','signal','matrix','mattermost']);
+// the owner hears it on Telegram (the main agent's own chat with them), else on the main agent's other channel
+async function srToOwner(text){const ch=await relay.channelsFor('default');const c=ch.find(x=>x.platform==='telegram'&&x.owner==='default')||ch.find(x=>x.owner==='default')||ch[0];if(!c)throw new Error('no channel to the owner');await relay.sendAs('default',c.owner,c.platform,text,null,{toYou:true})}
+const selfRuns=createSelfRuns({DATA,nameOf:srName,day:t=>localAt(t,SR_TZ).date,hour:t=>localAt(t,SR_TZ).h,
+ launch:srBox.launch,alive:srBox.alive,kill:srBox.kill,readExit:srBox.readExit,readOut:srBox.readOut,
+ // the end of a run: in the chat it was asked from (a person's channel), else in the bell
+ notify:async(r,answer)=>{const head=r.agentName+' '+(SR_SAY[r.state]||r.state)+' a run it started itself'+(r.secs!=null?' ('+srDur(r.secs)+')':'')+'. Reason: '+r.reason;const b=r.by||{};
+  if(SR_CHAT.has(b.platform)&&b.chat){try{await relay.send({owner:r.agent,platform:b.platform,chat:String(b.chat)+(b.thread?':'+b.thread:''),text:head+(answer?'\n\n'+answer.slice(-700):'')});return}catch(e){console.warn('self-run notice',r.agent,e.message)}}
+  await bottlenecks.event('selfruns',head,answer?answer.slice(-400):'',{info:true})},
+ tellOwner:async(text,{quiet}={})=>{await bottlenecks.event('selfruns',text.split('\n')[0],text,quiet?{info:true}:{topic:'selfruns-'+text.slice(0,40)}).catch(()=>{});await srToOwner(text).catch(e=>console.warn('self-runs: owner not told on a channel:',e.message))},
+ bell:(text,detail)=>bottlenecks.event('selfruns',text,detail,{info:true})});
+// which agents get it: their own Linux user is set up (commands and files run as ag-<agent>); never the main agent,
+// its extra-number copies, the help agent or (on the live app) a test copy's agents
+async function srEligible(a){if(!SR_AGENT.test(a)||a==='default'||a.includes('--')||a===HELP_AGENT)return false;if(PORT===4400&&await isTestAgent(a))return false;if(!await isAgent(a))return false;
+ const c=await readConfig(a).catch(()=>null);return pick(c,'terminal.backend')==='ssh'&&String(pick(c,'terminal.ssh_user')||'')===('ag-'+a).slice(0,32)}
+const SR_PLACED=path.join(DATA,'self-runs-placement.json');
+async function srEnsure(a,cfg,mcp){const ok=await srEligible(a),u=srUrl(a);
+ await withAgent(a,async()=>{const y=await cfg();if(!y)return;const has=/^\s*aqeelos-self:/m.test(y);
+  if(ok&&!y.includes(u)){if(has)await mcp(a,'DELETE','/aqeelos-self');await mcp(a,'POST','',{name:'aqeelos-self',url:u});console.log('self-run tool set for',a)}
+  else if(!ok&&has){await mcp(a,'DELETE','/aqeelos-self');console.log('self-run tool removed from',a)}});
+ await srPlace(a)}
+// hidden on webhooks always, and on WhatsApp unless a trusted person is on WhatsApp (the engine has no per-channel
+// switch for one tool server, so that channel lists every other server by name; kept in step at every sync)
+async function srPlace(a){const c=await readConfig(a).catch(()=>null);if(!c)return;let m={};try{m=JSON.parse(await readFile(SR_PLACED,'utf8'))}catch{}
+ const servers=Object.entries(pick(c,'mcp_servers')||{}).filter(([,v])=>v&&typeof v==='object'&&!/^(false|0|no|off)$/i.test(String(v.enabled??''))).map(([n])=>n);
+ const has=servers.includes('aqeelos-self');let changed=false,before=JSON.stringify(m);
+ for(const pf of ['whatsapp','webhook']){const hide=has&&(pf==='webhook'||!await selfRuns.hasTrusted('whatsapp'));
+  const r=srPlacement({pf,cur:pick(c,'platform_toolsets.'+pf),servers,hide,managed:!!m[a+'|'+pf]});
+  if(r.want){const s=await setKey(a,'platform_toolsets.'+pf,r.want);if(!s.ok)throw new Error(String(s.err||s.out||'could not save').slice(-200));changed=true;console.log('self-run tool',hide?'kept off':'back on',pf,'for',a)}
+  if(r.managed)m[a+'|'+pf]=true;else delete m[a+'|'+pf]}
+ if(JSON.stringify(m)!==before)await writeFile(SR_PLACED,JSON.stringify(m));if(changed)restartGateway('run_self kept off customer channels').catch(()=>{})}
+// the chat a call came from: the waiting call with these very arguments in the agent's own chat database
+async function srOrigin(a,tool,args){let calls=[];
+ for(let i=0;i<5;i++){try{calls=(await srBox.lookup(a,tool)).filter(c=>{let x;try{x=typeof c.args==='string'?JSON.parse(c.args||'{}'):c.args}catch{return false}return srFp(x)===srFp(args)})}catch(e){return {ok:false,why:e.message}}
+  if(calls.length)break;await new Promise(r=>setTimeout(r,800))}
+ const settings=await selfRuns.settings(a),trusted=await selfRuns.trusted();
+ const sessionUser=id=>{const uid=users.sessionOwner(id),w=uid&&users.byId(uid);return w?{name:w.name||w.username||uid,ok:users.atLeast(w,a,'edit')}:null};
+ if(!calls.length)return srJudge([],{settings,trusted,sessionUser});
+ // the same call twice at once: every chat it could be from must pass
+ const v=calls.map(c=>srJudge(c.chain,{settings,trusted,sessionUser}));return v.find(x=>!x.ok)||v[0]}
+const SR_TOOLS=[
+ {name:'run_self',description:'Start a fresh run of yourself in the background, to test or re-run your own work: a new chat of your own with this prompt, with your own tools, files and keys, in your own workspace. It runs at most timeout_minutes ('+SR_MAX+' at most) and you can carry on meanwhile; the person who asked hears when it ends. Then call run_self_status with its id and wait true to get the result. Only in chats with your owner, a trusted person or the aqeelOS chat, and from your own schedules. At most 2 at once and a daily limit set in aqeelOS.',
+  inputSchema:{type:'object',properties:{prompt:{type:'string',description:'Everything the run needs to know: it starts with no memory of this chat'},reason:{type:'string',description:'Why, in a few words (shown to the owner)'},timeout_minutes:{type:'number',minimum:1,maximum:SR_MAX,description:'Stop it after this many minutes (default '+SR_DEF+', at most '+SR_MAX+')'},lock:{type:'string',description:'Optional: a lock file in your workspace, e.g. .tools/browser.lock. The run waits (up to 10 minutes) until nothing else holds it, and holds it while it runs.'}},required:['prompt','reason']}},
+ {name:'run_self_status',description:'How a run you started with run_self is going, and its result when it is done. With wait true it waits up to 4 minutes for it to finish.',inputSchema:{type:'object',properties:{id:{type:'string',description:'The run id run_self gave'},wait:{type:'boolean'}},required:['id']},annotations:{readOnlyHint:true}},
+ {name:'run_self_list',description:'Your runs from run_self (newest first), how many you started today against your daily limit, and whether self-runs are paused.',inputSchema:{type:'object',properties:{}},annotations:{readOnlyHint:true}}];
+const SR_STATE={waiting:'Waiting for the lock',running:'Running',ok:'Finished',failed:'Failed',timeout:'Ran out of time',stopped:'Stopped by an admin',interrupted:'Lost: aqeelOS restarted while it ran'};
+const srText=r=>'Run '+r.id+': '+(SR_STATE[r.state]||r.state)+(r.secs!=null?' after '+srDur(r.secs):'')+(r.exit!=null&&r.state!=='ok'?' (exit code '+r.exit+')':'')+'.\nReason: '+r.reason+(r.error?'\n'+r.error:'')+(r.answer?'\n\nIts last output:\n'+r.answer:'')+(r.state==='running'||r.state==='waiting'?'\n\nStill going. Call again with wait true.':'');
+async function srMcp(req,res,ms){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method!=='POST')return send(res,405,'POST only');
+ let msg={};try{msg=JSON.parse(await readBody(req,262144))}catch{return send(res,400,{error:'bad json'})}
+ const a=ms[1],x=Buffer.from(String(ms[2])),y=Buffer.from(srSig(a));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,{error:'bad token'});
+ const rpc=result=>send(res,200,{jsonrpc:'2.0',id:msg.id,result}),reply=(text,isError)=>rpc({content:[{type:'text',text}],...(isError?{isError:true}:{})});
+ if(msg.method==='initialize')return rpc({protocolVersion:msg.params?.protocolVersion||'2025-06-18',capabilities:{tools:{}},serverInfo:{name:'aqeelos-self',version:'1.0.0'}});
+ if(msg.method==='notifications/initialized'||msg.id==null)return send(res,202,'');
+ if(msg.method==='ping')return rpc({});
+ if(msg.method==='tools/list')return rpc({tools:await srEligible(a)?SR_TOOLS:[]});
+ if(msg.method!=='tools/call')return send(res,200,{jsonrpc:'2.0',id:msg.id,error:{code:-32601,message:'Method not found'}});
+ const name=String(msg.params?.name||''),args=msg.params?.arguments&&typeof msg.params.arguments==='object'?msg.params.arguments:{};
+ if(!SR_TOOLS.some(t=>t.name===name))return reply('Unknown tool.',true);
+ if(!await srEligible(a))return reply('Running yourself is not available for this agent.',true);
+ let origin=await srOrigin(a,name,args);
+ try{if(name==='run_self'){const ws=path.join(homedir(),'workspaces',a);let lockPath=null;
+   if(origin.ok&&args.lock)try{lockPath=await safeLock(ws,args.lock)}catch(e){origin={ok:false,by:origin.by,why:e.message}}
+   const r=await selfRuns.start({agent:a,args,origin,ws,lockPath});console.log('self-run',r.id,'started by',a,'for',origin.by?.kind||'?');
+   return reply('Started run '+r.id+' ('+r.minutes+' minutes at most'+(r.state==='waiting'?', it first waits for the lock':'')+'). It runs on its own, so carry on. Call run_self_status with id '+r.id+' and wait true for the result; the person who asked also hears when it ends.')}
+  if(!origin.ok){await selfRuns.start({agent:a,args:{prompt:'('+name+')',reason:'('+name+')'},origin}).catch(()=>{});return reply(origin.why,true)}
+  if(name==='run_self_status'){const r=args.wait?await selfRuns.wait(a,args.id,240e3):await selfRuns.status(a,args.id);return r?reply(srText(r)):reply('You have no run with id '+String(args.id||'').slice(0,40)+'. run_self_list shows yours.',true)}
+  const m=await selfRuns.mine(a);
+  return reply('Today: '+m.today+' of '+m.cap+' runs.'+(m.paused?' Self-runs are PAUSED ('+(m.paused.why==='cap'?'daily limit reached, until tomorrow':'3 failed runs in a row, until an admin resumes them')+').':'')+(m.on?'':' Running yourself is switched off for you in aqeelOS.')+'\n'+(m.runs.map(r=>'- '+r.id+' · '+(SR_STATE[r.state]||r.state)+(r.secs!=null?' · '+srDur(r.secs):'')+' · '+r.reason).join('\n')||'No runs yet.'))}
+ catch(e){return reply(e.message,true)}}
+// every 5 seconds: runs that started or ended, trusted-person codes that arrived, and (live) the 08:00 summary
+let srTicking=false;setInterval(()=>{if(srTicking)return;srTicking=true;(async()=>{await selfRuns.check();
+  const codes=await selfRuns.pendingCodes();if(codes.length){const hits=await srBox.findCodes(await listAllProfiles(),Math.min(...codes.map(c=>c.at))-60e3);
+   for(const h of hits){const m=/TRUST-[A-Z2-9]{4}-[A-Z2-9]{4}/.exec(h.text||'');if(!m||!codes.some(c=>c.code===m[0]))continue;
+    const t=await selfRuns.codeSeen({code:m[0],platform:h.platform,uid:h.uid,name:h.name,agent:h.agent});if(t){console.log('self-runs: a trusted person was added on',t.platform);syncNotifyTool().catch(()=>{})}}}
+  if(LIVE_APP)await selfRuns.summary(8)})().catch(e=>console.warn('self-runs tick',e.message)).finally(()=>{srTicking=false})},5000).unref();
 // the page: a phone-sized form, its own small script; strict headers (no caching, no referrer, no framing, not indexed)
 function secretPage(nonce){return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Save a key · aqeelOS</title>
 <style nonce="${nonce}">@font-face{font-family:'Plus Jakarta Sans';font-weight:200 800;font-display:swap;src:url('/assets/plus-jakarta-sans.woff2') format('woff2')}
@@ -1367,6 +1456,8 @@ const server=createServer(async(req,res)=>{
   if(p==='/healthz')return send(res,200,{ok:true,build:BUILD,live:liveCount(),engine:(void engineAgents(),engAgents.n),busy:busyTotal({live:liveCount(),setups:export_setups.running(),ops:opsBusy(),relay:relay.sending(),gwRestarting:!!gwRestarting,engineUpdate:engineUpd.busy(),restore:backups.busy()})});
   // the code bridge agents' engines call during a Code run for a computer project (app/code-bridge.mjs)
   if(p.startsWith('/mcp/code/')&&await codeBridge.handle(req,res,{send,readBody}))return;
+  // run_self and the rest (aqeelos-self): from this box only, each agent's address signed
+  {const ms=/^\/mcp\/self\/([\w-]+)\/([\w-]+)$/.exec(p);if(ms)return await srMcp(req,res,ms)}
   // the "notify me" tool agents call (from this box only; each agent's address is signed)
   const mn=/^\/mcp\/notify\/([\w-]+)\/([\w-]+)$/.exec(p);
   if(mn){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method==='GET')return send(res,405,'POST only');
@@ -1925,6 +2016,20 @@ const server=createServer(async(req,res)=>{
     try{if(p==='/ui/engine-updates'&&req.method==='GET')return send(res,200,await engineUpd.status());
      if(p==='/ui/engine-updates/mode'&&req.method==='POST')return send(res,200,await engineUpd.setMode(String(b.mode||'')));
      if(p==='/ui/engine-updates/tonight'&&req.method==='POST')return send(res,200,await engineUpd.setTonight(!!b.on))}catch(e){return send(res,400,{error:e.message})}}
+   // run_self (admins, Automations › Runs itself): per-agent switches and limits, trusted people, runs, Stop and Resume
+   if(p==='/ui/self-runs'||p.startsWith('/ui/self-runs/')){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});let b={};if(req.method==='POST'){try{b=JSON.parse(await readBody(req,4096)||'{}')}catch{}}
+    const who=u.name||u.username||u.id,ag=String(b.agent||'');
+    try{if(req.method==='GET'&&p==='/ui/self-runs'){const all=[];for(const a of await listAgents())if(await srEligible(a))all.push(a);return send(res,200,await selfRuns.overview(all))}
+     if(req.method==='GET'&&p==='/ui/self-runs/run'){const r=await selfRuns.detail(url.searchParams.get('id'));return r?send(res,200,r):send(res,404,{error:'No such run.'})}
+     if(req.method!=='POST')return send(res,405,{error:'Not here.'});
+     if((p==='/ui/self-runs/settings'||p==='/ui/self-runs/resume')&&!await srEligible(ag))return send(res,400,{error:'That agent cannot run itself.'});
+     if(p==='/ui/self-runs/settings')return send(res,200,await selfRuns.setSettings(ag,b,who));
+     if(p==='/ui/self-runs/resume')return send(res,200,{ok:await selfRuns.resume(ag,who)});
+     if(p==='/ui/self-runs/stop')return send(res,200,{ok:await selfRuns.stop(String(b.id||''),who)});
+     if(p==='/ui/self-runs/code'){const c=await selfRuns.newCode({name:b.name,by:who});return send(res,200,{code:c.code,exp:c.exp})}
+     if(p==='/ui/self-runs/code/cancel')return send(res,200,{ok:await selfRuns.cancelCode(String(b.code||''))});
+     if(p==='/ui/self-runs/untrust'){const ok=await selfRuns.untrust(String(b.id||''),who);if(ok)syncNotifyTool().catch(()=>{});return send(res,200,{ok})}
+     return send(res,404,{error:'Not here.'})}catch(e){return send(res,400,{error:e.message})}}
    // one-time secret links (admins, System › Keys and secrets): open links (cancel) and what happened, never a value
    if(p==='/ui/secret-links'||p==='/ui/secret-links/cancel'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});
     if(req.method==='GET'&&p==='/ui/secret-links')return send(res,200,await secretLinks.list());
