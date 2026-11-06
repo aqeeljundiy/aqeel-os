@@ -62,3 +62,16 @@ test('port lookup: only listening sockets, the agent user\'s own, on its own por
  // Donna and trusted agents share a user: only sockets of their own copy's processes count
  assert.deepEqual(apiCandidates(rows,{uid:1001,own:50400}),[50326]);assert.deepEqual(apiCandidates(rows,{uid:1001,own:50400,mine:r=>r.inode===1}),[]);
  assert.deepEqual(apiCandidates(parseListen(''),{uid:1,own:2}),[])});
+
+// fresh install (6 Nov 2026): the AdsPower list read every agent's status at once; each saved through one FILE.tmp, so the
+// second rename failed (ENOENT, unhandled) and /ui/adspower never answered
+test('the list with several agents and no data file yet answers (saves never collide)',async()=>{
+ const {mkdtemp,readFile}=await import('node:fs/promises');const {tmpdir}=await import('node:os');const path=(await import('node:path')).default;
+ const {createAgentAdspower}=await import('../app/agent-adspower.mjs');
+ const DATA=await mkdtemp(path.join(tmpdir(),'ads-'));
+ const ads=createAgentAdspower({DATA,HERMES_HOME:path.join(DATA,'hh'),screens:{},codeUser:async()=>null,agentNames:async()=>['default','alpha','beta','gamma'],
+  readConfig:async()=>'',pick:()=>undefined,withAgent:async(a,f)=>f(),mcp:async()=>({ok:true}),log:()=>{},portsFile:path.join(DATA,'ports')});
+ const out=[];const res={};const send=(r,s,b)=>out.push([s,b]);
+ await Promise.all([1,2,3].map(()=>ads.handle({method:'GET'},res,'/ui/adspower',send,{admin:true})));
+ assert.equal(out.length,3);for(const [s,b] of out){assert.equal(s,200);assert.equal(b.items.length,4)}
+ const db=JSON.parse(await readFile(path.join(DATA,'agent-adspower.json'),'utf8'));assert.deepEqual(Object.keys(db.ports).sort(),['alpha','beta','default','gamma'])});

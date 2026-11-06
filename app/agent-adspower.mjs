@@ -49,8 +49,8 @@ export const parseListen=t=>String(t).split('\n').slice(1).map(l=>l.trim().split
 // (mine(row) says a socket is this copy's, for agents that share a user); /status then tells which one it is
 export const apiCandidates=(rows,{uid,own,mine=()=>true})=>[...new Set(rows.filter(r=>r.uid===uid&&(r.port===own||r.port>=ADS_PORT&&r.port<=ADS_LAST)&&mine(r)).map(r=>r.port))].sort((a,b)=>(b===own)-(a===own)||a-b);
 
-export function createAgentAdspower({DATA,HERMES_HOME,screens,codeUser,agentNames,readConfig,pick,withAgent,mcp,nameOf=a=>a,skip=async()=>false,live=false,log=m=>console.log(m)}){
- const HOME=homedir(),FILE=path.join(DATA,'agent-adspower.json'),PORTS=path.join(HOME,'.aqeelos-adspower-ports');
+export function createAgentAdspower({DATA,HERMES_HOME,screens,codeUser,agentNames,readConfig,pick,withAgent,mcp,nameOf=a=>a,skip=async()=>false,live=false,log=m=>console.log(m),portsFile=null}){
+ const HOME=homedir(),FILE=path.join(DATA,'agent-adspower.json'),PORTS=portsFile||path.join(HOME,'.aqeelos-adspower-ports');
  const SRC=path.join(HOME,'apps','adspower','opt','adspower-global'),BIN_DIR=path.join(HOME,'workspaces','.aqeelos-adspower'),BIN=path.join(BIN_DIR,'adspower_global');
  const KEY=path.join(HERMES_HOME,'agent-ssh','id_ed25519'),MCP_SCRIPT=new URL('../scripts/adspower-mcp.sh',import.meta.url).pathname;
  const SHIM_SRC=new URL('../scripts/adspower-port-shim.c',import.meta.url).pathname,SHIM=path.join(HOME,'workspaces','.aqeelos-adspower-port.so');
@@ -60,7 +60,11 @@ export function createAgentAdspower({DATA,HERMES_HOME,screens,codeUser,agentName
  let realPort={};   // agent → the port its copy really listens on, when not its own (found by tick and tools)
  // the CDP bridge (scripts/adspower-bridge.mjs) reads this to find an agent's own copy
  const writePorts=()=>writeFile(PORTS,Object.entries(db.ports).map(([a,p])=>a+' '+(realPort[a]||p)).join('\n')+'\n').catch(()=>{});
- const save=async()=>{await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE);await writePorts()};
+ // one save at a time, each with its own tmp file: parallel status reads (the list on a fresh install) all saved through
+ // one FILE.tmp, so the second rename failed (ENOENT) and /ui/adspower never answered
+ let saving=Promise.resolve();
+ const save=()=>saving=saving.catch(()=>{}).then(async()=>{const tmp=FILE+'.'+process.pid+'.'+Math.random().toString(36).slice(2)+'.tmp';
+  await mkdir(path.dirname(FILE),{recursive:true});await writeFile(tmp,JSON.stringify(db,null,1));await rename(tmp,FILE);await writePorts()});
  // every agent but Help and test agents; Donna's extra numbers are Donna
  const agents=async()=>{const out=[];for(const a of await agentNames())if(NAME.test(a)&&!a.includes('--')&&!await skip(a))out.push(a);return out};
  async function ports(){await load();const r=assignPorts(db,await agents());if(r.changed||!db.next){db={off:{},...r.db};await save()}return db.ports}
