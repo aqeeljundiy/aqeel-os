@@ -80,6 +80,7 @@ net.setDefaultAutoSelectFamilyAttemptTimeout(4000);
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createAgentVersions,VERSION_TOOLS} from './agent-versions.mjs';   // self-repair kit (workstream E)
+import {createAgentLive} from './agent-live.mjs';   // live context each message + traceback guard (7 Nov 2026)
 import {readPicture,emojiSlugs,emojiAuto,AVATAR_TYPES} from './avatar-file.mjs';
 import {parseEnv,setEnvLine,channelWho,globalWho,removePerson,engineChange,approvedWithout,samePerson as allowSame} from './allowlist.mjs';
 
@@ -1284,7 +1285,12 @@ if(PORT===4400&&LIVE_APP){setTimeout(()=>health.tick().catch(e=>console.warn('he
 const avPing=a=>new Promise(res=>{const f=path.join(DATA,'agent-versions-ping-'+a+'.txt');writeFile(f,'aqeelOS health check after a change you made to yourself. Reply with exactly: OK').then(()=>
  execFile(path.join(homedir(),'.local','bin','aqeelos'),['-p',a,'chat','--oneshot','-Q','--source','tool','--query-file',f],{cwd:path.join(homedir(),'workspaces',a),timeout:240e3,maxBuffer:4e6},(e,o,er)=>res(e?{ok:false,unsure:!!gwRestarting||Date.now()-lastOwnRestart<5*60e3,why:'it did not answer ('+(e.code??e.signal)+'): '+String(er||'').trim().split('\n').pop()}:/\bOK\b/i.test(String(o))?{ok:true}:{ok:false,why:'answered without OK: '+String(o).slice(0,200)}))).catch(e=>res({ok:false,why:e.message}))});
 const versions=createAgentVersions({DATA,HERMES_HOME,DASH:DASH.origin,DASH_TOKEN,PUBLIC_URL,listAgents:()=>listAgents(),nameOf:a=>NAMES[a]||a,readConfig,setKey,pick,
- instructions,kirimdev,issues,health,teamGroups,selfRuns,bin:path.join(homedir(),'.local','bin','aqeelos'),ping:avPing,tellOwner:srToOwner,quiet:alertQuiet,live:PORT===4400&&LIVE_APP});
+ instructions,kirimdev,issues,health,teamGroups,selfRuns,bin:path.join(homedir(),'.local','bin','aqeelos'),ping:avPing,tellOwner:srToOwner,quiet:alertQuiet,live:PORT===4400&&LIVE_APP,extraHealth:a=>agentLive.healthLines(a)});
+// every agent's home gets the engine plugin aqeelos-live (live context each message, tracebacks held back): installed at
+// start and every 10 minutes (new agents too); when it was new or changed, the engine reloads once no reply runs
+const agentLive=createAgentLive({HERMES_HOME,DATA,listAgents:()=>listAgents(),readConfig,setKey,pick,capabilities:a=>versions.capabilities(a),policy:()=>issues.policy(),nameOf:a=>NAMES[a]||a,engineDir:path.join(here,'..','engine','aqeelos-live')});
+if(PORT===4400&&LIVE_APP){const liveInstall=()=>agentLive.install().then(c=>{if(c.length)restartGateway('aqeelos-live plugin for '+c.length+' agent(s)').catch(()=>{})}).catch(e=>console.warn('agent-live install',e.message));
+ setTimeout(liveInstall,60e3).unref();setInterval(liveInstall,10*60e3).unref()}
 if(PORT===4400&&LIVE_APP){setInterval(()=>versions.watchTick().catch(e=>console.warn('agent-versions watch',e.message)),60e3).unref();setTimeout(()=>versions.skillsTick().catch(()=>{}),90e3).unref();setInterval(()=>versions.skillsTick().catch(e=>console.warn('agent-versions skills',e.message)),10*60e3).unref()}
 // which agents get it: their own Linux user is set up (commands and files run as ag-<agent>); never the main agent,
 // its extra-number copies, the help agent or (on the live app) a test copy's agents
@@ -1888,6 +1894,11 @@ const server=createServer(async(req,res)=>{
    if(+req.headers['content-length']>1024*1024)return send(res,413,{error:'Too large'});try{raw=await readRaw(req,1024*1024)}catch{return send(res,413,{error:'Too large'})}
    try{const r=await kirimdev.receive(km[1],req.headers,raw);return send(res,r.status,r.body)}catch(e){console.warn('kirimdev receive',e.message);return send(res,500,{error:'Try again'})}}}
   // a press on an issue's Telegram button, posted by the gateway plugin aqeelos-issue-buttons (this box only, with the key)
+  // the engine plugin aqeelos-live (this box only, with the key in HERMES_HOME/secrets/agent-live.key): a turn's context, a held error
+  if(p==='/agent-live/context'||p==='/agent-live/held'){if(req.method!=='POST')return send(res,405,{error:'POST only'});let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
+   if(!await agentLive.keyOk(b.key))return send(res,403,{error:'bad key'});const ag=String(b.agent||'');if(!/^[a-z0-9][a-z0-9_-]{0,80}$/.test(ag)||!(await agentLive.homes()).includes(ag))return send(res,404,{error:'no such agent'});
+   if(p==='/agent-live/held')return send(res,200,{ok:true,...await agentLive.hold(ag,{error:String(b.error||'').slice(0,8000),platform:String(b.platform||'').slice(0,40),session:String(b.session||'').slice(0,120)})});
+   try{return send(res,200,await agentLive.context(ag,{platform:String(b.platform||''),sender:String(b.sender||''),first:!!b.first,seen:String(b.seen||'')}))}catch(e){console.warn('agent-live context',ag,e.message);return send(res,200,{text:''})}}
   if(p==='/issue-press'){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra)||req.method!=='POST')return send(res,403,{error:'local only'});
    let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const k=await pressKey();
    if(typeof b.key!=='string'||b.key.length!==k.length||!timingSafeEqual(Buffer.from(b.key),Buffer.from(k)))return send(res,403,{error:'bad key'});

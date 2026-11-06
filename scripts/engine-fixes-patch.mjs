@@ -239,6 +239,37 @@ def _redact_phones_enabled() -> bool:
             platform = "bot_token"
         if key is None or platform is None:
             kept.append(line)
+`}]},
+ {tag:'aqeelos:script-failure-held',name:'a failed script-only schedule reports to aqeelOS and alerts once, never a raw traceback',file:'cron/scheduler.py',edits:[
+  {why:'the script-failed alert',
+   from:'        # Deliver the error: a silently broken watchdog is the worst-case outcome.\n        alert = (\n            f"⚠ Cron watchdog \'{job_name}\' script failed\\n\\n"\n            f"{output}\\n\\n"\n            f"Time: {now_iso}"\n        )\n',
+   to:`        # Deliver the error: a silently broken watchdog is the worst-case outcome.
+        # aqeelos:script-failure-held (7 Nov 2026): the raw output (often a traceback) went to the chat on every run, every
+        # 5 minutes. The error goes to aqeelOS (the agent's my_health and its next message); the chat gets one short line
+        # per kind of error per 6 hours, and silence in between. aqeelOS down = the old alert, so a failure is never lost.
+        alert = None
+        try:
+            import hashlib as _aq_h, urllib.request as _aq_u
+            from pathlib import Path as _aq_P
+            _aq_home = _aq_P(str(_get_hermes_home())).resolve()
+            _aq_agent, _aq_root = (_aq_home.name, _aq_home.parent.parent) if _aq_home.parent.name == "profiles" else ("default", _aq_home)
+            _aq_key = (_aq_root / "secrets" / "agent-live.key").read_text().strip()
+            _aq_body = json.dumps({"key": _aq_key, "agent": _aq_agent, "platform": "cron", "session": str(job_id),
+                                   "error": "Schedule " + str(job_name) + " (" + str(job_id) + ") failed:\\n" + str(output)[-4000:]}).encode()
+            with _aq_u.urlopen(_aq_u.Request("http://127.0.0.1:4400/agent-live/held", data=_aq_body,
+                                             headers={"content-type": "application/json"}, method="POST"), timeout=10) as _aq_r:
+                _aq_res = json.loads(_aq_r.read() or b"{}")
+            _aq_last = (str(output).strip().splitlines() or [""])[-1][:200]
+            alert = SILENT_MARKER if int(_aq_res.get("count") or 1) > 1 and not _aq_res.get("tell") else (
+                f"⚠ Schedule '{job_name}' failed: {_aq_last}\\nThe details are in my health list (my_health); I will fix the script.")
+        except Exception:
+            alert = None
+        if alert is None:
+          alert = (
+            f"⚠ Cron watchdog '{job_name}' script failed\\n\\n"
+            f"{output}\\n\\n"
+            f"Time: {now_iso}"
+          )
 `}]}];
 
 // one engine file's text → {out (null when nothing changed), applied:[names], errors:[text]}

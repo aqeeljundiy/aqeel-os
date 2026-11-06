@@ -75,7 +75,7 @@ export async function recordAgentChange(e={}){if(!current||!e.agent)return null;
  return current(e.agent,{kind,target,what,why:e.why||'',by,before:setting?{value:e.before??null}:e.before,after:setting?{value:e.after??null}:e.after,undoable:setting||kind==='webhook'})}
 export function createAgentVersions({DATA,HERMES_HOME,DASH,DASH_TOKEN,PUBLIC_URL='',listAgents,nameOf=a=>a,readConfig,setKey,pick,
  instructions=null,kirimdev=null,issues=null,health=null,teamGroups=null,selfRuns=null,bin,python=async()=>null,
- ping=null,tellOwner=async()=>{},quiet=()=>null,log=m=>console.log(m),now=()=>Date.now(),live=false}){
+ ping=null,tellOwner=async()=>{},quiet=()=>null,log=m=>console.log(m),now=()=>Date.now(),live=false,extraHealth=async()=>[]}){
  const home=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const dir=a=>path.join(DATA,'agent-versions',a);
  const api=(p,o={})=>fetch(DASH+'/api'+p,{signal:AbortSignal.timeout(o.timeout||60000),...o,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'}}).then(async r=>{const j=await r.json().catch(()=>null);if(!r.ok)throw Error(j?.detail||'HTTP '+r.status);return j});
@@ -177,6 +177,7 @@ export function createAgentVersions({DATA,HERMES_HOME,DASH,DASH_TOKEN,PUBLIC_URL
   try{const v=await health?.view();const r=v?.agents?.find(x=>x.agent===a);if(r){lines.push(r.problems?.length?'Problems aqeelOS sees for you:\n'+r.problems.map(p=>'- '+(p.text||p.title||p.what)+(p.detail?': '+clip(p.detail,200):'')).join('\n'):'aqeelOS sees no problems for you.');if(r.drops)lines.push('Failed messages this week: '+JSON.stringify(r.drops))}}catch(e){lines.push('Health could not be read: '+e.message)}
   try{const l=await issues?.forAgent(a);if(l?.length)lines.push('Your issues with the aqeelOS fixer:\n'+l.slice(0,8).map(i=>'- '+i.id+' '+i.state+': '+clip(i.missing,160)).join('\n'))}catch{}
   const jobs=await myJobs(a).catch(()=>[]);const bad=jobs.filter(j=>j.last_status&&j.last_status!=='ok'||j.failure_streak);if(bad.length)lines.push('Schedules that failed last time: '+bad.map(j=>j.name+' ('+j.id+')').join(', '));
+  try{lines.push(...(await extraHealth(a)||[]))}catch{}
   const d=await load(a);if(d.watch)lines.push('aqeelOS is checking you still answer after your last change (rolls back by itself if not).');
   const rb=d.events.filter(e=>e.kind==='rollback').slice(-2);if(rb.length)lines.push('Automatic rollbacks: '+rb.map(e=>new Date(e.at).toISOString()+' '+e.text).join(' | '));
   return {text:lines.join('\n\n')||'Nothing to report.'}}
