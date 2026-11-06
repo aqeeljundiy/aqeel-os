@@ -196,7 +196,7 @@ async function serveFile(res,rel){
    profile.yaml (display_name) so Hermes' own tools show it too. */
 const DATA=path.resolve(env.UI_DATA_DIR||path.join(root,'..','hermes-ui-data'));initStatus(DATA);
 let revoked={};readFile(path.join(DATA,'session-revoke.json'),'utf8').then(t=>{revoked=JSON.parse(t)||{}}).catch(()=>{});
-const HERMES_HOME=env.HERMES_HOME||path.join(homedir(),'.hermes');
+const HERMES_HOME=(env.HERMES_HOME||path.join(homedir(),'.hermes')).replace(/^~(?=\/|$)/,homedir()); // --env-file does not expand ~
 const IDS=path.join(DATA,'identities.json');
 const okProfile=n=>/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(n);
 async function readIds(){try{return JSON.parse(await readFile(IDS,'utf8'))}catch{return {}}}

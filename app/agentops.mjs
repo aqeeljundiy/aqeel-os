@@ -9,7 +9,7 @@ import path from 'node:path';
 
 const HOME=homedir();
 const HERMES=process.env.HERMES_BIN||path.join(HOME,'.local','bin','hermes');
-export const HERMES_HOME=process.env.HERMES_HOME||path.join(HOME,'.hermes');
+export const HERMES_HOME=(process.env.HERMES_HOME||path.join(HOME,'.hermes')).replace(/^~(?=\/|$)/,HOME); // --env-file does not expand ~
 export const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
 // only the live app (port 4400) runs background jobs that change agents; a test copy on another port must not
 export const LIVE_APP=(Number(process.env.UI_PORT)||4400)===4400;

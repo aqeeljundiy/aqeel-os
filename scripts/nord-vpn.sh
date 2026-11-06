@@ -9,7 +9,7 @@
 #    within 10 minutes (made once someone checked the box is still reachable), so a bad setup can't lock anyone out.
 # Status for aqeelOS: /home/claude/.aqeelos-vpn-status (one line: state, then the public IP when known).
 set -u
-HOMEC=${AQEELOS_HOME:-/home/claude}
+HOMEC=${AQEELOS_HOME:-$HOME}
 CONF=${NORD_VPN_CONF:-$HOMEC/.aqeelos-vpn}
 OK=$HOMEC/.aqeelos-vpn-ok
 STATUS=$HOMEC/.aqeelos-vpn-status
