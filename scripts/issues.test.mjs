@@ -70,3 +70,10 @@ await t('test agents and a restart hold: no approval request, no fixer result to
   await new Promise(z=>setTimeout(z,20));assert.equal(owner.length+asked.length,0,q+': nothing to the owner');assert.ok(logs.some(m=>/not sent to the owner/.test(m)));
   const raw=(await I._db()).items[0];await I.decideOwner(raw.id,raw.sig,true);await I.tick();await I.tick();assert.equal(owner.length+asked.length,0,q+': no fixer result')}});
 console.log(n+' passed');
+// full authority: a member decides like the owner, only for the agents listed
+{const pol={owner:{telegram:['1']},teams:[{name:'T',agents:['a','b','c'],members:[{name:'M',telegram:['2'],full_authority:['a','b']}]}]};
+ assert.equal(decide(pol,{agent:'a',proposed_fix:'change the api key'},{platform:'telegram',uid:'2'}).auto,true);
+ assert.equal(decide(pol,{agent:'a',affects:['b']},{platform:'telegram',uid:'2'}).auto,true);
+ assert.equal(decide(pol,{agent:'c',proposed_fix:'change the api key'},{platform:'telegram',uid:'2'}).auto,false);
+ assert.equal(decide(pol,{agent:'a',affects:['c'],proposed_fix:'delete the customer data'},{platform:'telegram',uid:'2'}).auto,false);
+ console.log('ok full authority');}

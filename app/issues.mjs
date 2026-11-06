@@ -24,12 +24,16 @@ export const OWNER_ONLY=[['keys','keys, tokens or secrets',/\b(api[ _-]?keys?|se
 export function teamOf(policy,agent){return (policy?.teams||[]).find(t=>(t.agents||[]).includes(agent))||null}
 export function personOf(policy,platform,uid){uid=String(uid||'');if(!uid)return null;
  if([].concat(policy?.owner?.[platform]||[]).map(String).includes(uid))return {owner:true,name:policy.owner.name||'Owner'};
- for(const t of policy?.teams||[])for(const m of t.members||[])if([].concat(m[platform]||[]).map(String).includes(uid))return {owner:false,name:m.name,team:t};
+ for(const t of policy?.teams||[])for(const m of t.members||[])if([].concat(m[platform]||[]).map(String).includes(uid))return {owner:false,name:m.name,team:t,full:[].concat(m.full_authority||[]).map(String)};
  return null}
 // may this issue be fixed without the owner? issue: {agent, affects:[agents], needs:[...], text}; by: {platform, uid}
 export function decide(policy,issue,by){const p=personOf(policy,by?.platform,by?.uid);
  const flagged=OWNER_ONLY.filter(([k,,re])=>(issue.needs||[]).includes(k)||re.test(String(issue.proposed_fix||''))).map(([k,l])=>({k,l}));
  if(p?.owner)return {auto:true,why:'asked by the owner'};
+ // a team member the owner gave full authority over some agents (team policy: members[].full_authority) decides for
+ // changes that only touch those agents, like the owner would
+ {const aff=[...new Set([issue.agent,...(issue.affects||[])])].filter(a=>a!=='aqeelos');
+  if(p?.full?.length&&aff.length&&aff.every(a=>p.full.includes(a)))return {auto:true,why:p.name+' has full authority over '+aff.join(', ')}}
  if(flagged.length)return {auto:false,why:'it touches '+flagged.map(x=>x.l).join(' and ')+', which only the owner decides'};
  const team=teamOf(policy,issue.agent),affects=[...new Set([issue.agent,...(issue.affects||[])])];
  if(!team)return {auto:false,why:'this agent is in no team in the policy'};
