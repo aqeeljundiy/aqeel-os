@@ -1,17 +1,17 @@
 #!/bin/bash
 # Runs as root inside the AI box, started by the box's startup (the ai-box compose in Dokploy): "once" at boot, then
-# "watch". aqeelOS lists, one per line in /home/claude/.aqeelos-agent-users, the agents that get a Linux user of
+# "watch". aqeelOS lists, one per line in ~/.aqeelos-agent-users, the agents that get a Linux user of
 # their own (see app/agent-defaults.mjs). For each, this:
-#  - makes the user ag-<agent> whose home is the agent's own folder (/home/claude/workspaces/<agent>), lets it in over
-#    SSH with aqeelOS's agents key only (no forwarding of any kind), and closes everything else in /home/claude to it:
+#  - makes the user ag-<agent> whose home is the agent's own folder (~/workspaces/<agent>), lets it in over
+#    SSH with aqeelOS's agents key only (no forwarding of any kind), and closes everything else in the owner home to it:
 #    the owner's sign-ins and keys, aqeelOS's data and the other agents' folders. aqeelOS (the claude user) keeps full
 #    access to every agent's folder;
 #  - runs the agent's screen as that user: its own display (with a private key file, so no other user can see or type
 #    into it), its desktop and its own Chrome with its own profile. Only the agent's user and aqeelOS may control that
 #    Chrome (a network rule on its control port), and aqeelOS reaches the screen through the same files it reads for
 #    any screen (<agent folder>/.screen, linked as the profile's bot-desktop folder).
-# The users it made go to /home/claude/.aqeelos-agent-users.done; each agent's display and Chrome port to
-# /home/claude/.aqeelos-agent-ports (agent display port per line).
+# The users it made go to ~/.aqeelos-agent-users.done; each agent's display and Chrome port to
+# ~/.aqeelos-agent-ports (agent display port per line).
 set -u
 HOMEC=${AQEELOS_HOME:-$HOME}
 REQ=$HOMEC/.aqeelos-agent-users
@@ -30,7 +30,7 @@ setup_box(){
   mkdir -p "$KEYS"; chmod 755 "$KEYS"
   [ -f /etc/ssh/sshd_config.d/claude.conf ] && sed -i 's/^AllowUsers claude$/AllowUsers claude ag-*/' /etc/ssh/sshd_config.d/claude.conf
   printf '%s\n' 'Match User ag-*' '  AuthorizedKeysFile /etc/ssh/agent-keys/%u' '  AllowTcpForwarding no' '  AllowStreamLocalForwarding no' '  X11Forwarding no' '  PermitTunnel no' '  AllowAgentForwarding no' '  PermitUserRC no' > /etc/ssh/sshd_config.d/zz-agents.conf
-  # a Chrome every agent user may run (the engine's own copy lives in the closed part of /home/claude)
+  # a Chrome every agent user may run (the engine's own copy lives in the closed part of the owner home)
   if [ -n "$CHROME_SRC" ] && [ ! -x "$CHROME" ]; then mkdir -p /opt/aqeelos; rm -rf /opt/aqeelos/chrome; cp -a "$CHROME_SRC" /opt/aqeelos/chrome; chmod -R a+rX /opt/aqeelos; fi
 }
 

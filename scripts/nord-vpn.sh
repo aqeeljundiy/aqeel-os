@@ -2,12 +2,12 @@
 # Runs as root inside the AI box, started by the box's startup (the ai-box compose in Dokploy). It sends everything the
 # box starts itself (agents' browsing, AI model calls, channels, downloads) out through the owner's Nord dedicated IP,
 # while anything that comes in (aqeelOS's address, SSH on 2222, Dokploy) keeps answering on the box's normal connection.
-#  - on/off and settings: /home/claude/.aqeelos-vpn (server=<host> and user=<Nord service username>); no file = off.
-#    The service password is the secret Donna saved: /home/claude/workspaces/default/.secrets/NORD_PASSWORD.
+#  - on/off and settings: ~/.aqeelos-vpn (server=<host> and user=<Nord service username>); no file = off.
+#    The service password is the secret Donna saved: <home>/workspaces/<main agent>/.secrets/NORD_PASSWORD.
 #  - if Nord drops, OpenVPN's routes go away and the box keeps working on its normal IP (no kill switch, by choice).
-#  - safety net: after a first connect the VPN switches itself off again unless /home/claude/.aqeelos-vpn-ok appears
+#  - safety net: after a first connect the VPN switches itself off again unless ~/.aqeelos-vpn-ok appears
 #    within 10 minutes (made once someone checked the box is still reachable), so a bad setup can't lock anyone out.
-# Status for aqeelOS: /home/claude/.aqeelos-vpn-status (one line: state, then the public IP when known).
+# Status for aqeelOS: ~/.aqeelos-vpn-status (one line: state, then the public IP when known).
 set -u
 HOMEC=${AQEELOS_HOME:-$HOME}
 CONF=${NORD_VPN_CONF:-$HOMEC/.aqeelos-vpn}
