@@ -461,7 +461,7 @@ const Chat={
 async function renameSession(id,title){const c=S.sessions.find(x=>x.id===id);if(title===undefined){title=await promptBox('Rename chat','Title',c?.title||'');if(title===null)return}
  try{await H('/sessions/'+encodeURIComponent(id),{method:'PATCH',body:{title}});if(c)c.title=title;paintSide();paintTop();toast('Renamed')}catch(e){fail(e)}}
 async function deleteSession(id){const c=S.sessions.find(x=>x.id===id);if(!await confirmBox('Delete this chat?',`“${esc(c?.title||c?.preview||id)}” and all its messages will be removed. This can't be undone.`))return;
- try{await del(H,'/sessions/'+encodeURIComponent(id));S.sessions=S.sessions.filter(x=>x.id!==id);delete Chat.live[id];toast('Chat deleted');if(route().chat===id)go('/chat');else paintSide()}catch(e){fail(e)}}
+ try{const sid=encodeURIComponent(id);await del(G,'/api/sessions/'+sid).catch(e=>{if(e?.status===404||/not.?found|404/i.test(String(e?.message||e)))return del(H,'/sessions/'+sid);throw e});S.sessions=S.sessions.filter(x=>x.id!==id);delete Chat.live[id];toast('Chat deleted');if(route().chat===id)go('/chat');else paintSide()}catch(e){fail(e)}}
 
 Chat.watchLive();
 // remember which folded step runs are open, so a repaint keeps them open
