@@ -267,7 +267,7 @@ export function createAgentVersions({DATA,HERMES_HOME,DASH,DASH_TOKEN,PUBLIC_URL
  async function undoAny(a,id,{by}={}){if(/^i\d+$/.test(String(id))){const v=+String(id).slice(1);if(!instructions||v<2)throw Error('That instructions version has nothing before it.');await instructions.restore(a,v-1,by||'undo');return {kind:'instructions',v:v-1}}return undo(a,id,{by})}
 
  current=record; // module-level hook for agent-access.mjs (recordAgentChange)
- return {arm,record,undo:undoAny,changes,mySchedules,mySetting,myRuns,myLogs,myHealth,myDeliveries,createWebhook,hookGate,testSend,capabilities,skillsSnap,watchTick,skillsTick,load,
+ return {myJobs,updateJob:(a,id,up)=>api('/cron/jobs/'+encodeURIComponent(id)+q(a),{method:'PUT',body:JSON.stringify({updates:up})}),arm,record,undo:undoAny,changes,mySchedules,mySetting,myRuns,myLogs,myHealth,myDeliveries,createWebhook,hookGate,testSend,capabilities,skillsSnap,watchTick,skillsTick,load,
   noteSelfChange:async(a,{kind,what,why,by,before,after,undoable})=>record(a,{kind,target:kind,what,why,by:by||nameOf(a),before,after,undoable})}}
 
 // tool list for aqeelos-notify (shown to every agent except the main one, which already changes everything)

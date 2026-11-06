@@ -81,6 +81,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createAgentVersions,VERSION_TOOLS} from './agent-versions.mjs';   // self-repair kit (workstream E)
 import {createAgentLive} from './agent-live.mjs';   // live context each message + traceback guard (7 Nov 2026)
+import {createAgentCare} from './agent-care.mjs';   // old setup, checks after changes, script-only schedules (7 Nov 2026)
 import {readPicture,emojiSlugs,emojiAuto,AVATAR_TYPES} from './avatar-file.mjs';
 import {parseEnv,setEnvLine,channelWho,globalWho,removePerson,engineChange,approvedWithout,samePerson as allowSame} from './allowlist.mjs';
 
@@ -1291,6 +1292,10 @@ const versions=createAgentVersions({DATA,HERMES_HOME,DASH:DASH.origin,DASH_TOKEN
 const agentLive=createAgentLive({HERMES_HOME,DATA,listAgents:()=>listAgents(),readConfig,setKey,pick,capabilities:a=>versions.capabilities(a),policy:()=>issues.policy(),nameOf:a=>NAMES[a]||a,engineDir:path.join(here,'..','engine','aqeelos-live')});
 if(PORT===4400&&LIVE_APP){const liveInstall=()=>agentLive.install().then(c=>{if(c.length)restartGateway('aqeelos-live plugin for '+c.length+' agent(s)').catch(()=>{})}).catch(e=>console.warn('agent-live install',e.message));
  setTimeout(liveInstall,60e3).unref();setInterval(liveInstall,10*60e3).unref()}
+const agentCare=createAgentCare({HERMES_HOME,DATA,fpKey:()=>agentLive.key(),WORK:path.join(homedir(),'workspaces'),homes:()=>agentLive.homes(),readConfig,pick,jobs:a=>versions.myJobs(a),updateJob:(a,id,up)=>versions.updateJob(a,id,up),
+ record:(a,e)=>versions.noteSelfChange(a,{...e,by:'aqeelOS',undoable:false}),notices:agentLive,extraRetired:async()=>JSON.parse(await readFile(path.join(DATA,'retired-setup.json'),'utf8').catch(()=>'[]'))});
+if(PORT===4400&&LIVE_APP){const careTick=()=>agentCare.tick().then(r=>{if(Object.keys(r).length)console.log('agent-care: '+JSON.stringify(r))}).catch(e=>console.warn('agent-care',e.message));
+ setTimeout(careTick,3*60e3).unref();setInterval(careTick,2*60e3).unref()}
 if(PORT===4400&&LIVE_APP){setInterval(()=>versions.watchTick().catch(e=>console.warn('agent-versions watch',e.message)),60e3).unref();setTimeout(()=>versions.skillsTick().catch(()=>{}),90e3).unref();setInterval(()=>versions.skillsTick().catch(e=>console.warn('agent-versions skills',e.message)),10*60e3).unref()}
 // which agents get it: their own Linux user is set up (commands and files run as ag-<agent>); never the main agent,
 // its extra-number copies, the help agent or (on the live app) a test copy's agents

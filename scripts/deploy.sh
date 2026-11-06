@@ -17,6 +17,10 @@ if [ "${DIRTY_OK:-0}" != 1 ] && [ -n "$(git status --porcelain -- app scripts as
 BOX_SHA=""; [ "$DRY" = 1 ] || BOX_SHA=$(ssh ai-vps 'cat ~/apps/hermes-ui/.deployed-commit 2>/dev/null' || true)
 if [ -n "$BOX_SHA" ] && ! git merge-base --is-ancestor "$BOX_SHA" HEAD 2>/dev/null; then
  echo "✗ the box runs commit ${BOX_SHA:0:8}, which this copy does not have: deploying would remove that work. Merge it in first (git fetch / merge main)."; exit 1; fi
+# 7 Nov 2026: when this commit is on GitHub, the box fetches and packs it itself (scripts/box-pack.sh): nothing large goes
+# through this Mac's connection. A commit that is not pushed yet is sent from here as before. BOX_PULL=0 always sends.
+PULL=0; if [ "${BOX_PULL:-1}" != 0 ] && [ "$DRY" != 1 ] && git fetch -q origin 2>/dev/null && git merge-base --is-ancestor HEAD origin/main 2>/dev/null; then PULL=1; echo "· the box fetches ${SHA:0:8} from GitHub itself"; fi
+export PULL SHA
 # the new version must pass the checks on the private test copy first (about 5 minutes; SKIP_CHECKS=1 skips them)
 [ "${SKIP_CHECKS:-0}" = 1 ] || [ "$DRY" = 1 ] || bash scripts/predeploy.sh
 # 1) Never cut off work in progress (a reply, an agent being set up, a settings change, an engine restart):
@@ -37,6 +41,7 @@ if [ -f scripts/features.mjs ]; then node scripts/features.mjs >/dev/null; fi
 ID=$(date +%s)-$$;LH=../hui-$ID.tgz;LC=../code-$ID.tgz
 PACK=""; for p in app assets backlog data engine extension mockup scripts code-installer PRD.md; do
  if [ -e "$p" ]; then PACK="$PACK $p"; else case $p in app|scripts|engine) echo "✗ $p is missing; nothing was sent."; exit 1;; *) echo "· $p not here; skipped (optional)";; esac; fi; done
+if [ "$PULL" != 1 ]; then
 tar --force-local -czf $LH $PACK
 # Code (code/ here) goes to the box's own Code copy, ~/apps/aqeel-code (its data and installed packages stay there).
 # VERSION is the last commit that changed Code: aqeelOS serves it, and installed apps update themselves when it differs.
@@ -48,6 +53,11 @@ for a in $LH $LC; do [ -s "$a" ] && tar --force-local -tzf "$a" >/dev/null 2>&1 
 if [ "$DRY" = 1 ]; then echo "✓ dry run: packed$PACK ($(tar -tzf $LH | wc -l) files) + code ($(tar -tzf $LC | wc -l) files), CODE_V=$CODE_V; nothing sent."; rm -f $LH $LC; exit 0; fi
 HS=$(wc -c < $LH | tr -d ' ');CS=$(wc -c < $LC | tr -d ' ')
 scp -q $LH ai-vps:$HT && scp -q $LC ai-vps:$CT && rm $LH $LC || { echo '✗ could not send the files to the box; nothing changed.'; rm -f $LH $LC; exit 1; }
+else
+ ID=$(date +%s)-$$;HT=/tmp/hui-$ID.tgz;CT=/tmp/code-$ID.tgz
+ r=$(ssh ai-vps "bash -s -- $SHA $HT $CT" < scripts/box-pack.sh) || { echo "✗ the box could not pack ${SHA:0:8}; nothing changed."; exit 1; }
+ read CODE_V HS CS <<< "$r"; echo "· packed on the box ($HS + $CS bytes)"
+fi
 ssh ai-vps "CODE_V=$CODE_V FORCE=${FORCE:-0} HT=$HT CT=$CT HS=$HS CS=$CS SHA=$SHA BOX_SHA=$BOX_SHA bash -s" <<'BOX'
 set -e
 # the files arrived whole: same size as sent, and readable

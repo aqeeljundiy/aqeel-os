@@ -12,12 +12,16 @@ cd "$(dirname "$0")/.."
 last=$(node -e "try{const l=require('./data/deploys.json');console.log(l[l.length-1].commit||'')}catch{}")
 MB=1;if [ -n "$last" ] && ! git diff --name-only "$last" HEAD -- app/localbrowser.mjs app/screen.js app/chat.js extension scripts/mybrowser-check.mjs 2>/dev/null | grep -q .; then MB=0;fi
 # the private paths (data, mockup, PRD.md) are not in the public repo: packed only when here, like deploy.sh does
-PACK=""; for p in app assets backlog data engine extension mockup scripts code-installer PRD.md; do [ -e "$p" ] && PACK="$PACK $p"; done
-tar --force-local -czf ../hui-check.tgz $PACK
 # each run sends its own copy, and only one run uses the test copy at a time: several sessions deploy from this repo,
 # and a second run used to empty /tmp/aq-stage under the first (21 Oct 2026)
 TGZ=/tmp/hui-check-$(date +%s)-$$.tgz
+# a pushed commit is packed on the box from GitHub (deploy.sh sets PULL=1); otherwise sent from here
+if [ "${PULL:-0}" = 1 ]; then ssh ai-vps "bash -s -- $SHA $TGZ" < scripts/box-pack.sh >/dev/null || { echo "✗ the box could not pack the commit"; exit 1; }
+else
+PACK=""; for p in app assets backlog data engine extension mockup scripts code-installer PRD.md; do [ -e "$p" ] && PACK="$PACK $p"; done
+ tar --force-local -czf ../hui-check.tgz $PACK
 scp -q ../hui-check.tgz ai-vps:$TGZ && rm ../hui-check.tgz
+fi
 ssh ai-vps "MB=$MB TGZ=$TGZ bash -s" <<'BOX'
 set -e
 L=/tmp/aq-check.lock;got=0
