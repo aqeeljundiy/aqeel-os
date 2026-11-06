@@ -16,7 +16,8 @@ test('only a prompt that just runs one command and passes its output on becomes 
  assert.equal(scriptOnlyCommand('Run exactly this terminal command: x\nPost the result.'),null);
  const w=wrapperScript({agent:'a',user:'ag-a',key:'/k',cwd:'/w/a',cmd:"python3 x.py 'q' && echo \"$HOME\""});
  const b64=/echo (\S+) \| base64/.exec(w)[1];assert.equal(Buffer.from(b64,'base64').toString(),"python3 x.py 'q' && echo \"$HOME\"");assert.match(w,/'ag-a@127\.0\.0\.1'/);
- assert.deepEqual(namedFiles('cd /x && python3 /home/claude/workspaces/a/run.py --x /home/claude/workspaces/a/*.json'),['/home/claude/workspaces/a/run.py'])});
+ assert.deepEqual(namedFiles('cd /x && python3 /home/claude/workspaces/a/run.py --x /home/claude/workspaces/a/*.json'),['/home/claude/workspaces/a/run.py']);
+ assert.deepEqual(namedFiles('read it (/home/c/w/t/.tools/sheet), then /home/c/w/x.py.'),['/home/c/w/t/.tools/sheet','/home/c/w/x.py'])});
 
 async function make(){const H=await mkdtemp(path.join(tmpdir(),'ac-')),W=path.join(H,'work');const P=path.join(H,'profiles','continue-support');
  await mkdir(path.join(P,'skills','support','kirim'),{recursive:true});await mkdir(path.join(W,'continue-support','.secrets'),{recursive:true});await mkdir(path.join(W,'continue-support','.tools'),{recursive:true});

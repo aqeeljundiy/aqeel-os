@@ -1292,7 +1292,7 @@ const versions=createAgentVersions({DATA,HERMES_HOME,DASH:DASH.origin,DASH_TOKEN
 const agentLive=createAgentLive({HERMES_HOME,DATA,listAgents:()=>listAgents(),readConfig,setKey,pick,capabilities:a=>versions.capabilities(a),policy:()=>issues.policy(),nameOf:a=>NAMES[a]||a,engineDir:path.join(here,'..','engine','aqeelos-live')});
 if(PORT===4400&&LIVE_APP){const liveInstall=()=>agentLive.install().then(c=>{if(c.length)restartGateway('aqeelos-live plugin for '+c.length+' agent(s)').catch(()=>{})}).catch(e=>console.warn('agent-live install',e.message));
  setTimeout(liveInstall,60e3).unref();setInterval(liveInstall,10*60e3).unref()}
-const agentCare=createAgentCare({HERMES_HOME,DATA,fpKey:()=>agentLive.key(),WORK:path.join(homedir(),'workspaces'),homes:()=>agentLive.homes(),readConfig,pick,jobs:a=>versions.myJobs(a),updateJob:(a,id,up)=>versions.updateJob(a,id,up),
+const agentCare=createAgentCare({HERMES_HOME,DATA,fpKey:()=>agentLive.key(),teamOf:async a=>((await issues.policy())?.teams||[]).find(t=>(t.agents||[]).includes(a))?.name||null,WORK:path.join(homedir(),'workspaces'),homes:()=>agentLive.homes(),readConfig,pick,jobs:a=>versions.myJobs(a),updateJob:(a,id,up)=>versions.updateJob(a,id,up),
  record:(a,e)=>versions.noteSelfChange(a,{...e,by:'aqeelOS',undoable:false}),notices:agentLive,extraRetired:async()=>JSON.parse(await readFile(path.join(DATA,'retired-setup.json'),'utf8').catch(()=>'[]'))});
 if(PORT===4400&&LIVE_APP){const careTick=()=>agentCare.tick().then(r=>{if(Object.keys(r).length)console.log('agent-care: '+JSON.stringify(r))}).catch(e=>console.warn('agent-care',e.message));
  setTimeout(careTick,3*60e3).unref();setInterval(careTick,2*60e3).unref()}
