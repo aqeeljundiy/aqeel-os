@@ -76,7 +76,10 @@ export function guardReply(parts){const removed=[];const keep=[];
  for(const p of parts){if(/^\[(FOTO|TEMPLATE):/.test(p)){keep.push(p);continue}
   for(const l of p.split('\n'))if(INTERNAL.some(r=>r.test(l))||LEAK.some(r=>r.test(l)))removed.push(l.trim());keep.push(p)}
  if(removed.length)return {parts:keep,removed,hold:'The reply had text meant for the team, not the customer: '+removed.join(' | ').slice(0,300)};
- const promisesQr=keep.some(p=>/\bQRIS\b/i.test(p)&&/(berikut|terlampir|kami kirim|saya kirim|here is|attached)/i.test(p));
+ // a QR is promised only when the text says the QRIS itself is here/attached; QRIS listed as a payment option
+ // (order form, 'pilih metode') is not a promise (false hold, 6 Nov)
+ const QR_PROMISE=/(berikut|ini|terlampir|di ?bawah|kami kirim(kan)?|saya kirim(kan)?|here is|attached)[^\n]{0,25}\bQRIS\b|\bQRIS(-?nya)?\b[^\n]{0,15}(terlampir|di ?bawah|berikut|attached)/i;
+ const promisesQr=keep.some(p=>QR_PROMISE.test(p)&&!/metode pembayaran|pilih (salah satu|metode)|payment method/i.test(p));
  const hasPic=keep.some(p=>/^\[FOTO:/i.test(p));
  return {parts:keep,removed,hold:promisesQr&&!hasPic?'The reply says a QRIS is attached, but no QR picture was made. Create the QRIS with the payment tool, then send it.':null}}
 

@@ -14,3 +14,8 @@ test('a QRIS with its picture goes out',()=>{
 test('normal sales text is untouched',()=>{
  for(const t of['*Main Recommendation*\n*Retatrutide 10mg*\n~Rp4.000.000~ → Rp3.200.000','Halo kak, terima kasih sudah menghubungi Biomarkers 😊\nBoleh tahu usia, tinggi dan berat badan kakak?','Untuk pemakaian 4 minggu cukup 1 vial kak. Ongkir gratis ke seluruh Indonesia.','Siap kak, I hope membantu ya'])
  {const g=guardReply(splitReply(t));assert.equal(g.hold,null,t);assert.deepEqual(g.parts,[t])}});
+test('an order form that lists QRIS as a payment option is not held',()=>{
+ const t='Berikut order formnya kak:\n*Formulir Pemesanan*\nMetode Pembayaran (pilih salah satu):\n• QRIS (maks. Rp5.000.000)\n• Virtual account';
+ assert.equal(guardReply(splitReply(t)).hold,null)});
+test('saying the QRIS is here without the picture is still held',()=>{
+ assert.ok(guardReply(splitReply('Siap kak, berikut QRIS-nya ya, berlaku 30 menit.')).hold)});
