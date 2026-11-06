@@ -7,7 +7,9 @@
 import {readFileSync} from 'node:fs';
 import path from 'node:path';
 export function parseTestAgents(text){return new Set(String(text||'').split('\n').map(l=>l.replace(/#.*$/,'').trim()).filter(Boolean))}
-export function holdActive(hold,now=Date.now()){return !!hold&&now<Number(hold.until||0)}
+// until: epoch ms (number or digits) or an ISO date string
+export function holdUntil(hold){const u=hold?.until;if(u==null||u==='')return 0;if(typeof u==='number')return u;const s=String(u).trim();if(/^\d+$/.test(s))return Number(s);const t=Date.parse(s);return Number.isFinite(t)?t:0}
+export function holdActive(hold,now=Date.now()){return !!hold&&now<holdUntil(hold)}
 export function quietReason(agent,{tests=new Set(),hold=null,now=Date.now()}={}){const base=agent?String(agent).split('--')[0]:null;
  if(base&&tests.has(base))return 'test';if(holdActive(hold,now))return 'hold';return null}
 export function createQuiet({DATA,HERMES_HOME,now=()=>Date.now(),every=30e3}){let at=0,tests=new Set(),hold=null;

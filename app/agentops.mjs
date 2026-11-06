@@ -55,7 +55,8 @@ async function readConfigNow(f){const p=await python();if(!p)return null;
 export const pick=(o,k)=>k.split('.').reduce((x,y)=>x&&typeof x==='object'?x[y]:undefined,o);
 
 // a real agent folder: the engine leaves a bare logs/ folder behind when a command runs during a delete
-export async function isAgent(name){return name==='default'||!!await stat(path.join(homeOf(name),'config.yaml')).catch(()=>null)}
+// a deleted agent (tombstone in profiles/.deleted; its folder may linger) is not an agent: the engine refuses -p for it
+export async function isAgent(name){if(name==='default')return true;if(await stat(path.join(HERMES_HOME,'profiles','.deleted',name)).catch(()=>null))return false;return !!await stat(path.join(homeOf(name),'config.yaml')).catch(()=>null)}
 // asked on most requests (permissions, usage, limits): read once per 2 s and shared, read again at once when the profiles
 // folder changed (an agent made or deleted); each caller gets its own copy
 const namesHit=new Map();

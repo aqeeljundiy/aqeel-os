@@ -1,6 +1,10 @@
 // Duplicate check: MCP tool and skill copies on a throwaway agent; plugins refused. Run on the box.
 import {readFileSync,existsSync} from "node:fs";
-const B="http://127.0.0.1:4402",PW=readFileSync("/tmp/ppl/pw","utf8").trim(),A="dp-"+Date.now().toString(36).slice(-5),H=process.env.HOME+"/.hermes/profiles/";
+const B=process.env.BASE||"http://127.0.0.1:4402",PWF=process.env.PWFILE||"/tmp/ppl/pw";
+// a staging copy that is not running (or no password file) is reported plainly, not a crash
+if(!existsSync(PWF)){console.error("dup-check: no password file "+PWF+" (set PWFILE)");process.exit(2)}
+try{await fetch(B+"/",{signal:AbortSignal.timeout(5000)})}catch(e){console.error("dup-check: nothing answers at "+B+" (set BASE): "+(e.cause?.code||e.message));process.exit(2)}
+const PW=readFileSync(PWF,"utf8").trim(),A="dp-"+Date.now().toString(36).slice(-5),H=process.env.HOME+"/.hermes/profiles/";
 const ck=(await fetch(B+"/auth/login",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({password:PW})})).headers.get("set-cookie").split(";")[0];
 const call=async(p,m="GET",b)=>{const r=await fetch(B+p,{method:m,headers:{"x-hui":"1",cookie:ck,"content-type":"application/json"},body:b?JSON.stringify(b):undefined,signal:AbortSignal.timeout(60000)});const t=await r.text();let j;try{j=JSON.parse(t)}catch{j=t}return [r.status,j]};
 const ok=(c,m)=>console.log(c?"✓":"✗",m);const q="?profile="+A;

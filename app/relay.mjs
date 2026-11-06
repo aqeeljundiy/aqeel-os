@@ -58,7 +58,7 @@ export function createRelay({DATA,DASH,TOKEN,HERMES_HOME,SECRET,listAgents,links
   for(const [k,v] of Object.entries(db.shares)){const [owner,platform]=k.split('|');if(v.senders.includes(agent)&&!out.some(c=>c.owner===owner&&c.platform===platform))out.push({id:platform+'@'+owner,owner,platform,chat:v.chat,name:nice(platform)+' via '+(nameOf?nameOf(owner):owner)})}
   // alerts for you always have a way out: every agent may reach you through the main agent's own channels (to you,
   // the person approved there), even when its own channel only talks to someone else (Husband Mode on WhatsApp)
-  if(agent!=='default'&&!agent.startsWith('default--'))for(const p of await connected('default'))if(!out.some(c=>c.owner==='default'&&c.platform===p))out.push({id:p+'@you',owner:'default',platform:p,toYou:true,name:nice(p)+' to '+(ownerName?.()||'you')+', the owner of aqeelOS (via '+(nameOf?nameOf('default'):'the main agent')+')'});
+  if(agent!=='default'&&!agent.startsWith('default--')&&ownerAgent(agent))for(const p of await connected('default'))if(!out.some(c=>c.owner==='default'&&c.platform===p))out.push({id:p+'@you',owner:'default',platform:p,toYou:true,name:nice(p)+' to '+(ownerName?.()||'you')+', the owner of aqeelOS (via '+(nameOf?nameOf('default'):'the main agent')+')'});
   return out}
  // an agent sends through a shared channel
  async function sendAs(from,owner,platform,text,chat,{person=false,toYou=false}={}){await load();const s=db.shares[key(owner,platform)];

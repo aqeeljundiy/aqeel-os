@@ -101,7 +101,9 @@ export function createAgentVersions({DATA,HERMES_HOME,DASH,DASH_TOKEN,PUBLIC_URL
   const files=st.out.trim().split('\n').map(l=>l.split('\t')).filter(x=>x[1]);const before=(await git(a,['rev-parse','HEAD'])).out.trim();
   const c=await git(a,['commit','-q','-m',clip(why||'changed',200)]);if(!c.ok)return [];const after=(await git(a,['rev-parse','HEAD'])).out.trim();
   const bySkill=new Map();for(const [s,f] of files){const k=f.split('/').slice(0,-1).join('/')||f;const top=k.split('/').slice(0,2).join('/');if(!bySkill.has(top))bySkill.set(top,[]);bySkill.get(top).push((s==='A'?'added ':s==='D'?'removed ':'changed ')+f)}
-  const out=[];for(const [k,l] of bySkill)out.push(await record(a,{kind:'skill',target:k,what:l.slice(0,6).join('; ')+(l.length>6?' +'+(l.length-6):''),why:why||'',by:by||nameOf(a),before:{commit:before,files:files.filter(x=>x[1].startsWith(k)).map(x=>x[1])},after:{commit:after}}));return out}
+  // the engine's bundled-skill sync rewrites .bundled_manifest: those files are aqeelOS's, not the agent's self-change, so a rollback must not undo them
+  const sync=files.some(x=>x[1]==='.bundled_manifest');
+  const out=[];for(const [k,l] of bySkill)out.push(await record(a,{kind:'skill',target:k,what:l.slice(0,6).join('; ')+(l.length>6?' +'+(l.length-6):''),why:sync?'aqeelOS skill sync':(why||''),by:sync?'aqeelOS (skill sync)':(by||nameOf(a)),undoable:!sync,before:{commit:before,files:files.filter(x=>x[1].startsWith(k)).map(x=>x[1])},after:{commit:after}}));return out}
 
  // ---- undo ----
  async function undo(a,id,{by='owner'}={}){const d=await load(a);const x=d.items.find(i=>i.id===String(id));if(!x)throw Error('No change '+id+'. my_changes lists yours.');
@@ -211,6 +213,8 @@ export function createAgentVersions({DATA,HERMES_HOME,DASH,DASH_TOKEN,PUBLIC_URL
 
  // ---- "does it still answer" + automatic rollback ----
  async function watchTick(){if(!live||!ping)return;for(const a of (await listAgents()).filter(x=>x!=='default'&&!x.includes('--'))){const d=await load(a);const w=d.watch;if(!w||w.due>now())continue;
+  // a deleted agent (tombstone in profiles/.deleted, its dir may linger) is gone on purpose, not broken: disarm, never roll back
+  if(await stat(path.join(HERMES_HOME,'profiles','.deleted',a)).catch(()=>null)){await lock(a,async()=>{const d1=await load(a);if(d1.watch){d1.watch=null;d1.events.push({kind:'ok',at:now(),text:'agent deleted; watch stopped'});await save(a)}});continue}
   // its own chats running right now count as answering; otherwise a short ping run of its own
   let ok=false,why='';try{const r=await ping(a);ok=!!r.ok;why=r.why||''}catch(e){why=e.message}
   await lock(a,async()=>{const d2=await load(a);if(!d2.watch)return;

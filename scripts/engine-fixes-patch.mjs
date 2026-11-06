@@ -20,6 +20,10 @@
 //    A turn where something already ran ("This turn did not complete") is never repeated. When it still fails, the
 //    person gets the cause in plain words instead of the stock line. Every failed chat turn adds one line to
 //    ~/.hermes/logs/aqeelos-dropped.jsonl (agent, channel, cause, retried, recovered), which System > Health counts.
+// 5) aqeelos:clone-no-bot-tokens (6 Nov 2026). A cloned agent dropped the channel keys the engine knows by prefix
+//    (TELEGRAM_..., SLACK_...), but kept bot tokens saved under another name (CONTINUE_SUPPORT_BOT_TOKEN), so two agents
+//    polled one Telegram bot and kicked each other off. Every ..._BOT_TOKEN / ..._APP_TOKEN key now counts as a channel
+//    key when an agent is cloned: one bot token belongs to one agent.
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
 
@@ -163,7 +167,17 @@ def _aq_failed_reply(response, agent_result, notice, add_notice):
 `},
   {why:'the failed-turn reply',
    from:'                response = self._hmwa_add_failed_turn_notice(response, self._hmwa_failed_turn_notice(agent_result))\n',
-   to:'                response = _aq_failed_reply(response, agent_result, self._hmwa_failed_turn_notice(agent_result), self._hmwa_add_failed_turn_notice)\n'}]}];
+   to:'                response = _aq_failed_reply(response, agent_result, self._hmwa_failed_turn_notice(agent_result), self._hmwa_add_failed_turn_notice)\n'}]},
+ {tag:'aqeelos:clone-no-bot-tokens',name:'a cloned agent never gets another agent\'s bot token',file:'hermes_cli/profile_channels.py',edits:[
+  {why:'the clone\'s .env filter',
+   from:'        platform = index.platform_for(key) if key else None\n        if key is None or platform is None:\n            kept.append(line)\n',
+   to:`        platform = index.platform_for(key) if key else None
+        # aqeelos:clone-no-bot-tokens: a bot token saved under any name (CONTINUE_SUPPORT_BOT_TOKEN) is a channel identity too
+        if platform is None and key and re.search(r"(^|_)(BOT|APP)_TOKEN(_|$)", key):
+            platform = "bot_token"
+        if key is None or platform is None:
+            kept.append(line)
+`}]}];
 
 // one engine file's text → {out (null when nothing changed), applied:[names], errors:[text]}
 export function fixFile(file,src){let out=src;const applied=[],errors=[];

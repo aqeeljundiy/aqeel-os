@@ -1,13 +1,23 @@
 // Every page of a running copy, signed in: a full-length screenshot and its visible text (/tmp/aud/<width>_<route>.png|.txt),
 // plus how long each page took to show its content. Env: W, H, BASE, PWFILE, NAME (sign in as someone else), ONLY.
 import {spawn} from 'node:child_process';import {readdirSync,readFileSync,mkdirSync,writeFileSync} from 'node:fs';import {homedir} from 'node:os';
-const W=+(process.env.W||1280),H=+(process.env.H||900);const BASE=process.env.BASE||'http://127.0.0.1:4400';const pw=readFileSync(process.env.PWFILE||'/tmp/.ppw','utf8').trim();
+const W=+(process.env.W||1280),H=+(process.env.H||900);const BASE=process.env.BASE||'http://127.0.0.1:4400';const CKF=process.env.COOKIEFILE;const pw=CKF?'':readFileSync(process.env.PWFILE||'/tmp/.ppw','utf8').trim();
 const only=(process.env.ONLY||'').split(',').filter(Boolean);const OUT=process.env.OUT||'/tmp/aud';
-const tools=homedir()+'/.hermes/tools',dir=readdirSync(tools).find(d=>d.startsWith('chromium'));const port=9500+Math.floor(Math.random()*300);
-const chrome=spawn(`${tools}/${dir}/chrome-linux64/chrome`,['--headless=new','--no-sandbox','--disable-gpu','--remote-debugging-port='+port,`--window-size=${W},${H}`,'about:blank'],{stdio:'ignore'});
+// Chrome without a fixed path: $CHROME, then PATH, then the engine's tools (under $HOME and /home/<user>), then puppeteer's cache
+import {existsSync} from 'node:fs';import {execFileSync} from 'node:child_process';
+function findChrome(){if(process.env.CHROME&&existsSync(process.env.CHROME))return process.env.CHROME;
+ for(const n of ['google-chrome','chromium','chromium-browser','chrome'])try{const p=execFileSync('which',[n],{encoding:'utf8'}).trim();if(p)return p}catch{}
+ const homes=[...new Set([homedir(),process.env.HOME,'/home/'+(process.env.USER||'claude')].filter(Boolean))];
+ for(const h of homes){const t=h+'/.hermes/tools';let ds=[];try{ds=readdirSync(t).filter(d=>/^chrom/.test(d))}catch{}
+  for(const d of ds)for(const sub of ['chrome-linux64/chrome','chrome-linux/chrome','chrome']){const p=`${t}/${d}/${sub}`;if(existsSync(p))return p}
+  const pc=h+'/.cache/puppeteer/chrome';let vs=[];try{vs=readdirSync(pc).sort().reverse()}catch{}for(const v of vs){const p=`${pc}/${v}/chrome-linux64/chrome`;if(existsSync(p))return p}}
+ throw new Error('no Chrome found: set CHROME=/path/to/chrome')}
+const port=9500+Math.floor(Math.random()*300);
+const chrome=spawn(findChrome(),['--headless=new','--no-sandbox','--disable-gpu','--remote-debugging-port='+port,`--window-size=${W},${H}`,'about:blank'],{stdio:'ignore'});
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));mkdirSync(OUT,{recursive:true});
 try{
- const login=await fetch(BASE+'/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:process.env.NAME||undefined,password:pw})});const ck=(login.headers.get('set-cookie')||'').split(';')[0];const [cn,cv]=ck.split('=');
+ // COOKIEFILE: a ready session cookie (hui=...) instead of signing in with a password
+ const ck=CKF?readFileSync(CKF,'utf8').trim():((await fetch(BASE+'/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:process.env.NAME||undefined,password:pw})})).headers.get('set-cookie')||'').split(';')[0];const [cn,cv]=ck.split('=');
  // headless Chrome can take well over 10 s to start on a busy box: wait up to 30 s, and say so instead of crashing
  let tgt;for(let i=0;i<120&&!tgt;i++){await sleep(250);try{tgt=(await (await fetch(`http://127.0.0.1:${port}/json`)).json()).find(t=>t.type==='page')}catch{}}
  if(!tgt)throw new Error('headless Chrome did not start within 30 s');

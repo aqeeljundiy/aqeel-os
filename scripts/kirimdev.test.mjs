@@ -29,13 +29,15 @@ async function make({mode='test',agentSays='Halo kak 😊',testers=[{who:'Amri',
   if(p==='webhook_subscriptions')return {ok:true,json:async()=>({data:{id:'wbs_9',status:'active',initial_secret:'whsec_new'}})};
   if(o.method==='PATCH'&&p.startsWith('webhook_subscriptions/')){patched.push([p,JSON.parse(o.body)]);return {ok:true,json:async()=>({data:{id:p.split('/')[1],events:JSON.parse(o.body).events}})}}
   return {ok:false,status:404,json:async()=>({})}};
- const k=createKirimdev({DATA,WORK,apiKey:async()=>'kdv_test',PUBLIC_URL:'https://ai.example',fetchImpl,wait:async()=>{},log:m=>process.env.KDLOG&&console.log(m),now:()=>clock,echoWait:0,
+ // fake timers: the burst window only closes when the test calls settle(), never because the box was slow
+ const due=new Map();let tid=0;const setTimer=(fn)=>{const i=++tid;due.set(i,fn);return i},clearTimer=i=>{due.delete(i)};
+ const k=createKirimdev({DATA,WORK,setTimer,clearTimer,apiKey:async()=>'kdv_test',PUBLIC_URL:'https://ai.example',fetchImpl,wait:async()=>{},log:m=>process.env.KDLOG&&console.log(m),now:()=>clock,echoWait:0,
   teamGroup:async a=>a==='continue-support'?team:null,
   runAgent:async(a,q)=>{asked.push([a,q]);return typeof agentSays==='function'?agentSays(q):agentSays},telegram:async(...x)=>{posts.push(x);return tg.ok?4242:false},tell:async t=>{told.push(t)}});
  const post=(raw,h={},agent='continue-support')=>k.receive(agent,{'x-kirim-signature':sign(raw,Math.floor(clock/1000)),'x-kirim-event':'message.received',...h},Buffer.from(raw));
  const postSent=(raw,agent='continue-support')=>k.receive(agent,{'x-kirim-signature':sign(raw,Math.floor(clock/1000)),'x-kirim-event':'message.sent'},Buffer.from(raw));
- const settle=()=>new Promise(r=>setTimeout(r,300));
- return {k,DATA,sent,asked,posts,told,patched,post,postSent,settle,tg,later:ms=>{clock+=ms}}}
+ const settle=async()=>{for(let n=0;n<20&&due.size;n++){const fns=[...due.values()];due.clear();await Promise.all(fns.map(f=>f()))}await new Promise(r=>setImmediate(r))};
+ return {k,DATA,sent,asked,posts,told,patched,post,postSent,settle,tg,due,setTimer,clearTimer,later:ms=>{clock+=ms}}}
 
 test('signature: any v1 from any secret, within 5 minutes, raw bytes',()=>{const raw='{"a":1}',t=Math.floor(Date.now()/1000);
  assert.equal(verifySignature(Buffer.from(raw),sign(raw,t),[SECRET]),true);
@@ -137,7 +139,7 @@ test('a webhook made before message.sent gets it added; message.sent parses',asy
 
 test('with agent health there, a failed handoff is a health problem, solved once a retry posts it',async()=>{const probs=[],oks=[];const t=await make({agentSays:'HANDOFF: x',postOk:false});
  // a second instance on the same data, with health hooks (as server.mjs wires it)
- const k2=createKirimdev({DATA:t.DATA,WORK:t.DATA,apiKey:async()=>'k',PUBLIC_URL:'x',fetchImpl:async(u,o)=>({ok:true,json:async()=>({data:o.method==='POST'?{id:'m'}:[]})}),wait:async()=>{},log:()=>{},echoWait:0,
+ const k2=createKirimdev({DATA:t.DATA,WORK:t.DATA,setTimer:t.setTimer,clearTimer:t.clearTimer,apiKey:async()=>'k',PUBLIC_URL:'x',fetchImpl:async(u,o)=>({ok:true,json:async()=>({data:o.method==='POST'?{id:'m'}:[]})}),wait:async()=>{},log:()=>{},echoWait:0,
   teamGroup:async()=>({chatId:-1,topics:{questions:3}}),runAgent:async()=>'HANDOFF: x',telegram:async()=>probs.length>0&&oks.length===0&&k2.ok?7:false,
   problem:async(a,topic,title)=>{probs.push([a,topic,title])},solved:async(a,topic)=>{oks.push([a,topic])},now:()=>Date.now()+(k2.later||0)});
  const raw=meta('628123','?');await k2.receive('continue-support',{'x-kirim-signature':sign(raw),'x-kirim-event':'message.received'},Buffer.from(raw));await t.settle();
@@ -146,7 +148,7 @@ test('with agent health there, a failed handoff is a health problem, solved once
 
 test('a handoff nobody answers in 30 minutes is a health problem once; the team answering on WhatsApp clears it',async()=>{const probs=[],oks=[];let later=0;
  const t=await make({agentSays:'HANDOFF: x'});
- const k2=createKirimdev({DATA:t.DATA,WORK:t.DATA,apiKey:async()=>'k',fetchImpl:async(url,o)=>({ok:true,json:async()=>(/\/messages\?/.test(url)?{data:[]}:{data:{id:'m'+Math.random(),status:'queued'}})}),echoWait:0,
+ const k2=createKirimdev({DATA:t.DATA,WORK:t.DATA,setTimer:t.setTimer,clearTimer:t.clearTimer,apiKey:async()=>'k',fetchImpl:async(url,o)=>({ok:true,json:async()=>(/\/messages\?/.test(url)?{data:[]}:{data:{id:'m'+Math.random(),status:'queued'}})}),echoWait:0,
   teamGroup:async()=>({chatId:-1,topics:{questions:3}}),runAgent:async()=>'HANDOFF: x',telegram:async()=>7,
   problem:async(a,topic,title)=>{probs.push([a,topic,title])},solved:async(a,topic)=>{oks.push([a,topic])},now:()=>Date.now()+later});
  const raw=meta('628123','ada COA?');await k2.receive('continue-support',{'x-kirim-signature':sign(raw),'x-kirim-event':'message.received'},Buffer.from(raw));await t.settle();
@@ -154,3 +156,7 @@ test('a handoff nobody answers in 30 minutes is a health problem once; the team 
  later=31*60e3;await k2._tick();await k2._tick();assert.equal(probs.length,1,'told once');assert.match(probs[0][1],/^unanswered\|h/);assert.match(probs[0][2],/no answer after 30 minutes/);
  const s=sentEv('628123','app','msg_team','cnv_A');await k2.receive('continue-support',{'x-kirim-signature':sign(s,Math.floor((Date.now()+later)/1000)),'x-kirim-event':'message.sent'},Buffer.from(s));
  assert.deepEqual(oks,[['continue-support',probs[0][1]]]);later=40*60e3;await k2._tick();assert.equal(probs.length,1,'not again')});
+
+test('burst is deterministic: nothing runs until the window closes, however slow the box',async()=>{const t=await make();
+ await t.post(meta('628123','satu'));await new Promise(r=>setTimeout(r,50));assert.equal(t.asked.length,0);assert.equal(t.due.size,1);
+ await t.post(meta('628123','dua'));assert.equal(t.due.size,1);await t.settle();assert.equal(t.asked.length,1);assert.match(t.asked[0][1],/CUSTOMER: mau tanya/)});

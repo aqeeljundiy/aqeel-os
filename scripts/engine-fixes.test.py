@@ -166,6 +166,20 @@ def a_retry_that_fails_again_says_so_in_plain_words():
     assert text.endswith("(I tried once more by myself and it failed again.)"), text
 
 
+@test
+def a_cloned_agent_never_gets_another_agents_bot_token():
+    m = load("aq_profile_channels", "hermes_cli/profile_channels.py")
+    env = os.path.join(tempfile.mkdtemp(dir=TMP), ".env")
+    with open(env, "w") as fh:
+        fh.write("# keys\nTELEGRAM_BOT_TOKEN=1:a\nCONTINUE_SUPPORT_BOT_TOKEN=2:b\nPIXEL_SLACK_APP_TOKEN=xapp\n"
+                 "GITHUB_TOKEN_AQEEL=ghp\nOPENAI_API_KEY=sk\n")
+    removed = m.strip_channel_env_file(__import__("pathlib").Path(env))
+    left = open(env).read()
+    assert "CONTINUE_SUPPORT_BOT_TOKEN" not in left and "PIXEL_SLACK_APP_TOKEN" not in left and "TELEGRAM_BOT_TOKEN" not in left, left
+    assert "GITHUB_TOKEN_AQEEL=ghp" in left and "OPENAI_API_KEY=sk" in left and "# keys" in left, left
+    assert sorted(removed.get("bot_token", [])) == ["CONTINUE_SUPPORT_BOT_TOKEN", "PIXEL_SLACK_APP_TOKEN"], removed
+
+
 failed = 0
 for fn in tests:
     try:

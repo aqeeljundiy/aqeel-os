@@ -83,7 +83,7 @@ export function guardReply(parts){const removed=[];const keep=[];
 const RESET=/^(reset|\/reset|mulai baru)$/i;
 const tail=n=>'…'+String(n||'').slice(-4);
 
-export function createKirimdev({DATA,WORK,apiKey,runAgent,telegram,teamGroup=async()=>null,tell=async()=>{},problem=null,solved=async()=>{},log=m=>console.log(m),fetchImpl=fetch,now=()=>Date.now(),PUBLIC_URL,wait=ms=>new Promise(r=>setTimeout(r,ms)),maxRuns=2,echoWait=4000}){
+export function createKirimdev({DATA,WORK,apiKey,runAgent,telegram,teamGroup=async()=>null,tell=async()=>{},problem=null,solved=async()=>{},log=m=>console.log(m),fetchImpl=fetch,now=()=>Date.now(),PUBLIC_URL,wait=ms=>new Promise(r=>setTimeout(r,ms)),maxRuns=2,echoWait=4000,setTimer=setTimeout,clearTimer=clearTimeout}){
  const ASK_MIN=30;   // minutes a handoff may wait for the team's answer before Health shows it
  const CONF=path.join(DATA,'kirimdev.json'),SEC=path.join(DATA,'kirimdev-secrets.json'),ST=path.join(DATA,'kirimdev-state.json');
  const readJson=async(f,d)=>{try{return JSON.parse(await readFile(f,'utf8'))}catch{return d}};
@@ -145,12 +145,13 @@ export function createKirimdev({DATA,WORK,apiKey,runAgent,telegram,teamGroup=asy
   if(s.source==='api'||!s.source){await (inflight.get(s.to)||Promise.resolve()).catch(()=>{});await wait(echoWait);if(s.id&&st.ours[s.id])return {ours:true}}
   const min=Math.max(0,Number(line.pauseMin??15));if(!min)return {paused:false};const until=now()+min*60e3;
   if(s.conversationId)st.paused[agent+'|'+s.conversationId]=until;if(s.to)st.paused[agent+'|'+s.to]=until;
-  for(const k of [agent+'|'+s.conversationId,agent+'|'+s.to])if(st.pending[k]){delete st.pending[k];clearTimeout(timers.get(k));timers.delete(k)}
+  for(const k of [agent+'|'+s.conversationId,agent+'|'+s.to])if(st.pending[k]){delete st.pending[k];clearTimer(timers.get(k));timers.delete(k)}
   log('kirimdev '+agent+': a team member replied to '+tail(s.to)+' ('+(s.source||'?')+'); the agent waits '+min+' min');if(s.to)await answered(agent,s.to);return {paused:until}}
 
  // a burst of messages is answered once: the run starts a few seconds after the last one
  const timers=new Map(),running=new Set();let active=0;
- function schedule(key,line){clearTimeout(timers.get(key));timers.set(key,setTimeout(()=>{timers.delete(key);run(key).catch(e=>log('kirimdev '+key+': '+e.message))},(line.debounceSec??8)*1000))}
+ // setTimer/clearTimer are injectable so tests drive the burst window themselves instead of racing a 0 s timer
+ function schedule(key,line){clearTimer(timers.get(key));timers.set(key,setTimer(()=>{timers.delete(key);return run(key).catch(e=>log('kirimdev '+key+': '+e.message))},(line.debounceSec??8)*1000))}
  async function run(key){if(running.has(key)){schedule(key,{debounceSec:5});return}
   while(active>=maxRuns)await wait(1000);
   await state();const p=st.pending[key];if(!p)return;const line=await lineOf(p.agent);if(!line)return;
