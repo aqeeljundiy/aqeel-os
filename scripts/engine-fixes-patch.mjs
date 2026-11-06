@@ -33,6 +33,21 @@ import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
 
 export const FIXES=[
+ {tag:'aqeelos:platform-toolset-excludes',name:'per-channel exclusions keep customer webhooks free of admin tools',file:'hermes_cli/tools_config.py',edits:[
+  {why:'subtract channel exclusions after resolving the full default set',
+   from:'    if explicitly_configured and toolset_names:\n        _warn_all_invalid_platform_toolsets(platform, toolset_names)\n    return enabled_toolsets\n',
+   to:`    # aqeelos:platform-toolset-excludes: exclusions never turn the default MCP set into an allowlist.
+    _aq_excludes = (config.get("platform_toolset_excludes") or {}).get(platform, [])
+    if _aq_excludes:
+        from agent.skill_utils import parse_config_string_list
+        _aq_names = [str(n).strip() for n in parse_config_string_list(_aq_excludes) if str(n).strip()]
+        enabled_toolsets = _prune_toolsets_stripped_by_disabled(enabled_toolsets, _aq_names)
+        enabled_toolsets -= {n[4:] if n.startswith("mcp-") else n for n in _aq_names}
+    if explicitly_configured and toolset_names:
+        _warn_all_invalid_platform_toolsets(platform, toolset_names)
+    return enabled_toolsets
+`}]},
+
  {tag:'aqeelos:gateway-real-home',name:'engine copies get the real home',file:'hermes_cli/gateway_runtime_start.py',edits:[
   {why:'the started engine\'s environment',
    from:'    env.update(HERMES_HOME=str(home), HERMES_GATEWAY_DETACHED="1", PYTHONIOENCODING="utf-8")\n',

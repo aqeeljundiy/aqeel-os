@@ -27,6 +27,20 @@ test = tests.append
 
 
 @test
+def webhook_excludes_admin_tools_without_limiting_future_connectors():
+    m = load('hermes_cli.tools_config', 'hermes_cli/tools_config.py')
+    admins = {'aqeelos-notify', 'aqeelos-self', 'aqeelos-code'}
+    c = {'mcp_servers': {n: {'url': 'http://localhost:9999/mcp'} for n in admins | {'future-app'}},
+         'platform_toolset_excludes': {'webhook': sorted(admins)}}
+    assert not admins & m._get_platform_tools(c, 'webhook')
+    assert 'future-app' in m._get_platform_tools(c, 'webhook')
+    for channel in ['telegram', 'whatsapp', 'slack', 'email', 'api_server', 'cron']:
+        assert admins <= m._get_platform_tools(c, channel), channel
+    c['platform_toolset_excludes']['webhook'] = ['mcp-' + n for n in admins]
+    assert not admins & m._get_platform_tools(c, 'webhook')
+
+
+@test
 def an_engine_started_from_a_tool_command_gets_the_real_home():
     start = load("hermes_cli.gateway_runtime_start", "hermes_cli/gateway_runtime_start.py")
     seen = {}

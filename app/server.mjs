@@ -1302,7 +1302,7 @@ async function srPlace(a){const c=await readConfig(a).catch(()=>null);if(!c)retu
  const servers=Object.entries(pick(c,'mcp_servers')||{}).filter(([,v])=>v&&typeof v==='object'&&!/^(false|0|no|off)$/i.test(String(v.enabled??''))).map(([n])=>n);
  const has=servers.includes('aqeelos-self');let changed=false,before=JSON.stringify(m);
  // on every other channel it shows: one with a hand-picked list of tool servers gets aqeelos-self added to it
- for(const pf of [...new Set(['whatsapp','webhook',...Object.keys(pick(c,'platform_toolsets')||{})])]){const hide=has&&pf==='webhook';   // Kirimdev customers come in by webhook; every person-facing channel gets the same set
+ for(const pf of [...new Set(['whatsapp','webhook',...Object.keys(pick(c,'platform_toolsets')||{})])]){const hide=false; // customer admin tools are excluded after resolution by platform_toolset_excludes.webhook
   const r=srPlacement({pf,cur:pick(c,'platform_toolsets.'+pf),servers,hide,managed:!!m[a+'|'+pf]});
   if(r.want){const s=await setKey(a,'platform_toolsets.'+pf,r.want);if(!s.ok)throw new Error(String(s.err||s.out||'could not save').slice(-200));changed=true;console.log('self-run tool',hide?'kept off':'back on',pf,'for',a)}
   if(r.managed)m[a+'|'+pf]=true;else delete m[a+'|'+pf]}

@@ -57,6 +57,12 @@ export function createAgentDefaults({DATA,giveSkills,trimSkills=async()=>0,locke
   const own=!(await trusted()).has(a),ws=path.join(homedir(),'workspaces',a),isolated=own&&await ready(a);
   // the full bundles include the terminal: an agent meant to have its own user gets them only once that user exists
   const pts=pick(c,'platform_toolsets')||{};
+  // Customer-controlled webhook payloads must never acquire settings, secrets, code or self-run administration.
+  // Resolve the full bundle, then subtract these servers (not a connector allowlist, so future apps still work).
+  const webhookOff=[].concat(pick(c,'platform_toolset_excludes.webhook')||[]).map(String);
+  const adminServers=['aqeelos-notify','aqeelos-self','aqeelos-code'];
+  if(adminServers.some(n=>!webhookOff.includes(n)))changes.push(['platform_toolset_excludes.webhook',[...new Set([...webhookOff,...adminServers])]]);
+
   if(!own||isolated)for(const p of PLATFORMS){const cur=[].concat(pts[p]||[]),add=[bundle(p),...(p==='api_server'?API_EXTRA:[])].filter(x=>!cur.includes(x));if(add.length)changes.push(['platform_toolsets.'+p,cur.includes(bundle(p))?[...cur,...add]:[...add,...cur]])}
   if(!isolated&&pick(c,'bot_desktop.auto_start')!==true)changes.push(['bot_desktop.auto_start','true']);
   if(isolated){const want={'terminal.backend':'ssh','terminal.ssh_host':'127.0.0.1','terminal.ssh_user':userOf(a),'terminal.ssh_port':'22','terminal.ssh_key':KEY,'terminal.cwd':ws};
