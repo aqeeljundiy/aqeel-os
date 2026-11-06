@@ -29,22 +29,28 @@ export const UNSAFE_TOOLSETS=['terminal','file','code_execution','computer_use']
 const PEOPLE_DIR=path.join(homedir(),'people');      // members' own folders: ~/people/<id>
 
 export function createUsers(DATA,mail,{ownerCheck}={}){
+ const hooks={};   // onJoin(person): the server makes their lead agent
  const FILE=path.join(DATA,'users.json');
  let db=null;
  const load=async()=>{if(db)return db;try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}
-  db.users||=[];db.invites||=[];db.shares||={};db.owners||={};db.agentOwners||={};db.roles||=JSON.parse(JSON.stringify(DEFAULT_ROLES));db.ownerName||='Aqeel';return db};
+  db.users||=[];db.invites||=[];db.shares||={};db.owners||={};db.agentOwners||={};db.roles||=JSON.parse(JSON.stringify(DEFAULT_ROLES));db.leads||={};
+  // the owner's name and username: chosen at first run (OWNER_NAME / OWNER_USERNAME, else neutral), then kept in users.json.
+  // Older data had only a name; its username was the name in lower case, so sign-in keeps working
+  let first=false;if(!db.ownerName){db.ownerName=String(process.env.OWNER_NAME||'').trim().slice(0,60)||'Owner';first=true}
+  if(!db.ownerUsername){db.ownerUsername=slugName(process.env.OWNER_USERNAME||db.ownerName)||'owner';first=true}
+  if(first)save().catch(()=>{});return db};
  // saves run one after another so two never share the .tmp file; a failed one still lets the next run
  let saving=Promise.resolve();
  const save=()=>{const p=saving.then(async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)});saving=p.catch(()=>{});return p};
  const hash=pw=>{const salt=randomBytes(16);return 'scrypt:'+salt.toString('hex')+':'+scryptSync(String(pw),salt,64).toString('hex')};
  const check=(pw,h)=>{const [k,s,x]=String(h||'').split(':');if(k!=='scrypt'||!s||!x)return false;const a=scryptSync(String(pw),Buffer.from(s,'hex'),64),b=Buffer.from(x,'hex');return a.length===b.length&&timingSafeEqual(a,b)};
  const norm=s=>String(s||'').trim().toLowerCase();
- const owner=()=>({id:'owner',name:db.ownerName,username:db.ownerUsername||'aqeel',role:'owner',avatar:db.ownerAvatar||null,avatarV:db.ownerAvatarV||null,emoji:db.ownerEmoji||null,email:db.ownerEmail||'',emailVerified:!!db.ownerEmailVerified,twoStep:!!db.ownerTwoStep});
+ const owner=()=>({id:'owner',name:db.ownerName,username:db.ownerUsername||'owner',role:'owner',avatar:db.ownerAvatar||null,avatarV:db.ownerAvatarV||null,emoji:db.ownerEmoji||null,email:db.ownerEmail||'',emailVerified:!!db.ownerEmailVerified,twoStep:!!db.ownerTwoStep});
  // write one field on a person (the owner's live at the top level of users.json)
  const setF=(u,k,v)=>{if(u.id==='owner')db['owner'+k[0].toUpperCase()+k.slice(1)]=v;else{const x=db.users.find(y=>y.id===u.id);if(x)x[k]=v}};
  const USERNAME=/^[a-z0-9][a-z0-9._-]{2,31}$/;
  const slugName=s=>norm(s).replace(/[^a-z0-9._-]+/g,'.').replace(/^[._-]+|[._-]+$/g,'').slice(0,32);
- const userTaken=(un,id)=>id!=='owner'&&norm(un)===norm(db.ownerUsername||'aqeel')||db.users.some(u=>u.id!==id&&norm(u.username)===norm(un));
+ const userTaken=(un,id)=>id!=='owner'&&norm(un)===norm(db.ownerUsername||'owner')||db.users.some(u=>u.id!==id&&norm(u.username)===norm(un));
  let envOwnerCheck=ownerCheck||(()=>false);   // the original UI_PASSWORD_HASH, until the owner picks a new password here (given at start, so it works before any sign-in)
  const byId=id=>id==='owner'?owner():db.users.find(u=>u.id===id)||null;
  const isAdmin=u=>u&&(u.role==='owner'||u.role==='admin');
@@ -81,12 +87,31 @@ export function createUsers(DATA,mail,{ownerCheck}={}){
  const schedOk=(u,agent)=>isAdmin(u)?!!level(u,agent):atLeast(u,agent,'edit')&&canOn(u,'schedules',agent);
  const ownsAny=u=>Object.keys({...db.agentOwners,...db.shares}).some(a=>level(u,a)==='owner');
  // agents being made right now count too: two quick New agent clicks both passed the limit before either was recorded
- const making=new Map(),ownCount=u=>Object.values(db.agentOwners).filter(id=>id===u.id).length+(making.get(u.id)||0);
+ // a person's lead agent is given by aqeelOS, so it does not count against their allowance
+ const making=new Map(),ownCount=u=>Object.entries(db.agentOwners).filter(([a,id])=>id===u.id&&db.leads?.[u.id]!==a).length+(making.get(u.id)||0);
  // holds a place under the limit until the engine has answered (release); null when the limit is reached
  const reserve=u=>{if(ownCount(u)>=eff(u).maxAgents)return null;making.set(u.id,(making.get(u.id)||0)+1);let on=true;return ()=>{if(!on)return;on=false;const n=(making.get(u.id)||1)-1;n?making.set(u.id,n):making.delete(u.id)}};
  // a deleted agent no longer counts against its owner's allowance; who owned it and who had it come back if it is restored
  async function dropAgent(a){await load();if(!(a in db.agentOwners)&&!db.shares[a])return;(db.goneAgents??={})[a]={owner:db.agentOwners[a],shares:db.shares[a]};delete db.agentOwners[a];delete db.shares[a];await save()}
  async function restoreAgent(a){await load();const g=db.goneAgents?.[a];if(!g)return;if(g.owner)db.agentOwners[a]=g.owner;if(g.shares)db.shares[a]=g.shares;delete db.goneAgents[a];await save()}
+
+ /* ---------- lead agents (Nov 2026): every person has one agent that leads their agents ----------
+    The owner's lead is the main agent. A lead's power is its person's role, never more, read live on every call (so a
+    promotion to admin gives it admin powers at once, a demotion takes them away): tier 'admin' (the owner and admins:
+    everything, aqeelOS itself included) or 'member' (itself and the agents its person owns, within the role's limits). */
+ const leadOf=id=>id==='owner'?(db.leads.owner||'default'):db.leads[id]||null;
+ const leadPerson=a=>{a=String(a||'').split('--')[0];if(a===leadOf('owner'))return 'owner';return Object.entries(db.leads).find(([id,x])=>x===a&&id!=='owner')?.[0]||null};
+ async function setLead(id,agent){await load();if(agent)db.leads[id]=agent;else delete db.leads[id];await save()}
+ // whose power an agent acts with: its owner (the person who owns it); a person who no longer exists gives nothing
+ function agentPerson(a){a=String(a||'').split('--')[0];const o=byId(agentOwner(a));return o||null}
+ const tierOf=a=>{const o=agentPerson(a);return !o?'none':isAdmin(o)?'admin':'member'};
+ // may agent `a` (acting for its person) manage agent `target`? admin tier: any; member tier: only the agents its person owns
+ function agentMayManage(a,target){const o=agentPerson(a);if(!o)return false;if(isAdmin(o))return true;target=String(target||'').split('--')[0];return agentOwner(target)===o.id}
+ // what an agent's tier allows, for the agent and its page (the role's own limits: caps, models, number of agents)
+ function powerOf(a){const o=agentPerson(a);if(!o)return {tier:'none'};const admin=isAdmin(o),e=eff(o);
+  return {tier:admin?'admin':'member',person:{id:o.id,name:o.name},lead:leadPerson(a)===o.id,role:admin?o.role:(e.role==='custom'?'custom':e.role),caps:admin?Object.keys(CAPS):e.caps,models:admin?null:e.models,maxAgents:admin?null:e.maxAgents,owns:Object.values(db.agentOwners).filter(x=>x===o.id).length}}
+ // people without a lead yet (made before leads existed, or whose lead failed to be made); the owner's is the main agent
+ const needLead=()=>db.users.filter(u=>!db.leads[u.id]);
 
  /* ---------- 6-digit codes by email: to confirm an address, and for two-step sign-in ---------- */
  const codes=new Map();   // key → {hash, exp, tries, uid, purpose, email}
@@ -101,7 +126,7 @@ export function createUsers(DATA,mail,{ownerCheck}={}){
   if(!check(String(code||'').trim(),v.hash))return {error:'That code is not right.'};codes.delete(key);return {ok:true,uid:v.uid,email:v.email}}
  /* ---------- signing in ---------- */
  async function login(name,pw,ownerCheck){await load();if(ownerCheck)envOwnerCheck=ownerCheck;const n=norm(name);
-  if(!n||n===norm(db.ownerName)||n===norm(db.ownerUsername||'aqeel')){if(ownerPwOk(pw))return owner()}
+  if(!n||n===norm(db.ownerName)||n===norm(db.ownerUsername||'owner')){if(ownerPwOk(pw))return owner()}
   const u=db.users.find(x=>norm(x.username)===n||norm(x.name)===n);if(u&&check(pw,u.pw)){u.last=Date.now();await save();return u}
   return null}
  async function user(id){await load();return byId(id)}
@@ -228,10 +253,10 @@ export function createUsers(DATA,mail,{ownerCheck}={}){
    const cur=byId(u.id)?.avatar;if(e&&cur){await unlink(path.join(AVATARS,cur)).catch(()=>{});setF(u,'avatar',null);setF(u,'avatarV',null)}setF(u,'emoji',e||null);await save();return send(res,200,{ok:true,...face(byId(u.id))})}
   const av=/^\/ui\/people\/avatar\/([\w-]+)$/.exec(p);if(av&&req.method==='GET'){const x=byId(av[1]);if(!x?.avatar)return send(res,404,'No picture');
    try{const buf=await readFile(path.join(AVATARS,x.avatar));const ext=x.avatar.split('.').pop();res.writeHead(200,{'content-type':AVATAR_TYPES[ext]||'image/'+ext,'cache-control':'private, max-age=86400','x-content-type-options':'nosniff'});return res.end(buf)}catch{return send(res,404,'No picture')}}
-  if(p==='/ui/people/list'&&req.method==='GET')return send(res,200,[owner(),...db.users].map(x=>({id:x.id,name:x.name,username:x.username||db.ownerUsername||'aqeel',...face(x)})));
+  if(p==='/ui/people/list'&&req.method==='GET')return send(res,200,[owner(),...db.users].map(x=>({id:x.id,name:x.name,username:x.username||db.ownerUsername||'owner',...face(x)})));
   if(p==='/ui/agents'&&req.method==='GET'){const names=String(new URL(req.url,'http://x').searchParams.get('names')||'').split(',').filter(Boolean).slice(0,200);const out={};
    for(const a of names){const lv=level(u,a);if(!lv&&!isAdmin(u))continue;const o=byId(agentOwner(a))||owner();
-    out[a]={access:lv,private:isPrivate(a),owner:{id:o.id,name:o.name,...face(o)},shared:lv?Object.entries(db.shares[a]||{}).filter(([id])=>id!==o.id&&byId(id)).map(([id,l])=>{const x=byId(id);return {id,name:x.name,...face(x),level:l}}):[]}}
+    const lp=leadPerson(a);out[a]={access:lv,private:isPrivate(a),tier:tierOf(a),lead:lp?{id:lp,name:byId(lp)?.name||''}:null,owner:{id:o.id,name:o.name,...face(o)},shared:lv?Object.entries(db.shares[a]||{}).filter(([id])=>id!==o.id&&byId(id)).map(([id,l])=>{const x=byId(id);return {id,name:x.name,...face(x),level:l}}):[]}}
    return send(res,200,out)}
   const ag=/^\/ui\/agents\/([^/]+)\/(share|owner)$/.exec(p);
   if(ag&&req.method==='PUT'){const a=decodeURIComponent(ag[1]),b=await body();if(level(u,a)!=='owner')return send(res,403,{error:'Only the owner of this agent can change who has it.'});
@@ -259,7 +284,7 @@ export function createUsers(DATA,mail,{ownerCheck}={}){
   if(p==='/ui/mail/test'&&req.method==='POST'){const b=await body();try{const r=await mail.deliver(String(b.to||'').trim(),'aqeelOS test email','This is a test from aqeelOS. If you can read it, email works.');return send(res,200,{ok:true,reply:r})}catch(e){return send(res,502,{error:e.message})}}
   const ie=/^\/ui\/people\/invite\/([\w-]+)\/email$/.exec(p);if(ie&&req.method==='POST'){const b=await body();const i=db.invites.find(x=>x.code===ie[1]&&!x.used);if(!i)return send(res,404,{error:'That invite is gone.'});
    try{await mail.deliver(String(b.to||'').trim(),(byId(u.id)?.name||'Someone')+' invited you to aqeelOS',`Hi${i.name?' '+i.name:''},\n\n${byId(u.id)?.name||'Someone'} invited you to aqeelOS. Open this link to pick a username and password:\n\n${String(b.link||'')}\n\nThe link works once and expires in 7 days.`);return send(res,200,{ok:true})}catch(e){return send(res,502,{error:e.message})}}
-  if(p==='/ui/people'&&req.method==='GET')return send(res,200,{caps:CAPS,presets:PRESETS,owner:pub(owner()),roles:db.roles,users:db.users.map(x=>({...pub(x),roleId:x.roleId||'custom',caps:x.caps||[],models:x.models||null,limit:x.limit||null})),invites:db.invites.filter(i=>!i.used&&i.expires>Date.now()).map(i=>({code:i.code,name:i.name,role:i.role,agents:i.agents,expires:i.expires})),shares:db.shares});
+  if(p==='/ui/people'&&req.method==='GET')return send(res,200,{caps:CAPS,presets:PRESETS,owner:pub(owner()),roles:db.roles,users:db.users.map(x=>({...pub(x),lead:db.leads[x.id]||null,roleId:x.roleId||'custom',caps:x.caps||[],models:x.models||null,limit:x.limit||null})),invites:db.invites.filter(i=>!i.used&&i.expires>Date.now()).map(i=>({code:i.code,name:i.name,role:i.role,agents:i.agents,expires:i.expires})),shares:db.shares});
   if(p==='/ui/people/invite'&&req.method==='POST'){const b=await body();if(b.roleId&&unsafeRole(b.roleId))return send(res,403,UNSAFE_ROLE);const role=b.role==='admin'&&u.role==='owner'?'admin':'member';
    const inv={code:randomBytes(18).toString('base64url'),name:String(b.name||'').trim().slice(0,60),role,roleId:b.roleId&&db.roles[b.roleId]?b.roleId:null,caps:(Array.isArray(b.caps)?b.caps:[]).filter(k=>k in CAPS&&(k!=='unsafe'||u.role==='owner')),agents:b.agents&&typeof b.agents==='object'?Object.fromEntries(Object.entries(b.agents).filter(([a])=>!isPrivate(a)||level(u,a)==='owner')):{},expires:Date.now()+7*864e5,by:u.id};
    // the agent made for them in this invite becomes theirs (private) when they accept, if the inviter still owns it then
@@ -280,7 +305,7 @@ export function createUsers(DATA,mail,{ownerCheck}={}){
    const owns=Object.entries(db.agentOwners).filter(([,o])=>o===id).map(([a])=>a);
    if(owns.length&&x&&!isAdmin(x)){if(!(u.role==='owner'&&new URL(req.url,'http://x').searchParams.get('agents')==='take'))return send(res,409,{code:'owns-agents',agents:owns,error:x.name+' still owns '+owns.join(', ')+', private to them. They can give '+(owns.length>1?'those agents':'it')+' to someone under Edit agent › Sharing.'});
     for(const a of owns)delete db.agentOwners[a]}
-   db.users=db.users.filter(y=>y.id!==id);for(const a of Object.values(db.shares))delete a[id];await save();return send(res,200,{ok:true})}
+   db.users=db.users.filter(y=>y.id!==id);delete db.leads[id];for(const a of Object.values(db.shares))delete a[id];await save();return send(res,200,{ok:true})}
   return send(res,404,{error:'Not found'})}
 
  /* ---------- accepting an invite (no sign-in yet) ---------- */
@@ -291,8 +316,10 @@ export function createUsers(DATA,mail,{ownerCheck}={}){
   const un=norm(username||slugName(name));if(!USERNAME.test(un))throw new Error('Pick a username of 3–32 characters: letters, numbers, dots, dashes or underscores.');if(userTaken(un,null))throw new Error('That username is taken. Try another.');
   const u={id:randomBytes(6).toString('hex'),name,username:un,role:i.role,roleId:i.roleId||null,caps:i.caps||[],pw:hash(pw),created:Date.now(),last:Date.now()};db.users.push(u);
   for(const [a,l] of Object.entries(i.agents||{}))if(LEVELS.includes(l)){db.shares[a]||={};db.shares[a][u.id]=l}
-  if(i.ownAgent&&agentOwner(i.ownAgent)===i.by){db.agentOwners[i.ownAgent]=u.id;delete db.shares[i.ownAgent]?.[u.id]}
-  i.used=Date.now();await save();await mkdir(home(u),{recursive:true}).catch(()=>{});return u}
+  if(i.ownAgent&&agentOwner(i.ownAgent)===i.by){db.agentOwners[i.ownAgent]=u.id;delete db.shares[i.ownAgent]?.[u.id];db.leads[u.id]=i.ownAgent}
+  i.used=Date.now();await save();await mkdir(home(u),{recursive:true}).catch(()=>{});
+  // every new person gets a lead agent (the server makes it, in the background: the engine takes a while)
+  if(!db.leads[u.id])Promise.resolve(hooks.onJoin?.(u)).catch(e=>console.warn('lead agent for',u.id,e.message));return u}
 
  // a new agent starts with no shares: ones left under that name (shared before it existed, or from an older agent) go
  async function created(u,agent){await load();db.agentOwners[agent]=u.id;delete db.shares[agent];await save()}
@@ -303,5 +330,5 @@ export function createUsers(DATA,mail,{ownerCheck}={}){
  async function loginCode(u){const me=byId(u.id);return sendCode(me,'login',me.email)}
  function finishLogin(key,code){const v=checkCode(String(key||''),code,'login');if(v.error)return v;const u=byId(v.uid);return u?{ok:true,user:u}:{error:'That person no longer exists.'}}
  const expiredInvites=()=>(db?.invites||[]).filter(i=>!i.used&&i.expires<Date.now()&&i.expires>Date.now()-30*86400e3).map(i=>({code:i.code,name:i.name,role:i.role,roleId:i.roleId||null,caps:i.caps||[],agents:i.agents||{},ownAgent:i.ownAgent||null,expired:i.expires}));
- return {face,expiredInvites,agentOwner,byId,ownerOf,sessionOwner,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginCode,finishLogin,created,reserve,can,canOn,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home,level,atLeast,schedOk,dropAgent,restoreAgent};
+ return {hooks,leadOf,leadPerson,setLead,agentPerson,tierOf,agentMayManage,powerOf,needLead,face,expiredInvites,agentOwner,byId,ownerOf,sessionOwner,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginCode,finishLogin,created,reserve,can,canOn,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home,level,atLeast,schedOk,dropAgent,restoreAgent};
 }
