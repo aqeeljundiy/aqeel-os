@@ -128,7 +128,9 @@ function clientIp(req){const cf=String(req.headers['cf-connecting-ip']||'').trim
 function limited(ip){const now=Date.now(),a=(attempts.get(ip)||[]).filter(t=>now-t<600e3);if(a.length)attempts.set(ip,a);else attempts.delete(ip);if(attempts.size>5000)for(const k of [...attempts.keys()].slice(0,1000))attempts.delete(k);return a.length>=5}
 
 /* ---------- helpers ---------- */
-function send(res,status,body,headers={}){const data=typeof body==='string'||Buffer.isBuffer(body)?body:JSON.stringify(body);res.writeHead(status,{'content-type':typeof body==='object'&&!Buffer.isBuffer(body)?'application/json; charset=utf-8':'text/plain; charset=utf-8','cache-control':'no-store',...security,...headers});res.end(data)}
+// Node's bare "fetch failed" (an engine or service that is not running, e.g. on a fresh install) becomes a reason a person can act on
+const plainErr=b=>b&&typeof b==='object'&&!Buffer.isBuffer(b)&&b.error==='fetch failed'?{...b,error:'A service aqeelOS needs did not answer (the engine is probably not running yet). Start the Hermes gateway and dashboard, then try again.'}:b;
+function send(res,status,body,headers={}){body=plainErr(body);const data=typeof body==='string'||Buffer.isBuffer(body)?body:JSON.stringify(body);res.writeHead(status,{'content-type':typeof body==='object'&&!Buffer.isBuffer(body)?'application/json; charset=utf-8':'text/plain; charset=utf-8','cache-control':'no-store',...security,...headers});res.end(data)}
 // every "path" field of a multipart upload, however its Content-Disposition spells it (quoted or not, any case);
 // null when the body cannot be read the strict way, so nothing the engine might read differently gets past
 function formPaths(raw,ct){const bm=/boundary=(?:"([^"]+)"|([^;\s]+))/i.exec(String(ct||''));if(!bm)return null;const t=raw.toString('latin1'),parts=t.split('--'+(bm[1]||bm[2]));if(parts.length<3||!parts.at(-1).startsWith('--'))return null;const out=[];
@@ -174,7 +176,8 @@ function proxy(req,res,target,prefix,authHeaders,{transform,body,live}={}){
    r.on('end',()=>{liveEnd(live.key,rec);if(!res.writableEnded)res.end()});r.on('error',()=>{liveEnd(live.key,rec);res.end()});live.started=true;return}
   res.writeHead(r.statusCode||502,{...out,...security});r.pipe(res);
  });
- up.on('error',e=>{if(!res.headersSent)send(res,502,{error:'The aqeelOS engine is not reachable',detail:e.code||e.message});else res.end()});
+ // the plain reason in error (pages show it); a fresh install without the engine running learns what to start
+ up.on('error',e=>{if(!res.headersSent)send(res,502,{error:/ECONNREFUSED|ENOTFOUND|EHOSTUNREACH/.test(String(e.code||e.message))?'The engine is not running (nothing answers at '+target.origin+'). Start the Hermes gateway and dashboard, then try again.':'The engine is not reachable ('+(e.code||e.message)+'). Try again in a moment.',code:e.code||''});else res.end()});
  req.on('aborted',()=>{if(!live?.started)up.destroy()});res.on('close',()=>{if(!res.writableEnded&&!live?.started)up.destroy()});
  if(body!==undefined)up.end(body);else req.pipe(up);
 }
