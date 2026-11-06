@@ -6,12 +6,12 @@
    model is set (1 Nov 2026: it was a second picker here, written another way, and the two could disagree).
    Save stores whatever changed. The card menu keeps only Edit, Chat with it and Delete; what a member may
    do still follows their share level and permissions. ---------- */
-const AE_TABS=['Identity','Personality','History','Sharing'];
+const AE_TABS=['Identity','Personality','History','Sharing','Access'];   // Access: which agents may look after this one (agent-access.mjs)
 async function editAgent(name,start='Identity',opt={}){
  const base='/profiles/'+encodeURIComponent(name),prof=(Pages._profiles||[]).find(p=>p.name===name)||{name},id=ident(name);
  const admin=S.me?.admin!==false,lvl=admin?'owner':(S.me?.agents?.[name]||'chat'),has=k=>admin||(S.me?.caps||[]).includes(k);
  const owner=admin||Pages._own?.[name]?.access==='owner';   // admins share any agent, as on People
- const tabsOn=AE_TABS.filter(t=>t!=='Sharing'||owner);if(!tabsOn.includes(start))start='Identity';
+ const tabsOn=AE_TABS.filter(t=>!['Sharing','Access'].includes(t)||owner);if(!tabsOn.includes(start))start='Identity';
  const soulR=await H(base+'/soul').catch(()=>null);
  // a SOUL that could not be read is never written back: an empty box would replace the whole personality
  const soulOk=typeof soulR?.content==='string',soul=soulOk?soulR.content:'';
@@ -32,7 +32,8 @@ async function editAgent(name,start='Identity',opt={}){
    <label>Personality and standing instructions</label><p class="hint ih-flaghint" id="aeFlagHint" hidden></p><textarea id="idSoul" rows="16" style="font-size:12.5px;line-height:1.55">${esc(soul)}</textarea>
    <label>What changed and why <span class="hint">(optional, kept in its history)</span></label><input id="aeWhy" maxlength="300" placeholder="For example: comments 5 an hour instead of 3">`):''}
   ${sec('History',`<div id="aeHist">${skeleton(3)}</div>`)}
-  ${tabsOn.includes('Sharing')?sec('Sharing',`<p class="hint" style="margin:0 0 12px">Who owns ${esc(id.name)} and who else may chat with it or change it. Each change here saves as you make it.</p><div id="aeShareBox">${skeleton(2)}</div>`):''}`,
+  ${tabsOn.includes('Sharing')?sec('Sharing',`<p class="hint" style="margin:0 0 12px">Who owns ${esc(id.name)} and who else may chat with it or change it. Each change here saves as you make it.</p><div id="aeShareBox">${skeleton(2)}</div>`):''}
+  ${tabsOn.includes('Access')?sec('Access',`<p class="hint" style="margin:0 0 12px">Other agents that may look after ${esc(id.name)}. Viewer reads its setup and logs; Editor also changes its instructions, skills and schedules; Manager also its settings and who else may look after it. Its keys are never shared this way. The main agent can always do everything.</p><div id="aeAccessBox">${skeleton(2)}</div>`):''}`,
   `<button class="ghost" data-act="close">Cancel</button><button class="primary" id="aeSave">Save</button>`,{size:'lg'});
  // tabs inside the window
  // each tab has its own height, and the window grows or shrinks to it smoothly (no jump, no tall empty space); on
@@ -41,7 +42,7 @@ async function editAgent(name,start='Identity',opt={}){
   d.querySelectorAll('[data-ae]').forEach(b=>b.classList.toggle('on',b.dataset.ae===t));d.querySelectorAll('.ae-sec').forEach(s=>s.hidden=s.dataset.sec!==t);placePills();
   if(body&&h1&&!matchMedia('(prefers-reduced-motion: reduce)').matches){clearTimeout(body._ht);body.style.transition='none';body.style.height='';const h2=body.offsetHeight;
    if(Math.abs(h2-h1)>2){body.style.height=h1+'px';void body.offsetHeight;body.style.transition='height .24s cubic-bezier(.2,.7,.2,1)';body.style.height=h2+'px';body._ht=setTimeout(()=>{body.style.height='';body.style.transition=''},280)}}
-  const sv=d.querySelector('#aeSave'),cx=d.querySelector('.drawer-foot [data-act=close]'),only=t==='Sharing'&&!isDirty?.();if(sv)sv.hidden=only;if(cx){cx.textContent=only?'Done':'Cancel';cx.classList.toggle('primary',only);cx.classList.toggle('ghost',!only)}};
+  const sv=d.querySelector('#aeSave'),cx=d.querySelector('.drawer-foot [data-act=close]'),only=(t==='Sharing'||t==='Access')&&!isDirty?.();if(sv)sv.hidden=only;if(cx){cx.textContent=only?'Done':'Cancel';cx.classList.toggle('primary',only);cx.classList.toggle('ghost',!only)}};
  let isDirty=null;
  d.querySelectorAll('[data-ae]').forEach(b=>b.onclick=()=>{show(b.dataset.ae);if(b.dataset.ae==='History')instrHistory(d.querySelector('#aeHist'),name,()=>{closeLayers();editAgent(name,'History')})});
  if(start==='History')instrHistory(d.querySelector('#aeHist'),name,()=>{closeLayers();editAgent(name,'History')});
@@ -74,6 +75,7 @@ async function editAgent(name,start='Identity',opt={}){
  d.querySelector('#aeModelGo')?.addEventListener('click',async e=>{const b=e.currentTarget;if(S.me?.admin===false)return ACT['model-change'](b);if(isDirty()&&!await confirmBox('Leave without saving?','Your changes to this agent are not saved yet.','Leave'))return;ACT['model-change'](b)});
  // sharing is drawn right in its tab and saves each change at once (shareInto, people.js)
  const shareBox=d.querySelector('#aeShareBox');if(shareBox)shareInto(shareBox,name,opt);
+ const accBox=d.querySelector('#aeAccessBox');if(accBox)agentAccessInto(accBox,name);
  d.querySelector('#aeSave').onclick=async()=>{const nm=nameIn.value.trim();if(!nm){show('Identity');return toast('Give it a name','err')}const btn=d.querySelector('#aeSave');btn.disabled=true;
   try{if(nm!==id.name||titleIn.value.trim()!==id.title||emoChanged())await call('','/ui/identities/'+encodeURIComponent(name),{method:'PUT',body:{name:nm,title:titleIn.value.trim(),...(emoChanged()?{emoji:emo}:{})}});   // an emoji also clears the photo on the server
    if(newPic)await call('','/ui/avatar/'+encodeURIComponent(name),{method:'PUT',headers:{'content-type':newPic.type},body:newPic});   // through call(): the shared reads are dropped, so the old picture can't come back
@@ -128,3 +130,11 @@ async function instrHistory(box,name,reopen){if(!box)return;const base='/ui/inst
    if(!body.dataset.done){body.innerHTML=skeleton(2);body.hidden=false;try{const x=await UI(base+'/v/'+v);body.innerHTML=ihDiff(x.diff)+(v!==latest?`<div class="ih-acts"><button type="button" class="ghost small" data-act="ih-restore">${icon('retry',14)}Bring this version back</button></div>`:'');body.dataset.done='1';
      body.querySelector('[data-act="ih-restore"]')?.addEventListener('click',async e=>{if(!await confirmBox('Bring back version '+v+'?','Its instructions become this version again. Today’s stays in the history, so you can go back.','Bring it back',false))return;const done=busy(e.currentTarget);try{await post(UI,base+'/restore',{v});toast('Version '+v+' is back');reopen()}catch(er){fail(er);done()}})}catch(er){body.innerHTML=`<p class="hint">${esc(er.message)}</p>`}}
    body.hidden=false}})}
+
+// Agents › Edit agent › Access: one row per other agent with its level on this one; each change saves at once
+const ACC_LABEL={none:'No access',viewer:'Viewer',editor:'Editor',manager:'Manager'};
+async function agentAccessInto(box,name){let r;try{r=await UI('/ui/agent-access?agent='+encodeURIComponent(name))}catch(e){if(box.isConnected)box.innerHTML=errLine('who may look after this agent');return}if(!box.isConnected)return;
+ const ro=S.me?.admin===false;
+ box.innerHTML=r.agents.map(a=>`<div class="pshare">${agentAvatar(a.id,28,{title:false})}<b>${esc(ident(a.id).name||a.name)}</b><select style="width:auto;margin-left:auto" data-acc="${esc(a.id)}" aria-label="What ${esc(a.name)} may do" ${ro?'disabled':''}>${Object.entries(ACC_LABEL).map(([k,v])=>`<option value="${k}" ${(r.grants[a.id]||'none')===k?'selected':''}>${v}</option>`).join('')}</select></div>`).join('')||'<p class="hint">There are no other agents.</p>';
+ box.querySelectorAll('select').forEach(s=>typeof enhanceSelect==='function'&&enhanceSelect(s));
+ box.querySelectorAll('[data-acc]').forEach(s=>s.onchange=async()=>{s.disabled=true;try{await post(UI,'/ui/agent-access',{agent:name,to:s.dataset.acc,level:s.value});toast(s.value==='none'?'No longer shared':'Saved')}catch(e){fail(e)}agentAccessInto(box,name)})}

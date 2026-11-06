@@ -15,7 +15,7 @@ import path from 'node:path';
 
 export const LEVELS=['none','viewer','editor','manager','owner'];
 export const rank=l=>Math.max(0,LEVELS.indexOf(String(l||'none').toLowerCase()));
-export const TYPES=['account','secret','mcp','integration','skill','schedule','bot'];
+export const TYPES=['account','secret','mcp','integration','skill','schedule','bot','agent'];   // agent: one agent looking after another (agent-access.mjs)
 // the least level each action needs
 export const NEEDS={read:'viewer',use:'viewer',write:'editor',send:'editor',create:'editor',settings:'manager',share:'manager',revoke:'manager',transfer:'owner',delete:'owner'};
 export const AGENT=/^[a-z0-9][a-z0-9_-]{0,63}$/;

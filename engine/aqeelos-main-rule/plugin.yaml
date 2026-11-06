@@ -1,0 +1,6 @@
+name: aqeelos-main-rule
+version: 0.1.0
+manifest_version: 2
+description: Main agent rule. When the main agent edits another agent's own work (its instructions, skills, schedules or workspace) with its file or terminal tools, the tool result reminds it to give that agent the access it lacks instead. A reminder only; nothing is blocked.
+author: Elkiya
+license: MIT

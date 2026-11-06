@@ -39,6 +39,11 @@ MIT, see `LICENSE`.
 ## Notes from the reference install
 aqeelOS: a new interface for Hermes Agent on the AI VPS, in the Elkiya design. Live at **https://ai.elkiya.com** (password sign-in). It keeps every Hermes dashboard feature in five sections (Chat, Automations, Abilities, Models, System) and replaces the terminal chat with a Claude-style chat.
 
+## Main agent and agent access
+- One main agent (`MAIN_AGENT`, default `default`) is the only agent that changes aqeelOS itself, other agents, keys, permissions, money and deletions.
+- **Main agent rule** (written into the main agent's instructions by aqeelOS on every install): when another agent has a problem, the main agent does not fix that agent's work for it. It gives the agent the access or tools it lacks, then tells the person (and the agent, in its own chat or topic) to have the agent fix it itself. It fixes directly only when the owner explicitly asks, or when it is aqeelOS code no agent can reach. The engine plugin `engine/aqeelos-main-rule` adds a reminder to the main agent's tool results when it edits another agent's own files (a reminder, not a block). Install: copy it to `~/.hermes/plugins/` and run `hermes plugins enable aqeelos-main-rule`.
+- **Agents as a shared resource** (`app/agent-access.mjs`, sharing type `agent`): one agent can look after another at a level. Viewer reads its setup and logs; Editor also changes its instructions, skills and schedules; Manager also its settings and shares it as Editor or Viewer; Owner does everything. Every agent owns itself. Keys are never shown at any level (a key is shared on its own), and settings about keys, permissions or aqeelOS itself stay with the main agent. Agents use it through the `manage_agent` tool; the level is checked on the server on every call, and every change is attributed and passed to `app/agent-versions.mjs` (`recordAgentChange`) when present. Set it per agent under Agents › Edit agent › Access.
+
 ## How it works
 - `app/server.mjs` runs inside the `ai-box` container (Dokploy project **AI VPS**). It serves the UI, handles sign-in, and forwards `/hapi/*` to the Hermes dashboard API (127.0.0.1:9119) and `/gapi/*` to the Hermes gateway API (127.0.0.1:8642). Hermes keys never reach the browser.
 - Traefik (Dokploy) routes ai.elkiya.com → container port 4400 with Let's Encrypt.
