@@ -107,7 +107,15 @@ export function createAgentVersions({DATA,HERMES_HOME,DASH,DASH_TOKEN,PUBLIC_URL
   const bySkill=new Map();for(const [s,f] of files){const k=f.split('/').slice(0,-1).join('/')||f;const top=k.split('/').slice(0,2).join('/');if(!bySkill.has(top))bySkill.set(top,[]);bySkill.get(top).push((s==='A'?'added ':s==='D'?'removed ':'changed ')+f)}
   // the engine's bundled-skill sync rewrites .bundled_manifest: those files are aqeelOS's, not the agent's self-change, so a rollback must not undo them
   const sync=files.some(x=>x[1]==='.bundled_manifest');
-  const out=[];for(const [k,l] of bySkill)out.push(await record(a,{kind:'skill',target:k,what:l.slice(0,6).join('; ')+(l.length>6?' +'+(l.length-6):''),why:sync?'aqeelOS skill sync':(why||''),by:sync?'aqeelOS (skill sync)':(by||nameOf(a)),undoable:!sync,before:{commit:before,files:files.filter(x=>x[1].startsWith(k)).map(x=>x[1])},after:{commit:after}}));return out}
+  // a skill added or removed byte-for-byte equal to the shared tier (the main agent's skills, which every agent reads)
+  // changes nothing the agent sees: the engine drops such duplicate copies and a sandbox sync can bring them back.
+  // Those are aqeelOS's, never a self-change: not undoable and they never arm the "still answers" watch (undoing them
+  // put the copies back, the engine dropped them again: a loop every few minutes)
+  const shared=path.join(HERMES_HOME,'skills');const blob=async(rev,f)=>{const r=await git(a,['rev-parse','--verify','-q',rev+':'+f]);return r.ok?r.out.trim():null};
+  const sameAsShared=async fs=>{if(a==='default'||!fs.length)return false;for(const [s,f] of fs){if(s!=='A'&&s!=='D')return false;
+   const h=await git(a,['hash-object','--',path.join(shared,f)]);if(!h.ok||!h.out.trim())return false;if(await blob(s==='D'?before:after,f)!==h.out.trim())return false}return true};
+  const out=[];for(const [k,l] of bySkill){const mine=files.filter(x=>x[1].startsWith(k+'/')||x[1]===k);const dup=!sync&&await sameAsShared(mine);const sys=sync||dup;
+   out.push(await record(a,{kind:'skill',target:k,what:l.slice(0,6).join('; ')+(l.length>6?' +'+(l.length-6):''),why:sync?'aqeelOS skill sync':dup?'copy of a shared skill (no change in what it sees)':(why||''),by:sync?'aqeelOS (skill sync)':dup?'aqeelOS (shared skill copy)':(by||nameOf(a)),undoable:!sys,before:{commit:before,files:mine.map(x=>x[1])},after:{commit:after}}))}return out}
 
  // ---- undo ----
  async function undo(a,id,{by='owner'}={}){const d=await load(a);const x=d.items.find(i=>i.id===String(id));if(!x)throw Error('No change '+id+'. my_changes lists yours.');
@@ -220,7 +228,9 @@ export function createAgentVersions({DATA,HERMES_HOME,DASH,DASH_TOKEN,PUBLIC_URL
   // a deleted agent (tombstone in profiles/.deleted, its dir may linger) is gone on purpose, not broken: disarm, never roll back
   if(await stat(path.join(HERMES_HOME,'profiles','.deleted',a)).catch(()=>null)){await lock(a,async()=>{const d1=await load(a);if(d1.watch){d1.watch=null;d1.events.push({kind:'ok',at:now(),text:'agent deleted; watch stopped'});await save(a)}});continue}
   // its own chats running right now count as answering; otherwise a short ping run of its own
-  let ok=false,why='';try{const r=await ping(a);ok=!!r.ok;why=r.why||''}catch(e){why=e.message}
+  let ok=false,why='',unsure=false;try{const r=await ping(a);ok=r.ok===true;unsure=!!r.unsure;why=r.why||''}catch(e){why=e.message}
+  // a ping that could not tell (the engine was restarting) is not a "did not answer": try again later, no fail counted
+  if(unsure){await lock(a,async()=>{const d1=await load(a);if(d1.watch){d1.watch.due=now()+4*60e3;await save(a)}});continue}
   await lock(a,async()=>{const d2=await load(a);if(!d2.watch)return;
    if(ok){d2.events.push({kind:'ok',at:now(),text:'answered after its changes'});d2.watch=null;await save(a);return}
    d2.watch.fails=(d2.watch.fails||0)+1;d2.watch.due=now()+4*60e3;d2.events.push({kind:'noanswer',at:now(),text:clip(why,200)});await save(a)});
@@ -234,7 +244,7 @@ export function createAgentVersions({DATA,HERMES_HOME,DASH,DASH_TOKEN,PUBLIC_URL
   log('agent-versions: '+text);{const q=quiet(a);if(q)log('agent-versions: not sent to the owner ('+(q==='test'?'test agent':'restart hold')+')');else await tellOwner(text).catch(()=>{})}
   if(issues)await issues.file({agent:a,what:'Automatic rollback',missing:nameOf(a)+' stopped answering after a self-change',evidence:text,proposed_fix:'Check its logs (my_logs) and the undone changes; the agent can make them again correctly.',origin:{}}).catch(()=>{})}}
  async function arm(a){return lock(a,async()=>{const d=await load(a);d.watch={since:d.watch?.since&&now()-d.watch.since<HOUR?d.watch.since:now(),due:now()+3*60e3,fails:0};await save(a)})}
- async function skillsTick(){for(const a of (await listAgents()).filter(x=>x!=='default'&&!x.includes('--'))){try{const v=await skillsSnap(a,{by:nameOf(a),why:'its own skill change'});if(v.length)log('agent-versions: '+a+' changed '+v.length+' skill(s)')}catch(e){log('agent-versions skills '+a+': '+e.message)}}}
+ async function skillsTick(){for(const a of (await listAgents()).filter(x=>x!=='default'&&!x.includes('--'))){try{const v=(await skillsSnap(a,{by:nameOf(a),why:'its own skill change'})).filter(x=>x.undoable);if(v.length)log('agent-versions: '+a+' changed '+v.length+' skill(s)')}catch(e){log('agent-versions skills '+a+': '+e.message)}}}
 
  // ---- the "what you can do" list ----
  async function capabilities(a){const c=await readConfig(a).catch(()=>null)||{};const pts=pick(c,'platform_toolsets')||{};const toolsByChannel={};

@@ -1,7 +1,7 @@
 // Tests for the self-repair kit (app/agent-versions.mjs). Run: node --test scripts/agent-versions.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,writeFile,readFile,stat} from 'node:fs/promises';
+import {mkdtemp,mkdir,writeFile,readFile,stat,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {createServer} from 'node:http';
@@ -94,3 +94,20 @@ test('automatic rollback of a test agent (or during a restart hold): undone and 
  for(const q of ['test','hold']){const {v,d,cfg,told,filed,tick}=await make({ping:async()=>({ok:false,why:'exit 1'}),quiet:a=>a==='bot'?q:null});
   try{await v.mySetting('bot','stt.language','xx',{by:'Bot'});await v.arm('bot');tick(4*60e3);await v.watchTick();tick(5*60e3);await v.watchTick();
    assert.equal(cfg.stt.language,'id');assert.equal(told.length,0,q+': owner not told');assert.equal(filed.length,1)}finally{d.srv.close()}}});
+
+test('skills: a copy equal to the shared tier coming and going is not a self-change (no undo, no watch, no rollback loop)',async()=>{
+ let pings=0;const {v,d,H,tick}=await make({ping:async()=>{pings++;return {ok:false,why:'exit 1'}}});
+ try{const own=path.join(H,'profiles','bot','skills','productivity','xlsx'),sh=path.join(H,'skills','productivity','xlsx');
+  await mkdir(own,{recursive:true});await mkdir(sh,{recursive:true});await writeFile(path.join(sh,'SKILL.md'),'shared xlsx\n');await writeFile(path.join(own,'SKILL.md'),'shared xlsx\n');
+  await v.skillsSnap('bot');
+  await rm(own,{recursive:true});const [gone]=await v.skillsSnap('bot',{by:'Bot',why:'its own skill change'});
+  assert.equal(gone.undoable,false);assert.match(gone.by,/shared skill copy/);assert.equal((await v.load('bot')).watch,null);
+  await mkdir(own,{recursive:true});await writeFile(path.join(own,'SKILL.md'),'shared xlsx\n');const [back]=await v.skillsSnap('bot',{by:'Bot'});
+  assert.equal(back.undoable,false);tick(10*60e3);await v.watchTick();assert.equal(pings,0);
+  // an own copy that differs from the shared one is still the agent's change
+  await writeFile(path.join(own,'SKILL.md'),'my edit\n');const [mine]=await v.skillsSnap('bot',{by:'Bot'});assert.equal(mine.undoable,true);assert.ok((await v.load('bot')).watch)}finally{d.srv.close()}});
+
+test('watch: a ping that could not tell (engine restarting) counts no miss and never rolls back',async()=>{
+ const {v,d,cfg,tick}=await make({ping:async()=>({ok:false,unsure:true,why:'restarting'})});
+ try{await v.mySetting('bot','stt.language','xx',{by:'Bot'});for(let i=0;i<4;i++){tick(5*60e3);await v.watchTick()}
+  assert.equal(cfg.stt.language,'xx');assert.equal((await v.load('bot')).watch.fails,0)}finally{d.srv.close()}});
