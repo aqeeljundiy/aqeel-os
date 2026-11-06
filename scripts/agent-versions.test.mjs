@@ -8,9 +8,9 @@ import {createServer} from 'node:http';
 import {createHmac} from 'node:crypto';
 import {createAgentVersions,recordAgentChange,redactLog,verifyProvider,resign,rollbackPlan,capabilityLines,VERSION_TOOLS,OWN_SETTING} from '../app/agent-versions.mjs';
 
-test('redactLog hides keys, bearer tokens, bot tokens, long opaque strings and middle digits of phone numbers',()=>{
+test('redactLog hides keys, bearer tokens, bot tokens, long opaque strings; phone numbers stay in full',()=>{
  const t=redactLog('api_key=sk-abc123456789 Authorization: Bearer abcdefghijklmnop bot123456789:AAAAAAAAAAAAAAAAAAAAAAAAAAAA to 6281336263417 '+'x'.repeat(45));
- assert.doesNotMatch(t,/sk-abc|abcdefghijklmnop|AAAAAAAAAAAA|xxxxxxxxxx/);assert.match(t,/62813\*\*\*\*417/)});
+ assert.doesNotMatch(t,/sk-abc|abcdefghijklmnop|AAAAAAAAAAAA|xxxxxxxxxx/);assert.match(t,/6281336263417/)});
 
 test('verifyProvider: HMAC-SHA256 hex (Tripay style), token (Xendit style), wrong signature refused; resign makes the engine V2 signature',()=>{
  const raw=Buffer.from('{"status":"PAID"}'),key='priv';const sig=createHmac('sha256',key).update(raw).digest('hex');

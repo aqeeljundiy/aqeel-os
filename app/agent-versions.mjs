@@ -27,14 +27,13 @@ const clip=(s,n)=>{s=String(s??'');return s.length>n?s.slice(0,n)+'…':s};
 const HOUR=3600e3;
 // own settings an agent may change itself (same list as my_settings)
 export const OWN_SETTING=/^(stt|tts)\.[a-z0-9_.]+$|^timezone$|^display\.[a-z0-9_.]+$/;
-// redaction for logs an agent reads back: keys, tokens, bearer headers, long opaque strings, phone numbers in full
+// redaction for logs an agent reads back: keys, tokens, bearer headers, long opaque strings (phone numbers stay readable: agents need their customers' numbers)
 export function redactLog(t){return String(t)
  .replace(/\b(sk|xox[abpr]|ghp|gho|ya29|AIza|rk|pk)[-_A-Za-z0-9.]{8,}/g,'(hidden)')
  .replace(/(Bearer\s+)[A-Za-z0-9._~+\/=-]{8,}/gi,'$1(hidden)')
  .replace(/((?:api[_-]?key|token|secret|password|passwd|authorization|bearer|cookie|signature)["']?\s*[:=]\s*["']?)(?!Bearer\b)[^\s"',;]+/gi,'$1(hidden)')
  .replace(/\bbot\d{6,}:[A-Za-z0-9_-]{20,}/g,'bot(hidden)')
- .replace(/\b[A-Za-z0-9_-]{40,}\b/g,'(hidden)')
- .replace(/\b(\+?62|0)(\d{3})\d{4,}(\d{3})\b/g,'$1$2****$3')}
+ .replace(/\b[A-Za-z0-9_-]{40,}\b/g,'(hidden)')}
 
 // a provider's own signature on a webhook (Tripay, Xendit, Midtrans…): checked here with the agent's own saved key,
 // then signed again for the engine's webhook listener (generic V2: HMAC of "<t>.<body>" with the route secret)

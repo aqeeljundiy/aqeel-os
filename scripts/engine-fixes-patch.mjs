@@ -24,6 +24,11 @@
 //    (TELEGRAM_..., SLACK_...), but kept bot tokens saved under another name (CONTINUE_SUPPORT_BOT_TOKEN), so two agents
 //    polled one Telegram bot and kicked each other off. Every ..._BOT_TOKEN / ..._APP_TOKEN key now counts as a channel
 //    key when an agent is cloned: one bot token belongs to one agent.
+// 6) aqeelos:phone-redaction-setting (6 Nov 2026). The engine masked every +E.164 phone number in tool output and
+//    messages (+628****3124) as part of secret redaction, so support agents could not see their own customers' numbers
+//    (Kirimdev itself returns them in full) and asked the team or guessed. Phone masking is now its own per-agent
+//    setting, security.redact_phone_numbers (default true, so a fresh install stays safe); keys and tokens are still
+//    always redacted. aqeelOS turns it off for agents that work with customers' numbers.
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
 
@@ -168,6 +173,48 @@ def _aq_failed_reply(response, agent_result, notice, add_notice):
   {why:'the failed-turn reply',
    from:'                response = self._hmwa_add_failed_turn_notice(response, self._hmwa_failed_turn_notice(agent_result))\n',
    to:'                response = _aq_failed_reply(response, agent_result, self._hmwa_failed_turn_notice(agent_result), self._hmwa_add_failed_turn_notice)\n'}]},
+ {tag:'aqeelos:phone-redaction-setting',name:'phone-number masking is its own per-agent setting',file:'agent/redact.py',edits:[
+  {why:'the per-agent switch',
+   from:'    with _REDACT_ENABLED_LOCK:\n        _REDACT_ENABLED_BY_HOME[home_key] = enabled\n    return enabled\n',
+   to:`    with _REDACT_ENABLED_LOCK:
+        _REDACT_ENABLED_BY_HOME[home_key] = enabled
+    return enabled
+
+
+# aqeelos:phone-redaction-setting: masking phone numbers is its own per-agent choice (security.redact_phone_numbers,
+# default on), separate from secret redaction, so support agents can read their customers' numbers in full.
+_REDACT_PHONES_BY_HOME: dict = {}
+
+
+def _redact_phones_enabled() -> bool:
+    try:
+        from hermes_constants import hermes_home_key
+        home_key = hermes_home_key()
+    except Exception:
+        home_key = ""
+    cached = _REDACT_PHONES_BY_HOME.get(home_key)
+    if cached is not None:
+        return cached
+    enabled = True
+    try:
+        from agent.secret_scope import current_secret_scope
+        scope = current_secret_scope()
+        raw = scope.get("HERMES_REDACT_PHONE_NUMBERS") if scope else None
+        if raw is None:
+            from hermes_cli.config import load_config_readonly
+            cfg_val = (load_config_readonly().get("security") or {}).get("redact_phone_numbers")
+            raw = None if cfg_val is None else str(cfg_val)
+        if raw is not None:
+            enabled = str(raw).strip().lower() in {"1", "true", "yes", "on"}
+    except Exception:
+        enabled = True  # unreadable setting: keep the safe default
+    with _REDACT_ENABLED_LOCK:
+        _REDACT_PHONES_BY_HOME[home_key] = enabled
+    return enabled
+`},
+  {why:'the phone pass',
+   from:'    if "+" in text:\n        text = _SIGNAL_PHONE_RE.sub(_redact_phone, text)\n\n    return text\n',
+   to:'    if "+" in text and _redact_phones_enabled():  # aqeelos:phone-redaction-setting\n        text = _SIGNAL_PHONE_RE.sub(_redact_phone, text)\n\n    return text\n'}]},
  {tag:'aqeelos:clone-no-bot-tokens',name:'a cloned agent never gets another agent\'s bot token',file:'hermes_cli/profile_channels.py',edits:[
   {why:'the clone\'s .env filter',
    from:'        platform = index.platform_for(key) if key else None\n        if key is None or platform is None:\n            kept.append(line)\n',
