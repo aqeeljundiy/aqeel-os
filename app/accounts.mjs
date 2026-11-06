@@ -44,7 +44,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
  // the last good reading is kept with its time and shown until a newer one comes; after a refusal it waits (its
  // Retry-After, else 5 minutes, doubling up to 30). Only an expired sign-in (401) clears what is shown.
  const usageSeen=new Map(),USAGE_EVERY=5*60e3;
- async function usageOf(id,token){const s=usageSeen.get(id)||{};usageSeen.set(id,s);const now=Date.now();
+ async function usageFetch(id,token){const s=usageSeen.get(id)||{};usageSeen.set(id,s);const now=Date.now();
   if(s.asking)return s;if(s.at&&now-s.at<USAGE_EVERY||now<(s.next||0))return s;
   s.asking=(async()=>{try{const r=await fetch('https://api.anthropic.com/api/oauth/usage',{headers:{authorization:'Bearer '+token,'anthropic-beta':'oauth-2025-04-20',accept:'application/json','user-agent':'claude-code/2.1.0'},signal:AbortSignal.timeout(15000)});
     if(r.ok){const u=await r.json();const win=k=>u[k]?{used:Math.round(Number(u[k].utilization)||0),resets:u[k].resets_at||null}:null;
@@ -72,7 +72,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    try{const j=JSON.parse(st.out);Object.assign(v,{checked:true,signedIn:!!j.loggedIn,email:j.email||'',org:j.orgName||'',plan:j.subscriptionType||''})}catch{}}
   if(creds){v.plan=v.plan||creds.subscriptionType||'';v.tier=creds.rateLimitTier||'';v.tokenExpires=creds.expiresAt||null}
   const lost=renew.out(a.id);if(lost&&v.signedIn){v.signedIn=false;v.usageError=lost.why}
-  if(v.signedIn&&creds?.accessToken){const s=await usageOf(a.id,creds.accessToken);
+  if(v.signedIn&&creds?.accessToken){const s=await usageFetch(a.id,creds.accessToken);
    if(s.usage){v.usage=s.usage;if(s.extra)v.extra=s.extra;v.usageAt=s.at}
    if(s.error&&(!s.usage||s.dead))v.usageError=s.error}
   return v;
