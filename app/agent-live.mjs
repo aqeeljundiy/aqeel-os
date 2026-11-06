@@ -47,8 +47,20 @@ export function createAgentLive({HERMES_HOME,DATA,listAgents,readConfig,setKey,p
   await saveHeld();if(e.count===1)log('agent-live: '+agent+' held a script error back from '+(platform||'a chat')+' ('+sig+')');return {sig,count:e.count,tell}}
  async function heldFor(agent){const l=(await loadHeld())[agent]||[];return l.filter(e=>now()-e.last<3*86400e3)}
  const lastLine=e=>clip(String(e.error).trim().split('\n').pop(),200);
- async function healthLines(agent){const l=await heldFor(agent);if(!l.length)return [];
-  return ['Script errors held back from your chats (last 3 days): '+l.slice(0,5).map(e=>e.count+'× from '+(e.platform||'a chat')+': '+lastLine(e)).join(' | ')+'. Fix the script (it is yours), then run it once to check.']}
+ async function healthLines(agent){const l=await heldFor(agent);const nt=await noticesFor(agent);const out=nt.length?['To fix in your own work: '+nt.slice(0,6).map(x=>x.text).join(' | ')]:[];if(!l.length)return out;
+  return [...out,'Script errors held back from your chats (last 3 days): '+l.slice(0,5).map(e=>e.count+'× from '+(e.platform||'a chat')+': '+lastLine(e)).join(' | ')+'. Fix the script (it is yours), then run it once to check.']}
+ // ---- notices: things an agent should fix in its own work (old setup its files still use, a check that failed after a
+ // change). Each kind is replaced as a whole by its scan; a notice is told once in the agent's next message and listed
+ // in my_health until its scan no longer finds it.
+ const noteFile=path.join(DATA,'agent-live','notices.json');let notes=null;
+ const loadNotes=async()=>notes||(notes=JSON.parse(await readFile(noteFile,'utf8').catch(()=>'{}')||'{}'));
+ const saveNotes=async()=>{await mkdir(path.dirname(noteFile),{recursive:true});const t=noteFile+'.tmp';await writeFile(t,JSON.stringify(notes),{mode:0o600});await rename(t,noteFile)};
+ async function setNotices(agent,kind,list){const n=await loadNotes();const mine=n[agent]||(n[agent]={});const old=mine[kind]||{};const next={};
+  for(const x of list||[]){const o=old[x.key];next[x.key]={text:clip(x.text,600),at:o?.text===x.text?o.at:now(),told:o?.text===x.text?!!o.told:false}}
+  const added=Object.keys(next).filter(k=>!old[k]),gone=Object.keys(old).filter(k=>!next[k]);
+  if(added.length||gone.length||JSON.stringify(old)!==JSON.stringify(next)){if(Object.keys(next).length)mine[kind]=next;else delete mine[kind];await saveNotes()}
+  return {added,gone}}
+ async function noticesFor(agent){const n=(await loadNotes())[agent]||{};return Object.entries(n).flatMap(([kind,m])=>Object.entries(m).map(([key,v])=>({kind,key,...v})))}
  // ---- the context for one turn ----
  const capCache=new Map();
  async function caps(agent){const c=capCache.get(agent);if(c&&now()-c.at<60e3)return c.lines;const lines=await capabilities(agent);capCache.set(agent,{at:now(),lines});return lines}
@@ -63,6 +75,9 @@ export function createAgentLive({HERMES_HOME,DATA,listAgents,readConfig,setKey,p
   if(!customer){const h=await loadHeld();const fresh=(h[agent]||[]).filter(e=>!e.told);
    if(fresh.length){out.push('[aqeelOS] A reply of yours held a script error, so it was not sent: '+fresh.slice(0,3).map(e=>lastLine(e)+' ('+e.count+'×, from '+(e.platform||'a chat')+')').join('; ')+'. Fix that script yourself (my_logs, my_schedules); my_health lists it until it stops.');
     for(const e of fresh){e.told=true;e.toldAt=now()}await saveHeld()}}
+  if(!customer&&pf!=='cron'){const fresh=(await noticesFor(agent)).filter(x=>!x.told);
+   if(fresh.length){out.push('[aqeelOS] To fix in your own work: '+fresh.slice(0,5).map(x=>'- '+x.text).join('\n')+'\nFix these yourself; my_health lists what is still open.');
+    const n=await loadNotes();for(const x of fresh)if(n[agent]?.[x.kind]?.[x.key])n[agent][x.kind][x.key].told=true;await saveNotes()}}
   return {text:out.join('\n\n'),hash}}
  // ---- the plugin in every agent's home, switched on ----
  async function install(){const src=engineDir;const files=(await readdir(src).catch(()=>[])).filter(f=>/\.(py|yaml)$/.test(f));if(!files.length)return [];
@@ -73,4 +88,4 @@ export function createAgentLive({HERMES_HOME,DATA,listAgents,readConfig,setKey,p
      if(!on.includes('aqeelos-live')&&!off.includes('aqeelos-live')){await setKey(a,'plugins.enabled',[...on,'aqeelos-live']);did=true}}
     if(did)changed.push(a)}catch(e){log('agent-live: install for '+a+': '+e.message)}}
   if(changed.length)log('agent-live: plugin installed or updated for '+changed.join(', '));return changed}
- return {key,keyOk,hold,heldFor,healthLines,context,install,homes}}
+ return {key,keyOk,hold,heldFor,healthLines,context,install,homes,setNotices,noticesFor}}
