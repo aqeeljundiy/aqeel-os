@@ -257,4 +257,12 @@ for(const h of homes){const sp=path.join(h,'skills','productivity','google-works
   let inPlace=false;try{g(['apply','--reverse','--check',pf]);inPlace=true}catch{}
   if(!inPlace){try{g(['apply','--check',pf]);g(['apply',pf]);changed++;console.log('engine: 6 Nov patch in place')}catch{console.warn('! engine: 6 Nov patch does not fit this engine version; see engine/patches/README.md')}}
   const b=path.join(E,'hermes_cli','branding.py');if(!await exists(b)){await writeFile(b,await readFile(path.join(D,'branding.py')));changed++;console.log('engine: branding.py in place')}}}
+// 17) Shared skills (engine/patches/2026-11-06-shared-skills.patch): every agent reads the main profile's skills,
+//     installed once; <HERMES_HOME>/skills-scope.json limits private ones to listed agents; editing a shared skill
+//     makes the agent's own copy. Same all-or-nothing git apply as step 16.
+{const {execFileSync}=await import('node:child_process');const E=path.join(HOME,'hermes-agent');
+ const pf=path.join(path.dirname(new URL(import.meta.url).pathname),'..','engine','patches','2026-11-06-shared-skills.patch');
+ if(await exists(path.join(E,'.git'))&&await exists(pf)){const g=a=>execFileSync('git',['-C',E,...a],{stdio:'pipe'});
+  let inPlace=false;try{g(['apply','--reverse','--check',pf]);inPlace=true}catch{}
+  if(!inPlace){try{g(['apply','--check',pf]);g(['apply',pf]);changed++;console.log('engine: shared skills in place')}catch{console.warn('! engine: shared skills patch does not fit this engine version; see engine/patches/README.md')}}}}
 console.log(changed?changed+' change(s)':'skill patches already in place');

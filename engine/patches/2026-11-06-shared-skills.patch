@@ -1,0 +1,506 @@
+diff --git a/agent/skill_utils.py b/agent/skill_utils.py
+index cbf51cb23b..35c9af5630 100644
+--- a/agent/skill_utils.py
++++ b/agent/skill_utils.py
+@@ -35,7 +35,8 @@ def is_excluded_skill_path(path, *, root: Optional[Path] = None) -> bool:
+     """True if *path* should be skipped by skill scanners (VCS/dependency/cache
+     dirs + support packages). Apply to every SKILL.md from a direct ``rglob``."""
+     parts = PurePath(str(path)).parts
+-    return any(part in EXCLUDED_SKILL_DIRS for part in parts) or is_skill_support_path(path, root=root)
++    return (any(part in EXCLUDED_SKILL_DIRS for part in parts) or is_skill_support_path(path, root=root)
++            or is_out_of_scope_skill_path(path))
+ 
+ 
+ def is_skill_support_path(path, *, root: Optional[Path] = None) -> bool:
+@@ -344,10 +345,10 @@ def get_external_skills_dirs() -> list[Path]:
+     cache_key = full_key
+     cached = _EXTERNAL_DIRS_CACHE.get(cache_key) if cache_key is not None else None
+     if cached is not None:
+-        return list(cached)  # copy so callers can't mutate the cache
++        return _with_shared_dir(list(cached))  # copy so callers can't mutate the cache
+     skills_cfg = _skills_cfg()
+     if skills_cfg is None:
+-        return []
++        return _with_shared_dir([])
+     local_skills = get_skills_dir().resolve()
+     result: list[Path] = []
+     for entry in _config_str_list(skills_cfg.get("external_dirs")):
+@@ -360,9 +361,153 @@ def get_external_skills_dirs() -> list[Path]:
+             logger.debug("External skills dir does not exist, skipping: %s", p)
+     if cache_key is not None:
+         _EXTERNAL_DIRS_CACHE[cache_key] = list(result)
++    return _with_shared_dir(result)
++
++
++def _with_shared_dir(result: list[Path]) -> list[Path]:
++    """*result* plus the shared skills dir as the last (lowest-precedence) external tier."""
++    shared = get_shared_skills_dir()
++    if shared is not None and shared not in result:
++        result.append(shared)  # the agent's own copy (local tier) always wins
+     return result
+ 
+ 
++# --- Shared skills (aqeelos:shared-skills) -------------------------------------------------------
++# Every profile also reads the main profile's skills dir (<root>/skills), installed once, as its
++# lowest-precedence external tier. Which of those skills a profile may see is data, not code: the
++# scope file <root>/skills-scope.json ({"skills": {"<category>/<skill>": ["<profile>", ...]}}; a
++# skill not listed is for everyone; "default" is the main profile; "name--copy" counts as "name").
++# No scope file means no shared tier (fail closed: nothing private leaks before the owner's app
++# wrote one). ``skills.shared: false`` in a profile's config switches the tier off for it. The
++# tier is read-only to that profile: skill_manage edits copy the skill into the profile's own
++# skills dir first (copy-on-write), the curator treats it as external, sandboxes never sync back.
++SHARED_SCOPE_FILE = "skills-scope.json"
++_SCOPE_CACHE: dict[str, tuple[tuple, dict[str, frozenset]]] = {}
++_PROFILE_CACHE: dict[str, str] = {}
++_SHARED_DIR_CACHE: dict[tuple, Optional[Path]] = {}
++
++
++def _shared_root() -> Optional[Path]:
++    try:
++        from hermes_constants import get_default_hermes_root
++        return get_default_hermes_root()
++    except Exception:
++        return None
++
++
++def current_skill_profile() -> str:
++    """Base profile name of the live HERMES_HOME (``default`` for the main one; ``x--2`` -> ``x``)."""
++    from hermes_constants import get_hermes_home, profile_name_for_home
++    home = str(get_hermes_home())
++    name = _PROFILE_CACHE.get(home)
++    if name is None:
++        try:
++            name = profile_name_for_home(home) or "custom"
++        except Exception:
++            name = "custom"
++        _PROFILE_CACHE[home] = name
++    return name.split("--")[0]
++
++
++def _load_scope() -> Optional[dict[str, frozenset]]:
++    """``{skill key: allowed base profiles}`` from the scope file (mtime cached), or None when absent/bad."""
++    root = _shared_root()
++    if root is None:
++        return None
++    path = root / SHARED_SCOPE_FILE
++    try:
++        st = path.stat()
++    except OSError:
++        return None
++    sig = (st.st_mtime_ns, st.st_size)
++    cached = _SCOPE_CACHE.get(str(path))
++    if cached is not None and cached[0] == sig:
++        return cached[1]
++    try:
++        import json
++        raw = json.loads(path.read_text(encoding="utf-8"))
++        skills = raw.get("skills") if isinstance(raw, dict) else None
++        if not isinstance(skills, dict):
++            raise ValueError("no 'skills' mapping")
++        scope = {str(k).strip("/"): frozenset(str(a).split("--")[0] for a in (v or []))
++                 for k, v in skills.items() if isinstance(v, (list, tuple))}
++    except Exception as exc:
++        logger.warning("Shared skills scope file %s unreadable (%s): shared skills are off", path, exc)
++        _SCOPE_CACHE[str(path)] = (sig, None)
++        return None
++    _SCOPE_CACHE[str(path)] = (sig, scope)
++    return scope
++
++
++def shared_scope_signature() -> tuple:
++    """Change signature of the scope file and this profile (catalog / prompt cache keys)."""
++    root = _shared_root()
++    try:
++        st = (root / SHARED_SCOPE_FILE).stat() if root is not None else None
++    except OSError:
++        st = None
++    return (current_skill_profile(), (st.st_mtime_ns, st.st_size) if st else None)
++
++
++def get_shared_skills_dir() -> Optional[Path]:
++    """The main profile's skills dir when this profile reads it as a shared tier, else None
++    (the main profile itself, ``skills.shared: false``, no scope file, or no such dir)."""
++    root = _shared_root()
++    if root is None:
++        return None
++    key = (str(get_skills_dir()), str(root), _config_cache_key(get_config_path()), shared_scope_signature()[1])
++    if key in _SHARED_DIR_CACHE:
++        return _SHARED_DIR_CACHE[key]
++    result = None
++    try:
++        shared = (root / "skills").resolve()
++        flag = _skills_cfg_get("shared")
++        off = flag is False or (isinstance(flag, str) and flag.strip().lower() in ("false", "no", "off", "0"))
++        if (not off and shared.is_dir() and shared != get_skills_dir().resolve()
++                and _load_scope() is not None):
++            result = shared
++    except OSError:
++        result = None
++    if len(_SHARED_DIR_CACHE) > 256:
++        _SHARED_DIR_CACHE.clear()
++    _SHARED_DIR_CACHE[key] = result
++    return result
++
++
++def shared_skill_key(path) -> Optional[str]:
++    """``category/skill`` relative path of *path* inside the shared dir (None when outside it)."""
++    shared = get_shared_skills_dir()
++    if shared is None:
++        return None
++    try:  # lexical only: this runs for every scanned SKILL.md (the shared dir is stored resolved)
++        rel = Path(str(path)).relative_to(shared)
++    except ValueError:
++        return None
++    return rel.as_posix()
++
++
++def is_out_of_scope_skill_path(path) -> bool:
++    """True when *path* is inside a shared skill this profile may not see (scope file)."""
++    rel = shared_skill_key(path)
++    if not rel or rel == ".":
++        return False
++    scope = _load_scope() or {}
++    me = current_skill_profile()
++    parts = rel.split("/")
++    for key, allowed in scope.items():
++        if me in allowed:
++            continue
++        # the rule's path, or the skill's own name anywhere in the path (a copy under another category)
++        if rel == key or rel.startswith(key + "/") or key.rsplit("/", 1)[-1] in parts:
++            return True
++    return False
++
++
++def is_shared_skill_path(path) -> bool:
++    """True when *path* lives in the shared (main profile's) skills dir read by this profile."""
++    return shared_skill_key(path) is not None
++
++
+ def get_skill_create_dir() -> Optional[Path]:
+     """Configured ``skills.create_dir`` (need not exist yet), or None when unset;
+     relative to HERMES_HOME; a value equal to the local skills dir counts as unset."""
+@@ -860,8 +1005,12 @@ def iter_skill_index_files(skills_dir: Path, filename: str):
+     """Walk skills_dir yielding sorted paths matching *filename*; prunes
+     EXCLUDED_SKILL_DIRS and support dirs of skill roots."""
+     matches: list[str] = []
++    scoped = is_shared_skill_path(skills_dir)  # the shared tier: skip skills this profile may not see
+     for root, dirs, files in os.walk(str(skills_dir), followlinks=True):
+         has_skill_md = "SKILL.md" in files
++        if scoped and is_out_of_scope_skill_path(root):
++            dirs[:] = []
++            continue
+         dirs[:] = [d for d in dirs if d not in EXCLUDED_SKILL_DIRS and not (has_skill_md and d in SKILL_SUPPORT_DIRS)]
+         if filename in files:
+             matches.append(os.path.join(root, filename))
+diff --git a/tests/agent/test_shared_skills.py b/tests/agent/test_shared_skills.py
+new file mode 100644
+index 0000000000..d05db795cf
+--- /dev/null
++++ b/tests/agent/test_shared_skills.py
+@@ -0,0 +1,154 @@
++"""Shared skills (aqeelos:shared-skills): every profile reads the main profile's skills dir as its
++lowest tier, filtered by <root>/skills-scope.json; skill_manage edits make the profile's own copy."""
++
++import json
++import os
++from unittest.mock import patch
++
++import pytest
++
++
++def _skill(root, rel, body="Do things."):
++    d = root / rel
++    d.mkdir(parents=True)
++    name = rel.split("/")[-1]
++    (d / "SKILL.md").write_text(f"---\nname: {name}\ndescription: {name} skill\n---\n\n# {name}\n\n{body}\n")
++    return d
++
++
++@pytest.fixture
++def fleet(tmp_path):
++    root = tmp_path / ".hermes"
++    (root / "skills").mkdir(parents=True)
++    (root / "config.yaml").write_text("skills: {}\n")
++    _skill(root / "skills", "productivity/pretty-sheets", "House style.")
++    _skill(root / "skills", "productivity/aqeel-task-hub", "Owner only.")
++    _skill(root / "skills", "pixel/pixel-ops", "Pixel only.")
++    for p in ("continue-support", "pixel-agent"):
++        h = root / "profiles" / p
++        (h / "skills").mkdir(parents=True)
++        (h / "config.yaml").write_text("skills: {}\n")
++    (root / "skills-scope.json").write_text(json.dumps({"skills": {
++        "productivity/aqeel-task-hub": ["default"], "pixel/pixel-ops": ["default", "pixel-agent"]}}))
++    return root
++
++
++def _clear():
++    from agent import skill_utils
++    skill_utils._external_dirs_cache_clear()
++    skill_utils._SCOPE_CACHE.clear()
++    skill_utils._SHARED_DIR_CACHE.clear()
++    skill_utils._PROFILE_CACHE.clear()
++    from tools import skills_tool
++    skills_tool.clear_skills_cache()
++
++
++def _as(fleet, profile):
++    home = fleet if profile == "default" else fleet / "profiles" / profile
++    from hermes_constants import set_hermes_home_override
++    _clear()
++    return patch.dict(os.environ, {"HERMES_HOME": str(home)}), home
++
++
++def _names():
++    from tools.skills_tool import skills_list
++    return {s["name"] for s in json.loads(skills_list())["skills"]}
++
++
++def test_profile_sees_universal_not_private(fleet):
++    env, _ = _as(fleet, "continue-support")
++    with env:
++        names = _names()
++    assert "pretty-sheets" in names
++    assert "aqeel-task-hub" not in names and "pixel-ops" not in names
++
++
++def test_shared_with_named_agent(fleet):
++    env, _ = _as(fleet, "pixel-agent")
++    with env:
++        names = _names()
++    assert {"pretty-sheets", "pixel-ops"} <= names and "aqeel-task-hub" not in names
++
++
++def test_skill_view_refuses_private(fleet):
++    env, _ = _as(fleet, "continue-support")
++    with env:
++        from tools.skills_tool import skill_view
++        assert json.loads(skill_view("pretty-sheets"))["success"] is True
++        assert json.loads(skill_view("aqeel-task-hub")).get("success") is not True
++
++
++def test_main_profile_has_no_shared_tier(fleet):
++    env, _ = _as(fleet, "default")
++    with env:
++        from agent.skill_utils import get_shared_skills_dir
++        assert get_shared_skills_dir() is None
++        assert {"pretty-sheets", "aqeel-task-hub", "pixel-ops"} <= _names()
++
++
++def test_no_scope_file_fails_closed(fleet):
++    (fleet / "skills-scope.json").unlink()
++    env, _ = _as(fleet, "continue-support")
++    with env:
++        assert "pretty-sheets" not in _names()
++
++
++def test_opt_out(fleet):
++    (fleet / "profiles" / "continue-support" / "config.yaml").write_text("skills:\n  shared: false\n")
++    env, _ = _as(fleet, "continue-support")
++    with env:
++        assert "pretty-sheets" not in _names()
++
++
++def test_own_copy_wins(fleet):
++    _skill(fleet / "profiles" / "continue-support" / "skills", "productivity/pretty-sheets", "Mine.")
++    env, _ = _as(fleet, "continue-support")
++    with env:
++        from tools.skills_tool import skill_view
++        assert "Mine." in json.loads(skill_view("pretty-sheets"))["content"]
++
++
++def test_patch_makes_own_copy_shared_unchanged(fleet):
++    shared_md = fleet / "skills" / "productivity" / "pretty-sheets" / "SKILL.md"
++    before = shared_md.read_text()
++    env, home = _as(fleet, "continue-support")
++    with env:
++        from tools.skill_manager_tool import skill_manage
++        r = json.loads(skill_manage(action="patch", name="pretty-sheets",
++                                    old_string="House style.", new_string="House style, Continue."))
++        assert r["success"] is True, r
++        own = home / "skills" / "productivity" / "pretty-sheets" / "SKILL.md"
++        assert "House style, Continue." in own.read_text()
++        assert shared_md.read_text() == before
++        _clear()
++        from tools.skills_tool import skill_view
++        assert "House style, Continue." in json.loads(skill_view("pretty-sheets"))["content"]
++
++
++def test_batch_failure_removes_new_copy(fleet):
++    env, home = _as(fleet, "continue-support")
++    with env:
++        from tools.skill_manager_tool import skill_manage
++        r = json.loads(skill_manage(action="patch", name="pretty-sheets", operations=[
++            {"action": "patch", "name": "pretty-sheets", "old_string": "House style.", "new_string": "X."},
++            {"action": "patch", "name": "pretty-sheets", "old_string": "not there", "new_string": "Y"}]))
++        assert r["success"] is False
++        assert not (home / "skills" / "productivity" / "pretty-sheets").exists()
++
++
++def test_delete_shared_refused(fleet):
++    env, _ = _as(fleet, "continue-support")
++    with env:
++        from tools.skill_manager_tool import skill_manage
++        r = json.loads(skill_manage(action="delete", name="pretty-sheets"))
++        assert r["success"] is False and "shared skill" in r["error"]
++    assert (fleet / "skills" / "productivity" / "pretty-sheets" / "SKILL.md").exists()
++
++
++def test_private_not_pushed_to_sandbox(fleet):
++    env, _ = _as(fleet, "continue-support")
++    with env:
++        from tools.credential_files import iter_skills_files
++        paths = [e["host_path"] for e in iter_skills_files("/remote/.hermes")]
++    assert any("pretty-sheets" in p for p in paths)
++    assert not any("aqeel-task-hub" in p or "pixel-ops" in p for p in paths)
+diff --git a/tools/skill_manager_batch.py b/tools/skill_manager_batch.py
+index 78b72dde0e..1b786085dc 100644
+--- a/tools/skill_manager_batch.py
++++ b/tools/skill_manager_batch.py
+@@ -216,6 +216,29 @@ def _rollback(snapshots, find_skill, results):
+ _ADVISORY_KEYS = ("lint_warnings", "lint_hint")
+ 
+ 
++def _own_copies_for_batch(operations, names, smt):
++    """Copy-on-write before the snapshot (aqeelos:shared-skills): every shared skill a non-create op
++    touches gets this profile's own copy first, so snapshot and rollback work on that copy. Returns the
++    copies made now (a failed batch removes them) or an error string."""
++    from agent.skill_utils import is_shared_skill_path
++    made = []
++    for i, op in enumerate(operations):
++        if op.get("action") == "create":
++            continue
++        found = smt._find_skill(names[i])
++        if not found or not is_shared_skill_path(found["path"]):
++            continue
++        own, err = smt.own_copy_of_shared_skill(Path(found["path"]))
++        if err:
++            for d in made:
++                shutil.rmtree(d, ignore_errors=True)
++            return err
++        if str(own) in smt._COW_CREATED and own not in made:
++            smt._COW_CREATED.discard(str(own))
++            made.append(own)
++    return made
++
++
+ def _skill_manage_batch(operations, default_name: str | None = None, task_id: str | None = None,
+                         session_id: str | None = None) -> str:
+     """Apply operations atomically: every touched skill is snapshotted first and any
+@@ -257,6 +280,10 @@ def _skill_manage_batch(operations, default_name: str | None = None, task_id: st
+         snap_root = Path(tempfile.mkdtemp(prefix="skill_batch_"))
+         create_targets = {names[i]: _smt._resolve_skill_dir(names[i], op.get("category"))
+                           for i, op in enumerate(operations) if op.get("action") == "create"}
++        made_copies = _own_copies_for_batch(operations, names, _smt)
++        if isinstance(made_copies, str):
++            shutil.rmtree(snap_root, ignore_errors=True)
++            return tool_error(made_copies, success=False)
+         snapshots, snap_err = _snapshot_skills(names, snap_root, _smt._find_skill, create_targets)
+         if snap_err is not None:
+             shutil.rmtree(snap_root, ignore_errors=True)
+@@ -275,6 +302,9 @@ def _skill_manage_batch(operations, default_name: str | None = None, task_id: st
+                     parsed = {"success": False, "error": "unparseable op result"}
+                 if not parsed.get("success"):
+                     note, rollback_failed = _rollback(snapshots, _smt._find_skill, results)
++                    if not rollback_failed:
++                        for own in made_copies:  # the batch made these own copies: undo them too
++                            shutil.rmtree(own, ignore_errors=True)
+                     fail = {  # key order is wire-visible
+                         "success": False,
+                         "error": (f"operations[{i}] ({op['action']} on '{names[i]}') failed: "
+diff --git a/tools/skill_manager_tool.py b/tools/skill_manager_tool.py
+index 9031af3733..69cd35e68d 100644
+--- a/tools/skill_manager_tool.py
++++ b/tools/skill_manager_tool.py
+@@ -12,6 +12,7 @@ import hashlib
+ import json
+ from contextlib import ExitStack, suppress
+ import logging
++import os
+ import re
+ import shutil
+ from pathlib import Path
+@@ -389,7 +390,57 @@ def _locate_for_write(name: str, action: str, not_found_suffix: str = ""):
+         return None, _err(_skill_not_found_error(name, not_found_suffix))
+     skill_dir = existing["path"]
+     guard = _background_review_delete_guard(name, skill_dir) if action == "delete" else None
+-    return (None, guard) if guard else (skill_dir, None)
++    if guard:
++        return None, guard
++    from agent.skill_utils import is_shared_skill_path
++    if is_shared_skill_path(skill_dir):
++        if action == "delete":
++            return None, _err(
++                f"'{name}' is a shared skill (installed once for every agent), not your own copy, so it "
++                f"cannot be deleted from here. To stop using it, switch it off for yourself "
++                f"(skills.disabled); to change it, patch or edit it and you get your own copy.")
++        if _is_background_review():  # the curator never forks a shared skill on its own
++            return None, _err(
++                f"Refusing background curator {action} for '{name}': it is a shared skill (read-only to "
++                f"autonomous curation); an agent's own edit makes its own copy.")
++        own, err = own_copy_of_shared_skill(skill_dir)
++        if err:
++            return None, _err(err)
++        return own, None
++    return skill_dir, None
++
++
++def own_copy_of_shared_skill(skill_dir: Path):
++    """Copy-on-write (aqeelos:shared-skills): a shared skill (the main profile's, read by every agent)
++    is copied to the same ``category/name`` in this profile's own skills dir before any change, so the
++    change stays this agent's and the shared one is untouched. -> ``(own_dir, None)`` | ``(None, error)``."""
++    from agent.skill_utils import shared_skill_key
++    rel = shared_skill_key(skill_dir)
++    if not rel:
++        return None, f"'{skill_dir}' is not a shared skill."
++    own = _skills_dir() / rel
++    if (own / "SKILL.md").exists():
++        return own, None
++    if own.exists() or _is_path_redirect(own):
++        return None, f"Cannot make your own copy of '{rel}': {own} already exists and is not a skill."
++    from hermes_constants import mkdir_under_hermes_home
++    mkdir_under_hermes_home(own.parent)
++    tmp = own.with_name(f".{own.name}.copy-{os.getpid()}")
++    try:
++        shutil.rmtree(tmp, ignore_errors=True)
++        shutil.copytree(skill_dir, tmp, symlinks=False,
++                        ignore=shutil.ignore_patterns(".git", ".hub", ".archive", "__pycache__", "*.bak*"))
++        tmp.rename(own)
++    except OSError as exc:
++        shutil.rmtree(tmp, ignore_errors=True)
++        return None, f"Could not make your own copy of '{rel}': {exc}"
++    _COW_CREATED.add(str(own))
++    logger.info("skills: made this agent's own copy of shared skill %s at %s", rel, own)
++    return own, None
++
++
++# own copies made in this process (a failed atomic batch removes the ones it made)
++_COW_CREATED: set[str] = set()
+ 
+ 
+ def _guarded_write(name: str, skill_dir: Path, target: Path, action: str, label: str,
+diff --git a/tools/skills_tool.py b/tools/skills_tool.py
+index a6f8d18604..782a6a710f 100644
+--- a/tools/skills_tool.py
++++ b/tools/skills_tool.py
+@@ -82,7 +82,8 @@ def _skills_scan_signature(dirs_to_scan, disabled) -> tuple:
+     sig: list = []
+     for d in dirs_to_scan:
+         _dir_tree_signature(str(d), sig)
+-    return (tuple(sig), frozenset(disabled), platform)
++    from agent.skill_utils import shared_scope_signature
++    return (tuple(sig), frozenset(disabled), platform, shared_scope_signature())
+ 
+ 
+ HERMES_HOME = get_hermes_home()  # all skills live in ~/.hermes/skills/ (seeded from bundled)
+@@ -390,7 +391,11 @@ def _collect_skill_candidates(name, local_category_name, all_dirs):
+     candidates: list[tuple[Optional[Path], Path]] = []
+     seen_md: set = set()
+ 
++    from agent.skill_utils import is_out_of_scope_skill_path
++
+     def _record(sd: Optional[Path], smd: Path) -> None:
++        if is_out_of_scope_skill_path(smd):  # aqeelos:shared-skills: another profile's private skill
++            return
+         key = smd
+         with suppress(Exception):
+             key = smd.resolve()

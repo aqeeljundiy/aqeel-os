@@ -15,6 +15,8 @@ import {setKey,readConfig,pick,agentNames,HERMES_HOME} from './agentops.mjs';
 import {UNSAFE_TOOLSETS} from './users.mjs';
 
 const PLATFORMS=['whatsapp','telegram','slack','discord','signal','api_server'];
+// the engine's API-server bundle leaves out clarify, computer_use and tts; the app chat gets them back so it matches every other channel
+const API_EXTRA=['clarify','computer_use','tts'];
 const bundle=p=>p==='api_server'?'hermes-api-server':'hermes-'+p;
 const run=(c,a)=>new Promise((res,rej)=>execFile(c,a,{timeout:30000},(e,o,er)=>e?rej(Error(String(er||e.message).trim())):res(String(o))));
 
@@ -55,7 +57,7 @@ export function createAgentDefaults({DATA,giveSkills,trimSkills=async()=>0,locke
   const own=!(await trusted()).has(a),ws=path.join(homedir(),'workspaces',a),isolated=own&&await ready(a);
   // the full bundles include the terminal: an agent meant to have its own user gets them only once that user exists
   const pts=pick(c,'platform_toolsets')||{};
-  if(!own||isolated)for(const p of PLATFORMS){const cur=[].concat(pts[p]||[]);if(!cur.includes(bundle(p)))changes.push(['platform_toolsets.'+p,[bundle(p),...cur]])}
+  if(!own||isolated)for(const p of PLATFORMS){const cur=[].concat(pts[p]||[]),add=[bundle(p),...(p==='api_server'?API_EXTRA:[])].filter(x=>!cur.includes(x));if(add.length)changes.push(['platform_toolsets.'+p,cur.includes(bundle(p))?[...cur,...add]:[...add,...cur]])}
   if(!isolated&&pick(c,'bot_desktop.auto_start')!==true)changes.push(['bot_desktop.auto_start','true']);
   if(isolated){const want={'terminal.backend':'ssh','terminal.ssh_host':'127.0.0.1','terminal.ssh_user':userOf(a),'terminal.ssh_port':'22','terminal.ssh_key':KEY,'terminal.cwd':ws};
    // its browser is the Chrome on its own screen, which runs as its user; the engine then starts no screen of its own for it
