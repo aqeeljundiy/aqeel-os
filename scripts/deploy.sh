@@ -1,6 +1,9 @@
 #!/bin/bash
 # Copies the app to the AI box and restarts the UI. Run from the hermes-ui folder: bash scripts/deploy.sh
 # Needs the `ai-vps` SSH host (see ~/.ssh/config). Secrets stay on the box in ~/apps/hermes-ui.env.
+# DRY_RUN=1 bash scripts/deploy.sh: runs the local checks and builds the archives, then stops (no ssh, nothing sent).
+# Optional paths (data, mockup, PRD.md, scripts/features.mjs) are private and not in the public repo: skipped if missing.
+DRY=${DRY_RUN:-0}
 set -e
 cd "$(dirname "$0")/.."
 node scripts/check-globals.mjs
@@ -11,15 +14,15 @@ for f in app/*.js app/*.mjs; do node --check "$f" || { echo "✗ $f does not par
 SHA=$(git rev-parse HEAD)
 if [ "${DIRTY_OK:-0}" != 1 ] && [ -n "$(git status --porcelain -- app scripts assets engine extension code code-installer mockup backlog PRD.md)" ]; then
  echo "✗ there are uncommitted changes here; commit them first so the box can tell versions apart (or DIRTY_OK=1)."; exit 1; fi
-BOX_SHA=$(ssh ai-vps 'cat ~/apps/hermes-ui/.deployed-commit 2>/dev/null' || true)
+BOX_SHA=""; [ "$DRY" = 1 ] || BOX_SHA=$(ssh ai-vps 'cat ~/apps/hermes-ui/.deployed-commit 2>/dev/null' || true)
 if [ -n "$BOX_SHA" ] && ! git merge-base --is-ancestor "$BOX_SHA" HEAD 2>/dev/null; then
  echo "✗ the box runs commit ${BOX_SHA:0:8}, which this copy does not have: deploying would remove that work. Merge it in first (git fetch / merge main)."; exit 1; fi
 # the new version must pass the checks on the private test copy first (about 5 minutes; SKIP_CHECKS=1 skips them)
-[ "${SKIP_CHECKS:-0}" = 1 ] || bash scripts/predeploy.sh
+[ "${SKIP_CHECKS:-0}" = 1 ] || [ "$DRY" = 1 ] || bash scripts/predeploy.sh
 # 1) Never cut off work in progress (a reply, an agent being set up, a settings change, an engine restart):
 #    wait until the box is idle. After 10 minutes the deploy is cancelled, with nothing changed on the box
 #    (FORCE=1 bash scripts/deploy.sh deploys anyway).
-ssh ai-vps "FORCE=${FORCE:-0} bash -s" <<'BOX'
+[ "$DRY" = 1 ] || ssh ai-vps "FORCE=${FORCE:-0} bash -s" <<'BOX'
 for i in $(seq 1 120); do
  h=$(curl -fs http://127.0.0.1:4400/healthz || true)
  n=$(echo "$h" | grep -o '"busy":[0-9]*' | cut -d: -f2); [ -z "$n" ] && n=$(echo "$h" | grep -o '"live":[0-9]*' | cut -d: -f2)
@@ -30,9 +33,11 @@ for i in $(seq 1 120); do
 done
 BOX
 # 2) Only now pack the files, so what goes live is what is here at this moment (not what was here before the wait).
-node scripts/features.mjs >/dev/null
+if [ -f scripts/features.mjs ]; then node scripts/features.mjs >/dev/null; fi
 ID=$(date +%s)-$$;LH=../hui-$ID.tgz;LC=../code-$ID.tgz
-tar --force-local -czf $LH app assets backlog data engine extension mockup scripts code-installer PRD.md
+PACK=""; for p in app assets backlog data engine extension mockup scripts code-installer PRD.md; do
+ if [ -e "$p" ]; then PACK="$PACK $p"; else case $p in app|scripts|engine) echo "✗ $p is missing; nothing was sent."; exit 1;; *) echo "· $p not here; skipped (optional)";; esac; fi; done
+tar --force-local -czf $LH $PACK
 # Code (code/ here) goes to the box's own Code copy, ~/apps/aqeel-code (its data and installed packages stay there).
 # VERSION is the last commit that changed Code: aqeelOS serves it, and installed apps update themselves when it differs.
 CODE_V=$(git log -1 --format=%H -- code | cut -c1-12)
@@ -40,6 +45,7 @@ tar --force-local -czf $LC --exclude=code/data --exclude=code/node_modules --exc
 # each deploy sends its own copies, and only one deploy unpacks and restarts at a time (several sessions deploy from here)
 HT=/tmp/hui-$ID.tgz;CT=/tmp/code-$ID.tgz
 for a in $LH $LC; do [ -s "$a" ] && tar --force-local -tzf "$a" >/dev/null 2>&1 || { echo "✗ the archive $a is empty or broken; nothing was sent."; rm -f $LH $LC; exit 1; }; done
+if [ "$DRY" = 1 ]; then echo "✓ dry run: packed$PACK ($(tar -tzf $LH | wc -l) files) + code ($(tar -tzf $LC | wc -l) files), CODE_V=$CODE_V; nothing sent."; rm -f $LH $LC; exit 0; fi
 HS=$(wc -c < $LH | tr -d ' ');CS=$(wc -c < $LC | tr -d ' ')
 scp -q $LH ai-vps:$HT && scp -q $LC ai-vps:$CT && rm $LH $LC || { echo '✗ could not send the files to the box; nothing changed.'; rm -f $LH $LC; exit 1; }
 ssh ai-vps "CODE_V=$CODE_V FORCE=${FORCE:-0} HT=$HT CT=$CT HS=$HS CS=$CS SHA=$SHA BOX_SHA=$BOX_SHA bash -s" <<'BOX'
@@ -68,4 +74,4 @@ node ~/apps/hermes-ui/scripts/apply-skill-patches.mjs || echo "! skill patches: 
 BOX
 
 # the update history on /backlog: recorded once the new version answers (it travels with the next deploy)
-node -e "const fs=require('fs'),f='data/deploys.json';let l=[];try{l=JSON.parse(fs.readFileSync(f,'utf8'))}catch{}let h='';try{h=require('child_process').execFileSync('git',['rev-parse','--short','HEAD'],{encoding:'utf8'}).trim()}catch{}l.push({at:new Date().toISOString(),commit:h});fs.writeFileSync(f,JSON.stringify(l.slice(-200),null,1))"
+node -e "const fs=require('fs'),f='data/deploys.json';let l=[];try{l=JSON.parse(fs.readFileSync(f,'utf8'))}catch{}let h='';try{h=require('child_process').execFileSync('git',['rev-parse','--short','HEAD'],{encoding:'utf8'}).trim()}catch{}l.push({at:new Date().toISOString(),commit:h});fs.mkdirSync('data',{recursive:true});fs.writeFileSync(f,JSON.stringify(l.slice(-200),null,1))"
