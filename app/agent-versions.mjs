@@ -67,8 +67,13 @@ export function capabilityLines(c){const L=[];const tools=c.toolsByChannel||{};
 // in its own changes and can be undone. No-op until createAgentVersions has run.
 let current=null;
 export async function recordAgentChange(e={}){if(!current||!e.agent)return null;
- const what=e.what||(e.kind+(e.id?' '+e.id:'')+' changed'+(e.by?' by '+e.by:''));
- return current(e.agent,{kind:e.kind,target:e.id??e.target??'',what,why:e.why||'',by:e.by,before:e.before,after:e.after,undoable:e.kind!=='instructions'&&e.kind!=='access'})}
+ // by comes as {agent,name,level} from agent-access: keep the name (lists showed "[object Object]"); a setting is
+ // stored the way my_settings stores it ({value}) so Undo can put it back; skill/schedule changes made by another
+ // agent are listed but not undoable here (their before/after are not the shapes undo restores)
+ const by=e.by&&typeof e.by==='object'?String(e.by.name||e.by.agent||'another agent'):String(e.by||'another agent');
+ const setting=e.kind==='settings'||e.kind==='setting',kind=setting?'setting':e.kind,target=e.id??e.target??'';
+ const what=e.what||(setting?target+': '+JSON.stringify(e.before??null)+' → '+JSON.stringify(e.after??null)+' (by '+by+')':kind+(target?' '+target:'')+' changed by '+by);
+ return current(e.agent,{kind,target,what,why:e.why||'',by,before:setting?{value:e.before??null}:e.before,after:setting?{value:e.after??null}:e.after,undoable:setting||kind==='webhook'})}
 export function createAgentVersions({DATA,HERMES_HOME,DASH,DASH_TOKEN,PUBLIC_URL='',listAgents,nameOf=a=>a,readConfig,setKey,pick,
  instructions=null,kirimdev=null,issues=null,health=null,teamGroups=null,selfRuns=null,bin,python=async()=>null,
  ping=null,tellOwner=async()=>{},quiet=()=>null,log=m=>console.log(m),now=()=>Date.now(),live=false}){
@@ -109,7 +114,7 @@ export function createAgentVersions({DATA,HERMES_HOME,DASH,DASH_TOKEN,PUBLIC_URL
  async function undo(a,id,{by='owner'}={}){const d=await load(a);const x=d.items.find(i=>i.id===String(id));if(!x)throw Error('No change '+id+'. my_changes lists yours.');
   if(x.state!=='done')throw Error('Change '+id+' was already undone.');if(x.undoable===false)throw Error('Change '+id+' cannot be undone.');
   if(x.kind==='instructions'){if(!instructions)throw Error('Instructions history is not available.');await instructions.restore(a,x.before.v,by+' (undo)')}
-  else if(x.kind==='setting'){const r=await setKey(a,x.target,x.before.value==null?'':x.before.value);if(!r.ok)throw Error('Could not set '+x.target+' back: '+clip(r.out||r.err,200))}
+  else if(x.kind==='setting'||x.kind==='settings'){const bv=x.kind==='settings'?x.before:x.before?.value;const r=await setKey(a,x.target,bv==null?'':bv);/* 'settings' = older cross-agent entries (raw before) */if(!r.ok)throw Error('Could not set '+x.target+' back: '+clip(r.out||r.err,200))}
   else if(x.kind==='schedule'){await scheduleRestore(a,x)}
   else if(x.kind==='skill'){const files=x.before.files||[];for(const f of files){const has=(await git(a,['cat-file','-e',x.before.commit+':'+f])).ok;
     if(has){const r=await git(a,['checkout',x.before.commit,'--',f]);if(!r.ok)throw Error('Could not bring back '+f)}else await rm(path.join(skillsDir(a),f),{force:true})}

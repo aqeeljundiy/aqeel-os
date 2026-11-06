@@ -290,7 +290,7 @@ function syncNotifyTool(){if(notifyRun){notifyAgain=true;return notifyRun}
 async function syncNotifyOnce(){
  // through the engine's own MCP route, so the running engine picks the tool up (a config edit alone is not noticed)
  const mcp=(a,m,p,b)=>fetch(`${DASH.origin}/api/mcp/servers${p}?profile=${encodeURIComponent(a)}`,{method:m,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:b?JSON.stringify(b):undefined}).then(async r=>{if(!r.ok&&r.status!==404)throw new Error('MCP '+m+' '+r.status+' '+(await r.text().catch(()=>'')).slice(0,120))});
- for(const a of await listAllProfiles()){if(PORT!==4400&&!madeHere.has(a))continue;if(PORT===4400&&await isTestAgent(a))continue;
+ for(const a of await listAllProfiles()){if(PORT!==4400&&!madeHere.has(a))continue;   // test agents get it too: they must be able to test my_settings/undo; alert-quiet keeps their alerts from the owner
   try{const url=`http://127.0.0.1:${PORT}/mcp/notify/${a}/${relay.sig(a)}`;const cfg=()=>readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>'');
    // the code bridge (aqeelos-code) too, the same way (app/code-bridge.mjs)
    if(!(await cfg()).includes(codeBridge.url(a))&&await withAgent(a,async()=>codeBridge.ensure(a,await cfg(),mcp)).catch(e=>{console.warn('code bridge tool',a,e.message);return false}))console.log('code bridge tool set for',a);
@@ -1279,8 +1279,10 @@ if(PORT===4400&&LIVE_APP){setTimeout(()=>health.tick().catch(e=>console.warn('he
    (Edit agent › Changes and undo_my_change), a ping run checks it still answers after a self-change and undoes the
    changes by itself when it does not; own-scope tools (my_logs, my_runs, my_health, my_deliveries, my_schedules,
    reconnect_my_connector, create_my_webhook, test_send); anything outside its scope goes to the issues fixer. */
+// --source must be one the engine accepts (cli, tui, gui, acp, tool, oneshot): 'health-ping' was refused as invalid_params,
+// so every ping "did not answer" and healthy agents were rolled back
 const avPing=a=>new Promise(res=>{const f=path.join(DATA,'agent-versions-ping-'+a+'.txt');writeFile(f,'aqeelOS health check after a change you made to yourself. Reply with exactly: OK').then(()=>
- execFile(path.join(homedir(),'.local','bin','aqeelos'),['-p',a,'chat','--oneshot','-Q','--source','health-ping','--query-file',f],{cwd:path.join(homedir(),'workspaces',a),timeout:240e3,maxBuffer:4e6},(e,o,er)=>res(e?{ok:false,why:'it did not answer ('+(e.code??e.signal)+'): '+String(er||'').trim().split('\n').pop()}:/\bOK\b/i.test(String(o))?{ok:true}:{ok:false,why:'answered without OK: '+String(o).slice(0,200)}))).catch(e=>res({ok:false,why:e.message}))});
+ execFile(path.join(homedir(),'.local','bin','aqeelos'),['-p',a,'chat','--oneshot','-Q','--source','tool','--query-file',f],{cwd:path.join(homedir(),'workspaces',a),timeout:240e3,maxBuffer:4e6},(e,o,er)=>res(e?{ok:false,why:'it did not answer ('+(e.code??e.signal)+'): '+String(er||'').trim().split('\n').pop()}:/\bOK\b/i.test(String(o))?{ok:true}:{ok:false,why:'answered without OK: '+String(o).slice(0,200)}))).catch(e=>res({ok:false,why:e.message}))});
 const versions=createAgentVersions({DATA,HERMES_HOME,DASH:DASH.origin,DASH_TOKEN,PUBLIC_URL,listAgents:()=>listAgents(),nameOf:a=>NAMES[a]||a,readConfig,setKey,pick,
  instructions,kirimdev,issues,health,teamGroups,selfRuns,bin:path.join(homedir(),'.local','bin','aqeelos'),ping:avPing,tellOwner:srToOwner,quiet:alertQuiet,live:PORT===4400&&LIVE_APP});
 if(PORT===4400&&LIVE_APP){setInterval(()=>versions.watchTick().catch(e=>console.warn('agent-versions watch',e.message)),60e3).unref();setTimeout(()=>versions.skillsTick().catch(()=>{}),90e3).unref();setInterval(()=>versions.skillsTick().catch(e=>console.warn('agent-versions skills',e.message)),10*60e3).unref()}

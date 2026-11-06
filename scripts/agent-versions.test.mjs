@@ -80,10 +80,13 @@ test('automatic rollback: no answer twice after a self-change undoes it, tells t
 
 test('recordAgentChange: a change made by another agent is recorded on the target agent', async()=>{
  const DATA=await mkdtemp(path.join(tmpdir(),'av-rac-'));
- createAgentVersions({DATA,HERMES_HOME:DATA,DASH:'http://127.0.0.1:1',DASH_TOKEN:'x',listAgents:async()=>['default','bot'],nameOf:a=>a,readConfig:async()=>({}),setKey:async()=>{},pick:()=>undefined});
- await recordAgentChange({agent:'bot',kind:'settings',id:'timezone',by:'Donna AI',before:'UTC',after:'Asia/Jakarta',why:'test'});
+ const sets=[];const v=createAgentVersions({DATA,HERMES_HOME:DATA,DASH:'http://127.0.0.1:1',DASH_TOKEN:'x',listAgents:async()=>['default','bot'],nameOf:a=>a,readConfig:async()=>({}),setKey:async(a,k,val)=>{sets.push([a,k,val]);return {ok:true}},pick:()=>undefined});
+ // agent-access passes by as {agent,name,level}
+ await recordAgentChange({agent:'bot',kind:'settings',id:'timezone',by:{agent:'default',name:'Donna AI',level:'owner'},before:'UTC',after:'Asia/Jakarta',why:'test'});
  const d=JSON.parse(await readFile(path.join(DATA,'agent-versions','bot','index.json'),'utf8'));
- assert.equal(d.items.length,1);assert.equal(d.items[0].by,'Donna AI');assert.equal(d.items[0].target,'timezone');assert.equal(d.items[0].after,'Asia/Jakarta');
+ assert.equal(d.items.length,1);assert.equal(d.items[0].by,'Donna AI');assert.equal(d.items[0].target,'timezone');assert.deepEqual(d.items[0].after,{value:'Asia/Jakarta'});
+ assert.ok(!/object Object/.test(d.items[0].what),d.items[0].what);assert.equal(d.items[0].kind,'setting');
+ await v.undo('bot',d.items[0].id,{by:'owner'});assert.deepEqual(sets,[['bot','timezone','UTC']]);
  assert.equal(await recordAgentChange({kind:'settings'}),null);
 });
 
