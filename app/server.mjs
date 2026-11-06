@@ -1290,7 +1290,10 @@ const versions=createAgentVersions({DATA,HERMES_HOME,DASH:DASH.origin,DASH_TOKEN
 // every agent's home gets the engine plugin aqeelos-live (live context each message, tracebacks held back): installed at
 // start and every 10 minutes (new agents too); when it was new or changed, the engine reloads once no reply runs
 const agentLive=createAgentLive({HERMES_HOME,DATA,listAgents:()=>listAgents(),readConfig,setKey,pick,capabilities:a=>versions.capabilities(a),policy:()=>issues.policy(),nameOf:a=>NAMES[a]||a,engineDir:path.join(here,'..','engine','aqeelos-live')});
-if(PORT===4400&&LIVE_APP){const liveInstall=()=>agentLive.install().then(c=>{if(c.length)restartGateway('aqeelos-live plugin for '+c.length+' agent(s)').catch(()=>{})}).catch(e=>console.warn('agent-live install',e.message));
+// the engine also reloads when it started before the plugin's files were written (a reload asked for by an earlier run of
+// this app is lost when the app restarts)
+const liveStale=async()=>{try{const pid=await gatewayPid();if(!pid)return false;const g=(await stat('/proc/'+pid)).mtimeMs;const f=(await stat(path.join(HERMES_HOME,'plugins','aqeelos-live','__init__.py'))).mtimeMs;return g<f}catch{return false}};
+if(PORT===4400&&LIVE_APP){const liveInstall=()=>agentLive.install().then(async c=>{if(c.length||await liveStale())restartGateway('aqeelos-live plugin for '+(c.length||'all')+' agent(s)').catch(()=>{})}).catch(e=>console.warn('agent-live install',e.message));
  setTimeout(liveInstall,60e3).unref();setInterval(liveInstall,10*60e3).unref()}
 const agentCare=createAgentCare({HERMES_HOME,DATA,fpKey:()=>agentLive.key(),teamOf:async a=>((await issues.policy())?.teams||[]).find(t=>(t.agents||[]).includes(a))?.name||null,WORK:path.join(homedir(),'workspaces'),homes:()=>agentLive.homes(),readConfig,pick,jobs:a=>versions.myJobs(a),updateJob:(a,id,up)=>versions.updateJob(a,id,up),
  record:(a,e)=>versions.noteSelfChange(a,{...e,by:'aqeelOS',undoable:false}),notices:agentLive,extraRetired:async()=>JSON.parse(await readFile(path.join(DATA,'retired-setup.json'),'utf8').catch(()=>'[]'))});
