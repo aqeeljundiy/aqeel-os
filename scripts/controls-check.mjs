@@ -12,9 +12,10 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function signIn(body){const r=await fetch(BASE+'/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});if(!r.ok)throw new Error('sign-in '+r.status);return (r.headers.get('set-cookie')||'').split(';')[0]}
 const api=(ck,p,o={})=>fetch(BASE+p,{...o,headers:{'x-hui':'1',cookie:ck,'content-type':'application/json',...(o.headers||{})}}).then(async r=>({s:r.status,j:await r.json().catch(()=>({}))}));
 // a throwaway team member with the usual team rights (the creator preset) on the test copy's own data (never the live one)
-async function makeMember(owner){const inv=await api(owner,'/ui/people/invite',{method:'POST',body:JSON.stringify({name:'Controls Check',role:'member',caps:['create','skills','mcp','schedules','models','tools','usage']})});if(!inv.j.code)throw new Error('invite: '+JSON.stringify(inv.j));
+// a fresh name each run: a run that died left its member behind, and the next ones failed on "That name is taken" (7 Nov 2026)
+async function makeMember(owner){const nm='Controls Check '+Date.now().toString(36);const inv=await api(owner,'/ui/people/invite',{method:'POST',body:JSON.stringify({name:nm,role:'member',caps:['create','skills','mcp','schedules','models','tools','usage']})});if(!inv.j.code)throw new Error('invite: '+JSON.stringify(inv.j));
  const pw='cc-'+Math.random().toString(36).slice(2)+Math.random().toString(36).slice(2),username='controls-check-'+Date.now().toString(36);
- const r=await fetch(BASE+'/auth/accept',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({code:inv.j.code,name:'Controls Check',password:pw,username})});if(!r.ok)throw new Error('accept '+r.status);
+ const r=await fetch(BASE+'/auth/accept',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({code:inv.j.code,name:nm,password:pw,username})});if(!r.ok)throw new Error('accept '+r.status);
  const ck=(r.headers.get('set-cookie')||'').split(';')[0];const me=await api(ck,'/ui/me');return {ck,id:me.j.id||me.j.user?.id}}
 async function browse(ck){const tools=homedir()+'/.hermes/tools',dir=readdirSync(tools).find(d=>d.startsWith('chromium'));const port=9500+Math.floor(Math.random()*300);
  const chrome=spawn(`${tools}/${dir}/chrome-linux64/chrome`,['--headless=new','--no-sandbox','--disable-gpu','--remote-debugging-port='+port,'--window-size=1440,900','about:blank'],{stdio:'ignore'});
