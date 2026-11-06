@@ -1,3 +1,5 @@
+// the box's home folder as the server reported it at sign-in (no fixed user name); '~' until then
+function boxHome(){const h=(typeof S!=='undefined'&&S.me&&S.me.home)||(typeof FILE_HOME!=='undefined'&&FILE_HOME!=='~'&&FILE_HOME)||'~';return String(h).replace(/\/+$/,'')}
 // Core of the real app: API access, routing, shell, floating layers and sign-in.
 const $=(s,el=document)=>el.querySelector(s);
 const $$=(s,el=document)=>[...el.querySelectorAll(s)];
@@ -167,8 +169,8 @@ function md(src){
  // inline: code and images are lifted out first so nothing inside them gets rewritten
  const inline=t=>{const keep=[];const put=h=>'\u0000'+(keep.push(h)-1)+'\u0000';
   const FILE=/^(?:\/home\/[\w.-]+|~)\/[^\s`<>"']*[^\s`<>"'/]\.[A-Za-z0-9]{1,6}$/;
-  t=t.replace(/`([^`]+)`/g,(m,c)=>put(FILE.test(c)?fileChip(c.replace(/^~/,'/home/claude')):'<code>'+esc(c)+'</code>'))
-   .replace(/(^|[\s(])((?:\/home\/[\w.-]+|~)\/[^\s`<>"']*[^\s`<>"'/.,;:)]\.[A-Za-z0-9]{1,6})(?=$|[\s.,;:)])/g,(m,pre,f)=>pre+put(fileChip(f.replace(/^~/,'/home/claude'))))
+  t=t.replace(/`([^`]+)`/g,(m,c)=>put(FILE.test(c)?fileChip(c.replace(/^~/,boxHome())):'<code>'+esc(c)+'</code>'))
+   .replace(/(^|[\s(])((?:\/home\/[\w.-]+|~)\/[^\s`<>"']*[^\s`<>"'/.,;:)]\.[A-Za-z0-9]{1,6})(?=$|[\s.,;:)])/g,(m,pre,f)=>pre+put(fileChip(f.replace(/^~/,boxHome()))))
    .replace(/\[\[([^\[\]\n]{1,24})\]\]/g,(m,w)=>put(statusChip(w.trim())))
    .replace(/!\[([^\]]*)\]\(((?:data:image\/[a-z+.-]+;base64,[A-Za-z0-9+/=]+)|(?:https?:\/\/[^)\s]+)|(?:\/ui\/media\?path=[^)\s]+))\)/g,(m,alt,u)=>put(`<img class="md-img" src="${esc(u)}" alt="${esc(alt)}" loading="lazy">`));
   t=esc(t).replace(/(?<![\w\/.-])Hermes Agent\b/g,'aqeelOS').replace(/(?<![\w\/.-])Hermes(?![\w-])/g,'aqeelOS').replace(/(?<![\w\/.-])hermes(?=[\s-])/g,'aqeelos').replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>').replace(/__([^_]+)__/g,'<b>$1</b>').replace(/(^|[^*\w])\*([^*\s][^*]*)\*/g,'$1<i>$2</i>').replace(/~~([^~]+)~~/g,'<s>$1</s>')

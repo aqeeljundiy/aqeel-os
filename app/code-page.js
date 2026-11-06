@@ -23,7 +23,7 @@ PAGES.projects=async(p,el,r)=>{viewPick([]);const id=(r?.arg||[])[0];const pr=id
 function codeWorkspace(x,el){const tab=S.tab.codews||'Preview';const owner=ident(x.owner);
  setActions(`<button data-go="/code/projects">${icon('chevL',16)}All projects</button>`);
  const pane={
-  Preview:`<div class="cw-prev"><div class="cw-url"><i class="dot" style="color:${x.preview?'var(--ok)':'var(--muted)'}"></i>${x.preview?'preview-'+esc(x.id)+'.ai.elkiya.com/login':'Not running'}<span style="flex:1"></span><button class="ghost small" data-act="code-soon">Desktop</button><button class="ghost small" data-act="code-soon">Phone</button></div>
+  Preview:`<div class="cw-prev"><div class="cw-url"><i class="dot" style="color:${x.preview?'var(--ok)':'var(--muted)'}"></i>${x.preview?'preview-'+esc(x.id)+'.'+esc(location.hostname)+'/login':'Not running'}<span style="flex:1"></span><button class="ghost small" data-act="code-soon">Desktop</button><button class="ghost small" data-act="code-soon">Phone</button></div>
    ${x.preview?`<div class="cw-site"><h3>Welcome back to Frea Baby</h3><p>Sign in to see your orders and favourites.</p><span class="cw-in"></span><span class="cw-in"></span><span class="cw-go">Sign in</span></div>`:`<div class="state-box"><b>The preview isn’t running</b>Start it to see the project live.<br><button class="primary" data-act="code-soon">${icon('play',15)}Start preview</button></div>`}</div>`,
   Code:`<pre class="cw-code">export default function Login() {
   return (

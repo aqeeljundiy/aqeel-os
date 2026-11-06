@@ -86,7 +86,7 @@ const Chat={
  effortMenu(el){menu(el,[{header:'How hard it thinks'},...EFFORTS.map(e=>({label:EFFORT_LABEL[e],sub:e==='none'?'No thinking: fastest':e==='ultra'?'The most thinking the model allows':'',on:e===this.effort,run:()=>this.setEffort(e)}))])},
  // the folder a new chat starts in: the agent's projects (one row per folder) and repositories it found, newest first
  async workspaceMenu(el,w){if(!w){try{w=await H('/chat/workspaces')}catch(e){return fail(e)}}
-  const home=String(w.home||'/home/claude').replace(/\/+$/,''),short=p=>{p=String(p||'');return p===home?'~':p.startsWith(home+'/')?'~'+p.slice(home.length):p};
+  const home=String(w.home||boxHome()).replace(/\/+$/,''),short=p=>{p=String(p||'');return p===home?'~':p.startsWith(home+'/')?'~'+p.slice(home.length):p};
   const seen=new Set(),projs=[],repos=[],row=(label,p)=>({label,sub:short(p),find:p,icon:'folder',on:this.cwd===p,run:()=>this.setCwd(p)});
   for(const pj of w.projects||[]){if(pj.archived)continue;const fs=(pj.folders||[]).length?pj.folders:pj.primary_path?[{path:pj.primary_path}]:[];
    for(const f of fs){const p=typeof f==='string'?f:f.path;if(!p||seen.has(p))continue;seen.add(p);projs.push(row((pj.name||short(p))+(fs.length>1?' · '+(f.label||short(p)):''),p))}}
@@ -171,7 +171,7 @@ const Chat={
   this.files.push({name:f.name,kind,file:f,blob:URL.createObjectURL(f),size:f.size});this.paintFiles()}},
  paintFiles(){const el=$('#attachList');if(!el)return;el.innerHTML=this.files.map((f,i)=>`<span class="att-chip ${f.kind}">${f.kind==='image'?`<img src="${esc(f.url||f.blob)}" alt="">`:f.kind==='video'?`<video src="${esc(f.blob)}#t=0.5" muted preload="metadata"></video><span class="att-play">${icon('play',14)}</span>`:`<span class="att-ic">${icon('file',18)}</span>`}<span class="att-txt"><b>${esc(f.name)}</b><small>${attSize(f.size)}</small></span><button class="att-x" data-act="unattach" data-i="${i}" aria-label="Remove ${esc(f.name)}">${icon('x',12)}</button></span>`).join('')},
  // files that are not sent inline go to the box first; the message names where they are
- async uploadAtt(list){const out=[];const base=(typeof FILE_HOME!=='undefined'?FILE_HOME:'/home/claude').replace(/\/$/,'')+'/uploads';
+ async uploadAtt(list){const out=[];const base=boxHome().replace(/\/$/,'')+'/uploads';
   for(const f of list){const t=new Date().toISOString().slice(0,10);const path=base+'/'+t+'-'+Date.now().toString(36)+Math.random().toString(36).slice(2,5)+'-'+f.name.replace(/[^\w.\- ]+/g,'_');
    const fd=new FormData();fd.append('path',path);fd.append('overwrite','false');fd.append('file',f.file||dataFile(f),f.name);
    await H('/files/upload-stream',{method:'POST',body:fd});out.push(path)}return out},
