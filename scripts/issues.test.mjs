@@ -4,7 +4,7 @@ import {mkdtemp,writeFile,mkdir,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {terms,parseLines,search,createChatHistory} from '../app/chat-history.mjs';
-import {decide,parseResult,createIssues,fixerPrompt} from '../app/issues.mjs';
+import {decide,parseResult,createIssues,fixerPrompt,issueButtons} from '../app/issues.mjs';
 import {count,weekOf} from '../app/escalations.mjs';
 let n=0;const t=async(name,f)=>{await f();n++;console.log('ok',name)};
 const POL={owner:{name:'Owner',telegram:['1']},teams:[{name:'Brand',agents:['a1','a2'],members:[{name:'Mem',telegram:['2']}],aliases:{a1:['Randy']}}],fixer:{on:true,agent:'default'}};
@@ -44,6 +44,18 @@ await t('issue lifecycle: needs owner → one message → approve → fix; failu
  assert.equal((await I.decideOwner(raw.id,raw.sig,true)).state,'approved');
  await I.tick();await I.tick();assert.equal((await I._db()).items[0].state,'approved');  // try 1 failed, retried
  await I.tick();await I.tick();assert.equal((await I._db()).items[0].state,'failed');assert.equal(owner.length,2);assert.match(owner[1],/failed/);assert.match(replies.at(-1),/not fixed yet/i)});
+await t('owner buttons: sent instead of the link; only the owner may press; decline marks it declined',async()=>{const d=await mkdtemp(path.join(tmpdir(),'is-'));await writeFile(path.join(d,'team-policy.json'),JSON.stringify(POL));
+ const owner=[],asked=[],replies=[];const I=createIssues({DATA:d,bin:'x',fixerHome:d,reply:async(i,x)=>replies.push(x),tellOwner:async x=>owner.push(x),askOwner:async(x,o)=>{asked.push([x,o]);return true},approvalLink:(id,s)=>'L/'+id+'/'+s,log:()=>{}});
+ await I.file({agent:'a1',missing:'need key',needs:['keys'],origin:{platform:'telegram',uid:'2'}});await new Promise(z=>setTimeout(z,20));
+ assert.equal(owner.length,0);assert.equal(asked.length,1);assert.doesNotMatch(asked[0][0],/L\//);const raw=(await I._db()).items[0];assert.equal(asked[0][1].sig,raw.sig);
+ const kb=issueButtons(raw.id,raw.sig).inline_keyboard[0];assert.deepEqual(kb.map(b=>b.text),['Approve','Decline']);for(const b of kb)assert.ok(Buffer.byteLength(b.callback_data)<=64);
+ assert.match((await I.press(kb[1].callback_data,'2')).toast,/Not allowed/);assert.equal((await I._db()).items[0].state,'waiting');
+ assert.equal((await I.press('aqi:d:'+raw.id+':wrongsig1234','1')).ok,false);
+ const r=await I.press(kb[1].callback_data,'1');assert.equal(r.ok,true);assert.match(r.text,/^Declined/);assert.equal((await I._db()).items[0].state,'declined');
+ {const again=await I.press(kb[0].callback_data,'1');assert.match(again.toast,/Declined/);assert.equal((await I._db()).items[0].state,'declined')}await new Promise(z=>setTimeout(z,20));assert.match(replies.at(-1),/declined/)});
+await t('owner buttons: link is the fallback when buttons cannot be sent',async()=>{const d=await mkdtemp(path.join(tmpdir(),'is-'));await writeFile(path.join(d,'team-policy.json'),JSON.stringify(POL));
+ const owner=[];const I=createIssues({DATA:d,bin:'x',fixerHome:d,tellOwner:async x=>owner.push(x),askOwner:async()=>{throw Error('down')},approvalLink:(id,s)=>'L/'+id+'/'+s,log:()=>{}});
+ await I.file({agent:'a1',missing:'need key 2',needs:['keys'],origin:{}});await new Promise(z=>setTimeout(z,20));assert.equal(owner.length,1);assert.match(owner[0],/Approve or decline: L\/i/)});
 await t('escalation count per agent and week',()=>{const now=Date.parse('2026-11-06T05:00:00Z');const ts=now/1000;
  const c=count([[ts,'Randy is still sending the note'],[ts-3600,'gilang qris'],[ts-8*86400,'Randy again'],[ts,'[Replying to: "Randy said"] ok thanks']],{a1:['Randy'],a2:['Gilang']},now);
  assert.equal(c.a1.thisWeek,1);assert.equal(c.a1.lastWeek,1);assert.equal(c.a2.thisWeek,1);assert.equal(weekOf(now),'2026-W45')});

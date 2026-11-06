@@ -10,7 +10,7 @@ import {allowed as skillAllowed} from './skills-policy.mjs';
 import {createAgentDefaults} from './agent-defaults.mjs';
 import {createWhy} from './why.mjs';
 import {createChatHistory} from './chat-history.mjs';
-import {createIssues} from './issues.mjs';
+import {createIssues,issueButtons} from './issues.mjs';
 import {createEscalations} from './escalations.mjs';
 import {createConnect} from './connect.mjs';
 import {createAntigravity} from './antigravity.mjs';
@@ -1166,8 +1166,23 @@ const health=createAgentHealth({DATA,HERMES_HOME,bottlenecks,python:enginePython
 const chatHistory=createChatHistory({DATA});
 async function replyInTopic(i,text){const b=i.by||{};if(!b.chat||!['telegram','whatsapp','slack','discord'].includes(b.platform)){await bottlenecks.event('issues',(NAMES[i.agent]||i.agent)+': '+text.slice(0,180),'',{info:true});return true}
  await relay.send({owner:i.agent,platform:b.platform,chat:String(b.chat)+(b.thread?':'+b.thread:''),text});return true}
+/* Owner approvals as Telegram buttons (6 Nov 2026): the main agent's bot sends the question to the owner(s) named in
+   the team policy with Approve / Decline buttons. The gateway keeps the only poller on that bot; its plugin
+   aqeelos-issue-buttons catches presses ("aqi:…") and posts them to /issue-press here with the key in
+   HERMES_HOME/secrets/issue-press.key. False (no bot, no owner id, Telegram refused) = the caller sends the link instead. */
+const PRESS_KEY_FILE=path.join(HERMES_HOME,'secrets','issue-press.key');let PRESS_KEY=null;
+const pressKey=async()=>{if(PRESS_KEY)return PRESS_KEY;PRESS_KEY=(await readFile(PRESS_KEY_FILE,'utf8').catch(()=>'')).trim();
+ if(!PRESS_KEY){PRESS_KEY=randomBytes(24).toString('hex');await mkdir(path.dirname(PRESS_KEY_FILE),{recursive:true,mode:0o700});await writeFile(PRESS_KEY_FILE,PRESS_KEY,{mode:0o600})}return PRESS_KEY};
+if(PORT===4400)pressKey().catch(e=>console.warn('issue buttons: key',e.message));
+async function issueAsk(text,{id,sig}){if(PORT!==4400)return false;await pressKey();
+ const tok=(/^TELEGRAM_BOT_TOKEN=["']?([^"'\s]+)/m.exec(await readFile(path.join(HERMES_HOME,'.env'),'utf8').catch(()=>''))||[])[1];
+ const owners=[].concat((await issues.policy())?.owner?.telegram||[]).map(String).filter(x=>/^\d+$/.test(x));if(!tok||!owners.length)return false;
+ let sent=0;for(const chat of owners){const r=await fetch('https://api.telegram.org/bot'+tok+'/sendMessage',{method:'POST',headers:{'content-type':'application/json'},
+  body:JSON.stringify({chat_id:chat,text:text.slice(0,4000),disable_web_page_preview:true,reply_markup:issueButtons(id,sig)}),signal:AbortSignal.timeout(30000)}).catch(()=>null);
+  const j=r?await r.json().catch(()=>({})):{};if(j.ok)sent++;else console.warn('issue buttons: Telegram refused',j.description||r?.status)}
+ if(sent)await bottlenecks.event('issues',text.split('\n')[0],text,{info:true}).catch(()=>{});return sent>0}
 const issues=createIssues({DATA,home:homedir(),bin:path.join(homedir(),'.local','bin','aqeelos'),fixerHome:homedir(),nameOf:a=>NAMES[a]||a,
- reply:replyInTopic,tellOwner:srToOwner,approvalLink:(id,sig)=>PUBLIC_URL+'/issue/'+id+'/'+sig,
+ reply:replyInTopic,tellOwner:srToOwner,askOwner:issueAsk,approvalLink:(id,sig)=>PUBLIC_URL+'/issue/'+id+'/'+sig,
  restartSelf:why=>{console.log('restarting the web app after',why);setTimeout(()=>process.exit(0),500)}});
 const escalations=createEscalations({HERMES_HOME,python:enginePython,policy:()=>issues.policy()});
 // the chat a tool call came from (the agent's newest person-chat): who asked, and where to answer
@@ -1766,6 +1781,11 @@ const server=createServer(async(req,res)=>{
   {const km=/^\/kirimdev\/([a-z0-9][a-z0-9_-]{0,63})$/.exec(p);if(km){if(req.method!=='POST')return send(res,405,{error:'POST only'});let raw;
    if(+req.headers['content-length']>1024*1024)return send(res,413,{error:'Too large'});try{raw=await readRaw(req,1024*1024)}catch{return send(res,413,{error:'Too large'})}
    try{const r=await kirimdev.receive(km[1],req.headers,raw);return send(res,r.status,r.body)}catch(e){console.warn('kirimdev receive',e.message);return send(res,500,{error:'Try again'})}}}
+  // a press on an issue's Telegram button, posted by the gateway plugin aqeelos-issue-buttons (this box only, with the key)
+  if(p==='/issue-press'){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra)||req.method!=='POST')return send(res,403,{error:'local only'});
+   let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const k=await pressKey();
+   if(typeof b.key!=='string'||b.key.length!==k.length||!timingSafeEqual(Buffer.from(b.key),Buffer.from(k)))return send(res,403,{error:'bad key'});
+   const r=await issues.press(b.data,String(b.from||''));console.log('issue button',String(b.data||'').slice(0,15),'from',b.from,'→',r.toast);return send(res,200,r)}
   // the owner's Approve / Decline for an issue (issues.mjs): the signed link from the one message they got; GET only shows it
   {const im=/^\/issue\/(i[0-9a-f]{8})\/([\w-]{10,40})$/.exec(p);if(im){const H={'cache-control':'no-store','x-robots-tag':'noindex'};
    const page=(body)=>{res.writeHead(200,{'content-type':'text/html; charset=utf-8',...H});res.end('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>aqeelOS issue</title><body style="font:16px/1.5 system-ui;max-width:560px;margin:40px auto;padding:0 18px">'+body+'</body>')};

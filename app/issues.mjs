@@ -41,6 +41,8 @@ export function decide(policy,issue,by){const p=personOf(policy,by?.platform,by?
  if(p.team!==team)return {auto:false,why:p.name+' is not in the '+team.name+' team'};
  return {auto:true,why:'asked by '+p.name+'; it only touches the '+team.name+' team'}}
 // the fixer's last line: RESULT: {"status":"fixed|failed|needs_owner","summary":"…","proof":"…","restart_ui":false}
+// Telegram inline buttons for an issue (callback_data max 64 bytes: "aqi:a:"+9+1+16 = 32)
+export const issueButtons=(id,sig)=>({inline_keyboard:[[{text:'Approve',callback_data:'aqi:a:'+id+':'+sig},{text:'Decline',callback_data:'aqi:d:'+id+':'+sig}]]});
 export function parseResult(out){const m=[...String(out||'').matchAll(/RESULT:\s*(\{[^\n]*\})/g)].pop();if(!m)return null;try{const j=JSON.parse(m[1]);
  if(!['fixed','failed','needs_owner'].includes(j.status))return null;return {status:j.status,summary:clip(j.summary,1500),proof:clip(j.proof,1500),restart_ui:j.restart_ui===true}}catch{return null}}
 
@@ -59,7 +61,7 @@ export function fixerPrompt(i,{rules=''}={}){return [
  rules?'- '+rules:null,
  '','End with exactly one line: RESULT: {"status":"fixed|failed|needs_owner","summary":"one or two plain sentences for the team","proof":"what you ran and saw","restart_ui":false}'].filter(x=>x!==null).join('\n')}
 
-export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=async()=>false,tellOwner=async()=>{},approvalLink=id=>'',restartSelf=()=>{},nameOf=a=>a,log=m=>console.log(m),
+export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=async()=>false,tellOwner=async()=>{},askOwner=null,approvalLink=id=>'',restartSelf=()=>{},nameOf=a=>a,log=m=>console.log(m),
  launch=null,alive=null}){
  const FILE=path.join(DATA,'issues.json'),POL=path.join(DATA,'team-policy.json'),DIR=path.join(DATA,'issues');let db=null,chain=Promise.resolve();
  const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.items||=[];db.runs||={}}return db};
@@ -67,6 +69,9 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  const queue=fn=>{const p=chain.then(fn);chain=p.catch(()=>{});return p};
  const policy=async()=>{try{return JSON.parse(await readFile(POL,'utf8'))}catch{return {teams:[],fixer:{on:false}}}};
  const view=i=>({...i,agentName:nameOf(i.agent),sig:undefined});
+ // the owner's question: Approve / Decline buttons on Telegram (askOwner); the signed link only when buttons cannot be sent
+ const ask=async(i,text)=>{if(askOwner){try{if(await askOwner(text,{id:i.id,sig:i.sig}))return}catch(e){log('issues: buttons not sent, using the link: '+e.message)}}
+  await tellOwner(text+'\n\nApprove or decline: '+approvalLink(i.id,i.sig))};
  // an agent files an issue: o = {agent, what, missing, evidence, proposed_fix, affects, needs, origin:{platform, uid, who, chat, thread}}
  const file=o=>queue(async()=>{await load();const pol=await policy();const m=clip(o.missing,500).trim();if(!m)throw Error('Say what is broken (missing).');
   const key=o.agent+'|'+m.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().slice(0,100);
@@ -79,12 +84,18 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   const d=decide(pol,i,by);i.decision=d.why;
   if(pol.fixer?.on===false){i.state='open';i.decision='the fixer is switched off in the team policy'}
   else if(d.auto)i.state='approved';
-  else{i.state='waiting';const t=nameOf(i.agent)+' needs your OK for a fix\n\nProblem: '+i.missing+(i.byName?'\nAsked by: '+i.byName:'')+'\nProposed fix: '+(i.proposed_fix||'-')+'\nWhy it waits for you: '+d.why+'\n\nApprove or decline: '+approvalLink(i.id,i.sig);
-   tellOwner(t).then(()=>queue(async()=>{i.asked=now();await save()}),e=>log('issues: the owner could not be asked: '+e.message))}
+  else{i.state='waiting';const t=nameOf(i.agent)+' needs your OK for a fix\n\nProblem: '+i.missing+(i.byName?'\nAsked by: '+i.byName:'')+'\nProposed fix: '+(i.proposed_fix||'-')+'\nWhy it waits for you: '+d.why;
+   ask(i,t).then(()=>queue(async()=>{i.asked=now();await save()}),e=>log('issues: the owner could not be asked: '+e.message))}
   db.items.unshift(i);db.items=db.items.slice(0,300);await save();log('issue '+i.id+' filed by '+i.agent+': '+i.state+' ('+d.why+')');return {issue:view(i)}});
  const decideOwner=(id,sig,ok,by='owner')=>queue(async()=>{await load();const i=db.items.find(x=>x.id===id);if(!i||!sig||i.sig!==sig)return null;
   if(i.state!=='waiting')return view(i);i.state=ok?'approved':'declined';i.decidedBy=by;i.decided=now();await save();
   if(!ok)reply(i,'The owner declined this change, so it is not made: '+i.missing).catch(()=>{});return view(i)});
+ // a press on a Telegram button: data "aqi:a|d:<id>:<sig>", from = the presser's Telegram user id; only the owner(s) in the policy
+ const press=async(data,from)=>{const m=/^aqi:([ad]):(i[0-9a-f]{8}):([\w-]{10,40})$/.exec(String(data||''));if(!m)return {ok:false,toast:'Unknown button.'};
+  const pol=await policy();if(!personOf(pol,'telegram',from)?.owner)return {ok:false,toast:'Not allowed: only the owner can decide this.'};
+  const i=await decideOwner(m[2],m[3],m[1]==='a','owner (Telegram)');if(!i)return {ok:false,toast:'This button is no longer valid.'};
+  const word=i.state==='approved'?'Approved':i.state==='declined'?'Declined':'Already '+i.state;
+  return {ok:true,toast:word,text:word+' by the owner: '+i.agentName+' — '+i.missing+(i.state==='approved'?'\nThe fixer runs within a minute and answers in the chat where it was reported.':i.state==='declined'?'\nNothing is changed.':'')}};
  const forAgent=async a=>{await load();return db.items.filter(i=>i.agent===a).slice(0,10).map(view)};
  const list=async()=>{await load();return {items:db.items.slice(0,60).map(view),policy:await policy()}};
 
@@ -110,8 +121,8 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   if(i){i.result=res;i.updated=now();
    if(res.status==='fixed'){i.state='fixed';i.fixed=now();await reply(i,'Fixed by aqeelOS: '+res.summary).catch(()=>{})}
    else if(res.status==='needs_owner'||i.attempts>=2){i.state=res.status==='needs_owner'?'waiting':'failed';
-    await tellOwner(nameOf(i.agent)+': a fix '+(res.status==='needs_owner'?'needs your OK':'failed')+'\n\nProblem: '+i.missing+'\nFixer: '+res.summary+(res.status==='needs_owner'?'\n\nApprove or decline: '+approvalLink(i.id,i.sig):'')).catch(()=>{});
+    {const t=nameOf(i.agent)+': a fix '+(res.status==='needs_owner'?'needs your OK':'failed')+'\n\nProblem: '+i.missing+'\nFixer: '+res.summary;await (res.status==='needs_owner'?ask(i,t):tellOwner(t)).catch(()=>{})}
     await reply(i,res.status==='needs_owner'?'This needs the owner\'s OK before it can be changed; they have been asked. Not fixed yet.':'aqeelOS could not fix this by itself yet; the owner has been told. Not fixed yet: '+res.summary).catch(()=>{})}
    else i.state='approved'}
   await save();log('issues: fixer '+r.id+' ended: '+res.status);if(res.status==='fixed'&&res.restart_ui)setTimeout(()=>restartSelf('fixer '+r.id),3000)}
- return {file,decideOwner,forAgent,list,tick,policy,_db:async()=>{await load();return db}}}
+ return {file,decideOwner,press,forAgent,list,tick,policy,_db:async()=>{await load();return db}}}
