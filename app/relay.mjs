@@ -100,6 +100,9 @@ export function createRelay({DATA,DASH,TOKEN,HERMES_HOME,SECRET,listAgents,links
   if(msg.method==='notifications/initialized'||msg.id==null)return {status:202,body:null};
   if(msg.method==='tools/list'){const ch=await channelsFor(agent);return reply({tools:[{name:'send_to_person',description:'Send a message to the person on WhatsApp/Telegram (or another connected app). Pick the channel by its ID when the person names one. Replies on that channel come back as a new chat, not to this one. Channels (ID = name): '+(ch.map(c=>c.id+' = '+c.name).join('; ')||'none yet'),
    inputSchema:{type:'object',properties:{text:{type:'string',description:'The message'},channel:{type:'string',description:'Channel ID from the list, e.g. "whatsapp" or "shop-whatsapp". Optional when there is only one.'}},required:['text']}}]})}
+  // only send_to_person is answered here (server.mjs answers the other aqeelos-notify tools first): any other name is refused,
+  // never treated as a message to send (a listed tool whose handler is off answered "Not sent: Nothing to send")
+  if(msg.method==='tools/call'&&msg.params?.name&&msg.params.name!=='send_to_person')return reply({content:[{type:'text',text:'Unknown tool: '+String(msg.params.name).slice(0,60)+'. This aqeelOS does not offer it right now.'}],isError:true});
   if(msg.method==='tools/call'){const a=msg.params?.arguments||{};const ch=await channelsFor(agent);const want=String(a.channel||'').toLowerCase();
    const c=(want&&ch.find(c=>c.id===want||slug(c.name)===slug(want)))||ch.find(c=>!want||want.includes(c.platform)&&(!/ via |@/.test(want)||want.endsWith(c.owner)))||null;
    if(!c)return reply({content:[{type:'text',text:'No channel matches. Available IDs: '+(ch.map(c=>c.id).join(', ')||'none')}],isError:true});
