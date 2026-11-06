@@ -13,8 +13,13 @@ test('runner uses supported named continue, unique private files, cleanup on suc
  const files=pending.map(x=>x.args.at(-1));assert.notEqual(files[0],files[1]);
  assert.deepEqual((await Promise.all(files.map(f=>readFile(f,'utf8')))).sort(),['one','two']);
  assert.ok(pending.every(x=>x.args.includes('--create-if-missing')&&x.args.includes('--continue')&&x.args.includes('tool')));
- pending[0].cb(null,'answer');pending[1].cb({code:1});
- const out=await Promise.allSettled([one,two]);assert.equal(out[0].status,'fulfilled');assert.equal(out[1].status,'rejected');
+ // Concurrent mkdir/writeFile completion order is unspecified. Match the
+ // invocation by its session, not by when the execute callback was registered.
+ const success=pending.find(x=>x.args[x.args.indexOf('--continue')+1]===session);
+ const failure=pending.find(x=>x!==success);
+ const settled=Promise.allSettled([one,two]);
+ success.cb(null,'answer');failure.cb({code:1});
+ const out=await settled;assert.equal(out[0].status,'fulfilled');assert.equal(out[0].value,'answer');assert.equal(out[1].status,'rejected');assert.match(out[1].reason.message,/the agent stopped \(1\)/);
  assert.deepEqual(await readdir(DATA),[]);
  assert.notEqual(session,conversationSession('agent','other-line','customer'));
  assert.notEqual(session,conversationSession('other-agent','line','customer'));

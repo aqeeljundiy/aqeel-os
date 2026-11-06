@@ -28,6 +28,12 @@ aqeelOS is a web interface and team layer for the [Hermes Agent](https://github.
 ## Tests
 `node --test scripts/*.test.mjs` (unit tests, no network). End-to-end checks such as `scripts/e2e-check.mjs` need a running install.
 
+## Kirimdev delivery semantics
+- Customer turns resume an isolated, durable engine session keyed by agent, phone line, conversation and reset epoch. Pending inbound remains stored until the turn completes; interruption before completion can replay the turn after restart.
+- This is **not exactly-once delivery**: if Kirimdev accepts a send and the process stops before pending inbound is cleared and saved, restart can generate/send another reply. Multi-part replies can also replay already accepted parts. The automatic reply path does not persist an outbound per-part acceptance ledger or use stable send idempotency keys.
+- Nor is successful delivery guaranteed by a completed turn: automatic send exceptions are logged and caught, so pending inbound can be consumed even when a send failed. Fixing this requires durable outbound tracking and provider-supported idempotency/reconciliation, not simply retrying every failed turn (an ambiguous timeout may already have been accepted).
+- A provider message ID is evidence of acceptance, not final delivery. Inbound event deduplication and durable engine context do not remove the acceptance/commit crash window.
+
 ## Not in this repository
 Owner-private files are listed in `PUBLIC_EXCLUDE` and `.gitignore` (product notes, the development board, mockups, private skills, backups). Never commit an `.env` file; secrets belong in the env file or the engine's secret store.
 
