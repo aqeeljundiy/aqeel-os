@@ -83,6 +83,8 @@ export function guardReply(parts){const removed=[];const keep=[];
  const hasPic=keep.some(p=>/^\[FOTO:/i.test(p));
  return {parts:keep,removed,hold:promisesQr&&!hasPic?'The reply says a QRIS is attached, but no QR picture was made. Create the QRIS with the payment tool, then send it.':null}}
 
+import {conversationSession} from './kirimdev-agent.mjs';
+
 const RESET=/^(reset|\/reset|mulai baru)$/i;
 const tail=n=>'…'+String(n||'').slice(-4);
 
@@ -91,8 +93,9 @@ export function createKirimdev({DATA,WORK,apiKey,runAgent,telegram,teamGroup=asy
  const CONF=path.join(DATA,'kirimdev.json'),SEC=path.join(DATA,'kirimdev-secrets.json'),ST=path.join(DATA,'kirimdev-state.json');
  const readJson=async(f,d)=>{try{return JSON.parse(await readFile(f,'utf8'))}catch{return d}};
  const put=async(f,v,mode=0o600)=>{await mkdir(DATA,{recursive:true});const t=f+'.'+process.pid+'.'+randomUUID().slice(0,8)+'.tmp';await writeFile(t,JSON.stringify(v,null,1),{mode});await rename(t,f)};
- let st=null,chain=Promise.resolve();const queue=fn=>{const p=chain.then(fn);chain=p.catch(()=>{});return p};
- const state=async()=>st||=Object.assign({seen:[],cut:{},recent:{},pending:{},last:{},testerNums:{},ours:{},paused:{},drafts:{},handoffs:{},asked:{},seq:0},await readJson(ST,{}));
+ let st=null,loading=null,chain=Promise.resolve();const queue=fn=>{const p=chain.then(fn);chain=p.catch(()=>{});return p};
+ const state=async()=>st||(loading||=readState());
+ const readState=async()=>st=Object.assign({seen:[],cut:{},recent:{},pending:{},last:{},testerNums:{},ours:{},paused:{},drafts:{},handoffs:{},asked:{},seq:0},await readJson(ST,{}));
  const saveState=()=>queue(async()=>{await state();st.seen=st.seen.slice(-3000);const t=now();
   for(const [k,v] of Object.entries(st.recent))if(t-v>48*3600e3)delete st.recent[k];
   for(const [k,v] of Object.entries(st.ours))if(t-v>48*3600e3)delete st.ours[k];
@@ -123,7 +126,8 @@ export function createKirimdev({DATA,WORK,apiKey,runAgent,telegram,teamGroup=asy
   const event=String(headers['x-kirim-event']||'');if(event&&!EVENTS.includes(event))return {status:200,body:{ignored:event}};
   let j;try{j=JSON.parse(raw.toString('utf8'))}catch{return {status:400,body:{error:'Bad JSON'}}}
   const id=String(headers['x-kirim-event-id']||'');await state();
-  if(id&&st.seen.includes(id))return {status:200,body:{duplicate:id}};if(id)st.seen.push(id);
+  const eventKey=id&&agent+'|'+line.phoneNumberId+'|'+id;
+  if(eventKey&&st.seen.includes(eventKey))return {status:200,body:{duplicate:id}};if(eventKey)st.seen.push(eventKey);
   if(event==='message.sent'||j?.type==='message.sent'){const r=await teamSent(agent,line,parseSent(j));await saveState();return {status:200,body:r}}
   const all=parseInbound(j),pid=String(line.phoneNumberId);const ms=all.filter(m=>m.pid===pid);
   if(all.length>ms.length)log('kirimdev '+agent+': '+(all.length-ms.length)+' message(s) for another WhatsApp number, not answered');
@@ -132,12 +136,14 @@ export function createKirimdev({DATA,WORK,apiKey,runAgent,telegram,teamGroup=asy
   for(const m of ms){st.recent[agent+'|'+m.from]=now();const tester=isTester(line,m);
    if(tester)st.testerNums[agent+'|'+m.from]=true;
    if(mode==='test'&&!tester){log('kirimdev '+agent+': a message from a number that is not a tester (Test mode), not answered');continue}
-   const key=agent+'|'+(m.conversationId||m.from);
+   const key=agent+'|'+line.phoneNumberId+'|'+(m.conversationId||m.from);
+   const mid=m.id&&'message|'+agent+'|'+line.phoneNumberId+'|'+m.id;
+   if(mid&&st.seen.includes(mid))continue;if(mid)st.seen.push(mid);
    if(tester&&RESET.test(m.text.trim())){st.cut[key]=new Date((m.ts||now()/1000)*1000+1000).toISOString();delete st.pending[key];
     send(agent,line,m.from,'✅ Test reset. Chat dari awal ya, anggap kamu customer baru.').catch(e=>log('kirimdev reset reply: '+e.message));continue}
    const until=pausedUntil(agent,m.conversationId,m.from);
    if(until>now()){log('kirimdev '+agent+': '+tail(m.from)+' wrote while a team member is answering; the agent waits until '+new Date(until).toISOString());continue}
-   st.pending[key]={agent,from:m.from,conversationId:m.conversationId,name:testerName(line,m),at:now()};schedule(key,line)}
+   st.pending[key]={agent,from:m.from,conversationId:m.conversationId,name:testerName(line,m),at:now(),token:randomUUID(),messages:[...(st.pending[key]?.messages||[]),m.text]};schedule(key,line)}
   await saveState();return {status:200,body:{ok:true}}}
 
  // an outbound message on this line: ours (aqeelOS sent it) or a person's, which pauses the agent in that conversation
@@ -148,32 +154,40 @@ export function createKirimdev({DATA,WORK,apiKey,runAgent,telegram,teamGroup=asy
   if(s.source==='api'||!s.source){await (inflight.get(s.to)||Promise.resolve()).catch(()=>{});await wait(echoWait);if(s.id&&st.ours[s.id])return {ours:true}}
   const min=Math.max(0,Number(line.pauseMin??15));if(!min)return {paused:false};const until=now()+min*60e3;
   if(s.conversationId)st.paused[agent+'|'+s.conversationId]=until;if(s.to)st.paused[agent+'|'+s.to]=until;
-  for(const k of [agent+'|'+s.conversationId,agent+'|'+s.to])if(st.pending[k]){delete st.pending[k];clearTimer(timers.get(k));timers.delete(k)}
+  for(const [k,p] of Object.entries(st.pending))if(p.agent===agent&&(p.conversationId===s.conversationId||p.from===s.to)){delete st.pending[k];clearTimer(timers.get(k));timers.delete(k)}
   log('kirimdev '+agent+': a team member replied to '+tail(s.to)+' ('+(s.source||'?')+'); the agent waits '+min+' min');if(s.to)await answered(agent,s.to);return {paused:until}}
 
  // a burst of messages is answered once: the run starts a few seconds after the last one
  const timers=new Map(),running=new Set();let active=0;
  // setTimer/clearTimer are injectable so tests drive the burst window themselves instead of racing a 0 s timer
  function schedule(key,line){clearTimer(timers.get(key));timers.set(key,setTimer(()=>{timers.delete(key);return run(key).catch(e=>log('kirimdev '+key+': '+e.message))},(line.debounceSec??8)*1000))}
- async function run(key){if(running.has(key)){schedule(key,{debounceSec:5});return}
-  while(active>=maxRuns)await wait(1000);
-  await state();const p=st.pending[key];if(!p)return;const line=await lineOf(p.agent);if(!line)return;
-  running.add(key);active++;delete st.pending[key];await saveState();
-  try{if(pausedUntil(p.agent,p.conversationId,p.from)>now())return;await answer(p.agent,line,p,key)}finally{running.delete(key);active--}}
+ async function run(key){if(running.has(key))return;
+  running.add(key);let acquired=false;
+  try{while(active>=maxRuns)await wait(1000);active++;acquired=true;
+   await state();const p=st.pending[key];if(!p)return;const line=await lineOf(p.agent);if(!line)return;
+   if(pausedUntil(p.agent,p.conversationId,p.from)>now())return;
+   const epoch=st.cut[key]||'';await answer(p.agent,line,p,key);
+   // Only consume the snapshot we answered, never a newer arrival.
+   if(st.pending[key]?.token===p.token)delete st.pending[key];
+   else if(st.pending[key]&&(st.cut[key]||'')===epoch)st.pending[key].messages=st.pending[key].messages.slice((p.messages||[]).length);
+   await saveState();
+  }finally{running.delete(key);if(acquired)active--;
+   if(st?.pending[key])schedule(key,{debounceSec:5})}}
 
  async function history(line,p,key){if(!p.conversationId)return '';const q=new URLSearchParams({conversation_id:p.conversationId,limit:'30'});
   const l=((await api(line.phoneNumberId+'/messages?'+q)).data||[]).sort((a,b)=>String(a.created_at).localeCompare(String(b.created_at))).filter(m=>String(m.created_at)>(st.cut[key]||''));
-  return l.slice(-20).map(m=>(m.direction==='inbound'?'CUSTOMER':String(line.persona||'AGENT').toUpperCase())+': '+(String(m.content||'').replace(FOOTER,'').trim()||'['+m.type+']')).join('\n')}
+  return l.map(m=>(m.direction==='inbound'?'CUSTOMER':String(line.persona||'AGENT').toUpperCase())+': '+(String(m.content||'').replace(FOOTER,'').trim()||'['+m.type+']')).join('\n')}
 
- async function answer(agent,line,p,key){const hist=await history(line,p,key);const mode=modeOf(line);
+ async function answer(agent,line,p,key){const epoch=st.cut[key]||'';const hist=await history(line,p,key);const mode=modeOf(line);
   const who=mode==='test'?'WHATSAPP TEST CHAT (customer = a team tester, treat them exactly like a real customer).':'WHATSAPP CHAT with a customer.';
   const q=who+' You are '+line.persona+' for '+line.business+'. Customer WhatsApp number: '+(String(p.from||'').replace(/^62/,'0')||'unknown')+' (use it for the phone field of the order form; never ask the customer for it). Read your knowledge sheet tabs + decisions file first; for anything they do not cover (product facts, how something works), search your own line\'s past chats with past_chats before you hand off. Conversation so far (oldest first):\n\n'+hist+
+   '\n\nNew inbound messages (authoritative even if provider history is delayed):\n'+(p.messages||[]).map(t=>'CUSTOMER: '+t).join('\n')+
    '\n\nWrite ONLY the WhatsApp reply text to send next (Indonesian, WhatsApp formatting with *bold*, short paragraphs). Do NOT send anything yourself. '+
    'If several messages are needed, separate them with a line containing only ---. If this must go to a human (handoff rules), reply exactly: HANDOFF: <reason, and what you already checked (sheet, past chats) and found>';
-  log('kirimdev '+agent+': answering '+p.name);let out=String(await runAgent(agent,q)||'').replace(FOOTER,'').trim();
+  log('kirimdev '+agent+': answering '+p.name);let out=String(await runAgent(agent,q,{session:conversationSession(agent,line.phoneNumberId,p.conversationId||p.from,epoch)})||'').replace(FOOTER,'').trim();
   if(!out){log('kirimdev '+agent+': the agent wrote nothing');return}
   // a team member replied while the agent was thinking: theirs stands
-  await state();if(pausedUntil(agent,p.conversationId,p.from)>now()){log('kirimdev '+agent+': a team member answered meanwhile; the agent\'s reply was not sent');return}
+  await state();if((st.cut[key]||'')!==epoch||pausedUntil(agent,p.conversationId,p.from)>now()){log('kirimdev '+agent+': conversation reset or a team member answered meanwhile; the agent\'s reply was not sent');return}
   if(/^HANDOFF\b/.test(out)){const why=out.replace(/^HANDOFF:?\s*/,'').trim();const lastQ=hist.split('\n').filter(l=>l.startsWith('CUSTOMER: ')).pop()?.slice(10)||'-';
    const h={id:'h'+(++st.seq),agent,from:p.from,conversationId:p.conversationId,name:p.name,lastQ,why,notify:mode!=='draft',tries:0,at:now()};
    await postHandoff(h,line);return}
@@ -186,7 +200,7 @@ export function createKirimdev({DATA,WORK,apiKey,runAgent,telegram,teamGroup=asy
   if(g.hold){log('kirimdev '+agent+': reply held: '+g.hold);const lastQ=hist.split('\n').filter(l=>l.startsWith('CUSTOMER: ')).pop()?.slice(10)||'-';
    await postHandoff({id:'h'+(++st.seq),agent,from:p.from,conversationId:p.conversationId,name:p.name,lastQ,why:g.hold,notify:false,tries:0,at:now()},line);return}
   if(mode==='draft')return makeDraft(agent,line,p,g.parts);
-  for(const part of g.parts){try{await send(agent,line,p.from,part)}catch(e){log('kirimdev '+agent+': sending failed: '+e.message)}await wait(2500)}}
+  for(const part of g.parts){if(pausedUntil(agent,p.conversationId,p.from)>now())break;try{await send(agent,line,p.from,part)}catch(e){log('kirimdev '+agent+': sending failed: '+e.message)}await wait(2500)}}
 
  // a handoff is posted first; the customer hears it was passed on only once Telegram confirmed the post
  async function postHandoff(h,line){const t=await target(h.agent);

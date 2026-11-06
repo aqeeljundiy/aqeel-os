@@ -62,6 +62,7 @@ import {createSecretLinks,createLimiter} from './secret-links.mjs';
 import {createGoogleShares} from './google-shares.mjs';
 import {createGoogleFiles} from './google-files.mjs';
 import {createKirimdev} from './kirimdev.mjs';
+import {createKirimdevAgent} from './kirimdev-agent.mjs';
 import {createPostingLimits} from './posting-limits.mjs';
 import {createTeamGroups,contextLines as teamContext,ROLES as TEAM_ROLES} from './team-group.mjs';
 import {execFile} from 'node:child_process';
@@ -1172,8 +1173,7 @@ const teamGroups=createTeamGroups({DATA,tell:async(a,before,g)=>{const t=x=>x?.c
 const kirimdev=createKirimdev({DATA,WORK:path.join(homedir(),'workspaces'),PUBLIC_URL,log:m=>console.log(m),teamGroup:a=>teamGroups.get(a),
  problem:(a,topic,title,detail)=>health.problem(a,'handoff',title,{topic,fix:detail}),solved:(a,topic)=>health.ok(a,topic),
  apiKey:async()=>{if(!LIVE_APP)return null;const t=await readFile(path.join(HERMES_HOME,'secrets','kirimdev.env'),'utf8').catch(()=>'');return (/^KIRIMDEV_API_KEY=["']?([^"'\s]+)/m.exec(t)||[])[1]||null},
- runAgent:(a,q)=>new Promise(async(res,rej)=>{if(!LIVE_APP)return rej(Error('not on the live box'));const f=path.join(DATA,'kirimdev-q-'+a+'.txt');await writeFile(f,q);
-  execFile(path.join(homedir(),'.local','bin','hermes'),['-p',a,'chat','--oneshot','-Q','--query-file',f],{cwd:path.join(homedir(),'workspaces',a),timeout:400e3,maxBuffer:4e6},(e,o)=>e?rej(Error('the agent stopped ('+(e.code??e.signal)+')')):res(String(o||'')))}),
+ runAgent:createKirimdevAgent({DATA,home:homedir(),live:LIVE_APP}),
  telegram:async(a,chatId,threadId,text)=>{const t=await readFile(path.join(HERMES_HOME,'profiles',a,'.env'),'utf8').catch(()=>'');const tok=(/^TELEGRAM_BOT_TOKEN=["']?([^"'\s]+)/m.exec(t)||[])[1];if(!tok||!LIVE_APP)return false;
   const r=await fetch('https://api.telegram.org/bot'+tok+'/sendMessage',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:chatId,...(threadId?{message_thread_id:threadId}:{}),text:text.slice(0,4000)}),signal:AbortSignal.timeout(30000)}).catch(()=>null);
   const j=r&&r.ok?await r.json().catch(()=>({})):{};return j.ok?(j.result?.message_id||true):false},   // the post's id once Telegram confirmed it

@@ -8,6 +8,64 @@ import {createHmac} from 'node:crypto';
 import {createKirimdev,verifySignature,parseInbound,parseSent,splitReply} from '../app/kirimdev.mjs';
 
 const SECRET='whsec_test_123';
+
+const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve}};
+const flush=()=>new Promise(r=>setImmediate(r));
+test('concurrent customers isolate engine sessions and prompt text; message-id retries do not rerun',async()=>{
+ const gate=deferred(),started=deferred();let n=0;
+ const t=await make({mode:'live',agentSays:async q=>{if(++n===2)started.resolve();await gate.promise;return q.includes('customer-one')?'one':'two'}});
+ await Promise.all([t.post(meta('628001','customer-one','id1','c1')),t.post(meta('628002','customer-two','id2','c2'))]);
+ const work=t.settle();await started.promise;
+ assert.notEqual(t.asked[0][2].session,t.asked[1][2].session);
+ assert.ok(t.asked.every(x=>!(x[1].includes('customer-one')&&x[1].includes('customer-two'))));
+ gate.resolve();await work;
+ assert.deepEqual(t.sent.map(x=>[x.to,x.text.body]).sort(),[['628001','one'],['628002','two']]);
+ await t.post(meta('628001','customer-one','id1','c1'),{'x-kirim-event-id':'different-event'});await t.settle();assert.equal(t.asked.length,2);
+});
+test('new inbound during active turn is retained and serialized in same session',async()=>{
+ const gate=deferred(),started=deferred();let n=0;
+ const t=await make({agentSays:async()=>{if(++n===1){started.resolve();await gate.promise}return 'answer'}});
+ await t.post(meta('628123','first','first'));const work=t.settle();await started.promise;
+ await t.post(meta('628123','second','second'));gate.resolve();await work;
+ assert.equal(t.asked.length,2);assert.equal(t.asked[0][2].session,t.asked[1][2].session);
+ assert.match(t.asked[1][1],/CUSTOMER: second/);assert.deepEqual((await t.k._state()).pending,{});
+});
+test('human reply while thinking suppresses stale output',async()=>{
+ const gate=deferred(),started=deferred();const t=await make({agentSays:async()=>{started.resolve();await gate.promise;return 'stale'}});
+ await t.post(meta('628123','hello'));const work=t.settle();await started.promise;
+ await t.postSent(sentEv('628123','dashboard','human'));gate.resolve();await work;assert.equal(t.sent.length,0);
+});
+test('pending snapshot survives service recreation; stable session and durable dedup survive restart',async()=>{
+ const t=await make();const raw=meta('628123','durable','durable-id');await t.post(raw);
+ const before=JSON.parse(await readFile(path.join(t.DATA,'kirimdev-state.json'),'utf8'));assert.equal(Object.values(before.pending)[0].messages[0],'durable');
+ t.due.clear();const calls=[];
+ const k=createKirimdev({DATA:t.DATA,WORK:t.DATA,apiKey:async()=>'test',setTimer:t.setTimer,clearTimer:t.clearTimer,wait:async()=>{},log:()=>{},
+  runAgent:async(a,q,c)=>{calls.push(c);return ''},fetchImpl:async()=>({ok:true,json:async()=>({data:[]})})});
+ await k.resume();await t.settle();assert.equal(calls.length,1);
+ const headers={'x-kirim-signature':sign(raw),'x-kirim-event':'message.received'};
+ await k.receive('continue-support',headers,Buffer.from(raw));await t.settle();assert.equal(calls.length,1);
+ await t.post(meta('628123','next','next-id'));await t.settle();assert.equal(calls[0].session,t.asked[0][2].session);
+});
+
+
+test('reset during an active run suppresses old output and keeps the new message in a new session',async()=>{
+ const gate=deferred(),started=deferred();let n=0;
+ const t=await make({agentSays:async()=>{if(++n===1){started.resolve();await gate.promise}return 'reply'}});
+ await t.post(meta('628123','old','old'));const work=t.settle();await started.promise;
+ await t.post(meta('628123','reset','reset'));await t.post(meta('628123','fresh','fresh'));
+ gate.resolve();await work;assert.equal(t.asked.length,2);
+ assert.notEqual(t.asked[0][2].session,t.asked[1][2].session);assert.match(t.asked[1][1],/CUSTOMER: fresh/);
+ assert.equal(t.sent.filter(x=>x.text.body==='reply').length,1);
+});
+test('an interrupted agent turn remains durable until a successful retry',async()=>{
+ let n=0;const t=await make({agentSays:async()=>{if(++n===1)throw Error('simulated interruption');return 'retried'}});
+ await t.post(meta('628123','must survive','survive'));
+ const f=[...t.due.values()][0];t.due.clear();await f();
+ const disk=JSON.parse(await readFile(path.join(t.DATA,'kirimdev-state.json'),'utf8'));
+ assert.equal(Object.values(disk.pending)[0].messages[0],'must survive');
+ await t.settle();assert.equal(t.sent[0].text.body,'retried');assert.equal(t.asked[0][2].session,t.asked[1][2].session);
+});
+
 const sign=(raw,t=Math.floor(Date.now()/1000),s=SECRET)=>'t='+t+',v1='+createHmac('sha256',s).update(t+'.'+raw).digest('hex');
 const meta=(from,text,id='wamid.'+Math.random(),conv='cnv_A',pid='111')=>JSON.stringify({object:'whatsapp_business_account',entry:[{changes:[{field:'messages',value:{metadata:pid?{phone_number_id:pid}:{},contacts:[{wa_id:from,profile:{name:'Rania'}}],messages:[{from,id,timestamp:String(Math.floor(Date.now()/1000)),type:'text',text:{body:text}}]}}]}],kirim:{conversation_id:conv}});
 
@@ -33,7 +91,7 @@ async function make({mode='test',agentSays='Halo kak 😊',testers=[{who:'Amri',
  const due=new Map();let tid=0;const setTimer=(fn)=>{const i=++tid;due.set(i,fn);return i},clearTimer=i=>{due.delete(i)};
  const k=createKirimdev({DATA,WORK,setTimer,clearTimer,apiKey:async()=>'kdv_test',PUBLIC_URL:'https://ai.example',fetchImpl,wait:async()=>{},log:m=>process.env.KDLOG&&console.log(m),now:()=>clock,echoWait:0,
   teamGroup:async a=>a==='continue-support'?team:null,
-  runAgent:async(a,q)=>{asked.push([a,q]);return typeof agentSays==='function'?agentSays(q):agentSays},telegram:async(...x)=>{posts.push(x);return tg.ok?4242:false},tell:async t=>{told.push(t)}});
+  runAgent:async(a,q,context)=>{asked.push([a,q,context]);return typeof agentSays==='function'?agentSays(q,context):agentSays},telegram:async(...x)=>{posts.push(x);return tg.ok?4242:false},tell:async t=>{told.push(t)}});
  const post=(raw,h={},agent='continue-support')=>k.receive(agent,{'x-kirim-signature':sign(raw,Math.floor(clock/1000)),'x-kirim-event':'message.received',...h},Buffer.from(raw));
  const postSent=(raw,agent='continue-support')=>k.receive(agent,{'x-kirim-signature':sign(raw,Math.floor(clock/1000)),'x-kirim-event':'message.sent'},Buffer.from(raw));
  const settle=async()=>{for(let n=0;n<20&&due.size;n++){const fns=[...due.values()];due.clear();await Promise.all(fns.map(f=>f()))}await new Promise(r=>setImmediate(r))};
