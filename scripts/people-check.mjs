@@ -20,7 +20,9 @@ await step('Member joins',async()=>{const r=await call(null,'/auth/accept',{meth
 await step('Invite link works only once',async()=>{const r=await call(null,'/auth/accept',{method:'POST',body:{code,name:'Other',password:'family-pass-123'}});must(r.s===400,'status '+r.s)});
 await step('Member signs in with name + password',async()=>{const r=await call(null,'/auth/login',{method:'POST',body:{name:'test member',password:'family-pass-123'}});must(r.s===200,'status '+r.s)});
 await step('Member is member',async()=>{const r=await call(member,'/ui/me');must(r.j.role==='member'&&!r.j.admin&&r.j.agents[AGENT]==='chat',JSON.stringify(r.j));uid=r.j.id;home=r.j.home});
-await step('Member sees only the shared agent',async()=>{const r=await call(member,'/hapi/profiles');const n=(r.j.profiles||[]).map(p=>p.name);must(n.length===1&&n[0]===AGENT,n.join(','))});
+// every person also gets their own lead agent (workstream F), made in the background when they join
+let lead=null;await step('Member gets a lead agent',async()=>{for(let i=0;i<40&&!lead;i++){await new Promise(x=>setTimeout(x,3000));lead=((await call(owner,'/ui/people')).j.users||[]).find(x=>x.username===(member&&'test.member')||x.name==='Test Member')?.lead||null}must(lead,'no lead');return lead});
+await step('Member sees only the shared agent and their lead',async()=>{const r=await call(member,'/hapi/profiles');const n=(r.j.profiles||[]).map(p=>p.name).sort();must(n.length===2&&n.includes(AGENT)&&n.includes(lead),n.join(','))});
 for(const [n,p] of [['config','/hapi/config'],['keys','/hapi/env'],['skills','/hapi/skills'],['cron','/hapi/cron/jobs'],['logs','/hapi/logs'],['accounts','/ui/accounts'],['people','/ui/people'],['main agent chat models','/gapi/api/model/options'],['other agent via profile','/hapi/sessions?profile=default']])
  await step('Member blocked: '+n,async()=>{const r=await call(member,p);must(r.s===403,'status '+r.s)});
 await step('Member blocked: backlog board',async()=>{const r=await call(member,'/backlog');must(r.s===302,'status '+r.s)});
@@ -40,9 +42,11 @@ await step('Member files: upload outside blocked',async()=>{const fd=new FormDat
 await step('Member cannot edit chat-only agent',async()=>{const r=await call(member,'/hapi/profiles/'+AGENT+'/soul',{method:'PUT',body:{content:'x'}});must(r.s===403,'status '+r.s)});
 await step('Owner sees member on People',async()=>{const r=await call(owner,'/ui/people');must((r.j.users||[]).some(u=>u.id===uid),'missing')});
 // clean up
-await step('Clean up: delete test chat',async()=>{const r=await call(member,'/hapi/sessions/'+encodeURIComponent(sid)+'?profile='+AGENT,{method:'DELETE'});must(r.s<300,'status '+r.s)});
+// the test chat is deleted where it was made (the gateway)
+await step('Clean up: delete test chat',async()=>{const r=await call(member,'/gapi/p/'+AGENT+'/api/sessions/'+encodeURIComponent(sid),{method:'DELETE'});must(r.s<300,'status '+r.s+' '+JSON.stringify(r.j).slice(0,200))});
 await step('Clean up: delete test file',async()=>{const r=await call(owner,'/hapi/files',{method:'DELETE',body:{path:home,recursive:true}});must(r.s<300,'status '+r.s)});
-await step('Clean up: remove member',async()=>{const r=await call(owner,'/ui/people/'+uid,{method:'DELETE'});must(r.s===200,'status '+r.s)});
-await step('Removed member is signed out',async()=>{const r=await call(member,'/ui/me');must(r.s===401,'status '+r.s)});
+await step('Clean up: remove member (their lead stays private until taken over)',async()=>{const r=await call(owner,'/ui/people/'+uid,{method:'DELETE'});must(r.s===409&&r.j.agents?.includes(lead),'status '+r.s);const t=await call(owner,'/ui/people/'+uid+'?agents=take',{method:'DELETE'});must(t.s===200,'status '+t.s)});
+await step('Clean up: remove their lead agent',async()=>{const r=await call(owner,'/hapi/profiles/'+lead,{method:'DELETE'});must(r.s<300,'status '+r.s)});
+await step('Removed member is signed out',async()=>{const r=await call(member,'/ui/me');must(r.s===401,'status '+r.s+' '+JSON.stringify(r.j).slice(0,200))});
 await step('Clean up: remove throwaway agent',async()=>{const r=await call(owner,'/hapi/profiles/'+AGENT,{method:'DELETE'});must(r.s<300,'status '+r.s)});
 for(const r of res)console.log(r.join(' | '));console.log(res.filter(r=>r[0]==='PASS').length+'/'+res.length+' passed');
