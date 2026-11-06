@@ -44,14 +44,17 @@ export function redact(v,k=''){if(v==null)return v;if(SECRETISH.test(k)&&typeof 
 export const redactText=t=>String(t).replace(/\b(sk|xox[abpr]|ghp|gho|ya29|AIza)[-_A-Za-z0-9.]{8,}/g,'(hidden)').replace(/((?:key|token|secret|password|authorization|bearer)["']?\s*[:=]\s*["']?)[^\s"',]+/gi,'$1(hidden)').replace(/\b[A-Za-z0-9_-]{40,}\b/g,'(hidden)');
 
 export function createAgentAccess({sharing,HERMES_HOME,listAgents=async()=>[],MAIN='default',instructions=null,readConfig=async()=>null,setKey=async()=>({ok:false,out:'no settings'}),
- cron=null,versions=null,reload=async()=>{},names=a=>a}={}){
+ cron=null,versions=null,reload=async()=>{},names=a=>a,
+ mainLike=()=>false,   // F: agents acting with main-agent power (the lead of an admin person), read live on every call
+ scope=()=>null,
+ ownerLike=()=>false}={}){   // F: (caller,target) -> true when the caller is the lead of the person who owns target (Owner level)   // F: (caller,target,part) -> null, or why a caller's person may not do this (their role decides)
  const home=a=>a===MAIN||a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
- const isMain=a=>base(a)===MAIN;
+ const isMain=a=>base(a)===MAIN||!!mainLike(base(a));
  // every agent owns itself; made the first time anyone asks, so a new agent is covered at once
  async function ensure(a){a=base(a);if(!AGENT.test(a))throw new Error('Give the agent id, like continue-support.');if(!await stat(path.join(home(a),'config.yaml')).catch(()=>null)&&a!=='default')throw new Error('There is no agent called '+a+'.');
   if(!await sharing.exists('agent',a))await sharing.claim('agent',a,a,{label:names(a),by:'aqeelOS'});return a}
  // the level `actor` has on agent `target` (itself and the main agent: owner)
- async function levelOn(actor,target){const me=base(actor),t=base(target);if(me===t||isMain(me))return 'owner';await ensure(t);return sharing.levelOf('agent',t,me)}
+ async function levelOn(actor,target){const me=base(actor),t=base(target);if(me===t||isMain(me)||ownerLike(me,t))return 'owner';await ensure(t);return sharing.levelOf('agent',t,me)}
  async function check(actor,target,part){const need=AGENT_NEEDS[part];if(!need)throw new Error('Unknown part '+part);const level=await levelOn(actor,target);const ok=rank(level)>=rank(need);
   return {ok,level,need,why:ok?'':(level==='none'?names(base(target))+' is not shared with you. The main agent or its owner can share it with you.':'You have '+level+' access to '+names(base(target))+'; this needs '+need+'.')}}
  // the agents this one looks after (for its own context), never itself
@@ -89,6 +92,7 @@ export function createAgentAccess({sharing,HERMES_HOME,listAgents=async()=>[],MA
  // manage_agent: the one way an agent changes another agent. args: {agent, part, ...}
  async function call(caller,args={}){const me=base(caller);let t;try{t=await ensure(String(args.agent||'').trim())}catch(e){return {isError:true,text:e.message}}
   const part=String(args.part||'show').trim();if(!AGENT_NEEDS[part])return {isError:true,text:'part must be one of: '+Object.keys(AGENT_NEEDS).join(', ')+'.'};
+  const sc=scope(me,t,part);if(sc){console.log('agent-access: refused by role',me,'->',t,part);return {isError:true,text:sc}}
   const c=await check(me,t,part);if(!c.ok){console.log('agent-access: refused',me,'->',t,part,'('+c.level+')');return {isError:true,text:c.why}}
   const by={agent:me,name:names(me),level:c.level};const other=me!==t;const say=r=>({...r,text:r.text+(other&&isMain(me)&&!r.isError&&['instructions','skill','schedule'].includes(part)?'\n\n'+MAIN_RULE_NOTE:'')});
   try{

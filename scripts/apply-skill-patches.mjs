@@ -249,4 +249,12 @@ for(const h of homes){const sp=path.join(h,'skills','productivity','google-works
   if(!r.out)continue;const t=pf+'.aq.tmp';await rawWrite(t,r.out);
   try{execFileSync('python3',['-c','import ast,sys;ast.parse(open(sys.argv[1]).read())',t]);await rename(t,pf);changed++;console.log(f+': '+r.applied.join(', ')+' in place')}
   catch{await rm(t,{force:true});console.warn('! '+f+' would not compile with '+r.applied.join(', ')+', left alone')}}}
+// 16) Engine changes of 6 Nov 2026 (engine/patches: per-chat SSH sockets, persona branding, turn_finalizer notice,
+//     prompt_builder). Applied with git, all or nothing: skipped when already in, a warning when upstream changed.
+{const {execFileSync}=await import('node:child_process');const E=path.join(HOME,'hermes-agent');
+ const D=path.join(path.dirname(new URL(import.meta.url).pathname),'..','engine','patches');const pf=path.join(D,'2026-11-06-tonight.patch');
+ if(await exists(path.join(E,'.git'))&&await exists(pf)){const g=a=>execFileSync('git',['-C',E,...a],{stdio:'pipe'});
+  let inPlace=false;try{g(['apply','--reverse','--check',pf]);inPlace=true}catch{}
+  if(!inPlace){try{g(['apply','--check',pf]);g(['apply',pf]);changed++;console.log('engine: 6 Nov patch in place')}catch{console.warn('! engine: 6 Nov patch does not fit this engine version; see engine/patches/README.md')}}
+  const b=path.join(E,'hermes_cli','branding.py');if(!await exists(b)){await writeFile(b,await readFile(path.join(D,'branding.py')));changed++;console.log('engine: branding.py in place')}}}
 console.log(changed?changed+' change(s)':'skill patches already in place');

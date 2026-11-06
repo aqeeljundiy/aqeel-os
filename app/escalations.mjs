@@ -15,10 +15,13 @@ print(json.dumps(out))`;
 // msgs: [[ts, text]]; aliases: {agent: [words]}; returns {agent: {weeks: {"2026-W45": n}, thisWeek, lastWeek}}
 export function weekOf(ms){const d=new Date(ms);d.setUTCHours(0,0,0,0);d.setUTCDate(d.getUTCDate()+3-(d.getUTCDay()+6)%7);const y=d.getUTCFullYear(),w1=new Date(Date.UTC(y,0,4));
  return y+'-W'+String(1+Math.round(((d-w1)/864e5-3+(w1.getUTCDay()+6)%7)/7)).padStart(2,'0')}
+// rows the engine adds to a person's chat (a background job finishing, a scheduled delivery): not the person writing
+export const SYSTEM_ROW=/^\s*\[(ASYNC DELEGATION|DELEGATION|BACKGROUND|CRON|SYSTEM|IMPORTANT: The user has invoked)/i;
 export function count(msgs,aliases,now=Date.now()){const out={},tw=weekOf(now),lw=weekOf(now-7*864e5);
  const res=Object.entries(aliases).map(([a,ws])=>[a,new RegExp('\\b('+[...new Set([a,...ws])].map(w=>String(w).replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|')+')\\b','i')]);
  for(const [a] of res)out[a]={weeks:{},thisWeek:0,lastWeek:0,examples:[]};
- for(const [ts,text] of msgs){const t=String(text).replace(/^\[Replying to:[\s\S]*?"\]\s*/,'');for(const [a,re] of res)if(re.test(t)){const w=weekOf(ts*1000),o=out[a];o.weeks[w]=(o.weeks[w]||0)+1;if(w===tw)o.thisWeek++;if(w===lw)o.lastWeek++;if(w===tw&&o.examples.length<3)o.examples.push(t.slice(0,140))}}
+ for(const [ts,text] of msgs){if(SYSTEM_ROW.test(String(text)))continue;   // a notice the engine put in the chat, not the person
+  const t=String(text).replace(/^Gateway message origin[^\n]*\n\{[^\n]*\}\n[^\n]*\n+/,'').replace(/^\[Replying to:[\s\S]*?"\]\s*/,'');for(const [a,re] of res)if(re.test(t)){const w=weekOf(ts*1000),o=out[a];o.weeks[w]=(o.weeks[w]||0)+1;if(w===tw)o.thisWeek++;if(w===lw)o.lastWeek++;if(w===tw&&o.examples.length<3)o.examples.push(t.slice(0,140))}}
  return out}
 export function createEscalations({HERMES_HOME,python,policy,mainAgent='default'}){let cache={at:0,v:null};
  async function view(){if(Date.now()-cache.at<5*60e3&&cache.v)return cache.v;const pol=await policy();const ids=[],aliases={};

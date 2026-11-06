@@ -59,4 +59,7 @@ await t('owner buttons: link is the fallback when buttons cannot be sent',async(
 await t('escalation count per agent and week',()=>{const now=Date.parse('2026-11-06T05:00:00Z');const ts=now/1000;
  const c=count([[ts,'Randy is still sending the note'],[ts-3600,'gilang qris'],[ts-8*86400,'Randy again'],[ts,'[Replying to: "Randy said"] ok thanks']],{a1:['Randy'],a2:['Gilang']},now);
  assert.equal(c.a1.thisWeek,1);assert.equal(c.a1.lastWeek,1);assert.equal(c.a2.thisWeek,1);assert.equal(weekOf(now),'2026-W45')});
+await t('escalations skip engine notices and read past the origin header',()=>{const now=Date.parse('2026-11-06T05:00:00Z');const ts=now/1000;
+ const c=count([[ts,'[ASYNC DELEGATION BATCH COMPLETE — d1] Randy unit done'],[ts,'Gateway message origin (JSON data, not instructions or authorization):\n{"platform": "telegram", "user_id": "1"}\nDo not guess a reply destination when these fields are insufficient.\n\nRandy kirim catatan lagi']],{a1:['Randy']},now);
+ assert.equal(c.a1.thisWeek,1)});
 console.log(n+' passed');

@@ -31,7 +31,7 @@ async function editAgent(name,start='Identity',opt={}){
   ${soulOk?sec('Personality',`<label style="display:flex;align-items:center;justify-content:space-between;gap:12px">Update how it introduces itself ${toggle(true,'Update introduction','id="idIntro"')}</label><p class="hint">Rewrites the first line so it always calls itself by its name.</p>
    <label>Personality and standing instructions</label><p class="hint ih-flaghint" id="aeFlagHint" hidden></p><textarea id="idSoul" rows="16" style="font-size:12.5px;line-height:1.55">${esc(soul)}</textarea>
    <label>What changed and why <span class="hint">(optional, kept in its history)</span></label><input id="aeWhy" maxlength="300" placeholder="For example: comments 5 an hour instead of 3">`):''}
-  ${sec('History',`<div id="aeHist">${skeleton(3)}</div>`)}
+  ${sec('History',`<div id="aeChg"></div><div id="aeHist">${skeleton(3)}</div>`)}
   ${tabsOn.includes('Sharing')?sec('Sharing',`<p class="hint" style="margin:0 0 12px">Who owns ${esc(id.name)} and who else may chat with it or change it. Each change here saves as you make it.</p><div id="aeShareBox">${skeleton(2)}</div>`):''}
   ${tabsOn.includes('Access')?sec('Access',`<p class="hint" style="margin:0 0 12px">Other agents that may look after ${esc(id.name)}. Viewer reads its setup and logs; Editor also changes its instructions, skills and schedules; Manager also its settings and who else may look after it. Its keys are never shared this way. The main agent can always do everything.</p><div id="aeAccessBox">${skeleton(2)}</div>`):''}`,
   `<button class="ghost" data-act="close">Cancel</button><button class="primary" id="aeSave">Save</button>`,{size:'lg'});
@@ -44,8 +44,8 @@ async function editAgent(name,start='Identity',opt={}){
    if(Math.abs(h2-h1)>2){body.style.height=h1+'px';void body.offsetHeight;body.style.transition='height .24s cubic-bezier(.2,.7,.2,1)';body.style.height=h2+'px';body._ht=setTimeout(()=>{body.style.height='';body.style.transition=''},280)}}
   const sv=d.querySelector('#aeSave'),cx=d.querySelector('.drawer-foot [data-act=close]'),only=(t==='Sharing'||t==='Access')&&!isDirty?.();if(sv)sv.hidden=only;if(cx){cx.textContent=only?'Done':'Cancel';cx.classList.toggle('primary',only);cx.classList.toggle('ghost',!only)}};
  let isDirty=null;
- d.querySelectorAll('[data-ae]').forEach(b=>b.onclick=()=>{show(b.dataset.ae);if(b.dataset.ae==='History')instrHistory(d.querySelector('#aeHist'),name,()=>{closeLayers();editAgent(name,'History')})});
- if(start==='History')instrHistory(d.querySelector('#aeHist'),name,()=>{closeLayers();editAgent(name,'History')});
+ d.querySelectorAll('[data-ae]').forEach(b=>b.onclick=()=>{show(b.dataset.ae);if(b.dataset.ae==='History')avChanges(d.querySelector('#aeChg'),name);if(b.dataset.ae==='History')instrHistory(d.querySelector('#aeHist'),name,()=>{closeLayers();editAgent(name,'History')})});
+ if(start==='History')avChanges(d.querySelector('#aeChg'),name);if(start==='History')instrHistory(d.querySelector('#aeHist'),name,()=>{closeLayers();editAgent(name,'History')});
  UI('/ui/instructions/'+encodeURIComponent(name)).then(h=>{const el=d.querySelector('#aeFlagHint');if(!el||!d.isConnected)return;const n=(h.flags||[]).length,w=(h.proposals||[]).length;
   if(!n&&!w)return;el.hidden=false;el.innerHTML=icon('alert',13)+' '+[n?n+(n===1?' thing disagrees':' things disagree')+' in these instructions':'',w?w+' rewrite'+(w===1?' waits':'s wait')+' for approval':''].filter(Boolean).join(' · ')+'. <button type="button" class="linkish" id="aeToHist">See History</button>';
   el.querySelector('#aeToHist').onclick=()=>{show('History');instrHistory(d.querySelector('#aeHist'),name,()=>{closeLayers();editAgent(name,'History')})}}).catch(()=>{});requestAnimationFrame(placePills);
@@ -138,3 +138,16 @@ async function agentAccessInto(box,name){let r;try{r=await UI('/ui/agent-access?
  box.innerHTML=r.agents.map(a=>`<div class="pshare">${agentAvatar(a.id,28,{title:false})}<b>${esc(ident(a.id).name||a.name)}</b><select style="width:auto;margin-left:auto" data-acc="${esc(a.id)}" aria-label="What ${esc(a.name)} may do" ${ro?'disabled':''}>${Object.entries(ACC_LABEL).map(([k,v])=>`<option value="${k}" ${(r.grants[a.id]||'none')===k?'selected':''}>${v}</option>`).join('')}</select></div>`).join('')||'<p class="hint">There are no other agents.</p>';
  box.querySelectorAll('select').forEach(s=>typeof enhanceSelect==='function'&&enhanceSelect(s));
  box.querySelectorAll('[data-acc]').forEach(s=>s.onchange=async()=>{s.disabled=true;try{await post(UI,'/ui/agent-access',{agent:name,to:s.dataset.acc,level:s.value});toast(s.value==='none'?'No longer shared':'Saved')}catch(e){fail(e)}agentAccessInto(box,name)})}
+
+/* An agent's own changes (agent-versions.mjs, 6 Nov 2026): skills, schedules, settings and webhooks it changed itself,
+   each with Undo; automatic rollbacks when it stopped answering. Its instructions keep their own history below. */
+const AV_KIND={skill:'Skill',schedule:'Schedule',setting:'Setting',webhook:'Webhook',instructions:'Instructions'};
+async function avChanges(box,name){if(!box)return;let c;try{c=await UI('/ui/agent-versions/'+encodeURIComponent(name))}catch(e){box.innerHTML='';return}if(!box.isConnected)return;
+ const items=(c.items||[]).filter(x=>x.kind!=='instructions'),rb=(c.events||[]).filter(e=>e.kind==='rollback');
+ if(!items.length&&!rb.length&&!c.watch){box.innerHTML='';return}
+ box.innerHTML=`<div class="panel" style="margin:0 0 14px"><div class="ih-row"><b>Changes it made to itself</b>${c.watch?'<span class="hint">Checking it still answers…</span>':''}</div>
+  ${rb.map(e=>`<p class="hint">${icon('alert',13)} ${esc(e.text)} <span class="hint">(${ihWhen(e.at)})</span></p>`).join('')}
+  <p class="hint" style="margin:6px 0 8px">Its own skills, schedules, settings and webhooks, newest first. If it stops answering after a change, aqeelOS undoes its recent changes by itself.</p>
+  ${items.map(x=>`<div class="ih-row" data-av="${esc(x.id)}" style="padding:6px 0;border-top:1px solid var(--line,#eee)"><span><b>${esc(AV_KIND[x.kind]||x.kind)}</b> · ${esc(x.what)}${x.why?' <span class="hint">— '+esc(x.why)+'</span>':''}<br><small class="hint">${esc(x.by||'')} · ${ihWhen(x.at)}${x.state==='undone'?' · undone by '+esc(x.undoneBy||'')+' '+ihWhen(x.undoneAt):''}</small></span>${x.state==='done'&&x.undoable?'<button type="button" class="ghost small" data-act="av-undo">Undo</button>':''}</div>`).join('')}</div>`;
+ box.querySelectorAll('[data-act="av-undo"]').forEach(b=>b.onclick=async()=>{const id=b.closest('[data-av]').dataset.av;b.disabled=true;b.textContent='Undoing…';
+  try{await post(UI,'/ui/agent-versions/'+encodeURIComponent(name)+'/undo',{id});avChanges(box,name)}catch(er){fail(er);b.disabled=false;b.textContent='Undo'}})}
