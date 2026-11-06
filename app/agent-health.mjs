@@ -1,0 +1,119 @@
+// Agent health and alerts (brief items 7 and 15, 5 Nov 2026). One place shows each agent's health (System › Health),
+// and the owner gets one Telegram message when an agent goes from fine to broken; nothing is sent while things are fine.
+//
+// It adds no list of its own: the problems are the items Bottlenecks shows (a schedule that failed, a channel that
+// logged out, a sign-in that is due, an agent's report…), grouped per agent. This module adds the checks nobody made
+// before, each saved as a Bottlenecks event with the agent's name, so it has a fix button there too and goes away by
+// itself once it works again:
+//   - stopped: an agent's schedules stopped running (its scheduler's heartbeat, cron/ticker_last_success, is old) or one
+//     schedule is long past its time;
+//   - group: a Telegram bot was removed from a group it works in (asked from Telegram: getChatMember);
+//   - dropped: messages to an agent keep failing (the engine notes every failed chat turn in
+//     ~/.hermes/logs/aqeelos-dropped.jsonl, see scripts/engine-fixes-patch.mjs aqeelos:turn-retry-once).
+// Other features report their own checks with problem()/ok(): Kirimdev a handoff that was not confirmed delivered,
+// Threads a comment that is not visible after posting.
+import {readFile,writeFile,mkdir,rename,readdir} from 'node:fs/promises';
+import {execFile} from 'node:child_process';
+import path from 'node:path';
+
+const H=3600e3,DAY=24*H;
+// a health problem's alert key: the same problem keeps one key while it lasts (a schedule failing again, a channel
+// dropping again on a new time is the same problem), so the owner hears about it once until it is fixed
+export function alertKey(x){const id=String(x.id||'');
+ if(id.startsWith('sched|'))return id.split('|').slice(0,3).join('|');
+ if(id.startsWith('channel|'))return id.split('|').slice(0,3).join('|');
+ if(id.startsWith('account|'))return id.split('|').slice(0,2).join('|');
+ if(id.startsWith('event|'))return x.topic?'topic|'+x.topic:'event|'+x.kind+'|'+x.title;
+ return id}
+// what counts as an agent breaking: not an expired invite or a help ticket, and not what was already sent to the
+// owner by the part that found it (a run an agent started itself, a tool-server fix that failed)
+export const alertable=x=>!['invite','ticket','access'].includes(x.kind)&&!x.told&&!x.info;
+
+// the engine's failed-turn lines → per agent: failed turns in the window, how many were sent again by themselves and
+// worked, the most common cause, and the failures in the last hour that nobody recovered
+export function dropStats(text,{now=Date.now(),days=7}={}){const since=now-days*DAY,out={};
+ for(const l of String(text||'').split('\n')){if(!l.trim())continue;let x;try{x=JSON.parse(l)}catch{continue}const t=Number(x.t)*1000;if(!(t>=since))continue;
+  const a=String(x.agent||'default'),s=out[a]||={n:0,recovered:0,failed:0,lastHour:0,reasons:{},last:0};s.n++;if(x.recovered)s.recovered++;else{s.failed++;if(now-t<H)s.lastHour++}
+  if(!x.recovered){const r=String(x.reason||'unknown');s.reasons[r]=(s.reasons[r]||0)+1}s.last=Math.max(s.last,t)}
+ for(const s of Object.values(out))s.top=Object.entries(s.reasons).sort((a,b)=>b[1]-a[1])[0]?.[0]||null;return out}
+export const REASON={rate_limit:'the AI model was busy',upstream_rate_limit:'the AI model was busy',overloaded:'the AI model was busy',server_error:'the AI model did not answer',
+ timeout:'the AI model did not answer in time',gateway_connection:'the connection to the AI model broke',empty_response:'the AI model sent an empty answer',
+ auth:'the AI account needs signing in again',auth_permanent:'the AI account needs signing in again',billing:'the AI account is out of credit',
+ context_overflow:'the chat grew too long',interpreter_shutdown:'the system restarted mid-reply',loop_error:'something went wrong while answering',unknown:'the cause was not recorded'};
+export const reasonText=r=>REASON[r]||String(r||'unknown').replace(/_/g,' ');
+// three or more failed messages to one agent in an hour that the retry could not save: someone should look
+export function dropProblem(agent,s){if(!s||s.lastHour<3)return null;
+ return {topic:'health|'+agent+'|dropped',text:'Messages to this agent keep failing',detail:s.lastHour+' failed in the last hour, mostly because '+reasonText(s.top)+'. The people who sent them were told to send them again.'}}
+// an agent's scheduler stopped (its heartbeat is over 15 minutes old while the engine runs), or a schedule is over an
+// hour past its time
+export function scheduleProblems(agent,{ticker,jobs=[]},{now=Date.now(),engineUp=true}={}){const out=[];if(!engineUp)return out;
+ if(ticker&&now-ticker*1000>15*60e3)out.push({topic:'health|'+agent+'|scheduler',text:'Schedules stopped running',detail:'The last check for due schedules was '+Math.round((now-ticker*1000)/60e3)+' minutes ago. Restart the agents on Health if it stays like this.'});
+ else for(const j of jobs){if(j.enabled===false||j.state&&j.state!=='scheduled'||!j.next_run_at)continue;const due=Date.parse(j.next_run_at);
+  if(due&&now-due>H)out.push({topic:'health|'+agent+'|late|'+j.id,text:'A schedule did not run: '+(j.name||String(j.prompt||'').slice(0,60)||'a schedule'),detail:'It was due '+Math.round((now-due)/60e3)+' minutes ago and has not started.'})}
+ return out}
+// Telegram's answer about the bot in a group → a problem when the bot is no longer in it
+export function memberProblem(agent,chat,ans){const d=String(ans?.description||'').toLowerCase(),st=ans?.result?.status;
+ const gone=ans&&(ans.ok===false&&/kicked|not a member|chat not found|bot was blocked|have no rights|chat_write_forbidden|group chat was upgraded/.test(d)||st==='left'||st==='kicked');
+ if(!gone)return null;const name=chat.title||chat.id;
+ return {topic:'health|'+agent+'|group|'+chat.id,text:'Removed from the Telegram group '+name,detail:'Telegram says: '+(ans.description||'the bot is '+st)+'. Add the bot to the group again, or remove the group from this agent if it is no longer used.'}}
+// which problems to tell the owner now: new ones seen on two checks in a row (a channel that drops for a minute and
+// comes back is not news); a problem that went away is forgotten, so it is told again if it comes back
+export function alertPlan(state,items,now=Date.now()){const told={...(state.told||{})},seen={...(state.seen||{})},cur=new Set(),send=[];
+ for(const x of items.filter(alertable)){const k=alertKey(x);if(cur.has(k))continue;cur.add(k);if(told[k])continue;
+  if(!seen[k]){seen[k]=now;continue}if(now-seen[k]<3*60e3)continue;told[k]=now;send.push(x)}
+ for(const k of Object.keys(told))if(!cur.has(k))delete told[k];for(const k of Object.keys(seen))if(!cur.has(k)||told[k])delete seen[k];
+ return {send,state:{told,seen}}}
+export function alertText(items,{link,nameOf=a=>a}){const by=new Map();for(const x of items){const a=x.agent?nameOf(x.agent):'aqeelOS';if(!by.has(a))by.set(a,[]);by.get(a).push(x)}
+ const lines=[];for(const [a,l] of by)for(const x of l)lines.push('• '+a+': '+String(x.title||'').replace(new RegExp('^'+a.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+':? '),'')+(x.text?'. '+String(x.text).slice(0,180):''));
+ const head=by.size===1?[...by.keys()][0]+' needs attention':by.size+' agents need attention';
+ return head+'\n\n'+lines.slice(0,8).join('\n')+(lines.length>8?'\n…and '+(lines.length-8)+' more':'')+(link?'\n\nOpen Health: '+link:'')}
+// the agents' rows for System › Health: every agent, fine or with its problems, plus its failed messages this week
+export function overview(agents,items,drops,nameOf=a=>a){const rows=agents.map(a=>({agent:a,name:nameOf(a),problems:[],drops:drops[a]||null}));const idx=new Map(rows.map(r=>[r.agent,r]));
+ const sys={agent:null,name:'aqeelOS itself',problems:[],drops:null};
+ for(const x of items){if(['invite','ticket','access'].includes(x.kind))continue;const base=x.agent?String(x.agent).split('--')[0]:null;(base&&idx.get(base)||(base?null:sys))?.problems.push(x)}
+ for(const r of rows)r.ok=!r.problems.length;const list=[...rows.filter(r=>!r.ok),...rows.filter(r=>r.ok)];if(sys.problems.length)list.unshift({...sys,ok:false});return list}
+
+export function createAgentHealth({DATA,HERMES_HOME,bottlenecks,items,listAgents,nameOf,botToken,engineUp,python,tellOwner,link,fetchJson=(u,o)=>fetch(u,{...o,signal:AbortSignal.timeout(15000)}).then(r=>r.json())}){
+ const FILE=path.join(DATA,'agent-health.json');let st=null;
+ const load=async()=>{if(!st){try{st=JSON.parse(await readFile(FILE,'utf8'))}catch{st={}}st.told||={};st.seen||={};st.groups||={}}return st};
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(st,null,1));await rename(FILE+'.tmp',FILE)};
+ const home=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
+ // features report their own checks: kind is a word for the icon (handoff, comment, run…), topic names the problem
+ // within the agent so ok(agent,topic) can take it away once it works
+ async function problem(agent,kind,text,{topic,fix}={}){await bottlenecks.event(kind,String(text).slice(0,200),String(fix||'').slice(0,400),{topic:'health|'+agent+'|'+(topic||kind),agent})}
+ async function ok(agent,topic){return bottlenecks.resolve('health|'+agent+'|'+topic)}
+ const drops=async()=>dropStats(await readFile(path.join(HERMES_HOME,'logs','aqeelos-dropped.jsonl'),'utf8').catch(()=>''));
+ // the Telegram groups an agent worked in over the last 30 days (its chats, read only)
+ const GROUPS=`import sqlite3,sys,json,time
+c=sqlite3.connect("file:"+sys.argv[1]+"?mode=ro",uri=True)
+rows=c.execute("select chat_id,max(coalesce(display_name,'')),max(origin_json) from sessions where source='telegram' and chat_type in ('group','supergroup','channel') and coalesce(last_activity_at,started_at)>? group by chat_id",(time.time()-30*86400,)).fetchall()
+out=[]
+for cid,name,origin in rows:
+  title=name
+  try: title=json.loads(origin or "{}").get("chat_name") or name
+  except Exception: pass
+  out.append({"id":cid,"title":title})
+print(json.dumps(out))`;
+ const groupsOf=async a=>{const p=await python().catch(()=>null);if(!p)return [];return new Promise(res=>execFile(p,['-c',GROUPS,path.join(home(a),'state.db')],{timeout:20000},(e,o)=>{try{res(e?[]:JSON.parse(o))}catch{res([])}}))};
+ async function checkGroups(agents){await load();const now=Date.now();if(now-(st.groupsAt||0)<H)return;st.groupsAt=now;
+  for(const a of agents){const tok=await botToken(a).catch(()=>null);if(!tok)continue;let me;try{me=await fetchJson('https://api.telegram.org/bot'+tok+'/getMe')}catch{continue}if(!me?.ok)continue;
+   for(const g of await groupsOf(a)){let ans;try{ans=await fetchJson('https://api.telegram.org/bot'+tok+'/getChatMember?chat_id='+encodeURIComponent(g.id)+'&user_id='+me.result.id)}catch{continue}
+    const pr=memberProblem(a,g,ans);if(pr)await bottlenecks.event('group',pr.text,pr.detail,{topic:pr.topic,agent:a});else if(ans?.ok)await bottlenecks.resolve(pr?.topic||'health|'+a+'|group|'+g.id)}}}
+ async function checkSchedules(agents){const up=await engineUp().catch(()=>true);
+  for(const a of agents){const cron=path.join(home(a),'cron');const ticker=Number((await readFile(path.join(cron,'ticker_last_success'),'utf8').catch(()=>'')).trim())||0;
+   let jobs=[];try{const d=JSON.parse(await readFile(path.join(cron,'jobs.json'),'utf8'));jobs=Array.isArray(d)?d:d.jobs||[]}catch{}
+   const found=scheduleProblems(a,{ticker,jobs},{engineUp:up}),keep=new Set(found.map(x=>x.topic));
+   for(const x of found)await bottlenecks.event('stopped',x.text,x.detail,{topic:x.topic,agent:a});
+   // those that work again go away (only this check's own topics)
+   for(const t of [a+'|scheduler',...jobs.map(j=>a+'|late|'+j.id)])if(!keep.has('health|'+t))await bottlenecks.resolve('health|'+t)}}
+ async function checkDrops(agents){const d=await drops();for(const a of agents){const pr=dropProblem(a,d[a]);if(pr)await bottlenecks.event('dropped',pr.text,pr.detail,{topic:pr.topic,agent:a});else await bottlenecks.resolve('health|'+a+'|dropped')}}
+ // every 5 minutes on the live app: the checks, then the alert for what is new
+ let running=null;
+ async function tick(){if(running)return running;running=(async()=>{const agents=(await listAgents()).filter(a=>!a.includes('--'));
+  for(const [n,f] of [['schedules',checkSchedules],['messages',checkDrops],['groups',checkGroups]])await f(agents).catch(e=>console.warn('health check',n,e.message));
+  await load();const all=await items();const {send,state}=alertPlan(st,all);st.told=state.told;st.seen=state.seen;
+  if(send.length){try{await tellOwner(alertText(send,{link,nameOf}));console.log('health: told the owner about',send.length,'problem(s):',send.map(alertKey).join(', '))}
+   catch(e){console.warn('health: the owner could not be told:',e.message);for(const x of send)delete st.told[alertKey(x)]}}
+  await save();return send.length})().finally(()=>{running=null});return running}
+ async function view(){const agents=(await listAgents()).filter(a=>!a.includes('--'));return {agents:overview(agents,await items(),await drops(),nameOf),at:Date.now()}}
+ return {problem,ok,tick,view,drops}}

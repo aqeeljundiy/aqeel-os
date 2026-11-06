@@ -13,7 +13,7 @@
 # The users it made go to /home/claude/.aqeelos-agent-users.done; each agent's display and Chrome port to
 # /home/claude/.aqeelos-agent-ports (agent display port per line).
 set -u
-HOMEC=/home/claude
+HOMEC=${AQEELOS_HOME:-/home/claude}
 REQ=$HOMEC/.aqeelos-agent-users
 DONE=$REQ.done
 PORTS=$HOMEC/.aqeelos-agent-ports

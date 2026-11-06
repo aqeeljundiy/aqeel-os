@@ -9,10 +9,11 @@
 #    within 10 minutes (made once someone checked the box is still reachable), so a bad setup can't lock anyone out.
 # Status for aqeelOS: /home/claude/.aqeelos-vpn-status (one line: state, then the public IP when known).
 set -u
-CONF=/home/claude/.aqeelos-vpn
-OK=/home/claude/.aqeelos-vpn-ok
-STATUS=/home/claude/.aqeelos-vpn-status
-PW=/home/claude/workspaces/default/.secrets/NORD_PASSWORD
+HOMEC=${AQEELOS_HOME:-/home/claude}
+CONF=${NORD_VPN_CONF:-$HOMEC/.aqeelos-vpn}
+OK=$HOMEC/.aqeelos-vpn-ok
+STATUS=$HOMEC/.aqeelos-vpn-status
+PW=${NORD_PASSWORD_FILE:-$HOMEC/workspaces/default/.secrets/NORD_PASSWORD}
 DIR=/etc/aq-vpn
 mkdir -p "$DIR"; chmod 700 "$DIR"
 

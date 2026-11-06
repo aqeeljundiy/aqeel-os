@@ -16,7 +16,7 @@ const readJson=async f=>{try{return JSON.parse(await readFile(f,'utf8'))}catch{r
 
 // own: connections where every agent has its own account instead of a shared sign-in (n8n): turning one on makes
 // that agent's own account, and there is no owner agent to pick (the label says who owns the service itself)
-export function createAccess({HERMES_HOME,DATA,listAgents,readConfig,setKey,hermes,editEnv,names,writeJson,restart,dash,own={}}){
+export function createAccess({HERMES_HOME,DATA,listAgents,readConfig,setKey,hermes,editEnv,names,writeJson,restart,dash,own={},googleShares=null}){
  // each agent's settings, kept for 30 s: reading them starts a small program per agent (1-2 s each), and the box
  // that offers "use another agent's" has just read them, so the click goes straight to saving
  const cfgCache=new Map();const readConfigRaw=readConfig;readConfig=async a=>{const c=cfgCache.get(a);if(c&&Date.now()-c.at<30000)return c.v;const v=await readConfigRaw(a);cfgCache.set(a,{v,at:Date.now()});return v};
@@ -82,6 +82,8 @@ export function createAccess({HERMES_HOME,DATA,listAgents,readConfig,setKey,herm
    for(const f of await readdir(td).catch(()=>[]))if(f===id+'.json'||f===id+'.meta.json'||f===id+'.client.json')await copyFile(path.join(td,f),path.join(dd,f));
    restart('access: '+id+' shared with '+names(to));return {changed:true}}
   if(kind==='google'){const mine=Object.values((await holdings(to)).google).find(x=>x.label===id);if(mine)return {changed:false};
+   // never a copy of the sign-in (5 Nov 2026): a short-lived key Google limits to the agent's level (google-shares.mjs)
+   if(googleShares){await googleShares.share(id,to);return {changed:true}}
    // a free name from the whole address (two accounts can share the part before @), never over another account's file
    let f=src.file;const base='google_token_'+id.replace(/[^\w-]/g,'_').toLowerCase();for(let n=1;await stat(path.join(home(to),f)).catch(()=>null);n++)f=base+(n>1?'_'+n:'')+'.json';
    await copyFile(path.join(home(from),src.file),path.join(home(to),f),fsc.COPYFILE_EXCL);

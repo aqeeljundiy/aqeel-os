@@ -122,3 +122,10 @@ test('placement: kept off WhatsApp and webhooks by naming every other tool serve
  assert.deepEqual(placement({pf:'whatsapp',cur:['hermes-whatsapp','n8n'],servers,hide:false,managed:false}).want,['hermes-whatsapp','n8n','aqeelos-self']);
  assert.equal(placement({pf:'whatsapp',cur:['hermes-whatsapp','n8n'],servers:['n8n'],hide:false,managed:false}).want,null,'no aqeelos-self on the agent: nothing added');
  assert.equal(placement({pf:'whatsapp',cur:['hermes-whatsapp'],servers,hide:false,managed:false}).want,null)});
+
+test('each run gets its own temp folder, so runs side by side never share (and close) one ssh connection',async()=>{const {createSelfRunsBox}=await import('../app/self-runs-box.mjs');
+ const DATA=await mkdtemp(path.join(tmpdir(),'srb-')),bin=path.join(DATA,'fake-bin');await writeFile(bin,'#!/bin/sh\necho "TMP=$TMPDIR"\n',{mode:0o755});
+ const box=createSelfRunsBox({HERMES_HOME:DATA,DATA,python:async()=>null,bin});const dirs=[];
+ for(const id of ['runA','runB']){const dir=path.join(DATA,'self-runs',id);await mkdir(dir,{recursive:true});await writeFile(path.join(dir,'prompt.txt'),'x');await box.launch({id,agent:'a',dir,minutes:1});dirs.push(dir)}
+ for(const dir of dirs){let e=null;for(let i=0;i<50&&e===null;i++){e=await readFile(path.join(dir,'exit'),'utf8').catch(()=>null);if(e===null)await new Promise(r=>setTimeout(r,100))}
+  assert.equal(e,'0');assert.equal((await readFile(path.join(dir,'out.txt'),'utf8')).trim(),'TMP='+path.join(dir,'tmp'))}});

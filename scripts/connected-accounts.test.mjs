@@ -10,6 +10,7 @@ import path from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {classify,parseToolLine,serverOfTool,parseGapi,actionOf,sentence,summarise,withCan,pausedEntry,blockedTools,matches,normCan,patchGapiText,providerOf,createConnectedAccounts} from '../app/connected-accounts.mjs';
 
+import {homedir as __hd} from 'node:os';const H=__hd();
 const L={
  draft:'2026-10-31 07:02:51,040 INFO [local-f6e8a888c4] agent.tool_executor: tool mcp__slack_pixel__slack_send_message_draft completed (1.81s, 68 chars)',
  search:'2026-10-31 10:01:12,321 INFO [local-d14c88e2bd] agent.tool_executor: tool mcp__notion_aqeel__notion_query_data_sources completed (2.68s, 12781 chars)',
@@ -28,7 +29,7 @@ test('classify: as the owner, a bot, or a service',()=>{
  // services the agents work through, and tools of aqeelOS's own
  assert.equal(classify({type:'mcp',name:'composio',entry:{url:'https://connect.composio.dev/mcp',auth:'oauth'},token:{access_token:'x'}}).as,'service');
  assert.equal(classify({type:'mcp',name:'n8n',entry:{url:'https://n8n.elkiya.com/mcp-server/http',auth:'oauth'},token:{access_token:'x'},meta:{issuer:'https://n8n.elkiya.com'}}).as,'service');
- assert.equal(classify({type:'mcp',name:'pixel',entry:{command:'/home/claude/.hermes/pixel-tools/run.sh'}}).as,'service');
+ assert.equal(classify({type:'mcp',name:'pixel',entry:{command:`${H}/.hermes/pixel-tools/run.sh`}}).as,'service');
  assert.equal(classify({type:'mcp',name:'aqeelos-notify',entry:{url:'http://127.0.0.1:4400/mcp/notify/default/x'}}).as,'service');
  // a bot token behind an app, and a sign-in nobody made yet
  assert.equal(classify({type:'mcp',name:'slack-bot',entry:{url:'https://x.example/mcp'},token:{access_token:'xoxb-1'}}).as,'bot');

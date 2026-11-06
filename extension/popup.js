@@ -2,7 +2,7 @@
 const $=id=>document.getElementById(id);
 const VER=chrome.runtime.getManifest().version;
 // the address of the aqeelOS this copy was downloaded from (config.json comes with the download)
-const DEF=(async()=>{try{return (await (await fetch(chrome.runtime.getURL('config.json'))).json()).base||'https://ai.elkiya.com'}catch{return 'https://ai.elkiya.com'}})();
+const DEF=(async()=>{try{return (await (await fetch(chrome.runtime.getURL('config.json'))).json()).base||'http://localhost:4400'}catch{return 'http://localhost:4400'}})();
 const newer=(a,b)=>{const x=String(a).split('.').map(Number),y=String(b).split('.').map(Number);for(let i=0;i<3;i++){if((x[i]||0)!==(y[i]||0))return (x[i]||0)>(y[i]||0)}return false};
 async function show(){const {base,token}=await chrome.storage.local.get(['base','token']);const b=base||await DEF;$('base').value=b;$('ver').textContent='Version '+VER;
  const s=await chrome.runtime.sendMessage('status').catch(()=>({}));const on=!!(token&&s?.connected);

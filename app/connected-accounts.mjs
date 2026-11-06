@@ -18,6 +18,7 @@
 // 1 Nov 2026 (Abilities › Connections): a login's name is always the service and who it is ("Google · a@b.com",
 // "Slack · Pixel & Profits"), never what an agent called it (register_account's label is kept as a note), and what
 // it may do is per agent: canBy[agent] (Read, Read & draft, Full) over the login's own can.
+import {canOfLevel} from './sharing.mjs';
 import {readFile,writeFile,mkdir,rename,readdir,stat,lstat,realpath,unlink} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
 import {createHash} from 'node:crypto';
@@ -27,7 +28,8 @@ import {parseLogLine,createTail,readRange} from './automation-guard.mjs';
 
 /* ---------- the parts that only decide (tested) ---------- */
 const h8=s=>createHash('sha256').update(String(s)).digest('hex').slice(0,8);
-export const CAN=['read','draft','send'];
+// edit (5 Nov 2026): change Sheets, Docs and Drive files without sending mail; send also allows edit and draft
+export const CAN=['read','edit','draft','send'];
 // services the agents work through, never "as you" (their own accounts, or the owner's apps behind one more sign-in)
 export const SERVICE_RE=/composio|rube\.app|\bn8n\b|zapier|pipedream|make\.com|aqeelos/i;
 const BOT_KEY=/^(SLACK_BOT_TOKEN|SLACK_APP_TOKEN|TELEGRAM_BOT_TOKEN|DISCORD_BOT_TOKEN|WHATSAPP_.*|SIGNAL_.*|TEAMS_.*)$/;
@@ -140,7 +142,7 @@ export function displayName(x={}){const who=x.who||{};
 export const normCan=v=>{const l=(Array.isArray(v)?v:String(v||'').split(/[\s,·]+/)).map(x=>String(x).toLowerCase().trim()).map(x=>x==='write'?'send':x).filter(x=>CAN.includes(x));return CAN.filter(c=>l.includes(c))};
 
 /* ---------- gapi.py: the paused marker and the allowed actions (an idempotent patch, applied at start) ---------- */
-const GAPI_TAG='aqeelos:accounts-guard',GAPI_V2='aqeelos:accounts-guard-v2';
+const GAPI_TAG='aqeelos:accounts-guard',GAPI_V2='aqeelos:accounts-guard-v2',GAPI_V3='aqeelos:accounts-guard-v3',GAPI_V4='aqeelos:accounts-guard-v4';
 // the first guard (31 Oct 2026), exactly as it went in: a gapi.py that has it gets the per-agent one in its place
 const GAPI_V1=`
 # ${GAPI_TAG} (31 Oct 2026): aqeelOS (Abilities, Connected accounts) can pause a Google account (its token file is
@@ -194,7 +196,7 @@ def _aq_guard(account, cmd, rest):
         sys.exit(2)
 
 `;
-const GAPI_FNS=`
+const GAPI_V2_FNS=`
 # ${GAPI_TAG} (31 Oct 2026, ${GAPI_V2} 1 Nov 2026): aqeelOS (Abilities, Connections) can pause a Google account (its
 # token file is moved aside as <file>.paused) or limit what each agent may do with it (read, draft, send, in
 # aqeelos-accounts.json: google.<email>.agents.<agent>, else google.<email>.can). Nothing changes while neither is set.
@@ -250,8 +252,137 @@ def _aq_guard(account, cmd, rest):
         sys.exit(2)
 
 `;
+const GAPI_V3_FNS=`
+# ${GAPI_TAG} (31 Oct 2026, ${GAPI_V2} 1 Nov 2026, ${GAPI_V3} 5 Nov 2026: edit = Sheets/Docs/Drive changes without mail): aqeelOS (Abilities, Connections) can pause a Google account (its
+# token file is moved aside as <file>.paused) or limit what each agent may do with it (read, draft, send, in
+# aqeelos-accounts.json: google.<email>.agents.<agent>, else google.<email>.can). Nothing changes while neither is set.
+def _aq_policy():
+    for d in (HOME, HOME.parent.parent, Path.home() / ".hermes"):
+        f = d / "aqeelos-accounts.json"
+        if f.is_file():
+            try:
+                return json.loads(f.read_text()) or {}
+            except Exception:
+                return {}
+    return {}
+
+
+def _aq_paused(account):
+    name = f"google_token_{account}.json" if account else "google_token.json"
+    if not (HOME / name).exists() and (HOME / (name + ".paused")).exists():
+        raise SystemExit(json.dumps({"error": "this Google account is paused in aqeelOS (Abilities, Connections). "
+                                              "Do not retry; tell the person it is paused and ask them to resume it there."}))
+
+
+def _aq_guard(account, cmd, rest):
+    _aq_paused(account)
+    pol = (_aq_policy().get("google") or {})
+    if not pol:
+        return
+    name = f"google_token_{account}.json" if account else "google_token.json"
+    try:
+        email = json.loads((HOME / name).read_text()).get("account", "")
+    except Exception:
+        return
+    ent = pol.get(email) or {}
+    # the agent running this: its own engine home is .../profiles/<agent>, the main one is "default"
+    me = HOME.name if HOME.parent.name == "profiles" else "default"
+    per = ent.get("agents") if isinstance(ent.get("agents"), dict) else {}
+    can = per.get(me, per.get(me.split("--")[0], ent.get("can")))
+    if not isinstance(can, list):
+        return
+    need = None
+    if cmd == "draft":
+        need = "draft"
+    elif cmd == "upload":
+        need = "edit"
+    elif cmd == "call" and len(rest) >= 3:
+        parts = rest[2].split(".")
+        if rest[0] == "gmail" and "drafts" in parts and parts[-1] in ("create", "update"):
+            need = "draft"
+        elif not parts[-1].endswith(("get", "list", "batchGet", "getByDataFilter", "batchGetByDataFilter", "export", "getProfile")):
+            need = "send" if rest[0] in ("gmail", "calendar", "people", "contacts") else "edit"
+    have = set(can)
+    if "send" in have:
+        have |= {"edit", "draft"}
+    if "draft" in have:
+        have.add("edit")
+    if need and need not in have:
+        print(json.dumps({"error": "aqeelOS does not let this Google account " + ("save drafts" if need == "draft" else "change Sheets, Docs or Drive files" if need == "edit" else "send or change mail and calendars")
+                                   + " (Abilities, Connections). Do not retry; tell the person what you would have done."}))
+        sys.exit(2)
+
+`;
+const GAPI_FNS=`
+# ${GAPI_TAG} (31 Oct 2026, ${GAPI_V2} 1 Nov 2026, ${GAPI_V3} 5 Nov 2026: edit = Sheets/Docs/Drive changes without mail, ${GAPI_V4}: sharing levels): aqeelOS (Abilities, Connections) can pause a Google account (its
+# token file is moved aside as <file>.paused) or limit what each agent may do with it (read, draft, send, in
+# aqeelos-accounts.json: google.<email>.agents.<agent>, else google.<email>.can). Nothing changes while neither is set.
+def _aq_policy():
+    for d in (HOME, HOME.parent.parent, Path.home() / ".hermes"):
+        f = d / "aqeelos-accounts.json"
+        if f.is_file():
+            try:
+                return json.loads(f.read_text()) or {}
+            except Exception:
+                return {}
+    return {}
+
+
+def _aq_paused(account):
+    name = f"google_token_{account}.json" if account else "google_token.json"
+    if not (HOME / name).exists() and (HOME / (name + ".paused")).exists():
+        raise SystemExit(json.dumps({"error": "this Google account is paused in aqeelOS (Abilities, Connections). "
+                                              "Do not retry; tell the person it is paused and ask them to resume it there."}))
+
+
+def _aq_guard(account, cmd, rest):
+    _aq_paused(account)
+    pol = (_aq_policy().get("google") or {})
+    if not pol:
+        return
+    name = f"google_token_{account}.json" if account else "google_token.json"
+    try:
+        email = json.loads((HOME / name).read_text()).get("account", "")
+    except Exception:
+        return
+    ent = pol.get(email) or {}
+    # the agent running this: its own engine home is .../profiles/<agent>, the main one is "default"
+    me = HOME.name if HOME.parent.name == "profiles" else "default"
+    per = ent.get("agents") if isinstance(ent.get("agents"), dict) else {}
+    can = per.get(me, per.get(me.split("--")[0], ent.get("can")))
+    # aqeelos:accounts-guard-v4: sharing levels; an agent with no access to this account may not use it at all
+    if me.split("--")[0] in (ent.get("deny") or []):
+        print(json.dumps({"error": "this Google account is not shared with you in aqeelOS (Abilities, Connections). "
+                                   "Do not retry; ask its owner agent or the person to share it."}))
+        sys.exit(2)
+    if not isinstance(can, list):
+        return
+    need = None
+    if cmd == "draft":
+        need = "draft"
+    elif cmd == "upload":
+        need = "edit"
+    elif cmd == "call" and len(rest) >= 3:
+        parts = rest[2].split(".")
+        if rest[0] == "gmail" and "drafts" in parts and parts[-1] in ("create", "update"):
+            need = "draft"
+        elif not parts[-1].endswith(("get", "list", "batchGet", "getByDataFilter", "batchGetByDataFilter", "export", "getProfile")):
+            need = "send" if rest[0] in ("gmail", "calendar", "people", "contacts") else "edit"
+    have = set(can)
+    if "send" in have:
+        have |= {"edit", "draft"}
+    if "draft" in have:
+        have.add("edit")
+    if need and need not in have:
+        print(json.dumps({"error": "aqeelOS does not let this Google account " + ("save drafts" if need == "draft" else "change Sheets, Docs or Drive files" if need == "edit" else "send or change mail and calendars")
+                                   + " (Abilities, Connections). Do not retry; tell the person what you would have done."}))
+        sys.exit(2)
+
+`;
 // gapi.py with the guard in, or null when its known places are not there (a newer gapi.py: left alone, said once)
-export function patchGapiText(s){if(s.includes(GAPI_V2))return s;
+export function patchGapiText(s){if(s.includes(GAPI_V4))return s;
+ if(s.includes(GAPI_V3)){const o=GAPI_V3_FNS.split('\n').slice(1).join('\n'),n=GAPI_FNS.split('\n').slice(1).join('\n');return s.split(o).length===2?s.replace(o,n):null}
+ if(s.includes(GAPI_V2)){const o=GAPI_V2_FNS.split('\n').slice(1).join('\n'),n=GAPI_FNS.split('\n').slice(1).join('\n');return s.split(o).length===2?s.replace(o,n):null}
  if(s.includes(GAPI_TAG)){const v1=GAPI_V1.split('\n').slice(1).join('\n'),v2=GAPI_FNS.split('\n').slice(1).join('\n');return s.split(v1).length===2?s.replace(v1,v2):null}
  const a='HOME = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))\n',b='def _creds(account):\n',c='    _readonly_guard(account, cmd, rest)\n';
  if(s.split(a).length!==2||s.split(b).length!==2||s.split(c).length!==2)return null;
@@ -302,7 +433,7 @@ for i in range(2,len(sys.argv),2):
 print(json.dumps(out))`;
 
 export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir(),'workspaces'),active=false,listAgents,readConfig,setKey,withAgent=(a,f)=>f(),dash,python=async()=>null,access=null,whyOf=null,
- googleLabel=async()=>'',signinNeeded=()=>false,bell=async()=>{},nameOf=a=>a,ends={},STEP=5000}){
+ googleLabel=async()=>'',signinNeeded=()=>false,bell=async()=>{},nameOf=a=>a,ends={},STEP=5000,sharing=null}){
  const API={slack:ends.slack||'https://slack.com/api',revoke:ends.revoke||'https://oauth2.googleapis.com/revoke'};
  const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const FILE=path.join(DATA,'connected-accounts.json');let db=null;
@@ -437,7 +568,9 @@ export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir
 
  // allowed actions: Google in aqeelos-accounts.json (gapi.py reads it), apps by leaving their tools out
  async function writePolicy(){const g={};for(const x of Object.values(db.accounts)){if(x.kind!=='google'||!x.identity)continue;const e={};if(x.canSet&&x.can.length<CAN.length)e.can=x.can;
-   const per=Object.entries(x.canBy||{}).filter(([,c])=>c.length<CAN.length);if(per.length)e.agents=Object.fromEntries(per);if(e.can||e.agents)g[x.identity]=e}
+   const per=Object.entries(x.canBy||{}).filter(([,c])=>c.length<CAN.length);
+   if(await shareOn()){const deny=[];for(const a of new Set([...(x.agents||[]).map(a=>String(a).split('--')[0]),...Object.keys(x.canBy||{})])){const c=await canNow(x,a);if(!c.length){deny.push(a);continue}if(c.length<CAN.length)per.push([a,c])}if(deny.length)e.deny=deny}
+   if(per.length)e.agents=Object.fromEntries(per);if(e.can||e.agents||e.deny)g[x.identity]=e}
   const f=path.join(HERMES_HOME,'aqeelos-accounts.json');const cur=await readJson(f)||{};if(JSON.stringify(cur.google||{})===JSON.stringify(g))return;cur.google=g;await writeFile(f+'.tmp',JSON.stringify(cur,null,1));await rename(f+'.tmp',f)}
  async function toolsOf(a,name){try{const j=JSON.parse(await readFile(path.join(homeOf(a),'cache','mcp_schema_cache.json'),'utf8'));const l=(j?.[name]?.tools||[]).map(t=>t?.name).filter(Boolean);if(l.length)return l}catch{}
   const r=await dash('POST','/api/mcp/servers/'+encodeURIComponent(name)+'/test'+q(a),{}).catch(()=>null);return (r?.j?.tools||[]).map(t=>typeof t==='string'?t:t?.name).filter(Boolean)}
@@ -453,9 +586,17 @@ export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir
   const r=await swap(a,name,next,cur);return {...r,tools:all.length,left:all.length-blocked.length}}
  // what one agent may do with a login: its own (canBy, by its agent name without the extra number) or the login's
  const canFor=(x,a)=>x.canBy?.[String(a).split('--')[0]]||x.can||[...CAN];
+ // sharing levels (sharing.mjs), when switched on: the agent's level caps what it may do (viewer: read; editor and up:
+ // the login's own allowed actions; none: nothing), so a share or a revoke counts at the next call
+ const shareOn=async()=>!!sharing&&await sharing.enabled();
+ async function claimAll(){if(!await shareOn())return;for(const x of Object.values(db.accounts)){const o=x.registeredBy&&!/^(seed|owner|google|mcp|system)/.test(x.registeredBy)&&/^[a-z0-9][a-z0-9_-]{0,63}$/.test(x.registeredBy)?x.registeredBy:((x.agents||[]).map(a=>String(a).split('--')[0]).includes('default')||!(x.agents||[]).length?'default':String(x.agents[0]).split('--')[0]);
+  // first claim: the connecting agent (else Donna) owns it, every agent already using it keeps Editor, so nothing loses access
+  if(!await sharing.exists('account',x.id)){await sharing.claim('account',x.id,o,{label:labelOf(x),by:'connected-accounts'}).catch(()=>{});
+   for(const a of new Set((x.agents||[]).map(a=>String(a).split('--')[0])))if(a!==o)await sharing.share('account',x.id,{person:'migration',admin:true},a,'editor').catch(()=>{})}}}
+ async function canNow(x,a){const own=canFor(x,a);if(!await shareOn())return own;const l=await sharing.levelOf('account',x.id,a);const cap=canOfLevel(l);return own.filter(c=>cap.includes(c))}
  async function applyCan(x){if(x.kind==='google')return writePolicy();if(x.kind!=='mcp-oauth')return;
   return bg(x.id,async()=>{x.applying=true;await save();x.origTools||={};
-   for(const a of x.agents||[]){const r=await applyTools(a,x.mcp,canFor(x,a),x.provider,x.origTools,x.paused?.entries||null);if(!r.ok)console.warn('accounts: allowed actions on',a,r.why)}
+   for(const a of x.agents||[]){const r=await applyTools(a,x.mcp,await canNow(x,a),x.provider,x.origTools,x.paused?.entries||null);if(!r.ok)console.warn('accounts: allowed actions on',a,r.why)}
    x.applying=false;await save()})}
  async function setCan(id,can){await load();const x=db.accounts[id];if(!x)throw new Error('That login is gone. Reload the page.');const c=normCan(can);
   if(x.kind==='google'&&!x.identity)throw new Error('aqeelOS does not know this account’s email yet. Try again after its check.');
@@ -517,6 +658,8 @@ export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir
  async function patchGapi(){const f=path.join(HERMES_HOME,'scripts','gapi.py');const s=await readFile(f,'utf8').catch(()=>null);if(s==null)return {changed:false,why:'no gapi.py'};const n=patchGapiText(s);
   if(n===null){if(!db?.toldGapi){await load();db.toldGapi=true;await save();console.warn('accounts: gapi.py changed; its pause and allowed-actions guard is not in place')}return {changed:false,why:'changed upstream'}}
   if(n===s)return {changed:false};const st=await stat(f);await writeFile(f+'.aq.tmp',n,{mode:st.mode});await rename(f+'.aq.tmp',f);console.log('accounts: gapi.py now honours Pause and allowed actions');return {changed:true}}
- if(active){const tick=()=>(async()=>{await patchGapi().catch(e=>console.warn('accounts: gapi.py',e.message));await scan();await readActions();await checkAll()})().catch(e=>console.warn('accounts',e.message));
+ if(active){const tick=()=>(async()=>{await patchGapi().catch(e=>console.warn('accounts: gapi.py',e.message));await scan();await claimAll();await readActions();await checkAll()})().catch(e=>console.warn('accounts',e.message));
   setTimeout(tick,8000).unref?.();setInterval(tick,2*60e3).unref?.()}
- return {list,actions,scan,readActions,pause,setCan,setAgentCan,applyTools,toolsOf,busy,disconnect,register,approve,patchGapi,check:async id=>{await load();const x=db.accounts[id];if(x)await check(x,{force:true})},_db:async()=>load()}}
+ // a share, a revoke or a transfer on an account: write its allowed actions again right away
+ async function levelsChanged(id){await load();const x=db.accounts[id];if(x)await applyCan(x)}
+ return {levelsChanged,claimAll,canNow:async(id,a)=>{await load();const x=db.accounts[id];return x?canNow(x,a):[]},list,actions,scan,readActions,pause,setCan,setAgentCan,applyTools,toolsOf,busy,disconnect,register,approve,patchGapi,levelFor:async(email,agent)=>{await load();const x=Object.values(db.accounts).find(y=>y.kind==='google'&&String(y.identity||'').toLowerCase()===String(email).toLowerCase());if(!x)return null;const c=new Set(canFor(x,agent));return c.has('send')?'full':c.has('draft')?'draft':c.has('edit')?'edit':'read'},check:async id=>{await load();const x=db.accounts[id];if(x)await check(x,{force:true})},_db:async()=>load()}}

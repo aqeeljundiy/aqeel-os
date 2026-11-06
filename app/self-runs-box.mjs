@@ -1,10 +1,12 @@
 // The box side of "run myself" (self-runs.mjs): starting and stopping a run, finding the chat a tool call came from,
 // finding a trusted-person code someone sent, and keeping the tool off WhatsApp and webhooks where it must not show.
-import {readFile,open,stat} from 'node:fs/promises';
+import {readFile,open,stat,mkdir} from 'node:fs/promises';
 import {constants} from 'node:fs';
 import {spawn,execFile} from 'node:child_process';
 import path from 'node:path';
-import {homedir} from 'node:os';
+import {userInfo} from 'node:os';
+// The real login home (from the user database), not $HOME: a server started from a tool shell can carry a different HOME.
+const homedir=()=>{try{return userInfo().homedir}catch{return process.env.HOME}};
 import {LOCK_WAIT} from './self-runs.mjs';
 
 // (source "tool": the engine accepts only its own labels, and keeps these chats out of chat lists; run_self judges
@@ -80,7 +82,10 @@ export function createSelfRunsBox({HERMES_HOME,DATA,python,bin=path.join(homedir
   const out=await open(path.join(dir,'out.txt'),'w',0o600);let lock=null;
   try{// the lock is opened here without following a shortcut at its end (safeLock checked the folders already)
    if(lockPath)lock=await open(lockPath,constants.O_RDWR|constants.O_CREAT|constants.O_NOFOLLOW,0o660);
-   const env={HOME:homedir(),USER:process.env.USER||'claude',LOGNAME:process.env.USER||'claude',PATH:path.join(homedir(),'.local','bin')+':/usr/local/bin:/usr/bin:/bin',LANG:process.env.LANG||'C.UTF-8',TERM:'dumb',HERMES_HOME,AQEELOS_SELF_RUN:id};
+   // a temp folder of the run's own: the engine's ssh terminal keeps one shared connection per temp folder and closes
+   // it when a chat ends, so runs side by side in one /tmp cut each other's commands off (exit 255)
+   const tmp=path.join(dir,'tmp');await mkdir(tmp,{recursive:true,mode:0o700});
+   const env={TMPDIR:tmp,HOME:homedir(),USER:process.env.USER||'claude',LOGNAME:process.env.USER||'claude',PATH:path.join(homedir(),'.local','bin')+':/usr/local/bin:/usr/bin:/bin',LANG:process.env.LANG||'C.UTF-8',TERM:'dumb',HERMES_HOME,AQEELOS_SELF_RUN:id};
    const p=spawn('bash',['-c',SCRIPT,'aqeelos-self-run-'+id,dir,agent,String(secs),String(budget),String(LOCK_WAIT),lock?'1':'0',bin],{detached:true,cwd:homedir(),env,stdio:['ignore',out.fd,out.fd,...(lock?[lock.fd]:[])]});
    await new Promise((res,rej)=>{p.once('spawn',res);p.once('error',rej)});p.unref();return {pid:p.pid}}
   finally{await out.close().catch(()=>{});if(lock)await lock.close().catch(()=>{})}}

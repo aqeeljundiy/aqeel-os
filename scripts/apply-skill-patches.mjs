@@ -4,6 +4,7 @@
 import {readFile,writeFile as rawWrite,readdir,access,rename,mkdir,rm,stat} from 'node:fs/promises';
 import path from 'node:path';import {homedir} from 'node:os';import {readdirSync,existsSync,rmSync} from 'node:fs';
 const HOME=path.join(homedir(),'.hermes');
+const PUB=(process.env.PUBLIC_URL||('http://localhost:'+(process.env.UI_PORT||4400))).replace(/\/$/,'');
 // every file is replaced in one step (never left half-written), and only one run patches at a time (deploys, engine
 // updates and new agents can all start this); a lock older than 15 minutes is a crashed run and is taken over
 const writeFile=async(p,d,o)=>{const t=p+'.aq-'+process.pid+'-'+Math.random().toString(36).slice(2,7);await rawWrite(t,d,o);await rename(t,p)};
@@ -43,11 +44,11 @@ with its own sign-in; the OAuth client (google_client_secret.json) is shared, so
 - **Across all accounts** ("any unread mail?", "what's on my calendars today?"): run the command once per account
   and label each result with the account's name/email.
 - **Remove an account:** \`setup.py --account NAME --revoke\`.
-- **Signing in:** if \`--auth-url\` gives a link with redirect_uri https://ai.elkiya.com/google-oauth/callback, just send the
+- **Signing in:** if \`--auth-url\` gives a link with redirect_uri ${PUB}/google-oauth/callback, just send the
   link. After the person clicks Allow, aqeelOS finishes the sign-in by itself and shows "Google account connected";
   then run \`--check\`. Do NOT ask them to paste anything. If the link has redirect_uri http://localhost:1 (a Desktop
   client), offer the one-time switch: in Google Cloud › APIs & Services › Credentials, create an OAuth client of type
-  "Web application" with the authorised redirect URI https://ai.elkiya.com/google-oauth/callback, and save its JSON with
+  "Web application" with the authorised redirect URI ${PUB}/google-oauth/callback, and save its JSON with
   \`setup.py --client-secret <file>\`. Until then the paste method still works.
 <!-- /aqeelos:multi-account -->
 `;
@@ -68,7 +69,7 @@ const WEB_REDIRECT=`REDIRECT_URI = "http://localhost:1"
 # aqeelos:web-redirect: a Web-application client returns to the aqeelOS site, which finishes the sign-in by itself
 try:
     if "web" in json.loads(CLIENT_SECRET_PATH.read_text(encoding="utf-8")):
-        REDIRECT_URI = os.environ.get("AQEELOS_GOOGLE_REDIRECT", "https://ai.elkiya.com/google-oauth/callback")
+        REDIRECT_URI = os.environ.get("AQEELOS_GOOGLE_REDIRECT", "${PUB}/google-oauth/callback")
 except Exception:
     pass`;
 for(const h of homes){const sp=path.join(h,'skills','productivity','google-workspace','scripts','setup.py');if(!await exists(sp))continue;let s=await readFile(sp,'utf8');

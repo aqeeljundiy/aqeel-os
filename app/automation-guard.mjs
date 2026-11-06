@@ -282,7 +282,12 @@ export function createAutomationGuard({DATA,HERMES_HOME,LIVE,listAgents,readConf
  // the fixes of earlier days, once a day in the daytime (today's wait for tomorrow)
  async function digest(){if(!db.digest.length)return;const now=Date.now(),tz=await zone(),day=localDate(now,tz);if(db.digestDay===day||!isDaytime(now,tz))return;
   const l=db.digest.filter(x=>localDate(x.at,tz)<day);if(!l.length)return;db.digest=db.digest.filter(x=>!l.includes(x));db.digestDay=day;await save();
-  if(LIVE&&!readOnly)await tell('Yesterday aqeelOS fixed '+l.length+' automation'+(l.length>1?'s':'')+' by itself: '+l.map(x=>x.text).join('; ')+'. Everything is working again.',{bell:false,whatsapp:true}).catch(e=>console.warn('automations: day summary',e.message))}
+  // one line per agent, each tool once (repeat fixes of the same tool are counted, not listed again)
+  const by=new Map();for(const x of l){const t=String(x.text||''),i=t.indexOf(': '),a=i>0?t.slice(0,i):'Other',rest=(i>0?t.slice(i+2):t).replace(/\s*\(.*\)\s*$/,'').trim()||t;
+   const m=by.get(a)||new Map();m.set(rest,(m.get(rest)||0)+1);by.set(a,m)}
+  const lines=[...by].map(([a,m])=>'• '+a+': '+[...m].map(([k,n])=>k+(n>1?' ('+n+'x)':'')).join(', '));
+  const unconfirmed=l.some(x=>/did not confirm/.test(String(x.text||'')));
+  if(LIVE&&!readOnly)await tell('Yesterday aqeelOS fixed these by itself:\n'+lines.join('\n')+(unconfirmed?'\nSome reconnects are not confirmed yet; they show under System › Health if they fail again.':'\nEverything is working again.'),{bell:false,whatsapp:true}).catch(e=>console.warn('automations: day summary',e.message))}
  let ticking=null;
  // a look (and, live, the fixes): logs and replies every time, programs and environments every 15 min
  function tick({fix=true,deep=false}={}){if(ticking)return ticking;ticking=(async()=>{await load();await scanLogs();await scanJobs();if(deep||Date.now()-(db.staticAt||0)>=15*60e3)await staticCheck();db.at=Date.now();await save();

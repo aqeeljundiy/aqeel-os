@@ -1,8 +1,21 @@
 # local tool settings and secrets never go to GitHub
 .claude/
 node_modules/
+__pycache__/
 *.env
 .env*
+!.env.example
 *.tgz
 *.log
 _e.cjs
+.deployed-commit
+data/deploys.json
+# owner-private files: see PUBLIC_EXCLUDE
+PRD.md
+data/development.json
+mockup/
+scripts/features.mjs
+pending/
+*.bak*
+AUDIT-PLAN.md
+CODE-PLAN.md

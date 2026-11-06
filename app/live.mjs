@@ -1,4 +1,4 @@
-// Live: apps published from Code, running on the server (Dokploy) at <name>.app.elkiya.com. Anyone signed in can
+// Live: apps published from Code, running on the server (Dokploy) at <name>.<LIVE_DOMAIN>. Anyone signed in can
 // publish from Code on their computer (the project is uploaded as a zip; Dokploy works out how to build and run it)
 // and see every published app here; the publisher can update or take theirs offline, admins can take any offline.
 // Each app runs in its own container in a separate Dokploy project, never on the AI box, with its own Postgres
@@ -8,7 +8,7 @@ import path from 'node:path';
 import {randomBytes} from 'node:crypto';
 
 const RESERVED=new Set(['www','app','apps','ai','api','code','code-preview','n8n','mail','admin','deploy','dokploy','live','dashboard','status','static','cdn','test','staging']);
-export function createLive({DATA,DOMAIN='app.elkiya.com'}){
+export function createLive({DATA,DOMAIN='app.localhost'}){
  const FILE=path.join(DATA,'live.json');let db=null;
  const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.apps||=[];db.dokploy||={}}return db};
  // saves run one after another so two never share the .tmp file; a failed one still lets the next run

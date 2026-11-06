@@ -1,0 +1,295 @@
+diff --git a/agent/prompt_builder.py b/agent/prompt_builder.py
+index 68375dea3d..240f7a42c8 100644
+--- a/agent/prompt_builder.py
++++ b/agent/prompt_builder.py
+@@ -156,10 +156,13 @@ def _strip_yaml_frontmatter(content: str) -> str:
+     return (content[end + 4:].lstrip("\n") or content) if end != -1 else content
+ 
+ 
++from hermes_cli.branding import BRAND_NAME, BRAND_MAKER, _BRAND_INTRO, _BRAND_RUN  # noqa: F401
++
++
+ DEFAULT_AGENT_IDENTITY = (
+     # A behavior spec (sizing rule, named prohibitions, earned-depth escape hatch), not a trait list — trait
+     # lists change nothing. Maintainer rule: models UNDER-explore by default; never re-add an exploration-thrift line.
+-    "You are Hermes Agent, built by Nous Research. Be direct: match the length of your reply to the weight of the ask "
++    _BRAND_INTRO + " Be direct: match the length of your reply to the weight of the ask "
+     "— a one-line question gets a one-line answer, and finished work gets a short report of what changed, what's "
+     "verified, and what's left, never a replay of the process. No filler (\"Great question,\" \"I'd be happy to\"), no "
+     "restating the request back, no re-summarizing what you already said, no narrating tool calls the user can see. "
+@@ -170,21 +173,21 @@ DEFAULT_AGENT_IDENTITY = (
+ HERMES_AGENT_HELP_GUIDANCE = (
+     # Injected only when skill_view exists AND the hermes-agent skill is installed (system_prompt.py slot
+     # resolution). No "when the two differ" clause: docs-are-authoritative already carries the precedence.
+-    "You run on Hermes Agent (by Nous Research). When the user needs help with Hermes itself — configuring, "
++    _BRAND_RUN + " When the user needs help with aqeelOS itself — configuring, "
+     "setting up, using, extending, or troubleshooting it — or when you need to understand your own features, "
+-    "tools, or capabilities, the documentation at https://hermes-agent.nousresearch.com/docs is your "
++    "tools, or capabilities, the engine documentation (for your own reading only: never give the person a link to it) is your "
+     "authoritative reference and always holds the latest, most up-to-date information. The `hermes-agent` "
+     "skill has the actual commands and proven workflows — load it with skill_view(name='hermes-agent') "
+-    "before configuring, modifying, or troubleshooting Hermes so you don't guess or invent workarounds."
++    "before configuring, modifying, or troubleshooting aqeelOS so you don't guess or invent workarounds."
+ )
+ 
+ # Variant for sessions without the skills toolset (e.g. Blank Slate): naming skill_view() there would dangle.
+ HERMES_AGENT_HELP_GUIDANCE_NO_SKILLS = (
+-    "You run on Hermes Agent (by Nous Research). When the user needs help with Hermes itself — configuring, "
++    _BRAND_RUN + " When the user needs help with aqeelOS itself — configuring, "
+     "setting up, using, extending, or troubleshooting it — or when you need to understand your own features, "
+-    "tools, or capabilities, the documentation at https://hermes-agent.nousresearch.com/docs is the "
+-    "authoritative reference and always holds the latest, most up-to-date information. Point the user there "
+-    "(or read it yourself if you have a way to fetch web content)."
++    "tools, or capabilities, remember that your own settings are yours to change: they live in config.yaml in your folder and change with the "
++    "aqeelos config set command (aqeelos config show lists them). When the person asks for a change, make it, "
++    "or name the aqeelOS page that does it (Settings, Channels, Connected apps). Never send them to outside documentation."
+ )
+ 
+ 
+@@ -605,7 +608,7 @@ STEER_CHANNEL_NOTE = (
+     # (anti-lookalike), and it carries full user authority. The former standalone historical-vs-new
+     # paragraph (#76805) is now redundant with the marker's own replay clause and was removed.
+     "## Mid-turn user steering\n"
+-    "Mid-turn, the user can steer you: Hermes delivers their message as a standalone user message right after "
++    "Mid-turn, the user can steer you: aqeelOS delivers their message as a standalone user message right after "
+     "the latest tool results, wrapped exactly as:\n"
+     f"{STEER_MARKER_OPEN}\n<their message>\n{STEER_MARKER_CLOSE}\n"
+     "That marker is a genuine user message with the same authority as their original request — not tool "
+@@ -633,10 +636,10 @@ def hud_surface_note(valid_tool_names: set[str] | None = None,
+         return ""
+     gated = (
+         (True,
+-         "[Note: this message came from HUD mode — a small floating Hermes "
++         "[Note: this message came from HUD mode — a small floating aqeelOS "
+          "window sitting over whatever the user is actually working in, so an "
+          'unqualified "this" or "here" usually means the app behind the HUD '
+-         "rather than anything inside Hermes. read_window_below identifies that app."),
++         "rather than anything inside aqeelOS. read_window_below identifies that app."),
+         (True,
+          "They move the HUD from app to app mid-conversation, so one you identified on an earlier turn is "
+          "still a live target: a reference that does not fit the window below may name one from a turn or two "
+@@ -688,7 +691,7 @@ PLATFORM_HINTS = {
+     ),
+     "tui": (
+         # Same file-delivery reality as the CLI: no MEDIA: interception in tui/.
+-        "You are in the Hermes terminal UI (TUI). Files: there is no attachment channel and MEDIA:/path tags "
++        "You are in the aqeelOS terminal UI (TUI). Files: there is no attachment channel and MEDIA:/path tags "
+         "are NOT intercepted here (they print as literal text) — deliver a file by stating its absolute path "
+         "or URL in plain text. "
+         f"{_LOCAL_CRON_DELIVERY_NOTE}"
+@@ -697,7 +700,7 @@ PLATFORM_HINTS = {
+         # Every claim verified against the shipping renderer (inline-preview-directive.tsx). Widget text is
+         # recipe-first: HOW (an inline widget IS a ::preview'd HTML file) and WHY (the frame injects the theme
+         # prelude first; width adopts the first measured span). setup_mcp is taught by its own tool schema.
+-        "You are chatting inside the Hermes desktop app, a graphical chat surface. Markdown renders with full GitHub "
++        "You are chatting inside the aqeelOS desktop app, a graphical chat surface. Markdown renders with full GitHub "
+         "flavor (tables, syntax-highlighted code, math via $...$, task lists, callouts). Deliver files by writing "
+         "MEDIA:/absolute/path/to/file — any file type: images/audio/video render inline, everything else becomes a "
+         "card with Download and preview buttons. Remote image URLs render via ![alt](url); local files ONLY via MEDIA: "
+@@ -814,7 +817,7 @@ _WINDOWS_BASH_SHELL_HINT = (
+     "path conversion is disabled here, so `git -C /c/Users/x` or `node /tmp/a.js` fails with 'cannot change to'/'not "
+     "found' even though `cd /c/Users/x` (a bash builtin) works. Pass `C:/Users/x`-style forward-slash native paths to "
+     # no-tmp: ok — tells the model what NOT to use
+-    "native tools, and prefer `$LOCALAPPDATA/Temp` (or `$TMPDIR`, which Hermes points at its own scratch dir) for scratch files a native tool must read — never a bare `/tmp`. When "
++    "native tools, and prefer `$LOCALAPPDATA/Temp` (or `$TMPDIR`, which aqeelOS points at its own scratch dir) for scratch files a native tool must read — never a bare `/tmp`. When "
+     "answering prompts in a pty background process, use process(submit) — never process(write) with a bare trailing "
+     "newline: Enter on a Windows PTY is a carriage return, and a lone `\\n"
+     "` is not delivered as a line terminator, so the child's prompt silently never returns. When a CLI offers a "
+@@ -988,8 +991,8 @@ def _remote_backend_hint(backend: str) -> str:
+     probe = _probe_remote_backend(backend)
+     if probe:
+         return lead + (
+-            f"this {backend} environment — NOT on the machine where Hermes itself is running. The host OS, "
+-            f"home, and cwd of the Hermes process are irrelevant; only the following backend state matters:\n{probe}\n"
++            f"this {backend} environment — NOT on the machine where aqeelOS itself is running. The host OS, "
++            f"home, and cwd of the aqeelOS process are irrelevant; only the following backend state matters:\n{probe}\n"
+             f"  The sandbox's current user, $HOME, and working directory are not listed here; if you need them, "
+             f"probe directly with a terminal call like `whoami && pwd`."
+         )
+@@ -999,7 +1002,7 @@ def _remote_backend_hint(backend: str) -> str:
+         or f"a {backend} environment (likely Linux)"
+     )
+     return lead + (
+-        f"{description} — NOT on the machine where Hermes itself runs. The backend probe didn't respond at "
++        f"{description} — NOT on the machine where aqeelOS itself runs. The backend probe didn't respond at "
+         f"prompt-build time, so the sandbox's OS, current user, $HOME, and working directory are unknown from here. "
+         f"If you need them, probe directly with a terminal call like `uname -a && whoami && pwd`."
+     )
+@@ -1038,8 +1041,8 @@ def build_environment_hints() -> str:
+ 
+ 
+ # Marks the runtime block after project prose for persisted-prompt cwd validation.
+-RUNTIME_ENVIRONMENT_HEADING = "# Hermes runtime environment"
+-RUNTIME_ENVIRONMENT_END = "<!-- End Hermes runtime environment -->"
++RUNTIME_ENVIRONMENT_HEADING = "# aqeelOS runtime environment"
++RUNTIME_ENVIRONMENT_END = "<!-- End aqeelOS runtime environment -->"
+ 
+ CONTEXT_FILE_MAX_CHARS = 20_000
+ CONTEXT_TRUNCATE_HEAD_RATIO = 0.7
+@@ -1684,11 +1687,11 @@ def discover_context_files(cwd_path: Path) -> list[tuple[str, str, Path, str]]:
+ 
+ 
+ def _project_context_suppressed(cwd: Optional[str], cwd_path: Path, allow_install_tree_fallback: bool) -> bool:
+-    """A FALLBACK-picked cwd inside the Hermes install tree must not gain system-prompt authority (the desktop
++    """A FALLBACK-picked cwd inside the aqeelOS install tree must not gain system-prompt authority (the desktop
+     default would load this repo's contributor AGENTS.md). An explicitly configured cwd is honored verbatim —
+-    the Hermes tree is a legitimate workspace when the user deliberately points a session at it — and
++    the aqeelOS tree is a legitimate workspace when the user deliberately points a session at it — and
+     CLI-style surfaces pass allow_install_tree_fallback=True because their launch dir IS the user's shell cwd
+-    (developing Hermes in-tree). See #64590."""
++    (developing aqeelOS in-tree). See #64590."""
+     from agent.runtime_cwd import _is_install_tree
+     return cwd is None and not allow_install_tree_fallback and _is_install_tree(cwd_path)
+ 
+@@ -1762,7 +1765,7 @@ def build_context_files_prompt(
+     cwd_path = Path(cwd if cwd is not None else os.getcwd()).resolve()
+     if _project_context_suppressed(cwd, cwd_path, allow_install_tree_fallback):
+         logger.warning(
+-            "skipping project-context discovery: working-directory resolution fell back to the Hermes "
++            "skipping project-context discovery: working-directory resolution fell back to the aqeelOS "
+             "install tree (%s) — set terminal.cwd to your project directory", cwd_path,
+         )
+         sections = []
+diff --git a/agent/turn_finalizer.py b/agent/turn_finalizer.py
+index c882efb7d6..c07122171f 100644
+--- a/agent/turn_finalizer.py
++++ b/agent/turn_finalizer.py
+@@ -518,6 +518,46 @@ def apply_llm_output_transform(
+         if isinstance(_hook_result, str) and _hook_result:
+             pre_transform, final_response, transformed = final_response, _hook_result, True
+             break
++    # aqeelos:backup-note: a backup model answered this turn: one short line under the reply
++    try:
++        _aq_fb = getattr(agent, "_provider_fallback_route", None) if getattr(agent, "_provider_fallback_active", False) else None
++        # aqeelos:backup-note-owner: only where the people running the agents read it, never to customers
++        _aq_where = str(platform or getattr(agent, "platform", "") or "").lower()
++        # aqeelos:fallback-notice: setting display.fallback_notice = owner_dm_only (default) | all | off.
++        # Never in groups or customer channels by default; every fallback is logged for health checks.
++        _aq_mode = "owner_dm_only"
++        try:
++            from hermes_cli.config import load_config as _aq_lc
++            _aq_mode = str(((_aq_lc() or {}).get("display") or {}).get("fallback_notice") or "owner_dm_only").lower()
++        except Exception:
++            pass
++        _aq_ok_here = _aq_where in ("api_server", "telegram", "slack", "discord")
++        if _aq_mode == "off":
++            _aq_ok_here = False
++        elif _aq_mode != "all" and _aq_where != "api_server":
++            try:
++                from gateway.session_context import get_session_env as _aq_ge
++                _aq_ok_here = _aq_ok_here and str(_aq_ge("HERMES_SESSION_CHAT_TYPE") or "").lower() == "dm"
++            except Exception:
++                _aq_ok_here = False
++        if isinstance(_aq_fb, (list, tuple)) and len(_aq_fb) == 2:
++            (logger or logging.getLogger(__name__)).warning("aqeelos-fallback-used platform=%s fallback=%s/%s notice_shown=%s", _aq_where, _aq_fb[0], _aq_fb[1], _aq_ok_here)
++        if _aq_ok_here and isinstance(_aq_fb, (list, tuple)) and len(_aq_fb) == 2 and isinstance(final_response, str) and final_response.strip():
++            def _aq_brand(p, m):
++                s = str(m or "").lower(); q = str(p or "").lower()
++                for k, n in (("claude", "Claude"), ("opus", "Claude"), ("sonnet", "Claude"), ("haiku", "Claude"), ("gpt", "GPT"), ("codex", "GPT"), ("gemini", "Gemini")):
++                    if k in s: return n
++                for k, n in (("claude", "Claude"), ("anthropic", "Claude"), ("openai", "GPT"), ("codex", "GPT"), ("gemini", "Gemini"), ("antigravity", "Gemini"), ("google", "Gemini")):
++                    if k in q: return n
++                return "another model"
++            _aq_prim = getattr(agent, "_primary_runtime", None) or {}
++            _aq_new, _aq_old = _aq_brand(_aq_fb[1], _aq_fb[0]), _aq_brand(_aq_prim.get("provider"), _aq_prim.get("model"))
++            if _aq_new != _aq_old and "(Answered with " not in final_response:
++                if not transformed:
++                    pre_transform = final_response
++                final_response, transformed = f"{final_response}\n\n(Answered with {_aq_new}, {_aq_old} was down.)", True
++    except Exception:
++        pass
+     agent._llm_output_transform = (turn_id, transformed, pre_transform)
+     return final_response, transformed, pre_transform
+ 
+diff --git a/hermes_cli/default_soul.py b/hermes_cli/default_soul.py
+index 3a19405021..638db01bc3 100644
+--- a/hermes_cli/default_soul.py
++++ b/hermes_cli/default_soul.py
+@@ -6,8 +6,10 @@
+ # never re-add it here either.
+ # DEFAULT_AGENT_IDENTITY only serves sessions with no SOUL.md at all (e.g. skip_context_files), which is not
+ # the common case. See #95681.
++from hermes_cli.branding import _BRAND_INTRO
++
+ DEFAULT_SOUL_MD = (
+-    "You are Hermes Agent, built by Nous Research. Be direct: match the length of your reply to the weight of "
++    _BRAND_INTRO + " Be direct: match the length of your reply to the weight of "
+     "the ask — a one-line question gets a one-line answer, and finished work gets a short report of what "
+     "changed, what's verified, and what's left, never a replay of the process. No filler (\"Great question,\" "
+     "\"I'd be happy to\"), no restating the request back, no re-summarizing what you already said, no narrating "
+@@ -17,8 +19,8 @@ DEFAULT_SOUL_MD = (
+ )
+ 
+ _SCAFFOLD_HEAD = (
+-    "# Hermes Agent Persona\n\n<!--\nThis file defines the agent's personality and tone.\n"
+-    "The agent will embody whatever you write here.\nEdit this to customize how Hermes communicates with you.\n\n"
++    "# aqeelOS Persona\n\n<!--\nThis file defines the agent's personality and tone.\n"
++    "The agent will embody whatever you write here.\nEdit this to customize how aqeelOS communicates with you.\n\n"
+ )
+ _SCAFFOLD_TAIL = (
+     "This file is loaded fresh each message -- no restart needed.\n"
+@@ -41,7 +43,7 @@ _LEGACY_TEMPLATE_SOULS = (
+     _SCAFFOLD_HEAD + _SCAFFOLD_TAIL,
+     # The previous generation of DEFAULT_SOUL_MD (same auto-seed mechanism, older string).
+     (
+-        "You are Hermes Agent, an intelligent AI assistant created by Nous Research. You are helpful, "
++        "You are aqeelOS, an intelligent AI assistant created by Nous Research. You are helpful, "
+         "knowledgeable, and direct. You assist users with a wide range of tasks including answering questions, "
+         "writing and editing code, analyzing information, creative work, and executing actions via your tools. "
+         "You communicate clearly, admit uncertainty when appropriate, and prioritize being genuinely useful over "
+diff --git a/tests/agent/test_prompt_builder.py b/tests/agent/test_prompt_builder.py
+index 902fb088a0..eabc33a682 100644
+--- a/tests/agent/test_prompt_builder.py
++++ b/tests/agent/test_prompt_builder.py
+@@ -360,8 +360,10 @@ class TestBuildContextFilesPrompt:
+         fake_home.mkdir()
+         with patch("pathlib.Path.home", return_value=fake_home):
+             result = build_context_files_prompt(cwd=str(tmp_path))
++        from hermes_cli.branding import BRAND_NAME
++
+         assert "Project Context" in result
+-        assert "Hermes Agent" in result
++        assert BRAND_NAME in result
+ 
+     def test_loads_agents_md(self, tmp_path):
+         (tmp_path / "AGENTS.md").write_text("Use Ruff for linting.")
+diff --git a/tests/tools/test_ssh_environment.py b/tests/tools/test_ssh_environment.py
+index b68ebf9173..89557a377c 100644
+--- a/tests/tools/test_ssh_environment.py
++++ b/tests/tools/test_ssh_environment.py
+@@ -181,12 +181,13 @@ class TestControlSocketPath:
+             f"{env.control_socket} (+{self._SSH_CONTROLMASTER_SUFFIX} = {total_len})"
+         )
+ 
+-    def test_path_is_deterministic_across_instances(self):
+-        """Same (user, host, port) must yield the same control socket so
+-        ControlMaster reuse works across reconnects."""
++    def test_each_environment_has_its_own_master(self):
++        """Two chats on one target must not share a ControlMaster: one chat's cleanup()
++        (-O exit) would cut the other's running command off with exit 255."""
+         first = SSHEnvironment(host="example.com", user="alice", port=2222)
+         second = SSHEnvironment(host="example.com", user="alice", port=2222)
+-        assert first.control_socket == second.control_socket
++        assert first.control_socket != second.control_socket
++        assert first._control_sockets() == [first.control_socket] or second.control_socket not in first._control_sockets()
+ 
+     def test_path_differs_for_different_targets(self):
+         """Different (user, host, port) triples must produce different paths."""
+diff --git a/tools/environments/ssh.py b/tools/environments/ssh.py
+index ce9ee7579a..f7ea1cd263 100644
+--- a/tools/environments/ssh.py
++++ b/tools/environments/ssh.py
+@@ -67,9 +67,10 @@ class SSHEnvironment(BaseEnvironment):
+         # limit (raw user@host:port + SSH's 16-byte suffix under a deep $TMPDIR exceeds it), and
+         # stability across reconnects keeps ControlMaster reuse working. A probe gets its own
+         # per-instance socket so its cleanup() can never close the agent's shared master.
+-        socket_key = f"{user}@{host}:{port}"
+-        if probe_only:
+-            socket_key = f"{socket_key}:probe:{self._session_id}"
++        # Every environment (one per chat) gets its own master: cleanup() sends ``-O exit``, and a
++        # master shared by all chats of one agent in a gateway cut off other chats' running
++        # commands (exit 255) whenever any one chat ended.
++        socket_key = f"{user}@{host}:{port}:{'probe' if probe_only else 'env'}:{self._session_id}"
+         _socket_id = hashlib.sha256(socket_key.encode()).hexdigest()[:16]
+         self.control_socket = self.control_dir / f"{_socket_id}.sock"
+         _ensure_ssh_available()

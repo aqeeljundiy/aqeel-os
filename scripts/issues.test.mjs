@@ -1,0 +1,50 @@
+// node scripts/issues.test.mjs — look-it-up (chat-history), issues policy + fixer loop, escalation count
+import assert from 'node:assert/strict';
+import {mkdtemp,writeFile,mkdir,readFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
+import {terms,parseLines,search,createChatHistory} from '../app/chat-history.mjs';
+import {decide,parseResult,createIssues,fixerPrompt} from '../app/issues.mjs';
+import {count,weekOf} from '../app/escalations.mjs';
+let n=0;const t=async(name,f)=>{await f();n++;console.log('ok',name)};
+const POL={owner:{name:'Owner',telegram:['1']},teams:[{name:'Brand',agents:['a1','a2'],members:[{name:'Mem',telegram:['2']}],aliases:{a1:['Randy']}}],fixer:{on:true,agent:'default'}};
+
+await t('terms',()=>{assert.deepEqual(terms('Cartridge per VIAL?'),['cartridge','per','vial']);assert.deepEqual(terms('"short link" xendit'),['short link','xendit'])});
+await t('search with context, own files only',async()=>{const d=await mkdtemp(path.join(tmpdir(),'ch-'));
+ const L=(c,dir,x,at)=>JSON.stringify({conversation_id:c,direction:dir,content:x,created_at:at});
+ await writeFile(path.join(d,'a.jsonl'),[L('c1','inbound','1 vial berapa cartridge kak?','2026-11-01T01:00'),L('c1','outbound','1 vial = 2 cartridge ya kak','2026-11-01T01:01')].join('\n'));
+ await writeFile(path.join(d,'b.jsonl'),L('c9','outbound','OTHER BRAND vial cartridge 5','2026-11-02T01:00'));
+ await writeFile(path.join(d,'chat-history.json'),JSON.stringify({agents:{a1:{files:[path.join(d,'a.jsonl')]},a2:{files:[path.join(d,'b.jsonl')]}}}));
+ const h=createChatHistory({DATA:d,log:()=>{}});const r=await h.find('a1','cartridge vial');
+ assert.match(r.text,/2 cartridge/);assert.doesNotMatch(r.text,/OTHER BRAND/);assert.equal(r.total,2);
+ const none=await h.find('zz','x vial');assert.equal(none.error,true);assert.equal(await h.has('a1--copy'),true)});
+await t('decide: team member within team = auto',()=>{assert.equal(decide(POL,{agent:'a1',affects:['a2']},{platform:'telegram',uid:'2'}).auto,true)});
+await t('decide: other team agent = owner',()=>{const d=decide(POL,{agent:'a1',affects:['z9']},{platform:'telegram',uid:'2'});assert.equal(d.auto,false);assert.match(d.why,/z9/)});
+await t('decide: keys/permissions/money/delete = owner',()=>{for(const f of ['add a new API key','change the sharing level','delete the customer rows','buy a subscription'])assert.equal(decide(POL,{agent:'a1',proposed_fix:f},{platform:'telegram',uid:'2'}).auto,false,f);
+ assert.equal(decide(POL,{agent:'a1',needs:['keys']},{}).auto,false)});
+await t('decide: owner always auto; stranger/customer = owner',()=>{assert.equal(decide(POL,{agent:'z9',needs:['keys']},{platform:'telegram',uid:'1'}).auto,true);assert.equal(decide(POL,{agent:'a1'},{}).auto,false);assert.equal(decide(POL,{agent:'z9'},{}).auto,false)});
+await t('parseResult',()=>{assert.equal(parseResult('x\nRESULT: {"status":"fixed","summary":"s","proof":"p"}').status,'fixed');assert.equal(parseResult('no'),null);assert.match(fixerPrompt({id:'i1',agent:'a1',missing:'m'}),/RESULT:/)});
+await t('issue lifecycle: auto fix → reply in topic',async()=>{const d=await mkdtemp(path.join(tmpdir(),'is-'));await writeFile(path.join(d,'team-policy.json'),JSON.stringify(POL));
+ const replies=[],owner=[];let launched=null;
+ const I=createIssues({DATA:d,bin:'x',fixerHome:d,reply:async(i,x)=>replies.push(x),tellOwner:async x=>owner.push(x),approvalLink:(id,s)=>'L/'+id+'/'+s,log:()=>{},
+  launch:async o=>{launched=o;await writeFile(path.join(o.dir,'out.txt'),'did it\nRESULT: {"status":"fixed","summary":"patched send","proof":"tests 5/5"}');await writeFile(path.join(o.dir,'exit'),'0');return 123},alive:async()=>false});
+ const r=await I.file({agent:'a1',missing:'sending drops photos',evidence:'msg id 1',origin:{platform:'telegram',uid:'2',chat:'-100',thread:'3'}});
+ assert.equal(r.issue.state,'approved');assert.equal(owner.length,0);
+ const again=await I.file({agent:'a1',missing:'Sending drops photos'});assert.equal(again.again,true);
+ await I.tick();assert.ok(launched);assert.match(await readFile(path.join(launched.dir,'prompt.txt'),'utf8'),/sending drops photos/);
+ await I.tick();const db=await I._db();assert.equal(db.items[0].state,'fixed');assert.match(replies[0],/patched send/);assert.equal(owner.length,0)});
+await t('issue lifecycle: needs owner → one message → approve → fix; failure tells owner once',async()=>{const d=await mkdtemp(path.join(tmpdir(),'is-'));await writeFile(path.join(d,'team-policy.json'),JSON.stringify(POL));
+ const owner=[],replies=[];let ok=false;
+ const I=createIssues({DATA:d,bin:'x',fixerHome:d,reply:async(i,x)=>replies.push(x),tellOwner:async x=>owner.push(x),approvalLink:(id,s)=>'L/'+id+'/'+s,log:()=>{},
+  launch:async o=>{await writeFile(path.join(o.dir,'out.txt'),ok?'RESULT: {"status":"fixed","summary":"ok"}':'crash');await writeFile(path.join(o.dir,'exit'),ok?'0':'1');return 1},alive:async()=>false});
+ const r=await I.file({agent:'a1',missing:'give me the Tripay key',needs:['keys'],origin:{platform:'telegram',uid:'2'}});
+ assert.equal(r.issue.state,'waiting');await new Promise(z=>setTimeout(z,20));assert.equal(owner.length,1);assert.match(owner[0],/needs your OK/);
+ await I.tick();assert.equal((await I._db()).items[0].state,'waiting');
+ const raw=(await I._db()).items[0];assert.equal(await I.decideOwner(raw.id,'bad',true),null);
+ assert.equal((await I.decideOwner(raw.id,raw.sig,true)).state,'approved');
+ await I.tick();await I.tick();assert.equal((await I._db()).items[0].state,'approved');  // try 1 failed, retried
+ await I.tick();await I.tick();assert.equal((await I._db()).items[0].state,'failed');assert.equal(owner.length,2);assert.match(owner[1],/failed/);assert.match(replies.at(-1),/not fixed yet/i)});
+await t('escalation count per agent and week',()=>{const now=Date.parse('2026-11-06T05:00:00Z');const ts=now/1000;
+ const c=count([[ts,'Randy is still sending the note'],[ts-3600,'gilang qris'],[ts-8*86400,'Randy again'],[ts,'[Replying to: "Randy said"] ok thanks']],{a1:['Randy'],a2:['Gilang']},now);
+ assert.equal(c.a1.thisWeek,1);assert.equal(c.a1.lastWeek,1);assert.equal(c.a2.thisWeek,1);assert.equal(weekOf(now),'2026-W45')});
+console.log(n+' passed');

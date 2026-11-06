@@ -5,30 +5,37 @@ import {mkdtemp,writeFile,mkdir,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {createHmac} from 'node:crypto';
-import {createKirimdev,verifySignature,parseInbound,splitReply} from '../app/kirimdev.mjs';
+import {createKirimdev,verifySignature,parseInbound,parseSent,splitReply} from '../app/kirimdev.mjs';
 
 const SECRET='whsec_test_123';
 const sign=(raw,t=Math.floor(Date.now()/1000),s=SECRET)=>'t='+t+',v1='+createHmac('sha256',s).update(t+'.'+raw).digest('hex');
-const meta=(from,text,id='wamid.'+Math.random(),conv='cnv_A')=>JSON.stringify({object:'whatsapp_business_account',entry:[{changes:[{field:'messages',value:{metadata:{phone_number_id:'111'},contacts:[{wa_id:from,profile:{name:'Rania'}}],messages:[{from,id,timestamp:String(Math.floor(Date.now()/1000)),type:'text',text:{body:text}}]}}]}],kirim:{conversation_id:conv}});
+const meta=(from,text,id='wamid.'+Math.random(),conv='cnv_A',pid='111')=>JSON.stringify({object:'whatsapp_business_account',entry:[{changes:[{field:'messages',value:{metadata:pid?{phone_number_id:pid}:{},contacts:[{wa_id:from,profile:{name:'Rania'}}],messages:[{from,id,timestamp:String(Math.floor(Date.now()/1000)),type:'text',text:{body:text}}]}}]}],kirim:{conversation_id:conv}});
 
-async function make({mode='test',agentSays='Halo kak 😊',testers=[{who:'Amri',conversationId:'cnv_A'}]}={}){
+// Kirimdev's message.sent envelope (docs.kirimdev.com/webhooks/events)
+const sentEv=(to,source,id='msg_'+Math.random(),conv='cnv_A',pid='111')=>JSON.stringify({id:id+':sent',type:'message.sent',data:{session:pid,direction:'outbound',from_me:true,message:{id,type:'text',body:'Halo, saya Amri dari tim',to:'+'+to,status:'sent',source},conversation:{id:conv,status:'open'},contact:{phone_number:'+'+to},meta:{phone_number_id:pid}}});
+
+async function make({mode='test',agentSays='Halo kak 😊',testers=[{who:'Amri',conversationId:'cnv_A'}],postOk=true,team={chatId:-100,topics:{questions:3},mention:'@team'},pauseMin}={}){
  const DATA=await mkdtemp(path.join(tmpdir(),'kd-')),WORK=path.join(DATA,'work');
  await mkdir(path.join(WORK,'continue-support','media','staff'),{recursive:true});
  await writeFile(path.join(WORK,'continue-support','media','staff','urls.txt'),'https://media.kirimdev.com/x/Kit.jpeg\n');
- await writeFile(path.join(DATA,'kirimdev.json'),JSON.stringify({lines:{'continue-support':{phoneNumberId:'111',persona:'Randy',business:'Continue',mode,debounceSec:0,testers,
-  handoff:{chatId:-100,threadId:3,mention:'@team'},autoPhotos:{pattern:'rekomendasi utama',tags:['[FOTO: Kit.jpeg]']}}}}));
- await writeFile(path.join(DATA,'kirimdev-secrets.json'),JSON.stringify({'continue-support':{id:'wbs_1',secrets:[SECRET]}}));
- const sent=[],asked=[],posts=[],told=[];
+ await writeFile(path.join(DATA,'kirimdev.json'),JSON.stringify({lines:{'continue-support':{phoneNumberId:'111',persona:'Randy',business:'Continue',mode,debounceSec:0,testers,...(pauseMin!==undefined?{pauseMin}:{}),
+  autoPhotos:{pattern:'rekomendasi utama',tags:['[FOTO: Kit.jpeg]']}},
+  'biomarkers-support':{phoneNumberId:'222',persona:'Gilang',business:'Biomarkers',mode:'test',debounceSec:0,testers:[{who:'Amri',conversationId:'cnv_B'}]}}}));
+ await writeFile(path.join(DATA,'kirimdev-secrets.json'),JSON.stringify({'continue-support':{id:'wbs_1',secrets:[SECRET]},'biomarkers-support':{id:'wbs_2',secrets:[SECRET],events:['message.received','message.sent']}}));
+ const sent=[],asked=[],posts=[],told=[],patched=[];let clock=Date.now();const tg={ok:postOk};
  const fetchImpl=async(url,o)=>{const p=url.replace('https://api.kirimdev.com/v1/','');
-  if(o.method==='POST'&&p==='111/messages'){sent.push(JSON.parse(o.body));return {ok:true,json:async()=>({data:{id:'msg_'+sent.length,status:'queued'}})}}
-  if(p.startsWith('111/messages?'))return {ok:true,json:async()=>({data:[{direction:'inbound',content:'mau tanya',created_at:'2026-11-05T10:00:00.000Z',type:'text'}]})};
+  if(o.method==='POST'&&/^(111|222)\/messages$/.test(p)){const b=JSON.parse(o.body);b.pid=p.split('/')[0];sent.push(b);return {ok:true,json:async()=>({data:{id:'msg_'+sent.length,status:'queued'}})}}
+  if(/^(111|222)\/messages\?/.test(p))return {ok:true,json:async()=>({data:[{direction:'inbound',content:'mau tanya',created_at:'2026-11-05T10:00:00.000Z',type:'text'}]})};
   if(p==='webhook_subscriptions')return {ok:true,json:async()=>({data:{id:'wbs_9',status:'active',initial_secret:'whsec_new'}})};
+  if(o.method==='PATCH'&&p.startsWith('webhook_subscriptions/')){patched.push([p,JSON.parse(o.body)]);return {ok:true,json:async()=>({data:{id:p.split('/')[1],events:JSON.parse(o.body).events}})}}
   return {ok:false,status:404,json:async()=>({})}};
- const k=createKirimdev({DATA,WORK,apiKey:async()=>'kdv_test',PUBLIC_URL:'https://ai.example',fetchImpl,wait:async()=>{},log:()=>{},
-  runAgent:async(a,q)=>{asked.push([a,q]);return typeof agentSays==='function'?agentSays(q):agentSays},telegram:async(...x)=>{posts.push(x);return true},tell:async t=>{told.push(t)}});
- const post=(raw,h={})=>k.receive('continue-support',{'x-kirim-signature':sign(raw),'x-kirim-event':'message.received',...h},Buffer.from(raw));
+ const k=createKirimdev({DATA,WORK,apiKey:async()=>'kdv_test',PUBLIC_URL:'https://ai.example',fetchImpl,wait:async()=>{},log:m=>process.env.KDLOG&&console.log(m),now:()=>clock,echoWait:0,
+  teamGroup:async a=>a==='continue-support'?team:null,
+  runAgent:async(a,q)=>{asked.push([a,q]);return typeof agentSays==='function'?agentSays(q):agentSays},telegram:async(...x)=>{posts.push(x);return tg.ok?4242:false},tell:async t=>{told.push(t)}});
+ const post=(raw,h={},agent='continue-support')=>k.receive(agent,{'x-kirim-signature':sign(raw,Math.floor(clock/1000)),'x-kirim-event':'message.received',...h},Buffer.from(raw));
+ const postSent=(raw,agent='continue-support')=>k.receive(agent,{'x-kirim-signature':sign(raw,Math.floor(clock/1000)),'x-kirim-event':'message.sent'},Buffer.from(raw));
  const settle=()=>new Promise(r=>setTimeout(r,300));
- return {k,DATA,sent,asked,posts,told,post,settle}}
+ return {k,DATA,sent,asked,posts,told,patched,post,postSent,settle,tg,later:ms=>{clock+=ms}}}
 
 test('signature: any v1 from any secret, within 5 minutes, raw bytes',()=>{const raw='{"a":1}',t=Math.floor(Date.now()/1000);
  assert.equal(verifySignature(Buffer.from(raw),sign(raw,t),[SECRET]),true);
@@ -58,7 +65,7 @@ test('Live answers everyone; a bad signature, an old one and a repeated event id
 
 test('a handoff goes to the Telegram topic and the customer is told; reset starts the chat again',async()=>{const t=await make({agentSays:'HANDOFF: COA question'});
  await t.post(meta('628123','ada COA?'));await t.settle();
- assert.equal(t.posts.length,1);assert.deepEqual(t.posts[0].slice(0,3),['continue-support',-100,3]);assert.match(t.posts[0][3],/\+628123/);assert.match(t.posts[0][3],/@team/);
+ assert.equal(t.posts.length,1);assert.deepEqual(t.posts[0].slice(0,3),['continue-support',-100,3]);assert.equal(t.told.length,0);assert.match(t.posts[0][3],/\+628123/);assert.match(t.posts[0][3],/@team/);
  assert.match(t.sent[0].text.body,/teruskan ke tim/);
  await t.post(meta('628123','reset'));await t.settle();assert.match(t.sent.at(-1).text.body,/Test reset/);assert.equal(t.asked.length,1)});
 
@@ -72,4 +79,67 @@ test('connect makes the webhook and keeps the secret Kirimdev returns; status an
  assert.deepEqual(await t.k.connect('continue-support'),{id:'wbs_9',status:'active'});
  const sec=JSON.parse(await readFile(path.join(t.DATA,'kirimdev-secrets.json'),'utf8'));assert.deepEqual(sec['continue-support'].secrets,['whsec_new']);
  assert.equal((await t.k.status())[0].mode,'test');await t.k.setMode('continue-support','live');assert.equal((await t.k.status())[0].mode,'live');
- await assert.rejects(t.k.setMode('continue-support','loud'),/test or live/)});
+ await assert.rejects(t.k.setMode('continue-support','loud'),/test, draft or live/)});
+
+test('a failed handoff post tells the customer nothing, tells the owner, and is tried again; then the customer hears it',async()=>{const t=await make({agentSays:'HANDOFF: COA question',postOk:false});
+ await t.post(meta('628123','ada COA?'));await t.settle();
+ assert.equal(t.posts.length,1);assert.equal(t.sent.length,0);assert.equal(t.told.length,1);assert.match(t.told[0],/could not post a handoff/);
+ await t.k._tick();assert.equal(t.posts.length,1,'not before its time');
+ t.later(61e3);await t.k._tick();assert.equal(t.posts.length,2);assert.equal(t.sent.length,0);assert.equal(t.told.length,1,'the owner is told once');
+ t.tg.ok=true;t.later(5*60e3+1);await t.k._tick();assert.equal(t.posts.length,3);assert.equal(t.sent.length,1);assert.match(t.sent[0].text.body,/teruskan ke tim/);
+ t.later(3600e3);await t.k._tick();assert.equal(t.posts.length,3,'done, not posted again')});
+
+test('no team group: the handoff is not posted, the customer is not told, the owner is told where to set it',async()=>{const t=await make({agentSays:'HANDOFF: x',team:null});
+ await t.post(meta('628123','?'));await t.settle();assert.equal(t.posts.length,0);assert.equal(t.sent.length,0);assert.match(t.told[0],/handoff/)});
+
+test('Draft: every customer gets a draft in the Questions topic, nothing is sent until a person approves it',async()=>{const t=await make({mode:'draft',agentSays:'Halo kak\n---\nIni *rekomendasi utama*'});
+ await t.post(meta('629999','halo',undefined,'cnv_Z'));await t.settle();
+ assert.equal(t.sent.length,0);assert.equal(t.posts.length,1);assert.deepEqual(t.posts[0].slice(0,3),['continue-support',-100,3]);assert.match(t.posts[0][3],/DRAFT #1/);assert.match(t.posts[0][3],/\+629999/);
+ const s=(await t.k.status()).find(l=>l.agent==='continue-support');assert.equal(s.mode,'draft');assert.equal(s.drafts.length,1);assert.equal(s.drafts[0].posted,true);
+ await assert.rejects(t.k.draft('biomarkers-support',1,'send'),/no draft #1/);
+ assert.deepEqual(await t.k.draft('continue-support',1,'send',undefined,'Amri'),{sent:3});assert.deepEqual(t.sent.map(b=>[b.to,b.type]),[['629999','text'],['629999','text'],['629999','image']]);
+ await assert.rejects(t.k.draft('continue-support',1,'send'),/already sent/);
+ await t.post(meta('629999','lagi',undefined,'cnv_Z'));await t.settle();
+ assert.deepEqual(await t.k.draft('continue-support',2,'send','Jawaban yang diubah tim'),{sent:1});assert.equal(t.sent.at(-1).text.body,'Jawaban yang diubah tim');
+ await t.post(meta('629999','lagi 2',undefined,'cnv_Z'));await t.settle();assert.deepEqual(await t.k.draft('continue-support',3,'discard'),{dropped:true});assert.equal(t.sent.length,4)});
+
+test('a team member who replies pauses the agent in that chat for the quiet time; our own sends do not',async()=>{const t=await make({mode:'live',pauseMin:10});
+ // our own send echoes back: no pause
+ await t.post(meta('629999','halo',undefined,'cnv_Z'));await t.settle();assert.equal(t.sent.length,1);
+ assert.deepEqual((await t.postSent(sentEv('629999','api','msg_1','cnv_Z'))).body,{ours:true});
+ await t.post(meta('629999','lagi',undefined,'cnv_Z'));await t.settle();assert.equal(t.sent.length,2);
+ // a person writes from the Kirimdev dashboard: the agent stops answering this chat, others go on
+ assert.ok((await t.postSent(sentEv('629999','dashboard','msg_human','cnv_Z'))).body.paused);
+ await t.post(meta('629999','kak?',undefined,'cnv_Z'));await t.settle();assert.equal(t.sent.length,2);
+ const s=(await t.k.status()).find(l=>l.agent==='continue-support');assert.equal(s.pauseMin,10);assert.equal(s.paused.length,1);assert.equal(s.paused[0].who,'…9999');
+ await t.post(meta('628888','halo',undefined,'cnv_Y'));await t.settle();assert.equal(t.sent.at(-1).to,'628888');
+ // the phone app counts too; an API send aqeelOS did not make counts too
+ assert.ok((await t.postSent(sentEv('628888','api','msg_other','cnv_Y'))).body.paused);
+ // after the quiet time it answers again
+ t.later(10*60e3+1);await t.post(meta('629999','halo lagi',undefined,'cnv_Z'));await t.settle();assert.equal(t.sent.at(-1).to,'629999');
+ await t.k.setPause('continue-support',30);assert.equal((await t.k.status())[0].pauseMin,30);await assert.rejects(t.k.setPause('continue-support',-1),/whole number/)});
+
+test('brands never mix: a line takes only its own number\'s events, and whatsapp_reply refuses the other line\'s customers',async()=>{const t=await make({mode:'live'});
+ // Biomarkers' number posted to Randy's address, or with no number at all: dropped
+ await t.post(meta('627777','halo',undefined,'cnv_X','222'));await t.post(meta('627777','halo',undefined,'cnv_X',''));await t.settle();
+ assert.equal(t.asked.length,0);assert.equal(t.sent.length,0);
+ assert.deepEqual((await t.postSent(sentEv('627777','dashboard','msg_h','cnv_X','222'))).body,{ignored:'other line'});
+ // a customer of Gilang's line (a tester there) cannot be answered by Randy
+ await t.post(meta('627777','halo',undefined,'cnv_B','222'),{},'biomarkers-support');await t.settle();assert.equal(t.asked.at(-1)[0],'biomarkers-support');assert.ok(t.sent.every(b=>b.pid==='222'));
+ await assert.rejects(t.k.reply('continue-support','627777','halo'),/another WhatsApp line \(biomarkers-support\)/);
+ assert.equal((await t.k.reply('biomarkers-support','627777','halo')).length,1);assert.equal(t.sent.at(-1).pid,'222')});
+
+test('a webhook made before message.sent gets it added; message.sent parses',async()=>{const t=await make();
+ assert.deepEqual(await t.k.ensureEvents('continue-support'),['message.received','message.sent']);assert.equal(t.patched.length,1);assert.equal(t.patched[0][0],'webhook_subscriptions/wbs_1');
+ await t.k.ensureEvents('continue-support');await t.k.ensureEvents('biomarkers-support');assert.equal(t.patched.length,1);
+ assert.equal((await t.k.status())[0].hearsTeam,true);
+ assert.deepEqual(parseSent(JSON.parse(sentEv('628123','app','msg_9','cnv_Q'))),{pid:'111',id:'msg_9',source:'app',to:'628123',conversationId:'cnv_Q',name:''})});
+
+test('with agent health there, a failed handoff is a health problem, solved once a retry posts it',async()=>{const probs=[],oks=[];const t=await make({agentSays:'HANDOFF: x',postOk:false});
+ // a second instance on the same data, with health hooks (as server.mjs wires it)
+ const k2=createKirimdev({DATA:t.DATA,WORK:t.DATA,apiKey:async()=>'k',PUBLIC_URL:'x',fetchImpl:async(u,o)=>({ok:true,json:async()=>({data:o.method==='POST'?{id:'m'}:[]})}),wait:async()=>{},log:()=>{},echoWait:0,
+  teamGroup:async()=>({chatId:-1,topics:{questions:3}}),runAgent:async()=>'HANDOFF: x',telegram:async()=>probs.length>0&&oks.length===0&&k2.ok?7:false,
+  problem:async(a,topic,title)=>{probs.push([a,topic,title])},solved:async(a,topic)=>{oks.push([a,topic])},now:()=>Date.now()+(k2.later||0)});
+ const raw=meta('628123','?');await k2.receive('continue-support',{'x-kirim-signature':sign(raw),'x-kirim-event':'message.received'},Buffer.from(raw));await t.settle();
+ assert.equal(probs.length,1);assert.match(probs[0][1],/^handoff\|h/);assert.match(probs[0][2],/could not post a handoff/);
+ k2.ok=true;k2.later=61e3;await k2._tick();assert.deepEqual(oks,[['continue-support',probs[0][1]]])});

@@ -99,7 +99,7 @@ export async function applyRestore({src,HERMES_HOME,HOME,at=Date.now(),stopEngin
 // what a restore must bring back for the box to work
 const MUST=['.hermes/config.yaml','.hermes/.env','apps/hermes-ui-data/users.json','apps/hermes-ui.env'];
 
-export function createBackups({DATA,HOME,HERMES_HOME,TOKEN='google_token_elkiya.json',notify=()=>{},solved=()=>{},restored=()=>{},stopEngine=async()=>{},startEngine=async()=>{}}){
+export function createBackups({DATA,HOME,HERMES_HOME,TOKEN=process.env.BACKUP_GOOGLE_ACCOUNT?'google_token_'+process.env.BACKUP_GOOGLE_ACCOUNT+'.json':'google_token.json',notify=()=>{},solved=()=>{},restored=()=>{},stopEngine=async()=>{},startEngine=async()=>{}}){
  const STATE=path.join(DATA,'backups.json'),KEYF=path.join(DATA,'backup-key');let state=null,running=null,restoring=null,testing=null;
  // a restore that was cut off (aqeelOS stopped halfway) is said so, and its leftovers in /tmp go
  const load=async()=>{if(!state){try{state=JSON.parse(await readFile(STATE,'utf8'))}catch{state={}}

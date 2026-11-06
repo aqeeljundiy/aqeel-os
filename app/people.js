@@ -22,7 +22,7 @@ async function loadMe(){
 let ALL_SECTIONS=null;
 function applyRole(){
  ALL_SECTIONS??=structuredClone(SECTIONS);SECTIONS.splice(0,SECTIONS.length,...structuredClone(ALL_SECTIONS));
- if(S.me?.admin){if(typeof FILE_HOME!=='undefined')FILE_HOME='/home/claude';const sys=SECTIONS.find(s=>s.id==='system');if(sys&&!sys.pages.some(p=>p.id==='people'))sys.pages.unshift({id:'people',label:'People',icon:'user',desc:'Who can sign in, what they can do, and which agents they can use.'});return}
+ if(S.me?.admin){if(typeof FILE_HOME!=='undefined')FILE_HOME=S.me.home;const sys=SECTIONS.find(s=>s.id==='system');if(sys&&!sys.pages.some(p=>p.id==='people'))sys.pages.unshift({id:'people',label:'People',icon:'user',desc:'Who can sign in, what they can do, and which agents they can use.'});return}
  // an agent's owner manages its schedules, skills and connected apps whatever their role (users.mjs, OWNER_CAPS)
  const owns=Object.values(S.me?.agents||{}).includes('owner');
  const has=k=>(S.me?.caps||[]).includes(k)||owns&&['schedules','skills','mcp'].includes(k),editsAny=Object.values(S.me?.agents||{}).some(l=>l!=='chat');
@@ -249,7 +249,7 @@ ACT['ppl-models']=async a=>{const u=(Pages._ppl?.users||[]).find(x=>x.id===a.dat
 /* The MCP Duplicate window ("run the same server more than once, e.g. three AdsPower setups") went on 1 Nov 2026: every
    agent has its own AdsPower now (agent-adspower.mjs), and Connections adds an app to another agent with Add agent. */
 /* ---------- Memory: MEMORY.md and USER.md are plain files the agent reads; you can edit them ---------- */
-const memHome=()=>{const a=agentProfile()||'default';return '/home/claude/.hermes'+(a==='default'?'':'/profiles/'+a)};
+const memHome=()=>{const a=agentProfile()||'default';return (S.me?.hermes_home||'~/.hermes')+(a==='default'?'':'/profiles/'+a)};
 // read the file as it is now ('' when it does not exist yet; null when it could not be read)
 const memNow=async path=>{try{return (await readText(path)).text||''}catch(e){if(e?.status!==404&&!/not found|no such|does not exist/i.test(e?.message||''))throw e;return ''}};
 ACT['mem-edit']=async a=>{const f=a.dataset.f,path=memHome()+'/memories/'+f;let cur='';try{cur=await memNow(path)}catch(e){return fail(e)}

@@ -3,7 +3,7 @@
 const Bottlenecks={items:[],
  async check(){if(!S.signedIn||document.hidden)return;try{const d=await UI('/ui/bottlenecks');this.items=d.items||[]}catch{return}this.paintCount()},
  paintCount(){const b=document.querySelector('[data-act="bottlenecks"]');if(!b)return;const n=this.items.length;b.hidden=false;b.classList.toggle('none',!n);b.toggleAttribute('data-none',!n);const c=b.querySelector('.bn-n');if(c)c.textContent=n>9?'9+':String(n||'')},
- icon:{access:'lock',signin:'key',account:'key',schedule:'clock',invite:'user',report:'alert',down:'activity',ticket:'help',channel:'chat'},
+ icon:{instructions:'edit',access:'lock',signin:'key',account:'key',schedule:'clock',invite:'user',report:'alert',down:'activity',ticket:'help',channel:'chat',system:'alert',stopped:'clock',group:'chat',dropped:'chat',handoff:'chat',comment:'chat'},
  // inside: an open Bottlenecks dialog to draw again in place (after Clear all), instead of closing and opening a new one
  async open(inside){await this.check();const nm=a=>typeof ident==='function'&&ident(a)?.name||a;const list=this.items.map(x=>x.agent?{...x,agentName:nm(x.agent),title:x.kind==='report'?nm(x.agent)+' is blocked: '+x.missing:x.title}:x);
   const body=list.length?'<div class="bn-list">'+list.map((x,i)=>'<div class="bn-item" data-agent="'+esc(x.agent||'')+'"><span class="bn-ic bn-'+esc(x.kind)+'">'+icon(this.icon[x.kind]||'alert',16)+'</span><div class="bn-t"><b>'+esc(x.title)+'</b>'+(x.count>1?'<small class="bn-c">reported '+x.count+' times</small>':'')+(x.text?'<p>'+esc(x.text)+'</p>':'')+(x.purpose||x.from?'<div class="bn-whys">'+Why.rows(x,'bn-why')+'</div>':'')+'<div class="bn-acts" data-i="'+i+'"></div></div></div>').join('')+'</div>':'<div class="bn-empty">'+icon('check',22)+'<b>Nothing is stuck</b><p class="hint">When a sign-in is due, a schedule fails or an agent is missing access, it shows up here with a way to fix it.</p></div>';
@@ -13,11 +13,13 @@ const Bottlenecks={items:[],
   const foot=(list.length>1?'<button class="ghost" data-act="bn-clear">Clear all</button>':'')+'<button class="ghost" data-act="close">Close</button>';let d=inside;
   if(d?.isConnected){const bd=d.querySelector('.drawer-body'),ft=d.querySelector('.drawer-foot');bd.innerHTML=body;if(ft)ft.innerHTML=foot}else d=drawer('Bottlenecks',body,foot);
   Why.wire(d);
-  d.querySelector('[data-act="bn-clear"]')?.addEventListener('click',async e=>{e.stopPropagation();const b=e.currentTarget;b.disabled=true;try{const keep=x=>x.kind==='ticket'||x.kind==='access';let n=0;for(const x of list.filter(x=>!keep(x)))if(await post(UI,'/ui/bottlenecks/done',{id:x.id}).then(()=>true,()=>false))n++;await this.check();const left=this.items.length;toast(left?'Cleared '+n+' · '+left+' still need'+(left===1?'s':'')+' you':'All cleared');if(left)this.open(d);else closeLayers()}catch(er){b.disabled=false;fail(er)}});
+  d.querySelector('[data-act="bn-clear"]')?.addEventListener('click',async e=>{e.stopPropagation();const b=e.currentTarget;b.disabled=true;try{const keep=x=>x.kind==='ticket'||x.kind==='access'||x.kind==='instructions';let n=0;for(const x of list.filter(x=>!keep(x)))if(await post(UI,'/ui/bottlenecks/done',{id:x.id}).then(()=>true,()=>false))n++;await this.check();const left=this.items.length;toast(left?'Cleared '+n+' · '+left+' still need'+(left===1?'s':'')+' you':'All cleared');if(left)this.open(d);else closeLayers()}catch(er){b.disabled=false;fail(er)}});
   d.querySelectorAll('.bn-acts').forEach(box=>{const x=list[+box.dataset.i];for(const [label,run,primary] of this.actions(x)){const b=document.createElement('button');b.type='button';b.className=primary?'primary small':'ghost small';b.textContent=label;b.onclick=async()=>{try{await run();await this.check();if(this.items.length)this.open(d);else closeLayers()}catch(e){fail(e)}};box.append(b)}})},
  actions(x){const done=()=>post(UI,'/ui/bottlenecks/done',{id:x.id}),later=()=>post(UI,'/ui/bottlenecks/later',{id:x.id}).then(()=>toast('Hidden until tomorrow'));
   // an AI account signed out: the same Reconnect as its card on Models (the item goes once it works again)
   if(x.kind==='account')return [['Reconnect',()=>{closeLayers();Pages.reconnect(x.account.key,x.account.name);return new Promise(()=>{})},true],['Not now',later]];
+  // an agent's new instructions wait for approval: review the before/after in Edit agent › History
+  if(x.kind==='instructions')return [['Review',()=>{closeLayers();editAgent(x.agent,'History');return new Promise(()=>{})},true]];
   if(x.kind==='signin')return [['Fix it',()=>{closeLayers();Signins.open(x.signin);return new Promise(()=>{})},true],['Not now',later]];
   if(x.kind==='access')return S.me?.admin===false?[['Waiting for an admin',async()=>{},false]]:[['Allow',async()=>{await post(UI,'/ui/access/decide',{rid:x.rid,ok:true});toast(x.agentName+' can use it · ready in about a minute')},true],['Decline',async()=>{await post(UI,'/ui/access/decide',{rid:x.rid,ok:false});toast('Declined')}]];
   if(x.kind==='schedule')return [['Run again',async()=>{await post(H,'/cron/jobs/'+encodeURIComponent(x.job.id)+'/trigger?profile='+encodeURIComponent(x.agent));await done();toast('Running again')},true],['Open schedules',()=>{closeLayers();go('/automations/schedules');return new Promise(()=>{})}],['Not now',later]];
@@ -29,6 +31,11 @@ const Bottlenecks={items:[],
   if(x.kind==='accounts')return [['Open Connections',async()=>{await done();closeLayers();go('/abilities/connections')},true],['Got it',done]];
   // a channel that logged out or keeps failing (server.mjs channelAttention): Link again for WhatsApp, else its page
   if(x.kind==='channel'){const c=x.channel||{};return [c.id==='whatsapp'&&c.needs_link?['Link again',()=>{closeLayers();ACT['wa-link']({dataset:{agent:c.agent}});return new Promise(()=>{})},true]:['Open Channels',()=>{closeLayers();go('/channels/channels');return new Promise(()=>{})},true],['Not now',later]]}
+  // health checks (agent-health.mjs): a system problem an agent reported, schedules that stopped, a bot removed from a
+  // Telegram group, messages that keep failing
+  if(x.kind==='system')return [['It’s fixed',async()=>{await done();toast('Marked as fixed')},true],['Not now',later]];
+  if(x.kind==='stopped')return [['Open schedules',()=>{closeLayers();go('/automations/schedules');return new Promise(()=>{})},true],['Not now',later]];
+  if(x.kind==='group')return [['Open Channels',()=>{closeLayers();go('/channels/channels');return new Promise(()=>{})},true],['Got it',done]];
   // Help tickets (help.mjs) are read and resolved on Help › Tickets; here is only the pointer while some wait (1 Nov 2026)
   if(x.kind==='ticket')return [['Open Help tickets',()=>{closeLayers();go('/help/admin');return new Promise(()=>{})},true]];
   return [['Got it',done,true]]}};

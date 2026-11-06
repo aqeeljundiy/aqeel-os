@@ -2,9 +2,11 @@
   ENGINE_FIXED=<folder with the patched files, laid out like the engine> <engine python> -I scripts/engine-fixes.test.py
 Without ENGINE_FIXED it tests the live engine files.
 """
-import importlib.util, os, sys, tempfile, time, traceback, types
+import importlib.util, os, pwd, sys, tempfile, time, traceback, types
 
-ENGINE = os.path.expanduser("~/.hermes/hermes-agent")
+# Real user home: a tool/cron shell sets HOME=<home>/.hermes/home, so "~" is wrong there.
+REAL_HOME = os.environ.get("HERMES_REAL_HOME") or pwd.getpwuid(os.getuid()).pw_dir
+ENGINE = os.path.join(REAL_HOME, ".hermes", "hermes-agent")
 sys.path.insert(0, ENGINE)
 sys._hermes_pin_default_home = True
 import hermes_bootstrap  # noqa: E402,F401  (start-up through the real home; see kirim-signature.test.py)
@@ -41,8 +43,8 @@ def an_engine_started_from_a_tool_command_gets_the_real_home():
     os.makedirs(home)
     old = dict(os.environ)
     try:
-        os.environ["HOME"] = os.path.expanduser("~/.hermes/home")  # what a tool command has
-        os.environ["HERMES_REAL_HOME"] = "/home/claude"
+        os.environ["HOME"] = os.path.join(REAL_HOME, ".hermes", "home")  # what a tool command has
+        os.environ["HERMES_REAL_HOME"] = REAL_HOME
         start.subprocess.Popen = fake_popen
         try:
             try:
@@ -55,7 +57,7 @@ def an_engine_started_from_a_tool_command_gets_the_real_home():
     finally:
         os.environ.clear()
         os.environ.update(old)
-    assert seen.get("HOME") == "/home/claude", seen.get("HOME")
+    assert seen.get("HOME") == REAL_HOME, seen.get("HOME")
     assert seen.get("HERMES_HOME") == os.path.realpath(home), seen.get("HERMES_HOME")
 
 
@@ -72,10 +74,96 @@ def the_backup_model_note_shows_in_owner_chats_only():
         out, _, _ = fin.apply_llm_output_transform(agent, "Halo kak, ini jawabannya.", turn_id="t-" + platform, platform=platform)
         return out
 
-    for p in ("api_server", "telegram"):
-        assert "(Answered with GPT, Claude was down.)" in run(p), (p, run(p))
+    # display.fallback_notice defaults to owner_dm_only: the dashboard and owner DMs see it, groups never do
+    os.environ["HERMES_SESSION_CHAT_TYPE"] = "dm"
+    try:
+        for p in ("api_server", "telegram"):
+            assert "(Answered with GPT, Claude was down.)" in run(p), (p, run(p))
+        os.environ["HERMES_SESSION_CHAT_TYPE"] = "group"
+        assert run("telegram") == "Halo kak, ini jawabannya.", ("telegram group", run("telegram"))
+    finally:
+        os.environ.pop("HERMES_SESSION_CHAT_TYPE", None)
     for p in ("whatsapp", "webhook", "cron", "cli", "oneshot", "tool", ""):
         assert run(p) == "Halo kak, ini jawabannya.", (p, run(p))
+
+
+def _run_turn():
+    return load("gateway.run_turn", "gateway/run_turn.py")
+
+
+def _drops(m):
+    import json
+    f = os.path.join(m._AQ_LOG_DIR, "aqeelos-dropped.jsonl")
+    if not os.path.exists(f):
+        return []
+    with open(f) as fh:
+        return [json.loads(x) for x in fh if x.strip()]
+
+
+def _retry(m, first, second=None, partial=False, current=True):
+    import asyncio
+    m._AQ_LOG_DIR = tempfile.mkdtemp(dir=TMP)
+    calls = []
+
+    async def run():
+        calls.append(1)
+        return second
+
+    out = asyncio.run(m._aq_retry_once(first, run, history_len=4, partial_of=lambda r: partial,
+                                        is_current=lambda: current, session_key="agent:sesa:whatsapp:dm:1",
+                                        platform="whatsapp", wait=0))
+    return out, len(calls), _drops(m)
+
+
+@test
+def a_turn_that_failed_before_anything_ran_is_tried_once_more():
+    m = _run_turn()
+    first = {"failed": True, "failure_reason": "timeout", "failure_retryable": True, "error": "read timed out"}
+    out, n, drops = _retry(m, first, {"failed": False, "final_response": "Halo"})
+    assert n == 1 and out["final_response"] == "Halo", (n, out)
+    assert drops == [dict(drops[0], agent="sesa", platform="whatsapp", reason="timeout", partial=False, retried=True, recovered=True)], drops
+
+
+@test
+def a_turn_where_something_already_ran_is_never_repeated():
+    m = _run_turn()
+    first = {"failed": True, "failure_reason": "timeout", "failure_retryable": True}
+    out, n, drops = _retry(m, first, {"failed": False}, partial=True)
+    assert n == 0 and out is first, n
+    assert drops[0]["partial"] is True and drops[0]["retried"] is False, drops
+
+
+@test
+def no_retry_for_a_chat_that_is_too_long_a_new_message_or_a_stale_session():
+    m = _run_turn()
+    for first, cur in (({"failed": True, "failure_reason": "context_overflow"}, True),
+                       ({"failed": True, "failure_reason": "timeout", "compression_exhausted": True}, True),
+                       ({"failed": True, "failure_reason": "timeout", "failure_retryable": False}, True),
+                       ({"failed": True, "failure_reason": "timeout"}, False)):
+        out, n, drops = _retry(m, first, {"failed": False}, current=cur)
+        assert n == 0 and out is first and len(drops) == 1, (first, n, drops)
+    out, n, drops = _retry(m, {"failed": True, "interrupted": True}, {"failed": False})
+    assert n == 0 and drops == [], (n, drops)  # the person sent a new message: that one is answered, nothing dropped
+    out, n, drops = _retry(m, {"failed": False, "final_response": "ok"}, {"failed": False})
+    assert n == 0 and drops == [], drops
+
+
+@test
+def a_retry_that_fails_again_says_so_in_plain_words():
+    m = _run_turn()
+    first = {"failed": True, "failure_reason": "server_error", "failure_retryable": True}
+    out, n, drops = _retry(m, first, {"failed": True, "failure_reason": "server_error", "failure_retryable": True})
+    assert n == 1 and out.get("_aq_retried") and drops[0]["retried"] and not drops[0]["recovered"], (out, drops)
+    add = lambda resp, note: (str(resp or "").strip() + "\n\n" + note).strip()
+    text = m._aq_failed_reply("", out, m.FAILED_TURN_NOTICE, add)
+    assert text.startswith("My AI model did not answer in time. I tried once more by myself"), text
+    assert "Your request was not processed" not in text, text
+    part = m._aq_failed_reply("", {"failed": True, "failure_reason": "loop_error"}, m.PARTIAL_FAILED_TURN_NOTICE, add)
+    assert part == "Something went wrong on my side while I was answering. Part of it may already be done, so check that before sending it again.", part
+    # the aqeelOS "couldn't reach any of my models" reply already says what to do; the retry is still mentioned
+    keep = lambda resp, note: resp
+    text = m._aq_failed_reply("I couldn't reach any of my models just now (Claude and GPT). Please send it again in a minute.", out, m.FAILED_TURN_NOTICE, keep)
+    assert text.endswith("(I tried once more by myself and it failed again.)"), text
 
 
 failed = 0

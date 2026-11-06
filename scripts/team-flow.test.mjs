@@ -8,8 +8,14 @@ import {tmpdir} from 'node:os';
 import {createServer} from 'node:http';
 import path from 'node:path';
 import {createTeamFolders} from '../app/team-folders.mjs';
-import {createTeam} from '../code/team.mjs';
-import {Workspace} from '../code/workspace.mjs';
+import {existsSync} from 'node:fs';
+import {homedir} from 'node:os';
+import {fileURLToPath,pathToFileURL} from 'node:url';
+// Code lives in code/ in the repo; a deployed copy has no code/ (deploy.sh ships it to ~/apps/aqeel-code), so fall back there.
+const CODE=[process.env.AQEELOS_CODE_DIR,fileURLToPath(new URL('../code',import.meta.url)),path.join(homedir(),'apps','aqeel-code')].find(d=>d&&existsSync(path.join(d,'team.mjs')));
+if(!CODE)throw new Error('team-flow test needs aqeelOS Code: no code/team.mjs here, set AQEELOS_CODE_DIR');
+const {createTeam}=await import(pathToFileURL(path.join(CODE,'team.mjs')).href);
+const {Workspace}=await import(pathToFileURL(path.join(CODE,'workspace.mjs')).href);
 
 const NAMES={aqeel:'Aqeel',rina:'Rina',budi:'Budi',dewi:'Dewi'};
 async function standIn(){const DATA=await mkdtemp(path.join(tmpdir(),'tfl-'));const hub=createTeamFolders({DATA,names:u=>NAMES[u]||u,known:u=>!!NAMES[u]});

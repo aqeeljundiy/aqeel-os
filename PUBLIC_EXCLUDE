@@ -1,0 +1,25 @@
+# Paths kept out of the public aqeelOS repository (owner-private data or history). Also in .gitignore.
+PRD.md
+data/development.json
+mockup/
+scripts/features.mjs
+*.bak*
+# Aqeel-private skills (in ~/.hermes/skills; never ship):
+skills/productivity/aqeel-task-hub
+skills/productivity/aqeel-google-automations
+skills/productivity/aqeel-message-drafting
+skills/productivity/process-aqeel-statements
+skills/productivity/china-trip-notion
+skills/productivity/peptide-business-pricing
+skills/productivity/whatsapp-support-agents
+skills/software-development/admissionsight-dev
+skills/pixel/pixel-ops
+skills/creative/continue-longevity-brand
+skills/creative/continue-vial-labels
+skills/creative/continue-vial-photo
+skills/creative/design-style-v1
+skills/social-media/continue-threads-commenting
+skills/**/references/local.md
+pending/
+AUDIT-PLAN.md
+CODE-PLAN.md

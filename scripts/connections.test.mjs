@@ -143,12 +143,17 @@ def main():
 if __name__ == "__main__":
     main()
 `;
- const f=path.join(root,'gapi.py');const p=patchGapiText(src);assert.ok(p.includes('accounts-guard-v2'));await writeFile(f,p);
+ const f=path.join(root,'gapi.py');const p=patchGapiText(src);assert.ok(p.includes('accounts-guard-v3'));await writeFile(f,p);
  const H=path.join(root,'.hermes'),T=path.join(H,'profiles','continue-threads');await mkdir(T,{recursive:true});
  for(const d of [H,T])await writeFile(path.join(d,'google_token.json'),JSON.stringify({account:'a@b.test'}));
  await writeFile(path.join(H,'aqeelos-accounts.json'),JSON.stringify({google:{'a@b.test':{agents:{'continue-threads':['read']}}}}));
  const go=(home,...a)=>{try{return execFileSync(py,[f,...a],{env:{...process.env,HERMES_HOME:home},stdio:['ignore','pipe','pipe']}).toString()}catch(e){return String(e.stdout||'')+String(e.stderr||'')}};
- assert.match(go(T,'call','sheets','v4','spreadsheets.values.update'),/send or change/);assert.match(go(T,'call','sheets','v4','spreadsheets.values.get'),/would ask Google/);
+ assert.match(go(T,'call','sheets','v4','spreadsheets.values.update'),/change Sheets/);assert.match(go(T,'call','sheets','v4','spreadsheets.values.get'),/would ask Google/);
  assert.match(go(H,'call','sheets','v4','spreadsheets.values.update'),/would ask Google/);
+ // edit (5 Nov 2026): Sheets changes yes, mail no; an older list with send still allows Sheets
+ await writeFile(path.join(H,'aqeelos-accounts.json'),JSON.stringify({google:{'a@b.test':{agents:{'continue-threads':['read','edit']}}}}));
+ assert.match(go(T,'call','sheets','v4','spreadsheets.values.update'),/would ask Google/);assert.match(go(T,'call','gmail','v1','users.messages.send'),/send or change mail/);
+ await writeFile(path.join(H,'aqeelos-accounts.json'),JSON.stringify({google:{'a@b.test':{agents:{'continue-threads':['read','draft','send']}}}}));
+ assert.match(go(T,'call','sheets','v4','spreadsheets.values.update'),/would ask Google/);
  // the first guard (31 Oct) is replaced in place, once
  const v1=(await readFile(new URL('../app/connected-accounts.mjs',import.meta.url),'utf8')).includes('GAPI_V1');assert.ok(v1);assert.equal(patchGapiText(p),p)});

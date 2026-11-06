@@ -1,6 +1,7 @@
 // Permission check for People: owner signs in, invites a member, the member joins, and every allow/deny
 // rule is exercised. Run on the box against a test copy: node scripts/people-check.mjs [base] [password file]
 import {readFileSync} from 'node:fs';
+import {homedir as __hd} from 'node:os';const H=__hd();
 const BASE=process.argv[2]||'http://127.0.0.1:4402',PW=readFileSync(process.argv[3]||'/tmp/ppl/pw','utf8').trim();
 const AGENT='pc-'+Date.now().toString(36).slice(-5);   // a throwaway agent, made and removed by this check
 const res=[];const step=async(n,fn)=>{try{const x=await fn();res.push(['PASS',n,x||''])}catch(e){res.push(['FAIL',n,e.message])}};
@@ -29,12 +30,12 @@ await step('Member sees own chat',async()=>{const r=await call(member,'/hapi/ses
 await step('Owner does not see member chat',async()=>{const r=await call(owner,'/hapi/sessions?profile='+AGENT+'&limit=200');must(!(r.j.sessions||[]).some(s=>s.id===sid),'owner sees it');return (r.j.sessions||[]).length+' owner chats listed'});
 await step('Member cannot open owner chat',async()=>{const o=await call(owner,'/hapi/sessions?profile='+AGENT+'&limit=5');const other=(o.j.sessions||[])[0];if(!other)return 'no owner chat to try';const r=await call(member,'/hapi/sessions/'+encodeURIComponent(other.id)+'?profile='+AGENT);must(r.s===403,'status '+r.s)});
 await step('Member files: own folder ok',async()=>{const r=await call(member,'/hapi/files?path='+encodeURIComponent(home));must(r.s===200,'status '+r.s+' '+JSON.stringify(r.j).slice(0,100))});
-await step('Member files: box home blocked',async()=>{const r=await call(member,'/hapi/files?path=/home/claude');must(r.s===403,'status '+r.s)});
+await step('Member files: box home blocked',async()=>{const r=await call(member,`/hapi/files?path=${H}`);must(r.s===403,'status '+r.s)});
 await step('Member files: sneaky ../ blocked',async()=>{const r=await call(member,'/hapi/files/read?path='+encodeURIComponent(home+'/../../.hermes/.env'));must(r.s===403,'status '+r.s)});
-await step('Member files: mkdir outside blocked',async()=>{const r=await call(member,'/hapi/files/mkdir',{method:'POST',body:{path:'/home/claude/evil'}});must(r.s===403,'status '+r.s)});
+await step('Member files: mkdir outside blocked',async()=>{const r=await call(member,'/hapi/files/mkdir',{method:'POST',body:{path:`${H}/evil`}});must(r.s===403,'status '+r.s)});
 await step('Member files: upload inside works',async()=>{const fd=new FormData();fd.append('path',home+'/hello.txt');fd.append('overwrite','true');fd.append('file',new Blob([Buffer.from([0,1,2,255,254])]),'hello.txt');
  const r=await fetch(BASE+'/hapi/files/upload-stream',{method:'POST',headers:{'x-hui':'1',cookie:member},body:fd});must(r.ok,'status '+r.status)});
-await step('Member files: upload outside blocked',async()=>{const fd=new FormData();fd.append('path','/home/claude/evil.txt');fd.append('file',new Blob(['x']),'evil.txt');
+await step('Member files: upload outside blocked',async()=>{const fd=new FormData();fd.append('path',`${H}/evil.txt`);fd.append('file',new Blob(['x']),'evil.txt');
  const r=await fetch(BASE+'/hapi/files/upload-stream',{method:'POST',headers:{'x-hui':'1',cookie:member},body:fd});must(r.status===403,'status '+r.status)});
 await step('Member cannot edit chat-only agent',async()=>{const r=await call(member,'/hapi/profiles/'+AGENT+'/soul',{method:'PUT',body:{content:'x'}});must(r.s===403,'status '+r.s)});
 await step('Owner sees member on People',async()=>{const r=await call(owner,'/ui/people');must((r.j.users||[]).some(u=>u.id===uid),'missing')});

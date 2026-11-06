@@ -1,5 +1,6 @@
 // End-to-end checks against the TEST copy (port 4402, its own data). Each step prints PASS/FAIL.
 import {readFileSync} from 'node:fs';
+import {homedir as __hd} from 'node:os';const H=__hd();
 const B='http://127.0.0.1:4402';const PW=readFileSync('/tmp/ppl/pw','utf8').trim();const out=[];
 const step=async(n,fn)=>{try{const x=await fn();out.push('PASS '+n+(x?' · '+x:''))}catch(e){out.push('FAIL '+n+' · '+e.message)}};
 const must=(c,m)=>{if(!c)throw new Error(m)};
@@ -24,10 +25,10 @@ await step('System events readable',async()=>{const r=await A('/ui/system-events
 await step('Thinking store answers',async()=>{const r=await A('/ui/thinking?session=api_x_y');must(r.s===200,'status '+r.s)});
 await step('Repeated profile refused',async()=>{const r=await A('/hapi/cron/jobs?profile=default&profile=husband-mode');must(r.s===400,'status '+r.s)});
 // a picture and a PDF in one message
-await step('Upload a PDF the way the chat does',async()=>{const fd=new FormData();fd.append('path','/home/claude/uploads/e2e-test.pdf');fd.append('overwrite','true');fd.append('file',new Blob(['%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF'],{type:'application/pdf'}),'e2e-test.pdf');const r=await A('/hapi/files/upload-stream',{method:'POST',body:fd});must(r.s<300,'status '+r.s+' '+JSON.stringify(r.j).slice(0,120))});
+await step('Upload a PDF the way the chat does',async()=>{const fd=new FormData();fd.append('path',`${H}/uploads/e2e-test.pdf`);fd.append('overwrite','true');fd.append('file',new Blob(['%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF'],{type:'application/pdf'}),'e2e-test.pdf');const r=await A('/hapi/files/upload-stream',{method:'POST',body:fd});must(r.s<300,'status '+r.s+' '+JSON.stringify(r.j).slice(0,120))});
 await step('A chat with a picture and that PDF',async()=>{const s=await A('/gapi/api/sessions',{method:'POST',body:{}});const id=s.j.session?.id||s.j.id;
  const png='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
- const r=await fetch(B+'/gapi/api/sessions/'+encodeURIComponent(id)+'/chat/stream',{method:'POST',headers:{'x-hui':'1',cookie:(await login()),'content-type':'application/json'},body:JSON.stringify({message:[{type:'text',text:'Reply in one line: did you get a picture, and is there a file attached?\n\n[Attached file: /home/claude/uploads/e2e-test.pdf]'},{type:'image_url',image_url:{url:png}}]})});
+ const r=await fetch(B+'/gapi/api/sessions/'+encodeURIComponent(id)+'/chat/stream',{method:'POST',headers:{'x-hui':'1',cookie:(await login()),'content-type':'application/json'},body:JSON.stringify({message:[{type:'text',text:`Reply in one line: did you get a picture, and is there a file attached?\n\n[Attached file: ${H}/uploads/e2e-test.pdf]`},{type:'image_url',image_url:{url:png}}]})});
  const t=await r.text();const done=/event: run.completed/.test(t);await A('/hapi/sessions/'+encodeURIComponent(id),{method:'DELETE'});must(done,'no answer');const m=[...t.matchAll(/"content": "([^"]{0,200})"/g)].map(x=>x[1]).pop()||'';return m.slice(0,120)});
-await A('/hapi/files?path=/home/claude/uploads/e2e-test.pdf',{method:'DELETE',body:{path:'/home/claude/uploads/e2e-test.pdf'}}).catch(()=>{});
+await A(`/hapi/files?path=${H}/uploads/e2e-test.pdf`,{method:'DELETE',body:{path:`${H}/uploads/e2e-test.pdf`}}).catch(()=>{});
 console.log(out.join('\n'));

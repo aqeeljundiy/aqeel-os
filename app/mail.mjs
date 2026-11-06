@@ -2,8 +2,8 @@
 // Two ways: "direct" talks to the recipient's mail server from this box (often lands in spam, and some
 // providers refuse unknown senders), or "smtp" goes through a real mail account (Gmail app password,
 // Resend, Brevo…), which is what makes mail arrive reliably. Settings live in DATA/mail.json.
-// Direct mail must come from a domain whose SPF lists this box (elkiya.com does) and greet with the box's reverse
-// name (mail.sprint2go.com): Gmail refuses senders with neither SPF nor DKIM, which is why ai.elkiya.com mail never came.
+// Direct mail must come from a domain whose SPF lists this box (MAIL_DOMAIN) and greet with the box's reverse
+// name (MAIL_HELO): Gmail refuses senders with neither SPF nor DKIM. Defaults are neutral; set both in the app's env.
 import net from 'node:net';
 import tls from 'node:tls';
 import {resolveMx} from 'node:dns/promises';
@@ -14,10 +14,12 @@ import path from 'node:path';
 
 export function createMail(DATA){
  const FILE=path.join(DATA,'mail.json');
- const load=async()=>{let c;try{c=JSON.parse(await readFile(FILE,'utf8'))}catch{return {mode:'direct',from:'aqeelOS <no-reply@'+(process.env.MAIL_DOMAIN||'elkiya.com')+'>',helo:process.env.MAIL_HELO||'mail.sprint2go.com'}}
+ const DOM=process.env.MAIL_DOMAIN||'localhost',HELO=process.env.MAIL_HELO||hostname();
+ const load=async()=>{let c;try{c=JSON.parse(await readFile(FILE,'utf8'))}catch{return {mode:'direct',from:'aqeelOS <no-reply@'+DOM+'>',helo:HELO}}
   // saved before the fix: the old sender address (no SPF) and no greeting name meant Gmail refused every mail
-  if(c.mode!=='smtp'&&/@ai\.elkiya\.com>?$/.test(c.from||'')){c.from=c.from.replace('@ai.elkiya.com','@elkiya.com');c.helo=c.helo||'mail.sprint2go.com'}
-  if(c.mode!=='smtp'&&!c.helo)c.helo='mail.sprint2go.com';return c};
+  const sub=process.env.MAIL_DOMAIN&&new RegExp('@[a-z0-9-]+\\.'+DOM.replace(/\./g,'\\.')+'>?$','i');
+  if(c.mode!=='smtp'&&sub&&sub.test(c.from||'')){c.from=c.from.replace(/@[^>]+/,'@'+DOM);c.helo=c.helo||HELO}
+  if(c.mode!=='smtp'&&!c.helo)c.helo=HELO;return c};
  const save=async c=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(c,null,1),{mode:0o600});await rename(FILE+'.tmp',FILE)};
  const addr=s=>(/<([^>]+)>/.exec(s)||[,s])[1].trim();
 

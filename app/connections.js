@@ -11,7 +11,7 @@ const CX_TYPES={All:null,Apps:'app',Logins:'account',Skills:'skill',Plugins:'plu
 const CX_ST={connected:['ok','Connected'],signin:['warn','Needs sign-in'],paused:['','Paused'],off:['','Off'],on:['ok','On']};
 const CX_IC={app:'plug',account:'shield',skill:'wand',plugin:'layers',key:'key'};
 const CX_TYPE={app:'App',account:'Login as you',skill:'Skill',plugin:'Plugin',key:'Key'};
-const CX_LV={read:['Read','Look things up and read'],draft:['Read & draft','Also save drafts and comments, never send'],full:['Full','Send, post and change things'],on:['On','It uses this'],off:['Off','It has it but leaves it alone']};
+const CX_LV={read:['Read','Look things up and read'],edit:['Read & edit Sheets/Docs','Also change Sheets, Docs and Drive files, never send mail'],draft:['Read & draft','Also save drafts and comments, never send'],full:['Full','Send, post and change things'],on:['On','It uses this'],off:['Off','It has it but leaves it alone']};
 const CX_HOW={gapi:'Google refuses anything above an agent’s level at once.',tools:'The tools above an agent’s level are taken off that agent, in about a minute.',note:'Kept as a note: aqeelOS cannot hold this login to a level yet.'};
 const cxChip=r=>{let [c,t]=CX_ST[r.status]||['',r.status];if(r.type==='key'&&r.status==='on')t='Saved';if(r.kind==='ads'&&r.status==='connected')t='Signed in';return `<span class="chip${c?' '+c:''}"${r.why?` title="${esc(r.why)}"`:''}>${r.busy?'<span class="spinner tiny"></span>':'<i class="dot"></i>'}${esc(r.busy&&r.kind!=='ads'?'Saving…':t)}</span>`};
 const cxLogo=r=>r.logo?logoImg(r.logo,(r.service||r.name||'?')[0].toUpperCase()):`<span class="ic">${icon(r.kind==='code'?'monitor':CX_IC[r.type]||'plug',17)}</span>`;
@@ -100,7 +100,7 @@ ACT['cn-open']=a=>Cx.open(a.dataset.key);
 ACT['cn-clear']=()=>{S.cxQ='';const i=$('#cnQ');if(i){i.value='';i.closest('.search')?.classList.remove('has-q');i.focus()}if(Pages._cxEl)Cx.paintList(Pages._cxEl)};
 ACT['cn-check']=()=>{Pages._cxFresh=true;reload()};
 ACT['cn-go']=a=>{closeLayers();go(a.dataset.to)};
-ACT['cn-lvl']=a=>{const r=Cx.cur,ag=a.dataset.agent,u=r?.users.find(x=>x.id===ag);if(!u)return;const opts=r.levels==='onoff'?['on','off']:['read','draft','full'];
+ACT['cn-lvl']=a=>{const r=Cx.cur,ag=a.dataset.agent,u=r?.users.find(x=>x.id===ag);if(!u)return;const opts=r.levels==='onoff'?['on','off']:r.provider==='google'||r.kind==='google'||/^Google/.test(r.label||'')?['read','edit','draft','full']:['read','draft','full'];   // edit: Google only (Sheets/Docs)
  menu(a,[{header:'What '+ident(ag).name+' may do'},...opts.map(l=>({label:CX_LV[l][0],sub:Cx.lvSub(r,l),on:u.level===l,disabled:l==='on'&&r.only&&!r.only.includes(ag)&&ag!=='default',run:()=>{if(l===u.level)return;
   Cx.act(a,'/ui/connections/level',{agent:ag,level:l},x=>r.name+': '+ident(ag).name+' '+CX_LV[l][0]+(x?.background?' · in about a minute':''))}}))])};
 ACT['cn-addag']=a=>{const r=Cx.cur;if(!r)return;const ag=(Pages._cx?.agents||[]).filter(x=>!r.users.some(u=>u.id===x.id));

@@ -6,7 +6,7 @@
    model is set (1 Nov 2026: it was a second picker here, written another way, and the two could disagree).
    Save stores whatever changed. The card menu keeps only Edit, Chat with it and Delete; what a member may
    do still follows their share level and permissions. ---------- */
-const AE_TABS=['Identity','Personality','Sharing'];
+const AE_TABS=['Identity','Personality','History','Sharing'];
 async function editAgent(name,start='Identity',opt={}){
  const base='/profiles/'+encodeURIComponent(name),prof=(Pages._profiles||[]).find(p=>p.name===name)||{name},id=ident(name);
  const admin=S.me?.admin!==false,lvl=admin?'owner':(S.me?.agents?.[name]||'chat'),has=k=>admin||(S.me?.caps||[]).includes(k);
@@ -29,7 +29,9 @@ async function editAgent(name,start='Identity',opt={}){
     <p class="hint">Shortcut command on the box: ${prof.has_alias?'yes':'no'} · Own key file: ${prof.has_env?'yes':'no'}${prof.distribution_name?' · Installed from '+esc(prof.distribution_name)+(prof.distribution_version?' '+esc(prof.distribution_version):''):''}</p><div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="ghost" id="aeCmd">${icon('copy',14)}Copy setup command</button><button type="button" class="ghost" id="aeActive">${icon('check',14)}Use on the command line</button></div></details>`:''}`)}
   ${soulOk?'':`<p class="hint" style="margin:0 0 12px">Its personality could not be loaded, so it stays as it is. Close and open again to edit it.</p>`}
   ${soulOk?sec('Personality',`<label style="display:flex;align-items:center;justify-content:space-between;gap:12px">Update how it introduces itself ${toggle(true,'Update introduction','id="idIntro"')}</label><p class="hint">Rewrites the first line so it always calls itself by its name.</p>
-   <label>Personality and standing instructions</label><textarea id="idSoul" rows="16" style="font-size:12.5px;line-height:1.55">${esc(soul)}</textarea>`):''}
+   <label>Personality and standing instructions</label><p class="hint ih-flaghint" id="aeFlagHint" hidden></p><textarea id="idSoul" rows="16" style="font-size:12.5px;line-height:1.55">${esc(soul)}</textarea>
+   <label>What changed and why <span class="hint">(optional, kept in its history)</span></label><input id="aeWhy" maxlength="300" placeholder="For example: comments 5 an hour instead of 3">`):''}
+  ${sec('History',`<div id="aeHist">${skeleton(3)}</div>`)}
   ${tabsOn.includes('Sharing')?sec('Sharing',`<p class="hint" style="margin:0 0 12px">Who owns ${esc(id.name)} and who else may chat with it or change it. Each change here saves as you make it.</p><div id="aeShareBox">${skeleton(2)}</div>`):''}`,
   `<button class="ghost" data-act="close">Cancel</button><button class="primary" id="aeSave">Save</button>`,{size:'lg'});
  // tabs inside the window
@@ -41,7 +43,11 @@ async function editAgent(name,start='Identity',opt={}){
    if(Math.abs(h2-h1)>2){body.style.height=h1+'px';void body.offsetHeight;body.style.transition='height .24s cubic-bezier(.2,.7,.2,1)';body.style.height=h2+'px';body._ht=setTimeout(()=>{body.style.height='';body.style.transition=''},280)}}
   const sv=d.querySelector('#aeSave'),cx=d.querySelector('.drawer-foot [data-act=close]'),only=t==='Sharing'&&!isDirty?.();if(sv)sv.hidden=only;if(cx){cx.textContent=only?'Done':'Cancel';cx.classList.toggle('primary',only);cx.classList.toggle('ghost',!only)}};
  let isDirty=null;
- d.querySelectorAll('[data-ae]').forEach(b=>b.onclick=()=>show(b.dataset.ae));requestAnimationFrame(placePills);
+ d.querySelectorAll('[data-ae]').forEach(b=>b.onclick=()=>{show(b.dataset.ae);if(b.dataset.ae==='History')instrHistory(d.querySelector('#aeHist'),name,()=>{closeLayers();editAgent(name,'History')})});
+ if(start==='History')instrHistory(d.querySelector('#aeHist'),name,()=>{closeLayers();editAgent(name,'History')});
+ UI('/ui/instructions/'+encodeURIComponent(name)).then(h=>{const el=d.querySelector('#aeFlagHint');if(!el||!d.isConnected)return;const n=(h.flags||[]).length,w=(h.proposals||[]).length;
+  if(!n&&!w)return;el.hidden=false;el.innerHTML=icon('alert',13)+' '+[n?n+(n===1?' thing disagrees':' things disagree')+' in these instructions':'',w?w+' rewrite'+(w===1?' waits':'s wait')+' for approval':''].filter(Boolean).join(' · ')+'. <button type="button" class="linkish" id="aeToHist">See History</button>';
+  el.querySelector('#aeToHist').onclick=()=>{show('History');instrHistory(d.querySelector('#aeHist'),name,()=>{closeLayers();editAgent(name,'History')})}}).catch(()=>{});requestAnimationFrame(placePills);
  const soulBox=d.querySelector('#idSoul'),intro=d.querySelector('#idIntro'),ava=d.querySelector('#idAva'),nameIn=d.querySelector('#idName'),titleIn=d.querySelector('#idTitle');
  // the introduction line follows the name, but only once the name or title is actually changed: opening and saving
  // the window never rewrites the personality on its own
@@ -73,7 +79,7 @@ async function editAgent(name,start='Identity',opt={}){
    if(newPic)await call('','/ui/avatar/'+encodeURIComponent(name),{method:'PUT',headers:{'content-type':newPic.type},body:newPic});   // through call(): the shared reads are dropped, so the old picture can't come back
    if(removePic&&!emo)await call('','/ui/avatar/'+encodeURIComponent(name),{method:'DELETE'});
    const desc=d.querySelector('#idDesc').value.trim();if(desc!==(prof.description||''))await put(H,base+'/description',{description:desc});
-   if(soulOk&&soulBox&&soulBox.value!==soul)await put(H,base+'/soul',{content:soulBox.value});
+   if(soulOk&&soulBox&&soulBox.value!==soul)await call('','/ui/instructions/'+encodeURIComponent(name)+'/save',{method:'PUT',body:{content:soulBox.value,why:d.querySelector('#aeWhy')?.value.trim()||''}});   // saved as a version with who and why (History)
    await loadIdentities();closeLayers();toast(nm+' saved');repaintAvatars(name);paintSide();if(route().page?.id==='profiles')reload()}   // its avatar changes in place everywhere on screen
   catch(e){fail(e);btn.disabled=false}}}
 // the card menu: Edit, Chat with it, Delete (each only when allowed)
@@ -87,3 +93,38 @@ ACT['ident-open']=(a,e)=>{if(e?.target?.closest('[data-menu]'))return;editAgent(
 // a toast with one follow-up action (looks like the Undo toast)
 function toastDo(msg,label,run){const t=document.createElement('div');t.className='toast undo';t.innerHTML=icon('check',15)+'<span>'+esc(msg)+'</span><button class="ghost small">'+esc(label)+'</button>';$('#toasts').append(t);
  const bye=()=>{t.classList.add('out');setTimeout(()=>t.remove(),260)};const tm=setTimeout(bye,8000);t.querySelector('button').onclick=()=>{clearTimeout(tm);bye();run()}}
+
+/* ---------- Edit agent › History (instructions.mjs): every version of its instructions with who changed what and why
+   (its decisions log), rewrites waiting for the owner's approval as before/after, and what disagrees inside them.
+   One place for an agent's decisions (owner brief item 11, 5 Nov 2026). ---------- */
+const IH_KIND={import:'Old backup file',start:'History started',box:'Changed on the box',edit:'Edited in aqeelOS',agent:'Changed by the agent',approved:'Rewrite approved',restore:'Brought back'};
+const ihWhen=t=>{const d=new Date(t);return d.toLocaleDateString(undefined,{day:'numeric',month:'short'})+' '+d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})};
+// changed lines with two lines around them; long unchanged stretches fold into one line
+function ihDiff(diff){const keep=new Set();diff.forEach((x,i)=>{if(x[0]!==' ')for(let k=i-2;k<=i+2;k++)keep.add(k)});let out='',gap=0;
+ const flush=()=>{if(gap)out+=`<div class="ih-gap">${gap} unchanged line${gap===1?'':'s'}</div>`;gap=0};
+ diff.forEach((x,i)=>{if(!keep.has(i)){gap++;return}flush();out+=`<div class="ih-l ${x[0]==='+'?'ih-add':x[0]==='-'?'ih-del':''}"><span class="ih-m">${x[0]==='+'?'+':x[0]==='-'?'−':''}</span><span>${esc(x[1])||'&nbsp;'}</span></div>`});flush();
+ return out?`<div class="ih-diff"><div class="ih-key"><span class="ih-k-del">Before</span><span class="ih-k-add">After</span></div>${out}</div>`:'<p class="hint">No changes.</p>'}
+async function instrHistory(box,name,reopen){if(!box)return;const base='/ui/instructions/'+encodeURIComponent(name);let h;
+ try{h=await UI(base)}catch(e){box.innerHTML=`<p class="hint">${esc(e.message||'Could not load the history.')}</p>`;return}if(!box.isConnected)return;
+ const admin=S.me?.admin!==false,mayDecide=admin||S.me?.agents?.[name]==='owner';
+ const props=(h.proposals||[]).map(p=>`<div class="panel ih-prop" data-p="${esc(p.id)}"><div class="ih-row"><b>${icon('alert',15)} New instructions wait for ${mayDecide?'your':'the owner’s'} approval</b><span class="ih-n"><span class="ih-plus">+${p.added}</span> <span class="ih-minus">−${p.removed}</span></span></div>
+   <p class="ih-why">${esc(p.why||'No reason given')}</p><p class="hint">${esc(p.by||'Someone')}${p.said?' · decided by '+esc(p.said):''} · ${ihWhen(p.at)}</p>
+   <div class="ih-acts"><button type="button" class="ghost small" data-act="ih-review">Show before and after</button>${mayDecide?`<button type="button" class="ghost small" data-act="ih-no">Decline</button><button type="button" class="primary small" data-act="ih-yes">Approve</button>`:''}</div><div class="ih-body" hidden></div></div>`).join('');
+ const flags=h.flags||[];
+ const flagHtml=`<div class="panel ih-flags"><div class="ih-row"><b class="${flags.length?'':'ih-ok'}">${flags.length?icon('alert',15)+' '+flags.length+(flags.length===1?' thing disagrees':' things disagree'):icon('check',15)+' Nothing disagrees'}</b><button type="button" class="ghost small" data-act="ih-check"${h.checking?' disabled':''}>${h.checking?'Checking…':'Check again'}</button></div>
+  ${flags.length?flags.map(f=>`<div class="ih-flag"><p><b>${esc(f.title)}</b></p>${f.detail?`<p class="hint">${esc(f.detail)}</p>`:''}<ul>${(f.quotes||[]).map(q=>`<li>${q.value?'<b>'+esc(q.value)+'</b>: ':''}“${esc(q.quote)}” <span class="hint">(${q.where==='memory'?'in its memory':'in its instructions'})</span></li>`).join('')}</ul></div>`).join(''):`<p class="hint">Its instructions and memory were checked for one rule with two values${h.checkedAt?' · '+ihWhen(h.checkedAt):''}.</p>`}</div>`;
+ const vers=h.versions||[],latest=vers[0]?.v;
+ const list=vers.map(v=>`<div class="ih-ver" data-v="${v.v}"><button type="button" class="ih-head" data-act="ih-open" aria-expanded="false"><span class="ih-vn">${v.v}</span><span class="ih-t"><b>${esc(v.why||IH_KIND[v.kind]||'Changed')}</b><small>${esc(IH_KIND[v.kind]||v.kind)} · ${esc(v.by||'')}${v.said?' · decided by '+esc(v.said):''}${v.approvedBy?' · approved by '+esc(v.approvedBy):''} · ${ihWhen(v.at)}</small></span><span class="ih-n"><span class="ih-plus">+${v.added}</span> <span class="ih-minus">−${v.removed}</span></span></button><div class="ih-body" hidden></div></div>`).join('');
+ box.innerHTML=`${props}${flagHtml}<p class="hint" style="margin:14px 0 8px">Every change to its instructions, newest first: who made it, when and why. This is where its decisions live.</p><div class="ih-list">${list||'<p class="hint">No history yet.</p>'}</div>`;
+ const busy=b=>{b.disabled=true;return()=>{b.disabled=false}};
+ box.querySelector('[data-act="ih-check"]')?.addEventListener('click',async e=>{const b=e.currentTarget;b.disabled=true;b.textContent='Checking…';try{await post(UI,base+'/check');instrHistory(box,name,reopen)}catch(er){fail(er);b.disabled=false;b.textContent='Check again'}});
+ box.querySelectorAll('.ih-prop').forEach(card=>{const id=card.dataset.p,body=card.querySelector('.ih-body');
+  card.querySelector('[data-act="ih-review"]').onclick=async e=>{const b=e.currentTarget;if(!body.hidden){body.hidden=true;b.textContent='Show before and after';return}const done=busy(b);
+   try{const p=await UI(base+'/p/'+encodeURIComponent(id));body.innerHTML=(p.changedSince?'<p class="hint">Its instructions changed after this was written. Approving replaces those changes too (they stay in the history).</p>':'')+ihDiff(p.diff);body.hidden=false;b.textContent='Hide before and after'}catch(er){fail(er)}done()};
+  card.querySelector('[data-act="ih-yes"]')?.addEventListener('click',async e=>{const done=busy(e.currentTarget);try{const r=await post(UI,base+'/decide',{id,ok:true});toast('Approved. It is version '+(r.version?.v||'')+' and applies from its next message');reopen()}catch(er){fail(er);done()}});
+  card.querySelector('[data-act="ih-no"]')?.addEventListener('click',async e=>{if(!await confirmBox('Decline these instructions?','Nothing changes. The agent keeps its current instructions.','Decline'))return;const done=busy(e.currentTarget);try{await post(UI,base+'/decide',{id,ok:false});toast('Declined');reopen()}catch(er){fail(er);done()}})});
+ box.querySelectorAll('.ih-ver').forEach(row=>{const v=+row.dataset.v,body=row.querySelector('.ih-body'),head=row.querySelector('.ih-head');
+  head.onclick=async()=>{const open=body.hidden;head.setAttribute('aria-expanded',String(open));row.classList.toggle('open',open);if(!open){body.hidden=true;return}
+   if(!body.dataset.done){body.innerHTML=skeleton(2);body.hidden=false;try{const x=await UI(base+'/v/'+v);body.innerHTML=ihDiff(x.diff)+(v!==latest?`<div class="ih-acts"><button type="button" class="ghost small" data-act="ih-restore">${icon('retry',14)}Bring this version back</button></div>`:'');body.dataset.done='1';
+     body.querySelector('[data-act="ih-restore"]')?.addEventListener('click',async e=>{if(!await confirmBox('Bring back version '+v+'?','Its instructions become this version again. Today’s stays in the history, so you can go back.','Bring it back',false))return;const done=busy(e.currentTarget);try{await post(UI,base+'/restore',{v});toast('Version '+v+' is back');reopen()}catch(er){fail(er);done()}})}catch(er){body.innerHTML=`<p class="hint">${esc(er.message)}</p>`}}
+   body.hidden=false}})}

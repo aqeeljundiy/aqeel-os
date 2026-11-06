@@ -1,21 +1,22 @@
-# n8n workflow automation, connected to aqeelOS (MCP at https://n8n.elkiya.com). Data lives in the n8n-data-v2 volume (owned by aqeelOS since 19 Oct 2026; the earlier n8n-data volume is kept, unused).
-# All of n8n.elkiya.com goes through "edge" (caddy): /aqeelos-login goes to aqeelOS (opens an agent's n8n without signing in),
-# code.elkiya.com and code-preview.elkiya.com (aqeelOS Code online) go to aqeelOS, which checks the sign-in;
-# everything else to n8n, which may then be shown inside aqeelOS (https://ai.elkiya.com) and nowhere else.
+# n8n workflow automation, connected to aqeelOS (MCP at https://${N8N_HOST}). Data lives in the n8n-data-v2 volume.
+# Addresses come from variables (Dokploy env or .env next to this file): N8N_HOST, CODE_HOST, CODE_PREVIEW_HOST, PUBLIC_URL, AQEELOS_UPSTREAM.
+# All of N8N_HOST goes through "edge" (caddy): /aqeelos-login goes to aqeelOS (opens an agent's n8n without signing in),
+# CODE_HOST and CODE_PREVIEW_HOST (aqeelOS Code online) go to aqeelOS, which checks the sign-in;
+# everything else to n8n, which may then be shown inside aqeelOS (PUBLIC_URL) and nowhere else.
 services:
   n8n:
     image: n8nio/n8n:2.42.2
     restart: unless-stopped
     env_file: .env
     environment:
-      - N8N_HOST=n8n.elkiya.com
+      - N8N_HOST=${N8N_HOST:-n8n.elkiya.com}
       - N8N_PROTOCOL=https
       - N8N_PORT=5678
-      - WEBHOOK_URL=https://n8n.elkiya.com/
-      - N8N_EDITOR_BASE_URL=https://n8n.elkiya.com/
+      - WEBHOOK_URL=https://${N8N_HOST:-n8n.elkiya.com}/
+      - N8N_EDITOR_BASE_URL=https://${N8N_HOST:-n8n.elkiya.com}/
       - N8N_PROXY_HOPS=2
-      - GENERIC_TIMEZONE=Asia/Jakarta
-      - TZ=Asia/Jakarta
+      - GENERIC_TIMEZONE=${TZ:-Asia/Jakarta}
+      - TZ=${TZ:-Asia/Jakarta}
       - N8N_DIAGNOSTICS_ENABLED=false
       - N8N_PERSONALIZATION_ENABLED=false
       - N8N_VERSION_NOTIFICATIONS_ENABLED=false
@@ -35,18 +36,18 @@ services:
       - |
         cat > /etc/caddy/Caddyfile <<'CADDY'
         :80 {
-          @code host code.elkiya.com code-preview.elkiya.com
+          @code host ${CODE_HOST:-code.elkiya.com} ${CODE_PREVIEW_HOST:-code-preview.elkiya.com}
           handle @code {
-            reverse_proxy claude-box-ibjaqq-ai-box-1:4400
+            reverse_proxy ${AQEELOS_UPSTREAM:-claude-box-ibjaqq-ai-box-1:4400}
           }
           handle /aqeelos-login* {
-            reverse_proxy claude-box-ibjaqq-ai-box-1:4400
+            reverse_proxy ${AQEELOS_UPSTREAM:-claude-box-ibjaqq-ai-box-1:4400}
           }
           handle {
             reverse_proxy n8n:5678 {
               header_down -X-Frame-Options
             }
-            header Content-Security-Policy "frame-ancestors https://ai.elkiya.com"
+            header Content-Security-Policy "frame-ancestors ${PUBLIC_URL:-https://ai.elkiya.com}"
           }
         }
         CADDY

@@ -90,6 +90,7 @@ Object.assign(ID,{
  'Ask me: commands that could change things wait for your OK. Click to change.':'Tanya aku: perintah yang bisa mengubah sesuatu menunggu persetujuanmu. Klik untuk ganti.',
  'Send (Enter)':'Kirim (Enter)',
  'Send':'Kirim',
+ 'Read & edit Sheets/Docs':'Baca & ubah Sheets/Docs','Also change Sheets, Docs and Drive files, never send mail':'Juga mengubah file Sheets, Docs, dan Drive, tidak pernah mengirim email','Change Sheets, Docs and Drive files':'Mengubah file Sheets, Docs, dan Drive',
  'WhatsApp through Kirimdev':'WhatsApp lewat Kirimdev','Connect':'Hubungkan','Go live':'Aktifkan untuk semua','Back to test':'Kembali ke tes',
  'Live: answers every customer.':'Aktif: menjawab semua pelanggan.','Connected, no message yet.':'Terhubung, belum ada pesan.',
  'Not connected: Kirimdev does not send it messages yet.':'Belum terhubung: Kirimdev belum mengirim pesan ke sini.',

@@ -1,12 +1,12 @@
 // Code online: the copy of aqeelOS Code on the AI box, for projects that live there ("online"), so agents can work on
-// them any time, even with the person's computer off. It is reached at code.elkiya.com (the app) and
-// code-preview.elkiya.com (its previews), both behind aqeelOS sign-in: aqeelOS hands the browser a short ticket,
+// them any time, even with the person's computer off. It is reached at CODE_HOST (the app) and
+// CODE_PREVIEW_HOST (its previews), both behind aqeelOS sign-in: aqeelOS hands the browser a short ticket,
 // each address turns it into its own cookie, and every request after that is checked here and passed to the app on
 // the box (127.0.0.1:4321 / :4322) as if it came from the box itself. Nothing reaches the app without that cookie.
 import {request as httpRequest} from 'node:http';
 import {createHmac,timingSafeEqual} from 'node:crypto';
 
-export function createCodeOnline({SECRET,SECURE,users,revokedAt=()=>0,HOST='code.elkiya.com',PREVIEW_HOST='code-preview.elkiya.com',APP='127.0.0.1:4321',PREVIEW='127.0.0.1:4322',HOME='https://ai.elkiya.com'}){
+export function createCodeOnline({SECRET,SECURE,users,revokedAt=()=>0,HOST='code.localhost',PREVIEW_HOST='code-preview.localhost',APP='127.0.0.1:4321',PREVIEW='127.0.0.1:4322',HOME='http://localhost:4400'}){
  const sig=s=>createHmac('sha256',SECRET).update(s).digest('base64url').slice(0,32);
  const same=(a,b)=>{a=Buffer.from(String(a));b=Buffer.from(String(b));return a.length===b.length&&timingSafeEqual(a,b)};
  // a ticket (two minutes, one person) and the cookie it becomes (seven days)

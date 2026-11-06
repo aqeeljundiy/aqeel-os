@@ -1,6 +1,6 @@
 // Files: a Drive-like view of the AI box — places, grid or list, search, sort, drag-and-drop upload,
 // and a preview window for images, PDFs, video, audio, Markdown and code (← → to move, Esc to close).
-let FILE_HOME='/home/claude';   // a member's Files opens in their own folder (set at sign-in)
+let FILE_HOME='~';   // a member's Files opens in their own folder (set at sign-in)
 const fileUrl=(p,kind='download')=>'/hapi/files/'+kind+'?path='+encodeURIComponent(p)+(agentProfile()?'&profile='+encodeURIComponent(agentProfile()):'');
 // Hermes returns file contents as a base64 data URL; this turns it into text.
 function dataUrlText(u){const m=/^data:[^;,]*(?:;[^,]*)?;base64,(.*)$/s.exec(u||'');if(!m)return '';const bin=atob(m[1]);const bytes=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);return new TextDecoder().decode(bytes)}

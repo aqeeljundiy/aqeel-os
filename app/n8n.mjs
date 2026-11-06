@@ -1,14 +1,14 @@
-// n8n for every agent. One n8n (n8n.elkiya.com); each agent gets its own n8n user, made with the owner's login the
+// n8n for every agent. One n8n (N8N_URL); each agent gets its own n8n user, made with the owner's login the
 // first time it is needed, so it has its own workflows. The agent's n8n tool connects as that user (its own MCP key),
 // and Automations › n8n opens the agent's n8n without signing in: aqeelOS hands out a one-minute ticket, a small
-// page that aqeelOS serves on n8n's own address (n8n.elkiya.com/aqeelos-login) signs in as the agent's user with
+// page that aqeelOS serves on n8n's own address (<N8N_URL>/aqeelos-login) signs in as the agent's user with
 // the browser's own n8n id, and n8n opens signed in. Passwords stay in aqeelOS's data; nobody types them.
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import {randomBytes,randomUUID} from 'node:crypto';
 import path from 'node:path';
 import {swr,limiter} from './swr.mjs';
 
-export function createN8n({BASE='https://n8n.elkiya.com',DATA,setKey,restart,names,readConfig,removeMcp}){
+export function createN8n({BASE='http://localhost:5678',EMAIL_DOMAIN=process.env.N8N_AGENT_EMAIL_DOMAIN||'agents.localhost',DATA,setKey,restart,names,readConfig,removeMcp}){
  const FILE=path.join(DATA,'n8n.json');let db=null;
  const load=async()=>{if(db)return db;try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.base||=BASE;db.users||={};return db};
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE,JSON.stringify(db,null,1),{mode:0o600})};
@@ -40,7 +40,7 @@ export function createN8n({BASE='https://n8n.elkiya.com',DATA,setKey,restart,nam
  async function ensure(agent){await load();let u=db.users[agent];
   // agents reach n8n through its MCP access, which a fresh n8n starts with switched off
   if(!db.mcpOn){const o=await owner();await rest('/rest/mcp/settings',{method:'PATCH',body:{mcpAccessEnabled:true},cookie:o.cookie});db.mcpOn=true;await save()}
-  if(!u){const o=await owner();const email=('agent-'+agent).replace(/[^a-z0-9-]/gi,'').toLowerCase()+'@agents.elkiya.com',password='Aq'+randomBytes(18).toString('base64url')+'9';
+  if(!u){const o=await owner();const email=('agent-'+agent).replace(/[^a-z0-9-]/gi,'').toLowerCase()+'@'+EMAIL_DOMAIN,password='Aq'+randomBytes(18).toString('base64url')+'9';
    // invite, then accept the invitation with its token (the link n8n returns: /signup?token=…). An invitation sent
    // earlier and never accepted is picked up from the user list instead of inviting again.
    const inv=await rest('/rest/invitations',{method:'POST',body:[{email,role:'global:member'}],cookie:o.cookie});const it=(Array.isArray(inv.data)?inv.data:[])[0];

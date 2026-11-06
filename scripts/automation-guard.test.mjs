@@ -4,9 +4,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {parseLogLine,splitFailed,serverOfTool,apply,nextStep,mayTry,shouldTell,scriptInterpreters,requirementsFromDistInfo,newestTool,responseOf,toolFailed,foldCopies} from '../app/automation-guard.mjs';
 
+import {homedir as __hd} from 'node:os';const H=__hd();
 const L={
  parked:"2026-10-25 07:20:29,528 WARNING tools.mcp_tool: MCP server 'pixel' failed initial connection after 3 attempts, parking until a reconnect is requested (state: connecting → parked): MCPError: Connection closed",
- failed:"2026-10-25 07:20:58,168 WARNING tools.mcp_tool: Failed to connect to MCP server 'pixel' (command=/home/claude/.hermes/pixel-tools/run.sh): Connection closed",
+ failed:`2026-10-25 07:20:58,168 WARNING tools.mcp_tool: Failed to connect to MCP server 'pixel' (command=${H}/.hermes/pixel-tools/run.sh): Connection closed`,
  summary:"2026-10-25 07:20:58,169 INFO tools.mcp_tool: MCP: registered 119 tool(s) from 3 server(s) (1 failed: pixel (Connection closed))",
  summary2:"2026-10-25 03:42:52,857 INFO tools.mcp_tool: MCP: registered 372 tool(s) from 9 server(s) (2 failed: AdsPower ([Errno 13] Permission denied: '/x/adspower-mcp.sh'); composio (MCP OAuth for 'composio': non-interactive environment and no cached tokens found. Run `hermes mcp login composio` interactively first.))",
  unknown:"2026-10-25 07:50:51,452 WARNING [local-d5728b] agent.tool_executor: Tool tool_call returned error (0.07s): {\"error\": \"'pixel_now' is not a known tool name. Deferred tools must be invoked through tool_call by the exact name tool_search returns (e.g. mcp__<server>__{tool}).",
@@ -53,8 +54,8 @@ test('alerts: the same thing is told once per 6 hours, sign-ins once',()=>{const
  assert.ok(shouldTell(told,'k',t));told.k=t;assert.ok(!shouldTell(told,'k',t+3600e3));assert.ok(shouldTell(told,'k',t+6*3600e3));
  told.s=t;assert.ok(!shouldTell(told,'s',t+400*864e5,Infinity));assert.ok(shouldTell(told,'other',t,Infinity))});
 test('run.sh: the Python it execs',()=>{
- const pixel='#!/usr/bin/env bash\n# Launches the locked Pixel tool server.\nunset PYTHONPATH VIRTUAL_ENV\nexec /home/claude/.hermes/pixel-tools/venv/bin/python /home/claude/.hermes/pixel-tools/pixel_mcp.py\n';
- assert.deepEqual(scriptInterpreters(pixel),['/home/claude/.hermes/pixel-tools/venv/bin/python']);
+ const pixel=`#!/usr/bin/env bash\n# Launches the locked Pixel tool server.\nunset PYTHONPATH VIRTUAL_ENV\nexec ${H}/.hermes/pixel-tools/venv/bin/python ${H}/.hermes/pixel-tools/pixel_mcp.py\n`;
+ assert.deepEqual(scriptInterpreters(pixel),[`${H}/.hermes/pixel-tools/venv/bin/python`]);
  assert.deepEqual(scriptInterpreters('#!/opt/tool/venv/bin/python3\nimport sys\n'),['/opt/tool/venv/bin/python3']);
  assert.deepEqual(scriptInterpreters('#!/bin/bash\ncd /x && FOO=1 exec /srv/app/bin/node server.js\n'),['/bin/bash','/srv/app/bin/node']);
  assert.deepEqual(scriptInterpreters('#!/bin/bash\n# exec /old/venv/bin/python (commented out)\nexec npx -y local-api-mcp\n'),['/bin/bash'])});

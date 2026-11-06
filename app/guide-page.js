@@ -1,0 +1,12 @@
+// System › Guide: how aqeelOS works, in a few short cards, for someone new (and for partners on their own install).
+const GUIDE=[
+ ['chat','Chatting','Pick an agent at the bottom left and write. It keeps working on the AI box when you close the tab. Ask me, Smart and Allow all (above the message box) decide which commands wait for your OK. / opens chat commands; Esc stops a reply.'],
+ ['user','Agents','Agents › Agents lists everyone you may use. Each has its own name, personality, model, skills, memory and chats. Edit one from its ⋯ menu; Sharing decides which people may chat with it or change it.'],
+ ['plug','Connected apps and owners','Every connection (Slack, Notion, n8n, a Google account, a plugin, a key) has one owner: the agent where it was signed in. Who can use gives other agents the same connection without signing in again; Owned by moves it. A notice says when a sign-in runs out, with what to do.'],
+ ['radio','Channels','Channels › Connections links WhatsApp, Telegram and Slack; each has an owner agent that answers it. Who can message lists the people waiting for your OK and the people already allowed.'],
+ ['zap','Automations','Schedules run a prompt on a timetable and send the result where you want. Automations › n8n opens the agent’s own n8n, without signing in, for workflows it builds and runs.'],
+ ['globe','Your own Chrome','Download the extension from Use my browser (the globe at the top), then Load unpacked in chrome://extensions. In a chat, choose My browser: the agent works in that chat’s own tab group, the tab glows, a cursor shows where it clicks, and Stop or Take over is always there. Alt+A opens the side chat.'],
+ ['cpu','Models and accounts','Models › Accounts lists the accounts that do the thinking and the order they are used in when one runs out. Agents’ models shows which model each agent uses.'],
+ ['shield','For admins','System › People: invite people and give them roles. Keys and secrets: API keys, never shown in full. Health: is everything running, restart the agents, updates. Showing at the top of a page switches between one agent and All agents.']];
+PAGES.guide=async(p,el)=>{setActions('');el.innerHTML=`<div class="guide">${GUIDE.map(([ic,t,d],i)=>`<div class="card guide-card" ${st(i)}><span class="ic blue">${icon(ic,18)}</span><div><h2>${esc(t)}</h2><p>${esc(d)}</p></div></div>`).join('')}</div>
+ <p class="hint" style="margin:16px 2px 0">Something missing or unclear? Ask your agent: it knows how aqeelOS works and can change most settings for you.</p>`};

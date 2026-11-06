@@ -6,7 +6,7 @@ sys.path.insert(0, sys.argv[1] if len(sys.argv) > 1 else '.')
 # the engine's own libraries (ruamel and the rest): the venv's python wrapper resets sys.path, so add its newest
 # site-packages by hand (the same as the gateway's environment, 30 Oct 2026)
 import glob, os
-_sp = sorted(glob.glob(os.path.expanduser("~/.hermes/installs/*/environments/*/venv/lib/python*/site-packages")) + glob.glob("/home/claude/.hermes/installs/*/environments/*/venv/lib/python*/site-packages"), key=os.path.getmtime)
+_sp = sorted(glob.glob(os.path.expanduser("~/.hermes/installs/*/environments/*/venv/lib/python*/site-packages")), key=os.path.getmtime)
 if _sp and _sp[-1] not in sys.path:
     sys.path.insert(1, _sp[-1])
 # the request comes as an argument: the engine's venv python is a wrapper that does not pass stdin on (30 Oct 2026)

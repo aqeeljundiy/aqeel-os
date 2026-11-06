@@ -17,10 +17,10 @@ import {providerOf,toolNeed,serviceName,displayName,PROVIDERS,CAN} from './conne
 import {allowed as skillOk,allowedNames} from './skills-policy.mjs';
 
 /* ---------- the parts that only decide (tested) ---------- */
-export const LEVELS={read:['read'],draft:['read','draft'],full:['read','draft','send']};
-export const LEVEL_NAME={read:'Read',draft:'Read & draft',full:'Full',on:'On',off:'Off'};
+export const LEVELS={read:['read'],edit:['read','edit'],draft:['read','edit','draft'],full:['read','edit','draft','send']};
+export const LEVEL_NAME={read:'Read',edit:'Read & edit Sheets/Docs',draft:'Read & draft',full:'Full',on:'On',off:'Off'};
 export const canOf=l=>[...(LEVELS[l]||LEVELS.full)];
-export const levelOf=can=>{const c=Array.isArray(can)?can:CAN;return c.includes('send')?'full':c.includes('draft')?'draft':'read'};
+export const levelOf=can=>{const c=Array.isArray(can)?can:CAN;return c.includes('send')?'full':c.includes('draft')?'draft':c.includes('edit')?'edit':'read'};
 export const toolLevel=(prov,tool)=>({read:'read',draft:'draft',send:'full'})[toolNeed(prov,tool)];
 // how many of an app's tools each level lets an agent use: {read, draft, full, total}
 export function toolCounts(tools,prov){const n={read:0,draft:0,full:0,total:0};for(const t of tools||[]){const l=toolLevel(prov,t);n.total++;n.full++;if(l!=='full')n.draft++;if(l==='read')n.read++}return n}
