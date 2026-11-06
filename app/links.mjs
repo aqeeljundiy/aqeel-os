@@ -22,6 +22,7 @@ export function createLinks({DATA,DASH,TOKEN,HERMES_HOME,python,setupAgent}){
  const SHARED_FILES=a=>readdir(homeOf(a)).then(l=>l.filter(n=>n==='auth.json'||/^google_(token|client_secret)[\w-]*\.json$/.test(n))).catch(()=>[]);
  // .env lines that belong to one channel connection stay the copy's own; every other key (API keys…) comes from the agent
  // (every SLACK_ key: a copy's own allowed users and ignored channels must not be overwritten by the agent's)
+ const BOT_KEY=/(^|_)(BOT|APP)_TOKEN(_|$)/;   // a bot's own identity, whatever the key is called
  const CHANNEL_KEY=/^(WHATSAPP|TELEGRAM|DISCORD|SLACK|SIGNAL|MATRIX|MATTERMOST|EMAIL|SMS|TWILIO|LINE|WECOM|WEIXIN|FEISHU|DINGTALK|QQ|YUANBAO|HOMEASSISTANT|TEAMS|GOOGLE_CHAT)_/;
 
  // the copy's settings = the agent's settings, keeping only the copy's own channels
@@ -57,8 +58,10 @@ if new!=cur:
   const keyOf=l=>(/^\s*(?:export\s+)?([A-Z0-9_]+)=/.exec(l)||[])[1];
   const envF=path.join(homeOf(name),'.env');
   // under the engine's .env lock, from the copy's file as it is at that moment (a pairing may just have written to it)
-  await editEnv(envF,cur=>{const own=cur.split('\n');const keep=own.filter(l=>{const k=keyOf(l);return k&&(CHANNEL_KEY.test(k)||k==='API_SERVER_KEY')});const keepKeys=new Set(keep.map(keyOf));
-   const next=[...keep,...main.filter(l=>{const k=keyOf(l);return k&&!CHANNEL_KEY.test(k)&&!keepKeys.has(k)}),''].join('\n');return next.trim()!==cur.trim()?next:null})}
+  // a bot's token (…_BOT_TOKEN, …_APP_TOKEN) is never copied from the agent: one bot token = one agent, or two would poll the
+  // same bot (Telegram conflicts, 6 Nov 2026). Such a line the copy already has stays until its owner removes it.
+  await editEnv(envF,cur=>{const own=cur.split('\n');const keep=own.filter(l=>{const k=keyOf(l);return k&&(CHANNEL_KEY.test(k)||BOT_KEY.test(k)||k==='API_SERVER_KEY')});const keepKeys=new Set(keep.map(keyOf));
+   const next=[...keep,...main.filter(l=>{const k=keyOf(l);return k&&!CHANNEL_KEY.test(k)&&!BOT_KEY.test(k)&&!keepKeys.has(k)}),''].join('\n');return next.trim()!==cur.trim()?next:null})}
 
  async function list(agent){await load();return Object.entries(db.links).filter(([,v])=>!agent||v.agent===agent).map(([name,v])=>({name,...v}))}
  async function create(agent,platform){

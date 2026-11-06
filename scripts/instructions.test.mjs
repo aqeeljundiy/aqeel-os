@@ -28,5 +28,8 @@ await I.restore('bot',4,'Aqeel');assert.match(await soul(),/max 3 an hour/,'undo
 // flags: override sections are found without the model
 await I.write('bot','# A\n## X (overrides every earlier rule)\n## Y — overrides earlier caps\n',{kind:'edit',by:'t'});await I.check('bot',{force:true});h=await I.history('bot');
 assert.ok(h.flags.some(f=>f.kind==='override'));
+// flags: a separate decisions file is a second place for rules
+await I.write('bot','# A\n- Decisions: /x/AQEEL_DECISIONS.md (read every run)\n',{kind:'edit',by:'t'});await I.check('bot',{force:true});h=await I.history('bot');
+assert.ok(h.flags.some(f=>f.kind==='decisions-file'&&f.quotes[0].quote.includes('AQEEL_DECISIONS.md')));
 assert.deepEqual(lineDiff('a\nb\nc','a\nc\nd').map(x=>x[0]).join(''),' - +');
 srv.close();console.log('instructions: all good');

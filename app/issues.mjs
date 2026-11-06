@@ -61,7 +61,7 @@ export function fixerPrompt(i,{rules=''}={}){return [
  rules?'- '+rules:null,
  '','End with exactly one line: RESULT: {"status":"fixed|failed|needs_owner","summary":"one or two plain sentences for the team","proof":"what you ran and saw","restart_ui":false}'].filter(x=>x!==null).join('\n')}
 
-export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=async()=>false,tellOwner=async()=>{},askOwner=null,approvalLink=id=>'',restartSelf=()=>{},nameOf=a=>a,log=m=>console.log(m),
+export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=async()=>false,tellOwner=async()=>{},askOwner=null,approvalLink=id=>'',restartSelf=()=>{},nameOf=a=>a,quiet=()=>null,log=m=>console.log(m),
  launch=null,alive=null}){
  const FILE=path.join(DATA,'issues.json'),POL=path.join(DATA,'team-policy.json'),DIR=path.join(DATA,'issues');let db=null,chain=Promise.resolve();
  const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.items||=[];db.runs||={}}return db};
@@ -70,7 +70,10 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  const policy=async()=>{try{return JSON.parse(await readFile(POL,'utf8'))}catch{return {teams:[],fixer:{on:false}}}};
  const view=i=>({...i,agentName:nameOf(i.agent),sig:undefined});
  // the owner's question: Approve / Decline buttons on Telegram (askOwner); the signed link only when buttons cannot be sent
- const ask=async(i,text)=>{if(askOwner){try{if(await askOwner(text,{id:i.id,sig:i.sig}))return}catch(e){log('issues: buttons not sent, using the link: '+e.message)}}
+ // test agents and a restart hold (alert-quiet.mjs): nothing goes to the owner, it is logged instead
+ const muted=(agent,text)=>{const q=quiet(agent||null);if(q)log('issues: not sent to the owner ('+(q==='test'?'test agent':'restart hold')+'): '+String(text).slice(0,200));return !!q};
+ const toOwner=async(agent,text)=>{if(!muted(agent,text))await tellOwner(text)};
+ const ask=async(i,text)=>{if(muted(i.agent,text))return;if(askOwner){try{if(await askOwner(text,{id:i.id,sig:i.sig}))return}catch(e){log('issues: buttons not sent, using the link: '+e.message)}}
   await tellOwner(text+'\n\nApprove or decline: '+approvalLink(i.id,i.sig))};
  // an agent files an issue: o = {agent, what, missing, evidence, proposed_fix, affects, needs, origin:{platform, uid, who, chat, thread}}
  const file=o=>queue(async()=>{await load();const pol=await policy();const m=clip(o.missing,500).trim();if(!m)throw Error('Say what is broken (missing).');
@@ -121,7 +124,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   if(i){i.result=res;i.updated=now();
    if(res.status==='fixed'){i.state='fixed';i.fixed=now();await reply(i,'Fixed by aqeelOS: '+res.summary).catch(()=>{})}
    else if(res.status==='needs_owner'||i.attempts>=2){i.state=res.status==='needs_owner'?'waiting':'failed';
-    {const t=nameOf(i.agent)+': a fix '+(res.status==='needs_owner'?'needs your OK':'failed')+'\n\nProblem: '+i.missing+'\nFixer: '+res.summary;await (res.status==='needs_owner'?ask(i,t):tellOwner(t)).catch(()=>{})}
+    {const t=nameOf(i.agent)+': a fix '+(res.status==='needs_owner'?'needs your OK':'failed')+'\n\nProblem: '+i.missing+'\nFixer: '+res.summary;await (res.status==='needs_owner'?ask(i,t):toOwner(i.agent,t)).catch(()=>{})}
     await reply(i,res.status==='needs_owner'?'This needs the owner\'s OK before it can be changed; they have been asked. Not fixed yet.':'aqeelOS could not fix this by itself yet; the owner has been told. Not fixed yet: '+res.summary).catch(()=>{})}
    else i.state='approved'}
   await save();log('issues: fixer '+r.id+' ended: '+res.status);if(res.status==='fixed'&&res.restart_ui)setTimeout(()=>restartSelf('fixer '+r.id),3000)}

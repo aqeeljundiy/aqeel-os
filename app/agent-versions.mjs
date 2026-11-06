@@ -71,7 +71,7 @@ export async function recordAgentChange(e={}){if(!current||!e.agent)return null;
  return current(e.agent,{kind:e.kind,target:e.id??e.target??'',what,why:e.why||'',by:e.by,before:e.before,after:e.after,undoable:e.kind!=='instructions'&&e.kind!=='access'})}
 export function createAgentVersions({DATA,HERMES_HOME,DASH,DASH_TOKEN,PUBLIC_URL='',listAgents,nameOf=a=>a,readConfig,setKey,pick,
  instructions=null,kirimdev=null,issues=null,health=null,teamGroups=null,selfRuns=null,bin,python=async()=>null,
- ping=null,tellOwner=async()=>{},log=m=>console.log(m),now=()=>Date.now(),live=false}){
+ ping=null,tellOwner=async()=>{},quiet=()=>null,log=m=>console.log(m),now=()=>Date.now(),live=false}){
  const home=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const dir=a=>path.join(DATA,'agent-versions',a);
  const api=(p,o={})=>fetch(DASH+'/api'+p,{signal:AbortSignal.timeout(o.timeout||60000),...o,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'}}).then(async r=>{const j=await r.json().catch(()=>null);if(!r.ok)throw Error(j?.detail||'HTTP '+r.status);return j});
@@ -223,7 +223,7 @@ export function createAgentVersions({DATA,HERMES_HOME,DASH,DASH_TOKEN,PUBLIC_URL
    if(mine.length&&mine[0].v>1){await instructions.restore(a,mine[0].v-1,'aqeelOS (automatic rollback)');done.push('instructions back to version '+(mine[0].v-1))}}catch(e){failed.push('instructions: '+e.message)}}
   const text=nameOf(a)+' stopped answering after changing itself, so aqeelOS undid '+(done.length?done.length+' change'+(done.length===1?'':'s')+': '+done.join('; '):'nothing it could undo')+(failed.length?'. Could not undo: '+failed.join('; '):'')+'. Last reason: '+clip(why,200);
   await lock(a,async()=>{const d4=await load(a);d4.events.push({kind:'rollback',at:now(),text});d4.watch=done.length?{since:now(),due:now()+3*60e3,fails:0}:null;await save(a)});
-  log('agent-versions: '+text);await tellOwner(text).catch(()=>{});
+  log('agent-versions: '+text);{const q=quiet(a);if(q)log('agent-versions: not sent to the owner ('+(q==='test'?'test agent':'restart hold')+')');else await tellOwner(text).catch(()=>{})}
   if(issues)await issues.file({agent:a,what:'Automatic rollback',missing:nameOf(a)+' stopped answering after a self-change',evidence:text,proposed_fix:'Check its logs (my_logs) and the undone changes; the agent can make them again correctly.',origin:{}}).catch(()=>{})}}
  async function arm(a){return lock(a,async()=>{const d=await load(a);d.watch={since:d.watch?.since&&now()-d.watch.since<HOUR?d.watch.since:now(),due:now()+3*60e3,fails:0};await save(a)})}
  async function skillsTick(){for(const a of (await listAgents()).filter(x=>x!=='default'&&!x.includes('--'))){try{const v=await skillsSnap(a,{by:nameOf(a),why:'its own skill change'});if(v.length)log('agent-versions: '+a+' changed '+v.length+' skill(s)')}catch(e){log('agent-versions skills '+a+': '+e.message)}}}

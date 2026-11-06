@@ -4,8 +4,9 @@ import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {alertKey,alertable,dropStats,dropProblem,scheduleProblems,memberProblem,alertPlan,alertText,overview,createAgentHealth} from '../app/agent-health.mjs';
+import {alertKey,alertable,dropStats,dropProblem,scheduleProblems,memberProblem,alertPlan,alertText,overview,createAgentHealth,duplicateProcesses} from '../app/agent-health.mjs';
 import {createBottlenecks} from '../app/bottlenecks.mjs';
+import {skillRefs,checkSkills} from '../app/skill-check.mjs';
 
 const NOW=Date.parse('2026-11-05T12:00:00Z'),line=(o)=>JSON.stringify({t:(NOW-(o.ago||0))/1000,platform:'whatsapp',partial:false,retried:false,recovered:false,...o});
 
@@ -101,3 +102,25 @@ test('an agent can report a system problem; it shows as one, not as "blocked"',a
  await bn.report('sesa',{missing:'Access to the Finance folder'});
  assert.ok((await bn.list({admin:false,mayUse:()=>true})).some(y=>y.kind==='report'&&/is blocked/.test(y.title)));
 });
+
+test('the same script of one agent running twice is a problem; its subshell, other agents and new starts are not',()=>{
+ const W='/home/u/workspaces/continue-threads/.tools',agentOf=r=>/continue-threads/.test(r.cwd+r.args)?'continue-threads':/sesa/.test(r.cwd)?'sesa':null;
+ const rows=[{pid:10,ppid:1,age:900,user:'claude',args:'bash comment_loop.sh',cwd:W},{pid:11,ppid:10,age:900,user:'claude',args:'bash comment_loop.sh',cwd:W},
+  {pid:20,ppid:1,age:400,user:'claude',args:'/bin/bash '+W+'/comment_loop.sh',cwd:'/home/u'},{pid:30,ppid:1,age:300,user:'claude',args:'bash comment_loop.sh',cwd:W},{pid:31,ppid:1,age:60,user:'claude',args:'bash comment_loop.sh',cwd:W},
+  {pid:40,ppid:1,age:900,user:'claude',args:'python3 dm_watch.py',cwd:W},{pid:50,ppid:1,age:900,user:'ag-sesa',args:'python3 dm_watch.py',cwd:'/home/u/workspaces/sesa'},
+  {pid:60,ppid:1,age:900,user:'claude',args:'python3 -I job.py --a',cwd:W},{pid:61,ppid:1,age:900,user:'claude',args:'python3 -I job.py --b',cwd:W},
+  // one tool server per agent: the same script in each agent's own folder is not a duplicate
+  {pid:70,ppid:1,age:900,user:'claude',args:'node /app/guard.mjs x',cwd:'/home/u/workspaces/continue-threads'},{pid:71,ppid:1,age:900,user:'claude',args:'node /app/guard.mjs x',cwd:'/home/u/workspaces/sesa'}];
+ const d=duplicateProcesses(rows,agentOf);
+ assert.equal(d.length,1,JSON.stringify(d));assert.equal(d[0].agent,'continue-threads');assert.match(d[0].text,/comment_loop.sh runs 2 times at once/);assert.match(d[0].detail,/10, 30/);
+ assert.equal(d[0].topic,'health|continue-threads|twice|comment_loop.sh')});
+
+test('a skill pointing to a missing file is found; example paths in its text are not',async()=>{
+ const r=skillRefs('Read references/a.md and [b](templates/b.md). Run: python3 ~/.hermes/scripts/x.py --go\nExample: ~/project/foo.txt, scratch: python3 ~/.hermes/cache/scratch/t.py, <dir>/references/z.md');
+ assert.deepEqual(r.own.sort(),['references/a.md','templates/b.md']);assert.deepEqual(r.run,['~/.hermes/scripts/x.py']);
+ const D=await mkdtemp(path.join(tmpdir(),'sk-'));await mkdir(path.join(D,'skills','cat','one','references'),{recursive:true});await mkdir(path.join(D,'skills','cat','two'),{recursive:true});
+ await writeFile(path.join(D,'skills','cat','one','SKILL.md'),'see references/here.md and references/gone.md');await writeFile(path.join(D,'skills','cat','one','references','here.md'),'x');
+ await writeFile(path.join(D,'skills','cat','two','SKILL.md'),'run: bash ~/tool.sh');
+ const res=await checkSkills(path.join(D,'skills'),{home:D});
+ assert.deepEqual(res.sort((a,b)=>a.skill<b.skill?-1:1),[{skill:'cat/one',missing:['references/gone.md']},{skill:'cat/two',missing:['~/tool.sh']}]);
+ await writeFile(path.join(D,'tool.sh'),'');assert.equal((await checkSkills(path.join(D,'skills'),{home:D})).length,1)});

@@ -143,3 +143,14 @@ test('with agent health there, a failed handoff is a health problem, solved once
  const raw=meta('628123','?');await k2.receive('continue-support',{'x-kirim-signature':sign(raw),'x-kirim-event':'message.received'},Buffer.from(raw));await t.settle();
  assert.equal(probs.length,1);assert.match(probs[0][1],/^handoff\|h/);assert.match(probs[0][2],/could not post a handoff/);
  k2.ok=true;k2.later=61e3;await k2._tick();assert.deepEqual(oks,[['continue-support',probs[0][1]]])});
+
+test('a handoff nobody answers in 30 minutes is a health problem once; the team answering on WhatsApp clears it',async()=>{const probs=[],oks=[];let later=0;
+ const t=await make({agentSays:'HANDOFF: x'});
+ const k2=createKirimdev({DATA:t.DATA,WORK:t.DATA,apiKey:async()=>'k',fetchImpl:async(url,o)=>({ok:true,json:async()=>(/\/messages\?/.test(url)?{data:[]}:{data:{id:'m'+Math.random(),status:'queued'}})}),echoWait:0,
+  teamGroup:async()=>({chatId:-1,topics:{questions:3}}),runAgent:async()=>'HANDOFF: x',telegram:async()=>7,
+  problem:async(a,topic,title)=>{probs.push([a,topic,title])},solved:async(a,topic)=>{oks.push([a,topic])},now:()=>Date.now()+later});
+ const raw=meta('628123','ada COA?');await k2.receive('continue-support',{'x-kirim-signature':sign(raw),'x-kirim-event':'message.received'},Buffer.from(raw));await t.settle();
+ await k2._tick();assert.equal(probs.length,0,'not before 30 minutes');
+ later=31*60e3;await k2._tick();await k2._tick();assert.equal(probs.length,1,'told once');assert.match(probs[0][1],/^unanswered\|h/);assert.match(probs[0][2],/no answer after 30 minutes/);
+ const s=sentEv('628123','app','msg_team','cnv_A');await k2.receive('continue-support',{'x-kirim-signature':sign(s,Math.floor((Date.now()+later)/1000)),'x-kirim-event':'message.sent'},Buffer.from(s));
+ assert.deepEqual(oks,[['continue-support',probs[0][1]]]);later=40*60e3;await k2._tick();assert.equal(probs.length,1,'not again')});

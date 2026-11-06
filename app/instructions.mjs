@@ -101,11 +101,14 @@ export function createInstructions({DATA,HERMES_HOME,DASH,DASH_TOKEN,python,root
  // contradiction flags
  const checking=new Set(),timers=new Map();
  const ask=(system,user)=>new Promise(async res=>{const py=python&&await python();if(!py)return res(null);const c=execFile(py,[path.join(root,'scripts','aux-llm.py'),path.join(HERMES_HOME,'hermes-agent')],{timeout:150000,maxBuffer:4e6,cwd:HERMES_HOME},(err,out)=>res(err?null:String(out)));c.stdin.end(JSON.stringify({system,user,max_tokens:2500}))});
+ const decisionFiles=t=>String(t).split('\n').filter(l=>/\b[\w.-]*DECISIONS[\w.-]*\.(md|txt|json)\b|\bdecisions (tab|sheet)\b/i.test(l)).map(l=>l.trim().slice(0,240));
  const overrides=t=>{const out=[];String(t).split('\n').forEach((l,i)=>{if(/\boverrid(e|es|ing)\b/i.test(l)&&/^(#|\s*-|\s*\*|\d)/.test(l)||/^#+ .*\boverrid/i.test(l))out.push(l.trim().slice(0,240))});return out};
  async function check(a,{force=false}={}){if(checking.has(a))return;checking.add(a);try{
   const soul=await readSoul(a)??'';const mem=(await Promise.all(['MEMORY.md','USER.md'].map(f=>readFile(path.join(home(a),'memories',f),'utf8').catch(()=>'')))).join('\n§\n');
   const h=sha(soul+'\u0000'+mem),db=await load(a);if(!force&&db.flags?.hash===h)return;
   const items=[];const ov=overrides(soul);
+  // decisions kept in a separate file (AQEEL_DECISIONS.md, a sheet tab) instead of here: a second place for the same rules
+  const sep=decisionFiles(soul);if(sep.length)items.push({kind:'decisions-file',title:'Decisions are also kept in a separate file',detail:'These instructions send the agent to another file for decisions. Move each rule from it into the instructions (change_instructions), where its history is kept, then drop the pointer, so every rule is in one place.',quotes:sep.slice(0,6).map(q=>({where:'instructions',quote:q}))});
   if(ov.length>1)items.push({kind:'override',title:ov.length+' sections say they override earlier rules',detail:'Rules stacked on top of each other. Change each rule where it is written instead, so it is said once.',quotes:ov.slice(0,12).map(q=>({where:'instructions',quote:q}))});
   const out=await ask('You check an AI agent\'s standing instructions for contradictions. Answer only with JSON.',
    'Below are an agent\'s INSTRUCTIONS and its MEMORY notes. List every rule that is given two or more DIFFERENT values or answers, for example two different daily caps, two different hourly limits, a word that is banned in one place and allowed in another, or two places that each claim to win. Only real contradictions about the same rule, not rules that are merely related. For each value quote the exact words (copied verbatim, at most 25 words) and say where they are (instructions or memory).\n'+

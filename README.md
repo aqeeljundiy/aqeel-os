@@ -60,6 +60,12 @@ aqeelOS: a new interface for Hermes Agent on the AI VPS, in the Elkiya design. L
 | The approved mockup | https://ai.elkiya.com/mockup |
 | The original Hermes dashboard | still runs on the box: `ssh -N -L 9119:127.0.0.1:9119 ai-vps`, then http://localhost:9119 |
 
+## Restart hold and quiet alerts
+- **Restart hold**: while a long build or migration runs, write `<UI_DATA_DIR>/restart-hold.json` as `{"until": <epoch ms>, "why": "<text>"}`. Automatic engine restarts (`restartGateway`) are skipped and logged until `until`; owner alerts from System › Health and the automations guard are written to the log instead of sent. Remove the file when done and restart once. An expired hold is ignored, so a forgotten file never blocks for good.
+- **Test agents**: list agent names (one per line, `#` comments) in `$HERMES_HOME/.aqeelos-test-agents`. Their problems still show on Health, but the owner is not alerted about them.
+- **Fixed notes**: when a problem the owner was alerted about goes away by itself, one short "Fixed by itself" line follows. Nothing is sent for problems that were never alerted.
+- Code: `app/alert-quiet.mjs`; tests `scripts/alert-quiet.test.mjs`, `scripts/busy.test.mjs`.
+
 ## Local development
 `node --env-file=<dev.env> app/server.mjs` with `HERMES_DASH`/`HERMES_API` pointing at an SSH tunnel to the box (see `.claude/launch.json`). `dev.env` holds `API_SERVER_KEY`, `HERMES_DASHBOARD_SESSION_TOKEN`, `UI_PASSWORD_HASH`, `UI_SECRET` and `UI_INSECURE_COOKIE=1`; keep it out of this folder.
 

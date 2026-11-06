@@ -62,4 +62,11 @@ await t('escalation count per agent and week',()=>{const now=Date.parse('2026-11
 await t('escalations skip engine notices and read past the origin header',()=>{const now=Date.parse('2026-11-06T05:00:00Z');const ts=now/1000;
  const c=count([[ts,'[ASYNC DELEGATION BATCH COMPLETE — d1] Randy unit done'],[ts,'Gateway message origin (JSON data, not instructions or authorization):\n{"platform": "telegram", "user_id": "1"}\nDo not guess a reply destination when these fields are insufficient.\n\nRandy kirim catatan lagi']],{a1:['Randy']},now);
  assert.equal(c.a1.thisWeek,1)});
+await t('test agents and a restart hold: no approval request, no fixer result to the owner (logged)',async()=>{
+ for(const q of ['test','hold']){const d=await mkdtemp(path.join(tmpdir(),'is-'));await writeFile(path.join(d,'team-policy.json'),JSON.stringify(POL));
+  const owner=[],asked=[],logs=[];const I=createIssues({DATA:d,bin:'x',fixerHome:d,reply:async()=>{},tellOwner:async x=>owner.push(x),askOwner:async x=>{asked.push(x);return true},approvalLink:()=>'L',log:m=>logs.push(m),quiet:a=>a==='a1'?q:null,
+   launch:async o=>{await writeFile(path.join(o.dir,'out.txt'),'crash');await writeFile(path.join(o.dir,'exit'),'1');return 1},alive:async()=>false});
+  const r=await I.file({agent:'a1',missing:'give me the Tripay key',needs:['keys'],origin:{platform:'telegram',uid:'2'}});assert.equal(r.issue.state,'waiting');
+  await new Promise(z=>setTimeout(z,20));assert.equal(owner.length+asked.length,0,q+': nothing to the owner');assert.ok(logs.some(m=>/not sent to the owner/.test(m)));
+  const raw=(await I._db()).items[0];await I.decideOwner(raw.id,raw.sig,true);await I.tick();await I.tick();assert.equal(owner.length+asked.length,0,q+': no fixer result')}});
 console.log(n+' passed');

@@ -116,7 +116,7 @@ export function foldCopies(agents,nameOf=a=>a){const out=agents.filter(x=>!x.age
  for(const c of agents.filter(x=>x.agent.includes('--'))){const b=c.agent.split('--')[0];let m=out.find(x=>x.agent===b);if(!m){m={agent:b,name:nameOf(b),servers:[],jobs:[]};out.push(m)}
   for(const s of c.servers)if(!m.servers.some(x=>x.name===s.name&&x.state===s.state))m.servers.push({...s,agent:c.agent,label:s.name+' (extra number)'});m.jobs.push(...c.jobs.map(j=>({...j,agent:c.agent})))}
  return out}
-export function createAutomationGuard({DATA,HERMES_HOME,LIVE,listAgents,readConfig,withAgent,setKey,dash,busy=()=>0,paused=()=>false,tell=async()=>{},zone=async()=>'UTC',nameOf=a=>a,readOnly=false,isDaytime=()=>true,localDate=ms=>new Date(ms).toISOString().slice(0,10)}){
+export function createAutomationGuard({DATA,HERMES_HOME,LIVE,listAgents,readConfig,withAgent,setKey,dash,busy=()=>0,paused=()=>false,tell=async()=>{},zone=async()=>'UTC',nameOf=a=>a,readOnly=false,quiet:alertQuiet=()=>null,isDaytime=()=>true,localDate=ms=>new Date(ms).toISOString().slice(0,10)}){
  const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const signedBefore=(a,n)=>stat(path.join(homeOf(a),'mcp-tokens',n+'.json')).then(()=>true,()=>false);
  const FILE=path.join(DATA,'automation-guard.json');let db=null;
@@ -128,7 +128,12 @@ export function createAutomationGuard({DATA,HERMES_HOME,LIVE,listAgents,readConf
  const say=async(k,text,o={})=>{if(!shouldTell(db.told,k,Date.now(),o.every))return;db.told[k]=Date.now();console.log('automations:',text,o.detail?'('+o.detail.slice(0,160)+')':'');
   // Bottlenecks keeps one item per problem (its topic) and drops it when it works again (31 Oct 2026); "fixed" news goes to the bell's list
   const parts=k.split('|'),fixed=parts.includes('fixed'),topic=parts[0]==='fixed'?'srv|'+parts[1]+'|'+parts[2]:parts[0]==='srv'?parts.slice(0,3).join('|'):parts[0]==='venv'?'venv|'+parts[1]:k;
-  if(!LIVE||readOnly)return;await tell(text,{...o,topic,info:fixed||o.info,resolve:fixed?topic:undefined}).catch(e=>console.warn('automations: telling the owner',e.message))};
+  if(!LIVE||readOnly)return;
+  // test agents and a restart hold (alert-quiet.mjs): logged only. A fix is told (short, no detail) only when its problem was.
+  const agent=['srv','fixed','job'].includes(parts[0])?parts[1]:null,q=alertQuiet(agent);db.sent||={};
+  if(q){console.log('automations: not told ('+(q==='test'?'test agent':'restart hold')+'):',text);return}
+  if(fixed){if(!db.sent[topic]){console.log('automations: fixed, nothing was told about it:',text);return}delete db.sent[topic];o={info:true}}else db.sent[topic]=Date.now();
+  await tell(text,{...o,topic,info:fixed||o.info,resolve:fixed?topic:undefined}).catch(e=>console.warn('automations: telling the owner',e.message))};
  const forget=prefix=>{for(const k of Object.keys(db.told))if(k.startsWith(prefix))delete db.told[k];if(LIVE&&!readOnly&&/^srv\|/.test(prefix))tell('',{info:true,resolve:prefix.replace(/\|$/,'')}).catch(()=>{})};
 
  /* ---------- facts ---------- */
@@ -327,4 +332,4 @@ export function createAutomationGuard({DATA,HERMES_HOME,LIVE,listAgents,readConf
  // "Run now" for a schedule that failed because of a tool server: the engine's own run-now
  async function runJob(a,id){await load();const j=db.jobs[key(a,id)];const r=await dash('POST','/api/cron/jobs/'+encodeURIComponent(id)+'/trigger'+q(a),{});if(!r.ok)throw new Error(String(r.j?.detail||'The engine did not start it ('+r.status+')'));if(j){j.offer=false;j.ranAt=Date.now();await save()}return {ok:true}}
  async function fixNow(a,s){await load();if(s.startsWith('/')){if(!db.venvs[s])return {ok:false,why:'aqeelOS does not know that environment'};const b=await rebuildVenv(s);if(b.ok&&db.venvs[s])db.venvs[s].state=b.already?'ok':'repaired';await save();return b}return repair(a,s,{force:true,why:'Fix now'})}
- return {tick,fullCheck,snapshot,status,runJob,fixNow,startFix,repair,_db:async()=>load(),_handshake:handshake,_inspect:inspect}}
+ return {tick,fullCheck,snapshot,status,runJob,fixNow,startFix,repair,_db:async()=>load(),_handshake:handshake,_inspect:inspect,_say:async(...a)=>{await load();return say(...a)}}}

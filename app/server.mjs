@@ -53,6 +53,7 @@ import {createPluginHost} from './plugin-host.mjs';
 import {createEngineUpdates} from './engine-updates.mjs';
 import {createAutomationGuard} from './automation-guard.mjs';
 import {createAgentHealth} from './agent-health.mjs';
+import {createQuiet,holdActive} from './alert-quiet.mjs';
 import {createConnectedAccounts} from './connected-accounts.mjs';
 import {createSharing,createSecretAccess,LEVELS as SHARE_LEVELS} from './sharing.mjs';
 import {createAgentAccess,MAIN_RULE_LINES} from './agent-access.mjs';
@@ -562,7 +563,7 @@ let heldRestart=null;
 function restartGateway(why,{wait=true,waitMax=360,auto=false,bridges=false,restore=false}={}){
  // aqeelos:restart-hold: while a long build runs (DATA/restart-hold.json {until,why}), automatic engine restarts wait.
  // The build removes the file and restarts once at the end. An expired hold is ignored, so it can never block for good.
- try{const h=JSON.parse(readFileSync(path.join(DATA,'restart-hold.json'),'utf8'));if(Date.now()<Number(h.until||0)){heldRestart=why;console.log('engine restart held ('+(h.why||'build running')+'):',why);return Promise.resolve()}}catch{}
+ try{const h=JSON.parse(readFileSync(path.join(DATA,'restart-hold.json'),'utf8'));if(holdActive(h)){heldRestart=why;console.log('engine restart held ('+(h.why||'build running')+'):',why);return Promise.resolve()}}catch{}
  // never during a restore: every caller (Restart, Start, a hook or channel change, the watches) waits for its end, and the
  // restore starts the agents itself when it is done (busy.mjs)
  if(!mayStartAgents({restoring:restoreBusy(),forRestore:restore})){console.log('gateway restart left for after the restore:',why);return Promise.resolve()}
@@ -726,7 +727,8 @@ async function toOwner(text){const ch=await relay.channelsFor('default');const c
 /* Automations guard (automation-guard.mjs, 25 Oct 2026): tool servers that stop connecting or whose Python went away
    are fixed by themselves; problems go to Bottlenecks and fixes to the bell's list, a failed fix also goes to WhatsApp at once. Agent copies
    (agent--2) have their own tool servers and logs, so they are watched too. */
-const guard=createAutomationGuard({DATA,HERMES_HOME,LIVE:LIVE_APP,readConfig,withAgent,setKey,listAgents:()=>agentNames({copies:true}),nameOf:a=>a.includes('--')?(NAMES[a.split('--')[0]]||a.split('--')[0])+' (extra number)':NAMES[a]||(a==='default'?'aqeelOS':a),
+const alertQuiet=createQuiet({DATA,HERMES_HOME});
+const guard=createAutomationGuard({DATA,HERMES_HOME,LIVE:LIVE_APP,quiet:alertQuiet,readConfig,withAgent,setKey,listAgents:()=>agentNames({copies:true}),nameOf:a=>a.includes('--')?(NAMES[a.split('--')[0]]||a.split('--')[0])+' (extra number)':NAMES[a]||(a==='default'?'aqeelOS':a),
  dash:(method,p,body)=>fetch(DASH.origin+p,{method,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:body&&method!=='GET'&&method!=='DELETE'?JSON.stringify(body):undefined,signal:AbortSignal.timeout(90000)}).then(async r=>({ok:r.ok,status:r.status,j:await r.json().catch(()=>({}))})),
  busy:()=>liveCount()+engAgents.n,paused:()=>guardPaused({engineUpdate:engineUpd.busy(),gwRestarting:!!gwRestarting,restore:backups.busy()}),zone:async()=>(await readConfig('default').catch(()=>null))?.timezone||'Asia/Jakarta',isDaytime:dayNow,localDate:(ms,tz)=>localAt(ms,tz).date,
  tell:async(text,{detail,whatsapp,bell=true,topic,info,resolve}={})=>{if(resolve)await bottlenecks.resolve(resolve).catch(()=>{});if(!text)return;if(bell)await bottlenecks.event('automations',text,detail||'',{topic,info,told:!!whatsapp}).catch(()=>{});if(whatsapp)await toOwner(text+(detail?'\n'+detail:''))}});
@@ -1213,7 +1215,7 @@ const selfRuns=createSelfRuns({DATA,nameOf:srName,day:t=>localAt(t,SR_TZ).date,h
    with its problems (the Bottlenecks items, grouped per agent, plus failed messages this week); every 5 minutes the live
    app checks schedules, failed messages and Telegram groups, and tells the owner on Telegram once about each new
    problem. Other features report their own checks with health.problem(agent,kind,text,{topic,fix}) and health.ok(agent,topic). */
-const health=createAgentHealth({DATA,HERMES_HOME,bottlenecks,python:enginePython,link:PUBLIC_URL+'/#/system/health',
+const health=createAgentHealth({DATA,HERMES_HOME,bottlenecks,quiet:alertQuiet,python:enginePython,link:PUBLIC_URL+'/#/system/health',
  listAgents:()=>listAgents(),nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a),tellOwner:srToOwner,
  engineUp:async()=>!gwStopped&&!gwRestarting&&!!await gatewayPid(),
  botToken:async a=>(/^TELEGRAM_BOT_TOKEN=["']?([^"'\s]+)/m.exec(await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'.env'),'utf8').catch(()=>''))||[])[1]||null,
@@ -1241,7 +1243,7 @@ async function issueAsk(text,{id,sig}){if(PORT!==4400)return false;await pressKe
   const j=r?await r.json().catch(()=>({})):{};if(j.ok)sent++;else console.warn('issue buttons: Telegram refused',j.description||r?.status)}
  if(sent)await bottlenecks.event('issues',text.split('\n')[0],text,{info:true}).catch(()=>{});return sent>0}
 const issues=createIssues({DATA,home:homedir(),bin:path.join(homedir(),'.local','bin','aqeelos'),fixerHome:homedir(),nameOf:a=>NAMES[a]||a,
- reply:replyInTopic,tellOwner:srToOwner,askOwner:issueAsk,approvalLink:(id,sig)=>PUBLIC_URL+'/issue/'+id+'/'+sig,
+ reply:replyInTopic,tellOwner:srToOwner,askOwner:issueAsk,quiet:alertQuiet,approvalLink:(id,sig)=>PUBLIC_URL+'/issue/'+id+'/'+sig,
  restartSelf:why=>{console.log('restarting the web app after',why);setTimeout(()=>process.exit(0),500)}});
 const escalations=createEscalations({HERMES_HOME,python:enginePython,policy:()=>issues.policy()});
 // the chat a tool call came from (the agent's newest person-chat): who asked, and where to answer
@@ -1280,7 +1282,7 @@ if(PORT===4400&&LIVE_APP){setTimeout(()=>health.tick().catch(e=>console.warn('he
 const avPing=a=>new Promise(res=>{const f=path.join(DATA,'agent-versions-ping-'+a+'.txt');writeFile(f,'aqeelOS health check after a change you made to yourself. Reply with exactly: OK').then(()=>
  execFile(path.join(homedir(),'.local','bin','aqeelos'),['-p',a,'chat','--oneshot','-Q','--source','health-ping','--query-file',f],{cwd:path.join(homedir(),'workspaces',a),timeout:240e3,maxBuffer:4e6},(e,o,er)=>res(e?{ok:false,why:'it did not answer ('+(e.code??e.signal)+'): '+String(er||'').trim().split('\n').pop()}:/\bOK\b/i.test(String(o))?{ok:true}:{ok:false,why:'answered without OK: '+String(o).slice(0,200)}))).catch(e=>res({ok:false,why:e.message}))});
 const versions=createAgentVersions({DATA,HERMES_HOME,DASH:DASH.origin,DASH_TOKEN,PUBLIC_URL,listAgents:()=>listAgents(),nameOf:a=>NAMES[a]||a,readConfig,setKey,pick,
- instructions,kirimdev,issues,health,teamGroups,selfRuns,bin:path.join(homedir(),'.local','bin','aqeelos'),ping:avPing,tellOwner:srToOwner,live:PORT===4400&&LIVE_APP});
+ instructions,kirimdev,issues,health,teamGroups,selfRuns,bin:path.join(homedir(),'.local','bin','aqeelos'),ping:avPing,tellOwner:srToOwner,quiet:alertQuiet,live:PORT===4400&&LIVE_APP});
 if(PORT===4400&&LIVE_APP){setInterval(()=>versions.watchTick().catch(e=>console.warn('agent-versions watch',e.message)),60e3).unref();setTimeout(()=>versions.skillsTick().catch(()=>{}),90e3).unref();setInterval(()=>versions.skillsTick().catch(e=>console.warn('agent-versions skills',e.message)),10*60e3).unref()}
 // which agents get it: their own Linux user is set up (commands and files run as ag-<agent>); never the main agent,
 // its extra-number copies, the help agent or (on the live app) a test copy's agents

@@ -10,7 +10,7 @@ const server=readFileSync(new URL('../app/server.mjs',import.meta.url),'utf8');
 test('restartGateway: refused while a restore runs, except the restore\'s own start',()=>{
  assert.equal(mayStartAgents({restoring:true}),false);assert.equal(mayStartAgents({restoring:true,forRestore:true}),true);assert.equal(mayStartAgents({restoring:false}),true);
  // the check is the first thing restartGateway does, before a queued restart or gwStopped=false
- const body=server.slice(server.indexOf('function restartGateway('),server.indexOf('function restartGateway(')+700);
+ const body=server.slice(server.indexOf('function restartGateway('),server.indexOf('function restartGateway(')+1100);
  assert.ok(/if\(!mayStartAgents\(\{restoring:restoreBusy\(\),forRestore:restore\}\)\)/.test(body));assert.ok(body.indexOf('mayStartAgents')<body.indexOf('if(gwRestarting)'));
  assert.ok(server.includes('restoreBusy=()=>backups.busy()'));assert.ok(/startEngine:[^\n]*restartGateway\([^)]*restore:true/.test(server))});
 test('healthz busy: counts a restore, so deploy.sh waits',()=>{
@@ -21,3 +21,11 @@ test('automations guard: paused during a restore',()=>{
  assert.ok(/paused:\(\)=>guardPaused\(\{[^}]*restore:backups\.busy\(\)/.test(server))});
 test('the app\'s own restart and the engine\'s start and stop say no during a restore',()=>{
  assert.ok(/'\/ui\/gateway\/restart'[^\n]*if\(backups\.busy\(\)\)return send\(res,409/.test(server));assert.ok(server.includes("if(p.startsWith('/hapi/gateway/')&&req.method==='POST'&&backups.busy())return send(res,409"))});
+test('restart hold: DATA/restart-hold.json holds automatic engine restarts until `until`, an expired one is ignored',async()=>{
+ const {holdActive}=await import('../app/alert-quiet.mjs');const now=Date.now();
+ assert.equal(holdActive({until:now+60e3,why:'build'},now),true,'held while until > now');
+ assert.equal(holdActive({until:now-1,why:'build'},now),false,'expired: ignored');assert.equal(holdActive(null,now),false);assert.equal(holdActive({},now),false);
+ // restartGateway checks the hold first, before the restore check and before any restart is queued
+ const body=server.slice(server.indexOf('function restartGateway('),server.indexOf('function restartGateway(')+900);
+ assert.ok(body.includes("path.join(DATA,'restart-hold.json')")&&/if\(holdActive\(h\)\)\{heldRestart=why/.test(body));
+ assert.ok(body.indexOf('restart-hold.json')<body.indexOf('mayStartAgents'))});

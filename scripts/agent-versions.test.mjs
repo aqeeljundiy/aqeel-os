@@ -47,7 +47,7 @@ async function make(o={}){const root=await mkdtemp(path.join(tmpdir(),'av-'));co
  await writeFile(path.join(H,'profiles','bot','skills','cat','one','SKILL.md'),'v1\n');const d=await fakeDash();let t=Date.UTC(2026,10,6,8,0);const told=[],filed=[],cfg={stt:{language:'id'}};
  const v=createAgentVersions({DATA,HERMES_HOME:H,DASH:d.url,DASH_TOKEN:'x',listAgents:async()=>['default','bot'],nameOf:a=>a==='bot'?'Bot':a,readConfig:async()=>cfg,
   setKey:async(a,k,val)=>{const p=k.split('.');let x=cfg;while(p.length>1)x=x[p.shift()]||={};x[p[0]]=val;return {ok:true}},pick:(o,k)=>k.split('.').reduce((x,y)=>x&&typeof x==='object'?x[y]:undefined,o),
-  issues:{file:async x=>{filed.push(x);return {issue:{id:'i1'}}},forAgent:async()=>[]},ping:o.ping||(async()=>({ok:true})),tellOwner:async x=>{told.push(x)},now:()=>t,live:true,log:()=>{}});
+  issues:{file:async x=>{filed.push(x);return {issue:{id:'i1'}}},forAgent:async()=>[]},ping:o.ping||(async()=>({ok:true})),tellOwner:async x=>{told.push(x)},quiet:o.quiet,now:()=>t,live:true,log:()=>{}});
  return {v,d,H,DATA,cfg,told,filed,tick:ms=>{t+=ms}}}
 
 test('schedules: create, edit, pause and remove are versions; undo brings back exactly what was there',async()=>{const {v,d}=await make();
@@ -86,3 +86,8 @@ test('recordAgentChange: a change made by another agent is recorded on the targe
  assert.equal(d.items.length,1);assert.equal(d.items[0].by,'Donna AI');assert.equal(d.items[0].target,'timezone');assert.equal(d.items[0].after,'Asia/Jakarta');
  assert.equal(await recordAgentChange({kind:'settings'}),null);
 });
+
+test('automatic rollback of a test agent (or during a restart hold): undone and filed, but the owner is not messaged',async()=>{
+ for(const q of ['test','hold']){const {v,d,cfg,told,filed,tick}=await make({ping:async()=>({ok:false,why:'exit 1'}),quiet:a=>a==='bot'?q:null});
+  try{await v.mySetting('bot','stt.language','xx',{by:'Bot'});await v.arm('bot');tick(4*60e3);await v.watchTick();tick(5*60e3);await v.watchTick();
+   assert.equal(cfg.stt.language,'id');assert.equal(told.length,0,q+': owner not told');assert.equal(filed.length,1)}finally{d.srv.close()}}});

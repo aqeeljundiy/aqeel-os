@@ -8,13 +8,17 @@
 //   - stopped: an agent's schedules stopped running (its scheduler's heartbeat, cron/ticker_last_success, is old) or one
 //     schedule is long past its time;
 //   - group: a Telegram bot was removed from a group it works in (asked from Telegram: getChatMember);
+//   - twice: the same script of an agent runs two or more times at once (a loop started again by a keep-alive while
+//     the old one still ran, so everything it does happens twice);
+//   - skill: one of an agent's skills points to a file that is not there (skill-check.mjs), checked hourly;
 //   - dropped: messages to an agent keep failing (the engine notes every failed chat turn in
 //     ~/.hermes/logs/aqeelos-dropped.jsonl, see scripts/engine-fixes-patch.mjs aqeelos:turn-retry-once).
 // Other features report their own checks with problem()/ok(): Kirimdev a handoff that was not confirmed delivered,
 // Threads a comment that is not visible after posting.
-import {readFile,writeFile,mkdir,rename,readdir} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,rename,readdir,readlink} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
 import path from 'node:path';
+import {checkSkills} from './skill-check.mjs';
 
 const H=3600e3,DAY=24*H;
 // a health problem's alert key: the same problem keeps one key while it lasts (a schedule failing again, a channel
@@ -51,6 +55,16 @@ export function scheduleProblems(agent,{ticker,jobs=[]},{now=Date.now(),engineUp
  else for(const j of jobs){if(j.enabled===false||j.state&&j.state!=='scheduled'||!j.next_run_at)continue;const due=Date.parse(j.next_run_at);
   if(due&&now-due>H)out.push({topic:'health|'+agent+'|late|'+j.id,text:'A schedule did not run: '+(j.name||String(j.prompt||'').slice(0,60)||'a schedule'),detail:'It was due '+Math.round((now-due)/60e3)+' minutes ago and has not started.'})}
  return out}
+// the same long-running script of one agent running more than once. rows: [{pid,ppid,user,args,cwd,age}] (ps). Only
+// scripts (sh/py/mjs/js run by bash/sh/python/node) up over 2 minutes; a copy started by another copy (a subshell) is
+// the same run. agentOf(row) names the agent or null (not an agent's).
+const SCRIPT=/^(?:\S*\/)?(?:bash|sh|python3?(?:\.\d+)?|node)\s+(?:-\S+\s+)*(\S+\.(?:sh|py|mjs|js))(?:\s|$)/;
+export function duplicateProcesses(rows,agentOf){const byPid=new Map(rows.map(r=>[String(r.pid),r])),key=r=>{const m=SCRIPT.exec(String(r.args||'').trim());if(!m)return null;
+  const f=m[1].startsWith('/')?m[1]:path.join(r.cwd||'?',m[1]);return r.user+'|'+f+'|'+(r.cwd||'')+'|'+String(r.args).trim().split(/\s+/).slice(2).join(' ')};   // same user, script, folder and arguments
+ const groups=new Map();for(const r of rows){if(!(Number(r.age)>120))continue;const k=key(r);if(!k)continue;const par=byPid.get(String(r.ppid));if(par&&key(par)===k)continue;
+  const a=agentOf(r);if(!a)continue;(groups.get(k)||groups.set(k,{agent:a,script:k.split('|')[1],pids:[]}).get(k)).pids.push(Number(r.pid))}
+ return [...groups.values()].filter(g=>g.pids.length>1).map(g=>({agent:g.agent,topic:'health|'+g.agent+'|twice|'+path.basename(g.script),
+  text:path.basename(g.script)+' runs '+g.pids.length+' times at once',detail:'Everything it does happens '+g.pids.length+' times. Processes '+g.pids.join(', ')+' ('+g.script+'). Stop all but one (kill the extra process IDs), and make whatever starts it check that it is not running already.'}))}
 // Telegram's answer about the bot in a group → a problem when the bot is no longer in it
 export function memberProblem(agent,chat,ans){const d=String(ans?.description||'').toLowerCase(),st=ans?.result?.status;
  const gone=ans&&(ans.ok===false&&/kicked|not a member|chat not found|bot was blocked|have no rights|chat_write_forbidden|group chat was upgraded/.test(d)||st==='left'||st==='kicked');
@@ -58,11 +72,16 @@ export function memberProblem(agent,chat,ans){const d=String(ans?.description||'
  return {topic:'health|'+agent+'|group|'+chat.id,text:'Removed from the Telegram group '+name,detail:'Telegram says: '+(ans.description||'the bot is '+st)+'. Add the bot to the group again, or remove the group from this agent if it is no longer used.'}}
 // which problems to tell the owner now: new ones seen on two checks in a row (a channel that drops for a minute and
 // comes back is not news); a problem that went away is forgotten, so it is told again if it comes back
-export function alertPlan(state,items,now=Date.now()){const told={...(state.told||{})},seen={...(state.seen||{})},cur=new Set(),send=[];
- for(const x of items.filter(alertable)){const k=alertKey(x);if(cur.has(k))continue;cur.add(k);if(told[k])continue;
-  if(!seen[k]){seen[k]=now;continue}if(now-seen[k]<3*60e3)continue;told[k]=now;send.push(x)}
- for(const k of Object.keys(told))if(!cur.has(k))delete told[k];for(const k of Object.keys(seen))if(!cur.has(k)||told[k])delete seen[k];
- return {send,state:{told,seen}}}
+// quiet(x) → 'test' (never told, not even later) | 'hold' (logged instead, see alert-quiet.mjs) | null. A problem that was
+// told and then went away is returned in `fixed`, so the owner gets one short "fixed" line; a muted one is not.
+export function alertPlan(state,items,now=Date.now(),{quiet=()=>null}={}){const told={...(state.told||{})},seen={...(state.seen||{})},about={...(state.about||{})},muted={...(state.muted||{})},cur=new Set(),send=[],logged=[],fixed=[];
+ for(const x of items.filter(alertable)){const q=quiet(x.agent||null);if(q==='test')continue;const k=alertKey(x);if(cur.has(k))continue;cur.add(k);if(told[k])continue;
+  if(!seen[k]){seen[k]=now;continue}if(now-seen[k]<3*60e3)continue;told[k]=now;
+  if(q){muted[k]=1;logged.push(x)}else{about[k]={agent:x.agent||null,title:String(x.title||'').slice(0,160)};send.push(x)}}
+ for(const k of Object.keys(told))if(!cur.has(k)){if(about[k]&&!muted[k])fixed.push({key:k,...about[k]});delete told[k];delete about[k];delete muted[k]}
+ for(const k of Object.keys(seen))if(!cur.has(k)||told[k])delete seen[k];
+ return {send,logged,fixed,state:{told,seen,...(Object.keys(about).length?{about}:{}),...(Object.keys(muted).length?{muted}:{})}}}
+export function fixedText(fixed,{nameOf=a=>a}={}){return 'Fixed by itself: '+fixed.slice(0,8).map(f=>(f.agent?nameOf(f.agent)+': ':'')+f.title).join('; ')+(fixed.length>8?' …and '+(fixed.length-8)+' more':'')}
 export function alertText(items,{link,nameOf=a=>a}){const by=new Map();for(const x of items){const a=x.agent?nameOf(x.agent):'aqeelOS';if(!by.has(a))by.set(a,[]);by.get(a).push(x)}
  const lines=[];for(const [a,l] of by)for(const x of l)lines.push('• '+a+': '+String(x.title||'').replace(new RegExp('^'+a.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+':? '),'')+(x.text?'. '+String(x.text).slice(0,180):''));
  const head=by.size===1?[...by.keys()][0]+' needs attention':by.size+' agents need attention';
@@ -73,7 +92,7 @@ export function overview(agents,items,drops,nameOf=a=>a){const rows=agents.map(a
  for(const x of items){if(['invite','ticket','access'].includes(x.kind))continue;const base=x.agent?String(x.agent).split('--')[0]:null;(base&&idx.get(base)||(base?null:sys))?.problems.push(x)}
  for(const r of rows)r.ok=!r.problems.length;const list=[...rows.filter(r=>!r.ok),...rows.filter(r=>r.ok)];if(sys.problems.length)list.unshift({...sys,ok:false});return list}
 
-export function createAgentHealth({DATA,HERMES_HOME,bottlenecks,items,listAgents,nameOf,botToken,engineUp,python,tellOwner,link,fetchJson=(u,o)=>fetch(u,{...o,signal:AbortSignal.timeout(15000)}).then(r=>r.json())}){
+export function createAgentHealth({DATA,HERMES_HOME,bottlenecks,items,listAgents,nameOf,botToken,engineUp,python,tellOwner,link,quiet=()=>null,ps=readPs,fetchJson=(u,o)=>fetch(u,{...o,signal:AbortSignal.timeout(15000)}).then(r=>r.json())}){
  const FILE=path.join(DATA,'agent-health.json');let st=null;
  const load=async()=>{if(!st){try{st=JSON.parse(await readFile(FILE,'utf8'))}catch{st={}}st.told||={};st.seen||={};st.groups||={}}return st};
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(st,null,1));await rename(FILE+'.tmp',FILE)};
@@ -106,14 +125,33 @@ print(json.dumps(out))`;
    for(const x of found)await bottlenecks.event('stopped',x.text,x.detail,{topic:x.topic,agent:a});
    // those that work again go away (only this check's own topics)
    for(const t of [a+'|scheduler',...jobs.map(j=>a+'|late|'+j.id)])if(!keep.has('health|'+t))await bottlenecks.resolve('health|'+t)}}
+ // the same script of one agent running twice (its own user ag-<agent>, or a folder of its workspace)
+ async function checkTwice(agents){const rows=await ps();const known=new Set(agents);const ws=path.join(path.dirname(HERMES_HOME),'workspaces')+'/';
+  const agentOf=r=>{const m=/^ag-(.+)$/.exec(r.user||'');if(m&&known.has(m[1]))return m[1];
+   for(const where of [String(r.cwd||''),String(r.args||'')]){const w=where.indexOf(ws);if(w>=0){const a=where.slice(w+ws.length).split(/[\/\s]/)[0];if(known.has(a))return a}}return null};
+  const found=duplicateProcesses(rows,agentOf),keep=new Set(found.map(x=>x.topic));for(const x of found)await bottlenecks.event('twice',x.text,x.detail,{topic:x.topic,agent:x.agent});
+  await load();for(const t of st.twice||[])if(!keep.has(t))await bottlenecks.resolve(t);st.twice=[...keep]}
+ // skills pointing to missing files: one problem per agent and skill, hourly
+ async function checkSkillFiles(agents){await load();const now=Date.now();if(now-(st.skillsAt||0)<H)return;st.skillsAt=now;const keep=new Set(),realHome=path.dirname(HERMES_HOME);
+  for(const a of agents){for(const x of await checkSkills(path.join(home(a),'skills'),{home:realHome}).catch(()=>[])){const topic='health|'+a+'|skill|'+x.skill;keep.add(topic);
+    await bottlenecks.event('skill','The skill '+path.basename(x.skill)+' points to '+(x.missing.length===1?'a file that is':x.missing.length+' files that are')+' not there',
+     'Missing: '+x.missing.slice(0,6).join(', ')+'. The agent fails halfway when it follows this skill. Put the file back, or change the skill so it no longer needs it ('+x.skill+'/SKILL.md).',{topic,agent:a})}}
+  for(const t of st.skills||[])if(!keep.has(t))await bottlenecks.resolve(t);st.skills=[...keep]}
  async function checkDrops(agents){const d=await drops();for(const a of agents){const pr=dropProblem(a,d[a]);if(pr)await bottlenecks.event('dropped',pr.text,pr.detail,{topic:pr.topic,agent:a});else await bottlenecks.resolve('health|'+a+'|dropped')}}
  // every 5 minutes on the live app: the checks, then the alert for what is new
  let running=null;
  async function tick(){if(running)return running;running=(async()=>{const agents=(await listAgents()).filter(a=>!a.includes('--'));
-  for(const [n,f] of [['schedules',checkSchedules],['messages',checkDrops],['groups',checkGroups]])await f(agents).catch(e=>console.warn('health check',n,e.message));
-  await load();const all=await items();const {send,state}=alertPlan(st,all);st.told=state.told;st.seen=state.seen;
+  for(const [n,f] of [['schedules',checkSchedules],['messages',checkDrops],['groups',checkGroups],['processes',checkTwice],['skills',checkSkillFiles]])await f(agents).catch(e=>console.warn('health check',n,e.message));
+  await load();const all=await items();const {send,logged,fixed,state}=alertPlan(st,all,Date.now(),{quiet});st.told=state.told;st.seen=state.seen;st.about=state.about||{};st.muted=state.muted||{};
+  if(logged.length)console.log('health: not told (restart hold):',logged.map(x=>alertKey(x)+' '+String(x.title||'').slice(0,80)).join(' | '));
+  if(fixed.length&&!quiet(null))await tellOwner(fixedText(fixed,{nameOf})).catch(e=>console.warn('health: the fixed note could not be sent:',e.message));
+  else if(fixed.length)console.log('health: fixed (not told, restart hold):',fixed.map(f=>f.key).join(', '));
   if(send.length){try{await tellOwner(alertText(send,{link,nameOf}));console.log('health: told the owner about',send.length,'problem(s):',send.map(alertKey).join(', '))}
    catch(e){console.warn('health: the owner could not be told:',e.message);for(const x of send)delete st.told[alertKey(x)]}}
   await save();return send.length})().finally(()=>{running=null});return running}
  async function view(){const agents=(await listAgents()).filter(a=>!a.includes('--'));return {agents:overview(agents,await items(),await drops(),nameOf),at:Date.now()}}
  return {problem,ok,tick,view,drops}}
+// the box's processes with their folder (ps; /proc for the folder when it may be read)
+async function readPs(){const out=await new Promise(res=>execFile('ps',['-eo','pid=,ppid=,etimes=,user:40=,args='],{timeout:10000,maxBuffer:8e6},(e,o)=>res(e?'':String(o))));
+ const rows=[];for(const l of out.split('\n')){const m=/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/.exec(l);if(!m)continue;const r={pid:+m[1],ppid:+m[2],age:+m[3],user:m[4],args:m[5]};
+  if(SCRIPT.test(r.args.trim())&&r.age>120)r.cwd=await readlink('/proc/'+r.pid+'/cwd').catch(()=>'');rows.push(r)}return rows}
