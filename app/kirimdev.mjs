@@ -167,7 +167,7 @@ export function createKirimdev({DATA,WORK,apiKey,runAgent,telegram,teamGroup=asy
 
  async function answer(agent,line,p,key){const hist=await history(line,p,key);const mode=modeOf(line);
   const who=mode==='test'?'WHATSAPP TEST CHAT (customer = a team tester, treat them exactly like a real customer).':'WHATSAPP CHAT with a customer.';
-  const q=who+' You are '+line.persona+' for '+line.business+'. Read your knowledge sheet tabs + decisions file first; for anything they do not cover (product facts, how something works), search your own line\'s past chats with past_chats before you hand off. Conversation so far (oldest first):\n\n'+hist+
+  const q=who+' You are '+line.persona+' for '+line.business+'. Customer WhatsApp number: '+(String(p.from||'').replace(/^62/,'0')||'unknown')+' (use it for the phone field of the order form; never ask the customer for it). Read your knowledge sheet tabs + decisions file first; for anything they do not cover (product facts, how something works), search your own line\'s past chats with past_chats before you hand off. Conversation so far (oldest first):\n\n'+hist+
    '\n\nWrite ONLY the WhatsApp reply text to send next (Indonesian, WhatsApp formatting with *bold*, short paragraphs). Do NOT send anything yourself. '+
    'If several messages are needed, separate them with a line containing only ---. If this must go to a human (handoff rules), reply exactly: HANDOFF: <reason, and what you already checked (sheet, past chats) and found>';
   log('kirimdev '+agent+': answering '+p.name);let out=String(await runAgent(agent,q)||'').replace(FOOTER,'').trim();
