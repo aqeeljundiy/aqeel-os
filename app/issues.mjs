@@ -144,7 +144,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   db.items.unshift(i);db.items=db.items.slice(0,300);await save();log('issue '+i.id+' filed by '+(i.source==='health'?'Health':i.agent)+': '+i.state);return {issue:view(i)}});
  // Health saw the problem go away before the fixer started: closed, nobody told
  const healthGone=keys=>queue(async()=>{await load();const cur=new Set(keys);let n=0;
-  for(const i of db.items)if(i.healthKey&&i.state==='queued'&&!cur.has(i.healthKey)){i.state='gone';i.updated=now();i.result={summary:'Health no longer sees it; it went away before the fixer started.'};n++}
+  for(const i of db.items)if(i.healthKey&&(i.state==='queued'||i.state==='open')&&!cur.has(i.healthKey)){i.state='gone';i.updated=now();i.result={summary:'Health no longer sees it; it went away before the fixer started.'};n++}
   if(n)await save();return n});
  const forAgent=async a=>{await load();return db.items.filter(i=>i.agent===a).slice(0,10).map(view)};
  const list=async()=>{await load();return {items:db.items.slice(0,60).map(view),policy:await policy()}};
