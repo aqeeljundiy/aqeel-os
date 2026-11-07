@@ -63,7 +63,7 @@ import {createConnections} from './connections.mjs';
 import {createSecretLinks,createLimiter} from './secret-links.mjs';
 import {createGoogleShares} from './google-shares.mjs';
 import {createGoogleFiles} from './google-files.mjs';
-import {createKirimdev} from './kirimdev.mjs';
+import {createKirimdev,publicReach} from './kirimdev.mjs';
 import {createKirimdevAgent} from './kirimdev-agent.mjs';
 import {createPostingLimits} from './posting-limits.mjs';
 import {createTeamGroups,contextLines as teamContext,ROLES as TEAM_ROLES} from './team-group.mjs';
@@ -1225,6 +1225,19 @@ const kirimdev=createKirimdev({DATA,WORK:path.join(homedir(),'workspaces'),PUBLI
   const j=r&&r.ok?await r.json().catch(()=>({})):{};return j.ok?(j.result?.message_id||true):false},   // the post's id once Telegram confirmed it
  tell:(text,detail)=>bottlenecks.event('kirimdev',text,detail,{info:true})});
 if(LIVE_APP)setTimeout(()=>kirimdev.resume().catch(e=>console.warn('kirimdev resume',e.message)),30000).unref();
+// what the Connect dialog offers (7 Nov 2026): the agents, the Telegram groups this agent is in or another agent's team
+// group uses (with the topics known for each), and the payment helpers in the agent's own folder
+async function kirimdevSetup(agent){const ags=await listAgents(),L=await kirimdev.lines().catch(()=>({})),TG=await teamGroups.all().catch(()=>({}));
+ const test=await Promise.all(ags.map(a=>isTestAgent(a).catch(()=>false))),agents=ags.filter((a,i)=>a!=='default'&&!test[i]).map(a=>({id:a,name:NAMES[a]||a,line:!!L[a]}));
+ const groups=new Map(),add=(id,o)=>{const k=String(id);if(!/^-?\d{5,16}$/.test(k))return;const g=groups.get(k)||{chatId:k,name:'',topics:[],own:false};
+  if(o.name&&!g.name)g.name=o.name;if(o.own)g.own=true;for(const t of o.topics||[])if(!g.topics.some(x=>x.n===t.n))g.topics.push(t);groups.set(k,g)};
+ for(const [a,g] of Object.entries(TG))if(g?.chatId)add(g.chatId,{name:g.name,own:a===agent,topics:Object.entries(g.topics||{}).filter(([,n])=>n).map(([k,n])=>({n:Number(n),label:(TEAM_ROLES.find(r=>r[0]===k)?.[1]||k)+' ('+(NAMES[a]||a)+')'}))});
+ let helpers=[];if(agent&&ags.includes(agent)){const home=path.join(HERMES_HOME,'profiles',agent),env=parseEnv(await readFile(path.join(home,'.env'),'utf8').catch(()=>''));
+  for(const k of ['TELEGRAM_GROUP_ALLOWED_CHATS','TELEGRAM_GROUP_ALLOWED_USERS'])for(const id of String(env[k]||'').split(/[\s,]+/))if(/^-\d{5,16}$/.test(id))add(id,{own:true});
+  const tools=path.join(homedir(),'workspaces',agent,'.tools');helpers=(await readdir(tools,{withFileTypes:true}).catch(()=>[])).filter(e=>e.isFile()&&/^(qris|pay|payment|xendit|invoice)[\w.-]*$/i.test(e.name)).map(e=>({path:'.tools/'+e.name,style:/^pay/i.test(e.name)?'send':'picture'}))}
+ return {agents,groups:[...groups.values()].sort((a,b)=>(b.own-a.own)||String(a.name).localeCompare(b.name)),helpers,team:agent?await teamGroups.get(agent).catch(()=>null):null}}
+// after a line is made or removed: the agent's customer tools and its aqeelOS block follow
+const kirimdevChanged=()=>{ensureCustomerServer().catch(e=>console.warn('customer tools',e.message));if(PORT===4400)writeAgentContext().catch(()=>{})};
 // customer runs get only these tools (customer-tools.mjs); the payment helper runs as the agent's own user
 const custQ=x=>"'"+String(x).replace(/'/g,"'\\''")+"'";
 let customerTools=null;
@@ -2494,15 +2507,23 @@ const server=createServer(async(req,res)=>{
      return send(res,404,{error:'Not here.'})}catch(e){return send(res,400,{error:e.message})}}
    // one-time secret links (admins, System › Keys and secrets): open links (cancel) and what happened, never a value
    // Kirimdev lines (kirimdev.mjs): the API key and its check, each line's status, Test/Draft/Live, the optional webhook
-   if(p==='/ui/kirimdev'||p==='/ui/kirimdev/mode'||p==='/ui/kirimdev/connect'||p==='/ui/kirimdev/pause'||p==='/ui/kirimdev/draft'||p==='/ui/kirimdev/check'||p==='/ui/kirimdev/key'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});
-    if(req.method==='GET'&&p==='/ui/kirimdev'){const [lines,account,keySaved]=await Promise.all([kirimdev.status(),kirimdev.account(),readFile(path.join(HERMES_HOME,'secrets','kirimdev.env'),'utf8').then(t=>/^KIRIMDEV_API_KEY=\S/m.test(t),()=>false)]);return send(res,200,{lines,account,keySaved})}
+   if(p==='/ui/kirimdev'||p==='/ui/kirimdev/setup'||p==='/ui/kirimdev/line'||p==='/ui/kirimdev/disconnect'||p==='/ui/kirimdev/renew'||p==='/ui/kirimdev/test'||p==='/ui/kirimdev/mode'||p==='/ui/kirimdev/connect'||p==='/ui/kirimdev/pause'||p==='/ui/kirimdev/draft'||p==='/ui/kirimdev/check'||p==='/ui/kirimdev/key'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});
+    if(req.method==='GET'&&p==='/ui/kirimdev'){const [lines,account,keySaved,numbers]=await Promise.all([kirimdev.status(),kirimdev.account(),readFile(path.join(HERMES_HOME,'secrets','kirimdev.env'),'utf8').then(t=>/^KIRIMDEV_API_KEY=\S/m.test(t),()=>false),kirimdev.numbers({fresh:url.searchParams.get('fresh')==='1'})]);return send(res,200,{lines,account,keySaved,numbers,reach:publicReach(PUBLIC_URL)})}
+    if(req.method==='GET'&&p==='/ui/kirimdev/setup')return send(res,200,await kirimdevSetup(String(url.searchParams.get('agent')||'')));
     let b={};try{b=JSON.parse(await readBody(req,4096)||'{}')}catch{}
     try{if(req.method==='POST'&&p==='/ui/kirimdev/mode')return send(res,200,{ok:await kirimdev.setMode(String(b.agent||''),String(b.mode||''))});
      if(req.method==='POST'&&p==='/ui/kirimdev/pause')return send(res,200,{pauseMin:await kirimdev.setPause(String(b.agent||''),b.min)});
      if(req.method==='POST'&&p==='/ui/kirimdev/draft')return send(res,200,await kirimdev.draft(String(b.agent||''),b.id,String(b.action||''),b.text,u.name||'an admin'));
-     if(req.method==='POST'&&p==='/ui/kirimdev/connect'){const r=await kirimdev.connect(String(b.agent||''));kirimdev.check().catch(()=>{});return send(res,200,r)}
+     if(req.method==='POST'&&p==='/ui/kirimdev/connect'){const r=await kirimdev.connectWebhook(String(b.agent||''));kirimdev.check().catch(()=>{});return send(res,200,r)}
      if(req.method==='POST'&&p==='/ui/kirimdev/check')return send(res,200,await kirimdev.check());
-     if(req.method==='POST'&&p==='/ui/kirimdev/key')return send(res,200,await kirimdev.setKey(String(b.key||'')))}catch(e){return send(res,400,{error:e.message})}}
+     if(req.method==='POST'&&p==='/ui/kirimdev/key')return send(res,200,await kirimdev.setKey(String(b.key||'')));
+     // Connect (a new line) or the line's settings changed; the team group is saved with it when one was picked
+     if(req.method==='POST'&&p==='/ui/kirimdev/line'){const a=String(b.agent||'');if(!(await listAgents()).includes(a))throw Error('Pick the agent that answers this number.');
+      if(b.team&&String(b.team.chatId||'').trim()){const cur=await teamGroups.get(a).catch(()=>null);await teamGroups.set(a,{chatId:b.team.chatId,...(b.team.name?{name:b.team.name}:{}),topics:{...(cur?.topics||{}),questions:b.team.questions??''}},u.name||'an admin')}
+      const {team,agent,...rest}=b;const r=await kirimdev.saveLine(a,rest);if(r.isNew)kirimdevChanged();return send(res,200,r)}
+     if(req.method==='POST'&&p==='/ui/kirimdev/disconnect'){const r=await kirimdev.disconnect(String(b.agent||''));kirimdevChanged();return send(res,200,r)}
+     if(req.method==='POST'&&p==='/ui/kirimdev/renew')return send(res,200,await kirimdev.renewSecret(String(b.agent||'')));
+     if(req.method==='POST'&&p==='/ui/kirimdev/test')return send(res,200,await kirimdev.testSend(String(b.agent||''),b.tester))}catch(e){return send(res,400,{error:e.message})}}
    // Team group per agent (team-group.mjs): admins read and change it on the Channels page
    if(p==='/ui/team-group'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});
     if(req.method==='GET'){const a=url.searchParams.get('agent')||'';return send(res,200,{group:await teamGroups.get(a),roles:TEAM_ROLES.map(([k,l,what])=>({key:k,label:l,what}))})}

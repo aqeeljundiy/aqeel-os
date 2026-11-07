@@ -2355,3 +2355,31 @@ button.acct-more{font:inherit;cursor:pointer;width:100%;background:var(--surface
 @media (prefers-reduced-motion:reduce){.tm-row,.tm-member.tm-new{animation:none}.tm-member,.tm-grid{transition:none}}
 .hi-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 12px}
 .hi-acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+/* Kirimdev plug and play (7 Nov 2026): numbers from Kirimdev, the Connect dialog */
+.km-ph{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--soft);color:var(--ink-2);border:1px solid var(--border)}
+.km .txt .km-num-ph{font-size:12.5px;margin-top:1px}
+.km-free .txt p{margin-top:4px}
+.km-reach{margin:0 0 12px;padding:10px 12px;border-radius:var(--r-md);background:var(--soft);border:1px solid var(--border);font-size:13px;line-height:1.5;color:var(--ink-2)}
+.km-line{transition:opacity var(--t-med) var(--ease),transform var(--t-med) var(--ease)}
+.km-line.km-out{opacity:0;transform:translateY(-4px)}
+.drawer.pop.km-dlg{width:min(600px,calc(100vw - 24px))}
+.km-dlg .drawer-body{max-height:min(70vh,720px);overflow:auto}
+.km-form h3{margin:0 0 4px;font-size:14px;font-weight:600;letter-spacing:-.1px}
+.km-form .hint{margin:2px 0 8px}
+.km-form label{margin-top:10px}
+.km-sec{padding:16px 0 4px;border-top:1px solid var(--border);margin-top:14px}
+.km-who{display:flex;gap:12px;align-items:center}
+.km-who .txt b{display:block;font-size:14.5px;font-weight:600}.km-who .txt span{display:block;font-size:13px;color:var(--muted);margin-top:2px}
+.km-2,.km-3{display:grid;gap:0 12px;grid-template-columns:1fr 1fr}.km-3{grid-template-columns:1fr 1.4fr 1.4fr}
+.km-2>div,.km-3>div{min-width:0}
+.km-seg{margin-top:6px;flex-wrap:wrap}
+.km-trow{display:grid;grid-template-columns:1fr 1.3fr 36px;gap:8px;align-items:center;margin-top:8px;transition:opacity 170ms var(--ease),transform 170ms var(--ease)}
+.km-trow .icon{width:36px;min-height:36px}
+.km-add{margin:10px 0 0 -10px;min-height:34px}
+.km-reveal{transition:opacity 170ms var(--ease),transform 170ms var(--ease)}
+.km-in{animation:rise var(--t-med) var(--ease) both}
+.km-reveal.closing,.km-trow.closing{opacity:0;transform:translateY(-4px);pointer-events:none}
+.km-note{margin:12px 0 0;font-size:13px;color:var(--muted);line-height:1.5}.km-note:empty{display:none}
+@media (max-width:560px){.km-2,.km-3{grid-template-columns:1fr}.km-trow{grid-template-columns:1fr 36px}.km-trow .kmf-tp{grid-column:1;grid-row:2}.km-trow .icon{grid-row:1/3;grid-column:2}.km-dlg .drawer-body{max-height:none}}
+@media (prefers-reduced-motion:reduce){.km-in{animation:none}.km-reveal,.km-trow,.km-line{transition:none}}
+.km-lo{margin-top:8px}

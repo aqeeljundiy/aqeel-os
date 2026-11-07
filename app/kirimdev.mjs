@@ -31,7 +31,13 @@ import path from 'node:path';
 export const TOLERANCE=300,MAX_BODY=1024*1024,API='https://api.kirimdev.com/v1';
 export const FOOTER=/\n*\(Answered with [^)]*\)\s*$/;
 export const MODES=['test','draft','live'],EVENTS=['message.received','message.sent'];
-export const RETRY_MIN=[1,5,15,30,60];
+export const RETRY_MIN=[1,5,15,30,60],DEFAULT_PAUSE=15;
+// can Kirimdev reach this address from the internet? Not localhost, a private or link-local address, or a test name
+export function publicReach(u){let x;try{x=new URL(String(u||''))}catch{return {ok:false,why:'aqeelOS has no public address (PUBLIC_URL is not set), so Kirimdev cannot send it messages. It reads new messages every 20 seconds instead.'}}
+ const h=x.hostname.replace(/^\[|\]$/g,'').toLowerCase(),priv=/^(localhost|.*\.(localhost|local|test|internal|lan|home)|127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|169\.254\.\d+\.\d+|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d+\.\d+|0\.0\.0\.0|::1?|f[cd][0-9a-f]*:.*|fe80:.*)$/;
+ if(priv.test(h)||!/\./.test(h)&&!h.includes(':'))return {ok:false,why:'aqeelOS runs at '+x.origin+', which Kirimdev cannot reach from the internet, so there is no webhook. It reads new messages every 20 seconds instead.'};
+ if(x.protocol!=='https:')return {ok:false,why:'aqeelOS’s address ('+x.origin+') is not https, and Kirimdev only sends to https. It reads new messages every 20 seconds instead.'};
+ return {ok:true}}
 const AGENT=/^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 // the signature over the raw body: any v1 from any active secret, t within 5 minutes
@@ -95,9 +101,11 @@ export function guardReply(parts,{paid=null}={}){const removed=[];const keep=[];
 import {conversationSession} from './kirimdev-agent.mjs';
 
 const RESET=/^(reset|\/reset|mulai baru)$/i;
+// a tester's reset: the usual words, or the line's own (Connect dialog)
+const isReset=(line,t)=>RESET.test(t)||(line.resetWords||[]).some(w=>w&&String(t).toLowerCase()===String(w).trim().toLowerCase());
 const tail=n=>'…'+String(n||'').slice(-4);
 
-export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3,runAgent,paidSince=null,telegram,teamGroup=async()=>null,tell=async()=>{},problem=null,solved=async()=>{},log=m=>console.log(m),fetchImpl=fetch,now=()=>Date.now(),PUBLIC_URL,wait=ms=>new Promise(r=>setTimeout(r,ms)),maxRuns=2,echoWait=4000,setTimer=setTimeout,clearTimer=clearTimeout}){
+export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3,pollEvery=20e3,runAgent,paidSince=null,telegram,teamGroup=async()=>null,tell=async()=>{},problem=null,solved=async()=>{},log=m=>console.log(m),fetchImpl=fetch,now=()=>Date.now(),PUBLIC_URL,wait=ms=>new Promise(r=>setTimeout(r,ms)),maxRuns=2,echoWait=4000,setTimer=setTimeout,clearTimer=clearTimeout}){
  const ASK_MIN=30;   // minutes a handoff may wait for the team's answer before Health shows it
  const CONF=path.join(DATA,'kirimdev.json'),SEC=path.join(DATA,'kirimdev-secrets.json'),ST=path.join(DATA,'kirimdev-state.json');
  const readJson=async(f,d)=>{try{return JSON.parse(await readFile(f,'utf8'))}catch{return d}};
@@ -150,7 +158,7 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
    else{const c=await probe(encodeURIComponent(pid)+'/conversations?limit=50',key);
     h.api=c.ok?{ok:true,text:'The conversations list answers.'}:{ok:false,why:c.why,text:c.text};
     const w=sec[agent];
-    if(!w?.id)h.webhook={state:'none',text:'No webhook: optional. With one, the agent answers customers at once.'};
+    if(!w?.id)h.webhook={state:'none',text:'No webhook: aqeelOS reads new messages from Kirimdev every 20 seconds instead.'};
     else{const ws=await probe('webhook_subscriptions/'+encodeURIComponent(w.id),key),d=ws.json?.data||{};
      const newest=c.ok?Math.max(0,...(c.json.data||[]).map(x=>Date.parse(x.last_inbound_at)||0)):0,heard=st.last[agent]?.at||0;
      if(!ws.ok)h.webhook={state:'unknown',text:'Could not read the webhook: '+ws.text};
@@ -193,7 +201,10 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
   if(event==='message.sent'||j?.type==='message.sent'){const r=await teamSent(agent,line,parseSent(j));await saveState();return {status:200,body:r}}
   const all=parseInbound(j),pid=String(line.phoneNumberId);const ms=all.filter(m=>m.pid===pid);
   if(all.length>ms.length)log('kirimdev '+agent+': '+(all.length-ms.length)+' message(s) for another Kirimdev line, not answered');
-  if(ms.length)st.last[agent]={at:now(),from:ms[0].from};
+  await ingest(agent,line,ms);
+  await saveState();return {status:200,body:{ok:true}}}
+ // customer messages on a line, from the webhook or from polling: recorded, deduped, and answered after the burst
+ async function ingest(agent,line,ms){if(ms.length)st.last[agent]={at:now(),from:ms[0].from};
   const mode=modeOf(line);
   for(const m of ms){st.recent[agent+'|'+m.from]=now();const tester=isTester(line,m);
    if(tester)st.testerNums[agent+'|'+m.from]=true;
@@ -201,15 +212,17 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
    const key=agent+'|'+line.phoneNumberId+'|'+(m.conversationId||m.from);
    const mid=m.id&&'message|'+agent+'|'+line.phoneNumberId+'|'+m.id;
    if(mid&&st.seen.includes(mid))continue;if(mid)st.seen.push(mid);
-   if(tester&&RESET.test(m.text.trim())){st.cut[key]=new Date((m.ts||now()/1000)*1000+1000).toISOString();delete st.pending[key];delete st.turns[key];cancelOutbound(agent,m.from);
+   // the same message seen by the webhook and by polling (their ids differ): its chat, second and text
+   const same=m.conversationId&&m.ts?'in|'+agent+'|'+m.conversationId+'|'+m.ts+'|'+String(m.text||'').slice(0,40):'';
+   if(same&&st.seen.includes(same))continue;if(same)st.seen.push(same);
+   if(tester&&isReset(line,m.text.trim())){st.cut[key]=new Date((m.ts||now()/1000)*1000+1000).toISOString();delete st.pending[key];delete st.turns[key];cancelOutbound(agent,m.from);
     await send(agent,line,m.from,line.resetText||'✅ Test reset. Start again as a new customer.').catch(e=>log('kirimdev reset reply: '+e.message));continue}
    const until=pausedUntil(agent,m.conversationId,m.from);
    // a message during a team member's pause is kept, not dropped (audit 6 Nov: "mau pakai CC" was never answered): it waits
    // for the pause to end, and is answered then unless the team answered it meanwhile
    const paused=until>now();if(paused)log('kirimdev '+agent+': '+tail(m.from)+' wrote while a team member is answering; kept until '+new Date(until).toISOString());
    st.pending[key]={agent,from:m.from,conversationId:m.conversationId,name:testerName(line,m),at:st.pending[key]?.at||now(),token:randomUUID(),messages:[...(st.pending[key]?.messages||[]),m.text],...(paused||st.pending[key]?.waited?{waited:true}:{})};
-   schedule(key,paused?{debounceSec:Math.ceil((until-now())/1000)+5}:line)}
-  await saveState();return {status:200,body:{ok:true}}}
+   schedule(key,paused?{debounceSec:Math.ceil((until-now())/1000)+5}:line)}}
 
  // an outbound message on this line: ours (aqeelOS sent it) or a person's, which pauses the agent in that conversation
  const inflight=new Map();
@@ -217,7 +230,7 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
   if(s.source==='broadcast')return {ignored:'broadcast'};if(s.id&&st.ours[s.id])return {ours:true};
   // an API send of ours may echo before its id is written down: wait for sends in flight, then look again
   if(s.source==='api'||!s.source){await (inflight.get(s.to)||Promise.resolve()).catch(()=>{});await wait(echoWait);if(s.id&&st.ours[s.id])return {ours:true}}
-  const min=Math.max(0,Number(line.pauseMin??15));if(!min)return {paused:false};const until=now()+min*60e3;
+  const min=Math.max(0,Number(line.pauseMin??DEFAULT_PAUSE));if(!min)return {paused:false};const until=now()+min*60e3;
   if(s.conversationId)st.paused[agent+'|'+s.conversationId]=until;if(s.to)st.paused[agent+'|'+s.to]=until;
   cancelOutbound(agent,s.to);
   for(const [k,p] of Object.entries(st.pending))if(p.agent===agent&&(p.conversationId===s.conversationId||p.from===s.to)){delete st.pending[k];delete st.turns[k];clearTimer(timers.get(k));timers.delete(k)}
@@ -379,14 +392,127 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
     team:tg?{chatId:tg.chatId,questions:tg.threadId}:null,
     paused:Object.entries(st.paused).filter(([k,v])=>k.startsWith(agent+'|')&&v>t&&/^\d+$/.test(k.split('|')[1])).map(([k,v])=>({who:tail(k.split('|')[1]),until:v})).filter(x=>!seen.has(x.who)&&seen.add(x.who)),
     drafts:Object.values(st.drafts).filter(d=>d.agent===agent&&d.status==='waiting').sort((a,b)=>a.id-b.id).map(d=>({id:d.id,name:d.name,who:tail(d.from),text:d.parts.join('\n\n'),at:d.at,posted:!!d.posted,canSend:within24h(agent,d.from)})),
-    handoffsWaiting:Object.values(st.handoffs).filter(h=>h.agent===agent).length,phoneNumberId:String(l.phoneNumberId||''),health:health().lines[agent]||null}}))}
+    handoffsWaiting:Object.values(st.handoffs).filter(h=>h.agent===agent).length,phoneNumberId:String(l.phoneNumberId||''),health:health().lines[agent]||null,
+    delivery:pollsNow(agent,l,sec)?'poll':'webhook',polledAt:st.poll?.[agent]?.at||null,pollError:st.poll?.[agent]?.error||null,
+    settings:{persona:l.persona||'',business:l.business||'',language:l.language||'',pauseMin:Number(l.pauseMin??DEFAULT_PAUSE),resetWords:l.resetWords||['reset'],resetText:l.resetText||'',
+     testers:(l.testers||[]).map(t=>({who:t.who||'',phone:String(t.phone||''),chat:!!t.conversationId})),payment:l.payment||null}}}))}
  async function setMode(agent,mode){if(!MODES.includes(mode))throw Error('Mode is test, draft or live.');const c=await readJson(CONF,{lines:{}});if(!c.lines?.[agent])throw Error('No line for '+agent+'.');c.lines[agent].mode=mode;await put(CONF,c,0o644);return true}
  async function setPause(agent,min){const n=Number(min);if(!Number.isInteger(n)||n<0||n>1440)throw Error('The quiet time is a whole number of minutes, 0 to 1440.');const c=await readJson(CONF,{lines:{}});if(!c.lines?.[agent])throw Error('No line for '+agent+'.');c.lines[agent].pauseMin=n;await put(CONF,c,0o644);return n}
+
+ // ---- Plug and play (7 Nov 2026, the owner: "If it's a clean OS, the user inserts the key, then how does the number
+ // show up?"). The numbers come from Kirimdev (GET accounts); Connect makes a line from one with a dialog (agent,
+ // testers, team group, language, quiet time, reset, payment), creates the webhook when aqeelOS can be reached from the
+ // internet and otherwise reads new messages every 20 seconds (polling). Everything is editable later, so kirimdev.json
+ // never needs a hand edit.
+ let accCache=null;
+ async function numbers({fresh=false}={}){const key=await apiKey().catch(()=>null);if(!key)return {ok:false,why:'nokey',text:'No Kirimdev API key is saved.',list:[]};
+  if(!fresh&&accCache&&now()-accCache.at<60e3)return accCache.v;
+  const r=await probe('accounts',key),L=await lines();let v;
+  if(!r.ok)v={ok:false,why:r.why,text:r.text,list:Object.entries(L).map(([a,l])=>({phoneNumberId:String(l.phoneNumberId||''),phone:'',name:l.business||'',status:'unknown',agent:a}))};
+  else{const by=Object.fromEntries(Object.entries(L).map(([a,l])=>[String(l.phoneNumberId),a]));
+   const list=(Array.isArray(r.json.data)?r.json.data:[]).filter(x=>/^\d{6,20}$/.test(String(x?.phone_number_id||''))).map(x=>({phoneNumberId:String(x.phone_number_id),phone:String(x.phone_number||''),name:String(x.name||''),status:String(x.status||''),agent:by[String(x.phone_number_id)]||null}));
+   const known=new Set(list.map(x=>x.phoneNumberId));
+   for(const [a,l] of Object.entries(L))if(!known.has(String(l.phoneNumberId)))list.push({phoneNumberId:String(l.phoneNumberId||''),phone:'',name:l.business||'',status:'gone',agent:a,gone:true});
+   v={ok:true,list}}
+  accCache={at:now(),v};return v}
+
+ // the settings a person gives in the Connect dialog (or edits later), checked; fields the dialog does not show are kept
+ function cleanLine(cur,b,pid){const l={mode:'test',debounceSec:8,...(cur||{})};l.phoneNumberId=pid;const str=(v,n)=>String(v??'').trim().slice(0,n);
+  if('persona' in b||!cur){l.persona=str(b.persona,40);if(!l.persona)throw Error('Give the agent’s name as customers see it.')}
+  if('business' in b||!cur)l.business=str(b.business,80)||l.business||'';
+  if('language' in b){const v=str(b.language,30);if(v&&!/^[\p{L} ()-]+$/u.test(v))throw Error('The language is a word, like Indonesian or English.');if(v)l.language=v;else delete l.language}
+  if('pauseMin' in b||!cur){const n=b.pauseMin===''||b.pauseMin==null?DEFAULT_PAUSE:Number(b.pauseMin);if(!Number.isInteger(n)||n<0||n>1440)throw Error('The quiet time is a whole number of minutes, 0 to 1440.');l.pauseMin=n}
+  if('testers' in b){const T=Array.isArray(b.testers)?b.testers:[];if(T.length>10)throw Error('Ten testers at most.');const old=cur?.testers||[];
+   l.testers=T.map(t=>{const who=str(t?.who,40),phone=String(t?.phone??'').replace(/\D/g,'');if(!who&&!phone)return null;
+    if(!who)throw Error('Give each tester a name.');if(!/^\d{6,16}$/.test(phone))throw Error('The number for '+who+' is not a phone number (country code first, like 6281234567890).');
+    const was=old.find(o=>String(o.phone||'').replace(/\D/g,'')===phone)||old.find(o=>o.who===who&&!o.phone);return {who,phone,...(was?.conversationId?{conversationId:was.conversationId}:{})}}).filter(Boolean)}
+  if('resetWords' in b){const W=(Array.isArray(b.resetWords)?b.resetWords:String(b.resetWords||'').split(',')).map(w=>str(w,30)).filter(Boolean).slice(0,5);l.resetWords=W.length?W:['reset']}
+  if('resetText' in b){const v=str(b.resetText,300);if(v)l.resetText=v;else delete l.resetText}
+  if('payment' in b){const p=b.payment;if(!p||p.helper==null&&!p.currency&&!p.min&&!p.max)delete l.payment;else{const o={};
+    if(p.helper?.path){const hp=str(p.helper.path,120);if(!/^[\w.\/-]+$/.test(hp)||hp.split('/').includes('..')||hp.startsWith('/'))throw Error('The payment helper is a file in the agent’s folder, like .tools/qris.');o.helper={path:hp,style:p.helper.style==='send'?'send':'picture'}}
+    if(p.currency)o.currency=str(p.currency,6);for(const k of ['min','max'])if(p[k]!==''&&p[k]!=null){const n=Number(p[k]);if(!Number.isInteger(n)||n<0)throw Error('Payment amounts are whole numbers.');o[k]=n}
+    if(o.min!=null&&o.max!=null&&o.min>o.max)throw Error('The lowest payment is above the highest.');l.payment=o}}
+  return l}
+ // the line for an agent: a new one (Connect: Test mode, delivery set up, first check) or changes to its settings
+ async function saveLine(agent,b={}){if(!AGENT.test(String(agent||'')))throw Error('Pick the agent that answers this number.');
+  const c=await readJson(CONF,{lines:{}});c.lines||={};const cur=c.lines[agent]||null,isNew=!cur;
+  const pid=String(b.phoneNumberId||cur?.phoneNumberId||'');if(!/^\d{6,20}$/.test(pid))throw Error('Pick a number from Kirimdev.');
+  if(cur&&String(cur.phoneNumberId)!==pid)throw Error((cur.persona||agent)+' already answers another number. Disconnect that one first, or pick another agent.');
+  const other=Object.entries(c.lines).find(([a,l])=>a!==agent&&String(l.phoneNumberId)===pid);if(other)throw Error('This number is already answered by '+(other[1].persona||other[0])+'.');
+  if(isNew){const n=await numbers({fresh:true});if(!n.ok)throw Error('Could not read the numbers from Kirimdev: '+n.text);if(!n.list.some(x=>x.phoneNumberId===pid&&!x.gone))throw Error('Kirimdev does not have this number.')}
+  const before=c.disconnected?.[agent];const base=cur||(before&&String(before.phoneNumberId)===pid?(({at,...x})=>({...x,mode:'test'}))(before):null);
+  const line=cleanLine(base,b,pid);if(isNew){line.mode='test';delete line.delivery}c.lines[agent]=line;if(c.disconnected)delete c.disconnected[agent];
+  await put(CONF,c,0o644);accCache=null;let delivery=null;
+  if(isNew){delivery=await startDelivery(agent);check().catch(e=>log('kirimdev check: '+e.message))}
+  return {agent,isNew,delivery}}
+ const setDelivery=async(agent,how)=>{const c=await readJson(CONF,{lines:{}});if(!c.lines?.[agent])return;if(how)c.lines[agent].delivery=how;else delete c.lines[agent].delivery;await put(CONF,c,0o644)};
+ // a webhook when Kirimdev can reach aqeelOS; otherwise polling, said plainly
+ async function startDelivery(agent){const pu=publicReach(PUBLIC_URL);
+  if(!pu.ok){await setDelivery(agent,'poll');return {how:'poll',why:pu.why}}
+  try{await connect(agent);await setDelivery(agent,null);return {how:'webhook'}}
+  catch(e){await setDelivery(agent,'poll');return {how:'poll',why:'Kirimdev could not set up the webhook ('+e.message+'), so aqeelOS reads new messages every 20 seconds instead.'}}}
+ // Connect webhook (the page's button or menu): the line uses it from now on instead of polling
+ async function connectWebhook(agent){const r=await connect(agent);await setDelivery(agent,null);return r}
+ // Disconnect: the webhook is deleted in Kirimdev and the line stops; its chats, drafts and history stay, and its
+ // settings are kept so connecting the number again starts from them
+ async function disconnect(agent){const c=await readJson(CONF,{lines:{}});const line=c.lines?.[agent];if(!line)throw Error('No line for '+agent+'.');
+  const sec=await readJson(SEC,{}),w=sec[agent];let webhook='none';
+  if(w?.id){try{await api('webhook_subscriptions/'+encodeURIComponent(w.id),null,{method:'DELETE'});webhook='deleted'}
+   catch(e){if(e.status===404)webhook='gone';else throw Error('Kirimdev did not delete the webhook ('+e.message+'). Nothing changed; try again.')}}
+  delete sec[agent];await put(SEC,sec);c.disconnected={...(c.disconnected||{}),[agent]:{...line,at:now()}};delete c.lines[agent];await put(CONF,c,0o644);accCache=null;
+  await state();if(st.poll)delete st.poll[agent];const h=st.health?.lines?.[agent];for(const k of Object.keys(h?.told||{}))await solved(agent,k).catch(()=>{});if(st.health?.lines)delete st.health.lines[agent];
+  await saveState();log('kirimdev '+agent+': disconnected (webhook '+webhook+'), history kept');return {webhook}}
+ // Renew webhook secret: Kirimdev makes a new one, aqeelOS keeps it, then the old ones are revoked in Kirimdev
+ async function renewSecret(agent){const w=(await readJson(SEC,{}))[agent];if(!w?.id)throw Error('This line has no webhook, so there is no secret to renew.');
+  const r=await api('webhook_subscriptions/'+encodeURIComponent(w.id)+'/secrets',{},{idem:'aqeelos-renew-'+agent+'-'+randomUUID()});const s=r?.data?.secret;if(!s)throw Error('Kirimdev did not return a new secret.');
+  const s1=await readJson(SEC,{});s1[agent]={...s1[agent],secrets:[s,...(s1[agent]?.secrets||[])].slice(0,6),renewedAt:now()};await put(SEC,s1);let revoked=0;
+  try{const sub=(await api('webhook_subscriptions/'+encodeURIComponent(w.id))).data||{};for(const x of sub.secrets||[])if(x.id&&x.id!==r.data.id){await api('webhook_subscriptions/'+encodeURIComponent(w.id)+'/secrets/'+encodeURIComponent(x.id),null,{method:'DELETE'});revoked++}}
+  catch(e){log('kirimdev '+agent+': new secret saved, an old one was not revoked: '+e.message);return {renewed:true,revoked,note:'The new secret works. An old one could not be revoked yet ('+e.message+'); both are accepted until then.'}}
+  const s2=await readJson(SEC,{});s2[agent]={...s2[agent],secrets:[s]};await put(SEC,s2);return {renewed:true,revoked}}
+ // Send test message: one plain text to a tester, straight through Kirimdev (not a customer reply)
+ async function testSend(agent,idx){const line=await lineOf(agent);if(!line)throw Error('This agent has no Kirimdev line.');const t=(line.testers||[])[Number(idx)];
+  const to=String(t?.phone||'').replace(/\D/g,'');if(!/^\d{6,16}$/.test(to))throw Error('Pick a tester with a phone number.');await state();let r;
+  try{r=await api(encodeURIComponent(line.phoneNumberId)+'/messages',{messaging_product:'whatsapp',recipient_type:'individual',to,type:'text',text:{body:'Test from aqeelOS: '+(line.persona||agent)+'’s Kirimdev line can send. No need to answer.',preview_url:false}})}
+  catch(e){throw Error(e.status>=400&&e.status<500&&e.status!==401&&e.status!==403?'Kirimdev did not send it ('+e.message+'). WhatsApp allows a free message only within 24 hours of the tester’s last message: send “hi” from '+t.who+'’s phone to this number first, then try again.':e.message)}
+  if(r?.data?.id){st.ours[r.data.id]=now();await saveState()}return {to:t.who,id:r?.data?.id||null,status:r?.data?.status||'queued'}}
+
+ // Polling: a line without a webhook (or with one Kirimdev switched off or cannot deliver) has its new messages read every
+ // 20 seconds: the conversations that changed since the last look, then their messages after it. Customer messages go
+ // the same way as the webhook's; a message a person sent from Kirimdev pauses the agent there, as message.sent does.
+ const pollsNow=(agent,line,sec)=>line?.delivery==='poll'||!sec[agent]?.id||['off','failing'].includes(st?.health?.lines?.[agent]?.webhook?.state);
+ async function pollLine(agent,line){await state();const pid=String(line.phoneNumberId),P=st.poll||={},cur=P[agent];
+  // the first look only marks where reading starts: older chats are history, not new messages
+  if(!cur||cur.pid!==pid){P[agent]={pid,since:new Date(now()).toISOString(),at:now()};await saveState();return {started:true,messages:0}}
+  let n=0,max=cur.since;
+  try{const conv=await api(encodeURIComponent(pid)+'/conversations?limit=25');
+   const fresh=(Array.isArray(conv?.data)?conv.data:[]).filter(c=>c?.id&&String(c.last_message_at||'')>cur.since).reverse();
+   for(const c of fresh){const r=await api(encodeURIComponent(pid)+'/messages?'+new URLSearchParams({conversation_id:String(c.id),created_after:cur.since,limit:'50'}));
+    const phone=String(c.contact?.phone_number||'').replace(/\D/g,'');
+    const ms=(Array.isArray(r?.data)?r.data:[]).filter(m=>m&&m.type!=='reaction'&&String(m.created_at||'')>cur.since).sort((a,b)=>String(a.created_at).localeCompare(String(b.created_at)));
+    for(const m of ms){if(String(m.created_at)>max)max=String(m.created_at);
+     if(m.direction==='inbound'){if(!/^\d{6,16}$/.test(phone))continue;n++;
+      await ingest(agent,line,[{pid,from:phone,name:String(c.contact?.name||''),id:'',ts:Math.floor(Date.parse(m.created_at)/1000)||0,type:String(m.type||''),text:String(m.content||''),conversationId:String(c.id)}])}
+     else if(m.direction==='outbound'){const k='out|'+agent+'|'+m.id;if(!m.id||st.ours[m.id]||st.seen.includes(k))continue;st.seen.push(k);
+      const to=String(m.to||phone).replace(/\D/g,'');await teamSent(agent,line,{pid,id:String(m.id),source:inflight.has(to)?'':'poll',to,conversationId:String(c.id),name:String(c.contact?.name||'')})}}}
+   cur.since=max;cur.at=now();delete cur.error}
+  catch(e){cur.error=e.message;cur.at=now();await saveState();throw e}
+  await saveState();return {messages:n}}
+ let polling=false;
+ async function poll(){if(polling)return {};polling=true;try{await state();const L=await lines(),sec=await readJson(SEC,{}),out={};
+   for(const [a,l] of Object.entries(L)){if(!pollsNow(a,l,sec)){if(st.poll?.[a]){delete st.poll[a];await saveState()}continue}
+    try{out[a]=await pollLine(a,l)}catch(e){out[a]={error:e.message};log('kirimdev '+a+': polling: '+e.message)}}
+   return out}finally{polling=false}}
  // after a restart: conversations that were waiting are answered, handoffs are tried again, webhooks hear team replies
- let iv=null,civ=null;
+ let iv=null,civ=null,piv=null;
+ // once: a quiet time of 0 meant the agent kept answering right after a team member (Gilang's line until 7 Nov); new lines get 15
+ async function fixQuiet(){await state();if(st.fixedQuiet)return;const c=await readJson(CONF,{lines:{}});let n=0;
+  for(const l of Object.values(c.lines||{}))if(Number(l.pauseMin)===0){l.pauseMin=DEFAULT_PAUSE;n++}
+  if(n)await put(CONF,c,0o644);st.fixedQuiet=now();await saveState();if(n)log('kirimdev: quiet time 0 set to '+DEFAULT_PAUSE+' min on '+n+' line(s)')}
  async function resume(){await state();for(const [k,p] of Object.entries(st.pending)){const l=await lineOf(p.agent);if(l)schedule(k,l)}
   if(!iv){iv=setInterval(()=>tick().catch(e=>log('kirimdev retry: '+e.message)),30000);iv.unref?.()}
   // the Kirimdev API check: a minute after start, then every 10 minutes
+  if(!piv){piv=setInterval(()=>poll().catch(e=>log('kirimdev poll: '+e.message)),pollEvery);piv.unref?.()}
+  await fixQuiet().catch(e=>log('kirimdev quiet time: '+e.message));
   if(!civ){civ=setInterval(()=>check().catch(e=>log('kirimdev check: '+e.message)),checkEvery);civ.unref?.();setTimer(()=>check().catch(e=>log('kirimdev check: '+e.message)),60e3)?.unref?.()}
   for(const a of Object.keys(await lines()))await ensureEvents(a).catch(e=>log('kirimdev '+a+': could not add message.sent to the webhook: '+e.message))}
- return {receive,reply,draft,connect,webhook,ensureEvents,status,check,health,setKey,account:async()=>{await state();return health().account},setMode,setPause,resume,lines,_api:api,_tick:tick,_state:state}}
+ return {receive,reply,draft,connect,webhook,ensureEvents,status,check,health,setKey,numbers,saveLine,connectWebhook,disconnect,renewSecret,testSend,poll,fixQuiet,account:async()=>{await state();return health().account},setMode,setPause,resume,lines,_api:api,_tick:tick,_state:state}}
