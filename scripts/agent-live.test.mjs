@@ -15,7 +15,7 @@ const TB='Traceback (most recent call last):\n  File "/home/claude/workspaces/co
 async function make(){const H=await mkdtemp(path.join(tmpdir(),'al-'));await mkdir(path.join(H,'profiles','continue-support'),{recursive:true});await mkdir(path.join(H,'profiles','default--whatsapp-2'),{recursive:true});
  for(const a of ['','profiles/continue-support','profiles/default--whatsapp-2'])await writeFile(path.join(H,a,'config.yaml'),'x: 1\n');await mkdir(path.join(H,'profiles','.deleted'),{recursive:true});
  const cfg={},sets=[];let capsText=['Checked by aqeelOS from your real settings at 2026-11-07 00:00 UTC.','- Tools: lockbox, my_health'];let t=1e12;
- const L=createAgentLive({HERMES_HOME:H,DATA:path.join(H,'data'),listAgents:async()=>['default','continue-support'],readConfig:async a=>cfg[a]||{},setKey:async(a,k,v)=>{sets.push([a,k,v]);cfg[a]={plugins:{enabled:v}}},
+ const L=createAgentLive({HERMES_HOME:H,DATA:path.join(H,'data'),chatInfo:async(a,pf,id)=>id==='-100gone'?{title:'',gone:true}:{title:'Continue - Support Agent'},topicName:async(a,c,t)=>t==='89'?'Questions (topic 89)':null,listAgents:async()=>['default','continue-support'],readConfig:async a=>cfg[a]||{},setKey:async(a,k,v)=>{sets.push([a,k,v]);cfg[a]={plugins:{enabled:v}}},
   pick:(c,k)=>k.split('.').reduce((o,x)=>o?.[x],c),capabilities:async()=>capsText,policy:async()=>POLICY,engineDir:ENGINE,log:()=>{},now:()=>t});
  return {L,H,cfg,sets,setCaps:c=>{capsText=c},tick:ms=>{t+=ms}}}
 
@@ -70,3 +70,9 @@ s=u.spec_from_file_location("g",sys.argv[1]);m=u.module_from_spec(s);s.loader.ex
 ${code}`,path.join(ENGINE,'__init__.py')],{encoding:'utf8'}));
  assert.deepEqual(py('print(json.dumps([m.should_roll("dm","telegram",7,200000,1),m.should_roll("dm","telegram",7,1000,4),m.should_roll("dm","telegram",2,900000,9),m.should_roll("group","telegram",9,900000,9),m.should_roll("dm","webhook",9,900000,9),m.should_roll("dm","telegram",7,1000,1)]))'),[true,true,false,false,false,false]);
  assert.deepEqual(py('c={};print(json.dumps([bool(m.repeat_block(c,"t:{}")) for _ in range(5)]+[bool(m.repeat_block(c,"t:{\\"x\\":1}"))]))'),[false,false,false,true,true,false])});
+
+test('a group chat is named as it is now, with its topic role; a group the bot left is said so',async()=>{const {L}=await make();
+ const c=await L.context('continue-support',{platform:'telegram',sender:'1543470752',chat:{chat_id:'-1001',thread_id:'89',chat_type:'group',chat_name:'Longevity - Support Agents / topic 89'}});
+ assert.match(c.text,/This chat now: "Continue - Support Agent", topic Questions \(topic 89\) \(earlier messages may call it "Longevity - Support Agents": that is its old name\)/);
+ assert.match((await L.context('continue-support',{platform:'telegram',sender:'1543470752',chat:{chat_id:'-100gone',chat_type:'supergroup'}})).text,/no longer a member/);
+ assert.doesNotMatch((await L.context('continue-support',{platform:'telegram',sender:'1543470752',chat:{chat_id:'1543470752',chat_type:'dm'}})).text,/This chat now/)});

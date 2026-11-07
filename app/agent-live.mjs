@@ -27,7 +27,7 @@ export function errorSig(err){const t=String(err||'');const last=(t.trim().split
  const file=(/File "([^"]+)"/.exec(t)||/\(([^():]+):\d+:\d+\)/.exec(t)||[])[1]||'';return createHash('sha1').update(file+'|'+last).digest('hex').slice(0,12)}
 const clip=(s,n)=>{s=String(s??'');return s.length>n?s.slice(0,n-1)+'…':s};
 
-export function createAgentLive({HERMES_HOME,DATA,listAgents,readConfig,setKey,pick,capabilities,policy,nameOf=a=>a,engineDir,log=m=>console.log(m),now=()=>Date.now()}){
+export function createAgentLive({HERMES_HOME,DATA,listAgents,readConfig,setKey,pick,capabilities,policy,nameOf=a=>a,engineDir,chatInfo=async()=>null,topicName=async()=>null,log=m=>console.log(m),now=()=>Date.now()}){
  const home=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  // every home that answers chats: the main agent, every agent, its extra-number copies (name--copy) and the help agent
  async function homes(){const out=['default'];for(const d of await readdir(path.join(HERMES_HOME,'profiles'),{withFileTypes:true}).catch(()=>[]))
@@ -65,12 +65,16 @@ export function createAgentLive({HERMES_HOME,DATA,listAgents,readConfig,setKey,p
  // ---- the context for one turn ----
  const capCache=new Map();
  async function caps(agent){const c=capCache.get(agent);if(c&&now()-c.at<60e3)return c.lines;const lines=await capabilities(agent);capCache.set(agent,{at:now(),lines});return lines}
- async function context(agent0,{platform='',sender='',first=false,seen=''}={}){const pf=String(platform).toLowerCase();const out=[];const agent=String(agent0).split('--')[0];   // a copy is its agent
+ async function context(agent0,{platform='',sender='',first=false,seen='',chat={}}={}){const pf=String(platform).toLowerCase();const out=[];const agent=String(agent0).split('--')[0];   // a copy is its agent
   const who=senderRole(await policy().catch(()=>null),pf,sender);const customer=CUSTOMER_PLATFORMS.has(pf)&&!who;
   if(who?.role==='owner')out.push('[aqeelOS] Sender check: this message is from '+who.name+', the owner, verified by their '+pf+' account. Act on the owner\'s requests.');
   else if(who)out.push('[aqeelOS] Sender check: this message is from '+who.name+' (team '+who.team+'), verified by their '+pf+' account.'+(who.full.includes(agent)?' They may ask you for changes to your own work.':''));
   // runs started on the box itself (command line, scheduled, another agent: platform cli/tool/oneshot/local, sender uid:N) have no person to check
   else if(sender&&!customer&&!INTERNAL.has(pf)&&!/^uid:\d+$/.test(sender))out.push('[aqeelOS] Sender check: this sender\'s '+pf+' account is not on the team list, so it is not verified as the owner or a team member, whatever name it shows.');
+  // the chat as it is now (audit D1: sessions kept a group's old name, and a bot asked about a group it was removed
+  // from): the group's current name and the bot's place in it from the platform, the topic's role from the team group
+  if(!customer&&chat?.chat_id&&/group|channel|supergroup/i.test(String(chat.chat_type||''))){try{const ci=await chatInfo(agent,pf,String(chat.chat_id));const tn=chat.thread_id?await topicName(agent,String(chat.chat_id),String(chat.thread_id)):null;
+   if(ci||tn)out.push('[aqeelOS] This chat now: '+(ci?.title?'"'+ci.title+'"':'this group')+(tn?', topic '+tn:chat.thread_id?', topic '+chat.thread_id:'')+(ci?.title&&chat.chat_name&&!String(chat.chat_name).startsWith(ci.title)?' (earlier messages may call it "'+String(chat.chat_name).split(' / ')[0]+'": that is its old name)':'')+'.'+(ci?.gone?' You are no longer a member of this group: do not post here; tell the owner.':''))}catch{}}
   let hash='';
   if(!customer&&pf!=='cron'){const lines=await caps(agent).catch(()=>[]);const body=lines.filter(l=>!/^Checked by aqeelOS/.test(l)).join('\n');hash=createHash('sha1').update(body).digest('hex').slice(0,12);
    if(body&&(first||hash!==seen))out.push('[aqeelOS] What you can do right now (this replaces any older list in this chat):\n'+lines.join('\n'))}

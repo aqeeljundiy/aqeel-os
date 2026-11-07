@@ -1322,7 +1322,16 @@ const versions=createAgentVersions({DATA,HERMES_HOME,DASH:DASH.origin,DASH_TOKEN
  instructions,kirimdev,issues,health,teamGroups,selfRuns,bin:path.join(homedir(),'.local','bin','aqeelos'),ping:avPing,tellOwner:srToOwner,quiet:alertQuiet,live:PORT===4400&&LIVE_APP,extraHealth:a=>agentLive.healthLines(a)});
 // every agent's home gets the engine plugin aqeelos-live (live context each message, tracebacks held back): installed at
 // start and every 10 minutes (new agents too); when it was new or changed, the engine reloads once no reply runs
-const agentLive=createAgentLive({HERMES_HOME,DATA,listAgents:()=>listAgents(),readConfig,setKey,pick,capabilities:a=>versions.capabilities(a),policy:()=>issues.policy(),nameOf:a=>NAMES[a]||a,engineDir:path.join(here,'..','engine','aqeelos-live')});
+// a Telegram group's current name and the bot's place in it, asked of Telegram with the agent's own bot (10-minute cache)
+const chatSeen=new Map();
+async function telegramChat(agent,chatId){const k=agent+'|'+chatId,c=chatSeen.get(k);if(c&&Date.now()-c.at<600e3)return c.v;
+ const tok=(/^TELEGRAM_BOT_TOKEN=["']?([^"'\s]+)/m.exec(await readFile(path.join(agent==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',agent),'.env'),'utf8').catch(()=>''))||[])[1];if(!tok)return null;
+ const api=(m,b)=>fetch('https://api.telegram.org/bot'+tok+'/'+m,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b),signal:AbortSignal.timeout(8000)}).then(r=>r.json()).catch(()=>null);
+ const g=await api('getChat',{chat_id:chatId});let v=null;if(g?.ok)v={title:g.result.title||''};else if(/kicked|not a member|chat not found/i.test(g?.description||''))v={title:'',gone:true};
+ if(v&&!v.gone){const me=tok.split(':')[0];const m=await api('getChatMember',{chat_id:chatId,user_id:Number(me)});if(m?.ok&&/left|kicked/.test(m.result?.status||''))v.gone=true}
+ chatSeen.set(k,{at:Date.now(),v});return v}
+const agentLive=createAgentLive({HERMES_HOME,DATA,chatInfo:(a,pf,id)=>pf==='telegram'?telegramChat(a,id):null,
+ topicName:async(a,chatId,thread)=>{const g=await teamGroups.get(a).catch(()=>null);if(!g||String(g.chatId)!==String(chatId))return null;const r=Object.entries(g.topics||{}).find(([,v])=>String(v)===String(thread));return r?pretty0(r[0])+' (topic '+thread+')':null},listAgents:()=>listAgents(),readConfig,setKey,pick,capabilities:a=>versions.capabilities(a),policy:()=>issues.policy(),nameOf:a=>NAMES[a]||a,engineDir:path.join(here,'..','engine','aqeelos-live')});
 // the engine also reloads when it started before the plugin's files were written (a reload asked for by an earlier run of
 // this app is lost when the app restarts)
 const liveStale=async()=>{try{const pid=await gatewayPid();if(!pid)return false;const g=(await stat('/proc/'+pid)).mtimeMs;const f=(await stat(path.join(HERMES_HOME,'plugins','aqeelos-live','__init__.py'))).mtimeMs;return g<f}catch{return false}};
@@ -1953,7 +1962,7 @@ const server=createServer(async(req,res)=>{
   if(p==='/agent-live/context'||p==='/agent-live/held'){if(req.method!=='POST')return send(res,405,{error:'POST only'});let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
    if(!await agentLive.keyOk(b.key))return send(res,403,{error:'bad key'});const ag=String(b.agent||'');if(!/^[a-z0-9][a-z0-9_-]{0,80}$/.test(ag)||!(await agentLive.homes()).includes(ag))return send(res,404,{error:'no such agent'});
    if(p==='/agent-live/held')return send(res,200,{ok:true,...await agentLive.hold(ag,{error:String(b.error||'').slice(0,8000),platform:String(b.platform||'').slice(0,40),session:String(b.session||'').slice(0,120)})});
-   try{return send(res,200,await agentLive.context(ag,{platform:String(b.platform||''),sender:String(b.sender||''),first:!!b.first,seen:String(b.seen||'')}))}catch(e){console.warn('agent-live context',ag,e.message);return send(res,200,{text:''})}}
+   try{const ch=b.chat&&typeof b.chat==='object'?Object.fromEntries(['chat_id','thread_id','chat_type','chat_name'].map(k=>[k,String(b.chat[k]||'').slice(0,200)])):{};return send(res,200,await agentLive.context(ag,{platform:String(b.platform||''),sender:String(b.sender||''),first:!!b.first,seen:String(b.seen||''),chat:ch}))}catch(e){console.warn('agent-live context',ag,e.message);return send(res,200,{text:''})}}
   if(p==='/issue-press'){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra)||req.method!=='POST')return send(res,403,{error:'local only'});
    let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const k=await pressKey();
    if(typeof b.key!=='string'||b.key.length!==k.length||!timingSafeEqual(Buffer.from(b.key),Buffer.from(k)))return send(res,403,{error:'bad key'});

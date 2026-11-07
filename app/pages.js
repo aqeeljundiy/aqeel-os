@@ -1045,7 +1045,7 @@ PAGES.usage=async(p,el)=>{const gone=pageTok(el);
  // dollars or rupiah: the tab sets the person's choice, which every cost in the app follows
  // a member sees the same page for themselves: their own chats only (people.js adds them), never every agent's totals
  const member=S.me?.admin===false;const list=member?[]:await viewAgents().catch(()=>[]);if(gone())return;const who=usageWho(list);
- const cur=currency()==='USD'?'$ USD':currency(),isDefault=currency()===(S.defaults?.currency||'USD');
+ const cur=(()=>{const k=currency();if(k==='USD')return '$ USD';try{const sym=new Intl.NumberFormat('en',{style:'currency',currency:k,currencyDisplay:'narrowSymbol'}).formatToParts(0).find(x=>x.type==='currency')?.value;return (k==='IDR'?'Rp':sym&&sym!==k?sym:'')+(sym&&sym!==k||k==='IDR'?' ':'')+k}catch{return k}})(),isDefault=currency()===(S.defaults?.currency||'USD');
  setActions('<div class="u-bar">'+`<button class="u-pick" data-act="currency-pick" aria-haspopup="menu" title="Currency for costs"><span>${cur}</span>${icon('chevD',14)}</button>`+tabs('usage',['7 days','30 days','90 days'])+(member?'':`<button class="u-pick icon" data-act="usage-fresh" title="Read it again now" aria-label="Refresh">${icon('refresh',15)}</button>`)+'</div>');placePills();if(member){el.innerHTML='';return}viewPick(list);
 
  // the server answers its last read at once and reads again behind; Refresh waits for a new one (usage-fresh)

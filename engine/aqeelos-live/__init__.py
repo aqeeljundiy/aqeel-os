@@ -226,8 +226,14 @@ def _context(session_id="", platform="", sender_id="", is_first_turn=False, **_)
     try:
         with _lock:
             last = _seen.get(session_id or "", "")
+        chat = {}
+        try:
+            from gateway.session_context import get_session_env
+            chat = {k: str(get_session_env("HERMES_SESSION_" + k.upper()) or "") for k in ("chat_id", "thread_id", "chat_type", "chat_name")}
+        except Exception:
+            pass
         r = _post("/context", {"platform": platform or "", "sender": sender_id or "", "session": session_id or "",
-                               "first": bool(is_first_turn), "seen": last}, 3)
+                               "first": bool(is_first_turn), "seen": last, "chat": chat}, 3)
         if r.get("hash"):
             with _lock:
                 if len(_seen) > 5000:
