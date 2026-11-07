@@ -27,7 +27,7 @@ export function personNeed(x){const k=x?.kind,t=[x?.title,x?.missing,x?.text].fi
   case 'access':return 'Decide: allow or decline.';
   case 'instructions':return 'Read the new instructions and approve or decline them.';
   case 'ticket':return 'Answer the waiting help tickets.';
-  case 'accounts':return 'Decide whether this login may act as you: approve it or disconnect it.';
+  case 'accounts':return 'Keep it if you meant it; otherwise disconnect it.';
   // a message for the owner that landed here with no channel set: only one that needs them (the fixer's "needs a person")
   case 'alerts':{const m=/What is needed(?: from you)?: ([^\n]+)/i.exec(String(x.text||''));return /needs a person|What is needed|could not fix this by itself/i.test(t)?(m?m[1].trim():'Do what the message asks.'):null}
   case 'channel':return x.channel?.needs_link?'Link WhatsApp again: scan the QR code with the phone of that number.':null;

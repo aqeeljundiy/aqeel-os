@@ -27,7 +27,10 @@ const Bottlenecks={items:[],
   // the automations guard (automation-guard.mjs) found or fixed a tool server: its card is on System › Health
 
   // a login acting as the owner that no agent registered (connected-accounts.mjs): approved or disconnected on its page
-  if(x.kind==='accounts')return [['Approve or disconnect it',()=>{closeLayers();go('/abilities/connections');return new Promise(()=>{})},true],['Not now',later]];
+  // 7 Nov 2026: two real buttons that act here; the item leaves at once (the owner's own logins never get here)
+  if(x.kind==='accounts'){const id=x.data?.account;if(!id)return [['Open Connections',()=>{closeLayers();go('/abilities/connections');return new Promise(()=>{})},true],['Not now',later]];
+   return [['Keep it',async()=>{await post(UI,'/ui/connected-accounts/approve',{id});await done();toast('Kept · it shows under Connections')},true],
+    ['Disconnect',async()=>{if(!await confirmBox('Disconnect '+(x.data.label||'this login')+'?','Every agent loses it at once and the saved sign-in is deleted. To use it again, someone has to sign in again.','Disconnect'))return;await post(UI,'/ui/connected-accounts/disconnect',{id});await done();toast('Disconnected')}]]}
   // apps that wait for a sign-in, asked by one or more agents (merged): Connected apps, where they are signed in or switched off
   if(x.kind==='apps')return [['Sign in to '+x.title.replace(/ needs? a sign-in$/,''),()=>{closeLayers();go('/abilities/mcp');return new Promise(()=>{})},true],['Not now',later]];
   // a channel that logged out or keeps failing (server.mjs channelAttention): Link again for WhatsApp, else its page

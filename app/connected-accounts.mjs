@@ -433,7 +433,7 @@ for i in range(2,len(sys.argv),2):
 print(json.dumps(out))`;
 
 export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir(),'workspaces'),active=false,listAgents,readConfig,setKey,withAgent=(a,f)=>f(),dash,python=async()=>null,access=null,whyOf=null,
- googleLabel=async()=>'',signinNeeded=()=>false,bell=async()=>{},nameOf=a=>a,ends={},STEP=5000,sharing=null}){
+ googleLabel=async()=>'',signinNeeded=()=>false,bell=async()=>{},solve=async()=>{},nameOf=a=>a,ends={},STEP=5000,sharing=null}){
  const API={slack:ends.slack||'https://slack.com/api',revoke:ends.revoke||'https://oauth2.googleapis.com/revoke'};
  const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const FILE=path.join(DATA,'connected-accounts.json');let db=null;
@@ -459,7 +459,7 @@ export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir
   for(const a of agents){const home=homeOf(a);for(const f of await readdir(home).catch(()=>[])){const m=/^google_token(?:_([\w.-]+))?\.json(\.paused)?$/.exec(f);if(!m)continue;const p=path.join(home,f);
     const rp=await realpath(p).catch(()=>p);if(seenPath.has(rp))continue;seenPath.add(rp);const j=await readJson(p);if(!j)continue;
     const email=j.account||db.alias[h8(j.refresh_token||rp)]||'';const id='google:'+(email||h8(j.refresh_token||rp));
-    const x=add(id,{kind:'google',provider:'google',identity:email,refresh:h8(j.refresh_token||'')});if(!x.agents.includes(a))x.agents.push(a);x.paths.push(p);x.files.push({agent:a,path:p,name:m[1]||'',paused:!!m[2]});
+    const x=add(id,{kind:'google',provider:'google',identity:email,refresh:h8(j.refresh_token||'')});if(j.aqeelos_connected)x.byApp=true;if(!x.agents.includes(a))x.agents.push(a);x.paths.push(p);x.files.push({agent:a,path:p,name:m[1]||'',paused:!!m[2]});
     if(x.ownerLabel===undefined){x.ownerLabel=await googleLabel(a,m[1]||'').catch(()=>'')||''}}}
   // apps signed in as a person: every agent's mcp_servers with its saved sign-in; the same name with another address is another login
   const tokOf=async(a,n)=>{const d=path.join(homeOf(a),'mcp-tokens');const p=path.join(d,n+'.json');return {p,rp:await realpath(p).catch(()=>p),tok:await readJson(p),meta:await readJson(path.join(d,n+'.meta.json'))}};
@@ -480,17 +480,34 @@ export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir
  function scan(){if(scanning)return scanning;scanning=(async()=>{const found=await scanNow();const now=Date.now(),first=!db.seeded,fresh=[];
    for(const [id,f] of found){let x=db.accounts[id];
     if(!x){const reg=db.pending.find(r=>matches(r,f,homedir()));x=db.accounts[id]={id,kind:f.kind,provider:f.provider,identity:'',can:[...CAN],canSet:false,canBy:{},registered:first||!!reg,registeredBy:first?'seed':reg?reg.by:'',firstSeen:now};
-     if(reg){db.pending=db.pending.filter(r=>r!==reg);if(reg.label)x.agentLabel=reg.label;if(reg.can?.length){x.can=reg.can;x.canSet=true;x.wantCan=true}if(reg.note)x.note=reg.note}
-     if(!x.registered)fresh.push(x)}
-    for(const k of ['kind','provider','mcp','host','url','agents','paths','files','tokens','off','expires','refreshable','orphan','refresh'])x[k]=f[k];
-    if(f.ownerLabel!==undefined)x.ownerLabel=f.ownerLabel;if(f.identity&&!x.identity)x.identity=f.identity;x.seenAt=now}
+     if(reg){db.pending=db.pending.filter(r=>r!==reg);if(reg.label)x.agentLabel=reg.label;if(reg.can?.length){x.can=reg.can;x.canSet=true;x.wantCan=true}if(reg.note)x.note=reg.note}}
+    for(const k of ['kind','provider','mcp','host','url','agents','paths','files','tokens','off','expires','refreshable','orphan','refresh','byApp'])x[k]=f[k];
+    if(f.ownerLabel!==undefined)x.ownerLabel=f.ownerLabel;if(f.identity&&!x.identity)x.identity=f.identity;x.seenAt=now;
+    // the owner's own login is his at once, also one that was asked about before this rule (its item leaves)
+    if(!x.registered){const own=await ownerMade(x);if(own){x.registered=true;x.registeredBy='owner (own sign-in: '+own+')';delete db.told[id];await solve(id).catch(()=>{})}else if(!db.told[id])fresh.push(x)}}
    for(const id of Object.keys(db.accounts))if(!found.has(id)&&!db.accounts[id].manual){delete db.accounts[id];delete db.events[id]}
    db.pending=db.pending.filter(r=>now-r.at<24*3600e3);db.seeded=true;db.scanAt=now;await save();
-   if(fresh.length&&active)for(const x of fresh){if(db.told[x.id])continue;db.told[x.id]=now;await save();
-    await bell('A login acting as you was found: '+labelOf(x),'An agent signed in as you ('+(x.identity||x.mcp||x.kind)+') without registering it. Open Abilities › Connections to approve it or disconnect it.').catch(()=>{})}
+   if(fresh.length&&active)for(const x of fresh){if(db.told[x.id])continue;db.told[x.id]=now;await save();const a=askAbout(x);
+    await bell(a.title,a.text,{topic:'accounts|'+x.id,data:{account:x.id,label:labelOf(x)}}).catch(()=>{})}
+   // nothing is waiting for the owner any more: older questions (from before items named their login) go too
+   if(!Object.values(db.accounts).some(x=>!x.registered))await solve(null).catch(()=>{})
    for(const x of Object.values(db.accounts))if(x.wantCan){delete x.wantCan;applyCan(x).catch(e=>console.warn('accounts: allowed actions',x.id,e.message))}
    return found})().finally(()=>{scanning=null});return scanning}
  const labelOf=x=>displayName(x);
+ /* 7 Nov 2026 (owner: asking him to approve his own login is noise). A login the owner made is registered as his at once:
+    one only the main agent holds (his own chat with it), one whose sign-in an admin started from Connections or
+    Connected apps (why.mjs records it), or a Google account connected in the app. Only a login another agent or a member
+    made, or one whose origin can't be traced, is asked about, saying which agent, which service and what it can do. */
+ const MAIN='default',baseOf=a=>String(a||'').split('--')[0];
+ const holders=x=>[...new Set([...(x.agents||[]),...(x.tokens||[]).map(t=>t.agent),...(x.files||[]).map(f=>f.agent)].filter(Boolean).map(baseOf))];
+ async function ownerMade(x){const ags=holders(x);if(ags.length&&ags.every(a=>a===MAIN))return 'the main agent';if(x.kind==='google'&&x.byApp)return 'Connect Google';
+  if(x.kind==='mcp-oauth'&&whyOf&&x.mcp)for(const a of ags){const o=await whyOf.app(a,x.mcp,x.url).catch(()=>null);if(o?.by==='person'&&o.admin)return 'Connections'}
+  return null}
+ const canSay=x=>{const s=x.kind==='google'?'Google':x.kind==='telegram-user'?'Telegram':serviceName(x.provider,'')||x.mcp||'this service';
+  return x.kind==='google'?'read your Gmail, Drive and Calendar and send from them as you':x.kind==='telegram-user'?'read your Telegram chats and send messages as you':'read and change things in '+s+' as you'};
+ function askAbout(x){const ags=holders(x).filter(a=>a!==MAIN),who=ags.map(a=>nameOf(a)).join(' and '),svc=x.kind==='google'?'Google':x.kind==='telegram-user'?'Telegram':serviceName(x.provider,'')||x.mcp||'an app',acct=x.identity?' ('+x.identity+')':'';
+  return who?{title:who+' signed in to '+svc+' as you',text:who+' signed in to '+svc+acct+' as you, and it was not you or the main agent who started it. It can now '+canSay(x)+'.'}
+   :{title:'A sign-in to '+svc+' as you was found',text:'aqeelOS found a sign-in to '+svc+acct+' as you and can’t tell who made it. Whoever has it can '+canSay(x)+'.'}}
 
  /* ---------- who it is and whether it works (cheap, at most every 30 min per login) ---------- */
  async function slackTest(tok){try{const r=await fetch(API.slack+'/auth.test',{method:'POST',headers:{authorization:'Bearer '+tok},signal:AbortSignal.timeout(15000)}).then(r=>r.json());return r}catch(e){return {ok:false,error:'unreachable',net:true}}}
@@ -621,7 +638,7 @@ export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir
    await access?.forget?.('mcp',x.mcp).catch(()=>{})}
   else if(x.kind==='telegram-user'){for(const f of x.files){await rmF(f.path);await rmF(f.path.replace(/\.paused$/,'')+'-journal')}}
   else if(x.manual&&x.where){await rmF(tilde(x.where))}
-  delete db.accounts[id];delete db.events[id];delete db.told[id];await save();if(x.kind==='google')await writePolicy();console.log('accounts: disconnected',id,revoked===null?'(deleted only)':revoked?'(revoked)':'(could not revoke)');
+  delete db.accounts[id];delete db.events[id];delete db.told[id];await save();await solve(id).catch(()=>{});if(x.kind==='google')await writePolicy();console.log('accounts: disconnected',id,revoked===null?'(deleted only)':revoked?'(revoked)':'(could not revoke)');
   return {ok:true,revoked,label:labelOf(x)}}
 
  /* ---------- registering (agents) and approving (the owner) ---------- */
@@ -640,7 +657,7 @@ export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir
   if(owner!=null)return {isError:true,text:'aqeelOS does not see a '+(kind==='mcp-oauth'?'app sign-in':kind==='telegram-user'?'Telegram session':'Google sign-in')+' at '+(where||'that place')+' yet. Connect it first, then add it here.'};
   db.pending=db.pending.filter(x=>!(x.by===agent&&x.label===label));db.pending.push(r);await save();
   return {text:'Noted "'+label+'". It shows under Abilities › Connections as soon as aqeelOS sees the sign-in (within 2 minutes). Say where the credential is stored (where) if it does not show.'}}
- async function approve(id,by=''){await load();const x=db.accounts[id];if(!x)throw new Error('That login is gone. Reload the page.');x.registered=true;x.registeredBy='owner'+(by?': '+by:'');await save();return {ok:true}}
+ async function approve(id,by=''){await load();const x=db.accounts[id];if(!x)throw new Error('That login is gone. Reload the page.');x.registered=true;x.registeredBy='owner'+(by?': '+by:'');await save();await solve(id).catch(()=>{});return {ok:true}}
 
  /* ---------- what the page shows ---------- */
  async function list({fresh=false}={}){await load();if(fresh||!db.scanAt||Date.now()-db.scanAt>2*60e3)await scan();if(fresh||!db.actionsAt)await readActions();else if(Date.now()-db.actionsAt>2*60e3)readActions().catch(()=>{});   // older ones show while the logs are read again
@@ -667,4 +684,4 @@ export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir
   setTimeout(tick,8000).unref?.();setInterval(tick,2*60e3).unref?.()}
  // a share, a revoke or a transfer on an account: write its allowed actions again right away
  async function levelsChanged(id){await load();const x=db.accounts[id];if(x)await applyCan(x)}
- return {levelsChanged,claimAll,canNow:async(id,a)=>{await load();const x=db.accounts[id];return x?canNow(x,a):[]},list,actions,scan,readActions,pause,setCan,setAgentCan,applyTools,toolsOf,busy,disconnect,register,approve,patchGapi,levelFor:async(email,agent)=>{await load();const x=Object.values(db.accounts).find(y=>y.kind==='google'&&String(y.identity||'').toLowerCase()===String(email).toLowerCase());if(!x)return null;const c=new Set(canFor(x,agent));return c.has('send')?'full':c.has('draft')?'draft':c.has('edit')?'edit':'read'},check:async id=>{await load();const x=db.accounts[id];if(x)await check(x,{force:true})},_db:async()=>load()}}
+ return {ownerMade,askAbout,levelsChanged,claimAll,canNow:async(id,a)=>{await load();const x=db.accounts[id];return x?canNow(x,a):[]},list,actions,scan,readActions,pause,setCan,setAgentCan,applyTools,toolsOf,busy,disconnect,register,approve,patchGapi,levelFor:async(email,agent)=>{await load();const x=Object.values(db.accounts).find(y=>y.kind==='google'&&String(y.identity||'').toLowerCase()===String(email).toLowerCase());if(!x)return null;const c=new Set(canFor(x,agent));return c.has('send')?'full':c.has('draft')?'draft':c.has('edit')?'edit':'read'},check:async id=>{await load();const x=db.accounts[id];if(x)await check(x,{force:true})},_db:async()=>load()}}

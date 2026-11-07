@@ -852,7 +852,7 @@ const connAccounts=createConnectedAccounts({sharing:shareLevels,DATA,HERMES_HOME
  ...(caTest?{WORK:env.ACCOUNTS_WORK||path.join(path.dirname(HERMES_HOME),'workspaces'),ends:{slack:env.ACCOUNTS_SLACK_API,revoke:env.ACCOUNTS_GOOGLE_REVOKE},STEP:1000}:{}),
  googleLabel:async(a,n)=>((await googleLabels())[a+'|'+n]||{}).label||'',signinNeeded:(a,n)=>signinsDue.has(a+'|'+n),
  dash:(method,p,body)=>fetch(DASH.origin+p,{method,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:body&&method!=='GET'&&method!=='DELETE'?JSON.stringify(body):undefined,signal:AbortSignal.timeout(60000)}).then(async r=>({ok:r.ok,status:r.status,j:await r.json().catch(()=>({}))})),
- bell:(text,detail)=>bottlenecks.event('accounts',text,detail||'')});
+ bell:(text,detail,o)=>bottlenecks.event('accounts',text,detail||'',o||{}),solve:id=>bottlenecks.resolve(id?'accounts|'+id:'accounts')});
 // planned changes put in DATA/apply-on-start/ are carried out once at start (apply-on-start.mjs): share levels,
 // moving an agent's own copy of a Google sign-in to a share
 if(LIVE_APP)setTimeout(()=>{import('./apply-on-start.mjs').then(({applyOnStart})=>applyOnStart({DATA,ops:{
@@ -2876,6 +2876,8 @@ const server=createServer(async(req,res)=>{
      return send(res,200,{ok:true,agents:done})}}
    if(p==='/ui/mcp/start-signin'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||'default'),tool=String(b.name||'');
     if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag+'/soul','PUT',new URLSearchParams(),ag)!==null)return send(res,403,{error:'Not your agent.'});
+    // who started it: an admin's own sign-in is never asked about as an unknown login (connected-accounts.mjs ownerMade)
+    await whyOf.noteApp(ag,tool,{by:'person',admin:users.isAdmin(u),who:u.name||u.username||''}).catch(()=>{});
     try{const pr=await sharing.prepareSignin(ag,tool,MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(tool));if(pr.changed)await new Promise(r=>setTimeout(r,2500));return send(res,200,await startSignin(ag,tool))}catch(e){return send(res,400,{error:e.message})}}
    if(p==='/ui/mcp/prepare-signin'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||'default');
     if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag+'/soul','PUT',new URLSearchParams(),ag)!==null)return send(res,403,{error:'Not your agent.'});
