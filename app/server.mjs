@@ -29,6 +29,7 @@ import {createMail} from './mail.mjs';
 import {createUsage} from './usage.mjs';
 import {createExplain} from './explain.mjs';
 import {createLabels} from './labels.mjs';
+import {agentNameFrom,prettyId} from './agent-name.mjs';
 import {createKeysIdentity} from './keys-identity.mjs';
 import {createBuiltinSkills} from './builtin-skills.mjs';   // Built in or added on this OS (7 Nov 2026)
 import {nameRefusal,addNameFields,namesMissing,namesPrompt,okName,okDesc} from './name-rules.mjs';   // a plain name and one line for everything an agent makes   // which account each key belongs to (7 Nov 2026)   // names and descriptions people remember (7 Nov 2026)
@@ -245,7 +246,7 @@ async function setDisplayName(profile,name){
 // from assets/emoji (avatar-file.mjs). The two replace each other. With neither, the agent gets an automatic emoji from its
 // id. avatarV changes with every new photo, so /ui/avatar/<agent>?v= shows the new one everywhere at once
 async function identities(req,res,p,u){
- if(p==='/ui/identities'&&req.method==='GET')return send(res,200,await readIds());
+ if(p==='/ui/identities'&&req.method==='GET'){const ids=await readIds();for(const a of await listAgents().catch(()=>[])){const n=String(ids[a]?.name||'').trim();if(!n)ids[a]={...(ids[a]||{}),name:NAMES[a]||await displayName(a)}}return send(res,200,ids)}
  const m=/^\/ui\/(identities|avatar)\/([^/]+)$/.exec(p);if(!m)return send(res,404,{error:'Not found'});
  const profile=decodeURIComponent(m[2]);if(!okProfile(profile))return send(res,400,{error:'Bad profile name'});
  const dropPhoto=async(cur,x)=>{if(cur.avatar)await unlink(path.join(DATA,'avatars',cur.avatar)).catch(()=>{});delete x.avatar;delete x.avatarV};
@@ -305,6 +306,7 @@ const schedules=createSchedules({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_H
 setTimeout(()=>schedules.tick(),40000).unref();setInterval(()=>schedules.tick(),10*60000).unref();
 const relay=createRelay({ownerAgent:a=>{const o=users.agentOwner(String(a).split('--')[0]);return !o||o==='owner'},DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,SECRET,listAgents:()=>listAgents(),links:{list:a=>links.list(a)},platformsOf:a=>platformsCached(a),nameOf:a=>NAMES[a]||a,ownerName:()=>users.people()[0]?.name});
 const NAMES={};   // agents' display names (refreshed with the agent context), for messages people read
+const agentName=agentNameFrom(NAMES);   // agent-name.mjs: display names everywhere, never a profile id
 // names and notes people give their Google accounts, "<agent>|<account name>" → {label, note}
 const FX={rates:{IDR:16500},at:0,day:''};   // dollar → every currency, refreshed by /ui/fx (7 Nov 2026: not only rupiah)
 let GLABELS=null;const googleLabels=async()=>GLABELS??=await readFile(path.join(DATA,'google-accounts.json'),'utf8').then(JSON.parse).catch(()=>({}));
@@ -345,7 +347,7 @@ async function syncNotifyOnce(){
    which the engine reads with every chat; anything outside the section is left alone. */
 // the same name the page shows (core.js ident): the identity's name, then profile.yaml, then the folder name capitalised
 // (Sela has neither, and messages said "sela" while the page said "Sela"; 2 Nov 2026)
-async function displayName(a){const i=String((await readIds())[a]?.name||'').trim();if(i)return i;const y=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'profile.yaml'),'utf8').catch(()=>'');return (/^display_name:\s*"?([^"\n]+)"?/m.exec(y)||[])[1]?.trim()||(a==='default'?'aqeelOS':a[0].toUpperCase()+a.slice(1))}
+async function displayName(a){const i=String((await readIds())[a]?.name||'').trim();if(i)return i;const y=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'profile.yaml'),'utf8').catch(()=>'');return (/^display_name:\s*"?([^"\n]+)"?/m.exec(y)||[])[1]?.trim()||(a==='default'?'Main agent':prettyId(a))}
 /* The engine tells models that chats from an app are plain text ("no markdown"), so replies came out as flat
    paragraphs although aqeelOS shows formatting. Each agent gets the engine's own override with the truth. */
 const CHAT_HINT="You're replying in aqeelOS, a chat app that shows Markdown. Format for easy reading, like a well-written Claude or ChatGPT reply: short answers stay short and conversational; longer ones start with the outcome, then use ## headings for sections, bullet or numbered lists, tables for comparisons, and code blocks for code or commands. Bold the key numbers, names, dates and decisions (for example: UPS **$120 → **Acme**) so the reply can be skimmed. Never send more than two plain paragraphs in a row: start a section with a bold lead-in (**Short answer** …, **What changed** …, **Next step** …) and put lists of points in bullets. Put the one thing the person must do in a quote line that starts with **Next step:**, and a real risk or blocker in a quote line that starts with ⚠️; aqeelOS shows these as soft boxes, so use at most one or two per reply. Write every link as [a short name](url) (for example [Weekly sales report](https://docs.google.com/…)), never a bare URL; aqeelOS shows them as small labelled buttons. Put the one main document on a line of its own and it shows as a card. For the state of items in a list, add [[Done]], [[Needs you]] or [[Failed]] after the item; aqeelOS shows these as small coloured labels (use them only for real states, not decoration). While working, keep progress notes to one short line each and lead the final answer with the result. File/media delivery: images referenced as MEDIA:/absolute/path tags (.png/.jpg/.jpeg/.gif/.webp/.bmp, up to 5MB) are shown inline in the chat. Non-image files are not shown inline, so state the plain file path instead of a MEDIA: tag.";
@@ -745,10 +747,10 @@ const googleFiles=createGoogleFiles({HERMES_HOME,WORK:path.join(homedir(),'works
 const googleShares=createGoogleShares({HERMES_HOME,DATA,WORK:path.join(homedir(),'workspaces'),agents:()=>agentNames(),levelOf:gfLevel,held:a=>googleFiles.locked(a)});
 if(LIVE_APP){const t=()=>googleFiles.ensureClients().catch(e=>console.warn('google files',e.message));setTimeout(t,30e3).unref();setInterval(t,5*60e3).unref()}
 if(LIVE_APP){const t=()=>googleShares.renew().then(r=>{if(r.renewed||r.removed)console.log('google shares: renewed',r.renewed,'removed',r.removed)}).catch(e=>console.warn('google shares',e.message));setInterval(t,5*60e3).unref();setTimeout(t,60e3).unref()}
-const access=createAccess({googleShares,HERMES_HOME,DATA,listAgents:()=>listAgents(),readConfig,setKey,hermes:hcmd,editEnv,names:a=>NAMES[a]||(a==='default'?'aqeelOS':a),writeJson:(f,v)=>writeJsonAtomic(f,v),restart:why=>restartGateway(why).catch(()=>{}),
+const access=createAccess({googleShares,HERMES_HOME,DATA,listAgents:()=>listAgents(),readConfig,setKey,hermes:hcmd,editEnv,names:a=>agentName(a),writeJson:(f,v)=>writeJsonAtomic(f,v),restart:why=>restartGateway(why).catch(()=>{}),
  own:{n8n:{owner:'aqeelOS',note:'every agent has its own n8n user',grant:a=>n8n.ensure(a)}},
  dash:(method,p)=>fetch(DASH.origin+p,{method,headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(r=>r.json().catch(()=>({})))});
-const accessAsk=createAccessRequests({DATA,access,listAgents:()=>listAgents(),names:a=>NAMES[a]||(a==='default'?'aqeelOS':a)});
+const accessAsk=createAccessRequests({DATA,access,listAgents:()=>listAgents(),names:a=>agentName(a)});
 const n8n=createN8n({BASE:N8N_URL,readConfig,removeMcp:(a,name)=>fetch(DASH.origin+'/api/mcp/servers/'+encodeURIComponent(name)+'?profile='+encodeURIComponent(a),{method:'DELETE',headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(r=>{if(!r.ok&&r.status!==404)throw new Error('Could not remove the tool ('+r.status+')');return true}),DATA,setKey,restart:why=>{if(/^n8n connected for /.test(why)&&testAgentShown(why))return;restartGateway(why).catch(()=>{})},names:a=>NAMES[a]||a});
 const code=createCode({DATA,SRC:path.join(homedir(),'apps','aqeel-code'),PUBLIC_URL,ROOT:root});
 // team folders (Plan 4): Code project folders shared with team members, one bare git repo each, served only through here
@@ -821,7 +823,7 @@ if(LIVE_APP)setInterval(async()=>{try{if(!(await notifySettings()).daily)return;
 const newsInfo=(kind,text,detail)=>{const ok=/works again|fixed|back on|working again|passed/i.test(text);return news.add({aud:'admins',group:'ev|'+kind+'|'+String(text).replace(/\(.*?\)|[0-9]+/g,'#').replace(/\s+/g,' ').trim().slice(0,100),icon:kind==='down'?'activity':ok?'check':'refresh',kind:ok?'ok':'blue',title:text,text:detail,go:'/system/health',label:'Health'})};
 const bottlenecks=createBottlenecks({DATA,onInfo:newsInfo,listAgents:()=>listAgents(),names:a=>NAMES[a]||a,dash:p=>fetch(DASH.origin+'/api'+p,{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(20000)}).then(r=>r.json())});brand.name().then(n=>{globalThis.AQ_BRAND=n}).catch(()=>{});
 // agents' instructions with a history, contradiction flags and approval for rewrites (instructions.mjs)
-const instructions=createInstructions({DATA,HERMES_HOME,DASH:DASH.origin,DASH_TOKEN,python:enginePython,root,names:a=>NAMES[a]||(a==='default'?'aqeelOS':a),live:LIVE_APP});
+const instructions=createInstructions({DATA,HERMES_HOME,DASH:DASH.origin,DASH_TOKEN,python:enginePython,root,names:a=>agentName(a),live:LIVE_APP});
 if(LIVE_APP){setTimeout(()=>listAgents().then(l=>instructions.tick(l)).catch(()=>{}),150000).unref();setInterval(()=>listAgents().then(l=>instructions.tick(l)).catch(()=>{}),30*60000).unref()}
 // the owner on the main agent's WhatsApp (as when the server was off, or after a night update)
 // Plug and play settings (System › Teams, team-settings.mjs): the team policy, where owner alerts go, Pause alerts, test agents
@@ -845,7 +847,7 @@ async function toOwner(text){return ownerSend(text,'whatsapp')}
    are fixed by themselves; problems go to Bottlenecks and fixes to the bell's list, a failed fix also goes to WhatsApp at once. Agent copies
    (agent--2) have their own tool servers and logs, so they are watched too. */
 const alertQuiet=createQuiet({DATA,HERMES_HOME});
-const guard=createAutomationGuard({DATA,HERMES_HOME,LIVE:LIVE_APP,quiet:alertQuiet,readConfig,withAgent,setKey,listAgents:()=>agentNames({copies:true}),nameOf:a=>a.includes('--')?(NAMES[a.split('--')[0]]||a.split('--')[0])+' (extra number)':NAMES[a]||(a==='default'?'aqeelOS':a),
+const guard=createAutomationGuard({DATA,HERMES_HOME,LIVE:LIVE_APP,quiet:alertQuiet,readConfig,withAgent,setKey,listAgents:()=>agentNames({copies:true}),nameOf:a=>agentName(a),
  dash:(method,p,body)=>fetch(DASH.origin+p,{method,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:body&&method!=='GET'&&method!=='DELETE'?JSON.stringify(body):undefined,signal:AbortSignal.timeout(90000)}).then(async r=>({ok:r.ok,status:r.status,j:await r.json().catch(()=>({}))})),
  busy:()=>liveCount()+engAgents.n,paused:()=>guardPaused({engineUpdate:engineUpd.busy(),gwRestarting:!!gwRestarting,restore:backups.busy()}),zone:async()=>installTz()||(await readConfig('default').catch(()=>null))?.timezone||sysTz(),isDaytime:dayNow,localDate:(ms,tz)=>localAt(ms,tz).date,
  tell:async(text,{detail,whatsapp,bell=true,topic,info,resolve}={})=>{if(resolve)await bottlenecks.resolve(resolve).catch(()=>{});if(!text)return;if(bell)await bottlenecks.event('automations',text,detail||'',{topic,info,told:!!whatsapp}).catch(()=>{});if(whatsapp)await toOwner(text+(detail?'\n'+detail:''))}});
@@ -862,7 +864,7 @@ const backupModels=createBackupModels({DATA,HERMES_HOME,live:LIVE_APP||bmTest,..
  agents:async()=>{const l=await agentNames({copies:true});if(await isAgent(HELP_AGENT))l.push(HELP_AGENT);return l},acc:accountsApi.backup,readConfig,setKey,ready:async()=>{await users.load();const c=await readConfig('default').catch(()=>null);const z=installTz()||c?.timezone;if(z)tzNow=z},
  // an agent a member owns gets only backups that member's role allows (people's "models", users.mjs)
  modelOk:(a,p,m)=>{const o=users.byId(users.agentOwner(String(a).split('--')[0]));return !o||users.modelOk(o,p,m)},
- probe:engineProbe({python:enginePython,root,engine:path.join(HERMES_HOME,'hermes-agent')}),nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a),clock:ms=>clockAt(ms,tzNow),
+ probe:engineProbe({python:enginePython,root,engine:path.join(HERMES_HOME,'hermes-agent')}),nameOf:a=>agentName(a),clock:ms=>clockAt(ms,tzNow),
  tell:async(text,{detail,whatsapp,bell=true,topic,info,resolve}={})=>{if(resolve)await bottlenecks.resolve(resolve).catch(()=>{});if(!text)return;if(bell)await bottlenecks.event('automations',text,detail||'',{topic,info,told:!!whatsapp}).catch(()=>{});if(whatsapp)await toOwner(text+(detail?'\n'+detail:''))}});
 accountHooks.held=k=>backupModels.held(k);accountHooks.backupSync=why=>backupModels.soon(why);
 // every automatic model move is told to the owner: moves within 30 seconds go in one message (6 Nov 2026: seven agents
@@ -893,7 +895,7 @@ const agentAccess=createAgentAccess({sharing:shareLevels,HERMES_HOME,MAIN:env.MA
  cron:{list:async t=>{const l=await cronApi(t,'');return (Array.isArray(l)?l:l.jobs||[]).filter(j=>(j.profile||t)===t)},create:(t,b)=>cronApi(t,'',{method:'POST',body:JSON.stringify(b)}),
   update:(t,id,u)=>cronApi(t,'/'+encodeURIComponent(id),{method:'PUT',body:JSON.stringify({updates:u})}),pause:(t,id)=>cronApi(t,'/'+encodeURIComponent(id)+'/pause',{method:'POST'}),
   resume:(t,id)=>cronApi(t,'/'+encodeURIComponent(id)+'/resume',{method:'POST'}),remove:(t,id)=>cronApi(t,'/'+encodeURIComponent(id),{method:'DELETE'})}});
-const connAccounts=createConnectedAccounts({sharing:shareLevels,DATA,HERMES_HOME,active:LIVE_APP||caTest,listAgents:()=>agentNames({copies:true}),readConfig,setKey,withAgent,python:enginePython,access,whyOf,nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a),
+const connAccounts=createConnectedAccounts({sharing:shareLevels,DATA,HERMES_HOME,active:LIVE_APP||caTest,listAgents:()=>agentNames({copies:true}),readConfig,setKey,withAgent,python:enginePython,access,whyOf,nameOf:a=>agentName(a),
  ...(caTest?{WORK:env.ACCOUNTS_WORK||path.join(path.dirname(HERMES_HOME),'workspaces'),ends:{slack:env.ACCOUNTS_SLACK_API,revoke:env.ACCOUNTS_GOOGLE_REVOKE},STEP:1000}:{}),
  googleLabel:async(a,n)=>((await googleLabels())[a+'|'+n]||{}).label||'',signinNeeded:(a,n)=>signinsDue.has(a+'|'+n),
  dash:(method,p,body)=>fetch(DASH.origin+p,{method,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:body&&method!=='GET'&&method!=='DELETE'?JSON.stringify(body):undefined,signal:AbortSignal.timeout(60000)}).then(async r=>({ok:r.ok,status:r.status,j:await r.json().catch(()=>({}))})),
@@ -924,7 +926,7 @@ if(LIVE_APP)setTimeout(()=>{import('./apply-on-start.mjs').then(({applyOnStart})
 
 /* Abilities › Connections (connections.mjs, 1 Nov 2026): every app, login as you, skill, plugin and key in one list, who
    owns it, who may use it and how much (Read, Read & draft, Full; On or Off). AdsPower and Code come in when asked. */
-const connections=createConnections({DATA,access,accounts:connAccounts,listAgents:()=>listAgents(),listCopies:()=>agentNames({copies:true}),names:a=>NAMES[a]||(a==='default'?'aqeelOS':a),sharing,
+const connections=createConnections({DATA,access,accounts:connAccounts,listAgents:()=>listAgents(),listCopies:()=>agentNames({copies:true}),names:a=>agentName(a),sharing,
  engine:(method,p,body)=>fetch(DASH.origin+p,{method,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:body&&method!=='GET'&&method!=='DELETE'?JSON.stringify(body):undefined,signal:AbortSignal.timeout(60000)}).then(async r=>({ok:r.ok,status:r.status,j:await r.json().catch(()=>({}))})),
  ads:()=>agentAds.list(),code:async()=>{const nm=Object.fromEntries(users.people().map(x=>[x.id,x.name||x.username||'Someone']));return {devices:(await code.allDevices()).map(d=>({...d,person:nm[d.user]||'Someone'})),live:{connected:(await live.list(null,true)).connected}}}});
 // engine updates at night, checked after; the owner is told on the main agent's channel (as when the server was off)
@@ -956,7 +958,7 @@ users.hooks.revoke=id=>revokeSessions(id);
 const accountAuth=createAccountAuth({users,send,readBody,publicUrl:()=>String(PUBLIC_URL),revoke:id=>revokeSessions(id),signIn:id=>({'set-cookie':'hui='+makeCookie(id)+'; '+cookieAttrs(SESSION_DAYS*86400)}),
  limited:req=>limited(clientIp(req)),miss:req=>{const ip=clientIp(req);(attempts.get(ip)||attempts.set(ip,[]).get(ip)).push(Date.now())}});
 // Help: the person's own help chat (help.mjs); account usage is read through the Accounts page's own handler, as that person
-const help=createHelp({DATA,root,DASH:DASH.origin,DASH_TOKEN,GATE:GATE.origin,API_KEY,users,listAgents:()=>listAgents(),names:a=>NAMES[a]||(a==='default'?'aqeelOS':a),platforms:a=>platformsCached(a),signins:()=>[...signinsDue.values()],agentModel:a=>agentModel(a),security,send,readBody,
+const help=createHelp({DATA,root,DASH:DASH.origin,DASH_TOKEN,GATE:GATE.origin,API_KEY,users,listAgents:()=>listAgents(),names:a=>agentName(a),platforms:a=>platformsCached(a),signins:()=>[...signinsDue.values()],agentModel:a=>agentModel(a),security,send,readBody,
  accounts:u=>new Promise(r=>Promise.resolve(accountsApi({method:'GET',url:'/ui/accounts',headers:{}},null,'/ui/accounts',(x,code,data)=>r(code===200?data:null),readBody,a=>!!users.level(u,a))).catch(()=>r(null)))});
 const starters=createStarters(DATA,{python:enginePython,root});
 const me=async req=>{const id=cookieId(req);return id?await users.user(id):null};
@@ -1315,7 +1317,7 @@ async function useSecret(rec,value,{admin=false}={}){
    WhatsApp; the person opens it on their phone, outside aqeelOS, and the value is saved like ask_secret's "save" (never as
    an admin, so the keys that wire aqeelOS stay out of reach). The page (/secret) is public: the token after # is the credential. */
 const secretLinks=createSecretLinks({DATA,PUBLIC_URL,save:(base,name,value)=>saveSecret(base,name,value),reserved:n=>RESERVED_KEY.test(n),
- isAgent:async a=>a!==HELP_AGENT&&!a.includes('--')&&await isAgent(a)&&!(LIVE_APP&&await isTestAgent(a)),nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a[0].toUpperCase()+a.slice(1)),
+ isAgent:async a=>a!==HELP_AGENT&&!a.includes('--')&&await isAgent(a)&&!(LIVE_APP&&await isTestAgent(a)),nameOf:a=>agentName(a),
  exists:async(base,name)=>!!await stat(path.join(secretDir(base),name)).catch(()=>null)||(await readFile(path.join(base==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',base),'.env'),'utf8').catch(()=>'')).split('\n').some(l=>l.replace(/^\s*export\s+/,'').startsWith(name+'=')),
  tell:(text,detail)=>bottlenecks.event('secrets',text,detail,{info:true})});
 const secretHits=createLimiter(30,600e3);
@@ -1397,7 +1399,7 @@ if(LIVE_APP){setTimeout(()=>postingLimits.ensure().catch(e=>console.warn('postin
    agent is the one in the signed address, never one it names; who asked is read from the chat the call is in. Settings,
    trusted people, the audit and Stop/Resume are on Automations › Runs itself. */
 let SR_TZ=sysTz();const srTz=()=>readConfig('default').then(c=>{const z=installTz()||c?.timezone;if(z)SR_TZ=z}).catch(()=>{});srTz();setInterval(srTz,600e3).unref();
-const srName=a=>NAMES[a]||(a==='default'?'aqeelOS':a[0].toUpperCase()+a.slice(1));
+const srName=a=>agentName(a);
 const srBox=createSelfRunsBox({HERMES_HOME,DATA,python:enginePython});
 const srSig=a=>sign('self-runs:'+a).slice(0,32),srUrl=a=>`http://127.0.0.1:${PORT}/mcp/self/${a}/${srSig(a)}`;
 const srDur=s=>s==null?'':s<60?s+' s':Math.round(s/60)+' min';
@@ -1453,7 +1455,7 @@ const health=createAgentHealth({DATA,HERMES_HOME,bottlenecks,quiet:alertQuiet,fi
  // plain-code live checks (no model): the customer tools of each Kirimdev agent answer tools/list on the local route
  kirimdevAgents:async()=>Object.keys(await kirimdev.lines().catch(()=>({}))),
  customerTools:async a=>{const r=await fetch('http://127.0.0.1:'+PORT+'/mcp/customer/'+encodeURIComponent(a),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/list'}),signal:AbortSignal.timeout(10000)});const j=await r.json().catch(()=>null);return Array.isArray(j?.result?.tools)?j.result.tools.length:null},python:enginePython,link:PUBLIC_URL+'/#/system/health',
- listAgents:()=>listAgents(),nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a),
+ listAgents:()=>listAgents(),nameOf:a=>agentName(a),
  engineUp:async()=>!gwStopped&&!gwRestarting&&!!await gatewayPid(),
  botToken:async a=>(/^TELEGRAM_BOT_TOKEN=["']?([^"'\s]+)/m.exec(await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'.env'),'utf8').catch(()=>''))||[])[1]||null,
  items:async()=>bottlenecks.list({admin:true,mayUse:()=>true,signins:[...signinsDue.values()],invites:[],accounts:await accountsApi.signedOut().catch(()=>[]),channels:await channelAttention(false).catch(()=>[])})});
@@ -1487,7 +1489,7 @@ async function issueApply(kind,why){if(kind==='ui'){console.log('restarting the 
  await restartGateway(why,{waitMax:120});for(let k=0;k<24&&!await gatewayPid();k++)await new Promise(r=>setTimeout(r,5000));
  return await gatewayPid()?{ok:true}:{ok:false,why:'the engine did not come back yet'}}
 const issueEnvFiles=async()=>[path.join(HERMES_HOME,'.env'),...(await readdir(path.join(HERMES_HOME,'profiles')).catch(()=>[])).map(a=>path.join(HERMES_HOME,'profiles',a,'.env'))];
-const issues=createIssues({DATA,home:homedir(),bin:path.join(homedir(),'.local','bin','aqeelos'),fixerHome:homedir(),nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a),
+const issues=createIssues({DATA,home:homedir(),bin:path.join(homedir(),'.local','bin','aqeelos'),fixerHome:homedir(),nameOf:a=>agentName(a),
  reply:replyInTopic,tellOwner:srToOwner,toTeam:issueToTeam,quiet:alertQuiet,busy:async()=>busyNow(),ready:async()=>!gwStopped&&!gwRestarting&&!!await gatewayPid(),apply:issueApply,envFiles:issueEnvFiles,
  // a proven fix for an agent's report closes the report too (it stays on Health until then, never in the popup)
  onFixed:async i=>{const k=String(i.healthKey||'');if(k.startsWith('report|'))await bottlenecks.done(k);else if(i.report)await bottlenecks.done('report|'+i.report)},
@@ -1955,7 +1957,7 @@ async function logo(req,res){
 /* ---------- live screens: the shared one (noVNC on 127.0.0.1:6080) and one per agent (screens.mjs) ---------- */
 const screens=createScreens({keepOn:a=>agentAds.keepOn(a)});
 // every agent's own AdsPower on its own screen, as its own user, with its own port and sign-in (app/agent-adspower.mjs, 1 Nov 2026)
-const agentAds=createAgentAdspower({DATA,HERMES_HOME,screens,wanted:a=>optins.on('adspower',a),help:a=>a===HELP_AGENT,codeUser:a=>agentDefaults.codeUser(a),agentNames,readConfig,pick,withAgent,live:LIVE_APP,nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a),skip:async a=>a===HELP_AGENT||await isTestAgent(a),
+const agentAds=createAgentAdspower({DATA,HERMES_HOME,screens,wanted:a=>optins.on('adspower',a),help:a=>a===HELP_AGENT,codeUser:a=>agentDefaults.codeUser(a),agentNames,readConfig,pick,withAgent,live:LIVE_APP,nameOf:a=>agentName(a),skip:async a=>a===HELP_AGENT||await isTestAgent(a),
  mcp:(a,m,p,b)=>fetch(`${DASH.origin}/api/mcp/servers${p}?profile=${encodeURIComponent(a)}`,{method:m,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:b?JSON.stringify(b):undefined,signal:AbortSignal.timeout(30000)}).then(async r=>{if(!r.ok&&r.status!==404)throw new Error('MCP '+m+' '+r.status+' '+(await r.text().catch(()=>'')).slice(0,120))})});
 const SCREEN=new URL(env.UI_SCREEN||'http://127.0.0.1:6080');
 const BUILD=String(Date.now());
@@ -2825,7 +2827,7 @@ const server=createServer(async(req,res)=>{
      if(p==='/ui/apps/remove')return send(res,200,await live.remove(u,users.isAdmin(u),String(b.id||'')));
      if(p==='/ui/apps/connect'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,await live.connect(b))}}catch(e){return send(res,400,{error:e.message})}}
    // System › Health: each agent fine or with its problems, and its failed messages this week (agent-health.mjs)
-   if(p==='/ui/health/issues'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});const l=await issues.list();return send(res,200,{items:l.items.map(i=>({id:i.id,agent:i.agent,agentName:i.agentName,state:i.state,source:i.source||null,missing:i.missing,proposed_fix:i.proposed_fix,byName:i.byName,decision:i.decision,created:i.created,updated:i.updated,count:i.count,result:i.result||null,tries:i.tries??i.attempts??0,proof:i.proof||null,need:i.need||null,told:i.told||null,patch:i.patch||null,noRetry:!!i.noRetry,closeAfter:!!i.closeAfter,history:(i.history||[]).slice(-8).map(h=>({kind:h.kind,at:h.at,status:h.status,summary:h.summary||null,outcome:h.outcome||null}))})),escalations:await escalations.view().catch(()=>({agents:{}})),agents:(await listAgents().catch(()=>[])).map(a=>({id:a,name:NAMES[a]||(a==='default'?'aqeelOS':a)})),sources:await chatHistory.sources().catch(()=>[]),policy:{teams:(l.policy.teams||[]).map(t=>({name:t.name,agents:t.agents,contact:t.contact||(t.members||[])[0]?.name||null,members:(t.members||[]).map(m=>m.name)})),fixer:l.policy.fixer||{}}})}
+   if(p==='/ui/health/issues'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});const l=await issues.list();return send(res,200,{items:l.items.map(i=>({id:i.id,agent:i.agent,agentName:i.agentName,state:i.state,source:i.source||null,missing:i.missing,proposed_fix:i.proposed_fix,byName:i.byName,decision:i.decision,created:i.created,updated:i.updated,count:i.count,result:i.result||null,tries:i.tries??i.attempts??0,proof:i.proof||null,need:i.need||null,told:i.told||null,patch:i.patch||null,noRetry:!!i.noRetry,closeAfter:!!i.closeAfter,history:(i.history||[]).slice(-8).map(h=>({kind:h.kind,at:h.at,status:h.status,summary:h.summary||null,outcome:h.outcome||null}))})),escalations:await escalations.view().catch(()=>({agents:{}})),agents:(await listAgents().catch(()=>[])).map(a=>({id:a,name:agentName(a)})),sources:await chatHistory.sources().catch(()=>[]),policy:{teams:(l.policy.teams||[]).map(t=>({name:t.name,agents:t.agents,contact:t.contact||(t.members||[])[0]?.name||null,members:(t.members||[]).map(m=>m.name)})),fixer:l.policy.fixer||{}}})}
   // Report an issue, Stop retrying and Close (System › Health): a person files one for the fixer, or ends one
   if(/^\/ui\/health\/issues\/(report|close|stop)$/.test(p)&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}
    try{if(p.endsWith('/report')){const a=String(b.agent||'');if(!(await listAgents()).includes(a))return send(res,400,{error:'Pick the agent it is about.'});
@@ -2833,7 +2835,7 @@ const server=createServer(async(req,res)=>{
     const i=await issues[p.endsWith('/close')?'close':'stop'](String(b.id||''),u.name||'an admin');if(!i)return send(res,404,{error:'No such issue.'});return send(res,200,{ok:true,state:i.state,after:!!i.noRetry})}catch(e){return send(res,400,{error:e.message})}}
   // System › Teams (team-settings.mjs): teams and members, the fixer, where alerts go, Pause alerts, test agents
   if(/^\/ui\/(teams|alerts)(\/|$)/.test(p)){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});let b={};if(req.method!=='GET'){try{b=JSON.parse(await readBody(req,131072))}catch{}}
-   const nm=a=>NAMES[a]||(a==='default'?'aqeelOS':a),chans=async()=>(await relay.channelsFor('default').catch(()=>[])).map(c=>({id:c.id,name:c.name,platform:c.platform,owner:c.owner}));
+   const nm=a=>agentName(a),chans=async()=>(await relay.channelsFor('default').catch(()=>[])).map(c=>({id:c.id,name:c.name,platform:c.platform,owner:c.owner}));
    const full=async()=>{const v=await teamSettings.view();return {...v,agents:v.agents.map(a=>({id:a,name:nm(a)})),channels:await chans()}};
    try{
     if(p==='/ui/teams'&&req.method==='GET')return send(res,200,await full());

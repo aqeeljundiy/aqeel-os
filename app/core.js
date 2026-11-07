@@ -212,7 +212,11 @@ function md(src){
 }
 
 /* ---------- agent identity (name, title, picture per profile) ---------- */
-function ident(p=S.profile||'default'){const i=S.identities[p]||{};return {name:i.name||(p==='default'?'aqeelOS':p[0].toUpperCase()+p.slice(1)),title:i.title||'',avatar:i.avatar?'/ui/avatar/'+encodeURIComponent(p)+'?v='+encodeURIComponent(i.avatarV||i.avatar):'',emoji:EMOJI.some(e=>e.slug===i.emoji)?i.emoji:''}}
+// an agent's name as people read it (7 Nov 2026, owner: "use the formal names not this"): its display name, never its
+// profile id; "default" is the main agent, never "aqeelOS"; an extra number says which one ("Dora AI · WhatsApp 2")
+const prettyId=p=>String(p||'').split(/[-_]+/).filter(Boolean).map((w,i)=>i?w:w[0].toUpperCase()+w.slice(1)).join(' ');
+function agentLabel(p){p=String(p||'');if(!p)return '';if(p==='aqeelOS')p='default';const [b,x]=p.split('--');const n=ident(b).name;if(!x)return n;const m=/^([a-z]+)-(\d+)$/i.exec(x);return n+' · '+(m?({whatsapp:'WhatsApp',telegram:'Telegram',slack:'Slack'}[m[1].toLowerCase()]||prettyId(m[1]))+' '+m[2]:prettyId(x))}
+function ident(p=S.profile||'default'){if(String(p).includes('--'))p=String(p).split('--')[0];const i=S.identities[p]||{};return {name:i.name||(p==='default'?'Main agent':prettyId(p)),title:i.title||'',avatar:i.avatar?'/ui/avatar/'+encodeURIComponent(p)+'?v='+encodeURIComponent(i.avatarV||i.avatar):'',emoji:EMOJI.some(e=>e.slug===i.emoji)?i.emoji:''}}
 const AGENT=()=>ident().name;
 /* ---------- agent avatars: one look everywhere ----------
    photo > chosen emoji > an automatic emoji from the agent's id (stable across renames; the same hash as the server's
