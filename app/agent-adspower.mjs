@@ -72,6 +72,9 @@ export function createAgentAdspower({DATA,HERMES_HOME,screens,codeUser,agentName
 
  // the app itself, readable by every agent's user: a copy in ~/workspaces (agents pass through it, the rest of the home is
  // closed to them), made again when AdsPower on the box was updated and no copy is running
+ // AdsPower on this server at all (the app in ~/apps/adspower, or the agents' copy already made): a fresh install has
+ // neither, and then nothing starts, no screen turns on and no agent gets an AdsPower tool (7 Nov 2026, clean-install test)
+ const installed=async()=>!!(await stat(path.join(SRC,'resources','app.asar')).catch(()=>null)||await stat(BIN).catch(()=>null));
  async function binReady(){const s=await stat(path.join(SRC,'resources','app.asar')).catch(()=>null);if(!s)return !!await stat(BIN).catch(()=>null);
   const want=s.size+':'+Math.round(s.mtimeMs),have=await readFile(path.join(BIN_DIR,'.version'),'utf8').catch(()=>'');if(have===want)return true;
   if(await stat(BIN).catch(()=>null)&&(await running()).size)return true;   // updated later, when nothing uses it
@@ -113,7 +116,7 @@ export function createAgentAdspower({DATA,HERMES_HOME,screens,codeUser,agentName
  // where its screen's DISPLAY lives: the own-user screen's file (in its folder) or the engine screen's
  const envFileOf=async a=>(await codeUser(a))?path.join(wsOf(a),'.screen','env'):path.join(screens.homeOf(a),'bot-desktop','env');
 
- async function start(a,{why='started'}={}){a=baseOf(a);if(!NAME.test(a))throw Error('Unknown agent');await binReady();const port=await portOf(a);if(!port)throw Error('This agent gets no AdsPower.');
+ async function start(a,{why='started'}={}){a=baseOf(a);if(!NAME.test(a))throw Error('Unknown agent');if(!await installed())throw Error('AdsPower is not installed on this server. Install AdsPower for Linux in ~/apps/adspower first.');await binReady();const port=await portOf(a);if(!port)throw Error('This agent gets no AdsPower.');
   // The main agent's screen (and a trusted agent's) is the engine's, started on demand: turned on here first
   if(!await codeUser(a)&&!(await screens.status(a)).running)await screens.start(a);
   const home=wsOf(a);await mkdir(home,{recursive:true}).catch(()=>{});
@@ -125,7 +128,7 @@ export function createAgentAdspower({DATA,HERMES_HOME,screens,codeUser,agentName
  async function status(a,run_=null){a=baseOf(a);const port=await portOf(a);if(!port)return {agent:a,state:'none'};await load();const p=(run_||await running()).get(port)||{};
   const lp=!p.loop&&!p.app?null:await livePort(a);
   // not on this server at all (neither the app in ~/apps/adspower nor the agents' copy): say so instead of offering Start
-  const missing=!p.loop&&!p.app&&!await stat(path.join(SRC,'resources','app.asar')).catch(()=>null)&&!await stat(BIN).catch(()=>null);
+  const missing=!p.loop&&!p.app&&!await installed();
   const state=missing?'missing':!p.loop&&!p.app?'off':lp?'running':p.app?'signed-out':'starting';
   return {agent:a,name:nameOf(a),port:lp||port,own:port,state,kept:!db.off[a],user:(await codeUser(a).catch(()=>null))||'this box user'}}
  async function list(){const r=await running();return Promise.all((await agents()).map(a=>status(a,r)))}
@@ -134,7 +137,7 @@ export function createAgentAdspower({DATA,HERMES_HOME,screens,codeUser,agentName
 
  // the AdsPower tool of every agent (and the main agent's extra numbers) talks to its own copy; through the engine's MCP route
  // (DELETE then POST, one agent at a time) so the running engine picks it up
- async function tools(){const p=await ports(),seen={};
+ async function tools(){if(!await installed())return;const p=await ports(),seen={};
   // its tool talks to the port its copy really listens on (its own one, once the copy runs with the shim)
   for(const a of await agents())if(p[a]){const lp=await livePort(a).catch(()=>null);if(lp&&lp!==p[a])realPort[a]=lp;else delete realPort[a];seen[a]=lp||p[a]}
   await writePorts();
@@ -176,7 +179,7 @@ its own data and its own sign-in. No other agent uses it.
 
  // every minute: each agent's AdsPower runs unless an admin stopped it; the main agent's screen stays on while its AdsPower runs
  let ticking=false;const errs=new Map();   // a failure is logged once, not every minute
- async function tick(){if(ticking)return;ticking=true;try{const r=await running(),keep=new Set();let moved=false;
+ async function tick(){if(ticking)return;if(!await installed())return;ticking=true;try{const r=await running(),keep=new Set();let moved=false;
   for(const a of await agents()){await load();const port=(await ports())[a];if(!port||db.off[a])continue;const p=r.get(port)||{};
    if(!p.loop){const e=await start(a,{why:p.app?'loop started again':'started'}).then(()=>'',e=>e.message);if(e&&errs.get(a)!==e)log('AdsPower '+a+': '+e);errs.set(a,e)}
    // signed in on another port than its tool knows (just signed in, or restarted with the shim): the tools follow

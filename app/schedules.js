@@ -10,7 +10,8 @@ const usd=c=>money(c);   // dollars, or rupiah when the person picked that (core
 const toks=n=>!n?'0':n<1000?String(n):n<1e6?(n/1e3).toFixed(n<1e4?1:0)+'k':(n/1e6).toFixed(1)+'M';
 const secsText=s=>s==null?'':s<60?s+' s':s<3600?Math.round(s/60)+' min':(s/3600).toFixed(1)+' h';
 // each agent runs its schedules in its own time zone (none set is UTC), so the label is always said
-const zoneOf=a=>(SCHED.tzs||{})[a||'default']||'';
+// the agent's own zone once read, else the install's one zone (System › Settings), which every agent gets
+const zoneOf=a=>(SCHED.tzs||{})[a||'default']||(typeof S!=='undefined'&&S.install?.timezone?.zone)||'';
 function whenText(j){const sc=j.schedule||{};const disp=String(sc.display||j.schedule_display||'');const tz=zoneOf(j.profile),zone=' ('+(tz?tz.split('/').pop().replace(/_/g,' '):'UTC')+' time)';
  const iv=/^every\s+(\d+)\s*([smhd])$/i.exec(disp);if(iv){const n=+iv[1],u={s:'second',m:'minute',h:'hour',d:'day'}[iv[2].toLowerCase()];return 'Every '+(n===1?u:n+' '+u+'s')}
  const once=/^once at (\d{4}-\d\d-\d\d)[ T](\d\d:\d\d)/i.exec(disp);if(once){const d=new Date(once[1]+'T12:00:00');return 'Once, '+d.toLocaleDateString([],{weekday:'short',day:'numeric',month:'short'})+' at '+once[2]+zone}

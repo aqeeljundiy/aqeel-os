@@ -29,7 +29,7 @@ import {publicUrl} from './install.mjs';   // Your address (System › Settings)
 import {createHmac,timingSafeEqual,randomUUID} from 'node:crypto';
 import path from 'node:path';
 
-export const TOLERANCE=300,MAX_BODY=1024*1024,API='https://api.kirimdev.com/v1';
+export const TOLERANCE=300,MAX_BODY=1024*1024,API=(process.env.KIRIMDEV_API||'https://api.kirimdev.com/v1').replace(/\/+$/,'');   // KIRIMDEV_API: a stand-in for tests
 export const FOOTER=/\n*\(Answered with [^)]*\)\s*$/;
 export const MODES=['test','draft','live'],EVENTS=['message.received','message.sent'];
 export const RETRY_MIN=[1,5,15,30,60],DEFAULT_PAUSE=15;
