@@ -53,3 +53,8 @@ test('the reply guard can ask whether a payment was made for this customer since
  assert.equal(await C.paidSince('continue-support','628111222333',0),false);
  await C.call('continue-support',tok,'create_payment',{amounts:[50000],name:'A',order_total:50000});
  assert.equal(await C.paidSince('continue-support','+62 811-1222-333',1e12-5000),true);assert.equal(await C.paidSince('biomarkers-support','628111222333',0),false)});
+
+test('the payment helper can be any script named in the line\'s settings',async()=>{const W=await mkdtemp(path.join(tmpdir(),'ct2-'));await mkdir(path.join(W,'a','bin'),{recursive:true});await writeFile(path.join(W,'a','bin','stripe-link'),'x');
+ const ran=[];const C=createCustomerTools({WORK:W,DATA:path.join(W,'d'),payRules:async()=>({currency:'USD',min:1,max:900,helper:{path:'bin/stripe-link',style:'send'}}),googleCall:async()=>({}),chatFind:async()=>({}),history:async()=>'',runAsAgent:async(a,t,v)=>{ran.push([t,v]);return {ok:true,out:'sent'}},log:()=>{}});
+ const tok=C.begin({agent:'a',line:'1',conversation:'c',phone:'15551234567'});
+ assert.equal((await C.call('a',tok,'create_payment',{kind:'qris',amounts:[120],name:'Sam',order_total:120})).text,'sent');assert.deepEqual(ran[0],['bin/stripe-link',['qris','120','--name','Sam','--to','15551234567']])});

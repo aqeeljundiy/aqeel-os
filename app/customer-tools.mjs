@@ -39,7 +39,14 @@ export const TOOLS=(pay,pr={})=>{const cur=pr.currency||'',lo=Number(pr.min)||1,
 
 export function createCustomerTools({WORK,DATA,payRules=async()=>({}),googleCall,chatFind,history,runAsAgent,log=m=>console.log(m),now=()=>Date.now(),random=n=>randomBytes(n)}){
  const runs=new Map();
- const payKind=async a=>(await stat(path.join(WORK,a,'.tools','pay')).catch(()=>null))?'pay':(await stat(path.join(WORK,a,'.tools','qris')).catch(()=>null))?'qris':null;
+ // the agent's payment helper: the line's setting (kirimdev.json lines.<agent>.payment.helper {path, style}), else the
+ // usual names in its workspace. style "send": it sends the payment itself (qris|va amounts --name --to <number>);
+ // style "picture": it prints [FOTO: …] lines for the reply (amounts --name --phone <number>)
+ const helperOf=async a=>{const h=(await payRules(a).catch(()=>({}))||{}).helper;
+  if(h?.path&&/^[\w.\/-]+$/.test(h.path)&&!h.path.split('/').includes('..')&&await stat(path.join(WORK,a,h.path)).catch(()=>null))return {path:h.path,style:h.style==='send'?'send':'picture'};
+  if(await stat(path.join(WORK,a,'.tools','pay')).catch(()=>null))return {path:'.tools/pay',style:'send'};
+  if(await stat(path.join(WORK,a,'.tools','qris')).catch(()=>null))return {path:'.tools/qris',style:'picture'};return null};
+ const payKind=async a=>{const h=await helperOf(a);return h?(h.style==='send'?'pay':'qris'):null};
  // a run's key: made by aqeelOS when it starts a customer run, ends with it (15 minutes at most)
  function begin({agent,line,conversation,phone,mode}){const token=random(24).toString('base64url');runs.set(token,{agent,line,conversation,phone:String(phone||'').replace(/\D/g,''),mode,at:now(),payments:0});return token}
  function end(token){runs.delete(token)}
@@ -56,7 +63,7 @@ export function createCustomerTools({WORK,DATA,payRules=async()=>({}),googleCall
     const t=await readFile(path.join(WORK,agent,rel),'utf8').catch(()=>null);return t==null?{isError:true,text:'No such file.'}:{text:clip(t,60000)}}
    if(name==='conversation')return {text:await history(r,Math.min(60,Math.max(1,+args.limit||30)))};
    if(name==='past_chats'){const x=await chatFind(agent,String(args.query||''),{limit:args.limit});return {isError:!!x.error,text:String(x.text||'')}}
-   if(name==='create_payment'){const kind=await payKind(agent);if(!kind)return {isError:true,text:'You have no payment helper.'};
+   if(name==='create_payment'){const helper=await helperOf(agent);const kind=helper?(helper.style==='send'?'pay':'qris'):null;if(!kind)return {isError:true,text:'You have no payment helper (set one in the line\'s payment settings).'};
     if(!r.phone)return {isError:true,text:'This chat has no customer number.'};
     const amounts=[].concat(args.amounts||[]).map(Number);const pr=await payRules(agent).catch(()=>({}))||{},lo=Number(pr.min)||1,hi=Number(pr.max)||1e9,cur=pr.currency?pr.currency+' ':'';
     if(!amounts.length||amounts.some(x=>!Number.isInteger(x)||x<lo||x>hi))return {isError:true,text:'Each amount is a whole number from '+lo+' to '+hi+'.'};
@@ -69,7 +76,7 @@ export function createCustomerTools({WORK,DATA,payRules=async()=>({}),googleCall
     if(recent&&!args.expired)return {isError:true,text:'A payment for '+cur+total+' was already made for this customer at '+recent.at.slice(11,16)+' UTC. Only make a new one if the customer says it expired (expired true).'};
     const nm=clip(String(args.name||'').replace(/[^\p{L}\p{N} .,'-]/gu,'').trim(),60)||'Customer';
     const argv=kind==='pay'?(k==='va'?['va',String(args.bank).toUpperCase(),String(amounts[0])]:['qris',...amounts.map(String)]).concat(['--name',nm,'--to',r.phone]):[...amounts.map(String),'--name',nm,'--phone',r.phone];
-    r.payments++;const x=await runAsAgent(agent,'.tools/'+kind,argv);
+    r.payments++;const x=await runAsAgent(agent,helper.path,argv);
     await payLog({agent,line:r.line,conversation:r.conversation,phone:r.phone,mode:r.mode,kind:k,amounts,total,ok:x.ok,out:clip(x.out||x.err,400)});
     log('customer run '+agent+': payment '+k+' '+cur+total+' for …'+r.phone.slice(-4)+(x.ok?' made':' failed'));
     return x.ok?{text:clip(x.out,4000)}:{isError:true,text:'The payment was not made: '+clip(x.err||x.out,600)+'. Tell the customer you are checking, and hand off.'}}
