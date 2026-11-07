@@ -95,11 +95,7 @@
   "all /system/keys": [
    "button: Add a key"
   ],
-  "all /system/branding": [
-   "button: Save name",
-   "button: Upload logo",
-   "button: Save contact"
-  ],
+  "all /system/branding": [],
   "all /system/settings": [
    "button: Export",
    "button: Import",
@@ -202,11 +198,7 @@
   "one /system/keys": [
    "button: Add a key"
   ],
-  "one /system/branding": [
-   "button: Save name",
-   "button: Upload logo",
-   "button: Save contact"
-  ],
+  "one /system/branding": [],
   "one /system/settings": [
    "button: Export",
    "button: Import",
