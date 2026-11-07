@@ -2460,3 +2460,7 @@ button.acct-more{font:inherit;cursor:pointer;width:100%;background:var(--surface
 .inbox .ib-item.need .bn-acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
 .ib-activity{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);text-decoration:none;padding:4px 2px}.ib-activity:hover{color:var(--ink)}
 .act-row[data-go]{cursor:pointer}.act-row .main-c{display:flex;gap:12px;align-items:flex-start}.act-row small{color:var(--muted);font-size:12px;display:block;margin-top:2px}
+
+/* People: owner and admin cards (people.js pplAllAgents) */
+.pstack{display:flex;flex:none}.pstack>*{margin-left:-8px;box-shadow:0 0 0 2px var(--surface);border-radius:50%}.pstack>*:first-child{margin-left:0}
+.pshare .pval{flex:none;font-size:13.5px;color:var(--ink-2)}
