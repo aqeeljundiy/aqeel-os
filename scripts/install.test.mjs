@@ -78,7 +78,7 @@ function routes(over={}){const out=[],set=[];const r=I.createInstallRoutes({send
 const call=async(r,u,method,p,body)=>{const req={method,headers:{host:'ai.example.com','x-forwarded-proto':'https'},body:body?JSON.stringify(body):''},res={};const done=await r.handle(req,res,u,new URL('http://x'+p));return {done,...res}};
 const admin={id:'owner',admin:true},member={id:'m',admin:false};
 
-test('the first sign-in is asked once, prefilled with the browser’s address',async()=>{const {r}=routes();
+test('the first sign-in is asked once, prefilled with the browser’s address',async()=>{const {r}=routes();process.env.AQEELOS_LIVE='0';assert.equal((await call(r,admin,'GET','/ui/install')).body.address.ask,false);delete process.env.AQEELOS_LIVE;
  const s=await call(r,admin,'GET','/ui/install');assert.equal(s.code,200);assert.equal(s.body.address.ask,true);assert.equal(s.body.address.suggest,'https://ai.example.com');assert.ok(s.body.agentUsers&&s.body.claude&&s.body.live);
  const m=await call(r,member,'GET','/ui/install');assert.equal(m.body.address.suggest,undefined);assert.equal(m.body.agentUsers,undefined);
  await call(r,admin,'POST','/ui/install/address',{later:true});assert.equal((await call(r,admin,'GET','/ui/install')).body.address.ask,false);I.saveSettings({addressAsked:''})});

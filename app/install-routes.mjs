@@ -25,7 +25,8 @@ export function createInstallRoutes({send,readBody,isAdmin,listAgents=async()=>[
   if(!admin)return out;
   out.address.suggest=I.originOf(req);out.address.checkedAt=s.publicUrlChecked||0;
   // the first sign-in asks once (the dialog prefilled with the browser's address); Later stops it asking
-  out.address.ask=from==='default'&&!s.addressAsked;
+  // only the live copy asks: test copies (deploy checks) must never get a dialog over the pages they check
+  out.address.ask=from==='default'&&!s.addressAsked&&I.isLive();
   out.live={on:I.isLive(),from:I.liveFrom()};
   out.hosts=Object.fromEntries(Object.keys(I.HOSTS).map(k=>[k,{value:I.hostSetting(k),from:I.hostFrom(k),env:I.HOSTS[k][0]}]));
   out.agentUsers=I.agentUsersState();
