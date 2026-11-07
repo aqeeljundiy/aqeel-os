@@ -2288,3 +2288,7 @@ button.acct-more{font:inherit;cursor:pointer;width:100%;background:var(--surface
 .ih-gap{padding:3px 10px;color:var(--muted);font:11.5px var(--font-sans,inherit);background:var(--soft)}
 .ih-flaghint{display:flex;align-items:center;gap:6px;flex-wrap:wrap;color:var(--warn);margin:2px 0 6px}
 @media (max-width:560px){.ih-head{gap:9px;padding:10px 12px}.ih-row{flex-wrap:wrap}}
+
+/* No label pills (owner, 7 Nov 2026): a chip is plain text with its coloured dot, never a rounded box. One rule for
+   every kind (status, access, sign-in, blue), so new ones follow by themselves. */
+.chip,.chip.blue,.dark .chip.blue,.chip.ok,.chip.warn,.chip.bad,.chip.access,.chip.access.shared,.chip.access.public,.dark .chip.access.shared,.dark .chip.access.public,.chip.sign-chip,.tile .agent-foot .chip.ok{background:none!important;border-color:transparent!important;border-radius:0!important;padding-left:0!important;padding-right:0!important;min-height:0!important;box-shadow:none!important}
