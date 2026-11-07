@@ -106,7 +106,7 @@ const HealthCode={
    const row=b.closest('.row');if(!calm()&&row){row.style.animation='cardOut 180ms var(--ease) both';await new Promise(r=>setTimeout(r,180))}again()})}};
 const HealthIssues={
  ST:{queued:'Queued',fixing:'Being fixed',applying:'Waiting to reload safely',rollback:'Putting the change back',verify:'Proof run next',verifying:'Proving the fix','reloaded-back':'Put back',
-  fixed:'Fixed and proven',needs_human:'Needs a person',stuck:'Stuck after 3 tries',gone:'Resolved by itself',expired:'Closed after 7 days',open:'Waiting (fixer off)',declined:'Declined',failed:'Fix failed',closed:'Closed',stopped:'Stopped retrying'},
+  fixed:'Fixed and proven',needs_human:'Needs a person',stuck:'Stuck after 3 tries',gone:'Resolved by itself',expired:'Closed after 7 days',open:'Waiting (fixer off)',declined:'Declined',failed:'Fix failed',closed:'Closed',stopped:'Stopped retrying',deploy:'Fix waits for the daily deploy'},
  END:['fixed','declined','gone','closed','expired'],RUN:['fixing','applying','verify','verifying','rollback','reloaded-back'],
  draw(box,d,again){const it=d.items||[],esc2=d.escalations?.agents||{},names={};for(const i of it)names[i.agent]=i.agentName;HealthIssues.agents=d.agents||[];
   const rows=Object.entries(esc2);const t=(x)=>esc(String(x??''));const cut=(x,n)=>{x=String(x||'');return x.length>n?x.slice(0,n)+'…':x};
