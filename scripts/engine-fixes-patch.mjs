@@ -29,10 +29,59 @@
 //    (Kirimdev itself returns them in full) and asked the team or guessed. Phone masking is now its own per-agent
 //    setting, security.redact_phone_numbers (default true, so a fresh install stays safe); keys and tokens are still
 //    always redacted. aqeelOS turns it off for agents that work with customers' numbers.
+// 7) aqeelos:replaced-db-log-once (7 Nov 2026). "FATAL: state.db was replaced underneath the gateway" was written on
+//    every write attempt, not once as the engine means it: 4,400 lines on 6 Nov from 15:00 to 23:32 WIB, every
+//    2.5 to 5 s, burying real errors. Each burst began the moment a deploy check deleted its throwaway agent while the
+//    engine still held that agent's database (leadtestp54va 08:14, pc-r* 09:06-09:11, dp-mw5* 14:11-14:13 UTC); no
+//    live agent's database was replaced and no transcript was diverted. It is now logged once per database, with its
+//    path, and as a warning when the file is simply gone (a deleted agent). Writes are still refused.
+// 8) aqeelos:oauth-keep-tokens-same-client (7 Nov 2026). Donna's three Slack apps lost their sign-ins at 01:41 UTC and
+//    again at 05:24 UTC ("configured OAuth client changed (client_id 'X' -> 'X'); discarded tokens"). The client id was
+//    the same; only the saved secret differed, because one engine path saved the secret unexpanded
+//    ("\${SLACK_AS2_CLIENT_SECRET}") and the next saw the real value. Tokens belong to the client id, so only a different
+//    client id discards them now, and an unexpanded \${...} secret is filled from the environment or keeps the saved one.
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
 
 export const FIXES=[
+ {tag:'aqeelos:oauth-keep-tokens-same-client',name:'OAuth sign-ins survive a re-saved client secret',file:'tools/mcp_oauth.py',edits:[
+  {why:'the client-change check',
+   from:'    if not old_client_id or (old_client_id == new_client_id and (existing.get("client_secret") or None) == (new_client_secret or None)):\n        return\n',
+   to:`    # aqeelos:oauth-keep-tokens-same-client: tokens are minted for a client id; a re-saved or unexpanded secret for the
+    # same id is not a new client (7 Nov 2026: Slack sign-ins were discarded for 'X' -> 'X')
+    if not old_client_id or old_client_id == new_client_id:
+        return
+`},
+  {why:'the saved client secret',
+   from:'    info_cls = _sdk_class("OAuthClientInformationFull")\n    _invalidate_tokens_on_client_change(storage, client_id, cfg.get("client_secret"))\n',
+   to:`    info_cls = _sdk_class("OAuthClientInformationFull")
+    # aqeelos:oauth-keep-tokens-same-client: never save a \${VAR} placeholder as the secret
+    _aq_secret = cfg.get("client_secret")
+    if isinstance(_aq_secret, str) and "\${" in _aq_secret:
+        import os as _aq_os, re as _aq_re
+        _aq_secret = _aq_re.sub(r"\\$\\{(\\w+)\\}", lambda m: _aq_os.environ.get(m.group(1), m.group(0)), _aq_secret)
+        if "\${" in _aq_secret:
+            _aq_old = _read_json(storage._client_info_path())
+            _aq_secret = (_aq_old.get("client_secret") if isinstance(_aq_old, dict) else None) or None
+        cfg = {**cfg, "client_secret": _aq_secret}
+    _invalidate_tokens_on_client_change(storage, client_id, cfg.get("client_secret"))
+`}]},
+ {tag:'aqeelos:replaced-db-log-once',name:'a replaced or deleted state.db is logged once, with its path',file:'hermes_state.py',edits:[
+  {why:'the replaced-file halt',
+   from:'        if self._db_replaced or self._db_file_was_replaced():\n            self._db_replaced = True\n            self._disable_close_time_checkpoint()\n            logger.error(_STATE_DB_REPLACED_MSG)\n            raise StateDbReplacedError(_STATE_DB_REPLACED_MSG)\n',
+   to:`        if self._db_replaced or self._db_file_was_replaced():
+            # aqeelos:replaced-db-log-once: once per database (it was every write, 4,400 lines on 6 Nov), with the path
+            _aq_first = not self._db_replaced
+            self._db_replaced = True
+            self._disable_close_time_checkpoint()
+            if _aq_first:
+                if not os.path.exists(self.db_path):
+                    logger.warning("state.db %s is gone (its agent was deleted) while this process still held it; "
+                                   "writes to it are refused (logged once)", self.db_path)
+                else:
+                    logger.error("%s (%s)", _STATE_DB_REPLACED_MSG, self.db_path)
+            raise StateDbReplacedError(_STATE_DB_REPLACED_MSG)
+`}]},
  {tag:'aqeelos:platform-toolset-excludes',name:'per-channel exclusions keep customer webhooks free of admin tools',file:'hermes_cli/tools_config.py',edits:[
   {why:'subtract channel exclusions after resolving the full default set',
    from:'    if explicitly_configured and toolset_names:\n        _warn_all_invalid_platform_toolsets(platform, toolset_names)\n    return enabled_toolsets\n',

@@ -15,4 +15,12 @@ const {holdActive}=await import('../app/alert-quiet.mjs');const now=Date.now();
 assert.equal(holdActive({until:now+6e4},now),true);assert.equal(holdActive({until:String(now+6e4)},now),true);
 assert.equal(holdActive({until:new Date(now+6e4).toISOString()},now),true);assert.equal(holdActive({until:new Date(now-6e4).toISOString()},now),false);
 assert.equal(holdActive({until:'garbage'},now),false);
+// 6-7 Nov 2026: each deploy check's throwaway agent restarted every agent. Test agents get the defaults, but their
+// writes never count toward a restart, in the new-agent tick, the 10-minute pass, the plugin install and the tool lists
+assert.ok(/if\(!await isTest\(a\)\.catch\(\(\)=>false\)\)n\+=k;seen\.add/.test(src),'tick skips test agents for restarts');
+assert.ok(src.includes("if(!await isTest(a).catch(()=>false))n+=k}return n}"),'all() skips test agents for restarts');
+const srv=readFileSync(new URL('../app/server.mjs',import.meta.url),'utf8');
+assert.ok(srv.includes('createAgentDefaults({DATA,isTest:a=>isTestAgent(a),'),'server passes the test-agent list');
+assert.ok(/agentLive\.install\(\)\.then\(async c0=>\{const c=\[\];for\(const a of c0\)if\(!await isTestAgent/.test(srv),'plugin install ignores test agents');
+assert.ok(/async function toolSigs\(\)\{const out=\{\};for\(const a of await agentLive\.homes\(\)\)\{if\(await isTestAgent\(a\)/.test(srv),'tool lists ignore test agents');
 console.log('agent-defaults-idempotent ok');

@@ -46,6 +46,7 @@ import {createBottlenecks} from './bottlenecks.mjs';
 import {createInstructions} from './instructions.mjs';
 import {createNews} from './news.mjs';
 import {mayStartAgents,busyTotal,guardPaused} from './busy.mjs';
+import {stopGatewayCmd,stopTimeoutMs} from './gateway-stop.mjs';
 import {createHelp} from './help.mjs';
 import {createLive} from './live.mjs';
 import {createBackups,RESTORE_ENABLED} from './backup.mjs';
@@ -257,7 +258,7 @@ const whyOf=createWhy({DATA,HERMES_HOME,python:enginePython});
 // locked agents (owner without "unsafe", or the admin's safe lock) keep terminal, files and code off through the defaults too
 // F: only agents of admins may run as the box's main user; the lead of an admin does (aqeelOS itself is theirs), and goes
 // back to its own user when its person is made a member again
-const agentDefaults=createAgentDefaults({DATA,mayTrust:async a=>{await users.load();return users.tierOf(a)==='admin'},adminLeads:async()=>{await users.load();return users.people().map(x=>users.leadOf(x.id)).filter(a=>a&&a!=='default'&&users.tierOf(a)==='admin')},giveSkills:n=>accountHooks.giveSkills?.(n),trimSkills:n=>accountHooks.trimSkills?.(n),locked:async a=>{await users.load();return a!=='default'&&lockedAgent(a,await getStatus())}});
+const agentDefaults=createAgentDefaults({DATA,isTest:a=>isTestAgent(a),mayTrust:async a=>{await users.load();return users.tierOf(a)==='admin'},adminLeads:async()=>{await users.load();return users.people().map(x=>users.leadOf(x.id)).filter(a=>a&&a!=='default'&&users.tierOf(a)==='admin')},giveSkills:n=>accountHooks.giveSkills?.(n),trimSkills:n=>accountHooks.trimSkills?.(n),locked:async a=>{await users.load();return a!=='default'&&lockedAgent(a,await getStatus())}});
 accountHooks.afterSetup=n=>agentDefaults.added(n).catch(e=>console.warn('agent defaults',n,e.message));
 // at start, then every 10 minutes: agents made outside aqeelOS (by Claude, by another agent, from the command line) get them too
 const applyDefaults=()=>agentDefaults.all().then(n=>{if(n){console.log('agent defaults: '+n+' settings applied; restarting the agents when idle');restartGateway('agent defaults').catch(()=>{})}}).catch(e=>console.warn('agent defaults:',e.message));
@@ -555,7 +556,7 @@ async function engineAgents(){if(Date.now()-engAgents.t<4000)return engAgents.n;
  try{const r=await fetch(DASH.origin+'/api/status',{signal:AbortSignal.timeout(5000)});n=Number((await r.json()).active_agents)||0}catch{}
  engAgents={t:Date.now(),n};return n}
 const waitingNow=async()=>Math.max(liveCount(),await engineAgents());
-const shx=async c=>{const {execFile}=await import('node:child_process');return new Promise(r=>execFile('bash',['-c',c],{timeout:150000,env:{...process.env,PATH:homedir()+'/.local/bin:'+process.env.PATH}},(e,o)=>r({ok:!e,out:String(o||'')})))};
+const shx=async(c,ms=150000)=>{const {execFile}=await import('node:child_process');return new Promise(r=>execFile('bash',['-c',c],{timeout:ms,env:{...process.env,PATH:homedir()+'/.local/bin:'+process.env.PATH}},(e,o)=>r({ok:!e,out:String(o||'')})))};
 async function gatewayPid(){const t=await readFile(path.join(HERMES_HOME,'gateway.pid'),'utf8').catch(()=>'');const pid=Number((/\d+/.exec(t)||[])[0]);if(!pid)return 0;try{process.kill(pid,0);return pid}catch{return 0}}
 // Every engine restart is noted (ours with the reason, and ones the engine does by itself), so the bell's list can say why
 // Slack or WhatsApp dropped for a moment instead of it being a mystery.
@@ -572,7 +573,9 @@ function restartGateway(why,{wait=true,waitMax=360,auto=false,bridges=false,rest
  // never during a restore: every caller (Restart, Start, a hook or channel change, the watches) waits for its end, and the
  // restore starts the agents itself when it is done (busy.mjs)
  if(!mayStartAgents({restoring:restoreBusy(),forRestore:restore})){console.log('gateway restart left for after the restore:',why);return Promise.resolve()}
- if(gwRestarting){if(!gwRun.stopping){gwRun.bridges||=bridges;return gwRestarting}
+ // a request that comes before the new engine starts is covered by that start (it reads every setting then): no
+ // second restart a minute later (7 Nov 2026: 01:05 and 01:06 UTC). Only a WhatsApp bridge stop already done needs a pass.
+ if(gwRestarting){if(!gwRun.started&&!(bridges&&gwRun.bridgesDone)){gwRun.bridges||=bridges;return gwRestarting}
   gwAgain={why:gwAgain?.why||why,bridges:!!(gwAgain?.bridges||bridges)};return gwRestarting.then(()=>{if(!gwAgain)return gwRestarting||undefined;const a=gwAgain;gwAgain=null;return restartGateway(a.why,{bridges:a.bridges})})}if(auto){autoRestarts=autoRestarts.filter(t=>Date.now()-t<30*60e3);if(autoRestarts.length>=3){if(Date.now()-(globalThis.__rf||0)>30*60e3){globalThis.__rf=Date.now();noteSys('restart-failed','The engine kept stopping, so it was left off. Open System › Host and press Start.')}return Promise.resolve()}autoRestarts.push(Date.now())}if(PORT!==4400){console.log('gateway restart skipped (test copy):',why);return Promise.resolve()}
  const run=gwRun={bridges,stopping:false};gwRestarting=(async()=>{if(wait){let said=false;for(let i=0;i<waitMax&&(liveCount()>0||await engineAgents()>0);i++){if(!said&&i===12){said=true;console.log('gateway restart: still waiting for',Math.max(liveCount(),engAgents.n),'agent(s) at work:',why);
    // no new scheduled runs meanwhile (engine fix aqeelos:hold-cron-for-restart), so the agents at work finish and none start: the quiet moment comes
@@ -581,10 +584,11 @@ function restartGateway(why,{wait=true,waitMax=360,auto=false,bridges=false,rest
   console.log('gateway restart:',why);gwStopped=false;lastOwnRestart=Date.now();noteSys('restart',why);run.stopping=true;
   // --yes: the engine refuses to stop while chats are live, and then nothing restarted at all (5 Nov 2026: a gateway the
   // engine started kept running without a Claude login for an hour); the wait above already gave them their time
-  await shx('hermes -p default gateway stop --yes >/dev/null 2>&1; for i in $(seq 1 30); do p=$(grep -o "[0-9]*" ~/.hermes/gateway.pid 2>/dev/null | head -1); [ -n "$p" ] && kill -0 "$p" 2>/dev/null || break; sleep 1; done; tmux kill-session -t gateway 2>/dev/null; sleep 1');
+  // the engine needs 30 to 45 s to shut down cleanly; it is waited for before its window closes (gateway-stop.mjs)
+  {const t0=Date.now(),st=await shx(stopGatewayCmd(),stopTimeoutMs());console.log('gateway restart: engine stopped after',Math.round((Date.now()-t0)/1000)+' s'+(/FORCED/.test(st.out)?' (it did not stop by itself in time and was closed)':' (clean)'))}
   // a WhatsApp bridge is its own process and reads its settings only when it starts: when channel settings changed, stop them so the engine starts fresh ones
   if(run.bridges)for(const a of await listAllProfiles().catch(()=>[]))await stopBridges(a).catch(()=>{});
-  await shx('~/services.sh >/dev/null 2>&1');
+  run.bridgesDone=true;run.started=true;await shx('~/services.sh >/dev/null 2>&1');
   platCache.clear();hapiStatus.drop();hapiLists.drop();guardAfterRestart(Date.now())})().finally(()=>{gwRestarting=null});return gwRestarting}
 // a minute after aqeelOS restarted the engine, every tool server is checked and fixed (automation-guard.mjs); an engine
 // update runs its own check after its restarts
@@ -623,7 +627,8 @@ if(PORT===4400){setInterval(()=>engineWatch().catch(()=>{}),5*60000).unref();set
 {const {createBrowserTidy}=await import('./browser-tidy.mjs');
  const tidy=createBrowserTidy({lastActive:async a=>{const r=await fetch(DASH.origin+'/api/sessions?limit=5&profile='+encodeURIComponent(a),{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(20000)});if(!r.ok)return null;
    const l=(await r.json())?.sessions||[];return l.length?Math.max(...l.map(x=>Math.max(Number(x.last_active)||0,Number(x.started_at)||0)))*1000:0}});
- if(PORT===4400){setInterval(()=>tidy.tick().catch(e=>console.warn('browser tidy',e.message)),3600e3).unref();setTimeout(()=>tidy.tick().catch(()=>{}),10*60e3).unref()}}
+ // every 15 minutes: an agent's extra tabs go once it has been quiet 10 minutes, so a busy agent gets a chance often enough
+if(PORT===4400){setInterval(()=>tidy.tick().catch(e=>console.warn('browser tidy',e.message)),15*60e3).unref();setTimeout(()=>tidy.tick().catch(()=>{}),10*60e3).unref()}}
 /* Memory guard. The AI box has a fixed memory limit; when it runs full, the engine or the dashboard is killed.
    Every 2 minutes: above 80% the bell's list says so (once an hour); above 90%, with no reply, schedule, setup or relay in
    progress, the AdsPower browsers are closed (AdsPower itself stays open and a browser reopens when an agent needs it).
@@ -717,7 +722,7 @@ const backups=createBackups({DATA,HOME:homedir(),HERMES_HOME,tz:()=>tzNow,notify
  // a restore stops the agents and the engine's dashboard (it keeps the chats database and settings open too), and the
  // watches leave both alone until it starts them again (services.sh starts both)
  stopEngine:async()=>{while(gwRestarting)await gwRestarting.catch(()=>{});   // a restart already under way finishes first (new ones wait for the restore)
-  gwStopped=true;dashStopped=true;await shx('hermes -p default gateway stop >/dev/null 2>&1; for i in $(seq 1 60); do p=$(grep -o "[0-9]*" ~/.hermes/gateway.pid 2>/dev/null | head -1); [ -n "$p" ] && kill -0 "$p" 2>/dev/null || break; sleep 1; done; tmux kill-session -t gateway 2>/dev/null; tmux kill-session -t dashboard 2>/dev/null; true');
+  gwStopped=true;dashStopped=true;await shx(stopGatewayCmd({dashboard:true,yes:false}),stopTimeoutMs());
   for(let i=0;i<30&&await fetch(DASH.origin+'/api/status',{signal:AbortSignal.timeout(2000)}).then(()=>true,()=>false);i++)await new Promise(r=>setTimeout(r,1000));
   if(await fetch(DASH.origin+'/api/status',{signal:AbortSignal.timeout(2000)}).then(()=>true,()=>false))throw Error('the engine dashboard still answers after 30 s')},
  startEngine:async()=>{dashStopped=false;gwStopped=false;await restartGateway('agents restored from a backup',{wait:false,bridges:true,restore:true})}});restoreBusy=()=>backups.busy();if(PORT===4400)backups.schedule();
@@ -807,7 +812,7 @@ const connections=createConnections({DATA,access,accounts:connAccounts,listAgent
 const engineUpd=createEngineUpdates({guard,DATA,HERMES_HOME,PORT,LIVE:LIVE_APP,readConfig,python:enginePython,patches:enginePatches,restartGateway,resetForUpdate:engineReset,
  dash:(p,o={})=>fetch(DASH.origin+'/api'+p,{...o,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},signal:AbortSignal.timeout(60000)}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||j.error||'HTTP '+r.status);return j}),
  busy:()=>liveCount()+export_setups.running()+opsBusy()+relay.sending()+(gwRestarting?1:0)+(backups.busy()?1:0),   // never during a restore
- stopGateway:async()=>{gwStopped=true;await shx('hermes -p default gateway stop >/dev/null 2>&1; for i in $(seq 1 60); do p=$(grep -o "[0-9]*" ~/.hermes/gateway.pid 2>/dev/null | head -1); [ -n "$p" ] && kill -0 "$p" 2>/dev/null || break; sleep 1; done; tmux kill-session -t gateway 2>/dev/null; true')},
+ stopGateway:async()=>{gwStopped=true;await shx(stopGatewayCmd({yes:false}),stopTimeoutMs())},
  tellOwner:async(text,{bell,kind,detail}={})=>{if(bell||/failed|rolled-back/.test(kind||''))await bottlenecks.event('update',text,detail||'').catch(()=>{});else await bottlenecks.event('update',text,detail||'',{info:true}).catch(()=>{});if(bell)return;await toOwner(text)}});
 const codeOnline=createCodeOnline({SECRET,SECURE:SECURE_COOKIE,users:()=>users,revokedAt:uid=>revoked[uid]||0,HOST:CODE_HOST,PREVIEW_HOST:CODE_PREVIEW_HOST,HOME:PUBLIC_URL});
 const localBrowser=createLocalBrowser({DATA,GATE:GATE.origin,API_KEY,EXT_DIR:path.join(root,'extension'),NAMES,PUBLIC_URL});
@@ -1359,12 +1364,12 @@ const agentLive=createAgentLive({HERMES_HOME,DATA,chatInfo:(a,pf,id)=>pf==='tele
 // the engine also reloads when it started before the plugin's files were written (a reload asked for by an earlier run of
 // this app is lost when the app restarts)
 const liveStale=async()=>{try{const pid=await gatewayPid();if(!pid)return false;const g=(await stat('/proc/'+pid)).mtimeMs;const f=(await stat(path.join(HERMES_HOME,'plugins','aqeelos-live','__init__.py'))).mtimeMs;return g<f}catch{return false}};
-if(PORT===4400&&LIVE_APP){const liveInstall=()=>agentLive.install().then(async c=>{if(c.length||await liveStale())restartGateway('aqeelos-live plugin for '+(c.length||'all')+' agent(s)').catch(()=>{})}).catch(e=>console.warn('agent-live install',e.message));
+if(PORT===4400&&LIVE_APP){const liveInstall=()=>agentLive.install().then(async c0=>{const c=[];for(const a of c0)if(!await isTestAgent(typeof a==='string'?a:a?.agent||'').catch(()=>false))c.push(a);if(c.length||await liveStale())restartGateway('aqeelos-live plugin for '+(c.length||'all')+' agent(s)').catch(()=>{})}).catch(e=>console.warn('agent-live install',e.message));
  setTimeout(liveInstall,60e3).unref();setInterval(liveInstall,10*60e3).unref()}
 // the engine reads each tool server's list once, when it connects: a tool aqeelOS adds later (the lockbox link, the
 // self-repair kit) stayed invisible in open chats. The lists are fingerprinted per agent; a change reloads the engine
 // once no reply runs (7 Nov 2026)
-async function toolSigs(){const out={};for(const a of await agentLive.homes()){const c=await readConfig(a).catch(()=>null);const u=String(pick(c||{},'mcp_servers.aqeelos-notify.url')||'');if(!u.startsWith('http://127.0.0.1:4400/'))continue;
+async function toolSigs(){const out={};for(const a of await agentLive.homes()){if(await isTestAgent(a).catch(()=>false))continue;const c=await readConfig(a).catch(()=>null);const u=String(pick(c||{},'mcp_servers.aqeelos-notify.url')||'');if(!u.startsWith('http://127.0.0.1:4400/'))continue;
  try{const r=await fetch(u,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/list'}),signal:AbortSignal.timeout(20000)});const j=await r.json();
   out[a]=createHash('sha1').update((j.result?.tools||[]).map(t=>t.name+':'+createHash('sha1').update(JSON.stringify(t.inputSchema||{})+(t.description||'')).digest('hex').slice(0,8)).sort().join(',')).digest('hex').slice(0,12)}catch{}}return out}
 if(PORT===4400&&LIVE_APP){const sigFile=path.join(DATA,'agent-live','tool-sigs.json');const toolTick=async()=>{const now=await toolSigs();if(!Object.keys(now).length)return;const old=JSON.parse(await readFile(sigFile,'utf8').catch(()=>'{}')||'{}');

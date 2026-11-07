@@ -208,6 +208,71 @@ def phone_masking_is_its_own_setting_and_keys_stay_hidden():
     assert "abcdefghijklmnopqrstuvwx" not in off, off
 
 
+@test
+def deleted_state_db_is_logged_once_with_its_path():
+    import logging
+    m = load("aq_hermes_state", "hermes_state.py")
+    d = os.path.join(TMP, "gone-agent")
+    os.makedirs(d)
+    path = os.path.join(d, "state.db")
+    db = m.SessionDB(db_path=__import__("pathlib").Path(path))
+    try:
+        db.create_session("s1", source="cli") if hasattr(db, "create_session") else None
+    except Exception:
+        pass
+    seen = []
+
+    class H(logging.Handler):
+        def emit(self, rec):
+            seen.append((rec.levelno, rec.getMessage()))
+    h = H()
+    m.logger.addHandler(h)
+    try:
+        import shutil as _sh
+        _sh.rmtree(d)
+        for _ in range(5):
+            try:
+                db._halt_if_db_generation_changed()
+            except m.StateDbReplacedError:
+                pass
+            except Exception as exc:  # the replaced error may live in hermes_state_errors
+                assert type(exc).__name__ == "StateDbReplacedError", repr(exc)
+    finally:
+        m.logger.removeHandler(h)
+    hits = [x for x in seen if "state.db" in x[1]]
+    assert len(hits) == 1, seen
+    assert path in hits[0][1] and hits[0][0] == logging.WARNING, hits
+
+
+@test
+def oauth_tokens_survive_a_resaved_secret_for_the_same_client():
+    import json, pathlib
+    m = load("aq_mcp_oauth", "tools/mcp_oauth.py")
+    home = os.path.join(TMP, "oauth-home")
+    os.makedirs(os.path.join(home, "mcp-tokens"))
+    st = m.HermesTokenStorage("slack-as2", hermes_home=home)
+    tok = st._tokens_path()
+    tok.write_text(json.dumps({"access_token": "xoxp-test", "token_type": "Bearer"}))
+    st._client_info_path().write_text(json.dumps({"client_id": "1.2", "client_secret": "${AQ_TEST_SECRET}"}))
+    m._invalidate_tokens_on_client_change(st, "1.2", "real-secret")
+    assert tok.exists(), "same client id, other secret: the sign-in stays"
+    m._invalidate_tokens_on_client_change(st, "9.9", "real-secret")
+    assert not tok.exists(), "another client id still discards the tokens"
+    # an unexpanded secret is filled from the environment, or keeps the saved one; never saved as ${...}
+    st._client_info_path().write_text(json.dumps({"client_id": "1.2", "client_secret": "saved"}))
+    meta = types.SimpleNamespace(grant_types=["authorization_code"], response_types=["code"], token_endpoint_auth_method="client_secret_post")
+    cfg = {"client_id": "1.2", "client_secret": "${AQ_TEST_SECRET_MISSING}", "_resolved_port": 0, "redirect_uri": "https://x/cb"}
+    try:
+        m._maybe_preregister_client(st, cfg, meta)
+    except Exception as exc:
+        raise AssertionError("preregister failed: %r" % exc)
+    assert json.loads(st._client_info_path().read_text()).get("client_secret") == "saved"
+    os.environ["AQ_TEST_SECRET2"] = "from-env"
+    cfg["client_secret"] = "${AQ_TEST_SECRET2}"
+    m._maybe_preregister_client(st, cfg, meta)
+    assert json.loads(st._client_info_path().read_text()).get("client_secret") == "from-env"
+
+
 failed = 0
 for fn in tests:
     try:
