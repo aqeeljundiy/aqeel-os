@@ -25,6 +25,7 @@
 // - brands never mix: a line takes only events for its own phoneNumberId, and whatsapp_reply refuses a number that
 //   wrote to another line and not to this one
 import {readFile,writeFile,rename,mkdir} from 'node:fs/promises';
+import {publicUrl} from './install.mjs';   // Your address (System › Settings), read at the moment a webhook is made
 import {createHmac,timingSafeEqual,randomUUID} from 'node:crypto';
 import path from 'node:path';
 
@@ -33,7 +34,7 @@ export const FOOTER=/\n*\(Answered with [^)]*\)\s*$/;
 export const MODES=['test','draft','live'],EVENTS=['message.received','message.sent'];
 export const RETRY_MIN=[1,5,15,30,60],DEFAULT_PAUSE=15;
 // can Kirimdev reach this address from the internet? Not localhost, a private or link-local address, or a test name
-export function publicReach(u){let x;try{x=new URL(String(u||''))}catch{return {ok:false,why:'aqeelOS has no public address (PUBLIC_URL is not set), so Kirimdev cannot send it messages. It reads new messages every 20 seconds instead.'}}
+export function publicReach(u){let x;try{x=new URL(String(u||''))}catch{return {ok:false,why:'aqeelOS has no public address (set Your address on System › Settings), so Kirimdev cannot send it messages. It reads new messages every 20 seconds instead.'}}
  const h=x.hostname.replace(/^\[|\]$/g,'').toLowerCase(),priv=/^(localhost|.*\.(localhost|local|test|internal|lan|home)|127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|169\.254\.\d+\.\d+|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d+\.\d+|0\.0\.0\.0|::1?|f[cd][0-9a-f]*:.*|fe80:.*)$/;
  if(priv.test(h)||!/\./.test(h)&&!h.includes(':'))return {ok:false,why:'aqeelOS runs at '+x.origin+', which Kirimdev cannot reach from the internet, so there is no webhook. It reads new messages every 20 seconds instead.'};
  if(x.protocol!=='https:')return {ok:false,why:'aqeelOS’s address ('+x.origin+') is not https, and Kirimdev only sends to https. It reads new messages every 20 seconds instead.'};
@@ -106,6 +107,7 @@ const isReset=(line,t)=>RESET.test(t)||(line.resetWords||[]).some(w=>w&&String(t
 const tail=n=>'…'+String(n||'').slice(-4);
 
 export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3,pollEvery=20e3,runAgent,paidSince=null,telegram,teamGroup=async()=>null,tell=async()=>{},problem=null,solved=async()=>{},log=m=>console.log(m),fetchImpl=fetch,now=()=>Date.now(),PUBLIC_URL,wait=ms=>new Promise(r=>setTimeout(r,ms)),maxRuns=2,echoWait=4000,setTimer=setTimeout,clearTimer=clearTimeout}){
+ const pub=()=>String(PUBLIC_URL??publicUrl()).replace(/\/+$/,'');   // the address given (tests) or the install's current one
  const ASK_MIN=30;   // minutes a handoff may wait for the team's answer before Health shows it
  const CONF=path.join(DATA,'kirimdev.json'),SEC=path.join(DATA,'kirimdev-secrets.json'),ST=path.join(DATA,'kirimdev-state.json');
  const readJson=async(f,d)=>{try{return JSON.parse(await readFile(f,'utf8'))}catch{return d}};
@@ -375,7 +377,7 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
 
  // connect: one Kirimdev webhook for this line (Kirimdev makes the secret and shows it once)
  async function connect(agent){const line=await lineOf(agent);if(!line)throw Error('No line for '+agent+'.');
-  const url=PUBLIC_URL+'/kirimdev/'+agent;const sec=await readJson(SEC,{});
+  const url=pub()+'/kirimdev/'+agent;const sec=await readJson(SEC,{});
   const r=await api('webhook_subscriptions',{url,events:EVENTS,phone_number_ids:[String(line.phoneNumberId)],description:'aqeelOS · '+agent},{idem:'aqeelos-'+agent+'-'+url+'-2'});
   const s=r?.data?.initial_secret;if(!s)throw Error('Kirimdev did not return a webhook secret.');
   sec[agent]={id:r.data.id,url,secrets:[s],events:EVENTS,at:now()};await put(SEC,sec);return {id:r.data.id,status:r.data.status}}
@@ -447,7 +449,7 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
   return {agent,isNew,delivery}}
  const setDelivery=async(agent,how)=>{const c=await readJson(CONF,{lines:{}});if(!c.lines?.[agent])return;if(how)c.lines[agent].delivery=how;else delete c.lines[agent].delivery;await put(CONF,c,0o644)};
  // a webhook when Kirimdev can reach aqeelOS; otherwise polling, said plainly
- async function startDelivery(agent){const pu=publicReach(PUBLIC_URL);
+ async function startDelivery(agent){const pu=publicReach(pub());
   if(!pu.ok){await setDelivery(agent,'poll');return {how:'poll',why:pu.why}}
   try{await connect(agent);await setDelivery(agent,null);return {how:'webhook'}}
   catch(e){await setDelivery(agent,'poll');return {how:'poll',why:'Kirimdev could not set up the webhook ('+e.message+'), so aqeelOS reads new messages every 20 seconds instead.'}}}

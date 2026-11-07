@@ -858,7 +858,7 @@ const antigravity=createAntigravity({HERMES_HOME,hcmd,listAgents,moveOff:(a,k)=>
 async function agentModel(a){const y=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>'');const k=key=>((new RegExp('^model:[\\s\\S]*?\\n\\s+'+key+':\\s*(\\S+)','m').exec(y)||[])[1]||'').replace(/^["']|["']$/g,'');return {provider:k('provider'),model:k('default')}}
 const users=createUsers(DATA,mailer,{ownerCheck:pw=>!!PW_HASH&&checkPassword(pw),envOwner:()=>!!PW_HASH,brandName:()=>brand.name()});
 users.hooks.revoke=id=>revokeSessions(id);
-const accountAuth=createAccountAuth({users,send,readBody,publicUrl:()=>PUBLIC_URL,revoke:id=>revokeSessions(id),signIn:id=>({'set-cookie':'hui='+makeCookie(id)+'; '+cookieAttrs(SESSION_DAYS*86400)}),
+const accountAuth=createAccountAuth({users,send,readBody,publicUrl:()=>String(PUBLIC_URL),revoke:id=>revokeSessions(id),signIn:id=>({'set-cookie':'hui='+makeCookie(id)+'; '+cookieAttrs(SESSION_DAYS*86400)}),
  limited:req=>limited(clientIp(req)),miss:req=>{const ip=clientIp(req);(attempts.get(ip)||attempts.set(ip,[]).get(ip)).push(Date.now())}});
 // Help: the person's own help chat (help.mjs); account usage is read through the Accounts page's own handler, as that person
 const help=createHelp({DATA,root,DASH:DASH.origin,DASH_TOKEN,GATE:GATE.origin,API_KEY,users,listAgents:()=>listAgents(),names:a=>NAMES[a]||(a==='default'?'aqeelOS':a),platforms:a=>platformsCached(a),signins:()=>[...signinsDue.values()],agentModel:a=>agentModel(a),security,send,readBody,
@@ -1257,7 +1257,7 @@ async function kirimdevSetup(agent){const ags=await listAgents(),L=await kirimde
   const tools=path.join(homedir(),'workspaces',agent,'.tools');helpers=(await readdir(tools,{withFileTypes:true}).catch(()=>[])).filter(e=>e.isFile()&&/^(qris|pay|payment|xendit|invoice)[\w.-]*$/i.test(e.name)).map(e=>({path:'.tools/'+e.name,style:/^pay/i.test(e.name)?'send':'picture'}))}
  return {agents,groups:[...groups.values()].sort((a,b)=>(b.own-a.own)||String(a.name).localeCompare(b.name)),helpers,team:agent?await teamGroups.get(agent).catch(()=>null):null}}
 // after a line is made or removed: the agent's customer tools and its aqeelOS block follow
-const kirimdevChanged=()=>{ensureCustomerServer().catch(e=>console.warn('customer tools',e.message));if(PORT===4400)writeAgentContext().catch(()=>{})};
+const kirimdevChanged=()=>{ensureCustomerServer().catch(e=>console.warn('customer tools',e.message));if(LIVE_APP)writeAgentContext().catch(()=>{})};
 // customer runs get only these tools (customer-tools.mjs); the payment helper runs as the agent's own user
 const custQ=x=>"'"+String(x).replace(/'/g,"'\\''")+"'";
 let customerTools=null;
@@ -1363,7 +1363,7 @@ const issues=createIssues({DATA,home:homedir(),bin:path.join(homedir(),'.local',
    a customer run on a Kirimdev agent whose line is in Test, with nothing sent (the run only returns text), must call
    read_file and answer with a line of the file it read (its greeting template). A failure is a Health problem. */
 const smokeWatch=new Map();
-async function customerSmoke(){if(!LIVE_APP||PORT!==4400)return;const F=path.join(DATA,'customer-smoke.json');
+async function customerSmoke(){if(!LIVE_APP)return;const F=path.join(DATA,'customer-smoke.json');
  const mark=String(Math.round((await stat(fileURLToPath(import.meta.url))).mtimeMs));const prev=JSON.parse(await readFile(F,'utf8').catch(()=>'{}')||'{}');if(prev.mark===mark)return;
  const L=await kirimdev.lines().catch(()=>({}));const a=Object.keys(L).find(k=>L[k]?.mode==='test');const done=async x=>{await writeFile(F,JSON.stringify({mark,at:Date.now(),agent:a||null,...x},null,1));console.log('customer smoke test:',a||'-',x.ok?'ok':'FAILED',x.detail||'')};
  if(!a)return done({ok:true,detail:'no Kirimdev line in Test, skipped'});
@@ -1378,7 +1378,7 @@ async function customerSmoke(){if(!LIVE_APP||PORT!==4400)return;const F=path.joi
  if(ok){await health.ok(a,'smoke').catch(()=>{});return done({ok:true,detail:'read '+reads.map(c=>c.path).join(', ')})}
  const detail=!reads.length?'The customer run called no read_file ('+(calls.map(c=>c.name||c.error).join(', ')||'no tool calls')+').':'It read '+reads.map(c=>c.path).join(', ')+' but its answer did not use that text: '+out.trim().slice(0,200);
  await health.problem(a,'customer','The customer test after the update failed',{topic:'smoke',fix:detail}).catch(()=>{});return done({ok:false,detail})}
-if(LIVE_APP&&PORT===4400)setTimeout(()=>customerSmoke().catch(e=>console.warn('customer smoke test',e.message)),5*60e3).unref();
+if(LIVE_APP)setTimeout(()=>customerSmoke().catch(e=>console.warn('customer smoke test',e.message)),5*60e3).unref();
 const escalations=createEscalations({HERMES_HOME,python:enginePython,policy:()=>issues.policy()});
 // the chat a tool call came from (the agent's newest person-chat): who asked, and where to answer
 // the chat the waiting call (tool) was made in, and the person whose message started that turn: in a group topic every
@@ -2629,7 +2629,7 @@ const server=createServer(async(req,res)=>{
    try{
     if(p==='/ui/teams'&&req.method==='GET')return send(res,200,await full());
     if(p==='/ui/teams'&&req.method==='PUT'){await teamSettings.setTeams(b);return send(res,200,await full())}
-    if(p==='/ui/teams/fixer'&&req.method==='PUT'){const f=await teamSettings.setFixer(b);if(f.on&&PORT===4400&&LIVE_APP)issues.tick().catch(()=>{});return send(res,200,{fixer:f})}
+    if(p==='/ui/teams/fixer'&&req.method==='PUT'){const f=await teamSettings.setFixer(b);if(f.on&&LIVE_APP)issues.tick().catch(()=>{});return send(res,200,{fixer:f})}
     if(p==='/ui/teams/test'&&req.method==='PUT')return send(res,200,{tests:await teamSettings.setTest(b.agent,!!b.on)});
     if(p==='/ui/alerts/chats'&&req.method==='POST'){const c=(await relay.channelsFor('default')).find(x=>x.id===String(b.channel||''));if(!c)return send(res,404,{error:'That channel is gone.'});
      return send(res,200,{chats:await relay.recipients(c.owner,c.platform)})}
