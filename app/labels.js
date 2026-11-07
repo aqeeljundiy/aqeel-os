@@ -47,6 +47,11 @@ function labelPaint(row,kind,id,{title,sub,act,keepSub=false,shown=id}={}){if(!r
  // every agent's skills at once (all-agents-more.js): one row per skill with a chip per agent
  el.querySelectorAll('.all-row').forEach(row=>{const c=row.querySelector('[data-act="all-sk"][data-name]');if(c)labelPaint(row,'skill',c.dataset.name)})}}
 
+// Plugins (one agent's list and every agent's): the same names, Edit, and Add a description
+{const base=PAGES.plugins;PAGES.plugins=async(p,el,r)=>{const gone=pageTok(el);await labelsLoad();if(gone())return;await base(p,el,r);if(gone())return;
+ const paint=()=>{el.querySelectorAll('.row[data-pl]').forEach(row=>labelPaint(row,'plugin',row.dataset.pl));
+  el.querySelectorAll('.all-row').forEach(row=>{const c=row.querySelector('[data-act="all-pl"][data-name]');if(c)labelPaint(row,'plugin',c.dataset.name)})};
+ paint();setTimeout(()=>{if(!gone())paint()},9000)}}
 // Connections: names and descriptions come from the server (labels.applyRows); the list says when one has none, search
 // finds the old id too, and the side panel has Edit
 {const m=Cx.match;Cx.match=function(r){if(m.call(this,r))return true;const q=(S.cxQ||'').trim().toLowerCase();return !!q&&[r.rawName,r.id].join(' ').toLowerCase().includes(q)}}

@@ -283,7 +283,11 @@ if(LIVE_APP){setTimeout(applyDefaults,60000);setInterval(applyDefaults,600000).u
 const mailer=createMail(DATA);
 const usage=createUsage(DASH.origin,DASH_TOKEN,DATA);
 const explain=createExplain(DATA,{python:enginePython,root});
-const labels=createLabels(DATA);
+const pluginDescs=new Map();
+function pluginDesc(id){if(!/^[\w.-]{1,80}$/.test(id))return '';if(pluginDescs.has(id))return pluginDescs.get(id);let d='';
+ for(const dir of [path.join(HERMES_HOME,'plugins',id),path.join(HERMES_HOME,'hermes-agent','plugins',id),path.join(root,'engine',id)]){try{const y=readFileSync(path.join(dir,'plugin.yaml'),'utf8');d=(/^description:\s*"?(.+?)"?\s*$/m.exec(y)||[])[1]||'';if(d)break}catch{}}
+ d=d.replace(/\s*[\u2014\u2013]\s*/g,': ').split(/(?<=[.;])\s/)[0].replace(/;$/,'.').slice(0,160);pluginDescs.set(id,d);return d}
+const labels=createLabels(DATA,{pluginDesc});
 const keysId=createKeysIdentity({DATA,HERMES_HOME,root,listAgents:()=>listAgents(),live:()=>LIVE_APP});
 if(LIVE_APP){setTimeout(()=>keysId.tick().catch(e=>console.warn('key checks',e.message)),120000).unref();setInterval(()=>keysId.tick().catch(()=>{}),10*60000).unref()}
 const schedules=createSchedules({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAgents(),python:enginePython,root,live:()=>LIVE_APP||process.env.SCHED_DESCRIBE==='1',relays:()=>relay.jobRelays()});

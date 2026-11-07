@@ -83,3 +83,10 @@ test('the page loads labels.js after the pages it decorates, and its words are p
 test('ids are never rewritten: nothing in labels code touches config.yaml, SKILL.md, jobs.json or profile names',()=>{
  for(const f of ['labels.mjs','label-defaults.mjs','labels.js']){const src=readFileSync(new URL('../app/'+f,import.meta.url),'utf8');
   assert.ok(!/config\.yaml|SKILL\.md|jobs\.json|rename-mcp|mcp_servers\./.test(src.replace(/^\s*\/\/.*$/gm,'')),f+' writes only labels')}});
+
+test('every plugin row has a plain name: built in for the known ones, its own description for any other',async()=>{const {mkdtemp,rm}=await import('node:fs/promises');const d=await mkdtemp(path.join(tmpdir(),'labels-'));try{
+ for(const id of ['aqeelos-live','aqeelos-main-rule','aqeelos-issue-buttons','claude-subscription-directsdk-experimental','antigravity-subscription','gemini-subscription','disk-cleanup'])assert.ok(LABEL_DEFAULTS['plugin:'+id]?.name,id+' has a built-in name');
+ const l=createLabels(d,{defaults:{},pluginDesc:id=>id==='new-one'?'Does a new thing for agents.':''});
+ const out=await l.applyRows({rows:[{key:'plugin:new-one',name:'new-one',what:'An extension of the engine itself'},{key:'plugin:mystery',name:'mystery',what:'An extension of the engine itself'}]});
+ assert.equal(out.rows[0].what,'Does a new thing for agents.');assert.equal(out.rows[1].what,'An extension of the engine itself');
+}finally{await rm(d,{recursive:true,force:true})}});

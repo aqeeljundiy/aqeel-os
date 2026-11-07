@@ -72,6 +72,14 @@ export const LABEL_DEFAULTS={
  'skill:test-driven-development':S('Tests first','Writes a failing test first, then the code that makes it pass.'),
  'skill:blocked-page-recovery':S('Blocked page rescue','What to try when a website blocks the agent, limits it or shows a paywall.'),
  'skill:own-adspower':S('Its own AdsPower','Opens the agent’s own AdsPower browser profiles on its own screen.'),
+ // plugins (engine extensions): what each one does for the agents
+ 'plugin:aqeelos-live':S('aqeelOS live context and guards','Before every reply, tells the agent what it can do right now; stops replies with error dumps, loops, and things made without a name.'),
+ 'plugin:aqeelos-main-rule':S('Main agent rule','Reminds the main agent to give another agent the access it lacks instead of doing that agent’s work for it.'),
+ 'plugin:aqeelos-issue-buttons':S('Issue buttons in Telegram','Passes presses on aqeelOS issue buttons in Telegram to aqeelOS.'),
+ 'plugin:claude-subscription-directsdk-experimental':S('Claude Pro or Max sign-in','Lets the agents use a Claude Pro or Max plan as their model, through the official Claude app.'),
+ 'plugin:antigravity-subscription':S('Google AI plan through Antigravity','Lets the agents use Gemini and Claude on a Google AI Pro or Ultra plan, through Google’s Antigravity app.'),
+ 'plugin:gemini-subscription':S('Google AI plan through the Gemini app','Lets the agents use Gemini on a Google AI Pro or Ultra plan, through the official Gemini app.'),
+ 'plugin:disk-cleanup':S('Temporary file cleanup','Clears test scripts, temporary outputs and old schedule logs the agents leave behind, by itself.'),
  // tool servers aqeelOS adds itself, and the common ones it sets up
  'mcp:aqeelos-notify':S('aqeelOS messages and setup','Lets the agent message people, file its schedules, report problems and ask for keys.'),
  'mcp:aqeelos-self':S('Background runs','Lets the agent start runs of itself in the background and check on them.'),
