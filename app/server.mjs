@@ -14,7 +14,7 @@ import {createIssues} from './issues.mjs';
 import {createTeamSettings} from './team-settings.mjs';
 import {createCodeChanges} from './code-changes.mjs';
 import {createEscalations} from './escalations.mjs';
-import {createConnect} from './connect.mjs';
+import {createConnect,firstModelFor} from './connect.mjs';
 import {createAntigravity} from './antigravity.mjs';
 import {holdWrites,withAgent,withFlock,setKey,readConfig,pick,agentNames,isAgent,busy as opsBusy,initStatus,getStatus,setStatus,editEnv,hermes as hcmd,python as enginePython,LIVE_APP,HELP_AGENT} from './agentops.mjs';
 import {createSchedules} from './schedules.mjs';
@@ -881,7 +881,14 @@ const cfgLimit=limiter(4);   // per-agent config reads on a page: a few side by 
 function listAgents(){return agentNames()}   // real agents only (a folder with a config), not extra-number copies
 async function listAllProfiles(){return [...await listAgents(),...(await links.list()).map(l=>l.name)].filter(n=>!String(n).startsWith('.'))}   // never profiles/.deleted and the like
 // API keys for model accounts: tested before saving and every 5 minutes after (connect.mjs, 25 Oct)
-const connect=createConnect({HERMES_HOME,DASH,DASH_TOKEN,live:LIVE_APP});accountHooks.keyStatus=()=>connect.status();accountHooks.keyCheck=()=>connect.checkAll();
+// the first model account on a fresh install: agents with no model yet (the main agent first) get its model, so new
+// agents ("Same as the main agent") and Models never sit on an empty "Default" (clean-install test, 7 Nov 2026)
+async function adoptFirstModel(slug){const agents=['default',...(await listAgents().catch(()=>[])).filter(a=>a!=='default')];
+ const bare=[];for(const a of agents){const c=await readConfig(a).catch(()=>null);if(c&&!pick(c,'model.default'))bare.push(a)}if(!bare.length)return;
+ const o=await fetch(GATE.origin+'/api/model/options',{headers:{authorization:'Bearer '+API_KEY},signal:AbortSignal.timeout(20000)}).then(r=>r.ok?r.json():null).catch(()=>null);
+ const m=firstModelFor(o?.providers,slug);if(!m)return;
+ for(const a of bare){await setKey(a,'model.provider',m.provider);await setKey(a,'model.default',m.model)}console.log('first model account: '+m.provider+' / '+m.model+' for '+bare.join(', '))}
+const connect=createConnect({HERMES_HOME,DASH,DASH_TOKEN,live:LIVE_APP,afterSave:slug=>adoptFirstModel(slug)});accountHooks.keyStatus=()=>connect.status();accountHooks.keyCheck=()=>connect.checkAll();
 const antigravity=createAntigravity({HERMES_HOME,hcmd,listAgents,moveOff:(a,k)=>accountHooks.moveOff?accountHooks.moveOff(a,k):null});
 async function agentModel(a){const y=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>'');const k=key=>((new RegExp('^model:[\\s\\S]*?\\n\\s+'+key+':\\s*(\\S+)','m').exec(y)||[])[1]||'').replace(/^["']|["']$/g,'');return {provider:k('provider'),model:k('default')}}
 const users=createUsers(DATA,mailer,{ownerCheck:pw=>!!PW_HASH&&checkPassword(pw),envOwner:()=>!!PW_HASH,brandName:()=>brand.name()});

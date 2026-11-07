@@ -20,9 +20,16 @@ const BASES={zai:'https://api.z.ai/api/paas/v4','kimi-coding':'https://api.moons
  nous:'https://inference-api.nousresearch.com/v1',xiaomi:'https://api.xiaomimimo.com/v1','tencent-tokenhub':'https://tokenhub.tencentmaas.com/v1',lmstudio:'http://127.0.0.1:1234/v1'};
 // not keys, though the engine lists them with Anthropic's: a Claude plan token
 const NOT_KEYS=/^(ANTHROPIC_TOKEN|CLAUDE_CODE_OAUTH_TOKEN)$/;
+// a provider's name in plain words, for messages ("OpenRouter says this key isn't valid")
+const NAMES={anthropic:'Anthropic','openai-api':'OpenAI',openai:'OpenAI',openrouter:'OpenRouter',xai:'xAI',deepseek:'DeepSeek',gemini:'Google Gemini',huggingface:'Hugging Face',nous:'Nous',zai:'Z.ai',nvidia:'NVIDIA',alibaba:'Alibaba'};
+export const providerName=(slug,url)=>NAMES[slug]||(()=>{try{return new URL(url).host.replace(/^api\./,'')}catch{return 'The provider'}})();
+// the first account's model for agents that have none yet (a fresh install): the engine's own list for that provider
+// (the current one first, else its first model), else any signed-in provider with models
+export function firstModelFor(providers,slug){const ok=(providers||[]).filter(p=>p&&p.authenticated!==false&&(p.models||[]).length);
+ const p=ok.find(x=>x.slug===slug)||ok.find(x=>slug&&String(slug).startsWith(x.slug))||ok[0];return p?{provider:p.slug,model:p.models[0]}:null}
 const customEnv=id=>{const s=String(id||'').toUpperCase().replace(/[^A-Z0-9]+/g,'_').replace(/^_+|_+$/g,'');return s?'HERMES_CUSTOM_'+s+'_API_KEY':'HERMES_CUSTOM_API_KEY'};
 
-export function createConnect({HERMES_HOME,DASH,DASH_TOKEN,live=false}){
+export function createConnect({HERMES_HOME,DASH,DASH_TOKEN,live=false,afterSave=async()=>{}}){
  const dash=(p,o={})=>fetch(DASH.origin+'/api'+p,{...o,headers:{'x-hermes-session-token':DASH_TOKEN,...(o.body?{'content-type':'application/json'}:{}),...(o.headers||{})},signal:AbortSignal.timeout(30000)}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||j.error||'The engine answered '+r.status);return j});
  // the provider's own words, without the key in them (some echo part of it back)
  const why=async(r,k)=>{const t=await r.text().catch(()=>'');let m='';try{const j=JSON.parse(t);m=j.error?.message||(typeof j.error==='string'?j.error:'')||j.message||j.detail||j.error_description||''}catch{m=t.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim()}
@@ -45,7 +52,7 @@ export function createConnect({HERMES_HOME,DASH,DASH_TOKEN,live=false}){
   const m=await why(r,key),cr=/credit|balance|billing|quota|payment|insufficient/i.test(m);
   if(r.status===402||cr&&(r.status===429||r.status===403||r.status===400))return {state:'credit',message:m||'Out of credit'};
   if(r.status===429)return {state:'ok',message:'Works (busy right now)'};
-  if(r.status===401||r.status===403||r.status===400&&/key|auth|credential|token|permission/i.test(m))return {state:'rejected',message:(m||'The key was rejected')+' (HTTP '+r.status+')'};
+  if(r.status===401||r.status===403||r.status===400&&/key|auth|credential|token|permission/i.test(m))return {state:'rejected',message:providerName(slug,url)+' says this key isn’t valid. Copy the whole key again, or make a new one.',detail:m?m+' (HTTP '+r.status+')':'HTTP '+r.status};
   return {state:'error',message:new URL(url).host+' answered HTTP '+r.status+(m?': '+m:'')}}
  // the env var a provider's key lives in, from the engine's own list (its main key first)
  async function keyVar(slug){const env=await dash('/env?profile=default');const rows=Object.entries(env).filter(([k,v])=>v.provider===slug&&!NOT_KEYS.test(k)&&/_(API_KEY|TOKEN|KEY)$/.test(k));
@@ -61,11 +68,11 @@ export function createConnect({HERMES_HOME,DASH,DASH_TOKEN,live=false}){
    const r=await test('custom',key,base);if(r.state!=='ok')return {ok:false,...r};
    const name=String(b.name||'').trim().slice(0,60)||new URL(r.base||base).host;
    const out=await dash('/providers/custom-endpoints?profile=default',{method:'POST',body:JSON.stringify({id,name,base_url:r.base||base,model:r.models[0]||'',api_key:key||null,discover_models:true})});
-   id=out.id||id;keep('p:'+id,r);return {ok:true,state:'ok',message:'Works',key:'p:'+id,name}}
+   id=out.id||id;keep('p:'+id,r);await afterSave(id).catch(e=>console.warn('first model',e.message));return {ok:true,state:'ok',message:'Works',key:'p:'+id,name}}
   if(!/^[a-z0-9][a-z0-9_.-]{0,63}$/.test(slug))throw new Error('Unknown provider');if(!key)throw new Error('Paste the key first.');
   const v=await keyVar(slug);if(!v)throw new Error('The engine has no key for this provider.');
   const r=await test(slug,key);if(r.state==='rejected'||r.state==='error'||r.state==='unreachable')return {ok:false,...r};
-  await dash('/env?profile=default',{method:'PUT',body:JSON.stringify({key:v,value:key,provider_setup:true})});keep('p:'+slug,r);
+  await dash('/env?profile=default',{method:'PUT',body:JSON.stringify({key:v,value:key,provider_setup:true})});keep('p:'+slug,r);await afterSave(slug).catch(e=>console.warn('first model',e.message));
   return {ok:true,state:r.state,message:r.state==='untested'?(/^Saved/.test(r.message)?r.message:'Saved. aqeelOS has no test for this provider yet, so it was not checked.'):r.message,key:'p:'+slug}}
  // a provider's key, or one of your own endpoints (the account's slug is the endpoint's id)
  async function remove(b){const slug=String(b.provider||'');if(!/^[\w.:@-]{1,120}$/.test(slug))throw new Error('Unknown account');const v=await keyVar(slug);
