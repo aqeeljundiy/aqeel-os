@@ -85,3 +85,13 @@ test('an agent’s own sign-in reports close only when every app they name is of
   {id:'h',state:'open',source:'agent',agent:'pixel',what:'Stop engine start failures from unused MCP apps',missing:'x'}];
  const on={default:['slack'],pixel:['slack']};
  assert.deepEqual(await solvedIssues(items,async(a,w)=>w==='*'?(on[a]||[]).length>0:(on[a]||[]).includes(w)),['a','g'])});
+
+test('an app switched off on purpose is remembered; switching it on again clears that (7 Nov 2026)',async()=>{
+ const DIR=await mkdtemp(path.join(tmpdir(),'optins-off-')),DATA=path.join(DIR,'data');
+ const o=createOptins({DATA,HERMES_HOME:path.join(DIR,'h'),listAgents:async()=>['pixel-agent'],readConfig:async()=>({}),python:async()=>'/py',live:true,run:async()=>({ok:true,out:'{}'}),log:()=>{}});
+ assert.equal(await o.appOffOnPurpose('pixel-agent','higgsfield'),false,'never seen is not off on purpose');
+ await o.setApp('pixel-agent','higgsfield',false);
+ assert.equal(await o.appOffOnPurpose('pixel-agent','higgsfield'),true);
+ assert.equal(await o.appOffOnPurpose('pixel-agent--whatsapp-2','higgsfield'),true,'copies follow their agent');
+ await o.setApp('pixel-agent','higgsfield',true);
+ assert.equal(await o.appOffOnPurpose('pixel-agent','higgsfield'),false)});

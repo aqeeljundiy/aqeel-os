@@ -402,6 +402,23 @@ def telegram_media_downloads_wait_longer_and_retry():
         telegram.File._aq_media_retry = saved[1] if saved[1] is not None else False
 
 
+@test
+def a_wrapped_401_at_start_parks_at_once():
+    m = load("aq_mcp_errors", "tools/mcp_tool_errors.py")
+    e = ConnectionError("MCP server 'higgsfield': both Streamable HTTP and SSE transports failed (Streamable HTTP: Server returned an error response (HTTP 401 from POST https://mcp.higgsfield.ai/mcp)")
+    assert m._classify_mcp_failure(e) == "permanent"
+
+    class R:
+        status_code = 403
+    inner = RuntimeError("x")
+    inner.response = R()
+    outer = ConnectionError("transports failed")
+    outer.__cause__ = inner
+    assert m._classify_mcp_failure(outer) == "permanent"
+    assert m._classify_mcp_failure(ConnectionError("connection refused")) == "transient"
+    assert m._classify_mcp_failure(TimeoutError("HTTP 500 from POST x")) == "transient"
+
+
 failed = 0
 for fn in tests:
     try:

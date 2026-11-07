@@ -90,7 +90,9 @@ export function createOptins({DATA,HERMES_HOME,listAgents,readConfig,python,live
 
  // sign-in apps: before their first count everything stays as it was (on); after it, an app not kept is off
  async function appOn(a,name){await load();if(!db?.appsMigration)return true;return !!db?.apps?.[baseOf(a)]?.[name]}
- async function setApp(a,name,v){if(!/^[\w.-]{1,64}$/.test(String(name)))throw Error('Unknown app');await load();db||={v:1};db.apps||={};const b=baseOf(a);db.apps[b]||={};if(v)db.apps[b][name]=true;else delete db.apps[b][name];await save();log('abilities: app '+name+' '+(v?'on':'off')+' for '+b)}
+ async function setApp(a,name,v){if(!/^[\w.-]{1,64}$/.test(String(name)))throw Error('Unknown app');await load();db||={v:1};db.apps||={};const b=baseOf(a);db.apps[b]||={};if(v){db.apps[b][name]=true;if(db.appsOff?.[b])delete db.appsOff[b][name]}else{delete db.apps[b][name];db.appsOff||={};(db.appsOff[b]||={})[name]=true}await save();log('abilities: app '+name+' '+(v?'on':'off')+' for '+b)}
+ // switched off on purpose (Abilities or switch_my_app_off): such an app is never turned back on by itself
+ async function appOffOnPurpose(a,name){await load();return !!db?.appsOff?.[baseOf(a)]?.[name]}
  async function appsState(a,known=[]){await load();const b=baseOf(a);return known.map(n=>({name:n,on:!db?.appsMigration||!!db?.apps?.[b]?.[n],used:db?.appsMigration?.counts?.[a]?.['app:'+n]||null}))}
  async function migrateApps({force=false}={}){await load();if(db?.appsMigration&&!force)return null;if(!live&&!force)return null;
   const {agents,configs,counts}=await usage(14,c=>Object.fromEntries(appNames(c).map(n=>['app:'+n,[n]])));const dec=decideApps(counts,configs);
@@ -101,4 +103,4 @@ export function createOptins({DATA,HERMES_HOME,listAgents,readConfig,python,live
   const text=bases.map(b=>{const k=Object.keys(dec[b]||{});return b+': '+(k.length?k.join(', '):'none')}).join('; ')+'. Apps not kept are off (no tool call in 14 days). Switch them on per agent in Edit agent › Abilities.';
   log('abilities: sign-in apps kept: '+text+' Backups: '+bak.length);await note('Sign-in apps are now per agent',text).catch(()=>{});
   return {decision:dec,counts,backups:bak,text}}
- return {on,set,state,usage,migrate,load,appOn,setApp,appsState,migrateApps}}
+ return {on,set,state,usage,migrate,load,appOn,setApp,appOffOnPurpose,appsState,migrateApps}}

@@ -55,10 +55,30 @@
 //    audio file, which the engine never transcribed: the agent got only a path, and an agent with its own Linux user
 //    cannot run speech-to-text ("I can't hear the voice note"). Audio messages are now transcribed like voice notes,
 //    and the agent still gets the file. Documents stay files.
+// 13) aqeelos:mcp-auth-park-fast (7 Nov 2026). Higgsfield was on 9 agents with no sign-in. At every engine start each
+//    copy answered 401, but wrapped in "both transports failed", so the engine tried it 3 times (~11 s) per agent, one
+//    after another, before it started Telegram: channels came back 2.5 minutes late. A wrapped 401/403 now parks at once.
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
 
 export const FIXES=[
+ {tag:'aqeelos:mcp-auth-park-fast',name:'a tool server that answers 401/403 at start is parked at once, not tried 3 times',file:'tools/mcp_tool_errors.py',edits:[
+  {why:'the failure classifier',
+   from:'                 or getattr(getattr(root, "response", None), "status_code", None) in (401, 403))\n    return "permanent" if permanent else "transient"\n',
+   to:`                 or getattr(getattr(root, "response", None), "status_code", None) in (401, 403))
+    # aqeelos:mcp-auth-park-fast: a 401/403 wrapped in "both Streamable HTTP and SSE transports failed" was retried 3
+    # times per agent (~11 s each) before the engine started its channels (7 Nov 2026: Higgsfield on 9 agents
+    # without a sign-in, Telegram 2.5 minutes late). Look through the chain and the message too.
+    if not permanent:
+        _aq_node, _aq_n = root, 0
+        while _aq_node is not None and _aq_n < 8 and not permanent:
+            permanent = getattr(getattr(_aq_node, "response", None), "status_code", None) in (401, 403)
+            _aq_node = getattr(_aq_node, "__cause__", None) or getattr(_aq_node, "__context__", None)
+            _aq_n += 1
+        if not permanent and re.search(r"\\bHTTP (401|403) from (POST|GET) ", str(root)):
+            permanent = True
+    return "permanent" if permanent else "transient"
+`}]},
  {tag:'aqeelos:telegram-media-retry',name:'Telegram voice notes and photos download with a longer wait and retries',file:'plugins/platforms/telegram/adapter.py',edits:[
   {why:'the media download calls',
    from:'    from telegram.request import HTTPXRequest\n    TELEGRAM_AVAILABLE = True\n',
