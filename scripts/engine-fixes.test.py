@@ -322,6 +322,86 @@ def a_message_that_arrives_while_the_engine_stops_is_kept_and_handled_later():
     assert "_aq_hold_inbound(self, event)" in src_text[i:i + 1500]
 
 
+@test
+def replied_and_forwarded_audio_is_transcribed_documents_are_not():
+    import ast, enum
+    src = open(os.path.join(FIXED, "gateway/run.py")).read()
+    fn = next(n for n in ast.parse(src).body if isinstance(n, ast.FunctionDef) and n.name == "_event_media_is_stt_input")
+
+    class MessageType(enum.Enum):
+        TEXT = 1; VOICE = 2; AUDIO = 3; DOCUMENT = 4; PHOTO = 5
+    ns = {"MessageType": MessageType, "_event_media_type_at": lambda e, i: e.media_types[i] if i < len(e.media_types) else ""}
+    exec(compile(ast.Module([fn], []), "stt", "exec"), ns)
+    f = ns["_event_media_is_stt_input"]
+    ev = lambda t, mt: types.SimpleNamespace(message_type=t, media_types=[mt])
+    assert f(ev(MessageType.VOICE, "audio/ogg", ), 0)
+    assert f(ev(MessageType.AUDIO, "audio/ogg"), 0), "replied-to voice note (AUDIO) is transcribed"
+    assert f(ev(MessageType.AUDIO, ""), 0)
+    assert not f(ev(MessageType.DOCUMENT, "audio/ogg"), 0), "a document stays a file"
+    assert not f(ev(MessageType.AUDIO, "video/mp4"), 0)
+    r = open(os.path.join(FIXED, "gateway/run_inbound.py")).read()
+    i = r.index("def _classify_inbound_media")
+    body = r[i:i + 2000]
+    assert "elif not pending_stt_prepared and _event_media_is_stt_input" not in body
+    assert "audio_file_paths.append(path)" in body and "audio_paths.append(path)" in body
+
+
+@test
+def telegram_media_downloads_wait_longer_and_retry():
+    import ast, asyncio
+    import telegram
+    from telegram.error import TimedOut, BadRequest
+    src = open(os.path.join(FIXED, "plugins/platforms/telegram/adapter.py")).read()
+    tree = ast.parse(src)
+    fn = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "_aq_patch_media_downloads":
+            fn = node
+    assert fn is not None
+    calls = []
+
+    async def fake_download(self, buf=None, **kw):
+        calls.append(kw.get("read_timeout"))
+        if len(calls) < 3:
+            raise TimedOut("Timed out")
+        return bytearray(b"ok")
+    saved = telegram.File.download_as_bytearray, getattr(telegram.File, "_aq_media_retry", None)
+    try:
+        telegram.File.download_as_bytearray = fake_download
+        if hasattr(telegram.File, "_aq_media_retry"):
+            del telegram.File._aq_media_retry
+        import logging as _lg
+        ns = {"asyncio": asyncio, "logger": _lg.getLogger("t")}
+        exec(compile(ast.Module([fn], []), "dl", "exec"), ns)
+        ns["_aq_patch_media_downloads"]()
+        f = types.SimpleNamespace(file_size=4_000_000)
+        orig_sleep = asyncio.sleep
+
+        async def no_sleep(_s):
+            return None
+        ns["asyncio"] = types.SimpleNamespace(sleep=no_sleep)
+        out = asyncio.run(telegram.File.download_as_bytearray(f))
+        assert out == bytearray(b"ok") and len(calls) == 3, calls
+        assert calls[0] >= 60, calls
+        calls.clear()
+
+        async def bad(self, buf=None, **kw):
+            calls.append(1)
+            raise BadRequest("File is too big")
+        telegram.File._aq_media_retry = False
+        telegram.File.download_as_bytearray = bad
+        ns["_aq_patch_media_downloads"]()
+        try:
+            asyncio.run(telegram.File.download_as_bytearray(f))
+            raise AssertionError("BadRequest must surface")
+        except BadRequest:
+            pass
+        assert calls == [1], "a refused file is not retried"
+    finally:
+        telegram.File.download_as_bytearray = saved[0]
+        telegram.File._aq_media_retry = saved[1] if saved[1] is not None else False
+
+
 failed = 0
 for fn in tests:
     try:
