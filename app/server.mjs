@@ -566,6 +566,8 @@ let autoRestarts=[],gwRun=null,gwAgain=null;
 /* A request while a restart runs: before that restart has stopped the engine it is simply part of it (its bridges:true is
    merged in); after, one more pass is queued (all such requests share it), so a change saved meanwhile is not lost. */
 let heldRestart=null;
+// A request that comes before the new engine starts is covered by that start (it reads every setting then): no
+// second restart a minute later (7 Nov 2026: 01:05 and 01:06 UTC). Only a WhatsApp bridge stop already done needs a pass.
 function restartGateway(why,{wait=true,waitMax=360,auto=false,bridges=false,restore=false}={}){
  // aqeelos:restart-hold: while a long build runs (DATA/restart-hold.json {until,why}), automatic engine restarts wait.
  // The build removes the file and restarts once at the end. An expired hold is ignored, so it can never block for good.
@@ -573,8 +575,6 @@ function restartGateway(why,{wait=true,waitMax=360,auto=false,bridges=false,rest
  // never during a restore: every caller (Restart, Start, a hook or channel change, the watches) waits for its end, and the
  // restore starts the agents itself when it is done (busy.mjs)
  if(!mayStartAgents({restoring:restoreBusy(),forRestore:restore})){console.log('gateway restart left for after the restore:',why);return Promise.resolve()}
- // a request that comes before the new engine starts is covered by that start (it reads every setting then): no
- // second restart a minute later (7 Nov 2026: 01:05 and 01:06 UTC). Only a WhatsApp bridge stop already done needs a pass.
  if(gwRestarting){if(!gwRun.started&&!(bridges&&gwRun.bridgesDone)){gwRun.bridges||=bridges;return gwRestarting}
   gwAgain={why:gwAgain?.why||why,bridges:!!(gwAgain?.bridges||bridges)};return gwRestarting.then(()=>{if(!gwAgain)return gwRestarting||undefined;const a=gwAgain;gwAgain=null;return restartGateway(a.why,{bridges:a.bridges})})}if(auto){autoRestarts=autoRestarts.filter(t=>Date.now()-t<30*60e3);if(autoRestarts.length>=3){if(Date.now()-(globalThis.__rf||0)>30*60e3){globalThis.__rf=Date.now();noteSys('restart-failed','The engine kept stopping, so it was left off. Open System › Host and press Start.')}return Promise.resolve()}autoRestarts.push(Date.now())}if(PORT!==4400){console.log('gateway restart skipped (test copy):',why);return Promise.resolve()}
  const run=gwRun={bridges,stopping:false};gwRestarting=(async()=>{if(wait){let said=false;for(let i=0;i<waitMax&&(liveCount()>0||await engineAgents()>0);i++){if(!said&&i===12){said=true;console.log('gateway restart: still waiting for',Math.max(liveCount(),engAgents.n),'agent(s) at work:',why);
