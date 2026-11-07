@@ -64,6 +64,7 @@ test('per-agent users: missing, stopped or running, with the one command that fi
  const now=Date.now(),st=m=>f=>m[path.basename(f)]?{mtimeMs:m[path.basename(f)]}:null;
  const none=I.agentUsersState({home:'/h',now,statImpl:st({})});assert.equal(none.ok,false);assert.equal(none.seen,false);assert.match(none.fix,/^sudo bash .*scripts\/install\.sh --agent-users$/);
  assert.equal(I.agentUsersState({home:'/h',now,statImpl:st({'.aqeelos-agent-users.alive':now-30e3})}).ok,true);
+ assert.equal(I.agentUsersState({home:'/h',now,statImpl:st({'.aqeelos-agent-users.done':now-60*60e3})}).ok,true);
  const old=I.agentUsersState({home:'/h',now,statImpl:st({'.aqeelos-agent-users.alive':now-10*60e3,'.aqeelos-agent-users.done':now-10*60e3})});assert.equal(old.ok,false);assert.equal(old.seen,true)});
 
 test('host settings: cleaned, and the environment wins',()=>{

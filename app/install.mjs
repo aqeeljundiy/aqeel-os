@@ -95,7 +95,8 @@ export const hostFrom=k=>env[HOSTS[k][0]]?'env':settings()[k]?'setting':'default
 export function agentUsersState({home=env.AQEELOS_HOME||homedir(),now=Date.now(),statImpl}={}){const st=statImpl||(f=>{try{return statSync(f)}catch{return null}});
  const req=path.join(home,'.aqeelos-agent-users'),alive=st(req+'.alive'),done=st(req+'.done');
  const fresh=alive&&now-alive.mtimeMs<3*60e3;
- return {ok:!!fresh,seen:!!(alive||done),fix:'sudo bash '+path.join(ROOT,'scripts','install.sh')+' --agent-users'}}
+ // an older watcher (before the beat) that already made users: it works, it just cannot say so
+ return {ok:!!fresh||(!alive&&!!done),seen:!!(alive||done),fix:'sudo bash '+path.join(ROOT,'scripts','install.sh')+' --agent-users'}}
 
 /* ---------- the Claude sign-in (Models) ---------- */
 export const CLAUDE_PLUGIN='claude-subscription-directsdk-experimental';
