@@ -4,8 +4,8 @@
 //   - every change to an agent's instructions is a version: who made it (a person in aqeelOS, the agent itself through
 //     change_instructions, or something on the box that wrote the file directly), when, why and in whose words; any
 //     version can be brought back. Old SOUL.md.bak-* files become the first versions.
-//   - the agent changes a rule where it is written (change_instructions: exact old text -> new text). Small edits apply
-//     at once and can be undone; a rewrite, or a big change, waits for the owner's approval as a before/after.
+//   - the agent changes a rule where it is written (change_instructions: exact old text -> new text, or a rewrite). Every
+//     change applies at once and can be undone; nobody approves it (owner, 7 Nov 2026).
 //   - contradictions are flagged: "override" sections stacked on each other, and (checked by the engine's small helper
 //     model, quotes verified against the text) one rule with two values across the instructions and memory.
 // The history with its reasons is each agent's decisions log: one place, visible in Agents › Edit agent › History.
@@ -14,7 +14,6 @@ import {execFile} from 'node:child_process';
 import {createHash,randomBytes} from 'node:crypto';
 import path from 'node:path';
 
-const SMALL_CHARS=1500,SMALL_EDITS=4;   // a change above either goes to the owner for approval
 
 export function lineDiff(a,b){
  const A=String(a).split('\n'),B=String(b).split('\n');
@@ -69,7 +68,7 @@ export function createInstructions({DATA,HERMES_HOME,DASH,DASH_TOKEN,python,root
   return {versions:db.versions.slice().reverse().map(({hash,...x})=>x),proposals:db.proposals.filter(p=>p.state==='open').map(({content,...p})=>p),flags:db.flags?.items||[],checkedAt:db.flags?.at||null,checking:checking.has(a)}}
  async function restore(a,v,by){const t=await content(a,v);return write(a,t,{kind:'restore',by,why:'Brought back version '+v})}
 
- // proposals: a rewrite waits for the owner, shown as before/after
+ // proposals: a before/after a person drafts in the app (an agent's own change never waits, see change())
  async function propose(a,{content:t,why,said,by}){await sync(a);if(typeof t!=='string'||!t.trim())throw Error('Give the whole new text.');
   return lock(a,async()=>{const db=await load(a);const base=db.versions[db.versions.length-1];
    const p={id:'p'+randomBytes(5).toString('hex'),at:Date.now(),by:String(by||'').slice(0,80),why:String(why||'').slice(0,600),said:String(said||'').slice(0,120),baseV:base?.v||0,baseHash:base?.hash||'',state:'open',...counts(lineDiff(base?await content(a,base.v):'',t))};
@@ -86,17 +85,19 @@ export function createInstructions({DATA,HERMES_HOME,DASH,DASH_TOKEN,python,root
  // the agent's own tool: change a rule where it is written
  async function change(a,args,{by}){const why=String(args.why||'').trim(),said=String(args.said_by||'').trim();if(!why)return {isError:true,text:'Say in why what the change is and why (for the history).'};
   await sync(a);const cur=await readSoul(a);if(cur===null)return {isError:true,text:'Your instructions could not be read.'};
-  if(typeof args.rewrite==='string'&&args.rewrite.trim()){const p=await propose(a,{content:args.rewrite,why,said,by});
-   return {text:'Your rewrite waits for the owner\'s approval in aqeelOS ('+p.added+' lines added, '+p.removed+' removed). Nothing changed yet; keep working with your current instructions. Tell the person it is waiting for their OK under Bottlenecks.'}}
+  // 7 Nov 2026 (owner): an agent's own instruction change applies at once, whatever its size; it is a version with
+  // its reason and can be undone, and nobody is asked to approve it
+  if(typeof args.rewrite==='string'&&args.rewrite.trim()){if(/\boverrid(e|es|ing)\b[^\n]*(earlier|previous|above|every|section|rule)/i.test(args.rewrite))return {isError:true,text:'Do not add "overrides …" wording. Change the rule itself where it is written, so it is said once. Nothing was changed.'};
+   const x=await write(a,args.rewrite,{kind:'agent',by,why,said});
+   return {text:'Saved as version '+x.v+' of your instructions ('+x.added+' lines added, '+x.removed+' removed). It applies from your next message, is in your history with your reason, and can be undone. Nobody needs to approve it.'}}
   const edits=Array.isArray(args.edits)?args.edits:[];if(!edits.length)return {isError:true,text:'Give edits (exact old_text and new_text for each place), or rewrite with the whole new text.'};
   let t=cur,chars=0;
   for(const [i,e] of edits.entries()){const o=String(e?.old_text||''),nw=String(e?.new_text??'');if(!o)return {isError:true,text:'Edit '+(i+1)+': old_text is empty. Change a rule where it is written; to add one, give a nearby line as old_text and that line plus the new rule as new_text.'};
    const n=t.split(o).length-1;if(n!==1)return {isError:true,text:'Edit '+(i+1)+': old_text '+(n?'appears '+n+' times; make it longer so it is unique':'was not found; copy it exactly from your instructions')+'. Nothing was changed.'};
    t=t.replace(o,()=>nw);chars+=Math.max(o.length,nw.length)}
   if(/\boverrid(e|es|ing)\b[^\n]*(earlier|previous|above|every|section|rule)/i.test(edits.map(e=>e.new_text).join('\n')))return {isError:true,text:'Do not add "overrides …" wording. Change the rule itself where it is written, so it is said once. Nothing was changed.'};
-  if(chars>SMALL_CHARS||edits.length>SMALL_EDITS){const p=await propose(a,{content:t,why,said,by});return {text:'That is a bigger change, so it waits for the owner\'s approval in aqeelOS ('+p.added+' lines added, '+p.removed+' removed). Nothing changed yet. Tell the person it is waiting for their OK under Bottlenecks.'}}
   const x=await write(a,t,{kind:'agent',by,why,said});
-  return {text:'Saved as version '+x.v+' of your instructions ('+x.added+' lines added, '+x.removed+' removed). It is in your history in aqeelOS with your reason, and the owner can undo it. It applies from your next message.'}}
+  return {text:'Saved as version '+x.v+' of your instructions ('+x.added+' lines added, '+x.removed+' removed). It applies from your next message, is in your history with your reason, and can be undone. Nobody needs to approve it.'}}
 
  // contradiction flags
  const checking=new Set(),timers=new Map();

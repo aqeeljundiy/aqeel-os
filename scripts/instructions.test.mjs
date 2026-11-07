@@ -20,7 +20,11 @@ await writeFile(path.join(P,'SOUL.md'),(await soul())+'- extra line\n');h=await 
 let r=await I.change('bot',{edits:[{old_text:'max 5 an hour',new_text:'max 3 an hour'}],why:'3 an hour',said_by:'Aqeel'},{by:'bot'});assert.match(r.text,/Saved as version 4/);assert.match(await soul(),/max 3 an hour/);
 r=await I.change('bot',{edits:[{old_text:'nope',new_text:'x'}],why:'x'},{by:'bot'});assert.ok(r.isError);
 r=await I.change('bot',{edits:[{old_text:'- extra line',new_text:'## New (overrides earlier rules)'}],why:'x'},{by:'bot'});assert.ok(r.isError,'no override sections');
-r=await I.change('bot',{rewrite:'# Rules\n- comments: 70 a day\n- max 5 an hour\n',why:'clean up',said_by:'Aqeel'},{by:'bot'});assert.match(r.text,/waits/);assert.match(await soul(),/max 3 an hour/,'nothing changed yet');
+// 7 Nov 2026: a big edit and a rewrite apply at once too; nobody approves an agent's own change
+{const big='x'.repeat(2000);r=await I.change('bot',{edits:[{old_text:'max 3 an hour',new_text:'max 3 an hour\n- note: '+big}],why:'long note'},{by:'bot'});assert.match(r.text,/Saved as version/);assert.doesNotMatch(r.text,/waits|owner's approval/i);assert.match(await soul(),/note: x{2000}/)}
+r=await I.change('bot',{rewrite:'# Rules\n- comments: 70 a day\n- max 3 an hour\n',why:'clean up',said_by:'Aqeel'},{by:'bot'});assert.match(r.text,/Saved as version 6/);assert.equal(await soul(),'# Rules\n- comments: 70 a day\n- max 3 an hour\n');
+assert.equal((await I.history('bot')).proposals.length,0,'no proposal for the owner');
+await I.propose('bot',{content:'# Rules\n- comments: 70 a day\n- max 5 an hour\n',why:'owner edit in the app',by:'Aqeel'});
 h=await I.history('bot');assert.equal(h.proposals.length,1);const p=await I.proposal('bot',h.proposals[0].id);assert.ok(p.diff.some(d=>d[0]==='-'));
 await I.decide('bot',p.id,true,'Aqeel');assert.equal(await soul(),'# Rules\n- comments: 70 a day\n- max 5 an hour\n');
 h=await I.history('bot');assert.equal(h.versions[0].kind,'approved');assert.equal(h.versions[0].approvedBy,'Aqeel');assert.equal(h.proposals.length,0);

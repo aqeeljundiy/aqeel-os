@@ -92,7 +92,7 @@ export function overview(agents,items,drops,nameOf=a=>a){const rows=agents.map(a
  for(const x of items){if(['invite','ticket','access'].includes(x.kind))continue;const base=x.agent?String(x.agent).split('--')[0]:null;(base&&idx.get(base)||(base?null:sys))?.problems.push(x)}
  for(const r of rows)r.ok=!r.problems.length;const list=[...rows.filter(r=>!r.ok),...rows.filter(r=>r.ok)];if(sys.problems.length)list.unshift({...sys,ok:false});return list}
 
-export function createAgentHealth({DATA,HERMES_HOME,bottlenecks,items,listAgents,nameOf,botToken,engineUp,python,tellOwner=null,link,quiet=()=>null,fileIssue=null,healthGone=null,ps=readPs,fetchJson=(u,o)=>fetch(u,{...o,signal:AbortSignal.timeout(15000)}).then(r=>r.json())}){
+export function createAgentHealth({DATA,HERMES_HOME,bottlenecks,items,listAgents,nameOf,botToken,engineUp,python,tellOwner=null,link,quiet=()=>null,fixFirst=null,fileIssue=null,healthGone=null,ps=readPs,fetchJson=(u,o)=>fetch(u,{...o,signal:AbortSignal.timeout(15000)}).then(r=>r.json())}){
  const FILE=path.join(DATA,'agent-health.json');let st=null;
  const load=async()=>{if(!st){try{st=JSON.parse(await readFile(FILE,'utf8'))}catch{st={}}st.told||={};st.seen||={};st.groups||={}}return st};
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(st,null,1));await rename(FILE+'.tmp',FILE)};
@@ -149,9 +149,13 @@ print(json.dumps(out))`;
   // reloads and proves it, and messages a person only when it needs one or is stuck. A queued issue whose problem
   // went away by itself is closed. Everything stays visible on System › Health.
   // filed once per problem while it lasts (st.filed), including problems that were already known before this
-  st.fixing=undefined;st.ownerTold=undefined;st.filed||={};const curKeys=new Set(),toFile=[];
-  for(const x of all.filter(alertable)){const k=alertKey(x);if(curKeys.has(k))continue;curKeys.add(k);if(st.told[k]&&!st.filed[k]&&quiet(x.agent||null)!=='test')toFile.push(x)}
-  for(const k of Object.keys(st.filed))if(!curKeys.has(k))delete st.filed[k];
+  // Owner's ladder: a problem in one agent's own work goes to that agent first (fixFirst: a run of its own); only if it
+  // is still there 45 minutes later, or the agent cannot run itself, does it go to the fixer.
+  st.fixing=undefined;st.ownerTold=undefined;st.filed||={};st.selfTried||={};const curKeys=new Set(),toFile=[],now=Date.now();
+  for(const x of all.filter(alertable)){const k=alertKey(x);if(curKeys.has(k))continue;curKeys.add(k);if(!st.told[k]||st.filed[k]||quiet(x.agent||null)==='test')continue;
+   if(fixFirst&&x.agent&&!st.selfTried[k]){try{await fixFirst(String(x.agent).split('--')[0],x);st.selfTried[k]=now;console.log('health: '+x.agent+' fixes it itself first: '+k);continue}catch(e){console.log('health: '+x.agent+' cannot fix it itself ('+e.message+')')}}
+   if(st.selfTried[k]&&now-st.selfTried[k]<45*60e3)continue;toFile.push(x)}
+  for(const m of [st.filed,st.selfTried])for(const k of Object.keys(m))if(!curKeys.has(k)){if(m===st.selfTried&&!st.filed[k])console.log('health: fixed by the agent itself: '+k);delete m[k]}
   for(const x of toFile){const k=alertKey(x);if(!fileIssue){console.log('health: found (no fixer): '+k);continue}
    try{const r=await fileIssue({agent:x.agent?String(x.agent).split('--')[0]:'default',affects:x.agent?[]:['aqeelos'],source:'health',healthKey:k,what:'Health check ('+(x.kind||'problem')+')',
      missing:String(x.title||'A health problem').slice(0,400),evidence:[x.text,x.detail,x.fix].filter(Boolean).join(' · ').slice(0,1800)});

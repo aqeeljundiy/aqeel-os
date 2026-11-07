@@ -54,6 +54,9 @@ export function parseResult(out,kind='fix'){const m=[...String(out||'').matchAll
  const changes=(Array.isArray(j.changes)?j.changes:[]).filter(c=>c&&typeof c.file==='string'&&c.file.startsWith('/')).slice(0,40).map(c=>({file:clip(c.file,400),backup:typeof c.backup==='string'&&c.backup.startsWith('/')?clip(c.backup,400):null}));
  return {status:j.status,summary:clip(j.summary,1500),proof:clip(j.proof,3000),need:clip(j.need,600),check:clip(j.check,1000),apply,changes}}
 // a run that never reached the model (the engine was restarting or draining) is not a try
+// owner's ladder (7 Nov 2026): a person is asked only for what physically needs them (money, a key or login only they
+// have, a person adding a bot, a decision only they can make), never for a plain approval of a fix
+export const approvalOnly=t=>{t=String(t||'');return /\b(approv|sign[ -]?off|give (the |your )?ok|ok (it|this|the change)|confirm (that|whether|the change|this change)|review (the|this) (change|fix|rule))/i.test(t)&&!/\b(pay|paid|invoice|top ?up|billing|key|token|password|log ?in|sign ?in|qr|add (the )?bot|invite|decid|choose|which one)/i.test(t)};
 export const notStarted=out=>/couldn'?t start the model connection|Gateway draining|not_ready|Connection refused.*gateway/i.test(String(out||'').slice(-3000));
 
 // the values set in an .env text: {KEY: value}
@@ -84,7 +87,7 @@ export function fixerPrompt(i,{rules='',day=new Date().toISOString().slice(0,10)
  '- Run the existing tests for what you changed (node scripts/<name>.test.mjs in ~/apps/hermes-ui, the engine\'s tests). Paste commands and output in "proof".',
  '- Write in "check" exactly how to rerun the ORIGINAL failing check end to end after the reload (the real thing that failed, not a unit test). For a WhatsApp reply problem: a message from the line\'s test number (e.g. the team\'s 3124 number) must get a real reply delivered.',
  '- If you find nothing to change (it already works), use status "no_change": a proof run still has to show it works.',
- '- needs_human only when a person must act and no tool or key on this box can do it: a new key nobody has, a payment, someone adding a bot to a Telegram group, a sign-in only a person can do. Put in "need" exactly what they must do, in one or two plain sentences.',
+ '- needs_human only when a person must physically act and no tool or key on this box can do it: money, a new key or login only a person has, someone adding a bot to a Telegram group, or a decision only the owner can make. Never to ask for approval or an OK: nobody approves fixes, you decide. Put in "need" exactly what they must do, in one or two plain sentences.',
  rules?'- '+rules:null,
  '','End with exactly one line (JSON on one line):',
  'RESULT: {"status":"changed|no_change|needs_human|failed","apply":"none|engine|ui","changes":[{"file":"/abs/path","backup":"/abs/path.bak-…"}],"check":"how to rerun the original check","summary":"one or two plain sentences","proof":"what you ran and saw","need":"only for needs_human or failed: what a person must do"}'].filter(x=>x!==null).join('\n')}
@@ -99,7 +102,7 @@ export function proofPrompt(i,fix,{reloaded=null}={}){return [
  '','RULES',
  '- Rerun the ORIGINAL failing check end to end, for real, now. A unit test or reading a file is not proof. For a WhatsApp reply problem the line\'s test number (e.g. the team\'s 3124 number) must get a real reply delivered; check the delivery. For a Health problem, Health (~/apps/hermes-ui-data/bottlenecks.json) must no longer list it after its check ran again.',
  '- Never spend money, never delete anything, never message customers, never restart anything.',
- '- proven only if you saw it work after the change. Otherwise not_proven, and say in "need" what a person could do if nothing on this box can fix it.',
+ '- proven only if you saw it work after the change. Otherwise not_proven. Fill "need" only if a person must physically act (money, a key or login only they have, adding a bot, a decision only the owner can make); never an approval.',
  '','End with exactly one line (JSON on one line):',
  'RESULT: {"status":"proven|not_proven","proof":"the commands you ran and what you saw, with times","need":""}'].filter(x=>x!==null).join('\n')}
 
@@ -192,6 +195,8 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   if(!res&&notStarted(out)){r.notStarted=true;if(kind==='fix')i.tries--;i.state=kind==='fix'?'queued':'verify';i.notBefore=now()+5*60e3;await save();log('issues: '+r.id+' did not reach the model; again in 5 minutes');return}
   if(kind==='fix'){const fr=res||{status:'failed',summary:'The fixer ended without a result'+(r.exit!=null?' (exit '+r.exit+')':' (stopped)')+'.',proof:clip(out.slice(-800),800),changes:[],apply:'none'};r.result=fr;
    const h={kind:'fix',run:r.id,at:now(),status:fr.status,summary:fr.summary,proof:fr.proof,need:fr.need,check:fr.check,apply:fr.apply,changes:fr.changes};i.history.push(h);i.result=fr;
+   // asking a person to approve is not needing one: the fixer decides itself on the next try
+   if(fr.status==='needs_human'&&(!fr.need||approvalOnly(fr.need))){await rollBack(fr.changes);h.outcome='asked for an approval; nobody approves fixes, so it decides itself';return await nextTry(i,null)}
    if(fr.status==='needs_human'){await rollBack(fr.changes);i.state='needs_human';i.need=fr.need||fr.summary;await save();
     const to=await tell(i,nameOf(i.agent)+' needs a person for a fix\n\nProblem: '+i.missing+'\nWhat is needed: '+(i.need||'-')+'\n\naqeelOS fixes the rest by itself once this is done (issue '+i.id+' on System › Health).');i.told=to;await save();log('issues: '+i.id+' needs a human, told '+to);return}
    // put back before it was ever reloaded: nothing to reload
@@ -213,7 +218,9 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  async function afterTry(i){if(i.tries<TRIES){i.state='queued';i.notBefore=now()+60e3;await save();return}
   i.state='stuck';await save();
   const tried=i.history.filter(h=>h.kind==='fix').map((h,n)=>(n+1)+') '+clip(h.summary,200)+(h.outcome?' ('+h.outcome+')':'')).join('\n');
-  const need=i.lastNeed||i.history.filter(h=>h.need).at(-1)?.need||'Look at issue '+i.id+' on System › Health and say what to try.';
+  const need=[i.lastNeed,...i.history.filter(h=>h.need).map(h=>h.need).reverse()].find(x=>x&&!approvalOnly(x));
+  // nothing a person must physically do: no message; it stays on System › Health as stuck
+  if(!need){i.need=null;log('issues: '+i.id+' stuck; nothing needs a person, so nobody is told');return}
   const to=await tell(i,nameOf(i.agent)+': aqeelOS tried '+TRIES+' times and could not fix this by itself\n\nProblem: '+i.missing+'\nTried:\n'+tried+'\n\nWhat is needed from you: '+need);i.told=to;i.need=need;await save();log('issues: '+i.id+' stuck, told '+to)}
  // reload safely once nothing is busy (/healthz busy 0); a restart hold or a busy box just waits for the next tick
  async function reload(i){const n=await busy().catch(()=>1);if(n>0)return;

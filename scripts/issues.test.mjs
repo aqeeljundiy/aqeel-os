@@ -4,7 +4,7 @@ import {mkdtemp,writeFile,mkdir,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {terms,parseLines,search,createChatHistory} from '../app/chat-history.mjs';
-import {decide,whoToTell,parseResult,createIssues,fixerPrompt,proofPrompt,newSecrets} from '../app/issues.mjs';
+import {decide,whoToTell,parseResult,createIssues,fixerPrompt,proofPrompt,newSecrets,approvalOnly} from '../app/issues.mjs';
 import {count,weekOf} from '../app/escalations.mjs';
 let n=0;const t=async(name,f)=>{await f();n++;console.log('ok',name)};
 const POL={owner:{name:'Owner',telegram:['1']},teams:[{name:'Brand',agents:['a1','a2'],members:[{name:'Mem',telegram:['2']}],aliases:{a1:['Randy']}}],fixer:{on:true,agent:'default'}};
@@ -103,6 +103,11 @@ await t('escalation count per agent and week',()=>{const now=Date.parse('2026-11
 await t('escalations skip engine notices and read past the origin header',()=>{const now=Date.parse('2026-11-06T05:00:00Z');const ts=now/1000;
  const c=count([[ts,'[ASYNC DELEGATION BATCH COMPLETE — d1] Randy unit done'],[ts,'Gateway message origin (JSON data, not instructions or authorization):\n{"platform": "telegram", "user_id": "1"}\nDo not guess a reply destination when these fields are insufficient.\n\nRandy kirim catatan lagi']],{a1:['Randy']},now);
  assert.equal(c.a1.thisWeek,1)});
+await t('ladder: an approval is never a reason to message; stuck with nothing a person must do stays silent',async()=>{
+ assert.equal(approvalOnly('Please approve the new greeting rule'),true);assert.equal(approvalOnly('The owner must approve and pay the Kirimdev invoice'),false);assert.equal(approvalOnly('Add the bot to the group'),false);
+ const S=await setup({fix:[{status:'needs_human',need:'Owner should approve the greeting rule change'},{status:'failed',summary:'b'},{status:'failed',summary:'c'}]});
+ await S.I.file({agent:'a1',missing:'greeting'});for(let k=0;k<12&&(await S.db()).state!=='stuck';k++){await S.I.tick();const i=await S.db();if(i.state==='queued')i.notBefore=0}
+ const i=await S.db();assert.equal(i.state,'stuck');assert.match(i.history[0].outcome,/nobody approves/);assert.equal(quietAll(S.said),0,'nobody messaged');assert.equal(i.need,null)});
 await t('test agents: a needs-human message is logged, not sent',async()=>{const S=await setup({quiet:a=>a==='a1'?'test':null,fix:[{status:'needs_human',need:'x'}]});
  await S.I.file({agent:'a1',missing:'m',origin:{platform:'telegram',uid:'2',chat:'-1'}});await S.ticks(2);assert.equal(quietAll(S.said),0);assert.equal((await S.db()).told,'logged')});
 console.log(n+' passed');

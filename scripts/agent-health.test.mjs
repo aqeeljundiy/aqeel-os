@@ -97,7 +97,18 @@ test('end to end: checks become Bottlenecks items, each filed once for the fixer
  {const st2=JSON.parse(await readFile(path.join(DATA,'agent-health.json'),'utf8'));delete st2.filed;await writeFile(path.join(DATA,'agent-health.json'),JSON.stringify(st2));
   const h3=createAgentHealth({DATA,HERMES_HOME:HOME,bottlenecks:bn,python:async()=>null,link:'L',listAgents:async()=>['default','pixel'],nameOf:a=>a,fileIssue,healthGone,engineUp:async()=>true,botToken:async()=>null,items:()=>bn.list({admin:true,mayUse:()=>true})});
   assert.equal(await h3.tick(),3);assert.equal(filed.length,6);assert.equal(await h3.tick(),0)}
- await writeFile(path.join(cron,'ticker_last_success'),String(Date.now()/1000));await h2.ok('pixel','handoff|c1');await h2.tick();assert.equal(filed.length,6,'nothing new filed');
+ // the ladder: the agent tries itself first; the fixer gets it only if it is still there 45 minutes later
+ {const st3=JSON.parse(await readFile(path.join(DATA,'agent-health.json'),'utf8'));delete st3.filed;await writeFile(path.join(DATA,'agent-health.json'),JSON.stringify(st3));const asked=[];
+  const h4=createAgentHealth({DATA,HERMES_HOME:HOME,bottlenecks:bn,python:async()=>null,link:'L',listAgents:async()=>['default','pixel'],nameOf:a=>a,fileIssue,healthGone,fixFirst:async(a,x)=>asked.push([a,x.title]),engineUp:async()=>true,botToken:async()=>null,items:()=>bn.list({admin:true,mayUse:()=>true})});
+  assert.equal(await h4.tick(),0);assert.equal(asked.length,3);assert.ok(asked.every(([a])=>a==='pixel'));assert.equal(filed.length,6,'not to the fixer yet');
+  const st4=JSON.parse(await readFile(path.join(DATA,'agent-health.json'),'utf8'));for(const k in st4.selfTried)st4.selfTried[k]-=46*60e3;await writeFile(path.join(DATA,'agent-health.json'),JSON.stringify(st4));
+  const h5=createAgentHealth({DATA,HERMES_HOME:HOME,bottlenecks:bn,python:async()=>null,link:'L',listAgents:async()=>['default','pixel'],nameOf:a=>a,fileIssue,healthGone,fixFirst:async(a,x)=>asked.push([a,x.title]),engineUp:async()=>true,botToken:async()=>null,items:()=>bn.list({admin:true,mayUse:()=>true})});
+  assert.equal(await h5.tick(),3);assert.equal(asked.length,3,'not asked twice');assert.equal(filed.length,9,'still there after 45 minutes: the fixer');
+  // an agent that cannot run itself: straight to the fixer
+  const st5=JSON.parse(await readFile(path.join(DATA,'agent-health.json'),'utf8'));delete st5.filed;delete st5.selfTried;await writeFile(path.join(DATA,'agent-health.json'),JSON.stringify(st5));
+  const h6=createAgentHealth({DATA,HERMES_HOME:HOME,bottlenecks:bn,python:async()=>null,link:'L',listAgents:async()=>['default','pixel'],nameOf:a=>a,fileIssue,healthGone,fixFirst:async()=>{throw Error('it cannot run itself')},engineUp:async()=>true,botToken:async()=>null,items:()=>bn.list({admin:true,mayUse:()=>true})});
+  assert.equal(await h6.tick(),3);assert.equal(filed.length,12)}
+ await writeFile(path.join(cron,'ticker_last_success'),String(Date.now()/1000));await h2.ok('pixel','handoff|c1');await h2.tick();assert.equal(filed.length,12,'nothing new filed');
  assert.deepEqual((await h2.view()).agents.find(r=>r.agent==='pixel').problems.map(x=>x.kind),['dropped']);
  assert.equal(gone.at(-1).length,1,'the two that went away are no longer passed, so their queued issues close');assert.equal(told.length,0);
 });
