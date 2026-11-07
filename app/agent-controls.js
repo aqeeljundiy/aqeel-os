@@ -1,7 +1,7 @@
 /* Agent controls an owner needs in the app (7 Nov 2026), admins only:
    - Edit agent › Access › Safety: "Safe tools only" (lock and unlock) and "Trusted (runs as the main user)"
    - Abilities › Skills: which agents get each skill (every agent, or only some), written to skills-policy.json
-   - Channels: Slack channels kept quiet by the start of their name (ext- for client channels, or none)
+   - Channels: per Slack workspace, channels kept quiet by the start of their name (ext- for client channels, or none)
    Server routes: /ui/agent-safe, /ui/agent-locks, /ui/agent-trust, /ui/skills-policy, /ui/slack-quiet. */
 {const base=agentAccessInto;agentAccessInto=async(box,name)=>{await base(box,name);if(S.me?.admin===false||name==='default'||String(name).includes('--')||!box.isConnected)return;
  const [locks,trust]=await Promise.all([UI('/ui/agent-locks?names='+encodeURIComponent(name)).catch(()=>({})),UI('/ui/agent-trust?names='+encodeURIComponent(name)).catch(()=>null)]);if(!box.isConnected)return;
@@ -47,11 +47,23 @@ const SkillPolicy={
    const s=(Pages._skills||[]).find(x=>x.name===n)||{name:n};ags.append(chip(s))})};
  let q=0;const mo=new MutationObserver(()=>{if(!q)q=requestAnimationFrame(()=>{q=0;apply()})});mo.observe(el,{childList:true,subtree:true});apply()}}
 
-/* Channels: Slack channels that stay quiet (admins) */
-{const base=PAGES.channels;PAGES.channels=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone()||S.me?.admin===false||S.chOverride||el.querySelector('#slackQuiet'))return;
- const q=await UI('/ui/slack-quiet').catch(()=>null);if(!q||gone())return;
- const panel=document.createElement('div');panel.className='panel card reveal';panel.id='slackQuiet';panel.style.marginTop='16px';
- panel.innerHTML=`<h2>Quiet Slack channels</h2><p class="sub">Agents answer in any Slack channel they are invited to, except channels whose name starts with this, like ext- for channels shared with clients. Leave it empty to keep none quiet.</p>
-  <div class="quiet-row"><input id="sqPre" maxlength="21" autocapitalize="none" spellcheck="false" placeholder="ext-" value="${esc(q.prefix||'')}" aria-label="Start of a quiet channel's name"><button data-act="sq-save">Save</button></div>`;
- el.append(panel)}}
-ACT['sq-save']=async b=>{b.disabled=true;b.classList.add('is-busy');try{const r=await put(UI,'/ui/slack-quiet',{prefix:$('#sqPre').value.trim()});toast(r.prefix?'Channels starting with '+r.prefix+' stay quiet':'No Slack channel is kept quiet')}catch(e){fail(e)}finally{if(b.isConnected){b.disabled=false;b.classList.remove('is-busy')}}};
+/* Channels: quiet Slack channels, per Slack workspace (admins). Each Slack row says what its workspace keeps quiet, and
+   Change sets it for that workspace only ("Slack · Pixel & Profits: stay quiet in channels starting with…"). */
+{const base=PAGES.channels;PAGES.channels=async(p,el,r)=>{const gone=pageTok(el);await base(p,el,r);if(gone()||S.me?.admin===false||S.chOverride)return;
+ const rows=[...el.querySelectorAll('[data-act="ch-more"][data-platform="slack"]')];if(!rows.length)return;
+ const q=await UI('/ui/slack-quiet').catch(()=>null);if(!q||gone())return;SlackQuiet.q=q;
+ for(const b of rows){const bot=q.bots.find(x=>x.agent===b.dataset.agent),txt=b.closest('.row')?.querySelector('.txt');if(!bot||!txt||txt.querySelector('.sq-line'))continue;txt.append(SlackQuiet.line(bot))}}}
+const SlackQuiet={q:null,
+ line(bot){const pre=SlackQuiet.q.teams[bot.team]?.prefix||'',s=document.createElement('span');s.className='acct-line sq-line';s.dataset.team=bot.team;
+  s.innerHTML=`${pre?`Quiet in channels starting with <b>${esc(pre)}</b>`:'Answers in every channel it is in'} <button type="button" class="link-btn" data-act="sq-edit" data-team="${esc(bot.team)}" data-name="${esc(bot.name)}">${pre?'Change':'Keep some quiet'}</button>`;return s},
+ edit(team,name){const cur=SlackQuiet.q?.teams[team]?.prefix||'';const {d,close}=stackPop('Slack · '+(name||'this workspace'),`<label for="sqPre">Stay quiet in channels starting with…</label><input id="sqPre" maxlength="21" autocapitalize="none" spellcheck="false" placeholder="ext-" value="${esc(cur)}">
+   <p class="hint" style="margin:8px 0 0">Only in ${esc(name||'this workspace')}. Agents in other Slack workspaces answer as usual. Leave it empty to answer in every channel.</p><p id="sqErr" role="alert" style="margin:8px 0 0;min-height:1.2em;font-size:13px;color:var(--bad)"></p>`,
+   `<button class="ghost" data-x>Cancel</button><button class="primary" id="sqGo">Save</button>`);
+  const i=d.querySelector('#sqPre'),b=d.querySelector('#sqGo');setTimeout(()=>{i.focus();i.select()},80);let busy=false;
+  const go=async()=>{if(busy)return;busy=true;b.disabled=true;b.classList.add('is-busy');
+   try{const r=await put(UI,'/ui/slack-quiet',{team,prefix:i.value,name});SlackQuiet.q.teams[team]=r;close();
+    document.querySelectorAll('.sq-line[data-team="'+team+'"]').forEach(l=>{const bot=SlackQuiet.q.bots.find(x=>x.team===team);if(bot)l.replaceWith(SlackQuiet.line(bot))});
+    toast(r.prefix?'In '+(name||'this workspace')+', channels starting with '+r.prefix+' stay quiet':'In '+(name||'this workspace')+', agents answer in every channel')}
+   catch(e){d.querySelector('#sqErr').textContent=e.message||'It could not be saved.'}finally{busy=false;if(b.isConnected){b.disabled=false;b.classList.remove('is-busy')}}};
+  b.onclick=e=>{e.stopPropagation();go()};i.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();e.stopPropagation();go()}}}};
+ACT['sq-edit']=a=>SlackQuiet.edit(a.dataset.team,a.dataset.name);

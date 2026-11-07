@@ -18,6 +18,7 @@ import {createConnect,firstModelFor} from './connect.mjs';
 import {createOptins,COMPOSIO as COMPOSIO_URL,appNames,solvedIssues} from './agent-optins.mjs';
 import {isConnector as isConnectorEntry} from './connectors.mjs';
 import {createAntigravity} from './antigravity.mjs';
+import {createSlackQuiet,slackQuietPlan} from './slack-quiet.mjs';
 import {holdWrites,withAgent,withFlock,setKey,readConfig,pick,agentNames,isAgent,busy as opsBusy,initStatus,getStatus,setStatus,editEnv,hermes as hcmd,python as enginePython,LIVE_APP,HELP_AGENT} from './agentops.mjs';
 import {createSchedules} from './schedules.mjs';
 import {createScreens} from './screens.mjs';
@@ -461,28 +462,30 @@ async function useOwnerSigninsOnce(){const flag=path.join(DATA,'once-owner-signi
 if(LIVE_APP){setTimeout(()=>checkSignins().then(()=>useOwnerSigninsOnce()).catch(()=>{}),120000);setInterval(()=>checkSignins().catch(()=>{}),3*3600e3).unref()}
 if(LIVE_APP){setTimeout(()=>writeAgentContext().catch(()=>{}),25000);setInterval(()=>writeAgentContext().catch(()=>{}),600000).unref()}
 /* Slack: every agent with its own Slack bot answers in any channel it is invited to (private ones too) when a team
-   member mentions it, except quiet channels (a name prefix set under Channels, e.g. ext- for client channels), which stay
-   silent. A new install has none; an install that silenced ext- channels before keeps that. Once per agent, a fixed channel list
-   (SLACK_ALLOWED_CHANNELS) is swapped for that (kept as a comment); after that, client channels made later are
-   added here. Either way the agents restart once nobody is mid-reply so it takes effect. */
-const SLACK_QUIET=path.join(DATA,'slack-quiet.json');
-async function slackQuietPrefix(){const j=await readFile(SLACK_QUIET,'utf8').then(JSON.parse).catch(()=>null);if(j&&typeof j.prefix==='string')return j.prefix;
- // no choice made yet: an install whose agents already kept ext- channels quiet goes on doing so
- for(const a of await listAgents().catch(()=>[])){const t=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'.env'),'utf8').catch(()=>'');if(/kept up to date by aqeelOS/.test(t)){await writeJsonAtomic(SLACK_QUIET,{prefix:'ext-'}).catch(()=>{});return 'ext-'}}
- return ''}
-async function slackClientChannels(){const st=await getStatus().catch(()=>({}));const pre=await slackQuietPrefix();for(const a of await listAgents()){try{
-  const envF=path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'.env');const cur=await readFile(envF,'utf8').catch(()=>'');
-  const tok=(/^SLACK_BOT_TOKEN=(.+)$/m.exec(cur)||[])[1]?.trim();if(!tok)continue;
+   member mentions it, except quiet channels: a name prefix set per Slack workspace (slack-quiet.mjs), e.g. ext- for client
+   channels in one company's Slack. Other workspaces answer normally. Once per agent, a fixed channel list
+   (SLACK_ALLOWED_CHANNELS) is swapped for that (kept as a comment); after that, quiet channels made later are added and
+   ones no longer quiet are taken off. The agent restarts once nobody is mid-reply so it takes effect. */
+const slackEnvOf=a=>path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'.env');
+const slackBotTok=t=>(/^SLACK_BOT_TOKEN=(.+)$/m.exec(t)||[])[1]?.trim()||null;
+async function slackTeamOf(tok){const j=await fetch('https://slack.com/api/auth.test',{method:'POST',headers:{authorization:'Bearer '+tok},signal:AbortSignal.timeout(15000)}).then(r=>r.json());return j.ok?{id:j.team_id,name:j.team||''}:null}
+const slackQuiet=createSlackQuiet({DATA,
+ teamsNow:async()=>{const out=[];for(const a of await listAgents()){const tok=slackBotTok(await readFile(slackEnvOf(a),'utf8').catch(()=>''));if(tok){const t=await slackTeamOf(tok).catch(()=>null);if(t)out.push(t)}}return out},
+ legacy:async()=>{for(const a of await listAgents().catch(()=>[]))if(/kept up to date by aqeelOS/.test(await readFile(slackEnvOf(a),'utf8').catch(()=>'')))return 'ext-';return ''}});
+async function slackClientChannels(){const st=await getStatus().catch(()=>({}));if((await slackQuiet.load()).pending)return;const was=await slackQuiet.was();for(const a of await listAgents()){try{
+  const envF=slackEnvOf(a);const cur=await readFile(envF,'utf8').catch(()=>'');const tok=slackBotTok(cur);if(!tok)continue;
   const marked=/kept up to date by aqeelOS/.test(cur);if(!marked&&st[a]?.slackOpen)continue;   // switched back by hand later: left alone
+  const team=await slackTeamOf(tok).catch(()=>null);if(!team)continue;const pre=await slackQuiet.prefixOf(team.id),oldPre=st[a]?.slackQuietPre??(marked?was:'');
   const have=new Set(((/^SLACK_IGNORED_CHANNELS=(.*)$/m.exec(cur)||[])[1]||'').split(',').map(x=>x.trim()).filter(Boolean));
   const r=await fetch('https://slack.com/api/conversations.list?types=public_channel,private_channel&limit=1000&exclude_archived=true',{headers:{authorization:'Bearer '+tok},signal:AbortSignal.timeout(20000)}).then(x=>x.json());
-  if(!r.ok)continue;const add=pre?(r.channels||[]).filter(c=>String(c.name||'').startsWith(pre)&&!have.has(c.id)):[];if(marked&&!add.length)continue;
-  const next=[...have,...add.map(c=>c.id)].join(',');
+  if(!r.ok)continue;const {add,remove,next}=slackQuietPlan({have,channels:r.channels||[],pre,oldPre});
+  if(marked&&!add.length&&!remove.length){if(st[a]?.slackQuietPre!==pre)await setStatus(a,{slackQuietPre:pre});continue}
+  if(remove.length)await copyFile(envF,envF+'.bak-slack-quiet-'+Date.now()).catch(()=>{});   // taking channels off the quiet list: the old file is kept
   await editEnv(envF,t=>{let s=t.replace(/^SLACK_ALLOWED_CHANNELS=.*$/m,m=>'# was (replaced by SLACK_IGNORED_CHANNELS on '+new Date().toISOString().slice(0,10)+'): '+m);
-   if(/^SLACK_IGNORED_CHANNELS=/m.test(s))s=s.replace(/^SLACK_IGNORED_CHANNELS=.*$/m,'SLACK_IGNORED_CHANNELS='+next);else s=s.replace(/\n*$/,'\n')+'SLACK_IGNORED_CHANNELS='+next+'\n';
-   if(!/kept up to date by aqeelOS/.test(s))s=s.replace(/^SLACK_IGNORED_CHANNELS=/m,'# quiet channels (names starting with the prefix set under Channels): never answered, kept up to date by aqeelOS\nSLACK_IGNORED_CHANNELS=');return s});
-  if(!marked)await setStatus(a,{slackOpen:Date.now()});
-  console.log('slack:',a,marked?'quiet channels kept silent: '+add.map(c=>'#'+c.name).join(', '):'answers in every channel it is invited to; client channels stay silent');
+   if(/^SLACK_IGNORED_CHANNELS=/m.test(s))s=s.replace(/^SLACK_IGNORED_CHANNELS=.*$/m,'SLACK_IGNORED_CHANNELS='+next.join(','));else s=s.replace(/\n*$/,'\n')+'SLACK_IGNORED_CHANNELS='+next.join(',')+'\n';
+   if(!/kept up to date by aqeelOS/.test(s))s=s.replace(/^SLACK_IGNORED_CHANNELS=/m,'# quiet channels (names starting with the prefix set for this Slack workspace under Channels): never answered, kept up to date by aqeelOS\nSLACK_IGNORED_CHANNELS=');return s});
+  await setStatus(a,{...(marked?{}:{slackOpen:Date.now()}),slackQuietPre:pre});
+  console.log('slack:',a,'in',team.name||team.id+':',add.length?'quiet now: '+add.length+' channel(s)':'',remove.length?'answering again: '+remove.length+' channel(s)':'',!marked?'answers in every channel it is invited to':'');
   restartGateway('Slack channel settings updated for '+a).catch(()=>{})}catch(e){console.warn('slack channels',a,e.message)}}}
 if(LIVE_APP){setTimeout(()=>slackClientChannels(),60000).unref();setInterval(()=>slackClientChannels(),900000).unref()}
 /* Dictation spells your names right: the speech model gets the names it should expect (agents, schedule folders,
@@ -1076,10 +1079,10 @@ async function channelIdentity(agent,c,env){const cfg=IDENT_CFG[c.id];
  if(cfg){if(Array.isArray(c.env_vars)&&!c.env_vars.some(v=>v.key===cfg[0]))return null;return env[cfg[0]]?{account:{[cfg[1]]:env[cfg[0]],name:null}}:null}
  const tok=c.id==='telegram'?env.TELEGRAM_BOT_TOKEN:c.id==='slack'?(env.SLACK_BOT_TOKEN||env.SLACK_USER_TOKEN):c.id==='discord'?env.DISCORD_BOT_TOKEN:null;if(!tok)return null;
  const k=agent+'|'+c.id,fp=createHash('sha1').update(tok).digest('hex').slice(0,8);identDb||=await (identLoad||=readFile(IDENT_FILE,'utf8').then(JSON.parse).catch(()=>({})));const s=identDb[k];   // one load for every channel asked at once (each its own copy lost the others' answers)
- if(s&&s.fp===fp&&Date.now()-s.t<(s.err||s.miss?10*60e3:6*3600e3))return {account:s.v||null,error:s.err||null};
+ if(s&&s.fp===fp&&Date.now()-s.t<(s.err||s.miss?10*60e3:6*3600e3)&&!(c.id==='slack'&&s.v&&!s.v.team))return {account:s.v||null,error:s.err||null};
  const bad=m=>Object.assign(new Error(m),{bad:true}),sig=AbortSignal.timeout(6000);let v=null,err=null,miss=false;
  try{if(c.id==='telegram'){const j=await fetch('https://api.telegram.org/bot'+tok+'/getMe',{signal:sig}).then(r=>r.json());if(!j.ok)throw bad('Telegram rejected the bot token ('+(j.description||j.error_code||'refused')+')');v={username:'@'+j.result.username,name:j.result.first_name||null,kind:'bot'}}
-  else if(c.id==='slack'){const j=await fetch('https://slack.com/api/auth.test',{method:'POST',headers:{authorization:'Bearer '+tok},signal:sig}).then(r=>r.json());if(!j.ok)throw bad('Slack rejected the token ('+(j.error||'refused')+')');v={username:j.user?'@'+j.user:null,name:j.team||null,kind:tok.startsWith('xoxp-')?'person':'bot'}}
+  else if(c.id==='slack'){const j=await fetch('https://slack.com/api/auth.test',{method:'POST',headers:{authorization:'Bearer '+tok},signal:sig}).then(r=>r.json());if(!j.ok)throw bad('Slack rejected the token ('+(j.error||'refused')+')');v={username:j.user?'@'+j.user:null,name:j.team||null,team:j.team_id||null,kind:tok.startsWith('xoxp-')?'person':'bot'}}
   else{const r=await fetch('https://discord.com/api/v10/users/@me',{headers:{authorization:'Bot '+tok},signal:sig});const j=await r.json().catch(()=>({}));if(!r.ok)throw bad('Discord rejected the bot token ('+(j.message||'HTTP '+r.status)+')');v={username:'@'+j.username,name:j.global_name||null,kind:'bot'}}}
  // a rejected token is reported; the service not answering (a network blip) keeps the last good answer and asks again in 10 min
  catch(e){if(e.bad)err=e.message;else{miss=true;v=s?.fp===fp?s.v||null:null}}
@@ -2630,9 +2633,10 @@ const server=createServer(async(req,res)=>{
       await unlockTools(ag);agentDefaults.ensure(ag).catch(()=>{});console.log('agent unlocked from safe tools:',ag,'by',u.id);return send(res,200,{ok:true})}catch(e){return send(res,400,{error:e.message})}}
     try{await setStatus(ag,{safe:true});await lockTools(ag);return send(res,200,{ok:true})}catch(e){return send(res,400,{error:e.message})}}
    // Channels › Slack: channels whose name starts with this stay quiet ('' = none)
-   if(p==='/ui/slack-quiet'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});if(req.method==='GET')return send(res,200,{prefix:await slackQuietPrefix()});
-    let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const pre=String(b.prefix||'').trim().toLowerCase();if(pre&&!/^[a-z0-9][a-z0-9_-]{0,20}$/.test(pre))return send(res,400,{error:'Use the start of a channel name: letters, numbers, dashes or underscores.'});
-    await writeJsonAtomic(SLACK_QUIET,{prefix:pre});setTimeout(()=>slackClientChannels().catch(()=>{}),1000).unref();return send(res,200,{prefix:pre})}
+   // quiet Slack channels, per workspace: GET {teams:{<id>:{prefix,name}}}; PUT {team,prefix,name}
+   if(p==='/ui/slack-quiet'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});if(req.method==='GET'){const bots=[];for(const a of await listAgents()){const env=await envOf(a);if(!env.SLACK_BOT_TOKEN)continue;const r=await channelIdentity(a,{id:'slack'},env).catch(()=>null);if(r?.account?.team)bots.push({agent:a,team:r.account.team,name:r.account.name||''})}
+     return send(res,200,{teams:await slackQuiet.get(),bots})}
+    if(req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{const t=await slackQuiet.set(String(b.team||''),b.prefix,b.name);setTimeout(()=>slackClientChannels().catch(()=>{}),1000).unref();console.log('slack quiet for',b.team,'is now',JSON.stringify(t.prefix),'by',u.id);return send(res,200,t)}catch(e){return send(res,400,{error:e.message})}}}
    // Trusted (runs as the main user): admins, for agents of admins. Others run as their own Linux user
    if(p==='/ui/agent-trust'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});const tr=await agentDefaults.trusted();
     if(req.method==='GET'){const out={};for(const a of String(url.searchParams.get('names')||'').split(',').filter(Boolean).slice(0,200))out[a]={trusted:tr.has(a),main:a==='default',may:a==='default'||users.tierOf(a)==='admin'};return send(res,200,out)}

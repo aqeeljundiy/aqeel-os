@@ -53,3 +53,5 @@
 /* the ⋯ button sits over the card corner: the name and email line leave room for it (7 Nov 2026) */
 .person:has(>.more) .person-head .txt{padding-right:60px}
 .person-head .txt span{overflow-wrap:anywhere}
+/* the Slack row says what its workspace keeps quiet; Change is a plain link (7 Nov 2026) */
+.row .txt .sq-line{gap:6px}.sq-line .link-btn{font-size:12.5px;padding:6px 2px;margin:-6px 0}
