@@ -81,7 +81,8 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createAgentVersions,VERSION_TOOLS} from './agent-versions.mjs';   // self-repair kit (workstream E)
 import {createAgentLive} from './agent-live.mjs';   // live context each message + traceback guard (7 Nov 2026)
-import {createAgentCare} from './agent-care.mjs';   // old setup, checks after changes, script-only schedules (7 Nov 2026)
+import {createAgentCare} from './agent-care.mjs';
+import {createCustomerTools} from './customer-tools.mjs';   // customer-run sandbox (7 Nov 2026)   // old setup, checks after changes, script-only schedules (7 Nov 2026)
 import {readPicture,emojiSlugs,emojiAuto,AVATAR_TYPES} from './avatar-file.mjs';
 import {parseEnv,setEnvLine,channelWho,globalWho,removePerson,engineChange,approvedWithout,samePerson as allowSame} from './allowlist.mjs';
 
@@ -1177,12 +1178,30 @@ const teamGroups=createTeamGroups({DATA,tell:async(a,before,g)=>{const t=x=>x?.c
 const kirimdev=createKirimdev({DATA,WORK:path.join(homedir(),'workspaces'),PUBLIC_URL,log:m=>console.log(m),teamGroup:a=>teamGroups.get(a),
  problem:(a,topic,title,detail)=>health.problem(a,'handoff',title,{topic,fix:detail}),solved:(a,topic)=>health.ok(a,topic),
  apiKey:async()=>{if(!LIVE_APP)return null;const t=await readFile(path.join(HERMES_HOME,'secrets','kirimdev.env'),'utf8').catch(()=>'');return (/^KIRIMDEV_API_KEY=["']?([^"'\s]+)/m.exec(t)||[])[1]||null},
- runAgent:createKirimdevAgent({DATA,home:homedir(),live:LIVE_APP}),
+ runAgent:createKirimdevAgent({DATA,home:homedir(),live:LIVE_APP,customer:()=>customerTools}),
  telegram:async(a,chatId,threadId,text)=>{const t=await readFile(path.join(HERMES_HOME,'profiles',a,'.env'),'utf8').catch(()=>'');const tok=(/^TELEGRAM_BOT_TOKEN=["']?([^"'\s]+)/m.exec(t)||[])[1];if(!tok||!LIVE_APP)return false;
   const r=await fetch('https://api.telegram.org/bot'+tok+'/sendMessage',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:chatId,...(threadId?{message_thread_id:threadId}:{}),text:text.slice(0,4000)}),signal:AbortSignal.timeout(30000)}).catch(()=>null);
   const j=r&&r.ok?await r.json().catch(()=>({})):{};return j.ok?(j.result?.message_id||true):false},   // the post's id once Telegram confirmed it
  tell:(text,detail)=>bottlenecks.event('kirimdev',text,detail,{info:true})});
 if(LIVE_APP)setTimeout(()=>kirimdev.resume().catch(e=>console.warn('kirimdev resume',e.message)),30000).unref();
+// customer runs get only these tools (customer-tools.mjs); the payment helper runs as the agent's own user
+const custQ=x=>"'"+String(x).replace(/'/g,"'\\''")+"'";
+let customerTools=null;
+customerTools=createCustomerTools({WORK:path.join(homedir(),'workspaces'),DATA,googleCall:(a,req)=>googleFiles.call(a,req),chatFind:(a,q,o)=>chatHistory.find(a,q,o),
+ history:async(r,limit)=>{const q=new URLSearchParams({conversation_id:r.conversation,limit:String(limit)});if(!r.conversation)return 'No conversation.';
+  const l=((await kirimdev._api(r.line+'/messages?'+q)).data||[]).filter(m=>m.type!=='reaction').sort((a,b)=>String(a.created_at).localeCompare(String(b.created_at)));
+  return l.map(m=>m.created_at.slice(0,16).replace('T',' ')+' '+(m.direction==='inbound'?'CUSTOMER':'YOU')+': '+(String(m.content||'').trim()||'['+m.type+']')).join('\n')||'No messages.'},
+ runAsAgent:async(a,tool,argv)=>{const c=await readConfig(a).catch(()=>null)||{};const user=String(pick(c,'terminal.ssh_user')||'');if(!/^ag-[\w-]+$/.test(user))return {ok:false,err:'this agent has no own user'};
+  const W=path.join(homedir(),'workspaces',a);const {execFile}=await import('node:child_process');
+  return new Promise(res=>execFile('ssh',['-i',path.join(HERMES_HOME,'agent-ssh','id_ed25519'),'-o','BatchMode=yes','-o','IdentitiesOnly=yes','-o','StrictHostKeyChecking=accept-new','-o','ConnectTimeout=20',user+'@127.0.0.1',
+   'cd '+custQ(W)+' && '+custQ(tool)+' '+argv.map(custQ).join(' ')],{timeout:120e3,encoding:'utf8',maxBuffer:2e6},(e,out,err)=>res({ok:!e,out:out||'',err:err||(e?e.message:'')})))}});
+// the support agents (a Kirimdev line) have the customer tool server in their settings; its key comes from each run
+async function ensureCustomerServer(){if(!LIVE_APP)return;for(const a of Object.keys(await kirimdev.lines().catch(()=>({})))){const c=await readConfig(a).catch(()=>null);if(!c)continue;
+ const want={url:'http://127.0.0.1:4400/mcp/customer/'+a,headers:{'X-Aqeelos-Run':'${AQEELOS_CUSTOMER_RUN}'}};const have=pick(c,'mcp_servers.aqeelos-customer');
+ if(have?.url!==want.url||have?.headers?.['X-Aqeelos-Run']!==want.headers['X-Aqeelos-Run']){await setKey(a,'mcp_servers.aqeelos-customer',want);console.log('customer tools: added for',a)}
+ // a support agent never skips the engine's safety stop for scripts (6 Nov: execute_code and "-e/-c" were allowlisted, the two stops that held customer runs)
+ const al=[].concat(pick(c,'command_allowlist')||[]);if(al.length){await setKey(a,'command_allowlist',[]);console.log('customer tools: removed the command allowlist of',a,'('+al.join(', ')+')')}}}
+if(LIVE_APP)setTimeout(()=>ensureCustomerServer().catch(e=>console.warn('customer tools',e.message)),40000).unref();
 /* Run rules (posting-limits.mjs, 5 Nov 2026): per agent, its schedules one at a time (one browser), and posting limits
    with a public, signed-out check of every post. Live box only: the gate script names this app's port, and checks run once */
 const postingLimits=createPostingLimits({DATA,WORK:path.join(homedir(),'workspaces'),HERMES_HOME,PORT,live:LIVE_APP,
@@ -1905,6 +1924,10 @@ const server=createServer(async(req,res)=>{
    try{const r=await kirimdev.receive(km[1],req.headers,raw);return send(res,r.status,r.body)}catch(e){console.warn('kirimdev receive',e.message);return send(res,500,{error:'Try again'})}}}
   // a press on an issue's Telegram button, posted by the gateway plugin aqeelos-issue-buttons (this box only, with the key)
   // the engine plugin aqeelos-live (this box only, with the key in HERMES_HOME/secrets/agent-live.key): a turn's context, a held error
+  // the customer-run tool server (local only; a run's own key in X-Aqeelos-Run)
+  {const cm=/^\/mcp\/customer\/([a-z0-9][a-z0-9_-]{0,63})$/.exec(p);if(cm){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
+   if(req.method!=='POST')return send(res,405,'POST only');let msg={};try{msg=JSON.parse(await readBody(req,262144))}catch{return send(res,400,{error:'bad json'})}
+   const r=await customerTools.mcp(cm[1],String(req.headers['x-aqeelos-run']||''),msg);return r.status===202?send(res,202,''):send(res,r.status,r.body)}}
   if(p==='/agent-live/context'||p==='/agent-live/held'){if(req.method!=='POST')return send(res,405,{error:'POST only'});let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
    if(!await agentLive.keyOk(b.key))return send(res,403,{error:'bad key'});const ag=String(b.agent||'');if(!/^[a-z0-9][a-z0-9_-]{0,80}$/.test(ag)||!(await agentLive.homes()).includes(ag))return send(res,404,{error:'no such agent'});
    if(p==='/agent-live/held')return send(res,200,{ok:true,...await agentLive.hold(ag,{error:String(b.error||'').slice(0,8000),platform:String(b.platform||'').slice(0,40),session:String(b.session||'').slice(0,120)})});
