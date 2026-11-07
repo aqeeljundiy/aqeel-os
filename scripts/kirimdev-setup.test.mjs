@@ -165,3 +165,9 @@ test('a reset word set in the dialog works for testers',async()=>{
  const {createHmac}=await import('node:crypto');const ts=Math.floor(t.now()/1000);const sig='t='+ts+',v1='+createHmac('sha256','k').update(ts+'.'+raw).digest('hex');
  const r=await t.kd.receive('a1',{'x-kirim-signature':sig,'x-kirim-event':'message.received','x-kirim-event-id':'e1'},Buffer.from(raw));assert.equal(r.status,200);
  assert.equal(s.pending['a1|222222|cv1'],undefined,'reset');assert.equal(t.calls.find(c=>c.p==='222222/messages').body.text.body,'ok')});
+
+test('saving with the Automatic helper keeps the payment limits (Randy and Gilang have no helper set)',async()=>{
+ const t=await make({lines:{a1:{phoneNumberId:'222222',persona:'Randy',payment:{currency:'Rp',min:10000,max:5000000}}}});
+ await t.kd.saveLine('a1',{persona:'Randy',payment:{currency:'Rp',min:'10000',max:'5000000'}});
+ assert.deepEqual((await t.conf()).lines.a1.payment,{currency:'Rp',min:10000,max:5000000});
+ await t.kd.saveLine('a1',{persona:'Randy'});assert.deepEqual((await t.conf()).lines.a1.payment,{currency:'Rp',min:10000,max:5000000},'no payment field: unchanged')});
