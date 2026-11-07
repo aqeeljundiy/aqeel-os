@@ -2486,3 +2486,17 @@ button.acct-more{font:inherit;cursor:pointer;width:100%;background:var(--surface
 .lb-about .realname{margin-left:0}
 @keyframes lbIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){.lb-about{animation:none}}
+
+/* which account each key is (keys-identity.js) */
+.kid-line{display:flex!important;flex-wrap:wrap;align-items:center;gap:6px;margin-top:4px;white-space:normal!important;font-size:13px;animation:lbIn .22s ease both}
+.kid-line b{font-weight:600;color:var(--ink)}
+.kid-l4{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--muted)}
+.kid-desc{display:block;white-space:normal!important}
+.field label .kid-name{margin-top:4px;font-weight:400;color:var(--ink-2)}
+.kid-check.busy{opacity:.6;pointer-events:none}
+.chip.bad{color:var(--bad)}
+@media (prefers-reduced-motion:reduce){.kid-line{animation:none}}
+
+/* Connections › Needs you */
+.tabs .tab-n{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;margin-left:4px;border-radius:9px;background:var(--warn);color:#fff;font-size:11px;font-weight:600}
+.cn-need-l{margin:4px 0 0;padding-left:18px}.cn-need-l li{margin:2px 0}

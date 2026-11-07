@@ -200,7 +200,50 @@ def repeat_block(counts, fp):
     return None
 
 
+# ---- names people remember (7 Nov 2026) ----
+# Everything an agent makes has a plain name and one line on what it is for. The engine's own schedule and skill tools are
+# checked here; aqeelOS's tools (keys, logins) are checked by aqeelOS itself (app/name-rules.mjs).
+
+def _words(s):
+    return len([w for w in str(s or "").split() if w])
+
+
+def _fm_desc(content):
+    """The description in a SKILL.md's frontmatter ('' when there is none)."""
+    m = re.match(r"^---\s*\n(.*?)\n---", str(content or ""), re.S)
+    if not m:
+        return ""
+    d = re.search(r"^description:\s*(.*(?:\n[ \t]+.*)*)", m.group(1), re.M)
+    return re.sub(r"\s+", " ", (d.group(1) if d else "")).strip().strip("'\"").strip(">|").strip()
+
+
+def name_block(tool_name, args):
+    """The refusal text when something is made without a plain name and one line on what it is for, else None (pure; tested)."""
+    a = args if isinstance(args, dict) else {}
+    if tool_name == "cronjob" and str(a.get("action", "")).lower() == "create":
+        n = str(a.get("name") or "").strip()
+        if len(n) < 3 or re.fullmatch(r"[\W\d_]+", n):
+            return ("Not done yet: give this schedule a plain \"name\" that says what it does (for example \"Weekly sales report "
+                    "to the team\"), then create it again. Right after, call organize_schedule with one sentence on what it does and why.")
+    if tool_name == "skill_manage":
+        ops = a.get("operations") if isinstance(a.get("operations"), list) else [a]
+        for op in ops:
+            if isinstance(op, dict) and str(op.get("action", "")) == "create":
+                d = _fm_desc(op.get("content"))
+                if len(d) < 12 or _words(d) < 3:
+                    return ("Not done yet: the skill needs a one-line \"description\" in its frontmatter that says what it is for "
+                            "and when to use it (for example \"Use when making the weekly sales report: where the numbers come from and how to lay them out.\"), then create it again.")
+    return None
+
+
 def _pre_tool(tool_name="", args=None, session_id="", turn_id="", **_):
+    try:
+        why = name_block(tool_name, args)
+        if why:
+            logger.info("aqeelos-live: names: refused %s without a plain name or description", tool_name)
+            return {"action": "block", "message": why}
+    except Exception as e:
+        logger.debug("aqeelos-live names: %s", e)
     try:
         key = (session_id or "", turn_id or "")
         if len(_calls) > 2000:

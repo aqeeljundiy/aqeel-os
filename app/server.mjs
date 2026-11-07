@@ -26,7 +26,9 @@ import {createStarters} from './starters.mjs';
 import {createMail} from './mail.mjs';
 import {createUsage} from './usage.mjs';
 import {createExplain} from './explain.mjs';
-import {createLabels} from './labels.mjs';   // names and descriptions people remember (7 Nov 2026)
+import {createLabels} from './labels.mjs';
+import {createKeysIdentity} from './keys-identity.mjs';
+import {nameRefusal,addNameFields,namesMissing,namesPrompt,okName,okDesc} from './name-rules.mjs';   // a plain name and one line for everything an agent makes   // which account each key belongs to (7 Nov 2026)   // names and descriptions people remember (7 Nov 2026)
 import {createChannels} from './channels.mjs';
 import {swr,limiter} from './swr.mjs';
 import {createShare} from './share.mjs';
@@ -282,6 +284,8 @@ const mailer=createMail(DATA);
 const usage=createUsage(DASH.origin,DASH_TOKEN,DATA);
 const explain=createExplain(DATA,{python:enginePython,root});
 const labels=createLabels(DATA);
+const keysId=createKeysIdentity({DATA,HERMES_HOME,root,listAgents:()=>listAgents(),live:()=>LIVE_APP});
+if(LIVE_APP){setTimeout(()=>keysId.tick().catch(e=>console.warn('key checks',e.message)),120000).unref();setInterval(()=>keysId.tick().catch(()=>{}),10*60000).unref()}
 const schedules=createSchedules({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAgents(),python:enginePython,root,live:()=>LIVE_APP||process.env.SCHED_DESCRIBE==='1',relays:()=>relay.jobRelays()});
 setTimeout(()=>schedules.tick(),40000).unref();setInterval(()=>schedules.tick(),10*60000).unref();
 const relay=createRelay({ownerAgent:a=>{const o=users.agentOwner(String(a).split('--')[0]);return !o||o==='owner'},DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,SECRET,listAgents:()=>listAgents(),links:{list:a=>links.list(a)},platformsOf:a=>platformsCached(a),nameOf:a=>NAMES[a]||a,ownerName:()=>users.people()[0]?.name});
@@ -884,6 +888,11 @@ if(LIVE_APP)setTimeout(()=>{import('./apply-on-start.mjs').then(({applyOnStart})
   if(!r.ok)throw Error('the engine said HTTP '+r.status);return name},
  agentName:async({agent,name})=>{agent=String(agent||'');name=String(name||'').trim().slice(0,60);if(!okProfile(agent)||!name)throw Error('agent and name needed');if(!(await listAgents()).includes(agent)&&agent!==HELP_AGENT)throw Error('no agent '+agent);
   await withIds(async ids=>{ids[agent]={...(ids[agent]||{}),name,title:ids[agent]?.title||'',updated:Date.now()};await writeIds(ids)});await setDisplayName(agent,name);NAMES[agent]=name;return name},
+ // one standing line in an agent's instructions, through the instructions history (a version, undoable); once only
+ instructionLine:async({agent,text,marker})=>{agent=String(agent||'');text=String(text||'').trim();marker=String(marker||text.slice(0,40));if(!okProfile(agent)||!text)throw Error('agent and text needed');
+  const r=await fetch(DASH.origin+'/api/profiles/'+encodeURIComponent(agent)+'/soul',{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(20000)});if(!r.ok)throw Error('the engine said HTTP '+r.status);
+  const cur=String((await r.json().catch(()=>({}))).content||'');if(!cur.trim())throw Error('no instructions to add to');if(cur.includes(marker))return 'already there';
+  const x=await instructions.write(agent,cur.replace(/\s*$/,'')+'\n\n'+text+'\n',{kind:'change',by:'aqeelOS',why:'Owner rule (7 Nov 2026): everything an agent makes gets a plain name and a one-line description'});return 'version '+x.v},
  agentDescription:async({agent,description})=>{const r=await fetch(DASH.origin+'/api/profiles/'+encodeURIComponent(String(agent||''))+'/description',{method:'PUT',headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:JSON.stringify({description:String(description||'').trim().slice(0,240)}),signal:AbortSignal.timeout(60000)});
   if(!r.ok)throw Error('the engine said HTTP '+r.status);return true}}})).catch(e=>console.warn('apply-on-start',e.message))},45000).unref();
 
@@ -1374,6 +1383,32 @@ const selfRuns=createSelfRuns({DATA,nameOf:srName,day:t=>localAt(t,SR_TZ).date,h
    app checks schedules, failed messages and Telegram groups, and tells the owner on Telegram once about each new
    problem. Other features report their own checks with health.problem(agent,kind,text,{topic,fix}) and health.ok(agent,topic). */
 // a problem of one agent: that agent fixes it first, in a run of its own (self-runs), before anyone is told (7 Nov 2026)
+// names people remember, kept up by the agents themselves (7 Nov 2026): once a week each agent that has a skill or key
+// with no plain description gets one run of its own to describe them with name_thing. Silent: nobody is messaged, and
+// the owner never sees it unless he opens the agent's runs.
+const homeOfA=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
+async function ownSkills(a){const out=[];const root=path.join(homeOfA(a),'skills');let l=[];try{l=await readdir(root,{recursive:true})}catch{return out}
+ for(const f of l){if(!/(^|\/)SKILL\.md$/.test(f)||/(^|\/)\./.test(f))continue;const t=await readFile(path.join(root,f),'utf8').catch(()=>'');const fm=/^---\s*\n([\s\S]*?)\n---/.exec(t)?.[1]||'';
+  const name=(/^name:\s*(.+)$/m.exec(fm)?.[1]||path.basename(path.dirname(path.join(root,f)))).trim().replace(/^["']|["']$/g,'');out.push({name,desc:(/^description:\s*(.+)$/m.exec(fm)?.[1]||'').trim().replace(/^["']|["']$/g,'')})}
+ return out}
+async function namesTick(){if(!LIVE_APP)return;const F=path.join(DATA,'names-health.json');let st={};try{st=JSON.parse(await readFile(F,'utf8'))}catch{}st.asked??={};
+ const [lab,keys]=await Promise.all([labels.all(),keysId.list().then(r=>r.items).catch(()=>[])]);let started=0;
+ for(const a of await listAgents()){if(started>=3)break;if(Date.now()-(st.asked[a]||0)<7*86400e3)continue;
+  const items=namesMissing({skills:await ownSkills(a),keys:keys.filter(k=>(k.agents||[])[0]===a),labels:lab});if(!items.length)continue;
+  // the main agent (and any agent that cannot run itself): the next step of the same ladder, the fixer, still silent
+  if(!await srEligible(a).catch(()=>false)){try{await issues.file({agent:a,what:'Things with no plain name or description',missing:items.slice(0,15).map(x=>x.what).join('; '),evidence:namesPrompt(items),proposed_fix:'Call name_thing (aqeelos-notify) for each one with a plain name and one line on what it is for.',origin:{}});st.asked[a]=Date.now();started++}catch(e){console.warn('names check',a,e.message)}continue}
+  try{await selfRuns.start({agent:a,args:{prompt:namesPrompt(items),reason:'aqeelOS: name and describe '+items.length+' of your things',timeout_minutes:15},origin:{ok:true,by:{kind:'aqeelos',name:'aqeelOS names check'}},ws:path.join(homedir(),'workspaces',a)});
+   st.asked[a]=Date.now();started++;console.log('names: asked',a,'to describe',items.length)}catch(e){console.warn('names check',a,e.message)}}
+ await writeFile(F,JSON.stringify(st,null,1)).catch(()=>{})}
+if(LIVE_APP){setTimeout(()=>namesTick().catch(e=>console.warn('names check',e.message)),15*60000).unref();setInterval(()=>namesTick().catch(()=>{}),6*3600e3).unref()}
+// name_thing: an agent names and describes one of its own things (a skill it has, a key in its .env, an app in its setup)
+async function nameThing(base,A){const kind=String(A.kind||''),id=String(A.id||'').trim();
+ if(!okName(A.name)||!okDesc(A.description))return {isError:true,text:'Give a plain "name" (3 to 80 letters, not an id like MY_TOKEN) and a one-line "description" of what it is for (for a key, which account or user).'};
+ if(kind==='skill'){if(!(await ownSkills(base)).some(s=>s.name===id))return {isError:true,text:'You have no skill called '+id+'.'}}
+ else if(kind==='key'){const k=(await keysId.current()).get(id)||[...(await keysId.current()).values()].find(x=>x.name===id&&x.agents.includes(base));if(!k||!k.agents.includes(base))return {isError:true,text:'You have no key '+id+'. Use the id from the list you were given (NAME@code) or the key name.'};A={...A};return labels.set('key',k.id,{name:A.name,description:A.description}).then(()=>({text:'Saved: '+k.name+' is now "'+String(A.name).trim()+'".'}))}
+ else if(kind==='mcp'){const c=await readConfig(base).catch(()=>null);if(!c?.mcp_servers?.[id])return {isError:true,text:'You have no app called '+id+'.'}}
+ else return {isError:true,text:'kind is skill, key or mcp.'};
+ await labels.set(kind,id,{name:A.name,description:A.description});return {text:'Saved: '+id+' is now "'+String(A.name).trim()+'".'}}
 const healthFix=async(a,x)=>{if(!await srEligible(a))throw Error('it cannot run itself');
  const prompt='aqeelOS found a problem in your own work and you fix it yourself now, without asking anyone.\n\nProblem: '+String(x.title||'')+(x.detail?'\nDetails: '+String(x.detail).slice(0,3000):'')+
   '\n\nFind the cause (my_health, my_logs, my_runs, my_schedules, your files and scripts), fix it in your own work, and check it works again (run the schedule or script once). Do not message the owner or customers. If the fix needs something only a person can give (a password, a sign-in, a decision), file it with report_bottleneck and stop. End with two lines: what was wrong, what you changed.';
@@ -1949,6 +1984,9 @@ const server=createServer(async(req,res)=>{
      // outside its own scope: filed for the aqeelOS fixer by itself, so the agent never needs another agent
      if(r&&r.isError&&r.outside&&nm==='my_schedules'){try{const f=await issues.file({agent:base,what:'Schedule outside its own list',missing:who+' needs to change schedule '+String(A.id)+' which is not in its own list',evidence:JSON.stringify(A).slice(0,600),proposed_fix:'Move that schedule into '+who+'\'s own list unchanged (create there, check it fires once, then remove the old one).',origin:await originOf(base,'my_schedules')});r.text+=' Filed for the aqeelOS fixer as issue '+f.issue.id+'; my_issues shows it.'}catch{}}
      if(r)return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text:String(r.text||'')}],...(r.isError?{isError:true}:{})}})}}
+   // nothing is made without a plain name and one line on what it is for (name-rules.mjs): refused with what to add
+   if(signed&&msg.method==='tools/call'&&msg.params?.name==='name_thing'){const r=await nameThing(mn[1].split('--')[0],msg.params?.arguments||{}).catch(e=>({isError:true,text:e.message}));return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text:r.text}],...(r.isError?{isError:true}:{})}})}
+   if(signed&&msg.method==='tools/call'){const why=nameRefusal(msg.params?.name,msg.params?.arguments);if(why){console.log('names: refused',msg.params?.name,'for',mn[1]);return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text:why}],isError:true}})}}
    if(signed&&msg.method==='tools/call'&&msg.params?.name==='connect_mcp_tool'){const tool=String(msg.params?.arguments?.tool||'').trim();const reply=(text,isError)=>send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text}],...(isError?{isError:true}:{})}});
     const redirect=MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(tool);
     const ag=mn[1].split('--')[0];
@@ -1981,13 +2019,13 @@ const server=createServer(async(req,res)=>{
     if(target!==base&&(!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(target)||target.includes('--')))return reply('Give the agent id, like support-agent.',true);
     if(target!==base&&!(base==='default'&&own(users.agentOwner(target))))return reply('You can only ask for keys for yourself'+(base==='default'?' or for an agent the owner owns':'')+'.',true);
     const tz=installTz()||(await readConfig('default').catch(()=>null))?.timezone||sysTz(),when=t=>{const x=localAt(t,tz);return String(x.h).padStart(2,'0')+':'+String(x.min).padStart(2,'0')};
-    try{if(msg.params.name==='request_secret_link'){const r=await secretLinks.create({agent:target,name:a.name,label:a.label,by:base});console.log('secret link made by',base,'for',r.link.agent+':',r.link.name);
+    try{if(msg.params.name==='request_secret_link'){const r=await secretLinks.create({agent:target,name:a.name,label:a.label,by:base});keysId.note(a.name,{label:a.label,description:a.description,agent:target}).catch(()=>{});console.log('secret link made by',base,'for',r.link.agent+':',r.link.name);
       return reply('Send the person this link exactly (it works once, until '+when(r.exp)+', about 30 minutes):\n\n'+r.url+'\n\nTell them: open it, paste '+r.link.label+' there and press Save. Never ask them to paste it in the chat. When they say it is saved (or a minute later), call secret_link_status with name '+r.link.name+(target!==base?' and agent '+target:'')+' to check. '+secretHow(r.link.agent,r.link.name))}
      const r=a.wait?await secretLinks.wait(target,a.name,20e3):await secretLinks.status(target,a.name);
      if(!r)return reply('There is no secret link for '+String(a.name||'').toUpperCase()+(target!==base?' on '+target:'')+'. Make one with request_secret_link.',true);
      const say={open:'Not saved yet. The link works until '+when(r.exp)+'. Check again in a minute (sleep 60 in your terminal), or when they say it is saved.',saved:'Saved '+r.name+' at '+when(r.done)+'. '+secretHow(r.agent,r.name),expired:'The link expired at '+when(r.exp)+' without being used. Make a new one if you still need it.',replaced:'A newer link replaced this one. Check that one.',cancelled:'The owner cancelled this link in aqeelOS. Ask them before making a new one.',saving:'It is being saved right now. Check again in a moment.',interrupted:'aqeelOS restarted while it was being saved, so it may not be there. Check whether '+r.name+' works; if not, make a new link.'}[r.state]||r.state;
      return reply(say,r.state==='expired'||r.state==='cancelled')}catch(e){return reply(e.message,true)}}
-   if(signed&&msg.method==='tools/call'&&msg.params?.name==='ask_secret'){const r=await askSecret(mn[1],msg.params?.arguments||{});return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text:r.text}],...(r.isError?{isError:true}:{})}})}
+   if(signed&&msg.method==='tools/call'&&msg.params?.name==='ask_secret'){const r=await askSecret(mn[1],msg.params?.arguments||{});{const A=msg.params?.arguments||{};if(A.mode==='save'&&!r.isError)keysId.note(A.name,{label:A.label,description:A.description,agent:mn[1].split('--')[0]}).then(()=>keysId.tick()).catch(()=>{})}return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text:r.text}],...(r.isError?{isError:true}:{})}})}
    // apply_changes: an agent that changed settings, tools or skills (its own or another agent's) makes them take
    // effect itself, through the same careful restart as the Restart agents button: after every reply in progress
    // (its own included) has finished. Only agents of people who may use the unsafe tools.
@@ -2014,7 +2052,7 @@ const server=createServer(async(req,res)=>{
      const from=await whyOf.from(base);const r=msg.params.name==='request_access'?await accessAsk.ask({kind:String(a.kind),id:String(a.id),to:base,by:base,dir:'get',why:a.why,from}):await accessAsk.ask({kind:String(a.kind),id:String(a.id),to:String(a.to||''),by:base,dir:'give',why:a.why,from});
      console.log('access asked by agent',base,msg.params.name,a.kind,a.id);return reply(r.already?r.text:'Asked. It shows under Bottlenecks in aqeelOS; nothing is shared until an admin allows it. Tell the person in one line what you asked for and why, then go on without it.')}catch(e){return reply(e.message,true)}}
    // register_account: an agent that made a login acting as the owner says so (Abilities › Connections)
-   if(signed&&msg.method==='tools/call'&&msg.params?.name==='register_account'){const base=mn[1].split('--')[0];const r=await connAccounts.register(base,msg.params?.arguments||{}).catch(e=>({isError:true,text:e.message}));console.log('account registered by',base+':',String(msg.params?.arguments?.label||'').slice(0,80));
+   if(signed&&msg.method==='tools/call'&&msg.params?.name==='register_account'){const base=mn[1].split('--')[0];const r=await connAccounts.register(base,msg.params?.arguments||{}).catch(e=>({isError:true,text:e.message}));if(!r.isError&&r.id){const A=msg.params?.arguments||{};labels.set('ca',r.id,{name:A.label,description:A.description}).catch(()=>{})}console.log('account registered by',base+':',String(msg.params?.arguments?.label||'').slice(0,80));
     return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text:r.text}],...(r.isError?{isError:true}:{})}})}
    // report_bottleneck: an agent says what blocks it (missing access, a sign-in, a permission, something only the person can give)
    // whatsapp_reply (kirimdev.mjs): the calling agent's own Kirimdev line only, to someone who wrote in the last 24 hours
@@ -2098,6 +2136,8 @@ const server=createServer(async(req,res)=>{
    // always listed (the engine may keep the list it read first); it answers only during a Code run with other agents attached
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'code_ask_agent',description:'Only in an aqeelOS Code run: ask one of the other agents attached to it (named in the run\'s note) to fetch or do something with its own access, and get its answer. Files it returns are saved in the project (from-agents/<agent>/, or save_to). You may ask several agents at once.',inputSchema:{type:'object',properties:{agent:{type:'string',description:'The attached agent id'},task:{type:'string',description:'What it should do or find, and exactly what to send back'},save_to:{type:'string',description:'Optional folder in the project for its files, e.g. assets/images'}},required:['agent','task']}});
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools)&&code.computerOf([users.agentOwner(mn[1].split('--')[0])||'owner']))out.body.result.tools.push({name:'computer_browser',description:'Browse in the guarded browser of aqeelOS Code on the person\'s own computer (no extension needed; the person sees it live in Code › Browser and can take over). It only opens their computer\'s own pages and the sites they allowed there; anything else is refused with the list, and a robot check is handed to them. Actions: open (url), snapshot (the page and its numbered elements), click (ref from snapshot), type (ref, text, submit), press (key), read (the page text), back.',inputSchema:{type:'object',properties:{action:{type:'string',enum:['open','snapshot','click','type','press','read','back']},url:{type:'string'},ref:{type:'string'},text:{type:'string'},key:{type:'string'},submit:{type:'boolean'}},required:['action']}});
+   if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'name_thing',description:'Give one of your own things a plain name and a one-line description people will remember: a skill you have, a key in your settings (say which account or user it belongs to) or an app in your setup. Use it whenever you make one, and when aqeelOS asks you to.',inputSchema:{type:'object',properties:{kind:{type:'string',enum:['skill','key','mcp']},id:{type:'string',description:'The skill name, the key name (or NAME@code from the Keys list), or the app name'},name:{type:'string',description:'Plain name, e.g. "GitHub: acme-dev (repo access)"'},description:{type:'string',description:'One line on what it is for; for a key, which account or user'}},required:['kind','id','name','description']}});
+   if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))addNameFields(out.body.result.tools);
    if(out.body==null){res.writeHead(out.status);return res.end()}return send(res,out.status,out.body)}
   // Incoming webhooks (GitHub, Stripe…) reach Hermes' webhook listener here. No sign-in: each
   // subscription checks its own secret signature, and nothing but POST /webhooks/<name> passes.
@@ -2865,8 +2905,8 @@ const server=createServer(async(req,res)=>{
    // Abilities › Connections (connections.mjs): everyone sees the agents they may use; changes are checked per row and agent
    if(p.startsWith('/ui/connections')){const perm={admin:users.isAdmin(u),level:a=>users.level(u,a),canOn:(cap,a)=>users.canOn(u,cap,a)};let b={};if(req.method==='POST'){try{b=JSON.parse(await readBody(req,8192)||'{}')}catch{}}
     const key=String(b.key||url.searchParams.get('key')||''),agent=String(b.agent||'');
-    try{if(p==='/ui/connections'&&req.method==='GET')return send(res,200,await labels.applyRows(await connections.list(perm,{fresh:url.searchParams.get('fresh')==='1'})));
-     if(p==='/ui/connections/detail'&&req.method==='GET')return send(res,200,await labels.applyRows(await connections.detail(key,perm)));
+    try{if(p==='/ui/connections'&&req.method==='GET')return send(res,200,await keysId.decorate(await labels.applyRows(await connections.list(perm,{fresh:url.searchParams.get('fresh')==='1'}))));
+     if(p==='/ui/connections/detail'&&req.method==='GET')return send(res,200,await keysId.decorate(await labels.applyRows(await connections.detail(key,perm))));
      if(req.method!=='POST')return send(res,405,{error:'POST only'});if(!key)return send(res,400,{error:'Which connection?'});
      if(p!=='/ui/connections/disconnect'&&!(await listAgents()).includes(agent))return send(res,400,{error:'Unknown agent'});let r;
      if(p==='/ui/connections/level')r=await connections.setLevel(key,agent,String(b.level||''),perm);
@@ -3141,6 +3181,10 @@ const server=createServer(async(req,res)=>{
     try{const mod=await import(path.join(HERMES_HOME,'hermes-agent','node_modules','qrcode','lib','index.js'));const QR=mod.default||mod;const svg=await QR.toString(d,{type:'svg',margin:1,errorCorrectionLevel:'M',color:{dark:'#0b0c10',light:'#ffffff'}});
      res.writeHead(200,{'content-type':'image/svg+xml','cache-control':'no-store','x-content-type-options':'nosniff'});return res.end(svg)}catch(e){return send(res,500,{error:'QR could not be drawn: '+e.message})}}
    // names and descriptions (labels.mjs): everyone signed in reads them, admins change them; ids never change here
+   // which account each key belongs to (keys-identity.mjs): admins only; never a secret, only the account and last 4
+   if(p==='/ui/keys/identity'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins see keys.'});return send(res,200,await keysId.list())}
+   if(p==='/ui/keys/identity/check'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can check keys.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
+    try{return send(res,200,await keysId.check(String(b.id||'')))}catch(e){return send(res,e.status||500,{error:e.message})}}
    if(p==='/ui/labels'&&req.method==='GET')return send(res,200,{labels:await labels.all()});
    if(p==='/ui/labels'&&req.method==='PUT'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can rename things.'});let b={};try{b=JSON.parse(await readBody(req,8192))}catch{return send(res,400,{error:'Bad JSON'})}
     try{const v=await labels.set(String(b.kind||''),String(b.id||''),{name:b.name,description:b.description});console.log('label',b.kind+':'+b.id,'by',u.id||u.name||'?');return send(res,200,{ok:true,label:v})}catch(e){return send(res,e.status||500,{error:e.message})}}

@@ -919,7 +919,7 @@ ACT['prof-new']=async()=>{const admin=S.me?.admin!==false,cmdOk=admin||(S.me?.ca
  const copies=admin?(Pages._profiles||[{name:'default'}]).filter(x=>!x.name.includes('--')).map(x=>`<optgroup label="${esc(ident(x.name).name)}"><option value="cfg:${esc(x.name)}">Copy ${esc(ident(x.name).name)}’s settings, keys and skills</option><option value="all:${esc(x.name)}">Full copy of ${esc(ident(x.name).name)} (also memory)</option></optgroup>`).join(''):'';
  const d=drawer('New agent',`<div class="nb-steps">${tabs('nbStep',STEPS,'Basics')}</div>
   <div class="nb-step" data-step="0"><label>Name</label><input id="pfN" placeholder="research" autocomplete="off" maxlength="64" autocapitalize="off" spellcheck="false"><p class="hint" id="pfNh" style="margin:4px 0 0">Lowercase letters, numbers, - and _. It never changes; you can give it a display name later.</p>
-   <label>Description</label><input id="pfD" placeholder="Long reading and summarising jobs">
+   <label>Description</label><input id="pfD" placeholder="One line on what it does, e.g. Answers customers on WhatsApp">
    <label>Start from</label><select id="pfC"><option value="fresh">A fresh setup (every skill, no memory)</option>${copies}</select><p class="hint" style="margin:4px 0 0">A copy brings that agent’s keys, model and skills. A fresh one starts clean.</p></div>
   <div class="nb-step" data-step="1" hidden><label>Model</label><select id="pfM"><option value="">Same as the main agent</option>${authed.map(pv=>`<optgroup label="${esc(pv.name)} · ${esc(plural(pv.models.length,'model'))}">${pv.models.map(m=>`<option value="${esc(pv.slug+'|'+m)}">${esc(modelLabel(m))} · ${esc(m)}</option>`).join('')}</optgroup>`).join('')}</select><p class="hint">You can change it any time in Edit agent › Model.</p></div>
   <div class="nb-step" data-step="2" hidden><p class="hint" id="nbSkIntro" style="margin:0 0 10px"></p>
@@ -972,7 +972,7 @@ ACT['prof-new']=async()=>{const admin=S.me?.admin!==false,cmdOk=admin||(S.me?.ca
  d.querySelector('[data-tabs="nbStep"]').addEventListener('click',e=>{const b=e.target.closest('[data-tab]');if(b)setTimeout(()=>show(STEPS.indexOf(b.dataset.tab)))});
  backB.onclick=()=>show(Math.max(0,at-1));
  next.onclick=()=>at<STEPS.length-1?show(at+1):create();
- const create=async()=>{const name=nameIn.value.trim();if(!nameOk())return show(0);const c=src(),[ck,from]=c.split(':'),[provider,model]=(q('#pfM').value||'|').split('|');
+ const create=async()=>{const name=nameIn.value.trim();if(!nameOk())return show(0);if(q('#pfD').value.trim().split(/\s+/).filter(Boolean).length<3){show(0);toast('Add one line on what this agent does, so people know what it is for','err');setTimeout(()=>q('#pfD')?.focus(),60);return}const c=src(),[ck,from]=c.split(':'),[provider,model]=(q('#pfM').value||'|').split('|');
   const body={name,description:q('#pfD').value.trim()||undefined,clone_from_default:false,clone_from:/^(cfg|all):/.test(c)?from:undefined,clone_all:ck==='all',provider:provider||undefined,model:model||undefined,
    hub_skills:hub.length?hub.map(h=>h.identifier):undefined,mcp_servers:apps.length?apps:undefined};
   const bt=next.textContent;next.disabled=true;backB.disabled=true;backB.hidden=true;next.innerHTML='<span class="spinner tiny"></span>Creating…';

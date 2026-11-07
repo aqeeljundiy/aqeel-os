@@ -8,10 +8,10 @@ import {constants as fsc} from 'node:fs';
 import path from 'node:path';
 
 // keys that are the engine's own wiring, or a chat bot's identity (one bot answers as one agent only)
-const KEY_SKIP=/^(HERMES_|API_SERVER_|GATEWAY_|TERMINAL_)|_(ALLOWED_USERS|HOME_CHANNEL|ALLOWED_CHANNELS)$/;
-const KEY_BOT=/^(SLACK_BOT_TOKEN|SLACK_APP_TOKEN|TELEGRAM_BOT_TOKEN|DISCORD_BOT_TOKEN|WHATSAPP_.*|SIGNAL_.*|TEAMS_.*)$/;
-const KEY_SECRET=/(KEY|TOKEN|SECRET|PASSWORD|PASS)$/;
-const h8=s=>createHash('sha256').update(String(s)).digest('hex').slice(0,8);
+export const KEY_SKIP=/^(HERMES_|API_SERVER_|GATEWAY_|TERMINAL_)|_(ALLOWED_USERS|HOME_CHANNEL|ALLOWED_CHANNELS)$/;
+export const KEY_BOT=/^(SLACK_BOT_TOKEN|SLACK_APP_TOKEN|TELEGRAM_BOT_TOKEN|DISCORD_BOT_TOKEN|WHATSAPP_.*|SIGNAL_.*|TEAMS_.*)$/;
+export const KEY_SECRET=/(KEY|TOKEN|SECRET|PASSWORD|PASS)$/;
+export const h8=s=>createHash('sha256').update(String(s)).digest('hex').slice(0,8);
 const readJson=async f=>{try{return JSON.parse(await readFile(f,'utf8'))}catch{return null}};
 
 // own: connections where every agent has its own account instead of a shared sign-in (n8n): turning one on makes

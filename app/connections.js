@@ -7,7 +7,10 @@
  ab.pages.splice(ab.pages.findIndex(p=>p.id==='skills')+1,0,{id:'connections',label:'Connections',icon:'plug',desc:'Everything your agents can use: apps, logins as you, skills, plugins and keys. Who owns each, who can use it, and how much.'});
  Object.assign(ROUTE_MOVED,{'abilities/mcp':['abilities','connections','Apps'],'abilities/logins':['abilities','connections','Logins'],'abilities/accounts':['abilities','connections','Logins']})}
 // Logins (1 Nov 2026, was Accounts): "accounts" are the AI accounts on Models
-const CX_TYPES={All:null,Apps:'app',Logins:'account',Skills:'skill',Plugins:'plugin',Keys:'key'};
+// Needs you (7 Nov 2026, owner: "filter based on needs you too, so we can focus on that"): first, with its count, only
+// while something truly needs a person (the rule of the banner and Bottlenecks: not registered, or a sign-in to redo)
+const CX_TYPES={'Needs you':'need',All:null,Apps:'app',Logins:'account',Skills:'skill',Plugins:'plugin',Keys:'key'};
+const cxNeeds=r=>!r.busy&&(r.registered===false||r.status==='signin');
 const CX_ST={connected:['ok','Connected'],signin:['warn','Needs sign-in'],paused:['','Paused'],off:['','Off'],on:['ok','On']};
 const CX_IC={app:'plug',account:'shield',skill:'wand',plugin:'layers',key:'key'};
 const CX_TYPE={app:'App',account:'Login as you',skill:'Skill',plugin:'Plugin',key:'Key'};
@@ -31,11 +34,12 @@ PAGES.connections=async(p,el)=>{const gone=pageTok(el);Pages._cxEl=el;
  if(fresh&&S.me?.admin!==false){await UI('/ui/connected-accounts?fresh=1').catch(()=>null);if(gone())return}
  const d=await UI('/ui/connections'+(fresh?'?fresh=1':''));if(gone())return;Pages._cx=d;
  if(!d.agents.some(a=>a)||!d.rows.length){el.innerHTML=emptyBox('Nothing connected yet','Add an app like Slack or Notion, connect a Google account, or install a skill. Each one shows here with who owns it and who can use it.',`<button class="primary" data-act="cn-add">${icon('plus',15)}Add</button>`);return}
- const tabsL=Object.keys(CX_TYPES).filter(t=>t!=='Keys'||d.rows.some(r=>r.type==='key'));if(!tabsL.includes(S.tab.connections))S.tab.connections='All';
+ const nNeed=d.rows.filter(cxNeeds).length;const tabsL=Object.keys(CX_TYPES).filter(t=>(t!=='Keys'||d.rows.some(r=>r.type==='key'))&&(t!=='Needs you'||nNeed));if(!tabsL.includes(S.tab.connections))S.tab.connections='All';
  el.innerHTML=`<div class="cn-needs-slot"></div><div class="toolbar cn-bar"><div class="search${S.cxQ?' has-q':''}">${icon('search',16)}<input id="cnQ" type="search" enterkeyhint="search" placeholder="Search connections and agents" value="${esc(S.cxQ||'')}" aria-label="Search connections"><button class="ghost icon s-clear" data-act="cn-clear" aria-label="Clear search" title="Clear search">${icon('x',14)}</button></div>${tabs('connections',tabsL)}</div>
   ${d.partial?.length?errLine('part of the list ('+d.partial.join(', ')+')'):''}
   <div class="card list cn-list"><div class="cn-head" aria-hidden="true"><span>Connection</span><span>Belongs to</span><span>Who can use</span><span>Status</span></div><div class="cn-rows"></div></div>
   <p class="hint cn-foot">${d.canEdit?'Click a row to change which agent it belongs to, who can use it and how much.':'You see the agents you use. An admin changes which agent each belongs to and who can use what; you can ask for access from a row.'} Bots people message are under Channels.</p>`;placePills();
+ {const b=el.querySelector('[data-tabs="connections"] [data-tab="Needs you"]');if(b&&nNeed)b.insertAdjacentHTML('beforeend',` <span class="tab-n">${nNeed}</span>`)}
  Cx.paintList(el,true);
  const q=el.querySelector('#cnQ');let t;q.oninput=()=>{q.closest('.search').classList.toggle('has-q',!!q.value);clearTimeout(t);t=setTimeout(()=>{if(!el.isConnected)return;S.cxQ=q.value;Cx.paintList(el)},120)};
  el.querySelector('[data-tabs="connections"]').addEventListener('click',e=>{if(e.target.closest('[data-tab]'))setTimeout(()=>Cx.paintList(el),0)});
@@ -43,7 +47,7 @@ PAGES.connections=async(p,el)=>{const gone=pageTok(el);Pages._cxEl=el;
 
 const Cx={
  rows:()=>Pages._cx?.rows||[],row(k){return this.rows().find(r=>r.key===k)},
- match(r){const ty=CX_TYPES[S.tab.connections||'All'];if(ty&&r.type!==ty)return false;const q=(S.cxQ||'').trim().toLowerCase();if(!q)return true;
+ match(r){const ty=CX_TYPES[S.tab.connections||'All'];if(ty==='need'){if(!cxNeeds(r))return false}else if(ty&&r.type!==ty)return false;const q=(S.cxQ||'').trim().toLowerCase();if(!q)return true;
   return [r.name,r.what,r.service,r.ownerName,CX_TYPE[r.type],...r.users.map(u=>u.name)].join(' ').toLowerCase().includes(q)},
  // the list only (search and the filter change it without asking the server); "needs you" above it
  paintList(el,first=false){const box=el.querySelector('.cn-rows');if(!box)return;const all=this.rows(),l=all.filter(r=>this.match(r));
@@ -52,8 +56,9 @@ const Cx={
   if(first||this._for!==(S.tab.connections||'All')+'|'+(S.cxQ||'')){this.shown=40;this._for=(S.tab.connections||'All')+'|'+(S.cxQ||'')}const vis=l.slice(0,this.shown);
   box.innerHTML=l.length?vis.map((r,i)=>cxRow(r,first&&i<12?i:0)).join('')+(l.length>vis.length?`<button class="ghost cn-more" data-act="cn-more">Show ${Math.min(60,l.length-vis.length)} more of ${l.length-vis.length}</button>`:''):`<div class="state-box">${S.cxQ?`Nothing matches “${esc(S.cxQ)}”. <button class="link" data-act="cn-clear">Clear the search</button>`:'Nothing of this kind is connected yet.'}</div>`;
   box.querySelectorAll('.cn-row').forEach((x,i)=>{if(!first||i>=12)x.style.animation='none'});
-  const need=all.filter(r=>r.registered===false||r.status==='signin'),slot=el.querySelector('.cn-needs-slot');
-  if(slot)slot.innerHTML=need.length?alertBox(`<b>${need.length===1?'1 needs you':need.length+' need you'}:</b> ${need.slice(0,3).map(r=>esc(r.name)+(r.registered===false?' was not registered by the agent that made it':' needs someone to sign in again')).join('; ')}${need.length>3?'; and '+(need.length-3)+' more':''}. Open ${need.length===1?'it':'each one'} to fix it.`,{act:''}):''},
+  const need=all.filter(cxNeeds),slot=el.querySelector('.cn-needs-slot'),onTab=(S.tab.connections||'All')==='Needs you';
+  const why=r=>r.registered===false?'not registered by the agent that made it':'needs someone to sign in again';
+  if(slot)slot.innerHTML=need.length&&!onTab?alertBox(`<b>${need.length===1?'1 needs you':need.length+' need you'}</b><ul class="cn-need-l">${need.slice(0,4).map(r=>`<li>${esc(r.name)}: ${esc(why(r))}</li>`).join('')}${need.length>4?`<li>and ${need.length-4} more</li>`:''}</ul>`,{act:'cn-needs',label:'Show them',ic:'chevR'}):''},
  // looked at again while something is still being applied (the engine drops and adds an app on its own clock)
  poll(el){clearTimeout(this._t);if(!this.rows().some(r=>r.busy))return;this._t=setTimeout(()=>{if(el.isConnected&&route().page?.id==='connections'&&!document.hidden)this.refresh()},4000)},
  // fresh data in place: the list, and the open panel, without closing it
@@ -176,3 +181,5 @@ Cx.byAddress=function(){Cx.forAg||=S.profile||'default';const d=drawer('Add an a
   if(cmd){body.command=v('#cnCmd');if(!body.command)return bad('Type the command that starts it, for example npx.');const args=v('#cnArgs').split(/[\s,]+/).filter(Boolean);if(args.length)body.args=args;const env=Object.fromEntries(d.querySelector('#cnEnv').value.split('\n').map(l=>l.split('=')).filter(x=>x[0].trim()&&x.length>1).map(([k,...r])=>[k.trim(),r.join('=').trim()]));if(Object.keys(env).length)body.env=env}
   else{body.url=v('#cnUrl');if(!/^https?:\/\/\S+$/i.test(body.url))return bad('Type the address, starting with https://');const au=d.querySelector('#cnAuth').value;if(au==='header'){if(!v('#cnTok'))return bad('Paste the key, or pick another way to sign in.');body.auth='header';body.bearer_token=v('#cnTok')}else if(au==='oauth')body.auth='oauth'}
   const ag=Cx.forAg||S.profile||'default';go_.disabled=true;try{await post(H,prof('/mcp/servers',ag),body);closeLayers();toast(body.name+' added to '+ident(ag).name+(body.auth==='oauth'?' · open it here and press Sign in':''));Cx.refresh()}catch(e){bad(e.message||'Could not add it.')}finally{go_.disabled=false}}};
+
+ACT['cn-needs']=()=>{S.tab.connections='Needs you';reload()};
