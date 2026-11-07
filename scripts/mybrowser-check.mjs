@@ -4,6 +4,9 @@
 import {readFileSync,existsSync} from 'node:fs';import {homedir} from 'node:os';
 const BASE=process.argv[2]||'http://127.0.0.1:4402',PW=readFileSync(process.argv[3]||'/tmp/ppl/pw','utf8').trim();
 const AG='mb-'+Date.now().toString(36).slice(-5),HOME=homedir()+'/.hermes/profiles/'+AG;
+// marked as a test agent before it exists (7 Nov 2026: mb-z4b1u was left behind unmarked, so the live app set it up,
+// restarted the engine for it and filed health issues about it); the mark stays so a leftover is never treated as real
+{const {appendFileSync}=await import('node:fs');try{appendFileSync(homedir()+'/.hermes/.aqeelos-test-agents',AG+'\n')}catch{}}
 let ck;const out=[];const step=async(n,fn)=>{try{const x=await fn();out.push(['PASS',n,x||''])}catch(e){out.push(['FAIL',n,e.message])}};
 const must=(c,m)=>{if(!c)throw new Error(m)};const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function call(path,{method='GET',body}={}){const h={'x-hui':'1'};if(ck)h.cookie=ck;if(body!==undefined)h['content-type']='application/json';
