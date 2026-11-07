@@ -11,9 +11,9 @@
 set -e
 cd "$(dirname "$0")/.."
 AQ_BOX=${AQ_BOX:-ai-vps}
-# the My browser check (slow: it makes a throwaway agent) runs only when the browser parts changed since the last deploy
-last=$(node -e "try{const l=require('./data/deploys.json');console.log(l[l.length-1].commit||'')}catch{}")
-MB=1;if [ -n "$last" ] && ! git diff --name-only "$last" HEAD -- app/localbrowser.mjs app/screen.js app/chat.js extension scripts/mybrowser-check.mjs 2>/dev/null | grep -q .; then MB=0;fi
+# the My browser check runs on every deploy (7 Nov 2026: it used to run only when the browser files changed, so a break in
+# the agents' tool server in server.mjs, which serves choose_browser, went live unnoticed); MB_CHECK=0 is the only skip
+MB=1
 # MB_CHECK=0 skips only that check (the owner's call, e.g. 7 Nov 2026 when the engine's browser_exec made the test agent
 # skip choose_browser, a problem outside the change being deployed); every other check still runs
 [ "${MB_CHECK:-}" = 0 ] && { MB=0; echo "· My browser check skipped (MB_CHECK=0)"; }
