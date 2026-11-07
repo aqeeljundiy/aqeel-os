@@ -36,6 +36,9 @@ export function overdue(jobs,now=Date.now(),grace=20*60e3){return (jobs||[]).fil
 export const replied=(ours,since)=>Object.values(ours||{}).some(t=>Number(t)>=since);
 // the reply proves the agent read the message: it carries the nonce
 export const answered=(reply,nonce)=>String(reply||'').includes(nonce);
+// the voice clip says "Deploy check. The word is orange."; the picture is plain red
+export const heard=t=>/\borange\b/i.test(String(t||''));
+export const sawRed=t=>/\bred\b/i.test(String(t||''));
 export function summary(results){const bad=results.filter(r=>!r.ok&&!r.skipped);return {ok:!bad.length,failed:bad.map(r=>r.name+': '+r.why)}}
 
 /* ---------- the checks ---------- */
@@ -91,12 +94,29 @@ async function checkAgent(){const key=process.env.API_SERVER_KEY||'';const h={au
  // a test agent made just now may need a minute or two before the engine serves it
  let sid=null;for(let i=0;i<(st==='made'?24:3)&&!sid;i++){const s=await fetch(GATE+'/p/'+TEST_AGENT+'/api/sessions',{method:'POST',headers:h,body:'{}',signal:AbortSignal.timeout(60000)}).then(r=>r.json()).catch(()=>({}));sid=s.id||s.session?.id||s.session_id;if(!sid)await sleep(5000)}
  if(!sid)return st==='made'?{skipped:true,why:'the test agent was made now; the engine serves it from the next check'}:{ok:false,why:'the test agent could not start a chat'};
- const nonce='LT'+randomBytes(3).toString('hex').toUpperCase();
- const r=await fetch(GATE+'/p/'+TEST_AGENT+'/api/sessions/'+sid+'/chat/stream',{method:'POST',headers:h,body:JSON.stringify({message:'Deploy check. Reply with exactly this and nothing else: '+nonce}),signal:AbortSignal.timeout(180000)}).catch(e=>({ok:false,status:e.message,text:async()=>''}));
- let reply='',ev='';for(const l of String(await r.text()).split('\n')){if(l.startsWith('event:'))ev=l.slice(6).trim();else if(l.startsWith('data:')&&ev==='assistant.completed'){try{reply=JSON.parse(l.slice(5)).content||''}catch{}}}
- return answered(reply,nonce)?{ok:true,why:'the test agent answered'}:{ok:false,why:'no answer with the check word ('+String(reply).slice(0,80)+')'}}
+ const nonce='LT'+randomBytes(3).toString('hex').toUpperCase(),png=(await readFile(new URL('./fixtures/live-test-red.png',import.meta.url))).toString('base64');
+ // one short reply, on the chat route that takes a picture: the check word and the picture's colour
+ const r=await fetch(GATE+'/p/'+TEST_AGENT+'/v1/chat/completions',{method:'POST',headers:h,signal:AbortSignal.timeout(180000),body:JSON.stringify({model:'default',stream:false,messages:[{role:'user',content:[
+  {type:'text',text:'Deploy check. Reply with exactly two words and nothing else: '+nonce+' and then the main colour of this picture.'},{type:'image_url',image_url:{url:'data:image/png;base64,'+png}}]}]})}).catch(e=>({ok:false,status:e.message,json:async()=>({})}));
+ const reply=(await r.json().catch(()=>({}))).choices?.[0]?.message?.content||'';
+ if(answered(reply,nonce)&&!sawRed(reply))return {ok:false,why:'the test agent answered but did not see the picture ('+String(reply).slice(0,80)+')'};
+ return answered(reply,nonce)?{ok:true,why:'the test agent answered and saw the picture'}:{ok:false,why:'no answer with the check word ('+String(reply).slice(0,80)+')'}}
 
-const CHECKS={tools:checkTools,schedules:checkSchedules,engine:checkEngine,kirimdev:checkKirimdev,agent:checkAgent};
+// voice notes and photos (8 Nov 2026, with the stability fix): the engine's media fixes are in place and no download failed
+// since the deploy (media-check.sh); the engine's own tests for a replied-to voice note and the download retries pass;
+// and a real voice clip (fixtures/live-test-voice.wav, "Deploy check. The word is orange.") transcribes with the engine's
+// local whisper (no tokens). The photo goes to the test agent with its one reply (checkAgent).
+async function checkMedia(since){const {execFile}=await import('node:child_process');const {python}=await import('../app/agentops.mjs');
+ const run=(c,a,o={})=>new Promise(res=>execFile(c,a,{timeout:300000,maxBuffer:4e6,...o},(e,out,err)=>res({ok:!e,out:String(out||'')+String(err||'')})));
+ const here=path.dirname(new URL(import.meta.url).pathname),E=path.join(HERMES_HOME,'hermes-agent'),py=await python();if(!py)return {ok:false,why:'the engine’s Python was not found'};
+ const t=new Date(since).toISOString().slice(0,16).replace('T',' ');
+ const mc=await run('bash',[path.join(here,'media-check.sh'),t]);if(!mc.ok)return {ok:false,why:'media-check: '+mc.out.split('\n').filter(l=>/✗|failed for good: [1-9]/.test(l)).join('; ').slice(0,300)};
+ const ut=await run(py,['-I',path.join(here,'engine-fixes.test.py')],{env:{...process.env,ENGINE_FIXED:E}});if(!ut.ok)return {ok:false,why:'engine media tests failed: '+ut.out.split('\n').slice(-4).join(' ').slice(0,300)};
+ const tx=await run(py,['-c','import sys,json;sys.path.insert(0,sys.argv[1]);from tools.transcription_tools import transcribe_audio;print(json.dumps(transcribe_audio(sys.argv[2])))',E,path.join(here,'fixtures','live-test-voice.wav')],{cwd:E});
+ let j={};try{j=JSON.parse(tx.out.trim().split('\n').pop())}catch{}
+ return heard(j.transcript)?{ok:true,why:'media fixes in place, engine media tests pass, a voice note transcribes ("'+String(j.transcript).slice(0,60)+'")'}:{ok:false,why:'the voice note did not transcribe ('+String(j.transcript||j.error||tx.out).slice(0,120)+')'}}
+
+const CHECKS={tools:checkTools,schedules:checkSchedules,engine:checkEngine,media:checkMedia,kirimdev:checkKirimdev,agent:checkAgent};
 
 export async function run({since=Date.now()-15*60e3,sha='',only=null}={}){const results=[];
  for(const [name,fn] of Object.entries(CHECKS)){if(only&&!only.includes(name))continue;const t0=Date.now();
