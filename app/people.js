@@ -54,27 +54,15 @@ async function inviteView(root,code){
    S.signedIn=true;history.replaceState(null,'','/#/chat');await boot()}finally{b.disabled=false}}}
 
 /* ---------- People page (System › People) ---------- */
-// owners and admins reach every agent: their card says so with the same sections a member's card has (read only)
-const pplAllAgents=u=>{const all=Pages._agents||[];return `<div class="pshares"><span class="th">Agents</span><div class="pshare"><span class="pstack">${all.slice(0,5).map(agentAva).join('')}</span><b>Every agent${all.length?' ('+all.length+')':''}</b><span class="pval">${u.role==='owner'?'Owner':'Admin'}</span></div></div>`};
 PAGES.people=async(p,el)=>{const gone=pageTok(el);
  setActions(`<button class="primary" data-act="ppl-invite">${icon('plus',16)}Invite someone</button>`);
  const [d,pr]=await Promise.all([UI('/ui/people'),H('/profiles').catch(()=>({profiles:[]}))]);if(gone())return;Pages._ppl=d;Pages._agents=(pr.profiles||[]).map(x=>x.name);
- const sharesOf=id=>Object.entries(d.shares||{}).filter(([,m])=>m[id]).map(([a,m])=>[a,m[id]]);
- const person=(u,i)=>{const sh=sharesOf(u.id);const self=u.id===S.me?.id;return `<div class="card person${u.disabled?' suspended':''}" ${st(i)}><div class="person-head ${self?'self':''}" ${self?'data-act="me-profile" role="button" tabindex="0"':''}>${personAva(u,40)}<div class="txt"><b>${esc(u.name)}</b><span>${u.email?esc(u.email)+' · ':'No email yet · '}${esc(ROLE_LABEL[u.role])}${self?' · edit your profile':''}${u.last?' · seen '+ago(u.last/1000):''}</span>${u.disabled?`<span class="p-state">${icon('lock',13)}Suspended. They can't sign in.</span>`:''}</div></div>
-   ${u.role==='owner'||self||u.role==='admin'&&S.me?.role!=='owner'?'':`<button class="ghost icon-btn more" data-menu="person" data-id="${esc(u.id)}" aria-label="More">${icon('more',18)}</button>`}
-   ${u.role==='member'?`<div class="pshares"><span class="th">Agents</span>${sh.length?sh.map(([a,l])=>`<div class="pshare">${agentAva(a)}<b>${esc(ident(a).name)}</b><span class="chip">${esc(LEVEL_LABEL[l]||l)}</span><button class="ghost" data-act="ppl-share-open" data-a="${esc(a)}" style="margin-left:auto;min-height:30px;padding:0 10px;font-size:12.5px">Change</button></div>`).join(''):'<p class="hint" style="margin:4px 0">No agents shared yet.</p>'}
-    <button class="ghost" data-act="ppl-share" data-id="${esc(u.id)}" style="margin-top:6px">${icon('plus',15)}Share an agent</button></div>
-   <div class="pcaps"><span class="th">Allowed to</span>${Object.entries(d.caps||{}).map(([k,l])=>`<label class="capt ${k==='unsafe'?'risky':''}"><input type="checkbox" data-cap="${k}" data-user="${esc(u.id)}" ${(u.caps||[]).includes(k)?'checked':''} ${k==='unsafe'&&S.me?.role!=='owner'?'disabled':''}><span>${esc(l)}</span></label>`).join('')}</div>`:`${pplAllAgents(u)}<div class="pcaps"><span class="th">Allowed to</span><p class="psay">${u.role==='owner'?'Everything, including people and keys.':'Everything except changing the owner.'}</p></div>
-   <div class="pcaps"><span class="th">Models and limit</span><div class="pshare"><b>Models</b><span class="pval">All models</span></div><div class="pshare"><b>Daily limit</b><span class="pval">No limit</span></div></div>`}</div>`};
  const inv=(d.invites||[]).map((x,i)=>`<div class="row" ${st(i)} style="padding:12px 12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="txt"><b>${esc(x.name||'Anyone with the link')} · ${esc(ROLE_LABEL[x.role])}</b><span>Expires ${new Date(x.expires).toLocaleDateString()}${Object.keys(x.agents||{}).length?' · '+Object.keys(x.agents).map(a=>esc(ident(a).name)).join(', '):''}</span></div><div class="act"><button data-act="ppl-copy" data-code="${esc(x.code)}">${icon('copy',15)}Copy link</button><button class="ghost" data-act="ppl-uninvite" data-code="${esc(x.code)}" aria-label="Cancel invite">${icon('x',16)}</button></div></div>`).join('');
  const exp=(d.expired||[]).map((x,i)=>`<div class="row inv-expired" ${st(i)} style="padding:12px 12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="txt"><b>${esc(x.name||'Anyone with the link')} · ${esc(ROLE_LABEL[x.role])}</b><span>Expired ${new Date(x.expired).toLocaleDateString()}</span></div><div class="act"><button data-act="ppl-renew" data-code="${esc(x.code)}">${icon('refresh',15)}Renew for 7 days</button><button class="ghost" data-act="ppl-uninvite" data-code="${esc(x.code)}" aria-label="Delete invite">${icon('x',16)}</button></div></div>`).join('');
- el.innerHTML=`<div class="people-grid">${[d.owner,...d.users].map(person).join('')}</div>
+ el.innerHTML=`<div class="people-grid">${[d.owner,...d.users].map((u,i)=>pplCard(d,u,i)).join('')}</div>
   ${inv||exp?`<div class="panel card" style="margin-top:16px"><h2>Waiting to join</h2><p class="sub">Links work once and expire after 7 days. Renew an expired one to send the same link again.</p>${inv}${exp}</div>`:''}
   <div class="panel card" style="margin-top:16px"><h2>How sharing works</h2><p class="sub" style="margin-bottom:0">Two layers. <b>Each person has a role</b> (Roles above): what they may do, which models they get, a daily limit and how many agents they may own. <b>Each agent is shared per person</b>: Can chat uses it, Can edit also changes it within their role, Owner can also delete or give it away. Agent settings, keys and channels stay with admins. Everyone's chats are private, also from you.</p></div>`;
- el.querySelectorAll('[data-cap]').forEach(x=>x.onchange=async()=>{const id=x.dataset.user;
-  if(x.dataset.cap==='unsafe'&&x.checked&&!await confirmBox('Give terminal and file tools?','Agents with these tools can read everything on the box, including your keys and other people\'s files. Only for people you trust like an admin.','Allow')){x.checked=false;return}
-  const caps=[...el.querySelectorAll('[data-cap][data-user="'+id+'"]')].filter(i=>i.checked).map(i=>i.dataset.cap);try{await UI('/ui/people/'+id,{method:'PATCH',body:{caps}});toast('Saved')}catch(e){fail(e)}});
- el.querySelectorAll('[data-share]').forEach(s=>s.onchange=async()=>{try{await put(UI,'/ui/people/share',{agent:s.dataset.share,user:s.dataset.user,level:s.value});toast(s.value?'Updated':'Agent removed');if(!s.value)reload()}catch(e){fail(e)}});
+ const pn=document.querySelector('.drawer.ppl-panel:not(.closing)');if(pn)pplRepaint(pn);   // drawn again (More, a share): the open panel follows
 };
 const agentPicker=(id,taken=[])=>`<div id="${id}">${(Pages._agents||[]).filter(a=>!taken.includes(a)).map(a=>`<label class="pick"><input type="checkbox" value="${esc(a)}">${agentAva(a)}<span>${esc(ident(a).name)}</span><select style="width:auto">${Object.entries(LEVEL_LABEL).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></label>`).join('')||'<p class="hint">Every agent is already shared.</p>'}</div>`;
 const pickedAgents=id=>Object.fromEntries([...$$('#'+id+' .pick')].filter(l=>l.querySelector('input').checked).map(l=>[l.querySelector('input').value,l.querySelector('select').value]));
@@ -212,20 +200,84 @@ async function mailPanel(){const box=$('#mailBox');if(!box)return;let m;try{m=aw
 /* ---------- per person: which models, and a daily limit ---------- */
 const LIMITS=[[0,'No limit'],[50000,'50k tokens a day'],[200000,'200k tokens a day'],[1000000,'1M tokens a day'],[5000000,'5M tokens a day']];
 const modelSummary=u=>!u.models?'All your models':u.models.length===1?modelLabel(u.models[0].split('|').pop()):u.models.length+' models';
-ACT['ppl-models']=async a=>{const u=(Pages._ppl?.users||[]).find(x=>x.id===a.dataset.id);if(!u)return;if(!Chat.models)await Chat.loadModels().catch(()=>{});
- const ms=Chat.models||[];const on=k=>!u.models||u.models.includes(k);
- const d=drawer('Models for '+u.name,`<label class="pick"><input type="checkbox" id="pmAll" ${!u.models?'checked':''}><span><b>Every model you have on</b><br><small class="hint">New models are included automatically.</small></span></label>
-  <div id="pmList" ${!u.models?'hidden':''}>${[...new Set(ms.map(m=>m.providerName))].map(pv=>`<label>${esc(pv)}</label>${ms.filter(m=>m.providerName===pv).map(m=>`<label class="pick"><input type="checkbox" value="${esc(m.provider+'|'+m.id)}" ${on(m.provider+'|'+m.id)?'checked':''}><span>${esc(m.label)}</span></label>`).join('')}`).join('')}</div>`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="pmGo">Save</button>`);
- d.querySelector('#pmAll').onchange=e=>d.querySelector('#pmList').hidden=e.target.checked;
- d.querySelector('#pmGo').onclick=async()=>{const all=d.querySelector('#pmAll').checked;const list=[...d.querySelectorAll('#pmList input:checked')].map(i=>i.value);if(!all&&!list.length)return toast('Pick at least one model','err');
-  try{await UI('/ui/people/'+u.id,{method:'PATCH',body:{models:all?null:list}});closeLayers();toast('Saved');reload()}catch(e){fail(e)}}};
-{const people=PAGES.people;PAGES.people=async(p,el)=>{const gone=pageTok(el);await people(p,el);if(gone())return;
- el.querySelectorAll('.person').forEach(card=>{const id=card.querySelector('[data-cap]')?.dataset.user;const u=(Pages._ppl?.users||[]).find(x=>x.id===id);if(!u||u.role!=='member')return;
-  const box=document.createElement('div');box.className='pcaps';box.innerHTML=`<span class="th">Models and limit</span>
-   <div class="pshare"><b>Models</b><button type="button" class="sel-btn inline" data-act="ppl-models" data-id="${esc(u.id)}" aria-haspopup="dialog" title="${esc(modelSummary(u))}"><span class="sv">${esc(modelSummary(u))}</span>${icon('chevD',15)}</button></div>
-   <div class="pshare"><b>Daily limit</b><select style="width:auto" data-limit="${esc(u.id)}">${LIMITS.map(([v,l])=>`<option value="${v}" ${(u.limit?.tokens||0)===v?'selected':''}>${l}</option>`).join('')}</select></div>`;
-  card.append(box);enhanceSelect(box.querySelector('select'))});
- el.querySelectorAll('[data-limit]').forEach(s=>s.onchange=async()=>{try{await UI('/ui/people/'+s.dataset.limit,{method:'PATCH',body:{limit:+s.value?{tokens:+s.value}:null}});toast('Saved')}catch(e){fail(e)}})}}
+/* ---------- People cards (7 Nov 2026): as plain as an Agents card. Who they are, one line of what they may do and their
+   agents; the gear (or the card itself) opens one side panel with everything to change: Role, Agents, Allowed to, Models
+   and Daily limit, each saved as you change it. The panel's More holds the account actions (password, suspend, remove).
+   Your own card opens your profile. Owners and admins reach every agent, so their panel only says so. ---------- */
+const pplShares=(d,id)=>Object.entries(d.shares||{}).filter(([,m])=>m[id]).map(([a,m])=>[a,m[id]]);
+const pplRole=(d,u)=>u.roleId&&u.roleId!=='custom'?d.roles?.[u.roleId]||null:null;
+const pplEff=(d,u)=>{const ro=pplRole(d,u);return ro?{caps:ro.caps||[],models:ro.models||null,limit:ro.limit||null}:{caps:u.caps||[],models:u.models||null,limit:u.limit||null}};
+const pplLimit=l=>(LIMITS.find(([v])=>v===(l?.tokens||0))||[0,num(l?.tokens||0)+' tokens a day'])[1];
+const pplCan=u=>!(u.role==='owner'||u.id===S.me?.id||u.role==='admin'&&S.me?.role!=='owner');   // may set their password, suspend, remove
+const pplSub=u=>[u.email||'No email yet',ROLE_LABEL[u.role],u.last&&u.id!==S.me?.id?'seen '+ago(u.last/1000):''].filter(Boolean);
+// a line of parts, each its own span so every part is translated on its own
+const pplParts=xs=>xs.map(x=>`<span>${esc(x)}</span>`).join('<i aria-hidden="true"> · </i>');
+const pplSummary=(d,u)=>{if(u.role!=='member')return [u.role==='owner'?'Everything, including people and keys':'Everything except changing the owner'];
+ const e=pplEff(d,u),ro=pplRole(d,u);return [...(ro&&u.roleId!=='member'?[ro.name]:[]),e.caps.length?plural(e.caps.length,'permission'):'Chat only',modelSummary(e),pplLimit(e.limit)]};
+const pplAgents=(d,u)=>{if(u.role!=='member'){const all=(Pages._agents||[]).filter(n=>!n.includes('--'));return {list:all,label:'Every agent'+(all.length?' ('+all.length+')':'')}}
+ const sh=pplShares(d,u.id);return {list:sh.map(([a])=>a),label:!sh.length?'No agents shared yet':sh.length===1?ident(sh[0][0]).name:plural(sh.length,'agent'),level:sh.length===1?LEVEL_LABEL[sh[0][1]]||sh[0][1]:''}};
+const pplStack=list=>list.length?`<span class="pstack">${list.slice(0,5).map(a=>agentAvatar(a,26,{title:false})).join('')}${list.length>5?`<small>+${list.length-5}</small>`:''}</span>`:'';
+function pplCard(d,u,i){const self=u.id===S.me?.id,ag=pplAgents(d,u),risky=u.role==='member'&&pplEff(d,u).caps.includes('unsafe');
+ return `<div class="card tile person${u.disabled?' suspended':''}" ${i==null?'':st(i)} data-act="${self?'me-profile':'ppl-open'}" data-id="${esc(u.id)}" role="button" tabindex="0" aria-label="${esc(self?'Edit your profile':'Open '+u.name)}">
+  <div class="tile-top">${personAva(u,40)}<div class="ptxt"><h3>${esc(u.name)}</h3><span class="psub">${pplParts(pplSub(u))}</span></div></div>
+  <p class="psum">${pplParts(pplSummary(d,u))}</p>
+  <div class="pagents">${pplStack(ag.list)}<span class="pa-l">${esc(ag.label)}</span>${ag.level?`<small>${esc(ag.level)}</small>`:''}</div>
+  ${u.disabled||risky?`<div class="agent-tags">${u.disabled?`<span class="chip">${icon('lock',12)}Suspended</span>`:''}${risky?'<span class="chip bad">Terminal and files</span>':''}</div>`:''}
+  <div class="tile-foot"><span class="agent-go">${icon(self?'user':'settings',14)}<span>${self?'Edit your profile':'Edit access'}</span></span>${self?'':`<button class="ghost icon agent-gear" data-act="ppl-open" data-id="${esc(u.id)}" aria-label="Settings for ${esc(u.name)}" title="Settings">${icon('settings',18)}</button>`}</div></div>`}
+
+// the side panel
+const ppSec=(t,body,cls='')=>`<section class="pp-sec ${cls}"><h3 class="th">${esc(t)}</h3>${body}</section>`;
+function pplBody(d,u){const mem=u.role==='member',ro=mem?pplRole(d,u):null,e=mem?pplEff(d,u):null,edit=mem&&!ro,ms=Chat.models||[];
+ const head=`<div class="pp-who">${personAva(u,48)}<div class="pp-id"><b>${esc(u.name)}</b><span>${pplParts(pplSub(u))}</span>${u.disabled?`<span class="p-state">${icon('lock',13)}Suspended. They can't sign in.</span>`:''}</div></div>`;
+ if(!mem){const ag=pplAgents(d,u);return head+ppSec('Agents',`<div class="pp-line">${pplStack(ag.list)}<b>${esc(ag.label)}</b><span class="pval">${u.role==='owner'?'Owner':'Admin'}</span></div>`)
+  +ppSec('Allowed to',`<p class="psay">${esc(pplSummary(d,u)[0])}.</p>`)+ppSec('Models and limit',`<div class="pp-line"><b>Models</b><span class="pval">All models</span></div><div class="pp-line"><b>Daily limit</b><span class="pval">No limit</span></div>`)}
+ const sh=pplShares(d,u.id),caps=Object.entries(d.caps||{});
+ const role=ppSec('Role',`<button type="button" class="sel-btn" data-pp="role" aria-haspopup="menu"><span class="sv">${esc(ro?ro.name:'Custom')}</span>${icon('chevD',15)}</button><p class="hint">${ro?esc(roleSummary(ro))+'. <span>From the role. Pick Custom to set their own.</span>':'<span>Their own settings below.</span>'}</p>`);
+ const agents=ppSec('Agents',(sh.length?sh.map(([a,l])=>`<div class="pp-line">${agentAva(a)}<b>${esc(ident(a).name)}</b><span class="chip">${esc(LEVEL_LABEL[l]||l)}</span><button class="ghost small" data-pp="change" data-a="${esc(a)}">Change</button></div>`).join(''):'<p class="hint">No agents shared yet.</p>')
+  +`<button class="ghost pp-add" data-pp="share">${icon('plus',15)}Share an agent</button>`);
+ const allowed=ppSec('Allowed to',edit?caps.map(([k,l])=>`<label class="capt ${k==='unsafe'?'risky':''}"><input type="checkbox" data-ppcap="${k}" ${e.caps.includes(k)?'checked':''} ${k==='unsafe'&&S.me?.role!=='owner'?'disabled':''}><span>${esc(l)}</span></label>`).join('')
+  :e.caps.length?`<ul class="pp-list">${caps.filter(([k])=>e.caps.includes(k)).map(([k,l])=>`<li class="${k==='unsafe'?'risky':''}">${icon('check',14)}<span>${esc(l)}</span></li>`).join('')}</ul>`:'<p class="psay">Chat only: they chat with the agents shared with them.</p>');
+ const on=k=>!e.models||e.models.includes(k);
+ const models=edit?`<label class="capt"><input type="checkbox" data-pp="allm" ${!e.models?'checked':''}><span>Every model you have on<small>New models are included automatically.</small></span></label>
+  <div class="pp-mlist" ${!e.models?'hidden':''}>${[...new Set(ms.map(m=>m.providerName))].map(pv=>`<span class="pp-prov">${esc(pv)}</span>${ms.filter(m=>m.providerName===pv).map(m=>`<label class="capt"><input type="checkbox" data-ppm="${esc(m.provider+'|'+m.id)}" ${on(m.provider+'|'+m.id)?'checked':''}><span>${esc(m.label)}</span></label>`).join('')}`).join('')||'<p class="hint">No models are on yet.</p>'}</div>`
+  :`<div class="pp-line"><b>Models</b><span class="pval">${esc(modelSummary(e))}</span></div>`;
+ const limit=edit?`<div class="pp-line"><b>Daily limit</b><button type="button" class="sel-btn inline" data-pp="limit" aria-haspopup="menu"><span class="sv">${esc(pplLimit(e.limit))}</span>${icon('chevD',15)}</button></div>`
+  :`<div class="pp-line"><b>Daily limit</b><span class="pval">${esc(pplLimit(e.limit))}</span></div>`;
+ return head+role+agents+allowed+ppSec(edit?'Models':'Models and limit',models+limit)}
+const pplFind=id=>{const d=Pages._ppl||{};return [d.owner,...(d.users||[])].find(x=>x?.id===id)};
+// grow or shrink to the new height instead of jumping
+function ppHeight(el,change){const h0=el.offsetHeight;change();const h1=el.offsetHeight;if(h0===h1||matchMedia('(prefers-reduced-motion:reduce)').matches)return;
+ el.style.overflow='hidden';el.animate([{height:h0+'px'},{height:h1+'px'}],{duration:240,easing:'cubic-bezier(.2,.8,.2,1)'}).onfinish=()=>{el.style.overflow=''}}
+// draw the panel (and the card behind it) again from Pages._ppl; the panel keeps its place
+function pplRepaint(dr){const u=pplFind(dr.dataset.id);if(!u){closeLayers();return}const box=dr.querySelector('.pp-body'),sc=dr.querySelector('.drawer-body'),y=sc?.scrollTop||0;
+ ppHeight(box,()=>{box.innerHTML=pplBody(Pages._ppl,u)});if(sc)sc.scrollTop=y}
+function pplCardRepaint(id){const u=pplFind(id),old=document.querySelector(`.people-grid .person[data-id="${CSS.escape(id)}"]`);if(!u||!old)return;
+ const t=document.createElement('div');t.innerHTML=pplCard(Pages._ppl,u,null);const n=t.firstElementChild;n.style.animation='none';old.replaceWith(n)}
+async function pplSave(dr,body,msg='Saved',{repaint=true}={}){const id=dr.dataset.id;try{await UI('/ui/people/'+encodeURIComponent(id),{method:'PATCH',body});toast(msg)}catch(e){fail(e);if(dr.isConnected)pplRepaint(dr);return false}
+ try{Pages._ppl=await UI('/ui/people')}catch{return true}pplCardRepaint(id);if(repaint&&dr.isConnected&&!dr.classList.contains('closing'))pplRepaint(dr);return true}
+// leave this panel before another one opens (one panel at a time); once that one closes, People shows what changed
+const ppThen=fn=>{closeLayers();setTimeout(async()=>{await fn();const mo=new MutationObserver(()=>{if(document.querySelector('.drawer:not(.closing)'))return;mo.disconnect();if(route().page?.id==='people')reload()});
+ mo.observe(document.body,{childList:true,subtree:false,attributes:true,attributeFilter:['class']})},230)};
+ACT['ppl-open']=async a=>{const u=pplFind(a.dataset.id);if(!u)return;if(u.role==='member'&&!Chat.models)await Chat.loadModels().catch(()=>{});
+ const dr=sideDrawer('Edit access',`<div class="pp-body">${pplBody(Pages._ppl,u)}</div>`,`${pplCan(u)?`<button class="ghost" data-menu="person" data-id="${esc(u.id)}">${icon('more',16)}More</button><span class="pp-gap"></span>`:''}<button class="primary" data-act="close">Done</button>`);
+ dr.classList.add('ppl-panel');dr.dataset.id=u.id;
+ dr.addEventListener('click',ev=>{const b=ev.target.closest('[data-pp]');if(!b||b.tagName==='INPUT')return;ev.stopPropagation();$$('.menu:not(.closing)').forEach(x=>leave(x,150));const w=b.dataset.pp,d=Pages._ppl,me=pplFind(dr.dataset.id);if(!me)return;
+  if(w==='role')menu(b,[{header:'Role of '+me.name},...Object.entries(d.roles||{}).map(([k,ro])=>({label:ro.name,sub:roleSummary(ro),on:me.roleId===k,run:()=>me.roleId!==k&&pplSave(dr,{roleId:k},'Role changed')})),'-',
+   {label:'Custom',sub:'Their own settings',on:!pplRole(d,me),run:()=>pplRole(d,me)&&pplSave(dr,{roleId:null},'Role changed')}],{matchWidth:true});
+  if(w==='limit'){const cur=pplEff(d,me).limit?.tokens||0;menu(b,[{header:'Daily limit'},...LIMITS.map(([v,l])=>({label:l,on:cur===v,run:()=>cur!==v&&pplSave(dr,{limit:v?{tokens:v}:null})}))],{matchWidth:true})}
+  if(w==='change'){const ag=b.dataset.a;ppThen(()=>ACT['agent-share'](ag))}
+  if(w==='share'){const taken=pplShares(d,me.id).map(([a])=>a),list=(Pages._agents||[]).filter(n=>!n.includes('--')&&!taken.includes(n));
+   menu(b,list.length?[{header:'Share which agent?'},...list.map(n=>({label:ident(n).name,icon:'user',ava:agentAvatar(n,20,{title:false}),run:()=>ppThen(()=>ACT['agent-share'](n,{add:me.id}))}))]:[{header:'Every agent is already shared'}],{matchWidth:true})}});
+ dr.addEventListener('change',async ev=>{const x=ev.target;if(x.tagName!=='INPUT')return;const me=pplFind(dr.dataset.id);if(!me)return;const box=dr.querySelector('.pp-body');
+  if(x.dataset.ppcap){if(x.dataset.ppcap==='unsafe'&&x.checked&&!await confirmBox('Give terminal and file tools?','Agents with these tools can read everything on the box, including your keys and other people\'s files. Only for people you trust like an admin.','Allow')){x.checked=false;return}
+   const caps=[...box.querySelectorAll('[data-ppcap]:checked')].map(i=>i.dataset.ppcap);if(!await pplSave(dr,{caps},'Saved',{repaint:false}))x.checked=!x.checked;return}
+  if(x.dataset.pp==='allm'){const list=box.querySelector('.pp-mlist'),sec=x.closest('.pp-sec');ppHeight(sec,()=>{list.hidden=x.checked});
+   const picked=[...list.querySelectorAll('[data-ppm]:checked')].map(i=>i.dataset.ppm);
+   if(!x.checked&&!picked.length)return;   // nothing to keep yet: they pick models below
+   pplSave(dr,{models:x.checked?null:picked},'Saved',{repaint:false});return}
+  if(x.dataset.ppm){const picked=[...box.querySelectorAll('[data-ppm]:checked')].map(i=>i.dataset.ppm);if(!picked.length){x.checked=true;return toast('Pick at least one model','err')}
+   pplSave(dr,{models:picked},'Saved',{repaint:false})}});
+ return dr};
 
 /* ---------- System › Usage: by person (aqeelOS knows who started each chat; the engine does not), and Code. By agent and
    by model come from the engine on the page above, so each number has one source (1 Nov 2026). A member sees this part
@@ -335,12 +387,6 @@ async function roleDrawer(id){const d0=Pages._ppl||{};const ro=id?d0.roles[id]:{
  d.querySelector('#roDel')?.addEventListener('click',async()=>{if(!await confirmBox('Delete '+ro.name+'?','People must have another role first.','Delete'))return;try{await UI('/ui/roles/'+id,{method:'DELETE'});closeLayers();toast('Role deleted');reload()}catch(e){fail(e)}})}
 ACT['role-new']=()=>roleDrawer(null);ACT['role-open']=a=>roleDrawer(a.dataset.id);
 {const people=PAGES.people;PAGES.people=async(p,el)=>{const gone=pageTok(el);await people(p,el);if(gone())return;const d=Pages._ppl||{};if(!d.roles)return;
- // each member: one role picker; per-person settings show only for Custom
- el.querySelectorAll('.person').forEach(card=>{const id=card.querySelector('[data-cap]')?.dataset.user;const u=(d.users||[]).find(x=>x.id===id);if(!u||u.role!=='member')return;
-  const box=document.createElement('div');box.className='pcaps prole';box.innerHTML=`<span class="th">Role</span><div class="pshare"><span class="psay">${u.roleId==='custom'?'Their own settings below.':esc(roleSummary(d.roles[u.roleId]||{}))}</span><select style="width:auto" data-role="${esc(u.id)}" aria-label="Role of ${esc(u.name)}">${Object.entries(d.roles).map(([k,ro])=>`<option value="${esc(k)}" ${u.roleId===k?'selected':''}>${esc(ro.name)}</option>`).join('')}<option value="custom" ${u.roleId==='custom'?'selected':''}>Custom</option></select></div>`;
-  const first=card.querySelector('.pshares');(first||card.lastChild).after(box);enhanceSelect(box.querySelector('select'));
-  if(u.roleId!=='custom')card.querySelectorAll('.pcaps:not(.prole)').forEach(x=>x.hidden=true)});
- el.querySelectorAll('[data-role]').forEach(s=>s.onchange=async()=>{try{await UI('/ui/people/'+s.dataset.role,{method:'PATCH',body:{roleId:s.value==='custom'?null:s.value}});toast('Role changed');reload()}catch(e){fail(e)}});
  // the roles themselves
  const panel=document.createElement('div');panel.className='panel card';panel.style.marginTop='16px';
  panel.innerHTML=`<div class="h-row"><h2 style="margin:0">Roles</h2><button data-act="role-new">${icon('plus',15)}New role</button></div><p class="sub">What each kind of person may do, which models they get, a daily limit and how many agents they may own.</p>

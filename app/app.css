@@ -2500,3 +2500,44 @@ button.acct-more{font:inherit;cursor:pointer;width:100%;background:var(--surface
 /* Connections › Needs you */
 .tabs .tab-n{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;margin-left:4px;border-radius:9px;background:var(--warn);color:#fff;font-size:11px;font-weight:600}
 .cn-need-l{margin:4px 0 0;padding-left:18px}.cn-need-l li{margin:2px 0}
+/* People cards (7 Nov 2026): plain like the Agents cards; everything to change is in one side panel (.ppl-panel) */
+.people-grid{grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;align-items:stretch}
+.person.tile{padding:20px;gap:12px}
+.person .ptxt{min-width:0;flex:1}.person .ptxt h3{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.person .psub,.pp-id>span:not(.p-state){display:block;font-size:12.5px;color:var(--muted);line-height:1.4;overflow-wrap:anywhere}
+.person .psum{margin:0;font-size:13px;color:var(--ink-2);line-height:1.5}
+.person .psub i,.person .psum i,.pp-id i{font-style:normal}
+.person .pagents{display:flex;align-items:center;gap:10px;min-height:28px;font-size:13px;color:var(--ink-2)}
+.person .pagents .pa-l{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.person .pagents small{color:var(--muted);font-size:12px;white-space:nowrap}
+.pstack small{margin-left:4px;align-self:center;font-size:12px;color:var(--muted);box-shadow:none}
+.person .agent-tags{display:flex;flex-wrap:wrap;gap:4px 12px}
+.person .tile-foot{padding-top:14px;border-top:1px solid var(--border)}
+.person.suspended .tile-top,.person.suspended .psum{opacity:.6}
+.person:hover .agent-gear svg{transform:rotate(60deg)}
+/* the panel */
+.ppl-panel .pp-who{display:flex;align-items:center;gap:14px;margin-bottom:6px}
+.pp-id{min-width:0}.pp-id b{display:block;font-size:16px;font-weight:600}
+.pp-id .p-state{display:inline-flex;align-items:center;gap:6px;margin-top:4px;font-size:12.5px;color:var(--warn)}
+.pp-sec{margin-top:18px;padding-top:16px;border-top:1px solid var(--border)}
+.pp-sec>.th{display:block;margin:0 0 8px;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.pp-sec>.sel-btn{width:100%}
+.pp-sec .hint{margin:8px 0 0}
+.pp-line{display:flex;align-items:center;gap:10px;min-height:44px}
+.pp-line b{flex:1;min-width:0;font-size:13.5px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pp-line .pval{font-size:13.5px;color:var(--ink-2)}
+.pp-line .chip{flex:none}
+.pp-line .sel-btn.inline{width:190px;max-width:60%;min-height:36px;flex:none}
+.pp-add{margin-top:6px}
+.ppl-panel label.capt{min-height:44px}
+.ppl-panel label.capt small{display:block;font-size:12px;color:var(--muted);margin-top:2px}
+.pp-mlist{padding-left:28px}
+.pp-prov{display:block;margin:10px 0 2px;font-size:12px;font-weight:600;color:var(--muted)}
+.pp-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.pp-list li{display:flex;align-items:center;gap:10px;min-height:32px;font-size:13.5px;color:var(--ink)}
+.pp-list li svg{color:var(--blue);flex:none}.pp-list li.risky,.pp-list li.risky svg{color:var(--bad)}
+.ppl-panel .psay{margin:0;font-size:13.5px;line-height:1.5;color:var(--ink-2)}
+.ppl-panel .drawer-foot .pp-gap{flex:1}
+.ppl-panel .drawer-foot{justify-content:flex-start}
+@media (max-width:760px){.people-grid{grid-template-columns:1fr}.pp-line .sel-btn.inline{width:auto;max-width:65%}}
+.person .psub span,.person .psum span,.pp-id>span:not(.p-state) span{white-space:nowrap}
