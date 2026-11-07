@@ -84,6 +84,16 @@ ACT['eng-copy']=a=>copyText(a.dataset.cmd,'Command copied');
 {const base=PAGES.health;PAGES.health=async(p,el,r)=>{const gone=pageTok(el);let err=null;try{await base(p,el,r)}catch(e){if(e?.stale)throw e;err=e}if(gone())return;
  if(S.me?.admin!==false&&!el.querySelector('#engNote')){const d=await Install.load();const c=d?.engine&&engineCard(d.engine);if(c&&!gone())el.prepend(c)}if(err&&!el.querySelector('#engNote'))throw err}}
 
+/* ---------- Health: the last deploy check (scripts/live-test.mjs) and any automatic undo (box-live.sh) ---------- */
+{const base=PAGES.health;PAGES.health=async(p,el,r)=>{const gone=pageTok(el);await base(p,el,r);if(gone()||S.me?.admin===false||el.querySelector('#ltBox'))return;
+ let d;try{d=await UI('/ui/live-test')}catch{return}const x=(d.runs||[])[0];if(!x||gone())return;
+ const when=ago(Math.round(x.at/1000)),bad=!x.ok,u=x.undo;
+ const box=document.createElement('div');box.className='panel card'+(bad?' inst-note':'');box.id='ltBox';box.style.marginTop='16px';
+ box.innerHTML=`<div class="inst-note-h">${icon(bad?'alert':'check',18)}<h2>Last deploy check</h2></div>
+  <p class="sub">${bad?(u?(u.ok?'It failed, so the previous version was put back by itself.':'It failed, and putting the previous version back failed too.'):'It failed.'):'Passed: tool servers, schedules, the engine, a Kirimdev tester message and a test agent reply.'} ${esc(when)}${x.sha?' · version '+esc(String(x.sha).slice(0,8)):''}${u?' · now running '+esc(String(u.to).slice(0,8)):''}.</p>
+  ${bad?`<ul class="inst-steps">${(x.failed||[]).map((f,i)=>`<li ${st(i)}>${icon('alert',14)}<span>${esc(f)}</span></li>`).join('')}</ul>`:''}`;
+ el.append(box)}}
+
 /* ---------- Agents: per-agent Linux users missing ---------- */
 {const base=PAGES.profiles;PAGES.profiles=async(p,el)=>{const stale=pageTok(el);await base(p,el);if(stale()||S.me?.admin===false||el.querySelector('#auNote'))return;
  const d=await Install.load();if(stale()||!d?.agentUsers||d.agentUsers.ok)return;const u=d.agentUsers;
