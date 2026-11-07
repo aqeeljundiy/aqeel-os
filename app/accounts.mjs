@@ -201,16 +201,23 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
   accountHooks.backupSync?.('model changed');   // its backup list starts below where it is now (backup-models.mjs)
  }
  // Claude use for a model: the 5-hour and weekly windows, plus the weekly Opus or Sonnet window when the model is one
- const claudeUsed=(u,model)=>Math.max(u.session?.used||0,u.week?.used||0,/opus/i.test(model||'')?u.opus?.used||0:0,/sonnet/i.test(model||'')?u.sonnet?.used||0:0);
+ // which limit counts (Models › If an account fails, owner 7 Nov 2026): either (the higher of session and week, default),
+ // session, week, or both (only when both are past the line, so the lower one counts)
+ let BASIS='either';
+ const pickUse=(sess,week)=>BASIS==='session'?sess:BASIS==='week'?week:BASIS==='both'?Math.min(sess,week):Math.max(sess,week);
+ const claudeUsed=(u,model)=>pickUse(u.session?.used||0,Math.max(u.week?.used||0,/opus/i.test(model||'')?u.opus?.used||0:0,/sonnet/i.test(model||'')?u.sonnet?.used||0:0));
+ // another provider's windows: a week-long window counts as the week, the rest as the session
+ const isWeek=w=>/week|7\s*d|seven/i.test(String(w.label||w.name||w.id||''))||Number(w.hours||w.window_hours||0)>=24*6;
+ const providerUsed=ws=>{const wk=ws.filter(isWeek),se=ws.filter(w=>!isWeek(w));const m=l=>Math.max(0,...l.map(w=>w.used||0));if(!wk.length)return m(se);if(!se.length)return m(wk);return pickUse(m(se),m(wk))};
  // null = unknown (a check that failed or timed out, a subscription that reports no windows): never a reason to move,
  // never a target. A Claude account that answered "signed out" has no room (100).
  function usageOf(key,det,prov,model){if(key.startsWith(PLUGIN_KEY)){const v=det[key.slice(PLUGIN_KEY.length)];if(!v?.checked)return null;if(!v.signedIn)return 100;return v.usage?claudeUsed(v.usage,model):null}
   const p=(prov||[]).find(x=>x.slug===key.slice(2));if(!p)return null;const ws=(p.windows||[]).filter(w=>w.scope!=='model'&&w.scope!=='image');
-  if(!ws.length)return SUBS.test(p.slug+' '+p.name)?null:0;return worstOf(ws)}
+  if(!ws.length)return SUBS.test(p.slug+' '+p.name)?null:0;return providerUsed(ws)}
 
  /* ---------- auto-switch: move agents off an account that is nearly used up, and back once it has room ---------- */
  const upSeen=new Map();   // agent → the higher entry it could go back to, and how many checks in a row
- async function autoTick(){const d=await load();const on=!!d.auto?.on,back=d.auto?.backHome!==false;if(!on&&!back)return;const th=Number(d.auto?.threshold)||90;const accts=all(d);
+ async function autoTick(){const d=await load();BASIS=['either','session','week','both'].includes(d.auto?.basis)?d.auto.basis:'either';const on=!!d.auto?.on,back=d.auto?.backHome!==false;if(!on&&!back)return;const th=Number(d.auto?.threshold)||90;const accts=all(d);
   // back home: an entry higher in the list is used again once it has this share free (owner's setting, 20% by default)
   const backAt=100-(Number(d.auto?.backFree)||20);
   const det=Object.fromEntries(await Promise.all(accts.map(async a=>[a.id,await details(a)])));
@@ -395,7 +402,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    try{await useEntry(d,profile,{key:String(b.key||''),model:String(b.model||'')},'Chosen by hand');return send(res,200,{ok:true})}catch(e){return send(res,400,{error:e.message})}}
   if(p==='/ui/accounts'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{return send(res,200,await startLogin(b.label))}catch(e){return send(res,500,{error:e.message})}}
   if(p==='/ui/accounts/assign'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}if(!see(String(b.profile||'')))return send(res,403,{error:'This agent is private to its owner.'});try{await assign(d,String(b.profile||''),String(b.account||''),b.why||'');return send(res,200,{ok:true})}catch(e){return send(res,400,{error:e.message})}}
-  if(p==='/ui/accounts/auto'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const au={on:!!b.on,threshold:Math.min(99,Math.max(50,Number(b.threshold)||90)),backFree:Math.min(80,Math.max(5,Number(b.backFree)||20)),backHome:b.backHome!==false};d.auto=au;await update(x=>{x.auto=au});autoTick().catch(()=>{});return send(res,200,d.auto)}
+  if(p==='/ui/accounts/auto'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const au={on:!!b.on,threshold:Math.min(99,Math.max(50,Number(b.threshold)||90)),backFree:Math.min(80,Math.max(5,Number(b.backFree)||20)),backHome:b.backHome!==false,basis:['either','session','week','both'].includes(b.basis)?b.basis:'either'};d.auto=au;await update(x=>{x.auto=au});autoTick().catch(()=>{});return send(res,200,d.auto)}
   // Rename, one way for every account (25 Oct): a Claude account's own label, another account's name here; an empty
   // name goes back to the provider's (a Claude account's stays)
   if(p==='/ui/accounts/label'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const k=String(b.key||''),l=String(b.label||'').trim().slice(0,60);
