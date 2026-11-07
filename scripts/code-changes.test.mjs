@@ -7,7 +7,7 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createCodeChanges,patchFiles} from '../app/code-changes.mjs';
-import {testWebhook,sign,pickTester} from './kirimdev-test-message.mjs';
+import {testWebhook,sign,pickTester,testAgents} from './kirimdev-test-message.mjs';
 import {verifySignature,parseInbound} from '../app/kirimdev.mjs';
 let n=0;const t=async(name,f)=>{await f();n++;console.log('ok',name)};
 const here=path.dirname(fileURLToPath(import.meta.url));
@@ -51,4 +51,9 @@ await t('tester webhook: signed like Kirimdev, read back as that tester on that 
  assert.ok(verifySignature(w.raw,sign(w.raw,'sek',w.ts),['sek'],w.ts));assert.equal(verifySignature(w.raw,sign(w.raw,'other',w.ts),['sek'],w.ts),false);
  const [m]=parseInbound(JSON.parse(w.raw));assert.deepEqual({pid:m.pid,from:m.from,text:m.text,conversationId:m.conversationId,ts:m.ts},{pid:'1122',from:'6281205993124',text:'reset',conversationId:'cnv_T',ts:1_800_000_000});
  assert.throws(()=>pickTester(LINE,'Abel'),/No tester called Abel with a phone/);assert.throws(()=>pickTester({testers:[]}),/no tester with a phone/)});
+await t('the tester webhook runs only on test agents (owner, 8 Nov 2026: no live tests on real agents)',async()=>{
+ const l=testAgents('# test copies\nmb-z4b1u\n  lt-1  # ladder\n');assert.deepEqual([...l],['mb-z4b1u','lt-1']);assert.equal(l.has('pixel-agent'),false);
+ const {execFile}=await import('node:child_process');const home=await mkdtemp(path.join(tmpdir(),'hh-'));await writeFile(path.join(home,'.aqeelos-test-agents'),'mb-z4b1u\n');
+ const r=await new Promise(res=>execFile(process.execPath,[new URL('./kirimdev-test-message.mjs',import.meta.url).pathname,'continue-support','hi'],{env:{...process.env,HERMES_HOME:home,UI_DATA_DIR:home}},(e,o,er)=>res({code:e?.code,er})));
+ assert.equal(r.code,1);assert.match(r.er,/real agent: no live tests on real agents/)});
 console.log(n+' passed');

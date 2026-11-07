@@ -4,7 +4,8 @@
 // when a customer writes, from one of the line's own testers (Channels › Kirimdev, testers with a phone number), to
 // this box's /kirimdev/<agent>. The agent then answers for real, through Kirimdev, to that tester's WhatsApp.
 //   node scripts/kirimdev-test-message.mjs <agent> "<text>" [--tester <name part>] [--url http://127.0.0.1:4400]
-// Only testers: it refuses any other number, so no customer is ever messaged. A line without a webhook secret (polling
+// Only testers: it refuses any other number, so no customer is ever messaged. Only test agents (8 Nov 2026, owner: no
+// live tests on real agents, ever): an agent not listed in HERMES_HOME/.aqeelos-test-agents is refused. A line without a webhook secret (polling
 // only) cannot be tested this way. Prints the event id, then how to see the reply.
 import {readFile} from 'node:fs/promises';
 import {createHmac,randomBytes} from 'node:crypto';
@@ -23,6 +24,8 @@ export function testWebhook({line,tester,text,now=Date.now(),id=null}){
  return {eid,ts,from,raw:Buffer.from(JSON.stringify(body))}}
 // Kirimdev's signature: t=<seconds>,v1=<hex HMAC-SHA256 of "<t>.<raw body>" with the line's webhook secret>
 export const sign=(raw,secret,ts)=>'t='+ts+',v1='+createHmac('sha256',secret).update(Buffer.concat([Buffer.from(ts+'.'),raw])).digest('hex');
+// the agents a live test may run on: HERMES_HOME/.aqeelos-test-agents, one per line, # comments
+export const testAgents=t=>new Set(String(t||'').split('\n').map(l=>l.replace(/#.*$/,'').trim()).filter(Boolean));
 // the tester to write as: one with a phone number, matching --tester when given
 export function pickTester(line,want=''){const w=String(want||'').toLowerCase();
  const ok=(line?.testers||[]).filter(t=>/\d{6,}/.test(String(t.phone||'').replace(/\D/g,'')));
@@ -31,6 +34,8 @@ export function pickTester(line,want=''){const w=String(want||'').toLowerCase();
 
 async function main(argv){const a=[...argv],opt={};for(let i=0;i<a.length;i++)if(a[i].startsWith('--')){opt[a[i].slice(2)]=a[i+1];a.splice(i,2);i--}
  const [agent,text]=a;if(!agent||!text){console.error('Use: node scripts/kirimdev-test-message.mjs <agent> "<text>" [--tester <name>] [--url http://127.0.0.1:4400]');process.exit(2)}
+ const HH=process.env.HERMES_HOME||path.join(homedir(),'.hermes');
+ if(!testAgents(await readFile(path.join(HH,'.aqeelos-test-agents'),'utf8').catch(()=>'')).has(agent))throw Error(agent+' is a real agent: no live tests on real agents. Prove it from what really happened (its logs, a real reply), or use a test agent.');
  const DATA=path.resolve(process.env.UI_DATA_DIR||path.join(homedir(),'apps','hermes-ui-data'));
  const rd=async f=>JSON.parse(await readFile(path.join(DATA,f),'utf8').catch(()=>'{}'));
  const line=(await rd('kirimdev.json')).lines?.[agent];if(!line)throw Error('No Kirimdev line for '+agent+'.');

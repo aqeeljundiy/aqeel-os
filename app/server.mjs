@@ -56,6 +56,7 @@ import {createAccountAuth} from './account-auth.mjs';   // first-run owner, forg
 import {createBottlenecks,forPopup,memberCan} from './bottlenecks.mjs';
 import {createInstructions} from './instructions.mjs';
 import {createNews,eveningLine} from './news.mjs';
+import {createMorning} from './morning.mjs';
 import {mayStartAgents,busyTotal,guardPaused} from './busy.mjs';
 import {stopGatewayCmd,stopTimeoutMs} from './gateway-stop.mjs';
 import {createHelp} from './help.mjs';
@@ -820,6 +821,12 @@ if(LIVE_APP)setInterval(async()=>{try{if(!(await notifySettings()).daily)return;
   const l=await issues.list().catch(()=>({items:[]})),fixed=l.items.filter(i=>i.state==='fixed'&&(i.fixed||0)>=start).length;
   const needs=(await needsFor({id:'owner',role:'owner'}).catch(()=>[])).length;
   await news.add({aud:'admins',key:'daily|'+day,started:true,icon:needs?'alert':'check',kind:needs?'warn':'ok',title:eveningLine(fixed,needs),text:'',go:needs?'/system/health':'/system/activity',label:needs?'Health':'Activity'})}catch(e){console.warn('evening line:',e.message)}},10*60e3).unref();
+// the morning line (8 Nov 2026, owner's stability plan): at 07:30 local time the main agent tells the owner, through the
+// alert route, "Yesterday: everything worked." or exactly what broke and whether it fixed itself. Code only, no model.
+const morning=createMorning({DATA,tz:()=>tzNow,send:text=>ownerSend(text,'telegram'),
+ collect:async()=>{await isTestAgent('-');const tests=testAgents.v;
+  return {issues:(await issues._db().catch(()=>({items:[]}))).items,events:await bottlenecks.events().catch(()=>[]),activity:await news.activity({id:'owner'},true,{limit:300}).catch(()=>[]),isTest:a=>tests.has(a),names:a=>NAMES[a]||a}}});
+if(LIVE_APP)setInterval(()=>morning.tick().catch(e=>console.warn('morning line:',e.message)),5*60e3).unref();
 const newsInfo=(kind,text,detail)=>{const ok=/works again|fixed|back on|working again|passed/i.test(text);return news.add({aud:'admins',group:'ev|'+kind+'|'+String(text).replace(/\(.*?\)|[0-9]+/g,'#').replace(/\s+/g,' ').trim().slice(0,100),icon:kind==='down'?'activity':ok?'check':'refresh',kind:ok?'ok':'blue',title:text,text:detail,go:'/system/health',label:'Health'})};
 const bottlenecks=createBottlenecks({DATA,onInfo:newsInfo,listAgents:()=>listAgents(),names:a=>NAMES[a]||a,dash:p=>fetch(DASH.origin+'/api'+p,{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(20000)}).then(r=>r.json())});brand.name().then(n=>{globalThis.AQ_BRAND=n}).catch(()=>{});
 // agents' instructions with a history, contradiction flags and approval for rewrites (instructions.mjs)

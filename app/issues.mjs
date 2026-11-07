@@ -17,6 +17,10 @@
 // Hard rules, in the prompt and in code: back up before any change and roll back when the check fails; never spend
 // money; never delete customer data (a deleted file is put back); use only keys that already exist on the box (a new
 // value in an .env must already be in another .env). Everything shows on System › Health › Issues.
+// 8 Nov 2026 (owner's stability plan): nobody edits the live system by hand, the fixer included. A fix to aqeelOS's own
+// code is made in a copy and filed as a patch for the daily deploy (state "deploy"); after the deploy one proof run
+// checks it. Only an urgent outage (aqeelOS's own tool server down for every agent) may be hot-patched on the box, and
+// that patch is saved for git too. No live tests on real agents, ever: a test message only on a test agent.
 import {readFile,writeFile,mkdir,rename,open,stat,copyFile,readdir} from 'node:fs/promises';
 import {spawn} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
@@ -26,7 +30,7 @@ const clip=(s,n)=>String(s??'').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g,' 
 export const TRIES=3;
 export const OPEN=['queued','fixing','applying','verify','verifying','rollback','reloaded-back'];
 // waiting for something (re-checked by the sweep): not in the middle of a run
-export const WAITING=['queued','open','stuck','needs_human','stopped'];
+export const WAITING=['queued','open','stuck','needs_human','stopped','deploy'];
 // how alike two problems are (shared words, ignoring the short ones): 1 is the same text
 const COMMON=new Set('that there this with from file files points does have when into were been will what which their they them need needs skill agent agents should could would make sure after before about only also than then just more some like every because still while where being other most same work works working'.split(' '));
 export function similar(a,b){const w=t=>new Set(String(t||'').toLowerCase().split(/[^a-z0-9]+/).filter(x=>x.length>3&&!COMMON.has(x)));const A=w(a),B=w(b);if(A.size<4||B.size<4)return 0;let n=0;for(const x of A)if(B.has(x))n++;return n/Math.min(A.size,B.size)}
@@ -48,16 +52,17 @@ export function whoToTell(policy,issue){const p=personOf(policy,issue?.by?.platf
  if(m)return {kind:'team',name:m.name,member:m,team:t.name};
  return {kind:'owner',name:policy?.owner?.name||'Owner'}}
 
-// the fix run's last line:   RESULT: {"status":"changed|no_change|needs_human|failed","apply":"none|engine|ui","changes":[{"file","backup"}],"check":"…","summary":"…","proof":"…","need":"…"}
+// the fix run's last line:   RESULT: {"status":"changed|patch|no_change|needs_human|failed","apply":"none|engine|ui","changes":[{"file","backup"}],"patches":[{"file","copy"}],"check":"…","summary":"…","proof":"…","need":"…"}
 // the proof run's last line: RESULT: {"status":"proven|not_proven","proof":"…","need":"…"}
-const FIX=['changed','no_change','needs_human','failed'],PROOF=['proven','not_proven'];
+const FIX=['changed','patch','no_change','needs_human','failed'],PROOF=['proven','not_proven'];
 export function parseResult(out,kind='fix'){const m=[...String(out||'').matchAll(/RESULT:\s*(\{[^\n]*\})/g)].pop();if(!m)return null;let j;try{j=JSON.parse(m[1])}catch{return null}
  // older wording from a run that was going when this was deployed
  if(j.status==='fixed')j.status=kind==='proof'?'proven':'changed';if(j.status==='needs_owner')j.status='needs_human';
  if(!(kind==='proof'?PROOF:FIX).includes(j.status))return null;
  const apply=['engine','ui'].includes(j.apply)?j.apply:j.restart_ui===true?'ui':'none';
  const changes=(Array.isArray(j.changes)?j.changes:[]).filter(c=>c&&typeof c.file==='string'&&c.file.startsWith('/')).slice(0,40).map(c=>({file:clip(c.file,400),backup:typeof c.backup==='string'&&c.backup.startsWith('/')?clip(c.backup,400):null}));
- return {status:j.status,summary:clip(j.summary,1500),proof:clip(j.proof,3000),need:clip(j.need,600),check:clip(j.check,1000),apply,changes}}
+ const patches=(Array.isArray(j.patches)?j.patches:[]).filter(c=>c&&typeof c.file==='string'&&c.file.startsWith('/')&&typeof c.copy==='string'&&c.copy.startsWith('/')).slice(0,40).map(c=>({file:clip(c.file,400),copy:clip(c.copy,400)}));
+ return {status:j.status,summary:clip(j.summary,1500),proof:clip(j.proof,3000),need:clip(j.need,600),check:clip(j.check,1000),apply,changes,patches}}
 // a run that never reached the model (the engine was restarting or draining) is not a try
 // owner's ladder (7 Nov 2026): a person is asked only for what physically needs them (money, a key or login only they
 // have, a person adding a bot, a decision only they can make), never for a plain approval of a fix
@@ -75,7 +80,10 @@ export function newSecrets(before,after,known=[]){const b=envValues(before),a=en
  return Object.entries(a).filter(([k,v])=>v&&v.length>=8&&b[k]!==v&&!pool.has(v)).map(([k])=>k)}
 
 // proving a Kirimdev reply without a phone (7 Nov 2026: the fixer asked a person to write from the tester phone)
-const KIRIM_TEST='never ask a person to write from a tester phone: run node ~/apps/hermes-ui/scripts/kirimdev-test-message.mjs <agent> "<text>" (optionally --tester <name>). It posts the same signed webhook Kirimdev posts when a customer writes, as one of the line\'s testers, to this box; the agent then answers that tester for real through Kirimdev. Check the reply was sent (~/apps/hermes-ui-data/kirimdev-state.json "ours", and the log lines "kirimdev <agent>"). Only testers: never a customer number';
+// no live tests on real agents, ever (owner, 8 Nov 2026): a test message only on a test agent; a real agent is proven
+// from what really happened after the change
+const NO_LIVE_TEST='Never test on a real agent: no test messages, no trial runs of it. A real agent is proven only from what really happened after the change (its logs, a real reply it delivered, Health checking again). A live test only on a test agent (listed in ~/.hermes/.aqeelos-test-agents)';
+const KIRIM_TEST='on a real agent, a real reply it delivered after the change (~/apps/hermes-ui-data/kirimdev-state.json "ours", the log lines "kirimdev <agent>"); none yet means not proven yet. Only on a test agent you may write as a tester: never ask a person to write from a tester phone, run node ~/apps/hermes-ui/scripts/kirimdev-test-message.mjs <agent> "<text>" (optionally --tester <name>). It posts the same signed webhook Kirimdev posts when a customer writes, as one of the line\'s testers, to this box; the agent then answers that tester for real through Kirimdev. Check the reply was sent (~/apps/hermes-ui-data/kirimdev-state.json "ours", and the log lines "kirimdev <agent>"). Only testers, never a customer number; the script refuses a real agent';
 export function fixerPrompt(i,{rules='',day=new Date().toISOString().slice(0,10).replace(/-/g,''),attempt=1,tries=TRIES}={}){
  const past=(i.history||[]).filter(h=>h.kind==='fix').map((h,n)=>'Try '+(n+1)+': '+(h.summary||'-')+(h.outcome?' → '+h.outcome:'')+(h.proof?' (proof run: '+clip(h.proof,400)+')':'')).join('\n');
  return [
@@ -96,26 +104,28 @@ export function fixerPrompt(i,{rules='',day=new Date().toISOString().slice(0,10)
  '- Find the real cause on this server first (files, logs, the agent\'s state.db, ~/apps/hermes-ui-data). Fix the cause, not the symptom; no hard-coded ids, names or paths in shared code (settings instead).',
  '- Only change what this issue needs, and only for the agents listed above.',
  '- Run the existing tests for what you changed (node scripts/<name>.test.mjs in ~/apps/hermes-ui, the engine\'s tests). Paste commands and output in "proof".',
- '- Write in "check" exactly how to rerun the ORIGINAL failing check end to end after the reload (the real thing that failed, not a unit test). For a Kirimdev reply problem a tester\'s message must get a real reply delivered: '+KIRIM_TEST+'.',
- '- aqeelOS\'s own code lives in git, not on this box: ~/apps/hermes-ui (app/, scripts/, engine/) and the engine source ~/.hermes/hermes-agent are replaced by the next deploy. If your fix changes any of these files, keep the change small. Once it is proven, aqeelOS saves it as ~/apps/hermes-ui-data/fixer-patches/'+i.id+'-try<n>.patch so the coding sessions take it into git; say in "summary" that it is a code change and name the file. Never commit or push. First look in ~/apps/hermes-ui-data/fixer-patches and ~/apps/hermes-ui-data/drift: if the same fix was made before and a deploy put the old file back, apply that patch again and say so.',
+ '- Write in "check" exactly how to rerun the ORIGINAL failing check end to end after the reload (the real thing that failed, not a unit test). For a Kirimdev reply problem: '+KIRIM_TEST+'.',
+ '- '+NO_LIVE_TEST+'.',
+ i.urgent?'- aqeelOS\'s own code lives in git: ~/apps/hermes-ui (app/, scripts/, engine/) and the engine source ~/.hermes/hermes-agent are replaced by the next deploy. This issue is URGENT (an outage), so you may change those files on the box (back them up as above). Keep the change small. Once it is proven, aqeelOS saves it as ~/apps/hermes-ui-data/fixer-patches/'+i.id+'-try<n>.patch for git; say in "summary" that it is a code change and name the file. Never commit or push. First look in ~/apps/hermes-ui-data/fixer-patches and ~/apps/hermes-ui-data/drift: if the same fix was made before and a deploy put the old file back, apply that patch again and say so.'
+  :'- Nobody edits aqeelOS\'s live code by hand, you included. Its code (~/apps/hermes-ui app/, scripts/, engine/, and the engine source ~/.hermes/hermes-agent) is never changed in place: copy the file to ~/apps/hermes-ui-data/fixer-work/'+i.id+'/<its full path without the leading slash>, change and check the copy (node --check, or the test against a copy), and list it in "patches" as {"file":"<live path>","copy":"<copy path>"} with status "patch". aqeelOS files it as ~/apps/hermes-ui-data/fixer-patches/'+i.id+'-try<n>.patch for the daily deploy and checks the problem again after that deploy. A live code file you change anyway is put back and filed the same way. Never commit or push. First look in ~/apps/hermes-ui-data/fixer-patches and ~/apps/hermes-ui-data/drift: the same fix may be filed already; then say so with status "patch" and that patch\'s file in "patches".',
  '- If you find nothing to change (it already works), use status "no_change": a proof run still has to show it works.',
  '- A skill that points to a file that is not there (Health kind skill): find the file and put it back in every skill folder listed. Look in this order: the *.bak* copies next to it, other agents\' copies of the same skill (~/.hermes/profiles/*/skills and ~/.hermes/skills), ~/.hermes/backups and ~/apps/hermes-ui-data backups, the skill\'s git history if it has one. Only if it is nowhere, change the SKILL.md so it no longer needs the file (remove or replace that step); never invent the file\'s content. The check: every file each SKILL.md points to exists (node ~/apps/hermes-ui/scripts/skill-check.mjs <skill folder> lists what is still missing; nothing listed means proven).',
  '- needs_human only when a person must physically act and no tool or key on this box can do it: money, a new key or login only a person has, someone adding a bot to a Telegram group, or a decision only the owner can make. Never to ask for approval or an OK: nobody approves fixes, you decide. Never to have someone send a WhatsApp message from a tester phone: you can do that yourself (see above). Put in "need" exactly what they must do, in one or two plain sentences.',
  rules?'- '+rules:null,
  '','End with exactly one line (JSON on one line):',
- 'RESULT: {"status":"changed|no_change|needs_human|failed","apply":"none|engine|ui","changes":[{"file":"/abs/path","backup":"/abs/path.bak-…"}],"check":"how to rerun the original check","summary":"one or two plain sentences","proof":"what you ran and saw","need":"only for needs_human or failed: what a person must do"}'].filter(x=>x!==null).join('\n')}
+ 'RESULT: {"status":"changed|patch|no_change|needs_human|failed","apply":"none|engine|ui","changes":[{"file":"/abs/path","backup":"/abs/path.bak-…"}],"patches":[{"file":"/live/path","copy":"/copy/path"}],"check":"how to rerun the original check","summary":"one or two plain sentences","proof":"what you ran and saw","need":"only for needs_human or failed: what a person must do"}'].filter(x=>x!==null).join('\n')}
 
-export function proofPrompt(i,fix,{reloaded=null,recheck=false}={}){return [
+export function proofPrompt(i,fix,{reloaded=null,recheck=false,deployed=false}={}){return [
  'You are the aqeelOS fixer\'s proof run: a headless run on this server. Nobody is chatting with you. Do NOT change any file. Only prove whether ONE problem is gone.',
  '','ISSUE '+i.id+' (agent '+i.agent+(i.source==='health'?', found by the Health check':'')+')',
  'Problem: '+i.missing,'Evidence when it was filed: '+(i.evidence||'-'),
  'What the fix run did: '+(fix?.summary||'-'),fix?.changes?.length?'Files changed: '+fix.changes.map(c=>c.file).join(', '):'No files were changed.',
  reloaded?'aqeelOS reloaded '+(reloaded==='engine'?'the agents\' engine':'the web app')+' after the change.':null,
- recheck?'RECHECK: this issue was stuck, and since then a deploy changed the files it is about. Nothing was changed by the fixer now: prove whether the original problem is gone by itself.':null,
+ deployed?'AFTER THE DEPLOY: the fix was filed as a patch ('+(i.patch||'-')+') for the daily deploy, and a deploy changed the files it is about since. Nothing was changed by the fixer now: prove whether the original problem is gone.':recheck?'RECHECK: this issue was stuck, and since then a deploy changed the files it is about. Nothing was changed by the fixer now: prove whether the original problem is gone by itself.':null,
  'How to rerun the original check: '+(fix?.check||'rerun what failed in the evidence above, end to end'),
  '','RULES',
- '- Rerun the ORIGINAL failing check end to end, for real, now. A unit test or reading a file is not proof. For a Kirimdev reply problem a tester\'s message must get a real reply delivered: '+KIRIM_TEST+'. For a Health problem, Health (~/apps/hermes-ui-data/bottlenecks.json) must no longer list it after its check ran again.',
- '- Never spend money, never delete anything, never message customers, never restart anything.',
+ '- Rerun the ORIGINAL failing check end to end, for real, now. A unit test or reading a file is not proof. For a Kirimdev reply problem: '+KIRIM_TEST+'. For a Health problem, Health (~/apps/hermes-ui-data/bottlenecks.json) must no longer list it after its check ran again.',
+ '- Never spend money, never delete anything, never message customers, never restart anything. '+NO_LIVE_TEST+'.',
  '- proven only if you saw it work after the change. Otherwise not_proven. Fill "need" only if a person must physically act (money, a key or login only they have, adding a bot, a decision only the owner can make); never an approval, and never a message from a tester phone.',
  '','End with exactly one line (JSON on one line):',
  'RESULT: {"status":"proven|not_proven","proof":"the commands you ran and what you saw, with times","need":""}'].filter(x=>x!==null).join('\n')}
@@ -147,7 +157,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  // an issue: o = {agent, what, missing, evidence, proposed_fix, affects, needs, source, healthKey, origin:{platform, uid, who, chat, thread}}
  const file=o=>queue(async()=>{await load();const pol=await policy();const m=clip(o.missing,500).trim();if(!m)throw Error('Say what is broken (missing).');
   const key=o.healthKey?'health|'+o.healthKey:o.agent+'|'+m.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().slice(0,100);
-  let i=db.items.find(x=>x.key===key&&(OPEN.includes(x.state)||['needs_human','stopped','open'].includes(x.state)));
+  let i=db.items.find(x=>x.key===key&&(OPEN.includes(x.state)||['needs_human','stopped','open','deploy'].includes(x.state)));
   // filed again while it waited for a person: they may have done it, so the fixer tries again
   if(i){i.count++;i.updated=now();if(o.evidence)i.evidence=clip(o.evidence,2000);if((i.state==='needs_human'||i.state==='open'&&pol.fixer?.on!==false)&&!i.noRetry){i.state='queued';i.tries=0}await save();return {issue:view(i),again:true}}
   const by=o.origin||{},p=personOf(pol,by.platform,by.uid);
@@ -166,14 +176,15 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   return n});
  let sweptAt=0;
  const sweep=(force=false)=>queue(async()=>{await load();if(!force&&now()-sweptAt<10*60e3)return 0;sweptAt=now();let n=0;
-  for(const i of db.items){if(!WAITING.includes(i.state)||i.healthKey&&i.state!=='stuck')continue;   // Health items: healthGone
+  for(const i of db.items){if(!WAITING.includes(i.state)||i.healthKey&&!['stuck','deploy'].includes(i.state))continue;   // Health items: healthGone
    // a planned test (the ladder proof and the like) is not a problem to keep: closed at once
    if(/PLANNED TEST|planned (?:ladder )?test|ladder[- ]proof/i.test([i.missing,i.evidence].join(' '))){i.state='closed';i.updated=now();i.result={...(i.result||{}),summary:'Test item, closed.'};
     i.history.push({kind:'resolved',at:now(),summary:'Test item, closed.'});await save();log('issues: '+i.id+' test item, closed');n++;continue}
    const why=await whyGone(i).catch(e=>{log('issues: sweep '+i.id+': '+e.message);return null});if(why){await resolved(i,why);n++;continue}
    // a stuck issue whose files a deploy changed since: one proof run checks whether the problem is gone now
-   if(i.state==='stuck'&&!i.recheck&&checks.changedSince){const files=[...new Set(i.history.flatMap(h=>(h.changes||[]).map(c=>c.file)))];const since=Math.max(i.updated||0,i.recheckedAt||0);
-    if(files.length&&await checks.changedSince(files,since).catch(()=>false)){i.recheck=true;i.state='verify';i.updated=now();await save();log('issues: '+i.id+' stuck, but a deploy changed its files: a proof run checks it again');continue}}
+   // a fix filed as a patch for the daily deploy (state deploy): the same, once a deploy changed the files it patches
+   if((i.state==='stuck'||i.state==='deploy')&&!i.recheck&&checks.changedSince){const files=[...new Set(i.history.flatMap(h=>[...(h.changes||[]).map(c=>c.file),...(h.patchFiles||[])]))];const since=Math.max(i.state==='deploy'?i.patchedAt||0:i.updated||0,i.recheckedAt||0);
+    if(files.length&&await checks.changedSince(files,since).catch(()=>false)){const dep=i.state==='deploy';i.recheck=dep?'deploy':true;i.state='verify';i.updated=now();await save();log('issues: '+i.id+(dep?' its patch waited for a deploy, and a deploy changed its files':' stuck, but a deploy changed its files')+': a proof run checks it again');continue}}
    // nothing left to check for 7 days: it leaves quietly, to the Activity log
    if(!checkable(i)&&now()-(i.updated||i.created||0)>7*864e5){i.state='expired';i.updated=now();i.history.push({kind:'expired',at:now(),summary:'No check could tell whether it was solved; closed after 7 days.'});await save();
     await (checks.activity?checks.activity(nameOf(i.agent)+': '+clip(i.missing,120)+' closed after 7 days with nothing left to check',i):null)?.catch?.(()=>{});n++}}
@@ -226,7 +237,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   const q=[...db.items].reverse().find(due);if(q)return await start(q,pol,'fix')}finally{running=null}}
  async function start(i,pol,kind){const n=kind==='fix'?i.tries+1:i.tries,id=i.id+'-'+n+(kind==='proof'?'p':''),dir=path.join(DIR,id);await mkdir(dir,{recursive:true,mode:0o700});
   const last=i.history.filter(h=>h.kind==='fix').at(-1);
-  await writeFile(path.join(dir,'prompt.txt'),kind==='fix'?fixerPrompt(i,{rules:pol.fixer?.rules||'',attempt:n}):proofPrompt(i,last,{reloaded:i.applied||null,recheck:!!i.recheck}),{mode:0o600});
+  await writeFile(path.join(dir,'prompt.txt'),kind==='fix'?fixerPrompt(i,{rules:pol.fixer?.rules||'',attempt:n}):proofPrompt(i,last,{reloaded:i.applied||null,recheck:!!i.recheck,deployed:i.recheck==='deploy'}),{mode:0o600});
   if(kind==='fix'){i.tries=n;i.state='fixing'}else i.state='verifying';i.run=id;i.updated=now();
   const r={id,issue:i.id,kind,day:today(),at:now(),agent:pol.fixer?.agent||'default'};db.runs[id]=r;await save();
   const minutes=kind==='fix'?Math.min(40,pol.fixer?.minutes||25):Math.min(30,pol.fixer?.proof_minutes||15);
@@ -265,6 +276,22 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  async function rollBack(changes){const done=[];for(const c of changes||[])if(c.backup&&await exists(c.backup)){
    const [b,a]=await Promise.all([readFile(c.backup).catch(()=>null),readFile(c.file).catch(()=>null)]);if(b&&a&&b.equals(a))continue;
    await copyFile(c.backup,c.file);done.push(c.file)}return done}
+ // a code fix for the daily deploy: the copies the fixer changed (patches) and any live code file it changed anyway
+ // become DATA/fixer-patches/<issue>-try<n>.patch; every live change of this try is put back (the whole fix ships
+ // with the deploy, then one proof run checks it). A try that leaves nothing to file is a failed try.
+ async function forDeploy(i,fr,h){const n=i.history.filter(x=>x.kind==='fix').length,parts=[],files=[];
+  for(const c of fr.patches||[]){const at=codeRoot(c.file);if(!at||!await exists(c.copy))continue;const d=await diffOf(await exists(c.file)?c.file:'/dev/null',c.copy,'a/'+at.root.prefix+at.rel,'b/'+at.root.prefix+at.rel);if(d){parts.push(d);files.push(c.file)}}
+  for(const c of fr.changes){const at=codeRoot(c.file);if(!at||!c.backup||files.includes(c.file))continue;const d=await diffOf(c.backup,c.file,'a/'+at.root.prefix+at.rel,'b/'+at.root.prefix+at.rel);if(d){parts.push(d);files.push(c.file)}}
+  const back=await rollBack(fr.changes);
+  if(!parts.length){h.outcome='no code change to file'+(back.length?', live changes put back':'');log('issues: '+i.id+' try '+i.tries+' filed no patch');return await nextTry(i,null)}
+  const dir=path.join(DATA,'fixer-patches');await mkdir(dir,{recursive:true});const name=i.id+'-try'+n+'.patch';
+  const head=['# aqeelOS fixer, issue '+i.id+' ('+nameOf(i.agent)+'), filed '+new Date(now()).toISOString()+' for the daily deploy',
+   '# Problem: '+clip(i.missing,300).replace(/\n/g,' '),'# Fix: '+clip(fr.summary,400).replace(/\n/g,' '),
+   '# Not applied on the box (nobody edits the live system by hand). Take it into git (git apply); after the deploy aqeelOS checks the problem again.',''];
+  await writeFile(path.join(dir,name),head.join('\n')+parts.join(''),{mode:0o600});
+  const pf='fixer-patches/'+name;h.patch=pf;h.patchFiles=files;h.outcome='filed for the daily deploy as '+pf+(back.length?' (the live edit was put back)':'');
+  i.state='deploy';i.patch=pf;i.patchedAt=now();i.rechecks=0;i.updated=now();i.result={...(i.result||{}),summary:clip((fr.summary||'')+' Filed as '+pf+' for the daily deploy.',1600)};
+  await save();log('issues: '+i.id+' code fix filed for the daily deploy: '+pf);return}
  async function check(r,pol){const dir=path.join(DIR,r.id);const ex=await readFile(path.join(dir,'exit'),'utf8').catch(()=>null);
   const up=r.pid&&(alive?await alive(r):(()=>{try{process.kill(r.pid,0);return true}catch{return false}})());
   if(ex===null&&up)return;const out=await readFile(path.join(dir,'out.txt'),'utf8').catch(()=>'');r.done=now();r.exit=ex===null?null:Number(ex);
@@ -284,6 +311,8 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
    if(fr.status==='failed'){await rollBack(fr.changes);h.outcome='failed, rolled back';return await nextTry(i,null)}
    const bad=await guard(fr);
    if(bad.length){const back=await rollBack(fr.changes);h.outcome='unsafe ('+bad.join('; ')+'), '+(back.length?'put back':'nothing to put back');log('issues: '+i.id+' try '+i.tries+' broke a rule: '+bad.join('; '));return await nextTry(i,null)}
+   // 8 Nov 2026: not urgent and it touches aqeelOS's code: filed as a patch for the daily deploy, nothing stays live
+   if(!i.urgent&&(fr.status==='patch'||fr.patches.length||fr.changes.some(c=>codeRoot(c.file))))return await forDeploy(i,fr,h);
    i.applied=null;
    if(fr.apply!=='none'&&fr.changes.length){i.state='applying';i.applyKind=fr.apply==='engine'||!i.uiDirty?fr.apply:'ui';i.waitingSince=now()}
    else if(i.uiDirty){i.state='applying';i.applyKind='ui';i.waitingSince=now()}else i.state='verify';
@@ -292,6 +321,11 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   const pr=res||{status:'not_proven',proof:'The proof run ended without a result'+(r.exit!=null?' (exit '+r.exit+')':' (stopped)')+'. '+clip(out.slice(-600),600),need:''};r.result=pr;
   const last=i.history.filter(h=>h.kind==='fix').at(-1);i.history.push({kind:'proof',run:r.id,at:now(),status:pr.status,proof:pr.proof,need:pr.need,...(i.recheck?{recheck:true}:{})});
   // a recheck of a stuck issue (sweep): nothing to roll back; proven closes it, otherwise it stays stuck until its files change again
+  if(i.recheck==='deploy'){i.recheck=false;i.recheckedAt=now();i.rechecks=(i.rechecks||0)+1;
+   if(pr.status==='proven'){i.state='fixed';i.fixed=now();i.proof=pr.proof;i.result={...(i.result||{}),status:'fixed',proof:pr.proof,summary:clip('Fixed by the daily deploy ('+(i.patch||'its patch')+'). '+(i.result?.summary||''),1600)};if(last)last.outcome='proven after the deploy';
+    await save();log('issues: '+i.id+' fixed by the deploy and proven');await onFixed(view(i)).catch(e=>log('issues: '+i.id+' after the fix: '+e.message));return}
+   // not in that deploy, or not enough: it keeps waiting for the next one; after 3 deploys it is stuck (nobody told)
+   i.state=i.rechecks>=TRIES?'stuck':'deploy';await save();log('issues: '+i.id+' not proven after the deploy ('+i.rechecks+'), '+i.state);return}
   if(i.recheck){i.recheck=false;i.recheckedAt=now();if(pr.status==='proven')return await resolved(i,'a recheck after a deploy proved it gone: '+clip(pr.proof,600));i.state='stuck';await save();return}
   if(pr.status==='proven'){i.state='fixed';i.fixed=now();i.proof=pr.proof;i.result={...(i.result||{}),status:'fixed',proof:pr.proof};if(last)last.outcome='proven';
    const pf=await savePatch(i,last,i.history.filter(h=>h.kind==='fix').length).catch(e=>{log('issues: '+i.id+' patch not saved: '+e.message);return null});

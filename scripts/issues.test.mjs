@@ -138,15 +138,43 @@ await t('older duplicates of an open issue are folded into the newest at start',
 await t('Health no longer sees it: a queued or an open (fixer off) issue goes away by itself, others stay',async()=>{const S=await setup({policy:{...POL2,fixer:{on:false}}});
  await S.I.file({agent:'a1',missing:'kicked from an old group',source:'health',healthKey:'a1|g'});await S.I.file({agent:'a1',missing:'still broken',source:'health',healthKey:'a1|s'});
  assert.equal(await S.I.healthGone(['a1|s']),1);const st=Object.fromEntries((await S.I._db()).items.map(i=>[i.healthKey,i.state]));assert.deepEqual(st,{'a1|g':'gone','a1|s':'open'})});
-await t('a proven fix to aqeelOS code is saved as a patch for git; a fix outside the code is not',async()=>{const app=await mkdtemp(path.join(tmpdir(),'app-'));await mkdir(path.join(app,'app'));await mkdir(path.join(app,'data'));
+await t('an urgent outage may be hot-patched: the proven fix to aqeelOS code is saved as a patch for git; a fix outside the code is not',async()=>{const app=await mkdtemp(path.join(tmpdir(),'app-'));await mkdir(path.join(app,'app'));await mkdir(path.join(app,'data'));
  const code=path.join(app,'app','kd.mjs'),dat=path.join(app,'data','x.json'),cfg=path.join(app,'..',path.basename(app)+'-cfg.yaml');
  for(const f of [code,dat,cfg])await writeFile(f,'old\n');
  const S=await setup({codeRoots:[{dir:app,prefix:''}],fix:[{status:'changed',apply:'ui',summary:'reset clears the pause',changes:[{file:code,backup:code+'.bak'},{file:dat,backup:dat+'.bak'},{file:cfg,backup:cfg+'.bak'}]}],proof:[{status:'proven',proof:'tester got the reply'}],
   onFix:async()=>{for(const f of [code,dat,cfg]){await writeFile(f+'.bak','old\n');await writeFile(f,'new\n')}}});
- await S.I.file({agent:'a1',missing:'reset reply held by a pause'});await S.ticks(6);const i=await S.db();assert.equal(i.state,'fixed',JSON.stringify(i.history));
+ await S.I.file({agent:'a1',missing:'reset reply held by a pause',urgent:true});await S.ticks(6);const i=await S.db();assert.equal(i.state,'fixed',JSON.stringify(i.history));
  assert.equal(i.patch,'fixer-patches/'+i.id+'-try1.patch');const p=await readFile(path.join(S.d,i.patch),'utf8');
  assert.match(p,/^# aqeelOS fixer, issue /);assert.match(p,/--- a\/app\/kd\.mjs\n\+\+\+ b\/app\/kd\.mjs/);assert.match(p,/-old\n\+new/);assert.doesNotMatch(p,/x\.json|cfg\.yaml/,'data and files outside the code are not git');
  assert.match(i.result.summary,/saved as fixer-patches\//);assert.match(S.f.runs[0].prompt,/fixer-patches/);assert.equal(quietAll(S.said),0)});
+// owner's stability plan (8 Nov 2026): nobody edits the live system by hand, the fixer included
+const codeBox=async()=>{const app=await mkdtemp(path.join(tmpdir(),'app-'));await mkdir(path.join(app,'app'));const code=path.join(app,'app','kd.mjs'),dat=path.join(app,'..',path.basename(app)+'-data.json');
+ for(const f of [code,dat])await writeFile(f,'old\n');return {app,code,dat}};
+await t('not urgent: a live code edit is put back and filed as a patch for the daily deploy; nothing reloads, nobody is told',async()=>{const {app,code,dat}=await codeBox();
+ const S=await setup({codeRoots:[{dir:app,prefix:''}],fix:[{status:'changed',apply:'ui',summary:'reset clears the pause',changes:[{file:code,backup:code+'.bak'},{file:dat,backup:dat+'.bak'}]}],
+  onFix:async()=>{for(const f of [code,dat]){await writeFile(f+'.bak','old\n');await writeFile(f,'new\n')}}});
+ await S.I.file({agent:'a1',missing:'reset reply held by a pause'});await S.ticks(4);const i=await S.db();
+ assert.equal(i.state,'deploy',JSON.stringify(i.history));assert.equal(i.patch,'fixer-patches/'+i.id+'-try1.patch');assert.deepEqual(S.applied,[]);assert.equal(S.f.runs.length,1,'no proof run before the deploy');
+ assert.equal(await readFile(code,'utf8'),'old\n','the live code is put back');assert.equal(await readFile(dat,'utf8'),'old\n','the whole try waits for the deploy');
+ const p=await readFile(path.join(S.d,i.patch),'utf8');assert.match(p,/for the daily deploy/);assert.match(p,/--- a\/app\/kd\.mjs\n\+\+\+ b\/app\/kd\.mjs/);assert.match(p,/-old\n\+new/);
+ assert.match(i.history[0].outcome,/filed for the daily deploy.*put back/);assert.deepEqual(i.history[0].patchFiles,[code]);assert.equal(quietAll(S.said),0);
+ const again=await S.I.file({agent:'a1',missing:'reset reply held by a pause'});assert.equal(again.issue.state,'deploy','filed again, it keeps waiting for the deploy')});
+await t('not urgent: the fixer changes a copy; the patch is live → copy, and the live file is never touched',async()=>{const {app,code}=await codeBox();const copy=code+'.work';
+ const S=await setup({codeRoots:[{dir:app,prefix:''}],fix:[{status:'patch',summary:'guard the push',patches:[{file:code,copy}]}],onFix:async()=>writeFile(copy,'old\nguard\n')});
+ await S.I.file({agent:'a1',missing:'tool server answers 500'});await S.ticks(3);const i=await S.db();assert.equal(i.state,'deploy');
+ assert.equal(await readFile(code,'utf8'),'old\n');assert.match(await readFile(path.join(S.d,i.patch),'utf8'),/ old\n\+guard/);
+ const pr=S.f.runs[0].prompt;assert.match(pr,/never changed in place/);assert.match(pr,/fixer-work\/i[0-9a-f]{8}\//);assert.match(pr,/Never test on a real agent/);assert.doesNotMatch(pr,/URGENT/);
+ assert.match(fixerPrompt({...i,urgent:true}),/URGENT \(an outage\), so you may change those files on the box/);
+ assert.match(proofPrompt(i,{}),/Never test on a real agent/);assert.match(proofPrompt(i,{},{deployed:true}),/AFTER THE DEPLOY/);
+ assert.equal(parseResult('RESULT: {"status":"patch","patches":[{"file":"/a/x.mjs","copy":"/w/x.mjs"},{"file":"rel","copy":"/w"}]}').patches.length,1)});
+await t('after a deploy changed the patched files, one proof run checks it: proven is fixed by the deploy; not proven waits again, stuck after 3 deploys',async()=>{const {app,code}=await codeBox();const copy=code+'.work';let deployed=0;
+ const mk=proof=>setup({codeRoots:[{dir:app,prefix:''}],fix:[{status:'patch',summary:'guard the push',patches:[{file:code,copy}]}],proof,onFix:async()=>writeFile(copy,'new\n'),checks:{changedSince:async()=>deployed>0}});
+ const S=await mk([{status:'proven',proof:'the tool server answers 200'}]);await S.I.file({agent:'a1',missing:'tool server answers 500'});await S.ticks(3);
+ assert.equal(await S.I.sweep(true),0);assert.equal((await S.db()).state,'deploy','no deploy yet: it waits');
+ deployed=1;await S.I.sweep(true);await S.ticks(3);let i=await S.db();assert.equal(i.state,'fixed',JSON.stringify(i.history));assert.match(i.result.summary,/^Fixed by the daily deploy/);
+ assert.match(S.f.runs.at(-1).prompt,/AFTER THE DEPLOY/);assert.equal(quietAll(S.said),0);
+ deployed=0;const N=await mk([{status:'not_proven'},{status:'not_proven'},{status:'not_proven'}]);await N.I.file({agent:'a1',missing:'tool server answers 500'});await N.ticks(3);deployed=1;
+ for(let k=0;k<3;k++){await N.I.sweep(true);await N.ticks(3)}i=await N.db();assert.equal(i.state,'stuck');assert.equal(i.rechecks,3);assert.equal(quietAll(N.said),0)});
 await t('"send a message from the tester phone" is never a person\'s job: the fixer tries again itself, nobody is told',async()=>{
  assert.equal(testerSendOnly('Someone must send a WhatsApp message from the tester phone (3124) to prove the reply'),true);
  assert.equal(testerSendOnly('Abel must add the bot back to the group'),false);assert.equal(testerSendOnly('Send a new API key for the tester line'),false);

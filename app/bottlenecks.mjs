@@ -114,4 +114,6 @@ export function createBottlenecks({DATA,dash,listAgents,names,onInfo=async()=>{}
  async function later(id,uid){await load();const now=Date.now();for(const [k,t] of Object.entries(db.snooze))if(t<now)delete db.snooze[k];db.snooze[uid?uid+'#'+id:id]=now+24*3600e3;await save()}
  // the open report behind a "report|<id>", so the caller can check who may act on it
  async function find(id){await load();return db.reports.find(x=>'report|'+x.id===id&&!x.fixed)||null}
- return {report,event,resolve,list,done,later,find,failedSchedules}}
+ // the open Health events as they are (the morning line, morning.mjs)
+ async function events(){await load();return db.events.map(e=>({...e}))}
+ return {report,event,resolve,list,done,later,find,failedSchedules,events}}
