@@ -8,6 +8,7 @@
 # Any failure stops the deploy with what failed; the live app is never touched by this script.
 set -e
 cd "$(dirname "$0")/.."
+AQ_BOX=${AQ_BOX:-ai-vps}
 # the My browser check (slow: it makes a throwaway agent) runs only when the browser parts changed since the last deploy
 last=$(node -e "try{const l=require('./data/deploys.json');console.log(l[l.length-1].commit||'')}catch{}")
 MB=1;if [ -n "$last" ] && ! git diff --name-only "$last" HEAD -- app/localbrowser.mjs app/screen.js app/chat.js extension scripts/mybrowser-check.mjs 2>/dev/null | grep -q .; then MB=0;fi
@@ -16,10 +17,10 @@ MB=1;if [ -n "$last" ] && ! git diff --name-only "$last" HEAD -- app/localbrowse
 # and a second run used to empty /tmp/aq-stage under the first (21 Oct 2026)
 TGZ=/tmp/hui-check-$(date +%s)-$$.tgz
 # a pushed commit is packed on the box from GitHub (deploy.sh sets PULL=1); otherwise sent from here
-if [ "${PULL:-0}" = 1 ]; then ssh ai-vps "bash -s -- $SHA $TGZ" < scripts/box-pack.sh >/dev/null || { echo "✗ the box could not pack the commit"; exit 1; }
+if [ "${PULL:-0}" = 1 ]; then ssh "$AQ_BOX" "AQ_REPO=$AQ_REPO bash -s -- $SHA $TGZ" < scripts/box-pack.sh >/dev/null || { echo "✗ the box could not pack the commit"; exit 1; }
 else
 PACK=""; for p in app assets backlog data engine extension mockup scripts code-installer PRD.md; do [ -e "$p" ] && PACK="$PACK $p"; done
  tar --force-local -czf ../hui-check.tgz $PACK
-scp -q ../hui-check.tgz ai-vps:$TGZ && rm ../hui-check.tgz
+scp -q ../hui-check.tgz "$AQ_BOX":$TGZ && rm ../hui-check.tgz
 fi
-ssh ai-vps "MB=$MB TGZ=$TGZ bash -s" < scripts/box-check.sh
+ssh "$AQ_BOX" "MB=$MB TGZ=$TGZ bash -s" < scripts/box-check.sh

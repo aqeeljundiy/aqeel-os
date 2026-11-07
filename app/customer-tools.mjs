@@ -17,7 +17,7 @@ import {randomBytes,timingSafeEqual} from 'node:crypto';
 import path from 'node:path';
 
 const READ_METHODS=new Set(['spreadsheets.values.get','spreadsheets.values.batchGet','spreadsheets.get']);
-const BANKS=['BCA','BNI','BRI','MANDIRI'];
+// bank codes are the payment helper's to check (it knows its provider); here only their shape
 const clip=(s,n)=>{s=String(s??'');return s.length>n?s.slice(0,n-1)+'…':s};
 // a workspace file a customer run may read: rules and templates, never hidden files, keys, tools or anything outside
 export function readable(rel){const r=String(rel||'').replace(/^\.\/+/,'');if(!r||r.startsWith('/')||r.split('/').some(x=>!x||x==='..'||x.startsWith('.')))return false;
@@ -34,7 +34,7 @@ export const TOOLS=pay=>[
  ...(pay?[{name:'create_payment',description:pay==='pay'
    ?'Create a REAL Tripay payment for THIS customer\'s CONFIRMED order and send it to them on WhatsApp (QRIS picture, or VA number). kind qris: amounts, each Rp10.000 to Rp5.000.000 (split bigger totals). kind va: bank and one amount. Use once per confirmed order; again only if the customer says it expired (expired true). After it succeeds, do not repeat the payment in your reply; say it was sent.'
    :'Create a REAL Tripay QRIS for THIS customer\'s CONFIRMED order total. Amounts each Rp10.000 to Rp5.000.000 (split bigger totals). Returns [FOTO: …] lines: put each on its own line in your reply so the QR picture is sent. Use once per confirmed order; again only if the customer says it expired (expired true).',
-  inputSchema:{type:'object',properties:{kind:{type:'string',enum:pay==='pay'?['qris','va']:['qris']},amounts:{type:'array',items:{type:'integer',minimum:10000,maximum:5000000},minItems:1,maxItems:5},bank:{type:'string',enum:BANKS},name:{type:'string',description:'The customer\'s name from the order form'},order_total:{type:'integer',description:'The confirmed order total; the amounts must add up to it'},expired:{type:'boolean'}},required:['amounts','name','order_total']}}]:[])];
+  inputSchema:{type:'object',properties:{kind:{type:'string',enum:pay==='pay'?['qris','va']:['qris']},amounts:{type:'array',items:{type:'integer',minimum:10000,maximum:5000000},minItems:1,maxItems:5},bank:{type:'string',description:'The bank code the payment helper accepts, e.g. BCA'},name:{type:'string',description:'The customer\'s name from the order form'},order_total:{type:'integer',description:'The confirmed order total; the amounts must add up to it'},expired:{type:'boolean'}},required:['amounts','name','order_total']}}]:[])];
 
 export function createCustomerTools({WORK,DATA,googleCall,chatFind,history,runAsAgent,log=m=>console.log(m),now=()=>Date.now(),random=n=>randomBytes(n)}){
  const runs=new Map();
@@ -60,13 +60,13 @@ export function createCustomerTools({WORK,DATA,googleCall,chatFind,history,runAs
     const amounts=[].concat(args.amounts||[]).map(Number);if(!amounts.length||amounts.some(x=>!Number.isInteger(x)||x<10000||x>5000000))return {isError:true,text:'Each amount is a whole number from 10000 to 5000000.'};
     const total=amounts.reduce((s,x)=>s+x,0);if(Number(args.order_total)!==total)return {isError:true,text:'The amounts add up to '+total+', not the order total '+args.order_total+'. Check the order form.'};
     if(r.payments>=2)return {isError:true,text:'Two payments were already made in this run. If something is wrong, hand off to the team.'};
-    const k=String(args.kind||'qris');if(k==='va'&&(kind!=='pay'||!BANKS.includes(String(args.bank||'').toUpperCase())||amounts.length!==1))return {isError:true,text:'A VA needs a bank ('+BANKS.join(', ')+') and one amount.'};
+    const k=String(args.kind||'qris');if(k==='va'&&(kind!=='pay'||!/^[A-Z0-9_]{2,20}$/.test(String(args.bank||'').toUpperCase())||amounts.length!==1))return {isError:true,text:'A VA needs a bank code and one amount.'};
     // the same total for the same customer within 30 minutes is a repeat, unless the customer said it expired
     const recent=(await readFile(path.join(DATA,'payments.jsonl'),'utf8').catch(()=>'')).split('\n').filter(Boolean).map(l=>{try{return JSON.parse(l)}catch{return null}}).filter(Boolean)
      .find(p=>p.agent===agent&&p.phone===r.phone&&p.total===total&&p.ok&&now()-Date.parse(p.at)<30*60e3);
     if(recent&&!args.expired)return {isError:true,text:'A payment for Rp'+total+' was already made for this customer at '+recent.at.slice(11,16)+' UTC. Only make a new one if the customer says it expired (expired true).'};
     const nm=clip(String(args.name||'').replace(/[^\p{L}\p{N} .,'-]/gu,'').trim(),60)||'Customer';
-    const argv=kind==='pay'?(k==='va'?['va',String(args.bank).toUpperCase(),String(amounts[0])]:['qris',...amounts.map(String)]).concat(['--name',nm,'--to',r.phone]):[...amounts.map(String),'--name',nm,'--phone','0'+r.phone.replace(/^62/,'')];
+    const argv=kind==='pay'?(k==='va'?['va',String(args.bank).toUpperCase(),String(amounts[0])]:['qris',...amounts.map(String)]).concat(['--name',nm,'--to',r.phone]):[...amounts.map(String),'--name',nm,'--phone',r.phone];
     r.payments++;const x=await runAsAgent(agent,'.tools/'+kind,argv);
     await payLog({agent,line:r.line,conversation:r.conversation,phone:r.phone,mode:r.mode,kind:k,amounts,total,ok:x.ok,out:clip(x.out||x.err,400)});
     log('customer run '+agent+': payment '+k+' Rp'+total+' for …'+r.phone.slice(-4)+(x.ok?' made':' failed'));

@@ -112,7 +112,7 @@ def guard_reply(text: str, platform: str):
     if p == "cron":
         return (kept if kept and not kept.strip().startswith("[SILENT]") else "[SILENT]"), err
     if p in CUSTOMER_PLATFORMS:
-        return (kept or "Mohon tunggu sebentar ya, saya cek dulu."), err
+        return (kept or os.environ.get("AQEELOS_CUSTOMER_HOLD_TEXT") or "One moment please, I am checking this."), err
     note = "(A script error was held back from this chat; it is in my health list and I am fixing it.)"
     return ((kept + "\n\n" + note) if kept else note), err
 

@@ -38,7 +38,7 @@ test('a payment is for this customer only, adds up to the order total, is logged
  assert.match((await pay({amounts:[2660000],name:'Ani',order_total:2600000})).text,/add up to 2660000/);
  assert.match((await pay({amounts:[5],name:'Ani',order_total:5})).text,/10000 to 5000000/);
  const ok=await pay({amounts:[2660000],name:'Ani; rm -rf /',order_total:2660000});assert.match(ok.text,/FOTO/);
- assert.deepEqual(ran[0],['continue-support','.tools/qris',['2660000','--name','Ani rm -rf','--phone','081234567890']]);
+ assert.deepEqual(ran[0],['continue-support','.tools/qris',['2660000','--name','Ani rm -rf','--phone','6281234567890']]);
  assert.match((await pay({amounts:[2660000],name:'Ani',order_total:2660000})).text,/already made/);
  const log=(await readFile(path.join(D,'payments.jsonl'),'utf8')).trim().split('\n').map(JSON.parse);assert.equal(log.length,1);assert.equal(log[0].phone,'6281234567890');assert.equal(log[0].total,2660000);
  assert.match((await pay({amounts:[2660000],name:'Ani',order_total:2660000,expired:true})).text,/FOTO/);
