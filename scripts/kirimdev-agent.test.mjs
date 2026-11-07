@@ -33,3 +33,8 @@ test('a customer run gets only the customer tool server and its own key, ended w
  const a=seen[0].args;assert.equal(a[a.indexOf('-t')+1],'aqeelos-customer');assert.equal(seen[0].env.TERMINAL_AQEELOS_CUSTOMER_RUN,'tok0');assert.equal(runs.size,0);
  await run('continue-support','q',{session:conversationSession('a','l','c')});assert.equal(seen[1].args.includes('-t'),false);
 });
+test('a sandboxed customer run continues a thread of its own, never the one made with other tools',async()=>{
+ const DATA=await mkdtemp(path.join(tmpdir(),'kd-th-'));const seen=[];
+ const run=createKirimdevAgent({DATA,home:DATA,live:true,customer:()=>({begin:()=>'t',end:()=>{}}),execute:(b,args,o,cb)=>{seen.push(args[args.indexOf('--continue')+1]);cb(null,'ok')}});
+ const s=conversationSession('a','l','c');await run('a','q',{session:s,run:{line:'l',conversation:'c',phone:'1'}});await run('a','q',{session:s});
+ assert.notEqual(seen[0],s);assert.match(seen[0],/^kirimdev-[a-f0-9]{64}$/);assert.equal(seen[1],s)});
