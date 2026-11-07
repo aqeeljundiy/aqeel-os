@@ -18,12 +18,18 @@ async function make(kind='qris'){const W=await mkdtemp(path.join(tmpdir(),'ct-')
   runAsAgent:async(a,tool,argv)=>{ran.push([a,tool,argv]);return {ok:true,out:'[FOTO: qris-1.png] | Rp2.660.000'}},log:()=>{},now:()=>t});
  return {C,W,D,ran,google,tick:ms=>{t+=ms}}}
 
-test('the tools exist only inside a run, bound to its agent; the run key ends with the run',async()=>{const {C}=await make();
- const list=async(a,tok)=>(await C.mcp(a,tok,{jsonrpc:'2.0',id:1,method:'tools/list'})).body.result.tools.map(t=>t.name);
- assert.deepEqual(await list('continue-support','${TERMINAL_AQEELOS_CUSTOMER_RUN}'),[]);
+test('the tools are listed on any connection (the gateway serves customer runs), each needs the run key, which ends with the run',async()=>{const {C}=await make();
+ const tools=async a=>(await C.mcp(a,undefined,{jsonrpc:'2.0',id:1,method:'tools/list'})).body.result.tools;
+ const t=await tools('continue-support');assert.deepEqual(t.map(x=>x.name),['read_sheet','read_file','list_files','conversation','past_chats','create_payment']);
+ for(const x of t){assert.equal(x.inputSchema.required[0],'run',x.name);assert.equal(x.inputSchema.properties.run.type,'string')}
+ const callOf=async(a,args,hdr)=>(await C.mcp(a,hdr,{jsonrpc:'2.0',id:2,method:'tools/call',params:{name:'list_files',arguments:args}})).body.result;
+ assert.equal((await callOf('continue-support',{})).isError,true,'no key: refused');
+ assert.equal((await callOf('continue-support',{run:'made-up'})).isError,true,'a wrong key: refused');
  const tok=C.begin({agent:'continue-support',line:'140',conversation:'cnv_1',phone:'6281234567890',mode:'test'});
- assert.deepEqual(await list('continue-support',tok),['read_sheet','read_file','list_files','conversation','past_chats','create_payment']);
- assert.deepEqual(await list('biomarkers-support',tok),[]);C.end(tok);assert.deepEqual(await list('continue-support',tok),[])});
+ assert.equal((await callOf('continue-support',{run:tok})).content[0].text,'BRIEFING.md\ntemplates/ORDER_FORM.md','the key in the call works');
+ assert.equal((await callOf('continue-support',{},tok)).content[0].text,'BRIEFING.md\ntemplates/ORDER_FORM.md','the old header still works');
+ assert.equal((await callOf('biomarkers-support',{run:tok})).isError,true,'another agent\'s key: refused');
+ C.end(tok);assert.equal((await callOf('continue-support',{run:tok})).isError,true,'ended run: refused')});
 
 test('reading: sheets read-only through aqeelOS, files from the rule list, this chat only',async()=>{const {C,google}=await make();const tok=C.begin({agent:'continue-support',line:'140',conversation:'cnv_1',phone:'628123'});
  assert.equal((await C.call('continue-support',tok,'read_sheet',{method:'spreadsheets.values.update',params:{}})).isError,true);

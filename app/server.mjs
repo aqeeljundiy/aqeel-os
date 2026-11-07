@@ -1212,8 +1212,9 @@ customerTools=createCustomerTools({WORK:path.join(homedir(),'workspaces'),DATA,p
    'cd '+custQ(W)+' && '+custQ(tool)+' '+argv.map(custQ).join(' ')],{timeout:120e3,encoding:'utf8',maxBuffer:2e6},(e,out,err)=>res({ok:!e,out:out||'',err:err||(e?e.message:'')})))}});
 // the support agents (a Kirimdev line) have the customer tool server in their settings; its key comes from each run
 async function ensureCustomerServer(){if(!LIVE_APP)return;for(const a of Object.keys(await kirimdev.lines().catch(()=>({})))){const c=await readConfig(a).catch(()=>null);if(!c)continue;
- const want={url:'http://127.0.0.1:4400/mcp/customer/'+a,headers:{'X-Aqeelos-Run':'${TERMINAL_AQEELOS_CUSTOMER_RUN}'}};const have=pick(c,'mcp_servers.aqeelos-customer');
- if(have?.url!==want.url||have?.headers?.['X-Aqeelos-Run']!==want.headers['X-Aqeelos-Run']){await setKey(a,'mcp_servers.aqeelos-customer',want);console.log('customer tools: added for',a)}
+ // no header (7 Nov 2026): the gateway serves customer runs over this one connection; each call carries its run key instead
+ const want={url:'http://127.0.0.1:4400/mcp/customer/'+a};const have=pick(c,'mcp_servers.aqeelos-customer');
+ if(have?.url!==want.url||have?.headers){await setKey(a,'mcp_servers.aqeelos-customer',want);console.log('customer tools: set for',a,'(key per call)')}
  // a support agent never skips the engine's safety stop for scripts (6 Nov: execute_code and "-e/-c" were allowlisted, the two stops that held customer runs)
  const al=[].concat(pick(c,'command_allowlist')||[]);if(al.length){await setKey(a,'command_allowlist',[]);console.log('customer tools: removed the command allowlist of',a,'('+al.join(', ')+')')}}}
 if(LIVE_APP)setTimeout(()=>ensureCustomerServer().catch(e=>console.warn('customer tools',e.message)),40000).unref();

@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
 import {mkdtemp,readFile,readdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -38,3 +39,8 @@ test('a sandboxed customer run continues a thread of its own, never the one made
  const run=createKirimdevAgent({DATA,home:DATA,live:true,customer:()=>({begin:()=>'t',end:()=>{}}),execute:(b,args,o,cb)=>{seen.push(args[args.indexOf('--continue')+1]);cb(null,'ok')}});
  const s=conversationSession('a','l','c');await run('a','q',{session:s,run:{line:'l',conversation:'c',phone:'1'}});await run('a','q',{session:s});
  assert.notEqual(seen[0],s);assert.match(seen[0],/^kirimdev-[a-f0-9]{64}$/);assert.equal(seen[1],s)});
+test('the run key travels in the run\'s instructions (the gateway runs it) and never reaches the reply',async()=>{
+ const DATA=await mkdtemp(path.join(tmpdir(),'kd-key-'));let q='';
+ const run=createKirimdevAgent({DATA,home:DATA,live:true,customer:()=>({begin:()=>'KEY123secret',end:()=>{}}),execute:(b,args,o,cb)=>{q=readFileSync(args[args.indexOf('--query-file')+1],'utf8');cb(null,'Halo kak KEY123secret')}});
+ const out=await run('a','Customer says hi',{session:conversationSession('a','l','c'),run:{line:'l',conversation:'c',phone:'1'}});
+ assert.match(q,/^Customer says hi\n\nRun key for your tools in this chat: KEY123secret /);assert.equal(out,'Halo kak ')});

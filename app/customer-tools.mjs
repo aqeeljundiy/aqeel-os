@@ -37,6 +37,10 @@ export const TOOLS=(pay,pr={})=>{const cur=pr.currency||'',lo=Number(pr.min)||1,
    :'Create a REAL QR payment with your payment helper for THIS customer\'s CONFIRMED order total. Amounts each '+amt(lo)+' to '+amt(hi)+' (split bigger totals). Returns [FOTO: …] lines: put each on its own line in your reply so the QR picture is sent. Use once per confirmed order; again only if the customer says it expired (expired true).',
   inputSchema:{type:'object',properties:{kind:{type:'string',enum:pay==='pay'?['qris','va']:['qris']},amounts:{type:'array',items:{type:'integer',minimum:lo,maximum:hi},minItems:1,maxItems:5},bank:{type:'string',description:'The bank code the payment helper accepts, e.g. BCA'},name:{type:'string',description:'The customer\'s name from the order form'},order_total:{type:'integer',description:'The confirmed order total; the amounts must add up to it'},expired:{type:'boolean'}},required:['amounts','name','order_total']}}]:[])]};
 
+// every customer tool takes the run's key (given in the run's instructions); calls without a live key are refused
+export const RUN_FIELD={type:'string',description:'Your run key, exactly as given in your instructions for this chat.'};
+export const withRun=tools=>tools.map(t=>({...t,inputSchema:{...t.inputSchema,properties:{run:RUN_FIELD,...(t.inputSchema?.properties||{})},required:['run',...(t.inputSchema?.required||[]).filter(x=>x!=='run')]}}));
+
 export function createCustomerTools({WORK,DATA,payRules=async()=>({}),googleCall,chatFind,history,runAsAgent,log=m=>console.log(m),now=()=>Date.now(),random=n=>randomBytes(n)}){
  const runs=new Map();
  // the agent's payment helper: the line's setting (kirimdev.json lines.<agent>.payment.helper {path, style}), else the
@@ -88,9 +92,12 @@ export function createCustomerTools({WORK,DATA,payRules=async()=>({}),googleCall
   if(msg.method==='notifications/initialized'||msg.id==null)return {status:202,body:''};
   if(msg.method==='ping')return rpc({});
   // outside a customer run (the engine's own connection) the list is empty: these tools exist only inside a run
-  if(msg.method==='tools/list')return rpc({tools:runOf(agent,token)?TOOLS(await payKind(agent),await payRules(agent).catch(()=>({}))||{}):[]});
+  // listed on every connection (7 Nov 2026): the engine's gateway runs customer turns over its own shared connection, which
+  // never carries a run's header, so the key travels in the run's instructions and in each call (run). No key, no answer.
+  if(msg.method==='tools/list')return rpc({tools:withRun(TOOLS(await payKind(agent),await payRules(agent).catch(()=>({}))||{}))});
   if(msg.method!=='tools/call')return {status:200,body:{jsonrpc:'2.0',id:msg.id,error:{code:-32601,message:'Method not found'}}};
-  const x=await call(agent,token,String(msg.params?.name||''),msg.params?.arguments&&typeof msg.params.arguments==='object'?msg.params.arguments:{});
+  const args=msg.params?.arguments&&typeof msg.params.arguments==='object'?{...msg.params.arguments}:{};const key=typeof args.run==='string'&&args.run?args.run:token;delete args.run;
+  const x=await call(agent,key,String(msg.params?.name||''),args);
   return rpc({content:[{type:'text',text:String(x.text||'')}],...(x.isError?{isError:true}:{})})}
  const safeEq=(a,b)=>{const x=Buffer.from(String(a)),y=Buffer.from(String(b));return x.length===y.length&&timingSafeEqual(x,y)};
  // whether a payment for this customer was made since a time (the reply guard in kirimdev.mjs)
