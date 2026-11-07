@@ -84,4 +84,7 @@ export function createCustomerTools({WORK,DATA,googleCall,chatFind,history,runAs
   const x=await call(agent,token,String(msg.params?.name||''),msg.params?.arguments&&typeof msg.params.arguments==='object'?msg.params.arguments:{});
   return rpc({content:[{type:'text',text:String(x.text||'')}],...(x.isError?{isError:true}:{})})}
  const safeEq=(a,b)=>{const x=Buffer.from(String(a)),y=Buffer.from(String(b));return x.length===y.length&&timingSafeEqual(x,y)};
- return {begin,end,call,mcp,files,runOf,safeEq}}
+ // whether a payment for this customer was made since a time (the reply guard in kirimdev.mjs)
+ async function paidSince(agent,phone,since){const ph=String(phone||'').replace(/\D/g,'');return (await readFile(path.join(DATA,'payments.jsonl'),'utf8').catch(()=>'')).split('\n').filter(Boolean)
+  .some(l=>{try{const p=JSON.parse(l);return p.agent===agent&&p.phone===ph&&p.ok&&Date.parse(p.at)>=since-1000}catch{return false}})}
+ return {begin,end,call,mcp,files,runOf,safeEq,paidSince}}

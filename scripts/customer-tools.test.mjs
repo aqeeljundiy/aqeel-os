@@ -48,3 +48,8 @@ test('a payment is for this customer only, adds up to the order total, is logged
 test('Gilang\'s helper sends to the run\'s customer, whatever number the model has in mind',async()=>{const {C,ran}=await make('pay');const tok=C.begin({agent:'continue-support',line:'291',conversation:'c',phone:'6287885993124'});
  await C.call('continue-support',tok,'create_payment',{kind:'va',bank:'bca',amounts:[1500000],name:'Budi',order_total:1500000,to:'6280000000000'});
  assert.deepEqual(ran[0][2],['va','BCA','1500000','--name','Budi','--to','6287885993124'])});
+
+test('the reply guard can ask whether a payment was made for this customer since the run began',async()=>{const {C}=await make();const tok=C.begin({agent:'continue-support',line:'1',conversation:'c',phone:'628111222333'});
+ assert.equal(await C.paidSince('continue-support','628111222333',0),false);
+ await C.call('continue-support',tok,'create_payment',{amounts:[50000],name:'A',order_total:50000});
+ assert.equal(await C.paidSince('continue-support','+62 811-1222-333',1e12-5000),true);assert.equal(await C.paidSince('biomarkers-support','628111222333',0),false)});

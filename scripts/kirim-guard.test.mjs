@@ -19,3 +19,9 @@ test('an order form that lists QRIS as a payment option is not held',()=>{
  assert.equal(guardReply(splitReply(t)).hold,null)});
 test('saying the QRIS is here without the picture is still held',()=>{
  assert.ok(guardReply(splitReply('Siap kak, berikut QRIS-nya ya, berlaku 30 menit.')).hold)});
+
+test('a reply that says a payment was sent needs a payment made in this run (7 Nov 2026)',async()=>{const {guardReply}=await import('../app/kirimdev.mjs');
+ const held=(t,paid)=>!!guardReply([t],{paid}).hold;
+ for(const t of ['QRIS sudah saya kirim ya kak','Link pembayaran berikut ya kak','Berikut nomor VA BCA kakak','Invoice sudah kami kirimkan ke WhatsApp kakak'])assert.equal(held(t,false),true,t);
+ for(const t of ['Silakan pilih metode pembayaran: QRIS atau VA','Terima kasih kak, pesanan dicatat','Mau bayar pakai QRIS atau transfer VA kak?'])assert.equal(held(t,false),false,t);
+ assert.equal(held('QRIS sudah saya kirim ya kak',true),false);assert.equal(held('Nomor VA BCA sudah terkirim',null),false)});

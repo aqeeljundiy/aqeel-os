@@ -72,7 +72,11 @@ const INTERNAL=[/^\s*\[(?!FOTO:|TEMPLATE:)(gambar|image|foto|photo|picture|img)\
 const LEAK=[/\b(rules?\s+tab|decisions?\s+(file|log|tab)|knowledge\s+(sheet|base|file)|hand-?offs?|briefing|soul\.md|aqeel_decisions|past_chats|system\s+prompt|my\s+instructions|the\s+customer)\b/i,
  /^\s*(I|I'm|I've|I'll|I\s+will|Let\s+me|Okay|Sure|Based\s+on|Here\s+is|Here's|Now|First|Reply|Draft|Note|Thinking)\b[\s,:']/,
  /\b[\w-]+\.(md|json|txt|py|csv|ya?ml|jpe?g|png|webp|pdf)\b/i];
-export function guardReply(parts){const removed=[];const keep=[];
+// paid: whether the payment tool made a payment in this run (null = unknown, the old QR-picture check only)
+// a reply that says a payment (QRIS, VA, link, invoice) is sent, attached or below needs a real payment from this run
+// (audit 6 Nov: "link Xendit tadi" was never sent; three "Berikut QRIS" had no QRIS)
+const PAY_CLAIM=/\b(qris|virtual account|nomor va|va\s+(bca|bni|bri|mandiri)|link (pembayaran|bayar|xendit|invoice)|payment link|invoice)\b[^\n]{0,60}\b(sudah|telah|udah)?\s*(saya |kami )?(kirim(kan)?|terkirim|berikut|terlampir|di ?bawah|sent|attached|below)\b|\b(berikut|terlampir)\b[^\n]{0,25}\b(qris|va|virtual account|link (pembayaran|bayar)|invoice)\b|\b(sudah|telah|udah)\s+(saya |kami )?(kirim(kan)?|buat(kan)?)\b[^\n]{0,40}\b(qris|va|virtual account|link|invoice)\b/i;
+export function guardReply(parts,{paid=null}={}){const removed=[];const keep=[];
  for(const p of parts){if(/^\[(FOTO|TEMPLATE):/.test(p)){keep.push(p);continue}
   for(const l of p.split('\n'))if(INTERNAL.some(r=>r.test(l))||LEAK.some(r=>r.test(l)))removed.push(l.trim());keep.push(p)}
  if(removed.length)return {parts:keep,removed,hold:'The reply had text meant for the team, not the customer: '+removed.join(' | ').slice(0,300)};
@@ -81,14 +85,16 @@ export function guardReply(parts){const removed=[];const keep=[];
  const QR_PROMISE=/(berikut|ini|terlampir|di ?bawah|kami kirim(kan)?|saya kirim(kan)?|here is|attached)[^\n]{0,25}\bQRIS\b|\bQRIS(-?nya)?\b[^\n]{0,15}(terlampir|di ?bawah|berikut|attached)/i;
  const promisesQr=keep.some(p=>QR_PROMISE.test(p)&&!/metode pembayaran|pilih (salah satu|metode)|payment method/i.test(p));
  const hasPic=keep.some(p=>/^\[FOTO:/i.test(p));
- return {parts:keep,removed,hold:promisesQr&&!hasPic?'The reply says a QRIS is attached, but no QR picture was made. Create the QRIS with the payment tool, then send it.':null}}
+ if(promisesQr&&!hasPic)return {parts:keep,removed,hold:'The reply says a QRIS is attached, but no QR picture was made. Create the QRIS with the payment tool, then send it.'};
+ const claims=keep.some(p=>!/^\[(FOTO|TEMPLATE):/.test(p)&&PAY_CLAIM.test(p)&&!/metode pembayaran|pilih (salah satu|metode)|payment method/i.test(p));
+ return {parts:keep,removed,hold:paid===false&&claims?'The reply says a payment (QRIS, VA, link or invoice) was sent, but no payment was made in this run. Make it with create_payment first, or hand off.':null}}
 
 import {conversationSession} from './kirimdev-agent.mjs';
 
 const RESET=/^(reset|\/reset|mulai baru)$/i;
 const tail=n=>'…'+String(n||'').slice(-4);
 
-export function createKirimdev({DATA,WORK,apiKey,runAgent,telegram,teamGroup=async()=>null,tell=async()=>{},problem=null,solved=async()=>{},log=m=>console.log(m),fetchImpl=fetch,now=()=>Date.now(),PUBLIC_URL,wait=ms=>new Promise(r=>setTimeout(r,ms)),maxRuns=2,echoWait=4000,setTimer=setTimeout,clearTimer=clearTimeout}){
+export function createKirimdev({DATA,WORK,apiKey,runAgent,paidSince=null,telegram,teamGroup=async()=>null,tell=async()=>{},problem=null,solved=async()=>{},log=m=>console.log(m),fetchImpl=fetch,now=()=>Date.now(),PUBLIC_URL,wait=ms=>new Promise(r=>setTimeout(r,ms)),maxRuns=2,echoWait=4000,setTimer=setTimeout,clearTimer=clearTimeout}){
  const ASK_MIN=30;   // minutes a handoff may wait for the team's answer before Health shows it
  const CONF=path.join(DATA,'kirimdev.json'),SEC=path.join(DATA,'kirimdev-secrets.json'),ST=path.join(DATA,'kirimdev-state.json');
  const readJson=async(f,d)=>{try{return JSON.parse(await readFile(f,'utf8'))}catch{return d}};
@@ -185,7 +191,7 @@ export function createKirimdev({DATA,WORK,apiKey,runAgent,telegram,teamGroup=asy
    '\n\nNew inbound messages (authoritative even if provider history is delayed):\n'+(p.messages||[]).map(t=>'CUSTOMER: '+t).join('\n')+
    '\n\nWrite ONLY the WhatsApp reply text to send next (Indonesian, WhatsApp formatting with *bold*, short paragraphs). Do NOT send anything yourself. '+
    'If several messages are needed, separate them with a line containing only ---. If this must go to a human (handoff rules), reply exactly: HANDOFF: <reason, and what you already checked (sheet, past chats) and found>';
-  log('kirimdev '+agent+': answering '+p.name);let out=String(await runAgent(agent,q,{session:conversationSession(agent,line.phoneNumberId,p.conversationId||p.from,epoch),run:{line:line.phoneNumberId,conversation:p.conversationId||'',phone:p.from,mode}})||'').replace(FOOTER,'').trim();
+  log('kirimdev '+agent+': answering '+p.name);const runAt=now();let out=String(await runAgent(agent,q,{session:conversationSession(agent,line.phoneNumberId,p.conversationId||p.from,epoch),run:{line:line.phoneNumberId,conversation:p.conversationId||'',phone:p.from,mode}})||'').replace(FOOTER,'').trim();
   if(!out){log('kirimdev '+agent+': the agent wrote nothing');return}
   // a team member replied while the agent was thinking: theirs stands
   await state();if((st.cut[key]||'')!==epoch||pausedUntil(agent,p.conversationId,p.from)>now()){log('kirimdev '+agent+': conversation reset or a team member answered meanwhile; the agent\'s reply was not sent');return}
@@ -194,7 +200,7 @@ export function createKirimdev({DATA,WORK,apiKey,runAgent,telegram,teamGroup=asy
    await postHandoff(h,line);return}
   // pictures the agent should send with a recommendation, when it forgets the tags
   if(line.autoPhotos?.pattern&&new RegExp(line.autoPhotos.pattern,'i').test(out)&&!/\[(FOTO|TEMPLATE):/.test(out))out+='\n'+(line.autoPhotos.tags||[]).join('\n');
-  const g=guardReply(splitReply(out));
+  const g=guardReply(splitReply(out),{paid:paidSince?await paidSince(agent,p.from,runAt).catch(()=>null):null});
   // a leak: nothing goes to the customer; the reply waits in the Questions topic as a draft (ok / changed text / no)
   if(g.removed.length){log('kirimdev '+agent+': reply HELD, it had '+g.removed.length+' line(s) meant for the team: '+g.removed.join(' | ').slice(0,200));
    return makeDraft(agent,line,p,g.parts,'🛑 HELD: this reply was NOT sent because it had text meant for the team ('+g.removed.join(' | ').slice(0,300)+'). Fix it and reply with the clean text, or \"no\".')}
