@@ -148,8 +148,11 @@ export function createKirimdev({DATA,WORK,apiKey,runAgent,paidSince=null,telegra
    if(tester&&RESET.test(m.text.trim())){st.cut[key]=new Date((m.ts||now()/1000)*1000+1000).toISOString();delete st.pending[key];delete st.turns[key];cancelOutbound(agent,m.from);
     await send(agent,line,m.from,'✅ Test reset. Chat dari awal ya, anggap kamu customer baru.').catch(e=>log('kirimdev reset reply: '+e.message));continue}
    const until=pausedUntil(agent,m.conversationId,m.from);
-   if(until>now()){log('kirimdev '+agent+': '+tail(m.from)+' wrote while a team member is answering; the agent waits until '+new Date(until).toISOString());continue}
-   st.pending[key]={agent,from:m.from,conversationId:m.conversationId,name:testerName(line,m),at:now(),token:randomUUID(),messages:[...(st.pending[key]?.messages||[]),m.text]};schedule(key,line)}
+   // a message during a team member's pause is kept, not dropped (audit 6 Nov: "mau pakai CC" was never answered): it waits
+   // for the pause to end, and is answered then unless the team answered it meanwhile
+   const paused=until>now();if(paused)log('kirimdev '+agent+': '+tail(m.from)+' wrote while a team member is answering; kept until '+new Date(until).toISOString());
+   st.pending[key]={agent,from:m.from,conversationId:m.conversationId,name:testerName(line,m),at:st.pending[key]?.at||now(),token:randomUUID(),messages:[...(st.pending[key]?.messages||[]),m.text],...(paused||st.pending[key]?.waited?{waited:true}:{})};
+   schedule(key,paused?{debounceSec:Math.ceil((until-now())/1000)+5}:line)}
   await saveState();return {status:200,body:{ok:true}}}
 
  // an outbound message on this line: ours (aqeelOS sent it) or a person's, which pauses the agent in that conversation
@@ -169,17 +172,20 @@ export function createKirimdev({DATA,WORK,apiKey,runAgent,paidSince=null,telegra
  // setTimer/clearTimer are injectable so tests drive the burst window themselves instead of racing a 0 s timer
  function schedule(key,line){clearTimer(timers.get(key));timers.set(key,setTimer(()=>{timers.delete(key);return run(key).catch(e=>log('kirimdev '+key+': '+e.message))},(line.debounceSec??8)*1000))}
  async function run(key){if(running.has(key))return;
-  running.add(key);let acquired=false;
+  running.add(key);let acquired=false,later=false;
   try{while(active>=maxRuns)await wait(1000);active++;acquired=true;
    await state();const p=st.turns[key]||st.pending[key];if(!p)return;st.turns[key]=p;const line=await lineOf(p.agent);if(!line)return;
-   if(pausedUntil(p.agent,p.conversationId,p.from)>now())return;
+   const pu=pausedUntil(p.agent,p.conversationId,p.from);if(pu>now()){later=true;delete st.turns[key];schedule(key,{debounceSec:Math.ceil((pu-now())/1000)+5});return}
+   // kept during a pause: the team may have answered it since; then it is done
+   if(p.waited&&p.conversationId){const l=((await api(line.phoneNumberId+'/messages?'+new URLSearchParams({conversation_id:p.conversationId,limit:'5'}))).data||[]).filter(m=>m.type!=='reaction').sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)));
+    if(l[0]?.direction==='outbound'&&Date.parse(l[0].created_at)>p.at){log('kirimdev '+p.agent+': the team answered '+tail(p.from)+' during the pause; nothing more to send');if(st.pending[key]?.token===p.token)delete st.pending[key];delete st.turns[key];await saveState();return}}
    const epoch=st.cut[key]||'';await answer(p.agent,line,p,key);
    // Only consume the snapshot we answered, never a newer arrival.
    if(st.pending[key]?.token===p.token)delete st.pending[key];
    else if(st.pending[key]&&(st.cut[key]||'')===epoch)st.pending[key].messages=st.pending[key].messages.slice((p.messages||[]).length);
    delete st.turns[key];await saveState();
   }finally{running.delete(key);if(acquired)active--;
-   if(st?.pending[key])schedule(key,{debounceSec:5})}}
+   if(st?.pending[key]&&!later)schedule(key,{debounceSec:5})}}
 
  async function history(line,p,key){if(!p.conversationId)return '';const q=new URLSearchParams({conversation_id:p.conversationId,limit:'30'});
   const l=((await api(line.phoneNumberId+'/messages?'+q)).data||[]).sort((a,b)=>String(a.created_at).localeCompare(String(b.created_at))).filter(m=>String(m.created_at)>(st.cut[key]||''));
