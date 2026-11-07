@@ -12,6 +12,7 @@ import {createWhy} from './why.mjs';
 import {createChatHistory} from './chat-history.mjs';
 import {createIssues} from './issues.mjs';
 import {createTeamSettings} from './team-settings.mjs';
+import {createCodeChanges} from './code-changes.mjs';
 import {createEscalations} from './escalations.mjs';
 import {createConnect} from './connect.mjs';
 import {createAntigravity} from './antigravity.mjs';
@@ -758,6 +759,7 @@ if(LIVE_APP){setTimeout(()=>listAgents().then(l=>instructions.tick(l)).catch(()=
 // the owner on the main agent's WhatsApp (as when the server was off, or after a night update)
 // Plug and play settings (System › Teams, team-settings.mjs): the team policy, where owner alerts go, Pause alerts, test agents
 const teamSettings=createTeamSettings({DATA,HERMES_HOME,listAgents:()=>listAgents()});
+const codeChanges=createCodeChanges({DATA});   // live code changes git lacks: deploy drift and fixer patches (System › Health)
 // Where owner alerts go: the channel and chat chosen on System › Teams; else the main agent's own chat (Telegram first for
 // its reports, WhatsApp first for the rest). No channel at all, or the send fails: the bell, so an alert is never lost.
 async function ownerChannel(prefer){const ch=await relay.channelsFor('default').catch(()=>[]),t=await teamSettings.alertTarget();
@@ -1358,7 +1360,8 @@ async function issueApply(kind,why){if(kind==='ui'){console.log('restarting the 
  return await gatewayPid()?{ok:true}:{ok:false,why:'the engine did not come back yet'}}
 const issueEnvFiles=async()=>[path.join(HERMES_HOME,'.env'),...(await readdir(path.join(HERMES_HOME,'profiles')).catch(()=>[])).map(a=>path.join(HERMES_HOME,'profiles',a,'.env'))];
 const issues=createIssues({DATA,home:homedir(),bin:path.join(homedir(),'.local','bin','aqeelos'),fixerHome:homedir(),nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a),
- reply:replyInTopic,tellOwner:srToOwner,toTeam:issueToTeam,quiet:alertQuiet,busy:async()=>busyNow(),ready:async()=>!gwStopped&&!gwRestarting&&!!await gatewayPid(),apply:issueApply,envFiles:issueEnvFiles});
+ reply:replyInTopic,tellOwner:srToOwner,toTeam:issueToTeam,quiet:alertQuiet,busy:async()=>busyNow(),ready:async()=>!gwStopped&&!gwRestarting&&!!await gatewayPid(),apply:issueApply,envFiles:issueEnvFiles,
+ codeRoots:[{dir:root,prefix:''},{dir:path.join(HERMES_HOME,'hermes-agent'),prefix:'hermes-agent/'}]});
 /* The one model call of the live checks (7 Nov 2026, owner: "save tokens"): once after each deploy (the app's code changed),
    a customer run on a Kirimdev agent whose line is in Test, with nothing sent (the run only returns text), must call
    read_file and answer with a line of the file it read (its greeting template). A failure is a Health problem. */
@@ -2616,7 +2619,7 @@ const server=createServer(async(req,res)=>{
      if(p==='/ui/apps/remove')return send(res,200,await live.remove(u,users.isAdmin(u),String(b.id||'')));
      if(p==='/ui/apps/connect'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,await live.connect(b))}}catch(e){return send(res,400,{error:e.message})}}
    // System › Health: each agent fine or with its problems, and its failed messages this week (agent-health.mjs)
-   if(p==='/ui/health/issues'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});const l=await issues.list();return send(res,200,{items:l.items.map(i=>({id:i.id,agent:i.agent,agentName:i.agentName,state:i.state,source:i.source||null,missing:i.missing,proposed_fix:i.proposed_fix,byName:i.byName,decision:i.decision,created:i.created,updated:i.updated,count:i.count,result:i.result||null,tries:i.tries??i.attempts??0,proof:i.proof||null,need:i.need||null,told:i.told||null,noRetry:!!i.noRetry,closeAfter:!!i.closeAfter,history:(i.history||[]).slice(-8).map(h=>({kind:h.kind,at:h.at,status:h.status,summary:h.summary||null,outcome:h.outcome||null}))})),escalations:await escalations.view().catch(()=>({agents:{}})),agents:(await listAgents().catch(()=>[])).map(a=>({id:a,name:NAMES[a]||(a==='default'?'aqeelOS':a)})),sources:await chatHistory.sources().catch(()=>[]),policy:{teams:(l.policy.teams||[]).map(t=>({name:t.name,agents:t.agents,contact:t.contact||(t.members||[])[0]?.name||null,members:(t.members||[]).map(m=>m.name)})),fixer:l.policy.fixer||{}}})}
+   if(p==='/ui/health/issues'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});const l=await issues.list();return send(res,200,{items:l.items.map(i=>({id:i.id,agent:i.agent,agentName:i.agentName,state:i.state,source:i.source||null,missing:i.missing,proposed_fix:i.proposed_fix,byName:i.byName,decision:i.decision,created:i.created,updated:i.updated,count:i.count,result:i.result||null,tries:i.tries??i.attempts??0,proof:i.proof||null,need:i.need||null,told:i.told||null,patch:i.patch||null,noRetry:!!i.noRetry,closeAfter:!!i.closeAfter,history:(i.history||[]).slice(-8).map(h=>({kind:h.kind,at:h.at,status:h.status,summary:h.summary||null,outcome:h.outcome||null}))})),escalations:await escalations.view().catch(()=>({agents:{}})),agents:(await listAgents().catch(()=>[])).map(a=>({id:a,name:NAMES[a]||(a==='default'?'aqeelOS':a)})),sources:await chatHistory.sources().catch(()=>[]),policy:{teams:(l.policy.teams||[]).map(t=>({name:t.name,agents:t.agents,contact:t.contact||(t.members||[])[0]?.name||null,members:(t.members||[]).map(m=>m.name)})),fixer:l.policy.fixer||{}}})}
   // Report an issue, Stop retrying and Close (System › Health): a person files one for the fixer, or ends one
   if(/^\/ui\/health\/issues\/(report|close|stop)$/.test(p)&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}
    try{if(p.endsWith('/report')){const a=String(b.agent||'');if(!(await listAgents()).includes(a))return send(res,400,{error:'Pick the agent it is about.'});
@@ -2641,6 +2644,12 @@ const server=createServer(async(req,res)=>{
    }catch(e){return send(res,400,{error:e.message})}
    return send(res,404,{error:'Not found'})}
   // "Try again" (after a person did what was needed, or for a stuck issue): a fresh set of tries
+  // code changes on the box that git lacks (code-changes.mjs): the list, one patch's text, and "taken into git"
+  if(p==='/ui/health/code-changes'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});
+   if(url.searchParams.get('name')){try{return send(res,200,{text:await codeChanges.read(url.searchParams.get('kind'),url.searchParams.get('name'))})}catch(e){return send(res,404,{error:e.code==='ENOENT'?'That patch is gone.':e.message})}}
+   return send(res,200,{items:await codeChanges.list()})}
+  if(p==='/ui/health/code-changes/done'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});let b={};try{b=JSON.parse(await readBody(req,2048))}catch{}
+   try{await codeChanges.done(String(b.kind||''),String(b.name||''));return send(res,200,{ok:true})}catch(e){return send(res,400,{error:e.code==='ENOENT'?'That patch is gone.':e.message})}}
   if(p==='/ui/health/issues/retry'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});let b={};try{b=JSON.parse(await readBody(req,2048))}catch{}const i=await issues.retry(String(b.id||''));if(!i)return send(res,404,{error:'No such issue.'});return send(res,200,{ok:true,state:i.state})}
    if(p==='/ui/health/agents'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,await health.view())}
    // an agent's instructions (instructions.mjs): history, a version with its changes, save, bring back, rewrites waiting for approval, flags

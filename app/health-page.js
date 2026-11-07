@@ -4,9 +4,10 @@
    left out: the chat list and Manage chats already show it. #/system/status and #/system/host open this page. ---------- */
 {const oldStatus=PAGES.status,oldHost=PAGES.host;
  PAGES.health=async(p,el,r)=>{const tok=S._htok=(S._htok||0)+1,stale=()=>tok!==S._htok;
-  setActions('');el.innerHTML=`<h2 class="ach-cat" style="margin-top:0">Agents</h2>${S.me?.admin!==false?'<div id="hIssues"></div><div id="hAgents"><div class="skel" style="height:120px;border-radius:18px;margin-bottom:14px"></div></div>':''}<div id="hStatus"><div class="skel" style="height:110px;border-radius:18px"></div></div><h2 class="ach-cat">The AI box</h2><div id="hHost"><div class="skel" style="height:160px;border-radius:18px"></div></div>`;
+  setActions('');el.innerHTML=`<h2 class="ach-cat" style="margin-top:0">Agents</h2>${S.me?.admin!==false?'<div id="hIssues"></div><div id="hCode"></div><div id="hAgents"><div class="skel" style="height:120px;border-radius:18px;margin-bottom:14px"></div></div>':''}<div id="hStatus"><div class="skel" style="height:110px;border-radius:18px"></div></div><h2 class="ach-cat">The AI box</h2><div id="hHost"><div class="skel" style="height:160px;border-radius:18px"></div></div>`;
   const sBox=el.querySelector('#hStatus'),hBox=el.querySelector('#hHost'),aBox=el.querySelector('#hAgents');
-  const iBox=el.querySelector('#hIssues');const drawIssues=async()=>{if(!iBox)return;let d;try{d=await UI('/ui/health/issues')}catch{return}if(stale()||!iBox.isConnected)return;HealthIssues.draw(iBox,d,drawIssues)};
+  const iBox=el.querySelector('#hIssues');const drawIssues=async()=>{if(!iBox)return;let d;try{d=await UI('/ui/health/issues')}catch{return}if(stale()||!iBox.isConnected)return;HealthIssues.draw(iBox,d,drawIssues);drawCode()};
+  const cBox=el.querySelector('#hCode');const drawCode=async()=>{if(!cBox)return;let d;try{d=await UI('/ui/health/code-changes')}catch{return}if(stale()||!cBox.isConnected)return;HealthCode.draw(cBox,d,drawCode)};
   const drawAgents=async()=>{if(!aBox)return;let d;try{d=await UI('/ui/health/agents')}catch(e){if(!stale()&&aBox.isConnected&&aBox.querySelector('.skel'))aBox.innerHTML=alertBox(esc(e.message));return}if(stale()||!aBox.isConnected)return;AgentHealth.draw(aBox,d,drawAgents)};
   // a refresh keeps this page's buttons (the Agents part sets its own as it starts)
   const drawStatus=async()=>{const b=document.createElement('div');b.hidden=true;document.body.append(b);const ha=$('.head-actions'),keep=sBox.querySelector('.skel')?null:ha?.innerHTML;try{const run=oldStatus(p,b,r);if(keep!=null&&ha.isConnected)ha.innerHTML=keep;await run}catch(e){b.remove();throw e}
@@ -84,6 +85,25 @@ ACT['console-open']=()=>{if(S.me?.admin===false)return toast('Only admins can us
 /* ---------- Issues and the fixer, and how often the team still went to the main agent (issues.mjs, escalations.mjs).
    Since 7 Nov 2026 nobody approves: the fixer fixes, reloads safely and proves it. Only "needs a person" and "stuck"
    reach someone; both have Try again here for when that person has done their part. ---------- */
+// code changes on the box that git does not have yet (code-changes.mjs): what a deploy found changed before it unpacked,
+// and proven fixer changes to aqeelOS's own code. Shown only when there is one; each waits for a coding session to take
+// it into git, then "Taken into git" clears it.
+const HealthCode={
+ draw(box,d,again){const it=d.items||[],t=x=>esc(String(x??''));if(!it.length){box.innerHTML='';return}
+  const when=ms=>new Date(ms).toLocaleString([],{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+  const files=f=>f.length?f.slice(0,4).join(', ')+(f.length>4?' and '+(f.length-4)+' more':''):'no file names';
+  const row=c=>'<div class="row" data-cc="'+t(c.kind+'/'+c.name)+'"><div class="main-c"><div class="txt"><b>'+(c.kind==='drift'?'Changed on the box before a deploy':'Fixer change to code, issue '+t(c.issue))+'</b><span>'+t(files(c.files))+' · '+t(when(c.at))+'</span>'+
+   (c.kind==='drift'?'<span>The deploy saved this before it put the files from git in place. If it is a fix, take it into git or it stays lost.</span>':'')+
+   '<div class="hi-acts"><button class="ghost small" data-cc-act="view" data-kind="'+t(c.kind)+'" data-name="'+t(c.name)+'">View</button><button class="ghost small" data-cc-act="done" data-kind="'+t(c.kind)+'" data-name="'+t(c.name)+'">Taken into git</button></div></div></div></div>';
+  box.innerHTML='<div class="card list" style="margin-bottom:22px"><div class="list-head"><span>Code changes git does not have yet. A coding session takes each into git; the next deploy would otherwise put the old files back.</span></div>'+it.map(row).join('')+'</div>';
+  if(HealthCode.drawn)box.querySelectorAll('.row').forEach(x=>x.style.animation='none');HealthCode.drawn=true;
+  box.querySelectorAll('button[data-cc-act]').forEach(b=>b.onclick=async()=>{const k=b.dataset.kind,n=b.dataset.name;
+   if(b.dataset.ccAct==='view'){let r;try{r=await UI('/ui/health/code-changes?kind='+encodeURIComponent(k)+'&name='+encodeURIComponent(n))}catch(e){toast(e.message,'err');return}
+    const d=drawer(n,'<pre class="cc-patch">'+t(r.text)+'</pre>','<button class="ghost" id="ccCopy">'+icon('copy',15)+'Copy</button><button class="primary" data-act="close">Done</button>',{size:'lg'});
+    d.querySelector('#ccCopy').onclick=async()=>{const ok=await copyText(r.text,'');toast(ok?'Copied.':'Could not copy.',ok?undefined:'err')};return}
+   if(!await confirmBox('Taken into git?','It leaves this list. The file stays on the box in the done folder.','Taken into git',false))return;
+   b.disabled=true;try{await post(UI,'/ui/health/code-changes/done',{kind:k,name:n});toast('Cleared.')}catch(e){b.disabled=false;toast(e.message,'err');return}
+   const row=b.closest('.row');if(!calm()&&row){row.style.animation='cardOut 180ms var(--ease) both';await new Promise(r=>setTimeout(r,180))}again()})}};
 const HealthIssues={
  ST:{queued:'Queued',fixing:'Being fixed',applying:'Waiting to reload safely',rollback:'Putting the change back',verify:'Proof run next',verifying:'Proving the fix','reloaded-back':'Put back',
   fixed:'Fixed and proven',needs_human:'Needs a person',stuck:'Stuck after 3 tries',gone:'Went away by itself',open:'Waiting (fixer off)',declined:'Declined',failed:'Fix failed',closed:'Closed',stopped:'Stopped retrying'},
@@ -97,8 +117,9 @@ const HealthIssues={
   const row=i=>{const bits=[HealthIssues.ST[i.state]||i.state];if(i.tries&&!END.includes(i.state)&&i.state!=='stopped')bits.push('try '+i.tries+' of 3');bits.push(from(i));
    if(RUN.includes(i.state)&&i.noRetry)bits.push(i.closeAfter?'closes after this try':'stops after this try');
    const note=i.state==='fixed'&&i.proof?'Proof: '+cut(i.proof,240):['needs_human','stuck'].includes(i.state)&&i.need?'Needs: '+i.need+(i.told?' (told '+i.told+')':''):i.result?.summary?cut(i.result.summary,240):'';
+   const patch=i.patch?'<span>Code change saved as '+t(i.patch)+' until it is in git.</span>':'';
    const acts=END.includes(i.state)?'':[['needs_human','stuck','stopped'].includes(i.state)?btn('retry',i.id,'Try again'):'',(i.state==='queued'||RUN.includes(i.state))&&!i.noRetry?btn('stop',i.id,'Stop retrying'):'',!i.closeAfter?btn('close',i.id,'Close'):''].join('');
-   return '<div class="row" data-row="'+t(i.id)+'"><div class="main-c"><div class="txt"><b>'+t(i.agentName)+': '+t(i.missing)+'</b><span>'+t(bits.join(' · '))+'</span>'+(note?'<span>'+t(note)+'</span>':'')+
+   return '<div class="row" data-row="'+t(i.id)+'"><div class="main-c"><div class="txt"><b>'+t(i.agentName)+': '+t(i.missing)+'</b><span>'+t(bits.join(' · '))+'</span>'+(note?'<span>'+t(note)+'</span>':'')+patch+
     (acts?'<div class="hi-acts">'+acts+'</div>':'')+'</div></div></div>'};
   const fx=d.policy?.fixer||{},who=(d.policy?.teams||[]).map(x=>x.name+': '+(x.contact||'the owner')).join(' · ');
   const head=fx.on===false?'<span>The fixer is switched off, so these wait.</span><a href="#/system/teams">Switch it on</a>':'<span>The fixer on this server fixes these by itself and proves each fix. A person hears only when a fix needs one'+(who?' ('+t(who)+')':'')+'.</span><a href="#/system/teams">Teams</a>';

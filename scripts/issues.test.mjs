@@ -4,7 +4,7 @@ import {mkdtemp,writeFile,mkdir,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {terms,parseLines,search,createChatHistory} from '../app/chat-history.mjs';
-import {decide,whoToTell,parseResult,createIssues,fixerPrompt,proofPrompt,newSecrets,approvalOnly} from '../app/issues.mjs';
+import {decide,whoToTell,parseResult,createIssues,fixerPrompt,proofPrompt,newSecrets,approvalOnly,testerSendOnly,noPersonNeeded} from '../app/issues.mjs';
 import {count,weekOf} from '../app/escalations.mjs';
 let n=0;const t=async(name,f)=>{await f();n++;console.log('ok',name)};
 const POL={owner:{name:'Owner',telegram:['1']},teams:[{name:'Brand',agents:['a1','a2'],members:[{name:'Mem',telegram:['2']}],aliases:{a1:['Randy']}}],fixer:{on:true,agent:'default'}};
@@ -28,7 +28,7 @@ async function setup(extra={}){const d=await mkdtemp(path.join(tmpdir(),'is-'));
  const said={reply:[],owner:[],team:[]},applied=[];let busyN=0;
  const f=fake(d,extra);const I=createIssues({DATA:d,bin:'x',fixerHome:d,log:()=>{},launch:f.launch,alive:async()=>false,quiet:extra.quiet||(()=>null),
   reply:async(i,x)=>{said.reply.push(x);return true},tellOwner:async x=>said.owner.push(x),toTeam:async(a,m,x)=>{said.team.push([a,m.name,x]);return true},
-  busy:async()=>busyN,apply:async(k,why)=>{applied.push(k);return {ok:true}},envFiles:async()=>extra.envFiles||[]});
+  busy:async()=>busyN,apply:async(k,why)=>{applied.push(k);return {ok:true}},envFiles:async()=>extra.envFiles||[],codeRoots:extra.codeRoots||[]});
  return {d,I,f,said,applied,setBusy:n=>{busyN=n},db:async()=>(await I._db()).items[0],ticks:async n=>{for(let k=0;k<n;k++)await I.tick()}}}
 const quietAll=s=>s.reply.length+s.owner.length+s.team.length;
 
@@ -46,7 +46,7 @@ await t('who is told: the owner who asked, the member in their chat, the team co
 await t('parseResult: fix, proof, older wording',()=>{const f=parseResult('x\nRESULT: {"status":"changed","apply":"engine","changes":[{"file":"/a","backup":"/a.bak"},{"file":"rel"}],"check":"send test"}');
  assert.deepEqual([f.status,f.apply,f.changes.length,f.check],['changed','engine',1,'send test']);assert.equal(parseResult('RESULT: {"status":"fixed","restart_ui":true}').apply,'ui');
  assert.equal(parseResult('RESULT: {"status":"proven","proof":"ok"}','proof').status,'proven');assert.equal(parseResult('RESULT: {"status":"proven"}'),null);assert.equal(parseResult('no'),null);
- assert.match(fixerPrompt({id:'i1',agent:'a1',missing:'m'}),/never spend money/i);assert.match(proofPrompt({id:'i1',agent:'a1',missing:'m'},{check:'c'}),/tester in the Kirimdev line settings/)});
+ assert.match(fixerPrompt({id:'i1',agent:'a1',missing:'m'}),/never spend money/i);assert.match(proofPrompt({id:'i1',agent:'a1',missing:'m'},{check:'c'}),/kirimdev-test-message\.mjs.*as one of the line's testers/)});
 await t('keys rule: a new .env value must already be on the box',()=>{assert.deepEqual(newSecrets('A=1\n','A=1\nB=sk-abcdef123456\n',['X=other']),['B']);
  assert.deepEqual(newSecrets('A=1\n','A=1\nB=sk-abcdef123456\n',['Y="sk-abcdef123456"']),[]);assert.deepEqual(newSecrets('A=1','A=1\nFLAG=1',[]),[],'short flags are not keys')});
 await t('closed loop: change → waits for busy 0 → safe reload → proof run → fixed with proof, nobody messaged',async()=>{
@@ -138,4 +138,20 @@ await t('older duplicates of an open issue are folded into the newest at start',
 await t('Health no longer sees it: a queued or an open (fixer off) issue goes away by itself, others stay',async()=>{const S=await setup({policy:{...POL2,fixer:{on:false}}});
  await S.I.file({agent:'a1',missing:'kicked from an old group',source:'health',healthKey:'a1|g'});await S.I.file({agent:'a1',missing:'still broken',source:'health',healthKey:'a1|s'});
  assert.equal(await S.I.healthGone(['a1|s']),1);const st=Object.fromEntries((await S.I._db()).items.map(i=>[i.healthKey,i.state]));assert.deepEqual(st,{'a1|g':'gone','a1|s':'open'})});
+await t('a proven fix to aqeelOS code is saved as a patch for git; a fix outside the code is not',async()=>{const app=await mkdtemp(path.join(tmpdir(),'app-'));await mkdir(path.join(app,'app'));await mkdir(path.join(app,'data'));
+ const code=path.join(app,'app','kd.mjs'),dat=path.join(app,'data','x.json'),cfg=path.join(app,'..',path.basename(app)+'-cfg.yaml');
+ for(const f of [code,dat,cfg])await writeFile(f,'old\n');
+ const S=await setup({codeRoots:[{dir:app,prefix:''}],fix:[{status:'changed',apply:'ui',summary:'reset clears the pause',changes:[{file:code,backup:code+'.bak'},{file:dat,backup:dat+'.bak'},{file:cfg,backup:cfg+'.bak'}]}],proof:[{status:'proven',proof:'tester got the reply'}],
+  onFix:async()=>{for(const f of [code,dat,cfg]){await writeFile(f+'.bak','old\n');await writeFile(f,'new\n')}}});
+ await S.I.file({agent:'a1',missing:'reset reply held by a pause'});await S.ticks(6);const i=await S.db();assert.equal(i.state,'fixed',JSON.stringify(i.history));
+ assert.equal(i.patch,'fixer-patches/'+i.id+'-try1.patch');const p=await readFile(path.join(S.d,i.patch),'utf8');
+ assert.match(p,/^# aqeelOS fixer, issue /);assert.match(p,/--- a\/app\/kd\.mjs\n\+\+\+ b\/app\/kd\.mjs/);assert.match(p,/-old\n\+new/);assert.doesNotMatch(p,/x\.json|cfg\.yaml/,'data and files outside the code are not git');
+ assert.match(i.result.summary,/saved as fixer-patches\//);assert.match(S.f.runs[0].prompt,/fixer-patches/);assert.equal(quietAll(S.said),0)});
+await t('"send a message from the tester phone" is never a person\'s job: the fixer tries again itself, nobody is told',async()=>{
+ assert.equal(testerSendOnly('Someone must send a WhatsApp message from the tester phone (3124) to prove the reply'),true);
+ assert.equal(testerSendOnly('Aqeel must add the bot back to the group'),false);assert.equal(testerSendOnly('Send a new API key for the tester line'),false);
+ assert.equal(noPersonNeeded('please approve the change'),true);
+ const S=await setup({fix:[{status:'needs_human',summary:'cannot prove it',need:'A person must send a message from the tester number to the line.'}]});
+ await S.I.file({agent:'a1',missing:'reset reply missing'});await S.ticks(2);const i=await S.db();
+ assert.equal(i.state,'queued');assert.match(i.history[0].outcome,/signed test webhook/);assert.equal(quietAll(S.said),0);assert.match(S.f.runs[0].prompt,/kirimdev-test-message\.mjs/)});
 console.log(n+' passed');

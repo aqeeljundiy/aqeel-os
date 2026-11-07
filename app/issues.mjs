@@ -56,6 +56,10 @@ export function parseResult(out,kind='fix'){const m=[...String(out||'').matchAll
 // a run that never reached the model (the engine was restarting or draining) is not a try
 // owner's ladder (7 Nov 2026): a person is asked only for what physically needs them (money, a key or login only they
 // have, a person adding a bot, a decision only they can make), never for a plain approval of a fix
+// "a person must send a WhatsApp message from the tester phone" is never a need (7 Nov 2026): the fixer posts the same
+// signed webhook Kirimdev posts, as one of the line's testers (scripts/kirimdev-test-message.mjs)
+export const testerSendOnly=t=>{t=String(t||'');return /\b(tester|test(ing)? (phone|number|nomor|hp)|nomor (tester|test))\b/i.test(t)&&/\b(send|sends|sent|message|write|writes|kirim|chat|reply|replies|whatsapp|wa)\b/i.test(t)&&!/\b(pay|paid|invoice|top ?up|billing|key|token|password|log ?in|sign ?in|qr|scan|add (the )?bot|invite|decid|choose|which one)/i.test(t)};
+export const noPersonNeeded=t=>approvalOnly(t)||testerSendOnly(t);
 export const approvalOnly=t=>{t=String(t||'');return /\b(approv|sign[ -]?off|give (the |your )?ok|ok (it|this|the change)|confirm (that|whether|the change|this change)|review (the|this) (change|fix|rule))/i.test(t)&&!/\b(pay|paid|invoice|top ?up|billing|key|token|password|log ?in|sign ?in|qr|add (the )?bot|invite|decid|choose|which one)/i.test(t)};
 export const notStarted=out=>/couldn'?t start the model connection|Gateway draining|not_ready|Connection refused.*gateway/i.test(String(out||'').slice(-3000));
 
@@ -65,6 +69,8 @@ export function envValues(t){const o={};for(const l of String(t||'').split('\n')
 export function newSecrets(before,after,known=[]){const b=envValues(before),a=envValues(after),pool=new Set(known.flatMap(t=>Object.values(envValues(t))));
  return Object.entries(a).filter(([k,v])=>v&&v.length>=8&&b[k]!==v&&!pool.has(v)).map(([k])=>k)}
 
+// proving a Kirimdev reply without a phone (7 Nov 2026: the fixer asked a person to write from the tester phone)
+const KIRIM_TEST='never ask a person to write from a tester phone: run node ~/apps/hermes-ui/scripts/kirimdev-test-message.mjs <agent> "<text>" (optionally --tester <name>). It posts the same signed webhook Kirimdev posts when a customer writes, as one of the line\'s testers, to this box; the agent then answers that tester for real through Kirimdev. Check the reply was sent (~/apps/hermes-ui-data/kirimdev-state.json "ours", and the log lines "kirimdev <agent>"). Only testers: never a customer number';
 export function fixerPrompt(i,{rules='',day=new Date().toISOString().slice(0,10).replace(/-/g,''),attempt=1,tries=TRIES}={}){
  const past=(i.history||[]).filter(h=>h.kind==='fix').map((h,n)=>'Try '+(n+1)+': '+(h.summary||'-')+(h.outcome?' → '+h.outcome:'')+(h.proof?' (proof run: '+clip(h.proof,400)+')':'')).join('\n');
  return [
@@ -85,9 +91,10 @@ export function fixerPrompt(i,{rules='',day=new Date().toISOString().slice(0,10)
  '- Find the real cause on this server first (files, logs, the agent\'s state.db, ~/apps/hermes-ui-data). Fix the cause, not the symptom; no hard-coded ids, names or paths in shared code (settings instead).',
  '- Only change what this issue needs, and only for the agents listed above.',
  '- Run the existing tests for what you changed (node scripts/<name>.test.mjs in ~/apps/hermes-ui, the engine\'s tests). Paste commands and output in "proof".',
- '- Write in "check" exactly how to rerun the ORIGINAL failing check end to end after the reload (the real thing that failed, not a unit test). For a WhatsApp reply problem: a message from the line\'s test number (its tester in the Kirimdev line settings) must get a real reply delivered.',
+ '- Write in "check" exactly how to rerun the ORIGINAL failing check end to end after the reload (the real thing that failed, not a unit test). For a Kirimdev reply problem a tester\'s message must get a real reply delivered: '+KIRIM_TEST+'.',
+ '- aqeelOS\'s own code lives in git, not on this box: ~/apps/hermes-ui (app/, scripts/, engine/) and the engine source ~/.hermes/hermes-agent are replaced by the next deploy. If your fix changes any of these files, keep the change small. Once it is proven, aqeelOS saves it as ~/apps/hermes-ui-data/fixer-patches/'+i.id+'-try<n>.patch so the coding sessions take it into git; say in "summary" that it is a code change and name the file. Never commit or push. First look in ~/apps/hermes-ui-data/fixer-patches and ~/apps/hermes-ui-data/drift: if the same fix was made before and a deploy put the old file back, apply that patch again and say so.',
  '- If you find nothing to change (it already works), use status "no_change": a proof run still has to show it works.',
- '- needs_human only when a person must physically act and no tool or key on this box can do it: money, a new key or login only a person has, someone adding a bot to a Telegram group, or a decision only the owner can make. Never to ask for approval or an OK: nobody approves fixes, you decide. Put in "need" exactly what they must do, in one or two plain sentences.',
+ '- needs_human only when a person must physically act and no tool or key on this box can do it: money, a new key or login only a person has, someone adding a bot to a Telegram group, or a decision only the owner can make. Never to ask for approval or an OK: nobody approves fixes, you decide. Never to have someone send a WhatsApp message from a tester phone: you can do that yourself (see above). Put in "need" exactly what they must do, in one or two plain sentences.',
  rules?'- '+rules:null,
  '','End with exactly one line (JSON on one line):',
  'RESULT: {"status":"changed|no_change|needs_human|failed","apply":"none|engine|ui","changes":[{"file":"/abs/path","backup":"/abs/path.bak-…"}],"check":"how to rerun the original check","summary":"one or two plain sentences","proof":"what you ran and saw","need":"only for needs_human or failed: what a person must do"}'].filter(x=>x!==null).join('\n')}
@@ -100,14 +107,14 @@ export function proofPrompt(i,fix,{reloaded=null}={}){return [
  reloaded?'aqeelOS reloaded '+(reloaded==='engine'?'the agents\' engine':'the web app')+' after the change.':null,
  'How to rerun the original check: '+(fix?.check||'rerun what failed in the evidence above, end to end'),
  '','RULES',
- '- Rerun the ORIGINAL failing check end to end, for real, now. A unit test or reading a file is not proof. For a WhatsApp reply problem the line\'s test number (its tester in the Kirimdev line settings) must get a real reply delivered; check the delivery. For a Health problem, Health (~/apps/hermes-ui-data/bottlenecks.json) must no longer list it after its check ran again.',
+ '- Rerun the ORIGINAL failing check end to end, for real, now. A unit test or reading a file is not proof. For a Kirimdev reply problem a tester\'s message must get a real reply delivered: '+KIRIM_TEST+'. For a Health problem, Health (~/apps/hermes-ui-data/bottlenecks.json) must no longer list it after its check ran again.',
  '- Never spend money, never delete anything, never message customers, never restart anything.',
- '- proven only if you saw it work after the change. Otherwise not_proven. Fill "need" only if a person must physically act (money, a key or login only they have, adding a bot, a decision only the owner can make); never an approval.',
+ '- proven only if you saw it work after the change. Otherwise not_proven. Fill "need" only if a person must physically act (money, a key or login only they have, adding a bot, a decision only the owner can make); never an approval, and never a message from a tester phone.',
  '','End with exactly one line (JSON on one line):',
  'RESULT: {"status":"proven|not_proven","proof":"the commands you ran and what you saw, with times","need":""}'].filter(x=>x!==null).join('\n')}
 
 export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=async()=>false,tellOwner=async()=>{},toTeam=async()=>false,busy=async()=>0,ready=async()=>true,
- apply=async()=>({ok:true}),nameOf=a=>a,quiet=()=>null,log=m=>console.log(m),launch=null,alive=null,envFiles=async()=>[],
+ apply=async()=>({ok:true}),nameOf=a=>a,codeRoots=[],quiet=()=>null,log=m=>console.log(m),launch=null,alive=null,envFiles=async()=>[],
  // kept for older callers (the Approve/Decline flow is gone)
  askOwner=null,approvalLink=null,restartSelf=null}){
  const FILE=path.join(DATA,'issues.json'),POL=path.join(DATA,'team-policy.json'),DIR=path.join(DATA,'issues');let db=null,chain=Promise.resolve();
@@ -188,6 +195,19 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
     const others=[];for(const f of known)if(path.resolve(f)!==path.resolve(c.file))others.push(await readFile(f,'utf8').catch(()=>''));
     const nw=newSecrets(b,a,[b,...others]);if(nw.length)bad.push(c.file+' got a key that is nowhere else on the box ('+nw.join(', ')+')')}}
   return bad}
+ // 7 Nov 2026: a fix to aqeelOS's own code (the app folder, or the engine's source) lives only on this box, and the next
+ // git deploy overwrote it (the problem came back). So a proven change to code is also saved as a patch, from each
+ // file's backup, in DATA/fixer-patches/<issue>-try<n>.patch: the coding sessions and the next deploy take it into git.
+ const codeRoot=f=>{const a=path.resolve(String(f||''));for(const r of codeRoots){const d=path.resolve(r.dir);const rel=path.relative(d,a);
+   if(rel&&!rel.startsWith('..')&&!path.isAbsolute(rel)&&!/^(data|node_modules|mockup)(\/|$)/.test(rel))return {root:r,rel}}return null};
+ const diffOf=(a,b,la,lb)=>new Promise(res=>{let out='';const c=spawn('diff',['-u','--label',la,'--label',lb,a,b]);c.stdout.on('data',d=>out+=d);c.on('error',()=>res(''));c.on('close',()=>res(out))});
+ async function savePatch(i,fix,attempt){const own=(fix?.changes||[]).map(c=>({...c,at:codeRoot(c.file)})).filter(c=>c.at&&c.backup);if(!own.length)return null;
+  const parts=[];for(const c of own){const d=await diffOf(c.backup,c.file,'a/'+c.at.root.prefix+c.at.rel,'b/'+c.at.root.prefix+c.at.rel);if(d)parts.push(d)}
+  if(!parts.length)return null;const dir=path.join(DATA,'fixer-patches');await mkdir(dir,{recursive:true});
+  const name=i.id+'-try'+attempt+'.patch',head=['# aqeelOS fixer, issue '+i.id+' ('+nameOf(i.agent)+'), proven '+new Date(now()).toISOString(),
+   '# Problem: '+clip(i.missing,300).replace(/\n/g,' '),'# Fix: '+clip(fix.summary,400).replace(/\n/g,' '),
+   '# Made on the live box only. Take it into git (git apply), or the next deploy puts the old file back.',''];
+  await writeFile(path.join(dir,name),head.join('\n')+parts.join(''),{mode:0o600});return 'fixer-patches/'+name}
  // put every listed file back from its backup (copy, so the backup stays)
  async function rollBack(changes){const done=[];for(const c of changes||[])if(c.backup&&await exists(c.backup)){await copyFile(c.backup,c.file);done.push(c.file)}return done}
  async function check(r,pol){const dir=path.join(DIR,r.id);const ex=await readFile(path.join(dir,'exit'),'utf8').catch(()=>null);
@@ -201,6 +221,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
    const h={kind:'fix',run:r.id,at:now(),status:fr.status,summary:fr.summary,proof:fr.proof,need:fr.need,check:fr.check,apply:fr.apply,changes:fr.changes};i.history.push(h);i.result=fr;
    // asking a person to approve is not needing one: the fixer decides itself on the next try
    if(fr.status==='needs_human'&&(!fr.need||approvalOnly(fr.need))){await rollBack(fr.changes);h.outcome='asked for an approval; nobody approves fixes, so it decides itself';return await nextTry(i,null)}
+   if(fr.status==='needs_human'&&testerSendOnly(fr.need)){await rollBack(fr.changes);h.outcome='asked a person to send a test message; it posts a signed test webhook as the tester itself (scripts/kirimdev-test-message.mjs)';return await nextTry(i,null)}
    if(fr.status==='needs_human'&&i.closeAfter){await rollBack(fr.changes);i.state='closed';i.updated=now();await save();log('issues: '+i.id+' closed after its last try');return}
    if(fr.status==='needs_human'){await rollBack(fr.changes);i.state='needs_human';i.need=fr.need||fr.summary;await save();
     const to=await tell(i,nameOf(i.agent)+' needs a person for a fix\n\nProblem: '+i.missing+'\nWhat is needed: '+(i.need||'-')+'\n\naqeelOS fixes the rest by itself once this is done (issue '+i.id+' on System › Health).');i.told=to;await save();log('issues: '+i.id+' needs a human, told '+to);return}
@@ -214,7 +235,10 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   // the proof run
   const pr=res||{status:'not_proven',proof:'The proof run ended without a result'+(r.exit!=null?' (exit '+r.exit+')':' (stopped)')+'. '+clip(out.slice(-600),600),need:''};r.result=pr;
   const last=i.history.filter(h=>h.kind==='fix').at(-1);i.history.push({kind:'proof',run:r.id,at:now(),status:pr.status,proof:pr.proof,need:pr.need});
-  if(pr.status==='proven'){i.state='fixed';i.fixed=now();i.proof=pr.proof;i.result={...(i.result||{}),status:'fixed',proof:pr.proof};if(last)last.outcome='proven';await save();log('issues: '+i.id+' fixed and proven');return}
+  if(pr.status==='proven'){i.state='fixed';i.fixed=now();i.proof=pr.proof;i.result={...(i.result||{}),status:'fixed',proof:pr.proof};if(last)last.outcome='proven';
+   const pf=await savePatch(i,last,i.history.filter(h=>h.kind==='fix').length).catch(e=>{log('issues: '+i.id+' patch not saved: '+e.message);return null});
+   if(pf){i.patch=pf;if(last)last.patch=pf;i.result.summary=clip((i.result.summary||'')+' The code change is saved as '+pf+' for git.',1600)}
+   await save();log('issues: '+i.id+' fixed and proven'+(pf?', patch '+pf:''));return}
   if(last){last.outcome='not proven';last.proofNeed=pr.need}
   const back=await rollBack(last?.changes);if(last&&back.length)last.outcome+=', rolled back';i.lastNeed=pr.need||i.lastNeed;
   return await nextTry(i,back.length&&last?.apply!=='none'?last.apply:null)}
@@ -224,7 +248,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  if(i.tries<TRIES){i.state='queued';i.notBefore=now()+60e3;await save();return}
   i.state='stuck';await save();
   const tried=i.history.filter(h=>h.kind==='fix').map((h,n)=>(n+1)+') '+clip(h.summary,200)+(h.outcome?' ('+h.outcome+')':'')).join('\n');
-  const need=[i.lastNeed,...i.history.filter(h=>h.need).map(h=>h.need).reverse()].find(x=>x&&!approvalOnly(x));
+  const need=[i.lastNeed,...i.history.filter(h=>h.need).map(h=>h.need).reverse()].find(x=>x&&!noPersonNeeded(x));
   // nothing a person must physically do: no message; it stays on System › Health as stuck
   if(!need){i.need=null;log('issues: '+i.id+' stuck; nothing needs a person, so nobody is told');return}
   const to=await tell(i,nameOf(i.agent)+': aqeelOS tried '+TRIES+' times and could not fix this by itself\n\nProblem: '+i.missing+'\nTried:\n'+tried+'\n\nWhat is needed from you: '+need);i.told=to;i.need=need;await save();log('issues: '+i.id+' stuck, told '+to)}
