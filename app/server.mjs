@@ -47,7 +47,7 @@ import {createBrand} from './brand.mjs';
 import {createAccountAuth} from './account-auth.mjs';   // first-run owner, forgot password, recovery code (7 Nov 2026)
 import {createBottlenecks,forPopup} from './bottlenecks.mjs';
 import {createInstructions} from './instructions.mjs';
-import {createNews} from './news.mjs';
+import {createNews,eveningLine} from './news.mjs';
 import {mayStartAgents,busyTotal,guardPaused} from './busy.mjs';
 import {stopGatewayCmd,stopTimeoutMs} from './gateway-stop.mjs';
 import {createHelp} from './help.mjs';
@@ -758,7 +758,21 @@ const mcpEdit=createMcpEdit({readConfig,setKey,readEnv:a=>readFile(path.join(hom
 // two places for what aqeelOS tells (1 Nov 2026): Bottlenecks is the to-do list (needs someone), the bell's list (news.mjs)
 // the history (done, fixed, works again). Every event goes to one of them, never both: info:true means the bell
 const news=createNews({DATA});
-const newsInfo=(kind,text,detail)=>{const ok=/works again|fixed|back on|working again|passed/i.test(text);return news.add({aud:'admins',key:'ev|'+kind+'|'+text+'|'+Math.floor(Date.now()/3600e3),icon:kind==='down'?'activity':ok?'check':'refresh',kind:ok?'ok':'blue',title:text,text:detail,go:'/system/health',label:'Health'})};
+// "Needs you" (7 Nov 2026): the Bottlenecks person items, one list shown in two places, the Bottlenecks popup and the
+// bell; only what truly needs a person (forPopup), each once
+async function needsFor(u){const admin=users.isAdmin(u);if(admin)await freshSignins();const items=await bottlenecks.list({admin,uid:admin?null:u.id,mayUse:a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a),signins:admin?[...signinsDue.values()]:[],invites:admin?users.expiredInvites():[],accounts:admin?await accountsApi.signedOut().catch(()=>[]):[],channels:admin?await channelAttention(false).catch(()=>[]):[]});const mayU=a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a);items.push(...await accessAsk.open(admin?()=>true:mayU).catch(()=>[]));items.push(...await help.items(u).catch(()=>[]));
+    for(const {a,p:pr} of await instructions.openProposals(await listAgents()).catch(()=>[]))if(admin||users.agentOwner(a)===u.id)items.push({id:'instr|'+a+'|'+pr.id,kind:'instructions',agent:a,pid:pr.id,title:(NAMES[a]||a)+': new instructions wait for your approval',detail:pr.why,created:pr.at,from:null});
+    // the message that led to it is from the agent's newest chat, whoever's: a member sees it only when that chat is theirs
+    const shown=forPopup(items);return admin?shown:shown.map(x=>x.from&&users.ownerOf(x.from.chat)!==u.id?{...x,from:null}:x)}
+// the optional evening line in the bell (System › Settings › Notifications, off by default): once a day at 19:00 local
+// time, how many things fixed themselves today and whether anything needs you
+const notifySettings=async()=>({daily:false,...await readFile(path.join(DATA,'notify.json'),'utf8').then(JSON.parse).catch(()=>({}))});
+if(LIVE_APP)setInterval(async()=>{try{if(!(await notifySettings()).daily)return;const parts=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:tzNow,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',hourCycle:'h23'}).formatToParts(new Date()).map(x=>[x.type,x.value]));
+  if(Number(parts.hour)<19)return;const day=parts.year+'-'+parts.month+'-'+parts.day,start=Date.now()-(Number(parts.hour)*3600e3);
+  const l=await issues.list().catch(()=>({items:[]})),fixed=l.items.filter(i=>i.state==='fixed'&&(i.fixed||0)>=start).length;
+  const needs=(await needsFor({id:'owner',role:'owner'}).catch(()=>[])).length;
+  await news.add({aud:'admins',key:'daily|'+day,started:true,icon:needs?'alert':'check',kind:needs?'warn':'ok',title:eveningLine(fixed,needs),text:'',go:needs?'/system/health':'/system/activity',label:needs?'Health':'Activity'})}catch(e){console.warn('evening line:',e.message)}},10*60e3).unref();
+const newsInfo=(kind,text,detail)=>{const ok=/works again|fixed|back on|working again|passed/i.test(text);return news.add({aud:'admins',group:'ev|'+kind+'|'+String(text).replace(/\(.*?\)|[0-9]+/g,'#').replace(/\s+/g,' ').trim().slice(0,100),icon:kind==='down'?'activity':ok?'check':'refresh',kind:ok?'ok':'blue',title:text,text:detail,go:'/system/health',label:'Health'})};
 const bottlenecks=createBottlenecks({DATA,onInfo:newsInfo,listAgents:()=>listAgents(),names:a=>NAMES[a]||a,dash:p=>fetch(DASH.origin+'/api'+p,{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(20000)}).then(r=>r.json())});brand.name().then(n=>{globalThis.AQ_BRAND=n}).catch(()=>{});
 // agents' instructions with a history, contradiction flags and approval for rewrites (instructions.mjs)
 const instructions=createInstructions({DATA,HERMES_HOME,DASH:DASH.origin,DASH_TOKEN,python:enginePython,root,names:a=>NAMES[a]||(a==='default'?'aqeelOS':a),live:LIVE_APP});
@@ -773,7 +787,11 @@ async function ownerChannel(prefer){const ch=await relay.channelsFor('default').
  if(t){const c=ch.find(x=>x.id===t.channel);if(c)return {...c,chat:t.chat||null}}
  return ch.find(x=>x.platform===prefer&&x.owner==='default')||ch.find(x=>x.owner==='default')||ch[0]||null}
 async function ownerSend(text,prefer){const c=await ownerChannel(prefer);
- const bell=why=>bottlenecks.event('alerts',String(text).split('\n')[0].slice(0,140),String(text)+'\n\n'+why,{topic:'alerts|'+String(text).slice(0,60)}).catch(()=>{});
+ // with no channel: a message that needs the owner (the fixer's "needs a person" or "could not fix") is a Bottlenecks
+ // item, in the bell's Needs you; anything else is Activity (7 Nov 2026), and the Send test the owner pressed is theirs
+ const first=String(text).split('\n')[0].slice(0,140),need=/needs a person|What is needed|could not fix this by itself|What is needed from you/i.test(text);
+ const bell=why=>(need?bottlenecks.event('alerts',first,String(text)+'\n\n'+why,{topic:'alerts|'+String(text).slice(0,60)}):
+  news.add({aud:'admins',started:/^Test from /.test(text),group:'alerts|'+first.replace(/[0-9]+/g,'#'),icon:'bell',title:first,text:String(text).slice(first.length).trim()+' '+why,go:'/system/teams',label:'Teams'})).catch(()=>{});
  if(!c){await bell('No channel to you is set up yet, so this alert waits here. Pick one under Alerts go to on System › Teams.');return {bell:true}}
  try{await relay.sendAs('default',c.owner,c.platform,text,c.chat||null,{toYou:true});return {sent:c.name}}catch(e){await bell('Not sent on '+c.name+': '+e.message);throw e}}
 async function toOwner(text){return ownerSend(text,'whatsapp')}
@@ -2453,7 +2471,12 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/memory'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Admins only.'});return send(res,200,await memNow())}
    if(p==='/ui/system-events'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,200,{events:[]});return send(res,200,{events:sysEvents.filter(e=>e.kind!=='restart-failed')})}   // that one is a Bottlenecks item (noteSys)
    // the bell's list (news.mjs): the same on every device, read and cleared per person; the app adds a person's own news
-   if(p==='/ui/news'&&req.method==='GET')return send(res,200,{items:await news.list(u,users.isAdmin(u))});
+   if(p==='/ui/news'&&req.method==='GET')return send(res,200,{items:await news.list(u,users.isAdmin(u)),needs:await needsFor(u).catch(()=>[])});
+   // Activity (System › Activity): the quiet log, no badge
+   if(p==='/ui/activity'&&req.method==='GET')return send(res,200,{items:await news.activity(u,users.isAdmin(u))});
+   if(p==='/ui/notify-settings'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});
+    if(req.method==='GET')return send(res,200,await notifySettings());
+    if(req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,2048))}catch{}const v={...await notifySettings(),daily:!!b.daily};await writeFile(path.join(DATA,'notify.json'),JSON.stringify(v));return send(res,200,v)}}
    if(p.startsWith('/ui/news')&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const admin=users.isAdmin(u);
     if(p==='/ui/news'){try{return send(res,200,{item:await news.addOwn(u,b)})}catch(e){return send(res,e.status||400,{error:e.message})}}
     if(p==='/ui/news/import')return send(res,200,{n:await news.importOwn(u,b.items)});
@@ -2713,11 +2736,7 @@ const server=createServer(async(req,res)=>{
      if(act==='check'&&req.method==='POST'){await instructions.check(ag,{force:true});return send(res,200,await instructions.history(ag))}}
     catch(e){return send(res,400,{error:e.message})}
     return send(res,405,{error:'Not allowed'})}}
-   if(p==='/ui/bottlenecks'&&req.method==='GET'){const admin=users.isAdmin(u);if(admin)await freshSignins();const items=await bottlenecks.list({admin,uid:admin?null:u.id,mayUse:a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a),signins:admin?[...signinsDue.values()]:[],invites:admin?users.expiredInvites():[],accounts:admin?await accountsApi.signedOut().catch(()=>[]):[],channels:admin?await channelAttention(false).catch(()=>[]):[]});const mayU=a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a);items.push(...await accessAsk.open(admin?()=>true:mayU).catch(()=>[]));items.push(...await help.items(u).catch(()=>[]));
-    for(const {a,p:pr} of await instructions.openProposals(await listAgents()).catch(()=>[]))if(admin||users.agentOwner(a)===u.id)items.push({id:'instr|'+a+'|'+pr.id,kind:'instructions',agent:a,pid:pr.id,title:(NAMES[a]||a)+': new instructions wait for your approval',detail:pr.why,created:pr.at,from:null});
-    // the message that led to it is from the agent's newest chat, whoever's: a member sees it only when that chat is theirs
-    // only what truly needs a person, each once (forPopup); everything else is on System › Health, in the fixer's ladder
-    const shown=forPopup(items);return send(res,200,{items:admin?shown:shown.map(x=>x.from&&users.ownerOf(x.from.chat)!==u.id?{...x,from:null}:x)})}
+   if(p==='/ui/bottlenecks'&&req.method==='GET')return send(res,200,{items:await needsFor(u)});
    if((p==='/ui/bottlenecks/done'||p==='/ui/bottlenecks/later')&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const id=String(b.id||'').slice(0,300);if(!id)return send(res,400,{error:'Which one?'});const admin=users.isAdmin(u);
     // a Help ticket: admins resolve it (the person is told in their Help chat) or put it off a day
     if(id.startsWith('ticket|')){try{return send(res,200,await help.decide(id,p.endsWith('/done')?'done':'later',u))}catch(e){return send(res,e.status||400,{error:e.message})}}

@@ -19,42 +19,54 @@ const Notices={max:1,box(){let b=document.querySelector('.cron-pops');if(!b){b=d
   all.forEach((n,i)=>n.classList.toggle('folded',!open&&i<all.length-this.max));let m=b.querySelector('.np-more');const hidden=open?0:Math.max(0,all.length-this.max);
   if(hidden){if(!m){m=document.createElement('button');m.className='np-more';m.onclick=()=>{b.classList.add('all');this.fold()};b.prepend(m)}m.textContent='+'+hidden+' more'}else{m?.remove();if(all.length<=this.max)b.classList.remove('all')}}};
 
-/* ---------- The bell (1 Nov 2026): history and news, what happened or got done and needs nobody (a schedule finished,
-   a tool server works again, the agents restarted for a moment). What needs someone is in Bottlenecks only: a failed
-   schedule, a channel that logged out or a sign-in that is due still pops up, but its place is Bottlenecks, not this
-   list. The list is on the server (news.mjs), so it is the same on every device; read and cleared are per person. ---------- */
-const Inbox={items:[],ids:{},
+/* ---------- The bell (7 Nov 2026, owner approved: 213 items in a week, nearly all noise). It shows two things only:
+   "Needs you", the Bottlenecks person items with the button that does the thing (one list in two places), and "You
+   started it", a run, deploy or export the person asked for that finished. Everything else is Activity (System ›
+   Activity): a quiet log with no badge and no ping, one row per problem. Bell items expire after 7 days; acting on one
+   (opening it, or its button) clears it. The list is on the server (news.mjs), the same on every device. ---------- */
+// schedules this person ran with Run now (2 hours): their "finished" is something they started, so it reaches the bell
+const RanNow={norm:n=>String(n||'').replace(/^\s*\[[^\]]*\]\s*/,'').trim().toLowerCase(),
+ mark(n){const l=store.get('ranNow',{}),now=Date.now();for(const k in l)if(now-l[k]>2*3600e3)delete l[k];l[this.norm(n)]=now;store.set('ranNow',l)},
+ hit(n){const t=store.get('ranNow',{})[this.norm(n)];return !!t&&Date.now()-t<2*3600e3}};
+const Inbox={items:[],needs:[],ids:{},
  // to-dos that live in Bottlenecks (their pop-ups come from people.js and mcp-share.js), and the usage-stats question (boot.js)
  todo:o=>!!o.todo||/^(cronFail:|chAlert:|signin\||metrics-ask)/.test(o.key||''),
  all(){return this.items},
- async load(){if(!S.signedIn||document.hidden)return;await this.migrate();try{const d=await UI('/ui/news');this.items=d.items||[]}catch{return}this.paintBell();if($('.drawer.inbox'))this.paintList()},
- // the list this browser kept before it moved to the server (1 Nov 2026): the last week's news goes up once, read ones stay read
+ async load(){if(!S.signedIn||document.hidden)return;await this.migrate();try{const d=await UI('/ui/news');this.items=d.items||[];this.needs=d.needs||[]}catch{return}this.paintBell();if($('.drawer.inbox'))this.paintList()},
+ // the list this browser kept before it moved to the server (1 Nov 2026): the last week's news goes up once (as Activity)
  async migrate(){const old=store.get('inbox',null);if(!Array.isArray(old))return;store.set('inbox',null);
   const items=old.filter(x=>Date.now()-x.t<7*864e5&&!this.todo({key:x.id})).slice(0,30).map(x=>({key:'old:'+x.id,icon:x.icon,kind:x.kind,title:x.title,text:x.text,go:x.go,label:x.label,read:!!x.read}));
   if(items.length)await post(UI,'/ui/news/import',{items}).catch(()=>{})},
+ // o.started: the person asked for it (only those reach the bell); o.group: one Activity row per problem
  add(o){if(this.todo(o)){if(typeof Bottlenecks!=='undefined')setTimeout(()=>Bottlenecks.check(),500);return null}
   const key=o.key?o.key+(o.repeat===false?'':'@'+Math.floor(Date.now()/3600e3)):'',lid='l'+Date.now()+Math.random().toString(36).slice(2,6);
   const it={id:lid,key,t:Date.now(),icon:o.icon||'clock',kind:o.kind||'blue',title:o.title||'',text:noThink(o.text).slice(0,200),go:(o.actions||[]).find(a=>a.go)?.go||o.go||'',label:(o.actions||[])[0]?.label||'Open',read:false};
-  if(key&&this.items.some(x=>x.key===key))return null;this.items.unshift(it);this.paintBell();if($('.drawer.inbox'))this.paintList();
+  const started=o.started===true;if(started){if(key&&this.items.some(x=>x.key===key))return null;this.items.unshift(it);this.paintBell();if($('.drawer.inbox'))this.paintList()}
   // the server's id replaces this one once it is saved (or the one it already had for the same thing)
-  this.ids[lid]=post(UI,'/ui/news',{key,icon:it.icon,kind:it.kind,title:it.title,text:it.text,go:it.go,label:it.label}).then(r=>{const sid=r.item?.id;if(sid){const x=this.items.find(y=>y.id===lid);if(x){if(this.items.some(y=>y.id===sid))this.items=this.items.filter(y=>y!==x);else x.id=sid}}return sid||lid}).catch(()=>lid);
+  this.ids[lid]=post(UI,'/ui/news',{key,icon:it.icon,kind:it.kind,title:it.title,text:it.text,go:it.go,label:it.label,started,group:o.group||''}).then(r=>{const sid=r.item?.id;if(sid){const x=this.items.find(y=>y.id===lid);if(x){if(this.items.some(y=>y.id===sid))this.items=this.items.filter(y=>y!==x);else x.id=sid}}return sid||lid}).catch(()=>lid);
   return lid},
  async sid(id){return this.ids[id]?await this.ids[id]:id},
  async read(id){if(!id)return;const x=this.items.find(y=>y.id===id);if(x&&!x.read){x.read=true;this.paintBell()}const s=await this.sid(id);if(s&&!s.startsWith('l'))post(UI,'/ui/news/read',{ids:[s]}).catch(()=>{})},
- unread(){return this.items.filter(x=>!x.read).length},
- paintBell(){const n=this.unread();$$('[data-act="inbox"]').forEach(b=>{if(b.dataset.n===String(n))return;b.dataset.n=String(n);b.classList.toggle('has',n>0);const c=b.querySelector('.bell-n');if(c)c.textContent=n>99?'99+':String(n);b.setAttribute('aria-label',n?n+' unread notifications':'Notifications')})},
- open(){const d=sideDrawer('Notifications','<div class="inbox-bar"><button class="ghost small" data-ib="read">'+icon('check',14)+'Mark all read</button><button class="ghost small" data-ib="clear">'+icon('trash',14)+'Clear read</button></div><div id="inboxList"></div>','');d.classList.add('inbox');
-  d.addEventListener('click',async e=>{const b=e.target.closest('[data-ib]');if(b){if(b.dataset.ib==='read'){this.items.forEach(x=>x.read=true);post(UI,'/ui/news/read',{all:true}).catch(fail);this.paintBell();this.paintList();return}
-    const gone=$$('#inboxList .ib-item:not(.unread)');gone.forEach(n=>n.classList.add('out'));post(UI,'/ui/news/hide',{read:true}).catch(fail);setTimeout(()=>{this.items=this.items.filter(x=>!x.read);this.paintBell();this.paintList()},gone.length?220:0);return}
-   const it=e.target.closest('[data-inbox]');if(!it)return;const x=this.items.find(y=>y.id===it.dataset.inbox);if(!x)return;this.read(x.id);
-   if(e.target.closest('[data-ib-x]')){const n=it;n.classList.add('out');setTimeout(()=>{this.items=this.items.filter(y=>y!==x);this.paintList()},200);this.sid(x.id).then(s=>post(UI,'/ui/news/hide',{id:s})).catch(()=>{});return}
-   if(x.go){closeLayers();go(x.go)}else this.paintList()});
+ // the badge: what needs you, plus what you started that finished and you have not seen
+ unread(){return this.needs.length+this.items.filter(x=>!x.read).length},
+ paintBell(){const n=this.unread();$$('[data-act="inbox"]').forEach(b=>{if(b.dataset.n===String(n))return;b.dataset.n=String(n);b.classList.toggle('has',n>0);const c=b.querySelector('.bell-n');if(c)c.textContent=n>99?'99+':String(n);b.setAttribute('aria-label',n?n+' notifications':'Notifications')})},
+ async clear(x,node){if(node){node.classList.add('out');await new Promise(r=>setTimeout(r,200))}this.items=this.items.filter(y=>y!==x);this.paintBell();this.paintList();this.sid(x.id).then(s=>post(UI,'/ui/news/hide',{id:s})).catch(()=>{})},
+ open(){const d=sideDrawer('Notifications','<div id="inboxList"></div>','<a class="ib-activity" href="#/system/activity" data-ib-activity>'+icon('activity',15)+'Activity: everything that happened by itself</a>');d.classList.add('inbox');
+  d.addEventListener('click',async e=>{if(e.target.closest('[data-ib-activity]')){e.preventDefault();closeLayers();go('/system/activity');return}
+   const it=e.target.closest('[data-inbox]');if(!it||e.target.closest('.bn-acts'))return;const x=this.items.find(y=>y.id===it.dataset.inbox);if(!x)return;
+   // acting on it clears it: opening what it points to, or the ×
+   if(e.target.closest('[data-ib-x]'))return this.clear(x,it);if(x.go){this.clear(x);closeLayers();go(x.go)}});
   this.paintList();this.load()},
- paintList(){const el=$('#inboxList');if(!el)return;const l=this.items;
-  if(!l.length){el.innerHTML='<div class="inbox-empty">'+icon('check',22)+'<b>Nothing new</b><span>What finished or got fixed shows here. What needs you is in Bottlenecks.</span></div>';return}
-  const day=t=>{const d=new Date(t),n=new Date();const y=new Date(n-864e5);return d.toDateString()===n.toDateString()?'Today':d.toDateString()===y.toDateString()?'Yesterday':d.toLocaleDateString([],{weekday:'long',day:'numeric',month:'short'})};
-  let last='';el.innerHTML=l.map((x,i)=>{const h=day(x.t);const head=h!==last?'<div class="group-label">'+esc(h)+'</div>':'';last=h;
-   return head+`<div class="ib-item ${x.read?'':'unread'}" data-inbox="${esc(x.id)}" ${st(Math.min(i,10))} tabindex="0"><span class="ic ${esc(x.kind)}">${icon(x.icon,15)}</span><div class="txt"><b>${esc(x.title)}</b>${x.text?`<span>${esc(x.text)}</span>`:''}<small>${esc(new Date(x.t).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}))}${x.go?' · '+esc(x.label):''}</small></div><button class="ghost icon ib-x" data-ib-x aria-label="Remove">${icon('x',13)}</button></div>`}).join('')}};
+ paintList(){const el=$('#inboxList');if(!el)return;const l=this.items,n=this.needs;
+  if(!l.length&&!n.length){el.innerHTML='<div class="inbox-empty">'+icon('check',22)+'<b>Nothing needs you</b><span>What needs you and what you started shows here. Everything else is in Activity.</span></div>';return}
+  const when=t=>{const d=new Date(t),now=new Date();return (d.toDateString()===now.toDateString()?'':d.toLocaleDateString([],{day:'numeric',month:'short'})+' ')+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})};
+  let h='',k=0;
+  if(n.length)h+='<div class="group-label">Needs you</div>'+n.map((x,i)=>`<div class="ib-item need" data-need="${i}" ${st(Math.min(k++,10))}><span class="ic warn">${icon(Bottlenecks.icon[x.kind]||'alert',15)}</span><div class="txt"><b>${esc(x.title)}</b>${x.ask?`<span>${esc(x.ask)}</span>`:''}<div class="bn-acts" data-i="${i}"></div></div></div>`).join('');
+  if(l.length)h+='<div class="group-label">You started it</div>'+l.map(x=>`<div class="ib-item ${x.read?'':'unread'}" data-inbox="${esc(x.id)}" ${st(Math.min(k++,10))} tabindex="0"><span class="ic ${esc(x.kind)}">${icon(x.icon,15)}</span><div class="txt"><b>${esc(x.title)}</b>${x.text?`<span>${esc(x.text)}</span>`:''}<small>${esc(when(x.t))}${x.go?' · '+esc(x.label):''}</small></div><button class="ghost icon ib-x" data-ib-x aria-label="Clear">${icon('x',13)}</button></div>`).join('');
+  el.innerHTML=h;
+  // the same buttons as Bottlenecks; after one, both lists are drawn again
+  el.querySelectorAll('.bn-acts').forEach(box=>{const x=n[+box.dataset.i];for(const [label,run,primary] of Bottlenecks.actions(x)){const b=document.createElement('button');b.type='button';b.className=primary?'primary small':'ghost small';b.textContent=label;
+   b.onclick=async()=>{b.disabled=true;try{await run();await Promise.all([this.load(),Bottlenecks.check()])}catch(e){b.disabled=false;fail(e)}};box.append(b)}})}};
 Poll.add(()=>Inbox.load(),60000,1500);
 // a pop-up that is news also lands in the bell's list, and reading it in either place counts; a to-do's pop-up does not
 // 7 Nov 2026 (owner: "annoying"): nothing pops up in the corner any more. News goes to the bell's list, to-dos to

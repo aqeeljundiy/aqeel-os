@@ -268,7 +268,7 @@ async function cronDrawer(job){let jobAgent=job?.profile||S.profile||'default'; 
 }
 // the same id can exist on two agents: the schedule is found by both
 Pages.cronMenu=(el)=>{const id=el.dataset.id,prof=el.dataset.profile||'default';const j=(Pages.cronJobs||[]).find(x=>x.id===id&&(x.profile||'default')===prof);const base=`/cron/jobs/${encodeURIComponent(id)}`,q='?profile='+encodeURIComponent(prof);
- menu(el,[{label:'Run now',icon:'play',run:async()=>{try{await post(H,base+'/trigger'+q);toast('Running now · the result arrives where it delivers')}catch(e){fail(e)}}},{label:'Edit',icon:'edit',run:()=>cronDrawer(j)},'-',{label:'Delete',icon:'trash',bad:true,run:async()=>{if(!await confirmBox('Delete this schedule?',`“${esc(j?.name||id)}” stops running and is removed.`))return;try{await del(H,base+q);toast('Schedule deleted');reload()}catch(e){fail(e)}}}])};
+ menu(el,[{label:'Run now',icon:'play',run:async()=>{try{await post(H,base+'/trigger'+q);RanNow.mark(j?.name);toast('Running now · the result arrives where it delivers')}catch(e){fail(e)}}},{label:'Edit',icon:'edit',run:()=>cronDrawer(j)},'-',{label:'Delete',icon:'trash',bad:true,run:async()=>{if(!await confirmBox('Delete this schedule?',`“${esc(j?.name||id)}” stops running and is removed.`))return;try{await del(H,base+q);toast('Schedule deleted');reload()}catch(e){fail(e)}}}])};
 
 /* ---------- real service logos (served by aqeelOS from /ui/logo, cached on the box) ---------- */
 const baseDomain=h=>{const p=String(h||'').toLowerCase().split('.').filter(Boolean);if(p.length<=2)return p.join('.');const sld=p[p.length-2];return (['co','com','org','net','ac','gov'].includes(sld)&&p[p.length-1].length===2?p.slice(-3):p.slice(-2)).join('.')};

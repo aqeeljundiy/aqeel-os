@@ -2456,3 +2456,7 @@ button.acct-more{font:inherit;cursor:pointer;width:100%;background:var(--surface
  .aa-kind{display:grid;grid-template-columns:1fr 1fr;border-radius:14px;width:100%}.aa-kind button{border-radius:11px}
  .gc-dlg .drawer-foot{flex-wrap:wrap}.gc-foot-l{flex:1 1 100%}.gc-dlg .drawer-foot>button{margin-left:auto}}
 @media (prefers-reduced-motion:reduce){.gc-body.gc-in,.aa-body.gc-in,.gc-card,.gc-pastebox,.cn-keys,.cn-key,.bk-connect,.bk-pv-i{animation:none}}
+/* the bell: Needs you and You started it; Activity is a quiet page of its own */
+.inbox .ib-item.need .bn-acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.ib-activity{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);text-decoration:none;padding:4px 2px}.ib-activity:hover{color:var(--ink)}
+.act-row[data-go]{cursor:pointer}.act-row .main-c{display:flex;gap:12px;align-items:flex-start}.act-row small{color:var(--muted);font-size:12px;display:block;margin-top:2px}

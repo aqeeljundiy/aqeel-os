@@ -169,7 +169,7 @@ async function cronDetail(j){const {m,r}=schedMeta(j);const prof=j.profile||'def
  d.addEventListener('click',async e=>{const b=e.target.closest('[data-sd]');if(!b)return;const k=b.dataset.sd;
   if(k==='edit'){closeLayers();setTimeout(()=>cronDrawer(j),220)}
   if(k==='move'){closeLayers();setTimeout(()=>moveSchedule(j),220)}
-  if(k==='run'){if(b.disabled)return;b.disabled=true;try{await post(H,`/cron/jobs/${encodeURIComponent(j.id)}/trigger?profile=${encodeURIComponent(prof)}`);toast('Running now · the result arrives where it delivers')}catch(er){fail(er)}finally{b.disabled=false}}   // one run per press
+  if(k==='run'){if(b.disabled)return;b.disabled=true;try{await post(H,`/cron/jobs/${encodeURIComponent(j.id)}/trigger?profile=${encodeURIComponent(prof)}`);RanNow.mark(j.name);toast('Running now · the result arrives where it delivers')}catch(er){fail(er)}finally{b.disabled=false}}   // one run per press
   if(k==='title'){const br=bracketOf(j.name);const name=(br?'['+br+'] ':'')+m.suggest;try{await put(H,`/cron/jobs/${encodeURIComponent(j.id)}?profile=${encodeURIComponent(prof)}`,{updates:{name}});await put(UI,'/ui/schedules/meta',{profile:prof,id:j.id,dismissSuggest:true});closeLayers();toast(stripBracket(j.name||'Schedule')+' renamed to '+m.suggest);reload()}catch(er){fail(er)}}});
  let x={};try{x=await UI('/ui/schedules/detail?profile='+encodeURIComponent(prof)+'&id='+encodeURIComponent(j.id))}catch{}
  const box=d.querySelector('#sdMore');if(!box)return;

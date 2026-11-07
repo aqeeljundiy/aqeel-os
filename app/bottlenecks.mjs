@@ -28,7 +28,8 @@ export function personNeed(x){const k=x?.kind,t=[x?.title,x?.missing,x?.text].fi
   case 'instructions':return 'Read the new instructions and approve or decline them.';
   case 'ticket':return 'Answer the waiting help tickets.';
   case 'accounts':return 'Decide whether this login may act as you: approve it or disconnect it.';
-  case 'alerts':return 'Do what the message asks.';
+  // a message for the owner that landed here with no channel set: only one that needs them (the fixer's "needs a person")
+  case 'alerts':{const m=/What is needed(?: from you)?: ([^\n]+)/i.exec(String(x.text||''));return /needs a person|What is needed|could not fix this by itself/i.test(t)?(m?m[1].trim():'Do what the message asks.'):null}
   case 'channel':return x.channel?.needs_link?'Link WhatsApp again: scan the QR code with the phone of that number.':null;
   case 'group':return 'Add the bot back to this Telegram group (a bot cannot add itself). If the agent no longer works there, remove the group from its settings.';
   // an agent's system report is an issue for the fixer at once (server.mjs): if it needs a person, the fixer sends
