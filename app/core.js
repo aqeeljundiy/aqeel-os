@@ -7,13 +7,14 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const isMac=/Mac|iPhone|iPad/.test(navigator.platform);
 const MOD=isMac?'⌘':'Ctrl';
 const store={get(k,d){try{const v=localStorage.getItem('hui-'+k);return v===null?d:JSON.parse(v)}catch{return d}},set(k,v){try{localStorage.setItem('hui-'+k,JSON.stringify(v))}catch{}}};
-// Costs are worked out in US dollars; each person can see them in rupiah instead, at today's rate (account menu, or Usage)
-const FX={rate:store.get('idrRate',16500),loaded:false,load(){if(this.loaded)return;this.loaded=true;UI('/ui/fx').then(r=>{if(r.IDR){this.rate=r.IDR;this.day=r.updated;store.set('idrRate',r.IDR)}}).catch(()=>{})}};
+// Costs are worked out in US dollars; each person can see them in another currency, at today's rate (account menu, or Usage)
+const FX={rates:store.get('fxRates',{IDR:store.get('idrRate',16500)}),get rate(){return this.rates[currency()]||this.rates.IDR||1},loaded:false,load(){if(this.loaded)return;this.loaded=true;UI('/ui/fx').then(r=>{if(r.rates){this.rates=r.rates;this.day=r.updated;store.set('fxRates',r.rates)}}).catch(()=>{})}};
 const currency=()=>store.get('currency',null)||S.defaults?.currency||'USD';
 function money(c,opt={}){if(c==null||isNaN(c))return '';c=+c;
  if(currency()==='IDR'){FX.load();const v=c*FX.rate;if(v>0&&v<1)return '<Rp1';return 'Rp'+(v>=1e6&&!opt.full&&!opt.cents?(v/1e6).toLocaleString('id-ID',{maximumFractionDigits:v>=1e7?0:1})+' jt':Math.round(v).toLocaleString('id-ID'))}
+ const cur=currency();if(cur!=='USD'&&FX.rates[cur]){FX.load();const v=c*FX.rates[cur];try{return new Intl.NumberFormat(undefined,{style:'currency',currency:cur,maximumFractionDigits:opt.cents||v<10?2:0}).format(v)}catch{}}else if(cur!=='USD')FX.load();
  if(opt.cents)return '$'+c.toFixed(2);return c>0&&c<0.01?'<$0.01':'$'+(c<10?c.toFixed(2):Math.round(c).toLocaleString('en-US'))}
-function setCurrency(c){store.set('currency',c);if(typeof CodeUI!=='undefined')CodeUI.post({aq:'currency',code:c,rate:FX.rate});if(c==='IDR')FX.load();toast(c==='IDR'?'Costs now in rupiah, at about Rp'+Math.round(FX.rate).toLocaleString('id-ID')+' per dollar':'Costs now in US dollars');if(typeof reload==='function')reload()}
+function setCurrency(c){store.set('currency',c);if(typeof CodeUI!=='undefined')CodeUI.post({aq:'currency',code:c,rate:FX.rate});if(c!=='USD')FX.load();toast(c==='USD'?'Costs now in US dollars':'Costs now in '+c+(FX.rates[c]?', at about '+FX.rates[c].toLocaleString(undefined,{maximumFractionDigits:2})+' per dollar':''));if(typeof reload==='function')reload()}
 // Your settings follow you: what this browser remembers for you (drafts, Allow all per chat, folded sections,
 // filters, theme, notifications you have seen) is also saved to your account on the box and loaded once at sign-in,
 // so every device shows the same. Rules: a change made here and not sent yet always wins; another person signing in

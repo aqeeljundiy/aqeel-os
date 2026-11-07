@@ -1038,14 +1038,14 @@ const HELP_ID=typeof Help!=='undefined'?Help.ID:'aqeelos-help',usageName=a=>a===
 // whose usage: the one Showing picker in the header (All agents, or one agent), as on every page that has it (1 Nov 2026)
 const usageWho=list=>list.length<2?(list[0]||S.profile||'default'):typeof showingAll==='function'&&showingAll()?'*':viewing();
 ACT['currency-pick']=a=>{const c=currency(),admin=S.me?.admin!==false,def=S.defaults?.currency||'USD';
- menu(a,[{header:'Show costs in'},{label:'US dollars',sub:'$',on:c==='USD',run:()=>setCurrency('USD')},{label:'Rupiah',sub:'Rp, at today’s rate',on:c==='IDR',run:()=>setCurrency('IDR')},...(admin&&c!==def?['-',{label:'Use '+(c==='IDR'?'rupiah':'US dollars')+' for everyone',icon:'user',sub:'For people who haven’t picked one',run:()=>ACT['currency-default']()}]:[])],{matchWidth:false})};
+ menu(a,[{header:'Show costs in'},...[...new Set(['USD',def,c,'EUR','GBP','IDR','SGD','AUD','INR','JPY'])].map(k=>({label:(()=>{try{return new Intl.DisplayNames(undefined,{type:'currency'}).of(k)}catch{return k}})(),sub:k==='USD'?'$':k+', at today’s rate',on:c===k,run:()=>setCurrency(k)})),...(admin&&c!==def?['-',{label:'Use '+c+' for everyone',icon:'user',sub:'For people who haven’t picked one',run:()=>ACT['currency-default']()}]:[])],{matchWidth:false})};
 ACT['currency-default']=async()=>{try{await post(UI,'/ui/defaults',{currency:currency()});S.defaults={...(S.defaults||{}),currency:currency()};toast('Everyone who hasn’t picked a currency now sees '+(currency()==='IDR'?'rupiah':'US dollars'));reload()}catch(e){fail(e)}};
 PAGES.usage=async(p,el)=>{const gone=pageTok(el);
  const days={'7 days':7,'30 days':30,'90 days':90}[S.tab.usage||'7 days'];
  // dollars or rupiah: the tab sets the person's choice, which every cost in the app follows
  // a member sees the same page for themselves: their own chats only (people.js adds them), never every agent's totals
  const member=S.me?.admin===false;const list=member?[]:await viewAgents().catch(()=>[]);if(gone())return;const who=usageWho(list);
- const cur=currency()==='IDR'?'Rp IDR':'$ USD',isDefault=currency()===(S.defaults?.currency||'USD');
+ const cur=currency()==='USD'?'$ USD':currency(),isDefault=currency()===(S.defaults?.currency||'USD');
  setActions('<div class="u-bar">'+`<button class="u-pick" data-act="currency-pick" aria-haspopup="menu" title="Currency for costs"><span>${cur}</span>${icon('chevD',14)}</button>`+tabs('usage',['7 days','30 days','90 days'])+(member?'':`<button class="u-pick icon" data-act="usage-fresh" title="Read it again now" aria-label="Refresh">${icon('refresh',15)}</button>`)+'</div>');placePills();if(member){el.innerHTML='';return}viewPick(list);
 
  // the server answers its last read at once and reads again behind; Refresh waits for a new one (usage-fresh)

@@ -274,7 +274,7 @@ setTimeout(()=>schedules.tick(),40000).unref();setInterval(()=>schedules.tick(),
 const relay=createRelay({ownerAgent:a=>{const o=users.agentOwner(String(a).split('--')[0]);return !o||o==='owner'},DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,SECRET,listAgents:()=>listAgents(),links:{list:a=>links.list(a)},platformsOf:a=>platformsCached(a),nameOf:a=>NAMES[a]||a,ownerName:()=>users.people()[0]?.name});
 const NAMES={};   // agents' display names (refreshed with the agent context), for messages people read
 // names and notes people give their Google accounts, "<agent>|<account name>" → {label, note}
-const FX={idr:16500,at:0,day:''};   // dollar → rupiah, refreshed by /ui/fx
+const FX={rates:{IDR:16500},at:0,day:''};   // dollar → every currency, refreshed by /ui/fx (7 Nov 2026: not only rupiah)
 let GLABELS=null;const googleLabels=async()=>GLABELS??=await readFile(path.join(DATA,'google-accounts.json'),'utf8').then(JSON.parse).catch(()=>({}));
 async function writeJsonAtomic(f,v){await mkdir(path.dirname(f),{recursive:true});const t=f+'.'+process.pid+'.'+Math.random().toString(36).slice(2)+'.tmp';await writeFile(t,JSON.stringify(v,null,1));await rename(t,f)}
 // the Google accounts an agent has, with what the person called them, for its working notes
@@ -2248,8 +2248,8 @@ const server=createServer(async(req,res)=>{
     try{if(act==='start')return send(res,200,await antigravity.start());if(act==='code')return send(res,200,await antigravity.code(b.code));if(act==='cancel')return send(res,200,await antigravity.cancel());if(act==='logout'){const r=await antigravity.logout();await accountsApi.forget('p:antigravity-subscription').catch(()=>{});return send(res,200,r)}}catch(e){return send(res,400,{error:e.message})}
     return send(res,404,{error:'Unknown'})}
    // today's US dollar → rupiah rate, so costs can be shown in rupiah (fetched twice a day, last good one kept)
-   if(p==='/ui/fx'&&req.method==='GET'){if(!FX.at||Date.now()-FX.at>12*3600e3){try{const r=await fetch('https://open.er-api.com/v6/latest/USD',{signal:AbortSignal.timeout(8000)});const j=await r.json();const v=+j?.rates?.IDR;if(v>1000&&v<100000)Object.assign(FX,{idr:v,at:Date.now(),day:(j.time_last_update_utc||'').slice(5,16)})}catch{}}
-    return send(res,200,{IDR:FX.idr,updated:FX.day||null})}
+   if(p==='/ui/fx'&&req.method==='GET'){if(!FX.at||Date.now()-FX.at>12*3600e3){try{const r=await fetch('https://open.er-api.com/v6/latest/USD',{signal:AbortSignal.timeout(8000)});const j=await r.json();const rates=Object.fromEntries(Object.entries(j?.rates||{}).filter(([k,v])=>/^[A-Z]{3}$/.test(k)&&+v>0));if(rates.EUR)Object.assign(FX,{rates,at:Date.now(),day:(j.time_last_update_utc||'').slice(5,16)})}catch{}}
+    return send(res,200,{rates:FX.rates,IDR:FX.rates.IDR,updated:FX.day||null})}
    if(p==='/ui/box'&&req.method==='GET')return send(res,200,await boxMemory());
    // Google accounts an agent can use (the Google Workspace skill keeps one sign-in per account); never the tokens themselves
    if(p==='/ui/google-accounts'){const a=String(url.searchParams.get('agent')||'default');if(!(await listAllProfiles()).includes(a))return send(res,400,{error:'Unknown agent'});
@@ -2456,7 +2456,7 @@ const server=createServer(async(req,res)=>{
    // company-wide defaults (the currency for people who never picked one): everyone reads them, admins set them
    if(p==='/ui/defaults'){const F=path.join(DATA,'defaults.json');let d={};try{d=JSON.parse(await readFile(F,'utf8'))}catch{}
     if(req.method==='GET')return send(res,200,d);if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});let b={};try{b=JSON.parse(await readBody(req,2048))}catch{}
-    if(b.currency!==undefined){if(!['USD','IDR'].includes(b.currency))return send(res,400,{error:'Pick USD or IDR.'});d.currency=b.currency}await writeFile(F,JSON.stringify(d,null,1));return send(res,200,d)}
+    if(b.currency!==undefined){if(!/^[A-Z]{3}$/.test(String(b.currency)))return send(res,400,{error:'Pick a currency code like USD or EUR.'});d.currency=b.currency}await writeFile(F,JSON.stringify(d,null,1));return send(res,200,d)}
    if(p==='/ui/apps'&&req.method==='GET')return send(res,200,{...await live.list(u,users.isAdmin(u)),admin:users.isAdmin(u)});
    if(p.startsWith('/ui/apps/')&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}
     try{if(p==='/ui/apps/check'){const a=await live.check(String(b.id||''));return send(res,200,{status:a.status,error:a.error||''})}
