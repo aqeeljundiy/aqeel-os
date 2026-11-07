@@ -33,6 +33,10 @@ export const TOLERANCE=300,MAX_BODY=1024*1024,API=(process.env.KIRIMDEV_API||'ht
 export const FOOTER=/\n*\(Answered with [^)]*\)\s*$/;
 export const MODES=['test','draft','live'],EVENTS=['message.received','message.sent'];
 export const RETRY_MIN=[1,5,15,30,60],DEFAULT_PAUSE=15;
+// Kirimdev contact labels (8 Nov 2026, LABEL_SOP.md): the agent may set only the line's allowed labels (lines.<agent>.labels.allowed);
+// these never: who someone is (Internal, Boss, Influencer) and what they paid for (Customer, S-…), which only a confirmed
+// payment sets (paid-labels.mjs). At most LABEL_MAX changes in one call or one run.
+export const LABEL_NEVER=/^(internal|boss|influencer|customer)$|^s-/i,LABEL_MAX=6;
 // can Kirimdev reach this address from the internet? Not localhost, a private or link-local address, or a test name
 export function publicReach(u){let x;try{x=new URL(String(u||''))}catch{return {ok:false,why:'aqeelOS has no public address (set Your address on System › Settings), so Kirimdev cannot send it messages. It reads new messages every 20 seconds instead.'}}
  const h=x.hostname.replace(/^\[|\]$/g,'').toLowerCase(),priv=/^(localhost|.*\.(localhost|local|test|internal|lan|home)|127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|169\.254\.\d+\.\d+|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d+\.\d+|0\.0\.0\.0|::1?|f[cd][0-9a-f]*:.*|fe80:.*)$/;
@@ -106,7 +110,7 @@ const RESET=/^(reset|\/reset|mulai baru)$/i;
 const isReset=(line,t)=>RESET.test(t)||(line.resetWords||[]).some(w=>w&&String(t).toLowerCase()===String(w).trim().toLowerCase());
 const tail=n=>'…'+String(n||'').slice(-4);
 
-export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3,pollEvery=20e3,runAgent,paidSince=null,telegram,teamGroup=async()=>null,tell=async()=>{},problem=null,solved=async()=>{},log=m=>console.log(m),fetchImpl=fetch,now=()=>Date.now(),PUBLIC_URL,wait=ms=>new Promise(r=>setTimeout(r,ms)),maxRuns=2,echoWait=4000,setTimer=setTimeout,clearTimer=clearTimeout}){
+export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3,pollEvery=20e3,runAgent,paidSince=null,telegram,teamGroup=async()=>null,tell=async()=>{},problem=null,solved=async()=>{},log=m=>console.log(m),activity=async()=>{},fetchImpl=fetch,now=()=>Date.now(),PUBLIC_URL,wait=ms=>new Promise(r=>setTimeout(r,ms)),maxRuns=2,echoWait=4000,setTimer=setTimeout,clearTimer=clearTimeout}){
  const pub=()=>String(PUBLIC_URL??publicUrl()).replace(/\/+$/,'');   // the address given (tests) or the install's current one
  const ASK_MIN=30;   // minutes a handoff may wait for the team's answer before Health shows it
  const CONF=path.join(DATA,'kirimdev.json'),SEC=path.join(DATA,'kirimdev-secrets.json'),ST=path.join(DATA,'kirimdev-state.json');
@@ -114,7 +118,7 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
  const put=async(f,v,mode=0o600)=>{await mkdir(DATA,{recursive:true});const t=f+'.'+process.pid+'.'+randomUUID().slice(0,8)+'.tmp';await writeFile(t,JSON.stringify(v,null,1),{mode});await rename(t,f)};
  let st=null,loading=null,chain=Promise.resolve();const queue=fn=>{const p=chain.then(fn);chain=p.catch(()=>{});return p};
  const state=async()=>st||(loading||=readState());
- const readState=async()=>st=Object.assign({seen:[],cut:{},recent:{},pending:{},turns:{},outbox:{},last:{},testerNums:{},ours:{},paused:{},human:{},drafts:{},handoffs:{},asked:{},seq:0},await readJson(ST,{}));
+ const readState=async()=>st=Object.assign({seen:[],cut:{},recent:{},pending:{},turns:{},outbox:{},last:{},testerNums:{},ours:{},paused:{},human:{},proposed:{},drafts:{},handoffs:{},asked:{},seq:0},await readJson(ST,{}));
  const saveState=()=>queue(async()=>{await state();st.seen=st.seen.slice(-3000);const t=now();
   for(const [k,v] of Object.entries(st.recent))if(t-v>48*3600e3)delete st.recent[k];
   for(const [k,v] of Object.entries(st.ours))if(t-v>48*3600e3)delete st.ours[k];
@@ -334,8 +338,10 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
  // Draft: the reply waits in the Questions topic (and on the Channels page) for a person to approve it
  async function makeDraft(agent,line,p,parts,why=''){if(!parts.length)return;const id=++st.seq;
   const d={id,agent,from:p.from,conversationId:p.conversationId,name:p.name,parts,at:now(),status:'waiting',held:!!why};st.drafts[id]=d;
+  // labels the agent asked for in Draft are not set: they ride with the draft and are set when a person sends it
+  const pk=agent+'|'+p.conversationId,pl=st.proposed[pk];if(pl){delete st.proposed[pk];if(pl.add.length||pl.remove.length)d.labels=pl}
   const t=await target(agent);
-  const post=(why?why+'\n\n':'')+'📝 DRAFT #'+id+' ('+line.persona+', '+p.name+', +'+p.from+')\n\n'+parts.join('\n---\n')+'\n\n'+(t?.mention?t.mention+' ':'')+'reply "ok" to send it to the customer, reply with the changed text to send that instead, or "no" to drop it.';
+  const post=(why?why+'\n\n':'')+'📝 DRAFT #'+id+' ('+line.persona+', '+p.name+', +'+p.from+')\n\n'+parts.join('\n---\n')+(d.labels?'\n\n🏷 Labels, set when it is sent: '+labelWords(d.labels):'')+'\n\n'+(t?.mention?t.mention+' ':'')+'reply "ok" to send it to the customer, reply with the changed text to send that instead, or "no" to drop it.';
   const mid=t?await telegram(agent,t.chatId,t.threadId,post).catch(()=>false):false;d.posted=!!mid;
   if(!mid)await tell(line.persona+' wrote a draft that could not be posted in Telegram',(t?'':'No team group is set (Channels page, Team group). ')+'It waits on the Channels page, where you can send or drop it.').catch(()=>{});
   log('kirimdev '+agent+': draft #'+id+' for '+p.name+(mid?' posted':' kept on the Channels page'));await saveState();return d}
@@ -351,7 +357,9 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
   const parts=text&&String(text).trim()?splitReply(text):d.parts;if(!parts.length)throw Error('Write the text to send.');
   d.by=String(by||'');d.edited=!!(text&&String(text).trim());
   if(!d.outbound){d.outbound=[];for(const p of parts){const op=await prepare(agent,line,d.from,p);if(op)st.outbox[op].approved=true;d.outbound.push(op)}await saveState()}
-  const sent=[];for(const id of d.outbound){sent.push(await deliver(id));await wait(1500)}d.status='sent';d.doneAt=now();await saveState();return {sent:sent.filter(Boolean).length}}
+  const sent=[];for(const id of d.outbound){sent.push(await deliver(id));await wait(1500)}d.status='sent';d.doneAt=now();await saveState();
+  let labels=null;if(d.labels&&!d.labelsSet){labels=await labelContact(agent,{conversationId:d.conversationId,phone:d.from,...d.labels,source:'approved',run:'draft'+d.id}).catch(e=>({set:false,why:e.message}));if(labels.set){d.labelsSet=true;await saveState()}}
+  return {sent:sent.filter(Boolean).length,...(labels?{labels}:{})}}
 
  // one part: text, or a picture from the agent's media/staff (urls.txt for [FOTO], templates.json for [TEMPLATE])
  async function send(agent,line,to,part){const id=await prepare(agent,line,to,part);await saveState();return deliver(id)}
@@ -413,7 +421,7 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
     handoffsWaiting:Object.values(st.handoffs).filter(h=>h.agent===agent).length,phoneNumberId:String(l.phoneNumberId||''),health:health().lines[agent]||null,
     delivery:pollsNow(agent,l,sec)?'poll':'webhook',polledAt:st.poll?.[agent]?.at||null,pollError:st.poll?.[agent]?.error||null,
     settings:{persona:l.persona||'',business:l.business||'',language:l.language||'',pauseMin:Number(l.pauseMin??DEFAULT_PAUSE),resetWords:l.resetWords||['reset'],resetText:l.resetText||'',
-     testers:(l.testers||[]).map(t=>({who:t.who||'',phone:String(t.phone||''),chat:!!t.conversationId})),payment:l.payment||null}}}))}
+     testers:(l.testers||[]).map(t=>({who:t.who||'',phone:String(t.phone||''),chat:!!t.conversationId})),payment:l.payment||null,labels:l.labels?.allowed||[]}}}))}
  async function setMode(agent,mode){if(!MODES.includes(mode))throw Error('Mode is test, draft or live.');const c=await readJson(CONF,{lines:{}});if(!c.lines?.[agent])throw Error('No line for '+agent+'.');c.lines[agent].mode=mode;await put(CONF,c,0o644);return true}
  async function setPause(agent,min){const n=Number(min);if(!Number.isInteger(n)||n<0||n>1440)throw Error('The quiet time is a whole number of minutes, 0 to 1440.');const c=await readJson(CONF,{lines:{}});if(!c.lines?.[agent])throw Error('No line for '+agent+'.');c.lines[agent].pauseMin=n;await put(CONF,c,0o644);return n}
 
@@ -450,7 +458,46 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
     if(p.helper?.path){const hp=str(p.helper.path,120);if(!/^[\w.\/-]+$/.test(hp)||hp.split('/').includes('..')||hp.startsWith('/'))throw Error('The payment helper is a file in the agent’s folder, like .tools/qris.');o.helper={path:hp,style:p.helper.style==='send'?'send':'picture'}}
     if(p.currency)o.currency=str(p.currency,6);for(const k of ['min','max'])if(p[k]!==''&&p[k]!=null){const n=Number(p[k]);if(!Number.isInteger(n)||n<0)throw Error('Payment amounts are whole numbers.');o[k]=n}
     if(o.min!=null&&o.max!=null&&o.min>o.max)throw Error('The lowest payment is above the highest.');l.payment=o}}
+  if('labels' in b){const A=[...new Set((Array.isArray(b.labels)?b.labels:[]).map(x=>str(x,50)).filter(Boolean))];if(A.length>120)throw Error('120 labels at most.');
+   const bad=A.filter(x=>LABEL_NEVER.test(x));if(bad.length)throw Error(bad.join(', ')+': only a person or a confirmed payment sets '+(bad.length>1?'these':'this')+', never the agent.');
+   if(A.length)l.labels={...(l.labels||{}),allowed:A};else delete l.labels}
   return l}
+ // ---- contact labels (8 Nov 2026). Kirimdev's labels are the account's (GET labels, cached 10 minutes); a contact's are
+ // read before each change, so adding one it has or removing one it lacks does nothing (safe to repeat).
+ let labelCache=null;
+ async function labelList({fresh=false}={}){if(!fresh&&labelCache&&now()-labelCache.at<10*60e3)return labelCache.v;const v=[];let cur='';
+  for(let i=0;i<20;i++){const j=await api('labels?'+new URLSearchParams({limit:'100',...(cur?{cursor:cur}:{})}));for(const x of j.data||[])if(x?.id&&x?.name)v.push({id:String(x.id),name:String(x.name)});
+   cur=j.has_more&&j.next_cursor?String(j.next_cursor):'';if(!cur)break}
+  labelCache={at:now(),v};return v}
+ const labelWords=o=>[...(o.add||[]).map(x=>'+'+x),...(o.remove||[]).map(x=>'−'+x)].join(', ');
+ const contactIds=new Map();
+ async function contactOf(line,conversationId){const k=line.phoneNumberId+'|'+conversationId;if(contactIds.has(k))return contactIds.get(k);
+  const j=await api(line.phoneNumberId+'/conversations/'+encodeURIComponent(conversationId));const id=String(j?.data?.contact?.id||'');if(!/^ctc_\w+$/.test(id))throw Error('Kirimdev gave no contact for this chat.');contactIds.set(k,id);return id}
+ // add/remove labels on the contact of ONE chat (the caller's run decides which; a model never gives a contact id).
+ // source: 'agent' (the label_contact tool: allowed labels only, never LABEL_NEVER; Draft proposes, nothing is set),
+ // 'approved' (a person sent the draft that proposed them: same rules, set now), 'payment' (a confirmed payment: Customer
+ // and S- labels added, Checkout removed, nothing else). Test sets labels on testers only. Every change is logged.
+ async function labelContact(agent,{conversationId,phone='',add=[],remove=[],source='agent',run=''}={}){await state();const line=await lineOf(agent);if(!line)throw Error('This agent has no Kirimdev line.');
+  if(!conversationId)throw Error('This chat has no Kirimdev conversation.');const norm=a=>[...new Set([].concat(a||[]).map(x=>String(x??'').trim()).filter(Boolean))];
+  add=norm(add);remove=norm(remove).filter(x=>!add.includes(x));if(!add.length&&!remove.length)throw Error('Give the labels to add or remove.');
+  if(add.length+remove.length>LABEL_MAX)throw Error(LABEL_MAX+' label changes at most at once.');
+  const all=await labelList(),id=new Map(all.map(x=>[x.name,x.id])),allowed=new Set(line.labels?.allowed||[]);
+  for(const n of [...add,...remove]){if(!id.has(n))throw Error('Kirimdev has no label called "'+n+'". Use an exact name.');
+   if(source==='payment'){if(!(add.includes(n)&&(n==='Customer'||/^S-/.test(n))||remove.includes(n)&&n==='Checkout'))throw Error('A payment sets Customer and S- labels and removes Checkout only, not '+n+'.')}
+   else{if(LABEL_NEVER.test(n))throw Error('"'+n+'" is never yours to set: '+(/^s-|^customer$/i.test(n)?'aqeelOS sets Customer and S- labels itself once a payment is confirmed.':'only a person sets it.'));
+    if(!allowed.has(n))throw Error('"'+n+'" is not one of the labels you may set'+(allowed.size?': '+[...allowed].join(', '):' (this line allows none yet)')+'.')}}
+  const mode=modeOf(line),tester=isTester(line,{from:phone,conversationId})||!!(phone&&st.testerNums[agent+'|'+phone]),who=phone?tail(phone):conversationId;
+  if(mode==='test'&&!tester){log('kirimdev '+agent+': labels '+labelWords({add,remove})+' for '+who+' not set (Test: testers only)');return {set:false,why:'The line is in Test: labels are set on the testers only.'}}
+  if(mode==='draft'&&source==='agent'){const k=agent+'|'+conversationId,pr=st.proposed[k]||{add:[],remove:[]};
+   pr.add=[...new Set([...pr.add.filter(x=>!remove.includes(x)),...add])];pr.remove=[...new Set([...pr.remove.filter(x=>!add.includes(x)),...remove])];st.proposed[k]=pr;await saveState();
+   log('kirimdev '+agent+': labels '+labelWords({add,remove})+' for '+who+' proposed with the draft'+(run?' (run '+run+')':''));return {set:false,proposed:true,why:'The line is in Draft: the labels go with your draft and are set when a person sends it.'}}
+  const cid=await contactOf(line,conversationId),c=await api(line.phoneNumberId+'/contacts/'+encodeURIComponent(cid));
+  const have=new Set((c?.data?.labels||[]).map(x=>String(typeof x==='string'?x:x?.id||'')));const done=[];
+  for(const n of add){const lid=id.get(n);if(have.has(lid))continue;await api(line.phoneNumberId+'/contacts/'+encodeURIComponent(cid)+'/labels',{label_id:lid},{idem:'aqeelos-label-'+cid+'-'+lid+'-'+(run||now())});done.push('+'+n)}
+  for(const n of remove){const lid=id.get(n);if(!have.has(lid))continue;await api(line.phoneNumberId+'/contacts/'+encodeURIComponent(cid)+'/labels/'+encodeURIComponent(lid),null,{method:'DELETE'});done.push('−'+n)}
+  log('kirimdev '+agent+': labels on '+who+': '+(done.join(', ')||'already so')+' ('+source+(run?', run '+run:'')+')');
+  if(done.length)await activity(agent,(line.persona||agent)+' labelled '+(phone?'+'+phone:'a contact')+': '+done.join(', '),(source==='payment'?'A confirmed payment':source==='approved'?'A sent draft':'The agent in a customer chat')+(run?' (run '+run+')':'')+'. Kirimdev contact '+cid+'.').catch(()=>{});
+  return {set:true,changed:done}}
  // the line for an agent: a new one (Connect: Test mode, delivery set up, first check) or changes to its settings
  async function saveLine(agent,b={}){if(!AGENT.test(String(agent||'')))throw Error('Pick the agent that answers this number.');
   const c=await readJson(CONF,{lines:{}});c.lines||={};const cur=c.lines[agent]||null,isNew=!cur;
@@ -533,4 +580,4 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
   await fixQuiet().catch(e=>log('kirimdev quiet time: '+e.message));
   if(!civ){civ=setInterval(()=>check().catch(e=>log('kirimdev check: '+e.message)),checkEvery);civ.unref?.();setTimer(()=>check().catch(e=>log('kirimdev check: '+e.message)),60e3)?.unref?.()}
   for(const a of Object.keys(await lines()))await ensureEvents(a).catch(e=>log('kirimdev '+a+': could not add message.sent to the webhook: '+e.message))}
- return {receive,reply,draft,connect,webhook,ensureEvents,status,check,health,setKey,numbers,saveLine,connectWebhook,disconnect,renewSecret,testSend,poll,fixQuiet,account:async()=>{await state();return health().account},setMode,setPause,resume,lines,_api:api,_tick:tick,_state:state}}
+ return {receive,reply,draft,labelContact,labelList,connect,webhook,ensureEvents,status,check,health,setKey,numbers,saveLine,connectWebhook,disconnect,renewSecret,testSend,poll,fixQuiet,account:async()=>{await state();return health().account},setMode,setPause,resume,lines,_api:api,_tick:tick,_state:state}}

@@ -10,7 +10,10 @@
 //   past_chats       the agent's own line's past chats (as before)
 //   create_payment   the agent's own payment helper (.tools/qris or .tools/pay) run as the agent's user, for THIS customer
 //                    only (the number comes from the run, never from the model), amounts checked, at most 2 per run,
-//                    every call written to DATA/payments.jsonl
+//                    every call written to DATA/payments.jsonl (with the products bought and the provider's references,
+//                    so paid-labels.mjs can label the contact once the payment is confirmed paid)
+//   label_contact    the line's allowed Kirimdev labels on THIS chat's contact only (8 Nov 2026; kirimdev.mjs labelContact
+//                    holds the rules), a few per run, each logged with the run id; never a message to the customer
 // The engine itself never sees a key: the helper reads the keys as the agent's user, outside the model's reach.
 import {readFile,readdir,stat,appendFile,mkdir} from 'node:fs/promises';
 import {randomBytes,timingSafeEqual} from 'node:crypto';
@@ -24,7 +27,7 @@ export function readable(rel){const r=String(rel||'').replace(/^\.\/+/,'');if(!r
  if(/(^|\/)(secrets?|tools|node_modules|tmp|Desktop)(\/|$)/i.test(r)||/\.(bak|orig)|bak-|\.env|key|token|password|secret/i.test(r))return false;
  return /^[\w-]+\.md$/.test(r)||/^(templates|sop|knowledge|rules)\/[\w ./-]+\.(md|txt|json|csv)$/.test(r)||/^media\/[\w ./-]*urls\.txt$/.test(r)}
 // pr: the line's payment setting (kirimdev.json lines.<agent>.payment: {currency, min, max}); none = any whole amount
-export const TOOLS=(pay,pr={})=>{const cur=pr.currency||'',lo=Number(pr.min)||1,hi=Number(pr.max)||1e9,amt=x=>(cur?cur+' ':'')+Number(x).toLocaleString('en-US');return [
+export const TOOLS=(pay,pr={},lr={})=>{const allowed=lr.allowed||[],sales=lr.sales||[];const cur=pr.currency||'',lo=Number(pr.min)||1,hi=Number(pr.max)||1e9,amt=x=>(cur?cur+' ':'')+Number(x).toLocaleString('en-US');return [
  {name:'read_sheet',description:'Read your knowledge or rules sheet (read only). method is spreadsheets.values.get, spreadsheets.values.batchGet or spreadsheets.get; params as the Google Sheets API takes them, e.g. {"spreadsheetId":"…","range":"Rules!A1:Z200"}.',
   inputSchema:{type:'object',properties:{method:{type:'string',enum:[...READ_METHODS]},params:{type:'object'}},required:['method','params']},annotations:{readOnlyHint:true}},
  {name:'read_file',description:'Read one of your rule or template files, e.g. DECISIONS.md, BRIEFING.md, templates/ORDER_FORM.md, sop/<name>.md. list_files shows them.',
@@ -32,16 +35,19 @@ export const TOOLS=(pay,pr={})=>{const cur=pr.currency||'',lo=Number(pr.min)||1,
  {name:'list_files',description:'The rule and template files you can read with read_file.',inputSchema:{type:'object',properties:{}},annotations:{readOnlyHint:true}},
  {name:'conversation',description:'This customer\'s latest messages in this Kirimdev chat (newest last). Only this chat.',inputSchema:{type:'object',properties:{limit:{type:'integer',minimum:1,maximum:60}}},annotations:{readOnlyHint:true}},
  {name:'past_chats',description:'Search the past customer chats of your own Kirimdev line for how something was answered before.',inputSchema:{type:'object',properties:{query:{type:'string'},limit:{type:'integer'}},required:['query']},annotations:{readOnlyHint:true}},
+ ...(allowed.length?[{name:'label_contact',description:'Label THIS customer\'s contact in Kirimdev (the team\'s CRM pipeline), as your label rules say: the stage they reached or a product they asked about. Only these labels: '+allowed.join(', ')+'. Never Customer or S- labels: aqeelOS sets those itself once a payment is confirmed. The customer never sees labels; say nothing about them in your reply.',
+  inputSchema:{type:'object',properties:{add:{type:'array',items:{type:'string',enum:allowed},maxItems:4},remove:{type:'array',items:{type:'string',enum:allowed},maxItems:4}}}}]:[]),
  ...(pay?[{name:'create_payment',description:pay==='pay'
    ?'Create a REAL payment with your payment helper for THIS customer\'s CONFIRMED order and send it to them in this chat (QR picture, or virtual account number). kind qris: amounts, each '+amt(lo)+' to '+amt(hi)+' (split bigger totals). kind va: bank code and one amount. Use once per confirmed order; again only if the customer says it expired (expired true). After it succeeds, do not repeat the payment in your reply; say it was sent.'
    :'Create a REAL QR payment with your payment helper for THIS customer\'s CONFIRMED order total. Amounts each '+amt(lo)+' to '+amt(hi)+' (split bigger totals). Returns [FOTO: …] lines: put each on its own line in your reply so the QR picture is sent. Use once per confirmed order; again only if the customer says it expired (expired true).',
-  inputSchema:{type:'object',properties:{kind:{type:'string',enum:pay==='pay'?['qris','va']:['qris']},amounts:{type:'array',items:{type:'integer',minimum:lo,maximum:hi},minItems:1,maxItems:5},bank:{type:'string',description:'The bank code the payment helper accepts, e.g. BCA'},name:{type:'string',description:'The customer\'s name from the order form'},order_total:{type:'integer',description:'The confirmed order total; the amounts must add up to it'},expired:{type:'boolean'}},required:['amounts','name','order_total']}}]:[])]};
+  inputSchema:{type:'object',properties:{kind:{type:'string',enum:pay==='pay'?['qris','va']:['qris']},amounts:{type:'array',items:{type:'integer',minimum:lo,maximum:hi},minItems:1,maxItems:5},bank:{type:'string',description:'The bank code the payment helper accepts, e.g. BCA'},name:{type:'string',description:'The customer\'s name from the order form'},order_total:{type:'integer',description:'The confirmed order total; the amounts must add up to it'},expired:{type:'boolean'},
+   products:{type:'array',items:sales.length?{type:'string',enum:sales}:{type:'string'},maxItems:12,description:'What the order buys, as the sales labels'+(sales.length?'':' (S- names)')+': one per product in the order form (a reusable pen is S-Pen). Set on the customer\'s contact only once the payment is confirmed paid.'}},required:['amounts','name','order_total']}}]:[])]};
 
 // every customer tool takes the run's key (given in the run's instructions); calls without a live key are refused
 export const RUN_FIELD={type:'string',description:'Your run key, exactly as given in your instructions for this chat.'};
 export const withRun=tools=>tools.map(t=>({...t,inputSchema:{...t.inputSchema,properties:{run:RUN_FIELD,...(t.inputSchema?.properties||{})},required:['run',...(t.inputSchema?.required||[]).filter(x=>x!=='run')]}}));
 
-export function createCustomerTools({WORK,DATA,payRules=async()=>({}),googleCall,chatFind,history,runAsAgent,log=m=>console.log(m),now=()=>Date.now(),random=n=>randomBytes(n)}){
+export function createCustomerTools({WORK,DATA,payRules=async()=>({}),labelRules=async()=>({}),labelContact=null,googleCall,chatFind,history,runAsAgent,log=m=>console.log(m),now=()=>Date.now(),random=n=>randomBytes(n)}){
  const runs=new Map();
  // the agent's payment helper: the line's setting (kirimdev.json lines.<agent>.payment.helper {path, style}), else the
  // usual names in its workspace. style "send": it sends the payment itself (qris|va amounts --name --to <number>);
@@ -52,7 +58,7 @@ export function createCustomerTools({WORK,DATA,payRules=async()=>({}),googleCall
   if(await stat(path.join(WORK,a,'.tools','qris')).catch(()=>null))return {path:'.tools/qris',style:'picture'};return null};
  const payKind=async a=>{const h=await helperOf(a);return h?(h.style==='send'?'pay':'qris'):null};
  // a run's key: made by aqeelOS when it starts a customer run, ends with it (15 minutes at most)
- function begin({agent,line,conversation,phone,mode}){const token=random(24).toString('base64url');runs.set(token,{agent,line,conversation,phone:String(phone||'').replace(/\D/g,''),mode,at:now(),payments:0});return token}
+ function begin({agent,line,conversation,phone,mode}){const token=random(24).toString('base64url');runs.set(token,{agent,line,conversation,phone:String(phone||'').replace(/\D/g,''),mode,at:now(),payments:0,labels:0,id:'r'+random(4).toString('hex')});return token}
  function end(token){runs.delete(token)}
  function runOf(agent,token){const r=runs.get(String(token||''));if(!r||r.agent!==agent||now()-r.at>15*60e3)return null;return r}
  async function files(a){const out=[];const W=path.join(WORK,a);const walk=async(d,depth)=>{for(const e of await readdir(path.join(W,d),{withFileTypes:true}).catch(()=>[])){const rel=d?d+'/'+e.name:e.name;
@@ -71,6 +77,8 @@ export function createCustomerTools({WORK,DATA,payRules=async()=>({}),googleCall
     if(!r.phone)return {isError:true,text:'This chat has no customer number.'};
     const amounts=[].concat(args.amounts||[]).map(Number);const pr=await payRules(agent).catch(()=>({}))||{},lo=Number(pr.min)||1,hi=Number(pr.max)||1e9,cur=pr.currency?pr.currency+' ':'';
     if(!amounts.length||amounts.some(x=>!Number.isInteger(x)||x<lo||x>hi))return {isError:true,text:'Each amount is a whole number from '+lo+' to '+hi+'.'};
+    const lr=await labelRules(agent).catch(()=>({}))||{},products=[...new Set([].concat(args.products||[]).map(x=>String(x||'').trim()).filter(Boolean))];
+    const wrong=products.filter(x=>!/^S-/.test(x)||(lr.sales?.length&&!lr.sales.includes(x)));if(wrong.length)return {isError:true,text:'products are sales labels'+(lr.sales?.length?' ('+lr.sales.join(', ')+')':' (S- names)')+', not '+wrong.join(', ')+'.'};
     const total=amounts.reduce((s,x)=>s+x,0);if(Number(args.order_total)!==total)return {isError:true,text:'The amounts add up to '+total+', not the order total '+args.order_total+'. Check the order form.'};
     if(r.payments>=2)return {isError:true,text:'Two payments were already made in this run. If something is wrong, hand off to the team.'};
     const k=String(args.kind||'qris');if(k==='va'&&(kind!=='pay'||!/^[A-Z0-9_]{2,20}$/.test(String(args.bank||'').toUpperCase())||amounts.length!==1))return {isError:true,text:'A VA needs a bank code and one amount.'};
@@ -81,9 +89,17 @@ export function createCustomerTools({WORK,DATA,payRules=async()=>({}),googleCall
     const nm=clip(String(args.name||'').replace(/[^\p{L}\p{N} .,'-]/gu,'').trim(),60)||'Customer';
     const argv=kind==='pay'?(k==='va'?['va',String(args.bank).toUpperCase(),String(amounts[0])]:['qris',...amounts.map(String)]).concat(['--name',nm,'--to',r.phone]):[...amounts.map(String),'--name',nm,'--phone',r.phone];
     r.payments++;const x=await runAsAgent(agent,helper.path,argv);
-    await payLog({agent,line:r.line,conversation:r.conversation,phone:r.phone,mode:r.mode,kind:k,amounts,total,ok:x.ok,out:clip(x.out||x.err,400)});
+    // the provider's references in the helper's answer (Tripay: T… references, or our BM-… order refs the helper keeps in tmp/)
+    const out=String(x.out||''),refs=[...new Set(out.match(/\bT\d{5,}[0-9A-Z]{4,}\b/g)||[])],orders=[...new Set(out.match(/\b[A-Z]{2,4}-\d{9,11}-\d{1,2}\b/g)||[])];
+    await payLog({agent,line:r.line,conversation:r.conversation,phone:r.phone,mode:r.mode,run:r.id,kind:k,amounts,total,products,refs,orders,ok:x.ok,out:clip(x.out||x.err,400)});
     log('customer run '+agent+': payment '+k+' '+cur+total+' for …'+r.phone.slice(-4)+(x.ok?' made':' failed'));
     return x.ok?{text:clip(x.out,4000)}:{isError:true,text:'The payment was not made: '+clip(x.err||x.out,600)+'. Tell the customer you are checking, and hand off.'}}
+   if(name==='label_contact'){if(!labelContact)return {isError:true,text:'Labels are not available here.'};
+    const add=[].concat(args.add||[]),remove=[].concat(args.remove||[]);if(r.labels+add.length+remove.length>6)return {isError:true,text:'Six label changes per chat run at most. Leave the rest to the team.'};
+    if(!r.conversation)return {isError:true,text:'This chat has no Kirimdev conversation.'};
+    const x=await labelContact(agent,{conversationId:r.conversation,phone:r.phone,add,remove,source:'agent',run:r.id});r.labels+=add.length+remove.length;
+    log('customer run '+agent+' '+r.id+': labels '+[...add.map(v=>'+'+v),...remove.map(v=>'-'+v)].join(' ')+(x.set?' set':x.proposed?' proposed':' not set'));
+    return {text:x.set?'Done'+(x.changed?.length?': '+x.changed.join(', '):' (already so)')+'. Say nothing about labels to the customer.':x.why}}
    return {isError:true,text:'Unknown tool.'}}
   catch(e){return {isError:true,text:clip(e.message,400)}}}
  // the MCP endpoint body: JSON-RPC in, {status,body} out
@@ -94,7 +110,7 @@ export function createCustomerTools({WORK,DATA,payRules=async()=>({}),googleCall
   // outside a customer run (the engine's own connection) the list is empty: these tools exist only inside a run
   // listed on every connection (7 Nov 2026): the engine's gateway runs customer turns over its own shared connection, which
   // never carries a run's header, so the key travels in the run's instructions and in each call (run). No key, no answer.
-  if(msg.method==='tools/list')return rpc({tools:withRun(TOOLS(await payKind(agent),await payRules(agent).catch(()=>({}))||{}))});
+  if(msg.method==='tools/list')return rpc({tools:withRun(TOOLS(await payKind(agent),await payRules(agent).catch(()=>({}))||{},labelContact?await labelRules(agent).catch(()=>({}))||{}:{}))});
   if(msg.method!=='tools/call')return {status:200,body:{jsonrpc:'2.0',id:msg.id,error:{code:-32601,message:'Method not found'}}};
   const args=msg.params?.arguments&&typeof msg.params.arguments==='object'?{...msg.params.arguments}:{};const key=typeof args.run==='string'&&args.run?args.run:token;delete args.run;
   const x=await call(agent,key,String(msg.params?.name||''),args);

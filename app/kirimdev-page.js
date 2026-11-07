@@ -93,6 +93,8 @@ const Kirim={
    <section class="km-sec"><h3>Payments</h3><label for="kmf-pay">Payment helper</label>${Kirim.field('kmf-pay','Automatic')}
     <div class="km-reveal" id="kmf-pbox" hidden>${i('kmf-pp','File in the agent’s folder',V.ptype?V.pay:'','.tools/qris','spellcheck="false"')}<div class="seg-mini km-seg" role="group" aria-label="What it does" id="kmf-style">${[['picture','Makes a QR picture'],['send','Sends it itself']].map(([k,t])=>`<button type="button" data-v="${k}" class="${V.style===k?'on':''}" aria-pressed="${V.style===k}">${t}</button>`).join('')}</div></div>
     <div class="km-reveal" id="kmf-limits" hidden><div class="km-3"><div>${i('kmf-cur','Currency',s.payment?.currency??'Rp','Rp','maxlength="6"')}</div><div>${i('kmf-min','Lowest amount',s.payment?.min??'','10000','inputmode="numeric"')}</div><div>${i('kmf-max','Highest amount',s.payment?.max??'','5000000','inputmode="numeric"')}</div></div></div></section>
+   <section class="km-sec"><h3>Labels</h3><p class="hint">The labels the agent may put on a customer’s contact in Kirimdev, as your label rules say. Customer and S- labels are set by aqeelOS itself once a payment is confirmed paid.</p>
+    <div class="km-chips" id="kmf-labels"></div><button type="button" class="ghost km-add" id="kmf-addl">${icon('plus',15)}Add label</button></section>
    <p class="km-note" aria-live="polite"></p><p class="km-err" role="alert"></p></div>`;
   const {d,close}=stackPop(edit?'Line settings':'Connect '+(num.name||num.phone),body,`<button class="ghost" data-x>Cancel</button><button class="primary" id="kmf-ok">${edit?'Save':'Connect'}</button>`);
   d.classList.add('km-dlg');const q=x=>d.querySelector(x),err=q('.km-err'),note=q('.km-note'),ok=q('#kmf-ok');
@@ -109,6 +111,16 @@ const Kirim={
    r.querySelector('.kmf-tw').value=t.who||'';r.querySelector('.kmf-tp').value=t.phone||'';r.querySelector('button').onclick=()=>{r.classList.add('closing');setTimeout(()=>r.remove(),170)};tbox.append(r);return r};
   (s.testers||[]).forEach(t=>addT(t,false));if(!(s.testers||[]).length)addT({},false);
   q('#kmf-addt').onclick=()=>addT().querySelector('input').focus();
+  // labels the agent may set: chips that rise in and fold away; the menu offers Kirimdev's own labels not chosen yet
+  const lbox=q('#kmf-labels'),chosen=()=>[...lbox.querySelectorAll('.km-chip:not(.closing)')].map(c=>c.dataset.v);
+  const paintL=()=>{lbox.dataset.empty=chosen().length?'':'None yet: the agent sets no labels.'};
+  const addL=(n,anim=true)=>{const c=document.createElement('span');c.className='km-chip'+(anim?' km-in':'');c.dataset.v=n;c.innerHTML=`<span>${esc(n)}</span><button type="button" aria-label="Remove ${esc(n)}">${icon('x',13)}</button>`;
+   c.querySelector('button').onclick=()=>{c.classList.add('closing');setTimeout(()=>{c.remove();paintL()},170);setTimeout(paintL,0)};lbox.append(c);paintL()};
+  (s.labels||[]).forEach(n=>addL(n,false));paintL();
+  q('#kmf-addl').onclick=e=>{const have=new Set(chosen()),left=(cfg.labels||[]).filter(n=>!have.has(n)),stage=left.filter(n=>!/^I-/.test(n)),intr=left.filter(n=>/^I-/.test(n));
+   if(!left.length){Kirim.pick(e,[{header:(cfg.labels||[]).length?'Every label is chosen':'Kirimdev has no labels yet'}],()=>{});return}
+   Kirim.pick(e,[...(intr.length>1?[{label:'Every interest label (I-)',sub:intr.length+' labels',icon:'plus',all:intr}]:[]),...(stage.length?[{header:'Stage'},...stage.map(n=>({label:n,v:n}))]:[]),...(intr.length?[{header:'Interest'},...intr.map(n=>({label:n,v:n}))]:[])],
+    x=>{(x.all||[x.v]).forEach(n=>addL(n))})};
   paintAgent();paintGroup();paintPay();Kirim.reveal(q('#kmf-lbox'),V.lang==='other');
   if(!edit)q('#kmf-agent').onclick=e=>Kirim.pick(e,[...(free.length?[{header:'Agents without a number'},...free.map(a=>({label:a.name,sub:a.id!==a.name.toLowerCase()?a.id:'',ava:agentAvatar(a.id,22),v:a.id,on:V.agent===a.id&&!V.fresh}))]:[]),'-',{label:'Make a new support agent',icon:'plus',v:'',fresh:true,on:V.fresh}],
    it=>{V.fresh=!!it.fresh;V.agent=it.v;paintAgent();if(V.fresh)setTimeout(()=>q('#kmf-newid').focus(),60);else if(!q('#kmf-persona').value)q('#kmf-persona').value=cfg.agents.find(a=>a.id===V.agent)?.name||''});
@@ -133,7 +145,7 @@ const Kirim={
     language:V.lang==='other'?val('#kmf-lo'):V.lang,pauseMin:val('#kmf-quiet'),resetWords:val('#kmf-rw'),resetText:val('#kmf-rt'),
     // the limits are kept whatever the helper: Automatic leaves the helper to the payment tool (customer-tools.mjs), as before
     payment:pay||val('#kmf-min')||val('#kmf-max')?{...(pay?{helper:{path:pay,style:V.ptype?V.style:cfg.helpers.find(h=>h.path===pay)?.style||'picture'}}:{}),currency:val('#kmf-cur'),min:val('#kmf-min'),max:val('#kmf-max')}:null,
-    team:group?{chatId:group,questions:topic??''}:null};
+    labels:chosen(),team:group?{chatId:group,questions:topic??''}:null};
    const bt=ok.textContent;ok.disabled=true;
    try{if(fresh){ok.innerHTML='<span class="spinner tiny"></span>Making the agent…';note.textContent='Making '+fresh+' with aqeelOS’s tools and its own space on the AI box. This takes about a minute.';
      await post(H,'/profiles',{name:fresh,description:'Answers customers on '+(num.name||num.phone)+' (Kirimdev)',clone_from_default:false});

@@ -73,7 +73,7 @@ import {createConnections} from './connections.mjs';
 import {createSecretLinks,createLimiter} from './secret-links.mjs';
 import {createGoogleShares} from './google-shares.mjs';
 import {createGoogleFiles} from './google-files.mjs';
-import {createKirimdev,publicReach} from './kirimdev.mjs';
+import {createKirimdev,publicReach,LABEL_NEVER} from './kirimdev.mjs';
 import {createKirimdevAgent} from './kirimdev-agent.mjs';
 import {createPostingLimits} from './posting-limits.mjs';
 import {createTeamGroups,contextLines as teamContext,ROLES as TEAM_ROLES} from './team-group.mjs';
@@ -96,6 +96,7 @@ import {createAgentLive} from './agent-live.mjs';
 import {sysTz,localParts,zoneName} from './tz.mjs';
 import {engineKeys,ensureEngineKeys,uiSecret,PUBLIC_URL_REF,PUBLIC_HOST_REF,urlRef,hostSetting,installTz,applyTz,validTz,createInstallRoutes} from './install-routes.mjs';   // the box's time zone (7 Nov 2026: was Asia/Jakarta in code)   // live context each message + traceback guard (7 Nov 2026)
 import {createAgentCare} from './agent-care.mjs';
+import {createPaidLabels} from './paid-labels.mjs';   // Customer and S- labels once a payment is confirmed paid (8 Nov 2026)
 import {createCustomerTools} from './customer-tools.mjs';   // customer-run sandbox (7 Nov 2026)   // old setup, checks after changes, script-only schedules (7 Nov 2026)
 import {readPicture,emojiSlugs,emojiAuto,AVATAR_TYPES} from './avatar-file.mjs';
 import {parseEnv,setEnvLine,channelWho,globalWho,removePerson,engineChange,approvedWithout,samePerson as allowSame} from './allowlist.mjs';
@@ -1329,8 +1330,15 @@ const kirimdev=createKirimdev({DATA,WORK:path.join(homedir(),'workspaces'),PUBLI
  telegram:async(a,chatId,threadId,text)=>{const t=await readFile(path.join(HERMES_HOME,'profiles',a,'.env'),'utf8').catch(()=>'');const tok=(/^TELEGRAM_BOT_TOKEN=["']?([^"'\s]+)/m.exec(t)||[])[1];if(!tok||!LIVE_APP)return false;
   const r=await fetch('https://api.telegram.org/bot'+tok+'/sendMessage',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:chatId,...(threadId?{message_thread_id:threadId}:{}),text:text.slice(0,4000)}),signal:AbortSignal.timeout(30000)}).catch(()=>null);
   const j=r&&r.ok?await r.json().catch(()=>({})):{};return j.ok?(j.result?.message_id||true):false},   // the post's id once Telegram confirmed it
+ activity:(a,title,text)=>news.add({aud:'admins',icon:'tag',kind:'blue',title,text,go:'/channels/kirimdev',label:'Kirimdev'}),
  tell:(text,detail)=>bottlenecks.event('kirimdev',text,detail,{info:true})});
 if(LIVE_APP)setTimeout(()=>kirimdev.resume().catch(e=>console.warn('kirimdev resume',e.message)),30000).unref();
+// a confirmed payment labels the contact (Customer, S-…, no Checkout): code, every minute, on the live box only
+const paidLabels=createPaidLabels({DATA,WORK:path.join(homedir(),'workspaces'),label:(a,o)=>kirimdev.labelContact(a,o)});
+if(LIVE_APP)setInterval(()=>paidLabels.tick().catch(e=>console.warn('paid labels',e.message)),60e3).unref();
+// the labels a line's agent may set (Line settings) that Kirimdev still has, and Kirimdev's S- labels for create_payment
+async function kirimdevLabelRules(a){const l=(await kirimdev.lines().catch(()=>({})))[a];if(!l)return {};const all=await kirimdev.labelList().catch(()=>null);if(!all)return {allowed:l.labels?.allowed||[]};
+ const names=new Set(all.map(x=>x.name));return {allowed:(l.labels?.allowed||[]).filter(n=>names.has(n)),sales:all.map(x=>x.name).filter(n=>/^S-/.test(n)).sort()}}
 // what the Connect dialog offers (7 Nov 2026): the agents, the Telegram groups this agent is in or another agent's team
 // group uses (with the topics known for each), and the payment helpers in the agent's own folder
 async function kirimdevSetup(agent){const ags=await listAgents(),L=await kirimdev.lines().catch(()=>({})),TG=await teamGroups.all().catch(()=>({}));
@@ -1341,13 +1349,15 @@ async function kirimdevSetup(agent){const ags=await listAgents(),L=await kirimde
  let helpers=[];if(agent&&ags.includes(agent)){const home=path.join(HERMES_HOME,'profiles',agent),env=parseEnv(await readFile(path.join(home,'.env'),'utf8').catch(()=>''));
   for(const k of ['TELEGRAM_GROUP_ALLOWED_CHATS','TELEGRAM_GROUP_ALLOWED_USERS'])for(const id of String(env[k]||'').split(/[\s,]+/))if(/^-\d{5,16}$/.test(id))add(id,{own:true});
   const tools=path.join(homedir(),'workspaces',agent,'.tools');helpers=(await readdir(tools,{withFileTypes:true}).catch(()=>[])).filter(e=>e.isFile()&&/^(qris|pay|payment|xendit|invoice)[\w.-]*$/i.test(e.name)).map(e=>({path:'.tools/'+e.name,style:/^pay/i.test(e.name)?'send':'picture'}))}
- return {agents,groups:[...groups.values()].sort((a,b)=>(b.own-a.own)||String(a.name).localeCompare(b.name)),helpers,team:agent?await teamGroups.get(agent).catch(()=>null):null}}
+ // the labels a person can allow the agent: Kirimdev's own, minus the ones only a person or a payment sets
+ const labels=(await kirimdev.labelList().catch(()=>[])).map(x=>x.name).filter(n=>!LABEL_NEVER.test(n)).sort((a,b)=>a.localeCompare(b));
+ return {agents,labels,groups:[...groups.values()].sort((a,b)=>(b.own-a.own)||String(a.name).localeCompare(b.name)),helpers,team:agent?await teamGroups.get(agent).catch(()=>null):null}}
 // after a line is made or removed: the agent's customer tools and its aqeelOS block follow
 const kirimdevChanged=()=>{ensureCustomerServer().catch(e=>console.warn('customer tools',e.message));if(LIVE_APP)writeAgentContext().catch(()=>{})};
 // customer runs get only these tools (customer-tools.mjs); the payment helper runs as the agent's own user
 const custQ=x=>"'"+String(x).replace(/'/g,"'\\''")+"'";
 let customerTools=null;
-customerTools=createCustomerTools({WORK:path.join(homedir(),'workspaces'),DATA,payRules:async a=>(await kirimdev.lines().catch(()=>({})))[a]?.payment||{},googleCall:(a,req)=>googleFiles.call(a,req),chatFind:(a,q,o)=>chatHistory.find(a,q,o),
+customerTools=createCustomerTools({WORK:path.join(homedir(),'workspaces'),DATA,labelRules:a=>kirimdevLabelRules(a),labelContact:(a,o)=>kirimdev.labelContact(a,o),payRules:async a=>(await kirimdev.lines().catch(()=>({})))[a]?.payment||{},googleCall:(a,req)=>googleFiles.call(a,req),chatFind:(a,q,o)=>chatHistory.find(a,q,o),
  history:async(r,limit)=>{const q=new URLSearchParams({conversation_id:r.conversation,limit:String(limit)});if(!r.conversation)return 'No conversation.';
   const l=((await kirimdev._api(r.line+'/messages?'+q)).data||[]).filter(m=>m.type!=='reaction').sort((a,b)=>String(a.created_at).localeCompare(String(b.created_at)));
   return l.map(m=>m.created_at.slice(0,16).replace('T',' ')+' '+(m.direction==='inbound'?'CUSTOMER':'YOU')+': '+(String(m.content||'').trim()||'['+m.type+']')).join('\n')||'No messages.'},
