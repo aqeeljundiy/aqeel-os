@@ -59,6 +59,7 @@ import {createNews,eveningLine} from './news.mjs';
 import {createMorning} from './morning.mjs';
 import {mayStartAgents,busyTotal,guardPaused} from './busy.mjs';
 import {stopGatewayCmd,stopTimeoutMs} from './gateway-stop.mjs';
+import {createRestartLater} from './restart-later.mjs';
 import {createHelp} from './help.mjs';
 import {createLive} from './live.mjs';
 import {createBackups} from './backup.mjs';
@@ -287,9 +288,9 @@ const whyOf=createWhy({DATA,HERMES_HOME,python:enginePython});
 const agentDefaults=createAgentDefaults({DATA,isTest:a=>isTestAgent(a),mayTrust:async a=>{await users.load();return users.tierOf(a)==='admin'},adminLeads:async()=>{await users.load();return users.people().map(x=>users.leadOf(x.id)).filter(a=>a&&a!=='default'&&users.tierOf(a)==='admin')},giveSkills:n=>accountHooks.giveSkills?.(n),trimSkills:n=>accountHooks.trimSkills?.(n),locked:async a=>{await users.load();return a!=='default'&&lockedAgent(a,await getStatus())}});
 accountHooks.afterSetup=n=>agentDefaults.added(n).catch(e=>console.warn('agent defaults',n,e.message));
 // at start, then every 10 minutes: agents made outside aqeelOS (by Claude, by another agent, from the command line) get them too
-const applyDefaults=()=>agentDefaults.all().then(n=>{if(n){console.log('agent defaults: '+n+' settings applied; restarting the agents when idle');restartGateway('agent defaults').catch(()=>{})}}).catch(e=>console.warn('agent defaults:',e.message));
+const applyDefaults=()=>agentDefaults.all().then(n=>{if(n){console.log('agent defaults: '+n+' settings applied; restarting the agents when idle');restartLater('agent defaults')}}).catch(e=>console.warn('agent defaults:',e.message));
 // about every minute: new agents (made any way) get the defaults, every agent gets the main agent's skills it lacks
-const defaultsTick=()=>agentDefaults.tick().then(n=>{if(n){console.log('agent defaults: new agent set up; restarting the agents when idle');restartGateway('new agent defaults').catch(()=>{})}}).catch(e=>console.warn('agent defaults tick:',e.message));
+const defaultsTick=()=>agentDefaults.tick().then(n=>{if(n){console.log('agent defaults: new agent set up; restarting the agents when idle');restartLater('new agent defaults')}}).catch(e=>console.warn('agent defaults tick:',e.message));
 // the tab an agent works in comes to the front of its screen (screen-follow.mjs)
 if(LIVE_APP)startScreenFollow();
 if(LIVE_APP){setTimeout(applyDefaults,60000);setInterval(applyDefaults,600000).unref();setTimeout(()=>{defaultsTick();setInterval(defaultsTick,60000).unref()},90000)}
@@ -638,8 +639,12 @@ function restartGateway(why,{wait=true,waitMax=360,auto=false,bridges=false,rest
   {const t0=Date.now(),st=await shx(stopGatewayCmd(),stopTimeoutMs());console.log('gateway restart: engine stopped after',Math.round((Date.now()-t0)/1000)+' s'+(/FORCED/.test(st.out)?' (it did not stop by itself in time and was closed)':' (clean)'))}
   // a WhatsApp bridge is its own process and reads its settings only when it starts: when channel settings changed, stop them so the engine starts fresh ones
   if(run.bridges)for(const a of await listAllProfiles().catch(()=>[]))await stopBridges(a).catch(()=>{});
-  run.bridgesDone=true;run.started=true;await shx('~/services.sh >/dev/null 2>&1');
+  run.bridgesDone=true;run.started=true;later.covered().catch(()=>{});await shx('~/services.sh >/dev/null 2>&1');
   platCache.clear();hapiStatus.drop();hapiLists.drop();guardAfterRestart(Date.now())})().finally(()=>{gwRestarting=null});return gwRestarting}
+// restarts that can wait go to the quiet hours (restart-later.mjs); an immediate one covers them
+const later=createRestartLater({DATA,restart:why=>restartGateway(why),tz:()=>installTz()||process.env.TZ||''});
+const restartLater=why=>later.add(why).catch(e=>console.warn('restart later',e.message));
+if(PORT===4400)setInterval(()=>later.tick().catch(e=>console.warn('quiet-hours restart',e.message)),5*60e3).unref();
 // a minute after aqeelOS restarted the engine, every tool server is checked and fixed (automation-guard.mjs); an engine
 // update runs its own check after its restarts
 let guardT=null;function guardAfterRestart(since){if(!LIVE_APP)return;clearTimeout(guardT);guardT=setTimeout(()=>{if(engineUpd.busy())return;guard.fullCheck({repair:true,since,why:'checked after an engine restart'}).then(r=>{if(r.problems.length||r.fixed.length)console.log('automations after restart: fixed',r.fixed.join(', ')||'nothing','· still wrong:',r.problems.join('; ')||'nothing')}).catch(e=>console.warn('automations after restart',e.message))},60000);guardT.unref?.()}
@@ -720,9 +725,15 @@ const optins=createOptins({DATA,HERMES_HOME,listAgents:()=>agentNames({copies:tr
 // Composio entries of agents switched off for it go (through the engine's MCP route, so the running engine follows)
 // sign-in app entries an agent has switched off go (Composio by its own switch, every other sign-in app by its name), through
 // the engine's MCP route so the running engine follows; one pass for every agent, then nothing more to remove
+const keepNewApp=async(a,n)=>{if(await optins.appOffOnPurpose(a,n))return false;if(a.split('--')[0]==='default')return true;
+ const home=a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);return !!await stat(path.join(home,'mcp-tokens',n+'.json')).catch(()=>null)};
 async function composioOff(only){for(const a of await agentNames({copies:true})){if(only&&a.split('--')[0]!==only)continue;
  const c=await readConfig(a).catch(()=>null)||{};for(const [n,e] of Object.entries(c.mcp_servers||{})){if(!e)continue;
   const comp=COMPOSIO_URL.test(String(e.url||''));if(comp?await optins.on('composio',a):!isConnectorEntry(e)||await optins.appOn(a,n))continue;
+  // a sign-in app added after the first count (7 Nov 2026: Higgsfield) stays where it is wanted: on the main agent (the
+  // owner's own), or on an agent that signed in to it itself; never one switched off on purpose. Elsewhere it goes, so no
+  // agent nags for a sign-in it never asked for.
+  if(!comp&&await keepNewApp(a,n)){await optins.setApp(a,n,true).catch(()=>{});console.log('abilities: '+n+' kept on '+a+' (main agent or signed in)');continue}
   await withAgent(a,()=>fetch(DASH.origin+'/api/mcp/servers/'+encodeURIComponent(n)+'?profile='+encodeURIComponent(a),{method:'DELETE',headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(60000)}))
    .then(r=>console.log('abilities: '+n+' removed from '+a+(r.ok?'':' failed: '+r.status)),er=>console.warn('abilities: '+n+' '+a+': '+er.message))}}}
 // its own reports about sign-ins for apps that are now off for it are solved: closed with a note (7 Nov 2026)
@@ -754,7 +765,7 @@ const access=createAccess({googleShares,HERMES_HOME,DATA,listAgents:()=>listAgen
  own:{n8n:{owner:'aqeelOS',note:'every agent has its own n8n user',grant:a=>n8n.ensure(a)}},
  dash:(method,p)=>fetch(DASH.origin+p,{method,headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(r=>r.json().catch(()=>({})))});
 const accessAsk=createAccessRequests({DATA,access,listAgents:()=>listAgents(),names:a=>agentName(a)});
-const n8n=createN8n({BASE:N8N_URL,readConfig,removeMcp:(a,name)=>fetch(DASH.origin+'/api/mcp/servers/'+encodeURIComponent(name)+'?profile='+encodeURIComponent(a),{method:'DELETE',headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(r=>{if(!r.ok&&r.status!==404)throw new Error('Could not remove the tool ('+r.status+')');return true}),DATA,setKey,restart:why=>{if(/^n8n connected for /.test(why)&&testAgentShown(why))return;restartGateway(why).catch(()=>{})},names:a=>NAMES[a]||a});
+const n8n=createN8n({BASE:N8N_URL,readConfig,removeMcp:(a,name)=>fetch(DASH.origin+'/api/mcp/servers/'+encodeURIComponent(name)+'?profile='+encodeURIComponent(a),{method:'DELETE',headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(r=>{if(!r.ok&&r.status!==404)throw new Error('Could not remove the tool ('+r.status+')');return true}),DATA,setKey,restart:why=>{if(/^n8n connected for /.test(why)&&testAgentShown(why))return;restartLater(why)},names:a=>NAMES[a]||a});
 const code=createCode({DATA,SRC:path.join(homedir(),'apps','aqeel-code'),PUBLIC_URL,ROOT:root});
 // team folders (Plan 4): Code project folders shared with team members, one bare git repo each, served only through here
 const teamFolders=createTeamFolders({DATA,names:uid=>{const x=users.byId(uid);return x?.name||x?.username||'Someone'},known:uid=>{const x=users.byId(uid);return !!x&&!x.disabled}});
@@ -1588,7 +1599,7 @@ const agentLive=createAgentLive({HERMES_HOME,DATA,chatInfo:(a,pf,id)=>pf==='tele
 // the engine also reloads when it started before the plugin's files were written (a reload asked for by an earlier run of
 // this app is lost when the app restarts)
 const liveStale=async()=>{try{const pid=await gatewayPid();if(!pid)return false;const g=(await stat('/proc/'+pid)).mtimeMs;const f=(await stat(path.join(HERMES_HOME,'plugins','aqeelos-live','__init__.py'))).mtimeMs;return g<f}catch{return false}};
-if(LIVE_APP){const liveInstall=()=>agentLive.install().then(async c0=>{const c=[];for(const a of c0)if(!await isTestAgent(typeof a==='string'?a:a?.agent||'').catch(()=>false))c.push(a);if(c.length||await liveStale())restartGateway('aqeelos-live plugin for '+(c.length||'all')+' agent(s)').catch(()=>{})}).catch(e=>console.warn('agent-live install',e.message));
+if(LIVE_APP){const liveInstall=()=>agentLive.install().then(async c0=>{const c=[];for(const a of c0)if(!await isTestAgent(typeof a==='string'?a:a?.agent||'').catch(()=>false))c.push(a);if(c.length||await liveStale())restartLater('aqeelos-live plugin for '+(c.length||'all')+' agent(s)')}).catch(e=>console.warn('agent-live install',e.message));
  setTimeout(liveInstall,60e3).unref();setInterval(liveInstall,10*60e3).unref()}
 // the engine reads each tool server's list once, when it connects: a tool aqeelOS adds later (the lockbox link, the
 // self-repair kit) stayed invisible in open chats. The lists are fingerprinted per agent; a change reloads the engine
@@ -1598,7 +1609,7 @@ async function toolSigs(){const out={};for(const a of await agentLive.homes()){i
   out[a]=createHash('sha1').update((j.result?.tools||[]).map(t=>t.name+':'+createHash('sha1').update(JSON.stringify(t.inputSchema||{})+(t.description||'')).digest('hex').slice(0,8)).sort().join(',')).digest('hex').slice(0,12)}catch{}}return out}
 if(LIVE_APP){const sigFile=path.join(DATA,'agent-live','tool-sigs.json');const toolTick=async()=>{const now=await toolSigs();if(!Object.keys(now).length)return;const old=JSON.parse(await readFile(sigFile,'utf8').catch(()=>'{}')||'{}');
   const changed=Object.keys(now).filter(a=>old[a]!==now[a]);await mkdir(path.dirname(sigFile),{recursive:true});await writeFile(sigFile,JSON.stringify(now));
-  if(changed.length&&Object.keys(old).length){console.log('agent tools changed for',changed.join(', '));restartGateway('new or changed aqeelOS tools for '+changed.length+' agent(s)').catch(()=>{})}};
+  if(changed.length&&Object.keys(old).length){console.log('agent tools changed for',changed.join(', '));restartLater('new or changed aqeelOS tools for '+changed.length+' agent(s)')}};
  setTimeout(()=>toolTick().catch(e=>console.warn('tool sigs',e.message)),5*60e3).unref();setInterval(()=>toolTick().catch(e=>console.warn('tool sigs',e.message)),10*60e3).unref()}
 const agentCare=createAgentCare({HERMES_HOME,DATA,fpKey:()=>agentLive.key(),teamOf:async a=>((await issues.policy())?.teams||[]).find(t=>(t.agents||[]).includes(a))?.name||null,WORK:path.join(homedir(),'workspaces'),homes:()=>agentLive.homes(),readConfig,pick,jobs:a=>versions.myJobs(a),updateJob:(a,id,up)=>versions.updateJob(a,id,up),
  record:(a,e)=>versions.noteSelfChange(a,{...e,by:'aqeelOS',undoable:false}),notices:agentLive,extraRetired:async()=>JSON.parse(await readFile(path.join(DATA,'retired-setup.json'),'utf8').catch(()=>'[]'))});
@@ -2021,7 +2032,7 @@ const server=createServer(async(req,res)=>{
    {const base=mn[1].split('--')[0],nm=msg.params?.name,A=msg.params?.arguments||{};
     if(signed&&base!=='default'&&msg.method==='tools/call'&&nm==='change_instructions')versions.arm(base).catch(()=>{});
     if(signed&&base!=='default'&&msg.method==='tools/call'&&nm==='my_settings'&&A.value!==undefined&&OWN_SETTINGS.test(String(A.key||'').trim())){const r=await versions.mySetting(base,String(A.key).trim(),A.value,{by:NAMES[base]||base,why:A.why});
-     if(!r.isError){console.log('own settings: '+base+' set '+A.key+' (versioned)');restartGateway(base+' changed its own '+A.key).catch(()=>{});versions.arm(base).catch(()=>{})}
+     if(!r.isError){console.log('own settings: '+base+' set '+A.key+' (versioned)');restartLater(base+' changed its own '+A.key);versions.arm(base).catch(()=>{})}
      return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text:r.isError?r.text:r.text+' It takes effect from your next message (aqeelOS reloads the agents once no reply is running).'}],...(r.isError?{isError:true}:{})}})}
     if(signed&&msg.method==='tools/call'&&VERSION_TOOLS.some(x=>x.name===nm)){const who=NAMES[base]||base;let r;   // the main agent too (7 Nov 2026): every agent can see and fix its own problems
      try{if(nm==='my_changes'){const c=await versions.changes(base,{limit:A.limit||30});r={text:(c.items.length?c.items.map(x=>'- '+x.id+' '+x.kind+(x.state==='undone'?' [undone]':'')+': '+x.what+(x.why?' — '+x.why:'')+' · '+x.by+' · '+new Date(x.at).toISOString().slice(0,16)).join('\n'):'No changes yet.')+(c.watch?'\n\naqeelOS is checking that you still answer after your latest change.':'')}}
@@ -2087,8 +2098,9 @@ const server=createServer(async(req,res)=>{
    // (its own included) has finished. Only agents of people who may use the unsafe tools.
    const mayApply=!lockedAgent(mn[1].split('--')[0],{})&&adminTier(mn[1]);   // F: restarting every agent is an admin-tier power
    if(signed&&msg.method==='tools/call'&&msg.params?.name==='apply_changes'){if(!mayApply)return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{isError:true,content:[{type:'text',text:'Only agents of admins can restart the agents. Ask an admin to press Restart agents on System › Health.'}]}});
-    const why=String(msg.params?.arguments?.why||'settings changed').slice(0,120);restartGateway(why+' (asked by '+(NAMES[mn[1].split('--')[0]]||mn[1])+')').catch(()=>{});
-    return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text:'aqeelOS restarts the agents as soon as no agent is replying or running a task, this one included: usually within a minute after you finish, longer if another agent is in the middle of a long task. Finish your turn now with one short line saying the change is applied in a minute and what the person can try then. Do not check or test it in this turn.'}]}})}
+    const why=String(msg.params?.arguments?.why||'settings changed').slice(0,120);restartLater(why+' (asked by '+(NAMES[mn[1].split('--')[0]]||mn[1])+')');
+    // 7 Nov 2026: Donna's apply_changes restarted every agent and Telegram was gone for 4.5 minutes. An agent never restarts the engine now
+    return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text:'No restart now. Apps and tool servers (MCP) you added, removed or shared apply by themselves within a minute or two: the engine reads the settings again. Other changes (settings read at start, plugins, toolsets) take effect at the restart in the quiet hours, '+'01:00-05:00. If it cannot wait, tell the person they can press Restart agents on System › Health. Finish your turn with one short line saying which of these applies.'}]}})}
    if(signed&&msg.method==='tools/call'&&msg.params?.name==='reconnect_channel'){const me=mn[1],reply=(text,isError)=>send(res,200,{jsonrpc:'2.0',id:msg.id,result:{...(isError?{isError:true}:{}),content:[{type:'text',text}]}});
     const pf=String(msg.params?.arguments?.channel||'').trim().toLowerCase();
     if(!mayApply)return reply('Only agents of admins can reconnect channels. Ask an admin to press Reconnect on the Channels page.',true);
@@ -2160,7 +2172,7 @@ const server=createServer(async(req,res)=>{
     if(!OWN_SETTINGS.test(key))return reply('Only these can be changed this way: stt.* (voice notes, e.g. stt.language: "" = detect each time, "id", "en"), tts.* (your voice), timezone and display.*. Anything else goes through report_bottleneck.',true);
     if(a.value===undefined){const c=await readConfig(base).catch(()=>null);return reply(key+' = '+JSON.stringify(pick(c,key)??null))}
     const r=await setKey(base,key,a.value===null?'':a.value).catch(e=>({ok:false,out:e.message}));if(!r.ok)return reply('Could not change it: '+String(r.out||'').trim().slice(-300),true);
-    console.log('own settings: '+base+' set '+key);restartGateway(base+' changed its own '+key).catch(()=>{});
+    console.log('own settings: '+base+' set '+key);restartLater(base+' changed its own '+key);
     return reply('Saved '+key+' = '+JSON.stringify(a.value)+'. It takes effect from your next message (aqeelOS reloads the agents once no reply is running).')}
    // the guarded browser in aqeelOS Code on the agent owner's own computer (no extension; only the sites allowed there)
    if(signed&&msg.method==='tools/call'&&msg.params?.name==='computer_browser'){const base=mn[1].split('--')[0],a=msg.params?.arguments||{};const owner=users.agentOwner(base)||'owner';
@@ -2182,7 +2194,7 @@ const server=createServer(async(req,res)=>{
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools)&&(await kirimdev.lines().catch(()=>({})))[mn[1].split('--')[0]])out.body.result.tools.push({name:'whatsapp_draft',description:'Draft mode: when the team answers one of your DRAFT #<n> posts in your Questions topic, act on it here. "ok" (or yes, kirim, send) = action send. A reply with changed text = action send with that text, exactly as they wrote it. "no" (or jangan, drop) = action discard. Never send a draft nobody approved.',inputSchema:{type:'object',properties:{id:{type:'integer',description:'The draft number from the post, e.g. 12 for DRAFT #12'},action:{type:'string',enum:['send','discard']},text:{type:'string',description:'Only when the team changed the text: their text, exactly. Separate several messages with a line containing only ---'}},required:['id','action']}});
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push(...VERSION_TOOLS);
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'team_group',description:'Your team Telegram group and its topics (Questions, Orders, Log, your own topic), as set in aqeelOS. Use action get to read where to post. Use action set ONLY when the owner tells you in chat to use another group or topic; send just what changes. Every change is shown to the owner.',inputSchema:{type:'object',properties:{action:{type:'string',enum:['get','set']},name:{type:'string',description:'The group\'s name'},chatId:{type:'string',description:'The group id, e.g. -1001234567890'},questions:{type:'integer',description:'Topic number for questions and drafts'},orders:{type:'integer',description:'Topic number for new orders'},log:{type:'integer',description:'Topic number for the activity log'},own:{type:'integer',description:'Your own topic number'},mention:{type:'string',description:'Who to mention for a person, e.g. @illusiveminds @diabloxd1337'}},required:['action']}});
-   if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools)&&mayApply)out.body.result.tools.push({name:'apply_changes',description:'Make settings changes take effect: after you changed an agent\'s config (yours or another agent\'s), added or shared an MCP tool or connected app, a skill, a plugin or a toolset, call this once. aqeelOS restarts the agents safely when no reply is running. Never restart the gateway any other way.',inputSchema:{type:'object',properties:{why:{type:'string',description:'What changed, in a few words'}},required:['why']}});
+   if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools)&&mayApply)out.body.result.tools.push({name:'apply_changes',description:'Make settings changes take effect: after you changed an agent\'s config (yours or another agent\'s), a plugin or a toolset, call this once. Apps and tool servers (MCP) apply by themselves within a minute or two; everything else is applied at the next restart in the quiet hours (01:00-05:00). Never restart the gateway any other way.',inputSchema:{type:'object',properties:{why:{type:'string',description:'What changed, in a few words'}},required:['why']}});
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools)&&mayApply)out.body.result.tools.push({name:'reconnect_channel',description:'Make a change to one of YOUR OWN channels take effect, for example after you changed WHATSAPP_GROUP_POLICY or another WHATSAPP_* / TELEGRAM_* setting. A WhatsApp connection is its own process that reads its settings only when it starts, so apply_changes does not reach it: call this instead. It restarts only that connection of yours (saved login kept, no new QR). Never kill or restart processes yourself.',inputSchema:{type:'object',properties:{channel:{type:'string',description:'Your channel, e.g. whatsapp or telegram'}},required:['channel']}});
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools)&&await postingLimits.usesLimits(mn[1].split('--')[0]).catch(()=>false))out.body.result.tools.push({name:'record_post',description:'Right after EACH public post or comment you publish, call this once with the link of the post you replied to (or your own post), the exact text you posted and whether it went to a hot or warm lead. aqeelOS counts it against your posting limits and checks, signed out, that the public can see it. If it answers NOT visible, stop posting and report the failure as it says.',inputSchema:{type:'object',properties:{post_url:{type:'string',description:'Full https link of the post you replied to (or your own new post)'},text:{type:'string',description:'The exact text you posted'},lead:{type:'string',enum:['hot','warm']}},required:['post_url','text','lead']}});
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push(agentAccess.TOOL);
@@ -3021,7 +3033,7 @@ const server=createServer(async(req,res)=>{
      const tokDir=path.join(homeOf(from),'mcp-tokens');const toks=(await readdir(tokDir).catch(()=>[])).filter(f=>f===name+'.json'||f.startsWith(name+'.')&&/\.(meta|client)\.json$/.test(f));
      const done=[];for(const a of to){const r=await setKey(a,'mcp_servers.'+name,src);if(!r.ok)return send(res,500,{error:(NAMES[a]||a)+': '+(r.err||'could not save')});
       const dst=path.join(homeOf(a),'mcp-tokens');await mkdir(dst,{recursive:true,mode:0o700});for(const f of toks)await copyFile(path.join(tokDir,f),path.join(dst,f)).catch(()=>{});done.push(NAMES[a]||a)}
-     if(done.length){console.log('connected app',name,'from',from,'now also on',done.join(', '));restartGateway('connected app '+name+' shared').catch(()=>{})}
+     if(done.length){console.log('connected app',name,'from',from,'now also on',done.join(', '),'(applied by the engine itself, no restart)');for(const a of to)await optins.setApp(a,name,true).catch(()=>{})}
      return send(res,200,{ok:true,agents:done})}}
    if(p==='/ui/mcp/start-signin'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||'default'),tool=String(b.name||'');
     if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag+'/soul','PUT',new URLSearchParams(),ag)!==null)return send(res,403,{error:'Not your agent.'});
