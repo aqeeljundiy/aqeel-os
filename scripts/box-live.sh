@@ -2,6 +2,18 @@
 # Runs ON THE BOX: unpacks the checked version, restarts aqeelOS once nothing is in progress, and confirms it answers.
 # deploy.sh / predeploy.sh send it with ssh (bash -s), and box-deploy.sh runs it from the commit being deployed. Env: CODE_V FORCE HT CT HS CS SHA BOX_SHA DC (the commits list)
 set -e
+# Put the previous version back (8 Nov 2026): unpack the kept .deployed.prev.tgz, restore its commit and restart only the web
+# app. Recorded in DATA/live-test.json (System › Health). The owner is messaged on Telegram only if this fails too.
+aq_tell_owner(){ local t c; t=$(grep -m1 '^TELEGRAM_BOT_TOKEN=' ~/.hermes/.env | cut -d= -f2-); c=$(grep -m1 '^TELEGRAM_HOME_CHANNEL=' ~/.hermes/.env | cut -d= -f2-)
+ [ -n "$t" ] && [ -n "$c" ] && curl -fs -m 20 "https://api.telegram.org/bot$t/sendMessage" --data-urlencode "chat_id=$c" --data-urlencode "text=$1" >/dev/null || echo "! could not message the owner"; }
+aq_undo(){ local why=$1 A=~/apps/hermes-ui P; P=$(cat $A/.deployed.prev-commit 2>/dev/null)
+ if [ ! -s $A/.deployed.prev.tgz ] || [ -z "$P" ]; then echo "✗ $why, and there is no previous version to put back"; aq_tell_owner "aqeelOS: the deploy of ${SHA:0:8} failed its check ($why) and there was no previous version to put back. Open System › Health."; return 1; fi
+ echo "↩ $why: putting ${P:0:8} back…"
+ tar -xzf $A/.deployed.prev.tgz -C $A && cp $A/.deployed.prev.tgz $A/.deployed.tgz && echo "$P" > $A/.deployed-commit || { aq_tell_owner "aqeelOS: the deploy of ${SHA:0:8} failed ($why) and putting ${P:0:8} back failed while unpacking. Please check the server."; return 1; }
+ tmux kill-session -t "=ui" 2>/dev/null || true; ~/services.sh; local h=""; for i in $(seq 1 30); do sleep 1; h=$(curl -fs http://127.0.0.1:4400/healthz) && break; done
+ node -e "const fs=require('fs'),f=(process.env.UI_DATA_DIR||require('os').homedir()+'/apps/hermes-ui-data')+'/live-test.json';let d={runs:[]};try{d=JSON.parse(fs.readFileSync(f,'utf8'))}catch{}const r=d.runs&&d.runs[0];const u={at:Date.now(),to:process.argv[1],why:process.argv[2],ok:!!process.argv[3]};if(r&&r.sha===process.argv[4])r.undo=u;else d.runs=[{at:Date.now(),sha:process.argv[4],ok:false,failed:[process.argv[2]],results:[],undo:u},...(d.runs||[])].slice(0,30);fs.writeFileSync(f,JSON.stringify(d,null,1))" "$P" "$why" "$h" "$SHA" 2>/dev/null || true
+ if [ -n "$h" ]; then echo "↩ ${P:0:8} is back and answers. The deploy of ${SHA:0:8} was undone ($why); System › Health shows why."; return 0; fi
+ echo "✗ ${P:0:8} was put back but does not answer"; aq_tell_owner "aqeelOS: the deploy of ${SHA:0:8} failed ($why); ${P:0:8} was put back but does not answer yet. Please check the server."; return 1; }
 # the files arrived whole: same size as sent, and readable
 for x in "$HT:$HS" "$CT:$CS"; do f=${x%%:*};z=${x##*:};[ "$(wc -c < "$f" 2>/dev/null)" = "$z" ] && tar -tzf "$f" >/dev/null 2>&1 || { echo "✗ $f did not arrive whole; nothing changed."; rm -f $HT $CT; exit 1; }; done
 L=/tmp/aq-live.lock;got=0
@@ -40,6 +52,9 @@ aq_drift(){ local L=${AQ_LIVE:-$HOME/apps/hermes-ui} D=${AQ_DRIFT_DATA:-${UI_DAT
  else echo "· drift check: the box ran exactly ${BOX_SHA:0:8}"; fi
  rm -f "$P"; }
 aq_drift || echo "! drift check: it could not run (the deploy goes on)"
+# the version running now is kept, so a failed live test below can put it back (8 Nov 2026)
+T0=$(( $(date +%s) * 1000 ))
+if [ -s ~/apps/hermes-ui/.deployed.tgz ]; then cp ~/apps/hermes-ui/.deployed.tgz ~/apps/hermes-ui/.deployed.prev.tgz && cp ~/apps/hermes-ui/.deployed-commit ~/apps/hermes-ui/.deployed.prev-commit 2>/dev/null || true; fi
 mkdir -p ~/apps/hermes-ui; tar -xzf $HT -C ~/apps/hermes-ui || { echo '✗ unpacking aqeelOS failed; it was not restarted.'; exit 1; }; cp $HT ~/apps/hermes-ui/.deployed.tgz.new && mv ~/apps/hermes-ui/.deployed.tgz.new ~/apps/hermes-ui/.deployed.tgz; rm $HT; echo "$SHA" > ~/apps/hermes-ui/.deployed-commit; [ -n "$DC" ] && [ -s "$DC" ] && mv "$DC" ~/apps/hermes-ui/.deployed-commits
 C=~/apps/aqeel-code; mkdir -p $C; before=$(md5sum $C/package-lock.json 2>/dev/null)
 tar -xzf $CT -C $C --strip-components=1 || { echo "✗ unpacking Code failed; aqeelOS was not restarted."; exit 1; }; rm $CT; echo "$CODE_V" > $C/VERSION
@@ -47,4 +62,13 @@ tar -xzf $CT -C $C --strip-components=1 || { echo "✗ unpacking Code failed; aq
 tmux kill-session -t "=ui" 2>/dev/null || true   # "=" = exactly ui (a bare -t ui also matches ui-staging)
 # the box's ~/services.sh must match sessions exactly too (has-session -t "=$1"), or ui-staging keeps ui from starting (7 Nov 2026)
 node ~/apps/hermes-ui/scripts/apply-skill-patches.mjs || echo "! skill patches: see the message above"
-~/services.sh; for i in $(seq 1 20); do sleep 1; h=$(curl -fs http://127.0.0.1:4400/healthz) && break; done; [ -n "$h" ] && echo "$h · UI restarted" || { echo "✗ the UI did not answer within 20 s"; exit 1; }
+~/services.sh; for i in $(seq 1 20); do sleep 1; h=$(curl -fs http://127.0.0.1:4400/healthz) && break; done; [ -n "$h" ] && echo "$h · UI restarted" || { echo "✗ the UI did not answer within 20 s"; aq_undo "the UI did not answer"; exit 1; }
+# The real-life test (8 Nov 2026, the owner's stability plan): tool servers, schedules, engine, a Kirimdev tester message and
+# one short reply from the test agent. If it fails, the previous version goes back by itself (no engine restart), the
+# failure shows on System › Health, and the owner hears about it only if putting it back fails too. LIVE_TEST=0 skips it.
+if [ "${LIVE_TEST:-1}" != 0 ] && [ -f ~/apps/hermes-ui/scripts/live-test.mjs ]; then
+ echo "· live test (about 5 minutes)…"
+ rc=0; lt=$(cd ~/apps/hermes-ui && timeout 900 node --env-file=$HOME/.hermes/.env --env-file=$HOME/apps/hermes-ui.env scripts/live-test.mjs --since "$T0" --sha "$SHA" 2>&1) || rc=$?   # set -e: keep going to the undo
+ echo "$lt" | tail -12
+ [ "$rc" = 0 ] || { aq_undo "the live test failed"; exit 1; }
+fi

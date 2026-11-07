@@ -2466,6 +2466,8 @@ const server=createServer(async(req,res)=>{
    if(p.startsWith('/ui/plugin-'))return plugins.handle(req,res,u,url);
    if(p.startsWith('/ui/help/'))return help.handle(req,res,u,url);
    if((p==='/ui/install'||p.startsWith('/ui/install/'))&&await install.handle(req,res,u,url))return;
+   // the real-life test after each deploy (scripts/live-test.mjs) and any automatic undo (box-live.sh), for System › Health
+   if(p==='/ui/live-test'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});try{return send(res,200,JSON.parse(await readFile(path.join(DATA,'live-test.json'),'utf8')))}catch{return send(res,200,{runs:[]})}}
    // Edit agent › Abilities: AdsPower and Composio per agent (admins change them; the agent's editors may read them)
    if(p==='/ui/optins'&&req.method==='GET'){const a=String(url.searchParams.get('agent')||'default');if(!users.isAdmin(u)&&!users.atLeast(u,a,'edit'))return send(res,403,{error:'Not your agent.'});return send(res,200,{agent:a,admin:users.isAdmin(u),abilities:await optins.state(a),apps:await optins.appsState(a,await knownApps(a))})}
    if(p==='/ui/optins'&&req.method==='PUT'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can change this.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
