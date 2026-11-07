@@ -13,7 +13,11 @@ const base=clean(process.env.AQEELOS_URL||cfg.address||'');
 if(cfg.appId&&!/^[a-z0-9-]+(\.[a-z0-9-]+){2,}$/i.test(cfg.appId))throw Error('build.config.json: appId looks like org.example.aqeelos');
 const version=execFileSync('git',['log','-1','--format=%H','--','.'],{cwd:root,encoding:'utf8'}).trim().slice(0,12);
 const stamp=path.join(root,'aqeelos.json');writeFileSync(stamp,JSON.stringify({aqeelos:{...(base?{base,origins:[base]}:{}),version,brand:'aqeelOS'}},null,1));
-const extra=[...(cfg.appId?['-c.appId='+cfg.appId]:[]),...(cfg.publisherName&&os==='win'?['-c.win.signtoolOptions.publisherName='+cfg.publisherName]:[]),...(cfg.copyright?['-c.copyright='+cfg.copyright]:[])];
+// Mac: with no Developer ID (none in the keychain, no CSC_LINK) electron-builder leaves the app unsigned, and an
+// unsigned app does not open on Apple Silicon at all; it is signed ad-hoc then (macOS asks once, in Privacy & Security)
+const hasDevId=()=>{try{return /Developer ID Application/.test(execFileSync('security',['find-identity','-v','-p','codesigning'],{encoding:'utf8'}))}catch{return false}};
+const macIdentity=os!=='mac'?'':cfg.macIdentity||(process.env.CSC_LINK||process.env.CSC_NAME||hasDevId()?'':'-');
+const extra=[...(macIdentity?['-c.mac.identity='+macIdentity]:[]),...(cfg.appId?['-c.appId='+cfg.appId]:[]),...(cfg.publisherName&&os==='win'?['-c.win.signtoolOptions.publisherName='+cfg.publisherName]:[]),...(cfg.copyright?['-c.copyright='+cfg.copyright]:[])];
 try{execFileSync(process.platform==='win32'?'npx.cmd':'npx',['electron-builder',os==='mac'?'--mac':'--win',...(os==='mac'?['dmg']:['nsis']),...(/^(arm64|x64|universal)$/.test(process.env.ARCH||'')?['--'+process.env.ARCH]:[]),...extra],{cwd:here,stdio:'inherit',shell:process.platform==='win32'})}
 finally{rmSync(stamp,{force:true})}
 console.log('built for',os,'· Code',version,'· app id',cfg.appId||'(package.json)','·',base?'address '+base:'asks for the address on first launch');

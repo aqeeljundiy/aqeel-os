@@ -26,6 +26,7 @@ cp desktop/build.config.example.json desktop/build.config.json
 | `address` | Optional. Your aqeelOS address, like `https://ai.example.com`. When set, the first launch opens it straight away. Leave it empty to ask. |
 | `publisherName` | Windows only. The name on your signing certificate. |
 | `copyright` | Optional. Shown in the app's About box. |
+| `macIdentity` | Optional. The Mac signing identity to use. Empty: your Developer ID when there is one, otherwise ad-hoc (`-`). |
 
 `desktop/build.config.json` is in `.gitignore`. So are your certificates and the `dist/` folder.
 
@@ -59,7 +60,7 @@ in the repo.
 | `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` | Mac notarisation: your Apple ID, an app-specific password and your team id. |
 | `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD` | A separate Windows certificate, when you build both on one machine. |
 
-Without them the build is unsigned. That is fine for trying it yourself.
+Without them the Windows build is unsigned and the Mac build is signed ad-hoc, which an Apple Silicon Mac needs to open it at all. People then allow it once in System Settings › Privacy & Security. That is fine for trying it yourself.
 
 ## 4. Give it to your people
 
