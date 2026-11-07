@@ -1,7 +1,7 @@
 // People in aqeelOS: the owner (super admin, signs in with the original UI password), admins, and members
 // invited by link. Members only reach the agents shared with them, their own chats and their own folder.
 // Hermes itself is single-user, so every rule here is enforced in front of it, on this server.
-import {readFile,writeFile,mkdir,rename,unlink} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,rename,unlink,copyFile} from 'node:fs/promises';
 import {scryptSync,randomBytes,timingSafeEqual,randomInt,createHash} from 'node:crypto';
 import {homedir} from 'node:os';
 import path from 'node:path';
@@ -28,7 +28,11 @@ const DEFAULT_ROLES={member:{name:'Member',caps:[],models:null,limit:null,maxAge
 export const UNSAFE_TOOLSETS=['terminal','file','code_execution','computer_use'];
 const PEOPLE_DIR=path.join(homedir(),'people');      // members' own folders: ~/people/<id>
 
-export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=async()=>'aqeelOS'}={}){
+// Signing in is by email (7 Nov 2026, the owner: "username not enough"). The username stays as a handle shown to others.
+// For 14 days after this version first runs, the old username (or name) still signs in, and the page says to use the email
+// next time; an account with no email keeps signing in by username until it adds one (the app asks at sign-in), so nobody
+// is locked out. relaxed: a test copy (deploy checks), where the owner may still sign in with the password alone.
+export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=async()=>'aqeelOS',relaxed=true}={}){
  const hooks={};   // onJoin(person): the server makes their lead agent
  const FILE=path.join(DATA,'users.json');
  let db=null;
@@ -38,7 +42,18 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
   // Older data had only a name; its username was the name in lower case, so sign-in keeps working
   let first=false;if(!db.ownerName){db.ownerName=String(process.env.OWNER_NAME||'').trim().slice(0,60)||'Owner';first=true}
   if(!db.ownerUsername){db.ownerUsername=slugName(process.env.OWNER_USERNAME||db.ownerName)||'owner';first=true}
-  if(first)save().catch(()=>{});return db};
+  if(!db.emailLoginSince){db.emailLoginSince=Date.now();first=true}
+  if(first)save().catch(()=>{});await applyEmailMoves();return db};
+ /* A one-time list of sign-in emails to set, DATA/login-emails.json: {"<username, name or owner>":"email", ...}. Read once
+    at start; users.json is copied first (users.json.bak-emails-<time>); each email set is taken as confirmed (whoever runs
+    the box vouches for it), passwords and two-step stay as they are. The file becomes login-emails.done.json (the ones it could not place go to login-emails.left.json, logged). */
+ async function applyEmailMoves(){const F=path.join(DATA,'login-emails.json');let m;try{m=JSON.parse(await readFile(F,'utf8'))}catch(e){if(e.code!=='ENOENT')console.warn('login-emails.json:',e.message);return}
+  await copyFile(FILE,FILE+'.bak-emails-'+Date.now()).catch(e=>{if(e.code!=='ENOENT')throw e});const left={};let done=0;
+  for(const [who,raw] of Object.entries(m||{})){const em=norm(raw),w=norm(who);
+   const x=w==='owner'||w===norm(db.ownerName)||w===norm(db.ownerUsername)?owner():db.users.find(y=>norm(y.username)===w||norm(y.name)===w);
+   if(!x||!EMAIL.test(em)||[owner(),...db.users].some(y=>y.id!==x.id&&norm(y.email)===em)){console.warn('login email not set for',who,!x?'(no such person)':'(bad or taken email)');left[who]=raw;continue}
+   if(norm(x.email)!==em){setF(x,'email',em);setF(x,'emailVerified',true)}console.log('sign-in email for',x.id,'is',em);done++}
+  await save();await rename(F,path.join(DATA,'login-emails.done.json'));if(Object.keys(left).length)await writeFile(path.join(DATA,'login-emails.left.json'),JSON.stringify(left,null,1));return done}
  // saves run one after another so two never share the .tmp file; a failed one still lets the next run
  let saving=Promise.resolve();
  const save=()=>{const p=saving.then(async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)});saving=p.catch(()=>{});return p};
@@ -125,10 +140,21 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
   if(++v.tries>5){codes.delete(key);return {error:'Too many tries. Ask for a new code.'}}
   if(!check(String(code||'').trim(),v.hash))return {error:'That code is not right.'};codes.delete(key);return {ok:true,uid:v.uid,email:v.email}}
  /* ---------- signing in ---------- */
- async function login(name,pw,ownerCheck){await load();if(ownerCheck)envOwnerCheck=ownerCheck;const n=norm(name);
-  if(!n||n===norm(db.ownerName)||n===norm(db.ownerUsername||'owner')){if(ownerPwOk(pw))return owner()}
-  const u=db.users.find(x=>norm(x.username)===n||norm(x.name)===n);if(u&&!u.disabled&&check(pw,u.pw)){u.last=Date.now();await save();return u}
-  return null}
+ const GRACE=14*864e5;
+ const graceOn=()=>Date.now()<(db.emailLoginSince||0)+GRACE;
+ // email (any case, spaces trimmed) for everyone; a username or name only in the 14 days, or while that account has no email
+ async function login(name,pw,ownerCheck){await load();if(ownerCheck)envOwnerCheck=ownerCheck;const n=norm(name);let x=null;
+  if(n.includes('@'))x=[owner(),...db.users].find(y=>y.email&&norm(y.email)===n)||null;
+  else if(!n)x=relaxed||graceOn()||!db.ownerEmail?owner():null;
+  else{x=n===norm(db.ownerName)||n===norm(db.ownerUsername||'owner')?owner():db.users.find(y=>norm(y.username)===n||norm(y.name)===n)||null;if(x?.email&&!graceOn())x=null}
+  if(!x)return null;if(x.id==='owner')return ownerPwOk(pw)?owner():null;
+  if(x.disabled||!check(pw,x.pw))return null;x.last=Date.now();await save();return x}
+ // after a sign-in: the quiet note when they used the old username
+ const loginNote=(u,name)=>u?.email&&!norm(name).includes('@')?'Use your email next time: '+u.email:null;
+ const emailOnly=()=>!graceOn();
+ // a free username from an email's first part (or a name): sam, sam2, sam3...
+ const freeHandle=(s,id=null)=>{let b=slugName(String(s||'').split('@')[0]);if(b.length<3)b=(b+'user').slice(0,8);b=b.slice(0,28);let un=b,i=2;while(userTaken(un,id))un=b+i++;return un};
+ const emailFree=(em,id)=>![owner(),...db.users].some(y=>y.id!==id&&y.email&&norm(y.email)===em);
  // a suspended person's cookies stop working at once (they are also signed out), and they cannot sign in
  async function user(id){await load();const x=byId(id);return x&&!x.disabled?x:null}
 
@@ -233,7 +259,7 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
   // turning two-step off and changing or clearing a set email (which turns it off) take the current password, like a new password does
   const pwOk=pw=>u.role==='owner'?ownerPwOk(pw):check(pw,db.users.find(y=>y.id===u.id)?.pw);const PW_BAD={error:'Your current password is not right.'};
   if(p==='/ui/me/email'&&req.method==='PUT'){const b=await body();const email=String(b.email||'').trim().toLowerCase();if(byId(u.id)?.email&&!pwOk(b.current))return send(res,400,PW_BAD);
-   if(!email){setF(u,'email','');setF(u,'emailVerified',false);setF(u,'twoStep',false);await save();return send(res,200,{ok:true})}
+   if(!email)return send(res,400,{error:'You sign in with your email, so it can be changed but not removed.'});
    if(!EMAIL.test(email))return send(res,400,{error:'That email address does not look right.'});if([owner(),...db.users].some(x=>x.id!==u.id&&norm(x.email)===email))return send(res,400,{error:'Someone already uses that email.'});
    setF(u,'email',email);setF(u,'emailVerified',false);setF(u,'twoStep',false);await save();
    try{const key=await sendCode(u,'verify',email);return send(res,200,{ok:true,key})}catch(e){return send(res,502,{error:'Saved, but the code could not be sent: '+e.message})}}
@@ -289,7 +315,7 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
    try{await mail.deliver(String(b.to||'').trim(),(byId(u.id)?.name||'Someone')+' invited you to aqeelOS',`Hi${i.name?' '+i.name:''},\n\n${byId(u.id)?.name||'Someone'} invited you to aqeelOS. Open this link to pick a username and password:\n\n${String(b.link||'')}\n\nThe link works once and expires in 7 days.`);return send(res,200,{ok:true})}catch(e){return send(res,502,{error:e.message})}}
   if(p==='/ui/people'&&req.method==='GET')return send(res,200,{caps:CAPS,presets:PRESETS,owner:pub(owner()),roles:db.roles,users:db.users.map(x=>({...pub(x),lead:db.leads[x.id]||null,roleId:x.roleId||'custom',caps:x.caps||[],models:x.models||null,limit:x.limit||null})),invites:db.invites.filter(i=>!i.used&&i.expires>Date.now()).map(i=>({code:i.code,name:i.name,role:i.role,agents:i.agents,expires:i.expires})),expired:expiredInvites(),shares:db.shares});
   if(p==='/ui/people/invite'&&req.method==='POST'){const b=await body();if(b.roleId&&unsafeRole(b.roleId))return send(res,403,UNSAFE_ROLE);const role=b.role==='admin'&&u.role==='owner'?'admin':'member';
-   const inv={code:randomBytes(18).toString('base64url'),name:String(b.name||'').trim().slice(0,60),role,roleId:b.roleId&&db.roles[b.roleId]?b.roleId:null,caps:(Array.isArray(b.caps)?b.caps:[]).filter(k=>k in CAPS&&(k!=='unsafe'||u.role==='owner')),agents:b.agents&&typeof b.agents==='object'?Object.fromEntries(Object.entries(b.agents).filter(([a])=>!isPrivate(a)||level(u,a)==='owner')):{},expires:Date.now()+7*864e5,by:u.id};
+   const inv={code:randomBytes(18).toString('base64url'),name:String(b.name||'').trim().slice(0,60),role,roleId:b.roleId&&db.roles[b.roleId]?b.roleId:null,caps:(Array.isArray(b.caps)?b.caps:[]).filter(k=>k in CAPS&&(k!=='unsafe'||u.role==='owner')),agents:b.agents&&typeof b.agents==='object'?Object.fromEntries(Object.entries(b.agents).filter(([a])=>!isPrivate(a)||level(u,a)==='owner')):{},expires:Date.now()+7*864e5,by:u.id,...(EMAIL.test(norm(b.email))?{email:norm(b.email)}:{})};
    // the agent made for them in this invite becomes theirs (private) when they accept, if the inviter still owns it then
    if(typeof b.ownAgent==='string'&&inv.agents[b.ownAgent]==='owner'&&agentOwner(b.ownAgent)===u.id)inv.ownAgent=b.ownAgent;
    // "Also make them their own agent" unticked: no lead agent is made for them when they join (7 Nov 2026)
@@ -303,12 +329,15 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
   // admins are the owner's to change or remove, not each other's
   if(um&&(req.method==='PATCH'||req.method==='DELETE')&&isAdmin(byId(um[1]))&&u.role!=='owner')return send(res,403,{error:'Only the owner can change or remove an admin.'});
   // an admin's tools for someone locked out or leaving: a new password, signing them out, suspending them (owner: never)
-  const pa=/^\/ui\/people\/([\w-]+)\/(password|signout|suspend|two-step-off)$/.exec(p);
+  const pa=/^\/ui\/people\/([\w-]+)\/(password|signout|suspend|two-step-off|email)$/.exec(p);
   if(pa&&req.method==='POST'){const x=db.users.find(y=>y.id===pa[1]);if(!x)return send(res,404,{error:'Not found'});
    if(x.id===u.id)return send(res,400,{error:'Use your own profile for that.'});if(isAdmin(x)&&u.role!=='owner')return send(res,403,{error:'Only the owner can change an admin.'});
    const b=await body();
    if(pa[2]==='password'){const pw=String(b.password||'');if(pw.length<8)return send(res,400,{error:'Use at least 8 characters.'});x.pw=hash(pw);if(b.twoStepOff)x.twoStep=false;await save();await hooks.revoke?.(x.id);console.log('password set for',x.id,'by',u.id);return send(res,200,{ok:true})}
    if(pa[2]==='two-step-off'){x.twoStep=false;await save();return send(res,200,{ok:true})}
+   // their sign-in email, set by an admin (not confirmed until they confirm it; two-step is off until then)
+   if(pa[2]==='email'){const em=norm(b.email);if(!EMAIL.test(em))return send(res,400,{error:'That email address does not look right.'});if(!emailFree(em,x.id))return send(res,400,{error:'Someone already uses that email.'});
+    if(norm(x.email)!==em){x.email=em;x.emailVerified=false;x.twoStep=false;await save()}console.log('sign-in email changed for',x.id,'by',u.id);return send(res,200,{ok:true,email:em})}
    if(pa[2]==='signout'){await hooks.revoke?.(x.id);console.log('signed out everywhere:',x.id,'by',u.id);return send(res,200,{ok:true})}
    if(pa[2]==='suspend'){if(b.on){x.disabled=Date.now();await save();await hooks.revoke?.(x.id)}else{delete x.disabled;await save()}console.log(b.on?'suspended':'unsuspended',x.id,'by',u.id);return send(res,200,pub(x))}}
   const rn=/^\/ui\/people\/invite\/([\w-]+)\/renew$/.exec(p);
@@ -326,12 +355,13 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
   return send(res,404,{error:'Not found'})}
 
  /* ---------- accepting an invite (no sign-in yet) ---------- */
- async function inviteInfo(code){await load();const i=db.invites.find(x=>x.code===code&&!x.used&&x.expires>Date.now());return i?{name:i.name,role:i.role,username:slugName(i.name)}:null}
- async function accept(code,name,pw,username){await load();const i=db.invites.find(x=>x.code===code&&!x.used&&x.expires>Date.now());if(!i)throw new Error('This invite link has expired or was already used.');
+ async function inviteInfo(code){await load();const i=db.invites.find(x=>x.code===code&&!x.used&&x.expires>Date.now());return i?{name:i.name,role:i.role,username:slugName(i.name),email:i.email||''}:null}
+ async function accept(code,name,pw,username,email){await load();const i=db.invites.find(x=>x.code===code&&!x.used&&x.expires>Date.now());if(!i)throw new Error('This invite link has expired or was already used.');
   name=String(name||i.name||'').trim().slice(0,60);if(!name)throw new Error('Tell us your name.');if(String(pw||'').length<8)throw new Error('Use a password of at least 8 characters.');
   if(norm(name)===norm(db.ownerName)||db.users.some(u=>norm(u.name)===norm(name)))throw new Error('That name is taken. Try another.');
-  const un=norm(username||slugName(name));if(!USERNAME.test(un))throw new Error('Pick a username of 3–32 characters: letters, numbers, dots, dashes or underscores.');if(userTaken(un,null))throw new Error('That username is taken. Try another.');
-  const u={id:randomBytes(6).toString('hex'),name,username:un,role:i.role,roleId:i.roleId||null,caps:i.caps||[],pw:hash(pw),created:Date.now(),last:Date.now()};db.users.push(u);
+  const em=norm(email);if(em&&!EMAIL.test(em))throw new Error('That email address does not look right.');if(em&&!emailFree(em,null))throw new Error('Someone already uses that email. Sign in instead.');
+  const un=username?norm(username):freeHandle(em||name);if(!USERNAME.test(un))throw new Error('Pick a username of 3–32 characters: letters, numbers, dots, dashes or underscores.');if(userTaken(un,null))throw new Error('That username is taken. Try another.');
+  const u={id:randomBytes(6).toString('hex'),name,username:un,...(em?{email:em,emailVerified:false}:{}),role:i.role,roleId:i.roleId||null,caps:i.caps||[],pw:hash(pw),created:Date.now(),last:Date.now()};db.users.push(u);
   for(const [a,l] of Object.entries(i.agents||{}))if(LEVELS.includes(l)){db.shares[a]||={};db.shares[a][u.id]=l}
   if(i.ownAgent&&agentOwner(i.ownAgent)===i.by){db.agentOwners[i.ownAgent]=u.id;delete db.shares[i.ownAgent]?.[u.id];db.leads[u.id]=i.ownAgent}
   i.used=Date.now();await save();await mkdir(home(u),{recursive:true}).catch(()=>{});
@@ -350,11 +380,11 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
  /* ---------- first run: no owner password anywhere yet (no UI_PASSWORD_HASH, none saved here) ---------- */
  const needsOwner=async()=>{await load();return !db.ownerPw&&!envOwner()};
  // the first person to open a new install makes the owner account; it signs them in and gives them a recovery code
- async function createOwner(name,username,pw){await load();if(db.ownerPw||envOwner())throw Object.assign(new Error('This install already has an owner. Sign in instead.'),{status:409});
-  name=String(name||'').trim().slice(0,60);const un=norm(username||slugName(name));
-  if(!name)throw new Error('Tell us your name.');if(!USERNAME.test(un))throw new Error('Pick a username of 3 to 32 characters: letters, numbers, dots, dashes or underscores.');
-  if(db.users.some(x=>norm(x.username)===un))throw new Error('That username is taken. Try another.');if(String(pw||'').length<8)throw new Error('Use a password of at least 8 characters.');
-  db.ownerName=name;db.ownerUsername=un;db.ownerPw=hash(pw);const code=newRecovery();await save();return {user:owner(),recovery:code}}
+ async function createOwner(name,email,pw){await load();if(db.ownerPw||envOwner())throw Object.assign(new Error('This install already has an owner. Sign in instead.'),{status:409});
+  name=String(name||'').trim().slice(0,60);const em=norm(email);
+  if(!name)throw new Error('Tell us your name.');if(!EMAIL.test(em))throw new Error('Enter your email address. You sign in with it.');
+  if(!emailFree(em,'owner'))throw new Error('Someone already uses that email.');if(String(pw||'').length<8)throw new Error('Use a password of at least 8 characters.');
+  db.ownerName=name;db.ownerUsername=freeHandle(em,'owner');db.ownerEmail=em;db.ownerEmailVerified=false;db.ownerPw=hash(pw);const code=newRecovery();await save();return {user:owner(),recovery:code}}
  /* ---------- the owner's recovery code: signs in once without the password or two-step, then a new one is made ---------- */
  const RC='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
  function newRecovery(){let c='';for(let i=0;i<20;i++)c+=RC[randomInt(RC.length)];c=c.match(/.{5}/g).join('-');db.ownerRecovery=hash(c);return c}
@@ -378,5 +408,5 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
  async function finishReset(tok,pw){await load();sweep();const r=db.resets.find(y=>y.h===tokHash(tok));const x=r&&byId(r.uid);if(!x||x.disabled)return {error:'This reset link has expired or was already used. Ask for a new one.'};
   if(String(pw||'').length<8)return {error:'Use a password of at least 8 characters.'};
   if(x.id==='owner')db.ownerPw=hash(pw);else db.users.find(y=>y.id===x.id).pw=hash(pw);db.resets=db.resets.filter(y=>y.uid!==x.id);await save();return {ok:true,user:byId(x.id)}}
- return {needsOwner,createOwner,makeRecovery,recoverOwner,forgot,resetInfo,finishReset,hooks,leadOf,leadPerson,setLead,agentPerson,tierOf,agentMayManage,powerOf,needLead,face,expiredInvites,agentOwner,byId,ownerOf,sessionOwner,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginCode,finishLogin,created,reserve,can,canOn,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home,level,atLeast,schedOk,dropAgent,restoreAgent};
+ return {needsOwner,createOwner,makeRecovery,recoverOwner,forgot,resetInfo,finishReset,hooks,leadOf,leadPerson,setLead,agentPerson,tierOf,agentMayManage,powerOf,needLead,face,expiredInvites,agentOwner,byId,ownerOf,sessionOwner,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginNote,emailOnly,applyEmailMoves,loginCode,finishLogin,created,reserve,can,canOn,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home,level,atLeast,schedOk,dropAgent,restoreAgent};
 }

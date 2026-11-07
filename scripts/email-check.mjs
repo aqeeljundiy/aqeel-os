@@ -24,6 +24,6 @@ await step('Wrong sign-in code refused',async()=>{const r=await call(null,'/auth
 await step('Emailed code signs in',async()=>{const r=await call(null,'/auth/code',{method:'POST',body:{key:ticket,code:lastCode()}});must(r.s===200&&r.ck,JSON.stringify(r.j));ck=r.ck});
 await step('Invite by email arrives with the link',async()=>{const i=await call(ck,'/ui/people/invite',{method:'POST',body:{name:'Mail Test',role:'member',agents:{}}});const link=BASE+'/#invite/'+i.j.code;
  const r=await call(ck,'/ui/people/invite/'+i.j.code+'/email',{method:'POST',body:{to:'friend@example.com',link}});must(r.s===200,JSON.stringify(r.j));must(inbox.at(-1).body.includes(link),'link missing');await call(ck,'/ui/people/invite/'+i.j.code,{method:'DELETE'})});
-await step('Two-step off, email removed',async()=>{await call(ck,'/ui/me/two-step',{method:'PUT',body:{on:false}});const r=await call(ck,'/ui/me/email',{method:'PUT',body:{email:''}});must(r.s===200,'status '+r.s)});
+await step('Two-step off; the email can be changed but not removed (it is how you sign in)',async()=>{await call(ck,'/ui/me/two-step',{method:'PUT',body:{on:false}});const r=await call(ck,'/ui/me/email',{method:'PUT',body:{email:''}});must(r.s===400,'status '+r.s)});
 await step('Email settings back to default',async()=>{await call(ck,'/ui/mail',{method:'PUT',body:{mode:'direct',host:'',port:'',user:''}})});
 sink.close();for(const r of res)console.log(r.join(' | '));console.log(res.filter(r=>r[0]==='PASS').length+'/'+res.length+' passed');process.exit(0);

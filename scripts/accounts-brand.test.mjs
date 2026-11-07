@@ -20,12 +20,13 @@ const route=async(method,p,body,q='')=>{const res={};const handled=await auth({m
 test('a new install asks for the owner: the first visit makes it, signs in and gives a recovery code; then setup is closed',async()=>{
  assert.equal((await route('GET','/auth/setup')).body.needed,true);
  assert.equal(await users.login('','anything-123'),null,'nobody signs in before the owner exists');
- const bad=await route('POST','/auth/setup',{name:'Sam Lee',username:'sam',password:'short'});assert.equal(bad.status,400);assert.match(bad.body.error,/8 characters/);
- const r=await route('POST','/auth/setup',{name:'Sam Lee',username:'sam',password:'owner-pass-1'});
+ const noMail=await route('POST','/auth/setup',{name:'Sam Lee',username:'sam',password:'owner-pass-1'});assert.equal(noMail.status,400);assert.match(noMail.body.error,/email/);
+ const bad=await route('POST','/auth/setup',{name:'Sam Lee',email:'sam@example.com',password:'short'});assert.equal(bad.status,400);assert.match(bad.body.error,/8 characters/);
+ const r=await route('POST','/auth/setup',{name:'Sam Lee',email:' Sam@Example.com ',password:'owner-pass-1'});
  assert.equal(r.status,200);assert.equal(r.h['set-cookie'],'hui=owner');assert.match(r.body.recovery,/^[A-Z2-9]{5}(-[A-Z2-9]{5}){3}$/);
- assert.equal((await users.login('sam','owner-pass-1'))?.role,'owner');assert.equal((await users.login('Sam Lee','owner-pass-1'))?.role,'owner');
+ assert.equal((await users.login(' SAM@example.COM ','owner-pass-1'))?.role,'owner');assert.equal((await users.user('owner')).username,'sam');assert.equal((await users.login('sam','owner-pass-1'))?.role,'owner');assert.equal((await users.login('Sam Lee','owner-pass-1'))?.role,'owner');
  assert.equal((await route('GET','/auth/setup')).body.needed,false);
- const again=await route('POST','/auth/setup',{name:'Eve',username:'eve',password:'evil-pass-123'});assert.equal(again.status,409);
+ const again=await route('POST','/auth/setup',{name:'Eve',email:'eve@example.com',password:'evil-pass-123'});assert.equal(again.status,409);
  assert.equal(await users.login('eve','evil-pass-123'),null);
  globalThis.RC=r.body.recovery});
 
@@ -56,7 +57,7 @@ test('the owner\'s recovery code: signs in once, sets the password, turns two-st
  const owner=await users.user('owner');
  assert.equal((await route('POST','/auth/recover',{code:'AAAAA-BBBBB-CCCCC-DDDDD',password:'whatever-12'})).status,400);
  // two-step on (email confirmed), then lost
- await call(owner,'PUT','/ui/me/email',{email:'sam@example.com'});const key=(await call(owner,'POST','/ui/me/email/resend')).body.key;await call(owner,'POST','/ui/me/email/verify',{key,code:/(\d{6})/.exec(sent.at(-1).text)[1]});
+ const key=(await call(owner,'POST','/ui/me/email/resend')).body.key;await call(owner,'POST','/ui/me/email/verify',{key,code:/(\d{6})/.exec(sent.at(-1).text)[1]});
  assert.equal((await call(owner,'PUT','/ui/me/two-step',{on:true})).status,200);assert.equal((await users.user('owner')).twoStep,true);
  const r=await route('POST','/auth/recover',{code:globalThis.RC.toLowerCase().replace(/-/g,' '),password:'owner-new-pass-2'});
  assert.equal(r.status,200);assert.equal(r.h['set-cookie'],'hui=owner');assert.notEqual(r.body.recovery,globalThis.RC);
@@ -144,10 +145,9 @@ test('"Also make them their own agent" unticked: no lead agent is made when they
   await new Promise(r=>setImmediate(r));assert.deepEqual(joined,['lev'])}
  finally{users.hooks.onJoin=before}});
 
-test('browser fixes: the owner username is suggested once and typing replaces it; the invite hint has room above Password',async()=>{
+test('browser: the owner screen and the invite page ask for the email; the invite hint has room above Password',async()=>{
  const js=await readFile(new URL('../app/account-setup.js',import.meta.url),'utf8');
- assert.doesNotMatch(js,/n\.oninput=\(\)=>\{if\(!typed\)u\.value=/,'no live copying of the name into the username');
- assert.match(js,/n\.onchange=/);assert.match(js,/u\.select\(\)/);
+ assert.match(js,/<label for="acE">Email<\/label>/);assert.doesNotMatch(js,/id="acU"/);assert.match(js,/email:em\.value\.trim\(\)/);
  const ppl=await readFile(new URL('../app/people.js',import.meta.url),'utf8');
- assert.match(ppl,/placeholder="sarah"><p class="hint ac-hint">/);assert.match(ppl,/noLead:role!=='admin'&&!\$\('#ivNew'\)\.checked/);
+ assert.match(ppl,/placeholder="sarah@example\.com"><p class="hint ac-hint">/);assert.match(ppl,/email:\$\('#ivE'\)\.value\.trim\(\)/);assert.match(ppl,/noLead:role!=='admin'&&!\$\('#ivNew'\)\.checked/);
  const css=await readFile(new URL('../app/accounts-brand.css',import.meta.url),'utf8');assert.match(css,/\.signin \.ac-hint\+label/)});

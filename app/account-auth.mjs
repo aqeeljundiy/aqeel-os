@@ -9,7 +9,7 @@ export function createAccountAuth({users,send,readBody,signIn,limited,miss,revok
   if(p==='/auth/reset'&&req.method==='GET'){const i=await users.resetInfo(url.searchParams.get('t')||'');send(res,i?200:404,i||{error:'This reset link has expired or was already used. Ask for a new one.'});return true}
   if(limited(req)){send(res,429,{error:'Too many attempts. Try again in a few minutes.'});return true}
   const b=await json(req);
-  if(p==='/auth/setup'){try{const r=await users.createOwner(b.name,b.username,b.password);console.log('owner account made at first run:',r.user.username);send(res,200,{ok:true,recovery:r.recovery},signIn(r.user.id))}
+  if(p==='/auth/setup'){try{const r=await users.createOwner(b.name,b.email,b.password);console.log('owner account made at first run:',r.user.username);send(res,200,{ok:true,recovery:r.recovery},signIn(r.user.id))}
    catch(e){if(e.status!==409)miss(req);send(res,e.status||400,{error:e.message})}return true}
   // the answer is the same whether or not the person exists; mail errors are only logged
   if(p==='/auth/forgot'){miss(req);await users.forgot(b.who,t=>publicUrl()+'/#reset/'+t).catch(e=>console.warn('password reset mail:',e.message));send(res,200,{ok:true});return true}

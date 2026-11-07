@@ -50,3 +50,6 @@
 .sk-pick.sk-in{animation:skIn .22s var(--ease) both}
 @keyframes skIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
 .ssh-prot{display:inline-flex!important;align-items:center;gap:5px;font-size:12px!important;color:var(--ink-2)!important;margin-top:3px;font-family:inherit!important}
+/* the ⋯ button sits over the card corner: the name and email line leave room for it (7 Nov 2026) */
+.person:has(>.more) .person-head .txt{padding-right:60px}
+.person-head .txt span{overflow-wrap:anywhere}

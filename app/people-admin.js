@@ -4,6 +4,7 @@
 const PeopleAdmin={
  items(u){const id=encodeURIComponent(u.id),go=async(path,body,msg)=>{try{await post(UI,'/ui/people/'+id+'/'+path,body);toast(msg);reload()}catch(e){fail(e)}};
   return [{label:'Set a new password',icon:'key',run:()=>PeopleAdmin.password(u)},
+   {label:u.email?'Change sign-in email':'Add sign-in email',icon:'mail',run:async()=>{const em=await promptBox((u.email?'Change':'Add')+' '+u.name+'’s sign-in email','Email',u.email||'',u.email?'Change':'Add','email');if(em==null||!em.trim())return;go('email',{email:em.trim()},u.name+' signs in with '+em.trim().toLowerCase())}},
    {label:'Sign out everywhere',icon:'logout',run:async()=>{if(await confirmBox('Sign '+u.name+' out everywhere?','Every browser and phone signed in as '+u.name+' is signed out. They can sign in again with their password.','Sign out',false))go('signout',{},u.name+' is signed out everywhere')}},
    ...(u.twoStep?[{label:'Turn off two-step',icon:'shield',run:async()=>{if(await confirmBox('Turn off two-step for '+u.name+'?','They sign in with their password only, until they turn it on again in their profile. Use it when they lost access to their email.','Turn off',false))go('two-step-off',{},'Two-step is off for '+u.name)}}]:[]),
    u.disabled?{label:'Let them sign in again',icon:'unlock',run:()=>go('suspend',{on:false},u.name+' can sign in again')}

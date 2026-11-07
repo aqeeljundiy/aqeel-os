@@ -891,7 +891,7 @@ async function adoptFirstModel(slug){const agents=['default',...(await listAgent
 const connect=createConnect({HERMES_HOME,DASH,DASH_TOKEN,live:LIVE_APP,afterSave:slug=>adoptFirstModel(slug)});accountHooks.keyStatus=()=>connect.status();accountHooks.keyCheck=()=>connect.checkAll();
 const antigravity=createAntigravity({HERMES_HOME,hcmd,listAgents,moveOff:(a,k)=>accountHooks.moveOff?accountHooks.moveOff(a,k):null});
 async function agentModel(a){const y=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>'');const k=key=>((new RegExp('^model:[\\s\\S]*?\\n\\s+'+key+':\\s*(\\S+)','m').exec(y)||[])[1]||'').replace(/^["']|["']$/g,'');return {provider:k('provider'),model:k('default')}}
-const users=createUsers(DATA,mailer,{ownerCheck:pw=>!!PW_HASH&&checkPassword(pw),envOwner:()=>!!PW_HASH,brandName:()=>brand.name()});
+const users=createUsers(DATA,mailer,{ownerCheck:pw=>!!PW_HASH&&checkPassword(pw),envOwner:()=>!!PW_HASH,brandName:()=>brand.name(),relaxed:!LIVE_APP});
 users.hooks.revoke=id=>revokeSessions(id);
 const accountAuth=createAccountAuth({users,send,readBody,publicUrl:()=>String(PUBLIC_URL),revoke:id=>revokeSessions(id),signIn:id=>({'set-cookie':'hui='+makeCookie(id)+'; '+cookieAttrs(SESSION_DAYS*86400)}),
  limited:req=>limited(clientIp(req)),miss:req=>{const ip=clientIp(req);(attempts.get(ip)||attempts.set(ip,[]).get(ip)).push(Date.now())}});
@@ -2311,11 +2311,12 @@ const server=createServer(async(req,res)=>{
    const ip=clientIp(req);if(limited(ip))return send(res,429,{error:'Too many attempts. Try again in a few minutes.'});
    let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
    const u=await users.login(b.name,b.password||'',pw=>!!PW_HASH&&checkPassword(pw));
-   if(!u){(attempts.get(ip)||attempts.set(ip,[]).get(ip)).push(Date.now());return send(res,401,{error:b.name?'That name and password do not match.':'That password is not right.'})}
+   if(!u){(attempts.get(ip)||attempts.set(ip,[]).get(ip)).push(Date.now());const nm=String(b.name||'').trim();return send(res,401,{error:!nm?'Enter your email.':!nm.includes('@')&&users.emailOnly()?'Sign in with your email address.':'That email and password do not match.'})}
+   const note=users.loginNote(u,b.name);
    attempts.delete(ip);
    // two-step: the password was right; now a code goes to their confirmed email
-   if(u.twoStep&&u.emailVerified){try{return send(res,200,{needCode:true,key:await users.loginCode(u),to:u.email.replace(/^(.).*(@.*)$/,'$1•••$2')})}catch(e){return send(res,502,{error:'Your sign-in code could not be sent: '+e.message})}}
-   return send(res,200,{ok:true},{'set-cookie':'hui='+makeCookie(u.id)+'; '+cookieAttrs(SESSION_DAYS*86400)});
+   if(u.twoStep&&u.emailVerified){try{return send(res,200,{needCode:true,key:await users.loginCode(u),to:u.email.replace(/^(.).*(@.*)$/,'$1•••$2'),note})}catch(e){return send(res,502,{error:'Your sign-in code could not be sent: '+e.message})}}
+   return send(res,200,{ok:true,note},{'set-cookie':'hui='+makeCookie(u.id)+'; '+cookieAttrs(SESSION_DAYS*86400)});
   }
   if(p==='/auth/code'&&req.method==='POST'){const ip=clientIp(req);if(limited(ip))return send(res,429,{error:'Too many attempts. Try again in a few minutes.'});
    let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const v=users.finishLogin(b.key,b.code);
@@ -2328,7 +2329,9 @@ const server=createServer(async(req,res)=>{
   if(p==='/auth/invite'&&req.method==='GET'){const i=await users.inviteInfo(url.searchParams.get('code')||'');return send(res,i?200:404,i||{error:'This invite link has expired or was already used.'})}
   if(p==='/auth/accept'&&req.method==='POST'){const ip=clientIp(req);if(limited(ip))return send(res,429,{error:'Too many attempts. Try again in a few minutes.'});
    let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
-   try{const u=await users.accept(String(b.code||''),b.name,b.password,b.username);return send(res,200,{ok:true,name:u.name},{'set-cookie':'hui='+makeCookie(u.id)+'; '+cookieAttrs(SESSION_DAYS*86400)})}
+   // the live app needs their email (they sign in with it); a test copy's checks may leave it out
+   if(LIVE_APP&&!String(b.email||'').trim())return send(res,400,{error:'Enter your email address. You sign in with it.'});
+   try{const u=await users.accept(String(b.code||''),b.name,b.password,b.username,b.email);return send(res,200,{ok:true,name:u.name},{'set-cookie':'hui='+makeCookie(u.id)+'; '+cookieAttrs(SESSION_DAYS*86400)})}
    catch(e){(attempts.get(ip)||attempts.set(ip,[]).get(ip)).push(Date.now());return send(res,400,{error:e.message})}}
   if(p.startsWith('/ui/')){
    const u=await me(req);if(!u)return send(res,401,{error:'Sign in first.'},{'x-hui-auth':'required'});
