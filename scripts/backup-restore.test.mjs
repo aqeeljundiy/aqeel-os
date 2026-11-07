@@ -117,3 +117,30 @@ test('a safety copy whose folder has another name than the engine folder still p
  execFileSync('cp',['-R',s.src,other]);execFileSync('tar',['-czf',path.join(s.HOME,'aqeelos-before-restore-2026-11-01-02-03-04.tar.gz'),'-C',path.dirname(other),'eng']);
  const {b}=app(s);await b.prepare('local:aqeelos-before-restore-2026-11-01-02-03-04.tar.gz');await until(async()=>(await b.status()).restore?.phase!=='preparing');
  const st=await b.status();assert.equal(st.restore.phase,'ready',JSON.stringify(st.restore));assert.deepEqual(st.prepared.preview.agents.back,['gone'])}finally{s.done()}});
+
+/* 7 Nov 2026: a 12.7 GB Prepare filled the container's memory with file cache. Memory is checked first, each piece is
+   dropped from the cache, the size and time are shown before it starts, and Stop ends it at once. */
+import {memFree,dropCache,MEM_NEED} from '../app/backup.mjs';
+test('free memory: the container limit first, else MemAvailable, else unknown',async()=>{const T=mkdtempSync(path.join(tmpdir(),'aq-mem-'));try{
+ writeFileSync(path.join(T,'memory.max'),'32000000000\n');writeFileSync(path.join(T,'memory.current'),'29000000000\n');assert.equal(await memFree(T,'/nope'),3e9);
+ writeFileSync(path.join(T,'memory.max'),'max\n');writeFileSync(path.join(T,'mi'),'MemTotal: 1 kB\nMemAvailable:   2048 kB\n');assert.equal(await memFree(T,path.join(T,'mi')),2048*1024);
+ assert.equal(await memFree(path.join(T,'none'),'/nope'),null);assert.equal(typeof await dropCache([T]),'boolean')}finally{rmSync(T,{recursive:true,force:true})}});
+// a fake Google Drive with one backup of `size` bytes, answering media ranges slowly
+function drive(size,{slow=0}={}){const calls={pieces:0};return {calls,fetchImpl:async(u,o={})=>{u=String(u);
+ if(u.includes('oauth2'))return {ok:true,json:async()=>({access_token:'t'})};
+ if(u.includes('files?q='))return {ok:true,json:async()=>({files:[{id:'fold'}]})};
+ if(/files\/b1\?fields/.test(u))return {ok:true,json:async()=>({id:'b1',name:'aqeelos-2026-11-07-03-04.tar.gz.enc',parents:['fold'],size:String(size)})};
+ if(u.includes('alt=media')){const [a,b]=/bytes=(\d+)-(\d+)/.exec(o.headers.range).slice(1).map(Number);calls.pieces++;if(slow)await new Promise((r,j)=>{const t=setTimeout(r,slow);o.signal?.addEventListener('abort',()=>{clearTimeout(t);j(Error('aborted'))})});
+  return {ok:true,status:206,body:new Blob([Buffer.alloc(b-a+1,7)]).stream()}}
+ throw Error('unexpected '+u)}}}
+const signIn=s=>w(path.join(s.H,'google_token.json'),JSON.stringify({account:'a@b.test',refresh_token:'r',client_id:'c',client_secret:'s',scopes:['https://www.googleapis.com/auth/drive']}));
+test('Prepare refuses plainly when the box is short on memory, before any download',async()=>{const s=scene();try{signIn(s);const d=drive(1e6);const {b,TMP}=app(s,{fetchImpl:d.fetchImpl,mem:async()=>2e9});
+ await assert.rejects(()=>b.prepare('b1'),e=>/short on memory right now: 2\.0 GB free/.test(e.message)&&/Nothing was changed/.test(e.message));assert.equal(d.calls.pieces,0);assert.deepEqual(readdirSync(TMP),[]);
+ const e=await b.estimate('b1');assert.equal(e.ok,false);assert.match(e.why,/short on memory/);assert.equal(e.memNeed,MEM_NEED)}finally{s.done()}});
+test('the estimate says the download, the time and the space before anything starts',async()=>{const s=scene();try{signIn(s);const {b,TMP}=app(s,{fetchImpl:drive(50e6).fetchImpl,mem:async()=>20e9});
+ const e=await b.estimate('b1');assert.equal(e.ok,true);assert.equal(e.size,50e6);assert.equal(e.secs,Math.round(50e6/5e6)+60);assert.equal(e.measured,false);assert.equal(e.tmpNeed,50e6*3.5+1e9);assert.deepEqual(readdirSync(TMP),[])}finally{s.done()}});
+test('each downloaded piece is dropped from the cache; Stop ends the download at once and leaves nothing',async()=>{const s=scene();try{signIn(s);const d=drive(10*1024,{slow:150});const dropped=[];
+ const {b,TMP}=app(s,{fetchImpl:d.fetchImpl,mem:async()=>20e9,PIECE:1024,drop:async p=>{dropped.push(p[0])}});
+ await b.prepare('b1');await until(async()=>dropped.length>=2);let st=await b.status();assert.equal(st.restore.phase,'preparing');assert.ok(st.restore.got>=2048,'progress is shown');
+ assert.ok(dropped.every(f=>f.endsWith('.enc')));const r=await b.cancel();assert.equal(r.stopped,true);
+ st=await b.status();assert.equal(st.restore,null);assert.equal(st.preparing,false);assert.ok(d.calls.pieces<10,'it stopped early: '+d.calls.pieces);assert.deepEqual(readdirSync(TMP),[])}finally{s.done()}});

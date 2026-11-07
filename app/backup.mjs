@@ -123,9 +123,21 @@ export async function applyRestore({src,HERMES_HOME,HOME,journal,at=Date.now(),s
 // what a restore test must find for the box to work
 const MUST=['.hermes/config.yaml','.hermes/.env','apps/hermes-ui-data/users.json','apps/hermes-ui.env'];
 const gb=n=>(n/1e9).toFixed(n<1e10?1:0)+' GB';
+/* A 12.7 GB download filled the container's memory with file cache (7 Nov 2026: 28.9 of 30.1 GB, load 20), because the
+   page cache counts toward the container's limit. Each piece written is now synced and dropped from the cache, and a
+   prepare or restore test does not start while the container has less than 6 GB free. */
+export const MEM_NEED=6e9;
+// files (or every file under a folder) synced and dropped from the page cache; quiet where the system cannot (a Mac)
+const DROP_PY="import os,sys\nfor a in sys.argv[1:]:\n  for r,_,fs in (os.walk(a) if os.path.isdir(a) else [('',[],[a])]):\n    for f in fs:\n      try:\n        fd=os.open(os.path.join(r,f),os.O_RDONLY)\n        try:\n          os.fdatasync(fd);os.posix_fadvise(fd,0,0,os.POSIX_FADV_DONTNEED)\n        finally:\n          os.close(fd)\n      except Exception:\n        pass\n";
+export const dropCache=paths=>new Promise(res=>{const p=spawn('python3',['-c',DROP_PY,...paths],{stdio:'ignore'});p.on('error',()=>res(false));p.on('close',c=>res(c===0))});
+// free memory for this container (cgroup v2 memory.max minus memory.current), else the machine's MemAvailable; null when unknown
+export async function memFree(root='/sys/fs/cgroup',meminfo='/proc/meminfo'){
+ const max=(await readFile(path.join(root,'memory.max'),'utf8').catch(()=>'')).trim(),cur=Number((await readFile(path.join(root,'memory.current'),'utf8').catch(()=>'')).trim());
+ if(/^\d+$/.test(max)&&cur>=0&&!Number.isNaN(cur))return Number(max)-cur;
+ const m=/MemAvailable:\s+(\d+)\s*kB/.exec(await readFile(meminfo,'utf8').catch(()=>''));return m?Number(m[1])*1024:null}
 
-export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=process.env.BACKUP_GOOGLE_ACCOUNT||'',notify=()=>{},solved=()=>{},restored=()=>{},stopEngine=async()=>{},startEngine=async()=>{},fetchImpl=fetch,tar='tar',TMP='/tmp',disk:diskImpl}){
- const STATE=path.join(DATA,'backups.json'),KEYF=path.join(DATA,'backup-key'),JOURNAL=path.join(DATA,'restore-journal.jsonl');let state=null,running=null,preparing=null,copying=false,held=false,testing=null;
+export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=process.env.BACKUP_GOOGLE_ACCOUNT||'',notify=()=>{},solved=()=>{},restored=()=>{},stopEngine=async()=>{},startEngine=async()=>{},fetchImpl=fetch,tar='tar',TMP='/tmp',disk:diskImpl,mem=memFree,drop=dropCache,PIECE=64*1024*1024}){
+ const STATE=path.join(DATA,'backups.json'),KEYF=path.join(DATA,'backup-key'),JOURNAL=path.join(DATA,'restore-journal.jsonl');let state=null,running=null,preparing=null,copying=false,held=false,testing=null,prep=null;   // prep: the running Prepare's stop switch
  const load=async()=>{if(!state){try{state=JSON.parse(await readFile(STATE,'utf8'))}catch{state={}}
    // the old switched-off restore's "running" mark (before 7 Nov 2026)
    if(state.restore?.running){state.restore={...state.restore,running:false,ok:false,phase:'failed',error:'Interrupted: aqeelOS stopped during the restore.'};await save().catch(()=>{})}
@@ -162,7 +174,7 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
  async function folder(g){const name=settings().folder.replace(/'/g,"\\'");const q=encodeURIComponent("name='"+name+"' and mimeType='application/vnd.google-apps.folder' and trashed=false and 'root' in parents");
   const l=await drive(g,'drive/v3/files?q='+q+'&fields=files(id)');if(l.files?.[0])return l.files[0].id;
   return (await drive(g,'drive/v3/files',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:settings().folder,mimeType:'application/vnd.google-apps.folder'})})).id}
- const sh=(cmd,envx)=>new Promise((res,rej)=>{const p=spawn('bash',['-c',cmd],{cwd:HOME,env:{...process.env,...envx},stdio:['ignore','ignore','pipe']});let err='';p.stderr.on('data',d=>err+=d);p.on('close',c=>c===0?res():rej(Error(err.trim().split('\n').slice(-2).join(' ')||'exit '+c)))});
+ const sh=(cmd,envx,ctl)=>new Promise((res,rej)=>{const p=spawn('bash',['-c',cmd],{cwd:HOME,env:{...process.env,...envx},stdio:['ignore','ignore','pipe'],detached:!!ctl});if(ctl)ctl.child=p;let err='';p.stderr.on('data',d=>err+=d);p.on('close',c=>c===0?res():rej(Error(err.trim().split('\n').slice(-2).join(' ')||'exit '+c)))});
  const q=sq;
  // the upload in 64 MB pieces on Google's resumable session: one dropped connection no longer loses a multi-GB upload
  // ("fetch failed", "aborted due to timeout" on 30 and 31 Oct 2026). A failed piece asks Google how much it has and goes on
@@ -208,15 +220,20 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
   finally{await rm(tmp,{force:true}).catch(()=>{});running=null}})();return running}
  // a backup from Drive to a file, 256 MB at a time (each piece has 20 minutes and 5 tries), so a long download is never cut
  // off by one timeout (1 Nov 2026, second review)
- async function download(g,id,file,size){await rm(file,{force:true});const PIECE=256*1024*1024;let at=0,fails=0;
-  while(at<size){const end=Math.min(at+PIECE,size)-1;
-   try{const r=await fetchImpl('https://www.googleapis.com/drive/v3/files/'+id+'?alt=media',{headers:{authorization:'Bearer '+g.token,range:'bytes='+at+'-'+end},signal:AbortSignal.timeout(20*60000)});
+ // 64 MB pieces, each synced and dropped from the page cache once written (MEM_NEED above); ctl.stop ends it at once
+ const STOPPED='Stopped. Nothing on the box was changed.';
+ async function download(g,id,file,size,ctl={}){await rm(file,{force:true});let at=0,fails=0;const t0=Date.now();
+  while(at<size){if(ctl.stop)throw Error(STOPPED);const end=Math.min(at+PIECE,size)-1;
+   try{const r=await fetchImpl('https://www.googleapis.com/drive/v3/files/'+id+'?alt=media',{headers:{authorization:'Bearer '+g.token,range:'bytes='+at+'-'+end},signal:ctl.ac?AbortSignal.any([ctl.ac.signal,AbortSignal.timeout(20*60000)]):AbortSignal.timeout(20*60000)});
     if(r.status!==206&&!(r.status===200&&at===0))throw Error('Google Drive said '+r.status);   // 200 is the whole file: only right from the start
-    await pipeline(Readable.fromWeb(r.body),createWriteStream(file,{flags:'a'}));at=(await stat(file)).size;fails=0}
-   catch(e){if(++fails>5)throw Error('The download kept dropping: '+e.message);await new Promise(r=>setTimeout(r,fails*15000));at=(await stat(file).catch(()=>({size:0}))).size;if(e.message.includes('401'))g=await google()}}}
+    await pipeline(Readable.fromWeb(r.body),createWriteStream(file,{flags:'a'}));at=(await stat(file)).size;fails=0;await drop([file]);ctl.onPiece?.(at)}
+   catch(e){if(ctl.stop)throw Error(STOPPED);if(++fails>5)throw Error('The download kept dropping: '+e.message);await new Promise(r=>setTimeout(r,fails*15000));at=(await stat(file).catch(()=>({size:0}))).size;if(e.message.includes('401'))g=await google()}}
+  const secs=(Date.now()-t0)/1000;if(size>=256e6&&secs>0){state.speed=Math.round(size/secs);await save().catch(()=>{})}}   // the measured speed, for the next estimate
+ // enough memory for a big download and unpack, said plainly when not
+ async function memOk(){const f=await mem();if(f!=null&&f<MEM_NEED)throw Object.assign(Error('The box is short on memory right now: '+gb(Math.max(0,f))+' free, and this needs about '+gb(MEM_NEED)+'. Try again at night, when the agents are quiet. Nothing was changed.'),{status:409});return f}
  // a restore test: the newest backup from Drive, decrypted and unpacked into a scratch folder, with the must-have files checked
  async function test(){if(copying||preparing)throw Error('A restore is running. Test after it finishes.');if(testing)return testing;testing=(async()=>{await load();const at=Date.now();const dir=path.join(TMP,'aqeelos-restore-test-'+at),enc=dir+'.enc';
-  try{const g=await google(),fid=await folder(g);const l=await drive(g,'drive/v3/files?q='+encodeURIComponent("'"+fid+"' in parents and trashed=false")+'&orderBy=createdTime desc&fields=files(id,name,size)&pageSize=1');const f=l.files?.[0];if(!f)throw Error('There is no backup in Google Drive yet.');
+  try{await memOk();const g=await google(),fid=await folder(g);const l=await drive(g,'drive/v3/files?q='+encodeURIComponent("'"+fid+"' in parents and trashed=false")+'&orderBy=createdTime desc&fields=files(id,name,size)&pageSize=1');const f=l.files?.[0];if(!f)throw Error('There is no backup in Google Drive yet.');
    await download(g,f.id,enc,Number(f.size)||0);
    await mkdir(dir,{recursive:true});await sh('set -o pipefail; openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AQ_BK -in '+q(enc)+' | tar -xzf - -C '+q(dir),{AQ_BK:await key()});
    const missing=[];for(const m of MUST){const s=await stat(path.join(dir,m)).catch(()=>null);if(!s||!s.size)missing.push(m)}
@@ -239,27 +256,35 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
     the agents keep running. aqeelOS's own data and people's files are never restored here (nobody is signed out halfway);
     a whole new box: RESTORE.md. */
  const scratch=at=>path.join(TMP,'aqeelos-restore-'+at);
+ // what Prepare will take, shown before it starts: the download, the time at the last measured speed, space and memory
+ async function source(id){id=String(id||'');if(id.startsWith('local:')){const n=id.slice(6);if(!/^aqeelos-before-restore-[\d-]+\.tar\.gz$/.test(n))throw Error('That file is not one of the safety copies.');const s=await stat(path.join(HOME,n)).catch(()=>null);if(!s)throw Error('That safety copy is gone.');return {name:n,size:s.size,local:true}}
+  const g=await google(),fid=await folder(g);const f=await drive(g,'drive/v3/files/'+encodeURIComponent(id)+'?fields=id,name,parents,size');if(!(f.parents||[]).includes(fid))throw Error('That file is not one of the backups.');f.size=Number(f.size)||0;return f}
+ async function estimate(id){await load();const f=await source(id),t=await disk(TMP),m=await mem(),speed=state.speed||5e6,need=f.size*(f.local?2.5:3.5)+1e9;
+  const why=t.free<need?'Not enough free space: it needs about '+gb(need)+' in '+TMP+', and there is '+gb(t.free)+'.':m!=null&&m<MEM_NEED?'The box is short on memory right now: '+gb(Math.max(0,m))+' free, and this needs about '+gb(MEM_NEED)+'. Try again at night, when the agents are quiet.':'';
+  return {name:f.name,local:!!f.local,size:f.size,secs:f.local?Math.round(f.size/50e6)+30:Math.round(f.size/speed)+60,speed:f.local?null:speed,measured:!!state.speed,tmpNeed:need,tmpFree:t.free,memFree:m,memNeed:MEM_NEED,ok:!why,why}}
  async function prepare(id){await load();if(copying||preparing)throw Object.assign(Error('A restore is already running.'),{status:409});if(running)throw Object.assign(Error('A backup is running. Wait for it to finish.'),{status:409});if(testing)throw Object.assign(Error('A restore test is running. Wait for it to finish.'),{status:409});
   if(existsSync(JOURNAL))throw Object.assign(Error('A restore that was cut off is still being rolled back. Try again in a minute.'),{status:409});
   await cancel();id=String(id||'');const at=Date.now(),dir=scratch(at),enc=dir+'.enc';let f;
-  let go;preparing=new Promise(r=>go=r);
-  try{if(id.startsWith('local:')){const n=id.slice(6);if(!/^aqeelos-before-restore-[\d-]+\.tar\.gz$/.test(n))throw Error('That file is not one of the safety copies.');const s=await stat(path.join(HOME,n)).catch(()=>null);if(!s)throw Error('That safety copy is gone.');f={name:n,size:s.size,local:true}}
-   else{const g=await google(),fid=await folder(g);f=await drive(g,'drive/v3/files/'+encodeURIComponent(id)+'?fields=id,name,parents,size');if(!(f.parents||[]).includes(fid))throw Error('That file is not one of the backups.');f.size=Number(f.size)||0}
+  let go;preparing=new Promise(r=>go=r);const ctl=prep={stop:false,ac:new AbortController(),child:null};
+  try{f=await source(id);await memOk();
    const t=await disk(TMP);const need=f.size*(f.local?2.5:3.5)+1e9;
    if(t.free<need)throw Error('Not enough free space to prepare this backup: it needs about '+gb(need)+' in '+TMP+', and there is '+gb(t.free)+'. Nothing was changed.');
-   state.restore={phase:'preparing',at,name:f.name};await save()}
-  catch(e){preparing=null;go();throw e}
+   state.restore={phase:'preparing',at,name:f.name,size:f.size,got:0};await save()}
+  catch(e){preparing=null;prep=null;go();throw e}
   (async()=>{try{await mkdir(dir,{recursive:true});
-    if(f.local)await sh('tar -xzf '+q(path.join(HOME,f.name))+' -C '+q(dir));   // one folder inside: the engine folder, whatever it was called
-    else{await download(await google(),f.id,enc,f.size);await sh('set -o pipefail; openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AQ_BK -in '+q(enc)+' | tar -xzf - -C '+q(dir)+' .hermes',{AQ_BK:await key()}).catch(e=>{throw Error(/bad decrypt|digital envelope/i.test(e.message)?'The backup key does not open this backup. Enter the key it was made with under Backup key.':e.message)});await rm(enc,{force:true})}
+    if(f.local)await sh('tar -xzf '+q(path.join(HOME,f.name))+' -C '+q(dir),{},ctl);   // one folder inside: the engine folder, whatever it was called
+    else{await download(await google(),f.id,enc,f.size,{...ctl,get stop(){return ctl.stop},onPiece:n=>{if(state.restore?.at===at)state.restore.got=n}});if(ctl.stop)throw Error(STOPPED);state.restore.step='unpacking';
+     await sh('set -o pipefail; openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AQ_BK -in '+q(enc)+' | tar -xzf - -C '+q(dir)+' .hermes',{AQ_BK:await key()},ctl).catch(e=>{if(ctl.stop)throw Error(STOPPED);throw Error(/bad decrypt|digital envelope/i.test(e.message)?'The backup key does not open this backup. Enter the key it was made with under Backup key.':e.message)});await rm(enc,{force:true})}
+    if(ctl.stop)throw Error(STOPPED);await drop([dir]);
     const src=f.local?path.join(dir,(await readdir(dir,{withFileTypes:true})).find(x=>x.isDirectory())?.name||'.hermes'):path.join(dir,'.hermes');
     if(!(await stat(path.join(src,'config.yaml')).catch(()=>null))?.size)throw Error('The backup has no agent settings, so it cannot be restored.');
     const pv=await preview(src,HERMES_HOME);
     state.prepared={id,name:f.name,local:!!f.local,at:Date.now(),dir,src,preview:pv};state.restore={phase:'ready',at,name:f.name};await save();console.log('backup: prepared',f.name,'for a restore')}
-   catch(e){await rm(dir,{recursive:true,force:true}).catch(()=>{});state.restore={phase:'failed',at,ok:false,name:f.name,error:e.message};delete state.prepared;await save();console.warn('backup: preparing a restore failed:',e.message)}
-   finally{await rm(enc,{force:true}).catch(()=>{});preparing=null;go()}})();
+   catch(e){await rm(dir,{recursive:true,force:true}).catch(()=>{});state.restore=ctl.stop?null:{phase:'failed',at,ok:false,name:f.name,error:e.message};delete state.prepared;await save();console.warn('backup: preparing a restore '+(ctl.stop?'stopped':'failed: '+e.message))}
+   finally{await rm(enc,{force:true}).catch(()=>{});preparing=null;prep=null;go()}})();
   return {started:true,name:f.name}}
- async function cancel(){await load();const p=state.prepared;if(!p)return {ok:true};await rm(p.dir,{recursive:true,force:true}).catch(()=>{});delete state.prepared;if(state.restore?.phase==='ready')state.restore=null;await save();return {ok:true}}
+ // Cancel: stops a Prepare that is running (download or unpack) and throws away a prepared one
+ async function cancel(){await load();if(prep&&preparing){const c=prep,w=preparing;c.stop=true;c.ac.abort();try{process.kill(-c.child?.pid,'SIGTERM')}catch{try{c.child?.kill('SIGTERM')}catch{}}await w;return {ok:true,stopped:true}}const p=state.prepared;if(!p)return {ok:true};await rm(p.dir,{recursive:true,force:true}).catch(()=>{});delete state.prepared;if(state.restore?.phase==='ready')state.restore=null;await save();return {ok:true}}
  // step 2, Restore now: only from a prepared backup, within 3 hours (the box keeps changing)
  async function apply(){await load();const p=state.prepared;if(copying||preparing)throw Object.assign(Error('A restore is already running.'),{status:409});if(running||testing)throw Object.assign(Error('A backup or a restore test is running. Wait for it to finish.'),{status:409});
   if(!p||!await stat(path.join(p.src,'config.yaml')).catch(()=>null)){if(p){delete state.prepared;await save()}throw Object.assign(Error('Prepare the backup first.'),{status:409})}
@@ -300,4 +325,4 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
   return {keyError,hasKey:!!await readKey(),last:state.last||null,test:state.test||null,running:Boolean(running),testing:Boolean(testing),preparing:Boolean(preparing),restoring:copying,
    restore:r,prepared:p?{id:p.id,name:p.name,local:p.local,at:p.at,preview:p.preview}:null,
    settings:s,keep:s.keep,where:'Google Drive › '+s.folder,account:pick?.email||'',google:{connected:!!pick&&pick.renews&&pick.drive,file:tokenFile(),email:pick?.email||'',drive:!!pick?.drive,renews:!!pick?.renews},accounts:acc}}
- return {run,test,status,key,setKey,schedule,list,prepare,cancel,apply,recover,setSettings,accounts,busy:()=>copying,writesHeld:()=>held}}
+ return {run,test,status,key,setKey,schedule,list,estimate,prepare,cancel,apply,recover,setSettings,accounts,busy:()=>copying,writesHeld:()=>held}}

@@ -2464,3 +2464,4 @@ button.acct-more{font:inherit;cursor:pointer;width:100%;background:var(--surface
 /* People: owner and admin cards (people.js pplAllAgents) */
 .pstack{display:flex;flex:none}.pstack>*{margin-left:-8px;box-shadow:0 0 0 2px var(--surface);border-radius:50%}.pstack>*:first-child{margin-left:0}
 .pshare .pval{flex:none;font-size:13.5px;color:var(--ink-2)}
+.bk-bar{display:block;height:4px;margin-top:8px;border-radius:4px;background:var(--soft);overflow:hidden}.bk-bar i{display:block;height:100%;background:var(--blue);border-radius:4px;transition:width var(--t-med) var(--ease)}

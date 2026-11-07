@@ -2639,6 +2639,7 @@ const server=createServer(async(req,res)=>{
     if(p==='/ui/backups/run'&&req.method==='POST'){if(backups.busy())return send(res,409,{error:'A restore is running. Back up after it finishes.'});backups.run('by hand').catch(()=>{});return send(res,200,{started:true})}
     if(p==='/ui/backups/test'&&req.method==='POST'){try{return send(res,200,await backups.test())}catch(e){return send(res,400,{error:e.message})}}
     if(p==='/ui/backups/list'&&req.method==='GET'){try{return send(res,200,await backups.list())}catch(e){return send(res,400,{error:e.message})}}
+    if(p==='/ui/backups/estimate'&&req.method==='GET'){try{return send(res,200,await backups.estimate(url.searchParams.get('id')))}catch(e){return send(res,e.status||400,{error:e.message})}}
     // an existing key typed in, the settings, and the two steps of a restore: Prepare (a preview, nothing changes) and Restore now
     if(req.method!=='GET'){let b={};try{b=JSON.parse(await readBody(req,8192)||'{}')}catch{}const ok=x=>send(res,200,x),bad=e=>send(res,e.status||400,{error:e.message,...(e.replace?{replace:true}:{})});
      if(p==='/ui/backups/key'&&req.method==='POST')return backups.setKey(b.key,{replace:!!b.replace}).then(ok,bad);
