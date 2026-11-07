@@ -204,7 +204,8 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
  // which limit counts (Models › If an account fails, owner 7 Nov 2026): either (the higher of session and week, default),
  // session, week, or both (only when both are past the line, so the lower one counts)
  let BASIS='either';
- const pickUse=(sess,week)=>BASIS==='session'?sess:BASIS==='week'?week:BASIS==='both'?Math.min(sess,week):Math.max(sess,week);
+ // a window that is used up (99% or more) always counts as full, whichever limit counts: the account would refuse
+ const pickUse=(sess,week)=>Math.max(sess,week)>=99?100:BASIS==='session'?sess:BASIS==='week'?week:BASIS==='both'?Math.min(sess,week):Math.max(sess,week);
  const claudeUsed=(u,model)=>pickUse(u.session?.used||0,Math.max(u.week?.used||0,/opus/i.test(model||'')?u.opus?.used||0:0,/sonnet/i.test(model||'')?u.sonnet?.used||0:0));
  // another provider's windows: a week-long window counts as the week, the rest as the session
  const isWeek=w=>/week|7\s*d|seven/i.test(String(w.label||w.name||w.id||''))||Number(w.hours||w.window_hours||0)>=24*6;
