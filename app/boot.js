@@ -117,7 +117,7 @@ async function boot(){
  await Promise.all([loadIdentities(),refreshStatus(),Chat.loadModels(),Chat.loadSessions(),Plugins.load()]);
  $$('.agent-name').forEach(e=>e.textContent=AGENT());const msg=$('#msg');if(msg)msg.placeholder=Chat.placeholder();if(S.signedIn&&$('.app')){paintSide();paintTop();placePills();Screen.paint();if(route().chat!==undefined&&route().chat!=='manage')Chat.paintComposerBar()}
  clearInterval(S.statusT);S.statusT=setInterval(()=>{if(!document.hidden)refreshStatus()},30000);
- if(S.me?.admin!==false)Metrics.ask();
+ // no usage-stats pop-up (owner, 7 Nov 2026: annoying); the choice lives on System › Settings
  clearInterval(S.sessT);S.sessT=setInterval(()=>Chat.tick().catch(()=>{}),20000);
 }
 /* Anonymous usage stats (the engine's shared metrics): each agent's own choice, on System › Settings, for owners and admins
