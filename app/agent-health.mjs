@@ -148,15 +148,18 @@ print(json.dumps(out))`;
   // nobody. Each new problem (seen on two checks in a row) is filed as an issue for the fixer (issues.mjs), which fixes,
   // reloads and proves it, and messages a person only when it needs one or is stuck. A queued issue whose problem
   // went away by itself is closed. Everything stays visible on System › Health.
-  st.fixing=undefined;st.ownerTold=undefined;
-  for(const x of send){const k=alertKey(x);if(!fileIssue){console.log('health: found (no fixer): '+k);continue}
+  // filed once per problem while it lasts (st.filed), including problems that were already known before this
+  st.fixing=undefined;st.ownerTold=undefined;st.filed||={};const curKeys=new Set(),toFile=[];
+  for(const x of all.filter(alertable)){const k=alertKey(x);if(curKeys.has(k))continue;curKeys.add(k);if(st.told[k]&&!st.filed[k]&&quiet(x.agent||null)!=='test')toFile.push(x)}
+  for(const k of Object.keys(st.filed))if(!curKeys.has(k))delete st.filed[k];
+  for(const x of toFile){const k=alertKey(x);if(!fileIssue){console.log('health: found (no fixer): '+k);continue}
    try{const r=await fileIssue({agent:x.agent?String(x.agent).split('--')[0]:'default',affects:x.agent?[]:['aqeelos'],source:'health',healthKey:k,what:'Health check ('+(x.kind||'problem')+')',
      missing:String(x.title||'A health problem').slice(0,400),evidence:[x.text,x.detail,x.fix].filter(Boolean).join(' · ').slice(0,1800)});
-    console.log('health: filed for the fixer: '+k+' → '+r?.issue?.id+(r?.again?' (already open)':''))}
-   catch(e){delete st.told[k];console.warn('health: could not file '+k+': '+e.message)}}
-  if(healthGone)await healthGone([...new Set(all.filter(alertable).map(alertKey))]).catch(e=>console.warn('health: closing gone issues',e.message));
+    st.filed[k]=Date.now();console.log('health: filed for the fixer: '+k+' → '+r?.issue?.id+(r?.again?' (already open)':''))}
+   catch(e){console.warn('health: could not file '+k+': '+e.message)}}
+  if(healthGone)await healthGone([...curKeys]).catch(e=>console.warn('health: closing gone issues',e.message));
   if(fixed.length)console.log('health: went away:',fixed.map(f=>f.key).join(', '));
-  await save();return send.length})().finally(()=>{running=null});return running}
+  await save();return toFile.length})().finally(()=>{running=null});return running}
  async function view(){const agents=(await listAgents()).filter(a=>!a.includes('--'));return {agents:overview(agents,await items(),await drops(),nameOf),at:Date.now()}}
  return {problem,ok,tick,view,drops}}
 // the box's processes with their folder (ps; /proc for the folder when it may be read)

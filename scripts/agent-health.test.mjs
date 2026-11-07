@@ -93,7 +93,11 @@ test('end to end: checks become Bottlenecks items, each filed once for the fixer
  assert.ok(filed.every(o=>o.agent==='pixel'&&o.source==='health'&&o.healthKey));for(const w of ['Schedules stopped running','Messages to this agent keep failing','A handoff to the team was not delivered'])assert.ok(filed.some(o=>o.missing===w),w);
  assert.match(filed.find(o=>/handoff/.test(o.missing)).evidence,/Check the team group/);
  assert.equal(await h2.tick(),0,'not again');assert.equal(filed.length,3);assert.ok(gone.at(-1).length>=3,'Health passes the problems it still sees');
- await writeFile(path.join(cron,'ticker_last_success'),String(Date.now()/1000));await h2.ok('pixel','handoff|c1');await h2.tick();
+ // problems Health knew before (told under the old rules) are filed once too
+ {const st2=JSON.parse(await readFile(path.join(DATA,'agent-health.json'),'utf8'));delete st2.filed;await writeFile(path.join(DATA,'agent-health.json'),JSON.stringify(st2));
+  const h3=createAgentHealth({DATA,HERMES_HOME:HOME,bottlenecks:bn,python:async()=>null,link:'L',listAgents:async()=>['default','pixel'],nameOf:a=>a,fileIssue,healthGone,engineUp:async()=>true,botToken:async()=>null,items:()=>bn.list({admin:true,mayUse:()=>true})});
+  assert.equal(await h3.tick(),3);assert.equal(filed.length,6);assert.equal(await h3.tick(),0)}
+ await writeFile(path.join(cron,'ticker_last_success'),String(Date.now()/1000));await h2.ok('pixel','handoff|c1');await h2.tick();assert.equal(filed.length,6,'nothing new filed');
  assert.deepEqual((await h2.view()).agents.find(r=>r.agent==='pixel').problems.map(x=>x.kind),['dropped']);
  assert.equal(gone.at(-1).length,1,'the two that went away are no longer passed, so their queued issues close');assert.equal(told.length,0);
 });
