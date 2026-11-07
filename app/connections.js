@@ -123,11 +123,19 @@ ACT['cn-disc']=async a=>{const r=Cx.cur;if(!r)return;const who=r.users.map(u=>u.
 ACT['cn-ads']=a=>{const r=Cx.cur,on=a.dataset.on==='1';if(!r)return;const was=a.innerHTML;a.disabled=true;a.innerHTML='<span class="spinner tiny"></span>'+(on?'Starting…':'Stopping…');
  post(UI,'/ui/screens/'+encodeURIComponent(r.id)+'/adspower/'+(on?'start':'stop')).then(()=>{toast('AdsPower '+(on?'starting':'stopped')+' for '+ident(r.id).name);return Cx.refresh()}).catch(e=>{a.disabled=false;a.innerHTML=was;fail(e)})};
 // signing in on the owner (an app's sign-in is copied to the others from there); the panel says how it goes
+// Sign in to an app (7 Nov 2026): through aqeelOS's one list of open sign-ins (/ui/mcp/start-signin, the same one the
+// agents' tool uses), so a sign-in that is still open is given again instead of failing with "already in progress",
+// and the public return address is set first. The tab opens on the click itself (a tab opened after waiting is
+// blocked as a pop-up, so nothing seemed to happen) and the link always shows in the panel.
 ACT['cn-signin']=async a=>{const r=Cx.cur;if(!r)return;const ag=r.owner||'default',st_=Cx.d?.querySelector('.cn-signst');a.disabled=true;
- try{const f=await post(H,prof('/mcp/servers/'+encodeURIComponent(r.id)+'/auth',ag));const id=f.flow_id||f.id,url=f.auth_url||f.url;if(url)window.open(url,'_blank','noopener');
-  if(st_){st_.hidden=false;st_.innerHTML='Finish signing in in the tab that opened, then come back.'+(url?` <a href="${esc(url)}" target="_blank" rel="noopener">Open it again</a>`:'')}
-  for(let i=0;i<150&&Cx.d?.isConnected&&id;i++){await sleep(2000);const s=await H(prof('/mcp/oauth/flows/'+encodeURIComponent(id),ag)).catch(()=>({}));if(/complete|success|done|approved/.test(s.status||'')){toast('Signed in to '+r.name);await Cx.refresh();return}if(/fail|error|expired/.test(s.status||'')){if(st_)st_.textContent='Signing in did not finish ('+pretty(s.status)+'). Try again.';return}}}
- catch(e){fail(e)}finally{if(a.isConnected)a.disabled=false}};
+ const w=window.open('about:blank','_blank');
+ const say=html=>{if(st_){st_.hidden=false;st_.innerHTML=html}};
+ try{const f=await post(UI,'/ui/mcp/start-signin',{agent:ag,name:r.id});const id=f.flow_id||f.id,url=f.authorization_url||f.auth_url||f.url;
+  if(!url){w?.close();say(esc(f.error||'The app did not give a sign-in page. Try again in a minute.'));return}
+  if(w&&!w.closed){try{w.location=url}catch{}}else window.open(url,'_blank','noopener');
+  say(`Finish signing in in the tab that opened, then come back. <a href="${esc(url)}" target="_blank" rel="noopener">Open the sign-in page</a>`);
+  for(let i=0;i<150&&Cx.d?.isConnected&&id;i++){await sleep(2000);const s=await H(prof('/mcp/oauth/flows/'+encodeURIComponent(id),ag)).catch(()=>({}));if(/complete|success|done|approved/.test(s.status||'')){toast('Signed in to '+r.name);await Cx.refresh();return}if(/fail|error|expired|cancel/.test(s.status||'')){say('Signing in did not finish ('+esc(pretty(s.status))+(s.error?': '+esc(s.error):'')+'). Try again.');return}}}
+ catch(e){w?.close();fail(e)}finally{if(a.isConnected)a.disabled=false}};
 
 // Test on the owner, said in the panel (a test dialog would close it)
 ACT['cn-test']=async a=>{const r=Cx.cur;if(!r)return;const st_=Cx.d?.querySelector('.cn-signst'),was=a.innerHTML;a.disabled=true;a.innerHTML='<span class="spinner tiny"></span>Testing…';

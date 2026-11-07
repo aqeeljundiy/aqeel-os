@@ -957,7 +957,7 @@ async function startSignin(agent,tool){const k=agent+'|'+tool,prev=signinFlows.g
  // the engine frees a cancelled sign-in a moment later, so retry briefly while it says "already in progress"
  let r,j;for(let i=0;i<8;i++){r=await fetch(DASH.origin+'/api/mcp/servers/'+encodeURIComponent(tool)+'/auth?profile='+encodeURIComponent(agent),{method:'POST',headers:h,body:'{}'});j=await r.json().catch(()=>({}));
   if(!/already in progress/i.test(j.detail||j.error||''))break;await new Promise(res=>setTimeout(res,1500))}
- if(/already in progress/i.test(j.detail||j.error||''))j.error='A sign-in for '+tool+' is already open. Use the link given a moment ago, or try again in a few minutes.';
+ if(/already in progress/i.test(j.detail||j.error||''))j.error='A sign-in for '+tool+' was started a moment ago outside aqeelOS and is still open. It ends by itself within 5 minutes; try again then.';
  if(j.flow_id){signinFlows.set(k,j.flow_id);saveFlows();if(j.authorization_url)linkSeen.set(j.flow_id+'|'+j.authorization_url,Date.now())}if(!r.ok&&!j.error)j.error=j.detail||('HTTP '+r.status);return j}
 const esc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const keyOk=new Set();   // agents checked for their gateway key
