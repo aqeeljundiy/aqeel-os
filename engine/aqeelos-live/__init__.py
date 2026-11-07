@@ -136,6 +136,86 @@ def _report(err, platform, session_id):
         logger.warning("aqeelos-live: held error not reported: %s", e)
 
 
+# ---- 3) a long chat starts fresh after a quiet gap (audit G1: the owner's Telegram DM ran from 17 Oct to 6 Nov,
+# 2,052 messages, compaction on the owner's turn took 385 s). The engine never resets a chat because of time; /stop
+# marks it "suspended" so the next message starts a new one. This does the same for a direct chat that is quiet for
+# QUIET_H hours and either very long or days old. Groups and customer lines are left alone.
+QUIET_H, BIG_TOKENS, OLD_DAYS = 6, 150_000, 3
+_rolled = set()  # session keys started fresh here: their first turn is told where the earlier chat is
+
+
+def should_roll(chat_type, platform, idle_h, tokens, age_d):
+    """Pure rule (tested): start a direct team chat fresh after a quiet gap when it is long or old."""
+    if str(chat_type or "").lower() not in ("dm", "private", "direct"):
+        return False
+    if str(platform or "").lower() in CUSTOMER_PLATFORMS - {"whatsapp"} or str(platform or "").lower() in ("cron", "api_server", "cli", "local"):
+        return False
+    return idle_h >= QUIET_H and (tokens >= BIG_TOKENS or age_d >= OLD_DAYS)
+
+
+def _dispatch(event=None, gateway=None, session_store=None, **_):
+    try:
+        src = getattr(event, "source", None)
+        if src is None or gateway is None or session_store is None:
+            return None
+        key = gateway._session_key_for_source(src)
+        entry = getattr(session_store, "_entries", {}).get(key)
+        if entry is None or getattr(entry, "suspended", False):
+            return None
+        import datetime as _dt
+        now = _dt.datetime.now(_dt.timezone.utc)
+        def _t(v):
+            if v is None:
+                return now
+            if isinstance(v, str):
+                v = _dt.datetime.fromisoformat(v)
+            return v if v.tzinfo else v.replace(tzinfo=_dt.timezone.utc)
+        idle_h = (now - _t(getattr(entry, "updated_at", None))).total_seconds() / 3600
+        age_d = (now - _t(getattr(entry, "created_at", None))).total_seconds() / 86400
+        tokens = int(getattr(entry, "last_prompt_tokens", 0) or 0)
+        platform = getattr(getattr(src, "platform", None), "value", "") or ""
+        if should_roll(getattr(src, "chat_type", ""), platform, idle_h, tokens, age_d):
+            if session_store.suspend_session(key):
+                _rolled.add(key)
+                logger.info("aqeelos-live: %s chat %s starts fresh (quiet %.1f h, %d tokens, %.1f days old)", platform, key, idle_h, tokens, age_d)
+    except Exception as e:
+        logger.debug("aqeelos-live rollover: %s", e)
+    return None
+
+
+# ---- 4) loop guard (audit G4: Donna called delegate_task {"action":"list"} 27 times in 25 minutes and never answered).
+# The same tool with the same arguments more than REPEAT_MAX times in one turn is blocked, and the agent is told to stop
+# and say plainly what is blocking it.
+REPEAT_MAX = 3
+_calls = {}  # (session, turn) -> {call fingerprint: count}
+
+
+def repeat_block(counts, fp):
+    """Pure rule (tested): count one more identical call; a message when it is one too many."""
+    counts[fp] = counts.get(fp, 0) + 1
+    if counts[fp] > REPEAT_MAX:
+        return ("[aqeelOS loop guard] You already made this exact call " + str(REPEAT_MAX) + " times in this turn and it "
+                "did not get you further. Stop repeating it. Answer the person now: say plainly what you found, what is "
+                "blocking you (a model limit, a tool that keeps failing, missing access) and what happens next.")
+    return None
+
+
+def _pre_tool(tool_name="", args=None, session_id="", turn_id="", **_):
+    try:
+        key = (session_id or "", turn_id or "")
+        if len(_calls) > 2000:
+            _calls.clear()
+        fp = tool_name + ":" + json.dumps(args or {}, sort_keys=True, default=str)[:2000]
+        msg = repeat_block(_calls.setdefault(key, {}), fp)
+        if msg:
+            logger.warning("aqeelos-live: loop guard stopped %s in session %s", tool_name, session_id)
+            threading.Thread(target=_report, args=("Loop guard: " + tool_name + " repeated more than " + str(REPEAT_MAX) + " times in one turn with the same arguments", "loop", session_id), daemon=True).start()
+            return {"action": "block", "message": msg}
+    except Exception as e:
+        logger.debug("aqeelos-live loop guard: %s", e)
+    return None
+
+
 # ---- 1) live context ----
 
 _seen = {}  # session id -> hash of the last capability list this chat got
@@ -154,6 +234,16 @@ def _context(session_id="", platform="", sender_id="", is_first_turn=False, **_)
                     _seen.clear()
                 _seen[session_id or ""] = r["hash"]
         text = str(r.get("text") or "").strip()
+        if is_first_turn and _rolled:
+            try:
+                from gateway.session_context import get_session_env
+                k = get_session_env("HERMES_SESSION_KEY") or ""
+            except Exception:
+                k = ""
+            if k in _rolled or (not k and len(_rolled) == 1):
+                _rolled.discard(k) if k else _rolled.clear()
+                text = ("[aqeelOS] This chat started fresh after a quiet gap, so it stays fast. What was said before is in your "
+                        "past sessions (session_search) and your memory; look there when the person refers to it.\n\n" + text).strip()
         return {"context": text} if text else None
     except Exception as e:
         logger.debug("aqeelos-live context: %s", e)
@@ -163,3 +253,5 @@ def _context(session_id="", platform="", sender_id="", is_first_turn=False, **_)
 def register(ctx) -> None:
     ctx.register_hook("pre_llm_call", _context)
     ctx.register_hook("transform_llm_output", _transform)
+    ctx.register_hook("pre_gateway_dispatch", _dispatch)
+    ctx.register_hook("pre_tool_call", _pre_tool)

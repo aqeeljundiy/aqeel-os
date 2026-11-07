@@ -63,3 +63,10 @@ print(json.dumps(m.guard_reply(sys.argv[2],sys.argv[3])))`,path.join(ENGINE,'__i
  assert.doesNotMatch(run(TB,'whatsapp')[0],/script|health/);
  assert.match(run('Error: boom\n    at a (/x.js:1:2)\n    at b (/y.js:3:4)\n    at c (node:z:5:6)','telegram')[1],/at c/);
  assert.deepEqual(run('Normal reply. File "x", line 3 once.','telegram'),[null,''])});
+
+test('the plugin starts long quiet direct chats fresh and stops a repeated call after 3',()=>{
+ const py=code=>JSON.parse(execFileSync('python3',['-I','-c',`import sys,json,importlib.util as u
+s=u.spec_from_file_location("g",sys.argv[1]);m=u.module_from_spec(s);s.loader.exec_module(m)
+${code}`,path.join(ENGINE,'__init__.py')],{encoding:'utf8'}));
+ assert.deepEqual(py('print(json.dumps([m.should_roll("dm","telegram",7,200000,1),m.should_roll("dm","telegram",7,1000,4),m.should_roll("dm","telegram",2,900000,9),m.should_roll("group","telegram",9,900000,9),m.should_roll("dm","webhook",9,900000,9),m.should_roll("dm","telegram",7,1000,1)]))'),[true,true,false,false,false,false]);
+ assert.deepEqual(py('c={};print(json.dumps([bool(m.repeat_block(c,"t:{}")) for _ in range(5)]+[bool(m.repeat_block(c,"t:{\\"x\\":1}"))]))'),[false,false,false,true,true,false])});
