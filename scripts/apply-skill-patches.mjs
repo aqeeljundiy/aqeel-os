@@ -265,4 +265,23 @@ for(const h of homes){const sp=path.join(h,'skills','productivity','google-works
  if(await exists(path.join(E,'.git'))&&await exists(pf)){const g=a=>execFileSync('git',['-C',E,...a],{stdio:'pipe'});
   let inPlace=false;try{g(['apply','--reverse','--check',pf]);inPlace=true}catch{}
   if(!inPlace){try{g(['apply','--check',pf]);g(['apply',pf]);changed++;console.log('engine: shared skills in place')}catch{console.warn('! engine: shared skills patch does not fit this engine version; see engine/patches/README.md')}}}}
+// 18) Kirimdev is not WhatsApp (the owner, 7 Nov 2026: "Kirimdev is WhatsApp CRM. Kirimdev we only use API key"). The
+//     support agents' skill called Kirimdev lines "WhatsApp" and sent people to Channels > Connections for them; the
+//     agents' own WhatsApp channel (the engine's WhatsApp platform) is something else. Every copy gets a short note on
+//     top and the wrong pointers fixed; each change is skipped when it is there already.
+{const NOTE=`<!-- aqeelos:kirimdev-not-whatsapp -->
+> Kirimdev is the team's WhatsApp CRM. You reach it only through its API key (\`.tools/kirim\`, \`whatsapp_reply\`); call
+> it your **Kirimdev line**. It is NOT a WhatsApp channel of yours (the engine's WhatsApp platform, like the main
+> agent's extra numbers). A Kirimdev API error (an empty or non-JSON answer, 401, a timeout) is a Kirimdev problem:
+> say "the Kirimdev API", never "WhatsApp is down". aqeelOS checks the key, the API and your webhook every 10 minutes
+> (Channels > Kirimdev, and System > Health as "Kirimdev line (<you>)").
+`;
+ const FIX=[['# WhatsApp support agents (Kirimdev)','# Kirimdev support agents (customer chats in the Kirimdev WhatsApp CRM)'],
+  ['- WhatsApp runs inside aqeelOS: Kirimdev webhooks (Channels > Connections) deliver customer messages to the agent.','- Your Kirimdev line runs inside aqeelOS: the Kirimdev API key, plus a webhook per line (Channels > Kirimdev) that delivers customer messages to the agent.'],
+  ['replies won\'t reach them until they are added (Channels > Connections).','replies won\'t reach them until they are added (Channels > Kirimdev).'],
+  ['The test list is set in aqeelOS (Channels > Connections), not by the brand agent','The test list is set in aqeelOS (Channels > Kirimdev), not by the brand agent']];
+ for(const h of homes){const f=path.join(h,'skills','productivity','whatsapp-support-agents','SKILL.md');if(!await exists(f))continue;let s=await readFile(f,'utf8'),t=s;
+  for(const [a,b] of FIX)t=t.split(a).join(b);
+  if(!t.includes('aqeelos:kirimdev-not-whatsapp')){const m=/^# .*\n/m.exec(t);t=m?t.slice(0,m.index+m[0].length)+'\n'+NOTE+t.slice(m.index+m[0].length):NOTE+'\n'+t}
+  if(t!==s){await writeFile(f,t);changed++;console.log('kirimdev skill note: '+path.relative(HOME,f))}}}
 console.log(changed?changed+' change(s)':'skill patches already in place');

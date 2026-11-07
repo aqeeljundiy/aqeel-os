@@ -31,6 +31,8 @@ const Bottlenecks={items:[],
   if(x.kind==='accounts')return [['Open Connections',async()=>{await done();closeLayers();go('/abilities/connections')},true],['Got it',done]];
   // a channel that logged out or keeps failing (server.mjs channelAttention): Link again for WhatsApp, else its page
   if(x.kind==='channel'){const c=x.channel||{};return [c.id==='whatsapp'&&c.needs_link?['Link again',()=>{closeLayers();ACT['wa-link']({dataset:{agent:c.agent}});return new Promise(()=>{})},true]:['Open Channels',()=>{closeLayers();go('/channels/channels');return new Promise(()=>{})},true],['Not now',later]]}
+  // a Kirimdev line (kirimdev.mjs: the API key, the API, the webhook): its own page, not the WhatsApp channel's
+  if(x.kind==='kirimdev'&&!x.info)return [['Open Kirimdev',()=>{closeLayers();go('/channels/kirimdev');return new Promise(()=>{})},true],['Not now',later]];
   // health checks (agent-health.mjs): a system problem an agent reported, schedules that stopped, a bot removed from a
   // Telegram group, messages that keep failing
   if(x.kind==='system')return [['It’s fixed',async()=>{await done();toast('Marked as fixed')},true],['Not now',later]];

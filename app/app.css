@@ -2299,3 +2299,29 @@ button.acct-more{font:inherit;cursor:pointer;width:100%;background:var(--surface
 .pct-in input{width:3.2ch;border:0;outline:0;background:none;padding:0;font:inherit;font-size:15px;text-align:right;color:var(--ink);-moz-appearance:textfield}
 .pct-in input::-webkit-outer-spin-button,.pct-in input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .pct-in span{font-size:14px;color:var(--muted);white-space:nowrap}
+
+/* Channels › Kirimdev (kirimdev-page.js, 7 Nov 2026): the API key, then one block per Kirimdev line. Texts wrap (no
+   ellipsis), actions drop below on a phone, a changed part fades in, a sent or dropped draft folds away */
+.km-p .sub{margin:4px 0 14px}
+.km-acct,.km-line,.km-draft{display:flex;align-items:flex-start;justify-content:space-between;gap:12px 18px;flex-wrap:wrap;padding:14px 0;border-top:1px solid var(--border)}
+.km-acct{border-top:0;padding-top:4px}
+.km-id{display:flex;gap:14px;min-width:0;flex:1 1 320px}
+.km-id .logo{width:38px;height:38px;border-radius:var(--r-md);flex:none}
+.km .txt{min-width:0}.km .txt b{display:block;font-size:14.5px;font-weight:600;letter-spacing:-.15px}
+.km .txt span,.km .txt p{display:block;margin:3px 0 0;font-size:13px;line-height:1.45;color:var(--muted);overflow-wrap:anywhere}
+.km .km-at{font-size:12px}
+.km-act{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.km-chips{display:flex;gap:4px 14px;flex-wrap:wrap;margin:5px 0 3px}
+.km-chip{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:500;color:var(--ink-2);white-space:nowrap}
+.km-chip .dot{width:7px;height:7px;margin-right:6px;border-radius:50%;background:var(--muted);flex:none;transition:background-color var(--t-med) var(--ease)}
+.km-chip.ok .dot{background:var(--ok)}.km-chip.warn .dot{background:#d98a00}.km-chip.bad .dot{background:var(--bad)}.km-chip.bad{color:var(--bad)}
+.km-draft{margin-left:50px;padding:12px 14px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--soft-2,var(--soft));margin-bottom:10px;overflow:hidden;
+ transition:height var(--t-med) var(--ease),opacity var(--t-med) var(--ease),margin var(--t-med) var(--ease),padding var(--t-med) var(--ease)}
+.km-draft .km-text{white-space:pre-wrap;color:var(--ink-2)}
+.km-draft.km-gone{height:0!important;opacity:0;margin-bottom:0;padding-top:0;padding-bottom:0;border-width:0}
+.km-fresh{animation:fade var(--t-med) var(--ease) both}
+.km-none{margin:4px 0 0}
+.km-hook{margin:8px 0 0 -10px;min-height:34px}
+.km-err{margin:8px 0 0;color:var(--bad);font-size:13px;min-height:1em}.km-err:empty{display:none}
+@media (max-width:760px){.km-act{justify-content:flex-start;width:100%}.km-acct .km-act{padding-left:52px}.km-line .km-act{padding-left:50px}.km-draft{margin-left:0}.km-id{flex-basis:100%}}
+@media (prefers-reduced-motion:reduce){.km-fresh{animation:none}.km-draft{transition:none}}

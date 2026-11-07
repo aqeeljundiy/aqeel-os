@@ -322,7 +322,9 @@ const SECTIONS=[
   {id:'n8n',label:'n8n',icon:'layers',desc:'Every agent’s n8n space: who owns it, who can use it. Opens without signing in.'},
   {id:'kanban',label:'Task board',icon:'list',desc:'Tasks your agents pick up and work through on their own.'}]},
  {id:'channels',label:'Channels',icon:'radio',key:'4',pages:[
-  {id:'channels',label:'Channels',icon:'radio',desc:'Talk to your agents on WhatsApp, Telegram, Slack and more, and choose who may message them.'}]},
+  {id:'channels',label:'Channels',icon:'radio',desc:'Talk to your agents on WhatsApp, Telegram, Slack and more, and choose who may message them.'},
+  // Kirimdev (7 Nov 2026): the team's WhatsApp CRM, its own place, not one of the agents' channels (kirimdev-page.js)
+  {id:'kirimdev',label:'Kirimdev',icon:'mail',desc:'Your WhatsApp CRM. Support agents read and answer customer chats through its API key; a webhook per line lets them answer at once.'}]},
  {id:'abilities',label:'Abilities',icon:'puzzle',key:'5',pages:[
   {id:'skills',label:'Skills',icon:'wand',desc:'Reusable know-how aqeelOS can pick up for a task.'},
   {id:'mcp',label:'Connected apps',icon:'plug',desc:'Outside apps and services your agents can use, like Notion, Slack or GitHub.'},

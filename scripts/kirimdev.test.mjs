@@ -135,7 +135,7 @@ test('whatsapp_reply: only to someone who wrote in the last 24 hours, a tester w
  await assert.rejects(t.k.reply('continue-support','628123','halo'),/24 hours/);
  await t.post(meta('628123','halo'));await t.settle();
  const r=await t.k.reply('continue-support','+62 812 3','Jawaban tim: COA ada di link ini');assert.equal(r.length,1);assert.equal(t.sent.at(-1).to,'628123');
- await assert.rejects(t.k.reply('pixel-agent','628123','x'),/no WhatsApp line/)});
+ await assert.rejects(t.k.reply('pixel-agent','628123','x'),/no Kirimdev line/)});
 
 test('connect makes the webhook and keeps the secret Kirimdev returns; status and mode',async()=>{const t=await make();
  assert.deepEqual(await t.k.connect('continue-support'),{id:'wbs_9',status:'active'});
@@ -188,7 +188,7 @@ test('brands never mix: a line takes only its own number\'s events, and whatsapp
  assert.deepEqual((await t.postSent(sentEv('627777','dashboard','msg_h','cnv_X','222'))).body,{ignored:'other line'});
  // a customer of Gilang's line (a tester there) cannot be answered by Randy
  await t.post(meta('627777','halo',undefined,'cnv_B','222'),{},'biomarkers-support');await t.settle();assert.equal(t.asked.at(-1)[0],'biomarkers-support');assert.ok(t.sent.every(b=>b.pid==='222'));
- await assert.rejects(t.k.reply('continue-support','627777','halo'),/another WhatsApp line \(biomarkers-support\)/);
+ await assert.rejects(t.k.reply('continue-support','627777','halo'),/another Kirimdev line \(biomarkers-support\)/);
  assert.equal((await t.k.reply('biomarkers-support','627777','halo')).length,1);assert.equal(t.sent.at(-1).pid,'222')});
 
 test('a webhook made before message.sent gets it added; message.sent parses',async()=>{const t=await make();

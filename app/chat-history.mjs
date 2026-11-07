@@ -1,4 +1,4 @@
-// Past chats per agent ("look it up first", 6 Nov 2026): an agent that serves customers can search the past WhatsApp
+// Past chats per agent ("look it up first", 6 Nov 2026): an agent that serves customers can search the past Kirimdev
 // chats of ITS OWN line(s) before it asks the team ("how many cartridges per vial", "where do short links come
 // from"). Which files belong to which agent is a setting (DATA/chat-history.json, System › Health › Look-it-up
 // sources), never in code: { "agents": { "<agent>": { "files": ["/path/to/export.jsonl", ...] } } }.

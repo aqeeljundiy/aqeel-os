@@ -18,7 +18,7 @@ import path from 'node:path';
 
 export const RETIRED=[
  {id:'wa-bridge',re:/\bbridge\.py\b|wa-agent\/bridge|\b(?:re)?start(?:s|ing)? (?:the )?(?:test |whatsapp |wa |kirimdev )?bridge\b|\bbridge (?:is|looks|seems) (?:down|dead|broken)|\btest bridge\b/i,
-  now:'WhatsApp through Kirimdev runs inside aqeelOS (Kirimdev webhooks, Channels > Connections); there is no bridge to start, restart or check'}];
+  now:'Kirimdev lines (the team\'s WhatsApp CRM) run inside aqeelOS through the Kirimdev API key and webhooks (Channels > Kirimdev); there is no bridge to start, restart or check'}];
 const clip=(s,n)=>{s=String(s??'');return s.length>n?s.slice(0,n-1)+'…':s};
 // the command a schedule's prompt only runs, or null: "Run exactly this terminal command[ and nothing else]: <cmd>" whose
 // reply is the command's output unchanged or [SILENT]

@@ -1,8 +1,11 @@
-// WhatsApp through Kirimdev, as an aqeelOS channel (audit, 5 Nov 2026). It replaces the bridge script Donna ran in the
+// Kirimdev lines (audit, 5 Nov 2026). Kirimdev is the team's WhatsApp CRM: aqeelOS talks to it with one API key, and a
+// webhook per line is the optional extra that lets an agent answer at once. It is not the agents' own WhatsApp channel
+// (the engine's WhatsApp platform, Channels page); the owner, 7 Nov 2026: "Kirimdev is WhatsApp CRM. Kirimdev we only use
+// API key". Health and the UI call these "Kirimdev line (<persona>)", never "WhatsApp". It replaces the bridge script Donna ran in the
 // background (wa-agent/bridge/bridge.py): that one polled Kirimdev every 15 seconds, stopped at every engine restart,
 // once ran twice (double replies), and kept its numbers, testers and Telegram topics in code.
 //
-// Each agent may have one Kirimdev line (a WhatsApp number at Kirimdev): settings in DATA/kirimdev.json, its webhook
+// Each agent may have one Kirimdev line (a business number in Kirimdev): settings in DATA/kirimdev.json, its webhook
 // secret in DATA/kirimdev-secrets.json (mode 600, made by Kirimdev when aqeelOS connects the webhook). Kirimdev posts
 // every customer message to https://<aqeelOS>/kirimdev/<agent>, signed (X-Kirim-Signature: t=<unix>,v1=<hex>...; the
 // hex HMAC-SHA256 of "<t>.<raw body>"; 5 minutes either way). aqeelOS answers at once, keeps the event (deduped on
@@ -94,7 +97,7 @@ import {conversationSession} from './kirimdev-agent.mjs';
 const RESET=/^(reset|\/reset|mulai baru)$/i;
 const tail=n=>'…'+String(n||'').slice(-4);
 
-export function createKirimdev({DATA,WORK,apiKey,runAgent,paidSince=null,telegram,teamGroup=async()=>null,tell=async()=>{},problem=null,solved=async()=>{},log=m=>console.log(m),fetchImpl=fetch,now=()=>Date.now(),PUBLIC_URL,wait=ms=>new Promise(r=>setTimeout(r,ms)),maxRuns=2,echoWait=4000,setTimer=setTimeout,clearTimer=clearTimeout}){
+export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3,runAgent,paidSince=null,telegram,teamGroup=async()=>null,tell=async()=>{},problem=null,solved=async()=>{},log=m=>console.log(m),fetchImpl=fetch,now=()=>Date.now(),PUBLIC_URL,wait=ms=>new Promise(r=>setTimeout(r,ms)),maxRuns=2,echoWait=4000,setTimer=setTimeout,clearTimer=clearTimeout}){
  const ASK_MIN=30;   // minutes a handoff may wait for the team's answer before Health shows it
  const CONF=path.join(DATA,'kirimdev.json'),SEC=path.join(DATA,'kirimdev-secrets.json'),ST=path.join(DATA,'kirimdev-state.json');
  const readJson=async(f,d)=>{try{return JSON.parse(await readFile(f,'utf8'))}catch{return d}};
@@ -118,6 +121,59 @@ export function createKirimdev({DATA,WORK,apiKey,runAgent,paidSince=null,telegra
   const r=await fetchImpl(API+'/'+p,{method:m,headers:{authorization:'Bearer '+key,'content-type':'application/json','user-agent':'aqeelOS/1.0',...(m==='POST'?{'idempotency-key':idem||randomUUID()}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(40000)});
   const j=await r.json().catch(()=>({}));if(!r.ok)throw Object.assign(Error('Kirimdev answered '+r.status+(j?.error?.code?' '+j.error.code:'')),{status:r.status,code:j?.error?.code});return j}
 
+ // Kirimdev API health (7 Nov 2026). A raw GET that tells the ways Kirimdev can fail apart: no answer, the key refused,
+ // an empty or non-JSON body (the Biomarkers unanswered chat check crashed 30 times on 7 Nov, 04:09 to 11:07 WIB, on
+ // conversations?limit=50 answering that way), or another HTTP error. Never throws.
+ async function probe(p,key){if(!key)return {ok:false,why:'nokey',status:0,text:'No Kirimdev API key is saved.'};let r;
+  try{r=await fetchImpl(API+'/'+p,{method:'GET',headers:{authorization:'Bearer '+key,'user-agent':'aqeelOS/1.0'},signal:AbortSignal.timeout(30000)})}
+  catch(e){return {ok:false,why:'down',status:0,text:'Kirimdev did not answer ('+(e?.name==='TimeoutError'?'nothing within 30 seconds':String(e?.message||e))+').'}}
+  let raw='';try{raw=typeof r.text==='function'?await r.text():JSON.stringify(await r.json())}catch{}
+  let j=null;try{j=String(raw).trim()?JSON.parse(raw):null}catch{}
+  if(r.status===401||r.status===403)return {ok:false,why:'key',status:r.status,text:'Kirimdev refused the API key (HTTP '+r.status+').'};
+  if(!j||typeof j!=='object')return {ok:false,why:'empty',status:r.status,text:'Kirimdev answered HTTP '+r.status+' with '+(String(raw).trim()?'a reply that is not JSON':'an empty reply')+'.'};
+  if(!r.ok)return {ok:false,why:'http',status:r.status,text:'Kirimdev answered HTTP '+r.status+(j.error?.code?' ('+j.error.code+')':'')+'.'};
+  return {ok:true,status:r.status,json:j}}
+ // what the key is: Kirimdev's GET me (the organisation and the key's label and last 4 characters, never the key)
+ async function account(key){const r=await probe('me',key);if(!r.ok)return {ok:false,why:r.why,text:r.text};const d=r.json.data||{};
+  return {ok:true,org:String(d.organization?.name||''),label:String(d.api_key?.label||''),last4:String(d.api_key?.last4||'')}}
+ // one check of every line: the key works, the line's conversations endpoint gives JSON, and, when the line has a webhook
+ // (optional), Kirimdev keeps it on and its newest customer message reached aqeelOS. Saved in the state (the Kirimdev page
+ // shows it); a problem goes to System › Health as "Kirimdev line (<persona>): …" after two checks in a row, and goes away
+ // by itself at the first good check.
+ const LATE=10*60e3,HEALTH_TOPICS=['kirimdev|key','kirimdev|api','kirimdev|webhook'];
+ let checking=null;
+ function check(){return checking||=doCheck().finally(()=>{checking=null})}
+ async function doCheck(){await state();const key=await apiKey().catch(()=>null);const acc=key?await account(key):{ok:false,why:'nokey',text:'No Kirimdev API key is saved.'};
+  const L=await lines(),sec=await readJson(SEC,{}),t=now(),H=st.health||={lines:{}};H.lines||={};H.account={...acc,at:t};
+  for(const [agent,l] of Object.entries(L)){const pid=String(l.phoneNumberId||''),who=l.persona||agent,h={at:t};
+   if(!acc.ok){h.api={ok:false,why:acc.why,text:acc.text}}
+   else{const c=await probe(encodeURIComponent(pid)+'/conversations?limit=50',key);
+    h.api=c.ok?{ok:true,text:'The conversations list answers.'}:{ok:false,why:c.why,text:c.text};
+    const w=sec[agent];
+    if(!w?.id)h.webhook={state:'none',text:'No webhook: optional. With one, the agent answers customers at once.'};
+    else{const ws=await probe('webhook_subscriptions/'+encodeURIComponent(w.id),key),d=ws.json?.data||{};
+     const newest=c.ok?Math.max(0,...(c.json.data||[]).map(x=>Date.parse(x.last_inbound_at)||0)):0,heard=st.last[agent]?.at||0;
+     if(!ws.ok)h.webhook={state:'unknown',text:'Could not read the webhook: '+ws.text};
+     else if(d.status&&d.status!=='active')h.webhook={state:'off',text:'Kirimdev switched the webhook off'+(d.disabled_reason?' ('+d.disabled_reason+')':'')+'.'};
+     else if(newest>heard+LATE&&newest>(w.at||0)&&t-newest>LATE/2)h.webhook={state:'late',text:'Kirimdev has a customer message from '+new Date(newest).toISOString().slice(0,16).replace('T',' ')+' UTC that never reached aqeelOS.'};
+     else if(Number(d.consecutive_failures)>=3)h.webhook={state:'failing',text:'Kirimdev could not deliver the last '+d.consecutive_failures+' events to aqeelOS.'};
+     else h.webhook={state:'ok',text:'Delivering.'}}}
+   const was=H.lines[agent]||{},fails={...(was.fails||{})},told={...(was.told||{})};
+   const issue={'kirimdev|key':!acc.ok&&(acc.why==='key'||acc.why==='nokey')?(acc.why==='nokey'?['no Kirimdev API key is saved','Save the key on the Kirimdev page (Channels › Kirimdev). Without it the agent cannot read or answer customer chats.']:['the Kirimdev API key does not work',acc.text+' Save a working key on the Kirimdev page (Channels › Kirimdev).']):null,
+    'kirimdev|api':acc.ok||!['key','nokey'].includes(acc.why)?(!h.api.ok?['the Kirimdev API gives no usable answer','The conversations list for this line: '+h.api.text+' The agent cannot read its chats, and checks that read Kirimdev (like the unanswered chat check) skip their run. This is Kirimdev or the network, not the agent; it clears by itself when Kirimdev answers again.']:null):null,
+    'kirimdev|webhook':['off','late','failing'].includes(h.webhook?.state)?['customer messages are not reaching the agent',h.webhook.text+' Open Channels › Kirimdev and connect the webhook again. Until then customers are not answered at once.']:null};
+   for(const k of HEALTH_TOPICS){if(issue[k]){fails[k]=(fails[k]||0)+1;if(fails[k]>=2&&!told[k]&&problem){await problem(agent,k,'Kirimdev line ('+who+'): '+issue[k][0],issue[k][1]).catch(()=>{});told[k]=t}}
+    else{fails[k]=0;if(told[k]){await solved(agent,k).catch(()=>{});delete told[k]}}}
+   H.lines[agent]={...h,fails,told}}
+  for(const a of Object.keys(H.lines))if(!L[a])delete H.lines[a];
+  await saveState();return health()}
+ const health=()=>({account:st?.health?.account||null,lines:Object.fromEntries(Object.entries(st?.health?.lines||{}).map(([a,h])=>[a,{at:h.at,api:h.api,webhook:h.webhook}]))});
+ // a new key: checked with Kirimdev before it is saved, so a typo never replaces a working key
+ async function setKey(key){key=String(key||'').trim();if(!/^[\x21-\x7e]{8,200}$/.test(key))throw Error('That does not look like a Kirimdev API key.');
+  if(!saveKey)throw Error('Keys cannot be saved here.');const a=await account(key);
+  if(!a.ok)throw Error(a.why==='key'?'Kirimdev refused this key. Copy it again from Kirimdev (Settings, API keys).':'Could not check the key: '+a.text);
+  await saveKey(key,Object.keys(await lines()));return check()}
+
  const isTester=(line,m)=>(line.testers||[]).some(t=>t.conversationId&&t.conversationId===m.conversationId||t.phone&&String(t.phone).replace(/\D/g,'')===m.from);
  const testerName=(line,m)=>(line.testers||[]).find(t=>t.conversationId===m.conversationId||String(t.phone||'').replace(/\D/g,'')===m.from)?.who||m.name||'customer';
  const within24h=(agent,num)=>{const s=st.recent[agent+'|'+num];return !!s&&now()-s<=24*3600e3};
@@ -136,7 +192,7 @@ export function createKirimdev({DATA,WORK,apiKey,runAgent,paidSince=null,telegra
   if(eventKey&&st.seen.includes(eventKey))return {status:200,body:{duplicate:id}};if(eventKey)st.seen.push(eventKey);
   if(event==='message.sent'||j?.type==='message.sent'){const r=await teamSent(agent,line,parseSent(j));await saveState();return {status:200,body:r}}
   const all=parseInbound(j),pid=String(line.phoneNumberId);const ms=all.filter(m=>m.pid===pid);
-  if(all.length>ms.length)log('kirimdev '+agent+': '+(all.length-ms.length)+' message(s) for another WhatsApp number, not answered');
+  if(all.length>ms.length)log('kirimdev '+agent+': '+(all.length-ms.length)+' message(s) for another Kirimdev line, not answered');
   if(ms.length)st.last[agent]={at:now(),from:ms[0].from};
   const mode=modeOf(line);
   for(const m of ms){st.recent[agent+'|'+m.from]=now();const tester=isTester(line,m);
@@ -157,7 +213,7 @@ export function createKirimdev({DATA,WORK,apiKey,runAgent,paidSince=null,telegra
 
  // an outbound message on this line: ours (aqeelOS sent it) or a person's, which pauses the agent in that conversation
  const inflight=new Map();
- async function teamSent(agent,line,s){if(s.pid!==String(line.phoneNumberId)){log('kirimdev '+agent+': a sent message for another WhatsApp number, ignored');return {ignored:'other line'}}
+ async function teamSent(agent,line,s){if(s.pid!==String(line.phoneNumberId)){log('kirimdev '+agent+': a sent message for another Kirimdev line, ignored');return {ignored:'other line'}}
   if(s.source==='broadcast')return {ignored:'broadcast'};if(s.id&&st.ours[s.id])return {ours:true};
   // an API send of ours may echo before its id is written down: wait for sends in flight, then look again
   if(s.source==='api'||!s.source){await (inflight.get(s.to)||Promise.resolve()).catch(()=>{});await wait(echoWait);if(s.id&&st.ours[s.id])return {ours:true}}
@@ -228,9 +284,9 @@ export function createKirimdev({DATA,WORK,apiKey,runAgent,paidSince=null,telegra
    await saveState();return true}
   if(now()-h.at>24*3600e3){delete st.handoffs[h.id];await tell(line.persona+' gave up posting a handoff in Telegram','After a day of tries. The customer (+'+h.from+') was not told anything. Their question: '+h.lastQ).catch(()=>{});await saveState();return false}
   h.next=now()+RETRY_MIN[Math.min(h.tries-1,RETRY_MIN.length-1)]*60e3;st.handoffs[h.id]=h;
-  if(h.tries===1){const title=line.persona+' could not post a handoff in Telegram',detail=(t?'':'No team group is set for '+line.persona+' (Channels page, Team group). ')+'The customer (+'+h.from+') was not told it was passed on. aqeelOS tries again in 1, 5, 15 and 30 minutes, then hourly.\n\n'+post.slice(0,500);
+  if(h.tries===1){const title=line.persona+' could not post a handoff in Telegram',detail=(t?'':'No team group is set for '+line.persona+' (Channels › Kirimdev, Team group). ')+'The customer (+'+h.from+') was not told it was passed on. aqeelOS tries again in 1, 5, 15 and 30 minutes, then hourly.\n\n'+post.slice(0,500);
    // System › Health and one Telegram alert to the owner (agent-health.mjs) when that is there; the bell otherwise
-   await (problem?problem(h.agent,'handoff|'+h.id,title,detail):tell(title,detail)).catch(()=>{});log('kirimdev '+h.agent+': handoff not posted; the owner was told')}
+   await (problem?problem(h.agent,'handoff|'+h.id,'Kirimdev line ('+line.persona+'): '+title.replace(line.persona+' ',''),detail):tell(title,detail)).catch(()=>{});log('kirimdev '+h.agent+': handoff not posted; the owner was told')}
   await saveState();return false}
  // handoffs waiting for another try (every 30 seconds on the live box)
  let ticking=false;
@@ -240,7 +296,7 @@ export function createKirimdev({DATA,WORK,apiKey,runAgent,paidSince=null,telegra
  async function unanswered(){let ch=false;for(const [id,a] of Object.entries(st.asked||{})){const age=now()-a.at;
    if(age>24*3600e3){delete st.asked[id];ch=true;if(a.told)await solved?.(a.agent,'unanswered|'+id).catch(()=>{});continue}
    if(a.told||age<ASK_MIN*60e3)continue;const line=await lineOf(a.agent);const who=line?.persona||a.agent;
-   await (problem?problem(a.agent,'unanswered|'+id,'A handoff from '+who+' has no answer after '+ASK_MIN+' minutes','Customer '+a.name+' (+'+a.from+') asked: '+String(a.lastQ||'').slice(0,300)+'\n\nReply to the HANDOFF post in the team group, or answer the customer on WhatsApp; this goes away by itself then.'):tell('A handoff from '+who+' has no answer',String(a.lastQ||''))).catch(()=>{});
+   await (problem?problem(a.agent,'unanswered|'+id,'Kirimdev line ('+who+'): a handoff has no answer after '+ASK_MIN+' minutes','Customer '+a.name+' (+'+a.from+') asked: '+String(a.lastQ||'').slice(0,300)+'\n\nReply to the HANDOFF post in the team group, or answer the customer in Kirimdev; this goes away by itself then.'):tell('A handoff from '+who+' has no answer',String(a.lastQ||''))).catch(()=>{});
    a.told=now();ch=true}
   if(ch)await saveState()}
 
@@ -258,7 +314,7 @@ export function createKirimdev({DATA,WORK,apiKey,runAgent,paidSince=null,telegra
   if(d.status!=='waiting')throw Error('Draft #'+id+' was already '+(d.status==='sent'?'sent':'dropped')+'.');
   if(action==='discard'||action==='drop'){d.status='dropped';d.doneAt=now();d.by=String(by||'');await saveState();return {dropped:true}}
   if(action!=='send')throw Error('The action is send or discard.');
-  const line=await lineOf(agent);if(!line)throw Error('This agent has no WhatsApp line through Kirimdev.');
+  const line=await lineOf(agent);if(!line)throw Error('This agent has no Kirimdev line.');
   if(!within24h(agent,d.from))throw Error('The customer last wrote more than 24 hours ago, so WhatsApp does not allow a reply.');
   if(d.held&&!(text&&String(text).trim()))throw Error('Draft #'+id+' was held because it had text meant for the team. Reply with the clean text to send instead.');
   const parts=text&&String(text).trim()?splitReply(text):d.parts;if(!parts.length)throw Error('Write the text to send.');
@@ -282,11 +338,11 @@ export function createKirimdev({DATA,WORK,apiKey,runAgent,paidSince=null,telegra
   const task=(async()=>{const o=st.outbox[id];if(!o)throw Error('Missing outbound operation');if(o.receipt?.id)return o.receipt;if(o.status==='cancelled'||o.status==='held')throw Error('Outbound '+o.status);
    const line=await lineOf(o.agent);
    if(!line||String(line.phoneNumberId)!==o.pid||!within24h(o.agent,o.to)||pausedUntil(o.agent,'',o.to)>now()||modeOf(line)==='draft'&&!o.approved||modeOf(line)==='test'&&!isTester(line,{from:o.to})&&!st.testerNums[o.agent+'|'+o.to])throw Error('Outbound held by current line policy');
-   if(o.firstAttempt&&now()-o.firstAttempt>=23*3600e3){o.status='held';await saveState();await tell('WhatsApp delivery needs reconciliation',o.agent+': ambiguous send older than safe replay window; not resent').catch(()=>{});throw Error('Outbound ambiguous beyond safe idempotency window; reconcile manually')}
+   if(o.firstAttempt&&now()-o.firstAttempt>=23*3600e3){o.status='held';await saveState();await tell('Kirimdev line: a send needs checking by hand',o.agent+': ambiguous send older than safe replay window; not resent').catch(()=>{});throw Error('Outbound ambiguous beyond safe idempotency window; reconcile manually')}
    o.firstAttempt||=now();o.status='sending';o.tries=(o.tries||0)+1;await saveState();
    const go=api(o.pid+'/messages',o.body,{idem:id});inflight.set(o.to,go);
    try{const r=await go;if(!r?.data?.id)throw Error('Kirimdev returned no message receipt');o.receipt=r.data;o.status='accepted';st.ours[r.data.id]=now();await saveState();await answered(o.agent,o.to);return o.receipt}
-   catch(e){o.error=e.message;o.status='retry';await saveState();await tell('WhatsApp delivery needs retry',o.agent+': '+e.message).catch(()=>{});throw e}
+   catch(e){o.error=e.message;o.status='retry';await saveState();await tell('Kirimdev line: a send needs a retry',o.agent+': '+e.message).catch(()=>{});throw e}
    finally{if(inflight.get(o.to)===go)inflight.delete(o.to)}
   })();delivering.set(id,task);try{return await task}finally{delivering.delete(id)}}
  async function drainOutbox(){const blocked=new Set();for(const o of Object.values(st.outbox)){if(o.receipt?.id){if(!['delivered','read','failed'].includes(o.receipt.status)&&now()-o.at<48*3600e3){try{const r=await api(o.pid+'/messages/'+encodeURIComponent(o.receipt.id));if(r?.data?.id===o.receipt.id){o.receipt=r.data;o.checkedAt=now();await saveState();if(r.data.status==='failed'&&!o.failureTold){o.failureTold=true;await saveState();await tell('WhatsApp delivery failed',o.agent+': '+(r.data.error?.code||'provider failed')).catch(()=>{})}}}catch(e){log('kirimdev receipt reconciliation: '+e.message)}}continue}if(blocked.has(o.agent+'|'+o.to))continue;try{await deliver(o.id)}catch{blocked.add(o.agent+'|'+o.to)}}}
@@ -294,11 +350,11 @@ export function createKirimdev({DATA,WORK,apiKey,runAgent,paidSince=null,telegra
  async function answered(agent,to){await state();for(const [id,a] of Object.entries(st.asked||{}))if(a.agent===agent&&a.from===String(to)&&now()-a.at>5000){delete st.asked[id];if(a.told)await solved?.(agent,'unanswered|'+id).catch(()=>{})}}
 
  // the agent's whatsapp_reply tool: only to someone who wrote to its own line in the last 24 hours (a tester in Test)
- async function reply(agent,to,text){const line=await lineOf(agent);if(!line)throw Error('This agent has no WhatsApp line through Kirimdev.');
+ async function reply(agent,to,text){const line=await lineOf(agent);if(!line)throw Error('This agent has no Kirimdev line.');
   const num=String(to||'').replace(/\D/g,'');await state();
   if(num&&!within24h(agent,num)){const other=Object.keys(st.recent).find(k=>k.endsWith('|'+num)&&k.split('|')[0]!==agent&&now()-st.recent[k]<=24*3600e3);
-   if(other)throw Error('That number wrote to another WhatsApp line ('+other.split('|')[0]+'), not to yours. Never answer another brand\'s customers; that agent answers them.')}
-  if(!num||!within24h(agent,num))throw Error('That number has not written to this WhatsApp line in the last 24 hours, so WhatsApp does not allow a reply. Ask the team to contact them another way.');
+   if(other)throw Error('That number wrote to another Kirimdev line ('+other.split('|')[0]+'), not to yours. Never answer another brand\'s customers; that agent answers them.')}
+  if(!num||!within24h(agent,num))throw Error('That number has not written to this Kirimdev line in the last 24 hours, so WhatsApp does not allow a reply. Ask the team to contact them another way.');
   if(modeOf(line)==='test'&&!isTester(line,{from:num,conversationId:''})&&!st.testerNums[agent+'|'+num])throw Error('This line is in Test, so it only answers its testers.');
   const parts=splitReply(text);if(!parts.length)throw Error('Write the text to send.');const sent=[];
   const ops=[];for(const p of parts){const id=await prepare(agent,line,num,p);if(id)st.outbox[id].approved=true;ops.push(id)}await saveState();
@@ -323,12 +379,14 @@ export function createKirimdev({DATA,WORK,apiKey,runAgent,paidSince=null,telegra
     team:tg?{chatId:tg.chatId,questions:tg.threadId}:null,
     paused:Object.entries(st.paused).filter(([k,v])=>k.startsWith(agent+'|')&&v>t&&/^\d+$/.test(k.split('|')[1])).map(([k,v])=>({who:tail(k.split('|')[1]),until:v})).filter(x=>!seen.has(x.who)&&seen.add(x.who)),
     drafts:Object.values(st.drafts).filter(d=>d.agent===agent&&d.status==='waiting').sort((a,b)=>a.id-b.id).map(d=>({id:d.id,name:d.name,who:tail(d.from),text:d.parts.join('\n\n'),at:d.at,posted:!!d.posted,canSend:within24h(agent,d.from)})),
-    handoffsWaiting:Object.values(st.handoffs).filter(h=>h.agent===agent).length}}))}
+    handoffsWaiting:Object.values(st.handoffs).filter(h=>h.agent===agent).length,phoneNumberId:String(l.phoneNumberId||''),health:health().lines[agent]||null}}))}
  async function setMode(agent,mode){if(!MODES.includes(mode))throw Error('Mode is test, draft or live.');const c=await readJson(CONF,{lines:{}});if(!c.lines?.[agent])throw Error('No line for '+agent+'.');c.lines[agent].mode=mode;await put(CONF,c,0o644);return true}
  async function setPause(agent,min){const n=Number(min);if(!Number.isInteger(n)||n<0||n>1440)throw Error('The quiet time is a whole number of minutes, 0 to 1440.');const c=await readJson(CONF,{lines:{}});if(!c.lines?.[agent])throw Error('No line for '+agent+'.');c.lines[agent].pauseMin=n;await put(CONF,c,0o644);return n}
  // after a restart: conversations that were waiting are answered, handoffs are tried again, webhooks hear team replies
- let iv=null;
+ let iv=null,civ=null;
  async function resume(){await state();for(const [k,p] of Object.entries(st.pending)){const l=await lineOf(p.agent);if(l)schedule(k,l)}
   if(!iv){iv=setInterval(()=>tick().catch(e=>log('kirimdev retry: '+e.message)),30000);iv.unref?.()}
+  // the Kirimdev API check: a minute after start, then every 10 minutes
+  if(!civ){civ=setInterval(()=>check().catch(e=>log('kirimdev check: '+e.message)),checkEvery);civ.unref?.();setTimer(()=>check().catch(e=>log('kirimdev check: '+e.message)),60e3)?.unref?.()}
   for(const a of Object.keys(await lines()))await ensureEvents(a).catch(e=>log('kirimdev '+a+': could not add message.sent to the webhook: '+e.message))}
- return {receive,reply,draft,connect,webhook,ensureEvents,status,setMode,setPause,resume,lines,_api:api,_tick:tick,_state:state}}
+ return {receive,reply,draft,connect,webhook,ensureEvents,status,check,health,setKey,account:async()=>{await state();return health().account},setMode,setPause,resume,lines,_api:api,_tick:tick,_state:state}}
