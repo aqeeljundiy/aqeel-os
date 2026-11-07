@@ -2,7 +2,9 @@
 # Checks before every deploy (deploy.sh runs this unless SKIP_CHECKS=1). The new version starts as the private
 # test copy on the box (port 4402, its own data and password) and must pass, in about 5 minutes:
 #   1. every page loads without an error            (pages-check)
-#   2. hopping fast between pages, agents and All   (sweep.js: no "Couldn't load", no null text, no script errors)
+#   2. hopping fast between pages, agents and All   (sweep.js: no "Couldn't load", no null text, no script errors,
+#      no flicker: replayed fades, content jumping instead of gliding, pictures loading again, the bell re-popping,
+#      pop-ups that skip their fade or snap before leaving)
 #   3. every page keeps its buttons and tabs     (controls-check against scripts/controls-baseline.json)
 #   4. "My browser" end to end with a stand-in extension (mybrowser-check; tried twice, its agent setup is slow)
 # Any failure stops the deploy with what failed; the live app is never touched by this script.

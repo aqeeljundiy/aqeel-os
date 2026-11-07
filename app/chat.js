@@ -9,6 +9,7 @@ const AUTOMATION_SOURCES=['cron','api_server_runs','tool','acp','webhook','onesh
 // the engine's context-compaction handoff (kept in sync with its context compressor)
 const COMPACT_PREFIXES=['[CONTEXT COMPACTION — REFERENCE ONLY]','[CONTEXT COMPACTION - REFERENCE ONLY]','[CONTEXT SUMMARY]:'];
 const COMPACT_END='--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---';
+// connecting lasts a frame or two: its dot only (the word pushed the bar onto two lines and back, a 42 px bounce on every send)
 const CONN_TEXT={connecting:'Connecting…',live:'Live',reconnecting:'Reconnecting…',lost:'Connection lost'};
 // Where a chat came from, said plainly on hover.
 /* what you have seen: per agent, each chat's last activity when you last had it open (in this browser) */
@@ -127,7 +128,7 @@ const Chat={
   // the engine answered on another model than the one chosen (it fell back): the pill says so while the reply runs
   const rm=running&&s.runModel&&m.id&&s.runModel!==m.id&&modelLabel(s.runModel)!==modelLabel(m.id)?s.runModel:'';
   const folder=S.me&&!S.me.admin?'':!this.id?`<button class="pick" data-menu="workspace" title="Folder for this chat">${icon('folder',15)}<span>${esc(this.cwd?this.cwd.replace(/^\/home\/claude/,'~'):'~')}</span></button>`:`<button class="ghost icon" data-menu="workspace" title="Folder for new chats: ${esc(this.cwd?this.cwd.replace(/^\/home\/claude/,'~'):'~')} (this chat keeps its own)" aria-label="Folder for new chats">${icon('folder',17)}</button>`;
-  const conn=s?.conn&&(s.conn!=='live'||running)?`<span class="conn ${s.conn}" role="status" title="${esc(CONN_TEXT[s.conn])}"><i></i><span>${s.conn==='live'?'':esc(CONN_TEXT[s.conn])}</span></span>`:'';
+  const conn=s?.conn&&(s.conn!=='live'||running)?`<span class="conn ${s.conn}" role="status" title="${esc(CONN_TEXT[s.conn])}"><i></i><span>${s.conn==='live'||s.conn==='connecting'?'':esc(CONN_TEXT[s.conn])}</span></span>`:'';
   return `<span class="cb-l"><button class="ghost icon" data-act="attach" title="Attach pictures, videos or files" aria-label="Attach files">${icon('clip',18)}</button><button class="ghost icon" data-act="secret-give" title="Send a password or key securely" aria-label="Send a password or key securely">${icon('lock',18)}</button>${this.canTools()?`<button class="ghost icon ${this.tools.length?'on':''}" data-menu="chat-tools" title="Use a tool" aria-label="Use a tool">${icon('plug',18)}</button>`:''}<span id="voiceSlot" class="voice-slot">${Voice.btn()}</span>${folder}</span><span class="cb-r">${conn}${this.permBtn()}<button class="pick ${rm?'fallback':''}" data-menu="model" ${rm?`title="${esc('This reply runs on '+modelLabel(rm)+': the chosen model was not available')}"`:''}>${esc(rm?modelLabel(rm)+' (fallback)':known?known.label:modelLabel(m.id))}${icon('chevD',14)}</button>${this.meterHtml()}${(!known||known.reasoning)?`<button class="pick" data-menu="effort"><span>Effort </span>${esc(EFFORT_LABEL[this.effort]||this.effort)}${icon('chevD',14)}</button>`:''}
   ${running?`<button class="pick busy-mode" data-act="send-mode" data-mode="${this.sendMode==='queue'?'steer':'queue'}" title="${this.sendMode==='queue'?'Queue: your message waits until this reply is done. Click to steer instead.':'Steer: your message joins the reply in progress. Click to queue instead.'}">${icon(this.sendMode==='queue'?'clock':'wand',14)}<span>${this.sendMode==='queue'?'Queue':'Steer'}</span></button><button class="ghost icon" data-act="send-busy" title="${this.sendMode==='queue'?'Queue (Enter)':'Steer (Enter)'}" aria-label="${this.sendMode==='queue'?'Queue message':'Steer'}">${icon('send',17)}</button>`:''}<button class="primary send ${running?'stop':''}" id="send" aria-label="${running?'Stop':'Send'}" title="${running?'Stop (Esc)':'Send (Enter)'}">${icon(running?'stop':'send',18)}</button></span>`},
  // per-chat permission level, kept in this browser: 'Ask me' (default) or 'Allow all' (auto-approve)
@@ -155,7 +156,7 @@ const Chat={
  async browserChip(){const id=this.id;if(!id)return;let st={};try{st=await UI('/ui/local-browser/status?session='+encodeURIComponent(id))}catch{return}if(this.id!==id)return;
   const l=$('.cb-l');if(!l)return;l.querySelector('.lb-chip')?.remove();if(!st.session)return;
   l.insertAdjacentHTML('beforeend','<span class="lb-chip" title="This chat browses in your own Chrome">'+icon('monitor',13)+'In my browser<button class="ghost icon" data-act="lb-off" title="Back to the AI box screen" aria-label="Back to the AI box screen">'+icon('x',12)+'</button></span>')},
- paintComposerBar(){const b=$('#cbar');if(b)b.innerHTML=this.barHtml();this.browserChip();const ta=$('#msg');if(ta)ta.placeholder=this.placeholder();this.paintQueue()},
+ paintComposerBar(){const b=$('#cbar');if(b)morph(b,this.barHtml());this.browserChip();const ta=$('#msg');if(ta)ta.placeholder=this.placeholder();this.paintQueue()},
  draftKey(){return 'draft:'+(S.profile||'default')+'|'+(this.id||'new')},
  bindComposer(){const ta=$('#msg');if(!ta)return;ta.focus();
   try{const d=localStorage.getItem(this.draftKey());if(d&&!ta.value){ta.value=d;ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,220)+'px'}}catch{}
@@ -232,7 +233,9 @@ const Chat={
   const frag=list=>{const f=document.createDocumentFragment(),n=[];for(const h of list){const x=document.createElement('template');x.innerHTML=h;n.push(x.content.childNodes.length);f.append(x.content)}return {f,n}};
   const old=th._parts;let j=0;if(old&&th.childNodes.length===th._cnt.reduce((a,b)=>a+b,0)&&old.length<=parts.length){while(j<old.length&&old[j]===parts[j])j++}else{j=-1}
   if(j<0){const {f,n}=frag(parts);th.replaceChildren(f);th._cnt=n}
-  else if(j<parts.length){let drop=th._cnt.slice(j).reduce((a,b)=>a+b,0);while(drop-->0)th.lastChild?.remove();const {f,n}=frag(parts.slice(j));th.append(f);th._cnt=[...th._cnt.slice(0,j),...n]}
+  // the changed tail (mostly the reply being written, once per streamed word) is updated in place: its pictures, code,
+  // open steps and selected text stay, where removing and adding it again every frame made them blink
+  else if(j<parts.length){const keepN=th._cnt.slice(0,j).reduce((a,b)=>a+b,0),start=th.childNodes[keepN]||null;const {f,n}=frag(parts.slice(j));if(start)morphKids(th,f,start);else th.append(f);th._cnt=[...th._cnt.slice(0,j),...n]}
   th._parts=parts;
   // the thread is redrawn on every streamed word: only messages and steps that are new since the last paint rise in
   const seen=s._seen||(s._seen={n:0,k:new Set()});[...th.children].forEach((el,i)=>{if(i<seen.n)el.classList.add('still')});seen.n=th.children.length;

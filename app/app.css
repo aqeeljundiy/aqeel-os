@@ -955,7 +955,7 @@ input[type=checkbox]:not(.switch)::after{margin:auto}
 @keyframes reveal{from{opacity:0;transform:translateY(8px);filter:blur(2px)}to{opacity:1;transform:none;filter:none}}
 /* placeholders: a soft moving shine so it reads as "loading", not as empty boxes */
 .skel{background:linear-gradient(100deg,var(--soft) 30%,var(--surface) 50%,var(--soft) 70%);background-size:220% 100%;animation:shimmer 1.3s ease-in-out infinite}
-.skel-row{animation:shimmer 1.3s ease-in-out infinite,skelIn .3s var(--ease) both}
+.skel-row{animation:shimmer 1.3s ease-in-out infinite,skelIn .3s .2s var(--ease) both}
 @keyframes skelIn{from{opacity:0}to{opacity:1}}
 @media (prefers-reduced-motion:reduce){.reveal{animation:none}.skel,.skel-row{animation:none}}
 .id-code{color:var(--ink-2);font-weight:500;white-space:nowrap}
@@ -1102,11 +1102,13 @@ input[type=checkbox]:not(.switch)::after{margin:auto}
 @keyframes fadeOut{to{opacity:0}}
 @keyframes slideOut{to{transform:translateX(28px);opacity:0}}
 @keyframes menuOut{to{opacity:0;transform:translateY(-4px) scale(.98)}}
-@keyframes popOut{to{opacity:0;transform:translate(-50%,6px) scale(.98)}}
+/* the palette's own exit (it sits at translateX(-50%)); the centred dialogs' popOut below is a different shape, and one
+   name for both made the palette jump up by half its height as it closed */
+@keyframes paletteOut{to{opacity:0;transform:translate(-50%,6px) scale(.98)}}
 .scrim.closing{animation:fadeOut .21s var(--ease) both}
 .drawer.closing{animation:slideOut .21s cubic-bezier(.4,0,1,1) both}
 .menu.closing{animation:menuOut .15s var(--ease) both}
-.palette.closing{animation:popOut .18s var(--ease) both}
+.palette.closing{animation:paletteOut .18s var(--ease) both}
 .secret-slot.closing{animation:fadeOut .26s var(--ease) both}
 @keyframes cardOut{to{opacity:0;transform:translateY(8px) scale(.98)}}
 .secret-slot .secret-card.out,.cron-pop.out{animation:cardOut .26s var(--ease) both}
@@ -1168,7 +1170,7 @@ input[type=checkbox]:not(.switch)::after{margin:auto}
 .drawer.pop.closing{animation:popOut .2s cubic-bezier(.4,0,1,1) both}
 body:has(.drawer.pop) .scrim{backdrop-filter:blur(5px);background:rgba(11,12,16,.32)}
 @keyframes popIn{from{opacity:0;transform:translate(-50%,-47%) scale(.965)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}}
-@keyframes popOut{from{opacity:1;transform:translate(-50%,-50%) scale(1)}to{opacity:0;transform:translate(-50%,-48.5%) scale(.97)}}
+@keyframes popOut{to{opacity:0;transform:translate(-50%,-48.5%) scale(.97)}}
 @media (prefers-reduced-motion:reduce){.drawer.pop,.drawer.pop.closing{animation:none}}
 
 /* Schedules: folders, descriptions, costs */
@@ -1225,9 +1227,10 @@ body:has(.drawer.pop) .scrim{backdrop-filter:blur(5px);background:rgba(11,12,16,
 .att-zoom img{max-width:92vw;max-height:90vh;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.4);animation:cardIn .25s var(--ease) both}
 .att-zoom.out{opacity:0;transition:opacity .2s}
 /* loading placeholders shaped like the rows they stand for */
-.sk-item{display:flex;align-items:center;gap:14px;padding:16px 0;border-top:1px solid var(--border);animation:skelIn .35s var(--ease) both;animation-delay:var(--d)}
+/* placeholders show only for a wait you would notice (200 ms): a quick answer replaced them a frame or two after they appeared, a flash */
+.sk-item{display:flex;align-items:center;gap:14px;padding:16px 0;border-top:1px solid var(--border);animation:skelIn .35s var(--ease) both;animation-delay:calc(var(--d,0ms) + 200ms)}
 .sk-item:first-child{border-top:0}
-.sk-item .skel{animation-delay:var(--d)}
+.sk-item .skel{animation-delay:calc(var(--d,0ms) + 200ms)}
 .sk-ic{width:34px;height:34px;border-radius:10px;flex:none}
 .sk-lines{flex:1;display:flex;flex-direction:column;gap:8px}.sk-l1{height:12px;border-radius:6px}.sk-l2{height:10px;border-radius:5px;opacity:.7}
 .sk-end{width:42px;height:22px;border-radius:999px;flex:none}
@@ -1617,9 +1620,9 @@ html.in-panel .composer-wrap{padding:0 10px 12px}
 .ring{width:30px;height:30px;--rw:3.5px}
 .dark .spinner::before,.dark .ring::before{background:conic-gradient(from .2turn,rgba(120,170,255,0) 0turn,#7aa7ff .8turn,transparent .8turn)}
 .dark .spinner::after,.dark .ring::after{background:#7aa7ff}
-.skel.loading{display:grid;place-items:center;min-height:180px;background:none!important;animation:ringIn .25s .15s var(--ease) both!important}
+.skel.loading{display:grid;place-items:center;min-height:180px;background:none!important;animation:ringIn .25s .2s var(--ease) both!important}
 div.skel:not(.loading){background:none!important;animation:none!important;display:grid;place-items:center;border:0!important;box-shadow:none!important}
-div.skel:not(.loading)::after{content:'';width:26px;height:26px;border-radius:50%;background:conic-gradient(from .2turn,rgba(1,88,203,0) 0turn,var(--blue) .8turn,transparent .8turn);-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 3.5px),#000 calc(100% - 3px));mask:radial-gradient(farthest-side,transparent calc(100% - 3.5px),#000 calc(100% - 3px));animation:spin .9s linear infinite,ringIn .25s .15s var(--ease) both}
+div.skel:not(.loading)::after{content:'';width:26px;height:26px;border-radius:50%;background:conic-gradient(from .2turn,rgba(1,88,203,0) 0turn,var(--blue) .8turn,transparent .8turn);-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 3.5px),#000 calc(100% - 3px));mask:radial-gradient(farthest-side,transparent calc(100% - 3.5px),#000 calc(100% - 3px));animation:spin .9s linear infinite,ringIn .25s .2s var(--ease) both}
 @keyframes ringIn{from{opacity:0}to{opacity:1}}
 @media (prefers-reduced-motion:reduce){.spinner,.ring,div.skel:not(.loading)::after{animation-duration:1.6s}}
 

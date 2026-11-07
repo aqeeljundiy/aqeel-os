@@ -62,8 +62,10 @@ const STALE=()=>Object.assign(new Error('That page was left before it finished l
 // 0.6 s of the click), so it never looks like nothing happened. Works for every button, however its click is wired.
 const Press={btn:null,at:0};document.addEventListener('click',e=>{const b=e.target.closest?.('button,.btn,[role=button]');if(b&&!b.disabled){Press.btn=b;Press.at=Date.now()}},true);
 function pressBusy(p){const b=Press.btn;if(!b||Date.now()-Press.at>600||!b.isConnected)return;b._busyN=(b._busyN||0)+1;
- const t=setTimeout(()=>{if(b._busyN&&b.isConnected){b.classList.add('is-busy');b.setAttribute('aria-busy','true')}},120);
- p.finally(()=>{if(--b._busyN<=0){b._busyN=0;clearTimeout(t);b.classList.remove('is-busy');b.removeAttribute('aria-busy')}}).catch(()=>{})}
+ // shown only for work that takes a moment (a quick save showed it for a frame: the label blinked off and on), and once
+ // shown it stays long enough to read as a spinner, not a flash
+ const t=setTimeout(()=>{if(b._busyN&&b.isConnected){b.classList.add('is-busy');b.setAttribute('aria-busy','true');b._busyAt=performance.now()}},200);
+ p.finally(()=>{if(--b._busyN<=0){b._busyN=0;clearTimeout(t);const off=()=>{if(b._busyN)return;b.classList.remove('is-busy');b.removeAttribute('aria-busy')};const left=b._busyAt?350-(performance.now()-b._busyAt):0;b._busyAt=0;left>0?setTimeout(off,left):off()}}).catch(()=>{})}
 // The same read asked for by several parts of one page (every wrapper of a page used to fetch the agents, identities,
 // status, config or channels again) is one request: identical reads in flight share it, and a short list of lookups is
 // kept 5 s. Cleared by every page draw (reload too) and by any change, so a save never shows old data. Each caller gets
@@ -363,7 +365,7 @@ function render(){
  if(!$('.app'))root.innerHTML=`<div class="app"><aside class="side" aria-label="Navigation"></aside><div class="main"><div class="topbar"></div><div id="bannerSlot"></div><div class="view" id="view"></div></div><aside class="screen-pane" id="screenPane" aria-label="Live screen" hidden></aside></div>`;
  const app=$('.app');app.classList.toggle('collapsed',S.collapsed);const sw=store.get('sideW',null);if(sw)app.style.setProperty('--side-open',sw+'px');app.classList.remove('nav-open');
  paintSide(r);paintTop(r);paintBanner();if(typeof Screen!=='undefined')Screen.paint();
- const v=$('#view');{const key=location.hash.split('?')[0];if(v._key!==key){v._key=key;Calm.opening();v.classList.remove('enter');void v.offsetWidth;v.classList.add('enter')}}watchReveal(v);
+ const v=$('#view');{const key=location.hash.split('?')[0];if(v._key!==key){v._key=key;Calm.opening();v.classList.remove('enter');void v.offsetWidth;v.classList.add('enter')}}watchReveal(v);watchLate(v);
  if(r.chat!==undefined)Chat.view(v,r.chat);
  else if(r.help){S._pageKey=null;Help.view(v)}
  else{const P=PAGES[r.page.id];const key=r.sec.id+'/'+r.page.id+'/'+(r.arg||[]).join('/')+'@'+(agentProfile()||'')+'/'+String(S.viewAll);
@@ -380,8 +382,33 @@ function render(){
 function runPage(P,r,pg){const nav=S._nav;let gone=pageRun(pg);return Promise.resolve(P(r.page,pg,r)).catch(async e=>{if(e?.stale||gone()||nav!==S._nav||!pg.isConnected)return;if(e?.status&&e.status<500&&e.status!==429)return showError(pg,e);
  await sleep(1200);if(gone()||nav!==S._nav||!pg.isConnected)return;gone=pageRun(pg);return Promise.resolve(P(r.page,pg,r)).catch(e2=>{if(!gone())showError(pg,e2)})})}
 }
-function paintSide(r){const el=$('.side'),h=sidebar(r||route());if(el._h!==h){el._h=h;el.innerHTML=h}}
-function paintTop(r){const el=$('.topbar'),h=topbar(r||route());if(el._h!==h){el._h=h;el.innerHTML=h}}
+function paintSide(r){const el=$('.side'),h=sidebar(r||route());if(el._h!==h){el._h=h;morph(el,h)}}
+function paintTop(r){const el=$('.topbar'),h=topbar(r||route());if(el._h!==h){el._h=h;morph(el,h)}}
+/* Redraw in place: el gets the new markup, but every element that is still there stays the same element, and only what
+   differs changes (a class, a title, a count, one row). Replacing the whole sidebar with innerHTML on every chat-list
+   tick, status check and page switch made its logo and avatar pictures load again, dropped hover and the search box's
+   focus, and could replay entrances: the "flicker when text changes" (7 Nov 2026). Elements are matched by id, data-go,
+   data-id, data-key or data-tab, else by tag in order. What scripts own is kept: the tab pill's place, a running spinner
+   (is-busy), a finished fade (reveal, still), a <details> someone opened, and the text of a field someone is typing in. */
+const MORPH_KEEP_CLS=['is-busy','reveal','closing','still'];
+function morph(el,html){const t=document.createElement('template');t.innerHTML=html;morphKids(el,t.content);return el}
+function morphKey(n){return n.nodeType!==1?null:n.id?'#'+n.id:n.getAttribute('data-go')!=null?'g'+n.getAttribute('data-go'):n.getAttribute('data-id')!=null?'i'+n.getAttribute('data-id'):n.getAttribute('data-key')!=null?'k'+n.getAttribute('data-key'):n.getAttribute('data-tab')!=null?'t'+n.getAttribute('data-tab'):null}
+// from: only a's children from this node on are matched and replaced (the ones before it are left alone)
+function morphKids(a,b,from){const keyed=new Map();for(let c=from===undefined?a.firstChild:from;c;c=c.nextSibling){const k=morphKey(c);if(k)keyed.set(k,c)}
+ let cur=from===undefined?a.firstChild:from;
+ for(const nb of [...b.childNodes]){const k=morphKey(nb);let m=null;
+  if(k){m=keyed.get(k)||null;if(m&&(m.tagName!==nb.tagName))m=null}
+  else{for(let c=cur;c;c=c.nextSibling){if(morphKey(c))continue;if(c.nodeType===nb.nodeType&&(c.nodeType!==1||c.tagName===nb.tagName))m=c;break}}
+  if(m){if(k)keyed.delete(k);if(m!==cur)a.insertBefore(m,cur);else cur=cur.nextSibling;morphNode(m,nb)}
+  else a.insertBefore(nb,cur)}
+ while(cur){const n=cur.nextSibling;cur.remove();cur=n}}
+function morphNode(a,b){if(a.nodeType===3||a.nodeType===8){if(a.nodeValue!==b.nodeValue)a.nodeValue=b.nodeValue;return}if(a.nodeType!==1)return;
+ const pill=a.classList.contains('pill');
+ for(const at of [...a.attributes]){const n=at.name;if(b.hasAttribute(n))continue;if(n==='style'&&pill||n==='aria-busy'&&a.classList.contains('is-busy')||n==='open'&&a.tagName==='DETAILS')continue;a.removeAttribute(n)}
+ for(const at of b.attributes){const n=at.name;let v=at.value;if(n==='class'){const keep=MORPH_KEEP_CLS.filter(c=>a.classList.contains(c)&&!b.classList.contains(c));if(keep.length)v=(v+' '+keep.join(' ')).trim()}
+  if(n==='style'&&pill)continue;if(a.getAttribute(n)!==v)a.setAttribute(n,v)}
+ if(a.tagName==='INPUT'||a.tagName==='TEXTAREA'){if(document.activeElement!==a){const v=b.tagName==='TEXTAREA'?b.value:(b.getAttribute('value')??'');if(a.value!==v)a.value=v}if(a.type==='checkbox'||a.type==='radio')a.checked=b.hasAttribute('checked');return}
+ morphKids(a,b)}
 /* Calm motion. Things fade in when they first appear: a page you open, a menu, a toast, a dialog. When a view redraws
    itself (a refresh, a save, a status update) nothing fades again: any entrance animation on redrawn content is finished
    at once, so nothing flickers. Spinners and other endless animations are left alone. Opt in with data-anim. */
@@ -389,7 +416,10 @@ const Calm={until:0,names:null,
  opening(ms=900){this.until=performance.now()+ms},
  entry(){if(this.names)return this.names;const s=new Set();for(const ss of document.styleSheets){let rules;try{rules=ss.cssRules}catch{continue}
   for(const r of rules)if(r.type===7){const f=[...r.cssRules].find(k=>k.keyText==='0%'||k.keyText==='from');if(f&&f.style.opacity!==''&&Number(f.style.opacity)<.6)s.add(r.name)}}return this.names=s},
- calm(n){if(performance.now()<this.until||n.closest?.('.menu,.toast,dialog,.drawer,.notice,[data-anim],.aq-menu'))return;
+ // layers that open on top (palette, scrim, dialogs, pop-ups) always play their own entrance: finishing it made the
+ // palette appear in one frame
+ LAYERS:'.menu,.toast,dialog,.drawer,.notice,[data-anim],.aq-menu,.palette,.scrim,.plug-dlg,.plug-scrim,.meter-card,.cron-pop,.new-version',
+ calm(n){if(performance.now()<this.until||n.closest?.(this.LAYERS))return;
   for(const a of n.getAnimations?.({subtree:true})||[]){const t=a.effect?.getTiming?.();if(a.animationName&&t&&t.iterations!==Infinity&&this.entry().has(a.animationName))a.finish()}}};
 new MutationObserver(list=>{for(const m of list)for(const n of m.addedNodes)if(n.nodeType===1)Calm.calm(n)}).observe(document.documentElement,{childList:true,subtree:true});
 Calm.opening(1500);
@@ -406,6 +436,9 @@ function sidebar(r){
  <nav class="sections">${S.collapsed?`<button class="sec" data-act="collapse" title="Expand sidebar (${MOD}+B)">${icon('panel',19)}</button>`:''}${sections}</nav>${sub}
  ${(()=>{const cd=r.sec?.id==='code'&&typeof CodeUI!=='undefined'&&CodeUI.state==='on'?CodeUI.agentCard():null;return cd?`<div class="side-foot"><button class="status-btn" data-menu="profile" aria-label="Account and Code's agent">${cd.none?`<span class="avatar none">${icon('user',15)}</span>`:agentAvatar({id:cd.id,name:cd.name},32,{cls:'avatar',title:false})}<span class="who" title="${esc(cd.name)} · Code · ${esc(cd.model)}"><b>${esc(cd.name)}</b><span><i class="dot" style="color:var(--ok)"></i><em>Code · ${esc(cd.model)}</em></span></span>`:''})()||`<div class="side-foot"><button class="status-btn" data-menu="profile" aria-label="Account and status">${agentAvatar(S.profile||'default',32,{cls:'avatar',title:false})}<span class="who" title="${esc(AGENT())} · ${gs.label} · ${esc(modelLabel(S.model))}"><b>${esc(AGENT())}</b><span${gs.say?` title="${esc(gs.say)}"`:''}><i class="dot" style="color:${gs.c}"></i><em>${gs.label} · ${esc(modelLabel(S.model))}</em></span></span>`}${icon('chevUD',16)}</button></div>`;
 }
+// the bell drawn with its count (as Inbox.paintBell leaves it): drawn empty, every topbar redraw (each page switch) hid the
+// count until the next 2-second paint, which then popped it in and rang the bell again
+function bellBtn(){const n=typeof Inbox!=='undefined'?Inbox.unread():0;return `<button class="ghost icon bell${n>0?' has':''}" data-act="inbox" data-n="${n}" title="Notifications" aria-label="${n?n+' notifications':'Notifications'}">${icon('bell',18)}<span class="bell-n">${n?(n>99?'99+':n):''}</span></button>`}
 function topbar(r){
  if(PANEL)return panelTop(r);
  let crumbs;
@@ -414,12 +447,12 @@ function topbar(r){
  else if(r.help)crumbs=r.arg?.[0]==='admin'?`<span>${esc(r.sec.label)}</span>${icon('chevR',14)}<b>Tickets and settings</b>`:`<b>${esc(r.sec.label)}</b>`;
  else crumbs=`<span>${r.sec.label}</span>${icon('chevR',14)}<b>${r.page.label}</b>`;
  return `<button class="ghost icon menu-btn" data-act="nav" aria-label="Open navigation">${icon('menu',20)}</button><div class="crumbs">${crumbs}</div>
- <div class="top-actions"><button class="ghost icon ${Screen.open&&Screen.src_!=='mine'?'on':''}" data-act="screen-box" title="The agent's screen on the AI box" aria-label="The agent's screen on the AI box" aria-pressed="${Screen.open&&Screen.src_!=='mine'}">${icon('monitor',18)}</button><button class="ghost icon ${Screen.open&&Screen.src_==='mine'?'on':''}" data-act="screen-mine" title="My browser: the agent's tab in your own Chrome" aria-label="My browser" aria-pressed="${Screen.open&&Screen.src_==='mine'}">${icon('globe',18)}</button><button class="ghost icon bn-btn" data-act="bottlenecks" title="Bottlenecks: what is stuck until you act" aria-label="Bottlenecks" ${typeof Bottlenecks!=='undefined'&&Bottlenecks.items.length?'':'data-none'}>${icon('alert',18)}<span class="bn-n">${typeof Bottlenecks!=='undefined'&&Bottlenecks.items.length?Math.min(Bottlenecks.items.length,9):''}</span></button><button class="ghost icon bell" data-act="inbox" title="Notifications" aria-label="Notifications">${icon('bell',18)}<span class="bell-n"></span></button><button class="k-btn" data-act="palette" aria-label="Search and commands">${icon('search',15)}<span class="k-label">Search or run a command</span><kbd>${MOD} K</kbd></button>
+ <div class="top-actions"><button class="ghost icon ${Screen.open&&Screen.src_!=='mine'?'on':''}" data-act="screen-box" title="The agent's screen on the AI box" aria-label="The agent's screen on the AI box" aria-pressed="${Screen.open&&Screen.src_!=='mine'}">${icon('monitor',18)}</button><button class="ghost icon ${Screen.open&&Screen.src_==='mine'?'on':''}" data-act="screen-mine" title="My browser: the agent's tab in your own Chrome" aria-label="My browser" aria-pressed="${Screen.open&&Screen.src_==='mine'}">${icon('globe',18)}</button><button class="ghost icon bn-btn${typeof Bottlenecks!=='undefined'&&Bottlenecks.items.length?'':' none'}" data-act="bottlenecks" title="Bottlenecks: what is stuck until you act" aria-label="Bottlenecks" ${typeof Bottlenecks!=='undefined'&&Bottlenecks.items.length?'':'data-none'}>${icon('alert',18)}<span class="bn-n">${typeof Bottlenecks!=='undefined'&&Bottlenecks.items.length?Math.min(Bottlenecks.items.length,9):''}</span></button>${bellBtn()}<button class="k-btn" data-act="palette" aria-label="Search and commands">${icon('search',15)}<span class="k-label">Search or run a command</span><kbd>${MOD} K</kbd></button>
  <button class="ghost icon" data-act="theme" title="Light or dark" aria-label="Switch light and dark">${icon(document.documentElement.classList.contains('dark')?'sun':'moon',18)}</button></div>`;
 }
 function panelTop(r){const c=r.chat&&S.sessions.find(x=>x.id===r.chat);const t=r.chat===undefined?r.page.label:c?esc(c.title||c.preview||'Chat'):'New chat';
  return `<button class="ghost icon menu-btn" data-act="nav" aria-label="Past chats and pages" title="Past chats and pages">${icon('menu',19)}</button><div class="crumbs"><b>${t}</b></div>
- <div class="top-actions"><button class="ghost icon" data-act="new" title="New chat" aria-label="New chat">${icon('plus',18)}</button><button class="ghost icon bell" data-act="inbox" title="Notifications" aria-label="Notifications">${icon('bell',18)}<span class="bell-n"></span></button><button class="ghost icon" data-act="panel-full" title="Open the full aqeelOS in a tab" aria-label="Open the full aqeelOS">${icon('popout',17)}</button></div>`}
+ <div class="top-actions"><button class="ghost icon" data-act="new" title="New chat" aria-label="New chat">${icon('plus',18)}</button>${bellBtn()}<button class="ghost icon" data-act="panel-full" title="Open the full aqeelOS in a tab" aria-label="Open the full aqeelOS">${icon('popout',17)}</button></div>`}
 /* Calm banners at the top: agents nobody answers for (a box with several agents whose engine came up serving only one),
    then low memory / disk / out-of-memory restarts, most severe first. Dismissing hides that one incident for this browser
    tab only: an engine restart (new boot), a worse level, or the same trouble coming back after it cleared shows it again,
@@ -439,7 +472,7 @@ function paintBanner(){const slot=$('#bannerSlot');if(!slot)return;const st=S.st
   if(m==='elevated')list.push({key:at('mem-e'),msg:`<b>Memory is running low</b> on the AI box${S.box?.memory?.pct?' ('+S.box.memory.pct+'% of its '+bytes(S.box.memory.limit)+')':''}. See System › Health for what uses it.`})}
  const show=list.filter(x=>!off.includes(x.key)),res=show.find(x=>!x.key.startsWith('mux:'));
  const h=[show.find(x=>x.key.startsWith('mux:')),res].filter(Boolean).map(x=>`<div class="banner" role="alert">${icon('alert',16)}<span>${x.msg}</span>${x.btn||''}<button data-act="banner" data-key="${esc(x.key)}">Dismiss</button></div>`).join('');
- if(slot._h!==h){slot._h=h;slot.innerHTML=h}}
+ if(slot._h!==h){slot._h=h;morph(slot,h)}}
 // what the engine is doing, in plain words (gateway_state); a live process that stopped checking in is "Not responding"
 function gwState(s){if(!s)return {label:'Connecting…',c:'var(--ok)',say:''};const run=s.gateway_running,stale=s.gateway_heartbeat_stale_s;
  if(stale!=null)return {label:'Not responding',c:'var(--warn)',say:'Running, but it has not checked in for '+(stale<120?Math.round(stale)+' s':Math.round(stale/60)+' min')};
@@ -491,7 +524,11 @@ function placePills(){$$('.tabs').forEach(t=>{if(pillRO&&!t._ro){t._ro=1;pillRO.
 /* Closing a layer: it eases out first. Opening a replacement (another drawer, the palette) removes the old one at
    once and keeps the dimmed background as it is, so nothing flashes. Reduced motion: gone at once. */
 const calm=()=>matchMedia('(prefers-reduced-motion: reduce)').matches;
-function leave(e,ms=200){if(!e?.isConnected)return;if(calm()){e.remove();return}if(e.classList.contains('closing'))return;e.classList.add('closing');e.style.pointerEvents='none';setTimeout(()=>e.remove(),ms)}
+// closed while still fading in: the exit starts from where the entrance is now (it used to snap to fully shown first,
+// a flash, when a panel was closed within its first 0.3 s)
+function leave(e,ms=200){if(!e?.isConnected)return;if(calm()){e.remove();return}if(e.classList.contains('closing'))return;
+ for(const a of e.getAnimations())if(a.playState==='running'&&a.effect?.getTiming?.().iterations!==Infinity){try{a.commitStyles()}catch{}a.cancel()}
+ e.classList.add('closing');e.style.pointerEvents='none';setTimeout(()=>e.remove(),ms)}
 // a pop-up remembers what had focus when it opened (a replacement keeps the first one's), and closing gives focus back to it
 const Layer={back:null};
 function closeLayers(animate=true,{keepScrim=false}={}){const back=animate?document.querySelector('.drawer:not(.closing)')?._back:null;
@@ -669,6 +706,30 @@ function watchReveal(root){if(!root||root._reveal)return;root._reveal=new Mutati
  if(!fade.length)continue;if(!root._fadeUntil)root._fadeUntil=performance.now()+700;
  for(const n of fade)n.classList.remove('reveal');void root.offsetWidth;fade.forEach((n,i)=>{n.style.setProperty('--ri',i);n.classList.add('reveal')})}});
  root._reveal.observe(root,{childList:true,subtree:true})}
+/* Late blocks open their space. Many pages draw their list first and add a card a moment later (an install note above
+   Agents, the Claude sign-in above Models, This install above Settings, an alert above a list): it landed in one frame
+   and pushed everything already on screen 150 to 470 px down. A block added above content that has been on screen
+   since an earlier frame now opens its space first and then fades in (opacity after height, so nothing overlaps); the
+   content below glides down instead of jumping. Only pure additions count: a redraw that replaces content does not,
+   and neither does anything in the same batch as what is below it (that was never on screen without it). */
+const Late={seen:new WeakMap(),ms:260,
+ grow(n){if(calm())return;const h=n.offsetHeight;if(h<12)return;const cs=getComputedStyle(n);if(cs.position==='absolute'||cs.position==='fixed'||cs.display==='inline'||cs.display==='contents')return;
+  const to={height:h+'px',marginTop:cs.marginTop,marginBottom:cs.marginBottom,paddingTop:cs.paddingTop,paddingBottom:cs.paddingBottom};
+  const z={height:'0px',marginTop:'0px',marginBottom:'0px',paddingTop:'0px',paddingBottom:'0px'};
+  n.style.overflow='hidden';const a=n.animate([{...z,opacity:0},{...to,opacity:0,offset:.62},{...to,opacity:1}],{duration:this.ms,easing:'cubic-bezier(.2,.7,.2,1)',id:'late'});
+  n._late=a;const done=()=>{if(n._late===a){n.style.overflow='';n._late=null}};a.onfinish=done;a.oncancel=done}};
+// a list that changes length in place (a filter, a search): its box eases to the new height instead of jumping, and
+// what is below it glides along. fn redraws the box's content.
+function smoothHeight(box,fn){if(!box||calm()||!box.isConnected){fn();return}const h0=box.offsetHeight;fn();const h1=box.offsetHeight;if(Math.abs(h1-h0)<4)return;
+ box._sh?.cancel();box.style.overflow='hidden';const a=box._sh=box.animate([{height:h0+'px'},{height:h1+'px'}],{duration:220,easing:'cubic-bezier(.2,.7,.2,1)',id:'smooth-height'});const done=()=>{if(box._sh===a){box.style.overflow='';box._sh=null}};a.onfinish=done;a.oncancel=done}
+function watchLate(root){if(!root||root._late)return;root._late=new MutationObserver(ms=>{const t=performance.now(),batch=new Set();
+ for(const m of ms)for(const n of m.addedNodes)if(n.nodeType===1)batch.add(n);
+ for(const m of ms){if([...m.removedNodes].some(x=>x.nodeType===1&&!x.classList?.contains('skel')))continue;if(!m.target.closest?.('#pg'))continue;
+  for(const n of m.addedNodes){if(n.nodeType!==1||n.hidden||/^(SCRIPT|STYLE|TEMPLATE|SPAN|B|I|EM|SVG|BR|A)$/i.test(n.tagName))continue;
+   if(n.closest('.menu,.toast,dialog,.drawer,.notice,[data-anim],.aq-menu,.skel')||n.classList.contains('skel'))continue;
+   let below=n.nextElementSibling;while(below&&(batch.has(below)||below.hidden))below=below.nextElementSibling;
+   const at=below&&Late.seen.get(below);if(!below||at&&t-at<60||!below.offsetHeight)continue;Late.grow(n)}}
+ for(const n of batch)Late.seen.set(n,t)});root._late.observe(root,{childList:true,subtree:true})}
 /* "0 3 * * 1" → "Mondays at 03:00": schedules in plain words (falls back to the original text) */
 function cronText(expr){const s=String(expr||'').trim();const f=s.split(/\s+/);if(f.length!==5)return s;const [mi,ho,dom,mon,dow]=f;
  const DAYS=['Sundays','Mondays','Tuesdays','Wednesdays','Thursdays','Fridays','Saturdays','Sundays'],SHORT=['Sun','Mon','Tue','Wed','Thu','Fri','Sat','Sun'];

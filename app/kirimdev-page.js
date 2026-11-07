@@ -50,13 +50,14 @@ const Kirim={
   for(const l of d.lines||[])if(!used.has(l.agent))out.push(Kirim.line(l,teams[l.agent]));
   const note=!N.ok?`<p class="hint km-none">${esc(N.why==='nokey'?'Add the API key above and the numbers in your Kirimdev account show up here.':'Could not read the numbers from Kirimdev: '+(N.text||'no answer')+' Lines already set up keep working.')}</p>`:'';
   return note+(out.join('')||(N.ok?`<p class="hint km-none">Kirimdev has no WhatsApp number yet. Add one in Kirimdev, then press Check now.</p>`:''))},
- // first paint rises in; later paints change only what changed, with a short fade, so the page never jumps
+ // first paint rises in; later paints change only what changed, in place: the whole list used to fade out and back in
+ // (km-fresh) when one line's state changed, a flash of every row
  paint(el,d,teams){Kirim.d=d;
   const parts={acct:Kirim.acct(d),reach:d.reach&&!d.reach.ok?`<p class="km-reach">${esc(d.reach.why)}</p>`:'',lines:Kirim.rows(d,teams)};
   let root=el.querySelector('.km');
   if(!root){el.innerHTML=`<div class="km"><div class="panel card km-p" ${st(0)}><h2>Connection</h2><p class="sub">One key for every Kirimdev line. It is separate from the agents’ own WhatsApp channel on Channels.</p><div data-part="acct"></div></div>
     <div class="panel card km-p" ${st(1)}><h2>Numbers</h2><p class="sub">Every WhatsApp number in your Kirimdev account. Connect one so an agent answers it; it starts in Test, so only its testers get answers. aqeelOS checks the API and each line every 10 minutes and puts a problem on System › Health.</p><div data-part="reach"></div><div data-part="lines"></div></div></div>`;root=el.querySelector('.km')}
-  for(const [k,html] of Object.entries(parts)){const box=root.querySelector(`[data-part="${k}"]`);if(box._html===html)continue;const first=box._html==null;box._html=html;box.innerHTML=html;if(!first){box.classList.remove('km-fresh');void box.offsetWidth;box.classList.add('km-fresh')}}},
+  for(const [k,html] of Object.entries(parts)){const box=root.querySelector(`[data-part="${k}"]`);if(box._html===html)continue;const first=box._html==null;box._html=html;if(first)box.innerHTML=html;else morph(box,html)}},
  // a menu from a button that looks like a field (never a native select)
  pick(e,items,onPick){e.stopPropagation();const btn=e.currentTarget;btn.classList.add('open');menu(btn,items.map(i=>i.header||i==='-'?i:{...i,run:()=>onPick(i)}),{matchWidth:true,onClose:()=>btn.classList.remove('open'),onOpen:m=>{if(btn.closest('.stack'))m.style.zIndex=70}});
   const obs=new MutationObserver(()=>{if(!document.querySelector('.menu')){btn.classList.remove('open');obs.disconnect()}});obs.observe(document.body,{childList:true})},

@@ -39,15 +39,16 @@ const Teams={
    <div class="tm-row"><div class="txt"><b>${p?'Paused until '+esc(Teams.when(p.until)):'Alerts are on'}</b><p>${p?esc(p.why||'')+'. Alerts are logged, not sent. Automatic engine restarts and fixer reloads wait too.':'Pause them for a long build or a quiet evening. Automatic engine restarts and fixer reloads wait while paused.'}</p></div>
     <div class="km-act">${p?'<button class="ghost" data-act="tm-resume">Resume now</button>':''}<button class="ghost" data-act="tm-pause">${p?'Change':'Pause until…'}</button></div></div>`},
 
- // first paint rises in; later paints change only the part that changed, with a short fade
+ // first paint rises in; later paints change only the part that changed
  paint(el){const parts={teams:Teams.teamsHtml(),agents:Teams.agentsHtml(),fixer:Teams.fixerHtml(),alerts:Teams.alertsHtml()};let root=el.querySelector('.tm');
   if(!root){el.innerHTML=`<div class="tm">
     <div class="panel card km-p" ${st(0)}><h2>Teams</h2><p class="sub">Who works with which agents. When a fix needs a person, the team’s contact hears it in the team group; for agents without a team, the owner does.</p><div data-part="teams"></div><button class="ghost tm-add" data-act="tm-team" data-i="new">${icon('plus',15)}Add a team</button></div>
     <div class="panel card km-p" ${st(1)}><h2>Alerts for the owner</h2><p class="sub">Where aqeelOS reaches you when something truly needs you. When no channel works, the alert waits in the bell.</p><div data-part="alerts"></div></div>
     <div class="panel card km-p" ${st(2)}><h2>The fixer</h2><p class="sub">Fixes the issues on System › Health by itself: backs up, changes, reloads when nothing is busy, and proves the fix. 3 tries per issue.</p><div data-part="fixer"></div></div>
     <div class="panel card km-p" ${st(3)}><h2>Agents</h2><p class="sub">A test agent still shows its problems on System › Health, but nobody is alerted about it and the fixer does not reach out for it.</p><div data-part="agents"></div></div></div>`;root=el.querySelector('.tm')}
-  for(const [k,html] of Object.entries(parts)){const box=root.querySelector(`[data-part="${k}"]`);if(box._html===html)continue;const first=box._html==null;box._html=html;box.innerHTML=html;
-   if(!first){box.querySelectorAll('.tm-row').forEach(r=>r.style.animation='none');box.classList.remove('km-fresh');void box.offsetWidth;box.classList.add('km-fresh')}}
+  for(const [k,html] of Object.entries(parts)){const box=root.querySelector(`[data-part="${k}"]`);if(box._html===html)continue;const first=box._html==null;box._html=html;
+   // a later paint changes only what changed, in place (the whole part used to fade out and in for one switch)
+   if(first)box.innerHTML=html;else{morph(box,html);box.querySelectorAll('.tm-row').forEach(r=>r.style.animation='none')}}
   Teams.bind(root)},
  bind(root){
   root.querySelectorAll('input[data-test]').forEach(x=>x.onchange=async()=>{x.disabled=true;try{const r=await put(UI,'/ui/teams/test',{agent:x.dataset.test,on:x.checked});Teams.d.tests=r.tests;toast(x.checked?Teams.name(x.dataset.test)+' is a test agent: nobody is alerted about it.':Teams.name(x.dataset.test)+' is a real agent again.')}catch(e){x.checked=!x.checked;toast(e.message,'err')}x.disabled=false;Teams.repaint()});
