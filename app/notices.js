@@ -57,7 +57,9 @@ const Inbox={items:[],ids:{},
    return head+`<div class="ib-item ${x.read?'':'unread'}" data-inbox="${esc(x.id)}" ${st(Math.min(i,10))} tabindex="0"><span class="ic ${esc(x.kind)}">${icon(x.icon,15)}</span><div class="txt"><b>${esc(x.title)}</b>${x.text?`<span>${esc(x.text)}</span>`:''}<small>${esc(new Date(x.t).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}))}${x.go?' · '+esc(x.label):''}</small></div><button class="ghost icon ib-x" data-ib-x aria-label="Remove">${icon('x',13)}</button></div>`}).join('')}};
 Poll.add(()=>Inbox.load(),60000,1500);
 // a pop-up that is news also lands in the bell's list, and reading it in either place counts; a to-do's pop-up does not
-{const show=Notices.show.bind(Notices);Notices.show=o=>{const id=Inbox.add(o);const n=show({...o,onRead:()=>Inbox.read(id),onClose:()=>{o.onClose?.()}});return n}}
+// 7 Nov 2026 (owner: "annoying"): nothing pops up in the corner any more. News goes to the bell's list, to-dos to
+// Bottlenecks, as before; only the one-time usage-stats question (it needs an answer) still asks in the corner
+{const show=Notices.show.bind(Notices);Notices.show=o=>{const id=Inbox.add(o);if(!/^metrics-ask/.test(o.key||''))return null;const n=show({...o,onRead:()=>Inbox.read(id),onClose:()=>{o.onClose?.()}});return n}}
 
 // Undo instead of "are you sure?": things that can be put back happen at once, with Undo in the message for 8 seconds
 function toastUndo(msg,undo){const t=document.createElement('div');t.className='toast undo';t.innerHTML=icon('check',15)+'<span>'+esc(msg)+'</span><button class="ghost small">Undo</button>';$('#toasts').append(t);
