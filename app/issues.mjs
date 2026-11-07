@@ -114,7 +114,10 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  // older states: approved and waiting (the old owner's OK) are queued; a failed one gets its tries again once
  const migrate=()=>{for(const i of db.items){if(i.state==='approved'||i.state==='waiting'){i.state='queued';i.decision='every issue goes to the fixer (owner, 7 Nov 2026)'}
    if(i.state==='failed'&&!i.migrated){i.state='queued';i.tries=0;i.migrated=1;i.decision='tried again with the new fixer loop'}
-   if(i.tries==null)i.tries=OPEN.includes(i.state)?0:(i.attempts||0);i.history||=[]}};
+   if(i.tries==null)i.tries=OPEN.includes(i.state)?0:(i.attempts||0);i.history||=[]}
+  // filed again and again while the fixer was off (before 7 Nov 2026 'open' was not matched): one issue per problem
+  const seen=new Map();for(const i of db.items){if(i.state!=='open')continue;const k=seen.get(i.key);if(!k){seen.set(i.key,i);continue}
+   k.count=(k.count||1)+(i.count||1);i.state='closed';i.history.push({kind:'person',at:now(),status:'close',summary:'Closed as a duplicate of '+k.id})}};
  const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.items||=[];db.runs||={};migrate()}return db};
  const save=async()=>{await mkdir(DATA,{recursive:true});const t=FILE+'.'+process.pid+'.'+randomBytes(4).toString('hex')+'.tmp';await writeFile(t,JSON.stringify(db,null,1));await rename(t,FILE)};
  const queue=fn=>{const p=chain.then(fn);chain=p.catch(()=>{});return p};
@@ -130,9 +133,9 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  // an issue: o = {agent, what, missing, evidence, proposed_fix, affects, needs, source, healthKey, origin:{platform, uid, who, chat, thread}}
  const file=o=>queue(async()=>{await load();const pol=await policy();const m=clip(o.missing,500).trim();if(!m)throw Error('Say what is broken (missing).');
   const key=o.healthKey?'health|'+o.healthKey:o.agent+'|'+m.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().slice(0,100);
-  let i=db.items.find(x=>x.key===key&&(OPEN.includes(x.state)||x.state==='needs_human'||x.state==='stopped'));
+  let i=db.items.find(x=>x.key===key&&(OPEN.includes(x.state)||['needs_human','stopped','open'].includes(x.state)));
   // filed again while it waited for a person: they may have done it, so the fixer tries again
-  if(i){i.count++;i.updated=now();if(o.evidence)i.evidence=clip(o.evidence,2000);if(i.state==='needs_human'&&!i.noRetry){i.state='queued';i.tries=0}await save();return {issue:view(i),again:true}}
+  if(i){i.count++;i.updated=now();if(o.evidence)i.evidence=clip(o.evidence,2000);if((i.state==='needs_human'||i.state==='open'&&pol.fixer?.on!==false)&&!i.noRetry){i.state='queued';i.tries=0}await save();return {issue:view(i),again:true}}
   const by=o.origin||{},p=personOf(pol,by.platform,by.uid);
   i={id:'i'+randomBytes(4).toString('hex'),key,agent:o.agent,source:o.source||(p?'person':'agent'),what:clip(o.what,400),missing:m,evidence:clip(o.evidence,2000),proposed_fix:clip(o.proposed_fix,1000),
    affects:[].concat(o.affects||[]).map(x=>clip(x,64)).filter(Boolean),needs:[].concat(o.needs||[]).map(String),created:now(),updated:now(),count:1,

@@ -2573,7 +2573,7 @@ const server=createServer(async(req,res)=>{
    try{
     if(p==='/ui/teams'&&req.method==='GET')return send(res,200,await full());
     if(p==='/ui/teams'&&req.method==='PUT'){await teamSettings.setTeams(b);return send(res,200,await full())}
-    if(p==='/ui/teams/fixer'&&req.method==='PUT'){const f=await teamSettings.setFixer(b);if(f.on)issues.tick().catch(()=>{});return send(res,200,{fixer:f})}
+    if(p==='/ui/teams/fixer'&&req.method==='PUT'){const f=await teamSettings.setFixer(b);if(f.on&&PORT===4400&&LIVE_APP)issues.tick().catch(()=>{});return send(res,200,{fixer:f})}
     if(p==='/ui/teams/test'&&req.method==='PUT')return send(res,200,{tests:await teamSettings.setTest(b.agent,!!b.on)});
     if(p==='/ui/alerts/chats'&&req.method==='POST'){const c=(await relay.channelsFor('default')).find(x=>x.id===String(b.channel||''));if(!c)return send(res,404,{error:'That channel is gone.'});
      return send(res,200,{chats:await relay.recipients(c.owner,c.platform)})}

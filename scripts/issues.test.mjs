@@ -128,4 +128,11 @@ await t('Close: an idle one closes at once; one mid-try closes after it (needs a
  const idle=(await S.I._db()).items.find(x=>x.state==='queued');assert.equal((await S.I.close(idle.id,'Owner')).state,'closed');
  assert.equal((await S.I.close(running.id)).closeAfter,true);await S.ticks(2);
  assert.equal((await S.I._db()).items.find(x=>x.id===running.id).state,'closed');assert.equal(quietAll(S.said),0);assert.equal(S.f.runs.length,1,'the closed one never ran')});
+await t('filed again while the fixer was off: one issue, counted, queued once it is on',async()=>{const S=await setup({policy:{...POL2,fixer:{on:false}}});
+ const a=await S.I.file({agent:'a1',missing:'same thing',source:'health',healthKey:'a1|x'});const b=await S.I.file({agent:'a1',missing:'same thing',source:'health',healthKey:'a1|x'});
+ assert.equal(a.issue.state,'open');assert.equal(b.again,true);assert.equal((await S.I._db()).items.length,1);
+ await writeFile(path.join(S.d,'team-policy.json'),JSON.stringify(POL2));const c=await S.I.file({agent:'a1',missing:'same thing',source:'health',healthKey:'a1|x'});assert.equal(c.issue.state,'queued');assert.equal(c.issue.count,3)});
+await t('older duplicates of an open issue are folded into the newest at start',async()=>{const d=await mkdtemp(path.join(tmpdir(),'is-'));await writeFile(path.join(d,'team-policy.json'),JSON.stringify(POL2));
+ const it=(id,k)=>({id,key:k,agent:'a1',state:'open',missing:'m',count:1,history:[]});await writeFile(path.join(d,'issues.json'),JSON.stringify({items:[it('i3','k1'),it('i2','k1'),it('i1','k2')],runs:{}}));
+ const I=createIssues({DATA:d,log:()=>{}});const items=(await I._db()).items;assert.deepEqual(items.map(i=>i.state),['open','closed','open']);assert.equal(items[0].count,2)});
 console.log(n+' passed');
