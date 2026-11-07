@@ -9,6 +9,56 @@ import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
 import path from 'node:path';
 import {randomBytes} from 'node:crypto';
 
+// 7 Nov 2026 (owner: "all the bottlenecks that don't rely on me get auto fixed"): the Bottlenecks popup shows only
+// what truly needs a person: money, a login only they have, adding a bot to a group, a decision only they can make.
+// Everything else (a skill missing a file, a schedule that failed, a check that broke…) stays on System › Health and
+// goes into the ladder there (agent-health.mjs: the agent tries first, then the fixer, then proof), silently.
+// personNeed(item) → what the person must do, in one plain sentence, or null when it is not for a person.
+const PERSON_TEXT=/\b(pay|paid|payment|invoice|top ?up|billing|credit card|out of credit|subscription|purchase|api key|new key|password|log[ -]?in|sign[ -]?in|oauth|qr|scan|add (the )?bot|add .{0,30}back|removed from (the )?(telegram )?group|bot is left|kicked|invite|decid|decision|choose|which one|approve the new instructions)/i;
+const NOT_PERSON=/\b(tester (phone|number)|test (phone|number))\b|planned (ladder )?test|dummy test|no action needed/i;
+const APPS=['composio','notion','slack','google','gmail','github','linear','figma','airtable','hubspot','shopify','meta','facebook','instagram','tiktok','canva','xendit'];
+export const appsIn=t=>APPS.filter(a=>new RegExp('\\b'+a+'\\b','i').test(String(t||'')));
+export const groupReport=t=>/removed from (the )?(telegram )?group|bot is left|kicked from/i.test(String(t||''));
+export function personNeed(x){const k=x?.kind,t=[x?.title,x?.missing,x?.text].filter(Boolean).join(' ');
+ switch(k){
+  case 'signin':return 'Sign in. Only you have this login.';
+  case 'account':return x.account?.state==='credit'?'Top up this account, or switch the agents to another model.':x.account?.state==='rejected'?'Put in a working key for this account (the old one was rejected).':'Sign in to this account again. Only you have this login.';
+  case 'invite':return 'If they still need to join, make a new invite link and send it to them.';
+  case 'access':return 'Decide: allow or decline.';
+  case 'instructions':return 'Read the new instructions and approve or decline them.';
+  case 'ticket':return 'Answer the waiting help tickets.';
+  case 'accounts':return 'Decide whether this login may act as you: approve it or disconnect it.';
+  case 'alerts':return 'Do what the message asks.';
+  case 'channel':return x.channel?.needs_link?'Link WhatsApp again: scan the QR code with the phone of that number.':null;
+  case 'group':return 'Add the bot back to this Telegram group (a bot cannot add itself). If the agent no longer works there, remove the group from its settings.';
+  // an agent's system report is an issue for the fixer at once (server.mjs): if it needs a person, the fixer sends
+  // the one message. A report about the agent's own work counts when what it is missing is a person's thing.
+  case 'system':return null;
+  case 'report':{const m=String(x.missing||x.title||'');if(NOT_PERSON.test(t)||!PERSON_TEXT.test(m))return null;
+   if(groupReport(t))return 'Add the bot back to the Telegram group (a bot cannot add itself).';
+   const apps=appsIn(t);if(apps.length&&/sign[ -]?in|oauth|log ?in|token/i.test(t))return 'Sign in to '+list(apps.map(cap))+' on Connected apps, or switch '+(apps.length>1?'them':'it')+' off for the agents that do not need '+(apps.length>1?'them':'it')+'.';
+   const fix=String(x.text||'').replace(/^Would fix it: /,'').trim();return fix||(x.agentName||'The agent')+' needs this from you: '+String(x.missing||x.title||'').slice(0,240)}
+  default:return null}}
+const cap=s=>s[0].toUpperCase()+s.slice(1);
+const list=a=>a.length>1?a.slice(0,-1).join(', ')+' and '+a.at(-1):a[0]||'';
+// the same need shown once: a group by its chat, an app sign-in by its apps (across agents), a report by what is missing
+export function popupKey(x){const t=[x.title,x.missing].filter(Boolean).join(' ');
+ if(x.kind==='group')return 'group|'+String(x.topic||x.title).replace(/^health\|[^|]+\|/,'');
+ if((x.kind==='report'||x.kind==='system')){if(groupReport(t))return 'group-report|'+x.agent;const apps=appsIn(t);if(apps.length&&/sign[ -]?in|oauth|log ?in|token/i.test(t))return 'apps|'+apps.sort().join(',');
+  return 'report|'+String(x.missing||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().slice(0,80)}
+ return x.id}
+// the popup list: person needs only, each once, with what to do; merged items keep every id (also) so Done clears all
+export function forPopup(items){const out=[],by=new Map(),groupAgents=new Set(items.filter(x=>x.kind==='group'&&x.agent).map(x=>x.agent));
+ for(const x of items){const ask=personNeed(x);if(!ask)continue;const t=[x.title,x.missing].filter(Boolean).join(' ');
+  if((x.kind==='report'||x.kind==='system')&&groupReport(t)&&groupAgents.has(x.agent)){const g=out.find(y=>y.kind==='group'&&y.agent===x.agent);if(g){g.also.push(x.id);continue}}
+  const k=popupKey(x),have=by.get(k);
+  if(have){have.also.push(x.id);have.count=(have.count||1)+(x.count||1);if(x.agentName&&!have.agentNames.includes(x.agentName))have.agentNames.push(x.agentName);continue}
+  const y={...x,ask,also:[],agentNames:x.agentName?[x.agentName]:[]};
+  if(k.startsWith('apps|')){y.kind='apps';y.title=list(k.slice(5).split(',').map(cap))+' need'+(k.includes(',')?'':'s')+' a sign-in';y.text=''}
+  by.set(k,y);out.push(y)}
+ for(const y of out)if(y.agentNames.length>1){y.text=(y.text?y.text+' ':'')+'Asked by '+list(y.agentNames)+'.';if(y.kind==='report'||y.kind==='system')y.title=y.title.replace(/^.*? (is blocked|reported a system problem): /,'')}
+ return out}
+
 export function createBottlenecks({DATA,dash,listAgents,names,onInfo=async()=>{}}){
  const FILE=path.join(DATA,'bottlenecks.json');let db=null;
  const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.reports||=[];db.snooze||={};db.fixed||={};db.events||=[]}return db};

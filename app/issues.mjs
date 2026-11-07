@@ -94,6 +94,7 @@ export function fixerPrompt(i,{rules='',day=new Date().toISOString().slice(0,10)
  '- Write in "check" exactly how to rerun the ORIGINAL failing check end to end after the reload (the real thing that failed, not a unit test). For a Kirimdev reply problem a tester\'s message must get a real reply delivered: '+KIRIM_TEST+'.',
  '- aqeelOS\'s own code lives in git, not on this box: ~/apps/hermes-ui (app/, scripts/, engine/) and the engine source ~/.hermes/hermes-agent are replaced by the next deploy. If your fix changes any of these files, keep the change small. Once it is proven, aqeelOS saves it as ~/apps/hermes-ui-data/fixer-patches/'+i.id+'-try<n>.patch so the coding sessions take it into git; say in "summary" that it is a code change and name the file. Never commit or push. First look in ~/apps/hermes-ui-data/fixer-patches and ~/apps/hermes-ui-data/drift: if the same fix was made before and a deploy put the old file back, apply that patch again and say so.',
  '- If you find nothing to change (it already works), use status "no_change": a proof run still has to show it works.',
+ '- A skill that points to a file that is not there (Health kind skill): find the file and put it back in every skill folder listed. Look in this order: the *.bak* copies next to it, other agents\' copies of the same skill (~/.hermes/profiles/*/skills and ~/.hermes/skills), ~/.hermes/backups and ~/apps/hermes-ui-data backups, the skill\'s git history if it has one. Only if it is nowhere, change the SKILL.md so it no longer needs the file (remove or replace that step); never invent the file\'s content. The check: every file each SKILL.md points to exists (node ~/apps/hermes-ui/scripts/skill-check.mjs <skill folder> lists what is still missing; nothing listed means proven).',
  '- needs_human only when a person must physically act and no tool or key on this box can do it: money, a new key or login only a person has, someone adding a bot to a Telegram group, or a decision only the owner can make. Never to ask for approval or an OK: nobody approves fixes, you decide. Never to have someone send a WhatsApp message from a tester phone: you can do that yourself (see above). Put in "need" exactly what they must do, in one or two plain sentences.',
  rules?'- '+rules:null,
  '','End with exactly one line (JSON on one line):',
@@ -114,7 +115,7 @@ export function proofPrompt(i,fix,{reloaded=null}={}){return [
  'RESULT: {"status":"proven|not_proven","proof":"the commands you ran and what you saw, with times","need":""}'].filter(x=>x!==null).join('\n')}
 
 export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=async()=>false,tellOwner=async()=>{},toTeam=async()=>false,busy=async()=>0,ready=async()=>true,
- apply=async()=>({ok:true}),nameOf=a=>a,codeRoots=[],quiet=()=>null,log=m=>console.log(m),launch=null,alive=null,envFiles=async()=>[],
+ apply=async()=>({ok:true}),nameOf=a=>a,codeRoots=[],onFixed=async()=>{},quiet=()=>null,log=m=>console.log(m),launch=null,alive=null,envFiles=async()=>[],
  // kept for older callers (the Approve/Decline flow is gone)
  askOwner=null,approvalLink=null,restartSelf=null}){
  const FILE=path.join(DATA,'issues.json'),POL=path.join(DATA,'team-policy.json'),DIR=path.join(DATA,'issues');let db=null,chain=Promise.resolve();
@@ -146,7 +147,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   const by=o.origin||{},p=personOf(pol,by.platform,by.uid);
   i={id:'i'+randomBytes(4).toString('hex'),key,agent:o.agent,source:o.source||(p?'person':'agent'),what:clip(o.what,400),missing:m,evidence:clip(o.evidence,2000),proposed_fix:clip(o.proposed_fix,1000),
    affects:[].concat(o.affects||[]).map(x=>clip(x,64)).filter(Boolean),needs:[].concat(o.needs||[]).map(String),created:now(),updated:now(),count:1,
-   by:{platform:by.platform||null,uid:by.uid||null,chat:by.chat||null,thread:by.thread||null},byName:p?.name||by.who||null,tries:0,history:[],...(o.healthKey?{healthKey:String(o.healthKey)}:{})};
+   by:{platform:by.platform||null,uid:by.uid||null,chat:by.chat||null,thread:by.thread||null},byName:p?.name||by.who||null,tries:0,history:[],...(o.healthKey?{healthKey:String(o.healthKey)}:{}),...(o.report?{report:String(o.report)}:{})};
   i.decision=decide(pol,i,by).why;i.state=pol.fixer?.on===false?'open':'queued';if(i.state==='open')i.decision='the fixer is switched off in the team policy';
   db.items.unshift(i);db.items=db.items.slice(0,300);await save();log('issue '+i.id+' filed by '+(i.source==='health'?'Health':i.agent)+': '+i.state);return {issue:view(i)}});
  // Health saw the problem go away before the fixer started: closed, nobody told
@@ -238,7 +239,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   if(pr.status==='proven'){i.state='fixed';i.fixed=now();i.proof=pr.proof;i.result={...(i.result||{}),status:'fixed',proof:pr.proof};if(last)last.outcome='proven';
    const pf=await savePatch(i,last,i.history.filter(h=>h.kind==='fix').length).catch(e=>{log('issues: '+i.id+' patch not saved: '+e.message);return null});
    if(pf){i.patch=pf;if(last)last.patch=pf;i.result.summary=clip((i.result.summary||'')+' The code change is saved as '+pf+' for git.',1600)}
-   await save();log('issues: '+i.id+' fixed and proven'+(pf?', patch '+pf:''));return}
+   await save();log('issues: '+i.id+' fixed and proven'+(pf?', patch '+pf:''));await onFixed(view(i)).catch(e=>log('issues: '+i.id+' after the fix: '+e.message));return}
   if(last){last.outcome='not proven';last.proofNeed=pr.need}
   const back=await rollBack(last?.changes);if(last&&back.length)last.outcome+=', rolled back';i.lastNeed=pr.need||i.lastNeed;
   return await nextTry(i,back.length&&last?.apply!=='none'?last.apply:null)}

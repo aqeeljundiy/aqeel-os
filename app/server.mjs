@@ -45,7 +45,7 @@ import {createCodeOnline} from './code-online.mjs';
 import {createTeamFolders} from './team-folders.mjs';
 import {createBrand} from './brand.mjs';
 import {createAccountAuth} from './account-auth.mjs';   // first-run owner, forgot password, recovery code (7 Nov 2026)
-import {createBottlenecks} from './bottlenecks.mjs';
+import {createBottlenecks,forPopup} from './bottlenecks.mjs';
 import {createInstructions} from './instructions.mjs';
 import {createNews} from './news.mjs';
 import {mayStartAgents,busyTotal,guardPaused} from './busy.mjs';
@@ -1361,6 +1361,8 @@ async function issueApply(kind,why){if(kind==='ui'){console.log('restarting the 
 const issueEnvFiles=async()=>[path.join(HERMES_HOME,'.env'),...(await readdir(path.join(HERMES_HOME,'profiles')).catch(()=>[])).map(a=>path.join(HERMES_HOME,'profiles',a,'.env'))];
 const issues=createIssues({DATA,home:homedir(),bin:path.join(homedir(),'.local','bin','aqeelos'),fixerHome:homedir(),nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a),
  reply:replyInTopic,tellOwner:srToOwner,toTeam:issueToTeam,quiet:alertQuiet,busy:async()=>busyNow(),ready:async()=>!gwStopped&&!gwRestarting&&!!await gatewayPid(),apply:issueApply,envFiles:issueEnvFiles,
+ // a proven fix for an agent's report closes the report too (it stays on Health until then, never in the popup)
+ onFixed:async i=>{const k=String(i.healthKey||'');if(k.startsWith('report|'))await bottlenecks.done(k);else if(i.report)await bottlenecks.done('report|'+i.report)},
  codeRoots:[{dir:root,prefix:''},{dir:path.join(HERMES_HOME,'hermes-agent'),prefix:'hermes-agent/'}]});
 /* The one model call of the live checks (7 Nov 2026, owner: "save tokens"): once after each deploy (the app's code changed),
    a customer run on a Kirimdev agent whose line is in Test, with nothing sent (the run only returns text), must call
@@ -1976,8 +1978,8 @@ const server=createServer(async(req,res)=>{
    if(signed&&msg.method==='tools/call'&&msg.params?.name==='past_chats'){const base=mn[1].split('--')[0],a=msg.params?.arguments||{};const r=await chatHistory.find(base,String(a.query||''),{limit:a.limit}).catch(e=>({text:e.message,error:true}));console.log('past chats searched by',base+':',String(a.query||'').slice(0,60),'→',r.total??'-');return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text:r.text}],...(r.error?{isError:true}:{})}})}
    if(signed&&msg.method==='tools/call'&&msg.params?.name==='my_issues'){const base=mn[1].split('--')[0];const l=await issues.forAgent(base).catch(()=>[]);return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text:l.length?l.map(i=>'- '+i.id+' '+i.state+(i.tries?' (try '+i.tries+' of 3)':'')+': '+i.missing+(i.state==='fixed'&&i.proof?' (proven: '+String(i.proof).slice(0,200)+')':i.result?.summary?' ('+i.result.summary+')':'')+(i.need&&['needs_human','stuck'].includes(i.state)?' (needs a person: '+i.need+')':'')).join('\n'):'No issues filed by you.'}]}})}
    if(signed&&msg.method==='tools/call'&&msg.params?.name==='report_bottleneck'&&msg.params?.arguments?.system===true){const base=mn[1].split('--')[0],a=msg.params?.arguments||{};
-    try{const from=await whyOf.from(base);await bottlenecks.report(base,{what:a.what,missing:a.missing,fix:a.proposed_fix||a.fix,system:true,from});
-     const r=await issues.file({agent:base,what:a.what,missing:a.missing,evidence:a.evidence,proposed_fix:a.proposed_fix||a.fix,affects:a.affects,needs:a.needs,origin:await originOf(base)});const i=r.issue;
+    try{const from=await whyOf.from(base);const rep=await bottlenecks.report(base,{what:a.what,missing:a.missing,fix:a.proposed_fix||a.fix,system:true,from});
+     const r=await issues.file({agent:base,report:rep.id,what:a.what,missing:a.missing,evidence:a.evidence,proposed_fix:a.proposed_fix||a.fix,affects:a.affects,needs:a.needs,origin:await originOf(base)});const i=r.issue;
      console.log('issue filed by',base+':',i.id,i.state,String(a.missing).slice(0,80));
      // 7 Nov 2026: nobody approves; the fixer fixes, reloads and proves it, and messages a person only when one is needed
      const say=i.state==='open'?'Filed as issue '+i.id+' (the fixer is switched off). Not fixed yet: say so plainly.':['fixed'].includes(i.state)?'Issue '+i.id+' is already fixed and proven.':
@@ -2678,7 +2680,8 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/bottlenecks'&&req.method==='GET'){const admin=users.isAdmin(u);if(admin)await freshSignins();const items=await bottlenecks.list({admin,uid:admin?null:u.id,mayUse:a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a),signins:admin?[...signinsDue.values()]:[],invites:admin?users.expiredInvites():[],accounts:admin?await accountsApi.signedOut().catch(()=>[]):[],channels:admin?await channelAttention(false).catch(()=>[]):[]});const mayU=a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a);items.push(...await accessAsk.open(admin?()=>true:mayU).catch(()=>[]));items.push(...await help.items(u).catch(()=>[]));
     for(const {a,p:pr} of await instructions.openProposals(await listAgents()).catch(()=>[]))if(admin||users.agentOwner(a)===u.id)items.push({id:'instr|'+a+'|'+pr.id,kind:'instructions',agent:a,pid:pr.id,title:(NAMES[a]||a)+': new instructions wait for your approval',detail:pr.why,created:pr.at,from:null});
     // the message that led to it is from the agent's newest chat, whoever's: a member sees it only when that chat is theirs
-    return send(res,200,{items:admin?items:items.map(x=>x.from&&users.ownerOf(x.from.chat)!==u.id?{...x,from:null}:x)})}
+    // only what truly needs a person, each once (forPopup); everything else is on System › Health, in the fixer's ladder
+    const shown=forPopup(items);return send(res,200,{items:admin?shown:shown.map(x=>x.from&&users.ownerOf(x.from.chat)!==u.id?{...x,from:null}:x)})}
    if((p==='/ui/bottlenecks/done'||p==='/ui/bottlenecks/later')&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const id=String(b.id||'').slice(0,300);if(!id)return send(res,400,{error:'Which one?'});const admin=users.isAdmin(u);
     // a Help ticket: admins resolve it (the person is told in their Help chat) or put it off a day
     if(id.startsWith('ticket|')){try{return send(res,200,await help.decide(id,p.endsWith('/done')?'done':'later',u))}catch(e){return send(res,e.status||400,{error:e.message})}}

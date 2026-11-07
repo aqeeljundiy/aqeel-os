@@ -2402,3 +2402,5 @@ button.acct-more{font:inherit;cursor:pointer;width:100%;background:var(--surface
 @media (max-width:640px){.inst-val{justify-content:flex-start}}
 /* System › Health: a patch git does not have yet, as text */
 .cc-patch{margin:0;padding:12px 14px;border-radius:12px;background:var(--bg-2,rgba(127,127,127,.08));font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre;overflow:auto;max-height:70vh;tab-size:4}
+/* Bottlenecks: what the person must do, one plain line under the problem */
+.bn-ask{margin:2px 0 10px!important;padding:8px 10px;border-radius:10px;background:var(--soft);color:var(--ink)!important}.bn-ask b{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:2px}

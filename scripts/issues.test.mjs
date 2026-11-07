@@ -28,7 +28,7 @@ async function setup(extra={}){const d=await mkdtemp(path.join(tmpdir(),'is-'));
  const said={reply:[],owner:[],team:[]},applied=[];let busyN=0;
  const f=fake(d,extra);const I=createIssues({DATA:d,bin:'x',fixerHome:d,log:()=>{},launch:f.launch,alive:async()=>false,quiet:extra.quiet||(()=>null),
   reply:async(i,x)=>{said.reply.push(x);return true},tellOwner:async x=>said.owner.push(x),toTeam:async(a,m,x)=>{said.team.push([a,m.name,x]);return true},
-  busy:async()=>busyN,apply:async(k,why)=>{applied.push(k);return {ok:true}},envFiles:async()=>extra.envFiles||[],codeRoots:extra.codeRoots||[]});
+  busy:async()=>busyN,apply:async(k,why)=>{applied.push(k);return {ok:true}},envFiles:async()=>extra.envFiles||[],codeRoots:extra.codeRoots||[],onFixed:async i=>(extra.fixedOut||[]).push(i)});
  return {d,I,f,said,applied,setBusy:n=>{busyN=n},db:async()=>(await I._db()).items[0],ticks:async n=>{for(let k=0;k<n;k++)await I.tick()}}}
 const quietAll=s=>s.reply.length+s.owner.length+s.team.length;
 
@@ -154,4 +154,7 @@ await t('"send a message from the tester phone" is never a person\'s job: the fi
  const S=await setup({fix:[{status:'needs_human',summary:'cannot prove it',need:'A person must send a message from the tester number to the line.'}]});
  await S.I.file({agent:'a1',missing:'reset reply missing'});await S.ticks(2);const i=await S.db();
  assert.equal(i.state,'queued');assert.match(i.history[0].outcome,/signed test webhook/);assert.equal(quietAll(S.said),0);assert.match(S.f.runs[0].prompt,/kirimdev-test-message\.mjs/)});
+await t('a proven fix hands the fixed issue on (its report leaves Health and the popup), with the report id and the Health key',async()=>{const out=[];
+ const S=await setup({fixedOut:out,fix:[{status:'no_change',summary:'works'}],proof:[{status:'proven',proof:'seen'}]});
+ await S.I.file({agent:'a1',missing:'no label tool',report:'rabc'});await S.ticks(4);assert.equal((await S.db()).state,'fixed');assert.equal(out.length,1);assert.equal(out[0].report,'rabc')});
 console.log(n+' passed');

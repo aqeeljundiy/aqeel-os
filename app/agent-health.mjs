@@ -20,8 +20,11 @@ import {cpus} from 'node:os';
 import {execFile} from 'node:child_process';
 import path from 'node:path';
 import {checkSkills} from './skill-check.mjs';
+import {personNeed} from './bottlenecks.mjs';
 
 const H=3600e3,DAY=24*H;
+// one skill problem, whichever agent's copy: the skill's own name plus the missing files
+export const skillKey=x=>String(x.skill).split('/').slice(-1)[0]+'|'+[...x.missing].sort().join(',');
 // a health problem's alert key: the same problem keeps one key while it lasts (a schedule failing again, a channel
 // dropping again on a new time is the same problem), so the owner hears about it once until it is fixed
 export function alertKey(x){const id=String(x.id||'');
@@ -33,6 +36,11 @@ export function alertKey(x){const id=String(x.id||'');
 // what counts as an agent breaking: not an expired invite or a help ticket, and not what was already sent to the
 // owner by the part that found it (a run an agent started itself, a tool-server fix that failed)
 export const alertable=x=>!['invite','ticket','access'].includes(x.kind)&&!x.told&&!x.info;
+// what goes into the ladder (agent first, then the fixer): every alertable problem except what only a person can do
+// (it waits on the Bottlenecks popup with what to do, 7 Nov 2026) and an agent's system report (report_bottleneck with
+// system true is filed as an issue at once, server.mjs). A bot removed from a group still goes in: the fixer checks it
+// against the agent's real groups and, when it is real, sends the one message to the right person.
+export const forLadder=x=>alertable(x)&&x.kind!=='system'&&(x.kind==='group'||!personNeed(x));
 
 // the engine's failed-turn lines → per agent: failed turns in the window, how many were sent again by themselves and
 // worked, the most common cause, and the failures in the last hour that nobody recovered
@@ -132,11 +140,15 @@ print(json.dumps(out))`;
    for(const where of [String(r.cwd||''),String(r.args||'')]){const w=where.indexOf(ws);if(w>=0){const a=where.slice(w+ws.length).split(/[\/\s]/)[0];if(known.has(a))return a}}return null};
   const found=duplicateProcesses(rows,agentOf),keep=new Set(found.map(x=>x.topic));for(const x of found)await bottlenecks.event('twice',x.text,x.detail,{topic:x.topic,agent:x.agent});
   await load();for(const t of st.twice||[])if(!keep.has(t))await bottlenecks.resolve(t);st.twice=[...keep]}
- // skills pointing to missing files: one problem per agent and skill, hourly
+ // skills pointing to missing files, hourly: one problem per skill and missing files, however many agents have a copy
+ // of it (7 Nov 2026: continue-vial-labels showed twice); the first agent that has it tries first, then the fixer
  async function checkSkillFiles(agents){await load();const now=Date.now();if(now-(st.skillsAt||0)<H)return;st.skillsAt=now;const keep=new Set(),realHome=path.dirname(HERMES_HOME);
-  for(const a of agents){for(const x of await checkSkills(path.join(home(a),'skills'),{home:realHome}).catch(()=>[])){const topic='health|'+a+'|skill|'+x.skill;keep.add(topic);
-    await bottlenecks.event('skill','The skill '+path.basename(x.skill)+' points to '+(x.missing.length===1?'a file that is':x.missing.length+' files that are')+' not there',
-     'Missing: '+x.missing.slice(0,6).join(', ')+'. The agent fails halfway when it follows this skill. Put the file back, or change the skill so it no longer needs it ('+x.skill+'/SKILL.md).',{topic,agent:a})}}
+  const found=new Map();
+  for(const a of agents)for(const x of await checkSkills(path.join(home(a),'skills'),{home:realHome}).catch(()=>[])){const k=skillKey(x);
+   const f=found.get(k)||{x,agents:[],dirs:[]};f.agents.push(a);f.dirs.push(path.join(home(a),'skills',x.skill));found.set(k,f)}
+  for(const [k,f] of found){const topic='health|'+f.agents[0]+'|skill|'+k;keep.add(topic);
+   await bottlenecks.event('skill','The skill '+path.basename(f.x.skill)+' points to '+(f.x.missing.length===1?'a file that is':f.x.missing.length+' files that are')+' not there',
+    'Missing: '+f.x.missing.slice(0,6).join(', ')+'. An agent fails halfway when it follows this skill. Find the file in a backup, an older copy of the skill or git history and put it back; otherwise change the skill so it no longer needs it. Skill folder'+(f.dirs.length>1?'s':'')+': '+f.dirs.join(', ')+(f.agents.length>1?' (agents '+f.agents.join(', ')+')':'')+'.',{topic,agent:f.agents[0]})}
   for(const t of st.skills||[])if(!keep.has(t))await bottlenecks.resolve(t);st.skills=[...keep]}
  async function checkDrops(agents){const d=await drops();for(const a of agents){const pr=dropProblem(a,d[a]);if(pr)await bottlenecks.event('dropped',pr.text,pr.detail,{topic:pr.topic,agent:a});else await bottlenecks.resolve('health|'+a+'|dropped')}}
  // each check below keeps the topics it found (st.live[name]) so the ones that work again go away
@@ -169,7 +181,7 @@ print(json.dumps(out))`;
   // Owner's ladder: a problem in one agent's own work goes to that agent first (fixFirst: a run of its own); only if it
   // is still there 45 minutes later, or the agent cannot run itself, does it go to the fixer.
   st.fixing=undefined;st.ownerTold=undefined;st.filed||={};st.selfTried||={};const curKeys=new Set(),toFile=[],now=Date.now();
-  for(const x of all.filter(alertable)){const k=alertKey(x);if(curKeys.has(k))continue;curKeys.add(k);if(!st.told[k]||st.filed[k]||quiet(x.agent||null)==='test')continue;
+  for(const x of all.filter(forLadder)){const k=alertKey(x);if(curKeys.has(k))continue;curKeys.add(k);if(!st.told[k]||st.filed[k]||quiet(x.agent||null)==='test')continue;
    if(fixFirst&&x.agent&&!st.selfTried[k]){try{await fixFirst(String(x.agent).split('--')[0],x);st.selfTried[k]=now;console.log('health: '+x.agent+' fixes it itself first: '+k);continue}catch(e){console.log('health: '+x.agent+' cannot fix it itself ('+e.message+')')}}
    if(st.selfTried[k]&&now-st.selfTried[k]<45*60e3)continue;toFile.push(x)}
   for(const m of [st.filed,st.selfTried])for(const k of Object.keys(m))if(!curKeys.has(k)){if(m===st.selfTried&&!st.filed[k])console.log('health: fixed by the agent itself: '+k);delete m[k]}
