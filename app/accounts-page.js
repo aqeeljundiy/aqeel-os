@@ -35,7 +35,7 @@ PAGES.accounts=async(p,el)=>{const gone=pageTok(el);
  setActions(`<button data-act="acct-refresh">${icon('refresh',16)}Refresh</button>${S.me?.admin!==false?`<button class="primary" data-act="acct-new">${icon('plus',16)}Add account</button>`:''}`);
  const [d,oa]=await Promise.all([UI('/ui/accounts'+(Pages._acctFresh?'?fresh=1':'')),H('/providers/oauth?profile=default').catch(()=>null)]);Pages._acctFresh=false;Pages._acct=d;if(d.allow)S.acctAllow=d.allow;if(!Chat.models)await Chat.loadModels().catch(()=>{});if(gone())return;
  const oauth=new Set((oa?.providers||[]).map(x=>x.id));
- const src=acctSources(d,oauth);Pages._acctSrc=src;const admin=S.me?.admin!==false;const byKey=Object.fromEntries(src.map(s=>[s.key,s]));
+ const src=acctSources(d,oauth);Pages._acctSrc=src;Pages._acctD=d;const admin=S.me?.admin!==false;const byKey=Object.fromEntries(src.map(s=>[s.key,s]));
  // Used by: the agents really on it now (their route), not the old per-account choice
  const usedBy=k=>Object.entries(d.route||{}).filter(([,r])=>r.entry===k).map(([n])=>({id:n,name:ident(n).name}));
  const pri=(d.priority||[]).filter(e=>byKey[e.key]);Pages._pri=pri;
@@ -62,7 +62,8 @@ PAGES.accounts=async(p,el)=>{const gone=pageTok(el);
   <div class="acct-st">${status(s)}</div>
   <div class="acct-lim">${limits(s)}${(s.details||[]).map(x=>`<p class="hint" style="margin:6px 0 0">${esc(x)}</p>`).join('')}</div>
   <div class="acct-agents"><span class="th">Used by</span>${u.length?Access.who({users:u})+`<span class="acct-names">${esc(u.map(x=>x.name).join(', '))}</span>`:'<span class="hint" style="margin:0">No agent yet</span>'}</div></div>`};
- const left=src.filter(s=>!pri.some(e=>e.key===s.key)&&!(s.isTeam&&!usedBy(s.key).length));
+ // an account can be in the list again with another model (more than one entry per account, 6 Nov 2026)
+ const left=src.filter(s=>!(s.isTeam&&!usedBy(s.key).length)&&(!pri.some(e=>e.key===s.key)||(s.models||[]).some(m=>!pri.some(e=>e.key===s.key&&e.model===m))));
  // needs sign-in, key rejected or out of credit: one line each, with the same Reconnect as the card (it goes once it works again)
  const outs=admin?(d.signedOut||[]):[];
  const ev=(d.events||[]).map(e=>{const to=byKey[e.to]||byKey['claude:'+e.to];return `<div class="sw-row"><span class="sw-t">${esc(shortWhen(e.t))}</span><span class="sw-who">${agentAvatar(e.profile,22,{title:false})}<b>${esc(ident(e.profile).name)}</b>${icon('chevR',14)}<span>${esc(to?.name||e.to)}</span></span>${e.why?`<span class="chip sw-why">${esc(e.why)}</span>`:''}</div>`});
@@ -72,10 +73,12 @@ PAGES.accounts=async(p,el)=>{const gone=pageTok(el);
  <div class="two" style="margin-top:16px"><div class="panel card if-fails"><h2>If an account fails</h2><p class="sub">What aqeelOS does by itself so your agents keep answering.</p>
   <h3 class="if-h">${icon('gauge',15)}An account runs low</h3><p class="hint if-p">Checked every 5 minutes. ${pri.length?'An agent moves to the next account in the priority list that has room.':'Without a priority list, each agent moves to another account of the same kind with the most room.'}</p>
   <div class="auto-ctl"><div class="auto-on"><span><b>Switch when an account runs low</b><small>${d.auto.on?'On':'Off'}: agents ${d.auto.on?'move':'stay where they are'} when their account is nearly used up</small></span>${toggle(d.auto.on,'Switch automatically','id="acAuto"')}</div>
-   <div class="auto-th"><span><b>Switch at</b><small>Session or weekly use</small></span><select id="acTh" aria-label="Switch at" style="width:auto">${[70,80,90,95].map(v=>`<option value="${v}" ${+d.auto.threshold===v?'selected':''}>${v}% used</option>`).join('')}</select></div></div>
+   <div class="auto-th"><span><b>Switch at</b><small>Session or weekly use</small></span><select id="acTh" aria-label="Switch at" style="width:auto">${[70,80,90,95].map(v=>`<option value="${v}" ${+d.auto.threshold===v?'selected':''}>${v}% used</option>`).join('')}</select></div>
+   <div class="auto-on"><span><b>Go back up the list</b><small>An agent that was moved returns to a higher entry once it has room again, also when switching is off</small></span>${toggle(d.auto.backHome!==false,'Go back up the list','id="acBack"')}</div>
+   <div class="auto-th"><span><b>Go back when it has</b><small>Free on the higher entry, checked twice in a row</small></span><select id="acFree" aria-label="Go back when it has" style="width:auto">${[10,20,30,50].map(v=>`<option value="${v}" ${(+d.auto.backFree||20)===v?'selected':''}>${v}% free</option>`).join('')}</select></div></div>
   ${ev.length?`<h3 class="sw-h">Recent switches</h3><div class="sw-list">${ev.slice(0,6).join('')}</div>${ev.length>6?`<div class="sw-more"><div class="sw-list">${ev.slice(6).join('')}</div></div><button class="ghost small sw-all" data-act="sw-all" aria-expanded="false">Show all ${ev.length}</button>`:''}`:''}
   ${admin?`<h3 class="if-h">${icon('refresh',15)}A model stops answering</h3><p class="hint if-p">After 3 failed tries the engine answers that one reply with the agent’s fallback models, in this order, and starts on its own model again next time. They follow the priority list.</p><div class="fb-list" id="ifFb">${skeleton(1)}</div>`:''}</div>
- <div class="panel card"><h2>Which agent uses what</h2><p class="sub">Takes effect on the agent's next message.</p>${Object.entries(d.route||{}).map(([n,r])=>fieldRow(esc(ident(n).name),esc(modelLabel(r.model)),`<select data-use="${esc(n)}">${src.map(s=>`<option value="${esc(s.key)}" ${s.key===r.entry?'selected':''} ${s.ok?'':'disabled'}>${esc(s.name)}${s.used!=null?' · '+s.used+'% used':''}</option>`).join('')}</select>`)).join('')}</div></div>
+ <div class="panel card"><div class="h-row"><h2 style="margin:0">Which agent uses what</h2>${admin&&Object.keys(d.route||{}).length>1?`<button class="ghost" data-act="use-bulk">${icon('users',15)}Set several</button>`:''}</div><p class="sub">Takes effect on the agent's next message.</p>${Object.entries(d.route||{}).map(([n,r])=>fieldRow(esc(ident(n).name),esc(modelLabel(r.model)),`<select data-use="${esc(n)}">${src.map(s=>`<option value="${esc(s.key)}" ${s.key===r.entry?'selected':''} ${s.ok?'':'disabled'}>${esc(s.name)}${s.used!=null?' · '+s.used+'% used':''}</option>`).join('')}</select>`)).join('')}</div></div>
  <h2 class="ach-cat">All accounts</h2><div class="grid-cards acct-grid">${(admin?src:src.filter(s=>usedBy(s.key).some(x=>S.me?.agents?.[x.id]))).map(card).join('')||(admin?'':'<p class="hint">None of your agents uses an AI account yet.</p>')}${admin?`<button class="card tile acct acct-more" data-act="acct-new">${icon('plus',22)}<b>Add account</b><span>Claude, ChatGPT, Google AI Pro, or any provider with an API key.</span></button>`:''}</div>`;
  el.querySelectorAll('[data-pri-model]').forEach(s=>s.onchange=()=>{const l=pri.map(e=>({...e}));l[+s.dataset.priModel].model=s.value;savePri(l)});
  el.querySelectorAll('[data-use]').forEach(s=>s.onchange=async()=>{const e=pri.find(x=>x.key===s.value);try{await UI('/ui/accounts/use',{method:'POST',body:{profile:s.dataset.use,key:s.value,model:e?.model||''}});toast(ident(s.dataset.use).name+' now uses '+byKey[s.value].name);reload()}catch(er){fail(er);reload()}});
@@ -84,8 +87,8 @@ PAGES.accounts=async(p,el)=>{const gone=pageTok(el);
   r.ondragover=e=>{if(from==null)return;e.preventDefault();r.classList.add('over')};r.ondragleave=()=>r.classList.remove('over');
   r.ondrop=e=>{e.preventDefault();r.classList.remove('over');const to=+r.dataset.pri;if(from==null||from===to)return;const l=[...pri];l.splice(to,0,l.splice(from,1)[0]);from=null;savePri(l)}});
  const saveAuto=async()=>{const on=$('#acAuto').checked;const sm=el.querySelector('.auto-on small');if(sm)sm.textContent=(on?'On':'Off')+': agents '+(on?'move':'stay where they are')+' when their account is nearly used up';
-  try{await UI('/ui/accounts/auto',{method:'PUT',body:{on,threshold:+$('#acTh').value}});toast(on?'Automatic switching on':'Automatic switching off')}catch(e){fail(e)}};
- $('#acAuto').onchange=saveAuto;$('#acTh').onchange=saveAuto;
+  try{await UI('/ui/accounts/auto',{method:'PUT',body:{on,threshold:+$('#acTh').value,backHome:$('#acBack').checked,backFree:+$('#acFree').value}});toast('Saved')}catch(e){fail(e)}};
+ $('#acAuto').onchange=saveAuto;$('#acTh').onchange=saveAuto;$('#acBack').onchange=saveAuto;$('#acFree').onchange=saveAuto;
  // each agent's fallback models (backup-models.mjs) and the engine's extra keys, filled in once read: the page shows first
  if(admin)(async()=>{const box=el.querySelector('#ifFb');const [fb,pool,mine]=await Promise.all([UI('/ui/models/fallbacks').catch(()=>null),H('/credentials/pool').catch(()=>null),viewAgents().catch(()=>[])]);if(gone()||!box?.isConnected)return;
   const rows=(fb?.agents||[]).filter(x=>x.models?.length&&!x.agent.includes('--')&&(!mine.length||mine.includes(x.agent)))   /* the agents you may look at (not a member's private one) */,keys=(pool?.providers||[]).map(pv=>{const l=pv.entries||pv.keys||[],s=pv.provider||pv.name;return [provLabel({slug:s,name:pretty(s)}),l.length,l.filter(k=>XKEY_BAD.test(k.last_status||'')).length]}).filter(x=>x[1]),nBad=keys.reduce((t,x)=>t+x[2],0);
@@ -106,10 +109,24 @@ const xkeysAgain=async d=>{try{Pages._xkeys=(await H('/credentials/pool')).provi
 ACT['xkey-del']=async a=>{if(!await confirmBox('Remove this key?','The engine stops rotating to it.','Remove'))return;a.disabled=true;try{await del(H,'/credentials/pool/'+encodeURIComponent(a.dataset.p)+'/'+a.dataset.i);toast('Key removed');await xkeysAgain(Pages._xkD)}catch(e){a.disabled=false;fail(e)}};
 // Recent switches: the rest fold open and shut smoothly
 ACT['sw-all']=a=>{const m=a.previousElementSibling,open=!m.classList.contains('open');m.classList.toggle('open',open);a.setAttribute('aria-expanded',open);a.textContent=open?'Show fewer':'Show all '+(a.closest('.panel').querySelectorAll('.sw-row').length)};
+// several agents onto one account and model at once (owner, 6 Nov 2026): tick the agents, pick where, Apply
+ACT['use-bulk']=()=>{const d=Pages._acctD,src=Pages._acctSrc||[];const route=d?.route||{};const names=Object.keys(route).filter(n=>!n.includes('--'));
+ const opts=[...(Pages._pri||[]).map(e=>({key:e.key,model:e.model})),...src.filter(s=>s.ok&&!s.isTeam&&!(Pages._pri||[]).some(e=>e.key===s.key)).map(s=>({key:s.key,model:''}))];
+ const name=o=>{const s=src.find(x=>x.key===o.key);return (s?.name||o.key)+(o.model?' · '+modelLabel(o.model):'')};
+ const dr=drawer('Set several agents',`<label>Agents</label><div class="bulk-agents">${names.map(n=>`<label class="chk-row">${toggle(false,ident(n).name,'data-bulk="'+esc(n)+'"')}${agentAvatar(n,22,{title:false})}<span>${esc(ident(n).name)}</span><small class="hint">${esc(modelLabel(route[n]?.model||''))}</small></label>`).join('')}</div>
+  <label for="bulkTo">Use</label><select id="bulkTo">${opts.map((o,i)=>`<option value="${i}">${esc(name(o))}</option>`).join('')}</select><p class="hint">Only accounts that are signed in. It takes effect on each agent's next message.</p>`,
+  `<button class="ghost" data-act="close">Cancel</button><button class="primary" id="bulkGo">Apply</button>`,{size:'sm'});
+ dr.querySelector('#bulkGo').onclick=async e=>{const pick=[...dr.querySelectorAll('[data-bulk]')].filter(x=>x.checked).map(x=>x.dataset.bulk);if(!pick.length)return toast('Tick at least one agent','err');
+  const o=opts[+dr.querySelector('#bulkTo').value];e.currentTarget.disabled=true;let ok=0;const bad=[];
+  for(const n of pick){try{await UI('/ui/accounts/use',{method:'POST',body:{profile:n,key:o.key,model:o.model||''}});ok++}catch(er){bad.push(ident(n).name+': '+(er.message||er))}}
+  closeLayers();toast(ok+' agent'+(ok===1?'':'s')+' now use'+(ok===1?'s':'')+' '+name(o)+(bad.length?'. Not changed: '+bad.join('; '):''),bad.length?'err':'');reload()}};
 async function savePri(list){try{await UI('/ui/accounts/priority',{method:'PUT',body:{priority:list}});reload()}catch(e){fail(e)}}
 ACT['pri-move']=a=>{const l=[...Pages._pri],i=+a.dataset.i,j=i+ +a.dataset.dir;[l[i],l[j]]=[l[j],l[i]];savePri(l)};
 ACT['pri-del']=a=>{const l=[...Pages._pri];l.splice(+a.dataset.i,1);savePri(l)};
-Pages.priAddMenu=el=>{const used=new Set(Pages._pri.map(e=>e.key));menu(el,Pages._acctSrc.filter(s=>!used.has(s.key)).map(s=>({label:s.name,icon:s.key.startsWith('claude:')?'user':'cpu',run:()=>savePri([...Pages._pri,{key:s.key,model:''}])})))};
+Pages.priAddMenu=el=>{const pri=Pages._pri,has=(k,m)=>pri.some(e=>e.key===k&&e.model===m);const items=[];
+ for(const s of Pages._acctSrc.filter(x=>!x.isTeam)){if(!pri.some(e=>e.key===s.key)){items.push({label:s.name,icon:s.key.startsWith('claude:')?'user':'cpu',run:()=>savePri([...pri,{key:s.key,model:''}])});continue}
+  for(const m of (s.models||[]).filter(m=>!has(s.key,m)))items.push({label:s.name+' · '+modelLabel(m),sub:'Again, with this model',icon:s.key.startsWith('claude:')?'user':'cpu',run:()=>savePri([...pri,{key:s.key,model:m}])})}
+ menu(el,items.length?items:[{header:'Every account and model is in the list'}])};
 
 /* ---------- the ⋯ menu, the same on every account card: Reconnect, Rename, Choose agents…, its place in the priority
    list, and Remove. The same words for every kind of account (25 Oct). What does not apply is shown greyed with why. ---------- */

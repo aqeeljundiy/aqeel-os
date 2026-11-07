@@ -37,8 +37,10 @@ const MODELS={[PLUGIN]:['claude-sonnet-5-5[1m]','claude-opus-5-5[1m]'],'openai-c
 const signed=(...on)=>e=>{const p=e.key.startsWith('claude:')?PLUGIN:e.key.slice(2);return on.includes(p)?{provider:p,models:MODELS[p]}:null};
 test('list: the accounts below the current one, each with its best model',()=>{
  assert.deepEqual(backupList({priority:PRI,cur:'claude:main',curProvider:PLUGIN,usable:signed(PLUGIN,'openai-codex','antigravity-subscription')}),[{provider:'openai-codex',model:'gpt-6.1-sol'},{provider:'antigravity-subscription',model:'gemini-4-argon-high'}]);
- // on ChatGPT (moved there): only what is below it
- assert.deepEqual(backupList({priority:PRI,cur:'p:openai-codex',curProvider:'openai-codex',usable:signed(PLUGIN,'openai-codex','antigravity-subscription')}),[{provider:'antigravity-subscription',model:'gemini-4-argon-high'}]);
+ // on ChatGPT (moved there): what is below it first, then round to the top, so Claude is a backup again (6 Nov 2026)
+ assert.deepEqual(backupList({priority:PRI,cur:'p:openai-codex',curProvider:'openai-codex',usable:signed(PLUGIN,'openai-codex','antigravity-subscription')}).map(e=>e.provider),['antigravity-subscription',PLUGIN]);
+ // the last entry still has backups
+ assert.ok(backupList({priority:PRI,cur:PRI.at(-1).key,curProvider:'x',usable:signed(PLUGIN,'openai-codex','antigravity-subscription')}).length>0);
  // on nothing in the list: every other entry, Claude too
  assert.deepEqual(backupList({priority:PRI.slice(1),cur:'p:nous',curProvider:'nous',usable:signed('openai-codex')}).map(e=>e.provider),['openai-codex'])});
 test('list: signed out, rejected, not allowed, the same provider and an outage are left out',()=>{

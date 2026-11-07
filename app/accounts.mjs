@@ -3,7 +3,7 @@
 // Each account is its own Claude Code config folder (CLAUDE_CONFIG_DIR); the main one is ~/.claude.
 // Hermes' Claude plugin is pointed at an account per agent with its `claude_config_dir` setting.
 import {spawn,execFile} from 'node:child_process';
-import {readFile,writeFile,mkdir,rename,rm,readdir,cp,access,stat,copyFile} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,rename,rm,readdir,cp,access,stat,copyFile,appendFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import path from 'node:path';
 import {hermes as hq,setKey,readConfig,pick,editEnv,agentNames,setStatus,getStatus,LIVE_APP} from './agentops.mjs';
@@ -31,7 +31,10 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
  // finishing) never saves a stale copy over another's change; each write has its own tmp file; a change that returns false saves nothing
  let saving=Promise.resolve();
  const update=fn=>{const p=saving.then(async()=>{const d=await load();const r=await fn(d);if(r===false)return r;await mkdir(DATA,{recursive:true});const tmp=FILE+'.'+process.pid+'.'+Date.now()+'.'+Math.random().toString(36).slice(2)+'.tmp';await writeFile(tmp,JSON.stringify(d,null,1));await rename(tmp,FILE);return r});saving=p.catch(()=>{});return p};
- const event=(x,e)=>{x.events=[e,...(x.events||[])].slice(0,50)};
+ // every model move: kept here (the last 50), in DATA/model-moves.jsonl for good, and told to the owner (accountHooks.tell)
+ // unless a person made it by hand (6 Nov 2026: seven agents moved to GPT in silence)
+ const event=(x,e)=>{x.events=[e,...(x.events||[])].slice(0,50);appendFile(path.join(DATA,'model-moves.jsonl'),JSON.stringify({at:new Date(e.t||Date.now()).toISOString(),...e})+'\n').catch(()=>{});
+  if(e.why!=='Chosen by hand')Promise.resolve(accountHooks.tell?.(e)).catch(()=>{})};
  const all=d=>[{...MAIN,label:d.mainLabel||MAIN.label},...d.accounts.filter(a=>a.id!=='main')];
  const run=(cmd,args,env={},timeout=30000)=>new Promise(res=>execFile(cmd,args,{env:{...process.env,...env},timeout,maxBuffer:4e6},(err,stdout,stderr)=>res({ok:!err,out:String(stdout||''),err:String(stderr||err?.message||'')})));
 
@@ -206,20 +209,26 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
   if(!ws.length)return SUBS.test(p.slug+' '+p.name)?null:0;return worstOf(ws)}
 
  /* ---------- auto-switch: move agents off an account that is nearly used up, and back once it has room ---------- */
- async function autoTick(){const d=await load();if(!d.auto?.on)return;const th=Number(d.auto.threshold)||90;const accts=all(d);
+ const upSeen=new Map();   // agent → the higher entry it could go back to, and how many checks in a row
+ async function autoTick(){const d=await load();const on=!!d.auto?.on,back=d.auto?.backHome!==false;if(!on&&!back)return;const th=Number(d.auto?.threshold)||90;const accts=all(d);
+  // back home: an entry higher in the list is used again once it has this share free (owner's setting, 20% by default)
+  const backAt=100-(Number(d.auto?.backFree)||20);
   const det=Object.fromEntries(await Promise.all(accts.map(async a=>[a.id,await details(a)])));
   if((d.priority||[]).length){
    for(const profile of await agents()){const prov=await providers(false,profile);if(!prov)continue;   // its gateway did not answer: nothing is known this tick
-    const cur=await entryOf(d,profile),model=(await agentRoute(profile)).model;const used=usageOf(cur,det,prov,model);const at=d.priority.findIndex(e=>e.key===cur);
+    const cur=await entryOf(d,profile),model=(await agentRoute(profile)).model;const used=usageOf(cur,det,prov,model);let at=d.priority.findIndex(e=>e.key===cur&&(e.model===model||!e.model));if(at<0)at=d.priority.findIndex(e=>e.key===cur);
     // a provider in an outage (backup-models.mjs) has no room, so nobody is moved back up to it before it works again
     const room=(e,lim)=>{if(accountHooks.held?.(e.key))return false;const u=usageOf(e.key,det,prov,e.model||(e.key.startsWith(PLUGIN_KEY)&&!isClaude(model)?'':model));return u!==null&&u<lim};
     // back up the list: a higher entry with room again (10 points under the limit, so it does not flip back and forth);
     // an agent someone moved by hand stays where they put it
     const byHand=(d.events||[]).find(e=>e.profile===profile)?.why==='Chosen by hand';
-    const up=at>0&&!byHand?d.priority.slice(0,at).filter(e=>room(e,th-10)):[];
-    const down=used!==null&&used>=th?d.priority.filter(e=>e.key!==cur&&!up.includes(e)&&room(e,th)):[];
-    for(const e of [...up,...down]){const done=await useEntry(d,profile,e,up.includes(e)?'Back to a higher account with room':`Reached ${used}%`).then(()=>true,er=>{console.warn('auto-switch',er.message);return false});if(done)break}}
+    let up=at>0&&!byHand&&back?d.priority.slice(0,at).filter(e=>room(e,backAt)):[];
+    // two checks in a row (10 minutes) before going back, so it does not flip back and forth
+    if(up.length){const k=up[0].key+'|'+up[0].model;const s=upSeen.get(profile);const n=s?.k===k?s.n+1:1;upSeen.set(profile,{k,n});if(n<2)up=[]}else upSeen.delete(profile);
+    const down=on&&used!==null&&used>=th?d.priority.filter((e,i)=>i!==at&&!up.includes(e)&&room(e,th)):[];
+    for(const e of [...up,...down]){const done=await useEntry(d,profile,e,up.includes(e)?'Back to a higher entry: it has '+(100-backAt)+'% free again':`Reached ${used}%`).then(()=>true,er=>{console.warn('auto-switch',er.message);return false});if(done)break}}
    return}
+  if(!on)return;
   for(const profile of await agents()){const cur=d.assign[profile]||'main';const v=det[cur];if(!v?.usage)continue;
    const worst=claudeUsed(v.usage,(await agentRoute(profile)).model);if(worst<th)continue;
    const best=accts.filter(a=>a.id!==cur&&det[a.id]?.signedIn&&det[a.id]?.usage).sort((x,y)=>headroom(det[y.id])-headroom(det[x.id]))[0];
@@ -378,13 +387,15 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    await note(Object.fromEntries(list.map(v=>[v.id,v])),pv).catch(e=>console.warn('signed-out note',e.message));const route=Object.fromEntries(await Promise.all(ag.map(async n=>[n,{entry:await entryOf(d,n),...await agentRoute(n)}])));
    return send(res,200,{accounts:list,providers:prov,priority:d.priority||[],labels:d.labels||{},route,assign:Object.fromEntries(ag.map(n=>[n,d.assign[n]||'main'])),auto:d.auto||{on:false,threshold:90},events:(d.events||[]).filter(e=>see(e.profile)),signedOut:await signedOut(),keys:accountHooks.keyStatus?.()||{},allow:d.allow||[]})}
   if(p==='/ui/accounts/priority'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
-   const pr=(Array.isArray(b.priority)?b.priority:[]).filter(e=>e&&typeof e.key==='string'&&/^(claude:[a-z0-9-]+|p:[a-z0-9_.-]+)$/.test(e.key)).slice(0,20).map(e=>({key:e.key,model:String(e.model||'').slice(0,120)}));
+   // an account may be in the list more than once, with another model each time (more than 4 entries, 6 Nov 2026)
+   const seenE=new Set();const pr=(Array.isArray(b.priority)?b.priority:[]).filter(e=>e&&typeof e.key==='string'&&/^(claude:[a-z0-9-]+|p:[a-z0-9_.-]+)$/.test(e.key)).map(e=>({key:e.key,model:String(e.model||'').slice(0,120)}))
+    .filter(e=>{const k=e.key+'|'+e.model;if(seenE.has(k))return false;seenE.add(k);return true}).slice(0,20);
    d.priority=pr;await update(x=>{x.priority=pr});autoTick().catch(()=>{});accountHooks.backupSync?.('priority');return send(res,200,{priority:d.priority})}
   if(p==='/ui/accounts/use'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const profile=String(b.profile||'');if(!/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(profile))return send(res,400,{error:'Bad agent name'});if(!see(profile))return send(res,403,{error:'This agent is private to its owner.'});
    try{await useEntry(d,profile,{key:String(b.key||''),model:String(b.model||'')},'Chosen by hand');return send(res,200,{ok:true})}catch(e){return send(res,400,{error:e.message})}}
   if(p==='/ui/accounts'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{return send(res,200,await startLogin(b.label))}catch(e){return send(res,500,{error:e.message})}}
   if(p==='/ui/accounts/assign'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}if(!see(String(b.profile||'')))return send(res,403,{error:'This agent is private to its owner.'});try{await assign(d,String(b.profile||''),String(b.account||''),b.why||'');return send(res,200,{ok:true})}catch(e){return send(res,400,{error:e.message})}}
-  if(p==='/ui/accounts/auto'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const au={on:!!b.on,threshold:Math.min(99,Math.max(50,Number(b.threshold)||90))};d.auto=au;await update(x=>{x.auto=au});autoTick().catch(()=>{});return send(res,200,d.auto)}
+  if(p==='/ui/accounts/auto'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const au={on:!!b.on,threshold:Math.min(99,Math.max(50,Number(b.threshold)||90)),backFree:Math.min(80,Math.max(5,Number(b.backFree)||20)),backHome:b.backHome!==false};d.auto=au;await update(x=>{x.auto=au});autoTick().catch(()=>{});return send(res,200,d.auto)}
   // Rename, one way for every account (25 Oct): a Claude account's own label, another account's name here; an empty
   // name goes back to the provider's (a Claude account's stays)
   if(p==='/ui/accounts/label'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const k=String(b.key||''),l=String(b.label||'').trim().slice(0,60);

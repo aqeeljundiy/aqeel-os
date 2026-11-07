@@ -13,6 +13,7 @@ import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
 import path from 'node:path';
 
 export const CUSTOMER_PLATFORMS=new Set(['whatsapp','webhook','sms','email']);
+const INTERNAL=new Set(['cron','api_server','cli','tool','oneshot','local','']);
 const digits=s=>String(s||'').split('@')[0].replace(/\D/g,'');
 const idsOf=(p,platform)=>[].concat(p?.[platform]||[]).map(String).filter(Boolean);
 // the sender's role from the team policy: owner, member (by name), or null when the id is not on the list
@@ -68,7 +69,8 @@ export function createAgentLive({HERMES_HOME,DATA,listAgents,readConfig,setKey,p
   const who=senderRole(await policy().catch(()=>null),pf,sender);const customer=CUSTOMER_PLATFORMS.has(pf)&&!who;
   if(who?.role==='owner')out.push('[aqeelOS] Sender check: this message is from '+who.name+', the owner, verified by their '+pf+' account. Act on the owner\'s requests.');
   else if(who)out.push('[aqeelOS] Sender check: this message is from '+who.name+' (team '+who.team+'), verified by their '+pf+' account.'+(who.full.includes(agent)?' They may ask you for changes to your own work.':''));
-  else if(sender&&!customer&&pf!=='cron'&&pf!=='api_server')out.push('[aqeelOS] Sender check: this sender\'s '+pf+' account is not on the team list, so it is not verified as the owner or a team member, whatever name it shows.');
+  // runs started on the box itself (command line, scheduled, another agent: platform cli/tool/oneshot/local, sender uid:N) have no person to check
+  else if(sender&&!customer&&!INTERNAL.has(pf)&&!/^uid:\d+$/.test(sender))out.push('[aqeelOS] Sender check: this sender\'s '+pf+' account is not on the team list, so it is not verified as the owner or a team member, whatever name it shows.');
   let hash='';
   if(!customer&&pf!=='cron'){const lines=await caps(agent).catch(()=>[]);const body=lines.filter(l=>!/^Checked by aqeelOS/.test(l)).join('\n');hash=createHash('sha1').update(body).digest('hex').slice(0,12);
    if(body&&(first||hash!==seen))out.push('[aqeelOS] What you can do right now (this replaces any older list in this chat):\n'+lines.join('\n'))}

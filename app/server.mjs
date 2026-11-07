@@ -748,6 +748,12 @@ const backupModels=createBackupModels({DATA,HERMES_HOME,live:LIVE_APP||bmTest,..
  probe:engineProbe({python:enginePython,root,engine:path.join(HERMES_HOME,'hermes-agent')}),nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a),clock:ms=>clockAt(ms,tzNow),
  tell:async(text,{detail,whatsapp,bell=true,topic,info,resolve}={})=>{if(resolve)await bottlenecks.resolve(resolve).catch(()=>{});if(!text)return;if(bell)await bottlenecks.event('automations',text,detail||'',{topic,info,told:!!whatsapp}).catch(()=>{});if(whatsapp)await toOwner(text+(detail?'\n'+detail:''))}});
 accountHooks.held=k=>backupModels.held(k);accountHooks.backupSync=why=>backupModels.soon(why);
+// every automatic model move is told to the owner: moves within 30 seconds go in one message (6 Nov 2026: seven agents
+// moved to GPT and nobody heard of it)
+{let movesQ=[],movesT=null;accountHooks.tell=e=>{if(!LIVE_APP)return;movesQ.push(e);clearTimeout(movesT);movesT=setTimeout(async()=>{const l=movesQ;movesQ=[];
+ const to=k=>{const m=/^claude:(.+)$/.exec(k||'');return m?'Claude ('+m[1]+')':String(k||'').replace(/^p:/,'')};
+ const text='Model change'+(l.length>1?'s ('+l.length+')':'')+':\n'+l.map(x=>'- '+(NAMES[x.profile]||x.profile)+' → '+to(x.to)+(x.why?' ('+x.why+')':'')).join('\n')+'\nModels › AI accounts shows the history.';
+ await bottlenecks.event('models',l.length+' model change(s)',text,{info:true}).catch(()=>{});await srToOwner(text).catch(err=>console.warn('model moves: owner not told',err.message))},30e3)}}
 /* Connected accounts (connected-accounts.mjs, 31 Oct 2026): every login where an agent acts as the owner (Google, Slack
    and Notion sign-ins, a personal Telegram session), with Pause, allowed actions and Disconnect. Only the live app looks
    by itself and adds a Bottlenecks item; a copy on another port with its own engine home may, for testing (ACCOUNTS_TEST=1, and

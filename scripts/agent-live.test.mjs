@@ -34,7 +34,8 @@ test('a chat gets the capability list on its first turn and again only when it c
  const stranger=await L.context('continue-support',{platform:'telegram',sender:'42',seen:changed.hash});assert.match(stranger.text,/not verified as the owner/);
  const member=await L.context('continue-support',{platform:'telegram',sender:'1339820731',seen:changed.hash});assert.match(member.text,/Amri \(team Continue\)[\s\S]*changes to your own work/);
  assert.equal((await L.context('continue-support',{platform:'whatsapp',sender:'628111',first:true})).text,'');
- assert.equal((await L.context('continue-support',{platform:'cron',first:true})).text,'')});
+ assert.equal((await L.context('continue-support',{platform:'cron',first:true})).text,'');
+ for(const pf of ['cli','tool','oneshot'])assert.doesNotMatch((await L.context('continue-support',{platform:pf,sender:'uid:1001',first:true})).text,/Sender check/)});
 
 test('a held script error is kept once per kind, told to the agent once, and listed in its health',async()=>{const {L,tick}=await make();
  await L.hold('continue-support',{error:TB,platform:'cron'});const r2=await L.hold('continue-support',{error:TB.replace('line 10','line 11'),platform:'cron'});assert.equal(r2.count,2);

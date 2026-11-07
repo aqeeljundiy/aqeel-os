@@ -42,11 +42,13 @@ export function bestModel(slug,models){const l=(models||[]).map(m=>typeof m==='s
  if(/claude/i.test(slug)){const o=c.find(m=>/opus/i.test(m));if(o)return o}
  else{const other=c.filter(m=>!/claude|opus|sonnet|haiku|fable/i.test(m));if(other.length)c=other}
  return c.find(m=>/-high$/i.test(m))||c[0]}
-// an agent's backup list: the priority entries below its current one (all others when it is on none of them), each one
+// an agent's backup list: the priority entries below its current one, then the ones above it (all others when it is on none of them), each one
 // this agent can use (usable(entry) → {provider, models} or null), one per provider and never its own provider (the engine
 // would skip it), at most 3, with a model its owner may use. held(key): a provider in an outage is left out.
 export function backupList({priority=[],cur,curProvider,usable,modelOk=()=>true,held=()=>false,max=3}){
- const at=priority.findIndex(e=>e.key===cur),below=at>=0?priority.slice(at+1):priority.filter(e=>e.key!==cur),out=[];
+ // the entries below it first, then (wrapping round) the ones above it: an agent at the bottom of the list still has
+ // backups (6 Nov 2026: agents moved onto the last entry got none, and failed on its 429 for an hour)
+ const at=priority.findIndex(e=>e.key===cur),below=at>=0?[...priority.slice(at+1),...priority.slice(0,at)]:priority.filter(e=>e.key!==cur),out=[];
  for(const e of below){if(held(e.key))continue;const u=usable(e);if(!u?.provider||u.provider===curProvider||out.some(x=>x.provider===u.provider))continue;
   const ok=(u.models||[]).filter(m=>modelOk(u.provider,m));
   const model=e.model&&modelOk(u.provider,e.model)&&(!u.models?.length||u.models.includes(e.model))?e.model:bestModel(u.provider,ok);
