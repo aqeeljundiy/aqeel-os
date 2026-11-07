@@ -60,8 +60,8 @@ test('the key register keeps no values; it finds keys gone, two different copies
  await writeFile(path.join(W,'continue-support','.secrets','XENDIT_SECRET_KEY'),'xnd_other_value_99\n');
  const care=createAgentCare({HERMES_HOME:H,WORK:W,DATA:D,fpKey:async()=>'k',homes:async()=>['default','continue-support','default--whatsapp-2'],readConfig:async()=>({}),pick:()=>null,jobs:async()=>[],updateJob:async()=>{},
   notices:{setNotices:async(a,k,l)=>{set[a+'/'+k]=l}},log:()=>{},now:()=>t});
- assert.deepEqual(await care.keysTick(),{shared:1});
- assert.match(set['default/keys-shared'][0].text,/default--whatsapp-2:TELEGRAM_BOT_TOKEN, default:TELEGRAM_BOT_TOKEN/);
+ // the main agent and its own copy holding one key is not flagged
+ assert.deepEqual(await care.keysTick(),{shared:0});
  assert.deepEqual(set['continue-support/keys'].map(x=>x.key),['differ|XENDIT_SECRET_KEY']);
  const reg=await readFile(path.join(D,'agent-live','keys.json'),'utf8');assert.doesNotMatch(reg,/xnd_|kd_value|abcdefghij|sk-shared/);
  await writeFile(path.join(H,'profiles','continue-support','.env'),'XENDIT_SECRET_KEY=xnd_other_value_99\n');t+=60e3;await care.keysTick();

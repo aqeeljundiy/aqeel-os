@@ -91,13 +91,13 @@ export function createAgentCare({HERMES_HOME,WORK,DATA=null,fpKey=async()=>'',te
    for(const [n,w] of Object.entries(k)){reg[a][n]={...w,seen:t};if(w['.env']&&w['.secrets']&&w['.env']!==w['.secrets'])notes.push({key:'differ|'+n,text:'your key '+n+' has one value in .env and another in .secrets, so programs disagree. Keep the right one in both (ask the owner for a lockbox link if unsure).'})}
    for(const [n,w] of Object.entries(old[a]||{}))if(!k[n]){const gone=w.gone||t;if(t-gone<14*86400e3){reg[a][n]={...w,gone};notes.push({key:'gone|'+n,text:'your key '+n+' is gone from '+Object.keys(w).filter(x=>x.startsWith('.')).join(' and ')+' since '+new Date(gone).toISOString().slice(0,16).replace('T',' ')+' UTC. If you did not remove it on purpose, ask the owner for a lockbox link to put it back.'})}}
    per[a]=notes}
-  // one key in several agents: told to the owner's agent. Copies (name--x) count too: a copy should hold only its own
-  // channel keys. Model and search providers' keys are shared on purpose and left out.
+  // one key in several agents: told to the owner's agent. An agent and its own copies count as one; a key of another
+  // agent in a copy (a bot token) is still flagged. Model and search providers' keys are shared on purpose and left out.
   const byFp={};for(const [a,ks] of Object.entries(reg))for(const [n,w] of Object.entries(ks))if(!w.gone)for(const f of new Set(Object.entries(w).filter(([x])=>x.startsWith('.')).map(([,v])=>v)))(byFp[f]||(byFp[f]=new Set())).add(a+':'+n);
   // the engine's own keys (one per box by design) and keys shared inside one team (Randy and Gilang use one Kirimdev account)
   const SYSTEM=/^(API_SERVER_KEY|TERMINAL_SSH_KEY|HERMES_[A-Z_]+)$/;
   const SHARED_OK=/^(ANTHROPIC|OPENAI|GEMINI|GOOGLE_API|OPENROUTER|XAI|GROQ|DEEPSEEK|MISTRAL|ELEVENLABS|FIRECRAWL|EXA|TAVILY|BRAVE|PERPLEXITY|FAL|REPLICATE|HF)_/;
-  const dup=[];for(const set0 of Object.values(byFp)){const set=new Set([...set0].filter(x=>!SHARED_OK.test(x.split(':')[1])&&!SYSTEM.test(x.split(':')[1])));const agents=new Set([...set].map(x=>x.split(':')[0]));if(agents.size<2)continue;
+  const dup=[];for(const set0 of Object.values(byFp)){const set=new Set([...set0].filter(x=>!SHARED_OK.test(x.split(':')[1])&&!SYSTEM.test(x.split(':')[1])));const agents=new Set([...set].map(x=>base(x.split(':')[0])));if(agents.size<2)continue;   // an agent's own copies (name--x) are the same agent: Donna's WhatsApp copies use her Slack app secrets (7 Nov 2026)
    const teams=new Set();for(const a of agents)teams.add(await teamOf(a).catch(()=>null)||'-'+a);if(teams.size===1&&![...teams][0].startsWith('-'))continue;dup.push([...set].sort())}
   for(const [a,notes] of Object.entries(per))await notices.setNotices(base(a),'keys'+(a===base(a)?'':':'+a),notes);
   await notices.setNotices('default','keys-shared',dup.slice(0,20).map(l=>({key:'dup|'+l.join(','),text:'one key value is copied into several agents: '+l.join(', ')+'. Each agent should have its own key (a bot token belongs to one agent); remove the copies that should not have it.'})));
