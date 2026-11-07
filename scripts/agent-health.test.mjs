@@ -142,3 +142,34 @@ test('a skill pointing to a missing file is found; example paths in its text are
  const res=await checkSkills(path.join(D,'skills'),{home:D});
  assert.deepEqual(res.sort((a,b)=>a.skill<b.skill?-1:1),[{skill:'cat/one',missing:['references/gone.md']},{skill:'cat/two',missing:['~/tool.sh']}]);
  await writeFile(path.join(D,'tool.sh'),'');assert.equal((await checkSkills(path.join(D,'skills'),{home:D})).length,1)});
+
+// ---- live checks in plain code (7 Nov 2026)
+import {engineEvents,engineProblems,mcpState,mcpProblems,customerProblem,failingJobs,memProblems} from '../app/agent-health.mjs';
+test('engine: unclean and failed exits and a swapped state.db since the last check',()=>{
+ const since=Date.parse('2026-11-07T05:00:00Z');
+ const diag=[{ts:'2026-11-07T04:59:00+00:00',tag:'gateway.previous_unclean_exit'},{ts:'2026-11-07T05:10:00+00:00',tag:'gateway.previous_unclean_exit'},{ts:'2026-11-07T05:11:00+00:00',tag:'gateway.exit_nonzero'},{ts:'2026-11-07T05:12:00+00:00',tag:'gateway.exit_clean'}].map(x=>JSON.stringify(x)).join('\n')+'\nnot json';
+ const err='2026-11-06 16:32:34,049 ERROR hermes_state: FATAL: state.db was replaced underneath the gateway\n2026-11-07 05:20:00,000 ERROR hermes_state: FATAL: state.db was replaced underneath the gateway';
+ const e=engineEvents(diag,err,since);assert.deepEqual([e.unclean,e.nonzero,e.replaced],[1,1,1]);
+ assert.deepEqual(engineProblems(e).map(x=>x.topic),['health|aqeelos|engine-exit','health|aqeelos|state-db']);
+ assert.deepEqual(engineProblems(engineEvents(diag,err,Date.parse('2026-11-07T06:00:00Z'))),[])});
+test('tool servers: the latest registration line, and flapping in the last hour',()=>{const now=Date.parse('2026-11-07T06:00:00Z');
+ const L=(t,f)=>'2026-11-07 '+t+',100 INFO tools.mcp_tool: MCP: registered 158 tool(s) from 6 server(s)'+(f?' ('+f.length+' failed: '+f.map(x=>x+' (MCP OAuth for \''+x+'\': no tokens; run `hermes mcp login '+x+'`)').join('; ')+')':'');
+ const log=[L('05:10:00',['composio','notion']),L('05:20:00',['composio']),L('05:30:00',['composio','notion']),L('05:40:00',['composio']),L('05:50:00',['composio','notion']),
+  "2026-11-07 05:50:01,000 INFO tools.mcp_tool: MCP server 'aqeelos-customer' (HTTP): registered 6 tool(s): a, b"].join('\n');
+ const s=mcpState(log,now);assert.deepEqual(s.failed,['composio','notion']);assert.deepEqual(Object.keys(s.flaps),['notion']);assert.equal(s.customer,6);
+ assert.deepEqual(mcpProblems('a1',s).map(x=>x.topic),['health|a1|mcp-failed','health|a1|mcp-flap']);
+ assert.deepEqual(mcpProblems('a1',mcpState(L('05:55:00',null),now)),[])});
+test('customer tools: 6 listed and 6 registered, else a problem',()=>{
+ assert.equal(customerProblem('a',{listed:6,registered:6}),null);assert.match(customerProblem('a',{listed:null,registered:6}).text,/do not answer/);
+ assert.match(customerProblem('a',{listed:6,registered:0}).text,/too few/);assert.match(customerProblem('a',{listed:6,registered:null}).text,/did not register/)});
+test('schedules failing twice in a row; memory and load',()=>{
+ assert.deepEqual(failingJobs('a',[{id:'j1',name:'Report',failure_streak:2,last_error:'boom'},{id:'j2',failure_streak:1},{id:'j3',failure_streak:5,enabled:false}]).map(x=>x.topic),['health|a|failing|j1']);
+ assert.deepEqual(memProblems({used:95,max:100,load1:30,cpus:12}).map(x=>x.topic),['health|aqeelos|memory','health|aqeelos|load']);assert.deepEqual(memProblems({used:50,max:100,load1:20,cpus:12}),[])});
+test('the live checks run in tick, file nothing on their own, and clear when fine',async()=>{
+ const DATA=await mkdtemp(path.join(tmpdir(),'health-')),HOME=path.join(DATA,'hermes');await mkdir(path.join(HOME,'logs'),{recursive:true});await mkdir(path.join(HOME,'profiles','sup','logs'),{recursive:true});
+ const bn=createBottlenecks({DATA,dash:async()=>[],listAgents:async()=>[],names:a=>a});let mem={used:95,max:100,load1:1,cpus:4},listed=null;
+ const h=createAgentHealth({DATA,HERMES_HOME:HOME,bottlenecks:bn,python:async()=>null,link:'L',listAgents:async()=>['default','sup'],nameOf:a=>a,engineUp:async()=>true,botToken:async()=>null,
+  items:()=>bn.list({admin:true,mayUse:()=>true}),memInfo:async()=>mem,customerTools:async()=>listed,kirimdevAgents:async()=>['sup'],ps:async()=>[]});
+ await h.tick();let v=await h.view();const all=v.agents.flatMap(r=>r.problems.map(p=>p.kind));assert.ok(all.includes('memory'));assert.ok(all.includes('customer'));
+ mem={used:10,max:100,load1:1,cpus:4};listed=6;await writeFile(path.join(HOME,'profiles','sup','logs','agent.log'),"2026-11-07 05:50:01,000 INFO tools.mcp_tool: MCP server 'aqeelos-customer' (HTTP): registered 6 tool(s): a\n");
+ await h.tick();v=await h.view();assert.deepEqual(v.agents.flatMap(r=>r.problems.map(p=>p.kind)),[])});

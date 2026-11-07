@@ -15,7 +15,8 @@
 //     ~/.hermes/logs/aqeelos-dropped.jsonl, see scripts/engine-fixes-patch.mjs aqeelos:turn-retry-once).
 // Other features report their own checks with problem()/ok(): Kirimdev a handoff that was not confirmed delivered,
 // Threads a comment that is not visible after posting.
-import {readFile,writeFile,mkdir,rename,readdir,readlink} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,rename,readdir,readlink,open,stat} from 'node:fs/promises';
+import {cpus} from 'node:os';
 import {execFile} from 'node:child_process';
 import path from 'node:path';
 import {checkSkills} from './skill-check.mjs';
@@ -92,7 +93,7 @@ export function overview(agents,items,drops,nameOf=a=>a){const rows=agents.map(a
  for(const x of items){if(['invite','ticket','access'].includes(x.kind))continue;const base=x.agent?String(x.agent).split('--')[0]:null;(base&&idx.get(base)||(base?null:sys))?.problems.push(x)}
  for(const r of rows)r.ok=!r.problems.length;const list=[...rows.filter(r=>!r.ok),...rows.filter(r=>r.ok)];if(sys.problems.length)list.unshift({...sys,ok:false});return list}
 
-export function createAgentHealth({DATA,HERMES_HOME,bottlenecks,items,listAgents,nameOf,botToken,engineUp,python,tellOwner=null,link,quiet=()=>null,fixFirst=null,fileIssue=null,healthGone=null,ps=readPs,fetchJson=(u,o)=>fetch(u,{...o,signal:AbortSignal.timeout(15000)}).then(r=>r.json())}){
+export function createAgentHealth({DATA,HERMES_HOME,bottlenecks,items,listAgents,nameOf,botToken,engineUp,python,tellOwner=null,link,quiet=()=>null,fixFirst=null,fileIssue=null,healthGone=null,customerTools=null,kirimdevAgents=async()=>[],memInfo=readMem,ps=readPs,fetchJson=(u,o)=>fetch(u,{...o,signal:AbortSignal.timeout(15000)}).then(r=>r.json())}){
  const FILE=path.join(DATA,'agent-health.json');let st=null;
  const load=async()=>{if(!st){try{st=JSON.parse(await readFile(FILE,'utf8'))}catch{st={}}st.told||={};st.seen||={};st.groups||={}}return st};
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(st,null,1));await rename(FILE+'.tmp',FILE)};
@@ -138,10 +139,26 @@ print(json.dumps(out))`;
      'Missing: '+x.missing.slice(0,6).join(', ')+'. The agent fails halfway when it follows this skill. Put the file back, or change the skill so it no longer needs it ('+x.skill+'/SKILL.md).',{topic,agent:a})}}
   for(const t of st.skills||[])if(!keep.has(t))await bottlenecks.resolve(t);st.skills=[...keep]}
  async function checkDrops(agents){const d=await drops();for(const a of agents){const pr=dropProblem(a,d[a]);if(pr)await bottlenecks.event('dropped',pr.text,pr.detail,{topic:pr.topic,agent:a});else await bottlenecks.resolve('health|'+a+'|dropped')}}
+ // each check below keeps the topics it found (st.live[name]) so the ones that work again go away
+ async function keep(name,found){await load();st.live||={};for(const x of found)await bottlenecks.event(x.kind||name,x.text,x.detail,{topic:x.topic,...(x.agent?{agent:x.agent}:{})});
+  const now=new Set(found.map(x=>x.topic));for(const t of st.live[name]||[])if(!now.has(t))await bottlenecks.resolve(t);st.live[name]=[...now]}
+ // an engine event stays a problem for an hour after the last one, then goes away by itself
+ async function checkEngine(){await load();const since=st.engineAt||Date.now()-10*60e3;st.engineAt=Date.now();
+  const e=engineEvents(await tail(path.join(HERMES_HOME,'logs','gateway-exit-diag.log'),4e5),await tail(path.join(HERMES_HOME,'logs','errors.log'),1e6),since);
+  st.engineSeen||={};for(const x of engineProblems(e))st.engineSeen[x.topic]={...x,at:Date.now()};
+  for(const [k,v] of Object.entries(st.engineSeen))if(Date.now()-v.at>H)delete st.engineSeen[k];
+  await keep('engine',Object.values(st.engineSeen).map(({at,...x})=>({...x,kind:'engine'})))}
+ async function checkTools(agents){const found=[];for(const a of agents){const s2=mcpState(await tail(path.join(home(a),'logs','agent.log')));for(const x of mcpProblems(a,s2))found.push({...x,agent:a,kind:'tools'})}await keep('tools',found)}
+ async function checkCustomer(){if(!customerTools)return;const found=[];for(const a of await kirimdevAgents().catch(()=>[])){
+  const listed=await customerTools(a).catch(()=>null),registered=mcpState(await tail(path.join(home(a),'logs','agent.log'))).customer;
+  const pr=customerProblem(a,{listed,registered});if(pr)found.push({...pr,agent:a,kind:'customer'})}await keep('customer',found)}
+ async function checkFailing(agents){const found=[];for(const a of agents){let jobs=[];try{const d=JSON.parse(await readFile(path.join(home(a),'cron','jobs.json'),'utf8'));jobs=Array.isArray(d)?d:d.jobs||[]}catch{}
+  for(const x of failingJobs(a,jobs))found.push({...x,agent:a,kind:'stopped'})}await keep('failing',found)}
+ async function checkMemory(){await keep('memory',memProblems(await memInfo()).map(x=>({...x,kind:'memory'})))}
  // every 5 minutes on the live app: the checks, then the alert for what is new
  let running=null;
  async function tick(){if(running)return running;running=(async()=>{const agents=(await listAgents()).filter(a=>!a.includes('--'));
-  for(const [n,f] of [['schedules',checkSchedules],['messages',checkDrops],['groups',checkGroups],['processes',checkTwice],['skills',checkSkillFiles]])await f(agents).catch(e=>console.warn('health check',n,e.message));
+  for(const [n,f] of [['schedules',checkSchedules],['messages',checkDrops],['groups',checkGroups],['processes',checkTwice],['skills',checkSkillFiles],['engine',checkEngine],['tools',checkTools],['customer',checkCustomer],['failing',checkFailing],['memory',checkMemory]])await f(agents).catch(e=>console.warn('health check',n,e.message));
   await load();const all=await items();const {send,logged,fixed,state}=alertPlan(st,all,Date.now(),{quiet});st.told=state.told;st.seen=state.seen;st.about=state.about||{};st.muted=state.muted||{};
   if(logged.length)console.log('health: not told (restart hold):',logged.map(x=>alertKey(x)+' '+String(x.title||'').slice(0,80)).join(' | '));
   // 7 Nov 2026 (owner: "agents fix themselves"; "people are messaged only when a fix needs a human"): Health tells
@@ -166,6 +183,52 @@ print(json.dumps(out))`;
   await save();return toFile.length})().finally(()=>{running=null});return running}
  async function view(){const agents=(await listAgents()).filter(a=>!a.includes('--'));return {agents:overview(agents,await items(),await drops(),nameOf),at:Date.now()}}
  return {problem,ok,tick,view,drops}}
+// ---- live checks in plain code, no model calls (7 Nov 2026, owner: "save tokens"). Each failure is a Health problem,
+// so it goes up the ladder like any other (the agent, then the fixer on the main agent's engine, then a person).
+// engine log lines carry a UTC time "YYYY-MM-DD HH:MM:SS,ms"
+const logTime=l=>{const m=/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})/.exec(l);return m?Date.parse(m[1]+'T'+m[2]+'Z'):NaN};
+// 1. the engine: unclean or failed exits (gateway-exit-diag.log, JSON lines) and a swapped state.db (errors.log) after `since`
+export function engineEvents(diag,errors,since){const out={unclean:0,nonzero:0,replaced:0,last:0};
+ for(const l of String(diag||'').split('\n')){if(!l.trim())continue;let x;try{x=JSON.parse(l)}catch{continue}const t=Date.parse(x.ts);if(!(t>since))continue;
+  if(x.tag==='gateway.previous_unclean_exit'){out.unclean++;out.last=Math.max(out.last,t)}if(x.tag==='gateway.exit_nonzero'){out.nonzero++;out.last=Math.max(out.last,t)}}
+ for(const l of String(errors||'').split('\n'))if(/state\.db was replaced/.test(l)){const t=logTime(l);if(t>since){out.replaced++;out.last=Math.max(out.last,t)}}
+ return out}
+export function engineProblems(e){const out=[];
+ if(e.unclean||e.nonzero)out.push({topic:'health|aqeelos|engine-exit',text:'The engine stopped uncleanly',detail:[e.unclean&&e.unclean+' unclean exit(s)',e.nonzero&&e.nonzero+' exit(s) with an error'].filter(Boolean).join(', ')+' since the last check (~/.hermes/logs/gateway-exit-diag.log).'});
+ if(e.replaced)out.push({topic:'health|aqeelos|state-db',text:'An agent database (state.db) was replaced under the engine',detail:e.replaced+' "state.db was replaced" line(s) in ~/.hermes/logs/errors.log since the last check. Chats are diverted to sessions/*.jsonl until it is reopened.'});
+ return out}
+// 2. tool servers: the latest "MCP: registered … (N failed: a (why); b (why))" line of an agent's log, and servers that
+// went between working and failing more than twice in the last hour (flapping)
+export function mcpState(log,now=Date.now()){let last=null;const hist=[];
+ for(const l of String(log||'').split('\n')){if(!/MCP: registered \d+ tool\(s\)/.test(l))continue;const t=logTime(l);const f=/\(\d+ failed: (.*)\)\s*$/.exec(l);
+  const failed=f?[...('; '+f[1]).matchAll(/;\s+([\w.@-]+) \(/g)].map(m=>m[1]):[];last={t,failed};if(now-t<H)hist.push(failed)}
+ const seen=new Set(hist.flat()),flaps={};for(const sv of seen){let n=0;for(let k=1;k<hist.length;k++)if(hist[k].includes(sv)!==hist[k-1].includes(sv))n++;if(n>2)flaps[sv]=n}
+ const cust=[...String(log||'').matchAll(/MCP server 'aqeelos-customer' \(\w+\): registered (\d+) tool\(s\)/g)].pop();
+ return {failed:last?.failed||[],at:last?.t||null,flaps,customer:cust?Number(cust[1]):null}}
+export function mcpProblems(agent,st){const out=[];
+ if(st.failed.length)out.push({topic:'health|'+agent+'|mcp-failed',text:'Tool servers do not start: '+st.failed.join(', '),detail:'The last engine start for this agent could not register '+st.failed.join(', ')+' (agent.log "MCP: registered … failed"). Its tools from them are missing.'});
+ const fl=Object.entries(st.flaps);if(fl.length)out.push({topic:'health|'+agent+'|mcp-flap',text:'Tool servers keep dropping: '+fl.map(([k])=>k).join(', '),detail:fl.map(([k,n])=>k+' changed '+n+' times').join(', ')+' in the last hour.'});
+ return out}
+// 3. the customer tools of an agent with a Kirimdev line: the local tools/list answers with at least `want` tools, and the
+// engine registered the same server
+export function customerProblem(agent,{listed,registered},want=6){
+ if(listed==null||listed<want)return {topic:'health|'+agent+'|customer-tools',text:'Customer tools do not answer',detail:'tools/list on /mcp/customer/'+agent+' gave '+(listed==null?'no answer':listed+' tool(s)')+', '+want+' expected. Customer chats run with no tools.'};
+ if(registered!=null&&registered<want)return {topic:'health|'+agent+'|customer-tools',text:'The engine has too few customer tools',detail:'agent.log: aqeelos-customer registered '+registered+' tool(s), '+want+' expected.'};
+ if(registered==null)return {topic:'health|'+agent+'|customer-tools',text:'The engine did not register the customer tools',detail:'No "aqeelos-customer … registered" line in its agent.log. Customer chats run with no tools.'};
+ return null}
+// 4. a schedule failing twice or more in a row (jobs.json failure_streak; "late" is scheduleProblems)
+export function failingJobs(agent,jobs=[]){return jobs.filter(j=>j.enabled!==false&&Number(j.failure_streak)>=2).map(j=>({topic:'health|'+agent+'|failing|'+j.id,text:'A schedule keeps failing: '+(j.name||String(j.prompt||'').slice(0,60)||j.id),detail:'Failed '+j.failure_streak+' times in a row. Last error: '+String(j.last_error||j.last_failure||'not recorded').slice(0,300)}))}
+// 6. memory and load: used share of the box's limit, and the 1-minute load per CPU
+export function memProblems({used,max,load1,cpus:n},{memMax=0.9,loadMax=2}={}){const out=[];
+ if(max&&used/max>memMax)out.push({topic:'health|aqeelos|memory',text:'The box is almost out of memory',detail:Math.round(used/max*100)+'% in use ('+(used/1e9).toFixed(1)+' of '+(max/1e9).toFixed(1)+' GB).'});
+ if(n&&load1/n>loadMax)out.push({topic:'health|aqeelos|load',text:'The box is overloaded',detail:'Load '+load1.toFixed(1)+' on '+n+' CPUs.'});
+ return out}
+async function tail(f,bytes=1.5e6){let h;try{h=await open(f,'r');const {size}=await h.stat();const n=Math.min(size,bytes);const b=Buffer.alloc(n);await h.read(b,0,n,size-n);return b.toString('utf8')}catch{return ''}finally{await h?.close().catch(()=>{})}}
+async function readMem(){const n=async f=>Number((await readFile(f,'utf8').catch(()=>'')).trim())||0;
+ const load1=Number((await readFile('/proc/loadavg','utf8').catch(()=>'')).split(' ')[0])||0;const cur=await n('/sys/fs/cgroup/memory.current'),max=await n('/sys/fs/cgroup/memory.max');
+ if(cur&&max){const st=await readFile('/sys/fs/cgroup/memory.stat','utf8').catch(()=>'');return {used:Math.max(0,cur-Number((/^inactive_file (\d+)/m.exec(st)||[])[1]||0)),max,load1,cpus:cpus().length}}
+ const m=await readFile('/proc/meminfo','utf8').catch(()=>'');const kb=k=>Number((new RegExp('^'+k+':\\s+(\\d+)','m').exec(m)||[])[1]||0)*1024;return {used:kb('MemTotal')-kb('MemAvailable'),max:kb('MemTotal'),load1,cpus:cpus().length}}
+
 // the box's processes with their folder (ps; /proc for the folder when it may be read)
 async function readPs(){const out=await new Promise(res=>execFile('ps',['-eo','pid=,ppid=,etimes=,user:40=,args='],{timeout:10000,maxBuffer:8e6},(e,o)=>res(e?'':String(o))));
  const rows=[];for(const l of out.split('\n')){const m=/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/.exec(l);if(!m)continue;const r={pid:+m[1],ppid:+m[2],age:+m[3],user:m[4],args:m[5]};

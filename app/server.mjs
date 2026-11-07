@@ -1274,7 +1274,10 @@ const healthFix=async(a,x)=>{if(!await srEligible(a))throw Error('it cannot run 
   '\n\nFind the cause (my_health, my_logs, my_runs, my_schedules, your files and scripts), fix it in your own work, and check it works again (run the schedule or script once). Do not message the owner or customers. If the fix needs something only a person can give (a password, a sign-in, a decision), file it with report_bottleneck and stop. End with two lines: what was wrong, what you changed.';
  return selfRuns.start({agent:a,args:{prompt,reason:'aqeelOS health: '+String(x.title||'').slice(0,120),timeout_minutes:20},origin:{ok:true,by:{kind:'aqeelos',name:'aqeelOS health check'}},ws:path.join(homedir(),'workspaces',a)})};
 // 7 Nov 2026: Health tells nobody; the agent fixes its own problem first (healthFix), then it is filed for the fixer (issues.mjs)
-const health=createAgentHealth({DATA,HERMES_HOME,bottlenecks,quiet:alertQuiet,fixFirst:(a,x)=>healthFix(a,x),fileIssue:o=>issues.file(o),healthGone:k=>issues.healthGone(k),python:enginePython,link:PUBLIC_URL+'/#/system/health',
+const health=createAgentHealth({DATA,HERMES_HOME,bottlenecks,quiet:alertQuiet,fixFirst:(a,x)=>healthFix(a,x),fileIssue:o=>issues.file(o),healthGone:k=>issues.healthGone(k),
+ // plain-code live checks (no model): the customer tools of each Kirimdev agent answer tools/list on the local route
+ kirimdevAgents:async()=>Object.keys(await kirimdev.lines().catch(()=>({}))),
+ customerTools:async a=>{const r=await fetch('http://127.0.0.1:'+PORT+'/mcp/customer/'+encodeURIComponent(a),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/list'}),signal:AbortSignal.timeout(10000)});const j=await r.json().catch(()=>null);return Array.isArray(j?.result?.tools)?j.result.tools.length:null},python:enginePython,link:PUBLIC_URL+'/#/system/health',
  listAgents:()=>listAgents(),nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a),
  engineUp:async()=>!gwStopped&&!gwRestarting&&!!await gatewayPid(),
  botToken:async a=>(/^TELEGRAM_BOT_TOKEN=["']?([^"'\s]+)/m.exec(await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'.env'),'utf8').catch(()=>''))||[])[1]||null,
@@ -1311,6 +1314,26 @@ async function issueApply(kind,why){if(kind==='ui'){console.log('restarting the 
 const issueEnvFiles=async()=>[path.join(HERMES_HOME,'.env'),...(await readdir(path.join(HERMES_HOME,'profiles')).catch(()=>[])).map(a=>path.join(HERMES_HOME,'profiles',a,'.env'))];
 const issues=createIssues({DATA,home:homedir(),bin:path.join(homedir(),'.local','bin','aqeelos'),fixerHome:homedir(),nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a),
  reply:replyInTopic,tellOwner:srToOwner,toTeam:issueToTeam,quiet:alertQuiet,busy:async()=>busyNow(),ready:async()=>!gwStopped&&!gwRestarting&&!!await gatewayPid(),apply:issueApply,envFiles:issueEnvFiles});
+/* The one model call of the live checks (7 Nov 2026, owner: "save tokens"): once after each deploy (the app's code changed),
+   a customer run on a Kirimdev agent whose line is in Test, with nothing sent (the run only returns text), must call
+   read_file and answer with a line of the file it read (its greeting template). A failure is a Health problem. */
+const smokeWatch=new Map();
+async function customerSmoke(){if(!LIVE_APP||PORT!==4400)return;const F=path.join(DATA,'customer-smoke.json');
+ const mark=String(Math.round((await stat(fileURLToPath(import.meta.url))).mtimeMs));const prev=JSON.parse(await readFile(F,'utf8').catch(()=>'{}')||'{}');if(prev.mark===mark)return;
+ const L=await kirimdev.lines().catch(()=>({}));const a=Object.keys(L).find(k=>L[k]?.mode==='test');const done=async x=>{await writeFile(F,JSON.stringify({mark,at:Date.now(),agent:a||null,...x},null,1));console.log('customer smoke test:',a||'-',x.ok?'ok':'FAILED',x.detail||'')};
+ if(!a)return done({ok:true,detail:'no Kirimdev line in Test, skipped'});
+ const calls=[];const wrap={begin:o=>{const t=customerTools.begin(o);smokeWatch.set(t,calls);return t},end:t=>{smokeWatch.delete(t);customerTools.end(t)}};
+ const run=createKirimdevAgent({DATA,home:homedir(),live:true,customer:()=>wrap});
+ let out='';try{out=await run(a,'aqeelOS check after an update. There is no customer and nothing is sent. A new customer just wrote: "halo kak". Read your greeting template with read_file, then answer with exactly that greeting, word for word, and nothing else.',
+  {session:'kirimdev-'+createHash('sha256').update('aqeelos-smoke|'+a+'|'+mark).digest('hex'),run:{line:L[a].phoneNumberId,conversation:'',phone:'',mode:'test'}})}catch(e){out='';calls.push({error:e.message})}
+ const reads=calls.filter(c=>c.name==='read_file'&&c.path);let match=false;
+ for(const c of reads){const t=await readFile(path.join(homedir(),'workspaces',a,c.path.replace(/^\/home\/[^/]+\/workspaces\/[^/]+\//,'')),'utf8').catch(()=>'');
+  if(t.split('\n').map(x=>x.trim().replace(/^[-*>\s"]+|["\s]+$/g,'')).some(x=>x.length>=25&&out.includes(x)))match=true}
+ const ok=reads.length>0&&match;
+ if(ok){await health.ok(a,'smoke').catch(()=>{});return done({ok:true,detail:'read '+reads.map(c=>c.path).join(', ')})}
+ const detail=!reads.length?'The customer run called no read_file ('+(calls.map(c=>c.name||c.error).join(', ')||'no tool calls')+').':'It read '+reads.map(c=>c.path).join(', ')+' but its answer did not use that text: '+out.trim().slice(0,200);
+ await health.problem(a,'customer','The customer test after the update failed',{topic:'smoke',fix:detail}).catch(()=>{});return done({ok:false,detail})}
+if(LIVE_APP&&PORT===4400)setTimeout(()=>customerSmoke().catch(e=>console.warn('customer smoke test',e.message)),5*60e3).unref();
 const escalations=createEscalations({HERMES_HOME,python:enginePython,policy:()=>issues.policy()});
 // the chat a tool call came from (the agent's newest person-chat): who asked, and where to answer
 // the chat the waiting call (tool) was made in, and the person whose message started that turn: in a group topic every
@@ -1990,6 +2013,7 @@ const server=createServer(async(req,res)=>{
   // the customer-run tool server (local only; a run's own key in X-Aqeelos-Run)
   {const cm=/^\/mcp\/customer\/([a-z0-9][a-z0-9_-]{0,63})$/.exec(p);if(cm){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
    if(req.method!=='POST')return send(res,405,'POST only');let msg={};try{msg=JSON.parse(await readBody(req,262144))}catch{return send(res,400,{error:'bad json'})}
+   {const w=msg.method==='tools/call'&&smokeWatch.get(String(msg.params?.arguments?.run||''));if(w)w.push({name:String(msg.params?.name||''),path:String(msg.params?.arguments?.path||'')})}
    const r=await customerTools.mcp(cm[1],String(req.headers['x-aqeelos-run']||''),msg);return r.status===202?send(res,202,''):send(res,r.status,r.body)}}
   if(p==='/agent-live/context'||p==='/agent-live/held'){if(req.method!=='POST')return send(res,405,{error:'POST only'});let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
    if(!await agentLive.keyOk(b.key))return send(res,403,{error:'bad key'});const ag=String(b.agent||'');if(!/^[a-z0-9][a-z0-9_-]{0,80}$/.test(ag)||!(await agentLive.homes()).includes(ag))return send(res,404,{error:'no such agent'});
