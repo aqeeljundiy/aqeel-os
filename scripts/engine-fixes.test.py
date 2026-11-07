@@ -283,6 +283,45 @@ def review_summaries_never_reach_a_chat_platform():
     assert 'event_type="review.summary"' in body, "the local viewer still gets the frame"
 
 
+@test
+def a_message_that_arrives_while_the_engine_stops_is_kept_and_handled_later():
+    import asyncio
+    m = load("aq_platform_base", "gateway/platforms/base.py")
+    m._AQ_HELD_DIR = os.path.join(TMP, "held")
+    from gateway.platforms.event import MessageEvent
+    from gateway.session import SessionSource
+    from gateway.config import Platform
+
+    class A:  # just what the helpers read
+        name = "Telegram"
+        platform = Platform.TELEGRAM
+        _message_handler = None
+        _aq_replaying = False
+
+        def __init__(self, tok):
+            self.config = types.SimpleNamespace(token=tok, api_key=None)
+            self.got = []
+
+        async def handle_message(self, ev):
+            self.got.append(ev.text)
+    a = A("123:abc")
+    src = SessionSource(platform=Platform.TELEGRAM, chat_id="42", chat_type="dm", user_id="7")
+    import threading
+    ev = MessageEvent(text="hello during restart", source=src, raw_message=threading.Lock())  # not picklable
+    assert m._aq_hold_inbound(a, ev) is True
+    assert m._aq_hold_inbound(a, MessageEvent(text="internal", source=src, internal=True)) is False
+    f = m._aq_held_file(a)
+    assert os.path.exists(f)
+    assert m._aq_held_file(A("999:other")) != f, "another bot never replays this one's messages"
+    assert m._aq_held_file(A(None)) is None
+    asyncio.run(m._aq_replay_held(a, f))
+    assert a.got == ["hello during restart"], a.got
+    assert not os.listdir(m._AQ_HELD_DIR), os.listdir(m._AQ_HELD_DIR)
+    src_text = open(os.path.join(FIXED, "gateway/platforms/base.py")).read()
+    i = src_text.index("async def handle_message(self, event: MessageEvent)")
+    assert "_aq_hold_inbound(self, event)" in src_text[i:i + 1500]
+
+
 failed = 0
 for fn in tests:
     try:

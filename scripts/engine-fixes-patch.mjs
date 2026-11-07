@@ -43,10 +43,120 @@
 // 9) aqeelos:no-review-pings (7 Nov 2026). "💾 Self-improvement review: ..." summaries went to the chat (Telegram,
 //    WhatsApp, Slack) after turns. The owner's rule of 7 Nov: nobody is messaged about fixes. The review still runs; its
 //    summary still shows to a local viewer (review.summary frame) and is logged, but is never sent to a chat platform.
+// 10) aqeelos:hold-inbound-during-restart (7 Nov 2026). When the engine stops it removes each channel's message handler
+//    at once, but Telegram keeps polling for ~17 s more; a message that arrived then was thrown away ("Dropping inbound
+//    message: no gateway message handler": the owner's message to continue-threads at 06:12:49 UTC). Telegram counts it
+//    as delivered, so it never came back. Now such a message is saved in ~/.hermes/aqeelos-held-inbound/ and handled
+//    by the next engine (on its first message, or 45 s after its handler is set).
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
 
 export const FIXES=[
+ {tag:'aqeelos:hold-inbound-during-restart',name:'a message that arrives while the engine stops is kept and handled after the restart',file:'gateway/platforms/base.py',edits:[
+  {why:'the no-handler drop',
+   from:'            if not getattr(self, "_no_message_handler_logged", False):\n                self._no_message_handler_logged = True\n                logger.error(\n                    "[%s] Dropping inbound message: no gateway message handler "\n                    "is installed on this adapter. The adapter is connected and "\n                    "can send, but every inbound message is discarded.",\n                    self.name,\n                )\n            return\n',
+   to:`            # aqeelos:hold-inbound-during-restart: kept on disk and handled by the next engine, never dropped
+            if _aq_hold_inbound(self, event):
+                return
+            if not getattr(self, "_no_message_handler_logged", False):
+                self._no_message_handler_logged = True
+                logger.error(
+                    "[%s] Dropping inbound message: no gateway message handler "
+                    "is installed on this adapter. The adapter is connected and "
+                    "can send, but every inbound message is discarded.",
+                    self.name,
+                )
+            return
+        _aq_replay_soon(self)
+`},
+  {why:'the handler setter',
+   from:'        """Set the incoming-message handler (MessageEvent -> optional response str)."""\n        self._message_handler = handler\n',
+   to:`        """Set the incoming-message handler (MessageEvent -> optional response str)."""
+        self._message_handler = handler
+        if handler is not None:  # aqeelos:hold-inbound-during-restart
+            try:
+                asyncio.get_running_loop().call_later(45, _aq_replay_soon, self)
+            except RuntimeError:
+                pass
+`},
+  {why:'the hold and replay helpers',
+   from:'from gateway.platforms.base_log_safety import safe_url_for_log\n',
+   to:`from gateway.platforms.base_log_safety import safe_url_for_log
+
+
+# aqeelos:hold-inbound-during-restart: messages that reach an adapter with no handler (the engine is stopping)
+_AQ_HELD_DIR = os.path.join(os.path.expanduser("~"), ".hermes", "aqeelos-held-inbound")
+_AQ_HELD_MAX_AGE = 6 * 3600
+
+
+def _aq_held_file(adapter):
+    cfg = getattr(adapter, "config", None)
+    tok = (getattr(cfg, "token", None) or getattr(cfg, "api_key", None) or "") if cfg is not None else ""
+    if not tok:
+        return None  # only adapters with their own bot identity: the next engine replays into the same bot
+    import hashlib
+    plat = getattr(getattr(adapter, "platform", None), "value", None) or str(getattr(adapter, "platform", ""))
+    key = hashlib.sha256(("%s:%s" % (plat, tok)).encode()).hexdigest()[:16]
+    return os.path.join(_AQ_HELD_DIR, "%s-%s.pickle-lines" % (plat, key))
+
+
+def _aq_hold_inbound(adapter, event):
+    try:
+        f = _aq_held_file(adapter)
+        if not f or getattr(event, "internal", False):
+            return False
+        import base64, dataclasses, pickle
+        try:
+            blob = pickle.dumps(event)
+        except Exception:
+            blob = pickle.dumps(dataclasses.replace(event, raw_message=None))
+        os.makedirs(_AQ_HELD_DIR, mode=0o700, exist_ok=True)
+        with open(f, "a", encoding="ascii") as fh:
+            fh.write("%d %s\\n" % (int(time.time()), base64.b64encode(blob).decode("ascii")))
+        logger.warning("[%s] Engine stopping: inbound message kept for the next engine (%s)", adapter.name, os.path.basename(f))
+        return True
+    except Exception:
+        logger.warning("[%s] Could not keep an inbound message for the next engine", getattr(adapter, "name", "?"), exc_info=True)
+        return False
+
+
+def _aq_replay_soon(adapter):
+    f = _aq_held_file(adapter)
+    if not f or not os.path.exists(f) or not getattr(adapter, "_message_handler", None) or getattr(adapter, "_aq_replaying", False):
+        return
+    try:
+        asyncio.get_running_loop().create_task(_aq_replay_held(adapter, f))
+    except RuntimeError:
+        pass
+
+
+async def _aq_replay_held(adapter, f):
+    adapter._aq_replaying = True
+    try:
+        work = f + ".replaying-%d" % os.getpid()
+        try:
+            os.rename(f, work)
+        except OSError:
+            return
+        import base64, pickle
+        n = 0
+        with open(work, encoding="ascii") as fh:
+            lines = fh.read().splitlines()
+        for line in lines:
+            try:
+                ts, blob = line.split(" ", 1)
+                if time.time() - int(ts) > _AQ_HELD_MAX_AGE:
+                    continue
+                event = pickle.loads(base64.b64decode(blob))
+                await adapter.handle_message(event)
+                n += 1
+            except Exception:
+                logger.warning("[%s] A kept inbound message could not be handled", adapter.name, exc_info=True)
+        os.unlink(work)
+        logger.warning("[%s] Handled %d inbound message(s) kept while the engine was stopping", adapter.name, n)
+    finally:
+        adapter._aq_replaying = False
+`}]},
  {tag:'aqeelos:no-review-pings',name:'self-improvement review summaries stay out of chats',file:'gateway/run_turn_runner.py',edits:[
   {why:'the review summary delivery',
    from:'                return\n            if self._status_live():\n                self._send_status_text(\n                    message,\n                    _interim_metadata(_non_conversational_metadata(ctx._status_thread_metadata, platform=ctx.source.platform)),\n                    "background_review_callback scheduling error",\n                )\n',
