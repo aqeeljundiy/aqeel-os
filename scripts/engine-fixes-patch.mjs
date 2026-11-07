@@ -2,7 +2,7 @@
 // fix has its own tag, is made all or nothing, and leaves the engine's file alone (with a warning) when the engine
 // changed upstream. To test on copies: node scripts/engine-fixes-patch.mjs <engine folder> <out folder>
 //
-// 1) aqeelos:gateway-real-home. A chat run started inside a tool command (Donna's background loops run
+// 1) aqeelos:gateway-real-home. A chat run started inside a tool command (Dora's background loops run
 //    `aqeelos -p <agent> chat` from her terminal) that finds no engine running, as during a restart, starts one
 //    itself. It handed that engine the tool commands' home (~/.hermes/home), where Claude Code has no login, so
 //    every agent lost Claude until the next restart (11:56 to 12:08 on 5 Nov). The engine it starts always gets
@@ -21,7 +21,7 @@
 //    person gets the cause in plain words instead of the stock line. Every failed chat turn adds one line to
 //    ~/.hermes/logs/aqeelos-dropped.jsonl (agent, channel, cause, retried, recovered), which System > Health counts.
 // 5) aqeelos:clone-no-bot-tokens (6 Nov 2026). A cloned agent dropped the channel keys the engine knows by prefix
-//    (TELEGRAM_..., SLACK_...), but kept bot tokens saved under another name (CONTINUE_SUPPORT_BOT_TOKEN), so two agents
+//    (TELEGRAM_..., SLACK_...), but kept bot tokens saved under another name (COVE_SUPPORT_BOT_TOKEN), so two agents
 //    polled one Telegram bot and kicked each other off. Every ..._BOT_TOKEN / ..._APP_TOKEN key now counts as a channel
 //    key when an agent is cloned: one bot token belongs to one agent.
 // 6) aqeelos:phone-redaction-setting (6 Nov 2026). The engine masked every +E.164 phone number in tool output and
@@ -35,7 +35,7 @@
 //    engine still held that agent's database (leadtestp54va 08:14, pc-r* 09:06-09:11, dp-mw5* 14:11-14:13 UTC); no
 //    live agent's database was replaced and no transcript was diverted. It is now logged once per database, with its
 //    path, and as a warning when the file is simply gone (a deleted agent). Writes are still refused.
-// 8) aqeelos:oauth-keep-tokens-same-client (7 Nov 2026). Donna's three Slack apps lost their sign-ins at 01:41 UTC and
+// 8) aqeelos:oauth-keep-tokens-same-client (7 Nov 2026). Dora's three Slack apps lost their sign-ins at 01:41 UTC and
 //    again at 05:24 UTC ("configured OAuth client changed (client_id 'X' -> 'X'); discarded tokens"). The client id was
 //    the same; only the saved secret differed, because one engine path saved the secret unexpanded
 //    ("\${SLACK_AS2_CLIENT_SECRET}") and the next saw the real value. Tokens belong to the client id, so only a different
@@ -45,7 +45,7 @@
 //    summary still shows to a local viewer (review.summary frame) and is logged, but is never sent to a chat platform.
 // 10) aqeelos:hold-inbound-during-restart (7 Nov 2026). When the engine stops it removes each channel's message handler
 //    at once, but Telegram keeps polling for ~17 s more; a message that arrived then was thrown away ("Dropping inbound
-//    message: no gateway message handler": the owner's message to continue-threads at 06:12:49 UTC). Telegram counts it
+//    message: no gateway message handler": the owner's message to cove-threads at 06:12:49 UTC). Telegram counts it
 //    as delivered, so it never came back. Now such a message is saved in ~/.hermes/aqeelos-held-inbound/ and handled
 //    by the next engine (on its first message, or 45 s after its handler is set).
 import {readFile,writeFile,mkdir} from 'node:fs/promises';

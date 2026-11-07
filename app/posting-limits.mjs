@@ -1,4 +1,4 @@
-// Posting limits and live checks (5 Nov 2026, brief item 9). An agent that posts in public (Continue Threads' comments)
+// Posting limits and live checks (5 Nov 2026, brief item 9). An agent that posts in public (Cove Threads' comments)
 // used to keep its limits only in words inside prompts, run from hand-made loops it could not see, and comments that
 // Threads hid were never noticed. Now, per agent, set on Schedules › Run rules:
 //  - one run at a time: the engine runs that agent's schedules one after another (cron.max_parallel_jobs = 1), so two

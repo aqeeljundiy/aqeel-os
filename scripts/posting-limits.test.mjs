@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {decide,gateText,clean,seen,needle,local,createPostingLimits} from '../app/posting-limits.mjs';
 
-// Continue Threads' rules (70 a day, 90% hot, max 5 an hour, 5 min apart, lighter 01-05 WIB)
+// Cove Threads' rules (70 a day, 90% hot, max 5 an hour, 5 min apart, lighter 01-05 WIB)
 const R=clean({on:true,perDay:70,perHour:5,gapMin:5,perRun:2,quietFrom:1,quietTo:5,quietPerHour:2,hotShare:90,afterMissingPerHour:2,afterMissingHours:6,stopFile:'.tools/STOP_COMMENTS',checkUrl:'https://www.threads.com/@x/replies',alert:'telegram:-100123'});
 const at=(hhmm,day='05')=>Date.parse('2026-11-'+day+'T'+hhmm+':00+07:00');
 const posts=(times,lead='hot')=>times.map(t=>({at:t,lead,status:'visible'}));
@@ -39,8 +39,8 @@ test('a skipped run ends with the engine\'s wake gate',()=>{const t=gateText(R,d
 
 test('the comment is found on the public page by its words, whatever Threads does to spaces and emoji',()=>{
  const text='wah 3 bulan konsisten itu udah keren kak 🙌\n\ndi komunitas emang lumayan banyak yg cerita';
- assert.ok(seen('continue.peptides\n4m\nwah 3 bulan konsisten itu udah keren kak🙌\ndi komunitas...',text));
- assert.ok(!seen('continue.peptides\nsomething else entirely',text));assert.equal(needle('ok'),'ok')});
+ assert.ok(seen('continue.products\n4m\nwah 3 bulan konsisten itu udah keren kak🙌\ndi komunitas...',text));
+ assert.ok(!seen('continue.products\nsomething else entirely',text));assert.equal(needle('ok'),'ok')});
 
 test('rules are checked',()=>{assert.throws(()=>clean({stopFile:'../x'}));assert.throws(()=>clean({alert:'whatsapp:1'}));assert.throws(()=>clean({checkUrl:'http://x'}));assert.equal(clean({perHour:999}).perHour,60)});
 
@@ -58,9 +58,9 @@ test('Run rules: one at a time and the gate script',async()=>{const {pl,HH,keys}
 
 test('record_post: visible is confirmed; not visible alerts the owner and fails the run',async()=>{
  const text='banyak yg nanya ini kak, patokannya simpel: brandnya jelas';
- let x=await rig({pages:['continue.peptides\n'+text]});await x.pl.set('ct',{rules:R});
+ let x=await rig({pages:['continue.products\n'+text]});await x.pl.set('ct',{rules:R});
  let r=await x.pl.record('ct',{post_url:'https://www.threads.com/@a/post/1',text,lead:'hot'});assert.match(r.text,/visible to the public/);assert.match(r.text,/Today: 1 of 70/);assert.equal(x.tg.length,0);
- x=await rig({pages:['continue.peptides\nother']});await x.pl.set('ct',{rules:R});
+ x=await rig({pages:['continue.products\nother']});await x.pl.set('ct',{rules:R});
  r=await x.pl.record('ct',{post_url:'https://www.threads.com/@a/post/1',text,lead:'hot'});assert.equal(r.isError,true);assert.match(r.text,/\[CRON_FAILURE\]/);
  assert.equal(x.tg.length,1);assert.deepEqual(x.tg[0].slice(0,3),['ct','-100123',null]);assert.equal(x.events[0][0],'comment');assert.equal(x.events[0][3].agent,'ct');
  assert.match((await x.pl.view('ct')).recent[0].status,/missing/);assert.match(await x.pl.gate('ct'),/no post this run/)});

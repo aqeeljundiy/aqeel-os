@@ -20,7 +20,7 @@ test('request_secret_link and register_account are refused without both',()=>{
  assert.match(nameRefusal('request_secret_link',{name:'BOT_TOKEN'}),/request_secret_link again/);
  assert.equal(nameRefusal('request_secret_link',{name:'BOT_TOKEN',...GOOD}),null);
  assert.match(nameRefusal('register_account',{kind:'google',label:'Google, work'}),/whose account/);
- assert.equal(nameRefusal('register_account',{kind:'google',label:'Google, work',description:'Aqeel’s work Gmail and Calendar for the morning check-in.'}),null)});
+ assert.equal(nameRefusal('register_account',{kind:'google',label:'Google, work',description:'Abel’s work Gmail and Calendar for the morning check-in.'}),null)});
 test('an id is not a name, and a word or two is not a description',()=>{
  assert.equal(okName('GITHUB_TOKEN'),false);assert.equal(okName('ab'),false);assert.equal(okName('GitHub: acme-dev'),true);
  assert.equal(okDesc('token'),false);assert.equal(okDesc('for github'),false);assert.equal(okDesc('Pushes code to the acme repo.'),true);

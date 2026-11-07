@@ -7,7 +7,7 @@ import {terms,parseLines,search,createChatHistory} from '../app/chat-history.mjs
 import {decide,whoToTell,parseResult,createIssues,fixerPrompt,proofPrompt,newSecrets,approvalOnly,testerSendOnly,noPersonNeeded,similar} from '../app/issues.mjs';
 import {count,weekOf} from '../app/escalations.mjs';
 let n=0;const t=async(name,f)=>{await f();n++;console.log('ok',name)};
-const POL={owner:{name:'Owner',telegram:['1']},teams:[{name:'Brand',agents:['a1','a2'],members:[{name:'Mem',telegram:['2']}],aliases:{a1:['Randy']}}],fixer:{on:true,agent:'default'}};
+const POL={owner:{name:'Owner',telegram:['1']},teams:[{name:'Brand',agents:['a1','a2'],members:[{name:'Mem',telegram:['2']}],aliases:{a1:['Rory']}}],fixer:{on:true,agent:'default'}};
 
 await t('terms',()=>{assert.deepEqual(terms('Cartridge per VIAL?'),['cartridge','per','vial']);assert.deepEqual(terms('"short link" xendit'),['short link','xendit'])});
 await t('search with context, own files only',async()=>{const d=await mkdtemp(path.join(tmpdir(),'ch-'));
@@ -33,7 +33,7 @@ async function setup(extra={}){const d=await mkdtemp(path.join(tmpdir(),'is-'));
 const quietAll=s=>s.reply.length+s.owner.length+s.team.length;
 
 await t('every issue goes to the fixer: self-filed, no team, "token" words, health, strangers',async()=>{const {I}=await setup();
- for(const [o,who] of [[{agent:'a1',missing:'Continue-support stopped answering after a self-change',origin:{}},'self'],[{agent:'sesa',missing:'sesa broke'},'no team'],
+ for(const [o,who] of [[{agent:'a1',missing:'Continue-support stopped answering after a self-change',origin:{}},'self'],[{agent:'sela',missing:'sela broke'},'no team'],
   [{agent:'a1',missing:'TERMINAL_AQEELOS_CUSTOMER_RUN token is not passed',proposed_fix:'set the api key in .env',needs:['keys']},'token words'],
   [{agent:'z9',missing:'kicked from group',source:'health',healthKey:'health|z9|group|1'},'health'],[{agent:'a1',missing:'customer asked',origin:{platform:'whatsapp',uid:'628'}},'stranger']]){
   const r=await I.file(o);assert.equal(r.issue.state,'queued',who)}
@@ -42,7 +42,7 @@ await t('who is told: the owner who asked, the member in their chat, the team co
  assert.equal(whoToTell(POL2,{agent:'a1',by:{platform:'telegram',uid:'1'}}).kind,'owner');
  assert.equal(whoToTell(POL2,{agent:'a1',by:{platform:'telegram',uid:'2',chat:'-100'}}).kind,'asker');
  assert.deepEqual([whoToTell(POL2,{agent:'a1',by:{}}).kind,whoToTell(POL2,{agent:'a1',by:{}}).name],['team','Mem']);
- assert.equal(whoToTell(POL2,{agent:'sesa',by:{}}).kind,'owner');assert.equal(whoToTell({...POL2,teams:[{name:'Own',agents:['default','sesa'],members:[]}]},{agent:'default',by:{}}).kind,'owner')});
+ assert.equal(whoToTell(POL2,{agent:'sela',by:{}}).kind,'owner');assert.equal(whoToTell({...POL2,teams:[{name:'Own',agents:['default','sela'],members:[]}]},{agent:'default',by:{}}).kind,'owner')});
 await t('parseResult: fix, proof, older wording',()=>{const f=parseResult('x\nRESULT: {"status":"changed","apply":"engine","changes":[{"file":"/a","backup":"/a.bak"},{"file":"rel"}],"check":"send test"}');
  assert.deepEqual([f.status,f.apply,f.changes.length,f.check],['changed','engine',1,'send test']);assert.equal(parseResult('RESULT: {"status":"fixed","restart_ui":true}').apply,'ui');
  assert.equal(parseResult('RESULT: {"status":"proven","proof":"ok"}','proof').status,'proven');assert.equal(parseResult('RESULT: {"status":"proven"}'),null);assert.equal(parseResult('no'),null);
@@ -62,21 +62,21 @@ await t('"no change needed" still has to be proven',async()=>{const S=await setu
 await t('not proven: rolled back from the backup, reloaded, a different try; after 3 tries stuck, one message to the team contact',async()=>{
  const d0=await mkdtemp(path.join(tmpdir(),'f-')),file=path.join(d0,'SOUL.md');await writeFile(file,'old');
  const ch=n=>({status:'changed',apply:'engine',changes:[{file,backup:file+'.bak'+n}],summary:'approach '+n,check:'c'});
- const S=await setup({fix:[ch(1),ch(2),ch(3)],proof:[{status:'not_proven',proof:'no reply'},{status:'not_proven',proof:'no reply'},{status:'not_proven',proof:'no reply',need:'Amri must re-add the bot to the group'}],
+ const S=await setup({fix:[ch(1),ch(2),ch(3)],proof:[{status:'not_proven',proof:'no reply'},{status:'not_proven',proof:'no reply'},{status:'not_proven',proof:'no reply',need:'Ari must re-add the bot to the group'}],
   onFix:async n=>{await writeFile(file+'.bak'+n,'old');await writeFile(file,'changed '+n)}});
  await S.I.file({agent:'a1',missing:'bot does not answer in the group',origin:{}});
  for(let k=0;k<30&&!['stuck','fixed'].includes((await S.db()).state);k++){await S.I.tick();const i=await S.db();if(i.state==='queued')i.notBefore=0}
  const i=await S.db();assert.equal(i.state,'stuck');assert.equal(i.tries,3);assert.equal(await readFile(file,'utf8'),'old','rolled back');
  assert.equal(S.applied.length,6,'reload after each change and after each rollback');
  assert.match(S.f.runs.filter(r=>r.kind==='fix')[2].prompt,/Try 1: approach 1.*not proven, rolled back/);assert.match(S.f.runs.filter(r=>r.kind==='fix')[2].prompt,/different approach/);
- assert.equal(S.said.team.length,1);assert.equal(S.said.owner.length+S.said.reply.length,0);assert.equal(S.said.team[0][1],'Mem');assert.match(S.said.team[0][2],/tried 3 times[\s\S]*Amri must re-add the bot/)});
+ assert.equal(S.said.team.length,1);assert.equal(S.said.owner.length+S.said.reply.length,0);assert.equal(S.said.team[0][1],'Mem');assert.match(S.said.team[0][2],/tried 3 times[\s\S]*Ari must re-add the bot/)});
 await t('needs a human: whoever asked hears it in their chat; an agent in no team: the owner; nothing else',async()=>{
  const S=await setup({fix:[{status:'needs_human',need:'A new Tripay key is needed; nobody has one on the box.',summary:'no key'},{status:'needs_human',need:'Pay the Kirimdev invoice.',summary:'unpaid'}]});
  await S.I.file({agent:'a1',missing:'payment link fails',origin:{platform:'telegram',uid:'2',chat:'-100',thread:'3'}});await S.ticks(2);
  assert.equal((await S.db()).state,'needs_human');assert.equal(S.said.reply.length,1);assert.match(S.said.reply[0],/needs a person[\s\S]*Tripay key/);
- await S.I.file({agent:'sesa',missing:'sesa cannot send'});await S.ticks(2);assert.equal(S.said.owner.length,1);assert.match(S.said.owner[0],/Kirimdev invoice/);assert.equal(S.said.team.length,0);
+ await S.I.file({agent:'sela',missing:'sela cannot send'});await S.ticks(2);assert.equal(S.said.owner.length,1);assert.match(S.said.owner[0],/Kirimdev invoice/);assert.equal(S.said.team.length,0);
  // filed again (the person did it): tried again
- const again=await S.I.file({agent:'sesa',missing:'sesa cannot send'});assert.equal(again.issue.state,'queued')});
+ const again=await S.I.file({agent:'sela',missing:'sela cannot send'});assert.equal(again.issue.state,'queued')});
 await t('hard rules in code: no backup or a new key → put back, not applied, next try',async()=>{
  const d0=await mkdtemp(path.join(tmpdir(),'f-')),env=path.join(d0,'.env'),other=path.join(d0,'other.env');await writeFile(env,'A=1\n');await writeFile(env+'.bak','A=1\n');await writeFile(other,'K=sk-existing-123456\n');
  const S=await setup({envFiles:[env,other],fix:[{status:'changed',apply:'engine',changes:[{file:env,backup:env+'.bak'}],summary:'new key'},{status:'changed',apply:'engine',changes:[{file:env,backup:env+'.bak'}],summary:'reuse key'}],
@@ -86,7 +86,7 @@ await t('hard rules in code: no backup or a new key → put back, not applied, n
  const S2=await setup({fix:[{status:'changed',apply:'none',changes:[{file:'/etc/x',backup:'/nope.bak'}],summary:'no backup'}]});await S2.I.file({agent:'a1',missing:'y'});await S2.ticks(2);
  assert.match((await S2.db()).history[0].outcome,/no backup/)});
 await t('a run that never reached the model (gateway draining) is not a try',async()=>{const S=await setup({fix:["aqeelOS couldn't start the model connection: Gateway draining: not_ready."]});
- await S.I.file({agent:'sesa',missing:'Sesa stopped answering'});await S.ticks(2);const i=await S.db();assert.equal(i.state,'queued');assert.equal(i.tries,0);assert.ok(i.notBefore>Date.now())});
+ await S.I.file({agent:'sela',missing:'Sela stopped answering'});await S.ticks(2);const i=await S.db();assert.equal(i.state,'queued');assert.equal(i.tries,0);assert.ok(i.notBefore>Date.now())});
 await t('the web app reload: state saved as verify before the restart',async()=>{const d0=await mkdtemp(path.join(tmpdir(),'f-')),f=path.join(d0,'a.mjs');await writeFile(f,'x');await writeFile(f+'.bak','y');
  const S=await setup({fix:[{status:'changed',apply:'ui',changes:[{file:f,backup:f+'.bak'}],summary:'s'}]});let seen=null;
  const orig=S.I;await orig.file({agent:'a1',missing:'ui bug'});await S.ticks(2);assert.equal((await S.db()).state,'applying');await S.ticks(1);assert.deepEqual(S.applied,['ui']);assert.equal((await S.db()).state,'verify')});
@@ -98,10 +98,10 @@ await t('older issues: waiting and approved are queued; failed gets fresh tries;
  const r=await I.file({agent:'a1',missing:'Schedules stopped running',source:'health',healthKey:'health|a1|scheduler'});assert.equal(r.issue.state,'queued');
  assert.equal(await I.healthGone(['other']),1);assert.equal((await I._db()).items[0].state,'gone')});
 await t('escalation count per agent and week',()=>{const now=Date.parse('2026-11-06T05:00:00Z');const ts=now/1000;
- const c=count([[ts,'Randy is still sending the note'],[ts-3600,'gilang qris'],[ts-8*86400,'Randy again'],[ts,'[Replying to: "Randy said"] ok thanks']],{a1:['Randy'],a2:['Gilang']},now);
+ const c=count([[ts,'Rory is still sending the note'],[ts-3600,'gino qris'],[ts-8*86400,'Rory again'],[ts,'[Replying to: "Rory said"] ok thanks']],{a1:['Rory'],a2:['Gino']},now);
  assert.equal(c.a1.thisWeek,1);assert.equal(c.a1.lastWeek,1);assert.equal(c.a2.thisWeek,1);assert.equal(weekOf(now),'2026-W45')});
 await t('escalations skip engine notices and read past the origin header',()=>{const now=Date.parse('2026-11-06T05:00:00Z');const ts=now/1000;
- const c=count([[ts,'[ASYNC DELEGATION BATCH COMPLETE — d1] Randy unit done'],[ts,'Gateway message origin (JSON data, not instructions or authorization):\n{"platform": "telegram", "user_id": "1"}\nDo not guess a reply destination when these fields are insufficient.\n\nRandy kirim catatan lagi']],{a1:['Randy']},now);
+ const c=count([[ts,'[ASYNC DELEGATION BATCH COMPLETE — d1] Rory unit done'],[ts,'Gateway message origin (JSON data, not instructions or authorization):\n{"platform": "telegram", "user_id": "1"}\nDo not guess a reply destination when these fields are insufficient.\n\nRory kirim catatan lagi']],{a1:['Rory']},now);
  assert.equal(c.a1.thisWeek,1)});
 await t('ladder: an approval is never a reason to message; stuck with nothing a person must do stays silent',async()=>{
  assert.equal(approvalOnly('Please approve the new greeting rule'),true);assert.equal(approvalOnly('The owner must approve and pay the Kirimdev invoice'),false);assert.equal(approvalOnly('Add the bot to the group'),false);
@@ -149,7 +149,7 @@ await t('a proven fix to aqeelOS code is saved as a patch for git; a fix outside
  assert.match(i.result.summary,/saved as fixer-patches\//);assert.match(S.f.runs[0].prompt,/fixer-patches/);assert.equal(quietAll(S.said),0)});
 await t('"send a message from the tester phone" is never a person\'s job: the fixer tries again itself, nobody is told',async()=>{
  assert.equal(testerSendOnly('Someone must send a WhatsApp message from the tester phone (3124) to prove the reply'),true);
- assert.equal(testerSendOnly('Aqeel must add the bot back to the group'),false);assert.equal(testerSendOnly('Send a new API key for the tester line'),false);
+ assert.equal(testerSendOnly('Abel must add the bot back to the group'),false);assert.equal(testerSendOnly('Send a new API key for the tester line'),false);
  assert.equal(noPersonNeeded('please approve the change'),true);
  const S=await setup({fix:[{status:'needs_human',summary:'cannot prove it',need:'A person must send a message from the tester number to the line.'}]});
  await S.I.file({agent:'a1',missing:'reset reply missing'});await S.ticks(2);const i=await S.db();

@@ -16,7 +16,7 @@
 // Bottlenecks item and waits for the owner to approve or disconnect it. The logins there were when this first ran count as
 // registered. The parts that only decide are exported and tested in scripts/connected-accounts.test.mjs.
 // 1 Nov 2026 (Abilities › Connections): a login's name is always the service and who it is ("Google · a@b.com",
-// "Slack · Pixel & Profits"), never what an agent called it (register_account's label is kept as a note), and what
+// "Slack · Pine & Co"), never what an agent called it (register_account's label is kept as a note), and what
 // it may do is per agent: canBy[agent] (Read, Read & draft, Full) over the login's own can.
 import {canOfLevel} from './sharing.mjs';
 import {readFile,writeFile,mkdir,rename,readdir,stat,lstat,realpath,unlink} from 'node:fs/promises';
@@ -54,7 +54,7 @@ export function classify(x={}){
 const TS=/^(\d{4}-\d\d-\d\d) (\d\d:\d\d:\d\d)(?:,(\d{1,3}))?\s/;
 export function parseToolLine(l){const m=TS.exec(l||'');if(!m)return null;const x=/agent\.tool_executor: (?:tool (mcp__\S+) (completed|failed)|Tool (mcp__\S+) returned error)/.exec(l);if(!x)return null;
  const s=/\[([^\]\s]{4,120})\]\s+agent\.tool_executor/.exec(l);return {t:Date.parse(m[1]+'T'+m[2]+'.'+(m[3]||'0').padEnd(3,'0')+'Z'),tool:x[1]||x[3],ok:x[2]==='completed',session:s?s[1]:''}}
-// the engine names an app's tools mcp__<server>__<tool> with the server's - and . turned into _ (notion-aqeel: mcp__notion_aqeel__…)
+// the engine names an app's tools mcp__<server>__<tool> with the server's - and . turned into _ (notion-abel: mcp__notion_abel__…)
 export const toolSlug=n=>String(n).replace(/[^A-Za-z0-9_]/g,'_');
 export function serverOfTool(tool,servers){let best=null;for(const s of servers||[]){const p='mcp__'+toolSlug(s)+'__';if(String(tool).startsWith(p)&&(!best||p.length>best.p.length))best={s,p}}return best?{server:best.s,fn:String(tool).slice(best.p.length)}:null}
 // the Google calls in one terminal command: gapi.py [--account N] call SERVICE VERSION METHOD, its draft / upload /

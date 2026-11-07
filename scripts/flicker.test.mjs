@@ -27,9 +27,9 @@ const morph=new Function('document',[grab('core.js','const MORPH_KEEP_CLS='),gra
 const doc={activeElement:null};const {morphKids}=morph(doc);
 
 test('morph keeps every element that is still there and changes only what differs',()=>{
- const img=h('img',{src:'/logo.png',class:'mark'}),title=h('b',{},'Donna');
+ const img=h('img',{src:'/logo.png',class:'mark'}),title=h('b',{},'Dora');
  const root=h('div',{},h('span',{class:'wordmark'},img),h('span',{class:'who'},title,h('em',{},'Online')));
- morphKids(root,frag(h('span',{class:'wordmark'},h('img',{src:'/logo.png',class:'mark'})),h('span',{class:'who'},h('b',{},'Donna'),h('em',{},'Offline'))));
+ morphKids(root,frag(h('span',{class:'wordmark'},h('img',{src:'/logo.png',class:'mark'})),h('span',{class:'who'},h('b',{},'Dora'),h('em',{},'Offline'))));
  assert.equal(root.childNodes[0].childNodes[0],img,'the logo picture is the same element (it does not load again)');
  assert.equal(root.childNodes[1].childNodes[0],title);
  assert.equal(root.childNodes[1].childNodes[1].childNodes[0].nodeValue,'Offline')});

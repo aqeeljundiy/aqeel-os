@@ -108,7 +108,7 @@ export function createInstructions({DATA,HERMES_HOME,DASH,DASH_TOKEN,python,root
   const soul=await readSoul(a)??'';const mem=(await Promise.all(['MEMORY.md','USER.md'].map(f=>readFile(path.join(home(a),'memories',f),'utf8').catch(()=>'')))).join('\n§\n');
   const h=sha(soul+'\u0000'+mem),db=await load(a);if(!force&&db.flags?.hash===h)return;
   const items=[];const ov=overrides(soul);
-  // decisions kept in a separate file (AQEEL_DECISIONS.md, a sheet tab) instead of here: a second place for the same rules
+  // decisions kept in a separate file (DECISIONS.md, a sheet tab) instead of here: a second place for the same rules
   const sep=decisionFiles(soul);if(sep.length)items.push({kind:'decisions-file',title:'Decisions are also kept in a separate file',detail:'These instructions send the agent to another file for decisions. Move each rule from it into the instructions (change_instructions), where its history is kept, then drop the pointer, so every rule is in one place.',quotes:sep.slice(0,6).map(q=>({where:'instructions',quote:q}))});
   if(ov.length>1)items.push({kind:'override',title:ov.length+' sections say they override earlier rules',detail:'Rules stacked on top of each other. Change each rule where it is written instead, so it is said once.',quotes:ov.slice(0,12).map(q=>({where:'instructions',quote:q}))});
   const out=await ask('You check an AI agent\'s standing instructions for contradictions. Answer only with JSON.',

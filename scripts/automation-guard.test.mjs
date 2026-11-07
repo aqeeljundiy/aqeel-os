@@ -11,9 +11,9 @@ const L={
  summary:"2026-10-25 07:20:58,169 INFO tools.mcp_tool: MCP: registered 119 tool(s) from 3 server(s) (1 failed: pixel (Connection closed))",
  summary2:"2026-10-25 03:42:52,857 INFO tools.mcp_tool: MCP: registered 372 tool(s) from 9 server(s) (2 failed: AdsPower ([Errno 13] Permission denied: '/x/adspower-mcp.sh'); composio (MCP OAuth for 'composio': non-interactive environment and no cached tokens found. Run `hermes mcp login composio` interactively first.))",
  unknown:"2026-10-25 07:50:51,452 WARNING [local-d5728b] agent.tool_executor: Tool tool_call returned error (0.07s): {\"error\": \"'pixel_now' is not a known tool name. Deferred tools must be invoked through tool_call by the exact name tool_search returns (e.g. mcp__<server>__{tool}).",
- removed:"2026-10-25 15:01:18,757 INFO gateway.run_profile_reconcile: MCP servers reconciled with config (pixel-agent): removed=['pixel'] added=[]",
+ removed:"2026-10-25 15:01:18,757 INFO gateway.run_profile_reconcile: MCP servers reconciled with config (pine-agent): removed=['pixel'] added=[]",
  registered:"2026-10-25 15:02:20,921 INFO tools.mcp_tool: MCP server 'pixel' (stdio): registered 28 tool(s): mcp__pixel__pixel_sender_status, mcp__pixel__pixel_now",
- added:"2026-10-25 15:02:20,934 INFO gateway.run_profile_reconcile: MCP servers reconciled with config (pixel-agent): removed=[] added=['pixel']",
+ added:"2026-10-25 15:02:20,934 INFO gateway.run_profile_reconcile: MCP servers reconciled with config (pine-agent): removed=[] added=['pixel']",
  auth:"2026-10-24 09:18:50,237 WARNING tools.mcp_tool: MCP server 'composio' failed initial authentication, parking until credentials change; re-authenticate with `hermes mcp login composio` (state: connecting → parked): OAuthNonInteractiveError: no cached tokens",
  oauth:"2026-10-25 14:46:01,336 WARNING tools.mcp_tool: MCP OAuth setup failed for 'composio': MCP OAuth for 'composio': non-interactive environment and no cached tokens found.",
  probing:"2026-10-24 22:46:15,307 WARNING tools.mcp_tool: MCP server 'slack-pixel' failed after 5 reconnection attempts, parking; will self-probe every 300s until it recovers (state: degraded → parked): RemoteProtocolError: x",
@@ -30,7 +30,7 @@ test('log: failed to connect, and the summary line names the failed ones',()=>{
 test('log: sign-ins, self-probing, revived, registered, reconciled, unknown tools',()=>{
  assert.equal(parseLogLine(L.auth)[0].kind,'signin');assert.equal(parseLogLine(L.oauth)[0].kind,'signin');assert.equal(parseLogLine(L.oauth)[0].server,'composio');
  assert.equal(parseLogLine(L.probing)[0].kind,'probing');assert.equal(parseLogLine(L.revived)[0].kind,'ok');assert.equal(parseLogLine(L.registered)[0].kind,'ok');
- const r=parseLogLine(L.removed)[0];assert.equal(r.kind,'reconciled');assert.equal(r.label,'pixel-agent');assert.deepEqual(r.removed,['pixel']);assert.deepEqual(r.added,[]);
+ const r=parseLogLine(L.removed)[0];assert.equal(r.kind,'reconciled');assert.equal(r.label,'pine-agent');assert.deepEqual(r.removed,['pixel']);assert.deepEqual(r.added,[]);
  assert.deepEqual(parseLogLine(L.added)[0].added,['pixel']);
  assert.equal(parseLogLine(L.unknown)[0].tool,'pixel_now');
  assert.deepEqual(parseLogLine('a line without a time'),[]);assert.deepEqual(parseLogLine('2026-10-25 07:00:00,000 INFO x: nothing to see'),[])});
@@ -74,10 +74,10 @@ test('schedule replies: tools that were not there, in Indonesian and English',()
  assert.equal(toolFailed(responseOf('## Prompt\nsay "tidak tersedia" if a tool is missing\n')),null)});
 test('Health: an extra number folds into its agent; only a server that differs shows, as the extra number',()=>{
  const sv=(name,state)=>({name,state});
- const out=foldCopies([{agent:'default',name:'Donna AI',servers:[sv('notion','signin'),sv('n8n','ok')],jobs:[]},
+ const out=foldCopies([{agent:'default',name:'Dora AI',servers:[sv('notion','signin'),sv('n8n','ok')],jobs:[]},
   {agent:'default--whatsapp-2',name:'x',servers:[sv('notion','signin'),sv('n8n','broken')],jobs:[{id:'j1',name:'Daily'}]},
-  {agent:'sesa--telegram-2',name:'y',servers:[sv('gmail','ok')],jobs:[]}],a=>a==='sesa'?'Sesa':a);
- assert.deepEqual(out.map(a=>a.agent),['default','sesa']);
+  {agent:'sela--telegram-2',name:'y',servers:[sv('gmail','ok')],jobs:[]}],a=>a==='sela'?'Sela':a);
+ assert.deepEqual(out.map(a=>a.agent),['default','sela']);
  assert.deepEqual(out[0].servers.map(s=>[s.label||s.name,s.state,s.agent||'']),[['notion','signin',''],['n8n','ok',''],['n8n (extra number)','broken','default--whatsapp-2']]);
  assert.deepEqual(out[0].jobs.map(j=>[j.id,j.agent]),[['j1','default--whatsapp-2']]);
- assert.equal(out[1].name,'Sesa')});
+ assert.equal(out[1].name,'Sela')});

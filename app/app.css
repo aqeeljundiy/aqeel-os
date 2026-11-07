@@ -483,7 +483,7 @@ body.dragging .app{transition:none}
 .screen-head button:not(.icon){min-height:34px;padding:0 14px;font-size:13px}
 .topbar .ghost.icon.on{background:var(--blue-soft);color:var(--blue)}
 
-/* the stage: Elkiya sky with a laptop holding the live screen */
+/* the stage: the brand sky with a laptop holding the live screen */
 .screen-stage{flex:1;min-height:0;position:relative;display:grid;place-items:center;padding:22px;container-type:size;background:radial-gradient(70% 60% at 50% 30%,rgba(255,255,255,.95),transparent 70%),linear-gradient(180deg,var(--sky-1),var(--sky-2) 55%,var(--soft-2))}
 .dark .screen-stage{background:radial-gradient(70% 60% at 50% 30%,rgba(108,169,255,.10),transparent 70%),linear-gradient(180deg,#141b28,var(--bg))}
 .laptop{width:min(100cqw,138cqh);max-width:100%;filter:drop-shadow(0 26px 40px rgba(11,12,16,.22)) drop-shadow(0 2px 6px rgba(11,12,16,.12));animation:rise var(--t-med) var(--ease)}
@@ -2551,3 +2551,14 @@ button.acct-more{font:inherit;cursor:pointer;width:100%;background:var(--surface
 .ppl-panel .drawer-foot{justify-content:flex-start}
 @media (max-width:760px){.people-grid{grid-template-columns:1fr}.pp-line .sel-btn.inline{width:auto;max-width:65%}}
 .person .psub span,.person .psum span,.pp-id>span:not(.p-state) span{white-space:nowrap}
+
+/* Skills and Plugins: Built in and Added on this OS (skill-groups.js) */
+.sg-groups{display:flex;flex-direction:column;gap:22px}
+.sg-group .ach-cat{margin:0 0 2px}
+.sg-hint{margin:0 0 10px}
+.sg-empty{margin:0;padding:14px 16px;border:1px dashed var(--border);border-radius:14px}
+.sg-note{display:flex;gap:8px;align-items:flex-start;margin:0 0 12px;padding:10px 12px;border-radius:12px;background:var(--soft-2,var(--soft))}
+.sg-note svg{flex:none;margin-top:2px}
+textarea.sg-ro{background:var(--soft-2,var(--soft));color:var(--ink-2)}
+.sg-group{animation:lbIn .22s ease both}
+@media (prefers-reduced-motion:reduce){.sg-group{animation:none}}

@@ -3,7 +3,7 @@
 # box starts itself (agents' browsing, AI model calls, channels, downloads) out through the owner's Nord dedicated IP,
 # while anything that comes in (aqeelOS's address, SSH on 2222, Dokploy) keeps answering on the box's normal connection.
 #  - on/off and settings: ~/.aqeelos-vpn (server=<host> and user=<Nord service username>); no file = off.
-#    The service password is the secret Donna saved: <home>/workspaces/<main agent>/.secrets/NORD_PASSWORD.
+#    The service password is the secret Dora saved: <home>/workspaces/<main agent>/.secrets/NORD_PASSWORD.
 #  - if Nord drops, OpenVPN's routes go away and the box keeps working on its normal IP (no kill switch, by choice).
 #  - safety net: after a first connect the VPN switches itself off again unless ~/.aqeelos-vpn-ok appears
 #    within 10 minutes (made once someone checked the box is still reachable), so a bad setup can't lock anyone out.
@@ -38,7 +38,7 @@ prepare(){
   [ -n "$user" ] || { say "off: no user in $CONF"; return 1; }
   [ -s "$PW" ] || { say "off: the Nord password is not saved yet"; return 1; }
   if [ ! -s "$DIR/$server.ovpn" ]; then curl -fsS --max-time 30 -o "$DIR/$server.ovpn.tmp" "https://downloads.nordcdn.com/configs/files/ovpn_udp/servers/$server.udp.ovpn" && mv "$DIR/$server.ovpn.tmp" "$DIR/$server.ovpn" || { say "off: could not download the settings for $server"; return 1; }; fi
-  # the password goes from Donna's saved secret into a root-only file OpenVPN reads; it is never printed
+  # the password goes from Dora's saved secret into a root-only file OpenVPN reads; it is never printed
   umask 077; { printf '%s\n' "$user"; head -c 4096 "$PW" | tr -d '\r\n'; printf '\n'; } > "$DIR/auth"
   echo "$server"
 }

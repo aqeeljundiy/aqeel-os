@@ -1,5 +1,5 @@
 // Browser tidy (audit, 5 Nov 2026): the box ran at a load of about 20 on 12 cores with 149 Chrome processes; tabs agents
-// opened days ago kept running (one of Sesa's had been open 12 days at 1.3 GB). Every hour, each agent's own screen
+// opened days ago kept running (one of Sela's had been open 12 days at 1.3 GB). Every hour, each agent's own screen
 // Chrome (the one scripts/agent-users.sh keeps per agent) is tidied when that agent has done nothing for 3 hours: its
 // open tabs are closed and one empty tab stays. Its sign-ins stay (they live in its browser profile on disk), and an
 // agent at work, or one that worked within the 3 hours, is never touched. AdsPower browsers are left to the memory guard.
@@ -13,7 +13,7 @@ export function plan(targets){const pages=(targets||[]).filter(t=>t&&t.type==='p
  const blank=pages.find(t=>/^(about:blank|chrome:\/\/newtab\/?)$/.test(String(t.url||'')));
  return {open:!blank&&pages.length>0,close:pages.filter(t=>t!==blank).map(t=>t.id)}}
 
-// Too many tabs (7 Nov 2026): continue-threads works all day, so it was never 3 hours idle, and its schedules opened a new
+// Too many tabs (7 Nov 2026): cove-threads works all day, so it was never 3 hours idle, and its schedules opened a new
 // Threads tab on every run without closing it: 126 tabs, 128 Chrome processes, ~30 GB, the box at its memory limit and
 // "memory pressure is elevated" in the engine. So extra tabs are closed whatever the agent does: a second copy of the
 // same page (address without ?query/#hash) and the oldest beyond a cap. Chrome lists the most recently opened or used

@@ -65,7 +65,7 @@ export function createSchedules({DATA,DASH,TOKEN,HERMES_HOME,listAgents,python,r
     if(r.runs.length<12)r.runs.push({id:x.id,t:x.started_at,secs:x.ended_at?Math.round(x.ended_at-x.started_at):null,tokens:tok,cost,model:x.model,active:!!x.is_active,end:x.end_reason||'',sub:/subscription/.test(x.billing_provider||'')})}}))
   return out}
 
- // who a delivery goes to, by name ("whatsapp:263…@lid" → "Aqeel on WhatsApp")
+ // who a delivery goes to, by name ("whatsapp:263…@lid" → "Abel on WhatsApp")
  // WhatsApp addresses chats by a hidden ID (…@lid); the session keeps which phone number each one is
  async function names(agents,all){const out={},byPhone={};for(const a of agents){try{const p=await api('/pairing?profile='+encodeURIComponent(a));for(const x of p.approved||[])if(x.user_name){out[x.platform+':'+x.user_id]=x.user_name;byPhone[x.platform+':'+String(x.user_id).replace(/\D/g,'')]=x.user_name}}catch{}}
   for(const j of all){const m=/^whatsapp:(\d+)@lid$/.exec(j.deliver||'');if(!m||out[j.deliver])continue;

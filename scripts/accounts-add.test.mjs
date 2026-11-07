@@ -21,8 +21,8 @@ test('the owner registers a Google sign-in aqeelOS sees: registered as the owner
  await t.ca.list({fresh:true});   // the first look takes what is there as known (seed); a login after it is new
  const f=path.join(t.H,'profiles','sales','google_token_shop.json');await writeFile(f,JSON.stringify({token:'t',refresh_token:'r',account:'shop@x.test'}));
  let l=await t.ca.list({fresh:true});assert.equal(l.items.find(x=>x.id==='google:shop@x.test').registered,false);
- const r=await t.ca.register('sales',{kind:'google',label:'Google, shop',where:f,can:['read']},{owner:'Aqeel'});assert.ok(!r.isError,r.text);assert.equal(r.id,'google:shop@x.test');
- l=await t.ca.list();const x=l.items.find(y=>y.id==='google:shop@x.test');assert.equal(x.registered,true);assert.equal(x.registeredBy,'owner: Aqeel');assert.deepEqual(x.can,['read'])}finally{await t.done()}});
+ const r=await t.ca.register('sales',{kind:'google',label:'Google, shop',where:f,can:['read']},{owner:'Abel'});assert.ok(!r.isError,r.text);assert.equal(r.id,'google:shop@x.test');
+ l=await t.ca.list();const x=l.items.find(y=>y.id==='google:shop@x.test');assert.equal(x.registered,true);assert.equal(x.registeredBy,'owner: Abel');assert.deepEqual(x.can,['read'])}finally{await t.done()}});
 test('another login (a file the owner names) is added as the owner\'s',async()=>{const t=await setup();try{
  const f=path.join(t.root,'workspaces','x.session');await writeFile(f,'s');const r=await t.ca.register('default',{kind:'other',label:'Shopee seller, me',where:f},{owner:''});assert.ok(!r.isError,r.text);
  const x=(await t.ca.list()).items.find(y=>y.id===r.id);assert.equal(x.registeredBy,'owner');assert.match(x.label,/Shopee seller, me/,'the owner\'s name for it shows')}finally{await t.done()}});

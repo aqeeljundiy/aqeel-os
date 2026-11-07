@@ -4,21 +4,8 @@ data/development.json
 mockup/
 scripts/features.mjs
 *.bak*
-# Aqeel-private skills (in ~/.hermes/skills; never ship):
-skills/productivity/aqeel-task-hub
-skills/productivity/aqeel-google-automations
-skills/productivity/aqeel-message-drafting
-skills/productivity/process-aqeel-statements
-skills/productivity/china-trip-notion
-skills/productivity/peptide-business-pricing
-skills/productivity/whatsapp-support-agents
-skills/software-development/admissionsight-dev
-skills/pixel/pixel-ops
-skills/creative/continue-longevity-brand
-skills/creative/continue-vial-labels
-skills/creative/continue-vial-photo
-skills/creative/design-style-v1
-skills/social-media/continue-threads-commenting
+# Skills: the repo holds only Built in skills (skills/). Skills made on an install stay in its own data, never here.
+# Each skill's install-specific details live in references/local.md next to it on the server:
 skills/**/references/local.md
 pending/
 AUDIT-PLAN.md

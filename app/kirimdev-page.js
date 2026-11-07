@@ -80,7 +80,7 @@ const Kirim={
    <section class="km-sec"><h3>Who answers</h3>
     ${edit?'':`<label for="kmf-agent">Agent</label>${Kirim.field('kmf-agent','Pick an agent')}
     <div class="km-reveal" id="kmf-newbox" hidden>${i('kmf-newid','Name for the new support agent','','support','maxlength="64" autocapitalize="off" spellcheck="false"')}<p class="hint">Lowercase letters, numbers, - and _. It is made with aqeelOS’s tools and its own space on the AI box; that takes about a minute.</p></div>`}
-    <div class="km-2"><div>${i('kmf-persona','Name customers see',s.persona,'Gilang','maxlength="40"')}</div><div>${i('kmf-biz','Business',s.business??(num?.name||''),'Biomarkers by Newtech Labs','maxlength="80"')}</div></div></section>
+    <div class="km-2"><div>${i('kmf-persona','Name customers see',s.persona,'Gino','maxlength="40"')}</div><div>${i('kmf-biz','Business',s.business??(num?.name||''),'Bay by Neolab','maxlength="80"')}</div></div></section>
    <section class="km-sec"><h3>Testers</h3><p class="hint">In Test the agent answers only these numbers. Country code first, like 6281234567890.</p><div id="kmf-testers"></div>
     <button type="button" class="ghost km-add" id="kmf-addt">${icon('plus',15)}Add tester</button></section>
    <section class="km-sec"><h3>Handoffs</h3><p class="hint">A question the agent cannot answer goes to this Telegram group and topic, for a person.</p>

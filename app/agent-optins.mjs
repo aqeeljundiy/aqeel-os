@@ -18,7 +18,7 @@ export function toolNames(config){const out={adspower:['AdsPower'],composio:[]};
 // sign-in apps (Notion, Slack, any OAuth tool server) are switched per agent by their name there; Composio has its own switch
 export const appNames=config=>Object.entries(config?.mcp_servers||{}).filter(([,e])=>isConnector(e)&&!COMPOSIO.test(String(e.url||''))).map(([n])=>n);
 // which apps an agent keeps at the first count: the ones it ran a tool of; the main agent also keeps all of its own, which
-// are the owner's sign-ins (7 Nov 2026: notion-aqeel, notion-polyspeech, slack, slack-pixel, slack-as2)
+// are the owner's sign-ins (7 Nov 2026: notion-abel, notion-polar, slack, slack-pixel, slack-as2)
 export function decideApps(counts,configs){const on={};
  for(const [a,c] of Object.entries(configs||{})){const b=baseOf(a);for(const n of appNames(c)){if(b==='default'||(counts?.[a]?.['app:'+n]?.n||0)>0)(on[b]||={})[n]=true}}
  return on}

@@ -45,10 +45,10 @@ await t('Health list: drift and fixer patches, newest first, view and "taken int
  assert.match(await C.read('drift','20261107-100000.patch'),/\+b/);await assert.rejects(C.read('drift','../issues.json'),/Unknown patch/);await assert.rejects(C.read('x','a.patch'),/Unknown kind/);
  await C.done('drift','20261107-100000.patch');assert.deepEqual((await C.list()).map(x=>x.kind),['fixer']);assert.deepEqual(await readdir(path.join(D,'drift','done')),['20261107-100000.patch'])});
 
-const LINE={phoneNumberId:'1122',testers:[{who:'Aqeel',conversationId:'cnv_A'},{who:'Team (3124)',conversationId:'cnv_T',phone:'+62 812-0599-3124'}]};
+const LINE={phoneNumberId:'1122',testers:[{who:'Abel',conversationId:'cnv_A'},{who:'Team (3124)',conversationId:'cnv_T',phone:'+62 812-0599-3124'}]};
 await t('tester webhook: signed like Kirimdev, read back as that tester on that line',async()=>{const tr=pickTester(LINE);assert.equal(tr.who,'Team (3124)','only a tester with a phone');
  const w=testWebhook({line:LINE,tester:tr,text:'reset',now:1_800_000_000_000,id:'aqtest-1'});
  assert.ok(verifySignature(w.raw,sign(w.raw,'sek',w.ts),['sek'],w.ts));assert.equal(verifySignature(w.raw,sign(w.raw,'other',w.ts),['sek'],w.ts),false);
  const [m]=parseInbound(JSON.parse(w.raw));assert.deepEqual({pid:m.pid,from:m.from,text:m.text,conversationId:m.conversationId,ts:m.ts},{pid:'1122',from:'6281205993124',text:'reset',conversationId:'cnv_T',ts:1_800_000_000});
- assert.throws(()=>pickTester(LINE,'Aqeel'),/No tester called Aqeel with a phone/);assert.throws(()=>pickTester({testers:[]}),/no tester with a phone/)});
+ assert.throws(()=>pickTester(LINE,'Abel'),/No tester called Abel with a phone/);assert.throws(()=>pickTester({testers:[]}),/no tester with a phone/)});
 console.log(n+' passed');

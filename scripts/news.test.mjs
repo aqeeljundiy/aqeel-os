@@ -41,8 +41,8 @@ test('import: once per person, at most 30, outside the limit; old news is Activi
  assert.equal((await n.list(mem,false)).length,0,'not in the bell');assert.ok((await n.activity(mem,false)).some(x=>x.key==='old:0'))}finally{rmSync(D,{recursive:true,force:true})}});
 
 test('the bell holds only what you started; everything else is Activity',async()=>{const D=dir();try{const n=createNews({DATA:D});
- await n.add({aud:'admins',title:'Sesa finished a run it started itself (4 min).'});await n.add({aud:'admins',title:'Your export is ready',started:true});
- assert.deepEqual((await n.list(owner,true)).map(x=>x.title),['Your export is ready']);assert.deepEqual((await n.activity(owner,true)).map(x=>x.title),['Sesa finished a run it started itself (4 min).'])}finally{rmSync(D,{recursive:true,force:true})}});
+ await n.add({aud:'admins',title:'Sela finished a run it started itself (4 min).'});await n.add({aud:'admins',title:'Your export is ready',started:true});
+ assert.deepEqual((await n.list(owner,true)).map(x=>x.title),['Your export is ready']);assert.deepEqual((await n.activity(owner,true)).map(x=>x.title),['Sela finished a run it started itself (4 min).'])}finally{rmSync(D,{recursive:true,force:true})}});
 test('one row per problem: Low on RAM updates in place with since and a count, and a resolved one starts fresh next time',async()=>{const D=dir();try{const n=createNews({DATA:D});
  for(let i=0;i<3;i++)await n.add({aud:'admins',group:'sys:memory',title:'The AI box is low on RAM',text:'free '+i+' GB'});
  let l=await n.activity(owner,true);assert.equal(l.length,1);assert.equal(l[0].count,3);assert.ok(l[0].since<=l[0].t);assert.equal(l[0].text,'free 2 GB');
@@ -54,7 +54,7 @@ test('bell items expire after 7 days',async()=>{const D=dir();try{const n=create
 test('first start: a week of 213 items fold into one row per problem, all in Activity, none in the bell',()=>{const now=Date.now();const items=[];
  for(let i=0;i<16;i++)items.push({aud:'u:owner',t:now-i*6e5,key:'sys:m'+i+'@1',title:'The AI box is low on RAM'});
  for(let i=0;i<19;i++)items.push({aud:'u:owner',t:now-i*6e5,key:'sys:r'+i+'@1',title:'Agents restarted for a moment'});
- for(let i=0;i<13;i++)items.push({aud:'admins',t:now-i*6e5,key:'ev|selfruns|x|'+i,title:'Continue Threads Manager finished a run it started itself ('+(i+2)+' min). Reason: x'});
+ for(let i=0;i<13;i++)items.push({aud:'admins',t:now-i*6e5,key:'ev|selfruns|x|'+i,title:'Cove Threads finished a run it started itself ('+(i+2)+' min). Reason: x'});
  const f=fold(items);assert.equal(f.length,3);assert.deepEqual(f.map(x=>x.count),[16,19,13]);assert.ok(f.every(x=>x.cls!=='started'));
  assert.equal(legacyGroup({title:'The AI box is low on RAM'}),'sys:memory')});
 test('the evening line',()=>{assert.equal(eveningLine(12,0),'12 things fixed themselves today, nothing needs you');assert.equal(eveningLine(1,2),'1 thing fixed itself today, 2 things need you')});

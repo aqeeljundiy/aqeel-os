@@ -6,8 +6,8 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {createSelfRuns,judge,safeLock,fp,normId,DEFAULT_CAP} from '../app/self-runs.mjs';
 
-const OWNER={settings:{},trusted:[{platform:'telegram',uid:'1543470752',name:'AJ'},{platform:'whatsapp',uid:'6281234',name:'Sesa'}],sessionUser:id=>id==='api_1'?{name:'Aqeel',ok:true}:id==='api_2'?{name:'Guest',ok:false}:null};
-const ok={ok:true,by:{kind:'api_server',who:'Aqeel'}};
+const OWNER={settings:{},trusted:[{platform:'telegram',uid:'1000000001',name:'AJ'},{platform:'whatsapp',uid:'6281234',name:'Sela'}],sessionUser:id=>id==='api_1'?{name:'Abel',ok:true}:id==='api_2'?{name:'Guest',ok:false}:null};
+const ok={ok:true,by:{kind:'api_server',who:'Abel'}};
 
 async function make(o={}){const DATA=await mkdtemp(path.join(tmpdir(),'sr-'));let t=Date.UTC(2026,10,5,3,0);const told=[],notes=[],launched=[],exits={},gone=new Set();
  const s=createSelfRuns({DATA,now:()=>t,nameOf:a=>a,launch:async r=>{if(o.cannot)throw Error('no engine');launched.push(r);return {pid:1000+launched.length}},
@@ -21,7 +21,7 @@ test('judge: aqeelOS chat of an editor, own schedules and trusted people pass; e
  assert.match(judge([{id:'api_2',source:'api_server'}],OWNER).why,/may not edit/);
  assert.match(judge([{id:'api_9',source:'api_server'}],OWNER).why,/no known owner/);
  assert.equal(judge(c({source:'cron',title:'Daily'}),OWNER).ok,true);
- assert.equal(judge(c({source:'telegram',user_id:'1543470752',chat_id:'-100',thread_id:'3'}),OWNER).by.who,'AJ');
+ assert.equal(judge(c({source:'telegram',user_id:'1000000001',chat_id:'-100',thread_id:'3'}),OWNER).by.who,'AJ');
  assert.match(judge(c({source:'telegram',user_id:'999'}),OWNER).why,/not on the list/);
  // WhatsApp: only trusted people, whatever form the id is in
  assert.equal(judge(c({source:'whatsapp',user_id:'+6281234@s.whatsapp.net'}),OWNER).ok,true);
@@ -43,10 +43,10 @@ test('fp and normId match the same call however it is written',()=>{assert.equal
  assert.equal(normId('whatsapp','+6281:4@lid'),'6281');assert.equal(normId('telegram',' 15 '),'15')});
 
 test('a run starts, finishes, and the agent and the chat hear the result',async()=>{const {s,notes,exits,launched}=await make();
- const r=await s.start({agent:'continue-threads',args:{prompt:'write test.txt',reason:'test',timeout_minutes:99},origin:ok});
- assert.equal(r.state,'running');assert.equal(r.minutes,25);assert.equal(launched[0].agent,'continue-threads');
+ const r=await s.start({agent:'cove-threads',args:{prompt:'write test.txt',reason:'test',timeout_minutes:99},origin:ok});
+ assert.equal(r.state,'running');assert.equal(r.minutes,25);assert.equal(launched[0].agent,'cove-threads');
  assert.equal((await readFile(path.join(launched[0].dir,'prompt.txt'),'utf8')),'write test.txt');
- exits[r.id]={code:0};await s.check();const st=await s.status('continue-threads',r.id);
+ exits[r.id]={code:0};await s.check();const st=await s.status('cove-threads',r.id);
  assert.equal(st.state,'ok');assert.match(st.answer,/test\.txt/);assert.deepEqual(notes[0].slice(0,2),[r.id,'ok']);
  assert.equal(await s.status('other-agent',r.id),null,'another agent cannot see it')});
 
@@ -90,9 +90,9 @@ test('a lock run waits, then runs; a lock never taken fails',async()=>{const {s,
 test('a run that cannot start is failed, not left running',async()=>{const {s}=await make({cannot:true});await assert.rejects(s.start({agent:'a',args:{prompt:'p',reason:'r'},origin:ok}),/could not be started/);assert.equal((await s.mine('a')).runs[0].state,'failed')});
 
 test('trusted people: a code sent from a chat adds that person once; codes expire; remove works',async()=>{const {s,tick}=await make();
- const c=await s.newCode({name:'Aqeel',by:'owner'});assert.match(c.code,/^TRUST-[A-Z2-9]{4}-[A-Z2-9]{4}$/);
+ const c=await s.newCode({name:'Abel',by:'owner'});assert.match(c.code,/^TRUST-[A-Z2-9]{4}-[A-Z2-9]{4}$/);
  assert.equal(await s.codeSeen({code:c.code,platform:'webhook',uid:'x'}),null,'never from a webhook');
- const d=await s.newCode({name:'',by:'owner'});const t=await s.codeSeen({code:d.code,platform:'whatsapp',uid:'+6281:2@s.whatsapp.net',name:'Ajeng',agent:'sesa'});
+ const d=await s.newCode({name:'',by:'owner'});const t=await s.codeSeen({code:d.code,platform:'whatsapp',uid:'+6281:2@s.whatsapp.net',name:'Ajeng',agent:'sela'});
  assert.deepEqual([t.uid,t.name],['6281','Ajeng']);assert.equal(await s.codeSeen({code:d.code,platform:'telegram',uid:'5'}),null,'used once');
  const e=await s.newCode({name:'Late',by:'owner'});tick(16*60e3);await s.check();assert.equal(await s.codeSeen({code:e.code,platform:'telegram',uid:'7'}),null,'expired');
  assert.equal(await s.hasTrusted('whatsapp'),true);assert.equal(await s.untrust(t.id,'owner'),true);assert.equal(await s.hasTrusted('whatsapp'),false)});

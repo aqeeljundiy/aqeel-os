@@ -4,14 +4,14 @@ import {createServer} from 'node:http';import {mkdtemp} from 'node:fs/promises';
 const HOME=await mkdtemp(path.join(tmpdir(),'sched-'));process.env.HOME=HOME;
 const {createSchedules}=await import('../app/schedules.mjs');
 // a fake engine dashboard: two jobs on two agents; PUT renames
-const JOBS=[{id:'j1',profile:'default',name:'x3',prompt:'p',schedule:{display:'every day'}},{id:'j2',profile:'sesa',name:'Sesa job',prompt:'q'}];const puts=[];
+const JOBS=[{id:'j1',profile:'default',name:'x3',prompt:'p',schedule:{display:'every day'}},{id:'j2',profile:'sela',name:'Sela job',prompt:'q'}];const puts=[];
 const srv=createServer((req,res)=>{let b='';req.on('data',c=>b+=c);req.on('end',()=>{const u=new URL(req.url,'http://x');
  if(req.headers['x-hermes-session-token']!=='tok'){res.writeHead(401);return res.end('{}')}
  if(u.pathname==='/api/cron/jobs'&&req.method==='GET'){res.writeHead(200,{'content-type':'application/json'});return res.end(JSON.stringify({jobs:JOBS}))}
  const m=/^\/api\/cron\/jobs\/([^/]+)$/.exec(u.pathname);if(m&&req.method==='PUT'){const j=JOBS.find(x=>x.id===m[1]);const up=JSON.parse(b).updates||{};puts.push([m[1],u.searchParams.get('profile'),up]);if(up.name)j.name=up.name;res.writeHead(200,{'content-type':'application/json'});return res.end(JSON.stringify(j))}
  res.writeHead(404);res.end('{}')})});
 await new Promise(r=>srv.listen(0,'127.0.0.1',r));const DASH='http://127.0.0.1:'+srv.address().port;
-const make=(dash=DASH)=>createSchedules({DATA:path.join(HOME,'data'),DASH:dash,TOKEN:'tok',HERMES_HOME:path.join(HOME,'.hermes'),listAgents:async()=>['default','sesa'],python:async()=>null,root:path.join(HOME,'r'),live:false});
+const make=(dash=DASH)=>createSchedules({DATA:path.join(HOME,'data'),DASH:dash,TOKEN:'tok',HERMES_HOME:path.join(HOME,'.hermes'),listAgents:async()=>['default','sela'],python:async()=>null,root:path.join(HOME,'r'),live:false});
 test.after(()=>srv.close());
 
 test('organize_schedule: renames and files the agent\'s own job (an extra number counts as the agent)',async()=>{

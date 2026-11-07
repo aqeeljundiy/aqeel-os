@@ -68,9 +68,9 @@ const Teams={
 PAGES.teams=async(p,el)=>{viewPick([]);await Teams.show(el)};
 
 // a person's fields (owner or member): name, Telegram ids and names, WhatsApp numbers
-Teams.personFields=(p,k,named=true)=>`${named?`<label>Name</label><input data-f="name" maxlength="60" value="${esc(p.name||'')}" placeholder="Amri">`:''}
+Teams.personFields=(p,k,named=true)=>`${named?`<label>Name</label><input data-f="name" maxlength="60" value="${esc(p.name||'')}" placeholder="Ari">`:''}
  <div class="tm-two"><div><label>Telegram user ID</label><input data-f="telegram" value="${esc((p.telegram||[]).join(', '))}" inputmode="numeric" placeholder="1339820731"></div>
- <div><label>Telegram name</label><input data-f="telegram_names" value="${esc((p.telegram_names||[]).join(', '))}" placeholder="amri"></div></div>
+ <div><label>Telegram name</label><input data-f="telegram_names" value="${esc((p.telegram_names||[]).join(', '))}" placeholder="ari"></div></div>
  <label>WhatsApp number</label><input data-f="whatsapp" value="${esc((p.whatsapp||[]).join(', '))}" inputmode="tel" placeholder="+62 812 3456 7890">`;
 Teams.readPerson=box=>{const v=f=>box.querySelector(`[data-f="${f}"]`)?.value||'',l=f=>v(f).split(',').map(x=>x.trim()).filter(Boolean);
  return {name:v('name').trim(),telegram:l('telegram'),telegram_names:l('telegram_names'),whatsapp:l('whatsapp')}};
@@ -84,7 +84,7 @@ ACT['tm-owner']=()=>{const o=Teams.d.owner||{};
 ACT['tm-team']=b=>{const isNew=b.dataset.i==='new',t=isNew?{name:'',agents:[],members:[],aliases:{}}:structuredClone(Teams.d.teams[+b.dataset.i]);let members=structuredClone(t.members||[]);const sel=new Set(t.agents||[]);
  const memberHtml=(m,i)=>`<div class="tm-member" data-m="${i}"><div class="tm-mhead"><b>${esc(m.name||'New member')}</b><button class="ghost icon" data-rm="${i}" aria-label="Remove ${esc(m.name||'this member')}">${icon('x',16)}</button></div>${Teams.personFields(m,'m'+i)}</div>`;
  const agentsHtml=()=>Teams.d.agents.map(a=>{const other=Teams.teamOf(a.id),moves=other&&other.name!==t.name;return `<button type="button" class="tm-pick${sel.has(a.id)?' on':''}" data-a="${esc(a.id)}" aria-pressed="${sel.has(a.id)}">${agentAvatar(a.id,22)}<span>${esc(a.name)}${moves&&!sel.has(a.id)?`<small>in ${esc(other.name)}</small>`:''}</span></button>`}).join('');
- const aliasHtml=()=>[...sel].map(a=>`<div class="tm-alias"><span>${esc(Teams.name(a))}</span><input data-al="${esc(a)}" value="${esc((t.aliases?.[a]||[]).join(', '))}" placeholder="Other names, e.g. Randy"></div>`).join('')||'<p class="hint">Pick agents first.</p>';
+ const aliasHtml=()=>[...sel].map(a=>`<div class="tm-alias"><span>${esc(Teams.name(a))}</span><input data-al="${esc(a)}" value="${esc((t.aliases?.[a]||[]).join(', '))}" placeholder="Other names, e.g. Rory"></div>`).join('')||'<p class="hint">Pick agents first.</p>';
  const d=drawer(isNew?'New team':'Edit '+t.name,`<label for="tmName">Team name</label><input id="tmName" maxlength="40" value="${esc(t.name)}" placeholder="Support">
   <label>Agents</label><div class="tm-picks">${agentsHtml()}</div>
   <label>Also called</label><p class="hint tm-sub">What people call each agent in chats, so aqeelOS can tell when the team asks the main agent about it.</p><div class="tm-aliases">${aliasHtml()}</div>

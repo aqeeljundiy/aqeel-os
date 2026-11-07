@@ -1,17 +1,17 @@
 // Quiet Slack channels per workspace (7 Nov 2026): the old one-prefix-for-all setting moves to the single workspace it
-// meant (Pixel & Profits on the owner's box), other workspaces answer normally, a list is cleaned when a prefix goes, and
+// meant (Pine & Co on the owner's box), other workspaces answer normally, a list is cleaned when a prefix goes, and
 // a Slack outage at the move changes nothing. No network.
 import test from 'node:test';import assert from 'node:assert/strict';
 import {mkdtemp,readFile,writeFile,readdir} from 'node:fs/promises';import {tmpdir} from 'node:os';import path from 'node:path';
 import {createSlackQuiet,migrate,plan,cleanPrefix} from '../app/slack-quiet.mjs';
 const dir=async()=>mkdtemp(path.join(tmpdir(),'sq-'));
-const PNP={id:'T0PIXEL01',name:'Pixel & Profits'},AS={id:'T0ADMSGHT',name:'AdmissionSight'},PS={id:'T0POLYSP1',name:'Polyspeech'};
+const PNP={id:'T0PIXEL01',name:'Pine & Co'},AS={id:'T0ADMSGHT',name:'Admitly'},PS={id:'T0POLYSP1',name:'Polar'};
 
 test('the old global ext- moves to the one workspace there is; the old file is backed up',async()=>{
  const D=await dir();await writeFile(path.join(D,'slack-quiet.json'),JSON.stringify({prefix:'ext-'}));
  const q=createSlackQuiet({DATA:D,teamsNow:async()=>[PNP,PNP],log:()=>{}});
  assert.equal(await q.prefixOf(PNP.id),'ext-');assert.equal(await q.prefixOf(AS.id),'','other workspaces answer normally');
- const j=JSON.parse(await readFile(path.join(D,'slack-quiet.json'),'utf8'));assert.equal(j.v,2);assert.deepEqual(j.teams,{[PNP.id]:{prefix:'ext-',name:'Pixel & Profits'}});
+ const j=JSON.parse(await readFile(path.join(D,'slack-quiet.json'),'utf8'));assert.equal(j.v,2);assert.deepEqual(j.teams,{[PNP.id]:{prefix:'ext-',name:'Pine & Co'}});
  assert.ok((await readdir(D)).some(f=>f.startsWith('slack-quiet.json.bak-')));
  // a later start reads the new file as it is
  const again=createSlackQuiet({DATA:D,teamsNow:async()=>{throw Error('not asked')}});assert.equal(await again.prefixOf(PNP.id),'ext-')});
@@ -32,7 +32,7 @@ test('Slack not answering at the move: nothing is moved or changed, and it is tr
 
 test('set per workspace: cleaned prefix, unknown workspace refused',async()=>{
  const D=await dir();const q=createSlackQuiet({DATA:D,teamsNow:async()=>[],log:()=>{}});
- assert.deepEqual(await q.set(AS.id,' Client- ','AdmissionSight'),{prefix:'client-',name:'AdmissionSight'});assert.equal(await q.prefixOf(PNP.id),'');
+ assert.deepEqual(await q.set(AS.id,' Client- ','Admitly'),{prefix:'client-',name:'Admitly'});assert.equal(await q.prefixOf(PNP.id),'');
  await assert.rejects(q.set('../etc','x'),/Unknown Slack workspace/);assert.equal(cleanPrefix('ext-<b>'),'ext-b')});
 
 test('the quiet list: adds new matching channels, takes off ones the old prefix put there, keeps the rest',()=>{

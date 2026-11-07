@@ -1,7 +1,7 @@
 // "Did the team have to go to the main agent?" (6 Nov 2026): per agent and week, how often a team member (team policy,
 // DATA/team-policy.json) messaged the main agent about that agent instead of the agent itself handling it. Read from
 // the main agent's chats (read only); a message counts for an agent when it names the agent or one of its aliases
-// (policy teams[].aliases: {"<agent>": ["Randy", ...]}). Shown on System › Health so it can be watched going to zero.
+// (policy teams[].aliases: {"<agent>": ["Rory", ...]}). Shown on System › Health so it can be watched going to zero.
 import {execFile} from 'node:child_process';
 import path from 'node:path';
 

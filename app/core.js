@@ -146,7 +146,7 @@ const srcIcon=s=>({telegram:'telegram',whatsapp:'whatsapp',cron:'cron',api_serve
 
 // Links show as small labelled buttons (named links keep their name; a bare link says what it is: Google Doc, Sheet…)
 // Each shows the site's own icon, the name at text weight and the site in muted text (agreed mock-up, part 2).
-const LK_SITES=[[/docs\.google\.com\/document/,'Google Docs','Google Doc'],[/docs\.google\.com\/spreadsheets/,'Google Sheets','Google Sheet'],[/docs\.google\.com\/presentation/,'Google Slides','Google Slides'],[/docs\.google\.com\/forms/,'Google Forms','Google Form'],[/drive\.google\.com/,'Google Drive','Google Drive'],[/calendar\.google\.com/,'Google Calendar','Calendar'],[/mail\.google\.com/,'Gmail','Gmail'],[/notion\.(so|site)/,'Notion','Notion page'],[/github\.com/,'GitHub','GitHub'],[/figma\.com/,'Figma','Figma file'],[/slack\.com/,'Slack','Slack'],[/(youtube\.com|youtu\.be)/,'YouTube','YouTube video'],[/canva\.com/,'Canva','Canva design'],[/ai\.elkiya\.com/,'aqeelOS','aqeelOS']];
+const LK_SITES=[[/docs\.google\.com\/document/,'Google Docs','Google Doc'],[/docs\.google\.com\/spreadsheets/,'Google Sheets','Google Sheet'],[/docs\.google\.com\/presentation/,'Google Slides','Google Slides'],[/docs\.google\.com\/forms/,'Google Forms','Google Form'],[/drive\.google\.com/,'Google Drive','Google Drive'],[/calendar\.google\.com/,'Google Calendar','Calendar'],[/mail\.google\.com/,'Gmail','Gmail'],[/notion\.(so|site)/,'Notion','Notion page'],[/github\.com/,'GitHub','GitHub'],[/figma\.com/,'Figma','Figma file'],[/slack\.com/,'Slack','Slack'],[/(youtube\.com|youtu\.be)/,'YouTube','YouTube video'],[/canva\.com/,'Canva','Canva design'],[new RegExp('^https?://'+location.host.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'/'),'aqeelOS','aqeelOS']];
 function lkInfo(u){const raw=u.replace(/&amp;/g,'&');let host='',deep=false;try{const x=new URL(raw);host=x.hostname.replace(/^www\./,'');deep=x.pathname.length>1}catch{}
  const s=LK_SITES.find(([re])=>re.test(raw));const site=s?s[1]:host.split('.').slice(-2,-1)[0]?.replace(/^./,c=>c.toUpperCase())||host;
  return {raw,host,site,fallback:s?s[2]:host+(deep?'/…':'')}}
@@ -562,7 +562,7 @@ function menu(anchor,items,opt={}){$$('.menu').forEach(e=>e.remove());const m=do
  m.onkeydown=e=>{const bs=$$('button.item:not([disabled])',m);const i=bs.indexOf(document.activeElement);if(e.key==='ArrowDown'){e.preventDefault();bs[Math.min(i+1,bs.length-1)]?.focus()}if(e.key==='ArrowUp'){e.preventDefault();bs[Math.max(i-1,0)]?.focus()}if(e.key==='Escape'){e.stopPropagation();leave(m,150);anchor.focus();opt.onClose?.()}if(e.key==='Tab')leave(m,150)};
  (m.querySelector('.mi-find input')||m.querySelector('.cur')||m.querySelector('button.item'))?.focus();m.querySelector('.cur')?.scrollIntoView({block:'nearest'});opt.onOpen?.(m)}
 
-/* ---------- brand dropdowns: every <select> becomes an Elkiya menu button ---------- */
+/* ---------- brand dropdowns: every <select> becomes a brand menu button ---------- */
 function enhanceSelect(sel){if(sel.dataset.enhanced||sel.multiple)return;sel.dataset.enhanced='1';
  const btn=document.createElement('button');btn.type='button';btn.className='sel-btn'+(sel.style.width==='auto'?' inline':'');btn.setAttribute('aria-haspopup','listbox');if(sel.id)btn.dataset.for=sel.id;if(sel.getAttribute('aria-label'))btn.setAttribute('aria-label',sel.getAttribute('aria-label'));
  const sync=()=>{const o=sel.options[sel.selectedIndex];btn.innerHTML=`<span class="sv">${esc(o?o.textContent:'Choose…')}</span>${icon('chevD',15)}`;btn.disabled=sel.disabled};sync();

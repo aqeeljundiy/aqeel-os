@@ -61,41 +61,24 @@ MIT, see `LICENSE`.
 
 ---
 
-## Notes from the reference install
-aqeelOS: a new interface for Hermes Agent on the AI VPS, in the Elkiya design. Live at **https://ai.elkiya.com** (password sign-in). It keeps every Hermes dashboard feature in five sections (Chat, Automations, Abilities, Models, System) and replaces the terminal chat with a Claude-style chat.
+## More details
 
-## Main agent and agent access
+### Main agent and agent access
 - One main agent (`MAIN_AGENT`, default `default`) is the only agent that changes aqeelOS itself, other agents, keys, permissions, money and deletions.
 - **Main agent rule** (written into the main agent's instructions by aqeelOS on every install): when another agent has a problem, the main agent does not fix that agent's work for it. It gives the agent the access or tools it lacks, then tells the person (and the agent, in its own chat or topic) to have the agent fix it itself. It fixes directly only when the owner explicitly asks, or when it is aqeelOS code no agent can reach. The engine plugin `engine/aqeelos-main-rule` adds a reminder to the main agent's tool results when it edits another agent's own files (a reminder, not a block). Install: copy it to `~/.hermes/plugins/` and run `hermes plugins enable aqeelos-main-rule`.
 - **Agents as a shared resource** (`app/agent-access.mjs`, sharing type `agent`): one agent can look after another at a level. Viewer reads its setup and logs; Editor also changes its instructions, skills and schedules; Manager also its settings and shares it as Editor or Viewer; Owner does everything. Every agent owns itself. Keys are never shown at any level (a key is shared on its own), and settings about keys, permissions or aqeelOS itself stay with the main agent. Agents use it through the `manage_agent` tool; the level is checked on the server on every call, and every change is attributed and passed to `app/agent-versions.mjs` (`recordAgentChange`) when present. Set it per agent under Agents › Edit agent › Access.
 
-## How it works
-- `app/server.mjs` runs inside the `ai-box` container (Dokploy project **AI VPS**). It serves the UI, handles sign-in, and forwards `/hapi/*` to the Hermes dashboard API (127.0.0.1:9119) and `/gapi/*` to the Hermes gateway API (127.0.0.1:8642). Hermes keys never reach the browser.
-- Traefik (Dokploy) routes ai.elkiya.com → container port 4400 with Let's Encrypt.
-- `~/services.sh` on the box starts the gateway, the dashboard and this UI in tmux; the container runs it on every start.
-
-## Everyday tasks
-| Task | How |
-|---|---|
-| Deploy changes | `bash scripts/deploy.sh` (from this folder) |
-| Check every Hermes feature still answers | `ssh ai-vps 'cd ~/apps/hermes-ui && node --env-file=$HOME/.hermes/.env scripts/parity-check.mjs --chat'` |
-| Change the password | Your profile › Password, or **Forgot password?** on the sign-in page. Locked out as the owner: **Use a recovery code**. (`UI_PASSWORD_HASH` is only used until a password is set in the app.) |
-| Sign everyone out | Change `UI_SECRET=` in `~/apps/hermes-ui.env` and restart as above |
-| Feature board | https://ai.elkiya.com/backlog (after sign-in) · source `scripts/features.mjs` |
-| The approved mockup | https://ai.elkiya.com/mockup |
-| The original Hermes dashboard | still runs on the box: `ssh -N -L 9119:127.0.0.1:9119 ai-vps`, then http://localhost:9119 |
-
-## Restart hold and quiet alerts
+### Restart hold and quiet alerts
 - **Restart hold**: while a long build or migration runs, write `<UI_DATA_DIR>/restart-hold.json` as `{"until": <epoch ms>, "why": "<text>"}`. Automatic engine restarts (`restartGateway`) are skipped and logged until `until`; owner alerts from System › Health and the automations guard are written to the log instead of sent. Remove the file when done and restart once. An expired hold is ignored, so a forgotten file never blocks for good.
 - **Test agents**: list agent names (one per line, `#` comments) in `$HERMES_HOME/.aqeelos-test-agents`. Their problems still show on Health, but the owner is not alerted about them.
 - **Fixed notes**: when a problem the owner was alerted about goes away by itself, one short "Fixed by itself" line follows. Nothing is sent for problems that were never alerted.
 - Code: `app/alert-quiet.mjs`; tests `scripts/alert-quiet.test.mjs`, `scripts/busy.test.mjs`.
 
-## Local development
+### Local development
 `node --env-file=<dev.env> app/server.mjs` with `HERMES_DASH`/`HERMES_API` pointing at an SSH tunnel to the box (see `.claude/launch.json`). `dev.env` holds `API_SERVER_KEY`, `HERMES_DASHBOARD_SESSION_TOKEN`, `UI_PASSWORD_HASH`, `UI_SECRET` and `UI_INSECURE_COOKIE=1`; keep it out of this folder.
 
-## Live screen
-The box runs a virtual display (`:99`, Xvfb + fluxbox), shared with x11vnc and streamed by noVNC on 127.0.0.1:6080. The app proxies it at `/screen/` behind the login (WebSocket only from this site). Hermes runs its browser headed (`browser.headed: true`) on that display. If the screen is blank, `ssh ai-vps '~/services.sh'` restarts anything missing.
+### Live screen
+The box runs a virtual display (`:99`, Xvfb + fluxbox), shared with x11vnc and streamed by noVNC on 127.0.0.1:6080. The app proxies it at `/screen/` behind the login (WebSocket only from this site). Hermes runs its browser headed (`browser.headed: true`) on that display. If the screen is blank, `~/services.sh` on the server restarts anything missing.
 
-## Network lock
-The container starts with firewall rules that refuse new connections from ai-box to private networks (other Dokploy containers), and to the server's own IP. It needs `cap_add: NET_ADMIN` in the compose file; the agent itself runs as `claude` without root and can't change them.
+### Network lock
+The container starts with firewall rules that refuse new connections from the container to private networks (other containers on the host), and to the server's own IP. It needs `cap_add: NET_ADMIN` in the compose file; the agent itself runs as `claude` without root and can't change them.

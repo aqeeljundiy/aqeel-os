@@ -6,11 +6,11 @@
   ],
   "pixel/pixel-ops": [
    "default",
-   "pixel-agent"
+   "pine-agent"
   ],
   "apple/imessage": [
    "default",
-   "pixel-agent"
+   "pine-agent"
   ],
   "productivity/my-task-hub": [
    "default"

@@ -1,4 +1,4 @@
-// Draws the extension's round white icon (dark Elkiya mark) as PNGs, with no image package: shapes are
+// Draws the extension's round white icon (dark brand mark) as PNGs, with no image package: shapes are
 // sampled 4×4 per pixel and written as a plain PNG. Run: node scripts/ext-icons.mjs
 import {deflateSync} from 'node:zlib';
 import {writeFileSync} from 'node:fs';

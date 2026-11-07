@@ -94,7 +94,7 @@ export function createAgentCare({HERMES_HOME,WORK,DATA=null,fpKey=async()=>'',te
   // one key in several agents: told to the owner's agent. An agent and its own copies count as one; a key of another
   // agent in a copy (a bot token) is still flagged. Model and search providers' keys are shared on purpose and left out.
   const byFp={};for(const [a,ks] of Object.entries(reg))for(const [n,w] of Object.entries(ks))if(!w.gone)for(const f of new Set(Object.entries(w).filter(([x])=>x.startsWith('.')).map(([,v])=>v)))(byFp[f]||(byFp[f]=new Set())).add(a+':'+n);
-  // the engine's own keys (one per box by design) and keys shared inside one team (Randy and Gilang use one Kirimdev account)
+  // the engine's own keys (one per box by design) and keys shared inside one team (Rory and Gino use one Kirimdev account)
   const SYSTEM=/^(API_SERVER_KEY|TERMINAL_SSH_KEY|HERMES_[A-Z_]+)$/;
   // keys the owner decided to share (DATA/keys-shared-ok.json: ["N8N_MCP_TOKEN", …])
   const okNames=new Set(DATA?JSON.parse(await readFile(path.join(DATA,'keys-shared-ok.json'),'utf8').catch(()=>'[]')||'[]').map(String):[]);

@@ -2,7 +2,7 @@
 // owner sees in one place: 1. what is connected (an app, a login as you, a skill, a plugin, a key), 2. which agent owns
 // it, 3. which agents may use it, 4. how much each may do. It replaced Connected apps, Connected accounts and the All
 // agents duplicate of them ("why are there so many ways to view this?").
-//   - names are the service and who it is ("Google · a@b.com", "Slack · Pixel & Profits", "AdsPower · <main agent>"), never
+//   - names are the service and who it is ("Google · a@b.com", "Slack · Pine & Co", "AdsPower · <main agent>"), never
 //     an agent's own label (connected-accounts.mjs displayName);
 //   - who owns and who may use: access.mjs (owner and share/unshare copy the setup and the sign-in), skills are each
 //     agent's own copy (on or off per agent, skills-policy.mjs decides who may have one at all);

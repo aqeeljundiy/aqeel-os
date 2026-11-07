@@ -13,7 +13,7 @@ import {classify,parseToolLine,serverOfTool,parseGapi,actionOf,sentence,summaris
 import {homedir as __hd} from 'node:os';const H=__hd();
 const L={
  draft:'2026-10-31 07:02:51,040 INFO [local-f6e8a888c4] agent.tool_executor: tool mcp__slack_pixel__slack_send_message_draft completed (1.81s, 68 chars)',
- search:'2026-10-31 10:01:12,321 INFO [local-d14c88e2bd] agent.tool_executor: tool mcp__notion_aqeel__notion_query_data_sources completed (2.68s, 12781 chars)',
+ search:'2026-10-31 10:01:12,321 INFO [local-d14c88e2bd] agent.tool_executor: tool mcp__notion_abel__notion_query_data_sources completed (2.68s, 12781 chars)',
  err:'2026-10-30 09:12:01,100 WARNING [local-aa11bb22cc] agent.tool_executor: Tool mcp__notion__notion_update_page returned error (0.40s): {"error": "{\\"name\\":\\"APIResponseError\\"}"}',
  own:'2026-10-31 09:00:29,626 INFO [local-28e1f3964d] agent.tool_executor: tool mcp__pixel__pixel_now completed (0.04s, 129 chars)',
  term:'2026-10-31 10:54:31,917 INFO [local-97c008f876] agent.tool_executor: tool terminal completed (0.47s, 4583 chars)'};
@@ -25,10 +25,10 @@ test('classify: as the owner, a bot, or a service',()=>{
  assert.equal(classify({type:'file',file:'/h/.hermes/google_client_secret.json'}).as,null);
  // a Slack, Notion sign-in of a person
  assert.deepEqual(classify({type:'mcp',name:'slack-pixel',entry:{url:'https://mcp.slack.com/mcp',auth:'oauth'},token:{access_token:'xoxp-1-2',hermes_issuer:'https://mcp.slack.com'}}),{as:'me',kind:'mcp-oauth'});
- assert.equal(classify({type:'mcp',name:'notion-aqeel',entry:{url:'https://mcp.notion.com/mcp',auth:'oauth'},token:{access_token:'a',refresh_token:'b'}}).as,'me');
+ assert.equal(classify({type:'mcp',name:'notion-abel',entry:{url:'https://mcp.notion.com/mcp',auth:'oauth'},token:{access_token:'a',refresh_token:'b'}}).as,'me');
  // services the agents work through, and tools of aqeelOS's own
  assert.equal(classify({type:'mcp',name:'composio',entry:{url:'https://connect.composio.dev/mcp',auth:'oauth'},token:{access_token:'x'}}).as,'service');
- assert.equal(classify({type:'mcp',name:'n8n',entry:{url:'https://n8n.elkiya.com/mcp-server/http',auth:'oauth'},token:{access_token:'x'},meta:{issuer:'https://n8n.elkiya.com'}}).as,'service');
+ assert.equal(classify({type:'mcp',name:'n8n',entry:{url:'https://n8n.elmora.example/mcp-server/http',auth:'oauth'},token:{access_token:'x'},meta:{issuer:'https://n8n.elmora.example'}}).as,'service');
  assert.equal(classify({type:'mcp',name:'pixel',entry:{command:`${H}/.hermes/pixel-tools/run.sh`}}).as,'service');
  assert.equal(classify({type:'mcp',name:'aqeelos-notify',entry:{url:'http://127.0.0.1:4400/mcp/notify/default/x'}}).as,'service');
  // a bot token behind an app, and a sign-in nobody made yet
@@ -44,15 +44,15 @@ test('classify: as the owner, a bot, or a service',()=>{
 test('log lines: which app, which tool, worked or not',()=>{
  const d=parseToolLine(L.draft);assert.equal(d.tool,'mcp__slack_pixel__slack_send_message_draft');assert.equal(d.ok,true);assert.equal(d.session,'local-f6e8a888c4');assert.equal(d.t,Date.parse('2026-10-31T07:02:51.040Z'));
  assert.equal(parseToolLine(L.err).ok,false);assert.equal(parseToolLine(L.term),null);assert.equal(parseToolLine('nothing'),null);
- const names=['slack','slack-pixel','slack-as2','notion','notion-aqeel','pixel'];
+ const names=['slack','slack-pixel','slack-as2','notion','notion-abel','pixel'];
  assert.deepEqual(serverOfTool(d.tool,names),{server:'slack-pixel',fn:'slack_send_message_draft'});   // the longest name wins (slack vs slack_pixel)
- assert.deepEqual(serverOfTool(parseToolLine(L.search).tool,names),{server:'notion-aqeel',fn:'notion_query_data_sources'});
+ assert.deepEqual(serverOfTool(parseToolLine(L.search).tool,names),{server:'notion-abel',fn:'notion_query_data_sources'});
  assert.equal(serverOfTool('mcp__github__x',names),null)});
 
 test('gapi.py commands: account, service and method',()=>{
  assert.deepEqual(parseGapi(`python3 ~/.hermes/scripts/gapi.py --account pixel call sheets v4 spreadsheets.values.get --params '{"spreadsheetId":"X"}'`),[{account:'pixel',service:'sheets',method:'spreadsheets.values.get'}]);
- assert.deepEqual(parseGapi('gapi.py call gmail v1 users.messages.list --params x && gapi.py --account=elkiya draft --to a@b --subject S --body B'),[{account:'',service:'gmail',method:'users.messages.list'},{account:'elkiya',service:'gmail',method:'users.drafts.create'}]);
- assert.deepEqual(parseGapi('for a in pixel elkiya; do gapi.py --account $a call calendar v3 events.list; done'),[]);   // which account is not known
+ assert.deepEqual(parseGapi('gapi.py call gmail v1 users.messages.list --params x && gapi.py --account=elmora draft --to a@b --subject S --body B'),[{account:'',service:'gmail',method:'users.messages.list'},{account:'elmora',service:'gmail',method:'users.drafts.create'}]);
+ assert.deepEqual(parseGapi('for a in pixel elmora; do gapi.py --account $a call calendar v3 events.list; done'),[]);   // which account is not known
  assert.deepEqual(parseGapi('gapi.py --help'),[]);
  assert.deepEqual(parseGapi('python3 scripts/google_api.py --account work gmail search "is:unread"'),[{account:'work',service:'gmail',method:'search'}])});
 
@@ -99,10 +99,10 @@ test('pause and resume: the app settings come back exactly',()=>{
  const noFlag={url:'u',auth:'oauth'};assert.deepEqual(Object.keys(pausedEntry(noFlag)).sort(),['auth','enabled','url'])});
 
 test('registration: an agent describes the login it made',()=>{
- const acct={kind:'mcp-oauth',mcp:'slack-pixel',provider:'slack',label:'Slack, Aqeel (Pixel & Profits)',identity:'Aqeel · Pixel & Profits',paths:['/h/.hermes/mcp-tokens/slack-pixel.json']};
+ const acct={kind:'mcp-oauth',mcp:'slack-pixel',provider:'slack',label:'Slack, Abel (Pine & Co)',identity:'Abel · Pine & Co',paths:['/h/.hermes/mcp-tokens/slack-pixel.json']};
  assert.ok(matches({kind:'mcp-oauth',label:'x',where:'~/.hermes/mcp-tokens/slack-pixel.json'},acct,'/h'));
- assert.ok(matches({kind:'mcp-oauth',label:'Slack as Aqeel, Pixel and Profits'},acct,'/h'));
- assert.ok(!matches({kind:'google',label:'Slack Aqeel Pixel'},acct,'/h'));
+ assert.ok(matches({kind:'mcp-oauth',label:'Slack as Abel, Pixel and Profits'},acct,'/h'));
+ assert.ok(!matches({kind:'google',label:'Slack Abel Pixel'},acct,'/h'));
  assert.ok(!matches({kind:'mcp-oauth',label:'Notion work'},acct,'/h'))});
 
 test('gapi.py: the guard goes in once and only where it fits',()=>{
@@ -113,18 +113,18 @@ test('gapi.py: the guard goes in once and only where it fits',()=>{
 // the whole thing on a fake engine home with a stub dashboard (no network, no engine)
 test('end to end on a fake engine home',async()=>{
  const root=await mkdtemp(path.join(tmpdir(),'ca-')),H=path.join(root,'.hermes'),DATA=path.join(root,'data'),W=path.join(root,'workspaces');
- await mkdir(path.join(H,'mcp-tokens'),{recursive:true});await mkdir(path.join(H,'logs'),{recursive:true});await mkdir(path.join(H,'profiles','pixel-agent','logs'),{recursive:true});await mkdir(W,{recursive:true});
- const cfg={default:{mcp_servers:{'slack-pixel':{url:'https://mcp.slack.com/mcp',auth:'oauth'},composio:{url:'https://connect.composio.dev/mcp',auth:'oauth'}}},'pixel-agent':{mcp_servers:{}}};
+ await mkdir(path.join(H,'mcp-tokens'),{recursive:true});await mkdir(path.join(H,'logs'),{recursive:true});await mkdir(path.join(H,'profiles','pine-agent','logs'),{recursive:true});await mkdir(W,{recursive:true});
+ const cfg={default:{mcp_servers:{'slack-pixel':{url:'https://mcp.slack.com/mcp',auth:'oauth'},composio:{url:'https://connect.composio.dev/mcp',auth:'oauth'}}},'pine-agent':{mcp_servers:{}}};
  await writeFile(path.join(H,'mcp-tokens','slack-pixel.json'),JSON.stringify({access_token:'xoxp-fake',hermes_issuer:'https://mcp.slack.com'}));
  await writeFile(path.join(H,'mcp-tokens','composio.json'),JSON.stringify({access_token:'c',hermes_issuer:'https://connect.composio.dev'}));
- await writeFile(path.join(H,'google_token_pixel.json'),JSON.stringify({token:'t',refresh_token:'r1',account:'aqeel@pixel.test'}));
+ await writeFile(path.join(H,'google_token_pixel.json'),JSON.stringify({token:'t',refresh_token:'r1',account:'abel@pixel.test'}));
  await writeFile(path.join(H,'logs','agent.log'),L.draft+'\n'+L.own+'\n');
  const calls=[],bells=[];const log=a=>path.join(a==='default'?H:path.join(H,'profiles',a),'logs','agent.log');
  const dash=async(m,p)=>{calls.push(m+' '+p);const n=decodeURIComponent((/servers\/([^/?]+)/.exec(p)||[])[1]||''),a=new URLSearchParams(p.split('?')[1]).get('profile');
   if(m==='DELETE'){delete cfg[a].mcp_servers[n];await appendFile(log(a),"2026-10-31 11:00:00,000 INFO gateway.run_profile_reconcile: MCP servers reconciled with config ("+a+"): removed=['"+n+"'] added=[]\n")}return {ok:true,status:200,j:{ok:true}}};
  const setKey=async(a,k,v)=>{const n=k.split('.').slice(1).join('.');cfg[a].mcp_servers[n]=structuredClone(v);if(v.enabled!==false)await appendFile(log(a),"2026-10-31 11:00:01,000 INFO gateway.run_profile_reconcile: MCP servers reconciled with config ("+a+"): removed=[] added=['"+n+"']\n");return {ok:true}};
- const ca=createConnectedAccounts({DATA,HERMES_HOME:H,WORK:W,listAgents:async()=>['default','pixel-agent'],readConfig:async a=>structuredClone(cfg[a]),setKey,dash,bell:async(t,d)=>bells.push(t),active:false,STEP:20,ends:{slack:'http://127.0.0.1:9/x'}});
- let l=await ca.list();assert.deepEqual(l.items.map(x=>x.id).sort(),['google:aqeel@pixel.test','mcp:slack-pixel']);assert.ok(l.items.every(x=>x.registered));
+ const ca=createConnectedAccounts({DATA,HERMES_HOME:H,WORK:W,listAgents:async()=>['default','pine-agent'],readConfig:async a=>structuredClone(cfg[a]),setKey,dash,bell:async(t,d)=>bells.push(t),active:false,STEP:20,ends:{slack:'http://127.0.0.1:9/x'}});
+ let l=await ca.list();assert.deepEqual(l.items.map(x=>x.id).sort(),['google:abel@pixel.test','mcp:slack-pixel']);assert.ok(l.items.every(x=>x.registered));
  const sl=l.items.find(x=>x.id==='mcp:slack-pixel');assert.deepEqual(sl.recent.map(x=>x.text),['Saved 1 draft']);assert.ok(sl.lastUsed);
  // Pause an app: removed (the engine saw it go), written back switched off, then Resume puts back exactly what it was
  const before=structuredClone(cfg.default.mcp_servers['slack-pixel']);await ca.pause('mcp:slack-pixel',true);
@@ -134,20 +134,20 @@ test('end to end on a fake engine home',async()=>{
  await ca.pause('mcp:slack-pixel',false);for(let i=0;i<100&&(await ca._db()).accounts['mcp:slack-pixel'].paused;i++)await new Promise(r=>setTimeout(r,20));
  assert.deepEqual(cfg.default.mcp_servers['slack-pixel'],before);
  // Pause a Google sign-in: its file is moved aside, Resume moves it back
- await ca.pause('google:aqeel@pixel.test',true);assert.ok(await stat(path.join(H,'google_token_pixel.json.paused')));assert.equal(await stat(path.join(H,'google_token_pixel.json')).catch(()=>null),null);
- assert.equal((await ca.list()).items.find(x=>x.id==='google:aqeel@pixel.test').state,'paused');
- await ca.pause('google:aqeel@pixel.test',false);assert.ok(await stat(path.join(H,'google_token_pixel.json')));
+ await ca.pause('google:abel@pixel.test',true);assert.ok(await stat(path.join(H,'google_token_pixel.json.paused')));assert.equal(await stat(path.join(H,'google_token_pixel.json')).catch(()=>null),null);
+ assert.equal((await ca.list()).items.find(x=>x.id==='google:abel@pixel.test').state,'paused');
+ await ca.pause('google:abel@pixel.test',false);assert.ok(await stat(path.join(H,'google_token_pixel.json')));
  // a new login nobody registered: listed as not registered; an agent's register_account then registers it
- await writeFile(path.join(H,'profiles','pixel-agent','google_token_elkiya.json'),JSON.stringify({token:'t',refresh_token:'r2',account:'aqeel@elkiya.test'}));
- l=await ca.list({fresh:true});const g2=l.items.find(x=>x.id==='google:aqeel@elkiya.test');assert.ok(g2&&!g2.registered);assert.equal(l.items[0].id,g2.id);   // not registered comes first
- const r=await ca.register('pixel-agent',{kind:'google',label:'Google, Elkiya',where:'~/.hermes/profiles/pixel-agent/google_token_elkiya.json',can:['read','draft']});assert.ok(!r.isError,r.text);
- const g3=(await ca.list()).items.find(x=>x.id==='google:aqeel@elkiya.test');assert.ok(g3.registered);assert.equal(g3.label,'Google · aqeel@elkiya.test');assert.equal(g3.agentLabel,'Google, Elkiya');assert.deepEqual(g3.can,['read','draft']);
- assert.deepEqual(JSON.parse(await readFile(path.join(H,'aqeelos-accounts.json'),'utf8')).google['aqeel@elkiya.test'].can,['read','draft']);
+ await writeFile(path.join(H,'profiles','pine-agent','google_token_elmora.json'),JSON.stringify({token:'t',refresh_token:'r2',account:'abel@elmora.test'}));
+ l=await ca.list({fresh:true});const g2=l.items.find(x=>x.id==='google:abel@elmora.test');assert.ok(g2&&!g2.registered);assert.equal(l.items[0].id,g2.id);   // not registered comes first
+ const r=await ca.register('pine-agent',{kind:'google',label:'Google, Elmora',where:'~/.hermes/profiles/pine-agent/google_token_elmora.json',can:['read','draft']});assert.ok(!r.isError,r.text);
+ const g3=(await ca.list()).items.find(x=>x.id==='google:abel@elmora.test');assert.ok(g3.registered);assert.equal(g3.label,'Google · abel@elmora.test');assert.equal(g3.agentLabel,'Google, Elmora');assert.deepEqual(g3.can,['read','draft']);
+ assert.deepEqual(JSON.parse(await readFile(path.join(H,'aqeelos-accounts.json'),'utf8')).google['abel@elmora.test'].can,['read','draft']);
  // Disconnect: the files are gone, the app off every agent
- await ca.disconnect('google:aqeel@elkiya.test');assert.equal(await stat(path.join(H,'profiles','pixel-agent','google_token_elkiya.json')).catch(()=>null),null);
+ await ca.disconnect('google:abel@elmora.test');assert.equal(await stat(path.join(H,'profiles','pine-agent','google_token_elmora.json')).catch(()=>null),null);
  await ca.disconnect('mcp:slack-pixel');assert.equal(cfg.default.mcp_servers['slack-pixel'],undefined);assert.equal(await stat(path.join(H,'mcp-tokens','slack-pixel.json')).catch(()=>null),null);
  assert.ok(await stat(path.join(H,'mcp-tokens','composio.json')));   // a service stays
- assert.deepEqual((await ca.list()).items.map(x=>x.id),['google:aqeel@pixel.test'])});
+ assert.deepEqual((await ca.list()).items.map(x=>x.id),['google:abel@pixel.test'])});
 
 // gapi.py itself with the guard: a paused account and a limited one are refused before Google is asked
 test('gapi.py with the guard refuses a paused or limited account',async t=>{

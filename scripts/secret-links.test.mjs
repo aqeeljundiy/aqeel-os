@@ -6,22 +6,22 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {createSecretLinks,createLimiter,LIFE} from '../app/secret-links.mjs';
 
-async function make(o={}){const DATA=await mkdtemp(path.join(tmpdir(),'sl-'));let t=1e12;const saved=[],told=[],have=new Set(['biomarkers-support|OLD_KEY']);
+async function make(o={}){const DATA=await mkdtemp(path.join(tmpdir(),'sl-'));let t=1e12;const saved=[],told=[],have=new Set(['bay-sales|OLD_KEY']);
  const s=createSecretLinks({DATA,PUBLIC_URL:'https://ai.example',now:()=>t,save:async(a,n,v)=>{if(o.fail)throw Error('disk full');saved.push([a,n,v]);have.add(a+'|'+n)},
-  reserved:n=>/^TELEGRAM_/.test(n),isAgent:async a=>['default','biomarkers-support'].includes(a),exists:async(a,n)=>have.has(a+'|'+n),nameOf:a=>a==='default'?'Donna AI':a,tell:async(x)=>{told.push(x)}});
+  reserved:n=>/^TELEGRAM_/.test(n),isAgent:async a=>['default','bay-sales'].includes(a),exists:async(a,n)=>have.has(a+'|'+n),nameOf:a=>a==='default'?'Dora AI':a,tell:async(x)=>{told.push(x)}});
  return {s,DATA,saved,told,have,tick:ms=>{t+=ms}}}
 const tok=u=>u.split('#')[1];
 
 test('a link saves once, for its own agent and key only, and the value is never kept or shown',async()=>{const {s,DATA,saved,told}=await make();
- const {url}=await s.create({agent:'biomarkers-support',name:'test_secret_link',label:'Test key',by:'default'});
+ const {url}=await s.create({agent:'bay-sales',name:'test_secret_link',label:'Test key',by:'default'});
  assert.match(url,/^https:\/\/ai\.example\/secret#[A-Za-z0-9_-]{43}$/);
- const p=await s.peek(tok(url));assert.deepEqual([p.label,p.name,p.agentName],['Test key','TEST_SECRET_LINK','biomarkers-support']);
+ const p=await s.peek(tok(url));assert.deepEqual([p.label,p.name,p.agentName],['Test key','TEST_SECRET_LINK','bay-sales']);
  assert.equal(JSON.stringify(p).includes('hunter2'),false);
- assert.deepEqual(await s.consume(tok(url),' hunter2 '),{ok:true,agentName:'biomarkers-support',name:'TEST_SECRET_LINK'});
- assert.deepEqual(saved,[['biomarkers-support','TEST_SECRET_LINK','hunter2']]);
+ assert.deepEqual(await s.consume(tok(url),' hunter2 '),{ok:true,agentName:'bay-sales',name:'TEST_SECRET_LINK'});
+ assert.deepEqual(saved,[['bay-sales','TEST_SECRET_LINK','hunter2']]);
  assert.equal((await s.consume(tok(url),'again')).gone,true);assert.equal(await s.peek(tok(url)),null);assert.equal(saved.length,1);
  const disk=await readFile(path.join(DATA,'secret-links.json'),'utf8');assert.equal(disk.includes('hunter2'),false);assert.equal(disk.includes(tok(url)),false);
- assert.equal((await s.status('biomarkers-support','TEST_SECRET_LINK')).state,'saved');assert.equal(told.length,2);assert.match(told[0],/made a secret link/);
+ assert.equal((await s.status('bay-sales','TEST_SECRET_LINK')).state,'saved');assert.equal(told.length,2);assert.match(told[0],/made a secret link/);
  assert.deepEqual((await s.list()).audit.map(x=>x.event),['saved','created'])});
 
 test('two taps at once save once',async()=>{const {s,saved}=await make();const {url}=await s.create({agent:'default',name:'A_KEY',label:'x'});
@@ -37,9 +37,9 @@ test('refused: wiring keys, bad names, unknown agents, empty or multi-line value
  await assert.rejects(s.create({agent:'nobody',name:'A_KEY',label:'x'}),/no agent/);
  for(const a of ['bob--x','x/../bob','..','default--whatsapp-2','Default'])await assert.rejects(s.create({agent:a,name:'A_KEY',label:'x'}),/no agent/);
  for(const n of ['BASH_ENV','LD_PRELOAD','PYTHONSTARTUP','PYTHONPATH','PERL5LIB','RUBYOPT','GIT_SSH_COMMAND','HTTPS_PROXY','NODE_EXTRA_CA_CERTS','OPENAI_API_KEY','ANTHROPIC_API_KEY','PATH','SOME_BASE_URL','LESSOPEN','MANPAGER','ZDOTDIR','CC','MAKEFLAGS','KIMI_API_KEY','GITHUB_COPILOT_TOKEN'])await assert.rejects(s.create({agent:'default',name:n,label:'x'}),/ends in|changes how/,n);
- await assert.rejects(s.create({agent:'biomarkers-support',name:'OLD_KEY',label:'x'}),/already set/);
+ await assert.rejects(s.create({agent:'bay-sales',name:'OLD_KEY',label:'x'}),/already set/);
  for(const n of ['LESSOPEN','MANPAGER','CC','SHOP_URL'])await assert.rejects(s.create({agent:'default',name:n,label:'x'}),/ends in|changes how/,n);
- for(const n of ['BIOMARKERS_SUPPORT_BOT_TOKEN','SHOPIFY_API_KEY','STRIPE_SECRET','DB_PASSWORD','GITHUB_PAT'])assert.ok((await s.create({agent:'biomarkers-support',name:n,label:'x'})).url,n);
+ for(const n of ['SALES_SUPPORT_BOT_TOKEN','SHOPIFY_API_KEY','STRIPE_SECRET','DB_PASSWORD','GITHUB_PAT'])assert.ok((await s.create({agent:'bay-sales',name:n,label:'x'})).url,n);
  await assert.rejects(s.create({agent:'default',name:'A_KEY',label:' '}),/label/);
  const {url}=await s.create({agent:'default',name:'A_KEY',label:'x'});
  assert.match((await s.consume(tok(url),'  ')).error,/Paste/);assert.match((await s.consume(tok(url),'a\nb')).error,/one line/);assert.match((await s.consume(tok(url),'a\tb')).error,/one line/);assert.match((await s.consume(tok(url),'a\u2028b')).error,/one line/);assert.match((await s.consume(tok(url),'x'.repeat(5000))).error,/longer/);

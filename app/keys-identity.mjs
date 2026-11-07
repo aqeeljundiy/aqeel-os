@@ -44,7 +44,7 @@ export const probeFor=name=>PROBES.find(p=>p.test.test(name))||null;
 // the service a key belongs to, from its name, when there is no safe check for it
 export function serviceOf(name){const p=probeFor(name);if(p)return p.service;const m=/^([A-Z][A-Z0-9]*?)(?:_(?:API|BOT|APP|ACCESS|SECRET|AUTH|PERSONAL))?_(?:KEY|TOKEN|SECRET|PASSWORD|PASS)$/.exec(name)||/^([A-Z][A-Z0-9]*)_/.exec(name);
  const w=(m?.[1]||name).toLowerCase();return w.charAt(0).toUpperCase()+w.slice(1)}
-// "GitHub: aqeeljundiy (repo, workflow)"; the account, else the key's own name
+// "GitHub: abel-dev (repo, workflow)"; the account, else the key's own name
 export function autoName(name,c={}){const s=serviceOf(name);const acct=c.account?': '+c.account:'';const sc=c.scopes&&c.scopes.length<=40?' ('+c.scopes+')':'';return (s+acct+sc).slice(0,60)||name}
 export const last4=v=>{v=String(v||'');return v.length>=12?v.slice(-4):''};   // short values show nothing
 
@@ -110,7 +110,7 @@ export function createKeysIdentity({DATA,HERMES_HOME,root,listAgents,live=()=>tr
   for(const [id,k] of keys){const x=db.items[id];out.push(x?view(id,{...x,agents:k.agents}):{id,name:k.name,service:serviceOf(k.name),agents:k.agents,last4:last4(k.value),status:'unchecked',label:db.notes?.[k.name]?.name||serviceOf(k.name),note:db.notes?.[k.name]||null,usedBy:null})}
   const by={};for(const x of out)if(x.account)(by[x.service+'|'+x.account]??=[]).push(x.id);
   for(const x of out){const g=x.account&&by[x.service+'|'+x.account];if(g&&g.length>1){x.group=x.service+'|'+x.account;x.sameAs=g.filter(i=>i!==x.id)}}
-  // the same secret under two names (PIXEL_SLACK_BOT_TOKEN and SLACK_BOT_TOKEN): one key, said so
+  // the same secret under two names (PINE_SLACK_BOT_TOKEN and SLACK_BOT_TOKEN): one key, said so
   const byV={};for(const x of out)(byV[x.id.split('@')[1]]??=[]).push(x.id);
   for(const x of out){const g=byV[x.id.split('@')[1]];if(g.length>1){x.sameKey=g.filter(i=>i!==x.id);x.group??='same|'+x.id.split('@')[1]}}
   return {items:out.sort((a,b)=>(a.group||a.service||'').localeCompare(b.group||b.service||'')||a.name.localeCompare(b.name))}}

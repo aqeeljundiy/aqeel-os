@@ -135,7 +135,7 @@ const HealthIssues={
   const cur=agentProfile()||S.profile||'default';
   const d=drawer('Report an issue',`<p class="hint" style="margin-top:0">The fixer looks into it by itself, fixes it, reloads safely and proves the fix. You hear only if it needs you.</p>
    <label for="riA">Agent</label><select id="riA">${ags.map(a=>`<option value="${esc(a.id)}"${a.id===cur?' selected':''}>${esc(a.name)}</option>`).join('')}</select>
-   <label for="riM">What is wrong</label><textarea id="riM" rows="3" maxlength="500" placeholder="Randy stopped answering on WhatsApp since this morning"></textarea>
+   <label for="riM">What is wrong</label><textarea id="riM" rows="3" maxlength="500" placeholder="Rory stopped answering on WhatsApp since this morning"></textarea>
    <label for="riE">What you saw (optional)</label><textarea id="riE" rows="3" maxlength="2000" placeholder="The customer wrote at 09:12 and got no reply"></textarea><p class="km-err"></p>`,
    `<button class="ghost" data-act="close">Cancel</button><button class="primary" id="riGo">Report</button>`);
   d.querySelector('#riGo').onclick=async e=>{const b=e.currentTarget,err=d.querySelector('.km-err'),m=d.querySelector('#riM').value.trim();if(!m){err.textContent='Say what is wrong.';return}

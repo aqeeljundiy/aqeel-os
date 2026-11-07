@@ -1,4 +1,4 @@
-// Quiet Slack channels, per Slack workspace (7 Nov 2026, the owner: "this rule is only for pixelandprofits Slack").
+// Quiet Slack channels, per Slack workspace (7 Nov 2026, the owner: "this rule is only for pineandco Slack").
 // Each workspace (Slack team id) has its own prefix, empty by default: an agent's Slack bot stays silent in channels of
 // ITS workspace whose name starts with that prefix, and answers normally everywhere else, other workspaces included.
 // Kept in DATA/slack-quiet.json as {v:2, teams:{<team id>:{prefix,name}}, was:<the old prefix for every workspace>}.

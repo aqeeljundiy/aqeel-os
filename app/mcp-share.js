@@ -8,7 +8,7 @@ const Why={src:{whatsapp:'WhatsApp',telegram:'Telegram',slack:'Slack',discord:'D
  // rows for a card: .si-row (sign-in card) or .bn-why (Bottlenecks list)
  rows(x,cls){const p=this.purpose(x),f=x.from,r=(k,v)=>'<div class="'+cls+'"><span class="'+(cls==='si-row'?'si-k':'bn-k')+'">'+k+'</span><span>'+v+'</span></div>';
   return (p?r('Why',esc(p)):'')+(f?.ask?r('From','“'+esc(f.ask)+'”<small>'+esc(this.meta(f))+(f.chat?' · <button type="button" class="linkish" data-why-chat="'+esc(f.chat)+'">Open chat</button>':'')+'</small>'):'')},
- // which account a sign-in is: "Pixel & Profits" (workspace) and who signed in; names the app with it everywhere
+ // which account a sign-in is: "Pine & Co" (workspace) and who signed in; names the app with it everywhere
  title(x){return (x.account?.workspace?(x.app||x.label||x.name)+' ('+x.account.workspace+')':(x.label||x.name))},
  acct(a){return [a.workspace,[a.user,a.email&&a.email!==a.user?a.email:''].filter(Boolean).join(' · ')].filter(Boolean)},
  accountRow(x){const a=x.account,sib=(x.siblings||[]).map(s=>s.account?.workspace?s.account.workspace+' ('+s.name+')':s.name);

@@ -8,7 +8,7 @@ const owner={mcp_servers:{
  slack:{url:'https://mcp.slack.com/mcp',auth:'oauth',oauth:{client_id:'${SLACK_MCP_CLIENT_ID}',client_secret:'${SLACK_MCP_CLIENT_SECRET}',scope:'chat:write',redirect_uri:'https://x/cb/slack'},tools:{exclude:['slack_send_message']}},
  'slack-pixel':{url:'https://mcp.slack.com/mcp',auth:'oauth',oauth:{client_id:'929.106',client_secret:'abcd'}},
  notion:{url:'https://mcp.notion.com/mcp',auth:'oauth',oauth:{redirect_uri:'https://x/cb/notion'}},
- 'notion-aqeel':{url:'https://mcp.notion.com/mcp',auth:'oauth'},
+ 'notion-abel':{url:'https://mcp.notion.com/mcp',auth:'oauth'},
  composio:{url:'https://connect.composio.dev/mcp',auth:'oauth'},
  n8n:{url:'https://n8n.example.com/mcp-server/http',auth:'oauth',headers:{Authorization:'Bearer k'}},
  AdsPower:{command:'/x/adspower.sh'}}};
@@ -32,12 +32,12 @@ test('missing: what an agent has under any name or switched off counts as had',(
  assert.deepEqual(missing(c,pixel).map(x=>x.name),['notion','slack']);assert.deepEqual(missing(c,owner),[])});
 
 test('ensureAll adds plain copies with the agent’s own return address, marks them set up, and is idempotent',async()=>{
- const cfg={default:structuredClone(owner),'continue-support':structuredClone(support)};const notes=[];
+ const cfg={default:structuredClone(owner),'cove-support':structuredClone(support)};const notes=[];
  const setKey=async(a,k,v)=>{const n=k.split('.')[1];(cfg[a].mcp_servers||={})[n]=v;return {ok:true}};
  const c=createConnectors({listAgents:async()=>Object.keys(cfg),readConfig:async a=>structuredClone(cfg[a]),setKey,redirect:n=>'https://pub/cb/'+n,noteApp:async(a,n,r)=>notes.push(a+':'+n+':'+r.by)});
- const r=await c.ensureAll();assert.deepEqual(r.added,['continue-support:composio','continue-support:notion','continue-support:slack']);
- assert.equal(cfg['continue-support'].mcp_servers.notion.oauth.redirect_uri,'https://pub/cb/notion');
- assert.ok(!JSON.stringify(cfg['continue-support']).includes('abcd'));assert.ok(notes.every(x=>x.endsWith(':setup')));
+ const r=await c.ensureAll();assert.deepEqual(r.added,['cove-support:composio','cove-support:notion','cove-support:slack']);
+ assert.equal(cfg['cove-support'].mcp_servers.notion.oauth.redirect_uri,'https://pub/cb/notion');
+ assert.ok(!JSON.stringify(cfg['cove-support']).includes('abcd'));assert.ok(notes.every(x=>x.endsWith(':setup')));
  assert.equal((await c.ensureAll()).added.length,0)});
 
 test('not connected: apps without a token file, told to the agent with both ways in',()=>{

@@ -13,7 +13,7 @@ async function call(ck,path,{method='GET',body}={}){const h={'x-hui':'1'};if(ck)
  const r=await fetch(BASE+path,{method,headers:h,body:body!==undefined?JSON.stringify(body):undefined});const t=await r.text();let j;try{j=JSON.parse(t)}catch{j=t}return {s:r.status,j,ck:(r.headers.get('set-cookie')||'').split(';')[0]}}
 let ck,key;
 await step('Owner signs in',async()=>{const r=await call(null,'/auth/login',{method:'POST',body:{password:PW}});ck=r.ck;must(r.s===200,'status '+r.s)});
-await step('Point email at the test mail server',async()=>{const r=await call(ck,'/ui/mail',{method:'PUT',body:{mode:'smtp',host:'127.0.0.1',port:'2526',user:'',from:'aqeelOS <no-reply@ai.elkiya.com>'}});must(r.s===200,JSON.stringify(r.j))});
+await step('Point email at the test mail server',async()=>{const r=await call(ck,'/ui/mail',{method:'PUT',body:{mode:'smtp',host:'127.0.0.1',port:'2526',user:'',from:'aqeelOS <no-reply@ai.elmora.example>'}});must(r.s===200,JSON.stringify(r.j))});
 await step('Add an email: a code is sent',async()=>{const r=await call(ck,'/ui/me/email',{method:'PUT',body:{email:'owner-test@example.com'}});key=r.j.key;must(r.s===200&&key,JSON.stringify(r.j));must(lastCode(),'no code in mail: '+(inbox.at(-1)?.body||'none').slice(0,80))});
 await step('A wrong code is refused',async()=>{const r=await call(ck,'/ui/me/email/verify',{method:'POST',body:{key,code:'000000'}});must(r.s===400,'status '+r.s)});
 await step('The right code confirms it',async()=>{const r=await call(ck,'/ui/me/email/verify',{method:'POST',body:{key,code:lastCode()}});must(r.s===200,JSON.stringify(r.j));const me=await call(ck,'/ui/me');must(me.j.emailVerified,'not confirmed')});

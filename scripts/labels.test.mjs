@@ -14,22 +14,22 @@ const tmp=async()=>mkdtemp(path.join(tmpdir(),'labels-'));
 test('a label is saved, read back and dropped again',async()=>{const d=await tmp();try{
  const l=createLabels(d,{defaults:{}});
  assert.equal(await l.get('mcp','slack-as2'),null);
- const v=await l.set('mcp','slack-as2',{name:'Slack · AdmissionSight',description:'Reads Aqeel’s Slack as him.'});
- assert.equal(v.name,'Slack · AdmissionSight');assert.equal(v.description,'Reads Aqeel’s Slack as him.');
+ const v=await l.set('mcp','slack-as2',{name:'Slack · Admitly',description:'Reads Abel’s Slack as him.'});
+ assert.equal(v.name,'Slack · Admitly');assert.equal(v.description,'Reads Abel’s Slack as him.');
  const again=createLabels(d,{defaults:{}});   // from the file, not memory
- assert.equal((await again.get('mcp','slack-as2')).name,'Slack · AdmissionSight');
+ assert.equal((await again.get('mcp','slack-as2')).name,'Slack · Admitly');
  assert.equal(await l.set('mcp','slack-as2',{name:'',description:''}),null);
  assert.deepEqual(JSON.parse(await readFile(path.join(d,'labels.json'),'utf8')),{});
 }finally{await rm(d,{recursive:true,force:true})}});
 
 test('only the given field changes',async()=>{const d=await tmp();try{const l=createLabels(d,{defaults:{}});
- await l.set('skill','pixel-ops',{name:'Pixel & Profits work rules',description:'How to handle Pixel tasks.'});
+ await l.set('skill','pixel-ops',{name:'Pine & Co work rules',description:'How to handle Pixel tasks.'});
  const v=await l.set('skill','pixel-ops',{description:'New line.'});
- assert.equal(v.name,'Pixel & Profits work rules');assert.equal(v.description,'New line.');
+ assert.equal(v.name,'Pine & Co work rules');assert.equal(v.description,'New line.');
 }finally{await rm(d,{recursive:true,force:true})}});
 
 test('no em or en dashes, one line, kept short',()=>{
- assert.equal(cleanText('Slack — AdmissionSight','60'),'Slack, AdmissionSight');
+ assert.equal(cleanText('Slack — Admitly','60'),'Slack, Admitly');
  assert.equal(cleanText('a–b',60),'a, b');
  assert.equal(cleanText('two\nlines   here',60),'two lines here');
  assert.equal(cleanText('x'.repeat(300),60).length,60)});
@@ -44,18 +44,18 @@ test('unknown kinds and bad ids are refused',async()=>{const d=await tmp();try{c
 test('built-in names show until someone sets their own, and come back after',async()=>{const d=await tmp();try{
  const l=createLabels(d,{defaults:{'mcp:n8n':{name:'n8n automations',description:'Runs automations.'}}});
  assert.equal((await l.get('mcp','n8n')).builtIn,true);
- await l.set('mcp','n8n',{name:'Elkiya n8n'});assert.equal((await l.all())['mcp:n8n'].name,'Elkiya n8n');
+ await l.set('mcp','n8n',{name:'Elmora n8n'});assert.equal((await l.all())['mcp:n8n'].name,'Elmora n8n');
  const back=await l.set('mcp','n8n',{name:'',description:''});assert.equal(back.name,'n8n automations');assert.equal(back.builtIn,true);
 }finally{await rm(d,{recursive:true,force:true})}});
 
 test('Connections rows: the label wins, the key and the real name stay',async()=>{const d=await tmp();try{
- const l=createLabels(d,{defaults:{}});await l.set('mcp','slack-as2',{name:'Slack · AdmissionSight',description:'Drafts only.'});
+ const l=createLabels(d,{defaults:{}});await l.set('mcp','slack-as2',{name:'Slack · Admitly',description:'Drafts only.'});
  const rows=[{key:'mcp:slack-as2',id:'slack-as2',name:'Slack',what:''},{key:'skill:github',id:'github',name:'github',what:'GitHub via gh'}];
  const out=await l.applyRows({rows,agents:[]});
- assert.equal(out.rows[0].name,'Slack · AdmissionSight');assert.equal(out.rows[0].what,'Drafts only.');
+ assert.equal(out.rows[0].name,'Slack · Admitly');assert.equal(out.rows[0].what,'Drafts only.');
  assert.equal(out.rows[0].rawName,'Slack');assert.equal(out.rows[0].key,'mcp:slack-as2');assert.equal(out.rows[0].id,'slack-as2');
  assert.deepEqual(out.rows[1],rows[1]);
- assert.equal((await l.applyRows({key:'mcp:slack-as2',name:'Slack'})).name,'Slack · AdmissionSight');   // the side panel's one row
+ assert.equal((await l.applyRows({key:'mcp:slack-as2',name:'Slack'})).name,'Slack · Admitly');   // the side panel's one row
 }finally{await rm(d,{recursive:true,force:true})}});
 
 test('a broken labels.json is never saved over silently, and an empty one is fine',async()=>{const d=await tmp();try{

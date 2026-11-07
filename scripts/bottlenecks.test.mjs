@@ -7,9 +7,9 @@ let n=0;const t=async(name,f)=>{await f();n++;console.log('ok',name)};
 
 // the owner's screenshot: skills missing files, one of them on two agents
 const skill=(agent,sk,files)=>({id:'event|e'+agent+sk,kind:'skill',agent,agentName:agent,topic:'health|'+agent+'|skill|'+sk,title:'The skill '+sk.split('/').pop()+' points to a file that is not there',text:'Missing: '+files});
-const SHOT=[skill('sesa','productivity/maps','~/.aqeelos/skills/maps/scripts/maps_client.py'),skill('pixel-agent','productivity/sesa-personal-account-login','references/site-login-urls.md'),
- skill('pixel-agent','creative/continue-vial-labels','assets/texture.png'),skill('continue-support','creative/continue-vial-labels','assets/texture.png'),
- skill('cont-socmed','creative/continue-longevity-brand','references/tiktok-hooks.md, assets/products/pens-trio-3.jpg.webp')];
+const SHOT=[skill('sela','productivity/maps','~/.aqeelos/skills/maps/scripts/maps_client.py'),skill('pine-agent','productivity/sela-personal-account-login','references/site-login-urls.md'),
+ skill('pine-agent','creative/continue-vial-labels','assets/texture.png'),skill('cove-support','creative/continue-vial-labels','assets/texture.png'),
+ skill('cove-social','creative/continue-longevity-brand','references/tiktok-hooks.md, assets/products/pens-trio-3.jpg.webp')];
 const rep=(agent,missing,{system=false,fix=''}={})=>({id:'report|r'+agent+missing.length,kind:system?'system':'report',agent,agentName:agent,missing,title:(system?agent+' reported a system problem: ':agent+' is blocked: ')+missing,text:fix?'Would fix it: '+fix:'',count:1});
 
 await t('none of the screenshot items needs the owner: the popup is empty, and all of them go into the ladder',()=>{
@@ -21,7 +21,7 @@ await t('what needs a person stays, with one plain line of what to do; no "Got i
  assert.match(personNeed(rep('a1','A new API key for Xendit; the old one was revoked')),/Xendit|key/i);
  for(const k of ['down','schedule','stopped','twice','dropped','backup','update','automations','models','selfruns','kirimdev','skill'])assert.equal(personNeed({kind:k,title:'x'}),null,k)});
 await t('agent reports: fixable ones and planned tests go to the ladder, real person needs stay',()=>{
- for(const m of ['Read/execute access for ag-continue-threads to /home/claude/work/labels','Customer WhatsApp runs have no label tool','My live patches to app/kirimdev.mjs were overwritten by a redeploy',
+ for(const m of ['Read/execute access for ag-cove-threads to /home/claude/work/labels','Customer WhatsApp runs have no label tool','My live patches to app/kirimdev.mjs were overwritten by a redeploy',
   'PLANNED TEST, no action needed: a person must add the bot to a Telegram group called aqeelOS ladder test','Someone must send a WhatsApp message from the tester phone'])
   assert.equal(personNeed(rep('a1',m,{system:true})),null,m);
  assert.equal(forLadder(rep('a1','Customer WhatsApp runs have no label tool')),true);assert.equal(forLadder(rep('a1','x',{system:true})),false,'a system report is filed as an issue at once');
@@ -29,29 +29,29 @@ await t('agent reports: fixable ones and planned tests go to the ladder, real pe
 await t('a system report never shows: the fixer has it and sends the one message itself if a person is needed',()=>{
  assert.equal(personNeed(rep('a1','Check the model subscription usage limit, add an API key',{system:true})),null)});
 await t('each need once: app sign-ins merged across agents, a group with its reports, the same report from two agents',()=>{
- const items=[rep('sesa','A sign-in for composio, notion and slack. They have no saved tokens'),rep('cont-socmed','A sign-in for Notion and for Slack (OAuth)'),rep('biomarkers-support','Sign-in for composio, notion and slack; no cached tokens exist'),rep('default','Customer runs need a payment label tool',{system:true}),
-  {id:'event|g1',kind:'group',agent:'cont-socmed',agentName:'cont-socmed',topic:'health|cont-socmed|group|-5390379831',title:'Removed from the Telegram group Continue - Socials'},
-  rep('cont-socmed','The bot was removed from the group Continue - Socials (Telegram says the bot is left). A bot cannot add itself back.'),
+ const items=[rep('sela','A sign-in for composio, notion and slack. They have no saved tokens'),rep('cove-social','A sign-in for Notion and for Slack (OAuth)'),rep('bay-sales','Sign-in for composio, notion and slack; no cached tokens exist'),rep('default','Customer runs need a payment label tool',{system:true}),
+  {id:'event|g1',kind:'group',agent:'cove-social',agentName:'cove-social',topic:'health|cove-social|group|-5390379831',title:'Removed from the Telegram group Continue - Socials'},
+  rep('cove-social','The bot was removed from the group Continue - Socials (Telegram says the bot is left). A bot cannot add itself back.'),
   rep('a1','A new API key for Xendit'),rep('a2','A new API key for Xendit'),...SHOT];
  const p=forPopup(items);assert.deepEqual(p.map(x=>x.kind),['apps','apps','group','report'],JSON.stringify(p.map(x=>x.title)));
- const [three,two,g,key]=p;assert.equal(three.title,'Composio, Notion and Slack need a sign-in');assert.equal(three.also.length,1);assert.match(three.text,/Asked by sesa and biomarkers-support/);assert.match(three.ask,/Connected apps/);
+ const [three,two,g,key]=p;assert.equal(three.title,'Composio, Notion and Slack need a sign-in');assert.equal(three.also.length,1);assert.match(three.text,/Asked by sela and bay-sales/);assert.match(three.ask,/Connected apps/);
  assert.equal(two.title,'Notion and Slack need a sign-in');assert.equal(g.also.length,1,'the group report rides on the group');assert.equal(key.also.length,1);assert.equal(key.title,'A new API key for Xendit');
  assert.equal(popupKey(SHOT[2]),SHOT[2].id)});
 await t('a skill shared by two agents is one problem: same skill and files, whatever the folder',()=>{
  assert.equal(skillKey({skill:'creative/continue-vial-labels',missing:['assets/texture.png']}),skillKey({skill:'continue-vial-labels',missing:['assets/texture.png']}));
  assert.notEqual(skillKey({skill:'a/x',missing:['assets/1.png']}),skillKey({skill:'a/x',missing:['assets/2.png']}))});
 await t('a group counts only when it is in the agent\'s settings: its team group, or an id in its config or .env',()=>{
- const tg={groups:{'continue-support':{chatId:-1003999095054},'biomarkers-support':{chatId:-1003989506863}}};
- const bio=configuredGroups('biomarkers-support',{teamGroups:tg,texts:['telegram:\n  allowed_chats: [-1003989506863]','TELEGRAM_BOT_TOKEN=123:abc']});
+ const tg={groups:{'cove-support':{chatId:-1003999095054},'bay-sales':{chatId:-1003989506863}}};
+ const bio=configuredGroups('bay-sales',{teamGroups:tg,texts:['telegram:\n  allowed_chats: [-1003989506863]','TELEGRAM_BOT_TOKEN=123:abc']});
  assert.deepEqual([...bio],['-1003989506863']);assert.equal(bio.has('-1003999095054'),false,'another agent\'s team group is not its own');
- assert.deepEqual([...configuredGroups('cont-socmed',{teamGroups:tg,texts:['model: x','PORT=4400']})],[],'a group it only chatted in once is history');
+ assert.deepEqual([...configuredGroups('cove-social',{teamGroups:tg,texts:['model: x','PORT=4400']})],[],'a group it only chatted in once is history');
  assert.deepEqual([...configuredGroups('x',{texts:['HOME_CHANNEL=-5390379831']})],['-5390379831']);
  assert.deepEqual([...configuredGroups('default',{texts:['#     # allowed_chats: ["-1001234567890"]','telegram:\n  # home: -1009876543210','x: 1']})],[],'commented examples are not settings')});
 await t('an app with its own sign-in item takes the agents\' reports about it; that item\'s button opens the sign-in',()=>{
- const p=forPopup([{id:'signin|a|slack',kind:'signin',agent:'a',agentName:'a',title:'Slack needs signing in',signin:{name:'slack'}},rep('sesa','A sign-in for Slack (OAuth), no tokens')]);
- assert.equal(p.length,1);assert.equal(p[0].kind,'signin');assert.deepEqual(p[0].also,['report|rsesa36'.replace('36',String('A sign-in for Slack (OAuth), no tokens'.length))])});
+ const p=forPopup([{id:'signin|a|slack',kind:'signin',agent:'a',agentName:'a',title:'Slack needs signing in',signin:{name:'slack'}},rep('sela','A sign-in for Slack (OAuth), no tokens')]);
+ assert.equal(p.length,1);assert.equal(p[0].kind,'signin');assert.deepEqual(p[0].also,['report|rsela36'.replace('36',String('A sign-in for Slack (OAuth), no tokens'.length))])});
 await t('a member counts only what they can act on: their blocked agent and their own agent\'s new instructions',()=>{
- const all=forPopup([{id:'access|1',kind:'access',title:'Sesa asks for Gmail'},{id:'ticket|w',kind:'ticket',title:'A Help ticket is waiting'},{id:'signin|a|slack',kind:'signin',title:'Slack needs signing in',signin:{name:'slack'}},
-  rep('sesa','A sign-in for Notion (OAuth)'),rep('sesa','A new API key for Xendit'),{id:'instr|sesa|p1',kind:'instructions',agent:'sesa',title:'Sesa: new instructions wait for your approval'}]);
+ const all=forPopup([{id:'access|1',kind:'access',title:'Sela asks for Gmail'},{id:'ticket|w',kind:'ticket',title:'A Help ticket is waiting'},{id:'signin|a|slack',kind:'signin',title:'Slack needs signing in',signin:{name:'slack'}},
+  rep('sela','A sign-in for Notion (OAuth)'),rep('sela','A new API key for Xendit'),{id:'instr|sela|p1',kind:'instructions',agent:'sela',title:'Sela: new instructions wait for your approval'}]);
  assert.deepEqual(all.map(x=>x.kind),["access","ticket","signin","apps","report","instructions"]);assert.deepEqual(all.filter(memberCan).map(x=>x.kind),['report','instructions'])});
 console.log(n+' passed');

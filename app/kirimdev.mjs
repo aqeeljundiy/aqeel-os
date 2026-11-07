@@ -137,7 +137,7 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
   const j=await r.json().catch(()=>({}));if(!r.ok)throw Object.assign(Error('Kirimdev answered '+r.status+(j?.error?.code?' '+j.error.code:'')),{status:r.status,code:j?.error?.code});return j}
 
  // Kirimdev API health (7 Nov 2026). A raw GET that tells the ways Kirimdev can fail apart: no answer, the key refused,
- // an empty or non-JSON body (the Biomarkers unanswered chat check crashed 30 times on 7 Nov, 04:09 to 11:07 WIB, on
+ // an empty or non-JSON body (the Baylabs unanswered chat check crashed 30 times on 7 Nov, 04:09 to 11:07 WIB, on
  // conversations?limit=50 answering that way), or another HTTP error. Never throws.
  async function probe(p,key){if(!key)return {ok:false,why:'nokey',status:0,text:'No Kirimdev API key is saved.'};let r;
   try{r=await fetchImpl(API+'/'+p,{method:'GET',headers:{authorization:'Bearer '+key,'user-agent':'aqeelOS/1.0'},signal:AbortSignal.timeout(30000)})}
@@ -569,7 +569,7 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
    return out}finally{polling=false}}
  // after a restart: conversations that were waiting are answered, handoffs are tried again, webhooks hear team replies
  let iv=null,civ=null,piv=null;
- // once: a quiet time of 0 meant the agent kept answering right after a team member (Gilang's line until 7 Nov); new lines get 15
+ // once: a quiet time of 0 meant the agent kept answering right after a team member (Gino's line until 7 Nov); new lines get 15
  async function fixQuiet(){await state();if(st.fixedQuiet)return;const c=await readJson(CONF,{lines:{}});let n=0;
   for(const l of Object.values(c.lines||{}))if(Number(l.pauseMin)===0){l.pauseMin=DEFAULT_PAUSE;n++}
   if(n)await put(CONF,c,0o644);st.fixedQuiet=now();await saveState();if(n)log('kirimdev: quiet time 0 set to '+DEFAULT_PAUSE+' min on '+n+' line(s)')}

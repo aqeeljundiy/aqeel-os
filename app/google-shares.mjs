@@ -65,7 +65,7 @@ export function createGoogleShares({HERMES_HOME,DATA,WORK=path.join(path.dirname
   if(await held(agent)){await unshare(email,agent);return {file:null,changed:false,held:true}}
   const dir=home(agent);await mkdir(dir,{recursive:true});const files=(await readdir(dir).catch(()=>[])).filter(isToken);
   for(const f of files){const d=await readJson(path.join(dir,f));if(String(d?.account||'').toLowerCase()===email){if(d.aqeelos_managed)return {file:f,changed:false};throw Error('This agent still has its own copy of '+email+' ('+f+'). Move it to a share first.')}}
-  // the owner's own file name (the agents pick an account by it: --account elkiya reads google_token_elkiya.json)
+  // the owner's own file name (the agents pick an account by it: --account elmora reads google_token_elmora.json)
   let f=own.file;if(files.includes(f)){const base='google_token_'+email.replace(/[^\w-]/g,'_');f=base+'.json';for(let n=2;files.includes(f);n++)f=base+'_'+n+'.json'}
   const level=await levelOf(email,agent);await put(path.join(dir,f),await mint(own,level));log('google share: '+email+' for '+agent+' ('+level+')');return {file:f,changed:true}}
  async function unshare(email,agent){email=String(email).toLowerCase();let n=0;

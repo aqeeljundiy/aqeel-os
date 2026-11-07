@@ -124,7 +124,7 @@ def _retry(m, first, second=None, partial=False, current=True):
         return second
 
     out = asyncio.run(m._aq_retry_once(first, run, history_len=4, partial_of=lambda r: partial,
-                                        is_current=lambda: current, session_key="agent:sesa:whatsapp:dm:1",
+                                        is_current=lambda: current, session_key="agent:sela:whatsapp:dm:1",
                                         platform="whatsapp", wait=0))
     return out, len(calls), _drops(m)
 
@@ -135,7 +135,7 @@ def a_turn_that_failed_before_anything_ran_is_tried_once_more():
     first = {"failed": True, "failure_reason": "timeout", "failure_retryable": True, "error": "read timed out"}
     out, n, drops = _retry(m, first, {"failed": False, "final_response": "Halo"})
     assert n == 1 and out["final_response"] == "Halo", (n, out)
-    assert drops == [dict(drops[0], agent="sesa", platform="whatsapp", reason="timeout", partial=False, retried=True, recovered=True)], drops
+    assert drops == [dict(drops[0], agent="sela", platform="whatsapp", reason="timeout", partial=False, retried=True, recovered=True)], drops
 
 
 @test
@@ -185,13 +185,13 @@ def a_cloned_agent_never_gets_another_agents_bot_token():
     m = load("aq_profile_channels", "hermes_cli/profile_channels.py")
     env = os.path.join(tempfile.mkdtemp(dir=TMP), ".env")
     with open(env, "w") as fh:
-        fh.write("# keys\nTELEGRAM_BOT_TOKEN=1:a\nCONTINUE_SUPPORT_BOT_TOKEN=2:b\nPIXEL_SLACK_APP_TOKEN=xapp\n"
-                 "GITHUB_TOKEN_AQEEL=ghp\nOPENAI_API_KEY=sk\n")
+        fh.write("# keys\nTELEGRAM_BOT_TOKEN=1:a\nCOVE_SUPPORT_BOT_TOKEN=2:b\nPINE_SLACK_APP_TOKEN=xapp\n"
+                 "GITHUB_TOKEN_ABEL=ghp\nOPENAI_API_KEY=sk\n")
     removed = m.strip_channel_env_file(__import__("pathlib").Path(env))
     left = open(env).read()
-    assert "CONTINUE_SUPPORT_BOT_TOKEN" not in left and "PIXEL_SLACK_APP_TOKEN" not in left and "TELEGRAM_BOT_TOKEN" not in left, left
-    assert "GITHUB_TOKEN_AQEEL=ghp" in left and "OPENAI_API_KEY=sk" in left and "# keys" in left, left
-    assert sorted(removed.get("bot_token", [])) == ["CONTINUE_SUPPORT_BOT_TOKEN", "PIXEL_SLACK_APP_TOKEN"], removed
+    assert "COVE_SUPPORT_BOT_TOKEN" not in left and "PINE_SLACK_APP_TOKEN" not in left and "TELEGRAM_BOT_TOKEN" not in left, left
+    assert "GITHUB_TOKEN_ABEL=ghp" in left and "OPENAI_API_KEY=sk" in left and "# keys" in left, left
+    assert sorted(removed.get("bot_token", [])) == ["COVE_SUPPORT_BOT_TOKEN", "PINE_SLACK_APP_TOKEN"], removed
 
 
 @test

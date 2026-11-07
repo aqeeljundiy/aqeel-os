@@ -19,3 +19,7 @@ pending/
 *.bak*
 AUDIT-PLAN.md
 CODE-PLAN.md
+# this install's own notes (moved out of README, 7 Nov 2026)
+data/reference-install.md
+skills/**/references/local.md
+data/private-words.json

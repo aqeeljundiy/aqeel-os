@@ -9,8 +9,8 @@ import {createHmac} from 'node:crypto';
 import {createAgentVersions,recordAgentChange,redactLog,verifyProvider,resign,rollbackPlan,capabilityLines,VERSION_TOOLS,OWN_SETTING} from '../app/agent-versions.mjs';
 
 test('redactLog hides keys, bearer tokens, bot tokens, long opaque strings; phone numbers stay in full',()=>{
- const t=redactLog('api_key=sk-abc123456789 Authorization: Bearer abcdefghijklmnop bot123456789:AAAAAAAAAAAAAAAAAAAAAAAAAAAA to 6281336263417 '+'x'.repeat(45));
- assert.doesNotMatch(t,/sk-abc|abcdefghijklmnop|AAAAAAAAAAAA|xxxxxxxxxx/);assert.match(t,/6281336263417/)});
+ const t=redactLog('api_key=sk-abc123456789 Authorization: Bearer abcdefghijklmnop bot123456789:AAAAAAAAAAAAAAAAAAAAAAAAAAAA to 6281200000001 '+'x'.repeat(45));
+ assert.doesNotMatch(t,/sk-abc|abcdefghijklmnop|AAAAAAAAAAAA|xxxxxxxxxx/);assert.match(t,/6281200000001/)});
 
 test('verifyProvider: HMAC-SHA256 hex (Tripay style), token (Xendit style), wrong signature refused; resign makes the engine V2 signature',()=>{
  const raw=Buffer.from('{"status":"PAID"}'),key='priv';const sig=createHmac('sha256',key).update(raw).digest('hex');
@@ -25,8 +25,8 @@ test('rollbackPlan: only done, undoable changes in the window, newest first',()=
  assert.deepEqual(p.map(x=>x.id),['3','1'])});
 
 test('capabilityLines states real tools, apps needing a sign-in, schedules, WhatsApp and the fix-yourself tools',()=>{
- const L=capabilityLines({at:'x',toolsByChannel:{telegram:['hermes-telegram','aqeelos-notify']},off:['browser'],apps:[{name:'notion',state:'needs a sign-in'},{name:'n8n',state:'ready'}],skills:3,skillNames:['a'],schedules:[{name:'Daily',on:false}],whatsapp:{mode:'test',testers:['AJ']},team:'Continue',webhooks:[],selfRuns:true,terminal:'its own Linux user'}).join('\n');
- for(const s of ['telegram: hermes-telegram, aqeelos-notify','browser','notion (needs a sign-in)','Daily [paused]','mode test','Continue','create_my_webhook','my_deliveries','undo_my_change'])assert.ok(L.includes(s),s)});
+ const L=capabilityLines({at:'x',toolsByChannel:{telegram:['hermes-telegram','aqeelos-notify']},off:['browser'],apps:[{name:'notion',state:'needs a sign-in'},{name:'n8n',state:'ready'}],skills:3,skillNames:['a'],schedules:[{name:'Daily',on:false}],whatsapp:{mode:'test',testers:['AJ']},team:'Cove',webhooks:[],selfRuns:true,terminal:'its own Linux user'}).join('\n');
+ for(const s of ['telegram: hermes-telegram, aqeelos-notify','browser','notion (needs a sign-in)','Daily [paused]','mode test','Cove','create_my_webhook','my_deliveries','undo_my_change'])assert.ok(L.includes(s),s)});
 
 test('tool list: every tool has a schema; own settings are only stt/tts/timezone/display',()=>{
  for(const t of VERSION_TOOLS){assert.ok(t.name&&t.description&&t.inputSchema?.type==='object',t.name)}
@@ -82,9 +82,9 @@ test('recordAgentChange: a change made by another agent is recorded on the targe
  const DATA=await mkdtemp(path.join(tmpdir(),'av-rac-'));
  const sets=[];const v=createAgentVersions({DATA,HERMES_HOME:DATA,DASH:'http://127.0.0.1:1',DASH_TOKEN:'x',listAgents:async()=>['default','bot'],nameOf:a=>a,readConfig:async()=>({}),setKey:async(a,k,val)=>{sets.push([a,k,val]);return {ok:true}},pick:()=>undefined});
  // agent-access passes by as {agent,name,level}
- await recordAgentChange({agent:'bot',kind:'settings',id:'timezone',by:{agent:'default',name:'Donna AI',level:'owner'},before:'UTC',after:'Asia/Jakarta',why:'test'});
+ await recordAgentChange({agent:'bot',kind:'settings',id:'timezone',by:{agent:'default',name:'Dora AI',level:'owner'},before:'UTC',after:'Asia/Jakarta',why:'test'});
  const d=JSON.parse(await readFile(path.join(DATA,'agent-versions','bot','index.json'),'utf8'));
- assert.equal(d.items.length,1);assert.equal(d.items[0].by,'Donna AI');assert.equal(d.items[0].target,'timezone');assert.deepEqual(d.items[0].after,{value:'Asia/Jakarta'});
+ assert.equal(d.items.length,1);assert.equal(d.items[0].by,'Dora AI');assert.equal(d.items[0].target,'timezone');assert.deepEqual(d.items[0].after,{value:'Asia/Jakarta'});
  assert.ok(!/object Object/.test(d.items[0].what),d.items[0].what);assert.equal(d.items[0].kind,'setting');
  await v.undo('bot',d.items[0].id,{by:'owner'});assert.deepEqual(sets,[['bot','timezone','UTC']]);
  assert.equal(await recordAgentChange({kind:'settings'}),null);

@@ -48,7 +48,7 @@ const SkillPolicy={
  let q=0;const mo=new MutationObserver(()=>{if(!q)q=requestAnimationFrame(()=>{q=0;apply()})});mo.observe(el,{childList:true,subtree:true});apply()}}
 
 /* Channels: quiet Slack channels, per Slack workspace (admins). Each Slack row says what its workspace keeps quiet, and
-   Change sets it for that workspace only ("Slack · Pixel & Profits: stay quiet in channels starting with…"). */
+   Change sets it for that workspace only ("Slack · Pine & Co: stay quiet in channels starting with…"). */
 {const base=PAGES.channels;PAGES.channels=async(p,el,r)=>{const gone=pageTok(el);await base(p,el,r);if(gone()||S.me?.admin===false||S.chOverride)return;
  const rows=[...el.querySelectorAll('[data-act="ch-more"][data-platform="slack"]')];if(!rows.length)return;
  const q=await UI('/ui/slack-quiet').catch(()=>null);if(!q||gone())return;SlackQuiet.q=q;

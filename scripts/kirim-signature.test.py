@@ -172,14 +172,14 @@ def a_route_bound_to_an_agent_is_still_found_while_its_event_is_handed_over():
     gw, agent_home = os.path.join(TMP_HOME, "gw"), os.path.join(TMP_HOME, "agent")
     os.makedirs(gw), os.makedirs(agent_home)
     with open(os.path.join(gw, "webhook_subscriptions.json"), "w") as f:
-        json.dump({"kirim": {"secret": SECRET, "profile": "continue-support", "prompt": "x", "deliver": "log"}}, f)
+        json.dump({"kirim": {"secret": SECRET, "profile": "cove-support", "prompt": "x", "deliver": "log"}}, f)
     hc.pin_process_hermes_home(gw)  # the gateway's own home, as in the running engine
     a = adapter()
     a._reload_dynamic_routes()
     assert "kirim" in a._routes
     token = hc.set_hermes_home_override(agent_home)  # inside the routed agent's scope, whose home has no list
     try:
-        chat = wh._WebhookDeliveryIdentity.from_parts("continue-support", "kirim", "kirim-abc").session_chat_id
+        chat = wh._WebhookDeliveryIdentity.from_parts("cove-support", "kirim", "kirim-abc").session_chat_id
         assert route_digest(a, chat), "route digest"
         assert "kirim" in a._routes, "the route stayed"
     finally:

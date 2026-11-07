@@ -51,7 +51,7 @@ export function createAgentAccess({sharing,HERMES_HOME,listAgents=async()=>[],MA
  const home=a=>a===MAIN||a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const isMain=a=>base(a)===MAIN||!!mainLike(base(a));
  // every agent owns itself; made the first time anyone asks, so a new agent is covered at once
- async function ensure(a){a=base(a);if(!AGENT.test(a))throw new Error('Give the agent id, like continue-support.');if(!await stat(path.join(home(a),'config.yaml')).catch(()=>null)&&a!=='default')throw new Error('There is no agent called '+a+'.');
+ async function ensure(a){a=base(a);if(!AGENT.test(a))throw new Error('Give the agent id, like cove-support.');if(!await stat(path.join(home(a),'config.yaml')).catch(()=>null)&&a!=='default')throw new Error('There is no agent called '+a+'.');
   if(!await sharing.exists('agent',a))await sharing.claim('agent',a,a,{label:names(a),by:'aqeelOS'});return a}
  // the level `actor` has on agent `target` (itself and the main agent: owner)
  async function levelOn(actor,target){const me=base(actor),t=base(target);if(me===t||isMain(me)||ownerLike(me,t))return 'owner';await ensure(t);return sharing.levelOf('agent',t,me)}
@@ -115,7 +115,7 @@ export function createAgentAccess({sharing,HERMES_HOME,listAgents=async()=>[],MA
 
  // the tool as agents see it
  const TOOL={name:'manage_agent',description:'Look after another agent you have access to (or yourself): read its setup or logs, change its instructions, skills or schedules, change its settings, or share it with another agent. What you may do depends on your level on that agent: viewer reads its setup and logs; editor also changes its instructions, skills and schedules; manager also changes its settings and shares it as editor or viewer; owner can do everything. Its keys are never shown. Every change is kept in its history with your name and can be undone.',
-  inputSchema:{type:'object',properties:{agent:{type:'string',description:'the agent id, like continue-support'},part:{type:'string',enum:Object.keys(AGENT_NEEDS)},
+  inputSchema:{type:'object',properties:{agent:{type:'string',description:'the agent id, like cove-support'},part:{type:'string',enum:Object.keys(AGENT_NEEDS)},
    edits:{type:'array',items:{type:'object',properties:{old_text:{type:'string'},new_text:{type:'string'}}},description:'instructions: exact old text and its replacement for each place'},rewrite:{type:'string',description:'instructions: the whole new text (applies at once, can be undone)'},why:{type:'string',description:'what changes and why (kept in its history)'},said_by:{type:'string'},
    name:{type:'string',description:'skill: its name'},category:{type:'string',description:'skill: its folder, like productivity'},content:{type:'string',description:'skill: the whole SKILL.md'},remove:{type:'boolean'},
    op:{type:'string',enum:['create','update','pause','resume','delete'],description:'schedule'},job_id:{type:'string'},title:{type:'string'},schedule:{type:'string'},prompt:{type:'string'},deliver:{type:'string'},

@@ -317,7 +317,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
   // agents may never stop or kill the gateway (they did once, mid-chat) or sign in through localhost; restarts go through the app
   const deny=pick(c,'approvals.deny')||[];if(DENY.some(x=>!deny.includes(x)))await step('guard',()=>setKey(name,'approvals.deny',[...new Set([...deny,...DENY])]));
   // Composio is no longer forced onto every agent (owner, 25 Oct 2026: "dont force"). An agent that has it keeps it,
-  // signed in or not; one that doesn't (or had it removed on purpose, as Sesa did on 20 Oct) is never given it again.
+  // signed in or not; one that doesn't (or had it removed on purpose, as Sela did on 20 Oct) is never given it again.
   const st=(await getStatus())[name]||{};
   // quiet channels: no "steered / queued / redirected" echoes, warning pings, "still working" heartbeats or
   // "gateway restarted" messages. Only settings nobody has chosen yet, so a later choice stays.

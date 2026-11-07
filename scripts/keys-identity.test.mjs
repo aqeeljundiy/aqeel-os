@@ -76,4 +76,4 @@ test('a key counts as used only by the work of the agents that hold it',async()=
 
 test('a key is only ever sent to the service its name names',()=>{
  assert.equal(probeFor('SUPPORT_BOT_TOKEN'),null);assert.equal(probeFor('SLACK_MCP_CLIENT_SECRET'),null);assert.equal(probeFor('MY_API_KEY'),null);
- assert.equal(probeFor('SALES_TELEGRAM_BOT_TOKEN').service,'Telegram');assert.equal(probeFor('PIXEL_SLACK_BOT_TOKEN').service,'Slack')});
+ assert.equal(probeFor('SALES_TELEGRAM_BOT_TOKEN').service,'Telegram');assert.equal(probeFor('PINE_SLACK_BOT_TOKEN').service,'Slack')});

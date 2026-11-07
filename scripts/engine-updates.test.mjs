@@ -26,10 +26,10 @@ test('schedules: more often than every hour may be skipped',()=>{
  assert.ok(!frequent({schedule:{kind:'cron',expr:'0 3 * * 1'}}));assert.ok(!frequent({schedule:{kind:'cron',expr:'50 6-23 * * *'}}));
  assert.ok(!frequent({schedule:{kind:'interval',minutes:60}}));assert.ok(!frequent({schedule:{kind:'once',run_at:'x'}}))});
 test('schedules: due within 45 min or running blocks, frequent and paused ones do not',()=>{const now=at('2026-10-26T02:20:00');
- const jobs=[{name:'Donna Monday report',schedule:{kind:'cron',expr:'0 3 * * 1'},next_run_at:'2026-10-26T03:00:00+07:00',state:'scheduled'},
-  {name:'Fakhri away',schedule:{kind:'cron',expr:'*/2 * * * *'},next_run_at:'2026-10-26T02:22:00+07:00',state:'scheduled'},
+ const jobs=[{name:'Dora Monday report',schedule:{kind:'cron',expr:'0 3 * * 1'},next_run_at:'2026-10-26T03:00:00+07:00',state:'scheduled'},
+  {name:'Faris away',schedule:{kind:'cron',expr:'*/2 * * * *'},next_run_at:'2026-10-26T02:22:00+07:00',state:'scheduled'},
   {name:'Off one',enabled:false,schedule:{kind:'cron',expr:'0 3 * * *'},next_run_at:'2026-10-26T02:30:00+07:00'}];
- const b=blockingJobs(jobs,now,{tz:TZ});assert.equal(b.length,1);assert.match(b[0].why,/Donna Monday report is due at 03:00/);
+ const b=blockingJobs(jobs,now,{tz:TZ});assert.equal(b.length,1);assert.match(b[0].why,/Dora Monday report is due at 03:00/);
  assert.equal(blockingJobs(jobs,at('2026-10-26T01:00:00'),{tz:TZ}).length,0);
  assert.match(blockingJobs([{name:'Long job',schedule:{kind:'cron',expr:'0 0 * * *'},state:'running'}],now,{tz:TZ})[0].why,/is running/)});
 
@@ -67,17 +67,17 @@ test('log: new profile_mismatch or an error spike fails',()=>{const t0=Date.pars
  const many=Array.from({length:8},(_,i)=>L('2026-10-25 00:0'+i+':00','ERROR','boom')).join('\n');
  assert.match(logProblems({errors:2,mismatch:0,minutes:60},countLog(many,Date.parse('2026-10-25T00:00:00Z'),Date.parse('2026-10-25T00:10:00Z')))[0],/8 errors/)});
 
-// the 24 Oct problem: under the profile's home the LID form no longer reached sesa
-const run=(label,got)=>({home:'/h/'+label,label,routes:[{name:'sesa-whatsapp',platform:'whatsapp',profile:'sesa',got}]});
+// the 24 Oct problem: under the profile's home the LID form no longer reached sela
+const run=(label,got)=>({home:'/h/'+label,label,routes:[{name:'sela-whatsapp',platform:'whatsapp',profile:'sela',got}]});
 test('routes: only a form that reached its agent before and does not now is a problem',()=>{
- const before=[run('main',{'111@lid':'sesa','628222':'sesa'}),run('sesa',{'111@lid':'sesa','628222':null})];
+ const before=[run('main',{'111@lid':'sela','628222':'sela'}),run('sela',{'111@lid':'sela','628222':null})];
  assert.deepEqual(routeProblems(before,before),[]);
- const after=[run('main',{'111@lid':'sesa','628222':'sesa'}),run('sesa',{'111@lid':null,'628222':null})];
- const p=routeProblems(before,after);assert.equal(p.length,1);assert.match(p[0],/sesa-whatsapp no longer reaches sesa for .*LID.*checked as sesa/);
+ const after=[run('main',{'111@lid':'sela','628222':'sela'}),run('sela',{'111@lid':null,'628222':null})];
+ const p=routeProblems(before,after);assert.equal(p.length,1);assert.match(p[0],/sela-whatsapp no longer reaches sela for .*LID.*checked as sela/);
  assert.match(routeProblems(before,[{home:'/h/main',label:'main',routes:[]}])[0],/no longer read/)});
 
-test('verdict: gateway, every channel, routes, log and health',()=>{const before={channels:['whatsapp','telegram','cont-socmed:telegram'],routes:{runs:[run('main',{'111@lid':'sesa'})]},log:{errors:0,mismatch:0,minutes:60}};
- const good={gatewayUp:true,channels:{whatsapp:'connected',telegram:'connected','cont-socmed:telegram':'connected'},routes:{runs:[run('main',{'111@lid':'sesa'})]},log:{errors:0,mismatch:0,minutes:8},healthOk:true};
+test('verdict: gateway, every channel, routes, log and health',()=>{const before={channels:['whatsapp','telegram','cove-social:telegram'],routes:{runs:[run('main',{'111@lid':'sela'})]},log:{errors:0,mismatch:0,minutes:60}};
+ const good={gatewayUp:true,channels:{whatsapp:'connected',telegram:'connected','cove-social:telegram':'connected'},routes:{runs:[run('main',{'111@lid':'sela'})]},log:{errors:0,mismatch:0,minutes:8},healthOk:true};
  assert.deepEqual(verdict(before,good),{ok:true,problems:[]});
  const bad=verdict(before,{...good,channels:{...good.channels,whatsapp:'retrying'},healthOk:false});assert.equal(bad.ok,false);
  assert.deepEqual(bad.problems,['whatsapp did not reconnect (retrying)','aqeelOS did not answer its health check']);

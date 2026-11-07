@@ -14,8 +14,8 @@ test('closes every page but one empty tab, and opens one when there is none',()=
 
 test('only an agent idle for 3 hours is fully tidied; unknown activity or a busy agent is left alone',async()=>{
  const dir=await mkdtemp(path.join(tmpdir(),'bt-'));const ports=path.join(dir,'ports');
- await writeFile(ports,'sesa 42 9602\nbusy-one 43 9603\nrecent 44 9604\nunknown 45 9605\n');
- const t=1e13,last={sesa:t-IDLE-1,'busy-one':t-IDLE-1,recent:t-60e3,unknown:null};const calls=[];
+ await writeFile(ports,'sela 42 9602\nbusy-one 43 9603\nrecent 44 9604\nunknown 45 9605\n');
+ const t=1e13,last={sela:t-IDLE-1,'busy-one':t-IDLE-1,recent:t-60e3,unknown:null};const calls=[];
  const fetchImpl=async(url,o)=>{calls.push((o?.method||'GET')+' '+url);const ok=j=>({ok:true,json:async()=>j});
   if(url.endsWith('/json/list'))return ok([{id:'p1',type:'page',url:'https://threads.net'},{id:'p2',type:'page',url:'https://x'}]);return ok({})};
  const tidy=createBrowserTidy({portsFile:ports,now:()=>t,fetchImpl,log:()=>{},busy:async a=>a==='busy-one',lastActive:async a=>last[a]});
@@ -26,7 +26,7 @@ test('only an agent idle for 3 hours is fully tidied; unknown activity or a busy
 
 test('extra tabs: repeats of one page and more than MAX_TABS go, the most recent stay',()=>{
  const pg=(id,url)=>({id,type:'page',url});
- // 7 Nov 2026: 44 copies of /activity, 22 of /messages and so on in continue-threads' Chrome
+ // 7 Nov 2026: 44 copies of /activity, 22 of /messages and so on in cove-threads' Chrome
  const l=[pg('a1','https://www.threads.com/activity'),pg('m1','https://www.threads.com/messages'),pg('a2','https://www.threads.com/activity?x=1'),pg('a3','https://www.threads.com/activity/'),pg('m2','https://www.threads.com/messages#t'),{id:'w',type:'service_worker',url:'https://www.threads.com/sw.js'}];
  assert.deepEqual(planExcess(l).close,['a2','a3','m2']);
  const many=Array.from({length:12},(_,i)=>pg('p'+i,'https://x/'+i));
@@ -42,11 +42,11 @@ test('an agent at work keeps its newest tabs untouched and at most BUSY_MAX',()=
 
 test('an agent quiet for 10 minutes but not 3 hours loses only its extra tabs; one at work keeps its newest',async()=>{
  const dir=await mkdtemp(path.join(tmpdir(),'bt-'));const ports=path.join(dir,'ports');
- await writeFile(ports,'continue-threads 40 9600\nworking 41 9601\n');
- const t=1e13,last={'continue-threads':t-QUIET-1,working:t-60e3};const calls=[];
+ await writeFile(ports,'cove-threads 40 9600\nworking 41 9601\n');
+ const t=1e13,last={'cove-threads':t-QUIET-1,working:t-60e3};const calls=[];
  const fetchImpl=async(url,o)=>{calls.push((o?.method||'GET')+' '+url);const ok=j=>({ok:true,json:async()=>j});
   if(url.endsWith('/json/list'))return ok([{id:'a1',type:'page',url:'https://www.threads.com/activity'},{id:'a2',type:'page',url:'https://www.threads.com/activity'},{id:'s',type:'page',url:'https://www.threads.com/search'}]);return ok({})};
  const logs=[];const tidy=createBrowserTidy({portsFile:ports,now:()=>t,fetchImpl,log:m=>logs.push(m),lastActive:async a=>last[a]});
  assert.equal(await tidy.tick(),1);
  assert.deepEqual(calls,['GET http://127.0.0.1:9600/json/list','GET http://127.0.0.1:9600/json/close/a2','GET http://127.0.0.1:9601/json/list']);
- assert.match(logs[0],/closed 1 extra tab\(s\) of continue-threads .*2 left/)});
+ assert.match(logs[0],/closed 1 extra tab\(s\) of cove-threads .*2 left/)});
