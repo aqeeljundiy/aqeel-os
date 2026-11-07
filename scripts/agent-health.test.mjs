@@ -72,14 +72,14 @@ test('every agent has a row; broken ones first; copies count as their agent',()=
  assert.equal(rows.find(r=>r.agent==='sesa').drops.n,2);
 });
 
-test('end to end: checks become Bottlenecks items, one Telegram alert, gone when fixed',async()=>{
+test('end to end: checks become Bottlenecks items, each filed once for the fixer, nobody told',async()=>{
  const DATA=await mkdtemp(path.join(tmpdir(),'health-')),HOME=path.join(DATA,'hermes');
  const cron=path.join(HOME,'profiles','pixel','cron');await mkdir(cron,{recursive:true});await mkdir(path.join(HOME,'logs'),{recursive:true});
  await writeFile(path.join(cron,'ticker_last_success'),String((Date.now()-60*60e3)/1000));
  await writeFile(path.join(HOME,'logs','aqeelos-dropped.jsonl'),[1,2,3].map(i=>JSON.stringify({t:(Date.now()-i*60e3)/1000,agent:'pixel',reason:'timeout',recovered:false})).join('\n')+'\n');
  const bn=createBottlenecks({DATA,dash:async()=>[],listAgents:async()=>[],names:a=>a});
- const told=[];
- const h=createAgentHealth({DATA,HERMES_HOME:HOME,bottlenecks:bn,python:async()=>null,link:'L',listAgents:async()=>['default','pixel'],nameOf:a=>a==='pixel'?'Pixel':a,
+ const told=[],filed=[],gone=[];const fileIssue=async o=>{filed.push(o);return {issue:{id:'i'+filed.length}}},healthGone=async k=>{gone.push(k)};
+ const h=createAgentHealth({DATA,HERMES_HOME:HOME,bottlenecks:bn,python:async()=>null,link:'L',listAgents:async()=>['default','pixel'],nameOf:a=>a==='pixel'?'Pixel':a,fileIssue,healthGone,
   tellOwner:async t=>told.push(t),engineUp:async()=>true,botToken:async()=>null,items:()=>bn.list({admin:true,mayUse:()=>true})});
  await h.problem('pixel','handoff','A handoff to the team was not delivered',{topic:'handoff|c1',fix:'Check the team group.'});
  assert.equal(await h.tick(),0,'first check: nothing told yet');
@@ -87,12 +87,15 @@ test('end to end: checks become Bottlenecks items, one Telegram alert, gone when
  assert.deepEqual(px.problems.map(x=>x.kind).sort(),['dropped','handoff','stopped']);assert.equal(px.drops.failed,3);
  // two checks later (the second check waits 3 minutes after the first sight)
  const st=JSON.parse(await readFile(path.join(DATA,'agent-health.json'),'utf8'));for(const k in st.seen)st.seen[k]-=4*60e3;await writeFile(path.join(DATA,'agent-health.json'),JSON.stringify(st));
- const h2=createAgentHealth({DATA,HERMES_HOME:HOME,bottlenecks:bn,python:async()=>null,link:'L',listAgents:async()=>['default','pixel'],nameOf:a=>a==='pixel'?'Pixel':a,
+ const h2=createAgentHealth({DATA,HERMES_HOME:HOME,bottlenecks:bn,python:async()=>null,link:'L',listAgents:async()=>['default','pixel'],nameOf:a=>a==='pixel'?'Pixel':a,fileIssue,healthGone,
   tellOwner:async t=>told.push(t),engineUp:async()=>true,botToken:async()=>null,items:()=>bn.list({admin:true,mayUse:()=>true})});
- assert.equal(await h2.tick(),3);assert.equal(told.length,1);assert.match(told[0],/^Pixel needs attention\n\n/);for(const w of ['Schedules stopped running','Messages to this agent keep failing','A handoff to the team was not delivered. Check the team group.'])assert.ok(told[0].includes('• Pixel: '+w),w);
- assert.equal(await h2.tick(),0,'not again');
+ assert.equal(await h2.tick(),3);assert.equal(told.length,0,'Health messages nobody');assert.equal(filed.length,3);
+ assert.ok(filed.every(o=>o.agent==='pixel'&&o.source==='health'&&o.healthKey));for(const w of ['Schedules stopped running','Messages to this agent keep failing','A handoff to the team was not delivered'])assert.ok(filed.some(o=>o.missing===w),w);
+ assert.match(filed.find(o=>/handoff/.test(o.missing)).evidence,/Check the team group/);
+ assert.equal(await h2.tick(),0,'not again');assert.equal(filed.length,3);assert.ok(gone.at(-1).length>=3,'Health passes the problems it still sees');
  await writeFile(path.join(cron,'ticker_last_success'),String(Date.now()/1000));await h2.ok('pixel','handoff|c1');await h2.tick();
  assert.deepEqual((await h2.view()).agents.find(r=>r.agent==='pixel').problems.map(x=>x.kind),['dropped']);
+ assert.equal(gone.at(-1).length,1,'the two that went away are no longer passed, so their queued issues close');assert.equal(told.length,0);
 });
 
 test('an agent can report a system problem; it shows as one, not as "blocked"',async()=>{

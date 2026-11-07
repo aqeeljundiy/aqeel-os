@@ -81,14 +81,21 @@ ACT['console-open']=()=>{if(S.me?.admin===false)return toast('Only admins can us
    if(pending!=null){const c=pending;pending=null;pr.textContent=prompt;if(/^(y|yes)$/i.test(line)){setSt('running');send({type:'confirm',command:c})}else{setSt('running');send({type:'cancel'})}return}
    if(!line)return;EngConsole.hist=[...EngConsole.hist.filter(x=>x!==line),line].slice(-200);setSt('running');if(!send({type:'input',line})){write('The console is not connected.','e');setSt('error')}}}};
 
-/* ---------- Issues and the fixer, and how often the team still went to the main agent (issues.mjs, escalations.mjs,
-   6 Nov 2026). Waiting ones have Approve / Decline here too (the owner also gets one message with a link). ---------- */
+/* ---------- Issues and the fixer, and how often the team still went to the main agent (issues.mjs, escalations.mjs).
+   Since 7 Nov 2026 nobody approves: the fixer fixes, reloads safely and proves it. Only "needs a person" and "stuck"
+   reach someone; both have Try again here for when that person has done their part. ---------- */
 const HealthIssues={
- ST:{approved:'Fixer will run',fixing:'Being fixed',fixed:'Fixed',waiting:'Waits for your OK',failed:'Fix failed',declined:'Declined',open:'Open'},
+ ST:{queued:'Queued',fixing:'Being fixed',applying:'Waiting to reload safely',rollback:'Putting the change back',verify:'Proof run next',verifying:'Proving the fix','reloaded-back':'Put back',
+  fixed:'Fixed and proven',needs_human:'Needs a person',stuck:'Stuck after 3 tries',gone:'Went away by itself',open:'Open (fixer off)',declined:'Declined',failed:'Fix failed'},
  draw(box,d,again){const it=d.items||[],esc2=d.escalations?.agents||{},names={};for(const i of it)names[i.agent]=i.agentName;
-  const rows=Object.entries(esc2);const t=(x)=>esc(String(x??''));
-  const escHtml=rows.length?'<div class="card list" style="margin-bottom:14px"><div class="list-head">Team had to go to the main agent (this week · last week)</div>'+rows.map(([a,v])=>'<div class="row"><div class="main-c"><div class="txt"><b>'+t(names[a]||a)+'</b><span>'+v.thisWeek+' this week · '+v.lastWeek+' last week'+(v.examples?.length?' — e.g. “'+t(v.examples[0])+'”':'')+'</span></div></div></div>').join('')+'</div>':'';
-  const open=it.filter(i=>!['fixed','declined'].includes(i.state)),done=it.filter(i=>['fixed','declined'].includes(i.state)).slice(0,8);
-  const row=i=>'<div class="row"><div class="main-c"><div class="txt"><b>'+t(i.agentName)+': '+t(i.missing)+'</b><span>'+t(HealthIssues.ST[i.state]||i.state)+(i.byName?' · asked by '+t(i.byName):'')+' · '+t(i.decision||'')+(i.result?.summary?' · '+t(i.result.summary):'')+'</span>'+(i.state==='waiting'?'<div style="margin-top:6px"><button class="primary small" data-ok="1" data-id="'+t(i.id)+'">Approve</button> <button class="ghost small" data-ok="0" data-id="'+t(i.id)+'">Decline</button></div>':'')+'</div></div></div>';
-  box.innerHTML='<h2 class="ach-cat" style="margin-top:0">Issues</h2>'+escHtml+'<div class="card list" style="margin-bottom:22px"><div class="list-head">Problems agents filed outside their own files; the fixer on this server fixes them and answers where they were reported</div>'+(open.length?open.map(row).join(''):'<div class="row"><div class="main-c"><div class="txt"><span>No open issues.</span></div></div></div>')+(done.length?done.map(row).join(''):'')+'</div>';
-  box.querySelectorAll('button[data-id]').forEach(b=>b.onclick=async()=>{b.disabled=true;try{await UI('/ui/health/issues/decide',{method:'POST',body:JSON.stringify({id:b.dataset.id,ok:b.dataset.ok==='1'})})}catch(e){alert(e.message)}again()})}};
+  const rows=Object.entries(esc2);const t=(x)=>esc(String(x??''));const cut=(x,n)=>{x=String(x||'');return x.length>n?x.slice(0,n)+'…':x};
+  const escHtml=rows.length?'<div class="card list" style="margin-bottom:14px"><div class="list-head">Team had to go to the main agent (this week · last week)</div>'+rows.map(([a,v])=>'<div class="row"><div class="main-c"><div class="txt"><b>'+t(names[a]||a)+'</b><span>'+v.thisWeek+' this week · '+v.lastWeek+' last week'+(v.examples?.length?', e.g. “'+t(v.examples[0])+'”':'')+'</span></div></div></div>').join('')+'</div>':'';
+  const END=['fixed','declined','gone'],open=it.filter(i=>!END.includes(i.state)),done=it.filter(i=>END.includes(i.state)).slice(0,8);
+  const from=i=>i.source==='health'?'found by Health':i.byName?'asked by '+i.byName:'filed by the agent';
+  const row=i=>{const bits=[HealthIssues.ST[i.state]||i.state];if(i.tries&&!END.includes(i.state))bits.push('try '+i.tries+' of 3');bits.push(from(i));
+   const note=i.state==='fixed'&&i.proof?'Proof: '+cut(i.proof,240):['needs_human','stuck'].includes(i.state)&&i.need?'Needs: '+i.need+(i.told?' (told '+i.told+')':''):i.result?.summary?cut(i.result.summary,240):'';
+   return '<div class="row"><div class="main-c"><div class="txt"><b>'+t(i.agentName)+': '+t(i.missing)+'</b><span>'+t(bits.join(' · '))+'</span>'+(note?'<span>'+t(note)+'</span>':'')+
+    (['needs_human','stuck'].includes(i.state)?'<div style="margin-top:6px"><button class="ghost small" data-retry="'+t(i.id)+'">Try again</button></div>':'')+'</div></div></div>'};
+  const who=(d.policy?.teams||[]).map(x=>x.name+': '+(x.contact||'the owner')).join(' · ');
+  box.innerHTML='<h2 class="ach-cat" style="margin-top:0">Issues</h2>'+escHtml+'<div class="card list" style="margin-bottom:22px"><div class="list-head">The fixer on this server fixes these by itself and proves each fix. A person hears only when a fix needs one'+(who?' ('+t(who)+')':'')+'</div>'+(open.length?open.map(row).join(''):'<div class="row"><div class="main-c"><div class="txt"><span>No open issues.</span></div></div></div>')+(done.length?done.map(row).join(''):'')+'</div>';
+  box.querySelectorAll('button[data-retry]').forEach(b=>b.onclick=async()=>{b.disabled=true;try{await UI('/ui/health/issues/retry',{method:'POST',body:JSON.stringify({id:b.dataset.retry})})}catch(e){alert(e.message)}again()})}};

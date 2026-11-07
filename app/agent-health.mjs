@@ -1,5 +1,5 @@
-// Agent health and alerts (brief items 7 and 15, 5 Nov 2026). One place shows each agent's health (System › Health),
-// and the owner gets one Telegram message when an agent goes from fine to broken; nothing is sent while things are fine.
+// Agent health (brief items 7 and 15, 5 Nov 2026). One place shows each agent's health (System › Health). Since 7 Nov
+// 2026 it messages nobody: a new problem is filed as an issue for the fixer (issues.mjs), see tick() below.
 //
 // It adds no list of its own: the problems are the items Bottlenecks shows (a schedule that failed, a channel that
 // logged out, a sign-in that is due, an agent's report…), grouped per agent. This module adds the checks nobody made
@@ -92,7 +92,7 @@ export function overview(agents,items,drops,nameOf=a=>a){const rows=agents.map(a
  for(const x of items){if(['invite','ticket','access'].includes(x.kind))continue;const base=x.agent?String(x.agent).split('--')[0]:null;(base&&idx.get(base)||(base?null:sys))?.problems.push(x)}
  for(const r of rows)r.ok=!r.problems.length;const list=[...rows.filter(r=>!r.ok),...rows.filter(r=>r.ok)];if(sys.problems.length)list.unshift({...sys,ok:false});return list}
 
-export function createAgentHealth({DATA,HERMES_HOME,bottlenecks,items,listAgents,nameOf,botToken,engineUp,python,tellOwner,link,quiet=()=>null,fixFirst=null,ps=readPs,fetchJson=(u,o)=>fetch(u,{...o,signal:AbortSignal.timeout(15000)}).then(r=>r.json())}){
+export function createAgentHealth({DATA,HERMES_HOME,bottlenecks,items,listAgents,nameOf,botToken,engineUp,python,tellOwner=null,link,quiet=()=>null,fileIssue=null,healthGone=null,ps=readPs,fetchJson=(u,o)=>fetch(u,{...o,signal:AbortSignal.timeout(15000)}).then(r=>r.json())}){
  const FILE=path.join(DATA,'agent-health.json');let st=null;
  const load=async()=>{if(!st){try{st=JSON.parse(await readFile(FILE,'utf8'))}catch{st={}}st.told||={};st.seen||={};st.groups||={}}return st};
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(st,null,1));await rename(FILE+'.tmp',FILE)};
@@ -144,22 +144,18 @@ print(json.dumps(out))`;
   for(const [n,f] of [['schedules',checkSchedules],['messages',checkDrops],['groups',checkGroups],['processes',checkTwice],['skills',checkSkillFiles]])await f(agents).catch(e=>console.warn('health check',n,e.message));
   await load();const all=await items();const {send,logged,fixed,state}=alertPlan(st,all,Date.now(),{quiet});st.told=state.told;st.seen=state.seen;st.about=state.about||{};st.muted=state.muted||{};
   if(logged.length)console.log('health: not told (restart hold):',logged.map(x=>alertKey(x)+' '+String(x.title||'').slice(0,80)).join(' | '));
-  // 7 Nov 2026 (owner: "can we just auto fix"): a problem of one agent goes to that agent first. aqeelOS starts a run of
-  // it (fixFirst) with the problem; the owner hears only when it is still there after 2 tries 45 minutes apart, or when
-  // the agent cannot run itself. "Fixed again" notes go to the owner only for problems he was told about.
-  const now=Date.now();st.fixing=st.fixing||{};st.ownerTold=st.ownerTold||{};const cur=new Map(all.filter(x=>x.agent).map(x=>[alertKey(x),x]));const toOwner=[];
-  for(const x of send){const k=alertKey(x);if(!fixFirst||!x.agent){toOwner.push(x);continue}
-   try{await fixFirst(x.agent,x);st.fixing[k]={agent:x.agent,title:String(x.title||'').slice(0,160),tries:1,at:now};console.log('health: '+x.agent+' asked to fix: '+String(x.title||'').slice(0,100))}
-   catch(e){console.log('health: '+x.agent+' cannot fix it itself ('+e.message+'); the owner is told');toOwner.push(x)}}
-  for(const [k,f] of Object.entries(st.fixing)){const x=cur.get(k);if(!x){console.log('health: '+f.agent+' fixed: '+f.title);delete st.fixing[k];continue}
-   if(now-f.at<45*60e3)continue;
-   if(f.tries<2){try{await fixFirst(f.agent,x);f.tries++;f.at=now;console.log('health: '+f.agent+' asked again to fix: '+f.title)}catch(e){toOwner.push(x);delete st.fixing[k]}}
-   else{toOwner.push({...x,title:String(x.title||'')+' (the agent tried to fix it twice)'});delete st.fixing[k]}}
-  const fixedTold=fixed.filter(f=>st.ownerTold[f.key]);for(const f of fixed)delete st.ownerTold[f.key];
-  if(fixedTold.length&&!quiet(null))await tellOwner(fixedText(fixedTold,{nameOf})).catch(e=>console.warn('health: the fixed note could not be sent:',e.message));
-  else if(fixed.length)console.log('health: fixed (not told):',fixed.map(f=>f.key).join(', '));
-  if(toOwner.length){try{await tellOwner(alertText(toOwner,{link,nameOf}));for(const x of toOwner)st.ownerTold[alertKey(x)]=now;console.log('health: told the owner about',toOwner.length,'problem(s):',toOwner.map(alertKey).join(', '))}
-   catch(e){console.warn('health: the owner could not be told:',e.message);for(const x of toOwner)delete st.told[alertKey(x)]}}
+  // 7 Nov 2026 (owner: "agents fix themselves"; "people are messaged only when a fix needs a human"): Health tells
+  // nobody. Each new problem (seen on two checks in a row) is filed as an issue for the fixer (issues.mjs), which fixes,
+  // reloads and proves it, and messages a person only when it needs one or is stuck. A queued issue whose problem
+  // went away by itself is closed. Everything stays visible on System › Health.
+  st.fixing=undefined;st.ownerTold=undefined;
+  for(const x of send){const k=alertKey(x);if(!fileIssue){console.log('health: found (no fixer): '+k);continue}
+   try{const r=await fileIssue({agent:x.agent?String(x.agent).split('--')[0]:'default',affects:x.agent?[]:['aqeelos'],source:'health',healthKey:k,what:'Health check ('+(x.kind||'problem')+')',
+     missing:String(x.title||'A health problem').slice(0,400),evidence:[x.text,x.detail,x.fix].filter(Boolean).join(' · ').slice(0,1800)});
+    console.log('health: filed for the fixer: '+k+' → '+r?.issue?.id+(r?.again?' (already open)':''))}
+   catch(e){delete st.told[k];console.warn('health: could not file '+k+': '+e.message)}}
+  if(healthGone)await healthGone([...new Set(all.filter(alertable).map(alertKey))]).catch(e=>console.warn('health: closing gone issues',e.message));
+  if(fixed.length)console.log('health: went away:',fixed.map(f=>f.key).join(', '));
   await save();return send.length})().finally(()=>{running=null});return running}
  async function view(){const agents=(await listAgents()).filter(a=>!a.includes('--'));return {agents:overview(agents,await items(),await drops(),nameOf),at:Date.now()}}
  return {problem,ok,tick,view,drops}}
