@@ -170,6 +170,8 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   // a change waiting to be reloaded or rolled back comes first
   {const b=db.items.find(i=>i.state==='reloaded-back');if(b)return await afterTry(b)}
   const ap=db.items.find(i=>i.state==='applying'||i.state==='rollback');if(ap)return await reload(ap);
+  {const d=db.items.find(i=>i.uiDirty&&!OPEN.includes(i.state));if(d){if(await busy().catch(()=>1)>0)return;d.uiDirty=false;await save();
+   const r=await apply('ui','fixer '+d.id+' (files put back)').catch(e=>({ok:false,why:e.message}));if(!r?.ok){d.uiDirty=true;await save();log('issues: '+d.id+' reload of the put-back files waits: '+(r?.why||'not done'))}return}}
   if(!await ready().catch(()=>false))return;
   const v=[...db.items].reverse().find(i=>i.state==='verify');if(v)return await start(v,pol,'proof');
   if(fixRunsToday()>=(pol.fixer?.cap||20))return;
@@ -210,7 +212,11 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
    '# Made on the live box only. Take it into git (git apply), or the next deploy puts the old file back.',''];
   await writeFile(path.join(dir,name),head.join('\n')+parts.join(''),{mode:0o600});return 'fixer-patches/'+name}
  // put every listed file back from its backup (copy, so the backup stays)
- async function rollBack(changes){const done=[];for(const c of changes||[])if(c.backup&&await exists(c.backup)){await copyFile(c.backup,c.file);done.push(c.file)}return done}
+ // (7 Nov 2026) a file that already matches its backup (a deploy or an earlier rollback put it back) is not counted:
+ // with nothing really put back, nothing is reloaded
+ async function rollBack(changes){const done=[];for(const c of changes||[])if(c.backup&&await exists(c.backup)){
+   const [b,a]=await Promise.all([readFile(c.backup).catch(()=>null),readFile(c.file).catch(()=>null)]);if(b&&a&&b.equals(a))continue;
+   await copyFile(c.backup,c.file);done.push(c.file)}return done}
  async function check(r,pol){const dir=path.join(DIR,r.id);const ex=await readFile(path.join(dir,'exit'),'utf8').catch(()=>null);
   const up=r.pid&&(alive?await alive(r):(()=>{try{process.kill(r.pid,0);return true}catch{return false}})());
   if(ex===null&&up)return;const out=await readFile(path.join(dir,'out.txt'),'utf8').catch(()=>'');r.done=now();r.exit=ex===null?null:Number(ex);
@@ -231,7 +237,8 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
    const bad=await guard(fr);
    if(bad.length){const back=await rollBack(fr.changes);h.outcome='unsafe ('+bad.join('; ')+'), '+(back.length?'put back':'nothing to put back');log('issues: '+i.id+' try '+i.tries+' broke a rule: '+bad.join('; '));return await nextTry(i,null)}
    i.applied=null;
-   if(fr.apply!=='none'&&fr.changes.length){i.state='applying';i.applyKind=fr.apply;i.waitingSince=now()}else i.state='verify';
+   if(fr.apply!=='none'&&fr.changes.length){i.state='applying';i.applyKind=fr.apply==='engine'||!i.uiDirty?fr.apply:'ui';i.waitingSince=now()}
+   else if(i.uiDirty){i.state='applying';i.applyKind='ui';i.waitingSince=now()}else i.state='verify';
    await save();log('issues: '+r.id+' '+fr.status+' → '+i.state);return}
   // the proof run
   const pr=res||{status:'not_proven',proof:'The proof run ended without a result'+(r.exit!=null?' (exit '+r.exit+')':' (stopped)')+'. '+clip(out.slice(-600),600),need:''};r.result=pr;
@@ -244,7 +251,11 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   const back=await rollBack(last?.changes);if(last&&back.length)last.outcome+=', rolled back';i.lastNeed=pr.need||i.lastNeed;
   return await nextTry(i,back.length&&last?.apply!=='none'?last.apply:null)}
  // after a failed try: reload what was put back (if anything), then queued again, or stuck after the last try
- async function nextTry(i,reloadKind){if(reloadKind){i.state='rollback';i.applyKind=reloadKind;i.waitingSince=now();await save();return}return await afterTry(i)}
+ // 7 Nov 2026 (i87c8beb0 restarted the web app twice per try: once for the fix, once to roll it back): a try restarts the
+ // web app at most once. A web-app rollback after a failed proof waits (uiDirty): the next try's own reload picks up the
+ // files that were put back, and once the issue stops trying, one reload brings the app back to them (tick).
+ async function nextTry(i,reloadKind){if(reloadKind==='ui'&&i.uiRestartTry===i.tries){i.uiDirty=true;await save();log('issues: '+i.id+' put the web app files back; the reload waits for the next try or the end');return await afterTry(i)}
+  if(reloadKind){i.state='rollback';i.applyKind=reloadKind;i.waitingSince=now();await save();return}return await afterTry(i)}
  async function afterTry(i){if(i.noRetry){i.state=i.closeAfter?'closed':'stopped';i.updated=now();await save();log('issues: '+i.id+' '+i.state+' after its try (no more tries asked)');return}
  if(i.tries<TRIES){i.state='queued';i.notBefore=now()+60e3;await save();return}
   i.state='stuck';await save();
@@ -256,7 +267,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  // reload safely once nothing is busy (/healthz busy 0); a restart hold or a busy box just waits for the next tick
  async function reload(i){const n=await busy().catch(()=>1);if(n>0)return;
   const kind=i.applyKind||'engine',back=i.state==='rollback';
-  if(kind==='ui'){i.applied='ui';i.state=back?'reloaded-back':'verify';await save()}   // the web app restarts now: the next start continues
+  if(kind==='ui'){i.applied='ui';i.state=back?'reloaded-back':'verify';i.uiRestartTry=i.tries;i.uiDirty=false;await save()}   // the web app restarts now: the next start continues
   const r=await apply(kind,'fixer '+i.id+(back?' (rollback)':'')).catch(e=>({ok:false,why:e.message}));
   if(!r?.ok){if(kind==='ui'){i.state=back?'rollback':'applying';await save()}log('issues: '+i.id+' reload waits: '+(r?.why||'not done'));return}
   i.applied=kind;i.waitingSince=null;if(back)return await afterTry(i);i.state='verify';await save();log('issues: '+i.id+' reloaded ('+kind+')')}

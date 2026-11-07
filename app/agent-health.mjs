@@ -75,6 +75,11 @@ export function duplicateProcesses(rows,agentOf){const byPid=new Map(rows.map(r=
  return [...groups.values()].filter(g=>g.pids.length>1).map(g=>({agent:g.agent,topic:'health|'+g.agent+'|twice|'+path.basename(g.script),
   text:path.basename(g.script)+' runs '+g.pids.length+' times at once',detail:'Everything it does happens '+g.pids.length+' times. Processes '+g.pids.join(', ')+' ('+g.script+'). Stop all but one (kill the extra process IDs), and make whatever starts it check that it is not running already.'}))}
 // Telegram's answer about the bot in a group → a problem when the bot is no longer in it
+// 7 Nov 2026: only groups the agent is set up for count (its team group in team-groups.json, or a group id in its
+// config.yaml or .env). Groups it merely chatted in once (state.db) are history: a bot gone from those is not a problem
+// (Continue - Socials and Longevity - Support Agents were flagged that way, and neither was in the agent's settings).
+export function configuredGroups(agent,{teamGroups={},texts=[]}={}){const out=new Set();const g=(teamGroups.groups||teamGroups)[agent];
+ if(g?.chatId!=null)out.add(String(g.chatId));for(const t of texts)for(const m of String(t||'').matchAll(/(?<![\w-])(-100\d{6,}|-\d{9,12})(?!\d)/g))out.add(m[1]);return out}
 export function memberProblem(agent,chat,ans){const d=String(ans?.description||'').toLowerCase(),st=ans?.result?.status;
  const gone=ans&&(ans.ok===false&&/kicked|not a member|chat not found|bot was blocked|have no rights|chat_write_forbidden|group chat was upgraded/.test(d)||st==='left'||st==='kicked');
  if(!gone)return null;const name=chat.title||chat.id;
@@ -123,10 +128,17 @@ for cid,name,origin in rows:
   out.append({"id":cid,"title":title})
 print(json.dumps(out))`;
  const groupsOf=async a=>{const p=await python().catch(()=>null);if(!p)return [];return new Promise(res=>execFile(p,['-c',GROUPS,path.join(home(a),'state.db')],{timeout:20000},(e,o)=>{try{res(e?[]:JSON.parse(o))}catch{res([])}}))};
- async function checkGroups(agents){await load();const now=Date.now();if(now-(st.groupsAt||0)<H)return;st.groupsAt=now;
+ async function checkGroups(agents){await load();const now=Date.now();if(now-(st.groupsAt||0)<H)return;st.groupsAt=now;const keep=new Set();
+  const teamGroups=await readFile(path.join(DATA,'team-groups.json'),'utf8').then(JSON.parse).catch(()=>({}));
   for(const a of agents){const tok=await botToken(a).catch(()=>null);if(!tok)continue;let me;try{me=await fetchJson('https://api.telegram.org/bot'+tok+'/getMe')}catch{continue}if(!me?.ok)continue;
-   for(const g of await groupsOf(a)){let ans;try{ans=await fetchJson('https://api.telegram.org/bot'+tok+'/getChatMember?chat_id='+encodeURIComponent(g.id)+'&user_id='+me.result.id)}catch{continue}
-    const pr=memberProblem(a,g,ans);if(pr)await bottlenecks.event('group',pr.text,pr.detail,{topic:pr.topic,agent:a});else if(ans?.ok)await bottlenecks.resolve(pr?.topic||'health|'+a+'|group|'+g.id)}}}
+   const texts=await Promise.all(['config.yaml','.env'].map(f=>readFile(path.join(home(a),f),'utf8').catch(()=>'')));const mine=configuredGroups(a,{teamGroups,texts});
+   const seen=await groupsOf(a),list=[...seen.filter(g=>mine.has(String(g.id))),...[...mine].filter(id=>!seen.some(g=>String(g.id)===id)).map(id=>({id,title:''}))];
+   for(const g of seen)if(!mine.has(String(g.id)))await bottlenecks.resolve('health|'+a+'|group|'+g.id);
+   for(const g of list){let ans;try{ans=await fetchJson('https://api.telegram.org/bot'+tok+'/getChatMember?chat_id='+encodeURIComponent(g.id)+'&user_id='+me.result.id)}catch{continue}
+    if(!g.title&&ans?.ok){try{const c=await fetchJson('https://api.telegram.org/bot'+tok+'/getChat?chat_id='+encodeURIComponent(g.id));g.title=c?.result?.title||''}catch{}}
+    const pr=memberProblem(a,g,ans);if(pr){keep.add(pr.topic);await bottlenecks.event('group',pr.text,pr.detail,{topic:pr.topic,agent:a,data:{bot:me.result.username||'',chat:String(g.id)}})}else if(ans?.ok)await bottlenecks.resolve('health|'+a+'|group|'+g.id)}}
+  // a group that is no longer checked (not in the agent's settings) leaves Health and the popup
+  for(const t of st.groupTopics||[])if(!keep.has(t))await bottlenecks.resolve(t);st.groupTopics=[...keep]}
  async function checkSchedules(agents){const up=await engineUp().catch(()=>true);
   for(const a of agents){const cron=path.join(home(a),'cron');const ticker=Number((await readFile(path.join(cron,'ticker_last_success'),'utf8').catch(()=>'')).trim())||0;
    let jobs=[];try{const d=JSON.parse(await readFile(path.join(cron,'jobs.json'),'utf8'));jobs=Array.isArray(d)?d:d.jobs||[]}catch{}

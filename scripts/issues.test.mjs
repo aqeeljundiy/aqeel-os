@@ -157,4 +157,18 @@ await t('"send a message from the tester phone" is never a person\'s job: the fi
 await t('a proven fix hands the fixed issue on (its report leaves Health and the popup), with the report id and the Health key',async()=>{const out=[];
  const S=await setup({fixedOut:out,fix:[{status:'no_change',summary:'works'}],proof:[{status:'proven',proof:'seen'}]});
  await S.I.file({agent:'a1',missing:'no label tool',report:'rabc'});await S.ticks(4);assert.equal((await S.db()).state,'fixed');assert.equal(out.length,1);assert.equal(out[0].report,'rabc')});
+await t('a web app fix restarts the web app once per try: the rollback reload waits for the next try, and one reload at the end (6 restarts were 4)',async()=>{
+ const d0=await mkdtemp(path.join(tmpdir(),'f-')),file=path.join(d0,'kd.mjs');await writeFile(file,'old');
+ const ch=n=>({status:'changed',apply:'ui',changes:[{file,backup:file+'.bak'+n}],summary:'approach '+n,check:'c'});const np={status:'not_proven',proof:'no tester message'};
+ const S=await setup({fix:[ch(1),ch(2),ch(3)],proof:[np,np,np],onFix:async n=>{await writeFile(file+'.bak'+n,'old');await writeFile(file,'changed '+n)}});
+ await S.I.file({agent:'a1',missing:'tester reset reply held'});
+ for(let k=0;k<30&&(await S.db()).state!=='stuck';k++){await S.I.tick();const i=await S.db();if(i.state==='queued')i.notBefore=0}
+ assert.equal(await readFile(file,'utf8'),'old');assert.deepEqual(S.applied,['ui','ui','ui'],'one per try so far');assert.equal((await S.db()).uiDirty,true);
+ await S.I.tick();assert.deepEqual(S.applied,['ui','ui','ui','ui'],'one reload brings the app back to the put-back files');assert.equal((await S.db()).uiDirty,false);await S.ticks(2);assert.equal(S.applied.length,4)});
+await t('a rollback whose files are already back (a deploy put them back) reloads nothing',async()=>{
+ const d0=await mkdtemp(path.join(tmpdir(),'f-')),file=path.join(d0,'SOUL.md');await writeFile(file,'old');
+ const S=await setup({fix:[{status:'changed',apply:'engine',changes:[{file,backup:file+'.bak'}],summary:'x',check:'c'}],proof:[{status:'not_proven',proof:'no'}],
+  onFix:async()=>{await writeFile(file+'.bak','old');await writeFile(file,'new')}});
+ await S.I.file({agent:'a1',missing:'y'});await S.ticks(3);assert.deepEqual(S.applied,['engine']);await writeFile(file,'old');await S.ticks(2);
+ const i=await S.db();assert.equal(i.state,'queued');assert.deepEqual(S.applied,['engine'],'no reload just to roll back');assert.doesNotMatch(i.history[0].outcome,/rolled back/)});
 console.log(n+' passed');
