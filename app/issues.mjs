@@ -153,8 +153,9 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  let running=null;
  const today=()=>new Date(now()).toISOString().slice(0,10);
  const fixRunsToday=()=>Object.values(db.runs).filter(r=>r.day===today()&&r.kind!=='proof'&&!r.notStarted).length;
- async function tick(){if(running)return;running=true;try{await load();const pol=await policy();if(pol.fixer?.on===false)return;
-  const cur=Object.values(db.runs).find(r=>!r.done);if(cur)return await check(cur,pol);
+ // switched off (fixer.on false): a run already going still has its result saved; nothing new starts and nothing reloads
+ async function tick(){if(running)return;running=true;try{await load();const pol=await policy();
+  const cur=Object.values(db.runs).find(r=>!r.done);if(cur)return await check(cur,pol);if(pol.fixer?.on===false)return;
   // a change waiting to be reloaded or rolled back comes first
   {const b=db.items.find(i=>i.state==='reloaded-back');if(b)return await afterTry(b)}
   const ap=db.items.find(i=>i.state==='applying'||i.state==='rollback');if(ap)return await reload(ap);

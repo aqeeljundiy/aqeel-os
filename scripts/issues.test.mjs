@@ -108,6 +108,10 @@ await t('ladder: an approval is never a reason to message; stuck with nothing a 
  const S=await setup({fix:[{status:'needs_human',need:'Owner should approve the greeting rule change'},{status:'failed',summary:'b'},{status:'failed',summary:'c'}]});
  await S.I.file({agent:'a1',missing:'greeting'});for(let k=0;k<12&&(await S.db()).state!=='stuck';k++){await S.I.tick();const i=await S.db();if(i.state==='queued')i.notBefore=0}
  const i=await S.db();assert.equal(i.state,'stuck');assert.match(i.history[0].outcome,/nobody approves/);assert.equal(quietAll(S.said),0,'nobody messaged');assert.equal(i.need,null)});
+await t('switched off: the run already going is recorded, nothing new starts or reloads',async()=>{const S=await setup({fix:[{status:'changed',apply:'engine',changes:[],summary:'s'},{status:'no_change'}]});
+ await S.I.file({agent:'a1',missing:'one'});await S.I.file({agent:'a1',missing:'two'});await S.ticks(1);
+ await writeFile(path.join(S.d,'team-policy.json'),JSON.stringify({...POL2,fixer:{...POL2.fixer,on:false}}));await S.ticks(3);
+ const items=(await S.I._db()).items;assert.deepEqual(items.map(i=>i.state).sort(),['queued','verify']);assert.equal(S.applied.length,0);assert.equal(S.f.runs.length,1)});
 await t('test agents: a needs-human message is logged, not sent',async()=>{const S=await setup({quiet:a=>a==='a1'?'test':null,fix:[{status:'needs_human',need:'x'}]});
  await S.I.file({agent:'a1',missing:'m',origin:{platform:'telegram',uid:'2',chat:'-1'}});await S.ticks(2);assert.equal(quietAll(S.said),0);assert.equal((await S.db()).told,'logged')});
 console.log(n+' passed');
