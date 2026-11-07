@@ -64,5 +64,16 @@ test('names and places in plain words',()=>{
  assert.equal(last4('short'),'');assert.equal(last4('abcdefghijkl1234'),'1234');assert.equal(probeFor('TIMEZONE'),null);
  const o={HERMES_HOME:'/h/.hermes',root:'/h/apps/hermes-ui',HOME:'/h'};
  assert.equal(whereLabel('/h/.hermes/profiles/x/skills/dev/push/SKILL.md',o),'Skill: push');assert.equal(whereLabel('/h/.hermes/cron/jobs.json',o),'Schedules');
- assert.equal(whereLabel('/h/.hermes/hermes-agent/tools/web.py',o),'The engine’s built-in tools');assert.equal(whereLabel('/h/apps/hermes-ui/app/kirimdev.mjs',o),'aqeelOS itself');
- assert.equal(whereLabel('/h/.hermes/scripts/gapi.py',o),'Script: gapi.py')});
+ assert.equal(whereLabel('/h/.hermes/hermes-agent/tools/web.py',o),'The engine’s built-in tools');assert.equal(whereLabel('/h/apps/hermes-ui/app/kirimdev.mjs',o),'aqeelOS’s code');
+ assert.equal(whereLabel('/h/.hermes/scripts/gapi.py',o),'Script: gapi.py');assert.equal(whereLabel('/h/.hermes/memories/MEMORY.md',o),'The agent’s memory')});
+
+test('a key counts as used only by the work of the agents that hold it',async()=>{const {d,H,k}=await box();try{
+ await writeFile(path.join(H,'profiles','sales','skills','git','push','other.md'),'Uses UNUSED_THING_KEY too.\n');   // sales does not hold it
+ await k.tick();const u=(await k.list()).items.find(x=>x.name==='UNUSED_THING_KEY');assert.equal(u.unused,true);
+ await mkdir(path.join(H,'scripts'),{recursive:true});await writeFile(path.join(H,'scripts','thing.py'),'os.environ["UNUSED_THING_KEY"]\n');   // shared scripts count for everyone
+ await k.tick({force:true});const v=(await k.list()).items.find(x=>x.name==='UNUSED_THING_KEY');assert.deepEqual(v.usedBy,['Script: thing.py']);
+}finally{await rm(d,{recursive:true,force:true})}});
+
+test('a key is only ever sent to the service its name names',()=>{
+ assert.equal(probeFor('SUPPORT_BOT_TOKEN'),null);assert.equal(probeFor('SLACK_MCP_CLIENT_SECRET'),null);assert.equal(probeFor('MY_API_KEY'),null);
+ assert.equal(probeFor('SALES_TELEGRAM_BOT_TOKEN').service,'Telegram');assert.equal(probeFor('PIXEL_SLACK_BOT_TOKEN').service,'Slack')});
