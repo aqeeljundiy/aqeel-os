@@ -40,10 +40,22 @@
 //    the same; only the saved secret differed, because one engine path saved the secret unexpanded
 //    ("\${SLACK_AS2_CLIENT_SECRET}") and the next saw the real value. Tokens belong to the client id, so only a different
 //    client id discards them now, and an unexpanded \${...} secret is filled from the environment or keeps the saved one.
+// 9) aqeelos:no-review-pings (7 Nov 2026). "💾 Self-improvement review: ..." summaries went to the chat (Telegram,
+//    WhatsApp, Slack) after turns. The owner's rule of 7 Nov: nobody is messaged about fixes. The review still runs; its
+//    summary still shows to a local viewer (review.summary frame) and is logged, but is never sent to a chat platform.
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
 
 export const FIXES=[
+ {tag:'aqeelos:no-review-pings',name:'self-improvement review summaries stay out of chats',file:'gateway/run_turn_runner.py',edits:[
+  {why:'the review summary delivery',
+   from:'                return\n            if self._status_live():\n                self._send_status_text(\n                    message,\n                    _interim_metadata(_non_conversational_metadata(ctx._status_thread_metadata, platform=ctx.source.platform)),\n                    "background_review_callback scheduling error",\n                )\n',
+   to:`                return
+            # aqeelos:no-review-pings: never sent to a chat platform (owner's rule, 7 Nov 2026); logged instead
+            import logging as _aq_logging
+            _aq_logging.getLogger(__name__).info("background review summary kept out of the chat: %s", str(message)[:200])
+            return
+`}]},
  {tag:'aqeelos:oauth-keep-tokens-same-client',name:'OAuth sign-ins survive a re-saved client secret',file:'tools/mcp_oauth.py',edits:[
   {why:'the client-change check',
    from:'    if not old_client_id or (old_client_id == new_client_id and (existing.get("client_secret") or None) == (new_client_secret or None)):\n        return\n',

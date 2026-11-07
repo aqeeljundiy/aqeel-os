@@ -273,6 +273,16 @@ def oauth_tokens_survive_a_resaved_secret_for_the_same_client():
     assert json.loads(st._client_info_path().read_text()).get("client_secret") == "from-env"
 
 
+@test
+def review_summaries_never_reach_a_chat_platform():
+    src = open(os.path.join(FIXED, "gateway/run_turn_runner.py")).read()
+    i = src.index("def _make_bg_review_callbacks")
+    body = src[i:src.index("def release()", i)]
+    assert "aqeelos:no-review-pings" in body
+    assert "_send_status_text" not in body, "deliver() must not send the summary to the chat"
+    assert 'event_type="review.summary"' in body, "the local viewer still gets the frame"
+
+
 failed = 0
 for fn in tests:
     try:
