@@ -1,7 +1,7 @@
 // Customer-run sandbox (7 Nov 2026, audit E7). A customer's WhatsApp message ran the support agent as a general agent with a
 // shell inside the folder that holds the payment keys: two customer runs read .secrets/XENDIT_SECRET_KEY and made real
 // invoices, and the engine's own "BLOCKED" stop had just been allowlisted away. Now aqeelOS starts every customer run with
-// one tool server only (engine -t aqeelos-customer), and gives the run its own key (env AQEELOS_CUSTOMER_RUN, put into the
+// one tool server only (engine -t aqeelos-customer), and gives the run its own key (env TERMINAL_AQEELOS_CUSTOMER_RUN, put into the
 // server's header by the engine), bound to that one conversation and customer. No shell, no files, no other tools:
 //   read_sheet       read-only Google Sheets calls through aqeelOS (the agent's own sheets, as before; no key in the run)
 //   read_file        the agent's rule and template files (*.md, templates/, sop/, media lists); never hidden files or keys

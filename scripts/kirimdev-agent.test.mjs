@@ -30,6 +30,6 @@ test('a customer run gets only the customer tool server and its own key, ended w
  const customer={begin:r=>{const t='tok'+runs.size;runs.set(t,r);return t},end:t=>runs.delete(t)};
  const run=createKirimdevAgent({DATA,home:DATA,live:true,customer:()=>customer,execute:(bin,args,opts,cb)=>{seen.push({args,env:opts.env});cb(null,'hi')}});
  assert.equal(await run('continue-support','q',{session:conversationSession('a','l','c'),run:{line:'140',conversation:'cnv',phone:'628',mode:'test'}}),'hi');
- const a=seen[0].args;assert.equal(a[a.indexOf('-t')+1],'aqeelos-customer');assert.equal(seen[0].env.AQEELOS_CUSTOMER_RUN,'tok0');assert.equal(runs.size,0);
+ const a=seen[0].args;assert.equal(a[a.indexOf('-t')+1],'aqeelos-customer');assert.equal(seen[0].env.TERMINAL_AQEELOS_CUSTOMER_RUN,'tok0');assert.equal(runs.size,0);
  await run('continue-support','q',{session:conversationSession('a','l','c')});assert.equal(seen[1].args.includes('-t'),false);
 });

@@ -8,7 +8,7 @@ export function conversationSession(agent,line,conversation,epoch=''){
 }
 // customer runs (7 Nov 2026, audit E7): with customer() (customer-tools.mjs) a run gets ONLY the aqeelos-customer tool server
 // (engine -t aqeelos-customer: no shell, no files, no other tools) and its own key for this one conversation, given to the
-// engine as AQEELOS_CUSTOMER_RUN (the server's header in config.yaml is \${AQEELOS_CUSTOMER_RUN})
+// engine as TERMINAL_AQEELOS_CUSTOMER_RUN (the server's header in config.yaml is \${TERMINAL_AQEELOS_CUSTOMER_RUN})
 export const CUSTOMER_TOOLSET='aqeelos-customer';
 export function createKirimdevAgent({DATA,home,live,execute=execFile,customer=null}){
  return async(agent,query,{session,run}={})=>{
@@ -21,7 +21,7 @@ export function createKirimdevAgent({DATA,home,live,execute=execFile,customer=nu
    const c=customer?.();token=c&&run?c.begin({agent,...run}):null;
    return await new Promise((resolve,reject)=>execute(path.join(home,'.local','bin','hermes'),
     ['-p',agent,'chat','--oneshot','-Q','--source','tool',...(token?['-t',CUSTOMER_TOOLSET]:[]),'--continue',session,'--create-if-missing','--no-restore-cwd','--query-file',file],
-    {cwd:path.join(home,'workspaces',agent),timeout:400e3,maxBuffer:4e6,...(token?{env:{...process.env,AQEELOS_CUSTOMER_RUN:token}}:{})},
+    {cwd:path.join(home,'workspaces',agent),timeout:400e3,maxBuffer:4e6,...(token?{env:{...process.env,TERMINAL_AQEELOS_CUSTOMER_RUN:token}}:{})},
     (error,out)=>error?reject(Error('the agent stopped ('+(error.code??error.signal)+')')):resolve(String(out||''))));
   }finally{await unlink(file).catch(()=>{});if(token)customer?.()?.end(token)}
  };

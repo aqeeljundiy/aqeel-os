@@ -20,7 +20,7 @@ async function make(kind='qris'){const W=await mkdtemp(path.join(tmpdir(),'ct-')
 
 test('the tools exist only inside a run, bound to its agent; the run key ends with the run',async()=>{const {C}=await make();
  const list=async(a,tok)=>(await C.mcp(a,tok,{jsonrpc:'2.0',id:1,method:'tools/list'})).body.result.tools.map(t=>t.name);
- assert.deepEqual(await list('continue-support','${AQEELOS_CUSTOMER_RUN}'),[]);
+ assert.deepEqual(await list('continue-support','${TERMINAL_AQEELOS_CUSTOMER_RUN}'),[]);
  const tok=C.begin({agent:'continue-support',line:'140',conversation:'cnv_1',phone:'6281234567890',mode:'test'});
  assert.deepEqual(await list('continue-support',tok),['read_sheet','read_file','list_files','conversation','past_chats','create_payment']);
  assert.deepEqual(await list('biomarkers-support',tok),[]);C.end(tok);assert.deepEqual(await list('continue-support',tok),[])});
