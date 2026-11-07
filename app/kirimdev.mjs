@@ -64,7 +64,7 @@ export function parseInbound(j){const out=[];const kc=j?.kirim||{};
 
 // Kirimdev's message.sent (its own envelope): an outbound message on a line, whoever sent it
 export function parseSent(j){const d=j?.data||{},m=d.message||{};
- return {pid:String(d.session||d.meta?.phone_number_id||''),id:String(m.id||''),source:String(m.source||''),to:String(m.to||d.contact?.phone_number||'').replace(/\D/g,''),conversationId:String(d.conversation?.id||''),name:String(d.contact?.name||'')}}
+ return {pid:String(d.session||d.meta?.phone_number_id||''),id:String(m.id||''),source:String(m.source||''),to:String(m.to||d.contact?.phone_number||'').replace(/\D/g,''),conversationId:String(d.conversation?.id||''),name:String(d.contact?.name||''),text:String(m.content??m.body??m.text?.body??m.text??'').trim()}}
 
 // what the agent wrote, as the parts to send: its notes about backup models are never sent
 export function splitReply(out){const t=String(out||'').replace(FOOTER,'').trim();const parts=[];
@@ -114,11 +114,12 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
  const put=async(f,v,mode=0o600)=>{await mkdir(DATA,{recursive:true});const t=f+'.'+process.pid+'.'+randomUUID().slice(0,8)+'.tmp';await writeFile(t,JSON.stringify(v,null,1),{mode});await rename(t,f)};
  let st=null,loading=null,chain=Promise.resolve();const queue=fn=>{const p=chain.then(fn);chain=p.catch(()=>{});return p};
  const state=async()=>st||(loading||=readState());
- const readState=async()=>st=Object.assign({seen:[],cut:{},recent:{},pending:{},turns:{},outbox:{},last:{},testerNums:{},ours:{},paused:{},drafts:{},handoffs:{},asked:{},seq:0},await readJson(ST,{}));
+ const readState=async()=>st=Object.assign({seen:[],cut:{},recent:{},pending:{},turns:{},outbox:{},last:{},testerNums:{},ours:{},paused:{},human:{},drafts:{},handoffs:{},asked:{},seq:0},await readJson(ST,{}));
  const saveState=()=>queue(async()=>{await state();st.seen=st.seen.slice(-3000);const t=now();
   for(const [k,v] of Object.entries(st.recent))if(t-v>48*3600e3)delete st.recent[k];
   for(const [k,v] of Object.entries(st.ours))if(t-v>48*3600e3)delete st.ours[k];
   for(const [k,v] of Object.entries(st.paused))if(v<t)delete st.paused[k];
+  for(const [k,v] of Object.entries(st.human))if(t-v>48*3600e3)delete st.human[k];
   for(const [k,d] of Object.entries(st.drafts))if(d.status!=='waiting'&&t-(d.doneAt||d.at)>7*86400e3||t-d.at>3*86400e3)delete st.drafts[k];
   await put(ST,st)});
  const lines=async()=>(await readJson(CONF,{lines:{}})).lines||{};
@@ -188,6 +189,8 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
  const testerName=(line,m)=>(line.testers||[]).find(t=>t.conversationId===m.conversationId||String(t.phone||'').replace(/\D/g,'')===m.from)?.who||m.name||'customer';
  const within24h=(agent,num)=>{const s=st.recent[agent+'|'+num];return !!s&&now()-s<=24*3600e3};
  const pausedUntil=(agent,cnv,num)=>Math.max(cnv&&st.paused[agent+'|'+cnv]||0,num&&st.paused[agent+'|'+num]||0);
+ // when a person last wrote in a chat (any chat, a tester's too): a reply the agent was writing before that is not sent
+ const humanAt=(agent,cnv,num)=>Math.max(cnv&&st.human[agent+'|'+cnv]||0,num&&st.human[agent+'|'+num]||0);
  // where handoffs and drafts go: the Questions topic of the agent's team group
  async function target(agent){const g=await teamGroup(agent).catch(()=>null);return g?.chatId?{chatId:g.chatId,threadId:g.topics?.questions||null,mention:g.mention||''}:null}
 
@@ -218,6 +221,8 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
    const same=m.conversationId&&m.ts?'in|'+agent+'|'+m.conversationId+'|'+m.ts+'|'+String(m.text||'').slice(0,40):'';
    if(same&&st.seen.includes(same))continue;if(same)st.seen.push(same);
    if(tester&&isReset(line,m.text.trim())){st.cut[key]=new Date((m.ts||now()/1000)*1000+1000).toISOString();delete st.pending[key];delete st.turns[key];cancelOutbound(agent,m.from);
+    // a reset starts the test over: no pause left from earlier test traffic may hold the confirmation or the next question (7 Nov 2026)
+    delete st.paused[agent+'|'+m.from];if(m.conversationId)delete st.paused[agent+'|'+m.conversationId];
     await send(agent,line,m.from,line.resetText||'✅ Test reset. Start again as a new customer.').catch(e=>log('kirimdev reset reply: '+e.message));continue}
    const until=pausedUntil(agent,m.conversationId,m.from);
    // a message during a team member's pause is kept, not dropped (audit 6 Nov: "mau pakai CC" was never answered): it waits
@@ -228,10 +233,21 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
 
  // an outbound message on this line: ours (aqeelOS sent it) or a person's, which pauses the agent in that conversation
  const inflight=new Map();
+ const bodyText=b=>String(b?.text?.body||b?.image?.caption||'').trim();
+ const isOurText=(agent,s)=>!!s.text&&Object.values(st.outbox).some(o=>o.agent===agent&&o.to===s.to&&o.pid===s.pid&&now()-o.at<3600e3&&bodyText(o.body)===s.text);
  async function teamSent(agent,line,s){if(s.pid!==String(line.phoneNumberId)){log('kirimdev '+agent+': a sent message for another Kirimdev line, ignored');return {ignored:'other line'}}
   if(s.source==='broadcast')return {ignored:'broadcast'};if(s.id&&st.ours[s.id])return {ours:true};
   // an API send of ours may echo before its id is written down: wait for sends in flight, then look again
-  if(s.source==='api'||!s.source){await (inflight.get(s.to)||Promise.resolve()).catch(()=>{});await wait(echoWait);if(s.id&&st.ours[s.id])return {ours:true}}
+  if(s.source==='api'||!s.source){await (inflight.get(s.pid+'|'+s.to)||Promise.resolve()).catch(()=>{});await wait(echoWait);if(s.id&&st.ours[s.id])return {ours:true};
+   // still unknown: the same text to the same person that aqeelOS queued in the last hour is ours too (a reset confirmation or a
+   // reply whose receipt was lost); only a send aqeelOS never made counts as a person's (7 Nov 2026: reset replies paused testers)
+  }
+  if(isOurText(agent,s)){if(s.id)st.ours[s.id]=now();return {ours:true}}
+  // a person wrote: whatever the agent is writing for this chat right now is not sent (a tester's chat too)
+  if(s.conversationId)st.human[agent+'|'+s.conversationId]=now();if(s.to)st.human[agent+'|'+s.to]=now();
+  // a tester's chat is test traffic: it never pauses, so the tester's next test message is answered at once
+  // (only customer chats wait the quiet time for a person); a handoff there still counts as answered
+  if(isTester(line,{from:s.to,conversationId:s.conversationId})||st.testerNums[agent+'|'+s.to]){log('kirimdev '+agent+': a person wrote to the tester '+tail(s.to)+' ('+(s.source||'?')+'); test chats do not pause');if(s.to)await answered(agent,s.to);return {tester:true}}
   const min=Math.max(0,Number(line.pauseMin??DEFAULT_PAUSE));if(!min)return {paused:false};const until=now()+min*60e3;
   if(s.conversationId)st.paused[agent+'|'+s.conversationId]=until;if(s.to)st.paused[agent+'|'+s.to]=until;
   cancelOutbound(agent,s.to);
@@ -271,7 +287,7 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
   log('kirimdev '+agent+': answering '+p.name);const runAt=now();let out=String(await runAgent(agent,q,{session:conversationSession(agent,line.phoneNumberId,p.conversationId||p.from,epoch),run:{line:line.phoneNumberId,conversation:p.conversationId||'',phone:p.from,mode}})||'').replace(FOOTER,'').trim();
   if(!out){log('kirimdev '+agent+': the agent wrote nothing');return}
   // a team member replied while the agent was thinking: theirs stands
-  await state();if((st.cut[key]||'')!==epoch||pausedUntil(agent,p.conversationId,p.from)>now()){log('kirimdev '+agent+': conversation reset or a team member answered meanwhile; the agent\'s reply was not sent');return}
+  await state();if((st.cut[key]||'')!==epoch||pausedUntil(agent,p.conversationId,p.from)>now()||humanAt(agent,p.conversationId,p.from)>=runAt){log('kirimdev '+agent+': conversation reset or a team member answered meanwhile; the agent\'s reply was not sent');return}
   if(/^HANDOFF\b/.test(out)){const why=out.replace(/^HANDOFF:?\s*/,'').trim();const lastQ=hist.split('\n').filter(l=>l.startsWith('CUSTOMER: ')).pop()?.slice(10)||'-';
    const h={id:'h'+(++st.seq),agent,from:p.from,conversationId:p.conversationId,name:p.name,lastQ,why,notify:mode!=='draft',tries:0,at:now()};
    await postHandoff(h,line);return}
@@ -355,10 +371,10 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
    if(!line||String(line.phoneNumberId)!==o.pid||!within24h(o.agent,o.to)||pausedUntil(o.agent,'',o.to)>now()||modeOf(line)==='draft'&&!o.approved||modeOf(line)==='test'&&!isTester(line,{from:o.to})&&!st.testerNums[o.agent+'|'+o.to])throw Error('Outbound held by current line policy');
    if(o.firstAttempt&&now()-o.firstAttempt>=23*3600e3){o.status='held';await saveState();await tell('Kirimdev line: a send needs checking by hand',o.agent+': ambiguous send older than safe replay window; not resent').catch(()=>{});throw Error('Outbound ambiguous beyond safe idempotency window; reconcile manually')}
    o.firstAttempt||=now();o.status='sending';o.tries=(o.tries||0)+1;await saveState();
-   const go=api(o.pid+'/messages',o.body,{idem:id});inflight.set(o.to,go);
+   const go=api(o.pid+'/messages',o.body,{idem:id}),fk=o.pid+'|'+o.to;inflight.set(fk,go);
    try{const r=await go;if(!r?.data?.id)throw Error('Kirimdev returned no message receipt');o.receipt=r.data;o.status='accepted';st.ours[r.data.id]=now();await saveState();await answered(o.agent,o.to);return o.receipt}
    catch(e){o.error=e.message;o.status='retry';await saveState();await tell('Kirimdev line: a send needs a retry',o.agent+': '+e.message).catch(()=>{});throw e}
-   finally{if(inflight.get(o.to)===go)inflight.delete(o.to)}
+   finally{if(inflight.get(fk)===go)inflight.delete(fk)}
   })();delivering.set(id,task);try{return await task}finally{delivering.delete(id)}}
  async function drainOutbox(){const blocked=new Set();for(const o of Object.values(st.outbox)){if(o.receipt?.id){if(!['delivered','read','failed'].includes(o.receipt.status)&&now()-o.at<48*3600e3){try{const r=await api(o.pid+'/messages/'+encodeURIComponent(o.receipt.id));if(r?.data?.id===o.receipt.id){o.receipt=r.data;o.checkedAt=now();await saveState();if(r.data.status==='failed'&&!o.failureTold){o.failureTold=true;await saveState();await tell('WhatsApp delivery failed',o.agent+': '+(r.data.error?.code||'provider failed')).catch(()=>{})}}}catch(e){log('kirimdev receipt reconciliation: '+e.message)}}continue}if(blocked.has(o.agent+'|'+o.to))continue;try{await deliver(o.id)}catch{blocked.add(o.agent+'|'+o.to)}}}
  // a handoff counts as answered once anything else reaches that customer on this line
@@ -495,7 +511,7 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
      if(m.direction==='inbound'){if(!/^\d{6,16}$/.test(phone))continue;n++;
       await ingest(agent,line,[{pid,from:phone,name:String(c.contact?.name||''),id:'',ts:Math.floor(Date.parse(m.created_at)/1000)||0,type:String(m.type||''),text:String(m.content||''),conversationId:String(c.id)}])}
      else if(m.direction==='outbound'){const k='out|'+agent+'|'+m.id;if(!m.id||st.ours[m.id]||st.seen.includes(k))continue;st.seen.push(k);
-      const to=String(m.to||phone).replace(/\D/g,'');await teamSent(agent,line,{pid,id:String(m.id),source:inflight.has(to)?'':'poll',to,conversationId:String(c.id),name:String(c.contact?.name||'')})}}}
+      const to=String(m.to||phone).replace(/\D/g,'');await teamSent(agent,line,{pid,id:String(m.id),source:inflight.has(pid+'|'+to)?'':'poll',to,text:String(m.content??m.text?.body??'').trim(),conversationId:String(c.id),name:String(c.contact?.name||'')})}}}
    cur.since=max;cur.at=now();delete cur.error}
   catch(e){cur.error=e.message;cur.at=now();await saveState();throw e}
   await saveState();return {messages:n}}

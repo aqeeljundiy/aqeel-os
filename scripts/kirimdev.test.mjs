@@ -181,6 +181,38 @@ test('a team member who replies pauses the agent in that chat for the quiet time
  t.later(10*60e3+1);await t.post(meta('629999','halo lagi',undefined,'cnv_Z'));await t.settle();assert.equal(t.sent.at(-1).to,'629999');
  await t.k.setPause('continue-support',30);assert.equal((await t.k.status())[0].pauseMin,30);await assert.rejects(t.k.setPause('continue-support',-1),/whole number/)});
 
+// 7 Nov 2026 (fixer issue i670b6106): a tester's reset confirmation came back as message.sent with an id aqeelOS had not
+// written down, counted as a team reply, and held the tester's next question for the 15-minute quiet time
+const sentText=(to,source,id,conv,body)=>{const j=JSON.parse(sentEv(to,source,id,conv));j.data.message.body=body;return JSON.stringify(j)};
+test('aqeelOS\'s own sends never count as a team reply: a reset confirmation or reply echoed with an unknown id is matched by its text',async()=>{const t=await make({mode:'live',pauseMin:15});
+ await t.post(meta('629999','halo',undefined,'cnv_Z'));await t.settle();assert.equal(t.sent.length,1);
+ // the echo carries a different id than the receipt, but it is the text aqeelOS queued for this person: ours, no pause
+ assert.deepEqual((await t.postSent(sentText('629999','api','msg_echo_other','cnv_Z',t.sent[0].text.body))).body,{ours:true});
+ await t.post(meta('629999','lagi',undefined,'cnv_Z'));await t.settle();assert.equal(t.sent.length,2,'answered at once');
+ // the same text to someone else, or other text, is not ours
+ assert.ok((await t.postSent(sentText('628888','api','msg_x','cnv_Y',t.sent[0].text.body))).body.paused);
+ assert.ok((await t.postSent(sentText('629999','dashboard','msg_y','cnv_Z','Halo kak, ini Amri'))).body.paused)});
+test('a tester\'s chat never pauses for its own test traffic: reset, then the next question is answered at once',async()=>{const t=await make({pauseMin:15});
+ await t.post(meta('628123','halo'));await t.settle();assert.equal(t.sent.length,1);
+ await t.post(meta('628123','reset'));await t.settle();assert.match(t.sent.at(-1).text.body,/Test reset/);
+ // the reset confirmation's echo (any id, any source) and even a person writing in the test chat: no pause
+ assert.deepEqual((await t.postSent(sentText('628123','api','msg_reset_echo','cnv_A',t.sent.at(-1).text.body))).body,{ours:true});
+ assert.deepEqual((await t.postSent(sentEv('628123','dashboard','msg_team_in_test','cnv_A'))).body,{tester:true});
+ t.later(2000);await t.post(meta('628123','berapa harganya?'));await t.settle();assert.equal(t.asked.length,2,'the test question is answered');
+ assert.equal(t.sent.at(-1).to,'628123');assert.doesNotMatch(t.sent.at(-1).text.body,/Test reset/);
+ const s=(await t.k.status()).find(l=>l.agent==='continue-support');assert.equal(s.paused.length,0);
+ // a pause left from before (the old code) is cleared by the next reset, and the confirmation is not held
+ const v=await make({pauseMin:15});await writeFile(path.join(v.DATA,'kirimdev-state.json'),JSON.stringify({paused:{'continue-support|628123':Date.now()+15*60e3,'continue-support|cnv_A':Date.now()+15*60e3}}));
+ await v.post(meta('628123','reset'));await v.settle();assert.equal(v.sent.length,1);assert.match(v.sent[0].text.body,/Test reset/);
+ await v.post(meta('628123','halo'));await v.settle();assert.equal(v.asked.length,1,'and the next question is answered')});
+test('a real team reply in a customer chat still pauses, and a reply the agent was writing is still dropped (a tester\'s chat too)',async()=>{
+ const gate=deferred(),started=deferred();const t=await make({mode:'live',pauseMin:15,agentSays:async()=>{started.resolve();await gate.promise;return 'stale'}});
+ await t.post(meta('629999','halo',undefined,'cnv_Z'));const work=t.settle();await started.promise;
+ assert.ok((await t.postSent(sentEv('629999','app','msg_person','cnv_Z'))).body.paused,'a customer chat pauses');gate.resolve();await work;assert.equal(t.sent.length,0,'customer chat: dropped');
+ const g2=deferred(),s2=deferred();const u=await make({agentSays:async()=>{s2.resolve();await g2.promise;return 'stale'}});
+ await u.post(meta('628123','halo'));const w2=u.settle();await s2.promise;
+ assert.deepEqual((await u.postSent(sentEv('628123','dashboard','msg_person2','cnv_A'))).body,{tester:true});g2.resolve();await w2;assert.equal(u.sent.length,0,'tester chat: dropped too')});
+
 test('brands never mix: a line takes only its own number\'s events, and whatsapp_reply refuses the other line\'s customers',async()=>{const t=await make({mode:'live'});
  // Biomarkers' number posted to Randy's address, or with no number at all: dropped
  await t.post(meta('627777','halo',undefined,'cnv_X','222'));await t.post(meta('627777','halo',undefined,'cnv_X',''));await t.settle();
@@ -195,7 +227,7 @@ test('a webhook made before message.sent gets it added; message.sent parses',asy
  assert.deepEqual(await t.k.ensureEvents('continue-support'),['message.received','message.sent']);assert.equal(t.patched.length,1);assert.equal(t.patched[0][0],'webhook_subscriptions/wbs_1');
  await t.k.ensureEvents('continue-support');await t.k.ensureEvents('biomarkers-support');assert.equal(t.patched.length,1);
  assert.equal((await t.k.status())[0].hearsTeam,true);
- assert.deepEqual(parseSent(JSON.parse(sentEv('628123','app','msg_9','cnv_Q'))),{pid:'111',id:'msg_9',source:'app',to:'628123',conversationId:'cnv_Q',name:''})});
+ assert.deepEqual(parseSent(JSON.parse(sentEv('628123','app','msg_9','cnv_Q'))),{pid:'111',id:'msg_9',source:'app',to:'628123',conversationId:'cnv_Q',name:'',text:'Halo, saya Amri dari tim'})});
 
 test('with agent health there, a failed handoff is a health problem, solved once a retry posts it',async()=>{const probs=[],oks=[];const t=await make({agentSays:'HANDOFF: x',postOk:false});
  // a second instance on the same data, with health hooks (as server.mjs wires it)
