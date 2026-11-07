@@ -2,5 +2,5 @@ name: aqeelos-live
 version: 0.1.0
 manifest_version: 2
 description: aqeelOS live context and output guard. Before each model call it adds what aqeelOS knows right now (who is writing, verified; what this agent can do; open problems), so open chats see new tools and rules without a restart. A reply holding a script traceback is never sent; the error goes to the agent's health list instead.
-author: Elkiya
+author: aqeelOS contributors
 license: MIT

@@ -14,7 +14,7 @@ if [ -n "${ADSPOWER_AGENT:-}" ]; then
   [ -z "$KEY" ] && [ -n "$ENVF" ] && KEY="$(key_from "$ENVF")"
 else
   [ -z "$KEY" ] && [ -n "$HERMES_HOME" ] && KEY="$(key_from "$HERMES_HOME/.env")"
-  [ -z "$KEY" ] && KEY="$(key_from "$HOME/.hermes/profiles/facebook-manager/.env")"
+  [ -z "$KEY" ] && KEY="$(key_from "$HOME/.hermes/profiles/${ADSPOWER_KEY_AGENT:-default}/.env")"
   [ -z "$KEY" ] && KEY="$(key_from "$HOME/.hermes/.env")"
 fi
 export API_KEY="$KEY"

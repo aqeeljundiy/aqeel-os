@@ -14,7 +14,7 @@ const topicOf=v=>{if(v===null||v===undefined||v==='')return null;const n=Number(
 // what the person or the agent sent, made safe and complete; fields left out keep their value
 export function cleanGroup(cur,patch){const g={name:'',chatId:null,topics:{},mention:'',...(cur||{})};g.topics={...(g.topics||{})};const p=patch||{};
  if('name' in p)g.name=String(p.name||'').trim().slice(0,80);
- if('chatId' in p){const s=String(p.chatId??'').trim();if(s&&!/^-?\d{5,16}$/.test(s))throw Error('The group id is a number like -1003999095054.');g.chatId=s?Number(s):null}
+ if('chatId' in p){const s=String(p.chatId??'').trim();if(s&&!/^-?\d{5,16}$/.test(s))throw Error('The group id is a number like -1001234567890.');g.chatId=s?Number(s):null}
  for(const [k] of ROLES){if(p.topics&&k in p.topics)g.topics[k]=topicOf(p.topics[k]);if(k in p)g.topics[k]=topicOf(p[k])}
  if('mention' in p)g.mention=String(p.mention||'').trim().slice(0,200);
  for(const k of Object.keys(g.topics))if(!ROLES.some(r=>r[0]===k))delete g.topics[k];

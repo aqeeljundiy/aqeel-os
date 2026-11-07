@@ -33,7 +33,7 @@ const Team={
   Team.cache=Object.fromEntries(ok)},
  edit(agent){const r=Team.cache?.[agent]||{group:null,roles:[]};const g=r.group||{topics:{}};
   const f=(id,label,v,ph='')=>`<label for="tg-${id}">${esc(label)}</label><input id="tg-${id}" value="${esc(v??'')}" placeholder="${esc(ph)}" autocomplete="off">`;
-  const {d,close}=stackPop('Team group',f('name','Group name',g.name,'Continue')+f('chatId','Group id',g.chatId,'-1003999095054')+
+  const {d,close}=stackPop('Team group',f('name','Group name',g.name,'Support team')+f('chatId','Group id',g.chatId,'-1001234567890')+
    r.roles.map(x=>f(x.key,x.label+' topic: '+x.what,g.topics?.[x.key],'e.g. 3')).join('')+f('mention','Who to mention for a person',g.mention,'@name @name'),
    `<button class="ghost" data-x>Cancel</button><button class="primary" id="tg-ok">Save</button>`);
   d.querySelector('#tg-ok').onclick=async e=>{const b=e.currentTarget;b.disabled=true;const v=k=>d.querySelector('#tg-'+k).value.trim();

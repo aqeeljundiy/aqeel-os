@@ -3,7 +3,7 @@ kind: model-provider
 version: 0.1.0
 manifest_version: 2
 description: Gemini through your Google AI Pro / Ultra subscription, via the official Gemini CLI in ACP mode; aqeelOS owns tools, approvals and memory
-author: Elkiya
+author: aqeelOS contributors
 license: MIT
 tags: [model-provider, google, gemini, subscription]
 requires_hermes: ">=0.21.4"

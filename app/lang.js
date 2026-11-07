@@ -65,7 +65,7 @@ const ID_PATTERNS=[
 ];
 /* The name and logo of this install (aqeelOS). The Branding page was removed on 24 Oct 2026; the stored values are still read. */
 const Brand={name:'aqeelOS',logo:null,custom:false,
- mark(){return this.logo||'/assets/elkiya-mark.svg'},
+ mark(){return this.logo||'/assets/aqeelos-mark.svg'},
  async load(){try{const b=await (await fetch('/ui/brand',{cache:'no-store'})).json();Object.assign(this,b)}catch{}this.apply()},
  apply(){document.title=this.name;const ic=document.querySelector('link[rel="icon"]');if(ic)ic.href=this.mark();if(this.custom&&typeof Lang!=='undefined')Lang.run(document.body)}};
 const Lang={

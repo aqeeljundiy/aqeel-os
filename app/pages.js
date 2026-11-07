@@ -468,7 +468,7 @@ ACT['pair-revoke']=async a=>{const {prof:pr,p:pf,u:id,n,every,after}=a.dataset,n
   else toast(id==='*'?'Only listed people can message '+nm+' now':'Access removed');reload()}catch(e){fail(e);a.disabled=false}};
 /* Add a person by hand: approve someone on one of the agent's channels before they message it. The server checks the ID
    per app and writes the approval the engine's own way; such people show "Added by hand" with the note. */
-const PAIR_HELP={whatsapp:['Phone number','6281234567890','Their WhatsApp number with the country code (62 for Indonesia). Spaces, dashes and a leading + are fine; a number starting with 0 needs its country code instead.','tel'],
+const PAIR_HELP={whatsapp:['Phone number','6281234567890','Their WhatsApp number with the country code (the country code, e.g. 1 for the US). Spaces, dashes and a leading + are fine; a number starting with 0 needs its country code instead.','tel'],
  telegram:['Telegram user ID','123456789','Their numeric user ID. A bot cannot look up an @username before that person writes to it, so ask them to message @userinfobot in Telegram: it replies with their ID.','numeric'],
  slack:['Slack member ID','U0123ABCD','In Slack, open their profile, press ⋮ and choose Copy member ID.','text'],
  discord:['Discord user ID','123456789012345678','In Discord: Settings, Advanced, switch on Developer Mode, then right-click the person and choose Copy User ID.','numeric'],

@@ -1,7 +1,7 @@
-// AdsPower bridge: one fixed browser address (http://127.0.0.1:9333) for the facebook-manager agent.
+// AdsPower bridge: one fixed browser address (http://127.0.0.1:9333) for one agent (BRIDGE_AGENT).
 // On the first connection it starts the chosen AdsPower profile (with its own fingerprint and proxy) through
 // AdsPower's Local API, then passes Chrome DevTools traffic straight through to that browser.
-// Settings (read fresh on every call from the facebook-manager and default .env, so you or the agent can change them):
+// Settings (read fresh on every call from the key agent's and the main agent's .env, so you or the agent can change them):
 //   ADSPOWER_API_KEY  Local API key (AdsPower › Automation › API)
 //   ADSPOWER_PROFILE  the profile to use: its name, remark or id. Never guessed among business profiles.
 //                     Not set: the profile that is already open (e.g. the agent opened it with its AdsPower tool).
@@ -17,7 +17,9 @@ const AGENT=process.env.BRIDGE_AGENT||'default';
 const ownPort=()=>{try{const l=readFileSync(homedir()+'/.aqeelos-adspower-ports','utf8').split('\n').find(x=>x.startsWith(AGENT+' '));return l?Number(l.split(' ')[1])||0:0}catch{return 0}};
 const apiBase=()=>process.env.ADSPOWER_API||(ownPort()?'http://127.0.0.1:'+ownPort():'http://127.0.0.1:50325');
 const PORT=Number(process.env.BRIDGE_PORT)||9333;
-const ENV_FILES=[homedir()+'/.hermes/profiles/facebook-manager/.env',homedir()+'/.hermes/.env'];
+// the agent whose .env holds the AdsPower key (ADSPOWER_KEY_AGENT, else BRIDGE_AGENT), then the main agent's
+const KEY_AGENT=process.env.ADSPOWER_KEY_AGENT||process.env.BRIDGE_AGENT||'default';
+const ENV_FILES=[...(KEY_AGENT!=='default'?[homedir()+'/.hermes/profiles/'+KEY_AGENT+'/.env']:[]),homedir()+'/.hermes/.env'];
 const setting=name=>{for(const file of ENV_FILES){try{const line=readFileSync(file,'utf8').split('\n').find(l=>l.startsWith(name+'='));const v=line?line.slice(name.length+1).trim().replace(/^["']|["']$/g,''):'';if(v)return v}catch{}}return process.env[name]||''};
 const headers=()=>{const k=setting('ADSPOWER_API_KEY');return {'content-type':'application/json',...(k?{authorization:'Bearer '+k}:{})}};
 const log=(...a)=>console.log(new Date().toISOString(),...a);

@@ -260,7 +260,7 @@ ACT['view-pick']=async a=>{const list=await viewAgents(),me=S.profile||'default'
 ACT['sk-fold']=a=>{const sec=a.closest('.sched-folder');const s=!sec.classList.contains('shut');sec.classList.toggle('shut',s);a.setAttribute('aria-expanded',!s);const f=store.get('skFold',{});f[a.dataset.f]=s;store.set('skFold',f)};
 
 /* ---------- Google accounts: one agent can use several (work, personal, a client's). They sit on Connected apps with
-   the name you gave each one and a note on what it is for; the agent is told both, so "send it from my Elkiya account"
+   the name you gave each one and a note on what it is for; the agent is told both, so "send it from my work account"
    picks the right one. Connect another asks the agent, which sends a one-click Google sign-in link. ---------- */
 const gaccWhat=sc=>[...new Set(sc.map(s=>/gmail/.test(s)?'Gmail':/drive/.test(s)?'Drive':/calendar/.test(s)?'Calendar':/spreadsheets/.test(s)?'Sheets':/documents/.test(s)?'Docs':/presentations/.test(s)?'Slides':/contacts/.test(s)?'Contacts':'').filter(Boolean))].join(', ');
 const gaccTitle=x=>x.label||(x.name?pretty(x.name):'Main Google account');
@@ -270,7 +270,7 @@ const gaccTitle=x=>x.label||(x.name?pretty(x.name):'Main Google account');
  if(gone())return;const l=d.accounts||[];Pages._gacc=l;(Pages._gaccBy||={})[ag]=l;
  const edit=mayEdit(ag);   // an agent's owner (or editor) may name its accounts too, as the server allows
  const panel=document.createElement('div');panel.className='panel card gacc-panel';panel.style.marginBottom='16px';
- panel.innerHTML=`<h2 class="h-row">Google accounts<span class="chip">${l.length}</span></h2><p class="sub">${l.length?`${esc(ident(ag).name)} can use ${l.length===1?'this account':'these accounts'} for Gmail, Drive, Sheets, Docs and Calendar. Give each a name and say what it is for, and ${esc(ident(ag).name)} picks the right one when you ask (“send it from my Elkiya account”).`:`${esc(ident(ag).name)} has no Google account yet. Connect one to let it read and send Gmail, and work in Drive, Sheets, Docs and Calendar.`}</p>
+ panel.innerHTML=`<h2 class="h-row">Google accounts<span class="chip">${l.length}</span></h2><p class="sub">${l.length?`${esc(ident(ag).name)} can use ${l.length===1?'this account':'these accounts'} for Gmail, Drive, Sheets, Docs and Calendar. Give each a name and say what it is for, and ${esc(ident(ag).name)} picks the right one when you ask (“send it from my work account”).`:`${esc(ident(ag).name)} has no Google account yet. Connect one to let it read and send Gmail, and work in Drive, Sheets, Docs and Calendar.`}</p>
   ${l.map((x,i)=>`<div class="row gacc-row" ${st(i)}><div class="main-c">${logoImg('google.com','G')}<div class="txt"><b>${esc(accountText({email:x.email},{label:gaccTitle(x)}))}${x.renews?'':' '+signChip('data-act="gacc-add"')}</b>
    <span>${esc(gaccWhat(x.scopes)||plural(x.scopes.length,'permission'))}</span>${x.note?`<span class="gacc-note">${icon('edit',12)}${esc(x.note)}</span>`:edit?`<span class="gacc-note empty">No note yet. Say what this account is for.</span>`:''}</div></div>
    <div class="act">${edit?`<button class="ghost icon" data-act="gacc-edit" data-i="${i}" title="Name and note" aria-label="Name and note">${icon('edit',16)}</button>`:''}${S.me?.admin!==false?`<button class="ghost icon" data-act="gacc-del" data-n="${esc(x.name)}" data-e="${esc(x.email||gaccTitle(x))}" data-email="${esc(x.email)}" aria-label="Remove" title="Remove" style="color:var(--bad)">${icon('trash',15)}</button>`:''}</div></div>`).join('')}

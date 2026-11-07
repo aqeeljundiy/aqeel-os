@@ -9,14 +9,14 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      - N8N_HOST=${N8N_HOST:-n8n.elkiya.com}
+      - N8N_HOST=${N8N_HOST:?set N8N_HOST, e.g. n8n.example.com}
       - N8N_PROTOCOL=https
       - N8N_PORT=5678
-      - WEBHOOK_URL=https://${N8N_HOST:-n8n.elkiya.com}/
-      - N8N_EDITOR_BASE_URL=https://${N8N_HOST:-n8n.elkiya.com}/
+      - WEBHOOK_URL=https://${N8N_HOST:?set N8N_HOST, e.g. n8n.example.com}/
+      - N8N_EDITOR_BASE_URL=https://${N8N_HOST:?set N8N_HOST, e.g. n8n.example.com}/
       - N8N_PROXY_HOPS=2
-      - GENERIC_TIMEZONE=${TZ:-Asia/Jakarta}
-      - TZ=${TZ:-Asia/Jakarta}
+      - GENERIC_TIMEZONE=${TZ:-UTC}
+      - TZ=${TZ:-UTC}
       - N8N_DIAGNOSTICS_ENABLED=false
       - N8N_PERSONALIZATION_ENABLED=false
       - N8N_VERSION_NOTIFICATIONS_ENABLED=false
@@ -36,7 +36,7 @@ services:
       - |
         cat > /etc/caddy/Caddyfile <<'CADDY'
         :80 {
-          @code host ${CODE_HOST:-code.elkiya.com} ${CODE_PREVIEW_HOST:-code-preview.elkiya.com}
+          @code host ${CODE_HOST:?set CODE_HOST} ${CODE_PREVIEW_HOST:?set CODE_PREVIEW_HOST}
           handle @code {
             reverse_proxy ${AQEELOS_UPSTREAM:-claude-box-ibjaqq-ai-box-1:4400}
           }
@@ -47,7 +47,7 @@ services:
             reverse_proxy n8n:5678 {
               header_down -X-Frame-Options
             }
-            header Content-Security-Policy "frame-ancestors ${PUBLIC_URL:-https://ai.elkiya.com}"
+            header Content-Security-Policy "frame-ancestors ${PUBLIC_URL:?set PUBLIC_URL}"
           }
         }
         CADDY

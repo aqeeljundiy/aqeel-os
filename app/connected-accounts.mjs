@@ -510,7 +510,7 @@ export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir
    if(state==='connected'&&x.agents?.some(a=>signinNeeded(a,x.mcp))){state='signed-out';why='It needs someone to sign in again'}
    if(x.provider!=='slack'&&whyOf&&x.agents?.length){const a=x.agents[0];let acc=await whyOf.accountOf(a,x.mcp).catch(()=>null);if(!acc&&state==='connected'&&x.url&&t)acc=await whyOf.learnAccount(a,x.mcp,x.url,t.path).catch(()=>null);
     if(acc)x.who={user:acc.user||'',workspace:acc.workspace||'',email:acc.email||''}}
-   // "Slack, Aqeel (Pixel & Profits)": the user, then the workspace
+   // "Slack, Sam (Acme)": the user, then the workspace
    const u=x.who?.user,w=x.who?.workspace;if(x.who)x.identity=[u,w].filter(Boolean).join(' · ')||x.who.email||x.identity;
    }
   else if(x.kind==='telegram-user'){if(!x.files?.some(f=>!f.paused)){state='signed-out';why='The session file is gone'}}
@@ -627,7 +627,7 @@ export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir
  /* ---------- registering (agents) and approving (the owner) ---------- */
  async function register(agent,a={}){await load();const kind=String(a.kind||'').toLowerCase().trim();if(!['google','mcp-oauth','telegram-user','other'].includes(kind))return {isError:true,text:'kind must be google, mcp-oauth, telegram-user or other.'};
   const label=String(a.label||'').replace(/[\r\n]+/g,' ').trim().slice(0,80),where=String(a.where||'').trim().slice(0,400),can=normCan(a.can),note=String(a.note||'').trim().slice(0,300);
-  if(!label)return {isError:true,text:'Give a label, for example "Slack, Aqeel (Pixel & Profits)".'};
+  if(!label)return {isError:true,text:'Give a label, for example "Slack, Sam (Acme)".'};
   await scan();const r={kind,label,where,can,note,by:agent,at:Date.now()};
   const hit=Object.values(db.accounts).find(x=>matches(r,x,homedir())&&(!x.registered||x.registeredBy==='seed'||x.registeredBy===agent));
   if(hit){hit.registered=true;hit.registeredBy=agent;hit.agentLabel=label;if(note)hit.note=note;if(can.length){hit.can=can;hit.canSet=true}await save();if(can.length)await applyCan(hit).catch(()=>{});

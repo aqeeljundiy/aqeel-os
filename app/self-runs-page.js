@@ -49,7 +49,7 @@ ACT['sr-set']=async b=>{const a=(SR.d?.agents||[]).find(x=>x.agent===b.dataset.a
  d.querySelector('#srSave').onclick=async e=>{const s=e.currentTarget;s.disabled=true;try{await UI('/ui/self-runs/settings',{method:'POST',body:{agent:a.agent,cap:Number(d.querySelector('#srCap').value),cron:d.querySelector('#srCron').checked,chat:d.querySelector('#srChat').checked}});close();toast('Saved');reload()}catch(er){s.disabled=false;fail(er)}};
  setTimeout(()=>d.querySelector('#srCap')?.focus(),40)};
 // a trusted person: they send a one-time code to any agent from their own chat; the page waits until it arrives
-ACT['sr-add']=async()=>{const {d,close}=stackPop('Add a trusted person',`<label for="srWho">Their name</label><input id="srWho" maxlength="60" placeholder="e.g. Aqeel" autocomplete="off">
+ACT['sr-add']=async()=>{const {d,close}=stackPop('Add a trusted person',`<label for="srWho">Their name</label><input id="srWho" maxlength="60" placeholder="e.g. Sam" autocomplete="off">
   <p class="hint" style="margin:8px 0 0">You get a short code. They send it as a message to any agent from their own Telegram, WhatsApp or other chat, and that chat becomes trusted. The code works once, for 15 minutes.</p>`,
   `<button class="ghost" data-x>Cancel</button><button class="primary" id="srMake">Get the code</button>`);
  setTimeout(()=>d.querySelector('#srWho')?.focus(),40);let timer=null;d.addEventListener('cancel',()=>clearInterval(timer));

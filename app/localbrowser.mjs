@@ -33,7 +33,7 @@ async function zipDir(dir,prefix,extra=[]){const files=[];const bn=globalThis.AQ
  const cd=Buffer.concat(central);const end=Buffer.alloc(22);end.writeUInt32LE(0x06054b50,0);end.writeUInt16LE(files.length,8);end.writeUInt16LE(files.length,10);end.writeUInt32LE(cd.length,12);end.writeUInt32LE(off,16);
  return Buffer.concat([...parts,cd,end])}
 
-export function createLocalBrowser({DATA,GATE,API_KEY,EXT_DIR,NAMES={},PUBLIC_URL='https://ai.elkiya.com'}){
+export function createLocalBrowser({DATA,GATE,API_KEY,EXT_DIR,NAMES={},PUBLIC_URL=''}){
  const FILE=path.join(DATA,'local-browsers.json');let db=null;
  const load=async()=>{if(db)return db;try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.tokens||={};return db};
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1),{mode:0o600});await rename(FILE+'.tmp',FILE)};

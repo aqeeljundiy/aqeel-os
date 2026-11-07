@@ -47,7 +47,7 @@ export function createSecretLinks({DATA,save,reserved=()=>false,exists=async()=>
   if(!NAME.test(name))throw Error('Give the key a name in capitals, like OPENAI_API_KEY.');
   if(!SECRETISH.test(name))throw Error('A link can only save a key whose name ends in _KEY, _TOKEN, _SECRET or _PASSWORD (for example SHOPIFY_API_KEY). Pick such a name.');
   if(reserved(name)||RISKY.test(name))throw Error(name+' changes how aqeelOS or its programs run, so a link cannot set it. Ask the owner to set it on Keys and secrets in aqeelOS.');
-  if(!label)throw Error('Give a label the person recognises, like "Biomarkers Telegram bot token".');
+  if(!label)throw Error('Give a label the person recognises, like "Support Telegram bot token".');
   if(!await isAgent(base))throw Error('There is no agent called '+base+'.');
   if(await exists(base,name))throw Error(name+' is already set for this agent, and a link only adds new keys. To replace it, ask the owner to change it on Keys and secrets in aqeelOS.');
   const open=Object.values(db.links).filter(r=>r.state==='open');

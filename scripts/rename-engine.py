@@ -14,7 +14,7 @@ KEEP = {'agent/anthropic_adapter.py'}
 
 def rename_text(t):
     if MODEL_NAME.search(t): return t
-    t = t.replace('Hermes Agent', 'aqeelOS').replace('built by Nous Research', 'built by Elkiya').replace('(by Nous Research)', '(by Elkiya)')
+    t = t.replace('Hermes Agent', 'aqeelOS').replace('built by Nous Research', 'built by ' + os.environ.get('AQEELOS_BRAND_MAKER', 'aqeelOS')).replace('(by Nous Research)', '(by ' + os.environ.get('AQEELOS_BRAND_MAKER', 'aqeelOS') + ')')
     # the one command people see in Telegram's menu with the engine's folder name in it
     t = t.replace('Write a markdown implementation plan to .hermes/plans/ without executing anything', 'Write a step-by-step plan as a markdown file, without doing anything yet')
     return WORD.sub('aqeelOS', t)
