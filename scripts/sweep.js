@@ -28,7 +28,12 @@ const sl=ms=>new Promise(r=>setTimeout(r,ms));const out=[];let bad=0;
 let settled=Infinity,shown=new Set();const flick=[];const sig=t=>(t.textContent||'').replace(/\s+/g,' ').trim().slice(0,80);
  // only what has settled counts as shown: content drawn a moment before this look is still in its first entrance (its
  // fade starts a frame later, or after its stagger), which is not a replay (a slow page landing at 2.5 s, 24 Oct 2026)
- const snap=()=>{shown=new Set();for(const el of document.querySelectorAll('#view *')){if(el.getAnimations().some(a=>Calm.entry().has(a.animationName)&&a.playState!=='finished'))continue;const x=sig(el);if(x.length>3)shown.add(x)}};
+ // a block whose first content is still coming in does not count either, nor anything round it: #pg holding only the
+ // Memory page's block has that block's very text, so a draw landing in the frame before this look counted as shown
+ // and its own first fade, starting a frame later, read as a replay (predeploy, 7 Nov 2026: "#/agents/memory flickers:
+ // reveal on two reveal" when the busy box drew Memory at 2.5 s)
+ const snap=()=>{shown=new Set();const fl=$('#view')?.getAnimations({subtree:true}).filter(a=>Calm.entry().has(a.animationName)&&a.playState!=='finished').map(a=>a.effect?.target).filter(Boolean)||[];
+  for(const el of document.querySelectorAll('#view *')){if(fl.some(f=>el.contains(f)))continue;const x=sig(el);if(x.length>3)shown.add(x)}};
  // and once that first entrance is over, it is shown too: from then on a fade-in of the same content is a replay
  // but only what is no longer fading: Calm ends a late panel's own rise at once while watchReveal fades its block (or
  // the rows inside it) in, so that panel, or a box whose rows are still coming in, was never on screen settled (Memory

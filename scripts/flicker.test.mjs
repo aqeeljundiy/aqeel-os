@@ -112,3 +112,8 @@ test('the brand font is preloaded, so text does not change shape a moment after 
 test('late cards open their space and lists change height smoothly',()=>{
  const core=src('core.js');assert.match(core,/watchReveal\(v\);watchLate\(v\);/);assert.match(core,/const Late=\{/);assert.match(core,/function smoothHeight\(box,fn\)/);
  assert.match(src('connections.js'),/smoothHeight\(box,draw\)/)});
+
+test('the sweep never counts a first entrance as a replay: text round a block still fading in is not "shown" yet',()=>{
+ const sw=readFileSync(new URL('./sweep.js',import.meta.url),'utf8');
+ assert.match(sw,/const snap=\(\)=>\{shown=new Set\(\);const fl=\$\('#view'\)\?\.getAnimations\(\{subtree:true\}\)/);
+ assert.match(sw,/if\(fl\.some\(f=>el\.contains\(f\)\)\)continue/)});
