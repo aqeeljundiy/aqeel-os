@@ -95,7 +95,6 @@
   "all /system/keys": [
    "button: Add a key"
   ],
-  "all /system/branding": [],
   "all /system/settings": [
    "button: Export",
    "button: Import",
@@ -198,7 +197,6 @@
   "one /system/keys": [
    "button: Add a key"
   ],
-  "one /system/branding": [],
   "one /system/settings": [
    "button: Export",
    "button: Import",
