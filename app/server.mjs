@@ -828,7 +828,9 @@ async function makeLead(u){await users.load();if(users.leadOf(u.id))return users
  if(!r.ok)throw new Error('engine '+r.status+' '+(await r.text().catch(()=>'')).slice(0,160));
  await users.setLead(u.id,id);await withIds(async ids=>{ids[id]={...(ids[id]||{}),name:(u.name||'My')+"'s lead",title:'Lead agent',updated:Date.now()};await writeIds(ids)}).catch(()=>{});
  await memberAgent(u,id);syncNotifyTool().catch(()=>{});console.log('lead agent',id,'made for',u.name||u.id);return id}
-users.hooks.onJoin=u=>makeLead(u);
+// only the live app makes lead agents: a test copy (deploy checks on :4402) shares the live engine, so a lead it made was a
+// real agent on the live Agents page (five "Controls-check-…-lead" agents by 7 Nov 2026)
+users.hooks.onJoin=u=>LIVE_APP?makeLead(u):(console.log('test copy: no lead agent made for',u.name||u.id),null);
 async function memberAgent(u,name){
  await users.created(u,name);noteMade(name);
  // a person's first own agent becomes their lead when they have none yet (made before leads existed)
