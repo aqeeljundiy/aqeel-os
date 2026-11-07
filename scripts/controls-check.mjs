@@ -37,7 +37,13 @@ async function browse(ck){const tools=homedir()+'/.hermes/tools',dir=readdirSync
    let cur=await read();for(let i=0;i<11;i++){await sleep(700);const nx=await read();if(JSON.stringify(nx)===JSON.stringify(cur)&&nx.length)break;cur=nx}seen[view+' '+r]=cur}
   return seen}finally{chrome.kill('SIGKILL')}}
 const owner=await signIn({password:PW});const result={owner:await browse(owner)};let member=null;
-try{member=await makeMember(owner);result.member=await browse(member.ck)}finally{if(member?.id)await api(owner,'/ui/people/'+encodeURIComponent(member.id),{method:'DELETE'}).catch(()=>{})}
+// the test copy shares the live engine, so the throwaway member's lead agent (made when it joins) is a real agent: removed
+// at the end, and any left by a run that died are removed at the start (7 Nov 2026: five were on the live Agents page)
+const LEAD=/^controls-check-[a-z0-9]+-lead(-\d+)?$/;
+async function dropLeads(owner){const l=await api(owner,'/hapi/profiles');for(const p of (l.j.profiles||[]).map(x=>x.name).filter(n=>LEAD.test(String(n))))
+ {const r=await api(owner,'/hapi/profiles/'+encodeURIComponent(p),{method:'DELETE'});console.error('removed leftover check agent',p,r.s)}}
+await dropLeads(owner).catch(e=>console.error('leftover check agents:',e.message));
+try{member=await makeMember(owner);result.member=await browse(member.ck)}finally{if(member?.id)await api(owner,'/ui/people/'+encodeURIComponent(member.id),{method:'DELETE'}).catch(()=>{});await dropLeads(owner).catch(()=>{})}
 if(SAVE){writeFileSync(FILE,JSON.stringify(result,null,1)+'\n');const n=Object.values(result).reduce((a,v)=>a+Object.values(v).flat().length,0);console.log('saved '+n+' controls on '+Object.keys(result.owner).length+' page views to '+path.basename(FILE));process.exit(0)}
 let base;try{base=JSON.parse(readFileSync(FILE,'utf8'))}catch{console.log(JSON.stringify({checked:0,missing:['no baseline: run node scripts/controls-check.mjs --save on the test copy and commit scripts/controls-baseline.json']}));process.exit(1)}const missing=[];
 for(const who of Object.keys(base))for(const [k,want] of Object.entries(base[who])){const have=new Set(result[who]?.[k]||[]);for(const c of want)if(!have.has(c))missing.push(who+' · '+k+' · '+c)}
