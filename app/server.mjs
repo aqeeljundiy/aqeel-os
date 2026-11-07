@@ -288,6 +288,8 @@ async function googleContext(a){const home=a==='default'?HERMES_HOME:path.join(H
 const madeHere=new Set();
 // agents a test copy makes are its own: it lists them here and the live app leaves them alone (no setup, tools or health on them)
 const TEST_LIST=path.join(HERMES_HOME,'.aqeelos-test-agents');let testAgents={t:0,v:new Set()};
+// n8n's restart reason names the agent as shown ("Mb-z4b1u"): a deploy check's throwaway agent restarts nothing (7 Nov 2026)
+const testAgentShown=why=>{const n=String(why).replace(/^n8n connected for /,'').toLowerCase();return [...testAgents.v].some(a=>a.toLowerCase()===n)||/^(mb|dp|pc|lk|sc|ms|nt|rl|ky|wd|wa|sh-[ab]|lt-sub|role-a|owner-test|creator-test|controls-check)-/.test(n)};
 const isTestAgent=async a=>{if(Date.now()-testAgents.t>20000)testAgents={t:Date.now(),v:new Set((await readFile(TEST_LIST,'utf8').catch(()=>'')).split('\n').filter(Boolean))};return testAgents.v.has(a)};
 const noteMade=n=>{madeHere.add(n);if(PORT!==4400)writeFile(TEST_LIST,n+'\n',{flag:'a'}).catch(()=>{})};
 let notifyRun=null,notifyAgain=false;
@@ -685,7 +687,7 @@ const access=createAccess({googleShares,HERMES_HOME,DATA,listAgents:()=>listAgen
  own:{n8n:{owner:'aqeelOS',note:'every agent has its own n8n user',grant:a=>n8n.ensure(a)}},
  dash:(method,p)=>fetch(DASH.origin+p,{method,headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(r=>r.json().catch(()=>({})))});
 const accessAsk=createAccessRequests({DATA,access,listAgents:()=>listAgents(),names:a=>NAMES[a]||(a==='default'?'aqeelOS':a)});
-const n8n=createN8n({BASE:N8N_URL,readConfig,removeMcp:(a,name)=>fetch(DASH.origin+'/api/mcp/servers/'+encodeURIComponent(name)+'?profile='+encodeURIComponent(a),{method:'DELETE',headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(r=>{if(!r.ok&&r.status!==404)throw new Error('Could not remove the tool ('+r.status+')');return true}),DATA,setKey,restart:why=>restartGateway(why).catch(()=>{}),names:a=>NAMES[a]||a});
+const n8n=createN8n({BASE:N8N_URL,readConfig,removeMcp:(a,name)=>fetch(DASH.origin+'/api/mcp/servers/'+encodeURIComponent(name)+'?profile='+encodeURIComponent(a),{method:'DELETE',headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(r=>{if(!r.ok&&r.status!==404)throw new Error('Could not remove the tool ('+r.status+')');return true}),DATA,setKey,restart:why=>{if(/^n8n connected for /.test(why)&&testAgentShown(why))return;restartGateway(why).catch(()=>{})},names:a=>NAMES[a]||a});
 const code=createCode({DATA,SRC:path.join(homedir(),'apps','aqeel-code'),PUBLIC_URL,ROOT:root});
 // team folders (Plan 4): Code project folders shared with team members, one bare git repo each, served only through here
 const teamFolders=createTeamFolders({DATA,names:uid=>{const x=users.byId(uid);return x?.name||x?.username||'Someone'},known:uid=>{const x=users.byId(uid);return !!x&&!x.disabled}});

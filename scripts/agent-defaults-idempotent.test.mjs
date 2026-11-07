@@ -23,4 +23,5 @@ const srv=readFileSync(new URL('../app/server.mjs',import.meta.url),'utf8');
 assert.ok(srv.includes('createAgentDefaults({DATA,isTest:a=>isTestAgent(a),'),'server passes the test-agent list');
 assert.ok(/agentLive\.install\(\)\.then\(async c0=>\{const c=\[\];for\(const a of c0\)if\(!await isTestAgent/.test(srv),'plugin install ignores test agents');
 assert.ok(/async function toolSigs\(\)\{const out=\{\};for\(const a of await agentLive\.homes\(\)\)\{if\(await isTestAgent\(a\)/.test(srv),'tool lists ignore test agents');
+assert.ok(srv.includes("restart:why=>{if(/^n8n connected for /.test(why)&&testAgentShown(why))return;"),'n8n setup for a test agent restarts nothing');
 console.log('agent-defaults-idempotent ok');
