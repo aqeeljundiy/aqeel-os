@@ -14,7 +14,8 @@ D=/tmp/ppl
 # the test copy's own data and password (made again if the box restarted and /tmp was emptied)
 if [ ! -f $D/env ]; then mkdir -p $D; rm -rf $D/data; cp -a ~/apps/hermes-ui-data $D/data
  PW=$(head -c 12 /dev/urandom | base64 | tr -d "/+="); echo "$PW" > $D/pw
- printf "UI_PASSWORD_HASH=%s\nUI_INSECURE_COOKIE=1\nUI_DATA_DIR=%s\nUI_PORT=4402\n" "$(node /tmp/aq-stage/app/server.mjs hash "$PW")" "$D/data" > $D/env; fi
+ printf "UI_PASSWORD_HASH=%s\nUI_INSECURE_COOKIE=1\nUI_DATA_DIR=%s\nUI_PORT=4402\nAQEELOS_LIVE=0\n" "$(node /tmp/aq-stage/app/server.mjs hash "$PW")" "$D/data" > $D/env; fi
+grep -q "^AQEELOS_LIVE=" $D/env || echo "AQEELOS_LIVE=0" >> $D/env   # a test copy never runs the live jobs
 [ -f $D/pid ] && kill $(cat $D/pid) 2>/dev/null || true; sleep 1
 cd ~; SCHED_DESCRIBE=1 setsid nohup node --env-file=$HOME/.hermes/.env --env-file=$D/env /tmp/aq-stage/app/server.mjs > $D/log 2>&1 < /dev/null & echo $! > $D/pid
 for i in $(seq 1 30); do curl -fs 127.0.0.1:4402/healthz >/dev/null && break; sleep 1; done

@@ -19,8 +19,8 @@ const Screen={
  adsSt:null,
  async adsLoad(a){if(this.src_!=='box'||this.ads){this.adsPaint();return}try{const r=await call('','/ui/screens/'+encodeURIComponent(a)+'/adspower');this.adsSt=r.state==='none'?null:r}catch{this.adsSt=null}this.adsPaint()},
  adsHtml(){const x=this.adsSt;if(!x||x.agent!==this.agent().split('--')[0]||this.src_!=='box'||this.ads)return '';
-  const [c,t]={running:['ok','Signed in'],'signed-out':['warn','Not signed in'],starting:['','Starting…'],off:['','Off']}[x.state]||['',x.state];
-  const tip={running:'Its AdsPower tool works. Profiles open as windows on this screen.','signed-out':'Press Take over and sign in to AdsPower on this screen yourself.',starting:'AdsPower is opening on this screen.',off:'AdsPower is not running for this agent.'}[x.state]||'';
+  const [c,t]={running:['ok','Signed in'],'signed-out':['warn','Not signed in'],starting:['','Starting…'],off:['','Off'],missing:['','Not installed']}[x.state]||['',x.state];
+  const tip={running:'Its AdsPower tool works. Profiles open as windows on this screen.','signed-out':'Press Take over and sign in to AdsPower on this screen yourself.',starting:'AdsPower is opening on this screen.',off:'AdsPower is not running for this agent.',missing:'AdsPower is not installed on this server. Install AdsPower for Linux in ~/apps/adspower, then start it here.'}[x.state]||'';
   return `<b>AdsPower</b><span class="chip ${c}"><i class="dot"></i>${esc(t)}</span><span class="scr-ads-tip">${esc(tip)}</span>${x.state==='off'&&S.me?.admin?`<button class="small" data-act="ads-start" data-agent="${esc(x.agent)}">${icon('power',14)}Start AdsPower</button>`:''}`},
  adsPaint(){for(const el of document.querySelectorAll('#scrAds')){const h=this.adsHtml();if(el.dataset.h!==h){el.dataset.h=h;el.innerHTML=h}}},
  // While the screen is open, notice when the agent changes or its screen turns on/off by itself.

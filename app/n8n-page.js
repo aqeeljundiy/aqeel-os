@@ -6,6 +6,13 @@ PAGES.n8n=async(p,el)=>{viewPick([]);const admin=S.me?.admin!==false;
  const ns=await UI('/ui/n8n/status?agent=default');
  if(!ns.ready){setActions('');
   if(!admin){el.innerHTML=emptyBox('n8n isn’t connected yet','Ask an admin to connect aqeelOS to n8n on this page.','');return}
+  // nothing answers at the n8n address: say so and let the admin fix the address here (not "already has an owner")
+  if(ns.reach&&!ns.reach.ok){el.innerHTML=`<div class="panel card n8n-setup"><h2>aqeelOS can’t reach n8n</h2><p class="sub">${esc(ns.reach.why||'Nothing answers at that address.')} Type the address where your n8n runs, then press Check and save. No n8n yet? Install it on this server first, then come back.</p>
+   <label for="n8nBase">n8n address</label><input id="n8nBase" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://n8n.example.com" value="${esc(ns.base||'')}">
+   <p class="hint" id="n8nWhy" aria-live="polite"></p>
+   <div style="display:flex;gap:10px;align-items:center;margin-top:6px"><button class="primary" id="n8nCheck">Check and save</button></div></div>`;
+   el.querySelector('#n8nCheck').onclick=async e=>{const b=e.currentTarget;b.disabled=true;const why=el.querySelector('#n8nWhy');why.textContent='Checking…';
+    try{const r=await post(UI,'/ui/n8n/base',{url:el.querySelector('#n8nBase').value});if(r.ok){toast('n8n found');reload()}else why.textContent=r.why||'Nothing answers at that address.'}catch(er){why.textContent='';fail(er)}finally{b.disabled=false}};return}
   el.innerHTML=`<div class="panel card n8n-setup"><h2>Connect aqeelOS to n8n</h2><p class="sub">This n8n already has an owner, so aqeelOS can’t set itself up. Type that n8n login once here, or have n8n reset so aqeelOS owns it and nobody ever signs in. Then every agent gets its own n8n space, opened without signing in.</p>
    <label for="n8nEmail">n8n owner email (your n8n login, not aqeelOS)</label><input id="n8nEmail" type="email" autocomplete="off" placeholder="the email you sign in to n8n with">
    <label for="n8nPw">n8n owner password</label><input id="n8nPw" type="password" autocomplete="new-password">

@@ -124,7 +124,9 @@ export function createAgentAdspower({DATA,HERMES_HOME,screens,codeUser,agentName
  // Running (signed in), Not signed in, Off; for one agent or all
  async function status(a,run_=null){a=baseOf(a);const port=await portOf(a);if(!port)return {agent:a,state:'none'};await load();const p=(run_||await running()).get(port)||{};
   const lp=!p.loop&&!p.app?null:await livePort(a);
-  const state=!p.loop&&!p.app?'off':lp?'running':p.app?'signed-out':'starting';
+  // not on this server at all (neither the app in ~/apps/adspower nor the agents' copy): say so instead of offering Start
+  const missing=!p.loop&&!p.app&&!await stat(path.join(SRC,'resources','app.asar')).catch(()=>null)&&!await stat(BIN).catch(()=>null);
+  const state=missing?'missing':!p.loop&&!p.app?'off':lp?'running':p.app?'signed-out':'starting';
   return {agent:a,name:nameOf(a),port:lp||port,own:port,state,kept:!db.off[a],user:(await codeUser(a).catch(()=>null))||'this box user'}}
  async function list(){const r=await running();return Promise.all((await agents()).map(a=>status(a,r)))}
  // kept on while it runs: the agent's engine screen is not stopped as idle (screens.mjs asks this, and the activity file is touched)

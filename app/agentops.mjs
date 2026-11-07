@@ -6,13 +6,15 @@ import {execFile,spawn} from 'node:child_process';
 import {readFile,writeFile,rename,readdir,stat,mkdir} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import path from 'node:path';
+import {isLive} from './install.mjs';
 
 const HOME=homedir();
 const HERMES=process.env.HERMES_BIN||path.join(HOME,'.local','bin','hermes');
 export const HERMES_HOME=(process.env.HERMES_HOME||path.join(HOME,'.hermes')).replace(/^~(?=\/|$)/,HOME); // --env-file does not expand ~
 export const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
-// only the live app (port 4400) runs background jobs that change agents; a test copy on another port must not
-export const LIVE_APP=(Number(process.env.UI_PORT)||4400)===4400;
+// only the live app runs background jobs that change agents (help, backups, health ticks, defaults); a test copy must not.
+// Decided by AQEELOS_LIVE or the install's setting, on by default (install.mjs); test copies set AQEELOS_LIVE=0.
+export const LIVE_APP=isLive();
 // Help's own engine profile (help.mjs): no tools, no skills, no channels. It is not an agent, so agentNames leaves it
 // out and with it every list built from that (defaults, skills, schedules, channels, usage per agent, Models)
 export const HELP_AGENT=process.env.HELP_AGENT||'aqeelos-help';

@@ -90,5 +90,9 @@ catch(e){document.getElementById('m').textContent=e.message+'. Close this and op
  async function spaces({fresh=false}={}){await load();let part=false;
   const out=await Promise.all(Object.entries(db.users).map(async([a,u])=>({agent:a,email:u.email,workflows:await counts.get(a+'|'+u.email,()=>countOf(u),{force:fresh,partial:()=>{part=true;return null}}).catch(()=>null),shared:u.shared||[]})));
   if(part)out.partial=true;return out}
- const status=async agent=>{await load();return {ready:await ready(),base:db.base,user:db.users[agent]?{email:db.users[agent].email}:null,users:Object.fromEntries(Object.entries(db.users).map(([a,u])=>[a,u.email]))}};
- return {ready,setOwner,ensure,ticket,page,go,status,share,spaces}}
+ // the n8n address (Automations › n8n): does anything answer there, and changing it from the app (7 Nov 2026, plug and play)
+ const reach=async()=>{await load();try{const r=await fetch(db.base+'/healthz',{signal:AbortSignal.timeout(6000)});return r.ok?{ok:true}:{ok:false,why:'n8n answered with '+r.status+' at that address.'}}catch{return {ok:false,why:'Nothing answers at that address.'}}};
+ async function setBase(u){let x;try{x=new URL(String(u||'').trim())}catch{throw Error('That is not a web address. It looks like https://n8n.example.com')}if(!/^https?:$/.test(x.protocol))throw Error('The address starts with https://');
+  await load();const base=x.origin+x.pathname.replace(/\/+$/,'');if(base!==db.base){db.base=base;setupTried=0;await save()}return reach()}
+ const status=async agent=>{await load();const rc=await reach();return {reach:rc,ready:rc.ok&&await ready(),base:db.base,user:db.users[agent]?{email:db.users[agent].email}:null,users:Object.fromEntries(Object.entries(db.users).map(([a,u])=>[a,u.email]))}};
+ return {ready,setOwner,ensure,ticket,page,go,status,share,spaces,reach,setBase}}

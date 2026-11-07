@@ -33,13 +33,13 @@ PAGES.logins=async(p,el)=>{const gone=pageTok(el);
  clearTimeout(Pages._caT);if(d.items.some(caBusy))Pages._caT=setTimeout(()=>{if(route().page?.id==='logins'&&!document.hidden)(pageRun(el),PAGES.logins(p,el)).catch(()=>{})},4000)};
 /* Each agent's own AdsPower (1 Nov 2026): it runs on that agent's screen with its own sign-in, which you make yourself
    there. One card per agent: Signed in, Not signed in or Off, with Open its screen and Start / Stop. */
-const CA_ADS={running:['ok','Signed in'],'signed-out':['warn','Not signed in'],starting:['','Starting…'],off:['','Off']};
+const CA_ADS={running:['ok','Signed in'],'signed-out':['warn','Not signed in'],starting:['','Starting…'],off:['','Off'],missing:['','Not installed']};
 const caAds=items=>!items?.length?'':`<section class="ads-sec"><h2>AdsPower on each agent’s screen</h2><p class="hint" style="margin:0">Every agent has its own AdsPower with its own login. Open its screen and sign in yourself; its AdsPower tool works once it is signed in.</p>
  <div class="grid-cards acct-grid ads-grid">${items.map((x,i)=>{const [c,t]=CA_ADS[x.state]||['',x.state];return `<div class="card tile acct" ${st(i)}>
   <div class="tile-top">${logoImg('adspower.com','A')}<div class="acct-id"><h3>AdsPower, ${esc(ident(x.agent).name)}</h3><span class="acct-mail">On ${esc(ident(x.agent).name)}’s screen · port ${esc(x.port)}</span></div></div>
-  <div class="acct-st"><span class="chip${c?' '+c:''}"><i class="dot"></i>${esc(t)}</span><span class="ca-used">${x.state==='signed-out'?'Sign in on its screen':x.state==='off'?'Not running':x.state==='starting'?'Opening on its screen':'Its tool works'}</span></div>
+  <div class="acct-st"><span class="chip${c?' '+c:''}"><i class="dot"></i>${esc(t)}</span><span class="ca-used">${x.state==='signed-out'?'Sign in on its screen':x.state==='missing'?'Install AdsPower for Linux in ~/apps/adspower':x.state==='off'?'Not running':x.state==='starting'?'Opening on its screen':'Its tool works'}</span></div>
   <div class="ca-btns"><button class="${x.state==='signed-out'?'primary ':''}small" data-act="ads-screen" data-agent="${esc(x.agent)}">${icon('monitor',14)}Open its screen</button>
-   ${x.state==='off'?`<button class="small" data-act="ads-start" data-agent="${esc(x.agent)}">${icon('power',14)}Start AdsPower</button>`:`<button class="ghost small" data-act="ads-stop" data-agent="${esc(x.agent)}">${icon('pause',14)}Stop</button>`}</div></div>`}).join('')}</div></section>`;
+   ${x.state==='missing'?'':x.state==='off'?`<button class="small" data-act="ads-start" data-agent="${esc(x.agent)}">${icon('power',14)}Start AdsPower</button>`:`<button class="ghost small" data-act="ads-stop" data-agent="${esc(x.agent)}">${icon('pause',14)}Stop</button>`}</div></div>`}).join('')}</div></section>`;
 const caItem=id=>(Pages._ca||[]).find(x=>x.id===id);
 ACT['ca-refresh']=()=>{Pages._caFresh=true;reload()};
 ACT['ca-approve']=async a=>{const x=caItem(a.dataset.id);a.disabled=true;try{await post(UI,'/ui/connected-accounts/approve',{id:a.dataset.id});toast((x?.label||'It')+' is registered');reload()}catch(e){a.disabled=false;fail(e)}};

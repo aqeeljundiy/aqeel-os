@@ -4,7 +4,8 @@
 import {readFile,writeFile as rawWrite,readdir,access,rename,mkdir,rm,stat} from 'node:fs/promises';
 import path from 'node:path';import {homedir} from 'node:os';import {readdirSync,existsSync,rmSync} from 'node:fs';
 const HOME=path.join(homedir(),'.hermes');
-const PUB=(process.env.PUBLIC_URL||('http://localhost:'+(process.env.UI_PORT||4400))).replace(/\/$/,'');
+import {publicUrl} from '../app/install.mjs';
+const PUB=publicUrl();   // env PUBLIC_URL, else Your address from System › Settings (install.mjs)
 // every file is replaced in one step (never left half-written), and only one run patches at a time (deploys, engine
 // updates and new agents can all start this); a lock older than 15 minutes is a crashed run and is taken over
 const writeFile=async(p,d,o)=>{const t=p+'.aq-'+process.pid+'-'+Math.random().toString(36).slice(2,7);await rawWrite(t,d,o);await rename(t,p)};

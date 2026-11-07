@@ -8,23 +8,39 @@ aqeelOS is a web interface and team layer for the [Hermes Agent](https://github.
 - Optional: n8n, Xvfb + noVNC (the live agent screen), the `gws` CLI for Google, AdsPower
 
 ## Setup
-1. `git clone` this repo on the server (e.g. `~/apps/aqeelos`).
-2. Copy `.env.example` to a file **outside** the repo (e.g. `~/apps/aqeelos.env`) and fill it:
-   - `UI_PASSWORD_HASH`: optional. Leave it out and the first visit asks you to create the owner account in the app.
-   - `UI_SECRET`: a long random string (`openssl rand -hex 32`)
-   - `API_SERVER_KEY` and `HERMES_DASHBOARD_SESSION_TOKEN`: from the engine's `~/.hermes/.env`
-   - `PUBLIC_URL`, `N8N_URL`, `LIVE_DOMAIN`, `CODE_HOST`, `OWNER_CONTACT`: your own install's values (the name, logo and contact can also be set in the app, System › Branding)
-3. Start: `node --env-file=$HOME/apps/aqeelos.env app/server.mjs` (put it under tmux/systemd; listens on `UI_PORT`, default 4400).
-4. Put a TLS reverse proxy (Traefik, Caddy, nginx) in front of `UI_PORT` for `PUBLIC_URL`.
-5. Apply the engine patches once and after every engine update: `node scripts/apply-skill-patches.mjs` (each patch is tagged, all-or-nothing, and skipped with a warning when upstream changed).
+On the server, as your own user (not root):
+1. Install [Hermes Agent](https://github.com/NousResearch/hermes-agent) and start its gateway once, so `~/.hermes/.env` has its keys.
+2. `git clone` this repo (e.g. `~/apps/aqeelos`), then run the installer once:
+   ```bash
+   sudo bash scripts/install.sh
+   ```
+   It checks Node.js, Python and the engine, adds the Claude sign-in plugin to the engine, sets up the per-agent Linux users (a small root service), and starts aqeelOS as a service on port 4400. Add `--open` to try it at `http://<server IP>:4400` before a proxy is in front, or `--port N` for another port.
+3. Put an https proxy (Caddy, Traefik, nginx) in front of `127.0.0.1:4400`.
+
+You never edit an env file:
+- the engine's gateway key and dashboard token are read from `~/.hermes/.env`;
+- the sign-in key (`UI_SECRET`) is made on the first start and kept in the data folder, so sign-ins survive restarts;
+- the address, time zone, Code and app addresses are set in the app.
+An env file is still read when you want to override something (`.env.example` lists every value; the installer's service reads `~/.config/aqeelos/aqeelos.env`). A value set there wins over the app's setting and shows as "Set in the environment".
 
 ## First run
-- Open `PUBLIC_URL`. A new install shows **Create the owner account** (name, username, password) and then a recovery code: save it. The owner can do everything and invites the others under System › People.
+- Open your address. A new install shows **Create the owner account** (name, username, password) and then a recovery code: save it. The owner can do everything and invites the others under System › People.
 - Lost password: **Forgot password?** on the sign-in page emails a one-hour link to a confirmed email. An admin can also set a new password for someone, sign them out or suspend them (People, the person's menu). The owner's recovery code signs them in once without the password or two-step; a new one is made in Your profile.
-- System › Health shows what is missing (engine keys, gateway, screen). It adds the gateway key to agents that lack it.
-- Set the engine persona name with `AQEELOS_BRAND_NAME`/`AQEELOS_BRAND_MAKER` or `branding:` in `~/.hermes/config.yaml`.
-- Channels › Who can message decides who may write to each agent; Abilities › Connections holds sign-ins.
-- Data (users, shares, issues, logs) lives in `UI_DATA_DIR` (default `../hermes-ui-data`); back it up.
+- The first sign-in asks for **Your address**, prefilled with the address in the browser, and checks that it reaches this install. Invites, WhatsApp Business, Kirimdev webhooks, Google and MCP sign-ins all send people back to it. Change it later on System › Settings › This install.
+- System › Settings › This install also holds the **time zone** (one for the whole install: schedules, posting limits, backups and notices; every agent gets it) and the **Code and app addresses**.
+- Models › **Install Claude sign-in** installs the Claude app on the server and turns on the engine's Claude plugin (shipped in `engine/claude-subscription-directsdk-experimental`, MIT, from Nous Research's official plugins), so a Claude Pro or Max plan can be added as an account.
+- Agents says when the **per-agent Linux users** are missing (agents other than the main one then have no terminal, files, code or Runs itself of their own) and shows the one command that fixes it: `sudo bash scripts/install.sh --agent-users`.
+- Automations › n8n asks for the n8n address when nothing answers there, and checks it.
+- The name, logo and contact are set in the app (System › Branding); the engine persona name also with `AQEELOS_BRAND_NAME`/`AQEELOS_BRAND_MAKER` or `branding:` in `~/.hermes/config.yaml`.
+- Apply the engine patches once and after every engine update: `node scripts/apply-skill-patches.mjs`.
+- System › Health shows what else is missing (engine, gateway, screen). Channels › Who can message decides who may write to each agent; Abilities › Connections holds sign-ins.
+- Data (users, shares, issues, logs, the install's settings in `install.json`) lives in `UI_DATA_DIR` (default `../hermes-ui-data`); back it up.
+
+### Live copy or test copy
+Only the live copy runs the background jobs that change agents (Help, backups, health ticks, defaults). `AQEELOS_LIVE=1` makes a copy live (the installer's service sets it); `AQEELOS_LIVE=0` makes it a test copy (the deploy checks and local development set it). Without it, only a copy on port 4400 is live. System › Settings › This install shows which one you are looking at.
+
+### For other parts of aqeelOS
+`app/install.mjs` exports `publicUrl()` (the current address; use it for every callback), `installTz()`, `isLive()` and `engineKeys()`. `PUBLIC_URL_REF` and `urlRef(suffix)` read as the current address wherever a string was passed at start.
 
 ## Tests
 `node --test scripts/*.test.mjs` (unit tests, no network). End-to-end checks such as `scripts/e2e-check.mjs` need a running install.

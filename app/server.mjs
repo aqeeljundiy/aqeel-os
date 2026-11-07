@@ -84,7 +84,8 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createAgentVersions,VERSION_TOOLS} from './agent-versions.mjs';   // self-repair kit (workstream E)
 import {createAgentLive} from './agent-live.mjs';
-import {sysTz,localParts} from './tz.mjs';   // the box's time zone (7 Nov 2026: was Asia/Jakarta in code)   // live context each message + traceback guard (7 Nov 2026)
+import {sysTz,localParts,zoneName} from './tz.mjs';
+import {engineKeys,uiSecret,PUBLIC_URL_REF,PUBLIC_HOST_REF,urlRef,hostSetting,installTz,applyTz,validTz,createInstallRoutes} from './install-routes.mjs';   // the box's time zone (7 Nov 2026: was Asia/Jakarta in code)   // live context each message + traceback guard (7 Nov 2026)
 import {createAgentCare} from './agent-care.mjs';
 import {createCustomerTools} from './customer-tools.mjs';   // customer-run sandbox (7 Nov 2026)   // old setup, checks after changes, script-only schedules (7 Nov 2026)
 import {readPicture,emojiSlugs,emojiAuto,AVATAR_TYPES} from './avatar-file.mjs';
@@ -94,9 +95,12 @@ const here=path.dirname(fileURLToPath(import.meta.url));
 const root=path.resolve(here,'..');
 const env=process.env;
 // What differs per install: set in the box's environment (~/apps/hermes-ui.env). Neutral defaults for a fresh install.
-const PUBLIC_URL=(env.PUBLIC_URL||('http://localhost:'+(env.UI_PORT||4400))).replace(/\/$/,''),N8N_URL=(env.N8N_URL||'http://localhost:5678').replace(/\/$/,'');
-const CODE_HOST=env.CODE_HOST||'code.localhost',CODE_PREVIEW_HOST=env.CODE_PREVIEW_HOST||'code-preview.localhost',OWNER_CONTACT=env.OWNER_CONTACT||'the owner of this aqeelOS install';
-const PUBLIC_HOST=new URL(PUBLIC_URL).hostname,SSH_HOST=env.SSH_HOST||PUBLIC_HOST,SSH_PORT=+(env.SSH_PORT||2222);
+// the engine's gateway key and dashboard token come from its own ~/.hermes/.env when this env does not set them (install.mjs)
+{const k=engineKeys();for(const n of ['API_SERVER_KEY','HERMES_DASHBOARD_SESSION_TOKEN'])if(!env[n]&&k[n])env[n]=k[n]}
+// Your address: env PUBLIC_URL, else the owner's setting on System › Settings; reads the current one wherever it is used (install.mjs)
+const PUBLIC_URL=PUBLIC_URL_REF,N8N_URL=(env.N8N_URL||'http://localhost:5678').replace(/\/$/,'');
+const CODE_HOST=hostSetting('codeHost'),CODE_PREVIEW_HOST=hostSetting('codePreviewHost'),OWNER_CONTACT=env.OWNER_CONTACT||'the owner of this aqeelOS install';
+const PUBLIC_HOST=PUBLIC_HOST_REF,SSH_HOST=env.SSH_HOST||PUBLIC_HOST,SSH_PORT=+(env.SSH_PORT||2222);
 // every log line starts with the time (UTC), so problems can be matched with the engine's own logs
 if(process.argv[2]!=='hash')for(const k of ['log','warn','error']){const f=console[k].bind(console);console[k]=(...a)=>f(new Date().toISOString().slice(0,19).replace('T',' '),...a)}
 const PORT=Number(env.UI_PORT)||4400;
@@ -108,13 +112,12 @@ const WA_CLOUD=new URL(env.HERMES_WA_CLOUD||'http://127.0.0.1:8090');   // the e
 const DASH_TOKEN=env.HERMES_DASHBOARD_SESSION_TOKEN||'';
 const API_KEY=env.API_SERVER_KEY||'';
 const PW_HASH=env.UI_PASSWORD_HASH||'';            // "scrypt:<salt hex>:<hash hex>"
-const SECRET=env.UI_SECRET||randomBytes(32).toString('hex');
+const SECRET=process.argv[2]==='hash'?'':uiSecret().secret;   // env UI_SECRET, else made once and kept in DATA/ui-secret (install.mjs)
 const SECURE_COOKIE=env.UI_INSECURE_COOKIE!=='1';
 const SESSION_DAYS=Number(env.UI_SESSION_DAYS)||30;
 // Usage: node app/server.mjs hash <password>  → prints a value for UI_PASSWORD_HASH
 if(process.argv[2]==='hash'){const salt=randomBytes(16);console.log('scrypt:'+salt.toString('hex')+':'+scryptSync(process.argv[3]||'',salt,64).toString('hex'));process.exit(0)}
 if(!PW_HASH)console.log('UI_PASSWORD_HASH is not set: the owner password is the one saved in the app (a new install asks for it on first open).');
-if(!env.UI_SECRET)console.warn('UI_SECRET is not set: sessions end when the server restarts.');
 
 const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.json':'application/json; charset=utf-8','.svg':'image/svg+xml','.woff2':'font/woff2','.png':'image/png','.ico':'image/x-icon','.webmanifest':'application/manifest+json'};
 const security={'x-content-type-options':'nosniff','referrer-policy':'same-origin','permissions-policy':'camera=(), geolocation=()','content-security-policy':"default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; media-src 'self' blob:; frame-src 'self' blob: "+N8N_URL+" http://127.0.0.1:4321 http://localhost:4321 https://"+CODE_HOST+" https://"+CODE_PREVIEW_HOST+"; frame-ancestors 'self' chrome-extension://jdfbikbihabglfkcckkmmfbmfdpifbgf; base-uri 'none'; form-action 'self'"};
@@ -267,8 +270,8 @@ const applyDefaults=()=>agentDefaults.all().then(n=>{if(n){console.log('agent de
 // about every minute: new agents (made any way) get the defaults, every agent gets the main agent's skills it lacks
 const defaultsTick=()=>agentDefaults.tick().then(n=>{if(n){console.log('agent defaults: new agent set up; restarting the agents when idle');restartGateway('new agent defaults').catch(()=>{})}}).catch(e=>console.warn('agent defaults tick:',e.message));
 // the tab an agent works in comes to the front of its screen (screen-follow.mjs)
-if(PORT===4400)startScreenFollow();
-if(PORT===4400){setTimeout(applyDefaults,60000);setInterval(applyDefaults,600000).unref();setTimeout(()=>{defaultsTick();setInterval(defaultsTick,60000).unref()},90000)}
+if(LIVE_APP)startScreenFollow();
+if(LIVE_APP){setTimeout(applyDefaults,60000);setInterval(applyDefaults,600000).unref();setTimeout(()=>{defaultsTick();setInterval(defaultsTick,60000).unref()},90000)}
 const mailer=createMail(DATA);
 const usage=createUsage(DASH.origin,DASH_TOKEN,DATA);
 const explain=createExplain(DATA,{python:enginePython,root});
@@ -293,14 +296,14 @@ const TEST_LIST=path.join(HERMES_HOME,'.aqeelos-test-agents');let testAgents={t:
 // n8n's restart reason names the agent as shown ("Mb-z4b1u"): a deploy check's throwaway agent restarts nothing (7 Nov 2026)
 const testAgentShown=why=>{const n=String(why).replace(/^n8n connected for /,'').toLowerCase();return [...testAgents.v].some(a=>a.toLowerCase()===n)||/^(mb|dp|pc|lk|sc|ms|nt|rl|ky|wd|wa|sh-[ab]|lt-sub|role-a|owner-test|creator-test|controls-check)-/.test(n)};
 const isTestAgent=async a=>{if(Date.now()-testAgents.t>20000)testAgents={t:Date.now(),v:new Set((await readFile(TEST_LIST,'utf8').catch(()=>'')).split('\n').filter(Boolean))};return testAgents.v.has(a)};
-const noteMade=n=>{madeHere.add(n);if(PORT!==4400)writeFile(TEST_LIST,n+'\n',{flag:'a'}).catch(()=>{})};
+const noteMade=n=>{madeHere.add(n);if(!LIVE_APP)writeFile(TEST_LIST,n+'\n',{flag:'a'}).catch(()=>{})};
 let notifyRun=null,notifyAgain=false;
 function syncNotifyTool(){if(notifyRun){notifyAgain=true;return notifyRun}
  notifyRun=(async()=>{do{notifyAgain=false;await syncNotifyOnce()}while(notifyAgain)})().finally(()=>{notifyRun=null});return notifyRun}
 async function syncNotifyOnce(){
  // through the engine's own MCP route, so the running engine picks the tool up (a config edit alone is not noticed)
  const mcp=(a,m,p,b)=>fetch(`${DASH.origin}/api/mcp/servers${p}?profile=${encodeURIComponent(a)}`,{method:m,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:b?JSON.stringify(b):undefined}).then(async r=>{if(!r.ok&&r.status!==404)throw new Error('MCP '+m+' '+r.status+' '+(await r.text().catch(()=>'')).slice(0,120))});
- for(const a of await listAllProfiles()){if(PORT!==4400&&!madeHere.has(a))continue;   // test agents get it too: they must be able to test my_settings/undo; alert-quiet keeps their alerts from the owner
+ for(const a of await listAllProfiles()){if(!LIVE_APP&&!madeHere.has(a))continue;   // test agents get it too: they must be able to test my_settings/undo; alert-quiet keeps their alerts from the owner
   try{const url=`http://127.0.0.1:${PORT}/mcp/notify/${a}/${relay.sig(a)}`;const cfg=()=>readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>'');
    // the code bridge (aqeelos-code) too, the same way (app/code-bridge.mjs)
    if(!(await cfg()).includes(codeBridge.url(a))&&await withAgent(a,async()=>codeBridge.ensure(a,await cfg(),mcp)).catch(e=>{console.warn('code bridge tool',a,e.message);return false}))console.log('code bridge tool set for',a);
@@ -432,15 +435,15 @@ async function freshSignins(){for(const [k,x] of [...signinsDue]){const tok=path
   if(st&&st.size>2&&(x.why==='not signed in'||st.mtimeMs>(x.last||0)+1000))signinsDue.delete(k)}}
 // every agent gets its own n8n user once n8n is connected (new agents within a few minutes); nothing happens before that
 async function n8nForAll(){if(!await n8n.ready())return;for(const a of await listAgents()){if(await isTestAgent(a))continue;try{await n8n.ensure(a)}catch(e){console.warn('n8n for',a,e.message)}}}
-if(PORT===4400){setTimeout(()=>n8nForAll().catch(()=>{}),90000);setInterval(()=>n8nForAll().catch(()=>{}),600000).unref()}
+if(LIVE_APP){setTimeout(()=>n8nForAll().catch(()=>{}),90000);setInterval(()=>n8nForAll().catch(()=>{}),600000).unref()}
 // decided 20 Oct (ABIL-64): apps added to an agent but never signed in to use their owner's sign-in. Done once; apps whose
 // owner isn't signed in either stay on the sign-in list.
 async function useOwnerSigninsOnce(){const flag=path.join(DATA,'once-owner-signins.json');if(await stat(flag).catch(()=>null))return;const l=await access.list('mcp').catch(()=>null);if(!l)return;const done=[];
  for(const x of [...signinsDue.values()]){if(x.why!=='not signed in')continue;const it=l.items.find(y=>y.id===x.name);const own=it&&it.owner!==x.agent&&(it.users||[]).find(u2=>u2.id===it.owner&&u2.signed);if(!own)continue;
   try{await access.grant('mcp',x.name,x.agent);done.push(x.name+' for '+(NAMES[x.agent]||x.agent))}catch(e){console.warn('owner sign-in',x.name,x.agent+':',e.message)}}
  await writeFile(flag,JSON.stringify({at:Date.now(),done},null,1));await freshSignins();console.log('used owners’ sign-ins:',done.join(', ')||'none')}
-if(PORT===4400){setTimeout(()=>checkSignins().then(()=>useOwnerSigninsOnce()).catch(()=>{}),120000);setInterval(()=>checkSignins().catch(()=>{}),3*3600e3).unref()}
-if(PORT===4400){setTimeout(()=>writeAgentContext().catch(()=>{}),25000);setInterval(()=>writeAgentContext().catch(()=>{}),600000).unref()}
+if(LIVE_APP){setTimeout(()=>checkSignins().then(()=>useOwnerSigninsOnce()).catch(()=>{}),120000);setInterval(()=>checkSignins().catch(()=>{}),3*3600e3).unref()}
+if(LIVE_APP){setTimeout(()=>writeAgentContext().catch(()=>{}),25000);setInterval(()=>writeAgentContext().catch(()=>{}),600000).unref()}
 /* Slack: every agent with its own Slack bot answers in any channel it is invited to (private ones too) when a team
    member mentions it, except quiet channels (a name prefix set under Channels, e.g. ext- for client channels), which stay
    silent. A new install has none; an install that silenced ext- channels before keeps that. Once per agent, a fixed channel list
@@ -465,7 +468,7 @@ async function slackClientChannels(){const st=await getStatus().catch(()=>({}));
   if(!marked)await setStatus(a,{slackOpen:Date.now()});
   console.log('slack:',a,marked?'quiet channels kept silent: '+add.map(c=>'#'+c.name).join(', '):'answers in every channel it is invited to; client channels stay silent');
   restartGateway('Slack channel settings updated for '+a).catch(()=>{})}catch(e){console.warn('slack channels',a,e.message)}}}
-if(PORT===4400){setTimeout(()=>slackClientChannels(),60000).unref();setInterval(()=>slackClientChannels(),900000).unref()}
+if(LIVE_APP){setTimeout(()=>slackClientChannels(),60000).unref();setInterval(()=>slackClientChannels(),900000).unref()}
 /* Dictation spells your names right: the speech model gets the names it should expect (agents, schedule folders,
    the app itself), kept up to date as they change. */
 async function sttVocab(){try{const names=new Set(['aqeelOS']);for(const a of await listAgents())names.add(NAMES[a]||a);
@@ -473,7 +476,7 @@ async function sttVocab(){try{const names=new Set(['aqeelOS']);for(const a of aw
   const want='Names that may come up, '+[...names].filter(Boolean).join(', ')+'.';
   const cur=pick(await readConfig('default')||{},'stt.local.initial_prompt');if(cur===want)return;
   const r=await setKey('default','stt.local.initial_prompt',want);if(r.ok)console.log('dictation knows these names now:',[...names].join(', '))}catch(e){console.warn('dictation names',e.message)}}
-if(PORT===4400){setTimeout(()=>sttVocab(),90000).unref();setInterval(()=>sttVocab(),3600e3).unref()}
+if(LIVE_APP){setTimeout(()=>sttVocab(),90000).unref();setInterval(()=>sttVocab(),3600e3).unref()}
 /* Agent health: every agent (new ones right after they are made, all of them every 5 minutes) gets what it
    needs to work without anyone fixing it: the full setup (each step skipped when already right), the chat
    hint, its screen settings, the public sign-in return address on every sign-in (OAuth) tool, the engine's
@@ -527,7 +530,7 @@ async function loopGuard(a,all){if(a.split('--')[0]==='default')return;const hom
  if(removed.length){platCache.delete(a);console.log('loop guard:',a,'no longer answers other agents\' WhatsApp numbers:',removed.join(', '))}}
 async function agentHealth(only){const h={'x-hermes-session-token':DASH_TOKEN};const st=await getStatus();await users.load();
  for(const a of only?[only]:await listAllProfiles()){try{
-  if(!await isAgent(a)||(PORT===4400&&!only&&await isTestAgent(a)))continue;const copy=a.includes('--');
+  if(!await isAgent(a)||(LIVE_APP&&!only&&await isTestAgent(a)))continue;const copy=a.includes('--');
   // a failing setup is tried again every 15 minutes (a plugin enable is slow and builds an engine environment)
   if(a!=='default'&&!copy&&setupAgentFn){const s=st[a];if(only||!s||Date.now()-(s.t||0)>(s.ok?24*60:15)*60e3)await setupAgentFn(a).catch(e=>console.warn('setup',a,e.message))}
   if(copy&&API_KEY){const envF=path.join(HERMES_HOME,'profiles',a,'.env');
@@ -590,7 +593,7 @@ function restartGateway(why,{wait=true,waitMax=360,auto=false,bridges=false,rest
  // restore starts the agents itself when it is done (busy.mjs)
  if(!mayStartAgents({restoring:restoreBusy(),forRestore:restore})){console.log('gateway restart left for after the restore:',why);return Promise.resolve()}
  if(gwRestarting){if(!gwRun.started&&!(bridges&&gwRun.bridgesDone)){gwRun.bridges||=bridges;return gwRestarting}
-  gwAgain={why:gwAgain?.why||why,bridges:!!(gwAgain?.bridges||bridges)};return gwRestarting.then(()=>{if(!gwAgain)return gwRestarting||undefined;const a=gwAgain;gwAgain=null;return restartGateway(a.why,{bridges:a.bridges})})}if(auto){autoRestarts=autoRestarts.filter(t=>Date.now()-t<30*60e3);if(autoRestarts.length>=3){if(Date.now()-(globalThis.__rf||0)>30*60e3){globalThis.__rf=Date.now();noteSys('restart-failed','The engine kept stopping, so it was left off. Open System › Host and press Start.')}return Promise.resolve()}autoRestarts.push(Date.now())}if(PORT!==4400){console.log('gateway restart skipped (test copy):',why);return Promise.resolve()}
+  gwAgain={why:gwAgain?.why||why,bridges:!!(gwAgain?.bridges||bridges)};return gwRestarting.then(()=>{if(!gwAgain)return gwRestarting||undefined;const a=gwAgain;gwAgain=null;return restartGateway(a.why,{bridges:a.bridges})})}if(auto){autoRestarts=autoRestarts.filter(t=>Date.now()-t<30*60e3);if(autoRestarts.length>=3){if(Date.now()-(globalThis.__rf||0)>30*60e3){globalThis.__rf=Date.now();noteSys('restart-failed','The engine kept stopping, so it was left off. Open System › Host and press Start.')}return Promise.resolve()}autoRestarts.push(Date.now())}if(!LIVE_APP){console.log('gateway restart skipped (test copy):',why);return Promise.resolve()}
  const run=gwRun={bridges,stopping:false};gwRestarting=(async()=>{if(wait){let said=false;for(let i=0;i<waitMax&&(liveCount()>0||await engineAgents()>0);i++){if(!said&&i===12){said=true;console.log('gateway restart: still waiting for',Math.max(liveCount(),engAgents.n),'agent(s) at work:',why);
    // no new scheduled runs meanwhile (engine fix aqeelos:hold-cron-for-restart), so the agents at work finish and none start: the quiet moment comes
    await writeFile(path.join(HERMES_HOME,'aqeelos-hold-cron'),JSON.stringify({why,at:Date.now()})).catch(()=>{})}await new Promise(r=>setTimeout(r,5000))}
@@ -621,7 +624,7 @@ async function gatewayWatch(){if(gwStopped||gwRestarting)return;
  const log=(await shx('tail -400 ~/.hermes/logs/agent.log')).out.split('\n').filter(l=>/ClaudeCodeLoggedOut|no usable login/.test(l));
  const bad=log.some(l=>{const t=Date.parse(l.slice(0,19).replace(' ','T')+'Z');return t&&t>since+5000&&Date.now()-t<10*60e3});
  if(bad){console.warn('gateway watch: the gateway the engine started cannot reach Claude; restarting it properly');return restartGateway('gateway outside its session cannot reach Claude',{auto:true})}}
-if(PORT===4400){setInterval(()=>gatewayWatch().catch(()=>{}),60000).unref()}
+if(LIVE_APP){setInterval(()=>gatewayWatch().catch(()=>{}),60000).unref()}
 /* After an engine update (from the app or by itself), the renames are applied again and, once nothing is in
    progress, the engine restarts once so people see aqeelOS again in channel messages, prompts and errors. */
 const engineHead={v:null,t:0};
@@ -636,13 +639,13 @@ async function enginePatches(){const h=String((await shx('git -C ~/.hermes/herme
  const n=Number((/(\d+) change\(s\)/.exec(out)||[])[1]||0);console.log('engine patches after update:',n,'change(s)');return n}
 // an engine update starts from the engine's own files (see /hapi/hermes/update)
 async function engineReset(){const r=await shx('git -C ~/.hermes/hermes-agent checkout -- . 2>&1');console.log('engine update: renamed files reset first',r.ok?'':'('+String(r.out||'').slice(0,120)+')');engineHead.v=null}
-if(PORT===4400){setInterval(()=>engineWatch().catch(()=>{}),5*60000).unref();setTimeout(()=>engineWatch().catch(()=>{}),20000).unref()}
+if(LIVE_APP){setInterval(()=>engineWatch().catch(()=>{}),5*60000).unref();setTimeout(()=>engineWatch().catch(()=>{}),20000).unref()}
 // tabs agents left open: closed after 3 idle hours, every hour (app/browser-tidy.mjs)
 {const {createBrowserTidy}=await import('./browser-tidy.mjs');
  const tidy=createBrowserTidy({lastActive:async a=>{const r=await fetch(DASH.origin+'/api/sessions?limit=5&profile='+encodeURIComponent(a),{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(20000)});if(!r.ok)return null;
    const l=(await r.json())?.sessions||[];return l.length?Math.max(...l.map(x=>Math.max(Number(x.last_active)||0,Number(x.started_at)||0)))*1000:0}});
  // every 15 minutes: an agent's extra tabs go once it has been quiet 10 minutes, so a busy agent gets a chance often enough
-if(PORT===4400){setInterval(()=>tidy.tick().catch(e=>console.warn('browser tidy',e.message)),15*60e3).unref();setTimeout(()=>tidy.tick().catch(()=>{}),10*60e3).unref()}}
+if(LIVE_APP){setInterval(()=>tidy.tick().catch(e=>console.warn('browser tidy',e.message)),15*60e3).unref();setTimeout(()=>tidy.tick().catch(()=>{}),10*60e3).unref()}}
 /* Memory guard. The AI box has a fixed memory limit; when it runs full, the engine or the dashboard is killed.
    Every 2 minutes: above 80% the bell's list says so (once an hour); above 90%, with no reply, schedule, setup or relay in
    progress, the AdsPower browsers are closed (AdsPower itself stays open and a browser reopens when an agent needs it).
@@ -658,29 +661,29 @@ async function memGuard(){const {used,max}=await memNow();if(!max)return;const p
  const act=await fetch('http://127.0.0.1:50325/api/v1/browser/local-active',{headers:h,signal:AbortSignal.timeout(5000)}).then(r=>r.json()).catch(()=>null);const list=act?.data?.list||[];let n=0;
  for(const b of list){const id=b.user_id||b.profile_id;if(!id)continue;const r=await fetch('http://127.0.0.1:50325/api/v1/browser/stop?user_id='+encodeURIComponent(id),{headers:h,signal:AbortSignal.timeout(8000)}).then(r=>r.json()).catch(()=>null);if(r?.code===0)n++}
  if(n)memActed=Date.now();if(n){console.warn('memory guard: memory at',Math.round(pct*100)+'%, closed',n,'AdsPower browser(s)');noteSys('memory-freed','RAM was almost full, so '+n+' AdsPower browser'+(n>1?'s were':' was')+' closed. They reopen when an agent needs them.')}}
-if(PORT===4400)setInterval(()=>memGuard().catch(e=>console.warn('memory guard',e.message)),120000).unref();
+if(LIVE_APP)setInterval(()=>memGuard().catch(e=>console.warn('memory guard',e.message)),120000).unref();
 // the dashboard (settings, channels, sign-ins, dictation) can be killed when the box runs out of memory: if it does
 // not answer twice in a row, it is started again (in its managed session, like the engine)
 let dashMissing=0,dashRestarted=0,dashTries=0,dashStopped=false;   // dashStopped: a restore stopped it on purpose
-if(PORT===4400)setInterval(async()=>{if(dashStopped)return;const ok=await fetch(DASH.origin+'/api/status',{signal:AbortSignal.timeout(8000)}).then(r=>r.status<500,()=>false);
+if(LIVE_APP)setInterval(async()=>{if(dashStopped)return;const ok=await fetch(DASH.origin+'/api/status',{signal:AbortSignal.timeout(8000)}).then(r=>r.status<500,()=>false);
  if(ok){dashMissing=0;dashTries=0;return}if(Date.now()-dashRestarted<Math.min(60,5*2**dashTries)*60e3)return;if(++dashMissing<2)return;dashMissing=0;dashRestarted=Date.now();dashTries++;console.warn('dashboard watch: the dashboard stopped answering; starting it again');
  await shx('tmux kill-session -t dashboard 2>/dev/null; ~/services.sh >/dev/null 2>&1')},60000).unref();
-// only the live app (port 4400) sets agents' tools; a test copy on another port must not repoint them
-if(PORT===4400){setTimeout(()=>agentHealth().catch(()=>{}),30000);setInterval(()=>agentHealth().catch(()=>{}),300000).unref()}
-if(PORT===4400){setTimeout(()=>syncNotifyTool().catch(e=>console.warn('notify tool',e.message)),20000);setInterval(()=>syncNotifyTool().catch(()=>{}),600000).unref()}
+// only the live app (isLive, install.mjs) sets agents' tools; a test copy on another port must not repoint them
+if(LIVE_APP){setTimeout(()=>agentHealth().catch(()=>{}),30000);setInterval(()=>agentHealth().catch(()=>{}),300000).unref()}
+if(LIVE_APP){setTimeout(()=>syncNotifyTool().catch(e=>console.warn('notify tool',e.message)),20000);setInterval(()=>syncNotifyTool().catch(()=>{}),600000).unref()}
 // old engine environments (each plugin enable builds one, ~400 MB): the engine's own cleanup once a day; it keeps the one in use, any still held, and any less than a day old
-if(PORT===4400){const gc=()=>shx('timeout 900 hermes pm gc >/dev/null 2>&1').catch(()=>{});setTimeout(gc,30*60e3).unref();setInterval(gc,24*3600e3).unref()}
+if(LIVE_APP){const gc=()=>shx('timeout 900 hermes pm gc >/dev/null 2>&1').catch(()=>{});setTimeout(gc,30*60e3).unref();setInterval(gc,24*3600e3).unref()}
 // leftovers of deleted agents: a folder with only logs/ (a command still ran during the delete) is removed
 const sweepGhosts=async()=>{for(const d of await readdir(path.join(HERMES_HOME,'profiles'),{withFileTypes:true}).catch(()=>[])){if(!d.isDirectory()||d.name.startsWith('.'))continue;
  const dir=path.join(HERMES_HOME,'profiles',d.name);if(await isAgent(d.name))continue;const st=await stat(dir).catch(()=>null);const inside=await readdir(dir).catch(()=>['?']);
  if(st&&Date.now()-st.mtimeMs>10*60e3&&inside.every(x=>['logs','plugin-update-checks','cache','sandboxes','plugins'].includes(x))){const {rm}=await import('node:fs/promises');await rm(dir,{recursive:true,force:true}).catch(()=>{});console.log('removed the leftover folder of deleted agent',d.name)}}};
-if(PORT===4400){setTimeout(()=>sweepGhosts().catch(()=>{}),40000);setInterval(()=>sweepGhosts().catch(()=>{}),30*60e3).unref()}
+if(LIVE_APP){setTimeout(()=>sweepGhosts().catch(()=>{}),40000);setInterval(()=>sweepGhosts().catch(()=>{}),30*60e3).unref()}
 const sharing=createShare({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAgents()});
 // every sign-in-page app any agent has, on every agent, not signed in (connectors.mjs): each signs in its own or the owner shares
 const connectors=createConnectors({listAgents:()=>listAgents(),readConfig,setKey,redirect:n=>MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(n),
  hasEnv:async(a,v)=>new RegExp('^'+v.replace(/[^\w]/g,'')+'=.+','m').test(await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'.env'),'utf8').catch(()=>'')),
  noteApp:(a,n,r)=>whyOf.noteApp(a,n,r),origin:(a,n,u)=>whyOf.app(a,n,u),eligible:async(a,c)=>!await isTestAgent(a)&&!!c?.mcp_servers?.['aqeelos-notify'],log:(...x)=>console.log(...x)});
-if(PORT===4400){const run=()=>connectors.ensureAll().then(r=>{if(r.changed)console.log('connectors added (apply at the next agent restart):',r.added.join(', '))}).catch(e=>console.warn('connectors',e.message));setTimeout(run,100000);setInterval(run,600000).unref()}
+if(LIVE_APP){const run=()=>connectors.ensureAll().then(r=>{if(r.changed)console.log('connectors added (apply at the next agent restart):',r.added.join(', '))}).catch(e=>console.warn('connectors',e.message));setTimeout(run,100000);setInterval(run,600000).unref()}
 const channels=createChannels({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAllProfiles(),cached:a=>platformsCached(a),restart:why=>restartGateway(why),paused:()=>pausedLoad(),pendingOf:(a,id)=>id==='whatsapp'?waSettingsPending(a):false,stop:a=>stopBridges(a),
  // after a move: a pause, the sharing, schedules relayed through it and its note follow the channel to its new agent
  moved:async(pf,from,to)=>{const ps=await pausedLoad();if(ps[from+'|'+pf]||ps[to+'|'+pf]){delete ps[from+'|'+pf];delete ps[to+'|'+pf];await pausedSave(ps)}
@@ -728,8 +731,8 @@ if(LIVE_APP){const HB=path.join(DATA,'heartbeat.json');readFile(HB,'utf8').then(
  const gap=Date.now()-last;if(!last||gap<5*60e3)return;setTimeout(async()=>{try{const ch=await relay.channelsFor('default');const c=ch.find(x=>x.platform==='whatsapp')||ch[0];if(!c)return;
   const at=t=>new Date(t).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',timeZone:tzNow}),mins=Math.round(gap/60000);
   // it started again by itself, so a short break is not something to act on (31 Oct 2026); an hour or more is shown
-  await bottlenecks.event('down','aqeelOS was off for '+mins+' min','From about '+at(last)+' to '+at(Date.now())+' (Jakarta time). Everything started again by itself. If it happens often, check the server at your hosting provider.',{info:mins<60}).catch(()=>{});
-  await relay.sendAs('default',c.owner,c.platform,'aqeelOS was off from about '+at(last)+' to '+at(Date.now())+' (Jakarta time, '+mins+' min). It is running again.',null,{toYou:true});console.log('told the owner about '+mins+' min off')}catch(e){console.warn('downtime note:',e.message)}},120000).unref()})}
+  await bottlenecks.event('down','aqeelOS was off for '+mins+' min','From about '+at(last)+' to '+at(Date.now())+' ('+zoneName(tzNow)+' time). Everything started again by itself. If it happens often, check the server at your hosting provider.',{info:mins<60}).catch(()=>{});
+  await relay.sendAs('default',c.owner,c.platform,'aqeelOS was off from about '+at(last)+' to '+at(Date.now())+' ('+zoneName(tzNow)+' time, '+mins+' min). It is running again.',null,{toYou:true});console.log('told the owner about '+mins+' min off')}catch(e){console.warn('downtime note:',e.message)}},120000).unref()})}
 const brand=createBrand({DATA,contactFallback:OWNER_CONTACT});
 const backups=createBackups({DATA,HOME:homedir(),HERMES_HOME,tz:()=>tzNow,notify:(t,d)=>bottlenecks.event('backup',t,d+' Open System › Health to try again.',{topic:'backup'}).catch(()=>{}),solved:()=>bottlenecks.resolve('backup').catch(()=>{}),
  restored:(ok,text,detail)=>(ok?bottlenecks.resolve('restore').then(()=>bottlenecks.event('backup',text,detail,{info:true})):bottlenecks.event('backup',text,detail,{topic:'restore'})).catch(()=>{}),   // done: the bell; failed: Bottlenecks
@@ -739,8 +742,11 @@ const backups=createBackups({DATA,HOME:homedir(),HERMES_HOME,tz:()=>tzNow,notify
   gwStopped=true;dashStopped=true;await shx(stopGatewayCmd({dashboard:true,yes:false}),stopTimeoutMs());
   for(let i=0;i<30&&await fetch(DASH.origin+'/api/status',{signal:AbortSignal.timeout(2000)}).then(()=>true,()=>false);i++)await new Promise(r=>setTimeout(r,1000));
   if(await fetch(DASH.origin+'/api/status',{signal:AbortSignal.timeout(2000)}).then(()=>true,()=>false))throw Error('the engine dashboard still answers after 30 s')},
- startEngine:async()=>{dashStopped=false;gwStopped=false;await restartGateway('agents restored from a backup',{wait:false,bridges:true,restore:true})}});restoreBusy=()=>backups.busy();if(PORT===4400)backups.schedule();
-const live=createLive({DATA,DOMAIN:env.LIVE_DOMAIN||'app.localhost'});
+ startEngine:async()=>{dashStopped=false;gwStopped=false;await restartGateway('agents restored from a backup',{wait:false,bridges:true,restore:true})}});restoreBusy=()=>backups.busy();if(LIVE_APP)backups.schedule();
+const live=createLive({DATA,DOMAIN:hostSetting('liveDomain')});
+// This install's own settings (System › Settings): Your address, time zone, hosts, agent users, Claude sign-in (install-routes.mjs)
+const install=createInstallRoutes({send,readBody,isAdmin:u=>users.isAdmin(u),listAgents:()=>listAgents(),readConfig,setKey,hermes:hcmd,claudeOn:async()=>(pick(await readConfig('default')||{},'plugins.enabled')||[]).includes('claude-subscription-directsdk-experimental'),onTz:z=>{tzNow=z;SR_TZ=z}});
+if(LIVE_APP){setTimeout(()=>install.tick(),120000).unref();setInterval(()=>install.tick(),15*60e3).unref()}
 // two places for what aqeelOS tells (1 Nov 2026): Bottlenecks is the to-do list (needs someone), the bell's list (news.mjs)
 // the history (done, fixed, works again). Every event goes to one of them, never both: info:true means the bell
 const news=createNews({DATA});
@@ -768,19 +774,19 @@ async function toOwner(text){return ownerSend(text,'whatsapp')}
 const alertQuiet=createQuiet({DATA,HERMES_HOME});
 const guard=createAutomationGuard({DATA,HERMES_HOME,LIVE:LIVE_APP,quiet:alertQuiet,readConfig,withAgent,setKey,listAgents:()=>agentNames({copies:true}),nameOf:a=>a.includes('--')?(NAMES[a.split('--')[0]]||a.split('--')[0])+' (extra number)':NAMES[a]||(a==='default'?'aqeelOS':a),
  dash:(method,p,body)=>fetch(DASH.origin+p,{method,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:body&&method!=='GET'&&method!=='DELETE'?JSON.stringify(body):undefined,signal:AbortSignal.timeout(90000)}).then(async r=>({ok:r.ok,status:r.status,j:await r.json().catch(()=>({}))})),
- busy:()=>liveCount()+engAgents.n,paused:()=>guardPaused({engineUpdate:engineUpd.busy(),gwRestarting:!!gwRestarting,restore:backups.busy()}),zone:async()=>(await readConfig('default').catch(()=>null))?.timezone||sysTz(),isDaytime:dayNow,localDate:(ms,tz)=>localAt(ms,tz).date,
+ busy:()=>liveCount()+engAgents.n,paused:()=>guardPaused({engineUpdate:engineUpd.busy(),gwRestarting:!!gwRestarting,restore:backups.busy()}),zone:async()=>installTz()||(await readConfig('default').catch(()=>null))?.timezone||sysTz(),isDaytime:dayNow,localDate:(ms,tz)=>localAt(ms,tz).date,
  tell:async(text,{detail,whatsapp,bell=true,topic,info,resolve}={})=>{if(resolve)await bottlenecks.resolve(resolve).catch(()=>{});if(!text)return;if(bell)await bottlenecks.event('automations',text,detail||'',{topic,info,told:!!whatsapp}).catch(()=>{});if(whatsapp)await toOwner(text+(detail?'\n'+detail:''))}});
 /* Backup models (backup-models.mjs, 30 Oct 2026): every agent's engine backup list from the Models page order, and the
    outage switch when one provider keeps failing replies (agents move to their first backup and back once it works).
    Its alerts go the way the automations guard's do: Bottlenecks (or the bell's list once it is automatic or over) and WhatsApp. Only the live app writes and moves agents
    (a copy on another port with its own engine home may, for testing: BACKUP_MODELS_TEST=1). */
-let tzNow=sysTz();
+let tzNow=applyTz()||sysTz();   // the install's own time zone (System › Settings) wins over the engine's
 // the engine's configured time zone is the whole app's zone (posting limits, backups, notices): read at start and every
 // 10 minutes; a box without one uses its system zone (7 Nov 2026: Asia/Jakarta was written in the code)
-{const zt=()=>readConfig('default').then(c=>{const z=String(c?.timezone||'');if(z&&z!==process.env.TZ){try{new Intl.DateTimeFormat('en',{timeZone:z});process.env.TZ=z;tzNow=z}catch{}}}).catch(()=>{});zt();setInterval(zt,600e3).unref()}
+{const zt=()=>readConfig('default').then(c=>{const z=installTz()||String(c?.timezone||'');if(z&&z!==process.env.TZ){try{new Intl.DateTimeFormat('en',{timeZone:z});process.env.TZ=z;tzNow=z}catch{}}}).catch(()=>{});zt();setInterval(zt,600e3).unref()}
 const bmTest=!LIVE_APP&&env.BACKUP_MODELS_TEST==='1'&&path.resolve(HERMES_HOME)!==path.join(homedir(),'.hermes');
 const backupModels=createBackupModels({DATA,HERMES_HOME,live:LIVE_APP||bmTest,...(bmTest&&env.BACKUP_MODELS_RULES?{R:{...BM_RULES,...JSON.parse(env.BACKUP_MODELS_RULES)}}:{}),   // a test copy may shorten the times
- agents:async()=>{const l=await agentNames({copies:true});if(await isAgent(HELP_AGENT))l.push(HELP_AGENT);return l},acc:accountsApi.backup,readConfig,setKey,ready:async()=>{await users.load();const c=await readConfig('default').catch(()=>null);if(c?.timezone)tzNow=c.timezone},
+ agents:async()=>{const l=await agentNames({copies:true});if(await isAgent(HELP_AGENT))l.push(HELP_AGENT);return l},acc:accountsApi.backup,readConfig,setKey,ready:async()=>{await users.load();const c=await readConfig('default').catch(()=>null);const z=installTz()||c?.timezone;if(z)tzNow=z},
  // an agent a member owns gets only backups that member's role allows (people's "models", users.mjs)
  modelOk:(a,p,m)=>{const o=users.byId(users.agentOwner(String(a).split('--')[0]));return !o||users.modelOk(o,p,m)},
  probe:engineProbe({python:enginePython,root,engine:path.join(HERMES_HOME,'hermes-agent')}),nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a),clock:ms=>clockAt(ms,tzNow),
@@ -890,7 +896,7 @@ async function memberAgent(u,name){
    Keep each agent's answer for 15 s, share one request between everyone asking at once, and forget it as
    soon as a channel setting changes. */
 // where MCP sign-ins come back: the public site (the engine is told this, see ensurePublicUrl)
-const MCP_OAUTH_BASE=PUBLIC_URL+'/mcp-oauth';
+const MCP_OAUTH_BASE=urlRef('/mcp-oauth');   // follows Your address
 // where each service keeps its redirect URLs, so the steps an agent gives are exact
 const APP_SETTINGS={slack:['Slack','api.slack.com/apps → your app → OAuth & Permissions → Redirect URLs → Add New Redirect URL','Save URLs'],
  google:['Google','console.cloud.google.com/apis/credentials → your OAuth client (Web application) → Authorized redirect URIs → Add URI','Save'],
@@ -945,8 +951,8 @@ const hapiLists=swr({fresh:20000});
 // the slow status reads are read once soon after start (read-only), so even the first page that asks answers from them
 setTimeout(()=>{channelList(false).catch(()=>{});antigravity.status().catch(()=>{});n8n.spaces().catch(()=>{})},15000).unref();
 // System › Usage's engine reports (last 7 days, and the 62 the Spending overview needs) for every agent, once after start, so
-// even the first visit answers at once; after that each visit refreshes them behind the scenes (usage.mjs, 1 Nov 2026). Only the live app (port 4400): a test copy reads nothing it is not asked for
-if(PORT===4400)setTimeout(async()=>{for(const a of [...await listAgents().catch(()=>[]),HELP_AGENT])for(const [k,d] of [['usage',7],['usage',62],['models',7]])usage.report(k,a,d).catch(()=>{})},25000).unref();
+// even the first visit answers at once; after that each visit refreshes them behind the scenes (usage.mjs, 1 Nov 2026). Only the live app (isLive): a test copy reads nothing it is not asked for
+if(LIVE_APP)setTimeout(async()=>{for(const a of [...await listAgents().catch(()=>[]),HELP_AGENT])for(const [k,d] of [['usage',7],['usage',62],['models',7]])usage.report(k,a,d).catch(()=>{})},25000).unref();
 /* The engine reports WhatsApp on any agent but the main one as "not set up", even when linked and connected (its
    check needs env keys WhatsApp doesn't have). The truth: switched on + a saved login (creds.json) = set up, and the
    live state the gateway records for "<agent>:whatsapp". */
@@ -1156,7 +1162,7 @@ async function channelAttention(fresh){if(!fresh&&Date.now()-attention.t<10*60e3
  const before=new Map(attention.list.map(x=>[x.agent+'|'+x.id,x]));
  for(const x of list)if(!before.has(x.agent+'|'+x.id))console.warn('channel check:',x.name,'on',x.agent,x.needs_link?'is logged out':'is '+x.state);
  attention={t:Date.now(),list};return list}
-if(PORT===4400){setTimeout(()=>channelAttention(true).catch(()=>{}),90e3);setInterval(()=>channelAttention(true).catch(()=>{}),2*3600e3).unref()}
+if(LIVE_APP){setTimeout(()=>channelAttention(true).catch(()=>{}),90e3);setInterval(()=>channelAttention(true).catch(()=>{}),2*3600e3).unref()}
 /* WhatsApp that stays connected. Every 10 minutes (live app) a linked number that dropped is reconnected on its own,
    with its saved login (no new QR): only that number's connection restarts, never the engine. The main agent's own
    channels live inside the engine, so those are only reported (a pop-up and Bottlenecks say so). A number is tried at
@@ -1189,7 +1195,7 @@ async function waBackup(){const {execFile}=await import('node:child_process');co
   try{JSON.parse(await readFile(path.join(dir,'creds.json'),'utf8'))}catch{continue}
   const ok=await new Promise(r=>execFile('tar',['-czf',f,'-C',dir,'.'],{timeout:120000},e=>r(!e)));if(!ok){await unlink(f).catch(()=>{});continue}
   const old=(await readdir(to)).filter(x=>/^\d{4}-\d\d-\d\d\.tgz$/.test(x)).sort().slice(0,-3);for(const x of old)await unlink(path.join(to,x)).catch(()=>{});console.log('whatsapp login backed up for',a)}}
-if(PORT===4400){setInterval(()=>waGuard().catch(e=>console.warn('whatsapp guard',e.message)),10*60e3).unref();setTimeout(()=>waBackup().catch(()=>{}),5*60e3).unref();setInterval(()=>waBackup().catch(()=>{}),6*3600e3).unref()}
+if(LIVE_APP){setInterval(()=>waGuard().catch(e=>console.warn('whatsapp guard',e.message)),10*60e3).unref();setTimeout(()=>waBackup().catch(()=>{}),5*60e3).unref();setInterval(()=>waBackup().catch(()=>{}),6*3600e3).unref()}
 /* Secrets the agent asks for (ask_secret): the person types them into a protected field in the chat, and the value
    goes straight where it is needed (typed into the agent's screen, or saved as a key). It never enters the
    conversation, the logs or the agent's context. A request waits about 4½ minutes (the engine gives a tool call 5). */
@@ -1214,7 +1220,7 @@ async function useSecret(rec,value,{admin=false}={}){
    WhatsApp; the person opens it on their phone, outside aqeelOS, and the value is saved like ask_secret's "save" (never as
    an admin, so the keys that wire aqeelOS stay out of reach). The page (/secret) is public: the token after # is the credential. */
 const secretLinks=createSecretLinks({DATA,PUBLIC_URL,save:(base,name,value)=>saveSecret(base,name,value),reserved:n=>RESERVED_KEY.test(n),
- isAgent:async a=>a!==HELP_AGENT&&!a.includes('--')&&await isAgent(a)&&!(PORT===4400&&await isTestAgent(a)),nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a[0].toUpperCase()+a.slice(1)),
+ isAgent:async a=>a!==HELP_AGENT&&!a.includes('--')&&await isAgent(a)&&!(LIVE_APP&&await isTestAgent(a)),nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a[0].toUpperCase()+a.slice(1)),
  exists:async(base,name)=>!!await stat(path.join(secretDir(base),name)).catch(()=>null)||(await readFile(path.join(base==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',base),'.env'),'utf8').catch(()=>'')).split('\n').some(l=>l.replace(/^\s*export\s+/,'').startsWith(name+'=')),
  tell:(text,detail)=>bottlenecks.event('secrets',text,detail,{info:true})});
 const secretHits=createLimiter(30,600e3);
@@ -1222,7 +1228,7 @@ const secretHits=createLimiter(30,600e3);
 // WhatsApp channel. Replaces the bridge script; live box only
 // Team group per agent (team-group.mjs, brief item 8): Telegram group and topics; every change is shown in the bell
 const teamGroups=createTeamGroups({DATA,tell:async(a,before,g)=>{const t=x=>x?.chatId?(x.name||x.chatId)+' · '+TEAM_ROLES.map(([k,l])=>l+' '+(x.topics?.[k]??'-')).join(', '):'none';
- await bottlenecks.event('team-group',(NAMES[a]||a)+'’s team group changed','By '+(g.by||'?')+'.\nBefore: '+t(before)+'\nNow: '+t(g),{info:true}).catch(()=>{});if(PORT===4400)writeAgentContext().catch(()=>{})}});
+ await bottlenecks.event('team-group',(NAMES[a]||a)+'’s team group changed','By '+(g.by||'?')+'.\nBefore: '+t(before)+'\nNow: '+t(g),{info:true}).catch(()=>{});if(LIVE_APP)writeAgentContext().catch(()=>{})}});
 const kirimdev=createKirimdev({DATA,WORK:path.join(homedir(),'workspaces'),PUBLIC_URL,log:m=>console.log(m),teamGroup:a=>teamGroups.get(a),
  problem:(a,topic,title,detail)=>health.problem(a,String(topic).startsWith('kirimdev|')?'kirimdev':'handoff',title,{topic,fix:detail}),solved:(a,topic)=>health.ok(a,topic),
  // a new API key (checked with Kirimdev first): aqeelOS's copy, and the copy in each line's workspace that its scripts use
@@ -1286,7 +1292,7 @@ if(LIVE_APP){setTimeout(()=>postingLimits.ensure().catch(e=>console.warn('postin
    (aqeelos-self, one signed address per agent, from this box only), given to every agent with its own Linux user. The
    agent is the one in the signed address, never one it names; who asked is read from the chat the call is in. Settings,
    trusted people, the audit and Stop/Resume are on Automations › Runs itself. */
-let SR_TZ=sysTz();const srTz=()=>readConfig('default').then(c=>{if(c?.timezone)SR_TZ=c.timezone}).catch(()=>{});srTz();setInterval(srTz,600e3).unref();
+let SR_TZ=sysTz();const srTz=()=>readConfig('default').then(c=>{const z=installTz()||c?.timezone;if(z)SR_TZ=z}).catch(()=>{});srTz();setInterval(srTz,600e3).unref();
 const srName=a=>NAMES[a]||(a==='default'?'aqeelOS':a[0].toUpperCase()+a.slice(1));
 const srBox=createSelfRunsBox({HERMES_HOME,DATA,python:enginePython});
 const srSig=a=>sign('self-runs:'+a).slice(0,32),srUrl=a=>`http://127.0.0.1:${PORT}/mcp/self/${a}/${srSig(a)}`;
@@ -1335,7 +1341,7 @@ async function replyInTopic(i,text){const b=i.by||{};if(!b.chat||!['telegram','w
 const PRESS_KEY_FILE=path.join(HERMES_HOME,'secrets','issue-press.key');let PRESS_KEY=null;
 const pressKey=async()=>{if(PRESS_KEY)return PRESS_KEY;PRESS_KEY=(await readFile(PRESS_KEY_FILE,'utf8').catch(()=>'')).trim();
  if(!PRESS_KEY){PRESS_KEY=randomBytes(24).toString('hex');await mkdir(path.dirname(PRESS_KEY_FILE),{recursive:true,mode:0o700});await writeFile(PRESS_KEY_FILE,PRESS_KEY,{mode:0o600})}return PRESS_KEY};
-if(PORT===4400)pressKey().catch(e=>console.warn('issue buttons: key',e.message));
+if(LIVE_APP)pressKey().catch(e=>console.warn('issue buttons: key',e.message));
 /* The fixer loop's hooks (issues.mjs, 7 Nov 2026). busyNow = what /healthz reports as busy; a reload only happens at 0.
    A "needs a human" or "stuck" message to a team member goes to the agent's team group (Questions topic, else its own
    topic) with the member named; false when the agent has no team group, so the owner gets it instead. */
@@ -1401,8 +1407,8 @@ async function originOf(agent,tool='report_bottleneck'){const py=await enginePyt
   if(!hit&&[pol.owner?.name,...[].concat(pol.owner?.telegram_names||[])].some(n=>String(n||'').toLowerCase()===low))hit=pol.owner;
   if(hit)return {...r,uid:[].concat(hit[r.platform]||[])[0]||null,who:r.sender};return {...r,uid:null,who:r.sender}}
  return r}
-if(PORT===4400&&LIVE_APP){setTimeout(()=>issues.tick().catch(e=>console.warn('issues',e.message)),60e3).unref();setInterval(()=>issues.tick().catch(e=>console.warn('issues',e.message)),30e3).unref()}
-if(PORT===4400&&LIVE_APP){setTimeout(()=>health.tick().catch(e=>console.warn('health',e.message)),3*60e3).unref();setInterval(()=>health.tick().catch(e=>console.warn('health',e.message)),5*60e3).unref()}
+if(LIVE_APP){setTimeout(()=>issues.tick().catch(e=>console.warn('issues',e.message)),60e3).unref();setInterval(()=>issues.tick().catch(e=>console.warn('issues',e.message)),30e3).unref()}
+if(LIVE_APP){setTimeout(()=>health.tick().catch(e=>console.warn('health',e.message)),3*60e3).unref();setInterval(()=>health.tick().catch(e=>console.warn('health',e.message)),5*60e3).unref()}
 /* Self-repair kit (agent-versions.mjs, workstream E, 6 Nov 2026): each agent's own changes are versions with undo
    (Edit agent › Changes and undo_my_change), a ping run checks it still answers after a self-change and undoes the
    changes by itself when it does not; own-scope tools (my_logs, my_runs, my_health, my_deliveries, my_schedules,
@@ -1412,7 +1418,7 @@ if(PORT===4400&&LIVE_APP){setTimeout(()=>health.tick().catch(e=>console.warn('he
 const avPing=a=>new Promise(res=>{const f=path.join(DATA,'agent-versions-ping-'+a+'.txt');writeFile(f,'aqeelOS health check after a change you made to yourself. Reply with exactly: OK').then(()=>
  execFile(path.join(homedir(),'.local','bin','aqeelos'),['-p',a,'chat','--oneshot','-Q','--source','tool','--query-file',f],{cwd:path.join(homedir(),'workspaces',a),timeout:240e3,maxBuffer:4e6},(e,o,er)=>res(e?{ok:false,unsure:!!gwRestarting||Date.now()-lastOwnRestart<5*60e3,why:'it did not answer ('+(e.code??e.signal)+'): '+String(er||'').trim().split('\n').pop()}:/\bOK\b/i.test(String(o))?{ok:true}:{ok:false,why:'answered without OK: '+String(o).slice(0,200)}))).catch(e=>res({ok:false,why:e.message}))});
 const versions=createAgentVersions({DATA,HERMES_HOME,DASH:DASH.origin,DASH_TOKEN,PUBLIC_URL,listAgents:()=>listAgents(),nameOf:a=>NAMES[a]||a,readConfig,setKey,pick,
- instructions,kirimdev,issues,health,teamGroups,selfRuns,bin:path.join(homedir(),'.local','bin','aqeelos'),ping:avPing,tellOwner:srToOwner,quiet:alertQuiet,live:PORT===4400&&LIVE_APP,extraHealth:a=>agentLive.healthLines(a)});
+ instructions,kirimdev,issues,health,teamGroups,selfRuns,bin:path.join(homedir(),'.local','bin','aqeelos'),ping:avPing,tellOwner:srToOwner,quiet:alertQuiet,live:LIVE_APP,extraHealth:a=>agentLive.healthLines(a)});
 // every agent's home gets the engine plugin aqeelos-live (live context each message, tracebacks held back): installed at
 // start and every 10 minutes (new agents too); when it was new or changed, the engine reloads once no reply runs
 // a Telegram group's current name and the bot's place in it, asked of Telegram with the agent's own bot (10-minute cache)
@@ -1428,7 +1434,7 @@ const agentLive=createAgentLive({HERMES_HOME,DATA,chatInfo:(a,pf,id)=>pf==='tele
 // the engine also reloads when it started before the plugin's files were written (a reload asked for by an earlier run of
 // this app is lost when the app restarts)
 const liveStale=async()=>{try{const pid=await gatewayPid();if(!pid)return false;const g=(await stat('/proc/'+pid)).mtimeMs;const f=(await stat(path.join(HERMES_HOME,'plugins','aqeelos-live','__init__.py'))).mtimeMs;return g<f}catch{return false}};
-if(PORT===4400&&LIVE_APP){const liveInstall=()=>agentLive.install().then(async c0=>{const c=[];for(const a of c0)if(!await isTestAgent(typeof a==='string'?a:a?.agent||'').catch(()=>false))c.push(a);if(c.length||await liveStale())restartGateway('aqeelos-live plugin for '+(c.length||'all')+' agent(s)').catch(()=>{})}).catch(e=>console.warn('agent-live install',e.message));
+if(LIVE_APP){const liveInstall=()=>agentLive.install().then(async c0=>{const c=[];for(const a of c0)if(!await isTestAgent(typeof a==='string'?a:a?.agent||'').catch(()=>false))c.push(a);if(c.length||await liveStale())restartGateway('aqeelos-live plugin for '+(c.length||'all')+' agent(s)').catch(()=>{})}).catch(e=>console.warn('agent-live install',e.message));
  setTimeout(liveInstall,60e3).unref();setInterval(liveInstall,10*60e3).unref()}
 // the engine reads each tool server's list once, when it connects: a tool aqeelOS adds later (the lockbox link, the
 // self-repair kit) stayed invisible in open chats. The lists are fingerprinted per agent; a change reloads the engine
@@ -1436,18 +1442,18 @@ if(PORT===4400&&LIVE_APP){const liveInstall=()=>agentLive.install().then(async c
 async function toolSigs(){const out={};for(const a of await agentLive.homes()){if(await isTestAgent(a).catch(()=>false))continue;const c=await readConfig(a).catch(()=>null);const u=String(pick(c||{},'mcp_servers.aqeelos-notify.url')||'');if(!u.startsWith('http://127.0.0.1:4400/'))continue;
  try{const r=await fetch(u,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/list'}),signal:AbortSignal.timeout(20000)});const j=await r.json();
   out[a]=createHash('sha1').update((j.result?.tools||[]).map(t=>t.name+':'+createHash('sha1').update(JSON.stringify(t.inputSchema||{})+(t.description||'')).digest('hex').slice(0,8)).sort().join(',')).digest('hex').slice(0,12)}catch{}}return out}
-if(PORT===4400&&LIVE_APP){const sigFile=path.join(DATA,'agent-live','tool-sigs.json');const toolTick=async()=>{const now=await toolSigs();if(!Object.keys(now).length)return;const old=JSON.parse(await readFile(sigFile,'utf8').catch(()=>'{}')||'{}');
+if(LIVE_APP){const sigFile=path.join(DATA,'agent-live','tool-sigs.json');const toolTick=async()=>{const now=await toolSigs();if(!Object.keys(now).length)return;const old=JSON.parse(await readFile(sigFile,'utf8').catch(()=>'{}')||'{}');
   const changed=Object.keys(now).filter(a=>old[a]!==now[a]);await mkdir(path.dirname(sigFile),{recursive:true});await writeFile(sigFile,JSON.stringify(now));
   if(changed.length&&Object.keys(old).length){console.log('agent tools changed for',changed.join(', '));restartGateway('new or changed aqeelOS tools for '+changed.length+' agent(s)').catch(()=>{})}};
  setTimeout(()=>toolTick().catch(e=>console.warn('tool sigs',e.message)),5*60e3).unref();setInterval(()=>toolTick().catch(e=>console.warn('tool sigs',e.message)),10*60e3).unref()}
 const agentCare=createAgentCare({HERMES_HOME,DATA,fpKey:()=>agentLive.key(),teamOf:async a=>((await issues.policy())?.teams||[]).find(t=>(t.agents||[]).includes(a))?.name||null,WORK:path.join(homedir(),'workspaces'),homes:()=>agentLive.homes(),readConfig,pick,jobs:a=>versions.myJobs(a),updateJob:(a,id,up)=>versions.updateJob(a,id,up),
  record:(a,e)=>versions.noteSelfChange(a,{...e,by:'aqeelOS',undoable:false}),notices:agentLive,extraRetired:async()=>JSON.parse(await readFile(path.join(DATA,'retired-setup.json'),'utf8').catch(()=>'[]'))});
-if(PORT===4400&&LIVE_APP){const careTick=()=>agentCare.tick().then(r=>{if(Object.keys(r).length)console.log('agent-care: '+JSON.stringify(r))}).catch(e=>console.warn('agent-care',e.message));
+if(LIVE_APP){const careTick=()=>agentCare.tick().then(r=>{if(Object.keys(r).length)console.log('agent-care: '+JSON.stringify(r))}).catch(e=>console.warn('agent-care',e.message));
  setTimeout(careTick,3*60e3).unref();setInterval(careTick,2*60e3).unref()}
-if(PORT===4400&&LIVE_APP){setInterval(()=>versions.watchTick().catch(e=>console.warn('agent-versions watch',e.message)),60e3).unref();setTimeout(()=>versions.skillsTick().catch(()=>{}),90e3).unref();setInterval(()=>versions.skillsTick().catch(e=>console.warn('agent-versions skills',e.message)),10*60e3).unref()}
+if(LIVE_APP){setInterval(()=>versions.watchTick().catch(e=>console.warn('agent-versions watch',e.message)),60e3).unref();setTimeout(()=>versions.skillsTick().catch(()=>{}),90e3).unref();setInterval(()=>versions.skillsTick().catch(e=>console.warn('agent-versions skills',e.message)),10*60e3).unref()}
 // which agents get it: their own Linux user is set up (commands and files run as ag-<agent>); never the main agent,
 // its extra-number copies, the help agent or (on the live app) a test copy's agents
-async function srEligible(a){if(!SR_AGENT.test(a)||a==='default'||a.includes('--')||a===HELP_AGENT)return false;if(PORT===4400&&await isTestAgent(a))return false;if(!await isAgent(a))return false;
+async function srEligible(a){if(!SR_AGENT.test(a)||a==='default'||a.includes('--')||a===HELP_AGENT)return false;if(LIVE_APP&&await isTestAgent(a))return false;if(!await isAgent(a))return false;
  const c=await readConfig(a).catch(()=>null);return pick(c,'terminal.backend')==='ssh'&&String(pick(c,'terminal.ssh_user')||'')===('ag-'+a).slice(0,32)}
 const SR_PLACED=path.join(DATA,'self-runs-placement.json');
 async function srEnsure(a,cfg,mcp){const ok=await srEligible(a),u=srUrl(a);
@@ -1674,7 +1680,7 @@ async function hermesCall(req,res,u,url){
    const ws=path.join(homedir(),'workspaces',gone);if((await readdir(ws).catch(()=>['?'])).every(x=>x==='AGENTS.md'))await rm(ws,{recursive:true,force:true}).catch(()=>{});
    await setStatus(gone,null);const sh=await relay.shares().catch(()=>({}));
    for(const [k,v] of Object.entries(sh)){const [owner,platform]=k.split('|');if(owner===gone)await relay.setShare(owner,platform,{senders:[],chat:''}).catch(()=>{});else if((v.senders||[]).includes(gone))await relay.setShare(owner,platform,{senders:v.senders.filter(x=>x!==gone),chat:v.chat}).catch(()=>{})}
-   syncNotifyTool().catch(()=>{});if(PORT===4400)writeAgentContext().catch(()=>{});console.log('cleaned up after deleting',gone)},20000)})}
+   syncNotifyTool().catch(()=>{});if(LIVE_APP)writeAgentContext().catch(()=>{});console.log('cleaned up after deleting',gone)},20000)})}
  {const whM=/^\/hapi\/webhooks(?:\/([^/]+))?(\/enabled)?$/.exec(p),wa=q.get('profile')||'default';
   // one webhook list serves every agent (the main agent's); each entry is bound to the agent it runs as
   if(whM&&!wa.includes('--')&&req.method==='GET'&&!whM[1]){const h={'x-hermes-session-token':DASH_TOKEN};
@@ -1743,7 +1749,7 @@ async function hermesCall(req,res,u,url){
   :/^\/(gapi(\/p\/[^/]+)?\/api|hapi)\/sessions\/[^/]+\/fork$/.test(p)&&req.method==='POST'?async d=>{await users.own(d?.session?.id||d?.id||d?.session_id||d?.new_session_id,u);return d}
   :made?async d=>{await memberAgent(u,String(d?.name||d?.profile?.name||made));return d}
   :p==='/hapi/profiles'&&req.method==='POST'?async d=>{const n=d?.name||d?.profile?.name;if(n){noteMade(n);syncNotifyTool().catch(()=>{});   // the aqeelOS tool needs nothing from the setup: a new agent gets it at once, not minutes later
-   (setupAgentFn?setupAgentFn(n):Promise.resolve()).catch(e=>console.warn('setup',n,e.message)).finally(async()=>{await agentHealth(n).catch(()=>{});await syncNotifyTool().catch(()=>{});if(PORT===4400)writeAgentContext().catch(()=>{});
+   (setupAgentFn?setupAgentFn(n):Promise.resolve()).catch(e=>console.warn('setup',n,e.message)).finally(async()=>{await agentHealth(n).catch(()=>{});await syncNotifyTool().catch(()=>{});if(LIVE_APP)writeAgentContext().catch(()=>{});
    const {execFile}=await import('node:child_process');execFile(process.execPath,[path.join(root,'scripts','apply-skill-patches.mjs')],{timeout:180000},e=>{if(e)console.warn('skill patches',n,e.message)})})}return d}
   :relayTarget!==undefined?async d=>{const id=relayJob||(d.job||d).id;if(id)await relay.setJobRelay(agent,id,relayTarget);return d}:undefined;
  // the chat list is filtered per person AFTER the engine pages it: page on (at most 10 engine pages of 100) until the
@@ -1837,6 +1843,7 @@ const server=createServer(async(req,res)=>{
  try{
   await users.load();   // people (owners, shares) are read before any route uses them, also right after a restart
   if(codeOnline.handle(req,res))return;   // code.elkiya.com and code-preview.elkiya.com: Code online, behind sign-in
+  if(p==='/install-ping')return install.ping(req,res);
   if(p==='/healthz')return send(res,200,{ok:true,build:BUILD,live:liveCount(),engine:(void engineAgents(),engAgents.n),busy:busyTotal({live:liveCount(),setups:export_setups.running(),ops:opsBusy(),relay:relay.sending(),gwRestarting:!!gwRestarting,engineUpdate:engineUpd.busy(),restore:backups.busy()})});
   // the code bridge agents' engines call during a Code run for a computer project (app/code-bridge.mjs)
   if(p.startsWith('/mcp/code/')&&await codeBridge.handle(req,res,{send,readBody}))return;
@@ -1910,7 +1917,7 @@ const server=createServer(async(req,res)=>{
     const target=String(a.agent||'').trim()||base;const own=o=>!o||o==='owner';
     if(target!==base&&(!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(target)||target.includes('--')))return reply('Give the agent id, like support-agent.',true);
     if(target!==base&&!(base==='default'&&own(users.agentOwner(target))))return reply('You can only ask for keys for yourself'+(base==='default'?' or for an agent the owner owns':'')+'.',true);
-    const tz=(await readConfig('default').catch(()=>null))?.timezone||sysTz(),when=t=>{const x=localAt(t,tz);return String(x.h).padStart(2,'0')+':'+String(x.min).padStart(2,'0')};
+    const tz=installTz()||(await readConfig('default').catch(()=>null))?.timezone||sysTz(),when=t=>{const x=localAt(t,tz);return String(x.h).padStart(2,'0')+':'+String(x.min).padStart(2,'0')};
     try{if(msg.params.name==='request_secret_link'){const r=await secretLinks.create({agent:target,name:a.name,label:a.label,by:base});console.log('secret link made by',base,'for',r.link.agent+':',r.link.name);
       return reply('Send the person this link exactly (it works once, until '+when(r.exp)+', about 30 minutes):\n\n'+r.url+'\n\nTell them: open it, paste '+r.link.label+' there and press Save. Never ask them to paste it in the chat. When they say it is saved (or a minute later), call secret_link_status with name '+r.link.name+(target!==base?' and agent '+target:'')+' to check. '+secretHow(r.link.agent,r.link.name))}
      const r=a.wait?await secretLinks.wait(target,a.name,20e3):await secretLinks.status(target,a.name);
@@ -2288,6 +2295,7 @@ const server=createServer(async(req,res)=>{
    if(req.method!=='GET'&&req.headers['x-hui']!=='1')return send(res,403,{error:'Missing request header.'});
    if(p.startsWith('/ui/plugin-'))return plugins.handle(req,res,u,url);
    if(p.startsWith('/ui/help/'))return help.handle(req,res,u,url);
+   if((p==='/ui/install'||p.startsWith('/ui/install/'))&&await install.handle(req,res,u,url))return;
    // a new password signs out every other browser and phone; this one gets a fresh sign-in
    if(p==='/ui/me/password'&&req.method==='PUT')return users.api(u,req,res,p,async(r,code,data,h)=>{if(code===200){await revokeSessions(u.id);return send(r,code,data,{...(h||{}),'set-cookie':'hui='+makeCookie(u.id)+'; '+cookieAttrs(SESSION_DAYS*86400)})}return send(r,code,data,h)},readBody);
    // System › Branding (admins): the name, logo and contact of this install
@@ -2372,7 +2380,7 @@ const server=createServer(async(req,res)=>{
      let b={};try{b=JSON.parse(await readBody(req,8192))}catch{return send(res,400,{error:'Bad request'})}const n=String(b.name||'');if(n&&!/^[\w.-]{1,60}$/.test(n))return send(res,400,{error:'Unknown account'});
      const all=await googleLabels();const k=a+'|'+n;const label=String(b.label||'').replace(/[\r\n"]+/g,' ').trim().slice(0,60),note=String(b.note||'').replace(/[\r\n]+/g,' ').trim().slice(0,400);
      if(label||note)all[k]={label,note};else delete all[k];await writeJsonAtomic(path.join(DATA,'google-accounts.json'),all);GLABELS=all;
-     if(PORT===4400)writeAgentContext().catch(()=>{});return send(res,200,{ok:true,label,note})}
+     if(LIVE_APP)writeAgentContext().catch(()=>{});return send(res,200,{ok:true,label,note})}
     if(req.method==='DELETE'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can remove a Google account.'});const n=String(url.searchParams.get('name')||'');if(n&&!/^[\w.-]{1,60}$/.test(n))return send(res,400,{error:'Unknown account'});
      await unlink(path.join(home,'google_token'+(n?'_'+n:'')+'.json')).catch(()=>{});console.log('removed google account',n||'(main)','from',a);return send(res,200,{ok:true})}}
    // WhatsApp Business (Meta's Cloud API) for one agent: the keys from Meta's app go in the agent's own .env, aqeelOS
@@ -2685,6 +2693,7 @@ const server=createServer(async(req,res)=>{
     return send(res,200,{spaces:l.map(x=>({...x,name:NAMES[x.agent]||x.agent,shared:x.shared.filter(a=>!mine||mine.has(a))})),agents:(await listAgents()).filter(a=>!mine||mine.has(a)).map(a=>({id:a,name:NAMES[a]||a})),canEdit:users.isAdmin(u),...(all.partial?{partial:true}:{})})}
    if(p==='/ui/n8n/share'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can share an agent’s n8n.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
     try{return send(res,200,await n8n.share(String(b.space||''),String(b.agent||''),!!b.on))}catch(e){return send(res,409,{error:e.message})}}
+   if(p==='/ui/n8n/base'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can change the n8n address.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{return send(res,200,await n8n.setBase(b.url))}catch(e){return send(res,400,{error:e.message})}}
    if(p==='/ui/n8n/owner'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can connect n8n.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
     try{await n8n.setOwner(String(b.email||'').trim(),String(b.password||''));console.log('n8n: owner login saved');return send(res,200,{ok:true})}catch(e){return send(res,400,{error:e.message})}}
    if(p==='/ui/n8n/open'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const a=String(b.agent||'default');

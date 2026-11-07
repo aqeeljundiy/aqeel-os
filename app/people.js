@@ -95,9 +95,9 @@ ACT['ppl-invite']=()=>{const d=drawer('Invite someone',`<label>Their name</label
   try{const agents=role==='admin'?{}:pickedAgents('ivPick');let ownAgent=null;
    if(role!=='admin'&&$('#ivNew').checked){const an=$('#ivNewName').value.trim()||(name?name+"'s assistant":'Family assistant');b.textContent='Making their agent…';const id=await makeSafeAgent(an);agents[id]='owner';ownAgent=id}
    const inv=await post(UI,'/ui/people/invite',{name,role,roleId,caps,agents,ownAgent});const to=$('#ivMail').value.trim();closeLayers();
-   if(to){try{await post(UI,'/ui/people/invite/'+inv.code+'/email',{to,link:location.origin+'/#invite/'+inv.code});toast('Invite emailed to '+to+'. The link is copied too.')}catch(e){toast('Email failed ('+(e.message||e)+'). The link is copied instead.','err')}}
+   if(to){try{await post(UI,'/ui/people/invite/'+inv.code+'/email',{to,link:publicBase()+'/#invite/'+inv.code});toast('Invite emailed to '+to+'. The link is copied too.')}catch(e){toast('Email failed ('+(e.message||e)+'). The link is copied instead.','err')}}
    await copyInvite(inv.code);reload()}catch(e){fail(e)}finally{b.disabled=false}}};
-async function copyInvite(code){const link=location.origin+'/#invite/'+code;if(await copyText(link,''))toast('Invite link copied. Send it to them.');else await promptBox('Invite link','Copy this link and send it',link,'Done')}
+async function copyInvite(code){const link=publicBase()+'/#invite/'+code;if(await copyText(link,''))toast('Invite link copied. Send it to them.');else await promptBox('Invite link','Copy this link and send it',link,'Done')}
 ACT['ppl-copy']=a=>copyInvite(a.dataset.code);
 ACT['ppl-uninvite']=async a=>{try{await del(UI,'/ui/people/invite/'+a.dataset.code);toast('Invite cancelled');reload()}catch(e){fail(e)}};
 ACT['ppl-share']=a=>{const id=a.dataset.id;const taken=Object.entries(Pages._ppl?.shares||{}).filter(([,m])=>m[id]).map(([x])=>x);

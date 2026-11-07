@@ -174,18 +174,19 @@ async function cronDrawer(job){let jobAgent=job?.profile||S.profile||'default'; 
   if(!list.length){const t=await H('/cron/delivery-targets?profile='+encodeURIComponent(me)).catch(()=>({targets:[]}));list.push(...(t.targets||[]))}return list};
  const extra=(async()=>{await addShared(jobAgent,tg);
   try{const jr=job?await UI('/ui/channels/job-relays'):{};const t=jr[(job?.profile||S.profile||'default')+'|'+job?.id];if(t&&job)job.deliver='relay:'+t.owner+'|'+t.platform}catch{}})();
- const tz=cfg.timezone||'';const myTz=Intl.DateTimeFormat().resolvedOptions().timeZone;
+ // one time zone for the whole install (System › Settings, install-routes.mjs); the agent's own config only before one was chosen
+ const tz=S.install?.timezone?.zone||cfg.timezone||'';const myTz=Intl.DateTimeFormat().resolvedOptions().timeZone;
  const tgName=id=>/^relay:/.test(id)?(tg.find(t=>t.id===id)?.name||'Shared channel'):id==='local'?'This app (shows under Scheduled runs, with a pop-up)':/^bot-chat/.test(id)?'Desktop app inbox ('+ident(id.split(':')[1]||'default').name+'), not this app':DELIVER_LABEL[id]||tg.find(t=>t.id===id)?.name||(/:/.test(id)&&typeof deliverName==='function'?deliverName({deliver:id},SCHED.info?.names):pretty(id));
- const tzNote=!tz&&myTz&&myTz!=='UTC'?`<div class="tz-note">${icon('globe',15)}<span>aqeelOS runs schedules in <b>UTC</b>. Use your timezone (<b>${esc(myTz)}</b>) instead?</span><button type="button" data-act="tz-use" data-tz="${esc(myTz)}">Use ${esc(myTz.split('/').pop().replace('_',' '))}</button></div>`:'';
+ const tzNote=!tz&&myTz&&myTz!=='UTC'&&S.me?.admin!==false?`<div class="tz-note">${icon('globe',15)}<span>aqeelOS runs schedules in <b>UTC</b>. Use your time zone (<b>${esc(myTz)}</b>) instead?</span><button type="button" data-act="tz-use" data-tz="${esc(myTz)}">Use ${esc(myTz.split('/').pop().replace('_',' '))}</button></div>`:'';
  const hasBp=!job&&bps.blueprints?.length;let mode='own';let bp=null;let picker=null;
  const admin=S.me?.admin!==false,unsafeOk=admin||(S.me?.caps||[]).includes('unsafe');
  // a new schedule can belong to any agent you may change (the one you chat with is picked first)
  const owners=job?[]:[...new Set([jobAgent,...(agl||[])])].filter(n=>n===jobAgent||mayEdit(n));
  const d=drawer(job?'Edit schedule':'New schedule',`${tzNote}${hasBp?tabs('cronMode',['Write my own','From a template'],'Write my own'):''}<div id="cjBody"><div id="cjOwn" class="cj-pane"></div><div id="cjTpl" class="cj-pane" hidden></div></div>`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="cjSave">${job?'Save changes':'Create schedule'}</button>`);
  const body=d.querySelector('#cjBody'),ownBox=d.querySelector('#cjOwn'),tplBox=d.querySelector('#cjTpl');
- d.querySelector('[data-act=tz-use]')?.addEventListener('click',async e=>{e.stopPropagation();const b=e.currentTarget;try{await saveConfigPatch(c=>{c.timezone=b.dataset.tz},jobAgent);toast('aqeelOS now uses '+b.dataset.tz);
+ d.querySelector('[data-act=tz-use]')?.addEventListener('click',async e=>{e.stopPropagation();const b=e.currentTarget;try{const r=await post(UI,'/ui/install/timezone',{zone:b.dataset.tz});if(typeof Install!=='undefined')await Install.load();toast('aqeelOS now uses '+b.dataset.tz+(r.pending?'. Agents follow within a minute or two.':r.failed?.length?' (not set yet for '+r.failed.length+' agent(s))':''));
   // the Schedules page behind says the new zone at once (it reads each agent's zone only once a visit)
-  if(typeof SCHED!=='undefined'){(SCHED.tzs??={})[jobAgent]=b.dataset.tz;store.set('schedTzs',SCHED.tzs)}closeLayers();if(route().page?.id==='schedules')reload();cronDrawer(job)}catch(er){fail(er)}});
+  if(typeof SCHED!=='undefined'){SCHED.tzs??={};for(const k of new Set([...Object.keys(SCHED.tzs),jobAgent]))SCHED.tzs[k]=b.dataset.tz;store.set('schedTzs',SCHED.tzs)}closeLayers();if(route().page?.id==='schedules')reload();cronDrawer(job)}catch(er){fail(er)}});
  // destinations that need a home channel first are shown but can't be picked
  const needsHome=t=>t.id!=='local'&&t.home_target_set===false;
  const delOpts=(cur=job?.deliver||'local')=>{const l=tg.length?[...tg]:[{id:'local'}];if(!l.some(t=>t.id===cur))l.unshift({id:cur});return l.map(t=>`<option value="${esc(t.id)}" ${cur===t.id?'selected':''} ${needsHome(t)&&cur!==t.id?'disabled':''}>${esc(tgName(t.id))}${needsHome(t)?' (set a home channel first)':''}</option>`).join('')};
