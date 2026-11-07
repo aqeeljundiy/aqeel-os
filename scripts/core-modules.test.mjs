@@ -4,6 +4,8 @@ import test from 'node:test';import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,readFile,readdir,access as exists} from 'node:fs/promises';import {tmpdir} from 'node:os';import path from 'node:path';
 import {createAccess} from '../app/access.mjs';
 import {allowed,restricted,baseOf,trim} from '../app/skills-policy.mjs';
+// the box's own list is data (DATA/skills-policy.json); the tests use the example file
+process.env.AQEELOS_SKILLS_POLICY=new URL('./fixtures/skills-policy.example.json',import.meta.url).pathname;
 import {swr,limiter} from '../app/swr.mjs';
 import {createBrand} from '../app/brand.mjs';
 
