@@ -240,6 +240,26 @@ def _redact_phones_enabled() -> bool:
         if key is None or platform is None:
             kept.append(line)
 `}]},
+ {tag:'aqeelos:hold-cron-for-restart',name:'no new scheduled runs while aqeelOS waits to restart the engine',file:'cron/scheduler_tick.py',edits:[
+  {why:'the tick admission',
+   from:'        if can_dispatch is not None and not can_dispatch():\n            _sched.logger.debug("Cron dispatch paused while gateway drains existing work")\n            return 0\n',
+   to:`        if can_dispatch is not None and not can_dispatch():
+            _sched.logger.debug("Cron dispatch paused while gateway drains existing work")
+            return 0
+        # aqeelos:hold-cron-for-restart (7 Nov 2026): aqeelOS restarts the engine only when no agent is at work, and
+        # schedules every 5-10 minutes kept it from ever being idle (a restart waited 20+ minutes). While the file
+        # <root>/aqeelos-hold-cron exists (at most 15 minutes old), no new run starts; due jobs fire on the next tick
+        # after the restart, as when the gateway is starting. Runs in progress are never touched.
+        try:
+            import time as _aq_t
+            from agent.file_safety import _hermes_root_path as _aq_root
+            _aq_hold = _aq_root() / "aqeelos-hold-cron"
+            if _aq_hold.exists() and _aq_t.time() - _aq_hold.stat().st_mtime < 900:
+                _sched.logger.debug("Cron dispatch held: aqeelOS is waiting to restart the engine")
+                return 0
+        except Exception:
+            pass
+`}]},
  {tag:'aqeelos:script-failure-held',name:'a failed script-only schedule reports to aqeelOS and alerts once, never a raw traceback',file:'cron/scheduler.py',edits:[
   {why:'the script-failed alert',
    from:'        # Deliver the error: a silently broken watchdog is the worst-case outcome.\n        alert = (\n            f"⚠ Cron watchdog \'{job_name}\' script failed\\n\\n"\n            f"{output}\\n\\n"\n            f"Time: {now_iso}"\n        )\n',

@@ -111,8 +111,10 @@ export function createAgentCare({HERMES_HOME,WORK,DATA=null,fpKey=async()=>'',te
  let keysAt=0;
  async function tick({force=false}={}){const out={};if(force||now()-keysAt>30*60e3){keysAt=now();try{const k=await keysTick();if(k.shared)out._keys=k}catch(e){log('agent-care keys: '+e.message)}}for(const a of await homes()){try{const m=await mark(a);const due=force||marks.get(a)?.m!==m||now()-(marks.get(a)?.at||0)>30*60e3;if(!due)continue;
    const conv=await scriptOnly(a);let c=await checks(a);const fixed=await fixRights(a,c);if(fixed){log('agent-care: '+a+': gave '+fixed+' key file(s) back their group read right');c=await checks(a)}
-   const o=await oldSetup(a);await notices.setNotices(base(a),'checks'+(a===base(a)?'':':'+a),c);await notices.setNotices(base(a),'old-setup'+(a===base(a)?'':':'+a),o);
-   marks.set(a,{m:await mark(a),at:now()});if(conv.length||c.length||o.length||fixed)out[a]={scriptOnly:conv,checks:c.length,oldSetup:o.length,fixed}}catch(e){log('agent-care '+a+': '+e.message)}}
+   const o=await oldSetup(a);const n1=await notices.setNotices(base(a),'checks'+(a===base(a)?'':':'+a),c)||{};const n2=await notices.setNotices(base(a),'old-setup'+(a===base(a)?'':':'+a),o)||{};
+   // only what changed is reported (the log said the same every 2 minutes)
+   const news=[...(n1.added||[]),...(n2.added||[])],solved=[...(n1.gone||[]),...(n2.gone||[])];
+   marks.set(a,{m:await mark(a),at:now()});if(conv.length||fixed||news.length||solved.length)out[a]={scriptOnly:conv,fixed,new:news,solved}}catch(e){log('agent-care '+a+': '+e.message)}}
   return out}
  return {tick,oldSetup,checks,scriptOnly,keysTick}}
 

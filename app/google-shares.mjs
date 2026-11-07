@@ -71,7 +71,10 @@ export function createGoogleShares({HERMES_HOME,DATA,WORK=path.join(path.dirname
  async function unshare(email,agent){email=String(email).toLowerCase();let n=0;
   for(const k of (await list()).filter(k=>k.agent===agent&&k.email===email)){await unlink(k.path).catch(()=>{});n++}return n}
  // keys near their end, or whose level changed, are renewed; a key whose owner sign-in is gone is removed
+ // the owner's own sign-ins are aqeelOS's only: the engine rewrites them when it refreshes a sign-in and can leave them
+ // group-readable (7 Nov 2026: 664), so every renewal locks them to the owner again
  async function renew(){const own=await owners();let renewed=0,removed=0;
+  for(const o of Object.values(own)){const f=path.join(HERMES_HOME,o.file);try{if(((await stat(f)).mode&0o077)!==0){await chmod(f,0o600);log('google shares: '+o.file+' locked to the owner again')}}catch{}}
   for(const k of await list()){if(await held(k.agent)){await unlink(k.path).catch(()=>{});removed++;log('google share: '+k.email+' key removed from '+k.agent+' (locked to its own files; aqeelOS calls Google for it)');continue}
    const o=own[k.email];if(!o){await unlink(k.path).catch(()=>{});removed++;log('google share: '+k.email+' removed from '+k.agent+' (the owner has no sign-in for it any more)');continue}
    const level=await levelOf(k.email,k.agent).catch(()=>k.level);if(k.level===level&&k.expiry-now()>RENEW_BEFORE)continue;

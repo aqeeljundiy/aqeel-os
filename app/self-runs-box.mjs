@@ -18,7 +18,9 @@ dir="$1"; agent="$2"; secs="$3"; budget="$4"; lockwait="$5"; haslock="$6"; bin="
 fin(){ printf '%s' "$1" > "$dir/exit.tmp"; mv -f "$dir/exit.tmp" "$dir/exit"; }
 if [ "$haslock" = 1 ]; then flock -w "$lockwait" 3 || { echo "aqeelOS: the lock stayed taken for $lockwait seconds"; fin 75; exit 75; }; fi
 date +%s > "$dir/started"
-timeout -k 20 "$secs" "$bin" -p "$agent" chat --query-file "$dir/prompt.txt" -Q --source tool --run-budget "$budget" < /dev/null 3>&-
+# GNU timeout where there is one (Linux); elsewhere (macOS) the same limit with perl's alarm
+if command -v timeout >/dev/null; then limit(){ timeout -k 20 "$@"; }; else limit(){ local t=$1; shift; perl -e 'alarm shift; exec @ARGV or exit 127' "$t" "$@"; }; fi
+limit "$secs" "$bin" -p "$agent" chat --query-file "$dir/prompt.txt" -Q --source tool --run-budget "$budget" < /dev/null 3>&-
 fin "$?"`;
 
 // the waiting run_self calls in an agent's chat database (the engine saves a tool call before running it), and for

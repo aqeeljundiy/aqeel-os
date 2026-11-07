@@ -1,9 +1,22 @@
 {
  "_about": "Example of DATA/skills-policy.json (used by the tests). restricted: a skill goes only to the agents named; removed: taken from every agent. Every other skill goes to every agent.",
  "restricted": {
-  "productivity/my-statements": ["default"],
-  "pixel/pixel-ops": ["default", "pixel-agent"],
-  "apple/imessage": ["default", "pixel-agent"]
+  "productivity/my-statements": [
+   "default"
+  ],
+  "pixel/pixel-ops": [
+   "default",
+   "pixel-agent"
+  ],
+  "apple/imessage": [
+   "default",
+   "pixel-agent"
+  ],
+  "productivity/my-task-hub": [
+   "default"
+  ]
  },
- "removed": ["apple/findmy"]
+ "removed": [
+  "apple/findmy"
+ ]
 }

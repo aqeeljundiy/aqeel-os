@@ -8,6 +8,8 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {displayName,patchGapiText,blockedTools,createConnectedAccounts} from '../app/connected-accounts.mjs';
+// the box's skills list is data; the tests use the example file
+process.env.AQEELOS_SKILLS_POLICY=new URL('./fixtures/skills-policy.example.json',import.meta.url).pathname;
 import {appName,toolLevel,toolCounts,levelOf,canOf,buildRows,mayChange,createConnections} from '../app/connections.mjs';
 
 const names=a=>({default:'aqeelOS','pixel-agent':'PixelAgent','continue-threads':'Threads',sesa:'Sesa'})[a]||a;
@@ -50,7 +52,7 @@ const SRC=()=>({names,levels:{'mcp|composio':{'pixel-agent':'read'}},
    agents:[{id:'default',name:'aqeelOS'},{id:'cont-socmed',name:'cont-socmed'},{id:'continue-threads',name:'Threads'}],can:['read','draft','send'],canBy:{'continue-threads':['read']},state:'connected',registered:true,mayPause:true,recent:[{text:'Read 2 sheets'}]},
   {id:'mcp:slack-pixel',kind:'mcp-oauth',mcp:'slack-pixel',identity:'Aqeel Jundiy · Pixel & Profits',name:'Slack · Pixel & Profits',app:'Slack',logo:'slack.com',agents:[{id:'default',name:'aqeelOS'},{id:'default--whatsapp-2',name:'aqeelOS'}],can:['read','draft','send'],state:'signed-out',registered:true,mayPause:true},
   {id:'mcp:notion',kind:'mcp-oauth',mcp:'notion',name:'Notion · Aqeel For Work',agents:[{id:'default'}],can:['read'],state:'connected',registered:true},{id:'mcp:notion-aqeel',kind:'mcp-oauth',mcp:'notion-aqeel',name:'Notion · Aqeel For Work',agents:[{id:'default'}],state:'connected',registered:false}],
- skills:{default:[{name:'seo',category:'marketing',enabled:true},{name:'aqeel-task-hub',category:'productivity',enabled:true}],'pixel-agent':[{name:'seo',category:'marketing',enabled:false}]},
+ skills:{default:[{name:'seo',category:'marketing',enabled:true},{name:'my-task-hub',category:'productivity',enabled:true}],'pixel-agent':[{name:'seo',category:'marketing',enabled:false}]},
  ads:[{agent:'sesa',state:'signed-out',port:50326},{agent:'pixel-agent',state:'none'}]});
 
 test('one row per connection, merged from every source',()=>{const rows=buildRows(SRC());const by=k=>rows.find(r=>r.key===k);
@@ -66,7 +68,7 @@ test('one row per connection, merged from every source',()=>{const rows=buildRow
  const c=by('mcp:composio');assert.equal(c.type,'app');assert.equal(c.name,'Composio');assert.deepEqual(c.users.map(u=>u.level),['full','read']);assert.equal(c.status,'signin');
  assert.equal(by('mcp:n8n').owner,null);assert.equal(by('mcp:n8n').levels,'none');
  // skills: on or off per agent; a skill kept for the main agent says so
- const k=by('skill:seo');assert.deepEqual(k.users.map(u=>[u.id,u.level]),[['default','on'],['pixel-agent','off']]);assert.deepEqual(k.canUse,['default']);assert.deepEqual(by('skill:aqeel-task-hub').only,[]);
+ const k=by('skill:seo');assert.deepEqual(k.users.map(u=>[u.id,u.level]),[['default','on'],['pixel-agent','off']]);assert.deepEqual(k.canUse,['default']);assert.deepEqual(by('skill:my-task-hub').only,[]);
  // AdsPower per agent (only where it is set up), plugins and keys; a chat bot stays with its agent
  assert.equal(by('ads:sesa').name,'AdsPower · Sesa');assert.equal(by('ads:sesa').status,'signin');assert.equal(by('ads:pixel-agent'),undefined);
  assert.equal(by('plugin:claude-login').users.length,2);assert.ok(by('key:SLACK_BOT_TOKEN@2').ownerFixed);

@@ -64,3 +64,6 @@ test('a workspace .hermes file the engine copies in from the profile (credential
  await writeFile(path.join(H,'profiles','continue-threads','config.yaml'),'terminal:\n  backend: ssh\n  credential_files:\n    - google_token.json\ntools:\n  x: 1\n');
  await writeFile(path.join(W,'google_token.json'),await readFile(path.join(H,'profiles','continue-threads','google_token.json')));
  assert.deepEqual((await s.list()).map(k=>k.file),['google_token.json'])});
+
+test('every renewal locks the owner\'s own sign-in files to the owner again',async()=>{const {s,H}=await make();await chmod(path.join(H,'google_token.json'),0o664);
+ await s.renew();assert.equal((await stat(path.join(H,'google_token.json'))).mode&0o777,0o600)});

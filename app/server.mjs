@@ -574,7 +574,10 @@ function restartGateway(why,{wait=true,waitMax=360,auto=false,bridges=false,rest
  if(!mayStartAgents({restoring:restoreBusy(),forRestore:restore})){console.log('gateway restart left for after the restore:',why);return Promise.resolve()}
  if(gwRestarting){if(!gwRun.stopping){gwRun.bridges||=bridges;return gwRestarting}
   gwAgain={why:gwAgain?.why||why,bridges:!!(gwAgain?.bridges||bridges)};return gwRestarting.then(()=>{if(!gwAgain)return gwRestarting||undefined;const a=gwAgain;gwAgain=null;return restartGateway(a.why,{bridges:a.bridges})})}if(auto){autoRestarts=autoRestarts.filter(t=>Date.now()-t<30*60e3);if(autoRestarts.length>=3){if(Date.now()-(globalThis.__rf||0)>30*60e3){globalThis.__rf=Date.now();noteSys('restart-failed','The engine kept stopping, so it was left off. Open System › Host and press Start.')}return Promise.resolve()}autoRestarts.push(Date.now())}if(PORT!==4400){console.log('gateway restart skipped (test copy):',why);return Promise.resolve()}
- const run=gwRun={bridges,stopping:false};gwRestarting=(async()=>{if(wait){let said=false;for(let i=0;i<waitMax&&(liveCount()>0||await engineAgents()>0);i++){if(!said&&i===12){said=true;console.log('gateway restart: still waiting for',Math.max(liveCount(),engAgents.n),'agent(s) at work:',why)}await new Promise(r=>setTimeout(r,5000))}}
+ const run=gwRun={bridges,stopping:false};gwRestarting=(async()=>{if(wait){let said=false;for(let i=0;i<waitMax&&(liveCount()>0||await engineAgents()>0);i++){if(!said&&i===12){said=true;console.log('gateway restart: still waiting for',Math.max(liveCount(),engAgents.n),'agent(s) at work:',why);
+   // no new scheduled runs meanwhile (engine fix aqeelos:hold-cron-for-restart), so the agents at work finish and none start: the quiet moment comes
+   await writeFile(path.join(HERMES_HOME,'aqeelos-hold-cron'),JSON.stringify({why,at:Date.now()})).catch(()=>{})}await new Promise(r=>setTimeout(r,5000))}
+   await unlink(path.join(HERMES_HOME,'aqeelos-hold-cron')).catch(()=>{})}
   console.log('gateway restart:',why);gwStopped=false;lastOwnRestart=Date.now();noteSys('restart',why);run.stopping=true;
   // --yes: the engine refuses to stop while chats are live, and then nothing restarted at all (5 Nov 2026: a gateway the
   // engine started kept running without a Claude login for an hour); the wait above already gave them their time

@@ -24,7 +24,9 @@ export function createPublicFiles({DATA,HERMES_HOME,PUBLIC_URL,types={}}){
  async function make(agent,{path:p,days,name}={}){
   if(!p||typeof p!=='string')throw new Error('Give path: the full path of the file to share.');
   let real;try{real=await realpath(path.resolve(p))}catch{throw new Error('No file at '+p+'.')}
-  if(!roots(agent).some(r=>real===r||real.startsWith(r+path.sep)))throw new Error('Only files in your own folders (or /tmp) can be made public. Copy it there first.');
+  // the roots as real paths too (macOS: /tmp is /private/tmp)
+  const rs=[];for(const r of roots(agent)){rs.push(r);const x=await realpath(r).catch(()=>null);if(x&&x!==r)rs.push(x)}
+  if(!rs.some(r=>real===r||real.startsWith(r+path.sep)))throw new Error('Only files in your own folders (or /tmp) can be made public. Copy it there first.');
   if(real.startsWith(path.resolve(DATA)+path.sep)||PRIVATE.test(real.split(path.sep).join('/')))throw new Error('That file holds secrets or sign-ins and is never made public.');
   const st=await stat(real);if(!st.isFile())throw new Error('That is a folder, not a file. Zip it first if the person wants the whole folder.');
   // in /tmp, which every agent shares: only a file the agent made itself (owned by its own user, the owner of its folder)
