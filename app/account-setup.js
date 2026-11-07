@@ -21,7 +21,11 @@ const Acct={
    ${Acct.pw('acP')}<p class="err" role="alert"></p><button class="primary" type="submit">Create account</button><p class="foot">${icon('lock',13)} Private · ${esc(location.host)}</p></form>`,f=>{
    Acct.eyes(f);const n=f.querySelector('#acN'),u=f.querySelector('#acU');let typed=false;n.focus();
    const slug=s=>s.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g,'.').replace(/^\.+|\.+$/g,'').slice(0,32);
-   n.oninput=()=>{if(!typed)u.value=slug(n.value)};u.oninput=()=>{typed=!!u.value};
+   // the username is suggested once, when they leave the name field and it is still empty; clicking into the suggestion
+   // selects it, so what they type replaces it instead of being added to it
+   let suggested=false;n.onchange=()=>{if(!typed&&!u.value&&slug(n.value)){u.value=slug(n.value);suggested=true}};
+   let armed=false;u.oninput=()=>{typed=true;suggested=false};u.onblur=()=>{armed=false};
+   u.onfocus=()=>{if(suggested){armed=true;setTimeout(()=>u.select(),0)}};u.onclick=()=>{if(suggested&&armed){armed=false;u.select()}};
    Acct.form(f,async()=>{const pw=f.querySelector('#acP').value;if(!n.value.trim())throw Object.assign(new Error('Tell us your name.'),{status:400});if(pw.length<8)throw Object.assign(new Error('Use a password of at least 8 characters.'),{status:400});
     const d=await Acct.call('/auth/setup',{name:n.value.trim(),username:u.value.trim(),password:pw});Acct.showCode(d.recovery,'Your account is ready')})})},
 

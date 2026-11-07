@@ -133,3 +133,21 @@ test('trusted agents: the list is written and read back; the main agent is alway
  assert.deepEqual([...await ad.trusted()],['default']);await ad.setTrusted('ops',true);assert.ok((await ad.trusted()).has('ops'));
  assert.deepEqual(JSON.parse(await readFile(path.join(DATA,'agent-trust.json'),'utf8')).trusted,['ops']);
  await ad.setTrusted('ops',false);assert.ok(!(await ad.trusted()).has('ops'));assert.ok((await ad.trusted()).has('default'))});
+
+test('"Also make them their own agent" unticked: no lead agent is made when they join; ticked or left out, it is',async()=>{
+ const owner=await users.user('owner');const joined=[];const before=users.hooks.onJoin;users.hooks.onJoin=u=>{joined.push(u.username)};
+ try{const off=(await call(owner,'POST','/ui/people/invite',{name:'Noa',noLead:true})).body;assert.equal(off.noLead,true);
+  await users.accept(off.code,'Noa','noa-pass-123','noa');
+  const on=(await call(owner,'POST','/ui/people/invite',{name:'Lev'})).body;assert.equal(on.noLead,undefined);
+  await users.accept(on.code,'Lev','lev-pass-123','lev');
+  const adm=(await call(owner,'POST','/ui/people/invite',{name:'Ida',role:'admin',noLead:true})).body;assert.equal(adm.noLead,undefined,'admins always get one');
+  await new Promise(r=>setImmediate(r));assert.deepEqual(joined,['lev'])}
+ finally{users.hooks.onJoin=before}});
+
+test('browser fixes: the owner username is suggested once and typing replaces it; the invite hint has room above Password',async()=>{
+ const js=await readFile(new URL('../app/account-setup.js',import.meta.url),'utf8');
+ assert.doesNotMatch(js,/n\.oninput=\(\)=>\{if\(!typed\)u\.value=/,'no live copying of the name into the username');
+ assert.match(js,/n\.onchange=/);assert.match(js,/u\.select\(\)/);
+ const ppl=await readFile(new URL('../app/people.js',import.meta.url),'utf8');
+ assert.match(ppl,/placeholder="sarah"><p class="hint ac-hint">/);assert.match(ppl,/noLead:role!=='admin'&&!\$\('#ivNew'\)\.checked/);
+ const css=await readFile(new URL('../app/accounts-brand.css',import.meta.url),'utf8');assert.match(css,/\.signin \.ac-hint\+label/)});

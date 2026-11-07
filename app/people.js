@@ -44,7 +44,7 @@ function applyRole(){
 async function inviteView(root,code){
  let info=null;try{const r=await fetch('/auth/invite?code='+encodeURIComponent(code));if(r.ok)info=await r.json()}catch{}
  root.innerHTML=`<div class="signin"><form class="card" id="inv"><span class="wordmark"><img class="mark" src="${Brand.mark()}" alt="">${esc(Brand.name)}</span>
-  ${info?`<h1>You're invited</h1><p>Pick a password to start using aqeelOS.</p><label for="ivN">Your name</label><input id="ivN" autocomplete="name" value="${esc(info.name||'')}" placeholder="Sarah"><label for="ivU">Username</label><input id="ivU" autocomplete="username" autocapitalize="none" spellcheck="false" value="${esc(info.username||'')}" placeholder="sarah"><p class="hint" style="margin:4px 0 0">You sign in with this. Letters, numbers, dots or dashes.</p>
+  ${info?`<h1>You're invited</h1><p>Pick a password to start using aqeelOS.</p><label for="ivN">Your name</label><input id="ivN" autocomplete="name" value="${esc(info.name||'')}" placeholder="Sarah"><label for="ivU">Username</label><input id="ivU" autocomplete="username" autocapitalize="none" spellcheck="false" value="${esc(info.username||'')}" placeholder="sarah"><p class="hint ac-hint">You sign in with this. Letters, numbers, dots or dashes.</p>
   <label for="ivP">Password</label><input id="ivP" type="password" autocomplete="new-password" placeholder="At least 8 characters"><p class="err" id="err" role="alert"></p><button class="primary" type="submit">Join aqeelOS</button>`
   :`<h1>This link doesn't work</h1><p>It has expired or was already used. Ask for a new invite.</p><a class="btn" href="/#signin" style="margin-top:12px">Go to sign in</a>`}</form></div>`;
  const f=$('#inv');if(!info)return;$(info.name?'#ivP':'#ivN').focus();
@@ -97,7 +97,7 @@ ACT['ppl-invite']=()=>{const d=drawer('Invite someone',`<label>Their name</label
  d.querySelector('#ivGo').onclick=async()=>{const name=$('#ivName').value.trim(),pick=$('#ivRole').value,role=pick==='admin'?'admin':'member',roleId=pick==='admin'?null:pick,caps=[];const b=d.querySelector('#ivGo');b.disabled=true;
   try{const agents=role==='admin'?{}:pickedAgents('ivPick');let ownAgent=null;
    if(role!=='admin'&&$('#ivNew').checked){const an=$('#ivNewName').value.trim()||(name?name+"'s assistant":'Family assistant');b.textContent='Making their agent…';const id=await makeSafeAgent(an);agents[id]='owner';ownAgent=id}
-   const inv=await post(UI,'/ui/people/invite',{name,role,roleId,caps,agents,ownAgent});const to=$('#ivMail').value.trim();closeLayers();
+   const inv=await post(UI,'/ui/people/invite',{name,role,roleId,caps,agents,ownAgent,noLead:role!=='admin'&&!$('#ivNew').checked});const to=$('#ivMail').value.trim();closeLayers();
    if(to){try{await post(UI,'/ui/people/invite/'+inv.code+'/email',{to,link:publicBase()+'/#invite/'+inv.code});toast('Invite emailed to '+to+'. The link is copied too.')}catch(e){toast('Email failed ('+(e.message||e)+'). The link is copied instead.','err')}}
    await copyInvite(inv.code);reload()}catch(e){fail(e)}finally{b.disabled=false}}};
 async function copyInvite(code){const link=publicBase()+'/#invite/'+code;if(await copyText(link,''))toast('Invite link copied. Send it to them.');else await promptBox('Invite link','Copy this link and send it',link,'Done')}

@@ -291,7 +291,9 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
   if(p==='/ui/people/invite'&&req.method==='POST'){const b=await body();if(b.roleId&&unsafeRole(b.roleId))return send(res,403,UNSAFE_ROLE);const role=b.role==='admin'&&u.role==='owner'?'admin':'member';
    const inv={code:randomBytes(18).toString('base64url'),name:String(b.name||'').trim().slice(0,60),role,roleId:b.roleId&&db.roles[b.roleId]?b.roleId:null,caps:(Array.isArray(b.caps)?b.caps:[]).filter(k=>k in CAPS&&(k!=='unsafe'||u.role==='owner')),agents:b.agents&&typeof b.agents==='object'?Object.fromEntries(Object.entries(b.agents).filter(([a])=>!isPrivate(a)||level(u,a)==='owner')):{},expires:Date.now()+7*864e5,by:u.id};
    // the agent made for them in this invite becomes theirs (private) when they accept, if the inviter still owns it then
-   if(typeof b.ownAgent==='string'&&inv.agents[b.ownAgent]==='owner'&&agentOwner(b.ownAgent)===u.id)inv.ownAgent=b.ownAgent;db.invites.push(inv);await save();return send(res,200,inv)}
+   if(typeof b.ownAgent==='string'&&inv.agents[b.ownAgent]==='owner'&&agentOwner(b.ownAgent)===u.id)inv.ownAgent=b.ownAgent;
+   // "Also make them their own agent" unticked: no lead agent is made for them when they join (7 Nov 2026)
+   if(b.noLead===true&&role!=='admin')inv.noLead=true;db.invites.push(inv);await save();return send(res,200,inv)}
   const iv=/^\/ui\/people\/invite\/([\w-]+)$/.exec(p);if(iv&&req.method==='DELETE'){db.invites=db.invites.filter(i=>i.code!==iv[1]);await save();return send(res,200,{ok:true})}
   if(p==='/ui/people/share'&&req.method==='PUT'){const b=await body();const a=String(b.agent||''),id=String(b.user||'');if(!/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(a)||!byId(id)||id==='owner')return send(res,400,{error:'Unknown agent or person'});
    // a private agent's people are its owner's to change (admins included)
@@ -334,7 +336,7 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
   if(i.ownAgent&&agentOwner(i.ownAgent)===i.by){db.agentOwners[i.ownAgent]=u.id;delete db.shares[i.ownAgent]?.[u.id];db.leads[u.id]=i.ownAgent}
   i.used=Date.now();await save();await mkdir(home(u),{recursive:true}).catch(()=>{});
   // every new person gets a lead agent (the server makes it, in the background: the engine takes a while)
-  if(!db.leads[u.id])Promise.resolve(hooks.onJoin?.(u)).catch(e=>console.warn('lead agent for',u.id,e.message));return u}
+  if(!db.leads[u.id]&&!i.noLead)Promise.resolve(hooks.onJoin?.(u)).catch(e=>console.warn('lead agent for',u.id,e.message));return u}
 
  // a new agent starts with no shares: ones left under that name (shared before it existed, or from an older agent) go
  async function created(u,agent){await load();db.agentOwners[agent]=u.id;delete db.shares[agent];await save()}
