@@ -450,7 +450,9 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
   if('pauseMin' in b||!cur){const n=b.pauseMin===''||b.pauseMin==null?DEFAULT_PAUSE:Number(b.pauseMin);if(!Number.isInteger(n)||n<0||n>1440)throw Error('The quiet time is a whole number of minutes, 0 to 1440.');l.pauseMin=n}
   if('testers' in b){const T=Array.isArray(b.testers)?b.testers:[];if(T.length>10)throw Error('Ten testers at most.');const old=cur?.testers||[];
    l.testers=T.map(t=>{const who=str(t?.who,40),phone=String(t?.phone??'').replace(/\D/g,'');if(!who&&!phone)return null;
-    if(!who)throw Error('Give each tester a name.');if(!/^\d{6,16}$/.test(phone))throw Error('The number for '+who+' is not a phone number (country code first, like 6281234567890).');
+    if(!who)throw Error('Give each tester a name.');
+    // a tester known by their chat only (no number, 8 Nov 2026: Aqeel on Randy's and Gilang's lines) stays as they are
+    const chat=!phone&&old.find(o=>o.who===who&&!o.phone&&o.conversationId);if(chat)return {who,conversationId:chat.conversationId};if(!/^\d{6,16}$/.test(phone))throw Error('The number for '+who+' is not a phone number (country code first, like 6281234567890).');
     const was=old.find(o=>String(o.phone||'').replace(/\D/g,'')===phone)||old.find(o=>o.who===who&&!o.phone);return {who,phone,...(was?.conversationId?{conversationId:was.conversationId}:{})}}).filter(Boolean)}
   if('resetWords' in b){const W=(Array.isArray(b.resetWords)?b.resetWords:String(b.resetWords||'').split(',')).map(w=>str(w,30)).filter(Boolean).slice(0,5);l.resetWords=W.length?W:['reset']}
   if('resetText' in b){const v=str(b.resetText,300);if(v)l.resetText=v;else delete l.resetText}

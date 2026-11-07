@@ -108,7 +108,7 @@ const Kirim={
   // testers: rows that rise in and fold away
   const tbox=q('#kmf-testers');
   const addT=(t={},anim=true)=>{const r=document.createElement('div');r.className='km-trow'+(anim?' km-in':'');r.innerHTML=`<input class="kmf-tw" placeholder="Name" aria-label="Tester name" maxlength="40" autocomplete="off"><input class="kmf-tp" placeholder="6281234567890" aria-label="Tester phone" inputmode="tel" autocomplete="off"><button type="button" class="ghost icon" aria-label="Remove tester">${icon('x',16)}</button>`;
-   r.querySelector('.kmf-tw').value=t.who||'';r.querySelector('.kmf-tp').value=t.phone||'';r.querySelector('button').onclick=()=>{r.classList.add('closing');setTimeout(()=>r.remove(),170)};tbox.append(r);return r};
+   r.querySelector('.kmf-tw').value=t.who||'';r.querySelector('.kmf-tp').value=t.phone||'';if(t.chat&&!t.phone)r.querySelector('.kmf-tp').placeholder='Known by their chat';r.querySelector('button').onclick=()=>{r.classList.add('closing');setTimeout(()=>r.remove(),170)};tbox.append(r);return r};
   (s.testers||[]).forEach(t=>addT(t,false));if(!(s.testers||[]).length)addT({},false);
   q('#kmf-addt').onclick=()=>addT().querySelector('input').focus();
   // labels the agent may set: chips that rise in and fold away; the menu offers Kirimdev's own labels not chosen yet

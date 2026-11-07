@@ -123,3 +123,10 @@ test('paid check: expired is closed without labels; a Kirimdev error is tried ag
  const s=await paid({T3135339060014GCTMH:'EXPIRED',T3135339060015ABCDE:'EXPIRED'});await s.add();await s.P.tick();s.later(60e3);await s.P.tick();assert.equal(s.labelled.length,0);assert.equal(s.asked.length,2,'closed after the first look');
  const r=await paid({T3135339060014GCTMH:'PAID',T3135339060015ABCDE:'PAID'});await r.add();r.fail(1);await r.P.tick();assert.equal(r.labelled.length,0);r.later(60e3);await r.P.tick();assert.equal(r.labelled.length,1,'retried');
  const o=await paid({T3135339060014GCTMH:'PAID',T3135339060015ABCDE:'PAID'});await o.add();o.later(4*3600e3);await o.P.tick();assert.equal(o.asked.length,0,'older than 3 hours: not followed')});
+
+test('Line settings saves with a tester known by their chat only (Aqeel on Randy\'s and Gilang\'s lines, 8 Nov 2026)',async()=>{const t=await make();
+ const f=path.join(t.DATA,'kirimdev.json'),c=JSON.parse(await readFile(f,'utf8'));c.lines['continue-support'].testers=[{who:'Aqeel (3417)',conversationId:'cnv_Q'},{who:'Team',phone:'628123'}];await writeFile(f,JSON.stringify(c));
+ assert.deepEqual((await t.k.status())[0].settings.testers,[{who:'Aqeel (3417)',phone:'',chat:true},{who:'Team',phone:'628123',chat:false}]);
+ await t.k.saveLine('continue-support',{phoneNumberId:'111111',testers:[{who:'Aqeel (3417)',phone:''},{who:'Team',phone:'628123'}],labels:['New Leads']});
+ assert.deepEqual(JSON.parse(await readFile(f,'utf8')).lines['continue-support'].testers,[{who:'Aqeel (3417)',conversationId:'cnv_Q'},{who:'Team',phone:'628123'}]);
+ await assert.rejects(t.k.saveLine('continue-support',{phoneNumberId:'111111',testers:[{who:'Someone new',phone:''}]}),/not a phone number/,'a new tester still needs a number')});
