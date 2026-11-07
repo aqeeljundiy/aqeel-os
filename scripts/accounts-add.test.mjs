@@ -11,7 +11,11 @@ async function setup(){const root=await mkdtemp(path.join(tmpdir(),'ca-add-')),H
  for(const d of [path.join(H,'logs'),path.join(H,'profiles','sales','logs'),W])await mkdir(d,{recursive:true});
  const cfg={default:{mcp_servers:{}},sales:{mcp_servers:{}}};
  const ca=createConnectedAccounts({DATA,HERMES_HOME:H,WORK:W,listAgents:async()=>['default','sales'],readConfig:async a=>structuredClone(cfg[a]),setKey:async()=>({ok:true}),dash:async()=>({ok:true,status:200,j:{}}),bell:async()=>{},active:false,STEP:20});
- return {root,H,ca,done:()=>rm(root,{recursive:true,force:true})}}
+ // list() starts background checks that may still write into DATA: let them settle, then remove with retries (a run in 3
+ // failed with ENOTEMPTY when a late write landed during the removal, 7 Nov 2026)
+ const done=async()=>{await ca.list().catch(()=>{});await new Promise(r=>setTimeout(r,200));
+  for(let i=0;;i++){try{await rm(root,{recursive:true,force:true,maxRetries:10,retryDelay:50});return}catch(e){if(i>=5||!['ENOTEMPTY','EBUSY','EPERM'].includes(e.code))throw e;await new Promise(r=>setTimeout(r,200))}}};
+ return {root,H,ca,done}}
 
 test('the owner registers a Google sign-in aqeelOS sees: registered as the owner\'s, at once',async()=>{const t=await setup();try{
  await t.ca.list({fresh:true});   // the first look takes what is there as known (seed); a login after it is new
