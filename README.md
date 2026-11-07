@@ -31,6 +31,7 @@ An env file is still read when you want to override something (`.env.example` li
 - Models › **Install Claude sign-in** installs the Claude app on the server and turns on the engine's Claude plugin (shipped in `engine/claude-subscription-directsdk-experimental`, MIT, from Nous Research's official plugins), so a Claude Pro or Max plan can be added as an account.
 - Agents says when the **per-agent Linux users** are missing (agents other than the main one then have no terminal, files, code or Runs itself of their own) and shows the one command that fixes it: `sudo bash scripts/install.sh --agent-users`.
 - Automations › n8n asks for the n8n address when nothing answers there, and checks it.
+- **Browser profiles (AdsPower)** and **Composio apps** are off for every agent until switched on in Edit agent › Abilities (AdsPower alone runs about a gigabyte per agent). Off, the agent has none of their tools and nothing asks it to sign in. On an existing install the first start keeps each only for agents that ran its tools in the last 14 days, with backups (`*.bak-optins-*`) and a note in Activity.
 - The name, logo and contact are set in the app (System › Branding); the engine persona name also with `AQEELOS_BRAND_NAME`/`AQEELOS_BRAND_MAKER` or `branding:` in `~/.hermes/config.yaml`.
 - Apply the engine patches once and after every engine update: `node scripts/apply-skill-patches.mjs`.
 - System › Health shows what else is missing (engine, gateway, screen). Channels › Who can message decides who may write to each agent; Abilities › Connections holds sign-ins.

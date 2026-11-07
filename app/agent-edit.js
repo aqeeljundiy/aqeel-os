@@ -6,12 +6,12 @@
    model is set (1 Nov 2026: it was a second picker here, written another way, and the two could disagree).
    Save stores whatever changed. The card menu keeps only Edit, Chat with it and Delete; what a member may
    do still follows their share level and permissions. ---------- */
-const AE_TABS=['Identity','Personality','History','Sharing','Access'];   // Access: which agents may look after this one (agent-access.mjs)
+const AE_TABS=['Identity','Personality','History','Abilities','Sharing','Access'];   // Abilities: AdsPower and Composio per agent (admins, optins-page.js)   // Access: which agents may look after this one (agent-access.mjs)
 async function editAgent(name,start='Identity',opt={}){
  const base='/profiles/'+encodeURIComponent(name),prof=(Pages._profiles||[]).find(p=>p.name===name)||{name},id=ident(name);
  const admin=S.me?.admin!==false,lvl=admin?'owner':(S.me?.agents?.[name]||'chat'),has=k=>admin||(S.me?.caps||[]).includes(k);
  const owner=admin||Pages._own?.[name]?.access==='owner';   // admins share any agent, as on People
- const tabsOn=AE_TABS.filter(t=>!['Sharing','Access'].includes(t)||owner);if(!tabsOn.includes(start))start='Identity';
+ const tabsOn=AE_TABS.filter(t=>(!['Sharing','Access'].includes(t)||owner)&&(t!=='Abilities'||admin));if(!tabsOn.includes(start))start='Identity';
  const soulR=await H(base+'/soul').catch(()=>null);
  // a SOUL that could not be read is never written back: an empty box would replace the whole personality
  const soulOk=typeof soulR?.content==='string',soul=soulOk?soulR.content:'';
@@ -32,6 +32,7 @@ async function editAgent(name,start='Identity',opt={}){
    <label>Personality and standing instructions</label><p class="hint ih-flaghint" id="aeFlagHint" hidden></p><textarea id="idSoul" rows="16" style="font-size:12.5px;line-height:1.55">${esc(soul)}</textarea>
    <label>What changed and why <span class="hint">(optional, kept in its history)</span></label><input id="aeWhy" maxlength="300" placeholder="For example: comments 5 an hour instead of 3">`):''}
   ${sec('History',`<div id="aeChg"></div><div id="aeHist">${skeleton(3)}</div>`)}
+  ${tabsOn.includes('Abilities')?sec('Abilities',`<p class="hint" style="margin:0 0 12px">Extras ${esc(id.name)} gets only when it needs them. Off, it has none of their tools and nothing asks it to sign in. Each switch saves at once.</p><div id="aeAbil">${skeleton(2)}</div>`):''}
   ${tabsOn.includes('Sharing')?sec('Sharing',`<p class="hint" style="margin:0 0 12px">Who owns ${esc(id.name)} and who else may chat with it or change it. Each change here saves as you make it.</p><div id="aeShareBox">${skeleton(2)}</div>`):''}
   ${tabsOn.includes('Access')?sec('Access',`<p class="hint" style="margin:0 0 12px">Other agents that may look after ${esc(id.name)}. Viewer reads its setup and logs; Editor also changes its instructions, skills and schedules; Manager also its settings and who else may look after it. Its keys are never shared this way. The main agent can always do everything.</p><div id="aeAccessBox">${skeleton(2)}</div>`):''}`,
   `<button class="ghost" data-act="close">Cancel</button><button class="primary" id="aeSave">Save</button>`,{size:'lg'});
@@ -42,8 +43,9 @@ async function editAgent(name,start='Identity',opt={}){
   d.querySelectorAll('[data-ae]').forEach(b=>b.classList.toggle('on',b.dataset.ae===t));d.querySelectorAll('.ae-sec').forEach(s=>s.hidden=s.dataset.sec!==t);placePills();
   if(body&&h1&&!matchMedia('(prefers-reduced-motion: reduce)').matches){clearTimeout(body._ht);body.style.transition='none';body.style.height='';const h2=body.offsetHeight;
    if(Math.abs(h2-h1)>2){body.style.height=h1+'px';void body.offsetHeight;body.style.transition='height .24s cubic-bezier(.2,.7,.2,1)';body.style.height=h2+'px';body._ht=setTimeout(()=>{body.style.height='';body.style.transition=''},280)}}
-  const sv=d.querySelector('#aeSave'),cx=d.querySelector('.drawer-foot [data-act=close]'),only=(t==='Sharing'||t==='Access')&&!isDirty?.();if(sv)sv.hidden=only;if(cx){cx.textContent=only?'Done':'Cancel';cx.classList.toggle('primary',only);cx.classList.toggle('ghost',!only)}};
+  const sv=d.querySelector('#aeSave'),cx=d.querySelector('.drawer-foot [data-act=close]'),only=(t==='Sharing'||t==='Access'||t==='Abilities')&&!isDirty?.();if(sv)sv.hidden=only;if(cx){cx.textContent=only?'Done':'Cancel';cx.classList.toggle('primary',only);cx.classList.toggle('ghost',!only)}};
  let isDirty=null;
+ if(tabsOn.includes('Abilities')&&typeof abilitiesTab==='function')abilitiesTab(d.querySelector('#aeAbil'),name);
  d.querySelectorAll('[data-ae]').forEach(b=>b.onclick=()=>{show(b.dataset.ae);if(b.dataset.ae==='History')avChanges(d.querySelector('#aeChg'),name);if(b.dataset.ae==='History')instrHistory(d.querySelector('#aeHist'),name,()=>{closeLayers();editAgent(name,'History')})});
  if(start==='History')avChanges(d.querySelector('#aeChg'),name);if(start==='History')instrHistory(d.querySelector('#aeHist'),name,()=>{closeLayers();editAgent(name,'History')});
  UI('/ui/instructions/'+encodeURIComponent(name)).then(h=>{const el=d.querySelector('#aeFlagHint');if(!el||!d.isConnected)return;const n=(h.flags||[]).length,w=(h.proposals||[]).length;

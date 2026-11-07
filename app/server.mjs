@@ -15,6 +15,7 @@ import {createTeamSettings} from './team-settings.mjs';
 import {createCodeChanges} from './code-changes.mjs';
 import {createEscalations} from './escalations.mjs';
 import {createConnect,firstModelFor} from './connect.mjs';
+import {createOptins,COMPOSIO as COMPOSIO_URL} from './agent-optins.mjs';
 import {createAntigravity} from './antigravity.mjs';
 import {holdWrites,withAgent,withFlock,setKey,readConfig,pick,agentNames,isAgent,busy as opsBusy,initStatus,getStatus,setStatus,editEnv,hermes as hcmd,python as enginePython,LIVE_APP,HELP_AGENT} from './agentops.mjs';
 import {createSchedules} from './schedules.mjs';
@@ -684,10 +685,20 @@ const sweepGhosts=async()=>{for(const d of await readdir(path.join(HERMES_HOME,'
 if(LIVE_APP){setTimeout(()=>sweepGhosts().catch(()=>{}),40000);setInterval(()=>sweepGhosts().catch(()=>{}),30*60e3).unref()}
 const sharing=createShare({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAgents()});
 // every sign-in-page app any agent has, on every agent, not signed in (connectors.mjs): each signs in its own or the owner shares
-const connectors=createConnectors({listAgents:()=>listAgents(),readConfig,setKey,redirect:n=>MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(n),
+/* AdsPower and Composio per agent (agent-optins.mjs, 7 Nov 2026): off unless switched on in Edit agent › Abilities; the first
+   start keeps each only for agents that ran its tools in the last 14 days. Copies follow their agent. */
+const optins=createOptins({DATA,HERMES_HOME,listAgents:()=>agentNames({copies:true}),readConfig,python:enginePython,live:LIVE_APP,
+ note:(t,d)=>bottlenecks.event('abilities',t,d,{info:true}),log:m=>console.log(m)});
+// Composio entries of agents switched off for it go (through the engine's MCP route, so the running engine follows)
+async function composioOff(only){for(const a of await agentNames({copies:true})){if(only&&a.split('--')[0]!==only)continue;if(await optins.on('composio',a))continue;
+ const c=await readConfig(a).catch(()=>null)||{};for(const [n,e] of Object.entries(c.mcp_servers||{})){if(!e||!COMPOSIO_URL.test(String(e.url||'')))continue;
+  await withAgent(a,()=>fetch(DASH.origin+'/api/mcp/servers/'+encodeURIComponent(n)+'?profile='+encodeURIComponent(a),{method:'DELETE',headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(60000)}))
+   .then(r=>console.log('abilities: Composio ('+n+') removed from '+a+(r.ok?'':' failed: '+r.status)),e=>console.warn('abilities: Composio '+a+': '+e.message))}}}
+const connectors=createConnectors({listAgents:()=>listAgents(),readConfig,setKey,allow:async(a,e)=>!COMPOSIO_URL.test(String(e?.url||''))||await optins.on('composio',a),redirect:n=>MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(n),
  hasEnv:async(a,v)=>new RegExp('^'+v.replace(/[^\w]/g,'')+'=.+','m').test(await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'.env'),'utf8').catch(()=>'')),
  noteApp:(a,n,r)=>whyOf.noteApp(a,n,r),origin:(a,n,u)=>whyOf.app(a,n,u),eligible:async(a,c)=>!await isTestAgent(a)&&!!c?.mcp_servers?.['aqeelos-notify'],log:(...x)=>console.log(...x)});
-if(LIVE_APP){const run=()=>connectors.ensureAll().then(r=>{if(r.changed)console.log('connectors added (apply at the next agent restart):',r.added.join(', '))}).catch(e=>console.warn('connectors',e.message));setTimeout(run,100000);setInterval(run,600000).unref()}
+if(LIVE_APP){setTimeout(()=>optins.migrate().then(r=>{if(r){composioOff().catch(()=>{});agentAds.tick().catch(()=>{});agentAds.tools().catch(()=>{})}}).catch(e=>console.warn('abilities: first-start count',e.message)),60000).unref()}
+if(LIVE_APP){const run=()=>composioOff().catch(()=>{}).then(()=>connectors.ensureAll()).then(r=>{if(r.changed)console.log('connectors added (apply at the next agent restart):',r.added.join(', '))}).catch(e=>console.warn('connectors',e.message));setTimeout(run,100000);setInterval(run,600000).unref()}
 const channels=createChannels({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAllProfiles(),cached:a=>platformsCached(a),restart:why=>restartGateway(why),paused:()=>pausedLoad(),pendingOf:(a,id)=>id==='whatsapp'?waSettingsPending(a):false,stop:a=>stopBridges(a),
  // after a move: a pause, the sharing, schedules relayed through it and its note follow the channel to its new agent
  moved:async(pf,from,to)=>{const ps=await pausedLoad();if(ps[from+'|'+pf]||ps[to+'|'+pf]){delete ps[from+'|'+pf];delete ps[to+'|'+pf];await pausedSave(ps)}
@@ -1850,7 +1861,7 @@ async function logo(req,res){
 /* ---------- live screens: the shared one (noVNC on 127.0.0.1:6080) and one per agent (screens.mjs) ---------- */
 const screens=createScreens({keepOn:a=>agentAds.keepOn(a)});
 // every agent's own AdsPower on its own screen, as its own user, with its own port and sign-in (app/agent-adspower.mjs, 1 Nov 2026)
-const agentAds=createAgentAdspower({DATA,HERMES_HOME,screens,codeUser:a=>agentDefaults.codeUser(a),agentNames,readConfig,pick,withAgent,live:LIVE_APP,nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a),skip:async a=>a===HELP_AGENT||await isTestAgent(a),
+const agentAds=createAgentAdspower({DATA,HERMES_HOME,screens,wanted:a=>optins.on('adspower',a),codeUser:a=>agentDefaults.codeUser(a),agentNames,readConfig,pick,withAgent,live:LIVE_APP,nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a),skip:async a=>a===HELP_AGENT||await isTestAgent(a),
  mcp:(a,m,p,b)=>fetch(`${DASH.origin}/api/mcp/servers${p}?profile=${encodeURIComponent(a)}`,{method:m,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:b?JSON.stringify(b):undefined,signal:AbortSignal.timeout(30000)}).then(async r=>{if(!r.ok&&r.status!==404)throw new Error('MCP '+m+' '+r.status+' '+(await r.text().catch(()=>'')).slice(0,120))})});
 const SCREEN=new URL(env.UI_SCREEN||'http://127.0.0.1:6080');
 const BUILD=String(Date.now());
@@ -2339,6 +2350,15 @@ const server=createServer(async(req,res)=>{
    if(p.startsWith('/ui/plugin-'))return plugins.handle(req,res,u,url);
    if(p.startsWith('/ui/help/'))return help.handle(req,res,u,url);
    if((p==='/ui/install'||p.startsWith('/ui/install/'))&&await install.handle(req,res,u,url))return;
+   // Edit agent › Abilities: AdsPower and Composio per agent (admins change them; the agent's editors may read them)
+   if(p==='/ui/optins'&&req.method==='GET'){const a=String(url.searchParams.get('agent')||'default');if(!users.isAdmin(u)&&!users.atLeast(u,a,'edit'))return send(res,403,{error:'Not your agent.'});return send(res,200,{agent:a,admin:users.isAdmin(u),abilities:await optins.state(a)})}
+   if(p==='/ui/optins'&&req.method==='PUT'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can change this.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
+    const a=String(b.agent||'').split('--')[0],k=String(b.kind||''),v=!!b.on;if(!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(a)||!await isAgent(a))return send(res,400,{error:'Unknown agent'});
+    try{await optins.set(k,a,v)}catch(e){return send(res,400,{error:e.message})}
+    // applied now: AdsPower starts (or stops and loses its tool); Composio is added (or removed)
+    if(k==='adspower')(v?agentAds.tick().then(()=>agentAds.tools()):agentAds.retire(a)).catch(e=>console.warn('abilities',e.message));
+    if(k==='composio')(v?connectors.ensureAll():composioOff(a)).catch(e=>console.warn('abilities',e.message));
+    return send(res,200,{ok:true,abilities:await optins.state(a)})}
    // a new password signs out every other browser and phone; this one gets a fresh sign-in
    if(p==='/ui/me/password'&&req.method==='PUT')return users.api(u,req,res,p,async(r,code,data,h)=>{if(code===200){await revokeSessions(u.id);return send(r,code,data,{...(h||{}),'set-cookie':'hui='+makeCookie(u.id)+'; '+cookieAttrs(SESSION_DAYS*86400)})}return send(r,code,data,h)},readBody);
    // System › Branding (admins): the name, logo and contact of this install

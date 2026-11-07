@@ -49,7 +49,7 @@ export const parseListen=t=>String(t).split('\n').slice(1).map(l=>l.trim().split
 // (mine(row) says a socket is this copy's, for agents that share a user); /status then tells which one it is
 export const apiCandidates=(rows,{uid,own,mine=()=>true})=>[...new Set(rows.filter(r=>r.uid===uid&&(r.port===own||r.port>=ADS_PORT&&r.port<=ADS_LAST)&&mine(r)).map(r=>r.port))].sort((a,b)=>(b===own)-(a===own)||a-b);
 
-export function createAgentAdspower({DATA,HERMES_HOME,screens,codeUser,agentNames,readConfig,pick,withAgent,mcp,nameOf=a=>a,skip=async()=>false,live=false,log=m=>console.log(m),portsFile=null}){
+export function createAgentAdspower({DATA,HERMES_HOME,screens,codeUser,agentNames,readConfig,pick,withAgent,mcp,nameOf=a=>a,skip=async()=>false,wanted=async()=>true,live=false,log=m=>console.log(m),portsFile=null}){
  const HOME=homedir(),FILE=path.join(DATA,'agent-adspower.json'),PORTS=portsFile||path.join(HOME,'.aqeelos-adspower-ports');
  const SRC=path.join(HOME,'apps','adspower','opt','adspower-global'),BIN_DIR=path.join(HOME,'workspaces','.aqeelos-adspower'),BIN=path.join(BIN_DIR,'adspower_global');
  const KEY=path.join(HERMES_HOME,'agent-ssh','id_ed25519'),MCP_SCRIPT=new URL('../scripts/adspower-mcp.sh',import.meta.url).pathname;
@@ -65,8 +65,16 @@ export function createAgentAdspower({DATA,HERMES_HOME,screens,codeUser,agentName
  let saving=Promise.resolve();
  const save=()=>saving=saving.catch(()=>{}).then(async()=>{const tmp=FILE+'.'+process.pid+'.'+Math.random().toString(36).slice(2)+'.tmp';
   await mkdir(path.dirname(FILE),{recursive:true});await writeFile(tmp,JSON.stringify(db,null,1));await rename(tmp,FILE);await writePorts()});
- // every agent but Help and test agents; the main agent's extra numbers are the main agent
- const agents=async()=>{const out=[];for(const a of await agentNames())if(NAME.test(a)&&!a.includes('--')&&!await skip(a))out.push(a);return out};
+ // every agent switched on for it (Edit agent › Abilities, agent-optins.mjs), but never Help or test agents; the main
+ // agent's extra numbers are the main agent. Agents switched off get no copy, screen, tool or skill (7 Nov 2026).
+ const agents=async()=>{const out=[];for(const a of await agentNames())if(NAME.test(a)&&!a.includes('--')&&!await skip(a)&&await wanted(a))out.push(a);return out};
+ // switched off: its copy stops (its folder and sign-in stay, so switching it on again is quick) and its tool goes
+ async function retire(a){a=baseOf(a);await load();const port=db.ports[a];let stopped=false;
+  if(port){const p=(await running()).get(port)||{};if(p.loop||p.app){await as(a,stopLine({home:wsOf(a),port})).catch(e=>log('AdsPower stop '+a+': '+e.message));stopped=true;log('AdsPower stopped for '+a+' (switched off)')}}
+  for(const c of await agentNames({copies:true})){if(baseOf(c)!==a)continue;if(!pick(await readConfig(c).catch(()=>null)||{},'mcp_servers.AdsPower'))continue;
+   await withAgent(c,()=>mcp(c,'DELETE','/AdsPower')).then(()=>log('AdsPower tool removed from '+c+' (switched off)'),e=>log('AdsPower tool '+c+': '+e.message))}
+  const sk=path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'skills','web','own-adspower');await rm(sk,{recursive:true,force:true}).catch(()=>{});
+  return {stopped}}
  async function ports(){await load();const r=assignPorts(db,await agents());if(r.changed||!db.next){db={off:{},...r.db};await save()}return db.ports}
  const portOf=async a=>(await ports())[baseOf(a)]||null;
 
@@ -141,7 +149,9 @@ export function createAgentAdspower({DATA,HERMES_HOME,screens,codeUser,agentName
   // its tool talks to the port its copy really listens on (its own one, once the copy runs with the shim)
   for(const a of await agents())if(p[a]){const lp=await livePort(a).catch(()=>null);if(lp&&lp!==p[a])realPort[a]=lp;else delete realPort[a];seen[a]=lp||p[a]}
   await writePorts();
-  for(const a of await agentNames({copies:true})){if(!NAME.test(a)||await skip(a)||!p[baseOf(a)])continue;
+  for(const a of await agentNames({copies:true})){if(!NAME.test(a)||await skip(a))continue;
+   if(!await wanted(baseOf(a))){if(pick(await readConfig(a).catch(()=>null)||{},'mcp_servers.AdsPower'))await withAgent(a,()=>mcp(a,'DELETE','/AdsPower')).then(()=>log('AdsPower tool removed from '+a+' (switched off)'),e=>log('AdsPower tool '+a+': '+e.message));continue}
+   if(!p[baseOf(a)])continue;
    const want={ADSPOWER_PORT:String(seen[baseOf(a)]||p[baseOf(a)]),ADSPOWER_AGENT:baseOf(a),ADSPOWER_NAME:nameOf(baseOf(a))};
    const ok=c=>{const s=pick(c||{},'mcp_servers.AdsPower');return s&&s.command===MCP_SCRIPT&&Object.entries(want).every(([k,v])=>String(s.env?.[k]??'')===v)};
    if(ok(await readConfig(a).catch(()=>null)))continue;
@@ -174,7 +184,7 @@ its own data and its own sign-in. No other agent uses it.
   API) on your screen and send it to you with the lock button, saved as ADSPOWER_API_KEY.
 - Do not start or stop the AdsPower app yourself; aqeelOS keeps it running.
 `;
- async function skill(){for(const a of await agentNames()){if(!NAME.test(a)||await skip(a))continue;const d=path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'skills','web','own-adspower'),f=path.join(d,'SKILL.md');
+ async function skill(){for(const a of await agentNames()){if(!NAME.test(a)||await skip(a)||!await wanted(a))continue;const d=path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'skills','web','own-adspower'),f=path.join(d,'SKILL.md');
   if((await readFile(f,'utf8').catch(()=>''))===SKILL)continue;await mkdir(d,{recursive:true}).catch(()=>{});await writeFile(f,SKILL).catch(e=>log('AdsPower skill '+a+': '+e.message))}}
 
  // every minute: each agent's AdsPower runs unless an admin stopped it; the main agent's screen stays on while its AdsPower runs
@@ -186,6 +196,8 @@ its own data and its own sign-in. No other agent uses it.
    // (or back to its own port once its copy no longer listens elsewhere)
    const lp=p.app?await livePort(a).catch(()=>null):null;if((lp||port)!==(realPort[a]||port)){if(lp&&lp!==port)realPort[a]=lp;else delete realPort[a];moved=true}
    if(!await codeUser(a).catch(()=>null)){keep.add(a);const t=new Date();await utimes(path.join(screens.homeOf(a),'bot-desktop','activity'),t,t).catch(()=>{})}}
+  // a copy still running for an agent switched off (or after the switch was turned off): stopped
+  const on=new Set(await agents());for(const [a,port] of Object.entries(db.ports||{})){if(on.has(a)||!NAME.test(a)||await skip(a).catch(()=>true))continue;const p=r.get(port)||{};if(p.loop||p.app)await retire(a).catch(()=>{})}
   keepSet=keep;if(moved)tools().catch(()=>{})}finally{ticking=false}}
  if(live){setTimeout(()=>{tick().catch(e=>log('AdsPower tick: '+e.message));tools().catch(()=>{});skill().catch(()=>{})},45000).unref?.();
   setInterval(()=>tick().catch(()=>{}),60000).unref();setInterval(()=>{tools().catch(()=>{});skill().catch(()=>{})},600000).unref()}
@@ -198,4 +210,4 @@ its own data and its own sign-in. No other agent uses it.
   if(!m[2])return req.method==='GET'?send(res,200,await status(a)):send(res,405,{error:'GET only'});
   if(req.method!=='POST')return send(res,405,{error:'POST only'});if(!admin)return send(res,403,{error:'Only admins can start or stop AdsPower.'});
   try{return send(res,200,m[2]==='start'?await start(a):await stop(a))}catch(e){return send(res,409,{error:e.message})}}
- return {handle,status,list,start,stop,tick,tools,skill,ports,keepOn}}
+ return {handle,status,list,start,stop,tick,tools,skill,ports,keepOn,retire}}
