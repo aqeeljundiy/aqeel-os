@@ -130,9 +130,9 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  // an issue: o = {agent, what, missing, evidence, proposed_fix, affects, needs, source, healthKey, origin:{platform, uid, who, chat, thread}}
  const file=o=>queue(async()=>{await load();const pol=await policy();const m=clip(o.missing,500).trim();if(!m)throw Error('Say what is broken (missing).');
   const key=o.healthKey?'health|'+o.healthKey:o.agent+'|'+m.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().slice(0,100);
-  let i=db.items.find(x=>x.key===key&&(OPEN.includes(x.state)||x.state==='needs_human'));
+  let i=db.items.find(x=>x.key===key&&(OPEN.includes(x.state)||x.state==='needs_human'||x.state==='stopped'));
   // filed again while it waited for a person: they may have done it, so the fixer tries again
-  if(i){i.count++;i.updated=now();if(o.evidence)i.evidence=clip(o.evidence,2000);if(i.state==='needs_human'){i.state='queued';i.tries=0}await save();return {issue:view(i),again:true}}
+  if(i){i.count++;i.updated=now();if(o.evidence)i.evidence=clip(o.evidence,2000);if(i.state==='needs_human'&&!i.noRetry){i.state='queued';i.tries=0}await save();return {issue:view(i),again:true}}
   const by=o.origin||{},p=personOf(pol,by.platform,by.uid);
   i={id:'i'+randomBytes(4).toString('hex'),key,agent:o.agent,source:o.source||(p?'person':'agent'),what:clip(o.what,400),missing:m,evidence:clip(o.evidence,2000),proposed_fix:clip(o.proposed_fix,1000),
    affects:[].concat(o.affects||[]).map(x=>clip(x,64)).filter(Boolean),needs:[].concat(o.needs||[]).map(String),created:now(),updated:now(),count:1,
@@ -193,11 +193,12 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   const i=db.items.find(x=>x.id===r.issue);const kind=r.kind||'fix';const res=parseResult(out,kind);
   if(!i){await save();return}i.updated=now();
   // never reached the model: not a try; again in 5 minutes
-  if(!res&&notStarted(out)){r.notStarted=true;if(kind==='fix')i.tries--;i.state=kind==='fix'?'queued':'verify';i.notBefore=now()+5*60e3;await save();log('issues: '+r.id+' did not reach the model; again in 5 minutes');return}
+  if(!res&&notStarted(out)){r.notStarted=true;if(kind==='fix')i.tries--;if(kind==='fix'&&i.noRetry){await save();return await afterTry(i)}i.state=kind==='fix'?'queued':'verify';i.notBefore=now()+5*60e3;await save();log('issues: '+r.id+' did not reach the model; again in 5 minutes');return}
   if(kind==='fix'){const fr=res||{status:'failed',summary:'The fixer ended without a result'+(r.exit!=null?' (exit '+r.exit+')':' (stopped)')+'.',proof:clip(out.slice(-800),800),changes:[],apply:'none'};r.result=fr;
    const h={kind:'fix',run:r.id,at:now(),status:fr.status,summary:fr.summary,proof:fr.proof,need:fr.need,check:fr.check,apply:fr.apply,changes:fr.changes};i.history.push(h);i.result=fr;
    // asking a person to approve is not needing one: the fixer decides itself on the next try
    if(fr.status==='needs_human'&&(!fr.need||approvalOnly(fr.need))){await rollBack(fr.changes);h.outcome='asked for an approval; nobody approves fixes, so it decides itself';return await nextTry(i,null)}
+   if(fr.status==='needs_human'&&i.closeAfter){await rollBack(fr.changes);i.state='closed';i.updated=now();await save();log('issues: '+i.id+' closed after its last try');return}
    if(fr.status==='needs_human'){await rollBack(fr.changes);i.state='needs_human';i.need=fr.need||fr.summary;await save();
     const to=await tell(i,nameOf(i.agent)+' needs a person for a fix\n\nProblem: '+i.missing+'\nWhat is needed: '+(i.need||'-')+'\n\naqeelOS fixes the rest by itself once this is done (issue '+i.id+' on System › Health).');i.told=to;await save();log('issues: '+i.id+' needs a human, told '+to);return}
    // put back before it was ever reloaded: nothing to reload
@@ -216,7 +217,8 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   return await nextTry(i,back.length&&last?.apply!=='none'?last.apply:null)}
  // after a failed try: reload what was put back (if anything), then queued again, or stuck after the last try
  async function nextTry(i,reloadKind){if(reloadKind){i.state='rollback';i.applyKind=reloadKind;i.waitingSince=now();await save();return}return await afterTry(i)}
- async function afterTry(i){if(i.tries<TRIES){i.state='queued';i.notBefore=now()+60e3;await save();return}
+ async function afterTry(i){if(i.noRetry){i.state=i.closeAfter?'closed':'stopped';i.updated=now();await save();log('issues: '+i.id+' '+i.state+' after its try (no more tries asked)');return}
+ if(i.tries<TRIES){i.state='queued';i.notBefore=now()+60e3;await save();return}
   i.state='stuck';await save();
   const tried=i.history.filter(h=>h.kind==='fix').map((h,n)=>(n+1)+') '+clip(h.summary,200)+(h.outcome?' ('+h.outcome+')':'')).join('\n');
   const need=[i.lastNeed,...i.history.filter(h=>h.need).map(h=>h.need).reverse()].find(x=>x&&!approvalOnly(x));
@@ -231,5 +233,15 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   if(!r?.ok){if(kind==='ui'){i.state=back?'rollback':'applying';await save()}log('issues: '+i.id+' reload waits: '+(r?.why||'not done'));return}
   i.applied=kind;i.waitingSince=null;if(back)return await afterTry(i);i.state='verify';await save();log('issues: '+i.id+' reloaded ('+kind+')')}
  // "Try again" on Health (after a person did what was needed, or for a stuck one): a fresh set of tries
- const retry=id=>queue(async()=>{await load();const i=db.items.find(x=>x.id===id);if(!i||OPEN.includes(i.state))return i?view(i):null;i.state='queued';i.tries=0;i.notBefore=0;i.updated=now();await save();return view(i)});
- return {file,healthGone,retry,decideOwner,press,forAgent,list,tick,policy,_db:async()=>{await load();return db}}}
+ const retry=id=>queue(async()=>{await load();const i=db.items.find(x=>x.id===id);if(!i||OPEN.includes(i.state))return i?view(i):null;i.state='queued';i.tries=0;i.notBefore=0;i.noRetry=i.closeAfter=false;i.updated=now();await save();return view(i)});
+ // Stop retrying (System › Health): a queued one stops now; one in the middle of a try finishes that try (a proven fix
+ // still counts as fixed, a change that fails its proof is still put back) and then stops
+ const IDLE=['queued','open','needs_human','stuck','failed'];
+ const stop=(id,who)=>queue(async()=>{await load();const i=db.items.find(x=>x.id===id);if(!i)return null;if(!OPEN.includes(i.state)&&i.state!=='open')return view(i);
+  i.history.push({kind:'person',at:now(),status:'stop',summary:'Stop retrying'+(who?' ('+clip(who,60)+')':'')});
+  if(IDLE.includes(i.state)){i.state='stopped';i.notBefore=0}else i.noRetry=true;i.updated=now();await save();return view(i)});
+ // Close: done with it, whatever state; one in the middle of a try is closed when that try ends
+ const close=(id,who)=>queue(async()=>{await load();const i=db.items.find(x=>x.id===id);if(!i)return null;if(['closed','fixed','gone'].includes(i.state))return view(i);
+  i.history.push({kind:'person',at:now(),status:'close',summary:'Closed'+(who?' by '+clip(who,60):'')});
+  if(IDLE.includes(i.state)||!OPEN.includes(i.state)){i.state='closed';i.notBefore=0}else{i.noRetry=true;i.closeAfter=true}i.updated=now();await save();return view(i)});
+ return {file,healthGone,retry,stop,close,decideOwner,press,forAgent,list,tick,policy,_db:async()=>{await load();return db}}}

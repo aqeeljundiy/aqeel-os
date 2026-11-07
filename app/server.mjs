@@ -11,6 +11,7 @@ import {createAgentDefaults} from './agent-defaults.mjs';
 import {createWhy} from './why.mjs';
 import {createChatHistory} from './chat-history.mjs';
 import {createIssues} from './issues.mjs';
+import {createTeamSettings} from './team-settings.mjs';
 import {createEscalations} from './escalations.mjs';
 import {createConnect} from './connect.mjs';
 import {createAntigravity} from './antigravity.mjs';
@@ -738,7 +739,18 @@ const bottlenecks=createBottlenecks({DATA,onInfo:newsInfo,listAgents:()=>listAge
 const instructions=createInstructions({DATA,HERMES_HOME,DASH:DASH.origin,DASH_TOKEN,python:enginePython,root,names:a=>NAMES[a]||(a==='default'?'aqeelOS':a),live:LIVE_APP});
 if(LIVE_APP){setTimeout(()=>listAgents().then(l=>instructions.tick(l)).catch(()=>{}),150000).unref();setInterval(()=>listAgents().then(l=>instructions.tick(l)).catch(()=>{}),30*60000).unref()}
 // the owner on the main agent's WhatsApp (as when the server was off, or after a night update)
-async function toOwner(text){const ch=await relay.channelsFor('default');const c=ch.find(x=>x.platform==='whatsapp')||ch[0];if(!c)throw new Error('no channel to the owner');await relay.sendAs('default',c.owner,c.platform,text,null,{toYou:true})}
+// Plug and play settings (System › Teams, team-settings.mjs): the team policy, where owner alerts go, Pause alerts, test agents
+const teamSettings=createTeamSettings({DATA,HERMES_HOME,listAgents:()=>listAgents()});
+// Where owner alerts go: the channel and chat chosen on System › Teams; else the main agent's own chat (Telegram first for
+// its reports, WhatsApp first for the rest). No channel at all, or the send fails: the bell, so an alert is never lost.
+async function ownerChannel(prefer){const ch=await relay.channelsFor('default').catch(()=>[]),t=await teamSettings.alertTarget();
+ if(t){const c=ch.find(x=>x.id===t.channel);if(c)return {...c,chat:t.chat||null}}
+ return ch.find(x=>x.platform===prefer&&x.owner==='default')||ch.find(x=>x.owner==='default')||ch[0]||null}
+async function ownerSend(text,prefer){const c=await ownerChannel(prefer);
+ const bell=why=>bottlenecks.event('alerts',String(text).split('\n')[0].slice(0,140),String(text)+'\n\n'+why,{topic:'alerts|'+String(text).slice(0,60)}).catch(()=>{});
+ if(!c){await bell('No channel to you is set up yet, so this alert waits here. Pick one under Alerts go to on System › Teams.');return {bell:true}}
+ try{await relay.sendAs('default',c.owner,c.platform,text,c.chat||null,{toYou:true});return {sent:c.name}}catch(e){await bell('Not sent on '+c.name+': '+e.message);throw e}}
+async function toOwner(text){return ownerSend(text,'whatsapp')}
 /* Automations guard (automation-guard.mjs, 25 Oct 2026): tool servers that stop connecting or whose Python went away
    are fixed by themselves; problems go to Bottlenecks and fixes to the bell's list, a failed fix also goes to WhatsApp at once. Agent copies
    (agent--2) have their own tool servers and logs, so they are watched too. */
@@ -1254,8 +1266,8 @@ const srSig=a=>sign('self-runs:'+a).slice(0,32),srUrl=a=>`http://127.0.0.1:${POR
 const srDur=s=>s==null?'':s<60?s+' s':Math.round(s/60)+' min';
 const SR_SAY={ok:'finished',failed:'failed',timeout:'ran out of time on',stopped:'stopped',interrupted:'lost (aqeelOS restarted during)'};
 const SR_CHAT=new Set(['telegram','whatsapp','slack','discord','signal','matrix','mattermost']);
-// the owner hears it on Telegram (the main agent's own chat with them), else on the main agent's other channel
-async function srToOwner(text){const ch=await relay.channelsFor('default');const c=ch.find(x=>x.platform==='telegram'&&x.owner==='default')||ch.find(x=>x.owner==='default')||ch[0];if(!c)throw new Error('no channel to the owner');await relay.sendAs('default',c.owner,c.platform,text,null,{toYou:true})}
+// the owner hears it where alerts go (ownerSend above), Telegram first when nothing is chosen
+async function srToOwner(text){return ownerSend(text,'telegram')}
 const selfRuns=createSelfRuns({DATA,nameOf:srName,day:t=>localAt(t,SR_TZ).date,hour:t=>localAt(t,SR_TZ).h,
  launch:srBox.launch,alive:srBox.alive,kill:srBox.kill,readExit:srBox.readExit,readOut:srBox.readOut,
  // the end of a run: in the chat it was asked from (a person's channel), else in the bell
@@ -2527,7 +2539,30 @@ const server=createServer(async(req,res)=>{
      if(p==='/ui/apps/remove')return send(res,200,await live.remove(u,users.isAdmin(u),String(b.id||'')));
      if(p==='/ui/apps/connect'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,await live.connect(b))}}catch(e){return send(res,400,{error:e.message})}}
    // System › Health: each agent fine or with its problems, and its failed messages this week (agent-health.mjs)
-   if(p==='/ui/health/issues'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});const l=await issues.list();return send(res,200,{items:l.items.map(i=>({id:i.id,agent:i.agent,agentName:i.agentName,state:i.state,source:i.source||null,missing:i.missing,proposed_fix:i.proposed_fix,byName:i.byName,decision:i.decision,created:i.created,updated:i.updated,count:i.count,result:i.result||null,tries:i.tries??i.attempts??0,proof:i.proof||null,need:i.need||null,told:i.told||null,history:(i.history||[]).slice(-8).map(h=>({kind:h.kind,at:h.at,status:h.status,summary:h.summary||null,outcome:h.outcome||null}))})),escalations:await escalations.view().catch(()=>({agents:{}})),sources:await chatHistory.sources().catch(()=>[]),policy:{teams:(l.policy.teams||[]).map(t=>({name:t.name,agents:t.agents,contact:t.contact||(t.members||[])[0]?.name||null,members:(t.members||[]).map(m=>m.name)})),fixer:l.policy.fixer||{}}})}
+   if(p==='/ui/health/issues'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});const l=await issues.list();return send(res,200,{items:l.items.map(i=>({id:i.id,agent:i.agent,agentName:i.agentName,state:i.state,source:i.source||null,missing:i.missing,proposed_fix:i.proposed_fix,byName:i.byName,decision:i.decision,created:i.created,updated:i.updated,count:i.count,result:i.result||null,tries:i.tries??i.attempts??0,proof:i.proof||null,need:i.need||null,told:i.told||null,noRetry:!!i.noRetry,closeAfter:!!i.closeAfter,history:(i.history||[]).slice(-8).map(h=>({kind:h.kind,at:h.at,status:h.status,summary:h.summary||null,outcome:h.outcome||null}))})),escalations:await escalations.view().catch(()=>({agents:{}})),agents:(await listAgents().catch(()=>[])).map(a=>({id:a,name:NAMES[a]||(a==='default'?'aqeelOS':a)})),sources:await chatHistory.sources().catch(()=>[]),policy:{teams:(l.policy.teams||[]).map(t=>({name:t.name,agents:t.agents,contact:t.contact||(t.members||[])[0]?.name||null,members:(t.members||[]).map(m=>m.name)})),fixer:l.policy.fixer||{}}})}
+  // Report an issue, Stop retrying and Close (System › Health): a person files one for the fixer, or ends one
+  if(/^\/ui\/health\/issues\/(report|close|stop)$/.test(p)&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}
+   try{if(p.endsWith('/report')){const a=String(b.agent||'');if(!(await listAgents()).includes(a))return send(res,400,{error:'Pick the agent it is about.'});
+     const r=await issues.file({agent:a,missing:String(b.missing||''),evidence:String(b.evidence||''),source:'person',origin:{who:u.name||'an admin'}});return send(res,200,{ok:true,id:r.issue.id,state:r.issue.state,again:!!r.again})}
+    const i=await issues[p.endsWith('/close')?'close':'stop'](String(b.id||''),u.name||'an admin');if(!i)return send(res,404,{error:'No such issue.'});return send(res,200,{ok:true,state:i.state,after:!!i.noRetry})}catch(e){return send(res,400,{error:e.message})}}
+  // System › Teams (team-settings.mjs): teams and members, the fixer, where alerts go, Pause alerts, test agents
+  if(/^\/ui\/(teams|alerts)(\/|$)/.test(p)){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});let b={};if(req.method!=='GET'){try{b=JSON.parse(await readBody(req,131072))}catch{}}
+   const nm=a=>NAMES[a]||(a==='default'?'aqeelOS':a),chans=async()=>(await relay.channelsFor('default').catch(()=>[])).map(c=>({id:c.id,name:c.name,platform:c.platform,owner:c.owner}));
+   const full=async()=>{const v=await teamSettings.view();return {...v,agents:v.agents.map(a=>({id:a,name:nm(a)})),channels:await chans()}};
+   try{
+    if(p==='/ui/teams'&&req.method==='GET')return send(res,200,await full());
+    if(p==='/ui/teams'&&req.method==='PUT'){await teamSettings.setTeams(b);return send(res,200,await full())}
+    if(p==='/ui/teams/fixer'&&req.method==='PUT'){const f=await teamSettings.setFixer(b);if(f.on)issues.tick().catch(()=>{});return send(res,200,{fixer:f})}
+    if(p==='/ui/teams/test'&&req.method==='PUT')return send(res,200,{tests:await teamSettings.setTest(b.agent,!!b.on)});
+    if(p==='/ui/alerts/chats'&&req.method==='POST'){const c=(await relay.channelsFor('default')).find(x=>x.id===String(b.channel||''));if(!c)return send(res,404,{error:'That channel is gone.'});
+     return send(res,200,{chats:await relay.recipients(c.owner,c.platform)})}
+    if(p==='/ui/alerts'&&req.method==='PUT'){const id=String(b.channel||'');let name=null;
+     if(id){const c=(await relay.channelsFor('default')).find(x=>x.id===id);if(!c)return send(res,400,{error:'That channel is not connected.'});name=c.name+(b.chatName?', '+String(b.chatName).slice(0,60):'')}
+     return send(res,200,{alerts:await teamSettings.setAlerts({channel:id,chat:b.chat,name})})}
+    if(p==='/ui/alerts/test'&&req.method==='POST'){const r=await ownerSend('Test from '+(globalThis.AQ_BRAND||'aqeelOS')+': alerts for you arrive here. Sent by '+(u.name||'an admin')+' from System › Teams.','telegram');return send(res,200,r)}
+    if(p==='/ui/alerts/pause'&&req.method==='PUT')return send(res,200,{pause:await teamSettings.setPause(b)});
+   }catch(e){return send(res,400,{error:e.message})}
+   return send(res,404,{error:'Not found'})}
   // "Try again" (after a person did what was needed, or for a stuck issue): a fresh set of tries
   if(p==='/ui/health/issues/retry'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});let b={};try{b=JSON.parse(await readBody(req,2048))}catch{}const i=await issues.retry(String(b.id||''));if(!i)return send(res,404,{error:'No such issue.'});return send(res,200,{ok:true,state:i.state})}
    if(p==='/ui/health/agents'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,await health.view())}

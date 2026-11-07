@@ -32,8 +32,8 @@ const AgentHealth={
   return d.n+' failed message'+(d.n===1?'':'s')+' this week'+saved+(d.failed&&d.top?'. Mostly: '+(AgentHealth.REASON[d.top]||String(d.top).replace(/_/g,' ')):'')},
  REASON:{rate_limit:'the AI model was busy',upstream_rate_limit:'the AI model was busy',overloaded:'the AI model was busy',server_error:'the AI model did not answer',timeout:'the AI model did not answer in time',gateway_connection:'the connection to the AI model broke',empty_response:'the AI model sent an empty answer',auth:'the AI account needs signing in again',auth_permanent:'the AI account needs signing in again',billing:'the AI account is out of credit',context_overflow:'the chat grew too long',interpreter_shutdown:'the system restarted mid-reply',loop_error:'something went wrong while answering',unknown:'the cause was not recorded'},
  draw(box,d,again){const rows=d.agents||[],bad=rows.filter(r=>!r.ok).length,first=!!box.querySelector('.skel');
-  const head=bad?'<div class="ah-sum bad">'+icon('alert',16)+'<b>'+(bad===1?'1 needs':bad+' need')+' attention</b><span>Fix what is listed under each one. You get a Telegram message when something new breaks.</span></div>'
-   :'<div class="ah-sum ok">'+icon('check',16)+'<b>Every agent is working</b><span>You get a Telegram message if one breaks.</span></div>';
+  const head=bad?'<div class="ah-sum bad">'+icon('alert',16)+'<b>'+(bad===1?'1 needs':bad+' need')+' attention</b><span>Each problem goes to the fixer, which fixes and proves it by itself. A person hears only when a fix needs one.</span></div>'
+   :'<div class="ah-sum ok">'+icon('check',16)+'<b>Every agent is working</b><span>If one breaks, the fixer works on it by itself. You hear only when a fix needs you.</span></div>';
   box.innerHTML=head+'<div class="card list ah-list">'+rows.map((r,i)=>{const dl=AgentHealth.dropLine(r.drops);
    return '<div class="row ah-row'+(r.ok?'':' bad')+'"'+(first?' style="animation-delay:'+Math.min(i,8)*30+'ms"':'')+'><div class="main-c"><i class="ah-dot'+(r.ok?' ok':'')+'"></i><div class="txt"><b>'+esc(r.name)+'</b><span>'+(r.ok?'Working':r.problems.length===1?'1 problem':r.problems.length+' problems')+(dl?' · '+esc(dl):'')+'</span>'+
     (r.ok?'':'<div class="ah-probs">'+r.problems.map((x,j)=>'<div class="ah-p"><i class="bn-ic bn-'+esc(x.kind)+'">'+icon(Bottlenecks.icon[x.kind]||'alert',15)+'</i><div><b>'+esc(x.kind==='report'?'Blocked: '+(x.missing||x.title):x.title)+'</b>'+(x.text?'<p>'+esc(x.text)+'</p>':'')+'<div class="bn-acts" data-r="'+i+'" data-j="'+j+'"></div></div></div>').join('')+'</div>')+'</div></div></div>'}).join('')+'</div>';
@@ -86,16 +86,37 @@ ACT['console-open']=()=>{if(S.me?.admin===false)return toast('Only admins can us
    reach someone; both have Try again here for when that person has done their part. ---------- */
 const HealthIssues={
  ST:{queued:'Queued',fixing:'Being fixed',applying:'Waiting to reload safely',rollback:'Putting the change back',verify:'Proof run next',verifying:'Proving the fix','reloaded-back':'Put back',
-  fixed:'Fixed and proven',needs_human:'Needs a person',stuck:'Stuck after 3 tries',gone:'Went away by itself',open:'Open (fixer off)',declined:'Declined',failed:'Fix failed'},
- draw(box,d,again){const it=d.items||[],esc2=d.escalations?.agents||{},names={};for(const i of it)names[i.agent]=i.agentName;
+  fixed:'Fixed and proven',needs_human:'Needs a person',stuck:'Stuck after 3 tries',gone:'Went away by itself',open:'Waiting (fixer off)',declined:'Declined',failed:'Fix failed',closed:'Closed',stopped:'Stopped retrying'},
+ END:['fixed','declined','gone','closed'],RUN:['fixing','applying','verify','verifying','rollback','reloaded-back'],
+ draw(box,d,again){const it=d.items||[],esc2=d.escalations?.agents||{},names={};for(const i of it)names[i.agent]=i.agentName;HealthIssues.agents=d.agents||[];
   const rows=Object.entries(esc2);const t=(x)=>esc(String(x??''));const cut=(x,n)=>{x=String(x||'');return x.length>n?x.slice(0,n)+'…':x};
   const escHtml=rows.length?'<div class="card list" style="margin-bottom:14px"><div class="list-head">Team had to go to the main agent (this week · last week)</div>'+rows.map(([a,v])=>'<div class="row"><div class="main-c"><div class="txt"><b>'+t(names[a]||a)+'</b><span>'+v.thisWeek+' this week · '+v.lastWeek+' last week'+(v.examples?.length?', e.g. “'+t(v.examples[0])+'”':'')+'</span></div></div></div>').join('')+'</div>':'';
-  const END=['fixed','declined','gone'],open=it.filter(i=>!END.includes(i.state)),done=it.filter(i=>END.includes(i.state)).slice(0,8);
+  const END=HealthIssues.END,RUN=HealthIssues.RUN,open=it.filter(i=>!END.includes(i.state)),done=it.filter(i=>END.includes(i.state)).slice(0,8);
   const from=i=>i.source==='health'?'found by Health':i.byName?'asked by '+i.byName:'filed by the agent';
-  const row=i=>{const bits=[HealthIssues.ST[i.state]||i.state];if(i.tries&&!END.includes(i.state))bits.push('try '+i.tries+' of 3');bits.push(from(i));
+  const btn=(k,id,label)=>'<button class="ghost small" data-iss="'+k+'" data-id="'+t(id)+'">'+label+'</button>';
+  const row=i=>{const bits=[HealthIssues.ST[i.state]||i.state];if(i.tries&&!END.includes(i.state)&&i.state!=='stopped')bits.push('try '+i.tries+' of 3');bits.push(from(i));
+   if(RUN.includes(i.state)&&i.noRetry)bits.push(i.closeAfter?'closes after this try':'stops after this try');
    const note=i.state==='fixed'&&i.proof?'Proof: '+cut(i.proof,240):['needs_human','stuck'].includes(i.state)&&i.need?'Needs: '+i.need+(i.told?' (told '+i.told+')':''):i.result?.summary?cut(i.result.summary,240):'';
-   return '<div class="row"><div class="main-c"><div class="txt"><b>'+t(i.agentName)+': '+t(i.missing)+'</b><span>'+t(bits.join(' · '))+'</span>'+(note?'<span>'+t(note)+'</span>':'')+
-    (['needs_human','stuck'].includes(i.state)?'<div style="margin-top:6px"><button class="ghost small" data-retry="'+t(i.id)+'">Try again</button></div>':'')+'</div></div></div>'};
-  const who=(d.policy?.teams||[]).map(x=>x.name+': '+(x.contact||'the owner')).join(' · ');
-  box.innerHTML='<h2 class="ach-cat" style="margin-top:0">Issues</h2>'+escHtml+'<div class="card list" style="margin-bottom:22px"><div class="list-head">The fixer on this server fixes these by itself and proves each fix. A person hears only when a fix needs one'+(who?' ('+t(who)+')':'')+'</div>'+(open.length?open.map(row).join(''):'<div class="row"><div class="main-c"><div class="txt"><span>No open issues.</span></div></div></div>')+(done.length?done.map(row).join(''):'')+'</div>';
-  box.querySelectorAll('button[data-retry]').forEach(b=>b.onclick=async()=>{b.disabled=true;try{await UI('/ui/health/issues/retry',{method:'POST',body:JSON.stringify({id:b.dataset.retry})})}catch(e){alert(e.message)}again()})}};
+   const acts=END.includes(i.state)?'':[['needs_human','stuck','stopped'].includes(i.state)?btn('retry',i.id,'Try again'):'',(i.state==='queued'||RUN.includes(i.state))&&!i.noRetry?btn('stop',i.id,'Stop retrying'):'',!i.closeAfter?btn('close',i.id,'Close'):''].join('');
+   return '<div class="row" data-row="'+t(i.id)+'"><div class="main-c"><div class="txt"><b>'+t(i.agentName)+': '+t(i.missing)+'</b><span>'+t(bits.join(' · '))+'</span>'+(note?'<span>'+t(note)+'</span>':'')+
+    (acts?'<div class="hi-acts">'+acts+'</div>':'')+'</div></div></div>'};
+  const fx=d.policy?.fixer||{},who=(d.policy?.teams||[]).map(x=>x.name+': '+(x.contact||'the owner')).join(' · ');
+  const head=fx.on===false?'<span>The fixer is switched off, so these wait.</span><a href="#/system/teams">Switch it on</a>':'<span>The fixer on this server fixes these by itself and proves each fix. A person hears only when a fix needs one'+(who?' ('+t(who)+')':'')+'.</span><a href="#/system/teams">Teams</a>';
+  box.innerHTML='<div class="hi-top"><h2 class="ach-cat" style="margin:0">Issues</h2><button class="ghost" data-iss="report">'+icon('plus',15)+'Report an issue</button></div>'+escHtml+'<div class="card list" style="margin-bottom:22px"><div class="list-head">'+head+'</div>'+(open.length?open.map(row).join(''):'<div class="row"><div class="main-c"><div class="txt"><span>No open issues.</span></div></div></div>')+(done.length?done.map(row).join(''):'')+'</div>';
+  if(HealthIssues.drawn)box.querySelectorAll('.row').forEach(x=>x.style.animation='none');HealthIssues.drawn=true;
+  box.querySelectorAll('button[data-iss]').forEach(b=>b.onclick=async()=>{const k=b.dataset.iss;if(k==='report')return HealthIssues.report(again);
+   if(k==='close'&&!await confirmBox('Close this issue?','The fixer stops working on it. If it is in the middle of a try, it closes when that try ends.','Close issue',false))return;
+   b.disabled=true;try{const r=await post(UI,'/ui/health/issues/'+k,{id:b.dataset.id});
+    toast(k==='retry'?'The fixer tries again.':k==='stop'?(r.after?'It stops after this try.':'Stopped. Try again starts it over.'):(r.after?'It closes when this try ends.':'Closed.'))}catch(e){b.disabled=false;toast(e.message,'err');return}
+   const row=b.closest('.row');if(k==='close'&&!calm()&&row){row.style.animation='cardOut 180ms var(--ease) both';await new Promise(r=>setTimeout(r,180))}again()})},
+ // a person files one for the fixer: which agent, what is wrong, what they saw
+ async report(again){let ags=HealthIssues.agents;if(!ags?.length){try{ags=(await UI('/ui/teams')).agents}catch{ags=[]}}
+  const cur=agentProfile()||S.profile||'default';
+  const d=drawer('Report an issue',`<p class="hint" style="margin-top:0">The fixer looks into it by itself, fixes it, reloads safely and proves the fix. You hear only if it needs you.</p>
+   <label for="riA">Agent</label><select id="riA">${ags.map(a=>`<option value="${esc(a.id)}"${a.id===cur?' selected':''}>${esc(a.name)}</option>`).join('')}</select>
+   <label for="riM">What is wrong</label><textarea id="riM" rows="3" maxlength="500" placeholder="Randy stopped answering on WhatsApp since this morning"></textarea>
+   <label for="riE">What you saw (optional)</label><textarea id="riE" rows="3" maxlength="2000" placeholder="The customer wrote at 09:12 and got no reply"></textarea><p class="km-err"></p>`,
+   `<button class="ghost" data-act="close">Cancel</button><button class="primary" id="riGo">Report</button>`);
+  d.querySelector('#riGo').onclick=async e=>{const b=e.currentTarget,err=d.querySelector('.km-err'),m=d.querySelector('#riM').value.trim();if(!m){err.textContent='Say what is wrong.';return}
+   b.disabled=true;try{const r=await post(UI,'/ui/health/issues/report',{agent:d.querySelector('#riA').value,missing:m,evidence:d.querySelector('#riE').value.trim()});closeLayers();
+    toast(r.again?'Already reported: added to that issue.':r.state==='open'?'Reported. The fixer is off, so it waits.':'Reported. The fixer is on it.');again()}catch(x){err.textContent=x.message;b.disabled=false}}}};

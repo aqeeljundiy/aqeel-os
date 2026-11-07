@@ -114,4 +114,18 @@ await t('switched off: the run already going is recorded, nothing new starts or 
  const items=(await S.I._db()).items;assert.deepEqual(items.map(i=>i.state).sort(),['queued','verify']);assert.equal(S.applied.length,0);assert.equal(S.f.runs.length,1)});
 await t('test agents: a needs-human message is logged, not sent',async()=>{const S=await setup({quiet:a=>a==='a1'?'test':null,fix:[{status:'needs_human',need:'x'}]});
  await S.I.file({agent:'a1',missing:'m',origin:{platform:'telegram',uid:'2',chat:'-1'}});await S.ticks(2);assert.equal(quietAll(S.said),0);assert.equal((await S.db()).told,'logged')});
+await t('Stop retrying: a queued one stops now and stays stopped when filed again; Try again starts it over',async()=>{const S=await setup({fix:[{status:'failed',summary:'x'}]});
+ const r=await S.I.file({agent:'a1',missing:'stop me'});const i=await S.I.stop(r.issue.id,'Owner');assert.equal(i.state,'stopped');await S.ticks(2);assert.equal(S.f.runs.length,0,'no run for a stopped issue');
+ const again=await S.I.file({agent:'a1',missing:'stop me'});assert.equal(again.again,true);assert.equal(again.issue.state,'stopped');
+ assert.equal((await S.I.retry(r.issue.id)).state,'queued');await S.ticks(1);assert.equal(S.f.runs.length,1)});
+await t('Stop retrying in the middle of a try: that try ends, then no more tries, nobody told',async()=>{const S=await setup({fix:[{status:'failed',summary:'nope',need:'x'}]});
+ const r=await S.I.file({agent:'a1',missing:'m'});await S.I.tick();assert.equal((await S.db()).state,'fixing');
+ const i=await S.I.stop(r.issue.id);assert.equal(i.state,'fixing');assert.equal(i.noRetry,true);await S.ticks(3);
+ assert.equal((await S.db()).state,'stopped');assert.equal(S.f.runs.length,1);assert.equal(quietAll(S.said),0)});
+await t('Close: an idle one closes at once; one mid-try closes after it (needs a person: nobody told)',async()=>{const S=await setup({fix:[{status:'needs_human',need:'Add the bot to the group'}]});
+ const a=await S.I.file({agent:'a1',missing:'one'}),b=await S.I.file({agent:'a2',missing:'two'});
+ await S.I.tick();const running=(await S.I._db()).items.find(x=>x.state==='fixing');assert.ok(running);
+ const idle=(await S.I._db()).items.find(x=>x.state==='queued');assert.equal((await S.I.close(idle.id,'Owner')).state,'closed');
+ assert.equal((await S.I.close(running.id)).closeAfter,true);await S.ticks(2);
+ assert.equal((await S.I._db()).items.find(x=>x.id===running.id).state,'closed');assert.equal(quietAll(S.said),0);assert.equal(S.f.runs.length,1,'the closed one never ran')});
 console.log(n+' passed');
