@@ -230,18 +230,20 @@ export function engineProblems(e){const out=[];
 // 7 Nov 2026: aqeelos-notify answered every initialize with HTTP 500 from 13:53 and this check saw nothing: the engine
 // cuts its long "registered … (1 failed: …" line short, so the closing bracket the old pattern needed was never there;
 // and a server the engine parks while it runs ("parking until a reconnect is requested") was never read at all
-export function mcpState(log,now=Date.now()){let last=null;const hist=[],parked=new Map();
+export function mcpState(log,now=Date.now()){let last=null;const hist=[],parked=new Map(),okAt=new Map();   // okAt: a server that came back (revived or registered on its own) after the last full list
  for(const l of String(log||'').split('\n')){
   const pk=/MCP server '([\w.@-]+)'[^\n]*?parking until ([^(]*)\(state: \w+ → parked\)(?::\s*(.*))?/.exec(l);
   if(pk){if(!/credentials change|OAuth|no cached tokens|mcp login|sign[ -]?in|authoriz/i.test(pk[2]+' '+(pk[3]||'')))parked.set(pk[1],logTime(l));continue}
-  const rv=/MCP server '([\w.@-]+)': revived/.exec(l);if(rv){parked.delete(rv[1]);continue}
+  const rv=/MCP server '([\w.@-]+)': revived/.exec(l);if(rv){parked.delete(rv[1]);okAt.set(rv[1],logTime(l));continue}
+  const one=/MCP server '([\w.@-]+)' \(\w+\): registered \d+ tool\(s\)/.exec(l);if(one){parked.delete(one[1]);okAt.set(one[1],logTime(l))}
   if(!/MCP: registered \d+ tool\(s\)/.test(l))continue;const t=logTime(l);const f=/\(\d+ failed: (.*)$/.exec(l);for(const [k,pt] of parked)if(pt<=t)parked.delete(k);
   // a server waiting for someone to sign in (OAuth, no tokens yet) is not broken: the sign-in shows on the agent's
   // Connected apps, and no fixer can sign in for a person (7 Nov 2026: Slack, Composio and Notion on every agent)
   const failed=f?[...('; '+f[1]).matchAll(/;\s+([\w.@-]+) \(([^;]*)/g)].filter(m=>!/OAuth|no cached tokens|mcp login|sign[ -]?in|authoriz/i.test(m[2])).map(m=>m[1]):[];last={t,failed};if(now-t<H)hist.push(failed)}
  const seen=new Set(hist.flat()),flaps={};for(const sv of seen){let n=0;for(let k=1;k<hist.length;k++)if(hist[k].includes(sv)!==hist[k-1].includes(sv))n++;if(n>2)flaps[sv]=n}
  const cust=[...String(log||'').matchAll(/MCP server 'aqeelos-customer' \(\w+\): registered (\d+) tool\(s\)/g)].pop();
- const failed=[...new Set([...(last?.failed||[]),...parked.keys()])];
+ // 7 Nov 2026: a server that failed in the last full list but revived after it is fine (it read as failing for hours)
+ const failed=[...new Set([...(last?.failed||[]).filter(k=>!((okAt.get(k)||0)>=(last?.t||0))),...parked.keys()])];
  return {failed,parked:[...parked.keys()],at:last?.t||null,flaps,customer:cust?Number(cust[1]):null}}
 // aqeelOS's own tool servers (aqeelos-notify, aqeelos-code, aqeelos-customer…): their code is aqeelOS's, no agent can fix
 // it, and every agent loses those tools at once. Urgent: one problem per server for all agents, straight to the fixer.

@@ -192,3 +192,16 @@ test('aqeelOS’s own tool server: one urgent problem for all agents, straight i
  assert.equal(p.length,1);assert.equal(p[0].topic,'health|aqeelos|tool|aqeelos-notify');assert.equal(p[0].urgent,true);assert.match(p[0].text,/for 2 agents/);assert.match(p[0].detail,/sesa, pixel-agent/);
  assert.deepEqual(mcpProblems('sesa',{failed:['aqeelos-notify','composio'],flaps:{}}).map(x=>x.text),['Tool servers do not start: composio']);
  assert.equal(forLadder2({kind:'tools',id:'event|x',title:p[0].text,data:{urgent:true}}),true)});
+
+test('a tool server that failed in the last full list but revived or registered on its own after it is not failing (7 Nov 2026: five healthy agents read as failing)',()=>{
+ const now=Date.parse('2026-11-07T16:00:00Z');
+ const full='2026-11-07 13:52:47,100 INFO tools.mcp_tool: MCP: registered 30 tool(s) from 5 server(s) (1 failed: aqeelos-notify (HTTP 500 from POST http://127.0.0.1:4400/mcp/notify))';
+ const park="2026-11-07 13:53:17,815 WARNING tools.mcp_tool: MCP server 'aqeelos-notify' failed initial connection after 3 attempts, parking until a reconnect is requested (state: connecting → parked): ConnectionError: 500";
+ const rev="2026-11-07 15:37:25,387 WARNING tools.mcp_tool: MCP server 'aqeelos-notify': revived — session healthy again after parking (state: parked → connected)";
+ const reg="2026-11-07 15:34:50,100 INFO tools.mcp_tool: MCP server 'aqeelos-notify' (HTTP): registered 34 tool(s): mcp__aqeelos_notify__send_to_person";
+ assert.deepEqual(mcpState([full,park].join('\n'),now).failed,['aqeelos-notify']);
+ assert.deepEqual(mcpState([full,park,rev].join('\n'),now).failed,[]);
+ assert.deepEqual(mcpState([full,park,reg].join('\n'),now).failed,[]);
+ // failing again after the revive: failing
+ const full2='2026-11-07 15:50:00,100 INFO tools.mcp_tool: MCP: registered 30 tool(s) from 5 server(s) (1 failed: aqeelos-notify (HTTP 500))';
+ assert.deepEqual(mcpState([full,park,rev,full2].join('\n'),now).failed,['aqeelos-notify'])});
