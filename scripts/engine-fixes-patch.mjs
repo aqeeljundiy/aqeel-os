@@ -48,10 +48,83 @@
 //    message: no gateway message handler": the owner's message to cove-threads at 06:12:49 UTC). Telegram counts it
 //    as delivered, so it never came back. Now such a message is saved in ~/.hermes/aqeelos-held-inbound/ and handled
 //    by the next engine (on its first message, or 45 s after its handler is set).
+// 11) aqeelos:telegram-media-retry (7 Nov 2026). Voice notes and photos often failed to download ("Failed to cache
+//    voice: Timed out", httpx ReadTimeout at the 20 s default, over the box's VPN), and the agent got "could not be
+//    downloaded". Every Telegram file lookup and download now waits 60 s or more (by file size) and tries 3 times.
+// 12) aqeelos:audio-stt + aqeelos:audio-stt-route (7 Nov 2026). A replied-to or forwarded voice note arrives as an
+//    audio file, which the engine never transcribed: the agent got only a path, and an agent with its own Linux user
+//    cannot run speech-to-text ("I can't hear the voice note"). Audio messages are now transcribed like voice notes,
+//    and the agent still gets the file. Documents stay files.
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
 
 export const FIXES=[
+ {tag:'aqeelos:telegram-media-retry',name:'Telegram voice notes and photos download with a longer wait and retries',file:'plugins/platforms/telegram/adapter.py',edits:[
+  {why:'the media download calls',
+   from:'    from telegram.request import HTTPXRequest\n    TELEGRAM_AVAILABLE = True\n',
+   to:`    from telegram.request import HTTPXRequest
+    TELEGRAM_AVAILABLE = True
+
+    # aqeelos:telegram-media-retry: every get_file() / download_as_bytearray() in this adapter used the 20 s default
+    # read timeout once; on the box's VPN a voice note or photo often needs longer ("Failed to cache voice: Timed out")
+    def _aq_patch_media_downloads():
+        import telegram as _tg
+        from telegram.error import BadRequest as _BR, NetworkError as _NE
+        try:
+            from telegram._files._basemedium import _BaseMedium as _BM
+        except Exception:
+            _BM = None
+        if getattr(_tg.File, "_aq_media_retry", False):
+            return
+
+        def _timeout_for(size):  # 60 s, plus a second per 50 KB beyond ~1.5 MB, at most 5 minutes
+            return max(60.0, min(300.0, 30.0 + float(size or 0) / 50_000.0))
+
+        def _wrap(orig, size_of, what):
+            async def wrapped(self, *args, **kwargs):
+                kwargs.setdefault("read_timeout", _timeout_for(size_of(self)))
+                kwargs.setdefault("connect_timeout", 20.0)
+                delay = 2.0
+                for attempt in range(3):
+                    try:
+                        return await orig(self, *args, **kwargs)
+                    except _BR:
+                        raise
+                    except _NE as exc:
+                        if attempt == 2:
+                            raise
+                        logger.warning("[Telegram] %s try %d failed (%s); trying again in %.0f s", what, attempt + 1, exc, delay)
+                        await asyncio.sleep(delay)
+                        delay *= 2.5
+            wrapped._aq_orig = orig
+            return wrapped
+        _tg.File.download_as_bytearray = _wrap(_tg.File.download_as_bytearray, lambda s: getattr(s, "file_size", 0), "media download")
+        if _BM is not None:
+            _BM.get_file = _wrap(_BM.get_file, lambda s: 0, "media lookup")
+        _tg.File._aq_media_retry = True
+    _aq_patch_media_downloads()
+`}]},
+ {tag:'aqeelos:audio-stt',name:'replied-to and forwarded voice and audio are transcribed like voice notes',file:'gateway/run.py',edits:[
+  {why:'which audio goes to speech-to-text',
+   from:'    if message_type in {MessageType.AUDIO, MessageType.DOCUMENT}:\n        return False\n    return message_type == MessageType.VOICE or _event_media_type_at(event, index).startswith("audio/")\n',
+   to:`    # aqeelos:audio-stt: an audio message (a replied-to or forwarded voice note, an .ogg) is transcribed too; the
+    # agent still gets the file. Agents with their own Linux user cannot run speech-to-text themselves.
+    if message_type == MessageType.DOCUMENT:
+        return False
+    if message_type == MessageType.AUDIO:
+        _aq_mt = _event_media_type_at(event, index)
+        return not _aq_mt or _aq_mt.startswith("audio/")
+    return message_type == MessageType.VOICE or _event_media_type_at(event, index).startswith("audio/")
+`}]},
+ {tag:'aqeelos:audio-stt-route',name:'an audio file is both transcribed and handed over as a file',file:'gateway/run_inbound.py',edits:[
+  {why:'the inbound media split',
+   from:'                if event.message_type in {MessageType.AUDIO, MessageType.DOCUMENT}:\n                    audio_file_paths.append(path)\n                elif not pending_stt_prepared and _event_media_is_stt_input(event, i):\n                    audio_paths.append(path)\n',
+   to:`                if event.message_type in {MessageType.AUDIO, MessageType.DOCUMENT}:
+                    audio_file_paths.append(path)
+                # aqeelos:audio-stt-route: an audio message is transcribed as well (documents are not, see run.py)
+                if not pending_stt_prepared and _event_media_is_stt_input(event, i):
+                    audio_paths.append(path)
+`}]},
  {tag:'aqeelos:hold-inbound-during-restart',name:'a message that arrives while the engine stops is kept and handled after the restart',file:'gateway/platforms/base.py',edits:[
   {why:'the no-handler drop',
    from:'            if not getattr(self, "_no_message_handler_logged", False):\n                self._no_message_handler_logged = True\n                logger.error(\n                    "[%s] Dropping inbound message: no gateway message handler "\n                    "is installed on this adapter. The adapter is connected and "\n                    "can send, but every inbound message is discarded.",\n                    self.name,\n                )\n            return\n',
