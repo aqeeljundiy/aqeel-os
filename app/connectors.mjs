@@ -49,7 +49,7 @@ export function forAgent(entry,has){const o={...entry.oauth};for(const k of ['cl
 export function createConnectors({listAgents,readConfig,setKey,redirect,allow=async()=>true,hasEnv=async()=>false,noteApp=async()=>{},origin=async()=>null,eligible=async()=>true,log=()=>{}}){
  async function plan(){const agents=await listAgents();const cfg={};for(const a of agents)cfg[a]=await readConfig(a).catch(()=>null)||{};
   const cat=catalog(cfg);const out=[];
-  for(const a of agents){if(!await eligible(a,cfg[a]))continue;for(const x of missing(cat,cfg[a])){if(!await allow(a,x.entry))continue;const envs=new Set();for(const k of ['client_id','client_secret']){const m=/^\$\{(?:env:)?([^}]+)\}$/.exec(String(x.entry.oauth?.[k]||''));if(m&&await hasEnv(a,m[1].trim()))envs.add(m[1].trim())}
+  for(const a of agents){if(!await eligible(a,cfg[a]))continue;for(const x of missing(cat,cfg[a])){if(!await allow(a,x.entry,x.name))continue;const envs=new Set();for(const k of ['client_id','client_secret']){const m=/^\$\{(?:env:)?([^}]+)\}$/.exec(String(x.entry.oauth?.[k]||''));if(m&&await hasEnv(a,m[1].trim()))envs.add(m[1].trim())}
    const e=forAgent(x.entry,v=>envs.has(v));out.push({agent:a,name:x.name,entry:{...e,oauth:{...e.oauth,redirect_uri:redirect(x.name)}}})}}
   return {catalog:cat,add:out}}
  // adds what is missing; each agent signs in its own later. Marked "set up by aqeelOS" so it never nags for a sign-in.

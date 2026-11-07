@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,readFile,readdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {createOptins,decide,toolNames,baseOf} from '../app/agent-optins.mjs';
+import {createOptins,decide,toolNames,baseOf,appNames,decideApps,solvedIssues} from '../app/agent-optins.mjs';
 import {createConnectors} from '../app/connectors.mjs';
 
 const COMP={url:'https://connect.composio.dev/mcp',auth:'oauth'};
@@ -48,3 +48,38 @@ test('connectors never hand Composio to an agent switched off for it, other apps
  const c=createConnectors({listAgents:async()=>Object.keys(cfg),readConfig:async a=>cfg[a],setKey:async(a,k,v)=>{set.push(a+' '+k);return {ok:true}},redirect:n=>'https://x/'+n,
   allow:async(a,e)=>!/composio/.test(e.url)||a==='helper'});
  await c.ensureAll();assert.deepEqual(set.sort(),['helper mcp_servers.composio','helper mcp_servers.notion','sales mcp_servers.notion'])});
+
+const NOTION={url:'https://mcp.notion.com/mcp',auth:'oauth'},SLACK={url:'https://mcp.slack.com/mcp',auth:'oauth'};
+test('sign-in apps: an agent keeps the ones it ran; the main agent keeps all its own (the owner’s sign-ins); Composio and local tools are not apps',()=>{
+ const cfg={default:{mcp_servers:{'notion-aqeel':NOTION,slack:SLACK,'slack-as2':SLACK,composio:COMP,notify:{url:'http://127.0.0.1:4400/mcp'}}},'default--whatsapp-2':{mcp_servers:{slack:SLACK}},
+  sesa:{mcp_servers:{'notion-aqeel':NOTION,slack:SLACK}},pixel:{mcp_servers:{slack:SLACK,'notion-aqeel':NOTION}}};
+ assert.deepEqual(appNames(cfg.default),['notion-aqeel','slack','slack-as2']);
+ const counts={pixel:{'app:slack':{n:3,last:1}},sesa:{'app:slack':{n:0,last:0}}};
+ assert.deepEqual(decideApps(counts,cfg),{default:{'notion-aqeel':true,slack:true,'slack-as2':true},pixel:{slack:true}})});
+
+test('sign-in apps: on until the first count, then only what was kept; backups of each config that loses an app; switches save',async()=>{
+ const {H,DATA}=await setup();const cfg={default:{mcp_servers:{slack:SLACK}},sesa:{mcp_servers:{slack:SLACK,'notion-aqeel':NOTION}},quiet:{mcp_servers:{}}};
+ for(const a of ['sesa','quiet']){const d=path.join(H,'profiles',a);await mkdir(d,{recursive:true});await writeFile(path.join(d,'config.yaml'),'x: 1\n');await writeFile(path.join(d,'state.db'),'')}
+ const notes=[];const o=createOptins({DATA,HERMES_HOME:H,listAgents:async()=>Object.keys(cfg),readConfig:async a=>cfg[a],python:async()=>'/py',live:true,note:async(t,d)=>notes.push(d),log:()=>{},
+  run:async(py,args)=>{const q=JSON.parse(args[2]);assert.deepEqual(q.agents.sesa.names,{'app:slack':['slack'],'app:notion-aqeel':['notion-aqeel']});return {ok:true,out:JSON.stringify({default:{'app:slack':{n:9,last:2}},sesa:{'app:slack':{n:0,last:0},'app:notion-aqeel':{n:1,last:5}}})}}});
+ assert.equal(await o.appOn('sesa','slack'),true);
+ const r=await o.migrateApps();assert.deepEqual(r.decision,{default:{slack:true},sesa:{'notion-aqeel':true}});
+ assert.equal(await o.appOn('sesa','slack'),false);assert.equal(await o.appOn('sesa','notion-aqeel'),true);assert.equal(await o.appOn('default--whatsapp-2','slack'),true);assert.equal(await o.appOn('newbie','slack'),false);
+ assert.equal(r.backups.length,1);assert.match(r.backups[0],/profiles\/sesa\/config\.yaml\.bak-apps-\d{14}$/);assert.match(notes[0],/sesa: notion-aqeel/);
+ assert.equal(await o.migrateApps(),null);
+ await o.setApp('sesa','notion-aqeel',false);assert.equal(await o.appOn('sesa','notion-aqeel'),false);await assert.rejects(o.setApp('sesa','../x',true),/Unknown app/);
+ assert.deepEqual((await o.appsState('sesa',['notion-aqeel','slack'])).map(x=>[x.name,x.on]),[['notion-aqeel',false],['slack',false]])});
+
+test('connectors pass the app’s name to the switch',async()=>{const seen=[];
+ const c=createConnectors({listAgents:async()=>['default','sesa'],readConfig:async a=>a==='default'?{mcp_servers:{'notion-aqeel':NOTION}}:{mcp_servers:{}},setKey:async()=>({ok:true}),redirect:n=>n,allow:async(a,e,n)=>{seen.push(a+' '+n);return false}});
+ await c.ensureAll();assert.deepEqual(seen,['sesa notion-aqeel'])});
+
+test('an agent’s own sign-in reports close only when every app they name is off for it',async()=>{
+ const items=[{id:'a',state:'open',source:'agent',agent:'sesa',what:'Stop engine-start OAuth failures for composio, notion, slack',missing:'A sign-in, Sesa does not need them'},
+  {id:'b',state:'queued',source:'agent',agent:'default',what:'Re-sign in slack-as2',missing:'A usable sign-in link for slack-as2'},
+  {id:'c',state:'open',source:'agent',agent:'continue-threads',what:'Read label generator',missing:'Read access to /home/claude/work/labels'},
+  {id:'d',state:'open',source:'person',agent:'sesa',what:'Slack sign-in for the team',missing:'x'},
+  {id:'e',state:'closed',source:'agent',agent:'sesa',what:'Fix notion sign-in',missing:''},
+  {id:'f',state:'open',source:'agent',agent:'pixel',what:'Start MCP tool servers notion and slack',missing:'OAuth sign-in'}];
+ const on={default:['slack'],pixel:['slack']};
+ assert.deepEqual(await solvedIssues(items,async(a,w)=>(on[a]||[]).includes(w)),['a'])});

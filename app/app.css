@@ -2468,7 +2468,8 @@ button.acct-more{font:inherit;cursor:pointer;width:100%;background:var(--surface
 
 /* Edit agent › Abilities (optins-page.js) */
 .ab-row{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:12px 0;border-top:1px solid var(--border);animation:rise var(--t-med,.22s) var(--ease,ease) both}
-.ab-row:first-child{border-top:0;padding-top:0}.ab-row .txt{min-width:0}.ab-row b{font-size:14px}.ab-row .hint{margin:3px 0 0}
+.ab-row:first-child{border-top:0;padding-top:0}
+.ab-h{font-size:13px;font-weight:600;margin:18px 0 2px;color:var(--ink-2)}.ab-row .txt{min-width:0}.ab-row b{font-size:14px}.ab-row .hint{margin:3px 0 0}
 @media (prefers-reduced-motion:reduce){.ab-row{animation:none}}
 /* names and descriptions people set (labels.js, 7 Nov 2026) */
 .lb-add{color:var(--muted);text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;transition:color .15s}
