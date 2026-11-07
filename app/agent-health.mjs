@@ -166,7 +166,7 @@ print(json.dumps(out))`;
   for(const t of st.skills||[])if(!keep.has(t))await bottlenecks.resolve(t);st.skills=[...keep]}
  async function checkDrops(agents){const d=await drops();for(const a of agents){const pr=dropProblem(a,d[a]);if(pr)await bottlenecks.event('dropped',pr.text,pr.detail,{topic:pr.topic,agent:a});else await bottlenecks.resolve('health|'+a+'|dropped')}}
  // each check below keeps the topics it found (st.live[name]) so the ones that work again go away
- async function keep(name,found){await load();st.live||={};for(const x of found)await bottlenecks.event(x.kind||name,x.text,x.detail,{topic:x.topic,...(x.agent?{agent:x.agent}:{})});
+ async function keep(name,found){await load();st.live||={};for(const x of found)await bottlenecks.event(x.kind||name,x.text,x.detail,{topic:x.topic,...(x.agent?{agent:x.agent}:{}),...(x.urgent?{data:{urgent:true}}:{})});
   const now=new Set(found.map(x=>x.topic));for(const t of st.live[name]||[])if(!now.has(t))await bottlenecks.resolve(t);st.live[name]=[...now]}
  // an engine event stays a problem for an hour after the last one, then goes away by itself
  async function checkEngine(){await load();const since=st.engineAt||Date.now()-10*60e3;st.engineAt=Date.now();
@@ -174,7 +174,8 @@ print(json.dumps(out))`;
   st.engineSeen||={};for(const x of engineProblems(e))st.engineSeen[x.topic]={...x,at:Date.now()};
   for(const [k,v] of Object.entries(st.engineSeen))if(Date.now()-v.at>H)delete st.engineSeen[k];
   await keep('engine',Object.values(st.engineSeen).map(({at,...x})=>({...x,kind:'engine'})))}
- async function checkTools(agents){const found=[];for(const a of agents){const s2=mcpState(await tail(path.join(home(a),'logs','agent.log')));for(const x of mcpProblems(a,s2))found.push({...x,agent:a,kind:'tools'})}await keep('tools',found)}
+ async function checkTools(agents){const found=[],by={};for(const a of agents){const s2=mcpState(await tail(path.join(home(a),'logs','agent.log')));by[a]=s2;for(const x of mcpProblems(a,s2))found.push({...x,agent:a,kind:'tools'})}
+  found.push(...ownServerProblems(by));await keep('tools',found)}
  async function checkCustomer(){if(!customerTools)return;const found=[];for(const a of await kirimdevAgents().catch(()=>[])){
   const listed=await customerTools(a).catch(()=>null),registered=mcpState(await tail(path.join(home(a),'logs','agent.log'))).customer;
   const pr=customerProblem(a,{listed,registered});if(pr)found.push({...pr,agent:a,kind:'customer'})}await keep('customer',found)}
@@ -196,12 +197,13 @@ print(json.dumps(out))`;
   // is still there 45 minutes later, or the agent cannot run itself, does it go to the fixer.
   st.fixing=undefined;st.ownerTold=undefined;st.filed||={};st.selfTried||={};const curKeys=new Set(),toFile=[],now=Date.now();
   for(const x of all.filter(forLadder)){const k=alertKey(x);if(curKeys.has(k))continue;curKeys.add(k);if(!st.told[k]||st.filed[k]||quiet(x.agent||null)==='test')continue;
-   if(fixFirst&&x.agent&&!st.selfTried[k]){try{await fixFirst(String(x.agent).split('--')[0],x);st.selfTried[k]=now;console.log('health: '+x.agent+' fixes it itself first: '+k);continue}catch(e){console.log('health: '+x.agent+' cannot fix it itself ('+e.message+')')}}
+   // urgent (aqeelOS's own tool server): no agent can fix aqeelOS's code, so straight to the fixer
+   if(fixFirst&&x.agent&&!x.data?.urgent&&!st.selfTried[k]){try{await fixFirst(String(x.agent).split('--')[0],x);st.selfTried[k]=now;console.log('health: '+x.agent+' fixes it itself first: '+k);continue}catch(e){console.log('health: '+x.agent+' cannot fix it itself ('+e.message+')')}}
    if(st.selfTried[k]&&now-st.selfTried[k]<45*60e3)continue;toFile.push(x)}
   for(const m of [st.filed,st.selfTried])for(const k of Object.keys(m))if(!curKeys.has(k)){if(m===st.selfTried&&!st.filed[k])console.log('health: fixed by the agent itself: '+k);delete m[k]}
   for(const x of toFile){const k=alertKey(x);if(!fileIssue){console.log('health: found (no fixer): '+k);continue}
    try{const r=await fileIssue({agent:x.agent?String(x.agent).split('--')[0]:'default',affects:x.agent?[]:['aqeelos'],source:'health',healthKey:k,what:'Health check ('+(x.kind||'problem')+')',
-     missing:String(x.title||'A health problem').slice(0,400),evidence:[x.text,x.detail,x.fix].filter(Boolean).join(' · ').slice(0,1800)});
+     missing:String(x.title||'A health problem').slice(0,400),urgent:!!x.data?.urgent,evidence:[x.text,x.detail,x.fix].filter(Boolean).join(' · ').slice(0,1800)});
     st.filed[k]=Date.now();console.log('health: filed for the fixer: '+k+' → '+r?.issue?.id+(r?.again?' (already open)':''))}
    catch(e){console.warn('health: could not file '+k+': '+e.message)}}
   if(healthGone)await healthGone([...curKeys]).catch(e=>console.warn('health: closing gone issues',e.message));
@@ -225,16 +227,31 @@ export function engineProblems(e){const out=[];
  return out}
 // 2. tool servers: the latest "MCP: registered … (N failed: a (why); b (why))" line of an agent's log, and servers that
 // went between working and failing more than twice in the last hour (flapping)
-export function mcpState(log,now=Date.now()){let last=null;const hist=[];
- for(const l of String(log||'').split('\n')){if(!/MCP: registered \d+ tool\(s\)/.test(l))continue;const t=logTime(l);const f=/\(\d+ failed: (.*)\)\s*$/.exec(l);
+// 7 Nov 2026: aqeelos-notify answered every initialize with HTTP 500 from 13:53 and this check saw nothing: the engine
+// cuts its long "registered … (1 failed: …" line short, so the closing bracket the old pattern needed was never there;
+// and a server the engine parks while it runs ("parking until a reconnect is requested") was never read at all
+export function mcpState(log,now=Date.now()){let last=null;const hist=[],parked=new Map();
+ for(const l of String(log||'').split('\n')){
+  const pk=/MCP server '([\w.@-]+)'[^\n]*?parking until ([^(]*)\(state: \w+ → parked\)(?::\s*(.*))?/.exec(l);
+  if(pk){if(!/credentials change|OAuth|no cached tokens|mcp login|sign[ -]?in|authoriz/i.test(pk[2]+' '+(pk[3]||'')))parked.set(pk[1],logTime(l));continue}
+  const rv=/MCP server '([\w.@-]+)': revived/.exec(l);if(rv){parked.delete(rv[1]);continue}
+  if(!/MCP: registered \d+ tool\(s\)/.test(l))continue;const t=logTime(l);const f=/\(\d+ failed: (.*)$/.exec(l);for(const [k,pt] of parked)if(pt<=t)parked.delete(k);
   // a server waiting for someone to sign in (OAuth, no tokens yet) is not broken: the sign-in shows on the agent's
   // Connected apps, and no fixer can sign in for a person (7 Nov 2026: Slack, Composio and Notion on every agent)
   const failed=f?[...('; '+f[1]).matchAll(/;\s+([\w.@-]+) \(([^;]*)/g)].filter(m=>!/OAuth|no cached tokens|mcp login|sign[ -]?in|authoriz/i.test(m[2])).map(m=>m[1]):[];last={t,failed};if(now-t<H)hist.push(failed)}
  const seen=new Set(hist.flat()),flaps={};for(const sv of seen){let n=0;for(let k=1;k<hist.length;k++)if(hist[k].includes(sv)!==hist[k-1].includes(sv))n++;if(n>2)flaps[sv]=n}
  const cust=[...String(log||'').matchAll(/MCP server 'aqeelos-customer' \(\w+\): registered (\d+) tool\(s\)/g)].pop();
- return {failed:last?.failed||[],at:last?.t||null,flaps,customer:cust?Number(cust[1]):null}}
+ const failed=[...new Set([...(last?.failed||[]),...parked.keys()])];
+ return {failed,parked:[...parked.keys()],at:last?.t||null,flaps,customer:cust?Number(cust[1]):null}}
+// aqeelOS's own tool servers (aqeelos-notify, aqeelos-code, aqeelos-customer…): their code is aqeelOS's, no agent can fix
+// it, and every agent loses those tools at once. Urgent: one problem per server for all agents, straight to the fixer.
+export const ownServer=n=>/^aqeelos-/.test(String(n||''));
+export function ownServerProblems(byAgent){const by=new Map();for(const [a,st] of Object.entries(byAgent))for(const n of st.failed||[])if(ownServer(n)){if(!by.has(n))by.set(n,[]);by.get(n).push(a)}
+ return [...by].map(([n,agents])=>({topic:'health|aqeelos|tool|'+n,agent:'default',kind:'tools',urgent:true,text:'aqeelOS’s own tool server '+n+' is failing for '+agents.length+' agent'+(agents.length>1?'s':''),
+  detail:'Agents: '+agents.join(', ')+'. The engine could not connect to '+n+' (or parked it). Its code is aqeelOS’s own (app/ in ~/apps/hermes-ui, served under /mcp/ by the web app; the error is in /tmp/ui.log). Fix it in app/ with apply "ui": the change is saved as a patch for git.'}))}
 export function mcpProblems(agent,st){const out=[];
- if(st.failed.length)out.push({topic:'health|'+agent+'|mcp-failed',text:'Tool servers do not start: '+st.failed.join(', '),detail:'The last engine start for this agent could not register '+st.failed.join(', ')+' (agent.log "MCP: registered … failed"). Its tools from them are missing.'});
+ const failed=st.failed.filter(n=>!ownServer(n));
+ if(failed.length)out.push({topic:'health|'+agent+'|mcp-failed',text:'Tool servers do not start: '+failed.join(', '),detail:'The last engine start for this agent could not register '+failed.join(', ')+' (agent.log "MCP: registered … failed"). Its tools from them are missing.'});
  const fl=Object.entries(st.flaps);if(fl.length)out.push({topic:'health|'+agent+'|mcp-flap',text:'Tool servers keep dropping: '+fl.map(([k])=>k).join(', '),detail:fl.map(([k,n])=>k+' changed '+n+' times').join(', ')+' in the last hour.'});
  return out}
 // 3. the customer tools of an agent with a Kirimdev line: the local tools/list answers with at least `want` tools, and the

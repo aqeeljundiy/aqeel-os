@@ -1489,6 +1489,8 @@ const issues=createIssues({DATA,home:homedir(),bin:path.join(homedir(),'.local',
   exists:async p=>!!await stat(String(p).replace(/^~(?=\/)/,homedir())).catch(()=>null),
   // the commits the box runs: each deploy writes their history next to the app (.deployed-commits)
   commitLive:async c=>(await readFile(path.join(root,'.deployed-commits'),'utf8').catch(()=>'')).split('\n').some(l=>l&&l.startsWith(c.toLowerCase())),
+  // /home/claude/work/labels → the agent's own workspace/work/labels (its user's home is its workspace)
+  ownCopy:async(a,p)=>{const rel=path.relative(homedir(),String(p));if(!rel||rel.startsWith('..'))return false;return !!await stat(path.join(homedir(),'workspaces',a,rel)).catch(()=>null)},
   changedSince:async(files,t)=>{for(const f of files){const st=await stat(f).catch(()=>null);if(st&&st.mtimeMs>t)return true}return false},
   activity:async(text)=>news.add({aud:'admins',group:'issues-expired|'+text.slice(0,60),icon:'clock',title:text,go:'/system/health',label:'Health'})},
  codeRoots:[{dir:root,prefix:''},{dir:path.join(HERMES_HOME,'hermes-agent'),prefix:'hermes-agent/'}]});

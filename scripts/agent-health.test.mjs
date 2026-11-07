@@ -175,3 +175,20 @@ test('the live checks run in tick, file nothing on their own, and clear when fin
  await h.tick();v=await h.view();assert.deepEqual(v.agents.flatMap(r=>r.problems.map(p=>p.kind)),[])});
 test('tool servers waiting for a sign-in are not failures',()=>{const l="2026-11-07 07:03:42,014 INFO tools.mcp_tool: MCP: registered 98 tool(s) from 5 server(s) (3 failed: composio (MCP OAuth for 'composio': non-interactive environment and no cached tokens found. Run `hermes mcp login composio` interactively first to complete initial authorization.); notion (MCP OAuth for 'notion': no cached tokens found.); n8n (connection refused))";
  assert.deepEqual(mcpState(l,Date.parse('2026-11-07T07:10:00')).failed,['n8n'])});
+
+// 7 Nov 2026: aqeelos-notify failed every initialize with HTTP 500 from 13:53 and Health saw nothing
+import {ownServerProblems,forLadder as forLadder2} from '../app/agent-health.mjs';
+const CUT="2026-11-07 13:53:26,446 INFO tools.mcp_tool: MCP: registered 10 tool(s) from 3 server(s) (1 failed: aqeelos-notify (MCP server 'aqeelos-notify': both Streamable HTTP and SSE transports failed (Streamable HTTP: Server returned an error response (HTTP 500 from POST http://127.0.0.1:4400/mcp/notify/sesa/Ez: {\"error\":\"Server error\"}); SSE: Client error '405 Method Not Allowed' for url 'http://127.0.0.1:4400/mcp/notify/sesa/Ez'";
+test('a cut-off start line still names the failed server',()=>{const now=Date.parse('2026-11-07T14:00:00Z');assert.deepEqual(mcpState(CUT,now).failed,['aqeelos-notify'])});
+test('a server the engine parks while it runs counts until it is revived; a sign-in park does not',()=>{const now=Date.parse('2026-11-07T15:30:00Z');
+ const reg="2026-11-07 12:00:00,000 INFO tools.mcp_tool: MCP: registered 42 tool(s) from 5 server(s)";
+ const park="2026-11-07 15:10:00,000 WARNING tools.mcp_tool: MCP server 'aqeelos-notify' failed initial connection after 3 attempts, parking until a reconnect is requested (state: connecting → parked): ConnectionError: HTTP 500";
+ const oauth="2026-11-07 15:11:00,000 WARNING tools.mcp_tool: MCP server 'slack-as2' failed initial authentication, parking until credentials change; re-authenticate with `hermes mcp login slack-as2` (state: connecting → parked): OAuthNonInteractiveError";
+ const back="2026-11-07 15:20:00,000 WARNING tools.mcp_tool: MCP server 'aqeelos-notify': revived — session healthy again after parking (state: parked → connected)";
+ assert.deepEqual(mcpState([reg,park,oauth].join('\n'),now).failed,['aqeelos-notify']);assert.deepEqual(mcpState([reg,park,back].join('\n'),now).failed,[]);
+ assert.deepEqual(mcpState([park,reg.replace('12:00:00','15:25:00')].join('\n'),now).failed,[],'a later engine start registers again')});
+test('aqeelOS’s own tool server: one urgent problem for all agents, straight into the ladder; other servers stay per agent',()=>{
+ const p=ownServerProblems({sesa:{failed:['aqeelos-notify','composio']},'pixel-agent':{failed:['aqeelos-notify']},default:{failed:[]}});
+ assert.equal(p.length,1);assert.equal(p[0].topic,'health|aqeelos|tool|aqeelos-notify');assert.equal(p[0].urgent,true);assert.match(p[0].text,/for 2 agents/);assert.match(p[0].detail,/sesa, pixel-agent/);
+ assert.deepEqual(mcpProblems('sesa',{failed:['aqeelos-notify','composio'],flaps:{}}).map(x=>x.text),['Tool servers do not start: composio']);
+ assert.equal(forLadder2({kind:'tools',id:'event|x',title:p[0].text,data:{urgent:true}}),true)});

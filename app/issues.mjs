@@ -153,7 +153,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   const by=o.origin||{},p=personOf(pol,by.platform,by.uid);
   i={id:'i'+randomBytes(4).toString('hex'),key,agent:o.agent,source:o.source||(p?'person':'agent'),what:clip(o.what,400),missing:m,evidence:clip(o.evidence,2000),proposed_fix:clip(o.proposed_fix,1000),
    affects:[].concat(o.affects||[]).map(x=>clip(x,64)).filter(Boolean),needs:[].concat(o.needs||[]).map(String),created:now(),updated:now(),count:1,
-   by:{platform:by.platform||null,uid:by.uid||null,chat:by.chat||null,thread:by.thread||null},byName:p?.name||by.who||null,tries:0,history:[],...(o.healthKey?{healthKey:String(o.healthKey)}:{}),...(o.report?{report:String(o.report)}:{})};
+   by:{platform:by.platform||null,uid:by.uid||null,chat:by.chat||null,thread:by.thread||null},byName:p?.name||by.who||null,tries:0,history:[],...(o.healthKey?{healthKey:String(o.healthKey)}:{}),...(o.report?{report:String(o.report)}:{}),...(o.urgent?{urgent:true}:{})};
   i.decision=decide(pol,i,by).why;i.state=pol.fixer?.on===false?'open':'queued';if(i.state==='open')i.decision='the fixer is switched off in the team policy';
   db.items.unshift(i);db.items=db.items.slice(0,300);await save();log('issue '+i.id+' filed by '+(i.source==='health'?'Health':i.agent)+': '+i.state);return {issue:view(i)}});
  // Health saw the problem go away before the fixer started: closed, nobody told
@@ -167,6 +167,9 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  let sweptAt=0;
  const sweep=(force=false)=>queue(async()=>{await load();if(!force&&now()-sweptAt<10*60e3)return 0;sweptAt=now();let n=0;
   for(const i of db.items){if(!WAITING.includes(i.state)||i.healthKey&&i.state!=='stuck')continue;   // Health items: healthGone
+   // a planned test (the ladder proof and the like) is not a problem to keep: closed at once
+   if(/PLANNED TEST|planned (?:ladder )?test|ladder[- ]proof/i.test([i.missing,i.evidence].join(' '))){i.state='closed';i.updated=now();i.result={...(i.result||{}),summary:'Test item, closed.'};
+    i.history.push({kind:'resolved',at:now(),summary:'Test item, closed.'});await save();log('issues: '+i.id+' test item, closed');n++;continue}
    const why=await whyGone(i).catch(e=>{log('issues: sweep '+i.id+': '+e.message);return null});if(why){await resolved(i,why);n++;continue}
    // a stuck issue whose files a deploy changed since: one proof run checks whether the problem is gone now
    if(i.state==='stuck'&&!i.recheck&&checks.changedSince){const files=[...new Set(i.history.flatMap(h=>(h.changes||[]).map(c=>c.file)))];const since=Math.max(i.updated||0,i.recheckedAt||0);
@@ -189,10 +192,14 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
    if(named.length){const ok=[];for(const a of named)if(await checks.appSignedIn(i.agent,a))ok.push(a);if(ok.length===named.length)return named.join(', ')+(named.length>1?' are':' is')+' signed in now (its sign-in is saved on the box).'}}
   if(checks.exists&&/not there|missing|no such file|does not exist|is gone/i.test(text)){const paths=[...new Set([...String(i.missing+' '+(i.evidence||'')).matchAll(/(?:^|[\s'"`(])((?:\/home\/|~\/)[\w.\-/]+\.\w+)/g)].map(m=>m[1]))];
    if(paths.length){let all=true;for(const p of paths)if(!await checks.exists(p)){all=false;break}if(all)return 'the file'+(paths.length>1?'s are':' is')+' there now: '+paths.slice(0,4).join(', ')+'.'}}
+  // access to someone else's files is no longer needed once the agent has its own copy in its workspace (7 Nov 2026:
+  // continue-threads' labels and tiktok/.venv)
+  if(checks.ownCopy&&/access|permission denied|read\/?exec/i.test(i.missing)){const paths=[...new Set([...String(i.missing).matchAll(/(\/home\/[\w.-]+\/[\w.\-/]+)/g)].map(m=>m[1].replace(/[.,)]+$/,'')))];
+   if(paths.length){let all=true;for(const p of paths)if(!await checks.ownCopy(i.agent,p)){all=false;break}if(all)return 'the files it needs are in its own workspace now: '+paths.map(p=>p.split('/').slice(-2).join('/')).join(', ')+'.'}}
   if(checks.commitLive){const shas=[...new Set([...text.matchAll(/\b(?:commit|fixed in|in git|live as)\s+([0-9a-f]{7,40})\b/gi)].map(m=>m[1].toLowerCase()))];
    for(const c of shas)if(await checks.commitLive(c))return 'the fix commit '+c+' is live on the box.'}
   return null}
- const checkable=i=>/\b(duplicate of|same as)\s+i[0-9a-f]{8}|sign[ -]?in|oauth|not there|missing|no such file|does not exist|\bcommit [0-9a-f]{7,}/i.test([i.missing,i.evidence].join(' '))||i.history.some(h=>(h.changes||[]).length);
+ const checkable=i=>/\b(duplicate of|same as)\s+i[0-9a-f]{8}|sign[ -]?in|oauth|not there|missing|no such file|does not exist|\bcommit [0-9a-f]{7,}|access|permission denied/i.test([i.missing,i.evidence].join(' '))||i.history.some(h=>(h.changes||[]).length);
  const forAgent=async a=>{await load();return db.items.filter(i=>i.agent===a).slice(0,10).map(view)};
  const list=async()=>{await load();return {items:db.items.slice(0,60).map(view),policy:await policy()}};
  // kept so old Telegram buttons and links answer something sensible
@@ -213,8 +220,10 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
    const r=await apply('ui','fixer '+d.id+' (files put back)').catch(e=>({ok:false,why:e.message}));if(!r?.ok){d.uiDirty=true;await save();log('issues: '+d.id+' reload of the put-back files waits: '+(r?.why||'not done'))}return}}
   if(!await ready().catch(()=>false))return;
   const v=[...db.items].reverse().find(i=>i.state==='verify');if(v)return await start(v,pol,'proof');
+  // urgent first (aqeelOS's own tool server failing for every agent), and not held back by the daily limit
+  const due=i=>i.state==='queued'&&!(i.notBefore>now());const u=[...db.items].reverse().find(i=>i.urgent&&due(i));if(u)return await start(u,pol,'fix');
   if(fixRunsToday()>=(pol.fixer?.cap||20))return;
-  const q=[...db.items].reverse().find(i=>i.state==='queued'&&!(i.notBefore>now()));if(q)return await start(q,pol,'fix')}finally{running=null}}
+  const q=[...db.items].reverse().find(due);if(q)return await start(q,pol,'fix')}finally{running=null}}
  async function start(i,pol,kind){const n=kind==='fix'?i.tries+1:i.tries,id=i.id+'-'+n+(kind==='proof'?'p':''),dir=path.join(DIR,id);await mkdir(dir,{recursive:true,mode:0o700});
   const last=i.history.filter(h=>h.kind==='fix').at(-1);
   await writeFile(path.join(dir,'prompt.txt'),kind==='fix'?fixerPrompt(i,{rules:pol.fixer?.rules||'',attempt:n}):proofPrompt(i,last,{reloaded:i.applied||null,recheck:!!i.recheck}),{mode:0o600});

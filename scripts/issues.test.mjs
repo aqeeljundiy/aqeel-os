@@ -205,4 +205,16 @@ await t('sweep: nothing left to check for 7 days: it leaves quietly, to Activity
  await S.I.file({agent:'a1',missing:'kicked',source:'health',healthKey:'a1|g'});const [h,old]=(await S.I._db()).items;old.updated=Date.now()-8*864e5;h.state='stuck';
  await S.I.sweep(true);assert.equal(old.state,'expired');assert.equal(acts.length,1);assert.match(acts[0],/closed after 7 days/);
  assert.equal(await S.I.healthGone([]),1);assert.equal(h.state,'gone');assert.equal(quietAll(S.said),0)});
+await t('urgent (aqeelOS own tool server) goes first and is not held back by the daily limit',async()=>{
+ const S=await setup({policy:{...POL2,fixer:{on:true,agent:'default',cap:1}},fix:[{status:'no_change',summary:'a'},{status:'no_change',summary:'b'}],proof:[{status:'proven',proof:'p'},{status:'proven',proof:'p'}]});
+ await S.I.file({agent:'a1',missing:'an ordinary problem'});await S.ticks(4);assert.equal((await S.I._db()).items[0].state,'fixed');
+ await S.I.file({agent:'a1',missing:'another ordinary problem'});await S.I.file({agent:'default',missing:'aqeelOS’s own tool server aqeelos-notify is failing for 7 agents',source:'health',healthKey:'topic|health|aqeelos|tool|aqeelos-notify',urgent:true});
+ await S.I.tick();const l=(await S.I._db()).items;assert.equal(l.find(i=>i.urgent).state,'fixing','urgent starts although the limit (1) is used up');assert.equal(l.find(i=>/another/.test(i.missing)).state,'queued')});
+await t('sweep: a planned test item closes at once as a test item; an access issue closes once the agent has its own copy',async()=>{const own=new Set(['/home/claude/work/labels','/home/claude/work/tiktok/.venv']);
+ const S=await setup({policy:off,checks:{ownCopy:async(a,p)=>a==='continue-threads'&&own.has(p)}});
+ await S.I.file({agent:'default',missing:'PLANNED TEST, no action needed: a person must add the bot to a Telegram group called aqeelOS ladder test'});
+ await S.I.file({agent:'continue-threads',missing:'Read/execute access for ag-continue-threads to /home/claude/work/labels and /home/claude/work/tiktok/.venv'});
+ await S.I.file({agent:'sesa',missing:'Read/execute access for ag-sesa to /home/claude/work/labels'});
+ await S.I.sweep(true);const st=Object.fromEntries((await S.I._db()).items.map(i=>[i.agent,[i.state,i.result?.summary||'']]));
+ assert.deepEqual(st.default,['closed','Test item, closed.']);assert.equal(st['continue-threads'][0],'gone');assert.match(st['continue-threads'][1],/own workspace/);assert.equal(st.sesa[0],'open');assert.equal(quietAll(S.said),0)});
 console.log(n+' passed');
