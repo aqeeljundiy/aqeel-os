@@ -7,8 +7,9 @@ import http from 'node:http';
 import {createHmac,timingSafeEqual} from 'node:crypto';
 
 const SECRET=process.env.CODE_GATE_SECRET||'';if(SECRET.length<32){console.error('CODE_GATE_SECRET is missing or too short');process.exit(1)}
-const HOST=process.env.CODE_HOST||'code.elkiya.com',PREVIEW_HOST=process.env.CODE_PREVIEW_HOST||'code-preview.elkiya.com';
-const HOME=(process.env.AQEELOS_PUBLIC||'https://ai.elkiya.com').replace(/\/$/,'');const PORT=Number(process.env.GATE_PORT||80);
+// this install's addresses (aqeelOS › Your address and Code's addresses there); online-start.sh passes them on
+const HOST=process.env.CODE_HOST||'',PREVIEW_HOST=process.env.CODE_PREVIEW_HOST||'';
+const HOME=(process.env.AQEELOS_PUBLIC||'').replace(/\/$/,'');if(!HOST||!PREVIEW_HOST||!HOME){console.error('Set CODE_HOST, CODE_PREVIEW_HOST and AQEELOS_PUBLIC (see online-start.sh)');process.exit(1)}const PORT=Number(process.env.GATE_PORT||80);
 const sig=s=>createHmac('sha256',SECRET).update(s).digest('base64url').slice(0,32);
 const same=(a,b)=>{a=Buffer.from(String(a));b=Buffer.from(String(b));return a.length===b.length&&timingSafeEqual(a,b)};
 // ticket: user.role.expires.signature (two minutes); cookie: the same for seven days

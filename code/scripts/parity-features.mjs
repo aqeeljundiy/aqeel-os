@@ -185,7 +185,7 @@ export const FEATURES=[
 
  // Interface system
  ['UI-01','Collapsible project and chat panels','Request','P0','done','Each panel folds to a rail from its own header button; state is remembered.'],
- ['UI-02','Elkiya dropdowns everywhere','Request','P0','done','All selects use the Elkiya Group dropdown component with keyboard support.'],
+ ['UI-02','Own dropdowns everywhere','Request','P0','done','All selects use the app\'s own dropdown component with keyboard support.'],
  ['UI-03','Aligned header grid','Request','P0','done','All panels share a 56px header row and 16px gutters so icons, titles and controls line up.'],
  ['UI-04','Context menu component','Both','P0','done','One reusable right-click and ⋯ menu with keyboard navigation, used by projects, chats, files and messages.'],
  ['UI-05','Consistent empty, loading and error states','Both','P1','done','Every panel has designed empty, loading and error states that explain the next step.'],
@@ -623,7 +623,7 @@ export const FEATURES=[
  ['V4-23','Share a deck and a document','Audit','P1','done','Share links serve frozen copies as web pages, sandboxed, without pairing on this computer.'],
  ['V4-24','Page that keeps data','Audit','P1','done','A tracker page saves and reloads its own data through cbaData; store.json updates.'],
  ['V4-25','Media gallery','Audit','P1','done','A media output shows its images and videos as a gallery at full resolution.'],
- ['V4-26','Design system from a website','Audit','P1','done','Reading elkiya.com gives a named design system with its brand colours, ready to edit.'],
+ ['V4-26','Design system from a website','Audit','P1','done','Reading a website gives a named design system with its brand colours, ready to edit.'],
  ['V4-27','Switching design system','Audit','P1','done','Choosing another design system restyles the open deck, its exports and share pages.'],
  ['V4-28','Edits on the slide saved','Audit','P1','done','Text typed on a slide saves to deck.json, updates the thumbnail and adds a version; undo brings it back.'],
  ['V4-29','Comments kept with the output','Audit','P1','done','Comments on documents and slides are saved with the app (not in the project) and survive a reload.'],

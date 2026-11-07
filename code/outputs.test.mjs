@@ -15,7 +15,7 @@ test('slugs are checked and kind instructions name the folder and design system'
 test('design systems are cleaned and built-ins cannot be deleted',async()=>{const ds=cleanDS({name:'<b>x</b>'.repeat(20),colors:{accent:'red',ink:'#123456'},fonts:{heading:'Inter;}body{'},radius:99,logo:'javascript:alert(1)'});
  assert.equal(ds.colors.accent,'#0158cb');assert.equal(ds.colors.ink,'#123456');assert.equal(ds.fonts.heading,'Interbody');assert.equal(ds.radius,40);assert.equal(ds.logo,'');assert.ok(ds.name.length<=40);
  const store=new DesignSystems(await mkdtemp(path.join(os.tmpdir(),'cba-ds-')));const saved=await store.save({name:'Mine',colors:{accent:'#ff0000'}});assert.equal((await store.get(saved.id)).name,'Mine');
- await assert.rejects(store.remove('elkiya'));await store.remove(saved.id);assert.equal(await store.get(saved.id),null);
+ await assert.rejects(store.remove('standard'));await store.remove(saved.id);assert.equal(await store.get(saved.id),null);
  const fromSite=dsFromPage({name:'Shop',bg:'#101010',ink:'#fafafa',accent:'#ffcc00',accent2:'',heading:'Inter',body:'Inter',radius:6},'https://shop.example');assert.equal(fromSite.colors.onAccent,'#0b0c10');assert.equal(fromSite.colors.surface,'#1b2130')});
 test('slides escape every field and fall back to bullets for unknown layouts',()=>{const html=slideHtml({layout:'nope',title:'<img src=x onerror=alert(1)>',bullets:['"a"']},{deck:{title:'T'}});
  assert.match(html,/l-bullets/);assert.ok(!html.includes('<img src=x'));assert.match(html,/&lt;img/);assert.match(html,/&quot;a&quot;/);

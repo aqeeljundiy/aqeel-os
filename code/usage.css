@@ -1,4 +1,4 @@
-/* Usage page — Elkiya tokens from planning.css; chart colours validated with the dataviz palette checker */
+/* Usage page: tokens from planning.css; chart colours validated with the dataviz palette checker */
 .usage{max-width:1200px;margin:0 auto;padding:32px 28px 64px;display:grid;gap:20px;--series-gpt:#0158cb;--series-claude:#eb6834;--series-gemini:#1a8f5c}
 @media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .usage{--series-gpt:#3987e5;--series-claude:#d95926;--series-gemini:#3fbf86}}
 .usage-head h1{margin:0 0 6px}.usage-head p{margin:0;color:var(--muted);font-size:14px;max-width:720px;line-height:1.6}

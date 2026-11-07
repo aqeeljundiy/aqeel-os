@@ -1,6 +1,6 @@
 // Phase 0 mockup only: switch screens, kinds and light/dark. Nothing else is wired up.
 const body=document.body,html=document.documentElement;
-try{html.classList.toggle('dark',localStorage.getItem('elkiya-dark')==='true')}catch{}
+try{html.classList.toggle('dark',localStorage.getItem('aq-dark')==='true')}catch{}
 const go=screen=>{body.dataset.screen=screen;for(const b of document.querySelectorAll('[data-go]'))b.classList.toggle('on',b.dataset.go===screen);try{history.replaceState(null,'','#'+screen)}catch{}};
 for(const b of document.querySelectorAll('[data-go]'))b.addEventListener('click',()=>go(b.dataset.go));
 if(['start','deck','doc'].includes(location.hash.slice(1)))go(location.hash.slice(1));

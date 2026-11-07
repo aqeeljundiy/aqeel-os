@@ -9,3 +9,9 @@ scratch/
 .DS_Store
 Thumbs.db
 /aqeelos.json
+
+# your own desktop build settings (app id, address, publisher): see desktop/build.config.example.json
+/desktop/build.config.json
+/desktop/dist/
+/desktop/shot.cjs
+/desktop/node_modules

@@ -14,7 +14,7 @@ export function openDesignSystems(ctx){
  d.append(head,intro,grid,actions);document.body.append(d);const close=()=>{d.close();setTimeout(()=>d.remove(),180)};x.onclick=close;d.addEventListener('cancel',e=>{e.preventDefault();close()});d.addEventListener('click',e=>{if(e.target===d)close()});d.showModal();
  let list=[];
  async function load(){list=(await ctx.api('/design-systems')).designSystems;paint()}
- function paint(){const chosen=ctx.project()?.settings?.designSystem||'elkiya';grid.replaceChildren();
+ function paint(){const saved=ctx.project()?.settings?.designSystem,chosen=(saved==='el'+'kiya'?'':saved)||'standard';grid.replaceChildren();
   for(const ds of list){const card=el('div','ds-card'+(ds.id===chosen?' on':''));const pick=el('button','ds-pick');pick.type='button';pick.setAttribute('aria-pressed',String(ds.id===chosen));
    const prev=el('div','ds-preview');prev.innerHTML=slideBlock(SAMPLE.slides[0],{deck:SAMPLE,ds,inline:false});paintSlides(prev,ds);
    const sw=el('div','ds-swatches');for(let n=0;n<4;n++)sw.append(el('i'));sw.setAttribute('aria-hidden','true');[...sw.children].forEach((i,n)=>i.style.background=ds.colors[['accent','accent2','ink','surface'][n]]);
@@ -35,7 +35,7 @@ export function openDesignSystems(ctx){
   const logo=el('input');logo.type='file';logo.accept='image/png,image/jpeg,image/webp,image/svg+xml';logo.addEventListener('change',()=>{const f=logo.files[0];if(!f)return;if(f.size>280000)return ctx.notify('Use a logo under 280 KB.');const r=new FileReader();r.onload=()=>{ds.logo=String(r.result);paintPrev()};r.readAsDataURL(f)});form.append(field('Logo',logo));
   const voice=el('textarea');voice.rows=2;voice.maxLength=400;voice.value=ds.voice||'';voice.placeholder='Tone of voice, for example: clear, confident, no jargon';form.append(field('Tone of voice',voice));
   const row=el('div','dialog-actions');const back=el('button','','Back');back.type='button';const save=el('button','primary',isNew?'Save and use':'Save');save.type='button';
-  if(!isNew&&!ds.builtIn){const del=el('button','deny','Delete');del.type='button';del.addEventListener('click',async()=>{if(!await confirmDialog({title:'Delete '+ds.name+'?',message:'Projects using it go back to Elkiya.',confirm:'Delete',danger:true}))return;try{await ctx.api('/design-system/delete',{id:ds.id});await load();e.remove();grid.hidden=actions.hidden=intro.hidden=false}catch(err){ctx.notify(err.message)}});row.append(del)}
+  if(!isNew&&!ds.builtIn){const del=el('button','deny','Delete');del.type='button';del.addEventListener('click',async()=>{if(!await confirmDialog({title:'Delete '+ds.name+'?',message:'Projects using it go back to Standard.',confirm:'Delete',danger:true}))return;try{await ctx.api('/design-system/delete',{id:ds.id});await load();e.remove();grid.hidden=actions.hidden=intro.hidden=false}catch(err){ctx.notify(err.message)}});row.append(del)}
   row.append(back,save);
   function paintPrev(){ds.name=name.value;preview.innerHTML=slideBlock(SAMPLE.slides[0],{deck:SAMPLE,ds,inline:false,resolve:s=>s});paintSlides(preview,ds)}
   for(const i of [name,hf,bf,voice])i.addEventListener('input',()=>{ds.fonts={heading:hf.value,body:bf.value};ds.voice=voice.value;paintPrev()});

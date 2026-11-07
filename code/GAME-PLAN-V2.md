@@ -87,6 +87,6 @@ That's 180 audit cards on top of the 91 feature cards.
 ## 5. Decisions for you before Phase 0 starts
 
 1. **Libraries to download** (each from npm, and each needs your OK): **pptxgenjs** for PPTX, **docx** for DOCX, **SheetJS** for XLSX. PDF and PNG need nothing new.
-2. **Share links:** on this network only, or also published through your Dokploy box (ai.elkiya.com style)?
+2. **Share links:** on this network only, or also published through your Dokploy box (your aqeelOS address style)?
 3. **Order:** Slides as Phase 2 (my recommendation), or Documents or Design first?
 4. **Mockups:** I make the Phase 0 mockups first (the “What do you want to make?” start and the Artifacts panel) for your sign-off before building.

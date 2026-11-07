@@ -3,16 +3,25 @@
 // (sharp, real cookies, history and sign-ins, kept per project in the project's .aqeelos/browser folder). Code's
 // engine drives those tabs over the DevTools protocol, the same way it drives any Chrome, through a small control
 // channel on 127.0.0.1 that only it knows the key to.
-const {app,BrowserWindow,WebContentsView,session,ipcMain,shell,dialog,Tray,Menu}=require('electron');
+const {app,BrowserWindow,WebContentsView,session,ipcMain,shell,dialog,Tray,Menu,nativeTheme}=require('electron');
 const path=require('node:path'),fs=require('node:fs'),http=require('node:http'),crypto=require('node:crypto'),{spawn}=require('node:child_process');
 
 const CODE_PORT=Number(process.env.CBA_PORT||4321);
 const DEV=!app.isPackaged;
+// a test run of a built app (AQEELOS_TEST_PROFILE=<folder>): its own settings folder, and it never registers itself to
+// start at login or to open aqeelos:// links, so the app installed on that computer stays as it is
+const TEST=process.env.AQEELOS_TEST_PROFILE||'';if(TEST)app.setPath('userData',path.resolve(TEST));
 // Code's files: the repo (while developing) or a writable copy of the bundled files (so Code can update itself)
 const BUNDLED=DEV?path.resolve(__dirname,'..'):path.join(process.resourcesPath,'code');
 const CODE_DIR=DEV?BUNDLED:path.join(app.getPath('userData'),'code');
 const read=(f,d)=>{try{return JSON.parse(fs.readFileSync(f,'utf8'))}catch{return d}};
-const HOME_URL=(process.env.AQEELOS_URL||read(path.join(BUNDLED,'aqeelos.json'),{}).aqeelos?.base||'https://ai.elkiya.com').replace(/\/$/,'');
+// the aqeelOS this app opens: nothing built in. First launch asks for it (setup.html); an app already paired keeps its address
+const addr=require('./address.cjs');
+const SETTINGS=path.join(app.getPath('userData'),'settings.json');
+let HOME_URL=addr.savedAddress({settingsFile:SETTINGS,codeDir:CODE_DIR,bundled:BUNDLED});
+if(HOME_URL&&!read(SETTINGS,{}).address)try{addr.saveSettings(SETTINGS,{address:HOME_URL})}catch{}
+let brand=read(SETTINGS,{}).brand||{name:'aqeelOS',logo:'',owner:null};
+const appName=()=>brand.name||'aqeelOS';
 
 // one window only
 if(!app.requestSingleInstanceLock()){app.quit()}
@@ -54,7 +63,7 @@ let updating=false;
 async function startCode(){const old=stale();if(await up()){if(!old)return;updating=true;try{if(!await stopEngine())return}finally{updating=false}}
  // right after an install the new files can still be held for a moment: a copy that did not finish is tried again 20 s later
  if(old){updating=true;let ok=false;try{ok=await copyBundled()}finally{updating=false}if(!ok)setTimeout(async()=>{if(!stale()||app.isQuitting)return;updating=true;try{await stopEngine()}finally{updating=false}startCode().then(attach).catch(()=>{})},20000)}
- server=spawn(process.execPath,[path.join(CODE_DIR,'server.mjs')],{cwd:CODE_DIR,env:{...process.env,ELECTRON_RUN_AS_NODE:'1',HUB_PORT:String(CODE_PORT),CBA_DESKTOP:'1'},stdio:'ignore',windowsHide:true});
+ server=spawn(process.execPath,[path.join(CODE_DIR,'server.mjs')],{cwd:CODE_DIR,env:{...process.env,ELECTRON_RUN_AS_NODE:'1',HUB_PORT:String(CODE_PORT),CBA_DESKTOP:'1',AQEELOS_ORIGINS:[process.env.AQEELOS_ORIGINS,HOME_URL].filter(Boolean).join(',')},stdio:'ignore',windowsHide:true});
  const me=server;me.on('exit',code=>{if(server===me)server=null;if(!app.isQuitting&&!updating&&!server)setTimeout(()=>startCode().then(attach).catch(()=>{}),code===0?500:3000)});   // updates exit with 0: start the new version
  for(let i=0;i<60&&!(await up());i++)await new Promise(r=>setTimeout(r,250))}
 // tell Code's engine where the app's browser is (it then uses these tabs instead of a Chrome of its own)
@@ -121,33 +130,57 @@ const ctl=http.createServer(async(req,res)=>{const send=(c,o)=>{res.writeHead(c,
 // ---------- the window ----------
 // started at login with --background: the window is made but stays hidden until you open aqeelOS (Start menu, Dock or tray)
 const BACKGROUND=process.argv.includes('--background');
-async function open(){win=new BrowserWindow({width:1440,height:920,show:!BACKGROUND,minWidth:900,minHeight:600,title:'aqeelOS',backgroundColor:'#ffffff',autoHideMenuBar:true,
+async function open(){win=new BrowserWindow({width:1440,height:920,show:!BACKGROUND&&!!HOME_URL,minWidth:900,minHeight:600,title:appName(),backgroundColor:!HOME_URL&&nativeTheme.shouldUseDarkColors?'#0e1015':'#ffffff',autoHideMenuBar:true,
   icon:path.join(BUNDLED,'assets',process.platform==='win32'?'icon.ico':'icon-512.png'),
   webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegrationInSubFrames:true,sandbox:false,additionalArguments:['--cba-port='+CODE_PORT]}});
  win.webContents.setWindowOpenHandler(({url})=>{if(/^https?:/.test(url))shell.openExternal(url);return {action:'deny'}});
  win.on('resize',place);
  // closing the window keeps aqeelOS running in the background (Code keeps working for agents and other browsers); Quit is in the tray
  win.on('close',e=>{if(!app.isQuitting){e.preventDefault();win.hide()}});
- await win.loadURL(HOME_URL+'/#/code/code')}
+ // the saved aqeelOS does not answer (moved, typo, offline at first start): the address screen says so
+ win.webContents.on('did-fail-load',(e,code,desc,url,main)=>{if(main&&code!==-3&&HOME_URL&&String(url).startsWith(HOME_URL))showSetup({why:'Could not open '+HOME_URL+'. Check the address or your connection.'})});
+ win.webContents.on('did-finish-load',()=>{if(HOME_URL&&win.webContents.getURL().startsWith(HOME_URL))refreshBrand()});
+ win.webContents.on('page-title-updated',e=>{e.preventDefault();win.setTitle(appName())});
+ if(HOME_URL)await win.loadURL(HOME_URL+'/#/code/code').catch(()=>{});else await showSetup()}
+
+// ---------- your aqeelOS address ----------
+let setupWhy='',setupFrom='';
+async function showSetup({why='',change=false}={}){if(!win)return;setupWhy=why;setupFrom=change?(win.webContents.getURL()||''):'';
+ await win.loadFile(path.join(__dirname,'setup.html')).catch(()=>{});if(!BACKGROUND||change||why)showWin()}
+// the install's name and logo, kept for the next start (window title, tray, the address screen)
+async function refreshBrand(){if(!HOME_URL)return;const b=await addr.brandOf(HOME_URL);brand=b;try{addr.saveSettings(SETTINGS,{brand:b})}catch{}
+ if(win)win.setTitle(appName());if(tray){tray.setToolTip(appName());tray.setContextMenu(trayMenu())}}
+ipcMain.handle('aq:setup-state',()=>({current:setupFrom?HOME_URL:'',brand:setupFrom?brand:null,why:setupWhy}));
+ipcMain.handle('aq:setup-check',(e,u)=>addr.checkAddress(u));
+ipcMain.handle('aq:setup-cancel',async()=>{if(HOME_URL)await win.loadURL(setupFrom&&setupFrom.startsWith(HOME_URL)?setupFrom:HOME_URL+'/#/code/code').catch(()=>{})});
+ipcMain.handle('aq:setup-use',async(e,u)=>{const r=await addr.checkAddress(u);if(!r.ok)return {error:r.why};
+ const changed=r.url!==HOME_URL;HOME_URL=r.url;brand=r.brand||brand;addr.saveSettings(SETTINGS,{address:HOME_URL,brand});
+ // Code's key belongs to the old aqeelOS: it is unpaired and started again so it accepts the new address; the page pairs it again
+ if(changed){addr.forgetLink(CODE_DIR);updating=true;try{await stopEngine()}finally{updating=false}startCode().then(attach).catch(er=>console.warn('Code:',er.message))}
+ setupFrom='';setupWhy='';win.setTitle(appName());if(tray){tray.setToolTip(appName());tray.setContextMenu(trayMenu())}
+ await win.loadURL(HOME_URL+'/#/code/code').catch(()=>{});return {ok:true}});
+const changeAddress=()=>showSetup({change:true});
 
 app.whenReady().then(async()=>{await new Promise(r=>ctl.listen(0,'127.0.0.1',()=>{ctlPort=ctl.address().port;if(DEV)console.log('control: http://127.0.0.1:'+ctlPort+'/'+CTL_KEY+'/');r()}));
- if(!DEV)app.setLoginItemSettings({openAtLogin:true,args:['--background']});makeTray();
- await open();try{await startCode();await attach()}catch(e){dialog.showErrorBox('aqeelOS','Code could not start: '+e.message)}});
+ if(!DEV&&!TEST)app.setLoginItemSettings({openAtLogin:true,args:['--background']});makeTray();
+ await open();try{await startCode();await attach()}catch(e){dialog.showErrorBox(appName(),'Code could not start: '+e.message)}});
 const showWin=()=>{if(!win)return;if(win.isMinimized())win.restore();win.show();win.focus()};
 // aqeelos://code links (from the website when Code is opened in a normal browser) bring this app forward on Code
-if(!DEV)app.setAsDefaultProtocolClient('aqeelos');
+if(!DEV&&!TEST)app.setAsDefaultProtocolClient('aqeelos');
 const openLink=u=>{showWin();if(win&&/^aqeelos:\/\/code/i.test(String(u||'')))win.webContents.executeJavaScript("location.hash='#/code/code'").catch(()=>{})};
 app.on('second-instance',(e,argv)=>openLink(argv.find(x=>/^aqeelos:/i.test(x))));app.on('open-url',(e,u)=>{e.preventDefault();openLink(u)});app.on('activate',showWin);
 let tray=null;
-function makeTray(){try{tray=new Tray(path.join(BUNDLED,'assets',process.platform==='win32'?'icon.ico':'icon-180.png'));tray.setToolTip('aqeelOS');
- tray.setContextMenu(Menu.buildFromTemplate([{label:'Open aqeelOS',click:showWin},{type:'separator'},{label:'Quit aqeelOS',click:()=>{app.isQuitting=true;app.quit()}}]));tray.on('click',showWin)}catch(e){console.warn('tray:',e.message)}}
+const trayMenu=()=>Menu.buildFromTemplate([{label:'Open '+appName(),click:showWin},{label:'Change aqeelOS address…',click:changeAddress},{type:'separator'},{label:'Quit '+appName(),click:()=>{app.isQuitting=true;app.quit()}}]);
+function makeTray(){try{tray=new Tray(path.join(BUNDLED,'assets',process.platform==='win32'?'icon.ico':'icon-180.png'));tray.setToolTip(appName());
+ tray.setContextMenu(trayMenu());tray.on('click',showWin)}catch(e){console.warn('tray:',e.message)}}
 app.on('before-quit',()=>{app.isQuitting=true;try{server?.kill()}catch{}});
 app.on('window-all-closed',()=>app.quit());
 
 // ---------- the basics of a desktop app: keyboard shortcuts and a right-click menu ----------
 app.whenReady().then(()=>{
  Menu.setApplicationMenu(Menu.buildFromTemplate([
-  ...(process.platform==='darwin'?[{role:'appMenu'}]:[]),
+  ...(process.platform==='darwin'?[{label:app.name,submenu:[{role:'about'},{type:'separator'},{label:'Change aqeelOS address…',click:()=>changeAddress()},{type:'separator'},{role:'services'},{type:'separator'},{role:'hide'},{role:'hideOthers'},{role:'unhide'},{type:'separator'},{role:'quit'}]}]
+   :[{label:'File',submenu:[{label:'Change aqeelOS address…',click:()=>changeAddress()},{type:'separator'},{label:'Quit',click:()=>{app.isQuitting=true;app.quit()}}]}]),
   {label:'Edit',submenu:[{role:'undo'},{role:'redo'},{type:'separator'},{role:'cut'},{role:'copy'},{role:'paste'},{role:'pasteAndMatchStyle'},{role:'selectAll'}]},
   {label:'View',submenu:[{role:'reload'},{role:'forceReload'},{type:'separator'},{role:'resetZoom'},{role:'zoomIn'},{role:'zoomOut'},{type:'separator'},{role:'togglefullscreen'},{role:'toggleDevTools'}]},
   {role:'windowMenu'}]));
@@ -163,13 +196,13 @@ app.whenReady().then(()=>{
 // ---------- the app updates itself: aqeelOS says which version is current; the installer comes with your sign-in ----------
 const newer=(a,b)=>{const x=String(a).split('.').map(Number),y=String(b).split('.').map(Number);for(let i=0;i<3;i++){if((x[i]||0)!==(y[i]||0))return (x[i]||0)>(y[i]||0)}return false};
 let offered='';
-async function checkAppUpdate(){if(DEV||!win)return;try{
+async function checkAppUpdate(){if(DEV||!win||!HOME_URL||!win.webContents.getURL().startsWith(HOME_URL))return;try{
  const v=await win.webContents.executeJavaScript("fetch('/ui/code/app-version',{headers:{'x-hui':'1'},credentials:'same-origin'}).then(r=>r.ok?r.json():{}).catch(()=>({}))");
  const want=v?.[process.platform==='darwin'?'mac':'windows'];if(!want||!newer(want,app.getVersion())||offered===want)return;offered=want;
- const r=await dialog.showMessageBox(win,{type:'info',buttons:['Restart and update','Later'],defaultId:0,cancelId:1,title:'aqeelOS',message:'aqeelOS '+want+' is ready',detail:'It takes about a minute. Your projects and chats stay as they are.'});
+ const r=await dialog.showMessageBox(win,{type:'info',buttons:['Restart and update','Later'],defaultId:0,cancelId:1,title:appName(),message:appName()+' '+want+' is ready',detail:'It takes about a minute. Your projects and chats stay as they are.'});
  if(r.response!==0)return;
  const to=path.join(app.getPath('temp'),process.platform==='darwin'?'aqeelOS.dmg':'aqeelOS-Setup.exe');
- win.webContents.session.once('will-download',(e,item)=>{item.setSavePath(to);item.once('done',(ev,state)=>{if(state!=='completed'){dialog.showErrorBox('aqeelOS','The update did not download. Try again later.');offered='';return}
+ win.webContents.session.once('will-download',(e,item)=>{item.setSavePath(to);item.once('done',(ev,state)=>{if(state!=='completed'){dialog.showErrorBox(appName(),'The update did not download. Try again later.');offered='';return}
   if(process.platform==='win32'){spawn(to,['/S','--force-run'],{detached:true,stdio:'ignore'}).unref();app.isQuitting=true;app.quit()}else shell.openPath(to)})});
  win.webContents.downloadURL(HOME_URL+'/ui/code/download/'+(process.platform==='darwin'?'mac':'windows'))}catch(e){console.warn('app update:',e.message)}}
 app.whenReady().then(()=>{setTimeout(checkAppUpdate,90000);setInterval(checkAppUpdate,6*3600e3)});

@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'self' file:; img-src https: http: data:">
+<title>aqeelOS</title>
+<style>
+:root{--bg:#f4f5f7;--card:#fff;--ink:#111827;--muted:#5b6170;--line:#dfe2e8;--focus:#111827;--bad:#b42318;--warn:#8a5a00;--btn:#111827;--on-btn:#fff;--glow:rgba(17,24,39,.06);
+ color-scheme:light;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+@media (prefers-color-scheme:dark){:root{--bg:#0e1015;--card:#171a21;--ink:#f2f3f5;--muted:#a3a8b5;--line:#2b2f39;--focus:#f2f3f5;--bad:#ff8a80;--warn:#f5c26b;--btn:#f2f3f5;--on-btn:#111827;--glow:rgba(0,0,0,.4);color-scheme:dark}}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);display:grid;place-items:center;padding:24px;-webkit-font-smoothing:antialiased}
+.card{width:100%;max-width:420px;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:36px 36px 30px;box-shadow:0 20px 60px var(--glow);
+ opacity:0;transform:translateY(10px) scale(.99);transition:opacity .28s ease,transform .32s cubic-bezier(.2,.8,.2,1)}
+.card.in{opacity:1;transform:none}
+.card.out{opacity:0;transform:translateY(-8px) scale(.99);transition-duration:.2s}
+.brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:17px;margin-bottom:26px;min-height:32px}
+.brand svg,.brand img{width:32px;height:32px;border-radius:8px;flex:none;object-fit:contain}
+.brand span{transition:opacity .2s ease}
+.m-bg{fill:var(--ink)}.m-fg{stroke:var(--card)}
+h1{font-size:24px;line-height:1.25;margin:0 0 8px;letter-spacing:-.01em}
+p.lead{margin:0 0 24px;color:var(--muted);font-size:14.5px;line-height:1.5}
+label{display:block;font-size:13px;font-weight:600;margin-bottom:8px}
+input{width:100%;font:inherit;font-size:15px;color:var(--ink);background:transparent;border:1px solid var(--line);border-radius:12px;padding:12px 14px;outline:none;transition:border-color .15s ease,box-shadow .15s ease}
+input:focus{border-color:var(--focus);box-shadow:0 0 0 3px var(--glow)}
+input[aria-invalid=true]{border-color:var(--bad)}
+.note{font-size:13px;line-height:1.45;min-height:0;max-height:0;overflow:hidden;opacity:0;margin-top:0;transition:max-height .22s ease,opacity .2s ease,margin-top .22s ease}
+.note.show{max-height:80px;opacity:1;margin-top:10px}
+.note.bad{color:var(--bad)}.note.warn{color:var(--warn)}
+.actions{display:flex;gap:10px;margin-top:22px}
+button{font:inherit;font-size:15px;font-weight:600;border-radius:999px;padding:12px 18px;cursor:pointer;border:1px solid transparent;transition:transform .12s ease,opacity .15s ease,background .15s ease}
+button:active{transform:scale(.98)}
+button:disabled{opacity:.6;cursor:default}
+.go{flex:1;background:var(--btn);color:var(--on-btn);display:inline-flex;align-items:center;justify-content:center;gap:10px}
+.ghost{background:transparent;color:var(--ink);border-color:var(--line)}
+.ghost[hidden]{display:none}
+.spin{width:15px;height:15px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;display:none;animation:r .7s linear infinite}
+.busy .spin{display:inline-block}
+@keyframes r{to{transform:rotate(360deg)}}
+.foot{margin-top:22px;font-size:12.5px;color:var(--muted);line-height:1.5}
+.done{display:flex;align-items:center;gap:10px;font-size:15px;font-weight:600}
+.done svg{width:20px;height:20px}
+@media (prefers-reduced-motion:reduce){.card,.note,.brand span{transition:none}.spin{animation-duration:1.4s}}
+</style>
+</head>
+<body>
+<main class="card" id="card">
+ <div class="brand" id="brand"><svg id="mark" viewBox="0 0 64 64" aria-hidden="true"><rect class="m-bg" width="64" height="64" rx="14"/><circle class="m-fg" cx="29" cy="35" r="10.5" fill="none" stroke-width="5.5"/><path class="m-fg" d="M39.5 22v24" stroke-width="5.5" stroke-linecap="round"/></svg><span id="name">aqeelOS</span></div>
+ <form id="form" novalidate>
+  <h1 id="title">Your aqeelOS address</h1>
+  <p class="lead" id="lead">Type the address where your aqeelOS runs. You find it in your browser when you use aqeelOS.</p>
+  <label for="url">Address</label>
+  <input id="url" name="url" type="text" inputmode="url" autocomplete="url" spellcheck="false" autocapitalize="off" placeholder="https://ai.example.com" required>
+  <div class="note" id="note" role="status" aria-live="polite"></div>
+  <div class="actions">
+   <button type="button" class="ghost" id="cancel" hidden>Cancel</button>
+   <button type="submit" class="go" id="go"><span class="spin" aria-hidden="true"></span><span id="go-label">Continue</span></button>
+  </div>
+  <div class="foot" id="foot">You can change it later: Change aqeelOS address, in the app’s menu.</div>
+ </form>
+</main>
+<script src="setup.js"></script>
+</body>
+</html>

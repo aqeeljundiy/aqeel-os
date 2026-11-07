@@ -18,11 +18,15 @@ export function createAqeelos({root}){
   if(!install){try{install=(await json(path.join(root,'aqeelos.json'))).aqeelos||{}}catch{install={}}}return link};
  const clean=u=>{try{return new URL(u).origin}catch{return ''}};
  // the aqeelOS addresses allowed to show and drive this app
- async function origins(){await load();return [...new Set([...(install.origins||[]),install.base,link.base,...String(process.env.AQEELOS_ORIGINS||'https://ai.elkiya.com').split(',')].map(clean).filter(Boolean))]}
- async function state(){await load();return {paired:!!link.token,base:link.base||install.base||'',user:link.user||'',origins:await origins(),version:install.version||''}}
+ async function origins(){await load();return [...new Set([...(install.origins||[]),install.base,link.base,...String(process.env.AQEELOS_ORIGINS||'').split(',')].map(clean).filter(Boolean))]}
+ // the domain Live apps get on this aqeelOS (<name>.<domain>), as aqeelOS reports it; asked again for links made before it was sent
+ const cleanDomain=d=>/^[a-z0-9.-]{3,200}$/i.test(String(d||''))?String(d).toLowerCase():'';let askedDomain=0;
+ async function liveDomain(){if(link.liveDomain||!link.token||Date.now()-askedDomain<600e3)return link.liveDomain||'';askedDomain=Date.now();
+  try{const r=await fetch(link.base+'/ui/code/whoami',{headers:{authorization:'Bearer '+link.token},signal:AbortSignal.timeout(8000)});const d=cleanDomain((await r.json()).liveDomain);if(r.ok&&d){link.liveDomain=d;await writeFile(FILE,JSON.stringify(link,null,1),{mode:0o600}).catch(()=>{})}}catch{}return link.liveDomain||''}
+ async function state(){await load();return {paired:!!link.token,base:link.base||install.base||'',user:link.user||'',origins:await origins(),version:install.version||'',liveDomain:await liveDomain()}}
  async function pair(base,token){const o=clean(base);if(!(await origins()).includes(o))throw Error('That aqeelOS address is not allowed for this copy.');
   const r=await fetch(o+'/ui/code/whoami',{headers:{authorization:'Bearer '+token},signal:AbortSignal.timeout(15000)});const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'aqeelOS did not accept the key.');
-  link={base:o,token,user:j.name||'',pairedAt:Date.now()};await mkdir(path.dirname(FILE),{recursive:true});await writeFile(FILE,JSON.stringify(link,null,1),{mode:0o600});return state()}
+  link={base:o,token,user:j.name||'',liveDomain:cleanDomain(j.liveDomain),pairedAt:Date.now()};await mkdir(path.dirname(FILE),{recursive:true});await writeFile(FILE,JSON.stringify(link,null,1),{mode:0o600});return state()}
  /* The box's own copy is paired as the owner but used by everyone on Code online: aqeelOS answers its agent list, models,
     runs and publishing only for the person on the short signed note (x-aq-act, nine minutes) it puts on every request.
     The newest note per person is kept here (and in data/acts/, which a run's aqeelOS tools read again on every call),
@@ -107,7 +111,7 @@ export function createAqeelos({root}){
  let peopleList=[],peopleAt=0;
  async function people(){await load();if(!link.token)return [];if(Date.now()-peopleAt<60000)return peopleList;
   try{const r=await fetch(link.base+'/ui/code/people',{headers:{authorization:'Bearer '+link.token},signal:AbortSignal.timeout(10000)});if(r.ok){peopleList=(await r.json()).people||[];peopleAt=Date.now()}}catch{}return peopleList}
- // Live: send a project (zip) to aqeelOS, which runs it on the server at <slug>.app.elkiya.com
+ // Live: send a project (zip) to aqeelOS, which runs it on the server at <slug>.<its Live domain>
  async function publish(zip,{name,slug,repo,db},act){await load();if(!link.token)throw Error('Connect this app to aqeelOS first (open Code in aqeelOS).');
   const q=new URLSearchParams({name:name||'',slug:slug||'',repo:repo||'',db:db?'1':''});
   const r=await fetch(link.base+'/ui/code/publish?'+q,{method:'POST',headers:H(act,{'content-type':'application/zip'}),body:zip,signal:AbortSignal.timeout(600000)});

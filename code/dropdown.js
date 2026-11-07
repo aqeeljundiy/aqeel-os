@@ -1,4 +1,4 @@
-// Elkiya dropdown (elkiya-group index.astro .dd): upgrades every native <select> into a
+// The app's dropdown: upgrades every native <select> into a
 // button + floating listbox. The native select stays in the DOM as the source of truth,
 // so existing code that reads/sets .value, edits options or listens for 'change' keeps working.
 const valueDesc=Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value');

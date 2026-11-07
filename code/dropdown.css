@@ -1,4 +1,4 @@
-/* Elkiya dropdown — values from elkiya-group src/pages/index.astro (.dd) */
+/* The app's dropdown: a styled menu in place of every native select */
 .dd{position:relative;min-width:0;display:block}.dd-native{position:absolute!important;inset:0;width:100%!important;height:100%!important;opacity:0;pointer-events:none;margin:0!important}
 .dd-btn{all:unset;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:42px;font:inherit;font-size:14px;padding:10px 14px;border-radius:var(--r-md,12px);border:1px solid var(--border,#e2e3e9);background:var(--surface,#fff);color:var(--muted,#646875);cursor:pointer;transition:border-color .2s,box-shadow .2s,background .2s}
 .dd.has-value .dd-btn,.dd .dd-btn{color:var(--ink,#0b0c10)}.dd-btn:hover{border-color:#d2d4dc}

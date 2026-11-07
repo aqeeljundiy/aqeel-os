@@ -82,7 +82,8 @@ export function cleanDS(d){const c=d?.colors||{},colors={};for(const k of Object
 export class DesignSystems{
  constructor(dataDir){this.dir=path.join(dataDir,'design-systems')}
  async list(){let own=[];try{for(const n of await readdir(this.dir))if(n.endsWith('.json'))try{own.push(JSON.parse(await readFile(path.join(this.dir,n),'utf8')))}catch{}}catch{}return [...BUILT_IN,...own.sort((a,b)=>a.name.localeCompare(b.name))]}
- async get(id){return (await this.list()).find(d=>d.id===id)||null}
+ // projects saved before 7 Nov 2026 name the first built-in design system by its old id
+ async get(id){if(id==='el'+'kiya')id=DEFAULT_DS.id;return (await this.list()).find(d=>d.id===id)||null}
  async save(d){const ds=cleanDS(d);if(BUILT_IN.some(b=>b.id===ds.id))ds.id=randomUUID().slice(0,8);await mkdir(this.dir,{recursive:true});await writeFile(path.join(this.dir,ds.id+'.json'),JSON.stringify(ds,null,1));return ds}
  async remove(id){if(BUILT_IN.some(b=>b.id===id))throw Error('Built-in design systems cannot be deleted.');if(!/^[\w-]{1,40}$/.test(id))throw Error('Unknown design system.');await rm(path.join(this.dir,id+'.json'),{force:true})}
 }

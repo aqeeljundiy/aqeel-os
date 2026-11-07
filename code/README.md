@@ -1,6 +1,6 @@
 # code by aqeel
 
-One local workspace for **Claude Code**, **Codex (GPT)** and **Gemini CLI**. Pick a model per message, watch every command in the terminal, approve changes, preview the site, and drive a shared side browser. All of this runs on your own computer, using the subscriptions you already sign in to. It is styled with the Elkiya Group design system.
+One local workspace for **Claude Code**, **Codex (GPT)** and **Gemini CLI**. Pick a model per message, watch every command in the terminal, approve changes, preview the site, and drive a shared side browser. All of this runs on your own computer, using the subscriptions you already sign in to.
 
 ## Start it
 

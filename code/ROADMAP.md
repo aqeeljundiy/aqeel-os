@@ -12,7 +12,7 @@ The first version is a local static website builder using installed subscription
 - Preview in an isolated iframe with desktop/mobile width controls.
 - Previous file snapshots and recoverable restores.
 - Project/chat panel resizing by pointer or keyboard; persisted widths and sidebar visibility.
-- Elkiya source palette, local Plus Jakarta Sans, light/dark theme and reduced motion.
+- Own palette, local Plus Jakarta Sans, light/dark theme and reduced motion.
 - PowerShell command console scoped to the selected project. Commands are noninteractive, each launches a new shell; it is not a persistent PTY.
 - Existing one-click provider login retained at `/connections`.
 

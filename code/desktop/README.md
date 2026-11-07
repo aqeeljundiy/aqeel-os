@@ -6,26 +6,23 @@ and sign-ins kept per project in the project's `.aqeelos/browser` folder. Code's
 DevTools protocol, the same way it drives a Chrome, so the AI's own tab, its cursor and the questions in Code's bar
 (new sites, microphone, camera, location) all work the same.
 
-- `main.cjs` – the window, Code's engine (run with Electron's own Node, so nothing else to install), the browser tabs
+- `main.cjs`: the window, Code's engine (run with Electron's own Node, so nothing else to install), the browser tabs
   and the control channel Code's engine uses (127.0.0.1, with a random key).
-- `preload.cjs` – aqeelOS says where Code's frame is; Code says where its browser area is.
-- `build.mjs` – builds the installer and stamps the bundled Code with the aqeelOS address and Code's version, so the
-  installed copy keeps updating itself from aqeelOS (every 30 minutes, when no AI run is going).
+- `preload.cjs`: aqeelOS says where Code's frame is; Code says where its browser area is.
+- `address.cjs` and `setup.html`: "Your aqeelOS address": asked on first launch, checked (its /install-ping), kept in the
+  app's settings.json; an app already paired with an aqeelOS keeps that address. Change it in the app menu.
+- `build.mjs`: builds the installer with your own settings from `build.config.json` (never in git) and stamps the
+  bundled Code with its version, so the installed copy keeps updating itself from the aqeelOS it is paired with.
 
 ## Try it while developing
 
 ```
 npm install
 node node_modules/electron/install.js   # npm may skip Electron's download step
-set AQEELOS_URL=http://localhost:4402 && npx electron .
+npx electron .     # asks for the address; AQEELOS_URL=http://localhost:4400 skips that
 ```
 
 ## Build the installers
 
-- Windows (on Windows): `npm run dist:win` → `dist/aqeelOS Setup 1.0.0.exe`. Copy it to the server as
-  `~/apps/hermes-ui-data/desktop/aqeelOS-Setup.exe`; aqeelOS's "Download for Windows" then gives it out.
-- Mac (on a Mac): `npm install && npm run dist:mac` → `dist/aqeelOS-1.0.0.dmg`. Copy it to the server as
-  `~/apps/hermes-ui-data/desktop/aqeelOS.dmg`; "Download for Mac" then gives it out.
-
-Neither installer is signed yet (CODE-22), so Windows shows "Windows protected your PC" the first time (More info ›
-Run anyway) and the Mac asks to open it from System Settings › Privacy & Security.
+See [BUILDING.md](../BUILDING.md): your build settings, signing, and where the installers and version.json go on
+your aqeelOS (`DATA/desktop/`).

@@ -44,7 +44,7 @@ export function paintFormatting(root,slide,index){if(!slide)return;const p='slid
  arr(slide.items).forEach((it,i)=>{const e=root.querySelector('[data-box="'+p+'items.'+i+'"]');if(!e)return;e.style.cssText=itemCss(it);const im=e.querySelector('img');if(im)im.style.cssText=cropCss(it.crop)});const inner=root.querySelector('.slide-in');if(inner)inner.style.cssText=bgCss(slide)}
 const safeColor=c=>/^#[0-9a-f]{3,8}$/i.test(String(c||''))?c:null;
 const safeFont=n=>String(n||'').replace(/[^\w \-]/g,'').slice(0,40);
-export const DEFAULT_DS={id:'elkiya',name:'Elkiya',colors:{bg:'#ffffff',surface:'#f5f6f8',ink:'#0b0c10',muted:'#646875',accent:'#0158cb',accent2:'#2f7bff',onAccent:'#ffffff'},fonts:{heading:'Plus Jakarta Sans',body:'Plus Jakarta Sans'},radius:14,logo:''};
+export const DEFAULT_DS={id:'standard',name:'Standard',colors:{bg:'#ffffff',surface:'#f5f6f8',ink:'#0b0c10',muted:'#646875',accent:'#0158cb',accent2:'#2f7bff',onAccent:'#ffffff'},fonts:{heading:'Plus Jakarta Sans',body:'Plus Jakarta Sans'},radius:14,logo:''};
 // CSS custom properties for a design system, as an inline style string
 export function dsStyle(ds=DEFAULT_DS){const c={...DEFAULT_DS.colors,...(ds.colors||{})};let s='';for(const k of COLOR_KEYS){const v=safeColor(c[k]);if(v)s+=`--ds-${k}:${v};`}
  s+=`--ds-head:'${safeFont(ds.fonts?.heading)||'Plus Jakarta Sans'}',system-ui,sans-serif;--ds-body:'${safeFont(ds.fonts?.body)||'Plus Jakarta Sans'}',system-ui,sans-serif;--ds-radius:${Math.max(0,Math.min(40,Number(ds.radius)||0))/19.2}cqw;`;return s}

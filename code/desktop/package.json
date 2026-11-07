@@ -15,7 +15,7 @@
     "electron-builder": "26.16.1"
   },
   "build": {
-    "appId": "com.elkiya.aqeelos",
+    "appId": "org.aqeelos.desktop",
     "productName": "aqeelOS",
     "directories": {
       "output": "dist"
@@ -23,7 +23,10 @@
     "files": [
       "main.cjs",
       "preload.cjs",
-      "package.json"
+      "package.json",
+      "address.cjs",
+      "setup.html",
+      "setup.js"
     ],
     "extraResources": [
       {

@@ -222,6 +222,8 @@ async function serveFile(res,rel){
 const DATA=path.resolve(env.UI_DATA_DIR||path.join(root,'..','hermes-ui-data'));initStatus(DATA);
 // who runs this install, on About, Privacy and Terms: DATA/legal.json {"name","org","site"} (this install's own data,
 // never in git; 7 Nov 2026, open source). Without it the pages say "the owner of this install".
+// the same owner, for the desktop app's screens (public, like the About page): null when legal.json has none
+function legalOwner(){let l={};try{l=JSON.parse(readFileSync(path.join(DATA,'legal.json'),'utf8'))}catch{}const t=v=>String(v||'').replace(/[<>"`]/g,'').slice(0,120);return l.name||l.org?{name:t(l.name),org:t(l.org),site:t(l.site)}:null}
 function legalFill(t){if(!t.includes('{{OWNER_'))return t;let l={};try{l=JSON.parse(readFileSync(path.join(DATA,'legal.json'),'utf8'))}catch{}const e=v=>String(v||'').replace(/[<>&"]/g,c=>'&#'+c.charCodeAt(0)+';');
  if(!l.site)t=t.replaceAll(', {{OWNER_SITE}}','');if(!l.org)t=t.replaceAll(' ({{OWNER_ORG}})','');
  return t.replaceAll('{{OWNER_NAME}}',e(l.name||'the owner of this install')).replaceAll('{{OWNER_ORG}}',e(l.org)).replaceAll('{{OWNER_SITE}}',e(l.site))}
@@ -2279,7 +2281,7 @@ const server=createServer(async(req,res)=>{
      if(p==='/ui/code/team/unshare'&&req.method==='POST')return send(res,200,await teamFolders.unshare(String(b.id||''),who.id))}catch(e){return send(res,e.status||400,{error:e.message})}
     return send(res,404,{error:'Not found'})}
    const mine=a=>!users.gate(who,'/gapi/api/model/options','GET',new URLSearchParams(),a);   // the agents this person may chat with (shared, owned, not someone's private one)
-   if(p==='/ui/code/whoami')return send(res,200,{name:who.name||who.id,user:who.id});
+   if(p==='/ui/code/whoami')return send(res,200,{name:who.name||who.id,user:who.id,liveDomain:hostSetting('liveDomain')});
    // the agents this person may use in Code; intro=1 adds each one's introduction for a run (what it is for, its skills by
    // name, and for an agent they own a short digest of its work notes), for the ids asked (ids=a,b) only
    if(p==='/ui/code/agents'){const intro=url.searchParams.get('intro')==='1',want=intro?new Set(String(url.searchParams.get('ids')||'').split(',').filter(Boolean).slice(0,8)):null;const out=[];
@@ -2403,7 +2405,7 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/code/bridge-done'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4e6))}catch{}return send(res,200,{ok:codeBridge.done(dev,b)})}
    if(p==='/ui/code/done'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,262144))}catch{}return send(res,200,{ok:code.done(dev,b.id,{state:String(b.state||''),text:String(b.text||'').slice(0,20000),files:(b.files||[]).slice(0,200).map(String),chat:String(b.chat||'')})})}
    return send(res,404,{error:'Not found'})}
-  if(p==='/ui/brand'&&req.method==='GET')return send(res,200,await brand.get());
+  if(p==='/ui/brand'&&req.method==='GET')return send(res,200,{...await brand.get(),owner:legalOwner()});
   if(p==='/ui/brand/logo'&&req.method==='GET'){const l=await brand.logo();if(!l){res.writeHead(302,{location:env.BRAND_LOGO_FALLBACK||'/assets/aqeelos-mark.svg'});return res.end()}res.writeHead(200,{'content-type':l.type,'cache-control':'public, max-age=86400','content-security-policy':"default-src 'none'; style-src 'unsafe-inline'",'x-content-type-options':'nosniff'});return res.end(l.data)}
   if(p==='/aqeelos-login'&&req.method==='GET'){res.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer'});return res.end(n8n.page())}
   if(p==='/aqeelos-login/go'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}

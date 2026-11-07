@@ -4,12 +4,12 @@ Version 0.1 · 13 October 2026 · Local working prototype
 
 ## Product purpose
 
-code by aqeel is Aqeel's local browser workspace for building websites with the AI subscriptions he already uses. Projects, files, conversations and saved changes live on his Windows PC. He can choose GPT/Codex or Claude for each message and carry the same project context between providers. Gemini is planned next.
+code by aqeel is a local browser workspace for building websites with the AI subscriptions you already use. Projects, files, conversations and saved changes live on your own computer. You can choose GPT/Codex or Claude for each message and carry the same project context between providers. Gemini is planned next.
 
 ## Product decisions
 
 - Product name: code by aqeel.
-- Visual system: the user's Elkiya repositories, downloaded locally from aqeeljundiy/elkiya-group and aqeeljundiy/elkiya-digital.
+- Visual system: the app's own neutral token set (DESIGN.md); an install's name and logo come from its aqeelOS.
 - Layout: projects sidebar, conversation on the left, editable files and website preview on the right.
 - Interaction: resizable panels, clear navigation, restrained animations, theme controls and keyboard access.
 - Authentication: run each installed official tool's login from the app. No external PowerShell copy/paste and no automatic API-key fallback.
@@ -38,7 +38,7 @@ Implemented labels describe a verified narrow capability. Partial capabilities r
 | ID | Capability | Current status | Acceptance criterion |
 |---|---|---|---|
 | PLAN-01 | PRD and development Kanban | Implemented | code by aqeel has its own readable PRD, Kanban/list views, searchable cards, priority filters, editable status/notes, activity history and persistent updates. Verify saving and reloading a card. |
-| BRAND-01 | Elkiya design system | Implemented | Use the locally pulled Elkiya palette, Plus Jakarta Sans and brand mark; show code by aqeel as product name. |
+| BRAND-01 | Own design system | Implemented | Use the app's own palette, Plus Jakarta Sans and the aqeelOS mark; show code by aqeel as product name. |
 | AUTH-01 | One-click Claude and Codex login | Implemented | App launches official subscription sign-in, displays progress, supports code replies and refreshes connection status. Claude login and both provider responses verified. |
 | AUTH-02 | Multiple account profiles | Implemented | Keep separate authenticated profiles without copying credentials into the browser; verify account selection and supported billing behavior. See the feature parity section (AUTH-02). |
 | MODEL-01 | Switch providers in a conversation | Implemented | GPT and Claude can work on the same saved project and conversation. Verify a GPT build followed by a Claude revision. |
@@ -244,7 +244,7 @@ Every capability Claude Code and Codex offer that fits code by aqeel, plus featu
 | ID | Capability | Current status | Acceptance criterion | Source | Priority |
 |---|---|---|---|---|---|
 | UI-01 | Collapsible project and chat panels | Implemented | Each panel folds to a rail from its own header button; state is remembered. | Request | P0 |
-| UI-02 | Elkiya dropdowns everywhere | Implemented | All selects use the Elkiya Group dropdown component with keyboard support. | Request | P0 |
+| UI-02 | Own dropdowns everywhere | Implemented | All selects use the app's own dropdown component with keyboard support. | Request | P0 |
 | UI-03 | Aligned header grid | Implemented | All panels share a 56px header row and 16px gutters so icons, titles and controls line up. | Request | P0 |
 | UI-04 | Context menu component | Implemented | One reusable right-click and ⋯ menu with keyboard navigation, used by projects, chats, files and messages. | Both | P0 |
 | UI-05 | Consistent empty, loading and error states | Implemented | Every panel has designed empty, loading and error states that explain the next step. | Both | P1 |
@@ -775,7 +775,7 @@ Every capability Claude Code and Codex offer that fits code by aqeel, plus featu
 | V4-23 | Share a deck and a document | Implemented | Share links serve frozen copies as web pages, sandboxed, without pairing on this computer. | Audit | P1 |
 | V4-24 | Page that keeps data | Implemented | A tracker page saves and reloads its own data through cbaData; store.json updates. | Audit | P1 |
 | V4-25 | Media gallery | Implemented | A media output shows its images and videos as a gallery at full resolution. | Audit | P1 |
-| V4-26 | Design system from a website | Implemented | Reading elkiya.com gives a named design system with its brand colours, ready to edit. | Audit | P1 |
+| V4-26 | Design system from a website | Implemented | Reading a website gives a named design system with its brand colours, ready to edit. | Audit | P1 |
 | V4-27 | Switching design system | Implemented | Choosing another design system restyles the open deck, its exports and share pages. | Audit | P1 |
 | V4-28 | Edits on the slide saved | Implemented | Text typed on a slide saves to deck.json, updates the thumbnail and adds a version; undo brings it back. | Audit | P1 |
 | V4-29 | Comments kept with the output | Implemented | Comments on documents and slides are saved with the app (not in the project) and survive a reload. | Audit | P1 |
@@ -972,7 +972,7 @@ Every capability Claude Code and Codex offer that fits code by aqeel, plus featu
 
 The browser talks to a loopback Node service on port 4320. Installed official CLIs perform model requests using their existing account logins. Coding responses contain structured file proposals that the service validates and writes into the selected managed project. Provider requests use reconstructed recent chat and project-file context rather than native provider session IDs.
 
-Workspace state: data/workspace.json. Project files: data/projects. Previous contents: data/versions. Development board: data/development.json through /api/development. Local design references: reference/elkiya-group and reference/elkiya-digital. The design clones are not editable user projects.
+Workspace state: data/workspace.json. Project files: data/projects. Previous contents: data/versions. Development board: data/development.json through /api/development.
 
 Mutating requests require a per-launch local token and matching origin. File paths are validated; linked files, hidden paths, parent traversal and Windows reserved aliases are rejected. Project previews run with an isolated origin and blocked network requests/forms. The command console runs commands entered by the user; it is not a filesystem sandbox.
 
@@ -982,7 +982,7 @@ No automatic API-key fallback is configured. Subscription limits and provider po
 
 ## Milestones
 
-- Foundation: verified GPT/Claude connections, Elkiya styling, local projects/chats, static generation, editor/preview/history and command console.
+- Foundation: verified GPT/Claude connections, the app's own styling, local projects/chats, static generation, editor/preview/history and command console.
 - Development visibility: readable PRD and editable Kanban with evidence for completed features.
 - Coding depth: existing-folder import, full terminal, native session streaming, file tree/diffs, frameworks and Git.
 - More providers: Gemini first, then supported account profiles and media integrations.
