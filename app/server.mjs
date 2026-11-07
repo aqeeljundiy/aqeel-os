@@ -1317,6 +1317,16 @@ const agentLive=createAgentLive({HERMES_HOME,DATA,listAgents:()=>listAgents(),re
 const liveStale=async()=>{try{const pid=await gatewayPid();if(!pid)return false;const g=(await stat('/proc/'+pid)).mtimeMs;const f=(await stat(path.join(HERMES_HOME,'plugins','aqeelos-live','__init__.py'))).mtimeMs;return g<f}catch{return false}};
 if(PORT===4400&&LIVE_APP){const liveInstall=()=>agentLive.install().then(async c=>{if(c.length||await liveStale())restartGateway('aqeelos-live plugin for '+(c.length||'all')+' agent(s)').catch(()=>{})}).catch(e=>console.warn('agent-live install',e.message));
  setTimeout(liveInstall,60e3).unref();setInterval(liveInstall,10*60e3).unref()}
+// the engine reads each tool server's list once, when it connects: a tool aqeelOS adds later (the lockbox link, the
+// self-repair kit) stayed invisible in open chats. The lists are fingerprinted per agent; a change reloads the engine
+// once no reply runs (7 Nov 2026)
+async function toolSigs(){const out={};for(const a of await agentLive.homes()){const c=await readConfig(a).catch(()=>null);const u=String(pick(c||{},'mcp_servers.aqeelos-notify.url')||'');if(!u.startsWith('http://127.0.0.1:4400/'))continue;
+ try{const r=await fetch(u,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/list'}),signal:AbortSignal.timeout(20000)});const j=await r.json();
+  out[a]=createHash('sha1').update((j.result?.tools||[]).map(t=>t.name+':'+createHash('sha1').update(JSON.stringify(t.inputSchema||{})+(t.description||'')).digest('hex').slice(0,8)).sort().join(',')).digest('hex').slice(0,12)}catch{}}return out}
+if(PORT===4400&&LIVE_APP){const sigFile=path.join(DATA,'agent-live','tool-sigs.json');const toolTick=async()=>{const now=await toolSigs();if(!Object.keys(now).length)return;const old=JSON.parse(await readFile(sigFile,'utf8').catch(()=>'{}')||'{}');
+  const changed=Object.keys(now).filter(a=>old[a]!==now[a]);await mkdir(path.dirname(sigFile),{recursive:true});await writeFile(sigFile,JSON.stringify(now));
+  if(changed.length&&Object.keys(old).length){console.log('agent tools changed for',changed.join(', '));restartGateway('new or changed aqeelOS tools for '+changed.length+' agent(s)').catch(()=>{})}};
+ setTimeout(()=>toolTick().catch(e=>console.warn('tool sigs',e.message)),5*60e3).unref();setInterval(()=>toolTick().catch(e=>console.warn('tool sigs',e.message)),10*60e3).unref()}
 const agentCare=createAgentCare({HERMES_HOME,DATA,fpKey:()=>agentLive.key(),teamOf:async a=>((await issues.policy())?.teams||[]).find(t=>(t.agents||[]).includes(a))?.name||null,WORK:path.join(homedir(),'workspaces'),homes:()=>agentLive.homes(),readConfig,pick,jobs:a=>versions.myJobs(a),updateJob:(a,id,up)=>versions.updateJob(a,id,up),
  record:(a,e)=>versions.noteSelfChange(a,{...e,by:'aqeelOS',undoable:false}),notices:agentLive,extraRetired:async()=>JSON.parse(await readFile(path.join(DATA,'retired-setup.json'),'utf8').catch(()=>'[]'))});
 if(PORT===4400&&LIVE_APP){const careTick=()=>agentCare.tick().then(r=>{if(Object.keys(r).length)console.log('agent-care: '+JSON.stringify(r))}).catch(e=>console.warn('agent-care',e.message));
