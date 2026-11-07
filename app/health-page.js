@@ -106,8 +106,8 @@ const HealthCode={
    const row=b.closest('.row');if(!calm()&&row){row.style.animation='cardOut 180ms var(--ease) both';await new Promise(r=>setTimeout(r,180))}again()})}};
 const HealthIssues={
  ST:{queued:'Queued',fixing:'Being fixed',applying:'Waiting to reload safely',rollback:'Putting the change back',verify:'Proof run next',verifying:'Proving the fix','reloaded-back':'Put back',
-  fixed:'Fixed and proven',needs_human:'Needs a person',stuck:'Stuck after 3 tries',gone:'Went away by itself',open:'Waiting (fixer off)',declined:'Declined',failed:'Fix failed',closed:'Closed',stopped:'Stopped retrying'},
- END:['fixed','declined','gone','closed'],RUN:['fixing','applying','verify','verifying','rollback','reloaded-back'],
+  fixed:'Fixed and proven',needs_human:'Needs a person',stuck:'Stuck after 3 tries',gone:'Resolved by itself',expired:'Closed after 7 days',open:'Waiting (fixer off)',declined:'Declined',failed:'Fix failed',closed:'Closed',stopped:'Stopped retrying'},
+ END:['fixed','declined','gone','closed','expired'],RUN:['fixing','applying','verify','verifying','rollback','reloaded-back'],
  draw(box,d,again){const it=d.items||[],esc2=d.escalations?.agents||{},names={};for(const i of it)names[i.agent]=i.agentName;HealthIssues.agents=d.agents||[];
   const rows=Object.entries(esc2);const t=(x)=>esc(String(x??''));const cut=(x,n)=>{x=String(x||'');return x.length>n?x.slice(0,n)+'…':x};
   const escHtml=rows.length?'<div class="card list" style="margin-bottom:14px"><div class="list-head">Team had to go to the main agent (this week · last week)</div>'+rows.map(([a,v])=>'<div class="row"><div class="main-c"><div class="txt"><b>'+t(names[a]||a)+'</b><span>'+v.thisWeek+' this week · '+v.lastWeek+' last week'+(v.examples?.length?', e.g. “'+t(v.examples[0])+'”':'')+'</span></div></div></div>').join('')+'</div>':'';

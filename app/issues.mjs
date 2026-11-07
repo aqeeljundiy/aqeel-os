@@ -25,6 +25,11 @@ import path from 'node:path';
 const clip=(s,n)=>String(s??'').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g,' ').slice(0,n);
 export const TRIES=3;
 export const OPEN=['queued','fixing','applying','verify','verifying','rollback','reloaded-back'];
+// waiting for something (re-checked by the sweep): not in the middle of a run
+export const WAITING=['queued','open','stuck','needs_human','stopped'];
+// how alike two problems are (shared words, ignoring the short ones): 1 is the same text
+const COMMON=new Set('that there this with from file files points does have when into were been will what which their they them need needs skill agent agents should could would make sure after before about only also than then just more some like every because still while where being other most same work works working'.split(' '));
+export function similar(a,b){const w=t=>new Set(String(t||'').toLowerCase().split(/[^a-z0-9]+/).filter(x=>x.length>3&&!COMMON.has(x)));const A=w(a),B=w(b);if(A.size<4||B.size<4)return 0;let n=0;for(const x of A)if(B.has(x))n++;return n/Math.min(A.size,B.size)}
 // the team policy: {owner:{name, telegram:[ids]}, teams:[{name, agents:[...], members:[{name, telegram}], contact}], fixer:{agent, on, cap, minutes}}
 export function teamOf(policy,agent){return (policy?.teams||[]).find(t=>(t.agents||[]).includes(agent))||null}
 export function personOf(policy,platform,uid){uid=String(uid||'');if(!uid)return null;
@@ -100,12 +105,13 @@ export function fixerPrompt(i,{rules='',day=new Date().toISOString().slice(0,10)
  '','End with exactly one line (JSON on one line):',
  'RESULT: {"status":"changed|no_change|needs_human|failed","apply":"none|engine|ui","changes":[{"file":"/abs/path","backup":"/abs/path.bak-…"}],"check":"how to rerun the original check","summary":"one or two plain sentences","proof":"what you ran and saw","need":"only for needs_human or failed: what a person must do"}'].filter(x=>x!==null).join('\n')}
 
-export function proofPrompt(i,fix,{reloaded=null}={}){return [
+export function proofPrompt(i,fix,{reloaded=null,recheck=false}={}){return [
  'You are the aqeelOS fixer\'s proof run: a headless run on this server. Nobody is chatting with you. Do NOT change any file. Only prove whether ONE problem is gone.',
  '','ISSUE '+i.id+' (agent '+i.agent+(i.source==='health'?', found by the Health check':'')+')',
  'Problem: '+i.missing,'Evidence when it was filed: '+(i.evidence||'-'),
  'What the fix run did: '+(fix?.summary||'-'),fix?.changes?.length?'Files changed: '+fix.changes.map(c=>c.file).join(', '):'No files were changed.',
  reloaded?'aqeelOS reloaded '+(reloaded==='engine'?'the agents\' engine':'the web app')+' after the change.':null,
+ recheck?'RECHECK: this issue was stuck, and since then a deploy changed the files it is about. Nothing was changed by the fixer now: prove whether the original problem is gone by itself.':null,
  'How to rerun the original check: '+(fix?.check||'rerun what failed in the evidence above, end to end'),
  '','RULES',
  '- Rerun the ORIGINAL failing check end to end, for real, now. A unit test or reading a file is not proof. For a Kirimdev reply problem a tester\'s message must get a real reply delivered: '+KIRIM_TEST+'. For a Health problem, Health (~/apps/hermes-ui-data/bottlenecks.json) must no longer list it after its check ran again.',
@@ -115,7 +121,7 @@ export function proofPrompt(i,fix,{reloaded=null}={}){return [
  'RESULT: {"status":"proven|not_proven","proof":"the commands you ran and what you saw, with times","need":""}'].filter(x=>x!==null).join('\n')}
 
 export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=async()=>false,tellOwner=async()=>{},toTeam=async()=>false,busy=async()=>0,ready=async()=>true,
- apply=async()=>({ok:true}),nameOf=a=>a,codeRoots=[],onFixed=async()=>{},quiet=()=>null,log=m=>console.log(m),launch=null,alive=null,envFiles=async()=>[],
+ apply=async()=>({ok:true}),nameOf=a=>a,codeRoots=[],onFixed=async()=>{},checks={},quiet=()=>null,log=m=>console.log(m),launch=null,alive=null,envFiles=async()=>[],
  // kept for older callers (the Approve/Decline flow is gone)
  askOwner=null,approvalLink=null,restartSelf=null}){
  const FILE=path.join(DATA,'issues.json'),POL=path.join(DATA,'team-policy.json'),DIR=path.join(DATA,'issues');let db=null,chain=Promise.resolve();
@@ -151,9 +157,42 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   i.decision=decide(pol,i,by).why;i.state=pol.fixer?.on===false?'open':'queued';if(i.state==='open')i.decision='the fixer is switched off in the team policy';
   db.items.unshift(i);db.items=db.items.slice(0,300);await save();log('issue '+i.id+' filed by '+(i.source==='health'?'Health':i.agent)+': '+i.state);return {issue:view(i)}});
  // Health saw the problem go away before the fixer started: closed, nobody told
+ // 7 Nov 2026 (owner: solved problems close by themselves, nobody is asked to close anything): every waiting item is
+ // re-checked against its own condition (sweep) and closes as "resolved by itself", silently, with the evidence kept
+ async function resolved(i,why){i.state='gone';i.updated=now();i.resolvedBy=clip(why,800);i.result={...(i.result||{}),summary:'Resolved by itself: '+clip(why,600)};
+  i.history.push({kind:'resolved',at:now(),summary:clip(why,800)});await save();log('issues: '+i.id+' resolved by itself: '+clip(why,200));return true}
  const healthGone=keys=>queue(async()=>{await load();const cur=new Set(keys);let n=0;
-  for(const i of db.items)if(i.healthKey&&(i.state==='queued'||i.state==='open')&&!cur.has(i.healthKey)){i.state='gone';i.updated=now();i.result={summary:'Health no longer sees it; it went away before the fixer started.'};n++}
-  if(n)await save();return n});
+  for(const i of db.items)if(i.healthKey&&WAITING.includes(i.state)&&!cur.has(i.healthKey)){await resolved(i,'Health checked again and no longer sees it.');n++}
+  return n});
+ let sweptAt=0;
+ const sweep=(force=false)=>queue(async()=>{await load();if(!force&&now()-sweptAt<10*60e3)return 0;sweptAt=now();let n=0;
+  for(const i of db.items){if(!WAITING.includes(i.state)||i.healthKey&&i.state!=='stuck')continue;   // Health items: healthGone
+   const why=await whyGone(i).catch(e=>{log('issues: sweep '+i.id+': '+e.message);return null});if(why){await resolved(i,why);n++;continue}
+   // a stuck issue whose files a deploy changed since: one proof run checks whether the problem is gone now
+   if(i.state==='stuck'&&!i.recheck&&checks.changedSince){const files=[...new Set(i.history.flatMap(h=>(h.changes||[]).map(c=>c.file)))];const since=Math.max(i.updated||0,i.recheckedAt||0);
+    if(files.length&&await checks.changedSince(files,since).catch(()=>false)){i.recheck=true;i.state='verify';i.updated=now();await save();log('issues: '+i.id+' stuck, but a deploy changed its files: a proof run checks it again');continue}}
+   // nothing left to check for 7 days: it leaves quietly, to the Activity log
+   if(!checkable(i)&&now()-(i.updated||i.created||0)>7*864e5){i.state='expired';i.updated=now();i.history.push({kind:'expired',at:now(),summary:'No check could tell whether it was solved; closed after 7 days.'});await save();
+    await (checks.activity?checks.activity(nameOf(i.agent)+': '+clip(i.missing,120)+' closed after 7 days with nothing left to check',i):null)?.catch?.(()=>{});n++}}
+  return n});
+ // the condition an item is about, checked again: the duplicate's original is closed, an app it needed a sign-in for
+ // is signed in, the files it said were missing exist, a commit it names is live, a newer issue of the same agent on the
+ // same thing exists (the older one is the duplicate)
+ async function whyGone(i){const text=[i.missing,i.evidence,i.proposed_fix,...i.history.map(h=>h.summary)].filter(Boolean).join('\n');
+  const dup=/\b(?:duplicate of|same as|already filed as)\s+(i[0-9a-f]{8})\b/i.exec(text)?.[1];
+  if(dup){const o=db.items.find(x=>x.id===dup);if(o&&['fixed','gone','closed','expired'].includes(o.state))return 'its original issue '+dup+' is '+o.state+'.'}
+  // only a newer one that still carries it on (waiting or being fixed) or that fixed it; one that went away proves nothing
+  const at=db.items.indexOf(i);const newer=db.items.find((x,k)=>x!==i&&x.agent===i.agent&&((x.created||0)>(i.created||0)||(x.created||0)===(i.created||0)&&k<at)&&[...OPEN,...WAITING,'fixed'].includes(x.state)&&similar(x.missing,i.missing)>=0.8);
+  if(newer)return newer.state==='fixed'?'the same problem was fixed and proven as '+newer.id+'.':'the same problem was filed again as '+newer.id+' ('+newer.state+'), which carries it on.';
+  if(checks.appSignedIn&&/sign[ -]?in|oauth|log ?in|token|tools?\b/i.test(i.missing)){const apps=await checks.apps?.(i.agent).catch(()=>[])||[];
+   const named=apps.filter(a=>new RegExp('(^|[^\\w-])'+a.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'($|[^\\w-])','i').test(i.missing));
+   if(named.length){const ok=[];for(const a of named)if(await checks.appSignedIn(i.agent,a))ok.push(a);if(ok.length===named.length)return named.join(', ')+(named.length>1?' are':' is')+' signed in now (its sign-in is saved on the box).'}}
+  if(checks.exists&&/not there|missing|no such file|does not exist|is gone/i.test(text)){const paths=[...new Set([...String(i.missing+' '+(i.evidence||'')).matchAll(/(?:^|[\s'"`(])((?:\/home\/|~\/)[\w.\-/]+\.\w+)/g)].map(m=>m[1]))];
+   if(paths.length){let all=true;for(const p of paths)if(!await checks.exists(p)){all=false;break}if(all)return 'the file'+(paths.length>1?'s are':' is')+' there now: '+paths.slice(0,4).join(', ')+'.'}}
+  if(checks.commitLive){const shas=[...new Set([...text.matchAll(/\b(?:commit|fixed in|in git|live as)\s+([0-9a-f]{7,40})\b/gi)].map(m=>m[1].toLowerCase()))];
+   for(const c of shas)if(await checks.commitLive(c))return 'the fix commit '+c+' is live on the box.'}
+  return null}
+ const checkable=i=>/\b(duplicate of|same as)\s+i[0-9a-f]{8}|sign[ -]?in|oauth|not there|missing|no such file|does not exist|\bcommit [0-9a-f]{7,}/i.test([i.missing,i.evidence].join(' '))||i.history.some(h=>(h.changes||[]).length);
  const forAgent=async a=>{await load();return db.items.filter(i=>i.agent===a).slice(0,10).map(view)};
  const list=async()=>{await load();return {items:db.items.slice(0,60).map(view),policy:await policy()}};
  // kept so old Telegram buttons and links answer something sensible
@@ -165,7 +204,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  const today=()=>new Date(now()).toISOString().slice(0,10);
  const fixRunsToday=()=>Object.values(db.runs).filter(r=>r.day===today()&&r.kind!=='proof'&&!r.notStarted).length;
  // switched off (fixer.on false): a run already going still has its result saved; nothing new starts and nothing reloads
- async function tick(){if(running)return;running=true;try{await load();const pol=await policy();
+ async function tick(){if(running)return;running=true;try{await load();const pol=await policy();await sweep().catch(e=>log('issues: sweep: '+e.message));
   const cur=Object.values(db.runs).find(r=>!r.done);if(cur)return await check(cur,pol);if(pol.fixer?.on===false)return;
   // a change waiting to be reloaded or rolled back comes first
   {const b=db.items.find(i=>i.state==='reloaded-back');if(b)return await afterTry(b)}
@@ -178,7 +217,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   const q=[...db.items].reverse().find(i=>i.state==='queued'&&!(i.notBefore>now()));if(q)return await start(q,pol,'fix')}finally{running=null}}
  async function start(i,pol,kind){const n=kind==='fix'?i.tries+1:i.tries,id=i.id+'-'+n+(kind==='proof'?'p':''),dir=path.join(DIR,id);await mkdir(dir,{recursive:true,mode:0o700});
   const last=i.history.filter(h=>h.kind==='fix').at(-1);
-  await writeFile(path.join(dir,'prompt.txt'),kind==='fix'?fixerPrompt(i,{rules:pol.fixer?.rules||'',attempt:n}):proofPrompt(i,last,{reloaded:i.applied||null}),{mode:0o600});
+  await writeFile(path.join(dir,'prompt.txt'),kind==='fix'?fixerPrompt(i,{rules:pol.fixer?.rules||'',attempt:n}):proofPrompt(i,last,{reloaded:i.applied||null,recheck:!!i.recheck}),{mode:0o600});
   if(kind==='fix'){i.tries=n;i.state='fixing'}else i.state='verifying';i.run=id;i.updated=now();
   const r={id,issue:i.id,kind,day:today(),at:now(),agent:pol.fixer?.agent||'default'};db.runs[id]=r;await save();
   const minutes=kind==='fix'?Math.min(40,pol.fixer?.minutes||25):Math.min(30,pol.fixer?.proof_minutes||15);
@@ -242,7 +281,9 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
    await save();log('issues: '+r.id+' '+fr.status+' → '+i.state);return}
   // the proof run
   const pr=res||{status:'not_proven',proof:'The proof run ended without a result'+(r.exit!=null?' (exit '+r.exit+')':' (stopped)')+'. '+clip(out.slice(-600),600),need:''};r.result=pr;
-  const last=i.history.filter(h=>h.kind==='fix').at(-1);i.history.push({kind:'proof',run:r.id,at:now(),status:pr.status,proof:pr.proof,need:pr.need});
+  const last=i.history.filter(h=>h.kind==='fix').at(-1);i.history.push({kind:'proof',run:r.id,at:now(),status:pr.status,proof:pr.proof,need:pr.need,...(i.recheck?{recheck:true}:{})});
+  // a recheck of a stuck issue (sweep): nothing to roll back; proven closes it, otherwise it stays stuck until its files change again
+  if(i.recheck){i.recheck=false;i.recheckedAt=now();if(pr.status==='proven')return await resolved(i,'a recheck after a deploy proved it gone: '+clip(pr.proof,600));i.state='stuck';await save();return}
   if(pr.status==='proven'){i.state='fixed';i.fixed=now();i.proof=pr.proof;i.result={...(i.result||{}),status:'fixed',proof:pr.proof};if(last)last.outcome='proven';
    const pf=await savePatch(i,last,i.history.filter(h=>h.kind==='fix').length).catch(e=>{log('issues: '+i.id+' patch not saved: '+e.message);return null});
    if(pf){i.patch=pf;if(last)last.patch=pf;i.result.summary=clip((i.result.summary||'')+' The code change is saved as '+pf+' for git.',1600)}
@@ -280,7 +321,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   i.history.push({kind:'person',at:now(),status:'stop',summary:'Stop retrying'+(who?' ('+clip(who,60)+')':'')});
   if(IDLE.includes(i.state)){i.state='stopped';i.notBefore=0}else i.noRetry=true;i.updated=now();await save();return view(i)});
  // Close: done with it, whatever state; one in the middle of a try is closed when that try ends
- const close=(id,who)=>queue(async()=>{await load();const i=db.items.find(x=>x.id===id);if(!i)return null;if(['closed','fixed','gone'].includes(i.state))return view(i);
+ const close=(id,who)=>queue(async()=>{await load();const i=db.items.find(x=>x.id===id);if(!i)return null;if(['closed','fixed','gone','expired'].includes(i.state))return view(i);
   i.history.push({kind:'person',at:now(),status:'close',summary:'Closed'+(who?' by '+clip(who,60):'')});
   if(IDLE.includes(i.state)||!OPEN.includes(i.state)){i.state='closed';i.notBefore=0}else{i.noRetry=true;i.closeAfter=true}i.updated=now();await save();return view(i)});
- return {file,healthGone,retry,stop,close,decideOwner,press,forAgent,list,tick,policy,_db:async()=>{await load();return db}}}
+ return {file,healthGone,sweep,retry,stop,close,decideOwner,press,forAgent,list,tick,policy,_db:async()=>{await load();return db}}}

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Runs ON THE BOX: unpacks the checked version, restarts aqeelOS once nothing is in progress, and confirms it answers.
-# deploy.sh / predeploy.sh send it with ssh (bash -s), and box-deploy.sh runs it from the commit being deployed. Env: CODE_V FORCE HT CT HS CS SHA BOX_SHA
+# deploy.sh / predeploy.sh send it with ssh (bash -s), and box-deploy.sh runs it from the commit being deployed. Env: CODE_V FORCE HT CT HS CS SHA BOX_SHA DC (the commits list)
 set -e
 # the files arrived whole: same size as sent, and readable
 for x in "$HT:$HS" "$CT:$CS"; do f=${x%%:*};z=${x##*:};[ "$(wc -c < "$f" 2>/dev/null)" = "$z" ] && tar -tzf "$f" >/dev/null 2>&1 || { echo "✗ $f did not arrive whole; nothing changed."; rm -f $HT $CT; exit 1; }; done
@@ -40,7 +40,7 @@ aq_drift(){ local L=${AQ_LIVE:-$HOME/apps/hermes-ui} D=${AQ_DRIFT_DATA:-${UI_DAT
  else echo "· drift check: the box ran exactly ${BOX_SHA:0:8}"; fi
  rm -f "$P"; }
 aq_drift || echo "! drift check: it could not run (the deploy goes on)"
-mkdir -p ~/apps/hermes-ui; tar -xzf $HT -C ~/apps/hermes-ui || { echo '✗ unpacking aqeelOS failed; it was not restarted.'; exit 1; }; cp $HT ~/apps/hermes-ui/.deployed.tgz.new && mv ~/apps/hermes-ui/.deployed.tgz.new ~/apps/hermes-ui/.deployed.tgz; rm $HT; echo "$SHA" > ~/apps/hermes-ui/.deployed-commit
+mkdir -p ~/apps/hermes-ui; tar -xzf $HT -C ~/apps/hermes-ui || { echo '✗ unpacking aqeelOS failed; it was not restarted.'; exit 1; }; cp $HT ~/apps/hermes-ui/.deployed.tgz.new && mv ~/apps/hermes-ui/.deployed.tgz.new ~/apps/hermes-ui/.deployed.tgz; rm $HT; echo "$SHA" > ~/apps/hermes-ui/.deployed-commit; [ -n "$DC" ] && [ -s "$DC" ] && mv "$DC" ~/apps/hermes-ui/.deployed-commits
 C=~/apps/aqeel-code; mkdir -p $C; before=$(md5sum $C/package-lock.json 2>/dev/null)
 tar -xzf $CT -C $C --strip-components=1 || { echo "✗ unpacking Code failed; aqeelOS was not restarted."; exit 1; }; rm $CT; echo "$CODE_V" > $C/VERSION
 [ "$before" = "$(md5sum $C/package-lock.json 2>/dev/null)" ] || (cd $C && npm install --omit=dev --no-audit --no-fund >/dev/null 2>&1 || echo "! Code packages: npm install failed")

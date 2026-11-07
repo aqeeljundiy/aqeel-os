@@ -1473,6 +1473,14 @@ const issues=createIssues({DATA,home:homedir(),bin:path.join(homedir(),'.local',
  reply:replyInTopic,tellOwner:srToOwner,toTeam:issueToTeam,quiet:alertQuiet,busy:async()=>busyNow(),ready:async()=>!gwStopped&&!gwRestarting&&!!await gatewayPid(),apply:issueApply,envFiles:issueEnvFiles,
  // a proven fix for an agent's report closes the report too (it stays on Health until then, never in the popup)
  onFixed:async i=>{const k=String(i.healthKey||'');if(k.startsWith('report|'))await bottlenecks.done(k);else if(i.report)await bottlenecks.done('report|'+i.report)},
+ // the sweep's checks (issues.mjs whyGone): is the problem an item is about gone by itself?
+ checks:{apps:async a=>Object.keys((await readConfig(a).catch(()=>null)||{}).mcp_servers||{}),
+  appSignedIn:async(a,n)=>!!await stat(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'mcp-tokens',n+'.json')).catch(()=>null),
+  exists:async p=>!!await stat(String(p).replace(/^~(?=\/)/,homedir())).catch(()=>null),
+  // the commits the box runs: each deploy writes their history next to the app (.deployed-commits)
+  commitLive:async c=>(await readFile(path.join(root,'.deployed-commits'),'utf8').catch(()=>'')).split('\n').some(l=>l&&l.startsWith(c.toLowerCase())),
+  changedSince:async(files,t)=>{for(const f of files){const st=await stat(f).catch(()=>null);if(st&&st.mtimeMs>t)return true}return false},
+  activity:async(text)=>news.add({aud:'admins',group:'issues-expired|'+text.slice(0,60),icon:'clock',title:text,go:'/system/health',label:'Health'})},
  codeRoots:[{dir:root,prefix:''},{dir:path.join(HERMES_HOME,'hermes-agent'),prefix:'hermes-agent/'}]});
 /* The one model call of the live checks (7 Nov 2026, owner: "save tokens"): once after each deploy (the app's code changed),
    a customer run on a Kirimdev agent whose line is in Test, with nothing sent (the run only returns text), must call

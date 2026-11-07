@@ -73,7 +73,9 @@ else
  r=$(ssh "$AQ_BOX" "AQ_REPO=$AQ_REPO bash -s -- $SHA $HT $CT" < scripts/box-pack.sh) || { echo "✗ the box could not pack ${SHA:0:8}; nothing changed."; exit 1; }
  read CODE_V HS CS <<< "$r"; echo "· packed on the box ($HS + $CS bytes)"
 fi
-ssh "$AQ_BOX" "CODE_V=$CODE_V FORCE=${FORCE:-0} HT=$HT CT=$CT HS=$HS CS=$CS SHA=$SHA BOX_SHA=$BOX_SHA bash -s" < scripts/box-live.sh
+# the commits this version holds (newest first): issues that name a fix commit close by themselves once it is live
+DC=/tmp/aq-commits-$ID; git rev-list -n 5000 HEAD | ssh "$AQ_BOX" "cat > $DC" || DC=
+ssh "$AQ_BOX" "CODE_V=$CODE_V FORCE=${FORCE:-0} HT=$HT CT=$CT HS=$HS CS=$CS SHA=$SHA BOX_SHA=$BOX_SHA DC=$DC bash -s" < scripts/box-live.sh
 
 # the update history on /backlog: recorded once the new version answers (it travels with the next deploy)
 node -e "const fs=require('fs'),f='data/deploys.json';let l=[];try{l=JSON.parse(fs.readFileSync(f,'utf8'))}catch{}let h='';try{h=require('child_process').execFileSync('git',['rev-parse','--short','HEAD'],{encoding:'utf8'}).trim()}catch{}l.push({at:new Date().toISOString(),commit:h});fs.mkdirSync('data',{recursive:true});fs.writeFileSync(f,JSON.stringify(l.slice(-200),null,1))"

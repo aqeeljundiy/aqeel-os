@@ -4,7 +4,7 @@ import {mkdtemp,writeFile,mkdir,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {terms,parseLines,search,createChatHistory} from '../app/chat-history.mjs';
-import {decide,whoToTell,parseResult,createIssues,fixerPrompt,proofPrompt,newSecrets,approvalOnly,testerSendOnly,noPersonNeeded} from '../app/issues.mjs';
+import {decide,whoToTell,parseResult,createIssues,fixerPrompt,proofPrompt,newSecrets,approvalOnly,testerSendOnly,noPersonNeeded,similar} from '../app/issues.mjs';
 import {count,weekOf} from '../app/escalations.mjs';
 let n=0;const t=async(name,f)=>{await f();n++;console.log('ok',name)};
 const POL={owner:{name:'Owner',telegram:['1']},teams:[{name:'Brand',agents:['a1','a2'],members:[{name:'Mem',telegram:['2']}],aliases:{a1:['Randy']}}],fixer:{on:true,agent:'default'}};
@@ -28,7 +28,7 @@ async function setup(extra={}){const d=await mkdtemp(path.join(tmpdir(),'is-'));
  const said={reply:[],owner:[],team:[]},applied=[];let busyN=0;
  const f=fake(d,extra);const I=createIssues({DATA:d,bin:'x',fixerHome:d,log:()=>{},launch:f.launch,alive:async()=>false,quiet:extra.quiet||(()=>null),
   reply:async(i,x)=>{said.reply.push(x);return true},tellOwner:async x=>said.owner.push(x),toTeam:async(a,m,x)=>{said.team.push([a,m.name,x]);return true},
-  busy:async()=>busyN,apply:async(k,why)=>{applied.push(k);return {ok:true}},envFiles:async()=>extra.envFiles||[],codeRoots:extra.codeRoots||[],onFixed:async i=>(extra.fixedOut||[]).push(i)});
+  busy:async()=>busyN,apply:async(k,why)=>{applied.push(k);return {ok:true}},envFiles:async()=>extra.envFiles||[],codeRoots:extra.codeRoots||[],onFixed:async i=>(extra.fixedOut||[]).push(i),checks:extra.checks||{}});
  return {d,I,f,said,applied,setBusy:n=>{busyN=n},db:async()=>(await I._db()).items[0],ticks:async n=>{for(let k=0;k<n;k++)await I.tick()}}}
 const quietAll=s=>s.reply.length+s.owner.length+s.team.length;
 
@@ -171,4 +171,38 @@ await t('a rollback whose files are already back (a deploy put them back) reload
   onFix:async()=>{await writeFile(file+'.bak','old');await writeFile(file,'new')}});
  await S.I.file({agent:'a1',missing:'y'});await S.ticks(3);assert.deepEqual(S.applied,['engine']);await writeFile(file,'old');await S.ticks(2);
  const i=await S.db();assert.equal(i.state,'queued');assert.deepEqual(S.applied,['engine'],'no reload just to roll back');assert.doesNotMatch(i.history[0].outcome,/rolled back/)});
+const off={...POL2,fixer:{on:false}};
+await t('sweep: a sign-in issue closes by itself once the app is signed in, silently, with the evidence kept',async()=>{let signed=false;
+ const S=await setup({policy:off,checks:{apps:async()=>['slack-as2','notion'],appSignedIn:async(a,n)=>signed&&n==='slack-as2'}});
+ await S.I.file({agent:'default',missing:'A usable sign-in link for slack-as2'});assert.equal(await S.I.sweep(true),0);assert.equal((await S.db()).state,'open');
+ signed=true;assert.equal(await S.I.sweep(true),1);const i=await S.db();assert.equal(i.state,'gone');assert.match(i.resolvedBy,/slack-as2 is signed in now/);assert.match(i.result.summary,/^Resolved by itself/);
+ assert.equal(i.history.at(-1).kind,'resolved');assert.equal(quietAll(S.said),0)});
+await t('sweep: missing files that are there now, a fix commit that is live, a closed original',async()=>{const live=new Set(['fc0edf9']);
+ const S=await setup({policy:off,checks:{exists:async p=>p==='/home/c/w/labels/assets/texture.png',commitLive:async c=>live.has(c)}});
+ await S.I.file({agent:'a1',missing:'The file /home/c/w/labels/assets/texture.png is missing'});
+ await S.I.file({agent:'a2',missing:'Tester replies held after a reset',evidence:'Fixed in fc0edf9 by the Kirimdev session'});
+ await S.I.file({agent:'a3',missing:'Webhook problem again, duplicate of i00000000'});
+ assert.equal(await S.I.sweep(true),2);const st=Object.fromEntries((await S.I._db()).items.map(i=>[i.agent,i.state]));assert.deepEqual(st,{a1:'gone',a2:'gone',a3:'open'})});
+await t('sweep: the same problem filed again by the same agent closes the older one; a different skill is not the same problem',async()=>{const S=await setup({policy:off});
+ await S.I.file({agent:'ct',missing:'Read/execute access for ag-continue-threads to /home/claude/work/labels and /home/claude/work/tiktok/.venv'});
+ await S.I.file({agent:'ct',missing:'Read/execute access for ag-continue-threads to /home/claude/work/labels (gen.py, assets, fonts, taglines.json) and /home/claude/work/tiktok/.venv. /home/claude/work is claude:claude'});
+ await S.I.file({agent:'ct',missing:'The skill maps points to a file that is not there'});await S.I.file({agent:'ct',missing:'The skill continue-vial-labels points to a file that is not there'});
+ await S.I.sweep(true);const l=(await S.I._db()).items;assert.equal(l.find(i=>/tiktok\/\.venv$/.test(i.missing)).state,'gone');assert.match(l.find(i=>/tiktok\/\.venv$/.test(i.missing)).resolvedBy,/filed again/);
+ assert.equal(l.filter(i=>/skill/.test(i.missing)&&i.state==='open').length,2);
+ const S2=await setup({policy:off});await S2.I.file({agent:'d',missing:'Customer WhatsApp runs have no label tool: customer-tools.mjs only exposes conversation and payments'});
+ await S2.I.file({agent:'d',missing:'Donna reported: Customer WhatsApp runs have no label tool: customer-tools.mjs only exposes conversation and payments'});(await S2.I._db()).items[0].state='gone';
+ await S2.I.sweep(true);assert.equal((await S2.I._db()).items[1].state,'open','a newer one that went away carries nothing on');assert.equal(similar('The skill maps points to a file that is not there','The skill continue-vial-labels points to a file that is not there'),0)});
+await t('sweep: a stuck issue whose files a deploy changed gets one proof run; proven closes it, otherwise it stays stuck with nothing rolled back',async()=>{
+ const d0=await mkdtemp(path.join(tmpdir(),'f-')),file=path.join(d0,'kd.mjs');await writeFile(file,'old');let changed=false;
+ const S=await setup({checks:{changedSince:async()=>changed},proof:[{status:'not_proven',proof:'no tester message'},{status:'proven',proof:'tester got the reply 12:10'}]});
+ await S.I.file({agent:'a1',missing:'tester pause'});const i=await S.db();Object.assign(i,{state:'stuck',tries:3,history:[{kind:'fix',changes:[{file,backup:file+'.bak'}],summary:'x'}]});
+ await S.I.sweep(true);assert.equal(i.state,'stuck','nothing changed yet');changed=true;await S.I.sweep(true);assert.equal(i.state,'verify');assert.equal(i.recheck,true);
+ await S.ticks(2);assert.equal(i.state,'stuck');assert.equal(S.applied.length,0);assert.equal(await readFile(file,'utf8'),'old');
+ changed=false;await S.I.sweep(true);assert.equal(i.state,'stuck','not again until the files change again');changed=true;i.recheckedAt=0;i.updated=0;await S.I.sweep(true);await S.ticks(2);
+ assert.equal(i.state,'gone');assert.match(i.resolvedBy,/recheck after a deploy proved it gone/);assert.match(S.f.runs.at(-1).prompt,/RECHECK/);assert.equal(quietAll(S.said),0)});
+await t('sweep: nothing left to check for 7 days: it leaves quietly, to Activity; a Health item that went away closes even when stuck',async()=>{const acts=[];
+ const S=await setup({policy:off,checks:{activity:async x=>acts.push(x)}});await S.I.file({agent:'a1',missing:'The vibe of the replies feels off lately'});
+ await S.I.file({agent:'a1',missing:'kicked',source:'health',healthKey:'a1|g'});const [h,old]=(await S.I._db()).items;old.updated=Date.now()-8*864e5;h.state='stuck';
+ await S.I.sweep(true);assert.equal(old.state,'expired');assert.equal(acts.length,1);assert.match(acts[0],/closed after 7 days/);
+ assert.equal(await S.I.healthGone([]),1);assert.equal(h.state,'gone');assert.equal(quietAll(S.said),0)});
 console.log(n+' passed');
