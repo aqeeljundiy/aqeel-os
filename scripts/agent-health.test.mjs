@@ -153,7 +153,7 @@ test('engine: unclean and failed exits and a swapped state.db since the last che
  assert.deepEqual(engineProblems(e).map(x=>x.topic),['health|aqeelos|engine-exit','health|aqeelos|state-db']);
  assert.deepEqual(engineProblems(engineEvents(diag,err,Date.parse('2026-11-07T06:00:00Z'))),[])});
 test('tool servers: the latest registration line, and flapping in the last hour',()=>{const now=Date.parse('2026-11-07T06:00:00Z');
- const L=(t,f)=>'2026-11-07 '+t+',100 INFO tools.mcp_tool: MCP: registered 158 tool(s) from 6 server(s)'+(f?' ('+f.length+' failed: '+f.map(x=>x+' (MCP OAuth for \''+x+'\': no tokens; run `hermes mcp login '+x+'`)').join('; ')+')':'');
+ const L=(t,f)=>'2026-11-07 '+t+',100 INFO tools.mcp_tool: MCP: registered 158 tool(s) from 6 server(s)'+(f?' ('+f.length+' failed: '+f.map(x=>x+' (connection refused by '+x+')').join('; ')+')':'');
  const log=[L('05:10:00',['composio','notion']),L('05:20:00',['composio']),L('05:30:00',['composio','notion']),L('05:40:00',['composio']),L('05:50:00',['composio','notion']),
   "2026-11-07 05:50:01,000 INFO tools.mcp_tool: MCP server 'aqeelos-customer' (HTTP): registered 6 tool(s): a, b"].join('\n');
  const s=mcpState(log,now);assert.deepEqual(s.failed,['composio','notion']);assert.deepEqual(Object.keys(s.flaps),['notion']);assert.equal(s.customer,6);
@@ -173,3 +173,5 @@ test('the live checks run in tick, file nothing on their own, and clear when fin
  await h.tick();let v=await h.view();const all=v.agents.flatMap(r=>r.problems.map(p=>p.kind));assert.ok(all.includes('memory'));assert.ok(all.includes('customer'));
  mem={used:10,max:100,load1:1,cpus:4};listed=6;await writeFile(path.join(HOME,'profiles','sup','logs','agent.log'),"2026-11-07 05:50:01,000 INFO tools.mcp_tool: MCP server 'aqeelos-customer' (HTTP): registered 6 tool(s): a\n");
  await h.tick();v=await h.view();assert.deepEqual(v.agents.flatMap(r=>r.problems.map(p=>p.kind)),[])});
+test('tool servers waiting for a sign-in are not failures',()=>{const l="2026-11-07 07:03:42,014 INFO tools.mcp_tool: MCP: registered 98 tool(s) from 5 server(s) (3 failed: composio (MCP OAuth for 'composio': non-interactive environment and no cached tokens found. Run `hermes mcp login composio` interactively first to complete initial authorization.); notion (MCP OAuth for 'notion': no cached tokens found.); n8n (connection refused))";
+ assert.deepEqual(mcpState(l,Date.parse('2026-11-07T07:10:00')).failed,['n8n'])});

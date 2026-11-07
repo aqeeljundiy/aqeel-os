@@ -201,7 +201,9 @@ export function engineProblems(e){const out=[];
 // went between working and failing more than twice in the last hour (flapping)
 export function mcpState(log,now=Date.now()){let last=null;const hist=[];
  for(const l of String(log||'').split('\n')){if(!/MCP: registered \d+ tool\(s\)/.test(l))continue;const t=logTime(l);const f=/\(\d+ failed: (.*)\)\s*$/.exec(l);
-  const failed=f?[...('; '+f[1]).matchAll(/;\s+([\w.@-]+) \(/g)].map(m=>m[1]):[];last={t,failed};if(now-t<H)hist.push(failed)}
+  // a server waiting for someone to sign in (OAuth, no tokens yet) is not broken: the sign-in shows on the agent's
+  // Connected apps, and no fixer can sign in for a person (7 Nov 2026: Slack, Composio and Notion on every agent)
+  const failed=f?[...('; '+f[1]).matchAll(/;\s+([\w.@-]+) \(([^;]*)/g)].filter(m=>!/OAuth|no cached tokens|mcp login|sign[ -]?in|authoriz/i.test(m[2])).map(m=>m[1]):[];last={t,failed};if(now-t<H)hist.push(failed)}
  const seen=new Set(hist.flat()),flaps={};for(const sv of seen){let n=0;for(let k=1;k<hist.length;k++)if(hist[k].includes(sv)!==hist[k-1].includes(sv))n++;if(n>2)flaps[sv]=n}
  const cust=[...String(log||'').matchAll(/MCP server 'aqeelos-customer' \(\w+\): registered (\d+) tool\(s\)/g)].pop();
  return {failed:last?.failed||[],at:last?.t||null,flaps,customer:cust?Number(cust[1]):null}}
