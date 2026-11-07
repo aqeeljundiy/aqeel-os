@@ -80,6 +80,8 @@ test('an agent’s own sign-in reports close only when every app they name is of
   {id:'c',state:'open',source:'agent',agent:'continue-threads',what:'Read label generator',missing:'Read access to /home/claude/work/labels'},
   {id:'d',state:'open',source:'person',agent:'sesa',what:'Slack sign-in for the team',missing:'x'},
   {id:'e',state:'closed',source:'agent',agent:'sesa',what:'Fix notion sign-in',missing:''},
-  {id:'f',state:'open',source:'agent',agent:'pixel',what:'Start MCP tool servers notion and slack',missing:'OAuth sign-in'}];
+  {id:'f',state:'open',source:'agent',agent:'pixel',what:'Start MCP tool servers notion and slack',missing:'OAuth sign-in'},
+  {id:'g',state:'open',source:'agent',agent:'sesa',what:'Stop engine start failures from unused MCP apps',missing:'Permission to edit my config'},
+  {id:'h',state:'open',source:'agent',agent:'pixel',what:'Stop engine start failures from unused MCP apps',missing:'x'}];
  const on={default:['slack'],pixel:['slack']};
- assert.deepEqual(await solvedIssues(items,async(a,w)=>(on[a]||[]).includes(w)),['a'])});
+ assert.deepEqual(await solvedIssues(items,async(a,w)=>w==='*'?(on[a]||[]).length>0:(on[a]||[]).includes(w)),['a','g'])});

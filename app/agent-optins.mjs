@@ -27,7 +27,9 @@ export function decideApps(counts,configs){const on={};
 const APP_WORD=/\b(composio|notion|slack|rube)\b/gi,ABOUT_SIGNIN=/sign[- ]?in|oauth|tool servers?|mcp|engine[- ]start|start failures/i;
 export async function solvedIssues(items,stillOn){const out=[];
  for(const i of items||[]){if(!['open','queued'].includes(i.state)||i.source!=='agent'||i.healthKey)continue;const t=String(i.what||'')+' '+String(i.missing||'');
-  if(!ABOUT_SIGNIN.test(t))continue;const words=[...new Set((t.match(APP_WORD)||[]).map(w=>w.toLowerCase()))];if(!words.length)continue;
+  if(!ABOUT_SIGNIN.test(t))continue;let words=[...new Set((t.match(APP_WORD)||[]).map(w=>w.toLowerCase()))];
+  // no app named ("start failures from unused MCP apps"): solved once the agent has no sign-in app on at all ('*')
+  if(!words.length){if(!/\b(mcp|sign[- ]?in) apps?\b|tool servers?/i.test(t))continue;words=['*']}
   let any=false;for(const w of words)if(await stillOn(i.agent,w)){any=true;break}if(!any)out.push(i.id)}
  return out}
 // counts per agent: {agent:{adspower:{n,last},composio:{n,last}}}, copies (default--whatsapp-2) counted for their agent
