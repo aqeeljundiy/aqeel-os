@@ -1274,7 +1274,7 @@ customerTools=createCustomerTools({WORK:path.join(homedir(),'workspaces'),DATA,p
 // the support agents (a Kirimdev line) have the customer tool server in their settings; its key comes from each run
 async function ensureCustomerServer(){if(!LIVE_APP)return;for(const a of Object.keys(await kirimdev.lines().catch(()=>({})))){const c=await readConfig(a).catch(()=>null);if(!c)continue;
  // no header (7 Nov 2026): the gateway serves customer runs over this one connection; each call carries its run key instead
- const want={url:'http://127.0.0.1:4400/mcp/customer/'+a};const have=pick(c,'mcp_servers.aqeelos-customer');
+ const want={url:'http://127.0.0.1:'+PORT+'/mcp/customer/'+a};const have=pick(c,'mcp_servers.aqeelos-customer');
  if(have?.url!==want.url||have?.headers){await setKey(a,'mcp_servers.aqeelos-customer',want);console.log('customer tools: set for',a,'(key per call)')}
  // a support agent never skips the engine's safety stop for scripts (6 Nov: execute_code and "-e/-c" were allowlisted, the two stops that held customer runs)
  const al=[].concat(pick(c,'command_allowlist')||[]);if(al.length){await setKey(a,'command_allowlist',[]);console.log('customer tools: removed the command allowlist of',a,'('+al.join(', ')+')')}}}
@@ -1444,7 +1444,7 @@ if(LIVE_APP){const liveInstall=()=>agentLive.install().then(async c0=>{const c=[
 // the engine reads each tool server's list once, when it connects: a tool aqeelOS adds later (the lockbox link, the
 // self-repair kit) stayed invisible in open chats. The lists are fingerprinted per agent; a change reloads the engine
 // once no reply runs (7 Nov 2026)
-async function toolSigs(){const out={};for(const a of await agentLive.homes()){if(await isTestAgent(a).catch(()=>false))continue;const c=await readConfig(a).catch(()=>null);const u=String(pick(c||{},'mcp_servers.aqeelos-notify.url')||'');if(!u.startsWith('http://127.0.0.1:4400/'))continue;
+async function toolSigs(){const out={};for(const a of await agentLive.homes()){if(await isTestAgent(a).catch(()=>false))continue;const c=await readConfig(a).catch(()=>null);const u=String(pick(c||{},'mcp_servers.aqeelos-notify.url')||'');if(!u.startsWith('http://127.0.0.1:'+PORT+'/'))continue;
  try{const r=await fetch(u,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/list'}),signal:AbortSignal.timeout(20000)});const j=await r.json();
   out[a]=createHash('sha1').update((j.result?.tools||[]).map(t=>t.name+':'+createHash('sha1').update(JSON.stringify(t.inputSchema||{})+(t.description||'')).digest('hex').slice(0,8)).sort().join(',')).digest('hex').slice(0,12)}catch{}}return out}
 if(LIVE_APP){const sigFile=path.join(DATA,'agent-live','tool-sigs.json');const toolTick=async()=>{const now=await toolSigs();if(!Object.keys(now).length)return;const old=JSON.parse(await readFile(sigFile,'utf8').catch(()=>'{}')||'{}');
