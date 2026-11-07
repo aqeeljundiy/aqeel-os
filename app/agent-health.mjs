@@ -92,7 +92,7 @@ export function overview(agents,items,drops,nameOf=a=>a){const rows=agents.map(a
  for(const x of items){if(['invite','ticket','access'].includes(x.kind))continue;const base=x.agent?String(x.agent).split('--')[0]:null;(base&&idx.get(base)||(base?null:sys))?.problems.push(x)}
  for(const r of rows)r.ok=!r.problems.length;const list=[...rows.filter(r=>!r.ok),...rows.filter(r=>r.ok)];if(sys.problems.length)list.unshift({...sys,ok:false});return list}
 
-export function createAgentHealth({DATA,HERMES_HOME,bottlenecks,items,listAgents,nameOf,botToken,engineUp,python,tellOwner,link,quiet=()=>null,ps=readPs,fetchJson=(u,o)=>fetch(u,{...o,signal:AbortSignal.timeout(15000)}).then(r=>r.json())}){
+export function createAgentHealth({DATA,HERMES_HOME,bottlenecks,items,listAgents,nameOf,botToken,engineUp,python,tellOwner,link,quiet=()=>null,fixFirst=null,ps=readPs,fetchJson=(u,o)=>fetch(u,{...o,signal:AbortSignal.timeout(15000)}).then(r=>r.json())}){
  const FILE=path.join(DATA,'agent-health.json');let st=null;
  const load=async()=>{if(!st){try{st=JSON.parse(await readFile(FILE,'utf8'))}catch{st={}}st.told||={};st.seen||={};st.groups||={}}return st};
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(st,null,1));await rename(FILE+'.tmp',FILE)};
@@ -144,10 +144,22 @@ print(json.dumps(out))`;
   for(const [n,f] of [['schedules',checkSchedules],['messages',checkDrops],['groups',checkGroups],['processes',checkTwice],['skills',checkSkillFiles]])await f(agents).catch(e=>console.warn('health check',n,e.message));
   await load();const all=await items();const {send,logged,fixed,state}=alertPlan(st,all,Date.now(),{quiet});st.told=state.told;st.seen=state.seen;st.about=state.about||{};st.muted=state.muted||{};
   if(logged.length)console.log('health: not told (restart hold):',logged.map(x=>alertKey(x)+' '+String(x.title||'').slice(0,80)).join(' | '));
-  if(fixed.length&&!quiet(null))await tellOwner(fixedText(fixed,{nameOf})).catch(e=>console.warn('health: the fixed note could not be sent:',e.message));
-  else if(fixed.length)console.log('health: fixed (not told, restart hold):',fixed.map(f=>f.key).join(', '));
-  if(send.length){try{await tellOwner(alertText(send,{link,nameOf}));console.log('health: told the owner about',send.length,'problem(s):',send.map(alertKey).join(', '))}
-   catch(e){console.warn('health: the owner could not be told:',e.message);for(const x of send)delete st.told[alertKey(x)]}}
+  // 7 Nov 2026 (owner: "can we just auto fix"): a problem of one agent goes to that agent first. aqeelOS starts a run of
+  // it (fixFirst) with the problem; the owner hears only when it is still there after 2 tries 45 minutes apart, or when
+  // the agent cannot run itself. "Fixed again" notes go to the owner only for problems he was told about.
+  const now=Date.now();st.fixing=st.fixing||{};st.ownerTold=st.ownerTold||{};const cur=new Map(all.filter(x=>x.agent).map(x=>[alertKey(x),x]));const toOwner=[];
+  for(const x of send){const k=alertKey(x);if(!fixFirst||!x.agent){toOwner.push(x);continue}
+   try{await fixFirst(x.agent,x);st.fixing[k]={agent:x.agent,title:String(x.title||'').slice(0,160),tries:1,at:now};console.log('health: '+x.agent+' asked to fix: '+String(x.title||'').slice(0,100))}
+   catch(e){console.log('health: '+x.agent+' cannot fix it itself ('+e.message+'); the owner is told');toOwner.push(x)}}
+  for(const [k,f] of Object.entries(st.fixing)){const x=cur.get(k);if(!x){console.log('health: '+f.agent+' fixed: '+f.title);delete st.fixing[k];continue}
+   if(now-f.at<45*60e3)continue;
+   if(f.tries<2){try{await fixFirst(f.agent,x);f.tries++;f.at=now;console.log('health: '+f.agent+' asked again to fix: '+f.title)}catch(e){toOwner.push(x);delete st.fixing[k]}}
+   else{toOwner.push({...x,title:String(x.title||'')+' (the agent tried to fix it twice)'});delete st.fixing[k]}}
+  const fixedTold=fixed.filter(f=>st.ownerTold[f.key]);for(const f of fixed)delete st.ownerTold[f.key];
+  if(fixedTold.length&&!quiet(null))await tellOwner(fixedText(fixedTold,{nameOf})).catch(e=>console.warn('health: the fixed note could not be sent:',e.message));
+  else if(fixed.length)console.log('health: fixed (not told):',fixed.map(f=>f.key).join(', '));
+  if(toOwner.length){try{await tellOwner(alertText(toOwner,{link,nameOf}));for(const x of toOwner)st.ownerTold[alertKey(x)]=now;console.log('health: told the owner about',toOwner.length,'problem(s):',toOwner.map(alertKey).join(', '))}
+   catch(e){console.warn('health: the owner could not be told:',e.message);for(const x of toOwner)delete st.told[alertKey(x)]}}
   await save();return send.length})().finally(()=>{running=null});return running}
  async function view(){const agents=(await listAgents()).filter(a=>!a.includes('--'));return {agents:overview(agents,await items(),await drops(),nameOf),at:Date.now()}}
  return {problem,ok,tick,view,drops}}

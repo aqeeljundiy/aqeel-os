@@ -1253,7 +1253,12 @@ const selfRuns=createSelfRuns({DATA,nameOf:srName,day:t=>localAt(t,SR_TZ).date,h
    with its problems (the Bottlenecks items, grouped per agent, plus failed messages this week); every 5 minutes the live
    app checks schedules, failed messages and Telegram groups, and tells the owner on Telegram once about each new
    problem. Other features report their own checks with health.problem(agent,kind,text,{topic,fix}) and health.ok(agent,topic). */
-const health=createAgentHealth({DATA,HERMES_HOME,bottlenecks,quiet:alertQuiet,python:enginePython,link:PUBLIC_URL+'/#/system/health',
+// a problem of one agent: that agent fixes it first, in a run of its own (self-runs), before anyone is told (7 Nov 2026)
+const healthFix=async(a,x)=>{if(!await srEligible(a))throw Error('it cannot run itself');
+ const prompt='aqeelOS found a problem in your own work and you fix it yourself now, without asking anyone.\n\nProblem: '+String(x.title||'')+(x.detail?'\nDetails: '+String(x.detail).slice(0,3000):'')+
+  '\n\nFind the cause (my_health, my_logs, my_runs, my_schedules, your files and scripts), fix it in your own work, and check it works again (run the schedule or script once). Do not message the owner or customers. If the fix needs something only a person can give (a password, a sign-in, a decision), file it with report_bottleneck and stop. End with two lines: what was wrong, what you changed.';
+ return selfRuns.start({agent:a,args:{prompt,reason:'aqeelOS health: '+String(x.title||'').slice(0,120),timeout_minutes:20},origin:{ok:true,by:{kind:'aqeelos',name:'aqeelOS health check'}},ws:path.join(homedir(),'workspaces',a)})};
+const health=createAgentHealth({DATA,HERMES_HOME,bottlenecks,quiet:alertQuiet,fixFirst:(a,x)=>healthFix(a,x),python:enginePython,link:PUBLIC_URL+'/#/system/health',
  listAgents:()=>listAgents(),nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a),tellOwner:srToOwner,
  engineUp:async()=>!gwStopped&&!gwRestarting&&!!await gatewayPid(),
  botToken:async a=>(/^TELEGRAM_BOT_TOKEN=["']?([^"'\s]+)/m.exec(await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'.env'),'utf8').catch(()=>''))||[])[1]||null,
