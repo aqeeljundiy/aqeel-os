@@ -2483,7 +2483,7 @@ const server=createServer(async(req,res)=>{
     let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||'');if(!await isAgent(ag)||ag==='default'||ag.includes('--'))return send(res,400,{error:'Unknown agent'});
     if(b.trusted&&users.tierOf(ag)!=='admin')return send(res,400,{error:'Only agents of admins can run as the main user.'});
     await agentDefaults.setTrusted(ag,!!b.trusted);console.log('agent',ag,b.trusted?'trusted: runs as the main user':'runs as its own user','(by '+u.id+')');
-    agentDefaults.added(ag).then(n=>{if(n)Promise.resolve(restartGateway('Trusted changed for '+ag)).catch(()=>{})}).catch(e=>console.warn('agent defaults',ag,e.message));return send(res,200,{ok:true,trusted:!!b.trusted})}
+    agentDefaults.added(ag).then(async n=>{if(n&&!await isTestAgent(ag).catch(()=>false))Promise.resolve(restartGateway('Trusted changed for '+ag)).catch(()=>{})}).catch(e=>console.warn('agent defaults',ag,e.message));return send(res,200,{ok:true,trusted:!!b.trusted})}
    // Abilities › Skills › Only these agents (admins): one skill's rule in skills-policy.json
    if(p==='/ui/skills-policy'){if(req.method==='GET')return send(res,200,skillRules());if(!users.isAdmin(u))return send(res,403,{error:'Only admins decide which agents get a skill.'});
     let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}try{await setSkillRule(b.skill,Array.isArray(b.agents)?b.agents:null);console.log('skill',b.skill,Array.isArray(b.agents)?'only for '+b.agents.join(', '):'for every agent','(by '+u.id+')');return send(res,200,skillRules())}catch(e){return send(res,400,{error:e.message})}}
