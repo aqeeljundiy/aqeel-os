@@ -9,7 +9,7 @@ aqeelOS is a web interface and team layer for the [Hermes Agent](https://github.
 
 ## Setup
 On the server, as your own user (not root):
-1. Install [Hermes Agent](https://github.com/NousResearch/hermes-agent) and start its gateway once, so `~/.hermes/.env` has its keys.
+1. Install [Hermes Agent](https://github.com/NousResearch/hermes-agent).
 2. `git clone` this repo (e.g. `~/apps/aqeelos`), then run the installer once:
    ```bash
    sudo bash scripts/install.sh
@@ -18,7 +18,7 @@ On the server, as your own user (not root):
 3. Put an https proxy (Caddy, Traefik, nginx) in front of `127.0.0.1:4400`.
 
 You never edit an env file:
-- the engine's gateway key and dashboard token are read from `~/.hermes/.env`;
+- the engine's gateway key and dashboard token are read from `~/.hermes/.env`; a fresh engine has none, so aqeelOS writes them there on its first start (restart the engine once after that);
 - the sign-in key (`UI_SECRET`) is made on the first start and kept in the data folder, so sign-ins survive restarts;
 - the address, time zone, Code and app addresses are set in the app.
 An env file is still read when you want to override something (`.env.example` lists every value; the installer's service reads `~/.config/aqeelos/aqeelos.env`). A value set there wins over the app's setting and shows as "Set in the environment".

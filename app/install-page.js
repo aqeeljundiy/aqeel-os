@@ -69,8 +69,20 @@ ACT['inst-hosts']=()=>hostsDialog();
   ${fieldRow('Your address',esc(a.from==='env'?'Set in the environment (PUBLIC_URL).':'Invites, WhatsApp Business, Kirimdev and app sign-ins send people here.'),`<div class="inst-val"><span class="mono">${esc(a.url)}</span>${addrState}${a.from==='env'?'':'<button class="small" data-act="inst-address">Change</button>'}</div>`)}
   ${fieldRow('Time zone',esc(tz.zone?'Schedules, posting limits, backups and notices use it.':'Not chosen yet, so the server’s own zone is used ('+tz.box+').'),`<div class="inst-val"><span>${esc(tz.zone?zoneLabel(tz.zone):'Server: '+zoneLabel(tz.box))}</span><button class="small" data-act="inst-tz">Change</button></div>`)}
   ${fieldRow('Code and app addresses',hostLine,`<div class="inst-val"><button class="small" data-act="inst-hosts">Change</button></div>`)}
+  ${d.engine&&d.engine.state!=='ok'?fieldRow('Engine',esc(ENGINE_SAY[d.engine.state]?.[0]||''),`<div class="inst-val">${chip('warn',d.engine.state==='auth'?'Needs a restart':'Not answering')}<a href="#/system/health">See Health</a></div>`):''}
   ${fieldRow('Background jobs',esc(d.live.on?'This copy is the live one: it looks after agents, backups and Help.':'This copy is a test copy: it changes nothing on its own (AQEELOS_LIVE=0).'),`<div class="inst-val">${chip(d.live.on?'ok':'',d.live.on?'Live':'Test copy')}</div>`)}`;
  el.prepend(box)}}
+
+/* ---------- the engine is not reachable with aqeelOS's keys (a fresh engine before its one restart) ---------- */
+const ENGINE_SAY={auth:['The engine needs one restart','aqeelOS wrote the engine’s keys into its .env. The engine reads them when it starts, so until then chats, agents and models can’t load. Run this on the server:'],
+ down:['aqeelOS can’t reach the engine','Nothing answers at the engine’s address. Start it on the server:']};
+function engineCard(e){const [t,d]=ENGINE_SAY[e.state]||[];if(!t)return null;const box=document.createElement('div');box.className='panel card inst-note';box.id='engNote';box.style.marginBottom='16px';
+ const cmd=e.state==='auth'?'hermes gateway restart':'hermes gateway run';
+ box.innerHTML=`<div class="inst-note-h">${icon('alert',18)}<h2>${esc(t)}</h2></div><p class="sub">${esc(d)}</p><div class="inst-cmd"><code>${esc(cmd)}</code><button class="small" data-act="eng-copy" data-cmd="${esc(cmd)}">${icon('copy',14)}Copy</button></div>
+  <p class="sub" style="margin:8px 0 0">Restart the engine’s dashboard too (<span class="mono">hermes dashboard --no-open</span>). Servers set up with the installer start both for you.</p>`;return box}
+ACT['eng-copy']=a=>copyText(a.dataset.cmd,'Command copied');
+{const base=PAGES.health;PAGES.health=async(p,el,r)=>{const gone=pageTok(el);let err=null;try{await base(p,el,r)}catch(e){if(e?.stale)throw e;err=e}if(gone())return;
+ if(S.me?.admin!==false&&!el.querySelector('#engNote')){const d=await Install.load();const c=d?.engine&&engineCard(d.engine);if(c&&!gone())el.prepend(c)}if(err&&!el.querySelector('#engNote'))throw err}}
 
 /* ---------- Agents: per-agent Linux users missing ---------- */
 {const base=PAGES.profiles;PAGES.profiles=async(p,el)=>{const stale=pageTok(el);await base(p,el);if(stale()||S.me?.admin===false||el.querySelector('#auNote'))return;

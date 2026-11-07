@@ -15,7 +15,7 @@ const run=(cmd,args,opt={})=>new Promise(res=>{let out='';let p;try{p=spawn(cmd,
 
 // listAgents: every agent; setKey(agent,key,value) through the engine's config queue; onTz(zone) after a change;
 // hermes(agent,args) the engine CLI (plugins enable); isAdmin(u)
-export function createInstallRoutes({send,readBody,isAdmin,listAgents=async()=>[],readConfig=async()=>null,setKey,wait=4000,hermes,claudeOn=async()=>false,onTz=()=>{},log=m=>console.log(m),fetchImpl=fetch,runImpl=run,
+export function createInstallRoutes({send,readBody,isAdmin,listAgents=async()=>[],readConfig=async()=>null,setKey,wait=4000,hermes,claudeOn=async()=>false,engineProbe=async()=>'ok',onTz=()=>{},log=m=>console.log(m),fetchImpl=fetch,runImpl=run,
  claudeBin=process.env.CLAUDE_BIN||path.join(homedir(),'.local','bin','claude'),hermesHome=(process.env.HERMES_HOME||path.join(homedir(),'.hermes')).replace(/^~(?=\/|$)/,homedir())}){
  let claudeJob={state:'idle',steps:[],error:''};
  let tzJob=null;
@@ -28,6 +28,8 @@ export function createInstallRoutes({send,readBody,isAdmin,listAgents=async()=>[
   // only the live copy asks: test copies (deploy checks) must never get a dialog over the pages they check
   out.address.ask=from==='default'&&!s.addressAsked&&I.isLive();
   out.live={on:I.isLive(),from:I.liveFrom()};
+  // ok | auth (the engine refuses aqeelOS's keys: it has not restarted since they were written) | down
+  out.engine={state:await engineProbe().catch(()=>'down')};
   out.hosts=Object.fromEntries(Object.keys(I.HOSTS).map(k=>[k,{value:I.hostSetting(k),from:I.hostFrom(k),env:I.HOSTS[k][0]}]));
   out.agentUsers=I.agentUsersState();
   out.claude={...I.claudeState({bin:claudeBin,hermesHome}),on:await claudeOn().catch(()=>false),job:claudeJob};

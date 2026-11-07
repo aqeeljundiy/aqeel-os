@@ -42,6 +42,16 @@ export function engineKeys(e=env,home=HERMES_HOME()){let file={};try{file=parseE
  const a=one('API_SERVER_KEY'),d=one('HERMES_DASHBOARD_SESSION_TOKEN');
  return {API_SERVER_KEY:a.v,HERMES_DASHBOARD_SESSION_TOKEN:d.v,from:{api:a.from,dash:d.from}}}
 
+// A fresh engine has neither key (it never makes API_SERVER_KEY, and its dashboard token is random on every start
+// unless .env sets one), so aqeelOS could not talk to it. Missing ones are written once into the engine's own .env
+// (owner-only); the engine uses them from its next start. Returns the names it added.
+export function ensureEngineKeys(e=env,home=HERMES_HOME()){const f=path.join(home,'.env');let t='';try{t=readFileSync(f,'utf8')}catch{}
+ const have=parseEnvText(t),add=[];
+ const want={API_SERVER_ENABLED:'true',API_SERVER_KEY:()=>randomBytes(24).toString('hex'),HERMES_DASHBOARD_SESSION_TOKEN:()=>randomBytes(24).toString('base64url')};
+ for(const [k,v] of Object.entries(want))if(!have[k]&&!e[k])add.push(k+'='+(typeof v==='function'?v():v));
+ if(!add.length)return [];try{mkdirSync(home,{recursive:true});writeFileSync(f,(t&&!t.endsWith('\n')?t+'\n':t)+'# added by aqeelOS so it can reach the engine (restart the engine once)\n'+add.join('\n')+'\n',{mode:0o600});chmodSync(f,0o600)}catch{return []}
+ return add.map(l=>l.split('=')[0])}
+
 /* ---------- the cookie key ---------- */
 export function uiSecret(e=env,dir=DATA_DIR){if(e.UI_SECRET)return {secret:e.UI_SECRET,from:'env'};const f=path.join(dir,'ui-secret');
  try{const s=readFileSync(f,'utf8').trim();if(s.length>=32)return {secret:s,from:'file'}}catch{}

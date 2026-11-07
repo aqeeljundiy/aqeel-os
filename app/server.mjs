@@ -88,7 +88,7 @@ import {fileURLToPath} from 'node:url';
 import {createAgentVersions,VERSION_TOOLS} from './agent-versions.mjs';   // self-repair kit (workstream E)
 import {createAgentLive} from './agent-live.mjs';
 import {sysTz,localParts,zoneName} from './tz.mjs';
-import {engineKeys,uiSecret,PUBLIC_URL_REF,PUBLIC_HOST_REF,urlRef,hostSetting,installTz,applyTz,validTz,createInstallRoutes} from './install-routes.mjs';   // the box's time zone (7 Nov 2026: was Asia/Jakarta in code)   // live context each message + traceback guard (7 Nov 2026)
+import {engineKeys,ensureEngineKeys,uiSecret,PUBLIC_URL_REF,PUBLIC_HOST_REF,urlRef,hostSetting,installTz,applyTz,validTz,createInstallRoutes} from './install-routes.mjs';   // the box's time zone (7 Nov 2026: was Asia/Jakarta in code)   // live context each message + traceback guard (7 Nov 2026)
 import {createAgentCare} from './agent-care.mjs';
 import {createCustomerTools} from './customer-tools.mjs';   // customer-run sandbox (7 Nov 2026)   // old setup, checks after changes, script-only schedules (7 Nov 2026)
 import {readPicture,emojiSlugs,emojiAuto,AVATAR_TYPES} from './avatar-file.mjs';
@@ -99,7 +99,8 @@ const root=path.resolve(here,'..');
 const env=process.env;
 // What differs per install: set in the box's environment (~/apps/hermes-ui.env). Neutral defaults for a fresh install.
 // the engine's gateway key and dashboard token come from its own ~/.hermes/.env when this env does not set them (install.mjs)
-{const k=engineKeys();for(const n of ['API_SERVER_KEY','HERMES_DASHBOARD_SESSION_TOKEN'])if(!env[n]&&k[n])env[n]=k[n]}
+{const added=process.argv[2]==='hash'?[]:ensureEngineKeys();if(added.length)console.warn('engine keys added to the engine\'s .env ('+added.join(', ')+'): restart the engine once so it uses them');
+ const k=engineKeys();for(const n of ['API_SERVER_KEY','HERMES_DASHBOARD_SESSION_TOKEN'])if(!env[n]&&k[n])env[n]=k[n]}
 // Your address: env PUBLIC_URL, else the owner's setting on System › Settings; reads the current one wherever it is used (install.mjs)
 const PUBLIC_URL=PUBLIC_URL_REF,N8N_URL=(env.N8N_URL||'http://localhost:5678').replace(/\/$/,'');
 const CODE_HOST=hostSetting('codeHost'),CODE_PREVIEW_HOST=hostSetting('codePreviewHost'),OWNER_CONTACT=env.OWNER_CONTACT||'the owner of this aqeelOS install';
@@ -748,7 +749,7 @@ const backups=createBackups({DATA,HOME:homedir(),HERMES_HOME,tz:()=>tzNow,notify
  startEngine:async()=>{dashStopped=false;gwStopped=false;await restartGateway('agents restored from a backup',{wait:false,bridges:true,restore:true})}});restoreBusy=()=>backups.busy();holdWrites(()=>backups.writesHeld());if(LIVE_APP)backups.schedule();
 const live=createLive({DATA,DOMAIN:hostSetting('liveDomain')});
 // This install's own settings (System › Settings): Your address, time zone, hosts, agent users, Claude sign-in (install-routes.mjs)
-const install=createInstallRoutes({send,readBody,isAdmin:u=>users.isAdmin(u),listAgents:()=>listAgents(),readConfig,setKey,hermes:hcmd,claudeOn:async()=>(pick(await readConfig('default')||{},'plugins.enabled')||[]).includes('claude-subscription-directsdk-experimental'),onTz:z=>{tzNow=z;SR_TZ=z}});
+const install=createInstallRoutes({send,readBody,isAdmin:u=>users.isAdmin(u),listAgents:()=>listAgents(),readConfig,setKey,hermes:hcmd,engineProbe:async()=>{const d=await fetch(DASH.origin+'/api/status',{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(5000)}).catch(()=>null);if(!d)return 'down';if(d.status===401||d.status===403)return 'auth';const g=await fetch(GATE.origin+'/api/model/options',{headers:{authorization:'Bearer '+API_KEY},signal:AbortSignal.timeout(5000)}).catch(()=>null);return !g?'down':g.status===401||g.status===403?'auth':'ok'},claudeOn:async()=>(pick(await readConfig('default')||{},'plugins.enabled')||[]).includes('claude-subscription-directsdk-experimental'),onTz:z=>{tzNow=z;SR_TZ=z}});
 if(LIVE_APP){setTimeout(()=>install.tick(),120000).unref();setInterval(()=>install.tick(),15*60e3).unref()}
 const homeOfAgent=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
 const gconnect=createGoogleConnect({HERMES_HOME,DATA,PUBLIC_URL:()=>String(PUBLIC_URL),homeOf:homeOfAgent,log:m=>console.log(m)});

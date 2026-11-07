@@ -55,13 +55,30 @@ step "Checking the server"
 command -v node >/dev/null && [ "$(node -p 'process.versions.node.split(".")[0]')" -ge 22 ] && ok "Node.js $(node -v)" || { warn "Node.js 22 or newer is needed: https://nodejs.org"; exit 1; }
 command -v python3 >/dev/null && ok "Python $(python3 -V | cut -d' ' -f2)" || warn "Python 3.11+ is needed by the engine"
 if [ -x "$OHOME/.local/bin/hermes" ] || [ -d "$OHOME/.hermes/hermes-agent" ]; then ok "Hermes Agent engine found"; else warn "Hermes Agent is not installed for $OWNER yet: https://github.com/NousResearch/hermes-agent (aqeelOS starts, but agents need it)"; fi
-[ -f "$OHOME/.hermes/.env" ] && grep -q '^API_SERVER_KEY=' "$OHOME/.hermes/.env" && ok "engine keys found in ~/.hermes/.env (read by aqeelOS itself)" || warn "the engine has no API_SERVER_KEY yet: start its gateway once, aqeelOS reads the key by itself after that"
+# the engine never makes its own API key, and its dashboard token is random per start unless .env has one:
+# write the missing ones now, before the engine starts, so aqeelOS and the engine agree from the first start
+ADDED=$(as_owner env HERMES_HOME="$OHOME/.hermes" node -e "import('$APP/app/install.mjs').then(m=>console.log(m.ensureEngineKeys().join(' ')))")
+if [ -n "$ADDED" ]; then ok "engine keys written to ~/.hermes/.env ($ADDED)"; else ok "engine keys found in ~/.hermes/.env"; fi
 
 step "The Claude sign-in for the engine"
 P=claude-subscription-directsdk-experimental
 if [ -f "$OHOME/.hermes/plugins/$P/plugin.yaml" ]; then ok "already there"; else as_owner mkdir -p "$OHOME/.hermes/plugins" && as_owner cp -a "$APP/engine/$P" "$OHOME/.hermes/plugins/$P" && ok "added (turn it on from Models › Install Claude sign-in)"; fi
 
 agent_users
+
+step "The engine"
+HB="$OHOME/.local/bin/hermes"
+if pgrep -u "$OWNER" -f "hermes.* gateway" >/dev/null; then
+  if [ -n "$ADDED" ]; then warn "the engine is already running: restart it once so it uses its new keys (hermes gateway restart, and restart hermes dashboard)"; else ok "already running"; fi
+elif [ -x "$HB" ] && has_systemd; then
+  for part in gateway dashboard; do
+    if [ $part = gateway ]; then RUN="$HB -p default gateway run"; else RUN="$HB -p default dashboard --no-open"; fi
+    printf '%s\n' "[Unit]" "Description=Hermes engine $part (for aqeelOS)" "After=network.target" "[Service]" "User=$OWNER" "WorkingDirectory=$OHOME" "Environment=HOME=$OHOME" "ExecStart=$RUN" "Restart=always" "RestartSec=5" "[Install]" "WantedBy=multi-user.target" > /etc/systemd/system/aqeelos-engine-$part.service
+  done
+  systemctl daemon-reload; systemctl enable --now aqeelos-engine-gateway.service aqeelos-engine-dashboard.service >/dev/null 2>&1; ok "engine gateway and dashboard running as services"
+else
+  warn "start the engine yourself: hermes gateway run, and hermes dashboard --no-open"
+fi
 
 step "The aqeelOS service"
 CONF=$OHOME/.config/aqeelos; ENVF=$CONF/aqeelos.env

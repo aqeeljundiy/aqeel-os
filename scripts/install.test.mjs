@@ -18,6 +18,12 @@ test('engine keys come from the engine’s own .env when the environment has non
  const e=I.engineKeys({API_SERVER_KEY:'fromenv'},home);assert.equal(e.API_SERVER_KEY,'fromenv');assert.equal(e.from.api,'env');
  assert.deepEqual(I.engineKeys({},path.join(DIR,'nowhere')).from,{api:'',dash:''})});
 
+test('a fresh engine gets its keys written once into its own .env, never over existing ones',()=>{
+ const home=path.join(DIR,'fresh-engine');assert.deepEqual(I.ensureEngineKeys({},home),['API_SERVER_ENABLED','API_SERVER_KEY','HERMES_DASHBOARD_SESSION_TOKEN']);
+ const t=readFileSync(path.join(home,'.env'),'utf8'),k=I.engineKeys({},home);assert.ok(k.API_SERVER_KEY.length>=40&&k.HERMES_DASHBOARD_SESSION_TOKEN.length>=30);assert.match(t,/API_SERVER_ENABLED=true/);
+ assert.equal(statSync(path.join(home,'.env')).mode&0o777,0o600);assert.deepEqual(I.ensureEngineKeys({},home),[]);assert.equal(readFileSync(path.join(home,'.env'),'utf8'),t);
+ assert.deepEqual(I.ensureEngineKeys({API_SERVER_KEY:'x',HERMES_DASHBOARD_SESSION_TOKEN:'y',API_SERVER_ENABLED:'true'},path.join(DIR,'fresh2')),[])});
+
 test('the cookie key is made once, kept owner-only and reused, so sign-ins survive a restart',()=>{
  const d=path.join(DIR,'sec');const a=I.uiSecret({},d);assert.equal(a.from,'made');assert.ok(a.secret.length>=64);
  assert.equal(statSync(path.join(d,'ui-secret')).mode&0o777,0o600);
@@ -119,5 +125,10 @@ test('Install Claude sign-in: the app when missing, the shipped plugin, then tur
  assert.ok(readFileSync(path.join(home,'plugins',I.CLAUDE_PLUGIN,'plugin.yaml'),'utf8').includes('model-provider'));assert.deepEqual(en,[['default','plugins','enable',I.CLAUDE_PLUGIN]]);
  const st=(await call(r,admin,'GET','/ui/install/claude')).body;assert.equal(st.cli,true);assert.equal(st.plugin,true);
  assert.equal((await call(r,member,'POST','/ui/install/claude')).code,403)});
+
+test('the engine state says when it refuses aqeelOS’s keys or does not answer',async()=>{
+ for(const st of ['ok','auth','down']){const {r}=routes({engineProbe:async()=>st});assert.equal((await call(r,admin,'GET','/ui/install')).body.engine.state,st)}
+ const {r}=routes({engineProbe:async()=>{throw Error('x')}});assert.equal((await call(r,admin,'GET','/ui/install')).body.engine.state,'down');
+ assert.equal((await call(r,member,'GET','/ui/install')).body.engine,undefined)});
 
 test('the address check’s ping answers with this install’s id, before sign-in',()=>{const {r}=routes();const res={};r.ping({},res);assert.equal(res.code,200);assert.equal(res.body.id,I.installId())});
