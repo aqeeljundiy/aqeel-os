@@ -625,14 +625,19 @@ export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir
   return {ok:true,revoked,label:labelOf(x)}}
 
  /* ---------- registering (agents) and approving (the owner) ---------- */
- async function register(agent,a={}){await load();const kind=String(a.kind||'').toLowerCase().trim();if(!['google','mcp-oauth','telegram-user','other'].includes(kind))return {isError:true,text:'kind must be google, mcp-oauth, telegram-user or other.'};
+ // owner: the owner adds it under Connections › Add › A login (7 Nov 2026): registered as theirs at once, and the place
+ // must exist (an agent's registration may come before aqeelOS sees the sign-in; the owner's is for something already there)
+ async function register(agent,a={},{owner=null}={}){await load();const kind=String(a.kind||'').toLowerCase().trim();if(!['google','mcp-oauth','telegram-user','other'].includes(kind))return {isError:true,text:'kind must be google, mcp-oauth, telegram-user or other.'};
   const label=String(a.label||'').replace(/[\r\n]+/g,' ').trim().slice(0,80),where=String(a.where||'').trim().slice(0,400),can=normCan(a.can),note=String(a.note||'').trim().slice(0,300);
   if(!label)return {isError:true,text:'Give a label, for example "Slack, Sam (Acme)".'};
   await scan();const r={kind,label,where,can,note,by:agent,at:Date.now()};
-  const hit=Object.values(db.accounts).find(x=>matches(r,x,homedir())&&(!x.registered||x.registeredBy==='seed'||x.registeredBy===agent));
-  if(hit){hit.registered=true;hit.registeredBy=agent;hit.agentLabel=label;if(note)hit.note=note;if(can.length){hit.can=can;hit.canSet=true}await save();if(can.length)await applyCan(hit).catch(()=>{});
-   return {text:'Registered "'+label+'" as '+displayName(hit)+'. The owner sees it under Abilities › Connections'+(can.length?', allowed to: '+can.join(', '):'')+'.'}}
-  if(kind==='other'&&where&&await stat(tilde(where)).catch(()=>null)){const id='other:'+h8(tilde(where));db.accounts[id]={id,kind:'other',provider:providerOf(label).id,agentLabel:label,identity:'',where,paths:[tilde(where)],agents:[agent],can:can.length?can:[...CAN],canSet:!!can.length,registered:true,registeredBy:agent,manual:true,firstSeen:Date.now(),note};await save();return {text:'Registered "'+label+'".'}}
+  const hit=Object.values(db.accounts).find(x=>matches(r,x,homedir())&&(owner!=null||!x.registered||x.registeredBy==='seed'||x.registeredBy===agent));
+  const by=owner!=null?'owner'+(owner?': '+owner:''):agent;
+  if(owner!=null&&where&&!await stat(tilde(where)).catch(()=>null))return {isError:true,text:'Nothing is stored at '+where+'. Check the place, for example ~/.hermes/profiles/sales/mcp-tokens/slack.json.'};
+  if(hit){hit.registered=true;hit.registeredBy=by;hit.agentLabel=label;if(note)hit.note=note;if(can.length){hit.can=can;hit.canSet=true}await save();if(can.length)await applyCan(hit).catch(()=>{});
+   return {id:hit.id,text:'Registered "'+label+'" as '+displayName(hit)+'. The owner sees it under Abilities › Connections'+(can.length?', allowed to: '+can.join(', '):'')+'.'}}
+  if(kind==='other'&&where&&await stat(tilde(where)).catch(()=>null)){const id='other:'+h8(tilde(where));db.accounts[id]={id,kind:'other',provider:providerOf(label).id,agentLabel:label,identity:owner!=null?label:'',where,paths:[tilde(where)],agents:[agent],can:can.length?can:[...CAN],canSet:!!can.length,registered:true,registeredBy:by,manual:true,firstSeen:Date.now(),note};await save();return {id,text:'Registered "'+label+'".'}}
+  if(owner!=null)return {isError:true,text:'aqeelOS does not see a '+(kind==='mcp-oauth'?'app sign-in':kind==='telegram-user'?'Telegram session':'Google sign-in')+' at '+(where||'that place')+' yet. Connect it first, then add it here.'};
   db.pending=db.pending.filter(x=>!(x.by===agent&&x.label===label));db.pending.push(r);await save();
   return {text:'Noted "'+label+'". It shows under Abilities › Connections as soon as aqeelOS sees the sign-in (within 2 minutes). Say where the credential is stored (where) if it does not show.'}}
  async function approve(id,by=''){await load();const x=db.accounts[id];if(!x)throw new Error('That login is gone. Reload the page.');x.registered=true;x.registeredBy='owner'+(by?': '+by:'');await save();return {ok:true}}

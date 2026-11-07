@@ -1,75 +1,119 @@
-// Tests for the restore rules (app/backup.mjs restoreRules, dbFiles, spaceNeeded). Run: node --test scripts/backup-restore.test.mjs
-// When rsync is installed, the rules are also tried on two scratch folders: what the backup holds comes back, nothing
-// on the box is deleted, and the parts a backup leaves out are not copied (at any depth, like tar's patterns).
+// Tests for restoring from a backup (app/backup.mjs, switched on 7 Nov 2026). Run: node --test scripts/backup-restore.test.mjs
+// Everything runs on scratch folders: the preview, the journaled copy, an exact roll back (also after a copy that was cut
+// off), the whole restore with the agents stopping and starting, the key check, the settings and the "Connect Google
+// first" state. No network: Google is never reached.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,existsSync,rmSync} from 'node:fs';
+import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,existsSync,rmSync,chmodSync,readdirSync,lstatSync,symlinkSync,readlinkSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {restoreRules,dbFiles,spaceNeeded,RESTORE_ENABLED} from '../app/backup.mjs';
+import {excluded,preview,copyOver,rollBack,commit,applyRestore,headOpens,createBackups} from '../app/backup.mjs';
 
-test('rules: never delete, no sockets or devices',()=>{const r=restoreRules();
- assert.ok(!r.some(x=>x.startsWith('--delete')));assert.ok(r.includes('--no-specials'));assert.ok(r.includes('--no-devices'));
- for(const x of ['*.pid','*.lock','*.sock'])assert.ok(r.includes('--exclude='+x),x)});
-test('rules: tar patterns become rsync ones (* across folders becomes **, .hermes/ is anchored at the top)',()=>{
- const r=restoreRules(['.hermes/installs','.hermes/profiles/*/cache','*/home/.cache','*.log','node_modules','apps/hermes-ui-data/desktop','workspaces/.aqeelos-python','.claude/projects']);
- assert.deepEqual(r.filter(x=>x.startsWith('--exclude=')&&!/\*\.(pid|lock|sock)$/.test(x)),['--exclude=/installs','--exclude=/profiles/**/cache','--exclude=**/home/.cache','--exclude=*.log','--exclude=node_modules'])});
-test('databases: the backup\'s .db and .sqlite files',()=>{assert.deepEqual(dbFiles(['state.db','profiles/a/state.db','x.sqlite','y.sqlite3','state.db-wal','notes.md']),['state.db','profiles/a/state.db','x.sqlite','y.sqlite3'])});
-test('space: download plus unpacked plus the safety copy, together when one disk',()=>{const a=spaceNeeded(9e9,false),b=spaceNeeded(9e9,true);
- assert.equal(a.tmp,9e9*3+2e9);assert.equal(a.home,9e9*1.2+1e9);assert.equal(b.tmp,a.tmp+a.home);assert.equal(b.home,b.tmp)});
-
-let rsync=true;try{execFileSync('rsync',['--version'],{stdio:'ignore'})}catch{rsync=false}
-// the tests that copy files skip while restore is switched off (1 Nov 2026: backup.mjs RESTORE_ENABLED) or where rsync is
-// missing (the box today); the rules above are plain functions and run everywhere
-const SKIP=!RESTORE_ENABLED?'restore from a backup is switched off (backup.mjs RESTORE_ENABLED)':!rsync?'rsync is not installed':false;
-test('rsync: restores what the backup holds, keeps what it does not, copies no left-out part',{skip:SKIP},()=>{
- const T=mkdtempSync(path.join(tmpdir(),'aq-restore-')),src=path.join(T,'b'),dst=path.join(T,'h');const w=(f,t)=>{mkdirSync(path.dirname(f),{recursive:true});writeFileSync(f,t)};
- try{w(path.join(src,'config.yaml'),'old');w(path.join(src,'profiles/a/config.yaml'),'old-a');w(path.join(src,'profiles/a/deep/x/cache/c'),'c');w(path.join(src,'profiles/a/cache/c'),'c');
-  w(path.join(src,'installs/i'),'i');w(path.join(src,'gateway.pid'),'1');w(path.join(src,'logs/agent.log'),'l');
-  w(path.join(dst,'config.yaml'),'new');w(path.join(dst,'profiles/b/config.yaml'),'made after');w(path.join(dst,'profiles/a/skill.md'),'made after');w(path.join(dst,'gateway.pid'),'2');
-  execFileSync('rsync',[...restoreRules(),src+'/',dst+'/']);
-  assert.equal(readFileSync(path.join(dst,'config.yaml'),'utf8'),'old');assert.equal(readFileSync(path.join(dst,'profiles/a/config.yaml'),'utf8'),'old-a');
-  assert.ok(existsSync(path.join(dst,'profiles/b/config.yaml')),'an agent made after the backup stays');assert.ok(existsSync(path.join(dst,'profiles/a/skill.md')),'a file made after stays');
-  assert.equal(readFileSync(path.join(dst,'gateway.pid'),'utf8'),'2');
-  for(const x of ['profiles/a/deep/x/cache/c','profiles/a/cache/c','installs/i','logs/agent.log'])assert.ok(!existsSync(path.join(dst,x)),x+' is not copied')}
- finally{rmSync(T,{recursive:true,force:true})}});
-
-/* applyRestore (the part that changes the box) on scratch folders: a .hermes of today with a database and its -wal, and a
-   backup with older files. Agents stopping and starting are counted. */
-import {applyRestore} from '../app/backup.mjs';
-import {chmodSync,readdirSync} from 'node:fs';
-function box(){const T=mkdtempSync(path.join(tmpdir(),'aq-apply-')),HOME=path.join(T,'home'),H=path.join(HOME,'.hermes'),src=path.join(T,'b','.hermes');const w=(f,t)=>{mkdirSync(path.dirname(f),{recursive:true});writeFileSync(f,t)};
+const w=(f,t)=>{mkdirSync(path.dirname(f),{recursive:true});writeFileSync(f,t)};
+// a folder as {path: content | '<dir>' | '-> target'}, to compare before and after
+function tree(d,rel=''){const out={};for(const n of readdirSync(path.join(d,rel)).sort()){const r=rel?rel+'/'+n:n,f=path.join(d,r),s=lstatSync(f);
+ if(s.isSymbolicLink())out[r]='-> '+readlinkSync(f);else if(s.isDirectory()){out[r]='<dir>';Object.assign(out,tree(d,r))}else out[r]=readFileSync(f,'utf8')}return out}
+// today's box and an older backup of it
+function scene(){const T=mkdtempSync(path.join(tmpdir(),'aq-restore-')),HOME=path.join(T,'home'),H=path.join(HOME,'.hermes'),src=path.join(T,'b','.hermes');
  w(path.join(H,'config.yaml'),'today');w(path.join(H,'state.db'),'db today');w(path.join(H,'state.db-wal'),'wal today');w(path.join(H,'profiles/new/config.yaml'),'made after');
- w(path.join(src,'config.yaml'),'backup');w(path.join(src,'state.db'),'db backup!');
- const n={stop:0,start:0};const script=(name,body)=>{const f=path.join(T,name);writeFileSync(f,'#!/bin/sh\n'+body+'\n');chmodSync(f,0o755);return f};
- return {T,HOME,H,src,n,script,stopEngine:async()=>{n.stop++},startEngine:async()=>{n.start++},read:f=>readFileSync(path.join(H,f),'utf8'),done:()=>rmSync(T,{recursive:true,force:true})}}
+ w(path.join(H,'profiles/a/config.yaml'),'a today');w(path.join(H,'profiles/a/skill.md'),'made after');w(path.join(H,'gateway.pid'),'2');w(path.join(H,'hermes-agent/run.py'),'program');
+ w(path.join(H,'clash1'),'a file today');mkdirSync(path.join(H,'clash2/inner'),{recursive:true});w(path.join(H,'clash2/inner/x'),'a folder today');
+ w(path.join(src,'config.yaml'),'backup');w(path.join(src,'state.db'),'db backup!');w(path.join(src,'profiles/a/config.yaml'),'a backup');w(path.join(src,'profiles/gone/config.yaml'),'deleted since');
+ w(path.join(src,'gateway.pid'),'1');w(path.join(src,'clash1/y'),'a folder in the backup');w(path.join(src,'clash2'),'a file in the backup');symlinkSync('config.yaml',path.join(src,'link'));
+ return {T,HOME,H,src,done:()=>rmSync(T,{recursive:true,force:true})}}
+
+test('the backup\'s left-out parts are known inside .hermes, at any depth like tar',()=>{
+ for(const r of ['hermes-agent','installs','profiles/a/cache','x/node_modules','logs/agent.log','profiles/a/home/.cache'])assert.ok(excluded(r),r);
+ for(const r of ['config.yaml','profiles/a/config.yaml','profiles/a/memories','logs'])assert.ok(!excluded(r),r)});
+
+test('preview: what comes back, what is replaced or added, what stays, which agents',async()=>{const s=scene();try{const p=await preview(s.src,s.H);
+ assert.deepEqual(p.agents.back,['gone']);assert.deepEqual(p.agents.stay,['new']);assert.ok(p.agents.both.includes('a'));
+ assert.ok(p.sample.change.includes('config.yaml'));assert.ok(p.sample.add.includes('profiles/gone/config.yaml'));
+ assert.ok(p.stay>=3,'made after: profiles/new, profiles/a/skill.md, state.db-wal');assert.ok(!p.sample.stay.some(x=>x.startsWith('hermes-agent')),'programs are not "kept" files');
+ assert.ok(p.bytes>0&&p.copyBytes>0);assert.equal(tree(s.H)['config.yaml'],'today','nothing changed')}finally{s.done()}});
+
+test('copy then commit: the backup\'s files come back, nothing on the box is deleted, running programs\' files stay',async()=>{const s=scene();try{const J=path.join(s.T,'j.jsonl');
+ const n=await copyOver({src:s.src,dest:s.H,journal:J});await commit({dest:s.H,journal:J});const t=tree(s.H);
+ assert.equal(t['config.yaml'],'backup');assert.equal(t['state.db'],'db backup!');assert.equal(t['profiles/a/config.yaml'],'a backup');assert.equal(t['profiles/gone/config.yaml'],'deleted since');
+ assert.equal(t['profiles/new/config.yaml'],'made after');assert.equal(t['profiles/a/skill.md'],'made after');assert.equal(t['gateway.pid'],'2');assert.equal(t['hermes-agent/run.py'],'program');
+ assert.equal(t['state.db-wal'],undefined,'the box\'s -wal of a restored database goes');assert.equal(t['clash1/y'],'a folder in the backup');assert.equal(t['clash2'],'a file in the backup');assert.equal(t['link'],'-> config.yaml');
+ assert.ok(!Object.keys(t).some(k=>k.endsWith('.aqeelos-held')),'nothing held is left');assert.ok(!existsSync(J));assert.ok(n.files>=6)}finally{s.done()}});
+
+test('copy then roll back: the box is exactly as before, file and folder clashes too',async()=>{const s=scene();try{const J=path.join(s.T,'j.jsonl'),before=tree(s.H);
+ await copyOver({src:s.src,dest:s.H,journal:J});assert.notDeepEqual(tree(s.H),before);await rollBack({dest:s.H,journal:J});assert.deepEqual(tree(s.H),before);assert.ok(!existsSync(J))}finally{s.done()}});
+
+test('a copy that fails halfway rolls back exactly from its journal',async()=>{const s=scene();try{const J=path.join(s.T,'j.jsonl'),before=tree(s.H);
+ w(path.join(s.src,'zz/locked'),'x');chmodSync(path.join(s.src,'zz/locked'),0);   // read fails late in the walk
+ if(process.getuid?.()===0)return;   // root reads anything
+ await assert.rejects(()=>copyOver({src:s.src,dest:s.H,journal:J}));assert.ok(existsSync(J));await rollBack({dest:s.H,journal:J});assert.deepEqual(tree(s.H),before)}finally{s.done()}});
+
 // the box has GNU tar; a Mac's bsdtar lacks --ignore-failed-read, so here a small stand-in leaves that one option out
 let gnu=true;try{gnu=/GNU/.test(execFileSync('tar',['--version'],{encoding:'utf8'}))}catch{}
-const opts=(b,x={})=>({src:b.src,HERMES_HOME:b.H,HOME:b.HOME,stopEngine:b.stopEngine,startEngine:b.startEngine,...(gnu?{}:{tar:b.script('tar-gnuish','for a; do shift; [ "$a" = --ignore-failed-read ] || set -- "$@" "$a"; done; exec tar "$@"')}),...x});
-test('apply: rsync missing stops before anything (agents keep running, -wal untouched)',{skip:SKIP},async()=>{const b=box();try{
- await assert.rejects(()=>applyRestore(opts(b,{rsync:'/no/such/rsync'})),/rsync is not installed/);
- assert.deepEqual(b.n,{stop:0,start:0});assert.equal(b.read('state.db-wal'),'wal today');assert.equal(b.read('config.yaml'),'today')}finally{b.done()}});
-test('apply: agents that do not stop: nothing changes, they start again',{skip:SKIP},async()=>{const b=box();try{
- await assert.rejects(()=>applyRestore(opts(b,{stopEngine:async()=>{throw Error('the dashboard still answers')}})),/did not stop/);
- assert.equal(b.n.start,1);assert.equal(b.read('state.db-wal'),'wal today');assert.equal(b.read('config.yaml'),'today')}finally{b.done()}});
-test('apply: a safety copy that fails leaves no half file and changes nothing',{skip:SKIP},async()=>{const b=box();try{
- const tar=b.script('tar','echo half > "$2"; exit 2');
- await assert.rejects(()=>applyRestore(opts(b,{tar})),/could not be saved first/);
- assert.deepEqual(readdirSync(b.HOME).filter(f=>f.startsWith('aqeelos-before-restore')),[]);assert.equal(b.read('state.db-wal'),'wal today');assert.deepEqual(b.n,{stop:1,start:1})}finally{b.done()}});
-test('apply: rsync that fails halfway puts today back, -wal included',{skip:SKIP},async()=>{const b=box();try{
- // copies one file of the backup, then fails like a permission error (exit 23)
- const bad=b.script('rsync','for a; do p="$q"; q="$a"; done; cp "${p}config.yaml" "${q}config.yaml"; exit 23');
- await assert.rejects(()=>applyRestore(opts(b,{rsync:bad})),/were put back/);
- assert.equal(b.read('config.yaml'),'today');assert.equal(b.read('state.db'),'db today');assert.equal(b.read('state.db-wal'),'wal today');
- assert.ok(!existsSync(path.join(b.H,'state.db-wal.aqeelos-held')));assert.deepEqual(b.n,{stop:1,start:1})}finally{b.done()}});
-test('apply: success copies the backup, drops today\'s -wal, keeps agents made after, keeps two safety copies',{skip:SKIP},async()=>{const b=box();try{
- for(let i=0;i<3;i++){const r=await applyRestore(opts(b,{at:Date.UTC(2026,10,1,1,0,i)}));assert.ok(existsSync(r.safety))}
- assert.equal(b.read('config.yaml'),'backup');assert.equal(b.read('state.db'),'db backup!');assert.ok(!existsSync(path.join(b.H,'state.db-wal')));assert.ok(!existsSync(path.join(b.H,'state.db-wal.aqeelos-held')));
- assert.equal(b.read('profiles/new/config.yaml'),'made after');assert.equal(readdirSync(b.HOME).filter(f=>/^aqeelos-before-restore-.*\.tar\.gz$/.test(f)).length,2);assert.deepEqual(b.n,{stop:3,start:3})}finally{b.done()}});
+const shim=T=>{if(gnu)return 'tar';const f=path.join(T,'tar-gnuish');writeFileSync(f,'#!/bin/sh\nfor a; do shift; [ "$a" = --ignore-failed-read ] || set -- "$@" "$a"; done; exec tar "$@"\n');chmodSync(f,0o755);return f};
+const run=(s,x={})=>{const n={stop:0,start:0,hold:[]};return {n,o:{src:s.src,HERMES_HOME:s.H,HOME:s.HOME,journal:path.join(s.T,'j.jsonl'),tar:shim(s.T),stopEngine:async()=>{n.stop++},startEngine:async()=>{n.start++},hold:on=>n.hold.push(on),...x}}};
 
-import {createBackups} from '../app/backup.mjs';
-test('switched off: a restore is refused before anything (no Drive, no lock), and the card is told so',{skip:RESTORE_ENABLED&&'restore is switched on'},async()=>{
- const D=mkdtempSync(path.join(tmpdir(),'aq-off-'));try{const b=createBackups({DATA:D,HOME:D,HERMES_HOME:D});
-  await assert.rejects(()=>b.restore('any'),e=>e.status===409&&/not switched on/.test(e.message));assert.equal(b.busy(),false);
-  assert.equal((await b.status()).restoreEnabled,false)}finally{rmSync(D,{recursive:true,force:true})}});
+test('restore: agents stop, a safety copy is made, the backup is copied, agents start again',async()=>{const s=scene();try{const {n,o}=run(s);
+ const r=await applyRestore(o);assert.deepEqual([n.stop,n.start],[1,1]);assert.deepEqual(n.hold,[true,false]);assert.ok(existsSync(r.safety));assert.equal(tree(s.H)['config.yaml'],'backup');
+ const list=execFileSync('tar',['-tzf',r.safety],{encoding:'utf8'});assert.match(list,/\.hermes\/config\.yaml/);assert.doesNotMatch(list,/hermes-agent/)}finally{s.done()}});
+test('restore: agents that do not stop: nothing changes, they start again',async()=>{const s=scene();try{const before=tree(s.H);const {n,o}=run(s,{stopEngine:async()=>{throw Error('the dashboard still answers')}});
+ await assert.rejects(()=>applyRestore(o),/did not stop.*nothing was changed/);assert.equal(n.start,1);assert.deepEqual(tree(s.H),before)}finally{s.done()}});
+test('restore: a safety copy that fails leaves no half file and changes nothing',async()=>{const s=scene();try{const before=tree(s.H);const bad=path.join(s.T,'badtar');writeFileSync(bad,'#!/bin/sh\necho half > "$2"; exit 2\n');chmodSync(bad,0o755);
+ const {n,o}=run(s,{tar:bad});await assert.rejects(()=>applyRestore(o),/could not be saved first/);
+ assert.deepEqual(readdirSync(s.HOME).filter(f=>f.startsWith('aqeelos-before-restore')),[]);assert.deepEqual(tree(s.H),before);assert.deepEqual([n.stop,n.start],[1,1])}finally{s.done()}});
+test('restore: a copy that fails is rolled back and says nothing changed',async()=>{const s=scene();try{if(process.getuid?.()===0)return;const before=tree(s.H);w(path.join(s.src,'zz/locked'),'x');chmodSync(path.join(s.src,'zz/locked'),0);
+ const {n,o}=run(s);await assert.rejects(()=>applyRestore(o),/put back as it was, so nothing changed/);assert.deepEqual(tree(s.H),before);assert.equal(n.start,1)}finally{s.done()}});
+test('restore: refuses while an earlier cut-off copy is not rolled back',async()=>{const s=scene();try{const {n,o}=run(s);writeFileSync(o.journal,'{"start":1}\n');
+ await assert.rejects(()=>applyRestore(o),/cut off/);assert.equal(n.stop,0)}finally{s.done()}});
+
+test('a typed key is checked on the first bytes of a backup',async()=>{const T=mkdtempSync(path.join(tmpdir(),'aq-key-'));try{const f=path.join(T,'b.enc');
+ execFileSync('bash',['-c','head -c 200000 /dev/urandom | gzip | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:K -out '+f],{env:{...process.env,K:'k'.repeat(32)}});
+ const head=readFileSync(f).subarray(0,65536);assert.equal(await headOpens(head,'k'.repeat(32)),true);assert.equal(await headOpens(head,'x'.repeat(32)),false)}finally{rmSync(T,{recursive:true,force:true})}});
+
+// the whole flow through createBackups, with the safety copy on the box as the backup (no Google needed)
+function app(s,x={}){const DATA=path.join(s.T,'data');mkdirSync(DATA,{recursive:true});const n={stop:0,start:0,told:[]};const TMP=path.join(s.T,'tmp');mkdirSync(TMP,{recursive:true});
+ const b=createBackups({DATA,HOME:s.HOME,HERMES_HOME:s.H,TMP,tar:shim(s.T),fetchImpl:async()=>{throw Error('no network in tests')},disk:async()=>({free:1e12,dev:'d'}),notify:(...a)=>n.told.push(a),
+  stopEngine:async()=>{n.stop++},startEngine:async()=>{n.start++},restored:(ok,t)=>n.told.push([ok,t]),...x});return {b,n,DATA,TMP}}
+const until=async f=>{for(let i=0;i<200;i++){if(await f())return;await new Promise(r=>setTimeout(r,25))}throw Error('timed out')};
+
+test('no Google: a plain "Connect Google first", no file-not-found, nobody told',async()=>{const s=scene();try{const {b,n}=app(s);const st=await b.status();
+ assert.equal(st.google.connected,false);await assert.rejects(()=>b.run('by hand'),/Connect Google first/);assert.equal((await b.status()).last.nogoogle,true);assert.deepEqual(n.told,[]);
+ const l=await b.list();assert.equal(l.google,false);assert.match(l.error,/Connect Google first/)}finally{s.done()}});
+test('a Google account without Drive or a lasting sign-in is said plainly',async()=>{const s=scene();try{const {b}=app(s);
+ w(path.join(s.H,'google_token.json'),JSON.stringify({account:'a@b.test',refresh_token:'r',scopes:['https://www.googleapis.com/auth/gmail.readonly']}));await assert.rejects(()=>b.run(),/without Drive/);
+ w(path.join(s.H,'google_token.json'),JSON.stringify({account:'a@b.test',scopes:['https://www.googleapis.com/auth/drive']}));await assert.rejects(()=>b.run(),/no lasting sign-in/);
+ w(path.join(s.H,'google_token.json'),JSON.stringify({account:'a@b.test',refresh_token:'r',scopes:['https://www.googleapis.com/auth/drive']}));assert.equal((await b.status()).google.connected,true)}finally{s.done()}});
+
+test('settings: account, hour, how many to keep, folder, each checked',async()=>{const s=scene();try{const {b}=app(s);w(path.join(s.H,'google_token_work.json'),JSON.stringify({account:'w@b.test',refresh_token:'r',scopes:['https://www.googleapis.com/auth/drive']}));
+ assert.deepEqual((await b.status()).settings,{account:'',hour:3,keep:14,folder:'aqeelOS backups'});
+ const r=await b.setSettings({account:'google_token_work.json',hour:5,keep:7,folder:'Box backups'});assert.deepEqual(r,{account:'google_token_work.json',hour:5,keep:7,folder:'Box backups'});
+ const st=await b.status();assert.equal(st.google.email,'w@b.test');assert.equal(st.where,'Google Drive › Box backups');assert.equal(st.keep,7);
+ for(const bad of [{hour:24},{keep:0},{keep:61},{folder:'a/b'},{account:'../x.json'},{account:'google_token_gone.json'}])await assert.rejects(()=>b.setSettings(bad),undefined,JSON.stringify(bad))}finally{s.done()}});
+
+test('backup key: typed in, checked, never silently replaced',async()=>{const s=scene();try{const {b,DATA}=app(s);
+ await assert.rejects(()=>b.setKey('short'),/32 or more/);const k='A'.repeat(40);const r=await b.setKey(k);assert.equal(r.saved,true);assert.equal(r.opens,null,'no Google: not checked');
+ assert.equal(await b.key(),k);assert.equal((readFileSync(path.join(DATA,'backup-key'))).toString(),k);assert.equal(lstatSync(path.join(DATA,'backup-key')).mode&0o777,0o600);
+ writeFileSync(path.join(DATA,'backups.json'),JSON.stringify({made:true}));const {b:b2}=app(s);   // backups were made with it
+ await assert.rejects(()=>b2.setKey('B'.repeat(40)),e=>e.status===409&&e.replace);assert.equal((await b2.setKey('B'.repeat(40),{replace:true})).saved,true);assert.equal(await b2.key(),'B'.repeat(40))}finally{s.done()}});
+
+test('restore flow: prepare shows a preview and changes nothing; restore now copies, stops and starts the agents once',async()=>{const s=scene();try{
+ // a safety copy on the box is a restore source like a Drive backup
+ execFileSync('tar',['-czf',path.join(s.HOME,'aqeelos-before-restore-2026-11-01-02-03-04.tar.gz'),'-C',path.dirname(s.src),'.hermes']);
+ const {b,n}=app(s);const l=await b.list();assert.equal(l.items[0].id,'local:aqeelos-before-restore-2026-11-01-02-03-04.tar.gz');const before=tree(s.H);
+ await b.prepare(l.items[0].id);await until(async()=>(await b.status()).restore?.phase!=='preparing');let st=await b.status();
+ assert.equal(st.restore.phase,'ready',JSON.stringify(st.restore));assert.deepEqual(st.prepared.preview.agents.back,['gone']);assert.deepEqual(tree(s.H),before);assert.equal(n.stop,0);
+ await b.apply();await until(async()=>!(await b.status()).restoring);st=await b.status();
+ assert.equal(st.restore.phase,'done',JSON.stringify(st.restore));assert.equal(tree(s.H)['config.yaml'],'backup');assert.equal(tree(s.H)['profiles/new/config.yaml'],'made after');assert.deepEqual([n.stop,n.start],[1,1]);
+ assert.equal(st.prepared,null);await assert.rejects(()=>b.apply(),/Prepare the backup first/);assert.ok(n.told.some(t=>t[0]===true))}finally{s.done()}});
+test('restore flow: Cancel throws the prepared copy away',async()=>{const s=scene();try{execFileSync('tar',['-czf',path.join(s.HOME,'aqeelos-before-restore-2026-11-01-02-03-04.tar.gz'),'-C',path.dirname(s.src),'.hermes']);
+ const {b,TMP}=app(s);await b.prepare('local:aqeelos-before-restore-2026-11-01-02-03-04.tar.gz');await until(async()=>(await b.status()).restore?.phase==='ready');
+ assert.equal(readdirSync(TMP).length,1);await b.cancel();assert.equal(readdirSync(TMP).length,0);assert.equal((await b.status()).prepared,null)}finally{s.done()}});
+test('restore flow: a cut-off copy is rolled back on start, the agents stopped meanwhile',async()=>{const s=scene();try{const {b,n,DATA}=app(s);const before=tree(s.H);
+ await copyOver({src:s.src,dest:s.H,journal:path.join(DATA,'restore-journal.jsonl')});assert.notDeepEqual(tree(s.H),before);   // aqeelOS "stopped" here
+ const r=await b.recover();assert.equal(r.recovered,true);assert.deepEqual(tree(s.H),before);assert.deepEqual([n.stop,n.start],[1,1]);assert.match((await b.status()).restore.error,/put back as it was/);
+ assert.equal((await b.recover()).recovered,false)}finally{s.done()}});
+test('prepare refuses a file that is not a safety copy',async()=>{const s=scene();try{const {b}=app(s);await assert.rejects(()=>b.prepare('local:../../etc/passwd'),/not one of the safety copies/)}finally{s.done()}});
+test('a safety copy whose folder has another name than the engine folder still prepares',async()=>{const s=scene();try{const other=path.join(s.T,'pack','eng');mkdirSync(path.dirname(other),{recursive:true});
+ execFileSync('cp',['-R',s.src,other]);execFileSync('tar',['-czf',path.join(s.HOME,'aqeelos-before-restore-2026-11-01-02-03-04.tar.gz'),'-C',path.dirname(other),'eng']);
+ const {b}=app(s);await b.prepare('local:aqeelos-before-restore-2026-11-01-02-03-04.tar.gz');await until(async()=>(await b.status()).restore?.phase!=='preparing');
+ const st=await b.status();assert.equal(st.restore.phase,'ready',JSON.stringify(st.restore));assert.deepEqual(st.prepared.preview.agents.back,['gone'])}finally{s.done()}});

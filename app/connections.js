@@ -134,10 +134,10 @@ ACT['cn-test']=async a=>{const r=Cx.cur;if(!r)return;const st_=Cx.d?.querySelect
  try{const x=await post(H,prof('/mcp/servers/'+encodeURIComponent(r.id)+'/test',r.owner||'default'));if(st_){st_.hidden=false;st_.innerHTML=x.ok===false?`<span class="err-line">${esc(x.error||'Could not connect')}</span>`:`<span class="chip ok"><i class="dot"></i>Works</span> ${esc(ident(r.owner||'default').name)} reaches it: ${plural((x.tools||[]).length,'tool')}.`}}
  catch(e){fail(e)}finally{if(a.isConnected){a.disabled=false;a.innerHTML=was}}};
 /* Adding something new: a quick pick, then a dialog for the setup (an app from the catalog or by its address, for the
-   agent you pick); Google accounts are made by an agent in chat, skills and plugins on their own pages */
+   agent you pick); Google accounts in their own dialog (google-connect.js), skills and plugins on their own pages */
 ACT['cn-more']=()=>{const el=Pages._cxEl;if(!el?.isConnected)return;const box=el.querySelector('.cn-rows'),y=box?.lastElementChild;Cx.shown=(Cx.shown||40)+60;Cx.paintList(el);y?.blur?.()};
 ACT['cn-add']=a=>menu(a,[{header:'Add'},{label:'An app from the catalog',icon:'plug',sub:'Slack, Notion, GitHub and more',run:()=>Cx.catalog()},{label:'An app by its address',icon:'link',sub:'A web address, or a command on the AI box',run:()=>Cx.byAddress()},
- {label:'A Google account',icon:'mail',sub:'Asks '+ident().name+' for a sign-in link in chat',run:()=>ACT['gacc-add']()},'-',
+ {label:'A Google account',icon:'mail',sub:'Sign in with Google here',run:()=>GC.open({})},...(Pages._cx?.canEdit?[{label:'A login an agent uses as you',icon:'shield',sub:'A Telegram or other account in your name',run:()=>AccAdd.open()}]:[]),'-',
  {label:'A skill',icon:'wand',sub:'From the skill hub',run:()=>{S.tab.skills='Find more skills';go('/abilities/skills')}},{label:'A plugin',icon:'layers',run:()=>{S.tab.plugins='Browse';go('/abilities/plugins')}},...(Pages._cx?.canEdit?[{label:'A key',icon:'key',run:()=>go('/system/keys')}]:[])]);
 Cx.forAg=null;
 Cx.forBtn=()=>{const ag=Cx.forAg||S.profile||'default';return `<div class="cn-for"><span class="hint">For</span><button type="button" class="sel-btn inline" data-act="cn-for" aria-haspopup="menu">${agentAvatar(ag,18,{title:false})}<span class="sv">${esc(ident(ag).name)}</span>${icon('chevD',15)}</button><span class="hint">It owns it; give it to others after.</span></div>`};

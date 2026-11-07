@@ -20,8 +20,11 @@ export const LIVE_APP=isLive();
 export const HELP_AGENT=process.env.HELP_AGENT||'aqeelos-help';
 
 const queues=new Map();
+// while a restore copies the engine's files (backup.mjs), aqeelOS's own writes to them wait here (up to 30 minutes)
+let writeHold=()=>false;export const holdWrites=f=>{writeHold=f};
+export const writesGate=async()=>{for(let i=0;writeHold()&&i<1800;i++)await new Promise(r=>setTimeout(r,1000))};
 export function withAgent(agent,fn){const prev=queues.get(agent)||Promise.resolve();
- const run=prev.then(fn,fn);const tail=run.then(()=>{},()=>{});queues.set(agent,tail);
+ const go=async()=>{await writesGate();return fn()};const run=prev.then(go,go);const tail=run.then(()=>{},()=>{});queues.set(agent,tail);
  tail.then(()=>{if(queues.get(agent)===tail)queues.delete(agent)});return run}
 export const busy=()=>queues.size;   // agents with a settings change in progress
 
@@ -71,12 +74,12 @@ export async function agentNames({copies=false}={}){const k=copies?1:0,dir=path.
  namesHit.set(k,{t:Date.now(),m,p});p.catch(()=>namesHit.delete(k));return [...await p]}
 
 // run fn while holding an flock on lockFile (the engine's own locks are flocks: .env.lock, a pairing folder's .lock)
-export function withFlock(lockFile,fn,wait=20){return new Promise((res,rej)=>{
+export async function withFlock(lockFile,fn,wait=20){await writesGate();return new Promise((res,rej)=>{
  const p=spawn('flock',['-w',String(wait),lockFile,'-c','echo locked; read _'],{stdio:['pipe','pipe','ignore']});let got=false;
  p.on('error',rej);p.on('exit',c=>{if(!got)rej(new Error(c?'The file is busy; try again.':'lock ended early'))});
  p.stdout.once('data',async()=>{got=true;try{res(await fn())}catch(e){rej(e)}finally{p.stdin.end()}})})}
 // .env edits hold the engine's own lock (flock on .env.lock), so a WhatsApp pairing writing at the same time is not lost
-export function editEnv(envF,compute){return new Promise((res,rej)=>{
+export async function editEnv(envF,compute){await writesGate();return new Promise((res,rej)=>{
  const p=spawn('flock',['-w','20',envF+'.lock','-c','echo locked; read _'],{stdio:['pipe','pipe','ignore']});let got=false;
  p.on('error',rej);p.on('exit',c=>{if(!got)rej(new Error(c?'The settings file is busy; try again.':'lock ended early'))});
  p.stdout.once('data',async()=>{got=true;try{const cur=await readFile(envF,'utf8').catch(()=>'');const next=compute(cur);

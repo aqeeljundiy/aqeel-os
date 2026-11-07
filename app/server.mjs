@@ -16,7 +16,7 @@ import {createCodeChanges} from './code-changes.mjs';
 import {createEscalations} from './escalations.mjs';
 import {createConnect} from './connect.mjs';
 import {createAntigravity} from './antigravity.mjs';
-import {withAgent,withFlock,setKey,readConfig,pick,agentNames,isAgent,busy as opsBusy,initStatus,getStatus,setStatus,editEnv,hermes as hcmd,python as enginePython,LIVE_APP,HELP_AGENT} from './agentops.mjs';
+import {holdWrites,withAgent,withFlock,setKey,readConfig,pick,agentNames,isAgent,busy as opsBusy,initStatus,getStatus,setStatus,editEnv,hermes as hcmd,python as enginePython,LIVE_APP,HELP_AGENT} from './agentops.mjs';
 import {createSchedules} from './schedules.mjs';
 import {createScreens} from './screens.mjs';
 import {createAgentAdspower} from './agent-adspower.mjs';
@@ -52,7 +52,9 @@ import {mayStartAgents,busyTotal,guardPaused} from './busy.mjs';
 import {stopGatewayCmd,stopTimeoutMs} from './gateway-stop.mjs';
 import {createHelp} from './help.mjs';
 import {createLive} from './live.mjs';
-import {createBackups,RESTORE_ENABLED} from './backup.mjs';
+import {createBackups} from './backup.mjs';
+import {createGoogleConnect} from './google-connect.mjs';   // Connect Google in the app (7 Nov 2026)
+import {createMcpEdit} from './mcp-edit.mjs';   // edit an app that is already added, its key (7 Nov 2026)
 import {createPluginHost} from './plugin-host.mjs';
 import {createEngineUpdates} from './engine-updates.mjs';
 import {createAutomationGuard} from './automation-guard.mjs';
@@ -743,11 +745,16 @@ const backups=createBackups({DATA,HOME:homedir(),HERMES_HOME,tz:()=>tzNow,notify
   gwStopped=true;dashStopped=true;await shx(stopGatewayCmd({dashboard:true,yes:false}),stopTimeoutMs());
   for(let i=0;i<30&&await fetch(DASH.origin+'/api/status',{signal:AbortSignal.timeout(2000)}).then(()=>true,()=>false);i++)await new Promise(r=>setTimeout(r,1000));
   if(await fetch(DASH.origin+'/api/status',{signal:AbortSignal.timeout(2000)}).then(()=>true,()=>false))throw Error('the engine dashboard still answers after 30 s')},
- startEngine:async()=>{dashStopped=false;gwStopped=false;await restartGateway('agents restored from a backup',{wait:false,bridges:true,restore:true})}});restoreBusy=()=>backups.busy();if(LIVE_APP)backups.schedule();
+ startEngine:async()=>{dashStopped=false;gwStopped=false;await restartGateway('agents restored from a backup',{wait:false,bridges:true,restore:true})}});restoreBusy=()=>backups.busy();holdWrites(()=>backups.writesHeld());if(LIVE_APP)backups.schedule();
 const live=createLive({DATA,DOMAIN:hostSetting('liveDomain')});
 // This install's own settings (System › Settings): Your address, time zone, hosts, agent users, Claude sign-in (install-routes.mjs)
 const install=createInstallRoutes({send,readBody,isAdmin:u=>users.isAdmin(u),listAgents:()=>listAgents(),readConfig,setKey,hermes:hcmd,claudeOn:async()=>(pick(await readConfig('default')||{},'plugins.enabled')||[]).includes('claude-subscription-directsdk-experimental'),onTz:z=>{tzNow=z;SR_TZ=z}});
 if(LIVE_APP){setTimeout(()=>install.tick(),120000).unref();setInterval(()=>install.tick(),15*60e3).unref()}
+const homeOfAgent=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
+const gconnect=createGoogleConnect({HERMES_HOME,DATA,PUBLIC_URL:()=>String(PUBLIC_URL),homeOf:homeOfAgent,log:m=>console.log(m)});
+// a sign-in made here is the owner's own: registered at once (Connections never flags it), and the agents are told
+async function googleConnected(r,who=''){if(!r?.ok)return;connAccounts.register(r.agent,{kind:'google',label:'Google, '+(r.email||r.name||'main'),where:path.join(homeOfAgent(r.agent),r.file)},{owner:who}).catch(e=>console.warn('google: register',e.message));if(LIVE_APP)writeAgentContext().catch(()=>{})}
+const mcpEdit=createMcpEdit({readConfig,setKey,readEnv:a=>readFile(path.join(homeOfAgent(a),'.env'),'utf8').catch(()=>''),editEnv:(a,f)=>editEnv(path.join(homeOfAgent(a),'.env'),f),restart:why=>restartGateway(why),log:m=>console.log(m)});
 // two places for what aqeelOS tells (1 Nov 2026): Bottlenecks is the to-do list (needs someone), the bell's list (news.mjs)
 // the history (done, fixed, works again). Every event goes to one of them, never both: info:true means the bell
 const news=createNews({DATA});
@@ -2086,6 +2093,8 @@ const server=createServer(async(req,res)=>{
   // it finds the agent and account whose pending sign-in has this state and runs the skill's --auth-code step.
   if(p==='/google-oauth/callback'&&req.method==='GET'){const st=url.searchParams.get('state')||'';
    const page=(t,m)=>{res.writeHead(200,{'content-type':'text/html; charset=utf-8',...security});return res.end(`<!doctype html><meta name="viewport" content="width=device-width"><title>aqeelOS</title><style>@font-face{font-family:'Plus Jakarta Sans';font-weight:200 800;font-display:swap;src:url('/assets/plus-jakarta-sans.woff2') format('woff2')}</style><body style="font-family:'Plus Jakarta Sans',system-ui,sans-serif;max-width:440px;margin:15vh auto;text-align:center;color:#111;line-height:1.5"><h2>${t}</h2><p>${m}</p></body>`)};
+   // a sign-in started in the app (Connect Google): finished here, nothing for an agent to do
+   if(await gconnect.has(st)){try{const r=await gconnect.finish(url.search);googleConnected(r);return page('Google account connected',(r.email?'<b>'+esc(r.email)+'</b> is':'Your Google account is')+' connected to '+esc(NAMES[r.agent]||r.agent)+'. You can close this tab and go back to aqeelOS.')}catch(e){return page('Not connected',esc(e.message))}}
    if(url.searchParams.get('error'))return page('Not connected','You clicked Cancel (or Google said no). Ask your agent for a new link if you want to connect.');
    let hit=null;for(const a of await listAllProfiles()){const home=a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
     for(const fn of await readdir(home).catch(()=>[])){const m=/^google_oauth_pending(?:_(.+))?\.json$/.exec(fn);if(!m)continue;
@@ -2606,9 +2615,36 @@ const server=createServer(async(req,res)=>{
     if(p==='/ui/backups/key'&&req.method==='GET'){try{return send(res,200,{key:await backups.key()})}catch(e){return send(res,409,{error:e.message})}}
     if(p==='/ui/backups/run'&&req.method==='POST'){if(backups.busy())return send(res,409,{error:'A restore is running. Back up after it finishes.'});backups.run('by hand').catch(()=>{});return send(res,200,{started:true})}
     if(p==='/ui/backups/test'&&req.method==='POST'){try{return send(res,200,await backups.test())}catch(e){return send(res,400,{error:e.message})}}
-    if(p==='/ui/backups/list'&&req.method==='GET'){try{return send(res,200,{items:await backups.list()})}catch(e){return send(res,400,{error:e.message})}}
+    if(p==='/ui/backups/list'&&req.method==='GET'){try{return send(res,200,await backups.list())}catch(e){return send(res,400,{error:e.message})}}
+    // an existing key typed in, the settings, and the two steps of a restore: Prepare (a preview, nothing changes) and Restore now
+    if(req.method!=='GET'){let b={};try{b=JSON.parse(await readBody(req,8192)||'{}')}catch{}const ok=x=>send(res,200,x),bad=e=>send(res,e.status||400,{error:e.message,...(e.replace?{replace:true}:{})});
+     if(p==='/ui/backups/key'&&req.method==='POST')return backups.setKey(b.key,{replace:!!b.replace}).then(ok,bad);
+     if(p==='/ui/backups/settings'&&req.method==='PUT')return backups.setSettings(b).then(x=>ok({settings:x}),bad);
+     if(p==='/ui/backups/prepare'&&req.method==='POST')return backups.prepare(String(b.id||'')).then(ok,bad);
+     if(p==='/ui/backups/cancel'&&req.method==='POST')return backups.cancel().then(ok,bad);}
     // a restore stops and starts the real agents, so only the live app does it (a test copy shares the box's engine)
-    if(p==='/ui/backups/restore'&&req.method==='POST'){if(!RESTORE_ENABLED)return send(res,409,{error:'Restoring from a backup is not switched on yet.'});if(!LIVE_APP)return send(res,409,{error:'Only the live app restores backups.'});if(engineUpd.busy())return send(res,409,{error:'The engine is updating. Restore after it finishes.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{return send(res,200,await backups.restore(String(b.id||'')))}catch(e){return send(res,400,{error:e.message})}}}
+    if(p==='/ui/backups/restore'&&req.method==='POST'){if(!LIVE_APP)return send(res,409,{error:'Only the live app restores backups.'});if(engineUpd.busy())return send(res,409,{error:'The engine is updating. Restore after it finishes.'});try{return send(res,200,await backups.apply())}catch(e){return send(res,e.status||400,{error:e.message})}}}
+   // Connect Google (google-connect.mjs, admins): the OAuth client file, Connect and Reconnect, a pasted address, check, remove
+   if(p.startsWith('/ui/google/')){if(!users.isAdmin(u))return send(res,403,{error:'Only admins connect Google accounts.'});let b={};if(req.method!=='GET'){try{b=JSON.parse(await readBody(req,65536)||'{}')}catch{return send(res,400,{error:'Bad request'})}}
+    const ok=x=>send(res,200,x),bad=e=>send(res,e.status||400,{error:e.message}),ag=String(b.agent||url.searchParams.get('agent')||'default');
+    if(p!=='/ui/google/result'&&p!=='/ui/google/client'&&p!=='/ui/google/state'&&!(await agentNames()).includes(ag))return send(res,400,{error:'Unknown agent'});
+    if(p==='/ui/google/state'&&req.method==='GET'){const all=await agentNames();const accounts=(await Promise.all(all.map(a=>gconnect.accounts(a)))).flat().map(x=>({...x,agentName:NAMES[x.agent]||x.agent}));return ok({...await gconnect.info(),accounts,agents:all.map(a=>({id:a,name:NAMES[a]||a}))})}
+    if(p==='/ui/google/client'&&req.method==='POST')return gconnect.saveClient(String(b.json||'')).then(ok,bad);
+    if(p==='/ui/google/client'&&req.method==='DELETE')return gconnect.removeClient().then(ok,bad);
+    if(p==='/ui/google/connect'&&req.method==='POST')return gconnect.start({agent:ag,name:b.name,services:Array.isArray(b.services)?b.services:undefined,reconnect:!!b.reconnect}).then(ok,bad);
+    if(p==='/ui/google/result'&&req.method==='GET')return gconnect.result(String(url.searchParams.get('state')||'')).then(ok,bad);
+    if(p==='/ui/google/finish'&&req.method==='POST')return gconnect.finish(String(b.address||'')).then(r=>{googleConnected(r,u.name||u.email||'');return ok(r)},bad);
+    if(p==='/ui/google/check'&&req.method==='POST')return gconnect.check(ag,String(b.name||'')).then(ok,bad);
+    if(p==='/ui/google/account'&&req.method==='DELETE')return gconnect.remove(ag,String(b.name||'')).then(r=>{if(LIVE_APP)writeAgentContext().catch(()=>{});return ok(r)},bad);
+    return send(res,404,{error:'Not found'})}
+   // an app that is already added: edit its address, sign-in and key, or its command; its key and keys nothing reads (admins)
+   if(p==='/ui/mcp/server'||p==='/ui/mcp/keys'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins change apps and their keys.'});let b={};if(req.method!=='GET'){try{b=JSON.parse(await readBody(req,65536)||'{}')}catch{return send(res,400,{error:'Bad request'})}}
+    const ag=String(b.agent||url.searchParams.get('agent')||'default'),ok=x=>send(res,200,x),bad=e=>send(res,e.status||400,{error:e.message});if(!(await agentNames()).includes(ag))return send(res,400,{error:'Unknown agent'});
+    if(p==='/ui/mcp/server'&&req.method==='GET')return mcpEdit.get(ag,String(url.searchParams.get('name')||'')).then(ok,bad);
+    if(p==='/ui/mcp/server'&&req.method==='PUT')return mcpEdit.save(ag,b).then(ok,bad);
+    if(p==='/ui/mcp/keys'&&req.method==='GET'){if(url.searchParams.get('all')==='1'){const out=[];for(const a of await agentNames())for(const k of await mcpEdit.keys(a).catch(()=>[]))out.push({...k,agent:a,agentName:NAMES[a]||a});return ok({keys:out})}return mcpEdit.keys(ag).then(k=>ok({keys:k}),bad)}
+    if(p==='/ui/mcp/keys'&&req.method==='DELETE')return mcpEdit.removeKey(ag,String(b.key||'')).then(ok,bad);
+    return send(res,405,{error:'Not allowed'})}
    // which aqeelOS app version is current (the app offers to update itself when it is older)
    if(p==='/ui/code/app-version'&&req.method==='GET'){let v={};try{v=JSON.parse(await readFile(path.join(DATA,'desktop','version.json'),'utf8'))}catch{}return send(res,200,v)}
    // company-wide defaults (the currency for people who never picked one): everyone reads them, admins set them
@@ -2755,7 +2791,10 @@ const server=createServer(async(req,res)=>{
      else if(p==='/ui/connected-accounts/can')r=await connAccounts.setCan(id,b.can);
      else if(p==='/ui/connected-accounts/approve')r=await connAccounts.approve(id,who);
      else if(p==='/ui/connected-accounts/check'){await connAccounts.check(id);r={ok:true}}
-     else if(p==='/ui/connected-accounts/disconnect')r=await connAccounts.disconnect(id);   // no restart: the engine drops a removed app at its next look
+     else if(p==='/ui/connected-accounts/disconnect')r=await connAccounts.disconnect(id);
+     // Add › A login: the owner adds a login an agent uses as them (until 7 Nov 2026 only an agent's register_account could)
+     else if(p==='/ui/connected-accounts/add'){const ag=String(b.agent||'default');if(!(await agentNames()).includes(ag))return send(res,400,{error:'Unknown agent'});
+      r=await connAccounts.register(ag,{kind:b.kind,label:b.label,where:b.where,can:b.can,note:b.note},{owner:who});if(r.isError)return send(res,400,{error:r.text})}   // no restart: the engine drops a removed app at its next look
      else return send(res,404,{error:'Not found'});
      console.log('connected accounts:',p.split('/').pop(),id,'by',who);return send(res,200,{ok:true,...r})}catch(e){return send(res,409,{error:e.message})}}
    // Abilities › Connections (connections.mjs): everyone sees the agents they may use; changes are checked per row and agent
