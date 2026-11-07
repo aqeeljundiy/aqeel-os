@@ -29,6 +29,10 @@ export function createAgentDefaults({DATA,giveSkills,trimSkills=async()=>0,locke
  // only the main agent keeps the box's main user; agent-trust.json may name others, but by default it names none
  async function trusted(){try{return new Set(['default',...(JSON.parse(await readFile(TRUST,'utf8')).trusted||[])])}catch{
   await writeFile(TRUST,JSON.stringify({trusted:[]},null,1)).catch(()=>{});return new Set(['default'])}}
+ // Agents › Edit agent › Trusted (admins, agents of admins only): written here, then the agent's defaults run again so it
+ // moves to the main user (or back to its own) at once
+ async function setTrusted(a,on){if(a==='default')return;const t=await trusted();t.delete('default');if(on)t.add(a);else t.delete(a);
+  await mkdir(DATA,{recursive:true});await writeFile(TRUST+'.tmp',JSON.stringify({trusted:[...t].sort()},null,1));await rename(TRUST+'.tmp',TRUST)}
  async function ensureKey(){if(await stat(KEY).catch(()=>null))return;await mkdir(path.dirname(KEY),{recursive:true,mode:0o700});await run('ssh-keygen',['-q','-t','ed25519','-N','','-f',KEY,'-C','aqeelos-agents'])}
  // the box itself as a known SSH host (the agents' commands go to 127.0.0.1)
  async function knownHost(){const f=path.join(homedir(),'.ssh','known_hosts');const cur=await readFile(f,'utf8').catch(()=>'');if(/^127\.0\.0\.1 /m.test(cur))return;
@@ -156,4 +160,4 @@ export function createAgentDefaults({DATA,giveSkills,trimSkills=async()=>0,locke
  // a folder an agent saves files into for a Code run that asked it (its own workspace's code-outbox/<id>): write for
  // its user, if it has one; aqeelOS reads the files and removes the folder afterwards
  async function outboxAccess(a,dir){const u=await codeUser(a);if(u)await quiet('setfacl',['-m','u:'+u+':rwx,m::rwx',dir],20000)}
- return {all,tick,ensure,added,trusted,userOf,codeUser,codeLocked,codeAccess,codeAccessAfter,outboxAccess}}
+ return {all,tick,ensure,added,trusted,setTrusted,userOf,codeUser,codeLocked,codeAccess,codeAccessAfter,outboxAccess}}

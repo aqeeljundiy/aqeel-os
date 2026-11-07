@@ -45,9 +45,9 @@ test('limiter: never more than n at once',async()=>{
  assert.equal(max,2);});
 
 test('brand: default name without a file, custom name and logo honoured',async()=>{
- const d=await tmp('brand-');assert.deepEqual(await createBrand({DATA:d}).get(),{name:'aqeelOS',logo:null,custom:false});
+ const d=await tmp('brand-');assert.deepEqual(await createBrand({DATA:d}).get(),{name:'aqeelOS',logo:null,custom:false,contact:'',contactDefault:''});
  await writeFile(path.join(d,'brand.json'),JSON.stringify({name:'Acme',logo:'png',v:3}));await writeFile(path.join(d,'brand-logo.png'),'PNG');
- const b=createBrand({DATA:d});assert.deepEqual(await b.get(),{name:'Acme',logo:'/ui/brand/logo?v=3',custom:true});
+ const b=createBrand({DATA:d});assert.deepEqual(await b.get(),{name:'Acme',logo:'/ui/brand/logo?v=3',custom:true,contact:'',contactDefault:''});
  assert.equal((await b.logo()).type,'image/png');});
 
 async function accessFixture(){

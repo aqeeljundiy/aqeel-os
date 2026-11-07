@@ -1,7 +1,7 @@
 // Which skills reach which agents (decided 24 Oct 2026). Every skill the main agent has goes to every agent, except the
 // ones listed here: those go only to the agents named (the main agent and its extra numbers always keep everything).
 // Skills are instructions only; the owner's signed-in accounts are never handed out by any of this.
-import {mkdir,rename,access,readdir} from 'node:fs/promises';
+import {mkdir,rename,access,readdir,writeFile} from 'node:fs/promises';
 import path from 'node:path';
 
 // The list is this box's own data, not code (7 Nov 2026, open source): DATA/skills-policy.json, or the file named by
@@ -16,6 +16,16 @@ function policy(){const now=Date.now();if(now-polAt<30e3)return pol;polAt=now;le
 export const RESTRICTED=new Proxy({},{get:(_,k)=>policy().restricted[k],ownKeys:()=>Reflect.ownKeys(policy().restricted),getOwnPropertyDescriptor:(_,k)=>k in policy().restricted?{enumerable:true,configurable:true,value:policy().restricted[k]}:undefined,has:(_,k)=>k in policy().restricted});
 export const REMOVED={some:f=>policy().removed.some(f)};
 
+// Abilities › Skills › "Only these agents" (admins): one skill's rule, written to the policy file and read at once.
+// agents: a list of agent names (the main agent is always added), or null for every agent.
+export async function setRule(key,agents){key=String(key||'').trim();if(!/^\w[\w.-]*(\/\w[\w.-]*)?$/.test(key))throw Error('Unknown skill.');
+ const f=policyFile();let j={};try{j=JSON.parse(readFileSync(f,'utf8'))}catch(e){if(e.code!=='ENOENT')throw Error('The skills policy file could not be read, so nothing was changed.')}
+ j.restricted=j.restricted&&typeof j.restricted==='object'?j.restricted:{};
+ // a rule set before under another category for the same skill name is replaced, not kept beside it
+ for(const k of Object.keys(j.restricted))if(nameOf(k)===nameOf(key))delete j.restricted[k];
+ if(Array.isArray(agents))j.restricted[key]=[...new Set(['default',...agents.map(baseOf).filter(a=>/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(a))])].sort();
+ await mkdir(path.dirname(f),{recursive:true});await writeFile(f+'.tmp',JSON.stringify(j,null,1));await rename(f+'.tmp',f);polAt=0;polM=-1;return policy()}
+export const rules=()=>({restricted:{...policy().restricted},removed:[...policy().removed]});
 export const baseOf=a=>String(a).split('--')[0];   // an extra number ("default--whatsapp-2") is the same agent
 // a rule matches the skill's own name too, so a copy in another category is still covered (not a renamed copy: share.mjs refuses those)
 const nameOf=k=>String(k).split('/').pop();

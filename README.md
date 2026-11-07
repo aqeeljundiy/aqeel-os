@@ -10,16 +10,17 @@ aqeelOS is a web interface and team layer for the [Hermes Agent](https://github.
 ## Setup
 1. `git clone` this repo on the server (e.g. `~/apps/aqeelos`).
 2. Copy `.env.example` to a file **outside** the repo (e.g. `~/apps/aqeelos.env`) and fill it:
-   - `UI_PASSWORD_HASH`: `node app/server.mjs hash 'your password'`
+   - `UI_PASSWORD_HASH`: optional. Leave it out and the first visit asks you to create the owner account in the app.
    - `UI_SECRET`: a long random string (`openssl rand -hex 32`)
    - `API_SERVER_KEY` and `HERMES_DASHBOARD_SESSION_TOKEN`: from the engine's `~/.hermes/.env`
-   - `PUBLIC_URL`, `N8N_URL`, `LIVE_DOMAIN`, `CODE_HOST`, `OWNER_CONTACT`, branding: your own install's values
+   - `PUBLIC_URL`, `N8N_URL`, `LIVE_DOMAIN`, `CODE_HOST`, `OWNER_CONTACT`: your own install's values (the name, logo and contact can also be set in the app, System › Branding)
 3. Start: `node --env-file=$HOME/apps/aqeelos.env app/server.mjs` (put it under tmux/systemd; listens on `UI_PORT`, default 4400).
 4. Put a TLS reverse proxy (Traefik, Caddy, nginx) in front of `UI_PORT` for `PUBLIC_URL`.
 5. Apply the engine patches once and after every engine update: `node scripts/apply-skill-patches.mjs` (each patch is tagged, all-or-nothing, and skipped with a warning when upstream changed).
 
 ## First run
-- Open `PUBLIC_URL`, sign in with the password from step 2; the first account is the owner/admin.
+- Open `PUBLIC_URL`. A new install shows **Create the owner account** (name, username, password) and then a recovery code: save it. The owner can do everything and invites the others under System › People.
+- Lost password: **Forgot password?** on the sign-in page emails a one-hour link to a confirmed email. An admin can also set a new password for someone, sign them out or suspend them (People, the person's menu). The owner's recovery code signs them in once without the password or two-step; a new one is made in Your profile.
 - System › Health shows what is missing (engine keys, gateway, screen). It adds the gateway key to agents that lack it.
 - Set the engine persona name with `AQEELOS_BRAND_NAME`/`AQEELOS_BRAND_MAKER` or `branding:` in `~/.hermes/config.yaml`.
 - Channels › Who can message decides who may write to each agent; Abilities › Connections holds sign-ins.
@@ -60,7 +61,7 @@ aqeelOS: a new interface for Hermes Agent on the AI VPS, in the Elkiya design. L
 |---|---|
 | Deploy changes | `bash scripts/deploy.sh` (from this folder) |
 | Check every Hermes feature still answers | `ssh ai-vps 'cd ~/apps/hermes-ui && node --env-file=$HOME/.hermes/.env scripts/parity-check.mjs --chat'` |
-| Change the password | `ssh ai-vps` then `node ~/apps/hermes-ui/app/server.mjs hash 'new password'`, put the result in `UI_PASSWORD_HASH=` in `~/apps/hermes-ui.env`, then `tmux kill-session -t ui; ~/services.sh` |
+| Change the password | Your profile › Password, or **Forgot password?** on the sign-in page. Locked out as the owner: **Use a recovery code**. (`UI_PASSWORD_HASH` is only used until a password is set in the app.) |
 | Sign everyone out | Change `UI_SECRET=` in `~/apps/hermes-ui.env` and restart as above |
 | Feature board | https://ai.elkiya.com/backlog (after sign-in) · source `scripts/features.mjs` |
 | The approved mockup | https://ai.elkiya.com/mockup |

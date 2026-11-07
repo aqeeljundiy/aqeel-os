@@ -2,7 +2,7 @@
 // invited by link. Members only reach the agents shared with them, their own chats and their own folder.
 // Hermes itself is single-user, so every rule here is enforced in front of it, on this server.
 import {readFile,writeFile,mkdir,rename,unlink} from 'node:fs/promises';
-import {scryptSync,randomBytes,timingSafeEqual,randomInt} from 'node:crypto';
+import {scryptSync,randomBytes,timingSafeEqual,randomInt,createHash} from 'node:crypto';
 import {homedir} from 'node:os';
 import path from 'node:path';
 import {readPicture,emojiSlugs,AVATAR_TYPES} from './avatar-file.mjs';
@@ -28,12 +28,12 @@ const DEFAULT_ROLES={member:{name:'Member',caps:[],models:null,limit:null,maxAge
 export const UNSAFE_TOOLSETS=['terminal','file','code_execution','computer_use'];
 const PEOPLE_DIR=path.join(homedir(),'people');      // members' own folders: ~/people/<id>
 
-export function createUsers(DATA,mail,{ownerCheck}={}){
+export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=async()=>'aqeelOS'}={}){
  const hooks={};   // onJoin(person): the server makes their lead agent
  const FILE=path.join(DATA,'users.json');
  let db=null;
  const load=async()=>{if(db)return db;try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}
-  db.users||=[];db.invites||=[];db.shares||={};db.owners||={};db.agentOwners||={};db.roles||=JSON.parse(JSON.stringify(DEFAULT_ROLES));db.leads||={};
+  db.users||=[];db.invites||=[];db.shares||={};db.owners||={};db.agentOwners||={};db.roles||=JSON.parse(JSON.stringify(DEFAULT_ROLES));db.leads||={};db.resets||=[];
   // the owner's name and username: chosen at first run (OWNER_NAME / OWNER_USERNAME, else neutral), then kept in users.json.
   // Older data had only a name; its username was the name in lower case, so sign-in keeps working
   let first=false;if(!db.ownerName){db.ownerName=String(process.env.OWNER_NAME||'').trim().slice(0,60)||'Owner';first=true}
@@ -54,7 +54,7 @@ export function createUsers(DATA,mail,{ownerCheck}={}){
  let envOwnerCheck=ownerCheck||(()=>false);   // the original UI_PASSWORD_HASH, until the owner picks a new password here (given at start, so it works before any sign-in)
  const byId=id=>id==='owner'?owner():db.users.find(u=>u.id===id)||null;
  const isAdmin=u=>u&&(u.role==='owner'||u.role==='admin');
- const pub=u=>({id:u.id,name:u.name,username:u.username||'',email:u.email||'',emailVerified:!!u.emailVerified,twoStep:!!u.twoStep,role:u.role,created:u.created,last:u.last,...face(u)});
+ const pub=u=>({id:u.id,name:u.name,disabled:u.disabled||null,username:u.username||'',email:u.email||'',emailVerified:!!u.emailVerified,twoStep:!!u.twoStep,role:u.role,created:u.created,last:u.last,...face(u)});
  // a person's picture: their photo (versioned, so a new one shows at once) or their emoji; the initial is drawn in the browser
  const face=u=>({avatar:u.avatar?'/ui/people/avatar/'+u.id+'?v='+encodeURIComponent(u.avatarV||u.avatar):null,emoji:u.emoji||null});
  const AVATARS=path.join(DATA,'people-avatars');
@@ -127,9 +127,10 @@ export function createUsers(DATA,mail,{ownerCheck}={}){
  /* ---------- signing in ---------- */
  async function login(name,pw,ownerCheck){await load();if(ownerCheck)envOwnerCheck=ownerCheck;const n=norm(name);
   if(!n||n===norm(db.ownerName)||n===norm(db.ownerUsername||'owner')){if(ownerPwOk(pw))return owner()}
-  const u=db.users.find(x=>norm(x.username)===n||norm(x.name)===n);if(u&&check(pw,u.pw)){u.last=Date.now();await save();return u}
+  const u=db.users.find(x=>norm(x.username)===n||norm(x.name)===n);if(u&&!u.disabled&&check(pw,u.pw)){u.last=Date.now();await save();return u}
   return null}
- async function user(id){await load();return byId(id)}
+ // a suspended person's cookies stop working at once (they are also signed out), and they cannot sign in
+ async function user(id){await load();const x=byId(id);return x&&!x.disabled?x:null}
 
  /* ---------- chat ownership: sessions belong to whoever started them ---------- */
  async function own(sessionId,u){await load();if(!sessionId||db.owners[sessionId])return;db.owners[sessionId]=u.id;await save()}
@@ -225,7 +226,7 @@ export function createUsers(DATA,mail,{ownerCheck}={}){
  async function api(u,req,res,p,send,readBody){
   await load();
   const body=async()=>{try{return JSON.parse(await readBody(req,8192))}catch{return {}}};
-  if(p==='/ui/me'&&req.method==='GET'){const shares={};for(const a of new Set([...Object.keys(db.shares),...Object.keys(db.agentOwners)])){const l=level(u,a);if(l)shares[a]=l}return send(res,200,{...pub(u),admin:isAdmin(u),caps:isAdmin(u)?Object.keys(CAPS):eff(u).caps,role_name:isAdmin(u)?null:(eff(u).role==='custom'?'Custom':db.roles[eff(u).role]?.name),home:isAdmin(u)?homedir():home(u),...(isAdmin(u)?{hermes_home:process.env.HERMES_HOME||path.join(homedir(),'.hermes'),workspaces:path.join(homedir(),'workspaces')}:{}),agents:shares})}
+  if(p==='/ui/me'&&req.method==='GET'){const shares={};for(const a of new Set([...Object.keys(db.shares),...Object.keys(db.agentOwners)])){const l=level(u,a);if(l)shares[a]=l}return send(res,200,{...pub(u),admin:isAdmin(u),caps:isAdmin(u)?Object.keys(CAPS):eff(u).caps,role_name:isAdmin(u)?null:(eff(u).role==='custom'?'Custom':db.roles[eff(u).role]?.name),home:isAdmin(u)?homedir():home(u),...(u.role==='owner'?{recovery:!!db.ownerRecovery}:{}),...(isAdmin(u)?{hermes_home:process.env.HERMES_HOME||path.join(homedir(),'.hermes'),workspaces:path.join(homedir(),'workspaces')}:{}),agents:shares})}
   if(p==='/ui/me/password'&&req.method==='PUT'){const b=await body();const x=u.role==='owner'?null:db.users.find(y=>y.id===u.id);
    if(u.role==='owner'?!ownerPwOk(b.current):!x||!check(b.current,x.pw))return send(res,400,{error:'Your current password is not right.'});if(String(b.next||'').length<8)return send(res,400,{error:'Use at least 8 characters.'});
    if(x)x.pw=hash(b.next);else db.ownerPw=hash(b.next);await save();return send(res,200,{ok:true})}
@@ -240,6 +241,8 @@ export function createUsers(DATA,mail,{ownerCheck}={}){
   if(p==='/ui/me/email/verify'&&req.method==='POST'){const b=await body();const v=checkCode(String(b.key||''),b.code,'verify');if(v.error)return send(res,400,{error:v.error});
    if(v.uid!==u.id||norm(byId(u.id).email)!==v.email)return send(res,400,{error:'That code was for another address.'});setF(u,'emailVerified',true);await save();return send(res,200,{ok:true})}
   if(p==='/ui/me/two-step'&&req.method==='PUT'){const b=await body();const me=byId(u.id);if(b.on&&!me.emailVerified)return send(res,400,{error:'Confirm your email first.'});if(!b.on&&me.twoStep&&!pwOk(b.current))return send(res,400,PW_BAD);setF(u,'twoStep',!!b.on);await save();return send(res,200,{ok:true})}
+  // the owner's recovery code: a new one (the old one stops working), shown once; takes the current password
+  if(p==='/ui/me/recovery'&&req.method==='POST'){if(u.role!=='owner')return send(res,403,{error:'Only the owner has a recovery code. An admin can set a new password for you.'});const b=await body();if(!pwOk(b.current))return send(res,400,PW_BAD);const c=newRecovery();await save();return send(res,200,{ok:true,code:c})}
   if(p==='/ui/me'&&req.method==='PUT'){const b=await body();const name=String(b.name||'').trim().slice(0,60);const un=norm(b.username);if(!name)return send(res,400,{error:'Your name is empty.'});if(nameTaken(name,u.id))return send(res,400,{error:'Someone already uses that name.'});
    if(!USERNAME.test(un))return send(res,400,{error:'Usernames are 3–32 characters: letters, numbers, dots, dashes or underscores.'});if(userTaken(un,u.id))return send(res,400,{error:'That username is taken.'});
    if(u.role==='owner'){db.ownerName=name;db.ownerUsername=un}else{const x=db.users.find(y=>y.id===u.id);x.name=name;x.username=un}await save();return send(res,200,{ok:true,name,username:un})}
@@ -284,7 +287,7 @@ export function createUsers(DATA,mail,{ownerCheck}={}){
   if(p==='/ui/mail/test'&&req.method==='POST'){const b=await body();try{const r=await mail.deliver(String(b.to||'').trim(),'aqeelOS test email','This is a test from aqeelOS. If you can read it, email works.');return send(res,200,{ok:true,reply:r})}catch(e){return send(res,502,{error:e.message})}}
   const ie=/^\/ui\/people\/invite\/([\w-]+)\/email$/.exec(p);if(ie&&req.method==='POST'){const b=await body();const i=db.invites.find(x=>x.code===ie[1]&&!x.used);if(!i)return send(res,404,{error:'That invite is gone.'});
    try{await mail.deliver(String(b.to||'').trim(),(byId(u.id)?.name||'Someone')+' invited you to aqeelOS',`Hi${i.name?' '+i.name:''},\n\n${byId(u.id)?.name||'Someone'} invited you to aqeelOS. Open this link to pick a username and password:\n\n${String(b.link||'')}\n\nThe link works once and expires in 7 days.`);return send(res,200,{ok:true})}catch(e){return send(res,502,{error:e.message})}}
-  if(p==='/ui/people'&&req.method==='GET')return send(res,200,{caps:CAPS,presets:PRESETS,owner:pub(owner()),roles:db.roles,users:db.users.map(x=>({...pub(x),lead:db.leads[x.id]||null,roleId:x.roleId||'custom',caps:x.caps||[],models:x.models||null,limit:x.limit||null})),invites:db.invites.filter(i=>!i.used&&i.expires>Date.now()).map(i=>({code:i.code,name:i.name,role:i.role,agents:i.agents,expires:i.expires})),shares:db.shares});
+  if(p==='/ui/people'&&req.method==='GET')return send(res,200,{caps:CAPS,presets:PRESETS,owner:pub(owner()),roles:db.roles,users:db.users.map(x=>({...pub(x),lead:db.leads[x.id]||null,roleId:x.roleId||'custom',caps:x.caps||[],models:x.models||null,limit:x.limit||null})),invites:db.invites.filter(i=>!i.used&&i.expires>Date.now()).map(i=>({code:i.code,name:i.name,role:i.role,agents:i.agents,expires:i.expires})),expired:expiredInvites(),shares:db.shares});
   if(p==='/ui/people/invite'&&req.method==='POST'){const b=await body();if(b.roleId&&unsafeRole(b.roleId))return send(res,403,UNSAFE_ROLE);const role=b.role==='admin'&&u.role==='owner'?'admin':'member';
    const inv={code:randomBytes(18).toString('base64url'),name:String(b.name||'').trim().slice(0,60),role,roleId:b.roleId&&db.roles[b.roleId]?b.roleId:null,caps:(Array.isArray(b.caps)?b.caps:[]).filter(k=>k in CAPS&&(k!=='unsafe'||u.role==='owner')),agents:b.agents&&typeof b.agents==='object'?Object.fromEntries(Object.entries(b.agents).filter(([a])=>!isPrivate(a)||level(u,a)==='owner')):{},expires:Date.now()+7*864e5,by:u.id};
    // the agent made for them in this invite becomes theirs (private) when they accept, if the inviter still owns it then
@@ -297,6 +300,18 @@ export function createUsers(DATA,mail,{ownerCheck}={}){
   const um=/^\/ui\/people\/([\w-]+)$/.exec(p);
   // admins are the owner's to change or remove, not each other's
   if(um&&(req.method==='PATCH'||req.method==='DELETE')&&isAdmin(byId(um[1]))&&u.role!=='owner')return send(res,403,{error:'Only the owner can change or remove an admin.'});
+  // an admin's tools for someone locked out or leaving: a new password, signing them out, suspending them (owner: never)
+  const pa=/^\/ui\/people\/([\w-]+)\/(password|signout|suspend|two-step-off)$/.exec(p);
+  if(pa&&req.method==='POST'){const x=db.users.find(y=>y.id===pa[1]);if(!x)return send(res,404,{error:'Not found'});
+   if(x.id===u.id)return send(res,400,{error:'Use your own profile for that.'});if(isAdmin(x)&&u.role!=='owner')return send(res,403,{error:'Only the owner can change an admin.'});
+   const b=await body();
+   if(pa[2]==='password'){const pw=String(b.password||'');if(pw.length<8)return send(res,400,{error:'Use at least 8 characters.'});x.pw=hash(pw);if(b.twoStepOff)x.twoStep=false;await save();await hooks.revoke?.(x.id);console.log('password set for',x.id,'by',u.id);return send(res,200,{ok:true})}
+   if(pa[2]==='two-step-off'){x.twoStep=false;await save();return send(res,200,{ok:true})}
+   if(pa[2]==='signout'){await hooks.revoke?.(x.id);console.log('signed out everywhere:',x.id,'by',u.id);return send(res,200,{ok:true})}
+   if(pa[2]==='suspend'){if(b.on){x.disabled=Date.now();await save();await hooks.revoke?.(x.id)}else{delete x.disabled;await save()}console.log(b.on?'suspended':'unsuspended',x.id,'by',u.id);return send(res,200,pub(x))}}
+  const rn=/^\/ui\/people\/invite\/([\w-]+)\/renew$/.exec(p);
+  if(rn&&req.method==='POST'){const i=db.invites.find(x=>x.code===rn[1]&&!x.used);if(!i)return send(res,404,{error:'That invite is gone.'});if(i.roleId&&unsafeRole(i.roleId))return send(res,403,UNSAFE_ROLE);
+   i.expires=Date.now()+7*864e5;await save();return send(res,200,{ok:true,code:i.code,expires:i.expires})}
   if(um&&req.method==='PATCH'){const x=db.users.find(y=>y.id===um[1]);if(!x)return send(res,404,{error:'Not found'});const b=await body();if(b.roleId&&b.roleId!==x.roleId&&unsafeRole(b.roleId))return send(res,403,UNSAFE_ROLE);if(b.name)x.name=String(b.name).trim().slice(0,60);if(b.role&&u.role==='owner'&&['admin','member'].includes(b.role))x.role=b.role;if('roleId' in b)x.roleId=b.roleId&&db.roles[b.roleId]?b.roleId:null;if(Array.isArray(b.caps))x.caps=b.caps.filter(k=>k in CAPS&&(k!=='unsafe'||u.role==='owner'));
    if('models' in b)x.models=Array.isArray(b.models)?b.models.map(String).slice(0,200):null;
    if('limit' in b)x.limit=b.limit&&+b.limit.tokens>0?{tokens:Math.round(+b.limit.tokens)}:null;await save();return send(res,200,pub(x))}
@@ -328,7 +343,38 @@ export function createUsers(DATA,mail,{ownerCheck}={}){
  const allowedModels=u=>isAdmin(u)?null:eff(u).models;
  const limitOf=u=>isAdmin(u)?null:eff(u).limit;
  async function loginCode(u){const me=byId(u.id);return sendCode(me,'login',me.email)}
- function finishLogin(key,code){const v=checkCode(String(key||''),code,'login');if(v.error)return v;const u=byId(v.uid);return u?{ok:true,user:u}:{error:'That person no longer exists.'}}
+ function finishLogin(key,code){const v=checkCode(String(key||''),code,'login');if(v.error)return v;const u=byId(v.uid);return u&&!u.disabled?{ok:true,user:u}:{error:'That person no longer exists.'}}
  const expiredInvites=()=>(db?.invites||[]).filter(i=>!i.used&&i.expires<Date.now()&&i.expires>Date.now()-30*86400e3).map(i=>({code:i.code,name:i.name,role:i.role,roleId:i.roleId||null,caps:i.caps||[],agents:i.agents||{},ownAgent:i.ownAgent||null,expired:i.expires}));
- return {hooks,leadOf,leadPerson,setLead,agentPerson,tierOf,agentMayManage,powerOf,needLead,face,expiredInvites,agentOwner,byId,ownerOf,sessionOwner,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginCode,finishLogin,created,reserve,can,canOn,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home,level,atLeast,schedOk,dropAgent,restoreAgent};
+ /* ---------- first run: no owner password anywhere yet (no UI_PASSWORD_HASH, none saved here) ---------- */
+ const needsOwner=async()=>{await load();return !db.ownerPw&&!envOwner()};
+ // the first person to open a new install makes the owner account; it signs them in and gives them a recovery code
+ async function createOwner(name,username,pw){await load();if(db.ownerPw||envOwner())throw Object.assign(new Error('This install already has an owner. Sign in instead.'),{status:409});
+  name=String(name||'').trim().slice(0,60);const un=norm(username||slugName(name));
+  if(!name)throw new Error('Tell us your name.');if(!USERNAME.test(un))throw new Error('Pick a username of 3 to 32 characters: letters, numbers, dots, dashes or underscores.');
+  if(db.users.some(x=>norm(x.username)===un))throw new Error('That username is taken. Try another.');if(String(pw||'').length<8)throw new Error('Use a password of at least 8 characters.');
+  db.ownerName=name;db.ownerUsername=un;db.ownerPw=hash(pw);const code=newRecovery();await save();return {user:owner(),recovery:code}}
+ /* ---------- the owner's recovery code: signs in once without the password or two-step, then a new one is made ---------- */
+ const RC='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+ function newRecovery(){let c='';for(let i=0;i<20;i++)c+=RC[randomInt(RC.length)];c=c.match(/.{5}/g).join('-');db.ownerRecovery=hash(c);return c}
+ const rcNorm=s=>String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,'').replace(/(.{5})(?=.)/g,'$1-');
+ async function makeRecovery(){await load();const c=newRecovery();await save();return c}
+ // a right code sets the new password, turns two-step off (the email may be what is lost) and is used up
+ async function recoverOwner(code,pw){await load();if(!db.ownerRecovery||!check(rcNorm(code),db.ownerRecovery))return {error:'That recovery code is not right.'};
+  if(String(pw||'').length<8)return {error:'Use a password of at least 8 characters.',keep:true};
+  db.ownerPw=hash(pw);db.ownerTwoStep=false;const next=newRecovery();await save();return {ok:true,user:owner(),recovery:next}}
+ /* ---------- "Forgot password": a one-hour link to a confirmed email ---------- */
+ const tokHash=t=>createHash('sha256').update(String(t)).digest('hex');
+ const sweep=()=>{db.resets=db.resets.filter(r=>r.exp>Date.now())};
+ // always the same answer, so nobody learns which names or emails exist here
+ async function forgot(who,link){await load();const n=norm(who);if(!n)return;sweep();
+  const x=[owner(),...db.users].find(y=>!y.disabled&&(norm(y.username)===n||norm(y.name)===n||y.email&&norm(y.email)===n));
+  if(!x||!x.email||!x.emailVerified){console.log('password reset asked for an unknown or unconfirmed address');return}
+  if(db.resets.filter(r=>r.uid===x.id).length>=3)return;
+  const tok=randomBytes(24).toString('base64url');db.resets.push({h:tokHash(tok),uid:x.id,exp:Date.now()+3600e3});await save();const bn=await brandName();
+  await mail.deliver(x.email,'Reset your '+bn+' password',`Hi ${x.name},\n\nSomeone asked to reset your ${bn} password. Open this link to pick a new one:\n\n${link(tok)}\n\nIt works once, for one hour. If you didn't ask, you can ignore this email: your password stays as it is.\n\n${bn}`)}
+ async function resetInfo(tok){await load();sweep();const r=db.resets.find(y=>y.h===tokHash(tok));const x=r&&byId(r.uid);return x&&!x.disabled?{name:x.name,username:x.username||''}:null}
+ async function finishReset(tok,pw){await load();sweep();const r=db.resets.find(y=>y.h===tokHash(tok));const x=r&&byId(r.uid);if(!x||x.disabled)return {error:'This reset link has expired or was already used. Ask for a new one.'};
+  if(String(pw||'').length<8)return {error:'Use a password of at least 8 characters.'};
+  if(x.id==='owner')db.ownerPw=hash(pw);else db.users.find(y=>y.id===x.id).pw=hash(pw);db.resets=db.resets.filter(y=>y.uid!==x.id);await save();return {ok:true,user:byId(x.id)}}
+ return {needsOwner,createOwner,makeRecovery,recoverOwner,forgot,resetInfo,finishReset,hooks,leadOf,leadPerson,setLead,agentPerson,tierOf,agentMayManage,powerOf,needLead,face,expiredInvites,agentOwner,byId,ownerOf,sessionOwner,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginCode,finishLogin,created,reserve,can,canOn,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home,level,atLeast,schedOk,dropAgent,restoreAgent};
 }
