@@ -185,7 +185,7 @@ ACT['run-rules']=a=>{const ags=[...new Set((Pages.cronJobs||[]).map(j=>j.profile
  menu(a,[{header:'Run rules for'},...ags.map(n=>({label:ident(n).name,icon:'user',ava:agentAvatar(n,20,{title:false}),run:()=>runRules(n)}))],{search:ags.length>6,matchWidth:true})};
 async function runRules(ag){let v;try{v=await UI('/ui/run-rules?agent='+encodeURIComponent(ag))}catch(e){return fail(e)}const nm=ident(ag).name;
  const d=drawer('Run rules · '+nm,'<div id="rrBody" data-big></div>',`<button class="ghost" data-act="close">Close</button><button class="primary" id="rrSave">Save</button>`,{size:'lg'});
- const tz=v.rules.tz==='Asia/Jakarta'?'WIB':v.rules.tz;
+ const tz=(()=>{try{const t=v.rules.tz||undefined;const n=new Intl.DateTimeFormat('en-US',{timeZone:t,timeZoneName:'short'}).formatToParts(new Date()).find(x=>x.type==='timeZoneName')?.value||'';return n&&!/^GMT[+-]/.test(n)?n:t==='Asia/Jakarta'?'WIB':(t||'').split('/').pop()||n}catch{return v.rules.tz||''}})();
  const stLine=s=>s==='visible'?`<span class="chip ok">${icon('check',11)}Visible</span>`:s==='missing'?`<span class="chip warn">${icon('alert',11)}Not visible</span>`:`<span class="chip">${icon('clock',11)}Checking</span>`;
  const paint=()=>{const r=v.rules,st=v.status;d.querySelector('#rrBody').innerHTML=`
   <div class="row" style="padding:4px 0 12px"><div class="main-c"><span class="ic blue">${icon('layers',18)}</span><div class="txt"><b>One run at a time</b><span>${esc(nm)}’s schedules run one after another, so two runs never use its browser together. A schedule that is due waits for the one running.</span></div></div><div class="act">${toggle(v.serial,'One run at a time','id="rrSerial"')}</div></div>

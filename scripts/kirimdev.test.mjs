@@ -72,11 +72,13 @@ const meta=(from,text,id='wamid.'+Math.random(),conv='cnv_A',pid='111')=>JSON.st
 // Kirimdev's message.sent envelope (docs.kirimdev.com/webhooks/events)
 const sentEv=(to,source,id='msg_'+Math.random(),conv='cnv_A',pid='111')=>JSON.stringify({id:id+':sent',type:'message.sent',data:{session:pid,direction:'outbound',from_me:true,message:{id,type:'text',body:'Halo, saya Amri dari tim',to:'+'+to,status:'sent',source},conversation:{id:conv,status:'open'},contact:{phone_number:'+'+to},meta:{phone_number_id:pid}}});
 
+// an Indonesian line, as the owner runs it: these are settings (kirimdev.json), not code
+const LOCALE={language:'Indonesian',localPrefix:{country:'62',local:'0'},resetText:'✅ Test reset. Chat dari awal ya, anggap kamu customer baru.',handoff:{customerText:'Baik kak, untuk pertanyaan ini saya bantu teruskan ke tim kami dulu ya 🙏 Mohon ditunggu sebentar.'}};
 async function make({mode='test',agentSays='Halo kak 😊',testers=[{who:'Amri',conversationId:'cnv_A'}],postOk=true,team={chatId:-100,topics:{questions:3},mention:'@team'},pauseMin}={}){
  const DATA=await mkdtemp(path.join(tmpdir(),'kd-')),WORK=path.join(DATA,'work');
  await mkdir(path.join(WORK,'continue-support','media','staff'),{recursive:true});
  await writeFile(path.join(WORK,'continue-support','media','staff','urls.txt'),'https://media.kirimdev.com/x/Kit.jpeg\n');
- await writeFile(path.join(DATA,'kirimdev.json'),JSON.stringify({lines:{'continue-support':{phoneNumberId:'111',persona:'Randy',business:'Continue',mode,debounceSec:0,testers,...(pauseMin!==undefined?{pauseMin}:{}),
+ await writeFile(path.join(DATA,'kirimdev.json'),JSON.stringify({lines:{'continue-support':{phoneNumberId:'111',persona:'Randy',business:'Continue',mode,debounceSec:0,testers,...LOCALE,...(pauseMin!==undefined?{pauseMin}:{}),
   autoPhotos:{pattern:'rekomendasi utama',tags:['[FOTO: Kit.jpeg]']}},
   'biomarkers-support':{phoneNumberId:'222',persona:'Gilang',business:'Biomarkers',mode:'test',debounceSec:0,testers:[{who:'Amri',conversationId:'cnv_B'}]}}}));
  await writeFile(path.join(DATA,'kirimdev-secrets.json'),JSON.stringify({'continue-support':{id:'wbs_1',secrets:[SECRET]},'biomarkers-support':{id:'wbs_2',secrets:[SECRET],events:['message.received','message.sent']}}));

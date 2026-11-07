@@ -82,7 +82,7 @@ const sq=s=>"'"+String(s).replace(/'/g,"'\\''")+"'";
 export async function applyRestore({src,HERMES_HOME,HOME,at=Date.now(),stopEngine,startEngine,rsync='rsync',tar='tar',run=shell,onSafety=()=>{}}){
  try{await run('command -v '+sq(rsync)+' >/dev/null')}catch{throw Error('rsync is not installed on the box, so nothing was changed.')}
  const dbs=dbFiles((await run('find . -type f',{cwd:src})).split('\n').map(x=>x.replace(/^\.\//,'')).filter(Boolean));
- const parent=path.dirname(HERMES_HOME),base=path.basename(HERMES_HOME),safety=path.join(HOME,'aqeelos-before-restore-'+new Date(at+7*3600e3).toISOString().slice(0,19).replace(/[:T]/g,'-')+'.tar.gz'),part=safety+'.part',held=[];
+ const parent=path.dirname(HERMES_HOME),base=path.basename(HERMES_HOME),safety=path.join(HOME,'aqeelos-before-restore-'+new Date(at).toISOString().slice(0,19).replace(/[:T]/g,'-')+'.tar.gz'),part=safety+'.part',held=[];
  let stopped=false;
  try{stopped=true;try{await stopEngine()}catch(e){throw Error('The agents did not stop ('+e.message+'), so nothing was changed.')}
   try{await run('set -o pipefail; '+sq(tar)+' -czf '+sq(part)+' --ignore-failed-read '+EXCLUDE.filter(e=>!/^(apps|workspaces|\.claude)\//.test(e)).map(e=>sq('--exclude='+e.replace(/^\.hermes\//,base+'/'))).join(' ')+' -C '+sq(parent)+' '+sq(base)+'; c=$?; [ $c -le 1 ] || exit $c; [ -s '+sq(part)+' ] || { echo "the copy came out empty" >&2; exit 1; }');await rename(part,safety)}
@@ -99,7 +99,8 @@ export async function applyRestore({src,HERMES_HOME,HOME,at=Date.now(),stopEngin
 // what a restore must bring back for the box to work
 const MUST=['.hermes/config.yaml','.hermes/.env','apps/hermes-ui-data/users.json','apps/hermes-ui.env'];
 
-export function createBackups({DATA,HOME,HERMES_HOME,TOKEN=process.env.BACKUP_GOOGLE_ACCOUNT?'google_token_'+process.env.BACKUP_GOOGLE_ACCOUNT+'.json':'google_token.json',notify=()=>{},solved=()=>{},restored=()=>{},stopEngine=async()=>{},startEngine=async()=>{}}){
+import {localParts} from './tz.mjs';
+export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',TOKEN=process.env.BACKUP_GOOGLE_ACCOUNT?'google_token_'+process.env.BACKUP_GOOGLE_ACCOUNT+'.json':'google_token.json',notify=()=>{},solved=()=>{},restored=()=>{},stopEngine=async()=>{},startEngine=async()=>{}}){
  const STATE=path.join(DATA,'backups.json'),KEYF=path.join(DATA,'backup-key');let state=null,running=null,restoring=null,testing=null;
  // a restore that was cut off (aqeelOS stopped halfway) is said so, and its leftovers in /tmp go
  const load=async()=>{if(!state){try{state=JSON.parse(await readFile(STATE,'utf8'))}catch{state={}}
@@ -159,7 +160,7 @@ export function createBackups({DATA,HOME,HERMES_HOME,TOKEN=process.env.BACKUP_GO
    state.last={at,ok:true,name,size,id:file.id,account:g.account,why,secs:Math.round((Date.now()-at)/1000),skipped};state.made=true;await save();console.log('backup: '+name+' ('+Math.round(size/1e6)+' MB) uploaded to Google Drive'+(skipped?', '+skipped+' unreadable file(s) skipped':''));solved();return state.last}
   // a failed scheduled backup is tried again within the hour, 3 times a morning; only the third failure is told (a
   // dropped upload is usually gone an hour later). A manual one shows its result on Health, so it never goes to Bottlenecks
-  catch(e){const day=new Date(at+7*3600e3).toISOString().slice(0,10);state.tries=state.tries?.day===day?{day,n:state.tries.n+1}:{day,n:1};
+  catch(e){const day=localParts(at,tz()).day;state.tries=state.tries?.day===day?{day,n:state.tries.n+1}:{day,n:1};
    state.last={at,ok:false,error:e.message,why};await save();console.warn('backup failed ('+state.tries.n+' today):',e.message);if(why==='scheduled'&&state.tries.n>=3)notify('Backup to Google Drive failed 3 times this morning',e.message);throw e}
   finally{await rm(tmp,{force:true}).catch(()=>{});running=null}})();return running}
  // a backup from Drive to a file, 256 MB at a time (each piece has 20 minutes and 5 tries), so a long download is never cut
@@ -209,10 +210,10 @@ export function createBackups({DATA,HOME,HERMES_HOME,TOKEN=process.env.BACKUP_GO
     restored(false,'The restore from '+f.name+' did not finish',e.message)}
    finally{await rm(dir,{recursive:true,force:true}).catch(()=>{});await rm(enc,{force:true}).catch(()=>{});restoring=null;go()}})();
   return {started:true,name:f.name}}
- // 03:00 Jakarta every night; a restore test every Sunday after it
- function schedule(){const tick=async()=>{await load();const j=new Date(Date.now()+7*3600e3);const today=j.toISOString().slice(0,10);
-   const tries=state.tries?.day===today?state.tries.n:0,doneToday=state.last?.ok&&new Date(state.last.at+7*3600e3).toISOString().slice(0,10)===today;
-   if(j.getUTCHours()>=3&&j.getUTCHours()<9&&!doneToday&&tries<3&&(!state.last||state.last.ok||Date.now()-state.last.at>3600e3)){try{await run();if(j.getUTCDay()===0)await test()}catch{}}};
+ // 03:00 every night in the box's time zone (the engine's config timezone); a restore test every Sunday after it
+ function schedule(){const tick=async()=>{await load();const j=localParts(Date.now(),tz());const today=j.day;
+   const tries=state.tries?.day===today?state.tries.n:0,doneToday=state.last?.ok&&localParts(state.last.at,tz()).day===today;
+   if(j.hour>=3&&j.hour<9&&!doneToday&&tries<3&&(!state.last||state.last.ok||Date.now()-state.last.at>3600e3)){try{await run();if(j.weekday===0)await test()}catch{}}};
   setInterval(()=>tick().catch(()=>{}),15*60e3).unref?.()}
  async function status(){await load();const keyError=made()&&!await readFile(KEYF,'utf8').then(k=>k.trim().length>=32,()=>false)?NOKEY:null;return {keyError,last:state.last||null,test:state.test||null,running:Boolean(running),testing:Boolean(testing),restoring:Boolean(restoring),restoreEnabled:RESTORE_ENABLED,restore:restoring?state.restore:state.restore?.running?null:state.restore||null,keep:KEEP,where:'Google Drive › aqeelOS backups',account:await readFile(path.join(HERMES_HOME,TOKEN),'utf8').then(t=>JSON.parse(t).account||'').catch(()=>'')}}
  return {run,test,status,key,schedule,list,restore,busy:()=>!!restoring}}

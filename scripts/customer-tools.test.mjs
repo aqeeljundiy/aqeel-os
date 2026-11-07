@@ -14,7 +14,7 @@ async function make(kind='qris'){const W=await mkdtemp(path.join(tmpdir(),'ct-')
  await writeFile(path.join(W,'continue-support','.tools',kind),'x');await writeFile(path.join(W,'continue-support','templates','ORDER_FORM.md'),'Nama:');await writeFile(path.join(W,'continue-support','BRIEFING.md'),'brief');
  await mkdir(path.join(W,'continue-support','.secrets'),{recursive:true});await writeFile(path.join(W,'continue-support','.secrets','XENDIT_SECRET_KEY'),'xnd');
  const ran=[],google=[];let t=1e12;
- const C=createCustomerTools({WORK:W,DATA:D,googleCall:async(a,req)=>{google.push(req);return {status:200,json:{values:[['a']]}}},chatFind:async()=>({text:'old chat'}),history:async r=>'chat '+r.conversation,
+ const C=createCustomerTools({WORK:W,DATA:D,payRules:async()=>({currency:'Rp',min:10000,max:5000000}),googleCall:async(a,req)=>{google.push(req);return {status:200,json:{values:[['a']]}}},chatFind:async()=>({text:'old chat'}),history:async r=>'chat '+r.conversation,
   runAsAgent:async(a,tool,argv)=>{ran.push([a,tool,argv]);return {ok:true,out:'[FOTO: qris-1.png] | Rp2.660.000'}},log:()=>{},now:()=>t});
  return {C,W,D,ran,google,tick:ms=>{t+=ms}}}
 

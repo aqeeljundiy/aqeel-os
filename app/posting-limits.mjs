@@ -16,7 +16,7 @@ import path from 'node:path';
 import {randomBytes} from 'node:crypto';
 
 export const DEFAULTS={on:false,perDay:20,perHour:3,gapMin:10,perRun:2,quietFrom:1,quietTo:5,quietPerHour:1,hotShare:0,afterMissingPerHour:2,afterMissingHours:6,
- stopFile:'',checkUrl:'',alert:'',tz:'Asia/Jakarta',recheckMin:30};
+ stopFile:'',checkUrl:'',alert:'',tz:'',recheckMin:30};   // '' = the box's zone (tz.mjs)
 const NUM={perDay:[1,500],perHour:[1,60],gapMin:[0,240],perRun:[1,20],quietFrom:[0,23],quietTo:[0,24],quietPerHour:[0,60],hotShare:[0,100],afterMissingPerHour:[0,60],afterMissingHours:[0,72],recheckMin:[5,240]};
 export function clean(r){const o={...DEFAULTS};for(const [k,v] of Object.entries(r||{})){if(!(k in DEFAULTS))continue;
   if(k in NUM){const n=Math.round(Number(v));if(!Number.isFinite(n))throw Error(k+' must be a number');const [lo,hi]=NUM[k];o[k]=Math.min(hi,Math.max(lo,n))}
@@ -24,14 +24,15 @@ export function clean(r){const o={...DEFAULTS};for(const [k,v] of Object.entries
   else if(k==='stopFile'){const s=String(v||'').trim();if(s&&(s.startsWith('/')||s.split('/').includes('..')))throw Error('The pause file is a path inside the agent’s folder, like .tools/STOP_COMMENTS');o.stopFile=s.slice(0,200)}
   else if(k==='checkUrl'){const s=String(v||'').trim();if(s&&!/^https:\/\/[^\s]+$/.test(s))throw Error('The page to check is a full https:// address');o.checkUrl=s.slice(0,300)}
   else if(k==='alert'){const s=String(v||'').trim();if(s&&!/^telegram:-?\d+(:\d+)?$/.test(s))throw Error('Alerts go to telegram:<chat id> or telegram:<chat id>:<topic id>');o.alert=s}
-  else if(k==='tz'){const s=String(v||'').trim();try{new Intl.DateTimeFormat('en',{timeZone:s})}catch{throw Error('Unknown time zone')}o.tz=s}}
+  else if(k==='tz'){const s=String(v||'').trim();if(s)try{new Intl.DateTimeFormat('en',{timeZone:s})}catch{throw Error('Unknown time zone')}o.tz=s}}
  return o}
 
 const fmt=new Map();
-export function local(t,tz){if(!fmt.has(tz))fmt.set(tz,new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}));
+export function local(t,tz){tz=zoneOr(tz);if(!fmt.has(tz))fmt.set(tz,new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}));
  const p=Object.fromEntries(fmt.get(tz).formatToParts(new Date(t)).map(x=>[x.type,x.value]));return {date:p.year+'-'+p.month+'-'+p.day,hour:Number(p.hour)%24,clock:p.hour+':'+p.minute}}
 const inQuiet=(h,a,b)=>a===b?false:a<b?h>=a&&h<b:h>=a||h<b;
-const zoneName=tz=>tz==='Asia/Jakarta'?'WIB':tz.split('/').pop().replace(/_/g,' ');
+import {zoneName as tzName,zoneOr} from './tz.mjs';
+const zoneName=tz=>tzName(tz);
 
 // may this run post, and how many: the same numbers the person sees on the Run rules panel
 export function decide(rules,entries,{now=Date.now(),stopped=false}={}){const r={...DEFAULTS,...rules},L=local(now,r.tz);

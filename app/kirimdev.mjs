@@ -69,7 +69,7 @@ const INTERNAL=[/^\s*\[(?!FOTO:|TEMPLATE:)(gambar|image|foto|photo|picture|img)\
  /\b(test\s*mode|mode\s*test|internal\s+note|draft\s+reply|as an ai|language model|LLM)\b/i,/^\s*\(?\s*(answered with|dijawab (dengan|oleh))\b/i,
  /^\s*\S+\.(jpe?g|png|webp|pdf)\s*$/i];
 // signs that the agent's own reasoning or files leaked into the reply: the whole reply is held for a person
-const LEAK=[/\b(rules?\s+tab|decisions?\s+(file|log|tab)|knowledge\s+(sheet|base|file)|hand-?offs?|briefing|soul\.md|aqeel_decisions|past_chats|system\s+prompt|my\s+instructions|the\s+customer)\b/i,
+const LEAK=[/\b(rules?\s+tab|decisions?\s+(file|log|tab)|knowledge\s+(sheet|base|file)|hand-?offs?|briefing|soul\.md|\w*_decisions|past_chats|system\s+prompt|my\s+instructions|the\s+customer)\b/i,
  /^\s*(I|I'm|I've|I'll|I\s+will|Let\s+me|Okay|Sure|Based\s+on|Here\s+is|Here's|Now|First|Reply|Draft|Note|Thinking)\b[\s,:']/,
  /\b[\w-]+\.(md|json|txt|py|csv|ya?ml|jpe?g|png|webp|pdf)\b/i];
 // paid: whether the payment tool made a payment in this run (null = unknown, the old QR-picture check only)
@@ -146,7 +146,7 @@ export function createKirimdev({DATA,WORK,apiKey,runAgent,paidSince=null,telegra
    const mid=m.id&&'message|'+agent+'|'+line.phoneNumberId+'|'+m.id;
    if(mid&&st.seen.includes(mid))continue;if(mid)st.seen.push(mid);
    if(tester&&RESET.test(m.text.trim())){st.cut[key]=new Date((m.ts||now()/1000)*1000+1000).toISOString();delete st.pending[key];delete st.turns[key];cancelOutbound(agent,m.from);
-    await send(agent,line,m.from,'✅ Test reset. Chat dari awal ya, anggap kamu customer baru.').catch(e=>log('kirimdev reset reply: '+e.message));continue}
+    await send(agent,line,m.from,line.resetText||'✅ Test reset. Start again as a new customer.').catch(e=>log('kirimdev reset reply: '+e.message));continue}
    const until=pausedUntil(agent,m.conversationId,m.from);
    // a message during a team member's pause is kept, not dropped (audit 6 Nov: "mau pakai CC" was never answered): it waits
    // for the pause to end, and is answered then unless the team answered it meanwhile
@@ -193,9 +193,9 @@ export function createKirimdev({DATA,WORK,apiKey,runAgent,paidSince=null,telegra
 
  async function answer(agent,line,p,key){if(p.outbound){for(const id of p.outbound)await deliver(id);return}const epoch=st.cut[key]||'';const hist=await history(line,p,key);const mode=modeOf(line);
   const who=mode==='test'?'WHATSAPP TEST CHAT (customer = a team tester, treat them exactly like a real customer).':'WHATSAPP CHAT with a customer.';
-  const q=who+' You are '+line.persona+' for '+line.business+'. Customer WhatsApp number: '+(String(p.from||'').replace(/^62/,'0')||'unknown')+' (use it for the phone field of the order form; never ask the customer for it). In customer chats you have no shell and no files: read your knowledge sheet with read_sheet and your decisions, briefing and template files with read_file (list_files shows them), this chat with conversation, and make a payment only with create_payment (never .tools/sheet, cat, .tools/kirim, .tools/qris or .tools/pay here). Read your knowledge sheet tabs + decisions file first; for anything they do not cover (product facts, how something works), search your own line\'s past chats with past_chats before you hand off. Conversation so far (oldest first):\n\n'+hist+
+  const q=who+' You are '+line.persona+' for '+line.business+'. Customer WhatsApp number: '+((line.localPrefix?String(p.from||'').replace(new RegExp('^'+String(line.localPrefix.country||'').replace(/\D/g,'')),String(line.localPrefix.local??'')):String(p.from||''))||'unknown')+' (use it for the phone field of the order form; never ask the customer for it). In customer chats you have no shell and no files: read your knowledge sheet with read_sheet and your decisions, briefing and template files with read_file (list_files shows them), this chat with conversation, and make a payment only with create_payment (never .tools/sheet, cat, .tools/kirim, .tools/qris or .tools/pay here). Read your knowledge sheet tabs + decisions file first; for anything they do not cover (product facts, how something works), search your own line\'s past chats with past_chats before you hand off. Conversation so far (oldest first):\n\n'+hist+
    '\n\nNew inbound messages (authoritative even if provider history is delayed):\n'+(p.messages||[]).map(t=>'CUSTOMER: '+t).join('\n')+
-   '\n\nWrite ONLY the WhatsApp reply text to send next (Indonesian, WhatsApp formatting with *bold*, short paragraphs). Do NOT send anything yourself. '+
+   '\n\nWrite ONLY the WhatsApp reply text to send next ('+(line.language?'in '+line.language:'in the customer\'s own language')+', WhatsApp formatting with *bold*, short paragraphs). Do NOT send anything yourself. '+
    'If several messages are needed, separate them with a line containing only ---. If this must go to a human (handoff rules), reply exactly: HANDOFF: <reason, and what you already checked (sheet, past chats) and found>';
   log('kirimdev '+agent+': answering '+p.name);const runAt=now();let out=String(await runAgent(agent,q,{session:conversationSession(agent,line.phoneNumberId,p.conversationId||p.from,epoch),run:{line:line.phoneNumberId,conversation:p.conversationId||'',phone:p.from,mode}})||'').replace(FOOTER,'').trim();
   if(!out){log('kirimdev '+agent+': the agent wrote nothing');return}
@@ -222,7 +222,7 @@ export function createKirimdev({DATA,WORK,apiKey,runAgent,paidSince=null,telegra
   const mid=t?await telegram(h.agent,t.chatId,t.threadId,post).catch(()=>false):false;h.tries++;
   if(mid){delete st.handoffs[h.id];log('kirimdev '+h.agent+': handoff posted'+(h.tries>1?' (try '+h.tries+')':''));if(h.tries>1)await solved(h.agent,'handoff|'+h.id).catch(()=>{});
    if(h.notify&&within24h(h.agent,h.from)&&pausedUntil(h.agent,h.conversationId,h.from)<=now())
-    await send(h.agent,line,h.from,line.handoff?.customerText||'Baik kak, untuk pertanyaan ini saya bantu teruskan ke tim kami dulu ya 🙏 Mohon ditunggu sebentar.').catch(e=>log('kirimdev '+h.agent+': sending failed: '+e.message));
+    await send(h.agent,line,h.from,line.handoff?.customerText||'Thanks, I am passing this question to our team. They will get back to you shortly.').catch(e=>log('kirimdev '+h.agent+': sending failed: '+e.message));
    // waiting for the team's answer: System › Health shows it when nobody answered within ASK_MIN minutes
    st.asked[h.id]={agent:h.agent,from:h.from,name:h.name,lastQ:h.lastQ,at:now()};
    await saveState();return true}
