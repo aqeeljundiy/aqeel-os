@@ -98,7 +98,7 @@ export function createAgentDefaults({DATA,giveSkills,trimSkills=async()=>0,locke
   // only settings really written count: a refused write (e.g. a deleted profile) must not restart the agents every pass
   const done=[];for(const [k,v] of changes){const r=await setKey(a,k,v).catch(e=>({ok:false,out:String(e?.message||e)}));if(r?.ok!==false)done.push(k);else log('agent defaults '+a+' '+k+': '+String(r.out||'').trim().slice(0,160))}
   if(done.length)log('agent defaults for '+a+': '+done.join(', '));return done.length}
- // every agent has the skills the main agent (Donna) has, except the few that are for specific agents (skills-policy.mjs,
+ // every agent has the skills the main agent has, except the few that are for specific agents (skills-policy.mjs,
  // decided 24 Oct 2026): missing ones are copied (not ones a person removed from it: giveSkills keeps a list), the agent's own copies and extra skills of its own stay, and skills an
  // agent must not have are moved out to its skills-removed folder. Only the owner's signed-in accounts are never handed out
  async function skills(names){let n=0;for(const a of names){if(a!=='default')n+=await giveSkills(a).catch(()=>0)||0;n+=await trimSkills(a).catch(()=>0)||0}return n}

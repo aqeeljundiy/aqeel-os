@@ -73,7 +73,7 @@ catch(e){document.getElementById('m').textContent=e.message+'. Close this and op
   // n8n's own cookie, for n8n's own address (this page is served there)
   return s.set.filter(c=>/^n8n-auth=/.test(c)).map(c=>c.replace(/;\s*domain=[^;]*/i,''))}
  // an agent's n8n space can be opened to other agents: they get a second n8n tool (n8n-<space>) that acts as that space's
- // user, so Pixel can run Donna's workflows. The space keeps one owner, the agent it was made for.
+ // user, so another agent can run the main agent's workflows. The space keeps one owner, the agent it was made for.
  async function keyOf(a){const u=db.users[a];if(u?.key)return u.key;const c=await readConfig(a).catch(()=>null);const h=c?.mcp_servers?.n8n?.headers?.Authorization||'';const k=h.replace(/^Bearer\s+/,'');if(k&&u){u.key=k;await save()}return k}
  const toolName=space=>'n8n-'+String(space).replace(/[^a-z0-9-]/gi,'').toLowerCase();
  async function share(space,to,on){await load();const u=db.users[space];if(!u)throw new Error('That agent has no n8n yet.');if(to===space)throw new Error('The owner always has its own n8n.');

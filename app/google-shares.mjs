@@ -1,6 +1,6 @@
 // Shared Google logins without copies (5 Nov 2026, brief item 2). Before this, sharing a Google account copied the owner's
 // whole sign-in (its refresh token, every scope) into the other agent's folder, and the Read level was only checked
-// by one helper script, so any code an agent ran could send mail with it. Now only the owner's agent (Donna) holds
+// by one helper script, so any code an agent ran could send mail with it. Now only the owner's main agent holds
 // the sign-in. An agent it is shared with gets a short-lived key Google itself limits to the agent's level, renewed
 // by aqeelOS every 20 minutes; it holds no refresh token, so nothing can renew it but aqeelOS, and taking the share
 // away ends it within the hour (the file goes at once). The key file looks like a normal sign-in file

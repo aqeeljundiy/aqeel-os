@@ -590,7 +590,7 @@ export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir
  // the login's own allowed actions; none: nothing), so a share or a revoke counts at the next call
  const shareOn=async()=>!!sharing&&await sharing.enabled();
  async function claimAll(){if(!await shareOn())return;for(const x of Object.values(db.accounts)){const o=x.registeredBy&&!/^(seed|owner|google|mcp|system)/.test(x.registeredBy)&&/^[a-z0-9][a-z0-9_-]{0,63}$/.test(x.registeredBy)?x.registeredBy:((x.agents||[]).map(a=>String(a).split('--')[0]).includes('default')||!(x.agents||[]).length?'default':String(x.agents[0]).split('--')[0]);
-  // first claim: the connecting agent (else Donna) owns it, every agent already using it keeps Editor, so nothing loses access
+  // first claim: the connecting agent (else the main agent) owns it, every agent already using it keeps Editor, so nothing loses access
   if(!await sharing.exists('account',x.id)){await sharing.claim('account',x.id,o,{label:labelOf(x),by:'connected-accounts'}).catch(()=>{});
    for(const a of new Set((x.agents||[]).map(a=>String(a).split('--')[0])))if(a!==o)await sharing.share('account',x.id,{person:'migration',admin:true},a,'editor').catch(()=>{})}}}
  async function canNow(x,a){const own=canFor(x,a);if(!await shareOn())return own;const l=await sharing.levelOf('account',x.id,a);const cap=canOfLevel(l);return own.filter(c=>cap.includes(c))}

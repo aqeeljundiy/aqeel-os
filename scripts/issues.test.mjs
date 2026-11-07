@@ -46,7 +46,7 @@ await t('who is told: the owner who asked, the member in their chat, the team co
 await t('parseResult: fix, proof, older wording',()=>{const f=parseResult('x\nRESULT: {"status":"changed","apply":"engine","changes":[{"file":"/a","backup":"/a.bak"},{"file":"rel"}],"check":"send test"}');
  assert.deepEqual([f.status,f.apply,f.changes.length,f.check],['changed','engine',1,'send test']);assert.equal(parseResult('RESULT: {"status":"fixed","restart_ui":true}').apply,'ui');
  assert.equal(parseResult('RESULT: {"status":"proven","proof":"ok"}','proof').status,'proven');assert.equal(parseResult('RESULT: {"status":"proven"}'),null);assert.equal(parseResult('no'),null);
- assert.match(fixerPrompt({id:'i1',agent:'a1',missing:'m'}),/never spend money/i);assert.match(proofPrompt({id:'i1',agent:'a1',missing:'m'},{check:'c'}),/3124/)});
+ assert.match(fixerPrompt({id:'i1',agent:'a1',missing:'m'}),/never spend money/i);assert.match(proofPrompt({id:'i1',agent:'a1',missing:'m'},{check:'c'}),/tester in the Kirimdev line settings/)});
 await t('keys rule: a new .env value must already be on the box',()=>{assert.deepEqual(newSecrets('A=1\n','A=1\nB=sk-abcdef123456\n',['X=other']),['B']);
  assert.deepEqual(newSecrets('A=1\n','A=1\nB=sk-abcdef123456\n',['Y="sk-abcdef123456"']),[]);assert.deepEqual(newSecrets('A=1','A=1\nFLAG=1',[]),[],'short flags are not keys')});
 await t('closed loop: change → waits for busy 0 → safe reload → proof run → fixed with proof, nobody messaged',async()=>{

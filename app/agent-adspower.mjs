@@ -3,10 +3,10 @@
 // sign-in. The owner signs in himself on each agent's screen; nothing here ever types or reads a password.
 //  - each agent keeps one Local API port for good (50400 and up, kept in DATA, never handed to another agent);
 //  - an agent with its own Linux user starts it over SSH as that user, on its own screen (the box's root startup keeps
-//    that screen on); the main agent (Donna) and trusted agents run as this user, on their engine screen, which is
+//    that screen on); the main agent and trusted agents run as this user, on their engine screen, which is
 //    started when needed and kept on (not stopped as idle) while AdsPower runs;
 //  - a restart loop keeps it running, and a check every minute starts it again when the loop is gone (a box restart);
-//  - its AdsPower tool (mcp_servers.AdsPower) points at its own port; Donna's extra numbers use Donna's copy.
+//  - its AdsPower tool (mcp_servers.AdsPower) points at its own port; the main agent's extra numbers use its copy.
 // Own port (1 Nov 2026): with its window open AdsPower ignores --api-port and takes 50325 (or the next free one up to
 // 50425), so each copy runs with a small LD_PRELOAD shim (scripts/adspower-port-shim.c, built here with cc) that moves
 // its 50325 to its own port. What a copy really listens on is still looked up (its user's listening sockets in
@@ -19,7 +19,7 @@ import path from 'node:path';
 
 export const BASE_PORT=50400,ADS_PORT=50325,ADS_LAST=50425;   // AdsPower's own port and the last one it falls back to
 const NAME=/^[a-z0-9][a-z0-9_-]{0,63}$/;
-export const baseOf=a=>String(a).split('--')[0];   // "default--whatsapp-2" is Donna: it uses Donna's copy
+export const baseOf=a=>String(a).split('--')[0];   // "default--whatsapp-2" is the main agent: it uses its copy
 
 // the port of each agent: kept for good, a new agent gets the next one never used (the main agent first)
 export function assignPorts(db,names){const ports={...(db.ports||{})};let next=Math.max(db.next||0,...Object.values(ports).map(p=>p-BASE_PORT+1),0),changed=false;
@@ -32,7 +32,7 @@ export function assignPorts(db,names){const ports={...(db.ports||{})};let next=M
 // gets a new key), waits while the screen is off, and keeps the log small. $0 of the loop is its marker. The port is
 // written as $P, never spelled out next to "--api-port=" or the marker, so the stop patterns never match this line itself.
 export function launchLine({bin,home,envFile,port,shim=''}){if(![bin,home,envFile,...shim?[shim]:[]].every(x=>/^\/[\w./-]+$/.test(String(x)))||!(port>0&&port<65536&&Number.isInteger(port)))throw Error('bad AdsPower launch values');
- // the screen's env sets XDG_* to the screen's own folder (Donna's: ~/.hermes/bot-desktop/xdg, left out of backups and
+ // the screen's env sets XDG_* to the screen's own folder (the main agent's: ~/.hermes/bot-desktop/xdg, left out of backups and
  // reset with the screen), so AdsPower's data would land there; unset, it stays in the agent's folder (1 Nov 2026)
  const loop=`P=${port}; cd ${home}; mkdir -p .adspower; while :; do L=.adspower/adspower.log; [ -f $L ] && [ $(stat -c%s $L) -gt 5000000 ] && mv -f $L $L.old; unset DISPLAY XAUTHORITY; set -a; . ${envFile} 2>/dev/null; set +a; unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_CACHE_HOME; if [ -n "$DISPLAY" ]; then ${shim?`LD_PRELOAD=${shim} AQ_ADSPOWER_PORT=$P `:''}HOME=${home} ${bin} --no-sandbox --disable-dev-shm-usage --api-port=$P >> $L 2>&1; fi; sleep 5; done`;
  return `P=${port}; ${stopLine({home,port})}; setsid nohup bash -c '${loop}' aqeelos-adspower-$P >/dev/null 2>&1 </dev/null &`}
@@ -65,7 +65,7 @@ export function createAgentAdspower({DATA,HERMES_HOME,screens,codeUser,agentName
  let saving=Promise.resolve();
  const save=()=>saving=saving.catch(()=>{}).then(async()=>{const tmp=FILE+'.'+process.pid+'.'+Math.random().toString(36).slice(2)+'.tmp';
   await mkdir(path.dirname(FILE),{recursive:true});await writeFile(tmp,JSON.stringify(db,null,1));await rename(tmp,FILE);await writePorts()});
- // every agent but Help and test agents; Donna's extra numbers are Donna
+ // every agent but Help and test agents; the main agent's extra numbers are the main agent
  const agents=async()=>{const out=[];for(const a of await agentNames())if(NAME.test(a)&&!a.includes('--')&&!await skip(a))out.push(a);return out};
  async function ports(){await load();const r=assignPorts(db,await agents());if(r.changed||!db.next){db={off:{},...r.db};await save()}return db.ports}
  const portOf=async a=>(await ports())[baseOf(a)]||null;
@@ -96,7 +96,7 @@ export function createAgentAdspower({DATA,HERMES_HOME,screens,codeUser,agentName
  const isApi=port=>fetch('http://127.0.0.1:'+port+'/status',{signal:AbortSignal.timeout(1500)}).then(r=>r.json()).then(j=>j?.code===0,()=>false);
  const uidOf=async u=>{if(!u)return process.getuid();const l=(await readFile('/etc/passwd','utf8').catch(()=>'')).split('\n').find(x=>x.startsWith(u+':'));return l?+l.split(':')[2]:null};
  // the port the agent's copy really has its Local API on, or null (not signed in, or off). Agents with their own user:
- // that user's sockets. Donna and trusted agents share this user, so a socket counts only when the process holding it
+ // that user's sockets. The main agent and trusted agents share this user, so a socket counts only when the process holding it
  // has the agent's home or port in its env (this user can read its own processes)
  async function livePort(a){a=baseOf(a);const own=await portOf(a);if(!own)return null;const u=await codeUser(a).catch(()=>null);if(u===null)return null;const uid=await uidOf(u);if(uid==null)return null;
   const rows=[];for(const f of ['/proc/net/tcp','/proc/net/tcp6'])rows.push(...parseListen(await readFile(f,'utf8').catch(()=>'')));
@@ -106,7 +106,7 @@ export function createAgentAdspower({DATA,HERMES_HOME,screens,codeUser,agentName
    mine=r=>inodes.has(r.inode)}
   for(const p of apiCandidates(rows,{uid,own,mine}))if(await isApi(p))return p;return null}
 
- // as the agent's own user over SSH, or as this user for Donna and trusted agents; null = its user is not made yet
+ // as the agent's own user over SSH, or as this user for the main agent and trusted agents; null = its user is not made yet
  async function as(a,line){const u=await codeUser(a);if(u===null)throw Error(nameOf(a)+'’s own user on the box is not ready yet. Try again in a minute.');
   const r=u?await run('ssh',['-i',KEY,'-o','BatchMode=yes','-o','ConnectTimeout=10','-o','StrictHostKeyChecking=yes','-p','22',u+'@127.0.0.1',line],60000):await run('bash',['-c',line],60000);
   if(!r.ok)throw Error('Could not reach '+nameOf(a)+'’s user: '+r.err.trim().split('\n').pop());return u}
@@ -114,7 +114,7 @@ export function createAgentAdspower({DATA,HERMES_HOME,screens,codeUser,agentName
  const envFileOf=async a=>(await codeUser(a))?path.join(wsOf(a),'.screen','env'):path.join(screens.homeOf(a),'bot-desktop','env');
 
  async function start(a,{why='started'}={}){a=baseOf(a);if(!NAME.test(a))throw Error('Unknown agent');await binReady();const port=await portOf(a);if(!port)throw Error('This agent gets no AdsPower.');
-  // Donna's screen (and a trusted agent's) is the engine's, started on demand: turned on here first
+  // The main agent's screen (and a trusted agent's) is the engine's, started on demand: turned on here first
   if(!await codeUser(a)&&!(await screens.status(a)).running)await screens.start(a);
   const home=wsOf(a);await mkdir(home,{recursive:true}).catch(()=>{});
   await as(a,launchLine({bin:BIN,home,envFile:await envFileOf(a),port,shim:await shimReady()}));
@@ -130,7 +130,7 @@ export function createAgentAdspower({DATA,HERMES_HOME,screens,codeUser,agentName
  // kept on while it runs: the agent's engine screen is not stopped as idle (screens.mjs asks this, and the activity file is touched)
  let keepSet=new Set();const keepOn=a=>keepSet.has(baseOf(a));
 
- // the AdsPower tool of every agent (and Donna's extra numbers) talks to its own copy; through the engine's MCP route
+ // the AdsPower tool of every agent (and the main agent's extra numbers) talks to its own copy; through the engine's MCP route
  // (DELETE then POST, one agent at a time) so the running engine picks it up
  async function tools(){const p=await ports(),seen={};
   // its tool talks to the port its copy really listens on (its own one, once the copy runs with the shim)
@@ -172,7 +172,7 @@ its own data and its own sign-in. No other agent uses it.
  async function skill(){for(const a of await agentNames()){if(!NAME.test(a)||await skip(a))continue;const d=path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'skills','web','own-adspower'),f=path.join(d,'SKILL.md');
   if((await readFile(f,'utf8').catch(()=>''))===SKILL)continue;await mkdir(d,{recursive:true}).catch(()=>{});await writeFile(f,SKILL).catch(e=>log('AdsPower skill '+a+': '+e.message))}}
 
- // every minute: each agent's AdsPower runs unless an admin stopped it; Donna's screen stays on while hers runs
+ // every minute: each agent's AdsPower runs unless an admin stopped it; the main agent's screen stays on while its AdsPower runs
  let ticking=false;const errs=new Map();   // a failure is logged once, not every minute
  async function tick(){if(ticking)return;ticking=true;try{const r=await running(),keep=new Set();let moved=false;
   for(const a of await agents()){await load();const port=(await ports())[a];if(!port||db.off[a])continue;const p=r.get(port)||{};

@@ -1,7 +1,7 @@
 // Kirimdev lines (audit, 5 Nov 2026). Kirimdev is the team's WhatsApp CRM: aqeelOS talks to it with one API key, and a
 // webhook per line is the optional extra that lets an agent answer at once. It is not the agents' own WhatsApp channel
 // (the engine's WhatsApp platform, Channels page); the owner, 7 Nov 2026: "Kirimdev is WhatsApp CRM. Kirimdev we only use
-// API key". Health and the UI call these "Kirimdev line (<persona>)", never "WhatsApp". It replaces the bridge script Donna ran in the
+// API key". Health and the UI call these "Kirimdev line (<persona>)", never "WhatsApp". It replaces the bridge script the main agent ran in the
 // background (wa-agent/bridge/bridge.py): that one polled Kirimdev every 15 seconds, stopped at every engine restart,
 // once ran twice (double replies), and kept its numbers, testers and Telegram topics in code.
 //

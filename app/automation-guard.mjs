@@ -40,7 +40,7 @@ export function parseLogLine(l){const m=TS.exec(l||'');if(!m)return [];const t=D
  if(x=/MCP server '([^']+)' failed initial .*?parking (?:until a reconnect is requested|without retries)(?:[^(]*\(state: [^)]*\))?(?::\s*(.*))?$/.exec(l))return [{t,kind:'parked',server:x[1],reason:(x[2]||'').slice(0,200)}];
  if(x=/MCP server '([^']+)' failed after \d+ reconnection attempts, parking; will self-probe/.exec(l))return [{t,kind:'probing',server:x[1]}];
  if((x=/MCP server '([^']+)': revived/.exec(l))||(x=/MCP server '([^']+)' \(\w+\): registered \d+ tool/.exec(l)))return [{t,kind:'ok',server:x[1]}];
- // a tool of a server that just worked is the best proof it works (the engine's Test crashed with HTTP 500 on Donna's
+ // a tool of a server that just worked is the best proof it works (the engine's Test crashed with HTTP 500 on the main agent's
  // two Slack servers while she used them all day, 31 Oct 2026): its name is the server's with - as _
  if(x=/agent\.tool_executor: tool mcp__([a-z0-9_]+?)__[\w-]+ completed/i.exec(l))return [{t,kind:'ok',server:x[1],used:true}];
  if(x=/Failed to connect to MCP server '([^']+)'(?: \(command=[^)]*\))?: (.*)$/.exec(l))return [{t,kind:AUTHY.test(x[2])?'signin':'failed',server:x[1],reason:x[2].slice(0,200)}];

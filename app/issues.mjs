@@ -1,4 +1,4 @@
-// Issues and the fixer: a closed loop (owner's rules of 7 Nov 2026: "agents fix themselves, without asking Donna or me";
+// Issues and the fixer: a closed loop (owner's rules of 7 Nov 2026: "agents fix themselves, without asking the main agent or me";
 // "people are messaged only when a fix needs a human").
 // Every issue goes to the fixer by itself, whoever filed it: an agent (report_bottleneck with system true), Health
 // (agent-health.mjs), a rollback check (agent-versions.mjs), the owner or a team member. Nobody approves anything.
@@ -85,7 +85,7 @@ export function fixerPrompt(i,{rules='',day=new Date().toISOString().slice(0,10)
  '- Find the real cause on this server first (files, logs, the agent\'s state.db, ~/apps/hermes-ui-data). Fix the cause, not the symptom; no hard-coded ids, names or paths in shared code (settings instead).',
  '- Only change what this issue needs, and only for the agents listed above.',
  '- Run the existing tests for what you changed (node scripts/<name>.test.mjs in ~/apps/hermes-ui, the engine\'s tests). Paste commands and output in "proof".',
- '- Write in "check" exactly how to rerun the ORIGINAL failing check end to end after the reload (the real thing that failed, not a unit test). For a WhatsApp reply problem: a message from the line\'s test number (e.g. the team\'s 3124 number) must get a real reply delivered.',
+ '- Write in "check" exactly how to rerun the ORIGINAL failing check end to end after the reload (the real thing that failed, not a unit test). For a WhatsApp reply problem: a message from the line\'s test number (its tester in the Kirimdev line settings) must get a real reply delivered.',
  '- If you find nothing to change (it already works), use status "no_change": a proof run still has to show it works.',
  '- needs_human only when a person must physically act and no tool or key on this box can do it: money, a new key or login only a person has, someone adding a bot to a Telegram group, or a decision only the owner can make. Never to ask for approval or an OK: nobody approves fixes, you decide. Put in "need" exactly what they must do, in one or two plain sentences.',
  rules?'- '+rules:null,
@@ -100,7 +100,7 @@ export function proofPrompt(i,fix,{reloaded=null}={}){return [
  reloaded?'aqeelOS reloaded '+(reloaded==='engine'?'the agents\' engine':'the web app')+' after the change.':null,
  'How to rerun the original check: '+(fix?.check||'rerun what failed in the evidence above, end to end'),
  '','RULES',
- '- Rerun the ORIGINAL failing check end to end, for real, now. A unit test or reading a file is not proof. For a WhatsApp reply problem the line\'s test number (e.g. the team\'s 3124 number) must get a real reply delivered; check the delivery. For a Health problem, Health (~/apps/hermes-ui-data/bottlenecks.json) must no longer list it after its check ran again.',
+ '- Rerun the ORIGINAL failing check end to end, for real, now. A unit test or reading a file is not proof. For a WhatsApp reply problem the line\'s test number (its tester in the Kirimdev line settings) must get a real reply delivered; check the delivery. For a Health problem, Health (~/apps/hermes-ui-data/bottlenecks.json) must no longer list it after its check ran again.',
  '- Never spend money, never delete anything, never message customers, never restart anything.',
  '- proven only if you saw it work after the change. Otherwise not_proven. Fill "need" only if a person must physically act (money, a key or login only they have, adding a bot, a decision only the owner can make); never an approval.',
  '','End with exactly one line (JSON on one line):',

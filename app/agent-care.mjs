@@ -1,12 +1,12 @@
 // Agents keep their own work working (7 Nov 2026, audit step 1). Three checks, each turned into notices the agent reads in
 // its next message (agent-live.mjs) and in my_health until fixed, so the agent fixes its own work instead of the owner:
 //   1) Old setup: an agent's own instructions, skills, schedules and scripts that still use something aqeelOS retired
-//      (on 7 Nov the test-chat watchdog still said "Donna needs to restart the bridge", gone since 5 Nov).
+//      (on 7 Nov the test-chat watchdog still said "<main agent> needs to restart the bridge", gone since 5 Nov).
 //   2) Checks after a change: when keys, settings or the engine change (and every 30 minutes), every schedule's script
 //      and the files its command names must exist, and every key in the agent's workspace .secrets must be readable by
 //      the agent's own user (moving the payment keys back on 7 Nov left them unreadable and the watchdog crashing).
 //   4) Keys (a register without values: names, where they are, a keyed fingerprint): a key that went missing, a key whose
-//      .env and .secrets copies differ, and one key copied into several agents (whatsapp-2/3 held all 29 of Donna's keys).
+//      .env and .secrets copies differ, and one key copied into several agents (whatsapp-2/3 held all 29 of the main agent's keys).
 //   3) Script-only schedules: a schedule whose whole prompt is "run exactly this command, reply with its output or
 //      [SILENT]" ran a full model turn every few minutes for nothing. It becomes a script-only schedule (no model, no
 //      tokens). The engine runs schedule scripts as the box's own user, so the script aqeelOS writes runs the agent's
@@ -99,7 +99,7 @@ export function createAgentCare({HERMES_HOME,WORK,DATA=null,fpKey=async()=>'',te
   // keys the owner decided to share (DATA/keys-shared-ok.json: ["N8N_MCP_TOKEN", …])
   const okNames=new Set(DATA?JSON.parse(await readFile(path.join(DATA,'keys-shared-ok.json'),'utf8').catch(()=>'[]')||'[]').map(String):[]);
   const SHARED_OK=/^(ANTHROPIC|OPENAI|GEMINI|GOOGLE_API|OPENROUTER|XAI|GROQ|DEEPSEEK|MISTRAL|ELEVENLABS|FIRECRAWL|EXA|TAVILY|BRAVE|PERPLEXITY|FAL|REPLICATE|HF)_/;
-  const dup=[];for(const set0 of Object.values(byFp)){const set=new Set([...set0].filter(x=>!SHARED_OK.test(x.split(':')[1])&&!SYSTEM.test(x.split(':')[1])&&!okNames.has(x.split(':')[1])));const agents=new Set([...set].map(x=>base(x.split(':')[0])));if(agents.size<2)continue;   // an agent's own copies (name--x) are the same agent: Donna's WhatsApp copies use her Slack app secrets (7 Nov 2026)
+  const dup=[];for(const set0 of Object.values(byFp)){const set=new Set([...set0].filter(x=>!SHARED_OK.test(x.split(':')[1])&&!SYSTEM.test(x.split(':')[1])&&!okNames.has(x.split(':')[1])));const agents=new Set([...set].map(x=>base(x.split(':')[0])));if(agents.size<2)continue;   // an agent's own copies (name--x) are the same agent: the main agent's WhatsApp copies use its Slack app secrets (7 Nov 2026)
    const teams=new Set();for(const a of agents)teams.add(await teamOf(a).catch(()=>null)||'-'+a);if(teams.size===1&&![...teams][0].startsWith('-'))continue;dup.push([...set].sort())}
   for(const [a,notes] of Object.entries(per))await notices.setNotices(base(a),'keys'+(a===base(a)?'':':'+a),notes);
   await notices.setNotices('default','keys-shared',dup.slice(0,20).map(l=>({key:'dup|'+l.join(','),text:'one key value is copied into several agents: '+l.join(', ')+'. Each agent should have its own key (a bot token belongs to one agent); remove the copies that should not have it.'})));
