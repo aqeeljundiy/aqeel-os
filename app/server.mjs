@@ -26,6 +26,7 @@ import {createStarters} from './starters.mjs';
 import {createMail} from './mail.mjs';
 import {createUsage} from './usage.mjs';
 import {createExplain} from './explain.mjs';
+import {createLabels} from './labels.mjs';   // names and descriptions people remember (7 Nov 2026)
 import {createChannels} from './channels.mjs';
 import {swr,limiter} from './swr.mjs';
 import {createShare} from './share.mjs';
@@ -280,6 +281,7 @@ if(LIVE_APP){setTimeout(applyDefaults,60000);setInterval(applyDefaults,600000).u
 const mailer=createMail(DATA);
 const usage=createUsage(DASH.origin,DASH_TOKEN,DATA);
 const explain=createExplain(DATA,{python:enginePython,root});
+const labels=createLabels(DATA);
 const schedules=createSchedules({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAgents(),python:enginePython,root,live:()=>LIVE_APP||process.env.SCHED_DESCRIBE==='1',relays:()=>relay.jobRelays()});
 setTimeout(()=>schedules.tick(),40000).unref();setInterval(()=>schedules.tick(),10*60000).unref();
 const relay=createRelay({ownerAgent:a=>{const o=users.agentOwner(String(a).split('--')[0]);return !o||o==='owner'},DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,SECRET,listAgents:()=>listAgents(),links:{list:a=>links.list(a)},platformsOf:a=>platformsCached(a),nameOf:a=>NAMES[a]||a,ownerName:()=>users.people()[0]?.name});
@@ -873,7 +875,17 @@ if(LIVE_APP)setTimeout(()=>{import('./apply-on-start.mjs').then(({applyOnStart})
   const db=await connAccounts._db();const x=Object.values(db.accounts||{}).find(y=>y.kind==='google'&&String(y.identity||'').toLowerCase()===String(email).toLowerCase());if(!x)throw Error('no Google login '+email);
   return (await connAccounts.setAgentCan(x.id,agent,L)).can},
  share:({email,agent})=>googleShares.share(email,agent),
- migrate:({agent,file,email})=>googleShares.migrate(agent,file,email)}})).catch(e=>console.warn('apply-on-start',e.message))},45000).unref();
+ migrate:({agent,file,email})=>googleShares.migrate(agent,file,email),
+ // names and descriptions people remember (labels.mjs, 7 Nov 2026): display fields only, never an id
+ label:({kind,id,name,description})=>labels.set(kind,id,{name,description}),
+ scheduleDescription:({profile,id,summary})=>schedules.setMeta(String(profile||'default'),String(id),{summary:String(summary||'')}).then(m=>m.summary),
+ scheduleName:async({profile,id,name})=>{name=String(name||'').trim().slice(0,120);if(!name||!/^[\w]+$/.test(String(id)))throw Error('name and id needed');
+  const r=await fetch(DASH.origin+'/api/cron/jobs/'+encodeURIComponent(id)+'?profile='+encodeURIComponent(profile||'default'),{method:'PUT',headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:JSON.stringify({updates:{name}}),signal:AbortSignal.timeout(60000)});
+  if(!r.ok)throw Error('the engine said HTTP '+r.status);return name},
+ agentName:async({agent,name})=>{agent=String(agent||'');name=String(name||'').trim().slice(0,60);if(!okProfile(agent)||!name)throw Error('agent and name needed');if(!(await listAgents()).includes(agent)&&agent!==HELP_AGENT)throw Error('no agent '+agent);
+  await withIds(async ids=>{ids[agent]={...(ids[agent]||{}),name,title:ids[agent]?.title||'',updated:Date.now()};await writeIds(ids)});await setDisplayName(agent,name);NAMES[agent]=name;return name},
+ agentDescription:async({agent,description})=>{const r=await fetch(DASH.origin+'/api/profiles/'+encodeURIComponent(String(agent||''))+'/description',{method:'PUT',headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:JSON.stringify({description:String(description||'').trim().slice(0,240)}),signal:AbortSignal.timeout(60000)});
+  if(!r.ok)throw Error('the engine said HTTP '+r.status);return true}}})).catch(e=>console.warn('apply-on-start',e.message))},45000).unref();
 
 /* Abilities › Connections (connections.mjs, 1 Nov 2026): every app, login as you, skill, plugin and key in one list, who
    owns it, who may use it and how much (Read, Read & draft, Full; On or Off). AdsPower and Code come in when asked. */
@@ -2853,8 +2865,8 @@ const server=createServer(async(req,res)=>{
    // Abilities › Connections (connections.mjs): everyone sees the agents they may use; changes are checked per row and agent
    if(p.startsWith('/ui/connections')){const perm={admin:users.isAdmin(u),level:a=>users.level(u,a),canOn:(cap,a)=>users.canOn(u,cap,a)};let b={};if(req.method==='POST'){try{b=JSON.parse(await readBody(req,8192)||'{}')}catch{}}
     const key=String(b.key||url.searchParams.get('key')||''),agent=String(b.agent||'');
-    try{if(p==='/ui/connections'&&req.method==='GET')return send(res,200,await connections.list(perm,{fresh:url.searchParams.get('fresh')==='1'}));
-     if(p==='/ui/connections/detail'&&req.method==='GET')return send(res,200,await connections.detail(key,perm));
+    try{if(p==='/ui/connections'&&req.method==='GET')return send(res,200,await labels.applyRows(await connections.list(perm,{fresh:url.searchParams.get('fresh')==='1'})));
+     if(p==='/ui/connections/detail'&&req.method==='GET')return send(res,200,await labels.applyRows(await connections.detail(key,perm)));
      if(req.method!=='POST')return send(res,405,{error:'POST only'});if(!key)return send(res,400,{error:'Which connection?'});
      if(p!=='/ui/connections/disconnect'&&!(await listAgents()).includes(agent))return send(res,400,{error:'Unknown agent'});let r;
      if(p==='/ui/connections/level')r=await connections.setLevel(key,agent,String(b.level||''),perm);
@@ -3128,6 +3140,10 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/qr'&&req.method==='GET'){const d=String(url.searchParams.get('d')||'');if(!d||d.length>2000)return send(res,400,'bad');
     try{const mod=await import(path.join(HERMES_HOME,'hermes-agent','node_modules','qrcode','lib','index.js'));const QR=mod.default||mod;const svg=await QR.toString(d,{type:'svg',margin:1,errorCorrectionLevel:'M',color:{dark:'#0b0c10',light:'#ffffff'}});
      res.writeHead(200,{'content-type':'image/svg+xml','cache-control':'no-store','x-content-type-options':'nosniff'});return res.end(svg)}catch(e){return send(res,500,{error:'QR could not be drawn: '+e.message})}}
+   // names and descriptions (labels.mjs): everyone signed in reads them, admins change them; ids never change here
+   if(p==='/ui/labels'&&req.method==='GET')return send(res,200,{labels:await labels.all()});
+   if(p==='/ui/labels'&&req.method==='PUT'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can rename things.'});let b={};try{b=JSON.parse(await readBody(req,8192))}catch{return send(res,400,{error:'Bad JSON'})}
+    try{const v=await labels.set(String(b.kind||''),String(b.id||''),{name:b.name,description:b.description});console.log('label',b.kind+':'+b.id,'by',u.id||u.name||'?');return send(res,200,{ok:true,label:v})}catch(e){return send(res,e.status||500,{error:e.message})}}
    if(p==='/ui/explain'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,300000))}catch{}const items=(Array.isArray(b.items)?b.items:[]).slice(0,300).map(x=>({id:String(x?.id||'').slice(0,120),name:String(x?.name||'').slice(0,160),desc:String(x?.desc||'').slice(0,600)}));return send(res,200,await explain.get(String(b.kind||''),items,{write:users.isAdmin(u)}))}
    if(p==='/ui/usage'&&req.method==='GET'){const days=Math.min(365,Math.max(1,+url.searchParams.get('days')||7));const ag=String(url.searchParams.get('agent')||''),every=[...await listAllProfiles(),HELP_AGENT];   // Help's chats are each person's: its own line on Usage
     const all=await usage.breakdown(ag&&ag!=='all'?every.filter(x=>x===ag||x.startsWith(ag+'--')):every,days,users.ownerOf);

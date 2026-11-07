@@ -77,7 +77,7 @@ PAGES.schedules=async(p,el)=>{
   const bad=j.last_status&&j.last_status!=='ok'||j.last_delivery_error||j.last_fire_error?.detail;const late=on&&overdueOf(j),stt=jobState(j);
   const nextTxt=stt==='completed'?'finished':stt==='running'?'running now':!on?'paused':late?'overdue':'next '+when(j.next_run_at);
   return `<div class="row sj-row" ${st(n++)} ${admin?`draggable="true"`:""} data-act="cron-open" data-id="${esc(j.id)}" data-profile="${esc(j.profile||'default')}" tabindex="0"><div class="main-c"><span class="ic ${on?'blue':''} ${bad?'warn':''}">${icon(bad?'alert':'clock',18)}</span><div class="txt"><b>${esc(stripBracket(j.name)||j.prompt?.slice(0,60)||j.id)}</b>
-   ${m.summary?`<span class="sched-desc">${esc(m.summary)}</span>`:m.tries?`<span class="sched-desc">${esc(promptLine(j.prompt))}</span>`:`<span class="sched-desc pending"><i class="skel" style="display:inline-block;width:min(320px,60%);height:10px;border-radius:5px;vertical-align:middle"></i></span>`}
+   ${m.summary?`<span class="sched-desc">${esc(m.summary)}</span>`:m.tries||!j.prompt?`<span class="sched-desc" title="${esc(promptLine(j.prompt)||'')}">${admin?`<a href="#" class="lb-add" data-act="sched-add-desc" data-id="${esc(j.id)}" data-profile="${esc(j.profile||'default')}">Add a description</a>`:'No description yet'}</span>`:`<span class="sched-desc pending"><i class="skel" style="display:inline-block;width:min(320px,60%);height:10px;border-radius:5px;vertical-align:middle"></i></span>`}
    <span class="sched-meta" title="${esc(j.schedule?.expr||j.schedule_display||'')}">${esc(whenText(j))} · to ${esc(deliverName(j,SCHED.info.names))} · ${nextTxt}${j.last_run_at?' · last '+when(j.last_run_at)+(bad?'':' ✓'):''}${last?.secs?' · took '+secsText(last.secs):''}</span>
    ${model||cost?`<span class="sched-meta">${model}${cost}</span>`:''}
    ${bad&&(j.last_status&&j.last_status!=='ok'||j.last_delivery_error)?`<span class="err-line" style="white-space:normal">${esc(j.last_delivery_error||j.last_error||'Last run: '+j.last_status)}</span>`:''}
@@ -143,6 +143,8 @@ function moveSchedule(j){const cur=folderOf(j);const have=[...new Set([...(SCHED
   `<button class="ghost" data-act="close">Cancel</button><button id="mvNew">${icon('plus',16)}New folder</button>`,{size:'sm'});
  d.querySelectorAll('.mv-f').forEach(b=>b.onclick=()=>{closeLayers();fileSchedule(j,b.dataset.f)});
  d.querySelector('#mvNew').onclick=async()=>{const n=await newFolder();if(n){closeLayers();fileSchedule(j,n)}}}
+// a schedule nobody could describe: "Add a description" right in its row (labels, 7 Nov 2026)
+ACT['sched-add-desc']=(a,e)=>{e?.preventDefault?.();e?.stopPropagation?.();const j=(Pages.cronJobs||[]).find(x=>x.id===a.dataset.id&&(x.profile||'default')===a.dataset.profile);if(j)describeSchedule2(j)};
 async function describeSchedule2(j){const {m}=schedMeta(j);const v=await promptBox('Description','What it does and why, in one sentence',m.summary||'','Save');if(v==null)return;
  try{await put(UI,'/ui/schedules/meta',{profile:j.profile||'default',id:j.id,summary:v.trim()});toast('Saved');reload()}catch(e){fail(e)}}
 // the ⋯ menu gains Move, Describe and Details
