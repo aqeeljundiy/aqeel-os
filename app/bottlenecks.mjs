@@ -42,6 +42,10 @@ export function personNeed(x){const k=x?.kind,t=[x?.title,x?.missing,x?.text].fi
   default:return null}}
 const cap=s=>s[0].toUpperCase()+s.slice(1);
 const list=a=>a.length>1?a.slice(0,-1).join(', ')+' and '+a.at(-1):a[0]||'';
+// what a member (not an admin) can act on: their agent being blocked (they ask it to try again once they gave it what it
+// needs) and new instructions for an agent they own. Not access requests (an admin decides), not help tickets, not app
+// sign-ins on Connected apps, not sign-ins, accounts, channels or groups (admin pages).
+export const memberCan=x=>x?.kind==='report'||x?.kind==='instructions';
 // the same need shown once: a group by its chat, an app sign-in by its apps (across agents), a report by what is missing
 export function popupKey(x){const t=[x.title,x.missing].filter(Boolean).join(' ');
  if(x.kind==='group')return 'group|'+String(x.topic||x.title).replace(/^health\|[^|]+\|/,'');

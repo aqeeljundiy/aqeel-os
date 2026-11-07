@@ -1,7 +1,7 @@
 // node scripts/bottlenecks.test.mjs — the Bottlenecks popup shows only what truly needs a person, each once, with what
 // to do; everything else goes into the ladder on System › Health (owner, 7 Nov 2026)
 import assert from 'node:assert/strict';
-import {personNeed,forPopup,popupKey} from '../app/bottlenecks.mjs';
+import {personNeed,forPopup,popupKey,memberCan} from '../app/bottlenecks.mjs';
 import {forLadder,skillKey,configuredGroups} from '../app/agent-health.mjs';
 let n=0;const t=async(name,f)=>{await f();n++;console.log('ok',name)};
 
@@ -50,4 +50,8 @@ await t('a group counts only when it is in the agent\'s settings: its team group
 await t('an app with its own sign-in item takes the agents\' reports about it; that item\'s button opens the sign-in',()=>{
  const p=forPopup([{id:'signin|a|slack',kind:'signin',agent:'a',agentName:'a',title:'Slack needs signing in',signin:{name:'slack'}},rep('sesa','A sign-in for Slack (OAuth), no tokens')]);
  assert.equal(p.length,1);assert.equal(p[0].kind,'signin');assert.deepEqual(p[0].also,['report|rsesa36'.replace('36',String('A sign-in for Slack (OAuth), no tokens'.length))])});
+await t('a member counts only what they can act on: their blocked agent and their own agent\'s new instructions',()=>{
+ const all=forPopup([{id:'access|1',kind:'access',title:'Sesa asks for Gmail'},{id:'ticket|w',kind:'ticket',title:'A Help ticket is waiting'},{id:'signin|a|slack',kind:'signin',title:'Slack needs signing in',signin:{name:'slack'}},
+  rep('sesa','A sign-in for Notion (OAuth)'),rep('sesa','A new API key for Xendit'),{id:'instr|sesa|p1',kind:'instructions',agent:'sesa',title:'Sesa: new instructions wait for your approval'}]);
+ assert.deepEqual(all.map(x=>x.kind),["access","ticket","signin","apps","report","instructions"]);assert.deepEqual(all.filter(memberCan).map(x=>x.kind),['report','instructions'])});
 console.log(n+' passed');

@@ -46,7 +46,7 @@ import {createCodeOnline} from './code-online.mjs';
 import {createTeamFolders} from './team-folders.mjs';
 import {createBrand} from './brand.mjs';
 import {createAccountAuth} from './account-auth.mjs';   // first-run owner, forgot password, recovery code (7 Nov 2026)
-import {createBottlenecks,forPopup} from './bottlenecks.mjs';
+import {createBottlenecks,forPopup,memberCan} from './bottlenecks.mjs';
 import {createInstructions} from './instructions.mjs';
 import {createNews,eveningLine} from './news.mjs';
 import {mayStartAgents,busyTotal,guardPaused} from './busy.mjs';
@@ -775,7 +775,9 @@ const news=createNews({DATA});
 async function needsFor(u){const admin=users.isAdmin(u);if(admin)await freshSignins();const items=await bottlenecks.list({admin,uid:admin?null:u.id,mayUse:a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a),signins:admin?[...signinsDue.values()]:[],invites:admin?users.expiredInvites():[],accounts:admin?await accountsApi.signedOut().catch(()=>[]):[],channels:admin?await channelAttention(false).catch(()=>[]):[]});const mayU=a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a);items.push(...await accessAsk.open(admin?()=>true:mayU).catch(()=>[]));items.push(...await help.items(u).catch(()=>[]));
     for(const {a,p:pr} of await instructions.openProposals(await listAgents()).catch(()=>[]))if(admin||users.agentOwner(a)===u.id)items.push({id:'instr|'+a+'|'+pr.id,kind:'instructions',agent:a,pid:pr.id,title:(NAMES[a]||a)+': new instructions wait for your approval',detail:pr.why,created:pr.at,from:null});
     // the message that led to it is from the agent's newest chat, whoever's: a member sees it only when that chat is theirs
-    const shown=forPopup(items);return admin?shown:shown.map(x=>x.from&&users.ownerOf(x.from.chat)!==u.id?{...x,from:null}:x)}
+    // a member sees (and counts) only what they can act on themselves (7 Nov 2026, clean-install test: members saw the
+    // count of admin-only items they could not do anything about)
+    const shown=forPopup(items).filter(x=>admin||memberCan(x));return admin?shown:shown.map(x=>x.from&&users.ownerOf(x.from.chat)!==u.id?{...x,from:null}:x)}
 // the optional evening line in the bell (System › Settings › Notifications, off by default): once a day at 19:00 local
 // time, how many things fixed themselves today and whether anything needs you
 const notifySettings=async()=>({daily:false,...await readFile(path.join(DATA,'notify.json'),'utf8').then(JSON.parse).catch(()=>({}))});
