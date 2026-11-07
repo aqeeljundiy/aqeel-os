@@ -1910,7 +1910,7 @@ async function logo(req,res){
 /* ---------- live screens: the shared one (noVNC on 127.0.0.1:6080) and one per agent (screens.mjs) ---------- */
 const screens=createScreens({keepOn:a=>agentAds.keepOn(a)});
 // every agent's own AdsPower on its own screen, as its own user, with its own port and sign-in (app/agent-adspower.mjs, 1 Nov 2026)
-const agentAds=createAgentAdspower({DATA,HERMES_HOME,screens,wanted:a=>optins.on('adspower',a),codeUser:a=>agentDefaults.codeUser(a),agentNames,readConfig,pick,withAgent,live:LIVE_APP,nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a),skip:async a=>a===HELP_AGENT||await isTestAgent(a),
+const agentAds=createAgentAdspower({DATA,HERMES_HOME,screens,wanted:a=>optins.on('adspower',a),help:a=>a===HELP_AGENT,codeUser:a=>agentDefaults.codeUser(a),agentNames,readConfig,pick,withAgent,live:LIVE_APP,nameOf:a=>NAMES[a]||(a==='default'?'aqeelOS':a),skip:async a=>a===HELP_AGENT||await isTestAgent(a),
  mcp:(a,m,p,b)=>fetch(`${DASH.origin}/api/mcp/servers${p}?profile=${encodeURIComponent(a)}`,{method:m,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:b?JSON.stringify(b):undefined,signal:AbortSignal.timeout(30000)}).then(async r=>{if(!r.ok&&r.status!==404)throw new Error('MCP '+m+' '+r.status+' '+(await r.text().catch(()=>'')).slice(0,120))})});
 const SCREEN=new URL(env.UI_SCREEN||'http://127.0.0.1:6080');
 const BUILD=String(Date.now());

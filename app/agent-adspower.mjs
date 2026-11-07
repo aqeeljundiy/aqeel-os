@@ -49,7 +49,7 @@ export const parseListen=t=>String(t).split('\n').slice(1).map(l=>l.trim().split
 // (mine(row) says a socket is this copy's, for agents that share a user); /status then tells which one it is
 export const apiCandidates=(rows,{uid,own,mine=()=>true})=>[...new Set(rows.filter(r=>r.uid===uid&&(r.port===own||r.port>=ADS_PORT&&r.port<=ADS_LAST)&&mine(r)).map(r=>r.port))].sort((a,b)=>(b===own)-(a===own)||a-b);
 
-export function createAgentAdspower({DATA,HERMES_HOME,screens,codeUser,agentNames,readConfig,pick,withAgent,mcp,nameOf=a=>a,skip=async()=>false,wanted=async()=>true,live=false,log=m=>console.log(m),portsFile=null}){
+export function createAgentAdspower({DATA,HERMES_HOME,screens,codeUser,agentNames,readConfig,pick,withAgent,mcp,nameOf=a=>a,skip=async()=>false,help=a=>false,wanted=async()=>true,live=false,log=m=>console.log(m),portsFile=null}){
  const HOME=homedir(),FILE=path.join(DATA,'agent-adspower.json'),PORTS=portsFile||path.join(HOME,'.aqeelos-adspower-ports');
  const SRC=path.join(HOME,'apps','adspower','opt','adspower-global'),BIN_DIR=path.join(HOME,'workspaces','.aqeelos-adspower'),BIN=path.join(BIN_DIR,'adspower_global');
  const KEY=path.join(HERMES_HOME,'agent-ssh','id_ed25519'),MCP_SCRIPT=new URL('../scripts/adspower-mcp.sh',import.meta.url).pathname;
@@ -149,9 +149,10 @@ export function createAgentAdspower({DATA,HERMES_HOME,screens,codeUser,agentName
   // its tool talks to the port its copy really listens on (its own one, once the copy runs with the shim)
   for(const a of await agents())if(p[a]){const lp=await livePort(a).catch(()=>null);if(lp&&lp!==p[a])realPort[a]=lp;else delete realPort[a];seen[a]=lp||p[a]}
   await writePorts();
-  for(const a of await agentNames({copies:true})){if(!NAME.test(a)||await skip(a))continue;
+  for(const a of await agentNames({copies:true})){if(!NAME.test(a)||help(baseOf(a)))continue;
+   // switched off (a test agent too: 7 Nov 2026, a real agent listed as a test agent kept its copy): its tool goes
    if(!await wanted(baseOf(a))){if(pick(await readConfig(a).catch(()=>null)||{},'mcp_servers.AdsPower'))await withAgent(a,()=>mcp(a,'DELETE','/AdsPower')).then(()=>log('AdsPower tool removed from '+a+' (switched off)'),e=>log('AdsPower tool '+a+': '+e.message));continue}
-   if(!p[baseOf(a)])continue;
+   if(await skip(a)||!p[baseOf(a)])continue;
    const want={ADSPOWER_PORT:String(seen[baseOf(a)]||p[baseOf(a)]),ADSPOWER_AGENT:baseOf(a),ADSPOWER_NAME:nameOf(baseOf(a))};
    const ok=c=>{const s=pick(c||{},'mcp_servers.AdsPower');return s&&s.command===MCP_SCRIPT&&Object.entries(want).every(([k,v])=>String(s.env?.[k]??'')===v)};
    if(ok(await readConfig(a).catch(()=>null)))continue;
@@ -197,7 +198,7 @@ its own data and its own sign-in. No other agent uses it.
    const lp=p.app?await livePort(a).catch(()=>null):null;if((lp||port)!==(realPort[a]||port)){if(lp&&lp!==port)realPort[a]=lp;else delete realPort[a];moved=true}
    if(!await codeUser(a).catch(()=>null)){keep.add(a);const t=new Date();await utimes(path.join(screens.homeOf(a),'bot-desktop','activity'),t,t).catch(()=>{})}}
   // a copy still running for an agent switched off (or after the switch was turned off): stopped
-  const on=new Set(await agents());for(const [a,port] of Object.entries(db.ports||{})){if(on.has(a)||!NAME.test(a)||await skip(a).catch(()=>true))continue;const p=r.get(port)||{};if(p.loop||p.app)await retire(a).catch(()=>{})}
+  const on=new Set(await agents());for(const [a,port] of Object.entries(db.ports||{})){if(on.has(a)||!NAME.test(a)||help(a))continue;const p=r.get(port)||{};if(p.loop||p.app)await retire(a).catch(()=>{})}
   keepSet=keep;if(moved)tools().catch(()=>{})}finally{ticking=false}}
  if(live){setTimeout(()=>{tick().catch(e=>log('AdsPower tick: '+e.message));tools().catch(()=>{});skill().catch(()=>{})},45000).unref?.();
   setInterval(()=>tick().catch(()=>{}),60000).unref();setInterval(()=>{tools().catch(()=>{});skill().catch(()=>{})},600000).unref()}
