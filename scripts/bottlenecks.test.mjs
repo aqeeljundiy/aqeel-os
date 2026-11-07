@@ -45,7 +45,8 @@ await t('a group counts only when it is in the agent\'s settings: its team group
  const bio=configuredGroups('biomarkers-support',{teamGroups:tg,texts:['telegram:\n  allowed_chats: [-1003989506863]','TELEGRAM_BOT_TOKEN=123:abc']});
  assert.deepEqual([...bio],['-1003989506863']);assert.equal(bio.has('-1003999095054'),false,'another agent\'s team group is not its own');
  assert.deepEqual([...configuredGroups('cont-socmed',{teamGroups:tg,texts:['model: x','PORT=4400']})],[],'a group it only chatted in once is history');
- assert.deepEqual([...configuredGroups('x',{texts:['HOME_CHANNEL=-5390379831']})],['-5390379831'])});
+ assert.deepEqual([...configuredGroups('x',{texts:['HOME_CHANNEL=-5390379831']})],['-5390379831']);
+ assert.deepEqual([...configuredGroups('default',{texts:['#     # allowed_chats: ["-1001234567890"]','telegram:\n  # home: -1009876543210','x: 1']})],[],'commented examples are not settings')});
 await t('an app with its own sign-in item takes the agents\' reports about it; that item\'s button opens the sign-in',()=>{
  const p=forPopup([{id:'signin|a|slack',kind:'signin',agent:'a',agentName:'a',title:'Slack needs signing in',signin:{name:'slack'}},rep('sesa','A sign-in for Slack (OAuth), no tokens')]);
  assert.equal(p.length,1);assert.equal(p[0].kind,'signin');assert.deepEqual(p[0].also,['report|rsesa36'.replace('36',String('A sign-in for Slack (OAuth), no tokens'.length))])});

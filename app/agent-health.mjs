@@ -79,7 +79,9 @@ export function duplicateProcesses(rows,agentOf){const byPid=new Map(rows.map(r=
 // config.yaml or .env). Groups it merely chatted in once (state.db) are history: a bot gone from those is not a problem
 // (Continue - Socials and Longevity - Support Agents were flagged that way, and neither was in the agent's settings).
 export function configuredGroups(agent,{teamGroups={},texts=[]}={}){const out=new Set();const g=(teamGroups.groups||teamGroups)[agent];
- if(g?.chatId!=null)out.add(String(g.chatId));for(const t of texts)for(const m of String(t||'').matchAll(/(?<![\w-])(-100\d{6,}|-\d{9,12})(?!\d)/g))out.add(m[1]);return out}
+ if(g?.chatId!=null)out.add(String(g.chatId));
+ // comments are examples, not settings (7 Nov 2026: the engine config's commented "allowed_chats: [-1001234567890]")
+ for(const t of texts.map(x=>String(x||'').split('\n').filter(l=>!/^\s*#/.test(l)).join('\n')))for(const m of String(t).matchAll(/(?<![\w-])(-100\d{6,}|-\d{9,12})(?!\d)/g))if(!/1234567890$/.test(m[1]))out.add(m[1]);return out}
 export function memberProblem(agent,chat,ans){const d=String(ans?.description||'').toLowerCase(),st=ans?.result?.status;
  const gone=ans&&(ans.ok===false&&/kicked|not a member|chat not found|bot was blocked|have no rights|chat_write_forbidden|group chat was upgraded/.test(d)||st==='left'||st==='kicked');
  if(!gone)return null;const name=chat.title||chat.id;
