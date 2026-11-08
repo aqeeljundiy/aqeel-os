@@ -1,7 +1,7 @@
 // The real-life test after every deploy (scripts/live-test.mjs): its decisions, without a box.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {ownServers,mustList,overdue,replied,answered,summary,heard,sawRed} from './live-test.mjs';
+import {ownServers,mustList,overdue,replied,answered,summary,heard,sawRed,startFault} from './live-test.mjs';
 
 test('only the agent’s own local aqeelOS tool servers are checked',()=>{
  assert.deepEqual(ownServers({mcp_servers:{'aqeelos-notify':{url:'http://127.0.0.1:4400/mcp/notify/a/x'},'aqeelos-self':{url:'http://127.0.0.1:4400/mcp/self/a/y'},'aqeelos-off':{url:'http://127.0.0.1:4400/x',enabled:false},
@@ -24,3 +24,10 @@ test('skipped checks never fail the test; any failed one does',()=>{
 test('the voice clip counts as heard when the transcript has its word; the picture counts as seen when the reply names red',()=>{
  assert.equal(heard('Deploy check. The word is orange.'),true);assert.equal(heard('Deploy check.'),false);assert.equal(heard(undefined),false);
  assert.equal(sawRed('LT1A2B3C Red'),true);assert.equal(sawRed('LT1A2B3C reddish'),false)});
+
+test('the test agent not being set up is a setup fault, never a reason to undo; a set-up agent that cannot answer is a failure',()=>{
+ assert.equal(startFault(401,'{"error":{"message":"Invalid gateway API key (API_SERVER_KEY)","type":"gateway_auth_error"}}'),'setup');
+ assert.equal(startFault(500,"API server rejected request for profile 'aq-livetest': no profile-scoped API_SERVER_KEY is configured"),'setup');
+ assert.equal(startFault(404,'not found'),'setup');assert.equal(startFault(400,'unknown provider x'),'setup');assert.equal(startFault(400,'Model is not authenticated'),'setup');
+ assert.equal(startFault(500,'Internal Server Error'),'fail');assert.equal(startFault(0,'fetch failed'),'fail');assert.equal(startFault(503,'engine is restarting'),'fail');
+ assert.deepEqual(summary([{name:'agent',skipped:true,setup:true,why:'the test agent is not set up'},{name:'tools',ok:true}]),{ok:true,failed:[]})});
