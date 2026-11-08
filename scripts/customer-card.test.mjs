@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,readFile,appendFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {createCustomerTools,TOOLS} from '../app/customer-tools.mjs';
+import {createCustomerTools,TOOLS,DEFAULT_CARD_MAX} from '../app/customer-tools.mjs';
 import {createPaidLabels} from '../app/paid-labels.mjs';
 import {guardReply} from '../app/kirimdev.mjs';
 
@@ -30,7 +30,7 @@ test('card is offered only when the line has a card helper; QRIS and VA stay as 
 
 test('a card link is for this customer only, within the limits, adds up, one amount; the model gets the link and not the ids',async()=>{const t=await make(),k=t.tok();
  assert.match((await card(t.C,k,{amounts:[5],order_total:5})).text,/10000 to 5000000/);
- assert.match((await card(t.C,k,{amounts:[6000000],order_total:6000000})).text,/10000 to 5000000/);
+ assert.match((await card(t.C,k,{amounts:[50000001],order_total:50000001})).text,/10000 to 50000000/);
  assert.match((await card(t.C,k,{order_total:1000000})).text,/add up to 3900000/);
  assert.match((await card(t.C,k,{amounts:[2000000,1900000]})).text,/one amount: the whole order total/);
  assert.match((await card(t.C,k,{products:['I-Reta']})).text,/sales labels/);assert.equal(t.ran.length,0,'none of those ran the helper');
@@ -76,3 +76,12 @@ test('paid check: expired closes without labels; a card link is followed for 25 
  const o=await paid({v:'PENDING'});await o.add();o.later(2*3600e3);await o.P.tick();assert.equal(o.asked.length,1);o.later(60e3);await o.P.tick();assert.equal(o.asked.length,1,'not every minute');o.later(10*60e3);await o.P.tick();assert.equal(o.asked.length,2);
  o.st.v='PAID';o.later(10*60e3);await o.P.tick();assert.equal(o.labelled.length,1,'paid hours later still counts');
  const old=await paid({v:'PAID'});await old.add();old.later(26*3600e3);await old.P.tick();assert.equal(old.asked.length,0,'older than 25 hours: not followed')});
+
+test('card links use the card cap, Rp 50,000,000 unless the line says otherwise; QRIS keeps the line\'s max; the minimum is the line\'s',async()=>{const t=await make();
+ assert.equal(DEFAULT_CARD_MAX,50000000);assert.ok((await card(t.C,t.tok(),{amounts:[6080000],order_total:6080000})).text.startsWith(LINK),'above the QRIS limit, one link');
+ assert.ok((await card(t.C,t.tok(),{amounts:[50000000],order_total:50000000})).text.startsWith(LINK),'exactly the cap');
+ assert.match((await t.C.call(A,t.tok(),'create_payment',{amounts:[6080000],order_total:6080000,name:'Ani'})).text,/10000 to 5000000/,'QRIS unchanged');
+ assert.match((await card(t.C,t.tok(),{amounts:[9999],order_total:9999})).text,/10000 to 50000000/,'the line minimum');
+ assert.match((await card(t.C,t.tok(),{amounts:[30000000,20000000],order_total:50000000})).text,/one amount/,'never split');
+ const l=await t.list();assert.equal(l.inputSchema.properties.amounts.items.maximum,50000000);assert.match(l.description,/never split, Rp 10,000 to Rp 50,000,000/);
+ const u=await make({rules:{cardMax:20000000}});assert.match((await card(u.C,u.tok(),{amounts:[20000001],order_total:20000001})).text,/10000 to 20000000/);assert.ok((await card(u.C,u.tok(),{amounts:[20000000],order_total:20000000})).text.startsWith(LINK))});
