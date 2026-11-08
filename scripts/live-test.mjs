@@ -39,6 +39,12 @@ export const answered=(reply,nonce)=>String(reply||'').includes(nonce);
 // the voice clip says "Deploy check. The word is orange."; the picture is plain red
 export const heard=t=>/\borange\b/i.test(String(t||''));
 export const sawRed=t=>/\bred\b/i.test(String(t||''));
+// why the test agent could not be used. "setup": the test agent itself is not ready (no key, no profile, its model not
+// signed in): reported, never a reason to undo a good deploy. "fail": a set-up agent cannot answer: a real failure.
+export function startFault(status,text=''){const t=String(text);
+ if(status===401||status===403||status===404||/API_SERVER_KEY|gateway_auth_error|profile[^\n]*not found|no (?:such )?profile/i.test(t))return 'setup';
+ if(/no (?:model|provider|credentials)|not (?:authenticated|configured|signed in)|unknown provider|plugin[^\n]*not (?:enabled|found)/i.test(t))return 'setup';
+ return 'fail'}
 export function summary(results){const bad=results.filter(r=>!r.ok&&!r.skipped);return {ok:!bad.length,failed:bad.map(r=>r.name+': '+r.why)}}
 
 /* ---------- the checks ---------- */
@@ -89,16 +95,29 @@ async function ensureTestAgent(){const {isAgent,readConfig,setKey,pick}=await im
  if(!r.ok)throw Error('could not make the test agent ('+r.status+')');
  const m=await readConfig('default').catch(()=>null);if(pick(m||{},'model.provider')){await setKey(TEST_AGENT,'model.provider',pick(m,'model.provider'));await setKey(TEST_AGENT,'model.default',pick(m,'model.default'))}
  return 'made'}
+// what every new agent gets from aqeelOS's own setup (accounts.mjs): the gateway key in its .env, and the plugin of its model.
+// Run each time, so a test agent made before this existed gets them too. Returns true when something was added.
+async function equipTestAgent(){const {editEnv,readConfig,pick,hermes}=await import('../app/agentops.mjs');const {cp,mkdir:mk}=await import('node:fs/promises');
+ const dir=homeOf(TEST_AGENT),key=process.env.API_SERVER_KEY||'';let changed=false;
+ if(key&&!/^API_SERVER_KEY=/m.test(await readFile(path.join(dir,'.env'),'utf8').catch(()=>''))){await editEnv(path.join(dir,'.env'),cur=>/^API_SERVER_KEY=/m.test(cur)?null:cur+(cur&&!cur.endsWith('\n')?'\n':'')+'API_SERVER_KEY='+key+'\n');changed=true}
+ const main=await readConfig('default').catch(()=>null)||{},me=await readConfig(TEST_AGENT).catch(()=>null)||{},plugins=pick(main,'plugins.enabled')||[],want=String(pick(me,'model.provider')||'');
+ const pl=plugins.find(p=>p===want||String(p).startsWith(want));
+ if(pl&&!(pick(me,'plugins.enabled')||[]).includes(pl)){await mk(path.join(dir,'plugins'),{recursive:true});await cp(path.join(HERMES_HOME,'plugins',pl),path.join(dir,'plugins',pl),{recursive:true}).catch(()=>{});await cp(path.join(HERMES_HOME,'plugins','.install-metadata.json'),path.join(dir,'plugins','.install-metadata.json')).catch(()=>{});
+  const r=await hermes(TEST_AGENT,['plugins','enable',pl],{timeout:150000,retries:2});if(r?.ok===false)throw Error('could not turn the model plugin on: '+String(r.err||'').slice(0,120));changed=true}
+ return changed}
 async function checkAgent(){const key=process.env.API_SERVER_KEY||'';const h={authorization:'Bearer '+key,'content-type':'application/json'};
- const st=await ensureTestAgent();
- // a test agent made just now may need a minute or two before the engine serves it
- let sid=null;for(let i=0;i<(st==='made'?24:3)&&!sid;i++){const s=await fetch(GATE+'/p/'+TEST_AGENT+'/api/sessions',{method:'POST',headers:h,body:'{}',signal:AbortSignal.timeout(60000)}).then(r=>r.json()).catch(()=>({}));sid=s.id||s.session?.id||s.session_id;if(!sid)await sleep(5000)}
- if(!sid)return st==='made'?{skipped:true,why:'the test agent was made now; the engine serves it from the next check'}:{ok:false,why:'the test agent could not start a chat'};
+ const st=await ensureTestAgent();let fresh=st==='made';
+ try{if(await equipTestAgent())fresh=true}catch(e){return {skipped:true,setup:true,why:'the test agent is not set up: '+e.message}}
+ // a test agent made or equipped just now may need a minute or two before the engine serves it
+ let sid=null,last={status:0,text:''};for(let i=0;i<(fresh?24:3)&&!sid;i++){const x=await fetch(GATE+'/p/'+TEST_AGENT+'/api/sessions',{method:'POST',headers:h,body:'{}',signal:AbortSignal.timeout(60000)}).catch(e=>({status:0,text:async()=>e.message}));
+  const t=await x.text();last={status:x.status,text:t};let j={};try{j=JSON.parse(t)}catch{}sid=j.id||j.session?.id||j.session_id;if(!sid)await sleep(5000)}
+ if(!sid){const why=' ('+(last.status||'no answer')+': '+String(last.text).slice(0,120)+')';return fresh||startFault(last.status,last.text)==='setup'?{skipped:true,setup:true,why:'the test agent is not set up'+why}:{ok:false,why:'the test agent could not start a chat'+why}}
  const nonce='LT'+randomBytes(3).toString('hex').toUpperCase(),png=(await readFile(new URL('./fixtures/live-test-red.png',import.meta.url))).toString('base64');
  // one short reply, on the chat route that takes a picture: the check word and the picture's colour
  const r=await fetch(GATE+'/p/'+TEST_AGENT+'/v1/chat/completions',{method:'POST',headers:h,signal:AbortSignal.timeout(180000),body:JSON.stringify({model:'default',stream:false,messages:[{role:'user',content:[
   {type:'text',text:'Deploy check. Reply with exactly two words and nothing else: '+nonce+' and then the main colour of this picture.'},{type:'image_url',image_url:{url:'data:image/png;base64,'+png}}]}]})}).catch(e=>({ok:false,status:e.message,json:async()=>({})}));
- const reply=(await r.json().catch(()=>({}))).choices?.[0]?.message?.content||'';
+ const body=await r.text().catch(()=>'');let reply='';try{reply=JSON.parse(body).choices?.[0]?.message?.content||''}catch{}
+ if(!r.ok&&startFault(r.status,body)==='setup')return {skipped:true,setup:true,why:'the test agent is not set up ('+r.status+': '+body.slice(0,120)+')'};
  if(answered(reply,nonce)&&!sawRed(reply))return {ok:false,why:'the test agent answered but did not see the picture ('+String(reply).slice(0,80)+')'};
  return answered(reply,nonce)?{ok:true,why:'the test agent answered and saw the picture'}:{ok:false,why:'no answer with the check word ('+String(reply).slice(0,80)+')'}}
 
@@ -121,11 +140,11 @@ const CHECKS={tools:checkTools,schedules:checkSchedules,engine:checkEngine,media
 export async function run({since=Date.now()-15*60e3,sha='',only=null}={}){const results=[];
  for(const [name,fn] of Object.entries(CHECKS)){if(only&&!only.includes(name))continue;const t0=Date.now();
   let r;try{r=await fn(since)}catch(e){r={ok:false,why:e.message}}results.push({name,...r,ms:Date.now()-t0})}
- const s=summary(results),rec={at:Date.now(),sha,...s,results};
+ const s=summary(results),rec={at:Date.now(),sha,...s,setup:results.filter(r=>r.setup).map(r=>r.why),results};
  const f=path.join(DATA,'live-test.json'),h=await readJson(f,{runs:[]});h.runs=[rec,...(h.runs||[])].slice(0,30);
  await mkdir(DATA,{recursive:true});await writeFile(f+'.tmp',JSON.stringify(h,null,1));await rename(f+'.tmp',f);return rec}
 
 if(import.meta.url===pathToFileURL(process.argv[1]||'').href){const a=process.argv.slice(2),o={};for(let i=0;i<a.length;i+=2)o[a[i].replace(/^--/,'')]=a[i+1];
  run({since:Number(o.since)||undefined,sha:o.sha||'',only:o.only?o.only.split(','):null}).then(r=>{
-  for(const x of r.results)console.log((x.skipped?'· skipped ':x.ok?'✓ ':'✗ ')+x.name+': '+x.why+' ('+Math.round(x.ms/1000)+' s)');
+  for(const x of r.results)console.log((x.setup?'! setup ':x.skipped?'· skipped ':x.ok?'✓ ':'✗ ')+x.name+': '+x.why+' ('+Math.round(x.ms/1000)+' s)');
   console.log(r.ok?'✓ live test passed':'✗ live test failed: '+r.failed.join(' | '));process.exit(r.ok?0:1)}).catch(e=>{console.error('✗ live test could not run: '+e.message);process.exit(1)})}

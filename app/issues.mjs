@@ -133,7 +133,7 @@ export function proofPrompt(i,fix,{reloaded=null,recheck=false,deployed=false}={
 export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=async()=>false,tellOwner=async()=>{},toTeam=async()=>false,busy=async()=>0,ready=async()=>true,
  apply=async()=>({ok:true}),nameOf=a=>a,codeRoots=[],onFixed=async()=>{},checks={},quiet=()=>null,log=m=>console.log(m),launch=null,alive=null,envFiles=async()=>[],
  // kept for older callers (the Approve/Decline flow is gone)
- askOwner=null,approvalLink=null,restartSelf=null}){
+ askOwner=null,approvalLink=null,restartSelf=null,engineOk=()=>true}){
  const FILE=path.join(DATA,'issues.json'),POL=path.join(DATA,'team-policy.json'),DIR=path.join(DATA,'issues');let db=null,chain=Promise.resolve();
  // older states: approved and waiting (the old owner's OK) are queued; a failed one gets its tries again once
  const migrate=()=>{for(const i of db.items){if(i.state==='approved'||i.state==='waiting'){i.state='queued';i.decision='every issue goes to the fixer (owner, 7 Nov 2026)'}
@@ -226,7 +226,14 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   const cur=Object.values(db.runs).find(r=>!r.done);if(cur)return await check(cur,pol);if(pol.fixer?.on===false)return;
   // a change waiting to be reloaded or rolled back comes first
   {const b=db.items.find(i=>i.state==='reloaded-back');if(b)return await afterTry(b)}
-  const ap=db.items.find(i=>i.state==='applying'||i.state==='rollback');if(ap)return await reload(ap);
+  const ap=db.items.find(i=>i.state==='applying'||i.state==='rollback');
+  if(ap){
+   // a fix or rollback that needs the engine reloaded waits for the quiet hours like every other restart that can wait (8 Nov
+   // 2026: four fixer restarts between 08:33 and 08:49 WIB). A web-app reload is not an engine restart and goes on. While one
+   // waits, only urgent items start, so no second fix lands on files with an unloaded change.
+   if((ap.applyKind||'engine')!=='engine'||engineOk())return await reload(ap);
+   if(!ap.quietNoted){ap.quietNoted=true;await save();log('issues: '+ap.id+(ap.state==='rollback'?' rollback':'')+' needs an engine reload; it waits for the quiet hours')}
+   if(!await ready().catch(()=>false))return;const u=[...db.items].reverse().find(i=>i.urgent&&i.state==='queued'&&!(i.notBefore>now()));if(u)return await start(u,pol,'fix');return}
   {const d=db.items.find(i=>i.uiDirty&&!OPEN.includes(i.state));if(d){if(await busy().catch(()=>1)>0)return;d.uiDirty=false;await save();
    const r=await apply('ui','fixer '+d.id+' (files put back)').catch(e=>({ok:false,why:e.message}));if(!r?.ok){d.uiDirty=true;await save();log('issues: '+d.id+' reload of the put-back files waits: '+(r?.why||'not done'))}return}}
   if(!await ready().catch(()=>false))return;

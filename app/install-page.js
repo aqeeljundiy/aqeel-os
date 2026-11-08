@@ -91,6 +91,7 @@ ACT['eng-copy']=a=>copyText(a.dataset.cmd,'Command copied');
  const box=document.createElement('div');box.className='panel card'+(bad?' inst-note':'');box.id='ltBox';box.style.marginTop='16px';
  box.innerHTML=`<div class="inst-note-h">${icon(bad?'alert':'check',18)}<h2>Last deploy check</h2></div>
   <p class="sub">${bad?(u?(u.ok?'It failed, so the previous version was put back by itself.':'It failed, and putting the previous version back failed too.'):'It failed.'):'Passed: tool servers, schedules, the engine, a Kirimdev tester message and a test agent reply.'} ${esc(when)}${x.sha?' · version '+esc(String(x.sha).slice(0,8)):''}${u?' · now running '+esc(String(u.to).slice(0,8)):''}.</p>
+  ${(x.setup||[]).length?`<p class="sub">The test agent could not take part: ${esc(x.setup[0])}.</p>`:''}
   ${bad?`<ul class="inst-steps">${(x.failed||[]).map((f,i)=>`<li ${st(i)}>${icon('alert',14)}<span>${esc(f)}</span></li>`).join('')}</ul>`:''}`;
  el.append(box)}}
 

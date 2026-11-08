@@ -28,7 +28,7 @@ async function setup(extra={}){const d=await mkdtemp(path.join(tmpdir(),'is-'));
  const said={reply:[],owner:[],team:[]},applied=[];let busyN=0;
  const f=fake(d,extra);const I=createIssues({DATA:d,bin:'x',fixerHome:d,log:()=>{},launch:f.launch,alive:async()=>false,quiet:extra.quiet||(()=>null),
   reply:async(i,x)=>{said.reply.push(x);return true},tellOwner:async x=>said.owner.push(x),toTeam:async(a,m,x)=>{said.team.push([a,m.name,x]);return true},
-  busy:async()=>busyN,apply:async(k,why)=>{applied.push(k);return {ok:true}},envFiles:async()=>extra.envFiles||[],codeRoots:extra.codeRoots||[],onFixed:async i=>(extra.fixedOut||[]).push(i),checks:extra.checks||{}});
+  engineOk:extra.engineOk,busy:async()=>busyN,apply:async(k,why)=>{applied.push(k);return {ok:true}},envFiles:async()=>extra.envFiles||[],codeRoots:extra.codeRoots||[],onFixed:async i=>(extra.fixedOut||[]).push(i),checks:extra.checks||{}});
  return {d,I,f,said,applied,setBusy:n=>{busyN=n},db:async()=>(await I._db()).items[0],ticks:async n=>{for(let k=0;k<n;k++)await I.tick()}}}
 const quietAll=s=>s.reply.length+s.owner.length+s.team.length;
 
@@ -246,3 +246,12 @@ await t('sweep: a planned test item closes at once as a test item; an access iss
  await S.I.sweep(true);const st=Object.fromEntries((await S.I._db()).items.map(i=>[i.agent,[i.state,i.result?.summary||'']]));
  assert.deepEqual(st.default,['closed','Test item, closed.']);assert.equal(st['continue-threads'][0],'gone');assert.match(st['continue-threads'][1],/own workspace/);assert.equal(st.sesa[0],'open');assert.equal(quietAll(S.said),0)});
 console.log(n+' passed');
+
+await t('a fixer reload of the engine, fix or rollback, waits for the quiet hours; a web-app reload does not; only urgent items start meanwhile',async()=>{
+ let quiet=false;const d0=await mkdtemp(path.join(tmpdir(),'iss-q-')),file=path.join(d0,'f.py');await writeFile(file,'x');await writeFile(file+'.bak','y');
+ const S=await setup({engineOk:()=>quiet,fix:[{status:'changed',apply:'engine',changes:[{file,backup:file+'.bak'}],check:'c',summary:'needs the engine'}],proof:[{status:'proven',proof:'ok'}]});
+ await S.I.file({agent:'a1',missing:'needs the engine'});await S.ticks(3);
+ assert.equal((await S.db()).state,'applying');assert.equal(S.applied.length,0,'no engine restart outside the quiet hours');
+ quiet=true;await S.ticks(2);assert.deepEqual(S.applied,['engine'],'reloaded once the quiet hours came');
+ const U=await setup({engineOk:()=>false,fix:[{status:'changed',apply:'ui',changes:[{file,backup:file+'.bak'}],check:'c',summary:'web app'}],proof:[{status:'proven',proof:'ok'}]});
+ await U.I.file({agent:'a1',missing:'web app only'});await U.ticks(3);assert.deepEqual(U.applied,['ui'],'a web-app reload goes on')});

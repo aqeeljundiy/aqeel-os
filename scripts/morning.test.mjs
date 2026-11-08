@@ -23,7 +23,7 @@ await t('issues: fixed by itself, a person, the daily deploy, being fixed; old, 
  const line=morningLine(l);assert.equal(line,'Yesterday: 4 things went wrong. Fixed by itself: missing skill files: maps (Sesa).\nNot fixed yet: A new API key for Xendit (Continue Support, needs you in Bottlenecks); app sign-ins: composio (Sesa, the fixer is on it); Kirimdev labels are not set after a payment (Sesa, fix waits for the daily deploy).')});
 await t('Activity: a tool server that stopped on several agents and works again is one fixed item; one still down is not',()=>{
  const row=(title,t,x={})=>({title,t,cls:'activity',...x});
- const l=fromActivity([row('Donna AI: the tool server "aqeelos-notify" works again',NOW-H),row('Sesi AI: the tool server "aqeelos-notify" stopped connecting',NOW-3*H,{count:4,since:NOW-6*H}),
+ const l=fromActivity([row('Donna AI: the tool server "aqeelos-notify" works again',NOW-H),row('Sample Agent: the tool server "aqeelos-notify" stopped connecting',NOW-3*H,{count:4,since:NOW-6*H}),
   row('Pixel Agent: the tool server "aqeelos-notify" stopped connecting',NOW-3*H),row('Continue Support: the tool server "aqeelos-notify" is missing its tools',NOW-2*H),
   row('Donna AI: the tool server "notion" stopped connecting',NOW-2*H),row('Donna AI (extra number): the tool server "notion" stopped connecting',NOW-2*H),
   row('Sesa finished a run it started itself (2 min). Reason: aqeelOS health: A schedule failed',NOW-H),row('Old: the tool server "x" stopped connecting',since-H)],o);
