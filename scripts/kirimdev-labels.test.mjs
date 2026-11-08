@@ -130,3 +130,9 @@ test('Line settings saves with a tester known by their chat only (Aqeel on Randy
  await t.k.saveLine('continue-support',{phoneNumberId:'111111',testers:[{who:'Aqeel (3417)',phone:''},{who:'Team',phone:'628123'}],labels:['New Leads']});
  assert.deepEqual(JSON.parse(await readFile(f,'utf8')).lines['continue-support'].testers,[{who:'Aqeel (3417)',conversationId:'cnv_Q'},{who:'Team',phone:'628123'}]);
  await assert.rejects(t.k.saveLine('continue-support',{phoneNumberId:'111111',testers:[{who:'Someone new',phone:''}]}),/not a phone number/,'a new tester still needs a number')});
+
+test('Line settings: the card helper is kept, emptied for Automatic, and must be a file in the agent\'s folder',async()=>{const t=await make();const P='111111',pay=async()=>(await t.k.status())[0].settings.payment;
+ await t.k.saveLine('continue-support',{phoneNumberId:P,payment:{card:'.tools/card2',currency:'Rp',min:'10000',max:'5000000'}});assert.equal((await pay()).card,'.tools/card2');
+ await t.k.saveLine('continue-support',{phoneNumberId:P,payment:{currency:'Rp',min:'10000',max:'5000000'}});assert.equal((await pay()).card,'.tools/card2','a save that does not mention it keeps it');
+ await assert.rejects(t.k.saveLine('continue-support',{phoneNumberId:P,payment:{card:'../x/.tools/card'}}),/file in the agent/);
+ await t.k.saveLine('continue-support',{phoneNumberId:P,payment:{card:'',currency:'Rp',min:'10000',max:'5000000'}});assert.equal((await pay()).card,undefined,'Automatic')});
