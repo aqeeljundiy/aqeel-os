@@ -59,7 +59,7 @@ import {createNews,eveningLine} from './news.mjs';
 import {createMorning} from './morning.mjs';
 import {mayStartAgents,busyTotal,guardPaused} from './busy.mjs';
 import {stopGatewayCmd,stopTimeoutMs} from './gateway-stop.mjs';
-import {createRestartLater} from './restart-later.mjs';
+import {createRestartLater,inQuiet} from './restart-later.mjs';
 import {createHelp} from './help.mjs';
 import {createLive} from './live.mjs';
 import {createBackups} from './backup.mjs';
@@ -642,7 +642,7 @@ function restartGateway(why,{wait=true,waitMax=360,auto=false,bridges=false,rest
 // restarts that can wait go to the quiet hours (restart-later.mjs); an immediate one covers them
 const later=createRestartLater({DATA,restart:why=>restartGateway(why),tz:()=>installTz()||process.env.TZ||''});
 const restartLater=why=>later.add(why).catch(e=>console.warn('restart later',e.message));
-if(PORT===4400)setInterval(()=>later.tick().catch(e=>console.warn('quiet-hours restart',e.message)),5*60e3).unref();
+if(LIVE_APP)setInterval(()=>later.tick().catch(e=>console.warn('quiet-hours restart',e.message)),5*60e3).unref();
 // a minute after aqeelOS restarted the engine, every tool server is checked and fixed (automation-guard.mjs); an engine
 // update runs its own check after its restarts
 let guardT=null;function guardAfterRestart(since){if(!LIVE_APP)return;clearTimeout(guardT);guardT=setTimeout(()=>{if(engineUpd.busy())return;guard.fullCheck({repair:true,since,why:'checked after an engine restart'}).then(r=>{if(r.problems.length||r.fixed.length)console.log('automations after restart: fixed',r.fixed.join(', ')||'nothing','· still wrong:',r.problems.join('; ')||'nothing')}).catch(e=>console.warn('automations after restart',e.message))},60000);guardT.unref?.()}
@@ -1508,7 +1508,7 @@ async function issueApply(kind,why){if(kind==='ui'){console.log('restarting the 
  return await gatewayPid()?{ok:true}:{ok:false,why:'the engine did not come back yet'}}
 const issueEnvFiles=async()=>[path.join(HERMES_HOME,'.env'),...(await readdir(path.join(HERMES_HOME,'profiles')).catch(()=>[])).map(a=>path.join(HERMES_HOME,'profiles',a,'.env'))];
 const issues=createIssues({DATA,home:homedir(),bin:path.join(homedir(),'.local','bin','aqeelos'),fixerHome:homedir(),nameOf:a=>agentName(a),
- reply:replyInTopic,tellOwner:srToOwner,toTeam:issueToTeam,quiet:alertQuiet,busy:async()=>busyNow(),ready:async()=>!gwStopped&&!gwRestarting&&!!await gatewayPid(),apply:issueApply,envFiles:issueEnvFiles,
+ reply:replyInTopic,tellOwner:srToOwner,toTeam:issueToTeam,quiet:alertQuiet,busy:async()=>busyNow(),ready:async()=>!gwStopped&&!gwRestarting&&!!await gatewayPid(),apply:issueApply,engineOk:()=>inQuiet(new Date(),installTz()||process.env.TZ||''),envFiles:issueEnvFiles,
  // a proven fix for an agent's report closes the report too (it stays on Health until then, never in the popup)
  onFixed:async i=>{const k=String(i.healthKey||'');if(k.startsWith('report|'))await bottlenecks.done(k);else if(i.report)await bottlenecks.done('report|'+i.report)},
  // the sweep's checks (issues.mjs whyGone): is the problem an item is about gone by itself?
