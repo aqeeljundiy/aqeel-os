@@ -101,7 +101,7 @@ import {sysTz,localParts,zoneName} from './tz.mjs';
 import {engineKeys,ensureEngineKeys,uiSecret,PUBLIC_URL_REF,PUBLIC_HOST_REF,urlRef,hostSetting,installTz,applyTz,validTz,createInstallRoutes} from './install-routes.mjs';   // the box's time zone (7 Nov 2026: was Asia/Jakarta in code)   // live context each message + traceback guard (7 Nov 2026)
 import {createAgentCare} from './agent-care.mjs';
 import {createPaidLabels} from './paid-labels.mjs';   // Customer and S- labels once a payment is confirmed paid (8 Nov 2026)
-import {createCustomerTools} from './customer-tools.mjs';   // customer-run sandbox (7 Nov 2026)   // old setup, checks after changes, script-only schedules (7 Nov 2026)
+import {createCustomerTools,DEFAULT_CARD_MAX} from './customer-tools.mjs';   // customer-run sandbox (7 Nov 2026)   // old setup, checks after changes, script-only schedules (7 Nov 2026)
 import {readPicture,emojiSlugs,emojiAuto,AVATAR_TYPES} from './avatar-file.mjs';
 import {parseEnv,setEnvLine,channelWho,globalWho,removePerson,engineChange,approvedWithout,samePerson as allowSame} from './allowlist.mjs';
 
@@ -1379,7 +1379,7 @@ async function kirimdevSetup(agent){const ags=await listAgents(),L=await kirimde
   const tools=path.join(homedir(),'workspaces',agent,'.tools');helpers=(await readdir(tools,{withFileTypes:true}).catch(()=>[])).filter(e=>e.isFile()&&/^(qris|pay|payment|xendit|invoice)[\w.-]*$/i.test(e.name)).map(e=>({path:'.tools/'+e.name,style:/^pay/i.test(e.name)?'send':'picture'}));cardHelpers=(await readdir(tools,{withFileTypes:true}).catch(()=>[])).filter(e=>e.isFile()&&/^card[\w-]*$/i.test(e.name)).map(e=>({path:'.tools/'+e.name}))}
  // the labels a person can allow the agent: Kirimdev's own, minus the ones only a person or a payment sets
  const labels=(await kirimdev.labelList().catch(()=>[])).map(x=>x.name).filter(n=>!LABEL_NEVER.test(n)).sort((a,b)=>a.localeCompare(b));
- return {agents,labels,cardHelpers,groups:[...groups.values()].sort((a,b)=>(b.own-a.own)||String(a.name).localeCompare(b.name)),helpers,team:agent?await teamGroups.get(agent).catch(()=>null):null}}
+ return {agents,labels,cardHelpers,cardMax:DEFAULT_CARD_MAX,groups:[...groups.values()].sort((a,b)=>(b.own-a.own)||String(a.name).localeCompare(b.name)),helpers,team:agent?await teamGroups.get(agent).catch(()=>null):null}}
 // after a line is made or removed: the agent's customer tools and its aqeelOS block follow
 const kirimdevChanged=()=>{ensureCustomerServer().catch(e=>console.warn('customer tools',e.message));if(LIVE_APP)writeAgentContext().catch(()=>{})};
 // customer runs get only these tools (customer-tools.mjs); the payment helper runs as the agent's own user

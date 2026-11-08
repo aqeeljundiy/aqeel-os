@@ -136,3 +136,10 @@ test('Line settings: the card helper is kept, emptied for Automatic, and must be
  await t.k.saveLine('continue-support',{phoneNumberId:P,payment:{currency:'Rp',min:'10000',max:'5000000'}});assert.equal((await pay()).card,'.tools/card2','a save that does not mention it keeps it');
  await assert.rejects(t.k.saveLine('continue-support',{phoneNumberId:P,payment:{card:'../x/.tools/card'}}),/file in the agent/);
  await t.k.saveLine('continue-support',{phoneNumberId:P,payment:{card:'',currency:'Rp',min:'10000',max:'5000000'}});assert.equal((await pay()).card,undefined,'Automatic')});
+
+test('Line settings: the highest card amount is saved, kept when not mentioned, empty for the default, and checked',async()=>{const t=await make();const P='111111',pay=async()=>(await t.k.status())[0].settings.payment,base={currency:'Rp',min:'10000',max:'5000000'};
+ await t.k.saveLine('continue-support',{phoneNumberId:P,payment:{...base,cardMax:'50000000'}});assert.equal((await pay()).cardMax,50000000);assert.equal((await pay()).max,5000000,'the QRIS limit stays');
+ await t.k.saveLine('continue-support',{phoneNumberId:P,payment:base});assert.equal((await pay()).cardMax,50000000,'a save that does not mention it keeps it');
+ await assert.rejects(t.k.saveLine('continue-support',{phoneNumberId:P,payment:{...base,cardMax:'abc'}}),/whole number/);
+ await assert.rejects(t.k.saveLine('continue-support',{phoneNumberId:P,payment:{...base,cardMax:'5000'}}),/below the lowest/);
+ await t.k.saveLine('continue-support',{phoneNumberId:P,payment:{...base,cardMax:''}});assert.equal((await pay()).cardMax,undefined,'empty: the default')});

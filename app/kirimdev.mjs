@@ -461,7 +461,10 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
     // the card helper: a file in the agent's folder; empty = Automatic (.tools/card); a save that does not mention it keeps it
     const card='card' in p?str(p.card,120):str(cur?.payment?.card,120);if(card){if(!/^[\w.\/-]+$/.test(card)||card.split('/').includes('..')||card.startsWith('/'))throw Error('The card helper is a file in the agent’s folder, like .tools/card.');o.card=card}
     if(p.currency)o.currency=str(p.currency,6);for(const k of ['min','max'])if(p[k]!==''&&p[k]!=null){const n=Number(p[k]);if(!Number.isInteger(n)||n<0)throw Error('Payment amounts are whole numbers.');o[k]=n}
-    if(o.min!=null&&o.max!=null&&o.min>o.max)throw Error('The lowest payment is above the highest.');l.payment=o}}
+    if(o.min!=null&&o.max!=null&&o.min>o.max)throw Error('The lowest payment is above the highest.');
+    // the highest card link: empty = the default (customer-tools.mjs); a save that does not mention it keeps it
+    const cm='cardMax' in p?p.cardMax:cur?.payment?.cardMax;if(cm!==''&&cm!=null){const n=Number(cm);if(!Number.isInteger(n)||n<=0)throw Error('The highest card amount is a whole number.');if(o.min!=null&&n<o.min)throw Error('The highest card amount is below the lowest payment.');o.cardMax=n}
+    l.payment=o}}
   if('labels' in b){const A=[...new Set((Array.isArray(b.labels)?b.labels:[]).map(x=>str(x,50)).filter(Boolean))];if(A.length>120)throw Error('120 labels at most.');
    const bad=A.filter(x=>LABEL_NEVER.test(x));if(bad.length)throw Error(bad.join(', ')+': only a person or a confirmed payment sets '+(bad.length>1?'these':'this')+', never the agent.');
    if(A.length)l.labels={...(l.labels||{}),allowed:A};else delete l.labels}
