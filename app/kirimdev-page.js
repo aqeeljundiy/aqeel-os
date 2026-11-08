@@ -70,8 +70,9 @@ const Kirim={
   const num=edit?null:(Kirim.d?.numbers?.list||[]).find(x=>x.phoneNumberId===o.pid);if(!edit&&!num)return;
   let cfg;try{cfg=await UI('/ui/kirimdev/setup?agent='+encodeURIComponent(o.agent||''))}catch(e){return fail(e)}
   const V={agent:o.agent||'',fresh:false,group:cfg.team?.chatId?String(cfg.team.chatId):'',gtype:false,topic:cfg.team?.topics?.questions??null,ttype:false,
-   lang:['','Indonesian','English'].includes(s.language||'')?(s.language||''):'other',pay:s.payment?.helper?.path||'',ptype:false,style:s.payment?.helper?.style||'picture'};
+   lang:['','Indonesian','English'].includes(s.language||'')?(s.language||''):'other',pay:s.payment?.helper?.path||'',ptype:false,style:s.payment?.helper?.style||'picture',card:s.payment?.card||'',ctype:false};
   if(V.pay&&!cfg.helpers.some(h=>h.path===V.pay)){V.ptype=true}
+  cfg.cardHelpers=cfg.cardHelpers||[];if(V.card&&!cfg.cardHelpers.some(h=>h.path===V.card))V.ctype=true;
   const free=cfg.agents.filter(a=>!a.line),i=(id,label,v,ph='',x='')=>`<label for="${id}">${esc(label)}</label><input id="${id}" value="${esc(v??'')}" placeholder="${esc(ph)}" autocomplete="off" ${x}>`;
   const LANGS=[['','Customer’s own'],['Indonesian','Indonesian'],['English','English'],['other','Other']];
   const body=`<div class="km-form">
@@ -92,6 +93,7 @@ const Kirim={
     <div class="km-2"><div>${i('kmf-rw','Reset word',(s.resetWords||['reset']).join(', '),'reset','maxlength="60"')}</div><div>${i('kmf-rt','Reset reply',s.resetText,'Test reset. Start again as a new customer.','maxlength="300"')}</div></div><p class="hint">A tester who sends the reset word starts over as a new customer.</p></section>
    <section class="km-sec"><h3>Payments</h3><label for="kmf-pay">Payment helper</label>${Kirim.field('kmf-pay','Automatic')}
     <div class="km-reveal" id="kmf-pbox" hidden>${i('kmf-pp','File in the agent’s folder',V.ptype?V.pay:'','.tools/qris','spellcheck="false"')}<div class="seg-mini km-seg" role="group" aria-label="What it does" id="kmf-style">${[['picture','Makes a QR picture'],['send','Sends it itself']].map(([k,t])=>`<button type="button" data-v="${k}" class="${V.style===k?'on':''}" aria-pressed="${V.style===k}">${t}</button>`).join('')}</div></div>
+    <label for="kmf-card">Payment helper for card</label>${Kirim.field('kmf-card','Automatic')}<div class="km-reveal" id="kmf-cbox" hidden>${i('kmf-cp','File in the agent’s folder',V.ctype?V.card:'','.tools/card','spellcheck="false"')}</div>
     <div class="km-reveal" id="kmf-limits" hidden><div class="km-3"><div>${i('kmf-cur','Currency',s.payment?.currency??'Rp','Rp','maxlength="6"')}</div><div>${i('kmf-min','Lowest amount',s.payment?.min??'','10000','inputmode="numeric"')}</div><div>${i('kmf-max','Highest amount',s.payment?.max??'','5000000','inputmode="numeric"')}</div></div></div></section>
    <section class="km-sec"><h3>Labels</h3><p class="hint">The labels the agent may put on a customer’s contact in Kirimdev, as your label rules say. Customer and S- labels are set by aqeelOS itself once a payment is confirmed paid.</p>
     <div class="km-chips" id="kmf-labels"></div><button type="button" class="ghost km-add" id="kmf-addl">${icon('plus',15)}Add label</button></section>
@@ -104,6 +106,7 @@ const Kirim={
   const paintGroup=()=>{const g=gOf(V.group);set('kmf-group',V.gtype?'Another group (type its id)':V.group?(g?.name||'Group '+V.group):'No group yet');Kirim.reveal(q('#kmf-gbox'),V.gtype);
    const t=(g?.topics||[]).find(x=>x.n===Number(V.topic));set('kmf-topic',V.ttype?'Another topic (type its number)':V.topic!=null&&V.topic!==''?(t?t.label+' · topic '+t.n:'Topic '+V.topic):'The main chat');Kirim.reveal(q('#kmf-tbox'),V.ttype)};
   const paintPay=()=>{const h=cfg.helpers.find(x=>x.path===V.pay);set('kmf-pay',V.ptype?'Another file':V.pay?V.pay+(h?.style==='send'?' (sends it itself)':' (makes a QR picture)'):'Automatic');Kirim.reveal(q('#kmf-pbox'),V.ptype);Kirim.reveal(q('#kmf-limits'),true)};
+  const paintCard=()=>{set('kmf-card',V.ctype?'Another file':V.card||'Automatic');Kirim.reveal(q('#kmf-cbox'),V.ctype)};
   if(V.gtype)q('#kmf-gid').value=V.group;
   // testers: rows that rise in and fold away
   const tbox=q('#kmf-testers');
@@ -121,7 +124,7 @@ const Kirim={
    if(!left.length){Kirim.pick(e,[{header:(cfg.labels||[]).length?'Every label is chosen':'Kirimdev has no labels yet'}],()=>{});return}
    Kirim.pick(e,[...(intr.length>1?[{label:'Every interest label (I-)',sub:intr.length+' labels',icon:'plus',all:intr}]:[]),...(stage.length?[{header:'Stage'},...stage.map(n=>({label:n,v:n}))]:[]),...(intr.length?[{header:'Interest'},...intr.map(n=>({label:n,v:n}))]:[])],
     x=>{(x.all||[x.v]).forEach(n=>addL(n))})};
-  paintAgent();paintGroup();paintPay();Kirim.reveal(q('#kmf-lbox'),V.lang==='other');
+  paintAgent();paintGroup();paintPay();paintCard();Kirim.reveal(q('#kmf-lbox'),V.lang==='other');
   if(!edit)q('#kmf-agent').onclick=e=>Kirim.pick(e,[...(free.length?[{header:'Agents without a number'},...free.map(a=>({label:a.name,sub:a.id!==a.name.toLowerCase()?a.id:'',ava:agentAvatar(a.id,22),v:a.id,on:V.agent===a.id&&!V.fresh}))]:[]),'-',{label:'Make a new support agent',icon:'plus',v:'',fresh:true,on:V.fresh}],
    it=>{V.fresh=!!it.fresh;V.agent=it.v;paintAgent();if(V.fresh)setTimeout(()=>q('#kmf-newid').focus(),60);else if(!q('#kmf-persona').value)q('#kmf-persona').value=cfg.agents.find(a=>a.id===V.agent)?.name||''});
   q('#kmf-group').onclick=e=>{const own=groups.filter(g=>g.own),oth=groups.filter(g=>!g.own),it=g=>({label:g.name||'Group '+g.chatId,sub:g.chatId,v:g.chatId,on:!V.gtype&&V.group===g.chatId});
@@ -131,6 +134,8 @@ const Kirim={
    x=>{V.ttype=!!x.type;if(!x.type)V.topic=x.v;paintGroup();if(V.ttype)setTimeout(()=>q('#kmf-tn').focus(),60)})};
   q('#kmf-pay').onclick=e=>Kirim.pick(e,[{label:'Automatic',sub:cfg.helpers.length?'Uses '+cfg.helpers.map(h=>h.path).join(' or ')+' from its folder':'Uses .tools/pay or .tools/qris from its folder, when there is one',v:'',on:!V.pay&&!V.ptype},...(cfg.helpers.length?[{header:'In the agent’s folder'},...cfg.helpers.map(h=>({label:h.path,sub:h.style==='send'?'Sends the payment itself':'Makes a QR picture for the reply',v:h.path,on:!V.ptype&&V.pay===h.path}))]:[]),'-',{label:'Another file',icon:'edit',type:true,on:V.ptype}],
    x=>{V.ptype=!!x.type;if(!x.type){V.pay=x.v;V.style=cfg.helpers.find(h=>h.path===x.v)?.style||'picture'}paintPay();if(V.ptype)setTimeout(()=>q('#kmf-pp').focus(),60)});
+  q('#kmf-card').onclick=e=>Kirim.pick(e,[{label:'Automatic',sub:cfg.cardHelpers.length?'Uses '+cfg.cardHelpers[0].path+' from its folder':'Uses .tools/card from its folder, when there is one',v:'',on:!V.card&&!V.ctype},...(cfg.cardHelpers.length?[{header:'In the agent’s folder'},...cfg.cardHelpers.map(h=>({label:h.path,v:h.path,on:!V.ctype&&V.card===h.path}))]:[]),'-',{label:'Another file',icon:'edit',type:true,on:V.ctype}],
+   x=>{V.ctype=!!x.type;if(!x.type)V.card=x.v;paintCard();if(V.ctype)setTimeout(()=>q('#kmf-cp').focus(),60)});
   const seg=(id,on)=>q('#'+id).addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;q('#'+id).querySelectorAll('button').forEach(x=>{x.classList.toggle('on',x===b);x.setAttribute('aria-pressed',x===b)});on(b.dataset.v)});
   seg('kmf-lang',v=>{V.lang=v;Kirim.reveal(q('#kmf-lbox'),v==='other');if(v==='other')setTimeout(()=>q('#kmf-lo').focus(),60)});seg('kmf-style',v=>{V.style=v});
   const val=x=>q(x)?.value.trim()??'';
@@ -139,12 +144,12 @@ const Kirim={
    const fresh=!edit&&V.fresh?val('#kmf-newid'):'';if(!edit&&V.fresh&&!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(fresh)){err.textContent='The new agent’s name uses only lowercase letters, numbers, - and _.';q('#kmf-newid').focus();return}
    if(!val('#kmf-persona')){err.textContent='Give the name customers see.';q('#kmf-persona').focus();return}
    const group=V.gtype?val('#kmf-gid'):V.group,topic=V.ttype?val('#kmf-tn'):V.topic;
-   const pay=V.ptype?val('#kmf-pp'):V.pay;
+   const pay=V.ptype?val('#kmf-pp'):V.pay,card=V.ctype?val('#kmf-cp'):V.card;
    const b={agent:edit?l.agent:fresh||V.agent,phoneNumberId:edit?l.phoneNumberId:num.phoneNumberId,persona:val('#kmf-persona'),business:val('#kmf-biz'),
     testers:[...tbox.querySelectorAll('.km-trow:not(.closing)')].map(r=>({who:r.querySelector('.kmf-tw').value.trim(),phone:r.querySelector('.kmf-tp').value.trim()})),
     language:V.lang==='other'?val('#kmf-lo'):V.lang,pauseMin:val('#kmf-quiet'),resetWords:val('#kmf-rw'),resetText:val('#kmf-rt'),
     // the limits are kept whatever the helper: Automatic leaves the helper to the payment tool (customer-tools.mjs), as before
-    payment:pay||val('#kmf-min')||val('#kmf-max')?{...(pay?{helper:{path:pay,style:V.ptype?V.style:cfg.helpers.find(h=>h.path===pay)?.style||'picture'}}:{}),currency:val('#kmf-cur'),min:val('#kmf-min'),max:val('#kmf-max')}:null,
+    payment:pay||card||val('#kmf-min')||val('#kmf-max')?{card,...(pay?{helper:{path:pay,style:V.ptype?V.style:cfg.helpers.find(h=>h.path===pay)?.style||'picture'}}:{}),currency:val('#kmf-cur'),min:val('#kmf-min'),max:val('#kmf-max')}:null,
     labels:chosen(),team:group?{chatId:group,questions:topic??''}:null};
    const bt=ok.textContent;ok.disabled=true;
    try{if(fresh){ok.innerHTML='<span class="spinner tiny"></span>Making the agent…';note.textContent='Making '+fresh+' with aqeelOS’s tools and its own space on the AI box. This takes about a minute.';

@@ -1376,12 +1376,12 @@ async function kirimdevSetup(agent){const ags=await listAgents(),L=await kirimde
  const groups=new Map(),add=(id,o)=>{const k=String(id);if(!/^-?\d{5,16}$/.test(k))return;const g=groups.get(k)||{chatId:k,name:'',topics:[],own:false};
   if(o.name&&!g.name)g.name=o.name;if(o.own)g.own=true;for(const t of o.topics||[])if(!g.topics.some(x=>x.n===t.n))g.topics.push(t);groups.set(k,g)};
  for(const [a,g] of Object.entries(TG))if(g?.chatId)add(g.chatId,{name:g.name,own:a===agent,topics:Object.entries(g.topics||{}).filter(([,n])=>n).map(([k,n])=>({n:Number(n),label:(TEAM_ROLES.find(r=>r[0]===k)?.[1]||k)+' ('+(NAMES[a]||a)+')'}))});
- let helpers=[];if(agent&&ags.includes(agent)){const home=path.join(HERMES_HOME,'profiles',agent),env=parseEnv(await readFile(path.join(home,'.env'),'utf8').catch(()=>''));
+ let helpers=[],cardHelpers=[];if(agent&&ags.includes(agent)){const home=path.join(HERMES_HOME,'profiles',agent),env=parseEnv(await readFile(path.join(home,'.env'),'utf8').catch(()=>''));
   for(const k of ['TELEGRAM_GROUP_ALLOWED_CHATS','TELEGRAM_GROUP_ALLOWED_USERS'])for(const id of String(env[k]||'').split(/[\s,]+/))if(/^-\d{5,16}$/.test(id))add(id,{own:true});
-  const tools=path.join(homedir(),'workspaces',agent,'.tools');helpers=(await readdir(tools,{withFileTypes:true}).catch(()=>[])).filter(e=>e.isFile()&&/^(qris|pay|payment|xendit|invoice)[\w.-]*$/i.test(e.name)).map(e=>({path:'.tools/'+e.name,style:/^pay/i.test(e.name)?'send':'picture'}))}
+  const tools=path.join(homedir(),'workspaces',agent,'.tools');helpers=(await readdir(tools,{withFileTypes:true}).catch(()=>[])).filter(e=>e.isFile()&&/^(qris|pay|payment|xendit|invoice)[\w.-]*$/i.test(e.name)).map(e=>({path:'.tools/'+e.name,style:/^pay/i.test(e.name)?'send':'picture'}));cardHelpers=(await readdir(tools,{withFileTypes:true}).catch(()=>[])).filter(e=>e.isFile()&&/^card[\w-]*$/i.test(e.name)).map(e=>({path:'.tools/'+e.name}))}
  // the labels a person can allow the agent: Kirimdev's own, minus the ones only a person or a payment sets
  const labels=(await kirimdev.labelList().catch(()=>[])).map(x=>x.name).filter(n=>!LABEL_NEVER.test(n)).sort((a,b)=>a.localeCompare(b));
- return {agents,labels,groups:[...groups.values()].sort((a,b)=>(b.own-a.own)||String(a.name).localeCompare(b.name)),helpers,team:agent?await teamGroups.get(agent).catch(()=>null):null}}
+ return {agents,labels,cardHelpers,groups:[...groups.values()].sort((a,b)=>(b.own-a.own)||String(a.name).localeCompare(b.name)),helpers,team:agent?await teamGroups.get(agent).catch(()=>null):null}}
 // after a line is made or removed: the agent's customer tools and its aqeelOS block follow
 const kirimdevChanged=()=>{ensureCustomerServer().catch(e=>console.warn('customer tools',e.message));if(LIVE_APP)writeAgentContext().catch(()=>{})};
 // customer runs get only these tools (customer-tools.mjs); the payment helper runs as the agent's own user
@@ -1606,7 +1606,10 @@ if(LIVE_APP){const liveInstall=()=>agentLive.install().then(async c0=>{const c=[
 // once no reply runs (7 Nov 2026)
 async function toolSigs(){const out={};for(const a of await agentLive.homes()){if(await isTestAgent(a).catch(()=>false))continue;const c=await readConfig(a).catch(()=>null);const u=String(pick(c||{},'mcp_servers.aqeelos-notify.url')||'');if(!u.startsWith('http://127.0.0.1:'+PORT+'/'))continue;
  try{const r=await fetch(u,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/list'}),signal:AbortSignal.timeout(20000)});const j=await r.json();
-  out[a]=createHash('sha1').update((j.result?.tools||[]).map(t=>t.name+':'+createHash('sha1').update(JSON.stringify(t.inputSchema||{})+(t.description||'')).digest('hex').slice(0,8)).sort().join(',')).digest('hex').slice(0,12)}catch{}}return out}
+  // a support agent's customer tools count too (8 Nov 2026: the engine kept the old create_payment, without card, until a restart); not the
+  // label lists, which follow Kirimdev and the Line settings
+  const cust=pick(c||{},'mcp_servers.aqeelos-customer')?((await customerTools.mcp(a,undefined,{jsonrpc:'2.0',id:1,method:'tools/list'})).body?.result?.tools||[]).map(t=>t.name+(t.name==='create_payment'?':'+t.inputSchema?.properties?.kind?.enum+t.description:'')).sort().join(','):'';
+  out[a]=createHash('sha1').update((j.result?.tools||[]).map(t=>t.name+':'+createHash('sha1').update(JSON.stringify(t.inputSchema||{})+(t.description||'')).digest('hex').slice(0,8)).sort().join(',')+(cust?'|'+cust:'')).digest('hex').slice(0,12)}catch{}}return out}
 if(LIVE_APP){const sigFile=path.join(DATA,'agent-live','tool-sigs.json');const toolTick=async()=>{const now=await toolSigs();if(!Object.keys(now).length)return;const old=JSON.parse(await readFile(sigFile,'utf8').catch(()=>'{}')||'{}');
   const changed=Object.keys(now).filter(a=>old[a]!==now[a]);await mkdir(path.dirname(sigFile),{recursive:true});await writeFile(sigFile,JSON.stringify(now));
   if(changed.length&&Object.keys(old).length){console.log('agent tools changed for',changed.join(', '));restartLater('new or changed aqeelOS tools for '+changed.length+' agent(s)')}};

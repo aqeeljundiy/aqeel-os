@@ -456,8 +456,10 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
     const was=old.find(o=>String(o.phone||'').replace(/\D/g,'')===phone)||old.find(o=>o.who===who&&!o.phone);return {who,phone,...(was?.conversationId?{conversationId:was.conversationId}:{})}}).filter(Boolean)}
   if('resetWords' in b){const W=(Array.isArray(b.resetWords)?b.resetWords:String(b.resetWords||'').split(',')).map(w=>str(w,30)).filter(Boolean).slice(0,5);l.resetWords=W.length?W:['reset']}
   if('resetText' in b){const v=str(b.resetText,300);if(v)l.resetText=v;else delete l.resetText}
-  if('payment' in b){const p=b.payment;if(!p||p.helper==null&&!p.currency&&!p.min&&!p.max)delete l.payment;else{const o={};
+  if('payment' in b){const p=b.payment;if(!p||p.helper==null&&!p.card&&!p.currency&&!p.min&&!p.max)delete l.payment;else{const o={};
     if(p.helper?.path){const hp=str(p.helper.path,120);if(!/^[\w.\/-]+$/.test(hp)||hp.split('/').includes('..')||hp.startsWith('/'))throw Error('The payment helper is a file in the agent’s folder, like .tools/qris.');o.helper={path:hp,style:p.helper.style==='send'?'send':'picture'}}
+    // the card helper: a file in the agent's folder; empty = Automatic (.tools/card); a save that does not mention it keeps it
+    const card='card' in p?str(p.card,120):str(cur?.payment?.card,120);if(card){if(!/^[\w.\/-]+$/.test(card)||card.split('/').includes('..')||card.startsWith('/'))throw Error('The card helper is a file in the agent’s folder, like .tools/card.');o.card=card}
     if(p.currency)o.currency=str(p.currency,6);for(const k of ['min','max'])if(p[k]!==''&&p[k]!=null){const n=Number(p[k]);if(!Number.isInteger(n)||n<0)throw Error('Payment amounts are whole numbers.');o[k]=n}
     if(o.min!=null&&o.max!=null&&o.min>o.max)throw Error('The lowest payment is above the highest.');l.payment=o}}
   if('labels' in b){const A=[...new Set((Array.isArray(b.labels)?b.labels:[]).map(x=>str(x,50)).filter(Boolean))];if(A.length>120)throw Error('120 labels at most.');
