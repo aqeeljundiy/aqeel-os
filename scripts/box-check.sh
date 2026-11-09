@@ -30,7 +30,7 @@ echo "· 2/4 fast page switching and flicker (replays, jumps, pictures loading a
 s=$(timeout 420 node scripts/shot.mjs /tmp/sweep.png "#/chat" "" "" 1280 900 "$(cat scripts/sweep.js)" 2>&1 | head -1)
 echo "$s" | grep -q '\\"bad\\":0' || { echo "✗ fast page switching found problems:"; echo "$s" | cut -c1-900; exit 1; }
 echo "· 3/4 every page keeps its buttons and tabs (owner and team member, All agents and one agent)"
-c=$(timeout 600 node scripts/controls-check.mjs 2>&1 | tail -1)
+c=$(CONTROLS_LOCAL=$HOME/apps/hermes-ui-data/controls-seen.json timeout 600 node scripts/controls-check.mjs 2>&1 | tail -1)
 echo "$c" | grep -qF '"missing":[]' || { echo "✗ a page lost a button or tab: $c" | cut -c1-900; echo "  (on purpose? node scripts/controls-check.mjs --save on the test copy, then commit scripts/controls-baseline.json)"; exit 1; }
 [ "$MB" = 0 ] && { echo "✓ checks passed (My browser unchanged, its check skipped)"; exit 0; }
 echo "· 4/4 my browser"

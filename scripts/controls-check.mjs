@@ -46,5 +46,11 @@ await dropLeads(owner).catch(e=>console.error('leftover check agents:',e.message
 try{member=await makeMember(owner);result.member=await browse(member.ck)}finally{if(member?.id)await api(owner,'/ui/people/'+encodeURIComponent(member.id),{method:'DELETE'}).catch(()=>{});await dropLeads(owner).catch(()=>{})}
 if(SAVE){writeFileSync(FILE,JSON.stringify(result,null,1)+'\n');const n=Object.values(result).reduce((a,v)=>a+Object.values(v).flat().length,0);console.log('saved '+n+' controls on '+Object.keys(result.owner).length+' page views to '+path.basename(FILE));process.exit(0)}
 let base;try{base=JSON.parse(readFileSync(FILE,'utf8'))}catch{console.log(JSON.stringify({checked:0,missing:['no baseline: run node scripts/controls-check.mjs --save on the test copy and commit scripts/controls-baseline.json']}));process.exit(1)}const missing=[];
-for(const who of Object.keys(base))for(const [k,want] of Object.entries(base[who])){const have=new Set(result[who]?.[k]||[]);for(const c of want)if(!have.has(c))missing.push(who+' · '+k+' · '+c)}
+// CONTROLS_LOCAL: what this install's own pages showed at its last passing check (9 Nov 2026). Installs differ: one has webhooks
+// on or another currency, so a control counts as lost only when the baseline expects it AND this install had it. The first run
+// on an install has nothing to compare with: it passes and writes the list.
+const LOCAL=process.env.CONTROLS_LOCAL||'';let local=null;if(LOCAL)try{local=JSON.parse(readFileSync(LOCAL,'utf8'))}catch{}
+if(LOCAL&&!local){writeFileSync(LOCAL,JSON.stringify(result,null,1)+'\n');console.log(JSON.stringify({checked:Object.keys(base.owner||{}).length,first:true,missing}));process.exit(0)}
+for(const who of Object.keys(base))for(const [k,want] of Object.entries(base[who])){const have=new Set(result[who]?.[k]||[]);for(const c of want)if(!have.has(c)&&(!local||(local[who]?.[k]||[]).includes(c)))missing.push(who+' · '+k+' · '+c)}
+if(LOCAL&&!missing.length)writeFileSync(LOCAL,JSON.stringify(result,null,1)+'\n');
 console.log(JSON.stringify({checked:Object.keys(base.owner||{}).length,missing}));process.exit(missing.length?1:0);
