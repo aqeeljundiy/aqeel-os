@@ -77,7 +77,8 @@
         "NSCameraUsageDescription": "Websites you open in aqeelOS’s browser can ask for your camera.",
         "NSLocationUsageDescription": "Websites you open in aqeelOS’s browser can ask for your location."
       },
-      "artifactName": "aqeelOS-${version}-${arch}.${ext}"
+      "artifactName": "aqeelOS-${version}-${arch}.${ext}",
+      "x64ArchFiles": "**/node-pty/prebuilds/**"
     },
     "dmg": {
       "title": "aqeelOS"

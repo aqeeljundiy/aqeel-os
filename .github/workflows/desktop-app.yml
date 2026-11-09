@@ -53,8 +53,9 @@ jobs:
         working-directory: code/desktop/dist
         run: |
           mkdir -p ../../../out
-          f=$(ls -S *.dmg *.exe 2>/dev/null | head -1)
-          [ -n "$f" ] || { echo "no installer was built"; exit 1; }
+          shopt -s nullglob; c=(*.dmg *.exe)
+          [ ${#c[@]} -gt 0 ] || { echo "no installer was built"; exit 1; }
+          f=$(ls -S "${c[@]}" | head -1)
           cp "$f" "../../../out/${{ matrix.file }}"
       - uses: actions/upload-artifact@v4
         with:
