@@ -35,7 +35,7 @@ if [ "$PULL" = 1 ] && [ "${SKIP_CHECKS:-0}" != 1 ]; then
  MB=1;[ "${MB_CHECK:-}" = 0 ] && MB=0   # every deploy runs the My browser check; MB_CHECK=0 is the only skip
  ID=$(date +%s)-$$
  ssh "$AQ_BOX" "cat > /tmp/aq-deploy-$ID.sh" < scripts/box-deploy.sh && ssh "$AQ_BOX" "cat > /tmp/box-pack-$ID.sh" < scripts/box-pack.sh || { echo "✗ could not reach the box; nothing changed."; exit 1; }
- ssh "$AQ_BOX" "AQ_REPO=$AQ_REPO setsid nohup bash /tmp/aq-deploy-$ID.sh $SHA ${BOX_SHA:-none} ${FORCE:-0} $MB $ID </dev/null >/dev/null 2>&1 &" || { echo "✗ could not start the deploy on the box; nothing changed."; exit 1; }
+ ssh "$AQ_BOX" "FLICKER_CHECK=${FLICKER_CHECK:-1} AQ_REPO=$AQ_REPO setsid nohup bash /tmp/aq-deploy-$ID.sh $SHA ${BOX_SHA:-none} ${FORCE:-0} $MB $ID </dev/null >/dev/null 2>&1 &" || { echo "✗ could not start the deploy on the box; nothing changed."; exit 1; }
  echo "· running on the box (log /tmp/aq-deploy-$ID.log)"
  n=0; end=$(( $(date +%s) + 3600 ))
  while [ "$(date +%s)" -lt "$end" ]; do

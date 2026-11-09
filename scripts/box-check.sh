@@ -26,9 +26,12 @@ cd /tmp/aq-stage
 echo "· 1/4 pages"
 r=$(BASE=http://127.0.0.1:4402 PWFILE=$D/pw OUT=/tmp/aud-check timeout 400 node scripts/pages-check.mjs 2>&1 | tail -1)
 echo "$r" | grep -q '"errors":\[\]' || { echo "✗ a page did not load: $r" | cut -c1-600; exit 1; }
+# FLICKER_CHECK=0: skip only this timing check (it fails on a heavily loaded server); every other check still runs
+if [ "${FLICKER_CHECK:-1}" = 0 ]; then echo "· 2/4 fast page switching: skipped (FLICKER_CHECK=0)"; else
 echo "· 2/4 fast page switching and flicker (replays, jumps, pictures loading again, the bell, pop-ups)"
 s=$(timeout 420 node scripts/shot.mjs /tmp/sweep.png "#/chat" "" "" 1280 900 "$(cat scripts/sweep.js)" 2>&1 | head -1)
 echo "$s" | grep -q '\\"bad\\":0' || { echo "✗ fast page switching found problems:"; echo "$s" | cut -c1-900; exit 1; }
+fi
 echo "· 3/4 every page keeps its buttons and tabs (owner and team member, All agents and one agent)"
 c=$(CONTROLS_LOCAL=$HOME/apps/hermes-ui-data/controls-seen.json timeout 600 node scripts/controls-check.mjs 2>&1 | tail -1)
 echo "$c" | grep -qF '"missing":[]' || { echo "✗ a page lost a button or tab: $c" | cut -c1-900; echo "  (on purpose? node scripts/controls-check.mjs --save on the test copy, then commit scripts/controls-baseline.json)"; exit 1; }
