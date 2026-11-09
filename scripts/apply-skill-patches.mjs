@@ -14,6 +14,10 @@ const writeFile=async(p,d,o)=>{const t=p+'.aq-'+process.pid+'-'+Math.random().to
 const homes=[HOME];for(const d of await readdir(path.join(HOME,'profiles'),{withFileTypes:true}).catch(()=>[]))if(d.isDirectory()&&!d.name.startsWith('.'))homes.push(path.join(HOME,'profiles',d.name));
 const exists=p=>access(p).then(()=>true,()=>false);
 let changed=0;
+// a tool server's list of tools can be one event over the HTTP client's 1 MB limit (Higgsfield, 9 Nov 2026): 16 MB in every engine environment
+{const envs=[path.join(HOME,'hermes-agent','venv')];for(const i of await readdir(path.join(HOME,'installs')).catch(()=>[]))for(const v of await readdir(path.join(HOME,'installs',i,'environments')).catch(()=>[]))envs.push(path.join(HOME,'installs',i,'environments',v,'venv'));
+ for(const v of envs)for(const py of await readdir(path.join(v,'lib')).catch(()=>[])){const f=path.join(v,'lib',py,'site-packages','httpx2','_config.py');if(!await exists(f))continue;const s=await readFile(f,'utf8'),t=s.replace(/^(DEFAULT_MAX_EVENT_SIZE_BYTES\s*(?::\s*\w+\s*)?=\s*).*$/m,(m,a)=>a+'16 * 1024 * 1024');if(t!==s){await writeFile(f,t);changed++;console.log('MCP event limit: '+path.relative(HOME,f))}}}
+for(const h of homes){const f=path.join(h,'skills','productivity','maps','SKILL.md');if(!await exists(f))continue;const s=await readFile(f,'utf8');if(s.includes('/skills/maps/scripts/')){await writeFile(f,s.split('/skills/maps/scripts/').join('/skills/productivity/maps/scripts/'));changed++;console.log('maps skill path: '+path.relative(HOME,f))}}
 
 const GOOGLE_SECTION=`
 <!-- aqeelos:composio-first -->

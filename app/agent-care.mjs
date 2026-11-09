@@ -62,12 +62,13 @@ export function createAgentCare({HERMES_HOME,WORK,DATA=null,fpKey=async()=>'',te
   for(const j of await jobs(a).catch(()=>[])){if(j.enabled===false||j.state==='paused')continue;
    if(j.script){const sp=path.isAbsolute(j.script)?j.script:path.join(home(a),'scripts',j.script);if(!await stat(sp).catch(()=>null))found.push({key:'script|'+j.id,text:'schedule "'+j.name+'" ('+j.id+') runs script '+j.script+', which is missing. Put it back or fix the schedule (my_schedules).'})}
    for(const f of namedFiles(j.prompt))if(f.startsWith(WORK+path.sep)&&!await stat(f).catch(()=>null))found.push({key:'file|'+j.id+'|'+f,text:'schedule "'+j.name+'" ('+j.id+') runs '+f+', which is missing. Put it back or fix the schedule (my_schedules).'})}
+  {const cfg=await readFile(path.join(home(a),'config.yaml'),'utf8').catch(()=>'');if(/^\s+\S*(authorization|api[_-]?key|token)\S*:\s*["']?(Bearer\s+)?\*{4,}\w{0,8}["']?\s*$/im.test(cfg))found.push({key:'masked-key',text:'a key in your config.yaml is only a masked copy (stars), so that tool server is refused. Report it with report_bottleneck system true: it needs the real key.'})}
   if(a===base(a)){const sec=path.join(WORK,a,'.secrets');const names=(await readdir(sec).catch(()=>[])).filter(n=>!n.startsWith('.'));
    if(names.length){const r=await asAgent(a,"cd '"+sec+"' 2>/dev/null && for f in *; do [ -f \"$f\" ] && { [ -r \"$f\" ] || echo \"$f\"; }; done");
     if(r&&r.ok)for(const n of r.out.split('\n').map(x=>x.trim()).filter(Boolean))found.push({key:'secret|'+n,text:'your key '+n+' in .secrets cannot be read by you, so whatever uses it fails. Report it with report_bottleneck system true (aqeelOS fixes file rights).',fix:{secret:path.join(sec,n)}})}}
   return found}
  // file rights aqeelOS may fix by itself: a key file in an agent's own .secrets the agent's user cannot read (group rights back)
- async function fixRights(a,found){let fixed=0;for(const x of found.filter(x=>x.fix?.secret)){try{const st=await stat(x.fix.secret);await chmod(x.fix.secret,(st.mode&0o777)|0o060);fixed++}catch{}}return fixed}
+ async function fixRights(a,found){let fixed=0;const {user}=await own(a);for(const x of found.filter(x=>x.fix?.secret)){try{const st=await stat(x.fix.secret);await chmod(x.fix.secret,(st.mode&0o777)|0o060);if(/^ag-[\w-]+$/.test(user))await run('setfacl',['-m','u:'+user+':rw',x.fix.secret],10000);fixed++}catch{}}return fixed}
  // ---- 3) script-only schedules ----
  async function scriptOnly(a){const done=[];const {user,cwd}=await own(a);if(!/^ag-[\w-]+$/.test(user))return done;
   for(const j of await jobs(a).catch(()=>[])){if(j.no_agent||j.script)continue;const cmd=scriptOnlyCommand(j.prompt);if(!cmd)continue;

@@ -1313,7 +1313,7 @@ async function waGuard(){if(gwRestarting)return;
  for(const a of await listAllProfiles()){if(a==='default')continue;
   const sess=path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'platforms','whatsapp','session');if(!await stat(path.join(sess,'creds.json')).catch(()=>null))continue;
   if(Date.now()-(waLinking.get(a)||0)<20*60e3)continue;{const ps=await psList();if(ps.split('\n').some(l=>/whatsapp-bridge\/bridge\.js/.test(l)&&l.includes('--pair-only')&&l.includes(sess)))continue}
-  const st=await checkChannel(a,'whatsapp').catch(()=>null);if(!st||st.state==='missing'||st.paused||st.connected||st.needs_link)continue;
+  const st=await checkChannel(a,'whatsapp').catch(()=>null);if(!st||st.state==='missing'||st.state==='not_configured'||st.paused||st.connected||st.needs_link)continue;
   if(/retrying|connecting|starting/.test(st.state||''))continue;   // already on its way back
   const now=Date.now(),l=(waTries.get(a)||[]).filter(t=>now-t<6*3600e3);if(l.length>=3||l.some(t=>now-t<30*60e3))continue;
   l.push(now);waTries.set(a,l);console.warn('whatsapp guard:',a,'dropped ('+(st.state||'?')+'), reconnecting with its saved login');

@@ -23,6 +23,9 @@ You never edit an env file:
 - the address, time zone, Code and app addresses are set in the app.
 An env file is still read when you want to override something (`.env.example` lists every value; the installer's service reads `~/.config/aqeelos/aqeelos.env`). A value set there wins over the app's setting and shows as "Set in the environment".
 
+## Desktop app
+The Mac and Windows apps are on [the latest release](https://github.com/aqeeljundiy/aqeel-os/releases/latest). They aren't verified by Apple or Microsoft yet, so the first launch needs one extra step: [install on a Mac, step by step](docs/install-mac.md). On Windows, choose More info › Run anyway.
+
 ## First run
 - Open your address. A new install shows **Create the owner account** (name, username, password) and then a recovery code: save it. The owner can do everything and invites the others under System › People.
 - Lost password: **Forgot password?** on the sign-in page emails a one-hour link to a confirmed email. An admin can also set a new password for someone, sign them out or suspend them (People, the person's menu). The owner's recovery code signs them in once without the password or two-step; a new one is made in Your profile.

@@ -427,14 +427,15 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
   if(url.pathname==='/api/workspace'&&req.method==='GET')return send(200,{projects:who?store.state.projects.filter(p=>accessOf(p,who)).map(p=>({...p,access:accessOf(p,who)})):store.state.projects,me:who?.uid||''}),true;
   // Live: publish a project from this computer (zip of its folder, without node_modules, .git or hidden files like .env)
   // Live: is an address free, and how is a publish going (through aqeelOS)
-  if(url.pathname==='/api/workspace/live-name'&&req.method==='GET')return send(200,await aqeelos.live('name',{slug:url.searchParams.get('slug')||''})),true;
-  if(url.pathname==='/api/workspace/live-status'&&req.method==='GET')return send(200,await aqeelos.live('status',{id:url.searchParams.get('id')||''})),true;
+  const reqAct=()=>process.env.CBA_ONLINE?String(req.headers['x-aq-act']||''):'';   // Code online acts as the person on the request's signed note
+  if(url.pathname==='/api/workspace/live-name'&&req.method==='GET')return send(200,await aqeelos.live('name',{slug:url.searchParams.get('slug')||''},reqAct())),true;
+  if(url.pathname==='/api/workspace/live-status'&&req.method==='GET')return send(200,await aqeelos.live('status',{id:url.searchParams.get('id')||''},reqAct())),true;
   // the one way a project goes live: the Publish button and the AI's publish_app both come here, and neither needs an agent
   const publishToLive=async(p,opts,act)=>{const folder=await store.folder(p.id);
    let repo='';const git=await locate('git',findExecutable).catch(()=>null);if(git){const r=await tool(git,['remote','get-url','origin'],{cwd:folder,timeout:10000}).catch(()=>null);repo=String(r?.stdout||'').trim().replace(/^git@github\.com:/,'https://github.com/').replace(/\.git$/,'').replace(/\/\/[^@/]+@/,'//')}
    const {zipFolder}=await import('./zip.mjs');const zip=await zipFolder(folder);if(zip.length>90e6)throw Error('The project is over 90 MB. Move big files (videos, data) out of it first.');
    const a=await aqeelos.publish(zip,{name:String(opts.name||p.name),slug:String(p.live?.slug||opts.slug||''),repo,db:Boolean(opts.db),visibility:['public','unlisted','private'].includes(opts.visibility)?opts.visibility:undefined},act);p.live={id:a.id,slug:a.slug,url:a.url};await store.serialize(()=>store.persist());return a};
-  if(url.pathname==='/api/workspace/publish'&&req.method==='POST'){if(process.env.CBA_ONLINE)throw Error('Publish from Code on your computer.');const p=store.project(data.projectId);return send(200,await publishToLive(p,{name:data.name,slug:data.slug,db:data.db,visibility:data.visibility},'')),true}
+  if(url.pathname==='/api/workspace/publish'&&req.method==='POST'){const p=store.project(data.projectId);return send(200,await publishToLive(p,{name:data.name,slug:data.slug,db:data.db,visibility:data.visibility},reqAct())),true}
   // the people a project can be shared with (from aqeelOS), and sharing it
   if(url.pathname==='/api/workspace/people'&&req.method==='GET')return send(200,{people:who?(await aqeelos.people()).filter(x=>x.id!==who.uid):[],me:who?.uid||''}),true;
   if(url.pathname==='/api/workspace/project/share'&&req.method==='POST'){const p=store.project(data.projectId);const uid=String(data.uid||'');if(!uid||uid===p.owner)throw Error('Choose someone to share with.');
@@ -707,13 +708,13 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
    if(data.op==='show'){const slug=checkSlug(data.slug);const o=(await listOutputs(run.cwd||await store.folder(run.projectId))).find(x=>x.slug===slug);(run.outputs??=new Set()).add(slug);run.emit({type:'output',slug,title:o?.title||slug.replace(/-/g,' '),kind:o?.kind||run.kind});return send(200,{title:o?.title||slug}),true}
    if(data.op==='next'){const actions=(Array.isArray(data.actions)?data.actions:[]).slice(0,2).map(a=>({label:String(a?.label||'').slice(0,40),message:String(a?.message||'').slice(0,400)})).filter(a=>a.label&&a.message);
     if(run.nextEvent)run.update(run.nextEvent,{recap:String(data.recap||'').slice(0,600),actions});else run.nextEvent=run.emit({type:'next',recap:String(data.recap||'').slice(0,600),actions});return send(200,{ok:true}),true}
-   if(data.op==='publish'){if(process.env.CBA_ONLINE)throw Error('Publishing works from the aqeelOS app on a computer, not from Code in the browser. Tell the person to open this project in the app.');const p=store.project(run.projectId),cur=liveJobs.get(p.id);
+   if(data.op==='publish'){const p=store.project(run.projectId),cur=liveJobs.get(p.id);
     if(cur?.state==='sending')return send(200,{message:'A publish of this project is already being sent. Call publish_status.'}),true;
     const job={state:'sending',at:Date.now()};liveJobs.set(p.id,job);run.emit({type:'tool',name:'Publishing to Live',detail:p.name,status:'completed'});
-    publishToLive(p,{name:data.name,slug:data.slug,db:data.db,visibility:data.visibility||'unlisted'},'').then(a=>{Object.assign(job,{state:'building',id:a.id,url:a.url})},e=>{Object.assign(job,{state:'failed',error:e.message})});
+    publishToLive(p,{name:data.name,slug:data.slug,db:data.db,visibility:data.visibility||'unlisted'},process.env.CBA_ONLINE?run.act||'':'').then(a=>{Object.assign(job,{state:'building',id:a.id,url:a.url})},e=>{Object.assign(job,{state:'failed',error:e.message})});
     return send(200,{message:'Publishing started. Call publish_status in about 20 seconds, and keep calling it until it says live or failed.'}),true}
    if(data.op==='publish-status'){const p=store.project(run.projectId),job=liveJobs.get(p.id)||(p.live?{state:'building',id:p.live.id,url:p.live.url}:null);if(!job)return send(200,{state:'none',message:'This project has not been published. Call publish_app.'}),true;
-    if(job.id&&job.state!=='failed'){const r=await aqeelos.live('status',{id:job.id}).catch(e=>({status:job.state,error:e.message}));job.state=r.status||job.state;if(r.url)job.url=r.url;job.error=r.error||''}
+    if(job.id&&job.state!=='failed'){const r=await aqeelos.live('status',{id:job.id},process.env.CBA_ONLINE?run.act||'':'').catch(e=>({status:job.state,error:e.message}));job.state=r.status||job.state;if(r.url)job.url=r.url;job.error=r.error||''}
     return send(200,{state:job.state,url:job.url||'',error:job.error||''}),true}
    if(data.op==='ds')return send(200,{designSystem:await projectDS(run.projectId)}),true;
    if(data.op==='chapter'){const title=String(data.title||'').replace(/\s+/g,' ').trim().slice(0,60);if(!title)throw Error('Give the chapter a title.');(run.chapters??=[]).push(title);run.emit({type:'chapter',title});return send(200,{ok:true}),true}

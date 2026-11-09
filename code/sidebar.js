@@ -34,7 +34,7 @@ export function createSidebar(ctx){
   {label:'Open a past CLI session…',hint:'Claude Code or Codex',action:()=>pastSessions(p)},
    {label:'Edit instructions (AGENTS.md)',action:async()=>{if(p.id!==ctx.projectId())await ctx.selectProject(p.id);ctx.editInstructions?.()}},
   ...(ctx.online?.()&&(!p.access||p.access==='owner')?[{label:'Share…',action:()=>ctx.shareProject?.(p)}]:[]),
-  ...(!ctx.online?.()&&ctx.publish?[{label:p.live?'Update on Live…':'Publish to Live…',hint:p.live?String(p.live.url||'').replace(/^https?:\/\//,''):'',action:()=>ctx.publish(p)}]:[]),
+  ...(ctx.publish?[{label:p.live?'Update on Live…':'Publish to Live…',hint:p.live?String(p.live.url||'').replace(/^https?:\/\//,''):'',action:()=>ctx.publish(p)}]:[]),
   {label:'Rename…',action:async()=>{const name=await promptDialog({title:'Rename project',label:'Project name',value:p.name,confirm:'Rename',max:80});if(name&&name!==p.name)act(()=>ctx.api('/project/update',{projectId:p.id,name}),'Project renamed.')}},
   'separator',
   {label:'Reveal in '+(ctx.fileManager?.()||'Explorer'),action:()=>act(()=>ctx.api('/reveal',{projectId:p.id,target:'explorer'}))},

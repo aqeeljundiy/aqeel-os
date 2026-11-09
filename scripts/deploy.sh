@@ -23,6 +23,9 @@ if [ -n "$BOX_SHA" ] && ! git merge-base --is-ancestor "$BOX_SHA" HEAD 2>/dev/nu
  echo "✗ the box runs commit ${BOX_SHA:0:8}, which this copy does not have: deploying would remove that work. Merge it in first (git fetch / merge main)."; exit 1; fi
 # 7 Nov 2026: when this commit is on GitHub, the box fetches and packs it itself (scripts/box-pack.sh): nothing large goes
 # through this Mac's connection. A commit that is not pushed yet is sent from here as before. BOX_PULL=0 always sends.
+# 9 Nov 2026: a commit only on one server blocked every later update there. What goes live must be on GitHub's main first.
+if [ "$DRY" != 1 ]; then git fetch -q origin 2>/dev/null || { echo "✗ could not reach GitHub to check this commit; nothing was sent."; exit 1; }
+ git merge-base --is-ancestor HEAD origin/main 2>/dev/null || { echo "✗ ${SHA:0:8} is not on GitHub's main. Push it first, so every install can get it; nothing was sent."; exit 1; }; fi
 PULL=0; if [ "${BOX_PULL:-1}" != 0 ] && [ "$DRY" != 1 ] && git fetch -q origin 2>/dev/null && git merge-base --is-ancestor HEAD origin/main 2>/dev/null; then PULL=1; echo "· the box fetches ${SHA:0:8} from GitHub itself"; fi
 export PULL SHA
 # A pushed commit (PULL=1) is deployed by the box itself, detached (scripts/box-deploy.sh): this Mac starts it and reads

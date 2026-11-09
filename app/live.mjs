@@ -123,7 +123,13 @@ export function createLive({DATA,DOMAIN='app.localhost',SECRET,PUBLIC_URL,AUTH_U
   const a=db.apps.find(x=>x.slug===slug);if(a)return a.owner===u.id?{ok:true,slug,mine:true}:{ok:false,slug,reason:slug+'.'+DOMAIN+' belongs to '+(a.ownerName||'someone else')+'.'};
   if(await taken(slug))return {ok:false,slug,reason:slug+'.'+DOMAIN+' is already in use. Choose another name.'};return {ok:true,slug}}
  // publish (or update) one app from a zip of its project
- async function publish(u,o={}){const slug=clean(o.slug||o.name);if(busy.has(slug))throw Error('Someone is publishing '+slug+'.'+DOMAIN+' right now. Try again in a minute.');
+ // can a new address on this domain open at all? A certificate that does not cover it (Cloudflare covers one level: x.example.com, not x.app.example.com) or no wildcard DNS fails every app
+ let domainOk=0;async function domainProblem(){if(/localhost$/.test(DOMAIN)||Date.now()-domainOk<3600e3||process.env.NODE_TEST_CONTEXT)return '';
+  const host='aq-check-'+Math.random().toString(36).slice(2,8)+'.'+DOMAIN;
+  try{await fetch('https://'+host+'/',{redirect:'manual',signal:AbortSignal.timeout(12000)});domainOk=Date.now();return ''}
+  catch(e){const c=String(e?.cause?.code||e?.cause?.message||e?.message||'');if(/ENOTFOUND|EAI_AGAIN/.test(c))return 'No address on '+DOMAIN+' can be found. Add a wildcard DNS record (*.'+DOMAIN+') pointing at this server, then publish again.';
+   if(/SSL|TLS|CERT|EPROTO|alert/i.test(c))return 'Addresses on '+DOMAIN+' have no valid HTTPS certificate. Cloudflare covers one level only: set LIVE_DOMAIN to your main domain (example.com, not app.example.com).';return ''}}
+ async function publish(u,o={}){const slug=clean(o.slug||o.name);{const bad=await domainProblem();if(bad)throw Error(bad)}if(busy.has(slug))throw Error('Someone is publishing '+slug+'.'+DOMAIN+' right now. Try again in a minute.');
   busy.add(slug);try{return await publishOne(u,o)}finally{busy.delete(slug)}}
  async function publishOne(u,{name,slug,repo,database,zip,visibility}){await load();slug=clean(slug||name);
   if(!zip?.length)throw Error('The project is empty.');let a=db.apps.find(x=>x.slug===slug);
