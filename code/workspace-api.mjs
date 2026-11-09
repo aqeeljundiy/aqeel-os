@@ -425,10 +425,13 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
   if(await team(url,req,data,send))return true;
   if(url.pathname==='/api/workspace'&&req.method==='GET')return send(200,{projects:who?store.state.projects.filter(p=>accessOf(p,who)).map(p=>({...p,access:accessOf(p,who)})):store.state.projects,me:who?.uid||''}),true;
   // Live: publish a project from this computer (zip of its folder, without node_modules, .git or hidden files like .env)
+  // Live: is an address free, and how is a publish going (through aqeelOS)
+  if(url.pathname==='/api/workspace/live-name'&&req.method==='GET')return send(200,await aqeelos.live('name',{slug:url.searchParams.get('slug')||''})),true;
+  if(url.pathname==='/api/workspace/live-status'&&req.method==='GET')return send(200,await aqeelos.live('status',{id:url.searchParams.get('id')||''})),true;
   if(url.pathname==='/api/workspace/publish'&&req.method==='POST'){if(process.env.CBA_ONLINE)throw Error('Publish from Code on your computer.');const p=store.project(data.projectId);const folder=await store.folder(p.id);
    let repo='';const git=await locate('git',findExecutable).catch(()=>null);if(git){const r=await tool(git,['remote','get-url','origin'],{cwd:folder,timeout:10000}).catch(()=>null);repo=String(r?.stdout||'').trim().replace(/^git@github\.com:/,'https://github.com/').replace(/\.git$/,'').replace(/\/\/[^@/]+@/,'//')}
    const {zipFolder}=await import('./zip.mjs');const zip=await zipFolder(folder);if(zip.length>90e6)throw Error('The project is over 90 MB. Move big files (videos, data) out of it first.');
-   const a=await aqeelos.publish(zip,{name:String(data.name||p.name),slug:String(data.slug||''),repo,db:Boolean(data.db)},process.env.CBA_ONLINE?String(req.headers['x-aq-act']||''):'');p.live={id:a.id,slug:a.slug,url:a.url};await store.serialize(()=>store.persist());return send(200,a),true}
+   const a=await aqeelos.publish(zip,{name:String(data.name||p.name),slug:String(data.slug||''),repo,db:Boolean(data.db),visibility:['public','unlisted','private'].includes(data.visibility)?data.visibility:undefined},process.env.CBA_ONLINE?String(req.headers['x-aq-act']||''):'');p.live={id:a.id,slug:a.slug,url:a.url};await store.serialize(()=>store.persist());return send(200,a),true}
   // the people a project can be shared with (from aqeelOS), and sharing it
   if(url.pathname==='/api/workspace/people'&&req.method==='GET')return send(200,{people:who?(await aqeelos.people()).filter(x=>x.id!==who.uid):[],me:who?.uid||''}),true;
   if(url.pathname==='/api/workspace/project/share'&&req.method==='POST'){const p=store.project(data.projectId);const uid=String(data.uid||'');if(!uid||uid===p.owner)throw Error('Choose someone to share with.');

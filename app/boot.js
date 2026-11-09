@@ -98,6 +98,9 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden||!S.signedI
 async function boot(){
  await Brand.load();
  try{const r=await fetch('/auth/me');S.signedIn=r.ok}catch{S.signedIn=false}
+ // a private Live app sent the person here to sign in: once signed in, back to that app
+ {const nx=new URLSearchParams(location.search).get('live_next')||sessionStorage.getItem('hui-liveNext');
+  if(nx&&/^\/live-login\?to=https%3A%2F%2F/.test(nx)){if(S.signedIn){try{sessionStorage.removeItem('hui-liveNext')}catch{}location.replace(nx);return}try{sessionStorage.setItem('hui-liveNext',nx)}catch{}}}
  // a link naming an agent survives the sign-in page (which drops the address's ?agent=)
  const want=new URLSearchParams(location.search).get('agent')||sessionStorage.getItem('hui-wantAgent');
  if(!S.signedIn){if(want)try{sessionStorage.setItem('hui-wantAgent',want)}catch{}return render()}

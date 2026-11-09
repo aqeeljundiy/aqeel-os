@@ -755,20 +755,39 @@ async function shareProject(p){peopleCache=null;const list=await loadPeople();co
 
 // Live: publish a project to <name>.<Live domain> through aqeelOS (anyone can; it shows under Code › Live)
 async function publishProject(p){if(teamUI&&!(await teamUI.beforePublish(p)))return;   // a team folder: say so first when this copy is behind
- const d=document.createElement('dialog');d.className='kit-dialog publish-dialog';const slugOf=s=>String(s||'').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,40);
- d.innerHTML='<form method="dialog"><h2></h2><p class="kit-message">Your team sees it under Code › Live in aqeelOS, and anyone with the link can open it. Hidden files such as .env are not sent; settings go in with the database below or in the code.</p>'
-  +'<label class="pub-l">Name<input class="pub-name" maxlength="80"></label><label class="pub-l">Address<span class="pub-addr"><input class="pub-slug" maxlength="40"><span class="pub-domain"></span></span></label>'
-  +'<label class="pub-db"><input type="checkbox" class="pub-dbx"><span><b>It needs a database</b><small>A private Postgres database for this app; its address is in DATABASE_URL.</small></span></label>'
-  +'<p class="pub-state" hidden><span class="ring small"></span><span>Sending it to the server…</span></p>'
-  +'<div class="kit-actions"><button value="cancel">Cancel</button><button class="primary pub-go" type="button"></button></div></form>';
+const d=document.createElement('dialog');d.className='kit-dialog publish-dialog';const slugOf=s=>String(s||'').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,40);
+ d.innerHTML='<form method="dialog"><h2></h2><p class="kit-message">Hidden files such as .env are not sent; settings go in with the database below or in the code.</p>'
+  +'<div class="pub-fields"><label class="pub-l">Name<input class="pub-name" maxlength="80"></label><label class="pub-l">Address<span class="pub-addr"><input class="pub-slug" maxlength="40"><span class="pub-domain"></span></span><small class="pub-check" aria-live="polite"></small></label>'
+  +'<fieldset class="pub-vis"><legend>Who can open it</legend>'
+  +(p.live?'<label><input type="radio" name="vis" value="" checked><span><b>Keep as it is</b></span></label>':'')
+  +'<label><input type="radio" name="vis" value="unlisted"'+(p.live?'':' checked')+'><span><b>Anyone with the link</b><small>Not listed for the team; share the link yourself.</small></span></label>'
+  +'<label><input type="radio" name="vis" value="public"><span><b>Public</b><small>Anyone, and listed for your team under Code › Live.</small></span></label>'
+  +'<label><input type="radio" name="vis" value="private"><span><b>Only the team</b><small>People sign in to aqeelOS first.</small></span></label></fieldset>'
+  +'<label class="pub-db"><input type="checkbox" class="pub-dbx"><span><b>It needs a database</b><small>A private Postgres database for this app; its address is in DATABASE_URL.</small></span></label></div>'
+  +'<ol class="pub-steps" hidden><li data-s="send"><i></i><span>Sending the project to the server</span></li><li data-s="build"><i></i><span>Building and starting it<small>Usually one to three minutes.</small></span></li><li data-s="live"><i></i><span>Live</span></li></ol>'
+  +'<div class="kit-actions"><button value="cancel" class="pub-cancel">Cancel</button><button class="primary pub-go" type="button"></button></div></form>';
  const $q=s=>d.querySelector(s);$q('h2').textContent=(p.live?'Update “':'Publish “')+p.name+'”';$q('.pub-go').textContent=p.live?'Update':'Publish';
  {const dom=$q('.pub-domain'),known=p.live?.url?String(p.live.url).replace(/^https?:\/\/[^.]+\./,''):'';dom.textContent=known?'.'+known:'';if(!known)fetch('/api/aqeelos').then(r=>r.json()).then(st=>{dom.textContent=st.liveDomain?'.'+st.liveDomain:''}).catch(()=>{})}
- const name=$q('.pub-name'),slug=$q('.pub-slug');name.value=p.name;slug.value=p.live?.slug||slugOf(p.name);let touched=Boolean(p.live);
- if(p.live){slug.readOnly=true;slug.title='The address stays the same when you update.'}
- name.oninput=()=>{if(!touched)slug.value=slugOf(name.value)};slug.oninput=()=>{touched=true;const c=slugOf(slug.value);if(c!==slug.value)slug.value=c};
- $q('.pub-go').onclick=async()=>{const go=$q('.pub-go'),st=$q('.pub-state');go.disabled=true;st.hidden=false;
-  try{const a=await api('/publish',{projectId:p.id,name:name.value.trim()||p.name,slug:slug.value,db:$q('.pub-dbx').checked});d.close();await refreshState();
-   notify((p.live?'Updated: ':'Publishing: ')+a.url.replace('https://','')+' goes live in a minute or two. See it under Code › Live.')}catch(e){go.disabled=false;st.hidden=true;notify(e.message)}};
+ const name=$q('.pub-name'),slug=$q('.pub-slug'),chk=$q('.pub-check');name.value=p.name;slug.value=p.live?.slug||slugOf(p.name);let touched=Boolean(p.live),okSlug=Boolean(p.live),seq=0,tm=null;
+ // is the address free? (asked a moment after typing stops)
+ const check=()=>{clearTimeout(tm);if(p.live)return;okSlug=false;const v=slug.value;chk.className='pub-check';chk.textContent=v.length<2?'At least 2 letters.':'Checking…';if(v.length<2)return;
+  const n=++seq;tm=setTimeout(async()=>{try{const r=await api('/live-name?slug='+encodeURIComponent(v));if(n!==seq)return;okSlug=r.ok;chk.className='pub-check '+(r.ok?'ok':'bad');chk.textContent=r.ok?(r.mine?'Yours: publishing updates it.':v+$q('.pub-domain').textContent+' is free.'):r.reason}catch(e){if(n===seq){okSlug=true;chk.textContent=''}}},350)};
+ if(p.live){slug.readOnly=true;slug.title='The address stays the same when you update.'}else check();
+ name.oninput=()=>{if(!touched){slug.value=slugOf(name.value);check()}};slug.oninput=()=>{touched=true;const c=slugOf(slug.value);if(c!==slug.value)slug.value=c;check()};
+ const step=(s,state,text)=>{const li=$q('.pub-steps [data-s="'+s+'"]');if(!li)return;li.className=state;if(text!=null){const sm=li.querySelector('small');if(sm)sm.textContent=text;else li.querySelector('span').insertAdjacentHTML('beforeend','<small></small>'),li.querySelector('small').textContent=text}};
+ $q('.pub-go').onclick=async()=>{const go=$q('.pub-go');if(!okSlug){chk.className='pub-check bad';chk.textContent=chk.textContent||'Choose a free address.';slug.focus();return}
+  go.disabled=true;$q('.pub-fields').hidden=true;$q('.kit-message').hidden=true;$q('.pub-steps').hidden=false;step('send','doing');$q('.pub-cancel').textContent='Close';
+  const vis=d.querySelector('input[name="vis"]:checked')?.value||'';let a;
+  try{a=await api('/publish',{projectId:p.id,name:name.value.trim()||p.name,slug:slug.value,db:$q('.pub-dbx').checked,...(vis?{visibility:vis}:{})});step('send','done');step('build','doing');await refreshState()}
+  catch(e){step('send','fail',e.message);go.textContent='Try again';go.disabled=false;go.onclick=()=>{d.close();publishProject(project()||p)};return}
+  // follow the build until the app answers (or fails), for up to 15 minutes; closing the dialog leaves it building
+  const t0=Date.now();const tick=async()=>{if(!d.isConnected)return;let r=null;try{r=await api('/live-status?id='+encodeURIComponent(a.id))}catch{}
+   const secs=Math.round((Date.now()-t0)/1000);
+   if(r?.status==='live'){step('build','done');step('live','done');const li=$q('.pub-steps [data-s="live"] span');li.innerHTML='Live at <a target="_blank" rel="noopener"></a>';li.querySelector('a').href=r.url;li.querySelector('a').textContent=r.url.replace('https://','');
+    go.textContent='Open';go.disabled=false;go.onclick=()=>{window.open(r.url,'_blank','noopener');d.close()};notify('Live: '+r.url.replace('https://',''));return}
+   if(r?.status==='failed'){step('build','fail',r.error||'The build failed.');go.textContent='Try again';go.disabled=false;go.onclick=()=>{d.close();publishProject(project()||p)};return}
+   step('build','doing','Working on it: '+(secs<60?secs+' s':Math.floor(secs/60)+' min '+(secs%60)+' s')+'. You can close this; it keeps going.');if(Date.now()-t0<15*60000)setTimeout(tick,4000)};
+  setTimeout(tick,3000)};
  document.body.append(d);d.showModal();d.addEventListener('close',()=>d.remove());setTimeout(()=>name.focus(),30)}
 
 // costs in the currency aqeelOS uses (US dollars unless the person or the company picked rupiah)

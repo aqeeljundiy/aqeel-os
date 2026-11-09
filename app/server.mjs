@@ -808,7 +808,7 @@ const backups=createBackups({DATA,HOME:homedir(),HERMES_HOME,tz:()=>tzNow,notify
   for(let i=0;i<30&&await fetch(DASH.origin+'/api/status',{signal:AbortSignal.timeout(2000)}).then(()=>true,()=>false);i++)await new Promise(r=>setTimeout(r,1000));
   if(await fetch(DASH.origin+'/api/status',{signal:AbortSignal.timeout(2000)}).then(()=>true,()=>false))throw Error('the engine dashboard still answers after 30 s')},
  startEngine:async()=>{dashStopped=false;gwStopped=false;await restartGateway('agents restored from a backup',{wait:false,bridges:true,restore:true})}});restoreBusy=()=>backups.busy();holdWrites(()=>backups.writesHeld());if(LIVE_APP)backups.schedule();
-const live=createLive({DATA,DOMAIN:hostSetting('liveDomain')});
+const live=createLive({DATA,DOMAIN:hostSetting('liveDomain'),SECRET,PUBLIC_URL,auto:LIVE_APP});
 // This install's own settings (System › Settings): Your address, time zone, hosts, agent users, Claude sign-in (install-routes.mjs)
 const install=createInstallRoutes({send,readBody,isAdmin:u=>users.isAdmin(u),listAgents:()=>listAgents(),readConfig,setKey,hermes:hcmd,engineProbe:async()=>{const d=await fetch(DASH.origin+'/api/status',{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(5000)}).catch(()=>null);if(!d)return 'down';if(d.status===401||d.status===403)return 'auth';const g=await fetch(GATE.origin+'/api/model/options',{headers:{authorization:'Bearer '+API_KEY},signal:AbortSignal.timeout(5000)}).catch(()=>null);return !g?'down':g.status===401||g.status===403?'auth':'ok'},claudeOn:async()=>(pick(await readConfig('default')||{},'plugins.enabled')||[]).includes('claude-subscription-directsdk-experimental'),onTz:z=>{tzNow=z;SR_TZ=z}});
 if(LIVE_APP){setTimeout(()=>install.tick(),120000).unref();setInterval(()=>install.tick(),15*60e3).unref()}
@@ -2236,6 +2236,9 @@ const server=createServer(async(req,res)=>{
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'name_thing',description:'Give one of your own things a plain name and a one-line description people will remember: a skill you have, a key in your settings (say which account or user it belongs to) or an app in your setup. Use it whenever you make one, and when aqeelOS asks you to.',inputSchema:{type:'object',properties:{kind:{type:'string',enum:['skill','key','mcp']},id:{type:'string',description:'The skill name, the key name (or NAME@code from the Keys list), or the app name'},name:{type:'string',description:'Plain name, e.g. "GitHub: acme-dev (repo access)"'},description:{type:'string',description:'One line on what it is for; for a key, which account or user'}},required:['kind','id','name','description']}});
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))addNameFields(out.body.result.tools);
    if(out.body==null){res.writeHead(out.status);return res.end()}return send(res,out.status,out.body)}
+  // private Live apps: Traefik asks here before each request (forwardAuth); /live-login sends a signed-in person back with a pass
+  if(p==='/live-auth')return live.auth(req,res,id=>users.user(id)).catch(()=>{if(!res.headersSent){res.writeHead(503);res.end()}});
+  if(p==='/live-login'&&req.method==='GET')return live.login(req,res,await me(req)).catch(()=>{if(!res.headersSent)send(res,500,'Try again.')});
   // Incoming webhooks (GitHub, Stripe…) reach Hermes' webhook listener here. No sign-in: each
   // subscription checks its own secret signature, and nothing but POST /webhooks/<name> passes.
   if(/^\/webhooks\/[\w.-]{1,64}$/.test(p)&&req.method==='POST')return proxy(req,res,HOOKS,'',{});
@@ -2428,8 +2431,11 @@ const server=createServer(async(req,res)=>{
     return send(res,404,{error:'Not found'})}
    if(p==='/ui/code/version')return send(res,200,{version:await code.version()});
    // Live: Code publishes a project as a zip (the body), as the person this computer is paired for
+   // Live from Code: is an address free, and how is a publish going
+   if(p==='/ui/code/live-name'&&req.method==='GET')return send(res,200,await live.nameCheck(who,url.searchParams.get('slug')||''));
+   if(p==='/ui/code/live-status'&&req.method==='GET'){try{const a=await live.check(String(url.searchParams.get('id')||''));return send(res,200,{status:a.stopped?'offline':a.status,error:a.error||'',url:live.urlOf(a.slug)})}catch(e){return send(res,404,{error:e.message})}}
    if(p==='/ui/code/publish'&&req.method==='POST'){const chunks=[];let n=0;for await(const c of req){n+=c.length;if(n>90e6)return send(res,413,{error:'The project is over 90 MB. Leave big files (videos, data) out of it.'});chunks.push(c)}
-    const q=url.searchParams;try{const a=await live.publish(who,{name:q.get('name'),slug:q.get('slug'),repo:q.get('repo'),database:q.get('db')==='1',zip:Buffer.concat(chunks)});console.log('live: '+(who.name||who.id)+' published',a.slug);return send(res,200,a)}catch(e){return send(res,400,{error:e.message})}}
+    const q=url.searchParams;try{const a=await live.publish(who,{name:q.get('name'),slug:q.get('slug'),repo:q.get('repo'),database:q.get('db')==='1',visibility:q.get('visibility')||undefined,zip:Buffer.concat(chunks)});console.log('live: '+(who.name||who.id)+' published',a.slug);return send(res,200,a)}catch(e){return send(res,400,{error:e.message})}}
    // the people an online project can be shared with (names only)
    if(p==='/ui/code/people'&&req.method==='GET')return send(res,200,{people:users.people().filter(x=>x&&x.id&&!x.disabled).map(x=>({id:x.id,name:x.name||x.username||'Someone',username:x.username||''}))});
    if(p==='/ui/code/report'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}await code.report(dev,b);return send(res,200,{ok:true})}
@@ -2864,6 +2870,9 @@ const server=createServer(async(req,res)=>{
    if(p.startsWith('/ui/apps/')&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}
     try{if(p==='/ui/apps/check'){const a=await live.check(String(b.id||''));return send(res,200,{status:a.status,error:a.error||''})}
      if(p==='/ui/apps/remove')return send(res,200,await live.remove(u,users.isAdmin(u),String(b.id||'')));
+     if(p==='/ui/apps/visibility')return send(res,200,await live.setVisibility(u,users.isAdmin(u),String(b.id||''),String(b.visibility||'')));
+     if(p==='/ui/apps/online')return send(res,200,await live.setOnline(u,users.isAdmin(u),String(b.id||''),!!b.on));
+     if(p==='/ui/apps/visits'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,await live.countVisits(!!b.on))}
      if(p==='/ui/apps/connect'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,await live.connect(b))}}catch(e){return send(res,400,{error:e.message})}}
    // System › Health: each agent fine or with its problems, and its failed messages this week (agent-health.mjs)
    if(p==='/ui/health/issues'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});const l=await issues.list();return send(res,200,{items:l.items.map(i=>({id:i.id,agent:i.agent,agentName:i.agentName,state:i.state,source:i.source||null,missing:i.missing,proposed_fix:i.proposed_fix,byName:i.byName,decision:i.decision,created:i.created,updated:i.updated,count:i.count,result:i.result||null,tries:i.tries??i.attempts??0,proof:i.proof||null,need:i.need||null,told:i.told||null,patch:i.patch||null,noRetry:!!i.noRetry,closeAfter:!!i.closeAfter,history:(i.history||[]).slice(-8).map(h=>({kind:h.kind,at:h.at,status:h.status,summary:h.summary||null,outcome:h.outcome||null}))})),escalations:await escalations.view().catch(()=>({agents:{}})),agents:(await listAgents().catch(()=>[])).map(a=>({id:a,name:agentName(a)})),sources:await chatHistory.sources().catch(()=>[]),policy:{teams:(l.policy.teams||[]).map(t=>({name:t.name,agents:t.agents,contact:t.contact||(t.members||[])[0]?.name||null,members:(t.members||[]).map(m=>m.name)})),fixer:l.policy.fixer||{}}})}

@@ -103,7 +103,7 @@ ACT['code-filter']=a=>{CodeUI.filter=a.dataset.f;CodeUI.paintSide()};
 
 // Live: the apps published from Code (Build › a project's menu › Publish to Live), each at its own address
 Object.assign(CodeUI,{
- stLabel:{live:'Live',building:'Publishing…',failed:'Didn’t start'},
+ stLabel:{live:'Live',building:'Publishing…',failed:'Didn’t start',offline:'Offline'},
  liveSide(){const apps=this.live?.apps||[];
   return `<div class="side-sub">${this.whereBar()}<div class="side-list live-side">${this.live?apps.map(a=>`<button class="item" data-act="live-jump" data-id="${esc(a.id)}"><i class="live-dot ${esc(a.status)}"></i><span class="t">${esc(a.name)}</span></button>`).join('')||`<div class="live-none"><span class="ln-ico">${icon("globe",20)}</span><b>Nothing is live yet</b><p>Publish a project from Build and it shows up here with its link.</p><button class="btn ln-go" data-act="code-where" data-w="computer">${icon("terminal",14)}Go to Build</button></div>`:'<div class="code-skel" role="status" aria-label="Loading"><span class="ring"></span><i></i><i></i></div>'}</div></div>`},
  async livePage(el){this.frame=null;this.state='live';
@@ -114,17 +114,35 @@ Object.assign(CodeUI,{
   try{const tf=UI('/ui/team-folders').catch(()=>null);this.live=await UI('/ui/apps');this.teams=await tf}catch(e){if(gone())return;el.innerHTML=`<div class="code-host live-host"><div class="code-lock card"><h2>Live isn’t available</h2><p>${esc(e.message)}</p></div></div>`;return}
   if(gone())return;this.paintSide();this.paintLive(el);this.watchLive(el)},
  paintLive(el){const d=this.live,apps=d.apps||[];
+  const visL={public:'Public',unlisted:'Anyone with the link',private:'Only the team'},visI={public:'globe',unlisted:'link',private:'lock'};
+  const visSel=a=>a.canManage?`<select class="live-vis" data-id="${esc(a.id)}" aria-label="Who can open it">${Object.entries(visL).map(([k,v])=>`<option value="${k}" ${a.visibility===k?'selected':''}>${v}</option>`).join('')}</select>`:`<span class="live-vchip">${icon(visI[a.visibility]||'link',12)}${esc(visL[a.visibility]||'')}</span>`;
+  const seen=a=>a.visits30==null||!d.stats?'':a.visits30?esc(plural(a.visits30,'visit'))+' in 30 days':'No visits in 30 days';
+  const onOff=a=>a.status==='offline'?`<button class="ghost small" data-act="live-online" data-on="1" data-id="${esc(a.id)}">Back online</button>`:`<button class="ghost small" data-act="live-online" data-on="0" data-id="${esc(a.id)}">Take offline</button>`;
   const card=a=>`<article class="live-card card" id="live-${esc(a.id)}">
     <div class="live-top"><h3>${esc(a.name)}</h3><span class="live-st ${esc(a.status)}"><i class="live-dot ${esc(a.status)}"></i>${esc(this.stLabel[a.status]||a.status)}</span></div>
     <a class="live-url" href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.url.replace(/^https:\/\//,''))}${icon('popout',13)}</a>
-    <p class="live-meta">By ${esc(a.mine?'you':a.ownerName||'someone')} · ${esc(ago(Math.round((a.updated||a.created)/1000)))}${a.db?' · with a database':''}</p>
+    <p class="live-meta">By ${esc(a.mine?'you':a.ownerName||'someone')} · ${esc(ago(Math.round((a.updated||a.created)/1000)))}${a.db?' · with a database':''}${seen(a)?' · '+seen(a):''}${a.unused?' · <b class="live-unused">Unused</b>':''}</p>
     ${a.repo?`<p class="live-meta">${icon('link',13)}<a href="${esc(/^https?:/.test(a.repo)?a.repo:'https://github.com/'+a.repo)}" target="_blank" rel="noopener">${esc(a.repo.replace(/^https:\/\/github.com\//,''))}</a></p>`:''}
     ${a.status==='failed'&&a.error?`<p class="live-err">${esc(a.error)}</p>`:''}
-    <div class="live-acts"><a class="btn small primary" href="${esc(a.url)}" target="_blank" rel="noopener">Open</a>${a.canRemove?`<button class="ghost small" data-act="live-remove" data-id="${esc(a.id)}">Take offline</button>`:''}</div></article>`;
+    <div class="live-acts">${a.status==='offline'?'':`<a class="btn small primary" href="${esc(a.url)}" target="_blank" rel="noopener">Open</a>`}${visSel(a)}${a.canManage?onOff(a)+`<button class="ghost small bad" data-act="live-remove" data-id="${esc(a.id)}">Delete</button>`:''}</div></article>`;
   const connect=d.admin&&!d.connected?`<div class="card live-connect"><h3>Connect Live to the server</h3><p class="hint">Once, so anyone can publish. In Dokploy: <b>Settings › Profile › API keys › Create</b>, then paste it here with the server’s address.</p>
     <label>Server address</label><input id="liveUrl" name="aq-dokploy-address" autocomplete="off" data-1p-ignore data-lpignore="true" placeholder="https://dokploy.example.com" value="${esc(/\./.test(d.domain||'')&&!/localhost/.test(d.domain)?'https://dokploy.'+d.domain:'')}"><label>API key</label><input id="liveKey" name="aq-dokploy-key" type="password" autocomplete="new-password" data-1p-ignore data-lpignore="true"><div class="live-acts"><button class="primary" data-act="live-connect">Connect</button></div></div>`:'';
-  el.innerHTML=`<div class="code-host live-host"><div class="live-wrap"><div class="live-head"><h2>Live</h2><p class="hint">Apps your team published from Code. Each one runs on its own address on ${esc(d.domain)}. To publish, open a project in Build › its menu › <b>Publish to Live</b>.</p></div>${connect}
-    ${apps.length?`<div class="live-grid">${apps.map(card).join('')}</div>`:`<div class="live-empty card"><span class="ln-ico">${icon('globe',22)}</span><b>Nothing is live yet</b><p class="hint">Build something in Code, then publish it from the project’s menu. It shows up here with its link.</p></div>`}${this.teamsHtml()}</div></div>`},
+  // admins: every app in one table, with filters and visits
+  const F=this.liveF||'all',filters={all:'All',unused:'Unused',failed:'Didn’t start',offline:'Offline',public:'Public',unlisted:'Link only',private:'Team only'};
+  const is=(a,k)=>k==='all'||(k==='unused'?a.unused:k==='failed'?a.status==='failed':k==='offline'?a.status==='offline':a.visibility===k);
+  const when=t=>t?esc(ago(Math.round(t/1000))):'<span class="hint">never</span>';
+  const table=d.admin&&apps.length?`<section class="card live-admin"><div class="live-admin-head"><div><h3>All apps</h3><p class="hint">${d.stats?'Visits are pages opened, counted from the server’s request log.':'Visits aren’t counted yet: the server’s request log is off.'}</p></div>${d.stats?'':`<button class="ghost small" data-act="live-visits">Count visits</button>`}</div>
+    <div class="live-filters" role="tablist">${Object.entries(filters).map(([k,v])=>{const n=apps.filter(a=>is(a,k)).length;return n||k==='all'?`<button role="tab" class="live-f ${F===k?'on':''}" data-act="live-filter" data-f="${k}" aria-selected="${F===k}">${v} <span>${n}</span></button>`:''}).join('')}</div>
+    <div class="live-tw"><table class="live-table"><thead><tr><th>App</th><th>Published by</th><th>Who can open it</th><th>Status</th><th>Updated</th><th class="num">7 days</th><th class="num">30 days</th><th>Last visit</th><th></th></tr></thead><tbody>
+    ${apps.filter(a=>is(a,F)).map(a=>`<tr><td><a class="live-tname" href="${esc(a.url)}" target="_blank" rel="noopener"><b>${esc(a.name)}</b><small>${esc(a.slug)}.${esc(d.domain)}</small></a>${a.unused?'<b class="live-unused">Unused</b>':''}</td><td>${esc(a.mine?'You':a.ownerName||'Someone')}</td><td>${visSel(a)}</td>
+     <td><span class="live-st ${esc(a.status)}"><i class="live-dot ${esc(a.status)}"></i>${esc(this.stLabel[a.status]||a.status)}</span></td><td>${when(a.updated||a.created)}</td><td class="num">${d.stats?a.visits7||0:'–'}</td><td class="num">${d.stats?a.visits30||0:'–'}</td><td>${d.stats?when(a.lastVisit):'–'}</td>
+     <td class="live-row-acts">${onOff(a)}<button class="ghost small bad" data-act="live-remove" data-id="${esc(a.id)}">Delete</button></td></tr>`).join('')||`<tr><td colspan="9" class="hint">Nothing here.</td></tr>`}</tbody></table></div></section>`:'';
+  const mine=d.admin?apps.filter(a=>a.mine):apps;
+  el.innerHTML=`<div class="code-host live-host"><div class="live-wrap"><div class="live-head"><h2>Live</h2><p class="hint">Apps your team published from Code, each at its own address on ${esc(d.domain)}. To publish, open a project in Build › its menu › <b>Publish to Live</b>.</p></div>${connect}
+    ${mine.length?(d.admin?'<h3 class="live-sub">Yours</h3>':'')+`<div class="live-grid">${mine.map(card).join('')}</div>`:''}
+    ${table}
+    ${apps.length?'':`<div class="live-empty card"><span class="ln-ico">${icon('globe',22)}</span><b>Nothing is live yet</b><p class="hint">Build something in Code, then publish it from the project’s menu. It shows up here with its link.</p></div>`}${this.teamsHtml()}</div></div>`;
+  for(const sel of el.querySelectorAll('select.live-vis'))sel.onchange=()=>liveVis(sel)},
  // Team folders: the shared Code folders a person is in (admins see all), who is in each and the last push; read only
  teamsHtml(){const tf=this.teams?.folders;if(!tf)return '';const role={owner:'shared it',push:'can push',pull:'can pull'};
   const card=f=>`<article class="live-card card"><div class="live-top"><h3>${esc(f.name)}</h3><span class="live-st">${f.chats?'Files and chats':'Files only'}</span></div>
@@ -140,9 +158,10 @@ Object.assign(CodeUI,{
    for(const a of busy){try{const r=await post(UI,'/ui/apps/check',{id:a.id});if(r.status!==a.status){a.status=r.status;a.error=r.error;changed=true}}catch{}}
    if(changed){this.paintLive(el);this.paintSide()}},8000)}});
 ACT['live-jump']=a=>{const c=document.getElementById('live-'+a.dataset.id);if(c){c.scrollIntoView({behavior:'smooth',block:'center'});c.classList.remove('flash');void c.offsetWidth;c.classList.add('flash')}};
+const liveReload=()=>{CodeUI.live=null;const el=$('#pg .code-host')?.parentElement||$('#pg');if(el)CodeUI.livePage(el)};
 ACT['live-remove']=async a=>{const x=(CodeUI.live?.apps||[]).find(y=>y.id===a.dataset.id);if(!x)return;
- if(!await confirmBox('Take '+x.name+' offline?','Its address stops working and the app is removed from the server'+(x.db?', with its database':'')+'. The project itself stays in Code.','Take offline'))return;
- const t=liveBusy(a,'Taking offline…');try{await post(UI,'/ui/apps/remove',{id:x.id});toast(x.name+' is offline');CodeUI.live=null;const el=$('#pg .code-host')?.parentElement||$('#pg');if(el)CodeUI.livePage(el)}catch(e){fail(e)}finally{t()}};
+ if(!await confirmBox('Delete '+x.name+'?','The app'+(x.db?' and its database are':' is')+' removed from the server and '+x.url.replace('https://','')+' stops working. This can’t be undone. The project itself stays in Code.'+(x.status!=='offline'?' To keep it for later, take it offline instead.':''),'Delete'))return;
+ const t=liveBusy(a,'Deleting…');try{await post(UI,'/ui/apps/remove',{id:x.id});toast(x.name+' is deleted');CodeUI.live=null;const el=$('#pg .code-host')?.parentElement||$('#pg');if(el)CodeUI.livePage(el)}catch(e){fail(e)}finally{t()}};
 // these can take up to 30 s on the server: the button shows it is working until then
 const liveBusy=(a,txt)=>{const was=a.textContent;a.disabled=true;a.classList.add('is-busy','say');a.setAttribute('aria-busy','true');a.textContent=txt;return()=>{if(!a.isConnected)return;a.disabled=false;a.classList.remove('is-busy','say');a.removeAttribute('aria-busy');a.textContent=was}};
 ACT['live-connect']=async a=>{const t=liveBusy(a,'Connecting…');try{await post(UI,'/ui/apps/connect',{url:$('#liveUrl').value,key:$('#liveKey').value});toast('Live is connected');CodeUI.live=null;const el=$('#pg .code-host')?.parentElement||$('#pg');if(el)CodeUI.livePage(el)}catch(e){fail(e)}finally{t()}};
@@ -160,3 +179,14 @@ ACT['oldcode-import']=async a=>{if(!await confirmBox('Move '+a.dataset.l+' into 
  a.disabled=true;try{const r=await post(UI,'/ui/accounts/old-code/import',{id:a.dataset.id});Pages._acctFresh=true;toast(r.label+' is now one of your AI accounts');oldCodeAgain()}catch(e){a.disabled=false;fail(e)}};
 ACT['oldcode-remove']=async a=>{if(!await confirmBox('Remove '+a.dataset.l+'?','Its sign-in folder is deleted from the AI box. This cannot be undone; you can sign in to that account again on Models at any time.','Remove'))return;
  a.disabled=true;try{await del(UI,'/ui/accounts/old-code/'+a.dataset.p+'/'+a.dataset.id);toast(a.dataset.l+' removed');oldCodeAgain()}catch(e){a.disabled=false;fail(e)}};
+// take offline (stopped, everything kept) or back online
+ACT['live-online']=async a=>{const x=(CodeUI.live?.apps||[]).find(y=>y.id===a.dataset.id);if(!x)return;const on=a.dataset.on==='1';
+ if(!on&&!await confirmBox('Take '+x.name+' offline?',x.url.replace('https://','')+' stops answering until it is put back online. Nothing is deleted.','Take offline'))return;
+ const t=liveBusy(a,on?'Starting…':'Stopping…');try{await post(UI,'/ui/apps/online',{id:x.id,on});toast(on?x.name+' is back online':x.name+' is offline');liveReload()}catch(e){fail(e)}finally{t()}};
+// who can open it: public (listed for the team), anyone with the link, or only people signed in to aqeelOS
+async function liveVis(sel){const x=(CodeUI.live?.apps||[]).find(y=>y.id===sel.dataset.id);if(!x)return;const v=sel.value,was=x.visibility;sel.disabled=true;
+ try{await post(UI,'/ui/apps/visibility',{id:x.id,visibility:v});x.visibility=v;for(const o of document.querySelectorAll('select.live-vis[data-id="'+x.id+'"]'))o.value=v;
+  toast(v==='private'?x.name+' now asks people to sign in to aqeelOS':v==='public'?x.name+' is public and listed for the team':x.name+' opens for anyone with the link')}catch(e){sel.value=was;fail(e)}finally{sel.disabled=false}}
+ACT['live-filter']=a=>{CodeUI.liveF=a.dataset.f;const el=$('#pg .code-host')?.parentElement||$('#pg');if(el&&CodeUI.live)CodeUI.paintLive(el)};
+ACT['live-visits']=async a=>{if(!await confirmBox('Count visits?','The server starts keeping a request log so aqeelOS can count how often each app is opened. Turning it on restarts the web server for a few seconds, so every site on the server blinks once.','Count visits'))return;
+ const t=liveBusy(a,'Turning on…');try{await post(UI,'/ui/apps/visits',{on:true});toast('Visits are counted from now on');liveReload()}catch(e){fail(e)}finally{t()}};

@@ -112,8 +112,8 @@ export function createAqeelos({root}){
  async function people(){await load();if(!link.token)return [];if(Date.now()-peopleAt<60000)return peopleList;
   try{const r=await fetch(link.base+'/ui/code/people',{headers:{authorization:'Bearer '+link.token},signal:AbortSignal.timeout(10000)});if(r.ok){peopleList=(await r.json()).people||[];peopleAt=Date.now()}}catch{}return peopleList}
  // Live: send a project (zip) to aqeelOS, which runs it on the server at <slug>.<its Live domain>
- async function publish(zip,{name,slug,repo,db},act){await load();if(!link.token)throw Error('Connect this app to aqeelOS first (open Code in aqeelOS).');
-  const q=new URLSearchParams({name:name||'',slug:slug||'',repo:repo||'',db:db?'1':''});
+ async function publish(zip,{name,slug,repo,db,visibility},act){await load();if(!link.token)throw Error('Connect this app to aqeelOS first (open Code in aqeelOS).');
+  const q=new URLSearchParams({name:name||'',slug:slug||'',repo:repo||'',db:db?'1':'',...(visibility?{visibility}:{})});
   const r=await fetch(link.base+'/ui/code/publish?'+q,{method:'POST',headers:H(act,{'content-type':'application/zip'}),body:zip,signal:AbortSignal.timeout(600000)});
   const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'aqeelOS did not take it ('+r.status+').');return j}
  /* Team folders (Plan 4, 25 Oct 2026): the hub's small calls (share, members, history), and the address and key git uses
@@ -122,8 +122,11 @@ export function createAqeelos({root}){
   const r=await fetch(link.base+'/ui/code/team'+route,{method:body?'POST':'GET',headers:{authorization:'Bearer '+link.token,...(body?{'content-type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(30000)});
   const j=await r.json().catch(()=>({}));if(!r.ok){const e=Error(j.error||'aqeelOS answered '+r.status);e.status=r.status;throw e}return j}
  async function teamGit(){await load();if(!link.token)throw Error('Connect this app to aqeelOS first (open Code in aqeelOS).');return {base:link.base,token:link.token}}
+ // is an address free, and how is a publish going (asked of aqeelOS as this computer's person)
+ async function live(what,q,act){await load();if(!link.token)throw Error('Connect this app to aqeelOS first (open Code in aqeelOS).');
+  const r=await fetch(link.base+'/ui/code/live-'+what+'?'+new URLSearchParams(q),{headers:H(act),signal:AbortSignal.timeout(20000)});const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'aqeelOS did not answer ('+r.status+').');return j}
  async function report(r){await load();if(!link.token)return;await fetch(link.base+'/ui/code/report',{method:'POST',headers:{authorization:'Bearer '+link.token,'content-type':'application/json'},body:JSON.stringify({...r,version:install.version||'dev'}),signal:AbortSignal.timeout(15000)}).catch(()=>{})}
- return {origins,state,pair,unpair,mcp,agents,intros,ticket,noteAct,freshAct,anyAct,agentModel,engineRun,engine,serve,checkUpdate,autoUpdate,reportUsage,people,publish,report,team,teamGit}}
+ return {origins,state,pair,unpair,mcp,agents,intros,ticket,noteAct,freshAct,anyAct,agentModel,engineRun,engine,serve,checkUpdate,autoUpdate,reportUsage,people,publish,live,report,team,teamGit}}
 // the entries of a stored (uncompressed) zip, as aqeelOS makes them
 function unzip(buf){const out=[];let i=0;while(i+30<=buf.length&&buf.readUInt32LE(i)===0x04034b50){const size=buf.readUInt32LE(i+18),nl=buf.readUInt16LE(i+26),xl=buf.readUInt16LE(i+28);
   const name=buf.slice(i+30,i+30+nl).toString();const start=i+30+nl+xl;out.push([name,buf.slice(start,start+size)]);i=start+size}return out}
