@@ -81,6 +81,7 @@ export const LABEL_DEFAULTS={
  'skill:kirimdev-customer-support':S('Customer support on a Kirimdev line','Answers customers on a Kirimdev WhatsApp line: tone, orders, payment links, labels and handing over to a person.'),
  // plugins (engine extensions): what each one does for the agents
  'plugin:aqeelos-live':S('aqeelOS live context and guards','Before every reply, tells the agent what it can do right now; stops replies with error dumps, loops, and things made without a name.'),
+ 'plugin:aqeelos-group-context':S('Shared Telegram topics','Before a reply in a Telegram group topic, shows the agent what was said recently in the group’s other topics.'),
  'plugin:aqeelos-main-rule':S('Main agent rule','Reminds the main agent to give another agent the access it lacks instead of doing that agent’s work for it.'),
  'plugin:aqeelos-issue-buttons':S('Issue buttons in Telegram','Passes presses on aqeelOS issue buttons in Telegram to aqeelOS.'),
  'plugin:claude-subscription-directsdk-experimental':S('Claude Pro or Max sign-in','Lets the agents use a Claude Pro or Max plan as their model, through the official Claude app.'),

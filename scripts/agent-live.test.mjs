@@ -15,7 +15,7 @@ const TB='Traceback (most recent call last):\n  File "/home/claude/workspaces/co
 async function make(){const H=await mkdtemp(path.join(tmpdir(),'al-'));await mkdir(path.join(H,'profiles','cove-support'),{recursive:true});await mkdir(path.join(H,'profiles','default--whatsapp-2'),{recursive:true});
  for(const a of ['','profiles/cove-support','profiles/default--whatsapp-2'])await writeFile(path.join(H,a,'config.yaml'),'x: 1\n');await mkdir(path.join(H,'profiles','.deleted'),{recursive:true});
  const cfg={},sets=[];let capsText=['Checked by aqeelOS from your real settings at 2026-11-07 00:00 UTC.','- Tools: lockbox, my_health'];let t=1e12;
- const L=createAgentLive({HERMES_HOME:H,DATA:path.join(H,'data'),chatInfo:async(a,pf,id)=>id==='-100gone'?{title:'',gone:true}:{title:'Continue - Support Agent'},topicName:async(a,c,t)=>t==='89'?'Questions (topic 89)':null,listAgents:async()=>['default','cove-support'],readConfig:async a=>cfg[a]||{},setKey:async(a,k,v)=>{sets.push([a,k,v]);cfg[a]={plugins:{enabled:v}}},
+ const L=createAgentLive({HERMES_HOME:H,DATA:path.join(H,'data'),chatInfo:async(a,pf,id)=>id==='-100gone'?{title:'',gone:true}:{title:'Continue - Support Agent'},topicName:async(a,c,t)=>t==='89'?'Questions (topic 89)':null,listAgents:async()=>['default','cove-support'],readConfig:async a=>cfg[a]||{},setKey:async(a,k,v)=>{sets.push([a,k,v]);cfg[a]={plugins:{...cfg[a]?.plugins,enabled:v}}},
   pick:(c,k)=>k.split('.').reduce((o,x)=>o?.[x],c),capabilities:async()=>capsText,policy:async()=>POLICY,engineDir:ENGINE,log:()=>{},now:()=>t});
  return {L,H,cfg,sets,setCaps:c=>{capsText=c},tick:ms=>{t+=ms}}}
 
@@ -51,7 +51,9 @@ test('a held script error is kept once per kind, told to the agent once, and lis
 test('the plugin goes into every home (copies too) and is switched on once; a switched-off plugin stays off',async()=>{const {L,H,cfg,sets}=await make();cfg['default--whatsapp-2']={plugins:{disabled:['aqeelos-live']}};
  const c=await L.install();assert.deepEqual(c.sort(),['cove-support','default','default--whatsapp-2']);
  assert.equal(await readFile(path.join(H,'profiles','cove-support','plugins','aqeelos-live','__init__.py'),'utf8'),await readFile(path.join(ENGINE,'__init__.py'),'utf8'));
- assert.deepEqual(sets.map(s=>s[0]).sort(),['cove-support','default']);assert.deepEqual(await L.install(),[]);
+ assert.deepEqual(sets.map(s=>s[0]).sort(),['cove-support','default','default--whatsapp-2']);assert.deepEqual(await L.install(),[]);
+ assert.ok((await readFile(path.join(H,'profiles','cove-support','plugins','aqeelos-group-context','plugin.yaml'),'utf8')).includes('aqeelos-group-context'));
+ assert.deepEqual(cfg['default--whatsapp-2'].plugins.enabled,['aqeelos-group-context'],'each plugin has its own off switch');assert.deepEqual([...cfg['cove-support'].plugins.enabled].sort(),['aqeelos-group-context','aqeelos-live']);
  assert.equal((await L.homes()).includes('.deleted'),false);assert.ok(await L.keyOk(await L.key()));assert.equal(await L.keyOk('nope'),false)});
 
 test('the engine guard holds tracebacks back: a note in team chats, silence for schedules, own words kept',()=>{

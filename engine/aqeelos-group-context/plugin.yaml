@@ -1,0 +1,6 @@
+name: aqeelos-group-context
+version: 0.1.0
+manifest_version: 2
+description: One Telegram forum group, one conversation. Before each reply in a topic, the agent also sees what was said recently in the group's other topics.
+author: aqeelOS contributors
+license: MIT

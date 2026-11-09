@@ -86,12 +86,12 @@ export function createAgentLive({HERMES_HOME,DATA,listAgents,readConfig,setKey,p
     const n=await loadNotes();for(const x of fresh)if(n[agent]?.[x.kind]?.[x.key])n[agent][x.kind][x.key].told=true;await saveNotes()}}
   return {text:out.join('\n\n'),hash}}
  // ---- the plugin in every agent's home, switched on ----
- async function install(){const src=engineDir;const files=(await readdir(src).catch(()=>[])).filter(f=>/\.(py|yaml)$/.test(f));if(!files.length)return [];
+ async function install(){const plugins=[];for(const name of ['aqeelos-live','aqeelos-group-context']){const src=name==='aqeelos-live'?engineDir:path.join(path.dirname(engineDir),name);const files=(await readdir(src).catch(()=>[])).filter(f=>/\.(py|yaml)$/.test(f));if(files.length)plugins.push({name,src,files})}if(!plugins.length)return [];
   const changed=[];await key();
-  for(const a of await homes()){const dst=path.join(home(a),'plugins','aqeelos-live');let did=false;
-   try{await mkdir(dst,{recursive:true});for(const f of files){const want=await readFile(path.join(src,f),'utf8');const have=await readFile(path.join(dst,f),'utf8').catch(()=>null);if(have!==want){await writeFile(path.join(dst,f),want);did=true}}
+  for(const a of await homes()){let did=false;
+   try{for(const {name,src,files} of plugins){const dst=path.join(home(a),'plugins',name);await mkdir(dst,{recursive:true});for(const f of files){const want=await readFile(path.join(src,f),'utf8');const have=await readFile(path.join(dst,f),'utf8').catch(()=>null);if(have!==want){await writeFile(path.join(dst,f),want);did=true}}}
     const c=await readConfig(a).catch(()=>null);if(c){const on=[].concat(pick(c,'plugins.enabled')||[]).map(String);const off=[].concat(pick(c,'plugins.disabled')||[]).map(String);
-     if(!on.includes('aqeelos-live')&&!off.includes('aqeelos-live')){await setKey(a,'plugins.enabled',[...on,'aqeelos-live']);did=true}}
+     const add=plugins.map(p=>p.name).filter(n=>!on.includes(n)&&!off.includes(n));if(add.length){await setKey(a,'plugins.enabled',[...on,...add]);did=true}}
     if(did)changed.push(a)}catch(e){log('agent-live: install for '+a+': '+e.message)}}
   if(changed.length)log('agent-live: plugin installed or updated for '+changed.join(', '));return changed}
  return {key,keyOk,hold,heldFor,healthLines,context,install,homes,setNotices,noticesFor}}
