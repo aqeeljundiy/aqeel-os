@@ -51,9 +51,9 @@ test('a payment is for this customer only, adds up to the order total, is logged
  assert.match((await pay({amounts:[100000],name:'Ani',order_total:100000})).text,/Two payments/);
  tick(16*60e3);assert.match((await pay({amounts:[100000],name:'Ani',order_total:100000})).text,/only work inside a customer chat run/)});
 
-test('Gino\'s helper sends to the run\'s customer, whatever number the model has in mind',async()=>{const {C,ran}=await make('pay');const tok=C.begin({agent:'cove-support',line:'291',conversation:'c',phone:'6287885993124'});
+test('Gino\'s helper sends to the run\'s customer, whatever number the model has in mind',async()=>{const {C,ran}=await make('pay');const tok=C.begin({agent:'cove-support',line:'291',conversation:'c',phone:'6280000000001'});
  await C.call('cove-support',tok,'create_payment',{kind:'va',bank:'bca',amounts:[1500000],name:'Budi',order_total:1500000,order_form:'Nama: Ani Wijaya\nAlamat: Jl. Merdeka 10, Bandung 40111\nNo HP: 08123456789\nPesanan: 1x Pen',to:'6280000000000'});
- assert.deepEqual(ran[0][2],['va','BCA','1500000','--name','Budi','--to','6287885993124'])});
+ assert.deepEqual(ran[0][2],['va','BCA','1500000','--name','Budi','--to','6280000000001'])});
 
 test('the reply guard can ask whether a payment was made for this customer since the run began',async()=>{const {C}=await make();const tok=C.begin({agent:'cove-support',line:'1',conversation:'c',phone:'628111222333'});
  assert.equal(await C.paidSince('cove-support','628111222333',0),false);

@@ -197,14 +197,14 @@ def a_cloned_agent_never_gets_another_agents_bot_token():
 @test
 def phone_masking_is_its_own_setting_and_keys_stay_hidden():
     m = load("aq_redact", "agent/redact.py")
-    txt = "customer +6287885993124 key sk-proj-abcdefghijklmnopqrstuvwx"
+    txt = "customer +6280000000001 key sk-proj-abcdefghijklmnopqrstuvwx"
     m._redact_phones_enabled = lambda: True
     m._REDACT_ENABLED = True
     on = m.redact_sensitive_text(txt, force=True)
-    assert "+6287885993124" not in on and "****" in on, on
+    assert "+6280000000001" not in on and "****" in on, on
     m._redact_phones_enabled = lambda: False
     off = m.redact_sensitive_text(txt, force=True)
-    assert "+6287885993124" in off, off
+    assert "+6280000000001" in off, off
     assert "abcdefghijklmnopqrstuvwx" not in off, off
 
 
