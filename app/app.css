@@ -780,7 +780,7 @@ body.dragging .screen-float{transition:none}
 .pick input[type=checkbox]{width:16px;height:16px;flex:none}.pick span{flex:1;min-width:0}.pick select{width:auto;min-height:30px;font-size:12.5px}
 .signin input+label{margin-top:14px}
 /* starter prompts swap in softly when fresh ones arrive */
-.pick span.logo{flex:none}
+.pick span.logo,.pick span.ag-ava{flex:none}
 
 /* ---------- Accounts: priority list ---------- */
 .pri-list{display:flex;flex-direction:column;gap:8px}
