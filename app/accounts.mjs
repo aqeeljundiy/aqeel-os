@@ -46,8 +46,11 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
  // went blank, and switching lost its numbers). So each account is asked at most every 5 minutes, one ask at a time;
  // the last good reading is kept with its time and shown until a newer one comes; after a refusal it waits (its
  // Retry-After, else 5 minutes, doubling up to 30). Only an expired sign-in (401) clears what is shown.
- const usageSeen=new Map(),USAGE_EVERY=5*60e3;
- async function usageFetch(id,token){const s=usageSeen.get(id)||{};usageSeen.set(id,s);const now=Date.now();
+ // Kept on disk too (9 Nov 2026): after a restart the numbers stayed blank until Anthropic answered again, and every restart asked anew.
+ const usageSeen=new Map(),USAGE_EVERY=5*60e3,USAGE_FILE=path.join(DATA,'claude-usage.json');let usageLoaded=false;
+ const usageSave=()=>{const o={};for(const [k,v] of usageSeen){const {usage,extra,at,next,wait,error,dead}=v;o[k]={usage,extra,at,next,wait,error,dead}}return writeFile(USAGE_FILE+'.tmp',JSON.stringify(o)).then(()=>rename(USAGE_FILE+'.tmp',USAGE_FILE)).catch(()=>{})};
+ async function usageFetch(id,token){if(!usageLoaded){usageLoaded=true;try{for(const [k,v] of Object.entries(JSON.parse(await readFile(USAGE_FILE,'utf8'))))if(!usageSeen.has(k))usageSeen.set(k,v)}catch{}}
+  const s=usageSeen.get(id)||{};usageSeen.set(id,s);const now=Date.now();
   if(s.asking)return s;if(s.at&&now-s.at<USAGE_EVERY||now<(s.next||0))return s;
   s.asking=(async()=>{try{const r=await fetch('https://api.anthropic.com/api/oauth/usage',{headers:{authorization:'Bearer '+token,'anthropic-beta':'oauth-2025-04-20',accept:'application/json','user-agent':'claude-code/2.1.0'},signal:AbortSignal.timeout(15000)});
     if(r.ok){const u=await r.json();const win=k=>u[k]?{used:Math.round(Number(u[k].utilization)||0),resets:u[k].resets_at||null}:null;
@@ -57,7 +60,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
     else if(r.status===401){Object.assign(s,{usage:null,extra:null,dead:true,error:'Sign-in expired. It refreshes the next time this account is used.',next:Date.now()+60e3})}
     else{const ra=Number(r.headers.get('retry-after'))||0;s.wait=Math.min(30*60e3,Math.max(5*60e3,ra*1000,(s.wait||0)*2));s.next=Date.now()+s.wait;s.dead=false;
      s.error=r.status===429?'Anthropic is not giving out usage right now. It tries again by itself.':'Usage unavailable ('+r.status+')'}}
-   catch{s.wait=Math.min(30*60e3,Math.max(5*60e3,(s.wait||0)*2));s.next=Date.now()+s.wait;s.error='Could not reach Anthropic.'}})().finally(()=>{s.asking=null});
+   catch{s.wait=Math.min(30*60e3,Math.max(5*60e3,(s.wait||0)*2));s.next=Date.now()+s.wait;s.error='Could not reach Anthropic.'}usageSave()})().finally(()=>{s.asking=null});
   await s.asking;return s}
  const details=(a,fresh,quick)=>cache.get(a.id,()=>readDetails(a),{force:!!fresh,partial:quick?()=>({id:a.id,label:a.label,main:a.id==='main',signedIn:false,partial:true}):undefined});
  async function readDetails(a){
