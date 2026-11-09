@@ -33,10 +33,12 @@ async function models(agent,act){if(Date.now()-codexModels.at>600000||!codexMode
  const why=h=>h!=='aqeelos'||engine?'':process.env.CBA_ONLINE?'Online Code runs in its own container here, so this model cannot reach the project.':'Update aqeelOS to run this model for projects on this computer.';
  const d=r.agentDefault||{},dh=engine?'aqeelos':H(d.provider)!=='aqeelos'?H(d.provider):'claude';
  for(const h of ['claude','codex','aqeelos','gemini'])out[h]=[];out.gemini=[];out.list=[];
- const add=(h,m)=>{if(m.id&&!/^[a-zA-Z0-9._:/-]{1,80}$/.test(m.id))return;const off=why(h);out[h].push(m);out.list.push({harness:h,id:m.id,name:m.name,description:off||m.description,off})};
+ const add=(h,m)=>{if(m.id&&!/^[a-zA-Z0-9._:/-]{1,80}$/.test(m.id))return;const off=why(h);out[h].push(m);out.list.push({harness:h,id:m.id,name:m.name,description:off||m.description,off,...(m.engineId?{engineId:m.engineId}:{})})};
  add(dh,{id:'',name:'Default'+(d.model?' ('+niceModel(String(d.model).split('/').pop())+')':''),description:'The agent’s own model, with the Models page’s priority list and auto-switch.',efforts:EFFORTS[dh],defaultEffort:'',isDefault:true});
  for(const pv of r.engineModels)for(const m of pv.models){const h=H(pv.provider),c=h==='codex'?own.codex.find(x=>x.id===m):h==='claude'?own.claude.find(x=>x.id===m):null;
-  add(h,{id:h==='aqeelos'?pv.provider+'::'+m:m,name:niceModel(String(m).split('/').pop())+' · '+pv.name,description:pv.name+(pv.provider===d.provider&&m===d.model?' · the agent’s own model':''),efforts:c?.efforts?.length?c.efforts:h==='codex'?['low','medium','high']:EFFORTS[h],defaultEffort:c?.defaultEffort||''})}
+  add(h,{id:h==='aqeelos'?pv.provider+'::'+m:m,name:niceModel(String(m).split('/').pop())+' · '+pv.name,description:pv.name+(pv.provider===d.provider&&m===d.model?' · the agent’s own model':''),efforts:c?.efforts?.length?c.efforts:h==='codex'?['low','medium','high']:EFFORTS[h],defaultEffort:c?.defaultEffort||'',...(h!=='aqeelos'&&engine?{engineId:pv.provider+'::'+m}:{})});
+  // the same model on the engine, for a computer whose Claude Code or Codex is not signed in: chat's accounts work here too
+  if(h!=='aqeelos'&&engine)out.aqeelos.push({id:pv.provider+'::'+m,name:niceModel(String(m).split('/').pop())+' · '+pv.name,description:pv.name,efforts:EFFORTS.aqeelos,defaultEffort:''})}
  return out}
 // claude-opus-4-5-20251101 → Opus 4.5, gpt-5.1-codex-max → GPT-5.1 Codex Max (a model Code has no name for)
 const niceModel=id=>String(id).replace(/^claude-/,'').replace(/-\d{8}$/,'').replace(/-(\d+)-(\d+)(?=-|$)/g,' $1.$2').split(/[-\s]+/).map(w=>/^gpt$/i.test(w)?'GPT':w.charAt(0).toUpperCase()+w.slice(1)).join(' ').replace(/^GPT (\d)/,'GPT-$1');

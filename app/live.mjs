@@ -18,7 +18,7 @@ export function createLive({DATA,DOMAIN='app.localhost'}){
  const busy=new Set();
  // Dokploy's API: POST /api/<procedure> with the key in x-api-key (GET with ?input= for reads)
  async function dk(proc,body,{get=false,form=null}={}){const c=(await load()).dokploy;if(!c.url||!c.key)throw Error('Live isn’t connected to the server yet. An admin connects it under Code › Live.');
-  const u=c.url.replace(/\/$/,'')+'/api/'+proc+(get&&body?'?input='+encodeURIComponent(JSON.stringify(body)):'');
+  const u=c.url.replace(/\/$/,'')+'/api/'+proc+(get&&body?'?'+new URLSearchParams(body):'');
   const r=await fetch(u,{method:get?'GET':'POST',headers:{'x-api-key':c.key,...(form?{}:{'content-type':'application/json'})},body:get?undefined:form||JSON.stringify(body||{}),signal:AbortSignal.timeout(form?300000:30000)});
   const t=await r.text();let j=null;try{j=JSON.parse(t)}catch{}
   if(!r.ok)throw Error('The server said: '+(j?.message||j?.error?.message||t.slice(0,200)||r.status));return j}
@@ -54,7 +54,7 @@ export function createLive({DATA,DOMAIN='app.localhost'}){
    db.apps.push(a);await save()}
   if(a.setup===false){
    // Railpack works out how to build it: Node, Python, Go, PHP, a plain website…
-   await dk('application.saveBuildType',{applicationId:a.appId,buildType:'railpack',dockerfile:null,dockerContextPath:null,dockerBuildStage:null,herokuVersion:null,railpackVersion:null});
+   await dk('application.saveBuildType',{applicationId:a.appId,buildType:'railpack',dockerfile:null,dockerContextPath:null,dockerBuildStage:null,herokuVersion:null,railpackVersion:'0.15.4'});
    await dk('domain.create',{host:slug+'.'+DOMAIN,path:'/',port:3000,https:true,certificateType:'letsencrypt',applicationId:a.appId,domainType:'application'});a.setup=true;await save()}
   a.name=String(name||a.name).slice(0,80);if(repo)a.repo=String(repo).slice(0,200);a.ownerName=u.name||u.username||a.ownerName;
   // a database the first time it asks for one

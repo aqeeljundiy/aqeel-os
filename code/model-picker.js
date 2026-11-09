@@ -31,8 +31,8 @@ function fillModels(){
 const EFFORTS=(provider,m)=>provider==='gemini'?[]:[...(provider==='claude'?['']:[]),...(m?.efforts?.length?m.efforts:[])];
 function syncVisible(){const provider=$('provider-pick').value,list=catalog[provider]||[],[id='',effort='']=$('model').value.split('|');
  const name=$('model-name'),groups=[];
- if(catalog.list){const g=document.createElement('optgroup');g.label='Models';for(const m of catalog.list){const o=new Option(m.name,m.harness+':'+m.id),nr=!m.off&&!ready.includes(m.harness);o.disabled=Boolean(m.off)||nr;
-  o.dataset.desc=m.off||(nr?(m.harness==='claude'?'Claude Code is not signed in here.':m.harness==='codex'?'Codex is not signed in here.':'Not available here.'):m.description||'');g.append(o)}groups.push(g)}
+ if(catalog.list){const g=document.createElement('optgroup');g.label='Models';for(const m of catalog.list){const nr=!m.off&&!ready.includes(m.harness),viaEngine=nr&&m.engineId&&ready.includes('aqeelos'),o=new Option(m.name,viaEngine?'aqeelos:'+m.engineId:m.harness+':'+m.id);o.disabled=Boolean(m.off)||(nr&&!viaEngine);
+  o.dataset.desc=m.off||(nr&&!viaEngine?(m.harness==='claude'?'Claude Code is not signed in here.':m.harness==='codex'?'Codex is not signed in here.':'Not available here.'):m.description||'');g.append(o)}groups.push(g)}
  else for(const p of ['aqeelos','claude','codex','gemini'].filter(x=>ready.includes(x)||x===provider)){const g=document.createElement('optgroup');g.label=providerName(p);const models=catalog[p]||[];
   for(const m of models.length?models:[{id:'',name:'Default model'}]){const o=new Option(m.name,p+':'+m.id);o.dataset.desc=m.description||'';g.append(o)}groups.push(g)}
  name.replaceChildren(...groups);name.value=provider+':'+id;
