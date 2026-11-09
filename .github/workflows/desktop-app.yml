@@ -1,0 +1,80 @@
+# Builds the aqeelOS desktop app for Mac and Windows and publishes both as the latest GitHub release. Every aqeelOS hands out
+# that release (app/server.mjs: /ui/code/download), so nobody has to put installer files on a server.
+# Runs when a version bump in code/desktop/package.json reaches main, or by hand (Actions › Desktop app › Run workflow).
+# AQ_APP_ID (repository variable, optional): keep it the same forever, or installed apps stop updating in place.
+name: Desktop app
+on:
+  push:
+    branches: [main]
+    paths: [code/desktop/package.json]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: mac
+            file: aqeelOS.dmg
+          - os: windows-latest
+            target: win
+            file: aqeelOS-Setup.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install
+        shell: bash
+        run: |
+          cd code && npm install --no-audit --no-fund
+          cd desktop && npm install --no-audit --no-fund
+      - name: Build settings
+        shell: bash
+        env:
+          APP_ID: ${{ vars.AQ_APP_ID }}
+        run: |
+          if [ -n "$APP_ID" ]; then printf '{"appId":"%s"}\n' "$APP_ID" > code/desktop/build.config.json; fi
+      - name: Build
+        shell: bash
+        working-directory: code/desktop
+        env:
+          ARCH: ${{ matrix.target == 'mac' && 'universal' || '' }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run dist:${{ matrix.target }}
+      - name: Name the installer
+        shell: bash
+        working-directory: code/desktop/dist
+        run: |
+          mkdir -p ../../../out
+          f=$(ls -S *.dmg *.exe 2>/dev/null | head -1)
+          [ -n "$f" ] || { echo "no installer was built"; exit 1; }
+          cp "$f" "../../../out/${{ matrix.file }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: out/
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=$(node -p "require('./code/desktop/package.json').version")
+          printf '{"mac":"%s","windows":"%s"}\n' "$v" "$v" > out/version.json
+          t="desktop-v$v"
+          if gh release view "$t" >/dev/null 2>&1; then gh release upload "$t" out/* --clobber
+          else gh release create "$t" out/* --title "aqeelOS app $v" --notes "Install on a Mac: https://github.com/${{ github.repository }}/blob/main/docs/install-mac.md" --latest; fi

@@ -64,6 +64,8 @@ Without them the Windows build is unsigned and the Mac build is signed ad-hoc, w
 
 ## 4. Give it to your people
 
+The public app is built by GitHub (`.github/workflows/desktop-app.yml`) whenever the version in `desktop/package.json` changes, and every aqeelOS hands out that release. The rest of this section is only for your own private build: files in `DATA/desktop` are used when they are newer than the release.
+
 Your aqeelOS hands out the installers and tells installed apps when a new one is ready. Put the files in your
 aqeelOS data folder (`DATA` is the folder your aqeelOS keeps its data in):
 

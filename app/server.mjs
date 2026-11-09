@@ -852,6 +852,13 @@ if(LIVE_APP){setTimeout(()=>listAgents().then(l=>instructions.tick(l)).catch(()=
 // the script itself keeps to the quiet hours. A failed or refused update goes under Bottlenecks once.
 if(LIVE_APP&&existsSync(path.join(homedir(),'services.sh'))){const tick=()=>{try{spawn(process.execPath,[path.join(root,'scripts','auto-update.mjs')],{detached:true,stdio:'ignore',env:process.env}).unref()}catch{}};setTimeout(tick,120000).unref();setInterval(tick,15*60000).unref()}
 if(LIVE_APP)setInterval(async()=>{const f=path.join(DATA,'auto-update.json');let a;try{a=JSON.parse(await readFile(f,'utf8'))}catch{return}const l=a.last;if(!l||!/failed|refused/.test(l.result)||a.told===l.at)return;a.told=l.at;await writeFile(f,JSON.stringify(a,null,1)).catch(()=>{});await bottlenecks.event('update',l.result==='refused'?'An automatic update was skipped':'An automatic update failed',l.why).catch(()=>{})},5*60000).unref();
+// The desktop app for everyone: the public GitHub release (.github/workflows/desktop-app.yml). DESKTOP_RELEASES points elsewhere for a
+// private build; files in DATA/desktop are used when they are newer, or when no release can be reached.
+const DESKTOP_RELEASES=(env.DESKTOP_RELEASES||'https://github.com/aqeeljundiy/aqeel-os/releases/latest/download').replace(/\/$/,'');
+const localAppVersions=()=>readFile(path.join(DATA,'desktop','version.json'),'utf8').then(JSON.parse).catch(()=>({}));
+let appRelease={t:0,v:null};
+async function releaseAppVersions(){if(Date.now()-appRelease.t<36e5)return appRelease.v;appRelease.t=Date.now();try{const r=await fetch(DESKTOP_RELEASES+'/version.json',{signal:AbortSignal.timeout(15000)});if(r.ok)appRelease.v=await r.json()}catch{}return appRelease.v}
+const newerApp=(a,b)=>{if(!a)return false;if(!b)return true;const x=String(a).split('.').map(Number),y=String(b).split('.').map(Number);for(let i=0;i<3;i++){if((x[i]||0)!==(y[i]||0))return (x[i]||0)>(y[i]||0)}return false};
 // Plug and play settings (System › Teams, team-settings.mjs): the team policy, where owner alerts go, Pause alerts, test agents
 const teamSettings=createTeamSettings({DATA,HERMES_HOME,listAgents:()=>listAgents()});
 const codeChanges=createCodeChanges({DATA});   // live code changes git lacks: deploy drift and fixer patches (System › Health)
@@ -2848,7 +2855,7 @@ const server=createServer(async(req,res)=>{
     if(p==='/ui/mcp/keys'&&req.method==='DELETE')return mcpEdit.removeKey(ag,String(b.key||'')).then(ok,bad);
     return send(res,405,{error:'Not allowed'})}
    // which aqeelOS app version is current (the app offers to update itself when it is older)
-   if(p==='/ui/code/app-version'&&req.method==='GET'){let v={};try{v=JSON.parse(await readFile(path.join(DATA,'desktop','version.json'),'utf8'))}catch{}return send(res,200,v)}
+   if(p==='/ui/code/app-version'&&req.method==='GET'){const [l,r]=await Promise.all([localAppVersions(),releaseAppVersions()]);const v={};for(const k of ['mac','windows']){const n=newerApp(r?.[k],l[k])?r[k]:l[k];if(n)v[k]=n}return send(res,200,v)}
    // company-wide defaults (the currency for people who never picked one): everyone reads them, admins set them
    if(p==='/ui/defaults'){const F=path.join(DATA,'defaults.json');let d={};try{d=JSON.parse(await readFile(F,'utf8'))}catch{}
     if(req.method==='GET')return send(res,200,d);if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});let b={};try{b=JSON.parse(await readBody(req,2048))}catch{}
@@ -2931,7 +2938,10 @@ const server=createServer(async(req,res)=>{
     // the aqeelOS app installer (Windows: aqeelOS-Setup.exe, Mac: aqeelOS.dmg). ?check=1 says whether it is there; without one
     // there is nothing to give (the older zip ran Code outside the app, which the browser no longer opens)
     {const f=path.join(DATA,'desktop',dm[1]==='mac'?'aqeelOS.dmg':'aqeelOS-Setup.exe');const st=await stat(f).catch(()=>null);
-     if(url.searchParams.get('check'))return send(res,200,{ok:Boolean(st)});
+     // the public release, unless this install has its own newer build (or none is published)
+     const rel=await releaseAppVersions(),mine=await localAppVersions(),useRel=rel?.[dm[1]]&&(!st||newerApp(rel[dm[1]],mine[dm[1]]));
+     if(url.searchParams.get('check'))return send(res,200,{ok:Boolean(st||useRel)});
+     if(useRel){res.writeHead(302,{location:DESKTOP_RELEASES+'/'+path.basename(f),'cache-control':'no-store',...security});return res.end()}
      if(st){res.writeHead(200,{'content-type':'application/octet-stream','content-disposition':'attachment; filename="'+(dm[1]==='mac'?'aqeelOS.dmg':'aqeelOS Setup.exe')+'"','content-length':st.size,...security});return createReadStream(f).pipe(res)}}
     return send(res,404,{error:'The aqeelOS app for '+(dm[1]==='mac'?'Mac':'Windows')+' isn’t ready yet.'})}}
    // an agent's n8n is its workflows, signed in as it: a member needs to be able to change that agent, chatting is not enough
