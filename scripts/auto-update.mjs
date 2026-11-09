@@ -51,8 +51,9 @@ async function updateBox(repo,latest){
  writeFileSync('/tmp/aq-deploy-'+id+'.sh',execFileSync('git',['show',latest+':scripts/box-deploy.sh'],{cwd:R}));
  writeFileSync('/tmp/box-pack-'+id+'.sh',execFileSync('git',['show',latest+':scripts/box-pack.sh'],{cwd:R}));
  state.running={at:Date.now(),to:latest,id};save();
- // detached: going live restarts the app that started this
- spawn('setsid',['nohup','bash','/tmp/aq-deploy-'+id+'.sh',latest,cur,'0','0',id],{detached:true,stdio:'ignore',env:{...process.env,AQ_REPO:repo}}).unref();
+ // detached: going live restarts the app that started this. A clean environment, as over ssh: the live app's settings
+ // (its port, its live flag) would otherwise pass down to the test copy
+ spawn('setsid',['nohup','bash','/tmp/aq-deploy-'+id+'.sh',latest,cur,'0','0',id],{detached:true,stdio:'ignore',env:{HOME,PATH:process.env.PATH,LANG:process.env.LANG||'C.UTF-8',AQ_REPO:repo}}).unref();
  const log='/tmp/aq-deploy-'+id+'.log',end=Date.now()+75*60000;
  while(Date.now()<end){await sleep(15000);let t='';try{t=readFileSync(log,'utf8')}catch{}
   if(/^AQ-DEPLOY DONE/m.test(t))return record('updated','',cur,latest);
