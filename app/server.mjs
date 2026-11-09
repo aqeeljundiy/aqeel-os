@@ -80,7 +80,7 @@ import {createSecretLinks,createLimiter} from './secret-links.mjs';
 import {createGoogleShares} from './google-shares.mjs';
 import {createGoogleFiles} from './google-files.mjs';
 import {createKirimdev,publicReach,LABEL_NEVER} from './kirimdev.mjs';
-import {createKirimdevAgent} from './kirimdev-agent.mjs';
+import {createKirimdevAgent,createImageReader} from './kirimdev-agent.mjs';
 import {createPostingLimits} from './posting-limits.mjs';
 import {createTeamGroups,contextLines as teamContext,ROLES as TEAM_ROLES} from './team-group.mjs';
 import {execFile} from 'node:child_process';
@@ -1368,7 +1368,7 @@ const kirimdev=createKirimdev({DATA,WORK:path.join(homedir(),'workspaces'),PUBLI
   for(const a of agents){const w=path.join(homedir(),'workspaces',a,'.secrets','KIRIMDEV_API_KEY');if(await readFile(w,'utf8').then(()=>true,()=>false))await writeFile(w,key+'\n').catch(e=>console.warn('kirimdev key copy',a,e.message))}
   console.log('kirimdev: a new API key was saved (ending '+key.slice(-4)+')')},
  apiKey:async()=>{if(!LIVE_APP)return null;const t=await readFile(path.join(HERMES_HOME,'secrets','kirimdev.env'),'utf8').catch(()=>'');return (/^KIRIMDEV_API_KEY=["']?([^"'\s]+)/m.exec(t)||[])[1]||null},
- runAgent:createKirimdevAgent({DATA,home:homedir(),live:LIVE_APP,customer:()=>customerTools}),
+ runAgent:createKirimdevAgent({DATA,home:homedir(),live:LIVE_APP,customer:()=>customerTools}),describeImage:createImageReader({home:homedir(),live:LIVE_APP}),
  paidSince:(a,ph,t)=>customerTools.paidSince(a,ph,t),
  telegram:async(a,chatId,threadId,text)=>{const t=await readFile(path.join(HERMES_HOME,'profiles',a,'.env'),'utf8').catch(()=>'');const tok=(/^TELEGRAM_BOT_TOKEN=["']?([^"'\s]+)/m.exec(t)||[])[1];if(!tok||!LIVE_APP)return false;
   const r=await fetch('https://api.telegram.org/bot'+tok+'/sendMessage',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:chatId,...(threadId?{message_thread_id:threadId}:{}),text:text.slice(0,4000)}),signal:AbortSignal.timeout(30000)}).catch(()=>null);
@@ -1377,7 +1377,9 @@ const kirimdev=createKirimdev({DATA,WORK:path.join(homedir(),'workspaces'),PUBLI
  tell:(text,detail)=>bottlenecks.event('kirimdev',text,detail,{info:true})});
 if(LIVE_APP)setTimeout(()=>kirimdev.resume().catch(e=>console.warn('kirimdev resume',e.message)),30000).unref();
 // a confirmed payment labels the contact (Customer, S-…, no Checkout): code, every minute, on the live box only
-const paidLabels=createPaidLabels({DATA,WORK:path.join(homedir(),'workspaces'),label:(a,o)=>kirimdev.labelContact(a,o)});
+// a paid order goes to the line's Orders topic with the same check (8 Nov 2026)
+const lineOrders=async a=>{const l=(await kirimdev.lines().catch(()=>({})))[a],o=l?.orders;return o?.chatId?{chatId:o.chatId,threadId:o.threadId||null,persona:l.persona||a,currency:l.payment?.currency||'',context:l.payment?.orderContext||null}:null};
+const paidLabels=createPaidLabels({DATA,WORK:path.join(homedir(),'workspaces'),label:(a,o)=>kirimdev.labelContact(a,o),orders:lineOrders,post:(a,t,text)=>kirimdev.teamPost(a,t.chatId,t.threadId,text),failed:(a,topic,title,detail)=>health.problem(a,'handoff',title,{topic,fix:detail})});
 if(LIVE_APP)setInterval(()=>paidLabels.tick().catch(e=>console.warn('paid labels',e.message)),60e3).unref();
 // the labels a line's agent may set (Line settings) that Kirimdev still has, and Kirimdev's S- labels for create_payment
 async function kirimdevLabelRules(a){const l=(await kirimdev.lines().catch(()=>({})))[a];if(!l)return {};const all=await kirimdev.labelList().catch(()=>null);if(!all)return {allowed:l.labels?.allowed||[]};
@@ -1400,10 +1402,10 @@ const kirimdevChanged=()=>{ensureCustomerServer().catch(e=>console.warn('custome
 // customer runs get only these tools (customer-tools.mjs); the payment helper runs as the agent's own user
 const custQ=x=>"'"+String(x).replace(/'/g,"'\\''")+"'";
 let customerTools=null;
-customerTools=createCustomerTools({WORK:path.join(homedir(),'workspaces'),DATA,labelRules:a=>kirimdevLabelRules(a),labelContact:(a,o)=>kirimdev.labelContact(a,o),payRules:async a=>(await kirimdev.lines().catch(()=>({})))[a]?.payment||{},googleCall:(a,req)=>googleFiles.call(a,req),chatFind:(a,q,o)=>chatHistory.find(a,q,o),
+customerTools=createCustomerTools({WORK:path.join(homedir(),'workspaces'),DATA,payments:paidLabels,ordersOf:lineOrders,labelRules:a=>kirimdevLabelRules(a),labelContact:(a,o)=>kirimdev.labelContact(a,o),payRules:async a=>(await kirimdev.lines().catch(()=>({})))[a]?.payment||{},googleCall:(a,req)=>googleFiles.call(a,req),chatFind:(a,q,o)=>chatHistory.find(a,q,o),
  history:async(r,limit)=>{const q=new URLSearchParams({conversation_id:r.conversation,limit:String(limit)});if(!r.conversation)return 'No conversation.';
   const l=((await kirimdev._api(r.line+'/messages?'+q)).data||[]).filter(m=>m.type!=='reaction').sort((a,b)=>String(a.created_at).localeCompare(String(b.created_at)));
-  return l.map(m=>m.created_at.slice(0,16).replace('T',' ')+' '+(m.direction==='inbound'?'CUSTOMER':'YOU')+': '+(String(m.content||'').trim()||'['+m.type+']')).join('\n')||'No messages.'},
+  return l.map(m=>m.created_at.slice(0,16).replace('T',' ')+' '+(m.direction==='inbound'?'CUSTOMER':'YOU')+': '+kirimdev.msgText(m)).join('\n')||'No messages.'},
  runAsAgent:async(a,tool,argv)=>{const c=await readConfig(a).catch(()=>null)||{};const user=String(pick(c,'terminal.ssh_user')||'');if(!/^ag-[\w-]+$/.test(user))return {ok:false,err:'this agent has no own user'};
   const W=path.join(homedir(),'workspaces',a);const {execFile}=await import('node:child_process');
   return new Promise(res=>execFile('ssh',['-i',path.join(HERMES_HOME,'agent-ssh','id_ed25519'),'-o','BatchMode=yes','-o','IdentitiesOnly=yes','-o','StrictHostKeyChecking=accept-new','-o','ConnectTimeout=20',user+'@127.0.0.1',

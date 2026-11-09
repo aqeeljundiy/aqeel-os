@@ -2,7 +2,7 @@ import test from 'node:test';import assert from 'node:assert/strict';
 import {splitReply,guardReply} from '../app/kirimdev.mjs';
 const held=t=>{const g=guardReply(splitReply(t));assert.ok(g.hold&&g.removed.length,'should hold: '+t);return g};
 test('team notes and image descriptions hold the whole reply',()=>{
- held('Halo kak, ini rekomendasinya.\n[Gambar: Package 1 - Basic Kit]\n---\n[FOTO: Continue_pen_kit.jpeg]');
+ {const g=guardReply(splitReply('Halo kak, ini rekomendasinya.\n[Gambar: Package 1 - Basic Kit]\n---\n[FOTO: Cove_pen_kit.jpeg]'));assert.equal(g.hold,null);assert.deepEqual(g.parts,['Halo kak, ini rekomendasinya.','[FOTO: Cove_pen_kit.jpeg]'])}   // only a note: dropped, the rest goes out
  held('Halo kak.\nCatatan untuk tim (tidak dikirim ke customer): cek stok');held('Halo kak (test mode) ya')});
 test('english reasoning before the reply is held',()=>{
  held("I read the Rules tab and this doesn't need a handoff.\n\nHalo kak, untuk Product A 10mg harganya Rp3.200.000 ya.");

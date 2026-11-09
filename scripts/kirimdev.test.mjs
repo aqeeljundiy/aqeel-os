@@ -252,3 +252,18 @@ test('a handoff nobody answers in 30 minutes is a health problem once; the team 
 test('burst is deterministic: nothing runs until the window closes, however slow the box',async()=>{const t=await make();
  await t.post(meta('628123','satu'));await new Promise(r=>setTimeout(r,50));assert.equal(t.asked.length,0);assert.equal(t.due.size,1);
  await t.post(meta('628123','dua'));assert.equal(t.due.size,1);await t.settle();assert.equal(t.asked.length,1);assert.match(t.asked[0][1],/CUSTOMER: mau tanya/)});
+
+test('[VIDEO: name] goes as a real video with caption; .mp4 via FOTO too; a missing video is dropped, never sent as text',async()=>{const logs=[];
+ const t=await make({agentSays:'Ini tutorialnya\n[VIDEO: mixing | Cara mixing]\n[VIDEO: nope]\n[FOTO: inject.mp4]'});
+ await writeFile(path.join(t.DATA,'work','cove-support','media','staff','urls.txt'),'https://media.kirimdev.com/x/Kit.jpeg\nhttps://media.kirimdev.com/x/mixing.mp4\nhttps://media.kirimdev.com/x/inject.mp4\n');
+ assert.deepEqual(splitReply('a [VIDEO: mixing] b'),['a','[VIDEO: mixing]','b']);
+ await t.post(meta('628123','video dong'));await t.settle();
+ assert.deepEqual(t.sent.map(b=>b.type),['text','video','video']);
+ assert.deepEqual(t.sent[1].video,{link:'https://media.kirimdev.com/x/mixing.mp4',caption:'Cara mixing'});
+ assert.deepEqual(t.sent[2].video,{link:'https://media.kirimdev.com/x/inject.mp4'});
+ assert.ok(!t.sent.some(b=>/VIDEO/.test(b.text?.body||'')))});
+
+test('[FOTO: name] finds a Tripay link whose name sits after ?f= (regression i9530ba20)',async()=>{const t=await make({agentSays:'Silakan bayar kak\n[FOTO: qris-BM-1794214604-1.png]'});
+ await writeFile(path.join(t.DATA,'work','cove-support','media','staff','urls.txt'),'https://media.kirimdev.com/x/Kit.jpeg\nhttps://tripay.co.id/qr/show?f=/qris-BM-1794214604-1.png\n');
+ await t.post(meta('628123','bayar'));await t.settle();
+ assert.deepEqual(t.sent.map(b=>b.type),['text','image']);assert.equal(t.sent[1].image.link,'https://tripay.co.id/qr/show?f=/qris-BM-1794214604-1.png')});

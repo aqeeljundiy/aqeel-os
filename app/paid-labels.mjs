@@ -8,6 +8,9 @@
 // A QRIS helper prints our order ref (BM-…); the Tripay reference for it is in the agent's tmp/last_qris.json or
 // tmp/payments.jsonl, where the helpers write it. Card payments (8 Nov 2026) are Xendit invoices, valid 24 hours: their
 // status comes from Xendit with the agent's own .secrets/XENDIT_SECRET_KEY.
+// Paid orders (8 Nov 2026): the same moment a payment is confirmed, its order form is posted once to the line's Orders topic (kirimdev.json
+// lines.<agent>.orders), code, no AI. statusFor answers the customer tool check_payment; postOrder is the customer tool post_order.
+// Payments labelled before this existed have no order mark and are never posted by themselves.
 import {readFile,writeFile,rename,mkdir} from 'node:fs/promises';
 import path from 'node:path';
 
@@ -15,7 +18,13 @@ const WINDOW=3*3600e3,CARD_WINDOW=25*3600e3,TRIES=5,NOREF=15*60e3,CARD_SLOW=3600
 export const TRIPAY='https://tripay.co.id/api',XENDIT='https://api.xendit.co';
 const HEX=/^[0-9a-f]{24}$/;
 
-export function createPaidLabels({DATA,WORK,label,fetchImpl=fetch,now=()=>Date.now(),log=m=>console.log(m),base=TRIPAY,xendit=XENDIT}){
+// Details a line wants on every paid order besides the form (kirimdev.json lines.<agent>.payment.orderContext: {title, missing, fields:[{key,label,ask}]}).
+// None by default; each install sets its own questions and wording.
+const RESERVED=new Set(['kind','amounts','bank','name','order_form','order_total','expired','products','run','run_key']);
+export function orderContextOf(pr){const c=pr?.orderContext||{};return {title:String(c.title||'Buyer details').slice(0,60),missing:String(c.missing||'not asked').slice(0,40),
+ fields:(Array.isArray(c.fields)?c.fields:[]).filter(f=>/^[a-z][a-z0-9_]{0,30}$/.test(String(f?.key||''))&&!RESERVED.has(f.key)&&f.label).slice(0,6).map(f=>({key:f.key,label:String(f.label).slice(0,60),ask:String(f.ask||f.label).slice(0,300)}))}}
+
+export function createPaidLabels({DATA,WORK,label,orders=async()=>null,post=async()=>false,failed=async()=>{},fetchImpl=fetch,now=()=>Date.now(),log=m=>console.log(m),base=TRIPAY,xendit=XENDIT}){
  const F=path.join(DATA,'paid-labels.json');
  const readJson=async(f,d)=>{try{return JSON.parse(await readFile(f,'utf8'))}catch{return d}};
  const put=async v=>{await mkdir(DATA,{recursive:true});const t=F+'.'+process.pid+'.tmp';await writeFile(t,JSON.stringify(v,null,1),{mode:0o600});await rename(t,F)};
@@ -34,12 +43,41 @@ export function createPaidLabels({DATA,WORK,label,fetchImpl=fetch,now=()=>Date.n
  async function status(agent,ref){const key=(await readFile(path.join(WORK,agent,'.secrets','TRIPAY_API_KEY'),'utf8').catch(()=>'')).trim();if(!key)throw Error('no Tripay key for '+agent);
   const r=await fetchImpl(base+'/transaction/detail?'+new URLSearchParams({reference:ref}),{headers:{authorization:'Bearer '+key,'user-agent':'curl/8.5.0'},signal:AbortSignal.timeout(30000)});
   const j=await r.json().catch(()=>({}));if(!r.ok||!j.success)throw Error('Tripay '+r.status+' '+String(j.message||'').slice(0,80));return String(j.data?.status||'').toUpperCase()}
+ // one writer of paid-labels.json at a time: the minute tick and post_order
+ let chain=Promise.resolve();const serial=f=>{const x=chain.then(f,f);chain=x.catch(()=>{});return x};
+ const money=(n,c)=>(c?c+' ':'')+Number(n).toLocaleString('en-US');
+ // the line's own order details (orderContextOf): from post_order, else from the payment; rows logged before the setting keep them at the top level
+ const contextOf=t=>orderContextOf({orderContext:t?.context}),filled=(c,o)=>{const s=o?.context||o||{};return Object.fromEntries(c.fields.map(f=>[f.key,String(s[f.key]||'').trim()]))};
+ const buyerContext=(c,v)=>'*'+c.title+'*\n'+c.fields.map(f=>'- '+f.label+': '+(v[f.key]||c.missing)).join('\n');
+ const orderText=(p,refs,form,t,ctx)=>(p.mode==='test'?'🧪 TEST ':'')+'🧾 PAID ORDER ('+t.persona+', '+(p.name||'customer')+', +'+p.phone+')\n'+money(p.total,t.currency)+', '+String(p.kind||'qris').toUpperCase()+(refs.length?', ref '+refs.join(' '):'')+((p.products||[]).length?'\nProducts: '+p.products.join(', '):'')+'\n\n'+(form||p.form||'The order form was not recorded with this payment; it is in the customer\'s chat.')+(contextOf(t).fields.length?'\n\n'+buyerContext(contextOf(t),filled(contextOf(t),ctx||p)):'');
+ async function sendOrder(p,refs,form,prev={tries:0},ctx=null){const t=await orders(p.agent).catch(()=>null);if(!t?.chatId)return {state:'none'};
+  const mid=await post(p.agent,t,orderText(p,refs,form,t,ctx)).catch(()=>false);if(mid){log('paid orders: '+p.agent+' order of '+p.total+' posted');
+   const c=contextOf(t),v=filled(c,ctx||p),gap=c.fields.filter(f=>!v[f.key]);if(gap.length)await failed(p.agent,'order-context|'+p.at,'A paid order went to the Orders topic without buyer context','Order of '+money(p.total,t.currency)+' from +'+p.phone+': '+gap.map(f=>f.label).join(' and ')+' not asked. Ask the customer and send it to the team, then always pass them to create_payment.').catch(()=>{});
+   return {state:'posted',at:now()}}
+  const tries=(prev.tries||0)+1;log('paid orders: '+p.agent+' could not post an order (try '+tries+')');
+  if(tries>=TRIES){await failed(p.agent,'paid-order|'+p.at,'A paid order could not be posted to the Orders topic','Payment of '+money(p.total,t.currency)+' from +'+p.phone+'. Check that the agent\'s bot is in the Orders group and may post in that topic.').catch(()=>{});return {state:'gave-up',tries}}
+  return {state:'failed',tries}}
+ // the provider's answer for each part of a payment, as one word
+ const overall=s=>!s.length?'UNKNOWN':s.every(x=>x==='PAID')?'PAID':s.some(x=>x==='PAID')?'PARTLY_PAID':s.some(x=>x==='UNPAID')?'UNPAID':s[0];
+ const paymentsOf=async(agent,phone,limit)=>{const ph=String(phone||'').replace(/\D/g,''),t=now();return (await lines(path.join(DATA,'payments.jsonl'))).filter(p=>p.agent===agent&&p.phone===ph&&p.ok&&t-Date.parse(p.at)<7*86400e3).slice(-limit).reverse()};
+ const look=async p=>{const card=p.kind==='card',refs=card?await invoices(p.agent,p):await references(p.agent,p);return {refs,states:await Promise.all(refs.map(r=>(card?cardStatus:status)(p.agent,r)))}};
+ async function statusFor(agent,phone){return Promise.all((await paymentsOf(agent,phone,3)).map(async p=>{let st='CHECK_FAILED';try{st=overall((await look(p)).states)}catch(e){log('paid check: '+agent+' '+e.message)}return {at:p.at,kind:p.kind||'qris',total:p.total,status:st,...(p.testAmount?{testAmount:true,orderTotal:p.orderTotal}:{})}}))}
+ // post_order: the newest paid payment of this customer that has no post yet
+ const postOrder=(agent,phone,form,ctx=null)=>serial(async()=>{const mine=await paymentsOf(agent,phone,3);if(!mine.length)return {posted:false,why:'No payment was made through you for this customer.'};
+  const db=await readJson(F,{done:{}});db.done||={};let seen=false;
+  for(const p of mine){let x;try{x=await look(p)}catch(e){log('paid check: '+agent+' '+e.message);continue}if(overall(x.states)!=='PAID')continue;
+   const key=p.agent+'|'+p.at+'|'+p.total,d=db.done[key]||{tries:0};if(d.order?.state==='posted'){seen=true;continue}
+   const o=await sendOrder(p,x.refs,form,d.order,ctx);if(o.state==='none')return {posted:false,why:'No Orders topic is set for this line.'};db.done[key]={...d,order:o};await put(db);
+   return o.state==='posted'?{posted:true}:{posted:false,why:'Telegram did not take the post. Tell the team.'}}
+  return seen?{posted:false,already:true,why:'This order is already in the Orders topic.'}:{posted:false,why:'No payment of this customer is PAID yet.'}});
  let running=false;
- async function tick(){if(running)return {skipped:true};running=true;try{
+ async function tick(){if(running)return {skipped:true};running=true;return serial(async()=>{try{
   const db=await readJson(F,{done:{}});db.done||={};let changed=false;const t=now(),res=[];
   for(const p of await lines(path.join(DATA,'payments.jsonl'))){
    const at=Date.parse(p.at),key=p.agent+'|'+p.at+'|'+p.total;
    const card=p.kind==='card';
+   // a paid order whose post did not go through: tried again each minute, a few times
+   if(db.done[key]?.order?.state==='failed'&&p.ok){db.done[key].order=await sendOrder(p,db.done[key].refs||[],'',db.done[key].order);changed=true;if(db.done[key].state)continue}
    if(!p.ok||!p.agent||!p.conversation||!(t-at<(card?CARD_WINDOW:WINDOW))||db.done[key]?.state==='labelled'||db.done[key]?.state==='closed')continue;
    const d=db.done[key]||{tries:0};
    // an old unpaid card link is asked about every 10 minutes, not every minute
@@ -50,10 +88,12 @@ export function createPaidLabels({DATA,WORK,label,fetchImpl=fetch,now=()=>Date.n
    if(st.some(s=>['EXPIRED','FAILED','REFUND'].includes(s))&&!st.some(s=>s==='UNPAID')){db.done[key]={state:'closed',why:st.join(','),at:t};changed=true;
     if(st.some(s=>s==='PAID'))log('paid labels: '+p.agent+' payment of '+p.total+' only partly paid ('+st.join(', ')+'); no labels, the team checks it');continue}
    if(!st.length||!st.every(s=>s==='PAID'))continue;
+   // the order goes to the team whatever happens with the labels, and only once
+   if(!d.order){d.order=await sendOrder(p,refs,'');d.refs=refs;changed=true}
    try{const r=await label(p.agent,{conversationId:p.conversation,phone:p.phone,add:['Customer',...(p.products||[])],remove:['Checkout'],source:'payment',run:p.run||'pay'});
-    db.done[key]={state:'labelled',at:t,refs,changed:r?.changed||[],...(r?.set===false?{why:r.why}:{})};res.push({agent:p.agent,total:p.total,...r})}
-   catch(e){d.tries++;d.error=e.message;db.done[key]=d.tries>=TRIES?{state:'closed',why:'labels failed: '+e.message,at:t}:d;log('paid labels: '+p.agent+' labelling failed (try '+d.tries+'): '+e.message)}
+    db.done[key]={state:'labelled',at:t,refs,changed:r?.changed||[],...(r?.set===false?{why:r.why}:{}),order:d.order};res.push({agent:p.agent,total:p.total,...r})}
+   catch(e){d.tries++;d.error=e.message;db.done[key]=d.tries>=TRIES?{state:'closed',why:'labels failed: '+e.message,at:t,order:d.order,refs}:d;log('paid labels: '+p.agent+' labelling failed (try '+d.tries+'): '+e.message)}
    changed=true}
   for(const [k,v] of Object.entries(db.done))if(t-(v.at||0)>7*86400e3)delete db.done[k],changed=true;
-  if(changed)await put(db);return {labelled:res}}finally{running=false}}
- return {tick}}
+  if(changed)await put(db);return {labelled:res}}finally{running=false}})}
+ return {tick,statusFor,postOrder}}

@@ -136,7 +136,10 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  askOwner=null,approvalLink=null,restartSelf=null,engineOk=()=>true}){
  const FILE=path.join(DATA,'issues.json'),POL=path.join(DATA,'team-policy.json'),DIR=path.join(DATA,'issues');let db=null,chain=Promise.resolve();
  // older states: approved and waiting (the old owner's OK) are queued; a failed one gets its tries again once
- const migrate=()=>{for(const i of db.items){if(i.state==='approved'||i.state==='waiting'){i.state='queued';i.decision='every issue goes to the fixer (owner, 7 Nov 2026)'}
+ // one time (8 Nov 2026): these were built and tested in git, so the fixer must not also patch them by hand on the live box. Safe to remove once deployed.
+ const BUILT_IN_GIT=new Set(['i0d5eb2ec','i5d6243c8','iea75bff3','ib4edc25e','i1180523a','if33d6e3d','ieffb23a5','id69659c6','i914aaad7','i4f162796']);
+ const migrate=()=>{for(const i of db.items){if(i.state==='queued'&&BUILT_IN_GIT.has(i.id)){i.state='closed';i.notBefore=0;i.updated=now();(i.history||=[]).push({kind:'person',at:now(),status:'close',summary:'Built, tested and deployed in git'})}
+  if(i.state==='approved'||i.state==='waiting'){i.state='queued';i.decision='every issue goes to the fixer (owner, 7 Nov 2026)'}
    if(i.state==='failed'&&!i.migrated){i.state='queued';i.tries=0;i.migrated=1;i.decision='tried again with the new fixer loop'}
    if(i.tries==null)i.tries=OPEN.includes(i.state)?0:(i.attempts||0);i.history||=[]}
   // filed again and again while the fixer was off (before 7 Nov 2026 'open' was not matched): one issue per problem

@@ -19,7 +19,7 @@ async function make({card=true,qris=true,rules={}}={}){const W=await mkdtemp(pat
  const list=async()=>(await C.mcp(A,undefined,{jsonrpc:'2.0',id:1,method:'tools/list'})).body.result.tools.find(x=>x.name==='create_payment');
  const log=async()=>(await readFile(path.join(D,'payments.jsonl'),'utf8')).trim().split('\n').map(JSON.parse);
  return {C,W,D,ran,tok,list,log,later:ms=>{t+=ms}}}
-const card=(C,tok,a={})=>C.call(A,tok,'create_payment',{kind:'card',amounts:[3900000],order_total:3900000,name:'Ani',...a});
+const card=(C,tok,a={})=>C.call(A,tok,'create_payment',{kind:'card',amounts:[3900000],order_total:3900000,order_form:'Nama: Ani Wijaya\nAlamat: Jl. Merdeka 10, Bandung 40111\nNo HP: 08123456789\nPesanan: 1x Pen',name:'Ani',...a});
 
 test('card is offered only when the line has a card helper; QRIS and VA stay as they were',async()=>{
  assert.deepEqual((await (await make({card:false})).list()).inputSchema.properties.kind.enum,['qris'],'no helper: no card');
@@ -44,13 +44,13 @@ test('the line\'s card setting names the helper; a file that is not there or out
  for(const bad of ['.tools/gone','../other/.tools/card','/etc/passwd']){const u=await make({rules:{card:bad}});await card(u.C,u.tok());assert.equal(u.ran[0][1],'.tools/card',bad)}});
 
 test('repeat guard and two per run; switching between QRIS and card is a new payment',async()=>{const t=await make(),k=t.tok();
- assert.match((await t.C.call(A,k,'create_payment',{amounts:[3900000],order_total:3900000,name:'Ani'})).text,/FOTO/);
+ assert.match((await t.C.call(A,k,'create_payment',{amounts:[3900000],order_total:3900000,order_form:'Nama: Ani Wijaya\nAlamat: Jl. Merdeka 10, Bandung 40111\nNo HP: 08123456789\nPesanan: 1x Pen',name:'Ani'})).text,/FOTO/);
  assert.ok((await card(t.C,k)).text.startsWith(LINK),'QRIS to card with the same total goes through');
  assert.match((await card(t.C,k)).text,/Two payments were already made/);
  const k2=t.tok();assert.match((await card(t.C,k2)).text,/already made for this customer/,'the same card link again');
  assert.ok((await card(t.C,k2,{expired:true})).text.startsWith(LINK),'unless it expired');
  t.later(31*60e3);assert.ok((await card(t.C,t.tok())).text.startsWith(LINK),'after 30 minutes');
- assert.match((await t.C.call(A,t.tok(),'create_payment',{kind:'cash',amounts:[3900000],order_total:3900000,name:'Ani'})).text,/kind is qris, va or card/)});
+ assert.match((await t.C.call(A,t.tok(),'create_payment',{kind:'cash',amounts:[3900000],order_total:3900000,order_form:'Nama: Ani Wijaya\nAlamat: Jl. Merdeka 10, Bandung 40111\nNo HP: 08123456789\nPesanan: 1x Pen',name:'Ani'})).text,/kind is qris, va or card/)});
 
 test('the reply guard counts a card link as a real payment',async()=>{const t=await make(),T=1e12;await card(t.C,t.tok());
  const say=['Berikut link pembayaran kartu kakak: '+LINK];
@@ -80,7 +80,7 @@ test('paid check: expired closes without labels; a card link is followed for 25 
 test('card links use the card cap, Rp 50,000,000 unless the line says otherwise; QRIS keeps the line\'s max; the minimum is the line\'s',async()=>{const t=await make();
  assert.equal(DEFAULT_CARD_MAX,50000000);assert.ok((await card(t.C,t.tok(),{amounts:[6080000],order_total:6080000})).text.startsWith(LINK),'above the QRIS limit, one link');
  assert.ok((await card(t.C,t.tok(),{amounts:[50000000],order_total:50000000})).text.startsWith(LINK),'exactly the cap');
- assert.match((await t.C.call(A,t.tok(),'create_payment',{amounts:[6080000],order_total:6080000,name:'Ani'})).text,/10000 to 5000000/,'QRIS unchanged');
+ assert.match((await t.C.call(A,t.tok(),'create_payment',{amounts:[6080000],order_total:6080000,order_form:'Nama: Ani Wijaya\nAlamat: Jl. Merdeka 10, Bandung 40111\nNo HP: 08123456789\nPesanan: 1x Pen',name:'Ani'})).text,/10000 to 5000000/,'QRIS unchanged');
  assert.match((await card(t.C,t.tok(),{amounts:[9999],order_total:9999})).text,/10000 to 50000000/,'the line minimum');
  assert.match((await card(t.C,t.tok(),{amounts:[30000000,20000000],order_total:50000000})).text,/one amount/,'never split');
  const l=await t.list();assert.equal(l.inputSchema.properties.amounts.items.maximum,50000000);assert.match(l.description,/never split, Rp 10,000 to Rp 50,000,000/);

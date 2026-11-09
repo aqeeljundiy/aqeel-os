@@ -14,16 +14,25 @@
 //                    so paid-labels.mjs can label the contact once the payment is confirmed paid)
 //                    kind card (8 Nov 2026): the line's card helper (.tools/card: a Xendit card-only invoice), one amount that is
 //                    the whole order total, same limits and log; returns the checkout link for the reply
+//   check_payment    whether THIS customer's payments were paid, asked from the provider now (paid-labels.mjs); read only (8 Nov 2026)
+//   post_order       the order form of THIS customer's PAID order to the team's Orders topic, once per payment; a paid order is
+//                    normally posted by itself (paid-labels.mjs), so this is for what that could not cover
 //   label_contact    the line's allowed Kirimdev labels on THIS chat's contact only (8 Nov 2026; kirimdev.mjs labelContact
 //                    holds the rules), a few per run, each logged with the run id; never a message to the customer
 // The engine itself never sees a key: the helper reads the keys as the agent's user, outside the model's reach.
 import {readFile,readdir,stat,appendFile,mkdir} from 'node:fs/promises';
 import {randomBytes,timingSafeEqual} from 'node:crypto';
 import path from 'node:path';
+import {orderContextOf} from './paid-labels.mjs';
+// the line's order details as given in this tool call
+const contextValues=(pr,a)=>Object.fromEntries(orderContextOf(pr).fields.map(f=>[f.key,String(a?.[f.key]||'').trim().slice(0,500)]));
 
 // the highest card link when the line does not say (owner, 8 Nov 2026): QRIS and VA keep the line's own max
 export const DEFAULT_CARD_MAX=50000000;
 export const cardMaxOf=pr=>Number(pr?.cardMax)||DEFAULT_CARD_MAX;
+// the highest virtual account (team rule, 8 Nov 2026): one VA for the whole total, above the QRIS limit
+export const DEFAULT_VA_MAX=10000000;
+export const vaMaxOf=pr=>Number(pr?.vaMax)||Math.max(Number(pr?.max)||0,DEFAULT_VA_MAX);
 const READ_METHODS=new Set(['spreadsheets.values.get','spreadsheets.values.batchGet','spreadsheets.get']);
 // bank codes are the payment helper's to check (it knows its provider); here only their shape
 const clip=(s,n)=>{s=String(s??'');return s.length>n?s.slice(0,n-1)+'…':s};
@@ -32,7 +41,7 @@ export function readable(rel){const r=String(rel||'').replace(/^\.\/+/,'');if(!r
  if(/(^|\/)(secrets?|tools|node_modules|tmp|Desktop)(\/|$)/i.test(r)||/\.(bak|orig)|bak-|\.env|key|token|password|secret/i.test(r))return false;
  return /^[\w-]+\.md$/.test(r)||/^(templates|sop|knowledge|rules)\/[\w ./-]+\.(md|txt|json|csv)$/.test(r)||/^media\/[\w ./-]*urls\.txt$/.test(r)}
 // pr: the line's payment setting (kirimdev.json lines.<agent>.payment: {currency, min, max}); none = any whole amount
-export const TOOLS=(pay,pr={},lr={},card=false)=>{const allowed=lr.allowed||[],sales=lr.sales||[];const cur=pr.currency||'',lo=Number(pr.min)||1,hi=Number(pr.max)||1e9,amt=x=>(cur?cur+' ':'')+Number(x).toLocaleString('en-US');return [
+export const TOOLS=(pay,pr={},lr={},card=false,orders=false)=>{const allowed=lr.allowed||[],sales=lr.sales||[],ctxFields=orderContextOf(pr).fields,ctxProps=pre=>Object.fromEntries(ctxFields.map(f=>[f.key,{type:'string',maxLength:500,description:pre+f.ask}]));const cur=pr.currency||'',lo=Number(pr.min)||1,hi=Number(pr.max)||1e9,amt=x=>(cur?cur+' ':'')+Number(x).toLocaleString('en-US');return [
  {name:'read_sheet',description:'Read your knowledge or rules sheet (read only). method is spreadsheets.values.get, spreadsheets.values.batchGet or spreadsheets.get; params as the Google Sheets API takes them, e.g. {"spreadsheetId":"…","range":"Rules!A1:Z200"}.',
   inputSchema:{type:'object',properties:{method:{type:'string',enum:[...READ_METHODS]},params:{type:'object'}},required:['method','params']},annotations:{readOnlyHint:true}},
  {name:'read_file',description:'Read one of your rule or template files, e.g. DECISIONS.md, BRIEFING.md, templates/ORDER_FORM.md, sop/<name>.md. list_files shows them.',
@@ -43,16 +52,18 @@ export const TOOLS=(pay,pr={},lr={},card=false)=>{const allowed=lr.allowed||[],s
  ...(allowed.length?[{name:'label_contact',description:'Label THIS customer\'s contact in Kirimdev (the team\'s CRM pipeline), as your label rules say: the stage they reached or a product they asked about. Only these labels: '+allowed.join(', ')+'. Never Customer or S- labels: aqeelOS sets those itself once a payment is confirmed. The customer never sees labels; say nothing about them in your reply.',
   inputSchema:{type:'object',properties:{add:{type:'array',items:{type:'string',enum:allowed},maxItems:4},remove:{type:'array',items:{type:'string',enum:allowed},maxItems:4}}}}]:[]),
  ...(pay||card?[{name:'create_payment',description:(pay==='pay'
-   ?'Create a REAL payment with your payment helper for THIS customer\'s CONFIRMED order and send it to them in this chat (QR picture, or virtual account number). kind qris: amounts, each '+amt(lo)+' to '+amt(hi)+' (split bigger totals). kind va: bank code and one amount. Use once per confirmed order; again only if the customer says it expired (expired true). After it succeeds, do not repeat the payment in your reply; say it was sent.'
+   ?'Create a REAL payment with your payment helper for THIS customer\'s CONFIRMED order and send it to them in this chat (QR picture, or virtual account number). kind qris: amounts, each '+amt(lo)+' to '+amt(hi)+' (split bigger totals). kind va: bank code and one amount, the whole total, '+amt(lo)+' to '+amt(vaMaxOf(pr))+'. Use once per confirmed order; again only if the customer says it expired (expired true). After it succeeds, do not repeat the payment in your reply; say it was sent.'
    :pay?'Create a REAL QR payment with your payment helper for THIS customer\'s CONFIRMED order total. Amounts each '+amt(lo)+' to '+amt(hi)+' (split bigger totals). Returns [FOTO: …] lines: put each on its own line in your reply so the QR picture is sent. Use once per confirmed order; again only if the customer says it expired (expired true).':'Create a REAL payment with your payment helper for THIS customer\'s CONFIRMED order.')+(card?' kind card, only when the customer chose credit or debit card: one amount, the whole order total with any card fee your rules add, never split, '+amt(lo)+' to '+amt(cardMaxOf(pr))+'. Returns a checkout link: put it in your reply exactly as given. Never ask for card numbers in chat.':''),
-  inputSchema:{type:'object',properties:{kind:{type:'string',enum:[...(pay==='pay'?['qris','va']:pay?['qris']:[]),...(card?['card']:[])]},amounts:{type:'array',items:{type:'integer',minimum:lo,maximum:card?Math.max(hi,cardMaxOf(pr)):hi},minItems:1,maxItems:5},bank:{type:'string',description:'The bank code the payment helper accepts, e.g. BCA'},name:{type:'string',description:'The customer\'s name from the order form'},order_total:{type:'integer',description:'The confirmed order total; the amounts must add up to it'},expired:{type:'boolean'},
-   products:{type:'array',items:sales.length?{type:'string',enum:sales}:{type:'string'},maxItems:12,description:'What the order buys, as the sales labels'+(sales.length?'':' (S- names)')+': one per product in the order form (a reusable pen is S-Pen). Set on the customer\'s contact only once the payment is confirmed paid.'}},required:['amounts','name','order_total']}}]:[])]};
+  inputSchema:{type:'object',properties:{kind:{type:'string',enum:[...(pay==='pay'?['qris','va']:pay?['qris']:[]),...(card?['card']:[])]},amounts:{type:'array',items:{type:'integer',minimum:lo,maximum:Math.max(hi,card?cardMaxOf(pr):0,pay==='pay'?vaMaxOf(pr):0)},minItems:1,maxItems:5},bank:{type:'string',description:'The bank code the payment helper accepts, e.g. BCA'},name:{type:'string',description:'The customer\'s name from the order form'},order_form:{type:'string',maxLength:3000,description:'The filled order form exactly as the customer confirmed it. The team gets it in their Orders topic once this payment is paid.'},order_total:{type:'integer',description:'The confirmed order total; the amounts must add up to it'},expired:{type:'boolean'},...ctxProps('Ask before the order is final. '),
+   products:{type:'array',items:sales.length?{type:'string',enum:sales}:{type:'string'},maxItems:12,description:'What the order buys, as the sales labels'+(sales.length?'':' (S- names)')+': one per product in the order form (a reusable pen is S-Pen). Set on the customer\'s contact only once the payment is confirmed paid.'}},required:['amounts','name','order_total','order_form']}},
+ {name:'check_payment',description:'Whether THIS customer\'s payments made through you were paid, asked from the payment provider now: PAID, UNPAID, EXPIRED or PARTLY_PAID, with the amount. Use it whenever the customer says they paid, asks if it arrived, or sends a receipt. Only PAID means confirmed; a receipt picture never does.',inputSchema:{type:'object',properties:{}},annotations:{readOnlyHint:true}},
+ ...(orders?[{name:'post_order',description:'Post the filled order form of THIS customer\'s PAID order to the team\'s Orders topic. A paid order is normally posted by itself, so use this only if the team says it is missing. Works only once check_payment shows PAID, and once per payment.',inputSchema:{type:'object',properties:{order_form:{type:'string',maxLength:3000},...ctxProps('')},required:['order_form',...ctxFields.map(f=>f.key)]}}]:[])]:[])]};
 
 // every customer tool takes the run's key (given in the run's instructions); calls without a live key are refused
 export const RUN_FIELD={type:'string',description:'Your run key, exactly as given in your instructions for this chat.'};
 export const withRun=tools=>tools.map(t=>({...t,inputSchema:{...t.inputSchema,properties:{run:RUN_FIELD,...(t.inputSchema?.properties||{})},required:['run',...(t.inputSchema?.required||[]).filter(x=>x!=='run')]}}));
 
-export function createCustomerTools({WORK,DATA,payRules=async()=>({}),labelRules=async()=>({}),labelContact=null,googleCall,chatFind,history,runAsAgent,log=m=>console.log(m),now=()=>Date.now(),random=n=>randomBytes(n)}){
+export function createCustomerTools({WORK,DATA,payments=null,ordersOf=async()=>null,payRules=async()=>({}),labelRules=async()=>({}),labelContact=null,googleCall,chatFind,history,runAsAgent,log=m=>console.log(m),now=()=>Date.now(),random=n=>randomBytes(n)}){
  const runs=new Map();
  // the agent's payment helper: the line's setting (kirimdev.json lines.<agent>.payment.helper {path, style}), else the
  // usual names in its workspace. style "send": it sends the payment itself (qris|va amounts --name --to <number>);
@@ -67,7 +78,7 @@ export function createCustomerTools({WORK,DATA,payRules=async()=>({}),labelRules
   return await stat(path.join(WORK,a,'.tools','card')).catch(()=>null)?'.tools/card':null};
  const payKind=async a=>{const h=await helperOf(a);return h?(h.style==='send'?'pay':'qris'):null};
  // a run's key: made by aqeelOS when it starts a customer run, ends with it (15 minutes at most)
- function begin({agent,line,conversation,phone,mode}){const token=random(24).toString('base64url');runs.set(token,{agent,line,conversation,phone:String(phone||'').replace(/\D/g,''),mode,at:now(),payments:0,labels:0,id:'r'+random(4).toString('hex')});return token}
+ function begin({agent,line,conversation,phone,mode,tester=false}){const token=random(24).toString('base64url');runs.set(token,{agent,line,conversation,phone:String(phone||'').replace(/\D/g,''),mode,tester:!!tester,at:now(),payments:0,labels:0,id:'r'+random(4).toString('hex')});return token}
  function end(token){runs.delete(token)}
  function runOf(agent,token){const r=runs.get(String(token||''));if(!r||r.agent!==agent||now()-r.at>15*60e3)return null;return r}
  async function files(a){const out=[];const W=path.join(WORK,a);const walk=async(d,depth)=>{for(const e of await readdir(path.join(W,d),{withFileTypes:true}).catch(()=>[])){const rel=d?d+'/'+e.name:e.name;
@@ -86,28 +97,40 @@ export function createCustomerTools({WORK,DATA,payRules=async()=>({}),labelRules
     const cardPath=k==='card'?await cardOf(agent):null;if(k==='card'&&!cardPath)return {isError:true,text:'This line has no card payment helper. Hand off to the team.'};
     const helper=k==='card'?{path:cardPath,style:'card'}:await helperOf(agent);const kind=helper?(helper.style==='send'?'pay':helper.style==='card'?'card':'qris'):null;if(!kind)return {isError:true,text:'You have no payment helper (set one in the line\'s payment settings).'};
     if(!r.phone)return {isError:true,text:'This chat has no customer number.'};
-    const amounts=[].concat(args.amounts||[]).map(Number);const pr=await payRules(agent).catch(()=>({}))||{},lo=Number(pr.min)||1,hi=k==='card'?cardMaxOf(pr):Number(pr.max)||1e9,cur=pr.currency?pr.currency+' ':'';
+    const amounts=[].concat(args.amounts||[]).map(Number);const pr=await payRules(agent).catch(()=>({}))||{},lo=Number(pr.min)||1,hi=k==='card'?cardMaxOf(pr):k==='va'?vaMaxOf(pr):Number(pr.max)||1e9,cur=pr.currency?pr.currency+' ':'';
     if(!amounts.length||amounts.some(x=>!Number.isInteger(x)||x<lo||x>hi))return {isError:true,text:'Each amount is a whole number from '+lo+' to '+hi+'.'};
     const lr=await labelRules(agent).catch(()=>({}))||{},products=[...new Set([].concat(args.products||[]).map(x=>String(x||'').trim()).filter(Boolean))];
     const wrong=products.filter(x=>!/^S-/.test(x)||(lr.sales?.length&&!lr.sales.includes(x)));if(wrong.length)return {isError:true,text:'products are sales labels'+(lr.sales?.length?' ('+lr.sales.join(', ')+')':' (S- names)')+', not '+wrong.join(', ')+'.'};
-    const total=amounts.reduce((s,x)=>s+x,0);if(Number(args.order_total)!==total)return {isError:true,text:'The amounts add up to '+total+', not the order total '+args.order_total+'. Check the order form.'};
+    {const f=String(args.order_form||'').trim();if(f.length<80||(f.match(/^[^\n:]{2,40}:[ \t]*\S/gm)||[]).length<3)return {isError:true,text:'order_form must be the full filled order form exactly as the customer confirmed it (every field: name, address, phone, items...), not empty or a summary. Call again with the whole form.'};}
+    let total=amounts.reduce((s,x)=>s+x,0);if(Number(args.order_total)!==total)return {isError:true,text:'The amounts add up to '+total+', not the order total '+args.order_total+'. Check the order form.'};
     if(r.payments>=2)return {isError:true,text:'Two payments were already made in this run. If something is wrong, hand off to the team.'};
     if(k==='card'&&amounts.length!==1)return {isError:true,text:'A card link is one amount: the whole order total.'};
     if(k==='va'&&(kind!=='pay'||!/^[A-Z0-9_]{2,20}$/.test(String(args.bank||'').toUpperCase())||amounts.length!==1))return {isError:true,text:'A VA needs a bank code and one amount.'};
     // the same total for the same customer within 30 minutes is a repeat, unless the customer said it expired
     const recent=(await readFile(path.join(DATA,'payments.jsonl'),'utf8').catch(()=>'')).split('\n').filter(Boolean).map(l=>{try{return JSON.parse(l)}catch{return null}}).filter(Boolean)
-     .find(p=>p.agent===agent&&p.phone===r.phone&&p.total===total&&p.ok&&(p.kind==='card')===(k==='card')&&now()-Date.parse(p.at)<30*60e3);   // switching to or from card is a new payment
+     .find(p=>p.agent===agent&&p.phone===r.phone&&(p.orderTotal??p.total)===total&&p.ok&&(p.kind==='card')===(k==='card')&&now()-Date.parse(p.at)<30*60e3);   // switching to or from card is a new payment
     if(recent&&!args.expired)return {isError:true,text:'A payment for '+cur+total+' was already made for this customer at '+recent.at.slice(11,16)+' UTC. Only make a new one if the customer says it expired (expired true).'};
+    // a line's tester (kirimdev.json testers / testerNums) pays a small test QRIS, not the order total:
+    // the line's payment.testAmount, else 10000; the rest of the flow (paid, labels, post_order) is the same
+    const orderTotal=total,testAmt=r.tester&&k==='qris'?(Number.isInteger(Number(pr.testAmount))&&Number(pr.testAmount)>0?Number(pr.testAmount):10000):0;
+    if(testAmt){amounts.splice(0,amounts.length,testAmt);total=testAmt}
     const nm=clip(String(args.name||'').replace(/[^\p{L}\p{N} .,'-]/gu,'').trim(),60)||'Customer';
     const argv=k==='card'?[String(amounts[0]),'--name',nm,'--phone',r.phone,...(products.length?['--items',...products]:[])]:kind==='pay'?(k==='va'?['va',String(args.bank).toUpperCase(),String(amounts[0])]:['qris',...amounts.map(String)]).concat(['--name',nm,'--to',r.phone]):[...amounts.map(String),'--name',nm,'--phone',r.phone];
     r.payments++;const x=await runAsAgent(agent,helper.path,argv);
     // the provider's references in the helper's answer (Tripay: T… references, or our BM-… order refs the helper keeps in tmp/)
     const out=String(x.out||''),refs=[...new Set(out.match(/\bT\d{5,}[0-9A-Z]{4,}\b/g)||[])],orders=[...new Set(out.match(/\b[A-Z]{2,4}-\d{9,11}-\d{1,2}\b/g)||[])],invoices=k==='card'?[...new Set(out.match(/\b[0-9a-f]{24}\b/g)||[])]:[];
-    await payLog({agent,line:r.line,conversation:r.conversation,phone:r.phone,mode:r.mode,run:r.id,kind:k,amounts,total,products,refs,orders,...(k==='card'?{invoices}:{}),ok:x.ok,out:clip(x.out||x.err,400)});
+    await payLog({agent,line:r.line,conversation:r.conversation,phone:r.phone,mode:r.mode,run:r.id,kind:k,amounts,total,products,refs,orders,name:nm,form:clip(String(args.order_form||'').trim(),3000),context:contextValues(pr,args),...(k==='card'?{invoices}:{}),...(testAmt?{testAmount:true,orderTotal}:{}),ok:x.ok,out:clip(x.out||x.err,400)});
     log('customer run '+agent+': payment '+k+' '+cur+total+' for …'+r.phone.slice(-4)+(x.ok?' made':' failed'));
     // card: the link, amount and expiry for the reply; the provider's ids stay in the log
     if(x.ok&&k==='card')return {text:out.split(' | ').slice(0,3).join(' | ').trim()+'\nPut this link in your reply exactly as given.'};
     return x.ok?{text:clip(x.out,4000)}:{isError:true,text:'The payment was not made: '+clip(x.err||x.out,600)+'. Tell the customer you are checking, and hand off.'}}
+   if(name==='check_payment'){if(!payments||!r.phone)return {isError:true,text:'Payment checks are not available in this chat.'};
+    r.checks=(r.checks||0)+1;if(r.checks>5)return {isError:true,text:'Already checked five times in this run. Tell the customer the team is checking.'};
+    const pr=await payRules(agent).catch(()=>({}))||{},cur=pr.currency?pr.currency+' ':'',l=await payments.statusFor(agent,r.phone);
+    if(!l.length)return {text:'No payment was made through you for this customer in the last 7 days. Do not say anything was paid.'};
+    return {text:l.map(p=>p.at.slice(0,16).replace('T',' ')+' UTC, '+p.kind+', '+cur+Number(p.total).toLocaleString('en-US')+': '+p.status+(p.testAmount?' (TEST payment for a tester: it stands for the full order of '+cur+Number(p.orderTotal||p.total).toLocaleString('en-US')+'; if PAID, treat the whole order as paid and confirmed)':'')).join('\n')+'\nPAID means confirmed: then send your payment-confirmed message right away and do not say the team is still checking. For anything else, say the team is still checking; do not say it was paid.'}}
+   if(name==='post_order'){if(!payments||!r.phone)return {isError:true,text:'Orders cannot be posted from this chat.'};const form=clip(String(args.order_form||'').trim(),3000);if(!form)return {isError:true,text:'Give the filled order form.'};const pr=await payRules(agent).catch(()=>({}))||{},ctx=contextValues(pr,args),gap=orderContextOf(pr).fields.filter(f=>!ctx[f.key]);if(gap.length)return {isError:true,text:'Give '+gap.map(f=>f.key+' ('+f.ask+')').join(' and ')+'. Ask the customer first if you do not know them.'};
+    const x=await payments.postOrder(agent,r.phone,form,ctx);log('customer run '+agent+' '+r.id+': post_order '+(x.posted?'posted':'not posted'));return x.posted?{text:'Posted to the Orders topic.'}:{isError:!x.already,text:x.why}}
    if(name==='label_contact'){if(!labelContact)return {isError:true,text:'Labels are not available here.'};
     const add=[].concat(args.add||[]),remove=[].concat(args.remove||[]);if(r.labels+add.length+remove.length>6)return {isError:true,text:'Six label changes per chat run at most. Leave the rest to the team.'};
     if(!r.conversation)return {isError:true,text:'This chat has no Kirimdev conversation.'};
@@ -124,7 +147,7 @@ export function createCustomerTools({WORK,DATA,payRules=async()=>({}),labelRules
   // outside a customer run (the engine's own connection) the list is empty: these tools exist only inside a run
   // listed on every connection (7 Nov 2026): the engine's gateway runs customer turns over its own shared connection, which
   // never carries a run's header, so the key travels in the run's instructions and in each call (run). No key, no answer.
-  if(msg.method==='tools/list')return rpc({tools:withRun(TOOLS(await payKind(agent),await payRules(agent).catch(()=>({}))||{},labelContact?await labelRules(agent).catch(()=>({}))||{}:{},!!await cardOf(agent)))});
+  if(msg.method==='tools/list')return rpc({tools:withRun(TOOLS(await payKind(agent),await payRules(agent).catch(()=>({}))||{},labelContact?await labelRules(agent).catch(()=>({}))||{}:{},!!await cardOf(agent),!!await ordersOf(agent).catch(()=>null)))});
   if(msg.method!=='tools/call')return {status:200,body:{jsonrpc:'2.0',id:msg.id,error:{code:-32601,message:'Method not found'}}};
   const args=msg.params?.arguments&&typeof msg.params.arguments==='object'?{...msg.params.arguments}:{};const key=typeof args.run==='string'&&args.run?args.run:token;delete args.run;
   const x=await call(agent,key,String(msg.params?.name||''),args);

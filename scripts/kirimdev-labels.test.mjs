@@ -18,8 +18,8 @@ const meta=(from,text,conv='cnv_A')=>JSON.stringify({object:'whatsapp_business_a
 
 async function make({mode='test',allowed=['New Leads','Consult','Checkout','I-Reta','I-NAD'],agentSays='Halo kak'}={}){
  const DATA=await mkdtemp(path.join(tmpdir(),'kdl-'));
- await writeFile(path.join(DATA,'kirimdev.json'),JSON.stringify({lines:{'continue-support':{phoneNumberId:'111111',persona:'Randy',business:'Continue',mode,debounceSec:0,testers:[{who:'Team',phone:'628123'}],labels:{allowed}}}}));
- await writeFile(path.join(DATA,'kirimdev-secrets.json'),JSON.stringify({'continue-support':{id:'wbs_1',secrets:[SECRET]}}));
+ await writeFile(path.join(DATA,'kirimdev.json'),JSON.stringify({lines:{'cove-support':{phoneNumberId:'111111',persona:'Sam',business:'Cove',mode,debounceSec:0,testers:[{who:'Team',phone:'628123'}],labels:{allowed}}}}));
+ await writeFile(path.join(DATA,'kirimdev-secrets.json'),JSON.stringify({'cove-support':{id:'wbs_1',secrets:[SECRET]}}));
  const has={ctc_A:new Set(),ctc_B:new Set()},calls=[],posts=[],acts=[];
  const fetchImpl=async(url,o)=>{const p=url.replace('https://api.kirimdev.com/v1/',''),m=o.method||'GET';calls.push(m+' '+p);const ok=d=>({ok:true,status:200,json:async()=>d});
   if(p==='accounts')return ok({data:[{phone_number_id:'111111',phone_number:'+62877',name:'Continue',status:'connected'}]});
@@ -37,10 +37,10 @@ async function make({mode='test',allowed=['New Leads','Consult','Checkout','I-Re
   teamGroup:async()=>({chatId:-100,topics:{questions:3}}),telegram:async(...x)=>{posts.push(x);return 42},
   runAgent:async(a,q,ctx)=>typeof agentSays==='function'?agentSays(ctx):agentSays});
  const settle=async()=>{for(let n=0;n<20&&due.size;n++){const f=[...due.values()];due.clear();await Promise.all(f.map(x=>x()))}};
- const post=raw=>k.receive('continue-support',{'x-kirim-signature':sign(raw),'x-kirim-event':'message.received'},Buffer.from(raw));
+ const post=raw=>k.receive('cove-support',{'x-kirim-signature':sign(raw),'x-kirim-event':'message.received'},Buffer.from(raw));
  const names=c=>[...has[c]].map(id=>LABELS.find(n=>lid(n)===id)).sort();
  return {k,DATA,has,calls,posts,acts,settle,post,names}}
-const L=(k,o)=>k.labelContact('continue-support',{conversationId:'cnv_A',phone:'628123',run:'r1',...o});
+const L=(k,o)=>k.labelContact('cove-support',{conversationId:'cnv_A',phone:'628123',run:'r1',...o});
 
 test('the agent sets only its allowed labels on the chat\'s own contact; repeating it changes nothing',async()=>{const t=await make();
  const r=await L(t.k,{add:['New Leads','I-Reta']});assert.equal(r.set,true);assert.deepEqual(r.changed,['+New Leads','+I-Reta']);assert.deepEqual(t.names('ctc_A'),['I-Reta','New Leads']);
@@ -48,7 +48,7 @@ test('the agent sets only its allowed labels on the chat\'s own contact; repeati
  assert.deepEqual((await L(t.k,{add:['New Leads']})).changed,[],'already there: no call');
  assert.equal(t.calls.filter(c=>/^(POST|DELETE) 111111\/contacts/.test(c)).length,n);
  assert.deepEqual((await L(t.k,{add:['Consult'],remove:['New Leads']})).changed,['+Consult','−New Leads']);assert.deepEqual(t.names('ctc_A'),['Consult','I-Reta']);
- assert.equal(t.acts.length,2,'each change is in Activity');assert.match(t.acts[0][1],/Randy labelled \+628123: \+New Leads, \+I-Reta/);assert.match(t.acts[0][2],/run r1/)});
+ assert.equal(t.acts.length,2,'each change is in Activity');assert.match(t.acts[0][1],/Sam labelled \+628123: \+New Leads, \+I-Reta/);assert.match(t.acts[0][2],/run r1/)});
 
 test('never Customer, S- labels, Internal, Boss or Influencer; never a label outside the allowlist or one Kirimdev lacks; a few at most',async()=>{const t=await make({allowed:['New Leads','I-Reta']});
  for(const n of ['Customer','S-Reta','Internal','Boss'])await assert.rejects(L(t.k,{add:[n]}),/never yours/,n);
@@ -59,13 +59,13 @@ test('never Customer, S- labels, Internal, Boss or Influencer; never a label out
 
 test('Test labels testers only; Live labels anyone; Draft proposes with the draft and sets them when a person sends it',async()=>{
  const t=await make();
- assert.equal((await t.k.labelContact('continue-support',{conversationId:'cnv_B',phone:'629999',add:['New Leads']})).set,false);assert.deepEqual(t.names('ctc_B'),[]);
- const v=await make({mode:'live'});assert.equal((await v.k.labelContact('continue-support',{conversationId:'cnv_B',phone:'629999',add:['New Leads']})).set,true);
+ assert.equal((await t.k.labelContact('cove-support',{conversationId:'cnv_B',phone:'629999',add:['New Leads']})).set,false);assert.deepEqual(t.names('ctc_B'),[]);
+ const v=await make({mode:'live'});assert.equal((await v.k.labelContact('cove-support',{conversationId:'cnv_B',phone:'629999',add:['New Leads']})).set,true);
  // Draft: the agent labels inside its run; nothing is set, the draft carries it, sending the draft sets it
- let d;d=await make({mode:'draft',agentSays:async ctx=>{const r=await d.k.labelContact('continue-support',{conversationId:ctx.run.conversation,phone:ctx.run.phone,add:['Consult','I-NAD']});assert.equal(r.proposed,true);return 'Halo kak'}});
+ let d;d=await make({mode:'draft',agentSays:async ctx=>{const r=await d.k.labelContact('cove-support',{conversationId:ctx.run.conversation,phone:ctx.run.phone,add:['Consult','I-NAD']});assert.equal(r.proposed,true);return 'Halo kak'}});
  await d.post(meta('628123','mau konsultasi NAD'));await d.settle();
  assert.deepEqual(d.names('ctc_A'),[],'Draft: not set');assert.match(d.posts[0][3],/DRAFT #1[\s\S]*Labels, set when it is sent: \+Consult, \+I-NAD/);
- const r=await d.k.draft('continue-support',1,'send','',  'Aqeel');assert.equal(r.labels.set,true);assert.deepEqual(d.names('ctc_A'),['Consult','I-NAD']);
+ const r=await d.k.draft('cove-support',1,'send','',  'Aqeel');assert.equal(r.labels.set,true);assert.deepEqual(d.names('ctc_A'),['Consult','I-NAD']);
  assert.match(d.acts[0][2],/A sent draft \(run draft1\)/)});
 
 test('a confirmed payment sets Customer and S- labels and removes Checkout, and nothing else',async()=>{const t=await make();
@@ -76,46 +76,46 @@ test('a confirmed payment sets Customer and S- labels and removes Checkout, and 
  await assert.rejects(L(t.k,{remove:['Customer'],source:'payment'}),/only/)});
 
 test('Line settings: the allowlist is saved and shown; Customer, S-, Internal are refused',async()=>{const t=await make();
- await t.k.saveLine('continue-support',{phoneNumberId:'111111',labels:['New Leads','I-Reta','I-Reta']});
- assert.deepEqual((await t.k.status()).find(l=>l.agent==='continue-support').settings.labels,['New Leads','I-Reta']);
- await assert.rejects(t.k.saveLine('continue-support',{phoneNumberId:'111111',labels:['New Leads','S-Reta','Customer']}),/S-Reta, Customer: only a person or a confirmed payment/);
- await t.k.saveLine('continue-support',{phoneNumberId:'111111',persona:'Randy'});assert.deepEqual((await t.k.status())[0].settings.labels,['New Leads','I-Reta'],'a save without labels keeps them')});
+ await t.k.saveLine('cove-support',{phoneNumberId:'111111',labels:['New Leads','I-Reta','I-Reta']});
+ assert.deepEqual((await t.k.status()).find(l=>l.agent==='cove-support').settings.labels,['New Leads','I-Reta']);
+ await assert.rejects(t.k.saveLine('cove-support',{phoneNumberId:'111111',labels:['New Leads','S-Reta','Customer']}),/S-Reta, Customer: only a person or a confirmed payment/);
+ await t.k.saveLine('cove-support',{phoneNumberId:'111111',persona:'Sam'});assert.deepEqual((await t.k.status())[0].settings.labels,['New Leads','I-Reta'],'a save without labels keeps them')});
 
 // ---- customer-tools: label_contact and create_payment's products
-async function tools(){const W=await mkdtemp(path.join(tmpdir(),'ctl-')),D=path.join(W,'data');await mkdir(path.join(W,'continue-support','.tools'),{recursive:true});await writeFile(path.join(W,'continue-support','.tools','qris'),'x');
+async function tools(){const W=await mkdtemp(path.join(tmpdir(),'ctl-')),D=path.join(W,'data');await mkdir(path.join(W,'cove-support','.tools'),{recursive:true});await writeFile(path.join(W,'cove-support','.tools','qris'),'x');
  const labelled=[];
  const C=createCustomerTools({WORK:W,DATA:D,payRules:async()=>({currency:'Rp',min:10000,max:5000000}),labelRules:async()=>({allowed:['New Leads','I-Reta'],sales:['S-Pen','S-Reta']}),
   labelContact:async(a,o)=>{labelled.push([a,o]);return {set:true,changed:o.add.map(x=>'+'+x)}},googleCall:async()=>({}),chatFind:async()=>({}),history:async()=>'',
   runAsAgent:async()=>({ok:true,out:'[FOTO: qris-BM-1794038325-1.png] | Rp2.660.000 | berlaku sampai 15.00 WIB'}),log:()=>{},random:n=>Buffer.alloc(n,7)});
  return {C,D,labelled}}
 test('label_contact: listed with the allowed labels, always this run\'s chat and number, a few per run, no message',async()=>{const {C,labelled}=await tools();
- const list=(await C.mcp('continue-support',undefined,{jsonrpc:'2.0',id:1,method:'tools/list'})).body.result.tools,lt=list.find(x=>x.name==='label_contact');
+ const list=(await C.mcp('cove-support',undefined,{jsonrpc:'2.0',id:1,method:'tools/list'})).body.result.tools,lt=list.find(x=>x.name==='label_contact');
  assert.ok(lt);assert.deepEqual(lt.inputSchema.properties.add.items.enum,['New Leads','I-Reta']);assert.match(lt.description,/Never Customer or S- labels/);
  assert.deepEqual(list.find(x=>x.name==='create_payment').inputSchema.properties.products.items.enum,['S-Pen','S-Reta']);
- const tok=C.begin({agent:'continue-support',line:'111111',conversation:'cnv_A',phone:'628123',mode:'test'});
- const x=await C.call('continue-support',tok,'label_contact',{add:['New Leads'],contact:'ctc_SOMEONE_ELSE',conversationId:'cnv_X'});
+ const tok=C.begin({agent:'cove-support',line:'111111',conversation:'cnv_A',phone:'628123',mode:'test'});
+ const x=await C.call('cove-support',tok,'label_contact',{add:['New Leads'],contact:'ctc_SOMEONE_ELSE',conversationId:'cnv_X'});
  assert.match(x.text,/Done: \+New Leads/);assert.deepEqual(labelled[0][1],{conversationId:'cnv_A',phone:'628123',add:['New Leads'],remove:[],source:'agent',run:labelled[0][1].run});assert.match(labelled[0][1].run,/^r[0-9a-f]{8}$/);
- await C.call('continue-support',tok,'label_contact',{add:['I-Reta','New Leads'],remove:['New Leads']});
- assert.match((await C.call('continue-support',tok,'label_contact',{add:['I-Reta','New Leads'],remove:['New Leads']})).text,/Six label changes per chat run/);assert.equal(labelled.length,2)});
-test('create_payment: products are S- labels, logged with the order refs for the paid check',async()=>{const {C,D}=await tools();const tok=C.begin({agent:'continue-support',line:'111111',conversation:'cnv_A',phone:'628123',mode:'test'});
- assert.match((await C.call('continue-support',tok,'create_payment',{amounts:[2660000],order_total:2660000,name:'Ani',products:['I-Reta']})).text,/sales labels \(S-Pen, S-Reta\), not I-Reta/);
- assert.match((await C.call('continue-support',tok,'create_payment',{amounts:[2660000],order_total:2660000,name:'Ani',products:['S-Reta','S-Pen']})).text,/FOTO/);
+ await C.call('cove-support',tok,'label_contact',{add:['I-Reta','New Leads'],remove:['New Leads']});
+ assert.match((await C.call('cove-support',tok,'label_contact',{add:['I-Reta','New Leads'],remove:['New Leads']})).text,/Six label changes per chat run/);assert.equal(labelled.length,2)});
+test('create_payment: products are S- labels, logged with the order refs for the paid check',async()=>{const {C,D}=await tools();const tok=C.begin({agent:'cove-support',line:'111111',conversation:'cnv_A',phone:'628123',mode:'test'});
+ assert.match((await C.call('cove-support',tok,'create_payment',{amounts:[2660000],order_total:2660000,order_form:'Nama: Ani Wijaya\nAlamat: Jl. Merdeka 10, Bandung 40111\nNo HP: 08123456789\nPesanan: 1x Pen',name:'Ani',products:['I-Reta']})).text,/sales labels \(S-Pen, S-Reta\), not I-Reta/);
+ assert.match((await C.call('cove-support',tok,'create_payment',{amounts:[2660000],order_total:2660000,order_form:'Nama: Ani Wijaya\nAlamat: Jl. Merdeka 10, Bandung 40111\nNo HP: 08123456789\nPesanan: 1x Pen',name:'Ani',products:['S-Reta','S-Pen']})).text,/FOTO/);
  const p=JSON.parse((await readFile(path.join(D,'payments.jsonl'),'utf8')).trim());assert.deepEqual(p.products,['S-Reta','S-Pen']);assert.deepEqual(p.orders,['BM-1794038325-1']);assert.equal(p.conversation,'cnv_A');assert.match(p.run,/^r/)});
 
 // ---- paid-labels: code, no AI
 async function paid(statuses){const W=await mkdtemp(path.join(tmpdir(),'pl-')),D=path.join(W,'data');await mkdir(D,{recursive:true});
- const A=path.join(W,'continue-support');await mkdir(path.join(A,'.secrets'),{recursive:true});await mkdir(path.join(A,'tmp'),{recursive:true});
+ const A=path.join(W,'cove-support');await mkdir(path.join(A,'.secrets'),{recursive:true});await mkdir(path.join(A,'tmp'),{recursive:true});
  await writeFile(path.join(A,'.secrets','TRIPAY_API_KEY'),'tp_key\n');
  await writeFile(path.join(A,'tmp','last_qris.json'),JSON.stringify({ref:'BM-1794038325-1',reference:'T3135339060014GCTMH',amount:2660000})+'\n'+JSON.stringify({ref:'BM-1794038325-2',reference:'T3135339060015ABCDE',amount:1000000})+'\n');
  let t=Date.parse('2026-11-08T03:00:00Z');const asked=[],labelled=[];let fail=0;
- const add=o=>appendFile(path.join(D,'payments.jsonl'),JSON.stringify({at:new Date(t).toISOString(),agent:'continue-support',line:'111111',conversation:'cnv_A',phone:'628123',mode:'test',run:'rabc',kind:'qris',total:3660000,ok:true,products:['S-Reta','S-Pen'],refs:[],orders:['BM-1794038325-1','BM-1794038325-2'],...o})+'\n');
+ const add=o=>appendFile(path.join(D,'payments.jsonl'),JSON.stringify({at:new Date(t).toISOString(),agent:'cove-support',line:'111111',conversation:'cnv_A',phone:'628123',mode:'test',run:'rabc',kind:'qris',total:3660000,ok:true,products:['S-Reta','S-Pen'],refs:[],orders:['BM-1794038325-1','BM-1794038325-2'],...o})+'\n');
  const P=createPaidLabels({DATA:D,WORK:W,now:()=>t,log:()=>{},label:async(a,o)=>{if(fail>0){fail--;throw Error('Kirimdev answered 503')}labelled.push([a,o]);return {set:true,changed:['+Customer']}},
   fetchImpl:async(url,o)=>{const ref=new URL(url).searchParams.get('reference');asked.push([ref,o.headers.authorization]);return {ok:true,json:async()=>({success:true,data:{reference:ref,status:statuses[ref]}})}}});
  return {P,add,asked,labelled,later:ms=>{t+=ms},fail:n=>{fail=n},D}}
 test('paid check: nothing while unpaid; once every part is PAID, Customer + S- labels and no Checkout, exactly once',async()=>{const st={T3135339060014GCTMH:'PAID',T3135339060015ABCDE:'UNPAID'};const s=await paid(st);await s.add();
  await s.P.tick();assert.equal(s.labelled.length,0,'one part still unpaid');assert.deepEqual(s.asked.map(x=>x[0]).sort(),['T3135339060014GCTMH','T3135339060015ABCDE']);assert.equal(s.asked[0][1],'Bearer tp_key');
  st.T3135339060015ABCDE='PAID';s.later(60e3);await s.P.tick();
- assert.deepEqual(s.labelled,[['continue-support',{conversationId:'cnv_A',phone:'628123',add:['Customer','S-Reta','S-Pen'],remove:['Checkout'],source:'payment',run:'rabc'}]]);
+ assert.deepEqual(s.labelled,[['cove-support',{conversationId:'cnv_A',phone:'628123',add:['Customer','S-Reta','S-Pen'],remove:['Checkout'],source:'payment',run:'rabc'}]]);
  s.later(60e3);const n=s.asked.length;await s.P.tick();assert.equal(s.labelled.length,1,'never twice');assert.equal(s.asked.length,n,'a done payment is not asked again');
  const again=createPaidLabels({DATA:s.D,WORK:path.dirname(s.D),label:async()=>{throw Error('must not run')},fetchImpl:async()=>{throw Error('must not ask')},now:()=>Date.parse('2026-11-08T03:03:00Z'),log:()=>{}});
  await again.tick()});
@@ -124,22 +124,22 @@ test('paid check: expired is closed without labels; a Kirimdev error is tried ag
  const r=await paid({T3135339060014GCTMH:'PAID',T3135339060015ABCDE:'PAID'});await r.add();r.fail(1);await r.P.tick();assert.equal(r.labelled.length,0);r.later(60e3);await r.P.tick();assert.equal(r.labelled.length,1,'retried');
  const o=await paid({T3135339060014GCTMH:'PAID',T3135339060015ABCDE:'PAID'});await o.add();o.later(4*3600e3);await o.P.tick();assert.equal(o.asked.length,0,'older than 3 hours: not followed')});
 
-test('Line settings saves with a tester known by their chat only (Aqeel on Randy\'s and Gilang\'s lines, 8 Nov 2026)',async()=>{const t=await make();
- const f=path.join(t.DATA,'kirimdev.json'),c=JSON.parse(await readFile(f,'utf8'));c.lines['continue-support'].testers=[{who:'Aqeel (3417)',conversationId:'cnv_Q'},{who:'Team',phone:'628123'}];await writeFile(f,JSON.stringify(c));
+test('Line settings saves with a tester known by their chat only (Aqeel on Sam\'s and Gilang\'s lines, 8 Nov 2026)',async()=>{const t=await make();
+ const f=path.join(t.DATA,'kirimdev.json'),c=JSON.parse(await readFile(f,'utf8'));c.lines['cove-support'].testers=[{who:'Aqeel (3417)',conversationId:'cnv_Q'},{who:'Team',phone:'628123'}];await writeFile(f,JSON.stringify(c));
  assert.deepEqual((await t.k.status())[0].settings.testers,[{who:'Aqeel (3417)',phone:'',chat:true},{who:'Team',phone:'628123',chat:false}]);
- await t.k.saveLine('continue-support',{phoneNumberId:'111111',testers:[{who:'Aqeel (3417)',phone:''},{who:'Team',phone:'628123'}],labels:['New Leads']});
- assert.deepEqual(JSON.parse(await readFile(f,'utf8')).lines['continue-support'].testers,[{who:'Aqeel (3417)',conversationId:'cnv_Q'},{who:'Team',phone:'628123'}]);
- await assert.rejects(t.k.saveLine('continue-support',{phoneNumberId:'111111',testers:[{who:'Someone new',phone:''}]}),/not a phone number/,'a new tester still needs a number')});
+ await t.k.saveLine('cove-support',{phoneNumberId:'111111',testers:[{who:'Aqeel (3417)',phone:''},{who:'Team',phone:'628123'}],labels:['New Leads']});
+ assert.deepEqual(JSON.parse(await readFile(f,'utf8')).lines['cove-support'].testers,[{who:'Aqeel (3417)',conversationId:'cnv_Q'},{who:'Team',phone:'628123'}]);
+ await assert.rejects(t.k.saveLine('cove-support',{phoneNumberId:'111111',testers:[{who:'Someone new',phone:''}]}),/not a phone number/,'a new tester still needs a number')});
 
 test('Line settings: the card helper is kept, emptied for Automatic, and must be a file in the agent\'s folder',async()=>{const t=await make();const P='111111',pay=async()=>(await t.k.status())[0].settings.payment;
- await t.k.saveLine('continue-support',{phoneNumberId:P,payment:{card:'.tools/card2',currency:'Rp',min:'10000',max:'5000000'}});assert.equal((await pay()).card,'.tools/card2');
- await t.k.saveLine('continue-support',{phoneNumberId:P,payment:{currency:'Rp',min:'10000',max:'5000000'}});assert.equal((await pay()).card,'.tools/card2','a save that does not mention it keeps it');
- await assert.rejects(t.k.saveLine('continue-support',{phoneNumberId:P,payment:{card:'../x/.tools/card'}}),/file in the agent/);
- await t.k.saveLine('continue-support',{phoneNumberId:P,payment:{card:'',currency:'Rp',min:'10000',max:'5000000'}});assert.equal((await pay()).card,undefined,'Automatic')});
+ await t.k.saveLine('cove-support',{phoneNumberId:P,payment:{card:'.tools/card2',currency:'Rp',min:'10000',max:'5000000'}});assert.equal((await pay()).card,'.tools/card2');
+ await t.k.saveLine('cove-support',{phoneNumberId:P,payment:{currency:'Rp',min:'10000',max:'5000000'}});assert.equal((await pay()).card,'.tools/card2','a save that does not mention it keeps it');
+ await assert.rejects(t.k.saveLine('cove-support',{phoneNumberId:P,payment:{card:'../x/.tools/card'}}),/file in the agent/);
+ await t.k.saveLine('cove-support',{phoneNumberId:P,payment:{card:'',currency:'Rp',min:'10000',max:'5000000'}});assert.equal((await pay()).card,undefined,'Automatic')});
 
 test('Line settings: the highest card amount is saved, kept when not mentioned, empty for the default, and checked',async()=>{const t=await make();const P='111111',pay=async()=>(await t.k.status())[0].settings.payment,base={currency:'Rp',min:'10000',max:'5000000'};
- await t.k.saveLine('continue-support',{phoneNumberId:P,payment:{...base,cardMax:'50000000'}});assert.equal((await pay()).cardMax,50000000);assert.equal((await pay()).max,5000000,'the QRIS limit stays');
- await t.k.saveLine('continue-support',{phoneNumberId:P,payment:base});assert.equal((await pay()).cardMax,50000000,'a save that does not mention it keeps it');
- await assert.rejects(t.k.saveLine('continue-support',{phoneNumberId:P,payment:{...base,cardMax:'abc'}}),/whole number/);
- await assert.rejects(t.k.saveLine('continue-support',{phoneNumberId:P,payment:{...base,cardMax:'5000'}}),/below the lowest/);
- await t.k.saveLine('continue-support',{phoneNumberId:P,payment:{...base,cardMax:''}});assert.equal((await pay()).cardMax,undefined,'empty: the default')});
+ await t.k.saveLine('cove-support',{phoneNumberId:P,payment:{...base,cardMax:'50000000'}});assert.equal((await pay()).cardMax,50000000);assert.equal((await pay()).max,5000000,'the QRIS limit stays');
+ await t.k.saveLine('cove-support',{phoneNumberId:P,payment:base});assert.equal((await pay()).cardMax,50000000,'a save that does not mention it keeps it');
+ await assert.rejects(t.k.saveLine('cove-support',{phoneNumberId:P,payment:{...base,cardMax:'abc'}}),/whole number/);
+ await assert.rejects(t.k.saveLine('cove-support',{phoneNumberId:P,payment:{...base,cardMax:'5000'}}),/below the lowest/);
+ await t.k.saveLine('cove-support',{phoneNumberId:P,payment:{...base,cardMax:''}});assert.equal((await pay()).cardMax,undefined,'empty: the default')});

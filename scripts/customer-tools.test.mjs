@@ -20,7 +20,7 @@ async function make(kind='qris'){const W=await mkdtemp(path.join(tmpdir(),'ct-')
 
 test('the tools are listed on any connection (the gateway serves customer runs), each needs the run key, which ends with the run',async()=>{const {C}=await make();
  const tools=async a=>(await C.mcp(a,undefined,{jsonrpc:'2.0',id:1,method:'tools/list'})).body.result.tools;
- const t=await tools('cove-support');assert.deepEqual(t.map(x=>x.name),['read_sheet','read_file','list_files','conversation','past_chats','create_payment']);
+ const t=await tools('cove-support');assert.deepEqual(t.map(x=>x.name),['read_sheet','read_file','list_files','conversation','past_chats','create_payment','check_payment']);
  for(const x of t){assert.equal(x.inputSchema.required[0],'run',x.name);assert.equal(x.inputSchema.properties.run.type,'string')}
  const callOf=async(a,args,hdr)=>(await C.mcp(a,hdr,{jsonrpc:'2.0',id:2,method:'tools/call',params:{name:'list_files',arguments:args}})).body.result;
  assert.equal((await callOf('cove-support',{})).isError,true,'no key: refused');
@@ -40,7 +40,7 @@ test('reading: sheets read-only through aqeelOS, files from the rule list, this 
  assert.equal((await C.call('cove-support',tok,'conversation',{})).text,'chat cnv_1')});
 
 test('a payment is for this customer only, adds up to the order total, is logged, and is not repeated by mistake',async()=>{const {C,D,ran,tick}=await make();const tok=C.begin({agent:'cove-support',line:'140',conversation:'cnv_1',phone:'6281234567890',mode:'live'});
- const pay=a=>C.call('cove-support',tok,'create_payment',a);
+ const pay=a=>C.call('cove-support',tok,'create_payment',{order_form:'Nama: Ani Wijaya\nAlamat: Jl. Merdeka 10, Bandung 40111\nNo HP: 08123456789\nPesanan: 1x Pen',...a});
  assert.match((await pay({amounts:[2660000],name:'Ani',order_total:2600000})).text,/add up to 2660000/);
  assert.match((await pay({amounts:[5],name:'Ani',order_total:5})).text,/10000 to 5000000/);
  const ok=await pay({amounts:[2660000],name:'Ani; rm -rf /',order_total:2660000});assert.match(ok.text,/FOTO/);
@@ -52,15 +52,26 @@ test('a payment is for this customer only, adds up to the order total, is logged
  tick(16*60e3);assert.match((await pay({amounts:[100000],name:'Ani',order_total:100000})).text,/only work inside a customer chat run/)});
 
 test('Gino\'s helper sends to the run\'s customer, whatever number the model has in mind',async()=>{const {C,ran}=await make('pay');const tok=C.begin({agent:'cove-support',line:'291',conversation:'c',phone:'6287885993124'});
- await C.call('cove-support',tok,'create_payment',{kind:'va',bank:'bca',amounts:[1500000],name:'Budi',order_total:1500000,to:'6280000000000'});
+ await C.call('cove-support',tok,'create_payment',{kind:'va',bank:'bca',amounts:[1500000],name:'Budi',order_total:1500000,order_form:'Nama: Ani Wijaya\nAlamat: Jl. Merdeka 10, Bandung 40111\nNo HP: 08123456789\nPesanan: 1x Pen',to:'6280000000000'});
  assert.deepEqual(ran[0][2],['va','BCA','1500000','--name','Budi','--to','6287885993124'])});
 
 test('the reply guard can ask whether a payment was made for this customer since the run began',async()=>{const {C}=await make();const tok=C.begin({agent:'cove-support',line:'1',conversation:'c',phone:'628111222333'});
  assert.equal(await C.paidSince('cove-support','628111222333',0),false);
- await C.call('cove-support',tok,'create_payment',{amounts:[50000],name:'A',order_total:50000});
+ await C.call('cove-support',tok,'create_payment',{amounts:[50000],name:'A',order_total:50000,order_form:'Nama: Ani Wijaya\nAlamat: Jl. Merdeka 10, Bandung 40111\nNo HP: 08123456789\nPesanan: 1x Pen'});
  assert.equal(await C.paidSince('cove-support','+62 811-1222-333',1e12-5000),true);assert.equal(await C.paidSince('bay-sales','628111222333',0),false)});
 
 test('the payment helper can be any script named in the line\'s settings',async()=>{const W=await mkdtemp(path.join(tmpdir(),'ct2-'));await mkdir(path.join(W,'a','bin'),{recursive:true});await writeFile(path.join(W,'a','bin','stripe-link'),'x');
  const ran=[];const C=createCustomerTools({WORK:W,DATA:path.join(W,'d'),payRules:async()=>({currency:'USD',min:1,max:900,helper:{path:'bin/stripe-link',style:'send'}}),googleCall:async()=>({}),chatFind:async()=>({}),history:async()=>'',runAsAgent:async(a,t,v)=>{ran.push([t,v]);return {ok:true,out:'sent'}},log:()=>{}});
  const tok=C.begin({agent:'a',line:'1',conversation:'c',phone:'15551234567'});
- assert.equal((await C.call('a',tok,'create_payment',{kind:'qris',amounts:[120],name:'Sam',order_total:120})).text,'sent');assert.deepEqual(ran[0],['bin/stripe-link',['qris','120','--name','Sam','--to','15551234567']])});
+ assert.equal((await C.call('a',tok,'create_payment',{kind:'qris',amounts:[120],name:'Sam',order_total:120,order_form:'Nama: Ani Wijaya\nAlamat: Jl. Merdeka 10, Bandung 40111\nNo HP: 08123456789\nPesanan: 1x Pen'})).text,'sent');assert.deepEqual(ran[0],['bin/stripe-link',['qris','120','--name','Sam','--to','15551234567']])});
+
+test('a tester of the line pays a Rp10.000 test QRIS, logged testAmount; a customer pays the order total',async()=>{const {C,D,ran}=await make();
+ const form='Nama: Tester\nAlamat: Jalan Test 1, Jakarta\nNo HP: 628111\nPesanan: 1x Widget premium pack';
+ const tok=C.begin({agent:'cove-support',line:'140',conversation:'cnv_t',phone:'628111',mode:'test',tester:true});
+ const x=await C.call('cove-support',tok,'create_payment',{amounts:[2000000,660000],order_total:2660000,name:'Tester',order_form:form});
+ assert.equal(!!x.isError,false,x.text);assert.deepEqual(ran.at(-1)[2].slice(0,1),['10000']);
+ const c=C.begin({agent:'cove-support',line:'140',conversation:'cnv_c',phone:'628222',mode:'live'});
+ await C.call('cove-support',c,'create_payment',{amounts:[2000000,660000],order_total:2660000,name:'Cust',order_form:form});assert.deepEqual(ran.at(-1)[2].slice(0,2),['2000000','660000']);
+ const log=(await readFile(path.join(D,'payments.jsonl'),'utf8')).trim().split('\n').map(l=>JSON.parse(l));
+ assert.equal(log[0].testAmount,true);assert.equal(log[0].total,10000);assert.equal(log[0].orderTotal,2660000);assert.equal(log[1].testAmount,undefined);assert.equal(log[1].total,2660000);
+ assert.equal((await C.call('cove-support',tok,'create_payment',{amounts:[2660000],order_total:2660000,name:'Tester',order_form:form})).isError,true,'a repeat is still caught')});
