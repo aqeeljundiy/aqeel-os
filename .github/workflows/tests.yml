@@ -13,4 +13,10 @@ jobs:
         with:
           node-version: 22
       - run: node scripts/check-globals.mjs
+        env:
+          TZ: Asia/Jakarta
+          TMPDIR: ${{ runner.temp }}
       - run: node --test scripts/*.test.mjs
+        env:
+          TZ: Asia/Jakarta
+          TMPDIR: ${{ runner.temp }}
