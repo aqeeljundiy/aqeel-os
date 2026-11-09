@@ -120,6 +120,7 @@ export async function createWorkspaceAPI({aqeelos,claudeAccounts,root,platform,a
  const browserMcp=run=>({command:process.execPath,args:[path.join(root,'browser-mcp.mjs')],env:{...(process.versions.electron?{ELECTRON_RUN_AS_NODE:'1'}:{}),CBA_URL:appUrl(),CBA_TOKEN:token,...(run&&!run.system?{CBA_PROJECT:run.projectId}:{}),...(run&&!run.system&&!run.cwd?{CBA_PREVIEW:previewOrigin(new URL(appUrl()).host)+'/preview/'+run.projectId+'/'}:{})}});
  // computer use: one desktop tool server per run, so permission requests land in that run's timeline
  const desktop=new Desktop({root});const desktopMcp=run=>({name:'desktop',command:process.execPath,args:[path.join(root,'desktop-mcp.mjs')],env:{...(process.versions.electron?{ELECTRON_RUN_AS_NODE:'1'}:{}),CBA_URL:appUrl(),CBA_TOKEN:token,CBA_RUN:run.id}});
+ const liveJobs=new Map();   // publishes started by Code's AI (publish_app): project id → how it is going
  const appMcp=run=>({name:'app',command:process.execPath,args:[path.join(root,'app-mcp.mjs')],env:{...(process.versions.electron?{ELECTRON_RUN_AS_NODE:'1'}:{}),CBA_URL:appUrl(),CBA_TOKEN:token,CBA_RUN:run.id}});
  const designs=new DesignSystems(path.join(root,'data'));
  const useGithub=async id=>{const user=store.project(id)?.settings?.github;if(!user)return;const gh=await locate('gh',findExecutable);if(gh)await tool(gh,['auth','switch','--hostname','github.com','--user',user],{env,timeout:20000})};
@@ -428,10 +429,12 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
   // Live: is an address free, and how is a publish going (through aqeelOS)
   if(url.pathname==='/api/workspace/live-name'&&req.method==='GET')return send(200,await aqeelos.live('name',{slug:url.searchParams.get('slug')||''})),true;
   if(url.pathname==='/api/workspace/live-status'&&req.method==='GET')return send(200,await aqeelos.live('status',{id:url.searchParams.get('id')||''})),true;
-  if(url.pathname==='/api/workspace/publish'&&req.method==='POST'){if(process.env.CBA_ONLINE)throw Error('Publish from Code on your computer.');const p=store.project(data.projectId);const folder=await store.folder(p.id);
+  // the one way a project goes live: the Publish button and the AI's publish_app both come here, and neither needs an agent
+  const publishToLive=async(p,opts,act)=>{const folder=await store.folder(p.id);
    let repo='';const git=await locate('git',findExecutable).catch(()=>null);if(git){const r=await tool(git,['remote','get-url','origin'],{cwd:folder,timeout:10000}).catch(()=>null);repo=String(r?.stdout||'').trim().replace(/^git@github\.com:/,'https://github.com/').replace(/\.git$/,'').replace(/\/\/[^@/]+@/,'//')}
    const {zipFolder}=await import('./zip.mjs');const zip=await zipFolder(folder);if(zip.length>90e6)throw Error('The project is over 90 MB. Move big files (videos, data) out of it first.');
-   const a=await aqeelos.publish(zip,{name:String(data.name||p.name),slug:String(data.slug||''),repo,db:Boolean(data.db),visibility:['public','unlisted','private'].includes(data.visibility)?data.visibility:undefined},process.env.CBA_ONLINE?String(req.headers['x-aq-act']||''):'');p.live={id:a.id,slug:a.slug,url:a.url};await store.serialize(()=>store.persist());return send(200,a),true}
+   const a=await aqeelos.publish(zip,{name:String(opts.name||p.name),slug:String(p.live?.slug||opts.slug||''),repo,db:Boolean(opts.db),visibility:['public','unlisted','private'].includes(opts.visibility)?opts.visibility:undefined},act);p.live={id:a.id,slug:a.slug,url:a.url};await store.serialize(()=>store.persist());return a};
+  if(url.pathname==='/api/workspace/publish'&&req.method==='POST'){if(process.env.CBA_ONLINE)throw Error('Publish from Code on your computer.');const p=store.project(data.projectId);return send(200,await publishToLive(p,{name:data.name,slug:data.slug,db:data.db,visibility:data.visibility},'')),true}
   // the people a project can be shared with (from aqeelOS), and sharing it
   if(url.pathname==='/api/workspace/people'&&req.method==='GET')return send(200,{people:who?(await aqeelos.people()).filter(x=>x.id!==who.uid):[],me:who?.uid||''}),true;
   if(url.pathname==='/api/workspace/project/share'&&req.method==='POST'){const p=store.project(data.projectId);const uid=String(data.uid||'');if(!uid||uid===p.owner)throw Error('Choose someone to share with.');
@@ -704,6 +707,14 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
    if(data.op==='show'){const slug=checkSlug(data.slug);const o=(await listOutputs(run.cwd||await store.folder(run.projectId))).find(x=>x.slug===slug);(run.outputs??=new Set()).add(slug);run.emit({type:'output',slug,title:o?.title||slug.replace(/-/g,' '),kind:o?.kind||run.kind});return send(200,{title:o?.title||slug}),true}
    if(data.op==='next'){const actions=(Array.isArray(data.actions)?data.actions:[]).slice(0,2).map(a=>({label:String(a?.label||'').slice(0,40),message:String(a?.message||'').slice(0,400)})).filter(a=>a.label&&a.message);
     if(run.nextEvent)run.update(run.nextEvent,{recap:String(data.recap||'').slice(0,600),actions});else run.nextEvent=run.emit({type:'next',recap:String(data.recap||'').slice(0,600),actions});return send(200,{ok:true}),true}
+   if(data.op==='publish'){if(process.env.CBA_ONLINE)throw Error('Publishing works from the aqeelOS app on a computer, not from Code in the browser. Tell the person to open this project in the app.');const p=store.project(run.projectId),cur=liveJobs.get(p.id);
+    if(cur?.state==='sending')return send(200,{message:'A publish of this project is already being sent. Call publish_status.'}),true;
+    const job={state:'sending',at:Date.now()};liveJobs.set(p.id,job);run.emit({type:'tool',name:'Publishing to Live',detail:p.name,status:'completed'});
+    publishToLive(p,{name:data.name,slug:data.slug,db:data.db,visibility:data.visibility||'unlisted'},'').then(a=>{Object.assign(job,{state:'building',id:a.id,url:a.url})},e=>{Object.assign(job,{state:'failed',error:e.message})});
+    return send(200,{message:'Publishing started. Call publish_status in about 20 seconds, and keep calling it until it says live or failed.'}),true}
+   if(data.op==='publish-status'){const p=store.project(run.projectId),job=liveJobs.get(p.id)||(p.live?{state:'building',id:p.live.id,url:p.live.url}:null);if(!job)return send(200,{state:'none',message:'This project has not been published. Call publish_app.'}),true;
+    if(job.id&&job.state!=='failed'){const r=await aqeelos.live('status',{id:job.id}).catch(e=>({status:job.state,error:e.message}));job.state=r.status||job.state;if(r.url)job.url=r.url;job.error=r.error||''}
+    return send(200,{state:job.state,url:job.url||'',error:job.error||''}),true}
    if(data.op==='ds')return send(200,{designSystem:await projectDS(run.projectId)}),true;
    if(data.op==='chapter'){const title=String(data.title||'').replace(/\s+/g,' ').trim().slice(0,60);if(!title)throw Error('Give the chapter a title.');(run.chapters??=[]).push(title);run.emit({type:'chapter',title});return send(200,{ok:true}),true}
    if(data.op==='save-ds'){const saved=await designs.save({...data.designSystem,id:undefined});const p=store.project(run.projectId);p.settings={...(p.settings||{}),designSystem:saved.id};await store.serialize(()=>store.persist());run.emit({type:'tool',name:'Design system · saved',detail:saved.name+' (now used by this project)',status:'completed'});return send(200,{name:saved.name}),true}
