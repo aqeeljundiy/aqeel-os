@@ -57,7 +57,7 @@ async function updateBox(repo,latest){
  const log='/tmp/aq-deploy-'+id+'.log',end=Date.now()+75*60000;
  while(Date.now()<end){await sleep(15000);let t='';try{t=readFileSync(log,'utf8')}catch{}
   if(/^AQ-DEPLOY DONE/m.test(t))return record('updated','',cur,latest);
-  const m=/^AQ-DEPLOY FAILED (.*)$/m.exec(t);if(m){state.skip=latest;const tail=t.split('\n').filter(l=>/^(✗|↩)/.test(l)).slice(-2).join(' ');return record('failed','Stopped at "'+m[1]+'". '+tail+' The server kept its working version.',cur,latest)}}
+  const m=/^AQ-DEPLOY FAILED (.*)$/m.exec(t);if(m){state.skip=latest;const tail=t.split('\n').filter(l=>/^(✗|↩)/.test(l)).slice(-2).join(' ');const kept=m[1]!=='go live'||/^↩/m.test(t);return record('failed','Stopped at "'+m[1]+'". '+tail+(kept?' The server kept its working version.':' See System › Health.'),cur,latest)}}
  state.skip=latest;record('failed','It did not finish within 75 minutes.',cur,latest)}
 
 // the service restarts by itself (Restart=always), so ending its process is enough and needs no root

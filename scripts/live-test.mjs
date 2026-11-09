@@ -132,7 +132,7 @@ async function checkMedia(since){const {execFile}=await import('node:child_proce
  const mc=await run('bash',[path.join(here,'media-check.sh'),t]);if(!mc.ok)return {ok:false,why:'media-check: '+mc.out.split('\n').filter(l=>/✗|failed for good: [1-9]/.test(l)).join('; ').slice(0,300)};
  const ut=await run(py,['-I',path.join(here,'engine-fixes.test.py')],{env:{...process.env,ENGINE_FIXED:E}});if(!ut.ok)return {ok:false,why:'engine media tests failed: '+ut.out.split('\n').slice(-4).join(' ').slice(0,300)};
  const tx=await run(py,['-c','import sys,json;sys.path.insert(0,sys.argv[1]);from tools.transcription_tools import transcribe_audio;print(json.dumps(transcribe_audio(sys.argv[2])))',E,path.join(here,'fixtures','live-test-voice.wav')],{cwd:E});
- let j={};try{j=JSON.parse(tx.out.trim().split('\n').pop())}catch{}
+ let j={};try{j=JSON.parse(tx.out.split('\n').filter(l=>l.trim().startsWith('{')).pop())}catch{}   // stderr comes along: take the JSON line, not the last line
  return heard(j.transcript)?{ok:true,why:'media fixes in place, engine media tests pass, a voice note transcribes ("'+String(j.transcript).slice(0,60)+'")'}:{ok:false,why:'the voice note did not transcribe ('+String(j.transcript||j.error||tx.out).slice(0,120)+')'}}
 
 const CHECKS={tools:checkTools,schedules:checkSchedules,engine:checkEngine,media:checkMedia,kirimdev:checkKirimdev,agent:checkAgent};
