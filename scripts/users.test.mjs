@@ -36,6 +36,7 @@ test('a member reaches only what is shared: chat on a shared agent, not other ag
  const u=await users.login('rina','rina-pass-123');
  assert.equal(users.gate(u,'/gapi/p/shop/api/sessions','POST',Q,'shop'),null);
  assert.equal(users.gate(u,'/gapi/p/other/api/sessions','POST',Q,'other')?.status,403);
+ assert.equal(users.gate(u,'/ui/supervision','GET',Q,'shop'),null);   // the team is told when admins can review chats
  assert.equal(users.gate(u,'/gapi/p/shop/api/sessions/s-not-mine','GET',Q,'shop')?.status,403);
  await users.own('s-mine',u);assert.equal(users.gate(u,'/gapi/p/shop/api/sessions/s-mine','GET',Q,'shop'),null);
  assert.equal(users.isAdmin(u),false);assert.equal(users.can(u,'create'),false);
