@@ -13,7 +13,7 @@ const ACCT_WORD={ok:'Connected',out:'Needs sign-in',rejected:'Key rejected',cred
 function acctSources(d,oauth=new Set()){const L=d.labels||{};
  const claudeModels=(Chat.models||[]).filter(m=>m.provider===PLUGIN_ID).map(m=>m.id);
  const claude=d.accounts.map(a=>{const u=a.usage||{};const ws=[['Session (5 h)',u.session,'account'],['This week',u.week,'account'],['This week, Opus',u.opus,'model'],['This week, Sonnet',u.sonnet,'model']].filter(([,w])=>w).map(([label,w,scope])=>({label,used:w.used,resets:w.resets,scope}));
-  return {key:'claude:'+a.id,id:a.id,kind:'claude',name:a.label,sub:accountText({email:a.email})||'Claude',logo:'claude.ai',models:claudeModels,status:a.partial?'checking':a.signedIn?'ok':'out',windows:ws,
+  return {key:'claude:'+a.id,id:a.id,kind:'claude',usageNote:a.usage?'':(a.usageError||''),name:a.label,sub:accountText({email:a.email})||'Claude',logo:'claude.ai',models:claudeModels,status:a.partial?'checking':a.signedIn?'ok':'out',windows:ws,
    note:a.usage?(a.usageAt&&Date.now()-a.usageAt>10*60e3?'Last checked '+new Date(a.usageAt).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):''):a.usageError||'Its limits show after its first check.'}});
  // a key's last test (every 5 minutes on the server): refused, or no credit left
  const kc=d.keys||{};const prov=(d.providers||[]).map(p=>({key:'p:'+p.slug,kind:acctKind('p:'+p.slug,oauth),name:L['p:'+p.slug]||provLabel(p),sub:p.name,logo:provDomain(p.slug,p.name),models:p.models,status:/^(rejected|credit)$/.test(kc['p:'+p.slug]?.state)?kc['p:'+p.slug].state:'ok',keyNote:kc['p:'+p.slug]?.message||'',
