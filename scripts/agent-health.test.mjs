@@ -161,7 +161,8 @@ test('tool servers: the latest registration line, and flapping in the last hour'
  assert.deepEqual(mcpProblems('a1',mcpState(L('05:55:00',null),now)),[])});
 test('customer tools: 6 listed and 6 registered, else a problem',()=>{
  assert.equal(customerProblem('a',{listed:6,registered:6}),null);assert.match(customerProblem('a',{listed:null,registered:6}).text,/do not answer/);
- assert.match(customerProblem('a',{listed:6,registered:0}).text,/too few/);assert.match(customerProblem('a',{listed:6,registered:null}).text,/did not register/)});
+ assert.match(customerProblem('a',{listed:6,registered:0}).text,/too few/);assert.match(customerProblem('a',{listed:6,registered:null}).text,/did not register/);
+ assert.equal(customerProblem('a',{listed:6,registered:null,logged:false}),null,'a rotated log has no start in it: nothing to conclude');assert.match(customerProblem('a',{listed:6,registered:null,logged:true}).text,/did not register/)});
 test('schedules failing twice in a row; memory and load',()=>{
  assert.deepEqual(failingJobs('a',[{id:'j1',name:'Report',failure_streak:2,last_error:'boom'},{id:'j2',failure_streak:1},{id:'j3',failure_streak:5,enabled:false}]).map(x=>x.topic),['health|a|failing|j1']);
  assert.deepEqual(memProblems({used:95,max:100,load1:30,cpus:12}).map(x=>x.topic),['health|aqeelos|memory','health|aqeelos|load']);assert.deepEqual(memProblems({used:50,max:100,load1:20,cpus:12}),[])});

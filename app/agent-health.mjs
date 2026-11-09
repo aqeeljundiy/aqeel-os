@@ -177,8 +177,9 @@ print(json.dumps(out))`;
  async function checkTools(agents){const found=[],by={};for(const a of agents){const s2=mcpState(await tail(path.join(home(a),'logs','agent.log')));by[a]=s2;for(const x of mcpProblems(a,s2))found.push({...x,agent:a,kind:'tools'})}
   found.push(...ownServerProblems(by));await keep('tools',found)}
  async function checkCustomer(){if(!customerTools)return;const found=[];for(const a of await kirimdevAgents().catch(()=>[])){
-  const listed=await customerTools(a).catch(()=>null),registered=mcpState(await tail(path.join(home(a),'logs','agent.log'))).customer;
-  const pr=customerProblem(a,{listed,registered});if(pr)found.push({...pr,agent:a,kind:'customer'})}await keep('customer',found)}
+  const listed=await customerTools(a).catch(()=>null),log=f=>tail(path.join(home(a),'logs',f)),now=mcpState(await log('agent.log')),before=now.customer==null?mcpState(await log('agent.log.1')):now,registered=now.customer??before.customer;
+  // the line is written once, at engine start: a rotated log has lost it, which says nothing about the tools (9 Nov 2026)
+  const pr=customerProblem(a,{listed,registered,logged:now.at!=null});if(pr)found.push({...pr,agent:a,kind:'customer'})}await keep('customer',found)}
  async function checkFailing(agents){const found=[];for(const a of agents){let jobs=[];try{const d=JSON.parse(await readFile(path.join(home(a),'cron','jobs.json'),'utf8'));jobs=Array.isArray(d)?d:d.jobs||[]}catch{}
   for(const x of failingJobs(a,jobs))found.push({...x,agent:a,kind:'stopped'})}await keep('failing',found)}
  async function checkMemory(){await keep('memory',memProblems(await memInfo()).map(x=>({...x,kind:'memory'})))}
@@ -258,10 +259,10 @@ export function mcpProblems(agent,st){const out=[];
  return out}
 // 3. the customer tools of an agent with a Kirimdev line: the local tools/list answers with at least `want` tools, and the
 // engine registered the same server
-export function customerProblem(agent,{listed,registered},want=6){
+export function customerProblem(agent,{listed,registered,logged},want=6){
  if(listed==null||listed<want)return {topic:'health|'+agent+'|customer-tools',text:'Customer tools do not answer',detail:'tools/list on /mcp/customer/'+agent+' gave '+(listed==null?'no answer':listed+' tool(s)')+', '+want+' expected. Customer chats run with no tools.'};
  if(registered!=null&&registered<want)return {topic:'health|'+agent+'|customer-tools',text:'The engine has too few customer tools',detail:'agent.log: aqeelos-customer registered '+registered+' tool(s), '+want+' expected.'};
- if(registered==null)return {topic:'health|'+agent+'|customer-tools',text:'The engine did not register the customer tools',detail:'No "aqeelos-customer … registered" line in its agent.log. Customer chats run with no tools.'};
+ if(registered==null&&logged!==false)return {topic:'health|'+agent+'|customer-tools',text:'The engine did not register the customer tools',detail:'No "aqeelos-customer … registered" line in its agent.log. Customer chats run with no tools.'};
  return null}
 // 4. a schedule failing twice or more in a row (jobs.json failure_streak; "late" is scheduleProblems)
 export function failingJobs(agent,jobs=[]){return jobs.filter(j=>j.enabled!==false&&Number(j.failure_streak)>=2).map(j=>({topic:'health|'+agent+'|failing|'+j.id,text:'A schedule keeps failing: '+(j.name||String(j.prompt||'').slice(0,60)||j.id),detail:'Failed '+j.failure_streak+' times in a row. Last error: '+String(j.last_error||j.last_failure||'not recorded').slice(0,300)}))}
