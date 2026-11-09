@@ -1623,6 +1623,8 @@ html.in-panel .composer-wrap{padding:0 10px 12px}
 .skel.loading{display:grid;place-items:center;min-height:180px;background:none!important;animation:ringIn .25s .2s var(--ease) both!important}
 div.skel:not(.loading){background:none!important;animation:none!important;display:grid;place-items:center;border:0!important;box-shadow:none!important}
 div.skel:not(.loading)::after{content:'';width:26px;height:26px;border-radius:50%;background:conic-gradient(from .2turn,rgba(1,88,203,0) 0turn,var(--blue) .8turn,transparent .8turn);-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 3.5px),#000 calc(100% - 3px));mask:radial-gradient(farthest-side,transparent calc(100% - 3.5px),#000 calc(100% - 3px));animation:spin .9s linear infinite,ringIn .25s .2s var(--ease) both}
+/* several placeholders stacked (a list loading) are one spinner, not one per row */
+div.skel:not(.loading)+div.skel:not(.loading){display:none}
 @keyframes ringIn{from{opacity:0}to{opacity:1}}
 @media (prefers-reduced-motion:reduce){.spinner,.ring,div.skel:not(.loading)::after{animation-duration:1.6s}}
 
