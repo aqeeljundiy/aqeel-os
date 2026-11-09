@@ -11,6 +11,7 @@ const UNSAFE_TOOLSETS=['terminal','file','code_execution','computer_use'];
 
 async function loadMe(){
  try{S.me=await UI('/ui/me')}catch{S.me={admin:true,role:'owner',name:'',agents:{}}}
+ try{S.supervised=!!(await UI('/ui/supervision')).on}catch{S.supervised=false}
  try{S.defaults=await UI('/ui/defaults')}catch{S.defaults={}}
  if(S.me?.admin!==false)UI('/ui/accounts/allow').then(r=>{S.acctAllow=r.allow||[]}).catch(()=>{});
  await Prefs.load(S.me?.id||S.me?.name||'owner');

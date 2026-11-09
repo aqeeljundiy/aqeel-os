@@ -99,6 +99,8 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createAgentVersions,VERSION_TOOLS} from './agent-versions.mjs';   // self-repair kit (workstream E)
 import {createAgentLive} from './agent-live.mjs';
+import {createTeamView} from './team-view.mjs';
+import {settings as installSettings} from './install.mjs';
 import {sysTz,localParts,zoneName} from './tz.mjs';
 import {engineKeys,ensureEngineKeys,uiSecret,PUBLIC_URL_REF,PUBLIC_HOST_REF,urlRef,hostSetting,installTz,applyTz,validTz,createInstallRoutes} from './install-routes.mjs';   // the box's time zone (7 Nov 2026: was Asia/Jakarta in code)   // live context each message + traceback guard (7 Nov 2026)
 import {createAgentCare} from './agent-care.mjs';
@@ -810,7 +812,7 @@ const backups=createBackups({DATA,HOME:homedir(),HERMES_HOME,tz:()=>tzNow,notify
  startEngine:async()=>{dashStopped=false;gwStopped=false;await restartGateway('agents restored from a backup',{wait:false,bridges:true,restore:true})}});restoreBusy=()=>backups.busy();holdWrites(()=>backups.writesHeld());if(LIVE_APP)backups.schedule();
 const live=createLive({DATA,DOMAIN:hostSetting('liveDomain'),SECRET,PUBLIC_URL,auto:LIVE_APP});
 // This install's own settings (System › Settings): Your address, time zone, hosts, agent users, Claude sign-in (install-routes.mjs)
-const install=createInstallRoutes({send,readBody,isAdmin:u=>users.isAdmin(u),listAgents:()=>listAgents(),readConfig,setKey,hermes:hcmd,engineProbe:async()=>{const d=await fetch(DASH.origin+'/api/status',{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(5000)}).catch(()=>null);if(!d)return 'down';if(d.status===401||d.status===403)return 'auth';const g=await fetch(GATE.origin+'/api/model/options',{headers:{authorization:'Bearer '+API_KEY},signal:AbortSignal.timeout(5000)}).catch(()=>null);return !g?'down':g.status===401||g.status===403?'auth':'ok'},claudeOn:async()=>(pick(await readConfig('default')||{},'plugins.enabled')||[]).includes('claude-subscription-directsdk-experimental'),onTz:z=>{tzNow=z;SR_TZ=z}});
+const install=createInstallRoutes({recentLookups:n=>teamView.recent(n),send,readBody,isAdmin:u=>users.isAdmin(u),listAgents:()=>listAgents(),readConfig,setKey,hermes:hcmd,engineProbe:async()=>{const d=await fetch(DASH.origin+'/api/status',{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(5000)}).catch(()=>null);if(!d)return 'down';if(d.status===401||d.status===403)return 'auth';const g=await fetch(GATE.origin+'/api/model/options',{headers:{authorization:'Bearer '+API_KEY},signal:AbortSignal.timeout(5000)}).catch(()=>null);return !g?'down':g.status===401||g.status===403?'auth':'ok'},claudeOn:async()=>(pick(await readConfig('default')||{},'plugins.enabled')||[]).includes('claude-subscription-directsdk-experimental'),onTz:z=>{tzNow=z;SR_TZ=z}});
 if(LIVE_APP){setTimeout(()=>install.tick(),120000).unref();setInterval(()=>install.tick(),15*60e3).unref()}
 const homeOfAgent=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
 const gconnect=createGoogleConnect({HERMES_HOME,DATA,PUBLIC_URL:()=>String(PUBLIC_URL),homeOf:homeOfAgent,log:m=>console.log(m)});
@@ -1559,6 +1561,7 @@ async function customerSmoke(){if(!LIVE_APP)return;const F=path.join(DATA,'custo
  const detail=!reads.length?'The customer run called no read_file ('+(calls.map(c=>c.name||c.error).join(', ')||'no tool calls')+').':'It read '+reads.map(c=>c.path).join(', ')+' but its answer did not use that text: '+out.trim().slice(0,200);
  await health.problem(a,'customer','The customer test after the update failed',{topic:'smoke',fix:detail}).catch(()=>{});return done({ok:false,detail})}
 if(LIVE_APP)setTimeout(()=>customerSmoke().catch(e=>console.warn('customer smoke test',e.message)),5*60e3).unref();
+const teamView=createTeamView({HERMES_HOME,DATA,python:enginePython,users,policy:()=>issues.policy(),agents:()=>listAllProfiles(),isOn:async()=>installSettings().supervision===true,MAIN:agentAccess.MAIN,log:m=>console.log(m)});
 const escalations=createEscalations({HERMES_HOME,python:enginePython,policy:()=>issues.policy()});
 // the chat a tool call came from (the agent's newest person-chat): who asked, and where to answer
 // the chat the waiting call (tool) was made in, and the person whose message started that turn: in a group topic every
@@ -2266,6 +2269,9 @@ const server=createServer(async(req,res)=>{
    if(req.method!=='POST')return send(res,405,'POST only');let msg={};try{msg=JSON.parse(await readBody(req,262144))}catch{return send(res,400,{error:'bad json'})}
    {const w=msg.method==='tools/call'&&smokeWatch.get(String(msg.params?.arguments?.run||''));if(w)w.push({name:String(msg.params?.name||''),path:String(msg.params?.arguments?.path||'')})}
    const r=await customerTools.mcp(cm[1],String(req.headers['x-aqeelos-run']||''),msg);return r.status===202?send(res,202,''):send(res,r.status,r.body)}}
+  if(p==='/agent-live/team-view'){if(req.method!=='POST')return send(res,405,{error:'POST only'});let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
+   if(!await agentLive.keyOk(b.key))return send(res,403,{error:'bad key'});if(String(b.agent||'')!==agentAccess.MAIN)return send(res,403,{error:'Only the main agent has this.'});
+   try{return send(res,200,await teamView.call({session:String(b.session||'').slice(0,120),platform:String(b.platform||'').slice(0,40),uid:String(b.uid||'').slice(0,120)},b.args&&typeof b.args==='object'?b.args:{}))}catch(e){return send(res,200,{error:e.message})}}
   if(p==='/agent-live/context'||p==='/agent-live/held'){if(req.method!=='POST')return send(res,405,{error:'POST only'});let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
    if(!await agentLive.keyOk(b.key))return send(res,403,{error:'bad key'});const ag=String(b.agent||'');if(!/^[a-z0-9][a-z0-9_-]{0,80}$/.test(ag)||!(await agentLive.homes()).includes(ag))return send(res,404,{error:'no such agent'});
    if(p==='/agent-live/held')return send(res,200,{ok:true,...await agentLive.hold(ag,{error:String(b.error||'').slice(0,8000),platform:String(b.platform||'').slice(0,40),session:String(b.session||'').slice(0,120)})});
@@ -2665,6 +2671,7 @@ const server=createServer(async(req,res)=>{
    // the bell's list (news.mjs): the same on every device, read and cleared per person; the app adds a person's own news
    if(p==='/ui/news'&&req.method==='GET')return send(res,200,{items:await news.list(u,users.isAdmin(u)),needs:await needsFor(u).catch(()=>[])});
    // Activity (System › Activity): the quiet log, no badge
+   if(p==='/ui/supervision'&&req.method==='GET')return send(res,200,{on:installSettings().supervision===true});
    if(p==='/ui/activity'&&req.method==='GET')return send(res,200,{items:await news.activity(u,users.isAdmin(u))});
    if(p==='/ui/notify-settings'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});
     if(req.method==='GET')return send(res,200,await notifySettings());

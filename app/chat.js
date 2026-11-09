@@ -118,7 +118,7 @@ const Chat={
   <div id="queueList"></div><div id="toolChips" class="tool-chips">${this.toolChipsHtml()}</div><div id="attachList" style="display:flex;gap:6px;flex-wrap:wrap"></div>
   <textarea id="msg" rows="1" placeholder="${esc(this.placeholder())}" aria-label="Message"></textarea>
   <div class="composer-bar" id="cbar">${this.barHtml()}</div></div>
-  <p class="hint-line">${S.me&&!S.me.admin?`<span class="agent-name">${esc(AGENT())}</span> can make mistakes. Check anything important.`:`<span class="agent-name">${esc(AGENT())}</span> runs on your AI box and can use its terminal, files and the web.`}</p></div></div>`},
+  <p class="hint-line">${S.me&&!S.me.admin?`<span class="agent-name">${esc(AGENT())}</span> can make mistakes. Check anything important.`:`<span class="agent-name">${esc(AGENT())}</span> runs on your AI box and can use its terminal, files and the web.`}${S.supervised?' Admins can review chats here.':''}</p></div></div>`},
  // How much of the current account's limit is used (worst of its session/week windows), next to the model.
  meterHtml(){const prov=this.cur()?.provider||this.defProv;const ws=(this.usage||{})[prov];if(!ws)return '';const acct=ws.filter(w=>w.scope!=='model');const u=Math.round(Math.max(0,...(acct.length?acct:ws).map(w=>Number(w.used_percent)||0)));
   const tip=ws.map(w=>`${w.label}: ${Math.round(w.used_percent||0)}% used${w.resets_at?' · resets '+when(w.resets_at):''}`).join('\n');const c=u>=90?'bad':u>=70?'warn':'ok';const R=7,L=2*Math.PI*R;

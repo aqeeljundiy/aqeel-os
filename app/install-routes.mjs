@@ -16,7 +16,7 @@ const run=(cmd,args,opt={})=>new Promise(res=>{let out='';let p;try{p=spawn(cmd,
 
 // listAgents: every agent; setKey(agent,key,value) through the engine's config queue; onTz(zone) after a change;
 // hermes(agent,args) the engine CLI (plugins enable); isAdmin(u)
-export function createInstallRoutes({send,readBody,isAdmin,listAgents=async()=>[],readConfig=async()=>null,setKey,wait=4000,hermes,claudeOn=async()=>false,engineProbe=async()=>'ok',onTz=()=>{},log=m=>console.log(m),fetchImpl=fetch,runImpl=run,
+export function createInstallRoutes({recentLookups=async()=>[],send,readBody,isAdmin,listAgents=async()=>[],readConfig=async()=>null,setKey,wait=4000,hermes,claudeOn=async()=>false,engineProbe=async()=>'ok',onTz=()=>{},log=m=>console.log(m),fetchImpl=fetch,runImpl=run,
  claudeBin=process.env.CLAUDE_BIN||path.join(homedir(),'.local','bin','claude'),hermesHome=(process.env.HERMES_HOME||path.join(homedir(),'.hermes')).replace(/^~(?=\/|$)/,homedir())}){
  let claudeJob={state:'idle',steps:[],error:''};
  let tzJob=null;
@@ -31,6 +31,7 @@ export function createInstallRoutes({send,readBody,isAdmin,listAgents=async()=>[
   out.live={on:I.isLive(),from:I.liveFrom()};
   let au={};try{au=JSON.parse(readFileSync(path.join(I.DATA_DIR,'auto-update.json'),'utf8'))}catch{}
   out.autoUpdate={on:s.autoUpdate!==false,last:au.last||null};
+  if(admin)out.supervision={on:s.supervision===true,recent:await recentLookups(10).catch(()=>[])};
   // ok | auth (the engine refuses aqeelOS's keys: it has not restarted since they were written) | down
   out.engine={state:await engineProbe().catch(()=>'down')};
   out.hosts=Object.fromEntries(Object.keys(I.HOSTS).map(k=>[k,{value:I.hostSetting(k),from:I.hostFrom(k),env:I.HOSTS[k][0]}]));
@@ -82,6 +83,7 @@ export function createInstallRoutes({send,readBody,isAdmin,listAgents=async()=>[
    const job=setZone(z);const n=(await listAgents().catch(()=>[])).length;
    // a quick engine answers inside the wait; otherwise the agents follow within a minute or two
    const r=await Promise.race([job,new Promise(x=>setTimeout(x,wait,null))]);return send(res,200,{ok:true,zone:z,agents:n,failed:r?.failed||[],pending:!r}),true}
+  if(p==='/ui/install/supervision'&&M==='POST'){I.saveSettings({supervision:!!b.on});return send(res,200,{on:!!b.on}),true}
   if(p==='/ui/install/auto-update'&&M==='POST'){I.saveSettings({autoUpdate:!!b.on});return send(res,200,{on:!!b.on}),true}
   if(p==='/ui/install/hosts'&&M==='POST'){const patch={};
    try{for(const k of Object.keys(I.HOSTS))if(k in b){if(I.hostFrom(k)==='env')throw Error(I.HOSTS[k][0]+' is set in this install’s environment, so it can’t be changed here.');patch[k]=I.cleanHost(b[k])}}catch(e){return send(res,400,{error:e.message}),true}

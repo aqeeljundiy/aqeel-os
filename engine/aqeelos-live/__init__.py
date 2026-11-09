@@ -299,7 +299,35 @@ def _context(session_id="", platform="", sender_id="", is_first_turn=False, **_)
         return None
 
 
+TEAM_VIEW_SCHEMA = {
+    "name": "team_view",
+    "description": ("For admins supervising how the team uses aqeelOS. overview: per person, chats and messages. list: chats, "
+                    "filtered by person, agent, days or words. read: one chat's messages (give chat and agent from list). where: "
+                    "each person's folder and each agent's home and workspace. Covers every agent, private ones too. aqeelOS checks "
+                    "who is asking and logs every lookup."),
+    "parameters": {"type": "object", "properties": {
+        "action": {"type": "string", "enum": ["overview", "list", "read", "where"]},
+        "person": {"type": "string", "description": "Part of a person's name"},
+        "agent": {"type": "string"}, "chat": {"type": "string", "description": "Chat id from list"},
+        "days": {"type": "integer", "description": "How far back, default 7"}, "query": {"type": "string", "description": "Words the chat must contain"},
+        "limit": {"type": "integer"}, "offset": {"type": "integer"},
+        "include_automated": {"type": "boolean", "description": "Also schedules and background runs"}}, "required": ["action"]},
+}
+
+
+def _team_view(args=None, **_):
+    # who is asking comes from the engine's own session, never from the model's arguments
+    try:
+        from gateway.session_context import get_session_env
+        ctx = {k: str(get_session_env(v) or "") for k, v in (("session", "HERMES_SESSION_ID"), ("platform", "HERMES_SESSION_PLATFORM"), ("uid", "HERMES_SESSION_USER_ID"))}
+        return json.dumps(_post("/team-view", {**ctx, "args": args or {}}, 75))
+    except Exception as e:
+        return json.dumps({"error": "Team view did not answer: " + str(e)[:160]})
+
+
 def register(ctx) -> None:
+    if _agent_and_root()[0] == os.environ.get("AQEELOS_MAIN_AGENT", "default"):
+        ctx.register_tool("team_view", "aqeelos-team-view", TEAM_VIEW_SCHEMA, _team_view)
     ctx.register_hook("pre_llm_call", _context)
     ctx.register_hook("transform_llm_output", _transform)
     ctx.register_hook("pre_gateway_dispatch", _dispatch)

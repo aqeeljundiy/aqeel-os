@@ -2394,6 +2394,7 @@ button.acct-more{font:inherit;cursor:pointer;width:100%;background:var(--surface
 .km-lo{margin-top:8px}
 
 /* This install (install-page.js) */
+.inst-lookups{margin-top:8px;font-size:12px;line-height:1.7;color:var(--muted,#888)}
 .inst-val{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;min-width:0}
 .inst-val .mono{font-family:var(--mono);font-size:12.5px;overflow-wrap:anywhere;min-width:0}
 .inst-check{display:flex;align-items:flex-start;gap:8px;margin:10px 0 0;font-size:13px;line-height:1.45;min-height:20px;animation:fade .18s ease}
