@@ -120,8 +120,8 @@ export function createLive({DATA,DOMAIN='app.localhost',SECRET,PUBLIC_URL,AUTH_U
   if(r.status!==404)return true;return !/404 page not found/i.test(await r.text().catch(()=>''))}
  async function nameCheck(u,raw){await load();const slug=clean(raw);if(slug.length<2)return {ok:false,slug,reason:'At least 2 letters.'};
   if(RESERVED.has(slug))return {ok:false,slug,reason:slug+'.'+DOMAIN+' is kept for aqeelOS. Choose another name.'};
-  const a=db.apps.find(x=>x.slug===slug);if(a)return a.owner===u.id?{ok:true,slug,mine:true}:{ok:false,slug,reason:slug+'.'+DOMAIN+' belongs to '+(a.ownerName||'someone else')+'.'};
-  if(await taken(slug))return {ok:false,slug,reason:slug+'.'+DOMAIN+' is already in use. Choose another name.'};return {ok:true,slug}}
+  const a=db.apps.find(x=>x.slug===slug);if(a)return a.owner===u.id?{ok:true,slug,mine:true,domain:DOMAIN}:{ok:false,slug,reason:slug+'.'+DOMAIN+' belongs to '+(a.ownerName||'someone else')+'.'};
+  if(await taken(slug))return {ok:false,slug,reason:slug+'.'+DOMAIN+' is already in use. Choose another name.'};return {ok:true,slug,domain:DOMAIN}}
  // publish (or update) one app from a zip of its project
  // can a new address on this domain open at all? A certificate that does not cover it (Cloudflare covers one level: x.example.com, not x.app.example.com) or no wildcard DNS fails every app
  let domainOk=0;async function domainProblem(){if(/localhost$/.test(DOMAIN)||Date.now()-domainOk<3600e3||process.env.NODE_TEST_CONTEXT)return '';

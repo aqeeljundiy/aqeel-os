@@ -1702,3 +1702,24 @@ dialog.team-side:not([open]){display:none}
 .pub-steps li.fail i{border-color:var(--bad,#c62828);background:var(--bad,#c62828)}.pub-steps li.fail i::after{content:'!';position:absolute;inset:0;display:grid;place-items:center;color:#fff;font-size:12px;font-weight:700}
 .pub-steps li.fail small{color:var(--bad,#c62828)}
 @keyframes pubPop{from{transform:scale(.5)}to{transform:scale(1)}}
+
+/* publish dialog: left-aligned choices, one address field, a soft entrance */
+@keyframes pub-in{from{opacity:0;transform:translateY(8px) scale(.985)}to{opacity:1;transform:none}}
+.publish-dialog{width:min(480px,calc(100vw - 32px))}.publish-dialog[open]{animation:pub-in .24s cubic-bezier(.2,.8,.2,1)}
+.publish-dialog form{gap:16px}.publish-dialog h2{margin:0;font-size:20px;letter-spacing:-.01em}.publish-dialog .kit-message{margin:-10px 0 0;font-size:13px;line-height:1.5;color:var(--muted)}
+.publish-dialog .pub-fields{gap:16px}.publish-dialog .pub-l,.publish-dialog .pub-vis legend{font-size:13px;font-weight:600;color:var(--ink-2)}
+.publish-dialog .pub-l input.pub-name{min-height:42px;border-radius:12px}
+.publish-dialog .pub-addr{display:flex;align-items:center;height:42px;padding:0 12px;border:1px solid var(--border);border-radius:12px;background:var(--surface);transition:border-color .2s ease,box-shadow .2s ease}
+.publish-dialog .pub-addr:focus-within{border-color:var(--blue-2);box-shadow:0 0 0 3px var(--blue-soft)}
+.publish-dialog .pub-addr input{flex:1 1 40px;width:auto;min-width:40px;height:100%;min-height:0;padding:0;border:0;border-radius:0;background:none;outline:0;box-shadow:none}
+.publish-dialog .pub-domain{flex:none;font-weight:500;color:var(--muted)}
+.publish-dialog .pub-vis{gap:8px}.publish-dialog .pub-vis label,.publish-dialog .pub-db{display:grid;grid-template-columns:18px minmax(0,1fr);column-gap:12px;align-items:start;justify-items:start;text-align:left;padding:12px 14px;border:1px solid var(--border);border-radius:14px;cursor:pointer;transition:border-color .2s ease,background .2s ease}
+.publish-dialog .pub-vis label:hover,.publish-dialog .pub-db:hover{border-color:var(--blue-2)}
+.publish-dialog .pub-vis label:has(input:checked),.publish-dialog .pub-db:has(input:checked){border-color:var(--blue);background:var(--blue-soft)}
+.publish-dialog .pub-vis input,.publish-dialog .pub-db input{appearance:none;-webkit-appearance:none;display:block;width:18px;height:18px;min-width:18px;min-height:18px;margin:1px 0 0;padding:0;border:1.5px solid var(--muted);border-radius:50%;background:var(--surface);cursor:pointer;transition:border-color .18s ease,background .18s ease,box-shadow .18s ease}
+.publish-dialog .pub-vis input:checked{border-color:var(--blue);background:var(--blue);box-shadow:inset 0 0 0 3.5px var(--surface)}
+.publish-dialog .pub-db input{border-radius:5px}.publish-dialog .pub-db input:checked{border-color:var(--blue);background:var(--blue) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.2l2.4 2.4 4.6-5' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/12px no-repeat}
+.publish-dialog .pub-vis span,.publish-dialog .pub-db span{display:block;min-width:0}.publish-dialog .pub-vis b,.publish-dialog .pub-db b{font-size:14px;font-weight:600}.publish-dialog .pub-vis small,.publish-dialog .pub-db small{font-size:12.5px;line-height:1.45;margin-top:2px}
+.publish-dialog .kit-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:2px}.publish-dialog .kit-actions button{min-width:96px;min-height:40px}
+@media (prefers-reduced-motion:reduce){.publish-dialog[open]{animation:none}}
+.publish-dialog .pub-l,.publish-dialog .pub-vis label,.publish-dialog .pub-db{margin:0}

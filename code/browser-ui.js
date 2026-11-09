@@ -89,7 +89,8 @@ export function createBrowserUI(ctx){
  // in the aqeelOS app the page is a real browser view the app lays exactly over this area
  if(window.cbaDesktop){stage.classList.add('native');const over=()=>[...document.querySelectorAll('dialog[open],.menu,.aq-menu,.dd-floating,.kit-menu,.palette:not([hidden]),.drawer,[role=menu],[role=listbox]:not(.bf-list)')].filter(e=>e.offsetWidth).map(e=>{const r=e.tagName==='DIALOG'?{left:0,top:0,width:innerWidth,height:innerHeight}:e.getBoundingClientRect();return {x:r.left,y:r.top,width:r.width,height:r.height}});
   const report=()=>{const s=stage.getBoundingClientRect(),r=screenRect?{left:s.left+screenRect.x,top:s.top+screenRect.y,width:screenRect.width,height:screenRect.height}:s;window.cbaDesktop.stage({x:r.left,y:r.top,width:r.width,height:r.height,radius:screenRect?.radius||0,visible:ctx.visible()&&status.state==='running'&&r.width>20,overlays:over()})};
-  new ResizeObserver(report).observe(stage);addEventListener('resize',report);setInterval(report,400);ctx.nativeReport=report}
+  new ResizeObserver(report).observe(stage);addEventListener('resize',report);setInterval(report,400);ctx.nativeReport=report;
+  const gone=()=>window.cbaDesktop.stage({x:0,y:0,width:0,height:0,visible:false,overlays:[]});addEventListener('pagehide',gone);addEventListener('beforeunload',gone)}
  let askedFor='';
  function paintAsk(){const g=status.guard||{},pm=g.perm,fl=g.file;
   if(!g.ask&&(pm||fl)){const key=pm?'perm:'+pm.origin+pm.what:'file:'+fl.origin;askBar.hidden=false;if(askedFor===key)return;askedFor=key;const host=(()=>{try{return new URL((pm||fl).origin).host}catch{return 'This page'}})();
