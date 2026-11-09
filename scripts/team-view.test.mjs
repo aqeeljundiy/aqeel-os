@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {createTeamView,mask} from '../app/team-view.mjs';
 
-const SESS={web_admin:{source:'api_server'},web_member:{source:'api_server'},web_unknown:{source:'api_server'},tg_owner:{source:'telegram',uid:'111'},tg_other:{source:'telegram',uid:'222'},job:{source:'cron'}};
+const SESS={web_admin:{source:'api_server'},web_member:{source:'api_server'},web_unknown:{source:'api_server'},tg_owner:{source:'telegram',uid:'111',chat_type:'dm'},tg_other:{source:'telegram',uid:'222',chat_type:'dm'},tg_group:{source:'telegram',uid:'111',chat_type:'group'},job:{source:'cron'}};
 const OWNERS={web_admin:'a1',web_member:'m1',admin_chat:'a1',member_chat:'m1'};
 const PEOPLE={owner:{id:'owner',name:'Owner',admin:true},a1:{id:'a1',name:'Ada',admin:true},m1:{id:'m1',name:'Sam',admin:false}};
 const users={sessionOwner:id=>OWNERS[id]||null,byId:id=>PEOPLE[id],isAdmin:u=>!!u.admin,people:()=>Object.values(PEOPLE),home:p=>'/people/'+p.id};
@@ -19,10 +19,11 @@ async function make({on=true,read=[{role:'user',text:'please use sk-abcdefghijkl
  return {T,DATA,calls}}
 const asks=s=>({session:s,platform:'',uid:''});
 
+test('a group chat the owner started is refused: the session only remembers who spoke first',async()=>{const {T}=await make();assert.match((await T.call(asks('tg_group'),{})).error,/group/)});
 test('off by default for everyone, even an admin',async()=>{const {T}=await make({on:false});assert.match((await T.call(asks('web_admin'),{})).error,/off/)});
 test('an admin in the app and the owner on a channel may look',async()=>{const {T}=await make();assert.ok((await T.call(asks('web_admin'),{})).people);assert.ok((await T.call(asks('tg_owner'),{})).people)});
 test('a member, another sender on a channel, a schedule and an untracked chat may not',async()=>{const {T}=await make();
- for(const s of ['web_member','tg_other','job','web_unknown','nope',''])assert.ok((await T.call(asks(s),{action:'list'})).error,s)});
+ for(const s of ['web_member','tg_other','tg_group','job','web_unknown','nope',''])assert.ok((await T.call(asks(s),{action:'list'})).error,s)});
 test('what the model passes cannot change who is asking',async()=>{const {T}=await make();assert.ok((await T.call(asks('web_member'),{action:'overview',session:'web_admin',who:'Owner',uid:'111'})).error)});
 test('a channel sender claiming the owner\'s id in the call is not believed: the session decides',async()=>{const {T}=await make();assert.ok((await T.call({session:'tg_other',platform:'telegram',uid:'111'},{})).error)});
 test('overview groups by person, private agents included, and a compressed chat keeps its person',async()=>{const {T}=await make();const r=await T.call(asks('web_admin'),{});const s=r.people.find(p=>p.person==='Sam');assert.equal(s.chats,2);assert.equal(s.messages,15);assert.deepEqual(s.agents,{default:1,priv:1});assert.ok(r.people.find(p=>p.person==='Rae'))});

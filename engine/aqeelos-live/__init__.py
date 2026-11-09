@@ -315,12 +315,11 @@ TEAM_VIEW_SCHEMA = {
 }
 
 
-def _team_view(args=None, **_):
-    # who is asking comes from the engine's own session, never from the model's arguments
+def _team_view(args=None, session_id="", **_):
+    # who is asking comes from the session the engine hands this call, never from the model's arguments or the process
+    # environment (which another chat running at the same moment may have just set)
     try:
-        from gateway.session_context import get_session_env
-        ctx = {k: str(get_session_env(v) or "") for k, v in (("session", "HERMES_SESSION_ID"), ("platform", "HERMES_SESSION_PLATFORM"), ("uid", "HERMES_SESSION_USER_ID"))}
-        return json.dumps(_post("/team-view", {**ctx, "args": args or {}}, 75))
+        return json.dumps(_post("/team-view", {"session": str(session_id or ""), "args": args or {}}, 75))
     except Exception as e:
         return json.dumps({"error": "Team view did not answer: " + str(e)[:160]})
 

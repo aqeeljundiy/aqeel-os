@@ -2,8 +2,8 @@
 // too). Off until an admin switches it on (System › Settings › This install); the team is told in the chat page while
 // it is on. The tool (team_view, engine plugin aqeelos-live) exists on the main agent only, and each call is checked
 // here against who is really talking to the main agent, taken from the engine's own session, never from the model:
-//   a chat in the app counts when its signed-in owner is an admin; a channel (Telegram, Slack…) when the sender is the
-//   owner in the team policy. Anything else (schedules, untracked chats, team members) is refused.
+//   a chat in the app counts when its signed-in owner is an admin; a channel (Telegram, Slack…) only in a private chat
+//   with the owner in the team policy (a group session remembers who spoke first, and everyone there would read the answer). Anything else (schedules, untracked chats, team members) is refused.
 // Every lookup is written to DATA/team-view-log.jsonl and listed for admins. Key values are masked in what comes back.
 import {appendFile,readFile,mkdir} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
@@ -28,9 +28,9 @@ def db(p): return sqlite3.connect('file:'+p+'?mode=ro&immutable=0',uri=True,time
 if a['op']=='chain':
     c=db(a['db']);i=a['id'];n=0
     while i and n<30:
-        r=c.execute('select id,parent_session_id,source,user_id,origin_json from sessions where id=?',(i,)).fetchone()
+        r=c.execute('select id,parent_session_id,source,user_id,origin_json,chat_type from sessions where id=?',(i,)).fetchone()
         if not r: break
-        out.append({'id':r[0],'source':r[2],'uid':r[3],'origin':r[4]});i=r[1];n+=1
+        out.append({'id':r[0],'source':r[2],'uid':r[3],'origin':r[4],'chat_type':r[5]});i=r[1];n+=1
 elif a['op']=='list':
     for d in a['dbs']:
         try: c=db(d['path'])
@@ -60,12 +60,13 @@ export function createTeamView({HERMES_HOME,DATA,python,users,policy,agents,isOn
  const nameOfId=id=>id==='owner'?(users.byId('owner')?.name||'Owner'):(users.byId(id)?.name||id);
 
  // who is really asking: only the engine's session decides. Returns {ok,who} or {ok:false,why}
- async function asker({session,platform,uid}){
+ async function asker({session}){
   if(!session)return {ok:false,why:'This run has no person behind it.'};
   const chain=await py({op:'chain',db:dbOf(MAIN),id:session}).catch(()=>[]);if(!chain.length)return {ok:false,why:'This chat is not one aqeelOS knows.'};
-  const source=chain[0].source||platform||'';if(AUTOMATED.includes(source))return {ok:false,why:'Schedules and background runs cannot look at the team\'s chats.'};
+  const source=chain[0].source||'';if(AUTOMATED.includes(source))return {ok:false,why:'Schedules and background runs cannot look at the team\'s chats.'};
   if(WEB.has(source)){for(const c of chain){const id=users.sessionOwner(c.id);if(!id)continue;const u=users.byId(id);return u&&users.isAdmin(u)?{ok:true,who:u.name||id,id}:{ok:false,why:'Only admins can look at the team\'s chats.'}}return {ok:false,why:'This chat has no signed-in person, so nobody can be checked. Ask from the app.'}}
-  const p=personOf(await policy().catch(()=>null),source,chain[0].uid||uid);if(p?.owner)return {ok:true,who:p.name||'Owner',id:'owner'};
+  if(chain[0].chat_type!=='dm')return {ok:false,why:'Ask in the app or in a private chat with the main agent: an answer here would be read by everyone in this group.'};
+  const p=personOf(await policy().catch(()=>null),source,chain[0].uid);if(p?.owner)return {ok:true,who:p.name||'Owner',id:'owner'};
   return {ok:false,why:'Only an admin can do this. On this channel only the owner is known; other admins can ask from the chat in the app.'}}
 
  const personFor=(row,byId)=>{let r=row,n=0;while(r&&n++<30){const id=users.sessionOwner(r.id);if(id)return nameOfId(id);r=r.parent?byId.get(r.parent):null}
