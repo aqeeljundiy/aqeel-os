@@ -1,3 +1,4 @@
+import {readFileSync} from 'node:fs';
 // The install's own settings in the app (System › Settings › This install), so nothing needs an env file:
 // Your address (checked against this very install), the time zone, the Code and app hosts, whether this copy is live,
 // the per-agent Linux users and the Claude sign-in (Models). The values themselves live in install.mjs.
@@ -28,6 +29,8 @@ export function createInstallRoutes({send,readBody,isAdmin,listAgents=async()=>[
   // only the live copy asks: test copies (deploy checks) must never get a dialog over the pages they check
   out.address.ask=from==='default'&&!s.addressAsked&&I.isLive();
   out.live={on:I.isLive(),from:I.liveFrom()};
+  let au={};try{au=JSON.parse(readFileSync(path.join(I.DATA_DIR,'auto-update.json'),'utf8'))}catch{}
+  out.autoUpdate={on:s.autoUpdate!==false,last:au.last||null};
   // ok | auth (the engine refuses aqeelOS's keys: it has not restarted since they were written) | down
   out.engine={state:await engineProbe().catch(()=>'down')};
   out.hosts=Object.fromEntries(Object.keys(I.HOSTS).map(k=>[k,{value:I.hostSetting(k),from:I.hostFrom(k),env:I.HOSTS[k][0]}]));
@@ -79,6 +82,7 @@ export function createInstallRoutes({send,readBody,isAdmin,listAgents=async()=>[
    const job=setZone(z);const n=(await listAgents().catch(()=>[])).length;
    // a quick engine answers inside the wait; otherwise the agents follow within a minute or two
    const r=await Promise.race([job,new Promise(x=>setTimeout(x,wait,null))]);return send(res,200,{ok:true,zone:z,agents:n,failed:r?.failed||[],pending:!r}),true}
+  if(p==='/ui/install/auto-update'&&M==='POST'){I.saveSettings({autoUpdate:!!b.on});return send(res,200,{on:!!b.on}),true}
   if(p==='/ui/install/hosts'&&M==='POST'){const patch={};
    try{for(const k of Object.keys(I.HOSTS))if(k in b){if(I.hostFrom(k)==='env')throw Error(I.HOSTS[k][0]+' is set in this install’s environment, so it can’t be changed here.');patch[k]=I.cleanHost(b[k])}}catch(e){return send(res,400,{error:e.message}),true}
    I.saveSettings(patch);return send(res,200,{ok:true,restart:true}),true}

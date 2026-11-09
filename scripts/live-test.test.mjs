@@ -9,7 +9,7 @@ test('only the agent’s own local aqeelOS tool servers are checked',()=>{
  assert.equal(mustList('aqeelos-notify'),true);assert.equal(mustList('aqeelos-self'),false)});
 
 test('a schedule is late only when switched on and more than 20 minutes past its next run',()=>{const now=Date.parse('2026-11-08T02:00:00Z');
- const j=(id,next,extra={})=>({id,name:id,profile:'sesa',enabled:true,state:'scheduled',next_run_at:next,...extra});
+ const j=(id,next,extra={})=>({id,name:id,profile:'agenta',enabled:true,state:'scheduled',next_run_at:next,...extra});
  const l=overdue([j('late','2026-11-08T01:30:00Z'),j('fine','2026-11-08T01:50:00Z'),j('future','2026-11-08T03:00:00Z'),j('off','2026-11-08T00:00:00Z',{enabled:false}),j('paused','2026-11-08T00:00:00Z',{state:'paused'})],now);
  assert.deepEqual(l.map(x=>x.id),['late'])});
 

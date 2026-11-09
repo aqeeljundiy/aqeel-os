@@ -59,6 +59,8 @@ function hostsDialog(){const h=Install.d?.hosts||{};
 ACT['inst-hosts']=()=>hostsDialog();
 
 /* ---------- System › Settings › This install ---------- */
+// what Automatic updates says: what it does, and how the last one went
+const autoUpdateLine=a=>{const base=a.on?'New versions and fixes install by themselves between 01:00 and 05:00. Your skills, agents and data are not touched.':'Off: this server stays on its current version.';const l=a.last;if(!l||l.result==='current')return base;const w=ago(Math.round(l.at/1000));return base+' '+(l.result==='updated'?'Last updated '+w+'.':l.result==='refused'?'Last check, '+w+': '+l.why:'Last try, '+w+', failed: '+l.why)};
 {const settings=PAGES.settings;PAGES.settings=async(p,el,r)=>{const gone=pageTok(el);await settings(p,el,r);if(gone()||S.me?.admin===false||el.querySelector('#instBox'))return;
  const d=await Install.load();if(gone()||!d?.live)return;const a=d.address,tz=d.timezone;
  const chip=(kind,t)=>`<span class="chip ${kind}">${esc(t)}</span>`;
@@ -70,8 +72,10 @@ ACT['inst-hosts']=()=>hostsDialog();
   ${fieldRow('Time zone',esc(tz.zone?'Schedules, posting limits, backups and notices use it.':'Not chosen yet, so the server’s own zone is used ('+tz.box+').'),`<div class="inst-val"><span>${esc(tz.zone?zoneLabel(tz.zone):'Server: '+zoneLabel(tz.box))}</span><button class="small" data-act="inst-tz">Change</button></div>`)}
   ${fieldRow('Code and app addresses',hostLine,`<div class="inst-val"><button class="small" data-act="inst-hosts">Change</button></div>`)}
   ${d.engine&&d.engine.state!=='ok'?fieldRow('Engine',esc(ENGINE_SAY[d.engine.state]?.[0]||''),`<div class="inst-val">${chip('warn',d.engine.state==='auth'?'Needs a restart':'Not answering')}<a href="#/system/health">See Health</a></div>`):''}
+  ${d.autoUpdate?fieldRow('Automatic updates',esc(autoUpdateLine(d.autoUpdate)),`<div class="inst-val">${toggle(d.autoUpdate.on,'Automatic updates','id="instAuto"')}</div>`):''}
   ${fieldRow('Background jobs',esc(d.live.on?'This copy is the live one: it looks after agents, backups and Help.':'This copy is a test copy: it changes nothing on its own (AQEELOS_LIVE=0).'),`<div class="inst-val">${chip(d.live.on?'ok':'',d.live.on?'Live':'Test copy')}</div>`)}`;
- el.prepend(box)}}
+ el.prepend(box);
+ const au=box.querySelector('#instAuto');if(au)au.onchange=async()=>{const on=au.checked;au.disabled=true;try{await post(UI,'/ui/install/auto-update',{on});Install.d=null;toast(on?'Automatic updates are on':'Automatic updates are off')}catch(e){au.checked=!on;fail(e)}finally{au.disabled=false}}}}
 
 /* ---------- the engine is not reachable with aqeelOS's keys (a fresh engine before its one restart) ---------- */
 const ENGINE_SAY={auth:['The engine needs one restart','aqeelOS wrote the engine’s keys into its .env. The engine reads them when it starts, so until then chats, agents and models can’t load. Run this on the server:'],

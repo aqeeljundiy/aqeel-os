@@ -101,7 +101,7 @@ test('pause and resume: the app settings come back exactly',()=>{
 test('registration: an agent describes the login it made',()=>{
  const acct={kind:'mcp-oauth',mcp:'slack-pixel',provider:'slack',label:'Slack, Abel (Pine & Co)',identity:'Abel · Pine & Co',paths:['/h/.hermes/mcp-tokens/slack-pixel.json']};
  assert.ok(matches({kind:'mcp-oauth',label:'x',where:'~/.hermes/mcp-tokens/slack-pixel.json'},acct,'/h'));
- assert.ok(matches({kind:'mcp-oauth',label:'Slack as Abel, Pixel and Profits'},acct,'/h'));
+ assert.ok(matches({kind:'mcp-oauth',label:'Slack as Abel, Acme Agency'},acct,'/h'));
  assert.ok(!matches({kind:'google',label:'Slack Abel Pixel'},acct,'/h'));
  assert.ok(!matches({kind:'mcp-oauth',label:'Notion work'},acct,'/h'))});
 

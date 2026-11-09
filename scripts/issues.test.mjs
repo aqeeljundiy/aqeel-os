@@ -212,8 +212,8 @@ await t('sweep: missing files that are there now, a fix commit that is live, a c
  await S.I.file({agent:'a3',missing:'Webhook problem again, duplicate of i00000000'});
  assert.equal(await S.I.sweep(true),2);const st=Object.fromEntries((await S.I._db()).items.map(i=>[i.agent,i.state]));assert.deepEqual(st,{a1:'gone',a2:'gone',a3:'open'})});
 await t('sweep: the same problem filed again by the same agent closes the older one; a different skill is not the same problem',async()=>{const S=await setup({policy:off});
- await S.I.file({agent:'ct',missing:'Read/execute access for ag-continue-threads to /home/claude/work/labels and /home/claude/work/tiktok/.venv'});
- await S.I.file({agent:'ct',missing:'Read/execute access for ag-continue-threads to /home/claude/work/labels (gen.py, assets, fonts, taglines.json) and /home/claude/work/tiktok/.venv. /home/claude/work is claude:claude'});
+ await S.I.file({agent:'ct',missing:'Read/execute access for ag-agent-c to /home/claude/work/labels and /home/claude/work/tiktok/.venv'});
+ await S.I.file({agent:'ct',missing:'Read/execute access for ag-agent-c to /home/claude/work/labels (gen.py, assets, fonts, taglines.json) and /home/claude/work/tiktok/.venv. /home/claude/work is claude:claude'});
  await S.I.file({agent:'ct',missing:'The skill maps points to a file that is not there'});await S.I.file({agent:'ct',missing:'The skill continue-vial-labels points to a file that is not there'});
  await S.I.sweep(true);const l=(await S.I._db()).items;assert.equal(l.find(i=>/tiktok\/\.venv$/.test(i.missing)).state,'gone');assert.match(l.find(i=>/tiktok\/\.venv$/.test(i.missing)).resolvedBy,/filed again/);
  assert.equal(l.filter(i=>/skill/.test(i.missing)&&i.state==='open').length,2);
@@ -239,12 +239,12 @@ await t('urgent (aqeelOS own tool server) goes first and is not held back by the
  await S.I.file({agent:'a1',missing:'another ordinary problem'});await S.I.file({agent:'default',missing:'aqeelOS’s own tool server aqeelos-notify is failing for 7 agents',source:'health',healthKey:'topic|health|aqeelos|tool|aqeelos-notify',urgent:true});
  await S.I.tick();const l=(await S.I._db()).items;assert.equal(l.find(i=>i.urgent).state,'fixing','urgent starts although the limit (1) is used up');assert.equal(l.find(i=>/another/.test(i.missing)).state,'queued')});
 await t('sweep: a planned test item closes at once as a test item; an access issue closes once the agent has its own copy',async()=>{const own=new Set(['/home/claude/work/labels','/home/claude/work/tiktok/.venv']);
- const S=await setup({policy:off,checks:{ownCopy:async(a,p)=>a==='continue-threads'&&own.has(p)}});
+ const S=await setup({policy:off,checks:{ownCopy:async(a,p)=>a==='agent-c'&&own.has(p)}});
  await S.I.file({agent:'default',missing:'PLANNED TEST, no action needed: a person must add the bot to a Telegram group called aqeelOS ladder test'});
- await S.I.file({agent:'continue-threads',missing:'Read/execute access for ag-continue-threads to /home/claude/work/labels and /home/claude/work/tiktok/.venv'});
- await S.I.file({agent:'sesa',missing:'Read/execute access for ag-sesa to /home/claude/work/labels'});
+ await S.I.file({agent:'agent-c',missing:'Read/execute access for ag-agent-c to /home/claude/work/labels and /home/claude/work/tiktok/.venv'});
+ await S.I.file({agent:'agenta',missing:'Read/execute access for ag-agenta to /home/claude/work/labels'});
  await S.I.sweep(true);const st=Object.fromEntries((await S.I._db()).items.map(i=>[i.agent,[i.state,i.result?.summary||'']]));
- assert.deepEqual(st.default,['closed','Test item, closed.']);assert.equal(st['continue-threads'][0],'gone');assert.match(st['continue-threads'][1],/own workspace/);assert.equal(st.sesa[0],'open');assert.equal(quietAll(S.said),0)});
+ assert.deepEqual(st.default,['closed','Test item, closed.']);assert.equal(st['agent-c'][0],'gone');assert.match(st['agent-c'][1],/own workspace/);assert.equal(st.agenta[0],'open');assert.equal(quietAll(S.said),0)});
 console.log(n+' passed');
 
 await t('a fixer reload of the engine, fix or rollback, waits for the quiet hours; a web-app reload does not; only urgent items start meanwhile',async()=>{

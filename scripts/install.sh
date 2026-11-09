@@ -107,6 +107,11 @@ else
   echo "      AQEELOS_LIVE=1 UI_PORT=$PORT UI_HOST=$HOSTV node --env-file=$ENVF $APP/app/server.mjs"
 fi
 
+if has_systemd; then
+  printf '%s\n' "[Unit]" "Description=aqeelOS automatic updates" "After=network-online.target" "[Service]" "Type=oneshot" "User=$OWNER" "WorkingDirectory=$APP" "Environment=HOME=$OHOME AQEELOS_HOME=$OHOME UI_PORT=$PORT" "EnvironmentFile=-$ENVF" "ExecStart=$(command -v node) $APP/scripts/auto-update.mjs" > /etc/systemd/system/aqeelos-update.service
+  printf '%s\n' "[Unit]" "Description=aqeelOS automatic updates" "[Timer]" "OnCalendar=*:0/15" "Persistent=false" "[Install]" "WantedBy=timers.target" > /etc/systemd/system/aqeelos-update.timer
+  systemctl daemon-reload; systemctl enable --now aqeelos-update.timer >/dev/null 2>&1 && ok "automatic updates on (01:00-05:00; System › Settings switches them off)"
+fi
 for i in $(seq 1 20); do curl -fs "http://127.0.0.1:$PORT/healthz" >/dev/null 2>&1 && break; sleep 1; done
 step "Next"
 if [ "$OPEN" = 1 ]; then echo "  Open http://<this server's IP>:$PORT and sign in."

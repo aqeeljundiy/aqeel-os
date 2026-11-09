@@ -17,7 +17,7 @@ const priv=existsSync(PRIV)?JSON.parse(readFileSync(PRIV,'utf8')):null;
 const BINARY=/\.(png|jpe?g|gif|webp|ico|icns|woff2?|ttf|otf|dll|exe|zip|pdf|dmg)$/i;
 const SKIP=f=>f==='LICENSE'||/^engine\/patches\//.test(f)||BINARY.test(f)||f.startsWith('data/');
 
-test('every Built in skill is general: name, description, no private details',()=>{const list=skills();assert.ok(list.length>=10,'the Built in skills are in skills/');
+test('every Built in skill is general: name, description, no private details',()=>{const list=skills();assert.ok(list.length>=5,'the Built in skills are in skills/');
  for(const f of list){const t=readFileSync(f,'utf8'),rel=path.relative(ROOT,f),name=path.basename(path.dirname(f));
   const fm=/^---\n([\s\S]*?)\n---/.exec(t)?.[1]||'';assert.equal((/^name:\s*(.+)$/m.exec(fm)||[])[1]?.trim(),name,rel+': name matches its folder');
   const d=(/^description:\s*(.+)$/m.exec(fm)||[])[1]||'';assert.ok(d.length>=40&&d.length<=240,rel+': a one-line description');

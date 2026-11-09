@@ -1,3 +1,5 @@
+import {spawn} from 'node:child_process';
+import {existsSync} from 'node:fs';
 // aqeelOS — production server. Serves the UI, signs people in, and forwards
 // /hapi/* to the Hermes dashboard API and /gapi/* to the Hermes gateway API.
 // Hermes credentials stay on this server; the browser only ever holds a session cookie.
@@ -846,6 +848,10 @@ const bottlenecks=createBottlenecks({DATA,onInfo:newsInfo,listAgents:()=>listAge
 const instructions=createInstructions({DATA,HERMES_HOME,DASH:DASH.origin,DASH_TOKEN,python:enginePython,root,names:a=>agentName(a),live:LIVE_APP});
 if(LIVE_APP){setTimeout(()=>listAgents().then(l=>instructions.tick(l)).catch(()=>{}),150000).unref();setInterval(()=>listAgents().then(l=>instructions.tick(l)).catch(()=>{}),30*60000).unref()}
 // the owner on the main agent's WhatsApp (as when the server was off, or after a night update)
+// Automatic updates (scripts/auto-update.mjs) on a Docker box; installer installs use a systemd timer. Checked every 15 minutes;
+// the script itself keeps to the quiet hours. A failed or refused update goes under Bottlenecks once.
+if(LIVE_APP&&existsSync(path.join(homedir(),'services.sh'))){const tick=()=>{try{spawn(process.execPath,[path.join(root,'scripts','auto-update.mjs')],{detached:true,stdio:'ignore',env:process.env}).unref()}catch{}};setTimeout(tick,120000).unref();setInterval(tick,15*60000).unref()}
+if(LIVE_APP)setInterval(async()=>{const f=path.join(DATA,'auto-update.json');let a;try{a=JSON.parse(await readFile(f,'utf8'))}catch{return}const l=a.last;if(!l||!/failed|refused/.test(l.result)||a.told===l.at)return;a.told=l.at;await writeFile(f,JSON.stringify(a,null,1)).catch(()=>{});await bottlenecks.event('update',l.result==='refused'?'An automatic update was skipped':'An automatic update failed',l.why).catch(()=>{})},5*60000).unref();
 // Plug and play settings (System › Teams, team-settings.mjs): the team policy, where owner alerts go, Pause alerts, test agents
 const teamSettings=createTeamSettings({DATA,HERMES_HOME,listAgents:()=>listAgents()});
 const codeChanges=createCodeChanges({DATA});   // live code changes git lacks: deploy drift and fixer patches (System › Health)

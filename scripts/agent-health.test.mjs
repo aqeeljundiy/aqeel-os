@@ -178,7 +178,7 @@ test('tool servers waiting for a sign-in are not failures',()=>{const l="2026-11
 
 // 7 Nov 2026: aqeelos-notify failed every initialize with HTTP 500 from 13:53 and Health saw nothing
 import {ownServerProblems,forLadder as forLadder2} from '../app/agent-health.mjs';
-const CUT="2026-11-07 13:53:26,446 INFO tools.mcp_tool: MCP: registered 10 tool(s) from 3 server(s) (1 failed: aqeelos-notify (MCP server 'aqeelos-notify': both Streamable HTTP and SSE transports failed (Streamable HTTP: Server returned an error response (HTTP 500 from POST http://127.0.0.1:4400/mcp/notify/sesa/Ez: {\"error\":\"Server error\"}); SSE: Client error '405 Method Not Allowed' for url 'http://127.0.0.1:4400/mcp/notify/sesa/Ez'";
+const CUT="2026-11-07 13:53:26,446 INFO tools.mcp_tool: MCP: registered 10 tool(s) from 3 server(s) (1 failed: aqeelos-notify (MCP server 'aqeelos-notify': both Streamable HTTP and SSE transports failed (Streamable HTTP: Server returned an error response (HTTP 500 from POST http://127.0.0.1:4400/mcp/notify/agenta/Ez: {\"error\":\"Server error\"}); SSE: Client error '405 Method Not Allowed' for url 'http://127.0.0.1:4400/mcp/notify/agenta/Ez'";
 test('a cut-off start line still names the failed server',()=>{const now=Date.parse('2026-11-07T14:00:00Z');assert.deepEqual(mcpState(CUT,now).failed,['aqeelos-notify'])});
 test('a server the engine parks while it runs counts until it is revived; a sign-in park does not',()=>{const now=Date.parse('2026-11-07T15:30:00Z');
  const reg="2026-11-07 12:00:00,000 INFO tools.mcp_tool: MCP: registered 42 tool(s) from 5 server(s)";
@@ -188,9 +188,9 @@ test('a server the engine parks while it runs counts until it is revived; a sign
  assert.deepEqual(mcpState([reg,park,oauth].join('\n'),now).failed,['aqeelos-notify']);assert.deepEqual(mcpState([reg,park,back].join('\n'),now).failed,[]);
  assert.deepEqual(mcpState([park,reg.replace('12:00:00','15:25:00')].join('\n'),now).failed,[],'a later engine start registers again')});
 test('aqeelOS’s own tool server: one urgent problem for all agents, straight into the ladder; other servers stay per agent',()=>{
- const p=ownServerProblems({sesa:{failed:['aqeelos-notify','composio']},'pixel-agent':{failed:['aqeelos-notify']},default:{failed:[]}});
- assert.equal(p.length,1);assert.equal(p[0].topic,'health|aqeelos|tool|aqeelos-notify');assert.equal(p[0].urgent,true);assert.match(p[0].text,/for 2 agents/);assert.match(p[0].detail,/sesa, pixel-agent/);
- assert.deepEqual(mcpProblems('sesa',{failed:['aqeelos-notify','composio'],flaps:{}}).map(x=>x.text),['Tool servers do not start: composio']);
+ const p=ownServerProblems({agenta:{failed:['aqeelos-notify','composio']},'agent-b':{failed:['aqeelos-notify']},default:{failed:[]}});
+ assert.equal(p.length,1);assert.equal(p[0].topic,'health|aqeelos|tool|aqeelos-notify');assert.equal(p[0].urgent,true);assert.match(p[0].text,/for 2 agents/);assert.match(p[0].detail,/agenta, agent-b/);
+ assert.deepEqual(mcpProblems('agenta',{failed:['aqeelos-notify','composio'],flaps:{}}).map(x=>x.text),['Tool servers do not start: composio']);
  assert.equal(forLadder2({kind:'tools',id:'event|x',title:p[0].text,data:{urgent:true}}),true)});
 
 test('a tool server that failed in the last full list but revived or registered on its own after it is not failing (7 Nov 2026: five healthy agents read as failing)',()=>{
