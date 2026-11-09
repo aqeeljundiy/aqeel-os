@@ -15,6 +15,9 @@ import {Remote,isLoopback,pairPage} from './remote.mjs';
 import {CLAUDE_MODELS,EFFORTS,listCodexModels} from './models.mjs';
 import {GEMINI_MODELS,locateGemini,geminiAuth,geminiSignIn} from './gemini.mjs';
 let codexModels={at:0,list:[]};
+// connected to aqeelOS, the Models page is the only source of models; this computer's own sign-ins count only when Code stands alone
+async function providerList(){const local=()=>Promise.all(['codex','claude','gemini'].map(name=>status(name)));if(process.env.CBA_ONLINE)return [...await local(),await status('aqeelos')];
+ if(!(await aqeelos.state().catch(()=>({}))).paired)return local();const a=await status('aqeelos');return a.ready?[a]:local()}
 const lastModels=new Map();   // aqeelOS's list as last answered: while its engine restarts, Code keeps it instead of falling back to a different one
 async function models(agent,act){if(Date.now()-codexModels.at>600000||!codexModels.list.length){const exe=await findExecutable('codex');codexModels={at:Date.now(),list:exe?await listCodexModels(exe,accounts.env(),work):[]}}// Gemini's own list is saved after a run (data/gemini-models.json); until then its tier aliases
  let gemini=GEMINI_MODELS;try{const saved=JSON.parse(await readFile(path.join(root,'data','gemini-models.json'),'utf8'));if(saved.length)gemini=[GEMINI_MODELS[0],...saved.map(m=>({id:m.modelId,name:m.name||m.modelId,description:m.description||'',efforts:[],defaultEffort:''}))]}catch{}
@@ -30,7 +33,7 @@ async function models(agent,act){if(Date.now()-codexModels.at>600000||!codexMode
  const out={managed:true,restricted:Boolean(r.restricted),agentModel:r.provider&&r.model?{provider:r.provider,model:r.model}:null};
  if(!r.engineModels){for(const p of ['claude','codex','gemini']){const ids=r.models[p]||[];out[p]=!ids.length?(r.restricted?[]:own[p]):ids.map(id=>{const c=own[p].find(m=>m.id===id);
   return {id,name:c?.name||niceModel(id),description:c?.description||'',efforts:c?.efforts?.length?c.efforts:p==='codex'?['low','medium','high']:EFFORTS[p],defaultEffort:c?.defaultEffort||'',isDefault:r.provider===p&&r.model===id}})}return out}
- const H=slug=>slug==='claude-subscription-directsdk-experimental'?'claude':slug==='openai-codex'?'codex':'aqeelos',engine=Boolean(r.engine);
+ const engine=Boolean(r.engine),H=slug=>engine?'aqeelos':slug==='claude-subscription-directsdk-experimental'?'claude':slug==='openai-codex'?'codex':'aqeelos';
  const why=h=>h!=='aqeelos'||engine?'':process.env.CBA_ONLINE?'Online Code runs in its own container here, so this model cannot reach the project.':'Update aqeelOS to run this model for projects on this computer.';
  const d=r.agentDefault||{},dh=engine?'aqeelos':H(d.provider)!=='aqeelos'?H(d.provider):'claude';
  for(const h of ['claude','codex','aqeelos','gemini'])out[h]=[];out.gemini=[];out.list=[];
@@ -195,7 +198,7 @@ const server=http.createServer(async(req,res)=>{
   }
   if(req.method==='GET'&&url.pathname==='/api/models')return send(200,await models(url.searchParams.has('agent')?String(url.searchParams.get('agent')).slice(0,64):undefined,act));
   if(req.method==='GET'&&url.pathname==='/api/share-hosts'){const port=server.address().port;return send(200,{lan:remote.state.enabled?remote.addresses(port).map(a=>'http://'+new URL(a.url).hostname+':'+(port+1)):[]})}
-  if(req.method==='GET'&&url.pathname==='/api/status')return send(200,{online:Boolean(process.env.CBA_ONLINE),...(process.env.CBA_ONLINE?{modelsAt:(await aqeelos.origins()).find(o=>!/\/\/(127\.|localhost)/.test(o))||''}:await aqeelos.state().then(s=>s.paired&&s.base?{modelsAt:s.base}:{}).catch(()=>({}))),token,preview:previewOrigin(req.headers.host),platform:{os:process.platform,shell:platform.shell('').label,prompt:platform.shell('').prompt,fileManager:platform.fileManagerName},providers:url.searchParams.has('quick')?[]:await Promise.all(['codex','claude','gemini',...(process.env.CBA_ONLINE?['aqeelos']:[])].map(name=>status(name)))});
+  if(req.method==='GET'&&url.pathname==='/api/status')return send(200,{online:Boolean(process.env.CBA_ONLINE),...(process.env.CBA_ONLINE?{modelsAt:(await aqeelos.origins()).find(o=>!/\/\/(127\.|localhost)/.test(o))||''}:await aqeelos.state().then(s=>s.paired&&s.base?{modelsAt:s.base}:{}).catch(()=>({}))),token,preview:previewOrigin(req.headers.host),platform:{os:process.platform,shell:platform.shell('').label,prompt:platform.shell('').prompt,fileManager:platform.fileManagerName},providers:url.searchParams.has('quick')?[]:await providerList()});
   if(req.method==='GET'&&url.pathname==='/api/accounts'){const prov=url.searchParams.get('provider')==='claude'?'claude':'codex',s=await store(prov).reload();return send(200,{...s.state,provider:prov,profiles:await Promise.all(s.state.profiles.map(async p=>({...await status(prov,p.id),...p})))})}
   if(req.method==='POST'&&url.pathname==='/api/accounts'){let input='';for await(const c of req){input+=c;if(input.length>4000)throw Error('Account input too large.')}{const body=JSON.parse(input);return send(200,await store(body.provider==='claude'?'claude':'codex').update(body))}}
   if(req.method==='GET'&&url.pathname==='/api/session')return send(200,{token});

@@ -70,4 +70,4 @@ export function choiceFor(provider){const list=catalog[provider]||[];const want=
  if(want){const [model,effort='']=want.split('|');if(list.some(m=>m.id===model))return {provider,model,effort}}
  const def=list.find(m=>m.isDefault)||list[0];return {provider,model:def?.id||'',effort:provider==='claude'?'':def?.defaultEffort||''}}
 // the second AI for Compare, Team and "retry with": the first other connected provider
-export function partnerFor(p){if(p==='aqeelos')p='claude';const order={claude:['codex','gemini'],codex:['claude','gemini'],gemini:['claude','codex']}[p]||['claude','codex'];return order.find(x=>ready.includes(x))||order[0]}
+export function partnerFor(p){if(ready.length===1&&ready[0]==='aqeelos')return 'aqeelos';if(p==='aqeelos')p='claude';const order={claude:['codex','gemini'],codex:['claude','gemini'],gemini:['claude','codex']}[p]||['claude','codex'];return order.find(x=>ready.includes(x))||order[0]}

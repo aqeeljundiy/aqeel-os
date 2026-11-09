@@ -344,6 +344,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
  setupAgentFn=setupAgent;
  accountHooks.giveSkills=giveSkills;accountHooks.trimSkills=trimSkills;accountHooks.forgetSkills=forgetSkills;
  // a provider going away (Google AI Pro signed out): the agent's first priority entry it can really use; null when none
+ accountHooks.allowList=async()=>(await load()).allow||[];
  accountHooks.moveOff=async(profile,key)=>{const d=await load();for(const e of d.priority||[]){if(e.key===key)continue;
   if(e.key.startsWith(PLUGIN_KEY)){const a=all(d).find(x=>x.id===e.key.slice(PLUGIN_KEY.length));if(!a||!(await details(a)).signedIn)continue}
   try{await useEntry(d,profile,e,'Google AI Pro signed out');return e.key}catch(er){console.warn('move off',profile,e.key,er.message)}}return null};
