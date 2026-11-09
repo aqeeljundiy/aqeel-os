@@ -9,6 +9,15 @@ const users=createUsers(DATA,mail,{ownerCheck:pw=>pw==='owner-pass-1'});
 const call=async(u,method,p,body)=>{let out;await users.api(u,{method,url:p},{},p,(res,status,b)=>{out={status,body:b}},async()=>JSON.stringify(body||{}));return out};
 const Q=new URLSearchParams();
 
+test('Team view on: the owner lists all chats, each marked; off, and for admins and members, chats stay private',async()=>{
+ let on=true;const U2=createUsers(path.join(HOME,'data-see'),mail,{ownerCheck:()=>false,ownerSeesAll:()=>on});await U2.load();
+ const owner={id:'owner',role:'owner',name:'O'},admin={id:'a',role:'admin',name:'A'};await U2.own('s-a',admin);await U2.own('s-o',owner);
+ const list={sessions:[{id:'s-a'},{id:'s-o'}]},ids=u=>U2.filter(u,'/hapi/sessions',JSON.parse(JSON.stringify(list))).sessions.map(x=>x.id);
+ assert.deepEqual(ids(owner),['s-a','s-o']);assert.deepEqual(ids(admin),['s-a']);
+ assert.equal(U2.filter(owner,'/hapi/sessions',JSON.parse(JSON.stringify(list))).sessions.find(x=>x.id==='s-o').person,undefined,'your own chat is not marked');
+ assert.ok('person' in U2.filter(owner,'/hapi/sessions',JSON.parse(JSON.stringify(list))).sessions.find(x=>x.id==='s-a'));
+ on=false;assert.deepEqual(ids(owner),['s-o'])});
+
 test('the owner signs in with the install password (empty name too); a wrong one is refused',async()=>{
  assert.equal((await users.login('','owner-pass-1'))?.role,'owner');
  assert.equal(await users.login('','wrong'),null);assert.equal(await users.login('nobody','owner-pass-1'),null)});

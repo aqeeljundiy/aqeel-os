@@ -32,7 +32,7 @@ const PEOPLE_DIR=path.join(homedir(),'people');      // members' own folders: ~/
 // For 14 days after this version first runs, the old username (or name) still signs in, and the page says to use the email
 // next time; an account with no email keeps signing in by username until it adds one (the app asks at sign-in), so nobody
 // is locked out. relaxed: a test copy (deploy checks), where the owner may still sign in with the password alone.
-export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=async()=>'aqeelOS',relaxed=true}={}){
+export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=async()=>'aqeelOS',relaxed=true,ownerSeesAll=()=>false}={}){
  const hooks={};   // onJoin(person): the server makes their lead agent
  const FILE=path.join(DATA,'users.json');
  let db=null;
@@ -231,9 +231,11 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
  /* ---------- filtering what comes back ---------- */
  function filter(u,p,data,agent){
   if(!data||typeof data!=='object')return data;
-  const keep=id=>mine(u,id);   // chats are private per person; untracked (older, Telegram…) chats are the owner's
-  if(/^\/hapi\/sessions$/.test(p)&&Array.isArray(data.sessions)){inherit(data.sessions);const s=data.sessions.filter(x=>keep(x.id));return {...data,sessions:s,total:s.length}}
-  if(/^\/hapi\/sessions\/search$/.test(p)&&Array.isArray(data.results)){inherit(data.results);return {...data,results:data.results.filter(x=>keep(x.session_id||x.id))}}
+  // chats are private per person; untracked (older, Telegram…) chats are the owner's. With Team view on, the owner's list has everyone's, each marked with whose it is
+  const seeAll=u.role==='owner'&&ownerSeesAll(),keep=id=>seeAll||mine(u,id);
+  const mark=x=>{const o=seeAll?sessionOwner(x.session_id||x.id):null;return o&&o!==u.id?{...x,person:byId(o)?.name||'Someone'}:x};
+  if(/^\/hapi\/sessions$/.test(p)&&Array.isArray(data.sessions)){inherit(data.sessions);const s=data.sessions.filter(x=>keep(x.id)).map(mark);return {...data,sessions:s,total:s.length}}
+  if(/^\/hapi\/sessions\/search$/.test(p)&&Array.isArray(data.results)){inherit(data.results);return {...data,results:data.results.filter(x=>keep(x.session_id||x.id)).map(mark)}}
   // schedules: an admin sees every agent's but a private one's (as the gate does), a member those they may change
   if(/^\/hapi\/cron\/jobs$/.test(p)){const jobs=Array.isArray(data)?data:data.jobs;if(Array.isArray(jobs)){const f=jobs.filter(j=>schedOk(u,j.profile||'default'));return Array.isArray(data)?f:{...data,jobs:f}}}
   // the hidden copies behind extra connections (WhatsApp 2…) are not agents of their own

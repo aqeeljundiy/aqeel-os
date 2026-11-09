@@ -988,7 +988,7 @@ async function adoptFirstModel(slug){const agents=['default',...(await listAgent
 const connect=createConnect({HERMES_HOME,DASH,DASH_TOKEN,live:LIVE_APP,afterSave:slug=>adoptFirstModel(slug)});accountHooks.keyStatus=()=>connect.status();accountHooks.keyCheck=()=>connect.checkAll();
 const antigravity=createAntigravity({HERMES_HOME,hcmd,listAgents,moveOff:(a,k)=>accountHooks.moveOff?accountHooks.moveOff(a,k):null});
 async function agentModel(a){const y=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>'');const k=key=>((new RegExp('^model:[\\s\\S]*?\\n\\s+'+key+':\\s*(\\S+)','m').exec(y)||[])[1]||'').replace(/^["']|["']$/g,'');return {provider:k('provider'),model:k('default')}}
-const users=createUsers(DATA,mailer,{ownerCheck:pw=>!!PW_HASH&&checkPassword(pw),envOwner:()=>!!PW_HASH,brandName:()=>brand.name(),relaxed:!LIVE_APP});
+const users=createUsers(DATA,mailer,{ownerCheck:pw=>!!PW_HASH&&checkPassword(pw),envOwner:()=>!!PW_HASH,brandName:()=>brand.name(),relaxed:!LIVE_APP,ownerSeesAll:()=>installSettings().supervision===true});
 users.hooks.revoke=id=>revokeSessions(id);
 const accountAuth=createAccountAuth({users,send,readBody,publicUrl:()=>String(PUBLIC_URL),revoke:id=>revokeSessions(id),signIn:id=>({'set-cookie':'hui='+makeCookie(id)+'; '+cookieAttrs(SESSION_DAYS*86400)}),
  limited:req=>limited(clientIp(req)),miss:req=>{const ip=clientIp(req);(attempts.get(ip)||attempts.set(ip,[]).get(ip)).push(Date.now())}});
@@ -1818,6 +1818,9 @@ async function hermesCall(req,res,u,url){
    let fp=null;if(p.endsWith('upload-stream')){const f=formPaths(raw,req.headers['content-type']);if(!f||f.length!==1)return send(res,400,{error:'Upload one file location at a time.'});fp=f[0]}else{try{fp=JSON.parse(raw.toString('utf8')).path}catch{}}
    if(!users.filePathOk(u,fp,true)||q.has('path')&&!users.filePathOk(u,q.get('path'),true))return send(res,403,{error:'That folder is not yours.'})}}
  // a member's message: within their daily limit, and only on models they may use
+ // the owner reads other people's chats (Team view) but cannot write in, rename or delete them; each chat opened is logged
+ {const m=u.role==='owner'&&/^\/(?:hapi|gapi(?:\/p\/[^/]+)?\/api)\/sessions\/([^/]+)(\/|$)/.exec(p),id=m&&decodeURIComponent(m[1]),who=id&&!['search','prune','bulk-delete','empty','import','stats'].includes(id)?users.sessionOwner(id):null;
+  if(who&&who!=='owner'){if(req.method!=='GET')return send(res,403,{error:'This is someone else’s chat. You can read it, but not change it.'});teamView.opened(u.name||'Owner',users.byId(who)?.name||who,id,agent).catch(()=>{})}}
  const chatM=/^\/gapi(?:\/p\/[^/]+)?\/api\/sessions\/([^/]+)\/chat\/stream$/.exec(p);
  if(chatM&&!users.isAdmin(u)&&req.method==='POST'){
   const lim=users.limitOf(u);if(lim?.tokens){const t=await usage.today(await listAllProfiles(),u.id,users.ownerOf);if(t.tokens+await code.usedToday(u.id)>=lim.tokens)return send(res,429,{error:'You reached today\'s limit. It resets at midnight.'})}

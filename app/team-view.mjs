@@ -98,4 +98,6 @@ export function createTeamView({HERMES_HOME,DATA,python,users,policy,agents,isOn
   return {days,people:[...by.values()].sort((a,b)=>b.messages-a.messages).map(p=>({...p,last:when(p.last)}))}}
 
  async function recent(n=20){const t=await readFile(FILE,'utf8').catch(()=>'');return t.trim().split('\n').filter(Boolean).slice(-n).reverse().map(l=>{try{const {session,...e}=JSON.parse(l);return e}catch{return null}}).filter(Boolean)}
- return {call,asker,recent}}
+ // the owner opening someone's chat in the app: once per chat in ten minutes (the page reloads it while open)
+ const seen=new Map();async function opened(who,person,chat,agent){if(!await isOn())return;const k=who+'|'+chat,t=now();if(t-(seen.get(k)||0)<600e3)return;if(seen.size>2000)seen.clear();seen.set(k,t);await note({who,action:'opened',person,chat,agent:agent||undefined})}
+ return {call,asker,recent,opened}}

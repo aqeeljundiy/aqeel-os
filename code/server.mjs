@@ -15,6 +15,7 @@ import {Remote,isLoopback,pairPage} from './remote.mjs';
 import {CLAUDE_MODELS,EFFORTS,listCodexModels} from './models.mjs';
 import {GEMINI_MODELS,locateGemini,geminiAuth,geminiSignIn} from './gemini.mjs';
 let codexModels={at:0,list:[]};
+const lastModels=new Map();   // aqeelOS's list as last answered: while its engine restarts, Code keeps it instead of falling back to a different one
 async function models(agent,act){if(Date.now()-codexModels.at>600000||!codexModels.list.length){const exe=await findExecutable('codex');codexModels={at:Date.now(),list:exe?await listCodexModels(exe,accounts.env(),work):[]}}// Gemini's own list is saved after a run (data/gemini-models.json); until then its tier aliases
  let gemini=GEMINI_MODELS;try{const saved=JSON.parse(await readFile(path.join(root,'data','gemini-models.json'),'utf8'));if(saved.length)gemini=[GEMINI_MODELS[0],...saved.map(m=>({id:m.modelId,name:m.name||m.modelId,description:m.description||'',efforts:[],defaultEffort:''}))]}catch{}
  const own={codex:codexModels.list,claude:CLAUDE_MODELS,gemini};
@@ -25,7 +26,7 @@ async function models(agent,act){if(Date.now()-codexModels.at>600000||!codexMode
  // (those are listed as unavailable, with why). "Default" is the agent's own model with the Models page's priority list
  // and auto-switch, on the engine (else on the CLI of the agent's provider). Ids: <model> for a CLI, and
  // <provider>::<model> on the engine. A member sees only the models they may use.
- const r=agent===undefined?null:await aqeelos.agentModel(agent,act).catch(()=>null);if(!r?.models)return own;
+ let r=agent===undefined?null:await aqeelos.agentModel(agent,act).catch(()=>null);{const k=String(agent)+'|'+String(act||'').split('.')[0];if(r?.models)lastModels.set(k,r);else if(agent!==undefined)r=lastModels.get(k)||r}if(!r?.models)return own;
  const out={managed:true,restricted:Boolean(r.restricted),agentModel:r.provider&&r.model?{provider:r.provider,model:r.model}:null};
  if(!r.engineModels){for(const p of ['claude','codex','gemini']){const ids=r.models[p]||[];out[p]=!ids.length?(r.restricted?[]:own[p]):ids.map(id=>{const c=own[p].find(m=>m.id===id);
   return {id,name:c?.name||niceModel(id),description:c?.description||'',efforts:c?.efforts?.length?c.efforts:p==='codex'?['low','medium','high']:EFFORTS[p],defaultEffort:c?.defaultEffort||'',isDefault:r.provider===p&&r.model===id}})}return out}
