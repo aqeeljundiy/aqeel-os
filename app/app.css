@@ -2587,3 +2587,22 @@ button.bad{color:var(--bad)}
 
 .item .who{flex:none;max-width:72px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-left:6px;font-size:11px;color:var(--muted)}
 .chat-readonly{padding:12px 0 2px}
+
+/* where a reply stands: the bar above the message box and the line under a finished reply */
+@keyframes rb-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.8)}}
+@keyframes run-end-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.run-slot{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows .24s cubic-bezier(.2,.8,.2,1),opacity .2s ease,margin .24s ease}
+.run-slot.on{grid-template-rows:1fr;opacity:1;margin-bottom:8px}
+.run-clip{overflow:hidden;min-height:0;border:1px solid var(--border);border-radius:12px;background:var(--surface,var(--bg,#fff))}
+.run-bar{display:flex;align-items:center;gap:8px;min-height:36px;padding:6px 12px;font-size:12.5px;color:var(--muted)}
+.rb-dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--blue);transition:background .2s ease}
+.run-bar[data-state=working] .rb-dot,.run-bar[data-state=starting] .rb-dot{animation:rb-pulse 1.4s ease-in-out infinite}
+.run-bar[data-state=waiting] .rb-dot,.run-bar[data-state=quiet] .rb-dot,.run-bar[data-state=reconnecting] .rb-dot{background:#d9921a}
+.run-bar[data-state=lost] .rb-dot{background:var(--bad)}.run-bar[data-state=queued] .rb-dot{background:var(--muted)}
+.rb-l{flex:none;font-weight:600;color:var(--ink,inherit)}.rb-d{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rb-p{flex:none}.rb-p:empty{display:none}.rb-t{flex:none;font-variant-numeric:tabular-nums}
+.rb-stop{flex:none;min-height:26px;padding:0 10px;border:1px solid var(--border);border-radius:8px;background:none;color:inherit;font:inherit;cursor:pointer;transition:border-color .2s ease}.rb-stop:hover{border-color:var(--bad)}.rb-stop[hidden],.rb-list[hidden]{display:none}
+.rb-list{border-top:1px solid var(--border);padding:6px 12px;font-size:12.5px;color:var(--muted)}.rb-list summary{cursor:pointer}.rb-list ul{list-style:none;margin:6px 0 2px;padding:0;display:grid;gap:4px}
+.rb-list li{position:relative;padding-left:16px}.rb-list li::before{content:"";position:absolute;left:2px;top:6px;width:7px;height:7px;border-radius:50%;border:1.5px solid var(--muted)}.rb-list li.in_progress{color:var(--ink,inherit);font-weight:600}.rb-list li.in_progress::before{border-color:var(--blue);background:var(--blue)}.rb-list li.completed{text-decoration:line-through}.rb-list li.completed::before{background:var(--muted)}
+.run-end{display:flex;align-items:center;gap:6px;margin-top:10px;font-size:12.5px;color:var(--muted);animation:run-end-in .24s ease}.run-end i{width:7px;height:7px;border-radius:50%;background:#2e9e5b}.run-end b{font-weight:600;color:var(--ink,inherit)}.run-end.failed i{background:var(--bad)}.run-end.stopped i{background:var(--muted)}
+.item .src.waiting::after{border-color:#d9921a!important}
+@media (prefers-reduced-motion:reduce){.rb-dot,.run-end{animation:none!important}}

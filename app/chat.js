@@ -40,7 +40,7 @@ const Chat={
   const now=Date.now()/1000;if(r.chat)ChatSeen.mark(r.chat,S.sessions.find(x=>x.id===r.chat)?.last_active);
   const row=c=>{const working=this.live[c.id]?.running||(c.is_active&&now-(c.last_active||0)<120);const unread=!working&&r.chat!==c.id&&ChatSeen.isNew(c);const from=SRC_LABEL[c.source]||('From '+pretty(c.source||'this app'));
    const tip=[ago(c.last_active||c.started_at),c.message_count!=null?plural(c.message_count,'message'):''].filter(Boolean).join(' · ');
-   return `<button class="item ${r.chat===c.id?'on':''} ${unread?'unread':''}" data-go="/chat/${esc(c.id)}" title="${esc(tip)}"><span class="src ${working?'working':''}" title="${esc(from+(working?' · working now':unread?' · new since you last looked':''))}">${icon(srcIcon(c.source),14)}</span><span class="t">${esc(c.title||c.preview||'Untitled chat')}</span>${c.person?`<span class="who">${esc(c.person)}</span>`:''}${unread?'<i class="unread-dot" aria-label="New"></i>':''}<span class="more" role="button" tabindex="0" data-menu="convo" data-id="${esc(c.id)}" aria-label="More">${icon('more',16)}</span></button>`};
+   return `<button class="item ${r.chat===c.id?'on':''} ${unread?'unread':''}" data-go="/chat/${esc(c.id)}" title="${esc(tip)}"><span class="src ${working?'working':''}${Chat.live?.[c.id]?.running&&Chat.live[c.id].ai?.approval&&!Chat.live[c.id].ai.approval.resolved?' waiting':''}" title="${esc(from+(working?' · working now':unread?' · new since you last looked':''))}">${icon(srcIcon(c.source),14)}</span><span class="t">${esc(c.title||c.preview||'Untitled chat')}</span>${c.person?`<span class="who">${esc(c.person)}</span>`:''}${unread?'<i class="unread-dot" aria-label="New"></i>':''}<span class="more" role="button" tabindex="0" data-menu="convo" data-id="${esc(c.id)}" aria-label="More">${icon('more',16)}</span></button>`};
   const body=S.sessionsErr&&!S.sessions.length?`<div class="side-err">${alertBox(chatsErrText(),{act:'side-refresh'})}</div>`:!S.sessionsLoaded?'<div class="skel skel-row" style="height:30px;margin:12px 10px"></div>'.repeat(5):list.length?`${pins.length?`<div class="group-label">Pinned</div>${pins.map(row).join('')}`:''}${Object.entries(groups).map(([g,l])=>`<div class="group-label">${g}</div>${l.map(row).join('')}`).join('')}`:`<p style="padding:16px 12px;color:var(--muted);font-size:13px">${q?'No chats match.':'No chats yet.'}</p>`;
   return `<div class="side-sub"><div style="padding:12px 12px 8px;display:flex;gap:6px"><button style="flex:1" data-act="new">${icon('plus',16)}New chat</button><button class="ghost icon side-refresh" data-act="side-refresh" title="Refresh the chat list" aria-label="Refresh the chat list">${icon('refresh',16)}</button></div>
    <div class="side-search">${icon('search',15)}<input id="chatSearch" placeholder="Search chats" aria-label="Search chats" value="${esc(S.search)}"></div>
@@ -114,7 +114,7 @@ const Chat={
   return `<div class="chat-empty"><div class="halo">${agentAvatar(S.profile||'default',56,{title:false})}</div><h1>${hi}</h1><p>${S.me&&!S.me.admin?`What can <span class="agent-name">${esc(AGENT())}</span> help you with today?`:`What should <span class="agent-name">${esc(AGENT())}</span> work on? It runs on your AI box, so it keeps going when you close this tab.`}</p>
   </div>`},
  composerHtml(){const other=(S.sessions||[]).find(x=>x.id===this.id)?.person;if(other)return '<div class="composer-wrap"><p class="hint-line chat-readonly">'+esc(other)+'’s chat. You can read it, but not reply here.</p></div>';const running=this.live[this.id]?.running;
-  return `<div class="composer-wrap"><div style="position:relative;max-width:780px;margin:0 auto"><div id="slash"></div><div class="composer" id="composer">
+  return `<div class="composer-wrap"><div style="position:relative;max-width:780px;margin:0 auto"><div id="runBar" class="run-slot"></div><div id="slash"></div><div class="composer" id="composer">
   <div id="queueList"></div><div id="toolChips" class="tool-chips">${this.toolChipsHtml()}</div><div id="attachList" style="display:flex;gap:6px;flex-wrap:wrap"></div>
   <textarea id="msg" rows="1" placeholder="${esc(this.placeholder())}" aria-label="Message"></textarea>
   <div class="composer-bar" id="cbar">${this.barHtml()}</div></div>
@@ -273,7 +273,7 @@ const Chat={
   const text=t.text?`<div class="text md ${s.running&&last?'streaming':''}">${body}</div>`:typing?'<div class="text"><span class="typing"><i></i><i></i><i></i></span></div>':'';
   const err=t.error||t.dropped&&!(s.running&&last)?this.errHtml(t,last):'';
   const tools=!s.running||!last?`<div class="msg-tools"><button title="Copy" aria-label="Copy" data-act="copymsg" data-i="${i}">${icon('copy',15)}</button>${last?`<button title="Retry" aria-label="Retry" data-act="retry">${icon('retry',15)}</button>`:''}${last?`<button title="Fork this chat" aria-label="Fork this chat" data-act="fork">${icon('fork',15)}</button>`:''}${t.meta?`<span class="meta">${esc(t.meta)}</span>`:''}</div>`:'';
-  return `<div class="msg ai"><span class="who">${agentAvatar(S.profile||'default',28,{title:false})}</span><div class="body">${sys}${think}${steps}${appr}${text}${err}${tools}</div></div>`},
+  return `<div class="msg ai"><span class="who">${agentAvatar(S.profile||'default',28,{title:false})}</span><div class="body">${sys}${think}${steps}${appr}${text}${err}${last&&!s.running&&t.result?RunStatus.endHtml(t.result):''}${tools}</div></div>`},
  // a reply's text: tagged reasoning as labelled cards (its thinking goes in the Thought fold), the rest as markdown
  replyHtml(text,rm=reasonMarkup(text)){return rm?rm.segs.map(x=>x.type==='prose'?md(x.t):`<div class="rm-card ${x.type}"><span class="rm-l">${x.type==='action'?'Action':'Result'}</span>${md(x.t)}</div>`).join(''):md(text)},
  // what went wrong with a reply, in plain words, and what you can do about it right there
@@ -288,7 +288,7 @@ const Chat={
   let tool=x.tool,sumText=x.sum&&x.sum!==x.tool?x.sum:'';const a=x.args||{};
   if(/^(tool_call|call_tool|use_tool)$/.test(tool)){const calls=Array.isArray(a.calls)?a.calls:[a],c=calls[0]||{};const inner=c.name||c.tool||c.tool_name||c.function;if(inner){tool=String(inner).replace(/^mcp__/,'').replace(/__/g,' · ')+(calls.length>1?' +'+(calls.length-1):'');const ia=c.arguments||c.args||c.input||{};const v=typeof ia==='string'?ia:(ia.prompt||ia.query||ia.url||ia.text||ia.path||ia.command||'');sumText=String(v).slice(0,140)}}
   else if(/^(tool_describe|tool_search)$/.test(tool)){tool='looked up tools';const q=a.names||a.queries||a.query;sumText=Array.isArray(q)?q.join(', '):String(q||'')}
-  const sum=x.tool==='terminal'?`<code>${esc(plainPaths(x.sum))}</code>`:`<b>${esc(String(tool).replace(/_/g,' '))}</b> <span class="sub-t">${esc(plainPaths(sumText))}</span>`;
+  const said=tool===x.tool?RunStatus.plain(tool):String(tool).replace(/_/g,' ');const sum=x.tool==='terminal'?`<b>${esc(said)}</b> <code>${esc(plainPaths(x.sum))}</code>`:`<b>${esc(said)}</b> <span class="sub-t">${esc(plainPaths(sumText))}</span>`;
   // the arguments are shown whole; only a long output is cut
   const argText=!x.args||!Object.keys(x.args).length?'':typeof x.args._raw==='string'&&Object.keys(x.args).length===1?x.args._raw:JSON.stringify(x.args,null,2);
   const outText=String(x.out||'');const detail=[argText,outText.length>20000?outText.slice(0,20000)+'\n… (output cut at 20 000 characters)':outText].filter(Boolean).join('\n\n— output —\n');
@@ -353,7 +353,7 @@ const Chat={
    S.sessions.unshift({id,title:'',preview:text.replace(this.TOOL_RE,'').slice(0,80),source:'api_server',last_active:Date.now()/1000,is_active:true});this.id=id;history.replaceState(null,'','#/chat/'+id);this.live[id]={turns:[],running:false};if($('#scroll'))$('#scroll').innerHTML='<div class="thread" id="thread"></div>'}
   const s=this.live[id]||(this.live[id]={turns:[],running:false});
   s.turns.push({role:'user',text,images:images.length||0,imgs:images.map(f=>f.url),local:this.takeSent()});const ai={role:'ai',steps:[],text:'',think:''};s.turns.push(ai);s.ai=ai;s.runTurns=[ai];
-  s.running=true;s.started=Date.now();if(this.id===id){this.paint();this.paintComposerBar()}paintSide();
+  s.running=true;s.started=Date.now();s.lastAct=Date.now();RunStatus.askNotify();if(this.id===id){this.paint();this.paintComposerBar()}paintSide();
   const m=this.cur();const body={message:images.length?[{type:'text',text},...images.map(f=>({type:'image_url',image_url:{url:f.url}}))]:text};
   // always the model shown in the chat bar, with its own account: left out, the engine reuses the chat's last model
   // name with the agent's default account (Gemini sent to the Claude account, 18 Oct)
@@ -375,6 +375,7 @@ const Chat={
   finally{if(s.conn!=='reconnecting')s.conn=null;s.running=false;s.abort=null;s.runId=null;s.runModel='';s.stopWanted=false;s.seenAt=Date.now()/1000;for(const t of s.runTurns||[ai])t.steps.forEach(x=>{if(!x.done){x.done=true;x.failed=x.failed||!!t.error}});
    for(const t of s.turns)if(t.steer==='sending')t.steer='sent';
    if(s.autoGo){s.autoGo=false;s.paused=false;(s.queue??=[]).unshift({text:'Go ahead in my browser.',images:[]})}   // the person chose their browser: its tools load with this next turn
+   RunStatus.finish(s,s.ai||ai,{title:chatTitle(id)});
    const last=s.ai||ai;if(!last.meta)last.meta=[modelLabel(last.model||ai.model||m.id),this.effort,Math.round((Date.now()-s.started)/1000)+' s'].filter(Boolean).join(' · ');
    if(this.id===id){this.paint();this.paintComposerBar()}this.loadSessions();this.runQueue(id)}
  },
@@ -383,11 +384,11 @@ const Chat={
   const ctl=new AbortController();   // switching agents stops reading it (the reply goes on on the box)
   try{const r=await fetch('/ui/live?agent='+encodeURIComponent(S.profile||'default')+'&session='+encodeURIComponent(id),{headers:{'x-hui':'1'},credentials:'same-origin',signal:ctl.signal});
    if(r.status!==200||!r.body)return;const ai={role:'ai',steps:[],text:'',think:''};let shown=false;
-   this.undrop(s);s.ai=ai;s.runTurns=[ai];s.running=true;s.started=Date.now();s.conn='live';s.abort=ctl;
+   const was=await this.peek(id).catch(()=>null);this.undrop(s);s.ai=ai;s.runTurns=[ai];s.running=true;s.started=was?.since||Date.now();s.lastAct=Date.now();s.conn='live';s.abort=ctl;
    const show=um=>{if(shown)return;shown=true;const txt=typeof um==='string'?um:Array.isArray(um)?um.filter(x=>x.type==='text').map(x=>x.text).join(' '):'';
     const last=s.turns[s.turns.length-1];if(txt&&!(last?.role==='user'&&last.text===txt))s.turns.push({role:'user',text:txt});s.turns.push(ai);if(this.id===id){this.paint();this.paintComposerBar()}paintSide()};
    await this.readStream(r,ev=>{if(!shown)show(ev.type==='run.started'?ev.user_message?.content:'');this.onEvent(id,ev)});
-   s.running=false;s.runId=null;s.conn=null;s.runModel='';s.seenAt=Date.now()/1000;ai.steps.forEach(x=>x.done=true);if(shown&&!ai.meta)ai.meta=[modelLabel(ai.model||''),Math.round((Date.now()-s.started)/1000)+' s'].filter(Boolean).join(' · ');
+   s.running=false;s.runId=null;s.conn=null;s.runModel='';s.seenAt=Date.now()/1000;ai.steps.forEach(x=>x.done=true);if(shown)RunStatus.finish(s,ai,{title:chatTitle(id)});if(shown&&!ai.meta)ai.meta=[modelLabel(ai.model||''),Math.round((Date.now()-s.started)/1000)+' s'].filter(Boolean).join(' · ');
    if(this.id===id){this.paint();this.paintComposerBar()}this.loadSessions()}
   catch{if(s.running){s.running=false;s.runId=null;const t=s.ai;if(t&&!t.error&&!ctl.signal.aborted){t.dropped=true;s.conn='reconnecting'}if(this.id===id){this.paint();this.paintComposerBar()}}}finally{s.following=false;if(s.abort===ctl)s.abort=null;if(!s.running&&s.conn!=='reconnecting')this.runQueue(id)}},
  // a reply whose connection dropped gives way to the same reply picked up again
@@ -404,7 +405,8 @@ const Chat={
  async readStream(r,on){const rd=r.body.getReader();const dec=new TextDecoder();let buf='';
   for(;;){const {value,done}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});let i;
    while((i=buf.search(/\r?\n\r?\n/))>=0){const raw=buf.slice(0,i);buf=buf.slice(i).replace(/^\r?\n\r?\n/,'');let ev='message',data='';for(const line of raw.split(/\r?\n/)){if(line.startsWith(':'))continue;if(line.startsWith('event:'))ev=line.slice(6).trim();else if(line.startsWith('data:'))data+=line.slice(5).trimStart()}if(!data)continue;let d;try{d=JSON.parse(data)}catch{d={text:data}}on({type:d.type||ev,...d})}}},
- onEvent(id,e){const s=this.live[id];if(!s)return;const ai=s.ai;if(!ai)return;
+ onEvent(id,e){const s=this.live[id];if(!s)return;const ai=s.ai;if(!ai)return;s.lastAct=Date.now();
+  if(e.tool_name==='todo_list')RunStatus.readTodos(ai,{args:e.args,result:e.result||e.output});
   // The engine slips a steer in right before the agent's next model call (once the step it is on finishes) and
   // says nothing on this stream when it does. So a steer that was waiting when a step finished has been read as
   // soon as the agent shows anything new after that step.
@@ -469,7 +471,7 @@ async function renameSession(id,title){const c=S.sessions.find(x=>x.id===id);if(
 async function deleteSession(id){const c=S.sessions.find(x=>x.id===id);if(!await confirmBox('Delete this chat?',`“${esc(c?.title||c?.preview||id)}” and all its messages will be removed. This can't be undone.`))return;
  try{const sid=encodeURIComponent(id);await del(G,'/api/sessions/'+sid).catch(e=>{if(e?.status===404||/not.?found|404/i.test(String(e?.message||e)))return del(H,'/sessions/'+sid);throw e});S.sessions=S.sessions.filter(x=>x.id!==id);delete Chat.live[id];toast('Chat deleted');if(route().chat===id)go('/chat');else paintSide()}catch(e){fail(e)}}
 
-Chat.watchLive();
+Chat.watchLive();RunStatus.start();
 // remember which folded step runs are open, so a repaint keeps them open
 document.addEventListener('toggle',e=>{const d=e.target;if(!d?.matches?.('details.steps-fold'))return;(Chat._folds??=new Set())[d.open?'add':'delete'](d.dataset.f)},true);
 
