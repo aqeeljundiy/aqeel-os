@@ -108,9 +108,7 @@
    "button: Add a key"
   ],
   "all /system/settings": [
-   "button: Export",
-   "button: Import",
-   "button: Raw YAML"
+   "button: More"
   ],
   "one /agents/profiles": [
    "button: New agent"
@@ -126,9 +124,7 @@
   "one /automations/schedules": [
    "button: New schedule"
   ],
-  "one /automations/webhooks": [
-   "button: New webhook"
-  ],
+  "one /automations/webhooks": [],
   "one /automations/selfruns": [
    "button: Add a trusted person"
   ],
@@ -222,10 +218,7 @@
    "button: Add a key"
   ],
   "one /system/settings": [
-   "button: Export",
-   "button: Import",
-   "button: Raw YAML",
-   "button: Save"
+   "button: More"
   ]
  },
  "member": {

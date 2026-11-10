@@ -53,7 +53,7 @@ const Kirim={
  // first paint rises in; later paints change only what changed, in place: the whole list used to fade out and back in
  // (km-fresh) when one line's state changed, a flash of every row
  paint(el,d,teams){Kirim.d=d;
-  const parts={acct:Kirim.acct(d),reach:d.reach&&!d.reach.ok?`<p class="km-reach">${esc(d.reach.why)}</p>`:'',lines:Kirim.rows(d,teams)};
+  const parts={acct:Kirim.acct(d),reach:d.reach&&!d.reach.ok?`<div class="km-reach"><p>${icon('clock',15)}New messages are checked every 20 seconds.</p><details class="km-why"><summary>Details</summary><p>${esc(d.reach.why)}</p></details></div>`:'',lines:Kirim.rows(d,teams)};
   let root=el.querySelector('.km');
   if(!root){el.innerHTML=`<div class="km"><div class="panel card km-p" ${st(0)}><h2>Connection</h2><p class="sub">One key for every Kirimdev line. It is separate from the agents’ own WhatsApp channel on Channels.</p><div data-part="acct"></div></div>
     <div class="panel card km-p" ${st(1)}><h2>Numbers</h2><p class="sub">Every WhatsApp number in your Kirimdev account. Connect one so an agent answers it; it starts in Test, so only its testers get answers. aqeelOS checks the API and each line every 10 minutes and puts a problem on System › Health.</p><div data-part="reach"></div><div data-part="lines"></div></div></div>`;root=el.querySelector('.km')}
@@ -164,7 +164,7 @@ const Kirim={
   ok.onclick=go;setTimeout(()=>(edit?q('#kmf-persona'):q('#kmf-agent')).focus(),40)},
  async show(el){const gone=pageTok(el);
   if(S.me?.admin===false){el.innerHTML=emptyBox('Only admins','Kirimdev holds the team’s API key, so only admins see it.');return}
-  setActions(`<button class="ghost" data-act="km-check">${icon('refresh',15)}Check now</button>`);const fresh=Kirim.fresh;Kirim.fresh=false;
+  setActions(`<button data-act="km-check">${icon('refresh',15)}Check now</button>`);const fresh=Kirim.fresh;Kirim.fresh=false;
   if(!el.querySelector('.km'))el.innerHTML='<div class="skel" style="height:150px;border-radius:18px;margin-bottom:16px"></div><div class="skel" style="height:220px;border-radius:18px"></div>';
   let d;try{d=await UI('/ui/kirimdev'+(fresh?'?fresh=1':''))}catch(e){if(!gone())el.innerHTML=emptyBox('Kirimdev did not load',e.message||'Try again in a moment.');return}if(gone())return;
   const teams={};await Promise.all((d.lines||[]).map(l=>UI('/ui/team-group?agent='+encodeURIComponent(l.agent)).then(r=>{teams[l.agent]=r.group;(Team.cache||={})[l.agent]=r}).catch(()=>{})));if(gone())return;

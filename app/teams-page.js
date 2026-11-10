@@ -5,25 +5,27 @@
    Send test, and Pause alerts until… Setup opens in a dialog, quick picks in a popover. Admins only. ---------- */
 const Teams={
  d:null,
- who:p=>[p?.telegram?.length?'Telegram '+p.telegram.join(', '):'',p?.telegram_names?.length?'@'+p.telegram_names.join(', @'):'',p?.whatsapp?.length?'WhatsApp '+p.whatsapp.join(', '):''].filter(Boolean).join(' · ')||'No chat ids yet, so aqeelOS cannot tell when they write',
+ who:p=>[p?.telegram?.length?'Telegram '+p.telegram.join(', '):'',p?.telegram_names?.length?'@'+p.telegram_names.join(', @'):'',p?.whatsapp?.length?'WhatsApp '+p.whatsapp.join(', '):''].filter(Boolean).join(' · ')||'Hasn’t messaged aqeelOS yet',
  teamOf:a=>(Teams.d.teams||[]).find(t=>(t.agents||[]).includes(a)),
- name:a=>(Teams.d.agents.find(x=>x.id===a)||{}).name||a,
+ // the name people know the agent by, the same as everywhere else in the app
+ name:a=>(typeof ident==='function'&&ident(a)?.name)||(Teams.d.agents.find(x=>x.id===a)||{}).name||a,
  when:t=>{const d=new Date(t),n=new Date(),tm=d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});return d.toDateString()===n.toDateString()?'today '+tm:d.toLocaleDateString([],{weekday:'short',day:'numeric',month:'short'})+' '+tm},
  chip:(cls,t)=>`<span class="chip km-chip${cls?' '+cls:''}"><i class="dot"></i>${esc(t)}</span>`,
 
  teamsHtml(){const d=Teams.d,o=d.owner||{},none=d.agents.filter(a=>!Teams.teamOf(a.id));
-  return `<div class="tm-row"><div class="km-id">${personAvatar({name:o.name||'Owner'},36)}<div class="txt"><b>${esc(o.name||'Owner')} · owner</b><p>${esc(Teams.who(o))}</p></div></div>
-    <div class="km-act"><button class="ghost" data-act="tm-owner">Edit</button></div></div>`+
+  const on=o.name&&!/^owner$/i.test(o.name.trim())?o.name:'';   // "Owner · owner" said it twice
+  return `<div class="tm-row"><div class="km-id">${personAvatar({name:on||'Owner'},36)}<div class="txt"><b>${on?esc(on)+' <span class="tm-role">Owner</span>':'Owner'}</b><p>${esc(Teams.who(o))}</p></div></div>
+    <div class="km-act"><button class="small" data-act="tm-owner">${icon('edit',14)}Edit</button></div></div>`+
    (d.teams||[]).map((t,i)=>{const c=t.contact||(t.members||[])[0]?.name;
     return `<div class="tm-row" ${st(i+1)}><div class="km-id"><span class="tm-ic">${icon('user',18)}</span><div class="txt"><b>${esc(t.name)}</b>
      <p>${(t.agents||[]).length?esc((t.agents||[]).map(Teams.name).join(', ')):'No agents yet.'}</p>
      <p>${(t.members||[]).length?'Members: '+esc(t.members.map(m=>m.name).join(', '))+'. ':'No members. '}${c?esc(c)+' hears when a fix needs a person.':'The owner hears when a fix needs a person.'}</p></div></div>
-     <div class="km-act"><button class="ghost" data-act="tm-team" data-i="${i}">Edit</button></div></div>`}).join('')+
-   (none.length?`<p class="hint tm-note">${icon('alert',14)} No team: ${esc(none.map(a=>a.name).join(', '))}. The owner hears about these.</p>`:'')},
+     <div class="km-act"><button class="small" data-act="tm-team" data-i="${i}">${icon('edit',14)}Edit</button></div></div>`}).join('')+
+   (none.length?`<details class="tm-none"><summary><span class="tm-note">${icon('alert',16)}<span>${none.length===1?'1 agent has no team':none.length+' agents have no team'}. The owner hears about ${none.length===1?'it':'them'}.</span></span><span class="tm-see">See ${none.length===1?'it':'them'}</span></summary><div class="tm-none-list">${none.map(a=>`<span class="tm-none-a">${agentAvatar(a.id,20,{title:false})}${esc(Teams.name(a.id))}</span>`).join('')}</div></details>`:'')},
  agentsHtml(){const d=Teams.d,tests=new Set(d.tests||[]);
   return d.agents.map((a,i)=>{const t=Teams.teamOf(a.id);
-   return `<div class="tm-row tm-agent" ${st(i)}><div class="km-id">${agentAvatar(a.id,32)}<div class="txt"><b>${esc(a.name)}</b><p>${t?'Team '+esc(t.name):'No team'}${tests.has(a.id)?' · test agent: nobody is alerted about it':''}</p></div></div>
-    <div class="km-act"><label class="tm-sw"><span>Test agent</span>${toggle(tests.has(a.id),'Test agent '+a.name,`data-test="${esc(a.id)}"`)}</label></div></div>`}).join('')},
+   return `<div class="tm-row tm-agent" ${st(i)}><div class="km-id">${agentAvatar(a.id,32)}<div class="txt"><b>${esc(Teams.name(a.id))}</b><p>${t?'Team '+esc(t.name):'No team'}${tests.has(a.id)?' · test agent: nobody is alerted about it':''}</p></div></div>
+    <div class="km-act"><label class="tm-sw"><span>Test agent</span>${toggle(tests.has(a.id),'Test agent '+Teams.name(a.id),`data-test="${esc(a.id)}"`)}</label></div></div>`}).join('')},
  fixerHtml(){const f=Teams.d.fixer;
   return `<div class="tm-row tm-first"><div class="txt"><b>${f.on?'On':'Off'}</b><p>${f.on?'Every issue on System › Health is fixed, reloaded safely and proven by itself. A person hears only when a fix needs one.':'Issues wait on System › Health and nothing is fixed by itself.'+(f.off_why?' Why: '+esc(f.off_why):'')}</p></div>
     <div class="km-act">${toggle(f.on,'Fixer on','data-fx="on"')}</div></div>
@@ -35,9 +37,9 @@ const Teams={
  alertsHtml(){const d=Teams.d,t=d.alerts,p=d.pause,ch=t&&d.channels.find(c=>c.id===t.channel);
   const to=t?(ch?(t.name||ch.name):'A channel that is no longer connected, so the main agent’s own chat is used'):(d.channels.length?'Not chosen: the main agent’s own chat ('+d.channels[0].name+')':'No channel yet: alerts wait in the bell');
   return `<div class="tm-row tm-first"><div class="txt"><b>Alerts go to</b><p>${esc(to)}</p></div>
-    <div class="km-act"><button class="ghost" data-act="tm-alert-test">${icon('send',15)}Send test</button><button class="ghost" data-act="tm-alert-to">Change</button></div></div>
+    <div class="km-act"><button class="small" data-act="tm-alert-test">${icon('send',14)}Send test</button><button class="small" data-act="tm-alert-to">Change</button></div></div>
    <div class="tm-row"><div class="txt"><b>${p?'Paused until '+esc(Teams.when(p.until)):'Alerts are on'}</b><p>${p?esc(p.why||'')+'. Alerts are logged, not sent. Automatic engine restarts and fixer reloads wait too.':'Pause them for a long build or a quiet evening. Automatic engine restarts and fixer reloads wait while paused.'}</p></div>
-    <div class="km-act">${p?'<button class="ghost" data-act="tm-resume">Resume now</button>':''}<button class="ghost" data-act="tm-pause">${p?'Change':'Pause until…'}</button></div></div>`},
+    <div class="km-act">${p?'<button class="small" data-act="tm-resume">Resume now</button>':''}<button class="small" data-act="tm-pause">${p?'Change':'Pause until…'}</button></div></div>`},
 
  // first paint rises in; later paints change only the part that changed
  paint(el){const parts={teams:Teams.teamsHtml(),agents:Teams.agentsHtml(),fixer:Teams.fixerHtml(),alerts:Teams.alertsHtml()};let root=el.querySelector('.tm');
@@ -83,7 +85,7 @@ ACT['tm-owner']=()=>{const o=Teams.d.owner||{};
 // a team: name, agents (an agent in another team moves here), what else people call each agent, members, the contact
 ACT['tm-team']=b=>{const isNew=b.dataset.i==='new',t=isNew?{name:'',agents:[],members:[],aliases:{}}:structuredClone(Teams.d.teams[+b.dataset.i]);let members=structuredClone(t.members||[]);const sel=new Set(t.agents||[]);
  const memberHtml=(m,i)=>`<div class="tm-member" data-m="${i}"><div class="tm-mhead"><b>${esc(m.name||'New member')}</b><button class="ghost icon" data-rm="${i}" aria-label="Remove ${esc(m.name||'this member')}">${icon('x',16)}</button></div>${Teams.personFields(m,'m'+i)}</div>`;
- const agentsHtml=()=>Teams.d.agents.map(a=>{const other=Teams.teamOf(a.id),moves=other&&other.name!==t.name;return `<button type="button" class="tm-pick${sel.has(a.id)?' on':''}" data-a="${esc(a.id)}" aria-pressed="${sel.has(a.id)}">${agentAvatar(a.id,22)}<span>${esc(a.name)}${moves&&!sel.has(a.id)?`<small>in ${esc(other.name)}</small>`:''}</span></button>`}).join('');
+ const agentsHtml=()=>Teams.d.agents.map(a=>{const other=Teams.teamOf(a.id),moves=other&&other.name!==t.name;return `<button type="button" class="tm-pick${sel.has(a.id)?' on':''}" data-a="${esc(a.id)}" aria-pressed="${sel.has(a.id)}">${agentAvatar(a.id,22)}<span>${esc(Teams.name(a.id))}${moves&&!sel.has(a.id)?`<small>in ${esc(other.name)}</small>`:''}</span></button>`}).join('');
  const aliasHtml=()=>[...sel].map(a=>`<div class="tm-alias"><span>${esc(Teams.name(a))}</span><input data-al="${esc(a)}" value="${esc((t.aliases?.[a]||[]).join(', '))}" placeholder="Other names, e.g. Rory"></div>`).join('')||'<p class="hint">Pick agents first.</p>';
  const d=drawer(isNew?'New team':'Edit '+t.name,`<label for="tmName">Team name</label><input id="tmName" maxlength="40" value="${esc(t.name)}" placeholder="Support">
   <label>Agents</label><div class="tm-picks">${agentsHtml()}</div>
@@ -108,7 +110,7 @@ ACT['tm-team']=b=>{const isNew=b.dataset.i==='new',t=isNew?{name:'',agents:[],me
   btn.disabled=true;try{await Teams.save(teams);closeLayers();toast('Saved.')}catch(x){err.textContent=x.message;btn.disabled=false}}};
 
 // which agent's engine runs the fixer: a quick pick
-ACT['tm-fixer-agent']=b=>{const f=Teams.d.fixer;menu(b,Teams.d.agents.map(a=>({label:a.name,sub:a.id==='default'?'The main agent':'',ava:agentAvatar(a.id,20),on:a.id===f.agent,run:()=>{if(a.id!==f.agent)Teams.saveFixer({agent:a.id})}})),{search:Teams.d.agents.length>12,matchWidth:true})};
+ACT['tm-fixer-agent']=b=>{const f=Teams.d.fixer;menu(b,Teams.d.agents.map(a=>({label:Teams.name(a.id),sub:a.id==='default'?'The main agent':'',ava:agentAvatar(a.id,20),on:a.id===f.agent,run:()=>{if(a.id!==f.agent)Teams.saveFixer({agent:a.id})}})),{search:Teams.d.agents.length>12,matchWidth:true})};
 
 // where alerts go: a channel the main agent can send on, and the chat on it (setup, so a dialog)
 ACT['tm-alert-to']=()=>{const D=Teams.d,t=D.alerts||{};
