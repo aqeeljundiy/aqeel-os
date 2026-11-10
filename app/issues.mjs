@@ -28,6 +28,8 @@ import path from 'node:path';
 
 const clip=(s,n)=>String(s??'').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g,' ').slice(0,n);
 export const TRIES=3;
+// team policy fixer.urgentAgents: every new issue for these agents (agent or affects) is filed urgent
+export const urgentFor=(pol,o)=>{const u=[].concat(pol?.fixer?.urgentAgents||[]);return !!u.length&&[o?.agent,...[].concat(o?.affects||[])].some(a=>u.includes(a))};
 export const OPEN=['queued','fixing','applying','verify','verifying','rollback','reloaded-back'];
 // waiting for something (re-checked by the sweep): not in the middle of a run
 export const WAITING=['queued','open','stuck','needs_human','stopped','deploy'];
@@ -157,7 +159,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   try{if(w.kind==='asker'&&await reply(i,text))return w.name;
    if(w.kind==='team'&&await toTeam(i.agent,w.member,text))return w.name}catch(e){log('issues: could not reach '+w.name+': '+e.message)}
   await tellOwner(text);return pol.owner?.name||'the owner'}
- // an issue: o = {agent, what, missing, evidence, proposed_fix, affects, needs, source, healthKey, origin:{platform, uid, who, chat, thread}}
+// an issue: o = {agent, what, missing, evidence, proposed_fix, affects, needs, source, healthKey, origin:{platform, uid, who, chat, thread}}
  const file=o=>queue(async()=>{await load();const pol=await policy();const m=clip(o.missing,500).trim();if(!m)throw Error('Say what is broken (missing).');
   const key=o.healthKey?'health|'+o.healthKey:o.agent+'|'+m.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().slice(0,100);
   let i=db.items.find(x=>x.key===key&&(OPEN.includes(x.state)||['needs_human','stopped','open','deploy'].includes(x.state)));
@@ -166,7 +168,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   const by=o.origin||{},p=personOf(pol,by.platform,by.uid);
   i={id:'i'+randomBytes(4).toString('hex'),key,agent:o.agent,source:o.source||(p?'person':'agent'),what:clip(o.what,400),missing:m,evidence:clip(o.evidence,2000),proposed_fix:clip(o.proposed_fix,1000),
    affects:[].concat(o.affects||[]).map(x=>clip(x,64)).filter(Boolean),needs:[].concat(o.needs||[]).map(String),created:now(),updated:now(),count:1,
-   by:{platform:by.platform||null,uid:by.uid||null,chat:by.chat||null,thread:by.thread||null},byName:p?.name||by.who||null,tries:0,history:[],...(o.healthKey?{healthKey:String(o.healthKey)}:{}),...(o.report?{report:String(o.report)}:{}),...(o.urgent?{urgent:true}:{})};
+   by:{platform:by.platform||null,uid:by.uid||null,chat:by.chat||null,thread:by.thread||null},byName:p?.name||by.who||null,tries:0,history:[],...(o.healthKey?{healthKey:String(o.healthKey)}:{}),...(o.report?{report:String(o.report)}:{}),...(o.urgent||urgentFor(pol,o)?{urgent:true}:{})};
   i.decision=decide(pol,i,by).why;i.state=pol.fixer?.on===false?'open':'queued';if(i.state==='open')i.decision='the fixer is switched off in the team policy';
   db.items.unshift(i);db.items=db.items.slice(0,300);await save();log('issue '+i.id+' filed by '+(i.source==='health'?'Health':i.agent)+': '+i.state);return {issue:view(i)}});
  // Health saw the problem go away before the fixer started: closed, nobody told
@@ -285,7 +287,17 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  // with nothing really put back, nothing is reloaded
  async function rollBack(changes){const done=[];for(const c of changes||[])if(c.backup&&await exists(c.backup)){
    const [b,a]=await Promise.all([readFile(c.backup).catch(()=>null),readFile(c.file).catch(()=>null)]);if(b&&a&&b.equals(a))continue;
+   // ibd8a5021 (10 Nov 2026): a rollback put a whole old SOUL.md back and erased rules added after the fix. If the file
+   // changed since the fixer left it, only the fixer's own diff is reversed (patch -R); if that does not apply, it is left alone
+   if(c.after&&await exists(c.after)){const aft=await readFile(c.after).catch(()=>null);
+    if(aft&&a&&!aft.equals(a)){const ok=await reverseOwn(c);log('issues: rollback '+c.file+' changed since the fix: '+(ok?'reversed only the fix\'s own diff':'left alone (its own diff no longer applies)'));if(ok)done.push(c.file);continue}}
    await copyFile(c.backup,c.file);done.push(c.file)}return done}
+ const run=(cmd,args,input)=>new Promise(res=>{let out='';const c=spawn(cmd,args);c.stdout.on('data',d=>out+=d);c.on('error',()=>res({code:1,out}));c.on('close',code=>res({code,out}));if(input!=null){c.stdin.end(input)}else c.stdin.end()});
+ async function reverseOwn(c){const d=await diffOf(c.backup,c.after,'a','b');if(!d)return true;
+  const dry=await run('patch',['-R','--dry-run','-s','-f','-p0',c.file],d);if(dry.code!==0)return false;return (await run('patch',['-R','-s','-f','-p0','--no-backup-if-mismatch',c.file],d)).code===0}
+ // what each changed file looked like when the fixer finished, so a rollback can tell later edits apart from the fix
+ async function snapAfter(dir,changes){let k=0;for(const c of changes||[]){if(!c?.file||!c.backup)continue;const b=await readFile(c.file).catch(()=>null);if(!b)continue;
+   const f=path.join(dir,'after-'+(k++));await writeFile(f,b,{mode:0o600});c.after=f}}
  // a code fix for the daily deploy: the copies the fixer changed (patches) and any live code file it changed anyway
  // become DATA/fixer-patches/<issue>-try<n>.patch; every live change of this try is put back (the whole fix ships
  // with the deploy, then one proof run checks it). A try that leaves nothing to file is a failed try.
@@ -310,7 +322,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   // never reached the model: not a try; again in 5 minutes
   if(!res&&notStarted(out)){r.notStarted=true;if(kind==='fix')i.tries--;if(kind==='fix'&&i.noRetry){await save();return await afterTry(i)}i.state=kind==='fix'?'queued':'verify';i.notBefore=now()+5*60e3;await save();log('issues: '+r.id+' did not reach the model; again in 5 minutes');return}
   if(kind==='fix'){const fr=res||{status:'failed',summary:'The fixer ended without a result'+(r.exit!=null?' (exit '+r.exit+')':' (stopped)')+'.',proof:clip(out.slice(-800),800),changes:[],apply:'none'};r.result=fr;
-   const h={kind:'fix',run:r.id,at:now(),status:fr.status,summary:fr.summary,proof:fr.proof,need:fr.need,check:fr.check,apply:fr.apply,changes:fr.changes};i.history.push(h);i.result=fr;
+   await snapAfter(dir,fr.changes).catch(()=>{});const h={kind:'fix',run:r.id,at:now(),status:fr.status,summary:fr.summary,proof:fr.proof,need:fr.need,check:fr.check,apply:fr.apply,changes:fr.changes};i.history.push(h);i.result=fr;
    // asking a person to approve is not needing one: the fixer decides itself on the next try
    if(fr.status==='needs_human'&&(!fr.need||approvalOnly(fr.need))){await rollBack(fr.changes);h.outcome='asked for an approval; nobody approves fixes, so it decides itself';return await nextTry(i,null)}
    if(fr.status==='needs_human'&&testerSendOnly(fr.need)){await rollBack(fr.changes);h.outcome='asked a person to send a test message; it posts a signed test webhook as the tester itself (scripts/kirimdev-test-message.mjs)';return await nextTry(i,null)}

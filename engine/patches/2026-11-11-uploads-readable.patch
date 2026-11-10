@@ -1,0 +1,11 @@
+--- a/hermes_cli/web_routers/files.py
++++ b/hermes_cli/web_routers/files.py
+@@ -692,6 +692,8 @@
+                 if total > _MANAGED_FILE_MAX_BYTES:
+                     raise HTTPException(status_code=413, detail=too_large)
+                 out.write(chunk)
++        # mkstemp makes the file 0600; uploads must be readable by the agents that receive them
++        os.chmod(tmp_path, 0o644)
+         os.replace(tmp_path, target)
+         renamed = True
+     except PermissionError:

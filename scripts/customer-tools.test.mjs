@@ -75,3 +75,14 @@ test('a tester of the line pays a Rp10.000 test QRIS, logged testAmount; a custo
  const log=(await readFile(path.join(D,'payments.jsonl'),'utf8')).trim().split('\n').map(l=>JSON.parse(l));
  assert.equal(log[0].testAmount,true);assert.equal(log[0].total,10000);assert.equal(log[0].orderTotal,2660000);assert.equal(log[1].testAmount,undefined);assert.equal(log[1].total,2660000);
  assert.equal((await C.call('cove-support',tok,'create_payment',{amounts:[2660000],order_total:2660000,name:'Tester',order_form:form})).isError,true,'a repeat is still caught')});
+
+// website_form (i77296280, 10 Nov 2026): made by the fixer on the live box, taken into git 11 Nov
+test('website_form returns only THIS chat\'s own quiz, matched by the run\'s phone, login cached',async()=>{const W=await mkdtemp(path.join(tmpdir(),'ct3-'));await mkdir(path.join(W,'a','.secrets'),{recursive:true});await writeFile(path.join(W,'a','.secrets','STORE_PW'),'pw\n');
+ const calls=[];const fetchFn=async(u,o={})=>{calls.push(u);if(u.endsWith('/api/login')){assert.equal(JSON.parse(o.body).password,'pw');return {ok:true,status:200,headers:{getSetCookie:()=>['sess=1; Path=/']}}}
+  assert.equal(o.headers.cookie,'sess=1');return {ok:true,status:200,json:async()=>({contacts:[{id:'c1',phone:'+6282127272731'},{id:'c2',phone:'+628111'}],activities:[{contactId:'c1',type:'program_quiz',message:'MINE BMI 35',createdAt:'2026-11-09T23:48:00Z',product:'Program Reta'},{contactId:'c2',type:'program_quiz',message:'OTHER',createdAt:'2026-11-09T23:50:00Z'},{contactId:'c1',type:'newsletter',message:'skip'}]})}};
+ const C=createCustomerTools({WORK:W,DATA:path.join(W,'d'),fetchFn,formRules:async()=>({baseUrl:'https://s.example',username:'randy',secret:'STORE_PW'}),googleCall:async()=>({}),chatFind:async()=>({}),history:async()=>'',runAsAgent:async()=>({}),log:()=>{}});
+ const list=(await C.mcp('a','',{id:1,method:'tools/list'})).body.result.tools.map(t=>t.name);assert.ok(list.includes('website_form'));
+ const tok=C.begin({agent:'a',line:'1',conversation:'c',phone:'082127272731'});
+ const x=await C.call('a',tok,'website_form',{phone:'628111'});assert.ok(x.text.includes('MINE BMI 35'));assert.ok(!x.text.includes('OTHER'));assert.ok(!x.text.includes('skip'));
+ await C.call('a',tok,'website_form',{});assert.equal(calls.filter(u=>u.endsWith('/api/login')).length,1);
+ const t2=C.begin({agent:'a',line:'1',conversation:'c2',phone:'6289999999'});assert.ok(/No website quiz/.test((await C.call('a',t2,'website_form',{})).text))});

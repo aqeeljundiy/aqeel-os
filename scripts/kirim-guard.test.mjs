@@ -48,3 +48,8 @@ test('asking which payment method is not a payment claim (i1b25ec10)',()=>{
  assert.equal(guardReply(['Pembayarannya mau pakai QRIS, Virtual Account, kartu debit/kredit, atau Alfamart/Indomaret?'],{paid:false}).hold,null);
  for(const x of ['Siap Kak, pakai QRIS ya. Form ordernya saya kirim di bawah ini, mohon dicek dulu.','Bisa pakai QRIS atau VA kak, nanti setelah form dikonfirmasi saya kirimkan ya. Mau yang mana?','Oke Kak, pembayaran via Virtual Account ya. Sebelum saya kirimkan, mohon konfirmasi form order berikut:'])assert.equal(guardReply(splitReply(x),{paid:false,qrPics:[]}).hold,null,x);
  assert.ok(guardReply(['Berikut QRIS-nya ya kak, berlaku sampai 15:00.'],{paid:false,qrPics:[]}).hold)});
+test('loose photo tags become real picture tags, never text (11 Nov 2026, taken into git from fixer issue ie54d1284)',()=>{
+ for(const [t,want] of [['[kirim foto nt_kit_basic]','[TEMPLATE: nt_kit_basic]'],['[foto nt_kit_basic]','[TEMPLATE: nt_kit_basic]'],['[send photo kit.jpg]','[FOTO: kit.jpg]'],['[Gambar: Kit.jpeg]','[FOTO: Kit.jpeg]']]){
+  const g=guardReply(splitReply('Ini paketnya kak\n'+t));assert.equal(g.hold,null,t);assert.deepEqual(g.parts,['Ini paketnya kak',want])}
+ assert.ok(guardReply(['[tolong kirim foto paket ya]']).hold);
+ {const g=guardReply(splitReply('Ini paketnya kak\n[tolong kirim foto paket ya]\n[FOTO: kit.jpg]'));assert.equal(g.hold,null);assert.deepEqual(g.parts,['Ini paketnya kak','[FOTO: kit.jpg]']);assert.deepEqual(g.dropped,['[tolong kirim foto paket ya]'])}});

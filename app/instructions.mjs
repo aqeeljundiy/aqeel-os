@@ -82,8 +82,15 @@ export function createInstructions({DATA,HERMES_HOME,DASH,DASH_TOKEN,python,root
   await lock(a,async()=>{const db=await load(a);const q=db.proposals.find(y=>y.id===id);q.state=yes?'approved':'declined';q.decidedBy=by;q.decidedAt=Date.now();if(x)q.v=x.v;await save(a)});
   return {state:yes?'approved':'declined',version:x}}
 
- // the agent's own tool: change a rule where it is written
- async function change(a,args,{by}){const why=String(args.why||'').trim(),said=String(args.said_by||'').trim();if(!why)return {isError:true,text:'Say in why what the change is and why (for the history).'};
+ // closest section of the current text to an old_text that did not match, so the agent can copy the exact wording
+ function closest(t,o){const w=x=>new Set(String(x).toLowerCase().match(/[a-z0-9]+/g)||[]);const ow=w(o);if(!ow.size)return '';
+  let best='',sc=0;for(const p of t.split(/\n\s*\n/)){const pw=w(p);let k=0;for(const x of ow)if(pw.has(x))k++;const v=k/ow.size;if(v>sc){sc=v;best=p}}
+  return sc>=0.3?'\nThe closest part of your current instructions is (copy old_text exactly from it):\n'+best.slice(0,3000):'\nCall change_instructions with read: true to see your full current instructions.'}
+// the agent's own tool: change a rule where it is written
+ async function change(a,args,{by}){const why=String(args.why||'').trim(),said=String(args.said_by||'').trim();
+  // 10 Nov 2026 (id051b007): an agent can read its own current instructions, so old_text can be copied exactly
+  if(args.read===true||args.read==='true'){await sync(a);const c=await readSoul(a);return c===null?{isError:true,text:'Your instructions could not be read.'}:{text:'Your current instructions, exactly as written (copy old_text from here):\n\n'+c}}
+  if(!why)return {isError:true,text:'Say in why what the change is and why (for the history).'};
   await sync(a);const cur=await readSoul(a);if(cur===null)return {isError:true,text:'Your instructions could not be read.'};
   // 7 Nov 2026 (owner): an agent's own instruction change applies at once, whatever its size; it is a version with
   // its reason and can be undone, and nobody is asked to approve it
@@ -93,7 +100,7 @@ export function createInstructions({DATA,HERMES_HOME,DASH,DASH_TOKEN,python,root
   const edits=Array.isArray(args.edits)?args.edits:[];if(!edits.length)return {isError:true,text:'Give edits (exact old_text and new_text for each place), or rewrite with the whole new text.'};
   let t=cur,chars=0;
   for(const [i,e] of edits.entries()){const o=String(e?.old_text||''),nw=String(e?.new_text??'');if(!o)return {isError:true,text:'Edit '+(i+1)+': old_text is empty. Change a rule where it is written; to add one, give a nearby line as old_text and that line plus the new rule as new_text.'};
-   const n=t.split(o).length-1;if(n!==1)return {isError:true,text:'Edit '+(i+1)+': old_text '+(n?'appears '+n+' times; make it longer so it is unique':'was not found; copy it exactly from your instructions')+'. Nothing was changed.'};
+   const n=t.split(o).length-1;if(n!==1)return {isError:true,text:'Edit '+(i+1)+': old_text '+(n?'appears '+n+' times; make it longer so it is unique':'was not found; copy it exactly from your instructions')+'. Nothing was changed.'+(n?'':closest(t,o))};
    t=t.replace(o,()=>nw);chars+=Math.max(o.length,nw.length)}
   if(/\boverrid(e|es|ing)\b[^\n]*(earlier|previous|above|every|section|rule)/i.test(edits.map(e=>e.new_text).join('\n')))return {isError:true,text:'Do not add "overrides …" wording. Change the rule itself where it is written, so it is said once. Nothing was changed.'};
   const x=await write(a,t,{kind:'agent',by,why,said});

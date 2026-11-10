@@ -19,6 +19,8 @@ let h=await I.history('bot');assert.equal(h.versions.length,2,'backup + current'
 await writeFile(path.join(P,'SOUL.md'),(await soul())+'- extra line\n');h=await I.history('bot');assert.equal(h.versions[0].kind,'box','an outside edit is a version');
 let r=await I.change('bot',{edits:[{old_text:'max 5 an hour',new_text:'max 3 an hour'}],why:'3 an hour',said_by:'Abel'},{by:'bot'});assert.match(r.text,/Saved as version 4/);assert.match(await soul(),/max 3 an hour/);
 r=await I.change('bot',{edits:[{old_text:'nope',new_text:'x'}],why:'x'},{by:'bot'});assert.ok(r.isError);
+// 10 Nov 2026 (id051b007): read: true returns the current text; a miss shows the closest part
+{const rd=await I.change('bot',{read:true},{by:'bot'});assert.ok(!rd.isError);assert.match(rd.text,/max 3 an hour/);const ms=await I.change('bot',{edits:[{old_text:'comments 70 per day',new_text:'y'}],why:'x'},{by:'bot'});assert.ok(ms.isError);assert.match(ms.text,/closest part[\s\S]*comments: 70 a day/)}
 r=await I.change('bot',{edits:[{old_text:'- extra line',new_text:'## New (overrides earlier rules)'}],why:'x'},{by:'bot'});assert.ok(r.isError,'no override sections');
 // 7 Nov 2026: a big edit and a rewrite apply at once too; nobody approves an agent's own change
 {const big='x'.repeat(2000);r=await I.change('bot',{edits:[{old_text:'max 3 an hour',new_text:'max 3 an hour\n- note: '+big}],why:'long note'},{by:'bot'});assert.match(r.text,/Saved as version/);assert.doesNotMatch(r.text,/waits|owner's approval/i);assert.match(await soul(),/note: x{2000}/)}

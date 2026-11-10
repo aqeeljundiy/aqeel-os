@@ -14,7 +14,16 @@ _Last updated: 11 Nov 2026_
 
 ## Now
 
-- [~] Live test of `25fd701` running on both servers (about 5 minutes).
+- [~] **GIT-1** Taking the fixer's lost fixes into git (built and tested here, not deployed yet):
+  - [x] `website_form` customer tool: Continue's support agent reads the quiz a customer filled in on continuelongevity.com (issue i77296280). Two deploys had removed it. Setting restored on Elkiya (`kirimdev.json`, backup `.bak-20261111-websiteform`).
+  - [x] change_instructions: an agent can read its own instructions, and a miss shows the closest part (id051b007).
+  - [x] A fixer rollback undoes only its own change, not edits made later (ibd8a5021; a rollback had erased Biomarkers rules).
+  - [x] Chat uploads readable by the agents that receive them (P&P, i03f117e5), as an engine patch that comes back after every engine update.
+  - [x] Agents resume work cut off by a restart (i83a0f438), as an engine patch.
+  - [x] The live test reads the engine's keys itself (P&P, i46105c3e). May be why P&P's live test hangs (OPS-11).
+  - [~] Kirimdev: resume a chat when the team doesn't answer a handoff within 5 min (i87fbcb7b), loose picture tags (ie54d1284), recent payment not taken as a false claim. A helper agent is porting these.
+  - Already in git, nothing to do: the payment fixes, the empty order form check, the auto-update message, older drift saves.
+  - Note: `scripts/issues.test.mjs` fails on this PC with or without these changes (one timing assertion). Check it on Linux.
 
 ## Waiting on you
 
@@ -24,13 +33,14 @@ _Last updated: 11 Nov 2026_
 ## Next, in this order
 
 ### 1. Shipped today, check it on the live servers
+Checked against P&P's live data and the code on 11 Nov: Aldillah is an employee, so her agent opens for partners, no Private switch is on yet, and Fakhri's agent is held as Aqeel's until he joins. Still to do: look at each one on screen.
 - [ ] **ACC-1** Partners and employees: partners manage employees' agents and read their chats (read-only, logged), employees see only their own. Live in `996144f`.
 - [ ] **ACC-2** Private switch on a partner's own agent (Agents › gear › Sharing). Aldillah's agent no longer shows as Private to Aqeel.
 - [ ] **ACC-3** Fakhri's agent shows "Owner: Fakhri · invited" and becomes his when he joins.
 - [ ] **ACC-4** Employees with no agent can create one.
 
 ### 2. Code that only exists on the servers (the next deploy would undo it)
-- [ ] **GIT-1** Bring the fixer's patches into git: 8 on Elkiya, 3 on P&P. One of the P&P ones fixes "agents can't open uploaded files".
+- [ ] **GIT-1** See "Now". After the deploy, clear the "Code changes" list on Health on both servers.
 - [ ] **GIT-2** Fixer ships through GitHub instead of patching live code, so this list stays empty.
 
 ### 3. Long-term reliability rules

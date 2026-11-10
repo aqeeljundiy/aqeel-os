@@ -1410,7 +1410,7 @@ const kirimdevChanged=()=>{ensureCustomerServer().catch(e=>console.warn('custome
 // customer runs get only these tools (customer-tools.mjs); the payment helper runs as the agent's own user
 const custQ=x=>"'"+String(x).replace(/'/g,"'\\''")+"'";
 let customerTools=null;
-customerTools=createCustomerTools({WORK:path.join(homedir(),'workspaces'),DATA,payments:paidLabels,ordersOf:lineOrders,labelRules:a=>kirimdevLabelRules(a),labelContact:(a,o)=>kirimdev.labelContact(a,o),payRules:async a=>(await kirimdev.lines().catch(()=>({})))[a]?.payment||{},googleCall:(a,req)=>googleFiles.call(a,req),chatFind:(a,q,o)=>chatHistory.find(a,q,o),
+customerTools=createCustomerTools({WORK:path.join(homedir(),'workspaces'),DATA,formRules:async a=>(await kirimdev.lines().catch(()=>({})))[a]?.websiteForm||null,payments:paidLabels,ordersOf:lineOrders,labelRules:a=>kirimdevLabelRules(a),labelContact:(a,o)=>kirimdev.labelContact(a,o),payRules:async a=>(await kirimdev.lines().catch(()=>({})))[a]?.payment||{},googleCall:(a,req)=>googleFiles.call(a,req),chatFind:(a,q,o)=>chatHistory.find(a,q,o),
  history:async(r,limit)=>{const q=new URLSearchParams({conversation_id:r.conversation,limit:String(limit)});if(!r.conversation)return 'No conversation.';
   const l=((await kirimdev._api(r.line+'/messages?'+q)).data||[]).filter(m=>m.type!=='reaction').sort((a,b)=>String(a.created_at).localeCompare(String(b.created_at)));
   return l.map(m=>m.created_at.slice(0,16).replace('T',' ')+' '+(m.direction==='inbound'?'CUSTOMER':'YOU')+': '+kirimdev.msgText(m)).join('\n')||'No messages.'},

@@ -4,11 +4,12 @@ import {mkdtemp,writeFile,mkdir,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {terms,parseLines,search,createChatHistory} from '../app/chat-history.mjs';
-import {decide,whoToTell,parseResult,createIssues,fixerPrompt,proofPrompt,newSecrets,approvalOnly,testerSendOnly,noPersonNeeded,similar} from '../app/issues.mjs';
+import {decide,whoToTell,parseResult,createIssues,fixerPrompt,proofPrompt,newSecrets,approvalOnly,testerSendOnly,noPersonNeeded,similar,urgentFor} from '../app/issues.mjs';
 import {count,weekOf} from '../app/escalations.mjs';
 let n=0;const t=async(name,f)=>{await f();n++;console.log('ok',name)};
 const POL={owner:{name:'Owner',telegram:['1']},teams:[{name:'Brand',agents:['a1','a2'],members:[{name:'Mem',telegram:['2']}],aliases:{a1:['Rory']}}],fixer:{on:true,agent:'default'}};
 
+await t('urgentAgents policy',()=>{const P={fixer:{urgentAgents:['u1']}};assert.equal(urgentFor(P,{agent:'u1'}),true);assert.equal(urgentFor(P,{agent:'x',affects:['u1']}),true);assert.equal(urgentFor(P,{agent:'x',affects:['y']}),false);assert.equal(urgentFor({},{agent:'u1'}),false)});
 await t('terms',()=>{assert.deepEqual(terms('Cartridge per VIAL?'),['cartridge','per','vial']);assert.deepEqual(terms('"short link" xendit'),['short link','xendit'])});
 await t('search with context, own files only',async()=>{const d=await mkdtemp(path.join(tmpdir(),'ch-'));
  const L=(c,dir,x,at)=>JSON.stringify({conversation_id:c,direction:dir,content:x,created_at:at});
@@ -255,3 +256,14 @@ await t('a fixer reload of the engine, fix or rollback, waits for the quiet hour
  quiet=true;await S.ticks(2);assert.deepEqual(S.applied,['engine'],'reloaded once the quiet hours came');
  const U=await setup({engineOk:()=>false,fix:[{status:'changed',apply:'ui',changes:[{file,backup:file+'.bak'}],check:'c',summary:'web app'}],proof:[{status:'proven',proof:'ok'}]});
  await U.I.file({agent:'a1',missing:'web app only'});await U.ticks(3);assert.deepEqual(U.applied,['ui'],'a web-app reload goes on')});
+
+await t('rollback never overwrites rules added after the fix: only its own diff is reversed, or the file is left alone',async()=>{
+ const d0=await mkdtemp(path.join(tmpdir(),'rb-')),file=path.join(d0,'SOUL.md');const base='r1\nr2\nr3\nr4\nr5\nr6\n';await writeFile(file+'.bak',base);await writeFile(file,base.replace('r2','r2 FIXED'));
+ const S=await setup({fix:[{status:'changed',apply:'none',changes:[{file,backup:file+'.bak'}],summary:'x',check:'c'}],proof:[{status:'not_proven',proof:'no'}]});
+ await S.I.file({agent:'a1',missing:'rb'});for(let k=0;k<6&&!S.f.runs.some(r=>r.kind==='proof');k++){if((await S.db()).state==='verify')break;await S.ticks(1)}
+ await writeFile(file,base.replace('r2','r2 FIXED')+'NEW RULE\n');await S.ticks(4);
+ assert.equal(await readFile(file,'utf8'),base+'NEW RULE\n','fix reversed, later rule kept');
+ const d1=await mkdtemp(path.join(tmpdir(),'rb-')),f1=path.join(d1,'SOUL.md');await writeFile(f1+'.bak','a\n');await writeFile(f1,'b\n');
+ const T=await setup({fix:[{status:'changed',apply:'none',changes:[{file:f1,backup:f1+'.bak'}],summary:'x',check:'c'}],proof:[{status:'not_proven',proof:'no'}]});
+ await T.I.file({agent:'a1',missing:'rb2'});for(let k=0;k<6;k++){if((await T.db()).state==='verify')break;await T.ticks(1)}await writeFile(f1,'c\n');await T.ticks(4);
+ assert.equal(await readFile(f1,'utf8'),'c\n','own diff no longer applies: left alone, not restored')});

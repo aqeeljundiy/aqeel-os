@@ -74,11 +74,11 @@ const sentEv=(to,source,id='msg_'+Math.random(),conv='cnv_A',pid='111')=>JSON.st
 
 // an Indonesian line, as the owner runs it: these are settings (kirimdev.json), not code
 const LOCALE={language:'Indonesian',localPrefix:{country:'62',local:'0'},resetText:'✅ Test reset. Chat dari awal ya, anggap kamu customer baru.',handoff:{customerText:'Baik kak, untuk pertanyaan ini saya bantu teruskan ke tim kami dulu ya 🙏 Mohon ditunggu sebentar.'}};
-async function make({mode='test',agentSays='Halo kak 😊',testers=[{who:'Ari',conversationId:'cnv_A'}],postOk=true,team={chatId:-100,topics:{questions:3},mention:'@team'},pauseMin}={}){
+async function make({mode='test',agentSays='Halo kak 😊',testers=[{who:'Ari',conversationId:'cnv_A'}],postOk=true,team={chatId:-100,topics:{questions:3},mention:'@team'},pauseMin,extra={},paidSince=null}={}){
  const DATA=await mkdtemp(path.join(tmpdir(),'kd-')),WORK=path.join(DATA,'work');
  await mkdir(path.join(WORK,'cove-support','media','staff'),{recursive:true});
  await writeFile(path.join(WORK,'cove-support','media','staff','urls.txt'),'https://media.kirimdev.com/x/Kit.jpeg\n');
- await writeFile(path.join(DATA,'kirimdev.json'),JSON.stringify({lines:{'cove-support':{phoneNumberId:'111',persona:'Rory',business:'Cove',mode,debounceSec:0,testers,...LOCALE,...(pauseMin!==undefined?{pauseMin}:{}),
+ await writeFile(path.join(DATA,'kirimdev.json'),JSON.stringify({lines:{'cove-support':{phoneNumberId:'111',persona:'Rory',business:'Cove',mode,debounceSec:0,testers,...LOCALE,...(pauseMin!==undefined?{pauseMin}:{}),...extra,
   autoPhotos:{pattern:'rekomendasi utama',tags:['[FOTO: Kit.jpeg]']}},
   'bay-sales':{phoneNumberId:'222',persona:'Gino',business:'Baylabs',mode:'test',debounceSec:0,testers:[{who:'Ari',conversationId:'cnv_B'}]}}}));
  await writeFile(path.join(DATA,'kirimdev-secrets.json'),JSON.stringify({'cove-support':{id:'wbs_1',secrets:[SECRET]},'bay-sales':{id:'wbs_2',secrets:[SECRET],events:['message.received','message.sent']}}));
@@ -91,7 +91,7 @@ async function make({mode='test',agentSays='Halo kak 😊',testers=[{who:'Ari',c
   return {ok:false,status:404,json:async()=>({})}};
  // fake timers: the burst window only closes when the test calls settle(), never because the box was slow
  const due=new Map();let tid=0;const setTimer=(fn)=>{const i=++tid;due.set(i,fn);return i},clearTimer=i=>{due.delete(i)};
- const k=createKirimdev({DATA,WORK,setTimer,clearTimer,apiKey:async()=>'kdv_test',PUBLIC_URL:'https://ai.example',fetchImpl,wait:async()=>{},log:m=>process.env.KDLOG&&console.log(m),now:()=>clock,echoWait:0,
+ const k=createKirimdev({DATA,WORK,setTimer,clearTimer,apiKey:async()=>'kdv_test',PUBLIC_URL:'https://ai.example',fetchImpl,wait:async()=>{},log:m=>process.env.KDLOG&&console.log(m),now:()=>clock,echoWait:0,paidSince,
   teamGroup:async a=>a==='cove-support'?team:null,
   runAgent:async(a,q,context)=>{asked.push([a,q,context]);return typeof agentSays==='function'?agentSays(q,context):agentSays},telegram:async(...x)=>{posts.push(x);return tg.ok?4242:false},tell:async t=>{told.push(t)}});
  const post=(raw,h={},agent='cove-support')=>k.receive(agent,{'x-kirim-signature':sign(raw,Math.floor(clock/1000)),'x-kirim-event':'message.received',...h},Buffer.from(raw));
@@ -267,3 +267,33 @@ test('[FOTO: name] finds a Tripay link whose name sits after ?f= (regression i95
  await writeFile(path.join(t.DATA,'work','cove-support','media','staff','urls.txt'),'https://media.kirimdev.com/x/Kit.jpeg\nhttps://tripay.co.id/qr/show?f=/qris-BM-1794214604-1.png\n');
  await t.post(meta('628123','bayar'));await t.settle();
  assert.deepEqual(t.sent.map(b=>b.type),['text','image']);assert.equal(t.sent[1].image.link,'https://tripay.co.id/qr/show')});  // the ?f= marker is only for matching; WhatsApp gets Tripay's own link (if734729a)
+
+// wait-then-resume after a handoff (11 Nov 2026, taken into git from fixer issue i87fbcb7b)
+test('after a handoff with no team reply in humanWaitMin minutes, the agent continues with the wait text and does not hand off again',async()=>{
+ const t=await make({agentSays:q=>/NOTE: you handed/.test(q)?'Untuk COA bisa saya bantu kak':'HANDOFF: wants a person',extra:{humanWaitMin:5,humanWaitText:'Halo Kak, tim kami masih sibuk 🙏'}});
+ await t.post(meta('628123','mau ngomong sama orang'));await t.settle();
+ assert.equal(t.posts.length,1);assert.match(t.sent.at(-1).text.body,/teruskan ke tim/);const n=t.sent.length;
+ t.later(4*60e3);await t.k._tick();await t.settle();assert.equal(t.sent.length,n,'not before 5 minutes');
+ t.later(2*60e3);await t.k._tick();await t.settle();
+ assert.equal(t.posts.length,1,'no second handoff');assert.equal(t.sent[n].text.body,'Halo Kak, tim kami masih sibuk 🙏');assert.match(t.sent[n+1].text.body,/COA/);
+ t.later(14*60e3);await t.k._tick();await t.settle();assert.equal(t.sent.length,n+2,'resumes once')});
+test('a HANDOFF reply on resume is dropped: only the wait text goes out',async()=>{
+ const t=await make({agentSays:'HANDOFF: still wants a person',extra:{humanWaitText:'W'}});
+ await t.post(meta('628123','orang dong'));await t.settle();const n=t.sent.length;
+ t.later(6*60e3);await t.k._tick();await t.settle();assert.equal(t.posts.length,1);assert.deepEqual(t.sent.slice(n).map(b=>b.text.body),['W'])});
+test('a team reply after the handoff cancels the resume; humanWaitMin 0 never resumes',async()=>{for(const [wm,team] of [[5,true],[0,false]]){
+ const t=await make({mode:'live',agentSays:'HANDOFF: x',extra:{humanWaitMin:wm,humanWaitText:'W'}});
+ await t.post(meta('628999','orang dong','w'+wm,'cnv_Z'));await t.settle();const n=t.sent.length;
+ if(team){t.later(60e3);await t.postSent(sentEv('628999','app','msg_team','cnv_Z'));assert.deepEqual((await t.k._state()).waits,{})}
+ t.later(30*60e3);await t.k._tick();await t.settle();assert.equal(t.sent.length,n,'no resume (wm='+wm+')')}});
+test('whatsapp_reply relaying the team answer cancels the resume',async()=>{
+ const t=await make({agentSays:'HANDOFF: x',extra:{humanWaitText:'W'}});
+ await t.post(meta('628123','orang dong'));await t.settle();assert.equal(Object.keys((await t.k._state()).waits).length,1);
+ await t.k.reply('cove-support','628123','Jawaban tim: ada');const n=t.sent.length;assert.deepEqual((await t.k._state()).waits,{});
+ t.later(10*60e3);await t.k._tick();await t.settle();assert.equal(t.sent.length,n)});
+
+// a payment from a recent earlier run counts for the guard (11 Nov 2026, taken into git from the box's 10 Nov drift)
+test('a reply pointing back to a QRIS made in an earlier run is not held; the window is paymentRecentMin',async()=>{for(const [min,held] of [[undefined,false],[5,true]]){
+ const paidAt=Date.now()-10*60e3;const t=await make({mode:'live',agentSays:'QRIS sudah saya kirim ya kak, silakan dicek',extra:min===undefined?{}:{paymentRecentMin:min},paidSince:async(a,num,since)=>since<=paidAt});
+ await t.post(meta('628777','sudah ada qrisnya?',undefined,'cnv_Q'));await t.settle();
+ assert.equal(t.sent.some(b=>/QRIS sudah saya kirim/.test(b.text?.body||'')),!held,'paymentRecentMin='+min)}});

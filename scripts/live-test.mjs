@@ -18,6 +18,8 @@ import {randomBytes} from 'node:crypto';
 
 const HOME=homedir(),HERMES_HOME=(process.env.HERMES_HOME||path.join(HOME,'.hermes')).replace(/^~(?=\/|$)/,HOME);
 const DATA=path.resolve(process.env.UI_DATA_DIR||path.join(HOME,'apps','hermes-ui-data'));
+// run from a shell (box-live.sh, the fixer) the engine's gateway key and dashboard token are not in the environment: read them from the engine's own .env like the app does (else every call answers 401)
+{const {engineKeys}=await import('../app/install.mjs');const k=engineKeys();for(const n of ['API_SERVER_KEY','HERMES_DASHBOARD_SESSION_TOKEN'])if(!process.env[n]&&k[n])process.env[n]=k[n]}
 export const TEST_AGENT=process.env.LIVE_TEST_AGENT||'aq-livetest';
 const DASH=(process.env.HERMES_DASH||'http://127.0.0.1:9119').replace(/\/$/,''),GATE=(process.env.HERMES_API||'http://127.0.0.1:8642').replace(/\/$/,'');
 const UI='http://127.0.0.1:'+(Number(process.env.UI_PORT)||4400);

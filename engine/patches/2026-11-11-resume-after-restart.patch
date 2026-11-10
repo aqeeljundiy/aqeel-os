@@ -1,0 +1,15 @@
+--- a/tools/process_registry_notifications.py
++++ b/tools/process_registry_notifications.py
+@@ -198,7 +198,11 @@
+     if not evt.get("last_known_status"):
+         return []
+     lines = [f"Last persisted unit status: {evt['last_known_status']} (before owner exit; not current liveness). "
+-             "Unrecorded outcomes remain unknown; inspect evidence before retrying side effects."]
++             "Unrecorded outcomes remain unknown; inspect evidence before retrying side effects.",
++             "This work was cut off by a restart and nobody else will pick it up. Act on it NOW in this turn: "
++             "check the transcripts and working tree below, resume each unfinished task where it stopped "
++             "(re-dispatch it; do not redo work that is already committed, merged or pushed), and tell the "
++             "person in this chat what was cut off and what you resumed - or why you did not."]
+     tails = evt.get("transcript_tails") or {}
+     for index, path in (evt.get("task_transcripts") or {}).items():
+         lines.append(f"Task index {index} transcript (may be incomplete): {path}")

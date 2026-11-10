@@ -19,6 +19,9 @@
 //                    normally posted by itself (paid-labels.mjs), so this is for what that could not cover
 //   label_contact    the line's allowed Kirimdev labels on THIS chat's contact only (8 Nov 2026; kirimdev.mjs labelContact
 //                    holds the rules), a few per run, each logged with the run id; never a message to the customer
+//   website_form     THIS chat's own website quiz/form answers from the line's store admin API (kirimdev.json lines.<agent>.websiteForm
+//                    {baseUrl, username, secret, types?, days?}); matched by the run's phone only, never a phone argument
+//                    (10 Nov 2026, made by the fixer on the live box; taken into git 11 Nov after two deploys had removed it)
 // The engine itself never sees a key: the helper reads the keys as the agent's user, outside the model's reach.
 import {readFile,readdir,stat,appendFile,mkdir} from 'node:fs/promises';
 import {randomBytes,timingSafeEqual} from 'node:crypto';
@@ -41,13 +44,14 @@ export function readable(rel){const r=String(rel||'').replace(/^\.\/+/,'');if(!r
  if(/(^|\/)(secrets?|tools|node_modules|tmp|Desktop)(\/|$)/i.test(r)||/\.(bak|orig)|bak-|\.env|key|token|password|secret/i.test(r))return false;
  return /^[\w-]+\.md$/.test(r)||/^(templates|sop|knowledge|rules)\/[\w ./-]+\.(md|txt|json|csv)$/.test(r)||/^media\/[\w ./-]*urls\.txt$/.test(r)}
 // pr: the line's payment setting (kirimdev.json lines.<agent>.payment: {currency, min, max}); none = any whole amount
-export const TOOLS=(pay,pr={},lr={},card=false,orders=false,protocol=false)=>{const allowed=lr.allowed||[],sales=lr.sales||[],ctxFields=orderContextOf(pr).fields,ctxProps=pre=>Object.fromEntries(ctxFields.map(f=>[f.key,{type:'string',maxLength:500,description:pre+f.ask}]));const cur=pr.currency||'',lo=Number(pr.min)||1,hi=Number(pr.max)||1e9,amt=x=>(cur?cur+' ':'')+Number(x).toLocaleString('en-US');return [
+export const TOOLS=(pay,pr={},lr={},card=false,orders=false,protocol=false,form=false)=>{const allowed=lr.allowed||[],sales=lr.sales||[],ctxFields=orderContextOf(pr).fields,ctxProps=pre=>Object.fromEntries(ctxFields.map(f=>[f.key,{type:'string',maxLength:500,description:pre+f.ask}]));const cur=pr.currency||'',lo=Number(pr.min)||1,hi=Number(pr.max)||1e9,amt=x=>(cur?cur+' ':'')+Number(x).toLocaleString('en-US');return [
  {name:'read_sheet',description:'Read your knowledge or rules sheet (read only). method is spreadsheets.values.get, spreadsheets.values.batchGet or spreadsheets.get; params as the Google Sheets API takes them, e.g. {"spreadsheetId":"…","range":"Rules!A1:Z200"}.',
   inputSchema:{type:'object',properties:{method:{type:'string',enum:[...READ_METHODS]},params:{type:'object'}},required:['method','params']},annotations:{readOnlyHint:true}},
  {name:'read_file',description:'Read one of your rule or template files, e.g. DECISIONS.md, BRIEFING.md, templates/ORDER_FORM.md, sop/<name>.md. list_files shows them.',
   inputSchema:{type:'object',properties:{path:{type:'string'}},required:['path']},annotations:{readOnlyHint:true}},
  {name:'list_files',description:'The rule and template files you can read with read_file.',inputSchema:{type:'object',properties:{}},annotations:{readOnlyHint:true}},
  {name:'conversation',description:'This customer\'s latest messages in this Kirimdev chat (newest last). Only this chat.',inputSchema:{type:'object',properties:{limit:{type:'integer',minimum:1,maximum:60}}},annotations:{readOnlyHint:true}},
+ ...(form?[{name:'website_form',description:'The quiz or form THIS customer filled on the website (matched by this chat\'s phone number): their answers, product, and when. Call it on the first message of a new chat, and whenever the customer says they filled the website form, before asking for details again. Only this customer.',inputSchema:{type:'object',properties:{}},annotations:{readOnlyHint:true}}]:[]),
  {name:'past_chats',description:'Search the past customer chats of your own Kirimdev line for how something was answered before.',inputSchema:{type:'object',properties:{query:{type:'string'},limit:{type:'integer'}},required:['query']},annotations:{readOnlyHint:true}},
  ...(allowed.length?[{name:'label_contact',description:'Label THIS customer\'s contact in Kirimdev (the team\'s CRM pipeline), as your label rules say: the stage they reached or a product they asked about. Only these labels: '+allowed.join(', ')+'. Never Customer or S- labels: aqeelOS sets those itself once a payment is confirmed. The customer never sees labels; say nothing about them in your reply.',
   inputSchema:{type:'object',properties:{add:{type:'array',items:{type:'string',enum:allowed},maxItems:4},remove:{type:'array',items:{type:'string',enum:allowed},maxItems:4}}}}]:[]),
@@ -64,8 +68,27 @@ export const TOOLS=(pay,pr={},lr={},card=false,orders=false,protocol=false)=>{co
 export const RUN_FIELD={type:'string',description:'Your run key, exactly as given in your instructions for this chat.'};
 export const withRun=tools=>tools.map(t=>({...t,inputSchema:{...t.inputSchema,properties:{run:RUN_FIELD,...(t.inputSchema?.properties||{})},required:['run',...(t.inputSchema?.required||[]).filter(x=>x!=='run')]}}));
 
-export function createCustomerTools({WORK,DATA,payments=null,ordersOf=async()=>null,payRules=async()=>({}),labelRules=async()=>({}),labelContact=null,googleCall,chatFind,history,runAsAgent,log=m=>console.log(m),now=()=>Date.now(),random=n=>randomBytes(n)}){
+export function createCustomerTools({WORK,DATA,formRules=async()=>null,fetchFn=(...a)=>fetch(...a),payments=null,ordersOf=async()=>null,payRules=async()=>({}),labelRules=async()=>({}),labelContact=null,googleCall,chatFind,history,runAsAgent,log=m=>console.log(m),now=()=>Date.now(),random=n=>randomBytes(n)}){
  const runs=new Map();
+ // website_form: the line's store admin API (settings: formRules(agent) -> {baseUrl, username, secret, types, days}); login cached 10 min
+ const formLogins=new Map();
+ const normPhone=x=>{let d=String(x||'').replace(/\D/g,'');if(d.startsWith('0'))d='62'+d.slice(1);return d};
+ async function websiteForm(agent,phone){const f=await formRules(agent).catch(()=>null);if(!f?.baseUrl||!f?.username||!f?.secret)return {isError:true,text:'This line has no website form source.'};
+  if(!/^[A-Za-z0-9_]+$/.test(String(f.secret)))return {isError:true,text:'The website form setting is wrong.'};
+  const me=normPhone(phone);if(me.length<8)return {isError:true,text:'This chat has no customer number.'};
+  const base=String(f.baseUrl).replace(/\/+$/,''),key=agent+' '+base;
+  const login=async()=>{const pw=(await readFile(path.join(WORK,agent,'.secrets',String(f.secret)),'utf8')).trim();
+   const x=await fetchFn(base+'/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username:f.username,password:pw})});
+   if(!x.ok)throw new Error('store login failed ('+x.status+')');const ck=(typeof x.headers.getSetCookie==='function'?x.headers.getSetCookie():[x.headers.get('set-cookie')||'']).map(c=>String(c).split(';')[0]).filter(Boolean).join('; ');
+   const v={cookie:ck,at:now()};formLogins.set(key,v);return v};
+  let l=formLogins.get(key);if(!l||now()-l.at>10*60e3)l=await login();
+  const get=c=>fetchFn(base+'/api/admin/business?days='+(Number(f.days)||30),{headers:{cookie:c.cookie,accept:'application/json'}});
+  let x=await get(l);if(x.status===401||x.status===403){l=await login();x=await get(l)}if(!x.ok)throw new Error('store answered '+x.status);
+  const d=await x.json(),ids=new Set((d.contacts||[]).filter(c=>c&&normPhone(c.phone)===me).map(c=>c.id));
+  const types=Array.isArray(f.types)&&f.types.length?f.types:['program_quiz','consultation_submitted'];
+  const acts=(d.activities||[]).filter(a=>a&&ids.has(a.contactId)&&types.includes(a.type)).sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt))).slice(0,5);
+  if(!acts.length)return {text:'No website quiz or form from this customer\'s number in the last '+(Number(f.days)||30)+' days. If they say they filled it, they may have used another number: ask them for the answers.'};
+  return {text:clip(acts.map(a=>[String(a.createdAt||'').slice(0,16).replace('T',' ')+' UTC · '+a.type+(a.product?' · '+a.product:'')+(a.source||a.page?' · '+(a.source||a.page):''),String(a.message||'')].join('\n')).join('\n\n'),8000)}}
  // the agent's payment helper: the line's setting (kirimdev.json lines.<agent>.payment.helper {path, style}), else the
  // usual names in its workspace. style "send": it sends the payment itself (qris|va amounts --name --to <number>);
  // style "picture": it prints [FOTO: …] lines for the reply (amounts --name --phone <number>)
@@ -93,6 +116,7 @@ export function createCustomerTools({WORK,DATA,payments=null,ordersOf=async()=>n
   try{
    if(name==='read_sheet'){const m=String(args.method||'');if(!READ_METHODS.has(m))return {isError:true,text:'Only reading: '+[...READ_METHODS].join(', ')+'.'};
     const x=await googleCall(agent,{service:'sheets',version:'v4',method:m,params:args.params||{}});return {isError:x.status!==200,text:clip(JSON.stringify(x.json),60000)}}
+   if(name==='website_form'){const x=await websiteForm(agent,r.phone);log('customer run '+agent+' '+r.id+': website_form '+(x.isError?'failed':'read'));return x}
    if(name==='list_files')return {text:(await files(agent)).join('\n')||'No rule files.'};
    if(name==='read_file'){const rel=String(args.path||'').replace(/^\/home\/[^/]+\/workspaces\/[^/]+\//,'');if(!readable(rel))return {isError:true,text:'Not a rule or template file you can read here. list_files shows them.'};
     const t=await readFile(path.join(WORK,agent,rel),'utf8').catch(()=>null);return t==null?{isError:true,text:'No such file.'}:{text:clip(t,60000)}}
@@ -156,7 +180,7 @@ export function createCustomerTools({WORK,DATA,payments=null,ordersOf=async()=>n
   // outside a customer run (the engine's own connection) the list is empty: these tools exist only inside a run
   // listed on every connection (7 Nov 2026): the engine's gateway runs customer turns over its own shared connection, which
   // never carries a run's header, so the key travels in the run's instructions and in each call (run). No key, no answer.
-  if(msg.method==='tools/list')return rpc({tools:withRun(TOOLS(await payKind(agent),await payRules(agent).catch(()=>({}))||{},labelContact?await labelRules(agent).catch(()=>({}))||{}:{},!!await cardOf(agent),!!await ordersOf(agent).catch(()=>null),!!await protocolOf(agent)))});
+  if(msg.method==='tools/list')return rpc({tools:withRun(TOOLS(await payKind(agent),await payRules(agent).catch(()=>({}))||{},labelContact?await labelRules(agent).catch(()=>({}))||{}:{},!!await cardOf(agent),!!await ordersOf(agent).catch(()=>null),!!await protocolOf(agent),!!(await formRules(agent).catch(()=>null))?.baseUrl))});
   if(msg.method!=='tools/call')return {status:200,body:{jsonrpc:'2.0',id:msg.id,error:{code:-32601,message:'Method not found'}}};
   const args=msg.params?.arguments&&typeof msg.params.arguments==='object'?{...msg.params.arguments}:{};const key=typeof args.run==='string'&&args.run?args.run:token;delete args.run;
   const x=await call(agent,key,String(msg.params?.name||''),args);

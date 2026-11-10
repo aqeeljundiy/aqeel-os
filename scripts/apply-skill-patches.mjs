@@ -270,6 +270,16 @@ for(const h of homes){const sp=path.join(h,'skills','productivity','google-works
  if(await exists(path.join(E,'.git'))&&await exists(pf)){const g=a=>execFileSync('git',['-C',E,...a],{stdio:'pipe'});
   let inPlace=false;try{g(['apply','--reverse','--check',pf]);inPlace=true}catch{}
   if(!inPlace){try{g(['apply','--check',pf]);g(['apply',pf]);changed++;console.log('engine: shared skills in place')}catch{console.warn('! engine: shared skills patch does not fit this engine version; see engine/patches/README.md')}}}}
+// 17b) Every later engine fix in engine/patches (named <date>-<what>.patch; 11 Nov 2026: fixes the fixer had made only
+//     on a live engine, which the next engine update would have dropped). Same all-or-nothing git apply, one patch at a
+//     time: skipped when already in, a warning when upstream changed.
+{const {execFileSync}=await import('node:child_process');const E=path.join(HOME,'hermes-agent');
+ const D=path.join(path.dirname(new URL(import.meta.url).pathname),'..','engine','patches');
+ const OWN=new Set(['2026-11-06-tonight.patch','2026-11-06-shared-skills.patch']);
+ const list=(await readdir(D).catch(()=>[])).filter(f=>/^\d{4}-\d\d-\d\d-[\w-]+\.patch$/.test(f)&&!OWN.has(f)).sort();
+ if(list.length&&await exists(path.join(E,'.git'))){const g=a=>execFileSync('git',['-C',E,...a],{stdio:'pipe'});
+  for(const f of list){const pf=path.join(D,f);let inPlace=false;try{g(['apply','--reverse','--check',pf]);inPlace=true}catch{}
+   if(!inPlace){try{g(['apply','--check',pf]);g(['apply',pf]);changed++;console.log('engine: '+f+' in place')}catch{console.warn('! engine: '+f+' does not fit this engine version; see engine/patches/README.md')}}}}}
 // 18) Kirimdev is not WhatsApp (the owner, 7 Nov 2026: "Kirimdev is WhatsApp CRM. Kirimdev we only use API key"). The
 //     support agents' skill called Kirimdev lines "WhatsApp" and sent people to Channels > Connections for them; the
 //     agents' own WhatsApp channel (the engine's WhatsApp platform) is something else. Every copy gets a short note on
