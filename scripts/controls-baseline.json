@@ -15,6 +15,9 @@
   "all /automations/webhooks": [
    "button: New webhook"
   ],
+  "all /automations/selfruns": [
+   "button: Add a trusted person"
+  ],
   "all /automations/n8n": [
    "button: All workflows"
   ],
@@ -28,6 +31,9 @@
    "tab: Connections",
    "tab: Who can message"
   ],
+  "all /channels/kirimdev": [
+   "button: Check now"
+  ],
   "all /abilities/skills": [
    "button: Learn a skill",
    "button: New skill",
@@ -35,6 +41,16 @@
    "tab: Find more skills",
    "tab: Installed",
    "tab: Tool groups"
+  ],
+  "all /abilities/connections": [
+   "button: Add",
+   "button: Check now",
+   "tab: All",
+   "tab: Apps",
+   "tab: Keys",
+   "tab: Logins",
+   "tab: Plugins",
+   "tab: Skills"
   ],
   "all /abilities/mcp": [
    "button: Add",
@@ -45,14 +61,8 @@
    "tab: Plugins",
    "tab: Skills"
   ],
-  "all /abilities/connections": [
-   "button: Add",
-   "button: Check now",
-   "tab: All",
-   "tab: Apps",
-   "tab: Logins",
-   "tab: Plugins",
-   "tab: Skills"
+  "all /abilities/logins": [
+   "button: Check now"
   ],
   "all /abilities/plugins": [
    "button: Rescan",
@@ -74,11 +84,11 @@
    "button: Invite someone"
   ],
   "all /system/usage": [
+   "button: $ USD",
    "button: 30 days",
    "button: 7 days",
    "button: 90 days",
    "button: Refresh",
-   "button: Rp IDR",
    "tab: 30 days",
    "tab: 7 days",
    "tab: 90 days"
@@ -86,6 +96,8 @@
   "all /system/health": [
    "button: Engine console"
   ],
+  "all /system/activity": [],
+  "all /system/teams": [],
   "all /system/logs": [
    "button: Refresh",
    "tab: Agent",
@@ -117,6 +129,9 @@
   "one /automations/webhooks": [
    "button: New webhook"
   ],
+  "one /automations/selfruns": [
+   "button: Add a trusted person"
+  ],
   "one /automations/n8n": [
    "button: All workflows"
   ],
@@ -130,6 +145,9 @@
    "tab: Connections",
    "tab: Who can message"
   ],
+  "one /channels/kirimdev": [
+   "button: Check now"
+  ],
   "one /abilities/skills": [
    "button: Learn a skill",
    "button: New skill",
@@ -137,6 +155,16 @@
    "tab: Find more skills",
    "tab: Installed",
    "tab: Tool groups"
+  ],
+  "one /abilities/connections": [
+   "button: Add",
+   "button: Check now",
+   "tab: All",
+   "tab: Apps",
+   "tab: Keys",
+   "tab: Logins",
+   "tab: Plugins",
+   "tab: Skills"
   ],
   "one /abilities/mcp": [
    "button: Add",
@@ -147,14 +175,8 @@
    "tab: Plugins",
    "tab: Skills"
   ],
-  "one /abilities/connections": [
-   "button: Add",
-   "button: Check now",
-   "tab: All",
-   "tab: Apps",
-   "tab: Logins",
-   "tab: Plugins",
-   "tab: Skills"
+  "one /abilities/logins": [
+   "button: Check now"
   ],
   "one /abilities/plugins": [
    "button: Rescan",
@@ -176,11 +198,11 @@
    "button: Invite someone"
   ],
   "one /system/usage": [
+   "button: $ USD",
    "button: 30 days",
    "button: 7 days",
    "button: 90 days",
    "button: Refresh",
-   "button: Rp IDR",
    "tab: 30 days",
    "tab: 7 days",
    "tab: 90 days"
@@ -188,6 +210,8 @@
   "one /system/health": [
    "button: Engine console"
   ],
+  "one /system/activity": [],
+  "one /system/teams": [],
   "one /system/logs": [
    "button: Refresh",
    "tab: Agent",
@@ -205,48 +229,14 @@
   ]
  },
  "member": {
+  "all /agents/profiles": [],
   "all /code/code": [],
-  "all /agents/profiles": [
-   "button: New agent"
-  ],
-  "all /automations/schedules": [
-   "button: New schedule"
-  ],
-  "all /abilities/skills": [
-   "button: Learn a skill",
-   "button: New skill",
-   "button: Update all",
-   "tab: Find more skills",
-   "tab: Installed",
-   "tab: Tool groups"
-  ],
-  "all /abilities/connections": [
-   "button: Add",
-   "button: Check now"
-  ],
-  "all /abilities/files": [
-   "button: New agent"
-  ],
-  "one /code/code": [],
-  "one /agents/profiles": [
-   "button: New agent"
-  ],
-  "one /automations/schedules": [
-   "button: New schedule"
-  ],
-  "one /abilities/skills": [
-   "button: Learn a skill",
-   "button: New skill",
-   "button: Update all"
-  ],
-  "one /abilities/connections": [
-   "button: Add",
-   "button: Check now"
-  ],
-  "one /abilities/files": [
-   "button: New agent"
-  ],
+  "all /automations/schedules": [],
+  "all /abilities/skills": [],
+  "all /abilities/connections": [],
+  "all /abilities/files": [],
   "all /models/usage": [
+   "button: $ USD",
    "button: 30 days",
    "button: 7 days",
    "button: 90 days",
@@ -254,7 +244,14 @@
    "tab: 7 days",
    "tab: 90 days"
   ],
+  "one /agents/profiles": [],
+  "one /code/code": [],
+  "one /automations/schedules": [],
+  "one /abilities/skills": [],
+  "one /abilities/connections": [],
+  "one /abilities/files": [],
   "one /models/usage": [
+   "button: $ USD",
    "button: 30 days",
    "button: 7 days",
    "button: 90 days",
