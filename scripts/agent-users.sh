@@ -87,6 +87,22 @@ port_of(){
   echo "$line"
 }
 
+# Stops everything an earlier start of this agent's screen left running: the launcher shells (and the Chrome restart
+# loop they fork), the display, the desktop and its Chrome. Without this a screen whose socket went missing while its
+# display still ran was started again every 30 s: each new display failed ("X server already running") and left one
+# more desktop behind (11 Nov 2026: 49 desktops each for continue-support and biomarkers-support, about 9 GB).
+# Only the screen's own processes: the agent's commands and tasks run as the same user and are left alone.
+screen_kill(){
+  local u=$1 disp=$2 ws=$3 sig pats
+  pats=("^bash -c[[:space:]]+cd '$ws'; export HOME='$ws' DISPLAY=" "^(dbus-launch --exit-with-session )?bash -c xfwm4 " "^Xvnc :$disp( |\$)" "/xfce4/" "^(/usr/bin/)?(xfwm4|xfdesktop|xfce4-panel|xfsettingsd|dbus-daemon|dbus-launch)( |\$)" "--user-data-dir=$ws/\\.browser( |\$)")
+  pgrep -u "$u" -f "^Xvnc :$disp( |\$)|xfce4-panel|--user-data-dir=$ws/\\.browser" >/dev/null 2>&1 || return 0
+  for sig in TERM KILL; do
+    for p in "${pats[@]}"; do pkill -"$sig" -u "$u" -f -- "$p" 2>/dev/null; done
+    sleep 1
+  done
+  echo "screen for ${ws##*/}: stopped what an earlier start left running"
+}
+
 screen_up(){
   local n=$1 u=${2} ws="$HOMEC/workspaces/$1" sd="$HOMEC/workspaces/$1/.screen" line disp cdp
   line=$(port_of "$n"); disp=$(echo "$line" | cut -d' ' -f2); cdp=$(echo "$line" | cut -d' ' -f3)
@@ -97,6 +113,7 @@ screen_up(){
   if [ -d "$prof" ] && [ ! -L "$prof/bot-desktop" ]; then rm -rf "$prof/bot-desktop.engine"; [ -e "$prof/bot-desktop" ] && mv "$prof/bot-desktop" "$prof/bot-desktop.engine"; ln -s "$sd" "$prof/bot-desktop"; chown -h "$OWNER:$OWNER" "$prof/bot-desktop"; fi
   # already running: done
   if [ -f "$sd/launcher.pid" ] && kill -0 "$(cat "$sd/launcher.pid" 2>/dev/null)" 2>/dev/null && [ -S "$sd/rfb.sock" ]; then return 0; fi
+  screen_kill "$u" "$disp" "$ws"
   mkdir -p "$sd"; chown "$u:$OWNER" "$sd"; chmod 2770 "$sd"
   rm -f "$sd/rfb.sock" "/tmp/.X$disp-lock" "/tmp/.X11-unix/X$disp"
   # a lock left by the Chrome of an earlier box (the box was rebuilt, so another host name) makes Chrome refuse to start
