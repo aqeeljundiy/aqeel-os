@@ -56,6 +56,13 @@ test('an agent a member made is private: an admin cannot open it until it is sha
  assert.equal((await call(rina,'PUT','/ui/agents/rinabot/share',{user:admin.id,level:'chat'})).status,200);
  assert.equal(users.gate(admin,'/gapi/p/rinabot/api/sessions','POST',Q,'rinabot'),null)});
 
+test('/ui/me names a member\'s lead agent only once it is theirs, so pages can fall back to it',async()=>{
+ const rina=await users.login('rina','rina-pass-123');
+ await users.setLead(rina.id,'rina-lead');assert.equal((await call(rina,'GET','/ui/me')).body.lead,null,'not made yet: not named');
+ await users.created(rina,'rina-lead');const me=(await call(rina,'GET','/ui/me')).body;assert.equal(me.lead,'rina-lead');assert.equal(me.agents['rina-lead'],'owner');
+ assert.equal(users.gate(rina,'/hapi/skills','GET',new URLSearchParams({profile:'rina-lead'}),'rina-lead'),null,'the page asks for its lead: allowed');
+ assert.equal(users.gate(rina,'/hapi/skills','GET',new URLSearchParams({profile:'default'}),'default')?.status,403,'the main agent stays closed')});
+
 test('the password change needs the current one',async()=>{
  const owner=await users.user('owner');
  assert.equal((await call(owner,'PUT','/ui/me/password',{current:'nope',next:'new-owner-pass'})).status,400);

@@ -18,6 +18,12 @@ async function loadMe(){
  applyRole();
  if(!S.me.admin&&typeof FILE_HOME!=='undefined')FILE_HOME=S.me.home;
 }
+// A member whose remembered agent is not theirs (or none yet): their own lead agent, else the first one shared with them.
+// '' is the main agent, also when nothing is shared yet (noAgent says which).
+function memberAgent(){const l=S.me?.agents||{},n=S.me?.lead&&l[S.me.lead]?S.me.lead:Object.keys(l)[0]||'';return n==='default'?'':n}
+// a member with no agent they may use: their lead is still being made, or nothing is shared with them yet
+const noAgent=()=>!!S.me&&S.me.admin===false&&!Object.keys(S.me.agents||{}).length;
+const NO_AGENT_TEXT='No agent is shared with you yet. Ask an admin to share one. This page updates by itself.';
 // Members see Chat and their own Files; admins get the People page.
 // The full navigation is copied once, so each call (switching agent or account) starts from all sections again.
 let ALL_SECTIONS=null;
@@ -29,9 +35,10 @@ function applyRole(){
  const has=k=>(S.me?.caps||[]).includes(k)||owns&&['schedules','skills','mcp'].includes(k),editsAny=Object.values(S.me?.agents||{}).some(l=>l!=='chat');
  const pg=(sec,id,extra)=>({...SECTIONS.find(s=>s.id===sec).pages.find(p=>p.id===id),...extra});
  const out=[SECTIONS.find(s=>s.id==='chat')];
+ // the same order as admins' menu: Chat, Agents, Code, Automations, Abilities, Models, Help
+ if(has('create')||editsAny)out.push({id:'agents',label:'Agents',icon:'user',pages:[pg('agents','profiles',{desc:'Agents you can use and change.'})]});
  // Code on their own computer, with the agents shared with them (online projects stay with admins: the AI box has one Linux user)
  {const c=SECTIONS.find(s=>s.id==='code');if(c)out.push(c)}
- if(has('create')||editsAny)out.push({id:'agents',label:'Agents',icon:'user',pages:[pg('agents','profiles',{desc:'Agents you can use and change.'})]});
  if(has('schedules'))out.push({id:'automations',label:'Automations',icon:'zap',pages:[pg('automations','schedules')]});
  out.push({id:'abilities',label:'Abilities',icon:'puzzle',pages:[...(has('skills')?[pg('abilities','skills')]:[]),...(has('mcp')?[pg('abilities',SECTIONS.find(x=>x.id==='abilities')?.pages.some(q=>q.id==='connections')?'connections':'mcp')]:[])   /* Connected apps became Connections (1 Nov 2026): members with the apps right get the new page */,pg('agents','files',{desc:'Your own folder. Your agents can read what you put here.'})]});
  // their Usage page: the same page as admins', for them only, with how full each AI account is (1 Nov 2026; it was called Accounts)
@@ -156,6 +163,8 @@ PAGES.profiles=async(p,el)=>{const stale=pageTok(el);
  const own=await UI('/ui/agents?names='+encodeURIComponent(Pages._profiles.map(x=>x.name).join(','))).catch(()=>({}));if(stale())return;Pages._own=own;
  const list=Pages._profiles.filter(x=>own[x.name]||S.me?.admin!==false);
  setActions(`<span class="head-count">${esc(plural(list.length,'agent'))}</span>`+(S.me?.admin===false&&!(S.me.caps||[]).includes('create')?'':`<button class="primary" data-act="prof-new">${icon('plus',16)}New agent</button>`));
+ // nothing listed (never a blank page): a member's own agent may still be getting ready
+ if(!list.length){el.innerHTML=emptyBox('No agents yet',S.me?.admin===false?'Agents shared with you show here. A new one can take a minute to appear. Ask an admin if none does.':'Make your first one with New agent.');return}
  el.innerHTML=`<div class="grid-cards">${list.map((x,i)=>{const id=ident(x.name),o=own[x.name]||{},locked=o.access===null&&o.private;
   return `<div class="card tile agent-card ${locked?'locked':''}" ${st(i)} ${locked?`data-act="agent-locked" data-owner="${esc(o.owner?.name||'')}"`:`data-act="agent-card" tabindex="0" title="Chat with ${esc(id.name)}"`} data-name="${esc(x.name)}">
   <div class="tile-top">${agentAvatar(x.name,40,{plain:locked,title:false})}<div style="min-width:0"><h3>${esc(id.name)}</h3><span style="font-size:12.5px;color:var(--muted)">${locked?'Private':esc(id.title||'Agent')+' · '+esc(modelLabel(x.model))+' · '+plural(x.skill_count||0,'skill')}</span></div>${locked?`<span class="chip">${icon('lock',12)}Private</span>`:''}</div>
