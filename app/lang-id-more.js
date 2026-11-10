@@ -1361,3 +1361,263 @@ Object.assign(ID,{'Edit access':'Atur akses','Edit your profile':'Ubah profilmu'
  'Suspended':'Ditangguhkan',"Suspended. They can't sign in.":'Ditangguhkan. Mereka tidak bisa masuk.','Their own settings':'Pengaturan sendiri','Role changed':'Peran diganti','Pick at least one model':'Pilih minimal satu model','All models':'Semua model',
  '50k tokens a day':'50 rb token sehari','200k tokens a day':'200 rb token sehari','1M tokens a day':'1 jt token sehari','5M tokens a day':'5 jt token sehari'});
 ID_PATTERNS.push([/^(\d+) permissions?$/,'$1 izin'],[/^(\d+) agents$/,'$1 agen'],[/^seen (.+)$/,'terlihat $1'],[/^Every agent \((\d+)\)$/,'Semua agen ($1)'],[/^Role of (.+)$/,'Peran $1'],[/^Settings for (.+)$/,'Pengaturan untuk $1']);
+// 10 Nov 2026: sharing, Connections-style lists, run status, audit wording
+// (the Share dialog, Connections/Skills/Plugins/Keys/n8n lists, the run status bar, Health/Activity plain titles,
+// Memory, Settings, Teams, Usage, Agents/People and schedules in words)
+Object.assign(ID,{
+ // run status bar (run-status.js)
+ 'Waiting for you':'Menunggu kamu','Queued':'Dalam antrean','Reconnecting':'Menyambung ulang','Checklist':'Daftar periksa',
+ 'The reply may still be running on the server.':'Balasannya mungkin masih berjalan di server.','Picking the reply up again.':'Mengambil balasannya lagi.',
+ '1 message waiting to send.':'1 pesan menunggu dikirim.','Sending your message.':'Mengirim pesanmu.',
+ 'Approve or decline the request below.':'Setujui atau tolak permintaan di bawah.','It needs something from you below.':'Ia butuh sesuatu darimu di bawah.',
+ 'It may be stuck.':'Mungkin macet.','Long steps can take a while.':'Langkah yang panjang bisa makan waktu.','Writing the reply':'Menulis balasan',
+ 'Stopped with a problem':'Berhenti karena masalah',
+ 'Reading a file':'Membaca file','Editing a file':'Mengedit file','Searching files':'Mencari file','Running a command':'Menjalankan perintah',
+ 'Checking a running command':'Mengecek perintah yang berjalan','Running code':'Menjalankan kode','Searching the web':'Mencari di web','Reading a web page':'Membaca halaman web',
+ 'Searching past chats':'Mencari di obrolan lama','Checking memory':'Mengecek memori','Reading a skill':'Membaca keahlian','Looking through skills':'Melihat-lihat keahlian',
+ 'Updating a skill':'Memperbarui keahlian','Handing part of this to a helper':'Menyerahkan sebagian ke pembantu','Updating the checklist':'Memperbarui daftar periksa',
+ 'Looking at an image':'Melihat gambar','Making an image':'Membuat gambar','Making audio':'Membuat audio','Sending a message':'Mengirim pesan',
+ 'Asking a question':'Mengajukan pertanyaan','Updating a schedule':'Memperbarui jadwal','Using the browser':'Memakai browser',
+ 'Using your browser':'Memakai browser kamu','Using the AI box screen':'Memakai layar server AI',
+ // the "Who can use" Share dialog (access-block.js, access.js)
+ 'Who has access':'Siapa yang punya akses','General access':'Akses umum','Add agents':'Tambah agen','Add agent':'Tambah agen','Add people':'Tambah orang',
+ 'Make owner':'Jadikan pemilik','Can use':'Bisa memakai','Nobody matches.':'Tidak ada yang cocok.','Nobody yet.':'Belum ada siapa pun.',
+ 'Everyone has access already':'Semua sudah punya akses','Every other agent can use it too.':'Semua agen lain juga bisa memakainya.',
+ 'Only the agents above':'Hanya agen di atas','Every agent, including new ones':'Semua agen, termasuk yang baru','Nothing changes.':'Tidak ada yang berubah.',
+ 'Main agent':'Agen utama','Main agent only':'Hanya agen utama','The main agent':'Agen utama','Built it':'Pembuatnya','needs sign-in':'perlu masuk',
+ 'Who can use':'Siapa yang bisa memakai','Who can use it':'Siapa yang bisa memakainya',
+ 'The main agent can always use every skill.':'Agen utama selalu bisa memakai semua keahlian.',
+ 'A chat bot answers as one agent only, so it can’t be shared.':'Bot obrolan hanya menjawab sebagai satu agen, jadi tidak bisa dibagikan.',
+ 'It works straight away.':'Langsung berfungsi.','The agents restart by themselves once nobody is mid-reply.':'Agen dimulai ulang sendiri begitu tidak ada yang sedang membalas.',
+ 'Agents they can use':'Agen yang bisa mereka pakai','None yet. Type a name above to add one.':'Belum ada. Ketik nama di atas untuk menambahkan.',
+ 'Shared · Can chat':'Dibagikan · Bisa mengobrol','No longer shared':'Tidak dibagikan lagi','Updated':'Diperbarui','Update':'Perbarui',
+ 'They become its owner. You keep Can edit.':'Mereka menjadi pemiliknya. Kamu tetap Bisa mengubah.','Give it away':'Serahkan',
+ 'To hand the agent over, choose Make owner next to a person; you keep Can edit.':'Untuk menyerahkan agen, pilih Jadikan pemilik di samping orangnya; kamu tetap Bisa mengubah.',
+ // Connections, Skills, Plugins, Keys: one list each (connections.js, unified-lists.js)
+ 'App':'Aplikasi','Key':'Kunci','Login as you':'Masuk sebagai kamu','Channel':'Saluran','Workflows':'Workflow',
+ 'Read':'Baca','Read & draft':'Baca & draf','Full':'Penuh','On':'Aktif','Needs sign-in':'Perlu masuk',
+ 'Look things up and read':'Mencari dan membaca','Also save drafts and comments, never send':'Juga menyimpan draf dan komentar, tidak pernah mengirim',
+ 'Send, post and change things':'Mengirim, memposting, dan mengubah','It uses this':'Ia memakai ini','It has it but leaves it alone':'Ia punya, tapi tidak memakainya',
+ 'It belongs to this agent':'Milik agen ini','Not signed in yet':'Belum masuk','No agent has it yet.':'Belum ada agen yang memilikinya.',
+ 'Each agent keeps its own copy; new agents get this one':'Setiap agen menyimpan salinannya sendiri; agen baru mendapat yang ini',
+ 'AdsPower runs on this agent’s own screen':'AdsPower berjalan di layar agen ini sendiri','It does not belong to one agent':'Tidak dimiliki satu agen',
+ 'It is not tied to one agent':'Tidak terikat ke satu agen','Stays with this agent':'Tetap di agen ini',
+ 'Where it was signed in. Its sign-in goes along when it moves':'Tempat ia masuk. Akun masuknya ikut pindah',
+ 'Open the skill':'Buka keahliannya','Open in Skills':'Buka di Keahlian','Open in Plugins':'Buka di Plugin','Change the value':'Ubah nilainya','Change it under Keys':'Ubah di Kunci',
+ 'This skill is kept for other agents':'Keahlian ini disimpan untuk agen lain','Starts at Read':'Mulai dengan Baca','Same sign-in, no new one':'Akun masuk yang sama, tanpa masuk baru',
+ 'Give it to':'Berikan ke','Has it':'Sudah punya','Gets it first':'Mendapatkannya dulu','Which agent owns it':'Agen mana pemiliknya','Ask':'Minta','Ask for it':'Minta',
+ 'Click a row to see who can use it and change it.':'Klik baris untuk melihat siapa yang bisa memakainya dan mengubahnya.',
+ 'Click a row to see who can use it and to give it to other agents.':'Klik baris untuk melihat siapa yang bisa memakainya dan memberikannya ke agen lain.',
+ 'Click a row to see who can use it.':'Klik baris untuk melihat siapa yang bisa memakainya.',
+ 'Click a row to change which agent it belongs to, who can use it and how much.':'Klik baris untuk mengubah agen pemiliknya, siapa yang bisa memakainya, dan seberapa banyak.',
+ 'You see the agents you use. An admin decides who can use what; you can ask for access from a row.':'Kamu melihat agen yang kamu pakai. Admin menentukan siapa yang bisa memakai apa; kamu bisa meminta akses dari sebuah baris.',
+ 'Added on this OS':'Ditambahkan di OS ini','Built in':'Bawaan','Nothing here matches.':'Tidak ada yang cocok di sini.',
+ 'No plugins added on this OS yet.':'Belum ada plugin yang ditambahkan di OS ini.','No plugins added on this OS.':'Tidak ada plugin yang ditambahkan di OS ini.',
+ 'No skills made on this OS yet. New skill or Learn a skill adds one here.':'Belum ada keahlian yang dibuat di OS ini. Keahlian baru atau Pelajari keahlian menambahkannya di sini.',
+ 'Comes with aqeelOS and is on for every agent. Switch it off for one agent here; it updates with aqeelOS.':'Bawaan aqeelOS dan aktif untuk semua agen. Matikan untuk satu agen di sini; ikut diperbarui bersama aqeelOS.',
+ 'Made on this OS. Yours to change or delete; never shared outside this server.':'Dibuat di OS ini. Bebas kamu ubah atau hapus; tidak pernah dibagikan ke luar server ini.',
+ 'No skills yet':'Belum ada keahlian','Learn a skill or find one under Find more skills.':'Pelajari keahlian atau cari di Cari keahlian lain.','Find more skills':'Cari keahlian lain',
+ 'No plugins turned on':'Belum ada plugin yang menyala','Find one under Browse.':'Cari di Jelajahi.','Search skills':'Cari keahlian','Search plugins':'Cari plugin',
+ 'Search connections':'Cari koneksi','Search connections and agents':'Cari koneksi dan agen',
+ 'Couldn’t load the list of skill.':'Daftar keahlian tidak bisa dimuat.','Couldn’t load the list of plugin.':'Daftar plugin tidak bisa dimuat.','Couldn’t load the list of key.':'Daftar kunci tidak bisa dimuat.',
+ 'Nothing matches “':'Tidak ada yang cocok dengan “','Nobody matches “':'Tidak ada orang yang cocok dengan “',
+ // Keys (unified-lists.js, pages.js)
+ 'Each key belongs to one agent and stays hidden. Click one to see who can use it, change it or remove it.':'Setiap kunci milik satu agen dan tetap tersembunyi. Klik salah satunya untuk melihat siapa yang bisa memakainya, mengubahnya, atau menghapusnya.',
+ 'No keys yet':'Belum ada kunci','Add a key, for example for ElevenLabs or GitHub. Sign-ins to AI services are on Models › AI accounts.':'Tambahkan kunci, misalnya untuk ElevenLabs atau GitHub. Akun masuk layanan AI ada di Model › Akun AI.',
+ 'Add one for a service below, or with Add a key.':'Tambahkan untuk layanan di bawah, atau dengan Tambah kunci.','Account':'Akun','Account unknown':'Akun tidak diketahui',
+ 'Not checked yet.':'Belum dicek.','Checking which account it is…':'Mengecek akun mana ini…','Looking for what uses it…':'Mencari apa yang memakainya…',
+ 'Nothing uses it yet.':'Belum ada yang memakainya.','Not used by anything':'Tidak dipakai apa pun','Add a key for a service':'Tambah kunci untuk layanan',
+ 'Paste a key next to the service it is for. Sign-ins to AI services are on':'Tempel kunci di samping layanannya. Akun masuk layanan AI ada di',
+ 'Models › AI accounts':'Model › Akun AI','Settings › Agent settings':'Pengaturan › Pengaturan agen',
+ 'Kept in this agent’s .env file on the AI box and never shown in full. A channel’s tokens are on':'Disimpan di file .env agen ini di server AI dan tidak pernah ditampilkan utuh. Token saluran ada di',
+ ', other settings on':', pengaturan lain di',
+ // Channels (people.js)
+ 'Every agent’s channels':'Saluran semua agen','Each channel answers as one agent. Click one to move it, check it or change it.':'Setiap saluran menjawab sebagai satu agen. Klik salah satunya untuk memindahkan, mengecek, atau mengubahnya.',
+ 'No channel is connected yet. Set one up below and it shows here for the whole team.':'Belum ada saluran yang terhubung. Siapkan di bawah dan saluran itu muncul di sini untuk seluruh tim.',
+ 'Name and description':'Nama dan deskripsi','No description yet':'Belum ada deskripsi','No description yet.':'Belum ada deskripsi.','Add a description':'Tambah deskripsi',
+ 'Edit name and description':'Ubah nama dan deskripsi','Slack channels':'Saluran Slack','Answers in every channel it is in':'Menjawab di setiap saluran yang diikutinya',
+ 'Who can send through it':'Siapa yang bisa mengirim lewat saluran ini','Can send through it':'Bisa mengirim lewat saluran ini',
+ 'This agent answers it. Its settings, login and approved people go along when it moves':'Agen ini yang menjawabnya. Pengaturan, login, dan orang yang disetujui ikut pindah',
+ 'It stays linked. Pick an agent to answer it again':'Tetap tertaut. Pilih agen untuk menjawabnya lagi','Stays linked, nobody answers it':'Tetap tertaut, tidak ada yang menjawab',
+ 'Check connection':'Cek koneksi','Link a different phone':'Tautkan ponsel lain','Answer it again':'Jawab lagi','Pause':'Jeda','Moving':'Sedang pindah',
+ 'Edit the note':'Ubah catatan','Add a note':'Tambah catatan','Add a note (what it is for)':'Tambah catatan (untuk apa)',
+ 'Remove this WhatsApp':'Hapus WhatsApp ini','Remove this connection':'Hapus koneksi ini','Link again':'Tautkan lagi',
+ 'This WhatsApp was logged out. Link it again with a fresh QR code.':'WhatsApp ini keluar. Tautkan lagi dengan kode QR baru.',
+ 'Settings changed since it connected.':'Pengaturan berubah sejak terhubung.','Reconnect to apply':'Hubungkan ulang untuk menerapkan',
+ 'What is it for? (only you see this)':'Untuk apa? (hanya kamu yang melihat ini)','That channel is gone. Reload the page.':'Saluran itu sudah tidak ada. Muat ulang halaman.',
+ 'Moving after the engine restarts (replies in progress finish first). This list updates by itself.':'Dipindahkan setelah mesin dimulai ulang (balasan yang sedang berjalan selesai dulu). Daftar ini diperbarui sendiri.',
+ 'From the server (free, may land in spam)':'Dari server (gratis, bisa masuk spam)','An extra number':'Nomor tambahan',
+ // n8n spaces (n8n-page.js)
+ 'n8n space':'Ruang n8n','No n8n spaces yet':'Belum ada ruang n8n','Every agent gets its own n8n space within a few minutes.':'Setiap agen mendapat ruang n8n sendiri dalam beberapa menit.',
+ 'Each agent has its own n8n space for its workflows, and you choose who else can use it.':'Setiap agen punya ruang n8n sendiri untuk workflow-nya, dan kamu memilih siapa lagi yang bisa memakainya.',
+ 'Every agent has its own space, so it stays with this agent':'Setiap agen punya ruang sendiri, jadi ini tetap di agen ini',
+ 'Can find and run its workflows':'Bisa menemukan dan menjalankan workflow-nya','Workflows not counted yet':'Workflow belum dihitung','Open all workflows':'Buka semua workflow',
+ 'Agents added here get a second n8n tool that works in this space. They pick it up by themselves once nobody is mid-reply.':'Agen yang ditambahkan di sini mendapat alat n8n kedua yang bekerja di ruang ini. Mereka memakainya sendiri begitu tidak ada yang sedang membalas.',
+ 'Turn on “Available in MCP” in a workflow’s settings so agents can run it.':'Nyalakan “Available in MCP” di pengaturan workflow agar agen bisa menjalankannya.',
+ 'That n8n space is gone. Reload the page.':'Ruang n8n itu sudah tidak ada. Muat ulang halaman.',
+ // Agents and People pages (people.js)
+ 'Agents you can use and change.':'Agen yang bisa kamu pakai dan ubah.','Search agents':'Cari agen','Search people':'Cari orang','Show as':'Tampilkan sebagai',
+ 'Private':'Privat','No owner':'Tanpa pemilik','Owner:':'Pemilik:','No agents yet':'Belum ada agen','Make your first one with New agent.':'Buat yang pertama dengan Agen baru.',
+ 'Agents shared with you show here. A new one can take a minute to appear. Ask an admin if none does.':'Agen yang dibagikan kepadamu muncul di sini. Agen baru bisa butuh semenit untuk muncul. Tanya admin jika tidak ada yang muncul.',
+ 'No agent is shared with you yet':'Belum ada agen yang dibagikan kepadamu','No agent is shared with you yet. Ask an admin to share one. This page updates by itself.':'Belum ada agen yang dibagikan kepadamu. Minta admin membagikannya. Halaman ini diperbarui sendiri.',
+ 'Ask an admin':'Tanya admin','Not reachable':'Tidak terjangkau','The status check did not answer. It tries again by itself.':'Pengecekan status tidak menjawab. Ia mencoba lagi sendiri.',
+ 'An agent is ready for you':'Ada agen yang siap untukmu','Shared with 1 person':'Dibagikan dengan 1 orang',
+ 'Its settings, skills, memory and chats are removed. A backup is kept for 30 days (Agents › Recently deleted).':'Pengaturan, keahlian, memori, dan obrolannya dihapus. Cadangan disimpan 30 hari (Agen › Baru dihapus).',
+ 'It is online now and stops answering on its channels at once.':'Agen ini sedang online dan langsung berhenti menjawab di salurannya.',
+ // Teams (teams-page.js)
+ 'Team':'Tim','Teams':'Tim','No team':'Tanpa tim','Test agent':'Agen uji','Resume now':'Lanjutkan sekarang','Resume':'Lanjutkan','Pause until…':'Jeda sampai…',
+ 'Hasn’t messaged aqeelOS yet':'Belum pernah mengirim pesan ke aqeelOS','1 agent has no team. The owner hears about it.':'1 agen belum punya tim. Pemilik diberi tahu tentangnya.',
+ 'See it':'Lihat','See them':'Lihat','Members':'Anggota','New member':'Anggota baru','Add a team':'Tambah tim','Team name':'Nama tim','Remove team':'Hapus tim','The owner':'Pemilik',
+ 'Pause alerts':'Jeda peringatan','Alerts are on':'Peringatan menyala','Alerts are on again.':'Peringatan menyala lagi.','Alerts go to':'Peringatan dikirim ke','Alerts for the owner':'Peringatan untuk pemilik',
+ 'Teams decide who hears about problems, so only admins see them.':'Tim menentukan siapa yang diberi tahu soal masalah, jadi hanya admin yang melihatnya.',
+ 'A test agent still shows its problems on System › Health, but nobody is alerted about it and the fixer does not reach out for it.':'Agen uji tetap menampilkan masalahnya di Sistem › Kesehatan, tapi tidak ada yang diberi peringatan dan perbaikan otomatis tidak menghubungi siapa pun untuknya.',
+ 'The owner hears when a fix needs a person.':'Pemilik diberi tahu saat sebuah perbaikan butuh orang.',
+ // Health and Activity: plain titles (health-page.js, activity-page.js)
+ 'Something needs a look':'Ada yang perlu dicek','Something has no description':'Ada yang belum punya deskripsi','A skill has no description':'Sebuah keahlian belum punya deskripsi',
+ 'A skill failed to load':'Sebuah keahlian gagal dimuat','A skill points to a file that is missing':'Sebuah keahlian menunjuk ke file yang hilang',
+ 'An engine update is ready to install':'Pembaruan mesin siap dipasang','An engine update failed':'Pembaruan mesin gagal','A plugin failed to load':'Sebuah plugin gagal dimuat',
+ 'A tool server stopped answering':'Server alat berhenti menjawab','The fixer could not finish it.':'Perbaikan otomatis tidak bisa menyelesaikannya.','The fixer hit an error.':'Perbaikan otomatis mengalami kesalahan.',
+ 'The fixer is switched off, so these wait.':'Perbaikan otomatis dimatikan, jadi ini menunggu.','Who gets told':'Siapa yang diberi tahu','Details':'Detail','Issues':'Masalah',
+ 'Being fixed':'Sedang diperbaiki','Waiting to reload safely':'Menunggu untuk dimuat ulang dengan aman','Putting the change back':'Mengembalikan perubahan','Proving the fix':'Membuktikan perbaikan',
+ 'Fixed and proven':'Diperbaiki dan terbukti','Fix failed':'Perbaikan gagal','Needs a person':'Butuh orang','Needs you':'Butuh kamu','Resolved by itself':'Selesai dengan sendirinya',
+ 'Stuck after 3 tries':'Macet setelah 3 percobaan','Waiting (fixer off)':'Menunggu (perbaikan otomatis mati)','Close issue':'Tutup masalah','Close this issue?':'Tutup masalah ini?',
+ 'No open issues.':'Tidak ada masalah terbuka.','Report an issue':'Laporkan masalah','Every agent is working':'Semua agen berjalan',
+ 'If one breaks, the fixer works on it by itself. You hear only when a fix needs you.':'Jika ada yang rusak, perbaikan otomatis menanganinya sendiri. Kamu hanya diberi tahu saat perbaikan butuh kamu.',
+ 'Back to normal':'Kembali normal','Reconnected':'Tersambung lagi','Hit an error':'Terjadi kesalahan','Nothing yet':'Belum ada apa-apa',
+ 'Runs, fixes and restarts that need nobody show up here.':'Proses, perbaikan, dan mulai ulang yang tidak butuh siapa pun muncul di sini.',
+ // Memory (pages.js, all-agents-more.js)
+ 'Clear what it learned':'Hapus yang dipelajarinya','Clear what it knows about you':'Hapus yang diketahuinya tentangmu','Clear both':'Hapus keduanya',
+ 'Clear what it learned?':'Hapus yang dipelajarinya?','Clear what it knows about you?':'Hapus yang diketahuinya tentangmu?','Clear both?':'Hapus keduanya?',
+ 'Its notes about its work are deleted.':'Catatannya tentang pekerjaannya dihapus.','Its notes about you are deleted.':'Catatannya tentangmu dihapus.',
+ 'Its notes about its work and about you are deleted.':'Catatannya tentang pekerjaannya dan tentangmu dihapus.','This cannot be undone.':'Ini tidak bisa dibatalkan.',
+ 'Clear':'Hapus','Cleared':'Dihapus','Deleted':'Dihapus','What it has learned':'Yang sudah dipelajarinya','What it knows about you':'Yang diketahuinya tentangmu',
+ 'Nothing learned yet':'Belum ada yang dipelajari','Nothing about you yet':'Belum ada tentangmu','Couldn’t load these notes.':'Catatan ini tidak bisa dimuat.',
+ 'Keeps a growing tree of what it learns and pulls up the right part when needed.':'Menyimpan pohon yang terus tumbuh dari yang dipelajarinya dan mengambil bagian yang tepat saat dibutuhkan.',
+ 'An online memory service. Finds past notes by meaning and by words.':'Layanan memori online. Menemukan catatan lama berdasarkan makna dan kata.',
+ 'Ready to use':'Siap dipakai','Needs its settings first. Open Set up.':'Perlu pengaturannya dulu. Buka Siapkan.','Can’t run yet':'Belum bisa berjalan',
+ 'A program it needs is not on the box yet. Open Set up to install it.':'Program yang dibutuhkannya belum ada di server. Buka Siapkan untuk memasangnya.','It is not installed on the box.':'Belum terpasang di server.',
+ // Settings and install (pages.js, install-page.js, agent-edit.js)
+ 'Edit as YAML':'Ubah sebagai YAML','The whole settings file as text':'Seluruh file pengaturan sebagai teks','Load settings from a file':'Muat pengaturan dari file',
+ 'Save the settings as a file':'Simpan pengaturan sebagai file','Nothing matches.':'Tidak ada yang cocok.','Change on Models':'Ubah di Model','Advanced':'Lanjutan',
+ 'Your address':'Alamatmu','Set in the environment (PUBLIC_URL).':'Diatur di environment (PUBLIC_URL).','Not set':'Belum diatur',
+ 'Invites, WhatsApp Business, Kirimdev and app sign-ins send people here.':'Undangan, WhatsApp Business, Kirimdev, dan login aplikasi mengarahkan orang ke sini.',
+ // Usage (pages.js)
+ 'What your agents cost over time.':'Biaya agenmu dari waktu ke waktu.','Estimated cost':'Perkiraan biaya','Text handled':'Teks diproses','Text handled per day':'Teks diproses per hari',
+ 'Written':'Ditulis','No usage yet':'Belum ada pemakaian','of what it read was reused, which costs less':'dari yang dibacanya dipakai ulang, jadi lebih murah',
+ // Code, Files, the command palette, boards, Kirimdev
+ 'Code runs on a computer':'Code berjalan di komputer',
+ 'Code builds apps, websites, decks, docs and designs with a live preview, in the aqeelOS Code app on Windows or Mac. Open this page on your computer to install it there.':'Code membuat aplikasi, situs, presentasi, dokumen, dan desain dengan pratinjau langsung, di aplikasi aqeelOS Code untuk Windows atau Mac. Buka halaman ini di komputermu untuk memasangnya di sana.',
+ 'Send the link to my computer':'Kirim tautan ke komputerku','Just looking?':'Cuma melihat-lihat?','See what’s live':'Lihat yang sudah live',
+ ': apps your team published.':': aplikasi yang dipublikasikan timmu.',': the apps your team published.':': aplikasi yang dipublikasikan timmu.',
+ 'Link copied. Open it on your computer.':'Tautan disalin. Buka di komputermu.','Open this on your computer to install aqeelOS Code':'Buka ini di komputermu untuk memasang aqeelOS Code',
+ 'My files':'File saya','Folder path':'Jalur folder','Searches this folder and every folder inside it':'Mencari di folder ini dan semua folder di dalamnya',
+ 'Show as tiles':'Tampilkan sebagai ubin','Show as a list':'Tampilkan sebagai daftar','Swipe for more columns':'Geser untuk kolom lainnya',
+ '↑↓ to move':'↑↓ untuk pindah','Enter to open':'Enter untuk membuka','Esc to close':'Esc untuk menutup',
+ 'New messages are checked every 20 seconds.':'Pesan baru dicek setiap 20 detik.','Open':'Buka',
+ 'How it works':'Cara kerjanya','Install':'Pasang','Installing':'Memasang','Not registered':'Belum terdaftar','Logged out · link again':'Keluar · tautkan lagi',
+ // schedules in words (core.js cronText): the whole phrases; the rest is the pattern at the end
+ 'Every minute':'Setiap menit','Every hour':'Setiap jam','Every day':'Setiap hari','Weekdays':'Hari kerja','Weekends':'Akhir pekan','On a custom timetable':'Dengan jadwal khusus',
+ 'Mondays':'Setiap Senin','Tuesdays':'Setiap Selasa','Wednesdays':'Setiap Rabu','Thursdays':'Setiap Kamis','Fridays':'Setiap Jumat','Saturdays':'Setiap Sabtu','Sundays':'Setiap Minggu',
+ 'Mon':'Sen','Tue':'Sel','Wed':'Rab','Thu':'Kam','Fri':'Jum','Sat':'Sab','Sun':'Min'});
+// Sentences built with a name or a number. A piece that is itself in ID is translated too (tr).
+{const tr=s=>(typeof ID!=='undefined'&&ID[s])||s,and=s=>String(s).replace(/ and /g,' dan ');
+ const TAIL={' · Read only, change it here':' · Hanya baca, ubah di sini',' · ready in about a minute':' · siap dalam sekitar satu menit',' · works at once':' · langsung berfungsi',' · the agents follow in about a minute':' · agen menyusul dalam sekitar satu menit',' · applies after the agents restart':' · berlaku setelah agen dimulai ulang'};
+ const tails=s=>(s||'').split(/(?= · )/).map(x=>TAIL[x]||x).join('');
+ // schedules: "Mondays at 03:00 (Jakarta time)", "Every 2 days at 10:00", "Custom timetable: minutes 0 and 30, hours 09 to 17"
+ const DAY={Mondays:'Senin',Tuesdays:'Selasa',Wednesdays:'Rabu',Thursdays:'Kamis',Fridays:'Jumat',Saturdays:'Sabtu',Sundays:'Minggu'},SD={Mon:'Sen',Tue:'Sel',Wed:'Rab',Thu:'Kam',Fri:'Jum',Sat:'Sab',Sun:'Min'};
+ const MO={January:'Januari',February:'Februari',March:'Maret',April:'April',May:'Mei',June:'Juni',July:'Juli',August:'Agustus',September:'September',October:'Oktober',November:'November',December:'Desember'};
+ const MONTHS='January|February|March|April|May|June|July|August|September|October|November|December';
+ const UNIT={minute:'menit',minutes:'menit',hour:'jam',hours:'jam',day:'hari',days:'hari',month:'bulan',months:'bulan',second:'detik',seconds:'detik',weekday:'hari',weekdays:'hari'};
+ const cron=s=>{let t=s;
+  t=t.replace(/ \((.+) time\)$/,' (waktu $1)').replace(/^Custom timetable: /,'Jadwal khusus: ');
+  t=t.replace(/\b(\d+)(?:st|nd|rd|th)\b/g,'$1');
+  t=t.replace(/^On the (.+?) of each month\b/,'Setiap tanggal $1').replace(/^On the (.+?) of /,'Tanggal $1 bulan ').replace(/^Days (\S+) of each month\b/,'Tanggal $1 setiap bulan').replace(/^Days (\S+) of /,'Tanggal $1 bulan ');
+  t=t.replace(/ from the (\d+)/,' mulai tanggal $1').replace(/ on the (\d+)/,' pada tanggal $1').replace(/^Every day in /,'Setiap hari di bulan ').replace(new RegExp(' in ('+MONTHS+')\\b','g'),' di bulan $1');
+  t=t.replace(/\b([Ee])very (\d+) (minutes|hours|days|months|seconds)\b/g,(m,e,n,u)=>(e==='E'?'Setiap ':'setiap ')+n+' '+UNIT[u]).replace(/\b([Ee])very (minute|hour|day|month|second)\b/g,(m,e,u)=>(e==='E'?'Setiap ':'setiap ')+UNIT[u]);
+  t=t.replace(/ at :(\d\d)\b/g,' pada menit ke-$1').replace(/ from :(\d\d)\b/g,' mulai menit ke-$1').replace(/ from (\d\d:\d\d) to (\d\d:\d\d)/g,' dari $1 sampai $2').replace(/ at (\d\d:\d\d)/g,' pukul $1');
+  // the parts of a custom timetable: "minutes 0 and 30", "hours 09 to 17", "weekdays Mon to Fri"
+  t=t.replace(/\bdays? (?=\d)/g,'tanggal ').replace(/\b(minutes?|hours?|days?|months?|weekdays?)\b(?= \d| [A-Z]| from| to)/g,u=>UNIT[u]).replace(/ to (?=\d|[A-Z])/g,' sampai ').replace(/ from (?=\d|[A-Z])/g,' dari ');
+  t=t.replace(/^(Mondays|Tuesdays|Wednesdays|Thursdays|Fridays|Saturdays|Sundays)\b/,(m,d)=>'Setiap '+DAY[d]).replace(/^Weekdays\b/,'Setiap hari kerja').replace(/^Weekends\b/,'Setiap akhir pekan');
+  t=t.replace(/\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b/g,d=>SD[d]).replace(new RegExp('\\b('+MONTHS+')\\b','g'),m=>MO[m]).replace(/ and /g,' dan ');
+  return t};
+ const SCHED_TAIL=s=>(s||'').replace(/ · to this app\b/,' · ke aplikasi ini').replace(/ · to the chat it was made in\b/,' · ke obrolan asalnya').replace(/ · to /,' · ke ').replace(/ · next /,' · berikutnya ').replace(/ · paused\b/,' · dijeda').replace(/ · last /,' · terakhir ');
+ ID_PATTERNS.push(
+ // chat, run status
+ [/^(.+)’s chat\. You can read it, but not reply here\.$/,'Obrolan $1. Kamu bisa membacanya, tapi tidak bisa membalas di sini.'],
+ [/^No updates for (\d+) minutes?$/,'Tidak ada kabar selama $1 menit'],[/^(\d+) messages waiting to send\.$/,'$1 pesan menunggu dikirim.'],
+ [/^(.+), still on this step$/,(m,a)=>tr(a)+', masih di langkah ini'],[/^(.+)\. Long steps can take a while\.$/,(m,a)=>tr(a)+'. Langkah yang panjang bisa makan waktu.'],
+ [/^(\d+) of (\d+) done(?: · (\d+) waiting)?$/,(m,a,b,c)=>a+' dari '+b+' selesai'+(c?' · '+c+' menunggu':'')],[/^(\d+) waiting$/,'$1 menunggu'],
+ [/^([\dhms ]+) · (\d+) steps?$/,'$1 · $2 langkah'],[/^(\d+) steps?$/,'$1 langkah'],
+ [/^Using (.+)$/,'Memakai $1'],
+ // the Share dialog and Connections
+ [/^Access for (.+)$/,'Akses untuk $1'],
+ [/^(?:(.+?) gets? it now\.)? ?(?:(.+?) loses? it \(kept in a backup, not deleted\)\.)?$/,(m,g,l)=>[g?and(g)+' mendapatkannya sekarang.':'',l?and(l)+' kehilangannya (disimpan di cadangan, tidak dihapus).':''].filter(Boolean).join(' ')],
+ [/^Only (\d+) agents$/,'Hanya $1 agen'],[/^Only ([A-Z][^\s.,:;!?]*(?: [A-Z][^\s.,:;!?]*)?)$/,'Hanya $1'],[/^only ([A-Z][^\s.,:;!?]*(?: [A-Z][^\s.,:;!?]*)?)$/,'hanya $1'],
+ [/^Only in ([^.]+)$/,'Hanya di $1'],
+ [/^Who can use (.+)$/,'Siapa yang bisa memakai $1'],
+ [/^Adding an agent gives it (.+?) (with the same sign-in|with the same Google sign-in|turned on|with the same value \(still hidden\)); removing it takes it away\. (It works straight away\.|The agents restart by themselves once nobody is mid-reply\.) To hand it over, choose Make owner next to an agent\.$/,
+  (m,x,w,r)=>'Menambahkan agen memberinya '+x+' '+({'with the same sign-in':'dengan akun masuk yang sama','with the same Google sign-in':'dengan akun Google yang sama','turned on':'dalam keadaan menyala','with the same value (still hidden)':'dengan nilai yang sama (tetap tersembunyi)'}[w])+'; menghapusnya mengambilnya kembali. '+tr(r)+' Untuk menyerahkannya, pilih Jadikan pemilik di samping sebuah agen.'],
+ [/^(.+)’s n8n (on for|taken from) (.+) · ready in about a minute$/,(m,a,w,b)=>'n8n '+a+(w==='on for'?' aktif untuk ':' diambil dari ')+b+' · siap dalam sekitar satu menit'],
+ [/^(.+) on for (every agent|.+?)((?: · (?:Read only, change it here|ready in about a minute|works at once|the agents follow in about a minute|applies after the agents restart))*)$/,(m,a,b,c)=>a+' aktif untuk '+(b==='every agent'?'semua agen':b)+tails(c)],
+ [/^(.+) off for every agent((?: · (?:works at once|applies after the agents restart))*)$/,(m,a,c)=>a+' mati untuk semua agen'+tails(c)],
+ [/^(.+) can use it · ready in about a minute$/,'$1 bisa memakainya · siap dalam sekitar satu menit'],
+ [/^(?!.*\b(?:is|are|and|will)\b)([^.]+) removed from ([^.]+)$/,'$1 dihapus dari $2'],[/^(.+) now owns (.+)$/,'$2 sekarang milik $1'],[/^(.+) now belongs to (.+)$/,'$1 sekarang milik $2'],[/^(.+) owns (.+) now$/,'$2 sekarang milik $1'],
+ [/^Take it from (.+)$/,'Ambil dari $1'],[/^Take (.+)’s n8n from (.+?)(\?)?$/,'Ambil n8n $1 dari $2$3'],[/^Take (.+) from (.+?)(\?)?$/,'Ambil $1 dari $2$3'],
+ [/^Its sign-in on (.+) is removed\. (.+) can’t use (.+) until it is added here again\.$/,'Akun masuknya di $1 dihapus. $2 tidak bisa memakai $3 sampai ditambahkan lagi di sini.'],
+ [/^(?:Its sign-in on (.+?) is removed\. )?(.+) can’t use it until it is given again here\.$/,(m,a,b)=>(a?'Akun masuknya di '+a+' dihapus. ':'')+b+' tidak bisa memakainya sampai diberikan lagi di sini.'],
+ [/^(.+) can’t find or run its workflows until it is given again here\.$/,'$1 tidak bisa menemukan atau menjalankan workflow-nya sampai diberikan lagi di sini.'],
+ [/^Give (.+)’s n8n to$/,'Berikan n8n $1 ke'],[/^Give (.+) to (.+)\?$/,'Berikan $1 ke $2?'],[/^Give (.+) to$/,'Berikan $1 ke'],
+ [/^Which agent (.+) belongs to$/,'Agen pemilik $1'],[/^Ask for (.+) for$/,'Minta $1 untuk'],[/^Ask for (.+)$/,'Minta $1'],
+ [/^What (.+) needs it for \(an admin reads this\)$/,'Untuk apa $1 membutuhkannya (dibaca admin)'],
+ [/^Search (\d+) (skill|plugin|key|connection)s?$/,(m,n,w)=>'Cari '+n+' '+({skill:'keahlian',plugin:'plugin',key:'kunci',connection:'koneksi'}[w])],
+ [/^Nothing matches “(.*)”\.$/,'Tidak ada yang cocok dengan “$1”.'],[/^(\d+) on$/,'$1 aktif'],[/^All \((\d+)\)$/,'Semua ($1)'],
+ // keys and plugins
+ [/^Show (\d+) more you can add$/,'Tampilkan $1 lagi yang bisa ditambahkan'],[/^Show the (\d+) keys you can add$/,'Tampilkan $1 kunci yang bisa ditambahkan'],
+ [/^Taken out of the catalog(?: on (.+?))?: (.+)$/,(m,d,r)=>'Dikeluarkan dari katalog'+(d?' pada '+d:'')+': '+r],
+ [/^(.+) has no keys yet$/,'$1 belum punya kunci'],[/^Same account as (.+?)\.?$/,'Akun yang sama dengan $1'],
+ [/^Used by (.+?)(?: and (\d+) more)?\.(?: Same account as (.+)\.)?$/,(m,a,n,s)=>'Dipakai oleh '+a+(n?' dan '+n+' lainnya':'')+'.'+(s?' Akun yang sama dengan '+s+'.':'')],
+ // channels
+ [/^(.+)’s channels$/,'Saluran $1'],[/^Agents call it (.+)$/,'Agen menyebutnya $1'],
+ [/^Moving to (.+?)( after the engine restarts)?$/,(m,a,b)=>'Pindah ke '+a+(b?' setelah mesin dimulai ulang':'')],
+ [/^(.+) gets every reply\. Agents added here can also send you messages through it\.$/,'$1 menerima setiap balasan. Agen yang ditambahkan di sini juga bisa mengirim pesan kepadamu lewat saluran ini.'],
+ [/^Note for (.+)$/,'Catatan untuk $1'],[/^(.+) note saved$/,'Catatan $1 disimpan'],[/^Which agent answers (.+)$/,'Agen mana yang menjawab $1'],
+ [/^Move this channel to (.+)\?$/,'Pindahkan saluran ini ke $1?'],
+ [/^Moved, but (.+) couldn’t switch it on\. Switch it on under Connections\.$/,'Sudah dipindahkan, tapi $1 tidak bisa menyalakannya. Nyalakan di Koneksi.'],
+ [/^Moved\. (.+) answers it now\.$/,'Sudah dipindahkan. $1 sekarang menjawabnya.'],
+ [/^(.+) answers (.+) again( \(the engine restarts once\))?$/,(m,a,b,c)=>a+' menjawab '+b+' lagi'+(c?' (mesin dimulai ulang sekali)':'')],
+ [/^Quiet in channels starting with (.+)$/,'Diam di saluran yang diawali $1'],
+ // n8n
+ [/^Open (.+)’s n8n$/,'Buka n8n $1'],[/^(.+)’s n8n$/,'n8n $1'],[/^(\d+) workflows?$/,'$1 workflow'],
+ [/^(.+)’s own workflows in n8n\. Open goes straight in, without signing in\.$/,'Workflow milik $1 di n8n. Buka langsung masuk, tanpa perlu login.'],
+ // agents and people
+ [/^Only (.+) and the people they share it with can open it\.$/,(m,a)=>'Hanya '+(a==='its owner'?'pemiliknya':a)+' dan orang yang dibagikan olehnya yang bisa membukanya.'],
+ [/^Shared with (\d+) people$/,'Dibagikan dengan $1 orang'],[/^Shared with (.+) · Can chat$/,'Dibagikan dengan $1 · Bisa mengobrol'],[/^Shared with (.+)$/,'Dibagikan dengan $1'],
+ [/^Its settings, skills, memory and chats are removed\. A backup is kept for 30 days \(Agents › Recently deleted\)\. (It is online now and stops answering on its channels at once\. )?Type its name, (.+), to confirm\.$/,
+  (m,on,n)=>'Pengaturan, keahlian, memori, dan obrolannya dihapus. Cadangan disimpan 30 hari (Agen › Baru dihapus). '+(on?'Agen ini sedang online dan langsung berhenti menjawab di salurannya. ':'')+'Ketik namanya, '+n+', untuk konfirmasi.'],
+ [/^Edit the name and description of (.+)$/,'Ubah nama dan deskripsi $1'],[/^(.+)’s workspace$/,'Ruang kerja $1'],
+ // teams
+ [/^(\d+) agents have no team\. The owner hears about them\.$/,'$1 agen belum punya tim. Pemilik diberi tahu tentang mereka.'],
+ [/^(?:Team (?!only\b|folders\b|view\b|replies\b|renamed\b|saved\b|›|·)(.+?)|No team)( · test agent: nobody is alerted about it)?$/,(m,n,t)=>(n?'Tim '+n:'Tanpa tim')+(t?' · agen uji: tidak ada yang diberi peringatan':'')],
+ [/^Test agent (.+)$/,'Agen uji $1'],
+ // health and activity
+ [/^A (?:(\w+) )?key(?: for (.+?))? stopped working$/,(m,s,a)=>'Sebuah kunci'+(s?' '+s:'')+(a?' untuk '+a:'')+' berhenti berfungsi'],
+ [/^A (?:(\w+) )?key(?: for (.+?))? is missing$/,(m,s,a)=>'Sebuah kunci'+(s?' '+s:'')+(a?' untuk '+a:'')+' hilang'],
+ [/^A (\w+) key has no description$/,'Sebuah kunci $1 belum punya deskripsi'],
+ [/^(.+), and (\d+) more things$/,(m,a,n)=>tr(a)+', dan '+n+' hal lain'],
+ [/^The fixer on this server fixes these by itself and proves each fix\. A person hears only when a fix needs one(?: \((.+)\))?\.$/,(m,w)=>'Perbaikan otomatis di server ini memperbaikinya sendiri dan membuktikan setiap perbaikan. Orang hanya diberi tahu saat perbaikan butuh orang'+(w?' ('+w+')':'')+'.'],
+ [/^Lost its (.+) tool(\. aqeelOS is fixing it\.)?$/,(m,t,f)=>'Kehilangan alat '+({notifications:'notifikasi',files:'file',memory:'memori','own runs':'proses sendiri'}[t]||t)+(f?'. aqeelOS sedang memperbaikinya.':'')],
+ [/^since (.+), (\d+) times( · over)?$/,(m,a,n,o)=>'sejak '+a+', '+n+' kali'+(o?' · selesai':'')],
+ // memory
+ [/^(Its notes about (?:its work|you|its work and about you) are deleted\.) This cannot be undone\.$/,(m,a)=>tr(a)+' Ini tidak bisa dibatalkan.'],
+ [/^What (.+) has learned$/,'Yang sudah dipelajari $1'],[/^What (.+) knows about you$/,'Yang diketahui $1 tentangmu'],
+ [/^(\d+ notes? about its work|Nothing learned yet) · (\d+ notes? about you|Nothing about you yet)$/,(m,a,b)=>[a,b].map(x=>tr(x).replace(/^(\d+) notes? about its work$/,'$1 catatan tentang pekerjaannya').replace(/^(\d+) notes? about you$/,'$1 catatan tentangmu')).join(' · ')],
+ [/^In use · (.+)$/,(m,a)=>'Dipakai · '+tr(a)],
+ // settings, usage
+ [/^(\d+) settings? · changes apply to new chats, or after the agents restart$/,'$1 pengaturan · perubahan berlaku di obrolan baru, atau setelah agen dimulai ulang'],
+ [/^Billed \$([\d.,]+)$/,(m,a)=>'Ditagih $'+a],
+ [/^([\d.,]+) a day(?: · (\d+) messages? to the model)?$/,(m,a,b)=>a+' per hari'+(b?' · '+b+' pesan ke model':'')],
+ [/^tokens: (.+) new · (.+) reused · (.+) written$/,'token: $1 baru · $2 dipakai ulang · $3 ditulis'],
+ // schedules in words, with the zone, and on the Schedules list with "· to … · next …"
+ [/^Once, (.+) at (\d\d:\d\d)(?: \((.+) time\))?$/,(m,d,h,z)=>'Sekali, '+d+' pukul '+h+(z?' (waktu '+z+')':'')],
+ [/^((?:Every|On the|Days|Mondays|Tuesdays|Wednesdays|Thursdays|Fridays|Saturdays|Sundays|Weekdays|Weekends|Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b[^·]*?(?:\d\d:\d\d|:\d\d|minutes?|hours?|days|months)(?: \(.+ time\))?|On a custom timetable|Custom timetable: [^·]+)((?: · (?:to|next|last) [^·]+| · paused)*)$/,(m,a,b)=>(tr(a)!==a?tr(a):cron(a))+SCHED_TAIL(b)]);
+}
