@@ -25,6 +25,10 @@ export function fold(items){const by=new Map(),out=[];for(const x of items){if(x
   if(have){have.count=(have.count||1)+(x.count||1);have.since=Math.min(have.since||have.t,x.since||x.t);continue}const y={...x,group:g};by.set(x.aud+'|'+g,y);out.push(y)}return out}
 // keep: the newest of every audience up to its cap, nothing older than DAYS
 export function trim(items,now=Date.now()){const seen={};return items.filter(x=>{if(now-x.t>DAYS*864e5)return false;const cap=x.aud==='admins'?CAPS.admins:CAPS.person;seen[x.aud]=(seen[x.aud]||0)+1;return seen[x.aud]<=cap})}
+// a detail line cut to n characters: from the start, at a word boundary, ending in "…" (10 Nov 2026 audit: an
+// excerpt began mid-word, "s now 'Kie.ai…'")
+export function excerpt(s,n=240){const t=String(s??'').replace(/\s+/g,' ').trim();if(t.length<=n)return t;const cut=t.slice(0,n-1),sp=cut.lastIndexOf(' ');
+ return (sp>n*0.6?cut.slice(0,sp):cut).replace(/[\s.,;:·–—-]+$/,'')+'…'}
 export function eveningLine(fixed,needs){const f=fixed===1?'1 thing fixed itself today':fixed+' things fixed themselves today';return f+', '+(needs?needs+(needs===1?' thing needs':' things need')+' you':'nothing needs you')}
 export function createNews({DATA}){const sent=new Map();   // aud -> times of recent adds from a person's app
  const FILE=path.join(DATA,'news.json');let db=null,saving=Promise.resolve();
@@ -39,8 +43,8 @@ export function createNews({DATA}){const sent=new Map();   // aud -> times of re
   // the same problem again: its open row is updated in place and moves to the top
   group=group?clip(group,120):'';const now=Date.now();
   const open=group&&!started&&db.items.find(x=>x.group===group&&x.aud===aud&&!x.resolved&&now-x.t<BELL_DAYS*864e5);
-  if(open){Object.assign(open,{t:now,since:open.since||open.t,count:(open.count||1)+1,title,text:clip(text,240),read:[]});db.items=[open,...db.items.filter(x=>x!==open)];await save();return pub(open)}
-  const it={id:'n'+randomBytes(6).toString('hex'),t:now,aud,key,icon:clip(icon||'clock',24),kind:['blue','ok','warn'].includes(kind)?kind:'blue',title,text:clip(text,240),go:/^\/[\w\/.-]{0,120}$/.test(go||'')?go:'',label:clip(label||'Open',24),
+  if(open){Object.assign(open,{t:now,since:open.since||open.t,count:(open.count||1)+1,title,text:excerpt(text,240),read:[]});db.items=[open,...db.items.filter(x=>x!==open)];await save();return pub(open)}
+  const it={id:'n'+randomBytes(6).toString('hex'),t:now,aud,key,icon:clip(icon||'clock',24),kind:['blue','ok','warn'].includes(kind)?kind:'blue',title,text:excerpt(text,240),go:/^\/[\w\/.-]{0,120}$/.test(go||'')?go:'',label:clip(label||'Open',24),
    cls:started?'started':'activity',...(group?{group}:{}),read:[],gone:[]};
   db.items=trim([it,...db.items]);await save();return pub(it)}
  // the problem is over: its row says so and stops collecting repeats

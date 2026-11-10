@@ -118,7 +118,7 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 /* ---------- formatting ---------- */
 function ago(sec){if(!sec)return '';const m=Math.round((Date.now()/1000-sec)/60);if(m<1)return 'just now';if(m<60)return m+' min ago';const h=Math.round(m/60);if(h<24)return h+' h ago';const d=Math.round(h/24);return d<30?d+' d ago':new Date(sec*1000).toLocaleDateString()}
-function when(iso){if(!iso)return '—';const d=new Date(iso);if(isNaN(d))return esc(iso);const diff=(d-Date.now())/1000;const abs=Math.abs(diff);const rel=abs<3600?Math.round(abs/60)+' min':abs<86400?Math.round(abs/3600)+' h':Math.round(abs/86400)+' d';return diff>0?'in '+rel:rel+' ago'}
+function when(iso){if(!iso)return '—';const d=new Date(iso);if(isNaN(d))return esc(iso);const diff=(d-Date.now())/1000;const abs=Math.abs(diff);if(abs<30)return diff>0?'in under a minute':'just now';const rel=abs<3600?Math.round(abs/60)+' min':abs<86400?Math.round(abs/3600)+' h':Math.round(abs/86400)+' d';return diff>0?'in '+rel:rel+' ago'}
 function groupOf(sec){const d=(Date.now()/1000-sec)/86400;const today=new Date();today.setHours(0,0,0,0);const t=sec*1000;return t>=today.getTime()?'Today':t>=today.getTime()-864e5?'Yesterday':d<7?'Previous 7 days':'Older'}
 const num=n=>n==null?'—':n>=1e6?(n/1e6).toFixed(1).replace(/\.0$/,'')+'M':n>=1e3?(n/1e3).toFixed(n>=1e4?0:1).replace(/\.0$/,'')+'k':String(n);
 // a reply as one line of text for notices, previews and snippets: its tagged thinking left out (a cut-off one too), action/result tags to their text
@@ -741,20 +741,55 @@ function watchLate(root){if(!root||root._late)return;root._late=new MutationObse
    let below=n.nextElementSibling;while(below&&(batch.has(below)||below.hidden))below=below.nextElementSibling;
    const at=below&&Late.seen.get(below);if(!below||at&&t-at<60||!below.offsetHeight)continue;Late.grow(n)}}
  for(const n of batch)Late.seen.set(n,t)});root._late.observe(root,{childList:true,subtree:true})}
-/* "0 3 * * 1" → "Mondays at 03:00": schedules in plain words (falls back to the original text) */
-function cronText(expr){const s=String(expr||'').trim();const f=s.split(/\s+/);if(f.length!==5)return s;const [mi,ho,dom,mon,dow]=f;
- const DAYS=['Sundays','Mondays','Tuesdays','Wednesdays','Thursdays','Fridays','Saturdays','Sundays'],SHORT=['Sun','Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+/* "0 3 * * 1" → "Mondays at 03:00": schedules in plain words. Five-field cron only; anything else (the engine's own
+   "every 30m" display) comes back as it was. Step values (*\/2, 1-23/2, 5/15) in any field are said in words, and a
+   timetable too odd for one phrase is still a readable sentence, never the raw cron (10 Nov 2026 audit: "0 10 *\/2 * *"). */
+function cronText(expr){const s=String(expr||'').trim();
+ const AT={'@hourly':'0 * * * *','@daily':'0 0 * * *','@midnight':'0 0 * * *','@weekly':'0 0 * * 0','@monthly':'0 0 1 * *','@yearly':'0 0 1 1 *','@annually':'0 0 1 1 *'};
+ const f=(AT[s.toLowerCase()]||s).split(/\s+/);if(f.length!==5)return s;
+ const DN={sun:0,mon:1,tue:2,wed:3,thu:4,fri:5,sat:6},MN={jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
+ const names=(v,map)=>v.toLowerCase().replace(/[a-z]{3}/g,w=>map[w]!=null?map[w]:w);
+ let [mi,ho,dom,mon,dow]=f;mon=names(mon,MN);dow=names(dow,DN).replace(/\b7\b/g,'0');if(dom==='?')dom='*';if(dow==='?')dow='*';
+ const DAYS=['Sundays','Mondays','Tuesdays','Wednesdays','Thursdays','Fridays','Saturdays'],SHORT=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
  const MON=['','January','February','March','April','May','June','July','August','September','October','November','December'];
- const num=v=>/^\d+$/.test(v),pad=v=>String(v).padStart(2,'0');const ord=n=>n+(['th','st','nd','rd'][(n%100>10&&n%100<14)?0:n%10<4?n%10:0]||'th');
- const at=num(mi)&&num(ho)?'at '+pad(ho)+':'+pad(mi):num(mi)&&ho==='*'?'every hour at :'+pad(mi):/^\*\/\d+$/.test(mi)&&ho==='*'?'every '+mi.slice(2)+' minutes':/^\*\/\d+$/.test(ho)&&num(mi)?'every '+ho.slice(2)+' hours at :'+pad(mi):/^\*\/\d+$/.test(mi)&&/^\d+-\d+$/.test(ho)?'every '+mi.slice(2)+' minutes from '+pad(ho.split('-')[0])+':00 to '+pad(ho.split('-')[1])+':59':num(mi)&&/^[\d,]+$/.test(ho)?'at '+ho.split(',').map(h=>pad(h)+':'+pad(mi)).join(', '):null;
- if(!at)return s;
- const days=dow==='*'?null:/^\d$/.test(dow)?DAYS[+dow]:/^\d-\d$/.test(dow)?(dow==='1-5'?'Weekdays':SHORT[+dow[0]]+'–'+SHORT[+dow[2]]):/^[\d,]+$/.test(dow)?dow.split(',').map(d=>SHORT[+d]).join(', '):null;
- if(dow!=='*'&&!days)return s;
- const dates=dom==='*'?null:num(dom)?'the '+ord(+dom):/^\d+-\d+$/.test(dom)?'days '+dom.replace('-','–'):/^[\d,]+$/.test(dom)?'the '+dom.split(',').map(d=>ord(+d)).join(', '):null;
- if(dom!=='*'&&!dates)return s;
- const month=mon==='*'?null:num(mon)?MON[+mon]:null;if(mon!=='*'&&!month)return s;
- let out=days?days+' '+at:dates?(dates[0]==='d'?'Days '+dom.replace('-','–'):'On '+dates)+' of '+(month||'each month')+' '+at:month?'Every day in '+month+' '+at:/^every/.test(at)?at[0].toUpperCase()+at.slice(1):'Every day '+at;
- return out}
+ const num=v=>/^\d+$/.test(v),pad=v=>String(v).padStart(2,'0'),list=a=>a.length<2?a.join(''):a.slice(0,-1).join(', ')+' and '+a[a.length-1];
+ const ord=n=>n+(['th','st','nd','rd'][(n%100>10&&n%100<14)?0:n%10<4?n%10:0]||'th');
+ // a step: "*/n", "a-b/n" or "a/n" → {n, from, to}; null when the field is not a step
+ const step=v=>{const m=/^(\*|\d+)(?:-(\d+))?\/(\d+)$/.exec(v);return m&&+m[3]>0?{n:+m[3],from:m[1]==='*'?null:+m[1],to:m[2]!=null?+m[2]:null}:null};
+ const every=(n,one,many)=>n===1?'every '+one:'every '+n+' '+many;
+ const sm=step(mi),sh=step(ho),sd=step(dom),sn=step(mon);
+ // the time of day
+ let at=null;
+ if(num(mi)&&num(ho))at='at '+pad(ho)+':'+pad(mi);
+ else if(num(mi)&&/^[\d,]+$/.test(ho))at='at '+list(ho.split(',').map(h=>pad(h)+':'+pad(mi)));
+ else if(/^[\d,]+$/.test(mi)&&num(ho))at='at '+list(mi.split(',').map(m=>pad(ho)+':'+pad(m)));
+ else if(mi==='*'&&ho==='*')at='every minute';
+ else if(num(mi)&&ho==='*')at=+mi===0?'every hour':'every hour at :'+pad(mi);
+ else if(sm&&ho==='*')at=every(sm.n,'minute','minutes')+(sm.from?' from :'+pad(sm.from):'');
+ else if(sm&&/^\d+-\d+$/.test(ho))at=every(sm.n,'minute','minutes')+' from '+pad(ho.split('-')[0])+':'+pad(sm.from||0)+' to '+pad(ho.split('-')[1])+':59';
+ else if(sm&&num(ho))at=every(sm.n,'minute','minutes')+' from '+pad(ho)+':'+pad(sm.from||0)+' to '+pad(ho)+':59';
+ else if(num(mi)&&sh)at=every(sh.n,'hour','hours')+(sh.from!=null||sh.to!=null?' from '+pad(sh.from||0)+':'+pad(mi)+(sh.to!=null?' to '+pad(sh.to)+':'+pad(mi):''):+mi?' at :'+pad(mi):'');
+ else if(num(mi)&&/^\d+-\d+$/.test(ho))at='every hour from '+pad(ho.split('-')[0])+':'+pad(mi)+' to '+pad(ho.split('-')[1])+':'+pad(mi);
+ // the days
+ const days=dow==='*'?null:num(dow)&&+dow<7?DAYS[+dow]:/^[0-6]-[0-6]$/.test(dow)?(dow==='1-5'?'Weekdays':dow==='0-6'?'':SHORT[+dow[0]]+'–'+SHORT[+dow[2]]):/^[0-6](,[0-6])+$/.test(dow)?(dow.split(',').sort().join(',')==='0,6'?'Weekends':list(dow.split(',').map(d=>SHORT[+d]))):undefined;
+ const dates=dom==='*'?null:num(dom)?'the '+ord(+dom):/^\d+-\d+$/.test(dom)?'days '+dom.replace('-','–'):/^\d+(,\d+)+$/.test(dom)?'the '+list(dom.split(',').map(d=>ord(+d))):undefined;
+ const month=mon==='*'?null:num(mon)&&MON[+mon]?MON[+mon]:/^\d+(,\d+)+$/.test(mon)&&mon.split(',').every(m=>MON[+m])?list(mon.split(',').map(m=>MON[+m])):undefined;
+ const cap=t=>t.charAt(0).toUpperCase()+t.slice(1);
+ if(at&&days!==undefined&&month!==undefined&&!sn){
+  // every n days, from the day-of-month field ("0 10 */2 * *" → "Every 2 days at 10:00")
+  if(sd&&!days)return cap(every(sd.n,'day','days'))+(sd.from>1?' from the '+ord(sd.from):'')+(month?' in '+month:'')+' '+at;
+  if(dates!==undefined&&!(days&&dates)){
+   if(days)return days+(month?' in '+month:'')+' '+at;
+   if(dates)return (dates[0]==='d'?'Days '+dom.replace('-','–'):'On '+dates)+' of '+(month||'each month')+' '+at;
+   if(month)return 'Every day in '+month+' '+at;
+   return /^every/.test(at)?cap(at):'Every day '+at}}
+ if(at&&sn&&!days&&num(dom))return cap(every(sn.n,'month','months'))+' on the '+ord(+dom)+' '+at;
+ // too odd for one phrase: each field in words, never the raw cron
+ const part=(v,one,many,say=x=>x)=>{if(v==='*')return null;const p=step(v);if(p)return every(p.n,one,many)+(p.from!=null?' from '+say(p.from):'')+(p.to!=null?' to '+say(p.to):'');
+  if(num(v))return one+' '+say(+v);if(/^\d+-\d+$/.test(v))return many+' '+say(+v.split('-')[0])+' to '+say(+v.split('-')[1]);if(/^\d+(,\d+)+$/.test(v))return many+' '+list(v.split(',').map(x=>say(+x)));return undefined};
+ const parts=[part(mi,'minute','minutes'),part(ho,'hour','hours',pad),part(dom,'day','days',ord),part(mon,'month','months',x=>MON[x]||x),part(dow,'weekday','weekdays',x=>SHORT[x]||x)];
+ if(parts.includes(undefined))return 'On a custom timetable';
+ const said=parts.filter(Boolean);return said.length?'Custom timetable: '+list(said):'Every minute'}
 // a site without an icon: drop the broken picture so the plain link icon shows (inline onerror is blocked by the CSP)
 document.addEventListener('error',e=>{if(e.target?.classList?.contains('lk-fav'))e.target.remove()},true);
 // installed on a phone it behaves like an app: no pinch or double-tap zoom (iOS ignores user-scalable=no)

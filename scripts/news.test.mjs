@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {createNews,trim,fold,legacyGroup,eveningLine,CAPS,RATE} from '../app/news.mjs';
+import {createNews,trim,fold,legacyGroup,eveningLine,excerpt,CAPS,RATE} from '../app/news.mjs';
 
 const dir=()=>mkdtempSync(path.join(tmpdir(),'aq-news-'));
 const owner={id:'owner'},mem={id:'u1'},mem2={id:'u2'};
@@ -58,3 +58,9 @@ test('first start: a week of 213 items fold into one row per problem, all in Act
  const f=fold(items);assert.equal(f.length,3);assert.deepEqual(f.map(x=>x.count),[16,19,13]);assert.ok(f.every(x=>x.cls!=='started'));
  assert.equal(legacyGroup({title:'The AI box is low on RAM'}),'sys:memory')});
 test('the evening line',()=>{assert.equal(eveningLine(12,0),'12 things fixed themselves today, nothing needs you');assert.equal(eveningLine(1,2),'1 thing fixed itself today, 2 things need you')});
+
+test('excerpt: cut from the start at a word boundary, ending in …',()=>{
+ assert.equal(excerpt('short text',240),'short text');
+ const long='SLACK_APP_TOKEN is now "Slack app token: Pixel & Profits (Socket Mode)". KIE_API_KEY is now "Kie.ai image/video generation key". '.repeat(4);
+ const e=excerpt(long,80);assert.ok(e.length<=80);assert.ok(e.endsWith('…'));assert.ok(e.startsWith('SLACK_APP_TOKEN is now'));
+ assert.ok(long.startsWith(e.slice(0,-1)));assert.match(long.slice(e.length-1,e.length),/[ ".]/)});
