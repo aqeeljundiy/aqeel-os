@@ -2644,3 +2644,38 @@ button.bad{color:var(--bad)}
 .drawer.pop.md:has(.cn-p){width:min(620px,calc(100vw - 32px))}
 .drawer:has(.cn-p) .drawer-body{padding:20px 24px}
 .ul-host{margin-top:16px}.ul-host>.cn-bar{margin-bottom:12px}
+/* UI audit fixes (10 Nov 2026) */
+/* Sidebar: the sections and a page's sub-list scroll as one, the account footer stays at the bottom. The chat and Code
+   lists keep their own scroll (their side-sub still fills the rest). */
+.side-scroll{flex:1;min-height:0;display:flex;flex-direction:column;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.side-scroll>.sections{flex:none}
+.side-sub.side-pages{flex:none;min-height:auto}
+.side-pages .side-list{flex:none;overflow:visible}
+/* Skills: the on-count stays on one line next to the filter */
+.toolbar .sk-on{flex:none;white-space:nowrap;font-variant-numeric:tabular-nums}
+@container page (max-width:520px){.toolbar .sk-on{margin-left:auto;padding:0 2px 0 4px;color:var(--muted)}}
+/* Task board: on a computer the columns share the width (they scroll only below 170px each, with six or more columns,
+   or while dragging shows every drop target); every header is as tall as one with a button */
+.kcol header{min-height:36px}
+.kswipe{display:none}
+@media (min-width:761px){
+ .kboard{grid-auto-columns:minmax(170px,1fr)}
+ .kboard.kwide,.kboard.kdrag{grid-auto-columns:minmax(220px,1fr)}
+}
+/* on a phone one column at a time, snapping, with the next one peeking, a fade at the edge and a swipe hint */
+@media (max-width:760px){
+ .kboard{grid-auto-columns:84%;scroll-snap-type:x mandatory;scroll-padding-inline:0;-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 28px),transparent)}
+ .kboard.kend{-webkit-mask-image:none;mask-image:none}
+ .kboard.kdrag{scroll-snap-type:none}
+ .kcol{scroll-snap-align:start}
+ .kswipe{display:flex;align-items:center;gap:4px;margin:0 0 8px;font-size:12.5px;color:var(--muted);transition:opacity var(--t-med) var(--ease)}
+ .kswipe svg{animation:kNudge 1.6s var(--ease) infinite}
+ .kswipe.gone{opacity:0}
+}
+@keyframes kNudge{0%,100%{transform:translateX(0)}50%{transform:translateX(3px)}}
+/* Achievements: six stats as 3 + 3, or 2 + 2 + 2 on a narrow screen, never 4 + 2 */
+.stats.ach-stats{grid-template-columns:repeat(auto-fit,minmax(max(155px,calc((100% - 40px) / 3)),1fr))}
+.ach-legend span{white-space:nowrap}
+/* Health: no gap above Agents while Issues has nothing to show */
+#hIssues:empty+#hCode:empty+.ach-cat{margin-top:0}
+@media (prefers-reduced-motion:reduce){.kswipe svg{animation:none}}
