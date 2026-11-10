@@ -2701,3 +2701,27 @@ button.bad{color:var(--bad)}
 /* Health: no gap above Agents while Issues has nothing to show */
 #hIssues:empty+#hCode:empty+.ach-cat{margin-top:0}
 @media (prefers-reduced-motion:reduce){.kswipe svg{animation:none}}
+/* ---------- 10 Nov 2026 audit: phone rows, tab fades, palette, Files ---------- */
+/* a row that scrolls sideways fades on the side with more (core.js edgeFade: every browser, not only Chrome's scroll timeline) */
+.tf-js{--tf-l:0px;--tf-r:0px;transition:--tf-l var(--t-med) var(--ease),--tf-r var(--t-med) var(--ease);-webkit-mask-image:linear-gradient(to right,transparent 0,#000 var(--tf-l),#000 calc(100% - var(--tf-r)),transparent 100%);mask-image:linear-gradient(to right,transparent 0,#000 var(--tf-l),#000 calc(100% - var(--tf-r)),transparent 100%)}
+.tf-js.tf-l{--tf-l:36px}.tf-js.tf-r{--tf-r:44px}
+.tabs.tf-js{animation:none}.tabs.tf-js.reveal{animation:reveal .42s var(--ease) backwards;animation-timeline:auto;animation-delay:calc(min(var(--ri,0),8) * 45ms)}
+.head-actions.tf-js:not(.tf-l):not(.tf-r),#kbToolR.tf-js:not(.tf-l):not(.tf-r){-webkit-mask-image:none;mask-image:none}
+/* phone: a page's buttons stay one row that scrolls, the main action first, instead of wrapping into three or four rows */
+@media (max-width:600px){
+ .page-head .head-actions{flex-wrap:nowrap!important;overflow-x:auto;scrollbar-width:none;max-width:100%;padding:4px 2px 10px;margin:-4px -2px -10px;scroll-padding-inline:2px}
+ .page-head .head-actions::-webkit-scrollbar{display:none}
+ .page-head .head-actions>*{flex:none}
+ .page-head .head-actions>.primary{order:-1}
+ .page-head .head-actions>.view-pick{order:-2}
+ .ktool-r{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding:2px 0 6px}
+ .ktool-r::-webkit-scrollbar{display:none}
+ .ktool-r>*{flex:none}
+ .kmode{white-space:nowrap}
+}
+/* touch screens have no arrow keys or Esc: the palette's key hints go */
+@media (hover:none) and (pointer:coarse){.palette .p-foot{display:none}}
+/* Files: "The AI box (shared)" heads its own group on its own line, with a hairline, not squeezed between the chips */
+.fplaces-sep{flex-basis:100%;display:flex;align-items:center;gap:10px;margin:6px 2px 0}
+.fplaces-sep::after{content:'';flex:1;height:1px;background:var(--border)}
+.fcrumbs button:first-child{font-weight:500}

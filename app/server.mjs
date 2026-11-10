@@ -265,7 +265,7 @@ async function identities(req,res,p,u){
    const name='name' in b?String(b.name||'').trim().slice(0,60):cur.name||'',title='title' in b?String(b.title||'').trim().slice(0,80):cur.title||'';   // a body with only the emoji keeps the name
    const next={...cur,name,title,updated:Date.now()};
    if('emoji' in b){const e=String(b.emoji||'');if(!e)delete next.emoji;else{next.emoji=e;await dropPhoto(cur,next)}}   // an emoji replaces the photo
-   ids[profile]=next;await writeIds(ids);await setDisplayName(profile,name);return send(res,200,ids[profile])}).catch(fail)}
+   ids[profile]=next;await writeIds(ids);await setDisplayName(profile,name);if(!String(profile).includes('--'))NAMES[profile]=name||await displayName(profile);return send(res,200,ids[profile])}).catch(fail)}
  // no photo: send the agent's emoji (chosen or automatic) so anything outside the app that asks for the picture still gets one.
  // A private agent the person may not open shows only its automatic emoji, never its photo or chosen picture.
  if(m[1]==='avatar'&&req.method==='GET'){const cur=(await readIds())[profile]||{},base=profile.split('--')[0],ow=users.byId(users.agentOwner(base));
@@ -363,6 +363,11 @@ async function ensureChatHint(a){const cfgFile=path.join(a==='default'?HERMES_HO
  // app chats (api_server) and scheduled runs that show their result in the app (delivered "local") read the same way
  if(y.split('shows these as small coloured labels').length>2)return;   // already the current wording, twice
  for(const k of ['api_server','local']){const r=await setKey(a,'agent.platform_hints.'+k,{replace:CHAT_HINT});if(!r.ok)throw new Error(r.err)}}
+/* NAMES filled at start and every 5 min, not only by writeAgentContext (live app, 25 s after start): until then
+   messages, Connections and Teams fell back to the folder name ("Aisar lead", "Pixel agent") while the page said the
+   name the owner set ("Aisar's Lead"); 10 Nov 2026 audit */
+async function refreshNames(){for(const a of await listAgents().catch(()=>[]))NAMES[a]=await displayName(a).catch(()=>NAMES[a]||prettyId(a))}
+setTimeout(()=>refreshNames().catch(()=>{}),0);setInterval(()=>refreshNames().catch(()=>{}),300000).unref();
 async function writeAgentContext(){const all=await listAgents();const names={};for(const a of all)names[a]=NAMES[a]=await displayName(a);
  for(const a of all){await ensureChatHint(a).catch(e=>console.warn('chat hint',a,e.message));try{const me=names[a];
   // every agent has its own screen and its own AdsPower on it (1 Nov 2026: the AdsPower copy agents shared is gone)
