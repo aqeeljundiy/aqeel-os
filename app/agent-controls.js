@@ -49,11 +49,11 @@ const SkillPolicy={
  let q=0;const mo=new MutationObserver(()=>{if(!q)q=requestAnimationFrame(()=>{q=0;apply()})});mo.observe(el,{childList:true,subtree:true});apply()}}
 
 /* Channels: quiet Slack channels, per Slack workspace (admins). Each Slack row says what its workspace keeps quiet, and
-   Change sets it for that workspace only ("Slack · Pine & Co: stay quiet in channels starting with…"). */
+   Change sets it for that workspace only ("Slack · Pine & Co: stay quiet in channels starting with…").
+   Since 10 Nov 2026 the rows are a Connections table: the setting is in the Slack channel’s panel (ChX in people.js).*/
 {const base=PAGES.channels;PAGES.channels=async(p,el,r)=>{const gone=pageTok(el);await base(p,el,r);if(gone()||S.me?.admin===false||S.chOverride)return;
- const rows=[...el.querySelectorAll('[data-act="ch-more"][data-platform="slack"]')];if(!rows.length)return;
- const q=await UI('/ui/slack-quiet').catch(()=>null);if(!q||gone())return;SlackQuiet.q=q;
- for(const b of rows){const bot=q.bots.find(x=>x.agent===b.dataset.agent),txt=b.closest('.row')?.querySelector('.txt');if(!bot||!txt||txt.querySelector('.sq-line'))continue;txt.append(SlackQuiet.line(bot))}}}
+ if(!el.querySelector('.cn-row[data-platform="slack"]'))return;
+ const q=await UI('/ui/slack-quiet').catch(()=>null);if(!q||gone())return;SlackQuiet.q=q;if(ChX.d?.isConnected)ChX.paint()}}
 const SlackQuiet={q:null,
  line(bot){const pre=SlackQuiet.q.teams[bot.team]?.prefix||'',s=document.createElement('span');s.className='acct-line sq-line';s.dataset.team=bot.team;
   s.innerHTML=`${pre?`Quiet in channels starting with <b>${esc(pre)}</b>`:'Answers in every channel it is in'} <button type="button" class="link-btn" data-act="sq-edit" data-team="${esc(bot.team)}" data-name="${esc(bot.name)}">${pre?'Change':'Keep some quiet'}</button>`;return s},
@@ -62,7 +62,7 @@ const SlackQuiet={q:null,
    `<button class="ghost" data-x>Cancel</button><button class="primary" id="sqGo">Save</button>`);
   const i=d.querySelector('#sqPre'),b=d.querySelector('#sqGo');setTimeout(()=>{i.focus();i.select()},80);let busy=false;
   const go=async()=>{if(busy)return;busy=true;b.disabled=true;b.classList.add('is-busy');
-   try{const r=await put(UI,'/ui/slack-quiet',{team,prefix:i.value,name});SlackQuiet.q.teams[team]=r;close();
+   try{const r=await put(UI,'/ui/slack-quiet',{team,prefix:i.value,name});SlackQuiet.q.teams[team]=r;close();if(ChX.d?.isConnected)ChX.paint();
     document.querySelectorAll('.sq-line[data-team="'+team+'"]').forEach(l=>{const bot=SlackQuiet.q.bots.find(x=>x.team===team);if(bot)l.replaceWith(SlackQuiet.line(bot))});
     toast(r.prefix?'In '+(name||'this workspace')+', channels starting with '+r.prefix+' stay quiet':'In '+(name||'this workspace')+', agents answer in every channel')}
    catch(e){d.querySelector('#sqErr').textContent=e.message||'It could not be saved.'}finally{busy=false;if(b.isConnected){b.disabled=false;b.classList.remove('is-busy')}}};

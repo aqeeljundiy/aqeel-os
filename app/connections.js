@@ -18,11 +18,14 @@ const CX_LV={read:['Read','Look things up and read'],edit:['Read & edit Sheets/D
 const CX_HOW={gapi:'Google refuses anything above an agent’s level at once.',tools:'The tools above an agent’s level are taken off that agent, in about a minute.',note:'Kept as a note: aqeelOS cannot hold this login to a level yet.'};
 const cxChip=r=>{let [c,t]=CX_ST[r.status]||['',r.status];if(r.type==='key'&&r.status==='on')t='Saved';if(r.kind==='ads'&&r.status==='connected')t='Signed in';return `<span class="chip${c?' '+c:''}"${r.why?` title="${esc(r.why)}"`:''}>${r.busy?'<span class="spinner tiny"></span>':'<i class="dot"></i>'}${esc(r.busy&&r.kind!=='ads'?'Saving…':t)}</span>`};
 const cxLogo=r=>r.logo?logoImg(r.logo,(r.service||r.name||'?')[0].toUpperCase()):`<span class="ic">${icon(r.kind==='code'?'monitor':CX_IC[r.type]||'plug',17)}</span>`;
+// a key's name in words when nobody named it (ELEVENLABS_API_KEY › Elevenlabs API key); the raw name stays in its panel
+const CX_ACRO={API:'API',URL:'URL',ID:'ID',AI:'AI',MCP:'MCP',SSH:'SSH',SMTP:'SMTP',IMAP:'IMAP',HTTP:'HTTP',OAUTH:'OAuth',PAT:'PAT',JWT:'JWT'};
+const cxName=r=>r.type==='key'&&/^[A-Z][A-Z0-9_]*$/.test(r.name||'')?String(r.name).split('_').filter(Boolean).map((w,i)=>CX_ACRO[w]||(i?w.toLowerCase():w[0]+w.slice(1).toLowerCase())).join(' '):r.name;
 const cxUsing=r=>r.users.filter(u=>u.level!=='off');
 const cxOwner=(r,sz=20)=>r.owner?`<span class="cn-o">${agentAvatar(r.owner,sz,{title:false})}<span>${esc(r.ownerName||ident(r.owner).name)}</span></span>`:`<span class="cn-o none">${esc(r.ownerName||'No agent')}</span>`;
 // wording (1 Nov 2026): a person owns an agent; a connection belongs to an agent
-const cxRow=(r,i)=>{const u=cxUsing(r);return `<div class="row clickable cn-row" data-act="cn-open" data-key="${esc(r.key)}" tabindex="0" role="button" aria-label="${esc(r.name)}: belongs to ${esc(r.ownerName||'no agent')}, ${esc((CX_ST[r.status]||['',r.status])[1])}" ${st(i)}>
- <div class="main-c">${cxLogo(r)}<div class="txt"><b>${esc(r.name)}${r.registered===false?' <span class="chip warn cn-new">Not registered</span>':''}</b><span>${esc(CX_TYPE[r.type]||'')}${r.what?' · '+esc(r.what):''}</span></div></div>
+const cxRow=(r,i)=>{const u=cxUsing(r);return `<div class="row clickable cn-row" data-act="cn-open" data-key="${esc(r.key)}" tabindex="0" role="button" aria-label="${esc(cxName(r))}: belongs to ${esc(r.ownerName||'no agent')}, ${esc((CX_ST[r.status]||['',r.status])[1])}" ${st(i)}>
+ <div class="main-c">${cxLogo(r)}<div class="txt"><b>${esc(cxName(r))}${r.registered===false?' <span class="chip warn cn-new">Not registered</span>':''}</b><span>${esc(CX_TYPE[r.type]||'')}${r.what?' · '+esc(r.what):''}</span></div></div>
  <div class="cn-own"><small class="cn-lbl">Belongs to</small>${cxOwner(r)}</div>
  <div class="cn-who"><small class="cn-lbl">Who can use</small>${u.length?`<span class="acc-who" aria-label="Used by ${esc(u.map(x=>x.name).join(', '))}">${u.slice(0,3).map(x=>Access.av(x)).join('')}${u.length>3?`<span class="acc-more">+${u.length-3}</span>`:''}</span>`:'<span class="cn-o none">Nobody yet</span>'}</div>
  <div class="cn-st">${cxChip(r)}</div></div>`};
@@ -47,8 +50,8 @@ PAGES.connections=async(p,el)=>{const gone=pageTok(el);Pages._cxEl=el;
 
 const Cx={
  rows:()=>Pages._cx?.rows||[],row(k){return this.rows().find(r=>r.key===k)},
- match(r){const fx=this.fixed;if(fx){if(r.type!==fx.type)return false;if(fx.agent&&!r.users.some(u=>u.id===fx.agent&&u.level!=='off'))return false}const ty=fx?null:CX_TYPES[S.tab.connections||'All'];if(ty==='need'){if(!cxNeeds(r))return false}else if(ty&&r.type!==ty)return false;const q=(S.cxQ||'').trim().toLowerCase();if(!q)return true;
-  return [r.name,r.what,r.service,r.ownerName,CX_TYPE[r.type],...r.users.map(u=>u.name)].join(' ').toLowerCase().includes(q)},
+ match(r){const fx=this.fixed;if(fx){if(r.type!==fx.type||fx.filter&&!fx.filter(r))return false;if(fx.agent&&!r.users.some(u=>u.id===fx.agent&&u.level!=='off'))return false}const ty=fx?null:CX_TYPES[S.tab.connections||'All'];if(ty==='need'){if(!cxNeeds(r))return false}else if(ty&&r.type!==ty)return false;const q=(S.cxQ||'').trim().toLowerCase();if(!q)return true;
+  return [r.name,cxName(r),r.rawName,r.id,r.what,r.service,r.ownerName,CX_TYPE[r.type],...r.users.map(u=>u.name)].join(' ').toLowerCase().includes(q)},
  // the list only (search and the filter change it without asking the server); "needs you" above it
  paintList(el,first=false){const box=el.querySelector('.cn-rows');if(!box)return;const all=this.rows(),l=all.filter(r=>this.match(r));
   // light enough for any machine (1 Nov 2026: 110 rows, ~3000 elements and ~480 avatars at once froze a busy browser):
@@ -67,8 +70,8 @@ const Cx={
   if(this.d?.isConnected&&this.key){const r=this.row(this.key);if(!r){closeLayers();return}await this.detail(this.key)}}catch(e){fail(e)}},
  async detail(key){const d=this.d;try{const x=await UI('/ui/connections/detail?key='+encodeURIComponent(key));if(!d?.isConnected||this.key!==key)return;this.cur=x;this.paint()}catch(e){if(d?.isConnected&&this.key===key&&!this.cur)d.querySelector('.cn-p').insertAdjacentHTML('beforeend',errLine('the rest of '+(this.row(key)?.name||'it')))}},
  open(key){const r=this.row(key);if(!r)return toast('That connection is gone. Reload the page.','err');this.key=key;this.cur={...r,tools:null};
-  const d=drawer(r.name,`<div class="cn-p cn-in"></div>`,`<button class="primary" data-act="close">Done</button>`,{size:'md'});d.classList.add('cn-drawer');this.d=d;this.paint();setTimeout(()=>d.querySelector('.cn-p')?.classList.remove('cn-in'),700);this.detail(key)},
- paint(){const b=this.d?.querySelector('.cn-p');if(!b)return;const r=this.cur;b.innerHTML=this.body(r);const h=this.d.querySelector('.drawer-head h2');if(h)h.textContent=r.name},
+  const d=drawer(cxName(r),`<div class="cn-p cn-in"></div>`,`<button class="primary" data-act="close">Done</button>`,{size:'md'});d.classList.add('cn-drawer');this.d=d;this.paint();setTimeout(()=>d.querySelector('.cn-p')?.classList.remove('cn-in'),700);this.detail(key)},
+ paint(){const b=this.d?.querySelector('.cn-p');if(!b)return;const r=this.cur;b.innerHTML=this.body(r);const h=this.d.querySelector('.drawer-head h2');if(h)h.textContent=cxName(r)},
  lvSub(r,l){const t=r.tools;if(r.kind==='mcp'&&r.type==='app'&&t)return l==='read'?plural(t.read,'tool')+' of '+t.total:l==='draft'?plural(t.draft,'tool')+' of '+t.total:'All '+plural(t.total,'tool');return CX_LV[l][1]},
  body(r){const may=r.may||{},admin=Pages._cx?.canEdit,agents=Pages._cx?.agents||[],using=cxUsing(r);
   const [sc,stt]=CX_ST[r.status]||['',r.status];
@@ -97,7 +100,8 @@ const Cx={
   else if(r.kind==='mcp'&&r.type==='app'&&admin&&!r.own)B.push(`<button class="ghost small cn-dis" data-act="cn-disc">${icon('trash',14)}Disconnect</button>`);
   if(r.kind==='skill')B.push(route().page?.id==='skills'?`<button class="small" data-act="cn-skill" data-name="${esc(r.id)}">${icon('wand',14)}Open the skill</button>`:`<button class="small" data-act="cn-go" data-to="/abilities/skills">${icon('wand',14)}Open in Skills</button>`);
   if(r.kind==='plugin'&&route().page?.id!=='plugins')B.push(`<button class="small" data-act="cn-go" data-to="/abilities/plugins">${icon('layers',14)}Open in Plugins</button>`);
-  if(r.kind==='key'&&admin)B.push(`<button class="small" data-act="cn-go" data-to="/system/keys">${icon('key',14)}Change it under Keys</button>`);
+  // on Keys itself: change the value or remove it, on the agent it belongs to
+  if(r.kind==='key'&&admin){const env=String(r.id).split('@')[0];if(route().page?.id==='keys'){B.push(`<button class="small" data-act="key-edit" data-agent="${esc(r.owner||'')}" data-k="${esc(env)}">${icon('edit',14)}Change the value</button>`);if(!r.bot)B.push(`<button class="ghost small cn-dis" data-act="key-del" data-agent="${esc(r.owner||'')}" data-k="${esc(env)}">${icon('trash',14)}Remove from ${esc(r.ownerName||ident(r.owner).name)}</button>`)}else B.push(`<button class="small" data-act="cn-go" data-to="/system/keys">${icon('key',14)}Change it under Keys</button>`)}
   return top+reg+own+acc+code+rec+(B.length?`<section class="cn-sec cn-do"><div class="cn-btns">${B.join('')}</div><p class="hint cn-signst" hidden></p></section>`:'')},
  // one change, then fresh data in place; the button shows it is working meanwhile
  async act(btn,path,body,ok){const was=btn?.innerHTML;if(btn){btn.disabled=true;btn.innerHTML='<span class="spinner tiny"></span>'+esc(btn.textContent.trim()||'')}

@@ -2182,6 +2182,17 @@ button.acct-more{font:inherit;cursor:pointer;width:100%;background:var(--surface
  .cn-row .cn-own,.cn-row .cn-who{padding-left:52px}.cn-row .cn-who{padding-left:0}
  .cn-bar .search{max-width:none;flex-basis:100%}.cn-bar .tabs{overflow-x:auto;max-width:100%;scrollbar-width:none}
 }
+/* the same table on Channels (no Who can use: a channel answers as one agent) and n8n (Open at the end), 10 Nov 2026 */
+.ch-all{margin-bottom:22px}
+.k-add-head{margin-top:28px}.ul-slot>.ul-host:first-child{margin-top:0}
+.cn-3 .cn-head,.cn-3 .cn-row{grid-template-columns:minmax(0,1fr) 190px 150px}
+.cn-5 .cn-head,.cn-5 .cn-row{grid-template-columns:minmax(0,1fr) 170px 140px 90px auto}
+.cn-go{justify-self:end}
+@container (max-width:860px){.cn-3 .cn-head,.cn-3 .cn-row{grid-template-columns:minmax(0,1fr) 150px 130px}.cn-5 .cn-head,.cn-5 .cn-row{grid-template-columns:minmax(0,1fr) 130px 100px 70px auto}}
+@container (max-width:700px){
+ .cn-3 .cn-row{grid-template-columns:auto 1fr;grid-template-areas:"m m" "o s"}
+ .cn-5 .cn-row{grid-template-columns:auto auto 1fr auto;grid-template-areas:"m m m x" "o w s s"}.cn-5 .cn-row .cn-go{grid-area:x}
+}
 /* the side panel */
 .cn-drawer .drawer-body{padding:20px 22px}
 .cn-p.cn-in>*{animation:rise var(--t-med) var(--ease) both}

@@ -405,37 +405,94 @@ ACT['role-new']=()=>roleDrawer(null);ACT['role-open']=a=>roleDrawer(a.dataset.id
 
 /* ---------- Channels for the whole team: which agent answers each one, and moving it ---------- */
 {const base=ACT['wh-new'];ACT['wh-new']=async a=>{try{S.agentsCache=((await H('/profiles')).profiles||[]).map(x=>x.name)}catch{}return base(a)}}
+// One way to show shared things (10 Nov 2026, owner: the Connections page is the clearest): every agent's channels are
+// a Connections table (Channel | Belongs to | Status), one quiet line each. A channel answers as one agent, so there is
+// no Who can use column. A row opens one centered panel (ChX) with Belongs to and Change, the name and description,
+// Slack's quiet channels, who can send through it, and what the old ⋯ menu did, as small buttons.
 {const base=PAGES.channels;PAGES.channels=async(p,el)=>{
  // load the team list together with the page, and hold its place while it loads (no late pop-in)
  const admin=S.me?.admin!==false&&!S.chOverride;const pK=admin?UI('/ui/channels/links').catch(()=>({links:[]})):null,pD=admin?UI('/ui/channels').catch(()=>null):null,pA=admin?H('/profiles').catch(()=>({profiles:[]})):null;
  const gone=pageTok(el);await base(p,el);if(gone()||!admin)return;
- const panel=document.createElement('div');panel.className='panel card';panel.style.marginBottom='16px';
- panel.innerHTML=`<h2>Every agent's channels</h2><p class="sub">Each connection belongs to one agent, which answers it.</p>${'<div class="row skel-row" style="padding:12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="skel" style="height:18px;width:40%"></div></div>'.repeat(2)}`;
+ const panel=document.createElement('div');panel.className='ch-all';
+ const head=`<div class="ch-cat-head"><h2>Every agent’s channels</h2><p class="sub">Each channel answers as one agent. Click one to move it, check it or change it.</p></div>`;
+ panel.innerHTML=head+skeletonRows(2);
  el.querySelector('.grid-cards')?.before(panel);
  const d=await pD;if(gone()||!d){panel.remove();return}const LK=Object.fromEntries(((await pK)?.links||[]).map(l=>[l.name,l]));if(gone())return panel.remove();
- // extra connections (WhatsApp 2…) sit right under their agent's channels, by name and ID
+ // extra connections (WhatsApp 2…) sit right under their agent's channels
  const agents=((await pA).profiles||[]).map(x=>x.name);if(gone())return panel.remove();const ord=a=>{const i=agents.indexOf(a.split('--')[0]);return i<0?1e6:i};
  d.channels.sort((x,y)=>ord(x.agent)-ord(y.agent)||(x.agent.includes('--'))-(y.agent.includes('--'))||x.agent.localeCompare(y.agent)||x.id.localeCompare(y.id));
  // the engine did not answer for some agents: say so, never "nothing connected"
  // a cold first read answers within 3 s with the agents it has; say who is still loading and fetch again by itself
  const loadNote=(d.loading||[]).length?`<p class="hint ch-loading" style="margin:0 0 10px"><span class="spinner"></span> Still reading ${esc((d.loading||[]).map(a=>ident(a.split('--')[0]).name).join(', '))}…</p>`:'';
  const failNote=(d.failed||[]).length?errLine((d.failed||[]).map(a=>ident(a.split('--')[0]).name+(a.includes('--')?' (extra number)':'')).join(', ')+'’s channels','','ch-fail'):'';
- panel.innerHTML=`<h2>Every agent's channels</h2><p class="sub">Each connection belongs to one agent, which answers it. Check one any time; aqeelOS also checks them every 2 hours and tells you when one needs linking again. Move one to another agent and its settings, WhatsApp login and approved people go along.</p>
-  ${loadNote}${failNote}${d.channels.length?d.channels.map((c,i)=>`<div class="row" data-from="${esc(c.agent)}" ${st(i)} style="padding:12px 12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="main-c">${chLogo(c.id,c.name)}<div class="txt"><b>${esc(LK[c.agent]?linkTitle(LK[c.agent]):c.name)}</b>${c.account?'<span class="acct-line">'+(c.account.kind?`<span class="kind-chip ${c.account.kind==='bot'?'bot':'person'}" title="${c.account.kind==='bot'?'A bot account made for the agent':'Someone’s own account: messages come from that person'}">${icon(c.account.kind==='bot'?'zap':'user',11)}${c.account.kind==='bot'?'Bot':'Personal account'}</span> `:'')+esc(accountText(c.account))+'</span>':c.identity_error?'':`<span class="acct-line" title="The name agents use to pick this channel">${esc(accountText(null,{id:LK[c.agent]?linkId(LK[c.agent]):c.id}))}</span>`}${c.identity_error?`<span class="acct-line ch-pending" title="Which account this is could not be checked">${icon('alert',12)}${esc(c.identity_error)}</span>`:''}${c.note?'<span class="acct-line ch-note">'+esc(c.note)+'</span>':''}<span class="ch-status" title="Agents use the name “${esc(LK[c.agent]?linkId(LK[c.agent]):c.id)}” to pick this channel">${c.moving?'<span class="spinner"></span>'+(c.moving.stage==='restart'?'Moving to '+esc(ident(c.moving.to).name)+' after the engine restarts':'Moving to '+esc(ident(c.moving.to).name)+'…'):chDot(c)+(c.paused?'Paused · nobody answers it':esc(chState(c).replace(' · link again','')))}${c.updated_at&&!c.paused?` <small class="ch-upd">· updated ${when(c.updated_at)}</small>`:''}</span>${c.pending&&!c.paused?`<span class="acct-line ch-pending">Settings changed since it connected.<button class="link" data-act="ch-apply" data-agent="${esc(c.agent)}" data-platform="${esc(c.id)}">Reconnect to apply</button></span>`:''}</div></div>
-   <div class="act ch-act">${c.id==='whatsapp'&&c.needs_link?`<button class="primary small" data-act="wa-link" data-agent="${esc(c.agent)}">${icon('refresh',14)}Link again</button>`:''}${LK[c.agent]?`<span class="hint" style="margin:0">Extra number of</span><b style="font-size:13.5px">${esc(ident(LK[c.agent].agent).name)}</b>`:`<span class="ab-lbl">Belongs to</span><select style="width:auto" data-chmove="${esc(c.id)}" data-from="${esc(c.agent)}" data-paused="${c.paused?1:''}" data-acct="${esc(accountText(c.account))}">${agents.map(n=>`<option value="${esc(n)}" ${n===c.agent&&!c.paused?'selected':''}>${esc(ident(n).name)}</option>`).join('')}<option value="" ${c.paused?'selected':''}>Nobody (paused)</option></select>`}<button class="ghost icon ch-more" data-act="ch-more" data-agent="${esc(c.agent)}" data-platform="${esc(c.id)}" data-paused="${c.paused?1:''}" data-state="${esc(c.state||'')}" data-extra="${LK[c.agent]?1:''}" data-note="${esc(c.note||'')}" title="More" aria-label="More for ${esc(c.name)}">${icon('more',18)}</button></div></div>`).join(''):failNote?'':'<p class="hint">No channel is connected yet. Set one up below and it shows here for the whole team.</p>'}`;
+ Object.assign(ChX,{list:d.channels,LK,agents});
+ panel.innerHTML=head+loadNote+failNote+(d.channels.length?`<div class="card list cn-list cn-3"><div class="cn-head" aria-hidden="true"><span>Channel</span><span>Belongs to</span><span>Status</span></div><div class="cn-rows">${d.channels.map(ChX.row).join('')}</div></div>`:failNote?'':'<p class="hint">No channel is connected yet. Set one up below and it shows here for the whole team.</p>');
  if(d.channels.some(c=>c.moving))laterReload(8000);else if((d.loading||[]).length)laterReload(4000);   // a move finishing after the engine restart: the list follows it
- panel.querySelectorAll('select').forEach(enhanceSelect);
- panel.querySelectorAll('[data-chmove]').forEach(s=>{if(d.channels.find(c=>c.agent===s.dataset.from&&c.id===s.dataset.chmove)?.moving){s.disabled=true;s._sync?.()}});
- // one change at a time: the picker stays off until the server has answered (it also holds one move per channel)
- const hold=(s,on)=>{s.disabled=on;s._sync?.()};
- panel.querySelectorAll('[data-chmove]').forEach(s=>s.onchange=async()=>{const to=s.value,from=s.dataset.from,pf=s.dataset.chmove,was=s.dataset.paused?'':from;if(to===was)return;
-  const what=appName(pf)+(s.dataset.acct?' ('+s.dataset.acct+')':'');
-  // nobody: it stays linked and ready, it just isn't answered
-  // pausing is undone from its toast, the same way everywhere (setPaused)
-  if(to===''){hold(s,true);if(!await setPaused(from,pf,true,what)){s.value=was;hold(s,false)}return}
-  if(to===from){hold(s,true);try{const r=await post(UI,'/ui/channels/pause',{agent:from,platform:pf,on:true});toast(ident(from).name+' answers '+what+' again'+(r.restarting?' (the engine restarts once)':''));reload()}catch(e){fail(e);s.value=was;hold(s,false)}return}
-  if(!await confirmBox('Move this channel to '+ident(to).name+'?',ident(to).name+' will answer it from now on. Its settings and approved people move along; the channel restarts for a few seconds.','Move',false)){s.value=from;s._sync?.();return}
-  hold(s,true);try{const r=await post(UI,'/ui/channels/move',{platform:s.dataset.chmove,from,to});r?.pending==='restart'?toast('Moving after the engine restarts (replies in progress finish first). This list updates by itself.'):r?.on===false?toast('Moved, but '+ident(to).name+' couldn’t switch it on. Switch it on under Connections.','err'):toast('Moved. '+ident(to).name+' answers it now.');reload()}catch(e){fail(e);s.value=from;hold(s,false)}})}}
+ if(ChX.d?.isConnected)ChX.paint()}}
+const ChX={list:[],LK:{},agents:[],d:null,at:null,sh:null,
+ find(ag,pf){return this.list.find(c=>c.agent===ag&&c.id===pf)},
+ base:c=>c.agent.split('--')[0],
+ extra(c){return this.LK[c.agent]||null},
+ name(c){const lb=labelOf('channel',c.agent+'|'+c.id),l=this.extra(c);return lb?.name||(l?linkTitle(l):c.name)},
+ kind:c=>c.account?.kind==='bot'?'Bot':c.account?.kind?'Personal account':'',
+ // the quiet line: what it is and whose account, never a number, address or id
+ quiet(c){const lb=labelOf('channel',c.agent+'|'+c.id);if(lb?.description)return lb.description;
+  return [this.kind(c)||appName(c.id),c.account?.name||'',this.extra(c)?'extra number':''].filter(Boolean).join(' · ')},
+ chip(c){return c.moving?`<span class="chip warn"><span class="spinner tiny"></span>Moving</span>`:c.paused?'<span class="chip"><i class="dot"></i>Paused</span>':chStateChip(c)},
+ owner(c,sz=20){return c.paused?'<span class="cn-o none">Nobody (paused)</span>':cxOwner({owner:this.base(c),ownerName:ident(this.base(c)).name},sz)},
+ row(c,i){const x=ChX,st_=c.moving?'Moving':c.paused?'Paused':chState(c).replace(' · link again','');
+  return `<div class="row clickable cn-row" data-act="chx-open" data-from="${esc(c.agent)}" data-agent="${esc(c.agent)}" data-platform="${esc(c.id)}" tabindex="0" role="button" aria-label="${esc(x.name(c))}: belongs to ${esc(c.paused?'nobody':ident(x.base(c)).name)}, ${esc(st_)}" ${st(Math.min(i,12))}>
+  <div class="main-c">${chLogo(c.id,c.name)}<div class="txt"><b>${esc(x.name(c))}</b><span>${esc(x.quiet(c))}</span></div></div>
+  <div class="cn-own"><small class="cn-lbl">Belongs to</small>${x.owner(c)}</div>
+  <div class="cn-st">${x.chip(c)}</div></div>`},
+ open(ag,pf){const c=this.find(ag,pf);if(!c)return toast('That channel is gone. Reload the page.','err');this.at=[ag,pf];
+  const d=drawer(this.name(c),`<div class="cn-p cn-in"></div>`,`<button class="primary" data-act="close">Done</button>`,{size:'md'});d.classList.add('cn-drawer');this.d=d;this.paint();
+  setTimeout(()=>d.querySelector('.cn-p')?.classList.remove('cn-in'),700);
+  // Slack's quiet channels and who can send through it come in behind, then the panel fills them in
+  if(pf==='slack'&&!SlackQuiet.q)UI('/ui/slack-quiet').then(q=>{SlackQuiet.q=q;this.paint()}).catch(()=>{});
+  UI('/ui/channels/shares').then(r=>{this.sh=r.shares||{};this.paint()}).catch(()=>{})},
+ // fresh data in place (after a reload of the page); the panel closes when its channel is gone (removed or moved)
+ paint(){const b=this.d?.querySelector('.cn-p');if(!b||!this.d.isConnected)return;const c=this.at&&this.find(...this.at);if(!c){closeLayers();return}
+  b.innerHTML=this.body(c);const h=this.d.querySelector('.drawer-head h2');if(h)h.textContent=this.name(c)},
+ body(c){const ag=c.agent,pf=c.id,base=this.base(c),bn=ident(base).name,l=this.extra(c),wa=pf==='whatsapp',a=`data-agent="${esc(ag)}" data-platform="${esc(pf)}"`;
+  const acct=accountText(c.account);
+  const top=`<div class="cn-top">${chLogo(pf,c.name)}<div class="cn-top-t"><span class="hint">${esc([this.kind(c),appName(pf)].filter(Boolean).join(' · '))}</span><p>${esc(acct||'Agents call it '+(l?linkId(l):pf))}</p>
+   <div class="cn-top-st">${this.chip(c)}<span class="hint">${c.moving?'Moving to '+esc(ident(c.moving.to).name)+(c.moving.stage==='restart'?' after the engine restarts':''):c.updated_at&&!c.paused?'Updated '+when(c.updated_at):c.paused?'Stays linked, nobody answers it':''}</span></div>
+   ${c.identity_error?`<p class="hint cn-why">${icon('alert',12)}${esc(c.identity_error)}</p>`:''}${c.note?`<p class="hint cn-note">${icon('edit',12)}${esc(c.note)}</p>`:''}</div></div>`;
+  const alert=wa&&c.needs_link?`<div class="cn-alert">${alertBox('This WhatsApp was logged out. Link it again with a fresh QR code.',{act:'wa-link',label:'Link again',attrs:`data-agent="${esc(ag)}"`})}</div>`
+   :c.pending&&!c.paused?`<div class="cn-alert">${alertBox('Settings changed since it connected.',{act:'ch-apply',label:'Reconnect to apply',attrs:a})}</div>`:'';
+  const own=`<section class="cn-sec"><h3>Belongs to</h3><div class="cn-line">${c.paused?`<span class="ic">${icon('pause',15)}</span>`:agentAvatar(base,30,{title:false})}<span class="cn-lt"><b>${esc(c.paused?'Nobody (paused)':bn)}</b><small>${l?'An extra number of '+esc(bn)+': it answers as '+esc(bn):c.paused?'It stays linked. Pick an agent to answer it again':'This agent answers it. Its settings, login and approved people go along when it moves'}</small></span>${l||c.moving?'':`<button class="ghost small" data-act="chx-owner" aria-haspopup="menu">${icon('edit',14)}Change</button>`}</div></section>`;
+  const lb=labelOf('channel',ag+'|'+pf);
+  const about=`<section class="cn-sec"><h3>Name and description</h3><div class="cn-line"><span class="cn-lt"><b>${esc(this.name(c))}</b><small>${esc(lb?.description||'No description yet')}</small></span></div><button class="small cn-addag" data-act="chx-label">${icon('edit',14)}Edit name and description</button></section>`;
+  const bot=pf==='slack'&&SlackQuiet.q?.bots?.find(x=>x.agent===ag),pre=bot?SlackQuiet.q.teams[bot.team]?.prefix||'':'';
+  const quiet=bot?`<section class="cn-sec"><h3>Slack channels</h3><div class="cn-line"><span class="ic">${icon('chat',15)}</span><span class="cn-lt"><b>${pre?'Quiet in channels starting with '+esc(pre):'Answers in every channel it is in'}</b><small>Only in ${esc(bot.name||'this workspace')}</small></span><button class="ghost small" data-act="sq-edit" data-team="${esc(bot.team)}" data-name="${esc(bot.name||'')}">${icon('edit',14)}Change</button></div></section>`:'';
+  const cur=this.sh?.[ag+'|'+pf],senders=cur?.senders||[];
+  const send=l||!this.sh?'':`<section class="cn-sec"><h3>Who can send through it${senders.length?` <small class="hint">${senders.length+1} agents</small>`:''}</h3><p class="hint cn-how">${esc(bn)} gets every reply. Agents added here can also send you messages through it.</p><div class="cn-lines">
+   <div class="cn-line">${agentAvatar(base,30,{title:false})}<span class="cn-lt"><b>${esc(bn)}</b><small>It belongs to this agent</small></span></div>${senders.map(s=>`<div class="cn-line">${agentAvatar(s,30,{title:false})}<span class="cn-lt"><b>${esc(ident(s).name)}</b><small>Can send through it</small></span></div>`).join('')}</div>
+   <button class="small cn-addag" data-act="ch-share" data-owner="${esc(ag)}" data-platform="${esc(pf)}">${icon(senders.length?'edit':'plus',14)}${senders.length?'Change':'Add agent'}</button></section>`;
+  const B=[`<button class="small" data-act="ch-check" ${a}>${icon('activity',14)}Check connection</button>`];
+  if(!c.paused&&!c.moving)B.push(`<button class="small" data-act="ch-apply" ${a}>${icon('refresh',14)}Reconnect</button>`);
+  if(wa)B.push(`<button class="small" data-act="wa-replace" data-agent="${esc(ag)}">${icon('refresh',14)}Link a different phone</button>`);
+  if(!l&&!c.moving)B.push(c.paused?`<button class="small" data-act="chx-pause" data-on="0">${icon('play',14)}Answer it again</button>`:`<button class="small" data-act="chx-pause" data-on="1">${icon('pause',14)}Pause</button>`);
+  B.push(`<button class="small" data-act="chx-note">${icon('edit',14)}${c.note?'Edit the note':'Add a note'}</button>`);
+  B.push(wa?`<button class="ghost small cn-dis" data-act="wa-remove" data-agent="${esc(ag)}">${icon('trash',14)}Remove this WhatsApp</button>`:`<button class="ghost small cn-dis" data-act="ch-remove" ${a}>${icon('trash',14)}Remove this connection</button>`);
+  return top+alert+own+about+quiet+send+`<section class="cn-sec cn-do"><div class="cn-btns">${B.join('')}</div></section>`}};
+ACT['chx-open']=a=>ChX.open(a.dataset.agent,a.dataset.platform);
+const chxCur=()=>ChX.at&&ChX.find(...ChX.at);
+// Belongs to › Change: the same move as before (asked first; Nobody pauses it, with Undo in the toast)
+ACT['chx-owner']=a=>{const c=chxCur();if(!c)return;const was=c.paused?'':c.agent;
+ menu(a,[{header:'Which agent answers '+appName(c.id)},...ChX.agents.map(n=>({label:ident(n).name,ava:agentAvatar(n,20,{title:false}),on:n===was,run:()=>chMove(c,n)})),'-',{label:'Nobody (paused)',icon:'pause',sub:'It stays linked; nobody answers it',on:was==='',run:()=>chMove(c,'')}],{search:ChX.agents.length>6})};
+async function chMove(c,to){const from=c.agent,pf=c.id,was=c.paused?'':from;if(to===was)return;
+ const acct=accountText(c.account),what=appName(pf)+(acct?' ('+acct+')':'');
+ // nobody: it stays linked and ready, it just isn't answered; undone from its toast, the same way everywhere (setPaused)
+ if(to==='')return setPaused(from,pf,true,what);
+ if(to===from){try{const r=await post(UI,'/ui/channels/pause',{agent:from,platform:pf,on:true});toast(ident(from).name+' answers '+what+' again'+(r.restarting?' (the engine restarts once)':''));reload()}catch(e){fail(e)}return}
+ if(!await confirmBox('Move this channel to '+ident(to).name+'?',ident(to).name+' will answer it from now on. Its settings and approved people move along; the channel restarts for a few seconds.','Move',false))return;
+ try{const r=await post(UI,'/ui/channels/move',{platform:pf,from,to});closeLayers();r?.pending==='restart'?toast('Moving after the engine restarts (replies in progress finish first). This list updates by itself.'):r?.on===false?toast('Moved, but '+ident(to).name+' couldn’t switch it on. Switch it on under Connections.','err'):toast('Moved. '+ident(to).name+' answers it now.');reload()}catch(e){fail(e)}}
+ACT['chx-pause']=a=>{const c=chxCur();if(!c)return;const acct=accountText(c.account);setPaused(c.agent,c.id,a.dataset.on==='1',appName(c.id)+(acct?' ('+acct+')':''))};
+ACT['chx-label']=()=>{const c=chxCur();if(!c)return;const lb=labelOf('channel',c.agent+'|'+c.id);labelEdit('channel',c.agent+'|'+c.id,{name:ChX.name(c),description:lb?.description||'',real:c.id})};
+ACT['chx-note']=async()=>{const c=chxCur();if(!c)return;const v=await promptBox('Note for '+appName(c.id),'What is it for? (only you see this)',c.note||'','Save');if(v==null)return;
+ try{await put(UI,'/ui/channels/note',{agent:c.agent,platform:c.id,note:v});toast(appName(c.id)+' note saved');reload()}catch(e){fail(e)}};
 
 /* ---------- Used by / Share with other agents (skills, MCP tools, plugins, schedules) ---------- */
 const SHARE_KIND_LABEL={skill:'skill',mcp:'MCP tool',plugin:'plugin',schedule:'schedule'};
@@ -664,10 +721,7 @@ async function channelShareDrawer(owner,platform){let sh={},rec=[],agents=[];
  d.querySelector('#csTest').onclick=async()=>{const b=d.querySelector('#csTest');b.disabled=true;const v=vals();const from=v.senders[0]||owner;
   try{await put(UI,'/ui/channels/shares',v);await post(UI,'/ui/channels/send',{from,owner,platform,chat:v.chat,text:'Test from aqeelOS: sending through this channel works.'});toast('Sent as '+ident(from).name+'. Check your '+pretty(platform)+'.')}catch(e){fail(e)}finally{b.disabled=false}}}
 ACT['ch-share']=a=>channelShareDrawer(a.dataset.owner,a.dataset.platform);
-{const base=PAGES.channels;PAGES.channels=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;if(S.me?.admin===false||S.chOverride)return;let sh={};try{sh=(await UI('/ui/channels/shares')).shares||{}}catch{}if(gone())return;
- el.querySelectorAll('[data-chmove][data-from]').forEach(s=>{const row=s.closest('.row');const act=row?.querySelector('.act');if(!act||act.querySelector('[data-act="ch-share"]'))return;
-  const owner=s.dataset.from,platform=s.dataset.chmove;const cur=sh[owner+'|'+platform];const n=cur?.senders?.length||0;
-  const t=row.querySelector('.txt b');if(t&&n&&!t.querySelector('.access'))t.insertAdjacentHTML('beforeend',' '+accessChip('Shared · '+(n+1)+' can send',ident(owner).name+' receives. Also sends: '+cur.senders.map(a=>ident(a).name).join(', '),'shared'))})}}
+// who can send through a channel is shown in its panel (ChX), not as a chip on the row
 
 /* ---------- Extra connections: a second (third…) WhatsApp, Telegram… for the same agent ----------
    Each one is a hidden linked copy of the agent that shares its personality, memory, skills and tools.

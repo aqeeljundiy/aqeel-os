@@ -53,19 +53,16 @@ function labelPaint(row,kind,id,{title,sub,act,keepSub=false,shown=id}={}){if(!r
   el.querySelectorAll('.all-row').forEach(row=>{const c=row.querySelector('[data-act="all-pl"][data-name]');if(c)labelPaint(row,'plugin',c.dataset.name)})};
  paint();setTimeout(()=>{if(!gone())paint()},9000)}}
 // Connections: names and descriptions come from the server (labels.applyRows); the list says when one has none, search
-// finds the old id too, and the side panel has Edit
-{const m=Cx.match;Cx.match=function(r){if(m.call(this,r))return true;const q=(S.cxQ||'').trim().toLowerCase();return !!q&&[r.rawName,r.id].join(' ').toLowerCase().includes(q)}}
+// finds the old id too (Cx.match), and the side panel has Edit
 const LB_CX=new Set(['skill','mcp','plugin','ca','google','ads','key']);
 const cxLabelKind=r=>{const k=String(r.key||'');const kind=k.slice(0,k.indexOf(':'));return LB_CX.has(kind)?[kind,k.slice(kind.length+1)]:null};
 {const pl=Cx.paintList;Cx.paintList=function(el,first){pl.call(this,el,first);el.querySelectorAll('.cn-row[data-key]').forEach(x=>{const r=this.row(x.dataset.key);if(!r||r.what||x.querySelector('.lb-add,.lb-none'))return;
   const lk=cxLabelKind(r),s=x.querySelector('.txt span');if(lk&&s)s.insertAdjacentHTML('beforeend',' · '+labelNoDesc(lk[0],lk[1]))})}}
 {const pt=Cx.paint;Cx.paint=function(){pt.call(this);const r=this.cur,b=this.d?.querySelector('.cn-p');if(!r||!b)return;const lk=cxLabelKind(r);if(!lk)return;
- b.insertAdjacentHTML('afterbegin',`<div class="lb-about"><div class="txt"><span data-lb-desc>${r.what?esc(r.what):labelNoDesc(lk[0],lk[1])}</span><small class="realname">${esc(lk[1])}</small></div>${labelAdmin()?`<button type="button" class="ghost small" data-act="lb-edit" data-kind="${esc(lk[0])}" data-id="${esc(lk[1])}">${icon('edit',14)}Edit name</button>`:''}</div>`)}}
+ b.insertAdjacentHTML('afterbegin',`<div class="lb-about"><div class="txt"><span data-lb-desc>${r.what?esc(r.what):labelNoDesc(lk[0],lk[1])}</span><small class="realname">${esc(lk[0]==='key'?lk[1].split('@')[0]:lk[1])}</small></div>${labelAdmin()?`<button type="button" class="ghost small" data-act="lb-edit" data-kind="${esc(lk[0])}" data-id="${esc(lk[1])}">${icon('edit',14)}Edit name</button>`:''}</div>`)}}
 
-// Channels › Connections: each agent's channel (and extra numbers) by what it is for
-{const base=PAGES.channels;PAGES.channels=async(p,el,r)=>{const gone=pageTok(el);await labelsLoad();if(gone())return;await base(p,el,r);if(gone())return;
- const paint=()=>el.querySelectorAll('.row[data-from]').forEach(row=>{const b=row.querySelector('[data-act="ch-more"][data-platform]');if(!b)return;
-  labelPaint(row,'channel',b.dataset.agent+'|'+b.dataset.platform,{sub:null,act:row.querySelector('.ch-act'),shown:b.dataset.platform})});
- paint();const mo=new MutationObserver(()=>{if(gone()){mo.disconnect();return}paint()});mo.observe(el,{childList:true,subtree:true});setTimeout(()=>mo.disconnect(),20000)}}
+// Channels › Connections: each agent's channel (and extra numbers) by what it is for; the rows (ChX in people.js) read
+// the names and descriptions themselves, so they only have to be loaded first
+{const base=PAGES.channels;PAGES.channels=async(p,el,r)=>{const gone=pageTok(el);await labelsLoad();if(gone())return;return base(p,el,r)}}
 
 setTimeout(()=>labelsLoad(true),1500);

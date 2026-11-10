@@ -86,7 +86,7 @@ for(const id of ['mcp','plugins','keys','webhooks']){const base=PAGES[id];PAGES[
 {const base=PAGES.channels;PAGES.channels=async(p,el,r)=>{const gone=pageTok(el);await base(p,el,r);if(gone())return;if((S.tab.channels||'Connections')!=='Connections')return;
  const list=await viewAgents();if(gone())return;viewPick(list);const a=showingAll()||list.length<2?'':viewing();
  const apply=()=>{for(const row of el.querySelectorAll('.row[data-from]'))row.hidden=!!a&&row.dataset.from.split('--')[0]!==a;   // every row says whose it is, extra numbers too
-  const h=[...el.querySelectorAll('.panel h2')].find(x=>/channels$/.test(x.textContent)),t=a?ident(a).name+'’s channels':'Every agent’s channels';if(h&&h.textContent!==t)h.textContent=t};apply();
+  const h=el.querySelector('.ch-all h2'),t=a?ident(a).name+'’s channels':'Every agent’s channels';if(h&&h.textContent!==t)h.textContent=t};apply();
  const mo=new MutationObserver(apply);mo.observe(el,{childList:true,subtree:true});setTimeout(()=>mo.disconnect(),20000)}}
 // one-time secret links (4 Nov 2026, admins): links an agent sent to be opened on a phone, still open (Cancel), and the last
 // ones saved, expired or cancelled; never a value. Shown only when there is something, so the page stays about keys.
