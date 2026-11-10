@@ -17,7 +17,7 @@ async function makeMember(owner){const nm='Controls Check '+Date.now().toString(
  const pw='cc-'+Math.random().toString(36).slice(2)+Math.random().toString(36).slice(2),username='controls-check-'+Date.now().toString(36);
  const r=await fetch(BASE+'/auth/accept',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({code:inv.j.code,name:nm,password:pw,username})});if(!r.ok)throw new Error('accept '+r.status);
  const ck=(r.headers.get('set-cookie')||'').split(';')[0];const me=await api(ck,'/ui/me');return {ck,id:me.j.id||me.j.user?.id}}
-async function browse(ck){const tools=homedir()+'/.hermes/tools',dir=readdirSync(tools).find(d=>d.startsWith('chromium'));const port=9500+Math.floor(Math.random()*300);
+async function browse(ck,EXPECT){const tools=homedir()+'/.hermes/tools',dir=readdirSync(tools).find(d=>d.startsWith('chromium'));const port=9500+Math.floor(Math.random()*300);
  const chrome=spawn(`${tools}/${dir}/chrome-linux64/chrome`,['--headless=new','--no-sandbox','--disable-gpu','--remote-debugging-port='+port,'--window-size=1440,900','about:blank'],{stdio:'ignore'});
  try{let tgt;for(let i=0;i<120&&!tgt;i++){await sleep(250);try{tgt=(await (await fetch(`http://127.0.0.1:${port}/json`)).json()).find(t=>t.type==='page')}catch{}}
   const ws=new WebSocket(tgt.webSocketDebuggerUrl);await new Promise(r=>ws.onopen=r);let id=0;const wait=new Map();ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id&&wait.has(m.id)){wait.get(m.id)(m);wait.delete(m.id)}};
@@ -34,16 +34,18 @@ async function browse(ck){const tools=homedir()+'/.hermes/tools',dir=readdirSync
    const read=()=>ev(`(()=>{const t=x=>(x.innerText||x.getAttribute('aria-label')||x.title||'').replace(/\\s+/g,' ').trim();const out=new Set();
     for(const b of document.querySelectorAll('.head-actions button,.head-actions a'))if(!b.closest('.view-pick')&&t(b))out.add('button: '+t(b));
     for(const b of document.querySelectorAll('#pg [data-tabs] [data-tab],.page [data-tabs] [data-tab]'))if(!b.closest('.drawer,dialog'))out.add('tab: '+b.dataset.tab);return [...out].sort()})()`).then(x=>x||[]);
-   let cur=await read();for(let i=0;i<11;i++){await sleep(700);const nx=await read();if(JSON.stringify(nx)===JSON.stringify(cur)&&nx.length)break;cur=nx}seen[view+' '+r]=cur}
+   let cur=await read();for(let i=0;i<11;i++){await sleep(700);const nx=await read();if(JSON.stringify(nx)===JSON.stringify(cur)&&nx.length)break;cur=nx}
+   // a busy server can draw a page's buttons later still: before one counts as missing, wait up to 25 s more for the ones the baseline expects (10 Nov 2026)
+   const want=EXPECT?.[view+' '+r]||[];for(let i=0;i<50&&want.some(c=>!cur.includes(c));i++){await sleep(500);cur=await read()}seen[view+' '+r]=cur}
   return seen}finally{chrome.kill('SIGKILL')}}
-const owner=await signIn({password:PW});const result={owner:await browse(owner)};let member=null;
+const owner=await signIn({password:PW});const expect=(()=>{try{return JSON.parse(readFileSync(FILE,'utf8'))}catch{return {}}})();const result={owner:await browse(owner,SAVE?null:expect.owner)};let member=null;
 // the test copy shares the live engine, so the throwaway member's lead agent (made when it joins) is a real agent: removed
 // at the end, and any left by a run that died are removed at the start (7 Nov 2026: five were on the live Agents page)
 const LEAD=/^controls-check-[a-z0-9]+-lead(-\d+)?$/;
 async function dropLeads(owner){const l=await api(owner,'/hapi/profiles');for(const p of (l.j.profiles||[]).map(x=>x.name).filter(n=>LEAD.test(String(n))))
  {const r=await api(owner,'/hapi/profiles/'+encodeURIComponent(p),{method:'DELETE'});console.error('removed leftover check agent',p,r.s)}}
 await dropLeads(owner).catch(e=>console.error('leftover check agents:',e.message));
-try{member=await makeMember(owner);result.member=await browse(member.ck)}finally{if(member?.id)await api(owner,'/ui/people/'+encodeURIComponent(member.id),{method:'DELETE'}).catch(()=>{});await dropLeads(owner).catch(()=>{})}
+try{member=await makeMember(owner);result.member=await browse(member.ck,SAVE?null:expect.member)}finally{if(member?.id)await api(owner,'/ui/people/'+encodeURIComponent(member.id),{method:'DELETE'}).catch(()=>{});await dropLeads(owner).catch(()=>{})}
 if(SAVE){writeFileSync(FILE,JSON.stringify(result,null,1)+'\n');const n=Object.values(result).reduce((a,v)=>a+Object.values(v).flat().length,0);console.log('saved '+n+' controls on '+Object.keys(result.owner).length+' page views to '+path.basename(FILE));process.exit(0)}
 let base;try{base=JSON.parse(readFileSync(FILE,'utf8'))}catch{console.log(JSON.stringify({checked:0,missing:['no baseline: run node scripts/controls-check.mjs --save on the test copy and commit scripts/controls-baseline.json']}));process.exit(1)}const missing=[];
 // CONTROLS_LOCAL: what this install's own pages showed at its last passing check (9 Nov 2026). Installs differ: one has webhooks
