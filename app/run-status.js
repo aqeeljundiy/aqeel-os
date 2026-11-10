@@ -26,7 +26,7 @@ const RunStatus={
   const open=[...(ai?.steps||[])].reverse().find(x=>!x.done),quiet=now-(s.lastAct||s.started||now);
   const doing=base.progress?.now||(open?this.plain(open.tool):ai?.text?'Writing the reply':'Thinking');
   if(quiet>=this.STUCK)return {...base,state:'quiet',label:'No updates for '+Math.floor(quiet/60e3)+' minutes',detail:open?this.plain(open.tool)+'. Long steps can take a while.':'It may be stuck.',canStop:true};
-  return {...base,state:'working',label:'Working',detail:quiet>=this.LONG?doing+', still on this step':doing}},
+  return {...base,state:'working',label:'Working on it',detail:quiet>=this.LONG?doing+', still on this step':doing}},
  // how a reply ended, for the line under it
  finish(s,ai,{hidden=typeof document!=='undefined'&&document.hidden,title=''}={}){if(!ai||ai.dropped)return null;const steps=(ai.steps||[]).length,failed=/\*Stopped\.\*\s*$/.test(ai.text||'')?false:Boolean(ai.error);
   const state=/\*Stopped\.\*\s*$/.test(ai.text||'')?'stopped':failed?'failed':'done',secs=Date.now()-(s.started||Date.now());

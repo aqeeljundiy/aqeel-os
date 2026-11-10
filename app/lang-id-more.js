@@ -1621,3 +1621,5 @@ Object.assign(ID,{
  [/^Once, (.+) at (\d\d:\d\d)(?: \((.+) time\))?$/,(m,d,h,z)=>'Sekali, '+d+' pukul '+h+(z?' (waktu '+z+')':'')],
  [/^((?:Every|On the|Days|Mondays|Tuesdays|Wednesdays|Thursdays|Fridays|Saturdays|Sundays|Weekdays|Weekends|Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b[^·]*?(?:\d\d:\d\d|:\d\d|minutes?|hours?|days|months)(?: \(.+ time\))?|On a custom timetable|Custom timetable: [^·]+)((?: · (?:to|next|last) [^·]+| · paused)*)$/,(m,a,b)=>(tr(a)!==a?tr(a):cron(a))+SCHED_TAIL(b)]);
 }
+// the run status bar's own word ("Working" alone already means "it works" elsewhere)
+Object.assign(ID,{'Working on it':'Sedang dikerjakan'});
