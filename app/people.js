@@ -24,6 +24,8 @@ function memberAgent(){const l=S.me?.agents||{},n=S.me?.lead&&l[S.me.lead]?S.me.
 // a member with no agent they may use: their lead is still being made, or nothing is shared with them yet
 const noAgent=()=>!!S.me&&S.me.admin===false&&!Object.keys(S.me.agents||{}).length;
 const NO_AGENT_TEXT='No agent is shared with you yet. Ask an admin to share one. This page updates by itself.';
+const NO_AGENT_MAKE='You have no agent yet. Create your own, or ask an admin to share one.';
+const noAgentBox=()=>S.me?.canMake?emptyBox('No agent yet',NO_AGENT_MAKE,'<button class="primary" data-act="prof-new">'+icon('plus',16)+'Create your agent</button>'):emptyBox('No agent yet',NO_AGENT_TEXT);
 // Members see Chat and their own Files; admins get the People page.
 // The full navigation is copied once, so each call (switching agent or account) starts from all sections again.
 let ALL_SECTIONS=null;

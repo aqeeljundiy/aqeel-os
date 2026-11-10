@@ -1944,7 +1944,7 @@ async function hermesCall(req,res,u,url){
   // a fork belongs to the person who forked it (else it would count as the owner's and they could not open it)
   :/^\/(gapi(\/p\/[^/]+)?\/api|hapi)\/sessions\/[^/]+\/fork$/.test(p)&&req.method==='POST'?async d=>{await users.own(d?.session?.id||d?.id||d?.session_id||d?.new_session_id,u);return d}
   :made?async d=>{await memberAgent(u,String(d?.name||d?.profile?.name||made));return d}
-  :p==='/hapi/profiles'&&req.method==='POST'?async d=>{const n=d?.name||d?.profile?.name;if(n){noteMade(n);syncNotifyTool().catch(()=>{});   // the aqeelOS tool needs nothing from the setup: a new agent gets it at once, not minutes later
+  :p==='/hapi/profiles'&&req.method==='POST'?async d=>{const n=d?.name||d?.profile?.name;if(n){if(u.role!=='owner')await users.created(u,n).catch(e=>console.warn('owner of',n,e.message));noteMade(n);syncNotifyTool().catch(()=>{});   // the aqeelOS tool needs nothing from the setup: a new agent gets it at once, not minutes later
    (setupAgentFn?setupAgentFn(n):Promise.resolve()).catch(e=>console.warn('setup',n,e.message)).finally(async()=>{await agentHealth(n).catch(()=>{});await syncNotifyTool().catch(()=>{});if(LIVE_APP)writeAgentContext().catch(()=>{});
    const {execFile}=await import('node:child_process');execFile(process.execPath,[path.join(root,'scripts','apply-skill-patches.mjs')],{timeout:180000},e=>{if(e)console.warn('skill patches',n,e.message)})})}return d}
   :relayTarget!==undefined?async d=>{const id=relayJob||(d.job||d).id;if(id)await relay.setJobRelay(agent,id,relayTarget);return d}:undefined;

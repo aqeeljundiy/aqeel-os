@@ -383,7 +383,7 @@ function render(){
  if(r.chat!==undefined)Chat.view(v,r.chat);
  else if(r.help){S._pageKey=null;Help.view(v)}
  // a member with no agent yet: every agent's page would only say "not shared with you", and its buttons could not work
- else if(noAgent()&&!['usage','code'].includes(r.page.id)){S._pageKey=null;v.innerHTML=`<div class="page">${head(r.page)}<div id="pg">${emptyBox('No agent yet',NO_AGENT_TEXT)}</div></div>`}
+ else if(noAgent()&&!['usage','code'].includes(r.page.id)){S._pageKey=null;v.innerHTML=`<div class="page">${head(r.page)}<div id="pg">${noAgentBox()}</div></div>`}
  else{const P=PAGES[r.page.id];const key=r.sec.id+'/'+r.page.id+'/'+(r.arg||[]).join('/')+'@'+(agentProfile()||'')+'/'+String(S.viewAll);
   // Same page again (after a save, a toggle…): update in place. No skeleton flash, no replayed entrance animations.
   const same=S._pageKey===key&&$('#pg');S._pageKey=key;

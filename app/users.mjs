@@ -190,13 +190,14 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
    if(G&&rest==='/cron/jobs'&&query.get('profile')==='all')return can(u,'schedules')||ownsAny(u)?null:no();
    // the agent list is trimmed to theirs (filter), whichever agent the page asks it through
    if(G&&rest==='/profiles')return null;
+   // making an agent acts on no existing agent, whichever agent the page asks through: a member with none yet can make one
+   if(rest==='/profiles'&&method==='POST')return !can(u,'create')?no('Ask the owner to let you create agents.'):ownCount(u)>=eff(u).maxAgents?no(eff(u).maxAgents?'You already have '+eff(u).maxAgents+' agents, your limit. Delete one first or ask the owner.':'Your role does not include making agents.'):null;
    if(query.has('profile')&&!atLeast(u,a,'chat'))return no('That agent is not shared with you.');
    if(G&&/^\/(status|profiles|sessions|sessions\/search)$/.test(rest))return null;
    const s=/^\/sessions\/([^/]+)(\/.*)?$/.exec(rest);
    if(s&&!['search','prune','bulk-delete','empty','import','stats'].includes(s[1]))return mine(u,decodeURIComponent(s[1]))?null:no('That chat is not yours.');
    if(/^\/files(\/(read|download|stream|mkdir|upload-stream))?$/.test(rest))return null; // path checked by the caller
    // agents
-   if(rest==='/profiles'&&method==='POST')return !can(u,'create')?no('Ask the owner to let you create agents.'):ownCount(u)>=eff(u).maxAgents?no(eff(u).maxAgents?'You already have '+eff(u).maxAgents+' agents, your limit. Delete one first or ask the owner.':'Your role does not include making agents.'):null;
    if(rest==='/profiles/active'&&G)return null;   // which agent is the CLI default: read-only, fine for anyone signed in
    const pr=/^\/profiles\/([^/]+)(\/(soul|description|describe-auto|model))?$/.exec(rest);
    if(pr){const ag=decodeURIComponent(pr[1]);if(!pr[2])return method==='DELETE'?(atLeast(u,ag,'owner')?null:no('Only an owner of this agent can delete it.')):G&&atLeast(u,ag,'chat')?null:no();
@@ -255,7 +256,7 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
  async function api(u,req,res,p,send,readBody){
   await load();
   const body=async()=>{try{return JSON.parse(await readBody(req,8192))}catch{return {}}};
-  if(p==='/ui/me'&&req.method==='GET'){const shares={};for(const a of new Set([...Object.keys(db.shares),...Object.keys(db.agentOwners)])){const l=level(u,a);if(l)shares[a]=l}return send(res,200,{...pub(u),admin:isAdmin(u),caps:isAdmin(u)?Object.keys(CAPS):eff(u).caps,role_name:isAdmin(u)?null:(eff(u).role==='custom'?'Custom':db.roles[eff(u).role]?.name),home:isAdmin(u)?homedir():home(u),...(u.role==='owner'?{recovery:!!db.ownerRecovery}:{}),...(isAdmin(u)?{hermes_home:process.env.HERMES_HOME||path.join(homedir(),'.hermes'),workspaces:path.join(homedir(),'workspaces')}:{}),agents:shares,lead:(l=>l&&(isAdmin(u)||shares[l])?l:null)(leadOf(u.id))})}   // lead: their own lead agent, once it is made (pages fall back to it)
+  if(p==='/ui/me'&&req.method==='GET'){const shares={};for(const a of new Set([...Object.keys(db.shares),...Object.keys(db.agentOwners)])){const l=level(u,a);if(l)shares[a]=l}return send(res,200,{...pub(u),admin:isAdmin(u),caps:isAdmin(u)?Object.keys(CAPS):eff(u).caps,role_name:isAdmin(u)?null:(eff(u).role==='custom'?'Custom':db.roles[eff(u).role]?.name),home:isAdmin(u)?homedir():home(u),...(u.role==='owner'?{recovery:!!db.ownerRecovery}:{}),...(isAdmin(u)?{hermes_home:process.env.HERMES_HOME||path.join(homedir(),'.hermes'),workspaces:path.join(homedir(),'workspaces')}:{}),agents:shares,canMake:isAdmin(u)||can(u,'create')&&ownCount(u)<eff(u).maxAgents,lead:(l=>l&&(isAdmin(u)||shares[l])?l:null)(leadOf(u.id))})}   // lead: their own lead agent, once it is made (pages fall back to it)
   if(p==='/ui/me/password'&&req.method==='PUT'){const b=await body();const x=u.role==='owner'?null:db.users.find(y=>y.id===u.id);
    if(u.role==='owner'?!ownerPwOk(b.current):!x||!check(b.current,x.pw))return send(res,400,{error:'Your current password is not right.'});if(String(b.next||'').length<8)return send(res,400,{error:'Use at least 8 characters.'});
    if(x)x.pw=hash(b.next);else db.ownerPw=hash(b.next);await save();return send(res,200,{ok:true})}
@@ -320,7 +321,7 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
   if(p==='/ui/people/invite'&&req.method==='POST'){const b=await body();if(b.roleId&&unsafeRole(b.roleId))return send(res,403,UNSAFE_ROLE);const role=b.role==='admin'&&u.role==='owner'?'admin':'member';
    const inv={code:randomBytes(18).toString('base64url'),name:String(b.name||'').trim().slice(0,60),role,roleId:b.roleId&&db.roles[b.roleId]?b.roleId:null,caps:(Array.isArray(b.caps)?b.caps:[]).filter(k=>k in CAPS&&(k!=='unsafe'||u.role==='owner')),agents:b.agents&&typeof b.agents==='object'?Object.fromEntries(Object.entries(b.agents).filter(([a])=>!isPrivate(a)||level(u,a)==='owner')):{},expires:Date.now()+7*864e5,by:u.id,...(EMAIL.test(norm(b.email))?{email:norm(b.email)}:{})};
    // the agent made for them in this invite becomes theirs (private) when they accept, if the inviter still owns it then
-   if(typeof b.ownAgent==='string'&&inv.agents[b.ownAgent]==='owner'&&agentOwner(b.ownAgent)===u.id)inv.ownAgent=b.ownAgent;
+   if(typeof b.ownAgent==='string'&&inv.agents[b.ownAgent]==='owner'&&(agentOwner(b.ownAgent)===u.id||isAdmin(u)&&!(b.ownAgent in db.agentOwners)))inv.ownAgent=b.ownAgent;
    // "Also make them their own agent" unticked: no lead agent is made for them when they join (7 Nov 2026)
    if(b.noLead===true&&role!=='admin')inv.noLead=true;db.invites.push(inv);await save();return send(res,200,inv)}
   const iv=/^\/ui\/people\/invite\/([\w-]+)$/.exec(p);if(iv&&req.method==='DELETE'){db.invites=db.invites.filter(i=>i.code!==iv[1]);await save();return send(res,200,{ok:true})}
