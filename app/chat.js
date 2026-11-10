@@ -109,7 +109,7 @@ const Chat={
   if(id){const c=(S.sessions||[]).find(x=>x.id===id),s=this.live[id];if(s&&(s.running||!c||!s.seenAt||(c.last_active||0)<=s.seenAt))this.paint();else this.loadHistory(id)}
   // no starter suggestions on a new chat (removed 19 Oct at the owner's request)
  },
- emptyHtml(){if(S.me&&!S.me.admin&&!Object.keys(S.me.agents||{}).length)return `<div class="chat-empty"><div class="halo">${icon('user',28)}</div><h1>Welcome, ${esc(S.me.name)}</h1><p>No agents are shared with you yet. Ask the person who invited you to share one, then refresh this page.</p></div>`;
+ emptyHtml(){if(S.me&&!S.me.admin&&!Object.keys(S.me.agents||{}).length)return `<div class="chat-empty"><div class="halo">${icon('user',28)}</div><h1>Welcome, ${esc(S.me.name)}</h1><p>${esc(NO_AGENT_TEXT)}</p></div>`;
   const hi='Welcome to aqeelOS';
   return `<div class="chat-empty"><div class="halo">${agentAvatar(S.profile||'default',56,{title:false})}</div><h1>${hi}</h1><p>${S.me&&!S.me.admin?`What can <span class="agent-name">${esc(AGENT())}</span> help you with today?`:`What should <span class="agent-name">${esc(AGENT())}</span> work on? It runs on your AI box, so it keeps going when you close this tab.`}</p>
   </div>`},

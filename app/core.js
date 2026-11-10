@@ -96,7 +96,7 @@ async function callRaw(base,path,opt={}){const nav=S._nav,read=!opt.method||opt.
 }
 // The active agent (Hermes profile): dashboard calls get ?profile=, gateway calls go through /p/<profile>/.
 // pages that belong to one agent: a picker in the header shows another agent's without switching who you chat with
-const VIEW_RE=/^#\/(abilities\/(skills|mcp|plugins)|agents\/(files|memory)|automations\/(webhooks|n8n)|channels\/channels|models\/models|system\/(keys|logs|settings|usage))(\/|$)/;
+const VIEW_RE=/^#\/(abilities\/(skills|mcp|plugins|files)|agents\/(files|memory)|automations\/(webhooks|n8n)|channels\/channels|models\/models|system\/(keys|logs|settings|usage))(\/|$)/;
 const agentProfile=()=>{if(S.chOverride)return S.chOverride;   // chOverride: setting up an extra connection (WhatsApp 2…)
  if(S.viewAgent){if(VIEW_RE.test(location.hash))return S.viewAgent==='default'?'':S.viewAgent;S.viewAgent=null}
  return S.profile&&S.profile!=='default'?S.profile:''};
@@ -355,7 +355,8 @@ const S={identities:{},collapsed:store.get('collapsed',false),tab:{},status:null
 
 // pages that moved keep their old addresses: [new section, page, tab]
 const ROUTE_MOVED={'automations/channels':['channels','channels','Connections'],'automations/pairing':['channels','channels','Who can message'],'system/status':['system','health'],'system/host':['system','health'],'abilities/memory':['agents','memory'],'abilities/files':['agents','files'],'models/keys':['system','keys'],'system/guide':['help',''],'abilities/accounts':['abilities','logins']};
-function route(){let p=location.hash.replace(/^#\/?/,'').split('/').map(decodeURIComponent);{const mv=ROUTE_MOVED[p[0]+'/'+p[1]];if(mv){if(mv[2])S.tab[mv[1]]=mv[2];p=[mv[0],mv[1],...p.slice(2)];history.replaceState(null,'','#/'+p.map(encodeURIComponent).join('/'))}}if(p[0]==='signin')return{signin:true};if(p[0]==='invite')return{invite:p[1]||''};const sec=SECTIONS.find(s=>s.id===p[0])||SECTIONS[0];if(sec.id==='chat')return{sec,chat:p[1]||null};if(sec.id==='help')return{sec,help:true,page:{id:'help',label:'Help'},arg:p.slice(1)};const page=sec.pages.find(x=>x.id===p[1])||sec.pages[0];return{sec,page,arg:p.slice(2)}}
+// an old address that is a page of its own in this person's menu stays put (members' Files sits under Abilities)
+function route(){let p=location.hash.replace(/^#\/?/,'').split('/').map(decodeURIComponent);{const mv=ROUTE_MOVED[p[0]+'/'+p[1]];if(mv&&!SECTIONS.find(s=>s.id===p[0])?.pages?.some(x=>x.id===p[1])){if(mv[2])S.tab[mv[1]]=mv[2];p=[mv[0],mv[1],...p.slice(2)];history.replaceState(null,'','#/'+p.map(encodeURIComponent).join('/'))}}if(p[0]==='signin')return{signin:true};if(p[0]==='invite')return{invite:p[1]||''};const sec=SECTIONS.find(s=>s.id===p[0])||SECTIONS[0];if(sec.id==='chat')return{sec,chat:p[1]||null};if(sec.id==='help')return{sec,help:true,page:{id:'help',label:'Help'},arg:p.slice(1)};const page=sec.pages.find(x=>x.id===p[1])||sec.pages[0];return{sec,page,arg:p.slice(2)}}
 // aqeelOS inside the browser extension's side panel: a compact chat, with the full app one click away
 const PANEL=new URLSearchParams(location.search).has('panel');if(PANEL){document.documentElement.classList.add('in-panel');if(!location.hash.startsWith('#/chat'))history.replaceState(null,'','#/chat')}
 function go(h){if(location.hash==='#'+h)render();else location.hash=h}
@@ -372,6 +373,8 @@ function render(){
  const v=$('#view');{const key=location.hash.split('?')[0];if(v._key!==key){v._key=key;Calm.opening();v.classList.remove('enter');void v.offsetWidth;v.classList.add('enter')}}watchReveal(v);watchLate(v);
  if(r.chat!==undefined)Chat.view(v,r.chat);
  else if(r.help){S._pageKey=null;Help.view(v)}
+ // a member with no agent yet: every agent's page would only say "not shared with you", and its buttons could not work
+ else if(noAgent()&&!['usage','code'].includes(r.page.id)){S._pageKey=null;v.innerHTML=`<div class="page">${head(r.page)}<div id="pg">${emptyBox('No agent yet',NO_AGENT_TEXT)}</div></div>`}
  else{const P=PAGES[r.page.id];const key=r.sec.id+'/'+r.page.id+'/'+(r.arg||[]).join('/')+'@'+(agentProfile()||'')+'/'+String(S.viewAll);
   // Same page again (after a save, a toggle…): update in place. No skeleton flash, no replayed entrance animations.
   const same=S._pageKey===key&&$('#pg');S._pageKey=key;
@@ -438,7 +441,8 @@ function sidebar(r){
  const gs=gwState(S.status);
  return `<div class="resizer side-rz" data-drag="side" title="Drag to resize · double-click to reset"></div><div class="side-top"><span class="wordmark"><img class="mark" src="${Brand.mark()}" alt=""><span>${esc(Brand.name)}</span></span><button class="ghost icon collapse-btn" data-act="collapse" title="Collapse sidebar (${MOD}+B)" aria-label="Collapse sidebar">${icon('panel',18)}</button></div>
  <div class="side-scroll"><nav class="sections">${S.collapsed?`<button class="sec" data-act="collapse" title="Expand sidebar (${MOD}+B)">${icon('panel',19)}</button>`:''}${sections}</nav>${sub}</div>
- ${(()=>{const cd=r.sec?.id==='code'&&typeof CodeUI!=='undefined'&&CodeUI.state==='on'?CodeUI.agentCard():null;return cd?`<div class="side-foot"><button class="status-btn" data-menu="profile" aria-label="Account and Code's agent">${cd.none?`<span class="avatar none">${icon('user',15)}</span>`:agentAvatar({id:cd.id,name:cd.name},32,{cls:'avatar',title:false})}<span class="who" title="${esc(cd.name)} · Code · ${esc(cd.model)}"><b>${esc(cd.name)}</b><span><i class="dot" style="color:var(--ok)"></i><em>Code · ${esc(cd.model)}</em></span></span>`:''})()||`<div class="side-foot"><button class="status-btn" data-menu="profile" aria-label="Account and status">${agentAvatar(S.profile||'default',32,{cls:'avatar',title:false})}<span class="who" title="${esc(AGENT())} · ${gs.label} · ${esc(modelLabel(S.model))}"><b>${esc(AGENT())}</b><span${gs.say?` title="${esc(gs.say)}"`:''}><i class="dot" style="color:${gs.c}"></i><em>${gs.label} · ${esc(modelLabel(S.model))}</em></span></span>`}${icon('chevUD',16)}</button></div>`;
+ ${(()=>{const cd=r.sec?.id==='code'&&typeof CodeUI!=='undefined'&&CodeUI.state==='on'?CodeUI.agentCard():null;return cd?`<div class="side-foot"><button class="status-btn" data-menu="profile" aria-label="Account and Code's agent">${cd.none?`<span class="avatar none">${icon('user',15)}</span>`:agentAvatar({id:cd.id,name:cd.name},32,{cls:'avatar',title:false})}<span class="who" title="${esc(cd.name)} · Code · ${esc(cd.model)}"><b>${esc(cd.name)}</b><span><i class="dot" style="color:var(--ok)"></i><em>Code · ${esc(cd.model)}</em></span></span>`:''})()||(()=>{const none=typeof noAgent==='function'&&noAgent(),nm=none?'No agent yet':AGENT(),st=gs.label+(none?'':' · '+modelLabel(S.model));   // a member with no agent: not the main agent's name and picture
+  return `<div class="side-foot"><button class="status-btn" data-menu="profile" aria-label="Account and status">${none?`<span class="avatar none">${icon('user',15)}</span>`:agentAvatar(S.profile||'default',32,{cls:'avatar',title:false})}<span class="who" title="${esc(nm)} · ${esc(st)}"><b>${esc(nm)}</b><span${gs.say?` title="${esc(gs.say)}"`:''}><i class="dot" style="color:${gs.c}"></i><em>${esc(st)}</em></span></span>`})()}${icon('chevUD',16)}</button></div>`;
 }
 // the bell drawn with its count (as Inbox.paintBell leaves it): drawn empty, every topbar redraw (each page switch) hid the
 // count until the next 2-second paint, which then popped it in and rang the bell again
@@ -478,7 +482,8 @@ function paintBanner(){const slot=$('#bannerSlot');if(!slot)return;const st=S.st
  const h=[show.find(x=>x.key.startsWith('mux:')),res].filter(Boolean).map(x=>`<div class="banner" role="alert">${icon('alert',16)}<span>${x.msg}</span>${x.btn||''}<button data-act="banner" data-key="${esc(x.key)}">Dismiss</button></div>`).join('');
  if(slot._h!==h){slot._h=h;morph(slot,h)}}
 // what the engine is doing, in plain words (gateway_state); a live process that stopped checking in is "Not responding"
-function gwState(s){if(!s)return {label:'Connecting…',c:'var(--ok)',say:''};const run=s.gateway_running,stale=s.gateway_heartbeat_stale_s;
+// no status yet: a member with no agent has none to ask; a failed check says so (amber); still asking is grey, never green
+function gwState(s){if(!s)return typeof noAgent==='function'&&noAgent()?{label:'Ask an admin',c:'var(--muted)',say:'No agent is shared with you yet'}:S.statusFail?{label:'Not reachable',c:'var(--warn)',say:'The status check did not answer. It tries again by itself.'}:{label:'Connecting…',c:'var(--muted)',say:''};const run=s.gateway_running,stale=s.gateway_heartbeat_stale_s;
  if(stale!=null)return {label:'Not responding',c:'var(--warn)',say:'Running, but it has not checked in for '+(stale<120?Math.round(stale)+' s':Math.round(stale/60)+' min')};
  const m={running:['Online','var(--ok)',''],starting:['Starting','var(--warn)','Starting up…'],startup_failed:['Could not start','var(--bad)','See System › Logs for why'],degraded:run?['Partly working','var(--warn)','Some channels are offline: see System › Logs']:['Stopped','var(--bad)','A safety check stopped it because it hung: see System › Logs'],stopped:['Offline','var(--bad)','Chats and channels are off']}[s.gateway_state];
  const [label,c,say]=m&&(run||s.gateway_state!=='running')?m:run?['Online','var(--ok)','']:['Offline','var(--bad)',''];return {label,c,say}}
@@ -677,7 +682,9 @@ async function restartGateway(){try{const s=await H('/status',{keep:true,fresh:t
   const ok=shared.length>1?await confirmBox('Restart all agents?','They share one engine, so every one of them stops for about 25 seconds and its channels reconnect: '+shared.map(n=>ident(n).name).join(', ')+'.'+wait,'Restart all',false):await confirmBox('Restart the agents?','Chats and channels stop for about 25 seconds and reconnect by themselves.'+wait,'Restart',false);if(!ok)return}
  const r=await post(UI,'/ui/gateway/restart');const n=r?.waiting||0;
  toast(n?'Restarting the engine as soon as '+(n===1?'the reply in progress finishes':n+' replies in progress finish'):'Restarting the engine… back in about 25 seconds');setTimeout(()=>refreshStatus(),n?60000:26000)}catch(e){fail(e)}}
-async function refreshStatus(){try{S.status=await H('/status',{fresh:true});if(S.me?.admin!==false)S.box=await UI('/ui/box').catch(()=>S.box);const r=route();if(!r.signin&&$('.side'))paintSide(r),paintBanner()}catch{}}
+// a member with no agent has no status to ask for (the call is refused); a failed check is remembered so the dot stops saying Connecting
+async function refreshStatus(){if(typeof noAgent==='function'&&noAgent()){S.status=null;S.statusFail=false;return}
+ try{S.status=await H('/status',{fresh:true});S.statusFail=false;if(S.me?.admin!==false)S.box=await UI('/ui/box').catch(()=>S.box);const r=route();if(!r.signin&&$('.side'))paintSide(r),paintBanner()}catch(e){if(e?.stale)return;S.statusFail=true;const r=route();if(!r.signin&&$('.side'))paintSide(r)}}
 
 /* ---------- sign-in ---------- */
 function signinHtml(){return `<div class="signin"><form class="card" id="signin"><span class="wordmark"><img class="mark" src="${Brand.mark()}" alt="">${esc(Brand.name)}</span><h1>Welcome back</h1><p>Sign in to aqeelOS.</p><label for="nm">Username</label><input id="nm" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="Your username"><label for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" placeholder="Your password"><p class="err" id="err" role="alert"></p><button class="primary" type="submit">Sign in</button><p class="foot">${icon('lock',13)} Private · ${esc(location.host)}</p></form></div>`}

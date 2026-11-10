@@ -5,7 +5,7 @@ function openMenu(el){const k=el.dataset.menu;
  if(k==='model')Chat.modelMenu(el);
  if(k==='effort')Chat.effortMenu(el);
  if(k==='workspace')Chat.workspaceMenu(el);
- if(k==='profile'){const ad=S.me?.admin!==false;H('/profiles').then(pr=>{const cur=ident(S.profile||'default').name;
+ if(k==='profile'){const ad=S.me?.admin!==false;H('/profiles').then(pr=>{const cur=noAgent()?'none yet':ident(S.profile||'default').name;
   const inCode=route().sec?.id==='code'&&typeof CodeUI!=='undefined'&&CodeUI.state==='on';
   const codeAgents=()=>{const c=CodeUI.st;menu(el,[{header:'Code works with'},{label:'No agent',sub:'Code asks the right agent when it needs one',icon:'user',on:!c.agent,run:()=>CodeUI.post({aq:'agent',id:''})},...(c.agents||[]).map(a=>({label:a.name,icon:'user',on:c.agent===a.id,run:()=>CodeUI.post({aq:'agent',id:a.id})}))],{search:(c.agents||[]).length>7})};
   const agents=()=>inCode?codeAgents():menu(el,[{header:'Switch agent'},...(pr.profiles||[]).map(p=>({label:ident(p.name).name,icon:'user',ava:agentAvatar(p.name,20,{title:false}),on:(S.profile||'default')===p.name,run:()=>switchAgent(p.name)})),...(ad?['-',{label:'Manage agents',icon:'settings',run:()=>go('/agents/profiles')}]:[])],{search:(pr.profiles||[]).length>7});
@@ -110,7 +110,12 @@ async function boot(){
  let pf=store.get('profile',null);
  if(want&&want!==(pf||'default')){const ok=S.me&&!S.me.admin?!!S.me.agents?.[want]:await H('/profiles',{keep:true}).then(r=>(r.profiles||[]).some(x=>x.name===want)).catch(()=>false);if(ok){pf=want;store.set('profile',want)}}
  else if(pf==null&&S.me?.admin!==false){const a=await H('/profiles/active',{keep:true}).catch(()=>null);if(a?.active&&a.active!=='default')pf=a.active}
- S.profile=pf||'';if(S.me&&!S.me.admin&&!S.me.agents[S.profile||'default']){const first=Object.keys(S.me.agents)[0]||'';S.profile=first==='default'?'':first}
+ // a member's remembered agent that is not theirs (another person used this browser, or it was unshared): their own lead, else
+ // the first one shared with them, so no page asks for an agent they cannot open
+ S.profile=pf||'';if(S.me&&!S.me.admin&&!S.me.agents?.[S.profile||'default']){S.profile=memberAgent();S.viewAgent=null}
+ // nothing to use yet (their lead agent is still being made, or nothing is shared): look again every 20 s, start once one is there
+ clearTimeout(S._agentWait);if(noAgent()){const wait=()=>{S._agentWait=setTimeout(async()=>{if(!noAgent())return;const me=document.hidden?null:await UI('/ui/me').catch(()=>null);
+  if(me&&Object.keys(me.agents||{}).length){toast('An agent is ready for you');boot()}else wait()},20000)};wait()}
  agentUrl();
  Chat.agentPrefs();
  render();
