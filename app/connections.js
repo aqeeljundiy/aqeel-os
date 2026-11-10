@@ -47,7 +47,7 @@ PAGES.connections=async(p,el)=>{const gone=pageTok(el);Pages._cxEl=el;
 
 const Cx={
  rows:()=>Pages._cx?.rows||[],row(k){return this.rows().find(r=>r.key===k)},
- match(r){const ty=CX_TYPES[S.tab.connections||'All'];if(ty==='need'){if(!cxNeeds(r))return false}else if(ty&&r.type!==ty)return false;const q=(S.cxQ||'').trim().toLowerCase();if(!q)return true;
+ match(r){const fx=this.fixed;if(fx){if(r.type!==fx.type)return false;if(fx.agent&&!r.users.some(u=>u.id===fx.agent&&u.level!=='off'))return false}const ty=fx?null:CX_TYPES[S.tab.connections||'All'];if(ty==='need'){if(!cxNeeds(r))return false}else if(ty&&r.type!==ty)return false;const q=(S.cxQ||'').trim().toLowerCase();if(!q)return true;
   return [r.name,r.what,r.service,r.ownerName,CX_TYPE[r.type],...r.users.map(u=>u.name)].join(' ').toLowerCase().includes(q)},
  // the list only (search and the filter change it without asking the server); "needs you" above it
  paintList(el,first=false){const box=el.querySelector('.cn-rows');if(!box)return;const all=this.rows(),l=all.filter(r=>this.match(r));
@@ -61,13 +61,13 @@ const Cx={
   const why=r=>r.registered===false?'not registered by the agent that made it':'needs someone to sign in again';
   if(slot)slot.innerHTML=need.length&&!onTab?alertBox(`<b>${need.length===1?'1 needs you':need.length+' need you'}</b><ul class="cn-need-l">${need.slice(0,4).map(r=>`<li>${esc(r.name)}: ${esc(why(r))}</li>`).join('')}${need.length>4?`<li>and ${need.length-4} more</li>`:''}</ul>`,{act:'cn-needs',label:'Show them',ic:'chevR'}):''},
  // looked at again while something is still being applied (the engine drops and adds an app on its own clock)
- poll(el){clearTimeout(this._t);if(!this.rows().some(r=>r.busy))return;this._t=setTimeout(()=>{if(el.isConnected&&route().page?.id==='connections'&&!document.hidden)this.refresh()},4000)},
+ poll(el){clearTimeout(this._t);if(!this.rows().some(r=>r.busy))return;this._t=setTimeout(()=>{if(el.isConnected&&!document.hidden)this.refresh()},4000)},
  // fresh data in place: the list, and the open panel, without closing it
- async refresh(){const el=Pages._cxEl;try{const d=await UI('/ui/connections?fresh=1');if(!el?.isConnected||route().page?.id!=='connections')return;Pages._cx=d;this.paintList(el);this.poll(el);
+ async refresh(){const el=Pages._cxEl;try{const d=await UI('/ui/connections?fresh=1');if(!el?.isConnected)return;Pages._cx=d;this.paintList(el);this.poll(el);
   if(this.d?.isConnected&&this.key){const r=this.row(this.key);if(!r){closeLayers();return}await this.detail(this.key)}}catch(e){fail(e)}},
  async detail(key){const d=this.d;try{const x=await UI('/ui/connections/detail?key='+encodeURIComponent(key));if(!d?.isConnected||this.key!==key)return;this.cur=x;this.paint()}catch(e){if(d?.isConnected&&this.key===key&&!this.cur)d.querySelector('.cn-p').insertAdjacentHTML('beforeend',errLine('the rest of '+(this.row(key)?.name||'it')))}},
  open(key){const r=this.row(key);if(!r)return toast('That connection is gone. Reload the page.','err');this.key=key;this.cur={...r,tools:null};
-  const d=sideDrawer(r.name,`<div class="cn-p cn-in"></div>`,`<button class="primary" data-act="close">Done</button>`);d.classList.add('cn-drawer');this.d=d;this.paint();setTimeout(()=>d.querySelector('.cn-p')?.classList.remove('cn-in'),700);this.detail(key)},
+  const d=drawer(r.name,`<div class="cn-p cn-in"></div>`,`<button class="primary" data-act="close">Done</button>`,{size:'md'});d.classList.add('cn-drawer');this.d=d;this.paint();setTimeout(()=>d.querySelector('.cn-p')?.classList.remove('cn-in'),700);this.detail(key)},
  paint(){const b=this.d?.querySelector('.cn-p');if(!b)return;const r=this.cur;b.innerHTML=this.body(r);const h=this.d.querySelector('.drawer-head h2');if(h)h.textContent=r.name},
  lvSub(r,l){const t=r.tools;if(r.kind==='mcp'&&r.type==='app'&&t)return l==='read'?plural(t.read,'tool')+' of '+t.total:l==='draft'?plural(t.draft,'tool')+' of '+t.total:'All '+plural(t.total,'tool');return CX_LV[l][1]},
  body(r){const may=r.may||{},admin=Pages._cx?.canEdit,agents=Pages._cx?.agents||[],using=cxUsing(r);
@@ -95,8 +95,8 @@ const Cx={
    if(r.mayPause)B.push(r.paused?`<button class="small" data-act="cn-pause" data-on="0" ${r.busy?'disabled':''}>${icon('play',14)}Resume</button>`:`<button class="small" data-act="cn-pause" data-on="1" ${r.busy?'disabled':''}>${icon('pause',14)}Pause for every agent</button>`);
    B.push(`<button class="ghost small cn-dis" data-act="cn-disc" ${r.busy?'disabled':''}>${icon('trash',14)}Disconnect</button>`)}
   else if(r.kind==='mcp'&&r.type==='app'&&admin&&!r.own)B.push(`<button class="ghost small cn-dis" data-act="cn-disc">${icon('trash',14)}Disconnect</button>`);
-  if(r.kind==='skill')B.push(`<button class="small" data-act="cn-go" data-to="/abilities/skills">${icon('wand',14)}Open in Skills</button>`);
-  if(r.kind==='plugin')B.push(`<button class="small" data-act="cn-go" data-to="/abilities/plugins">${icon('layers',14)}Open in Plugins</button>`);
+  if(r.kind==='skill')B.push(route().page?.id==='skills'?`<button class="small" data-act="cn-skill" data-name="${esc(r.id)}">${icon('wand',14)}Open the skill</button>`:`<button class="small" data-act="cn-go" data-to="/abilities/skills">${icon('wand',14)}Open in Skills</button>`);
+  if(r.kind==='plugin'&&route().page?.id!=='plugins')B.push(`<button class="small" data-act="cn-go" data-to="/abilities/plugins">${icon('layers',14)}Open in Plugins</button>`);
   if(r.kind==='key'&&admin)B.push(`<button class="small" data-act="cn-go" data-to="/system/keys">${icon('key',14)}Change it under Keys</button>`);
   return top+reg+own+acc+code+rec+(B.length?`<section class="cn-sec cn-do"><div class="cn-btns">${B.join('')}</div><p class="hint cn-signst" hidden></p></section>`:'')},
  // one change, then fresh data in place; the button shows it is working meanwhile
@@ -106,6 +106,7 @@ ACT['cn-open']=a=>Cx.open(a.dataset.key);
 ACT['cn-clear']=()=>{S.cxQ='';const i=$('#cnQ');if(i){i.value='';i.closest('.search')?.classList.remove('has-q');i.focus()}if(Pages._cxEl)Cx.paintList(Pages._cxEl)};
 ACT['cn-check']=()=>{Pages._cxFresh=true;reload()};
 ACT['cn-go']=a=>{closeLayers();go(a.dataset.to)};
+ACT['cn-skill']=a=>{closeLayers();Pages.openSkill(a.dataset.name)};
 ACT['cn-lvl']=a=>{const r=Cx.cur,ag=a.dataset.agent,u=r?.users.find(x=>x.id===ag);if(!u)return;const opts=r.levels==='onoff'?['on','off']:r.provider==='google'||r.kind==='google'||/^Google/.test(r.label||'')?['read','edit','draft','full']:['read','draft','full'];   // edit: Google only (Sheets/Docs)
  menu(a,[{header:'What '+ident(ag).name+' may do'},...opts.map(l=>({label:CX_LV[l][0],sub:Cx.lvSub(r,l),on:u.level===l,disabled:l==='on'&&r.only&&!r.only.includes(ag)&&ag!=='default',run:()=>{if(l===u.level)return;
   Cx.act(a,'/ui/connections/level',{agent:ag,level:l},x=>r.name+': '+ident(ag).name+' '+CX_LV[l][0]+(x?.background?' · in about a minute':''))}}))])};
@@ -174,7 +175,7 @@ Cx.install=async function(d,m,btn){if(!m)return;const ag=Cx.forAg||S.profile||'d
  try{const direct=m.url&&!(m.bootstrap||[]).length&&!m.needs_install&&Object.keys(env).length<=1;
   if(direct){const body={name:m.name,url:m.url};const k=Object.values(env)[0];if(k){body.auth='header';body.bearer_token=k}else if(m.auth_type==='oauth')body.auth='oauth';await post(H,prof('/mcp/servers',ag),body);closeLayers();toast(pretty(m.name)+' added to '+ident(ag).name+(body.auth==='oauth'?'. Open it here and press Sign in.':'. Ready to use.'))}
   else{const r=await post(H,prof('/mcp/catalog/install',ag),{name:m.name,env,enable:true});closeLayers();if(r.action)actionDrawer('Installing '+m.name,r.action);else toast(pretty(m.name)+' added to '+ident(ag).name)}
-  if(route().page?.id==='connections')Cx.refresh()}catch(e){if(btn?.isConnected){btn.disabled=false;btn.innerHTML=icon('plus',14)+'Add'}fail(e)}};
+  if(Pages._cxEl?.isConnected)Cx.refresh()}catch(e){if(btn?.isConnected){btn.disabled=false;btn.innerHTML=icon('plus',14)+'Add'}fail(e)}};
 Cx.byAddress=function(){Cx.forAg||=S.profile||'default';const d=drawer('Add an app by its address',`${Cx.forBtn()}${tabs('cxKind',['Web address','Command'],'Web address')}<label>Name</label><input id="cnName" placeholder="github"><div id="cnUrlBox"><label>Address</label><input id="cnUrl" type="url" placeholder="https://api.example.com/mcp"><label>How it signs in</label><select id="cnAuth"><option value="none">No sign-in</option><option value="header">A key (bearer token)</option><option value="oauth">Sign in with the service</option></select><div id="cnTokBox" hidden><label>Key</label><input id="cnTok" type="password" autocomplete="new-password"></div><p class="hint" id="cnOauthHint" hidden>After adding it, open it here and press Sign in.</p></div><div id="cnCmdBox" hidden><label>Command</label><input id="cnCmd" placeholder="npx"><label>Arguments</label><input id="cnArgs" placeholder="-y @modelcontextprotocol/server-postgres postgres://…"><p class="hint">Separate them with spaces or commas.</p><label>Settings (KEY=VALUE per line)</label><textarea id="cnEnv" rows="3" style="font-family:var(--mono)"></textarea></div><p class="err-line" id="cnErr" role="alert" hidden></p>`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="cnGo">Add</button>`,{size:'md'});placePills();
  d.querySelector('[data-tabs=cxKind]').addEventListener('click',e=>{const b=e.target.closest('[data-tab]');if(!b)return;const cmd=b.dataset.tab==='Command';d.querySelector('#cnUrlBox').hidden=cmd;d.querySelector('#cnCmdBox').hidden=!cmd;d.querySelector('#cnErr').hidden=true});
  d.querySelector('#cnAuth').onchange=e=>{d.querySelector('#cnTokBox').hidden=e.target.value!=='header';d.querySelector('#cnOauthHint').hidden=e.target.value!=='oauth'};Cx.onFor=null;

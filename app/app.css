@@ -2639,3 +2639,8 @@ button.bad{color:var(--bad)}
 .drawer .ab-list{max-height:none;overflow:visible}
 /* the faces stay on one line with their count */
 .aam-ags .acc-who{flex-wrap:nowrap;white-space:nowrap}
+
+/* the Connections panel in the middle of the screen */
+.drawer.pop.md:has(.cn-p){width:min(620px,calc(100vw - 32px))}
+.drawer:has(.cn-p) .drawer-body{padding:20px 24px}
+.ul-host{margin-top:16px}.ul-host>.cn-bar{margin-bottom:12px}
