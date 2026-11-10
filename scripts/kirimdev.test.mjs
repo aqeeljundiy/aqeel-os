@@ -5,7 +5,7 @@ import {mkdtemp,writeFile,mkdir,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {createHmac} from 'node:crypto';
-import {createKirimdev,verifySignature,parseInbound,parseSent,splitReply} from '../app/kirimdev.mjs';
+import {createKirimdev,verifySignature,parseInbound,parseSent,splitReply,withCaptions} from '../app/kirimdev.mjs';
 
 const SECRET='whsec_test_123';
 
@@ -267,6 +267,18 @@ test('[FOTO: name] finds a Tripay link whose name sits after ?f= (regression i95
  await writeFile(path.join(t.DATA,'work','cove-support','media','staff','urls.txt'),'https://media.kirimdev.com/x/Kit.jpeg\nhttps://tripay.co.id/qr/show?f=/qris-BM-1794214604-1.png\n');
  await t.post(meta('628123','bayar'));await t.settle();
  assert.deepEqual(t.sent.map(b=>b.type),['text','image']);assert.equal(t.sent[1].image.link,'https://tripay.co.id/qr/show')});  // the ?f= marker is only for matching; WhatsApp gets Tripay's own link (if734729a)
+
+// if734729a (11 Nov 2026): Randy's QRIS went text, picture, text and the picture never showed; Gilang's went as one picture with
+// a caption and arrived. A bare picture followed by text now goes as one message, and [FOTO: name | caption] works.
+test('a QRIS picture followed by text goes as one picture with that text as its caption',async()=>{
+ const t=await make({agentSays:'Siap Kak, ini QRIS-nya ya:\n[FOTO: qris-BM-1.png]\n*Total: Rp10.000* Berlaku 30 menit (sampai 19.06 WIB)'});
+ await writeFile(path.join(t.DATA,'work','cove-support','media','staff','urls.txt'),'https://tripay.co.id/qr/T1?f=/qris-BM-1.png\n');
+ await t.post(meta('628123','bayar'));await t.settle();
+ assert.deepEqual(t.sent.map(b=>b.type),['text','image']);
+ assert.deepEqual(t.sent[1].image,{link:'https://tripay.co.id/qr/T1',caption:'*Total: Rp10.000* Berlaku 30 menit (sampai 19.06 WIB)'});
+ assert.deepEqual(withCaptions(['a','[FOTO: x.png]','[FOTO: y.png]','b']),['a','[FOTO: x.png]','[FOTO: y.png | b]']);
+ assert.deepEqual(withCaptions(['[FOTO: x.png | already]','b']),['[FOTO: x.png | already]','b']);
+ assert.deepEqual(withCaptions(['[FOTO: x.png]','x'.repeat(1025)]),['[FOTO: x.png]','x'.repeat(1025)])});
 
 // wait-then-resume after a handoff (11 Nov 2026, taken into git from fixer issue i87fbcb7b)
 test('after a handoff with no team reply in humanWaitMin minutes, the agent continues with the wait text and does not hand off again',async()=>{

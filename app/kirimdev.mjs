@@ -80,6 +80,13 @@ export const normalizeTags=t=>String(t||'').replace(LOOSE,(_,x)=>/^[\w-]+$/.test
 export function splitReply(out){const t=normalizeTags(String(out||'').replace(FOOTER,'').trim());const parts=[];
  for(const x of t.split(/\n-{3,}\n/))for(const y of x.split(/(\[(?:FOTO|TEMPLATE|VIDEO):[^\]]+\])/))if(y.trim())parts.push(y.trim());
  return parts.slice(0,8)}
+// a bare picture followed by text goes out as ONE message, the picture with that text as its caption (11 Nov 2026, if734729a):
+// Randy's QRIS went as text, picture, text in the same second and the picture never showed on the customer's phone, while
+// Gilang's helper sends the same Tripay QR as one picture with a caption and it arrives. Run after the reply guard, so the
+// guard still checks the text on its own.
+export function withCaptions(parts){const out=[];for(let i=0;i<parts.length;i++){const p=parts[i],n=parts[i+1],m=/^\[FOTO:\s*([^\]|]+?)\s*\]$/.exec(p);
+  if(m&&typeof n==='string'&&n.trim()&&!/^\[(?:FOTO|TEMPLATE|VIDEO):/.test(n)&&n.length<=1024){out.push('[FOTO: '+m[1]+' | '+n.trim()+']');i++}else out.push(p)}
+ return out}
 
 // aqeelos:kirim-guard: the last check before anything reaches a customer, for every agent on every line.
 // Lines meant for the team (notes, image descriptions, test-mode remarks, file names) never go out, and a
@@ -351,7 +358,7 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
   if(g.hold){log('kirimdev '+agent+': reply held: '+g.hold);const lastQ=hist.split('\n').filter(l=>l.startsWith('CUSTOMER: ')).pop()?.slice(10)||'-';
    await postHandoff({id:'h'+(++st.seq),agent,from:p.from,conversationId:p.conversationId,name:p.name,lastQ,why:g.hold,notify:false,tries:0,at:now()},line);return}
   if(mode==='draft')return makeDraft(agent,line,p,g.parts);
-  p.outbound=[];for(const part of g.parts)p.outbound.push(await prepare(agent,line,p.from,part));await saveState();
+  p.outbound=[];for(const part of withCaptions(g.parts))p.outbound.push(await prepare(agent,line,p.from,part));await saveState();
   for(const id of p.outbound){await deliver(id);await wait(2500)}}
 
  // a handoff is posted first; the customer hears it was passed on only once Telegram confirmed the post
@@ -412,7 +419,7 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
   if(d.held&&!(text&&String(text).trim()))throw Error('Draft #'+id+' was held because it had text meant for the team. Reply with the clean text to send instead.');
   const parts=text&&String(text).trim()?splitReply(text):d.parts;if(!parts.length)throw Error('Write the text to send.');
   d.by=String(by||'');d.edited=!!(text&&String(text).trim());
-  if(!d.outbound){d.outbound=[];for(const p of parts){const op=await prepare(agent,line,d.from,p);if(op)st.outbox[op].approved=true;d.outbound.push(op)}await saveState()}
+  if(!d.outbound){d.outbound=[];for(const p of withCaptions(parts)){const op=await prepare(agent,line,d.from,p);if(op)st.outbox[op].approved=true;d.outbound.push(op)}await saveState()}
   const sent=[];for(const id of d.outbound){sent.push(await deliver(id));await wait(1500)}d.status='sent';d.doneAt=now();await saveState();
   let labels=null;if(d.labels&&!d.labelsSet){labels=await labelContact(agent,{conversationId:d.conversationId,phone:d.from,...d.labels,source:'approved',run:'draft'+d.id}).catch(e=>({set:false,why:e.message}));if(labels.set){d.labelsSet=true;await saveState()}}
   return {sent:sent.filter(Boolean).length,...(labels?{labels}:{})}}
@@ -420,7 +427,7 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
  // one part: text, or a picture from the agent's media/staff (urls.txt for [FOTO], templates.json for [TEMPLATE])
  async function send(agent,line,to,part){const id=await prepare(agent,line,to,part);await saveState();return deliver(id)}
  async function prepare(agent,line,to,part){await state();const base={messaging_product:'whatsapp',recipient_type:'individual',to};let body;
-  const tm=/^\[TEMPLATE:\s*([\w-]+)\s*\]$/.exec(part),fm=/^\[FOTO:\s*(?:media\/staff\/)?([^\]]+?)\s*\]$/.exec(part);
+  const tm=/^\[TEMPLATE:\s*([\w-]+)\s*\]$/.exec(part),fm=/^\[FOTO:\s*(?:media\/staff\/)?([^\]|]+?)\s*(?:\|\s*([\s\S]*?)\s*)?\]$/.exec(part);
   if(tm){const tp=(await readJson(path.join(WORK,agent,'media','staff','templates.json'),{}))[tm[1]];if(!tp){log('kirimdev '+agent+': no picture for template '+tm[1]);return null}body={...base,type:'image',image:tp}}
   const vm=/^\[VIDEO:\s*(?:media\/staff\/)?([^\]|]+?)\s*(?:\|\s*([^\]]*?)\s*)?\]$/.exec(part);
   if(tm){}else if(fm||vm){const name=(fm||vm)[1].trim(),urls=(await readFile(path.join(WORK,agent,'media','staff','urls.txt'),'utf8').catch(()=>'')).split(/\s+/).filter(Boolean);
@@ -429,7 +436,7 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
    if(!u){log('kirimdev '+agent+': no '+(vm?'video':'picture')+' called '+name+' in media/staff/urls.txt; tag dropped');return null}
    if(vm||/\.(mp4|mov)$/i.test(u.split('?')[0])){const cap=vm?.[2]?.trim();body={...base,type:'video',video:{link:u,...(cap?{caption:cap.slice(0,1024)}:{})}}}
    // the "f=/<name>" marker only lets urls.txt match the tag; WhatsApp gets the provider's own link (if734729a)
-   else{const link=u.replace(/([?&])f=\/[^&#]*(&|$)/,(m,a,b)=>b?a:'').replace(/[?&]$/,'');if(link!==u)log('kirimdev '+agent+': picture '+name+' sent as its plain link');body={...base,type:'image',image:{link}}}}
+   else{const link=u.replace(/([?&])f=\/[^&#]*(&|$)/,(m,a,b)=>b?a:'').replace(/[?&]$/,'');if(link!==u)log('kirimdev '+agent+': picture '+name+' sent as its plain link');const cap=fm?.[2]?.trim();body={...base,type:'image',image:{link,...(cap?{caption:cap.slice(0,1024)}:{})}}}}
   else{const text=part.replace(FOOTER,'').trim().slice(0,4096);if(!text)return null;body={...base,type:'text',text:{body:text,preview_url:false}}}
   const id=randomUUID();st.outbox[id]={id,agent,pid:String(line.phoneNumberId),to,body,at:now(),status:'pending'};return id}
  // Persist intent before I/O; never replay beyond the provider's bounded idempotency cache.
@@ -460,7 +467,7 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
   for(const [id,w] of Object.entries(st.waits||{}))if(w.agent===agent&&w.from===num)delete st.waits[id];
   if(modeOf(line)==='test'&&!isTester(line,{from:num,conversationId:''})&&!st.testerNums[agent+'|'+num])throw Error('This line is in Test, so it only answers its testers.');
   const parts=splitReply(text);if(!parts.length)throw Error('Write the text to send.');const sent=[];
-  const ops=[];for(const p of parts){const id=await prepare(agent,line,num,p);if(id)st.outbox[id].approved=true;ops.push(id)}await saveState();
+  const ops=[];for(const p of withCaptions(parts)){const id=await prepare(agent,line,num,p);if(id)st.outbox[id].approved=true;ops.push(id)}await saveState();
   for(const id of ops){sent.push(await deliver(id));await wait(1500)}return sent.filter(Boolean)}
 
  // connect: one Kirimdev webhook for this line (Kirimdev makes the secret and shows it once)
