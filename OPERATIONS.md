@@ -1,0 +1,55 @@
+# Operations rules
+
+How aqeelOS keeps a server lean and steady as agents are added. Every change to what runs on a server follows these rules. Each rule names the incident that made it a rule, and what enforces it (a test, a check, or "not yet").
+
+Status: agreed 11 Nov 2026. Rules marked **(planned)** are on [BACKLOG.md](BACKLOG.md) and not enforced yet.
+
+## 1. One owner per process, and starting means stop-then-start
+
+Every long-running process belongs to exactly one starter: the agent-users script for agent screens, the box's startup for the engine and the app, the engine for its own children. A starter that starts something again first stops what it started before.
+
+- Never launch with a bare `( … & )` that nothing tracks.
+- Each agent's processes run in its own group, so one command stops everything that agent started. **(planned, OPS-2)**
+
+*Incident, 10 Nov 2026:* a screen whose socket went missing was restarted every 30 s while the old display still ran. Each restart failed and left a desktop behind: 49 each for continue-support and biomarkers-support, about 9 GB. Fixed in `25fd701` (`screen_kill`).
+
+## 2. Every agent has a budget
+
+- A memory cap per agent, so one leak slows one agent, never the server. **(planned, OPS-2)**
+- A screen and Chrome idle for 30 minutes go to sleep and wake when used. **(planned, OPS-4)**
+- Health shows memory per agent and warns when one keeps growing. **(planned, HEALTH-6)**
+
+## 3. Restarts back off, then stop and say so
+
+A process that fails is restarted with a growing wait (5 s, 30 s, 2 min, 10 min). After 5 failures within an hour it stays stopped and files **one** issue. It never loops silently. **(planned, OPS-3)**
+
+*Incidents:* the screen loop above; schedules that fail on every run (Threads runners, 10–11 Nov).
+
+## 4. Expected equals running
+
+A janitor compares, every minute, what should run for each agent with what does run. Anything extra is reported, then removed. Health shows it in one line ("47 expected, 47 running"). **(planned, OPS-5)**
+
+## 5. Only git reaches a server
+
+- Code on a server is exactly a commit on GitHub main. Deploys refuse anything else (`scripts/deploy.sh`, since 9 Nov).
+- The fixer never edits live code. It commits its fix and the normal deploy ships it. **(planned, GIT-2)**
+- Engine fixes live in `engine/patches/<date>-<what>.patch`; `scripts/apply-skill-patches.mjs` puts them back after every engine update.
+- Settings are data (`kirimdev.json`, team policy), never code. A business rule is a per-line setting.
+
+*Incident, 7–11 Nov:* 11 fixer patches existed only on servers, and deploys put the old files back. Some fixes were lost twice and queued to be redone a third time. Taken into git in `4f7243a`.
+
+## 6. Checks give the same answer every time
+
+- A check that can block a deploy must be deterministic.
+- A check that depends on a model's choices (the my-browser check) reports but does not block. **(planned, OPS-6)**
+- A failed check gets one retry before it counts. **(planned, OPS-6)**
+
+*Incident, 10 Nov:* deploys failed six times on random misses, and every check passed when run alone.
+
+## 7. Everything temporary expires
+
+Logs rotate. Fixer patches, drift saves, test users and old backups are removed after 30 days. **(planned, OPS-7)**
+
+## 8. The rules are tested
+
+Tests fail when new code breaks a rule: for example, a screen or process launch that bypasses the shared starter, or a check marked blocking that calls a model. **(planned, OPS-8)**

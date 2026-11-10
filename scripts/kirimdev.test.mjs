@@ -74,7 +74,7 @@ const sentEv=(to,source,id='msg_'+Math.random(),conv='cnv_A',pid='111')=>JSON.st
 
 // an Indonesian line, as the owner runs it: these are settings (kirimdev.json), not code
 const LOCALE={language:'Indonesian',localPrefix:{country:'62',local:'0'},resetText:'✅ Test reset. Chat dari awal ya, anggap kamu customer baru.',handoff:{customerText:'Baik kak, untuk pertanyaan ini saya bantu teruskan ke tim kami dulu ya 🙏 Mohon ditunggu sebentar.'}};
-async function make({mode='test',agentSays='Halo kak 😊',testers=[{who:'Ari',conversationId:'cnv_A'}],postOk=true,team={chatId:-100,topics:{questions:3},mention:'@team'},pauseMin,extra={},paidSince=null}={}){
+async function make({mode='test',agentSays='Halo kak 😊',testers=[{who:'Ari',conversationId:'cnv_A'}],postOk=true,team={chatId:-100,topics:{questions:3},mention:'@team'},pauseMin,extra={},paidSince=null,bridge={self:async()=>'',send:async()=>{},result:async()=>null}}={}){
  const DATA=await mkdtemp(path.join(tmpdir(),'kd-')),WORK=path.join(DATA,'work');
  await mkdir(path.join(WORK,'cove-support','media','staff'),{recursive:true});
  await writeFile(path.join(WORK,'cove-support','media','staff','urls.txt'),'https://media.kirimdev.com/x/Kit.jpeg\n');
@@ -86,12 +86,13 @@ async function make({mode='test',agentSays='Halo kak 😊',testers=[{who:'Ari',c
  const fetchImpl=async(url,o)=>{const p=url.replace('https://api.kirimdev.com/v1/','');
   if(o.method==='POST'&&/^(111|222)\/messages$/.test(p)){const b=JSON.parse(o.body);b.pid=p.split('/')[0];sent.push(b);return {ok:true,json:async()=>({data:{id:'msg_'+sent.length,status:'queued'}})}}
   if(/^(111|222)\/messages\?/.test(p))return {ok:true,json:async()=>({data:[{direction:'inbound',content:'mau tanya',created_at:'2026-11-05T10:00:00.000Z',type:'text'}]})};
+  if(p==='accounts')return {ok:true,json:async()=>({data:[{phone_number_id:'111',phone_number:'+62 811-1111-111',name:'Cove',status:'connected'}]})};
   if(p==='webhook_subscriptions')return {ok:true,json:async()=>({data:{id:'wbs_9',status:'active',initial_secret:'whsec_new'}})};
   if(o.method==='PATCH'&&p.startsWith('webhook_subscriptions/')){patched.push([p,JSON.parse(o.body)]);return {ok:true,json:async()=>({data:{id:p.split('/')[1],events:JSON.parse(o.body).events}})}}
   return {ok:false,status:404,json:async()=>({})}};
  // fake timers: the burst window only closes when the test calls settle(), never because the box was slow
  const due=new Map();let tid=0;const setTimer=(fn)=>{const i=++tid;due.set(i,fn);return i},clearTimer=i=>{due.delete(i)};
- const k=createKirimdev({DATA,WORK,setTimer,clearTimer,apiKey:async()=>'kdv_test',PUBLIC_URL:'https://ai.example',fetchImpl,wait:async()=>{},log:m=>process.env.KDLOG&&console.log(m),now:()=>clock,echoWait:0,paidSince,
+ const k=createKirimdev({DATA,WORK,setTimer,clearTimer,apiKey:async()=>'kdv_test',PUBLIC_URL:'https://ai.example',fetchImpl,wait:async()=>{},log:m=>process.env.KDLOG&&console.log(m),now:()=>clock,echoWait:0,paidSince,bridge,
   teamGroup:async a=>a==='cove-support'?team:null,
   runAgent:async(a,q,context)=>{asked.push([a,q,context]);return typeof agentSays==='function'?agentSays(q,context):agentSays},telegram:async(...x)=>{posts.push(x);return tg.ok?4242:false},tell:async t=>{told.push(t)}});
  const post=(raw,h={},agent='cove-support')=>k.receive(agent,{'x-kirim-signature':sign(raw,Math.floor(clock/1000)),'x-kirim-event':'message.received',...h},Buffer.from(raw));
@@ -279,6 +280,26 @@ test('a QRIS picture followed by text goes as one picture with that text as its 
  assert.deepEqual(withCaptions(['a','[FOTO: x.png]','[FOTO: y.png]','b']),['a','[FOTO: x.png]','[FOTO: y.png | b]']);
  assert.deepEqual(withCaptions(['[FOTO: x.png | already]','b']),['[FOTO: x.png | already]','b']);
  assert.deepEqual(withCaptions(['[FOTO: x.png]','x'.repeat(1025)]),['[FOTO: x.png]','x'.repeat(1025)])});
+
+// delivery checks (11 Nov 2026, if734729a): the main WhatsApp gets a picture from the line and the bridge says if it downloaded
+test('a delivery check message is never answered, but opens the 24-hour window',async()=>{const t=await make();
+ await t.post(meta('628999','aqeelOS delivery check, please ignore. aqeelos-probe:abc123defw'));await t.settle();
+ assert.equal(t.asked.length,0);assert.equal(t.sent.length,0)});
+
+test('a delivery check sends a marked picture to the main WhatsApp and reports what arrived',async()=>{const opened=[];let arrived={ok:true,bytes:640};
+ const t=await make({bridge:{self:async()=>'628999',send:async(n,x)=>{opened.push([n,x])},result:async id=>arrived&&{id,...arrived}}});
+ await t.post(meta('628999','aqeelos-probe:open000001w'));await t.settle();
+ const r=await t.k.deliveryCheck('cove-support');
+ assert.equal(opened.length,0,'the window was already open');
+ const b=t.sent.at(-1);assert.equal(b.type,'image');assert.equal(b.to,'628999');assert.equal(b.image.link,'https://media.kirimdev.com/x/Kit.jpeg');assert.match(b.image.caption,new RegExp('aqeelos-probe:'+r.id));
+ assert.deepEqual([r.sent,r.arrived,r.picture,r.bytes],[true,true,true,640]);
+ arrived=null;const r2=await t.k.deliveryCheck('cove-support');assert.deepEqual([r2.sent,r2.arrived,r2.picture],[true,false,false]);assert.match(r2.why,/nothing reached/)});
+
+test('a delivery check first opens the window from the main WhatsApp, and says so when it cannot',async()=>{const opened=[];
+ const t=await make({bridge:{self:async()=>'628999',send:async(n,x)=>{opened.push([n,x])},result:async()=>null}});
+ const r=await t.k.deliveryCheck('cove-support');
+ assert.equal(opened.length,1);assert.equal(opened[0][0],'628111111111');assert.match(opened[0][1],/aqeelos-probe:[a-z0-9]+w/);
+ assert.equal(r.sent,false);assert.match(r.why,/never received the check message/)});
 
 // wait-then-resume after a handoff (11 Nov 2026, taken into git from fixer issue i87fbcb7b)
 test('after a handoff with no team reply in humanWaitMin minutes, the agent continues with the wait text and does not hand off again',async()=>{

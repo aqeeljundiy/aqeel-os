@@ -1,0 +1,57 @@
+diff --git a/scripts/whatsapp-bridge/bridge.js b/scripts/whatsapp-bridge/bridge.js
+index 705f096..f305615 100644
+--- a/scripts/whatsapp-bridge/bridge.js
++++ b/scripts/whatsapp-bridge/bridge.js
+@@ -536,6 +536,8 @@ async function startSocket() {
+ 
+     for (const msg of messages) {
+       if (!msg.message) continue;
++      // aqeelOS: a delivery check never reaches the agent (probe_watch.js, engine/patches in aqeelOS)
++      if (await (await import('./probe_watch.js')).watchProbe(SESSION_DIR, msg, (m) => downloadMediaMessage(m, 'buffer', {}, { logger, reuploadRequest: sock.updateMediaMessage }))) continue;
+ 
+       const chatId = msg.key.remoteJid;
+       const senderId = msg.key.participant || chatId;
+diff --git a/scripts/whatsapp-bridge/probe_watch.js b/scripts/whatsapp-bridge/probe_watch.js
+new file mode 100644
+index 0000000..18b68c9
+--- /dev/null
++++ b/scripts/whatsapp-bridge/probe_watch.js
+@@ -0,0 +1,38 @@
++// Local add-on (aqeelOS): delivery checks. aqeelOS proves that a business line's pictures reach a real phone by sending
++// one, marked "aqeelos-probe:<id>", to this WhatsApp. Such a message never reaches the agent: the bridge records whether
++// its picture downloaded in <session>/../probes/<id>.json and drops it. Results older than 7 days are deleted.
++import path from 'path';
++import { mkdirSync, writeFileSync, readdirSync, statSync, unlinkSync } from 'fs';
++
++const MARK = /aqeelos-probe:([a-z0-9]{6,32})/;
++
++function inner(m) {
++  return m?.ephemeralMessage?.message || m?.viewOnceMessage?.message || m?.viewOnceMessageV2?.message || m;
++}
++
++// true when msg was a delivery check (handled here; the caller skips it)
++export async function watchProbe(sessionDir, msg, download) {
++  try {
++    const c = inner(msg?.message);
++    if (!c) return false;
++    const text = c.conversation || c.extendedTextMessage?.text || c.imageMessage?.caption || c.videoMessage?.caption || c.documentMessage?.caption || '';
++    const m = MARK.exec(text);
++    if (!m) return false;
++    if (msg.key?.fromMe) return true;   // our own message that opens the line's 24-hour window
++    const dir = path.join(path.resolve(sessionDir, '..'), 'probes');
++    mkdirSync(dir, { recursive: true, mode: 0o700 });
++    const r = { id: m[1], at: new Date().toISOString(), type: c.imageMessage ? 'image' : c.videoMessage ? 'video' : c.documentMessage ? 'document' : 'text', ok: false, bytes: 0 };
++    if (c.imageMessage) {
++      r.mime = c.imageMessage.mimetype || '';
++      try { const b = await download(msg); r.bytes = b?.length || 0; r.ok = r.bytes > 100; }
++      catch (e) { r.error = String(e?.message || e).slice(0, 200); }
++    }
++    writeFileSync(path.join(dir, r.id + '.json'), JSON.stringify(r), { mode: 0o600 });
++    for (const f of readdirSync(dir)) {
++      try { if (Date.now() - statSync(path.join(dir, f)).mtimeMs > 7 * 864e5) unlinkSync(path.join(dir, f)); } catch {}
++    }
++    return true;
++  } catch {
++    return false;
++  }
++}
