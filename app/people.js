@@ -67,11 +67,20 @@ PAGES.people=async(p,el)=>{const gone=pageTok(el);
  const [d,pr]=await Promise.all([UI('/ui/people'),H('/profiles').catch(()=>({profiles:[]}))]);if(gone())return;Pages._ppl=d;Pages._agents=(pr.profiles||[]).map(x=>x.name);
  const inv=(d.invites||[]).map((x,i)=>`<div class="row" ${st(i)} style="padding:12px 12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="txt"><b>${esc(x.name||'Anyone with the link')} · ${esc(ROLE_LABEL[x.role])}</b><span>Expires ${new Date(x.expires).toLocaleDateString()}${Object.keys(x.agents||{}).length?' · '+Object.keys(x.agents).map(a=>esc(ident(a).name)).join(', '):''}</span></div><div class="act"><button data-act="ppl-copy" data-code="${esc(x.code)}">${icon('copy',15)}Copy link</button><button class="ghost" data-act="ppl-uninvite" data-code="${esc(x.code)}" aria-label="Cancel invite">${icon('x',16)}</button></div></div>`).join('');
  const exp=(d.expired||[]).map((x,i)=>`<div class="row inv-expired" ${st(i)} style="padding:12px 12px;margin:0 -12px;border-top:1px solid var(--border)"><div class="txt"><b>${esc(x.name||'Anyone with the link')} · ${esc(ROLE_LABEL[x.role])}</b><span>Expired ${new Date(x.expired).toLocaleDateString()}</span></div><div class="act"><button data-act="ppl-renew" data-code="${esc(x.code)}">${icon('refresh',15)}Renew for 7 days</button><button class="ghost" data-act="ppl-uninvite" data-code="${esc(x.code)}" aria-label="Delete invite">${icon('x',16)}</button></div></div>`).join('');
- el.innerHTML=`<div class="people-grid">${[d.owner,...d.users].map((u,i)=>pplCard(d,u,i)).join('')}</div>
+ // many people: a search box like the Connections page (it only hides cards, so a card drawn again in place still filters)
+ const all=[d.owner,...d.users],many=all.length>8;
+ el.innerHTML=`${many?`<div class="toolbar ppl-bar"><div class="search${S.pplQ?' has-q':''}">${icon('search',16)}<input id="pplQ" type="search" enterkeyhint="search" placeholder="Search people" value="${esc(S.pplQ||'')}" aria-label="Search people"><button class="ghost icon s-clear" data-act="ppl-clear" aria-label="Clear search" title="Clear search">${icon('x',14)}</button></div></div>`:''}
+  <div class="people-grid">${all.map((u,i)=>pplCard(d,u,Math.min(i,12))).join('')}<div class="state-box ppl-none" hidden>Nobody matches “<b></b>”. <button class="link" data-act="ppl-clear">Clear the search</button></div></div>
   ${inv||exp?`<div class="panel card" style="margin-top:16px"><h2>Waiting to join</h2><p class="sub">Links work once and expire after 7 days. Renew an expired one to send the same link again.</p>${inv}${exp}</div>`:''}
   <div class="panel card" style="margin-top:16px"><h2>How sharing works</h2><p class="sub" style="margin-bottom:0">Two layers. <b>Each person has a role</b> (Roles above): what they may do, which models they get, a daily limit and how many agents they may own. <b>Each agent is shared per person</b>: Can chat uses it, Can edit also changes it within their role, Owner can also delete or give it away. Agent settings, keys and channels stay with admins. Everyone's chats are private, also from you.</p></div>`;
+ if(many){const q=el.querySelector('#pplQ'),grid=el.querySelector('.people-grid');let t;pplFilter();
+  q.oninput=()=>{q.closest('.search').classList.toggle('has-q',!!q.value);clearTimeout(t);t=setTimeout(()=>{if(!el.isConnected)return;S.pplQ=q.value;smoothHeight(grid,pplFilter)},100)}}
  const pn=document.querySelector('.drawer.ppl-panel:not(.closing)');if(pn)pplRepaint(pn);   // drawn again (More, a share): the open panel follows
 };
+function pplFilter(){const q=document.querySelector('#pplQ')?(S.pplQ||'').trim().toLowerCase():'';let n=0;
+ document.querySelectorAll('.people-grid .person').forEach(c=>{const ok=!q||(c.dataset.q||'').includes(q);c.hidden=!ok;if(ok)n++});
+ const none=document.querySelector('.ppl-none');if(none){none.hidden=!!n;none.querySelector('b').textContent=S.pplQ||''}}
+ACT['ppl-clear']=()=>{const q=document.querySelector('#pplQ');if(!q)return;q.value='';q.dispatchEvent(new Event('input'));q.focus()};
 const agentPicker=(id,taken=[])=>`<div id="${id}">${(Pages._agents||[]).filter(a=>!taken.includes(a)).map(a=>`<label class="pick"><input type="checkbox" value="${esc(a)}">${agentAva(a)}<span>${esc(ident(a).name)}</span><select style="width:auto">${Object.entries(LEVEL_LABEL).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></label>`).join('')||'<p class="hint">Every agent is already shared.</p>'}</div>`;
 const pickedAgents=id=>Object.fromEntries([...$$('#'+id+' .pick')].filter(l=>l.querySelector('input').checked).map(l=>[l.querySelector('input').value,l.querySelector('select').value]));
 // A new agent for a family member: own name, the main AI account, no terminal / files / computer use.
@@ -85,13 +94,24 @@ async function makeSafeAgent(name){
  await loadIdentities();return id}
 ACT['ppl-invite']=()=>{const d=drawer('Invite someone',`<label>Their name</label><input id="ivName" placeholder="Sarah"><label>Their email (optional)</label><input id="ivMail" type="email" placeholder="sarah@example.com"><p class="hint" style="margin:4px 0 0">We email them the invite link. You also get it to copy.</p>
   <label>Role</label><select id="ivRole">${Object.entries(Pages._ppl?.roles||{}).map(([k,ro])=>`<option value="${esc(k)}">${esc(ro.name)}: ${esc(roleSummary(ro))}</option>`).join('')}${S.me?.role==='owner'?'<option value="admin">Admin: can do everything</option>':''}</select>
-  <div id="ivAgents"><label>Agents they can use</label>${agentPicker('ivPick')}
+  <div id="ivAgents"><label>Agents they can use</label><div class="ab-host iv-ab"></div>
   <label class="pick" style="margin-top:10px"><input type="checkbox" id="ivNew" checked><span><b>Also make them their own agent</b><br><small class="hint">Uses your main AI account. No terminal, files or computer use.</small></span></label>
   <input id="ivNewName" placeholder="Name for their agent, e.g. Sarah's assistant" style="margin-top:6px"></div>`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="ivGo">Create invite link</button>`);
+ // agents: the same block as sharing an agent (access-block.js): search to add, then each picked agent with one menu
+ // (Can chat, Can edit, Remove). Nothing is saved until Create invite link; it sends {agent: level} as before.
+ const picked={},host=d.querySelector('.iv-ab');
+ const paintAB=(refocus=false)=>{if(!host.isConnected)return;
+  AccessBlock.live(host,{items:Object.entries(picked).map(([a,l])=>({id:a,name:ident(a).name,level:l})),levels:{chat:LEVEL_LABEL.chat,edit:LEVEL_LABEL.edit},
+   choices:(Pages._agents||[]).filter(a=>!picked[a]).map(a=>({id:a,name:ident(a).name})),search:'Add agents',
+   onAdd:a=>{picked[a]='chat';paintAB(true)},onLevel:(a,l)=>{picked[a]=l;paintAB()},onRemove:a=>{delete picked[a];paintAB()}});
+  host.querySelector('.ab-lbl')?.remove();   // the field's own label says it
+  if(!Object.keys(picked).length)host.querySelector('.ab-list').innerHTML='<p class="hint iv-none">None yet. Type a name above to add one.</p>';
+  if(refocus)host.querySelector('.ab-find input')?.focus()};
+ paintAB();
  const sync=()=>{$('#ivAgents').hidden=$('#ivRole').value==='admin';$('#ivNewName').hidden=!$('#ivNew').checked};$('#ivRole').onchange=sync;$('#ivNew').onchange=sync;
  $('#ivName').oninput=e=>{const v=e.target.value.trim();$('#ivNewName').placeholder=v?v+"'s assistant":"Name for their agent"};
  d.querySelector('#ivGo').onclick=async()=>{const name=$('#ivName').value.trim(),pick=$('#ivRole').value,role=pick==='admin'?'admin':'member',roleId=pick==='admin'?null:pick,caps=[];const b=d.querySelector('#ivGo');b.disabled=true;
-  try{const agents=role==='admin'?{}:pickedAgents('ivPick');let ownAgent=null;
+  try{const agents=role==='admin'?{}:{...picked};let ownAgent=null;
    if(role!=='admin'&&$('#ivNew').checked){const an=$('#ivNewName').value.trim()||(name?name+"'s assistant":'Family assistant');b.textContent='Making their agent…';const id=await makeSafeAgent(an);agents[id]='owner';ownAgent=id}
    const inv=await post(UI,'/ui/people/invite',{name,role,roleId,caps,agents,ownAgent,noLead:role!=='admin'&&!$('#ivNew').checked,email:$('#ivMail').value.trim()});const to=$('#ivMail').value.trim();closeLayers();
    if(to){try{await post(UI,'/ui/people/invite/'+inv.code+'/email',{to,link:publicBase()+'/#invite/'+inv.code});toast('Invite emailed to '+to+'. The link is copied too.')}catch(e){toast('Email failed ('+(e.message||e)+'). The link is copied instead.','err')}}
@@ -157,21 +177,45 @@ ACT['me-profile']=()=>{const me=S.me||{};
 
 ACT['tool-off']=a=>{Chat.tools.splice(+a.dataset.i,1);Chat.paintTools()};
 
-/* ---------- Agents page with owners: who owns each agent, who it is shared with, private ones locked ---------- */
+/* ---------- Agents page (10 Nov 2026, owner: simple, the same at 3 agents or 100): one card for every agent. Picture,
+   name (a "Main agent" badge on the main one only), one line of what it does, one quiet line "Online · Owner: Aisar", and
+   Chat on every card. A search box, and Grid / List: the same items drawn as cards or as Connections-style rows, so
+   switching only changes a class. The choice is remembered; with more than 12 agents it starts as List. Private agents
+   (owned by someone else, not shared) stay in the list, locked. ---------- */
+const agView=n=>{const v=store.get('agents-view',null);return v==='grid'||v==='list'?v:n>12?'list':'grid'};
+function agItem(x,o,i){const id=ident(x.name),locked=o.access===null&&o.private,owner=o.owner?(o.owner.id===S.me?.id?'You':o.owner.name):'';
+ const desc=locked?`<p class="ag-desc">Only ${esc(owner||'its owner')} and the people they share it with can open it.</p>`
+  :x.description?`<p class="ag-desc">${esc(x.description)}</p>`
+  :mayEdit(x.name)?`<p class="ag-desc hint"><a href="#" data-act="agent-describe" data-name="${esc(x.name)}">Add a description</a></p>`:'<p class="ag-desc hint">No description yet.</p>';
+ const shared=(o.shared||[]).length,q=[id.name,x.name,x.description||'',owner,o.owner?.name||'',x.is_default?'main agent':''].join(' ').toLowerCase();
+ return `<div class="card tile agent-card ag-item ${locked?'locked':''}" ${st(Math.min(i,12))} ${locked?`data-act="agent-locked" data-owner="${esc(o.owner?.name||'')}"`:`data-act="agent-card" tabindex="0" role="button" aria-label="Chat with ${esc(id.name)}"`} data-name="${esc(x.name)}" data-q="${esc(q)}">
+  <div class="ag-main">${agentAvatar(x.name,40,{plain:locked,title:false})}<div class="ag-txt"><h3><span class="ag-n">${esc(id.name)}</span>${x.is_default?'<span class="ag-badge">Main agent</span>':''}</h3>${desc}</div></div>
+  <div class="ag-meta"><span class="ag-st${locked?'':x.gateway_running?' on':' off'}">${locked?icon('lock',12):'<i class="dot"></i>'}${locked?'Private':x.gateway_running?'Online':'Offline'}</span><span class="ag-own"${shared?` title="Shared with ${shared===1?'1 person':shared+' people'}"`:''}>${owner?'<span class="ag-ol">Owner: </span>'+esc(owner):'No owner'}</span></div>
+  <div class="agent-tags">${!locked&&x.description_auto&&x.description?'<span class="chip" title="aqeelOS wrote this description. Read it and change it if it is off; editing it removes this note.">Written for you · check it</span>':''}</div>
+  <div class="tile-foot agent-foot">${locked?`<span class="ag-locked">${icon('lock',14)}Private</span>`:`<span class="agent-go">${icon('chat',14)}Chat</span><button class="ghost icon agent-gear" data-menu="profilecard" data-name="${esc(x.name)}" aria-label="Settings for ${esc(id.name)}" title="Settings">${icon('settings',18)}</button>`}</div></div>`}
+// search: hide what doesn't match (cards keep whatever was added to them after drawing, like Finish setup)
+function agFilter(el){const q=(S.agQ||'').trim().toLowerCase(),items=[...el.querySelectorAll('.ag-item')];let n=0;
+ for(const c of items){const ok=!q||c.dataset.q.includes(q);c.hidden=!ok;if(ok)n++}
+ const none=el.querySelector('.ag-none');if(none){none.hidden=!!n;none.querySelector('b').textContent=S.agQ||''}}
 PAGES.profiles=async(p,el)=>{const stale=pageTok(el);
- const [pr,act]=await Promise.all([H('/profiles'),H('/profiles/active').catch(()=>({}))]);if(stale())return;Pages._profiles=pr.profiles||[];
+ const pr=await H('/profiles');if(stale())return;Pages._profiles=pr.profiles||[];
  const own=await UI('/ui/agents?names='+encodeURIComponent(Pages._profiles.map(x=>x.name).join(','))).catch(()=>({}));if(stale())return;Pages._own=own;
  const list=Pages._profiles.filter(x=>own[x.name]||S.me?.admin!==false);
  setActions(`<span class="head-count">${esc(plural(list.length,'agent'))}</span>`+(S.me?.admin===false&&!(S.me.caps||[]).includes('create')?'':`<button class="primary" data-act="prof-new">${icon('plus',16)}New agent</button>`));
  // nothing listed (never a blank page): a member's own agent may still be getting ready
  if(!list.length){el.innerHTML=emptyBox('No agents yet',S.me?.admin===false?'Agents shared with you show here. A new one can take a minute to appear. Ask an admin if none does.':'Make your first one with New agent.');return}
- el.innerHTML=`<div class="grid-cards">${list.map((x,i)=>{const id=ident(x.name),o=own[x.name]||{},locked=o.access===null&&o.private;
-  return `<div class="card tile agent-card ${locked?'locked':''}" ${st(i)} ${locked?`data-act="agent-locked" data-owner="${esc(o.owner?.name||'')}"`:`data-act="agent-card" tabindex="0" title="Chat with ${esc(id.name)}"`} data-name="${esc(x.name)}">
-  <div class="tile-top">${agentAvatar(x.name,40,{plain:locked,title:false})}<div style="min-width:0"><h3>${esc(id.name)}</h3><span style="font-size:12.5px;color:var(--muted)">${locked?'Private':esc(id.title||'Agent')+' · '+esc(modelLabel(x.model))+' · '+plural(x.skill_count||0,'skill')}</span></div>${locked?`<span class="chip">${icon('lock',12)}Private</span>`:''}</div>
-  ${locked?`<p class="hint">Only ${esc(o.owner?.name||'its owner')} and the people they share it with can open it.</p>`:(x.description?`<p>${esc(x.description)}</p>`:mayEdit(x.name)?`<p class="hint"><a href="#" data-act="agent-describe" data-name="${esc(x.name)}">Add a description</a> (for example: Handles finance and the monthly close)</p>`:'<p class="hint">No description yet.</p>')}
-  <div class="agent-people">${o.owner?`<span class="aowner" title="Owner">${personAva(o.owner,22)}<span>${esc(o.owner.id===S.me?.id?'You':o.owner.name)}</span><small>owner</small></span>`:''}${(o.shared||[]).length?`<span class="ashared">${o.shared.slice(0,5).map(s=>`<span title="${esc(s.name)} · ${esc(LEVEL_LABEL[s.level]||s.level)}">${personAva(s,22)}</span>`).join('')}${o.shared.length>5?`<small>+${o.shared.length-5}</small>`:''}</span>`:''}</div>
-  <div class="agent-tags">${x.is_default?'<span class="chip blue">Default</span>':''}${!locked&&o.lead?`<span class="chip" title="${esc(o.lead.name||'Their')}'s lead agent. Its power is that person's role: ${o.tier==='admin'?'everything, aqeelOS itself included':'itself and the agents they own, within their role'}">Lead · ${o.tier==='admin'?'Admin tier':'Member tier'}</span>`:''}${!locked&&act.active===x.name?'<span class="chip" title="Commands typed on the box use this agent unless they name another">Command line</span>':''}${!locked&&x.description_auto&&x.description?'<span class="chip" title="aqeelOS wrote this description. Read it and change it if it is off; editing it removes this note.">Written for you · check it</span>':''}${locked?'':chipState(x.gateway_running,'Online','Offline')}</div><div class="tile-foot agent-foot"><span>${locked?'':(S.profile||'default')===x.name?'<span class="chip ok"><i class="dot"></i>In use</span>':`<span class="agent-go">${icon('chat',14)}Chat with ${esc(id.name)}</span>`}</span>${locked?'':`<button class="ghost icon agent-gear" data-menu="profilecard" data-name="${esc(x.name)}" aria-label="Settings for ${esc(id.name)}" title="Settings">${icon('settings',18)}</button>`}</div></div>`}).join('')}</div>`;
-};
+ // the main agent first, then as the server lists them
+ list.sort((a,b)=>(b.is_default?1:0)-(a.is_default?1:0));
+ const view=agView(list.length),wrap=v=>v==='list'?'ag-wrap card list ag-list':'ag-wrap grid-cards ag-grid';
+ el.innerHTML=`<div class="toolbar ag-bar"><div class="search${S.agQ?' has-q':''}">${icon('search',16)}<input id="agQ" type="search" enterkeyhint="search" placeholder="Search agents" value="${esc(S.agQ||'')}" aria-label="Search agents"><button class="ghost icon s-clear" data-act="ag-clear" aria-label="Clear search" title="Clear search">${icon('x',14)}</button></div>
+  <div class="seg-mini ag-view" role="group" aria-label="Show as">${['grid','list'].map(v=>`<button type="button" data-v="${v}" class="${v===view?'on':''}" aria-pressed="${v===view}">${v==='grid'?'Grid':'List'}</button>`).join('')}</div></div>
+  <div class="${wrap(view)}"><div class="cn-head ag-head" aria-hidden="true"><span>Agent</span><span>Owner</span><span>Status</span><span></span></div>${list.map((x,i)=>agItem(x,own[x.name]||{},i)).join('')}<div class="state-box ag-none" hidden>Nothing matches “<b></b>”. <button class="link" data-act="ag-clear">Clear the search</button></div></div>`;
+ const box=el.querySelector('.ag-wrap'),q=el.querySelector('#agQ');agFilter(el);
+ let t;q.oninput=()=>{q.closest('.search').classList.toggle('has-q',!!q.value);clearTimeout(t);t=setTimeout(()=>{if(!el.isConnected)return;S.agQ=q.value;smoothHeight(box,()=>agFilter(el))},100)};
+ el.querySelectorAll('.ag-view [data-v]').forEach(b=>b.onclick=()=>{const v=b.dataset.v;if(box.classList.contains(v==='list'?'ag-list':'ag-grid'))return;store.set('agents-view',v);
+  el.querySelectorAll('.ag-view [data-v]').forEach(x=>{x.classList.toggle('on',x===b);x.setAttribute('aria-pressed',x===b)});
+  smoothHeight(box,()=>{box.className=wrap(v);box.querySelectorAll('.ag-item').forEach(c=>{c.style.animation='none';void c.offsetWidth;c.style.animation='';c.style.animationDelay='0ms'})})})};
+ACT['ag-clear']=()=>{const q=document.querySelector('#agQ');if(!q)return;q.value='';q.dispatchEvent(new Event('input'));q.focus()};
 ACT['agent-locked']=a=>toast('This agent is private to '+(a.dataset.owner||'its owner')+'. Ask them to share it with you.');
 /* ---------- Sharing an agent (1 Nov 2026): one home, Edit agent › Sharing. People › Share an agent and Change open it
    there; it was also a window of its own and a ⋯ item, three ways to do one thing. A person owns an agent; it is shared
@@ -228,12 +272,12 @@ const pplAgents=(d,u)=>{if(u.role!=='member'){const all=(Pages._agents||[]).filt
  const sh=pplShares(d,u.id);return {list:sh.map(([a])=>a),label:!sh.length?'No agents shared yet':sh.length===1?ident(sh[0][0]).name:plural(sh.length,'agent'),level:sh.length===1?LEVEL_LABEL[sh[0][1]]||sh[0][1]:''}};
 const pplStack=list=>list.length?`<span class="pstack">${list.slice(0,5).map(a=>agentAvatar(a,26,{title:false})).join('')}${list.length>5?`<small>+${list.length-5}</small>`:''}</span>`:'';
 function pplCard(d,u,i){const self=u.id===S.me?.id,ag=pplAgents(d,u),risky=u.role==='member'&&pplEff(d,u).caps.includes('unsafe');
- return `<div class="card tile person${u.disabled?' suspended':''}" ${i==null?'':st(i)} data-act="${self?'me-profile':'ppl-open'}" data-id="${esc(u.id)}" role="button" tabindex="0" aria-label="${esc(self?'Edit your profile':'Open '+u.name)}">
-  <div class="tile-top">${personAva(u,40)}<div class="ptxt"><h3>${esc(u.name)}</h3><span class="psub">${pplParts(pplSub(u))}</span></div></div>
+ return `<div class="card tile person${u.disabled?' suspended':''}" ${i==null?'':st(i)} data-act="${self?'me-profile':'ppl-open'}" data-id="${esc(u.id)}" data-q="${esc([u.name,u.username,u.email,ROLE_LABEL[u.role],pplRole(d,u)?.name].filter(Boolean).join(' ').toLowerCase())}" role="button" tabindex="0" aria-label="${esc(self?'Edit your profile':'Open '+u.name)}">
+  <div class="tile-top">${personAva(u,40)}<div class="ptxt"><h3>${esc(u.name)}</h3><span class="psub"><span class="pmail">${esc(u.email||'No email yet')}</span><span class="pmeta">${pplParts(pplSub(u).slice(1))}</span></span></div></div>
   <p class="psum">${pplParts(pplSummary(d,u))}</p>
   <div class="pagents">${pplStack(ag.list)}<span class="pa-l">${esc(ag.label)}</span>${ag.level?`<small>${esc(ag.level)}</small>`:''}</div>
   ${u.disabled||risky?`<div class="agent-tags">${u.disabled?`<span class="chip">${icon('lock',12)}Suspended</span>`:''}${risky?'<span class="chip bad">Terminal and files</span>':''}</div>`:''}
-  <div class="tile-foot"><span class="agent-go">${icon(self?'user':'settings',14)}<span>${self?'Edit your profile':'Edit access'}</span></span>${self?'':`<button class="ghost icon agent-gear" data-act="ppl-open" data-id="${esc(u.id)}" aria-label="Settings for ${esc(u.name)}" title="Settings">${icon('settings',18)}</button>`}</div></div>`}
+  <div class="tile-foot"><span class="agent-go">${icon(self?'user':'settings',14)}<span>${self?'Edit your profile':'Edit access'}</span></span></div></div>`}
 
 // the side panel
 const ppSec=(t,body,cls='')=>`<section class="pp-sec ${cls}"><h3 class="th">${esc(t)}</h3>${body}</section>`;
@@ -262,7 +306,7 @@ function ppHeight(el,change){const h0=el.offsetHeight;change();const h1=el.offse
 function pplRepaint(dr){const u=pplFind(dr.dataset.id);if(!u){closeLayers();return}const box=dr.querySelector('.pp-body'),sc=dr.querySelector('.drawer-body'),y=sc?.scrollTop||0;
  ppHeight(box,()=>{box.innerHTML=pplBody(Pages._ppl,u)});if(sc)sc.scrollTop=y}
 function pplCardRepaint(id){const u=pplFind(id),old=document.querySelector(`.people-grid .person[data-id="${CSS.escape(id)}"]`);if(!u||!old)return;
- const t=document.createElement('div');t.innerHTML=pplCard(Pages._ppl,u,null);const n=t.firstElementChild;n.style.animation='none';old.replaceWith(n)}
+ const t=document.createElement('div');t.innerHTML=pplCard(Pages._ppl,u,null);const n=t.firstElementChild;n.style.animation='none';old.replaceWith(n);pplFilter()}
 async function pplSave(dr,body,msg='Saved',{repaint=true}={}){const id=dr.dataset.id;try{await UI('/ui/people/'+encodeURIComponent(id),{method:'PATCH',body});toast(msg)}catch(e){fail(e);if(dr.isConnected)pplRepaint(dr);return false}
  try{Pages._ppl=await UI('/ui/people')}catch{return true}pplCardRepaint(id);if(repaint&&dr.isConnected&&!dr.classList.contains('closing'))pplRepaint(dr);return true}
 // leave this panel before another one opens (one panel at a time); once that one closes, People shows what changed
