@@ -2854,3 +2854,8 @@ button.bad:hover{background:color-mix(in srgb,var(--bad) 8%,transparent);border-
 /* small help lines under and above lists stay quiet: smaller and grey, so the content leads */
 .cn-foot,.sg-hint,.ul-sec .sg-hint{font-size:12.5px;color:var(--muted);line-height:1.5}
 .ul-sec .ach-cat{font-size:15px}
+/* Help text everywhere (10 Nov 2026): .hint only had a size and colour inside dialogs, so on pages 376 help lines showed
+   as full-size dark body text, as loud as the content. One quiet default for all of them; :where() keeps it at zero
+   weight, so any place that styles its own hint (dialogs, cards, popovers) still wins. Content leads, help stays quiet. */
+:where(.hint){font-size:13px;color:var(--muted);line-height:1.5}
+:where(.hint) a,:where(.hint) .link{color:var(--blue)}
