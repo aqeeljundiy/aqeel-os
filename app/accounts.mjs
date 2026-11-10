@@ -7,7 +7,7 @@ import {readFile,writeFile,mkdir,rename,rm,readdir,cp,access,stat,copyFile,appen
 import {homedir} from 'node:os';
 import path from 'node:path';
 import {hermes as hq,setKey,readConfig,pick,editEnv,agentNames,setStatus,getStatus,LIVE_APP} from './agentops.mjs';
-import {allowed,trim} from './skills-policy.mjs';
+import {allowed,trim,setRule,ownerOf} from './skills-policy.mjs';
 import {swr} from './swr.mjs';
 import {createClaudeRenew} from './claude-renew.mjs';
 
@@ -345,6 +345,27 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
  accountHooks.giveSkills=giveSkills;accountHooks.trimSkills=trimSkills;accountHooks.forgetSkills=forgetSkills;
  // a provider going away (Google AI Pro signed out): the agent's first priority entry it can really use; null when none
  accountHooks.allowList=async()=>(await load()).allow||[];
+ // Who has a skill, and changing that (Abilities › Skills › Access). key: "<category>/<skill>" or the skill's name.
+ // The agent that built it (the first agent other than the main one that held it) owns it and always keeps it;
+ // agents added get a copy at once; agents removed lose theirs (moved to skills-removed, never deleted); "Every agent"
+ // puts it in the main agent too, so it reaches every agent and new ones. dry: only says what would happen.
+ accountHooks.skillShare=async({key,agents,dry=false})=>{const name=String(key||'').split('/').pop();if(!/^\w[\w.-]*$/.test(name))throw Error('Unknown skill.');
+  const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);const all=(await agentNames()).filter(a=>!a.includes('--'));
+  const find=async a=>{const sk=path.join(homeOf(a),'skills');if(await access(path.join(sk,name,'SKILL.md')).then(()=>1,()=>0))return {dir:path.join(sk,name),rel:name};
+   for(const c of await readdir(sk,{withFileTypes:true}).catch(()=>[]))if(c.isDirectory()&&!c.name.startsWith('.')&&await access(path.join(sk,c.name,name,'SKILL.md')).then(()=>1,()=>0))return {dir:path.join(sk,c.name,name),rel:c.name+'/'+name};return null};
+  const has={};for(const a of all){const f=await find(a);if(f)has[a]=f}
+  const holders=Object.keys(has),src=has[ownerOf(name)]||has.default||Object.values(has)[0];
+  const owner=ownerOf(name)||holders.find(a=>a!=='default')||(has.default?'default':'');
+  if(!src)throw Error('No agent has this skill any more, so it can’t be shared. Install it again first.');
+  const every=!Array.isArray(agents),want=every?all:[...new Set([...(owner?[owner]:[]),...agents])].filter(a=>all.includes(a));
+  const gain=want.filter(a=>!has[a]&&(every?true:a!=='default')),lose=every?[]:holders.filter(a=>a!=='default'&&!want.includes(a));
+  if(dry)return {owner,holders,gain,lose};
+  await setRule(src.rel,every?null:want.filter(a=>a!=='default'),owner);
+  const rec=await gLoad();
+  for(const a of every&&!has.default?['default',...gain.filter(x=>x!=='default')]:gain){const dst=path.join(homeOf(a),'skills',src.rel);await mkdir(path.dirname(dst),{recursive:true});await cp(src.dir,dst,{recursive:true});if(a!=='default'){(rec[a]||={})[src.rel]=Date.now()}}
+  if(every)for(const a of Object.keys(rec))if(rec[a]&&src.rel in rec[a]&&!has[a]&&!gain.includes(a))delete rec[a][src.rel];   // taken off before: every agent means every agent
+  gKeep();for(const a of lose)await trimSkills(a).catch(()=>0);
+  console.log('skill',src.rel,every?'for every agent':'for '+want.join(', '),'· gave',gain.length,'· took from',lose.length);return {owner,holders,gain,lose}};
  accountHooks.moveOff=async(profile,key)=>{const d=await load();for(const e of d.priority||[]){if(e.key===key)continue;
   if(e.key.startsWith(PLUGIN_KEY)){const a=all(d).find(x=>x.id===e.key.slice(PLUGIN_KEY.length));if(!a||!(await details(a)).signedIn)continue}
   try{await useEntry(d,profile,e,'Google AI Pro signed out');return e.key}catch(er){console.warn('move off',profile,e.key,er.message)}}return null};

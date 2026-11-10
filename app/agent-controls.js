@@ -22,17 +22,18 @@
 const SkillPolicy={
  key:s=>(s.category?s.category+'/':'')+s.name,
  ruleFor(pol,s){const r=pol.restricted||{};return r[SkillPolicy.key(s)]||Object.entries(r).find(([k])=>k.split('/').pop()===s.name)?.[1]||null},
- label:r=>r?(r.length<=1?'Main agent only':'Only '+r.length+' agents'):'All agents',
+ label:r=>{if(!r)return 'Every agent';const n=r.filter(a=>a!=='default');return !n.length?'Main agent only':n.length===1?'Only '+ident(n[0]).name:'Only '+n.length+' agents'},
  async open(s,pol,btn){let agents=(Pages._agents||[]).filter(a=>!a.includes('--'));if(!agents.length)try{agents=((await H('/profiles')).profiles||[]).map(x=>x.name).filter(a=>!a.includes('--'))}catch{}
-  const rule=SkillPolicy.ruleFor(pol,s);let only=!!rule;
-  const {d,close}=stackPop('Who gets '+s.name,`<p style="margin:0 0 12px;color:var(--ink-2);line-height:1.55">Every agent gets each skill the main agent has, unless you pick some here. The others lose it within a few minutes.</p>
-   <label style="display:flex;align-items:center;justify-content:space-between;gap:12px;font-weight:500">Only these agents ${toggle(only,'Only these agents','id="sp-only"')}</label>
-   <div class="sk-pick" id="sp-list" ${only?'':'hidden'}>${agents.map(a=>`<label class="pick" style="display:flex;align-items:center;gap:10px"><input type="checkbox" value="${esc(a)}" ${a==='default'||rule?.includes(a)?'checked':''} ${a==='default'?'disabled':''}>${agentAvatar(a,20,{title:false})}<span>${esc(ident(a).name)}${a==='default'?' <small class="hint">always</small>':''}</span></label>`).join('')}</div>`,
-   `<button class="ghost" data-x>Cancel</button><button class="primary" id="sp-go">Save</button>`);
-  const sw=d.querySelector('#sp-only'),list=d.querySelector('#sp-list');sw.onchange=()=>{only=sw.checked;list.hidden=!only;list.classList.remove('sk-in');if(only){void list.offsetWidth;list.classList.add('sk-in')}};
-  d.querySelector('#sp-go').onclick=async e=>{e.stopPropagation();const b=e.currentTarget;b.disabled=true;b.classList.add('is-busy');
-   const pick=only?[...list.querySelectorAll('input:checked')].map(i=>i.value):null;
-   try{const p2=await put(UI,'/ui/skills-policy',{skill:SkillPolicy.key(s),agents:pick});Pages._skPol=p2;close();toast(only?s.name+': '+SkillPolicy.label(SkillPolicy.ruleFor(p2,s)).toLowerCase():s.name+' goes to every agent');
+  const key=SkillPolicy.key(s);let who;try{who=await UI('/ui/skills-policy/who?skill='+encodeURIComponent(key))}catch(e){return fail(e)}
+  const rule=SkillPolicy.ruleFor(pol,s),list=agents.filter(a=>a!=='default').map(id=>({id,name:ident(id).name}));
+  const owner=who.owner&&who.owner!=='default'?who.owner:'';
+  const {d,close}=stackPop('Who can use '+s.name,'<div class="ab-host"></div><p class="hint ab-foot">The main agent can always use every skill.</p>',
+   '<button class="ghost" data-x>Cancel</button><button class="primary" id="sp-go">Save</button>');
+  const blk=AccessBlock.mount(d.querySelector('.ab-host'),{owner,ownerNote:owner?'built it':'',agents:list,every:!rule,picked:(rule||who.holders||[]).filter(x=>x!=='default'),
+   preview:v=>post(UI,'/ui/skills-policy',{skill:key,agents:v,dry:true})});
+  d.querySelector('#sp-go').onclick=async e=>{e.stopPropagation();const b=e.currentTarget;b.disabled=true;b.classList.add('is-busy');const v=blk.value();
+   try{const p2=await put(UI,'/ui/skills-policy',{skill:key,agents:v});Pages._skPol=p2;close();const g=p2.done?.gain||[],l=p2.done?.lose||[];
+    toast(s.name+': '+(v?SkillPolicy.label(SkillPolicy.ruleFor(p2,s)).toLowerCase():'every agent')+(g.length?' · given to '+AccessBlock.and(g.map(x=>ident(x).name)):'')+(l.length?' · taken from '+AccessBlock.and(l.map(x=>ident(x).name)):''));
     if(btn?.isConnected){const r=SkillPolicy.ruleFor(p2,s);btn.classList.toggle('on',!!r);btn.lastChild.textContent=SkillPolicy.label(r)}}
    catch(er){fail(er);b.disabled=false;b.classList.remove('is-busy')}}}};
 // both skill lists: one agent's (a row per skill) and All agents (a row per skill with its agents); the All agents view

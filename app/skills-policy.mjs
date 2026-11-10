@@ -18,14 +18,20 @@ export const REMOVED={some:f=>policy().removed.some(f)};
 
 // Abilities › Skills › "Only these agents" (admins): one skill's rule, written to the policy file and read at once.
 // agents: a list of agent names (the main agent is always added), or null for every agent.
-export async function setRule(key,agents){key=String(key||'').trim();if(!/^\w[\w.-]*(\/\w[\w.-]*)?$/.test(key))throw Error('Unknown skill.');
+export async function setRule(key,agents,owner){key=String(key||'').trim();if(!/^\w[\w.-]*(\/\w[\w.-]*)?$/.test(key))throw Error('Unknown skill.');
  const f=policyFile();let j={};try{j=JSON.parse(readFileSync(f,'utf8'))}catch(e){if(e.code!=='ENOENT')throw Error('The skills policy file could not be read, so nothing was changed.')}
  j.restricted=j.restricted&&typeof j.restricted==='object'?j.restricted:{};
  // a rule set before under another category for the same skill name is replaced, not kept beside it
  for(const k of Object.keys(j.restricted))if(nameOf(k)===nameOf(key))delete j.restricted[k];
- if(Array.isArray(agents))j.restricted[key]=[...new Set(['default',...agents.map(baseOf).filter(a=>/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(a))])].sort();
+ j.owners=j.owners&&typeof j.owners==='object'?j.owners:{};for(const k of Object.keys(j.owners))if(nameOf(k)===nameOf(key))delete j.owners[k];
+ // the agent that built it is always on the list: a rule never takes a skill from the agent it came from
+ const own=owner&&/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(baseOf(owner))?baseOf(owner):'';
+ if(Array.isArray(agents)){j.restricted[key]=[...new Set(['default',...(own?[own]:[]),...agents.map(baseOf).filter(a=>/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(a))])].sort();if(own&&own!=='default')j.owners[key]=own}
+ if(!Object.keys(j.owners).length)delete j.owners;
  await mkdir(path.dirname(f),{recursive:true});await writeFile(f+'.tmp',JSON.stringify(j,null,1));await rename(f+'.tmp',f);polAt=0;polM=-1;return policy()}
-export const rules=()=>({restricted:{...policy().restricted},removed:[...policy().removed]});
+export const rules=()=>({restricted:{...policy().restricted},removed:[...policy().removed],owners:{...ownersOf()}});
+function ownersOf(){try{const j=JSON.parse(readFileSync(policyFile(),'utf8'));return j.owners&&typeof j.owners==='object'?j.owners:{}}catch{return {}}}
+export const ownerOf=key=>{const o=ownersOf();return o[key]||Object.entries(o).find(([k])=>nameOf(k)===nameOf(key))?.[1]||''};
 export const baseOf=a=>String(a).split('--')[0];   // an extra number ("default--whatsapp-2") is the same agent
 // a rule matches the skill's own name too, so a copy in another category is still covered (not a renamed copy: share.mjs refuses those)
 const nameOf=k=>String(k).split('/').pop();

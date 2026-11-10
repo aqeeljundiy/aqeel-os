@@ -2608,3 +2608,22 @@ button.bad{color:var(--bad)}
 .run-end{display:flex;align-items:center;gap:6px;margin-top:10px;font-size:12.5px;color:var(--muted);animation:run-end-in .24s ease}.run-end i{width:7px;height:7px;border-radius:50%;background:#2e9e5b}.run-end b{font-weight:600;color:var(--ink,inherit)}.run-end.failed i{background:var(--bad)}.run-end.stopped i{background:var(--muted)}
 .item .src.waiting::after{border-color:#d9921a!important}
 @media (prefers-reduced-motion:reduce){.rb-dot,.run-end{animation:none!important}}
+
+/* the one "who can use this" block (access-block.js) */
+.ab{display:grid;gap:14px}.ab-row{display:grid;gap:8px}.ab-lbl{font-size:12.5px;font-weight:600;color:var(--muted)}
+.ab-chip{display:inline-flex;align-items:center;gap:7px;min-height:32px;padding:3px 8px 3px 4px;border:1px solid var(--border);border-radius:999px;background:var(--surface);font-size:13px;animation:ab-in .2s var(--ease) both}
+.ab-chip b{font-weight:600}.ab-chip small{color:var(--muted);font-size:12px}.ab-chip.locked{background:var(--soft-2)}.ab-chip i{display:grid;color:var(--muted)}
+.ab-x{display:grid;place-items:center;width:20px;height:20px;min-height:0;padding:0;border:0;border-radius:50%;background:none;color:var(--muted);cursor:pointer;transition:background .15s ease,color .15s ease}.ab-x:hover{background:var(--soft);color:var(--bad)}
+.ab-seg{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;border-radius:12px;background:var(--soft-2)}
+.ab-seg button{min-height:34px;border:0;border-radius:9px;background:none;font:inherit;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;transition:background .2s ease,color .2s ease,box-shadow .2s ease}
+.ab-seg button.on{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(11,12,16,.08)}
+.ab-some{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows .24s var(--ease),opacity .2s ease}.ab-some.open{grid-template-rows:1fr;opacity:1}
+.ab-some>.ab-chips{min-height:0;overflow:hidden;display:flex;flex-wrap:wrap;gap:8px}
+.ab-add{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:0 12px;border:1px dashed var(--border);border-radius:999px;background:none;font:inherit;font-size:13px;color:var(--blue);cursor:pointer;transition:border-color .2s ease,background .2s ease}.ab-add:hover{border-color:var(--blue);background:var(--blue-soft)}
+.ab-eff{margin:0;min-height:20px;font-size:13px;color:var(--ink-2);transition:opacity .2s ease}.ab-eff.busy{opacity:.5}.ab-eff.warn{color:#b26b00}
+.ab-foot{margin:14px 0 0}.ab-host{position:relative}
+.ab-pop{position:absolute;z-index:30;width:min(280px,calc(100% - 16px));padding:8px;border:1px solid var(--border);border-radius:14px;background:var(--surface);box-shadow:var(--shadow-float,0 12px 32px rgba(11,12,16,.14));animation:ab-in .18s var(--ease) both}
+.ab-pop input{width:100%;min-height:36px;margin-bottom:6px}.ab-opts{display:grid;gap:2px;max-height:240px;overflow:auto}
+.ab-opts button{display:flex;align-items:center;gap:10px;min-height:38px;padding:4px 8px;border:0;border-radius:9px;background:none;font:inherit;font-size:13.5px;text-align:left;cursor:pointer;animation:ab-in .18s var(--ease) both}.ab-opts button:hover,.ab-opts button:focus-visible{background:var(--soft-2)}
+@keyframes ab-in{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.ab-chip,.ab-pop,.ab-opts button{animation:none}.ab-some{transition:none}}

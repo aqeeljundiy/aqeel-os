@@ -2734,7 +2734,11 @@ const server=createServer(async(req,res)=>{
     agentDefaults.added(ag).then(async n=>{if(n&&!await isTestAgent(ag).catch(()=>false))Promise.resolve(restartGateway('Trusted changed for '+ag)).catch(()=>{})}).catch(e=>console.warn('agent defaults',ag,e.message));return send(res,200,{ok:true,trusted:!!b.trusted})}
    // Abilities › Skills › Only these agents (admins): one skill's rule in skills-policy.json
    if(p==='/ui/skills-policy'){if(req.method==='GET')return send(res,200,skillRules());if(!users.isAdmin(u))return send(res,403,{error:'Only admins decide which agents get a skill.'});
-    let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}try{await setSkillRule(b.skill,Array.isArray(b.agents)?b.agents:null);console.log('skill',b.skill,Array.isArray(b.agents)?'only for '+b.agents.join(', '):'for every agent','(by '+u.id+')');return send(res,200,skillRules())}catch(e){return send(res,400,{error:e.message})}}
+    let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
+    try{const r=await accountHooks.skillShare({key:b.skill,agents:Array.isArray(b.agents)?b.agents.map(String):null,dry:!!b.dry});if(b.dry)return send(res,200,r);
+     console.log('skill',b.skill,Array.isArray(b.agents)?'only for '+b.agents.join(', '):'for every agent','(by '+u.id+')');return send(res,200,{...skillRules(),done:r})}catch(e){return send(res,400,{error:e.message})}}
+   // who has one skill right now and who built it (the Access block opens with this)
+   if(p==='/ui/skills-policy/who'&&req.method==='GET'){try{return send(res,200,await accountHooks.skillShare({key:url.searchParams.get('skill'),agents:[],dry:true}))}catch(e){return send(res,400,{error:e.message})}}
    // which agents are locked to safe tools, and why (the Tool groups grid shows a lock with this reason instead of a switch)
    if(p==='/ui/agent-locks'&&req.method==='GET'){const st=await getStatus();const out={};
     for(const a of String(url.searchParams.get('names')||'').split(',').filter(Boolean).slice(0,200)){if(a==='default'||!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a)!==null||!lockedAgent(a,st))continue;
