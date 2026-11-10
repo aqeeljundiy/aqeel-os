@@ -78,14 +78,16 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
 
  /* which agents a person can use, and how far */
  // Every agent has one owner (the person who made it; older agents belong to the owner of aqeelOS).
- // An agent owned by a member is private: admins see it listed but can open it only when it is shared with them.
+ // The rule (owner, 10 Nov 2026; one rule by role on every install, no setting): admins are partners and manage every agent,
+ // the ones members (employees) own too. Members see only their own and what is shared with them. "Private" = owned by a
+ // member: closed to other members, never to admins.
  const agentOwner=a=>db.agentOwners[a]||'owner';
  const isPrivate=a=>{const o=byId(agentOwner(a));return !!o&&!isAdmin(o)};
  function level(u,agent){
   if(typeof agent==='string'&&agent.includes('--'))agent=agent.split('--')[0];   // a copy has its agent's rights
   // the owner of aqeelOS goes everywhere (as the gate lets them), so every check built on this sees them as an agent's owner
   if(agentOwner(agent)===u.id||u.role==='owner')return 'owner';const shared=(db.shares[agent]||{})[u.id]||null;
-  if(isAdmin(u))return isPrivate(agent)?shared:'owner';return shared}
+  if(isAdmin(u))return 'owner';return shared}
  // which agent a call is about, when it is about one
  function agentTarget(p,query,a){let m;if((m=/^\/gapi\/p\/([^/]+)/.exec(p)))return decodeURIComponent(m[1]);if(p.startsWith('/gapi/'))return 'default';
   if((m=/^\/hapi\/profiles\/([^/]+)/.exec(p)))return decodeURIComponent(m[1]);if(p.startsWith('/hapi/')&&query.has('profile')&&query.get('profile')!=='all')return a;
@@ -164,6 +166,8 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
  // who opened this chat in aqeelOS, or null when aqeelOS never saw it opened (run_self judges on this, never a default)
  const sessionOwner=id=>db.owners[id]||null;
  const mine=(u,id)=>ownerOf(id)===u.id;
+ // a chat a member (employee) started: admins may read it
+ const memberChat=id=>{const p=byId(sessionOwner(id));return !!p&&!isAdmin(p)};
 
  /* ---------- what a member may call ----------
     Returns null (allowed), or {status,error}. `agent` is the profile the call is for. */
@@ -234,8 +238,9 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
  function filter(u,p,data,agent){
   if(!data||typeof data!=='object')return data;
   // chats are private per person; untracked (older, Telegram…) chats are the owner's. With Team view on, the owner's list has everyone's, each marked with whose it is
-  const seeAll=u.role==='owner'&&ownerSeesAll(),keep=id=>seeAll||mine(u,id);
-  const mark=x=>{const o=seeAll?sessionOwner(x.session_id||x.id):null;return o&&o!==u.id?{...x,person:byId(o)?.name||'Someone'}:x};
+  // an admin's list also has every member's chats (the rule above), marked the same way
+  const seeAll=u.role==='owner'&&ownerSeesAll(),staff=isAdmin(u)&&u.role!=='owner',keep=id=>seeAll||mine(u,id)||staff&&memberChat(id);
+  const mark=x=>{const o=seeAll||staff?sessionOwner(x.session_id||x.id):null;return o&&o!==u.id?{...x,person:byId(o)?.name||'Someone'}:x};
   if(/^\/hapi\/sessions$/.test(p)&&Array.isArray(data.sessions)){inherit(data.sessions);const s=data.sessions.filter(x=>keep(x.id)).map(mark);return {...data,sessions:s,total:s.length}}
   if(/^\/hapi\/sessions\/search$/.test(p)&&Array.isArray(data.results)){inherit(data.results);return {...data,results:data.results.filter(x=>keep(x.session_id||x.id)).map(mark)}}
   // schedules: an admin sees every agent's but a private one's (as the gate does), a member those they may change
@@ -412,5 +417,5 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
  async function finishReset(tok,pw){await load();sweep();const r=db.resets.find(y=>y.h===tokHash(tok));const x=r&&byId(r.uid);if(!x||x.disabled)return {error:'This reset link has expired or was already used. Ask for a new one.'};
   if(String(pw||'').length<8)return {error:'Use a password of at least 8 characters.'};
   if(x.id==='owner')db.ownerPw=hash(pw);else db.users.find(y=>y.id===x.id).pw=hash(pw);db.resets=db.resets.filter(y=>y.uid!==x.id);await save();return {ok:true,user:byId(x.id)}}
- return {needsOwner,createOwner,makeRecovery,recoverOwner,forgot,resetInfo,finishReset,hooks,leadOf,leadPerson,setLead,agentPerson,tierOf,agentMayManage,powerOf,needLead,face,expiredInvites,agentOwner,byId,ownerOf,sessionOwner,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginNote,emailOnly,applyEmailMoves,loginCode,finishLogin,created,reserve,can,canOn,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home,level,atLeast,schedOk,dropAgent,restoreAgent};
+ return {needsOwner,createOwner,makeRecovery,recoverOwner,forgot,resetInfo,finishReset,hooks,leadOf,leadPerson,setLead,agentPerson,tierOf,agentMayManage,powerOf,needLead,face,expiredInvites,agentOwner,byId,ownerOf,sessionOwner,memberChat,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginNote,emailOnly,applyEmailMoves,loginCode,finishLogin,created,reserve,can,canOn,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home,level,atLeast,schedOk,dropAgent,restoreAgent};
 }

@@ -43,18 +43,27 @@ test('a member reaches only what is shared: chat on a shared agent, not other ag
  // a member cannot invite people or change shares
  const r=await call(u,'POST','/ui/people/invite',{name:'X'});assert.notEqual(r?.status,200)});
 
-test('an agent a member made is private: an admin cannot open it until it is shared; the owner of aqeelOS always can',async()=>{
+test('the rule by role: admins manage every agent, members (employees) only their own and what is shared; admins read the chats of members',async()=>{
  const owner=await users.user('owner');
  const inv=(await call(owner,'POST','/ui/people/invite',{name:'Ada',role:'admin'})).body;const admin=await users.accept(inv.code,'Ada','ada-pass-1234');
- const rina=await users.login('rina','rina-pass-123');await users.created(rina,'rinabot');
+ const rina=await users.login('rina','rina-pass-123');await users.created(rina,'rinabot');await users.created(admin,'adabot');
+ const inv2=(await call(owner,'POST','/ui/people/invite',{name:'Tom',role:'member',roleId:'creator'})).body;const tom=await users.accept(inv2.code,'Tom','tom-pass-1234');
  assert.equal(users.level(rina,'rinabot'),'owner');
- assert.equal(users.gate(admin,'/gapi/p/rinabot/api/sessions','POST',Q,'rinabot')?.status,403);
- assert.equal(users.gate(owner,'/gapi/p/rinabot/api/sessions','POST',Q,'rinabot'),null);
- // only its owner may share it (Edit agent › Sharing), not the admin, and not through the admins' People page either
- assert.equal((await call(admin,'PUT','/ui/agents/rinabot/share',{user:admin.id,level:'edit'})).status,403);
- assert.equal((await call(admin,'PUT','/ui/people/share',{agent:'rinabot',user:admin.id,level:'edit'})).status,403);
- assert.equal((await call(rina,'PUT','/ui/agents/rinabot/share',{user:admin.id,level:'chat'})).status,200);
- assert.equal(users.gate(admin,'/gapi/p/rinabot/api/sessions','POST',Q,'rinabot'),null)});
+ // an admin opens and manages a member's agent, and may change who has it
+ assert.equal(users.level(admin,'rinabot'),'owner');
+ assert.equal(users.gate(admin,'/gapi/p/rinabot/api/sessions','POST',Q,'rinabot'),null);
+ assert.equal((await call(admin,'PUT','/ui/agents/rinabot/share',{user:tom.id,level:'chat'})).status,200);
+ // a member: not another member's agent unless shared, never an admin's unless shared
+ assert.equal(users.level(tom,'rinabot'),'chat');
+ assert.equal(users.level(rina,'adabot'),null);
+ assert.equal(users.gate(rina,'/gapi/p/adabot/api/sessions','POST',Q,'adabot')?.status,403);
+ // chats: an admin's list has members' chats (marked), never another admin's; a member's has only their own
+ await users.own('c-rina',rina);await users.own('c-ada',admin);await users.own('c-owner',owner);
+ const list={sessions:[{id:'c-rina'},{id:'c-ada'},{id:'c-owner'}]};
+ assert.deepEqual(users.filter(admin,'/hapi/sessions',list,'default').sessions.map(x=>x.id+':'+(x.person||'')),['c-rina:Rina','c-ada:']);
+ assert.deepEqual(users.filter(rina,'/hapi/sessions',list,'default').sessions.map(x=>x.id),['c-rina']);
+ assert.equal(users.memberChat('c-rina'),true);assert.equal(users.memberChat('c-ada'),false);
+ assert.equal(users.gate(owner,'/gapi/p/rinabot/api/sessions','POST',Q,'rinabot'),null)});
 
 test('/ui/me names a member\'s lead agent only once it is theirs, so pages can fall back to it',async()=>{
  const rina=await users.login('rina','rina-pass-123');

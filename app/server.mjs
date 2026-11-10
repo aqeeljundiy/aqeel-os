@@ -1525,7 +1525,9 @@ async function issueToTeam(agent,member,text){const g=await teamGroups.get(agent
  const tag=[].concat(member?.telegram_names||[])[0];await relay.send({owner:agent,platform:'telegram',chat:String(g.chatId)+(topic?':'+topic:''),text:(tag?'@'+tag+' ':member?.name?member.name+': ':'')+text});return true}
 // aqeelOS's own safe reload paths: the engine through restartGateway (it waits for agents at work, honours a restart hold
 // and a restore), the web app through a clean exit (its keeper starts it again); never a raw "gateway restart" or kill
-async function issueApply(kind,why){if(kind==='ui'){console.log('restarting the web app after',why);setTimeout(()=>process.exit(0),800);return {ok:true}}
+const underKeeper=()=>{if(process.env.AQ_KEEPER==='1'||process.pid===1)return true;try{return /while true/.test(readFileSync('/proc/'+process.ppid+'/cmdline','utf8'))}catch{return false}};
+async function issueApply(kind,why){if(kind==='ui'){if(!underKeeper()){console.warn('web app reload after',why,'waits: this app runs outside its keep-alive loop, so it would not come back');return {ok:false,why:'the web app runs outside its keep-alive loop; restart it with ~/services.sh first'}}
+ console.log('restarting the web app after',why);setTimeout(()=>process.exit(0),800);return {ok:true}}
  try{const h=JSON.parse(readFileSync(path.join(DATA,'restart-hold.json'),'utf8'));if(holdActive(h))return {ok:false,why:'restart hold: '+(h.why||'a build runs')}}catch{}
  if(restoreBusy())return {ok:false,why:'a restore runs'};
  await restartGateway(why,{waitMax:120});for(let k=0;k<24&&!await gatewayPid();k++)await new Promise(r=>setTimeout(r,5000));
@@ -1824,8 +1826,13 @@ async function hermesCall(req,res,u,url){
    if(!users.filePathOk(u,fp,true)||q.has('path')&&!users.filePathOk(u,q.get('path'),true))return send(res,403,{error:'That folder is not yours.'})}}
  // a member's message: within their daily limit, and only on models they may use
  // the owner reads other people's chats (Team view) but cannot write in, rename or delete them; each chat opened is logged
- {const m=u.role==='owner'&&/^\/(?:hapi|gapi(?:\/p\/[^/]+)?\/api)\/sessions\/([^/]+)(\/|$)/.exec(p),id=m&&decodeURIComponent(m[1]),who=id&&!['search','prune','bulk-delete','empty','import','stats'].includes(id)?users.sessionOwner(id):null;
-  if(who&&who!=='owner'){if(req.method!=='GET')return send(res,403,{error:'This is someone else’s chat. You can read it, but not change it.'});teamView.opened(u.name||'Owner',users.byId(who)?.name||who,id,agent).catch(()=>{})}}
+ // an admin reads a member's chat the same way (10 Nov 2026), logged always; another admin's chat stays closed to them
+ {const m=users.isAdmin(u)&&/^\/(?:hapi|gapi(?:\/p\/[^/]+)?\/api)\/sessions\/([^/]+)(\/|$)/.exec(p),id=m&&decodeURIComponent(m[1]),who=id&&!['search','prune','bulk-delete','empty','import','stats'].includes(id)?users.sessionOwner(id):null;
+  const owner=u.role==='owner';
+  if(who&&who!==u.id&&(owner?who!=='owner':true)){
+   if(!owner&&!users.memberChat(id))return send(res,403,{error:'That chat is not yours.'});
+   if(req.method!=='GET')return send(res,403,{error:'This is someone else’s chat. You can read it, but not change it.'});
+   teamView.opened(u.name||'Owner',users.byId(who)?.name||who,id,agent,{always:!owner}).catch(()=>{})}}
  const chatM=/^\/gapi(?:\/p\/[^/]+)?\/api\/sessions\/([^/]+)\/chat\/stream$/.exec(p);
  if(chatM&&!users.isAdmin(u)&&req.method==='POST'){
   const lim=users.limitOf(u);if(lim?.tokens){const t=await usage.today(await listAllProfiles(),u.id,users.ownerOf);if(t.tokens+await code.usedToday(u.id)>=lim.tokens)return send(res,429,{error:'You reached today\'s limit. It resets at midnight.'})}
