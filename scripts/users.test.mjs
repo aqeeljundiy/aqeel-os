@@ -6,6 +6,7 @@ const {createUsers}=await import('../app/users.mjs');
 const DATA=path.join(HOME,'data');const mail={deliver:async()=>{}};
 const users=createUsers(DATA,mail,{ownerCheck:pw=>pw==='owner-pass-1'});
 // a tiny request/response pair for the people API
+const list=async(u,names)=>{let out;await users.api(u,{method:'GET',url:'/ui/agents?names='+names},{},'/ui/agents',(res,status,b)=>{out=b},async()=>'{}');return out};
 const call=async(u,method,p,body)=>{let out;await users.api(u,{method,url:p},{},p,(res,status,b)=>{out={status,body:b}},async()=>JSON.stringify(body||{}));return out};
 const Q=new URLSearchParams();
 
@@ -64,6 +65,24 @@ test('the rule by role: admins manage every agent, members (employees) only thei
  assert.deepEqual(users.filter(rina,'/hapi/sessions',list,'default').sessions.map(x=>x.id),['c-rina']);
  assert.equal(users.memberChat('c-rina'),true);assert.equal(users.memberChat('c-ada'),false);
  assert.equal(users.gate(owner,'/gapi/p/rinabot/api/sessions','POST',Q,'rinabot'),null)});
+
+test('an admin can make their own agent private from other admins; a member cannot; an invited person shows as owner',async()=>{
+ const owner=await users.user('owner');
+ const inv=(await call(owner,'POST','/ui/people/invite',{name:'Bea',role:'admin'})).body;const bea=await users.accept(inv.code,'Bea','bea-pass-1234');
+ const ada=await users.login('ada','ada-pass-1234')||(await users.people()).find(x=>x.name==='Ada');const rina=await users.login('rina','rina-pass-123');
+ await users.created(bea,'beabot');
+ assert.equal(users.level(ada,'beabot'),'owner');
+ assert.equal((await call(ada,'PUT','/ui/agents/beabot/private',{on:true})).status,403);
+ assert.equal((await call(rina,'PUT','/ui/agents/rinabot/private',{on:true})).status,403);
+ assert.equal((await call(bea,'PUT','/ui/agents/beabot/private',{on:true})).status,200);
+ assert.equal(users.level(ada,'beabot'),null);
+ assert.equal(users.gate(ada,'/gapi/p/beabot/api/sessions','POST',Q,'beabot')?.status,403);
+ assert.equal(users.level(owner,'beabot'),'owner');assert.equal(users.lockedByOwner('beabot'),true);
+ const l=(await list(ada,'beabot')).beabot;assert.equal(l.private,true);assert.equal(l.access,null);
+ assert.equal((await call(bea,'PUT','/ui/agents/beabot/private',{on:false})).status,200);assert.equal(users.level(ada,'beabot'),'owner');
+ // an agent made for someone invited shows them as its owner until they join
+ await users.created(bea,'forzed');const iv=(await call(bea,'POST','/ui/people/invite',{name:'Zed',role:'member',agents:{forzed:'owner'},ownAgent:'forzed'})).body;
+ assert.equal(iv.ownAgent,'forzed');assert.deepEqual((await list(bea,'forzed')).forzed.invitee,{name:'Zed'})});
 
 test('/ui/me names a member\'s lead agent only once it is theirs, so pages can fall back to it',async()=>{
  const rina=await users.login('rina','rina-pass-123');

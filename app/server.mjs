@@ -1787,6 +1787,7 @@ async function hermesCall(req,res,u,url){
  const helpTotals=agent===HELP_AGENT&&users.isAdmin(u)&&req.method==='GET'&&/^\/hapi\/analytics\/(usage|models)$/.test(p);
  if(!helpTotals&&(agent===HELP_AGENT||decodeURIComponent((/^\/hapi\/profiles\/([^/?]+)/.exec(p)||[])[1]||'')===HELP_AGENT))return send(res,403,{error:'Help chats are private to each person.'});
  const no=users.gate(u,p,req.method,q,agent);if(no)return send(res,no.status,{error:no.error});
+ if(u.role==='owner'&&agent&&users.lockedByOwner(agent)){const o=users.byId(users.agentOwner(String(agent).split('--')[0]));if(o&&o.id!=='owner')teamView.lookedAgent(u.name||'Owner',o.name,agent).catch(()=>{})}
  {const rm=/\/v1\/runs\/([^/]+)/.exec(p);if(rm&&!users.isAdmin(u)){const own=runOwner.get(decodeURIComponent(rm[1]));if(!own||own.user!==u.id)return send(res,403,{error:'That reply is not yours.'})}}
  if(p.startsWith('/gapi/p/')&&agent&&agent!=='default'&&!keyOk.has(agent)){const envF=path.join(HERMES_HOME,'profiles',agent,'.env');const e=await readFile(envF,'utf8').catch(()=>null);
   if(e!==null){if(!/^API_SERVER_KEY=/m.test(e)&&API_KEY){await writeFile(envF,(e&&!e.endsWith('\n')?e+'\n':e)+'API_SERVER_KEY='+API_KEY+'\n',{mode:0o600});console.log('added the missing gateway key for',agent);await new Promise(r=>setTimeout(r,1500))}keyOk.add(agent)}}

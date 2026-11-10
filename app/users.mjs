@@ -37,7 +37,7 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
  const FILE=path.join(DATA,'users.json');
  let db=null;
  const load=async()=>{if(db)return db;try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}
-  db.users||=[];db.invites||=[];db.shares||={};db.owners||={};db.agentOwners||={};db.roles||=JSON.parse(JSON.stringify(DEFAULT_ROLES));db.leads||={};db.resets||=[];
+  db.users||=[];db.invites||=[];db.shares||={};db.owners||={};db.agentOwners||={};db.privateAgents||={};db.roles||=JSON.parse(JSON.stringify(DEFAULT_ROLES));db.leads||={};db.resets||=[];
   // the owner's name and username: chosen at first run (OWNER_NAME / OWNER_USERNAME, else neutral), then kept in users.json.
   // Older data had only a name; its username was the name in lower case, so sign-in keeps working
   let first=false;if(!db.ownerName){db.ownerName=String(process.env.OWNER_NAME||'').trim().slice(0,60)||'Owner';first=true}
@@ -81,13 +81,16 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
  // The rule (owner, 10 Nov 2026; one rule by role on every install, no setting): admins are partners and manage every agent,
  // the ones members (employees) own too. Members see only their own and what is shared with them. "Private" = owned by a
  // member: closed to other members, never to admins.
+ // An admin may also make their own agent private (Edit agent › Sharing, 11 Nov 2026): then other admins open it only when
+ // it is shared with them. Members cannot hide theirs from admins. The owner of aqeelOS still gets in, and each time is logged.
  const agentOwner=a=>db.agentOwners[a]||'owner';
  const isPrivate=a=>{const o=byId(agentOwner(a));return !!o&&!isAdmin(o)};
+ const lockedByOwner=a=>{a=String(a||'').split('--')[0];if(!db.privateAgents?.[a])return false;const o=byId(agentOwner(a));return !!o&&isAdmin(o)};
  function level(u,agent){
   if(typeof agent==='string'&&agent.includes('--'))agent=agent.split('--')[0];   // a copy has its agent's rights
   // the owner of aqeelOS goes everywhere (as the gate lets them), so every check built on this sees them as an agent's owner
   if(agentOwner(agent)===u.id||u.role==='owner')return 'owner';const shared=(db.shares[agent]||{})[u.id]||null;
-  if(isAdmin(u))return 'owner';return shared}
+  if(isAdmin(u))return lockedByOwner(agent)?shared:'owner';return shared}
  // which agent a call is about, when it is about one
  function agentTarget(p,query,a){let m;if((m=/^\/gapi\/p\/([^/]+)/.exec(p)))return decodeURIComponent(m[1]);if(p.startsWith('/gapi/'))return 'default';
   if((m=/^\/hapi\/profiles\/([^/]+)/.exec(p)))return decodeURIComponent(m[1]);if(p.startsWith('/hapi/')&&query.has('profile')&&query.get('profile')!=='all')return a;
@@ -294,8 +297,13 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
   if(p==='/ui/people/list'&&req.method==='GET')return send(res,200,[owner(),...db.users].map(x=>({id:x.id,name:x.name,username:x.username||db.ownerUsername||'owner',...face(x)})));
   if(p==='/ui/agents'&&req.method==='GET'){const names=String(new URL(req.url,'http://x').searchParams.get('names')||'').split(',').filter(Boolean).slice(0,200);const out={};
    for(const a of names){const lv=level(u,a);if(!lv&&!isAdmin(u))continue;const o=byId(agentOwner(a))||owner();
-    const lp=leadPerson(a);out[a]={access:lv,private:isPrivate(a),tier:tierOf(a),lead:lp?{id:lp,name:byId(lp)?.name||''}:null,owner:{id:o.id,name:o.name,...face(o)},shared:lv?Object.entries(db.shares[a]||{}).filter(([id])=>id!==o.id&&byId(id)).map(([id,l])=>{const x=byId(id);return {id,name:x.name,...face(x),level:l}}):[]}}
+    const iv=db.invites.find(i=>!i.used&&i.expires>Date.now()&&i.ownAgent===a&&agentOwner(a)===i.by);
+    const lp=leadPerson(a);out[a]={access:lv,private:isPrivate(a)||lockedByOwner(a),privateOn:lockedByOwner(a),canPrivate:isAdmin(u)&&agentOwner(a)===u.id,invitee:iv?{name:iv.name}:null,tier:tierOf(a),lead:lp?{id:lp,name:byId(lp)?.name||''}:null,owner:{id:o.id,name:o.name,...face(o)},shared:lv?Object.entries(db.shares[a]||{}).filter(([id])=>id!==o.id&&byId(id)).map(([id,l])=>{const x=byId(id);return {id,name:x.name,...face(x),level:l}}):[]}}
    return send(res,200,out)}
+  const pv=/^\/ui\/agents\/([^/]+)\/private$/.exec(p);
+  if(pv&&req.method==='PUT'){const a=decodeURIComponent(pv[1]),b=await body();
+   if(agentOwner(a)!==u.id||!isAdmin(u))return send(res,403,{error:'Only its owner can make this agent private, and only an admin’s agent can be private from admins.'});
+   if(b.on)db.privateAgents[a]=true;else delete db.privateAgents[a];await save();console.log('agent',a,b.on?'made private':'no longer private','by',u.id);return send(res,200,{ok:true,private:!!b.on})}
   const ag=/^\/ui\/agents\/([^/]+)\/(share|owner)$/.exec(p);
   if(ag&&req.method==='PUT'){const a=decodeURIComponent(ag[1]),b=await body();if(level(u,a)!=='owner')return send(res,403,{error:'Only the owner of this agent can change who has it.'});
    const to=byId(String(b.user||''));if(!to)return send(res,400,{error:'Unknown person'});
@@ -417,5 +425,5 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
  async function finishReset(tok,pw){await load();sweep();const r=db.resets.find(y=>y.h===tokHash(tok));const x=r&&byId(r.uid);if(!x||x.disabled)return {error:'This reset link has expired or was already used. Ask for a new one.'};
   if(String(pw||'').length<8)return {error:'Use a password of at least 8 characters.'};
   if(x.id==='owner')db.ownerPw=hash(pw);else db.users.find(y=>y.id===x.id).pw=hash(pw);db.resets=db.resets.filter(y=>y.uid!==x.id);await save();return {ok:true,user:byId(x.id)}}
- return {needsOwner,createOwner,makeRecovery,recoverOwner,forgot,resetInfo,finishReset,hooks,leadOf,leadPerson,setLead,agentPerson,tierOf,agentMayManage,powerOf,needLead,face,expiredInvites,agentOwner,byId,ownerOf,sessionOwner,memberChat,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginNote,emailOnly,applyEmailMoves,loginCode,finishLogin,created,reserve,can,canOn,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home,level,atLeast,schedOk,dropAgent,restoreAgent};
+ return {needsOwner,createOwner,makeRecovery,recoverOwner,forgot,resetInfo,finishReset,hooks,leadOf,leadPerson,setLead,agentPerson,tierOf,agentMayManage,powerOf,needLead,face,expiredInvites,agentOwner,byId,ownerOf,sessionOwner,memberChat,lockedByOwner,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginNote,emailOnly,applyEmailMoves,loginCode,finishLogin,created,reserve,can,canOn,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home,level,atLeast,schedOk,dropAgent,restoreAgent};
 }

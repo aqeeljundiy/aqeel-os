@@ -185,7 +185,7 @@ ACT['tool-off']=a=>{Chat.tools.splice(+a.dataset.i,1);Chat.paintTools()};
    switching only changes a class. The choice is remembered; with more than 12 agents it starts as List. Private agents
    (owned by someone else, not shared) stay in the list, locked. ---------- */
 const agView=n=>{const v=store.get('agents-view',null);return v==='grid'||v==='list'?v:n>12?'list':'grid'};
-function agItem(x,o,i){const id=ident(x.name),locked=o.access===null&&o.private,owner=o.owner?(o.owner.id===S.me?.id?'You':o.owner.name):'';
+function agItem(x,o,i){const id=ident(x.name),locked=o.access===null&&o.private,owner=o.invitee?o.invitee.name+' · invited':o.owner?(o.owner.id===S.me?.id?'You':o.owner.name):'';
  const desc=locked?`<p class="ag-desc">Only ${esc(owner||'its owner')} and the people they share it with can open it.</p>`
   :x.description?`<p class="ag-desc">${esc(x.description)}</p>`
   :mayEdit(x.name)?`<p class="ag-desc hint"><a href="#" data-act="agent-describe" data-name="${esc(x.name)}">Add a description</a></p>`:'<p class="ag-desc hint">No description yet.</p>';
@@ -230,7 +230,8 @@ async function shareInto(box,name,opt={}){const gone=pageRun(box);let people=[];
  const call=async(path,body,msg)=>{await UI('/ui/agents/'+encodeURIComponent(name)+path,{method:'PUT',body});toast(msg);if(route().page?.id==='profiles'||route().page?.id==='people')laterReload(400);if(box.isConnected)shareInto(box,name)};
  // People › Share an agent: the person picked there is added straight away, at Can chat
  if(opt.add&&notYet.some(x=>x.id===opt.add)){try{await call('/share',{user:opt.add,level:'chat'},'Shared with '+notYet.find(x=>x.id===opt.add).name+' · Can chat')}catch(e){fail(e)}return}
- box.innerHTML=`<div class="ab-host"></div><p class="hint" style="margin-top:14px">To hand the agent over, choose Make owner next to a person; you keep Can edit.</p>`;
+ box.innerHTML=(o.canPrivate?`<div class="priv-row"><div><b>Private</b><p class="hint" style="margin:2px 0 0">${o.privateOn?'Only you and the people below can open it. Other admins see it locked.':'Other admins can open and change it. Turn on to keep it to yourself and the people below.'}</p></div>${toggle(!!o.privateOn,'Private','data-priv')}</div>`:'')+`<div class="ab-host"></div><p class="hint" style="margin-top:14px">To hand the agent over, choose Make owner next to a person; you keep Can edit.</p>`;
+ box.querySelector('[data-priv]')?.addEventListener('change',async e=>{const on=e.target.checked;e.target.disabled=true;try{await call('/private',{on},on?ident(name).name+' is private now':ident(name).name+' is open to admins again')}catch(err){e.target.checked=!on;e.target.disabled=false;fail(err)}});
  AccessBlock.live(box.querySelector('.ab-host'),{owner:o.owner?{id:o.owner.id,name:o.owner.name,ava:personAva(o.owner,32)}:null,ownerNote:'Owner',levels:{chat:LEVEL_LABEL.chat,edit:LEVEL_LABEL.edit},
   items:(o.shared||[]).map(s=>({id:s.id,name:s.name,ava:personAva(s,32),level:s.level})),
   choices:notYet.map(x=>({id:x.id,name:x.name,sub:'@'+x.username,ava:personAva(x,22)})),search:'Add people',
