@@ -36,7 +36,10 @@ async function browse(ck,EXPECT){const tools=homedir()+'/.hermes/tools',dir=read
     for(const b of document.querySelectorAll('#pg [data-tabs] [data-tab],.page [data-tabs] [data-tab]'))if(!b.closest('.drawer,dialog'))out.add('tab: '+b.dataset.tab);return [...out].sort()})()`).then(x=>x||[]);
    let cur=await read();for(let i=0;i<11;i++){await sleep(700);const nx=await read();if(JSON.stringify(nx)===JSON.stringify(cur)&&nx.length)break;cur=nx}
    // a busy server can draw a page's buttons later still: before one counts as missing, wait up to 25 s more for the ones the baseline expects (10 Nov 2026)
-   const want=EXPECT?.[view+' '+r]||[];for(let i=0;i<50&&want.some(c=>!cur.includes(c));i++){await sleep(500);cur=await read()}seen[view+' '+r]=cur}
+   const want=EXPECT?.[view+' '+r]||[];for(let i=0;i<50&&want.some(c=>!cur.includes(c));i++){await sleep(500);cur=await read()}
+   // still short on a slow box (10 Nov 2026: Elkiya at 86% memory drew Invite someone after the check gave up): open the page once more and look again
+   if(want.some(c=>!cur.includes(c))){await ev(`location.hash='#/chat'`);await sleep(1500);await ev(`location.hash='#${r}'`);for(let i=0;i<60&&want.some(c=>!cur.includes(c));i++){await sleep(500);cur=await read()}}
+   seen[view+' '+r]=cur}
   return seen}finally{chrome.kill('SIGKILL')}}
 const owner=await signIn({password:PW});const expect=(()=>{try{return JSON.parse(readFileSync(FILE,'utf8'))}catch{return {}}})();const result={owner:await browse(owner,SAVE?null:expect.owner)};let member=null;
 // the test copy shares the live engine, so the throwaway member's lead agent (made when it joins) is a real agent: removed
@@ -45,6 +48,8 @@ const LEAD=/^controls-check-[a-z0-9]+-lead(-\d+)?$/;
 async function dropLeads(owner){const l=await api(owner,'/hapi/profiles');for(const p of (l.j.profiles||[]).map(x=>x.name).filter(n=>LEAD.test(String(n))))
  {const r=await api(owner,'/hapi/profiles/'+encodeURIComponent(p),{method:'DELETE'});console.error('removed leftover check agent',p,r.s)}}
 await dropLeads(owner).catch(e=>console.error('leftover check agents:',e.message));
+// throwaway members left by runs that died (on the test copy's own data only): they piled up and slowed People down
+await api(owner,'/ui/people').then(async l=>{for(const x of l.j.users||[])if(/^Controls Check [a-z0-9]+$/.test(String(x.name)))await api(owner,'/ui/people/'+encodeURIComponent(x.id),{method:'DELETE'})}).catch(e=>console.error('leftover check members:',e.message));
 try{member=await makeMember(owner);result.member=await browse(member.ck,SAVE?null:expect.member)}finally{if(member?.id)await api(owner,'/ui/people/'+encodeURIComponent(member.id),{method:'DELETE'}).catch(()=>{});await dropLeads(owner).catch(()=>{})}
 if(SAVE){writeFileSync(FILE,JSON.stringify(result,null,1)+'\n');const n=Object.values(result).reduce((a,v)=>a+Object.values(v).flat().length,0);console.log('saved '+n+' controls on '+Object.keys(result.owner).length+' page views to '+path.basename(FILE));process.exit(0)}
 let base;try{base=JSON.parse(readFileSync(FILE,'utf8'))}catch{console.log(JSON.stringify({checked:0,missing:['no baseline: run node scripts/controls-check.mjs --save on the test copy and commit scripts/controls-baseline.json']}));process.exit(1)}const missing=[];
