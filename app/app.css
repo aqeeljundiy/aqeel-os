@@ -2609,27 +2609,20 @@ button.bad{color:var(--bad)}
 .item .src.waiting::after{border-color:#d9921a!important}
 @media (prefers-reduced-motion:reduce){.rb-dot,.run-end{animation:none!important}}
 
-/* the one "who can use this" block (access-block.js) */
-.ab{display:grid;gap:14px}.ab-row{display:grid;gap:8px}.ab-lbl{font-size:12.5px;font-weight:600;color:var(--muted)}
-.ab-chip{display:inline-flex;align-items:center;gap:7px;min-height:32px;padding:3px 8px 3px 4px;border:1px solid var(--border);border-radius:999px;background:var(--surface);font-size:13px;animation:ab-in .2s var(--ease) both}
-.ab-chip b{font-weight:600}.ab-chip small{color:var(--muted);font-size:12px}.ab-chip.locked{background:var(--soft-2)}.ab-chip i{display:grid;color:var(--muted)}
-.ab-x{display:grid;place-items:center;width:20px;height:20px;min-height:0;padding:0;border:0;border-radius:50%;background:none;color:var(--muted);cursor:pointer;transition:background .15s ease,color .15s ease}.ab-x:hover{background:var(--soft);color:var(--bad)}
-.ab-seg{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;border-radius:12px;background:var(--soft-2)}
-.ab-seg button{min-height:34px;border:0;border-radius:9px;background:none;font:inherit;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;transition:background .2s ease,color .2s ease,box-shadow .2s ease}
-.ab-seg button.on{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(11,12,16,.08)}
-.ab-some{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows .24s var(--ease),opacity .2s ease}.ab-some.open{grid-template-rows:1fr;opacity:1}
-.ab-some>.ab-chips{min-height:0;overflow:hidden;display:flex;flex-wrap:wrap;gap:8px}
-.ab-add{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:0 12px;border:1px dashed var(--border);border-radius:999px;background:none;font:inherit;font-size:13px;color:var(--blue);cursor:pointer;transition:border-color .2s ease,background .2s ease}.ab-add:hover{border-color:var(--blue);background:var(--blue-soft)}
-.ab-eff{margin:0;min-height:20px;font-size:13px;color:var(--ink-2);transition:opacity .2s ease}.ab-eff.busy{opacity:.5}.ab-eff.warn{color:#b26b00}
-.ab-foot{margin:14px 0 0}.ab-host{position:relative}
-.ab-pop{position:absolute;z-index:30;width:min(280px,calc(100% - 16px));padding:8px;border:1px solid var(--border);border-radius:14px;background:var(--surface);box-shadow:var(--shadow-float,0 12px 32px rgba(11,12,16,.14));animation:ab-in .18s var(--ease) both}
-.ab-pop input{width:100%;min-height:36px;margin-bottom:6px}.ab-opts{display:grid;gap:2px;max-height:240px;overflow:auto}
-.ab-opts button{display:flex;align-items:center;gap:10px;min-height:38px;padding:4px 8px;border:0;border-radius:9px;background:none;font:inherit;font-size:13.5px;text-align:left;cursor:pointer;animation:ab-in .18s var(--ease) both}.ab-opts button:hover,.ab-opts button:focus-visible{background:var(--soft-2)}
+/* the one "who can use this" block (access-block.js): a document-style Share dialog */
+.ab{display:grid;gap:12px}.ab-lbl{font-size:12.5px;font-weight:600;color:var(--muted);margin-top:4px}
+.ab-find{position:relative}.ab-find input{width:100%;min-height:42px;border-radius:12px}
+.ab-opts{position:absolute;z-index:30;left:0;right:0;top:calc(100% + 6px);display:grid;gap:2px;max-height:280px;overflow:auto;padding:6px;border:1px solid var(--border);border-radius:14px;background:var(--surface);box-shadow:var(--shadow-float,0 12px 32px rgba(11,12,16,.14));animation:ab-in .16s var(--ease) both}
+.ab-opts[hidden]{display:none}.ab-opts button{display:flex;align-items:center;justify-content:flex-start;gap:10px;width:100%;min-height:40px;padding:4px 8px;border:0;border-radius:9px;background:none;box-shadow:none;transform:none;font:inherit;font-weight:500;font-size:13.5px;color:var(--ink);text-align:left;cursor:pointer}
+.ab-opts button:hover{background:var(--soft-2)}.ab-opts small{display:block;font-size:11.5px;color:var(--muted)}.ab-opts .hint{margin:8px}
+.ab-list{display:grid;gap:2px;max-height:320px;overflow:auto;margin:0 -6px;padding:0 6px}
+.ab-item{display:flex;align-items:center;gap:12px;min-height:52px;padding:6px 4px;border-radius:12px;animation:ab-in .2s var(--ease) both;transition:background .15s ease}.ab-item:hover{background:var(--soft-2)}
+.ab-who{flex:1;min-width:0;display:grid}.ab-who b{font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ab-who small{font-size:12.5px;color:var(--muted)}
+.ab-role{flex:none;font-size:13px;color:var(--muted);padding-right:8px}
+.ab-menu,.ab-gen{width:auto;min-height:34px;font-size:13px;border-color:transparent;background-color:transparent;transition:background-color .15s ease}.ab-menu:hover,.ab-menu:focus,.ab-gen:hover{background-color:var(--soft)}
+.ab-gen{width:100%;border-color:var(--border);background-color:var(--surface)}
+.ab-all{display:flex;align-items:center;gap:8px;margin:6px 4px 0;font-size:13px;color:var(--muted)}
+.ab-eff{margin:0;min-height:20px;font-size:13px;color:var(--ink-2);transition:opacity .2s ease}.ab-eff:empty{display:none}.ab-eff.busy{opacity:.5}.ab-eff.warn{color:#b26b00}
+.ab-busy{opacity:.6;pointer-events:none;transition:opacity .2s ease}.ab-foot{margin:14px 0 0}
 @keyframes ab-in{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
-@media (prefers-reduced-motion:reduce){.ab-chip,.ab-pop,.ab-opts button{animation:none}.ab-some{transition:none}}
-
-.ab-chip.ask{cursor:pointer;transition:border-color .2s ease}.ab-chip.ask:hover,.ab-chip.ask:focus-visible{border-color:var(--blue)}
-.ab-lv{width:auto;min-height:24px;height:24px;padding:0 22px 0 8px;margin-left:2px;border-radius:999px;font-size:12px;background-color:var(--soft-2);border-color:transparent}
-.ab-opts small{display:block;font-size:11.5px;color:var(--muted)}
-.ab>.ab-chips{display:flex;flex-wrap:wrap;gap:8px}.ab-busy{opacity:.6;pointer-events:none;transition:opacity .2s ease}
-.drawer-body{position:relative}
+@media (prefers-reduced-motion:reduce){.ab-item,.ab-opts{animation:none}}

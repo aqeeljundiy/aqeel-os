@@ -175,10 +175,10 @@ async function shareInto(box,name,opt={}){const gone=pageRun(box);let people=[];
  const call=async(path,body,msg)=>{await UI('/ui/agents/'+encodeURIComponent(name)+path,{method:'PUT',body});toast(msg);if(route().page?.id==='profiles'||route().page?.id==='people')laterReload(400);if(box.isConnected)shareInto(box,name)};
  // People › Share an agent: the person picked there is added straight away, at Can chat
  if(opt.add&&notYet.some(x=>x.id===opt.add)){try{await call('/share',{user:opt.add,level:'chat'},'Shared with '+notYet.find(x=>x.id===opt.add).name+' · Can chat')}catch(e){fail(e)}return}
- box.innerHTML=`<label>Who can use ${esc(ident(name).name)}</label><div class="ab-host"></div><p class="hint" style="margin-top:14px">Click a person to make them the owner; you keep Can edit.</p>`;
- AccessBlock.live(box.querySelector('.ab-host'),{owner:o.owner?{id:o.owner.id,name:o.owner.name,ava:personAva(o.owner,20)}:null,ownerNote:'Owner',levels:{chat:LEVEL_LABEL.chat,edit:LEVEL_LABEL.edit},
-  items:(o.shared||[]).map(s=>({id:s.id,name:s.name,ava:personAva(s,20),level:s.level})),
-  choices:notYet.map(x=>({id:x.id,name:x.name,sub:'@'+x.username,ava:personAva(x,22)})),addLabel:'Add person',search:'Search people',
+ box.innerHTML=`<label>Who can use ${esc(ident(name).name)}</label><div class="ab-host"></div><p class="hint" style="margin-top:14px">To hand the agent over, choose Make owner next to a person; you keep Can edit.</p>`;
+ AccessBlock.live(box.querySelector('.ab-host'),{owner:o.owner?{id:o.owner.id,name:o.owner.name,ava:personAva(o.owner,32)}:null,ownerNote:'Owner',levels:{chat:LEVEL_LABEL.chat,edit:LEVEL_LABEL.edit},
+  items:(o.shared||[]).map(s=>({id:s.id,name:s.name,ava:personAva(s,32),level:s.level})),
+  choices:notYet.map(x=>({id:x.id,name:x.name,sub:'@'+x.username,ava:personAva(x,22)})),search:'Add people',
   onAdd:u=>call('/share',{user:u,level:'chat'},'Shared · Can chat'),
   onLevel:(u,l)=>call('/share',{user:u,level:l},'Updated'),
   onRemove:u=>call('/share',{user:u,level:''},'No longer shared'),
