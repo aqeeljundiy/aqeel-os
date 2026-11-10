@@ -5,10 +5,10 @@ const Access={
  async load(kind){try{return await UI('/ui/access?kind='+kind)}catch{return null}},
  av(a,sz=22){const id=a.id||a;return agentAvatar(id,sz,{cls:'acc-av',name:a.name||ident(id).name})},   // the one agent avatar; acc-av only adds the stacked ring
  who(it){return `<span class="acc-who" aria-label="Used by ${esc(it.users.map(u=>u.name).join(', '))}">${it.users.slice(0,5).map(u=>this.av(u)).join('')}${it.users.length>5?`<span class="acc-more">+${it.users.length-5}</span>`:''}</span>`},
- from(it){return it.own?`<span class="acc-from">Belongs to ${esc(it.ownerName)} · ${esc(it.ownNote)}</span>`:`<span class="acc-from">${this.av({id:it.owner,name:it.ownerName},16)}Belongs to ${esc(it.ownerName)}</span>`},
+ from(it){if(it.owner)it={...it,ownerName:agentNameOf(it.owner,it.ownerName)};return it.own?`<span class="acc-from">Belongs to ${esc(it.ownerName)} · ${esc(it.ownNote)}</span>`:`<span class="acc-from">${this.av({id:it.owner,name:it.ownerName},16)}Belongs to ${esc(it.ownerName)}</span>`},
  // "Belongs to": one control on every row of every page. A picker for admins where ownership can move, else the name;
  // a connection with no owner agent (n8n: every agent has its own user) names who owns the service, with why
- owner(it,agents=[],edit=false){const l='<span class="ab-lbl">Belongs to</span>',n=it.ownerName||ident(it.owner).name;
+ owner(it,agents=[],edit=false){const l='<span class="ab-lbl">Belongs to</span>',n=it.owner?agentNameOf(it.owner,it.ownerName):it.ownerName||'';
   return `<span class="acc-ownbox">${it.own?`${l}<b class="acc-owner-name" title="${esc(it.ownNote)}">${esc(n)}</b>${it.ownNote?`<small class="acc-own-note">${esc(it.ownNote)}</small>`:''}`:edit&&!it.bot&&agents.length>1?`${l}<select class="acc-owner" style="width:auto" data-kind="${it.kind}" data-id="${esc(it.id)}" data-was="${esc(it.owner)}" aria-label="Owner of ${esc(it.label)}">${agents.map(a=>`<option value="${esc(a.id)}" ${a.id===it.owner?'selected':''}>${esc(a.name)}</option>`).join('')}</select>`:`${l}<b class="acc-owner-name">${esc(n)}</b>`}</span>`},
  // a new owner: it gets the connection first if it did not have it yet
  bindOwners(el){el.querySelectorAll('select.acc-owner:not([data-bound])').forEach(s=>{s.dataset.bound='1';s.onchange=async()=>{const to=s.value,was=s.dataset.was,kind=s.dataset.kind,id=s.dataset.id;s.disabled=true;

@@ -216,6 +216,15 @@ function md(src){
 // profile id; "default" is the main agent, never "aqeelOS"; an extra number says which one ("Dora AI · WhatsApp 2")
 const prettyId=p=>String(p||'').split(/[-_]+/).filter(Boolean).map((w,i)=>i?w:w[0].toUpperCase()+w.slice(1)).join(' ');
 function agentLabel(p){p=String(p||'');if(!p)return '';if(p==='aqeelOS')p='default';const [b,x]=p.split('--');const n=ident(b).name;if(!x)return n;const m=/^([a-z]+)-(\d+)$/i.exec(x);return n+' · '+(m?({whatsapp:'WhatsApp',telegram:'Telegram',slack:'Slack'}[m[1].toLowerCase()]||prettyId(m[1]))+' '+m[2]:prettyId(x))}
+// a line saved with an agent's folder name in front ("Pixel agent: the tool server…", written before its name was known)
+// reads with the name the owner set ("Pixel Agent: …"); only the leading name is touched, the stored text stays as it is
+function agentText(s){s=String(s??'');let best=null;   // the longest match wins: "Aqeel lead: …" is aqeel-lead, not aqeel
+ for(const id of Object.keys(S.identities||{})){if(id==='default'||id.includes('--'))continue;const n=ident(id).name;
+  for(const f of [n,prettyId(id),id])if(f&&(!best||f.length>best.f.length)&&s.slice(0,f.length).toLowerCase()===f.toLowerCase()&&/^(?:$|[\s:,.’'])/.test(s.slice(f.length)))best={f,n}}
+ return best?best.n+s.slice(best.f.length):s}
+// an agent's name as the owner set it (ident), whatever name the server sent along; a non-agent ("aqeelOS", "Each
+// person") keeps the server's wording
+function agentNameOf(id,fallback=''){const b=String(id||'').split('--')[0];return b&&(b==='default'||S.identities?.[b])?agentLabel(id):(fallback||(b?ident(b).name:''))}
 function ident(p=S.profile||'default'){if(String(p).includes('--'))p=String(p).split('--')[0];const i=S.identities[p]||{};return {name:i.name||(p==='default'?'Main agent':prettyId(p)),title:i.title||'',avatar:i.avatar?'/ui/avatar/'+encodeURIComponent(p)+'?v='+encodeURIComponent(i.avatarV||i.avatar):'',emoji:EMOJI.some(e=>e.slug===i.emoji)?i.emoji:''}}
 const AGENT=()=>ident().name;
 /* ---------- agent avatars: one look everywhere ----------
@@ -447,13 +456,15 @@ function sidebar(r){
 // the bell drawn with its count (as Inbox.paintBell leaves it): drawn empty, every topbar redraw (each page switch) hid the
 // count until the next 2-second paint, which then popped it in and rang the bell again
 function bellBtn(){const n=typeof Inbox!=='undefined'?Inbox.unread():0;return `<button class="ghost icon bell${n>0?' has':''}" data-act="inbox" data-n="${n}" title="Notifications" aria-label="${n?n+' notifications':'Notifications'}">${icon('bell',18)}<span class="bell-n">${n?(n>99?'99+':n):''}</span></button>`}
+// "Agents > Agents", "Models > Models and accounts": a page named after its section shows one crumb
+function sameCrumb(sec,page){const a=String(sec||'').trim().toLowerCase(),b=String(page||'').trim().toLowerCase();return !!a&&(a===b||b.startsWith(a+' '))}
 function topbar(r){
  if(PANEL)return panelTop(r);
  let crumbs;
  if(r.chat==='manage')crumbs=`<span>Chat</span>${icon('chevR',14)}<b>Manage chats</b>`;
  else if(r.chat!==undefined){const c=S.sessions.find(x=>x.id===r.chat);crumbs=`<b data-act="rename-current" title="Rename" style="cursor:text">${c?esc(c.title||c.preview||'Chat'):'New chat'}</b>`}
  else if(r.help)crumbs=r.arg?.[0]==='admin'?`<span>${esc(r.sec.label)}</span>${icon('chevR',14)}<b>Tickets and settings</b>`:`<b>${esc(r.sec.label)}</b>`;
- else crumbs=`<span>${r.sec.label}</span>${icon('chevR',14)}<b>${r.page.label}</b>`;
+ else crumbs=sameCrumb(r.sec.label,r.page.label)?`<b>${r.page.label}</b>`:`<span>${r.sec.label}</span>${icon('chevR',14)}<b>${r.page.label}</b>`;
  return `<button class="ghost icon menu-btn" data-act="nav" aria-label="Open navigation">${icon('menu',20)}</button><div class="crumbs">${crumbs}</div>
  <div class="top-actions"><button class="ghost icon ${Screen.open&&Screen.src_!=='mine'?'on':''}" data-act="screen-box" title="The agent's screen on the AI box" aria-label="The agent's screen on the AI box" aria-pressed="${Screen.open&&Screen.src_!=='mine'}">${icon('monitor',18)}</button><button class="ghost icon ${Screen.open&&Screen.src_==='mine'?'on':''}" data-act="screen-mine" title="My browser: the agent's tab in your own Chrome" aria-label="My browser" aria-pressed="${Screen.open&&Screen.src_==='mine'}">${icon('globe',18)}</button><button class="ghost icon bn-btn${typeof Bottlenecks!=='undefined'&&Bottlenecks.items.length?'':' none'}" data-act="bottlenecks" title="Bottlenecks: what is stuck until you act" aria-label="Bottlenecks" ${typeof Bottlenecks!=='undefined'&&Bottlenecks.items.length?'':'data-none'}>${icon('alert',18)}<span class="bn-n">${typeof Bottlenecks!=='undefined'&&Bottlenecks.items.length?Math.min(Bottlenecks.items.length,9):''}</span></button>${bellBtn()}<button class="k-btn" data-act="palette" aria-label="Search and commands">${icon('search',15)}<span class="k-label">Search or run a command</span><kbd>${MOD} K</kbd></button>
  <button class="ghost icon" data-act="theme" title="Light or dark" aria-label="Switch light and dark">${icon(document.documentElement.classList.contains('dark')?'sun':'moon',18)}</button></div>`;
@@ -490,7 +501,7 @@ function gwState(s){if(!s)return typeof noAgent==='function'&&noAgent()?{label:'
 
 /* ---------- page helpers ---------- */
 function head(p,actions=''){return `<div class="page-head"><div><h1>${p.label}</h1><p>${p.desc||''}</p></div><div class="head-actions" style="display:flex;gap:8px;flex-wrap:wrap">${actions}</div></div>`}
-function setActions(html){const a=$('.head-actions');if(!a)return;const vp=a.querySelector('.view-pick');a.innerHTML=html;if(vp)a.prepend(vp)}
+function setActions(html){const a=$('.head-actions');if(!a)return;const vp=a.querySelector('.view-pick');a.innerHTML=html;if(vp)a.prepend(vp);requestAnimationFrame(()=>edgeFade(a))}
 function tabs(key,list,cur){cur=cur||S.tab[key]||list[0];return `<div class="tabs" data-tabs="${key}">${list.map(t=>`<button class="${t===cur?'on':''}" data-tab="${esc(t)}">${esc(t)}</button>`).join('')}<span class="pill"></span></div>`}
 const toggle=(on,label,attrs='')=>`<input type="checkbox" class="switch" ${on?'checked':''} aria-label="${esc(label)}" ${attrs}>`;
 const st=i=>`style="animation-delay:${Math.min(i,10)*30}ms"`;
@@ -524,7 +535,11 @@ const emptyBox=(title,text,btn='')=>`<div class="empty-hero"><b style="display:b
 const pillAt={};
 // a tab bar drawn while hidden (the phone's closed sidebar) is measured again as soon as it shows
 const pillRO=typeof ResizeObserver==='function'?new ResizeObserver(()=>requestAnimationFrame(placePills)):null;
-function placePills(){$$('.tabs').forEach(t=>{if(pillRO&&!t._ro){t._ro=1;pillRO.observe(t)}const on=t.querySelector('button.on'),pill=t.querySelector('.pill');if(!on||!pill||!on.offsetWidth)return;
+// a row that scrolls sideways (tabs, a phone's page buttons) fades at the side with more, in every browser (the CSS
+// scroll-timeline fade is Chrome only); the selected tab is scrolled into view
+function edgeFade(t){if(!t._ef){t._ef=1;t.classList.add('tf-js');t.addEventListener('scroll',()=>edgeFade(t),{passive:true})}
+ const max=t.scrollWidth-t.clientWidth;t.classList.toggle('tf-l',max>2&&t.scrollLeft>2);t.classList.toggle('tf-r',max>2&&t.scrollLeft<max-2)}
+function placePills(){$$('.head-actions').forEach(a=>{if(pillRO&&!a._ro){a._ro=1;pillRO.observe(a)}edgeFade(a)});$$('.tabs').forEach(t=>{if(pillRO&&!t._ro){t._ro=1;pillRO.observe(t)}edgeFade(t);{const o=t.querySelector('button.on');if(o&&!t._seen&&t.scrollWidth>t.clientWidth+2){t._seen=1;const x=o.offsetLeft-(t.clientWidth-o.offsetWidth)/2;if(x>0)t.scrollLeft=x}}const on=t.querySelector('button.on'),pill=t.querySelector('.pill');if(!on||!pill||!on.offsetWidth)return;
  const key=t.dataset.tabs||'',to={left:on.offsetLeft,width:on.offsetWidth},from=pillAt[key];
  if(!pill.style.left&&from&&(from.left!==to.left||from.width!==to.width)){pill.style.transition='none';pill.style.left=from.left+'px';pill.style.width=from.width+'px';pill.offsetWidth;pill.style.transition=''}
  pill.style.left=to.left+'px';pill.style.width=to.width+'px';pillAt[key]=to})}
@@ -666,7 +681,7 @@ function palette(){openLayer();const p=document.createElement('div');p.className
  const pages=SECTIONS.flatMap(s=>s.pages?s.pages.filter(x=>!x.hidden).map(x=>({g:'Pages',l:s.label+' › '+x.label,ic:x.icon,run:()=>go('/'+s.id+'/'+x.id)})):s.id==='chat'?[{g:'Pages',l:'Chat',ic:'chat',run:()=>go('/chat')},{g:'Pages',l:'Chat › Manage chats',ic:'list',run:()=>go('/chat/manage')}]:[{g:'Pages',l:s.label,ic:s.icon,run:()=>go('/'+s.id)}]);
  const chats=S.sessions.slice(0,60).map(c=>({g:'Chats',l:c.title||c.preview||c.id,ic:srcIcon(c.source),run:()=>go('/chat/'+c.id)}));
  const all=[...actions,...pages,...models,...chats];let sel=0,list=all,remote=[];
- p.innerHTML=`<div class="p-in">${icon('search',18)}<input placeholder="Search pages, chats, skills or run a command" aria-label="Search"></div><div class="p-list"></div><div class="p-foot"><span>↑↓ to move</span><span>Enter to open</span><span>Esc to close</span></div>`;document.body.append(p);trapTab(p);
+ p.innerHTML=`<div class="p-in">${icon('search',18)}<input placeholder="${matchMedia('(max-width:600px)').matches?'Search or run a command':'Search pages, chats, skills or run a command'}" aria-label="Search"></div><div class="p-list"></div><div class="p-foot"><span>↑↓ to move</span><span>Enter to open</span><span>Esc to close</span></div>`;document.body.append(p);trapTab(p);
  const inp=p.querySelector('input'),box=p.querySelector('.p-list');
  // only 50 are shown, so moving and Enter use the same 50 (room is kept for skill and inside-chat hits)
  const items=()=>[...list.slice(0,50-remote.length),...remote];

@@ -52,6 +52,13 @@ const CodeUI={where:(()=>{try{const w=localStorage.getItem('aq-code-where');retu
    if(this.state==='on'&&Date.now()-(this.seen||0)>25000){clearInterval(this.hb);this.state='wait';this.paintSide();this.page(null,el)}else this.post({aq:'ping'})},10000)},
  lock(el){if(!el.isConnected||route().sec?.id!=='code')return;this.state='lock';this.paintSide();const mac=/Mac/i.test(navigator.platform||navigator.userAgent);
   let seen=false;try{seen=localStorage.getItem('aq-code-seen')==='1'}catch{}
+  // a phone can't run the app: no Windows or Mac download there, the link goes to the person's computer instead
+  const phone=/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)||matchMedia('(hover:none) and (pointer:coarse)').matches;
+  if(phone){el.querySelector('.code-host').innerHTML=`<div class="code-lock card">
+   <span class="code-lock-ic">${icon('terminal',26)}</span><h2>Code runs on a computer</h2>
+   <p>Code builds apps, websites, decks, docs and designs with a live preview, in the aqeelOS Code app on Windows or Mac. Open this page on your computer to install it there.</p>
+   <div class="code-dl"><button class="primary" data-act="code-send-link">${icon('copy',16)}Send the link to my computer</button></div>
+   ${this.online()?'':'<!--'}<p class="code-or">Just looking? <button class="linkish" data-act="code-where" data-w="live">See what’s live</button>: apps your team published.</p>${this.online()?'':'-->'}</div>`;return}
   el.querySelector('.code-host').innerHTML=seen?`<div class="code-lock card">
    <span class="code-lock-ic">${icon('terminal',26)}</span><h2>aqeelOS Code isn’t running on this computer</h2>
    <p>It is installed here but not answering: the computer may have just started or woken up, or the app was closed.</p>
@@ -96,6 +103,10 @@ ACT['code-chat']=a=>{CodeUI.st.project=a.dataset.p;CodeUI.st.chat=a.dataset.c;Co
 ACT['code-proj']=a=>{const id=a.dataset.id,was=CodeUI.open[id]??id===CodeUI.st.project;CodeUI.open[id]=!was;if(!was&&id!==CodeUI.st.project)CodeUI.post({aq:'open',project:id});CodeUI.paintSide()};
 ACT['code-where']=a=>{CodeUI.where=a.dataset.w;try{localStorage.setItem('aq-code-where',CodeUI.where)}catch{}CodeUI.st={projects:[],project:'',chat:''};CodeUI.state='wait';const el=$('#pg .code-host')?.parentElement||$('#pg');if(el)CodeUI.page(null,el);CodeUI.paintSide()};
 // from other pages: open Code on Live, whichever tab was used last
+// phone: share sheet when there is one (mail it, message it to yourself), else the link is copied
+ACT['code-send-link']=async()=>{const url=location.origin+'/#/code/code';
+ if(navigator.share){try{await navigator.share({title:'aqeelOS Code',text:'Open this on your computer to install aqeelOS Code',url});return}catch(e){if(e?.name==='AbortError')return}}
+ copyText(url,'Link copied. Open it on your computer.')};
 ACT['code-open-live']=()=>{CodeUI.where='live';try{localStorage.setItem('aq-code-where','live')}catch{}go('/code/code')};
 ACT['code-menu']=a=>{const f=CodeUI.frame;if(!f)return;const y=a.getBoundingClientRect().top-f.getBoundingClientRect().top;CodeUI.post({aq:'menu',project:a.dataset.p,chat:a.dataset.c||'',y})};
 ACT['code-filter']=a=>{CodeUI.filter=a.dataset.f;CodeUI.paintSide()};
