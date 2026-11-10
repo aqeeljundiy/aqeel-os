@@ -2634,3 +2634,8 @@ button.bad{color:var(--bad)}
 .ab-item .sel-btn:hover,.ab-item .sel-btn.open{background:var(--soft)}
 /* every agent's list: who has a thing as a small stack of faces, like Connections, not a chip per agent */
 .aam-ags{align-items:center}.aam-ags .acc-who{margin-right:4px}
+
+/* one scroll in a dialog, not a list scrolling inside it */
+.drawer .ab-list{max-height:none;overflow:visible}
+/* the faces stay on one line with their count */
+.aam-ags .acc-who{flex-wrap:nowrap;white-space:nowrap}

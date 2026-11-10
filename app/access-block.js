@@ -10,7 +10,7 @@ const AccessBlock={
  row(x,{owner=false,levels=null,canOwner=false,locked=false}={},i=0){
   const lv=levels||{use:'Can use'},cur=x.level&&lv[x.level]?x.level:Object.keys(lv)[0];
   const right=owner?'<span class="ab-role">Owner</span>':locked?`<span class="ab-role">${esc(lv[cur])}</span>`
-   :`<select class="ab-menu" data-id="${esc(x.id)}" aria-label="Access for ${esc(x.name)}">${Object.entries(lv).map(([k,v])=>`<option value="${k}" ${k===cur?'selected':''}>${esc(v)}</option>`).join('')}<option disabled>──────</option>${canOwner?'<option value="@owner">Make owner</option>':''}<option value="@remove">Remove access</option></select>`;
+   :`<select class="ab-menu" data-id="${esc(x.id)}" aria-label="Access for ${esc(x.name)}">${Object.entries(lv).map(([k,v])=>`<option value="${k}" ${k===cur?'selected':''}>${esc(v)}</option>`).join('')}${canOwner?'<option value="@owner">Make owner</option>':''}<option value="@remove">Remove access</option></select>`;
   return `<div class="ab-item" data-id="${esc(x.id)}" ${st(i)}>${x.ava||agentAvatar(x.id,32,{title:false})}<span class="ab-who"><b>${esc(x.name)}</b>${x.note?`<small>${esc(x.note)}</small>`:''}</span>${right}</div>`},
  // the search box that adds: type to narrow, Enter or a click adds
  search(root,list,onPick,placeholder){const box=root.querySelector('.ab-find');if(!box)return;const inp=box.querySelector('input'),opts=box.querySelector('.ab-opts');

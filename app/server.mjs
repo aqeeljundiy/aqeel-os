@@ -74,7 +74,7 @@ import {createAgentHealth} from './agent-health.mjs';
 import {createQuiet,holdActive} from './alert-quiet.mjs';
 import {createConnectedAccounts} from './connected-accounts.mjs';
 import {createSharing,createSecretAccess,LEVELS as SHARE_LEVELS} from './sharing.mjs';
-import {createAgentAccess,MAIN_RULE_LINES} from './agent-access.mjs';
+import {createAgentAccess,MAIN_RULE_LINES,redactText} from './agent-access.mjs';
 import {createConnections} from './connections.mjs';
 import {createSecretLinks,createLimiter} from './secret-links.mjs';
 import {createGoogleShares} from './google-shares.mjs';
@@ -1931,6 +1931,8 @@ async function hermesCall(req,res,u,url){
   if(!plain&&!users.can(u,'unsafe'))return send(res,403,{error:'Only admins can add tools that run a command on the box. Use a server URL instead.'});
   if(e.url&&await privateAddress(e.url))return send(res,403,{error:'Tools must use a public web address.'})}
  const transform=/^\/hapi\/(sessions|sessions\/search|profiles|cron\/jobs)$/.test(p)&&req.method==='GET'?d=>users.filter(u,p,d,agent)
+  // System › Logs: the agents' tool addresses carry a secret part (/mcp/<kind>/<agent>/<secret>), and keys can turn up in a line: hidden before they reach the page
+  :p==='/hapi/logs'&&req.method==='GET'?d=>Array.isArray(d?.lines)?{...d,lines:d.lines.map(l=>redactText(String(l).replace(/(\/mcp\/[\w-]+\/[\w.-]+\/)[A-Za-z0-9_-]{8,}/g,'$1(hidden)')))}:d
   :p==='/hapi/status'&&req.method==='GET'?d=>Array.isArray(d?.profiles)?{...d,profiles:d.profiles.filter(x=>(x?.name||x)!==HELP_AGENT)}:d
   :/^\/gapi(\/p\/[^/]+)?\/api\/model\/options$/.test(p)&&users.allowedModels(u)?d=>({...d,providers:(d.providers||[]).map(pv=>({...pv,models:(pv.models||[]).filter(m=>users.modelOk(u,pv.slug,m))})).filter(pv=>pv.models.length)})
   :/^\/gapi(\/p\/[^/]+)?\/api\/sessions$/.test(p)&&req.method==='POST'?async d=>{await users.own(d.id||d.session?.id||d.session_id,u);return d}

@@ -26,10 +26,10 @@ const SkillPolicy={
  async open(s,pol,btn){let agents=(Pages._agents||[]).filter(a=>!a.includes('--'));if(!agents.length)try{agents=((await H('/profiles')).profiles||[]).map(x=>x.name).filter(a=>!a.includes('--'))}catch{}
   const key=SkillPolicy.key(s);let who;try{who=await UI('/ui/skills-policy/who?skill='+encodeURIComponent(key))}catch(e){return fail(e)}
   const rule=SkillPolicy.ruleFor(pol,s),list=agents.filter(a=>a!=='default').map(id=>({id,name:ident(id).name}));
-  const owner=who.owner&&who.owner!=='default'?who.owner:'';
+  const owner=who.owner||'';
   const {d,close}=stackPop('Who can use '+s.name,'<div class="ab-host"></div><p class="hint ab-foot">The main agent can always use every skill.</p>',
    '<button class="ghost" data-x>Cancel</button><button class="primary" id="sp-go">Save</button>');
-  const blk=AccessBlock.mount(d.querySelector('.ab-host'),{owner,ownerNote:owner?'built it':'',agents:list,every:!rule,picked:(rule||who.holders||[]).filter(x=>x!=='default'),
+  const blk=AccessBlock.mount(d.querySelector('.ab-host'),{owner,ownerNote:owner==='default'?'Main agent':owner?'Built it':'',agents:list,every:!rule,picked:(rule||who.holders||[]).filter(x=>x!=='default'),
    preview:v=>post(UI,'/ui/skills-policy',{skill:key,agents:v,dry:true})});
   d.querySelector('#sp-go').onclick=async e=>{e.stopPropagation();const b=e.currentTarget;b.disabled=true;b.classList.add('is-busy');const v=blk.value();
    try{const p2=await put(UI,'/ui/skills-policy',{skill:key,agents:v});Pages._skPol=p2;close();const g=p2.done?.gain||[],l=p2.done?.lose||[];
