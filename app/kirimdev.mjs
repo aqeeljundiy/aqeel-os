@@ -93,9 +93,13 @@ const PAY_CLAIM=/\b(qris|virtual account|nomor va|va\s+(bca|bni|bri|mandiri)|lin
 // a whole line that is only a bracketed note to itself about a picture ("[Send kit photo template nt_kit_basic]", "[Gambar: Basic Kit]"):
 // dropped and logged, and the rest of the reply goes out (8 Nov 2026: one such part held a whole reply whose real tags were there)
 const STAGE=/^\s*\[(?!FOTO:|TEMPLATE:|VIDEO:)\s*(send|kirim(kan)?|attach|lampir(kan)?|gambar|image|foto|photo|picture|img)\b[^\]\n]*\]\s*$/i;
-export function guardReply(input,{paid=null}={}){const removed=[];const keep=[],dropped=[],parts=[];
- for(const p of input){if(/^\[(FOTO|TEMPLATE|VIDEO):/.test(p)){parts.push(p);continue}
-  const t=p.split('\n').filter(l=>{if(STAGE.test(l)){dropped.push(l.trim());return false}return true}).join('\n').trim();if(t)parts.push(t)}
+// Only explicit reply-to-operator preambles, not ordinary customer-facing delivery statements.
+const REPLY_NOTE=/^\s*(?:ini\s+balasan\s+yang\s+saya\s+siapkan\b|saya\s+belum\s+mengirim\s+apa\s*pun\b|here\s+is\s+the\s+reply\b|draft\s+reply\b|I\s+haven['’]t\s+sent\s+anything\b)[^\n]*[:.!?]\s*$/i;
+export function guardReply(input,{paid=null,qrPics=[]}={}){const removed=[];const keep=[],dropped=[],parts=[];let leading=true;
+ for(const p of input){if(/^\[(FOTO|TEMPLATE|VIDEO):/.test(p)){leading=false;parts.push(p);continue}
+  const t=p.split('\n').filter(l=>{if(STAGE.test(l)){dropped.push(l.trim());return false}if(!l.trim())return true;
+   if(REPLY_NOTE.test(l)){if(leading){dropped.push(l.trim());return false}removed.push(l.trim())}
+   leading=false;return true}).join('\n').trim();if(t)parts.push(t)}
  // nothing but notes: there is no reply to send, a person sees what the agent wrote
  if(!parts.length&&dropped.length)return {parts:input,removed:dropped,dropped:[],hold:'The reply was only notes, with nothing for the customer: '+dropped.join(' | ').slice(0,300)};
  for(const p of parts){if(/^\[(FOTO|TEMPLATE|VIDEO):/.test(p)){keep.push(p);continue}
@@ -106,8 +110,13 @@ export function guardReply(input,{paid=null}={}){const removed=[];const keep=[],
  const QR_PROMISE=/(berikut|ini|terlampir|di ?bawah|kami kirim(kan)?|saya kirim(kan)?|here is|attached)[^\n]{0,25}\bQRIS\b|\bQRIS(-?nya)?\b[^\n]{0,15}(terlampir|di ?bawah|berikut|attached)/i;
  const promisesQr=keep.some(p=>QR_PROMISE.test(p)&&!/metode pembayaran|pilih (salah satu|metode)|payment method/i.test(p));
  const hasPic=keep.some(p=>/^\[FOTO:/i.test(p));
+ // the run made the QRIS but the reply forgot its [FOTO:] tag: attach the picture the payment tool made (i49f4e694)
+ if(promisesQr&&!hasPic&&qrPics.length){keep.push(...qrPics);return {parts:keep,removed,dropped,hold:null,attached:qrPics}}
  if(promisesQr&&!hasPic)return {parts:keep,removed,dropped,hold:'The reply says a QRIS is attached, but no QR picture was made. Create the QRIS with the payment tool, then send it.'};
- const claims=keep.some(p=>!/^\[(FOTO|TEMPLATE|VIDEO):/.test(p)&&PAY_CLAIM.test(p)&&!/metode pembayaran|pilih (salah satu|metode)|payment method/i.test(p));
+ // a payment is claimed only by one sentence that says it is sent/here now; a question, a future or conditional step
+ // ('nanti/setelah/sebelum ... saya kirimkan'), or the order form being sent is not a claim (i1b25ec10, 10 Nov 2026)
+ const ASKS_METHOD=p=>!p.split(/(?<=[.!?\n])\s*/).some(x=>PAY_CLAIM.test(x)&&!/\?\s*$/.test(x)&&!/\b(nanti|setelah|sebelum|akan|kalau|jika|bisa|mau|form)\b/i.test(x));
+ const claims=keep.some(p=>!/^\[(FOTO|TEMPLATE|VIDEO):/.test(p)&&PAY_CLAIM.test(p)&&!/metode pembayaran|pilih (salah satu|metode)|payment method/i.test(p)&&!ASKS_METHOD(p));
  // a reply that carries the QR picture itself (a still-valid QRIS sent again) is not an empty claim (ia70188f1, 9 Nov 2026)
  return {parts:keep,removed,dropped,hold:paid===false&&claims&&!hasPic?'The reply says a payment (QRIS, VA, link or invoice) was sent, but no payment was made in this run. Make it with create_payment first, or hand off.':null}}
 
@@ -118,7 +127,7 @@ const RESET=/^(reset|\/reset|mulai baru)$/i;
 const isReset=(line,t)=>RESET.test(t)||(line.resetWords||[]).some(w=>w&&String(t).toLowerCase()===String(w).trim().toLowerCase());
 const tail=n=>'…'+String(n||'').slice(-4);
 
-export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3,pollEvery=20e3,runAgent,describeImage=null,paidSince=null,telegram,teamGroup=async()=>null,tell=async()=>{},problem=null,solved=async()=>{},log=m=>console.log(m),activity=async()=>{},fetchImpl=fetch,now=()=>Date.now(),PUBLIC_URL,wait=ms=>new Promise(r=>setTimeout(r,ms)),maxRuns=2,echoWait=4000,setTimer=setTimeout,clearTimer=clearTimeout}){
+export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3,pollEvery=20e3,runAgent,describeImage=null,paidSince=null,qrSince=null,telegram,teamGroup=async()=>null,tell=async()=>{},problem=null,solved=async()=>{},log=m=>console.log(m),activity=async()=>{},fetchImpl=fetch,now=()=>Date.now(),PUBLIC_URL,wait=ms=>new Promise(r=>setTimeout(r,ms)),maxRuns=2,echoWait=4000,setTimer=setTimeout,clearTimer=clearTimeout}){
  const pub=()=>String(PUBLIC_URL??publicUrl()).replace(/\/+$/,'');   // the address given (tests) or the install's current one
  const ASK_MIN=30;   // minutes a handoff may wait for the team's answer before Health shows it
  const CONF=path.join(DATA,'kirimdev.json'),SEC=path.join(DATA,'kirimdev-secrets.json'),ST=path.join(DATA,'kirimdev-state.json');
@@ -308,9 +317,9 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
   const who=mode==='test'?'WHATSAPP TEST CHAT (customer = a team tester, treat them exactly like a real customer).':'WHATSAPP CHAT with a customer.';
   const q=who+' You are '+line.persona+' for '+line.business+'. Customer WhatsApp number: '+((line.localPrefix?String(p.from||'').replace(new RegExp('^'+String(line.localPrefix.country||'').replace(/\D/g,'')),String(line.localPrefix.local??'')):String(p.from||''))||'unknown')+' (use it for the phone field of the order form; never ask the customer for it). In customer chats you have no shell and no files: read your knowledge sheet with read_sheet and your decisions, briefing and template files with read_file (list_files shows them), this chat with conversation, and make a payment only with create_payment (never .tools/sheet, cat, .tools/kirim, .tools/qris or .tools/pay here). When the customer says they paid, asks if it arrived, or sends a receipt, use check_payment and answer from it: PAID means confirmed, anything else means the team is still checking; never hand that off and never ask for the receipt again. A line like [customer photo: …] is a description of a picture they sent, and a picture never proves a payment. Read your knowledge sheet tabs + decisions file first; for anything they do not cover (product facts, how something works), search your own line\'s past chats with past_chats before you hand off. Conversation so far (oldest first):\n\n'+hist+
    '\n\nNew inbound messages (authoritative even if provider history is delayed):\n'+(p.messages||[]).map(t=>'CUSTOMER: '+(t||'(a photo or file, shown in the conversation above)')).join('\n')+
-   '\n\nWrite ONLY the WhatsApp reply text to send next ('+(line.language?'in '+line.language:'in the customer\'s own language')+', WhatsApp formatting with *bold*, short paragraphs). Do NOT send anything yourself. '+
+   '\n\nWrite ONLY the WhatsApp reply text to send next ('+(line.language?'in '+line.language:'in the customer\'s own language')+', WhatsApp formatting with *bold*, short paragraphs). Do NOT send anything yourself. Output only the message addressed to the customer, never an operator preface, draft commentary, or a statement that you have not sent it. '+
    'If several messages are needed, separate them with a line containing only ---. If this must go to a human (handoff rules), reply exactly: HANDOFF: <reason, and what you already checked (sheet, past chats) and found>';
-  log('kirimdev '+agent+': answering '+p.name);const runAt=now();let out=String(await runAgent(agent,q,{session:conversationSession(agent,line.phoneNumberId,p.conversationId||p.from,epoch),run:{line:line.phoneNumberId,conversation:p.conversationId||'',phone:p.from,mode,tester:isTester(line,{from:p.from,conversationId:p.conversationId||''})||!!st.testerNums[agent+'|'+p.from]}})||'').replace(FOOTER,'').trim();
+  log('kirimdev '+agent+': answering '+p.name);const runAt=now();let out=String(await runAgent(agent,q,{session:conversationSession(agent,line.phoneNumberId,p.conversationId||p.from,epoch),run:{since:epoch,line:line.phoneNumberId,conversation:p.conversationId||'',phone:p.from,mode,tester:isTester(line,{from:p.from,conversationId:p.conversationId||''})||!!st.testerNums[agent+'|'+p.from]}})||'').replace(FOOTER,'').trim();
   if(!out){log('kirimdev '+agent+': the agent wrote nothing');return}
   // a team member replied while the agent was thinking: theirs stands
   await state();if((st.cut[key]||'')!==epoch||pausedUntil(agent,p.conversationId,p.from)>now()||humanAt(agent,p.conversationId,p.from)>=runAt){log('kirimdev '+agent+': conversation reset or a team member answered meanwhile; the agent\'s reply was not sent');return}
@@ -319,7 +328,8 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
    await postHandoff(h,line);return}
   // pictures the agent should send with a recommendation, when it forgets the tags
   if(line.autoPhotos?.pattern&&new RegExp(line.autoPhotos.pattern,'i').test(out)&&!/\[(FOTO|TEMPLATE):/.test(out))out+='\n'+(line.autoPhotos.tags||[]).join('\n');
-  const g=guardReply(splitReply(out),{paid:paidSince?await paidSince(agent,p.from,runAt).catch(()=>null):null});
+  const g=guardReply(splitReply(out),{paid:paidSince?await paidSince(agent,p.from,runAt).catch(()=>null):null,qrPics:qrSince?await qrSince(agent,p.from,runAt).catch(()=>[]):[]});
+  if(g.attached?.length)log('kirimdev '+agent+': the reply promised the QRIS without its picture; attached '+g.attached.join(' '));
   if(g.dropped?.length)log('kirimdev '+agent+': dropped '+g.dropped.length+' note(s) from the reply: '+g.dropped.join(' | ').slice(0,200));
   // a leak: nothing goes to the customer; the reply waits in the Questions topic as a draft (ok / changed text / no)
   if(g.removed.length){log('kirimdev '+agent+': reply HELD, it had '+g.removed.length+' line(s) meant for the team: '+g.removed.join(' | ').slice(0,200));
@@ -395,7 +405,8 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,checkEvery=10*60e3
    const u=urls.find(x=>x.split('/').pop()===name)||urls.find(x=>decodeURIComponent(x.split('?')[0].split('/').pop())===name)||(vm&&urls.find(x=>/\.(mp4|mov)$/i.test(x.split('?')[0])&&decodeURIComponent(x.split('?')[0].split('/').pop()).replace(/\.(mp4|mov)$/i,'')===name));
    if(!u){log('kirimdev '+agent+': no '+(vm?'video':'picture')+' called '+name+' in media/staff/urls.txt; tag dropped');return null}
    if(vm||/\.(mp4|mov)$/i.test(u.split('?')[0])){const cap=vm?.[2]?.trim();body={...base,type:'video',video:{link:u,...(cap?{caption:cap.slice(0,1024)}:{})}}}
-   else body={...base,type:'image',image:{link:u}}}
+   // the "f=/<name>" marker only lets urls.txt match the tag; WhatsApp gets the provider's own link (if734729a)
+   else{const link=u.replace(/([?&])f=\/[^&#]*(&|$)/,(m,a,b)=>b?a:'').replace(/[?&]$/,'');if(link!==u)log('kirimdev '+agent+': picture '+name+' sent as its plain link');body={...base,type:'image',image:{link}}}}
   else{const text=part.replace(FOOTER,'').trim().slice(0,4096);if(!text)return null;body={...base,type:'text',text:{body:text,preview_url:false}}}
   const id=randomUUID();st.outbox[id]={id,agent,pid:String(line.phoneNumberId),to,body,at:now(),status:'pending'};return id}
  // Persist intent before I/O; never replay beyond the provider's bounded idempotency cache.

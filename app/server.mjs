@@ -1377,6 +1377,7 @@ const kirimdev=createKirimdev({DATA,WORK:path.join(homedir(),'workspaces'),PUBLI
  apiKey:async()=>{if(!LIVE_APP)return null;const t=await readFile(path.join(HERMES_HOME,'secrets','kirimdev.env'),'utf8').catch(()=>'');return (/^KIRIMDEV_API_KEY=["']?([^"'\s]+)/m.exec(t)||[])[1]||null},
  runAgent:createKirimdevAgent({DATA,home:homedir(),live:LIVE_APP,customer:()=>customerTools}),describeImage:createImageReader({home:homedir(),live:LIVE_APP}),
  paidSince:(a,ph,t)=>customerTools.paidSince(a,ph,t),
+ qrSince:(a,ph,t)=>customerTools.qrSince(a,ph,t),
  telegram:async(a,chatId,threadId,text)=>{const t=await readFile(path.join(HERMES_HOME,'profiles',a,'.env'),'utf8').catch(()=>'');const tok=(/^TELEGRAM_BOT_TOKEN=["']?([^"'\s]+)/m.exec(t)||[])[1];if(!tok||!LIVE_APP)return false;
   const r=await fetch('https://api.telegram.org/bot'+tok+'/sendMessage',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:chatId,...(threadId?{message_thread_id:threadId}:{}),text:text.slice(0,4000)}),signal:AbortSignal.timeout(30000)}).catch(()=>null);
   const j=r&&r.ok?await r.json().catch(()=>({})):{};return j.ok?(j.result?.message_id||true):false},   // the post's id once Telegram confirmed it

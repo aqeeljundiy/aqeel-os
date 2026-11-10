@@ -61,7 +61,20 @@ export function createPaidLabels({DATA,WORK,label,orders=async()=>null,post=asyn
  const overall=s=>!s.length?'UNKNOWN':s.every(x=>x==='PAID')?'PAID':s.some(x=>x==='PAID')?'PARTLY_PAID':s.some(x=>x==='UNPAID')?'UNPAID':s[0];
  const paymentsOf=async(agent,phone,limit)=>{const ph=String(phone||'').replace(/\D/g,''),t=now();return (await lines(path.join(DATA,'payments.jsonl'))).filter(p=>p.agent===agent&&p.phone===ph&&p.ok&&t-Date.parse(p.at)<7*86400e3).slice(-limit).reverse()};
  const look=async p=>{const card=p.kind==='card',refs=card?await invoices(p.agent,p):await references(p.agent,p);return {refs,states:await Promise.all(refs.map(r=>(card?cardStatus:status)(p.agent,r)))}};
- async function statusFor(agent,phone){return Promise.all((await paymentsOf(agent,phone,3)).map(async p=>{let st='CHECK_FAILED';try{st=overall((await look(p)).states)}catch(e){log('paid check: '+agent+' '+e.message)}return {at:p.at,kind:p.kind||'qris',total:p.total,status:st,...(p.testAmount?{testAmount:true,orderTotal:p.orderTotal}:{})}}))}
+ async function statusFor(agent,phone,scope=null){return serial(async()=>{
+  let mine=await paymentsOf(agent,phone,Number.MAX_SAFE_INTEGER);const db=await readJson(F,{done:{}});db.confirmed||={};
+  if(scope){
+   if(!scope.conversation||!scope.line||!scope.run)return [];
+   mine=mine.filter(p=>p.conversation===scope.conversation&&String(p.line)===String(scope.line)&&(!scope.since||Date.parse(p.at)>=Date.parse(scope.since))).slice(0,1);
+   mine=mine.filter(p=>!db.confirmed[p.agent+'|'+p.at+'|'+p.total]||db.confirmed[p.agent+'|'+p.at+'|'+p.total]===scope.run);
+  }else mine=mine.slice(0,3);
+  let changed=false;const result=[];
+  for(const p of mine){let st='CHECK_FAILED';try{st=overall((await look(p)).states)}catch(e){log('paid check: '+agent+' '+e.message)}
+   if(scope&&st==='PAID'){db.confirmed[p.agent+'|'+p.at+'|'+p.total]=scope.run;changed=true}
+   result.push({at:p.at,kind:p.kind||'qris',total:p.total,status:st,...(p.testAmount?{testAmount:true,orderTotal:p.orderTotal}:{})});
+  }
+  if(changed)await put(db);return result;
+ })}
  // post_order: the newest paid payment of this customer that has no post yet
  const postOrder=(agent,phone,form,ctx=null)=>serial(async()=>{const mine=await paymentsOf(agent,phone,3);if(!mine.length)return {posted:false,why:'No payment was made through you for this customer.'};
   const db=await readJson(F,{done:{}});db.done||={};let seen=false;

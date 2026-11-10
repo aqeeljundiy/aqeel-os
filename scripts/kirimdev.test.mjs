@@ -266,4 +266,4 @@ test('[VIDEO: name] goes as a real video with caption; .mp4 via FOTO too; a miss
 test('[FOTO: name] finds a Tripay link whose name sits after ?f= (regression i9530ba20)',async()=>{const t=await make({agentSays:'Silakan bayar kak\n[FOTO: qris-BM-1794214604-1.png]'});
  await writeFile(path.join(t.DATA,'work','cove-support','media','staff','urls.txt'),'https://media.kirimdev.com/x/Kit.jpeg\nhttps://tripay.co.id/qr/show?f=/qris-BM-1794214604-1.png\n');
  await t.post(meta('628123','bayar'));await t.settle();
- assert.deepEqual(t.sent.map(b=>b.type),['text','image']);assert.equal(t.sent[1].image.link,'https://tripay.co.id/qr/show?f=/qris-BM-1794214604-1.png')});
+ assert.deepEqual(t.sent.map(b=>b.type),['text','image']);assert.equal(t.sent[1].image.link,'https://tripay.co.id/qr/show')});  // the ?f= marker is only for matching; WhatsApp gets Tripay's own link (if734729a)

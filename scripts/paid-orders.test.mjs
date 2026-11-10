@@ -19,7 +19,7 @@ async function make({orders={chatId:-100123,threadId:101,persona:'Sam',currency:
  const W=await mkdtemp(path.join(tmpdir(),'po-')),D=path.join(W,'data');await mkdir(path.join(W,A,'.secrets'),{recursive:true});await mkdir(D,{recursive:true});await writeFile(path.join(W,A,'.secrets','TRIPAY_API_KEY'),'k');
  const posts=[],labels=[],alerts=[],state={v:'UNPAID'};let t=Date.parse('2026-11-08T05:00:00Z');
  const P=createPaidLabels({DATA:D,WORK:W,log:()=>{},failed:async(...a)=>{alerts.push(a)},now:()=>t,fetchImpl:tripay(state),orders:async()=>orders,post:post||(async(a,o,text)=>{posts.push([a,o,text]);return 77}),label:async(a,o)=>{labels.push([a,o]);return {set:true,changed:['+Customer']}}});
- const pay=(o={})=>appendFile(path.join(D,'payments.jsonl'),JSON.stringify({at:new Date(t-60e3).toISOString(),agent:A,conversation:'cnv_1',phone:PHONE,mode:'live',run:'r1',kind:'qris',amounts:[1187500],total:1187500,products:['S-MotsC'],refs:[REF],orders:[],name:'Nadia',form:'Nama: Nadia\nProduk: Widget',ok:true,...o})+'\n');
+ const pay=(o={})=>appendFile(path.join(D,'payments.jsonl'),JSON.stringify({at:new Date(t-60e3).toISOString(),agent:A,line:'1',conversation:'cnv_1',phone:PHONE,mode:'live',run:'r1',kind:'qris',amounts:[1187500],total:1187500,products:['S-MotsC'],refs:[REF],orders:[],name:'Nadia',form:'Nama: Nadia\nProduk: Widget',ok:true,...o})+'\n');
  return {W,D,P,posts,labels,alerts,state,pay,later:ms=>{t+=ms}}}
 
 test('one bracketed note about a photo is dropped and the rest goes out (DRAFT #32)',()=>{
@@ -35,7 +35,7 @@ test('a VA has its own limit, above the QRIS limit',async()=>{
  const t=TOOLS('pay',{min:10000,max:5000000},{},false).find(x=>x.name==='create_payment');assert.equal(t.inputSchema.properties.amounts.items.maximum,DEFAULT_VA_MAX);
  const W=await mkdtemp(path.join(tmpdir(),'va-')),D=path.join(W,'d');await mkdir(path.join(W,A,'.tools'),{recursive:true});await writeFile(path.join(W,A,'.tools','pay'),'x');const ran=[];
  const C=createCustomerTools({WORK:W,DATA:D,payRules:async()=>({min:10000,max:5000000}),googleCall:async()=>({}),chatFind:async()=>({}),history:async()=>'',log:()=>{},runAsAgent:async(a,tool,argv)=>{ran.push(argv);return {ok:true,out:'sent'}}});
- const tok=C.begin({agent:A,line:'1',conversation:'c',phone:PHONE,mode:'test'});
+ const tok=C.begin({agent:A,line:'1',conversation:'cnv_1',phone:PHONE,mode:'test'});
  assert.equal((await C.call(A,tok,'create_payment',{kind:'va',bank:'BRI',amounts:[5700000],name:'N',order_total:5700000,order_form:FORM})).text,'sent');
  assert.ok((await C.call(A,tok,'create_payment',{kind:'qris',amounts:[5700000],name:'N',order_total:5700000,order_form:FORM})).isError);
  assert.ok((await C.call(A,tok,'create_payment',{kind:'va',bank:'BRI',amounts:[10000001],name:'N',order_total:10000001,order_form:FORM})).isError);
@@ -44,8 +44,25 @@ test('a VA has its own limit, above the QRIS limit',async()=>{
 test('check_payment answers for this customer only, from the provider',async()=>{const s=await make();await s.pay();await s.pay({phone:'628111111111',total:999});
  assert.deepEqual((await s.P.statusFor(A,PHONE)).map(x=>[x.total,x.status]),[[1187500,'UNPAID']]);s.state.v='PAID';
  assert.equal((await s.P.statusFor(A,PHONE))[0].status,'PAID');assert.deepEqual(await s.P.statusFor(A,'620000000'),[]);
- const C=createCustomerTools({WORK:s.W,DATA:s.D,payments:s.P,googleCall:async()=>({}),chatFind:async()=>({}),history:async()=>'',log:()=>{},runAsAgent:async()=>({})});const tok=C.begin({agent:A,line:'1',conversation:'c',phone:PHONE,mode:'live'});
+ const C=createCustomerTools({WORK:s.W,DATA:s.D,payments:s.P,googleCall:async()=>({}),chatFind:async()=>({}),history:async()=>'',log:()=>{},runAsAgent:async()=>({})});const tok=C.begin({agent:A,line:'1',conversation:'cnv_1',phone:PHONE,mode:'live'});
  assert.match((await C.call(A,tok,'check_payment',{})).text,/1,187,500: PAID/);for(let i=0;i<4;i++)await C.call(A,tok,'check_payment',{});assert.ok((await C.call(A,tok,'check_payment',{})).isError)});
+
+test('payment checks never reuse an earlier conversation, reset or confirmed order (ie33cf6cd)',async()=>{
+ const s=await make();s.state.v='PAID';await s.pay({line:'1'});
+ const scope={line:'1',conversation:'cnv_1',since:'2026-11-08T04:00:00Z',run:'new-run'};
+ assert.deepEqual(await s.P.statusFor(A,PHONE,{...scope,conversation:'other'}),[]);
+ assert.deepEqual(await s.P.statusFor(A,PHONE,{...scope,since:'2026-11-08T05:00:00Z'}),[]);
+ assert.equal((await s.P.statusFor(A,PHONE,scope))[0].status,'PAID');
+ assert.deepEqual(await s.P.statusFor(A,PHONE,{...scope,run:'next-order'}),[]);
+ assert.equal((await s.P.statusFor(A,PHONE,scope))[0].status,'PAID','same run can retry');
+ await s.pay({line:'1',at:'2026-11-08T05:00:00Z',refs:[]});
+ assert.equal((await s.P.statusFor(A,PHONE,{...scope,run:'next-order'}))[0].status,'UNKNOWN','never fall back to old PAID');
+ const C=createCustomerTools({WORK:s.W,DATA:s.D,payments:s.P,log:()=>{}});
+ const token=C.begin({agent:A,line:'1',conversation:'cnv_1',phone:PHONE,since:'2026-11-08T05:01:00Z'});
+ const reply=await C.call(A,token,'check_payment');
+ assert.match(reply.text,/No payment made for this order yet/);
+ assert.doesNotMatch(reply.text,/: PAID/);
+});
 
 test('a paid order is posted once with its form, nothing before it is paid',async()=>{const s=await make();await s.pay();
  await s.P.tick();assert.equal(s.posts.length,0);s.state.v='PAID';await s.P.tick();await s.P.tick();
@@ -67,7 +84,7 @@ test('buyer context: auto-post carries past_use and setup from the payment, or n
  const u=await make();await u.pay();u.state.v='PAID';await u.P.tick();assert.match(u.posts[0][2],/Past use: not asked\n- Setup: not asked/);assert.equal(u.alerts.length,1);assert.equal(u.alerts[0][0],A)});
 test('post_order requires past_use and setup and posts them',async()=>{const s=await make();await s.pay();s.state.v='PAID';
  const at=JSON.parse((await readFile(path.join(s.D,'payments.jsonl'),'utf8')).trim()).at;await writeFile(path.join(s.D,'paid-labels.json'),JSON.stringify({done:{[A+'|'+at+'|1187500']:{state:'labelled',at:Date.now()}}}));
- const C=createCustomerTools({WORK:s.W,DATA:s.D,payments:s.P,payRules:async()=>({orderContext:CTX}),googleCall:async()=>({}),chatFind:async()=>({}),history:async()=>'',log:()=>{},runAsAgent:async()=>({})});const tok=C.begin({agent:A,line:'1',conversation:'c',phone:PHONE,mode:'live'});
+ const C=createCustomerTools({WORK:s.W,DATA:s.D,payments:s.P,payRules:async()=>({orderContext:CTX}),googleCall:async()=>({}),chatFind:async()=>({}),history:async()=>'',log:()=>{},runAsAgent:async()=>({})});const tok=C.begin({agent:A,line:'1',conversation:'cnv_1',phone:PHONE,mode:'live'});
  assert.ok((await C.call(A,tok,'post_order',{order_form:'Nama: Nadia',past_use:'Never'})).isError);assert.equal(s.posts.length,0);
  assert.equal((await C.call(A,tok,'post_order',{order_form:'Nama: Nadia',past_use:'Never',setup:'Kit: assisted'})).text,'Posted to the Orders topic.');
  assert.match(s.posts[0][2],/Past use: Never\n- Setup: Kit: assisted/);
@@ -78,5 +95,5 @@ test('a reserved or malformed key is not an order detail',()=>{assert.deepEqual(
 
 test('check_payment marks a tester\'s test-amount QRIS as standing for the full order (i9530ba20)',async()=>{const s=await make();await s.pay({total:10000,amounts:[10000],testAmount:true,orderTotal:955000});s.state.v='PAID';
  const st=await s.P.statusFor(A,PHONE);assert.deepEqual(st.map(x=>[x.total,x.status,x.testAmount,x.orderTotal]),[[10000,'PAID',true,955000]]);
- const C=createCustomerTools({WORK:s.W,DATA:s.D,payments:s.P,googleCall:async()=>({}),chatFind:async()=>({}),history:async()=>'',log:()=>{},runAsAgent:async()=>({})});const tok=C.begin({agent:A,line:'1',conversation:'c',phone:PHONE,mode:'test',tester:true});
+ const C=createCustomerTools({WORK:s.W,DATA:s.D,payments:s.P,googleCall:async()=>({}),chatFind:async()=>({}),history:async()=>'',log:()=>{},runAsAgent:async()=>({})});const tok=C.begin({agent:A,line:'1',conversation:'cnv_1',phone:PHONE,mode:'test',tester:true});
  const x=(await C.call(A,tok,'check_payment',{})).text;assert.match(x,/10,000: PAID \(TEST payment/);assert.match(x,/955,000/);assert.match(x,/send your payment-confirmed message right away/)});
