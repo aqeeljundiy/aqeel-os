@@ -1623,3 +1623,9 @@ Object.assign(ID,{
 }
 // the run status bar's own word ("Working" alone already means "it works" elsewhere)
 Object.assign(ID,{'Working on it':'Sedang dikerjakan'});
+// the Connections panel and list rows: the lines seen most (10 Nov 2026, checked on screen)
+Object.assign(ID,{'Edit name':'Ubah nama','Recent actions':'Tindakan terakhir','Pause for every agent':'Jeda untuk semua agen',
+ 'Google refuses anything above an agent’s level at once.':'Google langsung menolak apa pun di atas level agen.',
+ 'Your Google account: Gmail, Drive, Sheets, Docs, Calendar':'Akun Google-mu: Gmail, Drive, Sheets, Docs, Calendar','Plugin':'Plugin',});
+{const ty={Skill:'Keahlian',Plugin:'Plugin',Key:'Kunci',App:'Aplikasi','Login as you':'Masuk sebagai kamu'};
+ ID_PATTERNS.push([/^(Skill|Plugin|Key|App|Login as you) · (.+)$/,(m,a,b)=>ty[a]+' · '+b],[/^Last used (.+)$/,'Terakhir dipakai $1'],[/^Not used in the last days$/,'Tidak dipakai beberapa hari terakhir'])}
