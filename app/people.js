@@ -170,19 +170,19 @@ ACT['agent-locked']=a=>toast('This agent is private to '+(a.dataset.owner||'its 
 ACT['agent-share']=(name,opt={})=>editAgent(name,'Sharing',opt);
 async function shareInto(box,name,opt={}){const gone=pageRun(box);let people=[];try{people=await UI('/ui/people/list')}catch(e){if(!gone())box.innerHTML=errLine('the people this agent can be shared with');return}
  const o=(await UI('/ui/agents?names='+encodeURIComponent(name)).catch(()=>({})))[name]||{};if(gone())return;const others=people.filter(x=>x.id!==o.owner?.id);
- const lv=(cur,extra='')=>Object.entries(LEVEL_LABEL).map(([k,v])=>`<option value="${k}" ${k===cur?'selected':''}>${v}</option>`).join('')+extra;
- const notYet=others.filter(x=>!(o.shared||[]).some(s=>s.id===x.id)),pre=notYet.some(x=>x.id===opt.add)?opt.add:'';
- box.innerHTML=`<label>Owner</label><div class="pshare">${personAva(o.owner,28)}<b>${esc(o.owner?.name||'Nobody yet')}</b>${others.length?`<select style="width:auto;margin-left:auto" id="ashOwner" aria-label="Give it to someone else"><option value="">Keep as owner</option>${others.map(x=>`<option value="${esc(x.id)}">Give to ${esc(x.name)}</option>`).join('')}</select>`:''}</div>
-  <label>Shared with</label>${(o.shared||[]).map(s=>`<div class="pshare">${personAva(s,28)}<b>${esc(s.name)}</b><select style="width:auto;margin-left:auto" data-ash="${esc(s.id)}" aria-label="What ${esc(s.name)} may do">${lv(s.level,'<option value="">Remove</option>')}</select></div>`).join('')||'<p class="hint" style="margin:4px 0 0">Nobody yet.</p>'}
-  ${notYet.length?`<label>Add someone</label><div class="pshare ash-add"><select id="ashWho" aria-label="Who">${notYet.map(x=>`<option value="${esc(x.id)}" ${x.id===pre?'selected':''}>${esc(x.name)} (@${esc(x.username)})</option>`).join('')}</select><select style="width:auto" id="ashLvl" aria-label="What they may do">${lv('chat')}</select><button type="button" id="ashAdd">Add</button></div>`:''}
-  <p class="hint" style="margin-top:16px">Giving the agent away makes the new person its owner; you keep Can edit.</p>`;
- box.querySelectorAll('select').forEach(s=>typeof enhanceSelect==='function'&&enhanceSelect(s));
- // one change at a time; the tab draws again with what the server now says
- const call=async(path,body,msg)=>{const ctl=[...box.querySelectorAll('select,button')];ctl.forEach(c=>{c.disabled=true;c._sync?.()});
-  try{await UI('/ui/agents/'+encodeURIComponent(name)+path,{method:'PUT',body});toast(msg);if(route().page?.id==='profiles'||route().page?.id==='people')laterReload(400);if(box.isConnected)shareInto(box,name)}catch(e){fail(e);ctl.forEach(c=>{c.disabled=false;c._sync?.()})}};
- box.querySelectorAll('[data-ash]').forEach(s=>s.onchange=()=>call('/share',{user:s.dataset.ash,level:s.value},s.value?'Updated':'No longer shared'));
- box.querySelector('#ashAdd')?.addEventListener('click',()=>call('/share',{user:box.querySelector('#ashWho').value,level:box.querySelector('#ashLvl').value},'Shared'));
- box.querySelector('#ashOwner')?.addEventListener('change',async e=>{if(!e.target.value)return;const who=others.find(x=>x.id===e.target.value);if(!await confirmBox('Give '+ident(name).name+' to '+who.name+'?','They become its owner. You keep Can edit.','Give it away',false)){e.target.value='';e.target._sync?.();return}call('/owner',{user:who.id},who.name+' owns '+ident(name).name+' now')})}
+ const notYet=others.filter(x=>!(o.shared||[]).some(s=>s.id===x.id));
+ // the same block as every other "who can use this" (access-block.js): people as chips, each with what they may do
+ const call=async(path,body,msg)=>{await UI('/ui/agents/'+encodeURIComponent(name)+path,{method:'PUT',body});toast(msg);if(route().page?.id==='profiles'||route().page?.id==='people')laterReload(400);if(box.isConnected)shareInto(box,name)};
+ // People › Share an agent: the person picked there is added straight away, at Can chat
+ if(opt.add&&notYet.some(x=>x.id===opt.add)){try{await call('/share',{user:opt.add,level:'chat'},'Shared with '+notYet.find(x=>x.id===opt.add).name+' · Can chat')}catch(e){fail(e)}return}
+ box.innerHTML=`<label>Who can use ${esc(ident(name).name)}</label><div class="ab-host"></div><p class="hint" style="margin-top:14px">Click a person to make them the owner; you keep Can edit.</p>`;
+ AccessBlock.live(box.querySelector('.ab-host'),{owner:o.owner?{id:o.owner.id,name:o.owner.name,ava:personAva(o.owner,20)}:null,ownerNote:'Owner',levels:{chat:LEVEL_LABEL.chat,edit:LEVEL_LABEL.edit},
+  items:(o.shared||[]).map(s=>({id:s.id,name:s.name,ava:personAva(s,20),level:s.level})),
+  choices:notYet.map(x=>({id:x.id,name:x.name,sub:'@'+x.username,ava:personAva(x,22)})),addLabel:'Add person',search:'Search people',
+  onAdd:u=>call('/share',{user:u,level:'chat'},'Shared · Can chat'),
+  onLevel:(u,l)=>call('/share',{user:u,level:l},'Updated'),
+  onRemove:u=>call('/share',{user:u,level:''},'No longer shared'),
+  onOwner:async u=>{const who=others.find(x=>x.id===u);if(!await confirmBox('Give '+ident(name).name+' to '+who.name+'?','They become its owner. You keep Can edit.','Give it away',false))return;await call('/owner',{user:u},who.name+' owns '+ident(name).name+' now')}})}
 
 async function mailPanel(){const box=$('#mailBox');if(!box)return;let m;try{m=await UI('/ui/mail')}catch(e){if(box.isConnected)box.innerHTML='<p class="hint">Only admins can change this.</p>';return}if(!box.isConnected)return;   // the page was drawn again meanwhile
  box.innerHTML=`<label>Send email</label><select id="mlMode"><option value="direct" ${m.mode==='direct'?'selected':''}>Straight from the server (free, often in spam)</option><option value="smtp" ${m.mode==='smtp'?'selected':''}>Through a mail account (reliable)</option></select>

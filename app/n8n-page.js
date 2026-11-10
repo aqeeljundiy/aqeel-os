@@ -33,9 +33,13 @@ const N8N={};
 const N8N_OWN={own:true,ownerName:'aqeelOS',ownNote:'every agent has its own n8n user'};
 ACT['n8n-open']=async a=>{const w=window.open('about:blank','_blank');try{const r=await post(UI,'/ui/n8n/open',a.dataset.owner?{owner:true}:{agent:a.dataset.space});if(w)w.location=r.url;else window.open(r.url,'_blank')}catch(e){w?.close();fail(e)}};
 ACT['n8n-more']=a=>menu(a,[{label:'Open in a new tab',icon:'popout',run:()=>ACT['n8n-open'](a)},N8N.d?.canEdit&&{label:'Who can use',icon:'user',run:()=>ACT['n8n-who'](a)}].filter(Boolean));
-// who can use a space: the owner always, others with one switch each
+// who can use a space: the owner always, others as chips (the same block as every other "who can use this")
 ACT['n8n-who']=a=>{const d=N8N.d;const x=d?.spaces.find(s=>s.agent===a.dataset.space);if(!x)return;
- const dr=drawer('Who can use '+x.name+'’s n8n',`<p class="hint" style="margin:0 0 14px">${esc(x.name)} owns this n8n space. Agents you turn on get a second n8n tool that works in ${esc(x.name)}’s space, so they can find and run its workflows. The agents restart by themselves once nobody is mid-reply.</p>
-  <div class="share-agents">${d.agents.map((g,i)=>{const owner=g.id===x.agent,on=owner||x.shared.includes(g.id);return `<div class="share-row${owner?' has':''}" ${st(i)}>${Access.av(g,34)}<span class="txt"><b>${esc(g.name)}</b><span>${owner?'Owner':on?'Can use it':'Not yet'}</span></span>${owner?'<span class="chip blue">Owner</span>':''}${toggle(on,g.name,'data-ag="'+esc(g.id)+'"'+(owner||!d.canEdit?' disabled':''))}</div>`}).join('')}</div>`,`<button class="primary" data-act="close">Done</button>`);
+ const dr=drawer('Who can use '+x.name+'’s n8n',`<p class="hint" style="margin:0 0 14px">${esc(x.name)} owns this n8n space. Agents you add get a second n8n tool that works in ${esc(x.name)}’s space, so they can find and run its workflows. The agents restart by themselves once nobody is mid-reply.</p><div class="ab-host"></div>`,`<button class="primary" data-act="close">Done</button>`);
  let changed=false;const mo=new MutationObserver(()=>{if(!dr.isConnected){mo.disconnect();if(changed)reload()}});mo.observe(document.body,{childList:true,subtree:true});
- dr.querySelectorAll('input[data-ag]:not([disabled])').forEach(c=>c.onchange=async()=>{c.disabled=true;try{await post(UI,'/ui/n8n/share',{space:x.agent,agent:c.dataset.ag,on:c.checked});changed=true;c.closest('.share-row').querySelector('.txt span').textContent=c.checked?'Can use it':'Not yet';toast(x.name+'’s n8n'+(c.checked?' on for ':' removed from ')+ident(c.dataset.ag).name+' · ready in about a minute')}catch(e){c.checked=!c.checked;fail(e)}finally{c.disabled=false}})};
+ const nm=g=>d.agents.find(y=>y.id===g)?.name||ident(g).name;
+ const draw=()=>{const host=dr.querySelector('.ab-host');if(!host)return;AccessBlock.live(host,{owner:{id:x.agent,name:x.name},ownerNote:'Owner',locked:!d.canEdit,
+  items:x.shared.map(g=>({id:g,name:nm(g)})),choices:d.agents.filter(g=>g.id!==x.agent&&!x.shared.includes(g.id)).map(g=>({id:g.id,name:g.name})),
+  onAdd:async g=>{await post(UI,'/ui/n8n/share',{space:x.agent,agent:g,on:true});changed=true;x.shared.push(g);toast(x.name+'’s n8n on for '+nm(g)+' · ready in about a minute');draw()},
+  onRemove:async g=>{await post(UI,'/ui/n8n/share',{space:x.agent,agent:g,on:false});changed=true;x.shared=x.shared.filter(y=>y!==g);toast(x.name+'’s n8n removed from '+nm(g)+' · ready in about a minute');draw()}})};
+ draw()};

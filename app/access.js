@@ -35,16 +35,19 @@ const Access={
  failed(el,what){if(!el.isConnected||el.querySelector('.acc-fail'))return;const t=el.querySelector('.tabs,[role=tablist]');const h=errLine(what,'','acc-fail');t?t.insertAdjacentHTML('afterend',h):el.insertAdjacentHTML('afterbegin',h)},
  async open(kind,id){const data=await this.load(kind);const it=data?.items.find(x=>x.id===id);if(!it)return toast('That connection is gone. Reload the page.','err');
   const what={mcp:'with the same sign-in',google:'with the same Google sign-in',plugin:'turned on',key:'with the same value (still hidden)'}[kind];
-  const d=drawer('Who can use '+it.label,`<p class="hint" style="margin:0 0 14px">${it.bot?'A chat bot answers as one agent only, so it can’t be shared.':`Belongs to ${esc(it.ownerName)}. Turning another agent on gives it ${esc(it.label)} ${what}; turning it off takes it away. ${kind==='google'?'It works straight away.':'The agents restart by themselves once nobody is mid-reply.'}`}</p>
-   <div class="share-agents">${data.agents.map((a,i)=>{const u=it.users.find(x=>x.id===a.id),owner=a.id===it.owner;return `<div class="share-row${owner?' has':''}" ${st(i)}>${this.av(a,34)}<span class="txt"><b>${esc(a.name)}</b><span>${owner?'Owner':u?(u.signed?'Can use it':signChip()):'Not yet'}</span></span>${owner?'<span class="chip blue">Owner</span>':u&&!it.bot?`<button class="ghost small" data-own="${esc(a.id)}">Make owner</button>`:''}${toggle(!!u,a.name,'data-ag="'+esc(a.id)+'"'+(owner||it.bot?' disabled':''))}</div>`}).join('')}</div>`,`<button class="primary" data-act="close">Done</button>`);
+  const d=drawer('Who can use '+it.label,`<p class="hint" style="margin:0 0 14px">${it.bot?'A chat bot answers as one agent only, so it can’t be shared.':`Adding an agent gives it ${esc(it.label)} ${what}; removing it takes it away. ${kind==='google'?'It works straight away.':'The agents restart by themselves once nobody is mid-reply.'} Click an agent to make it the owner.`}</p><div class="ab-host"></div>`,`<button class="primary" data-act="close">Done</button>`);
   let changed=false;const mo=new MutationObserver(()=>{if(!d.isConnected){mo.disconnect();if(changed)reload()}});mo.observe(document.body,{childList:true,subtree:true});
-  d.querySelectorAll('.share-agents input[data-ag]').forEach(c=>c.onchange=async()=>{const name=data.agents.find(a=>a.id===c.dataset.ag)?.name,u=it.users.find(x=>x.id===c.dataset.ag);
-   // switching off removes that agent's copy of a sign-in: asked first, like every other Remove
-   if(!c.checked&&u?.signed&&(kind==='mcp'||kind==='google')&&!await confirmBox('Take '+it.label+' from '+name+'?','Its sign-in on '+name+' is removed. '+name+' can’t use '+it.label+' until it is turned on here again.','Take it away')){c.checked=true;return}
-   c.disabled=true;const sp=c.closest('.share-row')?.querySelector('.txt span'),was=sp?.innerHTML;if(sp)sp.innerHTML='<span class="spinner tiny"></span>'+(c.checked?'Sharing…':'Taking it away…');
-   try{await post(UI,'/ui/access',{kind,id,agent:c.dataset.ag,on:c.checked});changed=true;if(sp)sp.textContent=c.checked?'Can use it':'Not yet';
-    toast(it.label+(c.checked?' on for ':' removed from ')+name+(kind==='google'?' · works at once':' · ready in about a minute'))}catch(e){c.checked=!c.checked;if(sp)sp.innerHTML=was;fail(e)}finally{c.disabled=false}});
-  d.querySelectorAll('[data-own]').forEach(b=>b.onclick=async()=>{const to=b.dataset.own;if(!await this.moveOk(it,to))return;try{await post(UI,'/ui/access/owner',{kind,id,agent:to});closeLayers();toast(ident(to).name+' now owns '+it.label);reload()}catch(e){fail(e)}})},
+  const nm=a=>data.agents.find(x=>x.id===a)?.name||ident(a).name;
+  const draw=async fresh=>{if(fresh){const dd=await this.load(kind);const cur=dd?.items.find(x=>x.id===id);if(cur)Object.assign(it,cur)}const host=d.querySelector('.ab-host');if(!host)return;
+   AccessBlock.live(host,{owner:{id:it.owner,name:nm(it.owner)},ownerNote:'Owner',locked:!!it.bot,
+    items:it.users.map(u=>({id:u.id,name:u.name||nm(u.id),note:u.signed?'':'needs sign-in'})),
+    choices:data.agents.filter(a=>a.id!==it.owner&&!it.users.some(u=>u.id===a.id)).map(a=>({id:a.id,name:a.name})),
+    onAdd:async a=>{await post(UI,'/ui/access',{kind,id,agent:a,on:true});changed=true;toast(it.label+' on for '+nm(a)+(kind==='google'?' · works at once':' · ready in about a minute'));await draw(true)},
+    // taking a sign-in away removes that agent's copy: asked first, like every other Remove
+    onRemove:async a=>{const u=it.users.find(x=>x.id===a);if(u?.signed&&(kind==='mcp'||kind==='google')&&!await confirmBox('Take '+it.label+' from '+nm(a)+'?','Its sign-in on '+nm(a)+' is removed. '+nm(a)+' can’t use '+it.label+' until it is added here again.','Take it away'))return;
+     await post(UI,'/ui/access',{kind,id,agent:a,on:false});changed=true;toast(it.label+' removed from '+nm(a));await draw(true)},
+    onOwner:async a=>{if(!await this.moveOk(it,a))return;await post(UI,'/ui/access/owner',{kind,id,agent:a});closeLayers();toast(nm(a)+' now owns '+it.label);reload()}})};
+  draw()},
  // a new owner, asked the same way everywhere (the Channels wording): its sign-in goes along, and it gets the thing first if it has none
  moveOk(it,to){const n=ident(to).name,has=it.users.some(u=>u.id===to);return confirmBox('Move this to '+n+'?',has?'Its sign-in goes along: '+n+' owns '+it.label+' from now on and decides who else can use it.':n+' gets '+it.label+' first, with the same sign-in, then owns it from now on.','Move',false)},
  // removing a connection from one agent: the owner's copy goes only once nobody else uses it (hand it over first);
