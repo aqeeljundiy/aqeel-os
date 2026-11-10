@@ -109,23 +109,50 @@ const HealthIssues={
  ST:{queued:'Queued',fixing:'Being fixed',applying:'Waiting to reload safely',rollback:'Putting the change back',verify:'Proof run next',verifying:'Proving the fix','reloaded-back':'Put back',
   fixed:'Fixed and proven',needs_human:'Needs a person',stuck:'Stuck after 3 tries',gone:'Resolved by itself',expired:'Closed after 7 days',open:'Waiting (fixer off)',declined:'Declined',failed:'Fix failed',closed:'Closed',stopped:'Stopped retrying',deploy:'Fix waits for the daily deploy'},
  END:['fixed','declined','gone','closed','expired'],RUN:['fixing','applying','verify','verifying','rollback','reloaded-back'],
+ // raw internals that never lead a line: key names, ids, exit codes, versions, errors, paths
+ RAW:/\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b|\bexit (?:code )?\d+\b|\bv\d+\.\d+|\b[A-Z]\w*(?:Error|Exception)\b|Traceback|\bHTTP \d{3}\b|(?:^|\s)[~.]?\/[\w.-]+\/|\b[a-z0-9]+(?:-[a-z0-9]+){2,}\b|\b(?:[Ss]kill|[Pp]lugin) [a-z0-9]+[-_][\w-]+/,
+ // a plain title for an issue (10 Nov 2026 audit: "Skill process-aqeel-statements…", "PIXEL_SLACK_BOT_TOKEN", "Engine
+ // v0.23.0"); text that is already plain stays as it is
+ plain(m,ag){m=String(m||'').trim();if(!m)return 'Something needs a look';if(!HealthIssues.RAW.test(m))return m[0].toUpperCase()+m.slice(1);
+  const parts=m.split(/\s*;\s*/).filter(Boolean),one=p=>{const SV={slack:'Slack',telegram:'Telegram',discord:'Discord',whatsapp:'WhatsApp',github:'GitHub',notion:'Notion',google:'Google',openai:'OpenAI',anthropic:'Anthropic',elevenlabs:'ElevenLabs'};
+   const svc=(/(?:^|[^a-z])(slack|telegram|discord|whatsapp|github|notion|google|openai|anthropic|elevenlabs)(?![a-z])/i.exec(p)||[])[1]||'';
+   const S_=svc?SV[svc.toLowerCase()]+' ':'',who=ag?' for '+ag:'';
+   if(/\bno (?:clear )?(?:one-line )?description\b/i.test(p))return /^\s*key\b/i.test(p)?'A '+S_+'key has no description':/^\s*skill\b/i.test(p)?'A skill has no description':'Something has no description';
+   if(/\bkey\b|_(?:TOKEN|KEY|SECRET)\b/i.test(p)&&/stop|invalid|revok|expir|fail|denied|401|403|unauth|not work|rejected/i.test(p))return 'A '+S_+'key'+who+' stopped working';
+   if(/\bkey\b|_(?:TOKEN|KEY|SECRET)\b/i.test(p)&&/missing|not set|not there|no value|empty/i.test(p))return 'A '+S_+'key'+who+' is missing';
+   if(/\bskill\b/i.test(p)&&/load|fail|error|broken|crash/i.test(p))return 'A skill failed to load';
+   if(/\bskill\b/i.test(p)&&/file that is not there|missing file|not found/i.test(p))return 'A skill points to a file that is missing';
+   if(/\bengine\b.*\bv?\d+\.\d+/i.test(p)&&/ready|available|install/i.test(p))return 'An engine update is ready to install';
+   if(/\bengine\b.*\bv?\d+\.\d+/i.test(p)&&/fail/i.test(p))return 'An engine update failed';
+   if(/\bplugin\b/i.test(p)&&/load|fail|error/i.test(p))return 'A plugin failed to load';
+   if(/\b(?:tool server|mcp)\b/i.test(p))return 'A tool server stopped answering';
+   // nothing known: the sentence with its internals taken out
+   let s=p.replace(/\s*\([^)]*\)/g,'').replace(/\bkey [A-Z][A-Z0-9_]+\b/gi,'a key').replace(/\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b/g,'a key').replace(/\b(skill|plugin|tool|file) [\w./-]+/gi,'a $1').replace(/\bv?\d+\.\d+(?:\.\d+)*\b/g,'a new version').replace(/\s*\bexit (?:code )?\d+\b/gi,'').replace(/\s+/g,' ').trim();
+   return s?s[0].toUpperCase()+s.slice(1):'Something needs a look'};
+  const l=[...new Set(parts.map(one))];return l.length>2?l[0]+', and '+(l.length-1)+' more things':l.join('. ')},
  draw(box,d,again){const it=d.items||[],esc2=d.escalations?.agents||{},names={};for(const i of it)names[i.agent]=i.agentName;HealthIssues.agents=d.agents||[];
   const rows=Object.entries(esc2);const t=(x)=>esc(String(x??''));const cut=(x,n)=>{x=String(x||'');return x.length>n?x.slice(0,n)+'…':x};
   const escHtml=rows.length?'<div class="card list" style="margin-bottom:14px"><div class="list-head">Team had to go to the main agent (this week · last week)</div>'+rows.map(([a,v])=>'<div class="row"><div class="main-c"><div class="txt"><b>'+t(names[a]||a)+'</b><span>'+v.thisWeek+' this week · '+v.lastWeek+' last week'+(v.examples?.length?', e.g. “'+t(v.examples[0])+'”':'')+'</span></div></div></div>').join('')+'</div>':'';
   const END=HealthIssues.END,RUN=HealthIssues.RUN,open=it.filter(i=>!END.includes(i.state)),done=it.filter(i=>END.includes(i.state)).slice(0,8);
   const from=i=>i.source==='health'?'found by Health':i.byName?'asked by '+i.byName:'filed by the agent';
-  const btn=(k,id,label)=>'<button class="ghost small" data-iss="'+k+'" data-id="'+t(id)+'">'+label+'</button>';
-  const row=i=>{const bits=[HealthIssues.ST[i.state]||i.state];if(i.tries&&!END.includes(i.state)&&i.state!=='stopped')bits.push('try '+i.tries+' of 3');bits.push(from(i));
+  // real small buttons (10 Nov 2026 audit: they read as plain text); Close stays the quiet one
+  const btn=(k,id,label)=>'<button type="button" class="small'+(k==='close'?' ghost hi-close':'')+'" data-iss="'+k+'" data-id="'+t(id)+'">'+label+'</button>';
+  const row=i=>{const ag=i.agent?ident(i.agent).name:i.agentName||'';const bits=[ag,HealthIssues.ST[i.state]||i.state].filter(Boolean);if(i.tries&&!END.includes(i.state)&&i.state!=='stopped')bits.push('try '+i.tries+' of 3');bits.push(from(i));
    if(RUN.includes(i.state)&&i.noRetry)bits.push(i.closeAfter?'closes after this try':'stops after this try');
-   const note=i.state==='fixed'&&i.proof?'Proof: '+cut(i.proof,240):['needs_human','stuck'].includes(i.state)&&i.need?'Needs: '+i.need+(i.told?' (told '+i.told+')':''):i.result?.summary?cut(i.result.summary,240):'';
+   let note=i.state==='fixed'&&i.proof?'Proof: '+cut(i.proof,240):['needs_human','stuck'].includes(i.state)&&i.need?'Needs: '+i.need+(i.told?' (told '+i.told+')':''):i.result?.summary?cut(i.result.summary,240):'';
+   // the plain title leads; the raw text (key names, skill ids, exit codes, versions) waits behind Details
+   const title=HealthIssues.plain(i.missing,ag),raw=[];if(title!==String(i.missing||'').trim())raw.push(String(i.missing||''));
+   if(note&&HealthIssues.RAW.test(note)){raw.push(note);note=/ended without a result|exit \d/i.test(note)?'The fixer could not finish it.':'The fixer hit an error.'}
+   const det=raw.length?'<button type="button" class="act-more" aria-expanded="false">Details'+icon('chevR',12)+'</button><div class="act-raw"><div><div>'+t(raw.join('\n\n'))+'</div></div></div>':'';
    const patch=i.patch?'<span>Code change saved as '+t(i.patch)+' until it is in git.</span>':'';
    const acts=END.includes(i.state)?'':[['needs_human','stuck','stopped'].includes(i.state)?btn('retry',i.id,'Try again'):'',(i.state==='queued'||RUN.includes(i.state))&&!i.noRetry?btn('stop',i.id,'Stop retrying'):'',!i.closeAfter?btn('close',i.id,'Close'):''].join('');
-   return '<div class="row" data-row="'+t(i.id)+'"><div class="main-c"><div class="txt"><b>'+t(i.agentName)+': '+t(i.missing)+'</b><span>'+t(bits.join(' · '))+'</span>'+(note?'<span>'+t(note)+'</span>':'')+patch+
+   return '<div class="row hi-row" data-row="'+t(i.id)+'"><div class="main-c"><div class="txt"><b>'+t(title)+'</b><span>'+t(bits.join(' · '))+'</span>'+(note?'<span>'+t(note)+'</span>':'')+patch+det+
     (acts?'<div class="hi-acts">'+acts+'</div>':'')+'</div></div></div>'};
   const fx=d.policy?.fixer||{},who=(d.policy?.teams||[]).map(x=>x.name+': '+(x.contact||'the owner')).join(' · ');
-  const head=fx.on===false?'<span>The fixer is switched off, so these wait.</span><a href="#/system/teams">Switch it on</a>':'<span>The fixer on this server fixes these by itself and proves each fix. A person hears only when a fix needs one'+(who?' ('+t(who)+')':'')+'.</span><a href="#/system/teams">Teams</a>';
+  const head=fx.on===false?'<span>The fixer is switched off, so these wait.</span><a href="#/system/teams">Switch it on</a>':'<span>The fixer on this server fixes these by itself and proves each fix. A person hears only when a fix needs one'+(who?' ('+t(who)+')':'')+'.</span><a href="#/system/teams" title="Teams decide who hears about a fix that needs a person">Who gets told</a>';
   box.innerHTML='<div class="hi-top"><h2 class="ach-cat" style="margin:0">Issues</h2><button class="ghost" data-iss="report">'+icon('plus',15)+'Report an issue</button></div>'+escHtml+'<div class="card list" style="margin-bottom:22px"><div class="list-head">'+head+'</div>'+(open.length?open.map(row).join(''):'<div class="row"><div class="main-c"><div class="txt"><span>No open issues.</span></div></div></div>')+(done.length?done.map(row).join(''):'')+'</div>';
   if(HealthIssues.drawn)box.querySelectorAll('.row').forEach(x=>x.style.animation='none');HealthIssues.drawn=true;
+  if(!box.dataset.det){box.dataset.det='1';box.addEventListener('click',e=>{const m=e.target.closest('.act-more');if(!m)return;const on=m.getAttribute('aria-expanded')!=='true';m.setAttribute('aria-expanded',String(on));m.nextElementSibling?.classList.toggle('open',on)})}
   box.querySelectorAll('button[data-iss]').forEach(b=>b.onclick=async()=>{const k=b.dataset.iss;if(k==='report')return HealthIssues.report(again);
    if(k==='close'&&!await confirmBox('Close this issue?','The fixer stops working on it. If it is in the middle of a try, it closes when that try ends.','Close issue',false))return;
    b.disabled=true;try{const r=await post(UI,'/ui/health/issues/'+k,{id:b.dataset.id});

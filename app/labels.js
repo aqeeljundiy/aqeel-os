@@ -29,7 +29,7 @@ function labelEdit(kind,id,{name='',description='',real=id}={}){const cur=labelO
  d.querySelector('#lb-reset')?.addEventListener('click',e=>{e.stopPropagation();save({name:'',description:''})});
  setTimeout(()=>{n.focus();n.select()},30)}
 ACT['lb-edit']=(a,e)=>{e?.preventDefault?.();e?.stopPropagation?.();const k=a.dataset.kind,id=a.dataset.id;if(!labelAdmin())return;
- const row=a.closest('.row,.card');const shown=row?.querySelector('.txt b')?.childNodes[0]?.textContent?.trim()||'';const desc=row?.querySelector('[data-lb-desc]')?.textContent?.trim()||'';
+ const row=a.closest('.row,.card,.cn-top');const shown=row?.querySelector('.txt b')?.childNodes[0]?.textContent?.trim()||a.closest('.drawer')?.querySelector('.drawer-head h2')?.textContent?.trim()||'';const desc=row?.querySelector('[data-lb-desc]')?.textContent?.trim()||'';
  labelEdit(k,id,{name:shown,description:/^(Add a description|No description yet)$/.test(desc)?'':desc})};
 
 // a list row: the label's name on top with the id small, its description below (or "Add a description"), and Edit
@@ -59,7 +59,11 @@ const cxLabelKind=r=>{const k=String(r.key||'');const kind=k.slice(0,k.indexOf('
 {const pl=Cx.paintList;Cx.paintList=function(el,first){pl.call(this,el,first);el.querySelectorAll('.cn-row[data-key]').forEach(x=>{const r=this.row(x.dataset.key);if(!r||r.what||x.querySelector('.lb-add,.lb-none'))return;
   const lk=cxLabelKind(r),s=x.querySelector('.txt span');if(lk&&s)s.insertAdjacentHTML('beforeend',' · '+labelNoDesc(lk[0],lk[1]))})}}
 {const pt=Cx.paint;Cx.paint=function(){pt.call(this);const r=this.cur,b=this.d?.querySelector('.cn-p');if(!r||!b)return;const lk=cxLabelKind(r);if(!lk)return;
- b.insertAdjacentHTML('afterbegin',`<div class="lb-about"><div class="txt"><span data-lb-desc>${r.what?esc(r.what):labelNoDesc(lk[0],lk[1])}</span><small class="realname">${esc(lk[0]==='key'?lk[1].split('@')[0]:lk[1])}</small></div>${labelAdmin()?`<button type="button" class="ghost small" data-act="lb-edit" data-kind="${esc(lk[0])}" data-id="${esc(lk[1])}">${icon('edit',14)}Edit name</button>`:''}</div>`)}}
+ // 10 Nov 2026 audit: the description shows once (in the panel's top card, not again above it); the raw id is only a
+ // tooltip on it, and Edit name sits at the right of that card
+ const top=b.querySelector('.cn-top'),p=top?.querySelector('.cn-top-t p');if(!top)return;
+ if(p){p.dataset.lbDesc='1';p.title=lk[0]==='key'?lk[1].split('@')[0]:lk[1];if(!r.what)p.innerHTML=labelNoDesc(lk[0],lk[1])}
+ if(labelAdmin())top.insertAdjacentHTML('beforeend',`<button type="button" class="ghost small cn-top-ed" data-act="lb-edit" data-kind="${esc(lk[0])}" data-id="${esc(lk[1])}">${icon('edit',14)}Edit name</button>`)}}
 
 // Channels › Connections: each agent's channel (and extra numbers) by what it is for; the rows (ChX in people.js) read
 // the names and descriptions themselves, so they only have to be loaded first

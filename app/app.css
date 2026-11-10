@@ -2701,3 +2701,20 @@ button.bad{color:var(--bad)}
 /* Health: no gap above Agents while Issues has nothing to show */
 #hIssues:empty+#hCode:empty+.ach-cat{margin-top:0}
 @media (prefers-reduced-motion:reduce){.kswipe svg{animation:none}}
+
+/* 10 Nov 2026 audit: Connections panel says what it is once (Edit name in the top card), Plugins › Browse as plain rows,
+   Health issues with plain titles, raw text behind Details and real small buttons */
+.cn-top-ed{flex:none;margin-left:auto;animation:fade var(--t-med) var(--ease) both}
+@media (max-width:520px){.cn-top{flex-wrap:wrap}.cn-top-t{flex-basis:calc(100% - 58px)}.cn-top-ed{margin-left:58px}}
+.pl-brl{margin-bottom:22px}
+.pl-br .txt span{white-space:normal;line-height:1.45}
+.pl-br .txt .hub-id{margin-top:4px}
+.pl-br .txt .hub-id a{color:inherit;text-decoration:underline;text-decoration-color:var(--border);text-underline-offset:2px;transition:color var(--t-fast) var(--ease)}
+.pl-br .txt .hub-id a:hover{color:var(--ink-2)}
+.pl-br .txt .pl-br-warn{display:flex;align-items:center;gap:5px;color:var(--bad);font-size:12.5px}
+.pl-br .act{flex-wrap:wrap;justify-content:flex-end}
+.hi-row .txt>span{white-space:normal;line-height:1.45}
+.hi-row .txt>b{line-height:1.4}
+.hi-row .act-more{margin-top:2px}
+.hi-acts button.small{min-height:30px;padding:0 12px}
+.hi-acts .hi-close{color:var(--muted)}.hi-acts .hi-close:hover{color:var(--ink)}
