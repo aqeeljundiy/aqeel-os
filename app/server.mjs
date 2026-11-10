@@ -1449,7 +1449,7 @@ const selfRuns=createSelfRuns({DATA,nameOf:srName,day:t=>localAt(t,SR_TZ).date,h
  // the end of a run: in the chat it was asked from (a person's channel), else in the bell
  notify:async(r,answer)=>{const head=r.agentName+' '+(SR_SAY[r.state]||r.state)+' a run it started itself'+(r.secs!=null?' ('+srDur(r.secs)+')':'')+'. Reason: '+r.reason;const b=r.by||{};
   if(SR_CHAT.has(b.platform)&&b.chat){try{await relay.send({owner:r.agent,platform:b.platform,chat:String(b.chat)+(b.thread?':'+b.thread:''),text:head+(answer?'\n\n'+answer.slice(-700):'')});return}catch(e){console.warn('self-run notice',r.agent,e.message)}}
-  await bottlenecks.event('selfruns',head,answer?answer.slice(-400):'',{info:true})},
+  await bottlenecks.event('selfruns',head,answer||'',{info:true})},
  tellOwner:async(text,{quiet}={})=>{await bottlenecks.event('selfruns',text.split('\n')[0],text,quiet?{info:true}:{topic:'selfruns-'+text.slice(0,40),told:true}).catch(()=>{});await srToOwner(text).catch(e=>console.warn('self-runs: owner not told on a channel:',e.message))},
  bell:(text,detail)=>bottlenecks.event('selfruns',text,detail,{info:true})});
 /* Agent health and alerts (agent-health.mjs, brief items 7 and 15, 5 Nov 2026): System › Health shows each agent fine or

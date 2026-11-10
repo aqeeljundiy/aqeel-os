@@ -5,8 +5,23 @@
 const Activity={
  when:t=>new Date(t).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),
  day:t=>{const d=new Date(t),n=new Date(),y=new Date(n-864e5);return d.toDateString()===n.toDateString()?'Today':d.toDateString()===y.toDateString()?'Yesterday':d.toLocaleDateString([],{weekday:'long',day:'numeric',month:'short'})},
- row(x,i){const times=(x.count||1)>1?'since '+Activity.when(x.since||x.t)+', '+x.count+' times':Activity.when(x.t);
-  return `<div class="row act-row" ${st(Math.min(i,12))}${x.go?` data-go="${esc(x.go)}" tabindex="0"`:''}><div class="main-c"><span class="ic ${esc(x.kind||'blue')}">${icon(x.icon||'clock',15)}</span><div class="txt"><b>${esc(x.title)}</b>${x.text?`<span>${esc(x.text)}</span>`:''}<small>${esc(times)}${x.resolved?' · over':''}</small></div></div></div>`}};
+ // 10 Nov 2026 audit: a failure (stopped connecting, failed, stopped) gets the warning tile, a recovery or a finished
+ // run the calm green one; restarts and the rest keep the neutral tile
+ FAIL:/\b(?:stopped connecting|is broken|is missing its tools|is down|stopped answering|keeps? (?:failing|dropping)|kept dropping|cannot start|does not start|failed|ran out of time|stopped a run|lost \()/i,
+ OK:/\b(?:works again|working again|answers again|is back|back on|reconnected|fixed|finished|passed)\b/i,
+ tone(x){return Activity.FAIL.test(x.title)?{kind:'warn',icon:'alert'}:Activity.OK.test(x.title)?{kind:'ok',icon:'check'}:{kind:x.kind||'blue',icon:x.icon||'clock'}},
+ // a raw error ("ConnectionError: MCP server 'aqeelos-notify': both Streamable HTTP and SSE transports failed …") is never
+ // the main line: a plain summary leads, the raw text waits behind Details
+ RAW:/^\s*[A-Z]\w*(?:Error|Exception)\b|MCP server '|Traceback|transports failed|\bHTTP \d{3}\b|\bE(?:CONN\w+|TIMEDOUT|NOTFOUND)\b/,
+ TOOL_NAMES:{notify:'notifications',code:'Code',files:'files',browser:'browser',memory:'memory',self:'own runs'},
+ tool(t){const m=/tool server "([^"]+)"/.exec(t||'');if(!m)return'';const n=m[1].replace(/^(?:aqeelos|mcp)[-_]/i,'');return Activity.TOOL_NAMES[n.toLowerCase()]||n},
+ plain(x){const ok=Activity.OK.test(x.title),t=Activity.tool(x.title);
+  if(ok)return t?'Reconnected':'Back to normal';
+  if(t)return 'Lost its '+t+' tool'+(/aqeelOS is fixing it/i.test(x.text)?'. aqeelOS is fixing it.':'');
+  return 'Hit an error'},
+ row(x,i){const times=(x.count||1)>1?'since '+Activity.when(x.since||x.t)+', '+x.count+' times':Activity.when(x.t),tn=Activity.tone(x),raw=x.text&&Activity.RAW.test(x.text);
+  const text=!x.text?'':raw?`<span>${esc(Activity.plain(x))}</span><button type="button" class="act-more" aria-expanded="false">Details${icon('chevR',12)}</button><div class="act-raw"><div><div>${esc(x.text)}</div></div></div>`:`<span>${esc(x.text)}</span>`;
+  return `<div class="row act-row" ${st(Math.min(i,12))}${x.go?` data-go="${esc(x.go)}" tabindex="0"`:''}><div class="main-c"><span class="ic ${esc(tn.kind)}">${icon(tn.icon,15)}</span><div class="txt"><b>${esc(x.title)}</b>${text}<small>${esc(times)}${x.resolved?' · over':''}</small></div></div></div>`}};
 PAGES.activity=async(p,el)=>{const gone=pageTok(el);setActions('');
  el.innerHTML='<div id="actList"><div class="skel" style="height:160px;border-radius:18px"></div></div>';
  let d;try{d=await UI('/ui/activity')}catch(e){if(!gone())el.querySelector('#actList').innerHTML=alertBox(esc(e.message));return}if(gone())return;
@@ -14,7 +29,8 @@ PAGES.activity=async(p,el)=>{const gone=pageTok(el);setActions('');
  if(!l.length){box.innerHTML='<div class="empty">'+icon('check',22)+'<b>Nothing yet</b><span>Runs, fixes and restarts that need nobody show up here.</span></div>';return}
  let last='',h='',k=0;for(const x of l){const g=Activity.day(x.t);if(g!==last){if(h)h+='</div>';h+='<div class="group-label">'+esc(g)+'</div><div class="card list">';last=g}h+=Activity.row(x,k++)}
  box.innerHTML=h+'</div>';
- box.addEventListener('click',e=>{const r=e.target.closest('[data-go]');if(r)go(r.dataset.go)})};
+ box.addEventListener('click',e=>{const m=e.target.closest('.act-more');if(m){e.stopPropagation();const on=m.getAttribute('aria-expanded')!=='true';m.setAttribute('aria-expanded',String(on));m.nextElementSibling?.classList.toggle('open',on);return}
+  if(e.target.closest('.act-raw.open'))return;const r=e.target.closest('[data-go]');if(r)go(r.dataset.go)})};
 
 // Settings › Notifications: the optional evening line in the bell (off by default)
 {const settings=PAGES.settings;PAGES.settings=async(p,el,r)=>{const gone=pageTok(el);await settings(p,el,r);if(gone()||S.me?.admin===false||el.querySelector('#notifBox'))return;
