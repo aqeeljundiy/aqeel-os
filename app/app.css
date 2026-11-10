@@ -2844,3 +2844,10 @@ button.bad:hover{background:color-mix(in srgb,var(--bad) 8%,transparent);border-
 .ppl-none{grid-column:1/-1}
 /* Invite: the agents block (access-block.js) inside the form */
 .iv-ab{margin-top:4px}.iv-ab .ab-list{margin-top:2px}.iv-none{margin:2px 4px}
+/* Skills and Plugins: Added on this OS / Built in, each a table with its rows in category folders */
+.ul-groups{display:grid;gap:22px}.ul-sec .ach-cat{margin:0 0 2px}.ul-sec .sg-hint{margin:0 0 10px}
+.ul-cat{display:flex;align-items:center;gap:8px;width:100%;min-height:44px;padding:8px 22px;border:0;border-top:1px solid var(--border);background:var(--soft-2);font:inherit;font-size:13.5px;color:var(--ink);text-align:left;cursor:pointer;box-shadow:none;border-radius:0;transition:background var(--t-fast) var(--ease)}
+.ul-cat:hover{background:var(--soft);transform:none}.ul-cat svg{flex:none;color:var(--muted);transition:transform .2s var(--ease)}.ul-cat[aria-expanded=true] svg{transform:rotate(90deg)}
+.ul-cat b{font-weight:600}.ul-cat small{color:var(--muted);font-size:12px;padding:1px 7px;border-radius:999px;background:var(--surface)}.ul-cat-on{margin-left:auto;font-size:12px;color:var(--muted)}
+.ul-cat-rows[hidden]{display:none}.ul-none{margin:0;padding:16px 22px}
+@media (max-width:600px){.ul-cat{padding:8px 16px}}

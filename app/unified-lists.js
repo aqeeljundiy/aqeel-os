@@ -7,7 +7,7 @@ const UL={at:0,
  // the list for one kind, in el; agent: only rows that agent has (one agent showing), or null for every agent;
  // filter: which rows of that kind (Keys leaves out chat bot tokens); cache: reuse a list read in the last 15 s (a page
  // that draws itself again, such as a search on Keys, then shows it at once without the rows coming in again)
- async show(el,kind,{agent=null,noun,empty,filter=null,cache=false}={}){const gone=pageTok(el),warm=cache&&Pages._cx&&Date.now()-this.at<15000;
+ async show(el,kind,{agent=null,noun,empty,filter=null,cache=false,grouped=false}={}){if(grouped)await builtinLoad();const gone=pageTok(el),warm=cache&&Pages._cx&&Date.now()-this.at<15000;
   el.insertAdjacentHTML('beforeend',`<div class="ul-host">${warm?'':skeletonRows(6)}</div>`);const host=el.querySelector('.ul-host');
   let d;if(warm)d=Pages._cx;else{try{d=await UI('/ui/connections');this.at=Date.now()}catch(e){if(!gone())host.innerHTML=errLine('the list of '+noun);return}if(gone())return}
   Pages._cx=d;Pages._cxEl=host;Cx.fixed={type:kind,agent,filter};S.cxQ='';
@@ -16,21 +16,44 @@ const UL={at:0,
   if(Cx.d?.isConnected&&Cx.key){if(Cx.row(Cx.key))Cx.detail(Cx.key);else closeLayers()}
   if(!n){host.innerHTML=emptyBox(empty[0],empty[1]);return}
   host.innerHTML=`<div class="toolbar cn-bar"><div class="search">${icon('search',16)}<input id="cnQ" type="search" enterkeyhint="search" placeholder="Search ${esc(plural(n,noun))}" aria-label="Search ${esc(noun)}s"><button class="ghost icon s-clear" data-act="cn-clear" aria-label="Clear search" title="Clear search">${icon('x',14)}</button></div></div>
-   <div class="card list cn-list"><div class="cn-head" aria-hidden="true"><span>${esc(noun[0].toUpperCase()+noun.slice(1))}</span><span>Belongs to</span><span>Who can use</span><span>Status</span></div><div class="cn-rows"></div></div>
+   ${grouped?'<div class="ul-groups"></div>':`<div class="card list cn-list"><div class="cn-head" aria-hidden="true"><span>${esc(noun[0].toUpperCase()+noun.slice(1))}</span><span>Belongs to</span><span>Who can use</span><span>Status</span></div><div class="cn-rows"></div></div>`}
    <p class="hint cn-foot">${d.canEdit?'Click a row to see who can use it and change it.':'You see the agents you use. An admin decides who can use what; you can ask for access from a row.'}</p>`;
   Cx.paintList(host,!warm);
   const q=host.querySelector('#cnQ');let t;q.oninput=()=>{q.closest('.search').classList.toggle('has-q',!!q.value);clearTimeout(t);t=setTimeout(()=>{if(!host.isConnected)return;S.cxQ=q.value;Cx.paintList(host)},120)}}};
+
+// Skills and Plugins keep their groups in the table (owner, 10 Nov 2026: "you removed… what is added for this company's
+// OS, what is built in, grouping by categories"): "Added on this OS" first, then "Built in" (skill-groups.js decides
+// which is which), each a table with the same columns, its rows in category folders that open and close. Added on this
+// OS starts open, Built in starts closed; a search opens every folder that has a match. Folders remember being opened.
+UL.openCats=new Set(store.get('ul-open-cats',[]));
+UL.groups=function(el,first){const box=el.querySelector('.ul-groups');if(!box)return;const kind=Cx.fixed?.type,rows=Cx.rows().filter(r=>Cx.match(r)),q=(S.cxQ||'').trim();
+ const nm=kind==='plugin'?'plugin':'skill',cat=r=>kind==='skill'?(r.category||'other'):'',catName=c=>c?(typeof pretty==='function'?pretty(c):prettyId(c)):'';
+ const head=`<div class="cn-head" aria-hidden="true"><span>${kind==='plugin'?'Plugin':'Skill'}</span><span>Belongs to</span><span>Who can use</span><span>Status</span></div>`;
+ const sec=(id,title,hint,list,startOpen)=>{if(!list.length&&id==='bi')return '';
+  const cats=[...new Set(list.map(cat))].sort((a,b)=>catName(a).localeCompare(catName(b)));
+  const body=!list.length?`<p class="hint ul-none">${q?'Nothing here matches.':kind==='plugin'?'No plugins added on this OS yet.':'No skills made on this OS yet. New skill or Learn a skill adds one here.'}</p>`
+   :cats.length===1&&!cats[0]?list.map((r,i)=>cxRow(r,first&&i<12?i:0)).join('')
+   :cats.map(c=>{const rs=list.filter(r=>cat(r)===c),k=id+':'+c,open=!!q||(UL.openCats.has(k)?true:UL.openCats.has('-'+k)?false:startOpen);
+     return `<button type="button" class="ul-cat" data-cat="${esc(k)}" aria-expanded="${open}">${icon('chevR',14)}<b>${esc(catName(c))}</b><small>${rs.length}</small><span class="ul-cat-on">${rs.filter(r=>r.status==='on'||r.status==='connected').length} on</span></button><div class="ul-cat-rows"${open?'':' hidden'}>${rs.map(r=>cxRow(r,0)).join('')}</div>`}).join('');
+  return `<section class="ul-sec ul-${id}"><h2 class="ach-cat">${esc(title)} <small class="hint">${list.length}</small></h2><p class="hint sg-hint">${esc(hint)}</p><div class="card list cn-list">${head}${body}</div></section>`};
+ const bi=rows.filter(r=>isBuiltin(kind,r.id)),mine=rows.filter(r=>!isBuiltin(kind,r.id));
+ box.innerHTML=sec('local','Added on this OS',GROUP_HINT[kind][1],mine,true)+sec('bi','Built in',GROUP_HINT[kind][0],bi,false)+(!rows.length&&q?`<div class="state-box">Nothing matches “${esc(q)}”. <button class="link" data-act="cn-clear">Clear the search</button></div>`:'');
+ if(!box.dataset.bound){box.dataset.bound='1';box.addEventListener('click',e=>{const b=e.target.closest('.ul-cat');if(!b)return;const open=b.getAttribute('aria-expanded')!=='true',k=b.dataset.cat;
+  b.setAttribute('aria-expanded',String(open));const rs=b.nextElementSibling;if(rs){rs.hidden=!open;if(open)rs.querySelectorAll('.cn-row').forEach((x,i)=>{x.style.animation='';x.style.animationDelay=Math.min(i,8)*25+'ms'})}
+  UL.openCats.delete(k);UL.openCats.delete('-'+k);UL.openCats.add(open?k:'-'+k);try{store.set('ul-open-cats',[...UL.openCats].slice(-200))}catch{}})}};
+// the Connections list painter draws the grouped lists too (search, refresh, Clear the search)
+{const pl=Cx.paintList;Cx.paintList=function(el,first){if(el?.querySelector?.('.ul-groups'))return UL.groups(el,first);return pl.call(this,el,first)}}
 
 // Skills › Installed
 {const base=PAGES.skills;PAGES.skills=async(p,el)=>{if((S.tab.skills||'Installed')!=='Installed'){Cx.fixed=null;return base(p,el)}
  setActions(`<button data-act="sk-update">${icon('refresh',16)}Update all</button><button data-act="sk-learn">${icon('wand',16)}Learn a skill</button><button class="primary" data-act="sk-new">${icon('plus',16)}New skill</button>`);
  el.innerHTML=tabs('skills',['Installed','Tool groups','Find more skills']);
- await UL.show(el,'skill',{agent:showingAll()?null:viewing(),noun:'skill',empty:['No skills yet','Learn a skill or find one under Find more skills.']})}}
+ await UL.show(el,'skill',{agent:showingAll()?null:viewing(),noun:'skill',grouped:true,empty:['No skills yet','Learn a skill or find one under Find more skills.']})}}
 // Plugins › Installed
 {const base=PAGES.plugins;PAGES.plugins=async(p,el)=>{if((S.tab.plugins||'Installed')!=='Installed'){Cx.fixed=null;return base(p,el)}
  setActions(`<button data-act="pl-rescan">${icon('refresh',16)}Rescan</button>`);
  el.innerHTML=tabs('plugins',['Installed','Browse']);
- await UL.show(el,'plugin',{agent:showingAll()?null:viewing(),noun:'plugin',empty:['No plugins turned on','Find one under Browse.']})}}
+ await UL.show(el,'plugin',{agent:showingAll()?null:viewing(),noun:'plugin',grouped:true,empty:['No plugins turned on','Find one under Browse.']})}}
 // on Connections itself nothing is fixed
 {const base=PAGES.connections;PAGES.connections=async(p,el)=>{Cx.fixed=null;return base(p,el)}}
 
