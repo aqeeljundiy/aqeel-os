@@ -2718,3 +2718,42 @@ button.bad{color:var(--bad)}
 .hi-row .act-more{margin-top:2px}
 .hi-acts button.small{min-height:30px;padding:0 12px}
 .hi-acts .hi-close{color:var(--muted)}.hi-acts .hi-close:hover{color:var(--ink)}
+/* ---------- plain-words polish (audit 10 Nov 2026): Memory, Settings, Teams, Webhooks, Kirimdev, Usage ---------- */
+/* Memory: one destructive style for every Clear button; the service's state as a quiet sentence, not a floating chip */
+.mem-clear{display:flex;gap:8px;flex-wrap:wrap}.mem-clear:empty{display:none}
+button.bad{border-color:color-mix(in srgb,var(--bad) 35%,var(--border));transition:background var(--t-fast) var(--ease),border-color var(--t-fast) var(--ease)}
+button.bad:hover{background:color-mix(in srgb,var(--bad) 8%,transparent);border-color:var(--bad)}
+.mem-st,.row .txt span.mem-st{display:flex;overflow:visible;text-overflow:clip;align-items:center;gap:6px;margin-top:4px;font-size:12.5px;color:var(--ink-2);white-space:normal}
+.mem-st::before{content:"";width:7px;height:7px;border-radius:50%;flex:none;background:var(--muted)}
+.mem-st.ok::before{background:var(--ok)}.mem-st.warn::before{background:var(--warn)}.mem-st.bad::before{background:var(--bad)}
+/* Settings: search first, Advanced beside it, a model shown by its name */
+.cfg-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.cfg-bar .search{flex:1 1 260px}
+.cfg-adv{display:inline-flex;align-items:center;gap:10px;margin:0;font-size:13.5px;color:var(--ink-2);cursor:pointer;white-space:nowrap}
+.cfg-plain{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;font-size:14px}.cfg-plain a{font-size:13px}
+.panel h2.h-row>button.small{flex:none}
+.inst-unset{color:var(--warn);font-size:14px}.inst-unset small{color:var(--muted);font-size:12.5px}.inst-unset .mono{font-size:12px;overflow-wrap:anywhere}
+@media (max-width:760px){#mailBox select{font-size:13px;padding-right:30px;text-overflow:ellipsis}}
+/* Teams: the owner's role once, agents without a team behind See them, normal icons */
+.tm-role{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:var(--r-pill);background:var(--soft);font-size:11.5px;font-weight:500;color:var(--ink-2);vertical-align:1px}
+.tm-note svg{flex:none;width:16px;height:16px;color:var(--warn)}
+.tm-none{margin-top:6px;interpolate-size:allow-keywords}
+.tm-none>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;list-style:none;cursor:pointer;user-select:none}
+.tm-none>summary::-webkit-details-marker{display:none}
+.tm-none>summary .tm-note{margin:0;font-size:13.5px}
+.tm-see{display:inline-flex;align-items:center;min-height:32px;padding:0 14px;border:1px solid var(--border);border-radius:var(--r-pill);font-size:13px;color:var(--ink);background:var(--surface);transition:border-color var(--t-fast) var(--ease)}
+.tm-none>summary:hover .tm-see{border-color:var(--ink-3,var(--muted))}
+.tm-none[open] .tm-see{font-size:0}.tm-none[open] .tm-see::after{content:"Hide";font-size:13px}
+.tm-none::details-content{block-size:0;overflow:hidden;transition:block-size var(--t-med) var(--ease),content-visibility var(--t-med) allow-discrete}.tm-none[open]::details-content{block-size:auto}
+.tm-none-list{display:flex;flex-wrap:wrap;gap:6px;padding:10px 0 2px;animation:fade var(--t-med) var(--ease) both}
+.tm-none-a{display:inline-flex;align-items:center;gap:8px;min-height:32px;padding:3px 12px 3px 5px;border:1px solid var(--border);border-radius:var(--r-pill);font-size:13px;color:var(--ink-2)}
+/* Webhooks: the how-to behind one line */
+.wh-how{margin-top:14px}.wh-how .hint{margin:4px 0 0;max-width:760px;line-height:1.55}
+/* Kirimdev: one plain line, the reason behind Details */
+.km-reach>p{display:flex;align-items:center;gap:8px;margin:0;color:var(--ink)}.km-reach>p svg{flex:none;color:var(--ink-2)}
+.km-why{margin-top:4px}.km-why>summary{cursor:pointer;font-size:12.5px;color:var(--ink-2);width:max-content}
+.km-why>p{margin:6px 0 0;animation:fade var(--t-med) var(--ease) both}
+/* Usage: room after the clock, and a tile alone on its row takes the whole row */
+.u-asof{display:flex;align-items:center;gap:6px}.u-asof svg{flex:none}
+@media (max-width:900px){.stats:not(.ach-stats)>.stat:last-child:nth-child(odd){grid-column:1/-1}}
+@media (max-width:760px){.spend .sd-facts{grid-template-columns:repeat(2,minmax(0,1fr))}.spend .sd-facts>div:last-child:nth-child(odd){grid-column:1/-1}}
+@media (prefers-reduced-motion:reduce){.tm-none-list,.km-why>p{animation:none}.tm-none::details-content{transition:none}}
