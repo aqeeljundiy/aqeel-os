@@ -4,7 +4,8 @@
    left out: the chat list and Manage chats already show it. #/system/status and #/system/host open this page. ---------- */
 {const oldStatus=PAGES.status,oldHost=PAGES.host;
  PAGES.health=async(p,el,r)=>{const tok=S._htok=(S._htok||0)+1,stale=()=>tok!==S._htok;
-  setActions('');el.innerHTML=`<h2 class="ach-cat" style="margin-top:0">Agents</h2>${S.me?.admin!==false?'<div id="hIssues"></div><div id="hCode"></div><div id="hAgents"><div class="skel" style="height:120px;border-radius:18px;margin-bottom:14px"></div></div>':''}<div id="hStatus"><div class="skel" style="height:110px;border-radius:18px"></div></div><h2 class="ach-cat">The AI box</h2><div id="hHost"><div class="skel" style="height:160px;border-radius:18px"></div></div>`;
+  // Issues has its own heading, so the Agents heading goes under it, over what it names (it sat empty above Issues)
+  setActions('');el.innerHTML=`${S.me?.admin!==false?'<div id="hIssues"></div><div id="hCode"></div><h2 class="ach-cat">Agents</h2><div id="hAgents"><div class="skel" style="height:120px;border-radius:18px;margin-bottom:14px"></div></div>':'<h2 class="ach-cat" style="margin-top:0">Agents</h2>'}<div id="hStatus"><div class="skel" style="height:110px;border-radius:18px"></div></div><h2 class="ach-cat">The AI box</h2><div id="hHost"><div class="skel" style="height:160px;border-radius:18px"></div></div>`;
   const sBox=el.querySelector('#hStatus'),hBox=el.querySelector('#hHost'),aBox=el.querySelector('#hAgents');
   const iBox=el.querySelector('#hIssues');const drawIssues=async()=>{if(!iBox)return;let d;try{d=await UI('/ui/health/issues')}catch{return}if(stale()||!iBox.isConnected)return;HealthIssues.draw(iBox,d,drawIssues);drawCode()};
   const cBox=el.querySelector('#hCode');const drawCode=async()=>{if(!cBox)return;let d;try{d=await UI('/ui/health/code-changes')}catch{return}if(stale()||!cBox.isConnected)return;HealthCode.draw(cBox,d,drawCode)};
