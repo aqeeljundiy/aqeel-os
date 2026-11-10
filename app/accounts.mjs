@@ -351,11 +351,11 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
  // puts it in the main agent too, so it reaches every agent and new ones. dry: only says what would happen.
  accountHooks.skillShare=async({key,agents,dry=false})=>{const name=String(key||'').split('/').pop();if(!/^\w[\w.-]*$/.test(name))throw Error('Unknown skill.');
   const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);const all=(await agentNames()).filter(a=>!a.includes('--'));
-  const find=async a=>{const sk=path.join(homeOf(a),'skills');if(await access(path.join(sk,name,'SKILL.md')).then(()=>1,()=>0))return {dir:path.join(sk,name),rel:name};
-   for(const c of await readdir(sk,{withFileTypes:true}).catch(()=>[]))if(c.isDirectory()&&!c.name.startsWith('.')&&await access(path.join(sk,c.name,name,'SKILL.md')).then(()=>1,()=>0))return {dir:path.join(sk,c.name,name),rel:c.name+'/'+name};return null};
+  const find=async a=>{const sk=path.join(homeOf(a),'skills');if(await access(path.join(sk,name,'SKILL.md')).then(()=>1,()=>0))return {dir:path.join(sk,name),rel:name,t:(await stat(path.join(sk,name,'SKILL.md')).catch(()=>null))?.birthtimeMs||0};
+   for(const c of await readdir(sk,{withFileTypes:true}).catch(()=>[]))if(c.isDirectory()&&!c.name.startsWith('.')&&await access(path.join(sk,c.name,name,'SKILL.md')).then(()=>1,()=>0))return {dir:path.join(sk,c.name,name),rel:c.name+'/'+name,t:(await stat(path.join(sk,c.name,name,'SKILL.md')).catch(()=>null))?.birthtimeMs||0};return null};
   const has={};for(const a of all){const f=await find(a);if(f)has[a]=f}
   const holders=Object.keys(has),src=has[ownerOf(name)]||has.default||Object.values(has)[0];
-  const owner=ownerOf(name)||holders.find(a=>a!=='default')||(has.default?'default':'');
+  const owner=ownerOf(name)||holders.filter(a=>a!=='default').sort((a,b)=>has[a].t-has[b].t)[0]||(has.default?'default':'');
   if(!src)throw Error('No agent has this skill any more, so it can’t be shared. Install it again first.');
   const every=!Array.isArray(agents),want=every?all:[...new Set([...(owner?[owner]:[]),...agents])].filter(a=>all.includes(a));
   const gain=want.filter(a=>!has[a]&&(every?true:a!=='default')),lose=every?[]:holders.filter(a=>a!=='default'&&!want.includes(a));

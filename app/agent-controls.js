@@ -44,7 +44,7 @@ const SkillPolicy={
   b.onclick=e=>{e.stopPropagation();e.preventDefault();SkillPolicy.open(s,Pages._skPol||pol,b)};return b};
  const apply=()=>{if(gone()){mo.disconnect();return}
   el.querySelectorAll('[data-act="sk-open"][data-name]').forEach(row=>{const act=row.querySelector('.act');if(!act||act.querySelector('.sk-only'))return;const s=(Pages._skills||[]).find(x=>x.name===row.dataset.name)||{name:row.dataset.name};act.prepend(chip(s))});
-  el.querySelectorAll('.all-row').forEach(row=>{const ags=row.querySelector('.aam-ags'),n=row.querySelector('[data-act="all-sk"][data-name]')?.dataset.name;if(!ags||!n||ags.querySelector('.sk-only'))return;
+  el.querySelectorAll('.all-row').forEach(row=>{const ags=row.querySelector('.aam-ags'),n=ags?.dataset.name||row.querySelector('[data-act="all-sk"][data-name]')?.dataset.name;if(!ags||!n||ags.querySelector('.sk-only'))return;
    const s=(Pages._skills||[]).find(x=>x.name===n)||{name:n};ags.append(chip(s))})};
  let q=0;const mo=new MutationObserver(()=>{if(!q)q=requestAnimationFrame(()=>{q=0;apply()})});mo.observe(el,{childList:true,subtree:true});apply()}}
 

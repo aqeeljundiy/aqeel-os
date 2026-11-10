@@ -2626,3 +2626,11 @@ button.bad{color:var(--bad)}
 .ab-busy{opacity:.6;pointer-events:none;transition:opacity .2s ease}.ab-foot{margin:14px 0 0}
 @keyframes ab-in{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){.ab-item,.ab-opts{animation:none}}
+
+/* menus open above every layer, also over a dialog opened on top of another (Who can use a skill) */
+.menu{z-index:70}
+/* who has access: the menu on each row stays small, so the name keeps its room */
+.ab-item .sel-btn{width:auto;flex:none;min-height:34px;padding:6px 8px 6px 12px;border-color:transparent;background:none;font-size:13px;color:var(--ink-2)}
+.ab-item .sel-btn:hover,.ab-item .sel-btn.open{background:var(--soft)}
+/* every agent's list: who has a thing as a small stack of faces, like Connections, not a chip per agent */
+.aam-ags{align-items:center}.aam-ags .acc-who{margin-right:4px}
