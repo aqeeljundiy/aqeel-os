@@ -69,6 +69,8 @@ import {createHelp} from './help.mjs';
 import {createLive} from './live.mjs';
 import {createBackups} from './backup.mjs';
 import {createGoogleConnect} from './google-connect.mjs';   // Connect Google in the app (7 Nov 2026)
+import {createSlackConnect} from './slack-connect.mjs';   // Set up Slack: one install app for the official Slack MCP (11 Nov 2026)
+import {createMicrosoftConnect} from './microsoft-connect.mjs';   // Connect Microsoft 365 in the app (11 Nov 2026)
 import {createMcpEdit} from './mcp-edit.mjs';   // edit an app that is already added, its key (7 Nov 2026)
 import {createPluginHost} from './plugin-host.mjs';
 import {createEngineUpdates} from './engine-updates.mjs';
@@ -601,7 +603,7 @@ async function agentHealth(only){const h={'x-hermes-session-token':DASH_TOKEN};c
     if(r.ok)console.log('health',a,'switched off the engine connector tool (agents use connect_mcp_tool)');else if(await isAgent(a))console.warn('health',a,'connector tool:',r.err)}}
   const sv=await fetch(DASH.origin+'/api/mcp/servers?profile='+encodeURIComponent(a),{headers:h}).then(r=>r.json()).catch(()=>({}));
   for(const m of sv.servers||[]){if(!m.url||/127.0.0.1|localhost/.test(m.url))continue;if(m.auth!=='oauth'&&!/connect.composio.dev|rube.app/.test(m.url))continue;
-   const r=await sharing.prepareSignin(a,m.name,MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(m.name)).catch(()=>null);if(r?.changed)console.log('health',a,m.name,'set the public sign-in address')}}
+   const r=await sharing.prepareSignin(a,m.name,MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(m.name),null,slackClientFor).catch(()=>null);if(r?.changed)console.log('health',a,m.name,'set the public sign-in address')}}
   catch(e){if(await isAgent(a))console.warn('health',a,e.message)}}}
 /* The engine. aqeelOS restarts it one way only: wait for replies in progress (up to 10 minutes), stop whichever
    gateway runs (also one the engine started by itself), and start it in its managed session with the full
@@ -841,6 +843,12 @@ const install=createInstallRoutes({recentLookups:n=>teamView.recent(n),send,read
 if(LIVE_APP){setTimeout(()=>install.tick(),120000).unref();setInterval(()=>install.tick(),15*60e3).unref()}
 const homeOfAgent=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
 const gconnect=createGoogleConnect({HERMES_HOME,DATA,PUBLIC_URL:()=>String(PUBLIC_URL),homeOf:homeOfAgent,log:m=>console.log(m)});
+// Slack (slack-connect.mjs): the install's Slack app for the official Slack MCP; every Slack sign-in without an app of its
+// own uses it (slackClientFor below, passed to sharing.prepareSignin). Microsoft (microsoft-connect.mjs): like Google.
+const slackc=createSlackConnect({HERMES_HOME,homeOf:homeOfAgent,redirectFor:n=>MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(n),readConfig,setKey,
+ prepareSignin:(...a)=>sharing.prepareSignin(...a),startSignin:(a,t)=>startSignin(a,t),log:m=>console.log(m)});
+const slackClientFor=b=>slackc.fallback(b);
+const msconnect=createMicrosoftConnect({HERMES_HOME,DATA,PUBLIC_URL:()=>String(PUBLIC_URL),homeOf:homeOfAgent,log:m=>console.log(m)});
 // a sign-in made here is the owner's own: registered at once (Connections never flags it), and the agents are told
 async function googleConnected(r,who=''){if(!r?.ok)return;connAccounts.register(r.agent,{kind:'google',label:'Google, '+(r.email||r.name||'main'),where:path.join(homeOfAgent(r.agent),r.file)},{owner:who}).catch(e=>console.warn('google: register',e.message));if(LIVE_APP)writeAgentContext().catch(()=>{})}
 const mcpEdit=createMcpEdit({readConfig,setKey,readEnv:a=>readFile(path.join(homeOfAgent(a),'.env'),'utf8').catch(()=>''),editEnv:(a,f)=>editEnv(path.join(homeOfAgent(a),'.env'),f),restart:why=>restartGateway(why),log:m=>console.log(m)});
@@ -2160,12 +2168,14 @@ const server=createServer(async(req,res)=>{
     const redirect=MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(tool);
     const ag=mn[1].split('--')[0];
     await whyOf.noteApp(ag,tool,{by:'agent',purpose:String(msg.params?.arguments?.why||'').slice(0,300),from:await whyOf.from(ag)}).catch(()=>{});
-    try{const pr=await sharing.prepareSignin(ag,tool,redirect);if(pr.changed)await new Promise(r=>setTimeout(r,2500));const [svc,where,save]=appSettings(tool,pr.url);
+    try{const pr=await sharing.prepareSignin(ag,tool,redirect,null,slackClientFor);if(pr.changed)await new Promise(r=>setTimeout(r,2500));const [svc,where,save]=appSettings(tool,pr.url);
      const j=await startSignin(ag,tool);
      // the answer is written for anyone on the team: the easy way first, exact steps only when an app of their own is involved
      if(j.authorization_url&&!pr.own)return reply(`Send the person exactly this (no technical steps needed):\n\nTo connect ${svc}, open this link and click Allow: ${j.authorization_url}\nYou'll land on a page that says "Signed in". That's it.\n\n(Open it within 5 minutes; after that, ask again for a fresh link.)`);
      if(j.authorization_url)return reply(`${svc} is connected through the person's own ${svc} app, so that app must list aqeelOS's address first. Send exactly this:\n\n1. Open ${where}.\n2. Add this address exactly: ${redirect}\n3. Click ${save}. (It doesn't work until it's saved.)\n4. Then open this link and click Allow: ${j.authorization_url}\n5. You'll land on a page that says "Signed in".\n\nIf ${svc} says "redirect_uri did not match", steps 2–3 weren't saved: redo them, then open the link again. Only an admin of that ${svc} app can do steps 1–3. If the person is not one and cannot ask one, offer Composio as the fallback and tell them: "Composio is quick (one click on Allow, nothing to set up), but its free plan has a limit on actions and costs money beyond it." Use it only if they agree.`);
      const err=j.error||j.detail||'no link came back';
+     // Slack with no app yet: an admin sets it up once in the app (slack-connect.mjs), then everyone just clicks Allow
+     if(svc==='Slack'&&/client registration|client_id|client id/i.test(err)&&!await slackc.client())return reply(`Slack is not set up on this aqeelOS yet. Tell the person: "An admin sets up Slack once (about 3 minutes, free): Connections › Add › Slack, then follow the steps there. After that, press Connect Slack there, or ask me again." Do not send them to api.slack.com yourself.`,true);
      if(/client registration|client_id|client id/i.test(err))return reply(`${svc} needs an app of the person's own (a one-time setup, free). Offer to walk them through it, or do it with them in the browser: create an app at ${where.split(' → ')[0]}, add this Redirect URL: ${redirect}, then they paste its Client ID and Client Secret with the lock button (or in Abilities › MCP tools › ${tool} › Sign in). If they cannot (no admin access) or do not want to, offer Composio as the fallback and tell them: "Composio is quick (one click on Allow, nothing to set up), but its free plan has a limit on actions and costs money beyond it." Use it only if they agree.`,true);
      return reply('Could not start the sign-in: '+err,true)}catch(e){return reply('Could not start the sign-in: '+e.message,true)}}
    // manage_agent (agent-access.mjs): change another agent at the level shared with the caller; checked here on every call
@@ -2371,6 +2381,11 @@ const server=createServer(async(req,res)=>{
   // MCP sign-in (OAuth) returns here from Slack, Notion…; the engine checks the one-time state. No sign-in needed.
   // Google sign-ins (Google Workspace skill with a Web-application client) return here, and aqeelOS finishes them:
   // it finds the agent and account whose pending sign-in has this state and runs the skill's --auth-code step.
+  // Microsoft sign-ins started with Connect Microsoft (microsoft-connect.mjs) come back here; the one-time state is the check
+  if(p==='/microsoft-oauth/callback'&&req.method==='GET'){
+   const page=(t,m)=>{res.writeHead(200,{'content-type':'text/html; charset=utf-8',...security});return res.end(`<!doctype html><meta name="viewport" content="width=device-width"><title>aqeelOS</title><style>@font-face{font-family:'Plus Jakarta Sans';font-weight:200 800;font-display:swap;src:url('/assets/plus-jakarta-sans.woff2') format('woff2')}</style><body style="font-family:'Plus Jakarta Sans',system-ui,sans-serif;max-width:440px;margin:15vh auto;text-align:center;color:#111;line-height:1.5"><h2>${t}</h2><p>${m}</p></body>`)};
+   if(!await msconnect.has(url.searchParams.get('state')||''))return page('Not connected','This sign-in link has expired or was already used. Go back to aqeelOS and press Connect Microsoft again.');
+   try{const r=await msconnect.finish(url.search);if(LIVE_APP)writeAgentContext().catch(()=>{});return page('Microsoft account connected',(r.email?'<b>'+esc(r.email)+'</b> is':'Your Microsoft account is')+' connected to '+esc(NAMES[r.agent]||r.agent)+'. You can close this tab and go back to aqeelOS.')}catch(e){return page('Not connected',esc(e.message))}}
   if(p==='/google-oauth/callback'&&req.method==='GET'){const st=url.searchParams.get('state')||'';
    const page=(t,m)=>{res.writeHead(200,{'content-type':'text/html; charset=utf-8',...security});return res.end(`<!doctype html><meta name="viewport" content="width=device-width"><title>aqeelOS</title><style>@font-face{font-family:'Plus Jakarta Sans';font-weight:200 800;font-display:swap;src:url('/assets/plus-jakarta-sans.woff2') format('woff2')}</style><body style="font-family:'Plus Jakarta Sans',system-ui,sans-serif;max-width:440px;margin:15vh auto;text-align:center;color:#111;line-height:1.5"><h2>${t}</h2><p>${m}</p></body>`)};
    // a sign-in started in the app (Connect Google): finished here, nothing for an agent to do
@@ -2936,6 +2951,33 @@ const server=createServer(async(req,res)=>{
    // Connect Google (google-connect.mjs): the OAuth client file, Connect and Reconnect, a pasted address, check, remove.
    // 11 Nov 2026 (Fakhri, an employee on P&P, could not connect Google for his own agent): the install's Google client is
    // an admin's one-time setup; connecting a Google account is for admins and for the agent's own owner, on that agent only.
+   // Set up Slack and Connect Microsoft (slack-connect.mjs, microsoft-connect.mjs), 11 Nov 2026: the same rules as Google.
+   // The install's app (ID and secret) is an admin's one-time setup; connecting an account is for admins and the
+   // agent's own owner, on that agent only. A secret is never sent back or logged.
+   if(p.startsWith('/ui/slack/')||p.startsWith('/ui/microsoft/')){const admin=users.isAdmin(u),slack=p.startsWith('/ui/slack/');let b={};
+    if(req.method!=='GET'){try{b=JSON.parse(await readBody(req,16384)||'{}')}catch{return send(res,400,{error:'Bad request'})}}
+    const ok=x=>send(res,200,x),bad=e=>send(res,e.status||400,{error:e.message}),ag=String(b.agent||url.searchParams.get('agent')||(admin?'default':''));
+    const mine=a=>admin||users.level(u,a)==='owner',all=await agentNames(),own=all.filter(mine),sub=p.replace(/^\/ui\/(slack|microsoft)/,'');
+    if(sub==='/client'&&!admin)return send(res,403,{error:'Only an admin sets this up for the install (once).'});
+    if(['/connect','/check','/account','/flow'].includes(sub)){if(!all.includes(ag))return send(res,400,{error:'Unknown agent'});if(!mine(ag))return send(res,403,{error:'You can connect accounts only for your own agents.'})}
+    const agentsOut=async()=>Promise.all(own.map(async a=>({id:a,name:NAMES[a]||a,...(slack?{slack:await slackc.slackOf(a).catch(()=>null)}:{})})));
+    if(slack){
+     if(sub==='/state'&&req.method==='GET')return ok({...await slackc.info(all),agents:await agentsOut(),canSetUp:admin});
+     if(sub==='/client'&&req.method==='POST')return slackc.saveClient(b,all).then(ok,bad);
+     if(sub==='/client'&&req.method==='DELETE')return slackc.removeClient(all).then(ok,bad);
+     if(sub==='/connect'&&req.method==='POST'){const s=await slackc.slackOf(ag).catch(()=>null);await whyOf.noteApp(ag,s?.name||'slack',{by:'person',admin,who:u.name||u.username||''}).catch(()=>{});return slackc.connect(ag).then(ok,bad)}
+     if(sub==='/flow'&&req.method==='GET'){const id=String(url.searchParams.get('id')||'');if(!/^[\w.-]{1,120}$/.test(id))return send(res,400,{error:'Bad flow'});
+      const f=await fetch(DASH.origin+'/api/mcp/oauth/flows/'+encodeURIComponent(id)+'?profile='+encodeURIComponent(ag),{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(15000)}).then(r=>r.json()).catch(()=>({}));
+      return ok({status:String(f.status||''),error:f.error?String(f.error).slice(0,300):''})}}
+    else{
+     if(sub==='/state'&&req.method==='GET'){const accounts=(await Promise.all(own.map(a=>msconnect.accounts(a)))).flat().map(x=>({...x,agentName:NAMES[x.agent]||x.agent}));return ok({...await msconnect.info(),accounts,agents:await agentsOut(),canSetUp:admin})}
+     if(sub==='/client'&&req.method==='POST')return msconnect.saveClient(b).then(ok,bad);
+     if(sub==='/client'&&req.method==='DELETE')return msconnect.removeClient().then(ok,bad);
+     if(sub==='/connect'&&req.method==='POST')return msconnect.start({agent:ag,name:b.name,services:Array.isArray(b.services)?b.services:undefined,reconnect:!!b.reconnect}).then(ok,bad);
+     if(sub==='/result'&&req.method==='GET')return msconnect.result(String(url.searchParams.get('state')||'')).then(ok,bad);
+     if(sub==='/check'&&req.method==='POST')return msconnect.check(ag,String(b.name||'')).then(ok,bad);
+     if(sub==='/account'&&req.method==='DELETE')return msconnect.remove(ag,String(b.name||'')).then(r=>{if(LIVE_APP)writeAgentContext().catch(()=>{});return ok(r)},bad)}
+    return send(res,404,{error:'Not found'})}
    if(p.startsWith('/ui/google/')){const admin=users.isAdmin(u);let b={};if(req.method!=='GET'){try{b=JSON.parse(await readBody(req,65536)||'{}')}catch{return send(res,400,{error:'Bad request'})}}
     const ok=x=>send(res,200,x),bad=e=>send(res,e.status||400,{error:e.message}),ag=String(b.agent||url.searchParams.get('agent')||(admin?'default':''));
     if(p==='/ui/google/client'&&!admin)return send(res,403,{error:'Only an admin sets up Google for this install (once, in Connections › Connect Google).'});
@@ -3187,10 +3229,10 @@ const server=createServer(async(req,res)=>{
     if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag+'/soul','PUT',new URLSearchParams(),ag)!==null)return send(res,403,{error:'Not your agent.'});
     // who started it: an admin's own sign-in is never asked about as an unknown login (connected-accounts.mjs ownerMade)
     await whyOf.noteApp(ag,tool,{by:'person',admin:users.isAdmin(u),who:u.name||u.username||''}).catch(()=>{});
-    try{const pr=await sharing.prepareSignin(ag,tool,MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(tool));if(pr.changed)await new Promise(r=>setTimeout(r,2500));return send(res,200,await startSignin(ag,tool))}catch(e){return send(res,400,{error:e.message})}}
+    try{const pr=await sharing.prepareSignin(ag,tool,MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(tool),null,slackClientFor);if(pr.changed)await new Promise(r=>setTimeout(r,2500));return send(res,200,await startSignin(ag,tool))}catch(e){return send(res,400,{error:e.message})}}
    if(p==='/ui/mcp/prepare-signin'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||'default');
     if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag+'/soul','PUT',new URLSearchParams(),ag)!==null)return send(res,403,{error:'Not your agent.'});
-    try{const r=await sharing.prepareSignin(ag,String(b.name||''),MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(String(b.name||'')));if(r.changed)await new Promise(r=>setTimeout(r,2500));return send(res,200,r)}catch(e){return send(res,400,{error:e.message})}}
+    try{const r=await sharing.prepareSignin(ag,String(b.name||''),MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(String(b.name||'')),null,slackClientFor);if(r.changed)await new Promise(r=>setTimeout(r,2500));return send(res,200,r)}catch(e){return send(res,400,{error:e.message})}}
    if(p==='/ui/mcp/oauth-redirect'&&req.method==='GET')return send(res,200,{redirect:MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(url.searchParams.get('name')||'')});
    if(p==='/ui/share/duplicate'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||'default');
     if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag+'/soul','PUT',new URLSearchParams(),ag)!==null)return send(res,403,{error:'You can only change agents you may edit.'});

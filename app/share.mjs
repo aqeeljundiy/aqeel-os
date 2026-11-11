@@ -68,12 +68,15 @@ export function createShare({DASH,TOKEN,HERMES_HOME,listAgents}){
    const md=path.join(dst,'SKILL.md');let t=await readFile(md,'utf8');t=t.replace(/^(---[\s\S]*?\nname:\s*)(.+)$/m,(m,a)=>a+to);await writeFile(md,t);return {ok:true,name:to}}
   throw new Error('Only MCP tools and skills can be duplicated. A plugin runs once per agent.')}
  // sign-ins return to the public site (set per tool, so the engine's own public-URL setting and its login gate stay off)
- async function prepareSignin(agent,name,redirect,client){if(!NAME.test(name))throw new Error('Bad name');const b=await mcpBlock(agent,name);if(!b?.url)throw new Error('Only tools with an address sign in this way.');
+ async function prepareSignin(agent,name,redirect,client,fallback){if(!NAME.test(name))throw new Error('Bad name');const b=await mcpBlock(agent,name);if(!b?.url)throw new Error('Only tools with an address sign in this way.');
   // a tool that already signs in with a key or token (a header, a bearer) keeps it: switching it to oauth would break it
   if(b.auth&&b.auth!=='oauth'||b.bearer||b.bearer_token||b.token||Object.keys(b.headers||{}).some(k=>/auth|token|key|bearer/i.test(k)))throw new Error('This tool signs in with its own key or token, not a sign-in page. Change its key in its settings instead.');
   // the public return address wins; a local callback port (what 'hermes mcp login' uses) cannot reach the person's browser
   const o={...(b.oauth||{}),redirect_uri:redirect};delete o.redirect_port;if(client?.id)o.client_id=client.id;if(client?.secret)o.client_secret=client.secret;
-  const own=!!o.client_id;   // the person's own app: its settings must list our Redirect URL
+  // no client of its own: the install's app for that service, if an admin set one up (Slack, slack-connect.mjs, 11 Nov 2026);
+  // that app already lists our Redirect URL, so nobody is asked to add it
+  let install=false;if(!o.client_id&&fallback){const fb=await fallback(b).catch(()=>null);if(fb?.id){o.client_id=fb.id;if(fb.secret)o.client_secret=fb.secret;install=true}}
+  const own=!!o.client_id&&!install;   // the person's own app: its settings must list our Redirect URL
   if(b.auth==='oauth'&&JSON.stringify(b.oauth||{})===JSON.stringify(o))return {ok:true,changed:false,own,url:b.url};b.auth='oauth';b.oauth=o;await setMcp(agent,name,b);return {ok:true,changed:true,own,url:b.url}}
  async function setOauthClient(agent,name,id,secret,redirect){if(!id)throw new Error('Paste the Client ID.');return prepareSignin(agent,name,redirect,{id,secret})}
  return {usedBy,share,renameMcp,python,duplicate,setOauthClient,prepareSignin};
