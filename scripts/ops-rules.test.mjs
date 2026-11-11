@@ -30,7 +30,8 @@ test('rule 1: background launches with a bare ( … & ) only in screen_up',()=>{
 
 test('rule 1: new detached launches in the app are deliberate',()=>{
  // a detached child outlives the app: each one here has an owner that finds and stops it (reviewed 11 Nov 2026)
- const KNOWN={'app/automation-guard.mjs':1,'app/issues.mjs':1,'app/self-runs-box.mjs':1,'app/server.mjs':2};
+ // app/backup.mjs (12 Nov 2026): the nightly backup's own process; DATA/backup-job.json is its lock (pid + heartbeat), it ends by itself, and the app follows or clears it at start
+ const KNOWN={'app/backup.mjs':1,'app/automation-guard.mjs':1,'app/issues.mjs':1,'app/self-runs-box.mjs':1,'app/server.mjs':2};
  for(const f of files('app',/\.mjs$/)){const n=[...read(f).matchAll(/detached:\s*true/g)].length;
   assert.ok(n<=(KNOWN[f]||0),f+' has '+n+' detached launch(es), '+(KNOWN[f]||0)+' known. A detached process needs an owner that stops it (OPERATIONS.md rule 1); then add it to KNOWN here.')}});
 
@@ -53,7 +54,7 @@ test('rule 2: memory caps and sleep are checked every minute, and Chrome sits be
 
 test('rule 7: the backup\'s temporary file is one the leftover sweep knows',()=>{
  const b=read('app/backup.mjs');
- assert.match(b,/const name='aqeelos-'\+new Date\(at\+7\*3600e3\)\.toISOString\(\)\.slice\(0,16\)\.replace\(\/\[:T\]\/g,'-'\)\+'\.tar\.gz\.enc'/,'the backup file name changed: update LEFTOVER in backup.mjs so cut-off backups are still swept (rule 7)');
+ assert.match(b,/const nameOf=at=>'aqeelos-'\+new Date\(at\+7\*3600e3\)\.toISOString\(\)\.slice\(0,16\)\.replace\(\/\[:T\]\/g,'-'\)\+'\.tar\.gz\.enc'/,'the backup file name changed: update LEFTOVER in backup.mjs so cut-off backups are still swept (rule 7)');
  assert.ok(LEFTOVER.test('aqeelos-2026-11-11-07-57.tar.gz.enc')&&LEFTOVER.test('aqeelos-2026-11-11-07-57.tar.gz.enc.skipped'));
  assert.match(b,/dropLeftovers()/,'cut-off backups must be removed on start (rule 7)')});
 

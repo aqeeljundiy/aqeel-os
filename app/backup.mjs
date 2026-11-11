@@ -12,6 +12,7 @@ import {Readable} from 'node:stream';
 import {pipeline} from 'node:stream/promises';
 import {randomBytes} from 'node:crypto';
 import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {localParts} from './tz.mjs';
 
 export const DEFAULTS={account:'',hour:3,keep:14,folder:'aqeelOS backups'};
@@ -156,13 +157,14 @@ export function pruneLocal(files,{keep=LOCAL_KEEP,days=LOCAL_DAYS,max=LOCAL_MAX,
  return out}
 // the newest good backup (at, 0 = none yet; since = when aqeelOS first looked) is older than the limit: how old, else null
 export const staleBackup=(at,since,now=Date.now(),hours=STALE_H)=>{const age=now-(at||since||now);return age>hours*3600e3?{hours:Math.round(age/3600e3),never:!at}:null};
-export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=process.env.BACKUP_GOOGLE_ACCOUNT||'',notify=()=>{},solved=()=>{},restored=()=>{},stopEngine=async()=>{},startEngine=async()=>{},fetchImpl=fetch,tar='tar',TMP='/tmp',LOCALDIR=path.join(HOME,'aqeelos-local-backups'),MIN=1e6,disk:diskImpl,mem=memFree,drop=dropCache,PIECE=64*1024*1024}){
+export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=process.env.BACKUP_GOOGLE_ACCOUNT||'',notify=()=>{},solved=()=>{},restored=()=>{},stopEngine=async()=>{},startEngine=async()=>{},fetchImpl=fetch,tar='tar',TMP='/tmp',LOCALDIR=path.join(HOME,'aqeelos-local-backups'),MIN=1e6,disk:diskImpl,mem=memFree,drop=dropCache,PIECE=64*1024*1024,
+ detach=false,jobCmd=null,jobPoll=5000,jobQuiet=3*60e3,readOnly=false,now=()=>Date.now()}){   // detach: the backup runs in its own process (backup-job.mjs) and outlives an app restart; readOnly: that process never writes backups.json
  const STATE=path.join(DATA,'backups.json'),KEYF=path.join(DATA,'backup-key'),JOURNAL=path.join(DATA,'restore-journal.jsonl');let state=null,running=null,job=null,preparing=null,copying=false,held=false,testing=null,prep=null;   // prep: the running Prepare's stop switch
  const load=async()=>{if(!state){try{state=JSON.parse(await readFile(STATE,'utf8'))}catch{state={}}
    // the old switched-off restore's "running" mark (before 7 Nov 2026)
    if(state.restore?.running){state.restore={...state.restore,running:false,ok:false,phase:'failed',error:'Interrupted: aqeelOS stopped during the restore.'};await save().catch(()=>{})}
    if(state.restore?.phase==='preparing'){state.restore={...state.restore,phase:'failed',ok:false,error:'Interrupted: aqeelOS stopped while the backup was being prepared. Nothing on the box was changed.'};await save().catch(()=>{})}}return state};
- const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(STATE,JSON.stringify(state,null,1))};
+ const save=async()=>{if(readOnly)return;await mkdir(DATA,{recursive:true});await writeFile(STATE,JSON.stringify(state,null,1))};
  const settings=()=>({...DEFAULTS,...(ENV_ACCOUNT?{account:'google_token_'+ENV_ACCOUNT+'.json'}:{}),...(state?.settings||{})});
  const tokenFile=()=>settings().account||'google_token.json';
  // the key that encrypts every backup (made once; admins see it under System › Health to keep it somewhere safe)
@@ -211,16 +213,14 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
   const y=await readFile(path.join(prof,a,'config.yaml'),'utf8').catch(()=>'');const u=/\n\s*ssh_user:\s*['"]?(ag-[\w-]+)/.exec(y)?.[1],k=/\n\s*ssh_key:\s*['"]?([^'"\n]+)/.exec(y)?.[1]?.trim(),ws=path.join(HOME,'workspaces',a);
   if(!u||!k||!await stat(ws).catch(()=>null))continue;
   await sh('ssh -i '+q(k)+' -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=15 '+q(u+'@127.0.0.1')+' '+q('find '+q(ws)+' -user '+u+' \\( -type d -o -type f \\) -print0 2>/dev/null | xargs -0 -r setfacl -m u:claude:rwX,m::rwX 2>/dev/null; true')).catch(e=>console.warn('backup: read access for',a,e.message))}}
- // pack, encrypt, upload, prune
- async function run(why='scheduled'){if(copying)throw Error('A restore is running. Back up after it finishes.');if(running)return running;running=(async()=>{await load();const at=Date.now();const name='aqeelos-'+new Date(at+7*3600e3).toISOString().slice(0,16).replace(/[:T]/g,'-')+'.tar.gz.enc';const tmp=path.join(TMP,name);let work=tmp;
-  // a try counts when it starts (11 Nov 2026: each deploy restarted the app mid-backup, the cut-off run was never counted,
-  // and the next start tried again: seven 26 GB archives in /tmp filled Elkiya's disk to 99%)
-  {const day=localParts(at,tz()).day;state.tries=state.tries?.day===day?{day,n:state.tries.n+1}:{day,n:1};await save()}
+ /* One backup from start to end: pack, encrypt, upload (or keep on the box), prune. Returns {last, note}: what backups.json's "last" becomes
+    and the log line; throws with the reason. It writes nothing to backups.json, so it runs the same in the app and in the detached job. */
+ async function pack(why,at,name,onPhase=()=>{}){const tmp=path.join(TMP,name);let work=tmp;
   try{let g0=null,gwhy='';try{g0=await google()}catch(e){if(e.code!=='NOGOOGLE')throw e;if(!/Connect Google first/.test(e.message))gwhy=e.message}   // a Google account that cannot be used is said on the result, the backup still happens   // no Google: the backup stays on this box (LOCALDIR)
    const local=!g0,dest=path.join(LOCALDIR,name);
    if(local){await mkdir(LOCALDIR,{recursive:true,mode:0o700});work=dest+'.part'}
    // the disk first: a full one made openssl fail, tar got SIGPIPE and the cause was lost as "tar exit 141" (11 Nov 2026)
-   {const need=Math.max(2e9,(state.last?.size||0)*1.3),free=(await disk(path.dirname(work))).free;if(free<need)throw Error('Not enough free disk space for a backup: it needs about '+gb(need)+' in '+path.dirname(work)+', and there is '+gb(free)+'.')}
+   {const need=Math.max(2e9,(state.last?.size||state.lastSize||0)*1.3),free=(await disk(path.dirname(work))).free;if(free<need)throw Error('Not enough free disk space for a backup: it needs about '+gb(need)+' in '+path.dirname(work)+', and there is '+gb(free)+'.')}
    const inc=[];for(const p of INCLUDE)if(await stat(path.join(HOME,p)).catch(()=>null))inc.push(p);
    // agents with their own Linux user own their workspace files, and some programs write them private, so tar could not
    // read them and every nightly backup failed from 24 Oct (30 Oct 2026). Before packing, each agent's own user (the SSH
@@ -238,21 +238,63 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
    const skipped=Number((await readFile(work+'.skipped','utf8').catch(()=>'0')).trim())||0;await rm(work+'.skipped',{force:true}).catch(()=>{});
    const size=(await stat(work)).size;if(size<MIN)throw Error('The backup came out too small ('+size+' bytes).');
    if(local){await rename(work,dest);const pruned=await pruneLocalDir();
-    state.last={at,ok:true,name,size,local:true,...(gwhy?{googleWhy:gwhy}:{}),why,secs:Math.round((Date.now()-at)/1000),skipped};state.lastOkAt=at;state.made=true;delete state.staleTold;await save();
-    console.log('backup: '+name+' ('+Math.round(size/1e6)+' MB) kept on this box in '+LOCALDIR+' (no Google account)'+(pruned?', '+pruned+' older one(s) removed':'')+(skipped?', '+skipped+' unreadable file(s) skipped':''));solved();return state.last}
+    return {last:{at,ok:true,name,size,local:true,...(gwhy?{googleWhy:gwhy}:{}),why,secs:Math.round((Date.now()-at)/1000),skipped},
+     note:name+' ('+Math.round(size/1e6)+' MB) kept on this box in '+LOCALDIR+' (no Google account)'+(pruned?', '+pruned+' older one(s) removed':'')+(skipped?', '+skipped+' unreadable file(s) skipped':'')}}
+   onPhase('uploading');
    const g=await google().catch(()=>g0),fid=await folder(g);
    const start=await drive(g,'upload/drive/v3/files?uploadType=resumable',{method:'POST',raw:true,headers:{'content-type':'application/json; charset=UTF-8','x-upload-content-type':'application/octet-stream','x-upload-content-length':String(size)},body:JSON.stringify({name,parents:[fid]})});
    const file=await sendFile(start.headers.get('location'),tmp,size);
    // keep the newest N (older ones go to the Drive bin, where Google keeps them 30 more days)
    const l=await drive(g,'drive/v3/files?q='+encodeURIComponent("'"+fid+"' in parents and trashed=false")+'&orderBy=createdTime desc&fields=files(id,name)&pageSize=100');
    for(const f of (l.files||[]).slice(settings().keep))await drive(g,'drive/v3/files/'+f.id,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({trashed:true})}).catch(()=>{});
-   state.last={at,ok:true,name,size,id:file.id,account:g.account,why,secs:Math.round((Date.now()-at)/1000),skipped};state.lastOkAt=at;state.made=true;delete state.staleTold;await save();pruneLocalDir().catch(()=>{});console.log('backup: '+name+' ('+Math.round(size/1e6)+' MB) uploaded to Google Drive'+(skipped?', '+skipped+' unreadable file(s) skipped':''));solved();return state.last}
-  // a failed scheduled backup is tried again within the hour, 3 times a morning; only the third failure is told (a
-  // dropped upload is usually gone an hour later). A manual one shows its result on Health, so it never goes to Bottlenecks.
-  // No Google account is not a failure to tell about: the card says "Connect Google first"
-  catch(e){
-   state.last={at,ok:false,error:e.message,why,...(e.code==='NOGOOGLE'?{nogoogle:true}:{})};await save();console.warn('backup failed ('+state.tries.n+' today):',e.message);if(why==='scheduled'&&state.tries.n>=3&&e.code!=='NOGOOGLE')notify('Backup to Google Drive failed 3 times this morning',e.message);throw e}
-  finally{await rm(work,{force:true}).catch(()=>{});await rm(work+'.skipped',{force:true}).catch(()=>{});await rm(tmp,{force:true}).catch(()=>{});running=null}})();return running}
+   await pruneLocalDir().catch(()=>{});return {last:{at,ok:true,name,size,id:file.id,account:g.account,why,secs:Math.round((Date.now()-at)/1000),skipped},note:name+' ('+Math.round(size/1e6)+' MB) uploaded to Google Drive'+(skipped?', '+skipped+' unreadable file(s) skipped':'')}}
+  finally{await rm(work,{force:true}).catch(()=>{});await rm(work+'.skipped',{force:true}).catch(()=>{});await rm(tmp,{force:true}).catch(()=>{})}}
+ const nameOf=at=>'aqeelos-'+new Date(at+7*3600e3).toISOString().slice(0,16).replace(/[:T]/g,'-')+'.tar.gz.enc';
+ const good=async r=>{state.last=r.last;state.lastOkAt=r.last.at;state.lastSize=r.last.size;state.made=true;delete state.staleTold;await save();console.log('backup: '+r.note);solved();return state.last};
+ // a failed scheduled backup is tried again within the hour, 3 times a morning; only the third failure is told (a
+ // dropped upload is usually gone an hour later). A manual one shows its result on Health, so it never goes to Bottlenecks.
+ // No Google account is not a failure to tell about: the card says "Connect Google first"
+ const bad=async(e,why,at)=>{state.last={at,ok:false,error:e.message,why,...(e.code==='NOGOOGLE'?{nogoogle:true}:{})};await save();console.warn('backup failed ('+(state.tries?.n||0)+' today):',e.message);if(why==='scheduled'&&state.tries?.n>=3&&e.code!=='NOGOOGLE')notify('Backup to Google Drive failed 3 times this morning',e.message)};
+ /* A try counts when it starts (11 Nov 2026: each deploy restarted the app mid-backup, the cut-off run was never counted, and the next
+    start tried again: seven 26 GB archives in /tmp filled Elkiya's disk to 99%). But a run that was CUT OFF (the app or the box restarted;
+    its archive is found and removed at the next start) gets its try back, at most 6 times a day: on 9 to 12 Nov 2026 every night's three
+    tries were used up by deploy restarts and no backup was made for three days, with nothing said (audit H2). */
+ const giveBack=async()=>{const day=localParts(now(),tz()).day,t=state.tries;if(t?.day!==day||!(t.n>0)||(t.back||0)>=6)return false;state.tries={day,n:t.n-1,back:(t.back||0)+1};await save();return true};
+ const CUT='The backup was cut off before it finished (aqeelOS or the server restarted). It is tried again.';
+ /* The detached job (audit H2): a backup takes over an hour and the app is restarted by every deploy, so with detach the work runs in its
+    own process (app/backup-job.mjs, its own session), which an app restart does not stop. DATA/backup-job.json is its lock and its state:
+    {pid, at, name, why, phase, beat} while it runs (beat: written every 30 s), then {done, last, note} or {done, error, code}. The app only
+    follows that file; after a restart it picks the same job up again (adopt), and its result goes into backups.json exactly once. */
+ const JOB=path.join(DATA,'backup-job.json'),JOB_FILE=path.join(path.dirname(fileURLToPath(import.meta.url)),'backup-job.mjs');
+ const readJob=async()=>{try{return JSON.parse(await readFile(JOB,'utf8'))}catch{return null}};
+ const jobAlive=j=>{if(!j?.pid||j.done)return false;if(now()-(j.beat||j.at||0)>jobQuiet)return false;try{process.kill(j.pid,0);return true}catch(e){return e.code==='EPERM'}};
+ async function follow(at,ctl={}){const t0=Date.now();for(;;){const j=await readJob();
+   if(j&&j.at===at&&j.done){await rm(JOB,{force:true}).catch(()=>{});if(j.last)return {last:j.last,note:j.note||j.last.name};throw Object.assign(Error(j.error||'The backup failed.'),j.code?{code:j.code}:{})}
+   if(ctl.error)throw Object.assign(Error('The backup could not be started: '+ctl.error),{cutOff:true});
+   // no file yet: the job writes it first thing, give it half a minute; then a job that is gone or silent was cut off
+   if(j&&j.at===at?!jobAlive(j):Date.now()-t0>30e3)throw Object.assign(Error(CUT),{cutOff:true});
+   await new Promise(r=>setTimeout(r,jobPoll))}}
+ async function viaJob(why,at,name){await rm(JOB,{force:true}).catch(()=>{});const [cmd,...args]=jobCmd||[process.execPath,JOB_FILE],ctl={};
+  const child=spawn(cmd,args,{detached:true,stdio:'ignore',cwd:HOME,env:{...process.env,AQ_BACKUP_JOB:JSON.stringify({DATA,HOME,HERMES_HOME,TMP,LOCALDIR,MIN,tz:tz(),ENV_ACCOUNT,why,at,name})}});
+  child.on('error',e=>{ctl.error=e.message});child.unref();return follow(at,ctl)}
+ // what the job process runs (backup-job.mjs): the same pack(), its progress and result in the job file, never backups.json
+ async function job2({why,at,name}){let phase='packing',end=null;const w=async()=>{const t=JOB+'.'+process.pid+'.tmp';await mkdir(DATA,{recursive:true});await writeFile(t,JSON.stringify({pid:process.pid,at,name,why,phase,beat:Date.now(),...(end||{})}),{mode:0o600});await rename(t,JOB)};
+  await w();const hb=setInterval(()=>{if(!end)w().catch(()=>{})},Math.min(30e3,Math.max(50,jobQuiet/6)));
+  try{await load();const r=await pack(why,at,name,p=>{phase=p});end={done:true,last:r.last,note:r.note}}catch(e){end={done:true,error:String(e?.message||e),code:e?.code||''}}
+  clearInterval(hb);await w();return end}
+ const cutOff=async(why,at)=>{const back=await giveBack();state.last={at,ok:false,error:CUT,why,cut:true};await save();console.warn('backup: a backup was cut off'+(back?'; its try is given back':''))};
+ async function run(why='scheduled'){if(copying)throw Error('A restore is running. Back up after it finishes.');if(running)return running;running=(async()=>{await load();const at=now(),name=nameOf(at);
+  {const day=localParts(at,tz()).day;state.tries=state.tries?.day===day?{...state.tries,n:state.tries.n+1}:{day,n:1};await save()}
+  try{return await good(detach?await viaJob(why,at,name):await pack(why,at,name))}
+  catch(e){if(e.cutOff)await cutOff(why,at);else await bad(e,why,at);throw e}
+  finally{running=null}})();return running}
+ /* When the app starts: a job that is still running (or finished while the app was away) is followed to its end; one that was cut off, or
+    an archive an in-app backup left behind, gives its try back. Then what a cut-off backup left in /tmp is removed. */
+ async function startUp(){await load();const j=detach?await readJob():null;let cut=false;
+  if(j&&(j.done||jobAlive(j))){running=(async()=>{try{return await good(await follow(j.at))}catch(e){if(e.cutOff)await cutOff(j.why,j.at);else await bad(e,j.why,j.at);throw e}finally{running=null}})();running.catch(()=>{});console.log('backup: following the backup that was already running ('+j.name+')');return {adopted:true}}
+  if(j){await rm(JOB,{force:true}).catch(()=>{});cut=true}
+  const left=await dropLeftovers();if(cut||left.archives){const back=await giveBack();console.log('backup: the last backup was cut off'+(back?'; its try is given back':''));return {cut:true,back}}
+  return {}}
  // the backups kept on this box (no Google account): newest first
  async function localBackups(){const out=[];for(const f of await readdir(LOCALDIR).catch(()=>[])){if(!LOCAL_NAME.test(f))continue;const st=await stat(path.join(LOCALDIR,f)).catch(()=>null);if(st?.isFile())out.push({name:f,size:st.size,at:st.mtimeMs})}return out.sort((a,b)=>b.at-a.at)}
  async function pruneLocalDir(){const gone=pruneLocal(await localBackups());for(const f of gone)await rm(path.join(LOCALDIR,f),{force:true}).catch(()=>{});
@@ -356,8 +398,8 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
  async function accounts(){const out=[];for(const f of (await readdir(HERMES_HOME).catch(()=>[])).filter(f=>/^google_token(_[\w.-]+)?\.json$/.test(f)).sort()){try{const t=JSON.parse(await readFile(path.join(HERMES_HOME,f),'utf8'));if(t.aqeelos_managed)continue;
   out.push({file:f,email:t.account||'',drive:!Array.isArray(t.scopes)||!t.scopes.length||t.scopes.some(s=>/\/auth\/drive(\.file)?$/.test(s)),renews:!!t.refresh_token})}catch{}}return out}
  // every 15 minutes: the backup is due from the set hour, for 6 hours; a restore test every Sunday after it
- async function dropLeftovers(){if(running)return 0;let n=0,bytes=0;for(const f of (await readdir(TMP).catch(()=>[])).filter(f=>LEFTOVER.test(f))){const p=path.join(TMP,f);const st=await stat(p).catch(()=>null);if(!st?.isFile())continue;await rm(p,{force:true}).catch(()=>{});n++;bytes+=st.size}
-  if(n)console.log('backup: removed '+n+' file(s) a cut-off backup left in '+TMP+' ('+Math.round(bytes/1e9)+' GB)');return n}
+ async function dropLeftovers(){const out={n:0,archives:0};if(running)return out;let bytes=0;for(const f of (await readdir(TMP).catch(()=>[])).filter(f=>LEFTOVER.test(f))){const p=path.join(TMP,f);const st=await stat(p).catch(()=>null);if(!st?.isFile())continue;await rm(p,{force:true}).catch(()=>{});out.n++;if(LOCAL_NAME.test(f))out.archives++;bytes+=st.size}
+  if(out.n)console.log('backup: removed '+out.n+' file(s) a cut-off backup left in '+TMP+' ('+Math.round(bytes/1e9)+' GB)');return out}
  // the newest good backup older than 48 h (or none since aqeelOS first looked): one Health item, said again at most once a day
   async function staleCheck(){await load();if(!state.since){state.since=Date.now();await save()}
   const at=Math.max(state.lastOkAt||0,state.last?.ok?state.last.at:0),s=staleBackup(at,state.since);
@@ -365,9 +407,18 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
   if(!state.staleTold||Date.now()-state.staleTold>864e5){state.staleTold=Date.now();await save();
    notify(s.never?'No backup has been made yet':'The newest good backup is '+s.hours+' hours old','Backups run every night, and the newest good one is more than '+STALE_H+' hours old'+(state.last&&!state.last.ok?'. The last try failed: '+String(state.last.error||'').slice(0,200):'')+'.')}
   return s}
- function schedule(){pruneLocalDir().catch(()=>{});recover().catch(e=>console.warn('backup: roll back on start',e.message));dropLeftovers().catch(e=>console.warn('backup: leftovers',e.message));const tick=async()=>{await load();const j=localParts(Date.now(),tz());const today=j.day,H=settings().hour;
-   await staleCheck().catch(()=>{});const tries=state.tries?.day===today?state.tries.n:0,doneToday=state.last?.ok&&localParts(state.last.at,tz()).day===today;
-   if(j.hour>=H&&j.hour<H+6&&!doneToday&&tries<3&&!copying&&!preparing&&(!state.last||state.last.ok||Date.now()-state.last.at>3600e3)){try{await run();if(j.weekday===0)await test()}catch{}}};
+ /* The night's window ended and no good backup was made in it: said once per night (audit H2: three nights without a backup and nothing
+    said, the 48-hour alarm only fires two days later). state.window is the day a window was open; it is settled at the first check after it. */
+ async function windowCheck(inWindow,today){if(inWindow){if(state.window?.day!==today){state.window={day:today,from:now()};await save()}return null}
+  const w=state.window;if(!w||w.told||running)return null;const ok=(state.lastOkAt||0)>=w.from||state.last?.ok&&state.last.at>=w.from;w.told=now();await save();
+  if(!ok)notify('Last night\'s backup was not made','No backup finished in the backup window that started '+new Date(w.from).toISOString().slice(0,16).replace('T',' ')+' UTC'+(state.last&&!state.last.ok?'. The last try said: '+String(state.last.error||'').slice(0,200):'')+'. It is tried again tonight; you can also run one now.');
+  return {ok}}
+ async function tick(){await load();const j=localParts(now(),tz());const today=j.day,H=settings().hour,inWindow=j.hour>=H&&j.hour<H+6;
+  await staleCheck().catch(()=>{});await windowCheck(inWindow,today).catch(e=>console.warn('backup: window check',e.message));
+  const tries=state.tries?.day===today?state.tries.n:0,doneToday=state.last?.ok&&localParts(state.last.at,tz()).day===today;
+  // after a failure the next try waits an hour; after a cut-off run it does not (nothing is wrong with the backup itself)
+  if(inWindow&&!doneToday&&tries<3&&!running&&!copying&&!preparing&&(!state.last||state.last.ok||state.last.cut||now()-state.last.at>3600e3)){try{await run();if(j.weekday===0)await test()}catch{}}}
+ function schedule(){pruneLocalDir().catch(()=>{});recover().catch(e=>console.warn('backup: roll back on start',e.message));startUp().catch(e=>console.warn('backup: start-up',e.message));
   setInterval(()=>tick().catch(()=>{}),15*60e3).unref?.()}
  async function status(){await load();const keyError=made()&&!await readKey()?NOKEY:null,s=settings(),acc=await accounts(),pick=acc.find(a=>a.file===tokenFile());
   const r=state.restore||null,p=state.prepared;
@@ -376,4 +427,4 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
    restore:r,prepared:p?{id:p.id,name:p.name,local:p.local,at:p.at,preview:p.preview}:null,
    settings:s,keep:s.keep,where:'Google Drive › '+s.folder,account:pick?.email||'',google:{connected:!!pick&&pick.renews&&pick.drive,file:tokenFile(),email:pick?.email||'',drive:!!pick?.drive,renews:!!pick?.renews},accounts:acc}}
  // settled(): resolves when the Prepare or Restore running in the background has finished (tests wait on this, not on a timer)
- return {settled:()=>job||Promise.resolve(),run,staleCheck,test,status,key,setKey,schedule,list,estimate,prepare,cancel,apply,recover,setSettings,accounts,busy:()=>copying,writesHeld:()=>held}}
+ return {settled:()=>job||Promise.resolve(),following:()=>running||Promise.resolve(),startUp,tick,job:o=>job2(o),run,staleCheck,test,status,key,setKey,schedule,list,estimate,prepare,cancel,apply,recover,setSettings,accounts,busy:()=>copying,writesHeld:()=>held}}

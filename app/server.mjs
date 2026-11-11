@@ -902,7 +902,7 @@ const brandMarks=async({custom}={})=>{const out=[],rd=f=>readFile(path.join(root
 // how an install's logo is really used when the owner has set no colours: Pixel & Profits shows its mark in green #83b271 on near-black #111 (its site's favicon and header), so its icon does too
 const BRAND_LOOK={'ai.pixelandprofits.com':{colour:'#111111',accent:'#83b271'}}[(()=>{try{return new URL(env.PUBLIC_URL||'').hostname}catch{return ''}})()]||{};
 const brand=createBrand({DATA,contactFallback:OWNER_CONTACT,fallbackMarks:brandMarks,colourDefault:env.AQEELOS_BRAND_COLOUR||BRAND_LOOK.colour||'',accentDefault:env.AQEELOS_BRAND_ACCENT||BRAND_LOOK.accent||''});
-const backups=createBackups({DATA,HOME:homedir(),HERMES_HOME,tz:()=>tzNow,notify:(t,d)=>bottlenecks.event('backup',t,d+' Open System › Health to try again.',{topic:'backup'}).catch(()=>{}),solved:()=>bottlenecks.resolve('backup').catch(()=>{}),
+const backups=createBackups({detach:LIVE_APP,DATA,HOME:homedir(),HERMES_HOME,tz:()=>tzNow,notify:(t,d)=>bottlenecks.event('backup',t,d+' Open System › Health to try again.',{topic:'backup'}).catch(()=>{}),solved:()=>bottlenecks.resolve('backup').catch(()=>{}),
  restored:(ok,text,detail)=>(ok?bottlenecks.resolve('restore').then(()=>bottlenecks.event('backup',text,detail,{info:true})):bottlenecks.event('backup',text,detail,{topic:'restore'})).catch(()=>{}),   // done: the bell; failed: Bottlenecks
  // a restore stops the agents and the engine's dashboard (it keeps the chats database and settings open too), and the
  // watches leave both alone until it starts them again (services.sh starts both)
