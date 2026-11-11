@@ -11,6 +11,9 @@
 // Paid orders (8 Nov 2026): the same moment a payment is confirmed, its order form is posted once to the line's Orders topic (kirimdev.json
 // lines.<agent>.orders), code, no AI. statusFor answers the customer tool check_payment; postOrder is the customer tool post_order.
 // Payments labelled before this existed have no order mark and are never posted by themselves.
+// Events (12 Nov 2026, event-hooks.mjs): the provider is polled, nothing calls us when a payment succeeds, so this is the moment aqeelOS learns it.
+// onEvent(agent,{type,data:{kind}}) is told 'payment.paid' (a payment of the agent's is now confirmed PAID) and 'order.posted' (its order
+// form went to the Orders topic, now or on a retry), once the state is saved; never an amount, a name or a number. A failing listener changes nothing.
 import {readFile,writeFile,rename,mkdir} from 'node:fs/promises';
 import path from 'node:path';
 
@@ -24,8 +27,9 @@ const RESERVED=new Set(['kind','amounts','bank','name','order_form','order_total
 export function orderContextOf(pr){const c=pr?.orderContext||{};return {title:String(c.title||'Buyer details').slice(0,60),missing:String(c.missing||'not asked').slice(0,40),
  fields:(Array.isArray(c.fields)?c.fields:[]).filter(f=>/^[a-z][a-z0-9_]{0,30}$/.test(String(f?.key||''))&&!RESERVED.has(f.key)&&f.label).slice(0,6).map(f=>({key:f.key,label:String(f.label).slice(0,60),ask:String(f.ask||f.label).slice(0,300)}))}}
 
-export function createPaidLabels({DATA,WORK,label,orders=async()=>null,post=async()=>false,failed=async()=>{},fetchImpl=fetch,now=()=>Date.now(),log=m=>console.log(m),base=TRIPAY,xendit=XENDIT}){
+export function createPaidLabels({DATA,WORK,label,orders=async()=>null,post=async()=>false,failed=async()=>{},onEvent=()=>{},fetchImpl=fetch,now=()=>Date.now(),log=m=>console.log(m),base=TRIPAY,xendit=XENDIT}){
  const F=path.join(DATA,'paid-labels.json');
+ const tell=list=>{for(const k of new Set(list.map(e=>e.agent+'|'+e.type+'|'+e.kind))){const [agent,type,kind]=k.split('|');Promise.resolve().then(()=>onEvent(agent,{type,data:{kind}})).catch(()=>{})}};
  const readJson=async(f,d)=>{try{return JSON.parse(await readFile(f,'utf8'))}catch{return d}};
  const put=async v=>{await mkdir(DATA,{recursive:true});const t=F+'.'+process.pid+'.tmp';await writeFile(t,JSON.stringify(v,null,1),{mode:0o600});await rename(t,F)};
  const lines=async f=>(await readFile(f,'utf8').catch(()=>'')).split('\n').filter(Boolean).map(l=>{try{return JSON.parse(l)}catch{return null}}).filter(Boolean);
@@ -80,17 +84,17 @@ export function createPaidLabels({DATA,WORK,label,orders=async()=>null,post=asyn
   const db=await readJson(F,{done:{}});db.done||={};let seen=false;
   for(const p of mine){let x;try{x=await look(p)}catch(e){log('paid check: '+agent+' '+e.message);continue}if(overall(x.states)!=='PAID')continue;
    const key=p.agent+'|'+p.at+'|'+p.total,d=db.done[key]||{tries:0};if(d.order?.state==='posted'){seen=true;continue}
-   const o=await sendOrder(p,x.refs,form,d.order,ctx);if(o.state==='none')return {posted:false,why:'No Orders topic is set for this line.'};db.done[key]={...d,order:o};await put(db);
+   const o=await sendOrder(p,x.refs,form,d.order,ctx);if(o.state==='none')return {posted:false,why:'No Orders topic is set for this line.'};db.done[key]={...d,order:o};await put(db);if(o.state==='posted')tell([{agent:p.agent,type:'order.posted',kind:p.kind||'qris'}]);
    return o.state==='posted'?{posted:true}:{posted:false,why:'Telegram did not take the post. Tell the team.'}}
   return seen?{posted:false,already:true,why:'This order is already in the Orders topic.'}:{posted:false,why:'No payment of this customer is PAID yet.'}});
  let running=false;
  async function tick(){if(running)return {skipped:true};running=true;return serial(async()=>{try{
-  const db=await readJson(F,{done:{}});db.done||={};let changed=false;const t=now(),res=[];
+  const db=await readJson(F,{done:{}});db.done||={};let changed=false;const t=now(),res=[],evs=[];
   for(const p of await lines(path.join(DATA,'payments.jsonl'))){
    const at=Date.parse(p.at),key=p.agent+'|'+p.at+'|'+p.total;
    const card=p.kind==='card';
    // a paid order whose post did not go through: tried again each minute, a few times
-   if(db.done[key]?.order?.state==='failed'&&p.ok){db.done[key].order=await sendOrder(p,db.done[key].refs||[],'',db.done[key].order);changed=true;if(db.done[key].state)continue}
+   if(db.done[key]?.order?.state==='failed'&&p.ok){db.done[key].order=await sendOrder(p,db.done[key].refs||[],'',db.done[key].order);changed=true;if(db.done[key].order.state==='posted')evs.push({agent:p.agent,type:'order.posted',kind:p.kind||'qris'});if(db.done[key].state)continue}
    if(!p.ok||!p.agent||!p.conversation||!(t-at<(card?CARD_WINDOW:WINDOW))||db.done[key]?.state==='labelled'||db.done[key]?.state==='closed')continue;
    const d=db.done[key]||{tries:0};
    // an old unpaid card link is asked about every 10 minutes, not every minute
@@ -102,11 +106,12 @@ export function createPaidLabels({DATA,WORK,label,orders=async()=>null,post=asyn
     if(st.some(s=>s==='PAID'))log('paid labels: '+p.agent+' payment of '+p.total+' only partly paid ('+st.join(', ')+'); no labels, the team checks it');continue}
    if(!st.length||!st.every(s=>s==='PAID'))continue;
    // the order goes to the team whatever happens with the labels, and only once
-   if(!d.order){d.order=await sendOrder(p,refs,'');d.refs=refs;changed=true}
+   if(!d.paid){d.paid=true;evs.push({agent:p.agent,type:'payment.paid',kind:p.kind||'qris'})}
+   if(!d.order){d.order=await sendOrder(p,refs,'');d.refs=refs;changed=true;if(d.order.state==='posted')evs.push({agent:p.agent,type:'order.posted',kind:p.kind||'qris'})}
    try{const r=await label(p.agent,{conversationId:p.conversation,phone:p.phone,add:['Customer',...(p.products||[])],remove:['Checkout'],source:'payment',run:p.run||'pay'});
     db.done[key]={state:'labelled',at:t,refs,changed:r?.changed||[],...(r?.set===false?{why:r.why}:{}),order:d.order};res.push({agent:p.agent,total:p.total,...r})}
    catch(e){d.tries++;d.error=e.message;db.done[key]=d.tries>=TRIES?{state:'closed',why:'labels failed: '+e.message,at:t,order:d.order,refs}:d;log('paid labels: '+p.agent+' labelling failed (try '+d.tries+'): '+e.message)}
    changed=true}
   for(const [k,v] of Object.entries(db.done))if(t-(v.at||0)>7*86400e3)delete db.done[k],changed=true;
-  if(changed)await put(db);return {labelled:res}}finally{running=false}})}
+  if(changed)await put(db);tell(evs);return {labelled:res}}finally{running=false}})}
  return {tick,statusFor,postOrder}}
