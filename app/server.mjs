@@ -2424,6 +2424,12 @@ const server=createServer(async(req,res)=>{
   {const mh=/^\/event-hook\/([\w-]+)\/([\w-]+)\/([\w-]+)$/.exec(p);if(mh){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
    const x=Buffer.from(String(mh[3])),y=Buffer.from(String(relay.sig(mh[1])));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,'bad signature');
    const e=await eventHooks.runNow(mh[1],mh[2]).catch(e=>e.message);res.writeHead(e?500:200,{'content-type':'text/plain; charset=utf-8'});return res.end((e||'ok')+'\n')}}
+  // for a script that posts without a model (the comment queue, 12 Nov 2026): GET ?json=1 on the gate says {allow,n,reason}; POST /posting-record does what the record_post tool does
+  {const mj=/^\/posting-(gate|record)\/([\w-]+)\/([\w-]+)$/.exec(p);if(mj&&(mj[1]==='record'||url.searchParams.get('json')==='1')){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
+   const x=Buffer.from(String(mj[3])),y=Buffer.from(String(relay.sig(mj[2])));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,'bad signature');
+   if(mj[1]==='gate')return send(res,200,await postingLimits.allowNow(mj[2]).catch(e=>({allow:false,n:0,reason:'aqeelOS could not check the limits ('+e.message+')'})));
+   if(req.method!=='POST')return send(res,405,{error:'POST only'});let b={};try{b=JSON.parse(await readBody(req,65536))}catch{return send(res,400,{error:'bad json'})}
+   const r=await postingLimits.record(mj[2].split('--')[0],b).catch(e=>({isError:true,text:e.message}));return send(res,r.isError?409:200,{ok:!r.isError,text:r.text})}}
   // the posting gate an agent's posting schedule runs first (posting-limits.mjs): from this box only, signed per agent
   {const mg=/^\/posting-gate\/([\w-]+)\/([\w-]+)$/.exec(p);if(mg){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
    const x=Buffer.from(String(mg[2])),y=Buffer.from(String(relay.sig(mg[1])));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,'bad signature');
