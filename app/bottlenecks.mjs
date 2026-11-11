@@ -28,6 +28,8 @@ export function personNeed(x){const k=x?.kind,t=[x?.title,x?.missing,x?.text].fi
   // a conflict (rule-conflicts.mjs): two sides or more, the agent never picks; the strictest side applies until you choose
   case 'conflict':return 'Choose one. Until you do, the strictest side applies.';
   case 'instructions':return 'Read the new instructions and approve or decline them.';
+  // the fixer's fixes wait as branches until it has a GitHub token (issues.mjs, fixer-git.mjs)
+  case 'github_token':return 'Make a GitHub token for the fixer (aqeel-os only: pull requests and contents on branches, no admin) and set it as AQEELOS_FIXER_GITHUB_TOKEN on the server.';
   case 'ticket':return 'Answer the waiting help tickets.';
   case 'accounts':return 'Keep it if you meant it; otherwise disconnect it.';
   // a message for the owner that landed here with no channel set: only one that needs them (the fixer's "needs a person")

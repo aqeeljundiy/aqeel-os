@@ -16,6 +16,8 @@ import {createIssues,engineSortRun,personOf} from './issues.mjs';
 import {createAgentMemory} from './agent-memory.mjs';
 import {createTeamSettings} from './team-settings.mjs';
 import {createCodeChanges} from './code-changes.mjs';
+import {createFixerGit} from './fixer-git.mjs';
+import {createLiveDrift} from './live-drift.mjs';
 import {withTebar} from './tebar-app.mjs';   // Tebar in the catalog: one click sign-in, or a pasted API key (11 Nov 2026)
 import {createEventRuns} from './event-runs.mjs';   // a Tebar event starts the matching schedule at once (11 Nov 2026)
 import {createTebar} from './tebar.mjs';   // Tebar webhooks: failed posts and expired accounts as alerts, comments and DMs as notices (11 Nov 2026)
@@ -927,7 +929,12 @@ async function releaseAppVersions(){if(Date.now()-appRelease.t<36e5)return appRe
 const newerApp=(a,b)=>{if(!a)return false;if(!b)return true;const x=String(a).split('.').map(Number),y=String(b).split('.').map(Number);for(let i=0;i<3;i++){if((x[i]||0)!==(y[i]||0))return (x[i]||0)>(y[i]||0)}return false};
 // Plug and play settings (System › Teams, team-settings.mjs): the team policy, where owner alerts go, Pause alerts, test agents
 const teamSettings=createTeamSettings({DATA,HERMES_HOME,listAgents:()=>listAgents()});
-const codeChanges=createCodeChanges({DATA});   // live code changes git lacks: deploy drift and fixer patches (System › Health)
+// GIT-2: the fixer ships through GitHub: its own git checkout, a branch per issue, a pull request (fixer-git.mjs); and the live app folder
+// is checked against the deployed commit for hand edits (live-drift.mjs), no model
+const fixerGit=createFixerGit({DATA,home:homedir(),log:m=>console.log(m)});
+const liveDrift=createLiveDrift({DATA,live:root,repo:fixerGit.src});
+const codeChanges=createCodeChanges({DATA,fixes:()=>issues.reviews(),hand:()=>liveDrift.item(),diff:id=>fixerGit.diff(id)});   // fixes waiting for review, hand edits, deploy drift, fixer patches (System › Health)
+if(LIVE_APP){setTimeout(()=>liveDrift.check().catch(e=>console.warn('hand-edit check',e.message)),3*60e3).unref();setInterval(()=>liveDrift.check().catch(()=>{}),30*60e3).unref()}
 // Where owner alerts go: the channel and chat chosen on System › Teams; else the main agent's own chat (Telegram first for
 // its reports, WhatsApp first for the rest). No channel at all, or the send fails: the bell, so an alert is never lost.
 async function ownerChannel(prefer){const ch=await relay.channelsFor('default').catch(()=>[]),t=await teamSettings.alertTarget();
@@ -1684,7 +1691,8 @@ async function fixerRunUsage(r){if(!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(String(r.a
  const out=await new Promise(res=>execFile('python3',['-I','-c',RUN_USAGE_PY,db,String(r.at/1000-15),String((r.done||Date.now())/1000+15),String(r.issue)],{timeout:20000},(e,so)=>res(e?'':String(so))));
  let v=null;try{v=JSON.parse(out.trim()||'null')}catch{}
  return v?{model:v[0]||null,input:v[1]||0,output:v[2]||0,cacheRead:v[3]||0,cacheWrite:v[4]||0,cost:Math.round((Number(v[5])||0)*1e5)/1e5}:null}
-const issues=createIssues({DATA,usageOf:fixerRunUsage,home:homedir(),bin:path.join(homedir(),'.local','bin','aqeelos'),fixerHome:homedir(),nameOf:a=>agentName(a),
+// the one "Needs you" item that asks for the GitHub token: made once, taken away when the token is there (issues.mjs noteToken)
+const issues=createIssues({DATA,git:fixerGit,needToken:()=>bottlenecks.event('github_token','The fixer needs a GitHub token','Fixes wait for review as branches on the box. Add the token and their pull requests open by themselves.',{topic:'github_token'}),tokenOk:()=>bottlenecks.resolve('github_token'),usageOf:fixerRunUsage,home:homedir(),bin:path.join(homedir(),'.local','bin','aqeelos'),fixerHome:homedir(),nameOf:a=>agentName(a),
  tz:()=>installTz()||process.env.TZ||'',sortRun:engineSortRun({bin:path.join(homedir(),'.local','bin','aqeelos'),home:homedir(),dir:path.join(DATA,'issues','sort')}),
  reply:replyInTopic,tellOwner:srToOwner,toTeam:issueToTeam,quiet:alertQuiet,busy:async()=>busyNow(),ready:async()=>!gwStopped&&!gwRestarting&&!!await gatewayPid(),apply:issueApply,engineOk:()=>inQuiet(new Date(),installTz()||process.env.TZ||''),envFiles:issueEnvFiles,
  // a proven fix for an agent's report closes the report too (it stays on Health until then, never in the popup)
