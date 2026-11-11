@@ -17,8 +17,8 @@
    HealthIssues.draw({need:q('#hNeed'),fixer:q('#hFixer'),hist:q('#hHist'),esc:q('#hEsc')},d,drawIssues);verdict()};
   HealthIssues.again=drawIssues;
   const cBox=q('#hCode');const drawCode=async()=>{if(!cBox)return;let d;try{d=await UI('/ui/health/code-changes')}catch{return}if(stale()||!cBox.isConnected)return;HealthCode.draw(cBox,d,drawCode)};
-  const drawAgents=async()=>{if(!aBox)return;let d,m;try{[d,m]=await Promise.all([UI('/ui/health/agents'),UI('/ui/health/memory').catch(()=>null)])}catch(e){if(!stale()&&aBox.isConnected&&aBox.querySelector('.skel'))aBox.innerHTML=alertBox(esc(e.message));V.ag={failed:true};verdict();return}
-   if(stale()||!aBox.isConnected)return;V.ag=d;V.mem=m;AgentHealth.draw(aBox,d,drawAgents,m);verdict()};
+  const drawAgents=async()=>{if(!aBox)return;let d,m,gr;try{[d,m,gr]=await Promise.all([UI('/ui/health/agents'),UI('/ui/health/memory').catch(()=>null),UI('/ui/health/graph').catch(()=>null)])}catch(e){if(!stale()&&aBox.isConnected&&aBox.querySelector('.skel'))aBox.innerHTML=alertBox(esc(e.message));V.ag={failed:true};verdict();return}
+   if(stale()||!aBox.isConnected)return;V.ag=d;V.mem=m;AgentHealth.draw(aBox,d,drawAgents,m,gr);verdict()};
   const drawCost=async()=>{const b=q('#hCost');if(!b)return;let d;try{d=await UI('/ui/health/cost')}catch{return}if(stale()||!b.isConnected)return;HealthCost.draw(b,d)};
   // Efficiency is read apart from the rest (its own request, kept a minute by the server): the page never waits for it
   const drawEff=async()=>{const b=q('#hEff');if(!b)return;let d;try{d=await UI('/ui/health/efficiency')}catch{return}if(stale()||!b.isConnected)return;HealthEfficiency.draw(b,d)};
@@ -85,15 +85,28 @@ const AgentHealth={
  boxLine(b){if(!b?.limit||b.used==null)return '';const top=(b.apps||[]).slice(0,4).map(a=>a.name+' '+bytes(a.bytes)).join(', ');
   const g=(b.growing||[]).slice(0,2).map(x=>x.name+' grew from '+bytes(x.from)+' to '+bytes(x.to)+' in '+x.hours+' h').join('; ');
   return 'The AI box uses '+Math.round(b.used/b.limit*100)+'% of its '+bytes(b.limit)+' memory limit'+(b.level==='low'?' and frees idle screens and browsers by itself':b.level==='tight'?', close to where it frees memory by itself':'')+'.'+(top?' Biggest: '+top+'.':'')+(g?' Growing: '+g+'.':'')},
- draw(box,d,again,mem){const rows=d.agents||[],first=!!box.querySelector('.skel'),M=mem?.agents||{};
+ // what an agent sends on every call (instructions and memory) against its budget, its map, and sections a person may move into it (agent-graph.mjs)
+ sizeHtml(a,gr){const x=a&&gr?.agents?.[a];if(!x)return '';const z=x.size,m=x.map||{};
+  const mapTxt={ready:'Map ready'+(m.nodes?' ('+m.nodes+' items)':'')+(m.lastOk?', updated '+ago(m.lastOk/1000):''),building:'Map being built'+(m.waiting?', '+m.waiting+' documents waiting':''),updating:'Map updating','needs-model':'Documents wait for an AI model to read them',nothing:'Nothing to map yet',failed:'Map update failed, trying again later',waiting:'Map not built yet'}[m.state]||'Map not built yet';
+  const pr=x.proposal;if(m.on===false)return '<div class="ah-size"><span>Sent with every message: <b>'+bytes(z.total)+'</b> '+(z.level==='warn'?'('+bytes(z.over)+' over the '+bytes(z.budget)+' budget)':'(budget '+bytes(z.budget)+')')+'</span></div>';
+  return '<div class="ah-size'+(z.level==='warn'?' warn':'')+'"><span>Sent with every message: <b>'+bytes(z.total)+'</b> '+(z.level==='warn'?'('+bytes(z.over)+' over the '+bytes(z.budget)+' budget)':'(budget '+bytes(z.budget)+')')+' · '+esc(mapTxt)+(m.notice?'. '+esc(m.notice):'')+'</span>'+(pr?'<button type="button" class="ghost small" data-gm="'+esc(a)+'">Move '+pr.sections.length+(pr.sections.length===1?' section':' sections')+' to the map ('+bytes(pr.saves)+')</button>':'')+'</div>'},
+ async moveToMap(a,gr,again){const pr=gr?.agents?.[a]?.proposal;if(!pr)return;
+  if(!await confirmBox('Move reference sections to the map?','These parts of the instructions are lookup material, not rules: '+pr.sections.map(s=>s.title+' ('+bytes(s.bytes)+')').join(', ')+'. They move into the agent’s map and a one-line pointer stays. The old instructions are kept as a backup and in History.','Move them',false))return;
+  try{const r=await UI('/ui/health/graph/accept',{method:'POST',body:{agent:a,ids:pr.sections.map(s=>s.id)}});toast('Moved '+r.moved.length+(r.moved.length===1?' section':' sections'));await again()}catch(e){fail(e)}},
+ draw(box,d,again,mem,gr){const rows=d.agents||[],first=!!box.querySelector('.skel'),M=mem?.agents||{};
   const bl=AgentHealth.boxLine(mem?.box);
-  const head=mem?'<p class="hint ah-hint">What each agent’s programs hold in memory now, and its last 7 days. The main agent’s line includes the engine.</p>'+(bl?'<p class="hint ah-hint ah-box'+(mem.box.level!=='ok'||mem.box.growing?.length?' warn':'')+'">'+esc(bl)+'</p>':''):'';
+  const mapsOn=gr?.enabled&&!gr.enabled.all?'<p class="hint ah-hint">Agent maps are on for '+esc((gr.enabled.agents||[]).join(', ')||'no agent')+' only. <button type="button" class="ghost small" data-gall>Turn on for every agent</button></p>':'';
+  const head=mapsOn+(mem?'<p class="hint ah-hint">What each agent’s programs hold in memory now, and its last 7 days. The main agent’s line includes the engine.</p>'+(bl?'<p class="hint ah-hint ah-box'+(mem.box.level!=='ok'||mem.box.growing?.length?' warn':'')+'">'+esc(bl)+'</p>':''):'');
   box.innerHTML=head+'<div class="card list ah-list">'+rows.map((r,i)=>{const dl=AgentHealth.dropLine(r.drops),m=r.agent?M[r.agent]:null,g=m?.growing;
    const memH=m&&m.now?'<div class="ah-mem'+(g?' warn':'')+'">'+((m.days||[]).length>=2?HealthVerdict.spark([...m.days,m.now],!!g):'')+'<span><b>'+bytes(m.now)+'</b><small>'+(g?'+'+bytes(g.to-g.from)+' in '+g.days+' days':(m.days||[]).length>=2?'last '+m.days.length+' days':'now')+'</small></span></div>':'';
    return '<div class="row ah-row'+(r.ok?'':' bad')+'"'+(first?' style="animation-delay:'+Math.min(i,8)*30+'ms"':'')+'><div class="main-c"><i class="ah-dot'+(r.ok?' ok':'')+'"></i><div class="txt"><b>'+esc(r.name)+'</b><span>'+(r.ok?'Working':r.problems.length===1?'1 problem':r.problems.length+' problems')+(dl?' · '+esc(dl):'')+'</span>'+
+    AgentHealth.sizeHtml(r.agent,gr)+
     (g?'<div class="ah-warn">'+icon('alert',15)+'<span>'+AgentHealth.memWarn(r.name,g,mem)+'</span></div>':'')+
     (r.ok?'':'<div class="ah-probs">'+r.problems.map((x,j)=>'<div class="ah-p"><i class="bn-ic bn-'+esc(x.kind)+'">'+icon(Bottlenecks.icon[x.kind]||'alert',15)+'</i><div><b>'+esc(x.kind==='report'?'Blocked: '+(x.missing||x.title):x.title)+'</b>'+(x.text?'<p>'+esc(x.text)+'</p>':'')+'<div class="bn-acts" data-r="'+i+'" data-j="'+j+'"></div></div></div>').join('')+'</div>')+'</div>'+memH+'</div></div>'}).join('')+'</div>';
   if(!first)box.querySelectorAll('.row').forEach(x=>x.style.animation='none');
+  box.querySelectorAll('[data-gall]').forEach(b=>b.onclick=async()=>{if(!await confirmBox('Map every agent?','Each agent gets a map of its own documents and code, read for free through your Google AI plan, and a small search tool. Each tool is one more small program running on the AI box (about 1 GB for all agents together).','Turn on',false))return;
+   b.disabled=true;try{await UI('/ui/health/graph/enable',{method:'POST',body:{all:true}});toast('Maps are on for every agent');await again()}catch(e){b.disabled=false;fail(e)}});
+  box.querySelectorAll('[data-gm]').forEach(b=>b.onclick=async()=>{b.disabled=true;await AgentHealth.moveToMap(b.dataset.gm,gr,again);b.disabled=false});
   box.querySelectorAll('.bn-acts').forEach(b=>{const x=rows[+b.dataset.r].problems[+b.dataset.j];for(const [label,run,primary] of Bottlenecks.actions({...x,agentName:x.agentName||rows[+b.dataset.r].name})){const btn=document.createElement('button');btn.type='button';btn.className=primary?'primary small':'ghost small';btn.textContent=label;
    btn.onclick=async()=>{btn.disabled=true;try{await run();await Bottlenecks.check();await again()}catch(e){btn.disabled=false;fail(e)}};b.append(btn)}})}};
 
