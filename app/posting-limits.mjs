@@ -106,6 +106,9 @@ export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconn
  async function gate(a){const r=await rulesOf(a);if(!r?.on)return 'aqeelOS posting limits are off for this agent: no post this run.\n{"wakeAgent": false}';
   const d=decide(r,await entries(a),{now:now(),stopped:await stopped(a,r)});await load();db.gates[a]={at:now(),allow:d.allow,n:d.n,reason:d.reason};db.gateLog[a]=[...(db.gateLog[a]||[]),{at:now(),allow:d.allow,n:d.n}].filter(g=>now()-g.at<48*3600e3).slice(-120);await save();return gateText(r,d)}
 
+ // the same decision as the gate, for a script that posts without a model (12 Nov 2026, the comment queue): numbers, no text, nothing logged as a gate call
+ async function allowNow(a){const r=await rulesOf(a);if(!r?.on)return {allow:false,n:0,reason:'aqeelOS posting limits are off for this agent'};
+  const d=decide(r,await entries(a),{now:now(),stopped:await stopped(a,r)});return {allow:d.allow,n:d.n,reason:d.reason||'',today:d.today,perDay:d.perDay,hour:d.hour,cap:d.cap,sinceMin:d.since,gapMin:r.gapMin}}
  async function alert(a,r,e,how){const who=nameOf(a),short=String(e.text).replace(/\s+/g,' ').slice(0,140);
   const title=who+': a post is not visible on Threads';
   const detail=(how==='later'?'It was visible at first and was gone '+r.recheckMin+' min later. ':'It was not visible right after posting. ')+'Post: '+(e.post||'unknown')+'. Text: "'+short+'". '+who+' posts at most '+r.afterMissingPerHour+' an hour for the next '+r.afterMissingHours+' hours.';
@@ -159,4 +162,4 @@ export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconn
  // gate scripts for every agent with limits on (a restored box, a new port)
  async function ensure(){await load();for(const a of Object.keys(db.agents))if(db.agents[a].on)await writeGate(a).catch(e=>log('posting gate '+a+': '+e.message))}
  const usesLimits=async a=>!!(await rulesOf(a))?.on;
- return {gate,record,tick,view,set,ensure,usesLimits,gateName,silence:async a=>{silenceAt.delete(a);const r=await rulesOf(a);if(r?.on)await silence(a,r,await entries(a))}}}
+ return {gate,allowNow,record,tick,view,set,ensure,usesLimits,gateName,silence:async a=>{silenceAt.delete(a);const r=await rulesOf(a);if(r?.on)await silence(a,r,await entries(a))}}}

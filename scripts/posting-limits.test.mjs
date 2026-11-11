@@ -77,3 +77,12 @@ test('a check browser that fails is retried, not reported as a missing post',asy
 test('the pause file and over-limit posts are honoured and shown',async()=>{const x=await rig({pages:['']});await x.pl.set('ct',{rules:R});
  const y=await rig({pages:[''],stop:true});await y.pl.set('ct',{rules:R});assert.match(await y.pl.gate('ct'),/Paused/);
  const r=await y.pl.record('ct',{text:'abcdefghijklmnop qrs'});assert.match(r.text,/over the limits/);assert.ok(y.events.some(e=>/over its limits/.test(e[1])))});
+
+test('allowNow: the gate\'s decision as numbers for a script that posts without a model; it counts what record() recorded and logs no gate call',async()=>{
+ const text='banyak yg nanya ini kak, patokannya simpel: brandnya jelas';const x=await rig({pages:['continue.products\n'+text]});
+ assert.equal((await x.pl.allowNow('ct')).allow,false,'no limits set: nothing may post');
+ await x.pl.set('ct',{rules:R});let a=await x.pl.allowNow('ct');assert.equal(a.allow,true);assert.equal(a.n,2);assert.equal(a.today,0);assert.equal(a.gapMin,R.gapMin);
+ await x.pl.record('ct',{post_url:'https://www.threads.com/@a/post/1',text,lead:'hot'});
+ a=await x.pl.allowNow('ct');assert.equal(a.allow,false);assert.match(a.reason,/min ago/);assert.equal(a.today,1);assert.equal(a.sinceMin,0);
+ x.tick((R.gapMin+1)*60e3);assert.equal((await x.pl.allowNow('ct')).allow,true,'after the gap');
+ assert.equal((await x.pl.view('ct')).lastGate,null,'no gate call was logged')});

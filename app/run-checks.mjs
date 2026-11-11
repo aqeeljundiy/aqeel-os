@@ -124,3 +124,32 @@ export function idleSafety(result,{state={},now=Date.now(),maxIdleMin=0}={}){
 export const stateFile=(DATA,key)=>path.join(DATA,'run-checks',String(key).replace(/[^\w.-]+/g,'_')+'.json');
 export async function loadState(DATA,key){try{return JSON.parse(await readFile(stateFile(DATA,key),'utf8'))}catch{return {}}}
 export async function saveState(DATA,key,st){const f=stateFile(DATA,key);await mkdir(path.dirname(f),{recursive:true});await writeFile(f+'.tmp',JSON.stringify(st));await rename(f+'.tmp',f)}
+
+// ---- a command that prints when there is work (12 Nov 2026) --------------------------------------------------------------
+// Many schedules start the AI only to run a script that prints nothing most of the time (P&P meeting watcher, the Elkiya Close stages, the
+// 4-hour check-in). The script moves in front of the model: --cmd runs it here, --agent-cmd runs it as the agent's own user inside its
+// folder (the way a script-only schedule does, event-hooks.mjs). Anything printed is work; nothing printed is no work. A command that fails or
+// times out is UNKNOWN (the run goes ahead). once: the same output as at the last go is not work again (a blocker already reported).
+// The words of a command are plain (no shell): the check script is written by the person, never by an agent.
+const WORD=/^[\w.\/=:@+,~-]+$/;
+export const wordsOf=cmd=>{const t=String(cmd||'').trim().split(/\s+/).filter(Boolean);return t.length&&t.length<=16&&t.every(x=>WORD.test(x))?t:null};
+export async function runCommand({cmd,as=null,timeoutSec=20,exec=null}={}){const t=wordsOf(cmd);if(!t)return {ok:false,out:'',why:'not a plain command'};
+ const {execFile}=await import('node:child_process');const run=exec||((f,a,o)=>new Promise(res=>execFile(f,a,o,(e,out,err)=>res({ok:!e,out:out||'',err:err||(e?e.message:''),code:e?(e.killed?124:typeof e.code==='number'?e.code:1):0}))));
+ let r;
+ if(as){   // as: {user,key,dir}: ssh to the agent's own user, cd into its folder, a timeout inside as well
+  const within=t.every(x=>!x.startsWith('/')&&!x.includes('..'));if(!within)return {ok:false,out:'',why:'an agent command stays inside its folder'};
+  if(!/^ag-[\w-]+$/.test(String(as.user||'')))return {ok:false,out:'',why:'this agent has no own user'};
+  const x=/^(python3?|bash|sh|node)$/.test(t[0])?t:[/\.py$/.test(t[0])?'python3':/\.mjs$|\.js$/.test(t[0])?'node':/\.sh$/.test(t[0])?'bash':'./'+t[0],...(/\.(py|mjs|js|sh)$/.test(t[0])?t:t.slice(1))];
+  r=await exec_(exec,run,'ssh',['-i',as.key,'-o','BatchMode=yes','-o','IdentitiesOnly=yes','-o','StrictHostKeyChecking=accept-new','-o','ConnectTimeout=10',as.user+'@127.0.0.1',"cd '"+as.dir+"' && timeout -k 3 "+Math.max(1,timeoutSec-3)+' '+x.join(' ')],timeoutSec)}
+ else r=await exec_(exec,run,t[0],t.slice(1),timeoutSec);
+ return r.ok?{ok:true,out:String(r.out||'')}:{ok:false,out:'',why:r.code===124?'it took longer than '+timeoutSec+' s':'it failed ('+String(r.err||'').trim().split('\n').pop().slice(0,120)+')'}}
+const exec_=(_,run,f,a,sec)=>run(f,a,{timeout:sec*1000,encoding:'utf8',maxBuffer:2e6});
+const hash=s=>createHash('sha1').update(s).digest('hex').slice(0,16);
+// {count,known,why,next}: next.cmd[label] is what the state keeps for once
+export async function commandWork({label,cmd,as=null,once=false,state={},timeoutSec,exec}={}){const mem={...(state.cmd||{})};
+ const r=await runCommand({cmd,as,timeoutSec,exec});if(!r.ok)return {count:null,known:false,why:'the command could not tell ('+r.why+')',next:mem};
+ const lines=r.out.split('\n').map(l=>l.trim()).filter(Boolean);
+ if(!lines.length){delete mem[label];return {count:0,known:true,why:'the command printed nothing',next:mem}}
+ const fp=hash(lines.join('\n'));
+ if(once&&mem[label]===fp)return {count:0,known:true,why:'the same as at the last run, already reported',next:mem};
+ mem[label]=fp;return {count:lines.length,known:true,why:'the command printed '+lines.length+' line'+(lines.length>1?'s':''),next:mem}}

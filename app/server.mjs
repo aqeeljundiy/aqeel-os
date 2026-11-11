@@ -23,6 +23,8 @@ import {createFixerGit} from './fixer-git.mjs';
 import {createCloudFixer} from './cloud-fixer.mjs';
 import {createLiveDrift} from './live-drift.mjs';
 import {withTebar} from './tebar-app.mjs';   // Tebar in the catalog: one click sign-in, or a pasted API key (11 Nov 2026)
+import {createScheduleFinish} from './schedule-finish.mjs';   // a schedule finishing is an event: chained schedules (12 Nov 2026)
+import {createPaymentCallbacks} from './payment-callbacks.mjs';   // Tripay / Xendit "paid" callbacks wake the payment check at once (12 Nov 2026)
 import {createEventHooks} from './event-hooks.mjs';   // a payment found PAID runs the agent's recap script at once, no model (12 Nov 2026)
 import {createEventRuns} from './event-runs.mjs';   // a Tebar event starts the matching schedule at once (11 Nov 2026)
 import {createTebar} from './tebar.mjs';   // Tebar webhooks: failed posts and expired accounts as alerts, comments and DMs as notices (11 Nov 2026)
@@ -1541,6 +1543,9 @@ const kirimdev=createKirimdev({onEvent:(a,ev)=>emitEvent(a,ev),DATA,docLinks,WOR
    events picked are a notice in the bell of the agent's owner (admins for the main agents) */
 const eventRuns=createEventRuns({DATA,trigger:async(a,id)=>{runGates.noteManual(a,id);const r=await fetch(DASH.origin+'/api/cron/jobs/'+encodeURIComponent(id)+'/trigger?profile='+encodeURIComponent(a),{method:'POST',headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:'{}',signal:AbortSignal.timeout(90000)});if(!r.ok)throw Error('the engine answered '+r.status)}});
 const emitEvent=(a,ev)=>Promise.allSettled([eventRuns.fire(a,ev),eventHooks.fire(a,ev)]);   // every event of design-guard.mjs EVENTS passes here: a schedule's run and a script hook can both start from it
+// a finished schedule is an event too (schedule-finish.mjs): rules with "after" chain schedules; one stat of a jobs file every 30 s per agent that has such a rule
+const scheduleFinish=createScheduleFinish({HERMES_HOME,watched:()=>eventRuns.watched(),onEvent:(a,ev)=>emitEvent(a,ev),log:m=>console.log(m)});
+if(LIVE_APP)setInterval(()=>scheduleFinish.tick().catch(e=>console.warn('schedule finish',e.message)),30e3).unref();
 const tebar=createTebar({DATA,onEvent:(a,ev)=>emitEvent(a,ev),publicUrl:()=>String(PUBLIC_URL??''),nameOf:a=>NAMES[a]||a,log:m=>console.log(m),
  problem:(a,topic,title,fix)=>health.problem(a,'tebar',title,{topic,fix}),solved:(a,topic)=>health.ok(a,topic),
  notice:(a,title,text,type)=>{const o=users.byId(users.agentOwner(a));return news.add({aud:o&&!users.isAdmin(o)?'u:'+o.id:'admins',group:'tebar|'+a+'|'+type,icon:'bell',kind:'blue',title,text,go:'/abilities/connections',label:'Connections'})}});
@@ -1556,7 +1561,9 @@ const eventHooks=createEventHooks({DATA,WORK:path.join(homedir(),'workspaces'),e
  deliver:async(a,target,text)=>{const m=/^telegram:(-?\d+)(?::(\d+))?$/.exec(String(target||''));if(!m)throw Error('delivery to '+target+' is not supported (telegram:<chat>[:<topic>])');
   if(!await kirimdev.teamPost(a,m[1],m[2]?Number(m[2]):null,text))throw Error('Telegram did not take the message')},
  problem:(a,topic,title,fix)=>health.problem(a,'run',title,{topic,fix}),solved:(a,topic)=>health.ok(a,topic),log:m=>console.log(m)});
-const paidLabels=createPaidLabels({DATA,WORK:path.join(homedir(),'workspaces'),onEvent:(a,ev)=>emitEvent(a,ev),label:(a,o)=>kirimdev.labelContact(a,o),orders:lineOrders,post:(a,t,text)=>kirimdev.teamPost(a,t.chatId,t.threadId,text),failed:(a,topic,title,detail)=>health.problem(a,'handoff',title,{topic,fix:detail})});
+const paidLabels=createPaidLabels({DATA,WORK:path.join(homedir(),'workspaces'),onEvent:(a,ev)=>emitEvent(a,ev),callbackActive:(a,k)=>paymentCallbacks.active(a,k),label:(a,o)=>kirimdev.labelContact(a,o),orders:lineOrders,post:(a,t,text)=>kirimdev.teamPost(a,t.chatId,t.threadId,text),failed:(a,topic,title,detail)=>health.problem(a,'handoff',title,{topic,fix:detail})});
+// the providers call us when a payment is paid (payment-callbacks.mjs); the minute tick stays as the fallback and slows to 10 minutes per agent once a callback has been seen
+const paymentCallbacks=createPaymentCallbacks({DATA,WORK:path.join(homedir(),'workspaces'),nudge:a=>paidLabels.nudge(a),log:m=>console.log(m)});
 if(LIVE_APP)setInterval(()=>paidLabels.tick().catch(e=>console.warn('paid labels',e.message)),60e3).unref();
 // the labels a line's agent may set (Line settings) that Kirimdev still has, and Kirimdev's S- labels for create_payment
 async function kirimdevLabelRules(a){const l=(await kirimdev.lines().catch(()=>({})))[a];if(!l)return {};const all=await kirimdev.labelList().catch(()=>null);if(!all)return {allowed:l.labels?.allowed||[]};
@@ -2446,6 +2453,12 @@ const server=createServer(async(req,res)=>{
   {const mh=/^\/event-hook\/([\w-]+)\/([\w-]+)\/([\w-]+)$/.exec(p);if(mh){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
    const x=Buffer.from(String(mh[3])),y=Buffer.from(String(relay.sig(mh[1])));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,'bad signature');
    const e=await eventHooks.runNow(mh[1],mh[2]).catch(e=>e.message);res.writeHead(e?500:200,{'content-type':'text/plain; charset=utf-8'});return res.end((e||'ok')+'\n')}}
+  // for a script that posts without a model (the comment queue, 12 Nov 2026): GET ?json=1 on the gate says {allow,n,reason}; POST /posting-record does what the record_post tool does
+  {const mj=/^\/posting-(gate|record)\/([\w-]+)\/([\w-]+)$/.exec(p);if(mj&&(mj[1]==='record'||url.searchParams.get('json')==='1')){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
+   const x=Buffer.from(String(mj[3])),y=Buffer.from(String(relay.sig(mj[2])));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,'bad signature');
+   if(mj[1]==='gate')return send(res,200,await postingLimits.allowNow(mj[2]).catch(e=>({allow:false,n:0,reason:'aqeelOS could not check the limits ('+e.message+')'})));
+   if(req.method!=='POST')return send(res,405,{error:'POST only'});let b={};try{b=JSON.parse(await readBody(req,65536))}catch{return send(res,400,{error:'bad json'})}
+   const r=await postingLimits.record(mj[2].split('--')[0],b).catch(e=>({isError:true,text:e.message}));return send(res,r.isError?409:200,{ok:!r.isError,text:r.text})}}
   // the posting gate an agent's posting schedule runs first (posting-limits.mjs): from this box only, signed per agent
   {const mg=/^\/posting-gate\/([\w-]+)\/([\w-]+)$/.exec(p);if(mg){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
    const x=Buffer.from(String(mg[2])),y=Buffer.from(String(relay.sig(mg[1])));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,'bad signature');
@@ -2695,6 +2708,10 @@ const server=createServer(async(req,res)=>{
   {const tm=/^\/hooks\/tebar\/([a-z0-9][a-z0-9_-]{0,63})$/.exec(p);if(tm){if(req.method!=='POST')return send(res,405,{error:'POST only'});let raw;
    if(+req.headers['content-length']>1024*1024)return send(res,413,{error:'Too large'});try{raw=await readRaw(req,1024*1024)}catch{return send(res,413,{error:'Too large'})}
    try{const r=await tebar.receive(tm[1],req.headers,raw);send(res,r.status,r.body);if(r.after)setImmediate(()=>r.after().catch(e=>console.warn('tebar event',e.message)));return}catch(e){console.warn('tebar receive',e.message);return send(res,500,{error:'Try again'})}}}
+  // Tripay and Xendit call here when a payment is paid, no sign-in: each call is checked with the agent's own provider secret (payment-callbacks.mjs)
+  {const pm=/^\/hooks\/pay\/(tripay|xendit)\/([a-z0-9][a-z0-9_-]{0,63})$/.exec(p);if(pm){if(req.method!=='POST')return send(res,405,{success:false});let raw;
+   if(+req.headers['content-length']>65536)return send(res,413,{success:false});try{raw=await readRaw(req,65536)}catch{return send(res,413,{success:false})}
+   try{const r=await paymentCallbacks.receive(pm[1],pm[2],req.headers,raw);send(res,r.status,r.body);if(r.after&&LIVE_APP)setImmediate(()=>r.after().catch(e=>console.warn('payment callback',e.message)));return}catch(e){console.warn('payment callback',e.message);return send(res,500,{success:false})}}}
   // one-time secret links (no sign-in: the token after # is the credential)
   // Kirimdev posts customer messages here, signed; nothing else is taken (kirimdev.mjs)
   {const km=/^\/kirimdev\/([a-z0-9][a-z0-9_-]{0,63})$/.exec(p);if(km){if(req.method!=='POST')return send(res,405,{error:'POST only'});let raw;

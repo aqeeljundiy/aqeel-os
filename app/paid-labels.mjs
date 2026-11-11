@@ -17,7 +17,7 @@
 import {readFile,writeFile,rename,mkdir} from 'node:fs/promises';
 import path from 'node:path';
 
-const WINDOW=3*3600e3,CARD_WINDOW=25*3600e3,TRIES=5,NOREF=15*60e3,CARD_SLOW=3600e3,CARD_EVERY=10*60e3;
+const WINDOW=3*3600e3,CARD_WINDOW=25*3600e3,TRIES=5,NOREF=15*60e3,CARD_SLOW=3600e3,CARD_EVERY=10*60e3,SLOW_EVERY=10*60e3;
 export const TRIPAY='https://tripay.co.id/api',XENDIT='https://api.xendit.co';
 const HEX=/^[0-9a-f]{24}$/;
 
@@ -27,7 +27,7 @@ const RESERVED=new Set(['kind','amounts','bank','name','order_form','order_total
 export function orderContextOf(pr){const c=pr?.orderContext||{};return {title:String(c.title||'Buyer details').slice(0,60),missing:String(c.missing||'not asked').slice(0,40),
  fields:(Array.isArray(c.fields)?c.fields:[]).filter(f=>/^[a-z][a-z0-9_]{0,30}$/.test(String(f?.key||''))&&!RESERVED.has(f.key)&&f.label).slice(0,6).map(f=>({key:f.key,label:String(f.label).slice(0,60),ask:String(f.ask||f.label).slice(0,300)}))}}
 
-export function createPaidLabels({DATA,WORK,label,orders=async()=>null,post=async()=>false,failed=async()=>{},onEvent=()=>{},fetchImpl=fetch,now=()=>Date.now(),log=m=>console.log(m),base=TRIPAY,xendit=XENDIT}){
+export function createPaidLabels({DATA,WORK,label,orders=async()=>null,post=async()=>false,failed=async()=>{},onEvent=()=>{},callbackActive=async()=>false,fetchImpl=fetch,now=()=>Date.now(),log=m=>console.log(m),base=TRIPAY,xendit=XENDIT}){
  const F=path.join(DATA,'paid-labels.json');
  const tell=list=>{for(const k of new Set(list.map(e=>e.agent+'|'+e.type+'|'+e.kind))){const [agent,type,kind]=k.split('|');Promise.resolve().then(()=>onEvent(agent,{type,data:{kind}})).catch(()=>{})}};
  const readJson=async(f,d)=>{try{return JSON.parse(await readFile(f,'utf8'))}catch{return d}};
@@ -87,8 +87,11 @@ export function createPaidLabels({DATA,WORK,label,orders=async()=>null,post=asyn
    const o=await sendOrder(p,x.refs,form,d.order,ctx);if(o.state==='none')return {posted:false,why:'No Orders topic is set for this line.'};db.done[key]={...d,order:o};await put(db);if(o.state==='posted')tell([{agent:p.agent,type:'order.posted',kind:p.kind||'qris'}]);
    return o.state==='posted'?{posted:true}:{posted:false,why:'Telegram did not take the post. Tell the team.'}}
   return seen?{posted:false,already:true,why:'This order is already in the Orders topic.'}:{posted:false,why:'No payment of this customer is PAID yet.'}});
- let running=false;
+ let running=false,again=false;const forced=new Set();
+ // a provider's paid callback arrived (payment-callbacks.mjs): ask the provider about this agent's payments now, whatever the slow poll says
+ async function nudge(agent){forced.add(agent);if(running){again=true;return {queued:true}}return tick()}
  async function tick(){if(running)return {skipped:true};running=true;return serial(async()=>{try{
+  const force=new Set(forced);forced.clear();
   const db=await readJson(F,{done:{}});db.done||={};let changed=false;const t=now(),res=[],evs=[];
   for(const p of await lines(path.join(DATA,'payments.jsonl'))){
    const at=Date.parse(p.at),key=p.agent+'|'+p.at+'|'+p.total;
@@ -97,8 +100,10 @@ export function createPaidLabels({DATA,WORK,label,orders=async()=>null,post=asyn
    if(db.done[key]?.order?.state==='failed'&&p.ok){db.done[key].order=await sendOrder(p,db.done[key].refs||[],'',db.done[key].order);changed=true;if(db.done[key].order.state==='posted')evs.push({agent:p.agent,type:'order.posted',kind:p.kind||'qris'});if(db.done[key].state)continue}
    if(!p.ok||!p.agent||!p.conversation||!(t-at<(card?CARD_WINDOW:WINDOW))||db.done[key]?.state==='labelled'||db.done[key]?.state==='closed')continue;
    const d=db.done[key]||{tries:0};
-   // an old unpaid card link is asked about every 10 minutes, not every minute
-   if(card&&t-at>CARD_SLOW&&t-(lastLook.get(key)||0)<CARD_EVERY)continue;if(card)lastLook.set(key,t);
+   // an old unpaid card link is asked about every 10 minutes, not every minute; once the provider's paid callback is known to arrive for this agent
+   // (payment-callbacks.mjs) every payment is asked about every 10 minutes (the slow fallback); a callback that just arrived (force) asks at once
+   if(!force.has(p.agent)){const every=await callbackActive(p.agent,card?'xendit':'tripay')?SLOW_EVERY:card&&t-at>CARD_SLOW?CARD_EVERY:0;if(every&&t-(lastLook.get(key)||0)<every)continue}
+   lastLook.set(key,t);
    const refs=card?await invoices(p.agent,p):await references(p.agent,p);
    if(!refs.length){if(t-at>NOREF){db.done[key]={state:'closed',why:'no provider reference',at:t};changed=true;log('paid labels: '+p.agent+' payment of '+p.total+' at '+p.at+' has no provider reference; not followed')}continue}
    let st;try{st=await Promise.all(refs.map(r=>(card?cardStatus:status)(p.agent,r)))}catch(e){log('paid labels: '+p.agent+' '+e.message);continue}
@@ -113,5 +118,5 @@ export function createPaidLabels({DATA,WORK,label,orders=async()=>null,post=asyn
    catch(e){d.tries++;d.error=e.message;db.done[key]=d.tries>=TRIES?{state:'closed',why:'labels failed: '+e.message,at:t,order:d.order,refs}:d;log('paid labels: '+p.agent+' labelling failed (try '+d.tries+'): '+e.message)}
    changed=true}
   for(const [k,v] of Object.entries(db.done))if(t-(v.at||0)>7*86400e3)delete db.done[k],changed=true;
-  if(changed)await put(db);tell(evs);return {labelled:res}}finally{running=false}})}
- return {tick,statusFor,postOrder}}
+  if(changed)await put(db);tell(evs);return {labelled:res}}finally{running=false;if(again){again=false;setImmediate(()=>tick().catch(()=>{}))}}})}
+ return {tick,nudge,statusFor,postOrder}}
