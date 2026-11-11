@@ -64,6 +64,10 @@ export function createFixerGit({DATA,home,token=null,repo=()=>process.env.AQ_REP
     if(Array.isArray(l)&&l[0]?.html_url)return {state:'pr',url:l[0].html_url,number:l[0].number}}
    return {state:'error',why:'GitHub said '+r.status+': '+scrub(j.message||'',tok)}}
   catch(e){return {state:'error',why:scrub(e.message,tok)}}}
+ // a merged pull request whose title starts with the issue id (the cloud fixer's, cloud-fixer.mjs); sha is short, as in .deployed-commits
+ async function mergedPr(id){const tok=await tokenOf().catch(()=>''),slug=repoSlug(await originUrl());if(!tok||!slug||!ID.test(String(id||'')))return null;
+  const r=await fetchFn(api+'/repos/'+slug+'/pulls?state=closed&sort=updated&direction=desc&per_page=50',{headers:{Authorization:'Bearer '+tok,Accept:'application/vnd.github+json','User-Agent':'aqeelos-fixer','X-GitHub-Api-Version':'2022-11-28'},signal:AbortSignal.timeout(30000)});
+  const l=await r.json().catch(()=>[]),x=Array.isArray(l)&&l.find(y=>y.merged_at&&String(y.title||'').startsWith(id));return x?{url:x.html_url,number:x.number,sha:String(x.merge_commit_sha||'').slice(0,7)}:null}
  // the change as a diff against main, for the Health "View" button
  async function diff(id){const t=(await git(['diff','origin/main...'+branchOf(id)])).out;return t.length>400e3?t.slice(0,400e3)+'\n… (cut; the whole branch is in the checkout)':t}
- return {src,workDir,hasToken,ensure,prepare,dirty,finish,publish,diff}}
+ return {src,workDir,hasToken,mergedPr,ensure,prepare,dirty,finish,publish,diff}}

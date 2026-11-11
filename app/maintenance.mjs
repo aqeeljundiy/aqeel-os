@@ -25,3 +25,5 @@ export function inWindow(date,w=DEFAULT_WINDOW){const a=mins(w.from),b=mins(w.to
 export const windowText=w=>w.from+' to '+w.to+' ('+w.tz.split('/').pop().replace(/_/g,' ')+' time)';
 // how long an interrupted chat or run is still continued (install.json "resumeMaxHours", default 2)
 export const resumeMaxMs=settings=>{const h=Number(settings?.resumeMaxHours);return (Number.isFinite(h)&&h>=0.25&&h<=24?h:2)*3600e3};
+// the half hour before the window opens (the nightly batch of the cloud fixer sends what still waits, shortly before the update)
+export function beforeWindow(date,w=DEFAULT_WINDOW,lead=30){const d=(mins(w.from)-minuteIn(date,w.tz)+1440)%1440;return d>0&&d<=lead}

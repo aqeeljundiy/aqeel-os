@@ -1,0 +1,18 @@
+# Copy to .github/workflows/tests.yml (a person adds it: the fixer's GitHub token lacks the workflow scope).
+# The job name "tests" is the status check that branch protection on main requires, so GitHub auto-merge waits for it.
+name: tests
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test scripts/*.test.mjs

@@ -20,6 +20,7 @@ import {createAgentMemory} from './agent-memory.mjs';
 import {createTeamSettings} from './team-settings.mjs';
 import {createCodeChanges} from './code-changes.mjs';
 import {createFixerGit} from './fixer-git.mjs';
+import {createCloudFixer} from './cloud-fixer.mjs';
 import {createLiveDrift} from './live-drift.mjs';
 import {withTebar} from './tebar-app.mjs';   // Tebar in the catalog: one click sign-in, or a pasted API key (11 Nov 2026)
 import {createEventRuns} from './event-runs.mjs';   // a Tebar event starts the matching schedule at once (11 Nov 2026)
@@ -1712,7 +1713,10 @@ async function fixerRunUsage(r){if(!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(String(r.a
 // the AI provider is not available (rate limit, every account used up): one shared state; nothing needing a model starts until it ends (provider-limits.mjs)
 const providerLimits=createLimitState({DATA});
 accountHooks.exhausted=until=>{if(until)providerLimits.set(until,'every AI account is used up','accounts');else if(providerLimits.hold()?.kind==='accounts')providerLimits.clear()};
-const issues=createIssues({DATA,limits:providerLimits,git:fixerGit,needToken:()=>bottlenecks.event('github_token','The fixer needs a GitHub token','Fixes wait for review as branches on the box. Add the token and their pull requests open by themselves.',{topic:'github_token'}),tokenOk:()=>bottlenecks.resolve('github_token'),usageOf:fixerRunUsage,home:homedir(),bin:path.join(homedir(),'.local','bin','aqeelos'),fixerHome:homedir(),nameOf:a=>agentName(a),
+// the cloud fixer (cloud-fixer.mjs, 12 Nov 2026): code fixes are written by a Claude Code routine in Anthropic's cloud; the account with the most room is used
+const cloudFixer=createCloudFixer({DATA,accounts:async()=>{const b=accountsApi.backup,d=await b.load();return Promise.all(b.all(d).map(a=>b.details(a)))},github:id=>fixerGit.mergedPr(id)});
+const issues=createIssues({DATA,limits:providerLimits,git:fixerGit,cloud:cloudFixer,window:()=>windowOf(installSettings()),onLimit:(a,t)=>accountsApi.noteLimit(a,t),
+ needCloud:()=>bottlenecks.event('cloud_fixer','Set up the cloud fixer','A bug in aqeelOS\'s own code is fixed in the cloud. Add a routine on System › Settings › Cloud fixer; until then the older way runs.',{topic:'cloud_fixer'}),cloudOk:()=>bottlenecks.resolve('cloud_fixer'),needToken:()=>bottlenecks.event('github_token','The fixer needs a GitHub token','Fixes wait for review as branches on the box. Add the token and their pull requests open by themselves.',{topic:'github_token'}),tokenOk:()=>bottlenecks.resolve('github_token'),usageOf:fixerRunUsage,home:homedir(),bin:path.join(homedir(),'.local','bin','aqeelos'),fixerHome:homedir(),nameOf:a=>agentName(a),
  tz:()=>installTz()||process.env.TZ||'',sortRun:engineSortRun({bin:path.join(homedir(),'.local','bin','aqeelos'),home:homedir(),dir:path.join(DATA,'issues','sort')}),
  reply:replyInTopic,tellOwner:srToOwner,toTeam:issueToTeam,quiet:alertQuiet,busy:async()=>busyNow(),ready:async()=>!gwStopped&&!gwRestarting&&!!await gatewayPid(),apply:issueApply,engineOk:()=>inQuiet(new Date(),installTz()||process.env.TZ||''),envFiles:issueEnvFiles,
  // a proven fix for an agent's report closes the report too (it stays on Health until then, never in the popup)
@@ -3324,6 +3328,11 @@ const server=createServer(async(req,res)=>{
     if(p==='/ui/alerts/pause'&&req.method==='PUT')return send(res,200,{pause:await teamSettings.setPause(b)});
    }catch(e){return send(res,400,{error:e.message})}
    return send(res,404,{error:'Not found'})}
+  // the cloud fixer's routines (System › Settings › Cloud fixer): the view never carries a token; the token is write-only
+  if(p==='/ui/cloud-fixer'||p==='/ui/cloud-fixer/test'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});let b={};if(req.method!=='GET'){try{b=JSON.parse(await readBody(req,16384))}catch{}}
+   try{if(p==='/ui/cloud-fixer'&&req.method==='GET')return send(res,200,{...await cloudFixer.view(),status:(await issues.fixerView()).cloud});
+    if(p==='/ui/cloud-fixer'&&req.method==='PUT'){const v=await cloudFixer.save(b.routines);if(LIVE_APP)issues.tick().catch(()=>{});return send(res,200,v)}
+    if(req.method==='POST')return send(res,200,await cloudFixer.test(b.trigId))}catch(e){return send(res,400,{error:e.message})}}
   // "Try again" (after a person did what was needed, or for a stuck issue): a fresh set of tries
   // code changes on the box that git lacks (code-changes.mjs): the list, one patch's text, and "taken into git"
   if(p==='/ui/health/resume'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,{line:resume.line(),last:resume.last()})}

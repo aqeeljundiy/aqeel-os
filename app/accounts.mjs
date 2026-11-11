@@ -10,6 +10,7 @@ import {hermes as hq,setKey,readConfig,pick,editEnv,agentNames,setStatus,getStat
 import {allowed,trim,setRule,ownerOf} from './skills-policy.mjs';
 import {swr} from './swr.mjs';
 import {createClaudeRenew} from './claude-renew.mjs';
+import {providerUnavailable} from './provider-limits.mjs';
 
 const HOME=homedir();
 const CLAUDE=process.env.CLAUDE_BIN||path.join(HOME,'.local','bin','claude');
@@ -31,9 +32,13 @@ export function exhaustion(priority,used,resetAt,{held=()=>false,full=99}={}){co
  return {all,until:all?until:null}}
 // when a used-up entry works again: the latest reset among its windows that are full (all of them must reset)
 export const entryReset=(wins,full=99)=>{const t=(wins||[]).filter(w=>(w.used||0)>=full&&w.resets).map(w=>Date.parse(w.resets)).filter(Number.isFinite);return t.length?Math.max(...t):null};
+// Anthropic's usage call is refused (429) for some accounts every time (12 Nov 2026, Elkiya "main": never a reading, and it was at
+// its weekly limit). Such an account whose last refusal said "limit, resets <time>" is at its limit until then, not "unknown".
+export const limitNote=(refused,note,now=Date.now())=>refused&&note?.until>now?{until:note.until,text:'At its limit until '+new Date(note.until).toISOString().slice(0,16).replace('T',' ')+' UTC (from its last refusal).'}:null;
 export const accountHooks={exhausted:null,giveSkills:null,trimSkills:null,forgetSkills:null,afterSetup:null,moveOff:null,keyStatus:null,keyCheck:null,held:null,backupSync:null};   // keyStatus/keyCheck: connect.mjs (API keys tested); held/backupSync: backup-models.mjs
 export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code')}={}){
- const FILE=path.join(DATA,'accounts.json');
+ const FILE=path.join(DATA,'accounts.json'),LIM_FILE=path.join(DATA,'claude-limits.json');let lims=null;
+ const limits=async()=>lims||=await readFile(LIM_FILE,'utf8').then(JSON.parse,()=>({}));
  const load=async()=>{try{return JSON.parse(await readFile(FILE,'utf8'))}catch{return {accounts:[],assign:{},auto:{on:false,threshold:90},events:[]}}};
  // every write is a change applied to a fresh read, one after another, so a slow writer (auto-switch, a sign-in
  // finishing) never saves a stale copy over another's change; each write has its own tmp file; a change that returns false saves nothing
@@ -88,9 +93,13 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
   const lost=renew.out(a.id);if(lost&&v.signedIn){v.signedIn=false;v.usageError=lost.why}
   if(v.signedIn&&creds?.accessToken){const s=await usageFetch(a.id,creds.accessToken);
    if(s.usage){v.usage=s.usage;if(s.extra)v.extra=s.extra;v.usageAt=s.at}
-   if(s.error&&(!s.usage||s.dead))v.usageError=s.error}
+   if(s.error&&(!s.usage||s.dead))v.usageError=s.error;
+   const ln=limitNote(!!s.error&&!s.usage&&!s.dead,(await limits())[a.id]);if(ln){v.limit={until:ln.until};v.usageError=ln.text}}
   return v;
  }
+ // an agent's answer said its Claude account hit a limit: kept with the reset time, for the Usage page and the cloud fixer
+ async function noteLimit(profile,text){const i=providerUnavailable(text,{strict:true});if(!i||i.kind!=='limit'||!i.resetAt)return null;const e=await entryOf(await load(),profile).catch(()=>'');if(!e.startsWith(PLUGIN_KEY))return null;
+  const id=e.slice(PLUGIN_KEY.length);(await limits())[id]={until:i.resetAt,at:Date.now(),why:i.why.slice(0,120)};await writeFile(LIM_FILE+'.tmp',JSON.stringify(lims),{mode:0o600}).then(()=>rename(LIM_FILE+'.tmp',LIM_FILE)).catch(()=>{});cache.drop?.(id);return {id,until:i.resetAt}}
  const headroom=v=>v?.usage?100-Math.max(v.usage.session?.used||0,v.usage.week?.used||0,v.usage.opus?.used||0,v.usage.sonnet?.used||0):-1;
 
  /* ---------- which agent uses which account ---------- */
@@ -475,7 +484,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    await update(x=>{for(const n of Object.keys(x.assign||{}))if(!live.has(n))delete x.assign[n]});
    await run(CLAUDE,['auth','logout'],{CLAUDE_CONFIG_DIR:a.dir},20000);await rm(a.dir,{recursive:true,force:true});await update(x=>{x.accounts=x.accounts.filter(y=>y.id!==id)});cache.drop(id);return send(res,200,{ok:true})}
   send(res,404,{error:'Not found'});
- },{codeRoute,signedOut,forget,
+ },{codeRoute,signedOut,forget,noteLimit,
   // what backup-models.mjs needs to build each agent's backup list and to move agents in an outage
   backup:{load,all,details:a=>details(a),options,entryOf,agentRoute,useEntry,keyStatus:()=>accountHooks.keyStatus?.()||{}}});
 }
