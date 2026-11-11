@@ -50,6 +50,8 @@ export function decide(policy,issue,by){const p=personOf(policy,by?.platform,by?
 export function whoToTell(policy,issue){const p=personOf(policy,issue?.by?.platform,issue?.by?.uid);
  if(p?.owner)return {kind:'owner',name:p.name};
  if(p&&issue.by?.chat)return {kind:'asker',name:p.name};
+ // a chat in aqeelOS itself (the engine's api_server): aqeelOS knows whose chat it is, so the asker hears it there (11 Nov 2026)
+ if(issue?.by?.platform==='api_server'&&issue.by.chat)return {kind:'asker',name:issue.byName||'the person who asked'};
  const t=teamOf(policy,issue?.agent),m=t&&((t.members||[]).find(x=>x.name===t.contact)||(t.members||[])[0]);
  if(m)return {kind:'team',name:m.name,member:m,team:t.name};
  return {kind:'owner',name:policy?.owner?.name||'Owner'}}

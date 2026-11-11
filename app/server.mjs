@@ -15,6 +15,7 @@ import {createChatHistory} from './chat-history.mjs';
 import {createIssues} from './issues.mjs';
 import {createTeamSettings} from './team-settings.mjs';
 import {createCodeChanges} from './code-changes.mjs';
+import {mcpAddProblem} from './mcp-add-check.mjs';   // an app added by address: no spaces in its name, no Google file links (11 Nov 2026)
 import {createEscalations} from './escalations.mjs';
 import {createConnect,firstModelFor} from './connect.mjs';
 import {createOptins,COMPOSIO as COMPOSIO_URL,appNames,solvedIssues} from './agent-optins.mjs';
@@ -370,6 +371,8 @@ async function ensureChatHint(a){const cfgFile=path.join(a==='default'?HERMES_HO
 async function refreshNames(){for(const a of await listAgents().catch(()=>[]))NAMES[a]=await displayName(a).catch(()=>NAMES[a]||prettyId(a))}
 setTimeout(()=>refreshNames().catch(()=>{}),0);setInterval(()=>refreshNames().catch(()=>{}),300000).unref();
 async function writeAgentContext(){const all=await listAgents();const names={};for(const a of all)names[a]=NAMES[a]=await displayName(a);
+ // whether this install has its Google client yet (11 Nov 2026: Fakhri's agent offered Composio because it knew no free Google route)
+ const gClient=!!(await gconnect.info().catch(()=>null))?.client;
  for(const a of all){await ensureChatHint(a).catch(e=>console.warn('chat hint',a,e.message));try{const me=names[a];
   // every agent has its own screen and its own AdsPower on it (1 Nov 2026: the AdsPower copy agents shared is gone)
   const own=`Your own screen is "${me}'s screen". Your browser tool opens pages there; it starts by itself when you browse.`;
@@ -418,6 +421,10 @@ async function writeAgentContext(){const all=await listAgents();const names={};f
    'Choosing where it runs: a one-off job can be done in the browser now. Anything that must keep running (schedules, automatic replies, regular reports) needs a tool or skill on this server, so set that up instead of relying on the browser.',
    'Which browser: before your first browser step in a chat, call choose_browser (from aqeelos-notify) with the task and your suggestion: "yours" (the person\'s own Chrome, where they are already signed in) for one-off jobs in web consoles, "server" (your screen on the AI box) for anything scheduled, long-running or done while they are away. Follow their answer for the rest of that chat.',
    ...connectLines(notConnected(cfgA,n=>connTok.has(n))),
+   '','## Google (Gmail, Drive, Sheets, Calendar, Docs)','',
+   gClient?'Google is set up on this aqeelOS. To connect a Google account, use the Google Workspace skill and send the person its sign-in link (setup.py --auth-url), or tell them to do it themselves in aqeelOS: Connections › Add › A Google account (anyone can, for their own agents). Never offer Composio for Google.'
+    :'Google is not set up on this aqeelOS yet. Tell the person exactly this: "An admin sets up Google once for everyone (free, about 5 minutes) in aqeelOS: Connections › Add › A Google account. After that you connect your own Google account there, or I send you a sign-in link." Offer Composio only if they say no admin can do it, and say its free plan has a limit on actions and costs money beyond it.',
+   'A link to a Google Sheet, Doc or Drive file is not a tool: never add one as an MCP tool or app. Keep the link in your notes and reach the file with the Google Workspace skill once a Google account is connected.',
    '','## Connecting an MCP tool that needs a sign-in','',
    'Never use manage_connections (authorize/install/enable) or “hermes mcp login” for MCP tools, and never a 127.0.0.1 / localhost callback: the person is not at this server, so that page never opens for them. Add the tool (with its client ID/secret if the service needs its own app), then call the connect_mcp_tool tool (from aqeelos-notify) and send the person its steps exactly as written. Never make up steps, addresses or commands for connecting: the people using this are often not technical, so keep it to what the tool says. When the tool recommends Composio, offer that first. aqeelOS sets the return address itself: '+PUBLIC_URL+'/mcp-oauth/api/mcp/oauth/callback/<tool name> (this is what goes in the service’s Redirect URLs).',
    '','## Logins that act as the person','',
@@ -1508,7 +1515,13 @@ const health=createAgentHealth({DATA,HERMES_HOME,bottlenecks,quiet:alertQuiet,fi
    system true, or file_issue) that the fixer on this box fixes, reloads and proves by itself, and Health counts how
    often the team still had to go to the main agent. Who is in which team is the team policy (DATA/team-policy.json). */
 const chatHistory=createChatHistory({DATA});
-async function replyInTopic(i,text){const b=i.by||{};if(!b.chat||!['telegram','whatsapp','slack','discord'].includes(b.platform)){await bottlenecks.event('issues',(NAMES[i.agent]||i.agent)+': '+text.slice(0,180),'',{info:true});return true}
+async function replyInTopic(i,text){const b=i.by||{};
+ // asked from a chat in aqeelOS (11 Nov 2026: Fakhri's agent filed i7d96eb8c and said it could not tell him when it was fixed,
+ // and the news went to the owner): aqeelOS knows whose chat that is, so the answer goes to that person's bell, linked to the chat
+ const who=b.chat&&!['telegram','whatsapp','slack','discord'].includes(b.platform)?users.sessionOwner(String(b.chat)):null;
+ if(who&&users.byId(who)){await news.add({aud:'u:'+who,started:true,key:'issue|'+i.id,icon:'check',title:(NAMES[i.agent]||i.agent)+': '+text.replace(/\s+/g,' ').slice(0,130),text,go:'/chat/'+encodeURIComponent(String(b.chat)),label:'Open the chat'});return true}
+ if(b.platform==='api_server')return false;   // a chat whose person aqeelOS does not know: the issue falls back to the team contact or the owner
+ if(!b.chat||!['telegram','whatsapp','slack','discord'].includes(b.platform)){await bottlenecks.event('issues',(NAMES[i.agent]||i.agent)+': '+text.slice(0,180),'',{info:true});return true}
  await relay.send({owner:i.agent,platform:b.platform,chat:String(b.chat)+(b.thread?':'+b.thread:''),text});return true}
 /* Owner approvals as Telegram buttons (6 Nov 2026): the main agent's bot sends the question to the owner(s) named in
    the team policy with Approve / Decline buttons. The gateway keeps the only poller on that bot; its plugin
@@ -1928,6 +1941,10 @@ async function hermesCall(req,res,u,url){
  if(req.method==='POST'&&/^\/hapi\/skills\/hub\/(install|update)$/.test(p)){const a=agent||'default';let b={};try{body=body||await readRaw(req,65536);b=JSON.parse(body.toString('utf8'))}catch{}
   const nm=String(b.identifier||b.name||'').split(/[/:@]/).filter(Boolean).pop()||'';if(nm&&!skillAllowed(nm,a))return send(res,403,{error:'That skill is kept for other agents, so it can’t be added to this one.'});
   for(const d of [20e3,90e3,300e3])setTimeout(()=>accountHooks.trimSkills?.(a).catch(()=>{}),d).unref?.()}
+ // an app added by its address, by anyone (11 Nov 2026: "WO Dashboard - Google Sheet" was saved as an app with a spreadsheet's
+ // link; it showed a Sign in button, never had tools, and its name with spaces broke the sign-in with "Bad name")
+ if(req.method==='POST'&&p==='/hapi/mcp/servers'){let b={};try{body=body||await readRaw(req,65536);b=JSON.parse(body.toString('utf8'))}catch{}
+  const why=mcpAddProblem(b);if(why)return send(res,400,{error:why})}
  let made=null;
  if(!users.isAdmin(u)&&(req.method==='POST'&&(p==='/hapi/mcp/servers'||p==='/hapi/profiles')||/^(PUT|PATCH)$/.test(req.method)&&/^\/hapi\/mcp\/servers\/[^/]+$/.test(p))){
   let b={};try{b=JSON.parse((body||await readRaw(req,65536)).toString('utf8'))}catch{}
@@ -2876,10 +2893,16 @@ const server=createServer(async(req,res)=>{
      if(p==='/ui/backups/cancel'&&req.method==='POST')return backups.cancel().then(ok,bad);}
     // a restore stops and starts the real agents, so only the live app does it (a test copy shares the box's engine)
     if(p==='/ui/backups/restore'&&req.method==='POST'){if(!LIVE_APP)return send(res,409,{error:'Only the live app restores backups.'});if(engineUpd.busy())return send(res,409,{error:'The engine is updating. Restore after it finishes.'});try{return send(res,200,await backups.apply())}catch(e){return send(res,e.status||400,{error:e.message})}}}
-   // Connect Google (google-connect.mjs, admins): the OAuth client file, Connect and Reconnect, a pasted address, check, remove
-   if(p.startsWith('/ui/google/')){if(!users.isAdmin(u))return send(res,403,{error:'Only admins connect Google accounts.'});let b={};if(req.method!=='GET'){try{b=JSON.parse(await readBody(req,65536)||'{}')}catch{return send(res,400,{error:'Bad request'})}}
-    const ok=x=>send(res,200,x),bad=e=>send(res,e.status||400,{error:e.message}),ag=String(b.agent||url.searchParams.get('agent')||'default');
-    if(p!=='/ui/google/result'&&p!=='/ui/google/client'&&p!=='/ui/google/state'&&!(await agentNames()).includes(ag))return send(res,400,{error:'Unknown agent'});
+   // Connect Google (google-connect.mjs): the OAuth client file, Connect and Reconnect, a pasted address, check, remove.
+   // 11 Nov 2026 (Fakhri, an employee on P&P, could not connect Google for his own agent): the install's Google client is
+   // an admin's one-time setup; connecting a Google account is for admins and for the agent's own owner, on that agent only.
+   if(p.startsWith('/ui/google/')){const admin=users.isAdmin(u);let b={};if(req.method!=='GET'){try{b=JSON.parse(await readBody(req,65536)||'{}')}catch{return send(res,400,{error:'Bad request'})}}
+    const ok=x=>send(res,200,x),bad=e=>send(res,e.status||400,{error:e.message}),ag=String(b.agent||url.searchParams.get('agent')||(admin?'default':''));
+    if(p==='/ui/google/client'&&!admin)return send(res,403,{error:'Only an admin sets up Google for this install (once, in Connections › Connect Google).'});
+    const mine=a=>admin||users.level(u,a)==='owner';
+    if(p!=='/ui/google/result'&&p!=='/ui/google/finish'&&p!=='/ui/google/client'&&p!=='/ui/google/state'&&!(await agentNames()).includes(ag))return send(res,400,{error:'Unknown agent'});
+    if(['/ui/google/connect','/ui/google/check','/ui/google/account'].includes(p)&&!mine(ag))return send(res,403,{error:'You can connect Google only for your own agents.'});
+    if(p==='/ui/google/state'&&req.method==='GET'&&!admin){const own=(await agentNames()).filter(mine);const accounts=(await Promise.all(own.map(a=>gconnect.accounts(a)))).flat().map(x=>({...x,agentName:NAMES[x.agent]||x.agent}));const inf=await gconnect.info();return ok({...inf,accounts,agents:own.map(a=>({id:a,name:NAMES[a]||a})),canSetUp:false})}
     if(p==='/ui/google/state'&&req.method==='GET'){const all=await agentNames();const accounts=(await Promise.all(all.map(a=>gconnect.accounts(a)))).flat().map(x=>({...x,agentName:NAMES[x.agent]||x.agent}));return ok({...await gconnect.info(),accounts,agents:all.map(a=>({id:a,name:NAMES[a]||a}))})}
     if(p==='/ui/google/client'&&req.method==='POST')return gconnect.saveClient(String(b.json||'')).then(ok,bad);
     if(p==='/ui/google/client'&&req.method==='DELETE')return gconnect.removeClient().then(ok,bad);

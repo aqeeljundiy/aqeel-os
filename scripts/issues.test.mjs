@@ -43,6 +43,9 @@ await t('who is told: the owner who asked, the member in their chat, the team co
  assert.equal(whoToTell(POL2,{agent:'a1',by:{platform:'telegram',uid:'1'}}).kind,'owner');
  assert.equal(whoToTell(POL2,{agent:'a1',by:{platform:'telegram',uid:'2',chat:'-100'}}).kind,'asker');
  assert.deepEqual([whoToTell(POL2,{agent:'a1',by:{}}).kind,whoToTell(POL2,{agent:'a1',by:{}}).name],['team','Mem']);
+ // a chat in aqeelOS itself: the person who asked hears it there (11 Nov 2026, i7d96eb8c went to the owner instead of Fakhri)
+ assert.equal(whoToTell(POL2,{agent:'a1',by:{platform:'api_server',uid:'api',chat:'api_1794370454_294eabeb'}}).kind,'asker');
+ assert.equal(whoToTell(POL2,{agent:'a1',by:{platform:'api_server',uid:'api'}}).kind,'team');
  assert.equal(whoToTell(POL2,{agent:'sela',by:{}}).kind,'owner');assert.equal(whoToTell({...POL2,teams:[{name:'Own',agents:['default','sela'],members:[]}]},{agent:'default',by:{}}).kind,'owner')});
 await t('parseResult: fix, proof, older wording',()=>{const f=parseResult('x\nRESULT: {"status":"changed","apply":"engine","changes":[{"file":"/a","backup":"/a.bak"},{"file":"rel"}],"check":"send test"}');
  assert.deepEqual([f.status,f.apply,f.changes.length,f.check],['changed','engine',1,'send test']);assert.equal(parseResult('RESULT: {"status":"fixed","restart_ui":true}').apply,'ui');

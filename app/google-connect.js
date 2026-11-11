@@ -12,7 +12,7 @@ const GC={
  body(){return this.d?.querySelector('.gc-body')},
  swap(html){const b=this.body();if(!b)return;b.classList.remove('gc-in');b.innerHTML=html;void b.offsetWidth;b.classList.add('gc-in')},
  paint(){const s=this.st;if(!s.client)return this.setup();const f=this.d.querySelector('.gc-foot-l');
-  if(f)f.innerHTML=`Google client: ${s.client.type==='web'?'Web application':'Desktop app'}${s.client.project?' · '+esc(s.client.project):''} <button class="link-btn" data-gc="client">Change</button>`;
+  if(f)f.innerHTML=`Google client: ${s.client.type==='web'?'Web application':'Desktop app'}${s.client.project?' · '+esc(s.client.project):''}${s.canSetUp===false?'':' <button class="link-btn" data-gc="client">Change</button>'}`;
   this.swap(`${s.client.redirectOk?'':`<div class="gc-alert">${alertBox('Google does not list this address for the client yet: <code>'+esc(s.redirect)+'</code>. Add it under Authorised redirect URIs, or sign-ins stop at an error.',{act:'',id:'gcCopyR',label:'Copy address',ic:'copy'})}</div>`}
    ${this.opt.why?`<p class="hint gc-why">${esc(this.opt.why)}</p>`:''}
    <h3 class="gc-h">Google accounts</h3><div class="gc-cards">${s.accounts.length?s.accounts.map((a,i)=>this.card(a,i)).join(''):'<p class="hint" style="margin:0">None yet. Connect the first one below.</p>'}</div>
@@ -21,7 +21,8 @@ const GC={
  card(a,i){return `<div class="gc-card" data-i="${i}" ${st(Math.min(i,8))}>${logoImg('google.com','G')}<div class="gc-c-t"><b>${esc(a.email||'Google account')}</b>
    <small>${esc(ident(a.agent).name||a.agentName)}${a.name?' · '+esc(pretty(a.name)):' · main account'}${a.by==='agent'?' · connected by the agent':''}</small><div class="gc-chips">${this.chips(a.services,this.st.services)}</div></div>
    <div class="gc-c-r"><span class="chip gc-stat" data-k="${esc(a.agent+'|'+a.name)}"><span class="spinner tiny"></span>Checking</span><div class="gc-acts"><button class="ghost small" data-gc="re" data-i="${i}">${icon('refresh',14)}Reconnect</button><button class="ghost icon" data-gc="rm" data-i="${i}" aria-label="Remove ${esc(a.email)}" title="Remove">${icon('trash',15)}</button></div></div></div>`},
- form(){const ags=this.st.agents,ag=this.opt.agent&&ags.some(x=>x.id===this.opt.agent)?this.opt.agent:'default',want=this.opt.services||Object.keys(this.st.services);
+ form(){const ags=this.st.agents;if(!ags.length)return '<p class="hint" style="margin:0">You have no agent of your own to connect Google to yet.</p>';
+  const ag=this.opt.agent&&ags.some(x=>x.id===this.opt.agent)?this.opt.agent:ags.some(x=>x.id==='default')?'default':ags[0].id,want=this.opt.services||Object.keys(this.st.services);
   return `<div class="gc-grid"><div><label for="gcAg">For</label><select id="gcAg">${ags.map(x=>`<option value="${esc(x.id)}"${x.id===ag?' selected':''}>${esc(ident(x.id).name||x.name)}</option>`).join('')}</select></div>
    <div><label for="gcName">Short name</label><input id="gcName" maxlength="40" placeholder="work" autocomplete="off"></div></div>
    <p class="hint gc-name-h">Only needed when the agent already has a Google account, so it can tell them apart.</p>
@@ -62,6 +63,8 @@ const GC={
   try{await del(UI,'/ui/google/account',{agent:a.agent,name:a.name});toast((a.email||'The account')+' removed from '+who);this.refresh()}catch(e){fail(e)}},
  // once: the plain steps to make the Google client, and the file
  setup(change=false){const s=this.st,f=this.d.querySelector('.gc-foot-l');if(f)f.innerHTML=change?'<button class="link-btn" data-gc="back">Back</button>':'';
+  // not an admin (11 Nov 2026): the install's Google client is an admin's one-time setup; say so plainly instead of the Google Cloud steps
+  if(s.canSetUp===false){this.swap(`<div class="gc-noset">${icon('clock',18)}<div><b>Google isn’t set up on this aqeelOS yet</b><p class="hint" style="margin:4px 0 0">An admin does this once for everyone (about 5 minutes, free) in Connections › Add › A Google account. After that you connect your own Google account here, and your agent can use it.</p></div></div>`);return}
   if(f&&change)f.querySelector('[data-gc="back"]').onclick=()=>this.paint();
   const L=(u,t)=>`<a href="${u}" target="_blank" rel="noopener">${t}</a>`;
   this.swap(`<p class="gc-lead">${change?'Replace the Google client with a new file. Accounts connected with the old one keep working until you Reconnect them.':'Google needs to know aqeelOS before an agent can sign in. You do this once; it takes about 5 minutes.'}</p>

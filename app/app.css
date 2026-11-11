@@ -2863,3 +2863,6 @@ button.bad:hover{background:color-mix(in srgb,var(--bad) 8%,transparent);border-
 /* Edit agent › Sharing: the Private switch (11 Nov 2026) */
 .priv-row{display:flex;align-items:center;gap:16px;justify-content:space-between;padding:12px 14px;margin-bottom:14px;border:1px solid var(--color-border);border-radius:var(--radius);transition:background var(--t-fast)}
 .priv-row b{font-weight:600}
+
+/* Connect Google for someone who is not an admin, before an admin set Google up (11 Nov 2026) */
+.gc-noset{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-radius:14px;background:var(--surface-2,rgba(127,127,127,.08));animation:rise var(--t-med) var(--ease) both}.gc-noset>svg{flex:none;margin-top:2px;opacity:.7}
