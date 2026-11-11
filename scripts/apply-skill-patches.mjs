@@ -141,7 +141,7 @@ for(const h of homes){const sp=path.join(h,'skills','productivity','google-works
  const URL_='https://files.pythonhosted.org/packages/35/86/3b97d755992777d5a9ca0e45a8ec96cc9858b2d6dd8f65f3f688d60e8709/edge_tts-7.3.1-py3-none-any.whl';
  const older=(a,b)=>{const x=a.split('.').map(Number),y=b.split('.').map(Number);for(let i=0;i<3;i++){if((x[i]||0)!==(y[i]||0))return (x[i]||0)<(y[i]||0)}return false};
  const {execFileSync}=await import('node:child_process');let whl=null;
- for(const i of readdirSync(base,{withFileTypes:true}).filter(d=>d.isDirectory()).map(d=>d.name))for(const e of (()=>{try{return readdirSync(path.join(base,i,'environments'))}catch{return []}})()){
+ for(const i of (()=>{try{return readdirSync(base,{withFileTypes:true})}catch{return []}})().filter(d=>d.isDirectory()).map(d=>d.name))for(const e of (()=>{try{return readdirSync(path.join(base,i,'environments'))}catch{return []}})()){
   const lib=path.join(base,i,'environments',e,'venv','lib');let sp=null;try{const py=readdirSync(lib).find(x=>x.startsWith('python'));if(py)sp=path.join(lib,py,'site-packages')}catch{}if(!sp)continue;
   const info=(()=>{try{return readdirSync(sp).find(x=>/^edge_tts-[\d.]+\.dist-info$/.test(x))}catch{return null}})();if(!info)continue;const have=info.slice(9,-10);if(!older(have,WANT))continue;
   try{if(!whl){whl='/tmp/edge_tts-'+WANT+'.whl';execFileSync('curl',['-sf','-o',whl,URL_],{timeout:60000})}
