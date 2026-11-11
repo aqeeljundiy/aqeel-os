@@ -98,6 +98,7 @@ import {createConnectedAccounts} from './connected-accounts.mjs';
 import {createSharing,createSecretAccess,LEVELS as SHARE_LEVELS} from './sharing.mjs';
 import {createAgentAccess,MAIN_RULE_LINES,CONFLICT_RULE_LINES,redactText} from './agent-access.mjs';
 import {createConflicts} from './rule-conflicts.mjs';
+import {ensureKey as localKey,localAllowed,viewOf as localView,answerItem as localAnswer} from './local-owner.mjs';
 import {createQuestions} from './questions.mjs';
 import {issueActs,itemActs} from './need-action.mjs';
 import {createBrowserChecks} from './browser-checks.mjs';
@@ -2370,12 +2371,20 @@ async function openBrowser(res,agent){
 }
 
 /* ---------- routes ---------- */
+const LOCAL_KEY=await localKey(DATA).catch(e=>{console.warn('local owner key:',e.message);return null});   // DATA/local-owner.key, mode 600, kept across restarts
 const server=createServer(async(req,res)=>{
  const url=new URL(req.url,'http://x');const p=url.pathname;
  try{
   await users.load();   // people (owners, shares) are read before any route uses them, also right after a restart
   if(codeOnline.handle(req,res))return;   // code.elmora.example and code-preview.elmora.example: Code online, behind sign-in
   if(p==='/install-ping')return install.ping(req,res);
+  // local owner channel (local-owner.mjs): terminal / coding assistant on the box answers Needs-you items; anything else is a plain 404
+  if(p.startsWith('/local/')){if(!localAllowed({remote:req.socket.remoteAddress,headers:req.headers,key:LOCAL_KEY}))return send(res,404,'Not found');
+   const owner={id:'owner',role:'owner'};
+   if(p==='/local/needs'&&req.method==='GET'){console.log('local owner: needs listed');return send(res,200,{items:(await needsFor(owner)).map(localView)})}
+   if(p==='/local/answer'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
+    try{const r=await localAnswer({items:await needsFor(owner),id:String(b.id||''),choice:b.choice,value:b.value,text:b.text,conflicts,questions,runGates});console.log('local owner: answered',b.id,'with',String(b.choice||'').slice(0,40));return send(res,200,r)}catch(e){return send(res,e.status||409,{error:e.message})}}
+   return send(res,404,'Not found')}
   if(p==='/healthz')return send(res,200,{ok:true,build:BUILD,live:liveCount(),engine:(void engineAgents(),engAgents.n),busy:busyTotal({live:liveCount(),setups:export_setups.running(),ops:opsBusy(),relay:relay.sending(),gwRestarting:!!gwRestarting,engineUpdate:engineUpd.busy(),restore:backups.busy()}),
    // hold: what a deploy still waits for (it cannot be continued afterwards); resume: what is waiting to continue
    hold:holdTotal({setups:export_setups.running(),ops:opsBusy(),relay:relay.sending(),gwRestarting:!!gwRestarting,engineUpdate:engineUpd.busy(),restore:backups.busy()}),resume:{inFlight:resume.inFlight(),waiting:resume.pending()}});
