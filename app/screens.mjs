@@ -104,18 +104,44 @@ export function createScreens({keepOn=()=>false}={}){   // keepOn(agent): someth
  // the address bar or any other field (21 Oct 2026: a password typed while a Google search box had focus became a search).
  // Agents with their own Chrome are checked through it; otherwise the window's title is the (weaker) check.
  const SIGNIN=/pass|user|login|log-in|sign.?in|email|e-mail|account|otp|one.?time|code|pin|phone|auth|2fa|verif|token|secret/i;
- async function focusedField(a){const port=(/cdp_url:\s*['"]?http:\/\/127\.0\.0\.1:(\d+)/.exec(await config(a))||[])[1];if(!port||port==='9333')return null;
-  const pages=await fetch('http://127.0.0.1:'+port+'/json/list',{signal:AbortSignal.timeout(4000)}).then(r=>r.json()).catch(()=>null);if(!Array.isArray(pages))return null;
-  const probe=`(()=>{if(!document.hasFocus())return null;let e=document.activeElement;while(e&&e.shadowRoot&&e.shadowRoot.activeElement)e=e.shadowRoot.activeElement;
-   if(!e||e===document.body||e===document.documentElement)return {kind:'none',url:location.host};const at=k=>String(e.getAttribute&&e.getAttribute(k)||'');
-   return {kind:e.tagName.toLowerCase(),type:String(e.type||'').toLowerCase(),role:at('role').toLowerCase(),words:[e.name,e.id,at('autocomplete'),at('placeholder'),at('aria-label'),at('inputmode')].join(' '),url:location.host}})()`;
-  for(const p of pages.filter(p=>p.type==='page'&&p.webSocketDebuggerUrl)){const r=await new Promise(res=>{let ws;const done=v=>{try{ws.close()}catch{}res(v)};const t=setTimeout(()=>done(null),3000);
-    try{ws=new WebSocket(p.webSocketDebuggerUrl);ws.onerror=()=>{clearTimeout(t);done(null)};ws.onopen=()=>ws.send(JSON.stringify({id:1,method:'Runtime.evaluate',params:{expression:probe,returnByValue:true}}));
-     ws.onmessage=m=>{const j=JSON.parse(m.data);if(j.id===1){clearTimeout(t);done(j.result?.result?.value??null)}}}catch{clearTimeout(t);done(null)}});
-   if(r)return r}
+ // The DevTools ports of the browser an agent's browser tool drives, only those that answer (11 Nov 2026: Donna's browser
+ // runs on the engine's own Bot Desktop with a random port, so type_secret found no port, fell back to typing on a screen
+ // that was not running, and refused twice on the KirimDev sign-in). In order: the config's cdp_url (an agent with its
+ // own Chrome), the port the engine's Chromium wrote to bot-desktop/browser-profile/DevToolsActivePort, else a running
+ // Chrome whose profile folder is the agent's own. Never the AdsPower bridge (9333).
+ async function cdpPorts(a){const out=[];const add=p=>{p=String(p||'').trim();if(/^\d{2,5}$/.test(p)&&p!=='9333'&&!out.includes(p))out.push(p)};
+  add((/cdp_url:\s*['"]?http:\/\/127\.0\.0\.1:(\d+)/.exec(await config(a))||[])[1]);
+  add((await readFile(path.join(homeOf(a),'bot-desktop','browser-profile','DevToolsActivePort'),'utf8').catch(()=>'')).split('\n')[0]);
+  if(!out.length){try{const mine=[homeOf(a)+'/',path.join(WORKSPACES,a)+'/'],others=path.join(HERMES_HOME,'profiles')+'/';
+   for(const pid of await readdir('/proc')){if(!/^\d+$/.test(pid))continue;const c=(await readFile('/proc/'+pid+'/cmdline','utf8').catch(()=>'')).split('\0');if(c.some(x=>x.startsWith('--type=')))continue;
+    const ud=(c.find(x=>x.startsWith('--user-data-dir='))||'').slice(16);if(!ud||!mine.some(m=>ud.startsWith(m))||a==='default'&&ud.startsWith(others))continue;
+    add((c.find(x=>x.startsWith('--remote-debugging-port='))||'').slice(24))}}catch{}}
+  const ok=[];for(const p of out)if(await fetch('http://127.0.0.1:'+p+'/json/version',{signal:AbortSignal.timeout(1500)}).then(r=>r.ok,()=>false))ok.push(p);return ok}
+ // one DevTools call on a page, answered or null within 3 s; the same socket can carry several calls in order
+ function cdpCall(ws,calls){return new Promise(res=>{let s,n=0;const out=[];const done=v=>{try{s.close()}catch{}res(v)};const t=setTimeout(()=>done(null),4000);
+  try{s=new WebSocket(ws);s.onerror=()=>{clearTimeout(t);done(null)};const next=()=>{if(n>=calls.length){clearTimeout(t);return done(out)}const c=typeof calls[n]==='function'?calls[n](out):calls[n];if(c===false){clearTimeout(t);return done(null)}s.send(JSON.stringify({id:n+1,...c}))};
+   s.onopen=next;s.onmessage=m=>{const j=JSON.parse(m.data);if(j.id!==n+1)return;out.push(j.result);n++;next()}}catch{clearTimeout(t);done(null)}})}
+ const PROBE=`(()=>{const foc=document.hasFocus(),vis=document.visibilityState==='visible';let e=document.activeElement;while(e&&e.shadowRoot&&e.shadowRoot.activeElement)e=e.shadowRoot.activeElement;
+   if(!e||e===document.body||e===document.documentElement)return {kind:'none',url:location.host,foc,vis};const at=k=>String(e.getAttribute&&e.getAttribute(k)||'');
+   return {kind:e.tagName.toLowerCase(),type:String(e.type||'').toLowerCase(),role:at('role').toLowerCase(),words:[e.name,e.id,at('autocomplete'),at('placeholder'),at('aria-label'),at('inputmode')].join(' '),url:location.host,foc,vis}})()`;
+ const evalProbe={method:'Runtime.evaluate',params:{expression:PROBE,returnByValue:true}};
+ // the focused field in the agent's browser, with the page it is on (ws): the page that has focus; else, when the browser
+ // tool focused a field by script and no window has focus, the one visible page whose focused element is an input box
+ async function focusedField(a){const ports=await cdpPorts(a);if(!ports.length)return null;const found=[];
+  for(const port of ports){const pages=await fetch('http://127.0.0.1:'+port+'/json/list',{signal:AbortSignal.timeout(4000)}).then(r=>r.json()).catch(()=>null);if(!Array.isArray(pages))continue;
+   for(const p of pages.filter(p=>p.type==='page'&&p.webSocketDebuggerUrl)){const r=await cdpCall(p.webSocketDebuggerUrl,[evalProbe]);const v=r?.[0]?.result?.value;if(v)found.push({...v,ws:p.webSocketDebuggerUrl})}}
+  const f=found.filter(x=>x.foc);if(f.length)return f.find(x=>x.kind!=='none')||f[0];
+  const v=found.filter(x=>x.vis&&x.kind==='input');if(v.length===1)return v[0];if(v.length>1)return {kind:'many'};
   return {kind:'none'}}
- async function secretFieldOk(a,env){const f=await focusedField(a);
-  if(f){if(f.kind==='none')throw new Error('No sign-in field has focus on the screen (the address bar, another window or nothing is focused). Click the password or user name box on the sign-in page, then try again. Nothing was typed.');
+ // the secret goes in through the page itself (Input.insertText fires the input events forms listen to), after checking the
+ // same field still has focus; never through a script and never logged. True when it went in.
+ async function typeViaCdp(f,text,enter){const same=v=>v&&v.kind===f.kind&&v.type===f.type&&v.words===f.words&&v.url===f.url;
+  const key=t=>({method:'Input.dispatchKeyEvent',params:{type:t,key:'Enter',code:'Enter',windowsVirtualKeyCode:13,...(t==='keyDown'?{text:'\r'}:{})}});
+  const r=await cdpCall(f.ws,[evalProbe,o=>same(o[0]?.result?.value)?{method:'Input.insertText',params:{text:String(text)}}:false,...(enter?[key('keyDown'),key('keyUp')]:[])]);
+  return !!r}
+ async function secretFieldOk(a,env,f){if(f===undefined)f=await focusedField(a);
+  if(f){if(f.kind==='many')throw new Error('More than one page has a box in focus, so it is not clear where to type. Close the other sign-in tabs, click the password or user name box, then try again. Nothing was typed.');
+   if(f.kind==='none')throw new Error('No sign-in field has focus on the screen (the address bar, another window or nothing is focused). Click the password or user name box on the sign-in page, then try again. Nothing was typed.');
    const search=f.type==='search'||/search|combobox/.test(f.role)||/(^|\s)(q|query|search)(\s|$)/i.test(f.words);
    const ok=f.kind==='input'&&!search&&(f.type==='password'||['email','tel','number','text',''].includes(f.type)&&SIGNIN.test(f.words));
    if(!ok)throw new Error('The focused box on '+(f.url||'the page')+' is not a sign-in field'+(search?' (it is a search box)':'')+'. Click the password or user name box, then try again. Nothing was typed.');return}
@@ -123,6 +149,11 @@ export function createScreens({keepOn=()=>false}={}){   // keepOn(agent): someth
   if(/search|google search|bing|duckduckgo|new tab|youtube/i.test(name)&&!/sign.?in|log.?in|account/i.test(name))throw new Error('The window in front ("'+name.slice(0,60)+'") looks like a search page, not a sign-in page. Open the sign-in page and click its password box, then try again. Nothing was typed.')}
  // Typing into a screen: text from the person goes straight to the focused field there. Never logged.
  async function typeInto(a,text,{enter=false,ads=false,secret=false}={}){
+  // a secret goes in through the browser the agent's browser tool drives, whichever screen it is on (11 Nov 2026); the
+  // keyboard on a screen stays the way for the person typing into a screen they watch, and for AdsPower
+  if(secret&&!ads&&!await shared(a)){const f=await focusedField(a).catch(()=>null);
+   if(f){await secretFieldOk(a,{},f);if(f.ws){if(!await typeViaCdp(f,text,enter))throw new Error('The sign-in field changed or the page did not answer, so nothing was typed. Click the field again and retry.');
+     await utimes(path.join(homeOf(a),'bot-desktop','activity'),new Date(),new Date()).catch(()=>{});return true}}}
   const onShared=ads||await shared(a)||!await desktopsReady();const env=onShared?{DISPLAY:':99'}:await displayEnv(a);
   if(secret)await secretFieldOk(a,env);
   if(!onShared&&!await alive(a))throw new Error('This agent’s screen is not running. Open it (or let the agent open its browser) first.');
@@ -154,7 +185,8 @@ export function createScreens({keepOn=()=>false}={}){   // keepOn(agent): someth
    if(!await alive(a)||await shared(a)||await ownUser(a)||(bridges.get(a)?.viewers>0)||keepOn(a))continue;
    const mins=Number((/^bot_desktop:[\s\S]*?\n\s+idle_stop_minutes:\s*([\d.]+)/m.exec(await config(a))||[])[1]??15);if(!(mins>0))continue;
    let last=0;for(const f of ['activity','env'])try{last=Math.max(last,(await stat(path.join(homeOf(a),'bot-desktop',f))).mtimeMs)}catch{}
-   if(last&&Date.now()-last>mins*60000)await runtime(a,'stop_if_idle()').catch(()=>{})}}
+   // logged (11 Nov 2026: Donna's screen vanished between 08:58 and 13:04 with no trace of who stopped it)
+   if(last&&Date.now()-last>mins*60000){console.log('screens: '+a+'’s screen idle for '+Math.round((Date.now()-last)/60000)+' min; stopping it');await runtime(a,'stop_if_idle()').catch(e=>console.warn('screens: stopping '+a+': '+e.message))}}}
  if(LIVE_APP){setInterval(()=>reap().catch(()=>{}),60000).unref();setTimeout(()=>ensureAll().catch(()=>{}),5000)}
  // viewers left running by an earlier run of the app (their parent is gone) are stopped
  if(LIVE_APP)run('bash',['-c',"ps -eo pid=,ppid=,args= | awk '$2==1 && /websockify 127.0.0.1:61[0-9][0-9] --unix-target=/ {print $1}' | xargs -r kill"],{},10000).catch(()=>{});
