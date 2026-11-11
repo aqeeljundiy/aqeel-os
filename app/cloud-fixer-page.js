@@ -1,29 +1,63 @@
-// System › Settings › Cloud fixer (cloud-fixer.mjs): one row per routine (Claude account, trigger id, token), Test, and the plain steps to
-// make a routine on claude.ai. The token is write-only: a saved one shows only "Saved", and an empty field keeps it.
-const CloudFixer={d:null,rows:[],
- async load(){this.d=await UI('/ui/cloud-fixer');this.rows=(this.d.routines||[]).map(r=>({account:r.account,trigId:r.trigId,saved:true,token:'',last:r.last}));return this.d}};
-{const settings=PAGES.settings;PAGES.settings=async(p,el,r)=>{const gone=pageTok(el);await settings(p,el,r);if(gone()||S.me?.admin===false||el.querySelector('#cfBox'))return;
- let d;try{d=await CloudFixer.load()}catch{return}if(gone()||el.querySelector('#cfBox'))return;
- const box=document.createElement('div');box.className='panel card';box.id='cfBox';box.style.marginBottom='16px';el.prepend(box);cloudBox(box)}}
-function cloudBox(box){const d=CloudFixer.d,rows=CloudFixer.rows,st=d.status;
- const row=(x,k)=>`<div class="cf-row" data-k="${k}" style="padding:12px 0;border-top:1px solid var(--border)">
-  <div class="cf-acc" role="group" aria-label="Claude account" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">${(d.accounts||[]).map(a=>`<button type="button" class="small ${x.account===a.id?'primary':'ghost'}" data-act="cf-acc" data-acc="${esc(a.id)}" aria-pressed="${x.account===a.id}">${esc(a.label)}</button>`).join('')||'<span class="hint">No Claude account yet. Add one on Models.</span>'}</div>
-  <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px"><input class="cf-trig" autocomplete="off" spellcheck="false" placeholder="Trigger id, trig_…" aria-label="Trigger id" value="${esc(x.trigId)}">
-  <input class="cf-tok" type="password" autocomplete="new-password" spellcheck="false" placeholder="${x.saved?'Saved. Paste a new token to replace it':'Token (shown once on claude.ai)'}" aria-label="Token" value="${esc(x.token)}"></div>
-  <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap"><button type="button" class="small" data-act="cf-test" ${x.saved?'':'disabled'}>Test</button><button type="button" class="small ghost" data-act="cf-del">Remove</button>
-  <span class="hint cf-say" aria-live="polite">${x.last?esc(x.last.ok?'Last fire worked.':x.last.why||'Last fire failed.'):''}</span></div></div>`;
- box.innerHTML=`<h2>Cloud fixer</h2><p class="sub">A bug in aqeelOS’s own code is fixed by a Claude Code routine in the cloud, which opens a pull request on GitHub. Add one routine per Claude account; aqeelOS uses the account with the most room.</p>
-  ${st?.on?`<p class="sub">${esc('Cloud fixer: '+st.sent+' sent, '+st.merged+' merged, '+st.waiting+' waiting'+(st.using?'; using '+st.using:'')+'.')}</p>`:''}
-  <div id="cfRows">${rows.map(row).join('')}</div>
-  <div style="display:flex;gap:8px;margin-top:12px"><button type="button" class="small ghost" data-act="cf-add">${icon('plus',14)}Add a routine</button><button type="button" class="primary" data-act="cf-save">Save</button></div>
-  <details class="cf-how" style="margin-top:14px"><summary>How to make a routine</summary><ol class="sub" style="margin:8px 0 0 18px">${(d.steps||[]).map(s=>`<li>${esc(s)}</li>`).join('')}</ol></details>`;
- box.querySelectorAll('.cf-row').forEach(r=>{const x=rows[+r.dataset.k];r.querySelector('.cf-trig').oninput=e=>x.trigId=e.target.value;r.querySelector('.cf-tok').oninput=e=>x.token=e.target.value})}
-const cfBox=a=>a.closest('#cfBox'),cfRow=a=>CloudFixer.rows[+a.closest('.cf-row').dataset.k];
-ACT['cf-acc']=a=>{cfRow(a).account=a.dataset.acc;cloudBox(cfBox(a))};
-ACT['cf-add']=a=>{CloudFixer.rows.push({account:(CloudFixer.d.accounts[0]||{}).id||'',trigId:'',token:'',saved:false});cloudBox(cfBox(a))};
-ACT['cf-del']=a=>{const k=+a.closest('.cf-row').dataset.k;const box=cfBox(a);CloudFixer.rows.splice(k,1);cloudBox(box)};
-ACT['cf-save']=async a=>{const box=cfBox(a);a.disabled=true;
- try{CloudFixer.d=await call('','/ui/cloud-fixer',{method:'PUT',body:{routines:CloudFixer.rows.map(r=>({account:r.account,trigId:r.trigId,token:r.token}))}});
-  CloudFixer.rows=CloudFixer.d.routines.map(r=>({account:r.account,trigId:r.trigId,saved:true,token:'',last:r.last}));toast('Cloud fixer saved');cloudBox(box)}catch(e){a.disabled=false;fail(e)}};
-ACT['cf-test']=async a=>{const x=cfRow(a),say=a.closest('.cf-row').querySelector('.cf-say');a.disabled=true;say.textContent='Starting a test run…';
- try{const r=await post(UI,'/ui/cloud-fixer/test',{trigId:x.trigId});say.textContent=r.ok?'It worked. A short test run started on claude.ai.':r.why||'It did not work.';if(r.ok)toast('Test run started')}catch(e){say.textContent='';fail(e)}finally{a.disabled=false}};
+// The Cloud fixer card (cloud-fixer.mjs), on System › Settings and on Models › Accounts (one component, mounted on both).
+// One row per Claude account, in the order aqeelOS will use them (the server sorts: most room first). Connect opens three plain steps
+// inline; the token is write-only and never comes back to the browser. Row states come from the server (accountRows).
+const CloudFixer={d:null,open:null,say:{},draft:{},busy:{},
+ async load(){this.d=await UI('/ui/cloud-fixer');return this.d},
+ // the two one-time GitHub steps and the app install: GitHub cannot be asked without a token, so the owner ticks them (kept in this browser)
+ gh:[['auto','Auto-merge is turned on','GitHub › the repository › Settings › General › Pull Requests › tick “Allow auto-merge”.'],
+  ['tests','The “tests” check is required for main','GitHub › Settings › Branches › add a rule for main › “Require status checks to pass before merging” › pick “tests”. Do not require reviews.'],
+  ['app','The Claude GitHub app is installed on the repository','claude.ai/code › the repository’s settings › install the Claude GitHub app.']],
+ ghDone(){return store.get('cfGh',{})}};
+const cfWhen=ms=>{const d=new Date(ms),n=new Date(),t=d.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});return d.toDateString()===n.toDateString()?t:d.toLocaleDateString([],{day:'numeric',month:'short'})+' '+t};
+const cfState=r=>r.state==='none'?['','Not connected']:r.state==='limit'?['warn','At its limit until '+cfWhen(r.until)]:r.testOk===false?['out','Connected · the last test failed']:['on','Connected · '+(r.testedAt?'tested '+ago(Math.round(r.testedAt/1000)):'not tested yet')];
+async function cfMount(el,gone,where){if(gone()||S.me?.admin===false||el.querySelector('#cfBox'))return;
+ try{await CloudFixer.load()}catch{return}
+ if(gone()||el.querySelector('#cfBox'))return;const box=document.createElement('div');box.className='panel card cf-box';box.id='cfBox';where(box);cloudBox(box)}
+{const settings=PAGES.settings;PAGES.settings=async(p,el,r)=>{const gone=pageTok(el);await settings(p,el,r);await cfMount(el,gone,b=>el.prepend(b))}}
+{const accounts=PAGES.accounts;PAGES.accounts=async(p,el,r)=>{const gone=pageTok(el);await accounts(p,el,r);await cfMount(el,gone,b=>el.append(b))}}
+function cloudBox(box){const d=CloudFixer.d,rows=d.rows||[],st=d.status,on=rows.filter(r=>r.state!=='none'),nx=rows.find(r=>r.next),done=CloudFixer.ghDone();
+ const row=(r,i)=>{const [sc,sl]=cfState(r),open=CloudFixer.open===r.id,dr=CloudFixer.draft[r.id]||{},say=CloudFixer.say[r.id]||'',busy=!!CloudFixer.busy[r.id],conn=r.state!=='none';
+  const bars=r.sess||r.week?miniBar('Session',r.sess)+miniBar('Week',r.week):`<span class="hint">${r.signedIn?'Its limits show after its first check':'Sign it in again on Models'}</span>`;
+  const steps=`<div class="cf-steps"><div class="cf-steps-in"><ol class="cf-ol">
+    <li><span class="pri-n">1</span><div><b>Open claude.ai/code/routines, signed in as ${esc(r.label)}</b><p class="hint">It opens in a new tab. Use the Claude account called ${esc(r.label)}.</p><button type="button" class="small" data-act="cf-go">${icon('link',14)}Open claude.ai/code/routines</button></div></li>
+    <li><span class="pri-n">2</span><div><b>Create a routine and paste these instructions</b><p class="hint">Press New routine, name it aqeelOS fixer and pick the repository <span class="mono">${esc(d.repo)}</span>. Paste the instructions as the routine’s instructions.</p><button type="button" class="small" data-act="cf-copy">${icon('copy',14)}Copy the instructions</button>
+     <details class="cf-pr"><summary>Show the instructions</summary><pre>${esc(d.prompt)}</pre></details></div></li>
+    <li><span class="pri-n">3</span><div><b>Add an API trigger there, then paste its id and token here</b><p class="hint">In the routine, under Select a trigger press Add another trigger, choose API and press Generate token. The token is shown only once, so paste it right away. The trigger id starts with trig_.</p>
+     <div class="cf-fields"><input class="cf-trig" autocomplete="off" spellcheck="false" placeholder="Trigger id, trig_…" aria-label="Trigger id" value="${esc(dr.trigId||'')}"><input class="cf-tok" type="password" autocomplete="new-password" spellcheck="false" placeholder="Token" aria-label="Token" value="${esc(dr.token||'')}"></div>
+     <div class="cf-go-row"><button type="button" class="primary small" data-act="cf-save" ${busy?'disabled':''}>Save and test</button><span class="hint cf-say" aria-live="polite">${esc(say)}</span></div></div></li></ol></div></div>`;
+  return `<div class="cf-item ${open?'open':''}" data-id="${esc(r.id)}"><div class="pri-row cf-row"><span class="pri-n" ${conn?'':'style="visibility:hidden"'}>${i+1}</span>${logoImg('claude.ai',(r.label||'C')[0].toUpperCase())}
+   <div class="txt"><b>${esc(r.label)}${r.next?'<span class="chip cf-next" title="aqeelOS would use this account now">Next</span>':''}</b><span class="pri-st ${sc}">${sc?'<i class="dot"></i>':''}${esc(sl)}</span></div>
+   <div class="pri-lim">${bars}</div>
+   <div class="cf-btns">${conn?`<button type="button" class="primary small" data-act="cf-test" ${busy?'disabled':''}>Test again</button><button type="button" class="ghost small" data-act="cf-del">Remove</button>`:`<button type="button" class="primary small" data-act="cf-open" aria-expanded="${open}">${open?'Close':'Connect'}</button>`}</div></div>
+   ${conn?`<p class="hint cf-say cf-say-row" aria-live="polite">${esc(say||(r.testOk===false?r.why:''))}</p>`:steps}</div>`};
+ const ghRow=([k,t,how])=>`<label class="cf-gh"><input type="checkbox" class="switch" data-cfgh="${k}" ${done[k]?'checked':''} aria-label="${esc(t)}"><span><b>${esc(t)}</b><small>${esc(how)}</small></span></label>`;
+ box.innerHTML=`<h2>Cloud fixer</h2><p class="sub">When aqeelOS finds a bug in its own code, Claude fixes it in the cloud and the fix installs itself at night.${on.length?'':' Connect at least one Claude account.'}</p>
+  <p class="hint cf-line">aqeelOS picks the connected account with the most room; nothing to arrange.${nx?' Next: <b>'+esc(nx.label)+'</b>.':''}${st?.on?' '+esc(st.sent+' sent, '+st.merged+' merged, '+st.waiting+' waiting.'):''}</p>
+  <div class="cf-list">${rows.map(row).join('')||'<p class="hint">No Claude account yet. <a href="#/models/accounts">Add one on Models</a>, then connect it here.</p>'}</div>
+  <details class="cf-once"><summary>Two one-time steps on GitHub, and the app</summary><p class="hint">Tick each when it is done. GitHub cannot tell aqeelOS this without a token, so this list is only for you.</p>${CloudFixer.gh.map(ghRow).join('')}</details>`;
+ box.querySelectorAll('.cf-item').forEach(r=>{const dr=CloudFixer.draft[r.dataset.id]=CloudFixer.draft[r.dataset.id]||{},t=r.querySelector('.cf-trig'),k=r.querySelector('.cf-tok');if(t)t.oninput=e=>dr.trigId=e.target.value;if(k)k.oninput=e=>dr.token=e.target.value});
+ box.querySelectorAll('[data-cfgh]').forEach(c=>c.onchange=()=>{const v=CloudFixer.ghDone();v[c.dataset.cfgh]=c.checked;store.set('cfGh',v)})}
+const cfBox=a=>a.closest('#cfBox'),cfId=a=>a.closest('.cf-item').dataset.id,cfRowOf=a=>(CloudFixer.d.rows||[]).find(r=>r.id===cfId(a));
+const cfSay=(box,id,t)=>{CloudFixer.say[id]=t;const x=box.querySelector(`.cf-item[data-id="${CSS.escape(id)}"] .cf-say`);if(x)x.textContent=t};
+const cfRefresh=async box=>{await CloudFixer.load();cloudBox(box)};
+// the routines the server keeps, as the save call wants them: an empty token keeps the saved one
+const cfKeep=skip=>(CloudFixer.d.routines||[]).filter(r=>r.account!==skip).map(r=>({account:r.account,trigId:r.trigId,token:''}));
+ACT['cf-open']=a=>{const it=a.closest('.cf-item'),id=it.dataset.id,box=cfBox(a),was=CloudFixer.open===id;
+ box.querySelectorAll('.cf-item.open').forEach(x=>{x.classList.remove('open');const b=x.querySelector('[data-act="cf-open"]');if(b){b.textContent='Connect';b.setAttribute('aria-expanded','false')}});
+ CloudFixer.open=was?null:id;if(!was){it.classList.add('open');a.textContent='Close';a.setAttribute('aria-expanded','true');setTimeout(()=>it.querySelector('.cf-trig')?.focus({preventScroll:true}),260)}};
+ACT['cf-go']=()=>{window.open('https://claude.ai/code/routines','_blank','noopener')};
+ACT['cf-copy']=a=>navigator.clipboard?.writeText(CloudFixer.d.prompt).then(()=>toast('Instructions copied. Paste them into the routine.'),()=>toast('Could not copy. Use Show the instructions and copy them by hand.','err'));
+ACT['cf-save']=async a=>{const box=cfBox(a),id=cfId(a),dr=CloudFixer.draft[id]||{},trigId=String(dr.trigId||'').trim(),token=String(dr.token||'').trim();
+ if(!trigId||!token)return cfSay(box,id,'Paste both the trigger id and the token first.');
+ CloudFixer.busy[id]=1;a.disabled=true;cfSay(box,id,'Saving…');
+ try{CloudFixer.d=await call('','/ui/cloud-fixer',{method:'PUT',body:{routines:[...cfKeep(id),{account:id,trigId,token}]}});
+  cfSay(box,id,'Saved. Starting a test run…');const r=await post(UI,'/ui/cloud-fixer/test',{trigId});
+  delete CloudFixer.draft[id];delete CloudFixer.busy[id];CloudFixer.open=null;
+  if(r.ok){CloudFixer.say[id]='Works: Anthropic started a test run.';toast('Cloud fixer connected')}else CloudFixer.say[id]='Saved, but the test did not work: '+(r.why||'no answer from Anthropic')+' Check the id and token, then press Remove and Connect again.';
+  await cfRefresh(box)}
+ catch(e){delete CloudFixer.busy[id];a.disabled=false;cfSay(box,id,e?.message||String(e))}};
+ACT['cf-test']=async a=>{const box=cfBox(a),id=cfId(a),x=cfRowOf(a);if(!x)return;a.disabled=true;CloudFixer.busy[id]=1;cfSay(box,id,'Starting a test run…');
+ try{const r=await post(UI,'/ui/cloud-fixer/test',{trigId:x.trigId});CloudFixer.say[id]=r.ok?'Works: Anthropic started a test run.':(r.why||'It did not work.');delete CloudFixer.busy[id];await cfRefresh(box)}
+ catch(e){delete CloudFixer.busy[id];a.disabled=false;cfSay(box,id,e?.message||String(e))}};
+ACT['cf-del']=async a=>{const box=cfBox(a),id=cfId(a);a.disabled=true;
+ try{CloudFixer.d=await call('','/ui/cloud-fixer',{method:'PUT',body:{routines:cfKeep(id)}});CloudFixer.say[id]='';toast('Removed. That account is no longer used for fixes.');cloudBox(box)}catch(e){a.disabled=false;fail(e)}};

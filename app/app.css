@@ -3062,3 +3062,24 @@ button.bad:hover{background:color-mix(in srgb,var(--bad) 8%,transparent);border-
 .bn-opts{list-style:none;margin:4px 0 10px;padding:0;display:grid;gap:6px}.bn-opts li{display:grid;gap:1px;padding:8px 10px;border-radius:10px;background:var(--bg-2,rgba(127,127,127,.08));font-size:13px;line-height:1.45}.bn-opts li b{font-weight:600}.bn-opts li span:not(.bn-rec){color:var(--ink-2)}
 .bn-rec{justify-self:start;font-size:11px;font-weight:600;color:var(--accent,#2a7de1);letter-spacing:.02em}
 .bn-in{display:flex;flex-wrap:wrap;gap:6px;width:100%;animation:cardIn 180ms var(--ease,ease) both}.bn-in input,.bn-in textarea{flex:1 1 220px;min-width:0;border-radius:10px}
+
+/* Cloud fixer card (cloud-fixer-page.js): the Models priority row, plus an inline three-step panel that opens smoothly */
+.cf-box{margin-bottom:16px}.cf-box .cf-line{margin:-6px 0 14px;font-size:13px;line-height:1.5}.cf-list{display:flex;flex-direction:column;gap:8px}
+.cf-item{display:flex;flex-direction:column}
+.cf-row.pri-row{cursor:default;grid-template-columns:24px 32px minmax(150px,1fr) minmax(220px,1.3fr) auto;grid-template-areas:'n logo txt lim btn';animation:none}
+.cf-row .cf-btns{grid-area:btn;display:flex;gap:6px;align-items:center;justify-content:flex-end}
+.cf-next{margin-left:8px;font-size:11px;padding:1px 8px;font-weight:500;vertical-align:1px;color:var(--muted);background:var(--soft)}
+.pri-st.warn{color:var(--warn)}.pri-st.warn .dot{background:var(--warn)}
+.cf-say-row{margin:6px 12px 0;font-size:12.5px}.cf-say-row:empty{display:none}
+.cf-steps{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows var(--t-med) var(--ease),opacity var(--t-med) var(--ease)}
+.cf-item.open .cf-steps{grid-template-rows:1fr;opacity:1}.cf-steps-in{overflow:hidden;min-height:0}
+.cf-ol{list-style:none;margin:8px 0 0;padding:14px 16px;display:grid;gap:16px;border:1px solid var(--border);border-radius:16px;background:var(--soft-2)}
+.cf-ol li{display:grid;grid-template-columns:24px minmax(0,1fr);gap:12px;align-items:start}.cf-ol li>div{display:grid;gap:6px;justify-items:start;min-width:0}
+.cf-ol b{font-size:14px;font-weight:600}.cf-ol .hint{margin:0;font-size:12.5px;line-height:1.5}
+.cf-fields{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;width:100%}.cf-fields input{min-width:0}
+.cf-go-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.cf-go-row .hint{flex:1 1 220px}
+.cf-pr{width:100%;font-size:12.5px;color:var(--ink-2)}.cf-pr summary{cursor:pointer;color:var(--blue);font-weight:500}.cf-pr pre{margin:8px 0 0;max-height:260px;overflow:auto;white-space:pre-wrap;font-family:var(--mono);font-size:12px;line-height:1.5;padding:12px;border-radius:12px;background:var(--surface);border:1px solid var(--border)}
+.cf-once{margin-top:14px;font-size:13px;color:var(--ink-2)}.cf-once summary{cursor:pointer;color:var(--blue);font-weight:500}.cf-once>.hint{margin:8px 0}
+.cf-gh{display:flex;align-items:flex-start;gap:12px;padding:8px 0;cursor:pointer}.cf-gh span{display:grid;gap:2px}.cf-gh small{font-size:12px;color:var(--muted);line-height:1.45}
+@container (max-width:640px){.cf-row.pri-row{grid-template-columns:24px 32px minmax(0,1fr);grid-template-areas:'n logo txt' '. . lim' '. . btn'}.cf-row .cf-btns{justify-content:flex-start}.cf-fields{grid-template-columns:minmax(0,1fr)}}
+@media (prefers-reduced-motion:reduce){.cf-steps{transition:none}}

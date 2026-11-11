@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,readFile,stat} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {createCloudFixer,rankRoutines,fireText,API} from '../app/cloud-fixer.mjs';
+import {createCloudFixer,rankRoutines,fireText,API,accountRows,ROUTINE_PROMPT} from '../app/cloud-fixer.mjs';
 import {createIssues} from '../app/issues.mjs';
 import {beforeWindow} from '../app/maintenance.mjs';
 import {limitNote} from '../app/accounts.mjs';
@@ -145,3 +145,19 @@ test('a fix run that says "code" is not written on the server: it is handed to t
  const p=await readFile(path.join(S.d,'issues',i.id+'-1','prompt.txt'),'utf8');assert.match(p,/You do NOT write or change aqeelOS/);assert.ok(!/git checkout for this issue/.test(p));
  await S.tick(31e3);const it=(await S.db()).items.find(x=>x.id===i.id);assert.equal(it.state,'cloud');assert.equal(it.tries,0);assert.equal(S.F.calls.length,1);
  assert.match(S.F.calls[0].body.text,/divides by zero/);assert.match(S.F.calls[0].body.text,/POST \/order with an empty cart/)});
+
+test('card rows: connected by most room (first is next), then at a limit, then not connected; no token in them',()=>{
+ const accts=[acc('main',80,10),acc('two',30,20),acc('three',null),acc('four',100,5)];
+ const routines=[...R,{account:'four',trigId:'trig_CCCCCCCC',token:TOK1}];
+ const rows=accountRows(accts,routines,{trig_AAAAAAAA:{ok:true,at:T0-H}},T0);
+ assert.deepEqual(rows.map(r=>[r.id,r.state,r.next]),[['two','ok',true],['main','ok',false],['four','limit',false],['three','none',false]]);
+ assert.equal(rows[2].until,T0+2*H);assert.equal(rows[1].testedAt,T0-H);assert.equal(rows[1].testOk,true);assert.equal(rows[0].testOk,null);
+ assert.equal(rows[0].sess.used,30);assert.equal(rows[3].sess,null);
+ assert.ok(!JSON.stringify(rows).includes('sk-ant'))});
+
+test('card rows: nothing connected means every account is "none" and none is next; a routine of an unknown account is left out',()=>{
+ const rows=accountRows([acc('main',5,5)],[],{},T0);assert.deepEqual(rows.map(r=>[r.state,r.next]),[['none',false]]);
+ assert.deepEqual(accountRows([acc('main',5,5)],[{account:'gone',trigId:'trig_ZZZZZZZZ',token:TOK1}],{},T0).map(r=>r.id),['main'])});
+
+test('the routine prompt shown on the card is the one in docs/cloud-fixer.md',async()=>{
+ const doc=await readFile(new URL('../docs/cloud-fixer.md',import.meta.url),'utf8');assert.ok(doc.includes(ROUTINE_PROMPT));assert.ok(ROUTINE_PROMPT.length>500)});
