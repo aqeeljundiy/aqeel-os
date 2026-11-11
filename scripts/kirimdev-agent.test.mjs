@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,readFile,readdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {createKirimdevAgent,conversationSession} from '../app/kirimdev-agent.mjs';
+import {createKirimdevAgent,conversationSession,stoppedWhy} from '../app/kirimdev-agent.mjs';
 test('runner uses supported named continue, unique private files, cleanup on success and error',async()=>{
  const DATA=await mkdtemp(path.join(tmpdir(),'kd-runner-'));const pending=[];
  const run=createKirimdevAgent({DATA,home:DATA,live:true,execute:(bin,args,opts,cb)=>{pending.push({args,cb})}});
@@ -44,3 +44,9 @@ test('the run key travels in the run\'s instructions (the gateway runs it) and n
  const run=createKirimdevAgent({DATA,home:DATA,live:true,customer:()=>({begin:()=>'KEY123secret',end:()=>{}}),execute:(b,args,o,cb)=>{q=readFileSync(args[args.indexOf('--query-file')+1],'utf8');cb(null,'Halo kak KEY123secret')}});
  const out=await run('a','Customer says hi',{session:conversationSession('a','l','c'),run:{line:'l',conversation:'c',phone:'1'}});
  assert.match(q,/^Customer says hi\n\nRun key for your tools in this chat: KEY123secret /);assert.equal(out,'Halo kak ')});
+test('a failed engine run keeps its own reason (stderr, stdout), without the run key and session lines (12 Nov 2026)',async()=>{
+ const DATA=await mkdtemp(path.join(tmpdir(),'kd-why-'));
+ const run=createKirimdevAgent({DATA,home:DATA,live:true,customer:()=>({begin:()=>'KEY123secret',end:()=>{}}),execute:(b,a,o,cb)=>cb({code:1},"partial KEY123secret reply\n\nsession_id: local-9","⚠️ You've hit your session limit · resets 10pm (UTC)\n")});
+ await assert.rejects(run('a','q',{session:conversationSession('a','l','c'),run:{line:'l',conversation:'c',phone:'1'}}),e=>/^the agent stopped \(1\): .*session limit · resets 10pm \(UTC\)/.test(e.message)&&!/KEY123|session_id/.test(e.message));
+ assert.equal(stoppedWhy({signal:'SIGTERM'},'','') ,'the agent stopped (SIGTERM)');
+ assert.ok(stoppedWhy({code:1},'x'.repeat(2000),'').length<340)});

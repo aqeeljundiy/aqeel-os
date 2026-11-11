@@ -142,6 +142,7 @@ export function guardReply(input,{paid=null,qrPics=[]}={}){const removed=[];cons
  return {parts:keep,removed,dropped,hold:paid===false&&claims&&!hasPic?'The reply says a payment (QRIS, VA, link or invoice) was sent, but no payment was made in this run. Make it with create_payment first, or hand off.':null}}
 
 import {conversationSession} from './kirimdev-agent.mjs';
+import {providerUnavailable,retryAt} from './provider-limits.mjs';
 
 const RESET=/^(reset|\/reset|mulai baru)$/i;
 // a tester's reset: the usual words, or the line's own (Connect dialog)
@@ -313,7 +314,7 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,bridge=BRIDGE,chec
   log('kirimdev '+agent+': a team member replied to '+tail(s.to)+' ('+(s.source||'?')+'); the agent waits '+min+' min');if(s.to)await answered(agent,s.to);return {paused:until}}
 
  // a burst of messages is answered once: the run starts a few seconds after the last one
- const FAIL_MAX=3,FAIL_WAIT=[60,300],FAIL_WINDOW=30*60e3;
+ const FAIL_MAX=3,FAIL_WAIT=[60,300],FAIL_WINDOW=30*60e3,PROV_WAIT=[120,300,600,900];
  const timers=new Map(),running=new Set();let active=0;
  // setTimer/clearTimer are injectable so tests drive the burst window themselves instead of racing a 0 s timer
  function schedule(key,line){clearTimer(timers.get(key));timers.set(key,setTimer(()=>{timers.delete(key);return run(key).catch(e=>log('kirimdev '+key+': '+e.message))},(line.debounceSec??8)*1000))}
@@ -325,15 +326,24 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,bridge=BRIDGE,chec
    // kept during a pause: the team may have answered it since; then it is done
    if(p.waited&&p.conversationId){const l=((await api(line.phoneNumberId+'/messages?'+new URLSearchParams({conversation_id:p.conversationId,limit:'5'}))).data||[]).filter(m=>m.type!=='reaction').sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)));
     if(l[0]?.direction==='outbound'&&Date.parse(l[0].created_at)>p.at){log('kirimdev '+p.agent+': the team answered '+tail(p.from)+' during the pause; nothing more to send');if(st.pending[key]?.token===p.token)delete st.pending[key];delete st.turns[key];await saveState();return}}
+   // the provider is used up or throttled (hold set by a run that said so): nothing is started until its reset time, not even a try that cannot work (12 Nov 2026)
+   const ph=st.provider?.[p.agent];if(ph&&ph.until>now()){later=true;delete st.turns[key];schedule(key,{debounceSec:Math.ceil((ph.until-now())/1000)});return}
    const epoch=st.cut[key]||'';
    try{await answer(p.agent,line,p,key)}
-   catch(e){const f=(st.fails||={})[key],n=(f&&now()-f.at<FAIL_WINDOW?f.n:0)+1;st.fails[key]={n,at:now()};
+   catch(e){const lim=providerUnavailable(e.message,{now:now()});
+    // ROOT CAUSE of the 'agent stopped' loops (12 Nov 2026): the engine run exits 1 because the Claude/GPT account is used up or throttled (HTTP 429 'session limit'), for every chat of the line at once; the two
+    // always-active tester chats showed it. That is not the chat's fault: it waits for the reset time (30 min at most, else 2/5/10/15 min), the customer's message stays, ONE Health problem names the reason, and the first good answer clears it
+    if(lim){const h=(st.provider||={})[p.agent],n=(h?.n||0)+1,until=retryAt(lim,{now:now(),fallback:PROV_WAIT[Math.min(n,PROV_WAIT.length)-1]*1000,max:30*60e3,pad:30e3});st.provider[p.agent]={n,until,why:lim.why,kind:lim.kind,since:h?.since||now()};later=true;await saveState();
+     log('kirimdev '+p.agent+': the AI provider is not available ('+lim.kind+': '+lim.why.slice(0,120)+'); '+tail(p.from)+' waits until '+new Date(until).toISOString().slice(11,16)+' UTC');schedule(key,{debounceSec:Math.ceil((until-now())/1000)});
+     if(!h)await problem?.(p.agent,'kirimdev|provider','Kirimdev line ('+line.persona+'): the AI provider is not available','Customers are not answered while it is down; their messages wait and are answered by themselves when it works. Reason from the engine: '+lim.why+(lim.resetAt?' It resets at '+new Date(lim.resetAt).toISOString().slice(11,16)+' UTC.':'')+' Fix: use another account for this agent (Accounts), or wait.').catch(()=>{});return}
+    const f=(st.fails||={})[key],n=(f&&now()-f.at<FAIL_WINDOW?f.n:0)+1;st.fails[key]={n,at:now()};
     if(n<FAIL_MAX){later=true;await saveState();log('kirimdev '+p.agent+': the agent stopped on '+tail(p.from)+' ('+n+'/'+FAIL_MAX+'): '+e.message+'; trying again in '+FAIL_WAIT[n-1]+' s');schedule(key,{debounceSec:FAIL_WAIT[n-1]});return}
     // the loop breaker (12 Nov 2026: two chats retried every few seconds, about 290 times a day): nothing is retried any more; a person gets the chat once
     delete st.fails[key];if(st.pending[key]?.token===p.token)delete st.pending[key];delete st.turns[key];(st.stopped||={})[key]=1;
     const lastQ=(p.messages||[]).slice(-1)[0]||'-';log('kirimdev '+p.agent+': the agent stopped '+n+' times on '+tail(p.from)+'; the chat was handed to the team');
     await postHandoff({id:'h'+(++st.seq),agent:p.agent,from:p.from,conversationId:p.conversationId,name:p.name,lastQ,why:'The agent stopped '+n+' times in a row on this chat ('+e.message+'). Nothing was sent to the customer, so a person needs to answer.',notify:false,tries:0,at:now()},line);
     await problem?.(p.agent,'stopped|'+key,'Kirimdev line ('+line.persona+'): the agent keeps stopping on one chat','The agent stopped '+n+' times in a row on the chat with +'+p.from+' ('+e.message+'). It is not tried again by itself; the chat is in the Questions topic. Its next message from the customer starts a fresh try.').catch(()=>{});await saveState();return}
+   if(st.provider?.[p.agent]){delete st.provider[p.agent];await solved?.(p.agent,'kirimdev|provider').catch(()=>{})}
    if(st.stopped?.[key]){delete st.stopped[key];await solved?.(p.agent,'stopped|'+key).catch(()=>{})}
    delete st.fails?.[key];
    // Only consume the snapshot we answered, never a newer arrival.

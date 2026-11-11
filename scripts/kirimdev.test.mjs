@@ -74,7 +74,7 @@ const sentEv=(to,source,id='msg_'+Math.random(),conv='cnv_A',pid='111')=>JSON.st
 
 // an Indonesian line, as the owner runs it: these are settings (kirimdev.json), not code
 const LOCALE={language:'Indonesian',localPrefix:{country:'62',local:'0'},resetText:'✅ Test reset. Chat dari awal ya, anggap kamu customer baru.',handoff:{customerText:'Baik kak, untuk pertanyaan ini saya bantu teruskan ke tim kami dulu ya 🙏 Mohon ditunggu sebentar.'}};
-async function make({mode='test',agentSays='Halo kak 😊',testers=[{who:'Ari',conversationId:'cnv_A'}],postOk=true,team={chatId:-100,topics:{questions:3},mention:'@team'},pauseMin,extra={},paidSince=null,bridge={self:async()=>'',send:async()=>{},result:async()=>null}}={}){
+async function make({mode='test',agentSays='Halo kak 😊',testers=[{who:'Ari',conversationId:'cnv_A'}],postOk=true,team={chatId:-100,topics:{questions:3},mention:'@team'},pauseMin,extra={},paidSince=null,bridge={self:async()=>'',send:async()=>{},result:async()=>null},probs=[],oks=[],health=false}={}){
  const DATA=await mkdtemp(path.join(tmpdir(),'kd-')),WORK=path.join(DATA,'work');
  await mkdir(path.join(WORK,'cove-support','media','staff'),{recursive:true});
  await writeFile(path.join(WORK,'cove-support','media','staff','urls.txt'),'https://media.kirimdev.com/x/Kit.jpeg\n');
@@ -92,13 +92,13 @@ async function make({mode='test',agentSays='Halo kak 😊',testers=[{who:'Ari',c
   return {ok:false,status:404,json:async()=>({})}};
  // fake timers: the burst window only closes when the test calls settle(), never because the box was slow
  const due=new Map();let tid=0;const setTimer=(fn)=>{const i=++tid;due.set(i,fn);return i},clearTimer=i=>{due.delete(i)};
- const k=createKirimdev({DATA,WORK,setTimer,clearTimer,apiKey:async()=>'kdv_test',PUBLIC_URL:'https://ai.example',fetchImpl,wait:async()=>{},log:m=>process.env.KDLOG&&console.log(m),now:()=>clock,echoWait:0,paidSince,bridge,
+ const k=createKirimdev({DATA,WORK,setTimer,clearTimer,apiKey:async()=>'kdv_test',PUBLIC_URL:'https://ai.example',fetchImpl,wait:async()=>{},log:m=>process.env.KDLOG&&console.log(m),now:()=>clock,echoWait:0,paidSince,bridge,...(health?{problem:async(...x)=>{probs.push(x)},solved:async(...x)=>{oks.push(x)}}:{}),
   teamGroup:async a=>a==='cove-support'?team:null,
   runAgent:async(a,q,context)=>{asked.push([a,q,context]);return typeof agentSays==='function'?agentSays(q,context):agentSays},telegram:async(...x)=>{posts.push(x);return tg.ok?4242:false},tell:async t=>{told.push(t)}});
  const post=(raw,h={},agent='cove-support')=>k.receive(agent,{'x-kirim-signature':sign(raw,Math.floor(clock/1000)),'x-kirim-event':'message.received',...h},Buffer.from(raw));
  const postSent=(raw,agent='cove-support')=>k.receive(agent,{'x-kirim-signature':sign(raw,Math.floor(clock/1000)),'x-kirim-event':'message.sent'},Buffer.from(raw));
  const settle=async()=>{for(let n=0;n<20&&due.size;n++){const fns=[...due.values()];due.clear();await Promise.all(fns.map(f=>f()))}await new Promise(r=>setImmediate(r))};
- return {k,DATA,sent,asked,posts,told,patched,post,postSent,settle,tg,due,setTimer,clearTimer,later:ms=>{clock+=ms}}}
+ return {k,DATA,probs,oks,sent,asked,posts,told,patched,post,postSent,settle,tg,due,setTimer,clearTimer,later:ms=>{clock+=ms}}}
 
 test('signature: any v1 from any secret, within 5 minutes, raw bytes',()=>{const raw='{"a":1}',t=Math.floor(Date.now()/1000);
  assert.equal(verifySignature(Buffer.from(raw),sign(raw,t),[SECRET]),true);
@@ -345,3 +345,19 @@ test('an agent that keeps stopping on one chat is tried again twice with waits, 
  await t.settle();assert.equal(runs,3);
  // a new message from the customer starts a fresh try
  await t.post(meta('628123','halo lagi','m2'));await t.settle();assert.equal(runs,6)});
+
+test('a used-up provider is not the chat fault: the chat waits for the reset, one Health problem names the reason, the first good answer clears it (12 Nov 2026, root cause of the stop loops)',async()=>{
+ let runs=0,down=true;const t=await make({health:true,agentSays:async()=>{runs++;if(down)throw Error("the agent stopped (1): HTTP 429: Incomplete upstream response (first upstream attempt: status 429): You've hit your session limit · resets 10pm (UTC)");return 'Halo kak'}});
+ await t.post(meta('628123','tolong','m1'));await t.settle();
+ assert.equal(runs,1,'one try, then it waits for the reset instead of trying every few seconds');assert.equal(t.sent.length,0);assert.equal(t.due.size,1,'a timer holds the chat');
+ assert.equal(t.posts.length,0,'not handed to the team: it is not a chat problem');
+ assert.equal(t.probs.length,1);assert.equal(t.probs[0][1],'kirimdev|provider');assert.match(t.probs[0][3],/session limit/);assert.match(t.probs[0][3],/resets at [0-9]{2}:[0-9]{2} UTC/);
+ // a second chat of the same line is held without even starting the engine
+ await t.post(meta('628777','halo','m2','cnv_X'));
+ await t.settle();assert.equal(runs,1);assert.equal(t.probs.length,1,'one problem per line, not one per chat');
+ // the provider is back and the hold is over
+ down=false;t.later(31*60e3);await t.post(meta('628123','halo lagi','m3'));await t.settle();
+ assert.ok(runs>=2);assert.ok(t.sent.some(b=>/Halo kak/.test(b.text?.body||'')),'answered');assert.deepEqual(t.oks.map(x=>x[1]),['kirimdev|provider'])});
+test('a stop that is not the provider keeps the breaker, and its reason reaches the Health problem (12 Nov 2026)',async()=>{
+ let runs=0;const t=await make({health:true,agentSays:async()=>{runs++;throw Error('the agent stopped (1): Gateway did not answer session.create')}});
+ await t.post(meta('628123','tolong','m1'));await t.settle();assert.equal(runs,3);assert.ok(t.probs.some(x=>x[1].startsWith('stopped|')&&/Gateway did not answer session.create/.test(x[3])),'the reason is in the problem');assert.ok(!t.probs.some(x=>x[1]==='kirimdev|provider'))});
