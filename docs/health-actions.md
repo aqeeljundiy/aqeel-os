@@ -32,15 +32,31 @@ Items that were already right: `signin` (Sign in to X, Signins.open), `schedule`
 
 Kinds that are never in the person list (the fixer has them, `personNeed` is null): `system`, `down`, `skill`, `stopped`, `twice`, `dropped`, `backup`, `update`, `automations`, `models`, `selfruns`, `kirimdev`, `schedule` on Health.
 
-## How a free-text need becomes a button (`need-action.mjs`)
+## How a need becomes buttons (`need-action.mjs`, rewritten 12 Nov 2026)
 
-The fixer writes `need` in words. `issueActs(issue, ctx)` reads them against what this install has (connected apps and who is signed in, signed-out AI accounts):
+Owner, the same day: "What's the point of clicking sign in if it doesn't lead me anywhere?" The first version guessed an app from loose
+words: "Pixel Agent needs a person…" matched a tool called `pixel` (a command on the box, no sign-in page), so two unrelated needs
+got "Sign in to pixel", which ended in the toast "Only tools with an address sign in this way". The rule now: **a button is offered
+only when the action is real and will start.**
 
-1. sign-in words and a connected app named (id or label) -> `signin-app` for the agent that has it and is not signed in
-2. else a signed-out AI account named -> `signin-account`
-3. else Google Sheets/Drive/... -> `google`; else browser/site/session -> `screen`; else "Models › Accounts" -> go there
-4. a `command` in backticks -> `copy` (Copy the command), then Check again re-checks
-5. always last: `recheck` ("Check again"); it is the primary only when nothing above fits (the task is outside the app)
+1. **Facts, not words.** The fixer (`RESULT`) and the sorter (`SORT`) write `steps:[{what,id,agent,alt}]` next to the sentence;
+   `issues.mjs` keeps them on the issue. `what`: `ai-account` (id: the account's name or provider), `google` (agent), `app` (id, agent),
+   `remove-app` (id, agent), `key` (id), `screen` (agent). `alt:true` marks an alternative.
+2. **Checked every time it is shown** (`resolveStep`, against `needCtx()` in server.mjs): the AI account exists (→ its Reconnect
+   dialog, plus "Take it out of the priority list" while it is in the list, `/ui/accounts/unlist`); the app is on that agent and a
+   sign-in page can start for it (`mcpCanSignIn`: an address, no key of its own; `access.mjs` reports it per agent); the agent exists
+   (Connect Google for that agent); the entry to remove is still there (gone = that step is ticked as done).
+3. **Several steps are a short numbered list**, each with its own line and its own button (`Bottlenecks.paint`).
+4. **A need filed before steps existed** is read only for things named in full: an account's own name, its provider's name or id; an
+   app's exact name in quotes or right after "sign in to / re-authorize / reconnect"; "connect … Google"; "remove the '…' entry".
+   Never a part of a word, never an agent's name. The result goes through the same check.
+5. **Nothing known, or the check fails: no sign-in.** The button opens the exact page (`PLACES`: AI accounts, Connections, Keys and
+   secrets, or the issue on Health), then Check again. A `command` in backticks is still Copy the command.
+6. Always last: `recheck` ("Check again").
+
+`scripts/health-actions.test.mjs` holds this with the two real items from the P&P install as fixtures: every `do` the resolver can
+produce has a handler in `Bottlenecks.act`, the handlers start the real thing against stubs, a tool without a sign-in page never
+gets a sign-in button, and an unknown need is a deep link.
 
 ## Questions
 

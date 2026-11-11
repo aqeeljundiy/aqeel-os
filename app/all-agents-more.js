@@ -16,29 +16,90 @@ ACT['all-sk']=b=>allChipFlip(b,(a,on)=>put(H,prof('/skills/toggle',a),{name:b.da
 // a plugin: turning it on copies it from an agent that has it (Who can use does the same); off switches it off there
 ACT['all-pl']=b=>allChipFlip(b,(a,on)=>on?post(UI,'/ui/access',{kind:'plugin',id:b.dataset.name,agent:a,on:true}):post(UI,'/ui/plugins/toggle',{agent:a,name:b.dataset.name,enabled:false}),b.dataset.name,(r,on)=>on||r?.restart_required?'applies after the agents restart':'works at once');
 
-// Tool groups on all agents: one grid, groups down the side and agents across, a switch in each cell. Switches only
-// mark a change; Apply sends them all and restarts the agents once (one restart per switch would cut every chat each time)
+// Tool groups on all agents (12 Nov 2026, owner: "what if we have 30+ agents"). It was a grid with one column per agent,
+// which stops being readable past five. The page has two jobs, so it has two views of the same switches:
+//   By tool group: one row per group (what it does, its warning, "On for 9 of 11 agents" and a short stack of faces) with
+//                  one Change button that opens a side panel listing every agent with search, all on / all off and a switch each;
+//   By agent:      one row per agent ("14 of 29 tool groups on", the powerful ones named) whose Change lists its groups.
+// Switches only mark a change; the bar at the bottom says how many wait, and Apply sends them all and restarts the agents
+// once (one restart per switch would cut every chat each time). Lists draw 60 rows at a time, so 50 agents and 40 groups stay light.
 const TSP=new Map();   // "agent|group" → on/off waiting for Apply
-const tsCell=(t,a,locks)=>{const nm=ident(a).name,unsafe=TS_UNSAFE.includes(t.name),on=t.on.includes(a),lbl=tsName(t)+' for '+nm;
- if(!t.all.includes(a))return `<td class="tsg-c"><i class="tsg-na" title="${esc(nm)} doesn’t have this group" aria-label="${esc(nm)}: not available"></i></td>`;
- if(unsafe&&locks[a])return `<td class="tsg-c">${tsLock(locks[a])}</td>`;
- if(!mayEdit(a,unsafe?'unsafe':'tools'))return `<td class="tsg-c"><span class="tsg-ro" title="${esc(unsafe?'Only people allowed terminal, files and code can change this.':'Your role can’t change '+nm+'’s tools.')}">${toggle(on,lbl,'disabled')}</span></td>`;
- return `<td class="tsg-c">${toggle(on,lbl,`data-act="tsg" data-agent="${esc(a)}" data-name="${esc(t.name)}" data-was="${on?1:0}"`)}</td>`};
-const tsGrid=(list,ags,locks)=>`<div class="card tsg-wrap"><table class="tsg"><thead><tr><th class="tsg-g" scope="col">Tool group</th>${ags.map(a=>`<th scope="col" class="tsg-a"><span title="${esc(ident(a).name)}">${Access.av({id:a,name:ident(a).name},26)}<b>${esc(ident(a).name)}</b></span></th>`).join('')}</tr></thead>
- <tbody>${list.map((t,i)=>`<tr ${st(i)} data-ts="${esc(t.name)}"><th scope="row" class="tsg-g"><div class="tsg-head">${tsHead({...t,enabled:t.on.length>0})}</div></th>${ags.map(a=>tsCell(t,a,locks)).join('')}</tr>`).join('')}</tbody></table></div>`;
-// the bar under the grid: how many changes wait, which ones, Undo and Apply
+const TS={
+ groups:()=>Object.values(Pages._tsAll||{}).sort((x,y)=>tsName(x).localeCompare(tsName(y))),ags:()=>Pages._tsAgs||[],locks:()=>Pages._tsLk2||{},
+ // is it on, counting what waits for Apply
+ on(t,a){const k=a+'|'+t.name;return TSP.has(k)?TSP.get(k):t.on.includes(a)},
+ // may this switch be changed here: ok, or why not (na: the agent has no such group, lock: locked to safe tools, ro: not this person's to change)
+ can(t,a){const unsafe=TS_UNSAFE.includes(t.name);if(!t.all.includes(a))return 'na';if(unsafe&&this.locks()[a])return 'lock';return mayEdit(a,unsafe?'unsafe':'tools')?'ok':'ro'},
+ why(t,a){const c=this.can(t,a),nm=ident(a).name;return c==='na'?nm+' doesn’t have this group':c==='lock'?this.locks()[a]:c==='ro'?(TS_UNSAFE.includes(t.name)?'Only people allowed terminal, files and code can change this.':'Your role can’t change '+nm+'’s tools.'):''},
+ dirtyG(t){return this.ags().some(a=>TSP.has(a+'|'+t.name))},dirtyA(a){return this.groups().some(t=>TSP.has(a+'|'+t.name))},
+ faces(list,max=6){return list.length?`<span class="acc-who" aria-hidden="true">${list.slice(0,max).map(a=>Access.av({id:a,name:ident(a).name},24)).join('')}${list.length>max?`<span class="acc-more">+${list.length-max}</span>`:''}</span>`:''},
+ // one row per tool group: what it does and its warning lead; who has it on is one quiet line and a few faces
+ rowG(t,i){const have=this.ags().filter(a=>t.all.includes(a)),on=have.filter(a=>this.on(t,a)),d=this.dirtyG(t);
+  return `<div class="row ts-row tsr${d?' dirty':''}" ${st(i)} data-ts="${esc(t.name)}"><div class="main-c">${tsHead({...t,enabled:on.length>0})}</div><div class="tsr-who" title="${esc(on.length?'On for '+on.map(a=>ident(a).name).join(', '):'Off for every agent')}"><span class="tsr-n">${on.length?`On for <b>${on.length}</b> of ${plural(have.length,'agent')}`:`Off for all ${plural(have.length,'agent')}`}${d?'<i class="tsr-dot" title="Changed, waiting for Apply"></i>':''}</span>${this.faces(on)}</div><div class="act"><button class="small" data-act="tsg-open" data-kind="group" data-id="${esc(t.name)}" aria-haspopup="dialog" aria-label="Change which agents have ${esc(tsName(t))}">Change</button></div></div>`},
+ // one row per agent: how many of its groups are on, and the powerful ones by name so the warning is never hidden
+ rowA(a,i){const mine=this.groups().filter(t=>t.all.includes(a)),on=mine.filter(t=>this.on(t,a)),risky=on.filter(t=>tsInfo(t).risk),d=this.dirtyA(a),nm=ident(a).name;
+  return `<div class="row ts-row tsr${d?' dirty':''}" ${st(i)} data-ag="${esc(a)}"><div class="main-c">${agentAvatar(a,38,{title:false})}<div class="txt"><b>${esc(nm)}</b><span class="ts-say">${on.length} of ${plural(mine.length,'tool group')} on${d?'<i class="tsr-dot" title="Changed, waiting for Apply"></i>':''}</span>${risky.length?`<span class="ts-risk">${icon('alert',13)}Powerful ones on: ${esc(risky.map(tsName).join(', '))}</span>`:''}</div></div><div class="act"><button class="small" data-act="tsg-open" data-kind="agent" data-id="${esc(a)}" aria-haspopup="dialog" aria-label="Change ${esc(nm)}’s tool groups">Change</button></div></div>`},
+ view:()=>S.tab.tsView==='By agent'?'agent':'group',
+ // the heading and the search box say which of the two views this is
+ head(){const ag=this.view()==='agent',n=ag?this.ags().length:this.groups().length,h=$('#tsH'),i=$('#tsQ');if(h)h.innerHTML=(ag?'Agents, and the tool groups each has on':'Tool groups, and which agents have each on')+' <small class="hint">'+n+'</small>';if(i){i.placeholder=ag?'Search '+n+' agents':'Search '+n+' tool groups';i.setAttribute('aria-label',i.placeholder)}},
+ // the list under the search: only what matches, 60 rows at a time
+ paint(first=false){const box=$('#tsList');if(!box)return;const q=(S.tsQ||'').toLowerCase().trim(),v=this.view();
+  const all=v==='agent'?this.ags().filter(a=>!q||ident(a).name.toLowerCase().includes(q)):this.groups().filter(t=>!q||[t.name,tsName(t),tsInfo(t).say].join(' ').toLowerCase().includes(q));
+  const key=v+'|'+q;if(first||this._for!==key){this.shown=60;this._for=key}const vis=all.slice(0,this.shown);
+  const html=all.length?`<div class="card list tsr-list">${vis.map((x,i)=>v==='agent'?this.rowA(x,first?i:0):this.rowG(x,first?i:0)).join('')}${all.length>vis.length?`<button class="ghost cn-more" data-act="tsg-more">Show ${Math.min(60,all.length-vis.length)} more of ${all.length-vis.length}</button>`:''}</div>`:emptyBox(v==='agent'?'No agent matches':'No tool group matches','Try another word.');
+  // rows that open their tools stay open when the list is drawn again
+  const open=[...box.querySelectorAll('.ts-x.open')].map(x=>x.closest('[data-ts]')?.dataset.ts);
+  if(first)box.innerHTML=html;else{morph(box,html);box.querySelectorAll('.tsr').forEach(r=>r.style.animation='none')}
+  for(const n of open){const x=box.querySelector(`[data-ts="${CSS.escape(n||'')}"] .ts-x`);if(x){x.classList.add('open');x.querySelector('.ts-xb')?.setAttribute('aria-expanded','true')}}},
+ // ---- the side panel: every agent for one group, or every group for one agent
+ open(kind,id){const t=kind==='group'?Pages._tsAll?.[id]:null;if(kind==='group'&&!t)return;this.cur={kind,id,q:'',shown:60};
+  const title=kind==='group'?tsName(t):ident(id).name,f=t?tsInfo(t):null;
+  const d=drawer(title,`<div class="tsd">${t?`<p class="tsd-say">${esc(f.say)}</p>${f.risk?`<p class="ts-risk tsd-risk">${icon('alert',13)}${esc(f.risk)}</p>`:''}`:`<p class="tsd-say">Which tool groups ${esc(title)} can use.</p>`}
+   <div class="tsd-bar"><div class="search">${icon('search',16)}<input id="tsdQ" type="search" placeholder="${kind==='group'?'Search agents':'Search tool groups'}" aria-label="${kind==='group'?'Search agents':'Search tool groups'}"></div><span class="tsd-n" aria-live="polite"></span></div>
+   <div class="tsd-all"><button type="button" class="link" data-act="tsd-all" data-on="1">Turn all on</button><button type="button" class="link" data-act="tsd-all" data-on="0">Turn all off</button></div>
+   <div class="card list tsd-list" id="tsdList"></div></div>`,`<span class="hint tsd-foot"></span><button class="primary" data-act="close">Done</button>`,{side:true});
+  d.classList.add('tsd-drawer');this.d=d;this.paintD(true);
+  const q=d.querySelector('#tsdQ');q.oninput=()=>{this.cur.q=q.value;this.cur.shown=60;this.paintD()};},
+ // the rows of the panel: [agent, group] pairs, filtered by its search
+ pairs(){const c=this.cur;if(!c)return [];const q=(c.q||'').toLowerCase().trim();
+  return c.kind==='group'?this.ags().filter(a=>!q||ident(a).name.toLowerCase().includes(q)).map(a=>[a,Pages._tsAll[c.id]]):this.groups().filter(t=>t.all.includes(c.id)&&(!q||[t.name,tsName(t),tsInfo(t).say].join(' ').toLowerCase().includes(q))).map(t=>[c.id,t])},
+ line([a,t]){const c=this.cur,can=this.can(t,a),on=this.on(t,a),k=a+'|'+t.name,nm=ident(a).name,f=tsInfo(t),why=this.why(t,a);
+  const left=c.kind==='group'?`${agentAvatar(a,30,{title:false})}<span class="cn-lt"><b>${esc(nm)}</b>${why?`<small>${esc(why)}</small>`:''}</span>`:`<span class="ic">${icon(f.ic,15)}</span><span class="cn-lt"><b>${esc(tsName(t))}</b><small>${esc(why||f.say)}</small>${f.risk&&!why?`<small class="ts-risk">${icon('alert',12)}${esc(f.risk)}</small>`:''}</span>`;
+  const right=can==='na'?'<span class="tsd-na">Not available</span>':can==='lock'?tsLock(why):can==='ro'?`<span class="tsg-ro" title="${esc(why)}">${toggle(on,tsName(t)+' for '+nm,'disabled')}</span>`:toggle(on,tsName(t)+' for '+nm,`data-act="tsg" data-agent="${esc(a)}" data-name="${esc(t.name)}"`);
+  return `<div class="cn-line tsd-line${TSP.has(k)?' dirty':''}${can==='na'?' dim':''}" data-key="${esc(k)}">${left}${right}</div>`},
+ paintD(first=false){const d=this.d,c=this.cur;if(!d?.isConnected||!c)return;const all=this.pairs(),vis=all.slice(0,c.shown),box=d.querySelector('#tsdList');
+  const html=all.length?vis.map(p=>this.line(p)).join('')+(all.length>vis.length?`<button class="ghost cn-more" data-act="tsd-more">Show ${Math.min(60,all.length-vis.length)} more of ${all.length-vis.length}</button>`:''):`<div class="state-box">Nothing matches “${esc(c.q)}”.</div>`;
+  if(first)box.innerHTML=html;else morph(box,html);this.sumD()},
+ // the count at the top of the panel and what waits at its foot
+ sumD(){const d=this.d,c=this.cur;if(!d?.isConnected||!c)return;const every=c.kind==='group'?this.ags().map(a=>[a,Pages._tsAll[c.id]]):this.groups().filter(t=>t.all.includes(c.id)).map(t=>[c.id,t]);
+  const have=every.filter(([a,t])=>this.can(t,a)!=='na'),on=have.filter(([a,t])=>this.on(t,a)).length;
+  d.querySelector('.tsd-n').innerHTML=c.kind==='group'?`On for <b>${on}</b> of ${plural(have.length,'agent')}`:`<b>${on}</b> of ${plural(have.length,'tool group')} on`;
+  const n=TSP.size;d.querySelector('.tsd-foot').textContent=n?plural(n,'change')+' waiting. Press Apply on the page when you are done.':'Nothing changes until you press Apply on the page.';
+  const ok=have.filter(([a,t])=>this.can(t,a)==='ok');d.querySelector('.tsd-all').hidden=ok.length<2},
+ // one switch, wherever it is: marked as waiting unless it is back where it was
+ set(a,name,on){const t=Pages._tsAll?.[name];if(!t||this.can(t,a)!=='ok')return;const k=a+'|'+name;if(on===t.on.includes(a))TSP.delete(k);else TSP.set(k,on)},
+ sync(){this.paint();this.sumD();tsBar()}};
+// the bar under the list: how many changes wait, which ones, Discard and Apply
 function tsBar(){const b=$('#tsgBar');if(!b)return;const n=TSP.size;b.classList.toggle('show',n>0);b.setAttribute('aria-hidden',String(!n));if(!n)return;
  const say=[...TSP].map(([k,on])=>{const [a,g]=k.split('|');const t=(Pages._tsAll||{})[g];return (t?tsName(t):pretty(g))+(on?' on for ':' off for ')+ident(a).name});
  b.querySelector('.tsg-sum').innerHTML=`<b>${plural(n,'change')}</b><small>${esc(say.slice(0,2).join(', ')+(say.length>2?' and '+(say.length-2)+' more':''))}</small>`}
-ACT['tsg']=c=>{const k=c.dataset.agent+'|'+c.dataset.name;if(c.checked===(c.dataset.was==='1'))TSP.delete(k);else TSP.set(k,c.checked);c.closest('td')?.classList.toggle('dirty',TSP.has(k));tsBar()};
-ACT['tsg-undo']=()=>{for(const c of $$('.tsg input[data-act="tsg"]')){c.checked=c.dataset.was==='1';c.closest('td')?.classList.remove('dirty')}TSP.clear();tsBar()};
+ACT['tsg-open']=b=>TS.open(b.dataset.kind,b.dataset.id);
+ACT['tsg-more']=()=>{TS.shown=(TS.shown||60)+60;TS.paint()};
+ACT['tsd-more']=()=>{if(TS.cur){TS.cur.shown+=60;TS.paintD()}};
+ACT['tsg']=c=>{TS.set(c.dataset.agent,c.dataset.name,c.checked);c.closest('.tsd-line')?.classList.toggle('dirty',TSP.has(c.dataset.agent+'|'+c.dataset.name));TS.sync()};
+// all on / all off: every switch this person may change among the rows the panel's search shows
+ACT['tsd-all']=b=>{const on=b.dataset.on==='1';for(const [a,t] of TS.pairs())TS.set(a,t.name,on);TS.paintD();TS.sync()};
+ACT['tsg-undo']=()=>{TSP.clear();TS.paintD();TS.sync()};
 // one change at a time (each writes that agent's settings), then one restart for all of them; what failed stays marked
 // held by its own flag for the whole run (the press spinner lets go after the first save, so is-busy alone let a second click in)
 ACT['tsg-apply']=async b=>{if(!TSP.size||b._applying)return;b._applying=true;b.disabled=true;try{const list=[...TSP].map(([k,on])=>{const [a,n]=k.split('|');return {k,a,n,on}});b.classList.add('is-busy');b.setAttribute('aria-busy','true');let ok=0;const bad=[];
- for(const x of list){try{await put(H,prof('/tools/toolsets/'+encodeURIComponent(x.n),x.a),{enabled:x.on});ok++;TSP.delete(x.k);const c=$(`.tsg input[data-act="tsg"][data-agent="${CSS.escape(x.a)}"][data-name="${CSS.escape(x.n)}"]`);if(c){c.dataset.was=x.on?'1':'0';c.closest('td')?.classList.remove('dirty')}}catch(e){bad.push(ident(x.a).name+': '+(e.message||'failed'))}}
- b.classList.remove('is-busy');b.removeAttribute('aria-busy');tsBar();
+ for(const x of list){try{await put(H,prof('/tools/toolsets/'+encodeURIComponent(x.n),x.a),{enabled:x.on});ok++;TSP.delete(x.k);const t=Pages._tsAll?.[x.n];if(t){t.on=t.on.filter(a=>a!==x.a);if(x.on)t.on.push(x.a)}}catch(e){bad.push(ident(x.a).name+': '+(e.message||'failed'))}}
+ b.classList.remove('is-busy');b.removeAttribute('aria-busy');TS.paintD();TS.sync();
  if(bad.length)toast((ok?plural(ok,'change')+' saved. ':'')+'Not saved: '+bad.join('; '),'err');
  if(!ok)return;if(!bad.length)toast(plural(ok,'change')+' saved'+(S.me?.admin!==false?'':' · applies to new chats'));if(S.me?.admin!==false)await restartGateway()}finally{b._applying=false;b.disabled=false}};
+// every agent is asked for its groups, eight at a time (50 agents at once stalled the engine's one worker)
+const tsAsk=async()=>{const list=(await viewAgents()).filter(a=>mayEdit(a)),out=new Array(list.length);let n=0;
+ await Promise.all(Array.from({length:Math.min(8,list.length)},async()=>{while(n<list.length){const i=n++,a=list[i];out[i]={a,d:await H(prof('/tools/toolsets',a)).catch(()=>null)}}}));return out};
 Object.assign(ALLVIEW,{
  async skills(p,el){const gone=pageTok(el),tab=S.tab.skills||'Installed';const own=()=>setActions(`<button data-act="sk-update">${icon('refresh',16)}Update all</button><button data-act="sk-learn">${icon('wand',16)}Learn a skill</button><button class="primary" data-act="sk-new">${icon('plus',16)}New skill</button>`);own();
   // New skill, Learn a skill and Update all work on the agent you chat with: every tab says so, like Find more skills
@@ -46,16 +107,19 @@ Object.assign(ALLVIEW,{
   if(tab==='Find more skills'){await PAGES._skillsOne(p,el);if(gone())return;own();el.insertAdjacentHTML('afterbegin',forMe);return}
   // the tabs and a placeholder at once: every agent is asked, and one slow answer must not leave the page blank
   if(tab!=='Find more skills'&&!el.querySelector('[data-tabs]'))el.innerHTML=tabs('skills',['Installed','Tool groups','Find more skills'])+skeletonRows(6);
-  if(tab==='Tool groups'){const per=await perAgent(a=>H(prof('/tools/toolsets',a)),a=>mayEdit(a));if(gone())return;const m=new Map();
+  if(tab==='Tool groups'){const per=await tsAsk();if(gone())return;const m=new Map();
    for(const {a,d} of per)for(const t of d||[]){const x=m.get(t.name)||{...t,on:[],all:[]};x.all.push(a);if(t.enabled)x.on.push(a);m.set(t.name,x)}
-   const ags=per.filter(x=>x.d).map(x=>x.a),locks=await tsLocks(ags);if(gone())return;const tall=[...m.values()].sort((x,y)=>tsName(x).localeCompare(tsName(y))),bad=per.filter(x=>!x.d).map(x=>ident(x.a).name);
-   TSP.clear();Pages._tsAll=Object.fromEntries(tall.map(t=>[t.name,t]));const admin=S.me?.admin!==false;
-   el.innerHTML=`${tabs('skills',['Installed','Tool groups','Find more skills'])}<div class="toolbar"><div class="search${S.tsQ?' has-q':''}">${icon('search',16)}<input id="tsQ" placeholder="Search ${tall.length} tool groups" value="${esc(S.tsQ||'')}"><button class="ghost icon s-clear" data-act="ts-clear" aria-label="Clear search" title="Clear search">${icon('x',14)}</button></div></div>${bad.length?`<p class="err-line" style="margin:0 0 12px">Couldn’t load ${esc(bad.join(', '))}. <button data-act="reload">Try again</button></p>`:''}${forMe}
-    <div class="all-view"><h2 class="ach-cat" style="margin-top:0">Tool groups, and which agents have each on <small class="hint">${tall.length}</small></h2><p class="hint tsg-note">Switch as many as you like, then press Apply${admin?': the agents restart once for all of them':''}.</p>${tall.length?tsGrid(tall,ags,locks):emptyBox('No tool groups','None of these agents answered with its tool groups.')}</div>
-    <div class="tsg-bar" id="tsgBar" role="region" aria-label="Changes waiting" aria-hidden="true"><span class="tsg-sum"></span><button class="ghost" data-act="tsg-undo">Undo</button><button class="primary" data-act="tsg-apply">${admin?'Apply (restarts agents once)':'Apply'}</button></div>`;
-   // searching filters what is on screen; nothing is asked of the agents again
-   const filt=v=>el.querySelectorAll('.tsg tbody tr').forEach(r=>{r.hidden=!!v&&!r.querySelector('.tsg-g').textContent.toLowerCase().includes(v)});filt((S.tsQ||'').toLowerCase());
-   $('#tsQ').oninput=e=>{const v=e.target.value.toLowerCase();e.target.closest('.search')?.classList.toggle('has-q',!!v);S.tsQ=e.target.value;filt(v)};return}
+   const ags=per.filter(x=>x.d).map(x=>x.a),locks=await tsLocks(ags);if(gone())return;const tall=[...m.values()],bad=per.filter(x=>!x.d).map(x=>ident(x.a).name);
+   TSP.clear();Pages._tsAll=Object.fromEntries(tall.map(t=>[t.name,t]));Pages._tsAgs=ags;Pages._tsLk2=locks;const admin=S.me?.admin!==false;
+   if(!['By tool group','By agent'].includes(S.tab.tsView))S.tab.tsView='By tool group';const byAg=S.tab.tsView==='By agent';
+   el.innerHTML=`${tabs('skills',['Installed','Tool groups','Find more skills'])}<div class="toolbar tsr-bar"><div class="search${S.tsQ?' has-q':''}">${icon('search',16)}<input id="tsQ" type="search" placeholder="${byAg?'Search '+ags.length+' agents':'Search '+tall.length+' tool groups'}" value="${esc(S.tsQ||'')}" aria-label="${byAg?'Search agents':'Search tool groups'}"><button class="ghost icon s-clear" data-act="ts-clear" aria-label="Clear search" title="Clear search">${icon('x',14)}</button></div>${tabs('tsView',['By tool group','By agent'])}</div>${bad.length?`<p class="err-line" style="margin:0 0 12px">Couldn’t load ${esc(bad.join(', '))}. <button data-act="reload">Try again</button></p>`:''}
+    <div class="all-view"><h2 class="ach-cat" id="tsH" style="margin-top:0"></h2><p class="hint tsg-note">Press Change on a row, switch as many as you like, then press Apply${admin?': the agents restart once for all of them':''}.</p>${tall.length?'<div id="tsList"></div>':emptyBox('No tool groups','None of these agents answered with its tool groups.')}</div>
+    <div class="tsg-bar" id="tsgBar" role="region" aria-label="Changes waiting" aria-hidden="true"><span class="tsg-sum"></span><button class="ghost" data-act="tsg-undo">Discard</button><button class="primary" data-act="tsg-apply">${admin?'Apply (restarts agents once)':'Apply'}</button></div>`;placePills();
+   TS.head();TS.paint(true);
+   // By tool group | By agent: the same switches drawn the other way; nothing is asked again and what waits for Apply is kept
+   el.querySelector('[data-tabs="tsView"]').addEventListener('click',e=>{if(!e.target.closest('[data-tab]'))return;setTimeout(()=>{S.tsQ='';const i=$('#tsQ');if(i){i.value='';i.closest('.search')?.classList.remove('has-q')}TS.head();TS.paint(true)},0)});
+   // searching and switching the view change what is on screen; nothing is asked of the agents again, and changes that wait are kept
+   let tm;$('#tsQ').oninput=e=>{e.target.closest('.search')?.classList.toggle('has-q',!!e.target.value);S.tsQ=e.target.value;clearTimeout(tm);tm=setTimeout(()=>TS.paint(),120)};return}
   // typing in the search box reuses the last answers (up to 30 s old) instead of asking every agent again; not kept when one failed
   let per=S._skReuse&&S._skPer&&Date.now()-S._skPer.t<30000?S._skPer.d:null;S._skReuse=false;if(!per){per=await perAgent(a=>H(prof('/skills',a)),skillsOn);S._skPer=per.some(x=>!x.d)?null:{t:Date.now(),d:per}}if(gone())return;
   const m=new Map(),bad=per.filter(x=>!x.d).map(x=>ident(x.a).name);
