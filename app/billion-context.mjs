@@ -63,4 +63,17 @@ export function createBillionContext({HERMES_HOME,readConfig,setKey,pick,home0=h
   for(const a of await homes()){try{const c=await readConfig(a).catch(()=>null);if(!c)continue;const on=[].concat(pick(c,'plugins.enabled')||[]).map(String);
    if(on.includes(BILI_NAME)){await setKey(a,'plugins.enabled',on.filter(n=>n!==BILI_NAME));changed.push(a)}}catch(e){log('billion-context: off for '+a+': '+e.message)}}
   if(changed.length)log('billion-context: switched off for '+changed.join(', '));return changed}
- return {ensure,config,install,homes,dir,pkg,confFile}}
+ // what it saved, for the Usage page: the proxy the engine started (found by its command line, this user's only) keeps
+ // every chat it followed in one shared store, so any running copy answers for all agents on this server
+ async function proxyPorts(){const out=[];for(const d of await readdir('/proc').catch(()=>[])){if(!/^\d+$/.test(d))continue;
+  const cl=(await readFile('/proc/'+d+'/cmdline','utf8').catch(()=>'')).split('\0');
+  if(cl.some(x=>x.endsWith(path.join(BILI_NAME,'dist','index.js')))&&cl.includes('start')){const i=cl.indexOf('--port');if(i>0&&/^\d+$/.test(cl[i+1]||''))out.push(+cl[i+1])}}return out}
+ let saved=null;
+ async function savings({ports=proxyPorts,fetch0=fetch}={}){if(saved&&now()-saved.at<60e3)return saved.v;
+  const off=await stat(path.join(HERMES_HOME,'.aqeelos-billion-context-off')).then(()=>true,()=>false);
+  let v={state:off?'off':await installed()===version?'waiting':'installing',version};
+  if(!off)for(const port of await ports().catch(()=>[])){try{const r=await fetch0('http://127.0.0.1:'+port+'/__bili/overview',{signal:AbortSignal.timeout(3000)});if(!r.ok)continue;
+   const o=(await r.json())?.overview||{};const n=k=>Math.max(0,Number(o[k])||0);
+   v={state:'on',version,chats:n('sessions'),live:n('live'),requests:n('requests'),tokensSent:n('inputTokens'),tokensSaved:n('netSavedTotal')||n('tokensSaved'),usdSaved:n('savedUsdTotal'),folds:n('foldsTotal')};break}catch{}}
+  saved={at:now(),v};return v}
+ return {ensure,config,install,homes,dir,pkg,confFile,savings}}

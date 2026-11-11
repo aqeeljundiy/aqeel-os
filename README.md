@@ -65,6 +65,8 @@ MIT, see `LICENSE`.
 ### Third-party credit
 aqeelOS uses [billion-context](https://github.com/ranxianglei/billion-context) by ranxianglei, with its compression kernel [acp-kernel](https://github.com/ranxianglei/acp-kernel), to keep long chats short (MIT with an attribution term). Every install downloads the pinned version (`app/billion-context.mjs`) and switches its engine plugin on in each agent; switch it off per agent on the Plugins page.
 
+aqeelOS also installs [graphify](https://github.com/Graphify-Labs/graphify) by Graphify Labs (Apache-2.0), pinned in `app/graphify.mjs`, into the agents' shared Python, with its skill for every agent, so agents can map code and documents instead of reading every file. Usage › Token savings shows what both save.
+
 ---
 
 ## More details

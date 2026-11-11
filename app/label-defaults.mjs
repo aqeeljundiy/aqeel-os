@@ -9,6 +9,7 @@ export const LABEL_DEFAULTS={
  'skill:apple-reminders':S('Apple Reminders','Adds, lists and ticks off Apple Reminders.'+MAC),
  'skill:imessage':S('iMessage and SMS','Sends and reads iMessages and texts.'+MAC),
  'skill:aqeelos-platform-changes':S('Changing aqeelOS safely','Rules for fixing aqeelOS itself: no hard-coded names, numbers or people.'),
+ 'skill:graphify':S('Code and document maps (graphify)','Maps a folder of code and documents into a graph to search instead of reading every file. Made by Graphify Labs.'),
  'skill:claude-code':S('Code with Claude Code','Hands a coding job to Claude Code: new features, fixes and pull requests.'),
  'skill:codex':S('Code with Codex','Hands a coding job to OpenAI Codex: new features, fixes and pull requests.'),
  'skill:opencode':S('Code with OpenCode','Hands a coding job or a code review to OpenCode.'),

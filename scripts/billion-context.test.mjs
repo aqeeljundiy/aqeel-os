@@ -39,3 +39,10 @@ test('a failed download changes nothing and waits an hour before trying again',a
 test('the off file takes it out of every agent, and nothing is downloaded',async()=>{const {B,H,cfg,runs}=await make();await B.install();
  await writeFile(path.join(H,'.aqeelos-billion-context-off'),'');const c=await B.install();
  assert.deepEqual(c.sort(),['default','sales']);assert.deepEqual(cfg.sales.plugins.enabled,['aqeelos-live']);assert.deepEqual(await B.install(),[]);assert.equal(runs.length,1)});
+
+test('savings: read from the running proxy, cached a minute; waiting when none runs, off with the off file',async()=>{const {B,H,tick}=await make();await B.install();
+ assert.equal((await B.savings({ports:async()=>[]})).state,'waiting');tick(61e3);
+ const calls=[];const fetch0=async u=>{calls.push(u);return {ok:true,json:async()=>({overview:{sessions:4,live:1,requests:30,inputTokens:900000,tokensSaved:120000,netSavedTotal:100000,savedUsdTotal:1.25,foldsTotal:7}})}};
+ const v=await B.savings({ports:async()=>[41000],fetch0});assert.deepEqual(v,{state:'on',version:BILI_VERSION,chats:4,live:1,requests:30,tokensSent:900000,tokensSaved:100000,usdSaved:1.25,folds:7});
+ assert.equal(calls[0],'http://127.0.0.1:41000/__bili/overview');await B.savings({ports:async()=>[41000],fetch0});assert.equal(calls.length,1,'cached');
+ tick(61e3);await writeFile(path.join(H,'.aqeelos-billion-context-off'),'');assert.equal((await B.savings({ports:async()=>[41000],fetch0})).state,'off')});

@@ -1077,6 +1077,15 @@ ACT['currency-pick']=a=>{const c=currency(),admin=S.me?.admin!==false,def=S.defa
 ACT['currency-default']=async()=>{try{await post(UI,'/ui/defaults',{currency:currency()});S.defaults={...(S.defaults||{}),currency:currency()};toast('Everyone who hasn’t picked a currency now sees '+(currency()==='IDR'?'rupiah':'US dollars'));reload()}catch(e){fail(e)}};
 // the page's subtitle in plain words (it said "Tokens, cache and cost over time")
 for(const s of SECTIONS)for(const pg of s.pages||[])if(pg.id==='usage')pg.desc='What your agents cost over time.';
+// Token savings (11 Nov 2026, owner: "how much it saves"): billion-context's own count of the tokens it kept out of long
+// chats, and whether graphify's code maps are ready. One server-wide figure, admins only; the tools are credited by name.
+function savingsCard(s){if(!s||(!s.compress&&!s.maps))return'';const c=s.compress||{},m=s.maps||{};
+ const fold=c.state==='on'?(c.tokensSaved?[num(c.tokensSaved),'tokens kept out of long chats'+(c.usdSaved?', about '+money(c.usdSaved,{cents:true})+' at list prices':'')]:['None yet','It starts folding once a chat grows long'])
+  :c.state==='waiting'?['Starting soon','Begins after the engine’s next restart, in the quiet hours']:c.state==='off'?['Off','Switched off on this server']:['Installing','Being set up on this server'];
+ const items=[['Shorter long chats',...fold],
+  ['Chats it follows',c.state==='on'?num(c.chats||0):'—',c.state==='on'?plural(c.folds||0,'older part')+' folded into summaries so far':'Counted once it runs'],
+  ['Code maps',m.state==='on'?plural(m.agents||0,'agent'):'Installing',m.state==='on'?'can map code and documents with graphify, so they read less':'graphify is being set up on this server']];
+ return `<div class="panel card u-save"><h2>Token savings</h2><p class="sub">Every agent on this server. billion-context shortens long chats on the Claude sign-in; graphify maps code so agents read fewer files.</p><div class="u-save-row">${items.map(([a,b,c],i)=>`<div class="u-save-i" ${st(i)}><span class="th">${esc(a)}</span><b>${esc(b)}</b><small>${esc(c)}</small></div>`).join('')}</div></div>`}
 PAGES.usage=async(p,el)=>{const gone=pageTok(el);
  const days={'7 days':7,'30 days':30,'90 days':90}[S.tab.usage||'7 days'];
  // dollars or rupiah: the tab sets the person's choice, which every cost in the app follows
@@ -1095,6 +1104,7 @@ PAGES.usage=async(p,el)=>{const gone=pageTok(el);
  // only what is shown: the agent picked, or every agent and Help
  {const ags=who==='*'?[...(list.length?list:['default']),HELP_ID]:[who];UI('/ui/usage?days='+days+(who!=='*'?'&agent='+encodeURIComponent(who):'')).catch(()=>{});
   for(const a of ags){H('/analytics/models?days='+days+'&profile='+encodeURIComponent(a),fo).catch(()=>{});H('/analytics/usage?days=62&profile='+encodeURIComponent(a),fo).catch(()=>{})}}
+ const saveP=member?null:UI('/ui/usage/savings').catch(()=>null);
  const per=perP?await perP:null;if(gone())return;
  const u=per?mergeUsage(per.map(x=>x.u)):await oneP;if(gone())return;const daily=u.daily||[];
  // the server answers its last read at once: say how old it is once that is over a minute (it is read again behind)
@@ -1111,10 +1121,12 @@ PAGES.usage=async(p,el)=>{const gone=pageTok(el);
  const agRows=(per||[]).map(({a,u:x})=>{const s=k=>(x.daily||[]).reduce((t,d)=>t+(d[k]||0),0);return {a,name:usageName(a),sessions:s('sessions'),tokens:s('input_tokens')+s('output_tokens')+s('cache_read_tokens'),cost:s('estimated_cost')}}).filter(r=>r.sessions||r.tokens);
  TblSort.draw.uagent=()=>sortTable('uagent',[{k:'name',l:'Agent'},{k:'sessions',l:'Sessions',num:1},{k:'tokens',l:'Text handled',num:1},{k:'cost',l:'Estimated cost',num:1}],agRows,r=>`<tr><td><span class="uname">${r.a===HELP_ID?`<span class="help-ava sm">${icon('help',14)}</span>`:agentAva(r.a)}${esc(r.name)}</span></td><td class="num">${num(r.sessions)}</td><td class="num">${num(r.tokens)}</td><td class="num">${cost$(r.cost)}</td></tr>`,{k:'cost',dir:'desc'},'No usage yet');
  TblSort.draw.uskill=()=>sortTable('uskill',[{k:'skill',l:'Skill'},{k:'view_count',l:'Loads',num:1},{k:'manage_count',l:'Edits',num:1},{k:'total_count',l:'Total',num:1},{k:'last_used_at',l:'Last used',num:1}],skills,s=>`<tr><td>${esc(s.skill)}</td><td class="num">${num(s.view_count||0)}</td><td class="num">${num(s.manage_count||0)}</td><td class="num">${num(s.total_count||0)}</td><td class="num">${s.last_used_at?ago(s.last_used_at>1e12?s.last_used_at/1000:s.last_used_at):'—'}</td></tr>`,{k:'total_count',dir:'desc'},'No skills used yet');
+ const save=saveP?await saveP:null;if(gone())return;
  // plain words on the tiles (audit 10 Nov 2026): what it cost first, tokens only in the small print
  el.innerHTML=`${bars}<div class="stats">${[['Estimated cost',money(cost,{cents:true}),actual?'Billed $'+actual.toFixed(2):'At list prices; a plan may cost less'],['Chats',num(ses),(ses/days).toFixed(1)+' a day'+(calls?' · '+plural(calls,'message')+' to the model':'')],['Saved by reuse',hit+'%','of what it read was reused, which costs less'],['Text handled',num(inp+out+cache),`tokens: ${num(inp)} new · ${num(cache)} reused · ${num(out)} written`]].map(([a,b,c],i)=>`<div class="card stat" ${st(i)}><span class="th">${a}</span><b>${b}</b><small>${esc(c)}</small></div>`).join('')}</div>
 ${asOf} <p class="hint u-note">From the engine’s records of ${who==='*'?'every agent’s model calls, Help’s too: these totals, the chart, By model and By agent':esc(ident(who).name)+'’s model calls: these totals, the chart and By model'}. They are estimates: helper-model calls, retries and cache writes aren’t counted, so check your provider’s billing for exact numbers.</p>
  <div class="panel card"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><h2>Text handled per day</h2><div class="legend"><span><i style="background:var(--blue)"></i>Read</span><span><i style="background:var(--sky-1)"></i>Written</span></div></div><div class="chart">${series.map((s,k)=>`<div class="b" title="${s.d}: ${num(s.i)} read · ${num(s.o)} written · ${money(s.c,{cents:true})}"><i class="in" style="height:${s.i/max*100}%;animation-delay:${k*12}ms"></i><i class="out" style="height:${Math.max(s.o?1:0,s.o/max*100)}%;animation-delay:${k*12+40}ms"></i></div>`).join('')}</div><div class="chart-x"><span>${series[0].d.slice(5)}</span><span>${series[Math.floor(days/2)].d.slice(5)}</span><span>${series[days-1].d.slice(5)}</span></div></div>
+ ${savingsCard(save)}
  <div class="${per?'stack-2':''}"><div class="panel card"><h2>By model</h2><div class="tbl">${TblSort.draw.umodel()}</div></div>
  ${per?`<div class="panel card"><h2>By agent</h2><div class="tbl">${TblSort.draw.uagent()}</div></div>`:''}</div>
  <div class="panel card"><h2>Skills used</h2><p class="sub">How often each skill was loaded or edited${who==='*'?', every agent added together':''}.</p><div class="tbl">${TblSort.draw.uskill()}</div></div>`;

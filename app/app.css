@@ -1865,6 +1865,13 @@ th.sortable.num button{justify-content:flex-end}th.sortable button:hover{color:v
 .sort-ar{display:inline-block;opacity:0;transition:opacity var(--t-fast) var(--ease),transform var(--t-med) var(--ease)}.sort-ar.on{opacity:1;color:var(--ink)}.sort-ar.up{transform:rotate(180deg)}th.sortable button:hover .sort-ar:not(.on){opacity:.4}
 tbody.resort{animation:fade var(--t-med) var(--ease) both}
 .u-note{margin:-6px 0 16px;font-size:12.5px;color:var(--muted)}
+/* Token savings (Usage): three quiet figures under the heading, no boxes inside the panel */
+.u-save-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
+.u-save-i{min-width:0;animation:rise var(--t-med) var(--ease) both}
+.u-save-i .th{display:block;margin-bottom:6px}
+.u-save-i b{display:block;font-size:20px;font-weight:600;letter-spacing:-.4px;overflow-wrap:anywhere}
+.u-save-i small{display:block;font-size:12.5px;color:var(--muted);margin-top:4px;line-height:1.45}
+@media (max-width:760px){.u-save-row{grid-template-columns:1fr;gap:14px}}
 .u-pick.icon{width:40px;padding:0;justify-content:center}
 .banner.closing{animation:fadeOut .2s var(--ease) both}
 /* Engine dashboard plugins inside aqeelOS (plugin-host.js): the engine's colour names point at aqeelOS's, one font, a few layout helpers its bundles use */

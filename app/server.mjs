@@ -101,6 +101,7 @@ import {fileURLToPath} from 'node:url';
 import {createAgentVersions,VERSION_TOOLS} from './agent-versions.mjs';   // self-repair kit (workstream E)
 import {createAgentLive} from './agent-live.mjs';
 import {createBillionContext} from './billion-context.mjs';
+import {createGraphify} from './graphify.mjs';
 import {createTeamView} from './team-view.mjs';
 import {settings as installSettings} from './install.mjs';
 import {sysTz,localParts,zoneName} from './tz.mjs';
@@ -1661,6 +1662,9 @@ if(LIVE_APP){const liveInstall=()=>agentLive.install().then(async c0=>{const c=[
 const billion=createBillionContext({HERMES_HOME,readConfig,setKey,pick});
 if(LIVE_APP){const biliInstall=()=>billion.install().then(async c0=>{const c=[];for(const a of c0)if(!await isTestAgent(a).catch(()=>false))c.push(a);if(c.length)restartLater('billion-context plugin for '+c.length+' agent(s)')}).catch(e=>console.warn('billion-context install',e.message));
  setTimeout(biliInstall,90e3).unref();setInterval(biliInstall,10*60e3).unref()}
+// graphify (code and document maps) in the agents' shared Python, its skill copied to every agent; same rhythm
+const graphify=createGraphify({HERMES_HOME});
+if(LIVE_APP){const gfInstall=()=>graphify.ensure().catch(e=>console.warn('graphify',e.message));setTimeout(gfInstall,120e3).unref();setInterval(gfInstall,10*60e3).unref()}
 // the engine reads each tool server's list once, when it connects: a tool aqeelOS adds later (the lockbox link, the
 // self-repair kit) stayed invisible in open chats. The lists are fingerprinted per agent; a change reloads the engine
 // once no reply runs (7 Nov 2026)
@@ -3381,6 +3385,9 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/labels'&&req.method==='PUT'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can rename things.'});let b={};try{b=JSON.parse(await readBody(req,8192))}catch{return send(res,400,{error:'Bad JSON'})}
     try{const v=await labels.set(String(b.kind||''),String(b.id||''),{name:b.name,description:b.description});console.log('label',b.kind+':'+b.id,'by',u.id||u.name||'?');return send(res,200,{ok:true,label:v})}catch(e){return send(res,e.status||500,{error:e.message})}}
    if(p==='/ui/explain'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,300000))}catch{}const items=(Array.isArray(b.items)?b.items:[]).slice(0,300).map(x=>({id:String(x?.id||'').slice(0,120),name:String(x?.name||'').slice(0,160),desc:String(x?.desc||'').slice(0,600)}));return send(res,200,await explain.get(String(b.kind||''),items,{write:users.isAdmin(u)}))}
+   // what billion-context saved and whether graphify is ready, for the Usage page (admins: it covers every agent)
+   if(p==='/ui/usage/savings'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins see savings for every agent.'});
+    const [compress,maps]=await Promise.all([billion.savings().catch(()=>null),graphify.status().catch(()=>null)]);return send(res,200,{compress,maps})}
    if(p==='/ui/usage'&&req.method==='GET'){const days=Math.min(365,Math.max(1,+url.searchParams.get('days')||7));const ag=String(url.searchParams.get('agent')||''),every=[...await listAllProfiles(),HELP_AGENT];   // Help's chats are each person's: its own line on Usage
     const all=await usage.breakdown(ag&&ag!=='all'?every.filter(x=>x===ag||x.startsWith(ag+'--')):every,days,users.ownerOf);
     const people=Object.fromEntries(users.people().map(x=>[x.id,{...users.face(x),name:x.name,limit:users.limitOf(x)||null}]));   // the limit that applies (a role's too), not only one set on the person
