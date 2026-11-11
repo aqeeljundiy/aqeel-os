@@ -9,10 +9,17 @@ const Screen={
  st:null,ads:false,pick:null,list:[],_n:0,   // pick: an agent chosen in the picker (null = follow the chat); ads: never set any more (the shared AdsPower screen is gone)
  agent(){return S.profile||'default'},   // the screen is always the agent you chat with
  chatAgent(){return S.profile||'default'},
- off(){return !this.ads&&this.st&&this.st.agent===this.agent()&&this.st.kind==='desktop'&&!this.st.running},
+ off(){return !this.ads&&this.st&&this.st.agent===this.agent()&&this.st.kind==='desktop'&&!this.st.running&&!this.st.waking},
+ // a sleeping screen is being woken (scripts/agent-users.sh): the screen is up before Chrome answers, so the view says so
+ waking(){return !this.ads&&!!this.st&&this.st.agent===this.agent()&&this.st.kind==='desktop'&&!!this.st.waking},
+ wakeHtml(cls=''){const n=esc(ident(this.agent()).name);return `<div class="scr-waking ${cls}" id="scrWaking" ${this.waking()?'':'hidden'}><span class="spinner"></span><b>Waking the browser…</b><span>${n}'s browser was asleep. It opens again with its tabs in a few seconds.</span></div>`},
+ // the view is open on a sleeping screen: wake it (once per agent), nobody has to press a button
+ async autoWake(){const a=this.agent();if(this._wk===a)return;this._wk=a;try{this.st=await post((p,o)=>call('',p,o),'/ui/screens/'+encodeURIComponent(a)+'/start');this.paint(true)}catch{}},
  src(){return '/screen/vnc.html?autoconnect=1&reconnect=1&reconnect_delay=1500&resize=scale&show_dot=1&path='+encodeURIComponent('screen/websockify?agent='+this.agent()+(this.ads?'&screen=ads':''))+'&view_only='+(this.control?0:1)},
  async refresh(){const a=this.agent();try{const st=await call('','/ui/screens/'+encodeURIComponent(a));const was=this.st;this.st=st;
-  if(!was||was.agent!==st.agent||was.running!==st.running||was.kind!==st.kind)this.paint(true)}catch{}
+  if(!was||was.agent!==st.agent||was.running!==st.running||was.kind!==st.kind||(!st.running&&was.waking!==st.waking))this.paint(true);
+  else for(const el of document.querySelectorAll('#scrWaking'))el.hidden=!this.waking();
+  if(st.running)this._wk=null;else if(this.open&&st.managed&&st.asleep)this.autoWake()}catch{}
   this.adsLoad(a)},
  /* The agent's own AdsPower on this screen (1 Nov 2026): signed in, not signed in (the person signs in here, with Take
     over) or off (admins can start it). Drawn in its own small row, so the live screen is never reloaded for it. */
@@ -70,8 +77,9 @@ const Screen={
   ${compact?'':`<button class="ghost icon" data-act="scr-pop" title="Open in its own tab" aria-label="Open in its own tab">${icon('popout',17)}</button>`}
   <button class="ghost icon" data-act="screen" title="Close" aria-label="Close screen">${icon('x',18)}</button></div>`},
  laptop(){if(this.src_==='mine')return `<div class="screen-stage"><div class="laptop"><div class="lid"><span class="cam"></span><div class="lcd lb-mirror"><img id="lbImg" alt="The agent's tab in your browser" hidden><div id="lbNote" class="lb-note"><span class="spinner"></span></div></div></div></div><div class="screen-hint lb-bar" id="lbBar">Looking for your browser…</div></div>`;
-  const n=esc(ident(this.agent()).name);if(this.off())return `<div class="screen-stage"><div class="laptop"><div class="lid"><span class="cam"></span><div class="lcd scr-off"><div>${icon('monitor',28)}<b>${n}'s screen is off</b><span>It turns on by itself when ${n} opens a browser, and off again after 15 quiet minutes.</span><button class="primary" data-act="scr-start">${icon('power',15)}Turn on now</button></div></div></div></div></div>`;
-  return `<div class="screen-stage"><div class="laptop"><div class="lid"><span class="cam"></span><div class="lcd"><iframe id="scrFrame" title="Live screen of ${n}" src="${this.src()}" allow="clipboard-read; clipboard-write"></iframe></div></div></div>${this.control?'<div class="screen-hint">You are in control. Ctrl+V pastes your text into the screen; copying on the screen copies to this computer.</div>':'<div class="screen-hint">Watching only. Press Take over to click and type.</div>'}</div>`},
+  const n=esc(ident(this.agent()).name);if(this.waking()&&!this.st.running)return `<div class="screen-stage"><div class="laptop"><div class="lid"><span class="cam"></span><div class="lcd scr-off">${this.wakeHtml().replace(' hidden','')}</div></div></div></div>`;
+  if(this.off())return `<div class="screen-stage"><div class="laptop"><div class="lid"><span class="cam"></span><div class="lcd scr-off"><div>${icon('monitor',28)}<b>${n}'s screen is off</b><span>It turns on by itself when ${n} opens a browser, and off again after 15 quiet minutes.</span><button class="primary" data-act="scr-start">${icon('power',15)}Turn on now</button></div></div></div></div></div>`;
+  return `<div class="screen-stage"><div class="laptop"><div class="lid"><span class="cam"></span><div class="lcd"><iframe id="scrFrame" title="Live screen of ${n}" src="${this.src()}" allow="clipboard-read; clipboard-write"></iframe>${this.wakeHtml('over')}</div></div></div>${this.control?'<div class="screen-hint">You are in control. Ctrl+V pastes your text into the screen; copying on the screen copies to this computer.</div>':'<div class="screen-hint">Watching only. Press Take over to click and type.</div>'}</div>`},
  paint(force){const pane=$('#screenPane'),app=$('.app');if(!pane||!app)return;
   // switched to another agent: show that agent's screen
   if(this._for&&this._for!==this.agent()){this._for=this.agent();this.st=null;this.pick=null;if(this.open){force=true;this.refresh()}}else this._for=this.agent();

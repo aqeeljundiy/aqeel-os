@@ -763,6 +763,12 @@ body.dragging .screen-float{transition:none}
 .lcd.scr-off>div{display:flex;flex-direction:column;align-items:center;gap:8px;max-width:360px;animation:rise var(--t-med) var(--ease) both}
 .lcd.scr-off svg{color:#6f7a90}.lcd.scr-off b{color:#fff;font-size:15px}.lcd.scr-off span{font-size:12.5px;line-height:1.5;color:#9aa3b5}
 .lcd.scr-off button{margin-top:6px}
+/* the browser of a sleeping screen is starting (OPS-19): over the live screen, or alone while the screen itself is not up yet */
+.lcd{position:relative}
+.scr-waking{display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;color:#9aa3b5;font-size:12.5px;line-height:1.5;animation:rise var(--t-med) var(--ease) both}
+.scr-waking b{color:#fff;font-size:15px}
+.scr-waking[hidden]{display:none}
+.scr-waking.over{position:absolute;inset:0;justify-content:center;background:rgba(14,17,24,.82);padding:6%;backdrop-filter:blur(2px);z-index:2;pointer-events:none}
 
 /* tab labels fade as the pill slides under them */
 .tabs button{transition:color var(--t-med) var(--ease)}

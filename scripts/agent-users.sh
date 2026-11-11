@@ -28,6 +28,10 @@ CHROME=/opt/aqeelos/chrome/chrome
 # processes once 6 are running, and pages left behind are not kept alive in the back/forward cache. Applies when a
 # Chrome next starts (a restart, a wake, a box start).
 CHROME_MEM="--renderer-process-limit=6 --disable-back-forward-cache"
+# OPS-19 (12 Nov 2026, lean screen): flags for a Chrome on a lean screen that cut idle CPU. No background network checks,
+# component updates, sync, translate or cast discovery, no crash-restore bubble after a Chrome that was ended, no smooth
+# scrolling to render. Nothing here touches cookies, the profile or how pages draw (no GPU or timer switches).
+CHROME_LEAN="--disable-background-networking --disable-component-update --disable-sync --disable-default-apps --disable-breakpad --no-pings --disable-smooth-scrolling --hide-crash-restore-bubble --disable-session-crashed-bubble --disable-features=Translate,MediaRouter,OptimizationHints,CalculateNativeWinOcclusion"
 SRC=${AQEELOS_APP:-$HOMEC/apps/hermes-ui}/scripts/agent-users.sh
 # beaten every 30 s while watching: aqeelOS shows on the Agents page when this script is not running
 ALIVE=$REQ.alive
@@ -109,7 +113,7 @@ port_of(){
 # more desktop behind (11 Nov 2026: 49 desktops each for continue-support and biomarkers-support, about 9 GB).
 # Only the screen's own processes: the agent's commands and tasks run as the same user and are left alone.
 # the desktop's processes (window manager, desktop background, panel and their session bus)
-DESK_PATS=("^(dbus-launch --exit-with-session )?bash -c xfwm4 " "/xfce4/" "^(/usr/bin/)?(xfwm4|xfdesktop|xfce4-panel|xfsettingsd|dbus-daemon|dbus-launch)( |\$)")
+DESK_PATS=("^(dbus-launch --exit-with-session )?bash -c xfwm4 " "/xfce4/" "^(/usr/bin/)?(xfwm4|xfdesktop|xfce4-panel|xfsettingsd|dbus-daemon|dbus-launch|fluxbox)( |\$)")
 screen_kill(){
   local u=$1 disp=$2 ws=$3 sig pats
   pats=("^bash -c[[:space:]]+cd '$ws'; export HOME='$ws' DISPLAY=" "${DESK_PATS[@]}" "^Xvnc :$disp( |\$)" "--user-data-dir=$ws/\\.browser( |\$)")
@@ -163,7 +167,7 @@ take_resets(){
   local n
   while read -r n; do
     [[ "$n" =~ ^[a-z0-9][a-z0-9_-]{0,28}$ ]] || continue
-    rm -f -- "$RST/$n" "$RST/$n.stopped" "$HOMEC/workspaces/$n/.screen/chrome.stopped"
+    rm -f -- "$RST/$n" "$RST/$n.stopped" "$RST/$n.wakefails" "$HOMEC/workspaces/$n/.screen/chrome.stopped" "$HOMEC/workspaces/$n/.screen/lean.failed" "$HOMEC/workspaces/$n/.screen/nosleep"
     echo "agent users: $n: screen may start again"
   done < "$RESET"
   : > "$RESET"
@@ -174,14 +178,34 @@ take_resets(){
 # (the janitor files the issue). Passed to the agent's shell with declare -f.
 chrome_loop(){
   local sd=$1; shift
-  local waits=(5 30 120 600 600) ts=() now c t
-  while kill -0 "$(cat "$sd/launcher.pid")" 2>/dev/null; do
-    "$@" >"$sd/chrome.log" 2>&1
-    now=$(date +%s); ts+=("$now"); c=0
-    for t in "${ts[@]}"; do [ $((now-t)) -lt 3600 ] && c=$((c+1)); done
-    if [ "$c" -ge 5 ]; then echo "$now" > "$sd/chrome.stopped"; return; fi
-    sleep "${waits[$((c-1))]}"
+  local waits=(5 30 120 600 600) ts=() now c t t0 code alive asleep step
+  while true; do
+    t0=$(date +%s); "$@" >"$sd/chrome.log" 2>&1; code=$?
+    now=$(date +%s); alive=0; asleep=0
+    kill -0 "$(cat "$sd/launcher.pid" 2>/dev/null)" 2>/dev/null && alive=1
+    [ -f "$sd/asleep" ] && asleep=1
+    c=1; for t in "${ts[@]}"; do [ $((now-t)) -lt 3600 ] && c=$((c+1)); done
+    step=$(chrome_exit_step "$asleep" "$alive" "$code" $((now-t0)) "$c")
+    case $step in
+      stop) return ;;
+      reopen) sleep 2 ;;
+      giveup) echo "$now" > "$sd/chrome.stopped"; return ;;
+      *) ts+=("$now"); sleep "${waits[$((c-1))]}" ;;
+    esac
   done
+}
+# What the loop does when Chrome exits (OPS-19, 12 Nov 2026). asleep (a deliberate sleep: the idle rule or the memory
+# watchdog made it) or the screen's launcher gone: stop, never open Chrome against it. Exit code 0 after running 20 s or
+# more: a person closed the window in the take-over view (or Chrome was asked to restart): open it again after 2 s with its
+# tabs back, not counted as a failure. Anything else is a failure: back-off 5 s, 30 s, 2 min, 10 min, and after 5 within an
+# hour it is given up on. $5 = failures within the hour including this one.
+chrome_exit_step(){
+  local asleep=$1 alive=$2 code=$3 ran=$4 count=$5
+  [ "$asleep" = 1 ] && { echo stop; return; }
+  [ "$alive" = 1 ] || { echo stop; return; }
+  [ "$code" = 0 ] && [ "$ran" -ge 20 ] && { echo reopen; return; }
+  [ "$count" -ge 5 ] && { echo giveup; return; }
+  echo backoff
 }
 
 # OPS-2 and OPS-4 (agreed with the owner 11 Nov 2026). aqeelOS writes each agent's budget to $LIMITS, one line
@@ -196,6 +220,131 @@ limit_of(){
 # the port Chrome itself listens on: the agent's own port when its screen never sleeps (as before 11 Nov), else 10000
 # above it, behind the wake proxy on the agent's own port
 chrome_port(){ local cdp=$1 sleep=$2; [ "$sleep" -gt 0 ] && echo $((cdp+10000)) || echo "$cdp"; }
+
+# OPS-19 (12 Nov 2026, the owner's decision): an agent's screen is an X server and one tiny window manager, nothing else
+# ("lean"), started when the agent's browser is first used or a person opens the view, and put to sleep after its sleep
+# minutes (default 15). The old XFCE desktop ("desktop") stays as a per-install setting and as the fallback when a lean
+# start does not come up. aqeelOS writes the wanted mode as the 4th column of each $LIMITS line (lean or desktop; no
+# column = lean). Markers in the agent's .screen folder: mode (what is running: lean-fluxbox, lean-bare or desktop),
+# lean.failed (lean did not come up once: this agent uses the desktop until reset), nosleep (two wakes failed: always on until reset),
+# waking (a wake was asked, holds its time in ms; gone when Chrome answers).
+mode_of(){ local m; m=$(awk -v n="$1" '$1==n {print ($4=="desktop"?"desktop":"lean"); exit}' "$LIMITS" 2>/dev/null); echo "${m:-lean}"; }
+# which screen to start: $1 wanted (lean|desktop), $2 fluxbox installed (1/0), $3 lean failed for this agent before (1/0)
+screen_pick(){
+  [ "$1" = desktop ] && { echo desktop; return; }
+  [ "${3:-0}" = 1 ] && { echo desktop; return; }
+  [ "${2:-0}" = 1 ] && echo lean-fluxbox || echo lean-bare
+}
+# $1 sleep minutes, $2 now, $3 last use, $4 asleep (1/0), $5 nosleep marker (1/0), $6 its own AdsPower runs (1/0), $7 screen running (1/0)
+# -> sleep, or why not: off, awake-always, asleep, ads, down, wait
+sleep_step(){
+  local sl=$1 now=$2 last=$3 asleep=$4 nosleep=$5 ads=$6 running=$7
+  [ "${sl:-0}" -gt 0 ] || { echo off; return; }
+  [ "$nosleep" = 1 ] && { echo awake-always; return; }
+  [ "$asleep" = 1 ] && { echo asleep; return; }
+  [ "$ads" = 1 ] && { echo ads; return; }
+  [ "$running" = 1 ] || { echo down; return; }
+  [ $((now-last)) -ge $((sl*60)) ] && echo sleep || echo wait
+}
+# a screen that is not running: start it, or leave it asleep until it is used (on demand)? $1 sleep minutes, $2 nosleep marker
+# (1/0), $3 seconds since a wake was asked (-1 = none). A wake asked less than 2 minutes ago is started even when a
+# start was held back by the restart back-off.
+ondemand_step(){
+  local sl=$1 nosleep=$2 age=$3
+  [ "${sl:-0}" -gt 0 ] || { echo start; return; }
+  [ "$nosleep" = 1 ] && { echo start; return; }
+  [ "$age" -ge 0 ] && [ "$age" -lt 120 ] && { echo start; return; }
+  echo sleep
+}
+# what a wake's result means: $1 came up (1/0), $2 failed wakes in a row before this one. ok, retry (the first failure: one more
+# try), keep-awake (the second in a row: this agent's screen stays always on and one Health item is filed, no person needed)
+wake_step(){ [ "$1" = 1 ] && { echo ok; return; }; [ "${2:-0}" -ge 1 ] && echo keep-awake || echo retry; }
+
+# The log of every sleep and wake (read by aqeelOS for the Health line): one JSON line each, with how long a wake took.
+# "wake" = asked until Chrome answered on its port; "fallback" = a lean start did not come up and the old desktop was started.
+SCREEN_EVENTS=${AQ_SCREEN_EVENTS:-${AQ_WAKE:-/var/lib/aqeelos/wake}/events.jsonl}
+now_ms(){ date +%s%3N; }
+# screen_event <agent> <sleep|wake|start|fallback|keep-awake> <ms> <true|false> <mode> [note]
+screen_event(){
+  local note=${6:-}
+  mkdir -p "$(dirname "$SCREEN_EVENTS")" 2>/dev/null
+  printf '{"at":%s,"agent":"%s","event":"%s","ms":%s,"ok":%s,"mode":"%s","note":"%s"}\n' "$(date +%s)" "$1" "$2" "${3:-0}" "${4:-true}" "${5:-}" "${note//\"/\'}" >> "$SCREEN_EVENTS" 2>/dev/null
+  chmod 644 "$SCREEN_EVENTS" 2>/dev/null
+  return 0
+}
+# the window manager's files for a lean screen: no toolbar, no menu, no keys, no borders, every window maximised
+lean_wm_files(){
+  local sd=$1 d=$1/fluxbox
+  mkdir -p "$d" "$sd/fb"
+  printf '%s\n' "session.screen0.toolbar.visible: false" "session.screen0.workspaces: 1" "session.screen0.focusModel: MouseFocus" "session.screen0.defaultDeco: NONE" "session.appsFile: $d/apps" "session.keyFile: $d/keys" "session.menuFile: $d/menu" > "$d/init"
+  : > "$d/keys"
+  printf '%s\n' "[begin] ()" "[end]" > "$d/menu"
+  printf '%s\n' "[app] (name=.*)" "  [Deco] {NONE}" "  [Maximized] {yes}" "[end]" > "$d/apps"
+}
+# graceful end of an agent's Chrome (its tabs and session are written on a normal exit): up to 8 s
+chrome_graceful(){
+  local u=$1 ws=$2 pid i
+  pid=$(ps -u "$u" -o pid=,args= 2>/dev/null | awk -v b="--user-data-dir=$ws/.browser" 'index($0,b) && $0 !~ /--type=/ {print $1; exit}')
+  [ -n "$pid" ] || return 0
+  kill -TERM "$pid" 2>/dev/null
+  for i in $(seq 16); do kill -0 "$pid" 2>/dev/null || return 0; sleep 0.5; done
+  return 0
+}
+# Put agent $1 (user $2) to sleep: the marker first (the Chrome loop sees it and does not open Chrome again), Chrome ended
+# gracefully, then the rest of the screen. $3 = why, for the log.
+put_to_sleep(){
+  local n=$1 u=$2 why=${3:-idle} ws="$HOMEC/workspaces/$1" disp t0 sd="$HOMEC/workspaces/$1/.screen"
+  disp=$(grep "^$n " "$PORTS" | head -1 | cut -d' ' -f2); t0=$(now_ms)
+  touch "$sd/asleep"; chown "$u:$OWNER" "$sd/asleep" 2>/dev/null
+  chrome_graceful "$u" "$ws"
+  screen_kill "$u" "$disp" "$ws" >/dev/null
+  rm -f -- "$RST/$n" "$sd/waking"
+  screen_event "$n" sleep $(( $(now_ms) - t0 )) true "$(cat "$sd/mode" 2>/dev/null || echo desktop)" "$why"
+  echo "screen for $n: asleep ($why)"
+}
+# Is the screen of agent $1 up with Chrome answering? (rfb socket, Chrome listening on its port, window manager running)
+screen_ready(){
+  local n=$1 u=$2 cport=$3 sd="$HOMEC/workspaces/$1/.screen"
+  [ -S "$sd/rfb.sock" ] || return 1
+  ss -Hltn "sport = :$cport" 2>/dev/null | grep -q . || return 1
+  case "$(cat "$sd/mode" 2>/dev/null)" in lean-fluxbox) pgrep -u "$u" -x fluxbox >/dev/null 2>&1 ;; *) return 0 ;; esac
+}
+# Runs in the background after a screen is started: waits up to 60 s for it to be ready and writes the result to the log
+# with the time since $3 (ms: when the wake was asked). A lean start that does not come up is replaced once by the old desktop
+# (lean.failed). A wake that does not come up is tried once more; the second in a row keeps the agent's screen always on and
+# files one issue (report). $4 = wake (counts) or start (box start: only the lean fallback applies).
+wake_verify(){
+  local n=$1 u=$2 t0=$3 kind=${4:-wake} ws="$HOMEC/workspaces/$1" sd="$HOMEC/workspaces/$1/.screen" line disp cdp cport sl i ok=0 ms mode fails step
+  line=$(port_of "$n"); disp=$(echo "$line" | cut -d' ' -f2); cdp=$(echo "$line" | cut -d' ' -f3)
+  read -r _ sl <<< "$(limit_of "$n")"; cport=$(chrome_port "$cdp" "$sl")
+  for i in $(seq "${AQ_WAKE_TRIES:-120}"); do screen_ready "$n" "$u" "$cport" && { ok=1; break; }; sleep "${AQ_WAKE_TICK:-0.5}"; done
+  ms=$(( $(now_ms) - t0 )); mode=$(cat "$sd/mode" 2>/dev/null || echo desktop)
+  if [ "$ok" = 1 ]; then
+    rm -f -- "$sd/waking" "$RST/$n.wakefails"
+    screen_event "$n" "$kind" "$ms" true "$mode"; echo "screen for $n: $kind took $ms ms ($mode)"; return 0
+  fi
+  if [ "${mode#lean}" != "$mode" ] && [ ! -f "$sd/lean.failed" ]; then
+    touch "$sd/lean.failed"
+    screen_event "$n" fallback "$ms" false "$mode" "the lean screen did not come up in 60 s: starting the old desktop"
+    echo "screen for $n: the lean screen did not come up: starting the old desktop"
+    rm -f -- "$RST/$n"; screen_kill "$u" "$disp" "$ws"; [ -f "$sd/waking" ] || echo "$t0" > "$sd/waking"
+    AQ_NOVERIFY=1 screen_up "$n" "$u"; wake_verify "$n" "$u" "$t0" "$kind"; return $?
+  fi
+  rm -f -- "$sd/waking"
+  screen_event "$n" "$kind" "$ms" false "$mode" "Chrome did not answer within 60 s"
+  echo "screen for $n: $kind failed after $ms ms ($mode)"
+  [ "$kind" = wake ] || return 1
+  fails=$(cat "$RST/$n.wakefails" 2>/dev/null || echo 0); step=$(wake_step 0 "$fails")
+  mkdir -p "$RST"; echo $((fails+1)) > "$RST/$n.wakefails"
+  if [ "$step" = retry ]; then
+    rm -f -- "$RST/$n"; screen_kill "$u" "$disp" "$ws"; t0=$(now_ms); echo "$t0" > "$sd/waking"
+    AQ_NOVERIFY=1 screen_up "$n" "$u"; wake_verify "$n" "$u" "$t0" wake; return $?
+  fi
+  touch "$sd/nosleep"; screen_event "$n" keep-awake 0 true "$mode" "two wakes in a row failed: this screen stays on"
+  report "$n" "wake-failed" "its screen did not wake twice in a row, so it stays always on (no sleep) until reset. See $sd/chrome.log, xvnc.log and desktop.log; to let it sleep again: echo $n >> $RESET" "Agent screen would not wake"
+  rm -f -- "$RST/$n"; screen_kill "$u" "$disp" "$ws"; AQ_NOVERIFY=1 screen_up "$n" "$u"
+  return 1
+}
 
 # rule 2: a sleeping screen. The wake proxy (scripts/wake-proxy.mjs) runs as its own user aq-wake and shares $WAKE with
 # this script (and with aqeelOS, whose screen viewer wakes a screen too): <agent>.wake asks for a start, <agent>.active is
@@ -225,27 +374,30 @@ sleep_idle(){
   while read -r n; do
     [[ "$n" =~ ^[a-z0-9][a-z0-9_-]{0,28}$ ]] || continue
     u="ag-$n"; u=${u:0:32}; ws="$HOMEC/workspaces/$n"; sd="$ws/.screen"
-    read -r _ sl <<< "$(limit_of "$n")"; [ "$sl" -gt 0 ] || continue
-    [ -f "$sd/asleep" ] && continue
+    read -r _ sl <<< "$(limit_of "$n")"
     # its own AdsPower runs on this screen: never put to sleep
-    pgrep -u "$u" -f "adspower_global|SunBrowser" >/dev/null 2>&1 && continue
-    [ -f "$sd/launcher.pid" ] && kill -0 "$(cat "$sd/launcher.pid" 2>/dev/null)" 2>/dev/null || continue
-    last=0; for f in "$WAKE/$n.active" "$sd/activity" "$sd/layout"; do [ -e "$f" ] && [ "$(stat -c %Y "$f")" -gt "$last" ] && last=$(stat -c %Y "$f"); done
-    [ $((now-last)) -ge $((sl*60)) ] || continue
-    local line disp; line=$(grep "^$n " "$PORTS" | head -1); disp=$(echo "$line" | cut -d' ' -f2)
-    screen_kill "$u" "$disp" "$ws" >/dev/null; touch "$sd/asleep"; chown "$u:$OWNER" "$sd/asleep" 2>/dev/null; rm -f -- "$RST/$n"
-    echo "screen for $n: asleep after $(( (now-last)/60 )) min unused"
+    local ads=0 run=0 asl=0 nos=0
+    pgrep -u "$u" -f "adspower_global|SunBrowser" >/dev/null 2>&1 && ads=1
+    [ -f "$sd/launcher.pid" ] && kill -0 "$(cat "$sd/launcher.pid" 2>/dev/null)" 2>/dev/null && run=1
+    [ -f "$sd/asleep" ] && asl=1; [ -f "$sd/nosleep" ] && nos=1
+    last=0; for f in "$WAKE/$n.active" "$sd/activity" "$sd/layout" "$sd/waking"; do [ -e "$f" ] && [ "$(stat -c %Y "$f")" -gt "$last" ] && last=$(stat -c %Y "$f"); done
+    [ "$(sleep_step "$sl" "$now" "$last" "$asl" "$nos" "$ads" "$run")" = sleep ] || continue
+    put_to_sleep "$n" "$u" "$(( (now-last)/60 )) min unused"
   done < "$REQ"
 }
 # <agent>.wake: its screen starts now (the proxy waits for it)
 take_wakes(){
-  local f n
+  local f n req t0 sd
   for f in "$WAKE"/*.wake; do
     [ -e "$f" ] || continue
-    n=$(basename "$f" .wake); rm -f -- "$f"
+    n=$(basename "$f" .wake); req=$(stat -c %Y "$f" 2>/dev/null || date +%s); rm -f -- "$f"
     [[ "$n" =~ ^[a-z0-9][a-z0-9_-]{0,28}$ ]] && grep -qx "$n" "$REQ" 2>/dev/null && id "ag-$n" >/dev/null 2>&1 || continue
-    touch "$WAKE/$n.active"
-    if [ -f "$HOMEC/workspaces/$n/.screen/asleep" ]; then rm -f -- "$HOMEC/workspaces/$n/.screen/asleep"; echo "screen for $n: woken"; fi
+    touch "$WAKE/$n.active"; sd="$HOMEC/workspaces/$n/.screen"
+    if [ -f "$sd/asleep" ]; then
+      # the wake's clock starts when it was asked (the proxy or the viewer wrote the file), so it counts what the person waits
+      t0=$((req*1000)); [ $(( $(now_ms) - t0 )) -lt 120000 ] || t0=$(now_ms)
+      echo "$t0" > "$sd/waking"; rm -f -- "$sd/asleep"; echo "screen for $n: woken"
+    fi
     screen_up "$n" "ag-$n"
   done
 }
@@ -288,12 +440,10 @@ take_mem(){
     pgrep -u "$u" -f "adspower_global|SunBrowser" >/dev/null 2>&1 && ads=1
     [ -f "$sd/asleep" ] && asleep=1
     # only a screen that may sleep (it wakes through the wake proxy on use) is put to sleep
-    read -r _ sl <<< "$(limit_of "$n")"; [ "$what" = sleep ] && [ "${sl:-0}" -le 0 ] && what=no-sleep
+    read -r _ sl <<< "$(limit_of "$n")"; [ "$what" = sleep ] && { [ "${sl:-0}" -le 0 ] || [ -f "$sd/nosleep" ]; } && what=no-sleep
     step=$(mem_req_step "$what" "$now" "$(last_use "$n" "$sd")" "$busy" "$ads" "$asleep")
     case "$step" in
-      sleep) line=$(grep "^$n " "$PORTS" | head -1); disp=$(echo "$line" | cut -d' ' -f2)
-             screen_kill "$u" "$disp" "$ws" >/dev/null; touch "$sd/asleep"; chown "$u:$OWNER" "$sd/asleep" 2>/dev/null; rm -f -- "$RST/$n"
-             echo "memory: $n: screen put to sleep (asked by aqeelOS, box short of memory)" ;;
+      sleep) put_to_sleep "$n" "$u" "asked by aqeelOS, box short of memory" ;;
       chrome) pid=$(ps -u "$u" -o pid=,args= | awk -v b="--user-data-dir=$ws/.browser" 'index($0,b) && $0 !~ /--type=/ {print $1; exit}')
               [ -n "$pid" ] && kill -TERM "$pid" 2>/dev/null && echo "memory: $n: Chrome started again (asked by aqeelOS, box short of memory)" ;;
       # the program and its browsers only, never the keep-alive loop around it ("bash -c ... adspower_global ...")
@@ -318,15 +468,37 @@ screen_up(){
   if [ -d "$prof" ] && [ ! -L "$prof/bot-desktop" ]; then rm -rf "$prof/bot-desktop.engine"; [ -e "$prof/bot-desktop" ] && mv "$prof/bot-desktop" "$prof/bot-desktop.engine"; ln -s "$sd" "$prof/bot-desktop"; chown -h "$OWNER:$OWNER" "$prof/bot-desktop"; fi
   # asleep (OPS-4): started by take_wakes when used
   [ -f "$sd/asleep" ] && return 0
-  # the one desktop launch (the whole screen and the desktop alone both use it); its log keeps why the last one ended
-  local desk="( dbus-launch --exit-with-session bash -c 'xfwm4 & xfdesktop & xfce4-panel & wait' >>'$sd/desktop.log' 2>&1 & )"
+  local running=0 mode want haswm=0 failed=0 wk_age=-1 t0
+  [ -f "$sd/launcher.pid" ] && kill -0 "$(cat "$sd/launcher.pid" 2>/dev/null)" 2>/dev/null && [ -S "$sd/rfb.sock" ] && running=1
+  # OPS-19: a screen that is not running and may sleep stays asleep until used (the wake proxy, the viewer or a schedule's
+  # check asks for it), so a box start or a screen that was never used costs nothing
+  if [ "$running" = 0 ] && [ "$part" = all ]; then
+    [ -f "$sd/waking" ] && wk_age=$(( $(date +%s) - $(stat -c %Y "$sd/waking" 2>/dev/null || date +%s) ))
+    if [ "$(ondemand_step "$sl" "$([ -f "$sd/nosleep" ] && echo 1 || echo 0)" "$wk_age")" = sleep ]; then
+      mkdir -p "$sd"; chown "$u:$OWNER" "$sd"; chmod 2770 "$sd"; touch "$sd/asleep"; chown "$u:$OWNER" "$sd/asleep" 2>/dev/null
+      screen_event "$n" sleep 0 true "$(cat "$sd/mode" 2>/dev/null || echo none)" "not running: left asleep until used"
+      echo "screen for $n: left asleep until used"; return 0
+    fi
+  fi
+  # lean or the old desktop: a running screen keeps what it runs (a change of the setting applies at its next sleep and wake)
+  want=$(mode_of "$n"); command -v fluxbox >/dev/null 2>&1 && haswm=1; [ -f "$sd/lean.failed" ] && failed=1
+  if [ "$running" = 1 ] && [ -f "$sd/mode" ]; then mode=$(cat "$sd/mode"); elif [ "$running" = 1 ]; then mode=desktop; else mode=$(screen_pick "$want" "$haswm" "$failed"); fi
+  # the one window-manager launch (the whole screen and that part alone both use it); its log keeps why the last one ended
+  local desk lean="" open="about:blank"
+  case $mode in
+    desktop) desk="( dbus-launch --exit-with-session bash -c 'xfwm4 & xfdesktop & xfce4-panel & wait' >>'$sd/desktop.log' 2>&1 & )" ;;
+    lean-fluxbox) lean_wm_files "$sd"; chown -R "$u:$OWNER" "$sd/fb" 2>/dev/null
+      desk="( HOME='$sd/fb' fluxbox -rc '$sd/fluxbox/init' -no-slit -no-toolbar >>'$sd/desktop.log' 2>&1 & )" ;;
+    *) desk=":" ;;
+  esac
+  [ "${mode#lean}" != "$mode" ] && lean="$CHROME_LEAN --window-position=0,0"
   # OPS-13: window manager, desktop background or panel gone while the display runs: the desktop alone starts again,
   # through the same back-off as the screen (a display that is not running is the whole screen's start, below)
   if [ "$part" = desktop ]; then
     [ -f "$sd/launcher.pid" ] && kill -0 "$(cat "$sd/launcher.pid" 2>/dev/null)" 2>/dev/null && [ -S "$sd/rfb.sock" ] || return 0
     restart_gate "$n" || return 0
     desk_kill "$u"
-    runuser -u "$u" -- bash -c "cd '$ws'; export HOME='$ws' DISPLAY=:$disp XAUTHORITY='$sd/Xauthority'; $desk" && echo "janitor: $n: ${why:-desktop missing}: its desktop is started again on :$disp"
+    [ "$desk" = ":" ] || runuser -u "$u" -- bash -c "cd '$ws'; export HOME='$ws' DISPLAY=:$disp XAUTHORITY='$sd/Xauthority'; $desk" && echo "janitor: $n: ${why:-desktop missing}: its ${mode#lean-} window manager is started again on :$disp"
     return 0
   fi
   # already running with Chrome on the port it should use: done. On another port (sleeping was switched on or off for
@@ -342,8 +514,8 @@ screen_up(){
   rm -f "$sd/rfb.sock" "/tmp/.X$disp-lock" "/tmp/.X11-unix/X$disp"
   # a lock left by the Chrome of an earlier box (the box was rebuilt, so another host name) makes Chrome refuse to start
   rm -f "$ws/.browser/SingletonLock" "$ws/.browser/SingletonSocket" "$ws/.browser/SingletonCookie"
-  # a screen that sleeps gets its tabs back when it wakes
-  local open="about:blank"; [ "$cport" != "$cdp" ] && open="--restore-last-session"
+  # a screen that sleeps, and every lean screen, gets its tabs back when Chrome starts (also after it was closed by hand)
+  { [ "$cport" != "$cdp" ] || [ -n "$lean" ]; } && open="--restore-last-session"
   runuser -u "$u" -- bash -c "
     cd '$ws'; export HOME='$ws' DISPLAY=:$disp XAUTHORITY='$sd/Xauthority'
     umask 007; : > \"\$XAUTHORITY\"; xauth -q add :$disp . \$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n') 2>/dev/null
@@ -352,11 +524,18 @@ screen_up(){
     for i in \$(seq 40); do [ -S '$sd/rfb.sock' ] && break; sleep 0.25; done
     $desk
     rm -f '$sd/chrome.stopped'
-    $(declare -f chrome_loop)
-    ( chrome_loop '$sd' '$CHROME' --no-sandbox --disable-dev-shm-usage --no-first-run --no-default-browser-check --user-data-dir='$ws/.browser' --remote-debugging-address=127.0.0.1 --remote-debugging-port=$cport --window-size=1280,800 --start-maximized $CHROME_MEM $open & )
+    $(declare -f chrome_exit_step chrome_loop)
+    ( chrome_loop '$sd' '$CHROME' --no-sandbox --disable-dev-shm-usage --no-first-run --no-default-browser-check --user-data-dir='$ws/.browser' --remote-debugging-address=127.0.0.1 --remote-debugging-port=$cport --window-size=1280,800 --start-maximized $CHROME_MEM $lean $open & )
     echo $cport > '$sd/layout'
     touch '$sd/activity'
-  " && echo "screen for $n on :$disp (chrome $cport)"
+  " || return 0
+  echo "$mode" > "$sd/mode"
+  echo "screen for $n on :$disp (chrome $cport, $mode)"
+  # how long it took, whether it came up, and the fall back to the old desktop when a lean start does not (OPS-19)
+  if [ "${AQ_NOVERIFY:-0}" != 1 ]; then
+    t0=$(cat "$sd/waking" 2>/dev/null); [[ "$t0" =~ ^[0-9]{13}$ ]] || t0=$(now_ms)
+    ( wake_verify "$n" "$u" "$t0" "$([ -f "$sd/waking" ] && echo wake || echo start)" & )
+  fi
 }
 
 once(){
@@ -426,7 +605,9 @@ wake_ports(){
 # One agent's counts, "<name> <expected> <running> <extra pids...>", from "pid user etimes args" lines on stdin.
 jan_count(){
   local n=$1 u=$2 disp=$3 ws=$4 exp=5
-  [ -f "$ws/.screen/chrome.stopped" ] && exp=4
+  # OPS-19: a lean screen has an X server, one window manager (fluxbox) and Chrome, or no window manager at all
+  case "$(cat "$ws/.screen/mode" 2>/dev/null)" in lean-fluxbox) exp=3 ;; lean-bare) exp=2 ;; esac
+  [ -f "$ws/.screen/chrome.stopped" ] && exp=$((exp-1))
   [ -f "$ws/.screen/asleep" ] && exp=0
   awk -v u="$u" -v d="$disp" -v b="--user-data-dir=$ws/.browser" -v n="$n" -v want="$exp" '
     $2!=u {next}
@@ -434,6 +615,7 @@ jan_count(){
     a ~ ("^Xvnc :" d "( |$)") {k="xvnc"}
     k=="" && a ~ /^Xvnc :/ {run++; ex=ex " " $1; next}
     k=="" && a ~ /^(\/usr\/bin\/)?xfwm4( |$)/ {k="xfwm4"}
+    k=="" && a ~ /^(\/usr\/bin\/)?fluxbox( |$)/ {k="fluxbox"}
     k=="" && a ~ /^(\/usr\/bin\/)?xfdesktop( |$)/ {k="xfdesktop"}
     k=="" && a ~ /^(\/usr\/bin\/)?xfce4-panel( |$)/ {k="panel"}
     k=="" && a !~ /--type=/ { i=index(a,b); if(i){c=substr(a,i+length(b),1); if(c==""||c==" ")k="chrome"} }
@@ -448,14 +630,15 @@ jan_count(){
 # 5 minutes. A missing display or Chrome is not this: screen_up and chrome_loop start those again.
 # Which parts are missing, from "pid user etimes args" lines on stdin; nothing when the agent's display is not running.
 jan_missing(){
-  awk -v u="$1" -v d="$2" '
+  awk -v u="$1" -v d="$2" -v mode="${3:-desktop}" '
     $2!=u {next}
     { a=$0; sub(/^[ \t]*[0-9]+[ \t]+[^ \t]+[ \t]+[0-9]+[ \t]+/,"",a) }
     a ~ ("^Xvnc :" d "( |$)") {x=1}
     a ~ /^(\/usr\/bin\/)?xfwm4( |$)/ {w=1}
+    a ~ /^(\/usr\/bin\/)?fluxbox( |$)/ {fb=1}
     a ~ /^(\/usr\/bin\/)?xfdesktop( |$)/ {k=1}
     a ~ /^(\/usr\/bin\/)?xfce4-panel( |$)/ {p=1}
-    END { if(!x) exit; s=""; if(!w) s=s ", window manager"; if(!k) s=s ", desktop background"; if(!p) s=s ", panel"; if(s!="") print substr(s,3) }'
+    END { if(!x) exit; if(mode=="lean-bare") exit; if(mode=="lean-fluxbox"){ if(!fb) print "window manager"; exit } s=""; if(!w) s=s ", window manager"; if(!k) s=s ", desktop background"; if(!p) s=s ", panel"; if(s!="") print substr(s,3) }'
 }
 PART_WAIT=600 IN_USE=300
 BUSY=$HOMEC/.aqeelos-agent-busy
@@ -474,7 +657,7 @@ in_reply(){ [ -f "$BUSY" ] && [ $(( $2 - $(stat -c %Y "$BUSY") )) -lt 180 ] && g
 # one agent: ps lines on stdin; $5 = now (tests)
 desk_check(){
   local n=$1 u=$2 disp=$3 ws=$4 now=${5:-$(date +%s)} f="$RST/$1.part" miss since=0 busy=0 step
-  miss=$(jan_missing "$u" "$disp")
+  miss=$(jan_missing "$u" "$disp" "$(cat "$ws/.screen/mode" 2>/dev/null || echo desktop)")
   [ -f "$ws/.screen/asleep" ] && miss=""
   if [ -z "$miss" ]; then rm -f -- "$f"; return 0; fi
   mkdir -p "$RST"; [ -f "$f" ] && read -r since < "$f"
@@ -537,7 +720,7 @@ janitor(){
     fi
     [ -f "$ws/.screen/chrome.stopped" ] || rm -f -- "$ws/.screen/chrome.reported"
     local mb; mb=$(mem_cap "$n" "$u" "$ws")
-    out="$out\"$n\":{\"expected\":$e,\"running\":$r,\"extra\":[$(echo $x | tr ' ' ',')],\"mb\":${mb:-0},\"asleep\":$([ -f "$ws/.screen/asleep" ] && echo true || echo false)},"
+    out="$out\"$n\":{\"expected\":$e,\"running\":$r,\"extra\":[$(echo $x | tr ' ' ',')],\"mb\":${mb:-0},\"asleep\":$([ -f "$ws/.screen/asleep" ] && echo true || echo false),\"mode\":\"$(cat "$ws/.screen/mode" 2>/dev/null || echo desktop)\",\"nosleep\":$([ -f "$ws/.screen/nosleep" ] && echo true || echo false)},"
   done < "$REQ"
   mv "$SEEN.tmp" "$SEEN"
   printf '{"at":%s,"expected":%s,"running":%s,"agents":{%s}}\n' "$(date +%s)" "$tot_e" "$tot_r" "${out%,}" > "$JAN.tmp" && chown "$OWNER:$OWNER" "$JAN.tmp" 2>/dev/null; chmod 640 "$JAN.tmp"; mv "$JAN.tmp" "$JAN"
@@ -603,6 +786,7 @@ trim_logs(){
       [ -f "$f" ] && [ "$(stat -c %s "$f")" -gt 10485760 ] && tail -c 2097152 "$f" > "$f.tmp" && cat "$f.tmp" > "$f" && rm -f -- "$f.tmp" && echo "agent users: $n: trimmed ${f##*/}"
     done
   done < "$REQ"
+  [ -f "$SCREEN_EVENTS" ] && [ "$(wc -l < "$SCREEN_EVENTS")" -gt 4000 ] && tail -2000 "$SCREEN_EVENTS" > "$SCREEN_EVENTS.tmp" && cat "$SCREEN_EVENTS.tmp" > "$SCREEN_EVENTS" && rm -f -- "$SCREEN_EVENTS.tmp"
   [ -f "$ISSUES" ] && [ "$(wc -l < "$ISSUES")" -gt 400 ] && tail -200 "$ISSUES" > "$ISSUES.tmp" && cat "$ISSUES.tmp" > "$ISSUES" && rm -f -- "$ISSUES.tmp"
   return 0
 }

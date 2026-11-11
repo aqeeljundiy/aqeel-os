@@ -50,10 +50,25 @@ test('intake files one issue per agent and kind',async()=>{
  assert.equal(await ops.intake(),2);assert.equal(await ops.intake(),0);
  assert.equal(filed[0].agent,'sesa');assert.equal(filed[0].healthKey,'box:sesa:screen-stopped')});
 
-import {limitLines} from '../app/box-ops.mjs';
-test('limits: defaults 4 GB and 30 min, set per agent; an AdsPower screen never sleeps and gets 8 GB',()=>{
- assert.equal(limitLines(['a','b','c'],{agents:{b:{memory_cap_gb:2,sleep_minutes:0}}},n=>n==='c'),['a 4096 30','b 2048 0','c 8192 0',''].join('\n'));
- assert.equal(limitLines(['a'],{default:{sleep_minutes:0}}),'a 4096 0\n');assert.equal(limitLines([]),'')});
+import {limitLines,parseEvents,screensLine} from '../app/box-ops.mjs';
+test('limits: defaults 4 GB and 15 min, lean, set per agent; an AdsPower screen never sleeps and gets 8 GB',()=>{
+ assert.equal(limitLines(['a','b','c'],{agents:{b:{memory_cap_gb:2,sleep_minutes:0}}},n=>n==='c'),['a 4096 15 lean','b 2048 0 lean','c 8192 0 lean',''].join('\n'));
+ assert.equal(limitLines(['a'],{default:{sleep_minutes:0}}),'a 4096 0 lean\n');assert.equal(limitLines([]),'')
+ // the screen mode is a per-install setting with a per-agent override; anything else means lean
+ assert.equal(limitLines(['a','b'],{default:{screen_mode:'desktop'},agents:{b:{screen_mode:'lean'}}}),'a 4096 15 desktop\nb 4096 15 lean\n');
+ assert.equal(limitLines(['a'],{default:{screen_mode:'nonsense'}}),'a 4096 15 lean\n')});
+
+test('Health line: screens awake and asleep, wakes in the last 24 h, failed, slowest',()=>{
+ const now=1e9*1000,t=s=>1e9-s;
+ const j={at:1e9,agents:{a:{asleep:true,mode:'lean-fluxbox'},b:{asleep:false,mode:'lean-fluxbox'},c:{asleep:true,mode:'desktop'}}};
+ const ev=parseEvents([{at:t(60),agent:'a',event:'wake',ms:4200,ok:true},{at:t(50),agent:'c',event:'wake',ms:11800,ok:true},{at:t(40),agent:'c',event:'wake',ms:60000,ok:false},
+  {at:t(90000),agent:'a',event:'wake',ms:99000,ok:true},{at:t(30),agent:'a',event:'sleep',ms:900,ok:true}].map(x=>JSON.stringify(x)).join('\n')+'\nnot json\n');
+ assert.equal(ev.length,5);
+ const r=screensLine(j,ev,now);
+ assert.equal(r.text,'Screens: 1 awake, 2 asleep; wakes in the last 24 h: 3, failed: 1, slowest: 11.8 s');
+ assert.equal(r.ok,false);
+ assert.equal(screensLine({agents:{a:{asleep:false}}},[],now).text,'Screens: 1 awake, 0 asleep; wakes in the last 24 h: 0, failed: 0, slowest: 0 s');
+ assert.match(screensLine({agents:{a:{asleep:false,nosleep:true}}},[],now).text,/Kept always on after failed wakes: a/)});
 
 test('OPS-13: the agents mid-reply, once each, from live reply keys',async()=>{
  const {busyText}=await import('../app/box-ops.mjs');

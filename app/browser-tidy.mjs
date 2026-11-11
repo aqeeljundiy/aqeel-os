@@ -8,6 +8,8 @@ import {homedir} from 'node:os';
 import path from 'node:path';
 
 export const IDLE=3*3600e3;
+// tells the wake proxy (scripts/wake-proxy.mjs) this is housekeeping: it never wakes a sleeping screen and never counts as use
+export const POLL={'x-aqeel-poll':'1'};
 // which tabs to close: every page but one empty tab (a new one is opened first when there is none)
 export function plan(targets){const pages=(targets||[]).filter(t=>t&&t.type==='page');
  const blank=pages.find(t=>/^(about:blank|chrome:\/\/newtab\/?)$/.test(String(t.url||'')));
@@ -27,7 +29,7 @@ export function planExcess(targets,{max=MAX_TABS,keepNewest=1}={}){const pages=(
  return {close}}
 
 export function createBrowserTidy({lastActive,busy=async()=>false,log=m=>console.log(m),fetchImpl=fetch,now=()=>Date.now(),portsFile=path.join(homedir(),'.aqeelos-agent-ports')}){
- const cdp=(port,p,method='GET')=>fetchImpl('http://127.0.0.1:'+port+p,{method,signal:AbortSignal.timeout(8000)}).then(r=>r.ok?r.json().catch(()=>({})):null).catch(()=>null);
+ const cdp=(port,p,method='GET')=>fetchImpl('http://127.0.0.1:'+port+p,{method,headers:POLL,signal:AbortSignal.timeout(8000)}).then(r=>r.ok?r.json().catch(()=>({})):null).catch(()=>null);
  async function tick(){const lines=(await readFile(portsFile,'utf8').catch(()=>'')).split('\n').map(l=>l.trim().split(' ')).filter(x=>x.length>=3&&/^\d+$/.test(x[2]));
   let total=0;
   for(const [agent,,port] of lines){

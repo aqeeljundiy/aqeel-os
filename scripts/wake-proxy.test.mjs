@@ -28,3 +28,16 @@ test('a sleeping Chrome is woken on the first connection, then traffic passes an
  assert.ok(existsSync(path.join(dir,'zz.active')));
  // awake: passes straight through
  const r2=await fetch(`http://127.0.0.1:${outer}/json/list`,{signal:AbortSignal.timeout(3000)}).then(r=>r.json());assert.equal(r2.Browser,'stand-in')});
+
+test('a housekeeping poll never wakes a sleeping Chrome and never counts as use; real traffic still does',async t=>{
+ const dir=mkdtempSync(path.join(tmpdir(),'aq-wake-')),outer=39600+Math.floor(Math.random()*300),inner=outer+600;
+ writeFileSync(path.join(dir,'ports'),`pp ${outer} ${inner}\n`);
+ const p=spawn(process.execPath,[PROXY,dir],{stdio:'ignore'});t.after(()=>p.kill());
+ for(let i=0;i<40;i++){await wait(100);try{await fetch(`http://127.0.0.1:${outer}/x`,{headers:{'x-aqeel-poll':'1'},signal:AbortSignal.timeout(50)})}catch(e){if(!/refused/i.test(String(e.cause?.code||e.cause||e)))break}}
+ const r=await fetch(`http://127.0.0.1:${outer}/json/list`,{headers:{'x-aqeel-poll':'1'},signal:AbortSignal.timeout(5000)});
+ assert.equal(r.status,503,'asleep: answered at once');
+ assert.ok(!existsSync(path.join(dir,'pp.wake')),'no wake asked');assert.ok(!existsSync(path.join(dir,'pp.active')),'no use marked');
+ const chrome=createServer((q,s)=>s.end('{"ok":1}')).listen(inner,'127.0.0.1');t.after(()=>chrome.close());await wait(100);
+ const r2=await fetch(`http://127.0.0.1:${outer}/json/list`,{headers:{'x-aqeel-poll':'1'},signal:AbortSignal.timeout(5000)});
+ assert.equal(r2.status,200);assert.ok(!existsSync(path.join(dir,'pp.active')),'awake: passed through, still not use');
+ await fetch(`http://127.0.0.1:${outer}/json/list`,{signal:AbortSignal.timeout(5000)});assert.ok(existsSync(path.join(dir,'pp.active')),'a real client marks use')});

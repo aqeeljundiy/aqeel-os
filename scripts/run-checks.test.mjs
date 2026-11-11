@@ -15,11 +15,11 @@ test('unread DMs: title mode, inbox mode, both, and unknown',async()=>{
  assert.deepEqual(await unreadDms({port:9600,mode:'title',fetchJson:pages('(2) Threads')}),{count:2,known:true,why:'title 2'});
  assert.equal((await unreadDms({port:9600,mode:'title',fetchJson:pages('Threads')})).count,0);
  const inbox=n=>async()=>({login:false,count:n,rows:4});
- assert.equal((await unreadDms({port:9600,mode:'inbox',lookFn:inbox(5)})).count,5);
+ assert.equal((await unreadDms({port:9600,mode:'inbox',lookFn:inbox(5),wake:async()=>true})).count,5);
  assert.equal((await unreadDms({port:9600,fetchJson:pages('Threads'),lookFn:inbox(1)})).count,1,'both: the larger');
  const u=await unreadDms({port:9600,fetchJson:async()=>null,lookFn:async()=>null});assert.equal(u.known,false);assert.equal(u.count,null);
- assert.equal((await unreadDms({port:9600,mode:'inbox',lookFn:async()=>({login:true})})).known,false,'signed out is unknown, not zero');
- assert.equal((await unreadDms({port:9600,mode:'inbox',lookFn:async()=>({login:false,count:0,rows:0})})).known,false,'an inbox that did not load is unknown');
+ assert.equal((await unreadDms({port:9600,mode:'inbox',wake:async()=>true,lookFn:async()=>({login:true})})).known,false,'signed out is unknown, not zero');
+ assert.equal((await unreadDms({port:9600,mode:'inbox',wake:async()=>true,lookFn:async()=>({login:false,count:0,rows:0})})).known,false,'an inbox that did not load is unknown');
  assert.equal((await unreadDms({})).known,false)});
 
 const resp=(j,ok=true,status=200)=>async()=>({ok,status,json:async()=>j});
@@ -48,3 +48,15 @@ test('combine: nothing waiting stops the run; unknown or something waiting lets 
  assert.equal(combine({work:[p],need:[{allow:false,known:true,why:'a post 5 min ago'}]}).anythingToDo,false);
  assert.equal(combine({work:[p],need:[{allow:null,known:false,why:'off'}]}).anythingToDo,true);assert.equal(combine({}).anythingToDo,true,'no check given');
  assert.match(JSON.stringify(combine({work:[z]})),/"anythingToDo":false/)});
+
+test('a schedule check wakes a sleeping browser first and waits for it; one that does not wake is unknown, never zero',async()=>{
+ const {wakeBrowser,unreadDms}=await import('../app/run-checks.mjs');
+ let waited=0;
+ const slow=async u=>{waited++;await new Promise(r=>setTimeout(r,30));return /json\/version/.test(u)?{webSocketDebuggerUrl:'ws://x'}:null};
+ assert.equal(await wakeBrowser({port:9600,fetchJson:slow}),true);assert.equal(waited,1);
+ assert.equal(await wakeBrowser({port:9600,fetchJson:async()=>null}),false);assert.equal(await wakeBrowser({port:0}),false);
+ const seen=[];
+ const r=await unreadDms({port:9600,mode:'title',fetchJson:async()=>[{type:'page',url:'https://www.threads.com/',title:'(3) Threads'}],wake:async o=>{seen.push(o.port);return true}});
+ assert.equal(r.count,3);assert.deepEqual(seen,[9600]);
+ const r2=await unreadDms({port:9600,mode:'title',fetchJson:async()=>[],wake:async()=>false});
+ assert.equal(r2.count,null);assert.equal(r2.known,false);assert.match(r2.why,/asleep/)});

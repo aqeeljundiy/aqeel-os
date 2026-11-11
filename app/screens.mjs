@@ -47,14 +47,16 @@ export function createScreens({keepOn=()=>false,wake=async()=>false}={}){   // k
 
  // Until the desktop packages are on the box (Xvnc + Xfce), every agent stays on the shared screen.
  let pk={t:0,ok:false};
- async function desktopsReady(){if(Date.now()-pk.t<60000)return pk.ok;const r=await run('sh',['-c','command -v Xvnc && command -v xfwm4 && command -v xfdesktop'],{},5000);pk={t:Date.now(),ok:r.ok};return pk.ok}
+ async function desktopsReady(){if(Date.now()-pk.t<60000)return pk.ok;const r=await run('sh',['-c','command -v Xvnc && (command -v xfdesktop || command -v fluxbox)'],{},5000);pk={t:Date.now(),ok:r.ok};return pk.ok}
  async function status(a){
   if(await shared(a))return {agent:a,kind:'shared',running:true,note:'Browses through AdsPower on the shared screen.'};
   if(!await desktopsReady())return {agent:a,kind:'shared',running:true,note:'Own screens need the desktop packages on the box.'};
   const running=await alive(a);let idle=null;
   try{idle=Math.round((Date.now()-(await stat(path.join(homeOf(a),'bot-desktop','activity'))).mtimeMs)/60000)}catch{}
   const own=await ownUser(a),asleep=own&&!running&&!!await stat(path.join(homeOf(a),'bot-desktop','asleep')).catch(()=>null);
-  return {agent:a,kind:'desktop',running,idle_minutes:running?idle:null,...(own?{managed:true,asleep,note:asleep?'Asleep after sitting unused; it wakes when the agent browses or someone opens it.':'Runs as this agent’s own user; it sleeps after sitting unused.'}:{})}}
+  // a wake in progress (scripts/agent-users.sh writes bot-desktop/waking when it is asked, removes it when Chrome answers): the view shows 'Waking the browser…'
+  const wk=own?await stat(path.join(homeOf(a),'bot-desktop','waking')).catch(()=>null):null,waking=!!wk&&Date.now()-wk.mtimeMs<120000;
+  return {agent:a,kind:'desktop',running,idle_minutes:running?idle:null,...(own?{managed:true,asleep,waking,note:waking?'Waking the browser…':asleep?'Asleep after sitting unused; it wakes when the agent browses or someone opens it.':'Runs as this agent’s own user; it sleeps after sitting unused.'}:{})}}
 
  // Every agent: its screen starts itself when it browses and stops after 15 idle minutes, and its
  // terminal starts in its own folder (~/workspaces/<agent>). Only fills in what is not set yet.
@@ -119,7 +121,7 @@ export function createScreens({keepOn=()=>false,wake=async()=>false}={}){   // k
    for(const pid of await readdir('/proc')){if(!/^\d+$/.test(pid))continue;const c=(await readFile('/proc/'+pid+'/cmdline','utf8').catch(()=>'')).split('\0');if(c.some(x=>x.startsWith('--type=')))continue;
     const ud=(c.find(x=>x.startsWith('--user-data-dir='))||'').slice(16);if(!ud||!mine.some(m=>ud.startsWith(m))||a==='default'&&ud.startsWith(others))continue;
     add((c.find(x=>x.startsWith('--remote-debugging-port='))||'').slice(24))}}catch{}}
-  const ok=[];for(const p of out)if(await fetch('http://127.0.0.1:'+p+'/json/version',{signal:AbortSignal.timeout(1500)}).then(r=>r.ok,()=>false))ok.push(p);return ok}
+  const ok=[];for(const p of out)if(await fetch('http://127.0.0.1:'+p+'/json/version',{headers:{'x-aqeel-poll':'1'},signal:AbortSignal.timeout(1500)}).then(r=>r.ok,()=>false))ok.push(p);return ok}
  // one DevTools call on a page, answered or null within 3 s; the same socket can carry several calls in order
  function cdpCall(ws,calls){return new Promise(res=>{let s,n=0;const out=[];const done=v=>{try{s.close()}catch{}res(v)};const t=setTimeout(()=>done(null),4000);
   try{s=new WebSocket(ws);s.onerror=()=>{clearTimeout(t);done(null)};const next=()=>{if(n>=calls.length){clearTimeout(t);return done(out)}const c=typeof calls[n]==='function'?calls[n](out):calls[n];if(c===false){clearTimeout(t);return done(null)}s.send(JSON.stringify({id:n+1,...c}))};
