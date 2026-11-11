@@ -12,7 +12,7 @@ import {swr} from './swr.mjs';
 import {createClaudeRenew} from './claude-renew.mjs';
 import {providerUnavailable} from './provider-limits.mjs';
 import {createAgyQuota,claudeHeaderUsage,deadLogins} from './usage-extra.mjs';
-import {groupEntries,normalise,planMove,nextPick,moves24} from './account-pools.mjs';
+import {groupEntries,planGroups,normalise,planMove,nextPick,moves24} from './account-pools.mjs';
 
 const HOME=homedir();
 const CLAUDE=process.env.CLAUDE_BIN||path.join(HOME,'.local','bin','claude');
@@ -214,7 +214,8 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
     Entries: {key:'claude:<account id>'|'p:<provider slug>', model}. An agent moves down the list
     when its current entry passes the threshold, and back up once a higher entry has room again.
     Entries of the same kind (Claude subscriptions) form a pool (account-pools.mjs, 12 Nov 2026): inside it there is no
-    order, an agent gets the member with the most room; d.solo lists the entries a person took out of their pool. */
+    order, an agent gets the member with the most room; d.solo lists the entries a person took out of their pool.
+    Every provider is a group (12 Nov 2026): d.poolMode[kind] is 'room' (Most room first) or 'order' (In my order). */
  const PLUGIN_KEY='claude:';
  async function agentRoute(profile){const dir=profile==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',profile);const y=await readFile(path.join(dir,'config.yaml'),'utf8').catch(()=>'');
   const k=key=>((new RegExp('^model:[\\s\\S]*?\\n\\s+'+key+':\\s*(\\S+)','m').exec(y)||[])[1]||'').replace(/^["']|["']$/g,'');return {provider:k('provider'),model:k('default')}}
@@ -256,6 +257,12 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    return {sess:u.session?.used??null,week:Math.max(u.week?.used||0,/opus/i.test(model||'')?u.opus?.used||0:0,/sonnet/i.test(model||'')?u.sonnet?.used||0:0)}}
   const ws=((prov||[]).find(x=>x.slug===key.slice(2))?.windows||[]).filter(w=>w.scope!=='model'&&w.scope!=='image'),m=l=>l.length?Math.max(...l.map(w=>w.used||0)):null;
   return {sess:m(ws.filter(w=>!isWeek(w))),week:m(ws.filter(isWeek))}};
+ // Most room first needs usage that can be read: Claude accounts, a subscription that reports windows (ChatGPT through the engine,
+ // Google AI Pro through agy's quota, usage-extra.mjs), or a provider that reports account windows now. A plain API key reports none.
+ const readable=(kind,prov)=>{if(kind==='claude')return true;const p=(prov||[]).find(x=>'p:'+x.slug===kind);return !!p&&(SUBS.test(p.slug+' '+p.name)||(p.windows||[]).some(w=>w.scope!=='model'&&w.scope!=='image'))};
+ const groupsOf=(d,prov)=>groupEntries(d.priority||[],d.solo,{modes:d.poolMode,readable:k=>readable(k,prov)});
+ // an entry can answer with this model: its own model when it sets one, else what its provider offers (every Claude account has the Claude models)
+ const servesModel=(e,model,prov)=>e.model?e.model===model:e.key.startsWith(PLUGIN_KEY)?isClaude(model):((prov||[]).find(x=>x.slug===e.key.slice(2))?.models||[]).includes(model);
  // one entry's reading for the ranking (account-pools.mjs): onIt = how many agents are on each entry now
  const reading=(e,det,prov,model,onIt)=>({key:e.key,used:usageOf(e.key,det,prov,model),...windowsOf(e.key,det,prov,model),agents:onIt.get(e.key)||0,held:!!accountHooks.held?.(e.key)});
 
@@ -278,7 +285,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    // Stability first (12 Nov 2026: 148 moves in a day): an agent stays on its entry. It moves when its entry passes the number (inside its
    // pool first, to the member with the most room, then down the list), goes back up as before, and between chats changes
    // member only for one that is clearly better. Each move is counted at once, so a batch of agents spreads over the members.
-   const groups=groupEntries(d.priority,d.solo),names=await agents(),curOf={},onIt=new Map();
+   const groups=planGroups(groupsOf(d,await providers(false,'default'))),names=await agents(),curOf={},onIt=new Map();
    for(const n of names){curOf[n]=await entryOf(d,n);onIt.set(curOf[n],(onIt.get(curOf[n])||0)+1)}
    for(const profile of names){const prov=await providers(false,profile);if(!prov)continue;   // its gateway did not answer: nothing is known this tick
     const cur=curOf[profile],model=(await agentRoute(profile)).model;const pe=d.priority.find(e=>e.key===cur&&(e.model===model||!e.model))||d.priority.find(e=>e.key===cur);
@@ -290,7 +297,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
     if(!(at>0&&back&&free))upSeen.delete(profile);
     // between chats: nothing of the agent is running and it has been quiet for a while (server.mjs); unknown counts as busy
     const idle=on&&g?.pool&&free?await Promise.resolve(accountHooks.idle?.(profile)).catch(()=>false)===true:false;
-    const {cands}=planMove({groups,at,cur,state,curState:reading({key:cur},det,prov,model,onIt),th,backAt,on,back,mayGoUp:free,mayRebalance:free,idle,
+    const {cands}=planMove({groups,at,cur,state,curState:reading({key:cur},det,prov,model,onIt),th,backAt,on,back,mayGoUp:free,mayRebalance:free,idle,serves:e=>servesModel(e,model,prov),
      // two checks in a row (10 minutes) before going back, so it does not flip back and forth
      upConfirmed:id=>{if(!id){upSeen.delete(profile);return false}const u=upSeen.get(profile),n=u?.k===id?u.n+1:1;upSeen.set(profile,{k:id,n});return n>=2}});
     for(const c of cands){const done=await useEntry(d,profile,c.entry,c.why).then(()=>true,er=>{console.warn('auto-switch',er.message);return false});
@@ -479,7 +486,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    // the priority list as groups (pools), who would be picked next in each pool, and how calm it has been
    const onIt=new Map();for(const n of await agents()){const k=route[n]?.entry||await entryOf(d,n);onIt.set(k,(onIt.get(k)||0)+1)}
    const detNow=Object.fromEntries(list.map(v=>[v.id,v])),lim=Number(d.auto?.threshold)||90;
-   const groups=groupEntries(d.priority||[],d.solo).map(g=>({id:g.id,kind:g.kind,model:g.model,pool:g.pool,alone:g.alone,members:g.members,next:g.pool?nextPick(g.members.map(e=>reading(e,detNow,prov,g.model,onIt)),{lim}):null}));
+   const groups=groupsOf(d,prov).map(g=>({id:g.id,kind:g.kind,mode:g.mode,canRoom:g.canRoom,pool:g.pool,alone:g.alone,members:g.members,next:g.pool?nextPick(g.members.map(e=>reading(e,detNow,prov,e.model,onIt)),{lim}):null}));
    const moves=moves24((await tailOf(path.join(DATA,'model-moves.jsonl'))).split('\n'),{see});
    return send(res,200,{accounts:list,providers:prov,groups,solo:d.solo||[],moves24:moves,priority:d.priority||[],labels:d.labels||{},route,assign:Object.fromEntries(ag.map(n=>[n,d.assign[n]||'main'])),auto:d.auto||{on:false,threshold:90},events:(d.events||[]).filter(e=>see(e.profile)),signedOut:await signedOut(),keys:accountHooks.keyStatus?.()||{},allow:d.allow||[]})}
   if(p==='/ui/accounts/priority'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
@@ -489,6 +496,11 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    // pool members are kept next to each other; solo: the entries taken out of their pool ("key|model"), kept as they are when not sent
    const nz=normalise(pr,Array.isArray(b.solo)?b.solo.filter(x=>typeof x==='string'&&x.length<=200).slice(0,40):d.solo||[]);
    d.priority=nz.priority;d.solo=nz.solo;await update(x=>{x.priority=nz.priority;x.solo=nz.solo});autoTick().catch(()=>{});accountHooks.backupSync?.('priority');return send(res,200,{priority:d.priority,solo:d.solo})}
+  // one provider's accounts: Most room first, or In my order (the page offers Most room only where usage can be read)
+  if(p==='/ui/accounts/group-mode'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const kind=String(b.kind||''),mode=String(b.mode||'');
+   if(!/^(claude|p:[a-z0-9_.-]+)$/.test(kind)||!['room','order'].includes(mode))return send(res,400,{error:'Unknown choice'});
+   if(mode==='room'&&!readable(kind,await providers(false)))return send(res,400,{error:'Usage cannot be read for this provider, so its accounts are used in your order.'});
+   await update(x=>{(x.poolMode||={})[kind]=mode});autoTick().catch(()=>{});return send(res,200,{kind,mode})}
   if(p==='/ui/accounts/use'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const profile=String(b.profile||'');if(!/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(profile))return send(res,400,{error:'Bad agent name'});if(!see(profile))return send(res,403,{error:'This agent is private to its owner.'});
    try{await useEntry(d,profile,{key:String(b.key||''),model:String(b.model||'')},'Chosen by hand');return send(res,200,{ok:true})}catch(e){return send(res,400,{error:e.message})}}
   if(p==='/ui/accounts'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{return send(res,200,await startLogin(b.label))}catch(e){return send(res,500,{error:e.message})}}

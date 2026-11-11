@@ -22,6 +22,12 @@ test('saving keeps pool members together; an entry taken out stays out until it 
  let r=await call('PUT','/ui/accounts/priority',{priority:OLD,solo:['claude:three|','claude:nobody|']});
  assert.deepEqual(r.j.priority.map(e=>e.key),['claude:main','claude:two','p:openai-codex','claude:three']);assert.deepEqual(r.j.solo,['claude:three|']);
  r=await call('GET','/ui/accounts');assert.deepEqual(r.j.groups.map(g=>[g.pool,g.alone,g.members.length]),[[true,false,2],[false,false,1],[false,true,1]]);
+ // the group's one setting: In my order turns the pool off; Most room first is refused where usage cannot be read
+ assert.deepEqual(r.j.groups.map(g=>[g.kind,g.mode,g.canRoom]),[['claude','room',true],['p:openai-codex','order',false],['claude','order',false]]);
+ assert.equal((await call('PUT','/ui/accounts/group-mode',{kind:'claude',mode:'order'})).status,200);
+ assert.deepEqual((await call('GET','/ui/accounts')).j.groups.map(g=>[g.mode,g.pool])[0],['order',false]);
+ assert.equal((await call('PUT','/ui/accounts/group-mode',{kind:'p:openai-codex',mode:'room'})).status,400);assert.equal((await call('PUT','/ui/accounts/group-mode',{kind:'x',mode:'room'})).status,400);
+ assert.equal((await call('PUT','/ui/accounts/group-mode',{kind:'claude',mode:'room'})).status,200);
  // a save that says nothing about solo (the ⋯ menu's Add to priority) keeps it
  r=await call('PUT','/ui/accounts/priority',{priority:[...r.j.priority].reverse()});assert.deepEqual(r.j.solo,['claude:three|']);
  assert.deepEqual(r.j.priority.map(e=>e.key),['claude:three','p:openai-codex','claude:two','claude:main']);
