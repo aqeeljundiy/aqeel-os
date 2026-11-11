@@ -143,7 +143,6 @@ Today: the fixer runs on the main agent's profile, Sonnet 5.5 with the 1M contex
 
 ## From the old /backlog board (last updated 5 Nov)
 
-The "partly done" items need sorting: each one ends up done, split into a clear next step, or dropped.
 
 ### Doing (from the old board) (3)
 
@@ -167,175 +166,182 @@ The "partly done" items need sorting: each one ends up done, split into a clear 
 - [ ] **CODE-22** Signed installers (Windows and Mac) · P3
 
 
-<details><summary>Partly done (168, needs sorting)</summary>
+Sorted 11 Nov against the code on main (helper agent, 168 items): 10 open, 154 done, 4 dropped. AUDIT-2, AUDIT-41 and PAR-37 were fixed the same day.
 
-- [ ] **AUDIT-1** Agents: Members can bypass the fresh-agent restriction and copy another agent's secrets · P0
-- [ ] **AUDIT-2** People and access: Admins can bypass private-agent access through the legacy sharing endpoint · P0
-- [ ] **AUDIT-3** Server: [P0] Unauthenticated WebSocket clients can exhaust server memory · P0
-- [ ] **AUDIT-4** Code engine and desktop app: Online viewers can control runs and terminals despite view-only access · P0
-- [ ] **AUDIT-6** Chrome extension: Password values can leak through snapshot element names · P0
-- [ ] **CODE-07** Code uses agents, one way · P0
-- [ ] **CODE-41** The aqeelOS desktop app, with a real browser in Code · P0
-- [ ] **CODE-48** Stop doesn’t close the app · P0
-- [ ] **CODE-52** Attach several agents to a Code message · P0
-- [ ] **CODE-55** One model list in Code, as in aqeelOS · P0
-- [ ] **SYS-61** Full audit: everything the engine's own dashboard has, aqeelOS has too · P0
-- [ ] **AUDIT-10** Chat: Uploads can silently overwrite another chat's attachment · P1
-- [ ] **AUDIT-11** Chat: Voice transcription is always routed to the default agent · P1
-- [ ] **AUDIT-12** Memory and Files: Uploading a matching filename silently overwrites the existing file · P1
-- [ ] **AUDIT-13** Memory and Files: A failed memory read opens an empty editor that can erase existing notes · P1
-- [ ] **AUDIT-14** Memory and Files: All-agents Files shows members folders they cannot open · P1
-- [ ] **AUDIT-15** Code page in aqeelOS: Fallback download installs an engine the browser refuses to open · P1
-- [ ] **AUDIT-16** Code page in aqeelOS: A rejected connection attempt hides the connection form · P1
-- [ ] **AUDIT-17** Automations: Editing interval or one-time schedules silently replaces their timing · P1
-- [ ] **AUDIT-18** Automations: Failed access removal is reported as successful · P1
-- [ ] **AUDIT-19** Automations: The timezone shortcut changes the chatting agent instead of the schedule's agent · P1
-- [ ] **AUDIT-20** Channels: All agents omits requests from extra channel accounts · P1
-- [ ] **AUDIT-21** Abilities: Renaming an app can overwrite another connection · P1
-- [ ] **AUDIT-22** Abilities: Changing provider can leave an incompatible model selected · P1
-- [ ] **AUDIT-23** Models: Switching providers can leave the agent with an unsupported model · P1
-- [ ] **AUDIT-24** Models: Automatic switching stops after the first inaccessible fallback · P1
-- [ ] **AUDIT-25** Models: Google sign-out leaves agents pointing at the disabled provider · P1
-- [ ] **AUDIT-26** System: Backup controls never reach the Health page · P1
-- [ ] **AUDIT-27** System: Daily limits ignore today's work in older chats · P1
-- [ ] **AUDIT-28** People and access: Sharing a key silently destroys a different key already on the recipient · P1
-- [ ] **AUDIT-29** People and access: Deleting an agent never frees the member's creation allowance · P1
-- [ ] **AUDIT-30** People and access: Member connection lists are always filtered using a nonexistent field · P1
-- [ ] **AUDIT-31** People and access: Password changes leave existing sessions authenticated · P1
-- [ ] **AUDIT-32** Server: [P0] Shared-screen restriction can be bypassed through an agent screen · P1
-- [ ] **AUDIT-33** Server: [P1] Code online sessions survive 'Sign out everywhere' · P1
-- [ ] **AUDIT-34** Code engine and desktop app: Keeping a comparison corrupts changed image files · P1
-- [ ] **AUDIT-35** Code engine and desktop app: Comparison deletions bypass undo history · P1
-- [ ] **AUDIT-36** Code engine and desktop app: AI browser reads the person's tab but clicks its own tab · P1
-- [ ] **AUDIT-37** Code engine and desktop app: PowerPoint, Word and Excel uploads are rejected as nontext · P1
-- [ ] **AUDIT-38** Code engine and desktop app: Gemini loses all saved project secrets before launch · P1
-- [ ] **AUDIT-39** Code engine and desktop app: Turning off web access also removes unrelated app and connected-agent tools · P1
-- [ ] **AUDIT-40** Code engine and desktop app: A fourth running AI leaves a new comparison half-started forever · P1
-- [ ] **AUDIT-41** Code engine and desktop app: Background self-update can terminate work started during the download · P1
-- [ ] **AUDIT-42** Code engine and desktop app: Failed dependency installation still commits the self-update · P1
-- [ ] **AUDIT-43** Chrome extension: Stop and Take over do not cancel a pending click or typing action · P1
-- [ ] **AUDIT-44** Chrome extension: The browser cannot discover controls inside shadow roots · P1
-- [ ] **AUDIT-45** Code app: Saving can silently discard edits typed during the request · P1
-- [ ] **AUDIT-46** Code app: The project preview tab is never rendered · P1
-- [ ] **AUDIT-47** Code app: Compare draft Preview buttons show the wrong browser · P1
-- [ ] **AUDIT-48** Code app: Agent command updates repeatedly steal the terminal tab · P1
-- [ ] **AUDIT-7** App shell: Signing out leaves private conversations available to the next account · P1
-- [ ] **AUDIT-8** Chat: Sending locks out steering, queued messages, and other chats until the reply ends · P1
-- [ ] **AUDIT-9** Chat: Images larger than 8 MB are sent without image data · P1
-- [ ] **CODE-12** Code for the whole team · P1
-- [ ] **CODE-39** Side browser: microphone, camera, location, downloads, uploads · P1
-- [ ] **CODE-45** Rounded, centred device screens · P1
-- [ ] **CODE-53** Agents introduce themselves to the coding model · P1
-- [ ] **CODE-54** Files from agents land in the project · P1
-- [ ] **CODE-56** Plan only on every model · P1
-- [ ] **CODE-57** Open in Code from a chat · P1
-- [ ] **PAR-11** Shell, Task board, Achievements: Configure orchestrator and default assignee · P1
-- [ ] **PAR-12** Shell, Task board, Achievements: Toggle automatic triage decomposition · P1
-- [ ] **PAR-13** Shell, Task board, Achievements: Task diagnostic and staleness indicators · P1
-- [ ] **PAR-14** Shell, Task board, Achievements: Create tasks in the intended workflow destination · P1
-- [ ] **PAR-15** Shell, Task board, Achievements: Select task workspace type and path · P1
-- [ ] **PAR-16** Shell, Task board, Achievements: Choose a parent when creating a task · P1
-- [ ] **PAR-17** Shell, Task board, Achievements: Move tasks by desktop drag and drop · P1
-- [ ] **PAR-18** Shell, Task board, Achievements: Change task status through task controls · P1
-- [ ] **PAR-19** Shell, Task board, Achievements: Completion summary and destructive transition confirmations · P1
-- [ ] **PAR-2** Shell, Task board, Achievements: Standalone gateway warning on multi-profile installations · P1
-- [ ] **PAR-20** Shell, Task board, Achievements: Specify and decompose triage work · P1
-- [ ] **PAR-21** Shell, Task board, Achievements: Inspect and edit task dependencies · P1
-- [ ] **PAR-22** Shell, Task board, Achievements: Final task result and run-summary fallback · P1
-- [ ] **PAR-23** Shell, Task board, Achievements: Read child task results and open child tasks · P1
-- [ ] **PAR-24** Shell, Task board, Achievements: Read and add task comments · P1
-- [ ] **PAR-25** Shell, Task board, Achievements: Task attachment upload, download and deletion · P1
-- [ ] **PAR-26** Shell, Task board, Achievements: Task diagnostics details and recovery actions · P1
-- [ ] **PAR-27** Shell, Task board, Achievements: Worker log inspection · P1
-- [ ] **PAR-28** Shell, Task board, Achievements: Complete task run history · P1
-- [ ] **PAR-29** Shell, Task board, Achievements: Select tasks for bulk work · P1
-- [ ] **PAR-30** Shell, Task board, Achievements: Bulk status changes and multi-card dragging · P1
-- [ ] **PAR-31** Shell, Task board, Achievements: Bulk priority and reassignment with reclaim-first · P1
-- [ ] **PAR-32** Shell, Task board, Achievements: Unlocked, discovered and secret achievement states · P1
-- [ ] **PAR-33** Files and Memory: Enter an arbitrary absolute directory path and submit with Go or Enter · P1
-- [ ] **PAR-34** Files and Memory: See accurate provider readiness states · P1
-- [ ] **PAR-35** Files and Memory: Inspect and edit an already available provider's configuration · P1
-- [ ] **PAR-36** Files and Memory: See detailed dependency setup results and failures · P1
-- [ ] **PAR-37** Models and agents: Add, remove and change MoA reference-model slots · P1
-- [ ] **PAR-38** Models and agents: Disconnect an OAuth provider with confirmation · P1
-- [ ] **PAR-39** Settings and Keys: Complete environment-variable catalog · P1
-- [ ] **PAR-4** Shell, Task board, Achievements: Kanban manual refresh and automatic updates · P1
-- [ ] **PAR-40** System, Logs, Usage: Host memory used, total and percentage · P1
-- [ ] **PAR-41** System, Logs, Usage: Gateway running status and detailed state description · P1
-- [ ] **PAR-42** System, Logs, Usage: Stop the selected profile's gateway · P1
-- [ ] **PAR-43** System, Logs, Usage: Create full engine backup and show archive path · P1
-- [ ] **PAR-44** System, Logs, Usage: Download the completed engine backup archive · P1
-- [ ] **PAR-45** System, Logs, Usage: Restore an uploaded archive with destructive confirmation · P1
-- [ ] **PAR-47** System, Logs, Usage: Global critical and elevated disk warnings · P1
-- [ ] **PAR-48** Channels: Show each platform's shared-listener callback URL · P1
-- [ ] **PAR-49** Channels: Enable and disable individual channels · P1
-- [ ] **PAR-50** Channels: Edit all returned platform environment settings · P1
-- [ ] **PAR-51** Channels: View existing allowlist entries when opening settings · P1
-- [ ] **PAR-52** Channels: Choose WhatsApp Bot or Self-chat mode · P1
-- [ ] **PAR-53** Skills, Plugins, Connected apps: Learn a skill from local sources, a URL and free-form notes · P1
-- [ ] **PAR-54** Skills, Plugins, Connected apps: Open hub skill details and preview SKILL.md before installation · P1
-- [ ] **PAR-55** Skills, Plugins, Connected apps: Run or rerun a hub skill security scan · P1
-- [ ] **PAR-56** Skills, Plugins, Connected apps: Inspect security verdict, install policy and severity totals · P1
-- [ ] **PAR-57** Skills, Plugins, Connected apps: Install a plugin from an arbitrary identifier or repository URL · P1
-- [ ] **PAR-58** Skills, Plugins, Connected apps: Browse and install curated, pinned catalog plugins · P1
-- [ ] **PAR-59** Skills, Plugins, Connected apps: Review and accept expanded plugin capabilities during update · P1
-- [ ] **PAR-6** Shell, Task board, Achievements: Create a board · P1
-- [ ] **PAR-60** Skills, Plugins, Connected apps: Open any installed plugin dashboard tab · P1
-- [ ] **PAR-61** Skills, Plugins, Connected apps: Edit and save schema-driven memory-provider settings · P1
-- [ ] **PAR-62** Skills, Plugins, Connected apps: Install memory-provider dependencies and inspect per-step results · P1
-- [ ] **PAR-63** Skills, Plugins, Connected apps: Add an HTTP MCP server with a bearer token · P1
-- [ ] **PAR-64** Skills, Plugins, Connected apps: Authenticate an MCP server through browser OAuth · P1
-- [ ] **PAR-65** Skills, Plugins, Connected apps: Enter and validate required MCP catalog credentials · P1
-- [ ] **PAR-66** Chat: Choose a project folder or discovered repository · P1
-- [ ] **PAR-67** Chat: Choose reasoning effort across all eight levels · P1
-- [ ] **PAR-68** Schedules, Webhooks, Pairing: Attach one or multiple skills to a job · P1
-- [ ] **PAR-69** Schedules, Webhooks, Pairing: Select a script for scheduled execution · P1
-- [ ] **PAR-7** Shell, Task board, Achievements: Edit board name, description and default work directory · P1
-- [ ] **PAR-70** Schedules, Webhooks, Pairing: Run script only and deliver stdout verbatim · P1
-- [ ] **PAR-71** Schedules, Webhooks, Pairing: Continuity between successive runs · P1
-- [ ] **PAR-72** Schedules, Webhooks, Pairing: Scheduler heartbeat staleness warning · P1
-- [ ] **PAR-73** Schedules, Webhooks, Pairing: Automatic-enable restart outcome, errors and retry restart · P1
-- [ ] **PAR-74** Schedules, Webhooks, Pairing: Webhook delivery choices: log, Telegram, Discord, Slack, email and GitHub comment · P1
-- [ ] **PAR-75** Chats and history: Highlight matches within an opened transcript and jump to the first hit · P1
-- [ ] **PAR-76** Chats and history: Automatically refresh session history when another process creates a session · P1
-- [ ] **SHELL-51** Help: a chat that explains aqeelOS and finds what went wrong · P1
-- [ ] **SYS-50** Email when the server goes down · P1
-- [ ] **AUDIT-49** App shell: 12 smaller fixes · P2
-- [ ] **AUDIT-50** Chat: 8 smaller fixes · P2
-- [ ] **AUDIT-51** Agents: 8 smaller fixes · P2
-- [ ] **AUDIT-52** Memory and Files: 6 smaller fixes · P2
-- [ ] **AUDIT-53** Code page in aqeelOS: 6 smaller fixes · P2
-- [ ] **AUDIT-54** Automations: 10 smaller fixes · P2
-- [ ] **AUDIT-55** Channels: 5 smaller fixes · P2
-- [ ] **AUDIT-56** Abilities: 7 smaller fixes · P2
-- [ ] **AUDIT-57** Models: 10 smaller fixes · P2
-- [ ] **AUDIT-58** System: 13 smaller fixes · P2
-- [ ] **AUDIT-59** People and access: 4 smaller fixes · P2
-- [ ] **AUDIT-60** Server: 6 smaller fixes · P2
-- [ ] **AUDIT-61** Code app: 8 smaller fixes · P2
-- [ ] **AUDIT-62** Code engine and desktop app: 4 smaller fixes · P2
-- [ ] **AUDIT-63** Chrome extension: 5 smaller fixes · P2
-- [ ] **AUDIT-65** Chrome extension: Stop should hold until the next chat turn · P2
-- [ ] **AUTO-38** WhatsApp Business connection for a team number · P2
-- [ ] **PAR-77** Shell, Task board, Achievements: 37 useful engine features to add · P2
-- [ ] **PAR-79** Files and Memory: 15 useful engine features to add · P2
-- [ ] **PAR-81** Models and agents: 40 useful engine features to add · P2
-- [ ] **PAR-83** Settings and Keys: 23 useful engine features to add · P2
-- [ ] **PAR-85** System, Logs, Usage: 34 useful engine features to add · P2
-- [ ] **PAR-87** Channels: 13 useful engine features to add · P2
-- [ ] **PAR-89** Skills, Plugins, Connected apps: 32 useful engine features to add · P2
-- [ ] **PAR-91** Chat: 22 useful engine features to add · P2
-- [ ] **PAR-93** Schedules, Webhooks, Pairing: 22 useful engine features to add · P2
-- [ ] **PAR-95** Chats and history: 25 useful engine features to add · P2
-- [ ] **PAR-78** Shell, Task board, Achievements: 4 small engine features to add · P3
-- [ ] **PAR-80** Files and Memory: 6 small engine features to add · P3
-- [ ] **PAR-82** Models and agents: 17 small engine features to add · P3
-- [ ] **PAR-84** Settings and Keys: 12 small engine features to add · P3
-- [ ] **PAR-86** System, Logs, Usage: 9 small engine features to add · P3
-- [ ] **PAR-88** Channels: 8 small engine features to add · P3
-- [ ] **PAR-90** Skills, Plugins, Connected apps: 7 small engine features to add · P3
-- [ ] **PAR-92** Chat: 8 small engine features to add · P3
-- [ ] **PAR-94** Schedules, Webhooks, Pairing: 4 small engine features to add · P3
-- [ ] **PAR-96** Chats and history: 6 small engine features to add · P3
+### Still open (next steps)
 
-</details>
+- [x] **AUDIT-2** People and access: Admins can bypass private-agent access through the legacy sharing endpoint — fixed 11 Nov: the share check and the invite filter also refuse an admin's own agent made Private (users.mjs; users.test.mjs proves both halves fail on the old code)
+- [x] **AUDIT-41** Code engine and desktop app: Background self-update can terminate work started during the download — fixed 11 Nov: Code's self-update also waits while a terminal is at work (input or output in the last 2 min, or on Linux a shell with a running command; Terminals.busy, tested on a real shell)
+- [ ] **CODE-12** Code for the whole team · P1 — next: check live: members now reach online Code (app/code-online.mjs allowed() lets every signed-in user in; code/workspace-api.mjs checks per-project access), so confirm which Linux user the box's Code app on :4321 runs terminals and runs as, and whether a member's terminal can read ~/.hermes/.env or other agents' files; if it can, run member work under its own user (as scripts/agent-users.sh does for agents).
+- [ ] **CODE-56** Plan only on every model · P1 — next: check live: send a Plan only turn on an engine model in an online project and confirm the agent's Linux user cannot write inside the .plan-<id> copy (app/code-agents.mjs planCopy only copies; read-only relies on the box's per-user ACLs) and that commands are refused (code/engine.mjs:51).
+- [x] **PAR-37** Models and agents: Add, remove and change MoA reference-model slots — fixed 11 Nov: key and split sat behind a // comment in people.js, so New team / Edit for a team of models threw at once
+- [ ] **PAR-47** System, Logs, Usage: Global critical and elevated disk warnings · P1 — next: free space is already shown (app/core.js:486-490); add the consequence "saving files and chats may fail" to the disk-c and disk-e banner texts there.
+- [ ] **SHELL-51** Help: a chat that explains aqeelOS and finds what went wrong · P1 — next: check live: on the AI box, confirm app/help.mjs ensure() has made the hidden HELP_AGENT profile with every toolset off, that the model picked in System › Settings › Help is used, and that a Help reply streams.
+- [ ] **SYS-50** Email when the server goes down · P1 — next: the outside check is still only scripts/uptime-workflow.yml (not in .github/workflows/); after gh auth refresh -s workflow, copy it to .github/workflows/uptime.yml and set the AQEELOS_URL repository variable (the "was off" message on return is done in app/server.mjs:816-823).
+- [ ] **AUDIT-65** Chrome extension: Stop should hold until the next chat turn · P2 — next: check live: code is in (server.mjs:2045 calls localBrowser.turn, localbrowser.mjs:85 sends {type:'turn'}, extension/background.js:56 clears blockUntil; manifest 2.1.2), so confirm on the server's My browser page that the owner's installed extension reports 2.1.2 and that Stop holds until the next message.
+- [ ] **AUTO-38** WhatsApp Business connection for a team number · P2 — next: owner-blocked: needs the Meta business account and chosen number; then enter them on Channels › WhatsApp Business (callback /whatsapp-cloud, app/server.mjs:2340/2703) and test with one real message.
+
+### Done (verified in code)
+
+- [x] **AUDIT-1** Agents: Members can bypass the fresh-agent restriction and copy another agent's secrets — evidence: app/server.mjs:1993-1995, in the non-admin POST /hapi/profiles gate, forces clone_from_default/clone_all false and deletes clone_from unless users.level(u,clone_from)==='owner'. Hole closed.
+- [x] **AUDIT-3** Server: [P0] Unauthenticated WebSocket clients can exhaust server memory — evidence: app/localbrowser.mjs acceptWs caps frame length (8e6), fragments (8e6) and buffer (16e6) with sock.destroy(), and close() destroys after 2 s; an unknown token gets 'unpaired' then close (line 51). Memory is now bounded per socket; hole closed.
+- [x] **AUDIT-4** Code engine and desktop app: Online viewers can control runs and terminals despite view-only access — evidence: code/workspace-api.mjs:417-422 resolves the terminal/agent/build/command object by id, 404s when its project isn't accessible, and adds obj.projectId to the checked list so POST with view access gets 403. Hole closed.
+- [x] **AUDIT-6** Chrome extension: Password values can leak through snapshot element names — evidence: extension/background.js:185 nameOf uses `e.type==='password'?'':e.value`, and line 201 does the same for the action name. Hole closed.
+- [x] **AUDIT-10** Chat: Uploads can silently overwrite another chat's attachment — evidence: app/chat.js uploadAtt (lines 178-180) adds a Date.now()+random suffix to the path and sends overwrite='false'.
+- [x] **AUDIT-11** Chat: Voice transcription is always routed to the default agent — evidence: app/users.mjs:180 gate now allows POST /hapi/audio/transcribe for members; app/voice.js:28 keeps ?profile=default on purpose (comment at users.mjs:179: the box's speech-to-text runs on the main agent's setup).
+- [x] **AUDIT-12** Memory and Files: Uploading a matching filename silently overwrites the existing file — evidence: app/files.js:76-81 lists the folder, asks confirmBox('Replace …') for same-named files, and sends overwrite='false' when the folder can't be listed.
+- [x] **AUDIT-13** Memory and Files: A failed memory read opens an empty editor that can erase existing notes — evidence: app/people.js:369 memNow rethrows any error that is not a 404/not-found, and ACT['mem-edit'] (line 370) fails instead of opening an empty editor.
+- [x] **AUDIT-14** Memory and Files: All-agents Files shows members folders they cannot open — evidence: app/all-agents.js:8 showingAll() excludes the 'keys' and 'files' pages for members (S.me.admin===false), so members see their own folder.
+- [x] **AUDIT-15** Code page in aqeelOS: Fallback download installs an engine the browser refuses to open — evidence: app/server.mjs:3066-3075 /ui/code/download/(windows|mac) serves the installer or the public release, else 404 'isn't ready yet' (the zip fallback is gone); app/code-ui.js:30 asks ?check=1 before downloading.
+- [x] **AUDIT-16** Code page in aqeelOS: A rejected connection attempt hides the connection form — evidence: app/live.mjs:45-46 connect() validates a candidate first, sets db.dokploy only around envId()/privateMiddleware() and restores prev on failure before save().
+- [x] **AUDIT-17** Automations: Editing interval or one-time schedules silently replaces their timing — evidence: app/pages.js:234 stores picker.start, and line 264 drops b.schedule when the job has no schedule.expr and the picker is unchanged.
+- [x] **AUDIT-18** Automations: Failed access removal is reported as successful — evidence: app/server.mjs:793 removeMcp now throws when the DELETE answers !r.ok and not 404, so n8n.share (app/n8n.mjs:82) stops before saving.
+- [x] **AUDIT-19** Automations: The timezone shortcut changes the chatting agent instead of the schedule's agent — evidence: superseded by the install-wide time zone: app/pages.js:187 tz-use posts /ui/install/timezone (all agents) instead of patching one agent's config; saveConfigPatch (line 879) also takes a profile now.
+- [x] **AUDIT-20** Channels: All agents omits requests from extra channel accounts — evidence: app/all-agents.js:63 ALLVIEW pairing adds the linked 'x--y' profiles from /ui/channels/links to the queried list.
+- [x] **AUDIT-21** Abilities: Renaming an app can overwrite another connection — evidence: app/share.mjs:57 renameMcp lists the agent's servers and throws '<name> already exists' before setMcp.
+- [x] **AUDIT-22** Abilities: Changing provider can leave an incompatible model selected — evidence: app/accounts.mjs:192-203 useEntry keeps the authenticated provider entry and, when no model is given, sets model.default to its first model if the current one isn't listed (and a Claude model for the Claude plugin).
+- [x] **AUDIT-23** Models: Switching providers can leave the agent with an unsupported model — evidence: same code as AUDIT-22, app/accounts.mjs useEntry lines 200-202 check agentRoute(profile).model against the provider's models.
+- [x] **AUDIT-24** Models: Automatic switching stops after the first inaccessible fallback — evidence: app/accounts.mjs:240 maps useEntry to true/false and breaks only when the switch worked.
+- [x] **AUDIT-25** Models: Google sign-out leaves agents pointing at the disabled provider — evidence: app/antigravity.mjs:54 calls moveOff for each agent before disabling; app/accounts.mjs:369 accountHooks.moveOff runs useEntry over the priority list (wired at app/server.mjs:1014).
+- [x] **AUDIT-26** System: Backup controls never reach the Health page — evidence: app/backups.js:94-98 wraps PAGES.health (not status) and mounts Backups.card in its own .backups-slot.
+- [x] **AUDIT-27** System: Daily limits ignore today's work in older chats — evidence: app/usage.mjs today() (line 59-61) calls chats(a,since,true), which filters on last_active, and subtracts each chat's totals from its first sight of the day (usage-day.json).
+- [x] **AUDIT-7** App shell: Signing out leaves private conversations available to the next account — evidence: app/core.js:713-714 signedOut() and signOut() both end with location.href='/', dropping all in-memory chats.
+- [x] **AUDIT-8** Chat: Sending locks out steering, queued messages, and other chats until the reply ends — evidence: app/chat.js _submit (around line 313) calls this.send(text,images) without awaiting, so submit()'s _sending guard covers only the composer step.
+- [x] **AUDIT-9** Chat: Images larger than 8 MB are sent without image data — evidence: app/chat.js:304 treats `f.kind!=='image'||!f.url` as files to upload, so images without inline data are uploaded instead of sent with url undefined.
+- [x] **AUDIT-28** People and access: Sharing a key silently destroys a different key already on the recipient — evidence: app/access.mjs grant() kind 'key' (line 96) throws "already has its own NAME" when the recipient holds a different value, before editEnv; hole closed.
+- [x] **AUDIT-29** People and access: Deleting an agent never frees the member's creation allowance — evidence: app/users.mjs dropAgent()/restoreAgent() (lines 115-116); app/server.mjs delete cleanup (line 1936) calls users.dropAgent once isAgent(gone) is false, restore (line 2661) calls users.restoreAgent; hole closed.
+- [x] **AUDIT-30** People and access: Member connection lists are always filtered using a nonexistent field — evidence: app/server.mjs no longer reads users.byId(u.id).agents; /ui/access (line 3161) filters by users.gate(...), /ui/models/agents (3089) by users.level, /ui/n8n/spaces (3077) by users.atLeast(u,a,'edit'); hole closed.
+- [x] **AUDIT-31** People and access: Password changes leave existing sessions authenticated — evidence: app/server.mjs PUT /ui/me/password (line 2611) calls revokeSessions(u.id) on 200 and sets a fresh hui cookie; cookieId (line 157) rejects cookies issued before the cut; hole closed.
+- [x] **AUDIT-32** Server: [P0] Shared-screen restriction can be bypassed through an agent screen — evidence: app/server.mjs line 3491 passes users.isAdmin(u) into screens.upgrade; app/screens.mjs upgrade() line 93 answers 403 when the port is SHARED.port and the caller is not admin; hole closed.
+- [x] **AUDIT-33** Server: [P1] Code online sessions survive 'Sign out everywhere' — evidence: app/code-online.mjs readCookie (line 18) rejects aqc cookies issued before revokedAt(uid); app/server.mjs line 998 passes revokedAt:uid=>revoked[uid]; hole closed.
+- [x] **AUDIT-34** Code engine and desktop app: Keeping a comparison corrupts changed image files — evidence: code/multi.mjs sig() fingerprints images/binary by sha1, keep() sends only textFile() non-NUL files to store.apply and copies images/binary as raw Buffers (copies loop); fixed.
+- [x] **AUDIT-35** Code engine and desktop app: Comparison deletions bypass undo history — evidence: code/multi.mjs keep() pushes deleted text files as {path,content:''} into the same store.apply version before the unlink loop (deleted binaries are still unlinked without a version).
+- [x] **AUDIT-36** Code engine and desktop app: AI browser reads the person's tab but clicks its own tab — evidence: code/browser-mcp.mjs call() (line 23) sends every route as POST with by:'ai', so reads and clicks use the same AI tab; fixed.
+- [x] **AUDIT-37** Code engine and desktop app: PowerPoint, Word and Excel uploads are rejected as nontext — evidence: code/workspace-api.mjs upload handler (line 661) checks Office files by ZIP/OLE magic and skips the NUL-byte text check for them; fixed.
+- [x] **AUDIT-38** Code engine and desktop app: Gemini loses all saved project secrets before launch — evidence: code/workspace-api.mjs line 235 Gemini branch sets options.env={...env,...(run.system?{}:await readSecrets())}; fixed.
+- [x] **AUDIT-39** Code engine and desktop app: Turning off web access also removes unrelated app and connected-agent tools — evidence: code/agent.mjs runClaude (line 155) and runCodex (line 136) add the MCP config when browserMcp OR extraMcp is present, with the browser server optional; fixed.
+- [x] **AUDIT-40** Code engine and desktop app: A fourth running AI leaves a new comparison half-started forever — evidence: code/multi.mjs compare() checks canStart(variants.length) first (wired in code/workspace-api.mjs line 287) and its try/catch stops started runs and removes the draft dir; fixed.
+- [x] **AUDIT-42** Code engine and desktop app: Failed dependency installation still commits the self-update — evidence: code/aqeelos.mjs checkUpdate() line 104 writes data/.deps-pending, throws when npmInstall() exits non-zero, and line 97 retries the install on the next check while the marker is there; fixed (no staging dir, but retry covers it).
+- [x] **AUDIT-43** Chrome extension: Stop and Take over do not cancel a pending click or typing action — evidence: extension/overlay.js set() records window.__aq.mode; extension/background.js clickRef (line 202) and typeRef (line 210) return "The person stopped this step." when the mode is not 'work' after move(); fixed.
+- [x] **AUDIT-44** Chrome extension: The browser cannot discover controls inside shadow roots — evidence: extension/background.js snapshot walk (line 189) goes into e.shadowRoot, clickRef/typeRef use a deep find() through shadow roots, and the data-aq-ref clear (line 174) recurses too; fixed.
+- [x] **AUDIT-45** Code app: Saving can silently discard edits typed during the request — evidence: code/studio.js saveFile() (lines 328-329) captures pid/name/sent before the POST, marks only `sent` as saved and leaves later keystrokes as "Unsaved changes"; fixed.
+- [x] **AUDIT-46** Code app: The project preview tab is never rendered — evidence: code/studio.js autoOpen() opens the project in a browser tab through openProject() when hasApp (from checkApp and when devUrl changes in the refreshPreview wrapper); fixed.
+- [x] **AUDIT-47** Code app: Compare draft Preview buttons show the wrong browser — evidence: code/studio.js line 254 Preview handler calls switchView('browser') and then browserUI.show().then(()=>browserUI.open(draftUrl)); fixed.
+- [x] **AUDIT-48** Code app: Agent command updates repeatedly steal the terminal tab — evidence: code/terminal-ui.js setAI() (line 54) keeps only the guarded `if(focus&&active!=='ai'&&!isShell(active))`; the unguarded switch is gone; fixed.
+- [x] **AUDIT-49** App shell: 12 smaller fixes — evidence: all 12 in (commits a8d5ad3, e8f45a6): nav rebuilt from ALL_SECTIONS on each sign-in (app/people.js), Tab-reachable inbox rows open on Enter/Space (app/boot.js:156), palette moves only through visible items (app/core.js:312), kbd labels use font:inherit (app/app.css:70,282).
+- [x] **AUDIT-50** Chat: 8 smaller fixes — evidence: all 8 in commit 4a48043 (plus c7bb96e); e.g. "Show earlier" doubles past 2000 messages (app/chat.js:185,231), streaming redraws only changed messages, retry keeps pictures, first message never goes through a just-switched agent.
+- [x] **AUDIT-51** Agents: 8 smaller fixes — evidence: commits 2cf79b3, cfcb415, 80b8de3, 052de6c, ccee0ac: Sharing warns before dropping edits, list refreshes after create/delete, editors may call describe-auto (app/users.mjs profile regex incl. describe-auto), Create shows progress and unfinished setup, Skills search reuses loaded lists, personality box in normal font. agents#4 was resolved by telling the person Write it for me saves, not by undoing on cancel.
+- [x] **AUDIT-52** Memory and Files: 6 smaller fixes — evidence: stale-request guard pageTok in app/files.js:23-30, search failure shows only matching names with a toast (app/files.js:43), provider select reverts on failure (bindMemProv, app/pages.js:783), smooth memory sections (4a48043), previews fade out (7c4944a); no monospace left on folder labels or the memory editor in app/app.css.
+- [x] **AUDIT-53** Code page in aqeelOS: 6 smaller fixes — evidence: commits 151f0e6 (failed first publish redoes setup, offline keeps app listed if DB removal failed) and 1917679 (Live no longer overwrites Build, Open Live opens Live, Connect/Take offline busy states, iPad desktop UA gets the tablet message).
+- [x] **AUDIT-54** Automations: 10 smaller fixes — evidence: commits f75c243 (n8n setup retried, n8n page font), d11a64f (calendar-month spending, full run counts), 10cbac8 (board keeps polling, keeps scroll), cfcb415 (webhook load failures, delivery follows agent, drafts survive tab switch), 4a48043 (n8n rows on phones); per-day spend counts estimated||actual once (app/schedules.js:222).
+- [x] **AUDIT-55** Channels: 5 smaller fixes — evidence: commits cfcb415 (Decline all clears every shown agent, Who can message load failures, plain card text), e8f45a6 (no extra WhatsApp Business accounts), 0a0526e/488102f/085a91a (channel move reports activation failure and rolls back); Decline all in pairWaitHead (app/pages.js:431).
+- [x] **AUDIT-56** Abilities: 7 smaller fixes — evidence: commits f0c2fed/2bdc68e (copies the sign-in picked, no false success), 91fd734 (active tool provider can save keys), cfcb415 (Plugins Browse in All agents), 10cbac8/68c36a9 (Achievements scan ends), 611f8dc (rename keeps sign-in), 052de6c (says which agents failed), 858c98c/4a48043 (phone skill descriptions).
+- [x] **AUDIT-57** Models: 10 smaller fixes — evidence: commits 76a936e (Google sign-in restart, Add account waits and uses the selected agent, keyboard card, no "billed per use", no fake 0%), 79f18dd (auto-switch skips accounts with unread usage), 91fd734 (slow Claude sign-in completes, plain sign-in names), 4a48043 (phone tabs).
+- [x] **AUDIT-58** System: 13 smaller fixes — evidence: commits 99ab035 (tar errors fail the backup), 91fd734 (edits kept, Load defaults, usage failures, Health not "stopped"), 0a0526e (breakdowns follow agent), cfcb415 (spending counts each day once, key font), be1ba3f (no replayed animations, logo Uploading, backup card polls on Health: app/backups.js:36), 052de6c (logs wording), 4a48043 (phone schedule costs).
+- [x] **AUDIT-59** People and access: 4 smaller fixes — evidence: 8ce00a7 (Google share never overwrites another token file); app/users.mjs: empty model list kept as [] so modelOk denies all (users.mjs:100,322,391), role DELETE refused while a waiting invite uses it (409), avatar only replaced after the new file is accepted (80b8de3).
+- [x] **AUDIT-60** Server: 6 smaller fixes — evidence: app/server.mjs:3229 refuses picking a browser for someone else's chat; /ui/n8n/status strips s.users and the agent's user for non-admins (server.mjs:2839-2842); bad JSON answered 400/413 instead of hanging (aacc2f5); starter suggestions use the configured model and keep refreshing (459b4a4); sign-in result pages load Plus Jakarta Sans.
+- [x] **AUDIT-61** Code app: 8 smaller fixes — evidence: commit b1d53ac (attachments kept for Compare/Team/running AI, Send pending state, New chat clears temporary chat, /model opens the picker via openModels in code/studio.js:722, language change saves other settings) and 4d56736 (touch scroll, phone keyboard, poll no longer rebuilds the tab strip).
+- [x] **AUDIT-62** Code engine and desktop app: 4 smaller fixes — evidence: code/multi.mjs:49 asks before overwriting files changed since the comparison started and takes any number of files (745bd08); code/browser.mjs connect() reinstalls the __cbaPerm binding and PERM_JS on every tab switch (line 135); connection test uses the chosen Claude account (a21b7a1).
+- [x] **AUDIT-63** Chrome extension: 5 smaller fixes — evidence: commits 1827faf (snapshot walk follows scroll past 500 and into shadow roots, extension/background.js:189,200; Backspace/Delete edit text, other keys say they only reached the page; Back with no history fails at once, background.js:149) and 3913045 (Plus Jakarta Sans bundled, Connect shows Connecting and can't double-press).
+- [x] **CODE-07** Code uses agents, one way — evidence: app/code-agents.mjs createCodeAgents (run ticket, ask-only design); app/server.mjs:2257 notes code_projects/code_work are gone; asks go through aqeelos_ask in code/aqeelos-mcp.mjs.
+- [x] **CODE-41** The aqeelOS desktop app, with a real browser in Code — evidence: code/desktop/main.cjs (Electron, real tabs laid over the stage, DevTools-driven via code/browser.mjs); the Mac build no longer needs a Mac: .github/workflows/desktop-app.yml builds aqeelOS.dmg on macos-latest and aqeelOS-Setup.exe on windows-latest.
+- [x] **CODE-48** Stop doesn’t close the app — evidence: code/desktop/main.cjs:66 spawns servers with ELECTRON_RUN_AS_NODE:'1' (also in code/aqeelos.mjs and code/workspace-api.mjs for tool servers).
+- [x] **CODE-52** Attach several agents to a Code message — evidence: code/studio.js:478 (agent chips, remembered per project); app/code-agents.mjs ticket()/ticketAgents() sign which agents a run may ask; aqeelos_ask in code/aqeelos-mcp.mjs.
+- [x] **CODE-55** One model list in Code, as in aqeelOS — evidence: code/studio.js:219 and :658 (one list "<harness>:<model>" from aqeelOS for the first attached agent); code/server.mjs:25; app/code-bridge.mjs relays project tool calls and logs to data/code-bridge.jsonl.
+- [x] **CODE-39** Side browser: microphone, camera, location, downloads, uploads — evidence: code/desktop/main.cjs:83 setPermissionRequestHandler→sitePermit (per site per project), :85 will-download into Downloads › Project; code/browser.mjs:144/163 Page.fileChooserOpened→fileAsk opens the picker for the person (a real upload was not tried on screen).
+- [x] **CODE-45** Rounded, centred device screens — evidence: code/desktop/main.cjs:106 view.setBorderRadius(stageRect.radius) for the real tab; frames and centring in the page as shipped in app 1.0.5 (glide not re-seen on screen).
+- [x] **CODE-53** Agents introduce themselves to the coding model — evidence: app/code-agents.mjs intro() (purpose, apps and skills by name, notes digest for owners; the SECRETY filter drops secret-looking notes).
+- [x] **CODE-54** Files from agents land in the project — evidence: app/code-agents.mjs outbox()/collect()/saveInto() with FILES_MAX=12, FILE_MAX=20e6, FILES_TOTAL=40e6 and safeRel() for a project subfolder; from-agents/<agent>/ handled in app/server.mjs and code/aqeelos-mcp.mjs.
+- [x] **CODE-57** Open in Code from a chat — evidence: app/server.mjs:2291/2318 adds and handles the open_in_code tool; app/code-agents.mjs handoff()/handoffGet() (7-day request, only people who may chat with the agent); app/core.js:154 opens Code in place, nothing runs until send.
+- [x] **PAR-11** Shell, Task board, Achievements: Configure orchestrator and default assignee — evidence: app/boards.js ACT['kb-settings'] reads GET /orchestration and /profiles, Organiser and Default agent selects show resolved values, saved with put(KB,'/orchestration').
+- [x] **PAR-12** Shell, Task board, Achievements: Toggle automatic triage decomposition — evidence: app/boards.js ACT['kb-settings'] "Split new ideas into tasks automatically" toggle (#ksX → auto_decompose), plus the board-header mode (lines 49-53).
+- [x] **PAR-13** Shell, Task board, Achievements: Task diagnostic and staleness indicators — evidence: app/boards.js KSTALE/kbStale() amber/red outlines and the needs-attention strip (kb-warn-open / kb-warn-off, lines 82-85).
+- [x] **PAR-14** Shell, Task board, Achievements: Create tasks in the intended workflow destination — evidence: app/boards.js kb-new #ktGo PATCHes {status} with the chosen status (line 214); each column header opens kb-new preselected (line 71).
+- [x] **PAR-15** Shell, Task board, Achievements: Select task workspace type and path — evidence: app/boards.js kb-new sends workspace_kind and workspace_path (line 209); shown in kbTaskL1 "Works in".
+- [x] **PAR-16** Shell, Task board, Achievements: Choose a parent when creating a task — evidence: app/boards.js kb-new "Waits for" select #ktW sent as body.parents=[w] (line 208).
+- [x] **PAR-17** Shell, Task board, Achievements: Move tasks by desktop drag and drop — evidence: app/boards.js kbDrag()/kbDropOn(): the Running column is knodrop (line 71) and refuses drops, kbDragOn shows targets while dragging, plus touch dragging in kbTouch().
+- [x] **PAR-18** Shell, Task board, Achievements: Change task status through task controls — evidence: app/boards.js kbStatusBtns() (line 218) renders only moves valid for the current status, wired to ACT['kb-status']→kbMove; no Running option.
+- [x] **PAR-19** Shell, Task board, Achievements: Completion summary and destructive transition confirmations — evidence: app/boards.js kbMove(): confirmBox before Block and Archive, promptBox for a required summary on Done, sent as {status:'done',result,summary}.
+- [x] **PAR-2** Shell, Task board, Achievements: Standalone gateway warning on multi-profile installations — evidence: app/core.js:481 reads st.multiplex_standalone_reason and lists the agents not being served in the banner.
+- [x] **PAR-20** Shell, Task board, Achievements: Specify and decompose triage work — evidence: app/boards.js ACT['kb-specify'] (POST /tasks/<id>/specify) and ACT['kb-decompose'] (POST /decompose, one at a time per task) with result messages.
+- [x] **PAR-21** Shell, Task board, Achievements: Inspect and edit task dependencies — evidence: app/boards.js kbTaskL1 "Waits for" / "Waiting for this" lists with add selects and ACT['kb-unlink'] (DELETE /links).
+- [x] **PAR-22** Shell, Task board, Achievements: Final task result and run-summary fallback — evidence: app/boards.js kbTaskL1 res=k.result||k.latest_summary with its label, and the hint for done parents with sub-tasks.
+- [x] **PAR-23** Shell, Task board, Achievements: Read child task results and open child tasks — evidence: app/boards.js kbTaskL1 "Sub-task results" from t.child_results, each with an Open (kb-open) button.
+- [x] **PAR-24** Shell, Task board, Achievements: Read and add task comments — evidence: app/boards.js comments show author and ago(created_at), #kdC submits on Enter (line 275), hint "The agent reads comments the next time it works on this task" (line 266); author no longer hard-coded.
+- [x] **PAR-25** Shell, Task board, Achievements: Task attachment upload, download and deletion — evidence: app/boards.js kbTaskL1 Files section with kb-att-get / kb-att-del and the upload handler (lines 315-319).
+- [x] **PAR-26** Shell, Task board, Achievements: Task diagnostics details and recovery actions — evidence: app/boards.js kbDiags() plus ACT['kb-reclaim'] (POST /reclaim), ACT['kb-reassign'] (POST /reassign with reclaim_first) and ACT['kb-copycmd'].
+- [x] **PAR-27** Shell, Task board, Achievements: Worker log inspection — evidence: app/boards.js kbLog() loads /tasks/<id>/log?tail=100000 with size, and ACT['kb-log'].
+- [x] **PAR-28** Shell, Task board, Achievements: Complete task run history — evidence: app/boards.js kbTaskL2 shows the latest 3 runs with agent, outcome, duration, summary, error and a metadata fold; ACT['kb-runs-all'] shows the rest.
+- [x] **PAR-29** Shell, Task board, Achievements: Select tasks for bulk work — evidence: app/boards.js KSel with kb-sel checkboxes, shift-click range (line 92) and the bulk bar (lines 102-111).
+- [x] **PAR-30** Shell, Task board, Achievements: Bulk status changes and multi-card dragging — evidence: app/boards.js kbMove() posts /tasks/bulk for several ids; kbIdsFor() moves the whole selection when a selected card is dragged.
+- [x] **PAR-31** Shell, Task board, Achievements: Bulk priority and reassignment with reclaim-first — evidence: app/boards.js ACT['kb-bulk-pri'] and ACT['kb-bulk-agent'] via /tasks/bulk with reclaim_first (lines 108-109).
+- [x] **PAR-32** Shell, Task board, Achievements: Unlocked, discovered and secret achievement states — evidence: app/boards.js achState()/achBadge() (lines 338-343) branch on x.state with masked secrets and a lock icon, plus Earned / In progress / Secret filters (line 361).
+- [x] **PAR-4** Shell, Task board, Achievements: Kanban manual refresh and automatic updates — evidence: app/boards.js kbLive() subscribes to /hapi/plugins/kanban/events over WebSocket with backoff, reloads the board and refreshes an open drawer (kbDrawerLive); polling stays as fallback.
+- [x] **PAR-6** Shell, Task board, Achievements: Create a board — evidence: app/boards.js new-board drawer (#knGo) posts /boards with slug, name, description, icon, project and default_workdir, plus "Open it now".
+- [x] **PAR-7** Shell, Task board, Achievements: Edit board name, description and default work directory — evidence: app/boards.js ACT['kb-settings'] PATCHes /boards/<slug> with name, description, icon, project_id and default_workdir (empty clears).
+- [x] **PAR-33** Files and Memory: Enter an arbitrary absolute directory path and submit with Go or Enter — evidence: app/files.js:32 "Go to folder" button (data-act f-go) and :69 promptBox that sets S.filePath and reloads.
+- [x] **PAR-34** Files and Memory: See accurate provider readiness states — evidence: app/pages.js:772-781 MEM_ST/memSt map ready / needs_config / unavailable / missing to Ready / Needs setup / bad chips on each provider row.
+- [x] **PAR-35** Files and Memory: Inspect and edit an already available provider's configuration — evidence: app/pages.js:781 every provider row gets Settings (or Set up); ACT['mem-setup'] (:800) GETs /memory/providers/{p}/config and Save PUTs the same path (:810).
+- [x] **PAR-36** Files and Memory: See detailed dependency setup results and failures — evidence: app/pages.js:811-813 renders r.results via memResults, reports failed steps or r.ok===false as an error, toasts success only otherwise.
+- [x] **PAR-38** Models and agents: Disconnect an OAuth provider with confirmation — evidence: app/accounts-page.js acctRemove sends every OAuth ("sub") account to ACT['oauth-out'] (app/pages.js:888), which asks with confirmBox and DELETEs /providers/oauth/{id}; no disconnectable flag is needed.
+- [x] **PAR-39** Settings and Keys: Complete environment-variable catalog — evidence: app/pages.js:904 skips HERMES_* only when v.category!=='provider', so provider HERMES_ keys are listed.
+- [x] **PAR-40** System, Logs, Usage: Host memory used, total and percentage — evidence: app/pages.js:1232 RAM stat shows the AI box used/limit and, in the small line, whole-server used / total with its percentage.
+- [x] **PAR-41** System, Logs, Usage: Gateway running status and detailed state description — evidence: app/pages.js:1255 gwStateText explains gateway_state (degraded, stale heartbeat minutes), shown under the gateway buttons at :1241; app/core.js:495-500 labels the state.
+- [x] **PAR-42** System, Logs, Usage: Stop the selected profile's gateway — evidence: app/pages.js:1264-1268 ACT['gw-stop'] stops agentProfile() (or all when shared), with a 409 fallback "Stop every agent".
+- [x] **PAR-48** Channels: Show each platform's shared-listener callback URL — evidence: app/pages.js:305 channelDrawer shows a "Callback address" copy row (chCopy) whenever c.ingress_url is set.
+- [x] **PAR-49** Channels: Enable and disable individual channels — evidence: app/pages.js:304/309 shared channels (CH_SHARED = api_server, webhook, :322) get a real "Switched on" toggle that PUTs {enabled}; other channels pause via Belongs to (hint at :306).
+- [x] **PAR-50** Channels: Edit all returned platform environment settings — evidence: app/people.js waCloudDrawer (:1010 on) renders the remaining env_vars with chField in a "More settings" fold with its own Save.
+- [x] **PAR-51** Channels: View existing allowlist entries when opening settings — evidence: app/pages.js:327/337 chIsList fields render saved IDs from v.value as removable chips with an Add input.
+- [x] **PAR-52** Channels: Choose WhatsApp Bot or Self-chat mode — evidence: app/people.js:682-711 Link WhatsApp drawer offers "A number for the agent" / "My own number" (self-chat), defaults from the saved mode; app/server.mjs:1225 writes b.mode.
+- [x] **PAR-53** Skills, Plugins, Connected apps: Learn a skill from local sources, a URL and free-form notes — evidence: app/all-agents-more.js:43-45 "Learn a skill" button (sk-learn) on Abilities › Skills.
+- [x] **PAR-54** Skills, Plugins, Connected apps: Open hub skill details and preview SKILL.md before installation — evidence: app/pages.js:643 hub drawer loads /skills/hub/preview and paints the Instructions view.
+- [x] **PAR-55** Skills, Plugins, Connected apps: Run or rerun a hub skill security scan — evidence: app/pages.js:634-641 paintScan/runScan with "Run security check" and "Check again" calling /skills/hub/scan.
+- [x] **PAR-56** Skills, Plugins, Connected apps: Inspect security verdict, install policy and severity totals — evidence: app/pages.js:635-638 scan header shows verdict chip, trust level, finding count, severity_counts chips, and policy with policy_reason.
+- [x] **PAR-57** Skills, Plugins, Connected apps: Install a plugin from an arbitrary identifier or repository URL — evidence: app/pages.js:722 free-form #plId install posts {identifier,force,enable} to /dashboard/agent-plugins/install.
+- [x] **PAR-58** Skills, Plugins, Connected apps: Browse and install curated, pinned catalog plugins — evidence: app/pages.js:731 catalog install posts the engine contract {identifier:'',catalog_name,force,enable:false}.
+- [x] **PAR-59** Skills, Plugins, Connected apps: Review and accept expanded plugin capabilities during update — evidence: app/pages.js:738-740 on consent_required asks with confirmBox (sha + delta_lines), re-posts accept_capabilities:true, toasts only on real success.
+- [x] **PAR-60** Skills, Plugins, Connected apps: Open any installed plugin dashboard tab — evidence: app/plugin-host.js hosts engine dashboard plugins inside aqeelOS (Plugins.open, :41) and app/pages.js:743 adds "Open its page" to the plugin menu.
+- [x] **PAR-61** Skills, Plugins, Connected apps: Edit and save schema-driven memory-provider settings — evidence: app/pages.js:800-810 mem-setup drawer renders fields by kind with when-conditions, bounds checks and current values, saved via PUT /memory/providers/{p}/config.
+- [x] **PAR-62** Skills, Plugins, Connected apps: Install memory-provider dependencies and inspect per-step results — evidence: app/pages.js:811-813 "Install what it needs" renders result.results step rows and errors when any step failed.
+- [x] **PAR-63** Skills, Plugins, Connected apps: Add an HTTP MCP server with a bearer token — evidence: app/pages.js:668 and app/connections.js:183/194 set body.auth='header' with bearer_token.
+- [x] **PAR-64** Skills, Plugins, Connected apps: Authenticate an MCP server through browser OAuth — evidence: app/connections.js:151 and app/pages.js:662 treat 'approved' as success; connections.js keeps polling past a failed poll.
+- [x] **PAR-65** Skills, Plugins, Connected apps: Enter and validate required MCP catalog credentials — evidence: app/connections.js:175-177 Cx.install maps required_env {name,prompt,required} to labelled inputs with * and required checks; :183 direct URL adds send a header token, not env.
+- [x] **PAR-66** Chat: Choose a project folder or discovered repository — evidence: app/chat.js:95-97 workspace menu maps projects to folders[].path / primary_path and repos to r.root with readable labels.
+- [x] **PAR-67** Chat: Choose reasoning effort across all eight levels — evidence: app/chat.js:6 EFFORTS=['none','minimal','low','medium','high','xhigh','max','ultra'].
+- [x] **PAR-68** Schedules, Webhooks, Pairing: Attach one or multiple skills to a job — evidence: app/pages.js:219 "Skills (optional)" picker (#cjSkills), :258 b.skills, :263 empty prompt allowed when a skill is chosen.
+- [x] **PAR-69** Schedules, Webhooks, Pairing: Select a script for scheduled execution — evidence: app/pages.js:227 Script input (#cjScript) sent as b.script (:262), engine errors translated at :163.
+- [x] **PAR-70** Schedules, Webhooks, Pairing: Run script only and deliver stdout verbatim — evidence: app/pages.js:228/262 "Send the script's output as it is" toggle sets no_agent, enabled only with a script (:238).
+- [x] **PAR-71** Schedules, Webhooks, Pairing: Continuity between successive runs — evidence: app/pages.js:202/259 continuity toggle (#cjCont) adds 'self' to context_from.
+- [x] **PAR-72** Schedules, Webhooks, Pairing: Scheduler heartbeat staleness warning — evidence: app/schedules.js:36 staleAge reads scheduler_heartbeat_age_s and :87 shows how long ago the scheduler last ticked.
+- [x] **PAR-73** Schedules, Webhooks, Pairing: Automatic-enable restart outcome, errors and retry restart — evidence: app/pages.js:403-405 watches restart_started and shows restart_error / needs_restart with a restart prompt.
+- [x] **PAR-74** Schedules, Webhooks, Pairing: Webhook delivery choices: log, Telegram, Discord, Slack, email and GitHub comment — evidence: app/pages.js:392 WH_DELIVER lists log, github_comment, telegram, discord, slack, email.
+- [x] **PAR-75** Chats and history: Highlight matches within an opened transcript and jump to the first hit — evidence: app/chat.js:247-255 Chat.markHits wraps the search words in <mark class="hit">, loads older messages if needed, and scrolls to the first hit.
+- [x] **PAR-76** Chats and history: Automatically refresh session history when another process creates a session — evidence: app/boot.js:129 runs Chat.tick every 20 s; app/chat.js:60-61 reloads sessions and redraws Manage chats when the head of the list changes.
+- [x] **PAR-77** Shell, Task board, Achievements: 37 useful engine features to add — evidence: commits aa0dae5/a1f48ec (shell-plugins#31-#100) and 549c9bd (plugin loader, #26-#28); app/boards.js has tenant filter, lanes_by_profile, goal_mode/goal_max_turns, subscribe, phantom_refs, archive, touch drag, achievement evidence, share card (achImage, Copy/Download PNG); app/plugin-host.js registerSlot/route overrides; app/boot.js shared-metrics consent card; app/core.js "Restart all".
+- [x] **PAR-79** Files and Memory: 15 useful engine features to add — evidence: commits 8e844c2, a80c418, fffce20; app/files.js refresh and broken-link handling; app/pages.js memProvPanel (L777+) renders schema fields as selects, switches, bounded numbers, secret inputs with "Saved · leave blank", pip_dependencies with `pip install` command, readiness and missing-provider warning.
+- [x] **PAR-81** Models and agents: 40 useful engine features to add — evidence: commits b1d8993, 62c603d, c22a97e, 8925c4a; app/pages.js expensive-model confirm (L821), "Reset all to automatic"/"Reset every helper model?" (L860, L884), auto-refresh on tab return (L886 visibilitychange, models-profiles#22), MoA preset handling; app/connect.js sign-in drawer with copyable command, countdown, Try again, cancel-on-close.
+- [x] **PAR-83** Settings and Keys: 23 useful engine features to add — evidence: commits 682bee1 (Settings search, per-group reset with confirm, list/number/text/nested editors, export/import) and af1378a (Keys grouped per provider, descriptions, tools badges, reveal); app/pages.js KROW (L893) shows tools per key and key-reveal, "Reset these results"/"Reset this group" (L1192), cfg-import; OAuth parts in app/connect.js.
+- [x] **PAR-85** System, Logs, Usage: 34 useful engine features to add — evidence: commits bf9b483 (Logs/Usage refresh, sortable tables, top skills, API calls, real log levels), 37af48d (engine state, backup download, restore from file or path), ab8525c + app/help.js L130 `debug-share` with redaction and copyable links, 8250c6f (served-profile stop refusal); app/health-page.js engine console; curator, hooks, checkpoints, migration in app/pages.js.
+- [x] **PAR-87** Channels: 13 useful engine features to add — evidence: commit 7896ea4 and feadfdb; app/pages.js channel drawer field rows (L338) with required markers, secret masking from server metadata (is_password/redacted_value), allowlist rows, Telegram/Slack format checks, "Restart now" banner; app/people.js WhatsApp review and restart wording, per-platform updated time.
+- [x] **PAR-89** Skills, Plugins, Connected apps: 32 useful engine features to add — evidence: commits 4d3dc18 (skill search/categories, toolset tools), 710a986 (plugin install from GitHub, catalog search, provenance, capabilities), bba4cb3 (MCP bearer/OAuth, catalog source and setup notes), 549c9bd (plugin page sections via app/plugin-host.js, skills-plugins-mcp#52), a80c418 (memory-provider readiness); featured hub, orphan plugins and context engine in app/pages.js.
+- [x] **PAR-91** Chat: 22 useful engine features to add — evidence: commit 10b35f2..10b27a4 (chat#12-14,16-19,21-23,25,27-29,35,36,38-41,44-48,50,52,65,67,68) and 647926b (chat#37); app/chat.js renders tagged reasoning (L549 `<think`), reconnect status dot, refusal actions; app/core.js transcript `<mark>` highlights (L581) and clipboard fallback; app/pages.js expensive-model confirm.
+- [x] **PAR-93** Schedules, Webhooks, Pairing: 22 useful engine features to add — evidence: commits 39ebe5c (skills, scripts, toolsets, context_from, workdir, base_url), 5c96946 (stalled-clock warning, overdue/missed runs), 5361351; app/schedules.js repeatText (L37) and overdue marks; blueprints and webhook descriptions in app/pages.js; pairing lists in app/channels-page.js.
+- [x] **PAR-95** Chats and history: 25 useful engine features to add — evidence: commit 647926b (sessions#1-3,6,7,9-11,13-15,23,29,33,34,36,37,42,43) and 10b27a4 (sessions#4,17-23,45,47-49,54,56); JSON Lines import in app/pages.js, shift-click ranges in app/chat.js/core.js; sessions#40 (Recent sessions card) was left out on purpose because Health dropped that card.
+- [x] **PAR-78** Shell, Task board, Achievements: 4 small engine features to add — evidence: commit aa0dae5 ("drag to trash and touch", shell-plugins#31-#100); app/boards.js trash drop zone and achievement tier legend; Post on X via `x.com/intent/post` in ACT['ach-share'] (app/boards.js L385).
+- [x] **PAR-80** Files and Memory: 6 small engine features to add — evidence: commit 8e844c2 (go up from every view, exact dates, locked folder) and fffce20/a80c418 (show/hide secret, copy setup commands); app/files.js locked root handling; app/pages.js memProvPanel pip install command.
+- [x] **PAR-82** Models and agents: 17 small engine features to add — evidence: commits b1d8993 (models-profiles#4,7,15,21,69,85,87,90,93), c22a97e (#25,#34), 62c603d (#52), 8925c4a (#55-57); PKCE Enter submit in app/connect.js. #5 was declined on purpose (the menu already ticks the saved model) and #24 is the same Refresh as Usage's (bf9b483).
+- [x] **PAR-84** Settings and Keys: 12 small engine features to add — evidence: commits 682bee1 (search clear, result counts, dotted paths, sections) and af1378a (provider totals, custom keys); app/pages.js "Reset these results" (L1192); PKCE Enter and docs link in app/connect.js; config-keys#53 slots via app/plugin-host.js PAGE_SLOTS (commit 549c9bd).
+- [x] **PAR-86** System, Logs, Usage: 9 small engine features to add — evidence: commits 37af48d, bf9b483 ("memory shows" file sizes), ab8525c (debug-share upload info, console), e36d2b6 (memory file sizes); python version in app/pages.js; system-logs-analytics#94 plugin content above/below Logs and Usage via app/plugin-host.js PAGE_SLOTS (549c9bd).
+- [x] **PAR-88** Channels: 8 small engine features to add — evidence: commit 7896ea4 (settings file shown, allowlist rows); app/pages.js Telegram user-ID link (userinfobot); app/people.js WhatsApp QR countdown (L697 "This code works for m:ss more") and wa.me chat link (L712).
+- [x] **PAR-90** Skills, Plugins, Connected apps: 7 small engine features to add — evidence: commit 4d3dc18 (alphabetical skills, clear button), 549c9bd (dashboard extension slots and no-tab info), bba4cb3 (stdio MCP with args and env); hub search by Enter and Installed refresh in app/pages.js.
+- [x] **PAR-92** Chat: 8 small engine features to add — evidence: commit 10b27a4 (chat#13,16,23,27,29,35,65) and 549c9bd (chat#70 plugin content above/below chat through app/plugin-host.js); mailto links in app/core.js.
+- [x] **PAR-94** Schedules, Webhooks, Pairing: 4 small engine features to add — evidence: commits 39ebe5c/5c96946 (job ID, blueprint validation), 5361351 (focus restore, cron-webhooks-pairing#62); webhook hot reload and switched-off events explained in app/pages.js (L388-389).
+- [x] **PAR-96** Chats and history: 6 small engine features to add — evidence: commit 647926b (sessions#1,3,7,11,42: ordering, total, source counts and reset, clear button, platform last-update) and 10b27a4 (sessions#22 tool-call ids, shown in app/chat.js).
+
+### Dropped
+
+- **SYS-61** Full audit: everything the engine's own dashboard has, aqeelOS has too — why: umbrella item; its one named leftover (plugin loader for other plugins' pages and slots) is in app/plugin-host.js (register/registerSlot, React fetched on demand), and the remaining gaps are tracked as the per-area PAR-77…PAR-96 items.
+- **PAR-43** System, Logs, Usage: Create full engine backup and show archive path — why: the engine's /ops/backup flow is no longer called anywhere in app/; superseded by aqeelOS's own backups (app/backups.js, app/backup.mjs: scheduled Google Drive backups, Back up now, last-backup row).
+- **PAR-44** System, Logs, Usage: Download the completed engine backup archive — why: superseded by app/backups.js (backups go to Google Drive and come back through Prepare / Restore now); no engine archive download is used any more.
+- **PAR-45** System, Logs, Usage: Restore an uploaded archive with destructive confirmation — why: superseded by app/backups.js op-restore (Prepare, preview of what changes, Restore now, safety copy); the engine /ops import path is no longer called.
+
