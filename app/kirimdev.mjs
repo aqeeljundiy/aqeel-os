@@ -199,7 +199,7 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,bridge=BRIDGE,chec
  // by itself at the first good check.
  const LATE=10*60e3,HEALTH_TOPICS=['kirimdev|key','kirimdev|api','kirimdev|webhook'];
  let checking=null;
- function check(){return checking||=doCheck().finally(()=>{probing=null})}
+ function check(){return checking||=doCheck().finally(()=>{checking=null})}
  async function doCheck(){await state();const key=await apiKey().catch(()=>null);const acc=key?await account(key):{ok:false,why:'nokey',text:'No Kirimdev API key is saved.'};
   const L=await lines(),sec=await readJson(SEC,{}),t=now(),H=st.health||={lines:{}};H.lines||={};H.account={...acc,at:t};
   for(const [agent,l] of Object.entries(L)){const pid=String(l.phoneNumberId||''),who=l.persona||agent,h={at:t};

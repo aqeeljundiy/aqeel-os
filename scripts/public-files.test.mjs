@@ -1,7 +1,8 @@
 // Public links (app/public-files.mjs): an agent's own file gets a link; secrets and other agents' files never do; stop ends it.
 import test from 'node:test';import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,mkdir} from 'node:fs/promises';import {tmpdir} from 'node:os';import path from 'node:path';
-const HOME=await mkdtemp(path.join(tmpdir(),'pub-'));process.env.HOME=HOME;
+// not under /tmp: on Linux /tmp is a share root for every agent, so a home inside it would make the main home look shareable
+const HOME=await mkdtemp(path.join(process.platform==='linux'?'/var/tmp':tmpdir(),'pub-'));process.env.HOME=HOME;
 const {createPublicFiles}=await import('../app/public-files.mjs');
 const DATA=path.join(HOME,'data'),HH=path.join(HOME,'.hermes');
 const pf=createPublicFiles({DATA,HERMES_HOME:HH,PUBLIC_URL:'https://ai.example.com'});

@@ -7,7 +7,7 @@ import path from 'node:path';
 import {decide,gateText,clean,seen,needle,local,createPostingLimits} from '../app/posting-limits.mjs';
 
 // Cove Threads' rules (70 a day, 90% hot, max 5 an hour, 5 min apart, lighter 01-05 WIB)
-const R=clean({on:true,perDay:70,perHour:5,gapMin:5,perRun:2,quietFrom:1,quietTo:5,quietPerHour:2,hotShare:90,afterMissingPerHour:2,afterMissingHours:6,stopFile:'.tools/STOP_COMMENTS',checkUrl:'https://www.threads.com/@x/replies',alert:'telegram:-100123'});
+const R=clean({tz:'Asia/Jakarta',on:true,perDay:70,perHour:5,gapMin:5,perRun:2,quietFrom:1,quietTo:5,quietPerHour:2,hotShare:90,afterMissingPerHour:2,afterMissingHours:6,stopFile:'.tools/STOP_COMMENTS',checkUrl:'https://www.threads.com/@x/replies',alert:'telegram:-100123'});
 const at=(hhmm,day='05')=>Date.parse('2026-11-'+day+'T'+hhmm+':00+07:00');
 const posts=(times,lead='hot')=>times.map(t=>({at:t,lead,status:'visible'}));
 
