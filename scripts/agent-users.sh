@@ -281,6 +281,10 @@ lean_wm_files(){
   printf '%s
 ' "background: none" > "$d/style"
   : > "$d/keys"
+  # fluxbox still calls fbsetbg for a wallpaper whatever the style says, and with no setter installed fbsetbg opens an error box
+  # (xmessage) on the screen (P&P, 12 Nov, still there after the style fix). A do-nothing fbsetbg first on the PATH ends it.
+  mkdir -p "$d/bin"; printf '%s
+' '#!/bin/sh' 'exit 0' > "$d/bin/fbsetbg"; chmod 755 "$d/bin/fbsetbg"
   printf '%s\n' "[begin] ()" "[end]" > "$d/menu"
   printf '%s\n' "[app] (name=.*)" "  [Deco] {NONE}" "  [Maximized] {yes}" "[end]" > "$d/apps"
 }
@@ -491,7 +495,7 @@ screen_up(){
   case $mode in
     desktop) desk="( dbus-launch --exit-with-session bash -c 'xfwm4 & xfdesktop & xfce4-panel & wait' >>'$sd/desktop.log' 2>&1 & )" ;;
     lean-fluxbox) lean_wm_files "$sd"; chown -R "$u:$OWNER" "$sd/fb" 2>/dev/null
-      desk="( HOME='$sd/fb' fluxbox -rc '$sd/fluxbox/init' -no-slit -no-toolbar >>'$sd/desktop.log' 2>&1 & )" ;;
+      desk="( HOME='$sd/fb' PATH='$sd/fluxbox/bin':$PATH fluxbox -rc '$sd/fluxbox/init' -no-slit -no-toolbar >>'$sd/desktop.log' 2>&1 & )" ;;
     *) desk=":" ;;
   esac
   [ "${mode#lean}" != "$mode" ] && lean="$CHROME_LEAN --window-position=0,0"
