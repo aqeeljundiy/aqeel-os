@@ -276,7 +276,10 @@ screen_event(){
 lean_wm_files(){
   local sd=$1 d=$1/fluxbox
   mkdir -p "$d" "$sd/fb"
-  printf '%s\n' "session.screen0.toolbar.visible: false" "session.screen0.workspaces: 1" "session.screen0.focusModel: MouseFocus" "session.screen0.defaultDeco: NONE" "session.appsFile: $d/apps" "session.keyFile: $d/keys" "session.menuFile: $d/menu" > "$d/init"
+  printf '%s\n' "session.screen0.toolbar.visible: false" "session.screen0.workspaces: 1" "session.screen0.focusModel: MouseFocus" "session.screen0.defaultDeco: NONE" "session.appsFile: $d/apps" "session.keyFile: $d/keys" "session.menuFile: $d/menu" "session.styleFile: $d/style" "session.screen0.rootCommand: true" > "$d/init"
+  # no wallpaper: the default style asks fbsetbg for one, and with no setter installed it put an error box on every lean screen (P&P, 12 Nov)
+  printf '%s
+' "background: none" > "$d/style"
   : > "$d/keys"
   printf '%s\n' "[begin] ()" "[end]" > "$d/menu"
   printf '%s\n' "[app] (name=.*)" "  [Deco] {NONE}" "  [Maximized] {yes}" "[end]" > "$d/apps"
