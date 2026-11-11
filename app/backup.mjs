@@ -17,6 +17,9 @@ import {localParts} from './tz.mjs';
 export const DEFAULTS={account:'',hour:3,keep:14,folder:'aqeelOS backups'};
 const INCLUDE=['.hermes','apps/hermes-ui-data','apps/hermes-ui.env','workspaces','people','.claude','.claude-accounts'];
 export const EXCLUDE=['.hermes/installs','.hermes/hermes-agent','.hermes/tools','.hermes/cache','.hermes/lsp','*-venv','.hermes/bot-desktop','.hermes/profiles/*/cache','.hermes/profiles/*/bot-desktop',
+ // each agent's map (agent-graph.mjs, 11 Nov 2026): copies of its documents and the graph, rebuilt by itself; its
+ // reference folder (what a person moved out of its instructions) is not here, so that is backed up
+ '.hermes/profiles/*/graph','.hermes/graph',
  '*/home/.cache','*/home/.npm','.hermes/home/.cache','.hermes/home/.npm','node_modules','*.log','apps/hermes-ui-data/desktop','.claude/projects','.claude/shell-snapshots','.claude/statsig','.claude/todos',
  // rebuildable or junk, so a backup is ~9 GB instead of ~35 GB and uploads in time (31 Oct 2026): build output, caches, browser
  // caches (the browser profiles with their logins stay), runtimes aqeelOS or the guard can install again, old exports

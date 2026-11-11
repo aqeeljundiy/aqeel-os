@@ -3010,6 +3010,7 @@ button.bad:hover{background:color-mix(in srgb,var(--bad) 8%,transparent);border-
 .hv-spark{width:96px;height:26px;flex:none}.hv-spark .l{fill:none;stroke:var(--muted);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}.hv-spark .f{fill:var(--soft);stroke:none}.hv-spark circle{fill:var(--muted)}
 .hv-spark.warn .l{stroke:var(--warn)}.hv-spark.warn .f{fill:color-mix(in srgb,var(--warn) 14%,var(--surface))}.hv-spark.warn circle{fill:var(--warn)}
 .ah-warn{display:flex;gap:8px;align-items:flex-start;margin-top:8px;padding:9px 12px;border-radius:12px;background:color-mix(in srgb,var(--warn) 10%,var(--surface));font-size:13px;line-height:1.5;color:var(--ink-2);white-space:normal}.ah-warn svg{color:var(--warn);margin-top:2px;flex:none}
+.ah-size{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px;font-size:13px;line-height:1.5;color:var(--ink-2);white-space:normal}.ah-size b{color:var(--ink)}.ah-size.warn b{color:var(--warn)}
 @media (max-width:640px){.ah-mem .hv-spark{display:none}.hf-head{padding:12px 14px}.hf-body{padding:12px 14px}.hv{padding:16px}}
 .hc-two{gap:14px}.hc-col h2{margin:0 0 10px}.hc-r{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;align-items:center;margin-bottom:9px;font-size:13.5px}
 .hc-r span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hc-r b{font-weight:600;font-variant-numeric:tabular-nums}

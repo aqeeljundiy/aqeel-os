@@ -113,6 +113,7 @@ import {createAgentVersions,VERSION_TOOLS} from './agent-versions.mjs';   // sel
 import {createAgentLive} from './agent-live.mjs';
 import {createBillionContext} from './billion-context.mjs';
 import {createGraphify} from './graphify.mjs';
+import {createAgentGraph} from './agent-graph.mjs';
 import {createTeamView} from './team-view.mjs';
 import {settings as installSettings} from './install.mjs';
 import {sysTz,localParts,zoneName} from './tz.mjs';
@@ -1776,6 +1777,14 @@ if(LIVE_APP){const biliInstall=()=>billion.install().then(async c0=>{const c=[];
 // graphify (code and document maps) in the agents' shared Python, its skill copied to every agent; same rhythm
 const graphify=createGraphify({HERMES_HOME});
 if(LIVE_APP){const gfInstall=()=>graphify.ensure().catch(e=>console.warn('graphify',e.message));setTimeout(gfInstall,120e3).unref();setInterval(gfInstall,10*60e3).unref()}
+// each agent's own map and its small search tool, and the size of what it sends on every call (agent-graph.mjs, 11 Nov 2026).
+// One agent per pass, never one that is replying (a reply here, or a session the engine reports running; no answer counts as running)
+const graphBusy=async a=>{if([...LIVE].some(([k,r])=>!r.done&&String(k).split('|')[0]===a))return true;const s=await engineSessions(a).catch(()=>null);return !s||!!s.active};
+const agentGraph=createAgentGraph({HERMES_HOME,DATA,readConfig,setKey,pick,agents:()=>agentNames(),skip:a=>LIVE_APP?isTestAgent(a):false,busy:graphBusy,
+ paused:()=>engineUpd.busy()||!!gwRestarting||backups.busy(),writeSoul:(a,t,m)=>instructions.write(a,t,m)});
+if(LIVE_APP){const gTick=()=>agentGraph.tick().then(async r=>{if(r?.changed?.length)restartLater('graph search tool for '+r.changed.length+' agent(s)');
+  for(const a of await agentNames())if(!await isTestAgent(a).catch(()=>false))await agentGraph.propose(a).catch(()=>{})}).catch(e=>console.warn('agent graph',e.message));
+ setTimeout(gTick,5*60e3).unref();setInterval(gTick,20*60e3).unref()}
 // the engine reads each tool server's list once, when it connects: a tool aqeelOS adds later (the lockbox link, the
 // self-repair kit) stayed invisible in open chats. The lists are fingerprinted per agent; a change reloads the engine
 // once no reply runs (7 Nov 2026)
@@ -3200,6 +3209,13 @@ const server=createServer(async(req,res)=>{
    if(!r)return send(res,404,{error:'That issue is not in the line any more.'});if(LIVE_APP)issues.tick().catch(()=>{});return send(res,200,{ok:true,fixer:await issues.fixerView()})}
   // memory per agent (HEALTH-6) and this week's cost by agent and by person (HEALTH-7)
   if(p==='/ui/health/memory'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});const v=await agentMemory.view();const box=await memWatch.view().catch(()=>null);return send(res,200,{...v,box,names:Object.fromEntries(Object.keys(v.agents).map(a=>[a,agentName(a)]))})}
+  // size of what each agent sends on every call, its map, and sections a person may move out of its instructions (agent-graph.mjs)
+  if(p==='/ui/health/graph'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,await agentGraph.view())}
+  if((p==='/ui/health/graph/accept'||p==='/ui/health/graph/dismiss')&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});
+   let b={};try{b=JSON.parse(await readBody(req,20000))}catch{}const a=String(b.agent||'');if(!await isAgent(a))return send(res,404,{error:'No such agent.'});
+   try{if(p.endsWith('/dismiss'))return send(res,200,{ok:await agentGraph.dismiss(a)});
+    const r=await agentGraph.accept(a,(Array.isArray(b.ids)?b.ids:[]).map(String),{by:u.name||u.id||'an admin'});console.log('graph: sections moved for',a,'by',u.id||u.name||'?');return send(res,200,{ok:true,...r})}
+   catch(e){return send(res,e.status||400,{error:e.message})}}
   if(p==='/ui/health/cost'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});
    // whose chat it was: the person who started it in aqeelOS, else a person the team policy knows on that channel (the owner
    // on Telegram), else what started it: a schedule, a customer on a channel, or background work (the fixer, helpers)
