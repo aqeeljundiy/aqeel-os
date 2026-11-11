@@ -1699,6 +1699,10 @@ div.skel:not(.loading)+div.skel:not(.loading){display:none}
 .bn-ic.bn-down{background:var(--soft);color:var(--ink-2)}
 .bn-t b{display:block;font-size:14px;line-height:1.35}.bn-t p{margin:4px 0 10px;font-size:13px;color:var(--ink-2);line-height:1.5}.bn-c{color:var(--muted);font-size:12px}
 .bn-acts{display:flex;flex-wrap:wrap;gap:6px}
+/* 12 Nov 2026 (owner: "other button option not that visible"): the second choice of a Needs-you item was a ghost button, which reads as plain text next to the blue one. Every choice is a real button; the main one stays blue. */
+.bn-acts button:not(.primary),.bn-acts button.ghost{border:1px solid var(--border);background:var(--surface);color:var(--ink);box-shadow:none}
+.bn-acts button:not(.primary):hover,.bn-acts button.ghost:hover{border-color:var(--blue-2);background:var(--soft)}
+.bn-acts button{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bn-empty{display:grid;justify-items:center;gap:6px;text-align:center;padding:40px 10px;color:var(--ink-2)}.bn-empty svg{color:#16a34a}
 
 /* Code › Live: published apps */
