@@ -11,6 +11,8 @@
 //    from hermes-ui-data/agent-limits.json ({"default":{"memory_cap_gb":4,"sleep_minutes":30},"agents":{"<agent>":{…}}});
 //    an agent whose screen runs its own AdsPower never sleeps and gets 8 GB unless set. wake(agent) starts a sleeping
 //    screen (the viewer uses it); stopAll(agent) stops everything the agent's user runs.
+//  - OPS-13: every minute, the agents mid-reply go to ~/.aqeelos-agent-busy, one per line, so the root script's janitor
+//    does not start a missing desktop part again while the agent works.
 // The parts that only decide are exported and tested in scripts/box-ops.test.mjs.
 import {readFile,writeFile,readdir,stat,lstat,rm,open,rename} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
@@ -49,7 +51,9 @@ export function limitLines(agents,cfg={},keep=()=>false){const d={...LIMIT_DEFAU
   const gb=Number(o.memory_cap_gb??(k?Math.max(8,Number(d.memory_cap_gb)||0):d.memory_cap_gb)),min=k?0:Number(o.sleep_minutes??d.sleep_minutes);
   return a+' '+Math.max(0,Math.round((gb||0)*1024))+' '+Math.max(0,Math.round(min||0))}).join('\n')+(agents.length?'\n':'')}
 const NAME=/^[a-z0-9][a-z0-9_-]{0,63}$/;
-export function createBoxOps({HOME,DATA,HERMES_HOME,fileIssue=null,TMP='/tmp',keepOn=()=>false,WAKE='/var/lib/aqeelos/wake'}){
+// the agents mid-reply, from live reply keys "<agent>|<chat>": one valid name per line
+export const busyText=keys=>[...new Set([...keys].map(k=>String(k).split('|')[0]).filter(a=>NAME.test(a)))].sort().map(a=>a+'\n').join('');
+export function createBoxOps({HOME,DATA,HERMES_HOME,fileIssue=null,TMP='/tmp',keepOn=()=>false,WAKE='/var/lib/aqeelos/wake',busyKeys=()=>[]}){
  const STATE=path.join(DATA,'box-ops.json'),ISSUES=path.join(HOME,'.aqeelos-agent-issues.jsonl'),JAN=path.join(HOME,'.aqeelos-janitor.json');
  let st=null;const load=async()=>{if(!st)st=JSON.parse(await readFile(STATE,'utf8').catch(()=>'{}'))||{};st.filed||={};return st};
  const save=async()=>{await writeFile(STATE+'.tmp',JSON.stringify(st));await rename(STATE+'.tmp',STATE)};
@@ -95,7 +99,9 @@ export function createBoxOps({HOME,DATA,HERMES_HOME,fileIssue=null,TMP='/tmp',ke
   if(text!==await readFile(f,'utf8').catch(()=>null)){await writeFile(f+'.tmp',text);await rename(f+'.tmp',f)}return text}
  const wake=async a=>{if(!NAME.test(a))return false;const f=path.join(WAKE,a+'.wake');await writeFile(f,'').catch(()=>{});return true};
  const stopAll=async a=>{if(!NAME.test(a))return false;await writeFile(path.join(HOME,'.aqeelos-agent-users.stop'),a+'\n',{flag:'a'});return true};
- async function tick(){await writeLimits().catch(e=>console.warn('box: limits',e.message));await intake().catch(e=>console.warn('box: issues',e.message));await load();
+ // rewritten every minute even when unchanged: the root script ignores a file older than 3 minutes
+ async function writeBusy(){const f=path.join(HOME,'.aqeelos-agent-busy');await writeFile(f+'.tmp',busyText(busyKeys()));await rename(f+'.tmp',f)}
+ async function tick(){await writeBusy().catch(e=>console.warn('box: busy',e.message));await writeLimits().catch(e=>console.warn('box: limits',e.message));await intake().catch(e=>console.warn('box: issues',e.message));await load();
   if(!st.expiredAt||Date.now()-st.expiredAt>864e5)await expire().catch(e=>console.warn('box: expire',e.message))}
  function start(){setTimeout(()=>writeLimits().catch(()=>{}),10000).unref?.();setTimeout(()=>tick().catch(()=>{}),30000).unref?.();setInterval(()=>tick().catch(()=>{}),60000).unref?.()}
- return {intake,janitor,agentMemory,expire,tick,start,writeLimits,wake,stopAll}}
+ return {intake,janitor,agentMemory,expire,tick,start,writeLimits,writeBusy,wake,stopAll}}

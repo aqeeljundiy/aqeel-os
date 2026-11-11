@@ -32,7 +32,7 @@ A process that fails is restarted with a growing wait (5 s, 30 s, 2 min, 10 min)
 
 A janitor compares, every minute, what should run for each agent with what does run. Anything extra is reported, then removed. Health shows it in one line ("47 expected, 47 running").
 
-*Enforced:* the `janitor` in `scripts/agent-users.sh` (agent screens: one display, window manager, desktop, panel and Chrome each), written to `~/.aqeelos-janitor.json` and shown under System › Per agent with each agent's memory. The engine's and the app's own processes are not counted yet.
+*Enforced:* the `janitor` in `scripts/agent-users.sh` (agent screens: one display, window manager, desktop, panel and Chrome each), written to `~/.aqeelos-janitor.json` and shown under System › Per agent with each agent's memory. Missing is put right too (OPS-13): a window manager, desktop background or panel gone from a running display for 10 minutes gets the desktop alone started again (display and Chrome keep running), through `restart_gate`, never while the agent replies or used its screen in the last 5 minutes. The engine's and the app's own processes are not counted yet.
 
 ## 5. Only git reaches a server
 
