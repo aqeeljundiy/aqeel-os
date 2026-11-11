@@ -55,3 +55,14 @@
 .person-head .txt span{overflow-wrap:anywhere}
 /* the Slack row says what its workspace keeps quiet; Change is a plain link (7 Nov 2026) */
 .row .txt .sq-line{gap:6px}.sq-line .link-btn{font-size:12.5px;padding:6px 2px;margin:-6px 0}
+
+/* Home-screen icon preview (12 Nov 2026) */
+.pwa-prev{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-end;margin:14px 0 4px}.pwa-prev figure{margin:0;display:grid;gap:8px;justify-items:center;animation:pwaIn .32s var(--ease) both}.pwa-prev figure:nth-child(2){animation-delay:.04s}.pwa-prev figure:nth-child(3){animation-delay:.08s}.pwa-prev figure:nth-child(4){animation-delay:.12s}.pwa-prev figure:nth-child(5){animation-delay:.16s}
+.pwa-prev figcaption{font-size:12px;color:var(--muted)}@keyframes pwaIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.pwa-tab{display:flex;align-items:center;gap:8px;height:34px;padding:0 14px 0 10px;border-radius:12px 12px 0 0;background:var(--soft);border:1px solid var(--border);border-bottom:0;font-size:12px;max-width:170px}.pwa-tab img{width:16px;height:16px;border-radius:4px;flex:none}.pwa-tab span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pwa-ios,.pwa-and,.pwa-src{width:72px;height:72px;overflow:hidden;background:var(--soft);transition:transform var(--t-med) var(--ease),box-shadow var(--t-med) var(--ease);box-shadow:var(--shadow-card)}
+.pwa-ios{border-radius:22.37%}.pwa-and.circle{border-radius:50%}.pwa-and.squircle{border-radius:32%}.pwa-src{border-radius:18px;background:repeating-conic-gradient(var(--soft) 0 25%,var(--soft-2) 0 50%) 0 0/14px 14px;box-shadow:none;border:1px solid var(--border)}
+.pwa-ios:hover,.pwa-and:hover{transform:scale(1.06)}.pwa-ios img,.pwa-and img,.pwa-src img{width:100%;height:100%;display:block;object-fit:cover}.pwa-src img{object-fit:contain;padding:8px;box-sizing:border-box}
+.pwa-from{font-size:13px;color:var(--ink-2);margin:12px 0 0;line-height:1.5}.pwa-warn{background:var(--soft-2);border:1px solid var(--border);border-radius:14px;padding:14px 16px;font-size:13.5px;margin:6px 0 4px}
+.pwa-dot{width:36px;height:36px;border-radius:12px;border:1px solid var(--border);flex:none;transition:background var(--t-med) var(--ease)}.pwa-sw{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.pwa-s{width:28px;height:28px;border-radius:10px;border:1px solid var(--border);padding:0;cursor:pointer;transition:transform var(--t-fast) var(--ease)}.pwa-s:hover{transform:scale(1.12)}.pwa-how{margin-top:16px}
+@media (prefers-reduced-motion:reduce){.pwa-prev figure{animation:none}}

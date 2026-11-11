@@ -75,6 +75,7 @@ import {createCodeBridge} from './code-bridge.mjs';
 import {createCodeOnline} from './code-online.mjs';
 import {createTeamFolders} from './team-folders.mjs';
 import {createBrand} from './brand.mjs';
+import {createPwa} from './pwa.mjs';
 import {createAccountAuth} from './account-auth.mjs';   // first-run owner, forgot password, recovery code (7 Nov 2026)
 import {createBottlenecks,forPopup,memberCan} from './bottlenecks.mjs';
 import {createInstructions} from './instructions.mjs';
@@ -262,7 +263,7 @@ async function serveFile(res,rel){
  const file=path.resolve(root,rel);
  if(!file.startsWith(root+path.sep)||/\.(mjs|env|md)$|[\\/]\./i.test(rel))return send(res,404,'Not found');
  try{const st=await stat(file);if(!st.isFile())throw 0;let body=await readFile(file);const ext=path.extname(file);if(ext==='.html'&&rel.startsWith('assets/'))body=Buffer.from(legalFill(body.toString('utf8').replaceAll('{{OWNER_CONTACT}}',(globalThis.AQ_CONTACT||OWNER_CONTACT).replace(/[<>&"]/g,c=>'&#'+c.charCodeAt(0)+';'))));
-  const etag='"'+st.size.toString(36)+'-'+Math.round(st.mtimeMs).toString(36)+'"';if(res.req?.headers?.['if-none-match']===etag){res.writeHead(304,{etag,'cache-control':'no-cache'});return res.end()}
+  const etag=ext==='.html'?'"h'+Date.now().toString(36)+'"':'"'+st.size.toString(36)+'-'+Math.round(st.mtimeMs).toString(36)+'"';if(ext!=='.html'&&res.req?.headers?.['if-none-match']===etag){res.writeHead(304,{etag,'cache-control':'no-cache'});return res.end()}
   res.writeHead(200,{'content-type':types[ext]||'application/octet-stream','cache-control':ext==='.png'&&rel.startsWith('assets/emoji/')?'public, max-age=604800':ext==='.woff2'||ext==='.svg'||ext==='.png'?'public, max-age=86400':'no-cache',etag,...security});res.end(body)}
  catch{send(res,404,'Not found')}
 }
@@ -887,7 +888,14 @@ if(LIVE_APP){const HB=path.join(DATA,'heartbeat.json');readFile(HB,'utf8').then(
   // it started again by itself, so a short break is not something to act on (31 Oct 2026); an hour or more is shown
   await bottlenecks.event('down','aqeelOS was off for '+mins+' min','From about '+at(last)+' to '+at(Date.now())+' ('+zoneName(tzNow)+' time). Everything started again by itself. If it happens often, check the server at your hosting provider.',{info:mins<60}).catch(()=>{});
   await relay.sendAs('default',c.owner,c.platform,'aqeelOS was off from about '+at(last)+' to '+at(Date.now())+' ('+zoneName(tzNow)+' time, '+mins+' min). It is running again.',null,{toYou:true});console.log('told the owner about '+mins+' min off')}catch(e){console.warn('downtime note:',e.message)}},120000).unref()})}
-const brand=createBrand({DATA,contactFallback:OWNER_CONTACT});
+// the real marks an install's icon may be drawn from when no logo was uploaded: the one this install's setup names (BRAND_LOGO_FALLBACK, a file in assets/),
+// and aqeelOS's own only while the install still carries aqeelOS's name (the SVG has text, so its "a" is stored as one render, assets/aqeelos-mark-render.png)
+const brandMarks=async({custom}={})=>{const out=[],rd=f=>readFile(path.join(root,f)).catch(()=>null),fb=String(env.BRAND_LOGO_FALLBACK||'');
+ if(/^\/assets\/[\w.-]+\.(svg|png)$/.test(fb)){const d=await rd(fb.slice(1));if(d)out.push({file:fb.slice(1),type:fb.endsWith('svg')?'image/svg+xml':'image/png',data:d})}
+ if(!custom){const d=await rd('assets/aqeelos-mark-render.png');if(d)out.push({file:'assets/aqeelos-mark.svg',type:'image/png',data:d,bg:'#111827',note:'its "a" rendered once from the SVG at 2048 px in Plus Jakarta Sans 700 (assets/aqeelos-mark-render.png), on the own #111827 tile of the SVG'})}return out};
+// how an install's logo is really used when the owner has set no colours: Pixel & Profits shows its mark in green #83b271 on near-black #111 (its site's favicon and header), so its icon does too
+const BRAND_LOOK={'ai.pixelandprofits.com':{colour:'#111111',accent:'#83b271'}}[(()=>{try{return new URL(env.PUBLIC_URL||'').hostname}catch{return ''}})()]||{};
+const brand=createBrand({DATA,contactFallback:OWNER_CONTACT,fallbackMarks:brandMarks,colourDefault:env.AQEELOS_BRAND_COLOUR||BRAND_LOOK.colour||'',accentDefault:env.AQEELOS_BRAND_ACCENT||BRAND_LOOK.accent||''});
 const backups=createBackups({DATA,HOME:homedir(),HERMES_HOME,tz:()=>tzNow,notify:(t,d)=>bottlenecks.event('backup',t,d+' Open System › Health to try again.',{topic:'backup'}).catch(()=>{}),solved:()=>bottlenecks.resolve('backup').catch(()=>{}),
  restored:(ok,text,detail)=>(ok?bottlenecks.resolve('restore').then(()=>bottlenecks.event('backup',text,detail,{info:true})):bottlenecks.event('backup',text,detail,{topic:'restore'})).catch(()=>{}),   // done: the bell; failed: Bottlenecks
  // a restore stops the agents and the engine's dashboard (it keeps the chats database and settings open too), and the
@@ -897,7 +905,9 @@ const backups=createBackups({DATA,HOME:homedir(),HERMES_HOME,tz:()=>tzNow,notify
   for(let i=0;i<30&&await fetch(DASH.origin+'/api/status',{signal:AbortSignal.timeout(2000)}).then(()=>true,()=>false);i++)await new Promise(r=>setTimeout(r,1000));
   if(await fetch(DASH.origin+'/api/status',{signal:AbortSignal.timeout(2000)}).then(()=>true,()=>false))throw Error('the engine dashboard still answers after 30 s')},
  startEngine:async()=>{dashStopped=false;gwStopped=false;await restartGateway('agents restored from a backup',{wait:false,bridges:true,restore:true})}});restoreBusy=()=>backups.busy();holdWrites(()=>backups.writesHeld());if(LIVE_APP)backups.schedule();
-const live=createLive({DATA,DOMAIN:hostSetting('liveDomain'),SECRET,PUBLIC_URL,auto:LIVE_APP});
+// a published app with no real logo of its own gets the plain colour tile as its icon and one question under Needs you (once per app, withdrawn when a later publish finds a logo)
+const liveIcons=async(a,r)=>{const ask={kind:'app',issue:'live-logo-'+a.slug};if(r.needsLogo)await questions.file(ask,{question:'No logo found for the app '+a.name+': add its mark',options:[{label:'I will add its logo',effect:'Put logo.svg in the project (its public folder) in Code, then publish again: the icon follows.',recommended:true},{label:'Use its first letter',effect:'From the next publish, a letter on the colour tile. Add a logo any time to replace it.'}],allowOther:false});else await questions.retire(ask)};
+const live=createLive({DATA,DOMAIN:hostSetting('liveDomain'),SECRET,PUBLIC_URL,auto:LIVE_APP,onIcons:liveIcons});
 // This install's own settings (System › Settings): Your address, time zone, hosts, agent users, Claude sign-in (install-routes.mjs)
 // the engine's answer, patient with a busy engine (11 Nov 2026: a deploy's checks kept P&P busy, the status call took about 6 s,
 // and Health said "can't reach the engine" while it ran): a refused connection is down at once; a slow one gets a second,
@@ -1762,7 +1772,7 @@ const providerLimits=createLimitState({DATA});
 accountHooks.idle=async a=>{if([...LIVE].some(([k,r])=>!r.done&&String(k).split('|')[0]===a))return false;const s=await engineSessions(a).catch(()=>null);return !!s&&!s.active&&Date.now()-s.lastActive>=10*60e3};
 accountHooks.exhausted=until=>{if(until)providerLimits.set(until,'every AI account is used up','accounts');else if(providerLimits.hold()?.kind==='accounts')providerLimits.clear()};
 // questions for the owner (questions.mjs): the fixer, an agent (ask_owner) or the app asks with a few options; the answer goes back to the asker
-const questions=createQuestions({DATA,names:a=>agentName(a),onAnswer:async q=>{if(q.kind==='fixer'&&q.issue)await issues.answered(q.issue,q)}});
+const questions=createQuestions({DATA,names:a=>agentName(a),onAnswer:async q=>{if(q.kind==='fixer'&&q.issue)await issues.answered(q.issue,q);if(q.kind==='app'&&q.issue==='brand-logo'&&q.answered?.choice==='b'){await brand.setMono(true);await pwa.current()}if(q.kind==='app'&&String(q.issue).startsWith('live-logo-')&&q.answered?.choice==='b')await live.useLetter(String(q.issue).slice(10))}});
 // the cloud fixer (cloud-fixer.mjs, 12 Nov 2026): code fixes are written by a Claude Code routine in Anthropic's cloud; the account with the most room is used
 const cloudFixer=createCloudFixer({DATA,accounts:async()=>{const b=accountsApi.backup,d=await b.load();return Promise.all(b.all(d).map(a=>b.details(a)))},github:id=>fixerGit.mergedPr(id)});
 const issues=createIssues({DATA,ask:o=>questions.file({kind:o.kind,agent:o.agent,issue:o.issue},o),limits:providerLimits,git:fixerGit,cloud:cloudFixer,window:()=>windowOf(installSettings()),onLimit:(a,t)=>accountsApi.noteLimit(a,t),
@@ -2398,6 +2408,10 @@ const agentAds=createAgentAdspower({DATA,HERMES_HOME,screens,wanted:a=>optins.on
  mcp:(a,m,p,b)=>fetch(`${DASH.origin}/api/mcp/servers${p}?profile=${encodeURIComponent(a)}`,{method:m,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:b?JSON.stringify(b):undefined,signal:AbortSignal.timeout(30000)}).then(async r=>{if(!r.ok&&r.status!==404)throw new Error('MCP '+m+' '+r.status+' '+(await r.text().catch(()=>'')).slice(0,120))})});
 const SCREEN=new URL(env.UI_SCREEN||'http://127.0.0.1:6080');
 const BUILD=String(Date.now());
+// home-screen app for every page (pwa.mjs): icons from the brand's real mark, the manifest, head tags and the service worker. No real mark = one question under Needs you
+const brandNeeds=async(set,s)=>{try{const ask={kind:'app',issue:'brand-logo'};if(set.needsLogo)await questions.file(ask,{question:'No logo found for '+s.name+': upload its mark',options:[{label:'Upload the mark',effect:'Opens Branding, where you choose its SVG or PNG file.',recommended:true,go:'/system/branding'},{label:'Use its first letter',effect:'The first letter on the colour tile instead. You can still upload the mark later.'}],allowOther:false});else await questions.retire(ask)}catch(e){console.warn('brand icon question:',e.message)}};
+const pwa=createPwa({brand,build:()=>BUILD,onSet:(set,s)=>{brandNeeds(set,s)}});
+await pwa.current().catch(e=>console.warn('icons:',e.message));
 const sameOrigin=req=>{const o=req.headers.origin;if(!o)return true;try{return new URL(o).host===req.headers.host}catch{return false}};
 const plugins=createPluginHost({DASH,DASH_TOKEN,users,send,security,proxy,me,validCookie,sameOrigin});
 function screenHttp(req,res){
@@ -2425,6 +2439,8 @@ const server=createServer(async(req,res)=>{
  const url=new URL(req.url,'http://x');const p=url.pathname;
  try{
   await users.load();   // people (owners, shares) are read before any route uses them, also right after a restart
+  pwa.hook(req,res);   // every HTML page this server sends (the app, sign-in, About/Privacy/Terms, the small result pages, the screen, proxied Code pages) gets the icon, manifest and theme tags as it goes out, so no page is forgotten
+  if((req.method==='GET'||req.method==='HEAD')&&pwa.isPwaPath(p)){if(await pwa.serve(req,res,p,{head:req.method==='HEAD',code:String(req.headers['x-forwarded-host']||req.headers.host||'').split(',')[0].trim().split(':')[0].toLowerCase()===CODE_HOST}))return}   // icons, manifest and the service worker are public (a manifest is fetched without cookies)
   if(codeOnline.handle(req,res))return;   // code.elmora.example and code-preview.elmora.example: Code online, behind sign-in
   if(p==='/install-ping')return install.ping(req,res);
   // local owner channel (local-owner.mjs): terminal / coding assistant on the box answers Needs-you items; anything else is a plain 404
@@ -2920,7 +2936,7 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/code/bridge-done'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4e6))}catch{}return send(res,200,{ok:codeBridge.done(dev,b)})}
    if(p==='/ui/code/done'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,262144))}catch{}return send(res,200,{ok:code.done(dev,b.id,{state:String(b.state||''),text:String(b.text||'').slice(0,20000),files:(b.files||[]).slice(0,200).map(String),chat:String(b.chat||'')})})}
    return send(res,404,{error:'Not found'})}
-  if(p==='/ui/brand'&&req.method==='GET')return send(res,200,{...await brand.get(),owner:legalOwner()});
+  if(p==='/ui/brand'&&req.method==='GET')return send(res,200,{...await brand.get(),owner:legalOwner(),pwa:await pwa.info().catch(()=>null)});
   if(p==='/ui/brand/logo'&&req.method==='GET'){const l=await brand.logo();if(!l){res.writeHead(302,{location:env.BRAND_LOGO_FALLBACK||'/assets/aqeelos-mark.svg'});return res.end()}res.writeHead(200,{'content-type':l.type,'cache-control':'public, max-age=86400','content-security-policy':"default-src 'none'; style-src 'unsafe-inline'",'x-content-type-options':'nosniff'});return res.end(l.data)}
   if(p==='/aqeelos-login'&&req.method==='GET'){res.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer'});return res.end(n8n.page())}
   if(p==='/aqeelos-login/go'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
@@ -2996,9 +3012,12 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/me/password'&&req.method==='PUT')return users.api(u,req,res,p,async(r,code,data,h)=>{if(code===200){await revokeSessions(u.id);return send(r,code,data,{...(h||{}),'set-cookie':'hui='+makeCookie(u.id)+'; '+cookieAttrs(SESSION_DAYS*86400)})}return send(r,code,data,h)},readBody);
    // System › Branding (admins): the name, logo and contact of this install
    if(p.startsWith('/ui/brand')&&req.method!=='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins change the branding.'});
-    try{let r;if(p==='/ui/brand'&&(req.method==='POST'||req.method==='PUT')){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}if('name' in b)r=await brand.setName(b.name);if('contact' in b)r=await brand.setContact(b.contact);r||=await brand.get()}
+    try{let r;if(p==='/ui/brand'&&(req.method==='POST'||req.method==='PUT')){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}if('name' in b)r=await brand.setName(b.name);if('contact' in b)r=await brand.setContact(b.contact);if('colour' in b||'accent' in b)r=await brand.setColours({colour:b.colour,accent:b.accent});if('mono' in b)r=await brand.setMono(!!b.mono);r||=await brand.get()}
      else if(p==='/ui/brand/logo'&&req.method==='POST')r=await brand.setLogo(await readRaw(req,600*1024),String(req.headers['content-type']||''));
-     else if(p==='/ui/brand/logo'&&req.method==='DELETE')r=await brand.clearLogo();else return send(res,404,{error:'Not found'});
+     else if(p==='/ui/brand/logo'&&req.method==='DELETE')r=await brand.clearLogo();
+     else if(p==='/ui/brand/icon'&&req.method==='POST')r=await brand.setIcon(await readRaw(req,3.2*1024*1024),String(req.headers['content-type']||''));
+     else if(p==='/ui/brand/icon'&&req.method==='DELETE')r=await brand.clearIcon();else return send(res,404,{error:'Not found'});
+     await pwa.current().catch(e=>console.warn('icons:',e.message));
      console.log('branding changed by',u.name||u.id,'→',r.name);return send(res,200,r)}catch(e){return send(res,400,{error:e.message})}}
    {const lm=/^\/ui\/people\/([\w-]+)\/lead$/.exec(p);if(lm&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});const x=users.byId(lm[1]);if(!x||x.id==='owner')return send(res,404,{error:'Unknown person'});try{return send(res,200,{ok:true,lead:await makeLead(x)})}catch(e){return send(res,502,{error:'The lead agent could not be made: '+e.message})}}}
    if(p==='/ui/me'||p.startsWith('/ui/me/')||p.startsWith('/ui/people')||p.startsWith('/ui/agents')||p.startsWith('/ui/mail')||p.startsWith('/ui/roles'))return users.api(u,req,res,p,send,readBody);

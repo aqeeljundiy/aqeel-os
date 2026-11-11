@@ -14,7 +14,7 @@ const norm=s=>String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
 const clip=(s,n)=>String(s??'').trim().slice(0,n);
 // {question, options:[{label,effect,recommended}], allowOther} → the clean one, or throws what is wrong (said to the asker)
 export function cleanQuestion(o){const question=clip(o?.question,240);if(!question)throw Error('Say the question in one plain sentence.');
- const raw=Array.isArray(o?.options)?o.options:[];const options=raw.map(x=>({label:clip(x?.label,40),effect:clip(x?.effect,160),recommended:!!x?.recommended})).filter(x=>x.label);
+ const raw=Array.isArray(o?.options)?o.options:[];const options=raw.map(x=>({label:clip(x?.label,40),effect:clip(x?.effect,160),recommended:!!x?.recommended,...(/^\/[\w/-]{1,60}$/.test(String(x?.go||''))?{go:String(x.go)}:{})})).filter(x=>x.label);
  if(options.length<2)throw Error('Give 2 to 4 options, each with a short label and a one-line effect.');if(options.length>4)options.length=4;
  if(options.some(x=>!x.effect))throw Error('Every option needs a one-line effect: what happens if it is chosen.');
  const rec=options.findIndex(x=>x.recommended);options.forEach((x,i)=>{x.key=String.fromCharCode(97+i);x.recommended=i===rec});
@@ -33,6 +33,8 @@ export function createQuestions({DATA,names=a=>a,now=()=>Date.now(),log=m=>conso
  // open ones as Bottlenecks items
  async function open(mayUse=()=>true,admin=true){await load();
   return db.items.filter(q=>q.state==='open'&&(admin||q.agent&&mayUse(q.agent))).map(q=>({id:'question|'+q.qid,kind:'question',qid:q.qid,agent:q.agent||undefined,agentName:q.agent?names(q.agent):undefined,title:q.question,text:'',options:q.options,allowOther:q.allowOther,created:q.created,from:null}))}
+ // an open question that no longer applies (the logo it asked for arrived): gone from Needs you
+ async function retire(a){await load();let n=0;for(const q of db.items)if(q.state==='open'&&q.kind===(a.kind||'app')&&(q.issue||'')===(a.issue||'')){q.state='withdrawn';n++}if(n)await save();return n}
  const byIssue=async issue=>{await load();return db.items.find(q=>q.issue===issue&&q.state==='open')||null}
  // the answer: a choice's key, or 'other' with words. Once: a second answer is refused
  async function answer(qid,{choice,text}={},by=''){await load();const q=db.items.find(x=>x.qid===qid);if(!q)throw Error('That question is gone.');if(q.state!=='open')throw Error('That one was already answered.');
@@ -46,4 +48,4 @@ export function createQuestions({DATA,names=a=>a,now=()=>Date.now(),log=m=>conso
  // the lines added to the agent's turn only when it has an answer it has not used yet
  async function contextLines(agent){const l=await answersFor(agent).catch(()=>[]);if(!l.length)return [];
   return ['','## Answers to your questions','',...l.map(q=>'- "'+q.question+'": the owner chose "'+q.answered.text+'"'+(q.answered.effect?' ('+q.answered.effect+')':'')+' (question '+q.qid+'). Carry on with it, then call question_done with '+q.qid+'.')]}
- return {file,open,answer,answersFor,ack,mine,contextLines,byIssue,list:async()=>(await load()).items}}
+ return {file,retire,open,answer,answersFor,ack,mine,contextLines,byIssue,list:async()=>(await load()).items}}

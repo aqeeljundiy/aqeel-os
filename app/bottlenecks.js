@@ -35,7 +35,7 @@ const Bottlenecks={items:[],
    default:throw new Error('Unknown action')}},
  // a question (questions.mjs): one button per option, the recommended one first and primary; Something else takes words
  questionActs(x,done){const send=(choice,text)=>post(UI,'/ui/questions/answer',{qid:x.qid,choice,text}).then(r=>{toast('Answered: '+r.answer)});
-  const opts=[...x.options].sort((p,q)=>(q.recommended?1:0)-(p.recommended?1:0)),out=opts.map((o,i)=>[o.label,()=>send(o.key),i===0]);
+  const opts=[...x.options].sort((p,q)=>(q.recommended?1:0)-(p.recommended?1:0)),out=opts.map((o,i)=>[o.label,o.go?()=>{closeLayers();go(o.go);return new Promise(()=>{})}:()=>send(o.key),i===0]);
   if(x.allowOther!==false)out.push(['Something else',({box,after,acts})=>this.field({box,after,acts},{ph:'What should happen instead?',go:'Send',rows:true},v=>send('other',v))]);return out},
  actions(x){const ids=[x.id,...(x.also||[])],done=()=>Promise.all(ids.map(id=>post(UI,'/ui/bottlenecks/done',{id}))),later=()=>Promise.all(ids.map(id=>post(UI,'/ui/bottlenecks/later',{id}))).then(()=>toast('Hidden until tomorrow'));
   // an AI account signed out: the same Reconnect as its card on Models (the item goes once it works again)

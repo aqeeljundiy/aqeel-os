@@ -10,6 +10,7 @@
 import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
 import path from 'node:path';
 import {randomBytes,createHmac,timingSafeEqual} from 'node:crypto';
+import {brandApp} from './pwa-zip.mjs';
 
 // names kept for aqeelOS or for later; any other address that already answers is taken too (taken())
 const RESERVED=new Set(['www','app','apps','ai','api','code','code-preview','n8n','mail','admin','deploy','dokploy','live','dashboard','status','static','cdn','test','staging','preview','auth','login','signin','smtp','imap','ftp','vpn','git','blog','shop','store','docs','help','support','assets','files','media','pub']);
@@ -18,7 +19,7 @@ const PRIVATE_MW='aq-live-private@file';
 const RAILPACK='0.15.4';   // the version Dokploy 0.30 sets by itself on the server's other apps
 const DAY=864e5,dayKey=t=>new Date(t).toISOString().slice(0,10);
 
-export function createLive({DATA,DOMAIN='app.localhost',SECRET,PUBLIC_URL,AUTH_URL=process.env.LIVE_AUTH_URL||'http://ai-box:4400/live-auth',auto=false}){
+export function createLive({DATA,DOMAIN='app.localhost',SECRET,PUBLIC_URL,AUTH_URL=process.env.LIVE_AUTH_URL||'http://ai-box:4400/live-auth',auto=false,onIcons=async()=>{}}){
  const FILE=path.join(DATA,'live.json');let db=null;
  const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.apps||=[];db.dokploy||={};db.stats||={}}return db};
  // saves run one after another so two never share the .tmp file; a failed one still lets the next run
@@ -106,7 +107,7 @@ export function createLive({DATA,DOMAIN='app.localhost',SECRET,PUBLIC_URL,AUTH_U
  const unused=a=>Boolean(db.stats.on&&a.status==='live'&&Date.now()-(a.created||0)>14*DAY&&!sumDays(a,30)&&(!a.lastVisit||Date.now()-a.lastVisit>30*DAY));
 
  const view=(a,u,admin)=>({id:a.id,name:a.name,slug:a.slug,url:urlOf(a.slug),owner:a.owner,ownerName:a.ownerName,repo:a.repo||'',db:Boolean(a.dbId),status:a.stopped?'offline':a.status,error:a.error||'',created:a.created,updated:a.updated,
-  visibility:a.visibility||'unlisted',mine:a.owner===u.id,canManage:a.owner===u.id||admin,canRemove:a.owner===u.id||admin,
+  visibility:a.visibility||'unlisted',icon:a.icons?{source:a.icons.source,needsLogo:a.icons.needsLogo}:null,mine:a.owner===u.id,canManage:a.owner===u.id||admin,canRemove:a.owner===u.id||admin,
   ...(a.owner===u.id||admin?{visits7:sumDays(a,7),visits30:sumDays(a,30),lastVisit:a.lastVisit||null,unused:unused(a)}:{})});
  // the team sees public apps; unlisted and private ones only their publisher and admins
  async function list(u,admin){await load();return {apps:db.apps.filter(a=>admin||a.owner===u.id||(a.visibility||'unlisted')==='public').map(a=>view(a,u,admin)).sort((a,b)=>(b.updated||0)-(a.updated||0)),
@@ -156,6 +157,8 @@ export function createLive({DATA,DOMAIN='app.localhost',SECRET,PUBLIC_URL,AUTH_U
    a.dbId=id;a.dbUrl='postgresql://app:'+pw+'@'+(one?.appName||'live-'+slug+'-db')+':5432/app'}
   await dk('application.saveEnvironment',{applicationId:a.appId,env:'PORT=3000\nHOST=0.0.0.0\nNODE_ENV=production'+(a.dbUrl?'\nDATABASE_URL='+a.dbUrl:''),buildArgs:'',buildSecrets:'',createEnvFile:true});
   await applyVisibility(a);
+  // home-screen icon and manifest from the app's own logo, only for what the project lacks (pwa-zip.mjs); no real logo = the plain tile and one question
+  {const r=brandApp(zip,{name:a.name,mono:a.mono});if(r.zip!==zip)zip=r.zip;a.icons={at:Date.now(),source:r.source,added:r.added.length,kept:r.kept,needsLogo:r.needsLogo,why:r.why||'',skipped:r.skipped||''};await save();onIcons(a,r).catch(e=>console.warn('live icons',e.message))}
   const form=new FormData();form.append('applicationId',a.appId);form.append('zip',new Blob([zip],{type:'application/zip'}),'app.zip');
   a.status='building';a.error='';a.stopped=false;a.updated=Date.now();await save();
   await dk('application.dropDeployment',null,{form})}catch(e){if(a){a.status='failed';a.error=e.message;await save()}throw e}
@@ -175,4 +178,6 @@ export function createLive({DATA,DOMAIN='app.localhost',SECRET,PUBLIC_URL,AUTH_U
  async function countVisits(on){await dk('settings.toggleRequests',{enable:!!on});await dk('settings.reloadTraefik',{});   // the log setting is read only when Traefik starts
 await load();db.stats.on=!!on;if(on&&!db.stats.cursor)db.stats.cursor=Date.now();await save();return {ok:true}}
  if(auto){setInterval(()=>statsTick().catch(e=>console.warn('live visits',e.message)),10*60000).unref()}
- return {list,publish,remove,check,connect,clean,urlOf,nameCheck,setVisibility,setOnline,countVisits,auth,login,statsTick,withPrivate}}
+ // the owner chose a letter for an app with no logo: used from its next publish
+ async function useLetter(slug){await load();const a=db.apps.find(x=>x.slug===slug);if(!a)throw Error('No such app.');a.mono=true;await save();return {ok:true}}
+ return {useLetter,list,publish,remove,check,connect,clean,urlOf,nameCheck,setVisibility,setOnline,countVisits,auth,login,statsTick,withPrivate}}
