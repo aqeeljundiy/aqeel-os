@@ -13,6 +13,13 @@ Drive bin (Google keeps them 30 more days).
 **Settings** on the card: which Google account (a main-agent account with Drive), the time, how many to keep, and the
 Drive folder. A new folder name starts a new folder; backups in the old one stay there.
 
+## Without a Google account (12 Nov 2026)
+No Google account connected: the same nightly backup stays on the box in `~/aqeelos-local-backups/` (encrypted with the same key;
+the newest 3, none older than 14 days, all under 60 GB; the newest is never removed). Connect Google and the next one goes to
+Drive too. Health shows one item when the newest good backup, Drive or local, is more than 48 hours old. A local one is
+opened by hand (the app's Restore lists Drive backups and safety copies):
+`openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass pass:<key> -in <file> | tar -xzf - -C <empty folder>`.
+
 ## Before the first backup
 1. **Connect Google.** The card says "Connect Google first" until a Google account with Drive is connected for the main
    agent. Its button opens Connect Google (the same dialog as Connections › Add › A Google account). The first time, it

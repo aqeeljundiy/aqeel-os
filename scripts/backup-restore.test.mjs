@@ -76,8 +76,8 @@ function app(s,x={}){const DATA=path.join(s.T,'data');mkdirSync(DATA,{recursive:
   stopEngine:async()=>{n.stop++},startEngine:async()=>{n.start++},restored:(ok,t)=>n.told.push([ok,t]),...x});return {b,n,DATA,TMP}}
 const until=async f=>{for(let i=0;i<200;i++){if(await f())return;await new Promise(r=>setTimeout(r,25))}throw Error('timed out')};
 
-test('no Google: a plain "Connect Google first", no file-not-found, nobody told',async()=>{const s=scene();try{const {b,n}=app(s);const st=await b.status();
- assert.equal(st.google.connected,false);await assert.rejects(()=>b.run('by hand'),/Connect Google first/);assert.equal((await b.status()).last.nogoogle,true);assert.deepEqual(n.told,[]);
+test('no Google: the backup stays on the box (12 Nov 2026), nobody told; the Drive list says Connect Google first',async()=>{const s=scene();try{const {b,n}=app(s,{MIN:1});const st=await b.status();
+ assert.equal(st.google.connected,false);await b.run('by hand');const l1=(await b.status()).last;assert.equal(l1.ok,true);assert.equal(l1.local,true);assert.deepEqual(n.told,[]);
  const l=await b.list();assert.equal(l.google,false);assert.match(l.error,/Connect Google first/)}finally{s.done()}});
 test('a Google account without Drive or a lasting sign-in is said plainly',async()=>{const s=scene();try{const {b}=app(s);
  w(path.join(s.H,'google_token.json'),JSON.stringify({account:'a@b.test',refresh_token:'r',scopes:['https://www.googleapis.com/auth/gmail.readonly']}));await assert.rejects(()=>b.run(),/without Drive/);

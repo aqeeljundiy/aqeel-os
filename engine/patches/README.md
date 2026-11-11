@@ -58,3 +58,20 @@ tools/browser_tool_lifecycle.py, marked `aqeelos:harness-idle-stop`):
 Tests (11 Nov, on a clean worktree of the Elkiya engine with the patch): the engine's browser tests that touch these
 functions, 200 passed, 1 skipped; plus a check of the idle rule. Daemons of a process that died first are stopped by the
 root script's janitor (`harness_sweep` in scripts/agent-users.sh). It takes effect after the engine restarts.
+
+## 2026-11-12-mcp-oauth-no-retry.patch (OPS-18, applied by step 17b)
+
+A tool server that signs in with OAuth and has no sign-in on disk (Slack on Elkiya, nobody ever signed in) was tried again by
+every discovery pass of a gateway that cannot ask a person: "MCP OAuth setup failed ... non-interactive environment and no
+cached tokens", one WARNING every five minutes, 295 errors in 24 hours. `tools/mcp_tool_discovery.py` now skips such a server
+(`_oauth_signin_pending`) until its tokens file exists; signing in writes it and the next pass connects. A gateway with the
+dashboard's sign-in flow, or a terminal, keeps the normal path. The same file is on both live engines (same md5), and the patch
+applies to it cleanly; it takes effect after the engine restarts. aqeelOS still shows the missing sign-in as one Health item.
+
+## Telegram over IPv4 (OPS-18): no patch, the engine's own setting
+
+`network.force_ipv4: true` in config.yaml (engine default false; `hermes_constants.apply_ipv4_preference` makes name lookups
+answer IPv4 first, read when the gateway starts) is what the engine offers for a box whose IPv6 has no route (Elkiya:
+`curl -4 https://api.telegram.org/` answers in 0.7 s, `curl -6` cannot connect; about 100 Telegram warnings an hour from the
+dual-stack path). aqeelOS writes it itself: `app/net-prefer.mjs` probes a real connection to api.telegram.org:443 over IPv4 and
+over IPv6, and `app/agent-defaults.mjs` sets the key for every agent when only IPv6 fails (engine restarts in the quiet hours).

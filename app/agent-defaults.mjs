@@ -13,6 +13,7 @@ import {homedir,userInfo} from 'node:os';
 import {execFile} from 'node:child_process';
 import {setKey,readConfig,pick,agentNames,HERMES_HOME} from './agentops.mjs';
 import {UNSAFE_TOOLSETS} from './users.mjs';
+import {preferIpv4} from './net-prefer.mjs';
 
 const PLATFORMS=['whatsapp','telegram','slack','discord','signal','api_server'];
 // the engine's API-server bundle leaves out clarify, computer_use and tts; the app chat gets them back so it matches every other channel
@@ -110,6 +111,8 @@ export function createAgentDefaults({DATA,giveSkills,trimSkills=async()=>0,locke
   // aqeelOS's own tools for the agent (lock box, my_settings, browser choice, bottlenecks) are never cut down to a few
   if(pick(c,'mcp_servers.aqeelos-notify.tools.include')!==undefined)changes.push(['mcp_servers.aqeelos-notify.tools',{}]);
   if(pick(c,'stt.language')===undefined)changes.push(['stt.language','']);
+  // IPv6 that does not work (Elkiya's Telegram, 11 Nov 2026): the engine is told to use IPv4 only, found out here, not set by hand (app/net-prefer.mjs)
+  if(String(pick(c,'network.force_ipv4'))!=='true'&&await preferIpv4().catch(()=>false))changes.push(['network.force_ipv4','true']);
   // the engine's code checkers (language servers it starts after file edits) held ~2.7 GB on Elkiya (OPS-17, 11 Nov
   // 2026), a box with a 28 GB limit: TypeScript's at most 1.5 GB of heap, Python's 1 GB, and each stops after 5 idle
   // minutes (the engine's own default is 10). Set once; values a person set stay.

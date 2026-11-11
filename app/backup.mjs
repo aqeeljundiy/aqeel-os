@@ -141,8 +141,22 @@ export async function memFree(root='/sys/fs/cgroup',meminfo='/proc/meminfo'){
 
 // what a backup cut off by an app restart left in /tmp (its finally never ran): the archive and its .err/.skipped notes.
 // Called when the app starts, before any backup can run (11 Nov 2026: 186 GB of them on Elkiya).
-export const LEFTOVER=/^aqeelos-\d{4}-\d\d-\d\d-\d\d-\d\d\.tar\.gz\.enc(\.err|\.skipped)?$/;
-export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=process.env.BACKUP_GOOGLE_ACCOUNT||'',notify=()=>{},solved=()=>{},restored=()=>{},stopEngine=async()=>{},startEngine=async()=>{},fetchImpl=fetch,tar='tar',TMP='/tmp',disk:diskImpl,mem=memFree,drop=dropCache,PIECE=64*1024*1024}){
+export const LEFTOVER=/^aqeelos-\d{4}-\d\d-\d\d-\d\d-\d\d\.tar\.gz\.enc(\.err|\.skipped|\.oerr|\.tcode)?$/;
+/* No Google account (P&P never had one, so no backup was ever made there): the nightly backup stays on the box itself, in
+   LOCALDIR, encrypted the same way. The newest LOCAL_KEEP are kept, none older than LOCAL_DAYS, all of them together under
+   LOCAL_MAX bytes; the newest is never removed. A newest good backup (Drive or local) older than STALE_H hours is one
+   standing Health item. Restoring a local one: RESTORE.md. */
+export const LOCAL_KEEP=3,LOCAL_DAYS=14,LOCAL_MAX=60e9,STALE_H=48;
+export const LOCAL_NAME=/^aqeelos-\d{4}-\d\d-\d\d-\d\d-\d\d\.tar\.gz\.enc$/;
+// the names to remove, from [{name,size,at}]
+export function pruneLocal(files,{keep=LOCAL_KEEP,days=LOCAL_DAYS,max=LOCAL_MAX,now=Date.now()}={}){
+ const l=[...files].sort((a,b)=>b.at-a.at),out=[];let total=0;
+ l.forEach((f,i)=>{if(i>0&&(i>=keep||now-f.at>days*864e5))out.push(f.name);else total+=f.size});
+ for(let i=l.length-1;i>0&&total>max;i--){const f=l[i];if(out.includes(f.name))continue;out.push(f.name);total-=f.size}
+ return out}
+// the newest good backup (at, 0 = none yet; since = when aqeelOS first looked) is older than the limit: how old, else null
+export const staleBackup=(at,since,now=Date.now(),hours=STALE_H)=>{const age=now-(at||since||now);return age>hours*3600e3?{hours:Math.round(age/3600e3),never:!at}:null};
+export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=process.env.BACKUP_GOOGLE_ACCOUNT||'',notify=()=>{},solved=()=>{},restored=()=>{},stopEngine=async()=>{},startEngine=async()=>{},fetchImpl=fetch,tar='tar',TMP='/tmp',LOCALDIR=path.join(HOME,'aqeelos-local-backups'),MIN=1e6,disk:diskImpl,mem=memFree,drop=dropCache,PIECE=64*1024*1024}){
  const STATE=path.join(DATA,'backups.json'),KEYF=path.join(DATA,'backup-key'),JOURNAL=path.join(DATA,'restore-journal.jsonl');let state=null,running=null,preparing=null,copying=false,held=false,testing=null,prep=null;   // prep: the running Prepare's stop switch
  const load=async()=>{if(!state){try{state=JSON.parse(await readFile(STATE,'utf8'))}catch{state={}}
    // the old switched-off restore's "running" mark (before 7 Nov 2026)
@@ -198,11 +212,15 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
   if(!u||!k||!await stat(ws).catch(()=>null))continue;
   await sh('ssh -i '+q(k)+' -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=15 '+q(u+'@127.0.0.1')+' '+q('find '+q(ws)+' -user '+u+' \\( -type d -o -type f \\) -print0 2>/dev/null | xargs -0 -r setfacl -m u:claude:rwX,m::rwX 2>/dev/null; true')).catch(e=>console.warn('backup: read access for',a,e.message))}}
  // pack, encrypt, upload, prune
- async function run(why='scheduled'){if(copying)throw Error('A restore is running. Back up after it finishes.');if(running)return running;running=(async()=>{await load();const at=Date.now();const name='aqeelos-'+new Date(at+7*3600e3).toISOString().slice(0,16).replace(/[:T]/g,'-')+'.tar.gz.enc';const tmp=path.join(TMP,name);
+ async function run(why='scheduled'){if(copying)throw Error('A restore is running. Back up after it finishes.');if(running)return running;running=(async()=>{await load();const at=Date.now();const name='aqeelos-'+new Date(at+7*3600e3).toISOString().slice(0,16).replace(/[:T]/g,'-')+'.tar.gz.enc';const tmp=path.join(TMP,name);let work=tmp;
   // a try counts when it starts (11 Nov 2026: each deploy restarted the app mid-backup, the cut-off run was never counted,
   // and the next start tried again: seven 26 GB archives in /tmp filled Elkiya's disk to 99%)
   {const day=localParts(at,tz()).day;state.tries=state.tries?.day===day?{day,n:state.tries.n+1}:{day,n:1};await save()}
-  try{const g0=await google();   // no Google: said at once, before minutes of packing
+  try{let g0=null;try{g0=await google()}catch(e){if(e.code!=='NOGOOGLE')throw e}   // no Google: the backup stays on this box (LOCALDIR)
+   const local=!g0,dest=path.join(LOCALDIR,name);
+   if(local){await mkdir(LOCALDIR,{recursive:true,mode:0o700});work=dest+'.part'}
+   // the disk first: a full one made openssl fail, tar got SIGPIPE and the cause was lost as "tar exit 141" (11 Nov 2026)
+   {const need=Math.max(2e9,(state.last?.size||0)*1.3),free=(await disk(path.dirname(work))).free;if(free<need)throw Error('Not enough free disk space for a backup: it needs about '+gb(need)+' in '+path.dirname(work)+', and there is '+gb(free)+'.')}
    const inc=[];for(const p of INCLUDE)if(await stat(path.join(HOME,p)).catch(()=>null))inc.push(p);
    // agents with their own Linux user own their workspace files, and some programs write them private, so tar could not
    // read them and every nightly backup failed from 24 Oct (30 Oct 2026). Before packing, each agent's own user (the SSH
@@ -210,23 +228,36 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
    await grantRead();
    // tar exits 1 when a file changes while it reads (fine for a backup). A file that still can't be read (a browser's lock
    // link) is skipped and counted instead of failing the whole backup; anything else tar can't do still fails it
-   const terr=q(tmp+'.err'),tcnt=q(tmp+'.skipped');
-   await sh('set -o pipefail; { tar -czf - --ignore-failed-read '+EXCLUDE.map(e=>'--exclude='+q(e)).join(' ')+' '+inc.map(q).join(' ')+' 2>'+terr+'; c=$?; grep -c "Cannot open\\|Cannot stat\\|Cannot read" '+terr+' >'+tcnt+'; [ $c -le 1 ] || { grep -v "socket ignored\\|Cannot open\\|Cannot stat\\|Cannot read" '+terr+' | tail -2 >&2; rm -f '+terr+'; exit $c; }; rm -f '+terr+'; } | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:AQ_BK -out '+q(tmp),{AQ_BK:await key()});
-   const skipped=Number((await readFile(tmp+'.skipped','utf8').catch(()=>'0')).trim())||0;await rm(tmp+'.skipped',{force:true}).catch(()=>{});
-   const size=(await stat(tmp)).size;if(size<1e6)throw Error('The backup came out too small ('+size+' bytes).');
+   const terr=q(work+'.err'),tcnt=q(work+'.skipped'),oerr=q(work+'.oerr'),tcode=q(work+'.tcode'),junk=[terr,oerr,tcode].join(' ');
+   // tar and openssl each report on their own (PIPESTATUS): when openssl stops first (disk full, file unwritable) tar only gets
+   // SIGPIPE, exit 141, and the old one-line check reported that instead of the cause (11 Nov 2026). openssl's own error comes first.
+   await sh('{ tar -czf - --ignore-failed-read '+EXCLUDE.map(e=>'--exclude='+q(e)).join(' ')+' '+inc.map(q).join(' ')+' 2>'+terr+'; echo $? >'+tcode+'; } | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:AQ_BK -out '+q(work)+' 2>'+oerr+'; oc=${PIPESTATUS[1]}; tc=$(cat '+tcode+' 2>/dev/null); tc=${tc:-1}; '
+    +'grep -c "Cannot open\\|Cannot stat\\|Cannot read" '+terr+' >'+tcnt+' 2>/dev/null; '
+    +'[ "$oc" = 0 ] || { echo "encrypting the backup failed (openssl exit $oc): $(tail -c 300 '+oerr+' | tr "\\n" " ")" >&2; rm -f '+junk+'; exit 1; }; '
+    +'[ "$tc" -le 1 ] || { grep -v "socket ignored\\|Cannot open\\|Cannot stat\\|Cannot read" '+terr+' | tail -2 >&2; echo "tar stopped (exit $tc)" >&2; rm -f '+junk+'; exit "$tc"; }; rm -f '+junk,{AQ_BK:await key()});
+   const skipped=Number((await readFile(work+'.skipped','utf8').catch(()=>'0')).trim())||0;await rm(work+'.skipped',{force:true}).catch(()=>{});
+   const size=(await stat(work)).size;if(size<MIN)throw Error('The backup came out too small ('+size+' bytes).');
+   if(local){await rename(work,dest);const pruned=await pruneLocalDir();
+    state.last={at,ok:true,name,size,local:true,why,secs:Math.round((Date.now()-at)/1000),skipped};state.lastOkAt=at;state.made=true;delete state.staleTold;await save();
+    console.log('backup: '+name+' ('+Math.round(size/1e6)+' MB) kept on this box in '+LOCALDIR+' (no Google account)'+(pruned?', '+pruned+' older one(s) removed':'')+(skipped?', '+skipped+' unreadable file(s) skipped':''));solved();return state.last}
    const g=await google().catch(()=>g0),fid=await folder(g);
    const start=await drive(g,'upload/drive/v3/files?uploadType=resumable',{method:'POST',raw:true,headers:{'content-type':'application/json; charset=UTF-8','x-upload-content-type':'application/octet-stream','x-upload-content-length':String(size)},body:JSON.stringify({name,parents:[fid]})});
    const file=await sendFile(start.headers.get('location'),tmp,size);
    // keep the newest N (older ones go to the Drive bin, where Google keeps them 30 more days)
    const l=await drive(g,'drive/v3/files?q='+encodeURIComponent("'"+fid+"' in parents and trashed=false")+'&orderBy=createdTime desc&fields=files(id,name)&pageSize=100');
    for(const f of (l.files||[]).slice(settings().keep))await drive(g,'drive/v3/files/'+f.id,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({trashed:true})}).catch(()=>{});
-   state.last={at,ok:true,name,size,id:file.id,account:g.account,why,secs:Math.round((Date.now()-at)/1000),skipped};state.made=true;await save();console.log('backup: '+name+' ('+Math.round(size/1e6)+' MB) uploaded to Google Drive'+(skipped?', '+skipped+' unreadable file(s) skipped':''));solved();return state.last}
+   state.last={at,ok:true,name,size,id:file.id,account:g.account,why,secs:Math.round((Date.now()-at)/1000),skipped};state.lastOkAt=at;state.made=true;delete state.staleTold;await save();pruneLocalDir().catch(()=>{});console.log('backup: '+name+' ('+Math.round(size/1e6)+' MB) uploaded to Google Drive'+(skipped?', '+skipped+' unreadable file(s) skipped':''));solved();return state.last}
   // a failed scheduled backup is tried again within the hour, 3 times a morning; only the third failure is told (a
   // dropped upload is usually gone an hour later). A manual one shows its result on Health, so it never goes to Bottlenecks.
   // No Google account is not a failure to tell about: the card says "Connect Google first"
   catch(e){
    state.last={at,ok:false,error:e.message,why,...(e.code==='NOGOOGLE'?{nogoogle:true}:{})};await save();console.warn('backup failed ('+state.tries.n+' today):',e.message);if(why==='scheduled'&&state.tries.n>=3&&e.code!=='NOGOOGLE')notify('Backup to Google Drive failed 3 times this morning',e.message);throw e}
-  finally{await rm(tmp,{force:true}).catch(()=>{});running=null}})();return running}
+  finally{await rm(work,{force:true}).catch(()=>{});await rm(work+'.skipped',{force:true}).catch(()=>{});await rm(tmp,{force:true}).catch(()=>{});running=null}})();return running}
+ // the backups kept on this box (no Google account): newest first
+ async function localBackups(){const out=[];for(const f of await readdir(LOCALDIR).catch(()=>[])){if(!LOCAL_NAME.test(f))continue;const st=await stat(path.join(LOCALDIR,f)).catch(()=>null);if(st?.isFile())out.push({name:f,size:st.size,at:st.mtimeMs})}return out.sort((a,b)=>b.at-a.at)}
+ async function pruneLocalDir(){const gone=pruneLocal(await localBackups());for(const f of gone)await rm(path.join(LOCALDIR,f),{force:true}).catch(()=>{});
+  for(const f of await readdir(LOCALDIR).catch(()=>[]))if(f.endsWith('.part')&&!running){const st=await stat(path.join(LOCALDIR,f)).catch(()=>null);if(st&&Date.now()-st.mtimeMs>864e5)await rm(path.join(LOCALDIR,f),{force:true}).catch(()=>{})}
+  return gone.length}
  // a backup from Drive to a file, 256 MB at a time (each piece has 20 minutes and 5 tries), so a long download is never cut
  // off by one timeout (1 Nov 2026, second review)
  // 64 MB pieces, each synced and dropped from the page cache once written (MEM_NEED above); ctl.stop ends it at once
@@ -327,13 +358,21 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
  // every 15 minutes: the backup is due from the set hour, for 6 hours; a restore test every Sunday after it
  async function dropLeftovers(){if(running)return 0;let n=0,bytes=0;for(const f of (await readdir(TMP).catch(()=>[])).filter(f=>LEFTOVER.test(f))){const p=path.join(TMP,f);const st=await stat(p).catch(()=>null);if(!st?.isFile())continue;await rm(p,{force:true}).catch(()=>{});n++;bytes+=st.size}
   if(n)console.log('backup: removed '+n+' file(s) a cut-off backup left in '+TMP+' ('+Math.round(bytes/1e9)+' GB)');return n}
- function schedule(){recover().catch(e=>console.warn('backup: roll back on start',e.message));dropLeftovers().catch(e=>console.warn('backup: leftovers',e.message));const tick=async()=>{await load();const j=localParts(Date.now(),tz());const today=j.day,H=settings().hour;
-   const tries=state.tries?.day===today?state.tries.n:0,doneToday=state.last?.ok&&localParts(state.last.at,tz()).day===today;
+ // the newest good backup older than 48 h (or none since aqeelOS first looked): one Health item, said again at most once a day
+  async function staleCheck(){await load();if(!state.since){state.since=Date.now();await save()}
+  const at=Math.max(state.lastOkAt||0,state.last?.ok?state.last.at:0),s=staleBackup(at,state.since);
+  if(!s){if(state.staleTold){delete state.staleTold;await save();solved()}return null}
+  if(!state.staleTold||Date.now()-state.staleTold>864e5){state.staleTold=Date.now();await save();
+   notify(s.never?'No backup has been made yet':'The newest good backup is '+s.hours+' hours old','Backups run every night, and the newest good one is more than '+STALE_H+' hours old'+(state.last&&!state.last.ok?'. The last try failed: '+String(state.last.error||'').slice(0,200):'')+'.')}
+  return s}
+ function schedule(){pruneLocalDir().catch(()=>{});recover().catch(e=>console.warn('backup: roll back on start',e.message));dropLeftovers().catch(e=>console.warn('backup: leftovers',e.message));const tick=async()=>{await load();const j=localParts(Date.now(),tz());const today=j.day,H=settings().hour;
+   await staleCheck().catch(()=>{});const tries=state.tries?.day===today?state.tries.n:0,doneToday=state.last?.ok&&localParts(state.last.at,tz()).day===today;
    if(j.hour>=H&&j.hour<H+6&&!doneToday&&tries<3&&!copying&&!preparing&&(!state.last||state.last.ok||Date.now()-state.last.at>3600e3)){try{await run();if(j.weekday===0)await test()}catch{}}};
   setInterval(()=>tick().catch(()=>{}),15*60e3).unref?.()}
  async function status(){await load();const keyError=made()&&!await readKey()?NOKEY:null,s=settings(),acc=await accounts(),pick=acc.find(a=>a.file===tokenFile());
   const r=state.restore||null,p=state.prepared;
-  return {keyError,hasKey:!!await readKey(),last:state.last||null,test:state.test||null,running:Boolean(running),testing:Boolean(testing),preparing:Boolean(preparing),restoring:copying,
+  const loc=await localBackups();
+  return {keyError,hasKey:!!await readKey(),last:state.last||null,local:{dir:LOCALDIR,count:loc.length,bytes:loc.reduce((n,f)=>n+f.size,0),newest:loc[0]?.at||0,keep:LOCAL_KEEP,active:!pick?.renews||!pick?.drive},stale:staleBackup(Math.max(state.lastOkAt||0,state.last?.ok?state.last.at:0),state.since||Date.now()),test:state.test||null,running:Boolean(running),testing:Boolean(testing),preparing:Boolean(preparing),restoring:copying,
    restore:r,prepared:p?{id:p.id,name:p.name,local:p.local,at:p.at,preview:p.preview}:null,
    settings:s,keep:s.keep,where:'Google Drive › '+s.folder,account:pick?.email||'',google:{connected:!!pick&&pick.renews&&pick.drive,file:tokenFile(),email:pick?.email||'',drive:!!pick?.drive,renews:!!pick?.renews},accounts:acc}}
- return {run,test,status,key,setKey,schedule,list,estimate,prepare,cancel,apply,recover,setSettings,accounts,busy:()=>copying,writesHeld:()=>held}}
+ return {run,staleCheck,test,status,key,setKey,schedule,list,estimate,prepare,cancel,apply,recover,setSettings,accounts,busy:()=>copying,writesHeld:()=>held}}

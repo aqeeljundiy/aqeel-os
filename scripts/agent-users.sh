@@ -131,8 +131,9 @@ desk_kill(){
 
 # A problem aqeelOS files as one issue (app/box-ops.mjs reads the file; same agent and key = same issue).
 report(){
-  local n=$1 key=$2 msg=$3
-  printf '{"at":%s,"agent":"%s","key":"%s","what":"%s"}\n' "$(date +%s)" "$n" "$key" "${msg//\"/\'}" >> "$ISSUES"
+  local n=$1 key=$2 msg=$3 title=${4:-} t=""
+  [ -n "$title" ] && t=",\"title\":\"${title//\"/\'}\""
+  printf '{"at":%s,"agent":"%s","key":"%s","what":"%s"%s}\n' "$(date +%s)" "$n" "$key" "${msg//\"/\'}" "$t" >> "$ISSUES"
   chown "$OWNER:$OWNER" "$ISSUES" 2>/dev/null; chmod 640 "$ISSUES" 2>/dev/null
   echo "agent users: $n: $msg"
 }
@@ -370,6 +371,7 @@ once(){
   printf '%s' "$out" > "$DONE.tmp"; chown "$OWNER:$OWNER" "$DONE.tmp"; chmod 640 "$DONE.tmp"; mv "$DONE.tmp" "$DONE"
   echo "agent users: $(printf '%s' "$out" | tr '\n' ' ')"
   remove_gone
+  uploads_fix
   screens
 }
 
@@ -605,6 +607,134 @@ trim_logs(){
   return 0
 }
 
+# OPS-18 (12 Nov 2026). Uploads: ~/uploads holds the files the chat and the channels hand to agents. Each agent has its own
+# user, which reaches the folder only through its access list, so every agent's user is named on it (and on files made later:
+# default entries), and a file written private (mode 600: mkstemp) has an empty list mask that hid it from the agent (P&P,
+# 10 Nov: two issues) and is made readable. The folder itself stays closed to every other user.
+uploads_fix(){
+  local d="$HOMEC/uploads" n u
+  [ -d "$d" ] || return 0
+  find "$d" -xdev -type f ! -perm -044 -exec chmod a+r {} + 2>/dev/null
+  [ -f "$REQ" ] || return 0
+  while read -r n; do
+    [[ "$n" =~ ^[a-z0-9][a-z0-9_-]{0,28}$ ]] || continue
+    u="ag-$n"; u=${u:0:32}; id "$u" >/dev/null 2>&1 || continue
+    setfacl -m "u:$u:rX,d:u:$u:rX" "$d" 2>/dev/null
+  done < "$REQ"
+  return 0
+}
+
+# OPS-18: leftovers of agents' work that nothing stops. Scratch Postgres servers (an agent's test database under
+# cache/scratch, started detached, 5 left on Elkiya up to 2 days), Next.js servers (3 of 16 to 18 days) and the staging
+# copies of aqeelOS itself (one 5 days old with live data, the deploy check's /tmp/aq-stage). They belong to no screen, so
+# nothing above counts them. Decided from what is observable, every 5 minutes, and only after 15 minutes of watching:
+#  - stopped: its folder is gone; or it has had no client for its limit (a scratch Postgres 2 h, an app 24 h, the deploy
+#    check's test copy 3 h, never while a check holds it). A client is a connection on its port (Postgres: a backend process);
+#  - reported (one issue, "Leftover process"): it still has clients but is over 7 days old, nothing is stopped;
+#  - never while its agent is mid-reply or has an engine session ($BUSY).
+# Only the owner's and the agents' users. Postgres gets SIGINT (a clean fast shutdown), the rest SIGTERM, SIGKILL 2 minutes later.
+ORPH=${AQ_ORPHANS:-/var/lib/aqeelos/orphans}
+ORPH_TMP=${AQ_TMP:-/tmp}
+ORPH_WATCH=900 PG_IDLE=7200 APP_IDLE=86400 CHECK_IDLE=10800 ORPH_REPORT_AGE=604800
+# "pid ppid user etimes kind" of what may be a leftover, from "pid ppid user etimes args" lines on stdin; $1 = the owner's user
+orphan_kinds(){
+  awk -v owner="$1" '
+    $3!=owner && $3 !~ /^ag-/ {next}
+    { a=$0; sub(/^[ \t]*[0-9]+[ \t]+[0-9]+[ \t]+[^ \t]+[ \t]+[0-9]+[ \t]+/,"",a); k="" }
+    a ~ /[/]postgres -D [^ ]*[/]cache[/]scratch[/]/ {k="pg"}
+    k=="" && a ~ /^next-server [(]v[0-9]/ {k="app"}
+    k=="" && a ~ /^node .*[/]hermes-ui-staging[/]app[/]server[.]mjs( |$)/ {k="stage"}
+    k=="" && a ~ /^node .*[/]tmp[/]aq-stage[/]app[/]server[.]mjs( |$)/ {k="check"}
+    k!="" {print $1, $2, $3, $4, k}'
+}
+# the ports process $1 listens on, from `ss -Htlnp` lines on stdin
+orphan_ports(){
+  awk -v p="$1" 'index($0, "pid=" p ",") { n=split($4, a, ":"); if(!(a[n] in seen)){seen[a[n]]=1; printf "%s ", a[n]} }'
+}
+# how many established connections are on the ports $1, from `ss -Htn state established` lines on stdin (local address third)
+orphan_clients(){
+  awk -v ports=" $1 " '{ n=split($3, a, ":"); if(index(ports, " " a[n] " ")) c++ } END { print c+0 }'
+}
+# client backends of the Postgres server with pid $1, from "pid ppid user etimes args" lines on stdin
+orphan_pg_clients(){
+  awk -v p="$1" '$2==p && $0 ~ /postgres: [^ ]+ [^ ]+ / && $0 !~ /postgres: (io worker|checkpointer|background writer|walwriter|autovacuum|logical replication|archiver|startup|walsender|walreceiver|stats)/ {c++} END {print c+0}'
+}
+# stop, report or none: kind, age (s), idle (s since its last client), watched (s since first seen), clients, gone (1: its
+# folder is gone), checking (1: a deploy check holds the test copy)
+orphan_step(){
+  local kind=$1 age=$2 idle=$3 watched=$4 clients=$5 gone=$6 checking=${7:-0} lim
+  [ "$watched" -ge "$ORPH_WATCH" ] || { echo none; return; }
+  case $kind in
+    pg) lim=$PG_IDLE ;;
+    check) [ "$checking" = 1 ] && { echo none; return; }; lim=$CHECK_IDLE ;;
+    *) lim=$APP_IDLE ;;
+  esac
+  [ "$gone" = 1 ] && [ "$kind" != check ] && { echo stop; return; }
+  [ "$clients" -eq 0 ] && [ "$idle" -ge "$lim" ] && { echo stop; return; }
+  [ "$clients" -gt 0 ] && [ "$age" -ge "$ORPH_REPORT_AGE" ] && { echo report; return; }
+  echo none
+}
+# the staging copy runs in a restart loop (staging-run.sh): stopped first, or the app comes back 2 seconds later
+orphan_stop(){
+  local pid=$1 kind=$2 sig=TERM p pp i
+  [ "$kind" = pg ] && sig=INT
+  if [ "$kind" = stage ]; then
+    p=$pid
+    for i in 1 2 3; do
+      pp=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' '); [ -n "$pp" ] && [ "$pp" -gt 1 ] || break
+      ps -o args= -p "$pp" 2>/dev/null | grep -q 'staging-run[.]sh' || break
+      kill -TERM "$pp" 2>/dev/null; p=$pp
+    done
+  fi
+  kill -"$sig" "$pid" 2>/dev/null
+}
+orphan_sweep(){
+  local now ps listen estab lines pid ppid user age kind cwd gone ports clients first last start st d f agent act stopped=0 checking=0 what
+  now=$(date +%s); ps=$(ps -eo pid=,ppid=,user:32=,etimes=,args= 2>/dev/null)
+  listen=$(ss -Htlnp 2>/dev/null); estab=$(ss -Htn state established 2>/dev/null)
+  [ -d "$ORPH_TMP/aq-check.lock" ] && checking=1
+  mkdir -p "$ORPH"
+  lines=$(printf '%s\n' "$ps" | orphan_kinds "$OWNER")
+  while read -r pid ppid user age kind; do
+    [ -n "$pid" ] || continue
+    f="$ORPH/$pid"
+    # asked to stop earlier and still there 2 minutes later: killed
+    if [ -e "$f.term" ]; then
+      read -r st < "$f.term"; [ $((now-${st:-0})) -ge 120 ] && { kill -KILL "$pid" 2>/dev/null; echo "janitor: leftover $kind $pid did not stop: killed"; rm -f "$f.term"; }
+      continue
+    fi
+    ports=$(printf '%s\n' "$listen" | orphan_ports "$pid")
+    if [ "$kind" = pg ]; then clients=$(printf '%s\n' "$ps" | orphan_pg_clients "$pid"); else clients=$(printf '%s\n' "$estab" | orphan_clients "$ports"); fi
+    cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null)
+    [ -n "$cwd" ] || cwd=$(runuser -u "$user" -- readlink "/proc/$pid/cwd" 2>/dev/null)
+    gone=0
+    case "$cwd" in *" (deleted)") gone=1 ;; "") ;; *) [ -d "$cwd" ] || gone=1 ;; esac
+    # first seen, last client, start: a number reused by another process (another start) begins again
+    first=$now; last=$((now-age)); start=$((now-age))
+    if [ -f "$f" ]; then
+      read -r first last st < "$f"; d=$((start-${st:-0})); [ "$d" -lt 0 ] && d=$((-d))
+      [ "$d" -le 30 ] || { first=$now; last=$start; rm -f "$f.term" "$f.reported"; }
+    fi
+    [ "$clients" -gt 0 ] && last=$now
+    printf '%s %s %s\n' "$first" "$last" "$start" > "$f"
+    agent=""; case "$cwd" in */workspaces/*) agent=${cwd#*/workspaces/}; agent=${agent%%/*} ;; esac
+    [ -n "$agent" ] && in_reply "$agent" "$now" && continue
+    act=$(orphan_step "$kind" "$age" $((now-last)) $((now-first)) "$clients" "$gone" "$checking")
+    what="$kind process $pid of $user ($((age/3600)) h old, ${cwd:-folder unknown}, ports: ${ports:-none}, clients: $clients)"
+    case "$act" in
+      stop)
+        [ "$stopped" -lt 3 ] || continue
+        stopped=$((stopped+1)); echo "janitor: stopping leftover $what"
+        orphan_stop "$pid" "$kind"; echo "$now" > "$f.term" ;;
+      report)
+        if [ ! -e "$f.reported" ]; then touch "$f.reported"; report default "leftover-$kind-$pid" "$what is over 7 days old and still has clients, so it is left running. If nobody needs it, stop it." "Leftover process"; fi ;;
+    esac
+  done <<< "$lines"
+  # state of processes that are gone
+  for f in "$ORPH"/*; do [ -e "$f" ] || continue; pid=${f##*/}; pid=${pid%%.*}; kill -0 "$pid" 2>/dev/null || rm -f "$f"; done
+  return 0
+}
+
 # sourced by the tests (scripts/agent-users.test.mjs): the functions only
 [ "${AQ_AGENT_USERS_LIB:-0}" = 1 ] && return 0 2>/dev/null
 
@@ -613,5 +743,5 @@ case "${1:-watch}" in
   reset) [ -n "${2:-}" ] && echo "$2" >> "$RESET" && take_resets ;;
   janitor) janitor ;;
   stop) [ -n "${2:-}" ] && echo "$2" >> "$REQ.stop" && take_stops ;;
-  watch) last=""; n=0; while true; do take_resets; take_stops; take_mem; take_wakes; proxy_up; [ $((n % 12)) -eq 0 ] && [ -f "$REQ" ] && { janitor; sleep_idle; setup_wake; }; [ $((n % 720)) -eq 0 ] && [ -f "$REQ" ] && trim_logs; [ $((n % 6)) -eq 0 ] && { date +%s > "$ALIVE"; chown "$OWNER:$OWNER" "$ALIVE" 2>/dev/null; }; if [ -f "$SRC" ] && [ "$0" != "$SRC" ] && ! cmp -s "$SRC" "$0"; then install -m 755 -o root -g root "$SRC" "$0" && exec "$0" watch; fi; s=$(stat -c %Y "$REQ" 2>/dev/null || echo none); if [ "$s" != "$last" ]; then once; last=$s; fi; n=$((n+1)); [ $((n % 6)) -eq 0 ] && [ -f "$REQ" ] && screens; sleep 5; done ;;
+  watch) last=""; n=0; while true; do take_resets; take_stops; take_mem; take_wakes; proxy_up; [ $((n % 12)) -eq 0 ] && [ -f "$REQ" ] && { janitor; sleep_idle; setup_wake; }; [ $((n % 720)) -eq 0 ] && [ -f "$REQ" ] && trim_logs; [ $((n % 60)) -eq 0 ] && [ -f "$REQ" ] && { uploads_fix; orphan_sweep; }; [ $((n % 6)) -eq 0 ] && { date +%s > "$ALIVE"; chown "$OWNER:$OWNER" "$ALIVE" 2>/dev/null; }; if [ -f "$SRC" ] && [ "$0" != "$SRC" ] && ! cmp -s "$SRC" "$0"; then install -m 755 -o root -g root "$SRC" "$0" && exec "$0" watch; fi; s=$(stat -c %Y "$REQ" 2>/dev/null || echo none); if [ "$s" != "$last" ]; then once; last=$s; fi; n=$((n+1)); [ $((n % 6)) -eq 0 ] && [ -f "$REQ" ] && screens; sleep 5; done ;;
 esac

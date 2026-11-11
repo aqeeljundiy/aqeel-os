@@ -1,5 +1,7 @@
 import {spawn} from 'node:child_process';
 import {existsSync} from 'node:fs';
+import {setDefaultResultOrder} from 'node:dns';
+try{setDefaultResultOrder('ipv4first')}catch{}   // a dead IPv6 path never delays a call (app/net-prefer.mjs)
 // aqeelOS — production server. Serves the UI, signs people in, and forwards
 // /hapi/* to the Hermes dashboard API and /gapi/* to the Hermes gateway API.
 // Hermes credentials stay on this server; the browser only ever holds a session cookie.
@@ -225,6 +227,9 @@ function proxy(req,res,target,prefix,authHeaders,{transform,body,live}={}){
    const rec=liveStart(live.key,live.user);res.writeHead(r.statusCode,{...out,...security});
    r.on('data',c=>{rec.last=Date.now();rec.size+=c.length;rec.chunks.push(c);if(rec.size>8e6){const head=rec.chunks.slice(0,40);let tail=[],sz=0;for(let i=rec.chunks.length-1;i>=40&&sz<4e6;i--){tail.unshift(rec.chunks[i]);sz+=rec.chunks[i].length}rec.chunks=[...head,...tail];rec.size=rec.chunks.reduce((a,b)=>a+b.length,0)}{const t=c.toString('utf8');if(!rec.runId){const m=/"run_id"\s*:\s*"([^"]+)"/.exec(t);if(m){rec.runId=m[1];runOwner.set(m[1],{user:rec.user,t:Date.now()});if(runOwner.size>2000)for(const k of [...runOwner.keys()].slice(0,500))runOwner.delete(k)}}if(/approval\.request/.test(t))rec.asking=true;if(/approval\.responded/.test(t))rec.asking=false}if(!res.writableEnded&&!res.destroyed)res.write(c);for(const sub of rec.subs)sub.write(c)});
    r.on('end',()=>{liveEnd(live.key,rec);if(!res.writableEnded)res.end()});r.on('error',()=>{liveEnd(live.key,rec);res.end()});live.started=true;return}
+  // a file uploaded through the engine (chat attachments, /hapi/files): readable by the agents once it is written (OPS-18; the engine's own
+  // writer has the same fix, this covers an engine without it)
+  if(prefix==='/hapi'&&req.method==='POST'&&url.pathname==='/hapi/files'&&(r.statusCode||500)<300)res.on('finish',()=>boxOps.uploadsReadable().catch(()=>{}));
   res.writeHead(r.statusCode||502,{...out,...security});r.pipe(res);
  });
  up.on('error',e=>{if(!res.headersSent)send(res,502,{error:'The aqeelOS engine is not reachable',detail:e.code||e.message});else res.end()});
@@ -481,6 +486,9 @@ async function writeAgentContext(){const all=await listAgents();const names={};f
    Test button does. One with no sign-in, or that fails on its sign-in, is listed for admins, who get a notice with
    a Sign in button instead of finding out when an agent says it cannot reach the app. */
 const signinsDue=new Map();let signinsAt=0;
+// said in the log once per agent and app (12 Nov 2026: Higgsfield was announced 51 times per agent in a day, because a test that passed
+// now and then took the app off the list and the next check put it back). Said again only after a new sign-in was made (its token file is newer).
+const signinSaid=new Map();
 // a connected app in words people know: which service, which account, and what stops working without it
 const APP_KINDS=[[/slack\.com/,'Slack','read and post in Slack'],[/notion\.com/,'Notion','read and edit your Notion pages'],[/n8n/,'n8n','find and run your n8n workflows'],
  [/github/,'GitHub','work with your GitHub repositories'],[/linear/,'Linear','read and update Linear issues'],[/google|gmail/,'Google','use your Google apps']];
@@ -500,10 +508,11 @@ async function checkSigninsNow(){const h={'x-hermes-session-token':DASH_TOKEN};c
     if(j.ok===false&&/oauth|unauthori[sz]ed|401|invalid_grant|invalid_token|expired|login/i.test(String(j.error||'')))why='the sign-in ran out'}catch{}}
    const origin=why?await whyOf.app(a,s.name,s.url):null;if(why==='not signed in'&&origin?.by==='setup'){signinsDue.delete(key);continue}
    // which account it is (kept while the sign-in works), and the agent's other sign-ins to the same app, so a notice says WHICH Slack
-   if(!why){await whyOf.learnAccount(a,s.name,s.url,tok).catch(()=>{});signinsDue.delete(key);continue}
+   if(!why){await whyOf.learnAccount(a,s.name,s.url,tok).catch(()=>{});signinsDue.delete(key);if(signinSaid.has(key)&&((await stat(tok).catch(()=>null))?.mtimeMs||0)>signinSaid.get(key)+1000)signinSaid.delete(key);continue}
    const host=u=>String(u||'').replace(/^https?:\/\//,'').split('/')[0],siblings=[];
    for(const o of list)if(o.name!==s.name&&host(o.url)&&host(o.url)===host(s.url))siblings.push({name:o.name,account:await whyOf.accountOf(a,o.name)});
-   if(!signinsDue.has(key))console.log('sign-in needed:',s.name,'on',a,'('+why+')');signinsDue.set(key,{agent:a,agentName:NAMES[a]||a,name:s.name,why,origin,account:await whyOf.accountOf(a,s.name),siblings,...appInfo(s.name,s.url),last:(await stat(tok).catch(()=>null))?.mtimeMs||0})}}
+   if(!signinSaid.has(key)){signinSaid.set(key,(await stat(tok).catch(()=>null))?.mtimeMs||0);console.log('sign-in needed:',s.name,'on',a,'('+why+')')}
+   signinsDue.set(key,{agent:a,agentName:NAMES[a]||a,name:s.name,why,origin,account:await whyOf.accountOf(a,s.name),siblings,...appInfo(s.name,s.url),last:(await stat(tok).catch(()=>null))?.mtimeMs||0})}}
  for(const k of [...signinsDue.keys()])if(!seen.has(k))signinsDue.delete(k);signinsAt=Date.now()}
 // cheap: only looks at the token files (the full check above also tests each app, every 3 hours)
 async function freshSignins(){for(const [k,x] of [...signinsDue]){const tok=path.join(x.agent==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',x.agent),'mcp-tokens',x.name+'.json');const st=await stat(tok).catch(()=>null);
