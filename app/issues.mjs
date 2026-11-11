@@ -265,7 +265,8 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
     const w=await tell(i,nameOf(i.agent)+' needs a person\n\nProblem: '+(i.title||i.missing)+'\nWhat is needed: '+s.need+'\n\naqeelOS does the rest by itself once this is done (System › Health).');i.told=w;await save();log('issues: '+i.id+' sorted: needs a person, told '+w);return}
    if(s?.kind==='person'&&s.group&&i.state==='needs_human')i.group=s.group;
    // the same problem as an open one, but this one already had tries of its own: kept apart, linked, so Needs you shows one card
-   if(to&&live(to)&&to!==i)i.dupOf=to.id;
+   // never a loop: no link to an item whose own links lead back here
+   if(to&&live(to)&&to!==i){let x=to,loop=false;for(let k=0;x&&k<20;k++){if(x===i){loop=true;break}x=db.items.find(y=>y.id===x.dupOf)}if(!loop)i.dupOf=to.id}
    await save()})}
  // Health saw the problem go away before the fixer started: closed, nobody told
  // 7 Nov 2026 (owner: solved problems close by themselves, nobody is asked to close anything): every waiting item is

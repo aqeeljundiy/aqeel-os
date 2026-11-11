@@ -194,7 +194,9 @@ const HealthIssues={
  // one card per task: the same sign-in for four agents is one card
  needGroups(items){const g=new Map(),need=i=>i&&(i.state==='needs_human'||i.state==='stuck'&&i.need),by=new Map(items.map(i=>[i.id,i]));
   // one card per task: the group the sorter named, else the issue this one is a duplicate of (when that one needs a person too)
-  const keyOf=(i,n=0)=>{if(i.group)return i.group.toLowerCase().trim();const d=by.get(i.dupOf);return d&&need(d)&&n<10?keyOf(d,n+1):i.id};
+  // (a loop of links, two items each named the other, is one card: the smallest id in it)
+  const keyOf=i=>{const seen=[];let x=i;for(;x&&need(x)&&!seen.includes(x);x=by.get(x.dupOf)){if(x.group)return x.group.toLowerCase().trim();seen.push(x)}
+   return x&&seen.includes(x)?seen.slice(seen.indexOf(x)).map(y=>y.id).sort()[0]:seen.at(-1)?.id||i.id};
   for(const i of items){if(!need(i))continue;
    const k=keyOf(i);let x=g.get(k);if(!x)g.set(k,x={key:k,title:i.group||HealthIssues.title(i),need:i.need||'',ids:[],agents:new Set(),reports:0,told:i.told||null,stuck:false});
    x.ids.push(i.id);x.reports+=i.count||1;x.stuck||=i.state==='stuck';for(const a of [i.agentName||i.agent,...(i.reports||[]).map(r=>r.agentName||r.agent)])if(a)x.agents.add(a)}

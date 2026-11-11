@@ -95,6 +95,8 @@ await t('a duplicate that already had tries is not merged but linked, so Needs y
  const b=(await S.file({agent:'b',missing:'beta connector needs a sign-in'})).issue;
  const db=await S.db();const A=db.items.find(i=>i.id===a.id),B=db.items.find(i=>i.id===b.id);A.state='needs_human';B.sorting=0;B.state='needs_human';B.tries=1;map[b.id]=a.id;await S.I.sortNext();
  assert.equal(B.state,'needs_human','not merged: it had tries of its own');assert.equal(B.dupOf,a.id);assert.equal(B.title,'t2');
+ // sorted again the other way round (a now a duplicate of b): no loop of links is made
+ A.tries=1;A.sorted=undefined;map[a.id]=b.id;await S.I.sortNext();assert.equal(A.dupOf,undefined,'no link back');assert.equal(B.dupOf,a.id);
  // an older duplicate sorted before the link existed is sorted once more
  const C=db.items.find(i=>i.id===b.id);delete C.dupOf;C.sorted='duplicate';delete db.dupLink;
  const src=await readFile(new URL('../app/issues.mjs',import.meta.url),'utf8');assert.match(src,/db\.dupLink=1/)});
