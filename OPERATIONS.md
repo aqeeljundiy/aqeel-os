@@ -9,14 +9,15 @@ Status: agreed 11 Nov 2026. Rules marked **(planned)** are on [BACKLOG.md](BACKL
 Every long-running process belongs to exactly one starter: the agent-users script for agent screens, the box's startup for the engine and the app, the engine for its own children. A starter that starts something again first stops what it started before.
 
 - Never launch with a bare `( … & )` that nothing tracks.
-- Each agent's processes run in its own group, so one command stops everything that agent started. **(planned, OPS-2)**
+- Each agent's processes run as its own Linux user `ag-<agent>`, which is its group: `aq-agent-users stop <agent>` (or a line in `~/.aqeelos-agent-users.stop`) stops everything that agent started. Kernel groups (cgroups) were ruled out on 11 Nov: the box's cgroup files are read-only and root inside it lacks the right to change that without a privileged box.
 
 *Incident, 10 Nov 2026:* a screen whose socket went missing was restarted every 30 s while the old display still ran. Each restart failed and left a desktop behind: 49 each for continue-support and biomarkers-support, about 9 GB. Fixed in `25fd701` (`screen_kill`).
 
 ## 2. Every agent has a budget
 
-- A memory cap per agent, so one leak slows one agent, never the server. **(planned, OPS-2)**
-- A screen and Chrome idle for 30 minutes go to sleep and wake when used. **(planned, OPS-4)**
+- A memory cap per agent, so one leak slows one agent, never the server. The janitor checks each agent's real memory (Pss) every minute: over its cap for 3 minutes, its Chrome starts again; still over, one issue; over twice the cap, its biggest process stops. A soft cap, not a kernel one: a sudden spike can reach the box's limit first.
+- A screen and Chrome idle for 30 minutes go to sleep and wake when used. Chrome listens 10000 above the agent's DevTools port; the wake proxy (`scripts/wake-proxy.mjs`, user `aq-wake`) holds the agent's own port, starts a sleeping screen on the first connection and passes traffic through; the screen viewer wakes it too. Tabs come back (restore-last-session), sign-ins stay. A screen running the agent's own AdsPower never sleeps.
+- Caps and sleep per agent: `hermes-ui-data/agent-limits.json`, `{"default":{"memory_cap_gb":4,"sleep_minutes":30},"agents":{"<agent>":{...}}}`; 0 turns either off, and `"sleep_minutes":0` puts that agent's Chrome back on its own port (the rollback). Until aqeelOS writes `~/.aqeelos-agent-limits`, both are off. Tested in `scripts/agent-users.test.mjs`, `scripts/wake-proxy.test.mjs`, `scripts/ops-rules.test.mjs`.
 - Health shows memory per agent and warns when one keeps growing. **(planned, HEALTH-6)**
 
 ## 3. Restarts back off, then stop and say so

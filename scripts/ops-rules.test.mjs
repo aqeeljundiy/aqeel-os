@@ -42,7 +42,14 @@ test('rule 3: screen restarts go through the back-off gate and Chrome through it
  assert.match(USERS,/WAITS=\(5 30 120 600 600\)/,'the back-off is 5 s, 30 s, 2 min, 10 min (rule 3)')});
 
 test('rule 4: the janitor runs every minute in the watch loop',()=>{
- assert.match(USERS,/\$\(\(n % 12\)\) -eq 0 \] && \[ -f "\$REQ" \] && janitor/,'watch must run the janitor every 12 beats of 5 s (rule 4)')});
+ assert.match(USERS,/\$\(\(n % 12\)\) -eq 0 \] && \[ -f "\$REQ" \] && \{ janitor;/,'watch must run the janitor every 12 beats of 5 s (rule 4)')});
+
+test('rule 2: memory caps and sleep are checked every minute, and Chrome sits behind the wake proxy when it may sleep',()=>{
+ const up=body('screen_up');
+ assert.ok(USERS.includes('mem_cap "$n" "$u" "$ws"'),'the janitor must check each agent\'s memory cap (rule 2)');
+ assert.ok(USERS.includes('janitor; sleep_idle;'),'idle screens must be put to sleep every minute (rule 2)');
+ assert.ok(up.includes('--remote-debugging-port=$cport '),'Chrome must listen on the port chrome_port picks (behind the wake proxy when it may sleep)');
+ assert.ok(up.includes('[ -f "$sd/asleep" ] && return 0'),'a sleeping screen is started only by a wake (rule 2)')});
 
 test('rule 7: the backup\'s temporary file is one the leftover sweep knows',()=>{
  const b=read('app/backup.mjs');

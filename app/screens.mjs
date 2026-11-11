@@ -19,7 +19,7 @@ const SHARED={port:6080};                 // noVNC for the :99 screen (AdsPower)
 const NAME=/^[a-z0-9][a-z0-9_-]{0,63}$/;
 const run=(cmd,args,env={},timeout=60000)=>new Promise(res=>execFile(cmd,args,{env:{...process.env,...env},timeout,maxBuffer:4e6,cwd:HOME},(err,stdout,stderr)=>res({ok:!err,out:String(stdout||''),err:String(stderr||err?.message||'')})));
 
-export function createScreens({keepOn=()=>false}={}){   // keepOn(agent): something runs on its screen (its own AdsPower), so it is never stopped as idle
+export function createScreens({keepOn=()=>false,wake=async()=>false}={}){   // keepOn(agent): something runs on its screen (its own AdsPower), so it is never stopped as idle
  const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const sockOf=a=>path.join(homeOf(a),'bot-desktop','rfb.sock');
  const agents=async()=>(await agentNames()).filter(n=>NAME.test(n));
@@ -53,7 +53,8 @@ export function createScreens({keepOn=()=>false}={}){   // keepOn(agent): someth
   if(!await desktopsReady())return {agent:a,kind:'shared',running:true,note:'Own screens need the desktop packages on the box.'};
   const running=await alive(a);let idle=null;
   try{idle=Math.round((Date.now()-(await stat(path.join(homeOf(a),'bot-desktop','activity'))).mtimeMs)/60000)}catch{}
-  return {agent:a,kind:'desktop',running,idle_minutes:running?idle:null,...(await ownUser(a)?{managed:true,note:'Always on: it runs as this agent’s own user.'}:{})}}
+  const own=await ownUser(a),asleep=own&&!running&&!!await stat(path.join(homeOf(a),'bot-desktop','asleep')).catch(()=>null);
+  return {agent:a,kind:'desktop',running,idle_minutes:running?idle:null,...(own?{managed:true,asleep,note:asleep?'Asleep after sitting unused; it wakes when the agent browses or someone opens it.':'Runs as this agent’s own user; it sleeps after sitting unused.'}:{})}}
 
  // Every agent: its screen starts itself when it browses and stops after 15 idle minutes, and its
  // terminal starts in its own folder (~/workspaces/<agent>). Only fills in what is not set yet.
@@ -83,9 +84,11 @@ export function createScreens({keepOn=()=>false}={}){   // keepOn(agent): someth
   return b}
  // Pipes an upgraded viewer socket to the right screen. Watching counts as using the screen, so it
  // is not stopped as idle while someone has it open.
+ // an own-user agent's screen that sleeps (OPS-4, 11 Nov 2026) is woken and waited for (up to 30 s)
+ async function woken(a){if(await alive(a))return true;if(!await ownUser(a)||!await wake(a))return false;for(let i=0;i<60;i++){await new Promise(r=>setTimeout(r,500));if(await alive(a))return true}return false}
  async function upgrade(req,sock,headBuf,agent,isAdmin=false){
   let port=SHARED.port,b=null;
-  if(agent&&await valid(agent)&&!await shared(agent)&&await desktopsReady()){if(!await alive(agent)){sock.end('HTTP/1.1 503 Service Unavailable\r\n\r\n');return}b=await bridge(agent);port=b.port;b.viewers++;clearTimeout(b.timer)}
+  if(agent&&await valid(agent)&&!await shared(agent)&&await desktopsReady()){if(!await woken(agent)){sock.end('HTTP/1.1 503 Service Unavailable\r\n\r\n');return}b=await bridge(agent);port=b.port;b.viewers++;clearTimeout(b.timer)}
   // the shared screen (AdsPower, and agents that use it) is for admins only, whichever agent was asked for
   if(port===SHARED.port&&!isAdmin){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}
   const act=path.join(homeOf(agent||'default'),'bot-desktop','activity');
@@ -156,7 +159,7 @@ export function createScreens({keepOn=()=>false}={}){   // keepOn(agent): someth
      await utimes(path.join(homeOf(a),'bot-desktop','activity'),new Date(),new Date()).catch(()=>{});return true}}}
   const onShared=ads||await shared(a)||!await desktopsReady();const env=onShared?{DISPLAY:':99'}:await displayEnv(a);
   if(secret)await secretFieldOk(a,env);
-  if(!onShared&&!await alive(a))throw new Error('This agent’s screen is not running. Open it (or let the agent open its browser) first.');
+  if(!onShared&&!await woken(a))throw new Error('This agent’s screen is not running. Open it (or let the agent open its browser) first.');
   if(!env.DISPLAY)throw new Error('The screen is not running.');
   const r=await run('xdotool',['type','--clearmodifiers','--delay','12','--',String(text)],env,90000);if(!r.ok)throw new Error('Could not type into the screen.');
   if(enter)await run('xdotool',['key','--clearmodifiers','Return'],env,10000);
@@ -172,7 +175,7 @@ export function createScreens({keepOn=()=>false}={}){   // keepOn(agent): someth
   if(m[2]==='type'){if(req.method!=='POST')return send(res,405,{error:'POST only'});const b=await readJson(req);const text=String(b.text||'');if(!text||text.length>8000)return send(res,400,{error:'Nothing to type.'});
    try{await typeInto(a,text,{enter:!!b.enter,ads:new URL(req.url,'http://x').searchParams.get('screen')==='ads'});return send(res,200,{ok:true,chars:text.length})}catch(e){return send(res,409,{error:e.message})}}
   if(req.method!=='POST'||await shared(a))return send(res,400,{error:'This agent uses the shared screen.'});
-  if(await ownUser(a))return send(res,200,await status(a));
+  if(await ownUser(a)){if(m[2]==='start')await woken(a);return send(res,200,await status(a))}
   try{const r=await runtime(a,m[2]==='start'?'start()':'stop()');
    if(m[2]==='start'&&r&&r.running===false)return send(res,409,{error:r.blocker||('Missing on the box: '+(r.missing||[]).join(', '))});
    return send(res,200,await status(a))}catch(e){return send(res,500,{error:e.message})}}

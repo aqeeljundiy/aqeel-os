@@ -49,3 +49,8 @@ test('intake files one issue per agent and kind',async()=>{
  writeFileSync(HOME+'/.aqeelos-agent-issues.jsonl',l('screen-stopped')+l('screen-stopped')+l('chrome-stopped'));
  assert.equal(await ops.intake(),2);assert.equal(await ops.intake(),0);
  assert.equal(filed[0].agent,'sesa');assert.equal(filed[0].healthKey,'box:sesa:screen-stopped')});
+
+import {limitLines} from '../app/box-ops.mjs';
+test('limits: defaults 4 GB and 30 min, set per agent; an AdsPower screen never sleeps and gets 8 GB',()=>{
+ assert.equal(limitLines(['a','b','c'],{agents:{b:{memory_cap_gb:2,sleep_minutes:0}}},n=>n==='c'),['a 4096 30','b 2048 0','c 8192 0',''].join('\n'));
+ assert.equal(limitLines(['a'],{default:{sleep_minutes:0}}),'a 4096 0\n');assert.equal(limitLines([]),'')});

@@ -7,6 +7,10 @@
 //    saves, the app's *.bak-* copies and dated backup folders, ~/backups, broken Python environments the automations
 //    guard set aside, the deploy's scripts and logs in /tmp; long logs in the engine's logs folder are cut to their end;
 //    names in the test-agents list whose agent is gone (on two passes in a row) are taken off it.
+//  - rule 2 (OPS-2, OPS-4): each agent's memory cap and sleep minutes go to ~/.aqeelos-agent-limits for the root script,
+//    from hermes-ui-data/agent-limits.json ({"default":{"memory_cap_gb":4,"sleep_minutes":30},"agents":{"<agent>":{…}}});
+//    an agent whose screen runs its own AdsPower never sleeps and gets 8 GB unless set. wake(agent) starts a sleeping
+//    screen (the viewer uses it); stopAll(agent) stops everything the agent's user runs.
 // The parts that only decide are exported and tested in scripts/box-ops.test.mjs.
 import {readFile,writeFile,readdir,stat,lstat,rm,open,rename} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
@@ -38,8 +42,14 @@ export function pruneTests(text,exists,goneBefore=new Set()){const gone=new Set(
   if(exists(n)){out.push(l);continue}gone.add(n);if(goneBefore.has(n)){removed++;continue}out.push(l)}
  while(out.length&&out[out.length-1]==='')out.pop();return {text:out.join('\n')+(out.length?'\n':''),gone,removed}}
 
+// one line per agent with its own user: "<agent> <cap MB> <sleep minutes>"
+export const LIMIT_DEFAULTS={memory_cap_gb:4,sleep_minutes:30};
+export function limitLines(agents,cfg={},keep=()=>false){const d={...LIMIT_DEFAULTS,...(cfg?.default||{})};
+ return agents.filter(a=>NAME.test(a)).map(a=>{const o=cfg?.agents?.[a]||{},k=keep(a);
+  const gb=Number(o.memory_cap_gb??(k?Math.max(8,Number(d.memory_cap_gb)||0):d.memory_cap_gb)),min=k?0:Number(o.sleep_minutes??d.sleep_minutes);
+  return a+' '+Math.max(0,Math.round((gb||0)*1024))+' '+Math.max(0,Math.round(min||0))}).join('\n')+(agents.length?'\n':'')}
 const NAME=/^[a-z0-9][a-z0-9_-]{0,63}$/;
-export function createBoxOps({HOME,DATA,HERMES_HOME,fileIssue=null,TMP='/tmp'}){
+export function createBoxOps({HOME,DATA,HERMES_HOME,fileIssue=null,TMP='/tmp',keepOn=()=>false,WAKE='/var/lib/aqeelos/wake'}){
  const STATE=path.join(DATA,'box-ops.json'),ISSUES=path.join(HOME,'.aqeelos-agent-issues.jsonl'),JAN=path.join(HOME,'.aqeelos-janitor.json');
  let st=null;const load=async()=>{if(!st)st=JSON.parse(await readFile(STATE,'utf8').catch(()=>'{}'))||{};st.filed||={};return st};
  const save=async()=>{await writeFile(STATE+'.tmp',JSON.stringify(st));await rename(STATE+'.tmp',STATE)};
@@ -78,7 +88,14 @@ export function createBoxOps({HOME,DATA,HERMES_HOME,fileIssue=null,TMP='/tmp'}){
   if(gone.length||cut||removed)console.log('box: expired '+gone.length+' old item(s)'+(cut?', cut '+cut+' long log(s)':'')+(removed?', '+removed+' gone test agent(s) off the list':''));
   return {gone,cut,removed}}
 
- async function tick(){await intake().catch(e=>console.warn('box: issues',e.message));await load();
+ // rule 2: limits for the root script (rewritten only when they change)
+ async function writeLimits(){const agents=(await readFile(path.join(HOME,'.aqeelos-agent-users'),'utf8').catch(()=>'')).split('\n').map(x=>x.trim()).filter(Boolean);
+  const cfg=JSON.parse(await readFile(path.join(DATA,'agent-limits.json'),'utf8').catch(()=>'{}')||'{}');
+  const text=limitLines(agents,cfg,a=>{try{return !!keepOn(a)}catch{return false}}),f=path.join(HOME,'.aqeelos-agent-limits');
+  if(text!==await readFile(f,'utf8').catch(()=>null)){await writeFile(f+'.tmp',text);await rename(f+'.tmp',f)}return text}
+ const wake=async a=>{if(!NAME.test(a))return false;const f=path.join(WAKE,a+'.wake');await writeFile(f,'').catch(()=>{});return true};
+ const stopAll=async a=>{if(!NAME.test(a))return false;await writeFile(path.join(HOME,'.aqeelos-agent-users.stop'),a+'\n',{flag:'a'});return true};
+ async function tick(){await writeLimits().catch(e=>console.warn('box: limits',e.message));await intake().catch(e=>console.warn('box: issues',e.message));await load();
   if(!st.expiredAt||Date.now()-st.expiredAt>864e5)await expire().catch(e=>console.warn('box: expire',e.message))}
- function start(){setTimeout(()=>tick().catch(()=>{}),30000).unref?.();setInterval(()=>tick().catch(()=>{}),60000).unref?.()}
- return {intake,janitor,agentMemory,expire,tick,start}}
+ function start(){setTimeout(()=>writeLimits().catch(()=>{}),10000).unref?.();setTimeout(()=>tick().catch(()=>{}),30000).unref?.();setInterval(()=>tick().catch(()=>{}),60000).unref?.()}
+ return {intake,janitor,agentMemory,expire,tick,start,writeLimits,wake,stopAll}}

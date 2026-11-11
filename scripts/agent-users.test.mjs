@@ -70,3 +70,20 @@ test('janitor: one of each screen part is expected; copies and foreign displays 
  // a Chrome that gave up is not expected any more
  writeFileSync(ws+'/.screen/chrome.stopped','1');
  assert.equal(sh(`jan_count a1 ag-a1 42 '${ws}' < /dev/null`,d).out,'a1 4 0')});
+
+test('limits: no file or no line means no cap and no sleep (as before); a line sets both',()=>{
+ const d=tmp();assert.equal(sh('limit_of a1',d).out,'0 0');
+ writeFileSync(d+'/.aqeelos-agent-limits','a1 4096 30\nb2 0 0\n');
+ assert.equal(sh('limit_of a1',d).out,'4096 30');assert.equal(sh('limit_of b2',d).out,'0 0');assert.equal(sh('limit_of zz',d).out,'0 0');
+ assert.equal(sh('chrome_port 9602 30',d).out,'19602');assert.equal(sh('chrome_port 9602 0',d).out,'9602')});
+
+test('memory cap: 3 min over restarts Chrome, 3 more min files one issue, twice the cap stops the biggest at once',()=>{
+ const d=tmp();const step=(mb,cap,now,since,acted)=>sh(`mem_step ${mb} ${cap} ${now} ${since} ${acted}`,d).out;
+ assert.equal(step(3000,4096,1000,0,0),'none');          // under
+ assert.equal(step(5000,0,1000,900,0),'none');           // no cap
+ assert.equal(step(5000,4096,1000,900,0),'none');        // over for 100 s
+ assert.equal(step(5000,4096,1100,900,0),'chrome');      // over for 200 s
+ assert.equal(step(5000,4096,1200,900,1100),'none');     // just restarted
+ assert.equal(step(5000,4096,1300,900,1100),'report');   // still over 3 min later
+ assert.equal(step(5000,4096,9000,900,-1),'none');       // reported once
+ assert.equal(step(9000,4096,1000,1000,0),'biggest')});

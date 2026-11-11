@@ -1513,7 +1513,7 @@ const healthFix=async(a,x)=>{if(!await srEligible(a))throw Error('it cannot run 
   '\n\nFind the cause (my_health, my_logs, my_runs, my_schedules, your files and scripts), fix it in your own work, and check it works again (run the schedule or script once). Do not message the owner or customers. If the fix needs something only a person can give (a password, a sign-in, a decision), file it with report_bottleneck and stop. End with two lines: what was wrong, what you changed.';
  return selfRuns.start({agent:a,args:{prompt,reason:'aqeelOS health: '+String(x.title||'').slice(0,120),timeout_minutes:20},origin:{ok:true,by:{kind:'aqeelos',name:'aqeelOS health check'}},ws:path.join(homedir(),'workspaces',a)})};
 // operations rules on the app side (OPS-3 issues from the root script, OPS-5 process count, OPS-7 expiry): box-ops.mjs
-const boxOps=createBoxOps({HOME:homedir(),DATA,HERMES_HOME,fileIssue:o=>issues.file(o)});if(LIVE_APP)boxOps.start();
+const boxOps=createBoxOps({HOME:homedir(),DATA,HERMES_HOME,fileIssue:o=>issues.file(o),keepOn:a=>agentAds.keepOn(a)});if(LIVE_APP)boxOps.start();
 // 7 Nov 2026: Health tells nobody; the agent fixes its own problem first (healthFix), then it is filed for the fixer (issues.mjs)
 const health=createAgentHealth({DATA,HERMES_HOME,bottlenecks,quiet:alertQuiet,fixFirst:(a,x)=>healthFix(a,x),fileIssue:o=>issues.file(o),healthGone:k=>issues.healthGone(k),
  // plain-code live checks (no model): the customer tools of each Kirimdev agent answer tools/list on the local route
@@ -2068,7 +2068,7 @@ async function logo(req,res){
 }
 
 /* ---------- live screens: the shared one (noVNC on 127.0.0.1:6080) and one per agent (screens.mjs) ---------- */
-const screens=createScreens({keepOn:a=>agentAds.keepOn(a)});
+const screens=createScreens({keepOn:a=>agentAds.keepOn(a),wake:a=>boxOps.wake(a)});
 // every agent's own AdsPower on its own screen, as its own user, with its own port and sign-in (app/agent-adspower.mjs, 1 Nov 2026)
 const agentAds=createAgentAdspower({DATA,HERMES_HOME,screens,wanted:a=>optins.on('adspower',a),help:a=>a===HELP_AGENT,codeUser:a=>agentDefaults.codeUser(a),agentNames,readConfig,pick,withAgent,live:LIVE_APP,nameOf:a=>agentName(a),skip:async a=>a===HELP_AGENT||await isTestAgent(a),
  mcp:(a,m,p,b)=>fetch(`${DASH.origin}/api/mcp/servers${p}?profile=${encodeURIComponent(a)}`,{method:m,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:b?JSON.stringify(b):undefined,signal:AbortSignal.timeout(30000)}).then(async r=>{if(!r.ok&&r.status!==404)throw new Error('MCP '+m+' '+r.status+' '+(await r.text().catch(()=>'')).slice(0,120))})});
