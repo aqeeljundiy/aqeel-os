@@ -68,6 +68,8 @@ export const TOOLS=(pay,pr={},lr={},card=false,orders=false,protocol=false,form=
 export const RUN_FIELD={type:'string',description:'Your run key, exactly as given in your instructions for this chat.'};
 export const withRun=tools=>tools.map(t=>({...t,inputSchema:{...t.inputSchema,properties:{run:RUN_FIELD,...(t.inputSchema?.properties||{})},required:['run',...(t.inputSchema?.required||[]).filter(x=>x!=='run')]}}));
 
+// a payment the helper made but could not deliver to the customer ('status failed' in its answer) is not a payment made for the customer (11 Nov 2026, taken into git from the box's drift)
+export const deliveryFailed=out=>/\bstatus failed\b/i.test(String(out||''));
 export function createCustomerTools({WORK,DATA,formRules=async()=>null,fetchFn=(...a)=>fetch(...a),payments=null,ordersOf=async()=>null,payRules=async()=>({}),labelRules=async()=>({}),labelContact=null,googleCall,chatFind,history,runAsAgent,log=m=>console.log(m),now=()=>Date.now(),random=n=>randomBytes(n)}){
  const runs=new Map();
  // website_form: the line's store admin API (settings: formRules(agent) -> {baseUrl, username, secret, types, days}); login cached 10 min
@@ -137,7 +139,7 @@ export function createCustomerTools({WORK,DATA,formRules=async()=>null,fetchFn=(
     if(k==='va'&&(kind!=='pay'||!/^[A-Z0-9_]{2,20}$/.test(String(args.bank||'').toUpperCase())||amounts.length!==1))return {isError:true,text:'A VA needs a bank code and one amount.'};
     // the same total for the same customer within 30 minutes is a repeat, unless the customer said it expired
     const recent=(await readFile(path.join(DATA,'payments.jsonl'),'utf8').catch(()=>'')).split('\n').filter(Boolean).map(l=>{try{return JSON.parse(l)}catch{return null}}).filter(Boolean)
-     .find(p=>p.agent===agent&&p.phone===r.phone&&(p.orderTotal??p.total)===total&&p.ok&&(p.kind==='card')===(k==='card')&&now()-Date.parse(p.at)<30*60e3);   // switching to or from card is a new payment
+     .find(p=>p.agent===agent&&p.phone===r.phone&&(p.orderTotal??p.total)===total&&p.ok&&!deliveryFailed(p.out)&&(p.kind==='card')===(k==='card')&&now()-Date.parse(p.at)<30*60e3);   // switching to or from card is a new payment
     if(recent&&!args.expired)return {isError:true,text:'A payment for '+cur+total+' was already made for this customer at '+recent.at.slice(11,16)+' UTC. Only make a new one if the customer says it expired (expired true).'};
     // a line's tester (kirimdev.json testers / testerNums) pays a small test QRIS, not the order total:
     // the line's payment.testAmount, else 10000; the rest of the flow (paid, labels, post_order) is the same
@@ -152,6 +154,8 @@ export function createCustomerTools({WORK,DATA,formRules=async()=>null,fetchFn=(
     log('customer run '+agent+': payment '+k+' '+cur+total+' for …'+r.phone.slice(-4)+(x.ok?' made':' failed'));
     // card: the link, amount and expiry for the reply; the provider's ids stay in the log
     if(x.ok&&k==='card')return {text:out.split(' | ').slice(0,3).join(' | ').trim()+'\nPut this link in your reply exactly as given.'};
+    if(x.ok&&deliveryFailed(out)){log('customer run '+agent+' '+r.id+': payment '+k+' made but delivery failed: '+clip(out,200));r.payments=Math.max(0,r.payments-1);
+     return {text:clip(out,1000)+'\nThe payment was made but sending it to the customer FAILED (the customer has NOT received it). Call create_payment again once with the same details to send it again; if that fails too, hand off. Do not tell the customer it was sent.'}}
     return x.ok?{text:clip(x.out,4000)}:{isError:true,text:'The payment was not made: '+clip(x.err||x.out,600)+'. Tell the customer you are checking, and hand off.'}}
    if(name==='check_payment'){if(!payments||!r.phone)return {isError:true,text:'Payment checks are not available in this chat.'};
     r.checks=(r.checks||0)+1;if(r.checks>5)return {isError:true,text:'Already checked five times in this run. Tell the customer the team is checking.'};
@@ -188,7 +192,7 @@ export function createCustomerTools({WORK,DATA,formRules=async()=>null,fetchFn=(
  const safeEq=(a,b)=>{const x=Buffer.from(String(a)),y=Buffer.from(String(b));return x.length===y.length&&timingSafeEqual(x,y)};
  // whether a payment for this customer was made since a time (the reply guard in kirimdev.mjs)
  async function paidSince(agent,phone,since){const ph=String(phone||'').replace(/\D/g,'');return (await readFile(path.join(DATA,'payments.jsonl'),'utf8').catch(()=>'')).split('\n').filter(Boolean)
-  .some(l=>{try{const p=JSON.parse(l);return p.agent===agent&&p.phone===ph&&p.ok&&Date.parse(p.at)>=since-1000}catch{return false}})}
+  .some(l=>{try{const p=JSON.parse(l);return p.agent===agent&&p.phone===ph&&p.ok&&!deliveryFailed(p.out)&&Date.parse(p.at)>=since-1000}catch{return false}})}
  // the QR picture tags ([FOTO: qris-….png]) the payment tool made for this customer in this run
  async function qrSince(agent,phone,since){const ph=String(phone||'').replace(/\D/g,'');const tags=[];
   for(const l of (await readFile(path.join(DATA,'payments.jsonl'),'utf8').catch(()=>'')).split('\n').filter(Boolean)){try{const p=JSON.parse(l);

@@ -275,3 +275,7 @@ await t('rollback never overwrites rules added after the fix: only its own diff 
  const T=await setup({fix:[{status:'changed',apply:'none',changes:[{file:f1,backup:f1+'.bak'}],summary:'x',check:'c'}],proof:[{status:'not_proven',proof:'no'}]});
  await T.I.file({agent:'a1',missing:'rb2'});for(let k=0;k<6;k++){if((await T.db()).state==='verify')break;await T.ticks(1)}await writeFile(f1,'c\n');await T.ticks(4);
  assert.equal(await readFile(f1,'utf8'),'c\n','own diff no longer applies: left alone, not restored')});
+await t('a held item (drift patch to take into git) waits for a person: never queued for the fixer, filed again it stays put',async()=>{const {I,f}=await setup();
+ const o={agent:'default',source:'health',healthKey:'drift:2026.patch',what:'Live code changes are not in git',missing:'The box had changes git does not have (2026.patch): app/k.mjs',hold:'Take 2026.patch into git, or drop it.'};
+ const r=await I.file(o);assert.equal(r.issue.state,'needs_human');
+ const r2=await I.file(o);assert.equal(r2.again,true);assert.equal(r2.issue.state,'needs_human');assert.equal(f.runs.length,0)});

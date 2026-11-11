@@ -86,3 +86,14 @@ test('website_form returns only THIS chat\'s own quiz, matched by the run\'s pho
  const x=await C.call('a',tok,'website_form',{phone:'628111'});assert.ok(x.text.includes('MINE BMI 35'));assert.ok(!x.text.includes('OTHER'));assert.ok(!x.text.includes('skip'));
  await C.call('a',tok,'website_form',{});assert.equal(calls.filter(u=>u.endsWith('/api/login')).length,1);
  const t2=C.begin({agent:'a',line:'1',conversation:'c2',phone:'6289999999'});assert.ok(/No website quiz/.test((await C.call('a',t2,'website_form',{})).text))});
+
+test('a payment whose delivery to the customer failed is not "made": not counted, not a repeat, tells the agent to send again (11 Nov 2026)',async()=>{
+ const W=await mkdtemp(path.join(tmpdir(),'ct3-')),D=path.join(W,'d');await mkdir(path.join(W,'a','.tools'),{recursive:true});await writeFile(path.join(W,'a','.tools','qris'),'x');
+ let out='[FOTO: qris-1.png] status failed: could not deliver';const C=createCustomerTools({WORK:W,DATA:D,payRules:async()=>({currency:'Rp',min:10000,max:5000000}),googleCall:async()=>({}),chatFind:async()=>({}),history:async()=>'',runAsAgent:async()=>({ok:true,out}),log:()=>{},now:()=>1e12});
+ const tok=C.begin({agent:'a',line:'1',conversation:'c',phone:'628111222333'});
+ const pay=()=>C.call('a',tok,'create_payment',{amounts:[50000],name:'A',order_total:50000,order_form:'Nama: Ani Wijaya\nAlamat: Jl. Merdeka 10, Bandung 40111\nNo HP: 08123456789\nPesanan: 1x Pen'});
+ assert.match((await pay()).text,/has NOT received/);
+ assert.equal(await C.paidSince('a','628111222333',0),false);
+ out='[FOTO: qris-2.png] | Rp50.000';assert.match((await pay()).text,/FOTO/);   // not refused as a repeat, and the failed one did not use up the run's two payments
+ assert.equal(await C.paidSince('a','628111222333',0),true);
+});

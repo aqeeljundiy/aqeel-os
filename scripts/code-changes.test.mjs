@@ -2,7 +2,7 @@
 // list of drift and fixer patches, and the tester webhook the fixer uses instead of asking a person to write from a phone
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,readFile,readdir,utimes} from 'node:fs/promises';
-import {execFileSync} from 'node:child_process';
+import {execFileSync,spawnSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -10,16 +10,18 @@ import {createCodeChanges,patchFiles} from '../app/code-changes.mjs';
 import {testWebhook,sign,pickTester,testAgents} from './kirimdev-test-message.mjs';
 import {verifySignature,parseInbound} from '../app/kirimdev.mjs';
 let n=0;const t=async(name,f)=>{await f();n++;console.log('ok',name)};
+const px=p=>process.platform==='win32'?p.replace(/^([A-Za-z]):/,(m,d)=>'/'+d.toLowerCase()).replaceAll('\\','/'):p;   // the bash side wants /c/... paths on Windows
 const here=path.dirname(fileURLToPath(import.meta.url));
 
 // the drift function from box-live.sh, run on its own against a fake box
 const fn=(await readFile(path.join(here,'box-live.sh'),'utf8')).match(/^aq_drift\(\)\{[\s\S]*?\n rm -f "\$P"; \}$/m)?.[0];
 async function box(){const L=await mkdtemp(path.join(tmpdir(),'live-')),D=await mkdtemp(path.join(tmpdir(),'data-')),src=await mkdtemp(path.join(tmpdir(),'src-'));
  for(const [f,x] of [['app/a.mjs','one\n'],['app/b.js','two\n'],['scripts/s.sh','echo\n']]){await mkdir(path.dirname(path.join(src,f)),{recursive:true});await writeFile(path.join(src,f),x)}
- execFileSync('tar',['-czf',path.join(L,'.deployed.tgz'),'-C',src,'app','scripts']);execFileSync('tar',['-xzf',path.join(L,'.deployed.tgz'),'-C',L]);
+ execFileSync('tar',['-czf',px(path.join(L,'.deployed.tgz')),'-C',px(src),'app','scripts']);execFileSync('tar',['-xzf',px(path.join(L,'.deployed.tgz')),'-C',px(L)]);
  await writeFile(path.join(L,'.deployed-commit'),'abc\n');const old=new Date(Date.now()-3600e3);await utimes(path.join(L,'.deployed-commit'),old,old);
- const run=()=>execFileSync('bash',['-c',fn+'\naq_drift'],{env:{...process.env,AQ_LIVE:L,AQ_DRIFT_DATA:D,BOX_SHA:'abcdef12',SHA:'fedcba98'},encoding:'utf8'});
- return {L,D,run}}
+ const go=force=>spawnSync('bash',['-c',fn+'\naq_drift'],{env:{...process.env,AQ_LIVE:px(L),AQ_DRIFT_DATA:px(D),BOX_SHA:'abcdef12',SHA:'fedcba98',FORCE:force?'1':'0'},encoding:'utf8'});
+ const run=force=>{const r=go(force);assert.ok(r.status===0||r.status===3&&!force,'exit '+r.status+' '+r.stderr);return r.stdout};
+ return {L,D,run,go}}
 
 await t('drift guard: a box that runs exactly its commit saves nothing',async()=>{assert.ok(fn,'aq_drift is in box-live.sh');const B=await box();
  assert.match(B.run(),/ran exactly abcdef12/);assert.deepEqual(await readdir(B.D),[])});
@@ -27,11 +29,25 @@ await t('drift guard: a changed file, a new file since the deploy, and a removed
  const old=new Date(Date.now()-7200e3);await writeFile(path.join(B.L,'app','left.mjs'),'old leftover\n');await utimes(path.join(B.L,'app','left.mjs'),old,old);
  await writeFile(path.join(B.L,'app','a.mjs'),'one fixed\n');await writeFile(path.join(B.L,'app','a.mjs.bak-20261107-i1-1'),'one\n');
  await writeFile(path.join(B.L,'app','new.mjs'),'brand new\n');execFileSync('rm',[path.join(B.L,'scripts','s.sh')]);
- const out=B.run();assert.match(out,/^! drift: .*Saved as drift\/\d{8}-\d{6}\.patch/m);assert.match(out,/changed: app\/a\.mjs/);
+ const out=B.run(true);assert.match(out,/^! drift: .*Saved as drift\/\d{8}-\d{6}\.patch/m);assert.match(out,/changed: app\/a\.mjs/);
  const [f]=await readdir(path.join(B.D,'drift'));const p=await readFile(path.join(B.D,'drift',f),'utf8');
  assert.match(p,/^# Changed on the live box after deploy abcdef12, found by the deploy of fedcba98/);assert.match(p,/-one\n\+one fixed/);
  assert.match(p,/\+\+\+ app\/new\.mjs/);assert.match(p,/Only in scripts: s\.sh/);assert.doesNotMatch(p,/left\.mjs|\.bak-/);
  assert.deepEqual(patchFiles(p),['app/a.mjs','app/new.mjs'])});
+await t('drift guard: without FORCE=1 it stops (exit 3) after saving the patch, once per difference; FORCE=1 goes on and keeps the patch',async()=>{const B=await box();
+ await writeFile(path.join(B.L,'app','a.mjs'),'one fixed\n');
+ const r1=B.go(false);assert.equal(r1.status,3);assert.match(r1.stdout,/changed: app\/a\.mjs/);assert.equal((await readdir(path.join(B.D,'drift'))).length,1);
+ assert.equal(B.go(false).status,3);assert.equal((await readdir(path.join(B.D,'drift'))).length,1,'the same difference is not saved again');
+ await writeFile(path.join(B.L,'app','b.js'),'two fixed\n');assert.equal(B.go(false).status,3);assert.equal((await readdir(path.join(B.D,'drift'))).length,2);
+ const r3=B.go(true);assert.equal(r3.status,0);assert.match(r3.stdout,/FORCE=1: going on/)});
+await t('drift becomes one Needs-you item per pending patch, naming the files; filed once; not for fixer patches',async()=>{const D=await mkdtemp(path.join(tmpdir(),'cc-'));
+ await mkdir(path.join(D,'drift'));await mkdir(path.join(D,'fixer-patches'));
+ await writeFile(path.join(D,'drift','20261111-083106.patch'),'# Changed on the live box\n--- app/k.mjs\t1\n+++ app/k.mjs\t2\n@@ -1 +1 @@\n-a\n+b\n');
+ await writeFile(path.join(D,'fixer-patches','i1-try1.patch'),'--- app/x.mjs\n+++ app/x.mjs\n@@ -1 +1 @@\n-a\n+b\n');
+ const got=[];const C=createCodeChanges({DATA:D,fileIssue:async o=>{got.push(o)}});
+ assert.equal(await C.raise(),1);assert.equal(await C.raise(),0);assert.equal(got.length,1);
+ assert.equal(got[0].healthKey,'drift:20261111-083106.patch');assert.match(got[0].missing,/app\/k\.mjs/);assert.ok(got[0].hold&&got[0].source==='health');
+ assert.equal(await createCodeChanges({DATA:D}).raise(),0)});
 await t('drift guard: no copy of what the box ran yet: it says so and goes on',async()=>{const B=await box();execFileSync('rm',[path.join(B.L,'.deployed.tgz')]);
  assert.match(B.run(),/no copy of what the box ran yet/)});
 

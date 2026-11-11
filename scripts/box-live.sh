@@ -44,14 +44,22 @@ aq_drift(){ local L=${AQ_LIVE:-$HOME/apps/hermes-ui} D=${AQ_DRIFT_DATA:-${UI_DAT
   find "$L/$d" -type f -newer "$L/.deployed-commit" ! -name '*.bak*' ! -name '*.prev' ! -name '*.orig' ! -name '*.tmp' ! -name '*.rej' ! -name '*.pyc' ! -path '*/node_modules/*' ! -name features.mjs 2>/dev/null | while read -r f; do r=${f#$L/}; [ -e "$B/$r" ] || diff -u --label /dev/null --label "$r" /dev/null "$f" >> "$P"; done
  done
  rm -rf "$B"
- if [ -s "$P" ]; then mkdir -p "$D/drift"; local O; O="$D/drift/$(date -u +%Y%m%d-%H%M%S).patch"
+ if [ -s "$P" ]; then mkdir -p "$D/drift"; local O E same=""; O="$D/drift/$(date -u +%Y%m%d-%H%M%S).patch"
+  # the same difference saved by an earlier, stopped deploy is not saved twice
+  for E in "$D"/drift/*.patch; do [ -f "$E" ] && [ "$(tail -n +4 "$E")" = "$(cat "$P")" ] && { same=$E; break; }; done
+  if [ -n "$same" ]; then O=$same; else
   { echo "# Changed on the live box after deploy ${BOX_SHA:0:8}, found by the deploy of ${SHA:0:8} at $(date -u '+%F %T') UTC, before it unpacked."
-    echo "# The deploy put the files from git back. If this is a fix, take it into git (git apply -p0 in the repo), or it stays lost."; echo; cat "$P"; } > "$O"; chmod 600 "$O"
-  echo "! drift: the box had changes git does not have. Saved as ${O#$D/} (System › Health lists it):"; grep -E '^(\+\+\+|Only in) ' "$P" | sed 's/^+++ /  changed: /;s/\t.*//' | head -40
+    echo "# The deploy put the files from git back. If this is a fix, take it into git (git apply -p0 in the repo), or it stays lost."; echo; cat "$P"; } > "$O"; chmod 600 "$O"; fi
+  echo "! drift: the box had changes git does not have. Saved as ${O#$D/} (System › Health lists it and asks for it):"; grep -E '^(\+\+\+|Only in) ' "$P" | sed 's/^+++ /  changed: /;s/\t.*//' | head -40
   head -c 20000 "$P"; [ "$(wc -c < "$P")" -gt 20000 ] && echo "… (the rest is in the file)"
+  # 12 Nov 2026: a deploy no longer drops it silently. Without FORCE=1 it stops here (return 3); the app files one Health "Needs you" item
+  # naming the files (code-changes.mjs raise). FORCE=1 goes on, and the item stays until the patch is taken into git or dropped.
+  rm -f "$P"; [ "${FORCE:-0}" = 1 ] && { echo "! FORCE=1: going on; the patch stays in ${O#$D/} and on Health."; return 0; }; return 3
  else echo "· drift check: the box ran exactly ${BOX_SHA:0:8}"; fi
  rm -f "$P"; }
-aq_drift || echo "! drift check: it could not run (the deploy goes on)"
+rc=0; aq_drift || rc=$?
+if [ "$rc" = 3 ]; then echo "✗ the box has live changes that git does not have (saved above; System › Health asks for them). Nothing was changed. Take them into git and deploy again, or FORCE=1 to put the git files back anyway."; rm -f $HT $CT; exit 1; fi
+[ "$rc" = 0 ] || echo "! drift check: it could not run (the deploy goes on)"
 # the version running now is kept, so a failed live test below can put it back (8 Nov 2026)
 T0=$(( $(date +%s) * 1000 ))
 if [ -s ~/apps/hermes-ui/.deployed.tgz ]; then cp ~/apps/hermes-ui/.deployed.tgz ~/apps/hermes-ui/.deployed.prev.tgz && cp ~/apps/hermes-ui/.deployed-commit ~/apps/hermes-ui/.deployed.prev-commit 2>/dev/null || true; fi

@@ -109,10 +109,17 @@ const PAY_CLAIM=/\b(qris|virtual account|nomor va|va\s+(bca|bni|bri|mandiri)|lin
 const STAGE=/^\s*\[(?!FOTO:|TEMPLATE:|VIDEO:)(?:\s*(send|kirim(kan)?|attach|lampir(kan)?)\b|[^\]\n]*\b(gambar|image|foto|photo|picture|img)\b)[^\]\n]*\]\s*$/i;
 // Only explicit reply-to-operator preambles, not ordinary customer-facing delivery statements.
 const REPLY_NOTE=/^\s*(?:ini\s+balasan\s+yang\s+saya\s+siapkan\b|saya\s+belum\s+mengirim\s+apa\s*pun\b|here\s+is\s+the\s+reply\b|draft\s+reply\b|I\s+haven['’]t\s+sent\s+anything\b)[^\n]*[:.!?]\s*$/i;
+// the agent quoting its rules or narrating its plan at the start of a reply (i5e349bf6, 11 Nov 2026: 'Dari rules: ... jadi saya jawab dulu'; taken into git from the box's drift)
+const REASON=/^\s*(?:dari\s+rules?\b|rules?\s*:|aturan(?:nya)?\s*:|(?:thinking|reasoning)\b)|\bjadi\s+saya\s+jawab\b|\bsaya\s+jawab\b[^\n]*\bdulu\b|\blalu\s+minta\s+data\b/i;
+// an error trace or stack line: never for a customer
+const TRACE=/Traceback \(most recent call last\)|^\s*at\s+\S+\s+\(.*:\d+:\d+\)|^\s*File ".*", line \d+|\b(?:TypeError|ReferenceError|SyntaxError|ValueError|KeyError|AttributeError|ECONNREFUSED|ENOENT|EACCES)\b\s*[:(]|UnhandledPromiseRejection/;
+// the one test for "this line is not for a customer": guardReply uses it per line and deliver() on every text that leaves (12 Nov 2026)
+export const internalLine=l=>REPLY_NOTE.test(l)||REASON.test(l)||INTERNAL.some(r=>r.test(l))||TRACE.test(l);
+export const internalText=t=>String(t||'').split('\n').some(internalLine);
 export function guardReply(input,{paid=null,qrPics=[]}={}){const removed=[];const keep=[],dropped=[],parts=[];let leading=true;
  for(const p of input){if(/^\[(FOTO|TEMPLATE|VIDEO):/.test(p)){leading=false;parts.push(p);continue}
   const t=p.split('\n').filter(l=>{if(STAGE.test(l)){dropped.push(l.trim());return false}if(!l.trim())return true;
-   if(REPLY_NOTE.test(l)){if(leading){dropped.push(l.trim());return false}removed.push(l.trim())}
+   if(REPLY_NOTE.test(l)||REASON.test(l)){if(leading){dropped.push(l.trim());return false}removed.push(l.trim())}
    leading=false;return true}).join('\n').trim();if(t)parts.push(t)}
  // nothing but notes: there is no reply to send, a person sees what the agent wrote
  if(!parts.length&&dropped.length)return {parts:input,removed:dropped,dropped:[],hold:'The reply was only notes, with nothing for the customer: '+dropped.join(' | ').slice(0,300)};
@@ -306,6 +313,7 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,bridge=BRIDGE,chec
   log('kirimdev '+agent+': a team member replied to '+tail(s.to)+' ('+(s.source||'?')+'); the agent waits '+min+' min');if(s.to)await answered(agent,s.to);return {paused:until}}
 
  // a burst of messages is answered once: the run starts a few seconds after the last one
+ const FAIL_MAX=3,FAIL_WAIT=[60,300],FAIL_WINDOW=30*60e3;
  const timers=new Map(),running=new Set();let active=0;
  // setTimer/clearTimer are injectable so tests drive the burst window themselves instead of racing a 0 s timer
  function schedule(key,line){clearTimer(timers.get(key));timers.set(key,setTimer(()=>{timers.delete(key);return run(key).catch(e=>log('kirimdev '+key+': '+e.message))},(line.debounceSec??8)*1000))}
@@ -317,7 +325,17 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,bridge=BRIDGE,chec
    // kept during a pause: the team may have answered it since; then it is done
    if(p.waited&&p.conversationId){const l=((await api(line.phoneNumberId+'/messages?'+new URLSearchParams({conversation_id:p.conversationId,limit:'5'}))).data||[]).filter(m=>m.type!=='reaction').sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)));
     if(l[0]?.direction==='outbound'&&Date.parse(l[0].created_at)>p.at){log('kirimdev '+p.agent+': the team answered '+tail(p.from)+' during the pause; nothing more to send');if(st.pending[key]?.token===p.token)delete st.pending[key];delete st.turns[key];await saveState();return}}
-   const epoch=st.cut[key]||'';await answer(p.agent,line,p,key);
+   const epoch=st.cut[key]||'';
+   try{await answer(p.agent,line,p,key)}
+   catch(e){const f=(st.fails||={})[key],n=(f&&now()-f.at<FAIL_WINDOW?f.n:0)+1;st.fails[key]={n,at:now()};
+    if(n<FAIL_MAX){later=true;await saveState();log('kirimdev '+p.agent+': the agent stopped on '+tail(p.from)+' ('+n+'/'+FAIL_MAX+'): '+e.message+'; trying again in '+FAIL_WAIT[n-1]+' s');schedule(key,{debounceSec:FAIL_WAIT[n-1]});return}
+    // the loop breaker (12 Nov 2026: two chats retried every few seconds, about 290 times a day): nothing is retried any more; a person gets the chat once
+    delete st.fails[key];if(st.pending[key]?.token===p.token)delete st.pending[key];delete st.turns[key];(st.stopped||={})[key]=1;
+    const lastQ=(p.messages||[]).slice(-1)[0]||'-';log('kirimdev '+p.agent+': the agent stopped '+n+' times on '+tail(p.from)+'; the chat was handed to the team');
+    await postHandoff({id:'h'+(++st.seq),agent:p.agent,from:p.from,conversationId:p.conversationId,name:p.name,lastQ,why:'The agent stopped '+n+' times in a row on this chat ('+e.message+'). Nothing was sent to the customer, so a person needs to answer.',notify:false,tries:0,at:now()},line);
+    await problem?.(p.agent,'stopped|'+key,'Kirimdev line ('+line.persona+'): the agent keeps stopping on one chat','The agent stopped '+n+' times in a row on the chat with +'+p.from+' ('+e.message+'). It is not tried again by itself; the chat is in the Questions topic. Its next message from the customer starts a fresh try.').catch(()=>{});await saveState();return}
+   if(st.stopped?.[key]){delete st.stopped[key];await solved?.(p.agent,'stopped|'+key).catch(()=>{})}
+   delete st.fails?.[key];
    // Only consume the snapshot we answered, never a newer arrival.
    if(st.pending[key]?.token===p.token)delete st.pending[key];
    else if(st.pending[key]&&(st.cut[key]||'')===epoch)st.pending[key].messages=st.pending[key].messages.slice((p.messages||[]).length);
@@ -491,6 +509,10 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,bridge=BRIDGE,chec
    const line=await lineOf(o.agent);
    if(!line||String(line.phoneNumberId)!==o.pid||!within24h(o.agent,o.to)||pausedUntil(o.agent,'',o.to)>now()||modeOf(line)==='draft'&&!o.approved||modeOf(line)==='test'&&!isTester(line,{from:o.to})&&!st.testerNums[o.agent+'|'+o.to])throw Error('Outbound held by current line policy');
    if(o.firstAttempt&&now()-o.firstAttempt>=23*3600e3){o.status='held';await saveState();await tell('Kirimdev line: a send needs checking by hand',o.agent+': ambiguous send older than safe replay window; not resent').catch(()=>{});throw Error('Outbound ambiguous beyond safe idempotency window; reconcile manually')}
+   // the single place a customer's message leaves: whatever path made it (reply guard, whatsapp_reply, a draft, a handoff text), internal notes, the agent's reasoning and error traces stop here (12 Nov 2026)
+   {const txt=String(o.body?.text?.body??o.body?.image?.caption??o.body?.video?.caption??o.body?.document?.caption??'');
+    if(internalText(txt)){o.status='held';o.error='internal text';await saveState();const clipped=txt.replace(/\s+/g,' ');log('kirimdev '+o.agent+': a message for the customer was stopped, it looked meant for the team: '+clipped.slice(0,160));
+     await tell('Kirimdev line: a message with internal text was stopped',o.agent+': it was NOT sent to the customer: '+clipped.slice(0,300)).catch(()=>{});throw Error('Held: the text looks meant for the team (an internal note, the agent\'s reasoning or an error trace), so it was not sent to the customer. Write only what the customer should read.')}}
    o.firstAttempt||=now();o.status='sending';o.tries=(o.tries||0)+1;await saveState();
    const go=api(o.pid+'/messages',o.body,{idem:id}),fk=o.pid+'|'+o.to;inflight.set(fk,go);
    try{const r=await go;if(!r?.data?.id)throw Error('Kirimdev returned no message receipt');o.receipt=r.data;o.status='accepted';st.ours[r.data.id]=now();await saveState();await answered(o.agent,o.to);return o.receipt}
