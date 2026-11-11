@@ -1738,6 +1738,9 @@ async function fixerRunUsage(r){if(!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(String(r.a
 // the one "Needs you" item that asks for the GitHub token: made once, taken away when the token is there (issues.mjs noteToken)
 // the AI provider is not available (rate limit, every account used up): one shared state; nothing needing a model starts until it ends (provider-limits.mjs)
 const providerLimits=createLimitState({DATA});
+// between chats (account pools, 12 Nov 2026): no reply running in aqeelOS, no engine session running, and quiet for 10 minutes, so a
+// change of account throws away no warm prompt cache. An engine that does not answer counts as busy.
+accountHooks.idle=async a=>{if([...LIVE].some(([k,r])=>!r.done&&String(k).split('|')[0]===a))return false;const s=await engineSessions(a).catch(()=>null);return !!s&&!s.active&&Date.now()-s.lastActive>=10*60e3};
 accountHooks.exhausted=until=>{if(until)providerLimits.set(until,'every AI account is used up','accounts');else if(providerLimits.hold()?.kind==='accounts')providerLimits.clear()};
 // questions for the owner (questions.mjs): the fixer, an agent (ask_owner) or the app asks with a few options; the answer goes back to the asker
 const questions=createQuestions({DATA,names:a=>agentName(a),onAnswer:async q=>{if(q.kind==='fixer'&&q.issue)await issues.answered(q.issue,q)}});

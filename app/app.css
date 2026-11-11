@@ -582,7 +582,7 @@ body.dragging .screen-float{transition:none}
 .auto-ctl{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;align-items:stretch;margin:4px 0 6px}
 .auto-on,.auto-th{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border:1px solid var(--border);border-radius:14px;min-width:0}.auto-on>span,.auto-th>span{min-width:0}.auto-th .sel-btn{flex:none}
 .auto-on b,.auto-th b{display:block;font-size:13.5px;font-weight:600;color:var(--ink)}.auto-on small,.auto-th small{display:block;font-size:12px;color:var(--muted);font-weight:400;margin-top:2px}
-.sw-h{font-size:13.5px;margin:18px 0 6px}
+.sw-h{font-size:13.5px;margin:18px 0 6px;display:flex;align-items:baseline;justify-content:space-between;gap:4px 12px;flex-wrap:wrap}.sw-n{font-size:12.5px;font-weight:400;color:var(--muted)}
 .sw-list{display:flex;flex-direction:column}.sw-row{display:grid;grid-template-columns:118px minmax(0,1fr) auto;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--border);font-size:13px}
 .sw-t{color:var(--muted);font-size:12.5px;white-space:nowrap;font-variant-numeric:tabular-nums}.sw-who{display:flex;align-items:center;gap:6px;min-width:0;color:var(--ink-2)}.sw-who b{font-weight:600;color:var(--ink)}.sw-who>span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sw-who svg{flex:none;opacity:.55}
 .sw-why{font-size:11px;padding:1px 8px;font-weight:500;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -811,7 +811,24 @@ body.dragging .screen-float{transition:none}
 .pri-lim .hint{margin:0;font-size:12.5px}
 .pri-use{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-2);white-space:nowrap}.pri-use .acc-who{margin:0}
 .pri-sel{justify-self:end}.pri-sel .sel-btn{max-width:240px}.pri-use{min-height:34px}
+/* a pool: one card for accounts of the same kind, its members inside as quiet rows that fold open and shut */
+.pri-pool{border:1px solid var(--border);border-radius:16px;background:var(--surface);cursor:grab;animation:rise var(--t-med) var(--ease) both;transition:border-color var(--t-fast),box-shadow var(--t-fast),transform var(--t-fast);will-change:transform}
+.pri-pool:hover{box-shadow:0 10px 24px -18px rgba(11,12,16,.35)}.pri-pool.dragging{opacity:.45}.pri-pool.over{border-color:var(--blue-2);transform:translateY(2px)}
+.pri-pool>.pri-head{border:0;border-radius:16px;background:none;animation:none;cursor:inherit}.pri-pool>.pri-head:hover{box-shadow:none}
+.pri-head>.txt{grid-column:txt-start/lim-end}.pri-row.pri-head .txt>span{white-space:normal;overflow:visible}
+.pg-tog svg{transition:transform var(--t-med) var(--ease)}.pri-pool.open .pg-tog svg{transform:rotate(180deg)}
+.pg-fold{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows var(--t-med) var(--ease),opacity var(--t-med) var(--ease)}.pg-fold>.pg-mems{overflow:hidden;min-height:0}
+.pri-pool.open>.pg-fold{grid-template-rows:1fr;opacity:1}
+.pg-mem{display:grid;grid-template-columns:minmax(120px,1fr) minmax(220px,1.3fr) 72px auto;align-items:center;column-gap:12px;row-gap:6px;margin:0 12px;padding:8px 0 8px 68px;border-top:1px solid var(--border);cursor:grab;transition:opacity var(--t-fast)}
+.pg-mem.dragging{opacity:.45}
+.pg-name{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap}.pg-name b{font-size:13.5px;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.pg-name .pri-st{display:inline-flex;align-items:center;gap:6px;font-size:12.5px}
+.chip.pg-next{flex:none;font-size:11px;padding:1px 8px;font-weight:600;color:var(--blue-deep);background:var(--blue-soft);border-color:transparent}
+.pg-ag{font-size:12.5px;color:var(--muted);white-space:nowrap;text-align:right}
+.pg-mem .pri-btns .icon-btn{width:28px;height:28px;min-height:28px}
 /* a narrower panel (Models at 800 px): name, who and buttons on the first line; limits, then the model, under the name */
+@container (max-width:640px){.pri-head>.txt{grid-column:txt}.pg-mem{grid-template-columns:minmax(0,1fr) auto auto;padding-left:36px}.pg-mem>.pri-lim{grid-column:1/-1;grid-row:2;max-width:460px}}
+@container (max-width:480px){.pg-mem{padding-left:0}}
 @container (max-width:640px){.pri-row{grid-template-columns:24px 32px minmax(0,1fr) auto;grid-template-areas:'n logo txt btn' '. . lim lim' '. . use use' '. . sel sel'}.pri-sel{justify-self:start;max-width:100%}.pri-lim{max-width:460px}.pri-use{min-height:0}}
 /* a phone: who is on it gets its own line too, the model picker the full width */
 @container (max-width:480px){.pri-row{column-gap:10px;grid-template-areas:'n logo txt btn' '. . lim lim' '. . use use' 'sel sel sel sel'}.pri-sel,.pri-sel .sel-btn{justify-self:stretch;max-width:none;width:100%}.pri-btns .icon-btn{width:28px}}
@@ -2346,11 +2363,16 @@ button.acct-more{font:inherit;cursor:pointer;width:100%;background:var(--surface
 .chip,.chip.blue,.dark .chip.blue,.chip.ok,.chip.warn,.chip.bad,.chip.access,.chip.access.shared,.chip.access.public,.dark .chip.access.shared,.dark .chip.access.public,.chip.sign-chip,.tile .agent-foot .chip.ok{background:none!important;border-color:transparent!important;border-radius:0!important;padding-left:0!important;padding-right:0!important;min-height:0!important;box-shadow:none!important}
 
 /* a percent typed in place (Models › If an account fails): the number and its unit in one field */
-.pct-in{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:12px;padding:0 12px;height:40px;background:var(--card,#fff);flex:none;transition:border-color var(--t-med,.18s) var(--ease,ease)}
-.pct-in:focus-within{border-color:var(--blue)}
-.pct-in input{width:3.2ch;border:0;outline:0;background:none;padding:0;font:inherit;font-size:15px;text-align:right;color:var(--ink);-moz-appearance:textfield}
+/* A number with its unit in one field (12 Nov 2026). The field is the label: it has the border, the radius and the focus ring. The input
+   inside is bare and as tall as the field. Before, the input kept the base input:focus ring (box-shadow) and radius from brand.css, which
+   drew a second, smaller rounded box around the digits only, off-centre inside the field. */
+.pct-in{display:inline-flex;align-items:center;gap:0;height:40px;padding:0;border:1px solid var(--border);border-radius:12px;background:var(--surface);flex:none;cursor:text;font-size:15px;line-height:1;font-variant-numeric:tabular-nums;transition:border-color var(--t-fast,.15s) var(--ease,ease),box-shadow var(--t-fast,.15s) var(--ease,ease)}
+.pct-in:hover{border-color:var(--blue-2)}
+.pct-in:focus-within{border-color:var(--blue);box-shadow:0 0 0 3px rgba(1,88,203,.18)}
+.pct-in input,.pct-in input:focus,.pct-in input:focus-visible{align-self:stretch;flex:none;width:calc(3ch + 14px);min-width:0;height:auto;min-height:0;margin:0;padding:0 0 0 14px;border:0;border-radius:0;outline:0;box-shadow:none;background:none;font:inherit;text-align:right;color:var(--ink);appearance:textfield;-moz-appearance:textfield;transition:none}
 .pct-in input::-webkit-outer-spin-button,.pct-in input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
-.pct-in span{font-size:14px;color:var(--muted);white-space:nowrap}
+.pct-in span{padding:0 14px 0 6px;font-size:inherit;line-height:inherit;color:var(--muted);white-space:nowrap;user-select:none}
+@media (max-width:760px){.pct-in{font-size:16px}}
 
 /* Channels › Kirimdev (kirimdev-page.js, 7 Nov 2026): the API key, then one block per Kirimdev line. Texts wrap (no
    ellipsis), actions drop below on a phone, a changed part fades in, a sent or dropped draft folds away */

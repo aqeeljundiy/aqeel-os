@@ -12,6 +12,7 @@ import {swr} from './swr.mjs';
 import {createClaudeRenew} from './claude-renew.mjs';
 import {providerUnavailable} from './provider-limits.mjs';
 import {createAgyQuota,claudeHeaderUsage,deadLogins} from './usage-extra.mjs';
+import {groupEntries,normalise,planMove,nextPick,moves24} from './account-pools.mjs';
 
 const HOME=homedir();
 const CLAUDE=process.env.CLAUDE_BIN||path.join(HOME,'.local','bin','claude');
@@ -36,7 +37,7 @@ export const entryReset=(wins,full=99)=>{const t=(wins||[]).filter(w=>(w.used||0
 // Anthropic's usage call is refused (429) for some accounts every time (12 Nov 2026, Elkiya "main": never a reading, and it was at
 // its weekly limit). Such an account whose last refusal said "limit, resets <time>" is at its limit until then, not "unknown".
 export const limitNote=(refused,note,now=Date.now())=>refused&&note?.until>now?{until:note.until,text:'At its limit until '+new Date(note.until).toISOString().slice(0,16).replace('T',' ')+' UTC (from its last refusal).'}:null;
-export const accountHooks={exhausted:null,giveSkills:null,trimSkills:null,forgetSkills:null,afterSetup:null,moveOff:null,keyStatus:null,keyCheck:null,held:null,backupSync:null};   // keyStatus/keyCheck: connect.mjs (API keys tested); held/backupSync: backup-models.mjs
+export const accountHooks={idle:null,exhausted:null,giveSkills:null,trimSkills:null,forgetSkills:null,afterSetup:null,moveOff:null,keyStatus:null,keyCheck:null,held:null,backupSync:null};   // keyStatus/keyCheck: connect.mjs (API keys tested); held/backupSync: backup-models.mjs
 export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code')}={}){
  const FILE=path.join(DATA,'accounts.json'),LIM_FILE=path.join(DATA,'claude-limits.json');let lims=null;
  const limits=async()=>lims||=await readFile(LIM_FILE,'utf8').then(JSON.parse,()=>({}));
@@ -211,7 +212,9 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
 
  /* ---------- priority: the order accounts are used in, across providers ----------
     Entries: {key:'claude:<account id>'|'p:<provider slug>', model}. An agent moves down the list
-    when its current entry passes the threshold, and back up once a higher entry has room again. */
+    when its current entry passes the threshold, and back up once a higher entry has room again.
+    Entries of the same kind (Claude subscriptions) form a pool (account-pools.mjs, 12 Nov 2026): inside it there is no
+    order, an agent gets the member with the most room; d.solo lists the entries a person took out of their pool. */
  const PLUGIN_KEY='claude:';
  async function agentRoute(profile){const dir=profile==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',profile);const y=await readFile(path.join(dir,'config.yaml'),'utf8').catch(()=>'');
   const k=key=>((new RegExp('^model:[\\s\\S]*?\\n\\s+'+key+':\\s*(\\S+)','m').exec(y)||[])[1]||'').replace(/^["']|["']$/g,'');return {provider:k('provider'),model:k('default')}}
@@ -244,9 +247,17 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
  const providerUsed=ws=>{const wk=ws.filter(isWeek),se=ws.filter(w=>!isWeek(w));const m=l=>Math.max(0,...l.map(w=>w.used||0));if(!wk.length)return m(se);if(!se.length)return m(wk);return pickUse(m(se),m(wk))};
  // null = unknown (a check that failed or timed out, a subscription that reports no windows): never a reason to move,
  // never a target. A Claude account that answered "signed out" has no room (100).
- function usageOf(key,det,prov,model){if(key.startsWith(PLUGIN_KEY)){const v=det[key.slice(PLUGIN_KEY.length)];if(!v?.checked)return null;if(!v.signedIn)return 100;return v.usage?claudeUsed(v.usage,model):null}
+ function usageOf(key,det,prov,model){if(key.startsWith(PLUGIN_KEY)){const v=det[key.slice(PLUGIN_KEY.length)];if(!v?.checked)return null;if(!v.signedIn)return 100;return v.usage?claudeUsed(v.usage,model):v.limit?100:null}   // v.limit: its last refusal said "at its limit until…"
   const p=(prov||[]).find(x=>x.slug===key.slice(2));if(!p)return null;const ws=(p.windows||[]).filter(w=>w.scope!=='model'&&w.scope!=='image');
   if(!ws.length)return SUBS.test(p.slug+' '+p.name)?null:0;return providerUsed(ws)}
+
+ // the two windows a pool ranks by: percent used of the 5-hour (session) one and of the week, null when not reported
+ const windowsOf=(key,det,prov,model)=>{if(key.startsWith(PLUGIN_KEY)){const u=det[key.slice(PLUGIN_KEY.length)]?.usage;if(!u)return {sess:null,week:null};
+   return {sess:u.session?.used??null,week:Math.max(u.week?.used||0,/opus/i.test(model||'')?u.opus?.used||0:0,/sonnet/i.test(model||'')?u.sonnet?.used||0:0)}}
+  const ws=((prov||[]).find(x=>x.slug===key.slice(2))?.windows||[]).filter(w=>w.scope!=='model'&&w.scope!=='image'),m=l=>l.length?Math.max(...l.map(w=>w.used||0)):null;
+  return {sess:m(ws.filter(w=>!isWeek(w))),week:m(ws.filter(isWeek))}};
+ // one entry's reading for the ranking (account-pools.mjs): onIt = how many agents are on each entry now
+ const reading=(e,det,prov,model,onIt)=>({key:e.key,used:usageOf(e.key,det,prov,model),...windowsOf(e.key,det,prov,model),agents:onIt.get(e.key)||0,held:!!accountHooks.held?.(e.key)});
 
  /* ---------- auto-switch: move agents off an account that is nearly used up, and back once it has room ---------- */
  const upSeen=new Map();   // agent → the higher entry it could go back to, and how many checks in a row
@@ -259,24 +270,31 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    // reset, said once on Health (d.exhausted, one item, not one per agent) and told to the fixer (accountHooks.exhausted)
    {const prov0=await providers(false,'default'),mdl=(await agentRoute('default')).model;
     const ex=exhaustion(d.priority,e=>usageOf(e.key,det,prov0,e.model||(e.key.startsWith(PLUGIN_KEY)&&!isClaude(mdl)?'':mdl)),e=>{
-      if(e.key.startsWith(PLUGIN_KEY)){const u=det[e.key.slice(PLUGIN_KEY.length)]?.usage;return u?entryReset([u.session&&{used:u.session.used,resets:u.session.resets},u.week&&{used:u.week.used,resets:u.week.resets}].filter(Boolean)):null}
+      if(e.key.startsWith(PLUGIN_KEY)){const v=det[e.key.slice(PLUGIN_KEY.length)],u=v?.usage;return !u&&v?.limit?v.limit.until:u?entryReset([u.session&&{used:u.session.used,resets:u.session.resets},u.week&&{used:u.week.used,resets:u.week.resets}].filter(Boolean)):null}
       return entryReset((prov0||[]).find(p=>p.slug===e.key.slice(2))?.windows)},{held:e=>!!accountHooks.held?.(e.key)});
     const until=ex.all?ex.until||Date.now()+30*60e3:0;
     await update(x=>{if(ex.all){if(!x.exhausted){x.exhausted={since:Date.now(),until};console.log('all AI accounts are used up until',new Date(until).toISOString(),': agents stay where they are');return}if(x.exhausted.until===until)return false;x.exhausted.until=until}else if(x.exhausted)delete x.exhausted;else return false});
     accountHooks.exhausted?.(until);if(ex.all)return}
-   for(const profile of await agents()){const prov=await providers(false,profile);if(!prov)continue;   // its gateway did not answer: nothing is known this tick
-    const cur=await entryOf(d,profile),model=(await agentRoute(profile)).model;const used=usageOf(cur,det,prov,model);let at=d.priority.findIndex(e=>e.key===cur&&(e.model===model||!e.model));if(at<0)at=d.priority.findIndex(e=>e.key===cur);
-    // a provider in an outage (backup-models.mjs) has no room, so nobody is moved back up to it before it works again
-    const room=(e,lim)=>{if(accountHooks.held?.(e.key))return false;const u=usageOf(e.key,det,prov,e.model||(e.key.startsWith(PLUGIN_KEY)&&!isClaude(model)?'':model));return u!==null&&u<lim};
-    // back up the list: a higher entry with room again (10 points under the limit, so it does not flip back and forth);
-    // an agent someone moved by hand stays where they put it
-    const byHand=(d.events||[]).find(e=>e.profile===profile)?.why==='Chosen by hand';
-    const lastMove=(d.events||[]).find(e=>e.profile===profile),settled=!lastMove||Date.now()-(lastMove.t||0)>=30*60e3;   // no flip-flopping: 30 minutes on an entry before going back up
-    let up=at>0&&!byHand&&back&&settled?d.priority.slice(0,at).filter(e=>room(e,backAt)):[];
-    // two checks in a row (10 minutes) before going back, so it does not flip back and forth
-    if(up.length){const k=up[0].key+'|'+up[0].model;const s=upSeen.get(profile);const n=s?.k===k?s.n+1:1;upSeen.set(profile,{k,n});if(n<2)up=[]}else upSeen.delete(profile);
-    const down=on&&used!==null&&used>=th?d.priority.filter((e,i)=>i!==at&&!up.includes(e)&&room(e,th)):[];
-    for(const e of [...up,...down]){const done=await useEntry(d,profile,e,up.includes(e)?'Back to a higher entry: it has '+(100-backAt)+'% free again':`Reached ${used}%`).then(()=>true,er=>{console.warn('auto-switch',er.message);return false});if(done)break}}
+   // Stability first (12 Nov 2026: 148 moves in a day): an agent stays on its entry. It moves when its entry passes the number (inside its
+   // pool first, to the member with the most room, then down the list), goes back up as before, and between chats changes
+   // member only for one that is clearly better. Each move is counted at once, so a batch of agents spreads over the members.
+   const groups=groupEntries(d.priority,d.solo),names=await agents(),curOf={},onIt=new Map();
+   for(const n of names){curOf[n]=await entryOf(d,n);onIt.set(curOf[n],(onIt.get(curOf[n])||0)+1)}
+   for(const profile of names){const prov=await providers(false,profile);if(!prov)continue;   // its gateway did not answer: nothing is known this tick
+    const cur=curOf[profile],model=(await agentRoute(profile)).model;const pe=d.priority.find(e=>e.key===cur&&(e.model===model||!e.model))||d.priority.find(e=>e.key===cur);
+    const at=pe?groups.findIndex(g=>g.members.includes(pe)):-1,g=at>=0?groups[at]:null;
+    // a provider in an outage (backup-models.mjs) has no room (held), so nobody is moved back up to it before it works again
+    const state=e=>reading(e,det,prov,e.model||(e.key.startsWith(PLUGIN_KEY)&&!isClaude(model)?'':model),onIt);
+    // an agent someone moved by hand stays where they put it; no flip-flopping: 30 minutes on an entry before going back up or changing member
+    const lastMove=(d.events||[]).find(e=>e.profile===profile),byHand=lastMove?.why==='Chosen by hand',settled=!lastMove||Date.now()-(lastMove.t||0)>=30*60e3,free=!byHand&&settled;
+    if(!(at>0&&back&&free))upSeen.delete(profile);
+    // between chats: nothing of the agent is running and it has been quiet for a while (server.mjs); unknown counts as busy
+    const idle=on&&g?.pool&&free?await Promise.resolve(accountHooks.idle?.(profile)).catch(()=>false)===true:false;
+    const {cands}=planMove({groups,at,cur,state,curState:reading({key:cur},det,prov,model,onIt),th,backAt,on,back,mayGoUp:free,mayRebalance:free,idle,
+     // two checks in a row (10 minutes) before going back, so it does not flip back and forth
+     upConfirmed:id=>{if(!id){upSeen.delete(profile);return false}const u=upSeen.get(profile),n=u?.k===id?u.n+1:1;upSeen.set(profile,{k:id,n});return n>=2}});
+    for(const c of cands){const done=await useEntry(d,profile,c.entry,c.why).then(()=>true,er=>{console.warn('auto-switch',er.message);return false});
+     if(done){onIt.set(cur,Math.max(0,(onIt.get(cur)||1)-1));onIt.set(c.entry.key,(onIt.get(c.entry.key)||0)+1);console.log('auto-switch:',profile,cur,'to',c.entry.key,'('+c.kind+')',c.why);break}}}
    return}
   if(!on)return;
   for(const profile of await agents()){const cur=d.assign[profile]||'main';const v=det[cur];if(!v?.usage)continue;
@@ -458,12 +476,19 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    const ag=(await agents()).filter(see);const pv=await providers(fresh),prov=pv||[];
    // what is signed out right now, from what this read already has (the banner and the card's Reconnect)
    await note(Object.fromEntries(list.map(v=>[v.id,v])),pv).catch(e=>console.warn('signed-out note',e.message));const route=Object.fromEntries(await Promise.all(ag.map(async n=>[n,{entry:await entryOf(d,n),...await agentRoute(n)}])));
-   return send(res,200,{accounts:list,providers:prov,priority:d.priority||[],labels:d.labels||{},route,assign:Object.fromEntries(ag.map(n=>[n,d.assign[n]||'main'])),auto:d.auto||{on:false,threshold:90},events:(d.events||[]).filter(e=>see(e.profile)),signedOut:await signedOut(),keys:accountHooks.keyStatus?.()||{},allow:d.allow||[]})}
+   // the priority list as groups (pools), who would be picked next in each pool, and how calm it has been
+   const onIt=new Map();for(const n of await agents()){const k=route[n]?.entry||await entryOf(d,n);onIt.set(k,(onIt.get(k)||0)+1)}
+   const detNow=Object.fromEntries(list.map(v=>[v.id,v])),lim=Number(d.auto?.threshold)||90;
+   const groups=groupEntries(d.priority||[],d.solo).map(g=>({id:g.id,kind:g.kind,model:g.model,pool:g.pool,alone:g.alone,members:g.members,next:g.pool?nextPick(g.members.map(e=>reading(e,detNow,prov,g.model,onIt)),{lim}):null}));
+   const moves=moves24((await tailOf(path.join(DATA,'model-moves.jsonl'))).split('\n'),{see});
+   return send(res,200,{accounts:list,providers:prov,groups,solo:d.solo||[],moves24:moves,priority:d.priority||[],labels:d.labels||{},route,assign:Object.fromEntries(ag.map(n=>[n,d.assign[n]||'main'])),auto:d.auto||{on:false,threshold:90},events:(d.events||[]).filter(e=>see(e.profile)),signedOut:await signedOut(),keys:accountHooks.keyStatus?.()||{},allow:d.allow||[]})}
   if(p==='/ui/accounts/priority'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
    // an account may be in the list more than once, with another model each time (more than 4 entries, 6 Nov 2026)
    const seenE=new Set();const pr=(Array.isArray(b.priority)?b.priority:[]).filter(e=>e&&typeof e.key==='string'&&/^(claude:[a-z0-9-]+|p:[a-z0-9_.-]+)$/.test(e.key)).map(e=>({key:e.key,model:String(e.model||'').slice(0,120)}))
     .filter(e=>{const k=e.key+'|'+e.model;if(seenE.has(k))return false;seenE.add(k);return true}).slice(0,20);
-   d.priority=pr;await update(x=>{x.priority=pr});autoTick().catch(()=>{});accountHooks.backupSync?.('priority');return send(res,200,{priority:d.priority})}
+   // pool members are kept next to each other; solo: the entries taken out of their pool ("key|model"), kept as they are when not sent
+   const nz=normalise(pr,Array.isArray(b.solo)?b.solo.filter(x=>typeof x==='string'&&x.length<=200).slice(0,40):d.solo||[]);
+   d.priority=nz.priority;d.solo=nz.solo;await update(x=>{x.priority=nz.priority;x.solo=nz.solo});autoTick().catch(()=>{});accountHooks.backupSync?.('priority');return send(res,200,{priority:d.priority,solo:d.solo})}
   if(p==='/ui/accounts/use'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const profile=String(b.profile||'');if(!/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(profile))return send(res,400,{error:'Bad agent name'});if(!see(profile))return send(res,403,{error:'This agent is private to its owner.'});
    try{await useEntry(d,profile,{key:String(b.key||''),model:String(b.model||'')},'Chosen by hand');return send(res,200,{ok:true})}catch(e){return send(res,400,{error:e.message})}}
   if(p==='/ui/accounts'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{return send(res,200,await startLogin(b.label))}catch(e){return send(res,500,{error:e.message})}}

@@ -41,16 +41,38 @@ PAGES.accounts=async(p,el)=>{const gone=pageTok(el);
  const pri=(d.priority||[]).filter(e=>byKey[e.key]);Pages._pri=pri;
  // the 'Team of models' (Mixture of Agents) is not an account of its own: it borrows the others. Say so, and only show it when an agent uses it
  for(const s of src)if(/moa|mixture/i.test(s.key+' '+s.name)){s.isTeam=true;s.name='Team of models';s.sub='Several models answer, one combines them';s.windows=[];s.note='It runs on your other accounts, so it has no limits of its own. Set it up under Models › Team of models.'}
- // Active: the account most agents are on now (a tie goes to the one higher in the list)
- const active=pri.reduce((b,e)=>usedBy(e.key).length>(b?usedBy(b).length:0)?e.key:b,null);
+ // the list as groups (the server groups them, account-pools.mjs): one account, or a pool of accounts of the same kind
+ const groups=(d.groups||pri.map(e=>({id:e.key+'|'+e.model,kind:e.key,model:e.model,pool:false,alone:false,members:[e]}))).map(g=>({...g,members:g.members.filter(e=>byKey[e.key])})).filter(g=>g.members.length).map(g=>({...g,pool:g.pool&&g.members.length>1}));Pages._groups=groups;
+ const gUsers=g=>g.members.flatMap(e=>usedBy(e.key)),kindName=g=>(g.kind==='claude'?'Claude':byKey[g.members[0].key].name)+(g.pool&&g.model?' · '+modelLabel(g.model):'');
+ // Active: the entry most agents are on now (a tie goes to the one higher in the list)
+ const active=groups.reduce((b,g)=>gUsers(g).length>(b?gUsers(b).length:0)?g:b,null);
  const state=s=>s.status==='checking'?['',ACCT_WORD.checking]:s.status==='ok'?['on',ACCT_WORD.ok]:['out',ACCT_WORD[s.status]];
- const priRow=(e,i)=>{const s=byKey[e.key],u=usedBy(e.key),[sc,sl]=state(s);
-  return `<div class="pri-row" draggable="true" data-pri="${i}" ${st(i)}><span class="pri-n">${i+1}</span>${logoImg(s.logo,s.name[0].toUpperCase())}
-  <div class="txt"><b>${esc(s.name)}${e.key===active?'<span class="chip ok pri-active" title="Most agents are on this account now">Active</span>':''}</b><span class="pri-st ${sc}"><i class="dot"></i>${sl}</span></div>
-  <div class="pri-lim">${s.sess||s.week?miniBar('Session',s.sess)+miniBar('Week',s.week):`<span class="hint">${s.ok?(s.usageNote?'Limits unavailable right now':'No limits reported'):'Reconnect it to use it again'}</span>`}</div>
-  <div class="pri-use">${u.length?Access.who({users:u})+`<span>In use by ${plural(u.length,'agent')}</span>`:'<span>No agent on it</span>'}</div>
-  <div class="pri-sel"><select data-pri-model="${i}" style="width:auto" aria-label="Model on ${esc(s.name)}"><option value="">Keep each agent's model</option>${s.models.map(m=>`<option value="${esc(m)}" ${m===e.model?'selected':''}>${esc(modelLabel(m))}</option>`).join('')}</select></div>
-  <span class="pri-btns"><button class="ghost icon-btn" data-act="pri-move" data-i="${i}" data-dir="-1" aria-label="Move up" ${i?'':'disabled'}>${icon('chevU',16)}</button><button class="ghost icon-btn" data-act="pri-move" data-i="${i}" data-dir="1" aria-label="Move down" ${i<pri.length-1?'':'disabled'}>${icon('chevD',16)}</button><button class="ghost icon-btn" data-act="pri-del" data-i="${i}" aria-label="Remove from priority">${icon('x',16)}</button></span></div>`};
+ const activeChip=g=>g===active?'<span class="chip ok pri-active" title="Most agents are on this now">Active</span>':'';
+ const inUse=u=>u.length?Access.who({users:u})+`<span>In use by ${plural(u.length,'agent')}</span>`:'<span>No agent on it</span>';
+ const bars=s=>s.sess||s.week?miniBar('Session',s.sess)+miniBar('Week',s.week):`<span class="hint">${s.ok?(s.usageNote?'Limits unavailable right now':'No limits reported'):'Reconnect it to use it again'}</span>`;
+ const modelSel=(g,i,name,models)=>`<div class="pri-sel"><select data-pri-model="${i}" style="width:auto" aria-label="Model on ${esc(name)}"><option value="">Keep each agent's model</option>${models.map(m=>`<option value="${esc(m)}" ${m===g.model?'selected':''}>${esc(modelLabel(m))}</option>`).join('')}</select></div>`;
+ const moveBtns=(i,what,more='')=>`<span class="pri-btns">${more}<button class="ghost icon-btn" data-act="pri-move" data-i="${i}" data-dir="-1" aria-label="Move ${esc(what)} up" ${i?'':'disabled'}>${icon('chevU',16)}</button><button class="ghost icon-btn" data-act="pri-move" data-i="${i}" data-dir="1" aria-label="Move ${esc(what)} down" ${i<groups.length-1?'':'disabled'}>${icon('chevD',16)}</button><button class="ghost icon-btn" data-act="pri-del" data-i="${i}" aria-label="Remove ${esc(what)} from priority">${icon('x',16)}</button></span>`;
+ // one account; one that was taken out of its group can go back in (the button, or drag it onto the group)
+ const priRow=(g,i)=>{const e=g.members[0],s=byKey[e.key],[sc,sl]=state(s),home=g.alone&&groups.some(o=>o!==g&&o.kind===g.kind&&o.model===g.model);
+  return `<div class="pri-row" draggable="true" data-g="${i}" ${st(i)}><span class="pri-n">${i+1}</span>${logoImg(s.logo,s.name[0].toUpperCase())}
+  <div class="txt"><b>${esc(s.name)}${activeChip(g)}</b><span class="pri-st ${sc}"><i class="dot"></i>${sl}</span></div>
+  <div class="pri-lim">${bars(s)}</div>
+  <div class="pri-use">${inUse(usedBy(e.key))}</div>
+  ${modelSel(g,i,s.name,s.models)}
+  ${moveBtns(i,s.name,home?`<button class="ghost icon-btn" data-act="pri-join" data-i="${i}" aria-label="Put ${esc(s.name)} back in its group" title="Put back in its group">${icon('layers',16)}</button>`:'')}</div>`};
+ // a pool: one card, its members inside as quiet rows; "Next" marks the member the next agent would get
+ const shut=(()=>{try{return JSON.parse(localStorage.getItem('aq-pools-shut')||'[]')}catch{return []}})();
+ const poolRow=(g,i)=>{const s0=byKey[g.members[0].key],name=kindName(g),open=!shut.includes(g.id);
+  return `<div class="pri-pool${open?' open':''}" draggable="true" data-g="${i}" data-pool="${esc(g.id)}" ${st(i)}><div class="pri-row pri-head"><span class="pri-n">${i+1}</span>${logoImg(s0.logo,name[0].toUpperCase())}
+  <div class="txt"><b>${esc(name)} · ${g.members.length} accounts${activeChip(g)}</b><span>aqeelOS uses the account with the most room in this group.</span></div>
+  <div class="pri-use">${inUse(gUsers(g))}</div>
+  ${modelSel(g,i,name,s0.models)}
+  ${moveBtns(i,'the '+name+' group',`<button class="ghost icon-btn pg-tog" data-act="pool-fold" aria-expanded="${open}" aria-label="Show or hide the accounts in the ${esc(name)} group">${icon('chevD',16)}</button>`)}</div>
+  <div class="pg-fold"><div class="pg-mems">${g.members.map((e,mi)=>{const s=byKey[e.key],n=usedBy(e.key).length,[sc,sl]=state(s);
+   return `<div class="pg-mem" draggable="true" data-mem="${i}:${mi}"><div class="pg-name"><b>${esc(s.name)}</b>${e.key===g.next?'<span class="chip pg-next" title="The next agent that needs an account gets this one">Next</span>':''}${s.status==='ok'?'':`<span class="pri-st ${sc}"><i class="dot"></i>${sl}</span>`}</div>
+   <div class="pri-lim">${bars(s)}</div><span class="pg-ag">${n?plural(n,'agent'):'No agent'}</span>
+   <span class="pri-btns"><button class="ghost icon-btn" data-act="pri-out" data-i="${i}" data-m="${mi}" aria-label="Take ${esc(s.name)} out of the group" title="Take out of the group">${icon('popout',15)}</button><button class="ghost icon-btn" data-act="pri-mdel" data-i="${i}" data-m="${mi}" aria-label="Remove ${esc(s.name)} from priority">${icon('x',15)}</button></span></div>`}).join('')}</div></div></div>`};
+ const hasPool=groups.some(g=>g.pool),mv=d.moves24;
  // one card for every kind: header, one status, limits (or why there are none) in the same spot, Used by, the same ⋯ menu
  const status=s=>s.isTeam?'':s.status==='checking'?`<span class="chip"><i class="dot"></i>${ACCT_WORD.checking}</span>`:s.status==='ok'?chipState(true,ACCT_WORD.ok)
   :`<span class="chip ${s.status==='out'?'warn':'bad'}"><i class="dot"></i>${ACCT_WORD[s.status]}</span>${admin?`<button class="link sign-go" data-act="acct-reconnect" data-key="${esc(s.key)}" data-name="${esc(s.name)}">Reconnect</button>`:''}`;
@@ -67,26 +89,32 @@ PAGES.accounts=async(p,el)=>{const gone=pageTok(el);
  // needs sign-in, key rejected or out of credit: one line each, with the same Reconnect as the card (it goes once it works again)
  const outs=admin?(d.signedOut||[]):[];
  const ev=(d.events||[]).map(e=>{const to=byKey[e.to]||byKey['claude:'+e.to];return `<div class="sw-row"><span class="sw-t">${esc(shortWhen(e.t))}</span><span class="sw-who">${agentAvatar(e.profile,22,{title:false})}<b>${esc(ident(e.profile).name)}</b>${icon('chevR',14)}<span>${esc(to?.name||e.to)}</span></span>${e.why?`<span class="chip sw-why">${esc(e.why)}</span>`:''}</div>`});
- el.innerHTML=`${outs.map(x=>alertBox(`<b>${esc(byKey[x.key]?.name||x.name)}</b>: ${esc(ACCT_WORD[x.state]||ACCT_WORD.out)}${x.since?', '+esc(ago(x.since/1000)):''}. Agents that use it can’t answer with it until it is reconnected.`,{act:'acct-reconnect',label:'Reconnect',ic:'plug',cls:'acct-out',attrs:`data-key="${esc(x.key)}" data-name="${esc(byKey[x.key]?.name||x.name)}"`})).join('')}<div class="panel card"><h2>Priority</h2><p class="sub">The order your accounts get used in. When an agent's account passes the limit you set, it moves to the next one with room. Drag to reorder.</p>
-  <div class="pri-list">${pri.map(priRow).join('')||'<p class="hint">Nothing here yet. Add your accounts in the order you want them used.</p>'}</div>
+ el.innerHTML=`${outs.map(x=>alertBox(`<b>${esc(byKey[x.key]?.name||x.name)}</b>: ${esc(ACCT_WORD[x.state]||ACCT_WORD.out)}${x.since?', '+esc(ago(x.since/1000)):''}. Agents that use it can’t answer with it until it is reconnected.`,{act:'acct-reconnect',label:'Reconnect',ic:'plug',cls:'acct-out',attrs:`data-key="${esc(x.key)}" data-name="${esc(byKey[x.key]?.name||x.name)}"`})).join('')}<div class="panel card"><h2>Priority</h2><p class="sub">The order your accounts get used in. ${hasPool?'Accounts of the same kind share one group, and inside it aqeelOS uses the one with the most room. When a whole entry passes the limit you set, its agents move to the next one with room. Drag to reorder, or drag an account out of its group.':'When an agent\'s account passes the limit you set, it moves to the next one with room. Drag to reorder.'}</p>
+  <div class="pri-list">${groups.map((g,i)=>g.pool?poolRow(g,i):priRow(g,i)).join('')||'<p class="hint">Nothing here yet. Add your accounts in the order you want them used.</p>'}</div>
   ${left.length?`<button class="ghost" data-menu="pri-add" style="margin-top:10px">${icon('plus',15)}Add to priority</button>`:''}</div>
  <div class="two" style="margin-top:16px"><div class="panel card if-fails"><h2>If an account fails</h2><p class="sub">What aqeelOS does by itself so your agents keep answering.</p>
-  <h3 class="if-h">${icon('gauge',15)}An account runs low</h3><p class="hint if-p">Checked every 5 minutes. ${pri.length?'An agent moves to the next account in the priority list that has room.':'Without a priority list, each agent moves to another account of the same kind with the most room.'}</p>
+  <h3 class="if-h">${icon('gauge',15)}An account runs low</h3><p class="hint if-p">Checked every 5 minutes. ${hasPool?'An agent stays on its account until that account passes the number below. Then it moves to the account with the most room in the same group, and to the next entry in the priority list once the whole group is past it.':pri.length?'An agent moves to the next account in the priority list that has room.':'Without a priority list, each agent moves to another account of the same kind with the most room.'}</p>
   <div class="auto-ctl"><div class="auto-on"><span><b>Switch when an account runs low</b><small>${d.auto.on?'On':'Off'}: agents ${d.auto.on?'move':'stay where they are'} when their account is nearly used up</small></span>${toggle(d.auto.on,'Switch automatically','id="acAuto"')}</div>
    <div class="auto-th"><span><b>Which limit counts</b><small>For switching away and for going back</small></span><select id="acBasis" aria-label="Which limit counts" style="width:auto">${[['either','Session or week'],['session','Session only'],['week','Week only'],['both','Both']].map(([v,l])=>`<option value="${v}" ${(d.auto.basis||'either')===v?'selected':''}>${l}</option>`).join('')}</select></div>
-   <div class="auto-th"><span><b>Switch at</b><small>Of the limit chosen above</small></span><label class="pct-in"><input id="acTh" type="number" inputmode="numeric" min="50" max="99" step="1" value="${+d.auto.threshold||90}" aria-label="Switch at, percent used"><span>% used</span></label></div>
+   <div class="auto-th"><span><b>Switch at</b><small>Of the limit chosen above${hasPool?', for each account':''}</small></span><label class="pct-in"><input id="acTh" type="number" inputmode="numeric" min="50" max="99" step="1" value="${+d.auto.threshold||90}" aria-label="Switch at, percent used"><span>% used</span></label></div>
    <div class="auto-on"><span><b>Go back up the list</b><small>An agent that was moved returns to a higher entry once it has room again, also when switching is off</small></span>${toggle(d.auto.backHome!==false,'Go back up the list','id="acBack"')}</div>
-   <div class="auto-th"><span><b>Go back when it has</b><small>Free on the higher entry, by the same limit, two checks in a row</small></span><label class="pct-in"><input id="acFree" type="number" inputmode="numeric" min="5" max="80" step="1" value="${+d.auto.backFree||20}" aria-label="Go back when it has, percent free"><span>% free</span></label></div></div>
-  ${ev.length?`<h3 class="sw-h">Recent switches</h3><div class="sw-list">${ev.slice(0,6).join('')}</div>${ev.length>6?`<div class="sw-more"><div class="sw-list">${ev.slice(6).join('')}</div></div><button class="ghost small sw-all" data-act="sw-all" aria-expanded="false">Show all ${ev.length}</button>`:''}`:''}
+   <div class="auto-th"><span><b>Go back when it has</b><small>Free on the higher entry${hasPool?' (any account of a group)':''}, by the same limit, two checks in a row</small></span><label class="pct-in"><input id="acFree" type="number" inputmode="numeric" min="5" max="80" step="1" value="${+d.auto.backFree||20}" aria-label="Go back when it has, percent free"><span>% free</span></label></div></div>
+  ${mv&&!ev.length?`<h3 class="sw-h">Recent switches<span class="sw-n">No agent moved in the last 24 hours</span></h3>`:''}${ev.length?`<h3 class="sw-h">Recent switches${mv?`<span class="sw-n">${mv.auto||mv.hand?plural(mv.auto,'automatic move')+' in the last 24 hours'+(mv.hand?', '+mv.hand+' by hand':''):'No agent moved in the last 24 hours'}</span>`:''}</h3><div class="sw-list">${ev.slice(0,6).join('')}</div>${ev.length>6?`<div class="sw-more"><div class="sw-list">${ev.slice(6).join('')}</div></div><button class="ghost small sw-all" data-act="sw-all" aria-expanded="false">Show all ${ev.length}</button>`:''}`:''}
   ${admin?`<h3 class="if-h">${icon('refresh',15)}A model stops answering</h3><p class="hint if-p">After 3 failed tries the engine answers that one reply with the agent’s fallback models, in this order, and starts on its own model again next time. They follow the priority list.</p><div class="fb-list" id="ifFb">${skeleton(1)}</div>`:''}</div>
  <div class="panel card"><div class="h-row"><h2 style="margin:0">Which agent uses what</h2>${admin&&Object.keys(d.route||{}).length>1?`<button class="ghost" data-act="use-bulk">${icon('users',15)}Set several</button>`:''}</div><p class="sub">Takes effect on the agent's next message.</p>${Object.entries(d.route||{}).map(([n,r])=>fieldRow(esc(ident(n).name),esc(modelLabel(r.model)),`<select data-use="${esc(n)}">${src.map(s=>`<option value="${esc(s.key)}" ${s.key===r.entry?'selected':''} ${s.ok?'':'disabled'}>${esc(s.name)}${s.used!=null?' · '+s.used+'% used':''}</option>`).join('')}</select>`)).join('')}</div></div>
  <h2 class="ach-cat">All accounts</h2><div class="grid-cards acct-grid">${(admin?src:src.filter(s=>usedBy(s.key).some(x=>S.me?.agents?.[x.id]))).map(card).join('')||(admin?'':'<p class="hint">None of your agents uses an AI account yet.</p>')}${admin?`<button class="card tile acct acct-more" data-act="acct-new">${icon('plus',22)}<b>Add account</b><span>Claude, ChatGPT, Google AI Pro, or any provider with an API key.</span></button>`:''}</div>`;
- el.querySelectorAll('[data-pri-model]').forEach(s=>s.onchange=()=>{const l=pri.map(e=>({...e}));l[+s.dataset.priModel].model=s.value;savePri(l)});
+ const copy=()=>groups.map(g=>({...g,members:g.members.map(e=>({...e}))}));
+ el.querySelectorAll('[data-pri-model]').forEach(s=>s.onchange=()=>{const l=copy();for(const e of l[+s.dataset.priModel].members)e.model=s.value;saveGroups(l)});
  el.querySelectorAll('[data-use]').forEach(s=>s.onchange=async()=>{const e=pri.find(x=>x.key===s.value);try{await UI('/ui/accounts/use',{method:'POST',body:{profile:s.dataset.use,key:s.value,model:e?.model||''}});toast(ident(s.dataset.use).name+' now uses '+byKey[s.value].name);reload()}catch(er){fail(er);reload()}});
- // drag a row onto another to reorder
- let from=null;el.querySelectorAll('.pri-row').forEach(r=>{r.ondragstart=e=>{from=+r.dataset.pri;r.classList.add('dragging');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/pri',r.dataset.pri)};r.ondragend=()=>r.classList.remove('dragging');
-  r.ondragover=e=>{if(from==null)return;e.preventDefault();r.classList.add('over')};r.ondragleave=()=>r.classList.remove('over');
-  r.ondrop=e=>{e.preventDefault();r.classList.remove('over');const to=+r.dataset.pri;if(from==null||from===to)return;const l=[...pri];l.splice(to,0,l.splice(from,1)[0]);from=null;savePri(l)}});
+ // drag an entry onto another to reorder; drag a member out of its group onto another entry to make it an entry of its own
+ // there; drag an account that was taken out back onto its group
+ let from=null;el.querySelectorAll('[data-mem]').forEach(r=>{r.ondragstart=e=>{e.stopPropagation();const [g,m]=r.dataset.mem.split(':').map(Number);from={g,m};r.classList.add('dragging');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/pri',r.dataset.mem)};r.ondragend=()=>{r.classList.remove('dragging');from=null}});
+ el.querySelectorAll('.pri-list>[data-g]').forEach(r=>{r.ondragstart=e=>{from={g:+r.dataset.g};r.classList.add('dragging');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/pri',r.dataset.g)};r.ondragend=()=>{r.classList.remove('dragging');from=null};
+  r.ondragover=e=>{if(!from||from.g===+r.dataset.g)return;e.preventDefault();r.classList.add('over')};r.ondragleave=e=>{if(!r.contains(e.relatedTarget))r.classList.remove('over')};
+  r.ondrop=e=>{e.preventDefault();r.classList.remove('over');const to=+r.dataset.g,f=from;from=null;if(!f||f.g===to)return;const l=copy(),dst=l[to];
+   if(f.m!=null){const [x]=l[f.g].members.splice(f.m,1);l.splice(to,0,{...l[f.g],pool:false,alone:true,members:[x]})}
+   else{const [src]=l.splice(f.g,1);if(src.alone&&dst.pool&&dst.kind===src.kind&&dst.model===src.model){src.alone=false;l.splice(l.indexOf(dst)+1,0,src)}else l.splice(to,0,src)}
+   saveGroups(l)}});
  const saveAuto=async()=>{const on=$('#acAuto').checked;const sm=el.querySelector('.auto-on small');if(sm)sm.textContent=(on?'On':'Off')+': agents '+(on?'move':'stay where they are')+' when their account is nearly used up';
   try{await UI('/ui/accounts/auto',{method:'PUT',body:{on,threshold:+$('#acTh').value,backHome:$('#acBack').checked,backFree:+$('#acFree').value,basis:$('#acBasis').value}});toast('Saved')}catch(e){fail(e)}};
  const fit=(el,lo,hi,def)=>{let v=Math.round(Number(el.value));if(!Number.isFinite(v))v=def;v=Math.min(hi,Math.max(lo,v));el.value=v};
@@ -123,9 +151,20 @@ ACT['use-bulk']=()=>{const d=Pages._acctD,src=Pages._acctSrc||[];const route=d?.
   const o=opts[+dr.querySelector('#bulkTo').value];e.currentTarget.disabled=true;let ok=0;const bad=[];
   for(const n of pick){try{await UI('/ui/accounts/use',{method:'POST',body:{profile:n,key:o.key,model:o.model||''}});ok++}catch(er){bad.push(ident(n).name+': '+(er.message||er))}}
   closeLayers();toast(ok+' agent'+(ok===1?'':'s')+' now use'+(ok===1?'s':'')+' '+name(o)+(bad.length?'. Not changed: '+bad.join('; '):''),bad.length?'err':'');reload()}};
-async function savePri(list){try{await UI('/ui/accounts/priority',{method:'PUT',body:{priority:list}});reload()}catch(e){fail(e)}}
-ACT['pri-move']=a=>{const l=[...Pages._pri],i=+a.dataset.i,j=i+ +a.dataset.dir;[l[i],l[j]]=[l[j],l[i]];savePri(l)};
-ACT['pri-del']=a=>{const l=[...Pages._pri];l.splice(+a.dataset.i,1);savePri(l)};
+// solo: the entries a person took out of their group ("key|model"); left as it is on the server when not sent
+async function savePri(list,solo){try{await UI('/ui/accounts/priority',{method:'PUT',body:{priority:list.map(e=>({key:e.key,model:e.model||''})),...(solo?{solo}:{})}});reload()}catch(e){fail(e)}}
+// the list as groups (Pages._groups): the flat list in group order, and which entries stand outside their group
+const saveGroups=gs=>savePri(gs.flatMap(g=>g.members),gs.filter(g=>g.alone).map(g=>g.members[0].key+'|'+(g.members[0].model||'')));
+const priGroups=()=>(Pages._groups||[]).map(g=>({...g,members:[...g.members]}));
+ACT['pri-move']=a=>{const l=priGroups(),i=+a.dataset.i,j=i+ +a.dataset.dir;if(!l[i]||!l[j])return;[l[i],l[j]]=[l[j],l[i]];saveGroups(l)};
+ACT['pri-del']=a=>{const l=priGroups();l.splice(+a.dataset.i,1);saveGroups(l)};
+// a member out of its group: it becomes an entry of its own right below the group; and back in
+ACT['pri-out']=a=>{const l=priGroups(),i=+a.dataset.i,g=l[i];if(!g)return;const [x]=g.members.splice(+a.dataset.m,1);if(!x)return;l.splice(i+1,0,{...g,pool:false,alone:true,members:[x]});saveGroups(l)};
+ACT['pri-mdel']=a=>{const l=priGroups(),g=l[+a.dataset.i];if(!g)return;g.members.splice(+a.dataset.m,1);saveGroups(l)};
+ACT['pri-join']=a=>{const l=priGroups(),[g]=l.splice(+a.dataset.i,1);if(!g)return;const home=l.findIndex(o=>o.kind===g.kind&&o.model===g.model);g.alone=false;l.splice(home<0?+a.dataset.i:home+1,0,g);saveGroups(l)};
+// a group's accounts fold open and shut smoothly; which ones are shut is remembered on this device
+ACT['pool-fold']=a=>{const p=a.closest('.pri-pool'),open=!p.classList.contains('open');p.classList.toggle('open',open);a.setAttribute('aria-expanded',open);
+ try{const l=new Set(JSON.parse(localStorage.getItem('aq-pools-shut')||'[]'));if(open)l.delete(p.dataset.pool);else l.add(p.dataset.pool);localStorage.setItem('aq-pools-shut',JSON.stringify([...l]))}catch{}};
 Pages.priAddMenu=el=>{const pri=Pages._pri,has=(k,m)=>pri.some(e=>e.key===k&&e.model===m);const items=[];
  for(const s of Pages._acctSrc.filter(x=>!x.isTeam)){if(!pri.some(e=>e.key===s.key)){items.push({label:s.name,icon:s.key.startsWith('claude:')?'user':'cpu',run:()=>savePri([...pri,{key:s.key,model:''}])});continue}
   for(const m of (s.models||[]).filter(m=>!has(s.key,m)))items.push({label:s.name+' · '+modelLabel(m),sub:'Again, with this model',icon:s.key.startsWith('claude:')?'user':'cpu',run:()=>savePri([...pri,{key:s.key,model:m}])})}
@@ -133,13 +172,13 @@ Pages.priAddMenu=el=>{const pri=Pages._pri,has=(k,m)=>pri.some(e=>e.key===k&&e.m
 
 /* ---------- the ⋯ menu, the same on every account card: Reconnect, Rename, Choose agents…, its place in the priority
    list, and Remove. The same words for every kind of account (25 Oct). What does not apply is shown greyed with why. ---------- */
-Pages.acctMenu=el=>{const s=(Pages._acctSrc||[]).find(x=>x.key===el.dataset.key);if(!s)return;const pri=Pages._pri||[],i=pri.findIndex(e=>e.key===s.key);
- const move=dir=>{const l=[...pri];[l[i],l[i+dir]]=[l[i+dir],l[i]];savePri(l)};
+Pages.acctMenu=el=>{const s=(Pages._acctSrc||[]).find(x=>x.key===el.dataset.key);if(!s)return;const pri=Pages._pri||[],gs=priGroups(),i=gs.findIndex(g=>g.members.some(e=>e.key===s.key));
+ const move=dir=>{[gs[i],gs[i+dir]]=[gs[i+dir],gs[i]];saveGroups(gs)};   // an account in a group moves with its group
  const out=!(s.kind==='claude'&&s.id==='main');
  menu(el,[{label:'Reconnect',sub:s.kind==='key'?'Paste a new key':'Sign in again as this account',icon:'plug',run:()=>Pages.reconnect(s.key,s.name)},
   {label:'Rename',icon:'edit',run:()=>acctRename(s)},
   {label:'Choose agents…',sub:!s.ok?'Reconnect it first':plural((Object.values(Pages._acct?.route||{})).filter(r=>r.entry===s.key).length,'agent')+' on it',icon:'user',run:()=>acctAgents(s)},'-',
-  ...(i<0?[{label:'Add to priority',icon:'plus',run:()=>savePri([...pri,{key:s.key,model:''}])}]:[{label:'Move up in priority',icon:'chevU',disabled:i===0,run:()=>move(-1)},{label:'Move down in priority',icon:'chevD',disabled:i>=pri.length-1,run:()=>move(1)}]),'-',
+  ...(i<0?[{label:'Add to priority',icon:'plus',run:()=>savePri([...pri,{key:s.key,model:''}])}]:[{label:'Move up in priority',icon:'chevU',disabled:i===0,run:()=>move(-1)},{label:'Move down in priority',icon:'chevD',disabled:i>=gs.length-1,run:()=>move(1)}]),'-',
   out?{label:'Remove',icon:'trash',bad:true,run:()=>acctRemove(s)}:{label:'Remove',sub:'The main account stays',icon:'trash',disabled:true}])};
 // Rename: one route for every account; an empty name goes back to the provider's own
 async function acctRename(s){const v=await promptBox('Rename '+s.name,'Name',s.name,'Rename');if(v==null||v.trim()===s.name)return;
