@@ -129,6 +129,7 @@ import net from 'node:net';
 net.setDefaultAutoSelectFamilyAttemptTimeout(4000);
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {createDesignGuard,RULE_LINES as DESIGN_RULE_LINES} from './design-guard.mjs';   // better design by default (12 Nov 2026)
 import {createAgentVersions,VERSION_TOOLS} from './agent-versions.mjs';   // self-repair kit (workstream E)
 import {createAgentLive} from './agent-live.mjs';
 import {createBillionContext} from './billion-context.mjs';
@@ -487,6 +488,7 @@ async function writeAgentContext(){const all=await listAgents();const names={};f
     'The person named these and said what each is for. When they mention one by its name ("from my work account") or the job fits its note, use that account (account in the google_* tools); when it is unclear which one, ask.',...gacc]:[]),
    '','## Your instructions','',
    'Your standing instructions are your SOUL. When the person who owns you gives you a new rule, limit, target or correction, change it with change_instructions (from aqeelos-notify): edit the rule where it is written, so each rule is said once. Never append an "override" section, never edit SOUL.md directly, and never keep rules, caps or limits in memory or in a separate decisions file: aqeelOS keeps the history of your instructions with who decided what and when, and that is the one place for decisions. Run reports and logs go to your log channel, not into your instructions.',
+   ...DESIGN_RULE_LINES,
    '','## Keep schedules tidy','',
    'Whenever you create or change a schedule, give it a clear title the person understands without opening it (no codes like "x3"), then call organize_schedule (from aqeelos-notify) with its id, the folder it belongs to (the client or project, for example a client name, Personal Finance or a product; reuse an existing folder when one fits) and one plain sentence on what it does and why. When asked to tidy up, move, rename or explain schedules, do the same for each one.',
    '','## Your other chats','',
@@ -928,7 +930,7 @@ const news=createNews({DATA});
 // bell; only what truly needs a person (forPopup), each once
 // what this install really has, for working out the one button of a need (need-action.mjs): connected apps and who is signed in, signed-out AI accounts
 async function needCtx(){const [m,a]=await Promise.all([access.list('mcp').catch(()=>({items:[]})),accountsApi.signedOut().catch(()=>[])]);return {mcp:(m.items||[]).map(x=>({id:x.id,label:x.label,users:(x.users||[]).map(y=>({id:y.id,name:y.name,signed:!!y.signed}))})),accounts:a}}
-async function needsFor(u){const admin=users.isAdmin(u);if(admin)await freshSignins();const items=await bottlenecks.list({admin,uid:admin?null:u.id,mayUse:a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a),signins:admin?[...signinsDue.values()]:[],invites:admin?users.expiredInvites():[],accounts:admin?await accountsApi.signedOut().catch(()=>[]):[],channels:admin?await channelAttention(false).catch(()=>[]):[]});const mayU=a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a);items.push(...await accessAsk.open(admin?()=>true:mayU).catch(()=>[]));items.push(...await conflicts.open(mayU,admin).catch(()=>[]));items.push(...await questions.open(mayU,admin).catch(()=>[]));items.push(...await runGates.needs(admin).catch(()=>[]));items.push(...await help.items(u).catch(()=>[]));
+async function needsFor(u){const admin=users.isAdmin(u);if(admin)await freshSignins();const items=await bottlenecks.list({admin,uid:admin?null:u.id,mayUse:a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a),signins:admin?[...signinsDue.values()]:[],invites:admin?users.expiredInvites():[],accounts:admin?await accountsApi.signedOut().catch(()=>[]):[],channels:admin?await channelAttention(false).catch(()=>[]):[]});const mayU=a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a);items.push(...await accessAsk.open(admin?()=>true:mayU).catch(()=>[]));items.push(...await conflicts.open(mayU,admin).catch(()=>[]));items.push(...await questions.open(mayU,admin).catch(()=>[]));items.push(...await runGates.needs(admin).catch(()=>[]));items.push(...await designGuard.needs(admin).catch(()=>[]));items.push(...await help.items(u).catch(()=>[]));
     for(const {a,p:pr} of await instructions.openProposals(await listAgents()).catch(()=>[]))if(admin||users.agentOwner(a)===u.id)items.push({id:'instr|'+a+'|'+pr.id,kind:'instructions',agent:a,pid:pr.id,title:(NAMES[a]||a)+': new instructions wait for your approval',detail:pr.why,created:pr.at,from:null});
     // the message that led to it is from the agent's newest chat, whoever's: a member sees it only when that chat is theirs
     // a member sees (and counts) only what they can act on themselves (7 Nov 2026, clean-install test: members saw the
@@ -1031,7 +1033,7 @@ const shareLevels=createSharing({DATA,listAgents:()=>agentNames({copies:false}),
 // agents as a shared resource (agent-access.mjs): manage_agent checks the caller's level on the target agent on every call;
 // changes go to the agent-versions hook (agent-versions.mjs, when it exports recordAgentChange) so they are attributed and undoable
 const cronApi=(t,p,o={})=>fetch(DASH.origin+'/api/cron/jobs'+p+(p.includes('?')?'&':'?')+'profile='+encodeURIComponent(t),{...o,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},signal:AbortSignal.timeout(60000)}).then(async r=>{const j=await r.json().catch(()=>null);if(!r.ok)throw new Error(j?.detail||'HTTP '+r.status);return j});
-const agentAccess=createAgentAccess({sharing:shareLevels,HERMES_HOME,MAIN:env.MAIN_AGENT||'default',
+const agentAccess=createAgentAccess({guard:()=>designGuard,sharing:shareLevels,HERMES_HOME,MAIN:env.MAIN_AGENT||'default',
  // F (lead agents): a lead's power is its person's role, read live: an admin's lead acts as the main agent; any other agent
  // may only manage agents its own person owns (never someone else's, whatever level was shared), and never change sharing
  mainLike:a=>users.leadPerson(a)!==null&&users.tierOf(a)==='admin',
@@ -1517,7 +1519,7 @@ const secretHits=createLimiter(30,600e3);
 const teamGroups=createTeamGroups({DATA,tell:async(a,before,g)=>{const t=x=>x?.chatId?(x.name||x.chatId)+' · '+TEAM_ROLES.map(([k,l])=>l+' '+(x.topics?.[k]??'-')).join(', '):'none';
  await bottlenecks.event('team-group',(NAMES[a]||a)+'’s team group changed','By '+(g.by||'?')+'.\nBefore: '+t(before)+'\nNow: '+t(g),{info:true}).catch(()=>{});if(LIVE_APP)writeAgentContext().catch(()=>{})}});
 const docLinks=createDocLinks({DATA,PUBLIC_URL:()=>String(PUBLIC_URL)});
-const kirimdev=createKirimdev({DATA,docLinks,WORK:path.join(homedir(),'workspaces'),PUBLIC_URL,log:m=>console.log(m),teamGroup:a=>teamGroups.get(a),
+const kirimdev=createKirimdev({onEvent:(a,ev)=>emitEvent(a,ev),DATA,docLinks,WORK:path.join(homedir(),'workspaces'),PUBLIC_URL,log:m=>console.log(m),teamGroup:a=>teamGroups.get(a),
  problem:(a,topic,title,detail)=>health.problem(a,String(topic).startsWith('kirimdev|')?'kirimdev':'handoff',title,{topic,fix:detail}),solved:(a,topic)=>health.ok(a,topic),
  // a new API key (checked with Kirimdev first): aqeelOS's copy, and the copy in each line's workspace that its scripts use
  // (.tools/kirim reads .secrets/KIRIMDEV_API_KEY); written in place, so their owner and access stay as they are
@@ -1538,7 +1540,8 @@ const kirimdev=createKirimdev({DATA,docLinks,WORK:path.join(homedir(),'workspace
    and expired or disconnected accounts are alerts (Health, Bottlenecks, the alert chat); comments, DMs and the other
    events picked are a notice in the bell of the agent's owner (admins for the main agents) */
 const eventRuns=createEventRuns({DATA,trigger:async(a,id)=>{runGates.noteManual(a,id);const r=await fetch(DASH.origin+'/api/cron/jobs/'+encodeURIComponent(id)+'/trigger?profile='+encodeURIComponent(a),{method:'POST',headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:'{}',signal:AbortSignal.timeout(90000)});if(!r.ok)throw Error('the engine answered '+r.status)}});
-const tebar=createTebar({DATA,onEvent:(a,ev)=>eventRuns.fire(a,ev),publicUrl:()=>String(PUBLIC_URL??''),nameOf:a=>NAMES[a]||a,log:m=>console.log(m),
+const emitEvent=(a,ev)=>Promise.allSettled([eventRuns.fire(a,ev),eventHooks.fire(a,ev)]);   // every event of design-guard.mjs EVENTS passes here: a schedule's run and a script hook can both start from it
+const tebar=createTebar({DATA,onEvent:(a,ev)=>emitEvent(a,ev),publicUrl:()=>String(PUBLIC_URL??''),nameOf:a=>NAMES[a]||a,log:m=>console.log(m),
  problem:(a,topic,title,fix)=>health.problem(a,'tebar',title,{topic,fix}),solved:(a,topic)=>health.ok(a,topic),
  notice:(a,title,text,type)=>{const o=users.byId(users.agentOwner(a));return news.add({aud:o&&!users.isAdmin(o)?'u:'+o.id:'admins',group:'tebar|'+a+'|'+type,icon:'bell',kind:'blue',title,text,go:'/abilities/connections',label:'Connections'})}});
 if(LIVE_APP)setTimeout(()=>kirimdev.resume().catch(e=>console.warn('kirimdev resume',e.message)),30000).unref();
@@ -1553,7 +1556,7 @@ const eventHooks=createEventHooks({DATA,WORK:path.join(homedir(),'workspaces'),e
  deliver:async(a,target,text)=>{const m=/^telegram:(-?\d+)(?::(\d+))?$/.exec(String(target||''));if(!m)throw Error('delivery to '+target+' is not supported (telegram:<chat>[:<topic>])');
   if(!await kirimdev.teamPost(a,m[1],m[2]?Number(m[2]):null,text))throw Error('Telegram did not take the message')},
  problem:(a,topic,title,fix)=>health.problem(a,'run',title,{topic,fix}),solved:(a,topic)=>health.ok(a,topic),log:m=>console.log(m)});
-const paidLabels=createPaidLabels({DATA,WORK:path.join(homedir(),'workspaces'),onEvent:(a,ev)=>eventHooks.fire(a,ev),label:(a,o)=>kirimdev.labelContact(a,o),orders:lineOrders,post:(a,t,text)=>kirimdev.teamPost(a,t.chatId,t.threadId,text),failed:(a,topic,title,detail)=>health.problem(a,'handoff',title,{topic,fix:detail})});
+const paidLabels=createPaidLabels({DATA,WORK:path.join(homedir(),'workspaces'),onEvent:(a,ev)=>emitEvent(a,ev),label:(a,o)=>kirimdev.labelContact(a,o),orders:lineOrders,post:(a,t,text)=>kirimdev.teamPost(a,t.chatId,t.threadId,text),failed:(a,topic,title,detail)=>health.problem(a,'handoff',title,{topic,fix:detail})});
 if(LIVE_APP)setInterval(()=>paidLabels.tick().catch(e=>console.warn('paid labels',e.message)),60e3).unref();
 // the labels a line's agent may set (Line settings) that Kirimdev still has, and Kirimdev's S- labels for create_payment
 async function kirimdevLabelRules(a){const l=(await kirimdev.lines().catch(()=>({})))[a];if(!l)return {};const all=await kirimdev.labelList().catch(()=>null);if(!all)return {allowed:l.labels?.allowed||[]};
@@ -1898,7 +1901,7 @@ if(LIVE_APP){setTimeout(()=>health.tick().catch(e=>console.warn('health',e.messa
 // so every ping "did not answer" and healthy agents were rolled back
 const avPing=a=>new Promise(res=>{const f=path.join(DATA,'agent-versions-ping-'+a+'.txt');writeFile(f,'aqeelOS health check after a change you made to yourself. Reply with exactly: OK').then(()=>
  execFile(path.join(homedir(),'.local','bin','aqeelos'),['-p',a,'chat','--oneshot','-Q','--source','tool','--query-file',f],{cwd:path.join(homedir(),'workspaces',a),timeout:240e3,maxBuffer:4e6},(e,o,er)=>res(e?{ok:false,unsure:!!gwRestarting||Date.now()-lastOwnRestart<5*60e3,why:'it did not answer ('+(e.code??e.signal)+'): '+(String(er||'').trim().split('\n').pop()||String(o||'').trim().slice(-300))}:/\bOK\b/i.test(String(o))?{ok:true}:{ok:false,why:'answered without OK: '+String(o).slice(0,200)}))).catch(e=>res({ok:false,why:e.message}))});
-const versions=createAgentVersions({DATA,HERMES_HOME,DASH:DASH.origin,DASH_TOKEN,PUBLIC_URL,listAgents:()=>listAgents(),nameOf:a=>NAMES[a]||a,readConfig,setKey,pick,
+const versions=createAgentVersions({guard:()=>designGuard,DATA,HERMES_HOME,DASH:DASH.origin,DASH_TOKEN,PUBLIC_URL,listAgents:()=>listAgents(),nameOf:a=>NAMES[a]||a,readConfig,setKey,pick,
  instructions,kirimdev,issues,health,teamGroups,selfRuns,bin:path.join(homedir(),'.local','bin','aqeelos'),ping:avPing,tellOwner:srToOwner,quiet:alertQuiet,live:LIVE_APP,extraHealth:a=>agentLive.healthLines(a),limits:providerLimits,
  // an older rollback whose reason did not say why ("it did not answer (1)"): a limit in the engine's error log within 15 minutes of it
  outageAt:t=>{try{const f=path.join(HERMES_HOME,'logs','errors.log'),n=readFileSync(f,'utf8').slice(-3e6);return n.split('\n').some(l=>/hit your session limit|HTTP 429|credential pool is exhausted/.test(l)&&Math.abs(Date.parse(l.slice(0,19).replace(' ','T')+'Z')-t)<15*60e3)}catch{return false}}});
@@ -1959,6 +1962,13 @@ if(LIVE_APP){const sigFile=path.join(DATA,'agent-live','tool-sigs.json');const t
   const changed=Object.keys(now).filter(a=>old[a]!==now[a]);await mkdir(path.dirname(sigFile),{recursive:true});await writeFile(sigFile,JSON.stringify(now));
   if(changed.length&&Object.keys(old).length){console.log('agent tools changed for',changed.join(', '));restartLater('new or changed aqeelOS tools for '+changed.length+' agent(s)')}};
  rec.add('tool lists',{run:toolTick,reads:['cfg'],every:3600e3,why:'was every 10 min: one HTTP call per agent'})}
+/* Better design by default (design-guard.mjs): the review of every schedule an agent makes or changes, the means to make the better one
+   (script-only, a check in front, an event), and the weekly look at schedules that mostly wake the AI for nothing. No timer of its own:
+   the review is read when Health is opened (kept for an hour) and on demand (POST /ui/design-guard/review). */
+const designGuard=createDesignGuard({HERMES_HOME,DATA,WORK:path.join(homedir(),'workspaces'),PORT,sig:a=>relay.sig(a),names:a=>agentName(a),skipAgent:a=>isTestAgent(a),homes:()=>agentLive.homes(),
+ ownOf:async a=>{const c=await readConfig(a).catch(()=>null)||{};return {user:pick(c,'terminal.backend')==='ssh'?String(pick(c,'terminal.ssh_user')||''):'',cwd:String(pick(c,'terminal.cwd')||path.join(homedir(),'workspaces',String(a).split('--')[0]))}},
+ jobs:a=>versions.myJobs(a),updateJob:(a,id,up)=>versions.updateJob(a,id,up),record:(a,e)=>versions.noteSelfChange(String(a).split('--')[0],{...e,by:'aqeelOS',undoable:false}),
+ eventRules:{get:async a=>(await eventRuns.view()).rules[a]||[],set:(a,l)=>eventRuns.setRules(a,l)}});
 const agentCare=createAgentCare({HERMES_HOME,DATA,fpKey:()=>agentLive.key(),teamOf:async a=>((await issues.policy())?.teams||[]).find(t=>(t.agents||[]).includes(a))?.name||null,WORK:path.join(homedir(),'workspaces'),homes:()=>agentLive.homes(),readConfig,pick,jobs:a=>versions.myJobs(a),updateJob:(a,id,up)=>versions.updateJob(a,id,up),
  record:(a,e)=>versions.noteSelfChange(a,{...e,by:'aqeelOS',undoable:false}),notices:agentLive,extraRetired:async()=>JSON.parse(await readFile(path.join(DATA,'retired-setup.json'),'utf8').catch(()=>'[]'))});
 if(LIVE_APP){const careTick=()=>agentCare.tick().then(r=>{if(Object.keys(r).length)console.log('agent-care: '+JSON.stringify(r))}).catch(e=>{console.warn('agent-care',e.message);throw e});
@@ -2700,6 +2710,9 @@ const server=createServer(async(req,res)=>{
   if(p==='/agent-live/team-view'){if(req.method!=='POST')return send(res,405,{error:'POST only'});let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
    if(!await agentLive.keyOk(b.key))return send(res,403,{error:'bad key'});if(String(b.agent||'')!==agentAccess.MAIN)return send(res,403,{error:'Only the main agent has this.'});
    try{return send(res,200,await teamView.call({session:String(b.session||'').slice(0,120)},b.args&&typeof b.args==='object'?b.args:{}))}catch(e){return send(res,200,{error:e.message})}}
+  if(p==='/agent-live/schedule-review'){if(req.method!=='POST')return send(res,405,{error:'POST only'});let b={};try{b=JSON.parse(await readBody(req,65536))}catch{}
+   if(!await agentLive.keyOk(b.key))return send(res,403,{error:'bad key'});const ag=String(b.agent||'');if(!/^[a-z0-9][a-z0-9_-]{0,80}$/.test(ag)||!(await agentLive.homes()).includes(ag))return send(res,404,{error:'no such agent'});
+   return send(res,200,{block:await designGuard.engineCall(ag,b.args&&typeof b.args==='object'?b.args:{}).catch(()=>null)})}
   if(p==='/agent-live/context'||p==='/agent-live/held'){if(req.method!=='POST')return send(res,405,{error:'POST only'});let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
    if(!await agentLive.keyOk(b.key))return send(res,403,{error:'bad key'});const ag=String(b.agent||'');if(!/^[a-z0-9][a-z0-9_-]{0,80}$/.test(ag)||!(await agentLive.homes()).includes(ag))return send(res,404,{error:'no such agent'});
    if(p==='/agent-live/held')return send(res,200,{ok:true,...await agentLive.hold(ag,{error:String(b.error||'').slice(0,8000),platform:String(b.platform||'').slice(0,40),session:String(b.session||'').slice(0,120)})});
@@ -3807,6 +3820,8 @@ const server=createServer(async(req,res)=>{
    // Schedules: folders, plain descriptions, recipients by name and what each run cost
    // only the schedules this person may see in the list (the same rule as the cron list: users.schedOk), admins included
    if(p==='/ui/schedules/info'&&req.method==='GET'){try{const d0=await schedules.info();const d={...d0,meta:{...d0.meta},runs:{...d0.runs},names:{...d0.names}};const ok=a=>users.schedOk(u,a);
+    // how each schedule starts and why (design-guard.mjs): an event, a script with no AI, a check first, or the AI on a timer
+    d.triggers=await schedules.jobs().then(l=>designGuard.triggers(l.filter(j=>ok(j.profile||'default')))).catch(()=>({}));
     for(const k of Object.keys(d.meta))if(!ok(k.split('|')[0]))delete d.meta[k];for(const k of Object.keys(d.runs))if(!ok(k.split('|')[0]))delete d.runs[k];
     // a member sees only the folders their schedules are in, and keeps their own open and shut folders (in the browser)
     if(!users.isAdmin(u)){d.names={};const f=new Set(Object.values(d.meta).map(m=>m.folder).filter(Boolean));d.folders=d.folders.filter(x=>f.has(x));d.order=d.order.filter(x=>f.has(x));d.colors=Object.fromEntries(Object.entries(d.colors).filter(([x])=>f.has(x)));d.folds={}}
@@ -3859,6 +3874,10 @@ const server=createServer(async(req,res)=>{
    // "Add a check" / "Keep every N min" on the Health item of a schedule that starts the AI too often with no check (run-gates.mjs)
    if(p==='/ui/run-gates/decide'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins decide this.'});let b={};try{b=JSON.parse(await readBody(req,2048))}catch{}
     try{return send(res,200,await runGates.decide(String(b.agent||''),String(b.job||''),String(b.choice||'')))}catch(e){return send(res,409,{error:e.message})}}
+   // schedules that mostly woke the AI for nothing (design-guard.mjs): the Health item's buttons, and the review on demand
+   if(p==='/ui/design-guard/decide'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins decide this.'});let b={};try{b=JSON.parse(await readBody(req,2048))}catch{}
+    try{return send(res,200,await designGuard.decide(String(b.agent||''),String(b.job||''),String(b.choice||'')))}catch(e){return send(res,409,{error:e.message})}}
+   if(p==='/ui/design-guard/review'&&(req.method==='GET'||req.method==='POST')){if(!users.isAdmin(u))return send(res,403,{error:'Only admins see this.'});return send(res,200,{agents:await designGuard.review({force:req.method==='POST'})})}
    if(p==='/ui/run-gates'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins see this.'});return send(res,200,await runGates.view())}
    if(p==='/ui/usage/savings'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins see savings for every agent.'});
     const [compress,maps]=await Promise.all([billion.savings().catch(()=>null),graphify.status().catch(()=>null)]);return send(res,200,{compress,maps})}

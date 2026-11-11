@@ -162,7 +162,7 @@ export const BRIDGE={url:process.env.WHATSAPP_BRIDGE_URL||'http://127.0.0.1:3000
   // the running bridge loaded probe_watch.js: the file is there and the bridge started after it was written
  async ready(){try{const f=await stat(path.join(HH(),'hermes-agent','scripts','whatsapp-bridge','probe_watch.js'));const h=await (await fetch(BRIDGE.url+'/health',{signal:AbortSignal.timeout(5000)})).json();return Date.now()-Number(h.uptime||0)*1000>f.mtimeMs}catch{return false}},
  async result(id){try{return JSON.parse(await readFile(path.join(HH(),'platforms','whatsapp','probes',id+'.json'),'utf8'))}catch{return null}}};
-export function createKirimdev({DATA,WORK,apiKey,saveKey=null,bridge=BRIDGE,checkEvery=10*60e3,pollEvery=20e3,runAgent,describeImage=null,paidSince=null,qrSince=null,telegram,teamGroup=async()=>null,tell=async()=>{},problem=null,solved=async()=>{},log=m=>console.log(m),activity=async()=>{},fetchImpl=fetch,now=()=>Date.now(),PUBLIC_URL,wait=ms=>new Promise(r=>setTimeout(r,ms)),maxRuns=2,docLinks=null,echoWait=4000,setTimer=setTimeout,clearTimer=clearTimeout}){
+export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bridge=BRIDGE,checkEvery=10*60e3,pollEvery=20e3,runAgent,describeImage=null,paidSince=null,qrSince=null,telegram,teamGroup=async()=>null,tell=async()=>{},problem=null,solved=async()=>{},log=m=>console.log(m),activity=async()=>{},fetchImpl=fetch,now=()=>Date.now(),PUBLIC_URL,wait=ms=>new Promise(r=>setTimeout(r,ms)),maxRuns=2,docLinks=null,echoWait=4000,setTimer=setTimeout,clearTimer=clearTimeout}){
  const pub=()=>String(PUBLIC_URL??publicUrl()).replace(/\/+$/,'');   // the address given (tests) or the install's current one
  const ASK_MIN=30;   // minutes a handoff may wait for the team's answer before Health shows it
  const CONF=path.join(DATA,'kirimdev.json'),SEC=path.join(DATA,'kirimdev-secrets.json'),ST=path.join(DATA,'kirimdev-state.json');
@@ -265,7 +265,10 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,bridge=BRIDGE,chec
   await ingest(agent,line,ms);
   await saveState();return {status:200,body:{ok:true}}}
  // customer messages on a line, from the webhook or from polling: recorded, deduped, and answered after the burst
- async function ingest(agent,line,ms){if(ms.length)st.last[agent]={at:now(),from:ms[0].from};
+ // onEvent (design-guard.mjs EVENTS): 'whatsapp.received' once per batch of customer messages, 'whatsapp.unanswered' when a handoff waited ASK_MIN minutes.
+ // Told after the fact and never awaited: an event hook or an event-started run must not hold up or break the line.
+ const emit=(agent,type)=>{Promise.resolve().then(()=>onEvent(agent,{type,data:{}})).catch(()=>{})};
+ async function ingest(agent,line,ms){let told=false;if(ms.length)st.last[agent]={at:now(),from:ms[0].from};
   const mode=modeOf(line);
   for(const m of ms){st.recent[agent+'|'+m.from]=now();
    // a delivery check's own message (it only opens WhatsApp's 24-hour window): never answered
@@ -273,6 +276,7 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,bridge=BRIDGE,chec
    const tester=isTester(line,m);
    if(tester)st.testerNums[agent+'|'+m.from]=true;
    if(mode==='test'&&!tester){log('kirimdev '+agent+': a message from a number that is not a tester (Test mode), not answered');continue}
+   if(!told){told=true;emit(agent,'whatsapp.received')}
    const key=agent+'|'+line.phoneNumberId+'|'+(m.conversationId||m.from);
    const mid=m.id&&'message|'+agent+'|'+line.phoneNumberId+'|'+m.id;
    if(mid&&st.seen.includes(mid))continue;if(mid)st.seen.push(mid);
@@ -479,7 +483,7 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,bridge=BRIDGE,chec
    if(age>24*3600e3){delete st.asked[id];ch=true;if(a.told)await solved?.(a.agent,'unanswered|'+id).catch(()=>{});continue}
    if(a.told||age<ASK_MIN*60e3)continue;const line=await lineOf(a.agent);const who=line?.persona||a.agent;
    await (problem?problem(a.agent,'unanswered|'+id,'Kirimdev line ('+who+'): a handoff has no answer after '+ASK_MIN+' minutes','Customer '+a.name+' (+'+a.from+') asked: '+String(a.lastQ||'').slice(0,300)+'\n\nReply to the HANDOFF post in the team group, or answer the customer in Kirimdev; this goes away by itself then.'):tell('A handoff from '+who+' has no answer',String(a.lastQ||''))).catch(()=>{});
-   a.told=now();ch=true}
+   a.told=now();ch=true;emit(a.agent,'whatsapp.unanswered')}
   if(ch)await saveState()}
 
  // Draft: the reply waits in the Questions topic (and on the Channels page) for a person to approve it
