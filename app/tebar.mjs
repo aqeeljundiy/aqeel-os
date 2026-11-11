@@ -71,7 +71,7 @@ export function describe(ev,who='The agent'){const d=ev?.data||{},type=String(ev
   case 'webhook.test':return {note:{title:who+': the Tebar webhook works',text:'Tebar’s test event arrived and its signature checked out.'}};
   default:return EVENTS.includes(type)?{note:{title:who+': Tebar '+type.replace('.',' '),text:''}}:null}}
 
-export function createTebar({DATA,publicUrl=()=>'',problem=async()=>{},solved=async()=>{},notice=async()=>{},nameOf=a=>a,log=m=>console.log(m),now=()=>Date.now()}){
+export function createTebar({DATA,publicUrl=()=>'',problem=async()=>{},solved=async()=>{},notice=async()=>{},onEvent=async()=>{},nameOf=a=>a,log=m=>console.log(m),now=()=>Date.now()}){
  const CONF=path.join(DATA,'tebar.json'),SEC=path.join(DATA,'tebar-secrets.json');
  const readJson=async(f,d)=>{try{return JSON.parse(await readFile(f,'utf8'))}catch{return d}};
  const put=async(f,v,mode=0o600)=>{await mkdir(DATA,{recursive:true});const t=f+'.'+process.pid+'.'+randomUUID().slice(0,8)+'.tmp';await writeFile(t,JSON.stringify(v,null,1),{mode});await rename(t,f)};
@@ -96,7 +96,9 @@ export function createTebar({DATA,publicUrl=()=>'',problem=async()=>{},solved=as
   return {status:200,body:{ok:true,...(picked?{}:{ignored:type})},after:picked?()=>handle(agent,{...ev,type}):null}}
  async function handle(agent,ev){const x=describe(ev,nameOf(agent));if(!x)return;
   try{if(x.problem)await problem(agent,x.problem.topic,x.problem.title,x.problem.fix);if(x.ok)await solved(agent,x.ok);if(x.note)await notice(agent,x.note.title,x.note.text,ev.type)}
-  catch(e){log('tebar '+agent+': '+ev.type+' not passed on: '+e.message)}}
+  catch(e){log('tebar '+agent+': '+ev.type+' not passed on: '+e.message)}
+  // an event can also start the agent's matching schedule at once (event-runs.mjs); never stops the notice above
+  try{await onEvent(agent,ev)}catch(e){log('tebar '+agent+': '+ev.type+' did not start a run: '+e.message)}}
 
  // the settings panel (Connections › the Tebar row): the address, whether a secret is saved, the events, the last ones
  async function view(agent){await load();const h=conf.hooks[agent]||null,s=await secretsOf(agent),url=urlOf(agent);
