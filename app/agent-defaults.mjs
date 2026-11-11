@@ -20,6 +20,10 @@ const API_EXTRA=['clarify','computer_use','tts'];
 const bundle=p=>p==='api_server'?'hermes-api-server':'hermes-'+p;
 const run=(c,a)=>new Promise((res,rej)=>execFile(c,a,{timeout:30000},(e,o,er)=>e?rej(Error(String(er||e.message).trim())):res(String(o))));
 
+// the Chrome on an isolated agent's own screen: scripts/agent-users.sh gives each one port 9600+i (behind the wake proxy,
+// Chrome itself listens 10000 above it)
+export const ownScreenCdp=u=>{const m=/^https?:\/\/(?:127\.0\.0\.1|localhost):(\d+)\/?$/.exec(String(u||'').trim());const p=m?+m[1]:0;return p>=9600&&p<10000||p>=19600&&p<20000};
+
 // isTest: a throwaway agent of a check (deploy checks make and delete them on the shared engine). It still gets the
 // defaults, but they never count toward an engine restart: 6-7 Nov 2026 each check's agent restarted every agent.
 export function createAgentDefaults({DATA,giveSkills,trimSkills=async()=>0,locked=async()=>false,isTest=async()=>false,log=m=>console.log(m)}){
@@ -92,7 +96,11 @@ export function createAgentDefaults({DATA,giveSkills,trimSkills=async()=>0,locke
    const creds=(await readdir(home).catch(()=>[])).filter(f=>/^google_(token|client_secret)(_[\w.-]+)?\.json$/.test(f)).sort();
    if(JSON.stringify([].concat(pick(c,'terminal.credential_files')||[]).slice().sort())!==JSON.stringify(creds))changes.push(['terminal.credential_files',creds]);
    await agentShell(ws).catch(e=>log('agent shell '+a+': '+e.message))}
-  else if(!own&&pick(c,'terminal.backend')==='ssh')changes.push(['terminal.backend','local']);
+  else if(!own){if(pick(c,'terminal.backend')==='ssh')changes.push(['terminal.backend','local']);
+   // trusted later, it browses with the engine's own screen again: a leftover link to the Chrome its own user had
+   // (ports 9600 and up, handed to the next agent made) would drive another agent's browser (11 Nov 2026: pepclub-social
+   // on aq-livetest's Chrome). AdsPower's bridge (:9333) and other choices stay.
+   if(ownScreenCdp(pick(c,'browser.cdp_url')))changes.push(['browser.cdp_url',''])}
   // voice notes: the language is detected each time, so every agent adapts to whoever speaks (the engine's own default
   // forces English when an agent sets none), with the same speech model as the main agent
   // aqeelOS's own tools for the agent (lock box, my_settings, browser choice, bottlenecks) are never cut down to a few
