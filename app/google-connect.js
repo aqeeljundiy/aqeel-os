@@ -1,6 +1,6 @@
 /* ---------- Connect Google (7 Nov 2026): one dialog for every Google account the agents use, with no chat, file or
-   command. Without the Google client file it shows the plain steps to make one (once, about 5 minutes) and takes the
-   file; then each account is a card with what it may use (Gmail, Drive…), whether it still works, Reconnect and Remove,
+   command. Without the Google client file an admin gets the step-by-step setup (google-setup.js, once, about 10
+   minutes); then each account is a card with what it may use (Gmail, Drive…), whether it still works, Reconnect and Remove,
    and "Connect an account" opens Google's sign-in in a new tab. A Web-application client finishes by itself; a Desktop
    client needs the address Google ends on pasted back. Backups, Google shares and the agents' Google tools all read
    the same sign-in files (app/google-connect.mjs). ---------- */
@@ -11,7 +11,8 @@ const GC={
   try{this.st=await UI('/ui/google/state')}catch(e){if(d.isConnected)d.querySelector('.gc-body').innerHTML=errLine('the Google settings');return}if(!d.isConnected)return;this.paint()},
  body(){return this.d?.querySelector('.gc-body')},
  swap(html){const b=this.body();if(!b)return;b.classList.remove('gc-in');b.innerHTML=html;void b.offsetWidth;b.classList.add('gc-in')},
- paint(){const s=this.st;if(!s.client)return this.setup();const f=this.d.querySelector('.gc-foot-l');
+ // no client yet: an admin gets the step-by-step setup (google-setup.js), anyone else is told an admin does it
+ paint(){const s=this.st;if(!s.client)return s.canSetUp===false?this.setup():GSetup.open({then:this.opt});const f=this.d.querySelector('.gc-foot-l');
   if(f)f.innerHTML=`Google client: ${s.client.type==='web'?'Web application':'Desktop app'}${s.client.project?' · '+esc(s.client.project):''}${s.canSetUp===false?'':' <button class="link-btn" data-gc="client">Change</button>'}`;
   this.swap(`${s.client.redirectOk?'':`<div class="gc-alert">${alertBox('Google does not list this address for the client yet: <code>'+esc(s.redirect)+'</code>. Add it under Authorised redirect URIs, or sign-ins stop at an error.',{act:'',id:'gcCopyR',label:'Copy address',ic:'copy'})}</div>`}
    ${this.opt.why?`<p class="hint gc-why">${esc(this.opt.why)}</p>`:''}
@@ -61,33 +62,30 @@ const GC={
   if(route().page?.id==='connections')Cx.refresh?.();if(route().page?.id==='health')reload()},
  async remove(a){const who=ident(a.agent).name;if(!await confirmBox('Remove '+(a.email||'this account')+' from '+who+'?',who+' can no longer use this Google account. Other agents that use the same account keep it. Google is not told; to end it everywhere, remove aqeelOS under myaccount.google.com.','Remove'))return;
   try{await del(UI,'/ui/google/account',{agent:a.agent,name:a.name});toast((a.email||'The account')+' removed from '+who);this.refresh()}catch(e){fail(e)}},
- // once: the plain steps to make the Google client, and the file
+ // Change: another client file in place of the saved one (the first one comes from the step-by-step setup)
  setup(change=false){const s=this.st,f=this.d.querySelector('.gc-foot-l');if(f)f.innerHTML=change?'<button class="link-btn" data-gc="back">Back</button>':'';
   // not an admin (11 Nov 2026): the install's Google client is an admin's one-time setup; say so plainly instead of the Google Cloud steps
   if(s.canSetUp===false){this.swap(`<div class="gc-noset">${icon('clock',18)}<div><b>Google isn’t set up on this aqeelOS yet</b><p class="hint" style="margin:4px 0 0">An admin does this once for everyone (about 5 minutes, free) in Connections › Add › A Google account. After that you connect your own Google account here, and your agent can use it.</p></div></div>`);return}
   if(f&&change)f.querySelector('[data-gc="back"]').onclick=()=>this.paint();
-  const L=(u,t)=>`<a href="${u}" target="_blank" rel="noopener">${t}</a>`;
-  this.swap(`<p class="gc-lead">${change?'Replace the Google client with a new file. Accounts connected with the old one keep working until you Reconnect them.':'Google needs to know aqeelOS before an agent can sign in. You do this once; it takes about 5 minutes.'}</p>
-   <ol class="gc-steps">
-    <li><b>Make a project.</b> Open ${L('https://console.cloud.google.com/projectcreate','Google Cloud')} and make a new project (any name, for example aqeelOS).</li>
-    <li><b>Turn on what the agents will use.</b> In the ${L('https://console.cloud.google.com/apis/library','API library')}, enable Gmail API, Google Drive API, Google Calendar API, Google Sheets API, Google Docs API and People API.</li>
-    <li><b>Set up the sign-in screen.</b> In ${L('https://console.cloud.google.com/auth/overview','Google Auth Platform')}, give the app a name and your email. Under Audience, pick Internal if your Google account is a company Workspace. Otherwise pick External and press Publish app: without it, Google ends every sign-in after 7 days.</li>
-    <li><b>Make the client.</b> Under ${L('https://console.cloud.google.com/auth/clients','Clients')}, press Create client and pick Web application. Under Authorised redirect URIs, add this address:
-     <div class="sc-row gc-redir"><input readonly value="${esc(s.redirect)}" aria-label="Redirect address"><button class="ghost small" id="gcCopy">${icon('copy',14)}Copy</button></div></li>
-    <li><b>Download its file</b> (the download button next to the new client) and add it here.</li></ol>
+  // the Google Cloud steps live in the step-by-step setup (google-setup.js, 11 Nov 2026); this screen only swaps the file
+  this.swap(`<p class="gc-lead">Replace the Google client with a new file. Accounts connected with the old one keep working until you Reconnect them.</p>
+   <p class="gc-lead">The file must be a Web application client with this return address:</p>
+   <div class="sc-row gc-redir"><input readonly value="${esc(s.redirect)}" aria-label="Return address"><button class="ghost small" id="gcCopy">${icon('copy',14)}Copy</button></div>
+   <button class="link-btn gc-guide" id="gcGuide">Open the step-by-step setup</button>
    <div class="gc-drop" id="gcDrop" tabindex="0" role="button" aria-label="Add the Google client file">${icon('upload',20)}<span><b>Drop the file here</b> or choose it</span><small class="hint">client_secret_….json</small><input type="file" id="gcFile" accept=".json,application/json" hidden></div>
    <button class="link-btn gc-pastebtn" id="gcPasteT">Paste the file’s text instead</button>
    <div class="gc-pastebox" id="gcPasteBox" hidden><textarea id="gcJson" rows="4" placeholder='{"web":{"client_id":"…"}}' spellcheck="false"></textarea><button class="primary small" id="gcSaveJ">Save</button></div>
    <p class="err-line" id="gcSErr" hidden></p>${change?`<button class="ghost small gc-rmc" id="gcRmC" style="color:var(--bad)">${icon('trash',14)}Remove the client</button>`:''}`);
   const b=this.body(),err=m=>{const e=b.querySelector('#gcSErr');e.textContent=m;e.hidden=false};
-  b.querySelector('#gcCopy').onclick=()=>copyText(s.redirect,'Address copied');
-  const save=async text=>{b.querySelector('#gcSErr').hidden=true;try{const r=await post(UI,'/ui/google/client',{json:text});this.st={...this.st,...r};toast('Google client saved');this.paint()}catch(e){err(e.message)}};
+  b.querySelector('#gcCopy').onclick=()=>copyText(s.redirect,'Address copied');b.querySelector('#gcGuide').onclick=()=>GSetup.open({then:this.opt});
+  // checked against this install first (a Desktop client or another return address is said before it replaces the old one)
+  const save=async text=>{b.querySelector('#gcSErr').hidden=true;try{await post(UI,'/ui/google/client/check',{json:text});const r=await post(UI,'/ui/google/client',{json:text});this.st={...this.st,...r};toast('Google client saved');this.paint()}catch(e){err(e.message)}};
   const file=b.querySelector('#gcFile'),drop=b.querySelector('#gcDrop'),read=f=>{if(!f)return;if(f.size>65536)return err('That file is too big to be the Google client file.');f.text().then(save)};
   drop.onclick=()=>file.click();drop.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();file.click()}};file.onchange=()=>read(file.files[0]);
   drop.ondragover=e=>{e.preventDefault();drop.classList.add('on')};drop.ondragleave=()=>drop.classList.remove('on');drop.ondrop=e=>{e.preventDefault();drop.classList.remove('on');read(e.dataTransfer.files[0])};
   b.querySelector('#gcPasteT').onclick=e=>{const box=b.querySelector('#gcPasteBox');box.hidden=!box.hidden;e.target.hidden=true;box.querySelector('textarea').focus()};
   b.querySelector('#gcSaveJ').onclick=()=>save(b.querySelector('#gcJson').value);
-  b.querySelector('#gcRmC')?.addEventListener('click',async()=>{if(!await confirmBox('Remove the Google client?','New sign-ins stop until a client is added again. Accounts already connected keep working.','Remove'))return;try{this.st={...this.st,...await del(UI,'/ui/google/client')};this.setup()}catch(e){fail(e)}})}};
+  b.querySelector('#gcRmC')?.addEventListener('click',async()=>{if(!await confirmBox('Remove the Google client?','New sign-ins stop until a client is added again. Accounts already connected keep working.','Remove'))return;try{this.st={...this.st,...await del(UI,'/ui/google/client')};GSetup.open({then:this.opt})}catch(e){fail(e)}})}};
 // "Connect a Google account" everywhere (Connected apps, All agents, Connections) opens this dialog, never a chat
 ACT['gacc-add']=a=>GC.open({agent:a?.dataset?.agent||(typeof viewing==='function'?viewing():'default')});
 ACT['gc-open']=a=>GC.open({agent:a?.dataset?.agent,services:a?.dataset?.svc?a.dataset.svc.split(','):undefined,why:a?.dataset?.why||''});

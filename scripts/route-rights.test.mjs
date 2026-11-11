@@ -19,6 +19,7 @@ test('own-agent routes: an admin or the agent\'s owner',()=>{
 test('Connect Google: the client is an admin\'s, an account is the owner\'s',()=>{
  const h=src.slice(src.indexOf("if(p.startsWith('/ui/google/'))"),src.indexOf("if(p.startsWith('/ui/google/'))")+2200);
  assert.match(h,/p==='\/ui\/google\/client'&&!admin\)return send\(res,403/);
+ assert.match(h,/p==='\/ui\/google\/client\/check'&&!admin\)return send\(res,403/,'checking a client file (the guided setup) is admin-only too');
  assert.match(h,/\['\/ui\/google\/connect','\/ui\/google\/check','\/ui\/google\/account'\]\.includes\(p\)&&!mine\(ag\)/)});
 
 test('the Connected apps panel removes a Google account for its owner too',()=>{
