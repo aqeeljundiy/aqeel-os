@@ -145,7 +145,7 @@ Cx.keys=async function(){const el=Pages._cxEl;if(!el?.isConnected||S.me?.admin==
  slot.onclick=async e=>{const b=e.target.closest('[data-rmk]');if(!b)return;b.disabled=true;try{await del(UI,'/ui/mcp/keys',{agent:b.dataset.ag,key:b.dataset.rmk});toast(b.dataset.rmk+' removed');const x=b.closest('.cn-key');leave(x,200);setTimeout(()=>Cx.keys(),220)}catch(er){b.disabled=false;fail(er)}}};
 {const base=PAGES.connections;PAGES.connections=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;Cx.keys()}}
 // the side panel of a Google login: what it may use, and Reconnect (the same sign-in again); an app: Edit
-{const body=Cx.body.bind(Cx);Cx.body=function(r){let h=body(r);const admin=Pages._cx?.canEdit;
+{const body=Cx.body.bind(Cx);Cx.body=function(r){let h=body(r);const admin=Pages._cx?.canEdit||!!r.may?.level;   // an agent's owner too, on its own apps (11 Nov 2026)
  if(admin&&r.kind==='mcp'&&r.type==='app'&&!r.own)h=h.replace('<div class="cn-btns">',`<div class="cn-btns"><button class="small" data-act="mcp-edit">${icon('edit',14)}Edit</button>`);
  if(admin&&r.kind==='google')h=h.replace('<div class="cn-btns">',`<div class="cn-btns"><button class="small${r.status==='signin'?' primary':''}" data-act="gc-open" data-agent="${esc(r.owner||'default')}" data-why="${esc('Press Reconnect on '+r.id+' and sign in to it again.')}">${icon('refresh',14)}Reconnect</button>`).replace(/<button class="primary small" data-act="gacc-add">.*?<\/button>/,'');
  return h}}

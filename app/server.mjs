@@ -1002,6 +1002,10 @@ const connect=createConnect({HERMES_HOME,DASH,DASH_TOKEN,live:LIVE_APP,afterSave
 const antigravity=createAntigravity({HERMES_HOME,hcmd,listAgents,moveOff:(a,k)=>accountHooks.moveOff?accountHooks.moveOff(a,k):null});
 async function agentModel(a){const y=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>'');const k=key=>((new RegExp('^model:[\\s\\S]*?\\n\\s+'+key+':\\s*(\\S+)','m').exec(y)||[])[1]||'').replace(/^["']|["']$/g,'');return {provider:k('provider'),model:k('default')}}
 const users=createUsers(DATA,mailer,{ownerCheck:pw=>!!PW_HASH&&checkPassword(pw),envOwner:()=>!!PW_HASH,brandName:()=>brand.name(),relaxed:!LIVE_APP,ownerSeesAll:()=>installSettings().supervision===true});
+// an action about ONE agent's own connections (its apps and keys, its channels, its Google accounts): an admin, or that
+// agent's owner (11 Nov 2026: an employee could not fix, reconnect or remove anything on his own agent). Install-wide
+// things (branding, plugins, sharing between agents, every agent's list) stay admin-only.
+const ownsAgent=(u,a)=>!!u&&(users.isAdmin(u)||users.level(u,String(a||'default'))==='owner');
 users.hooks.revoke=id=>revokeSessions(id);
 const accountAuth=createAccountAuth({users,send,readBody,publicUrl:()=>String(PUBLIC_URL),revoke:id=>revokeSessions(id),signIn:id=>({'set-cookie':'hui='+makeCookie(id)+'; '+cookieAttrs(SESSION_DAYS*86400)}),
  limited:req=>limited(clientIp(req)),miss:req=>{const ip=clientIp(req);(attempts.get(ip)||attempts.set(ip,[]).get(ip)).push(Date.now())}});
@@ -2652,7 +2656,7 @@ const server=createServer(async(req,res)=>{
      const all=await googleLabels();const k=a+'|'+n;const label=String(b.label||'').replace(/[\r\n"]+/g,' ').trim().slice(0,60),note=String(b.note||'').replace(/[\r\n]+/g,' ').trim().slice(0,400);
      if(label||note)all[k]={label,note};else delete all[k];await writeJsonAtomic(path.join(DATA,'google-accounts.json'),all);GLABELS=all;
      if(LIVE_APP)writeAgentContext().catch(()=>{});return send(res,200,{ok:true,label,note})}
-    if(req.method==='DELETE'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can remove a Google account.'});const n=String(url.searchParams.get('name')||'');if(n&&!/^[\w.-]{1,60}$/.test(n))return send(res,400,{error:'Unknown account'});
+    if(req.method==='DELETE'){if(!ownsAgent(u,a))return send(res,403,{error:'Only an admin or this agent’s owner removes its Google accounts.'});const n=String(url.searchParams.get('name')||'');if(n&&!/^[\w.-]{1,60}$/.test(n))return send(res,400,{error:'Unknown account'});
      await unlink(path.join(home,'google_token'+(n?'_'+n:'')+'.json')).catch(()=>{});console.log('removed google account',n||'(main)','from',a);return send(res,200,{ok:true})}}
    // WhatsApp Business (Meta's Cloud API) for one agent: the keys from Meta's app go in the agent's own .env, aqeelOS
    // makes the check word (verify token) and gives the address to paste into Meta. Values are never sent back.
@@ -2913,8 +2917,9 @@ const server=createServer(async(req,res)=>{
     if(p==='/ui/google/account'&&req.method==='DELETE')return gconnect.remove(ag,String(b.name||'')).then(r=>{if(LIVE_APP)writeAgentContext().catch(()=>{});return ok(r)},bad);
     return send(res,404,{error:'Not found'})}
    // an app that is already added: edit its address, sign-in and key, or its command; its key and keys nothing reads (admins)
-   if(p==='/ui/mcp/server'||p==='/ui/mcp/keys'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins change apps and their keys.'});let b={};if(req.method!=='GET'){try{b=JSON.parse(await readBody(req,65536)||'{}')}catch{return send(res,400,{error:'Bad request'})}}
+   if(p==='/ui/mcp/server'||p==='/ui/mcp/keys'){let b={};if(req.method!=='GET'){try{b=JSON.parse(await readBody(req,65536)||'{}')}catch{return send(res,400,{error:'Bad request'})}}
     const ag=String(b.agent||url.searchParams.get('agent')||'default'),ok=x=>send(res,200,x),bad=e=>send(res,e.status||400,{error:e.message});if(!(await agentNames()).includes(ag))return send(res,400,{error:'Unknown agent'});
+    if(!ownsAgent(u,ag)||url.searchParams.get('all')==='1'&&!users.isAdmin(u))return send(res,403,{error:'Only an admin or this agent’s owner changes its apps and keys.'});
     if(p==='/ui/mcp/server'&&req.method==='GET')return mcpEdit.get(ag,String(url.searchParams.get('name')||'')).then(ok,bad);
     if(p==='/ui/mcp/server'&&req.method==='PUT')return mcpEdit.save(ag,b).then(ok,bad);
     if(p==='/ui/mcp/keys'&&req.method==='GET'){if(url.searchParams.get('all')==='1'){const out=[];for(const a of await agentNames())for(const k of await mcpEdit.keys(a).catch(()=>[]))out.push({...k,agent:a,agentName:NAMES[a]||a});return ok({keys:out})}return mcpEdit.keys(ag).then(k=>ok({keys:k}),bad)}
@@ -3137,7 +3142,7 @@ const server=createServer(async(req,res)=>{
     if(b.kind==='schedule'&&!users.isAdmin(u)&&!users.can(u,'schedules'))return send(res,403,{error:'Your role does not include schedules.'});
     if(b.kind==='mcp'&&!users.can(u,'unsafe')&&!users.isAdmin(u))return send(res,403,{error:'Ask an admin to duplicate MCP tools.'});
     try{return send(res,200,await sharing.duplicate(String(b.kind||''),ag,String(b.name||''),String(b.to||'')))}catch(e){return send(res,400,{error:e.message})}}
-   if(p==='/ui/share/rename-mcp'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can rename MCP tools.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{return send(res,200,await sharing.renameMcp(String(b.agent||'default'),String(b.from||''),String(b.to||'')))}catch(e){return send(res,400,{error:e.message})}}
+   if(p==='/ui/share/rename-mcp'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}if(!ownsAgent(u,b.agent||'default'))return send(res,403,{error:'Only an admin or this agent’s owner renames its apps.'});try{return send(res,200,await sharing.renameMcp(String(b.agent||'default'),String(b.from||''),String(b.to||'')))}catch(e){return send(res,400,{error:e.message})}}
    // channels across all agents (admins), and handing one to another agent
    if(p==='/ui/channels'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can see every channel.'});return send(res,200,await channelList(url.searchParams.has('fresh')))}
    // WhatsApp: clear a login that WhatsApp has ended, so a fresh QR can link the phone again
@@ -3337,13 +3342,13 @@ const server=createServer(async(req,res)=>{
    // the main agent's channels live in the engine itself, so for those the proper restart is the only way
    // a short note on a channel (what it is for), shown on its row
    if(p==='/ui/channels/note'&&req.method==='PUT'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can change channels.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const k=String(b.agent||'')+'|'+String(b.platform||'');const f=path.join(DATA,'channel-notes.json');const all=await readFile(f,'utf8').then(JSON.parse).catch(()=>({}));const v=String(b.note||'').trim().slice(0,120);if(v)all[k]=v;else delete all[k];await writeFile(f,JSON.stringify(all,null,1));platCache.clear();return send(res,200,{ok:true})}
-   if(p==='/ui/channels/reconnect'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can reconnect channels.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
+   if(p==='/ui/channels/reconnect'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}if(!ownsAgent(u,b.agent))return send(res,403,{error:'Only an admin or this agent’s owner reconnects its channels.'});
     const ag=String(b.agent||''),pf=String(b.platform||'');if(!(await listAllProfiles()).includes(ag)||!/^[a-z0-9_]{1,40}$/.test(pf))return send(res,400,{error:'Unknown channel'});
     if((await pausedLoad())[ag+'|'+pf])return send(res,409,{error:'This channel is paused. Pick who answers it under Owned by first.'});
     if(ag==='default'){restartGateway('reconnect '+pf+' (main agent)',{bridges:pf==='whatsapp'}).catch(()=>{});return send(res,200,{ok:true,restarting:true,waiting:await waitingNow()})}
     let j;try{j=await reconnectOne(ag,pf)}catch(e){platCache.clear();return send(res,502,{error:e.message})}platCache.clear();
     console.log('reconnected',pf,'on',ag,j.hot_served?'(live)':'');return send(res,200,{ok:true,restarting:false})}
-   if(p==='/ui/channels/pause'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can pause channels.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
+   if(p==='/ui/channels/pause'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}if(!ownsAgent(u,b.agent))return send(res,403,{error:'Only an admin or this agent’s owner pauses its channels.'});
     const ag=String(b.agent||''),pf=String(b.platform||'');if(!(await listAllProfiles()).includes(ag)||!/^[a-z0-9_]{1,40}$/.test(pf)||['api_server','webhook'].includes(pf))return send(res,400,{error:'Unknown channel'});
     try{return send(res,200,await setChannelOn(ag,pf,b.on===true))}catch(e){return send(res,400,{error:e.message})}}
    if(p==='/ui/channels/move'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can move channels.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
