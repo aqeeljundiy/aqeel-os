@@ -14,6 +14,7 @@ import {spawn} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {randomBytes} from 'node:crypto';
+import {silentPosting} from './silent-ok.mjs';
 
 export const DEFAULTS={on:false,perDay:20,perHour:3,gapMin:10,perRun:2,quietFrom:1,quietTo:5,quietPerHour:1,hotShare:0,afterMissingPerHour:2,afterMissingHours:6,
  stopFile:'',checkUrl:'',alert:'',tz:'',recheckMin:30,subject:''};   // subject: what the limits govern (thread, comment or dm); '' = read from the pause file and page   // '' = the box's zone (tz.mjs)
@@ -86,9 +87,9 @@ export function headlessLook({chrome='/opt/aqeelos/chrome/chrome',wait=9000}={})
  // one look at a time on the box (each is a whole Chrome)
  return url=>{const p=chain.then(()=>Promise.race([once(url),new Promise((_,rej)=>setTimeout(()=>rej(Error('the check took too long')),60000))]));chain=p.catch(()=>{});return p}}
 
-export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconnect=async()=>{},sig,setKey,readConfig,pick,look=headlessLook(),event=async()=>{},telegram=async()=>false,nameOf=a=>a,log=m=>console.log(m),now=()=>Date.now(),retryMs=40000}){
+export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconnect=async()=>{},sig,setKey,readConfig,pick,look=headlessLook(),event=async()=>{},solved=async()=>{},engineTools=async()=>null,lastAnswer=async()=>'',telegram=async()=>false,nameOf=a=>a,log=m=>console.log(m),now=()=>Date.now(),retryMs=40000}){
  const FILE=path.join(DATA,'posting-limits.json'),LOGS=path.join(DATA,'posting-log');let db=null;
- const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.agents||={};db.gates||={}}return db};
+ const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.agents||={};db.gates||={};db.gateLog||={}}return db};
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)};
  const posts=new Map();
  const logFile=a=>path.join(LOGS,a+'.json');
@@ -103,7 +104,7 @@ export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconn
    +'curl -sf -m 20 "http://127.0.0.1:'+PORT+'/posting-gate/'+a+'/'+sig(a)+'" || printf \'aqeelOS did not answer, so no post this run.\\n{"wakeAgent": false}\\n\'\n';
   if((await readFile(f,'utf8').catch(()=>''))!==body){await writeFile(f,body,{mode:0o700});await chmod(f,0o700)}return gateName}
  async function gate(a){const r=await rulesOf(a);if(!r?.on)return 'aqeelOS posting limits are off for this agent: no post this run.\n{"wakeAgent": false}';
-  const d=decide(r,await entries(a),{now:now(),stopped:await stopped(a,r)});await load();db.gates[a]={at:now(),allow:d.allow,n:d.n,reason:d.reason};await save();return gateText(r,d)}
+  const d=decide(r,await entries(a),{now:now(),stopped:await stopped(a,r)});await load();db.gates[a]={at:now(),allow:d.allow,n:d.n,reason:d.reason};db.gateLog[a]=[...(db.gateLog[a]||[]),{at:now(),allow:d.allow,n:d.n}].filter(g=>now()-g.at<48*3600e3).slice(-120);await save();return gateText(r,d)}
 
  async function alert(a,r,e,how){const who=nameOf(a),short=String(e.text).replace(/\s+/g,' ').slice(0,140);
   const title=who+': a post is not visible on Threads';
@@ -132,8 +133,13 @@ export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconn
   return {isError:true,text:'NOT visible: the post cannot be found on the public page or the post itself (checked signed out, twice). The owner has been told. Stop posting this run, and start your final answer with the line [CRON_FAILURE], then one line on what happened.'+over}}
 
  // every minute: checks that could not run, and the second look about 30 minutes after each post
- let busy=false;
- async function tick(){if(busy)return;busy=true;try{await load();for(const a of Object.keys(db.agents)){const r=await rulesOf(a);if(!r?.on)continue;const l=await entries(a);
+ let busy=false;const silenceAt=new Map();
+ // ONE Health item per agent while its runs are allowed to post and no post is recorded (silent-ok.mjs); gone by itself once one is
+ async function silence(a,r,l){if(now()-(silenceAt.get(a)||0)<10*60e3)return;silenceAt.set(a,now());await load();
+  const gates=db.gateLog[a]||[],stop=await stopped(a,r),topic='silent-posting';
+  const x=silentPosting({gates,entries:l,now:now(),stopped:stop,tools:await engineTools(a).catch(()=>null),answer:await lastAnswer(a).catch(()=>'')});
+  if(x)await event('silent',x.text,x.detail,{topic,agent:a}).catch(()=>{});else await solved(a,topic).catch(()=>{})}
+ async function tick(){if(busy)return;busy=true;try{await load();for(const a of Object.keys(db.agents)){const r=await rulesOf(a);if(!r?.on)continue;const l=await entries(a);await silence(a,r,l).catch(x=>log('posting silence: '+x.message));
    const e=l.find(x=>x.status==='unchecked'&&now()-x.at>60e3)||l.find(x=>x.status==='visible'&&!x.rechecked&&now()-x.at>=r.recheckMin*60e3&&now()-x.at<6*3600e3);if(!e)continue;
    const s=await check(a,r,e);if(s==='unchecked'){if(now()-e.at>3600e3){e.status='missing';e.missingAt=now();e.checkFailed=true;await alert(a,r,e,'now')}continue}
    if(e.status==='visible')e.rechecked=now();e.checkedAt=now();
@@ -146,10 +152,11 @@ export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconn
   return {agent:a,serial,rules:r||{...DEFAULTS},set:!!r,gateScript:gateName,status:d,stopped:r?await stopped(a,r):false,lastGate:db.gates[a]||null,
    recent:l.slice(-25).reverse().map(e=>({id:e.id,at:e.at,post:e.post,text:e.text.slice(0,240),lead:e.lead,status:e.status,rechecked:e.rechecked||null,over:e.over||null,alerted:e.alerted||null}))}}
  async function set(a,b){if(b.serial!==undefined){const r=await setKey(a,'cron.max_parallel_jobs',b.serial?'1':'0');if(r&&r.ok===false)throw Error('Could not change it: '+String(r.out||'').trim().slice(-200))}
-  // turned on: its gate script, and its aqeelOS tool connection again so record_post is listed (the engine keeps the list it read first)
+  // turned on: its gate script, and its aqeelOS tool connection again. The engine keeps the tool list it read first, so this alone did not
+  // give a running agent record_post (11 Nov): the tool is now listed for every agent from the start (server.mjs tools/list)
   if(b.rules){await load();const was=!!db.agents[a]?.on;const r=clean({...(db.agents[a]||{}),...b.rules});db.agents[a]=r;await save();if(r.on)await writeGate(a);if(r.on!==was&&live)await reconnect(a).catch(e=>log('posting: tool reconnect '+a+': '+e.message))}
   return view(a)}
  // gate scripts for every agent with limits on (a restored box, a new port)
  async function ensure(){await load();for(const a of Object.keys(db.agents))if(db.agents[a].on)await writeGate(a).catch(e=>log('posting gate '+a+': '+e.message))}
  const usesLimits=async a=>!!(await rulesOf(a))?.on;
- return {gate,record,tick,view,set,ensure,usesLimits,gateName}}
+ return {gate,record,tick,view,set,ensure,usesLimits,gateName,silence:async a=>{silenceAt.delete(a);const r=await rulesOf(a);if(r?.on)await silence(a,r,await entries(a))}}}

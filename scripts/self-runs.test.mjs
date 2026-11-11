@@ -67,6 +67,14 @@ test('3 failed runs in a row pause the agent and tell the owner once; resume sta
  await assert.rejects(run(0),/paused after 3 failed/);
  await s.resume('a','owner');await run(0);assert.equal((await s.mine('a')).paused,null)});
 
+test('a pause for failures ends by itself after an hour and lets ONE run through (10 Nov: a model outage paused an agent for good)',async()=>{const {s,exits,tick}=await make();
+ const run=async code=>{const r=await s.start({agent:'a',args:{prompt:'p',reason:'r',timeout_minutes:1},origin:ok});exits[r.id]={code};await s.check();return r};
+ await run(1);await run(1);await run(1);assert.equal((await s.mine('a')).paused.why,'failures');
+ tick(59*60e3);await assert.rejects(run(0),/paused after 3 failed/);
+ tick(2*60e3);assert.equal((await s.mine('a')).paused,null,'an hour later it is open again');
+ await run(1);assert.equal((await s.mine('a')).paused.why,'failures','the one run failing again pauses it at once');
+ tick(61*60e3);await run(0);assert.equal((await s.mine('a')).paused,null);await run(1);await run(1);assert.equal((await s.mine('a')).paused,null,'a good run reset the count')});
+
 test('a stopped run or a restart does not count as a failure',async()=>{const {s,gone,told}=await make();
  for(let i=0;i<3;i++){const r=await s.start({agent:'a',args:{prompt:'p',reason:'r'},origin:ok});await s.stop(r.id,'owner');await s.check();assert.equal((await s.status('a',r.id)).state,'stopped')}
  const r=await s.start({agent:'a',args:{prompt:'p',reason:'r'},origin:ok});gone.add(r.id);await s.check();assert.equal((await s.status('a',r.id)).state,'interrupted');assert.equal(told.length,0)});
