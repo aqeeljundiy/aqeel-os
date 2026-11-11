@@ -120,6 +120,57 @@ for k,e,u in r:
     if j.get('resume_pending') and not j.get('suspended'): o['pending']=True;o['markedAt']=marked(j,u)
 print(json.dumps(o))`;
 
+// the engine's background delegations (work an agent handed to a sub-run): its own ledger, table async_delegations in the
+// agent's state.db (tools/async_delegation.py). Read-only. The same ledger says what became of one after a restart: the engine
+// closes a task whose process is gone as 'unknown' (or 'error' with an interrupted result) and hands it back to the chat
+// (delivery_state pending -> delivered).
+const DELEG_HEAD=String.raw`import sqlite3,sys,json,os
+def goal(t):
+    try: j=json.loads(t or '{}')
+    except Exception: return ''
+    g=j.get('goal') or ''
+    if not g and j.get('goals'):
+        x=(j.get('goals') or [''])[0];g=x.get('goal','') if isinstance(x,dict) else x
+    return ' '.join(str(g).split())
+`;
+const DELEGS_PY=DELEG_HEAD+`out=[]
+for a in sys.argv[1:]:
+    name,home=a.split('=',1);db=os.path.join(home,'state.db')
+    if not os.path.exists(db): continue
+    try:
+        c=sqlite3.connect('file:'+db+'?mode=ro',uri=True,timeout=5)
+        for i,st,ps,ok,at,tj in c.execute("select delegation_id,state,parent_session_id,origin_session,dispatched_at,task_json from async_delegations where state in ('running','stalling','finalizing')"):
+            out.append({'kind':'deleg','agent':name,'deleg':i,'title':goal(tj)[:100] or i,'session':ps or '','key':ok or '','since':int((at or 0)*1000)})
+    except sqlite3.OperationalError as e:
+        if 'no such table' in str(e): continue
+        print('null'); sys.exit()
+    except Exception: print('null'); sys.exit()
+print(json.dumps(out))`;
+const DELEG_PY=DELEG_HEAD+`home,did=sys.argv[1],sys.argv[2]
+APP=('api_server','local')
+o={'missing':True}
+try: c=sqlite3.connect('file:'+os.path.join(home,'state.db')+'?mode=ro',uri=True,timeout=5)
+except Exception: print('null'); sys.exit()
+try: r=c.execute("select state,delivery_state,event_json,owner_pid,parent_session_id,dispatched_at,task_json from async_delegations where delegation_id=?",(did,)).fetchone()
+except sqlite3.OperationalError as e:
+    print(json.dumps(o) if 'no such table' in str(e) else 'null'); sys.exit()
+if r:
+    st,dl,ev,pid,ps,at,tj=r;o={'missing':False,'state':st,'delivery':dl,'status':st,'error':'','ownerLive':False,'appChat':False,'newer':False}
+    try:
+        j=json.loads(ev or '{}');o['status']=j.get('status') or st;o['error']=str(j.get('error') or (j.get('summary') or '') or '')[:300]
+        for x in j.get('results') or []:
+            if x.get('status')=='interrupted' or x.get('exit_reason')=='interrupted': o['error']+=' interrupted'
+    except Exception: pass
+    try: os.kill(int(pid),0);o['ownerLive']=True
+    except Exception: pass
+    try:
+        s=c.execute("select source from sessions where id=?",(ps,)).fetchone();o['appChat']=bool(s and s[0] in APP)
+        g=goal(tj)
+        for t,w in c.execute("select task_json,dispatched_at from async_delegations where parent_session_id=? and delegation_id!=? and dispatched_at>?",(ps,did,at or 0)):
+            if g and goal(t)==g: o['newer']=True
+    except Exception: pass
+print(json.dumps(o))`;
+
 export function createResumeEngine({python,homeOf,agents=async()=>['default'],gatewayPid=async()=>0,posted=async()=>false}){
  const py=async(code,args,ms=20000)=>{const bin=await python();return new Promise((res,rej)=>execFile(bin,['-c',code,...args],{timeout:ms,maxBuffer:4e6},(e,o)=>{if(e)return rej(Error('the engine’s record did not open ('+(e.code??e.signal)+')'));try{res(JSON.parse(String(o||'null')))}catch{rej(Error('the engine’s record was not readable'))}}))};
  // e.at - 30 s: the engine stores the person's message a moment after aqeelOS passes it on, never before
@@ -134,5 +185,9 @@ export function createResumeEngine({python,homeOf,agents=async()=>['default'],ga
  async function channelsNow(){const l=await agents();return py(CHANNELS_PY,l.map(a=>a+'='+homeOf(a)))}
  // one marked chat: still marked (the engine has not carried on yet), no longer marked (it has), or gone
  async function probeChannel(e){const p=await py(CHANNEL_PY,[homeOf(e.agent),e.key]);if(p&&p.pending&&p.markedAt>(e.mk||0)+1000)e.mk=p.markedAt;return p}
- return {probeChat,runsNow,probeRun,channelsNow,probeChannel}}
-export const _PY={CHANNELS_PY,CHANNEL_PY};
+ // background tasks running now ([] when none; null when a ledger could not be read)
+ async function delegsNow(){const l=await agents();return py(DELEGS_PY,l.map(a=>a+'='+homeOf(a)))}
+ // one task: still running, closed by the engine as interrupted (and handed back to the chat or not), finished, started again since
+ const probeDeleg=e=>py(DELEG_PY,[homeOf(e.agent),e.deleg]);
+ return {probeChat,runsNow,probeRun,channelsNow,probeChannel,delegsNow,probeDeleg}}
+export const _PY={CHANNELS_PY,CHANNEL_PY,DELEGS_PY,DELEG_PY};

@@ -39,3 +39,31 @@ test('restarts that can wait happen in the window, and do not wait for an idle b
 test('a deploy waits only for what cannot be continued afterwards',()=>{
  assert.equal(holdTotal({live:4}),0);assert.equal(busyTotal({live:4}),4);
  assert.equal(holdTotal({live:4,setups:1,restore:true,gwRestarting:true,engineUpdate:true,ops:1,relay:1}),6)});
+
+/* ---------- a restart in the window: gentle for a bounded time, then --interrupt (12 Nov 2026) ---------- */
+import {restartGraceMs,windowRestartStep,restartWaitPolls,RESTART_POLL_MS} from '../app/maintenance.mjs';
+import {readFileSync,writeFileSync} from 'node:fs';
+test('the gentle time of a window restart: 10 minutes unless the install says otherwise, 0 means none, never more than an hour',()=>{
+ assert.equal(restartGraceMs({}),600e3);assert.equal(restartGraceMs({restartGraceMinutes:3}),180e3);assert.equal(restartGraceMs({restartGraceMinutes:0}),0);
+ assert.equal(restartGraceMs({restartGraceMinutes:90}),600e3);assert.equal(restartGraceMs({restartGraceMinutes:'x'}),600e3);assert.equal(restartGraceMs({restartGraceMinutes:-1}),600e3);
+ assert.equal(restartWaitPolls(600e3),120);assert.equal(restartWaitPolls(0),0);assert.equal(restartWaitPolls(7000),2);assert.equal(RESTART_POLL_MS,5000)});
+test('idle: restart at once; busy: wait until the gentle time is over, then restart with --interrupt',()=>{const grace=600e3;
+ assert.deepEqual(windowRestartStep({busy:false,waited:0,grace}),{go:true,interrupt:false});
+ assert.deepEqual(windowRestartStep({busy:true,waited:60e3,grace}),{go:false});
+ assert.deepEqual(windowRestartStep({busy:true,waited:grace,grace}),{go:true,interrupt:true});
+ assert.deepEqual(windowRestartStep({busy:true,waited:0,grace:0}),{go:true,interrupt:true},'0 minutes: no waiting')});
+test('server: the window restart waits gently (agents, background tasks) for the install’s time and then stops the engine with --yes (= --interrupt)',()=>{
+ const s=readFileSync(new URL('../app/server.mjs',import.meta.url),'utf8'),g=readFileSync(new URL('../app/gateway-stop.mjs',import.meta.url),'utf8');
+ assert.ok(s.includes("restart:why=>restartGateway(why,{wait:true,waitMax:restartWaitPolls(restartGraceMs(installSettings()))})"),'the window restart is the gentle one with the install’s bound');
+ assert.ok(s.includes("resume.openOf('deleg')>0"),'a running background task is waited for');
+ assert.ok(g.includes("'hermes -p default gateway stop'+(yes?' --yes':'')"),'the stop that follows interrupts');
+ assert.ok(!/restart:why=>restartGateway\(why,\{wait:false\}\)/.test(s),'no more immediate restart in the window')});
+test('the nightly entry of services.sh asks the app through the request file, with no loop of its own around the old script',()=>{
+ const sh=readFileSync(new URL('./services.sh',import.meta.url),'utf8');
+ assert.ok(sh.includes('restart-request.json')&&sh.includes('nightly engine restart'));assert.ok(!/\$HOME\/nightly-engine-restart\.sh;/.test(sh),'the old script is not run')});
+test('a request file left by a script is queued like any other reason, once, and done in the window',async()=>{const DATA=mkdtempSync(path.join(tmpdir(),'aq-rq-'));let now=at('2026-11-11T10:00:00Z');const done=[];
+ const l=createRestartLater({DATA,restart:async why=>{done.push(why)},now:()=>now,log:()=>{},inWindow:d=>inWindow(d,windowOf({}))});
+ writeFileSync(path.join(DATA,'restart-request.json'),'{"why":"nightly engine restart"}');
+ assert.equal(await l.tick(),false);assert.deepEqual((await l.pending()).whys,['nightly engine restart']);assert.throws(()=>readFileSync(path.join(DATA,'restart-request.json')),'the file is taken');
+ now=at('2026-11-11T17:05:00Z');assert.equal(await l.tick(),true);assert.match(done[0],/quiet-hours restart: nightly engine restart/);assert.equal(await l.tick(),false);
+ writeFileSync(path.join(DATA,'restart-request.json'),'not json');assert.equal(await l.take(),true);assert.deepEqual((await l.pending()).whys,['not json'])});

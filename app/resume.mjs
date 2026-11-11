@@ -8,6 +8,12 @@
 //  - a schedule run the engine had running: its "run now" (POST /api/cron/jobs/<id>/trigger), unless it finished,
 //    delivered, or ran again meanwhile (runPlan);
 //  - a fixer run: its process outlives the app, so it is only looked at again (the fixer loop takes it from there).
+//  - a background task a chat's agent had handed to a sub-run (the engine's "background delegation", its ledger table
+//    async_delegations): after a restart the engine itself hands an interrupted one back to the chat as an "interrupted" result
+//    (it cannot start it again with its brief). aqeelOS journals it while it runs (kind 'deleg', read on the 30 s tick), counts it
+//    on Health once the engine has handed it back, and when the engine did not (a web chat), tells the agent once in that chat:
+//    "your background task <title> was interrupted by a restart at <time>; start it again if it is still needed" (delegNote,
+//    delegPlan). In a Telegram or WhatsApp chat nothing is sent from here (the engine's hand-back is the message);
 //  - a Telegram, WhatsApp (any channel) chat: the engine itself carries on from the person's last message (its
 //    resume_pending, which the patch engine/patches/2026-11-12-channel-resume-continue.patch turns from "session restored,
 //    what next?" into "continue; check what already went out"). aqeelOS only watches: it journals every channel chat the
@@ -39,6 +45,9 @@ export function noteFor({why='restart',at,tz='',started=false,caution=false,text
   :caution?'; check what already went out before repeating it. Then continue my last request from where you stopped.]'
   :'. Continue my last request from where you stopped; do not redo steps whose results are already above.]';
  return head+say+(text?'\n\n'+text:'')}
+
+// the note for a background task the restart cut off (the chat's agent decides whether it is still needed)
+export const delegNote=({title='',at,tz='',why='restart'})=>NOTE_START.replace('you were interrupted by ','your background task ')+'“'+String(title||'a background task').replace(/\s+/g,' ').slice(0,100)+'” was interrupted by '+(why==='update'?'an update':'a restart')+' at '+hhmm(at,tz)+'; start it again if it is still needed.]';
 
 /* ---------- what to do with one interrupted thing ----------
    Each answers {do:'send'|'trigger'|'kick'|'wait'|'skip'|'giveup', why, ...}. `p` is what the engine's own record says
@@ -85,6 +94,22 @@ export function runPlan(e,p,now,{maxAge=7200e3}={}){
  if(p.delivered)return {do:'giveup',why:'its result was already delivered, so it was not run again'};
  if(p.posted)return {do:'giveup',why:'it had already posted, so it was not run again'};
  return {do:'trigger'}}
+// p: {missing, state, status, error, delivery:'pending'|'delivered'|'dropped', ownerLive, appChat, newer}: the engine's own ledger row of the task
+export const DELEG_HANDBACK_MS=240e3;   // the engine hands an interrupted task back by itself within minutes of its start; later than that it did not
+export function delegPlan(e,p,now,{maxAge=7200e3,tz=''}={}){
+ const old=tooOld(e,now,maxAge);
+ if(!p)return old?{do:'giveup',why:ageWhy(maxAge)}:{do:'wait',why:'the engine’s record of the task could not be read'};
+ if(p.missing)return {do:'skip',why:'the engine no longer lists it'};
+ if(/^(running|stalling|finalizing)$/.test(p.state||'')){if(p.ownerLive)return {do:'wait',why:'it is still running'};return old?{do:'giveup',why:ageWhy(maxAge)}:{do:'wait',why:'the engine has not closed it yet'}}
+ if(p.status==='completed')return {do:'skip',why:'it finished'};
+ if(p.newer)return {do:'skip',why:'it was started again since'};
+ if(!(p.status==='unknown'||p.status==='interrupted'||CUT_ERR.test(String(p.error||''))))return {do:'skip',why:'it failed by itself'};
+ if(p.delivery==='delivered')return {do:'done'};   // the engine handed the (interrupted) result back to the chat: the agent knows
+ if(old)return {do:'giveup',why:ageWhy(maxAge)};
+ if(p.delivery==='pending'&&now-(e.cutAt||now)<DELEG_HANDBACK_MS)return {do:'wait',why:'the engine is handing it back to the chat'};
+ if((e.n||0)>=MAX_TIMES)return {do:'giveup',why:'interrupted '+MAX_TIMES+' times while continuing'};
+ if(!p.appChat)return {do:'giveup',why:'the engine did not hand it back to the chat, and nothing is sent from here into a Telegram or WhatsApp chat'};
+ return {do:'send',note:delegNote({title:e.title,at:e.cutAt||now,tz,why:e.why})}}
 // p: {alive, done}
 export function fixerPlan(e,p,now,{maxAge=7200e3}={}){
  if(!p)return {do:'wait',why:'the fixer’s record could not be read'};
@@ -94,7 +119,7 @@ export function fixerPlan(e,p,now,{maxAge=7200e3}={}){
 
 /* ---------- the line on System › Health ---------- */
 export function healthLine(last,{tz='',now=Date.now()}={}){if(!last||!last.at||now-last.at>24*3600e3)return '';
- const parts=[];if(last.chats)parts.push(many(last.chats,'chat'));if(last.schedules)parts.push(many(last.schedules,'schedule'));if(last.helpers)parts.push(many(last.helpers,'fixer run'));
+ const parts=[];if(last.chats)parts.push(many(last.chats,'chat'));if(last.schedules)parts.push(many(last.schedules,'schedule'));if(last.delegs)parts.push(many(last.delegs,'background task'));if(last.helpers)parts.push(many(last.helpers,'fixer run'));
  const failed=last.failed||[],head='Restarted at '+hhmm(last.at,tz)+': ';
  const cont=parts.length?parts.join(parts.length>2?', ':' and ')+' continued':'';
  const bad=failed.length?failed.length+' could not ('+failed.slice(0,3).map(f=>f.what+': '+f.why).join('; ')+(failed.length>3?'; and '+(failed.length-3)+' more':'')+')':'';
@@ -106,7 +131,7 @@ const BACKOFF=[60e3,120e3,300e3,600e3];
 export function createResume({DATA,now=()=>Date.now(),log=m=>console.log(m),on=true,maxAge=()=>7200e3,tz=()=>'',stagger=4000,sleep=ms=>new Promise(r=>setTimeout(r,ms)),
  // ready(): the app and the engine answer. probe*/act*: see the plans above. Each act answers {ok} | {retry,why} | {fail,why}
  ready=async()=>true,probeChat=async()=>null,sendChat=async()=>({fail:true,why:'not wired'}),probeRun=async()=>null,triggerRun=async()=>({fail:true,why:'not wired'}),
- probeChannel=async()=>null,probeFixer=async()=>null,kickFixer=async()=>({ok:true}),nameOf=a=>a}={}){
+ probeChannel=async()=>null,probeDeleg=async()=>null,probeFixer=async()=>null,kickFixer=async()=>({ok:true}),nameOf=a=>a}={}){
  const FILE=path.join(DATA,'resume','journal.json'),NOTE=path.join(DATA,'resume','planned.json'),PROC=randomBytes(6).toString('hex');
  let j=null;
  const load=()=>{if(j)return j;try{j=JSON.parse(readFileSync(FILE,'utf8'))}catch{j=null}if(!j||typeof j!=='object'||!Array.isArray(j.entries))j={v:1,entries:[],done:[],last:null};j.done||=[];return j};
@@ -114,10 +139,10 @@ export function createResume({DATA,now=()=>Date.now(),log=m=>console.log(m),on=t
  const save=()=>{try{mkdirSync(path.dirname(FILE),{recursive:true});j.saved=now();const t=FILE+'.'+process.pid+'.tmp';writeFileSync(t,JSON.stringify(j));renameSync(t,FILE)}catch(e){log('resume: journal not saved: '+e.message)}};
  const find=id=>load().entries.find(e=>e.id===id);
  const drop=e=>{j.entries=j.entries.filter(x=>x!==e)};
- const what=e=>e.kind==='chat'?nameOf(e.agent)+'’s chat'+(e.userName?' with '+e.userName:''):e.kind==='channel'?nameOf(e.agent)+'’s '+(e.platform||'channel')+' chat':e.kind==='schedule'?'“'+(e.name||e.job)+'”':'fixer run '+(e.run||'');
- const event=(why,at)=>{load();if(!j.last||Math.abs(at-j.last.at)>10*60e3)j.last={at,why,chats:0,schedules:0,helpers:0,failed:[],waiting:0};else if(why==='update')j.last.why='update';return j.last};
+ const what=e=>e.kind==='chat'?nameOf(e.agent)+'’s chat'+(e.userName?' with '+e.userName:''):e.kind==='channel'?nameOf(e.agent)+'’s '+(e.platform||'channel')+' chat':e.kind==='schedule'?'“'+(e.name||e.job)+'”':e.kind==='deleg'?nameOf(e.agent)+'’s background task “'+(e.title||e.deleg)+'”':'fixer run '+(e.run||'');
+ const event=(why,at)=>{load();if(!j.last||Math.abs(at-j.last.at)>10*60e3)j.last={at,why,chats:0,schedules:0,delegs:0,helpers:0,failed:[],waiting:0};else if(why==='update')j.last.why='update';return j.last};
  const finish=(e,result,why='')=>{drop(e);j.done.push({id:e.id,kind:e.kind,agent:e.agent,what:what(e),result,why,at:now(),...(e.kind==='channel'?{key:e.key,mk:e.mk}:{})});j.done=j.done.slice(-200);
-  if(result==='resumed'||result==='gaveup'){const L=event(e.why||'restart',e.cutAt||now());if(result==='resumed')L[e.kind==='chat'||e.kind==='channel'?'chats':e.kind==='schedule'?'schedules':'helpers']++;else L.failed.push({what:what(e),why})}
+  if(result==='resumed'||result==='gaveup'){const L=event(e.why||'restart',e.cutAt||now());if(result==='resumed')L[e.kind==='chat'||e.kind==='channel'?'chats':e.kind==='schedule'?'schedules':e.kind==='deleg'?'delegs':'helpers']++;else L.failed.push({what:what(e),why})}
   if(result!=='skipped'||why!=='it finished')log('resume: '+what(e)+' '+(result==='resumed'?'continued':result==='gaveup'?'not continued: '+why:'left alone: '+why))};
 
  /* a chat reply starts: {agent,session,user,userName,text,opts,gw,from,n,cut0} → id. Ends with end() or cut(). */
@@ -130,7 +155,7 @@ export function createResume({DATA,now=()=>Date.now(),log=m=>console.log(m),on=t
   log('resume: '+what(e)+' was interrupted by '+(why==='update'?'an update':'a restart')+'; it continues by itself');return true}
  // the engine's runs (schedules, fixer runs) seen in progress now: [{kind:'schedule',agent,exec,job,name,since}|{kind:'fixer',run,pid}]
  // new ones are journaled; ones no longer in progress are looked at by the next pass (finished = dropped quietly)
- function sync(list,kind){if(!on)return 0;load();let changed=0;const key=x=>kind==='schedule'?x.agent+'|'+x.exec:String(x.run);const seen=new Set(list.map(key));
+ function sync(list,kind){if(!on)return 0;load();let changed=0;const key=x=>kind==='schedule'?x.agent+'|'+x.exec:kind==='deleg'?x.agent+'|'+x.deleg:String(x.run);const seen=new Set(list.map(key));
   for(const x of list){if(j.entries.some(e=>e.kind===kind&&key(e)===key(x)))continue;
    j.entries.push({id:randomBytes(8).toString('hex'),kind,...x,at:now(),state:'open',n:0});changed++}
   for(const e of j.entries)if(e.kind===kind&&e.state==='open'&&!seen.has(key(e))){e.state='cut';e.cutAt=now();e.cut0||=e.cutAt;e.why=e.why||j.planned?.why||'restart';e.quiet=true;changed++}
@@ -168,17 +193,18 @@ export function createResume({DATA,now=()=>Date.now(),log=m=>console.log(m),on=t
  async function pass(){if(!on)return summary();load();const due=()=>j.entries.filter(e=>e.state==='cut'&&!(e.next>now()));
   if(!due().length)return summary();
   if(!await ready().catch(()=>false))return summary();
-  const order={chat:0,channel:0,schedule:1,fixer:2},list=due().sort((a,b)=>order[a.kind]-order[b.kind]||a.at-b.at),cfg={maxAge:maxAge(),tz:tz()};let acted=0;
+  const order={chat:0,channel:0,deleg:1,schedule:1,fixer:2},list=due().sort((a,b)=>order[a.kind]-order[b.kind]||a.at-b.at),cfg={maxAge:maxAge(),tz:tz()};let acted=0;
   for(const e of list){if(e.state!=='cut')continue;let p=null,plan;
-   try{p=await (e.kind==='chat'?probeChat:e.kind==='channel'?probeChannel:e.kind==='schedule'?probeRun:probeFixer)(e)}catch(er){log('resume: probe failed for '+what(e)+': '+er.message)}
+   try{p=await ({chat:probeChat,channel:probeChannel,schedule:probeRun,deleg:probeDeleg}[e.kind]||probeFixer)(e)}catch(er){log('resume: probe failed for '+what(e)+': '+er.message)}
    if(e.state!=='cut'||!j.entries.includes(e))continue;   // ended or cut again while the engine was read
-   plan=(e.kind==='chat'?chatPlan:e.kind==='channel'?channelPlan:e.kind==='schedule'?runPlan:fixerPlan)(e,p,now(),cfg);
+   plan=({chat:chatPlan,channel:channelPlan,schedule:runPlan,deleg:delegPlan}[e.kind]||fixerPlan)(e,p,now(),cfg);
    if(plan.do==='done'){finish(e,'resumed');save();continue}
    if(plan.do==='wait'){later(e,plan.why);continue}
    if(plan.do==='skip'){finish(e,'skipped',plan.why);save();continue}
    if(plan.do==='giveup'){if(e.quiet&&/no longer exists|switched off/.test(plan.why))finish(e,'skipped',plan.why);else finish(e,'gaveup',plan.why);save();continue}
    if(acted++)await sleep(stagger);
    // claimed on disk before anything is sent: a second pass, or the app starting again right now, never sends it twice
+   if(e.kind==='deleg')e.text=plan.note;   // what the chat's own journal entry would send again if the reply to the note is cut too
    e.state='resuming';e.n=(e.n||0)+1;e.claimed=now();save();let r;
    try{r=await (plan.do==='send'?sendChat(e,plan.note,plan):plan.do==='trigger'?triggerRun(e):kickFixer(e))}catch(er){r={retry:true,why:String(er.message||er).slice(0,160)}}
    if(!j.entries.includes(e))continue;
@@ -193,4 +219,6 @@ export function createResume({DATA,now=()=>Date.now(),log=m=>console.log(m),on=t
  const pendingFor=(agent,session)=>{const e=load().entries.find(e=>e.kind==='chat'&&e.agent===agent&&e.session===session&&(e.state==='cut'||e.state==='resuming'));return e?{why:e.why||'restart',at:e.cutAt,user:e.user}:null};
  const pending=()=>load().entries.filter(e=>e.state==='cut'||e.state==='resuming').length;
  const inFlight=()=>load().entries.filter(e=>e.state==='open').length;
- return {begin,end,cut,sync,syncChannels,beat,planned,boot,run,pendingFor,pending,inFlight,last:()=>load().last,line:()=>healthLine(load().last,{tz:tz(),now:now()}),entries:()=>load().entries.map(e=>({...e})),_file:FILE}}
+ // how many things of one kind are in progress now (the maintenance-window restart waits gently for background tasks too)
+ const openOf=kind=>load().entries.filter(e=>e.state==='open'&&e.kind===kind).length;
+ return {begin,end,cut,sync,syncChannels,beat,planned,boot,run,pendingFor,pending,inFlight,openOf,last:()=>load().last,line:()=>healthLine(load().last,{tz:tz(),now:now()}),entries:()=>load().entries.map(e=>({...e})),_file:FILE}}

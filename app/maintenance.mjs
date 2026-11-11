@@ -25,6 +25,16 @@ export function inWindow(date,w=DEFAULT_WINDOW){const a=mins(w.from),b=mins(w.to
 export const windowText=w=>w.from+' to '+w.to+' ('+w.tz.split('/').pop().replace(/_/g,' ')+' time)';
 // how long an interrupted chat or run is still continued (install.json "resumeMaxHours", default 2)
 export const resumeMaxMs=settings=>{const h=Number(settings?.resumeMaxHours);return (Number.isFinite(h)&&h>=0.25&&h<=24?h:2)*3600e3};
+// How a restart in the window goes (owner, 12 Nov 2026): it first waits gently for what is running to finish (agents at work, background
+// tasks; no new schedule runs start meanwhile), for at most this long (install.json "restartGraceMinutes", default 10, 0 = no waiting, at
+// most 60); then it restarts with --interrupt, and whatever that cut off is continued afterwards (resume.mjs). One rule for every restart
+// that waits for the window (agents' and aqeelOS's own changes, the nightly one). Restarts outside the window are not affected.
+export const restartGraceMs=settings=>{const m=Number(settings?.restartGraceMinutes);return (Number.isFinite(m)&&m>=0&&m<=60?m:10)*60e3};
+export const RESTART_POLL_MS=5000;
+// {go: restart now, interrupt: the gentle time is over and work is still running (so it is cut off and continued later)}; waited/grace in ms
+export const windowRestartStep=({busy,waited=0,grace})=>busy?(waited>=grace?{go:true,interrupt:true}:{go:false}):{go:true,interrupt:false};
+// the gentle wait as a number of polls of the engine's own restart wait (server.mjs restartGateway)
+export const restartWaitPolls=grace=>Math.max(0,Math.ceil(grace/RESTART_POLL_MS));
 // the half hour before the window opens (the nightly batch of the cloud fixer sends what still waits, shortly before the update)
 export function beforeWindow(date,w=DEFAULT_WINDOW,lead=30){const d=(mins(w.from)-minuteIn(date,w.tz)+1440)%1440;return d>0&&d<=lead}
 

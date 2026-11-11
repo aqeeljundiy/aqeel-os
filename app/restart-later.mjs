@@ -1,10 +1,11 @@
 // Engine restarts that can wait (7 Nov 2026, owner): a restart drops every channel for 2 to 4 minutes, so one that an
 // agent asks for (apply_changes, its own settings) or that aqeelOS wants for itself (agent defaults, the aqeelos-live
 // plugin, new tool lists, n8n) waits for the quiet hours, 01:00 to 05:00 in the install's time zone. They are
-// collected and done as one restart. App and tool-server changes need none: the engine re-reads config.yaml by itself
+// collected and done as one restart. A script on the box asks for one by dropping <data>/restart-request.json {"why"} (the nightly
+// entry of scripts/services.sh does: the same path as everything else, no loop of its own). App and tool-server changes need none: the engine re-reads config.yaml by itself
 // ("MCP servers reconciled with config"). Restarts the owner asks for (Restart agents, channels, a restore) and
 // repairs (no engine running, wrong home) stay immediate. Any immediate restart also covers what was waiting.
-import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,rename,unlink} from 'node:fs/promises';
 import path from 'node:path';
 
 export const QUIET={from:1,to:5};
@@ -14,7 +15,7 @@ export const inQuiet=(date,tz)=>{const h=hourIn(date,tz);return h>=QUIET.from&&h
 
 // inWindow/label: the install's maintenance window (maintenance.mjs) instead of the fixed hours above (12 Nov 2026)
 export function createRestartLater({DATA,restart,tz=()=>'',now=()=>new Date(),log=m=>console.log(m),inWindow=d=>inQuiet(d,tz()),label=()=>'the quiet hours ('+QUIET.from+':00-'+QUIET.to+':00)'}){
- const FILE=path.join(DATA,'restart-later.json');let st=null;
+ const FILE=path.join(DATA,'restart-later.json'),REQ=path.join(DATA,'restart-request.json');let st=null;
  const load=async()=>st||=await readFile(FILE,'utf8').then(JSON.parse).catch(()=>({whys:[],since:0}));
  const save=async()=>{await mkdir(DATA,{recursive:true});const t=FILE+'.'+process.pid+'.tmp';await writeFile(t,JSON.stringify(st));await rename(t,FILE)};
  // queue a reason; the same reason once
@@ -22,8 +23,10 @@ export function createRestartLater({DATA,restart,tz=()=>'',now=()=>new Date(),lo
   if(!st.since)st.since=now().getTime();await save();log('engine restart waits for '+label()+': '+w);return {queued:true,whys:[...st.whys]}}
  // an immediate restart happened: everything waiting is covered by it
  async function covered(){await load();if(!st.whys.length)return;st={whys:[],since:0};await save()}
+ // a script's request file (scripts/services.sh): queued like any other reason, then deleted
+ async function take(){let t='';try{t=await readFile(REQ,'utf8')}catch{return false}await unlink(REQ).catch(()=>{});let w='';try{w=JSON.parse(t).why}catch{w=t.trim()}await add(String(w||'requested by a script').replace(/\s+/g,' ').slice(0,160));return true}
  // every few minutes: in the quiet hours, one restart for everything waiting
- async function tick(){await load();if(!st.whys.length||!inWindow(now()))return false;const whys=st.whys;st={whys:[],since:0};await save();
+ async function tick(){await take();await load();if(!st.whys.length||!inWindow(now()))return false;const whys=st.whys;st={whys:[],since:0};await save();
   await restart('quiet-hours restart: '+whys.join('; ').slice(0,300));return true}
  const pending=async()=>{await load();return {whys:[...st.whys],since:st.since}};
- return {add,covered,tick,pending}}
+ return {add,covered,tick,take,pending}}
