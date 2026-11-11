@@ -520,7 +520,7 @@ const Secrets={timer:null,
  give(){const slot=$('#secretSlot');if(!slot)return;if(slot.querySelector('.give'))return slot.querySelector('.give [data-ctx]').focus();const who=esc(AGENT());
   slot.insertAdjacentHTML('beforeend',`<div class="secret-card give" data-id="give"><span class="ic">${icon('lock',17)}</span><div class="sc-main"><b>Send a secret to ${who}</b>
    <span class="hint">${who} never sees the value. It stays on your AI box as a key ${who} can type into a login or use in a command.</span>
-   <label class="sc-lbl">What is it?</label><input data-ctx autocomplete="off" placeholder="e.g. Gmail password for ops@company.com"><span class="sc-name"></span>
+   <label class="sc-lbl">What is it?</label><input data-ctx autocomplete="off" placeholder="e.g. Gmail password for ops@example.com"><span class="sc-name"></span>
    <div class="sc-lblrow"><label class="sc-lbl">Value</label><button type="button" class="sc-show" data-act="secret-eye" aria-pressed="false">${icon('eye',14)}<span>Show</span></button></div><input type="password" data-val autocomplete="off" spellcheck="false" placeholder="Type or paste it here">
    <span class="sc-err"></span>
    <div class="sc-actions"><span class="grow"></span><button class="ghost" data-act="secret-cancel">Cancel</button><button class="primary" data-act="secret-send">${icon('lock',14)}Send securely</button></div></div></div>`);

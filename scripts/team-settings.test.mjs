@@ -9,8 +9,8 @@ let n=0;const t=async(name,f)=>{await f();n++;console.log('ok',name)};
 const AG=['default','sela','a1','a2'];
 
 await t('a person: ids cleaned, unknown agents dropped from full authority',()=>{
- const p=cleanPerson({name:' Ari ',telegram:'1339820731, abc, 12',telegram_names:['@xvr','xvr'],whatsapp:['+62 812-3456-7890','12'],full_authority:['a1','zz']},['a1','a2']);
- assert.deepEqual(p,{name:'Ari',telegram:['1339820731'],telegram_names:['xvr'],whatsapp:['+6281234567890'],full_authority:['a1']})});
+ const p=cleanPerson({name:' Ari ',telegram:'1000000002, abc, 12',telegram_names:['@xvr','xvr'],whatsapp:['+62 812-3456-7890','12'],full_authority:['a1','zz']},['a1','a2']);
+ assert.deepEqual(p,{name:'Ari',telegram:['1000000002'],telegram_names:['xvr'],whatsapp:['+6281234567890'],full_authority:['a1']})});
 await t('teams: one team per agent, unique names, aliases only for its agents, contact must be a member',()=>{
  const out=cleanTeams([{name:'A',agents:['a1','a2','zz'],aliases:{a1:['Rory'],sela:['x']},members:[{name:'M'},{name:'M'},{name:''}],contact:'Nobody'},{name:'B',agents:['a2','sela'],members:[{name:'K'}],contact:'K'}],AG);
  assert.deepEqual(out[0].agents,['a1'],'a2 moved to B, zz is unknown');assert.deepEqual(out[0].aliases,{a1:['Rory']});assert.deepEqual(out[0].members,[{name:'M'}]);assert.equal(out[0].contact,undefined);

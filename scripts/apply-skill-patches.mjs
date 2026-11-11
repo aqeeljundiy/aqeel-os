@@ -40,7 +40,7 @@ with its own sign-in; the OAuth client (google_client_secret.json) is shared, so
 - **See which accounts exist:** \`python3 scripts/setup.py --list-accounts\` ("(default)" is the account added without a name).
 - **Add another account:** pick a short name (letters, digits, - or _), then run the usual sign-in with \`--account NAME\`:
   \`setup.py --account work --auth-url\` → send the link → \`setup.py --account work --auth-code CODE\` → \`setup.py --account work --check\`.
-  Ask which email they signed in with and remember it (memory: "Google accounts: work = a@company.com, personal = b@gmail.com").
+  Ask which email they signed in with and remember it (memory: "Google accounts: work = a@example.com, personal = b@example.com").
 - **Use an account:** put \`--account NAME\` on EVERY command, e.g. \`google_api.py --account work gmail search "is:unread"\`
   or \`gws_bridge.py --account work gmail users messages list ...\`. No flag = the default account.
   (Or set \`HERMES_GOOGLE_ACCOUNT=work\` for one command.)

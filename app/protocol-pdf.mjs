@@ -2,7 +2,7 @@
 // of the Continue support agent. Same calls, now in aqeelOS: log in to the member app as the line's admin user, find the member
 // by THIS chat's own number (never one from the model), refuse when two members share it or none has a protocol, and download
 // "all protocols" as one PDF. Setting, per line in kirimdev.json:
-//   "protocolPdf": {"baseUrl":"https://member.continuelife.id","email":"randy@admin.com","secret":"CONTINUE_MEMBER_RANDY_PASSWORD","lang":"id","filename":"Protokol Continue.pdf","caption":"Ini protokolnya, kak."}
+//   "protocolPdf": {"baseUrl":"https://member.example.com","email":"admin@example.com","secret":"MEMBER_ADMIN_PASSWORD","lang":"id","filename":"Protocol.pdf","caption":"Ini protokolnya, kak."}
 // secret = the name of a file in the agent's .secrets (never the value). Result: {pdf:Buffer, filename, caption} or {none:'why'}.
 import {readFile} from 'node:fs/promises';
 import path from 'node:path';

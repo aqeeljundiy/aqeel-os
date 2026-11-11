@@ -11,27 +11,27 @@ import {split,parseList,formatList,channelWho,globalWho,parseEnv,setEnvLine,same
 const TMP=[];after(()=>{for(const d of TMP)rmSync(d,{recursive:true,force:true})});   // the scratch folders go when the tests end
 function mappingDir(pairs){const d=mkdtempSync(path.join(tmpdir(),'aq-lid-'));TMP.push(d);for(const [phone,lid] of pairs){writeFileSync(path.join(d,'lid-mapping-'+phone+'.json'),JSON.stringify(lid+'@lid'));writeFileSync(path.join(d,'lid-mapping-'+lid+'_reverse.json'),JSON.stringify(phone+'@s.whatsapp.net'))}
  return d}
-const DIR=mappingDir([['628111116879','128822227789555'],['628222223417','139933330843555']]);
+const DIR=mappingDir([['6280000000005','100000000000001'],['6280000000006','100000000000002']]);
 // read only the files asked for, as the server does
 const asked=[];const MAP=n=>{asked.push(n);try{return readFileSync(path.join(DIR,n),'utf8')}catch{return null}};
 
 test('WhatsApp aliases: phone and LID are one person; only the files for the IDs asked about are read',()=>{asked.length=0;
- assert.deepEqual([...waAliases('628111116879@s.whatsapp.net',MAP)].sort(),['128822227789555','628111116879']);
- assert.ok(asked.every(n=>/628111116879|128822227789555/.test(n)),'no other mapping file read');
- assert.ok(samePerson('whatsapp','+628111116879','128822227789555',MAP));assert.ok(!samePerson('whatsapp','628111116879','139933330843555',MAP));
+ assert.deepEqual([...waAliases('6280000000005@s.whatsapp.net',MAP)].sort(),['100000000000001','6280000000005']);
+ assert.ok(asked.every(n=>/6280000000005|100000000000001/.test(n)),'no other mapping file read');
+ assert.ok(samePerson('whatsapp','+6280000000005','100000000000001',MAP));assert.ok(!samePerson('whatsapp','6280000000005','100000000000002',MAP));
  assert.ok(samePerson('whatsapp','6281:4@s.whatsapp.net','6281',{}))});
 
 test('one row per person; .env entries the engine lists as approvals (source) are list entries, never approvals or names',()=>{
- const env={WHATSAPP_ALLOWED_USERS:'628111116879,128822227789555,139933330843555,628999'};
- const approved=[{platform:'whatsapp',user_id:'128822227789555',user_name:'Wife'},{platform:'whatsapp',user_id:'628999',user_name:'(added in settings file)',source:'WHATSAPP_ALLOWED_USERS'}];
+ const env={WHATSAPP_ALLOWED_USERS:'6280000000005,100000000000001,100000000000002,628999'};
+ const approved=[{platform:'whatsapp',user_id:'100000000000001',user_name:'Wife'},{platform:'whatsapp',user_id:'628999',user_name:'(added in settings file)',source:'WHATSAPP_ALLOWED_USERS'}];
  const c=channelWho(env,'whatsapp',approved,MAP);assert.equal(c.rows.length,3);
- const w=c.rows.find(r=>r.name==='Wife');assert.equal(w.id,'628111116879');assert.deepEqual(w.aliases,['128822227789555']);assert.ok(w.approved&&w.listed);
+ const w=c.rows.find(r=>r.name==='Wife');assert.equal(w.id,'6280000000005');assert.deepEqual(w.aliases,['100000000000001']);assert.ok(w.approved&&w.listed);
  const x=c.rows.find(r=>r.id==='628999');assert.equal(x.name,'','no placeholder name');assert.equal(x.approved,false,'list only')});
 
 test('group IDs are not people: kept out of the rows and shown as groups',()=>{
- const env={WHATSAPP_ALLOWED_USERS:'628111116879',WHATSAPP_GROUP_ALLOWED_USERS:'1203634209@g.us'};
- const c=channelWho(env,'whatsapp',[{platform:'whatsapp',user_id:'1203634209@g.us',user_name:'Group (added in settings file)',source:'WHATSAPP_GROUP_ALLOWED_USERS'}],MAP);
- assert.deepEqual(c.rows.map(r=>r.id),['628111116879']);assert.equal(c.groups[0].id,'1203634209@g.us');
+ const env={WHATSAPP_ALLOWED_USERS:'6280000000005',WHATSAPP_GROUP_ALLOWED_USERS:'1200000000001@g.us'};
+ const c=channelWho(env,'whatsapp',[{platform:'whatsapp',user_id:'1200000000001@g.us',user_name:'Group (added in settings file)',source:'WHATSAPP_GROUP_ALLOWED_USERS'}],MAP);
+ assert.deepEqual(c.rows.map(r=>r.id),['6280000000005']);assert.equal(c.groups[0].id,'1200000000001@g.us');
  const t=channelWho({},'telegram',[],{},{platforms:{telegram:{group_allowed_chats:-1001234567890}}});assert.equal(t.groups[0].id,'-1001234567890');assert.match(t.groups[0].where,/config\.yaml/)});
 
 test('lists are read and written like the engine: commas only, or a JSON list kept as JSON; truthy is true/1/yes only',()=>{
@@ -85,8 +85,8 @@ test('a listed person is removed without touching approvals the engine only echo
  assert.deepEqual(f.log,[['TELEGRAM_ALLOWED_USERS','6']]);assert.deepEqual(f.revoked,[],'nothing to revoke: it was only on the list');assert.equal(r.still,false);assert.equal(f.reads(),2)});
 
 test('a row that is both: off the list and its real approval (every alias)',async()=>{
- const env={WHATSAPP_ALLOWED_USERS:'628111116879,128822227789555,628999'},f=fakeIo(env,[{platform:'whatsapp',user_id:'128822227789555',user_name:'Wife'}],MAP);
- const r=await removePerson(f.io,{pf:'whatsapp',id:'628111116879'});assert.equal(env.WHATSAPP_ALLOWED_USERS,'628999');assert.deepEqual(f.revoked,[['whatsapp','128822227789555']]);assert.equal(r.still,false)});
+ const env={WHATSAPP_ALLOWED_USERS:'6280000000005,100000000000001,628999'},f=fakeIo(env,[{platform:'whatsapp',user_id:'100000000000001',user_name:'Wife'}],MAP);
+ const r=await removePerson(f.io,{pf:'whatsapp',id:'6280000000005'});assert.equal(env.WHATSAPP_ALLOWED_USERS,'628999');assert.deepEqual(f.revoked,[['whatsapp','100000000000001']]);assert.equal(r.still,false)});
 
 test('a secondary agent\'s removal never touches the main agent\'s .env, and the check proves it',async()=>{
  const main={text:'TELEGRAM_ALLOWED_USERS=0731\n'},env={TELEGRAM_ALLOWED_USERS:'0731,9'},f=fakeIo(env,[{platform:'telegram',user_id:'0731',user_name:'xvr'}],{},{main});
@@ -117,14 +117,14 @@ test('the after-check sees every way in: the list for every channel, "*", the an
  const f=fakeIo({},[{platform:'telegram',user_id:'5'}]);f.io.revoke=async()=>{};r=await removePerson(f.io,{pf:'telegram',id:'5'});assert.match(r.why.join(),/approval/)});
 
 test('"Every channel" takes them off every list (aliases too) and every real approval; that list needs a restart',async()=>{
- const env={GATEWAY_ALLOWED_USERS:'628111116879,9',WHATSAPP_ALLOWED_USERS:'128822227789555',TELEGRAM_ALLOWED_USERS:'628111116879'},f=fakeIo(env,[{platform:'whatsapp',user_id:'628111116879'}],MAP);
- const r=await removePerson(f.io,{pf:'',id:'628111116879',every:true});
+ const env={GATEWAY_ALLOWED_USERS:'6280000000005,9',WHATSAPP_ALLOWED_USERS:'100000000000001',TELEGRAM_ALLOWED_USERS:'6280000000005'},f=fakeIo(env,[{platform:'whatsapp',user_id:'6280000000005'}],MAP);
+ const r=await removePerson(f.io,{pf:'',id:'6280000000005',every:true});
  assert.equal(env.GATEWAY_ALLOWED_USERS,'9');assert.equal(env.WHATSAPP_ALLOWED_USERS,undefined);assert.equal(env.TELEGRAM_ALLOWED_USERS,undefined);assert.equal(f.revoked.length,1);assert.equal(r.restart,true);assert.equal(r.still,false);
- assert.deepEqual(globalWho({GATEWAY_ALLOWED_USERS:'628111116879,128822227789555'},MAP).rows.length,1,'aliases merged on the every-channel list')});
+ assert.deepEqual(globalWho({GATEWAY_ALLOWED_USERS:'6280000000005,100000000000001'},MAP).rows.length,1,'aliases merged on the every-channel list')});
 
 test('the approved file loses every alias of the person, and nothing else',()=>{
- const {data,gone}=approvedWithout({'128822227789555':{user_name:'Wife'},'628999':{user_name:'B'}},'whatsapp',['628111116879'],MAP);
- assert.deepEqual(gone,['128822227789555']);assert.deepEqual(Object.keys(data),['628999'])});
+ const {data,gone}=approvedWithout({'100000000000001':{user_name:'Wife'},'628999':{user_name:'B'}},'whatsapp',['6280000000005'],MAP);
+ assert.deepEqual(gone,['100000000000001']);assert.deepEqual(Object.keys(data),['628999'])});
 
 test('the engine is only told about the list: a paused channel stays paused',()=>{
  assert.deepEqual(engineChange('WHATSAPP_ALLOWED_USERS','1'),{env:{WHATSAPP_ALLOWED_USERS:'1'}});assert.ok(!('enabled' in engineChange('K','1')))});

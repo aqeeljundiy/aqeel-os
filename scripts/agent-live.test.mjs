@@ -9,7 +9,7 @@ import {fileURLToPath} from 'node:url';
 import {createAgentLive,senderRole,errorSig} from '../app/agent-live.mjs';
 
 const here=path.dirname(fileURLToPath(import.meta.url));const ENGINE=path.join(here,'..','engine','aqeelos-live');
-const POLICY={owner:{name:'Abel',telegram:['1000000001'],whatsapp:['6281200000001']},teams:[{name:'Cove',agents:['cove-support'],members:[{name:'Ari',telegram:['1339820731'],full_authority:['cove-support']}]}]};
+const POLICY={owner:{name:'Abel',telegram:['1000000001'],whatsapp:['6281200000001']},teams:[{name:'Cove',agents:['cove-support'],members:[{name:'Ari',telegram:['1000000002'],full_authority:['cove-support']}]}]};
 const TB='Traceback (most recent call last):\n  File "/home/claude/workspaces/cove-support/test_chat_watchdog.py", line 10, in <module>\n    r=json.loads(x)\n  File "/usr/lib/python3.12/json/__init__.py", line 346, in loads\n    return d(s)\njson.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)';
 
 async function make(){const H=await mkdtemp(path.join(tmpdir(),'al-'));await mkdir(path.join(H,'profiles','cove-support'),{recursive:true});await mkdir(path.join(H,'profiles','default--whatsapp-2'),{recursive:true});
@@ -22,7 +22,7 @@ async function make(){const H=await mkdtemp(path.join(tmpdir(),'al-'));await mkd
 test('the sender is checked against the team policy, never by display name',()=>{
  assert.equal(senderRole(POLICY,'telegram','1000000001').role,'owner');
  assert.equal(senderRole(POLICY,'whatsapp','6281200000001@s.whatsapp.net').role,'owner');
- assert.deepEqual(senderRole(POLICY,'telegram','1339820731'),{role:'member',name:'Ari',team:'Cove',full:['cove-support']});
+ assert.deepEqual(senderRole(POLICY,'telegram','1000000002'),{role:'member',name:'Ari',team:'Cove',full:['cove-support']});
  assert.equal(senderRole(POLICY,'telegram','999'),null);assert.equal(senderRole(POLICY,'slack','1000000001'),null);assert.equal(senderRole(POLICY,'telegram',''),null)});
 
 test('a chat gets the capability list on its first turn and again only when it changed; customers and schedules never',async()=>{const {L,setCaps,tick}=await make();
@@ -32,7 +32,7 @@ test('a chat gets the capability list on its first turn and again only when it c
  setCaps(['Checked by aqeelOS at later.','- Tools: lockbox, my_health, new_tool']);tick(61e3);
  const changed=await L.context('cove-support',{platform:'telegram',sender:'1000000001',seen:r.hash});assert.match(changed.text,/new_tool/);assert.notEqual(changed.hash,r.hash);
  const stranger=await L.context('cove-support',{platform:'telegram',sender:'42',seen:changed.hash});assert.match(stranger.text,/not verified as the owner/);
- const member=await L.context('cove-support',{platform:'telegram',sender:'1339820731',seen:changed.hash});assert.match(member.text,/Ari \(team Cove\)[\s\S]*changes to your own work/);
+ const member=await L.context('cove-support',{platform:'telegram',sender:'1000000002',seen:changed.hash});assert.match(member.text,/Ari \(team Cove\)[\s\S]*changes to your own work/);
  assert.equal((await L.context('cove-support',{platform:'whatsapp',sender:'628111',first:true})).text,'');
  assert.equal((await L.context('cove-support',{platform:'cron',first:true})).text,'');
  for(const pf of ['cli','tool','oneshot'])assert.doesNotMatch((await L.context('cove-support',{platform:pf,sender:'uid:1001',first:true})).text,/Sender check/)});

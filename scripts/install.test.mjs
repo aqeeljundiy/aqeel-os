@@ -51,7 +51,7 @@ test('the address check proves it reaches this very install',async()=>{
  const hit=body=>async url=>{assert.match(String(url),/\/install-ping$/);return {ok:true,status:200,json:async()=>body}};
  assert.deepEqual(await I.checkAddress('https://ai.example.com',{fetchImpl:hit({id})}),{ok:true,url:'https://ai.example.com',https:true,why:''});
  const other=await I.checkAddress('https://ai.example.com',{fetchImpl:hit({id:'someone-else'})});assert.equal(other.ok,false);assert.match(other.why,/different aqeelOS/);
- const plain=await I.checkAddress('http://1.2.3.4:4400',{fetchImpl:hit({id})});assert.equal(plain.ok,true);assert.match(plain.why,/https/);
+ const plain=await I.checkAddress('http://192.0.2.4:4400',{fetchImpl:hit({id})});assert.equal(plain.ok,true);assert.match(plain.why,/https/);
  const down=await I.checkAddress('https://ai.example.com',{fetchImpl:async()=>{throw new TypeError('fetch failed')}});assert.equal(down.ok,false);assert.match(down.why,/Nothing answers/);
  const bad=await I.checkAddress('https://ai.example.com',{fetchImpl:async()=>({ok:false,status:502,json:async()=>({})})});assert.match(bad.why,/502/);
  assert.equal((await I.checkAddress('',{fetchImpl:hit({id})})).ok,false)});

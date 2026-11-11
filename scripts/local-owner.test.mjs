@@ -4,7 +4,7 @@ const K='a'.repeat(64),ok=(o={})=>localAllowed({remote:'127.0.0.1',headers:{'x-a
 test('guard: loopback + key + no forwarded header',()=>{assert.equal(ok(),true);assert.equal(ok({remote:'::1'}),true);assert.equal(ok({remote:'::ffff:127.0.0.1'}),true);
  assert.equal(ok({remote:'10.0.0.5'}),false);assert.equal(ok({remote:undefined}),false);
  assert.equal(ok({headers:{'x-aqeel-local':'b'.repeat(64)}}),false);assert.equal(ok({headers:{}}),false);assert.equal(ok({key:''}),false);assert.equal(ok({headers:{'x-aqeel-local':K.slice(1)}}),false);
- for(const h of['x-forwarded-for','cf-connecting-ip'])assert.equal(ok({headers:{'x-aqeel-local':K,[h]:'1.2.3.4'}}),false)});
+ for(const h of['x-forwarded-for','cf-connecting-ip'])assert.equal(ok({headers:{'x-aqeel-local':K,[h]:'192.0.2.4'}}),false)});
 test('key: 64 hex, mode 600 where supported, kept',async()=>{const d=await mkdtemp(path.join(tmpdir(),'lo-'));const k=await ensureKey(d);assert.match(k,/^[0-9a-f]{64}$/);assert.equal(await ensureKey(d),k);
  if(process.platform!=='win32')assert.equal((await stat(path.join(d,'local-owner.key'))).mode&0o777,0o600)});
 test('dispatch by kind',async()=>{const calls=[];const deps={conflicts:{decide:async(...a)=>(calls.push(['c',...a]),{answered:{applied:'x'}})},questions:{answer:async(...a)=>(calls.push(['q',...a]),{answered:{text:'t'}})},runGates:{decide:async(...a)=>(calls.push(['g',...a]),{ok:true})}};

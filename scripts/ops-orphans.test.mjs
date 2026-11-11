@@ -40,7 +40,7 @@ test('ports, clients and Postgres client backends are read from ss and ps lines'
  const d=tmp();
  writeFileSync(d+'/l.txt','LISTEN 0 511 *:3199 *:* users:(("next-server (v1",pid=1020365,fd=18))\nLISTEN 0 200 127.0.0.1:55432 0.0.0.0:* users:(("postgres",pid=1305553,fd=8))\nLISTEN 0 511 0.0.0.0:4403 0.0.0.0:* users:(("node",pid=3131226,fd=20))\n');
  assert.equal(sh(`orphan_ports 1020365 < '${d}/l.txt'`,d).out,'3199');assert.equal(sh(`orphan_ports 31226 < '${d}/l.txt'`,d).out,'','a pid that only ends the same is not it');
- writeFileSync(d+'/e.txt','0 0 127.0.0.1:3199 127.0.0.1:41234\n0 0 10.0.0.2:22 10.0.0.9:5000\n0 0 [::ffff:10.0.0.2]:3199 [::ffff:1.2.3.4]:6000\n');
+ writeFileSync(d+'/e.txt','0 0 127.0.0.1:3199 127.0.0.1:41234\n0 0 10.0.0.2:22 10.0.0.9:5000\n0 0 [::ffff:10.0.0.2]:3199 [::ffff:192.0.2.4]:6000\n');
  assert.equal(sh(`orphan_clients '3199 3200' < '${d}/e.txt'`,d).out,'2');assert.equal(sh(`orphan_clients '' < '${d}/e.txt'`,d).out,'0');
  writeFileSync(d+'/p.txt',['500 1 claude 100 /x/postgres -D /h/cache/scratch/a','501 500 claude 100 postgres: io worker 0','502 500 claude 100 postgres: checkpointer ','503 500 claude 50 postgres: autovacuum worker db',
   '504 500 claude 20 postgres: postgres postgres 127.0.0.1(51234) idle','505 500 claude 10 postgres: app mydb [local] SELECT','600 1 claude 100 postgres: postgres postgres [local] idle'].join('\n')+'\n');

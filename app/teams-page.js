@@ -71,7 +71,7 @@ PAGES.teams=async(p,el)=>{viewPick([]);await Teams.show(el)};
 
 // a person's fields (owner or member): name, Telegram ids and names, WhatsApp numbers
 Teams.personFields=(p,k,named=true)=>`${named?`<label>Name</label><input data-f="name" maxlength="60" value="${esc(p.name||'')}" placeholder="Ari">`:''}
- <div class="tm-two"><div><label>Telegram user ID</label><input data-f="telegram" value="${esc((p.telegram||[]).join(', '))}" inputmode="numeric" placeholder="1339820731"></div>
+ <div class="tm-two"><div><label>Telegram user ID</label><input data-f="telegram" value="${esc((p.telegram||[]).join(', '))}" inputmode="numeric" placeholder="1000000002"></div>
  <div><label>Telegram name</label><input data-f="telegram_names" value="${esc((p.telegram_names||[]).join(', '))}" placeholder="ari"></div></div>
  <label>WhatsApp number</label><input data-f="whatsapp" value="${esc((p.whatsapp||[]).join(', '))}" inputmode="tel" placeholder="+62 812 3456 7890">`;
 Teams.readPerson=box=>{const v=f=>box.querySelector(`[data-f="${f}"]`)?.value||'',l=f=>v(f).split(',').map(x=>x.trim()).filter(Boolean);
