@@ -1109,6 +1109,8 @@ const hapiStatus=swr({fresh:5000});   // GET /hapi/status, per query
 // an agent's tool groups (measured 11.7 s on the box) and skills list (up to 4.4 s): the All agents views ask every agent,
 // so the last answer (20 s) comes at once and is read again behind the scenes; any engine change drops it
 const hapiLists=swr({fresh:20000});
+// read once when the app starts, so the first page after a restart (every deploy) does not wait for a busy engine either
+if(LIVE_APP)setTimeout(()=>{for(const p of ['/profiles','/profiles/active'])hapiLists.get('/hapi'+p+'?',()=>fetch(DASH.origin+'/api'+p,{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(async r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json()})).catch(()=>{})},3000).unref?.();
 // the slow status reads are read once soon after start (read-only), so even the first page that asks answers from them
 setTimeout(()=>{channelList(false).catch(()=>{});antigravity.status().catch(()=>{});n8n.spaces().catch(()=>{})},15000).unref();
 // System › Usage's engine reports (last 7 days, and the 62 the Spending overview needs) for every agent, once after start, so
@@ -2032,7 +2034,9 @@ async function hermesCall(req,res,u,url){
   const read=()=>fetch(DASH.origin+'/api/status'+(k?'?'+k:''),{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(async r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json()});
   if(hit&&'v' in hit&&!req.headers['x-fresh'])return send(res,200,transform(await hapiStatus.get(k,read)));
   try{return send(res,200,transform(await hapiStatus.get(k,read,{force:true})))}catch{}}
- if((p==='/hapi/tools/toolsets'||p==='/hapi/skills')&&req.method==='GET'&&!req.headers['x-fresh']){const k=p+'?'+q.toString();
+ // the agent list and the active agent too (11 Nov 2026): the page draws nothing until both answer, and P&P's dashboard took
+ // 0.5 to 18 s under load, so the page stayed blank. Each person's own filter (transform) still runs on every answer.
+ if((p==='/hapi/tools/toolsets'||p==='/hapi/skills'||p==='/hapi/profiles'||p==='/hapi/profiles/active')&&req.method==='GET'&&!req.headers['x-fresh']){const k=p+'?'+q.toString();
   const read=()=>fetch(DASH.origin+'/api'+p.slice(5)+'?'+q.toString(),{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(async r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json()});
   try{return send(res,200,transform(await hapiLists.get(k,read)))}catch{}}   // the engine failed: the plain pass-through below says why
  if(p.startsWith('/hapi/'))return proxy(req,res,DASH,'/hapi',{'x-hermes-session-token':DASH_TOKEN},{transform,body});
