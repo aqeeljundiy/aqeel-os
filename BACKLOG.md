@@ -39,12 +39,12 @@ Checked against P&P's live data and the code on 11 Nov: Aldillah is an employee,
 
 ### 3. Long-term reliability rules
 - [ ] **OPS-2** Each agent runs in its own container group with a memory cap, and one command stops everything it started.
-- [ ] **OPS-3** Restarts back off, and after 5 failures in an hour they stop and file one issue.
+- [~] **OPS-3** Restarts back off (5 s, 30 s, 2 min, 10 min) and after 5 failures in an hour stop and file one issue. Built for agent screens and their Chrome (`scripts/agent-users.sh`, issue via `app/box-ops.mjs`), tested on the box as the claude user; waiting for your yes to deploy. Engine schedules that fail every run are not covered yet.
 - [ ] **OPS-4** A screen and Chrome left idle for 30 min go to sleep and wake on use.
-- [ ] **OPS-5** Janitor: every minute it compares expected and running processes per agent, reports anything extra and removes it.
+- [~] **OPS-5** Janitor: every minute it compares expected and running screen processes per agent, reports anything extra and removes it a minute later. Built; a dry count on Elkiya gave 35 expected, 35 running. Shown under System › Per agent with each agent's memory. Waiting for your yes to deploy.
 - [~] **OPS-6** Deploy checks: AI-dependent checks report but don't block, and a failed check gets one retry. Built 11 Nov (scripts/box-check.sh, scripts/live-test.mjs): pages, fast switching, the button check and every live-test check get one more try before they count; My browser and a test-agent answer without the check word or colour are reported ("Reported, not counted" on System › Health), never a reason to stop or undo. Done once a deploy without MB_CHECK/FLICKER_CHECK/SKIP_CHECKS passes on both servers.
-- [ ] **OPS-7** Logs, old patches and test users expire. Elkiya's disk is 73% full.
-- [~] **OPS-8** [OPERATIONS.md](OPERATIONS.md) written (11 Nov). Still to do: tests that fail when new code breaks a rule.
+- [~] **OPS-7** Fixer patches, drift saves, .bak copies, ~/backups, broken Python environments and deploy files expire after 30 days; long engine and screen logs are cut; gone test agents leave the test list; backups cut off by a restart no longer leave their file in /tmp. Built, waiting for your yes to deploy. 11 Nov: Elkiya's disk was at 99% (5.7 GB free) because seven cut-off backups had each left 26 GB in /tmp; removed with your yes, now 54%.
+- [~] **OPS-8** [OPERATIONS.md](OPERATIONS.md) written (11 Nov). Tests that fail when code breaks rules 1, 3, 4 and 7: `scripts/ops-rules.test.mjs`. Rule 6's test comes with OPS-6. Goes live with the deploy.
 - [ ] **OPS-12** Design question before building OPS-4: when an agent's sleeping screen is needed again, what wakes it? The engine's browser tool connects straight to Chrome's port, so the likely answer is a small proxy on that port that starts the screen on first use.
 
 ### 4. Health and fixer redesign

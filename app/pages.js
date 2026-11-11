@@ -1233,6 +1233,8 @@ PAGES.host=async(p,el)=>{const gone=pageTok(el);
  ${s.psutil===false?`<p class="hint" style="margin:-4px 0 16px">CPU, RAM and disk details need the engine’s psutil add-on (pip install psutil on the AI box), so some numbers above may be missing.</p>`:''}
  ${bm&&box.parts?.length?`<div class="panel card mem-parts"><h2>What uses RAM</h2><p class="sub">The AI box has ${bytes(bm.limit)} of RAM of its own. Near the limit, the system stops the biggest program (often the browser or a reply in progress).${bm.oom_kills?` It has done that ${bm.oom_kills} time${bm.oom_kills>1?'s':''}.`:''}</p>
   ${box.parts.map(x=>`<div class="mem-row"><span>${esc(x.name)}</span><i style="--w:${Math.max(2,Math.round(x.bytes/bm.limit*100))}%"></i><b>${bytes(x.bytes)}</b></div>`).join('')}</div>`:''}
+ ${bm&&(box.agents?.length||box.processes)?`<div class="panel card mem-parts"><h2>Per agent</h2><p class="sub">${box.processes?`Screen processes: ${esc(box.processes.text)}.`:''} What each agent with its own user runs (its screen, Chrome and commands).</p>
+  ${(box.agents||[]).map(x=>`<div class="mem-row"><span>${esc(x.agent)}</span><i style="--w:${Math.max(2,Math.round(x.bytes/bm.limit*100))}%"></i><b>${bytes(x.bytes)}</b></div>`).join('')}</div>`:''}
  <div id="autoBox"></div>
  <div id="updBox"></div>
  <div class="two"><div>

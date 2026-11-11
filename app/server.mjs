@@ -42,6 +42,7 @@ import {createShare} from './share.mjs';
 import {createConnectors,notConnected,contextLines as connectLines,isConnector} from './connectors.mjs';
 import {createRelay} from './relay.mjs';
 import {boxMemory} from './boxmem.mjs';
+import {createBoxOps} from './box-ops.mjs';
 import {createLinks} from './links.mjs';
 import {createLocalBrowser} from './localbrowser.mjs';
 import {createEngineConsole} from './engine-console.mjs';
@@ -1510,6 +1511,8 @@ const healthFix=async(a,x)=>{if(!await srEligible(a))throw Error('it cannot run 
  const prompt='aqeelOS found a problem in your own work and you fix it yourself now, without asking anyone.\n\nProblem: '+String(x.title||'')+(x.detail?'\nDetails: '+String(x.detail).slice(0,3000):'')+
   '\n\nFind the cause (my_health, my_logs, my_runs, my_schedules, your files and scripts), fix it in your own work, and check it works again (run the schedule or script once). Do not message the owner or customers. If the fix needs something only a person can give (a password, a sign-in, a decision), file it with report_bottleneck and stop. End with two lines: what was wrong, what you changed.';
  return selfRuns.start({agent:a,args:{prompt,reason:'aqeelOS health: '+String(x.title||'').slice(0,120),timeout_minutes:20},origin:{ok:true,by:{kind:'aqeelos',name:'aqeelOS health check'}},ws:path.join(homedir(),'workspaces',a)})};
+// operations rules on the app side (OPS-3 issues from the root script, OPS-5 process count, OPS-7 expiry): box-ops.mjs
+const boxOps=createBoxOps({HOME:homedir(),DATA,HERMES_HOME,fileIssue:o=>issues.file(o)});if(LIVE_APP)boxOps.start();
 // 7 Nov 2026: Health tells nobody; the agent fixes its own problem first (healthFix), then it is filed for the fixer (issues.mjs)
 const health=createAgentHealth({DATA,HERMES_HOME,bottlenecks,quiet:alertQuiet,fixFirst:(a,x)=>healthFix(a,x),fileIssue:o=>issues.file(o),healthGone:k=>issues.healthGone(k),
  // plain-code live checks (no model): the customer tools of each Kirimdev agent answer tools/list on the local route
@@ -2661,7 +2664,7 @@ const server=createServer(async(req,res)=>{
    // today's US dollar → rupiah rate, so costs can be shown in rupiah (fetched twice a day, last good one kept)
    if(p==='/ui/fx'&&req.method==='GET'){if(!FX.at||Date.now()-FX.at>12*3600e3){try{const r=await fetch('https://open.er-api.com/v6/latest/USD',{signal:AbortSignal.timeout(8000)});const j=await r.json();const rates=Object.fromEntries(Object.entries(j?.rates||{}).filter(([k,v])=>/^[A-Z]{3}$/.test(k)&&+v>0));if(rates.EUR)Object.assign(FX,{rates,at:Date.now(),day:(j.time_last_update_utc||'').slice(5,16)})}catch{}}
     return send(res,200,{rates:FX.rates,IDR:FX.rates.IDR,updated:FX.day||null})}
-   if(p==='/ui/box'&&req.method==='GET')return send(res,200,await boxMemory());
+   if(p==='/ui/box'&&req.method==='GET')return send(res,200,{...await boxMemory(),processes:await boxOps.janitor().catch(()=>null),agents:await boxOps.agentMemory().catch(()=>[])});
    // Google accounts an agent can use (the Google Workspace skill keeps one sign-in per account); never the tokens themselves
    if(p==='/ui/google-accounts'){const a=String(url.searchParams.get('agent')||'default');if(!(await listAllProfiles()).includes(a))return send(res,400,{error:'Unknown agent'});
     if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a))return send(res,403,{error:'Not your agent'});

@@ -21,13 +21,17 @@ Every long-running process belongs to exactly one starter: the agent-users scrip
 
 ## 3. Restarts back off, then stop and say so
 
-A process that fails is restarted with a growing wait (5 s, 30 s, 2 min, 10 min). After 5 failures within an hour it stays stopped and files **one** issue. It never loops silently. **(planned, OPS-3)**
+A process that fails is restarted with a growing wait (5 s, 30 s, 2 min, 10 min). After 5 failures within an hour it stays stopped and files **one** issue. It never loops silently.
+
+*Enforced:* agent screens (`restart_gate`) and their Chrome (`chrome_loop`) in `scripts/agent-users.sh`; the issue goes through `~/.aqeelos-agent-issues.jsonl` to `app/box-ops.mjs`. A given-up screen starts again after `echo <agent> >> ~/.aqeelos-agent-users.reset`. Tested in `scripts/agent-users.test.mjs` and `scripts/ops-rules.test.mjs`.
 
 *Incidents:* the screen loop above; schedules that fail on every run (Threads runners, 10–11 Nov).
 
 ## 4. Expected equals running
 
-A janitor compares, every minute, what should run for each agent with what does run. Anything extra is reported, then removed. Health shows it in one line ("47 expected, 47 running"). **(planned, OPS-5)**
+A janitor compares, every minute, what should run for each agent with what does run. Anything extra is reported, then removed. Health shows it in one line ("47 expected, 47 running").
+
+*Enforced:* the `janitor` in `scripts/agent-users.sh` (agent screens: one display, window manager, desktop, panel and Chrome each), written to `~/.aqeelos-janitor.json` and shown under System › Per agent with each agent's memory. The engine's and the app's own processes are not counted yet.
 
 ## 5. Only git reaches a server
 
@@ -48,8 +52,14 @@ A janitor compares, every minute, what should run for each agent with what does 
 
 ## 7. Everything temporary expires
 
-Logs rotate. Fixer patches, drift saves, test users and old backups are removed after 30 days. **(planned, OPS-7)**
+Logs rotate. Fixer patches, drift saves, test users and old backups are removed after 30 days.
+
+*Enforced:* `app/box-ops.mjs` once a day (fixer patches and work, drift, `*.bak-*` copies, `~/backups`, `*.broken-*` Python environments, deploy files in /tmp, engine logs over 50 MB cut to 5 MB, gone test agents off the list); `trim_logs` in `scripts/agent-users.sh` for screen logs; `dropLeftovers` in `app/backup.mjs` for backups cut off by a restart (55ec552).
+
+*Incident, 11 Nov 2026:* seven backups cut off by deploys each left a 26 GB file in /tmp; Elkiya's disk reached 99% (5.7 GB free). Removed with the owner's yes; the backup now removes them on start.
 
 ## 8. The rules are tested
 
-Tests fail when new code breaks a rule: for example, a screen or process launch that bypasses the shared starter, or a check marked blocking that calls a model. **(planned, OPS-8)**
+Tests fail when new code breaks a rule: for example, a screen or process launch that bypasses the shared starter, or a check marked blocking that calls a model.
+
+*Enforced:* `scripts/ops-rules.test.mjs` (rules 1, 3, 4, 7). Rule 6's check (a blocking check that calls a model) comes with OPS-6.

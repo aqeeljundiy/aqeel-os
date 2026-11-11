@@ -27,6 +27,15 @@ CHROME=/opt/aqeelos/chrome/chrome
 SRC=${AQEELOS_APP:-$HOMEC/apps/hermes-ui}/scripts/agent-users.sh
 # beaten every 30 s while watching: aqeelOS shows on the Agents page when this script is not running
 ALIVE=$REQ.alive
+# OPS-3: when each agent's screen was started (root only; gone with the box, which is a fresh start anyway), the ones
+# given up on, and the one-line problems aqeelOS files as issues (app/box-ops.mjs)
+RST=${AQ_RESTARTS:-/var/lib/aqeelos/restarts}
+ISSUES=$HOMEC/.aqeelos-agent-issues.jsonl
+# OPS-5: what the janitor found last (expected and running processes per agent), read by aqeelOS's Health
+JAN=$HOMEC/.aqeelos-janitor.json
+SEEN=${AQ_SEEN:-/var/lib/aqeelos/janitor-seen}
+# names written here by aqeelOS (or the fixer) get their screen tried again after it was given up on
+RESET=$REQ.reset
 
 setup_box(){
   # the file permission tools (setfacl) and SSH logins for the agents' users
@@ -103,6 +112,60 @@ screen_kill(){
   echo "screen for ${ws##*/}: stopped what an earlier start left running"
 }
 
+# A problem aqeelOS files as one issue (app/box-ops.mjs reads the file; same agent and key = same issue).
+report(){
+  local n=$1 key=$2 msg=$3
+  printf '{"at":%s,"agent":"%s","key":"%s","what":"%s"}\n' "$(date +%s)" "$n" "$key" "${msg//\"/\'}" >> "$ISSUES"
+  chown "$OWNER:$OWNER" "$ISSUES" 2>/dev/null; chmod 640 "$ISSUES" 2>/dev/null
+  echo "agent users: $n: $msg"
+}
+
+# OPS-3 (OPERATIONS.md rule 3). May the screen of agent $1 be started now? Every start is noted. A screen that has to be
+# started again waits 5 s, 30 s, 2 min, then 10 min after the start before; the 6th start within an hour (5 failures)
+# does not happen: the screen stays stopped and one issue is filed. 0 = start it, 1 = wait, 2 = given up.
+WAITS=(5 30 120 600 600)
+restart_gate(){
+  local n=$1 now=${2:-$(date +%s)} f="$RST/$1" recent cnt last
+  mkdir -p "$RST"; chmod 700 "$RST" 2>/dev/null
+  [ -f "$f.stopped" ] && return 2
+  recent=$(awk -v t=$((now-3600)) '$1+0>t' "$f" 2>/dev/null)
+  cnt=$(printf '%s' "$recent" | grep -c .)
+  if [ "$cnt" -ge 6 ]; then
+    echo "$now" > "$f.stopped"
+    report "$n" "screen-stopped" "its screen failed 5 times within an hour and is left stopped. See $HOMEC/workspaces/$n/.screen/xvnc.log and chrome.log; to try again: echo $n >> $RESET"
+    return 2
+  fi
+  if [ "$cnt" -gt 0 ]; then last=$(printf '%s\n' "$recent" | tail -1); [ $((now-last)) -lt "${WAITS[$((cnt-1))]}" ] && return 1; fi
+  { [ -n "$recent" ] && printf '%s\n' "$recent"; echo "$now"; } > "$f.tmp" && mv "$f.tmp" "$f"
+  return 0
+}
+# names in $RESET: their screens may be started again (the counts start over)
+take_resets(){
+  [ -s "$RESET" ] || return 0
+  local n
+  while read -r n; do
+    [[ "$n" =~ ^[a-z0-9][a-z0-9_-]{0,28}$ ]] || continue
+    rm -f -- "$RST/$n" "$RST/$n.stopped" "$HOMEC/workspaces/$n/.screen/chrome.stopped"
+    echo "agent users: $n: screen may start again"
+  done < "$RESET"
+  : > "$RESET"
+}
+
+# Chrome on an agent's screen, run by the screen's own launcher as the agent's user. It is started again when it exits,
+# waiting 5 s, 30 s, 2 min, 10 min; after 5 exits within an hour it stays stopped and says so in .screen/chrome.stopped
+# (the janitor files the issue). Passed to the agent's shell with declare -f.
+chrome_loop(){
+  local sd=$1; shift
+  local waits=(5 30 120 600 600) ts=() now c t
+  while kill -0 "$(cat "$sd/launcher.pid")" 2>/dev/null; do
+    "$@" >"$sd/chrome.log" 2>&1
+    now=$(date +%s); ts+=("$now"); c=0
+    for t in "${ts[@]}"; do [ $((now-t)) -lt 3600 ] && c=$((c+1)); done
+    if [ "$c" -ge 5 ]; then echo "$now" > "$sd/chrome.stopped"; return; fi
+    sleep "${waits[$((c-1))]}"
+  done
+}
+
 screen_up(){
   local n=$1 u=${2} ws="$HOMEC/workspaces/$1" sd="$HOMEC/workspaces/$1/.screen" line disp cdp
   line=$(port_of "$n"); disp=$(echo "$line" | cut -d' ' -f2); cdp=$(echo "$line" | cut -d' ' -f3)
@@ -113,6 +176,8 @@ screen_up(){
   if [ -d "$prof" ] && [ ! -L "$prof/bot-desktop" ]; then rm -rf "$prof/bot-desktop.engine"; [ -e "$prof/bot-desktop" ] && mv "$prof/bot-desktop" "$prof/bot-desktop.engine"; ln -s "$sd" "$prof/bot-desktop"; chown -h "$OWNER:$OWNER" "$prof/bot-desktop"; fi
   # already running: done
   if [ -f "$sd/launcher.pid" ] && kill -0 "$(cat "$sd/launcher.pid" 2>/dev/null)" 2>/dev/null && [ -S "$sd/rfb.sock" ]; then return 0; fi
+  # waiting before trying again, or given up on after 5 failures (OPS-3): not started now
+  restart_gate "$n" || return 0
   screen_kill "$u" "$disp" "$ws"
   mkdir -p "$sd"; chown "$u:$OWNER" "$sd"; chmod 2770 "$sd"
   rm -f "$sd/rfb.sock" "/tmp/.X$disp-lock" "/tmp/.X11-unix/X$disp"
@@ -125,7 +190,9 @@ screen_up(){
     ( Xvnc :$disp -geometry 1280x800 -depth 24 -auth \"\$XAUTHORITY\" -SecurityTypes None -rfbport 0 -rfbunixpath '$sd/rfb.sock' -rfbunixmode 0660 -nolisten tcp -AlwaysShared >'$sd/xvnc.log' 2>&1 & echo \$! > '$sd/launcher.pid'; wait ) &
     for i in \$(seq 40); do [ -S '$sd/rfb.sock' ] && break; sleep 0.25; done
     ( dbus-launch --exit-with-session bash -c 'xfwm4 & xfdesktop & xfce4-panel & wait' >'$sd/desktop.log' 2>&1 & )
-    ( while kill -0 \$(cat '$sd/launcher.pid') 2>/dev/null; do '$CHROME' --no-sandbox --disable-dev-shm-usage --no-first-run --no-default-browser-check --user-data-dir='$ws/.browser' --remote-debugging-address=127.0.0.1 --remote-debugging-port=$cdp --window-size=1280,800 --start-maximized about:blank >'$sd/chrome.log' 2>&1; sleep 3; done & )
+    rm -f '$sd/chrome.stopped'
+    $(declare -f chrome_loop)
+    ( chrome_loop '$sd' '$CHROME' --no-sandbox --disable-dev-shm-usage --no-first-run --no-default-browser-check --user-data-dir='$ws/.browser' --remote-debugging-address=127.0.0.1 --remote-debugging-port=$cdp --window-size=1280,800 --start-maximized about:blank & )
     touch '$sd/activity'
   " && echo "screen for $n on :$disp (chrome $cdp)"
 }
@@ -172,7 +239,73 @@ screens(){
   while read -r n; do [[ "$n" =~ ^[a-z0-9][a-z0-9_-]{0,28}$ ]] || continue; id "ag-$n" >/dev/null 2>&1 && screen_up "$n" "ag-$n"; done < "$REQ"
 }
 
+# OPS-5 (OPERATIONS.md rule 4). Expected equals running: for each agent with a screen, exactly one display on its own
+# number, one window manager, desktop and panel, and one Chrome (main process) on its own profile. Anything more, or a
+# display on a number that is not the agent's, is extra: reported at once, removed when it is still there a minute later
+# (the copy running longest is kept). A Chrome that gave up (chrome.stopped) files one issue. The counts go to $JAN.
+# One agent's counts, "<name> <expected> <running> <extra pids...>", from "pid user etimes args" lines on stdin.
+jan_count(){
+  local n=$1 u=$2 disp=$3 ws=$4 exp=5
+  [ -f "$ws/.screen/chrome.stopped" ] && exp=4
+  awk -v u="$u" -v d="$disp" -v b="--user-data-dir=$ws/.browser" -v n="$n" -v want="$exp" '
+    $2!=u {next}
+    { a=$0; sub(/^[ \t]*[0-9]+[ \t]+[^ \t]+[ \t]+[0-9]+[ \t]+/,"",a); k="" }
+    a ~ ("^Xvnc :" d "( |$)") {k="xvnc"}
+    k=="" && a ~ /^Xvnc :/ {run++; ex=ex " " $1; next}
+    k=="" && a ~ /^(\/usr\/bin\/)?xfwm4( |$)/ {k="xfwm4"}
+    k=="" && a ~ /^(\/usr\/bin\/)?xfdesktop( |$)/ {k="xfdesktop"}
+    k=="" && a ~ /^(\/usr\/bin\/)?xfce4-panel( |$)/ {k="panel"}
+    k=="" && a !~ /--type=/ { i=index(a,b); if(i){c=substr(a,i+length(b),1); if(c==""||c==" ")k="chrome"} }
+    k=="" {next}
+    { run++; if(!(k in best) || $3+0>bet[k]){ if(k in best) ex=ex " " best[k]; best[k]=$1; bet[k]=$3+0 } else ex=ex " " $1 }
+    END { print n, want, run+0 ex }'
+}
+janitor(){
+  local ps n u line disp ws out="" tot_e=0 tot_r=0 res e r x pid prev
+  ps=$(ps -eo pid=,user:32=,etimes=,args= 2>/dev/null)
+  mkdir -p "$(dirname "$SEEN")"; touch "$SEEN"; prev=$(cat "$SEEN"); : > "$SEEN.tmp"
+  while read -r n; do
+    [[ "$n" =~ ^[a-z0-9][a-z0-9_-]{0,28}$ ]] || continue
+    u="ag-$n"; u=${u:0:32}; id "$u" >/dev/null 2>&1 || continue
+    line=$(grep "^$n " "$PORTS" 2>/dev/null | head -1); [ -n "$line" ] || continue
+    disp=$(echo "$line" | cut -d' ' -f2); ws="$HOMEC/workspaces/$n"
+    res=$(printf '%s\n' "$ps" | jan_count "$n" "$u" "$disp" "$ws")
+    read -r _ e r x <<< "$res"
+    tot_e=$((tot_e+e)); tot_r=$((tot_r+r))
+    for pid in $x; do
+      if printf '%s\n' "$prev" | grep -qx "$pid"; then echo "janitor: $n: removed extra process $pid ($(ps -o args= -p "$pid" 2>/dev/null | cut -c1-60))"; kill -TERM "$pid" 2>/dev/null
+      else echo "$pid" >> "$SEEN.tmp"; echo "janitor: $n: extra process $pid, removed next minute if still there"; fi
+    done
+    if [ -f "$ws/.screen/chrome.stopped" ] && [ ! -f "$ws/.screen/chrome.reported" ]; then
+      report "$n" "chrome-stopped" "its Chrome exited 5 times within an hour and is left stopped. See $ws/.screen/chrome.log; to try again: echo $n >> $RESET"
+      touch "$ws/.screen/chrome.reported"
+    fi
+    [ -f "$ws/.screen/chrome.stopped" ] || rm -f -- "$ws/.screen/chrome.reported"
+    out="$out\"$n\":{\"expected\":$e,\"running\":$r,\"extra\":[$(echo $x | tr ' ' ',')]},"
+  done < "$REQ"
+  mv "$SEEN.tmp" "$SEEN"
+  printf '{"at":%s,"expected":%s,"running":%s,"agents":{%s}}\n' "$(date +%s)" "$tot_e" "$tot_r" "${out%,}" > "$JAN.tmp" && chown "$OWNER:$OWNER" "$JAN.tmp" 2>/dev/null; chmod 640 "$JAN.tmp"; mv "$JAN.tmp" "$JAN"
+}
+
+# OPS-7 (rule 7): a screen's logs stay short (the newest 2 MB of one over 10 MB), and the issues file keeps its last 200 lines
+trim_logs(){
+  local f n
+  while read -r n; do
+    [[ "$n" =~ ^[a-z0-9][a-z0-9_-]{0,28}$ ]] || continue
+    for f in "$HOMEC/workspaces/$n/.screen/"{chrome,xvnc,desktop}.log; do
+      [ -f "$f" ] && [ "$(stat -c %s "$f")" -gt 10485760 ] && tail -c 2097152 "$f" > "$f.tmp" && cat "$f.tmp" > "$f" && rm -f -- "$f.tmp" && echo "agent users: $n: trimmed ${f##*/}"
+    done
+  done < "$REQ"
+  [ -f "$ISSUES" ] && [ "$(wc -l < "$ISSUES")" -gt 400 ] && tail -200 "$ISSUES" > "$ISSUES.tmp" && cat "$ISSUES.tmp" > "$ISSUES" && rm -f -- "$ISSUES.tmp"
+  return 0
+}
+
+# sourced by the tests (scripts/agent-users.test.mjs): the functions only
+[ "${AQ_AGENT_USERS_LIB:-0}" = 1 ] && return 0 2>/dev/null
+
 case "${1:-watch}" in
   once) once ;;
-  watch) last=""; n=0; while true; do [ $((n % 6)) -eq 0 ] && { date +%s > "$ALIVE"; chown "$OWNER:$OWNER" "$ALIVE" 2>/dev/null; }; if [ -f "$SRC" ] && [ "$0" != "$SRC" ] && ! cmp -s "$SRC" "$0"; then install -m 755 -o root -g root "$SRC" "$0" && exec "$0" watch; fi; s=$(stat -c %Y "$REQ" 2>/dev/null || echo none); if [ "$s" != "$last" ]; then once; last=$s; fi; n=$((n+1)); [ $((n % 6)) -eq 0 ] && [ -f "$REQ" ] && screens; sleep 5; done ;;
+  reset) [ -n "${2:-}" ] && echo "$2" >> "$RESET" && take_resets ;;
+  janitor) janitor ;;
+  watch) last=""; n=0; while true; do take_resets; [ $((n % 12)) -eq 0 ] && [ -f "$REQ" ] && janitor; [ $((n % 720)) -eq 0 ] && [ -f "$REQ" ] && trim_logs; [ $((n % 6)) -eq 0 ] && { date +%s > "$ALIVE"; chown "$OWNER:$OWNER" "$ALIVE" 2>/dev/null; }; if [ -f "$SRC" ] && [ "$0" != "$SRC" ] && ! cmp -s "$SRC" "$0"; then install -m 755 -o root -g root "$SRC" "$0" && exec "$0" watch; fi; s=$(stat -c %Y "$REQ" 2>/dev/null || echo none); if [ "$s" != "$last" ]; then once; last=$s; fi; n=$((n+1)); [ $((n % 6)) -eq 0 ] && [ -f "$REQ" ] && screens; sleep 5; done ;;
 esac
