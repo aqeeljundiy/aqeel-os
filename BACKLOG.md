@@ -82,7 +82,7 @@ Found 11 Nov:
   - The line's agent ignores inbound probe messages.
   - The fixer's proof step and Health use the result: "Pictures from Randy: arrived 10:02".
 - [~] **QR-3** The fixer's fix and proof runs are now told to use the delivery check and never to ask a person to look at a phone (`4ceac9e`). Still to do: file "needs a person" at once for any other proof only a person can give.
-- [ ] **ENG-1** Elkiya's WhatsApp bridge has local add-ons that aren't in git (`group_watch.js`, `inbox_log.js`, and edits in `bridge.js`). The next engine update would wipe them, so take them into `engine/patches`.
+- [x] **ENG-1** The bridge add-ons (group_watch.js, inbox_log.js, their hooks) are in engine/patches/2026-11-11-engine-hand-edits.patch (0e71ac3).
 - Clue: Kirimdev reports Meta status `CONNECTED` for the Biomarkers line, but none for the main Continue line.
 
 ### 5b. Employees can't connect Google (P&P, Fakhri Agent, 11 Nov)
@@ -102,7 +102,8 @@ Found:
 **Apps that can never work**
 - [x] **APP-1** The engine limit was already raised by hand on 7 Nov (tools/mcp_tool_transport.py, 10 MB), and the 1 MB error hasn't come back since. It is now in git as engine/patches/2026-11-11-mcp-sse-event-cap.patch (e5da3a7), so engine updates keep it. Higgsfield now only needs a normal sign-in on the agents that should have it (see HIGGS-1). One alert per app instead of one per agent is in 0bd063f.
 - [ ] **HIGGS-1** (your call) Which Elkiya agents should have Higgsfield? Sign it in once on those; take it off the rest.
-- [ ] **ENG-2** The live engines have more hand edits outside git than the known patches (git diff on Elkiya lists dozens of files, most from aqeelOS's renaming, which is re-applied after updates). Compare each against engine/patches and take the real fixes into git, so the next engine update loses nothing.
+- [x] **ENG-2** (0e71ac3, 11 Nov) Simulated an engine update on a clean copy and compared it with both live engines. The 6 Nov patch no longer fit, and 19 files had hand edits no step re-applied. All of it is now in engine/patches (engine-hand-edits, telegram-cross-topic-digest). Proof: on Elkiya, update + patches == live in every file except webhook.py, where the repo is newer. Also fixed: apply-skill-patches crashed without ~/.hermes/installs.
+- [ ] **ENG-3** Run the same update simulation in every deploy check, so an engine edit that no patch carries fails the deploy instead of being found later.
 - [x] **APP-2** (live in 8abacb9, built in 0bd063f: technicalOnly in the fixer, and one sign-in alert per app instead of one per agent) Health: a "needs a person" issue must name something a person can actually do. A sign-in that fails for a technical reason is the fixer's job, not a person's.
 - All other apps on both servers (88 entries) are fine. The only broken entry is Fakhri's Sheets link (GOOG-7).
 
@@ -125,6 +126,7 @@ Today: the fixer runs on the main agent's profile, Sonnet 5.5 with the 1M contex
 - [ ] **MODEL-3** Fewer wasted runs, which saves more than any model choice: merge duplicates, send person-only items to "Needs you", prove with delivery checks instead of fix-and-roll-back rounds, and don't spend the 20 daily runs on issues that will come back.
 - [ ] **MODEL-4** Log tokens per fixer run, then compare cost per fixed issue before and after.
 - [~] **MODEL-5** billion-context (github.com/ranxianglei/billion-context) in every install, so long chats use fewer tokens. Owner: "ship to all now" (11 Nov). On main as `8f2353a` (`app/billion-context.mjs`, pinned 0.1.213, self-update off, credit in README and the plugin's description), live on Elkiya since 05:32 UTC: every agent has the plugin switched on. The engine loads it at its next restart, which aqeelOS holds for the quiet hours (01:00-05:00). Emergency off: `touch ~/.hermes/.aqeelos-billion-context-off`.
+  - Tested 11 Nov 07:00 UTC on Elkiya: with the plugin loaded the main agent still answers (Claude sign-in, 13 s), but billion-context saw none of it. The Claude plugin's relay does go through the proxy, and the proxy can read Claude's API once `api.anthropic.com` is in `mitm.domains` (checked with a test request), but a real chat through that path is not tested yet, so the setting was taken back off. Owner asked about graphify (github.com/Graphify-Labs/graphify) instead; waiting on that answer.
   - Still to do: after tonight's restart, check that agents still answer on the Claude and ChatGPT sign-ins and whether chats actually get compressed (the Claude sign-in runs the `claude` program as its own process, so the proxy may not see that traffic). P&P (ai.pixelandprofits.com) runs `8abacb9` since 06:07 UTC (automatic deploy) and every agent there has the plugin switched on too; same quiet-hours restart. The engine's own summariser stays on as a fallback; it only acts if billion-context doesn't keep the chat short.
 
 ### 5. Small leftovers
