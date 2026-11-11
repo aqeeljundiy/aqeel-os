@@ -38,6 +38,8 @@ import {loadPrompts,validatePrompts,loadSkills,skillsInstructions,validateHooks,
 const HOST=/^((?:\d{1,3}\.){3}\d{1,3}|localhost|[a-z0-9-]+(?:\.[a-z0-9-]+)*):(\d{2,5})$/i;
 // online (the copy on the AI box, behind aqeelOS sign-in): its public addresses come from CBA_PUBLIC_APP and CBA_PUBLIC_PREVIEW
 const PUB_APP=process.env.CBA_PUBLIC_APP||'',PUB_PREVIEW=process.env.CBA_PUBLIC_PREVIEW||'';
+// what runs code on the server (CODE-12): starting it, or typing into it; stopping, reading and closing stay open
+export const MEMBER_NO_RUN=/^\/api\/workspace\/(terminal\/(open|input|keys)|command|dev\/(start|install)|build|job|git\/run|agent|schedules\/run)$/;
 export function previewOrigin(host){if(PUB_PREVIEW)return PUB_PREVIEW;const m=String(host||'').match(HOST);return m?'http://'+m[1]+':'+(Number(m[2])+1):'http://127.0.0.1:4322'}
 export function previewCSP(host){const m=String(host||'').match(HOST);const app=(m?'http://'+m[1]+':'+(Number(m[2])-1):'http://127.0.0.1:4321')+(PUB_APP?' '+PUB_APP:'');
  return "default-src 'self' https: data: blob:; script-src 'self' 'unsafe-inline' https:; style-src 'self' 'unsafe-inline' https:; img-src 'self' https: data: blob:; font-src 'self' https: data:; media-src 'self' https: data: blob:; connect-src 'self'; frame-ancestors "+app+"; form-action 'none'"}
@@ -422,6 +424,10 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
     if(req.method==='POST'&&a==='view')return send(403,{error:'You can only view this project. Ask its owner for edit access.'}),true;
     if(/\/project\/(delete|share)$/.test(url.pathname)&&a!=='owner')return send(403,{error:'Only the project’s owner can do that.'}),true}
    if(!who.admin&&req.method==='POST'&&/^\/api\/workspace\/(settings|secret|extensions|github\/account|usage\/|schedules|desktop\/)/.test(url.pathname))return send(403,{error:'Only admins can change this.'}),true;
+   // CODE-12 (11 Nov 2026): online Code runs as the box's main user, the one that holds every key (~/.hermes/.env), so a
+   // member's terminal, command, dev server, build or agent run could read them. Until member work runs under its own
+   // Linux user (as agents do), members view and edit files only; CODE_MEMBERS_RUN=1 lets them run anyway, knowingly.
+   if(!who.admin&&process.env.CODE_MEMBERS_RUN!=='1'&&req.method==='POST'&&MEMBER_NO_RUN.test(url.pathname))return send(403,{error:'Members can’t run code on the server yet: it would run with the owner’s keys. Ask an admin, or edit the files and let an admin run them.'}),true;
    if(data)data.by=who.uid}
   if(await team(url,req,data,send))return true;
   if(url.pathname==='/api/workspace'&&req.method==='GET')return send(200,{projects:who?store.state.projects.filter(p=>accessOf(p,who)).map(p=>({...p,access:accessOf(p,who)})):store.state.projects,me:who?.uid||''}),true;
