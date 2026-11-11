@@ -191,17 +191,23 @@ ACT['console-open']=()=>{if(S.me?.admin===false)return toast('Only admins can us
 /* ---------- Issues and the fixer, and how often the team still went to the main agent (issues.mjs, escalations.mjs).
    Since 7 Nov 2026 nobody approves: the fixer fixes, reloads safely and proves it. Only "needs a person" and "stuck"
    reach someone; both have Try again here for when that person has done their part. ---------- */
-// code changes on the box that git does not have yet (code-changes.mjs): what a deploy found changed before it unpacked,
-// and proven fixer changes to aqeelOS's own code. Shown only when there is one; each waits for a coding session to take
-// it into git, then "Taken into git" clears it.
+// Fixes waiting for review (code-changes.mjs, GIT-2): each fixer fix to aqeelOS's own code is a branch and a pull request
+// (its link here; or "waits for a GitHub token" until there is one). Also listed: hand edits on the live box (one item), what a
+// deploy found changed before it unpacked, and older fixer patch files; those wait for a coding session to take them into
+// git, then "Taken into git" clears them. Shown only when there is one.
 const HealthCode={
  draw(box,d,again){const it=d.items||[],t=x=>esc(String(x??''));if(!it.length){box.innerHTML='';return}
   const when=ms=>new Date(ms).toLocaleString([],{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
   const files=f=>f.length?f.slice(0,4).join(', ')+(f.length>4?' and '+(f.length-4)+' more':''):'no file names';
-  const row=c=>'<div class="row" data-cc="'+t(c.kind+'/'+c.name)+'"><div class="main-c"><div class="txt"><b>'+(c.kind==='drift'?'Changed on the box before a deploy':'Fixer change to code, issue '+t(c.issue))+'</b><span>'+t(files(c.files))+' · '+t(when(c.at))+'</span>'+
-   (c.kind==='drift'?'<span>The deploy saved this before it put the files from git in place. If it is a fix, take it into git or it stays lost.</span>':'')+
-   '<div class="hi-acts"><button class="ghost small" data-cc-act="view" data-kind="'+t(c.kind)+'" data-name="'+t(c.name)+'">View</button><button class="ghost small" data-cc-act="done" data-kind="'+t(c.kind)+'" data-name="'+t(c.name)+'">Taken into git</button></div></div></div></div>';
-  box.innerHTML='<div class="card list" style="margin-bottom:22px"><div class="list-head"><span>Code changes git does not have yet. A coding session takes each into git; the next deploy would otherwise put the old files back.</span></div>'+it.map(row).join('')+'</div>';
+  const ttl=c=>c.kind==='drift'?'Changed on the box before a deploy':c.kind==='hand'?'Hand edits on the live box':c.kind==='pr'?'Fix for issue '+t(c.issue):'Fixer change to code, issue '+t(c.issue);
+  const pr=c=>/^https://github.com//.test(c.pr||'');
+  const line=c=>c.kind==='drift'?'The deploy saved this before it put the files from git in place. If it is a fix, take it into git or it stays lost.':c.kind==='hand'?'The next deploy would put the old files back. Put the change in a pull request, or undo it. This clears itself once the folder matches the deployed commit.':
+   c.kind==='pr'?(c.state==='pr'?'Waits for review. Merge the pull request and the next deploy ships it.':c.state==='error'?'The pull request is not open yet: '+t(c.why||'GitHub did not accept it')+'. It tries again.':'Waits for review. A GitHub token is needed to open the pull request.'):'';
+  const row=c=>'<div class="row" data-cc="'+t(c.kind+'/'+c.name)+'"><div class="main-c"><div class="txt"><b>'+ttl(c)+'</b><span>'+t(files(c.files))+' · '+t(when(c.at))+'</span>'+
+   (line(c)?'<span>'+line(c)+'</span>':'')+
+   '<div class="hi-acts">'+(c.kind==='pr'&&pr(c)?'<a class="small btnlink" href="'+t(c.pr)+'" target="_blank" rel="noopener">Open pull request</a>':'')+'<button class="ghost small" data-cc-act="view" data-kind="'+t(c.kind)+'" data-name="'+t(c.name)+'">View</button>'+
+   (c.kind==='drift'||c.kind==='fixer'?'<button class="ghost small" data-cc-act="done" data-kind="'+t(c.kind)+'" data-name="'+t(c.name)+'">Taken into git</button>':'')+'</div></div></div></div>';
+  box.innerHTML='<div class="card list" style="margin-bottom:22px"><div class="list-head"><span>Fixes waiting for review. A person merges each pull request and the next deploy ships it. Changes git does not have yet are listed too: a coding session takes each into git, or the next deploy puts the old files back.</span></div>'+it.map(row).join('')+'</div>';
   if(HealthCode.drawn)box.querySelectorAll('.row').forEach(x=>x.style.animation='none');HealthCode.drawn=true;
   box.querySelectorAll('button[data-cc-act]').forEach(b=>b.onclick=async()=>{const k=b.dataset.kind,n=b.dataset.name;
    if(b.dataset.ccAct==='view'){let r;try{r=await UI('/ui/health/code-changes?kind='+encodeURIComponent(k)+'&name='+encodeURIComponent(n))}catch(e){toast(e.message,'err');return}

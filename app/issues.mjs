@@ -21,6 +21,10 @@
 // code is made in a copy and filed as a patch for the daily deploy (state "deploy"); after the deploy one proof run
 // checks it. Only an urgent outage (aqeelOS's own tool server down for every agent) may be hot-patched on the box, and
 // that patch is saved for git too. No live tests on real agents, ever: a test message only on a test agent.
+// 12 Nov 2026 (GIT-2): with a fixer-git.mjs checkout a code fix never touches the live folder at all, urgent or not: it is made
+// in a git work dir on branch fix/<issue>, committed, pushed and opened as a pull request (state "deploy" = waits for the
+// review and the deploy). No GitHub token yet: the branch waits committed, one "Needs you" item asks for the token, and
+// the tick opens the pull requests by itself once there is one. Without the checkout the older patch-file way still runs.
 import {readFile,writeFile,mkdir,rename,open,stat,copyFile,readdir,rm} from 'node:fs/promises';
 import {spawn} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
@@ -96,7 +100,9 @@ const NO_LIVE_TEST='Never test on a real agent: no test messages, no trial runs 
 // rolled back only because the proof asked a person to look at a tester phone)
 const DELIVERY_PROOF='A picture (QRIS, product photo) that does not reach the phone is provable WITHOUT a person: run node ~/apps/hermes-ui/scripts/delivery-check.mjs <agent> [--link <the picture link>]. It sends the line\'s picture to the main agent\'s own WhatsApp and says whether it downloaded ("picture": true). It is not a customer message. Never ask a person to look at a phone for this';
 const KIRIM_TEST='on a real agent, a real reply it delivered after the change (~/apps/hermes-ui-data/kirimdev-state.json "ours", the log lines "kirimdev <agent>"); none yet means not proven yet. Only on a test agent you may write as a tester: never ask a person to write from a tester phone, run node ~/apps/hermes-ui/scripts/kirimdev-test-message.mjs <agent> "<text>" (optionally --tester <name>). It posts the same signed webhook Kirimdev posts when a customer writes, as one of the line\'s testers, to this box; the agent then answers that tester for real through Kirimdev. Check the reply was sent (~/apps/hermes-ui-data/kirimdev-state.json "ours", and the log lines "kirimdev <agent>"). Only testers, never a customer number; the script refuses a real agent';
-export function fixerPrompt(i,{rules='',day=new Date().toISOString().slice(0,10).replace(/-/g,''),attempt=1,tries=TRIES}={}){
+// the code-change rule when the fixer has its own git work dir (fixer-git.mjs)
+export const gitRule=(i,g)=>'- aqeelOS\'s own code is NEVER changed in the live folders (~/apps/hermes-ui, ~/.hermes/hermes-agent), urgent or not: the next deploy would put the old file back and nobody would have reviewed it. Your own git checkout for this issue is '+g.dir+' (branch '+g.branch+', cut from main). Change the app code (app/, scripts/, engine/, assets/) there and nowhere else. Do not commit or push: aqeelOS commits the branch and opens the pull request. Run the tests there (node --test scripts/<name>.test.mjs). Then prove it on the test copy: bash '+g.dir+'/scripts/fixer-testcopy.sh '+g.dir+' starts the checkout as the private test copy on port 4402 (its own password and data, never the live app); rerun the original check against http://127.0.0.1:4402 and paste what you saw in "proof". Use status "patch" and name the changed files in "summary". '+(i.urgent?'This issue is URGENT: say so in "summary"; it still goes through the pull request. ':'')+'The engine source ~/.hermes/hermes-agent is never changed in place either: copy the file to ~/apps/hermes-ui-data/fixer-work/'+i.id+'/<its full path without the leading slash>, change and check the copy, and list it in "patches" as {"file":"<live path>","copy":"<copy path>"}; aqeelOS makes it an engine/patches file in the same pull request. The change goes live only when a person merges the pull request and the next deploy runs; aqeelOS then checks the problem again. If the same fix is already waiting as a branch or pull request (System › Health › Fixes waiting for review), say so with status "no_change".';
+export function fixerPrompt(i,{rules='',day=new Date().toISOString().slice(0,10).replace(/-/g,''),attempt=1,tries=TRIES,git=null}={}){
  const past=(i.history||[]).filter(h=>h.kind==='fix').map((h,n)=>'Try '+(n+1)+': '+(h.summary||'-')+(h.outcome?' → '+h.outcome:'')+(h.proof?' (proof run: '+clip(h.proof,400)+')':'')).join('\n');
  return [
  'You are the aqeelOS fixer: a headless coding run on this server. Nobody is chatting with you and nobody approves anything: fix ONE issue by yourself, then stop.',
@@ -119,7 +125,7 @@ export function fixerPrompt(i,{rules='',day=new Date().toISOString().slice(0,10)
  '- Write in "check" exactly how to rerun the ORIGINAL failing check end to end after the reload (the real thing that failed, not a unit test). For a Kirimdev reply problem: '+KIRIM_TEST+'.',
  '- '+NO_LIVE_TEST+'.',
  '- '+DELIVERY_PROOF+'. Write that command in "check" when the problem is a picture that did not arrive.',
- i.urgent?'- aqeelOS\'s own code lives in git: ~/apps/hermes-ui (app/, scripts/, engine/) and the engine source ~/.hermes/hermes-agent are replaced by the next deploy. This issue is URGENT (an outage), so you may change those files on the box (back them up as above). Keep the change small. Once it is proven, aqeelOS saves it as ~/apps/hermes-ui-data/fixer-patches/'+i.id+'-try<n>.patch for git; say in "summary" that it is a code change and name the file. Never commit or push. First look in ~/apps/hermes-ui-data/fixer-patches and ~/apps/hermes-ui-data/drift: if the same fix was made before and a deploy put the old file back, apply that patch again and say so.'
+ git?gitRule(i,git):i.urgent?'- aqeelOS\'s own code lives in git: ~/apps/hermes-ui (app/, scripts/, engine/) and the engine source ~/.hermes/hermes-agent are replaced by the next deploy. This issue is URGENT (an outage), so you may change those files on the box (back them up as above). Keep the change small. Once it is proven, aqeelOS saves it as ~/apps/hermes-ui-data/fixer-patches/'+i.id+'-try<n>.patch for git; say in "summary" that it is a code change and name the file. Never commit or push. First look in ~/apps/hermes-ui-data/fixer-patches and ~/apps/hermes-ui-data/drift: if the same fix was made before and a deploy put the old file back, apply that patch again and say so.'
   :'- Nobody edits aqeelOS\'s live code by hand, you included. Its code (~/apps/hermes-ui app/, scripts/, engine/, and the engine source ~/.hermes/hermes-agent) is never changed in place: copy the file to ~/apps/hermes-ui-data/fixer-work/'+i.id+'/<its full path without the leading slash>, change and check the copy (node --check, or the test against a copy), and list it in "patches" as {"file":"<live path>","copy":"<copy path>"} with status "patch". aqeelOS files it as ~/apps/hermes-ui-data/fixer-patches/'+i.id+'-try<n>.patch for the daily deploy and checks the problem again after that deploy. A live code file you change anyway is put back and filed the same way. Never commit or push. First look in ~/apps/hermes-ui-data/fixer-patches and ~/apps/hermes-ui-data/drift: the same fix may be filed already; then say so with status "patch" and that patch\'s file in "patches".',
  '- If you find nothing to change (it already works), use status "no_change": a proof run still has to show it works.',
  '- A skill that points to a file that is not there (Health kind skill): find the file and put it back in every skill folder listed. Look in this order: the *.bak* copies next to it, other agents\' copies of the same skill (~/.hermes/profiles/*/skills and ~/.hermes/skills), ~/.hermes/backups and ~/apps/hermes-ui-data backups, the skill\'s git history if it has one. Only if it is nowhere, change the SKILL.md so it no longer needs the file (remove or replace that step); never invent the file\'s content. The check: every file each SKILL.md points to exists (node ~/apps/hermes-ui/scripts/skill-check.mjs <skill folder> lists what is still missing; nothing listed means proven).',
@@ -182,6 +188,8 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  apply=async()=>({ok:true}),usageOf=async()=>null,nameOf=a=>a,codeRoots=[],onFixed=async()=>{},checks={},quiet=()=>null,log=m=>console.log(m),launch=null,alive=null,envFiles=async()=>[],
  // tz: the install's time zone (the daily runs and Skip reset at its midnight); sortRun: one short model call, {prompt,agent,model,effort} → its output
  tz=()=>'',sortRun=null,
+ // GIT-2: the fixer's own git checkout (fixer-git.mjs); needToken / tokenOk: the one "Needs you" item that asks for the GitHub token
+ git=null,needToken=async()=>{},tokenOk=async()=>{},
  // kept for older callers (the Approve/Decline flow is gone)
  askOwner=null,approvalLink=null,restartSelf=null,engineOk=()=>true}){
  const FILE=path.join(DATA,'issues.json'),POL=path.join(DATA,'team-policy.json'),DIR=path.join(DATA,'issues');let db=null,chain=Promise.resolve();
@@ -351,7 +359,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  const today=()=>dayIn(now(),tz());
  const fixRunsToday=()=>Object.values(db.runs).filter(r=>r.day===today()&&r.kind!=='proof'&&!r.notStarted).length;
  // switched off (fixer.on false): a run already going still has its result saved; nothing new starts and nothing reloads
- async function tick(){if(running)return;running=true;try{await load();const pol=await policy();await sweep().catch(e=>log('issues: sweep: '+e.message));
+ async function tick(){if(running)return;running=true;try{await load();const pol=await policy();await sweep().catch(e=>log('issues: sweep: '+e.message));await publishWaiting().catch(e=>log('issues: publish: '+e.message));
   sortNext().catch(e=>log('issues: sort: '+e.message));
   const cur=Object.values(db.runs).find(r=>!r.done);if(cur)return await check(cur,pol);if(pol.fixer?.on===false||db.pause)return;
   // a change waiting to be reloaded or rolled back comes first
@@ -376,9 +384,10 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
    if(!i.urgent&&(held||capped))continue;return await start(i,pol,'fix')}}finally{running=null}}
  async function start(i,pol,kind){const n=kind==='fix'?i.tries+1:i.tries,id=i.id+'-'+n+(kind==='proof'?'p':''),dir=path.join(DIR,id);await mkdir(dir,{recursive:true,mode:0o700});
   const last=i.history.filter(h=>h.kind==='fix').at(-1);
-  await writeFile(path.join(dir,'prompt.txt'),kind==='fix'?fixerPrompt(i,{rules:pol.fixer?.rules||'',attempt:n}):proofPrompt(i,last,{reloaded:i.applied||null,recheck:!!i.recheck,deployed:i.recheck==='deploy'}),{mode:0o600});
+  let gw=null;if(git&&kind==='fix'){gw=await git.prepare(i.id).catch(e=>({ok:false,why:e.message}));if(!gw.ok){log('issues: '+i.id+' no git work dir ('+gw.why+'); the older patch-file way');gw=null}}
+  await writeFile(path.join(dir,'prompt.txt'),kind==='fix'?fixerPrompt(i,{rules:pol.fixer?.rules||'',attempt:n,git:gw}):proofPrompt(i,last,{reloaded:i.applied||null,recheck:!!i.recheck,deployed:i.recheck==='deploy'}),{mode:0o600});
   if(kind==='fix'){i.tries=n;i.state='fixing'}else i.state='verifying';i.run=id;i.updated=now();
-  const mdl=fixerModel(pol,kind,n);const r={id,issue:i.id,kind,day:today(),at:now(),agent:pol.fixer?.agent||'default',...(mdl.model?{model:mdl.model}:{}),...(mdl.effort?{effort:mdl.effort}:{})};db.runs[id]=r;await save();
+  const mdl=fixerModel(pol,kind,n);const r={id,issue:i.id,kind,day:today(),at:now(),agent:pol.fixer?.agent||'default',...(mdl.model?{model:mdl.model}:{}),...(mdl.effort?{effort:mdl.effort}:{})};if(gw)r.git={dir:gw.dir,branch:gw.branch};db.runs[id]=r;await save();
   const minutes=kind==='fix'?Math.min(40,pol.fixer?.minutes||25):Math.min(30,pol.fixer?.proof_minutes||15);
   try{r.pid=await (launch||spawnRun)({dir,agent:r.agent,minutes,model:mdl.model,effort:mdl.effort})}catch(e){r.done=now();r.exit=-1;r.notStarted=true;if(kind==='fix')i.tries--;i.state=kind==='fix'?'queued':'verify';await save();log('issues: fixer could not start: '+e.message);return}
   await save();log('issues: '+kind+' run started for '+i.id+' ('+id+')')}
@@ -441,6 +450,40 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   const pf='fixer-patches/'+name;h.patch=pf;h.patchFiles=files;h.outcome='filed for the daily deploy as '+pf+(back.length?' (the live edit was put back)':'');
   i.state='deploy';i.patch=pf;i.patchedAt=now();i.rechecks=0;i.updated=now();i.result={...(i.result||{}),summary:clip((fr.summary||'')+' Filed as '+pf+' for the daily deploy.',1600)};
   await save();log('issues: '+i.id+' code fix filed for the daily deploy: '+pf);return}
+ // GIT-2: a code fix made in the fixer's git work dir. Live code files it touched anyway are copied into the work dir (app files)
+ // or turned into an engine/patches file, and put back. The branch is committed, pushed and opened as a pull request when there
+ // is a token; with none it waits committed. Returns 'other' when the try changed no code (a config or file fix: the normal flow).
+ async function forReview(i,fr,h,g){const rootOf=p=>codeRoots.find(x=>x.prefix===p)?.dir;const eng=[],live=[];
+  const put=async(file,from)=>{const at=codeRoot(file);if(!at||at.root.prefix!=='')return false;const to=path.join(g.dir,at.rel);await mkdir(path.dirname(to),{recursive:true});await copyFile(from,to);live.push(file);return true};
+  const engDiff=async(file,from,at)=>{const d=await diffOf(from,file,'a/'+at.rel,'b/'+at.rel);if(d){eng.push(d);live.push(path.join(at.root.dir,at.rel))}};
+  for(const c of fr.patches||[]){const at=codeRoot(c.file);if(!at||!await exists(c.copy))continue;if(!await put(c.file,c.copy))await engDiff(c.copy,await exists(c.file)?c.file:'/dev/null',at)}
+  for(const c of fr.changes||[]){const at=codeRoot(c.file);if(!at||!c.backup||live.includes(c.file))continue;if(at.root.prefix===''){if(await exists(c.file))await put(c.file,c.file)}else await engDiff(c.file,c.backup,at)}
+  const codeLive=live.length>0,mine=await git.dirty(i.id).catch(()=>false);
+  if(!codeLive&&!mine&&fr.status!=='patch')return 'other';
+  const back=await rollBack(fr.changes);
+  const day=new Date(now()).toISOString().slice(0,10),title='Fixer: '+clip(i.title||i.missing,90).replace(/\n/g,' ');
+  const fin=await git.finish(i.id,{message:title+'\n\nIssue '+i.id+' ('+nameOf(i.agent)+'). '+clip(fr.summary,600)+'\n\nOpened by the aqeelOS fixer.',
+   engine:eng.length?[{name:day+'-fixer-'+i.id+'.patch',text:'# aqeelOS fixer, issue '+i.id+': '+clip(fr.summary,200).replace(/\n/g,' ')+'\n'+eng.join('')}]:[]}).catch(e=>({ok:false,why:e.message}));
+  if(!fin.ok||fin.empty){h.outcome=fin.ok?'no code change in the checkout'+(back.length?', live changes put back':''):'not committed: '+fin.why;log('issues: '+i.id+' try '+i.tries+' '+h.outcome);await afterTry(i);return 'done'}
+  const files=[...new Set([...live,...fin.files.filter(f=>!/^engine\/patches\//.test(f)).map(f=>path.join(rootOf('')||'',f))])];
+  const body=['Opened by the aqeelOS fixer for issue `'+i.id+'` ('+nameOf(i.agent)+').','','**Problem**',clip(i.missing,600),'','**Fix**',clip(fr.summary,800),'','**Proof (test copy and tests)**',clip(fr.proof,2500),'',
+   'Files: '+fin.files.slice(0,30).join(', '),'','Merge it and the next deploy ships it; aqeelOS then checks the problem again. An engine change is a file in engine/patches.'].join('\n');
+  i.git={branch:g.branch,sha:fin.sha,files:fin.files,title,body,state:'waiting',at:now(),tries:0};h.patchFiles=files;h.patch=g.branch;
+  await publishOne(i);
+  h.outcome='branch '+g.branch+' committed; '+(i.git.state==='pr'?'pull request opened':'waits for review')+(back.length?' (the live edit was put back)':'');
+  i.state='deploy';i.patch=g.branch;i.patchedAt=now();i.rechecks=0;i.updated=now();i.result={...(i.result||{}),summary:clip((fr.summary||'')+' Waits for review as branch '+g.branch+'.',1600)};
+  await save();log('issues: '+i.id+' code fix on branch '+g.branch+' ('+i.git.state+')');if(i.git.state==='waiting')await noteToken();return 'done'}
+ // push + pull request for one waiting branch; sets i.git.state to pr, waiting (no token) or error (tried again later)
+ async function publishOne(i){const g=i.git,p=await git.publish(i.id,{title:g.title,body:g.body}).catch(e=>({state:'error',why:e.message}));
+  g.state=p.state;g.tryAt=now();if(p.state==='pr'){g.url=p.url;g.number=p.number;g.why=null;g.opened=now()}else if(p.state==='error'){g.why=clip(p.why,300);g.tries=(g.tries||0)+1}return p}
+ // the one "Needs you" item: asked once, not once per fix; taken away when a token appears
+ async function noteToken(){if(db.tokenAsked)return;db.tokenAsked=now();await save();await needToken().catch(e=>log('issues: token note: '+e.message))}
+ async function publishWaiting(){if(!git)return;const w=db.items.filter(x=>x.git&&['waiting','error'].includes(x.git.state));if(!w.length)return;
+  if(!await git.hasToken().catch(()=>false)){if(w.some(x=>x.git.state==='waiting'))await noteToken();return}
+  if(db.tokenAsked){db.tokenAsked=0;await save();await tokenOk().catch(()=>{})}
+  for(const x of w){if(x.git.state==='error'&&now()-(x.git.tryAt||0)<30*60e3)continue;const was=x.git.state;await publishOne(x);await save();log('issues: '+x.id+' branch '+x.git.branch+': '+was+' → '+x.git.state+(x.git.why?' ('+x.git.why+')':''))}}
+ // fixes waiting for review (System › Health): every branch whose issue still waits for the merge and the deploy
+ const reviews=async()=>{await load();return db.items.filter(i=>i.git&&['deploy','verify','verifying'].includes(i.state)).map(i=>({issue:i.id,branch:i.git.branch,at:i.git.at,files:i.git.files,note:i.result?.summary||i.missing,url:i.git.url||null,number:i.git.number||null,state:i.git.state,why:i.git.why||null}))};
  async function check(r,pol){const dir=path.join(DIR,r.id);const ex=await readFile(path.join(dir,'exit'),'utf8').catch(()=>null);
   const up=r.pid&&(alive?await alive(r):(()=>{try{process.kill(r.pid,0);return true}catch{return false}})());
   if(ex===null&&up)return;const out=await readFile(path.join(dir,'out.txt'),'utf8').catch(()=>'');r.done=now();r.exit=ex===null?null:Number(ex);r.usage=await usageOf(r).catch(()=>null)||undefined;
@@ -461,6 +504,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
    const bad=await guard(fr);
    if(bad.length){const back=await rollBack(fr.changes);h.outcome='unsafe ('+bad.join('; ')+'), '+(back.length?'put back':'nothing to put back');log('issues: '+i.id+' try '+i.tries+' broke a rule: '+bad.join('; '));return await nextTry(i,null)}
    // 8 Nov 2026: not urgent and it touches aqeelOS's code: filed as a patch for the daily deploy, nothing stays live
+   if(r.git&&git&&await forReview(i,fr,h,r.git)!=='other')return;
    if(!i.urgent&&(fr.status==='patch'||fr.patches.length||fr.changes.some(c=>codeRoot(c.file))))return await forDeploy(i,fr,h);
    i.applied=null;
    if(fr.apply!=='none'&&fr.changes.length){i.state='applying';i.applyKind=fr.apply==='engine'||!i.uiDirty?fr.apply:'ui';i.waitingSince=now()}
@@ -516,7 +560,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  const close=(id,who)=>queue(async()=>{await load();const i=db.items.find(x=>x.id===id);if(!i)return null;if(['closed','fixed','gone','expired'].includes(i.state))return view(i);
   i.history.push({kind:'person',at:now(),status:'close',summary:'Closed'+(who?' by '+clip(who,60):'')});
   if(IDLE.includes(i.state)||!OPEN.includes(i.state)){i.state='closed';i.notBefore=0}else{i.noRetry=true;i.closeAfter=true}i.updated=now();await save();return view(i)});
- return {file,healthGone,sweep,retry,stop,close,decideOwner,press,forAgent,list,tick,policy,move,skip,pause,fixerView:async()=>{await load();return fixerView()},sortNext,_db:async()=>{await load();return db}}}
+ return {file,reviews,healthGone,sweep,retry,stop,close,decideOwner,press,forAgent,list,tick,policy,move,skip,pause,fixerView:async()=>{await load();return fixerView()},sortNext,_db:async()=>{await load();return db}}}
 // one short sorting call through the engine (MODEL-3): no tools, no agent rules or memory, one turn, at most 2 minutes;
 // its answer is the last line of what it prints
 export function engineSortRun({bin,home,dir}){return async({prompt,agent,model='',effort=''})=>{await mkdir(dir,{recursive:true,mode:0o700});
