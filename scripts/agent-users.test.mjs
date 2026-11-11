@@ -88,6 +88,28 @@ test('memory cap: 3 min over restarts Chrome, 3 more min files one issue, twice 
  assert.equal(step(5000,4096,9000,900,-1),'none');       // reported once
  assert.equal(step(9000,4096,1000,1000,0),'biggest')});
 
+test('OPS-17: over its cap while at work, nothing of the agent is restarted unless it holds three times the cap',()=>{
+ const d=tmp();const step=(mb,cap,now,since,acted,busy)=>sh(`mem_step ${mb} ${cap} ${now} ${since} ${acted} ${busy}`,d).out;
+ assert.equal(step(5000,4096,1100,900,0,1),'none');      // would restart Chrome: waits
+ assert.equal(step(9000,4096,1000,1000,0,1),'none');     // twice the cap: waits too
+ assert.equal(step(13000,4096,1000,1000,0,1),'biggest'); // three times: the box comes first
+ assert.equal(step(5000,4096,1100,900,0,0),'chrome')});
+
+test('OPS-17: the bigger part is restarted, Chrome or AdsPower',()=>{
+ const d=tmp();assert.equal(sh('mem_target 1567 5757',d).out,'adspower');assert.equal(sh('mem_target 2400 0',d).out,'chrome');assert.equal(sh('mem_target 0 0',d).out,'chrome')});
+
+test('OPS-17: the watchdog\'s requests are checked again before anything is done',()=>{
+ const d=tmp();const step=(what,used,busy,ads,asleep)=>sh(`mem_req_step ${what} 10000 ${used} ${busy} ${ads} ${asleep}`,d).out;
+ assert.equal(step('sleep',1000,0,0,0),'sleep');
+ assert.equal(step('sleep',1000,0,1,0),'skip');          // its own AdsPower runs: its screen never sleeps
+ assert.equal(step('sleep',9800,0,0,0),'skip');          // screen used 200 s ago
+ assert.equal(step('chrome',1000,1,0,0),'skip');         // mid-reply or a schedule running
+ assert.equal(step('chrome',1000,0,0,1),'skip');         // already asleep
+ assert.equal(step('chrome',1000,0,0,0),'chrome');
+ assert.equal(step('adspower',1000,0,0,0),'skip');       // no AdsPower running
+ assert.equal(step('adspower',1000,0,1,0),'adspower');
+ assert.equal(step('rm',1000,0,0,0),'skip');assert.equal(step('no-sleep',1000,0,0,0),'skip')});
+
 test('OPS-13: missing desktop parts are named only while the agent\'s display runs',()=>{
  const d=tmp();const miss=lines=>{writeFileSync(d+'/ps.txt',lines.join('\n')+'\n');return sh(`jan_missing ag-a1 42 < '${d}/ps.txt'`,d).out};
  const full=['1 ag-a1 900 Xvnc :42 -geometry 1280x800','2 ag-a1 900 xfwm4','3 ag-a1 900 xfdesktop','4 ag-a1 900 xfce4-panel','5 ag-b2 900 xfdesktop'];

@@ -12,7 +12,8 @@
 //    an agent whose screen runs its own AdsPower never sleeps and gets 8 GB unless set. wake(agent) starts a sleeping
 //    screen (the viewer uses it); stopAll(agent) stops everything the agent's user runs.
 //  - OPS-13: every minute, the agents mid-reply go to ~/.aqeelos-agent-busy, one per line, so the root script's janitor
-//    does not start a missing desktop part again while the agent works.
+//    does not start a missing desktop part again while the agent works. Since OPS-17 also the agents with an engine
+//    session running (a schedule, a webhook, a channel reply): the root script restarts nothing of theirs then.
 // The parts that only decide are exported and tested in scripts/box-ops.test.mjs.
 import {readFile,writeFile,readdir,stat,lstat,rm,open,rename} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
@@ -53,7 +54,7 @@ export function limitLines(agents,cfg={},keep=()=>false){const d={...LIMIT_DEFAU
 const NAME=/^[a-z0-9][a-z0-9_-]{0,63}$/;
 // the agents mid-reply, from live reply keys "<agent>|<chat>": one valid name per line
 export const busyText=keys=>[...new Set([...keys].map(k=>String(k).split('|')[0]).filter(a=>NAME.test(a)))].sort().map(a=>a+'\n').join('');
-export function createBoxOps({HOME,DATA,HERMES_HOME,fileIssue=null,TMP='/tmp',keepOn=()=>false,WAKE='/var/lib/aqeelos/wake',busyKeys=()=>[]}){
+export function createBoxOps({HOME,DATA,HERMES_HOME,fileIssue=null,TMP='/tmp',keepOn=()=>false,WAKE='/var/lib/aqeelos/wake',busyKeys=()=>[],engineBusy=async()=>[]}){
  const STATE=path.join(DATA,'box-ops.json'),ISSUES=path.join(HOME,'.aqeelos-agent-issues.jsonl'),JAN=path.join(HOME,'.aqeelos-janitor.json');
  let st=null;const load=async()=>{if(!st)st=JSON.parse(await readFile(STATE,'utf8').catch(()=>'{}'))||{};st.filed||={};return st};
  const save=async()=>{await writeFile(STATE+'.tmp',JSON.stringify(st));await rename(STATE+'.tmp',STATE)};
@@ -100,7 +101,7 @@ export function createBoxOps({HOME,DATA,HERMES_HOME,fileIssue=null,TMP='/tmp',ke
  const wake=async a=>{if(!NAME.test(a))return false;const f=path.join(WAKE,a+'.wake');await writeFile(f,'').catch(()=>{});return true};
  const stopAll=async a=>{if(!NAME.test(a))return false;await writeFile(path.join(HOME,'.aqeelos-agent-users.stop'),a+'\n',{flag:'a'});return true};
  // rewritten every minute even when unchanged: the root script ignores a file older than 3 minutes
- async function writeBusy(){const f=path.join(HOME,'.aqeelos-agent-busy');await writeFile(f+'.tmp',busyText(busyKeys()));await rename(f+'.tmp',f)}
+ async function writeBusy(){const f=path.join(HOME,'.aqeelos-agent-busy');const eng=await engineBusy().catch(()=>[]);await writeFile(f+'.tmp',busyText([...busyKeys(),...eng]));await rename(f+'.tmp',f)}
  async function tick(){await writeBusy().catch(e=>console.warn('box: busy',e.message));await writeLimits().catch(e=>console.warn('box: limits',e.message));await intake().catch(e=>console.warn('box: issues',e.message));await load();
   if(!st.expiredAt||Date.now()-st.expiredAt>864e5)await expire().catch(e=>console.warn('box: expire',e.message))}
  function start(){setTimeout(()=>writeLimits().catch(()=>{}),10000).unref?.();setTimeout(()=>tick().catch(()=>{}),30000).unref?.();setInterval(()=>tick().catch(()=>{}),60000).unref?.()}

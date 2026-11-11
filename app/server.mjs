@@ -43,6 +43,8 @@ import {createShare} from './share.mjs';
 import {createConnectors,notConnected,contextLines as connectLines,isConnector} from './connectors.mjs';
 import {createRelay} from './relay.mjs';
 import {boxMemory} from './boxmem.mjs';
+import {createMemWatch} from './memwatch.mjs';
+import {planExcess} from './browser-tidy.mjs';
 import {createBoxOps} from './box-ops.mjs';
 import {createLinks} from './links.mjs';
 import {createLocalBrowser} from './localbrowser.mjs';
@@ -1520,7 +1522,28 @@ const healthFix=async(a,x)=>{if(!await srEligible(a))throw Error('it cannot run 
   '\n\nFind the cause (my_health, my_logs, my_runs, my_schedules, your files and scripts), fix it in your own work, and check it works again (run the schedule or script once). Do not message the owner or customers. If the fix needs something only a person can give (a password, a sign-in, a decision), file it with report_bottleneck and stop. End with two lines: what was wrong, what you changed.';
  return selfRuns.start({agent:a,args:{prompt,reason:'aqeelOS health: '+String(x.title||'').slice(0,120),timeout_minutes:20},origin:{ok:true,by:{kind:'aqeelos',name:'aqeelOS health check'}},ws:path.join(homedir(),'workspaces',a)})};
 // operations rules on the app side (OPS-3 issues from the root script, OPS-5 process count, OPS-7 expiry): box-ops.mjs
-const boxOps=createBoxOps({HOME:homedir(),DATA,HERMES_HOME,fileIssue:o=>issues.file(o),keepOn:a=>agentAds.keepOn(a),busyKeys:()=>[...LIVE].filter(([,r])=>!r.done).map(([k])=>k)});if(LIVE_APP)boxOps.start();
+/* An agent's engine sessions (OPS-17, 11 Nov 2026): one running (a schedule, a webhook, a reply on a channel) and when it
+   last did something. Asked at most every 50 seconds per agent; null when the engine does not answer (then nothing of
+   the agent is stopped). A session still marked running after 2 quiet hours is a leftover, not work. */
+const sessCache=new Map();
+async function engineSessions(a){const c=sessCache.get(a);if(c&&Date.now()-c.t<50e3)return c.v;
+ const r=await fetch(DASH.origin+'/api/sessions?limit=5&profile='+encodeURIComponent(a),{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(15000)}).catch(()=>null);
+ const l=r&&r.ok?(await r.json().catch(()=>null))?.sessions:null;const v=Array.isArray(l)?{lastActive:Math.max(0,...l.map(x=>Number(x.last_active)||0))*1000,
+  active:l.some(x=>x.is_active&&Date.now()-(Number(x.last_active)||0)*1000<2*3600e3)}:null;sessCache.set(a,{t:Date.now(),v});return v}
+const agentUsersNow=async()=>(await readFile(path.join(homedir(),'.aqeelos-agent-users'),'utf8').catch(()=>'')).split('\n').map(x=>x.trim()).filter(Boolean);
+const boxOps=createBoxOps({HOME:homedir(),DATA,HERMES_HOME,fileIssue:o=>issues.file(o),keepOn:a=>agentAds.keepOn(a),busyKeys:()=>[...LIVE].filter(([,r])=>!r.done).map(([k])=>k),
+ engineBusy:async()=>{const out=[];for(const a of await agentUsersNow())if((await engineSessions(a))?.active)out.push(a);return out}});if(LIVE_APP)boxOps.start();
+/* Memory watchdog (memwatch.mjs, OPS-17): under 15% of the container's limit free, idle screens sleep and idle tabs go,
+   then the biggest idle agent Chrome or AdsPower starts again, then the engine restarts gracefully; the owner hears once
+   per spell. Nothing of an agent at work is touched (its engine session, a reply in aqeelOS, its screen in use). */
+const memWatch=createMemWatch({DATA,HOME:homedir(),HERMES_HOME,sessions:a=>engineSessions(a),busy:()=>[...LIVE].filter(([,r])=>!r.done).map(([k])=>String(k).split('|')[0]),
+ keepOn:a=>{try{return !!agentAds.keepOn(a)}catch{return true}},restarting:()=>!!gwRestarting,restartEngine:why=>restartLater(why),
+ // the agent's own screen Chrome keeps its 2 newest tabs (repeats of one page go first)
+ closeTabs:async a=>{const l=(await readFile(path.join(homedir(),'.aqeelos-agent-ports'),'utf8').catch(()=>'')).split('\n').map(x=>x.trim().split(' ')).find(x=>x[0]===a&&/^\d+$/.test(x[2]||''));if(!l)return 0;
+  const cdp=(q,m='GET')=>fetch('http://127.0.0.1:'+l[2]+q,{method:m,signal:AbortSignal.timeout(8000)}).then(r=>r.ok?r.json().catch(()=>({})):null).catch(()=>null);
+  const list=await cdp('/json/list');if(!Array.isArray(list))return 0;let n=0;for(const id of planExcess(list,{max:2,keepNewest:1}).close)if(await cdp('/json/close/'+encodeURIComponent(id)))n++;return n},
+ tell:async text=>{noteSys('memory',text.split('\n')[0]);await ownerSend(text,'telegram')}});
+if(LIVE_APP){setTimeout(()=>memWatch.tick().catch(e=>console.warn('memory watch',e.message)),90e3).unref();setInterval(()=>memWatch.tick().catch(e=>console.warn('memory watch',e.message)),120e3).unref()}
 // 7 Nov 2026: Health tells nobody; the agent fixes its own problem first (healthFix), then it is filed for the fixer (issues.mjs)
 const health=createAgentHealth({DATA,HERMES_HOME,bottlenecks,quiet:alertQuiet,fixFirst:(a,x)=>healthFix(a,x),fileIssue:o=>issues.file(o),healthGone:k=>issues.healthGone(k),
  // plain-code live checks (no model): the customer tools of each Kirimdev agent answer tools/list on the local route
@@ -3013,7 +3036,7 @@ const server=createServer(async(req,res)=>{
    if(k==='move')r=await issues.move(id,b.dir==='down'?'down':'up');else if(k==='skip'||k==='unskip')r=await issues.skip(id,k==='skip');else{r=await issues.pause(k==='pause',u.name||'an admin');if(k==='resume'&&LIVE_APP)issues.tick().catch(()=>{});return send(res,200,{ok:true,paused:r})}
    if(!r)return send(res,404,{error:'That issue is not in the line any more.'});if(LIVE_APP)issues.tick().catch(()=>{});return send(res,200,{ok:true,fixer:await issues.fixerView()})}
   // memory per agent (HEALTH-6) and this week's cost by agent and by person (HEALTH-7)
-  if(p==='/ui/health/memory'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});const v=await agentMemory.view();return send(res,200,{...v,names:Object.fromEntries(Object.keys(v.agents).map(a=>[a,agentName(a)]))})}
+  if(p==='/ui/health/memory'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});const v=await agentMemory.view();const box=await memWatch.view().catch(()=>null);return send(res,200,{...v,box,names:Object.fromEntries(Object.keys(v.agents).map(a=>[a,agentName(a)]))})}
   if(p==='/ui/health/cost'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});
    // whose chat it was: the person who started it in aqeelOS, else a person the team policy knows on that channel (the owner
    // on Telegram), else what started it: a schedule, a customer on a channel, or background work (the fixer, helpers)

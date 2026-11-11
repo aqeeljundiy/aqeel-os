@@ -18,6 +18,10 @@ const PLATFORMS=['whatsapp','telegram','slack','discord','signal','api_server'];
 // the engine's API-server bundle leaves out clarify, computer_use and tts; the app chat gets them back so it matches every other channel
 const API_EXTRA=['clarify','computer_use','tts'];
 const bundle=p=>p==='api_server'?'hermes-api-server':'hermes-'+p;
+// language-server memory caps for every agent (OPS-17): settings key and value
+export const LSP_CAPS=[['lsp.idle_timeout','300'],
+ ['lsp.servers.typescript',{env:{NODE_OPTIONS:'--max-old-space-size=1536'},initialization_options:{maxTsServerMemory:1536}}],
+ ['lsp.servers.pyright',{env:{NODE_OPTIONS:'--max-old-space-size=1024'}}]];
 const run=(c,a)=>new Promise((res,rej)=>execFile(c,a,{timeout:30000},(e,o,er)=>e?rej(Error(String(er||e.message).trim())):res(String(o))));
 
 // the Chrome on an isolated agent's own screen: scripts/agent-users.sh gives each one port 9600+i (behind the wake proxy,
@@ -106,6 +110,10 @@ export function createAgentDefaults({DATA,giveSkills,trimSkills=async()=>0,locke
   // aqeelOS's own tools for the agent (lock box, my_settings, browser choice, bottlenecks) are never cut down to a few
   if(pick(c,'mcp_servers.aqeelos-notify.tools.include')!==undefined)changes.push(['mcp_servers.aqeelos-notify.tools',{}]);
   if(pick(c,'stt.language')===undefined)changes.push(['stt.language','']);
+  // the engine's code checkers (language servers it starts after file edits) held ~2.7 GB on Elkiya (OPS-17, 11 Nov
+  // 2026), a box with a 28 GB limit: TypeScript's at most 1.5 GB of heap, Python's 1 GB, and each stops after 5 idle
+  // minutes (the engine's own default is 10). Set once; values a person set stay.
+  for(const [k,v] of LSP_CAPS)if(pick(c,k)===undefined)changes.push([k,v]);
   if(a!=='default'&&pick(c,'stt.local.model')===undefined){const m=pick(await readConfig('default').catch(()=>null),'stt.local.model');if(m)changes.push(['stt.local.model',String(m)])}
   // only settings really written count: a refused write (e.g. a deleted profile) must not restart the agents every pass
   const done=[];for(const [k,v] of changes){const r=await setKey(a,k,v).catch(e=>({ok:false,out:String(e?.message||e)}));if(r?.ok!==false)done.push(k);else log('agent defaults '+a+' '+k+': '+String(r.out||'').trim().slice(0,160))}

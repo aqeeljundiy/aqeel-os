@@ -54,12 +54,14 @@ const HealthVerdict={
   else if(bad){tone='work';head=pl(bad,'agent has','agents have')+' a problem. The fixer looks at it by itself.'}
   else head='Everything is patched and working.';
   if(!n&&!line&&grow.length){tone=tone==='ok'?'work':tone;sub.push(grow.join(', ')+(grow.length===1?'’s memory keeps':' keep')+' growing (see Agents).')}
+  const bx=mem?.box,bl=AgentHealth.boxLine(bx);if(bl&&(bx.level!=='ok'||bx.growing?.length)){tone=tone==='ok'?'work':tone;sub.push(bl)}
   if(tone==='ok')sub.push(rows.length?'Every agent answers and nothing waits for a fix.':'Nothing waits for a fix.');
   const facts=[];if(rows.length)facts.push([bad?'a':'g',(rows.length-bad)+' of '+rows.length+' agents working']);
   if(f.now)facts.push(['b','Fixer: '+(f.now.step==='prove'?'proving a fix':'fixing')]);else if(f.paused)facts.push(['a','Fixer paused']);else if(f.wait&&!f.wait.quiet)facts.push(['a','Fixer waits for quiet hours']);else if(line)facts.push(['b','Fixer: '+line+' in line']);else facts.push(['g','Fixer: nothing in line']);
   if(f.cap&&f.cap.used>=f.cap.cap)facts.push(['a','All '+f.cap.cap+' fix runs used today']);
   if(n)facts.push(['a',pl(n,'thing needs you','things need you')]);
   if(mem)facts.push(grow.length?['a',pl(grow.length,'agent’s memory keeps growing','agents’ memory keeps growing')]:['g','Memory steady']);
+  if(bx?.limit&&bx.used!=null)facts.push([bx.level==='ok'?'g':'a','AI box memory '+Math.round(bx.used/bx.limit*100)+'% of '+bytes(bx.limit)]);
   const key=tone+'|'+head;const again=box.dataset.k===key;box.dataset.k=key;
   box.innerHTML='<section class="hv '+(tone==='ok'?'ok':tone==='need'?'need':'work')+'"'+(again?' style="animation:none"':'')+' aria-live="polite"><span class="hv-ic">'+icon(tone==='ok'?'check':tone==='need'?'alert':'activity',20)+'</span><div class="hv-t"><h2>'+esc(head)+'</h2>'+(sub.length?'<p>'+esc(sub.join(' '))+'</p>':'')+
    '<div class="hv-f">'+facts.map(([c,t])=>'<span><i class="'+c+'"></i>'+esc(t)+'</span>').join('')+'</div></div></section>'},
@@ -77,8 +79,13 @@ const AgentHealth={
  REASON:{rate_limit:'the AI model was busy',upstream_rate_limit:'the AI model was busy',overloaded:'the AI model was busy',server_error:'the AI model did not answer',timeout:'the AI model did not answer in time',gateway_connection:'the connection to the AI model broke',empty_response:'the AI model sent an empty answer',auth:'the AI account needs signing in again',auth_permanent:'the AI account needs signing in again',billing:'the AI account is out of credit',context_overflow:'the chat grew too long',interpreter_shutdown:'the system restarted mid-reply',loop_error:'something went wrong while answering',unknown:'the cause was not recorded'},
  memWarn(name,g,mem){const lim=mem?.limit,used=mem?.used,left=lim&&used&&g.perDay>0?Math.ceil((lim-used)/g.perDay):null;
   return esc(name)+'’s memory grew every day for '+g.days+' days, from '+bytes(g.from)+' to '+bytes(g.to)+', and has not come back down.'+(left!=null&&left<=30?' At this pace the AI box ('+bytes(lim)+') is full in about '+left+' day'+(left===1?'':'s')+'.':'')},
+ // the AI box against its memory limit (memwatch.mjs, OPS-17): in use, the biggest apps, and any that grew a lot in a day
+ boxLine(b){if(!b?.limit||b.used==null)return '';const top=(b.apps||[]).slice(0,4).map(a=>a.name+' '+bytes(a.bytes)).join(', ');
+  const g=(b.growing||[]).slice(0,2).map(x=>x.name+' grew from '+bytes(x.from)+' to '+bytes(x.to)+' in '+x.hours+' h').join('; ');
+  return 'The AI box uses '+Math.round(b.used/b.limit*100)+'% of its '+bytes(b.limit)+' memory limit'+(b.level==='low'?' and frees idle screens and browsers by itself':b.level==='tight'?', close to where it frees memory by itself':'')+'.'+(top?' Biggest: '+top+'.':'')+(g?' Growing: '+g+'.':'')},
  draw(box,d,again,mem){const rows=d.agents||[],first=!!box.querySelector('.skel'),M=mem?.agents||{};
-  const head=mem?'<p class="hint ah-hint">What each agent’s programs hold in memory now, and its last 7 days. The main agent’s line includes the engine.</p>':'';
+  const bl=AgentHealth.boxLine(mem?.box);
+  const head=mem?'<p class="hint ah-hint">What each agent’s programs hold in memory now, and its last 7 days. The main agent’s line includes the engine.</p>'+(bl?'<p class="hint ah-hint ah-box'+(mem.box.level!=='ok'||mem.box.growing?.length?' warn':'')+'">'+esc(bl)+'</p>':''):'';
   box.innerHTML=head+'<div class="card list ah-list">'+rows.map((r,i)=>{const dl=AgentHealth.dropLine(r.drops),m=r.agent?M[r.agent]:null,g=m?.growing;
    const memH=m&&m.now?'<div class="ah-mem'+(g?' warn':'')+'">'+((m.days||[]).length>=2?HealthVerdict.spark([...m.days,m.now],!!g):'')+'<span><b>'+bytes(m.now)+'</b><small>'+(g?'+'+bytes(g.to-g.from)+' in '+g.days+' days':(m.days||[]).length>=2?'last '+m.days.length+' days':'now')+'</small></span></div>':'';
    return '<div class="row ah-row'+(r.ok?'':' bad')+'"'+(first?' style="animation-delay:'+Math.min(i,8)*30+'ms"':'')+'><div class="main-c"><i class="ah-dot'+(r.ok?' ok':'')+'"></i><div class="txt"><b>'+esc(r.name)+'</b><span>'+(r.ok?'Working':r.problems.length===1?'1 problem':r.problems.length+' problems')+(dl?' · '+esc(dl):'')+'</span>'+

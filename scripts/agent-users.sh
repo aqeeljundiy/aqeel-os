@@ -24,6 +24,10 @@ KEYS=/etc/ssh/agent-keys
 PUB=$HOMEC/.hermes/agent-ssh/id_ed25519.pub
 CHROME_SRC=$(ls -d $HOMEC/.hermes/tools/chromium-*/chrome-linux64 2>/dev/null | sort | tail -1)
 CHROME=/opt/aqeelos/chrome/chrome
+# OPS-17 (11 Nov 2026): agent Chromes held up to 3.4 GB on a box with a 28 GB container limit. Tabs share renderer
+# processes once 6 are running, and pages left behind are not kept alive in the back/forward cache. Applies when a
+# Chrome next starts (a restart, a wake, a box start).
+CHROME_MEM="--renderer-process-limit=6 --disable-back-forward-cache"
 SRC=${AQEELOS_APP:-$HOMEC/apps/hermes-ui}/scripts/agent-users.sh
 # beaten every 30 s while watching: aqeelOS shows on the Agents page when this script is not running
 ALIVE=$REQ.alive
@@ -259,6 +263,45 @@ take_stops(){
   done < "$REQ.stop"
   : > "$REQ.stop"
 }
+# OPS-17: aqeelOS's memory watchdog (app/memwatch.mjs) asks, one "<agent> sleep|chrome|adspower" per line in $REQ.mem,
+# when the box is short of memory. Each is checked again here: an agent mid-reply or with its screen used in the last
+# 5 minutes is left alone, and only sleep, a Chrome restart (chrome_loop starts it again) or an AdsPower restart (its
+# keep-alive loop in aqeelOS starts it again) is ever done. Prints the step taken: sleep, chrome, adspower or skip.
+mem_req_step(){
+  local what=$1 now=$2 used=$3 busy=$4 ads=$5 asleep=$6
+  case "$what" in sleep|chrome|adspower) ;; *) echo skip; return ;; esac
+  { [ "$busy" = 1 ] || [ $((now-used)) -lt "$IN_USE" ]; } && { echo skip; return; }
+  [ "$asleep" = 1 ] && { echo skip; return; }
+  [ "$what" = sleep ] && [ "$ads" = 1 ] && { echo skip; return; }
+  [ "$what" = adspower ] && [ "$ads" != 1 ] && { echo skip; return; }
+  echo "$what"
+}
+take_mem(){
+  [ -s "$REQ.mem" ] || return 0
+  local n what u ws sd now busy ads asleep step line disp pid sl
+  while read -r n what; do
+    [[ "$n" =~ ^[a-z0-9][a-z0-9_-]{0,28}$ ]] || continue
+    u="ag-$n"; u=${u:0:32}; id "$u" >/dev/null 2>&1 || continue
+    ws="$HOMEC/workspaces/$n"; sd="$ws/.screen"; now=$(date +%s); busy=0; ads=0; asleep=0
+    in_reply "$n" "$now" && busy=1
+    pgrep -u "$u" -f "adspower_global|SunBrowser" >/dev/null 2>&1 && ads=1
+    [ -f "$sd/asleep" ] && asleep=1
+    # only a screen that may sleep (it wakes through the wake proxy on use) is put to sleep
+    read -r _ sl <<< "$(limit_of "$n")"; [ "$what" = sleep ] && [ "${sl:-0}" -le 0 ] && what=no-sleep
+    step=$(mem_req_step "$what" "$now" "$(last_use "$n" "$sd")" "$busy" "$ads" "$asleep")
+    case "$step" in
+      sleep) line=$(grep "^$n " "$PORTS" | head -1); disp=$(echo "$line" | cut -d' ' -f2)
+             screen_kill "$u" "$disp" "$ws" >/dev/null; touch "$sd/asleep"; chown "$u:$OWNER" "$sd/asleep" 2>/dev/null; rm -f -- "$RST/$n"
+             echo "memory: $n: screen put to sleep (asked by aqeelOS, box short of memory)" ;;
+      chrome) pid=$(ps -u "$u" -o pid=,args= | awk -v b="--user-data-dir=$ws/.browser" 'index($0,b) && $0 !~ /--type=/ {print $1; exit}')
+              [ -n "$pid" ] && kill -TERM "$pid" 2>/dev/null && echo "memory: $n: Chrome started again (asked by aqeelOS, box short of memory)" ;;
+      # the program and its browsers only, never the keep-alive loop around it ("bash -c ... adspower_global ...")
+      adspower) pkill -TERM -u "$u" -f "^[^ ]*/(adspower_global|SunBrowser)( |$)" 2>/dev/null && echo "memory: $n: AdsPower started again (asked by aqeelOS, box short of memory)" ;;
+      *) echo "memory: $n: $what not done (in use or not running)" ;;
+    esac
+  done < "$REQ.mem"
+  : > "$REQ.mem"
+}
 
 # screen_up <agent> <user> [desktop <why>]: with "desktop", only the desktop of a running screen starts again (OPS-13)
 screen_up(){
@@ -309,7 +352,7 @@ screen_up(){
     $desk
     rm -f '$sd/chrome.stopped'
     $(declare -f chrome_loop)
-    ( chrome_loop '$sd' '$CHROME' --no-sandbox --disable-dev-shm-usage --no-first-run --no-default-browser-check --user-data-dir='$ws/.browser' --remote-debugging-address=127.0.0.1 --remote-debugging-port=$cport --window-size=1280,800 --start-maximized $open & )
+    ( chrome_loop '$sd' '$CHROME' --no-sandbox --disable-dev-shm-usage --no-first-run --no-default-browser-check --user-data-dir='$ws/.browser' --remote-debugging-address=127.0.0.1 --remote-debugging-port=$cport --window-size=1280,800 --start-maximized $CHROME_MEM $open & )
     echo $cport > '$sd/layout'
     touch '$sd/activity'
   " && echo "screen for $n on :$disp (chrome $cport)"
@@ -507,15 +550,24 @@ janitor(){
 mem_mb(){ local u=$1 p kb=0 v; for p in $(pgrep -u "$u" 2>/dev/null); do v=$(awk '/^Pss:/{print $2; exit}' "/proc/$p/smaps_rollup" 2>/dev/null); kb=$((kb+${v:-0})); done
   [ "$kb" -gt 0 ] || kb=$(ps -u "$u" -o rss= 2>/dev/null | awk '{s+=$1} END{print s+0}'); echo $((kb/1024)); }
 # decides, from MB, cap and the over-since/acted times kept in $RST/<agent>.mem: none, chrome, report, biggest
+# $6 = 1 while the agent is at work (a reply or schedule in $BUSY, its screen used in the last 5 minutes): nothing of it
+# is restarted then (OPS-17), unless it holds three times its cap
 mem_step(){
-  local mb=$1 cap=$2 now=$3 since=$4 acted=$5
+  local mb=$1 cap=$2 now=$3 since=$4 acted=$5 busy=${6:-0}
   [ "$cap" -gt 0 ] && [ "$mb" -gt "$cap" ] || { echo none; return; }
+  [ "$mb" -gt $((cap*3)) ] && { echo biggest; return; }
+  [ "$busy" = 1 ] && { echo none; return; }
   [ "$mb" -gt $((cap*2)) ] && { echo biggest; return; }
   [ $((now-since)) -lt 180 ] && { echo none; return; }
   [ "$acted" -eq 0 ] && { echo chrome; return; }
   [ $((now-acted)) -ge 180 ] && [ "$acted" -gt 0 ] && { echo report; return; }
   echo none
 }
+# MB the agent's Chrome (its own .browser) or its AdsPower (program, browsers, RPA) holds, from resident memory
+part_mb(){ local u=$1 what=$2 re; [ "$what" = adspower ] && re='^[^ ]*/(adspower_global|SunBrowser)( |$)' || re='^[^ ]*/chrome( |$)'
+  ps -u "$u" -o rss=,args= 2>/dev/null | awk -v re="$re" '{a=$0; sub(/^ *[0-9]+ +/,"",a); if(a ~ re) s+=$1} END{print int(s/1024)}'; }
+# which part to start again: the bigger one (Chrome on a tie)
+mem_target(){ [ "${2:-0}" -gt "${1:-0}" ] && echo adspower || echo chrome; }
 mem_cap(){
   local n=$1 u=$2 ws=$3 mb cap f="$RST/$1.mem" since=0 acted=0 now step pid
   mb=$(mem_mb "$u"); read -r cap _ <<< "$(limit_of "$n")"; now=$(date +%s)
@@ -524,11 +576,16 @@ mem_cap(){
   [ -f "$f" ] && read -r since acted < "$f"
   if [ "$cap" -le 0 ] || [ "$mb" -le "$cap" ]; then rm -f -- "$f"; echo "$mb"; return; fi
   [ "${since:-0}" -gt 0 ] || since=$now
-  step=$(mem_step "$mb" "$cap" "$now" "$since" "${acted:-0}")
+  local busy=0; { in_reply "$n" "$now" || [ $((now-$(last_use "$n" "$ws/.screen"))) -lt "$IN_USE" ]; } && busy=1
+  step=$(mem_step "$mb" "$cap" "$now" "$since" "${acted:-0}" "$busy")
+  # the part that holds more is the one started again: on 11 Nov 2026 continue-threads' Chrome was restarted while its
+  # AdsPower held 5.7 GB in one process (rpa.min.js, 11 days old)
+  [ "$step" = chrome ] && [ "$(mem_target "$(part_mb "$u" chrome)" "$(part_mb "$u" adspower)")" = adspower ] && step=adspower
   case "$step" in
     chrome) pid=$(ps -u "$u" -o pid=,args= | awk -v b="--user-data-dir=$ws/.browser" 'index($0,b) && $0 !~ /--type=/ {print $1; exit}')
             [ -n "$pid" ] && kill -TERM "$pid" 2>/dev/null; acted=$now; echo "janitor: $n uses $mb MB (cap $cap): its Chrome is started again" >&2 ;;
-    report) report "$n" "memory" "uses $mb MB, over its $cap MB cap, even after its Chrome was started again. Raise its cap in hermes-ui-data/agent-limits.json or find what grows (System › Per agent)" >&2; acted=-1 ;;
+    adspower) pkill -TERM -u "$u" -f "^[^ ]*/(adspower_global|SunBrowser)( |$)" 2>/dev/null; acted=$now; echo "janitor: $n uses $mb MB (cap $cap): its AdsPower is started again" >&2 ;;
+    report) report "$n" "memory" "uses $mb MB, over its $cap MB cap, even after its Chrome or AdsPower was started again. Raise its cap in hermes-ui-data/agent-limits.json or find what grows (System › Per agent)" >&2; acted=-1 ;;
     biggest) pid=$(ps -u "$u" -o pid= --sort=-rss | head -1 | tr -d ' '); [ -n "$pid" ] && echo "janitor: $n uses $mb MB, twice its $cap MB cap: stopping its biggest process $pid ($(ps -o args= -p "$pid" | cut -c1-60))" >&2 && kill -TERM "$pid" 2>/dev/null ;;
   esac
   mkdir -p "$RST"; echo "$since ${acted:-0}" > "$f"
@@ -556,5 +613,5 @@ case "${1:-watch}" in
   reset) [ -n "${2:-}" ] && echo "$2" >> "$RESET" && take_resets ;;
   janitor) janitor ;;
   stop) [ -n "${2:-}" ] && echo "$2" >> "$REQ.stop" && take_stops ;;
-  watch) last=""; n=0; while true; do take_resets; take_stops; take_wakes; proxy_up; [ $((n % 12)) -eq 0 ] && [ -f "$REQ" ] && { janitor; sleep_idle; setup_wake; }; [ $((n % 720)) -eq 0 ] && [ -f "$REQ" ] && trim_logs; [ $((n % 6)) -eq 0 ] && { date +%s > "$ALIVE"; chown "$OWNER:$OWNER" "$ALIVE" 2>/dev/null; }; if [ -f "$SRC" ] && [ "$0" != "$SRC" ] && ! cmp -s "$SRC" "$0"; then install -m 755 -o root -g root "$SRC" "$0" && exec "$0" watch; fi; s=$(stat -c %Y "$REQ" 2>/dev/null || echo none); if [ "$s" != "$last" ]; then once; last=$s; fi; n=$((n+1)); [ $((n % 6)) -eq 0 ] && [ -f "$REQ" ] && screens; sleep 5; done ;;
+  watch) last=""; n=0; while true; do take_resets; take_stops; take_mem; take_wakes; proxy_up; [ $((n % 12)) -eq 0 ] && [ -f "$REQ" ] && { janitor; sleep_idle; setup_wake; }; [ $((n % 720)) -eq 0 ] && [ -f "$REQ" ] && trim_logs; [ $((n % 6)) -eq 0 ] && { date +%s > "$ALIVE"; chown "$OWNER:$OWNER" "$ALIVE" 2>/dev/null; }; if [ -f "$SRC" ] && [ "$0" != "$SRC" ] && ! cmp -s "$SRC" "$0"; then install -m 755 -o root -g root "$SRC" "$0" && exec "$0" watch; fi; s=$(stat -c %Y "$REQ" 2>/dev/null || echo none); if [ "$s" != "$last" ]; then once; last=$s; fi; n=$((n+1)); [ $((n % 6)) -eq 0 ] && [ -f "$REQ" ] && screens; sleep 5; done ;;
 esac
