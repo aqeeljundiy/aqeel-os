@@ -117,3 +117,52 @@ test('the sweep never counts a first entrance as a replay: text round a block st
  const sw=readFileSync(new URL('./sweep.js',import.meta.url),'utf8');
  assert.match(sw,/const snap=\(\)=>\{shown=new Set\(\);const fl=\$\('#view'\)\?\.getAnimations\(\{subtree:true\}\)/);
  assert.match(sw,/if\(fl\.some\(f=>el\.contains\(f\)\)\)continue/)});
+
+/* ---------- 12 Nov 2026: a page is drawn out of sight and shown whole; last-known answers while it is drawn ---------- */
+test('opening a page never blanks the view: render hands the drawing to Stage, which keeps what is on screen until the new page is whole',()=>{
+ const core=src('core.js'),render=core.slice(core.indexOf('function render(){'),core.indexOf('/* A page is drawn out of sight'));
+ assert.match(render,/if\(same\)Stage\.same\(v,run\);else Stage\.open\(v,head\(r\.page\),run,fresh\?enter:null\)/);
+ assert.doesNotMatch(render,/v\.innerHTML=`<div class="page">\$\{head\(r\.page\)\}<div id="pg">\$\{skeleton\(\)\}/,'no blank-then-ring page in render');
+ const stage=grab('core.js','const Stage={');
+ assert.match(stage,/v\.prepend\(pageEl\)/,'the new page sits before the old one, so lookups by id find the new one');
+ assert.match(stage,/live\.before\(pg\)/);assert.match(stage,/if\(st\.kind==='pg'&&!st\.pg\.firstChild\)return/,'the same page drawn again never swaps to nothing');
+ assert.match(stage,/if\(!pg\.firstChild\)pg\.innerHTML=skeleton\(\)/,'a page with nothing drawn at the limit keeps the ring');
+ assert.match(src('app.css'),/\.staged\{visibility:hidden!important;height:0!important/);
+ // late blocks and loaded fades are for what is on screen
+ assert.match(core,/function watchReveal\(root\)\{[^\n]*if\(m\.target\.closest\?\.\('\.staged'\)\)continue/);
+ assert.match(core,/if\(!m\.target\.closest\?\.\('#pg'\)\|\|m\.target\.closest\('\.staged'\)\)continue/)});
+
+const mkSwr=()=>{const S={_nav:1},again=[];const Swr=new Function('S','Stage',grab('core.js','const Swr={')+'\nreturn Swr')(S,{again:()=>again.push(1)});return {S,Swr,again}};
+const tick=()=>new Promise(r=>setTimeout(r,5));
+test('last-known answers: only while a page is drawn, asked again behind it, and the page is drawn once more only when an answer differs',async()=>{
+ const {S,Swr,again}=mkSwr();let asks=0;const ask=v=>()=>{asks++;return Promise.resolve(v)};
+ Swr.put('/ui/x',{n:1});
+ assert.equal(Swr.take('/ui/x',ask({n:1})),undefined,'a timer or a button always asks the server');
+ let tok=Swr.begin();assert.deepEqual(Swr.take('/ui/x',ask({n:1})),{n:1});assert.equal(asks,0,'an answer a few seconds old is not asked again');
+ Swr.m.get('/ui/x').t-=20000;
+ const a=Swr.take('/ui/x',ask({n:1}));a.n=99;assert.deepEqual(Swr.take('/ui/x',ask({n:1})),{n:1},'each caller gets its own copy');assert.equal(asks,0);
+ await tick();assert.equal(asks,1,'one read behind the scenes, however many parts asked');Swr.end(tok);await tick();assert.equal(again.length,0,'the same answer: nothing is drawn again');
+ Swr.m.get('/ui/x').t-=20000;tok=Swr.begin();Swr.take('/ui/x',ask({n:2}));Swr.end(tok);assert.equal(again.length,0,'not before the new answer is in');
+ await tick();assert.equal(again.length,1,'a different answer draws the page once more');
+ tok=Swr.begin();assert.deepEqual(Swr.take('/ui/x',ask({n:3})),{n:2});Swr.end(tok);await tick();assert.equal(again.length,1,'and that drawing uses the new answer without asking again');
+ // another visit: answers on their way for the old one never redraw the new page
+ Swr.m.get('/ui/x').t-=20000;tok=Swr.begin();Swr.take('/ui/x',ask({n:4}));S._nav=2;Swr.end(tok);await tick();assert.equal(again.length,1);
+ // a change forgets everything; too old is not used; logs are never kept
+ Swr.clear();tok=Swr.begin();assert.equal(Swr.take('/ui/x',ask(0)),undefined);
+ Swr.put('/ui/y',[1]);Swr.m.get('/ui/y').t-=16*60e3;assert.equal(Swr.take('/ui/y',ask(0)),undefined);
+ Swr.put('/hapi/logs?lines=200',['a']);assert.equal(Swr.m.has('/hapi/logs?lines=200'),false)});
+
+test('reads go through the last-known answers, and every change forgets them',()=>{
+ const c=grab('core.js','async function call(');
+ assert.match(c,/const last=k\?Swr\.take\(base\+path,\(\)=>callRaw\(base,path,opt\)\):undefined/);
+ assert.match(c,/if\(!get\)Swr\.clear\(\)/);assert.match(c,/if\(last===undefined\)req\.then\(d=>Swr\.put\(base\+path,d\)/)});
+
+test('the flicker check fails on a redrawn shell and on a page that moves, and runs every night and in GitHub Actions',()=>{
+ const sw=readFileSync(new URL('./sweep.js',import.meta.url),'utf8');
+ assert.match(sw,/const SHIFT_MAX=0\.05/);assert.match(sw,/if\(shift>SHIFT_MAX\)\{bad\+\+/);
+ assert.match(sw,/tg\.closest\('\.side-sub,\.crumbs'\)/);assert.match(sw,/if\(shell\.length\)\{bad\+\+/);
+ const bc=readFileSync(new URL('./box-check.sh',import.meta.url),'utf8');
+ // the nightly run (BROWSER_ONLY=1) reaches the sweep, and only FLICKER_CHECK=0 skips it
+ assert.match(bc,/if \[ "\$\{FLICKER_CHECK:-1\}" = 0 \]; then echo "· 2\/5 fast page switching: skipped/);assert.match(bc,/node scripts\/shot\.mjs \/tmp\/sweep\.png "#\/chat" "" "" 1280 900 "\$\(cat scripts\/sweep\.js\)"/);
+ assert.doesNotMatch(readFileSync(new URL('../app/browser-checks.mjs',import.meta.url),'utf8'),/FLICKER_CHECK/,'the nightly run never switches the flicker check off');
+ const wf=readFileSync(new URL('../.github/workflows/tests.yml',import.meta.url),'utf8');assert.match(wf,/node scripts\/flicker-ci\.mjs/)});

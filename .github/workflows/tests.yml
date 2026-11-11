@@ -22,3 +22,9 @@ jobs:
       - run: node --test --test-concurrency=2 scripts/*.test.mjs
         env:
           TMPDIR: ${{ runner.temp }}
+      # the flicker check in a real browser (12 Nov 2026): headless Chrome on the runner, this copy of the app on an empty data
+      # folder, no engine. Fails when the sidebar or topbar is drawn again while pages change, or a page moves while it loads.
+      # The full run (every page, real data) is the nightly one on the box (scripts/box-check.sh, app/browser-checks.mjs).
+      - run: node scripts/flicker-ci.mjs
+        env:
+          TMPDIR: ${{ runner.temp }}
