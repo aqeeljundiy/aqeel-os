@@ -35,7 +35,8 @@ export const SERVICE_RE=/\bn8n\b|zapier|pipedream|make\.com|aqeelos/i;
 const BOT_KEY=/^(SLACK_BOT_TOKEN|SLACK_APP_TOKEN|TELEGRAM_BOT_TOKEN|DISCORD_BOT_TOKEN|WHATSAPP_.*|SIGNAL_.*|TEAMS_.*)$/;
 export const PROVIDERS=[{id:'slack',re:/slack/i,name:'Slack',logo:'slack.com'},{id:'notion',re:/notion/i,name:'Notion',logo:'notion.so'},{id:'google',re:/google|gmail/i,name:'Google',logo:'google.com'},
  {id:'telegram',re:/telegram/i,name:'Telegram',logo:'telegram.org'},{id:'github',re:/github/i,name:'GitHub',logo:'github.com'},{id:'linear',re:/linear/i,name:'Linear',logo:'linear.app'},
- {id:'atlassian',re:/atlassian|jira|confluence/i,name:'Atlassian',logo:'atlassian.com'},{id:'figma',re:/figma/i,name:'Figma',logo:'figma.com'},{id:'asana',re:/asana/i,name:'Asana',logo:'asana.com'},{id:'hubspot',re:/hubspot/i,name:'HubSpot',logo:'hubspot.com'}];
+ {id:'atlassian',re:/atlassian|jira|confluence/i,name:'Atlassian',logo:'atlassian.com'},{id:'figma',re:/figma/i,name:'Figma',logo:'figma.com'},{id:'asana',re:/asana/i,name:'Asana',logo:'asana.com'},{id:'hubspot',re:/hubspot/i,name:'HubSpot',logo:'hubspot.com'},
+ {id:'tebar',re:/tebar/i,name:'Tebar',logo:'tebar.app'}];
 export function providerOf(...texts){const s=texts.filter(Boolean).join(' ');const p=PROVIDERS.find(x=>x.re.test(s));if(p)return {id:p.id,name:p.name,logo:p.logo};
  const host=(/https?:\/\/([^/\s:]+)/.exec(s)||[])[1]||'',base=host.split('.').slice(-2).join('.');return {id:base||'other',name:base?base.split('.')[0].replace(/^./,c=>c.toUpperCase()):'Account',logo:base}}
 // what a login is: as 'me' (acts as the owner), 'bot' (a bot people message), 'service' (a service the agents work
@@ -92,7 +93,9 @@ export const allowed=(kind,can)=>kind==='read'||(kind==='draft'?can.includes('dr
 // what one app tool needs (1 Nov 2026): read, draft or send. A comment counts as a draft (it stays a note on the thing,
 // not a message out), so Read & draft may comment; everything else that changes or sends needs Full, and so does a tool
 // whose name does not say what it does.
-export function toolNeed(prov,tool){const a=actionOf(prov,tool);if(a.kind==='draft'||a.kind==='read'&&a.verb!=='Used')return a.kind;   // a tool whose name says nothing known (RUN_ACTION) needs Full
+// A reply to a comment on a social network (Tebar, 11 Nov 2026) is a public post, not a note: it needs Full.
+const PUBLIC_COMMENTS=new Set(['tebar']);
+export function toolNeed(prov,tool){if(PUBLIC_COMMENTS.has(prov)&&/comment/i.test(String(tool||''))&&!/^(list|get|read|search|count)[._-]/i.test(String(tool||'')))return 'send';const a=actionOf(prov,tool);if(a.kind==='draft'||a.kind==='read'&&a.verb!=='Used')return a.kind;   // a tool whose name says nothing known (RUN_ACTION) needs Full
  const t=String(tool||'').toLowerCase().split(/[._\s-]+/);return t.some(w=>/^comments?$/.test(w))&&t.some(w=>/^(create|add|reply|post|insert)$/.test(w))?'draft':'send'}
 const PROV_WORD={gmail:'Gmail',drive:'Drive',sheets:'Sheets',docs:'Docs',calendar:'Calendar',slack:'Slack',notion:'Notion'};
 const pl=(n,w)=>n===1?w:w==='person'?'people':w==='sharing'?w:/(s|sh|ch|x)$/.test(w)?w+'es':w+'s';

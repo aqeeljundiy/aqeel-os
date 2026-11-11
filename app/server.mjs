@@ -16,6 +16,8 @@ import {createIssues,engineSortRun,personOf} from './issues.mjs';
 import {createAgentMemory} from './agent-memory.mjs';
 import {createTeamSettings} from './team-settings.mjs';
 import {createCodeChanges} from './code-changes.mjs';
+import {withTebar} from './tebar-app.mjs';   // Tebar in the catalog: one click sign-in, or a pasted API key (11 Nov 2026)
+import {createTebar} from './tebar.mjs';   // Tebar webhooks: failed posts and expired accounts as alerts, comments and DMs as notices (11 Nov 2026)
 import {mcpAddProblem} from './mcp-add-check.mjs';   // an app added by address: no spaces in its name, no Google file links (11 Nov 2026)
 import {createEscalations} from './escalations.mjs';
 import {createConnect,firstModelFor} from './connect.mjs';
@@ -1423,6 +1425,12 @@ const kirimdev=createKirimdev({DATA,WORK:path.join(homedir(),'workspaces'),PUBLI
   const j=r&&r.ok?await r.json().catch(()=>({})):{};return j.ok?(j.result?.message_id||true):false},   // the post's id once Telegram confirmed it
  activity:(a,title,text)=>news.add({aud:'admins',icon:'tag',kind:'blue',title,text,go:'/channels/kirimdev',label:'Kirimdev'}),
  tell:(text,detail)=>bottlenecks.event('kirimdev',text,detail,{info:true})});
+/* Tebar webhooks (tebar.mjs, 11 Nov 2026): POST /hooks/tebar/<agent>, signed with the secret the person pasted. Failed posts
+   and expired or disconnected accounts are alerts (Health, Bottlenecks, the alert chat); comments, DMs and the other
+   events picked are a notice in the bell of the agent's owner (admins for the main agents) */
+const tebar=createTebar({DATA,publicUrl:()=>String(PUBLIC_URL??''),nameOf:a=>NAMES[a]||a,log:m=>console.log(m),
+ problem:(a,topic,title,fix)=>health.problem(a,'tebar',title,{topic,fix}),solved:(a,topic)=>health.ok(a,topic),
+ notice:(a,title,text,type)=>{const o=users.byId(users.agentOwner(a));return news.add({aud:o&&!users.isAdmin(o)?'u:'+o.id:'admins',group:'tebar|'+a+'|'+type,icon:'bell',kind:'blue',title,text,go:'/abilities/connections',label:'Connections'})}});
 if(LIVE_APP)setTimeout(()=>kirimdev.resume().catch(e=>console.warn('kirimdev resume',e.message)),30000).unref();
 // a confirmed payment labels the contact (Customer, S-…, no Checkout): code, every minute, on the live box only
 // a paid order goes to the line's Orders topic with the same check (8 Nov 2026)
@@ -2019,6 +2027,8 @@ async function hermesCall(req,res,u,url){
   if(!plain&&!users.can(u,'unsafe'))return send(res,403,{error:'Only admins can add tools that run a command on the box. Use a server URL instead.'});
   if(e.url&&await privateAddress(e.url))return send(res,403,{error:'Tools must use a public web address.'})}
  const transform=/^\/hapi\/(sessions|sessions\/search|profiles|cron\/jobs)$/.test(p)&&req.method==='GET'?d=>users.filter(u,p,d,agent)
+  // Add an app: Tebar first (app/tebar-app.mjs), then the engine's own
+  :p==='/hapi/mcp/catalog'&&req.method==='GET'?async d=>withTebar(d,await readConfig(agent).catch(()=>null))
   // System › Logs: the agents' tool addresses carry a secret part (/mcp/<kind>/<agent>/<secret>), and keys can turn up in a line: hidden before they reach the page
   :p==='/hapi/logs'&&req.method==='GET'?d=>Array.isArray(d?.lines)?{...d,lines:d.lines.map(l=>redactText(String(l).replace(/(\/mcp\/[\w-]+\/[\w.-]+\/)[A-Za-z0-9_-]{8,}/g,'$1(hidden)')))}:d
   :p==='/hapi/status'&&req.method==='GET'?d=>Array.isArray(d?.profiles)?{...d,profiles:d.profiles.filter(x=>(x?.name||x)!==HELP_AGENT)}:d
@@ -2353,6 +2363,10 @@ const server=createServer(async(req,res)=>{
   // WhatsApp Business (Meta's Cloud API) calls here: GET is Meta's address check, POST the messages. No sign-in:
   // the engine checks Meta's signature with the app secret. The main agent's listener serves every agent (/p/<agent>/…).
   {const cm=/^\/whatsapp-cloud(?:\/([a-z0-9][a-z0-9_-]{0,63}))?$/.exec(p);if(cm&&(req.method==='GET'||req.method==='POST')){req.url=(cm[1]&&cm[1]!=='default'?'/p/'+cm[1]:'')+'/whatsapp/webhook'+url.search;return proxy(req,res,WA_CLOUD,'',{})}}
+  // Tebar posts its events here, signed with the secret pasted for that agent (tebar.mjs): answered at once (Tebar waits 5 s), handled after
+  {const tm=/^\/hooks\/tebar\/([a-z0-9][a-z0-9_-]{0,63})$/.exec(p);if(tm){if(req.method!=='POST')return send(res,405,{error:'POST only'});let raw;
+   if(+req.headers['content-length']>1024*1024)return send(res,413,{error:'Too large'});try{raw=await readRaw(req,1024*1024)}catch{return send(res,413,{error:'Too large'})}
+   try{const r=await tebar.receive(tm[1],req.headers,raw);send(res,r.status,r.body);if(r.after)setImmediate(()=>r.after().catch(e=>console.warn('tebar event',e.message)));return}catch(e){console.warn('tebar receive',e.message);return send(res,500,{error:'Try again'})}}}
   // one-time secret links (no sign-in: the token after # is the credential)
   // Kirimdev posts customer messages here, signed; nothing else is taken (kirimdev.mjs)
   {const km=/^\/kirimdev\/([a-z0-9][a-z0-9_-]{0,63})$/.exec(p);if(km){if(req.method!=='POST')return send(res,405,{error:'POST only'});let raw;
@@ -2956,6 +2970,13 @@ const server=createServer(async(req,res)=>{
    // Connect Google (google-connect.mjs): the OAuth client file, Connect and Reconnect, a pasted address, check, remove.
    // 11 Nov 2026 (Fakhri, an employee on P&P, could not connect Google for his own agent): the install's Google client is
    // an admin's one-time setup; connecting a Google account is for admins and for the agent's own owner, on that agent only.
+   // Tebar webhook settings (tebar.mjs, 11 Nov 2026): the address to give Tebar, the whsec_ secret it showed once (never sent
+   // back), the events. One agent's own connection: an admin or that agent's owner
+   if(p==='/ui/tebar/hook'){let b={};if(req.method!=='GET'){try{b=JSON.parse(await readBody(req,16384)||'{}')}catch{return send(res,400,{error:'Bad request'})}}
+    const a=String(b.agent||url.searchParams.get('agent')||'');if(!(await agentNames()).includes(a))return send(res,400,{error:'Unknown agent'});
+    if(!ownsAgent(u,a))return send(res,403,{error:'Only an admin or this agent’s owner sets up its Tebar webhook.'});
+    try{if(req.method==='GET')return send(res,200,await tebar.view(a));if(req.method==='POST')return send(res,200,await tebar.set(a,{secret:b.secret,events:b.events}));if(req.method==='DELETE')return send(res,200,await tebar.remove(a))}catch(e){return send(res,e.status||400,{error:e.message})}
+    return send(res,405,{error:'GET, POST or DELETE'})}
    // Set up Slack and Connect Microsoft (slack-connect.mjs, microsoft-connect.mjs), 11 Nov 2026: the same rules as Google.
    // The install's app (ID and secret) is an admin's one-time setup; connecting an account is for admins and the
    // agent's own owner, on that agent only. A secret is never sent back or logged.

@@ -2248,6 +2248,15 @@ button.acct-more{font:inherit;cursor:pointer;width:100%;background:var(--surface
 .cn-recent .ca-at small{font-size:12px;color:var(--muted)}
 .cn-btns{display:flex;flex-wrap:wrap;gap:8px}
 .cn-dis{color:var(--bad)}
+/* Tebar webhook section in the Tebar row's panel (tebar.js) */
+.tb-hook .tb-url{font-family:var(--mono);font-size:12.5px;font-weight:500;word-break:break-all}
+.tb-hook .tb-sec{display:flex;gap:8px;align-items:center;margin:6px 0 4px}
+.tb-hook .tb-sec input{flex:1;min-width:0}
+.tb-hook .tb-h{margin-top:16px}
+.tb-hook .tb-ev{cursor:pointer}
+.tb-hook .tb-more{margin:6px 0 10px}
+.tb-hook .tb-more summary{cursor:pointer;padding:6px 0;transition:color var(--t-fast)}
+.tb-hook .tb-more summary:hover{color:var(--ink)}
 .cn-signst{margin-top:10px!important}
 .cn-for{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .cn-for .sel-btn{display:inline-flex;align-items:center;gap:8px;width:auto}

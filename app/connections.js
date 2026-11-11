@@ -128,7 +128,7 @@ const Cx={
   if(r.kind==='plugin'&&route().page?.id!=='plugins')B.push(`<button class="small" data-act="cn-go" data-to="/abilities/plugins">${icon('layers',14)}Open in Plugins</button>`);
   // on Keys itself: change the value or remove it, on the agent it belongs to
   if(r.kind==='key'&&admin){const env=String(r.id).split('@')[0];if(route().page?.id==='keys'){B.push(`<button class="small" data-act="key-edit" data-agent="${esc(r.owner||'')}" data-k="${esc(env)}">${icon('edit',14)}Change the value</button>`);if(!r.bot)B.push(`<button class="ghost small cn-dis" data-act="key-del" data-agent="${esc(r.owner||'')}" data-k="${esc(env)}">${icon('trash',14)}Remove from ${esc(cxOwnerName(r))}</button>`)}else B.push(`<button class="small" data-act="cn-go" data-to="/system/keys">${icon('key',14)}Change it under Keys</button>`)}
-  return top+reg+own+acc+code+rec+(B.length?`<section class="cn-sec cn-do"><div class="cn-btns">${B.join('')}</div><p class="hint cn-signst" hidden></p></section>`:'')},
+  return top+reg+own+acc+code+rec+(typeof TbHook!=='undefined'?TbHook.section(r):'')+(B.length?`<section class="cn-sec cn-do"><div class="cn-btns">${B.join('')}</div><p class="hint cn-signst" hidden></p></section>`:'')},
  // one change, then fresh data in place; the button shows it is working meanwhile
  async act(btn,path,body,ok){const was=btn?.innerHTML;if(btn){btn.disabled=true;btn.innerHTML='<span class="spinner tiny"></span>'+esc(btn.textContent.trim()||'')}
   try{const r=await post(UI,path,{key:this.key,...body});if(ok)toast(typeof ok==='function'?ok(r):ok);await this.refresh();return r}catch(e){if(btn?.isConnected){btn.disabled=false;btn.innerHTML=was}fail(e)}}};
