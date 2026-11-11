@@ -15,7 +15,7 @@
 // A login that appears without the agent calling register_account (an aqeelOS tool) shows "Not registered", adds one
 // Bottlenecks item and waits for the owner to approve or disconnect it. The logins there were when this first ran count as
 // registered. The parts that only decide are exported and tested in scripts/connected-accounts.test.mjs.
-// 1 Nov 2026 (Abilities › Connections): a login's name is always the service and who it is ("Google · a@b.com",
+// 1 Nov 2026 (Abilities › Connections): a login's name is always the service and who it is ("Google · a@example.com",
 // "Slack · Pine & Co"), never what an agent called it (register_account's label is kept as a note), and what
 // it may do is per agent: canBy[agent] (Read, Read & draft, Full) over the login's own can.
 import {canOfLevel} from './sharing.mjs';

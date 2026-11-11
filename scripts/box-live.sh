@@ -2,6 +2,29 @@
 # Runs ON THE BOX: unpacks the checked version, restarts aqeelOS once nothing is in progress, and confirms it answers.
 # deploy.sh / predeploy.sh send it with ssh (bash -s), and box-deploy.sh runs it from the commit being deployed. Env: CODE_V FORCE HT CT HS CS SHA BOX_SHA DC (the commits list)
 set -e
+# --- migrate box-checks (12 Nov 2026) ---
+# One-time, idempotent move of install-specific check scripts out of the code folder. They used to live in git at scripts/box-checks/ and were deployed to
+# ~/apps/hermes-ui/scripts/box-checks/; they belong to one install, so they now live in its data folder, <data>/box-checks/ (a deploy never writes or deletes there).
+#   1. every file of the old folder is copied to <data>/box-checks/ unless a file of that name is already there (an edited copy is never overwritten);
+#   2. close-stage-due.mjs used to carry its sheet id, tab and account as defaults in the code: they are read from the OLD file on this box and written to
+#      <data>/box-checks/close-stage-due.json (unless that exists), so the schedules that call it with only --stage keep working.
+# Runs before the new files are unpacked. Deletes nothing (a deploy unpacks over the folder and never removes files; the old copies can be deleted by hand).
+# It never fails the deploy. Env: AQ_LIVE (default ~/apps/hermes-ui), AQ_MIG_DATA (default $UI_DATA_DIR or ~/apps/hermes-ui-data).
+aq_migrate_box_checks(){ local L=${AQ_LIVE:-$HOME/apps/hermes-ui} D=${AQ_MIG_DATA:-${UI_DATA_DIR:-$HOME/apps/hermes-ui-data}} f n; local T="$D/box-checks" OLD="${AQ_LIVE:-$HOME/apps/hermes-ui}/scripts/close-stage-due.mjs"
+ if [ -d "$L/scripts/box-checks" ]; then
+  mkdir -p "$T" && chmod 700 "$T" || { echo "! box-checks: could not create $T"; return 0; }
+  for f in "$L"/scripts/box-checks/*; do [ -f "$f" ] || continue; n=$(basename "$f"); [ -e "$T/$n" ] && continue
+   cp -p "$f" "$T/$n.tmp" && mv "$T/$n.tmp" "$T/$n" && echo "· box-checks: kept $n in $T"; done
+ fi
+ if [ -f "$OLD" ] && [ ! -e "$T/close-stage-due.json" ] && grep -q "opt('sheet','" "$OLD" 2>/dev/null; then
+  mkdir -p "$T" && node -e "
+const fs=require('fs');const s=fs.readFileSync(process.argv[1],'utf8');const g=n=>{const m=new RegExp(\"opt[(]'\"+n+\"','([^']*)'\").exec(s);return m?m[1]:''};
+const c={};for(const k of ['sheet','tab','account']){const v=g(k);if(v)c[k]=v}
+if(c.sheet){fs.writeFileSync(process.argv[2]+'.tmp',JSON.stringify(c,null,1)+'\n',{mode:0o600});fs.renameSync(process.argv[2]+'.tmp',process.argv[2]);console.log('· box-checks: close-stage-due settings kept in '+process.argv[2])}
+" "$OLD" "$T/close-stage-due.json" || echo "! box-checks: could not keep the close-stage-due settings"
+ fi
+ return 0; }
+# --- end migrate box-checks ---
 # Put the previous version back (8 Nov 2026): unpack the kept .deployed.prev.tgz, restore its commit and restart only the web
 # app. Recorded in DATA/live-test.json (System › Health). The owner is messaged on Telegram only if this fails too.
 aq_tell_owner(){ local t c; t=$(grep -m1 '^TELEGRAM_BOT_TOKEN=' ~/.hermes/.env | cut -d= -f2-); c=$(grep -m1 '^TELEGRAM_HOME_CHANNEL=' ~/.hermes/.env | cut -d= -f2-)
@@ -77,6 +100,7 @@ if [ "$rc" = 3 ]; then echo "✗ the box has live changes that git does not have
 # the version running now is kept, so a failed live test below can put it back (8 Nov 2026)
 T0=$(( $(date +%s) * 1000 ))
 if [ -s ~/apps/hermes-ui/.deployed.tgz ]; then cp ~/apps/hermes-ui/.deployed.tgz ~/apps/hermes-ui/.deployed.prev.tgz && cp ~/apps/hermes-ui/.deployed-commit ~/apps/hermes-ui/.deployed.prev-commit 2>/dev/null || true; fi
+aq_migrate_box_checks || true   # install-specific check scripts move to the data folder first (see above)
 mkdir -p ~/apps/hermes-ui; tar -xzf $HT -C ~/apps/hermes-ui || { echo '✗ unpacking aqeelOS failed; it was not restarted.'; exit 1; }; cp $HT ~/apps/hermes-ui/.deployed.tgz.new && mv ~/apps/hermes-ui/.deployed.tgz.new ~/apps/hermes-ui/.deployed.tgz; rm $HT; echo "$SHA" > ~/apps/hermes-ui/.deployed-commit; [ -n "$DC" ] && [ -s "$DC" ] && mv "$DC" ~/apps/hermes-ui/.deployed-commits
 AQ_STAGE=golive   # from here on aq_exit undoes an unhandled failure
 C=~/apps/aqeel-code; mkdir -p $C; before=$(md5sum $C/package-lock.json 2>/dev/null)

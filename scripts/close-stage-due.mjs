@@ -4,10 +4,13 @@
 // Verified / Blocked). Stage N is due for a revision when every earlier stage is Verified for it and stage N is not. This prints one line per due
 // revision and nothing when none is due, for run-check.mjs --cmd "node scripts/close-stage-due.mjs --stage 2" --cmd-once (the same line twice is
 // not work twice: a blocker already reported stays quiet until something changes).
-// Usage: node close-stage-due.mjs --stage 2|3 [--sheet <id>] [--tab "AI RUN STATUS"] [--account elkiya] [--month YYYY-MM] [--gapi ~/.hermes/scripts/gapi.py]
+// Settings of the install (the sheet id, the tab, the Google account) are not in the code: they are read from <data>/box-checks/close-stage-due.json
+// ({"sheet":"<id>","tab":"AI RUN STATUS","account":"<name>"}; <data> is $AQEELOS_DATA, $UI_DATA_DIR or ~/apps/hermes-ui-data) and can be overridden by the options.
+// Usage: node close-stage-due.mjs --stage 2|3 [--sheet <id>] [--tab "AI RUN STATUS"] [--account <name>] [--month YYYY-MM] [--gapi ~/.hermes/scripts/gapi.py]
 // Reads only. Exit 0 always except when the sheet cannot be read (exit 1, so the run goes ahead).
 import {execFile} from 'node:child_process';
 import {homedir} from 'node:os';
+import {readFileSync} from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
@@ -27,9 +30,11 @@ export function dueLines(rows,{stage,month}){const h=(rows[0]||[]).map(x=>String
 
 const args=process.argv.slice(2),opt=(n,d)=>{const i=args.indexOf('--'+n);return i>=0?args[i+1]:d};
 if(process.argv[1]&&path.resolve(process.argv[1])===path.resolve(fileURLToPath(import.meta.url))){
- const stage=+opt('stage'),sheet=opt('sheet','1RhAw0544B7BwqqjccnRGwUtKg6I3jJLiwkxS1mzwRcA'),tab=opt('tab','AI RUN STATUS'),account=opt('account','elkiya'),month=opt('month',workMonth()),
+ const DATA=process.env.AQEELOS_DATA||process.env.UI_DATA_DIR||path.join(homedir(),'apps','hermes-ui-data');let cfg={};try{cfg=JSON.parse(readFileSync(process.env.CLOSE_STAGE_CONFIG||path.join(DATA,'box-checks','close-stage-due.json'),'utf8'))}catch{}
+ const stage=+opt('stage'),sheet=opt('sheet',cfg.sheet),tab=opt('tab',cfg.tab||'AI RUN STATUS'),account=opt('account',cfg.account||'default'),month=opt('month',workMonth()),
   gapi=opt('gapi',path.join(homedir(),'.hermes','scripts','gapi.py'));
  if(![2,3].includes(stage)){console.error('--stage 2 or 3');process.exit(2)}
+ if(!sheet){console.error('close-stage-due: no sheet id (give --sheet, or put it in <data>/box-checks/close-stage-due.json)');process.exit(1)}
  execFile('python3',[gapi,'--account',account,'call','sheets','v4','spreadsheets.values.get','--params',JSON.stringify({spreadsheetId:sheet,range:tab+'!A1:L300'})],{timeout:25000,maxBuffer:4e6},(e,out)=>{
   try{if(e)throw e;const rows=JSON.parse(out).values||[];const l=dueLines(rows,{stage,month});if(l.length)console.log(l.join('\n'))}
   catch(x){console.error('close-stage-due: '+String(x.message||x).slice(0,200));process.exit(1)}})}

@@ -55,10 +55,10 @@ test('Gino\'s helper sends to the run\'s customer, whatever number the model has
  await C.call('cove-support',tok,'create_payment',{kind:'va',bank:'bca',amounts:[1500000],name:'Budi',order_total:1500000,order_form:'Nama: Ani Wijaya\nAlamat: Jl. Merdeka 10, Bandung 40111\nNo HP: 08123456789\nPesanan: 1x Pen',to:'6280000000000'});
  assert.deepEqual(ran[0][2],['va','BCA','1500000','--name','Budi','--to','6280000000001'])});
 
-test('the reply guard can ask whether a payment was made for this customer since the run began',async()=>{const {C}=await make();const tok=C.begin({agent:'cove-support',line:'1',conversation:'c',phone:'628111222333'});
- assert.equal(await C.paidSince('cove-support','628111222333',0),false);
+test('the reply guard can ask whether a payment was made for this customer since the run began',async()=>{const {C}=await make();const tok=C.begin({agent:'cove-support',line:'1',conversation:'c',phone:'6280000000007'});
+ assert.equal(await C.paidSince('cove-support','6280000000007',0),false);
  await C.call('cove-support',tok,'create_payment',{amounts:[50000],name:'A',order_total:50000,order_form:'Nama: Ani Wijaya\nAlamat: Jl. Merdeka 10, Bandung 40111\nNo HP: 08123456789\nPesanan: 1x Pen'});
- assert.equal(await C.paidSince('cove-support','+62 811-1222-333',1e12-5000),true);assert.equal(await C.paidSince('bay-sales','628111222333',0),false)});
+ assert.equal(await C.paidSince('cove-support','+62 8000-0000-007',1e12-5000),true);assert.equal(await C.paidSince('bay-sales','6280000000007',0),false)});
 
 test('the payment helper can be any script named in the line\'s settings',async()=>{const W=await mkdtemp(path.join(tmpdir(),'ct2-'));await mkdir(path.join(W,'a','bin'),{recursive:true});await writeFile(path.join(W,'a','bin','stripe-link'),'x');
  const ran=[];const C=createCustomerTools({WORK:W,DATA:path.join(W,'d'),payRules:async()=>({currency:'USD',min:1,max:900,helper:{path:'bin/stripe-link',style:'send'}}),googleCall:async()=>({}),chatFind:async()=>({}),history:async()=>'',runAsAgent:async(a,t,v)=>{ran.push([t,v]);return {ok:true,out:'sent'}},log:()=>{}});
@@ -79,10 +79,10 @@ test('a tester of the line pays a Rp10.000 test QRIS, logged testAmount; a custo
 // website_form (i77296280, 10 Nov 2026): made by the fixer on the live box, taken into git 11 Nov
 test('website_form returns only THIS chat\'s own quiz, matched by the run\'s phone, login cached',async()=>{const W=await mkdtemp(path.join(tmpdir(),'ct3-'));await mkdir(path.join(W,'a','.secrets'),{recursive:true});await writeFile(path.join(W,'a','.secrets','STORE_PW'),'pw\n');
  const calls=[];const fetchFn=async(u,o={})=>{calls.push(u);if(u.endsWith('/api/login')){assert.equal(JSON.parse(o.body).password,'pw');return {ok:true,status:200,headers:{getSetCookie:()=>['sess=1; Path=/']}}}
-  assert.equal(o.headers.cookie,'sess=1');return {ok:true,status:200,json:async()=>({contacts:[{id:'c1',phone:'+6282127272731'},{id:'c2',phone:'+628111'}],activities:[{contactId:'c1',type:'program_quiz',message:'MINE BMI 35',createdAt:'2026-11-09T23:48:00Z',product:'Program Reta'},{contactId:'c2',type:'program_quiz',message:'OTHER',createdAt:'2026-11-09T23:50:00Z'},{contactId:'c1',type:'newsletter',message:'skip'}]})}};
+  assert.equal(o.headers.cookie,'sess=1');return {ok:true,status:200,json:async()=>({contacts:[{id:'c1',phone:'+6280000000003'},{id:'c2',phone:'+628111'}],activities:[{contactId:'c1',type:'program_quiz',message:'MINE BMI 35',createdAt:'2026-11-09T23:48:00Z',product:'Program Reta'},{contactId:'c2',type:'program_quiz',message:'OTHER',createdAt:'2026-11-09T23:50:00Z'},{contactId:'c1',type:'newsletter',message:'skip'}]})}};
  const C=createCustomerTools({WORK:W,DATA:path.join(W,'d'),fetchFn,formRules:async()=>({baseUrl:'https://s.example',username:'randy',secret:'STORE_PW'}),googleCall:async()=>({}),chatFind:async()=>({}),history:async()=>'',runAsAgent:async()=>({}),log:()=>{}});
  const list=(await C.mcp('a','',{id:1,method:'tools/list'})).body.result.tools.map(t=>t.name);assert.ok(list.includes('website_form'));
- const tok=C.begin({agent:'a',line:'1',conversation:'c',phone:'082127272731'});
+ const tok=C.begin({agent:'a',line:'1',conversation:'c',phone:'080000000003'});
  const x=await C.call('a',tok,'website_form',{phone:'628111'});assert.ok(x.text.includes('MINE BMI 35'));assert.ok(!x.text.includes('OTHER'));assert.ok(!x.text.includes('skip'));
  await C.call('a',tok,'website_form',{});assert.equal(calls.filter(u=>u.endsWith('/api/login')).length,1);
  const t2=C.begin({agent:'a',line:'1',conversation:'c2',phone:'6289999999'});assert.ok(/No website quiz/.test((await C.call('a',t2,'website_form',{})).text))});
@@ -90,10 +90,10 @@ test('website_form returns only THIS chat\'s own quiz, matched by the run\'s pho
 test('a payment whose delivery to the customer failed is not "made": not counted, not a repeat, tells the agent to send again (11 Nov 2026)',async()=>{
  const W=await mkdtemp(path.join(tmpdir(),'ct3-')),D=path.join(W,'d');await mkdir(path.join(W,'a','.tools'),{recursive:true});await writeFile(path.join(W,'a','.tools','qris'),'x');
  let out='[FOTO: qris-1.png] status failed: could not deliver';const C=createCustomerTools({WORK:W,DATA:D,payRules:async()=>({currency:'Rp',min:10000,max:5000000}),googleCall:async()=>({}),chatFind:async()=>({}),history:async()=>'',runAsAgent:async()=>({ok:true,out}),log:()=>{},now:()=>1e12});
- const tok=C.begin({agent:'a',line:'1',conversation:'c',phone:'628111222333'});
+ const tok=C.begin({agent:'a',line:'1',conversation:'c',phone:'6280000000007'});
  const pay=()=>C.call('a',tok,'create_payment',{amounts:[50000],name:'A',order_total:50000,order_form:'Nama: Ani Wijaya\nAlamat: Jl. Merdeka 10, Bandung 40111\nNo HP: 08123456789\nPesanan: 1x Pen'});
  assert.match((await pay()).text,/has NOT received/);
- assert.equal(await C.paidSince('a','628111222333',0),false);
+ assert.equal(await C.paidSince('a','6280000000007',0),false);
  out='[FOTO: qris-2.png] | Rp50.000';assert.match((await pay()).text,/FOTO/);   // not refused as a repeat, and the failed one did not use up the run's two payments
- assert.equal(await C.paidSince('a','628111222333',0),true);
+ assert.equal(await C.paidSince('a','6280000000007',0),true);
 });

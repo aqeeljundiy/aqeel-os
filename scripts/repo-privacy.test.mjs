@@ -66,3 +66,37 @@ test('the desktop app asks for its address and keeps build settings out of git',
  assert.ok(!tracked().includes('code/desktop/build.config.json'),'no one install\u2019s build settings are committed');
  assert.ok(tracked().includes('code/desktop/build.config.example.json')||existsSync(path.join(ROOT,'code/desktop/build.config.example.json')),'an example build config is there');
  assert.ok(existsSync(path.join(ROOT,'code','BUILDING.md')),'BUILDING.md explains your own build')});
+
+// ---- the whole tree, not only skills/ and code/ (12 Nov 2026, secrets audit) ----
+// Before this, the strict checks ran on two folders, and the whole-tree word check was skipped on GitHub (it needs data/private-words.json, which is never
+// committed). These run everywhere, with no private file: real-looking phone numbers, chat ids, addresses, e-mails, Google ids, Slack ids and keys fail.
+import {findPrivate,SKIPPED,NEVER_TRACKED,ROOT_FILES} from './privacy-rules.mjs';
+test('no tracked file holds a real-looking address, phone number, chat id, e-mail, sheet id or key',()=>{const hits=[];
+ for(const f of tracked()){if(SKIPPED(f))continue;let s;try{s=readFileSync(path.join(ROOT,f),'utf8')}catch{continue}hits.push(...findPrivate(f,s))}
+ assert.deepEqual(hits,[],'private-looking values in tracked files (use plainly made-up ones: 62800000000x, example.com, 192.0.2.x, 1000000001, -1001234567890; the real ones belong in the install\u2019s data folder)')});
+
+test('no key, database, archive, prompt or install-specific file is tracked, and the repo root holds only the known files',()=>{const bad=[];
+ for(const f of tracked())for(const [re,what] of NEVER_TRACKED)if(re.test(f))bad.push(f+': '+what);
+ for(const f of new Set(tracked().map(f=>f.split('/')[0])))if(tracked().includes(f)&&!ROOT_FILES.has(f))bad.push(f+': a new file at the top of the repo');
+ assert.deepEqual(bad,[],'files that must not be in git')});
+
+test('the privacy rules catch what the audit found (the values are built here, so this file stays clean)',()=>{
+ const j=(...p)=>p.join('');
+ const samples={ip:j('187.','40.','232.','117'),phone:j('+62 ','821','-2727-','2731'),phone2:j('0821','2727','2731'),lid:j('2630','15307','980843','@lid'),chat:j('-1003','999095','054'),user:j('telegram_id: ','1339','820731'),
+  sheet:j('1RhAw0544B7Bwqqjcc','nRGwUtKg6I3jJLiwkxS1mzwRcA'),slack:j('U0','C9K5Y0HTP'),mail:j('some','one@','gmail.com'),home:j('/home/','someone/x'),key:j('ghp_','Kq3x9Zr72LmWv0Tt4NbYc8PdQe1Hs5AjUf6o')};
+ for(const [k,v] of Object.entries(samples))assert.ok(findPrivate('x.txt','value: '+v+'\n').length>=1,k+' is caught: '+v);
+ for(const ok of ['192.0.2.7','203.0.113.7','10.0.1.9','127.0.0.1','6281234567890','62800000000'+'1','08123456789','+6281200000001','1000000001','-1001234567890','a@example.com','x@s.whatsapp.net','U0000000001','/home/user/x','/home/claude/apps','sk-ant-EXAMPLEEXAMPLE1234'])
+  assert.deepEqual(findPrivate('x.txt','value: '+ok+'\n'),[],ok+' is a documented fake');
+ assert.ok(NEVER_TRACKED.some(([re])=>re.test('docs/schedule-conversions/prompts/x.txt'))&&NEVER_TRACKED.some(([re])=>re.test('scripts/box-checks/a.py'))&&NEVER_TRACKED.some(([re])=>re.test('UsersKomputerTempaq-key-x.enc')))});
+
+test('install-specific notes are ignored by git and listed in PUBLIC_EXCLUDE',()=>{const ig=readFileSync(path.join(ROOT,'.gitignore'),'utf8'),pe=readFileSync(path.join(ROOT,'PUBLIC_EXCLUDE'),'utf8');
+ for(const p of ['docs/installs/','docs/**/prompts/','*.local.md','scripts/box-checks/','*.enc','*.pem','*.key','.secrets/','data/'])assert.ok(ig.split('\n').includes(p),p+' is in .gitignore');
+ for(const p of ['docs/installs/','docs/**/prompts/','*.local.md','scripts/box-checks/'])assert.ok(pe.split('\n').includes(p),p+' is in PUBLIC_EXCLUDE')});
+
+test('the secret scan runs in CI, and a pre-push hook runs this test',()=>{
+ const wf=readFileSync(path.join(ROOT,'.github','workflows','tests.yml'),'utf8');assert.match(wf,/gitleaks/);assert.match(wf,/sha256sum -c/);assert.match(wf,/fetch-depth: 0/);
+ assert.ok(existsSync(path.join(ROOT,'.gitleaks.toml')),'.gitleaks.toml is committed');
+ const hook=readFileSync(path.join(ROOT,'scripts','hooks','pre-push'),'utf8');assert.match(hook,/repo-privacy\.test\.mjs/);assert.match(hook,/gitleaks/)});
+
+// With a private word list (data/private-words.json here, or AQEELOS_PRIVATE_WORDS in CI from an Actions secret), the two word tests above run too.
+// Without it they are skipped on purpose; the checks in this section never depend on it.

@@ -67,7 +67,7 @@ test('restore: refuses while an earlier cut-off copy is not rolled back',async()
  await assert.rejects(()=>applyRestore(o),/cut off/);assert.equal(n.stop,0)}finally{s.done()}});
 
 test('a typed key is checked on the first bytes of a backup',async()=>{const T=mkdtempSync(path.join(tmpdir(),'aq-key-'));try{const f=path.join(T,'b.enc');
- execFileSync('bash',['-c','head -c 200000 /dev/urandom | gzip | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:K -out '+f],{env:{...process.env,K:'k'.repeat(32)}});
+ execFileSync('bash',['-c','head -c 200000 /dev/urandom | gzip | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:K -out "$F"'],{env:{...process.env,K:'k'.repeat(32),F:f}});
  const head=readFileSync(f).subarray(0,65536);assert.equal(await headOpens(head,'k'.repeat(32)),true);assert.equal(await headOpens(head,'x'.repeat(32)),false)}finally{rmSync(T,{recursive:true,force:true})}});
 
 // the whole flow through createBackups, with the safety copy on the box as the backup (no Google needed)
