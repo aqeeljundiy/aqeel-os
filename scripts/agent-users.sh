@@ -406,7 +406,10 @@ janitor(){
 # Over its cap for 3 minutes: its Chrome is started again (the usual cause; Chrome comes back by itself, tabs restored
 # when it may sleep). Still over 3 minutes later: one issue. Over twice the cap: its biggest process is stopped at once.
 # Prints the agent's MB.
-mem_mb(){ local u=$1 p kb=0 v; for p in $(pgrep -u "$u" 2>/dev/null); do v=$(awk '/^Pss:/{print $2; exit}' "/proc/$p/smaps_rollup" 2>/dev/null); kb=$((kb+${v:-0})); done; echo $((kb/1024)); }
+# Root in the box may not read another user's smaps (no ptrace right; 11 Nov 2026 every agent read 0 MB): then the sum
+# of its processes' resident memory, which counts Chrome's shared pages more than once (a cap on the safe side).
+mem_mb(){ local u=$1 p kb=0 v; for p in $(pgrep -u "$u" 2>/dev/null); do v=$(awk '/^Pss:/{print $2; exit}' "/proc/$p/smaps_rollup" 2>/dev/null); kb=$((kb+${v:-0})); done
+  [ "$kb" -gt 0 ] || kb=$(ps -u "$u" -o rss= 2>/dev/null | awk '{s+=$1} END{print s+0}'); echo $((kb/1024)); }
 # decides, from MB, cap and the over-since/acted times kept in $RST/<agent>.mem: none, chrome, report, biggest
 mem_step(){
   local mb=$1 cap=$2 now=$3 since=$4 acted=$5
@@ -420,6 +423,8 @@ mem_step(){
 mem_cap(){
   local n=$1 u=$2 ws=$3 mb cap f="$RST/$1.mem" since=0 acted=0 now step pid
   mb=$(mem_mb "$u"); read -r cap _ <<< "$(limit_of "$n")"; now=$(date +%s)
+  # its own AdsPower runs as the same user (about 4 GB more): at least 8 GB, whatever aqeelOS knew about it
+  [ "$cap" -gt 0 ] && [ "$cap" -lt 8192 ] && pgrep -u "$u" -f "adspower_global|SunBrowser" >/dev/null 2>&1 && cap=8192
   [ -f "$f" ] && read -r since acted < "$f"
   if [ "$cap" -le 0 ] || [ "$mb" -le "$cap" ]; then rm -f -- "$f"; echo "$mb"; return; fi
   [ "${since:-0}" -gt 0 ] || since=$now
