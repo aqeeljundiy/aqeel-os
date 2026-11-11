@@ -14,18 +14,23 @@ _Last updated: 11 Nov 2026_
 
 ## Now
 
-- [~] **GIT-1** Taking the fixer's lost fixes into git (built and tested here, not deployed yet):
+- [~] **GIT-1** Taking the fixer's lost fixes into git: on GitHub main as `4f7243a` (88 tests pass), waiting for the deploy:
   - [x] `website_form` customer tool: Continue's support agent reads the quiz a customer filled in on continuelongevity.com (issue i77296280). Two deploys had removed it. Setting restored on Elkiya (`kirimdev.json`, backup `.bak-20261111-websiteform`).
   - [x] change_instructions: an agent can read its own instructions, and a miss shows the closest part (id051b007).
   - [x] A fixer rollback undoes only its own change, not edits made later (ibd8a5021; a rollback had erased Biomarkers rules).
   - [x] Chat uploads readable by the agents that receive them (P&P, i03f117e5), as an engine patch that comes back after every engine update.
   - [x] Agents resume work cut off by a restart (i83a0f438), as an engine patch.
   - [x] The live test reads the engine's keys itself (P&P, i46105c3e). May be why P&P's live test hangs (OPS-11).
-  - [~] Kirimdev: resume a chat when the team doesn't answer a handoff within 5 min (i87fbcb7b), loose picture tags (ie54d1284), recent payment not taken as a false claim. A helper agent is porting these.
+  - [x] Kirimdev: resume a chat when the team doesn't answer a handoff within 5 min (i87fbcb7b), loose picture tags (ie54d1284), recent payment not taken as a false claim.
   - Already in git, nothing to do: the payment fixes, the empty order form check, the auto-update message, older drift saves.
   - Note: `scripts/issues.test.mjs` fails on this PC with or without these changes (one timing assertion). Check it on Linux.
 
 ## Waiting on you
+
+- [ ] **DEPLOY-3** Approve deploying b983ba0 (employee Google fixes plus the delivery check) to Elkiya and P&P. Elkiya's deploy of 4ceac9e was rolled back on 11 Nov: its live test timed out on the aqeelos-notify tool server under load, while P&P passed with the same code.
+- [ ] **MODEL-0** Pick the model plan (see section 6).
+
+- [ ] **DEPLOY** Approve deploying `4f7243a` (the recovered fixes) to Elkiya and P&P. Claude Code's safety check blocks each production deploy until you say yes in chat.
 
 - [ ] **HEALTH-0** "Cost by profile": did you mean by **person** (who started the chat) or by **agent**?
 - [ ] **CODE-50** aqeelOS app for Mac: run `gh auth refresh -s workflow` (from the old board).
@@ -50,11 +55,12 @@ Checked against P&P's live data and the code on 11 Nov: Aldillah is an employee,
 - [ ] **OPS-5** Janitor: every minute it compares expected and running processes per agent, reports anything extra and removes it.
 - [ ] **OPS-6** Deploy checks: AI-dependent checks report but don't block, and a failed check gets one retry.
 - [ ] **OPS-7** Logs, old patches and test users expire. Elkiya's disk is 73% full.
-- [ ] **OPS-8** `OPERATIONS.md` with these rules, plus tests that fail when new code breaks them.
+- [~] **OPS-8** [OPERATIONS.md](OPERATIONS.md) written (11 Nov). Still to do: tests that fail when new code breaks a rule.
+- [ ] **OPS-12** Design question before building OPS-4: when an agent's sleeping screen is needed again, what wakes it? The engine's browser tool connects straight to Chrome's port, so the likely answer is a small proxy on that port that starts the screen on first use.
 
 ### 4. Health and fixer redesign
 - [ ] **HEALTH-1** One verdict at the top: "Everything is patched and working", or what needs you.
-- [ ] **HEALTH-2** Fixer panel: what it's doing now (step, try, model), then the queue in priority order with move up/down, pause and skip. Elkiya has 31 queued items that have never been started.
+- [ ] **HEALTH-2** Fixer panel: what it's doing now (step, try, model), then the queue in priority order with move up/down, pause and skip. Elkiya has 31 queued items that have never been started. Why (found 11 Nov): one issue at a time, at most 20 fix runs a day (`team-policy.json` fixer.cap), proof runs go first, and anything needing an engine reload waits for quiet hours. The panel must show this: "20 of 20 runs used today, next start tomorrow 00:00".
 - [ ] **HEALTH-3** "Needs you" holds only person-only items, grouped (for example the four higgsfield sign-ins become one).
 - [ ] **HEALTH-4** Fixed and closed issues move to a History tab.
 - [ ] **HEALTH-5** "Code changes" in plain words, with a button that takes them into git.
@@ -62,6 +68,61 @@ Checked against P&P's live data and the code on 11 Nov: Aldillah is an employee,
 - [ ] **HEALTH-7** Cost by person/profile next to cost by agent (see HEALTH-0).
 - [ ] **HEALTH-8** False "can't reach the engine" alarm when the status call is slow.
 - [ ] **HEALTH-9** Issues merge duplicates when they're filed.
+
+### 4b. Randy's QRIS picture never reaches the customer (if734729a, Elkiya)
+Found 11 Nov:
+- Kirimdev and WhatsApp mark every QR as "delivered" and report no media error. Tripay serves the QR as a normal PNG, crawlers included.
+- Gilang's working QRs use the same Tripay link, but go as **one picture with a caption**. Randy's went as text, a bare picture, then text, all in the same second.
+- The fixer's caption fix was rolled back only because its proof needed a person to look at Amri's phone.
+- [~] **QR-1** Fix: `06a44a6` (see "Waiting on you"). Done once a delivery check or a phone shows the QR.
+- [~] **QR-2** Built in `4ceac9e` (69 tests pass, plus the bridge add-on's own 4 cases). Delivery probe, so the fixer can prove a picture arrived without a person:
+  - The main agent's WhatsApp bridge on Elkiya messages the line once a day, which opens WhatsApp's 24-hour window.
+  - aqeelOS sends a test picture to it with a hidden probe code.
+  - The bridge sets probe messages aside instead of giving them to Donna, and records whether the picture downloaded.
+  - The line's agent ignores inbound probe messages.
+  - The fixer's proof step and Health use the result: "Pictures from Randy: arrived 10:02".
+- [~] **QR-3** The fixer's fix and proof runs are now told to use the delivery check and never to ask a person to look at a phone (`4ceac9e`). Still to do: file "needs a person" at once for any other proof only a person can give.
+- [ ] **ENG-1** Elkiya's WhatsApp bridge has local add-ons that aren't in git (`group_watch.js`, `inbox_log.js`, and edits in `bridge.js`). The next engine update would wipe them, so take them into `engine/patches`.
+- Clue: Kirimdev reports Meta status `CONNECTED` for the Biomarkers line, but none for the main Continue line.
+
+### 5b. Employees can't connect Google (P&P, Fakhri Agent, 11 Nov)
+Found:
+- P&P has no install-wide Google client (`~/.hermes/google_client_secret.json`). The only client is Pixel Agent's own: Google Cloud project `peaceful-app-511818-u2`, a Desktop client from 19 Oct, signed in as aqeel@pixelandprofits.com. It's not shared.
+- Connections › Connect Google is admin-only (`/ui/google/*`: "Only admins connect Google accounts").
+- So Fakhri's agent had no free route it could take for an employee. Its standing rule says to suggest Composio "when the setup needs admin access the person does not have", and no agent text mentions Connect Google at all.
+- [ ] **GOOG-1** (needs an admin) One Web-type Google client per install: in Google Cloud (Pixel's existing project peaceful-app-511818-u2 is fine), create an OAuth client of type Web application with redirect https://ai.pixelandprofits.com/google-oauth/callback, and upload its file in Connections › Add › A Google account. Same once on Elkiya if it has none.
+- [ ] **GOOG-7** Remove the "WO Dashboard - Google Sheet" entry from Fakhri Agent once his Google account is connected.
+- [~] **GOOG-2** (built in b983ba0, not deployed) Employees connect their **own** Google account for their own agents (sign-in link or the Connect Google card). Setting up the Google Cloud client stays admin-only.
+- [~] **GOOG-4** (built in b983ba0, not deployed) The "Add MCP tool" form accepted a Google Sheets link as a tool: "WO Dashboard - Google Sheet" in Fakhri Agent's config is just `url: https://docs.google.com/spreadsheets/...`. Fakhri saw a sign-in button and thought it was connected, then sign-in failed with "Bad name". The form must refuse a web page that isn't an MCP server, recognise Google links and send the person to Connect Google, and refuse tool names with spaces up front.
+- [ ] **GOOG-5** Issue i7d96eb8c was closed as "needs a person" with the wrong person (the sheet owner). The real fix was the install-wide Google client. Once GOOG-1 to GOOG-3 are done, the fixer can guide this itself.
+- [~] **GOOG-6** (built in b983ba0, not deployed: the fixer tells the person who asked in their bell, linked to the chat) "Tell me when it's fixed": Fakhri's agent said it can't send a message on its own when an issue it filed is solved. The fixer should tell the chat that filed the issue when it's fixed, the aqeelOS web chat included.
+- [~] **GOOG-3** (built in b983ba0, not deployed) Agent guidance: if a client exists, send the sign-in link yourself. If not, say "an admin does the free 5-minute setup once in Connections › Connect Google". Composio only after that.
+
+### 5c. The same pattern beyond Google (audit of both servers, 11 Nov)
+**Apps that can never work**
+- [ ] **APP-1** Higgsfield is on 7 Elkiya agents, and its sign-in can't succeed: the engine's tool client rejects Higgsfield's reply (over its 1 MB limit). The fixer keeps filing "higgsfield needs someone to sign in" (4 open issues) that no person can solve. Fix the engine limit (an engine patch), and until then take Higgsfield off agents that never used it and mark it "doesn't work yet" instead of "sign in".
+- [ ] **APP-2** Health: a "needs a person" issue must name something a person can actually do. A sign-in that fails for a technical reason is the fixer's job, not a person's.
+- All other apps on both servers (88 entries) are fine. The only broken entry is Fakhri's Sheets link (GOOG-7).
+
+**Things an employee can't do for their own agent (same as Google was)**
+- [ ] **OWN-1** Edit or rename an app on their own agent, or change its key (`/ui/mcp/server`, `/ui/mcp/keys`, `/ui/share/rename-mcp` are admin-only). For example, Fakhri can't fix his own "WO Dashboard" entry.
+- [ ] **OWN-2** Reconnect or pause their own agent's Telegram or WhatsApp channel when it drops (`/ui/channels/reconnect`, `/ui/channels/pause`).
+- [ ] **OWN-3** Remove a Google account from their own agent in the Connected apps panel (`/ui/google-accounts` DELETE is still admin-only, while Connect Google now allows the owner).
+- Stay admin-only, on purpose: branding, gateway restarts, plugins, sharing between agents, the owner's view of n8n, keys of other people, WhatsApp Business setup.
+
+**Agents that get stuck signing in**
+- [ ] **AUTH-1** Donna can't log back in to KirimDev (session expired) because `type_secret` refuses. Same shape as Google: the agent has no route it may take, so the issue waits for a person. Find out why type_secret refuses, and give agents a sign-in route for KirimDev.
+
+**Answers that went to the wrong person**
+- P&P: 3 issues came from web chats; 1 answer went to the owner and 2 aren't answered yet. Elkiya: 1, not answered yet. GOOG-6 fixes all of these once deployed.
+
+### 6. Token use and model choice
+Today: the fixer runs on the main agent's profile, Sonnet 5.5 with the 1M context, through the Claude subscription, and its use is mixed into Donna's. This Claude Code work runs on Opus 5.5 at medium effort. API prices per million tokens in/out: Opus 5.5 $4/$20, Sonnet 5.5 $2/$10, Haiku 5.5 $0.10/$0.50.
+- [ ] **MODEL-1** The fixer gets its own profile, so Usage shows its cost on its own line (also part of HEALTH-7).
+- [ ] **MODEL-2** Model per step, as settings (aqeelOS stays model-agnostic): sorting new issues (duplicates, needs a person, priority) is one cheap call on a small model, not an agent run. Fix runs use the mid model at medium effort, proof runs the small model, and the big model is used only on a third try or a stuck issue.
+- [ ] **MODEL-3** Fewer wasted runs, which saves more than any model choice: merge duplicates, send person-only items to "Needs you", prove with delivery checks instead of fix-and-roll-back rounds, and don't spend the 20 daily runs on issues that will come back.
+- [ ] **MODEL-4** Log tokens per fixer run, then compare cost per fixed issue before and after.
+- [ ] **MODEL-5** billion-context (github.com/ranxianglei/billion-context) in every install, so long chats use fewer tokens. Waiting on the owner's choice of rollout (11 Nov). Found: it hooks the engine through an HTTPS proxy, but the Claude sign-in runs the `claude` program as a separate process and the ChatGPT sign-in uses the Codex transport, so it may not compress either one; check on one agent first. Its license needs a visible credit (About page or docs). The engine's own summariser must be off where it runs, or chats get compressed twice.
 
 ### 5. Small leftovers
 - [ ] **OPS-9** The live test's setup test agent is missing on Elkiya (404 warning).
