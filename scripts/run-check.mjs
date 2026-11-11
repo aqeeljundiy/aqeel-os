@@ -12,7 +12,7 @@
 //                                                   output as at the last go is not work again (a blocker already reported)
 //   --agent-cmd "<command>" [--cmd-once]           the same, run as the agent's own user inside its folder (ssh, like a script-only schedule)
 //   --max-idle MIN                                  a safety run when no check said go for MIN minutes (needs --data and --job)
-//   --posting                                       the posting limits must allow a post now (needs --data)
+//   --posting [--kinds comment,dm]                  the posting limits must allow a post now (needs --data); --kinds: the kinds this schedule posts
 // Work checks (--dms, --comments, --new-since): anything above zero is something to do. --posting is a permission, not work.
 import {readFile} from 'node:fs/promises';
 import path from 'node:path';
@@ -35,7 +35,7 @@ try{
    const w=await commandWork({label:kind+':'+cmd,cmd,as,once,state:st,timeoutSec:+opt('cmd-timeout')||20});work.push(w);st={...st,cmd:w.next};state=st}}
  const sources=all('new-since');let ns=null;
  if(sources.length){ns=await newSince({sources,state:state.ns||{},retries:opt('retries')==null?3:+opt('retries'),maxIdleMin:maxIdle});work.push(ns)}
- if(flag('posting')&&DATA)need.push(await postingAllowed({DATA,WORK,agent}));
+ if(flag('posting')&&DATA)need.push(await postingAllowed({DATA,WORK,agent,kinds:(opt('kinds')||'').split(',').map(x=>x.trim()).filter(Boolean)}));
  let res={...combine({work,need}),checkedAt:new Date().toISOString()};
  const s=idleSafety(res,{state,maxIdleMin:ns||need.some(n=>n.known&&n.allow===false)?0:maxIdle});res=s.result;state={...s.next,...(ns?{ns:ns.next}:{})};
  if(DATA)await saveState(DATA,key,state).catch(()=>{});
