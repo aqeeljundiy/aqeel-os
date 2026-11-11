@@ -71,7 +71,7 @@ test('morph from a node leaves the earlier ones alone (a chat reply streaming in
 /* ---------- where it is used ---------- */
 test('the sidebar, topbar, banners, composer bar, Kirimdev, Teams and Connections rows update in place',()=>{
  const core=src('core.js');
- assert.match(core,/function paintSide\(r\)\{[^\n]*morph\(el,h\)/);assert.match(core,/function paintTop\(r\)\{[^\n]*morph\(el,h\)/);assert.match(core,/slot\._h=h;morph\(slot,h\)/);
+ assert.match(core,/function paintSide\(r\)\{[^\n]*morph\(el,h\)/);assert.match(core,/function paintTop\(r\)\{[^\n]*morph\(el,h\)/);assert.match(core,/slot\._h=h;smoothHeight\(slot,\(\)=>morph\(slot,h\)\)/);
  assert.match(src('chat.js'),/paintComposerBar\(\)\{const b=\$\('#cbar'\);if\(b\)morph\(b,/);
  assert.match(src('chat.js'),/morphKids\(th,f,start\)/,'the streaming reply is updated in place');
  assert.match(src('kirimdev-page.js'),/else morph\(box,html\)/);assert.match(src('teams-page.js'),/morph\(box,html\)/);
