@@ -2177,6 +2177,16 @@ button.acct-more{font:inherit;cursor:pointer;width:100%;background:var(--surface
 .cn-o.none{color:var(--muted)}
 .cn-n{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
 .cn-foot{margin:12px 2px 0}
+/* Check now (11 Nov 2026): the rows dim under a thin moving line while everything is asked again; how fresh the list is, quietly under it */
+.cn-list{position:relative}
+.cn-list .cn-row,.cn-list .ul-cat{transition:opacity .3s var(--ease),background var(--t-fast) var(--ease)}
+.cn-list.cn-checking .cn-row,.cn-list.cn-checking .ul-cat{opacity:.45}
+.cn-list::after{content:'';position:absolute;left:0;top:0;height:2px;width:30%;border-radius:2px;background:var(--blue);opacity:0;transform:translateX(-100%);transition:opacity .3s var(--ease);pointer-events:none}
+.cn-list.cn-checking::after{opacity:1;animation:cnScan 1.2s var(--ease) infinite}
+@keyframes cnScan{from{transform:translateX(-100%)}to{transform:translateX(340%)}}
+.cn-checked{margin:10px 2px 0;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;flex-wrap:wrap;animation:fade .3s var(--ease)}
+.cn-checked .link{all:unset;cursor:pointer;color:var(--blue);font-weight:600}.cn-checked .link:hover{text-decoration:underline}.cn-checked .link:focus-visible{outline:2px solid var(--blue);outline-offset:2px;border-radius:3px}
+.cn-checked .link[disabled]{color:var(--muted);cursor:default;text-decoration:none}
 .cn-needs-slot:empty{display:none}.cn-needs-slot .alert{margin-bottom:14px}
 /* by the list's own width, not the window's (1 Nov 2026: with the agent's screen open beside it the list was squeezed
    while the window stayed wide, and names broke one letter per line); .card.list and .page report their width */

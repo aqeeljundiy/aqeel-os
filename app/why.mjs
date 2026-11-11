@@ -40,8 +40,8 @@ r=c.execute("select m.session_id,m.content,m.timestamp,coalesce(s.title,''),coal
 print(json.dumps(r))`;
   return new Promise(res=>execFile(p,['-c',q,path.join(home(agent),'state.db')],{timeout:10000},(e,o)=>{try{
    const r=JSON.parse(String(o)).find(x=>clean(x[1]));res(r?{chat:r[0],ask:clean(r[1]),at:Math.round(r[2]*1000),title:r[3],source:r[4],who:/^[-\s]*$/.test(r[5])?'':r[5]}:null)}catch{res(null)}}))}
- // where an app on an agent came from; one aqeelOS adds to every agent (Composio) counts as set-up when nothing says otherwise
- async function app(agent,name,url=''){await load();return db.apps[agent+'|'+name]||(/connect\.composio\.dev|rube\.app/.test(url)?{by:'setup'}:null)}
+ // where an app on an agent came from
+ async function app(agent,name,url=''){await load();return db.apps[agent+'|'+name]||null}
  async function noteApp(agent,name,rec){await load();const k=agent+'|'+name;db.apps[k]={...rec,account:db.apps[k]?.account,at:Date.now()};await save()}
  // which account a sign-in is (workspace or organization, and the user), asked of the app itself while the sign-in works
  // and kept for when it stops, so a notice says WHICH Slack or Notion. Any app (MCP server) works the same way: aqeelOS

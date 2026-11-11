@@ -9,13 +9,13 @@ const L={
  parked:"2026-10-25 07:20:29,528 WARNING tools.mcp_tool: MCP server 'pixel' failed initial connection after 3 attempts, parking until a reconnect is requested (state: connecting → parked): MCPError: Connection closed",
  failed:`2026-10-25 07:20:58,168 WARNING tools.mcp_tool: Failed to connect to MCP server 'pixel' (command=${H}/.hermes/pixel-tools/run.sh): Connection closed`,
  summary:"2026-10-25 07:20:58,169 INFO tools.mcp_tool: MCP: registered 119 tool(s) from 3 server(s) (1 failed: pixel (Connection closed))",
- summary2:"2026-10-25 03:42:52,857 INFO tools.mcp_tool: MCP: registered 372 tool(s) from 9 server(s) (2 failed: AdsPower ([Errno 13] Permission denied: '/x/adspower-mcp.sh'); composio (MCP OAuth for 'composio': non-interactive environment and no cached tokens found. Run `hermes mcp login composio` interactively first.))",
+ summary2:"2026-10-25 03:42:52,857 INFO tools.mcp_tool: MCP: registered 372 tool(s) from 9 server(s) (2 failed: AdsPower ([Errno 13] Permission denied: '/x/adspower-mcp.sh'); higgsfield (MCP OAuth for 'higgsfield': non-interactive environment and no cached tokens found. Run `hermes mcp login higgsfield` interactively first.))",
  unknown:"2026-10-25 07:50:51,452 WARNING [local-d5728b] agent.tool_executor: Tool tool_call returned error (0.07s): {\"error\": \"'pixel_now' is not a known tool name. Deferred tools must be invoked through tool_call by the exact name tool_search returns (e.g. mcp__<server>__{tool}).",
  removed:"2026-10-25 15:01:18,757 INFO gateway.run_profile_reconcile: MCP servers reconciled with config (pine-agent): removed=['pixel'] added=[]",
  registered:"2026-10-25 15:02:20,921 INFO tools.mcp_tool: MCP server 'pixel' (stdio): registered 28 tool(s): mcp__pixel__pixel_sender_status, mcp__pixel__pixel_now",
  added:"2026-10-25 15:02:20,934 INFO gateway.run_profile_reconcile: MCP servers reconciled with config (pine-agent): removed=[] added=['pixel']",
- auth:"2026-10-24 09:18:50,237 WARNING tools.mcp_tool: MCP server 'composio' failed initial authentication, parking until credentials change; re-authenticate with `hermes mcp login composio` (state: connecting → parked): OAuthNonInteractiveError: no cached tokens",
- oauth:"2026-10-25 14:46:01,336 WARNING tools.mcp_tool: MCP OAuth setup failed for 'composio': MCP OAuth for 'composio': non-interactive environment and no cached tokens found.",
+ auth:"2026-10-24 09:18:50,237 WARNING tools.mcp_tool: MCP server 'higgsfield' failed initial authentication, parking until credentials change; re-authenticate with `hermes mcp login higgsfield` (state: connecting → parked): OAuthNonInteractiveError: no cached tokens",
+ oauth:"2026-10-25 14:46:01,336 WARNING tools.mcp_tool: MCP OAuth setup failed for 'higgsfield': MCP OAuth for 'higgsfield': non-interactive environment and no cached tokens found.",
  probing:"2026-10-24 22:46:15,307 WARNING tools.mcp_tool: MCP server 'slack-pixel' failed after 5 reconnection attempts, parking; will self-probe every 300s until it recovers (state: degraded → parked): RemoteProtocolError: x",
  revived:"2026-10-24 23:12:27,244 WARNING tools.mcp_tool: MCP server 'slack-pixel': revived — session healthy again after parking (state: parked → connected)"};
 
@@ -23,12 +23,12 @@ test('log: a parked server, with the UTC time',()=>{const [e]=parseLogLine(L.par
 test('log: failed to connect, and the summary line names the failed ones',()=>{
  assert.deepEqual(parseLogLine(L.failed).map(e=>[e.kind,e.server,e.reason]),[['failed','pixel','Connection closed']]);
  assert.deepEqual(parseLogLine(L.summary).map(e=>[e.kind,e.server]),[['failed','pixel']]);
- assert.deepEqual(parseLogLine(L.summary2).map(e=>[e.kind,e.server]),[['failed','AdsPower'],['signin','composio']]);
+ assert.deepEqual(parseLogLine(L.summary2).map(e=>[e.kind,e.server]),[['failed','AdsPower'],['signin','higgsfield']]);
  assert.deepEqual(splitFailed("a (x (y)); b (z)").map(x=>x.server),['a','b']);
  // an agent copy skips a server another copy already connects: not a failure (seen on the box, 25 Oct)
  assert.deepEqual(parseLogLine("2026-10-25 07:20:05,598 INFO tools.mcp_tool:   MCP: 372 tool(s) from 9 server(s) (1 failed: AdsPower (not attempted (in retry cooldown)))"),[])});
 test('log: sign-ins, self-probing, revived, registered, reconciled, unknown tools',()=>{
- assert.equal(parseLogLine(L.auth)[0].kind,'signin');assert.equal(parseLogLine(L.oauth)[0].kind,'signin');assert.equal(parseLogLine(L.oauth)[0].server,'composio');
+ assert.equal(parseLogLine(L.auth)[0].kind,'signin');assert.equal(parseLogLine(L.oauth)[0].kind,'signin');assert.equal(parseLogLine(L.oauth)[0].server,'higgsfield');
  assert.equal(parseLogLine(L.probing)[0].kind,'probing');assert.equal(parseLogLine(L.revived)[0].kind,'ok');assert.equal(parseLogLine(L.registered)[0].kind,'ok');
  const r=parseLogLine(L.removed)[0];assert.equal(r.kind,'reconciled');assert.equal(r.label,'pine-agent');assert.deepEqual(r.removed,['pixel']);assert.deepEqual(r.added,[]);
  assert.deepEqual(parseLogLine(L.added)[0].added,['pixel']);

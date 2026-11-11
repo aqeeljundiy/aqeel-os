@@ -29,12 +29,12 @@ await t('agent reports: fixable ones and planned tests go to the ladder, real pe
 await t('a system report never shows: the fixer has it and sends the one message itself if a person is needed',()=>{
  assert.equal(personNeed(rep('a1','Check the model subscription usage limit, add an API key',{system:true})),null)});
 await t('each need once: app sign-ins merged across agents, a group with its reports, the same report from two agents',()=>{
- const items=[rep('sela','A sign-in for composio, notion and slack. They have no saved tokens'),rep('cove-social','A sign-in for Notion and for Slack (OAuth)'),rep('bay-sales','Sign-in for composio, notion and slack; no cached tokens exist'),rep('default','Customer runs need a payment label tool',{system:true}),
+ const items=[rep('sela','A sign-in for figma, notion and slack. They have no saved tokens'),rep('cove-social','A sign-in for Notion and for Slack (OAuth)'),rep('bay-sales','Sign-in for figma, notion and slack; no cached tokens exist'),rep('default','Customer runs need a payment label tool',{system:true}),
   {id:'event|g1',kind:'group',agent:'cove-social',agentName:'cove-social',topic:'health|cove-social|group|-5390379831',title:'Removed from the Telegram group Continue - Socials'},
   rep('cove-social','The bot was removed from the group Continue - Socials (Telegram says the bot is left). A bot cannot add itself back.'),
   rep('a1','A new API key for Xendit'),rep('a2','A new API key for Xendit'),...SHOT];
  const p=forPopup(items);assert.deepEqual(p.map(x=>x.kind),['apps','apps','group','report'],JSON.stringify(p.map(x=>x.title)));
- const [three,two,g,key]=p;assert.equal(three.title,'Composio, Notion and Slack need a sign-in');assert.equal(three.also.length,1);assert.match(three.text,/Asked by sela and bay-sales/);assert.match(three.ask,/Connected apps/);
+ const [three,two,g,key]=p;assert.equal(three.title,'Figma, Notion and Slack need a sign-in');assert.equal(three.also.length,1);assert.match(three.text,/Asked by sela and bay-sales/);assert.match(three.ask,/Connected apps/);
  assert.equal(two.title,'Notion and Slack need a sign-in');assert.equal(g.also.length,1,'the group report rides on the group');assert.equal(key.also.length,1);assert.equal(key.title,'A new API key for Xendit');
  assert.equal(popupKey(SHOT[2]),SHOT[2].id)});
 await t('a skill shared by two agents is one problem: same skill and files, whatever the folder',()=>{

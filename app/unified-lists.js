@@ -7,9 +7,9 @@ const UL={at:0,
  // the list for one kind, in el; agent: only rows that agent has (one agent showing), or null for every agent;
  // filter: which rows of that kind (Keys leaves out chat bot tokens); cache: reuse a list read in the last 15 s (a page
  // that draws itself again, such as a search on Keys, then shows it at once without the rows coming in again)
- async show(el,kind,{agent=null,noun,empty,filter=null,cache=false,grouped=false}={}){if(grouped)await builtinLoad();const gone=pageTok(el),warm=cache&&Pages._cx&&Date.now()-this.at<15000;
+ async show(el,kind,{agent=null,noun,empty,filter=null,cache=false,grouped=false}={}){if(grouped)await builtinLoad();const gone=pageTok(el),pre=Cx.pre;Cx.pre=null;const warm=!!pre||cache&&Pages._cx&&Date.now()-this.at<15000;
   el.insertAdjacentHTML('beforeend',`<div class="ul-host">${warm?'':skeletonRows(6)}</div>`);const host=el.querySelector('.ul-host');
-  let d;if(warm)d=Pages._cx;else{try{d=await UI('/ui/connections');this.at=Date.now()}catch(e){if(!gone())host.innerHTML=errLine('the list of '+noun);return}if(gone())return}
+  let d;if(warm)d=pre||Pages._cx;else{try{d=await UI('/ui/connections');this.at=Date.now()}catch(e){if(!gone())host.innerHTML=errLine('the list of '+noun);return}if(gone())return}
   Pages._cx=d;Pages._cxEl=host;Cx.fixed={type:kind,agent,filter};S.cxQ='';
   const n=d.rows.filter(r=>r.type===kind&&(!filter||filter(r))&&(!agent||r.users.some(u=>u.id===agent&&u.level!=='off'))).length;
   // a panel left open over a page that drew itself again (a key changed or removed): fresh data, or closed when it is gone
@@ -18,7 +18,7 @@ const UL={at:0,
   host.innerHTML=`<div class="toolbar cn-bar"><div class="search">${icon('search',16)}<input id="cnQ" type="search" enterkeyhint="search" placeholder="Search ${esc(plural(n,noun))}" aria-label="Search ${esc(noun)}s"><button class="ghost icon s-clear" data-act="cn-clear" aria-label="Clear search" title="Clear search">${icon('x',14)}</button></div></div>
    ${grouped?'<div class="ul-groups"></div>':`<div class="card list cn-list"><div class="cn-head" aria-hidden="true"><span>${esc(noun[0].toUpperCase()+noun.slice(1))}</span><span>Belongs to</span><span>Who can use</span><span>Status</span></div><div class="cn-rows"></div></div>`}
    <p class="hint cn-foot">${d.canEdit?'Click a row to see who can use it and change it.':'You see the agents you use. An admin decides who can use what; you can ask for access from a row.'}</p>`;
-  Cx.paintList(host,!warm);
+  Cx.paintList(host,!warm);Cx.stamp(host);Cx.follow(host);
   const q=host.querySelector('#cnQ');let t;q.oninput=()=>{q.closest('.search').classList.toggle('has-q',!!q.value);clearTimeout(t);t=setTimeout(()=>{if(!host.isConnected)return;S.cxQ=q.value;Cx.paintList(host)},120)}}};
 
 // Skills and Plugins keep their groups in the table (owner, 10 Nov 2026: "you removed… what is added for this company's
