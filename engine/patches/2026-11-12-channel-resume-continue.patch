@@ -1,0 +1,111 @@
+--- a/gateway/run.py
++++ b/gateway/run.py
+@@ -1036,8 +1036,26 @@
+     return current - timestamp <= window
+ 
+ 
++def _resume_continue_enabled() -> bool:
++    """aqeelos:channel-resume-continue — ``agent.gateway_resume_continue: true`` (bridged to HERMES_RESUME_CONTINUE):
++    a chat turn cut off by a restart carries on by itself instead of asking the person what to do next."""
++    return os.environ.get("HERMES_RESUME_CONTINUE", "").strip().lower() in ("1", "true", "yes", "on")
++
++
++def _resume_marked_clock(marked_at: Any) -> str:
++    """aqeelos:channel-resume-continue — the wall-clock time (HH:MM, the configured timezone) a turn was cut off, or ''."""
++    ts = _coerce_gateway_timestamp(marked_at)
++    if ts is None:
++        return ""
++    try:
++        import hermes_time
++        return datetime.fromtimestamp(ts, tz=hermes_time.get_timezone()).strftime("%H:%M")
++    except Exception:
++        return ""
++
++
+ def build_resume_recovery_note(
+-    reason: Optional[str], message: str = "", *, interactive: bool = True) -> str:
++    reason: Optional[str], message: str = "", *, interactive: bool = True, marked_at: Any = None) -> str:
+     """Build the resume-pending recovery system note for an interrupted turn (empty ``message`` = auto-resume).
+ 
+     Interactive platforms report the restore and ask what next; non-interactive ones finish the work.
+@@ -1055,6 +1073,19 @@
+         tail_guidance = (
+             "Do NOT re-execute old tool calls — skip any unfinished work from the conversation history."
+         )
++    elif interactive and _resume_continue_enabled():
++        # aqeelos:channel-resume-continue — the person is there, but must not have to answer "what next?": pick the
++        # request up again from their last message, as if they had pressed "try again".
++        clock = _resume_marked_clock(marked_at)
++        return (
++            "[System note: you were interrupted by " + ("a shutdown" if reason == "shutdown_timeout" else "a restart")
++            + (f" at {clock}" if clock else "")
++            + "; the gateway is now back online. Any restart/shutdown command in the history has already run, so do "
++            "NOT re-execute or verify it. Continue the person's last request from where you stopped and reply in this "
++            "same chat. Check what already went out (messages, files, posts, anything sent to anyone) before "
++            "repeating it, and never send the same thing twice. Do NOT say the session was restored and do NOT ask "
++            "what they want next. If the request turns out to be finished already, do not redo any of it: close "
++            "with one short line.]")
+     elif interactive:
+         resume_guidance = (
+             "Report to the user that the session was restored "
+@@ -1080,7 +1111,8 @@
+ 
+ 
+ def _prepare_resume_pending_message(
+-    reason: Optional[str], message: Optional[str], *, interactive: bool = True) -> tuple[str, str]:
++    reason: Optional[str], message: Optional[str], *, interactive: bool = True, marked_at: Any = None
++) -> tuple[str, str]:
+     """Return the recovery message and the user text to persist.
+ 
+     Empty original: persist the note (a "" user row trips the pre-call sanitizer). Real text: persist clean.
+@@ -1092,7 +1124,7 @@
+     words: the transcript stays scaffold-free (the model still receives the wrapped note), and a non-empty
+     row never trips the sanitizer.
+     """
+-    recovery_message = build_resume_recovery_note(reason, message or "", interactive=interactive)
++    recovery_message = build_resume_recovery_note(reason, message or "", interactive=interactive, marked_at=marked_at)
+     persist_message = message if isinstance(message, str) and message.strip() else recovery_message
+     return recovery_message, persist_message
+ 
+@@ -1962,6 +1994,7 @@
+     "restart_drain_timeout": "HERMES_RESTART_DRAIN_TIMEOUT",
+     "cron_drain_timeout": "HERMES_CRON_DRAIN_TIMEOUT",
+     "gateway_auto_continue_freshness": "HERMES_AUTO_CONTINUE_FRESHNESS",
++    "gateway_resume_continue": "HERMES_RESUME_CONTINUE",  # aqeelos:channel-resume-continue
+     "gateway_startup_restore_drain_timeout": "HERMES_STARTUP_RESTORE_DRAIN_TIMEOUT",
+     "gateway_startup_warmup_timeout": "HERMES_STARTUP_WARMUP_TIMEOUT"}
+ # config-authoritative knobs for the session-search index (env stays the cross-process carrier).
+--- a/gateway/run_turn_runner.py
++++ b/gateway/run_turn_runner.py
+@@ -896,6 +896,7 @@
+             # Empty message = the startup auto-resume turn; there is no NEW user message.
+             ctx.message, persist_override = _prepare_resume_pending_message(
+                 resume_reason, ctx.message, interactive=self._resume_note_interactive(),
++                marked_at=getattr(entry, "last_resume_marked_at", None),  # aqeelos:channel-resume-continue
+             )
+         elif agent_history and agent_history[-1].get("role") == "tool" and interruption_is_fresh:
+             persist_override = ctx.message
+@@ -913,7 +914,10 @@
+         # did not fire (freshness signals disagreed, marker cleared) we must NOT hand the model a blank
+         # user turn. Restricted to resume_pending sessions so caption-less image turns are untouched.
+         if isinstance(ctx.message, str) and not ctx.message.strip() and resume_pending:
+-            ctx.message = build_resume_recovery_note(resume_reason, "", interactive=self._resume_note_interactive())
++            ctx.message = build_resume_recovery_note(
++                resume_reason, "", interactive=self._resume_note_interactive(),
++                marked_at=getattr(entry, "last_resume_marked_at", None),  # aqeelos:channel-resume-continue
++            )
+         return persist_override, ctx.persist_user_timestamp
+ 
+     def _native_image_run_message(self):
+--- a/hermes_cli/config_defaults.py
++++ b/hermes_cli/config_defaults.py
+@@ -254,6 +254,9 @@
+         # only when the last persisted transcript row is younger than this, so stale markers don't
+         # revive an unrelated old task. Covers gateway_timeout (1800) plus slack. 0 = always inject.
+         "gateway_auto_continue_freshness": 3600,
++        # aqeelos:channel-resume-continue — true: a chat turn a restart cut off carries on by itself (no "session restored,
++        # what next?" message to the person); aqeelOS switches it on for every agent.
++        "gateway_resume_continue": False,
+         # Max seconds the gateway waits for boot auto-resume turns before releasing the
+         # startup-restore inbound gate (all inbound is QUEUED while shut, so one long resumed turn
+         # would leave every channel unanswered). On timeout the gate opens and the resume keeps

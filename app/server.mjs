@@ -323,7 +323,7 @@ const whyOf=createWhy({DATA,HERMES_HOME,python:enginePython});
 // locked agents (owner without "unsafe", or the admin's safe lock) keep terminal, files and code off through the defaults too
 // F: only agents of admins may run as the box's main user; the lead of an admin does (aqeelOS itself is theirs), and goes
 // back to its own user when its person is made a member again
-const agentDefaults=createAgentDefaults({DATA,isTest:a=>isTestAgent(a),mayTrust:async a=>{await users.load();return users.tierOf(a)==='admin'},adminLeads:async()=>{await users.load();return users.people().map(x=>users.leadOf(x.id)).filter(a=>a&&a!=='default'&&users.tierOf(a)==='admin')},giveSkills:n=>accountHooks.giveSkills?.(n),trimSkills:n=>accountHooks.trimSkills?.(n),locked:async a=>{await users.load();return a!=='default'&&lockedAgent(a,await getStatus())}});
+const agentDefaults=createAgentDefaults({DATA,isTest:a=>isTestAgent(a),resumeSecs:()=>resumeMaxMs(installSettings())/1000,mayTrust:async a=>{await users.load();return users.tierOf(a)==='admin'},adminLeads:async()=>{await users.load();return users.people().map(x=>users.leadOf(x.id)).filter(a=>a&&a!=='default'&&users.tierOf(a)==='admin')},giveSkills:n=>accountHooks.giveSkills?.(n),trimSkills:n=>accountHooks.trimSkills?.(n),locked:async a=>{await users.load();return a!=='default'&&lockedAgent(a,await getStatus())}});
 accountHooks.afterSetup=n=>agentDefaults.added(n).catch(e=>console.warn('agent defaults',n,e.message));
 // at start, then every 10 minutes: agents made outside aqeelOS (by Claude, by another agent, from the command line) get them too
 const applyDefaults=()=>agentDefaults.all().then(n=>{if(n){console.log('agent defaults: '+n+' settings applied; restarting the agents when idle');restartLater('agent defaults')}}).catch(e=>console.warn('agent defaults:',e.message));
@@ -1789,7 +1789,9 @@ if(LIVE_APP){setTimeout(()=>issues.tick().catch(e=>console.warn('issues',e.messa
    streaming, a schedule run or a fixer run that a deploy, the nightly update, a crash or an engine restart cut off is
    journaled as it starts and continued once the app and the engine answer again. A reply is continued the way the
    chat's Retry does it (one more message into the same chat, here a short system note), streamed into LIVE so an open
-   chat page follows it; a schedule by the engine's "run now". Channel chats are continued by the engine itself. */
+   chat page follows it; a schedule by the engine's "run now". Channel chats (Telegram, WhatsApp) are continued by the
+   engine itself (its resume_pending, worded by engine/patches/2026-11-12-channel-resume-continue.patch); they are only
+   watched here, for Health. */
 let gwPidNow=0;{const t=()=>gatewayPid().then(p=>{if(p)gwPidNow=p}).catch(()=>{});t();setInterval(t,10000).unref()}
 const resumeOpts=b=>({...(b.model?{model:b.model}:{}),...(b.provider?{provider:b.provider}:{}),...(b.require_model_lock?{require_model_lock:true}:{}),...(b.model_options?{model_options:b.model_options}:{})});
 const resumeEng=createResumeEngine({python:enginePython,homeOf:homeOfAgent,agents:()=>listAllProfiles(),gatewayPid,
@@ -1824,7 +1826,7 @@ function resumeLiveEnd(rec){if(!rec.jid)return null;return rec.ended||=(async()=
 const pidLives=p=>{if(!p)return false;try{process.kill(p,0);return true}catch{return false}};
 const resume=createResume({DATA,on:LIVE_APP,maxAge:()=>resumeMaxMs(installSettings()),tz:()=>installTz()||process.env.TZ||'',nameOf:a=>NAMES[a]||a,
  ready:async()=>!gwStopped&&!gwRestarting&&!engineUpd.busy()&&!backups.busy()&&!!await gatewayPid()&&await fetch(DASH.origin+'/api/status',{signal:AbortSignal.timeout(8000)}).then(r=>r.ok,()=>false),
- probeChat:e=>resumeEng.probeChat(e),sendChat:resumeSend,probeRun:e=>resumeEng.probeRun(e),
+ probeChat:e=>resumeEng.probeChat(e),probeChannel:e=>resumeEng.probeChannel(e),sendChat:resumeSend,probeRun:e=>resumeEng.probeRun(e),
  triggerRun:async e=>{const r=await fetch(DASH.origin+'/api/cron/jobs/'+encodeURIComponent(e.job)+'/trigger?profile='+encodeURIComponent(e.agent),{method:'POST',headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:'{}',signal:AbortSignal.timeout(30000)}).catch(er=>({ok:false,status:0,text:async()=>er.message}));
   if(r.ok)return {ok:true};const t=String(await r.text().catch(()=>'')).replace(/\s+/g,' ').slice(0,120);return r.status===404?{fail:true,why:'the schedule no longer exists'}:{retry:true,why:'the engine did not start it ('+(r.status||t)+')'}},
  probeFixer:async e=>{const r=(await issues._db()).runs[e.run];return {done:!r||!!r.done,alive:pidLives(r?.pid)}},
@@ -1833,6 +1835,8 @@ resume.boot();
 async function resumeTick(){if(!LIVE_APP)return;resume.beat();
  const runs=await resumeEng.runsNow().catch(()=>null);if(runs)resume.sync(runs,'schedule');
  const fx=await issues._db().then(db=>Object.values(db.runs).filter(r=>!r.done).map(r=>({kind:'fixer',run:r.id,pid:r.pid||0,agent:r.agent||'default'}))).catch(()=>null);if(fx)resume.sync(fx,'fixer');
+ // Telegram / WhatsApp chats: the engine carries them on itself (engine patch channel-resume-continue); this only watches
+ const ch=await resumeEng.channelsNow().catch(()=>null);if(ch)resume.syncChannels(ch);
  if(resume.pending())await resume.run()}
 if(LIVE_APP){setTimeout(()=>resumeTick().catch(e=>console.warn('resume',e.message)),20e3).unref();setInterval(()=>resumeTick().catch(e=>console.warn('resume',e.message)),30e3).unref()}
 // a signal means the app is being replaced (a deploy, an update, a restart by hand): the moment is noted so what was in

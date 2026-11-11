@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {mkdtempSync,readFileSync,writeFileSync,mkdirSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {createResume,chatPlan,runPlan,fixerPlan,noteFor,healthLine,NOTE_RE,outward} from '../app/resume.mjs';
+import {createResume,chatPlan,channelPlan,runPlan,fixerPlan,noteFor,healthLine,NOTE_RE,outward} from '../app/resume.mjs';
 
 const dir=()=>mkdtempSync(path.join(tmpdir(),'aq-resume-'));
 const T0=Date.parse('2026-11-11T17:10:00Z');   // 00:10 in Jakarta
@@ -139,3 +139,39 @@ test('the line on Health',()=>{const now=T0+60e3,tz='Asia/Jakarta';
 
 test('a test copy journals nothing and continues nothing',async()=>{const D=dir(),c={t:T0},a=app(D,c,{on:false});
  assert.equal(a.r.begin(chat),'');assert.equal(a.r.boot(),0);await a.r.run();assert.equal(a.sent.length,0)});
+
+/* ---------- Telegram / WhatsApp chats: the engine carries them on, aqeelOS watches (12 Nov 2026) ---------- */
+const mark=(over={})=>({agent:'donna',key:'agent:main:telegram:dm:42',platform:'telegram',session:'t1',markedAt:T0+5e3,...over});
+
+test('a channel chat the engine marked is journaled once, counted when the engine carried on, and never sent from here',async()=>{const D=dir(),c={t:T0+60e3};let marked=true;
+ const a=app(D,c,{probeChannel:async()=>({missing:false,pending:marked,markedAt:T0+5e3})});a.r.boot();
+ assert.equal(a.r.syncChannels([mark()]),1);assert.equal(a.r.syncChannels([mark()]),0,'seen again: still one entry');
+ assert.equal(a.r.pending(),1);await a.r.run();assert.equal(a.r.pending(),1,'the engine has not carried on yet: it waits');
+ marked=false;c.t+=60e3;await a.r.run();await a.r.run();
+ assert.equal(a.r.pending(),0);assert.equal(a.r.last().chats,1);assert.equal(a.sent.length,0,'nothing is sent from aqeelOS into a channel');
+ // the settled mark is not journaled again, even though the engine's record may still show it for a moment
+ assert.equal(a.r.syncChannels([mark()]),0);
+ assert.match(a.r.line(),/1 chat continued/)});
+
+test('a channel mark older than the limit is the engine’s old leftover: not journaled; one that never got carried on is listed',async()=>{const D=dir(),c={t:T0+3*3600e3};
+ const a=app(D,c,{probeChannel:async()=>({missing:false,pending:true,markedAt:T0+5e3})});a.r.boot();
+ assert.equal(a.r.syncChannels([mark({markedAt:T0})]),0,'3 h old: left alone');
+ c.t=T0+60e3;const b=app(dir(),c,{probeChannel:async()=>({missing:false,pending:true,markedAt:T0+5e3})});b.r.boot();assert.equal(b.r.syncChannels([mark()]),1);
+ c.t=T0+2*3600e3+60e3;await b.r.run();assert.equal(b.r.pending(),0);
+ assert.equal(b.r.last().failed.length,1);assert.match(b.r.last().failed[0].why,/did not carry on/);assert.match(b.r.last().failed[0].what,/telegram chat/);
+ assert.equal(b.r.syncChannels([mark()]),0,'a settled mark that stays in the engine is not journaled again')});
+
+test('channelPlan: gone chat, marker cleared, still waiting, unreadable',()=>{const e={cutAt:T0,cut0:T0,mk:T0},now=T0+60e3;
+ assert.equal(channelPlan(e,{missing:true},now).do,'skip');assert.equal(channelPlan(e,{missing:false,pending:false},now).do,'done');
+ assert.equal(channelPlan(e,{missing:false,pending:true},now).do,'wait');assert.equal(channelPlan(e,null,now).do,'wait');
+ assert.equal(channelPlan(e,null,T0+3*3600e3).do,'giveup');assert.equal(channelPlan(e,{missing:false,pending:true},T0+3*3600e3).do,'giveup')});
+
+test('the engine not back yet: a channel entry waits and nothing is decided',async()=>{const D=dir(),c={t:T0+60e3};let up=false,probes=0;
+ const a=app(D,c,{ready:async()=>up,probeChannel:async()=>{probes++;return {missing:false,pending:false}}});a.r.boot();a.r.syncChannels([mark()]);
+ await a.r.run();assert.equal(probes,0);assert.equal(a.r.pending(),1);up=true;await a.r.run();assert.equal(a.r.pending(),0)});
+
+test('the engine patch and the settings that switch it on are in place',()=>{const rd=f=>readFileSync(new URL(f,import.meta.url),'utf8');
+ const patch=rd('../engine/patches/2026-11-12-channel-resume-continue.patch');
+ for(const m of ['HERMES_RESUME_CONTINUE','gateway_resume_continue','+++ b/gateway/run.py','+++ b/gateway/run_turn_runner.py','+++ b/hermes_cli/config_defaults.py','do NOT ask'.replace('do NOT ask','do NOT say the session was restored')])assert.ok(patch.includes(m)||patch.includes(m.replace('do NOT say','Do NOT say')),m);
+ const ad=rd('../app/agent-defaults.mjs');assert.ok(ad.includes("'agent.gateway_resume_continue'")&&ad.includes("'agent.gateway_auto_continue_freshness'"));
+ assert.match(rd('../app/server.mjs'),/resumeSecs:\(\)=>resumeMaxMs\(installSettings\(\)\)\/1000/)});
