@@ -6,7 +6,7 @@
 {const oldStatus=PAGES.status,oldHost=PAGES.host;
  PAGES.health=async(p,el,r)=>{const tok=S._htok=(S._htok||0)+1,stale=()=>tok!==S._htok,admin=S.me?.admin!==false,V={};
   const sk=h=>'<div class="skel" style="height:'+h+'px;border-radius:18px;margin-bottom:14px"></div>',hist=admin&&S.tab.health==='History';
-  setActions('');el.innerHTML=admin?'<div id="hVerdict">'+sk(104)+'</div>'+tabs('health',['Now','History'],hist?'History':'Now')+'<div id="hNow"'+(hist?' hidden':'')+'><div id="hNeed"></div><div id="hFixer"></div><div id="hCode"></div><h2 class="ach-cat">Agents</h2><div id="hAgents">'+sk(120)+'</div><div id="hStatus">'+sk(110)+'</div><div id="hCost"></div><div id="hEsc"></div><h2 class="ach-cat">The AI box</h2><div id="hHost">'+sk(160)+'</div></div><div id="hHist"'+(hist?'':' hidden')+'></div>'
+  setActions('');el.innerHTML=admin?'<div id="hVerdict">'+sk(104)+'</div>'+tabs('health',['Now','History'],hist?'History':'Now')+'<div id="hNow"'+(hist?' hidden':'')+'><div id="hNeed"></div><div id="hFixer"></div><div id="hCode"></div><h2 class="ach-cat">Agents</h2><div id="hAgents">'+sk(120)+'</div><div id="hStatus">'+sk(110)+'</div><div id="hCost"></div><div id="hEff"></div><div id="hEsc"></div><h2 class="ach-cat">The AI box</h2><div id="hHost">'+sk(160)+'</div></div><div id="hHist"'+(hist?'':' hidden')+'></div>'
    :'<h2 class="ach-cat" style="margin-top:0">Agents</h2><div id="hStatus">'+sk(110)+'</div><h2 class="ach-cat">The AI box</h2><div id="hHost">'+sk(160)+'</div>';
   const q=s=>el.querySelector(s),sBox=q('#hStatus'),hBox=q('#hHost'),aBox=q('#hAgents'),vBox=q('#hVerdict');
   // Now and History switch in place (the tab bar's pill slides; the page is not drawn again)
@@ -20,6 +20,8 @@
   const drawAgents=async()=>{if(!aBox)return;let d,m,gr;try{[d,m,gr]=await Promise.all([UI('/ui/health/agents'),UI('/ui/health/memory').catch(()=>null),UI('/ui/health/graph').catch(()=>null)])}catch(e){if(!stale()&&aBox.isConnected&&aBox.querySelector('.skel'))aBox.innerHTML=alertBox(esc(e.message));V.ag={failed:true};verdict();return}
    if(stale()||!aBox.isConnected)return;V.ag=d;V.mem=m;AgentHealth.draw(aBox,d,drawAgents,m,gr);verdict()};
   const drawCost=async()=>{const b=q('#hCost');if(!b)return;let d;try{d=await UI('/ui/health/cost')}catch{return}if(stale()||!b.isConnected)return;HealthCost.draw(b,d)};
+  // Efficiency is read apart from the rest (its own request, kept a minute by the server): the page never waits for it
+  const drawEff=async()=>{const b=q('#hEff');if(!b)return;let d;try{d=await UI('/ui/health/efficiency')}catch{return}if(stale()||!b.isConnected)return;HealthEfficiency.draw(b,d)};
   // a refresh keeps this page's buttons (the Agents part sets its own as it starts)
   const drawStatus=async()=>{const b=document.createElement('div');b.hidden=true;document.body.append(b);const ha=$('.head-actions'),keep=sBox.querySelector('.skel')?null:ha?.innerHTML;try{const run=oldStatus(p,b,r);if(keep!=null&&ha.isConnected)ha.innerHTML=keep;await run}catch(e){b.remove();throw e}
    if(stale()||!sBox.isConnected){b.remove();return}clearTimeout(Pages._statusT);
@@ -30,12 +32,12 @@
    // the 15-second refresh swaps in new cards: only the first draw plays the entrance animation
    if(!sBox.querySelector('.skel'))b.querySelectorAll('.stat,.row,.card,.panel').forEach(x=>x.style.animation='none');b.hidden=false;sBox.replaceChildren(b)};
   const hb=document.createElement('div');hb.hidden=true;document.body.append(hb);
-  drawIssues();drawCode();drawCost();await Promise.all([drawAgents(),drawStatus(),oldHost(p,hb,r).then(()=>{if(stale()){hb.remove();return}hb.hidden=false;hBox.replaceChildren(hb)},e=>{hb.remove();hBox.innerHTML=alertBox(esc(e.message))})]);
+  drawIssues();drawCode();drawCost();drawEff();await Promise.all([drawAgents(),drawStatus(),oldHost(p,hb,r).then(()=>{if(stale()){hb.remove();return}hb.hidden=false;hBox.replaceChildren(hb)},e=>{hb.remove();hBox.innerHTML=alertBox(esc(e.message))})]);
   if(stale())return;
   // Report an issue and the engine console (1 Nov 2026: Restart is in Start and stop agents, Check again in the engine updates card)
   setActions(admin?`<button data-act="issue-report">${icon('plus',16)}Report an issue</button><button data-act="console-open" title="Type the engine’s own commands">${icon('terminal',16)}Engine console</button>`:'');
   // agents, channels and the fixer change often: refresh those, while the page is open and visible
-  const tick=()=>{clearTimeout(Pages._healthT);Pages._healthT=setTimeout(async()=>{if(stale()||route().page?.id!=='health')return;if(!document.hidden)await Promise.all([drawStatus().catch(()=>{}),drawAgents().catch(()=>{}),drawIssues().catch(()=>{}),q('#hCost')?.dataset.drawn?null:drawCost()]);tick()},15000)};tick()}}
+  const tick=()=>{clearTimeout(Pages._healthT);Pages._healthT=setTimeout(async()=>{if(stale()||route().page?.id!=='health')return;if(!document.hidden)await Promise.all([drawStatus().catch(()=>{}),drawAgents().catch(()=>{}),drawIssues().catch(()=>{}),q('#hCost')?.dataset.drawn?null:drawCost(),drawEff()]);tick()},15000)};tick()}}
 ACT['issue-report']=()=>HealthIssues.report(HealthIssues.again||(()=>{}));
 
 /* ---------- the verdict (HEALTH-1): one sentence, "Everything is patched and working" or exactly what needs you, then a
@@ -115,6 +117,33 @@ const HealthCost={
   box.innerHTML='<div class="hi-top"><h2 class="ach-cat" style="margin:0">Cost this week</h2><a class="hc-all" href="#/system/usage">All usage</a></div><div class="two hc-two">'+col('By agent',A)+col('By person',P)+'</div>'+
    '<p class="hint" style="margin:8px 2px 22px">Estimates from the engine’s records. By person counts who started each chat, here or on a channel; work nobody started has lines of its own'+(d.failed?.length?'; some agents could not be read, so it is incomplete':'')+'.</p>';
   if(!first)box.querySelectorAll('.hc-r i,.panel').forEach(x=>x.style.animation='none')}};
+
+/* ---------- Efficiency (efficiency.mjs, 11 Nov 2026): where the model use goes, per agent and per kind of work, for the last
+   24 hours or 7 days, and what to look at. Share weighs each kind of token (new text 1, reused text a tenth, written text 5)
+   and the price class of the model. Read apart from the rest of the page, so it never holds the page up. ---------- */
+const HealthEfficiency={win:'d7',
+ pct:x=>x>=.995?'100%':x>=.1?Math.round(x*100)+'%':x>=.005?(x*100).toFixed(1).replace(/\.0$/,'')+'%':x>0?'<1%':'0%',
+ draw(box,d){if(d?.error&&!d.d7){box.innerHTML='<h2 class="ach-cat">Efficiency</h2>'+alertBox(esc(d.error));return}
+  const first=!box.dataset.drawn;box.dataset.drawn='1';const w=HealthEfficiency.win,W=d[w]||{agents:[],total:{runs:0}},P=HealthEfficiency.pct;
+  const chip=(k,l)=>'<button type="button" class="hh-chip" data-ef="'+k+'" aria-pressed="'+(w===k)+'">'+l+'</button>';
+  const fl=d.flags||[],shown=fl.slice(0,6);
+  const flagH=shown.length?shown.map(f=>'<div class="ah-warn ef-flag'+(f.level==='note'?' ok':'')+'">'+icon(f.level==='note'?'check':'alert',15)+'<span>'+esc(f.text)+'</span></div>').join('')+(fl.length>shown.length?'<p class="hint" style="margin:8px 2px 0">And '+(fl.length-shown.length)+' more.</p>':''):'<div class="ah-warn ef-flag ok">'+icon('check',15)+'<span>Nothing to flag. No very long chat, no schedule that mostly finds nothing to do, no low reuse.</span></div>';
+  const kindRow=k=>'<div class="ef-k"><span class="ef-n">'+esc(k.label)+(k.kind==='schedule'?'<small>schedule</small>':'')+'</span><span class="ef-v">'+P(k.share)+'</span><span class="ef-v">'+num(k.runs)+'</span><span class="ef-v'+(k.reuse!=null&&k.reuse<60&&k.tokens>=300000?' bad':'')+'">'+(k.reuse==null?'—':k.reuse+'%')+'</span>'+(k.gate?'<span class="ef-s">'+plural(k.gate.skips,'check')+' skipped before using the model</span>':'')+'</div>';
+  const ags=W.agents.slice(0,12);
+  const agH=ags.length?ags.map((a,i)=>'<div class="ef-a"'+(first?' style="animation-delay:'+Math.min(i,8)*30+'ms"':'')+'><div class="hc-r"><span><b>'+esc(a.name)+'</b> <small class="ef-m">'+plural(a.runs,'run')+(a.reuse!=null?' · '+a.reuse+'% reused':'')+(a.folded?' · '+plural(a.folded,'chat')+' carried on after shortening':'')+'</small></span><b>'+P(a.share)+'</b><i style="--w:'+Math.max(2,Math.round(a.share*100))+'%;animation-delay:'+i*40+'ms"></i></div>'+
+   '<div class="ef-kh"><span>Kind of work</span><span>Share</span><span>Runs</span><span>Reuse</span></div>'+a.kinds.slice(0,8).map(kindRow).join('')+(a.kinds.length>8?'<p class="hint" style="margin:4px 0 0">And '+(a.kinds.length-8)+' smaller ones.</p>':'')+'</div>').join(''):'<p class="sub">No model use in this time.</p>';
+  const big=(d.biggest||[]).slice(0,6),bigH=big.length?big.map(b=>'<div class="ef-b'+(b.context>200000?' bad':'')+'"><div class="txt"><b>'+esc(b.title)+'</b><span>'+esc(b.name)+(b.source?' · '+esc(b.source):'')+' · '+plural(b.calls||0,'message')+' · '+ago(b.at)+'</span></div><span class="ef-v">'+num(b.context)+'<small>per message</small></span></div>').join(''):'<p class="sub">No chats this week.</p>';
+  const fold=[d.proxyFolds!=null?'billion-context has folded '+plural(d.proxyFolds,'older part')+' of long chats into summaries so far, on every agent.':'',W.folded?plural(W.folded,'chat')+' carried on in a new chat after shortening in this time.':'No chat was shortened into a new one in this time.'].filter(Boolean).join(' ');
+  const acc=(d.accounts||[]).map(a=>esc(a.name)+': '+a.windows.map(x=>x.label+' '+x.used+'%').join(', ')).join(' · ');
+  box.innerHTML='<div class="hi-top"><h2 class="ach-cat" style="margin:0">Efficiency</h2><div class="hh-chips">'+chip('h24','Last 24 hours')+chip('d7','Last 7 days')+'</div></div>'+
+   '<div class="ef-flags">'+flagH+'</div>'+
+   '<div class="two ef-two"><div class="panel card"><h2>Where model use goes</h2><p class="sub">Share of all use in this time, by agent and kind of work. Reuse is how much of what was read came from the last message’s memory, which costs a tenth.</p>'+agH+'</div>'+
+   '<div class="panel card"><h2>Biggest chats</h2><p class="sub">Size is what each message sends the model. Over 200k is flagged.</p>'+bigH+'</div></div>'+
+   '<p class="hint" style="margin:8px 2px 4px">'+esc(fold)+(acc?' Claude accounts now: '+acc+'.':'')+'</p>'+
+   '<p class="hint" style="margin:0 2px 22px">From the agents’ own records. A chat counts in full while it is still going. Share weighs new text 1, text saved to memory 1.25, reused text 0.1 and written text 5, then the model’s price class'+(d.gates?'. Skipped checks come from the schedules’ run log':'')+(d.failed?.length?'. Could not read: '+esc(d.failed.join(', ')):'')+'.</p>';
+  if(!first)box.querySelectorAll('.ef-a,.hc-r i,.panel').forEach(x=>x.style.animation='none');
+  if(!box.dataset.on){box.dataset.on='1';box.addEventListener('click',e=>{const c=e.target.closest('[data-ef]');if(!c)return;HealthEfficiency.win=c.dataset.ef;HealthEfficiency.draw(box,HealthEfficiency.last)})}
+  HealthEfficiency.last=d}};
 
 
 /* ---------- Engine console (admins): the engine's own commands, one at a time, its answers shown as they come.

@@ -22,6 +22,7 @@ import {mcpAddProblem} from './mcp-add-check.mjs';   // an app added by address:
 import {createAddons,probeMcp,RUNS_CODE_MSG} from './addons.mjs';   // personal add-ons: who added what, the admin block list, "is it an MCP tool" (11 Nov 2026)
 import {setupGuideLines} from './setup-guide.mjs';   // how every agent onboards people to any app (11 Nov 2026)
 import {createEscalations} from './escalations.mjs';
+import {createEfficiencyView} from './efficiency-view.mjs';
 import {createConnect,firstModelFor} from './connect.mjs';
 import {createOptins,appNames,solvedIssues} from './agent-optins.mjs';
 import {isConnector as isConnectorEntry} from './connectors.mjs';
@@ -112,8 +113,10 @@ import {fileURLToPath} from 'node:url';
 import {createAgentVersions,VERSION_TOOLS} from './agent-versions.mjs';   // self-repair kit (workstream E)
 import {createAgentLive} from './agent-live.mjs';
 import {createBillionContext} from './billion-context.mjs';
+import {createRunGates} from './run-gates.mjs';
 import {createGraphify} from './graphify.mjs';
 import {createAgentGraph} from './agent-graph.mjs';
+import {createEfficiency} from './efficiency.mjs';
 import {createTeamView} from './team-view.mjs';
 import {settings as installSettings} from './install.mjs';
 import {sysTz,localParts,zoneName} from './tz.mjs';
@@ -1772,8 +1775,19 @@ if(LIVE_APP){const liveInstall=()=>agentLive.install().then(async c0=>{const c=[
  setTimeout(liveInstall,60e3).unref();setInterval(liveInstall,10*60e3).unref()}
 // billion-context (fewer tokens in long chats) in every agent's home, same rhythm; the engine reloads once no reply runs
 const billion=createBillionContext({HERMES_HOME,readConfig,setKey,pick});
+// Efficiency on System › Health (efficiency-view.mjs): where model use goes and what drifts back, read only, kept a minute
+const effView=createEfficiencyView({HERMES_HOME,DATA,python:enginePython,nameOf:a=>a===HELP_AGENT?'Help':agentName(a),savings:()=>billion.savings(),accountLabels:async()=>{const d=await accountsApi.backup.load();return Object.fromEntries(accountsApi.backup.all(d).map(a=>[a.id,a.label]))}});
 if(LIVE_APP){const biliInstall=()=>billion.install().then(async c0=>{const c=[];for(const a of c0)if(!await isTestAgent(a).catch(()=>false))c.push(a);if(c.length)restartLater('billion-context plugin for '+c.length+' agent(s)')}).catch(e=>console.warn('billion-context install',e.message));
  setTimeout(biliInstall,90e3).unref();setInterval(biliInstall,10*60e3).unref()}
+// efficient by default (11 Nov 2026): every agent's home, new ones too, shortens chats at a fixed size and keeps the
+// cache for an hour in chats a person types into; same rhythm, the engine reloads once no reply runs
+const efficiency=createEfficiency({HERMES_HOME,DATA,readConfig,setKey,pick});
+if(LIVE_APP){const effApply=()=>efficiency.apply().then(async c0=>{const c=[];for(const a of c0)if(!await isTestAgent(a).catch(()=>false))c.push(a);if(c.length)restartLater('efficient defaults for '+c.length+' agent(s)')}).catch(e=>console.warn('efficiency',e.message));
+ setTimeout(effApply,100e3).unref();setInterval(effApply,10*60e3).unref()}
+// Run gates (run-gates.mjs, 11 Nov 2026): every schedule that starts the AI first asks this app whether the run can do
+// anything (the AI service asked for a pause, posting limits, a check of the job's own); if not, no run starts. Same rhythm.
+const runGates=createRunGates({HERMES_HOME,DATA,WORK:path.join(homedir(),'workspaces'),PORT,sig:a=>relay.sig(a),live:LIVE_APP,lock:withFlock,skipAgent:a=>isTestAgent(a)});
+if(LIVE_APP){const gatesInstall=()=>runGates.install().catch(e=>console.warn('run gates',e.message));setTimeout(gatesInstall,100e3).unref();setInterval(gatesInstall,10*60e3).unref()}
 // graphify (code and document maps) in the agents' shared Python, its skill copied to every agent; same rhythm
 const graphify=createGraphify({HERMES_HOME});
 if(LIVE_APP){const gfInstall=()=>graphify.ensure().catch(e=>console.warn('graphify',e.message));setTimeout(gfInstall,120e3).unref();setInterval(gfInstall,10*60e3).unref()}
@@ -2248,6 +2262,10 @@ const server=createServer(async(req,res)=>{
   {const mf=/^\/google-files\/([\w-]+)\/([\w-]+)$/.exec(p);if(mf){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method!=='POST')return send(res,405,'POST only');
    const x=Buffer.from(String(mf[2])),y=Buffer.from(sign('google-files:'+mf[1]).slice(0,32));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,{error:'bad signature'});
    let body;try{body=JSON.parse(await readBody(req,4e6))}catch{return send(res,400,{error:'bad json'})}const r=await googleFiles.call(mf[1],body);return send(res,r.status,r.json)}}
+  // the run gate every schedule runs first (run-gates.mjs): from this box only, signed per agent; always answers
+  {const mr=/^\/run-gate\/([\w-]+)\/([\w-]+)\/([\w-]+)$/.exec(p);if(mr){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
+   const x=Buffer.from(String(mr[3])),y=Buffer.from(String(relay.sig(mr[1])));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,'bad signature');
+   const t=await runGates.check(mr[1],mr[2],{nothing:url.searchParams.get('nothing')==='1'}).catch(()=>'aqeelOS run check: clear to run.\n{"wakeAgent": true}');res.writeHead(200,{'content-type':'text/plain; charset=utf-8'});return res.end(t+'\n')}}
   // the posting gate an agent's posting schedule runs first (posting-limits.mjs): from this box only, signed per agent
   {const mg=/^\/posting-gate\/([\w-]+)\/([\w-]+)$/.exec(p);if(mg){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
    const x=Buffer.from(String(mg[2])),y=Buffer.from(String(relay.sig(mg[1])));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,'bad signature');
@@ -3216,6 +3234,7 @@ const server=createServer(async(req,res)=>{
    try{if(p.endsWith('/dismiss'))return send(res,200,{ok:await agentGraph.dismiss(a)});
     const r=await agentGraph.accept(a,(Array.isArray(b.ids)?b.ids:[]).map(String),{by:u.name||u.id||'an admin'});console.log('graph: sections moved for',a,'by',u.id||u.name||'?');return send(res,200,{ok:true,...r})}
    catch(e){return send(res,e.status||400,{error:e.message})}}
+  if(p==='/ui/health/efficiency'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,await effView.view({fresh:url.searchParams.get('fresh')==='1'}))}
   if(p==='/ui/health/cost'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});
    // whose chat it was: the person who started it in aqeelOS, else a person the team policy knows on that channel (the owner
    // on Telegram), else what started it: a schedule, a customer on a channel, or background work (the fixer, helpers)
@@ -3627,6 +3646,8 @@ const server=createServer(async(req,res)=>{
     try{const v=await labels.set(String(b.kind||''),String(b.id||''),{name:b.name,description:b.description});console.log('label',b.kind+':'+b.id,'by',u.id||u.name||'?');return send(res,200,{ok:true,label:v})}catch(e){return send(res,e.status||500,{error:e.message})}}
    if(p==='/ui/explain'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,300000))}catch{}const items=(Array.isArray(b.items)?b.items:[]).slice(0,300).map(x=>({id:String(x?.id||'').slice(0,120),name:String(x?.name||'').slice(0,160),desc:String(x?.desc||'').slice(0,600)}));return send(res,200,await explain.get(String(b.kind||''),items,{write:users.isAdmin(u)}))}
    // what billion-context saved and whether graphify is ready, for the Usage page (admins: it covers every agent)
+   // run gates (run-gates.mjs): per schedule how many runs the gate stopped, and the rate proposals (admins)
+   if(p==='/ui/run-gates'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins see this.'});return send(res,200,await runGates.view())}
    if(p==='/ui/usage/savings'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins see savings for every agent.'});
     const [compress,maps]=await Promise.all([billion.savings().catch(()=>null),graphify.status().catch(()=>null)]);return send(res,200,{compress,maps})}
    if(p==='/ui/usage'&&req.method==='GET'){const days=Math.min(365,Math.max(1,+url.searchParams.get('days')||7));const ag=String(url.searchParams.get('agent')||''),every=[...await listAllProfiles(),HELP_AGENT];   // Help's chats are each person's: its own line on Usage

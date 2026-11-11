@@ -12,6 +12,7 @@ import {homedir} from 'node:os';
 export const BILI_VERSION='0.1.213';
 export const BILI_NAME='billion-context';
 const RETRY_MS=60*60e3;
+export const FOLD_AT=180000;   // tokens of history before the proxy asks the model to fold (below the engine's own 200k)
 
 export function createBillionContext({HERMES_HOME,readConfig,setKey,pick,home0=homedir(),log=m=>console.log(m),
  npm=null,run=null,now=()=>Date.now(),nodePath=process.execPath,version=BILI_VERSION}){
@@ -36,9 +37,12 @@ export function createBillionContext({HERMES_HOME,readConfig,setKey,pick,home0=h
    catch(e){lastFail=now();log('billion-context: install failed, next try in an hour: '+e.message);return false}finally{busy=null}})();
   return busy}
  // the proxy keeps to the pinned version: no self-update, no advisory force-install
+ // 11 Nov 2026: its fold nudge fired at 75% of the window, 750k tokens on the agents' 1M windows, so in 3,484 chats
+ // it folded 4. An absolute count makes it fold long chats early on any window; a count set by hand is kept.
  async function config(){let c={};try{c=JSON.parse(await readFile(confFile,'utf8'))}catch{}
-  if(c.autoUpdate===false&&c.advisoryCheck===false)return false;
-  c.autoUpdate=false;c.advisoryCheck=false;await mkdir(path.dirname(confFile),{recursive:true});await writeFile(confFile,JSON.stringify(c,null,2)+'\n');return true}
+  const fold=c.compress?.maxContextLimit===undefined;
+  if(c.autoUpdate===false&&c.advisoryCheck===false&&!fold)return false;
+  c.autoUpdate=false;c.advisoryCheck=false;if(fold)c.compress={...(c.compress||{}),maxContextLimit:FOLD_AT};await mkdir(path.dirname(confFile),{recursive:true});await writeFile(confFile,JSON.stringify(c,null,2)+'\n');return true}
  // copy the plugin into every home and switch it on once; returns the homes that changed (the engine reloads for them)
  // emergency off for this install: the file HERMES_HOME/.aqeelos-billion-context-off takes it out of every agent
  async function install(){if(await stat(path.join(HERMES_HOME,'.aqeelos-billion-context-off')).then(()=>true,()=>false))return offAll();
