@@ -63,7 +63,7 @@ export function flags(sum,{gates=null,accounts=[],now=Date.now()}={}){const f=[]
  for(const A of d7.agents)for(const K of A.kinds){
   if(K.kind==='schedule'){const g=gateOf(gates,A.agent,K.jobId,K.label);
    if(g&&(g.skips-(g.cadence||0))+g.runs>=5&&((g.skips-(g.cadence||0)))/((g.skips-(g.cadence||0))+g.runs)>=.5)f.push({level:'note',kind:'skips',agent:A.agent,text:`${A.name}: “${K.label}” found nothing to do in ${(g.skips-(g.cadence||0))} of ${(g.skips-(g.cadence||0))+g.runs} checks and was skipped before using the model. That is working.`});
-   else if(!g&&K.runs>=6&&K.quiet/K.runs>=.7)f.push({level:'warn',kind:'quiet',agent:A.agent,text:`${A.name}: “${K.label}” ran ${K.runs} times this week and ${K.quiet} of them wrote almost nothing, so it mostly finds nothing to do. A check before it starts would save that model use.`})}
+   else if(K.runs>=6&&K.quiet/K.runs>=.7)f.push({level:'warn',kind:'quiet',agent:A.agent,text:`${A.name}: “${K.label}” ran ${K.runs} times this week and ${K.quiet} of them wrote almost nothing, so it mostly finds nothing to do. A check before it starts would save that model use.`})}
   if(K.reuse!=null&&K.reuse<LOW_CACHE&&K.tokens>=300000&&K.kind!=='subagent')f.push({level:'warn',kind:'cache',agent:A.agent,text:`${A.name}: ${K.kind==='schedule'?'“'+K.label+'” reuses':K.label.toLowerCase()+' reuse'} only ${K.reuse}% of what they read (under ${LOW_CACHE}%), so more of it is paid at full price.`})}
  const live=accounts.filter(a=>!a.dead&&a.windows.length),isFull=a=>a.windows.some(w=>w.used>=100&&!(w.resets&&Date.parse(w.resets)<now)),full=live.filter(isFull);
  for(const a of full){const others=live.filter(x=>!full.includes(x));const w=a.windows.find(w=>w.used>=100);

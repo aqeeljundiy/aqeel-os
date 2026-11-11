@@ -21,6 +21,9 @@ function deliverName(j,names){const d=String(j.deliver||'local');const rl=j.id&&
  if(d==='local'&&rl)return (APP_NAMES[rl.platform]||pretty(rl.platform))+' (shared by '+ident(String(rl.owner).split('--')[0]).name+')';if(d==='local')return 'this app';if(d==='origin')return 'the chat it was made in';
  const [pf,...rest]=d.split(':');const id=rest.join(':');const app=APP_NAMES[pf]||pretty(pf);
  if(!id)return app;const who=(names||{})[d]||(names||{})[pf+':'+id.split('@')[0]];return who?who+' on '+app:app}
+// how a schedule starts and why (design-guard.mjs triggers): an event, a script with no AI, a check first, or the AI on a timer
+function schedTrigger(j){return ((SCHED.info||{}).triggers||{})[(j.profile||'default')+'|'+j.id]||null}
+function triggerLine(j){const t=schedTrigger(j);return t?`<span class="sched-meta sched-trig" title="Why this trigger">${esc(t.label)}${t.detail?' ('+esc(t.detail.slice(0,60))+')':''}${t.why?' · '+esc(t.why):''}</span>`:''}
 function schedMeta(j){const i=SCHED.info||{};const k=(j.profile||'default')+'|'+j.id;return {m:(i.meta||{})[k]||{},r:(i.runs||{})[k]||{runs:[],tokens:0,cost:0}}}
 const folderOf=j=>schedMeta(j).m.folder||bracketOf(j.name)||'General';
 // a description the helper model could not write (it tries again later): the start of the prompt stands in
@@ -79,7 +82,7 @@ PAGES.schedules=async(p,el)=>{
   return `<div class="row sj-row" ${st(n++)} ${admin?`draggable="true"`:""} data-act="cron-open" data-id="${esc(j.id)}" data-profile="${esc(j.profile||'default')}" tabindex="0"><div class="main-c"><span class="ic ${on?'blue':''} ${bad?'warn':''}">${icon(bad?'alert':'clock',18)}</span><div class="txt"><b>${esc(stripBracket(j.name)||j.prompt?.slice(0,60)||j.id)}</b>
    ${m.summary?`<span class="sched-desc">${esc(m.summary)}</span>`:m.tries||!j.prompt?`<span class="sched-desc" title="${esc(promptLine(j.prompt)||'')}">${admin?`<a href="#" class="lb-add" data-act="sched-add-desc" data-id="${esc(j.id)}" data-profile="${esc(j.profile||'default')}">Add a description</a>`:'No description yet'}</span>`:`<span class="sched-desc pending"><i class="skel" style="display:inline-block;width:min(320px,60%);height:10px;border-radius:5px;vertical-align:middle"></i></span>`}
    <span class="sched-meta" title="${esc(j.schedule?.expr||j.schedule_display||'')}">${esc(whenText(j))} · to ${esc(deliverName(j,SCHED.info.names))} · ${nextTxt}${j.last_run_at?' · last '+when(j.last_run_at)+(bad?'':' ✓'):''}${last?.secs?' · took '+secsText(last.secs):''}</span>
-   ${model||cost?`<span class="sched-meta">${model}${cost}</span>`:''}
+   ${model||cost?`<span class="sched-meta">${model}${cost}</span>`:''}${triggerLine(j)}
    ${bad&&(j.last_status&&j.last_status!=='ok'||j.last_delivery_error)?`<span class="err-line" style="white-space:normal">${esc(j.last_delivery_error||j.last_error||'Last run: '+j.last_status)}</span>`:''}
    ${missedLine(j)?`<span class="err-line" style="white-space:normal">${esc(missedLine(j))}</span>`:''}${late?`<span class="err-line" style="white-space:normal">Overdue since ${esc(schedTime(late))}</span>`:''}</div></div>
    <div class="act">${toggle(on,'Active','data-act="cron-toggle" data-id="'+esc(j.id)+'" data-profile="'+esc(j.profile||'default')+'"')}<button class="ghost icon" data-menu="cron" data-id="${esc(j.id)}" data-profile="${esc(j.profile||'default')}" aria-label="More">${icon('more',18)}</button></div></div>`};
@@ -157,7 +160,8 @@ async function cronDetail(j){const {m,r}=schedMeta(j);const prof=j.profile||'def
  const stt=jobState(j),late=on&&overdueOf(j),ctx=cronList(j.context_from),cont=!!j.continuity||ctx.some(x=>x.toLowerCase()==='self'),ups=ctx.filter(x=>x.toLowerCase()!=='self');
  const nameOf=id=>{const o=(Pages.cronJobs||[]).find(x=>x.id===id&&(x.profile||'default')===prof);return o?stripBracket(o.name)||id:id};
  const how=j.no_agent?'Its script only (no AI)':j.script?'Its script, then the agent':'The agent';
- const extra=[['How it runs',how],j.script?['Script',j.script]:null,cronList(j.skills||j.skill).length?['Skills',cronList(j.skills||j.skill).join(', ')]:null,cronList(j.enabled_toolsets).length?['Tool groups',cronList(j.enabled_toolsets).map(pretty).join(', ')]:null,
+ const trg=schedTrigger(j);
+ const extra=[['How it runs',how],trg?['Starts by',trg.label+(trg.detail?' ('+trg.detail+')':'')]:null,trg?.why?['Why this trigger',trg.why]:null,j.script?['Script',j.script]:null,cronList(j.skills||j.skill).length?['Skills',cronList(j.skills||j.skill).join(', ')]:null,cronList(j.enabled_toolsets).length?['Tool groups',cronList(j.enabled_toolsets).map(pretty).join(', ')]:null,
   ['Repeats',repeatText(j)],cont?['Remembers','Its last run']:null,ups.length?['Uses results of',ups.map(nameOf).join(', ')]:null,j.workdir?['Works in',j.workdir]:null].filter(Boolean);
  const d=drawer(stripBracket(j.name)||'Schedule',`<div class="sd" data-big>
   <div class="sd-top"><span class="chip">${icon('folder',12)}${esc(folderOf(j))}</span><span class="chip">${icon('user',12)}${esc(ident(prof).name)}</span>${j.model?`<span class="chip">${icon('cpu',12)}${esc(modelLabel(j.model))}</span>`:''}<span class="chip ${stt==='error'?'warn':on&&stt!=='completed'?'ok':''}">${esc(on||stt==='completed'||stt==='error'?STATE_LABEL[stt]||pretty(stt):'Paused')}</span></div>

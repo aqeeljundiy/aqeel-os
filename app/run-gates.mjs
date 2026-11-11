@@ -130,7 +130,7 @@ export function gateBody({port,agent,jobId,sig,original}){const U='http://127.0.
   'out=$(curl -sf -m 15 "$U" 2>/dev/null) || out=""',
   'last=$(printf \'%s\\n\' "$out" | awk \'NF\' | tail -n 1)',
   'if printf \'%s\' "$last" | grep -q \'"wakeAgent": *false\'; then printf \'%s\\n\' "$out"; exit 0; fi',
-  'C="$D/'+CHECK_PREFIX+jobId+'.sh"',
+  'C="$D/'+CHECK_PREFIX+jobId+'.sh"; cpass=""',
   'if [ -f "$C" ]; then',
   '  cout=$(timeout 30 bash "$C" 2>/dev/null); crc=$?',
   '  clast=$(printf \'%s\\n\' "$cout" | awk \'NF\' | tail -n 1)',
@@ -138,7 +138,10 @@ export function gateBody({port,agent,jobId,sig,original}){const U='http://127.0.
   '    curl -sf -m 15 "$U?nothing=1" 2>/dev/null || printf \'aqeelOS run check: nothing to do this time.\\n{"wakeAgent": false}\\n\'',
   '    exit 0',
   '  fi',
+  // what a check of the agent's own printed (design-guard.mjs ownCheckScript) is handed to the run, so the prompt need not run it again
+  '  cpass=$(printf \'%s\\n\' "$cout" | awk \'NF\' | sed \'$d\' | head -c 20000)',
   'fi',
+  'if [ -n "$cpass" ]; then printf "What the check of this schedule printed just now (it has run; do not run it again):\\n%s\\n" "$cpass"; fi',
   ...(original?['exec bash "$D/'+original+'"']
    :['[ -n "$out" ] || out=$(printf \'aqeelOS run check: clear to run.\\n{"wakeAgent": true}\')','printf \'%s\\n\' "$out"']),''].join('\n')}
 

@@ -116,4 +116,4 @@ export function createSchedules({DATA,DASH,TOKEN,HERMES_HOME,listAgents,python,r
   if(a.title){const t=String(a.title).trim().slice(0,80);await api('/cron/jobs/'+encodeURIComponent(j.id)+'?profile='+encodeURIComponent(agent),{method:'PUT',body:JSON.stringify({updates:{name:t}})})}
   await setMeta(agent,j.id,{...(a.folder?{folder:a.folder}:{}),...(a.description?{summary:a.description}:{})});
   return {text:'Filed "'+(a.title||j.name)+'"'+(a.folder?' in the folder '+a.folder:'')+(a.description?' with its description':'')+'. The person sees it on the Schedules page.'}}
- return {info,setMeta,folderOp,detail,organize,tick,load}}
+ return {info,setMeta,folderOp,detail,organize,tick,load,jobs}}

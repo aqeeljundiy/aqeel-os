@@ -236,11 +236,40 @@ def name_block(tool_name, args):
     return None
 
 
+# ---- better design by default (12 Nov 2026) ----
+# A schedule made or changed with the engine's own tool gets the same review as one made with aqeelOS's my_schedules
+# (app/design-guard.mjs): "run this command and repeat the output" needs no AI, "step 0: run a script, stop if nothing" is a
+# check that belongs in front, and faster than every 30 minutes needs a check or an event. aqeelOS answers with the text
+# that says what to call instead; no answer, or any failure, lets the call through.
+
+_DESIGN_KEYS = ("action", "job_id", "id", "name", "prompt", "schedule", "script", "no_agent", "deliver")
+
+
+def design_block(tool_name, args, post=None):
+    """The refusal text when aqeelOS's design review wants this schedule built another way, else None (fail open; tested)."""
+    a = args if isinstance(args, dict) else {}
+    if tool_name != "cronjob" or str(a.get("action", "")).lower() not in ("create", "update", "edit"):
+        return None
+    if a.get("prompt") is None and a.get("schedule") is None:
+        return None
+    try:
+        r = (post or _post)("/schedule-review", {"args": {k: a[k] for k in _DESIGN_KEYS if a.get(k) is not None}}, 4)
+        b = r.get("block") if isinstance(r, dict) else None
+        return str(b) if b else None
+    except Exception as e:
+        logger.debug("aqeelos-live design review: %s", e)
+        return None
+
+
 def _pre_tool(tool_name="", args=None, session_id="", turn_id="", **_):
     try:
         why = name_block(tool_name, args)
         if why:
             logger.info("aqeelos-live: names: refused %s without a plain name or description", tool_name)
+            return {"action": "block", "message": why}
+        why = design_block(tool_name, args)
+        if why:
+            logger.info("aqeelos-live: design: sent %s back for a better trigger", tool_name)
             return {"action": "block", "message": why}
     except Exception as e:
         logger.debug("aqeelos-live names: %s", e)

@@ -15,18 +15,17 @@ import {readFile,writeFile,readdir,stat,mkdir,chmod} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
 import {createHash,createHmac} from 'node:crypto';
 import path from 'node:path';
+import {echoOf} from './design-guard.mjs';
+import {GATE_PREFIX} from './run-gates.mjs';
 
 export const RETIRED=[
  {id:'wa-bridge',re:/\bbridge\.py\b|wa-agent\/bridge|\b(?:re)?start(?:s|ing)? (?:the )?(?:test |whatsapp |wa |kirimdev )?bridge\b|\bbridge (?:is|looks|seems) (?:down|dead|broken)|\btest bridge\b/i,
   now:'Kirimdev lines (the team\'s WhatsApp CRM) run inside aqeelOS through the Kirimdev API key and webhooks (Channels > Kirimdev); there is no bridge to start, restart or check'}];
 const clip=(s,n)=>{s=String(s??'');return s.length>n?s.slice(0,n-1)+'…':s};
-// the command a schedule's prompt only runs, or null: "Run exactly this terminal command[ and nothing else]: <cmd>" whose
-// reply is the command's output unchanged or [SILENT]
-export function scriptOnlyCommand(prompt){const p=String(prompt||'');const m=/^Run exactly this terminal command(?: and nothing else)?:\s*(.+?)\s*$/m.exec(p);
- if(!m||m.index!==0||!/\[SILENT\]/.test(p)||!/(exactly|unchanged)/i.test(p.slice(m[0].length)))return null;const cmd=m[1].replace(/^`|`$/g,'').trim();
- if(!cmd||cmd.length>500||/[\n\r]/.test(cmd))return null;
- // anything beyond running it and passing its output on (sending, deciding, editing) needs the model
- const rest=p.slice(m[0].length).replace(/never send whatsapp messages\.?|do nothing else:?/gi,'');if(/\b(then|also|summari[sz]e|translate|send (it|a|the)|post|reply to|decide|if .* (fails?|errors?) .* (fix|try))\b/i.test(rest))return null;return cmd}
+// the command a schedule's prompt only runs, or null: "run exactly this command: <cmd>" in any of the wordings agents use ("Run exactly this
+// terminal command:", "Run exactly this command:", "In the terminal run exactly:"), whose reply is the command's output unchanged or [SILENT]
+// (design-guard.mjs echoOf). A prompt that also filters or rewrites the lines is not converted here: the owner's Health button does that.
+export function scriptOnlyCommand(prompt){const e=echoOf(prompt);return e&&!e.filter?e.cmd:null}
 export function wrapperScript({agent,user,key,cwd,cmd}){const b64=Buffer.from(cmd).toString('base64');
  return `#!/bin/bash
 # Made by aqeelOS (agent-care.mjs) for ${agent}'s script-only schedule: runs its own command as its own user, no model.
@@ -70,8 +69,12 @@ export function createAgentCare({HERMES_HOME,WORK,DATA=null,fpKey=async()=>'',te
  // file rights aqeelOS may fix by itself: a key file in an agent's own .secrets the agent's user cannot read (group rights back)
  async function fixRights(a,found){let fixed=0;const {user}=await own(a);for(const x of found.filter(x=>x.fix?.secret)){try{const st=await stat(x.fix.secret);await chmod(x.fix.secret,(st.mode&0o777)|0o060);if(/^ag-[\w-]+$/.test(user))await run('setfacl',['-m','u:'+user+':rw',x.fix.secret],10000);fixed++}catch{}}return fixed}
  // ---- 3) script-only schedules ----
+ // A script that is only aqeelOS's run gate, with nothing of the person's behind it, is no script: the gate (run-gates.mjs) gives every AI
+ // schedule one within 10 minutes, and "skip any job that has a script" then skipped every schedule this converter was written for.
+ const personsScript=async(a,script)=>{const s=String(script||'').trim();if(!s.startsWith(GATE_PREFIX))return s;
+  return (/^# aqeelos-run-gate original=(.*)$/m.exec(await readFile(path.join(home(a),'scripts',s),'utf8').catch(()=>''))?.[1]||'').trim()};
  async function scriptOnly(a){const done=[];const {user,cwd}=await own(a);if(!/^ag-[\w-]+$/.test(user))return done;
-  for(const j of await jobs(a).catch(()=>[])){if(j.no_agent||j.script)continue;const cmd=scriptOnlyCommand(j.prompt);if(!cmd)continue;
+  for(const j of await jobs(a).catch(()=>[])){if(j.no_agent||await personsScript(a,j.script))continue;const cmd=scriptOnlyCommand(j.prompt);if(!cmd)continue;
    const name='aq-job-'+String(j.id).replace(/[^\w-]/g,'')+'.sh';const dir=path.join(home(a),'scripts');await mkdir(dir,{recursive:true});
    await writeFile(path.join(dir,name),wrapperScript({agent:a,user,key:sshKey,cwd,cmd}),{mode:0o700});
    try{await updateJob(a,j.id,{no_agent:true,script:name});done.push(j.id);

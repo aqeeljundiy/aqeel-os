@@ -16,6 +16,7 @@
 // access it lacks instead (a reminder, not a block: the owner may still ask for a direct fix).
 import {readFile,writeFile,mkdir,readdir,rename,stat} from 'node:fs/promises';
 import path from 'node:path';
+import {TOOL_HELP,TOOL_PROPS} from './design-guard.mjs';
 import {rank,base,AGENT} from './sharing.mjs';
 
 // the least level each part of manage_agent needs on the target agent
@@ -49,7 +50,7 @@ export function redact(v,k=''){if(v==null)return v;if(SECRETISH.test(k)&&typeof 
 // log lines without keys (long tokens, key=value pairs of secret-looking names)
 export const redactText=t=>String(t).replace(/\b(sk|xox[abpr]|ghp|gho|ya29|AIza)[-_A-Za-z0-9.]{8,}/g,'(hidden)').replace(/((?:key|token|secret|password|authorization|bearer)["']?\s*[:=]\s*["']?)[^\s"',]+/gi,'$1(hidden)').replace(/\b[A-Za-z0-9_-]{40,}\b/g,'(hidden)');
 
-export function createAgentAccess({sharing,HERMES_HOME,listAgents=async()=>[],MAIN='default',instructions=null,readConfig=async()=>null,setKey=async()=>({ok:false,out:'no settings'}),
+export function createAgentAccess({guard=()=>null,sharing,HERMES_HOME,listAgents=async()=>[],MAIN='default',instructions=null,readConfig=async()=>null,setKey=async()=>({ok:false,out:'no settings'}),
  cron=null,versions=null,reload=async()=>{},names=a=>a,
  mainLike=()=>false,   // F: agents acting with main-agent power (the lead of an admin person), read live on every call
  scope=()=>null,
@@ -88,12 +89,20 @@ export function createAgentAccess({sharing,HERMES_HOME,listAgents=async()=>[],MA
 
  async function schedule(t,a,by){if(!cron)return {isError:true,text:'Schedules cannot be reached right now.'};const op=String(a.op||'').trim();const id=String(a.job_id||'').trim();
   const mine=async()=>{const j=(await cron.list(t)).find(x=>x.id===id);if(!j)throw new Error('No schedule '+id+' on '+names(t)+'.');return j};
-  if(op==='create'){if(!a.schedule||!a.prompt)return {isError:true,text:'Give schedule (like "every 30m" or a cron line) and prompt.'};const j=await cron.create(t,{name:String(a.title||'').slice(0,80),schedule:String(a.schedule),prompt:String(a.prompt),deliver:a.deliver||'local'});
-   await record({agent:t,kind:'schedule',id:j?.id||j?.job?.id,by,before:null,after:{name:a.title,schedule:a.schedule,prompt:a.prompt},why:a.why});return {text:'Made the schedule '+JSON.stringify(a.title||'')+' on '+names(t)+' ('+(j?.id||j?.job?.id||'?')+').'}}
+  // create and update go through the design guard first (design-guard.mjs before), as my_schedules does
+  const G=guard(),design={...Object.fromEntries(['script','keep','drop','prefix','checks','check_script','on_event','accept_cost','why','schedule','prompt','deliver'].filter(k=>a[k]!=null).map(k=>[k,a[k]])),...(a.title!=null?{name:a.title}:{})},none={body:{},after:async()=>[]},tail=n=>n.length?'\n\n'+n.join('\n'):'';
+  if(op==='create'){const g=G?await G.before(t,{...design,action:'create'},null,{tool:'manage_agent',by:by.name}):none;if(g.refuse)return {isError:true,text:g.refuse};if(g.done){await record({agent:t,kind:'schedule',id:'hook',by,before:null,after:{on_event:a.on_event,script:a.script},why:a.why});return {text:g.done}}
+   if(!a.schedule||!(a.prompt||g.body.prompt))return {isError:true,text:'Give schedule (like "every 2h" or a cron line) and prompt, or script for a schedule with no AI.'};const r=await cron.create(t,{name:String(a.title||'').slice(0,80),schedule:String(a.schedule),prompt:String(a.prompt||''),deliver:a.deliver||'local',...g.body}),j=r?.job||r;
+   const notes=await g.after(j).catch(e=>['aqeelOS could not finish setting it up: '+e.message+'.']);
+   await record({agent:t,kind:'schedule',id:j?.id,by,before:null,after:{name:a.title,schedule:a.schedule,prompt:a.prompt,...g.body},why:a.why});return {text:'Made the schedule '+JSON.stringify(a.title||'')+' on '+names(t)+' ('+(j?.id||'?')+').'+tail(notes)}}
   if(!id)return {isError:true,text:'Give job_id (from manage_agent show).'};const before=await mine();
-  if(op==='update'){const u={};for(const k of ['name','schedule','prompt','deliver'])if(a[k==='name'?'title':k]!=null)u[k]=String(a[k==='name'?'title':k]);if(!Object.keys(u).length)return {isError:true,text:'Say what to change: title, schedule, prompt or deliver.'};await cron.update(t,id,u)}
+  let notes=[];
+  if(op==='update'){const u={};for(const k of ['name','schedule','prompt','deliver'])if(a[k==='name'?'title':k]!=null)u[k]=String(a[k==='name'?'title':k]);
+   const g=G?await G.before(t,{...design,action:'edit'},before,{tool:'manage_agent',by:by.name}):none;if(g.refuse)return {isError:true,text:g.refuse};Object.assign(u,g.body);
+   if(!Object.keys(u).length&&!['script','checks','check_script','on_event'].some(k=>a[k]!=null))return {isError:true,text:'Say what to change: title, schedule, prompt, deliver, script, checks, check_script or on_event.'};
+   if(Object.keys(u).length)await cron.update(t,id,u);notes=await g.after({...before,...u}).catch(e=>['aqeelOS could not finish setting it up: '+e.message+'.'])}
   else if(op==='pause'||op==='resume')await cron[op](t,id);else if(op==='delete')await cron.remove(t,id);else return {isError:true,text:'op must be create, update, pause, resume or delete.'};
-  await record({agent:t,kind:'schedule',id,by,before,after:op==='delete'?null:{op},why:a.why});return {text:'Schedule '+id+' of '+names(t)+': '+op+' done.'}}
+  await record({agent:t,kind:'schedule',id,by,before,after:op==='delete'?null:{op},why:a.why});return {text:'Schedule '+id+' of '+names(t)+': '+op+' done.'+tail(notes)}}
 
  // manage_agent: the one way an agent changes another agent. args: {agent, part, ...}
  async function call(caller,args={}){const me=base(caller);let t;try{t=await ensure(String(args.agent||'').trim())}catch(e){return {isError:true,text:e.message}}
@@ -120,11 +129,11 @@ export function createAgentAccess({sharing,HERMES_HOME,listAgents=async()=>[],MA
   }catch(e){return {isError:true,text:e.message}}}
 
  // the tool as agents see it
- const TOOL={name:'manage_agent',description:'Look after another agent you have access to (or yourself): read its setup or logs, change its instructions, skills or schedules, change its settings, or share it with another agent. What you may do depends on your level on that agent: viewer reads its setup and logs; editor also changes its instructions, skills and schedules; manager also changes its settings and shares it as editor or viewer; owner can do everything. Its keys are never shown. Every change is kept in its history with your name and can be undone.',
+ const TOOL={name:'manage_agent',description:'Look after another agent you have access to (or yourself): read its setup or logs, change its instructions, skills or schedules, change its settings, or share it with another agent. What you may do depends on your level on that agent: viewer reads its setup and logs; editor also changes its instructions, skills and schedules; manager also changes its settings and shares it as editor or viewer; owner can do everything. Its keys are never shown. Every change is kept in its history with your name and can be undone. For a schedule:'+TOOL_HELP,
   inputSchema:{type:'object',properties:{agent:{type:'string',description:'the agent id, like cove-support'},part:{type:'string',enum:Object.keys(AGENT_NEEDS)},
    edits:{type:'array',items:{type:'object',properties:{old_text:{type:'string'},new_text:{type:'string'}}},description:'instructions: exact old text and its replacement for each place'},rewrite:{type:'string',description:'instructions: the whole new text (applies at once, can be undone)'},why:{type:'string',description:'what changes and why (kept in its history)'},said_by:{type:'string'},
    name:{type:'string',description:'skill: its name'},category:{type:'string',description:'skill: its folder, like productivity'},content:{type:'string',description:'skill: the whole SKILL.md'},remove:{type:'boolean'},
-   op:{type:'string',enum:['create','update','pause','resume','delete'],description:'schedule'},job_id:{type:'string'},title:{type:'string'},schedule:{type:'string'},prompt:{type:'string'},deliver:{type:'string'},
+   op:{type:'string',enum:['create','update','pause','resume','delete'],description:'schedule'},job_id:{type:'string'},title:{type:'string'},schedule:{type:'string'},prompt:{type:'string'},deliver:{type:'string'},...Object.fromEntries(Object.entries(TOOL_PROPS).map(([k,v])=>[k,{...v,description:'schedule: '+v.description}])),
    key:{type:'string',description:'settings: the key (leave value out to read it)'},value:{description:'settings: the new value'},
    to:{type:'string',description:'share: the agent to share with'},level:{type:'string',enum:['manager','editor','viewer','none']},file:{type:'string',enum:['agent','errors','gateway']},lines:{type:'number'}},required:['agent','part']}};
  return {ensure,levelOn,check,managed,call,TOOL,isMain,MAIN}}
