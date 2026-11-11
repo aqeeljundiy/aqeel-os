@@ -104,15 +104,25 @@ port_of(){
 # display still ran was started again every 30 s: each new display failed ("X server already running") and left one
 # more desktop behind (11 Nov 2026: 49 desktops each for continue-support and biomarkers-support, about 9 GB).
 # Only the screen's own processes: the agent's commands and tasks run as the same user and are left alone.
+# the desktop's processes (window manager, desktop background, panel and their session bus)
+DESK_PATS=("^(dbus-launch --exit-with-session )?bash -c xfwm4 " "/xfce4/" "^(/usr/bin/)?(xfwm4|xfdesktop|xfce4-panel|xfsettingsd|dbus-daemon|dbus-launch)( |\$)")
 screen_kill(){
   local u=$1 disp=$2 ws=$3 sig pats
-  pats=("^bash -c[[:space:]]+cd '$ws'; export HOME='$ws' DISPLAY=" "^(dbus-launch --exit-with-session )?bash -c xfwm4 " "^Xvnc :$disp( |\$)" "/xfce4/" "^(/usr/bin/)?(xfwm4|xfdesktop|xfce4-panel|xfsettingsd|dbus-daemon|dbus-launch)( |\$)" "--user-data-dir=$ws/\\.browser( |\$)")
+  pats=("^bash -c[[:space:]]+cd '$ws'; export HOME='$ws' DISPLAY=" "${DESK_PATS[@]}" "^Xvnc :$disp( |\$)" "--user-data-dir=$ws/\\.browser( |\$)")
   pgrep -u "$u" -f "^Xvnc :$disp( |\$)|xfce4-panel|--user-data-dir=$ws/\\.browser" >/dev/null 2>&1 || return 0
   for sig in TERM KILL; do
     for p in "${pats[@]}"; do pkill -"$sig" -u "$u" -f -- "$p" 2>/dev/null; done
     sleep 1
   done
   echo "screen for ${ws##*/}: stopped what an earlier start left running"
+}
+# OPS-13: only the desktop of agent user $1 (its display and Chrome keep running), before the desktop starts again
+desk_kill(){
+  local u=$1 sig p
+  for sig in TERM KILL; do
+    for p in "${DESK_PATS[@]}"; do pkill -"$sig" -u "$u" -f -- "$p" 2>/dev/null; done
+    sleep 1
+  done
 }
 
 # A problem aqeelOS files as one issue (app/box-ops.mjs reads the file; same agent and key = same issue).
@@ -135,7 +145,7 @@ restart_gate(){
   cnt=$(printf '%s' "$recent" | grep -c .)
   if [ "$cnt" -ge 6 ]; then
     echo "$now" > "$f.stopped"
-    report "$n" "screen-stopped" "its screen failed 5 times within an hour and is left stopped. See $HOMEC/workspaces/$n/.screen/xvnc.log and chrome.log; to try again: echo $n >> $RESET"
+    report "$n" "screen-stopped" "its screen failed 5 times within an hour and is left stopped. See $HOMEC/workspaces/$n/.screen/xvnc.log, desktop.log and chrome.log; to try again: echo $n >> $RESET"
     return 2
   fi
   if [ "$cnt" -gt 0 ]; then last=$(printf '%s\n' "$recent" | tail -1); [ $((now-last)) -lt "${WAITS[$((cnt-1))]}" ] && return 1; fi
@@ -250,8 +260,9 @@ take_stops(){
   : > "$REQ.stop"
 }
 
+# screen_up <agent> <user> [desktop <why>]: with "desktop", only the desktop of a running screen starts again (OPS-13)
 screen_up(){
-  local n=$1 u=${2} ws="$HOMEC/workspaces/$1" sd="$HOMEC/workspaces/$1/.screen" line disp cdp cport cap sl
+  local n=$1 u=${2} part=${3:-all} why=${4:-} ws="$HOMEC/workspaces/$1" sd="$HOMEC/workspaces/$1/.screen" line disp cdp cport cap sl
   line=$(port_of "$n"); disp=$(echo "$line" | cut -d' ' -f2); cdp=$(echo "$line" | cut -d' ' -f3)
   read -r cap sl <<< "$(limit_of "$n")"; cport=$(chrome_port "$cdp" "$sl")
   # only aqeelOS (claude) and the agent's own user may reach its Chrome's control port; behind the proxy, the proxy's
@@ -263,6 +274,17 @@ screen_up(){
   if [ -d "$prof" ] && [ ! -L "$prof/bot-desktop" ]; then rm -rf "$prof/bot-desktop.engine"; [ -e "$prof/bot-desktop" ] && mv "$prof/bot-desktop" "$prof/bot-desktop.engine"; ln -s "$sd" "$prof/bot-desktop"; chown -h "$OWNER:$OWNER" "$prof/bot-desktop"; fi
   # asleep (OPS-4): started by take_wakes when used
   [ -f "$sd/asleep" ] && return 0
+  # the one desktop launch (the whole screen and the desktop alone both use it); its log keeps why the last one ended
+  local desk="( dbus-launch --exit-with-session bash -c 'xfwm4 & xfdesktop & xfce4-panel & wait' >>'$sd/desktop.log' 2>&1 & )"
+  # OPS-13: window manager, desktop background or panel gone while the display runs: the desktop alone starts again,
+  # through the same back-off as the screen (a display that is not running is the whole screen's start, below)
+  if [ "$part" = desktop ]; then
+    [ -f "$sd/launcher.pid" ] && kill -0 "$(cat "$sd/launcher.pid" 2>/dev/null)" 2>/dev/null && [ -S "$sd/rfb.sock" ] || return 0
+    restart_gate "$n" || return 0
+    desk_kill "$u"
+    runuser -u "$u" -- bash -c "cd '$ws'; export HOME='$ws' DISPLAY=:$disp XAUTHORITY='$sd/Xauthority'; $desk" && echo "janitor: $n: ${why:-desktop missing}: its desktop is started again on :$disp"
+    return 0
+  fi
   # already running with Chrome on the port it should use: done. On another port (sleeping was switched on or off for
   # this agent, or the screen dates from before 11 Nov) it is started again once, which is not a failure.
   if [ -f "$sd/launcher.pid" ] && kill -0 "$(cat "$sd/launcher.pid" 2>/dev/null)" 2>/dev/null && [ -S "$sd/rfb.sock" ]; then
@@ -284,7 +306,7 @@ screen_up(){
     printf 'DISPLAY=:%s\nXAUTHORITY=%s\n' '$disp' \"\$XAUTHORITY\" > '$sd/env'
     ( Xvnc :$disp -geometry 1280x800 -depth 24 -auth \"\$XAUTHORITY\" -SecurityTypes None -rfbport 0 -rfbunixpath '$sd/rfb.sock' -rfbunixmode 0660 -nolisten tcp -AlwaysShared >'$sd/xvnc.log' 2>&1 & echo \$! > '$sd/launcher.pid'; wait ) &
     for i in \$(seq 40); do [ -S '$sd/rfb.sock' ] && break; sleep 0.25; done
-    ( dbus-launch --exit-with-session bash -c 'xfwm4 & xfdesktop & xfce4-panel & wait' >'$sd/desktop.log' 2>&1 & )
+    $desk
     rm -f '$sd/chrome.stopped'
     $(declare -f chrome_loop)
     ( chrome_loop '$sd' '$CHROME' --no-sandbox --disable-dev-shm-usage --no-first-run --no-default-browser-check --user-data-dir='$ws/.browser' --remote-debugging-address=127.0.0.1 --remote-debugging-port=$cport --window-size=1280,800 --start-maximized $open & )
@@ -374,6 +396,51 @@ jan_count(){
     { run++; if(!(k in best) || $3+0>bet[k]){ if(k in best) ex=ex " " best[k]; best[k]=$1; bet[k]=$3+0 } else ex=ex " " $1 }
     END { print n, want, run+0 ex }'
 }
+# OPS-13 (decided 11 Nov 2026). A desktop part (window manager, desktop background, panel) missing from a running
+# display for 10 minutes starts again: the desktop alone, its display and Chrome keep running (screen_up ... desktop),
+# through restart_gate (OPS-3), and never while the agent uses its screen: a reply through aqeelOS ($BUSY, written by
+# app/box-ops.mjs every minute), or DevTools traffic, a viewer or typing (wake proxy's .active, .screen/activity) within
+# 5 minutes. A missing display or Chrome is not this: screen_up and chrome_loop start those again.
+# Which parts are missing, from "pid user etimes args" lines on stdin; nothing when the agent's display is not running.
+jan_missing(){
+  awk -v u="$1" -v d="$2" '
+    $2!=u {next}
+    { a=$0; sub(/^[ \t]*[0-9]+[ \t]+[^ \t]+[ \t]+[0-9]+[ \t]+/,"",a) }
+    a ~ ("^Xvnc :" d "( |$)") {x=1}
+    a ~ /^(\/usr\/bin\/)?xfwm4( |$)/ {w=1}
+    a ~ /^(\/usr\/bin\/)?xfdesktop( |$)/ {k=1}
+    a ~ /^(\/usr\/bin\/)?xfce4-panel( |$)/ {p=1}
+    END { if(!x) exit; s=""; if(!w) s=s ", window manager"; if(!k) s=s ", desktop background"; if(!p) s=s ", panel"; if(s!="") print substr(s,3) }'
+}
+PART_WAIT=600 IN_USE=300
+BUSY=$HOMEC/.aqeelos-agent-busy
+# none (nothing missing), wait (missing under 10 min), busy (in use), restart
+part_step(){
+  local now=$1 since=$2 used=$3 busy=$4
+  [ "$since" -gt 0 ] || { echo none; return; }
+  [ $((now-since)) -lt "$PART_WAIT" ] && { echo wait; return; }
+  { [ "$busy" = 1 ] || [ $((now-used)) -lt "$IN_USE" ]; } && { echo busy; return; }
+  echo restart
+}
+# the last use of agent $1's screen (folder $2) other than a reply: DevTools traffic, a viewer, typing
+last_use(){ local f m last=0; for f in "$WAKE/$1.active" "$2/activity"; do [ -e "$f" ] && m=$(stat -c %Y "$f") && [ "$m" -gt "$last" ] && last=$m; done; echo "$last"; }
+# agent $1 is mid-reply: named in $BUSY, written within 3 minutes of $2 (an app that stopped writing blocks nothing)
+in_reply(){ [ -f "$BUSY" ] && [ $(( $2 - $(stat -c %Y "$BUSY") )) -lt 180 ] && grep -qx -- "$1" "$BUSY"; }
+# one agent: ps lines on stdin; $5 = now (tests)
+desk_check(){
+  local n=$1 u=$2 disp=$3 ws=$4 now=${5:-$(date +%s)} f="$RST/$1.part" miss since=0 busy=0 step
+  miss=$(jan_missing "$u" "$disp")
+  [ -f "$ws/.screen/asleep" ] && miss=""
+  if [ -z "$miss" ]; then rm -f -- "$f"; return 0; fi
+  mkdir -p "$RST"; [ -f "$f" ] && read -r since < "$f"
+  [ "${since:-0}" -gt 0 ] || { since=$now; echo "$now" > "$f"; }
+  in_reply "$n" "$now" && busy=1
+  step=$(part_step "$now" "$since" "$(last_use "$n" "$ws/.screen")" "$busy")
+  [ "$step" = restart ] || return 0
+  # the next try (if this one does not hold) waits another 10 minutes; restart_gate counts it as a start
+  echo "$now" > "$f"
+  screen_up "$n" "$u" desktop "$miss missing for $(( (now-since)/60 )) min"
+}
 janitor(){
   local ps n u line disp ws out="" tot_e=0 tot_r=0 res e r x pid prev
   ps=$(ps -eo pid=,user:32=,etimes=,args= 2>/dev/null)
@@ -386,6 +453,7 @@ janitor(){
     res=$(printf '%s\n' "$ps" | jan_count "$n" "$u" "$disp" "$ws")
     read -r _ e r x <<< "$res"
     tot_e=$((tot_e+e)); tot_r=$((tot_r+r))
+    printf '%s\n' "$ps" | desk_check "$n" "$u" "$disp" "$ws"
     for pid in $x; do
       if printf '%s\n' "$prev" | grep -qx "$pid"; then echo "janitor: $n: removed extra process $pid ($(ps -o args= -p "$pid" 2>/dev/null | cut -c1-60))"; kill -TERM "$pid" 2>/dev/null
       else echo "$pid" >> "$SEEN.tmp"; echo "janitor: $n: extra process $pid, removed next minute if still there"; fi
