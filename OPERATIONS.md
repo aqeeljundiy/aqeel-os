@@ -59,6 +59,17 @@ Logs rotate. Fixer patches, drift saves, test users and old backups are removed 
 
 *Enforced:* `app/box-ops.mjs` once a day (fixer patches and work, drift, `*.bak-*` copies, `~/backups`, `*.broken-*` Python environments, deploy files in /tmp, engine logs over 50 MB cut to 5 MB, gone test agents off the list); `trim_logs` in `scripts/agent-users.sh` for screen logs; `dropLeftovers` in `app/backup.mjs` for backups cut off by a restart (55ec552).
 
+*Also (OPS-18, 12 Nov 2026):* what aqeelOS itself leaves in /tmp (deploy scripts, logs and folders, the packed versions, commit lists,
+engine-update simulation, its tests' folders, restore scratch, and the deploy checks' test copy while no check holds its lock)
+goes after 3 days, checked every 6 hours (`tmpExpired` in `app/box-ops.mjs`; names are matched exactly, nothing an agent made is touched).
+Scratch Postgres servers (an agent's test database under `cache/scratch`), Next.js servers and staging copies of aqeelOS that
+nothing owns are stopped by the root script's sweep (`orphan_sweep` in `scripts/agent-users.sh`, every 5 minutes) when their
+folder is gone or they have had no client for their limit (Postgres 2 h, apps 24 h, the deploy check's test copy 3 h), and
+reported, not stopped, when they are over 7 days old and still in use; never while their agent is mid-reply. Backups with no
+Google account stay on the box (`~/aqeelos-local-backups`, newest 3, 14 days, 60 GB); Health shows one item when the newest good
+backup is over 48 hours old. Files in `~/uploads` are made readable for the agents as they appear (`app/box-ops.mjs`, `uploads_fix`).
+Tested in `scripts/box-ops.test.mjs`, `scripts/ops-orphans.test.mjs`, `scripts/backup-local.test.mjs`.
+
 *Incident, 11 Nov 2026:* seven backups cut off by deploys each left a 26 GB file in /tmp; Elkiya's disk reached 99% (5.7 GB free). Removed with the owner's yes; the backup now removes them on start.
 
 ## 8. The rules are tested

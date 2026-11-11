@@ -1,0 +1,40 @@
+--- a/tools/mcp_tool_discovery.py
++++ b/tools/mcp_tool_discovery.py
+@@ -357,6 +357,27 @@
+     return registered_names
+ 
+ 
++def _oauth_signin_pending(server_name: str, config: dict) -> bool:
++    """True for an OAuth server nobody has signed in to (no tokens on disk) when nothing can ask a person for one.
++
++    Every discovery pass used to build its provider again, fail with "non-interactive environment and no cached
++    tokens" and log a WARNING (Elkiya, 11 Nov 2026: Slack, 295 errors in 24 hours, one every five minutes, for a login
++    that only a person can make). Such a server is left alone until its tokens file appears: signing in writes it, and
++    the next discovery pass connects the server. A gateway with the dashboard's sign-in flow, or a terminal, is
++    not "non-interactive" and keeps its normal path."""
++    try:
++        if (config.get("auth") or "").lower().strip() != "oauth":
++            return False
++        from hermes_constants import get_hermes_home
++        from tools.mcp_dashboard_oauth import get_dashboard_oauth_flow
++        from tools.mcp_oauth import HermesTokenStorage, _is_interactive
++        if get_dashboard_oauth_flow() is not None or _is_interactive():
++            return False
++        return not HermesTokenStorage(server_name, hermes_home=get_hermes_home()).has_cached_tokens()
++    except Exception:
++        return False
++
++
+ def _select_new_servers(servers: dict[str, dict]) -> dict[str, dict]:
+     """Pick connect candidates (enabled, not connected/connecting/lazy, not in backoff) and
+     refresh per-server bookkeeping. Known servers without a live session are parked or
+@@ -374,7 +395,8 @@
+             k: v for k, v in servers.items()
+             if keys[k] not in _core._servers and keys[k] not in _core._server_connecting
+             and keys[k] not in _core._lazy_server_configs
+-            and mcp_server_enabled(v) and not _connect_cooldown_active(k)}
++            and mcp_server_enabled(v) and not _connect_cooldown_active(k)
++            and not _oauth_signin_pending(k, v)}
+         stale_cached = [_core._servers[keys[k]] for k, v in servers.items()
+                         if keys[k] in _core._servers and mcp_server_enabled(v)
+                         and getattr(_core._servers[keys[k]], "session", None) is None]
