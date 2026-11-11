@@ -92,3 +92,11 @@ aqeelOS switches the flag on for every agent and sets the freshness to the insta
 watches the marks (`app/resume.mjs` kind `channel`, read from `gateway_routing` in each agent's state.db) to count them on Health.
 Checked 12 Nov on both live engines (same commit bf0203a, same md5 for the three files on Elkiya and P&P): `git apply --check` clean
 on each live engine and on a clean checkout of that commit with the Telegram digest patch applied before it.
+
+## 2026-11-12-delivery-probe-document.patch (issue i19b649d9, applied by step 17b)
+
+The delivery probe (`scripts/whatsapp-bridge/probe_watch.js`, 11 Nov patch) only downloaded pictures. A document probe now
+downloads the file too and counts as arrived only when it starts with `%PDF` (`ok`, `bytes`, `type: document` in
+`<session>/../probes/<id>.json`). aqeelOS uses it to prove that the protocol PDF path works end to end:
+`node scripts/delivery-check.mjs <agent> --document`. Applies on top of the 11 Nov probe patch; takes effect after the engine's
+WhatsApp bridge restarts.

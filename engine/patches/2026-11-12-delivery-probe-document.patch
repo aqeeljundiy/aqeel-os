@@ -1,0 +1,17 @@
+diff --git a/scripts/whatsapp-bridge/probe_watch.js b/scripts/whatsapp-bridge/probe_watch.js
+index 18b68c9..5337531 100644
+--- a/scripts/whatsapp-bridge/probe_watch.js
++++ b/scripts/whatsapp-bridge/probe_watch.js
+@@ -27,6 +27,12 @@ export async function watchProbe(sessionDir, msg, download) {
+       try { const b = await download(msg); r.bytes = b?.length || 0; r.ok = r.bytes > 100; }
+       catch (e) { r.error = String(e?.message || e).slice(0, 200); }
+     }
++    // a document (aqeelOS sends the protocol PDF this way): it must download and be a PDF
++    if (c.documentMessage) {
++      r.mime = c.documentMessage.mimetype || '';
++      try { const b = await download(msg); r.bytes = b?.length || 0; r.ok = r.bytes > 100 && b.subarray(0, 4).toString() === '%PDF'; if (r.bytes > 100 && !r.ok) r.error = 'not a PDF'; }
++      catch (e) { r.error = String(e?.message || e).slice(0, 200); }
++    }
+     writeFileSync(path.join(dir, r.id + '.json'), JSON.stringify(r), { mode: 0o600 });
+     for (const f of readdirSync(dir)) {
+       try { if (Date.now() - statSync(path.join(dir, f)).mtimeMs > 7 * 864e5) unlinkSync(path.join(dir, f)); } catch {}

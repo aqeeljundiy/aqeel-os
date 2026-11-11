@@ -142,6 +142,7 @@ export function guardReply(input,{paid=null,qrPics=[]}={}){const removed=[];cons
  return {parts:keep,removed,dropped,hold:paid===false&&claims&&!hasPic?'The reply says a payment (QRIS, VA, link or invoice) was sent, but no payment was made in this run. Make it with create_payment first, or hand off.':null}}
 
 import {conversationSession} from './kirimdev-agent.mjs';
+import {providerUnavailable,retryAt} from './provider-limits.mjs';
 
 const RESET=/^(reset|\/reset|mulai baru)$/i;
 // a tester's reset: the usual words, or the line's own (Connect dialog)
@@ -151,6 +152,8 @@ const tail=n=>'…'+String(n||'').slice(-4);
 // Delivery checks (11 Nov 2026, if734729a): the main agent's own WhatsApp (the engine's bridge) gets a picture from the line,
 // marked "aqeelos-probe:<id>", and the bridge records whether it downloaded (probe_watch.js, engine/patches). So "did the
 // customer's phone get the picture?" has an answer without a person looking at a phone.
+// a tiny valid PDF for the document delivery check
+export const SAMPLE_PDF=Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 100]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\n4 0 obj<</Length 44>>stream\nBT /F1 14 Tf 20 50 Td (aqeelOS delivery check) Tj ET\nendstream endobj\n5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\ntrailer<</Root 1 0 R/Size 6>>\n%%EOF\n');
 export const PROBE=/aqeelos-probe:([a-z0-9]{6,32})/;
 const HH=()=>(process.env.HERMES_HOME||path.join(homedir(),'.hermes')).replace(/^~(?=\/|$)/,homedir());
 export const BRIDGE={url:process.env.WHATSAPP_BRIDGE_URL||'http://127.0.0.1:3000',
@@ -159,7 +162,7 @@ export const BRIDGE={url:process.env.WHATSAPP_BRIDGE_URL||'http://127.0.0.1:3000
   // the running bridge loaded probe_watch.js: the file is there and the bridge started after it was written
  async ready(){try{const f=await stat(path.join(HH(),'hermes-agent','scripts','whatsapp-bridge','probe_watch.js'));const h=await (await fetch(BRIDGE.url+'/health',{signal:AbortSignal.timeout(5000)})).json();return Date.now()-Number(h.uptime||0)*1000>f.mtimeMs}catch{return false}},
  async result(id){try{return JSON.parse(await readFile(path.join(HH(),'platforms','whatsapp','probes',id+'.json'),'utf8'))}catch{return null}}};
-export function createKirimdev({DATA,WORK,apiKey,saveKey=null,bridge=BRIDGE,checkEvery=10*60e3,pollEvery=20e3,runAgent,describeImage=null,paidSince=null,qrSince=null,telegram,teamGroup=async()=>null,tell=async()=>{},problem=null,solved=async()=>{},log=m=>console.log(m),activity=async()=>{},fetchImpl=fetch,now=()=>Date.now(),PUBLIC_URL,wait=ms=>new Promise(r=>setTimeout(r,ms)),maxRuns=2,echoWait=4000,setTimer=setTimeout,clearTimer=clearTimeout}){
+export function createKirimdev({DATA,WORK,apiKey,saveKey=null,bridge=BRIDGE,checkEvery=10*60e3,pollEvery=20e3,runAgent,describeImage=null,paidSince=null,qrSince=null,telegram,teamGroup=async()=>null,tell=async()=>{},problem=null,solved=async()=>{},log=m=>console.log(m),activity=async()=>{},fetchImpl=fetch,now=()=>Date.now(),PUBLIC_URL,wait=ms=>new Promise(r=>setTimeout(r,ms)),maxRuns=2,docLinks=null,echoWait=4000,setTimer=setTimeout,clearTimer=clearTimeout}){
  const pub=()=>String(PUBLIC_URL??publicUrl()).replace(/\/+$/,'');   // the address given (tests) or the install's current one
  const ASK_MIN=30;   // minutes a handoff may wait for the team's answer before Health shows it
  const CONF=path.join(DATA,'kirimdev.json'),SEC=path.join(DATA,'kirimdev-secrets.json'),ST=path.join(DATA,'kirimdev-state.json');
@@ -313,7 +316,7 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,bridge=BRIDGE,chec
   log('kirimdev '+agent+': a team member replied to '+tail(s.to)+' ('+(s.source||'?')+'); the agent waits '+min+' min');if(s.to)await answered(agent,s.to);return {paused:until}}
 
  // a burst of messages is answered once: the run starts a few seconds after the last one
- const FAIL_MAX=3,FAIL_WAIT=[60,300],FAIL_WINDOW=30*60e3;
+ const FAIL_MAX=3,FAIL_WAIT=[60,300],FAIL_WINDOW=30*60e3,PROV_WAIT=[120,300,600,900];
  const timers=new Map(),running=new Set();let active=0;
  // setTimer/clearTimer are injectable so tests drive the burst window themselves instead of racing a 0 s timer
  function schedule(key,line){clearTimer(timers.get(key));timers.set(key,setTimer(()=>{timers.delete(key);return run(key).catch(e=>log('kirimdev '+key+': '+e.message))},(line.debounceSec??8)*1000))}
@@ -325,15 +328,24 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,bridge=BRIDGE,chec
    // kept during a pause: the team may have answered it since; then it is done
    if(p.waited&&p.conversationId){const l=((await api(line.phoneNumberId+'/messages?'+new URLSearchParams({conversation_id:p.conversationId,limit:'5'}))).data||[]).filter(m=>m.type!=='reaction').sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)));
     if(l[0]?.direction==='outbound'&&Date.parse(l[0].created_at)>p.at){log('kirimdev '+p.agent+': the team answered '+tail(p.from)+' during the pause; nothing more to send');if(st.pending[key]?.token===p.token)delete st.pending[key];delete st.turns[key];await saveState();return}}
+   // the provider is used up or throttled (hold set by a run that said so): nothing is started until its reset time, not even a try that cannot work (12 Nov 2026)
+   const ph=st.provider?.[p.agent];if(ph&&ph.until>now()){later=true;delete st.turns[key];schedule(key,{debounceSec:Math.ceil((ph.until-now())/1000)});return}
    const epoch=st.cut[key]||'';
    try{await answer(p.agent,line,p,key)}
-   catch(e){const f=(st.fails||={})[key],n=(f&&now()-f.at<FAIL_WINDOW?f.n:0)+1;st.fails[key]={n,at:now()};
+   catch(e){const lim=providerUnavailable(e.message,{now:now()});
+    // ROOT CAUSE of the 'agent stopped' loops (12 Nov 2026): the engine run exits 1 because the Claude/GPT account is used up or throttled (HTTP 429 'session limit'), for every chat of the line at once; the two
+    // always-active tester chats showed it. That is not the chat's fault: it waits for the reset time (30 min at most, else 2/5/10/15 min), the customer's message stays, ONE Health problem names the reason, and the first good answer clears it
+    if(lim){const h=(st.provider||={})[p.agent],n=(h?.n||0)+1,until=retryAt(lim,{now:now(),fallback:PROV_WAIT[Math.min(n,PROV_WAIT.length)-1]*1000,max:30*60e3,pad:30e3});st.provider[p.agent]={n,until,why:lim.why,kind:lim.kind,since:h?.since||now()};later=true;await saveState();
+     log('kirimdev '+p.agent+': the AI provider is not available ('+lim.kind+': '+lim.why.slice(0,120)+'); '+tail(p.from)+' waits until '+new Date(until).toISOString().slice(11,16)+' UTC');schedule(key,{debounceSec:Math.ceil((until-now())/1000)});
+     if(!h)await problem?.(p.agent,'kirimdev|provider','Kirimdev line ('+line.persona+'): the AI provider is not available','Customers are not answered while it is down; their messages wait and are answered by themselves when it works. Reason from the engine: '+lim.why+(lim.resetAt?' It resets at '+new Date(lim.resetAt).toISOString().slice(11,16)+' UTC.':'')+' Fix: use another account for this agent (Accounts), or wait.').catch(()=>{});return}
+    const f=(st.fails||={})[key],n=(f&&now()-f.at<FAIL_WINDOW?f.n:0)+1;st.fails[key]={n,at:now()};
     if(n<FAIL_MAX){later=true;await saveState();log('kirimdev '+p.agent+': the agent stopped on '+tail(p.from)+' ('+n+'/'+FAIL_MAX+'): '+e.message+'; trying again in '+FAIL_WAIT[n-1]+' s');schedule(key,{debounceSec:FAIL_WAIT[n-1]});return}
     // the loop breaker (12 Nov 2026: two chats retried every few seconds, about 290 times a day): nothing is retried any more; a person gets the chat once
     delete st.fails[key];if(st.pending[key]?.token===p.token)delete st.pending[key];delete st.turns[key];(st.stopped||={})[key]=1;
     const lastQ=(p.messages||[]).slice(-1)[0]||'-';log('kirimdev '+p.agent+': the agent stopped '+n+' times on '+tail(p.from)+'; the chat was handed to the team');
     await postHandoff({id:'h'+(++st.seq),agent:p.agent,from:p.from,conversationId:p.conversationId,name:p.name,lastQ,why:'The agent stopped '+n+' times in a row on this chat ('+e.message+'). Nothing was sent to the customer, so a person needs to answer.',notify:false,tries:0,at:now()},line);
     await problem?.(p.agent,'stopped|'+key,'Kirimdev line ('+line.persona+'): the agent keeps stopping on one chat','The agent stopped '+n+' times in a row on the chat with +'+p.from+' ('+e.message+'). It is not tried again by itself; the chat is in the Questions topic. Its next message from the customer starts a fresh try.').catch(()=>{});await saveState();return}
+   if(st.provider?.[p.agent]){delete st.provider[p.agent];await solved?.(p.agent,'kirimdev|provider').catch(()=>{})}
    if(st.stopped?.[key]){delete st.stopped[key];await solved?.(p.agent,'stopped|'+key).catch(()=>{})}
    delete st.fails?.[key];
    // Only consume the snapshot we answered, never a newer arrival.
@@ -425,12 +437,13 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,bridge=BRIDGE,chec
   let job=null;for(const f of reqs){const r=await readJson(path.join(CHK,f),null);await unlink(path.join(CHK,f)).catch(()=>{});if(r?.agent){job={...r,file:f.replace(/\.req\.json$/,'')};break}}
   if(!job){const L=await lines().catch(()=>({}));const a=Object.keys(L).find(a=>now()-(st.probes?.[a]?.at||0)>24*3600e3&&now()-(st.probeTried?.[a]||0)>24*3600e3);
    if(!a||!await bridge.self())return;(st.probeTried||={})[a]=now();await saveState();job={agent:a}}
-  probing=deliveryCheck(job.agent,{link:job.link}).then(async r=>{if(job.file){await mkdir(CHK,{recursive:true});await put(path.join(CHK,job.file+'.result.json'),r,0o644)}
-   if(!r.picture&&r.sent)await problem?.(job.agent,'delivery|'+job.agent,'Kirimdev line: pictures did not reach a phone in a delivery check',r.why||'Sent, but no picture arrived.').catch(()=>{});
+  probing=deliveryCheck(job.agent,{link:job.link,document:!!job.document}).then(async r=>{if(job.file){await mkdir(CHK,{recursive:true});await put(path.join(CHK,job.file+'.result.json'),r,0o644)}
+   if(job.document){const t='delivery-pdf|'+job.agent;if(r.sent&&!r.document)await problem?.(job.agent,t,'Kirimdev line: a PDF did not reach a phone in a delivery check',r.why||'Sent, but no PDF arrived.').catch(()=>{});else if(r.document)await solved?.(job.agent,t).catch(()=>{})}
+   else if(!r.picture&&r.sent)await problem?.(job.agent,'delivery|'+job.agent,'Kirimdev line: pictures did not reach a phone in a delivery check',r.why||'Sent, but no picture arrived.').catch(()=>{});
    else if(r.picture)await solved?.(job.agent,'delivery|'+job.agent).catch(()=>{})},
    e=>log('kirimdev '+job.agent+': delivery check failed: '+e.message)).finally(()=>{probing=null})}
- async function deliveryCheck(agent,{link}={}){await state();const line=await lineOf(agent);if(!line)throw Error('No Kirimdev line for '+agent+'.');
-  const out={at:now(),agent,sent:false,arrived:false,picture:false};const done=async why=>{if(why)out.why=why;(st.probes||={})[agent]=out;await saveState();log('kirimdev '+agent+': delivery check: '+(out.picture?'the picture arrived ('+out.bytes+' bytes)':out.why||'no picture'));return out};
+ async function deliveryCheck(agent,{link,document=false}={}){await state();const line=await lineOf(agent);if(!line)throw Error('No Kirimdev line for '+agent+'.');
+  const out={at:now(),agent,sent:false,arrived:false,picture:false,...(document?{document:false}:{})};const done=async why=>{if(why)out.why=why;(st.probes||={})[agent]=out;await saveState();log('kirimdev '+agent+': delivery check: '+(out.document?'the PDF arrived ('+out.bytes+' bytes)':out.picture?'the picture arrived ('+out.bytes+' bytes)':out.why||'no picture'));return out};
   const me=String(await bridge.self()||'').replace(/\D/g,'');if(!me)return done('The main WhatsApp is not connected on this server, so there is no phone to check on.');
   if(bridge.ready&&!await bridge.ready())return done('The main WhatsApp has not restarted since delivery checks were installed. They start after the next engine restart.');
   const acc=await probe('accounts',await apiKey().catch(()=>null)),ln=String((acc.ok&&Array.isArray(acc.json?.data)?acc.json.data:[]).find(x=>String(x?.phone_number_id)===String(line.phoneNumberId))?.phone_number||'').replace(/\D/g,'');if(!ln)return done('Kirimdev did not give this line\'s phone number.');
@@ -438,6 +451,15 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,bridge=BRIDGE,chec
   if(!within24h(agent,me)){await bridge.send(ln,'aqeelOS delivery check, please ignore. aqeelos-probe:'+id+'w');
    for(let i=0;i<30&&!within24h(agent,me);i++){await wait(3000);await state()}
    if(!within24h(agent,me))return done('The line never received the check message from the main WhatsApp (webhook or polling not running?).')}
+  // a PDF check goes the whole real way: the app's own one-purpose link (public address, Cloudflare), Kirimdev's document message, WhatsApp, the main phone downloads and reads it
+  if(document){if(!docLinks)return done('This install has no file links.');let dl;try{dl=await docLinks.put({buffer:SAMPLE_PDF,name:'aqeelOS delivery check.pdf',agent,ttl:10*60e3})}catch(e){return done('Could not make the PDF link: '+e.message)}
+   try{out.link=dl.url.replace(/\/doc\/[^/]+\//,'/doc/…/');
+    const r=await api(line.phoneNumberId+'/messages',{messaging_product:'whatsapp',recipient_type:'individual',to:me,type:'document',document:{link:dl.url,filename:'aqeelOS delivery check.pdf',caption:'aqeelOS delivery check, please ignore. aqeelos-probe:'+id}},{idem:'probe-'+id}).catch(e=>({error:e.message}));
+    if(!r?.data?.id)return done('Kirimdev did not take the PDF: '+(r?.error||'no receipt'));out.sent=true;st.ours[r.data.id]=now();
+    let res=null;for(let i=0;i<36&&!res;i++){await wait(5000);res=await bridge.result(id)}
+    if(!res)return done('Sent and accepted by Kirimdev, but nothing reached the main WhatsApp within 3 minutes.');
+    out.arrived=true;out.bytes=res.bytes||0;out.document=!!res.ok&&res.type==='document';return done(out.document?null:'A message arrived but its PDF did not download'+(res.error?' ('+res.error+')':'')+'.')}
+   finally{await dl.revoke()}}
   const urls=(await readFile(path.join(WORK,agent,'media','staff','urls.txt'),'utf8').catch(()=>'')).split(/\s+/).filter(Boolean);
   const pic=String(link||urls.filter(u=>/qris/i.test(u)).pop()||urls[0]||'').replace(/([?&])f=\/[^&#]*(&|$)/,(m,a,b)=>b?a:'').replace(/[?&]$/,'');if(!/^https:\/\//.test(pic))return done('No picture to send: media/staff/urls.txt is empty.');
   out.link=pic;
@@ -487,6 +509,14 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,bridge=BRIDGE,chec
   return {sent:sent.filter(Boolean).length,...(labels?{labels}:{})}}
 
  // one part: text, or a picture from the agent's media/staff (urls.txt for [FOTO], templates.json for [TEMPLATE])
+ // a document (the member's protocol PDF) to the chat's own number: same rules as a reply (24 hours, Test only testers); Draft lines never send by themselves (12 Nov 2026, issue i19b649d9). link: a public https link, which Kirimdev's document message needs (never bytes)
+ async function sendDocument(agent,to,{link,filename,caption}={}){const line=await lineOf(agent);if(!line)throw Error('This agent has no Kirimdev line.');await state();
+  const num=String(to||'').replace(/\D/g,'');if(!num||!within24h(agent,num))throw Error('That number has not written to this Kirimdev line in the last 24 hours, so WhatsApp does not allow a file.');
+  if(modeOf(line)==='draft')throw Error('This line is in Draft: the team sends files.');
+  if(modeOf(line)==='test'&&!isTester(line,{from:num,conversationId:''})&&!st.testerNums[agent+'|'+num])throw Error('This line is in Test, so it only answers its testers.');
+  if(!/^https:\/\//.test(String(link||'')))throw Error('The file needs a public https link.');
+  const id=randomUUID();st.outbox[id]={id,agent,pid:String(line.phoneNumberId),to:num,body:{messaging_product:'whatsapp',recipient_type:'individual',to:num,type:'document',document:{link,filename:String(filename||'file.pdf').slice(0,200),...(caption?{caption:String(caption).slice(0,1024)}:{})}},at:now(),status:'pending'};await saveState();
+  return deliver(id)}
  async function send(agent,line,to,part){const id=await prepare(agent,line,to,part);await saveState();return deliver(id)}
  async function prepare(agent,line,to,part){await state();const base={messaging_product:'whatsapp',recipient_type:'individual',to};let body;
   const tm=/^\[TEMPLATE:\s*([\w-]+)\s*\]$/.exec(part),fm=/^\[FOTO:\s*(?:media\/staff\/)?([^\]|]+?)\s*(?:\|\s*([\s\S]*?)\s*)?\]$/.exec(part);
@@ -729,4 +759,4 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,bridge=BRIDGE,chec
   await fixQuiet().catch(e=>log('kirimdev quiet time: '+e.message));
   if(!civ){civ=setInterval(()=>check().catch(e=>log('kirimdev check: '+e.message)),checkEvery);civ.unref?.();setTimer(()=>check().catch(e=>log('kirimdev check: '+e.message)),60e3)?.unref?.()}
   for(const a of Object.keys(await lines()))await ensureEvents(a).catch(e=>log('kirimdev '+a+': could not add message.sent to the webhook: '+e.message))}
- return {msgText,teamPost:telegram,receive,reply,deliveryCheck,draft,labelContact,labelList,connect,webhook,ensureEvents,status,check,health,setKey,numbers,saveLine,connectWebhook,disconnect,renewSecret,testSend,poll,fixQuiet,account:async()=>{await state();return health().account},setMode,setPause,resume,lines,_api:api,_tick:tick,_state:state}}
+ return {msgText,teamPost:telegram,receive,reply,sendDocument,deliveryCheck,draft,labelContact,labelList,connect,webhook,ensureEvents,status,check,health,setKey,numbers,saveLine,connectWebhook,disconnect,renewSecret,testSend,poll,fixQuiet,account:async()=>{await state();return health().account},setMode,setPause,resume,lines,_api:api,_tick:tick,_state:state}}

@@ -44,7 +44,7 @@ export function readable(rel){const r=String(rel||'').replace(/^\.\/+/,'');if(!r
  if(/(^|\/)(secrets?|tools|node_modules|tmp|Desktop)(\/|$)/i.test(r)||/\.(bak|orig)|bak-|\.env|key|token|password|secret/i.test(r))return false;
  return /^[\w-]+\.md$/.test(r)||/^(templates|sop|knowledge|rules)\/[\w ./-]+\.(md|txt|json|csv)$/.test(r)||/^media\/[\w ./-]*urls\.txt$/.test(r)}
 // pr: the line's payment setting (kirimdev.json lines.<agent>.payment: {currency, min, max}); none = any whole amount
-export const TOOLS=(pay,pr={},lr={},card=false,orders=false,protocol=false,form=false)=>{const allowed=lr.allowed||[],sales=lr.sales||[],ctxFields=orderContextOf(pr).fields,ctxProps=pre=>Object.fromEntries(ctxFields.map(f=>[f.key,{type:'string',maxLength:500,description:pre+f.ask}]));const cur=pr.currency||'',lo=Number(pr.min)||1,hi=Number(pr.max)||1e9,amt=x=>(cur?cur+' ':'')+Number(x).toLocaleString('en-US');return [
+export const TOOLS=(pay,pr={},lr={},card=false,orders=false,protocol=false,form=false,pdf=false)=>{const allowed=lr.allowed||[],sales=lr.sales||[],ctxFields=orderContextOf(pr).fields,ctxProps=pre=>Object.fromEntries(ctxFields.map(f=>[f.key,{type:'string',maxLength:500,description:pre+f.ask}]));const cur=pr.currency||'',lo=Number(pr.min)||1,hi=Number(pr.max)||1e9,amt=x=>(cur?cur+' ':'')+Number(x).toLocaleString('en-US');return [
  {name:'read_sheet',description:'Read your knowledge or rules sheet (read only). method is spreadsheets.values.get, spreadsheets.values.batchGet or spreadsheets.get; params as the Google Sheets API takes them, e.g. {"spreadsheetId":"…","range":"Rules!A1:Z200"}.',
   inputSchema:{type:'object',properties:{method:{type:'string',enum:[...READ_METHODS]},params:{type:'object'}},required:['method','params']},annotations:{readOnlyHint:true}},
  {name:'read_file',description:'Read one of your rule or template files, e.g. DECISIONS.md, BRIEFING.md, templates/ORDER_FORM.md, sop/<name>.md. list_files shows them.',
@@ -62,6 +62,7 @@ export const TOOLS=(pay,pr={},lr={},card=false,orders=false,protocol=false,form=
    products:{type:'array',items:sales.length?{type:'string',enum:sales}:{type:'string'},maxItems:12,description:'What the order buys, as the sales labels'+(sales.length?'':' (S- names)')+': one per product in the order form (a reusable pen is S-Pen). Set on the customer\'s contact only once the payment is confirmed paid.'}},required:['amounts','name','order_total','order_form']}},
  {name:'check_payment',description:'Whether THIS customer\'s payments made through you were paid, asked from the payment provider now: PAID, UNPAID, EXPIRED or PARTLY_PAID, with the amount. Use it whenever the customer says they paid, asks if it arrived, or sends a receipt. Only PAID means confirmed; a receipt picture never does.',inputSchema:{type:'object',properties:{}},annotations:{readOnlyHint:true}},
  ...(protocol?[{name:'get_protocol',description:'The protocol(s) the experts set on THIS customer\'s member profile (member app), found by this chat\'s own number: name, product, frequency, week-by-week dose in mg and units, instructions. Read only. Send it to the customer as given; if no member or no protocol is found, never guess one: hand off to the team.',inputSchema:{type:'object',properties:{}},annotations:{readOnlyHint:true}}]:[]),
+ ...(pdf?[{name:'send_protocol_pdf',description:'Send the protocol PDF of THIS customer (from the member app, all protocols the experts set) to them in this chat as a WhatsApp document. It goes only to the own number of this chat, once per run. Use it when the experts have set the protocol (get_protocol shows it) and the customer should have it. If no member or no protocol is found, nothing is sent: hand off to the team. After it succeeds, tell the customer in your reply that the PDF was sent; never paste its contents again.',inputSchema:{type:'object',properties:{}}}]:[]),
  ...(orders?[{name:'post_order',description:'Post the filled order form of THIS customer\'s PAID order to the team\'s Orders topic. A paid order is normally posted by itself, so use this only if the team says it is missing. Works only once check_payment shows PAID, and once per payment.',inputSchema:{type:'object',properties:{order_form:{type:'string',maxLength:3000},...ctxProps('')},required:['order_form',...ctxFields.map(f=>f.key)]}}]:[])]:[])]};
 
 // every customer tool takes the run's key (given in the run's instructions); calls without a live key are refused
@@ -70,7 +71,7 @@ export const withRun=tools=>tools.map(t=>({...t,inputSchema:{...t.inputSchema,pr
 
 // a payment the helper made but could not deliver to the customer ('status failed' in its answer) is not a payment made for the customer (11 Nov 2026, taken into git from the box's drift)
 export const deliveryFailed=out=>/\bstatus failed\b/i.test(String(out||''));
-export function createCustomerTools({WORK,DATA,formRules=async()=>null,fetchFn=(...a)=>fetch(...a),payments=null,ordersOf=async()=>null,payRules=async()=>({}),labelRules=async()=>({}),labelContact=null,googleCall,chatFind,history,runAsAgent,log=m=>console.log(m),now=()=>Date.now(),random=n=>randomBytes(n)}){
+export function createCustomerTools({WORK,DATA,formRules=async()=>null,fetchFn=(...a)=>fetch(...a),payments=null,ordersOf=async()=>null,payRules=async()=>({}),labelRules=async()=>({}),labelContact=null,pdfRules=async()=>null,sendProtocolPdf=null,googleCall,chatFind,history,runAsAgent,log=m=>console.log(m),now=()=>Date.now(),random=n=>randomBytes(n)}){
  const runs=new Map();
  // website_form: the line's store admin API (settings: formRules(agent) -> {baseUrl, username, secret, types, days}); login cached 10 min
  const formLogins=new Map();
@@ -168,6 +169,12 @@ export function createCustomerTools({WORK,DATA,formRules=async()=>null,fetchFn=(
     r.protocols=(r.protocols||0)+1;if(r.protocols>3)return {isError:true,text:'Already read three times in this run.'};
     const x=await runAsAgent(agent,p,['--phone',r.phone]);log('customer run '+agent+' '+r.id+': get_protocol for …'+r.phone.slice(-4)+(x.ok?' read':' failed'));
     return x.ok?{text:clip(x.out,8000)}:{isError:true,text:'The protocol could not be read: '+clip(x.err||x.out,300)+'. Tell the customer the team will send it, and hand off.'}}
+   if(name==='send_protocol_pdf'){const cfg=await pdfRules(agent).catch(()=>null);if(!cfg||!sendProtocolPdf)return {isError:true,text:'Protocol PDFs are not available on this line.'};if(!r.phone)return {isError:true,text:'This chat has no customer number.'};
+    r.pdfs=(r.pdfs||0)+1;if(r.pdfs>1)return {isError:true,text:'The protocol PDF was already sent (or tried) in this run.'};
+    try{const x=await sendProtocolPdf(agent,{phone:r.phone,conversation:r.conversation},cfg);
+     if(x.none){log('customer run '+agent+' '+r.id+': send_protocol_pdf for …'+r.phone.slice(-4)+' nothing to send');return {text:x.none+' Nothing was sent. Do not guess a protocol; hand off to the team.'}}
+     log('customer run '+agent+' '+r.id+': send_protocol_pdf to …'+r.phone.slice(-4)+' sent');return {text:'The protocol PDF was sent to the customer as a WhatsApp document. Tell them it was sent; do not paste its contents again.'}}
+    catch(e){log('customer run '+agent+' '+r.id+': send_protocol_pdf failed: '+clip(e.message,120));return {isError:true,text:'The PDF was not sent: '+clip(e.message,300)+'. Tell the customer the team will send it, and hand off.'}}}
    if(name==='label_contact'){if(!labelContact)return {isError:true,text:'Labels are not available here.'};
     const add=[].concat(args.add||[]),remove=[].concat(args.remove||[]);if(r.labels+add.length+remove.length>6)return {isError:true,text:'Six label changes per chat run at most. Leave the rest to the team.'};
     if(!r.conversation)return {isError:true,text:'This chat has no Kirimdev conversation.'};
@@ -184,7 +191,7 @@ export function createCustomerTools({WORK,DATA,formRules=async()=>null,fetchFn=(
   // outside a customer run (the engine's own connection) the list is empty: these tools exist only inside a run
   // listed on every connection (7 Nov 2026): the engine's gateway runs customer turns over its own shared connection, which
   // never carries a run's header, so the key travels in the run's instructions and in each call (run). No key, no answer.
-  if(msg.method==='tools/list')return rpc({tools:withRun(TOOLS(await payKind(agent),await payRules(agent).catch(()=>({}))||{},labelContact?await labelRules(agent).catch(()=>({}))||{}:{},!!await cardOf(agent),!!await ordersOf(agent).catch(()=>null),!!await protocolOf(agent),!!(await formRules(agent).catch(()=>null))?.baseUrl))});
+  if(msg.method==='tools/list')return rpc({tools:withRun(TOOLS(await payKind(agent),await payRules(agent).catch(()=>({}))||{},labelContact?await labelRules(agent).catch(()=>({}))||{}:{},!!await cardOf(agent),!!await ordersOf(agent).catch(()=>null),!!await protocolOf(agent),!!(await formRules(agent).catch(()=>null))?.baseUrl,!!(sendProtocolPdf&&await pdfRules(agent).catch(()=>null))))});
   if(msg.method!=='tools/call')return {status:200,body:{jsonrpc:'2.0',id:msg.id,error:{code:-32601,message:'Method not found'}}};
   const args=msg.params?.arguments&&typeof msg.params.arguments==='object'?{...msg.params.arguments}:{};const key=typeof args.run==='string'&&args.run?args.run:token;delete args.run;
   const x=await call(agent,key,String(msg.params?.name||''),args);
