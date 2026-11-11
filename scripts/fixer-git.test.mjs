@@ -120,7 +120,7 @@ await t('Health list: a fixer branch with its pull request link (or its wait for
  assert.equal(await C.read('pr','fix/i9'),'diff of i9');assert.equal(await C.read('hand','live-edits'),'app/k.mjs\nscripts/x.sh (removed)');
  await assert.rejects(C.done('pr','fix/i9'),/Unknown kind/);assert.deepEqual((await createCodeChanges({DATA:D}).list()),[])});
 
-await t('the "Needs you" item for the token says what to do, in plain words',()=>{const x=personNeed({kind:'github_token',title:'The fixer needs a GitHub token'});assert.match(x,/AQEELOS_FIXER_GITHUB_TOKEN/);assert.match(x,/no admin/)});
+await t('the "Needs you" item for the token says what to do, in plain words',()=>{const x=personNeed({kind:'github_token',title:'The fixer needs a GitHub token'});assert.match(x,/Paste a GitHub token/);assert.match(x,/no admin/)});
 
 // ---------- hand edits of the live folder (no model)
 async function live(){const repo=await tmp('repo-'),L=await tmp('live-'),D=await tmp('ld-');G(repo,'init','-q','-b','main');
