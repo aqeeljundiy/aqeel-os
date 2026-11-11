@@ -2423,8 +2423,11 @@ const SCREEN=new URL(env.UI_SCREEN||'http://127.0.0.1:6080');
 const BUILD=String(Date.now());
 // home-screen app for every page (pwa.mjs): icons from the brand's real mark, the manifest, head tags and the service worker. No real mark = one question under Needs you
 const brandNeeds=async(set,s)=>{try{const ask={kind:'app',issue:'brand-logo'};if(set.needsLogo)await questions.file(ask,{question:'No logo found for '+s.name+': upload its mark',options:[{label:'Upload the mark',effect:'Opens Branding, where you choose its SVG or PNG file.',recommended:true,go:'/system/branding'},{label:'Use its first letter',effect:'The first letter on the colour tile instead. You can still upload the mark later.'}],allowOther:false});else await questions.retire(ask)}catch(e){console.warn('brand icon question:',e.message)}};
-const pwa=createPwa({brand,build:()=>BUILD,onSet:(set,s)=>{brandNeeds(set,s)}});
-await pwa.current().catch(e=>console.warn('icons:',e.message));
+// The icons are drawn off the main thread with a time limit and never hold up the start (audit C2: a malformed logo hung every start). A logo that
+// cannot be drawn gives the plain tile and one Health item, which goes away once a set is drawn again.
+const pwa=createPwa({brand,build:()=>BUILD,onSet:(set,s,failed)=>{if(failed)return;brandNeeds(set,s);bottlenecks.resolve('brand-icons').catch(()=>{})},
+ onFail:(e,s)=>{console.warn('icons: the plain tile is used:',e.message);bottlenecks.event('brand','The logo could not be made into icons','The plain colour tile is used for the home-screen icon and the tab icon until another logo is uploaded in System › Branding. '+String(e.message).slice(0,200),{topic:'brand-icons'}).catch(()=>{})}});
+pwa.current().catch(e=>console.warn('icons:',e.message));
 const sameOrigin=req=>{const o=req.headers.origin;if(!o)return true;try{return new URL(o).host===req.headers.host}catch{return false}};
 const plugins=createPluginHost({DASH,DASH_TOKEN,users,send,security,proxy,me,validCookie,sameOrigin});
 function screenHttp(req,res){

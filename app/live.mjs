@@ -10,7 +10,7 @@
 import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
 import path from 'node:path';
 import {randomBytes,createHmac,timingSafeEqual} from 'node:crypto';
-import {brandApp} from './pwa-zip.mjs';
+import {brandAppOff} from './icons-off.mjs';
 
 // names kept for aqeelOS or for later; any other address that already answers is taken too (taken())
 const RESERVED=new Set(['www','app','apps','ai','api','code','code-preview','n8n','mail','admin','deploy','dokploy','live','dashboard','status','static','cdn','test','staging','preview','auth','login','signin','smtp','imap','ftp','vpn','git','blog','shop','store','docs','help','support','assets','files','media','pub']);
@@ -158,7 +158,8 @@ export function createLive({DATA,DOMAIN='app.localhost',SECRET,PUBLIC_URL,AUTH_U
   await dk('application.saveEnvironment',{applicationId:a.appId,env:'PORT=3000\nHOST=0.0.0.0\nNODE_ENV=production'+(a.dbUrl?'\nDATABASE_URL='+a.dbUrl:''),buildArgs:'',buildSecrets:'',createEnvFile:true});
   await applyVisibility(a);
   // home-screen icon and manifest from the app's own logo, only for what the project lacks (pwa-zip.mjs); no real logo = the plain tile and one question
-  {const r=brandApp(zip,{name:a.name,mono:a.mono});if(r.zip!==zip)zip=r.zip;a.icons={at:Date.now(),source:r.source,added:r.added.length,kept:r.kept,needsLogo:r.needsLogo,why:r.why||'',skipped:r.skipped||''};await save();onIcons(a,r).catch(e=>console.warn('live icons',e.message))}
+  // drawn off the main thread with a time limit (icons-off.mjs): a logo that cannot be drawn in time leaves the project as it is
+  {const r=await brandAppOff(zip,{name:a.name,mono:a.mono}).catch(e=>({zip,added:[],kept:[],source:'',needsLogo:false,skipped:'Its icons were not made: '+String(e.message).slice(0,200)}));if(r.zip!==zip)zip=r.zip;a.icons={at:Date.now(),source:r.source,added:r.added.length,kept:r.kept,needsLogo:r.needsLogo,why:r.why||'',skipped:r.skipped||''};await save();onIcons(a,r).catch(e=>console.warn('live icons',e.message))}
   const form=new FormData();form.append('applicationId',a.appId);form.append('zip',new Blob([zip],{type:'application/zip'}),'app.zip');
   a.status='building';a.error='';a.stopped=false;a.updated=Date.now();await save();
   await dk('application.dropDeployment',null,{form})}catch(e){if(a){a.status='failed';a.error=e.message;await save()}throw e}
