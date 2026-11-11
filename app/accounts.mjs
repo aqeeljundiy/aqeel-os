@@ -23,7 +23,15 @@ const MAIN={id:'main',label:'Main account',dir:path.join(HOME,'.claude')};
 export let setupAgentFn=null;
 export const export_setups={running:()=>0,wait:()=>Promise.resolve()};   // setups in progress, counted by /healthz so a deploy waits for them
 // for agent-defaults.mjs: copying skills, and what runs after a new agent is set up
-export const accountHooks={giveSkills:null,trimSkills:null,forgetSkills:null,afterSetup:null,moveOff:null,keyStatus:null,keyCheck:null,held:null,backupSync:null};   // keyStatus/keyCheck: connect.mjs (API keys tested); held/backupSync: backup-models.mjs
+// Every account and provider in the priority list used up (12 Nov 2026: all four of Elkiya's were at 100% and agents still moved 148 times in a day).
+// used(entry) → percent or null (unknown: never counts as used up), resetAt(entry) → ms or null. all is true only when EVERY entry is known to be
+// used up (a provider in an outage counts); until is the earliest time any of them works again (null when no reset time is known).
+export function exhaustion(priority,used,resetAt,{held=()=>false,full=99}={}){const list=priority||[];if(!list.length)return {all:false,until:null};
+ let all=true,until=null;for(const e of list){const u=used(e);if(!(held(e)||u!==null&&u>=full)){all=false;break}const t=resetAt(e);if(t&&(until===null||t<until))until=t}
+ return {all,until:all?until:null}}
+// when a used-up entry works again: the latest reset among its windows that are full (all of them must reset)
+export const entryReset=(wins,full=99)=>{const t=(wins||[]).filter(w=>(w.used||0)>=full&&w.resets).map(w=>Date.parse(w.resets)).filter(Number.isFinite);return t.length?Math.max(...t):null};
+export const accountHooks={exhausted:null,giveSkills:null,trimSkills:null,forgetSkills:null,afterSetup:null,moveOff:null,keyStatus:null,keyCheck:null,held:null,backupSync:null};   // keyStatus/keyCheck: connect.mjs (API keys tested); held/backupSync: backup-models.mjs
 export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code')}={}){
  const FILE=path.join(DATA,'accounts.json');
  const load=async()=>{try{return JSON.parse(await readFile(FILE,'utf8'))}catch{return {accounts:[],assign:{},auto:{on:false,threshold:90},events:[]}}};
@@ -226,6 +234,15 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
   const backAt=100-(Number(d.auto?.backFree)||20);
   const det=Object.fromEntries(await Promise.all(accts.map(async a=>[a.id,await details(a)])));
   if((d.priority||[]).length){
+   // every entry used up: nobody is moved (there is nowhere to go; it only flipped agents between full accounts). Held until the earliest
+   // reset, said once on Health (d.exhausted, one item, not one per agent) and told to the fixer (accountHooks.exhausted)
+   {const prov0=await providers(false,'default'),mdl=(await agentRoute('default')).model;
+    const ex=exhaustion(d.priority,e=>usageOf(e.key,det,prov0,e.model||(e.key.startsWith(PLUGIN_KEY)&&!isClaude(mdl)?'':mdl)),e=>{
+      if(e.key.startsWith(PLUGIN_KEY)){const u=det[e.key.slice(PLUGIN_KEY.length)]?.usage;return u?entryReset([u.session&&{used:u.session.used,resets:u.session.resets},u.week&&{used:u.week.used,resets:u.week.resets}].filter(Boolean)):null}
+      return entryReset((prov0||[]).find(p=>p.slug===e.key.slice(2))?.windows)},{held:e=>!!accountHooks.held?.(e.key)});
+    const until=ex.all?ex.until||Date.now()+30*60e3:0;
+    await update(x=>{if(ex.all){if(!x.exhausted){x.exhausted={since:Date.now(),until};console.log('all AI accounts are used up until',new Date(until).toISOString(),': agents stay where they are');return}if(x.exhausted.until===until)return false;x.exhausted.until=until}else if(x.exhausted)delete x.exhausted;else return false});
+    accountHooks.exhausted?.(until);if(ex.all)return}
    for(const profile of await agents()){const prov=await providers(false,profile);if(!prov)continue;   // its gateway did not answer: nothing is known this tick
     const cur=await entryOf(d,profile),model=(await agentRoute(profile)).model;const used=usageOf(cur,det,prov,model);let at=d.priority.findIndex(e=>e.key===cur&&(e.model===model||!e.model));if(at<0)at=d.priority.findIndex(e=>e.key===cur);
     // a provider in an outage (backup-models.mjs) has no room, so nobody is moved back up to it before it works again
@@ -233,7 +250,8 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
     // back up the list: a higher entry with room again (10 points under the limit, so it does not flip back and forth);
     // an agent someone moved by hand stays where they put it
     const byHand=(d.events||[]).find(e=>e.profile===profile)?.why==='Chosen by hand';
-    let up=at>0&&!byHand&&back?d.priority.slice(0,at).filter(e=>room(e,backAt)):[];
+    const lastMove=(d.events||[]).find(e=>e.profile===profile),settled=!lastMove||Date.now()-(lastMove.t||0)>=30*60e3;   // no flip-flopping: 30 minutes on an entry before going back up
+    let up=at>0&&!byHand&&back&&settled?d.priority.slice(0,at).filter(e=>room(e,backAt)):[];
     // two checks in a row (10 minutes) before going back, so it does not flip back and forth
     if(up.length){const k=up[0].key+'|'+up[0].model;const s=upSeen.get(profile);const n=s?.k===k?s.n+1:1;upSeen.set(profile,{k,n});if(n<2)up=[]}else upSeen.delete(profile);
     const down=on&&used!==null&&used>=th?d.priority.filter((e,i)=>i!==at&&!up.includes(e)&&room(e,th)):[];
@@ -262,7 +280,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
  if(LIVE_APP){setInterval(()=>signinTick().catch(()=>{}),5*60000).unref();setTimeout(()=>signinTick().catch(()=>{}),20000).unref()}
  // and a key the provider refuses or that has no credit left: the same list, with its state (Bottlenecks, the banner)
  const signedOut=async()=>{const x=await load(),ks=accountHooks.keyStatus?.()||{};
-  return [...Object.values(x.signedOut||{}),...Object.entries(ks).filter(([k,c])=>c.since&&!x.signedOut?.[k]).map(([k,c])=>({key:k,name:x.labels?.[k]||x.seen?.[k]?.name||k.slice(2),since:c.since,state:c.state}))]};
+  return [...(x.exhausted?[{key:'exhausted',name:'Every AI account',since:x.exhausted.since,state:'exhausted',until:x.exhausted.until}]:[]),...Object.values(x.signedOut||{}),...Object.entries(ks).filter(([k,c])=>c.since&&!x.signedOut?.[k]).map(([k,c])=>({key:k,name:x.labels?.[k]||x.seen?.[k]?.name||k.slice(2),since:c.since,state:c.state}))]};
 
  /* ---------- HTTP ---------- */
  /* ---------- a new agent gets everything it needs, checked step by step (any model provider) ----------

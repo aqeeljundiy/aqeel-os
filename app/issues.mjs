@@ -29,6 +29,7 @@ import {readFile,writeFile,mkdir,rename,open,stat,copyFile,readdir,rm} from 'nod
 import {spawn} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
 import path from 'node:path';
+import {providerUnavailable,retryAt} from './provider-limits.mjs';
 
 const clip=(s,n)=>String(s??'').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g,' ').slice(0,n);
 export const TRIES=3;
@@ -84,6 +85,23 @@ export const testerSendOnly=t=>{t=String(t||'');return /\b(tester|test(ing)? (ph
 export const technicalOnly=t=>{t=String(t||'');return /\b(engine|MCP client|server-sent event|SSE|byte limit|\d+ ?MB limit|rejects? (the|its) (response|reply)|time[sd]? ?out|exit code|traceback|stack trace|bug|code (change|fix)|patch|crash(es|ed)?|HTTP 5\d\d|internal error|parking|failed initial connection)\b/i.test(t)&&!/\b(pay|paid|invoice|top ?up|billing|password only|add (the )?bot|invite|decid|choose|which one)\b/i.test(t)};
 export const noPersonNeeded=t=>approvalOnly(t)||testerSendOnly(t)||technicalOnly(t);
 export const approvalOnly=t=>{t=String(t||'');return /\b(approv|sign[ -]?off|give (the |your )?ok|ok (it|this|the change)|confirm (that|whether|the change|this change)|review (the|this) (change|fix|rule))/i.test(t)&&!/\b(pay|paid|invoice|top ?up|billing|key|token|password|log ?in|sign ?in|qr|add (the )?bot|invite|decid|choose|which one)/i.test(t)};
+// A hard cap per issue on proof and fix runs (12 Nov 2026: 372 proof runs in a day for ~25 stuck issues, one issue 81 times, each a full
+// agent session of paid quota). Team policy fixer.maxProofsPerDay / maxProofsTotal / maxFixesPerDay / maxFixesTotal; counted from the runs that
+// really ran (a run that ended because the AI provider was not available does not count). "Try again" on Health starts a fresh count.
+export const RUN_CAPS={proofDay:4,proofTotal:10,fixDay:6,fixTotal:12};
+export const runCaps=pol=>{const f=pol?.fixer||{},n=(v,d)=>Number.isFinite(Number(v))&&Number(v)>0?Math.floor(Number(v)):d;
+ return {proofDay:n(f.maxProofsPerDay,RUN_CAPS.proofDay),proofTotal:n(f.maxProofsTotal,RUN_CAPS.proofTotal),fixDay:n(f.maxFixesPerDay,RUN_CAPS.fixDay),fixTotal:n(f.maxFixesTotal,RUN_CAPS.fixTotal)}};
+export function runCounts(runs,issue,day){const c={proofDay:0,proofTotal:0,fixDay:0,fixTotal:0};
+ for(const r of Object.values(runs||{})){if(r.issue!==issue.id||r.notStarted||r.inconclusive)continue;const p=r.kind==='proof';c[p?'proofTotal':'fixTotal']++;if(r.day===day)c[p?'proofDay':'fixDay']++}
+ const b=issue.runBase;if(b){c.proofTotal-=b.proofTotal||0;c.fixTotal-=b.fixTotal||0;if(b.day===day){c.proofDay-=b.proofDay||0;c.fixDay-=b.fixDay||0}}return c}
+// null, 'day' (wait for tomorrow) or 'total' (a person must look)
+export function capHit(runs,issue,kind,pol,day){const c=runCounts(runs,issue,day),m=runCaps(pol),p=kind==='proof';
+ return c[p?'proofTotal':'fixTotal']>=m[p?'proofTotal':'fixTotal']?'total':c[p?'proofDay':'fixDay']>=m[p?'proofDay':'fixDay']?'day':null}
+// a run whose only result is that the AI provider was not available (rate limit, account used up, no model reachable) says nothing
+// about the problem: inconclusive, not a try, tried again after the reset time. A result a model wrote is only taken for it when it
+// uses the provider's own wording (a report ABOUT rate limits is a real result).
+export function runUnavailable(out,res,now=Date.now()){if(res&&!['failed','not_proven'].includes(res.status))return null;
+ return res?providerUnavailable([res.summary,res.proof,res.need].join(' '),{now,strict:true}):providerUnavailable(String(out||'').slice(-4000),{now})}
 export const notStarted=out=>/couldn'?t start the model connection|Gateway draining|not_ready|Connection refused.*gateway/i.test(String(out||'').slice(-3000));
 
 // the values set in an .env text: {KEY: value}
@@ -190,6 +208,8 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  tz=()=>'',sortRun=null,
  // GIT-2: the fixer's own git checkout (fixer-git.mjs); needToken / tokenOk: the one "Needs you" item that asks for the GitHub token
  git=null,needToken=async()=>{},tokenOk=async()=>{},
+ // limits: the shared "AI provider not available" state (provider-limits.mjs); nothing that needs a model starts while it holds
+ limits=null,
  // kept for older callers (the Approve/Decline flow is gone)
  askOwner=null,approvalLink=null,restartSelf=null,engineOk=()=>true}){
  const FILE=path.join(DATA,'issues.json'),POL=path.join(DATA,'team-policy.json'),DIR=path.join(DATA,'issues');let db=null,chain=Promise.resolve();
@@ -224,7 +244,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   const key=o.healthKey?'health|'+o.healthKey:o.agent+'|'+m.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().slice(0,100);
   let i=db.items.find(x=>x.key===key&&(OPEN.includes(x.state)||['needs_human','stopped','open','deploy'].includes(x.state)));
   // filed again while it waited for a person: they may have done it, so the fixer tries again
-  if(i){i.count++;i.updated=now();if(o.evidence)i.evidence=clip(o.evidence,2000);if((i.state==='needs_human'||i.state==='open'&&pol.fixer?.on!==false)&&!i.noRetry){i.state='queued';i.tries=0}await save();return {issue:view(i),again:true}}
+  if(i){i.count++;i.updated=now();if(o.evidence)i.evidence=clip(o.evidence,2000);if((i.state==='needs_human'||i.state==='open'&&pol.fixer?.on!==false)&&!i.noRetry&&!i.capped){i.state='queued';i.tries=0}await save();return {issue:view(i),again:true}}
   // filed again after the sorter merged it into another issue that is still open: that one counts it, no new sorting
   {const g=db.items.find(x=>x.key===key&&x.mergedInto),to=g&&db.items.find(x=>x.id===g.mergedInto);
    if(to&&[...OPEN,'needs_human','open','deploy','stuck'].includes(to.state)){to.count=(to.count||1)+1;to.updated=now();await save();return {issue:view(to),again:true,merged:true}}}
@@ -285,7 +305,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   for(const i of db.items)if(i.healthKey&&WAITING.includes(i.state)&&!cur.has(i.healthKey)){await resolved(i,'Health checked again and no longer sees it.');n++}
   return n});
  let sweptAt=0;
- const sweep=(force=false)=>queue(async()=>{await load();if(!force&&now()-sweptAt<10*60e3)return 0;sweptAt=now();let n=0;
+ const sweep=(force=false)=>queue(async()=>{await load();if(!force&&now()-sweptAt<10*60e3)return 0;sweptAt=now();let n=0;const pol=await policy();
   for(const i of db.items){if(!WAITING.includes(i.state)||i.healthKey&&!['stuck','deploy'].includes(i.state))continue;   // Health items: healthGone
    // a planned test (the ladder proof and the like) is not a problem to keep: closed at once
    if(/PLANNED TEST|planned (?:ladder )?test|ladder[- ]proof/i.test([i.missing,i.evidence].join(' '))){i.state='closed';i.updated=now();i.result={...(i.result||{}),summary:'Test item, closed.'};
@@ -294,7 +314,9 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
    // a stuck issue whose files a deploy changed since: one proof run checks whether the problem is gone now
    // a fix filed as a patch for the daily deploy (state deploy): the same, once a deploy changed the files it patches
    if((i.state==='stuck'||i.state==='deploy')&&!i.recheck&&checks.changedSince){const files=[...new Set(i.history.flatMap(h=>[...(h.changes||[]).map(c=>c.file),...(h.patchFiles||[])]))];const since=Math.max(i.state==='deploy'?i.patchedAt||0:i.updated||0,i.recheckedAt||0);
-    if(files.length&&await checks.changedSince(files,since).catch(()=>false)){const dep=i.state==='deploy';i.recheck=dep?'deploy':true;i.state='verify';i.updated=now();await save();log('issues: '+i.id+(dep?' its patch waited for a deploy, and a deploy changed its files':' stuck, but a deploy changed its files')+': a proof run checks it again');continue}}
+    if(files.length&&await checks.changedSince(files,since).catch(()=>false)){
+     // a deploy does not start proofs for an issue at its cap: once a person is asked, nothing more runs; at the daily cap it waits a day
+     const cp=capHit(db.runs,i,'proof',pol,today());if(cp==='total'){await capOut(i,pol);n++;continue}if(cp==='day')continue;const dep=i.state==='deploy';i.recheck=dep?'deploy':true;i.state='verify';i.updated=now();await save();log('issues: '+i.id+(dep?' its patch waited for a deploy, and a deploy changed its files':' stuck, but a deploy changed its files')+': a proof run checks it again');continue}}
    // nothing left to check for 7 days: it leaves quietly, to the Activity log
    if(!checkable(i)&&now()-(i.updated||i.created||0)>7*864e5){i.state='expired';i.updated=now();i.history.push({kind:'expired',at:now(),summary:'No check could tell whether it was solved; closed after 7 days.'});await save();
     await (checks.activity?checks.activity(nameOf(i.agent)+': '+clip(i.missing,120)+' closed after 7 days with nothing left to check',i):null)?.catch?.(()=>{});n++}}
@@ -339,7 +361,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   const now_=ci?{...card(ci),kind:cur.kind||'fix',step:cur.kind==='proof'?'prove':'fix',model:cur.model||null,effort:cur.effort||null,at:cur.at,minutes:cur.kind==='proof'?Math.min(30,pol.fixer?.proof_minutes||15):Math.min(40,pol.fixer?.minutes||25)}:null;
   const wait=ap?{...card(ap),step:step(ap.state),kind:ap.applyKind||'engine',since:ap.waitingSince||ap.updated,back:ap.state!=='applying',quiet:engineOk(),
    model:db.runs[ap.run]?.model||null,effort:db.runs[ap.run]?.effort||null}:null;
-  return {on:pol.fixer?.on!==false,paused:db.pause||null,now:now_,wait,cap:{used,cap,resetAt:nextDay(t,tz())},quiet:{from:1,to:5},
+  return {on:pol.fixer?.on!==false,paused:db.pause||null,provider:limits?.hold?.()||null,now:now_,wait,cap:{used,cap,resetAt:nextDay(t,tz())},quiet:{from:1,to:5},
    line:lineOf(db.items,t).map(card),skipped:db.items.filter(i=>i.skipUntil>t&&['queued','verify'].includes(i.state)).map(card),
    sorting:db.items.filter(i=>i.sorting).length,stuck:db.items.filter(i=>i.state==='stuck'&&!i.need).map(card)}}
  // move one place up or down in the line; the two swap their places
@@ -376,12 +398,21 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   if(!held){const d=db.items.find(i=>i.uiDirty&&!OPEN.includes(i.state));if(d){if(await busy().catch(()=>1)>0)return;d.uiDirty=false;await save();
    const r=await apply('ui','fixer '+d.id+' (files put back)').catch(e=>({ok:false,why:e.message}));if(!r?.ok){d.uiDirty=true;await save();log('issues: '+d.id+' reload of the put-back files waits: '+(r?.why||'not done'))}return}}
   if(!await ready().catch(()=>false))return;
+  if(limits?.hold?.())return;   // the AI provider is not available: nothing that needs a model starts until its reset time
   // the line in its order (proof runs, urgent, the rest, or as a person moved them); the daily limit holds back fixes
   // that are not urgent, never proof runs
   const capped=fixRunsToday()>=(pol.fixer?.cap||20);
   for(const i of lineOf(db.items,now())){if(i.notBefore>now())continue;
-   if(i.state==='verify')return await start(i,pol,'proof');
+   const kind=i.state==='verify'?'proof':'fix',cp=capHit(db.runs,i,kind,pol,today());
+   if(cp==='total'){await capOut(i,pol);continue}if(cp==='day'){i.notBefore=nextDay(now(),tz());await save();continue}
+   if(kind==='proof')return await start(i,pol,'proof');
    if(!i.urgent&&(held||capped))continue;return await start(i,pol,'fix')}}finally{running=null}}
+ // an issue at its total cap becomes one "needs a person" item, once (it is not queued again by new reports; Try again gives a fresh count)
+ async function capOut(i,pol){if(i.capped)return;const c=runCounts(db.runs,i,today()),m=runCaps(pol);
+  i.capped={at:now(),proofs:c.proofTotal,fixes:c.fixTotal};i.state='needs_human';i.updated=now();i.notBefore=0;
+  i.need='aqeelOS ran this '+c.fixTotal+' time'+(c.fixTotal===1?'':'s')+' as a fix and '+c.proofTotal+' time'+(c.proofTotal===1?'':'s')+' as a proof (the limit is '+m.fixTotal+' and '+m.proofTotal+' per problem) and it is still not solved. It stops here so it does not use up the AI accounts; a person must look at it. Try again starts a fresh count.';
+  i.history.push({kind:'cap',at:now(),status:'needs_human',summary:'Stopped at the limit of runs for one problem ('+c.fixTotal+' fix, '+c.proofTotal+' proof)'});await save();
+  const to=await tell(i,nameOf(i.agent)+': aqeelOS stopped trying to fix this by itself\n\nProblem: '+i.missing+'\nWhat is needed from you: '+i.need);i.told=to;await save();log('issues: '+i.id+' at its run limit ('+c.fixTotal+' fix, '+c.proofTotal+' proof); needs a person, told '+to)}
  async function start(i,pol,kind){const n=kind==='fix'?i.tries+1:i.tries,id=i.id+'-'+n+(kind==='proof'?'p':''),dir=path.join(DIR,id);await mkdir(dir,{recursive:true,mode:0o700});
   const last=i.history.filter(h=>h.kind==='fix').at(-1);
   let gw=null;if(git&&kind==='fix'){gw=await git.prepare(i.id).catch(e=>({ok:false,why:e.message}));if(!gw.ok){log('issues: '+i.id+' no git work dir ('+gw.why+'); the older patch-file way');gw=null}}
@@ -489,6 +520,11 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   if(ex===null&&up)return;const out=await readFile(path.join(dir,'out.txt'),'utf8').catch(()=>'');r.done=now();r.exit=ex===null?null:Number(ex);r.usage=await usageOf(r).catch(()=>null)||undefined;
   const i=db.items.find(x=>x.id===r.issue);const kind=r.kind||'fix';const res=parseResult(out,kind);
   if(!i){await save();return}i.updated=now();
+  // the AI provider was not available (limit, used up, no model reachable): inconclusive, not a try, again after the reset time
+  {const lim=(i.unavail||0)<6&&runUnavailable(out,res,now());if(lim){r.notStarted=r.inconclusive=true;i.unavail=(i.unavail||0)+1;if(kind==='fix'){i.tries--;await rollBack(res?.changes)}
+   const at=retryAt(lim,{now:now()});limits?.set(at,lim.why,lim.kind);i.notBefore=at;
+   if(kind==='fix'&&i.noRetry){await save();return await afterTry(i)}i.state=kind==='fix'?'queued':'verify';await save();log('issues: '+r.id+' inconclusive, the AI provider is not available ('+lim.kind+'); again at '+new Date(at).toISOString());return}
+  i.unavail=0}
   // never reached the model: not a try; again in 5 minutes
   if(!res&&notStarted(out)){r.notStarted=true;if(kind==='fix')i.tries--;if(kind==='fix'&&i.noRetry){await save();return await afterTry(i)}i.state=kind==='fix'?'queued':'verify';i.notBefore=now()+5*60e3;await save();log('issues: '+r.id+' did not reach the model; again in 5 minutes');return}
   if(kind==='fix'){const fr=res||{status:'failed',summary:'The fixer ended without a result'+(r.exit!=null?' (exit '+r.exit+')':' (stopped)')+'.',proof:clip(out.slice(-800),800),changes:[],apply:'none'};r.result=fr;
@@ -549,7 +585,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   if(!r?.ok){if(kind==='ui'){i.state=back?'rollback':'applying';await save()}log('issues: '+i.id+' reload waits: '+(r?.why||'not done'));return}
   i.applied=kind;i.waitingSince=null;if(back)return await afterTry(i);i.state='verify';await save();log('issues: '+i.id+' reloaded ('+kind+')')}
  // "Try again" on Health (after a person did what was needed, or for a stuck one): a fresh set of tries
- const retry=id=>queue(async()=>{await load();const i=db.items.find(x=>x.id===id);if(!i||OPEN.includes(i.state))return i?view(i):null;i.state='queued';i.tries=0;i.notBefore=0;i.noRetry=i.closeAfter=false;i.updated=now();await save();return view(i)});
+ const retry=id=>queue(async()=>{await load();const i=db.items.find(x=>x.id===id);if(!i||OPEN.includes(i.state))return i?view(i):null;i.state='queued';i.tries=0;i.notBefore=0;i.noRetry=i.closeAfter=false;i.unavail=0;if(i.capped){delete i.capped;i.runBase={...runCounts(db.runs,{id:i.id},today()),day:today()}}i.updated=now();await save();return view(i)});
  // Stop retrying (System › Health): a queued one stops now; one in the middle of a try finishes that try (a proven fix
  // still counts as fixed, a change that fails its proof is still put back) and then stops
  const IDLE=['queued','open','needs_human','stuck','failed'];

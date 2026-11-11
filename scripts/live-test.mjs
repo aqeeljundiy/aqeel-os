@@ -15,6 +15,7 @@ import {homedir} from 'node:os';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {randomBytes} from 'node:crypto';
+import {providerUnavailable} from '../app/provider-limits.mjs';
 
 const HOME=homedir(),HERMES_HOME=(process.env.HERMES_HOME||path.join(HOME,'.hermes')).replace(/^~(?=\/|$)/,HOME);
 const DATA=path.resolve(process.env.UI_DATA_DIR||path.join(HOME,'apps','hermes-ui-data'));
@@ -37,6 +38,9 @@ export function overdue(jobs,now=Date.now(),grace=20*60e3){return (jobs||[]).fil
 // a new message aqeelOS sent ("ours" in kirimdev-state.json) after the test began
 export const replied=(ours,since)=>Object.values(ours||{}).some(t=>Number(t)>=since);
 // the reply proves the agent read the message: it carries the nonce
+// the AI provider was not available (rate limit, account used up, no model reachable: "I couldn't reach any of my models just now"): the test says nothing about the deploy. Skipped, not failed, so no rollback; the result says when to try again.
+export function providerPause(reply,body,nonce,now=Date.now()){if(answered(reply,nonce))return null;const lim=providerUnavailable(String(reply||'').trim()?reply:body,{now,strict:!!String(reply||'').trim()});
+ return lim?{skipped:true,inconclusive:true,resetAt:lim.resetAt,why:'the AI provider is not available ('+lim.kind+'), so the test agent was not checked: '+String(lim.why).slice(0,120)}:null}
 export const answered=(reply,nonce)=>String(reply||'').includes(nonce);
 // the voice clip says "Deploy check. The word is orange."; the picture is plain red
 export const heard=t=>/\borange\b/i.test(String(t||''));
@@ -131,6 +135,7 @@ async function checkAgent(){const key=process.env.API_SERVER_KEY||'';const h={au
  const r=await fetch(GATE+'/p/'+TEST_AGENT+'/v1/chat/completions',{method:'POST',headers:h,signal:AbortSignal.timeout(180000),body:JSON.stringify({model:'default',stream:false,messages:[{role:'user',content:[
   {type:'text',text:'Deploy check. Reply with exactly two words and nothing else: '+nonce+' and then the main colour of this picture.'},{type:'image_url',image_url:{url:'data:image/png;base64,'+png}}]}]})}).catch(e=>({ok:false,status:e.message,json:async()=>({})}));
  const body=await r.text().catch(()=>'');let reply='';try{reply=JSON.parse(body).choices?.[0]?.message?.content||''}catch{}
+ {const p=providerPause(reply,body,nonce);if(p)return p}
  if(!r.ok&&startFault(r.status,body)==='setup')return {skipped:true,setup:true,why:'the test agent is not set up ('+r.status+': '+body.slice(0,120)+')'};
  if(answered(reply,nonce)&&!sawRed(reply))return {ok:false,advisory:true,why:'the test agent answered but did not name the colour of the picture ('+String(reply).slice(0,80)+')'};
  if(answered(reply,nonce))return {ok:true,why:'the test agent answered and saw the picture'};
@@ -156,7 +161,7 @@ const CHECKS={tools:checkTools,schedules:checkSchedules,engine:checkEngine,media
 export async function run({since=Date.now()-15*60e3,sha='',only=null}={}){const results=[];
  for(const [name,fn] of Object.entries(CHECKS)){if(only&&!only.includes(name))continue;const t0=Date.now();
   const r=await withRetry(fn,since);results.push({name,...r,ms:Date.now()-t0})}
- const s=summary(results),rec={at:Date.now(),sha,...s,warned:warnings(results),setup:results.filter(r=>r.setup).map(r=>r.why),results};
+ const s=summary(results),rec={at:Date.now(),sha,...s,warned:warnings(results),inconclusive:results.filter(r=>r.inconclusive).map(r=>r.name+': '+r.why),retryAfter:Math.max(0,...results.filter(r=>r.inconclusive&&r.resetAt).map(r=>r.resetAt))||undefined,setup:results.filter(r=>r.setup).map(r=>r.why),results};
  const f=path.join(DATA,'live-test.json'),h=await readJson(f,{runs:[]});h.runs=[rec,...(h.runs||[])].slice(0,30);
  await mkdir(DATA,{recursive:true});await writeFile(f+'.tmp',JSON.stringify(h,null,1));await rename(f+'.tmp',f);return rec}
 

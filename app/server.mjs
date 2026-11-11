@@ -13,6 +13,7 @@ import {createAgentDefaults} from './agent-defaults.mjs';
 import {createWhy} from './why.mjs';
 import {createChatHistory} from './chat-history.mjs';
 import {createIssues,engineSortRun,personOf} from './issues.mjs';
+import {createLimitState} from './provider-limits.mjs';
 import {createAgentMemory} from './agent-memory.mjs';
 import {createTeamSettings} from './team-settings.mjs';
 import {createCodeChanges} from './code-changes.mjs';
@@ -1692,7 +1693,10 @@ async function fixerRunUsage(r){if(!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(String(r.a
  let v=null;try{v=JSON.parse(out.trim()||'null')}catch{}
  return v?{model:v[0]||null,input:v[1]||0,output:v[2]||0,cacheRead:v[3]||0,cacheWrite:v[4]||0,cost:Math.round((Number(v[5])||0)*1e5)/1e5}:null}
 // the one "Needs you" item that asks for the GitHub token: made once, taken away when the token is there (issues.mjs noteToken)
-const issues=createIssues({DATA,git:fixerGit,needToken:()=>bottlenecks.event('github_token','The fixer needs a GitHub token','Fixes wait for review as branches on the box. Add the token and their pull requests open by themselves.',{topic:'github_token'}),tokenOk:()=>bottlenecks.resolve('github_token'),usageOf:fixerRunUsage,home:homedir(),bin:path.join(homedir(),'.local','bin','aqeelos'),fixerHome:homedir(),nameOf:a=>agentName(a),
+// the AI provider is not available (rate limit, every account used up): one shared state; nothing needing a model starts until it ends (provider-limits.mjs)
+const providerLimits=createLimitState({DATA});
+accountHooks.exhausted=until=>{if(until)providerLimits.set(until,'every AI account is used up','accounts');else if(providerLimits.hold()?.kind==='accounts')providerLimits.clear()};
+const issues=createIssues({DATA,limits:providerLimits,git:fixerGit,needToken:()=>bottlenecks.event('github_token','The fixer needs a GitHub token','Fixes wait for review as branches on the box. Add the token and their pull requests open by themselves.',{topic:'github_token'}),tokenOk:()=>bottlenecks.resolve('github_token'),usageOf:fixerRunUsage,home:homedir(),bin:path.join(homedir(),'.local','bin','aqeelos'),fixerHome:homedir(),nameOf:a=>agentName(a),
  tz:()=>installTz()||process.env.TZ||'',sortRun:engineSortRun({bin:path.join(homedir(),'.local','bin','aqeelos'),home:homedir(),dir:path.join(DATA,'issues','sort')}),
  reply:replyInTopic,tellOwner:srToOwner,toTeam:issueToTeam,quiet:alertQuiet,busy:async()=>busyNow(),ready:async()=>!gwStopped&&!gwRestarting&&!!await gatewayPid(),apply:issueApply,engineOk:()=>inQuiet(new Date(),installTz()||process.env.TZ||''),envFiles:issueEnvFiles,
  // a proven fix for an agent's report closes the report too (it stays on Health until then, never in the popup)
@@ -1768,9 +1772,11 @@ if(LIVE_APP){setTimeout(()=>health.tick().catch(e=>console.warn('health',e.messa
 // --source must be one the engine accepts (cli, tui, gui, acp, tool, oneshot): 'health-ping' was refused as invalid_params,
 // so every ping "did not answer" and healthy agents were rolled back
 const avPing=a=>new Promise(res=>{const f=path.join(DATA,'agent-versions-ping-'+a+'.txt');writeFile(f,'aqeelOS health check after a change you made to yourself. Reply with exactly: OK').then(()=>
- execFile(path.join(homedir(),'.local','bin','aqeelos'),['-p',a,'chat','--oneshot','-Q','--source','tool','--query-file',f],{cwd:path.join(homedir(),'workspaces',a),timeout:240e3,maxBuffer:4e6},(e,o,er)=>res(e?{ok:false,unsure:!!gwRestarting||Date.now()-lastOwnRestart<5*60e3,why:'it did not answer ('+(e.code??e.signal)+'): '+String(er||'').trim().split('\n').pop()}:/\bOK\b/i.test(String(o))?{ok:true}:{ok:false,why:'answered without OK: '+String(o).slice(0,200)}))).catch(e=>res({ok:false,why:e.message}))});
+ execFile(path.join(homedir(),'.local','bin','aqeelos'),['-p',a,'chat','--oneshot','-Q','--source','tool','--query-file',f],{cwd:path.join(homedir(),'workspaces',a),timeout:240e3,maxBuffer:4e6},(e,o,er)=>res(e?{ok:false,unsure:!!gwRestarting||Date.now()-lastOwnRestart<5*60e3,why:'it did not answer ('+(e.code??e.signal)+'): '+(String(er||'').trim().split('\n').pop()||String(o||'').trim().slice(-300))}:/\bOK\b/i.test(String(o))?{ok:true}:{ok:false,why:'answered without OK: '+String(o).slice(0,200)}))).catch(e=>res({ok:false,why:e.message}))});
 const versions=createAgentVersions({DATA,HERMES_HOME,DASH:DASH.origin,DASH_TOKEN,PUBLIC_URL,listAgents:()=>listAgents(),nameOf:a=>NAMES[a]||a,readConfig,setKey,pick,
- instructions,kirimdev,issues,health,teamGroups,selfRuns,bin:path.join(homedir(),'.local','bin','aqeelos'),ping:avPing,tellOwner:srToOwner,quiet:alertQuiet,live:LIVE_APP,extraHealth:a=>agentLive.healthLines(a)});
+ instructions,kirimdev,issues,health,teamGroups,selfRuns,bin:path.join(homedir(),'.local','bin','aqeelos'),ping:avPing,tellOwner:srToOwner,quiet:alertQuiet,live:LIVE_APP,extraHealth:a=>agentLive.healthLines(a),limits:providerLimits,
+ // an older rollback whose reason did not say why ("it did not answer (1)"): a limit in the engine's error log within 15 minutes of it
+ outageAt:t=>{try{const f=path.join(HERMES_HOME,'logs','errors.log'),n=readFileSync(f,'utf8').slice(-3e6);return n.split('\n').some(l=>/hit your session limit|HTTP 429|credential pool is exhausted/.test(l)&&Math.abs(Date.parse(l.slice(0,19).replace(' ','T')+'Z')-t)<15*60e3)}catch{return false}}});
 // every agent's home gets the engine plugin aqeelos-live (live context each message, tracebacks held back): installed at
 // start and every 10 minutes (new agents too); when it was new or changed, the engine reloads once no reply runs
 // a Telegram group's current name and the bot's place in it, asked of Telegram with the agent's own bot (10-minute cache)
@@ -1832,6 +1838,8 @@ const agentCare=createAgentCare({HERMES_HOME,DATA,fpKey:()=>agentLive.key(),team
  record:(a,e)=>versions.noteSelfChange(a,{...e,by:'aqeelOS',undoable:false}),notices:agentLive,extraRetired:async()=>JSON.parse(await readFile(path.join(DATA,'retired-setup.json'),'utf8').catch(()=>'[]'))});
 if(LIVE_APP){const careTick=()=>agentCare.tick().then(r=>{if(Object.keys(r).length)console.log('agent-care: '+JSON.stringify(r))}).catch(e=>console.warn('agent-care',e.message));
  setTimeout(careTick,3*60e3).unref();setInterval(careTick,2*60e3).unref()}
+// rollbacks made in the last 48 hours only because the AI provider was not available are put back once, a couple of minutes after start
+if(LIVE_APP)setTimeout(()=>versions.restoreAllFalseRollbacks().then(r=>{if(Object.keys(r).length)console.log('agent-versions: false rollbacks found: '+JSON.stringify(r))}).catch(e=>console.warn('agent-versions restore',e.message)),2*60e3).unref();
 if(LIVE_APP){setInterval(()=>versions.watchTick().catch(e=>console.warn('agent-versions watch',e.message)),60e3).unref();setTimeout(()=>versions.skillsTick().catch(()=>{}),90e3).unref();setInterval(()=>versions.skillsTick().catch(e=>console.warn('agent-versions skills',e.message)),10*60e3).unref()}
 // which agents get it: their own Linux user is set up (commands and files run as ag-<agent>); never the main agent,
 // its extra-number copies, the help agent or (on the live app) a test copy's agents

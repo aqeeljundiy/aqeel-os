@@ -21,6 +21,7 @@ import {readFile,writeFile,mkdir,rename,readdir,stat,rm} from 'node:fs/promises'
 import {execFile} from 'node:child_process';
 import {createHash,createHmac,randomBytes,timingSafeEqual} from 'node:crypto';
 import path from 'node:path';
+import {providerUnavailable,retryAt} from './provider-limits.mjs';
 
 const run=(c,a,{cwd,timeout=60000,env}={})=>new Promise(res=>execFile(c,a,{cwd,timeout,env:env||process.env,maxBuffer:16e6},(e,o,er)=>res({ok:!e,code:e?.code??0,out:String(o||''),err:String(er||e?.message||'')})));
 const clip=(s,n)=>{s=String(s??'');return s.length>n?s.slice(0,n)+'…':s};
@@ -75,7 +76,7 @@ export async function recordAgentChange(e={}){if(!current||!e.agent)return null;
  return current(e.agent,{kind,target,what,why:e.why||'',by,before:setting?{value:e.before??null}:e.before,after:setting?{value:e.after??null}:e.after,undoable:setting||kind==='webhook'})}
 export function createAgentVersions({DATA,HERMES_HOME,DASH,DASH_TOKEN,PUBLIC_URL='',listAgents,nameOf=a=>a,readConfig,setKey,pick,
  instructions=null,kirimdev=null,issues=null,health=null,teamGroups=null,selfRuns=null,bin,python=async()=>null,
- ping=null,tellOwner=async()=>{},quiet=()=>null,log=m=>console.log(m),now=()=>Date.now(),live=false,extraHealth=async()=>[]}){
+ ping=null,tellOwner=async()=>{},quiet=()=>null,log=m=>console.log(m),now=()=>Date.now(),live=false,extraHealth=async()=>[],limits=null,outageAt=null}){
  const home=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const dir=a=>path.join(DATA,'agent-versions',a);
  const api=(p,o={})=>fetch(DASH+'/api'+p,{signal:AbortSignal.timeout(o.timeout||60000),...o,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'}}).then(async r=>{const j=await r.json().catch(()=>null);if(!r.ok)throw Error(j?.detail||'HTTP '+r.status);return j});
@@ -231,19 +232,51 @@ export function createAgentVersions({DATA,HERMES_HOME,DASH,DASH_TOKEN,PUBLIC_URL
   // its own chats running right now count as answering; otherwise a short ping run of its own
   let ok=false,why='',unsure=false;try{const r=await ping(a);ok=r.ok===true;unsure=!!r.unsure;why=r.why||''}catch(e){why=e.message}
   // a ping that could not tell (the engine was restarting) is not a "did not answer": try again later, no fail counted
-  if(unsure){await lock(a,async()=>{const d1=await load(a);if(d1.watch){d1.watch.due=now()+4*60e3;await save(a)}});continue}
+  // the same when the AI provider could not answer (rate limit, account used up, no model reachable): that says nothing about
+  // the change, so nothing is undone and no issue is filed; it is asked again after the account's reset time, if known
+  const lim=ok?null:providerUnavailable(why,{now:now()});if(lim){limits?.note(why,{now:now()});unsure=true}
+  if(unsure){await lock(a,async()=>{const d1=await load(a);if(d1.watch){d1.watch.due=lim?retryAt(lim,{now:now(),fallback:10*60e3}):now()+4*60e3;
+   if(lim&&!d1.events.slice(-1).some(e=>e.kind==='unavailable'&&now()-e.at<HOUR))d1.events.push({kind:'unavailable',at:now(),text:'the AI provider is not available ('+lim.kind+'), so nothing was checked: '+clip(lim.why,160)});await save(a)}});continue}
   await lock(a,async()=>{const d2=await load(a);if(!d2.watch)return;
    if(ok){d2.events.push({kind:'ok',at:now(),text:'answered after its changes'});d2.watch=null;await save(a);return}
    d2.watch.fails=(d2.watch.fails||0)+1;d2.watch.due=now()+4*60e3;d2.events.push({kind:'noanswer',at:now(),text:clip(why,200)});await save(a)});
   const d3=await load(a);if(ok||!d3.watch||d3.watch.fails<2)continue;
-  const plan=rollbackPlan(d3.items,{since:d3.watch.since-1000});const done=[],failed=[];
+  const plan=rollbackPlan(d3.items,{since:d3.watch.since-1000});const done=[],failed=[];let instr=null;
   for(const x of plan){try{await undo(a,x.id,{by:'aqeelOS (automatic rollback)'});done.push(x.id+' '+x.what)}catch(e){failed.push(x.id+': '+e.message)}}
   if(instructions){try{const h=await instructions.history(a);const mine=(h.versions||[]).filter(v=>v.at>=d3.watch.since-1000&&v.by===nameOf(a)).sort((x,y)=>x.v-y.v);
-   if(mine.length&&mine[0].v>1){await instructions.restore(a,mine[0].v-1,'aqeelOS (automatic rollback)');done.push('instructions back to version '+(mine[0].v-1))}}catch(e){failed.push('instructions: '+e.message)}}
+   if(mine.length&&mine[0].v>1){instr={to:mine[0].v-1,was:Math.max(...(h.versions||[]).map(v=>v.v))};await instructions.restore(a,mine[0].v-1,'aqeelOS (automatic rollback)');done.push('instructions back to version '+(mine[0].v-1))}}catch(e){failed.push('instructions: '+e.message)}}
   const text=nameOf(a)+' stopped answering after changing itself, so aqeelOS undid '+(done.length?done.length+' change'+(done.length===1?'':'s')+': '+done.join('; '):'nothing it could undo')+(failed.length?'. Could not undo: '+failed.join('; '):'')+'. Last reason: '+clip(why,200);
-  await lock(a,async()=>{const d4=await load(a);d4.events.push({kind:'rollback',at:now(),text});d4.watch=done.length?{since:now(),due:now()+3*60e3,fails:0}:null;await save(a)});
+  await lock(a,async()=>{const d4=await load(a);d4.events.push({kind:'rollback',at:now(),text,ids:plan.map(x=>x.id),why:clip(why,200),...(instr?{instr}:{})});d4.watch=done.length?{since:now(),due:now()+3*60e3,fails:0}:null;await save(a)});
   log('agent-versions: '+text);{const q=quiet(a);if(q)log('agent-versions: not sent to the owner ('+(q==='test'?'test agent':'restart hold')+')');else await tellOwner(text).catch(()=>{})}
   if(issues)await issues.file({agent:a,what:'Automatic rollback',missing:nameOf(a)+' stopped answering after a self-change',evidence:text,proposed_fix:'Check its logs (my_logs) and the undone changes; the agent can make them again correctly.',origin:{}}).catch(()=>{})}}
+ // ---- rollbacks made for a reason that was not the agent's (12 Nov 2026) ----
+ // Before the provider check, "no answer" because the AI account was used up undid good changes. This finds those rollbacks
+ // (an automatic rollback in the last 48 h whose last reason is a provider limit) and puts the changes back: a setting, a skill
+ // and the instructions version. Anything else (schedules, webhooks) is only listed. Each rollback is restored once.
+ const AUTO='aqeelOS (automatic rollback)',redoable=x=>x.undoable!==false&&(x.kind==='setting'||x.kind==='skill');
+ const reasonOf=e=>e.why||/Last reason: (.*)$/.exec(String(e.text||''))?.[1]||'';
+ function falseRollbacksOf(d,{since=48*HOUR}={}){return d.events.filter(e=>e.kind==='rollback'&&e.at>=now()-since&&(providerUnavailable(reasonOf(e))||/^it did not answer \(\d+\):?$/.test(reasonOf(e).trim())&&outageAt?.(e.at))).map(e=>{
+   const items=d.items.filter(x=>x.state==='undone'&&x.undoneBy===AUTO&&(e.ids?e.ids.includes(x.id):x.undoneAt>=e.at-300e3&&x.undoneAt<=e.at+1000));
+   return {at:e.at,reason:clip(reasonOf(e),200),restoredAt:e.restored||null,instructions:e.instr||null,changes:items.map(x=>({id:x.id,kind:x.kind,target:x.target,what:x.what,redoable:redoable(x)}))}})}
+ async function falseRollbacks(a,o){return falseRollbacksOf(await load(a),o)}
+ async function redo(a,x){if(x.kind==='setting'){const r=await setKey(a,x.target,x.after?.value==null?'':x.after.value);if(!r.ok)throw Error('Could not set '+x.target+' again: '+clip(r.out||r.err,200))}
+  else if(x.kind==='skill'){for(const f of x.before.files||[]){const has=(await git(a,['cat-file','-e',x.after.commit+':'+f])).ok;
+    if(has){const r=await git(a,['checkout',x.after.commit,'--',f]);if(!r.ok)throw Error('Could not bring back '+f)}else await rm(path.join(skillsDir(a),f),{force:true})}
+   await skillsSnap(a,{by:'aqeelOS (false rollback restored)',why:'restored change '+x.id})}
+  else throw Error('Cannot be redone: '+x.kind);
+  return lock(a,async()=>{const d=await load(a);const y=d.items.find(i=>i.id===x.id);y.state='done';y.restoredAt=now();delete y.undoneAt;delete y.undoneBy;await save(a)})}
+ // apply:false only reports what it would put back (the same report that lists what it could not)
+ async function restoreFalseRollbacks(a,{apply=true,since}={}){const d=await load(a),out=[];
+  for(const f of falseRollbacksOf(d,{since})){const rec={...f,restored:[],left:[]};
+   if(!f.restoredAt&&apply){const e=d.events.find(x=>x.kind==='rollback'&&x.at===f.at);
+    for(const c of f.changes.slice().reverse()){const x=d.items.find(i=>i.id===c.id);if(!c.redoable||!x){rec.left.push(c.id+' '+c.what);continue}
+     try{await redo(a,x);rec.restored.push(c.id+' '+c.what)}catch(er){rec.left.push(c.id+': '+er.message)}}
+    if(f.instructions&&instructions){try{await instructions.restore(a,f.instructions.was,'aqeelOS (false rollback restored)');rec.restored.push('instructions back to version '+f.instructions.was)}catch(er){rec.left.push('instructions: '+er.message)}}
+    await lock(a,async()=>{const d2=await load(a);const e2=d2.events.find(x=>x.kind==='rollback'&&x.at===f.at);if(e2){e2.restored=now();d2.events.push({kind:'restored',at:now(),text:'put back what a rollback undid only because the AI provider was not available: '+(rec.restored.join('; ')||'nothing')});await save(a)}});
+    if(rec.restored.length)log('agent-versions: '+a+': restored '+rec.restored.length+' change(s) a rollback undid only because the AI provider was not available')}
+   out.push(rec)}
+  return out}
+ async function restoreAllFalseRollbacks(o){const out={};for(const a of (await listAgents()).filter(x=>!x.includes('--'))){try{const r=await restoreFalseRollbacks(a,o);if(r.length)out[a]=r}catch(e){log('agent-versions restore '+a+': '+e.message)}}return out}
  async function arm(a){return lock(a,async()=>{const d=await load(a);d.watch={since:d.watch?.since&&now()-d.watch.since<HOUR?d.watch.since:now(),due:now()+3*60e3,fails:0};await save(a)})}
  async function skillsTick(){for(const a of (await listAgents()).filter(x=>x!=='default'&&!x.includes('--'))){try{const v=(await skillsSnap(a,{by:nameOf(a),why:'its own skill change'})).filter(x=>x.undoable);if(v.length)log('agent-versions: '+a+' changed '+v.length+' skill(s)')}catch(e){log('agent-versions skills '+a+': '+e.message)}}}
 
@@ -267,7 +300,7 @@ export function createAgentVersions({DATA,HERMES_HOME,DASH,DASH_TOKEN,PUBLIC_URL
  async function undoAny(a,id,{by}={}){if(/^i\d+$/.test(String(id))){const v=+String(id).slice(1);if(!instructions||v<2)throw Error('That instructions version has nothing before it.');await instructions.restore(a,v-1,by||'undo');return {kind:'instructions',v:v-1}}return undo(a,id,{by})}
 
  current=record; // module-level hook for agent-access.mjs (recordAgentChange)
- return {myJobs,updateJob:(a,id,up)=>api('/cron/jobs/'+encodeURIComponent(id)+q(a),{method:'PUT',body:JSON.stringify({updates:up})}),arm,record,undo:undoAny,changes,mySchedules,mySetting,myRuns,myLogs,myHealth,myDeliveries,createWebhook,hookGate,testSend,capabilities,skillsSnap,watchTick,skillsTick,load,
+ return {myJobs,updateJob:(a,id,up)=>api('/cron/jobs/'+encodeURIComponent(id)+q(a),{method:'PUT',body:JSON.stringify({updates:up})}),arm,record,undo:undoAny,changes,mySchedules,mySetting,myRuns,myLogs,myHealth,myDeliveries,createWebhook,hookGate,testSend,capabilities,skillsSnap,watchTick,skillsTick,load,falseRollbacks,restoreFalseRollbacks,restoreAllFalseRollbacks,
   noteSelfChange:async(a,{kind,what,why,by,before,after,undoable})=>record(a,{kind,target:kind,what,why,by:by||nameOf(a),before,after,undoable})}}
 
 // tool list for aqeelos-notify (shown to every agent except the main one, which already changes everything)
