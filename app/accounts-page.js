@@ -71,7 +71,7 @@ PAGES.accounts=async(p,el)=>{const gone=pageTok(el);
   <div class="txt"><b>${esc(name)} · ${g.members.length} accounts${activeChip(g)}</b><span>${g.pool?'aqeelOS uses the account with the most room in this group.':'Used from top to bottom, in the order below. Drag to arrange.'}</span></div>
   <div class="pri-use">${inUse(gUsers(g))}</div>
   ${mixed?'':modelSel(g,i,name,s0.models)}${modeCtl(g,name)}
-  ${moveBtns(i,'the '+name+' group',`<button class="ghost icon-btn pg-tog" data-act="pool-fold" aria-expanded="${open}" aria-label="Show or hide the accounts in the ${esc(name)} group">${icon('chevD',16)}</button>`)}</div>
+  ${moveBtns(i,'the '+name+' group',`<button class="ghost icon-btn pg-tog" data-act="pool-fold" aria-expanded="${open}" title="Show or hide the accounts in the ${esc(name)} group"><span>${open?'Hide':'Show'}</span>${icon('chevD',14)}</button>`)}</div>
   <div class="pg-fold"><div class="pg-mems">${g.members.map((e,mi)=>{const s=byKey[e.key],n=usedBy(e.key).length,[sc,sl]=state(s);
    return `<div class="pg-mem" draggable="true" data-mem="${i}:${mi}"><div class="pg-name"><b>${esc(s.name)}</b>${e.key===g.next?'<span class="chip pg-next" title="The next agent that needs an account gets this one">Next</span>':''}${s.status==='ok'?'':`<span class="pri-st ${sc}"><i class="dot"></i>${sl}</span>`}</div>
    <div class="pri-lim">${bars(s)}</div><span class="pg-ag">${n?plural(n,'agent'):'No agent'}</span>${mixed?`<div class="pri-sel"><select data-mem-model="${i}:${mi}" style="width:auto" aria-label="Model on ${esc(s.name)}"><option value="">Keep each agent's model</option>${s.models.map(m=>`<option value="${esc(m)}" ${m===e.model?'selected':''}>${esc(modelLabel(m))}</option>`).join('')}</select></div>`:''}
@@ -174,7 +174,7 @@ ACT['pri-join']=a=>{const l=priGroups(),[g]=l.splice(+a.dataset.i,1);if(!g)retur
 // a group's one setting: Most room first, or In my order
 ACT['pool-mode']=async a=>{if(a.classList.contains('on'))return;try{await put(UI,'/ui/accounts/group-mode',{kind:a.dataset.kind,mode:a.dataset.mode});toast(a.dataset.mode==='room'?'The account with the most room is used first':'Used in your order, top to bottom');reload()}catch(e){fail(e)}};
 // a group's accounts fold open and shut smoothly; which ones are shut is remembered on this device
-ACT['pool-fold']=a=>{const p=a.closest('.pri-pool'),open=!p.classList.contains('open');p.classList.toggle('open',open);a.setAttribute('aria-expanded',open);
+ACT['pool-fold']=a=>{const p=a.closest('.pri-pool'),open=!p.classList.contains('open');p.classList.toggle('open',open);a.setAttribute('aria-expanded',open);{const l=a.querySelector('span');if(l)l.textContent=open?'Hide':'Show'}
  try{const l=new Set(JSON.parse(localStorage.getItem('aq-pools-shut')||'[]'));if(open)l.delete(p.dataset.pool);else l.add(p.dataset.pool);localStorage.setItem('aq-pools-shut',JSON.stringify([...l]))}catch{}};
 Pages.priAddMenu=el=>{const pri=Pages._pri,has=(k,m)=>pri.some(e=>e.key===k&&e.model===m);const items=[];
  for(const s of Pages._acctSrc.filter(x=>!x.isTeam)){if(!pri.some(e=>e.key===s.key)){items.push({label:s.name,icon:s.key.startsWith('claude:')?'user':'cpu',run:()=>savePri([...pri,{key:s.key,model:''}])});continue}

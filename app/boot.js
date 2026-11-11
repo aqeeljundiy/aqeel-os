@@ -143,7 +143,7 @@ const Metrics={c:{},
   b.querySelectorAll('[data-mt]').forEach(x=>x.onclick=()=>this.save(x.dataset.mt[0]==='1',x.dataset.mt[1]==='1',box))},
  async mount(el){if(S.me?.admin===false||el.querySelector('#metricsBox'))return;const col=el.querySelector('[data-act="cfg-defaults"]')?.closest('.panel')?.parentElement;
   // "All agents" shows a list instead of the form: the card goes under it, for the agent you chat with
-  if(col)col.insertAdjacentHTML('beforeend',this.card());else{el.insertAdjacentHTML('beforeend',`<div style="margin-top:16px;max-width:560px">${this.card()}</div>`)}
+  if(col)col.insertAdjacentHTML('beforeend',this.card());else{el.insertAdjacentHTML('beforeend',`<div style="margin-top:16px">${this.card()}</div>`)}
   const box=el.querySelector('#metricsBox'),ag=this.who();if(this.c[ag])this.paint(box,this.c[ag]);
   try{const c=await H('/shared-metrics/consent');this.c[ag]=c;if(box.isConnected)this.paint(box,c)}catch(e){if(e?.stale)return;if(box.isConnected&&!this.c[ag])this.paint(box,null)}},
  async ask(){const k='hui-metricsAsked:'+this.who();try{if(sessionStorage.getItem(k))return;sessionStorage.setItem(k,'1')}catch{}
