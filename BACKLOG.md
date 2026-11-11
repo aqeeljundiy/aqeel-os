@@ -24,6 +24,8 @@ _Last updated: 11 Nov 2026_
 
 - [x] **HEALTH-0** Answered (11 Nov): cost by **person** next to cost by agent, see HEALTH-7.
 - [ ] **CODE-50** aqeelOS app for Mac: run `gh auth refresh -s workflow` (from the old board).
+- [ ] **OPS-17** Swap on Elkiya (it has none; programs had asked for twice the RAM, so a spike kills agents): add 16 GB on the **host** 187.40.232.117 as root (the AI box is a container). Command given in chat 11 Nov; check free disk first (df -h /, Elkiya is 73% full: use 8G if under 30 GB free). Owner has the access.
+- [~] **OPS-18** browser_harness.daemon processes pile up on Elkiya (about one per agent per day, orphaned; 35 removed by hand 10 Nov, ~1.4 GB). Being fixed 11 Nov with OPS-16.
 
 ## Next, in this order
 
@@ -88,7 +90,7 @@ Found:
 - P&P has no install-wide Google client (`~/.hermes/google_client_secret.json`). The only client is Pixel Agent's own: Google Cloud project `peaceful-app-511818-u2`, a Desktop client from 19 Oct, signed in as aqeel@pixelandprofits.com. It's not shared.
 - Connections › Connect Google is admin-only (`/ui/google/*`: "Only admins connect Google accounts").
 - So Fakhri's agent had no free route it could take for an employee. Its standing rule says to suggest Composio "when the setup needs admin access the person does not have", and no agent text mentions Connect Google at all.
-- [ ] **GOOG-1** (you are doing it, 11 Nov) One Web-type Google client per install: in Google Cloud (Pixel's existing project peaceful-app-511818-u2 is fine), create an OAuth client of type Web application with redirect https://ai.pixelandprofits.com/google-oauth/callback, and upload its file in Connections › Add › A Google account. Same once on Elkiya if it has none.
+- [ ] **GOOG-1** (owner: Google Cloud part done 11 Nov; the upload is not on P&P yet — Connections › Add › A Google account › upload the JSON; External + Publish app agreed, so any Google account can sign in) One Web-type Google client per install: in Google Cloud (Pixel's existing project peaceful-app-511818-u2 is fine), create an OAuth client of type Web application with redirect https://ai.pixelandprofits.com/google-oauth/callback, and upload its file in Connections › Add › A Google account. Same once on Elkiya if it has none.
 - [ ] **GOOG-7** Remove the "WO Dashboard - Google Sheet" entry from Fakhri Agent once his Google account is connected.
 - [~] **GOOG-2** (live since 411d62b, built in b983ba0) Employees connect their **own** Google account for their own agents (sign-in link or the Connect Google card). Setting up the Google Cloud client stays admin-only.
 - [~] **GOOG-4** (live since 411d62b, built in b983ba0) The "Add MCP tool" form accepted a Google Sheets link as a tool: "WO Dashboard - Google Sheet" in Fakhri Agent's config is just `url: https://docs.google.com/spreadsheets/...`. Fakhri saw a sign-in button and thought it was connected, then sign-in failed with "Bad name". The form must refuse a web page that isn't an MCP server, recognise Google links and send the person to Connect Google, and refuse tool names with spaces up front.
