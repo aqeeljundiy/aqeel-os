@@ -23,6 +23,7 @@ import {createFixerGit} from './fixer-git.mjs';
 import {createCloudFixer} from './cloud-fixer.mjs';
 import {createLiveDrift} from './live-drift.mjs';
 import {withTebar} from './tebar-app.mjs';   // Tebar in the catalog: one click sign-in, or a pasted API key (11 Nov 2026)
+import {createEventHooks} from './event-hooks.mjs';   // a payment found PAID runs the agent's recap script at once, no model (12 Nov 2026)
 import {createEventRuns} from './event-runs.mjs';   // a Tebar event starts the matching schedule at once (11 Nov 2026)
 import {createTebar} from './tebar.mjs';   // Tebar webhooks: failed posts and expired accounts as alerts, comments and DMs as notices (11 Nov 2026)
 import {mcpAddProblem} from './mcp-add-check.mjs';   // an app added by address: no spaces in its name, no Google file links (11 Nov 2026)
@@ -1535,7 +1536,15 @@ if(LIVE_APP)setTimeout(()=>kirimdev.resume().catch(e=>console.warn('kirimdev res
 // a confirmed payment labels the contact (Customer, S-…, no Checkout): code, every minute, on the live box only
 // a paid order goes to the line's Orders topic with the same check (8 Nov 2026)
 const lineOrders=async a=>{const l=(await kirimdev.lines().catch(()=>({})))[a],o=l?.orders;return o?.chatId?{chatId:o.chatId,threadId:o.threadId||null,persona:l.persona||a,currency:l.payment?.currency||'',context:l.payment?.orderContext||null}:null};
-const paidLabels=createPaidLabels({DATA,WORK:path.join(homedir(),'workspaces'),label:(a,o)=>kirimdev.labelContact(a,o),orders:lineOrders,post:(a,t,text)=>kirimdev.teamPost(a,t.chatId,t.threadId,text),failed:(a,topic,title,detail)=>health.problem(a,'handoff',title,{topic,fix:detail})});
+// event hooks (event-hooks.mjs, DATA/event-hooks.json): the script runs as the agent's own user, what it prints goes to the chat the schedule delivered to
+const eventHooks=createEventHooks({DATA,WORK:path.join(homedir(),'workspaces'),enabled:()=>LIVE_APP,
+ runAs:async(a,remote,ms)=>{const c=await readConfig(a).catch(()=>null)||{};const user=String(pick(c,'terminal.ssh_user')||'');if(!/^ag-[\w-]+$/.test(user))return {ok:false,err:'this agent has no own user'};
+  const {execFile}=await import('node:child_process');return new Promise(res=>execFile('ssh',['-i',path.join(HERMES_HOME,'agent-ssh','id_ed25519'),'-o','BatchMode=yes','-o','IdentitiesOnly=yes','-o','StrictHostKeyChecking=accept-new','-o','ConnectTimeout=20',user+'@127.0.0.1',
+   "cd '"+path.join(homedir(),'workspaces',String(a).split('--')[0])+"' && "+remote],{timeout:ms,encoding:'utf8',maxBuffer:4e6},(e,out,err)=>res({ok:!e,out:out||'',err:err||(e?e.message:''),code:e?(e.killed?124:typeof e.code==='number'?e.code:1):0})))},
+ deliver:async(a,target,text)=>{const m=/^telegram:(-?\d+)(?::(\d+))?$/.exec(String(target||''));if(!m)throw Error('delivery to '+target+' is not supported (telegram:<chat>[:<topic>])');
+  if(!await kirimdev.teamPost(a,m[1],m[2]?Number(m[2]):null,text))throw Error('Telegram did not take the message')},
+ problem:(a,topic,title,fix)=>health.problem(a,'run',title,{topic,fix}),solved:(a,topic)=>health.ok(a,topic),log:m=>console.log(m)});
+const paidLabels=createPaidLabels({DATA,WORK:path.join(homedir(),'workspaces'),onEvent:(a,ev)=>eventHooks.fire(a,ev),label:(a,o)=>kirimdev.labelContact(a,o),orders:lineOrders,post:(a,t,text)=>kirimdev.teamPost(a,t.chatId,t.threadId,text),failed:(a,topic,title,detail)=>health.problem(a,'handoff',title,{topic,fix:detail})});
 if(LIVE_APP)setInterval(()=>paidLabels.tick().catch(e=>console.warn('paid labels',e.message)),60e3).unref();
 // the labels a line's agent may set (Line settings) that Kirimdev still has, and Kirimdev's S- labels for create_payment
 async function kirimdevLabelRules(a){const l=(await kirimdev.lines().catch(()=>({})))[a];if(!l)return {};const all=await kirimdev.labelList().catch(()=>null);if(!all)return {allowed:l.labels?.allowed||[]};
@@ -2404,6 +2413,10 @@ const server=createServer(async(req,res)=>{
   {const mr=/^\/run-gate\/([\w-]+)\/([\w-]+)\/([\w-]+)$/.exec(p);if(mr){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
    const x=Buffer.from(String(mr[3])),y=Buffer.from(String(relay.sig(mr[1])));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,'bad signature');
    const t=await runGates.check(mr[1],mr[2],{nothing:url.searchParams.get('nothing')==='1'}).catch(()=>'aqeelOS run check: clear to run.\n{"wakeAgent": true}');res.writeHead(200,{'content-type':'text/plain; charset=utf-8'});return res.end(t+'\n')}}
+  // the slow fallback run of an event hook (event-hooks.mjs, scripts/hooks-wire.mjs): from this box only, signed per agent; 200 when the run went well, else 500 with the error
+  {const mh=/^\/event-hook\/([\w-]+)\/([\w-]+)\/([\w-]+)$/.exec(p);if(mh){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
+   const x=Buffer.from(String(mh[3])),y=Buffer.from(String(relay.sig(mh[1])));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,'bad signature');
+   const e=await eventHooks.runNow(mh[1],mh[2]).catch(e=>e.message);res.writeHead(e?500:200,{'content-type':'text/plain; charset=utf-8'});return res.end((e||'ok')+'\n')}}
   // the posting gate an agent's posting schedule runs first (posting-limits.mjs): from this box only, signed per agent
   {const mg=/^\/posting-gate\/([\w-]+)\/([\w-]+)$/.exec(p);if(mg){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
    const x=Buffer.from(String(mg[2])),y=Buffer.from(String(relay.sig(mg[1])));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,'bad signature');
