@@ -82,6 +82,8 @@ body{overflow:hidden}
 @media (max-width:600px){.banner{padding:10px 16px;gap:8px 12px}}
 
 /* page layout */
+/* the scrollbar keeps its place on short pages too, so the column does not sit 5px further right on Logs or Keys than on Settings */
+.view:has(>.page:not(.page-full)){scrollbar-gutter:stable}
 .page{max-width:1080px;margin:0 auto;padding:32px 32px 80px}
 .page-head{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin-bottom:24px}
 .page-head h1{font-size:28px;font-weight:600;letter-spacing:-.8px;margin:12px 0 6px}
@@ -385,6 +387,8 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .sel-btn.open{border-color:var(--blue);box-shadow:0 0 0 3px rgba(1,88,203,.18)}
 .sel-btn.open svg{transform:rotate(180deg)}
 .sel-btn.inline{width:auto;min-width:140px}
+/* a picker in a toolbar is as tall as the search box and buttons beside it; an icon in front of its value keeps a gap */
+.toolbar>.sel-btn{min-height:40px;height:40px;padding-block:0}.sel-btn .sv>svg{margin-right:6px;vertical-align:-2px}
 /* time and date pickers (timePick, dateTimePick, datePop in core.js) */
 .tp-wrap{position:relative;display:block}.tp-wrap input{padding-right:44px;font-variant-numeric:tabular-nums}.tp-wrap .tp-btn{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:34px;min-height:34px;height:34px;color:var(--muted)}
 .tp-wrap .tp-btn:hover{transform:translateY(-50%);color:var(--ink)}.tp-wrap.open input{border-color:var(--blue);box-shadow:0 0 0 3px rgba(1,88,203,.18)}
@@ -579,8 +583,8 @@ body.dragging .screen-float{transition:none}
 .acct-more-btn{margin:-6px -8px 0 0;flex:none}.acct-st{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:24px}
 .acct-none{margin:0}.acct-names{font-size:13px;color:var(--ink-2)}
 /* Switch automatically: the switch and the level side by side when there is room; recent switches as tidy rows */
-.auto-ctl{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;align-items:stretch;margin:4px 0 6px}
-.auto-on,.auto-th{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border:1px solid var(--border);border-radius:14px;min-width:0}.auto-on>span,.auto-th>span{min-width:0}.auto-th .sel-btn{flex:none}
+.auto-ctl{display:grid;grid-template-columns:minmax(0,1fr);margin:4px 0 6px;border:1px solid var(--border);border-radius:16px}
+.auto-on,.auto-th{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:64px;padding:10px 14px;border-top:1px solid var(--border);min-width:0}.auto-ctl>:first-child{border-top:0}.auto-on>span,.auto-th>span{min-width:0}.auto-th .sel-btn{flex:none}
 .auto-on b,.auto-th b{display:block;font-size:13.5px;font-weight:600;color:var(--ink)}.auto-on small,.auto-th small{display:block;font-size:12px;color:var(--muted);font-weight:400;margin-top:2px}
 .sw-h{font-size:13.5px;margin:18px 0 6px;display:flex;align-items:baseline;justify-content:space-between;gap:4px 12px;flex-wrap:wrap}.sw-n{font-size:12.5px;font-weight:400;color:var(--muted)}
 .sw-list{display:flex;flex-direction:column}.sw-row{display:grid;grid-template-columns:118px minmax(0,1fr) auto;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--border);font-size:13px}
@@ -816,19 +820,21 @@ body.dragging .screen-float{transition:none}
 .pri-pool:hover{box-shadow:0 10px 24px -18px rgba(11,12,16,.35)}.pri-pool.dragging{opacity:.45}.pri-pool.over{border-color:var(--blue-2);transform:translateY(2px)}
 .pri-pool>.pri-head{border:0;border-radius:16px;background:none;animation:none;cursor:inherit}.pri-pool>.pri-head:hover{box-shadow:none}
 .pri-head>.txt{grid-column:txt-start/lim-end}.pri-row.pri-head .txt>span{white-space:normal;overflow:visible}
-.pg-tog svg{transition:transform var(--t-med) var(--ease)}.pri-pool.open .pg-tog svg{transform:rotate(180deg)}
+.pri-btns .icon-btn.pg-tog{width:auto;padding:0 10px 0 12px;margin-right:6px;display:inline-flex;align-items:center;gap:4px;font-size:12.5px;font-weight:500;color:var(--ink-2)}.pg-tog svg{transition:transform var(--t-med) var(--ease)}.pri-pool.open .pg-tog svg{transform:rotate(180deg)}
 .pg-fold{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows var(--t-med) var(--ease),opacity var(--t-med) var(--ease)}.pg-fold>.pg-mems{overflow:hidden;min-height:0}
 .pri-pool.open>.pg-fold{grid-template-rows:1fr;opacity:1}
 .pg-mem{display:grid;grid-template-columns:minmax(120px,1fr) minmax(220px,1.3fr) 72px auto;align-items:center;column-gap:12px;row-gap:6px;margin:0 12px;padding:8px 0 8px 68px;border-top:1px solid var(--border);cursor:grab;transition:opacity var(--t-fast)}
-.pg-mem.dragging{opacity:.45}
+.pg-mem.dragging{opacity:.45}.pg-mem>.pri-lim{grid-area:auto}
 .pg-name{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap}.pg-name b{font-size:13.5px;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .pg-name .pri-st{display:inline-flex;align-items:center;gap:6px;font-size:12.5px}
 .chip.pg-next{flex:none;font-size:11px;padding:1px 8px;font-weight:600;color:var(--blue-deep);background:var(--blue-soft);border-color:transparent}
 .pg-ag{font-size:12.5px;color:var(--muted);white-space:nowrap;text-align:right}
 .pg-mem .pri-btns .icon-btn{width:28px;height:28px;min-height:28px}
 /* a narrower panel (Models at 800 px): name, who and buttons on the first line; limits, then the model, under the name */
-@container (max-width:640px){.pri-head>.txt{grid-column:txt}.pg-mem{grid-template-columns:minmax(0,1fr) auto auto;padding-left:36px}.pg-mem>.pri-lim{grid-column:1/-1;grid-row:2;max-width:460px}}
+@container (max-width:640px){.pri-head>.txt{grid-column:txt}.pg-mem{grid-template-columns:minmax(0,1fr) auto auto;padding-left:36px}.pg-mem>.pri-lim{grid-area:2/1/3/-1;max-width:460px}}
 @container (max-width:480px){.pg-mem{padding-left:0}}
+@container (max-width:640px){.pri-row.pri-head{grid-template-areas:'n logo txt txt' '. . btn btn' '. . use use' '. . sel sel'}.pri-head>.pri-btns{justify-self:start;margin-left:-8px}}
+@container (max-width:480px){.pri-row.pri-head{grid-template-areas:'n logo txt txt' '. . btn btn' '. . use use' 'sel sel sel sel'}}
 @container (max-width:640px){.pri-row{grid-template-columns:24px 32px minmax(0,1fr) auto;grid-template-areas:'n logo txt btn' '. . lim lim' '. . use use' '. . sel sel'}.pri-sel{justify-self:start;max-width:100%}.pri-lim{max-width:460px}.pri-use{min-height:0}}
 /* a phone: who is on it gets its own line too, the model picker the full width */
 @container (max-width:480px){.pri-row{column-gap:10px;grid-template-areas:'n logo txt btn' '. . lim lim' '. . use use' 'sel sel sel sel'}.pri-sel,.pri-sel .sel-btn{justify-self:stretch;max-width:none;width:100%}.pri-btns .icon-btn{width:28px}}
@@ -892,7 +898,7 @@ button.small{min-height:32px;padding:0 14px;font-size:13px;gap:6px}
 /* refreshing the page you are on: content swaps in place, nothing re-animates */
 /* same-page redraws: calm motion (core.js) stops their fades before they paint; a switch here would restart them all when it lifts */
 /* labels inside panels breathe like the ones in drawers */
-.panel label:not(.capt):not(.pick):not(.switch):not([class*="toggle"]){display:block;font-size:13px;font-weight:500;color:var(--ink-2);margin:16px 0 6px}
+.panel label:not(.capt):not(.pick):not(.switch):not([class*="toggle"]):not(.pct-in):not(.cf-gh):not(.cf-f){display:block;font-size:13px;font-weight:500;color:var(--ink-2);margin:16px 0 6px}
 .panel .sub+label,.panel h2+label,.panel>div>label:first-child{margin-top:4px}
 .panel .sched-row{gap:12px}
 /* pressing things feels physical */
@@ -1510,7 +1516,8 @@ mark.hit.first{animation:hitFlash 1.4s var(--ease)}@keyframes hitFlash{0%,100%{b
 .oa-meta,.oa-err,.oa-cli{display:block;font-size:12px;color:var(--muted);margin-top:3px;white-space:normal}.oa-err{color:var(--bad)}.oa-meta:empty{display:none}
 .oa-cli{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.oa-cli code{font-size:12px;padding:3px 8px;border-radius:8px;background:var(--soft-2);overflow-wrap:anywhere}.oa-cli .icon{width:28px;min-height:28px}
 /* Team of models: ordered advisor rows */
-.moa-slots{display:flex;flex-direction:column;gap:8px}
+.moa-slots{display:flex;flex-direction:column;gap:8px}.moa-btns .icon-btn{width:30px;height:30px;min-height:30px;padding:0;display:grid;place-items:center}
+.moa-row .txt b{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.moa-row .txt b .chip{display:inline-flex;flex:none;width:auto;margin:0;font-size:11px;padding:1px 8px;font-weight:500;overflow:visible}.moa-row .txt>span{white-space:normal}
 .moa-slot{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:14px;background:var(--surface);transition:opacity var(--t-fast),transform var(--t-fast)}
 .moa-slot .sel-btn{flex:1;min-width:0}.moa-slot select{flex:1}.moa-btns{display:flex;gap:2px;flex:none}.moa-slot.moa-in{animation:rise var(--t-med) var(--ease) both}.moa-slot.closing{opacity:0;transform:translateY(-4px)}
 @media (max-width:520px){.moa-slot{flex-wrap:wrap}.moa-slot .sel-btn{flex-basis:100%}}
@@ -2366,12 +2373,12 @@ button.acct-more{font:inherit;cursor:pointer;width:100%;background:var(--surface
 /* A number with its unit in one field (12 Nov 2026). The field is the label: it has the border, the radius and the focus ring. The input
    inside is bare and as tall as the field. Before, the input kept the base input:focus ring (box-shadow) and radius from brand.css, which
    drew a second, smaller rounded box around the digits only, off-centre inside the field. */
-.pct-in{display:inline-flex;align-items:center;gap:0;height:40px;padding:0;border:1px solid var(--border);border-radius:12px;background:var(--surface);flex:none;cursor:text;font-size:15px;line-height:1;font-variant-numeric:tabular-nums;transition:border-color var(--t-fast,.15s) var(--ease,ease),box-shadow var(--t-fast,.15s) var(--ease,ease)}
+.pct-in{display:inline-flex;align-items:center;gap:0;height:40px;margin:0;padding:0;font-weight:400;color:var(--ink);border:1px solid var(--border);border-radius:12px;background:var(--surface);flex:none;cursor:text;font-size:15px;line-height:1;font-variant-numeric:tabular-nums;transition:border-color var(--t-fast,.15s) var(--ease,ease),box-shadow var(--t-fast,.15s) var(--ease,ease)}
 .pct-in:hover{border-color:var(--blue-2)}
 .pct-in:focus-within{border-color:var(--blue);box-shadow:0 0 0 3px rgba(1,88,203,.18)}
 .pct-in input,.pct-in input:focus,.pct-in input:focus-visible{align-self:stretch;flex:none;width:calc(3ch + 14px);min-width:0;height:auto;min-height:0;margin:0;padding:0 0 0 14px;border:0;border-radius:0;outline:0;box-shadow:none;background:none;font:inherit;text-align:right;color:var(--ink);appearance:textfield;-moz-appearance:textfield;transition:none}
 .pct-in input::-webkit-outer-spin-button,.pct-in input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
-.pct-in span{padding:0 14px 0 6px;font-size:inherit;line-height:inherit;color:var(--muted);white-space:nowrap;user-select:none}
+.pct-in span{padding:0 14px 0 6px;font-size:13.5px;line-height:1;color:var(--muted);white-space:nowrap;user-select:none}
 @media (max-width:760px){.pct-in{font-size:16px}}
 
 /* Channels › Kirimdev (kirimdev-page.js, 7 Nov 2026): the API key, then one block per Kirimdev line. Texts wrap (no
@@ -3086,22 +3093,32 @@ button.bad:hover{background:color-mix(in srgb,var(--bad) 8%,transparent);border-
 .bn-in{display:flex;flex-wrap:wrap;gap:6px;width:100%;animation:cardIn 180ms var(--ease,ease) both}.bn-in input,.bn-in textarea{flex:1 1 220px;min-width:0;border-radius:10px}
 
 /* Cloud fixer card (cloud-fixer-page.js): the Models priority row, plus an inline three-step panel that opens smoothly */
-.cf-box{margin-bottom:16px}.cf-box .cf-line{margin:-6px 0 14px;font-size:13px;line-height:1.5}.cf-list{display:flex;flex-direction:column;gap:8px}
-.cf-item{display:flex;flex-direction:column}
-.cf-row.pri-row{cursor:default;grid-template-columns:24px 32px minmax(150px,1fr) minmax(220px,1.3fr) auto;grid-template-areas:'n logo txt lim btn';animation:none}
-.cf-row .cf-btns{grid-area:btn;display:flex;gap:6px;align-items:center;justify-content:flex-end}
-.cf-next{margin-left:8px;font-size:11px;padding:1px 8px;font-weight:500;vertical-align:1px;color:var(--muted);background:var(--soft)}
+.cf-box{margin-bottom:16px}.cf-box:not(:first-child){margin-top:16px}.cf-box .cf-line{margin:-6px 0 14px;font-size:13px;line-height:1.5}.cf-list{display:flex;flex-direction:column;gap:8px}
+/* one card per account: the row, what its last test said and the connect steps all sit inside the same rounded border */
+.cf-item{display:flex;flex-direction:column;border:1px solid var(--border);border-radius:16px;background:var(--surface);transition:border-color var(--t-fast),box-shadow var(--t-fast)}
+.cf-item.open{border-color:var(--blue-2);box-shadow:0 10px 24px -18px rgba(11,12,16,.35)}
+.cf-row.pri-row{cursor:default;border:0;background:none;border-radius:16px;grid-template-columns:24px 32px minmax(150px,1fr) minmax(220px,1.3fr) auto;grid-template-areas:'n logo txt lim btn';animation:none}.cf-row.pri-row:hover{box-shadow:none}
+.cf-row .cf-btns{grid-area:btn;display:flex;gap:6px;align-items:center;justify-content:flex-end;min-width:150px}
+.cf-row .txt b .cf-name{display:block;min-width:0;font-size:14px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pri-row .txt .cf-next{display:inline-flex;flex:none;font-size:11px;padding:1px 8px;font-weight:500;color:var(--muted);background:var(--soft);border-color:transparent;overflow:visible}
 .pri-st.warn{color:var(--warn)}.pri-st.warn .dot{background:var(--warn)}
-.cf-say-row{margin:6px 12px 0;font-size:12.5px}.cf-say-row:empty{display:none}
-.cf-steps{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows var(--t-med) var(--ease),opacity var(--t-med) var(--ease)}
-.cf-item.open .cf-steps{grid-template-rows:1fr;opacity:1}.cf-steps-in{overflow:hidden;min-height:0}
-.cf-ol{list-style:none;margin:8px 0 0;padding:14px 16px;display:grid;gap:16px;border:1px solid var(--border);border-radius:16px;background:var(--soft-2)}
-.cf-ol li{display:grid;grid-template-columns:24px minmax(0,1fr);gap:12px;align-items:start}.cf-ol li>div{display:grid;gap:6px;justify-items:start;min-width:0}
-.cf-ol b{font-size:14px;font-weight:600}.cf-ol .hint{margin:0;font-size:12.5px;line-height:1.5}
-.cf-fields{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;width:100%}.cf-fields input{min-width:0}
-.cf-go-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.cf-go-row .hint{flex:1 1 220px}
-.cf-pr{width:100%;font-size:12.5px;color:var(--ink-2)}.cf-pr summary{cursor:pointer;color:var(--blue);font-weight:500}.cf-pr pre{margin:8px 0 0;max-height:260px;overflow:auto;white-space:pre-wrap;font-family:var(--mono);font-size:12px;line-height:1.5;padding:12px;border-radius:12px;background:var(--surface);border:1px solid var(--border)}
-.cf-once{margin-top:14px;font-size:13px;color:var(--ink-2)}.cf-once summary{cursor:pointer;color:var(--blue);font-weight:500}.cf-once>.hint{margin:8px 0}
-.cf-gh{display:flex;align-items:flex-start;gap:12px;padding:8px 0;cursor:pointer}.cf-gh span{display:grid;gap:2px}.cf-gh small{font-size:12px;color:var(--muted);line-height:1.45}
-@container (max-width:640px){.cf-row.pri-row{grid-template-columns:24px 32px minmax(0,1fr);grid-template-areas:'n logo txt' '. . lim' '. . btn'}.cf-row .cf-btns{justify-content:flex-start}.cf-fields{grid-template-columns:minmax(0,1fr)}}
-@media (prefers-reduced-motion:reduce){.cf-steps{transition:none}}
+.cf-say-row{margin:-2px 12px 12px 92px;font-size:12.5px;line-height:1.5}.cf-say-row.bad{color:var(--bad)}.cf-say-row:empty{display:none}
+.cf-steps{display:grid;grid-template-rows:0fr;opacity:0;visibility:hidden;transition:grid-template-rows var(--t-med) var(--ease),opacity var(--t-med) var(--ease),visibility 0s linear var(--t-med)}
+.cf-item.open .cf-steps{grid-template-rows:1fr;opacity:1;visibility:visible;transition-delay:0s}.cf-steps-in{overflow:hidden;min-height:0}
+.cf-ol{list-style:none;margin:0;padding:16px 16px 16px 12px;display:grid;gap:18px;border-top:1px solid var(--border)}
+.cf-ol li{display:grid;grid-template-columns:24px minmax(0,1fr);gap:12px;align-items:start}.cf-ol li>div{display:grid;gap:8px;justify-items:start;min-width:0;max-width:640px}
+.cf-n{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:var(--blue-soft);color:var(--blue-deep);font-size:12px;font-weight:600}
+.cf-ol b{font-size:14px;font-weight:600;line-height:24px}.cf-ol .hint{margin:-4px 0 0;font-size:13px;line-height:1.5}
+.cf-fields{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;width:100%}.cf-fields input{min-width:0;width:100%}
+.cf-fields label.cf-f{display:grid;gap:6px;margin:0;font-size:12.5px;font-weight:500;color:var(--ink-2)}
+.cf-go-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;width:100%}.cf-go-row .hint{flex:1 1 220px;margin:0}
+.cf-pr,.cf-once{interpolate-size:allow-keywords}
+.cf-pr{width:100%;font-size:13px}.cf-pr summary,.cf-once summary{display:inline-flex;align-items:center;gap:8px;cursor:pointer;color:var(--blue);font-weight:500;border-radius:8px}
+.cf-pr summary::before,.cf-once summary::before{content:"";width:6px;height:6px;margin:0 2px 0 3px;border-right:1.8px solid currentColor;border-bottom:1.8px solid currentColor;transform:rotate(-45deg);transition:transform var(--t-fast) var(--ease);flex:none}.cf-pr[open] summary::before,.cf-once[open] summary::before{transform:rotate(45deg)}
+.cf-pr::details-content,.cf-once::details-content{block-size:0;overflow:hidden;transition:block-size var(--t-med) var(--ease),content-visibility var(--t-med) allow-discrete}.cf-pr[open]::details-content,.cf-once[open]::details-content{block-size:auto}
+.cf-pr pre{margin:8px 0 0;max-height:260px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-family:var(--mono);font-size:12px;line-height:1.5;padding:12px;border-radius:12px;background:var(--soft-2);border:1px solid var(--border);color:var(--ink-2)}
+.cf-once{margin-top:14px;font-size:13px;color:var(--ink-2)}.cf-gh-n{font-size:12px;font-weight:500;color:var(--muted);background:var(--soft);border-radius:var(--r-pill);padding:1px 8px}
+.cf-once-in{padding:10px 0 0}.cf-once-in>.hint{margin:0 0 6px;font-size:13px}
+label.cf-gh{display:flex;align-items:flex-start;gap:12px;margin:0;padding:8px 0;cursor:pointer;font-size:13.5px;color:var(--ink)}.cf-gh input{margin-top:1px;flex:none}.cf-gh>span{display:grid;gap:2px;min-width:0}.cf-gh b{font-weight:600}.cf-gh small{font-size:12.5px;font-weight:400;color:var(--muted);line-height:1.45}
+@container (max-width:640px){.cf-row.pri-row{grid-template-columns:24px 32px minmax(0,1fr);grid-template-areas:'n logo txt' '. . lim' '. . btn'}.cf-row .cf-btns{justify-content:flex-start;min-width:0}.cf-row .txt b .cf-name{white-space:normal}.cf-fields{grid-template-columns:minmax(0,1fr)}.cf-say-row{margin-left:12px}.cf-ol{padding-right:12px}}
+@media (prefers-reduced-motion:reduce){.cf-steps,.cf-item{transition:none}}
