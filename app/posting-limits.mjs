@@ -16,11 +16,12 @@ import path from 'node:path';
 import {randomBytes} from 'node:crypto';
 
 export const DEFAULTS={on:false,perDay:20,perHour:3,gapMin:10,perRun:2,quietFrom:1,quietTo:5,quietPerHour:1,hotShare:0,afterMissingPerHour:2,afterMissingHours:6,
- stopFile:'',checkUrl:'',alert:'',tz:'',recheckMin:30};   // '' = the box's zone (tz.mjs)
+ stopFile:'',checkUrl:'',alert:'',tz:'',recheckMin:30,subject:''};   // subject: what the limits govern (thread, comment or dm); '' = read from the pause file and page   // '' = the box's zone (tz.mjs)
 const NUM={perDay:[1,500],perHour:[1,60],gapMin:[0,240],perRun:[1,20],quietFrom:[0,23],quietTo:[0,24],quietPerHour:[0,60],hotShare:[0,100],afterMissingPerHour:[0,60],afterMissingHours:[0,72],recheckMin:[5,240]};
 export function clean(r){const o={...DEFAULTS};for(const [k,v] of Object.entries(r||{})){if(!(k in DEFAULTS))continue;
   if(k in NUM){const n=Math.round(Number(v));if(!Number.isFinite(n))throw Error(k+' must be a number');const [lo,hi]=NUM[k];o[k]=Math.min(hi,Math.max(lo,n))}
   else if(k==='on')o.on=!!v;
+  else if(k==='subject'){const s=String(v||'').trim().toLowerCase();if(s&&!['thread','comment','dm'].includes(s))throw Error('The limits govern thread, comment or dm');o.subject=s}
   else if(k==='stopFile'){const s=String(v||'').trim();if(s&&(s.startsWith('/')||s.split('/').includes('..')))throw Error('The pause file is a path inside the agent’s folder, like .tools/STOP_COMMENTS');o.stopFile=s.slice(0,200)}
   else if(k==='checkUrl'){const s=String(v||'').trim();if(s&&!/^https:\/\/[^\s]+$/.test(s))throw Error('The page to check is a full https:// address');o.checkUrl=s.slice(0,300)}
   else if(k==='alert'){const s=String(v||'').trim();if(s&&!/^telegram:-?\d+(:\d+)?$/.test(s))throw Error('Alerts go to telegram:<chat id> or telegram:<chat id>:<topic id>');o.alert=s}
