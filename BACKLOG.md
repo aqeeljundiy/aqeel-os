@@ -14,23 +14,13 @@ _Last updated: 11 Nov 2026_
 
 ## Now
 
-- [~] **GIT-1** Taking the fixer's lost fixes into git: on GitHub main as `4f7243a` (88 tests pass), waiting for the deploy:
-  - [x] `website_form` customer tool: Continue's support agent reads the quiz a customer filled in on continuelongevity.com (issue i77296280). Two deploys had removed it. Setting restored on Elkiya (`kirimdev.json`, backup `.bak-20261111-websiteform`).
-  - [x] change_instructions: an agent can read its own instructions, and a miss shows the closest part (id051b007).
-  - [x] A fixer rollback undoes only its own change, not edits made later (ibd8a5021; a rollback had erased Biomarkers rules).
-  - [x] Chat uploads readable by the agents that receive them (P&P, i03f117e5), as an engine patch that comes back after every engine update.
-  - [x] Agents resume work cut off by a restart (i83a0f438), as an engine patch.
-  - [x] The live test reads the engine's keys itself (P&P, i46105c3e). May be why P&P's live test hangs (OPS-11).
-  - [x] Kirimdev: resume a chat when the team doesn't answer a handoff within 5 min (i87fbcb7b), loose picture tags (ie54d1284), recent payment not taken as a false claim.
-  - Already in git, nothing to do: the payment fixes, the empty order form check, the auto-update message, older drift saves.
-  - Note: `scripts/issues.test.mjs` fails on this PC with or without these changes (one timing assertion). Check it on Linux.
+- [x] **GIT-1** The fixer's lost fixes are in git and live (4f7243a and later), and Health's "Code changes" list was emptied on both servers on 11 Nov (17 on Elkiya, 5 on P&P, each one reviewed first).
 
 ## Waiting on you
 
 - [x] **DEPLOY-6** Both servers run 8abacb9 (11 Nov): owner rule, fixer rule, one alert per app, engine limit patch, type_secret through the browser. Live tests passed on both.
 - [x] **MODEL-0** Plan agreed (11 Nov): see MODEL-1 to MODEL-4.
 
-- [ ] **DEPLOY** Approve deploying `4f7243a` (the recovered fixes) to Elkiya and P&P. Claude Code's safety check blocks each production deploy until you say yes in chat.
 
 - [ ] **HEALTH-0** "Cost by profile": did you mean by **person** (who started the chat) or by **agent**?
 - [ ] **CODE-50** aqeelOS app for Mac: run `gh auth refresh -s workflow` (from the old board).
@@ -45,7 +35,6 @@ Checked against P&P's live data and the code on 11 Nov: Aldillah is an employee,
 - [ ] **ACC-4** Employees with no agent can create one.
 
 ### 2. Code that only exists on the servers (the next deploy would undo it)
-- [ ] **GIT-1** See "Now". After the deploy, clear the "Code changes" list on Health on both servers.
 - [ ] **GIT-2** Fixer ships through GitHub instead of patching live code, so this list stays empty.
 
 ### 3. Long-term reliability rules
@@ -66,7 +55,7 @@ Checked against P&P's live data and the code on 11 Nov: Aldillah is an employee,
 - [ ] **HEALTH-5** "Code changes" in plain words, with a button that takes them into git.
 - [ ] **HEALTH-6** Memory per agent, with a warning when one keeps growing.
 - [ ] **HEALTH-7** Cost by person/profile next to cost by agent (see HEALTH-0).
-- [ ] **HEALTH-8** False "can't reach the engine" alarm when the status call is slow.
+- [~] **HEALTH-8** Built (not yet deployed): a slow engine answer gets a second, 20 s try before Health says "can't reach the engine"; a refused connection still counts as down at once.
 - [ ] **HEALTH-9** Issues merge duplicates when they're filed.
 
 ### 4b. Randy's QRIS picture never reaches the customer (if734729a, Elkiya)
@@ -132,9 +121,10 @@ Today: the fixer runs on the main agent's profile, Sonnet 5.5 with the 1M contex
   - Still to do: after tonight's restart, check that agents still answer and that long chats get folded (`/__bili/sessions` on the proxy shows tokensSaved). ChatGPT-sign-in agents are not tested. P&P (ai.pixelandprofits.com) runs `8abacb9` since 06:07 UTC (automatic deploy) and every agent there has the plugin switched on too; same quiet-hours restart. The engine's own summariser stays on as a fallback; it only acts if billion-context doesn't keep the chat short.
 
 ### 5. Small leftovers
-- [ ] **OPS-9** The live test's setup test agent is missing on Elkiya (404 warning).
+- [ ] **OPS-9** Elkiya's gateway answers "Unknown or unconfigured profile" for the test agent aq-livetest (P&P's works), so every Elkiya live test skips its agent check. The terminal chat command fails for it too ("Gateway starting: deadline").
+- [ ] **TEST-1** (your call) Elkiya's ~/.hermes/.aqeelos-test-agents lists two real customer agents, continue-support and biomarkers-support, as test agents ("temp: round 7 proof 11 Nov, remove after"). While listed, their alerts only go to the log and the fixer may run live tests on them. Remove those two lines once that proof is done. The same file also lists about 200 test agents that no longer exist; clean those up too.
 - [ ] **OPS-10** Remove the leftover test user `ag-zz-fornew` on P&P.
-- [ ] **OPS-11** P&P's live test hung during a deploy on 11 Nov. Find out why.
+- [x] **OPS-11** P&P's live test hung because live-test.mjs had no engine key from a shell. Fixed in 4f7243a; every P&P live test since has passed.
 
 ## Done (11 Nov)
 
