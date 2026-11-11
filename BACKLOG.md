@@ -22,7 +22,7 @@ _Last updated: 11 Nov 2026_
 - [x] **MODEL-0** Plan agreed (11 Nov): see MODEL-1 to MODEL-4.
 
 
-- [ ] **HEALTH-0** "Cost by profile": did you mean by **person** (who started the chat) or by **agent**?
+- [x] **HEALTH-0** Answered (11 Nov): cost by **person** next to cost by agent, see HEALTH-7.
 - [ ] **CODE-50** aqeelOS app for Mac: run `gh auth refresh -s workflow` (from the old board).
 
 ## Next, in this order
@@ -48,15 +48,15 @@ Checked against P&P's live data and the code on 11 Nov: Aldillah is an employee,
 - [ ] **OPS-12** Design question before building OPS-4: when an agent's sleeping screen is needed again, what wakes it? The engine's browser tool connects straight to Chrome's port, so the likely answer is a small proxy on that port that starts the screen on first use.
 
 ### 4. Health and fixer redesign
-- [ ] **HEALTH-1** One verdict at the top: "Everything is patched and working", or what needs you.
-- [ ] **HEALTH-2** Fixer panel: what it's doing now (step, try, model), then the queue in priority order with move up/down, pause and skip. Elkiya has 31 queued items that have never been started. Why (found 11 Nov): one issue at a time, at most 20 fix runs a day (`team-policy.json` fixer.cap), proof runs go first, and anything needing an engine reload waits for quiet hours. The panel must show this: "20 of 20 runs used today, next start tomorrow 00:00".
-- [ ] **HEALTH-3** "Needs you" holds only person-only items, grouped (for example the four higgsfield sign-ins become one).
-- [ ] **HEALTH-4** Fixed and closed issues move to a History tab.
+- [~] **HEALTH-1** Built in the Health redesign (agreed mock-up, 11 Nov), on main, not yet deployed: one verdict at the top ("Everything is patched and working", or what needs you), with a short line of facts.
+- [~] **HEALTH-2** Built in the Health redesign (agreed mock-up, 11 Nov), on main, not yet deployed: the fixer panel shows its step (Fix, Reload, Prove), try and model, why the rest waits (quiet-hours reload, "17 of 20 fix runs used today, resets at 00:00", pause) and its line with move up/down, skip for today and pause. Found: one change waiting for the quiet-hours engine reload held every non-urgent run, proof runs included; proof runs now go on meanwhile. The daily limit resets at the install's own midnight (it was UTC).
+- [~] **HEALTH-3** Built in the Health redesign (agreed mock-up, 11 Nov), on main, not yet deployed: "Needs you" holds only what a person must do, one card per task across agents (the higgsfield sign-ins merge into one), with Done, check again and Not needed.
+- [~] **HEALTH-4** Built in the Health redesign (agreed mock-up, 11 Nov), on main, not yet deployed: Now and History tabs; History has fixed, resolved by itself and closed, by day, with the proof.
 - [ ] **HEALTH-5** "Code changes" in plain words, with a button that takes them into git.
-- [ ] **HEALTH-6** Memory per agent, with a warning when one keeps growing.
-- [ ] **HEALTH-7** Cost by person/profile next to cost by agent (see HEALTH-0).
+- [~] **HEALTH-6** Built in the Health redesign (agreed mock-up, 11 Nov), on main, not yet deployed: memory per agent (what each agent's Linux user holds; the main agent includes the engine), 7 days kept, a warning when it rose 3 days in a row. Elkiya: Continue Threads holds 6.4 GB.
+- [~] **HEALTH-7** Built in the Health redesign (agreed mock-up, 11 Nov), on main, not yet deployed: cost this week by agent and by person side by side. What Usage was missing: chats nobody started in aqeelOS all counted as the owner. Now the owner on Telegram counts as the owner, and Schedules, Customers and channels, and Background work (fixer, helpers) have their own lines.
 - [~] **HEALTH-8** Built (not yet deployed): a slow engine answer gets a second, 20 s try before Health says "can't reach the engine"; a refused connection still counts as down at once.
-- [ ] **HEALTH-9** Issues merge duplicates when they're filed.
+- [~] **HEALTH-9** Built in the Health redesign (agreed mock-up, 11 Nov), on main, not yet deployed: the same problem for the same agent in other words joins the open issue when filed; the sorter (MODEL-3) merges the same problem across agents.
 
 ### 4b. Randy's QRIS picture never reaches the customer (if734729a, Elkiya)
 Found 11 Nov:
@@ -112,7 +112,7 @@ Found:
 Today: the fixer runs on the main agent's profile, Sonnet 5.5 with the 1M context, through the Claude subscription, and its use is mixed into Donna's. This Claude Code work runs on Opus 5.5 at medium effort. API prices per million tokens in/out: Opus 5.5 $4/$20, Sonnet 5.5 $2/$10, Haiku 5.5 $0.10/$0.50.
 - [~] **MODEL-1** Done differently (2596157): each fixer run records its own tokens and cost from the engine's session records, and Health › Issues shows the fixer's runs and cost today and this month. A separate profile would have lost the main agent's access the fixer needs. Cost by person (HEALTH-7) is still open.
 - [~] **MODEL-2** Live in 2596157 on both servers since 11 Nov, settings in team-policy.json (backups .bak-20261111-models): fix claude-sonnet-5-5[1m] at medium, proof claude-haiku-5-5 at low, escalate claude-opus-5-5[1m]. Still to build: sorting new issues with one small call (no agent run).
-- [ ] **MODEL-3** Fewer wasted runs, which saves more than any model choice: merge duplicates, send person-only items to "Needs you", prove with delivery checks instead of fix-and-roll-back rounds, and don't spend the 20 daily runs on issues that will come back.
+- [~] **MODEL-3** Built in the Health redesign (agreed mock-up, 11 Nov), on main, not yet deployed: each new issue is sorted by one short tool-less engine call (about 30 s) before it joins the line: duplicate, person-only (to Needs you) or the fixer's, plus a plain title. Model is the setting fixer.models.sort, else the proof model. A one-time pass sorts the issues already open. Still open from this item: prove with delivery checks instead of fix-and-roll-back rounds.
 - [~] **MODEL-4** Tokens per fixer run are logged (2596157). Baseline on Elkiya, 11 Nov: fix runs about $0.12-0.23, proof runs about $0.15, all on Sonnet. Compare after a week on the new settings.
 - [~] **MODEL-5** billion-context (github.com/ranxianglei/billion-context) in every install, so long chats use fewer tokens. Owner: "ship to all now" (11 Nov). On main as `8f2353a` (`app/billion-context.mjs`, pinned 0.1.213, self-update off, credit in README and the plugin's description), live on Elkiya since 05:32 UTC: every agent has the plugin switched on. The engine loads it at its next restart, which aqeelOS holds for the quiet hours (01:00-05:00). Emergency off: `touch ~/.hermes/.aqeelos-billion-context-off`.
   - Tested 11 Nov 07:15 UTC on Elkiya, Claude sign-in `claude-account-4` (the agents' login): a real message through the Claude plugin with billion-context loaded answers normally, and billion-context tracks the chat (one session, 6,819 tokens, anthropic protocol). The `claude` program sends its request through the proxy on its way to the plugin's relay, so no extra setting is needed. Earlier "saw nothing" was because `chat --oneshot` never loads engine plugins (and silences all logs): one-shot can't test this, only the always-on engine.
