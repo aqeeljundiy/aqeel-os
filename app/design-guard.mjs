@@ -33,7 +33,8 @@ export const EVENTS=[
  {id:'comment.replied',from:'tebar',what:'a comment was answered (Tebar)'},
  {id:'message.received',from:'tebar',what:'a new Instagram DM (Tebar)'},
  {id:'post.published',from:'tebar',what:'a Tebar post went out'},
- {id:'post.failed',from:'tebar',what:'a Tebar post failed'}];
+ {id:'post.failed',from:'tebar',what:'a Tebar post failed'},
+ {id:'schedule.finished',from:'schedules',what:'another schedule of yours finished a run (chain one after another)'}];
 export const EVENT_IDS=EVENTS.map(e=>e.id);
 export const eventHelp=()=>EVENTS.map(e=>e.id+' ('+e.what+')').join('; ');
 

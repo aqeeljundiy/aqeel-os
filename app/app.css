@@ -892,7 +892,7 @@ button.small{min-height:32px;padding:0 14px;font-size:13px;gap:6px}
 /* refreshing the page you are on: content swaps in place, nothing re-animates */
 /* same-page redraws: calm motion (core.js) stops their fades before they paint; a switch here would restart them all when it lifts */
 /* labels inside panels breathe like the ones in drawers */
-.panel label:not(.capt):not(.pick):not(.switch):not([class*="toggle"]){display:block;font-size:13px;font-weight:500;color:var(--ink-2);margin:16px 0 6px}
+.panel label:not(.capt):not(.pick):not(.switch):not(.pct-in):not([class*="toggle"]){display:block;font-size:13px;font-weight:500;color:var(--ink-2);margin:16px 0 6px}
 .panel .sub+label,.panel h2+label,.panel>div>label:first-child{margin-top:4px}
 .panel .sched-row{gap:12px}
 /* pressing things feels physical */
@@ -2366,7 +2366,8 @@ button.acct-more{font:inherit;cursor:pointer;width:100%;background:var(--surface
 /* A number with its unit in one field (12 Nov 2026). The field is the label: it has the border, the radius and the focus ring. The input
    inside is bare and as tall as the field. Before, the input kept the base input:focus ring (box-shadow) and radius from brand.css, which
    drew a second, smaller rounded box around the digits only, off-centre inside the field. */
-.pct-in{display:inline-flex;align-items:center;gap:0;height:40px;padding:0;border:1px solid var(--border);border-radius:12px;background:var(--surface);flex:none;cursor:text;font-size:15px;line-height:1;font-variant-numeric:tabular-nums;transition:border-color var(--t-fast,.15s) var(--ease,ease),box-shadow var(--t-fast,.15s) var(--ease,ease)}
+/* 12 Nov 2026: the .panel label rule above (display:block, margin, 13px) beat this one, so the number sat at the top-left of a tall pill; it now leaves .pct-in alone */
+.pct-in{display:inline-flex;margin:0;font-weight:400;align-items:center;gap:0;height:40px;padding:0;border:1px solid var(--border);border-radius:12px;background:var(--surface);flex:none;cursor:text;font-size:15px;line-height:1;font-variant-numeric:tabular-nums;transition:border-color var(--t-fast,.15s) var(--ease,ease),box-shadow var(--t-fast,.15s) var(--ease,ease)}
 .pct-in:hover{border-color:var(--blue-2)}
 .pct-in:focus-within{border-color:var(--blue);box-shadow:0 0 0 3px rgba(1,88,203,.18)}
 .pct-in input,.pct-in input:focus,.pct-in input:focus-visible{align-self:stretch;flex:none;width:calc(3ch + 14px);min-width:0;height:auto;min-height:0;margin:0;padding:0 0 0 14px;border:0;border-radius:0;outline:0;box-shadow:none;background:none;font:inherit;text-align:right;color:var(--ink);appearance:textfield;-moz-appearance:textfield;transition:none}

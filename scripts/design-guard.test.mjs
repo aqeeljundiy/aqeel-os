@@ -35,10 +35,11 @@ test('the published events are the ones the code really emits, each with one lin
  for(const e of EVENTS.filter(e=>e.from==='tebar'))assert.ok(TEBAR_EVENTS.includes(e.id),e.id+' is a Tebar event');
  for(const e of EVENTS.filter(e=>e.from==='payments'))assert.ok(src('app/paid-labels.mjs').includes("type:'"+e.id+"'"),e.id+' is told by paid-labels.mjs');
  for(const e of EVENTS.filter(e=>e.from==='kirimdev'))assert.ok(src('app/kirimdev.mjs').includes("'"+e.id+"'"),e.id+' is told by kirimdev.mjs');
- assert.deepEqual([...new Set(EVENTS.map(e=>e.from))].sort(),['kirimdev','payments','tebar']);
+ for(const e of EVENTS.filter(e=>e.from==='schedules'))assert.ok(src('app/schedule-finish.mjs').includes("type:'"+e.id+"'"),e.id+' is told by schedule-finish.mjs');
+ assert.deepEqual([...new Set(EVENTS.map(e=>e.from))].sort(),['kirimdev','payments','schedules','tebar']);
  // every source tells the one place both an event hook and an event-started run start from
  const s=src('app/server.mjs');assert.match(s,/const emitEvent=\(a,ev\)=>Promise\.allSettled\(\[eventRuns\.fire\(a,ev\),eventHooks\.fire\(a,ev\)\]\)/);
- for(const maker of ['createTebar({DATA,onEvent:(a,ev)=>emitEvent(a,ev)','createKirimdev({onEvent:(a,ev)=>emitEvent(a,ev)','onEvent:(a,ev)=>emitEvent(a,ev),label:'])assert.ok(s.includes(maker),maker);
+ for(const maker of ['createTebar({DATA,onEvent:(a,ev)=>emitEvent(a,ev)','createKirimdev({onEvent:(a,ev)=>emitEvent(a,ev)','onEvent:(a,ev)=>emitEvent(a,ev),callbackActive:'])assert.ok(s.includes(maker),maker);
  // the agent sees the list in both tools, and the rule is in its context: short, in the owner's order
  for(const id of EVENT_IDS)assert.ok(TOOL_HELP.includes(id));assert.deepEqual(TOOL_PROPS.on_event.items.enum,EVENT_IDS);
  const t=VERSION_TOOLS.find(x=>x.name==='my_schedules');assert.ok(t.description.includes('payment.paid'));for(const k of ['script','checks','check_script','on_event','keep','prefix'])assert.ok(t.inputSchema.properties[k],k);
