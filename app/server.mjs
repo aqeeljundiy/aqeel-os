@@ -113,6 +113,7 @@ import {fileURLToPath} from 'node:url';
 import {createAgentVersions,VERSION_TOOLS} from './agent-versions.mjs';   // self-repair kit (workstream E)
 import {createAgentLive} from './agent-live.mjs';
 import {createBillionContext} from './billion-context.mjs';
+import {createRunGates} from './run-gates.mjs';
 import {createGraphify} from './graphify.mjs';
 import {createEfficiency} from './efficiency.mjs';
 import {createTeamView} from './team-view.mjs';
@@ -1782,6 +1783,10 @@ if(LIVE_APP){const biliInstall=()=>billion.install().then(async c0=>{const c=[];
 const efficiency=createEfficiency({HERMES_HOME,DATA,readConfig,setKey,pick});
 if(LIVE_APP){const effApply=()=>efficiency.apply().then(async c0=>{const c=[];for(const a of c0)if(!await isTestAgent(a).catch(()=>false))c.push(a);if(c.length)restartLater('efficient defaults for '+c.length+' agent(s)')}).catch(e=>console.warn('efficiency',e.message));
  setTimeout(effApply,100e3).unref();setInterval(effApply,10*60e3).unref()}
+// Run gates (run-gates.mjs, 11 Nov 2026): every schedule that starts the AI first asks this app whether the run can do
+// anything (the AI service asked for a pause, posting limits, a check of the job's own); if not, no run starts. Same rhythm.
+const runGates=createRunGates({HERMES_HOME,DATA,WORK:path.join(homedir(),'workspaces'),PORT,sig:a=>relay.sig(a),live:LIVE_APP,lock:withFlock,skipAgent:a=>isTestAgent(a)});
+if(LIVE_APP){const gatesInstall=()=>runGates.install().catch(e=>console.warn('run gates',e.message));setTimeout(gatesInstall,100e3).unref();setInterval(gatesInstall,10*60e3).unref()}
 // graphify (code and document maps) in the agents' shared Python, its skill copied to every agent; same rhythm
 const graphify=createGraphify({HERMES_HOME});
 if(LIVE_APP){const gfInstall=()=>graphify.ensure().catch(e=>console.warn('graphify',e.message));setTimeout(gfInstall,120e3).unref();setInterval(gfInstall,10*60e3).unref()}
@@ -2248,6 +2253,10 @@ const server=createServer(async(req,res)=>{
   {const mf=/^\/google-files\/([\w-]+)\/([\w-]+)$/.exec(p);if(mf){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method!=='POST')return send(res,405,'POST only');
    const x=Buffer.from(String(mf[2])),y=Buffer.from(sign('google-files:'+mf[1]).slice(0,32));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,{error:'bad signature'});
    let body;try{body=JSON.parse(await readBody(req,4e6))}catch{return send(res,400,{error:'bad json'})}const r=await googleFiles.call(mf[1],body);return send(res,r.status,r.json)}}
+  // the run gate every schedule runs first (run-gates.mjs): from this box only, signed per agent; always answers
+  {const mr=/^\/run-gate\/([\w-]+)\/([\w-]+)\/([\w-]+)$/.exec(p);if(mr){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
+   const x=Buffer.from(String(mr[3])),y=Buffer.from(String(relay.sig(mr[1])));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,'bad signature');
+   const t=await runGates.check(mr[1],mr[2],{nothing:url.searchParams.get('nothing')==='1'}).catch(()=>'aqeelOS run check: clear to run.\n{"wakeAgent": true}');res.writeHead(200,{'content-type':'text/plain; charset=utf-8'});return res.end(t+'\n')}}
   // the posting gate an agent's posting schedule runs first (posting-limits.mjs): from this box only, signed per agent
   {const mg=/^\/posting-gate\/([\w-]+)\/([\w-]+)$/.exec(p);if(mg){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
    const x=Buffer.from(String(mg[2])),y=Buffer.from(String(relay.sig(mg[1])));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,'bad signature');
@@ -3621,6 +3630,8 @@ const server=createServer(async(req,res)=>{
     try{const v=await labels.set(String(b.kind||''),String(b.id||''),{name:b.name,description:b.description});console.log('label',b.kind+':'+b.id,'by',u.id||u.name||'?');return send(res,200,{ok:true,label:v})}catch(e){return send(res,e.status||500,{error:e.message})}}
    if(p==='/ui/explain'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,300000))}catch{}const items=(Array.isArray(b.items)?b.items:[]).slice(0,300).map(x=>({id:String(x?.id||'').slice(0,120),name:String(x?.name||'').slice(0,160),desc:String(x?.desc||'').slice(0,600)}));return send(res,200,await explain.get(String(b.kind||''),items,{write:users.isAdmin(u)}))}
    // what billion-context saved and whether graphify is ready, for the Usage page (admins: it covers every agent)
+   // run gates (run-gates.mjs): per schedule how many runs the gate stopped, and the rate proposals (admins)
+   if(p==='/ui/run-gates'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins see this.'});return send(res,200,await runGates.view())}
    if(p==='/ui/usage/savings'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins see savings for every agent.'});
     const [compress,maps]=await Promise.all([billion.savings().catch(()=>null),graphify.status().catch(()=>null)]);return send(res,200,{compress,maps})}
    if(p==='/ui/usage'&&req.method==='GET'){const days=Math.min(365,Math.max(1,+url.searchParams.get('days')||7));const ag=String(url.searchParams.get('agent')||''),every=[...await listAllProfiles(),HELP_AGENT];   // Help's chats are each person's: its own line on Usage
