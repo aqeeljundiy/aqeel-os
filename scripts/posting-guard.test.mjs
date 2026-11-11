@@ -198,3 +198,53 @@ test('posting-guard.py as a module in a posting script: refused = the script sto
   const v=await x.pl.view('ct');assert.equal(v.recent.filter(e=>e.kind==='dm').length,1,'one DM, not two');assert.equal(v.recent.filter(e=>e.kind==='reply').length,0);
   r=await run([path.join(dir,'aborts.py'),'--send'],{});assert.equal(r.status,0);assert.equal((await x.pl.view('ct')).recent.some(e=>e.kind==='thread'),false,'a script that gave up before it posted leaves nothing counted')}
  finally{srv.close()}});
+
+// ---- the migration script that puts the guard into an agent's posting scripts ----
+const FAKE_COMMENT=`import asyncio, sys
+_s = asyncio.sleep
+asyncio.sleep = lambda x: _s(0)
+async def call(m, **k): print("CLICK", k.get("x"))
+async def main():
+    url, tf = sys.argv[1], sys.argv[2]; send = '--send' in sys.argv
+    text = open(tf).read().strip()
+    print("BROWSER OPENED")
+    if send:
+        pos2 = [11, 22]
+        if not pos2:
+            return
+        for t in ("mousePressed", "mouseReleased"):
+                await call("Input.dispatchMouseEvent", type=t, x=pos2[0], y=pos2[1], button="left", clickCount=1)
+        await asyncio.sleep(7)
+        try:
+                import re as _r,time as _t
+        except Exception as _e: print("x")
+_double_guard = None
+asyncio.run(main())
+`;
+const FAKE_DM=`import asyncio, sys
+async def key(*a): print("ENTER")
+async def main():
+    url, tf = sys.argv[1], sys.argv[2]; send = '--send' in sys.argv
+    if send:
+        if True:
+            await key("Enter", "Enter", 13); await asyncio.sleep(0)
+asyncio.run(main())
+`;
+test('posting-guard-install.py: dry run changes nothing; apply patches with backups; twice is a no-op; a line it does not know leaves that file alone; undo puts it back',{skip:!PY&&'no python found'},async()=>{
+ const dir=await mkdtemp(path.join(tmpdir(),'pgi-'));const tools=path.join(dir,'ws','.tools'),prof=path.join(dir,'prof');await mkdir(tools,{recursive:true});await mkdir(path.join(prof,'scripts'),{recursive:true});
+ await writeFile(path.join(prof,'scripts','aqeelos-posting-gate.sh'),'#!/bin/bash\ncurl -sf -m 20 "http://127.0.0.1:4400/posting-gate/ct/SECRETSIG" || true\n');
+ await writeFile(path.join(tools,'comment_send.py'),FAKE_COMMENT);await writeFile(path.join(tools,'dm_send.py'),FAKE_DM);await writeFile(path.join(tools,'thread_full.py'),'print("a script we do not recognise")\nasyncio.run(main())\n');
+ const inst=(...a)=>new Promise(res=>execFile(PY,[path.join(HERE,'posting-guard-install.py'),'--workspace',path.join(dir,'ws'),'--profile',prof,...a],{encoding:'utf8'},(e,stdout,stderr)=>res({status:e?e.code:0,stdout,stderr})));
+ let r=await inst();assert.equal(r.status,2,'thread_full.py has no anchors: left alone, exit 2');assert.match(r.stdout,/DRY RUN/);assert.match(r.stdout,/thread_full\.py: .* matched 0 times/);assert.equal(await readFile(path.join(tools,'comment_send.py'),'utf8'),FAKE_COMMENT);
+ await mkdir(path.join(dir,'x'),{recursive:true});
+ r=await inst('--apply');assert.equal(r.status,2);const cs=await readFile(path.join(tools,'comment_send.py'),'utf8');assert.match(cs,/pg\.sending\(\)\n\s+for t in/);assert.match(cs,/pg\.record\("comment", url, text\)\n\s+await asyncio\.sleep\(7\)/);assert.match(cs,/pg\.begin\('comment'\)[^\n]*\nasyncio\.run\(main\(\)\)/);
+ const files=await (await import('node:fs/promises')).readdir(tools);assert.ok(files.some(f=>/^comment_send\.py\.bak-\d{8}-guard$/.test(f)),'backup next to the original');assert.ok(files.includes('posting_guard.py')&&files.includes('posting-guard')&&files.includes('posting-guard.json'));
+ assert.deepEqual(JSON.parse(await readFile(path.join(tools,'posting-guard.json'),'utf8')),{base:'http://127.0.0.1:4400',agent:'ct',sig:'SECRETSIG'});
+ assert.equal(await readFile(path.join(tools,'thread_full.py'),'utf8'),'print("a script we do not recognise")\nasyncio.run(main())\n','left alone');
+ r=await inst('--apply');assert.match(r.stdout,/comment_send\.py: already patched/);assert.match(r.stdout,/0 file\(s\) changed/);
+ // the patched script, against the limits: refused = it stops before the browser; allowed = click, record
+ const x=await rig();const {srv,base}=await serve(x.pl);await writeFile(path.join(tools,'posting-guard.json'),JSON.stringify({base,agent:'ct',sig:'sig-ct'}));await writeFile(path.join(dir,'t.txt'),'halo kak ini jawabannya lengkap banget');
+ try{let q=await run([path.join(tools,'comment_send.py'),'https://www.threads.com/@a/post/1',path.join(dir,'t.txt'),'--send'],{});assert.equal(q.status,0,q.stdout+q.stderr);assert.match(q.stdout,/CLICK 11[\s\S]*POSTING_GUARD: Recorded/);
+  q=await run([path.join(tools,'comment_send.py'),'https://www.threads.com/@a/post/2',path.join(dir,'t.txt'),'--send'],{});assert.equal(q.status,7);assert.doesNotMatch(q.stdout,/BROWSER OPENED/);
+  await writeFile(path.join(tools,'dm_send.py'),FAKE_DM);}finally{srv.close()}
+ r=await inst('--undo','--apply');assert.equal(await readFile(path.join(tools,'comment_send.py'),'utf8'),FAKE_COMMENT,'undo puts the original back');assert.equal((await (await import('node:fs/promises')).readdir(tools)).includes('posting_guard.py'),false)});
