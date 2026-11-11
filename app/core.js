@@ -484,10 +484,10 @@ function paintBanner(){const slot=$('#bannerSlot');if(!slot)return;const st=S.st
   // back to normal: dismissals of that kind belong to an episode that is over, so the next one shows
   const n0=off.length;if(m==='ok')off=off.filter(k=>!k.startsWith('mem-'));if(d==='ok')off=off.filter(k=>!k.startsWith('disk-'));if(off.length!==n0)BannerOff.set(off);
   const mb=rp.disk?.free_mb??st.disk?.free_mb,free=mb!=null?' ('+bytes(Math.round(mb*1e6))+' free)':'',boot=st.memory?.boot_id||rp.memory?.boot_id||st.gateway_pid||'';const at=k=>k+':'+boot;
-  if(d==='critical')list.push({key:at('disk-c'),msg:`<b>Disk is almost full${free}.</b> Free space on the AI box from System › Health.`});
+  if(d==='critical')list.push({key:at('disk-c'),msg:`<b>Disk is almost full${free}.</b> Saving chats, files and backups may fail. Free space on the AI box from System › Health.`});
   if(m==='critical')list.push({key:at('mem-c'),msg:'<b>aqeelOS is almost out of memory</b> and may restart.'});
   if(oom)list.push({key:at('oom'),msg:'<b>aqeelOS restarted unexpectedly</b>, most likely because it ran out of memory.'});
-  if(d==='elevated')list.push({key:at('disk-e'),msg:`<b>Disk is getting full</b> on the AI box${free}.`});
+  if(d==='elevated')list.push({key:at('disk-e'),msg:`<b>Disk is getting full</b> on the AI box${free}. When it is full, saving chats, files and backups fails.`});
   if(m==='elevated')list.push({key:at('mem-e'),msg:`<b>Memory is running low</b> on the AI box${S.box?.memory?.pct?' ('+S.box.memory.pct+'% of its '+bytes(S.box.memory.limit)+')':''}. See System › Health for what uses it.`})}
  const show=list.filter(x=>!off.includes(x.key)),res=show.find(x=>!x.key.startsWith('mux:'));
  const h=[show.find(x=>x.key.startsWith('mux:')),res].filter(Boolean).map(x=>`<div class="banner" role="alert">${icon('alert',16)}<span>${x.msg}</span>${x.btn||''}<button data-act="banner" data-key="${esc(x.key)}">Dismiss</button></div>`).join('');
