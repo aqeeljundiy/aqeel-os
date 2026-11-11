@@ -2750,7 +2750,7 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/memory'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Admins only.'});return send(res,200,await memNow())}
    if(p==='/ui/system-events'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,200,{events:[]});return send(res,200,{events:sysEvents.filter(e=>e.kind!=='restart-failed')})}   // that one is a Bottlenecks item (noteSys)
    // the bell's list (news.mjs): the same on every device, read and cleared per person; the app adds a person's own news
-   if(p==='/ui/news'&&req.method==='GET')return send(res,200,{items:await news.list(u,users.isAdmin(u)),needs:await needsFor(u).catch(()=>[])});
+   if(p==='/ui/news'&&req.method==='GET')return send(res,200,{items:await news.list(u,users.isAdmin(u)),needs:await needsFor(u).catch(()=>null)});   // null: not known this time, the bell keeps its last count (OPS-14)
    // Activity (System › Activity): the quiet log, no badge
    if(p==='/ui/supervision'&&req.method==='GET')return send(res,200,{on:installSettings().supervision===true});
    if(p==='/ui/activity'&&req.method==='GET')return send(res,200,{items:await news.activity(u,users.isAdmin(u))});

@@ -1294,7 +1294,7 @@ body:has(.drawer.pop) .scrim{backdrop-filter:blur(5px);background:rgba(11,12,16,
 @media (max-width:700px){.cron-pops{top:auto;bottom:12px;right:12px;left:12px;max-width:none}}
 /* the bell and its panel on the right */
 .bell{position:relative}.bell .bell-n{display:none;position:absolute;top:3px;right:2px;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:var(--coral,#ee6351);color:#fff;font-size:10px;font-weight:700;line-height:16px;text-align:center;box-shadow:0 0 0 2px var(--bg)}
-.bell.has .bell-n{display:block;animation:popIn2 .3s cubic-bezier(.2,.9,.25,1.3) both}.bell.has svg{animation:ring 1.2s ease 1}
+.bell.has .bell-n{display:block}.bell.has.bell-new .bell-n{animation:popIn2 .3s cubic-bezier(.2,.9,.25,1.3) both}.bell.has.bell-new svg{animation:ring 1.2s ease 1}   /* bell-new: the count just went from none to some (Inbox.paintBell), never a redrawn bell */
 @keyframes popIn2{from{transform:scale(0)}to{transform:scale(1)}}
 @keyframes ring{0%,100%{transform:rotate(0)}15%{transform:rotate(14deg)}30%{transform:rotate(-12deg)}45%{transform:rotate(8deg)}60%{transform:rotate(-4deg)}}
 .drawer.inbox .drawer-body{padding:10px 14px 20px}
