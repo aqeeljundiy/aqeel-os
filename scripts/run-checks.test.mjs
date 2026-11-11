@@ -60,3 +60,46 @@ test('a schedule check wakes a sleeping browser first and waits for it; one that
  assert.equal(r.count,3);assert.deepEqual(seen,[9600]);
  const r2=await unreadDms({port:9600,mode:'title',fetchJson:async()=>[],wake:async()=>false});
  assert.equal(r2.count,null);assert.equal(r2.known,false);assert.match(r2.why,/asleep/)});
+
+import {newSince,fingerprint,idleSafety,loadState,saveState} from '../app/run-checks.mjs';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
+import {readFile} from 'node:fs/promises';
+
+test('new since: a changed source is work, then retries, then a safety run, then nothing; unreadable is unknown',async()=>{
+ const files={'file:/f/a.jsonl':'h1:10','file:/f/b.json':'h2:5'},fp=async x=>files[x]??null,src=Object.keys(files),T=Date.parse('2026-11-12T00:00:00Z');
+ let r=await newSince({sources:src,state:{},now:T,retries:2,fp});assert.equal(r.count,2);assert.match(r.why,/first look/);
+ let st=r.next;r=await newSince({sources:src,state:st,now:T+300e3,retries:2,fp});assert.equal(r.count,1);assert.match(r.why,/retry.*1 more/);st=r.next;
+ r=await newSince({sources:src,state:st,now:T+600e3,retries:2,fp});assert.equal(r.count,1);assert.match(r.why,/0 more/);st=r.next;
+ r=await newSince({sources:src,state:st,now:T+900e3,retries:2,fp});assert.equal(r.count,0);assert.equal(r.known,true);st=r.next;
+ files['file:/f/a.jsonl']='h1:11';r=await newSince({sources:src,state:st,now:T+1200e3,retries:2,fp});assert.equal(r.count,1);assert.match(r.why,/1 of 2 sources changed/);st=r.next;
+ await newSince({sources:src,state:st,now:T+1500e3,retries:2,fp}).then(x=>{st=x.next});await newSince({sources:src,state:st,now:T+1800e3,retries:2,fp}).then(x=>{st=x.next});
+ r=await newSince({sources:src,state:st,now:T+2100e3,retries:2,maxIdleMin:60,fp});assert.equal(r.count,0,'28 min since the last go');st=r.next;
+ r=await newSince({sources:src,state:st,now:T+1800e3+61*60e3,retries:2,maxIdleMin:60,fp});assert.equal(r.count,1);assert.match(r.why,/safety run/);
+ delete files['file:/f/b.json'];r=await newSince({sources:src,state:st,fp});assert.equal(r.known,false);assert.equal(r.count,null);assert.match(r.why,/could not read f\/b.json/);
+ assert.equal((await newSince({sources:[],fp})).known,false)});
+
+test('fingerprint changes when the file changes and is null when it is not there',async()=>{const d=await mkdtemp(path.join(tmpdir(),'aq-ns-'));const f=path.join(d,'p.jsonl');
+ assert.equal(await fingerprint('file:'+f),null);await writeFile(f,'{"a":1}\n');const a=await fingerprint('file:'+f);await writeFile(f,'{"a":1}\n{"a":2}\n');assert.notEqual(await fingerprint(f),a);assert.match(a,/^[0-9a-f]{16}:8$/)});
+
+test('safety run: only after the answer was nothing for that long, and never over a closed posting limit',()=>{
+ const no={anythingToDo:false,reason:'nothing'},T=1e12;
+ assert.equal(idleSafety(no,{state:{lastGo:T-30*60e3},now:T,maxIdleMin:60}).result.anythingToDo,false);
+ const s=idleSafety(no,{state:{lastGo:T-61*60e3},now:T,maxIdleMin:60});assert.equal(s.result.anythingToDo,true);assert.equal(s.next.lastGo,T);
+ assert.equal(idleSafety({anythingToDo:true},{state:{lastGo:1},now:T,maxIdleMin:60}).next.lastGo,T);
+ assert.equal(idleSafety(no,{state:{},now:T,maxIdleMin:60}).result.anythingToDo,false,'the first look starts the clock')});
+
+const run=promisify(execFile);
+test('run-check.mjs --new-since end to end: state file kept per job, quick exit, JSON on the last line',async()=>{
+ const d=await mkdtemp(path.join(tmpdir(),'aq-rc2-')),data=path.join(d,'data'),feed=path.join(d,'payments.jsonl');await writeFile(feed,'{"id":1}\n');
+ const go=async()=>{const t=Date.now();const {stdout}=await run(process.execPath,[path.join(import.meta.dirname,'run-check.mjs'),'--agent','x','--home',d,'--data',data,'--job','j1','--new-since','file:'+feed,'--retries','1'],{timeout:20000});
+  return {...JSON.parse(stdout.trim().split('\n').pop()),ms:Date.now()-t}};
+ assert.equal((await go()).anythingToDo,true);assert.equal((await go()).anythingToDo,true,'one retry');
+ const q=await go();assert.equal(q.anythingToDo,false);assert.match(q.reason,/nothing waiting: nothing new/);assert.ok(q.ms<5000);
+ await writeFile(feed,'{"id":1}\n{"id":2}\n');assert.equal((await go()).anythingToDo,true);
+ assert.match(await readFile(path.join(data,'run-checks','j1.json'),'utf8'),/"ns"/)});
+
+test('--comments without a Tebar key is unknown and lets the run go; no unread chats with no browser is unknown too',async()=>{
+ const d=await mkdtemp(path.join(tmpdir(),'aq-rc3-'));
+ const {stdout}=await run(process.execPath,[path.join(import.meta.dirname,'run-check.mjs'),'--agent','x','--home',d,'--dms','--comments'],{timeout:20000,env:{...process.env,TEBAR_API_KEY:''}});
+ const o=JSON.parse(stdout.trim());assert.equal(o.anythingToDo,true);assert.match(o.detail.join(' '),/no Tebar API key/);assert.match(o.detail.join(' '),/no DevTools port/)});
