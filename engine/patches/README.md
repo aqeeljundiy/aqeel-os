@@ -104,3 +104,10 @@ downloads the file too and counts as arrived only when it starts with `%PDF` (`o
 `<session>/../probes/<id>.json`). aqeelOS uses it to prove that the protocol PDF path works end to end:
 `node scripts/delivery-check.mjs <agent> --document`. Applies on top of the 11 Nov probe patch; takes effect after the engine's
 WhatsApp bridge restarts.
+
+## 2026-11-12-delivery-probe-document-caption.patch (applied by step 17b)
+
+First live document check (12 Nov, Elkiya): Kirimdev said "delivered" but the bridge recorded nothing. WhatsApp wraps a document
+that has a caption in `documentWithCaptionMessage`, and `probe_watch.js` looked only at the plain `documentMessage`, so it never
+saw the `aqeelos-probe:` mark (the message even went on to the agent). `inner()` now unwraps it. Applies on top of the
+`delivery-probe-document` patch; takes effect after the engine's WhatsApp bridge restarts.

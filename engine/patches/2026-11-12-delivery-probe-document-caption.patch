@@ -1,0 +1,15 @@
+diff --git a/scripts/whatsapp-bridge/probe_watch.js b/scripts/whatsapp-bridge/probe_watch.js
+index 5337531..00d121e 100644
+--- a/scripts/whatsapp-bridge/probe_watch.js
++++ b/scripts/whatsapp-bridge/probe_watch.js
+@@ -7,7 +7,9 @@ import { mkdirSync, writeFileSync, readdirSync, statSync, unlinkSync } from 'fs'
+ const MARK = /aqeelos-probe:([a-z0-9]{6,32})/;
+ 
+ function inner(m) {
+-  return m?.ephemeralMessage?.message || m?.viewOnceMessage?.message || m?.viewOnceMessageV2?.message || m;
++  // WhatsApp wraps a document that has a caption in documentWithCaptionMessage; unwrapped, the mark in its caption is never seen
++  const c = m?.ephemeralMessage?.message || m?.viewOnceMessage?.message || m?.viewOnceMessageV2?.message || m;
++  return c?.documentWithCaptionMessage?.message || c;
+ }
+ 
+ // true when msg was a delivery check (handled here; the caller skips it)

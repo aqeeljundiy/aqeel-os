@@ -384,3 +384,10 @@ test('a PDF delivery check goes through the real link, the bridge must download 
  assert.equal(b.type,'document');assert.equal(b.to,'628999');assert.match(b.document.link,/^https:\/\/ai\.example\/doc\/[\w-]{43}\/aqeelOS%20delivery%20check\.pdf$/);assert.match(b.document.caption,new RegExp('aqeelos-probe:'+r.id));
  assert.deepEqual([r.sent,r.arrived,r.document,r.bytes],[true,true,true,640]);assert.equal(docLinks.count(),0,'the link was dropped');assert.ok(!/doc\/[\w-]{43}\//.test(r.link),'the token is not kept in the result');
  arrived={ok:false,bytes:12,type:'document',error:'not a PDF'};const r2=await t.k.deliveryCheck('cove-support',{document:true});assert.equal(r2.document,false);assert.match(r2.why,/did not download/)});
+
+test('a delivery check reports each step as it goes, so a waiting person sees where it is',async()=>{
+ const DATA=await mkdtemp(path.join(tmpdir(),'dl-'));const docLinks=createDocLinks({DATA,PUBLIC_URL:'https://ai.example'});const steps=[];
+ const t=await make({docLinks,bridge:{self:async()=>'628999',send:async()=>{},result:async id=>({id,ok:true,bytes:640,type:'document'})}});
+ await t.post(meta('628999','aqeelos-probe:open000001w'));await t.settle();
+ const r=await t.k.deliveryCheck('cove-support',{document:true,step:async s=>{steps.push(s)}});
+ assert.equal(r.document,true);assert.ok(steps.length>=3,steps.join(' | '));assert.ok(steps.some(s=>/file link/.test(s)),'names the link step');assert.ok(steps.some(s=>/waiting up to 3 minutes/.test(s)),'names the wait')});

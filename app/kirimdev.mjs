@@ -24,7 +24,7 @@
 //   send aqeelOS did not make) pauses the agent there for the line's quiet time (pauseMin, 15 by default)
 // - brands never mix: a line takes only events for its own phoneNumberId, and whatsapp_reply refuses a number that
 //   wrote to another line and not to this one
-import {readFile,writeFile,rename,mkdir,unlink,stat} from 'node:fs/promises';
+import {readFile,writeFile,rename,mkdir,unlink,stat,appendFile} from 'node:fs/promises';
 import {publicUrl} from './install.mjs';   // Your address (System › Settings), read at the moment a webhook is made
 import {createHmac,timingSafeEqual,randomUUID} from 'node:crypto';
 import path from 'node:path';
@@ -437,34 +437,35 @@ export function createKirimdev({DATA,WORK,apiKey,saveKey=null,bridge=BRIDGE,chec
   let job=null;for(const f of reqs){const r=await readJson(path.join(CHK,f),null);await unlink(path.join(CHK,f)).catch(()=>{});if(r?.agent){job={...r,file:f.replace(/\.req\.json$/,'')};break}}
   if(!job){const L=await lines().catch(()=>({}));const a=Object.keys(L).find(a=>now()-(st.probes?.[a]?.at||0)>24*3600e3&&now()-(st.probeTried?.[a]||0)>24*3600e3);
    if(!a||!await bridge.self())return;(st.probeTried||={})[a]=now();await saveState();job={agent:a}}
-  probing=deliveryCheck(job.agent,{link:job.link,document:!!job.document}).then(async r=>{if(job.file){await mkdir(CHK,{recursive:true});await put(path.join(CHK,job.file+'.result.json'),r,0o644)}
+  const step=async t=>{if(job.file)await appendFile(path.join(CHK,job.file+'.steps.log'),new Date().toISOString().slice(11,19)+' '+t+'\n').catch(()=>{})};await step('The app picked up the request.');
+  probing=deliveryCheck(job.agent,{link:job.link,document:!!job.document,step}).then(async r=>{if(job.file){await mkdir(CHK,{recursive:true});await put(path.join(CHK,job.file+'.result.json'),r,0o644)}
    if(job.document){const t='delivery-pdf|'+job.agent;if(r.sent&&!r.document)await problem?.(job.agent,t,'Kirimdev line: a PDF did not reach a phone in a delivery check',r.why||'Sent, but no PDF arrived.').catch(()=>{});else if(r.document)await solved?.(job.agent,t).catch(()=>{})}
    else if(!r.picture&&r.sent)await problem?.(job.agent,'delivery|'+job.agent,'Kirimdev line: pictures did not reach a phone in a delivery check',r.why||'Sent, but no picture arrived.').catch(()=>{});
    else if(r.picture)await solved?.(job.agent,'delivery|'+job.agent).catch(()=>{})},
-   e=>log('kirimdev '+job.agent+': delivery check failed: '+e.message)).finally(()=>{probing=null})}
- async function deliveryCheck(agent,{link,document=false}={}){await state();const line=await lineOf(agent);if(!line)throw Error('No Kirimdev line for '+agent+'.');
+   async e=>{log('kirimdev '+job.agent+': delivery check failed: '+e.message);if(job.file){await mkdir(CHK,{recursive:true}).catch(()=>{});await put(path.join(CHK,job.file+'.result.json'),{agent:job.agent,picture:false,...(job.document?{document:false}:{}),why:'The check failed before anything was sent: '+e.message},0o644).catch(()=>{})}}).finally(()=>{probing=null})}
+ async function deliveryCheck(agent,{link,document=false,step=async()=>{}}={}){await state();const line=await lineOf(agent);if(!line)throw Error('No Kirimdev line for '+agent+'.');
   const out={at:now(),agent,sent:false,arrived:false,picture:false,...(document?{document:false}:{})};const done=async why=>{if(why)out.why=why;(st.probes||={})[agent]=out;await saveState();log('kirimdev '+agent+': delivery check: '+(out.document?'the PDF arrived ('+out.bytes+' bytes)':out.picture?'the picture arrived ('+out.bytes+' bytes)':out.why||'no picture'));return out};
-  const me=String(await bridge.self()||'').replace(/\D/g,'');if(!me)return done('The main WhatsApp is not connected on this server, so there is no phone to check on.');
+  await step('Looking for the main WhatsApp and the line.');const me=String(await bridge.self()||'').replace(/\D/g,'');if(!me)return done('The main WhatsApp is not connected on this server, so there is no phone to check on.');
   if(bridge.ready&&!await bridge.ready())return done('The main WhatsApp has not restarted since delivery checks were installed. They start after the next engine restart.');
   const acc=await probe('accounts',await apiKey().catch(()=>null)),ln=String((acc.ok&&Array.isArray(acc.json?.data)?acc.json.data:[]).find(x=>String(x?.phone_number_id)===String(line.phoneNumberId))?.phone_number||'').replace(/\D/g,'');if(!ln)return done('Kirimdev did not give this line\'s phone number.');
   const id=randomUUID().replace(/-/g,'').slice(0,12);out.id=id;
-  if(!within24h(agent,me)){await bridge.send(ln,'aqeelOS delivery check, please ignore. aqeelos-probe:'+id+'w');
+  if(!within24h(agent,me)){await step('Opening the line'+String.fromCharCode(39)+'s 24-hour window: the main WhatsApp writes to the line (up to 90 s).');await bridge.send(ln,'aqeelOS delivery check, please ignore. aqeelos-probe:'+id+'w');
    for(let i=0;i<30&&!within24h(agent,me);i++){await wait(3000);await state()}
    if(!within24h(agent,me))return done('The line never received the check message from the main WhatsApp (webhook or polling not running?).')}
   // a PDF check goes the whole real way: the app's own one-purpose link (public address, Cloudflare), Kirimdev's document message, WhatsApp, the main phone downloads and reads it
   if(document){if(!docLinks)return done('This install has no file links.');let dl;try{dl=await docLinks.put({buffer:SAMPLE_PDF,name:'aqeelOS delivery check.pdf',agent,ttl:10*60e3})}catch(e){return done('Could not make the PDF link: '+e.message)}
-   try{out.link=dl.url.replace(/\/doc\/[^/]+\//,'/doc/…/');
+   try{await step('The file link is made; asking Kirimdev to send the PDF.');out.link=dl.url.replace(/\/doc\/[^/]+\//,'/doc/…/');
     const r=await api(line.phoneNumberId+'/messages',{messaging_product:'whatsapp',recipient_type:'individual',to:me,type:'document',document:{link:dl.url,filename:'aqeelOS delivery check.pdf',caption:'aqeelOS delivery check, please ignore. aqeelos-probe:'+id}},{idem:'probe-'+id}).catch(e=>({error:e.message}));
-    if(!r?.data?.id)return done('Kirimdev did not take the PDF: '+(r?.error||'no receipt'));out.sent=true;st.ours[r.data.id]=now();
+    if(!r?.data?.id)return done('Kirimdev did not take the PDF: '+(r?.error||'no receipt'));out.sent=true;st.ours[r.data.id]=now();await step('Kirimdev took the PDF; waiting up to 3 minutes for the main WhatsApp to report it.');
     let res=null;for(let i=0;i<36&&!res;i++){await wait(5000);res=await bridge.result(id)}
     if(!res)return done('Sent and accepted by Kirimdev, but nothing reached the main WhatsApp within 3 minutes.');
     out.arrived=true;out.bytes=res.bytes||0;out.document=!!res.ok&&res.type==='document';return done(out.document?null:'A message arrived but its PDF did not download'+(res.error?' ('+res.error+')':'')+'.')}
    finally{await dl.revoke()}}
   const urls=(await readFile(path.join(WORK,agent,'media','staff','urls.txt'),'utf8').catch(()=>'')).split(/\s+/).filter(Boolean);
   const pic=String(link||urls.filter(u=>/qris/i.test(u)).pop()||urls[0]||'').replace(/([?&])f=\/[^&#]*(&|$)/,(m,a,b)=>b?a:'').replace(/[?&]$/,'');if(!/^https:\/\//.test(pic))return done('No picture to send: media/staff/urls.txt is empty.');
-  out.link=pic;
+  out.link=pic;await step('Asking Kirimdev to send the picture.');
   const r=await api(line.phoneNumberId+'/messages',{messaging_product:'whatsapp',recipient_type:'individual',to:me,type:'image',image:{link:pic,caption:'aqeelOS delivery check, please ignore. aqeelos-probe:'+id}},{idem:'probe-'+id}).catch(e=>({error:e.message}));
-  if(!r?.data?.id)return done('Kirimdev did not take the picture: '+(r?.error||'no receipt'));out.sent=true;st.ours[r.data.id]=now();
+  if(!r?.data?.id)return done('Kirimdev did not take the picture: '+(r?.error||'no receipt'));out.sent=true;st.ours[r.data.id]=now();await step('Kirimdev took the picture; waiting up to 3 minutes for the main WhatsApp to report it.');
   let res=null;for(let i=0;i<36&&!res;i++){await wait(5000);res=await bridge.result(id)}
   if(!res)return done('Sent and accepted by Kirimdev, but nothing reached the main WhatsApp within 3 minutes.');
   out.arrived=true;out.picture=!!res.ok;out.bytes=res.bytes||0;return done(res.ok?null:'A message arrived but its picture did not download'+(res.error?' ('+res.error+')':'')+'.')}
