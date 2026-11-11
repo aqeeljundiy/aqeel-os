@@ -136,3 +136,17 @@ test('OPS-13: the desktop restart goes through restart_gate and desk_kill, and o
  assert.ok(br.indexOf('kill -0')<br.indexOf('restart_gate')&&br.indexOf('restart_gate')<br.indexOf('desk_kill')&&br.indexOf('desk_kill')<br.indexOf('$desk'));
  assert.ok(!/Xvnc|chrome_loop|screen_kill/.test(br),'the desktop alone: its display and Chrome keep running');
  assert.ok(src.includes('| desk_check "$n" "$u" "$disp" "$ws"'),'the janitor checks the desktop parts every minute')});
+test('OPS-16: leftover browser helpers are stopped only when detached, over 2 h old and their Chrome is gone, or over a day old',()=>{
+ const d=tmp();
+ writeFileSync(d+'/h.txt',[
+  '201 1 9000 35819',     // 2.5 h, its Chrome no longer listens: stopped
+  '202 1 9000 9602',      // 2.5 h, its Chrome still listens: kept
+  '203 1 3600 35820',     // 1 h, Chrome gone: still young, kept
+  '204 1 9000 -',         // Chrome unknown: kept until a day old
+  '205 1 90000 -',        // over a day, Chrome unknown: stopped
+  '206 1 90000 9602',     // over a day, Chrome alive: stopped (the engine starts one again on the next call)
+  '207 4242 99999 35819', // still has a parent: never touched
+ ].join('\n')+'\n');
+ const r=sh(`harness_orphans '22 4400 9602' < '${d}/h.txt'`,d);
+ assert.deepEqual(r.out.split('\n'),['201','205','206'],r.err);
+ assert.equal(sh(`harness_orphans '' < /dev/null`,d).out,'')});

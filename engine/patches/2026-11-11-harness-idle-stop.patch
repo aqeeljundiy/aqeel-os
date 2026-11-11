@@ -1,0 +1,102 @@
+diff --git a/tools/browser_tool_lifecycle.py b/tools/browser_tool_lifecycle.py
+--- a/tools/browser_tool_lifecycle.py
++++ b/tools/browser_tool_lifecycle.py
+@@ -98,6 +98,12 @@ def _emergency_cleanup_all_sessions():
+                 _bt._session_owner_homes.clear()
+                 _bt._cleanup_failures.clear()
+                 _bt._recording_sessions.clear()
++    # aqeelos:harness-idle-stop — harness daemons were stopped only inside cleanup_all_browsers above, so a process
++    # that had no agent-browser session left (only browser_exec calls) exited with its daemons still running.
++    def _stop_harness_on_exit():
++        from tools.browser_use_cli import stop_harness_daemons
++        stop_harness_daemons()
++    _best_effort("Browser Use harness daemon stop on exit", _stop_harness_on_exit)
+     # Lightpanda servers we spawned that fell out of ``_active_sessions``.
+     _best_effort("Lightpanda cleanup on exit", _stop_all_lightpanda)
+     # Safe even if we never used the browser — owner_pid liveness protects daemons
+@@ -431,6 +437,14 @@ def _browser_cleanup_thread_worker():
+         except Exception as e:
+             _bt.logger.warning("Cleanup thread error: %s", e)
+ 
++        try:  # aqeelos:harness-idle-stop
++            from tools.browser_use_cli import HARNESS_DAEMON_IDLE_S, stop_idle_harness_daemons
++            stopped = stop_idle_harness_daemons(max(HARNESS_DAEMON_IDLE_S, _bt.BROWSER_SESSION_INACTIVITY_TIMEOUT))
++            if stopped:
++                _bt.logger.info("Stopped %d idle browser-harness daemon(s)", len(stopped))
++        except Exception as e:
++            _bt.logger.warning("Harness daemon idle stop error: %s", e)
++
+         for _ in range(30):  # 1s granularity so stop is quick
+             if not _bt._cleanup_running:
+                 break
+diff --git a/tools/browser_use_cli.py b/tools/browser_use_cli.py
+--- a/tools/browser_use_cli.py
++++ b/tools/browser_use_cli.py
+@@ -697,6 +697,13 @@ def _run_cli_killing_process_group(cmd, code, env, timeout):
+ # swap (/browser connect|disconnect) leaves later calls in the old browser until these are stopped.
+ _driven_daemons: dict[tuple[str, ...], str] = {}  # daemon identity -> home
+ _driven_daemons_lock = threading.Lock()
++# aqeelos:harness-idle-stop — a harness daemon never exits by itself (not even when its Chrome closes under it) and a
++# long-lived gateway stopped its daemons only at profile cleanup, so they piled up idle for days (Elkiya, 10 Nov 2026:
++# 35 orphans of ~45 MB, every one's Chrome long gone). The cleanup thread now stops a daemon after
++# HARNESS_DAEMON_IDLE_S without a call (BROWSER_SESSION_INACTIVITY_TIMEOUT when longer); the next call respawns one.
++HARNESS_DAEMON_IDLE_S = 1800
++_daemon_last_used: dict[tuple[str, ...], float] = {}  # daemon identity -> when its last call ended
++_daemon_inflight: dict[tuple[str, ...], int] = {}  # daemon identity -> calls running on it now
+ _live_generation = functools.partial(_lazy_call, "tools.browser_tool_cdp", "live_cdp_generation", 0,
+                                      "live CDP generation lookup failed")  # this profile's publish count
+ # Route cache key -> whether its last browser_exec ran on the hybrid local sidecar.
+@@ -714,9 +721,26 @@ def stop_harness_daemons(home_key: Optional[str] = None) -> None:
+         daemons = sorted(key for key, home in _driven_daemons.items() if home_key in (None, home))
+         for key in daemons:
+             _driven_daemons.pop(key, None)
++            _daemon_last_used.pop(key, None)
+     _reload_daemons(daemons)
+ 
+ 
++def stop_idle_harness_daemons(max_idle_s: float, now: Optional[float] = None) -> list:
++    """aqeelos:harness-idle-stop — stop the daemons this process drove that ran no call for ``max_idle_s``
++    seconds (never one with a call running), through the same ``--reload`` as ``stop_harness_daemons``."""
++    now = time.time() if now is None else now
++    with _driven_daemons_lock:
++        for key in [k for k in _daemon_last_used if k not in _driven_daemons]:
++            _daemon_last_used.pop(key, None)
++        idle = sorted(key for key in _driven_daemons
++                      if not _daemon_inflight.get(key) and now - _daemon_last_used.get(key, now) > max_idle_s)
++        for key in idle:
++            _driven_daemons.pop(key, None)
++            _daemon_last_used.pop(key, None)
++    _reload_daemons(idle)
++    return idle
++
++
+ def _reload_daemons(daemons) -> None:  # each ``daemon_identity`` daemon, with its own dirs
+     cmd = _find_cli() if daemons else None
+     if not cmd:
+@@ -832,6 +856,11 @@ def browser_exec(code: str, session: str = "", timeout_s: int = _DEFAULT_TIMEOUT
+         with _driven_daemons_lock:
+             daemon = daemon_identity(env)
+             _driven_daemons[daemon] = hermes_home_key()
++            _daemon_inflight[daemon] = _daemon_inflight.get(daemon, 0) + 1
++        # aqeelos:harness-idle-stop — the cleanup thread is what stops idle daemons; a call on a CDP override or a
++        # cloud browser never started it
++        _lazy_call("tools.browser_tool_lifecycle", "_start_browser_cleanup_thread", None,
++                   "browser cleanup thread start failed")
+         try:
+             return {"proc": _run_cli_killing_process_group(cmd, code, env, timeout)}
+         except subprocess.TimeoutExpired:
+@@ -842,6 +871,14 @@ def browser_exec(code: str, session: str = "", timeout_s: int = _DEFAULT_TIMEOUT
+             )}
+         except OSError as e:
+             return {"error_result": tool_error(f"Failed to launch browser-use CLI: {e}")}
++        finally:
++            with _driven_daemons_lock:
++                left = _daemon_inflight.get(daemon, 1) - 1
++                if left > 0:
++                    _daemon_inflight[daemon] = left
++                else:
++                    _daemon_inflight.pop(daemon, None)
++                _daemon_last_used[daemon] = time.time()
+ 
+     if bot_desktop_browser:
+         from tools.browser_tool_session import run_fenced

@@ -41,3 +41,20 @@ Found by simulating an engine update on a clean copy (the live engine's commit, 
   `ENGINE_SIM_KEEP=1 bash ~/apps/hermes-ui/scripts/engine-sim.sh`, then diff the two copies it names.
 - Proof (11 Nov): on Elkiya, a simulated update plus these patches gives every file exactly as live; both live engines
   already have both patches (git apply --reverse --check), except the Telegram digest on P&P.
+
+## 2026-11-11-harness-idle-stop.patch (OPS-16, applied by step 17b)
+
+The browser helpers of `browser_exec` (`python -m browser_harness.daemon`, one per named browser session) never exit by
+themselves, not even when their Chrome closes under them, and the engine stopped them only at a profile's cleanup or at
+exit when an agent-browser session was still open. A long-lived gateway therefore left about one per agent per day
+(Elkiya, 10 Nov: 35 of ~45 MB, every one's Chrome long gone). The patch (tools/browser_use_cli.py,
+tools/browser_tool_lifecycle.py, marked `aqeelos:harness-idle-stop`):
+
+- the browser cleanup thread stops a daemon after 30 minutes without a call (`HARNESS_DAEMON_IDLE_S`, or
+  `BROWSER_INACTIVITY_TIMEOUT` when longer), never one with a call running; the next call starts one again;
+- `browser_exec` starts that cleanup thread (a CDP override or cloud browser never did);
+- at exit the daemons are stopped even when no agent-browser session is left.
+
+Tests (11 Nov, on a clean worktree of the Elkiya engine with the patch): the engine's browser tests that touch these
+functions, 200 passed, 1 skipped; plus a check of the idle rule. Daemons of a process that died first are stopped by the
+root script's janitor (`harness_sweep` in scripts/agent-users.sh). It takes effect after the engine restarts.
