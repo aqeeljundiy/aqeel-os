@@ -188,7 +188,10 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  // older states: approved and waiting (the old owner's OK) are queued; a failed one gets its tries again once
  // one time (8 Nov 2026): these were built and tested in git, so the fixer must not also patch them by hand on the live box. Safe to remove once deployed.
  const BUILT_IN_GIT=new Set(['i0d5eb2ec','i5d6243c8','iea75bff3','ib4edc25e','i1180523a','if33d6e3d','ieffb23a5','id69659c6','i914aaad7','i4f162796']);
- const migrate=()=>{for(const i of db.items){if(i.state==='queued'&&BUILT_IN_GIT.has(i.id)){i.state='closed';i.notBefore=0;i.updated=now();(i.history||=[]).push({kind:'person',at:now(),status:'close',summary:'Built, tested and deployed in git'})}
+ const migrate=()=>{for(const i of db.items)if(i.mergedInto&&i.state==='closed'){const e=(x=>{for(let k=0;x?.mergedInto&&k<20;k++){const n=db.items.find(y=>y.id===x.mergedInto);if(!n)break;x=n}return x})(i);
+   if(e&&e!==i&&e.id!==i.mergedInto){const mid=db.items.find(y=>y.id===i.mergedInto);i.mergedInto=e.id;(e.reports||=[]).push({agent:i.agent,missing:clip(i.missing,300),at:i.created,id:i.id});e.reports=e.reports.slice(-20);e.count=(e.count||1)+1;if(mid){mid.count=Math.max(1,(mid.count||1)-1);mid.reports=(mid.reports||[]).filter(r=>r.id!==i.id)}
+    if(i.agent&&i.agent!==e.agent&&!(e.affects||=[]).includes(i.agent))e.affects.push(i.agent)}}
+  for(const i of db.items){if(i.state==='queued'&&BUILT_IN_GIT.has(i.id)){i.state='closed';i.notBefore=0;i.updated=now();(i.history||=[]).push({kind:'person',at:now(),status:'close',summary:'Built, tested and deployed in git'})}
   if(i.state==='approved'||i.state==='waiting'){i.state='queued';i.decision='every issue goes to the fixer (owner, 7 Nov 2026)'}
    if(i.state==='failed'&&!i.migrated){i.state='queued';i.tries=0;i.migrated=1;i.decision='tried again with the new fixer loop'}
    if(i.tries==null)i.tries=OPEN.includes(i.state)?0:(i.attempts||0);i.history||=[]}
@@ -228,6 +231,11 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   if(i.state==='queued'&&!i.urgent&&sortRun)i.sorting=now();
   db.items.unshift(i);db.items=db.items.slice(0,300);await save();log('issue '+i.id+' filed by '+(i.source==='health'?'Health':i.agent)+': '+i.state);
   if(i.sorting)setTimeout(()=>sortNext().catch(e=>log('issues: sort: '+e.message)),0);return {issue:view(i)}});
+ // the item a merged one ended up in (it may have been merged on in turn)
+ const endOf=x=>{for(let k=0;x?.mergedInto&&k<20;k++){const n=db.items.find(y=>y.id===x.mergedInto);if(!n)break;x=n}return x};
+ // what was merged into `from` moves on to `to`: its reports, its count and the items that point at it
+ function carry(from,to){if(from===to)return;for(const r of from.reports||[])if(!(to.reports||=[]).some(x=>x.id&&x.id===r.id&&x.at===r.at)){to.reports.push(r);if(r.agent&&r.agent!==to.agent&&!(to.affects||=[]).includes(r.agent))to.affects.push(r.agent)}
+  to.reports=(to.reports||[]).slice(-20);to.count=(to.count||1)+Math.max(0,(from.count||1)-1);from.count=1;from.reports=[];for(const y of db.items)if(y.mergedInto===from.id)y.mergedInto=to.id}
  // one report joins another: counted, the agent added, kept for the history
  function merge(into,r){into.count=(into.count||1)+1;into.updated=now();
   (into.reports||=[]).push({agent:r.agent,missing:clip(r.missing,300),at:r.at||now(),...(r.id?{id:r.id}:{})});into.reports=into.reports.slice(-20);
@@ -248,9 +256,9 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   await queue(async()=>{(db.sorts||={})[i.id+'-s'+at]=rec;const ks=Object.keys(db.sorts);if(ks.length>400)for(const k of ks.slice(0,ks.length-400))delete db.sorts[k];
    i.sorting=0;i.sorted=s?.kind||'unclear';if(s?.title)i.title=s.title;
    const live=x=>x&&[...OPEN,'needs_human','open','deploy','stuck'].includes(x.state);
-   const to=s?.kind==='duplicate'&&s.duplicateOf!==i.id?db.items.find(x=>x.id===s.duplicateOf):null;
+   const to=s?.kind==='duplicate'&&s.duplicateOf!==i.id?endOf(db.items.find(x=>x.id===s.duplicateOf)):null;
    // only an item that has not started its own tries is folded into another
-   if(to&&live(to)&&['queued','needs_human'].includes(i.state)&&!i.tries){merge(to,{agent:i.agent,missing:i.missing,evidence:i.evidence,at:i.created,id:i.id});
+   if(to&&live(to)&&['queued','needs_human'].includes(i.state)&&!i.tries){merge(to,{agent:i.agent,missing:i.missing,evidence:i.evidence,at:i.created,id:i.id});carry(i,to);
     i.state='closed';i.mergedInto=to.id;i.updated=now();i.history.push({kind:'sorted',at:now(),status:'merged',summary:'The same problem as '+to.id+'; merged into it.'});await save();log('issues: '+i.id+' merged into '+to.id);return}
    if(s?.kind==='person'&&s.need&&!noPersonNeeded(s.need)&&i.state==='queued'&&!i.tries){i.state='needs_human';i.need=s.need;i.group=s.group||null;i.history.push({kind:'sorted',at:now(),status:'needs_human',summary:s.need});await save();
     const w=await tell(i,nameOf(i.agent)+' needs a person\n\nProblem: '+(i.title||i.missing)+'\nWhat is needed: '+s.need+'\n\naqeelOS does the rest by itself once this is done (System › Health).');i.told=w;await save();log('issues: '+i.id+' sorted: needs a person, told '+w);return}

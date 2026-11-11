@@ -628,7 +628,12 @@ async function engineAgents(){if(Date.now()-engAgents.t<4000)return engAgents.n;
  engAgents={t:Date.now(),n};return n}
 const waitingNow=async()=>Math.max(liveCount(),await engineAgents());
 const shx=async(c,ms=150000)=>{const {execFile}=await import('node:child_process');return new Promise(r=>execFile('bash',['-c',c],{timeout:ms,env:{...process.env,PATH:homedir()+'/.local/bin:'+process.env.PATH}},(e,o)=>r({ok:!e,out:String(o||'')})))};
-async function gatewayPid(){const t=await readFile(path.join(HERMES_HOME,'gateway.pid'),'utf8').catch(()=>'');const pid=Number((/\d+/.exec(t)||[])[0]);if(!pid)return 0;try{process.kill(pid,0);return pid}catch{return 0}}
+// the engine can unlink gateway.pid while it keeps running (its own gateway/status.py allows for it; Elkiya, 11 Nov 2026:
+// the fixer saw "no engine" and started nothing for an hour), so its gateway_state.json (pid, kind, state) counts too
+async function gatewayPid(){const alive=p=>{if(!p)return 0;try{process.kill(p,0);return p}catch{return 0}};
+ const t=await readFile(path.join(HERMES_HOME,'gateway.pid'),'utf8').catch(()=>'');const pid=alive(Number((/\d+/.exec(t)||[])[0]));if(pid)return pid;
+ const s=await readFile(path.join(HERMES_HOME,'gateway_state.json'),'utf8').then(JSON.parse).catch(()=>null);
+ return s&&s.kind==='hermes-gateway'&&s.gateway_state==='running'?alive(Number(s.pid)):0}
 // Every engine restart is noted (ours with the reason, and ones the engine does by itself), so the bell's list can say why
 // Slack or WhatsApp dropped for a moment instead of it being a mystery.
 let sysEvents=[],lastGwPid=0,lastOwnRestart=0;

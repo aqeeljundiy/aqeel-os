@@ -77,6 +77,18 @@ await t('sorting: one short call merges a duplicate across agents, sends person-
  const d=(await S.file({agent:'wa',missing:'Someone must approve the new prompt change'})).issue;await S.I.sortNext();db=await S.db();assert.equal(db.items.find(i=>i.id===d.id).state,'queued','an approval is never a person’s job');
  assert.equal((await S.I.list()).spend.sorts.month,asked.length)});
 
+await t('a merge follows a chain: what was merged into an issue moves on when that issue is merged in turn',async()=>{let map={};
+ const S=await setup({sortRun:async o=>{const id=/ISSUE (i[0-9a-f]{8})/.exec(o.prompt)[1];return map[id]?'SORT: '+JSON.stringify({kind:'duplicate',duplicateOf:map[id],title:'t'}):'SORT: {"kind":"fixer","title":"t"}'}});
+ const a=(await S.file({agent:'a',missing:'alpha sign-in expired'})).issue;await S.I.sortNext();
+ const b=(await S.file({agent:'b',missing:'beta sign-in expired'})).issue;await S.I.sortNext();
+ const c=(await S.file({agent:'c',missing:'gamma sign-in expired'})).issue;map[c.id]=b.id;await S.I.sortNext();
+ // b was not sorted as a duplicate first; now b itself goes into a (as the backfill would do for an older item)
+ const db=await S.db();const B=db.items.find(i=>i.id===b.id);B.sorted=undefined;map[b.id]=a.id;await S.I.sortNext();
+ const A=db.items.find(i=>i.id===a.id),C=db.items.find(i=>i.id===c.id);
+ assert.equal(C.mergedInto,a.id,'c points at the end of the chain');assert.equal(A.count,3);assert.deepEqual(A.affects.sort(),['b','c']);assert.equal(B.count,1);
+ // a merge into an item that was merged already lands at the end of the chain
+ const d=(await S.file({agent:'d',missing:'delta sign-in expired'})).issue;map[d.id]=b.id;await S.I.sortNext();assert.equal(db.items.find(i=>i.id===d.id).mergedInto,a.id);assert.equal(A.count,4)});
+
 await t('sorting helpers: the answer line, the prompt, the model, days in the install’s time zone',()=>{
  assert.deepEqual(parseSort('x\nSORT: {"kind":"duplicate","duplicateOf":"i0123abcd","title":" T ","need":"","group":""}'),{kind:'duplicate',duplicateOf:'i0123abcd',title:'T',need:'',group:''});
  assert.equal(parseSort('SORT: {"kind":"maybe"}'),null);assert.equal(parseSort('nothing'),null);assert.equal(parseSort('SORT: {"kind":"fixer","duplicateOf":"../x"}').duplicateOf,null);
