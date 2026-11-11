@@ -26,9 +26,9 @@ test('Antigravity: reads plan and limits, caches 10 min, backs off after a refus
  const q=createAgyQuota({now:()=>t,fetchImpl,tokenFile:()=>f});
  let r=await q.read();assert.equal(r.signedIn,true);assert.equal(r.plan,'Google AI Pro');assert.equal(r.windows.length,4);assert.deepEqual(calls,['loadCodeAssist','fetchAvailableModels']);
  t+=5*60e3;await q.read();assert.equal(calls.length,2,'cached');
- t+=6*60e3;mode='429';await q.read();await new Promise(r=>setTimeout(r,30));assert.equal(calls.length,3,'asked again after 10 min, models only (project kept)');assert.equal(calls[2],'fetchAvailableModels');
+ t+=6*60e3;mode='429';await q.read();await q.idle();assert.equal(calls.length,3,'asked again after 10 min, models only (project kept)');assert.equal(calls[2],'fetchAvailableModels');
  r=await q.read();assert.match(r.error,/not giving out/);assert.equal(r.windows.length,4,'last reading kept');
- t+=11*60e3;await q.read();await new Promise(r=>setTimeout(r,30));assert.equal(calls.length,3,'waits its Retry-After (15 min)');
+ t+=11*60e3;await q.read();await q.idle();assert.equal(calls.length,3,'waits its Retry-After (15 min)');
  const none=createAgyQuota({tokenFile:()=>path.join(tmpdir(),'nope-agy-token'),fetchImpl:async()=>{throw new Error('no')}});
  r=await none.read();assert.equal(r.signedIn,false);assert.deepEqual(r.windows,[])});
 

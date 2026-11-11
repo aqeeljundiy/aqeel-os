@@ -42,6 +42,10 @@ Found by simulating an engine update on a clean copy (the live engine's commit, 
 - Proof (11 Nov): on Elkiya, a simulated update plus these patches gives every file exactly as live; both live engines
   already have both patches (git apply --reverse --check), except the Telegram digest on P&P.
 
+## Layered patches (12 Nov 2026)
+
+A later patch can change lines an earlier one added (`2026-11-12-delivery-probe-document` on `2026-11-11-delivery-probe`). Then the earlier one fails `git apply --reverse --check` on the live files although it is in place, and every deploy warned "does not fit this engine version". Step 17b (`scripts/engine-patch-layers.mjs`) now decides for the whole ordered list: on a scratch copy of only the files the patches touch it reverse-applies from the newest down, and a patch that reverses is in place. The rest are applied oldest first; one that cannot be applied still warns. Test: `scripts/engine-patch-layers.test.mjs`. `engine-sim.sh` runs the same script, so the engine update check agrees.
+
 ## 2026-11-11-harness-idle-stop.patch (OPS-16, applied by step 17b)
 
 The browser helpers of `browser_exec` (`python -m browser_harness.daemon`, one per named browser session) never exit by

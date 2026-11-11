@@ -74,7 +74,8 @@ test('a typed key is checked on the first bytes of a backup',async()=>{const T=m
 function app(s,x={}){const DATA=path.join(s.T,'data');mkdirSync(DATA,{recursive:true});const n={stop:0,start:0,told:[]};const TMP=path.join(s.T,'tmp');mkdirSync(TMP,{recursive:true});
  const b=createBackups({DATA,HOME:s.HOME,HERMES_HOME:s.H,TMP,tar:shim(s.T),fetchImpl:async()=>{throw Error('no network in tests')},disk:async()=>({free:1e12,dev:'d'}),mem:async()=>20e9,notify:(...a)=>n.told.push(a),
   stopEngine:async()=>{n.stop++},startEngine:async()=>{n.start++},restored:(ok,t)=>n.told.push([ok,t]),...x});return {b,n,DATA,TMP}}
-const until=async f=>{for(let i=0;i<200;i++){if(await f())return;await new Promise(r=>setTimeout(r,25))}throw Error('timed out')};
+// polls a condition; the 60 s is only a guard against hanging, a busy box (tar, openssl, parallel tests) can be slow. Background Prepare/Restore are awaited with b.settled() instead
+const until=async f=>{for(let i=0;i<2400;i++){if(await f())return;await new Promise(r=>setTimeout(r,25))}throw Error('timed out')};
 
 test('no Google: the backup stays on the box (12 Nov 2026), nobody told; the Drive list says Connect Google first',async()=>{const s=scene();try{const {b,n}=app(s,{MIN:1});const st=await b.status();
  assert.equal(st.google.connected,false);await b.run('by hand');const l1=(await b.status()).last;assert.equal(l1.ok,true);assert.equal(l1.local,true);assert.deepEqual(n.told,[]);
@@ -101,13 +102,13 @@ test('restore flow: prepare shows a preview and changes nothing; restore now cop
  // a safety copy on the box is a restore source like a Drive backup
  execFileSync('tar',['-czf',path.join(s.HOME,'aqeelos-before-restore-2026-11-01-02-03-04.tar.gz'),'-C',path.dirname(s.src),'.hermes']);
  const {b,n}=app(s);const l=await b.list();assert.equal(l.items[0].id,'local:aqeelos-before-restore-2026-11-01-02-03-04.tar.gz');const before=tree(s.H);
- await b.prepare(l.items[0].id);await until(async()=>(await b.status()).restore?.phase!=='preparing');let st=await b.status();
+ await b.prepare(l.items[0].id);await b.settled();let st=await b.status();
  assert.equal(st.restore.phase,'ready',JSON.stringify(st.restore));assert.deepEqual(st.prepared.preview.agents.back,['gone']);assert.deepEqual(tree(s.H),before);assert.equal(n.stop,0);
- await b.apply();await until(async()=>!(await b.status()).restoring);st=await b.status();
+ await b.apply();await b.settled();st=await b.status();
  assert.equal(st.restore.phase,'done',JSON.stringify(st.restore));assert.equal(tree(s.H)['config.yaml'],'backup');assert.equal(tree(s.H)['profiles/new/config.yaml'],'made after');assert.deepEqual([n.stop,n.start],[1,1]);
  assert.equal(st.prepared,null);await assert.rejects(()=>b.apply(),/Prepare the backup first/);assert.ok(n.told.some(t=>t[0]===true))}finally{s.done()}});
 test('restore flow: Cancel throws the prepared copy away',async()=>{const s=scene();try{execFileSync('tar',['-czf',path.join(s.HOME,'aqeelos-before-restore-2026-11-01-02-03-04.tar.gz'),'-C',path.dirname(s.src),'.hermes']);
- const {b,TMP}=app(s);await b.prepare('local:aqeelos-before-restore-2026-11-01-02-03-04.tar.gz');await until(async()=>(await b.status()).restore?.phase==='ready');
+ const {b,TMP}=app(s);await b.prepare('local:aqeelos-before-restore-2026-11-01-02-03-04.tar.gz');await b.settled();
  assert.equal(readdirSync(TMP).length,1);await b.cancel();assert.equal(readdirSync(TMP).length,0);assert.equal((await b.status()).prepared,null)}finally{s.done()}});
 test('restore flow: a cut-off copy is rolled back on start, the agents stopped meanwhile',async()=>{const s=scene();try{const {b,n,DATA}=app(s);const before=tree(s.H);
  await copyOver({src:s.src,dest:s.H,journal:path.join(DATA,'restore-journal.jsonl')});assert.notDeepEqual(tree(s.H),before);   // aqeelOS "stopped" here
@@ -116,7 +117,7 @@ test('restore flow: a cut-off copy is rolled back on start, the agents stopped m
 test('prepare refuses a file that is not a safety copy',async()=>{const s=scene();try{const {b}=app(s);await assert.rejects(()=>b.prepare('local:../../etc/passwd'),/not one of the safety copies/)}finally{s.done()}});
 test('a safety copy whose folder has another name than the engine folder still prepares',async()=>{const s=scene();try{const other=path.join(s.T,'pack','eng');mkdirSync(path.dirname(other),{recursive:true});
  execFileSync('cp',['-R',s.src,other]);execFileSync('tar',['-czf',path.join(s.HOME,'aqeelos-before-restore-2026-11-01-02-03-04.tar.gz'),'-C',path.dirname(other),'eng']);
- const {b}=app(s);await b.prepare('local:aqeelos-before-restore-2026-11-01-02-03-04.tar.gz');await until(async()=>(await b.status()).restore?.phase!=='preparing');
+ const {b}=app(s);await b.prepare('local:aqeelos-before-restore-2026-11-01-02-03-04.tar.gz');await b.settled();
  const st=await b.status();assert.equal(st.restore.phase,'ready',JSON.stringify(st.restore));assert.deepEqual(st.prepared.preview.agents.back,['gone'])}finally{s.done()}});
 
 /* 7 Nov 2026: a 12.7 GB Prepare filled the container's memory with file cache. Memory is checked first, each piece is

@@ -157,7 +157,7 @@ export function pruneLocal(files,{keep=LOCAL_KEEP,days=LOCAL_DAYS,max=LOCAL_MAX,
 // the newest good backup (at, 0 = none yet; since = when aqeelOS first looked) is older than the limit: how old, else null
 export const staleBackup=(at,since,now=Date.now(),hours=STALE_H)=>{const age=now-(at||since||now);return age>hours*3600e3?{hours:Math.round(age/3600e3),never:!at}:null};
 export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=process.env.BACKUP_GOOGLE_ACCOUNT||'',notify=()=>{},solved=()=>{},restored=()=>{},stopEngine=async()=>{},startEngine=async()=>{},fetchImpl=fetch,tar='tar',TMP='/tmp',LOCALDIR=path.join(HOME,'aqeelos-local-backups'),MIN=1e6,disk:diskImpl,mem=memFree,drop=dropCache,PIECE=64*1024*1024}){
- const STATE=path.join(DATA,'backups.json'),KEYF=path.join(DATA,'backup-key'),JOURNAL=path.join(DATA,'restore-journal.jsonl');let state=null,running=null,preparing=null,copying=false,held=false,testing=null,prep=null;   // prep: the running Prepare's stop switch
+ const STATE=path.join(DATA,'backups.json'),KEYF=path.join(DATA,'backup-key'),JOURNAL=path.join(DATA,'restore-journal.jsonl');let state=null,running=null,job=null,preparing=null,copying=false,held=false,testing=null,prep=null;   // prep: the running Prepare's stop switch
  const load=async()=>{if(!state){try{state=JSON.parse(await readFile(STATE,'utf8'))}catch{state={}}
    // the old switched-off restore's "running" mark (before 7 Nov 2026)
    if(state.restore?.running){state.restore={...state.restore,running:false,ok:false,phase:'failed',error:'Interrupted: aqeelOS stopped during the restore.'};await save().catch(()=>{})}
@@ -311,7 +311,7 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
    if(t.free<need)throw Error('Not enough free space to prepare this backup: it needs about '+gb(need)+' in '+TMP+', and there is '+gb(t.free)+'. Nothing was changed.');
    state.restore={phase:'preparing',at,name:f.name,size:f.size,got:0};await save()}
   catch(e){preparing=null;prep=null;go();throw e}
-  (async()=>{try{await mkdir(dir,{recursive:true});
+  job=(async()=>{try{await mkdir(dir,{recursive:true});
     if(f.local)await sh('tar -xzf '+q(path.join(HOME,f.name))+' -C '+q(dir),{},ctl);   // one folder inside: the engine folder, whatever it was called
     else{await download(await google(),f.id,enc,f.size,{...ctl,get stop(){return ctl.stop},onPiece:n=>{if(state.restore?.at===at)state.restore.got=n}});if(ctl.stop)throw Error(STOPPED);state.restore.step='unpacking';
      await sh('set -o pipefail; openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AQ_BK -in '+q(enc)+' | tar -xzf - -C '+q(dir)+' .hermes',{AQ_BK:await key()},ctl).catch(e=>{if(ctl.stop)throw Error(STOPPED);throw Error(/bad decrypt|digital envelope/i.test(e.message)?'The backup key does not open this backup. Enter the key it was made with under Backup key.':e.message)});await rm(enc,{force:true})}
@@ -332,7 +332,7 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
   const h=await disk(HERMES_HOME),need=p.preview.copyBytes+p.preview.boxBytes*0.7+1e9;
   if(h.free<need)throw Object.assign(Error('Not enough free space: the restore needs about '+gb(need)+' next to the agents (the copy and today\'s safety copy), and there is '+gb(h.free)+'. Nothing was changed.'),{status:400});
   copying=true;const at=Date.now();state.restore={phase:'copying',at,name:p.name,step:'Stopping the agents'};await save();
-  (async()=>{try{const r=await applyRestore({src:p.src,HERMES_HOME,HOME,journal:JOURNAL,at,stopEngine:async()=>{await stopEngine();state.restore.step='Saving today\'s agents';await save().catch(()=>{})},startEngine,tar,hold:on=>{held=on},
+  job=(async()=>{try{const r=await applyRestore({src:p.src,HERMES_HOME,HOME,journal:JOURNAL,at,stopEngine:async()=>{await stopEngine();state.restore.step='Saving today\'s agents';await save().catch(()=>{})},startEngine,tar,hold:on=>{held=on},
      onSafety:async x=>{state.restore={...state.restore,safety:x,step:'Copying the backup'};await save()},onStep:n=>{state.restore.done=n.files}});
     state.restore={phase:'done',at,ok:true,name:p.name,safety:r.safety,unread:r.unread,files:r.files,added:r.added,replaced:r.replaced,secs:Math.round((Date.now()-at)/1000)};await save();console.log('backup: restored the agents from',p.name);
     restored(true,'The agents were restored from '+p.name,'Today\'s agents before it are kept in '+r.safety+(r.unread?' ('+r.unread+' files could not be read for it)':'')+'.')}
@@ -375,4 +375,5 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
   return {keyError,hasKey:!!await readKey(),last:state.last||null,local:{dir:LOCALDIR,count:loc.length,bytes:loc.reduce((n,f)=>n+f.size,0),newest:loc[0]?.at||0,keep:LOCAL_KEEP,active:!pick?.renews||!pick?.drive},stale:staleBackup(Math.max(state.lastOkAt||0,state.last?.ok?state.last.at:0),state.since||Date.now()),test:state.test||null,running:Boolean(running),testing:Boolean(testing),preparing:Boolean(preparing),restoring:copying,
    restore:r,prepared:p?{id:p.id,name:p.name,local:p.local,at:p.at,preview:p.preview}:null,
    settings:s,keep:s.keep,where:'Google Drive › '+s.folder,account:pick?.email||'',google:{connected:!!pick&&pick.renews&&pick.drive,file:tokenFile(),email:pick?.email||'',drive:!!pick?.drive,renews:!!pick?.renews},accounts:acc}}
- return {run,staleCheck,test,status,key,setKey,schedule,list,estimate,prepare,cancel,apply,recover,setSettings,accounts,busy:()=>copying,writesHeld:()=>held}}
+ // settled(): resolves when the Prepare or Restore running in the background has finished (tests wait on this, not on a timer)
+ return {settled:()=>job||Promise.resolve(),run,staleCheck,test,status,key,setKey,schedule,list,estimate,prepare,cancel,apply,recover,setSettings,accounts,busy:()=>copying,writesHeld:()=>held}}

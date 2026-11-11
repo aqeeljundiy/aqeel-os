@@ -22,7 +22,7 @@ HT=/tmp/hui-$ID.tgz; CT=/tmp/code-$ID.tgz
 r=$(bash "$here/box-pack-$ID.sh" "$SHA" "$HT" "$CT") || fail pack
 read CODE_V HS CS <<< "$r"; echo "· packed on the box ($HS + $CS bytes)"
 DC=/tmp/aq-commits-$ID; git -C "$HOME/apps/aqeel-os-src" rev-list -n 5000 "$SHA" > "$DC" 2>/dev/null || DC=
-CODE_V=$CODE_V FORCE=$FORCE WAIT_IDLE=${WAIT_IDLE:-0} HT=$HT CT=$CT HS=$HS CS=$CS SHA=$SHA BOX_SHA=$BOX_SHA DC=$DC bash "$W/scripts/box-live.sh" || fail "go live"
+SERVICES_ADOPT=${SERVICES_ADOPT:-0} CODE_V=$CODE_V FORCE=$FORCE WAIT_IDLE=${WAIT_IDLE:-0} HT=$HT CT=$CT HS=$HS CS=$CS SHA=$SHA BOX_SHA=$BOX_SHA DC=$DC bash "$W/scripts/box-live.sh" || fail "go live"
 rm -f "$here/box-pack-$ID.sh" "$0"
 echo "· timing: go live took $((SECONDS - T_CHECKED)) s, the whole deploy $SECONDS s"
 echo "AQ-DEPLOY DONE"
