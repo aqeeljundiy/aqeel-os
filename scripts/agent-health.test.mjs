@@ -154,9 +154,9 @@ test('engine: unclean and failed exits and a swapped state.db since the last che
  assert.deepEqual(engineProblems(engineEvents(diag,err,Date.parse('2026-11-07T06:00:00Z'))),[])});
 test('tool servers: the latest registration line, and flapping in the last hour',()=>{const now=Date.parse('2026-11-07T06:00:00Z');
  const L=(t,f)=>'2026-11-07 '+t+',100 INFO tools.mcp_tool: MCP: registered 158 tool(s) from 6 server(s)'+(f?' ('+f.length+' failed: '+f.map(x=>x+' (connection refused by '+x+')').join('; ')+')':'');
- const log=[L('05:10:00',['composio','notion']),L('05:20:00',['composio']),L('05:30:00',['composio','notion']),L('05:40:00',['composio']),L('05:50:00',['composio','notion']),
+ const log=[L('05:10:00',['higgsfield','notion']),L('05:20:00',['higgsfield']),L('05:30:00',['higgsfield','notion']),L('05:40:00',['higgsfield']),L('05:50:00',['higgsfield','notion']),
   "2026-11-07 05:50:01,000 INFO tools.mcp_tool: MCP server 'aqeelos-customer' (HTTP): registered 6 tool(s): a, b"].join('\n');
- const s=mcpState(log,now);assert.deepEqual(s.failed,['composio','notion']);assert.deepEqual(Object.keys(s.flaps),['notion']);assert.equal(s.customer,6);
+ const s=mcpState(log,now);assert.deepEqual(s.failed,['higgsfield','notion']);assert.deepEqual(Object.keys(s.flaps),['notion']);assert.equal(s.customer,6);
  assert.deepEqual(mcpProblems('a1',s).map(x=>x.topic),['health|a1|mcp-failed','health|a1|mcp-flap']);
  assert.deepEqual(mcpProblems('a1',mcpState(L('05:55:00',null),now)),[])});
 test('customer tools: 6 listed and 6 registered, else a problem',()=>{
@@ -174,7 +174,7 @@ test('the live checks run in tick, file nothing on their own, and clear when fin
  await h.tick();let v=await h.view();const all=v.agents.flatMap(r=>r.problems.map(p=>p.kind));assert.ok(all.includes('memory'));assert.ok(all.includes('customer'));
  mem={used:10,max:100,load1:1,cpus:4};listed=6;await writeFile(path.join(HOME,'profiles','sup','logs','agent.log'),"2026-11-07 05:50:01,000 INFO tools.mcp_tool: MCP server 'aqeelos-customer' (HTTP): registered 6 tool(s): a\n");
  await h.tick();v=await h.view();assert.deepEqual(v.agents.flatMap(r=>r.problems.map(p=>p.kind)),[])});
-test('tool servers waiting for a sign-in are not failures',()=>{const l="2026-11-07 07:03:42,014 INFO tools.mcp_tool: MCP: registered 98 tool(s) from 5 server(s) (3 failed: composio (MCP OAuth for 'composio': non-interactive environment and no cached tokens found. Run `hermes mcp login composio` interactively first to complete initial authorization.); notion (MCP OAuth for 'notion': no cached tokens found.); n8n (connection refused))";
+test('tool servers waiting for a sign-in are not failures',()=>{const l="2026-11-07 07:03:42,014 INFO tools.mcp_tool: MCP: registered 98 tool(s) from 5 server(s) (3 failed: higgsfield (MCP OAuth for 'higgsfield': non-interactive environment and no cached tokens found. Run `hermes mcp login higgsfield` interactively first to complete initial authorization.); notion (MCP OAuth for 'notion': no cached tokens found.); n8n (connection refused))";
  assert.deepEqual(mcpState(l,Date.parse('2026-11-07T07:10:00')).failed,['n8n'])});
 
 // 7 Nov 2026: aqeelos-notify failed every initialize with HTTP 500 from 13:53 and Health saw nothing
@@ -189,9 +189,9 @@ test('a server the engine parks while it runs counts until it is revived; a sign
  assert.deepEqual(mcpState([reg,park,oauth].join('\n'),now).failed,['aqeelos-notify']);assert.deepEqual(mcpState([reg,park,back].join('\n'),now).failed,[]);
  assert.deepEqual(mcpState([park,reg.replace('12:00:00','15:25:00')].join('\n'),now).failed,[],'a later engine start registers again')});
 test('aqeelOS’s own tool server: one urgent problem for all agents, straight into the ladder; other servers stay per agent',()=>{
- const p=ownServerProblems({agenta:{failed:['aqeelos-notify','composio']},'agent-b':{failed:['aqeelos-notify']},default:{failed:[]}});
+ const p=ownServerProblems({agenta:{failed:['aqeelos-notify','higgsfield']},'agent-b':{failed:['aqeelos-notify']},default:{failed:[]}});
  assert.equal(p.length,1);assert.equal(p[0].topic,'health|aqeelos|tool|aqeelos-notify');assert.equal(p[0].urgent,true);assert.match(p[0].text,/for 2 agents/);assert.match(p[0].detail,/agenta, agent-b/);
- assert.deepEqual(mcpProblems('agenta',{failed:['aqeelos-notify','composio'],flaps:{}}).map(x=>x.text),['Tool servers do not start: composio']);
+ assert.deepEqual(mcpProblems('agenta',{failed:['aqeelos-notify','higgsfield'],flaps:{}}).map(x=>x.text),['Tool servers do not start: higgsfield']);
  assert.equal(forLadder2({kind:'tools',id:'event|x',title:p[0].text,data:{urgent:true}}),true)});
 
 test('a tool server that failed in the last full list but revived or registered on its own after it is not failing (7 Nov 2026: five healthy agents read as failing)',()=>{

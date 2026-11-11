@@ -6,7 +6,7 @@
    model is set (1 Nov 2026: it was a second picker here, written another way, and the two could disagree).
    Save stores whatever changed. The card menu keeps only Edit, Chat with it and Delete; what a member may
    do still follows their share level and permissions. ---------- */
-const AE_TABS=['Identity','Personality','History','Abilities','Sharing','Access'];   // Abilities: AdsPower and Composio per agent (admins, optins-page.js)   // Access: which agents may look after this one (agent-access.mjs)
+const AE_TABS=['Identity','Personality','History','Abilities','Sharing','Access'];   // Abilities: AdsPower and sign-in apps per agent (admins, optins-page.js)   // Access: which agents may look after this one (agent-access.mjs)
 async function editAgent(name,start='Identity',opt={}){
  const base='/profiles/'+encodeURIComponent(name),prof=(Pages._profiles||[]).find(p=>p.name===name)||{name},id=ident(name);
  const admin=S.me?.admin!==false,lvl=admin?'owner':(S.me?.agents?.[name]||'chat'),has=k=>admin||(S.me?.caps||[]).includes(k);

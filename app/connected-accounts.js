@@ -27,7 +27,7 @@ PAGES.logins=async(p,el)=>{const gone=pageTok(el);
  el.innerHTML=`${fresh?alertBox(`<b>${fresh===1?'1 login':fresh+' logins'} acting as you ${fresh===1?'was':'were'} not registered by the agent that made ${fresh===1?'it':'them'}.</b> Approve or disconnect ${fresh===1?'it':'each one'} below.`,{act:''}):''}
   <div class="grid-cards acct-grid ca-grid">${d.items.map(card).join('')}</div>
   ${caAds(ads.items)}
-  <p class="hint ca-foot">Bots people message are under Channels; services like n8n and Composio, and keys, under Connected apps and Keys.</p>`;
+  <p class="hint ca-foot">Bots people message are under Channels; services like n8n, and keys, under Connected apps and Keys.</p>`;
  caAccess(el,d.items,gone).catch(()=>{});
  // a Pause, Resume or change still going (the engine drops and adds an app on its own clock): looked at again shortly
  clearTimeout(Pages._caT);if(d.items.some(caBusy))Pages._caT=setTimeout(()=>{if(route().page?.id==='logins'&&!document.hidden)(pageRun(el),PAGES.logins(p,el)).catch(()=>{})},4000)};

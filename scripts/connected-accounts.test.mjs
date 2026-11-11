@@ -27,7 +27,7 @@ test('classify: as the owner, a bot, or a service',()=>{
  assert.deepEqual(classify({type:'mcp',name:'slack-pixel',entry:{url:'https://mcp.slack.com/mcp',auth:'oauth'},token:{access_token:'xoxp-1-2',hermes_issuer:'https://mcp.slack.com'}}),{as:'me',kind:'mcp-oauth'});
  assert.equal(classify({type:'mcp',name:'notion-abel',entry:{url:'https://mcp.notion.com/mcp',auth:'oauth'},token:{access_token:'a',refresh_token:'b'}}).as,'me');
  // services the agents work through, and tools of aqeelOS's own
- assert.equal(classify({type:'mcp',name:'composio',entry:{url:'https://connect.composio.dev/mcp',auth:'oauth'},token:{access_token:'x'}}).as,'service');
+ assert.equal(classify({type:'mcp',name:'zapier',entry:{url:'https://mcp.zapier.com/mcp',auth:'oauth'},token:{access_token:'x'}}).as,'service');
  assert.equal(classify({type:'mcp',name:'n8n',entry:{url:'https://n8n.elmora.example/mcp-server/http',auth:'oauth'},token:{access_token:'x'},meta:{issuer:'https://n8n.elmora.example'}}).as,'service');
  assert.equal(classify({type:'mcp',name:'pixel',entry:{command:`${H}/.hermes/pixel-tools/run.sh`}}).as,'service');
  assert.equal(classify({type:'mcp',name:'aqeelos-notify',entry:{url:'http://127.0.0.1:4400/mcp/notify/default/x'}}).as,'service');
@@ -114,9 +114,9 @@ test('gapi.py: the guard goes in once and only where it fits',()=>{
 test('end to end on a fake engine home',async()=>{
  const root=await mkdtemp(path.join(tmpdir(),'ca-')),H=path.join(root,'.hermes'),DATA=path.join(root,'data'),W=path.join(root,'workspaces');
  await mkdir(path.join(H,'mcp-tokens'),{recursive:true});await mkdir(path.join(H,'logs'),{recursive:true});await mkdir(path.join(H,'profiles','pine-agent','logs'),{recursive:true});await mkdir(W,{recursive:true});
- const cfg={default:{mcp_servers:{'slack-pixel':{url:'https://mcp.slack.com/mcp',auth:'oauth'},composio:{url:'https://connect.composio.dev/mcp',auth:'oauth'}}},'pine-agent':{mcp_servers:{}}};
+ const cfg={default:{mcp_servers:{'slack-pixel':{url:'https://mcp.slack.com/mcp',auth:'oauth'},zapier:{url:'https://mcp.zapier.com/mcp',auth:'oauth'}}},'pine-agent':{mcp_servers:{}}};
  await writeFile(path.join(H,'mcp-tokens','slack-pixel.json'),JSON.stringify({access_token:'xoxp-fake',hermes_issuer:'https://mcp.slack.com'}));
- await writeFile(path.join(H,'mcp-tokens','composio.json'),JSON.stringify({access_token:'c',hermes_issuer:'https://connect.composio.dev'}));
+ await writeFile(path.join(H,'mcp-tokens','zapier.json'),JSON.stringify({access_token:'c',hermes_issuer:'https://mcp.zapier.com'}));
  await writeFile(path.join(H,'google_token_pixel.json'),JSON.stringify({token:'t',refresh_token:'r1',account:'abel@pixel.test'}));
  await writeFile(path.join(H,'logs','agent.log'),L.draft+'\n'+L.own+'\n');
  const calls=[],bells=[];const log=a=>path.join(a==='default'?H:path.join(H,'profiles',a),'logs','agent.log');
@@ -146,7 +146,7 @@ test('end to end on a fake engine home',async()=>{
  // Disconnect: the files are gone, the app off every agent
  await ca.disconnect('google:abel@elmora.test');assert.equal(await stat(path.join(H,'profiles','pine-agent','google_token_elmora.json')).catch(()=>null),null);
  await ca.disconnect('mcp:slack-pixel');assert.equal(cfg.default.mcp_servers['slack-pixel'],undefined);assert.equal(await stat(path.join(H,'mcp-tokens','slack-pixel.json')).catch(()=>null),null);
- assert.ok(await stat(path.join(H,'mcp-tokens','composio.json')));   // a service stays
+ assert.ok(await stat(path.join(H,'mcp-tokens','zapier.json')));   // a service stays
  assert.deepEqual((await ca.list()).items.map(x=>x.id),['google:abel@pixel.test'])});
 
 // gapi.py itself with the guard: a paused account and a limited one are refused before Google is asked

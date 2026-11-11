@@ -1,7 +1,7 @@
 // Connected accounts (31 Oct 2026): every login where an agent acts AS THE OWNER, not as a bot: the owner's own Google
 // accounts, Slack and Notion sign-ins (user sign-ins, so a message goes out with the owner's name on it) and, once one is
 // made, a personal Telegram session. Bots people message are Channels; services the agents work through (n8n,
-// Composio, API keys) stay under Connected apps and Keys. For each login aqeelOS keeps:
+// API keys) stay under Connected apps and Keys. For each login aqeelOS keeps:
 //   - who it is (the email, the Slack user and workspace, the Notion user), the agents that use it (access.mjs) and what
 //     they may do: read, draft, send (all three unless the owner takes one away; for Google gapi.py refuses the rest,
 //     for apps the tools for it are left out of the agents' tool list);
@@ -31,7 +31,7 @@ const h8=s=>createHash('sha256').update(String(s)).digest('hex').slice(0,8);
 // edit (5 Nov 2026): change Sheets, Docs and Drive files without sending mail; send also allows edit and draft
 export const CAN=['read','edit','draft','send'];
 // services the agents work through, never "as you" (their own accounts, or the owner's apps behind one more sign-in)
-export const SERVICE_RE=/composio|rube\.app|\bn8n\b|zapier|pipedream|make\.com|aqeelos/i;
+export const SERVICE_RE=/\bn8n\b|zapier|pipedream|make\.com|aqeelos/i;
 const BOT_KEY=/^(SLACK_BOT_TOKEN|SLACK_APP_TOKEN|TELEGRAM_BOT_TOKEN|DISCORD_BOT_TOKEN|WHATSAPP_.*|SIGNAL_.*|TEAMS_.*)$/;
 export const PROVIDERS=[{id:'slack',re:/slack/i,name:'Slack',logo:'slack.com'},{id:'notion',re:/notion/i,name:'Notion',logo:'notion.so'},{id:'google',re:/google|gmail/i,name:'Google',logo:'google.com'},
  {id:'telegram',re:/telegram/i,name:'Telegram',logo:'telegram.org'},{id:'github',re:/github/i,name:'GitHub',logo:'github.com'},{id:'linear',re:/linear/i,name:'Linear',logo:'linear.app'},
@@ -92,7 +92,7 @@ export const allowed=(kind,can)=>kind==='read'||(kind==='draft'?can.includes('dr
 // what one app tool needs (1 Nov 2026): read, draft or send. A comment counts as a draft (it stays a note on the thing,
 // not a message out), so Read & draft may comment; everything else that changes or sends needs Full, and so does a tool
 // whose name does not say what it does.
-export function toolNeed(prov,tool){const a=actionOf(prov,tool);if(a.kind==='draft'||a.kind==='read'&&a.verb!=='Used')return a.kind;   // a tool whose name says nothing known (COMPOSIO_EXECUTE) needs Full
+export function toolNeed(prov,tool){const a=actionOf(prov,tool);if(a.kind==='draft'||a.kind==='read'&&a.verb!=='Used')return a.kind;   // a tool whose name says nothing known (RUN_ACTION) needs Full
  const t=String(tool||'').toLowerCase().split(/[._\s-]+/);return t.some(w=>/^comments?$/.test(w))&&t.some(w=>/^(create|add|reply|post|insert)$/.test(w))?'draft':'send'}
 const PROV_WORD={gmail:'Gmail',drive:'Drive',sheets:'Sheets',docs:'Docs',calendar:'Calendar',slack:'Slack',notion:'Notion'};
 const pl=(n,w)=>n===1?w:w==='person'?'people':w==='sharing'?w:/(s|sh|ch|x)$/.test(w)?w+'es':w+'s';
@@ -132,7 +132,7 @@ export function matches(reg,acct,home){if(!reg||!acct)return false;const w=tilde
  const words=String(reg.label||'').toLowerCase().split(/[^a-z0-9@.]+/).filter(x=>x.length>2);const hay=[acct.label||displayName(acct),acct.identity,acct.mcp,acct.provider].join(' ').toLowerCase();
  return words.length>0&&words.filter(x=>hay.includes(x)).length>=Math.min(2,words.length)}
 // a login's name (1 Nov 2026): the service, then who it is, from what the service itself says; never an agent's label
-const SERVICE_CASE={n8n:'n8n',github:'GitHub',adspower:'AdsPower',aqeelos:'aqeelOS',hubspot:'HubSpot',composio:'Composio'};
+const SERVICE_CASE={n8n:'n8n',github:'GitHub',adspower:'AdsPower',aqeelos:'aqeelOS',hubspot:'HubSpot'};
 export const serviceName=(id,fallback='')=>SERVICE_CASE[String(id).toLowerCase()]||(PROVIDERS.find(p=>p.id===id)?.name)||fallback||String(id||'').split(/[-_\s]+/).filter(Boolean).map((w,i)=>SERVICE_CASE[w.toLowerCase()]||(i?w:w.replace(/^./,c=>c.toUpperCase()))).join(' ');
 export function displayName(x={}){const who=x.who||{};
  if(x.kind==='google')return 'Google · '+(x.identity||'not checked yet');
