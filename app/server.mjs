@@ -22,6 +22,7 @@ import {mcpAddProblem} from './mcp-add-check.mjs';   // an app added by address:
 import {createAddons,probeMcp,RUNS_CODE_MSG} from './addons.mjs';   // personal add-ons: who added what, the admin block list, "is it an MCP tool" (11 Nov 2026)
 import {setupGuideLines} from './setup-guide.mjs';   // how every agent onboards people to any app (11 Nov 2026)
 import {createEscalations} from './escalations.mjs';
+import {createEfficiency} from './efficiency.mjs';
 import {createConnect,firstModelFor} from './connect.mjs';
 import {createOptins,appNames,solvedIssues} from './agent-optins.mjs';
 import {isConnector as isConnectorEntry} from './connectors.mjs';
@@ -1771,6 +1772,8 @@ if(LIVE_APP){const liveInstall=()=>agentLive.install().then(async c0=>{const c=[
  setTimeout(liveInstall,60e3).unref();setInterval(liveInstall,10*60e3).unref()}
 // billion-context (fewer tokens in long chats) in every agent's home, same rhythm; the engine reloads once no reply runs
 const billion=createBillionContext({HERMES_HOME,readConfig,setKey,pick});
+// Efficiency on System › Health (efficiency.mjs): where model use goes and what drifts back, read only, kept a minute
+const efficiency=createEfficiency({HERMES_HOME,DATA,python:enginePython,nameOf:a=>a===HELP_AGENT?'Help':agentName(a),savings:()=>billion.savings(),accountLabels:async()=>{const d=await accountsApi.backup.load();return Object.fromEntries(accountsApi.backup.all(d).map(a=>[a.id,a.label]))}});
 if(LIVE_APP){const biliInstall=()=>billion.install().then(async c0=>{const c=[];for(const a of c0)if(!await isTestAgent(a).catch(()=>false))c.push(a);if(c.length)restartLater('billion-context plugin for '+c.length+' agent(s)')}).catch(e=>console.warn('billion-context install',e.message));
  setTimeout(biliInstall,90e3).unref();setInterval(biliInstall,10*60e3).unref()}
 // graphify (code and document maps) in the agents' shared Python, its skill copied to every agent; same rhythm
@@ -3200,6 +3203,7 @@ const server=createServer(async(req,res)=>{
    if(!r)return send(res,404,{error:'That issue is not in the line any more.'});if(LIVE_APP)issues.tick().catch(()=>{});return send(res,200,{ok:true,fixer:await issues.fixerView()})}
   // memory per agent (HEALTH-6) and this week's cost by agent and by person (HEALTH-7)
   if(p==='/ui/health/memory'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});const v=await agentMemory.view();const box=await memWatch.view().catch(()=>null);return send(res,200,{...v,box,names:Object.fromEntries(Object.keys(v.agents).map(a=>[a,agentName(a)]))})}
+  if(p==='/ui/health/efficiency'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,await efficiency.view({fresh:url.searchParams.get('fresh')==='1'}))}
   if(p==='/ui/health/cost'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});
    // whose chat it was: the person who started it in aqeelOS, else a person the team policy knows on that channel (the owner
    // on Telegram), else what started it: a schedule, a customer on a channel, or background work (the fixer, helpers)
