@@ -17,6 +17,9 @@ import {randomBytes} from 'node:crypto';
 import path from 'node:path';
 
 export const MAX_MIN=25,DEFAULT_MIN=10,DEFAULT_CAP=40,MAX_AT_ONCE=2,FAILS_TO_PAUSE=3,LOCK_WAIT=600,CODE_LIFE=15*60e3;
+// a pause for failures lasts this long, then ONE run is let through to see if the cause is gone (10 Nov 2026: three runs that
+// failed within a minute because the AI models did not answer paused Continue Threads for good, so it could not repair itself)
+export const PAUSE_COOL_MS=60*60e3;
 export const AGENT=/^[a-z0-9][a-z0-9_-]{0,63}$/;
 // channels where people talk to an agent; whatsapp is judged like the rest (only trusted people), webhooks never
 const MESSAGING=new Set(['telegram','whatsapp','slack','discord','signal','matrix','mattermost','email','sms','line']);
@@ -68,8 +71,10 @@ export function createSelfRuns({DATA,now=()=>Date.now(),day=t=>new Date(t).toISO
  const today=()=>day(now());
  const startedToday=a=>Object.values(db.runs).filter(r=>r.agent===a&&day(r.at)===today()).length;
  const active=a=>Object.values(db.runs).filter(r=>r.agent===a&&(r.state==='waiting'||r.state==='running'));
- // a cap pause ends by itself the next day; a pause for failures stays until someone resumes
- const pausedOf=a=>{const p=db.paused[a];if(!p)return null;if(p.why==='cap'&&p.day!==today()){delete db.paused[a];return null}return p};
+ // a cap pause ends by itself the next day; a pause for failures ends after PAUSE_COOL_MS and lets one run through: the failure
+ // count stays one short of the limit, so that run failing again pauses it at once for another hour, and one that works clears it
+ const pausedOf=a=>{const p=db.paused[a];if(!p)return null;if(p.why==='cap'&&p.day!==today()){delete db.paused[a];return null}
+  if(p.why==='failures'&&now()-p.at>=PAUSE_COOL_MS){delete db.paused[a];db.fails[a]=Math.min(db.fails[a]||0,FAILS_TO_PAUSE-1);audit({event:'resumed',agent:a,by:{who:'aqeelOS (cool-down)'}});write().catch(()=>{});return null}return p};
  const view=r=>({id:r.id,agent:r.agent,agentName:nameOf(r.agent),by:r.by,at:r.at,started:r.started||null,done:r.done||null,state:r.state,reason:r.reason,prompt:r.prompt,minutes:r.minutes,lock:r.lockRel||null,exit:r.exit??null,secs:r.done&&(r.started||r.at)?Math.round((r.done-(r.started||r.at))/1000):null,stoppedBy:r.stoppedBy||null});
 
  // the agent's request: o = {agent, args, origin (from judge)}
@@ -77,7 +82,7 @@ export function createSelfRuns({DATA,now=()=>Date.now(),day=t=>new Date(t).toISO
   const s=settingsOf(agent),refuse=why=>{audit({event:'refused',agent,by:origin?.by||null,reason:clip(args.reason,200),prompt:clip(args.prompt,200),why});return write().catch(()=>{}).then(()=>{throw Error(why)})};
   if(!origin?.ok)return refuse(origin?.why||'Refused.');
   if(!s.on)return refuse('Running itself is switched off for this agent in aqeelOS (Automations › Runs itself).');
-  const pz=pausedOf(agent);if(pz)return refuse(pz.why==='cap'?'You reached today\'s limit of '+s.cap+' runs. Self-runs start again tomorrow, or when an admin raises the limit in aqeelOS.':'Self-runs are paused after '+FAILS_TO_PAUSE+' failed runs in a row. An admin resumes them in aqeelOS (Automations › Runs itself).');
+  const pz=pausedOf(agent);if(pz)return refuse(pz.why==='cap'?'You reached today\'s limit of '+s.cap+' runs. Self-runs start again tomorrow, or when an admin raises the limit in aqeelOS.':'Self-runs are paused after '+FAILS_TO_PAUSE+' failed runs in a row. They try again by themselves after an hour, or an admin resumes them in aqeelOS (Automations › Runs itself).');
   const prompt=String(args.prompt??'').trim(),reason=String(args.reason??'').trim();
   if(!prompt)return refuse('Give the prompt for the run.');if(prompt.length>20000)return refuse('The prompt is too long (20,000 characters at most). Put the details in a file in your workspace and point to it.');
   if(!reason)return refuse('Say in a few words why you run yourself (reason).');
@@ -168,7 +173,7 @@ export function createSelfRuns({DATA,now=()=>Date.now(),day=t=>new Date(t).toISO
   db.summary.last=day(t);const y=day(t-864e5),runs=Object.values(db.runs).filter(r=>day(r.at)===y);await write().catch(()=>{});
   const agents=[...new Set([...runs.map(r=>r.agent),...Object.keys(db.paused)])];if(!agents.length)return null;
   const need=[],lines=[];
-  for(const a of agents){const rs=runs.filter(r=>r.agent===a),ok=rs.filter(r=>r.state==='ok').length,bad=rs.filter(r=>r.state==='failed'||r.state==='timeout').length,p=pausedOf(a);
+  for(const a of agents){const rs=runs.filter(r=>r.agent===a),ok=rs.filter(r=>r.state==='ok').length,bad=rs.filter(r=>r.state==='failed'||r.state==='timeout').length,p=db.paused[a]?.why==='failures'?db.paused[a]:pausedOf(a);   // a pause for failures counts until a run has gone through again
    if(p)need.push(nameOf(a)+': paused ('+(p.why==='cap'?'daily limit reached':FAILS_TO_PAUSE+' failed runs in a row')+')');
    else if(bad)need.push(nameOf(a)+': '+bad+' failed run'+(bad>1?'s':''));
    if(rs.length)lines.push(nameOf(a)+': '+rs.length+' run'+(rs.length>1?'s':'')+', '+ok+' ok'+(bad?', '+bad+' failed':''))}

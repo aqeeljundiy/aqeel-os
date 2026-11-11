@@ -112,8 +112,8 @@ export function suggestCheck(text){const t=String(text||'');
  return null}
 
 // the check script: the same file scripts/events-wire.mjs writes (the gate runs it first; its last line says whether there is anything to do)
-export const checkBody=({runCheck=RUN_CHECK,agent,home,data,checks})=>['#!/bin/bash','# Written by aqeelOS (run gates, "Add a check"). The run gate runs this before the AI; the last line says whether there is anything to do.',
- 'exec node '+JSON.stringify(runCheck)+' --agent '+agent+' --home '+JSON.stringify(home)+' --data '+JSON.stringify(data)+' '+checks,''].join('\n');
+export const checkBody=({runCheck=RUN_CHECK,agent,home,data,checks,job})=>['#!/bin/bash','# Written by aqeelOS (run gates, "Add a check"). The run gate runs this before the AI; the last line says whether there is anything to do.',
+ 'exec node '+JSON.stringify(runCheck)+' --agent '+agent+' --home '+JSON.stringify(home)+' --data '+JSON.stringify(data)+(job?' --job '+job:'')+' '+checks,''].join('\n');
 
 // skipped starts by hour bucket (row.hours {<hours since 1970>: n}) -> {h24,d7}
 export function savedStarts(gates,now=Date.now()){const h=Math.floor(now/HOUR),out={h24:0,d7:0,jobs:[]};
@@ -273,6 +273,6 @@ export function createRunGates({strict=async()=>({}),HERMES_HOME,DATA,WORK,PORT,
   if(choice==='keep'){r.keep={at:now(),min:cadenceOf(j.schedule)};await save();return {ok:true,kept:true}}
   if(choice!=='check')throw Error('Unknown choice');const s=suggestCheck((j.name||'')+' '+(j.prompt||''));if(!s)throw Error('No standard check fits this schedule. Keep it as it is, or ask the agent for a check of its own.');
   if(!/^[\w-]{1,64}$/.test(jobId)||!/^[a-z0-9][a-z0-9_-]{0,80}$/.test(a))throw Error('Unknown schedule');
-  const f=path.join(home(a),'scripts',CHECK_PREFIX+jobId+'.sh');await mkdir(path.dirname(f),{recursive:true});await writeFile(f,checkBody({runCheck,agent:a,home:home(a),data:DATA,checks:s.checks}),{mode:0o700});await chmod(f,0o700);
+  const f=path.join(home(a),'scripts',CHECK_PREFIX+jobId+'.sh');await mkdir(path.dirname(f),{recursive:true});await writeFile(f,checkBody({runCheck,agent:a,home:home(a),data:DATA,job:jobId,checks:s.checks+(/--dms/.test(s.checks)?' --max-idle 60':'')}),{mode:0o700});await chmod(f,0o700);
   r.check={at:now(),checks:s.checks};await save();return {ok:true,checks:s.checks,what:s.what}}
  return {check,install,view,offAll,needs,pending,decide,noteManual,gateName:id=>GATE_PREFIX+id+'.sh'}}

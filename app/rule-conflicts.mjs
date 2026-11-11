@@ -48,6 +48,9 @@ export function claimsIn(prompt){const t=String(prompt||''),out=[];
  while((m=d.exec(t)))push('perDay',m,1,0);
  const h=/\b(?:max(?:imum)?|at most|up to|no more than|limit(?: of)?)\s*(\d+)\s*(?:[a-z]+\s*){0,2}?(?:\/\s*h(?:our)?\b|per hour|an hour|a hour)/gid;
  while((m=h.exec(t)))push('perHour',m,1,0);
+ // the hour's target stated as a count to reach: "until this hour has 5 comments" (11 Nov: the prompt said 5 there and max 6/h next to it)
+ const h2=/\b(?:until|till|up to)\s+(?:this|the|each|that|the current)\s+hour\s+(?:has|have|holds?|reaches|is at|gets?|contains?)\s+(\d+)/gid;
+ while((m=h2.exec(t)))push('perHour',m,1,0);
  return out.sort((a,b)=>a.start-b.start)}
 
 // the minutes of the hour a cron schedule fires at (only a minute field with every other field "*"), else null
