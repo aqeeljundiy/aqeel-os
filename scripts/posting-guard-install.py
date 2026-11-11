@@ -48,11 +48,23 @@ PATCHES = {
          r'\1pg.sending(); ok = await click_text("Post"); pg.record("thread", "own thread"); print("POST_CLICKED", ok); await asyncio.sleep(8)'),
     ],
 }
-# older node helpers that post (not used by the runners' prompts): one step, counted as an action when they start (posting-guard act)
-JS_ACT = ("// aqeelOS posting limits: asks first and counts this run as an action (posting-guard act). Refused = stops here.\n"
-          "{const r=require('child_process').spawnSync('python3',[require('path').join(__dirname,'posting_guard.py'),'act',%r,%s],{stdio:['ignore','inherit','inherit']});if(r.status!==0)process.exit(r.status||8)}\n")
-JS_PATCHES = {"post_reply.js": ("comment", "process.argv[2]||''"), "post_reply_nonav.js": ("comment", "process.argv[2]||''"),
-              "send_parts.js": ("thread", "'parts'"), "own_post_step.js": ("thread", "'own post step'")}
+# older node helpers that post (not in the runners' prompts). Same three points as the Python ones: ask before the browser is touched, "sending"
+# right before the click or key that posts, record right after, once per action. own_post_step.js only types one step of a thread into the
+# composer (no click): it is not patched; the Post click of an own thread is thread_full.py / thread_post.py.
+JS_PRELUDE = ("// aqeelOS posting limits (posting-guard): asks first, says 'sending' right before the click that posts, records right after. Refused = stops here.\n"
+              "const _pg=(...a)=>require('child_process').spawnSync('python3',[require('path').join(__dirname,'posting_guard.py'),...a],{encoding:'utf8',stdio:['ignore','pipe','inherit']});\n"
+              "const _kind=%s;let _T=process.env.POSTING_GUARD_TICKET||'',_mine=false,_sent=false;\n"
+              "if(!_T){const _r=_pg('check',_kind);if(_r.status!==0)process.exit(_r.status||8);_T=_r.stdout.trim();_mine=true}\n"
+              "process.on('exit',()=>{if(_mine&&!_sent)_pg('cancel',_T)});\n")
+_REPLY_CLICK = "  await click(...p); await sleep(8000);"
+JS_PATCHES = {
+    "post_reply.js": ("'comment'", [(_REPLY_CLICK, "  if(_pg('sending',_T).status!==0)process.exit(7);_sent=true;\n  await click(...p); console.log(_pg('record',_kind,process.argv[2]||'','--ticket',_T,'--text-file',process.argv[3]||'').stdout.trim()); await sleep(8000);")]),
+    "post_reply_nonav.js": ("'comment'", [(_REPLY_CLICK, "  if(_pg('sending',_T).status!==0)process.exit(7);_sent=true;\n  await click(...p); console.log(_pg('record',_kind,process.argv[2]||'','--ticket',_T,'--text-file',process.argv[3]||'').stdout.trim()); await sleep(8000);")]),
+    # sends each part into the open CHAT box with Enter: a DM. A chat we start is 'dm' (the default, the stricter one); an answer is passed as a 3rd argument: node send_parts.js file.json reply
+    "send_parts.js": ("(process.argv[3]==='reply'?'reply':'dm')", [
+        ("    await key('Enter', 0, 'Enter', 13);\n    await sl(5000);", "    if(p===0){if(_pg('sending',_T).status!==0)process.exit(7);_sent=true}\n    await key('Enter', 0, 'Enter', 13);\n    await sl(5000);"),
+        ("    console.log('part', p + 1, ok ? 'SENT' : 'NOT CONFIRMED');", "    console.log('part', p + 1, ok ? 'SENT' : 'NOT CONFIRMED');\n    if(ok&&p===0)console.log(_pg('record',_kind,'chat','--ticket',_T).stdout.trim());")]),
+}
 
 WRAPPER = '#!/bin/sh\n# posting-guard: the helper for shell scripts and by hand (posting_guard.py --help). Written by posting-guard-install.py.\nD=$(cd "$(dirname "$0")" && pwd)\nP=python3; command -v python3 >/dev/null 2>&1 || P=python\nexec "$P" "$D/posting_guard.py" "$@"\n'
 
@@ -168,7 +180,7 @@ def main():
             problems += 1
             continue
         plan.append((p, old, new, None, fname + " (" + "; ".join(notes) + ")"))
-    for fname, (kind, arg) in JS_PATCHES.items():
+    for fname, (kind, edits) in JS_PATCHES.items():
         p = os.path.join(tools, fname)
         if not os.path.exists(p):
             continue
@@ -176,8 +188,18 @@ def main():
         if "posting_guard" in old:
             print("  = %s: already patched" % fname)
             continue
-        new = JS_ACT % (kind, arg) + old
-        plan.append((p, old, new, None, fname + " (counted as a %s when it starts)" % kind))
+        new, bad = old, None
+        for anchor, rep in edits:
+            if new.count(anchor) != 1:
+                bad = "%s: %r matched %d times (expected 1): left alone" % (fname, anchor[:50], new.count(anchor))
+                break
+            new = new.replace(anchor, rep, 1)
+        if bad:
+            print("  ! " + bad)
+            problems += 1
+            continue
+        new = JS_PRELUDE % kind + new
+        plan.append((p, old, new, None, fname + " (asks first; sending + record around the real send)"))
     for p, old, new, mode_, label in plan:
         print("\n== %s %s" % ("new" if old is None else "change", label))
         show(os.path.basename(p), old or "", new)
