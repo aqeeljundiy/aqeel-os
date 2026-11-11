@@ -23,6 +23,7 @@ import {createFixerGit} from './fixer-git.mjs';
 import {createCloudFixer} from './cloud-fixer.mjs';
 import {createLiveDrift} from './live-drift.mjs';
 import {withTebar} from './tebar-app.mjs';   // Tebar in the catalog: one click sign-in, or a pasted API key (11 Nov 2026)
+import {createScheduleFinish} from './schedule-finish.mjs';   // a schedule finishing is an event: chained schedules (12 Nov 2026)
 import {createPaymentCallbacks} from './payment-callbacks.mjs';   // Tripay / Xendit "paid" callbacks wake the payment check at once (12 Nov 2026)
 import {createEventHooks} from './event-hooks.mjs';   // a payment found PAID runs the agent's recap script at once, no model (12 Nov 2026)
 import {createEventRuns} from './event-runs.mjs';   // a Tebar event starts the matching schedule at once (11 Nov 2026)
@@ -1530,6 +1531,9 @@ const kirimdev=createKirimdev({DATA,docLinks,WORK:path.join(homedir(),'workspace
    and expired or disconnected accounts are alerts (Health, Bottlenecks, the alert chat); comments, DMs and the other
    events picked are a notice in the bell of the agent's owner (admins for the main agents) */
 const eventRuns=createEventRuns({DATA,trigger:async(a,id)=>{runGates.noteManual(a,id);const r=await fetch(DASH.origin+'/api/cron/jobs/'+encodeURIComponent(id)+'/trigger?profile='+encodeURIComponent(a),{method:'POST',headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:'{}',signal:AbortSignal.timeout(90000)});if(!r.ok)throw Error('the engine answered '+r.status)}});
+// a finished schedule is an event too (schedule-finish.mjs): rules with "after" chain schedules; one stat of a jobs file every 30 s per agent that has such a rule
+const scheduleFinish=createScheduleFinish({HERMES_HOME,watched:()=>eventRuns.watched(),onEvent:(a,ev)=>eventRuns.fire(a,ev),log:m=>console.log(m)});
+if(LIVE_APP)setInterval(()=>scheduleFinish.tick().catch(e=>console.warn('schedule finish',e.message)),30e3).unref();
 const tebar=createTebar({DATA,onEvent:(a,ev)=>eventRuns.fire(a,ev),publicUrl:()=>String(PUBLIC_URL??''),nameOf:a=>NAMES[a]||a,log:m=>console.log(m),
  problem:(a,topic,title,fix)=>health.problem(a,'tebar',title,{topic,fix}),solved:(a,topic)=>health.ok(a,topic),
  notice:(a,title,text,type)=>{const o=users.byId(users.agentOwner(a));return news.add({aud:o&&!users.isAdmin(o)?'u:'+o.id:'admins',group:'tebar|'+a+'|'+type,icon:'bell',kind:'blue',title,text,go:'/abilities/connections',label:'Connections'})}});

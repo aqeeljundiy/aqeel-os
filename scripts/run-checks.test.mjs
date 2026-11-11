@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {cdpPortOf,titleCount,unreadDms,unansweredComments,postingAllowed,combine,listOf} from '../app/run-checks.mjs';
+import {cdpPortOf,titleCount,unreadDms,unansweredComments,postingAllowed,combine,listOf,wordsOf,runCommand,commandWork} from '../app/run-checks.mjs';
 
 test('the DevTools port comes from the agent config; the title count from the page title',()=>{
  assert.equal(cdpPortOf('browser:\n  headed: true\n  cdp_url: http://127.0.0.1:9600\n  x: 1'),9600);assert.equal(cdpPortOf('a: b'),null);assert.equal(cdpPortOf('  cdp_url: "https://evil.com:9600"'),null);
@@ -103,3 +103,33 @@ test('--comments without a Tebar key is unknown and lets the run go; no unread c
  const d=await mkdtemp(path.join(tmpdir(),'aq-rc3-'));
  const {stdout}=await run(process.execPath,[path.join(import.meta.dirname,'run-check.mjs'),'--agent','x','--home',d,'--dms','--comments'],{timeout:20000,env:{...process.env,TEBAR_API_KEY:''}});
  const o=JSON.parse(stdout.trim());assert.equal(o.anythingToDo,true);assert.match(o.detail.join(' '),/no Tebar API key/);assert.match(o.detail.join(' '),/no DevTools port/)});
+
+// ---- a command that prints when there is work ----
+const fake=(out,ok=true,code=0,err='')=>{const calls=[];const f=async(file,args,opt)=>{calls.push([file,args,opt]);return {ok,out,err,code}};f.calls=calls;return f};
+test('a command is plain words; anything else is refused before it runs',()=>{
+ assert.deepEqual(wordsOf('python3 -I x/run.py --a=1'),['python3','-I','x/run.py','--a=1']);
+ for(const bad of ['','a; b','a | b','$(id)','a `b`','a "b c"','a > f','a && b'])assert.equal(wordsOf(bad),null,bad)});
+test('--cmd: printed lines are work, nothing printed is not, a failed command is unknown (the run goes ahead)',async()=>{
+ let w=await commandWork({label:'c',cmd:'node check.mjs',exec:fake('READY abc\nFAILED def\n')});assert.equal(w.count,2);assert.equal(w.known,true);
+ w=await commandWork({label:'c',cmd:'node check.mjs',exec:fake('\n  \n')});assert.equal(w.count,0);assert.equal(w.known,true);
+ w=await commandWork({label:'c',cmd:'node check.mjs',exec:fake('',false,1,'boom')});assert.equal(w.known,false);assert.equal(w.count,null);assert.match(w.why,/boom/);
+ w=await commandWork({label:'c',cmd:'node check.mjs',exec:fake('',false,124)});assert.match(w.why,/longer than/);
+ assert.equal((await commandWork({label:'c',cmd:'a; b',exec:fake('x')})).known,false);
+ assert.equal(combine({work:[await commandWork({label:'c',cmd:'node c.mjs',exec:fake('x')})]}).anythingToDo,true);
+ assert.equal(combine({work:[await commandWork({label:'c',cmd:'node c.mjs',exec:fake('')})]}).anythingToDo,false);
+ assert.equal(combine({work:[await commandWork({label:'c',cmd:'node c.mjs',exec:fake('',false,1)})]}).anythingToDo,true,'unknown never stops a run')});
+test('--cmd-once: the same output is not work twice, a changed one is, and an empty answer forgets',async()=>{
+ let w=await commandWork({label:'c',cmd:'x.sh',once:true,exec:fake('stage 2 due 2026-10 R2\n')});assert.equal(w.count,1);
+ let w2=await commandWork({label:'c',cmd:'x.sh',once:true,state:{cmd:w.next},exec:fake('stage 2 due 2026-10 R2\n')});assert.equal(w2.count,0);assert.match(w2.why,/already reported/);
+ let w3=await commandWork({label:'c',cmd:'x.sh',once:true,state:{cmd:w.next},exec:fake('stage 2 due 2026-10 R3\n')});assert.equal(w3.count,1);
+ let w4=await commandWork({label:'c',cmd:'x.sh',once:true,state:{cmd:w.next},exec:fake('')});assert.equal(w4.count,0);assert.deepEqual(w4.next,{});
+ let w5=await commandWork({label:'c',cmd:'x.sh',once:true,state:{cmd:w4.next},exec:fake('stage 2 due 2026-10 R2\n')});assert.equal(w5.count,1,'it came back, so it is work again');
+ let n=await commandWork({label:'c',cmd:'x.sh',once:false,state:{cmd:w.next},exec:fake('stage 2 due 2026-10 R2\n')});assert.equal(n.count,1,'without once every print is work')});
+test('--agent-cmd: ssh as the agent\'s own user, cd into its folder, a timeout, paths stay inside; no own user is unknown',async()=>{
+ const as={user:'ag-pixel-agent',key:'/k/id',dir:'/home/claude/workspaces/pixel-agent'};const f=fake('READY 1\n');
+ const r=await runCommand({cmd:'.hermes/profiles/pixel-agent/scripts/meeting_watch.py',as,timeoutSec:25,exec:f});assert.equal(r.ok,true);
+ const [file,args,opt]=f.calls[0];assert.equal(file,'ssh');assert.ok(args.includes('ag-pixel-agent@127.0.0.1'));assert.ok(args.includes('BatchMode=yes'));
+ assert.equal(args.at(-1),"cd '/home/claude/workspaces/pixel-agent' && timeout -k 3 22 python3 .hermes/profiles/pixel-agent/scripts/meeting_watch.py");assert.equal(opt.timeout,25000);
+ for(const bad of ['/etc/x.py','python3 ../x.py'])assert.equal((await runCommand({cmd:bad,as,exec:fake('x')})).ok,false);
+ assert.equal((await runCommand({cmd:'x.py',as:{...as,user:undefined},exec:fake('x')})).ok,false);
+ const l=fake('x');await runCommand({cmd:'node /opt/c.mjs --a',exec:l});assert.deepEqual([l.calls[0][0],l.calls[0][1]],['node',['/opt/c.mjs','--a']],'--cmd runs here, no shell')});
