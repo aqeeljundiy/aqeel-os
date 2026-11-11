@@ -1,22 +1,22 @@
-name: Tests
+# The one test check. The job is named "tests": branch protection on main requires that check, so GitHub auto-merge waits for it.
+# Green on main today (933 pass, 0 fail, 2 skipped by the tests themselves, run on Linux); red means a real regression.
+# TZ and TMPDIR match the live install: the tests assume the install's time zone and keep their scratch outside /tmp.
+name: tests
 on:
+  pull_request:
   push:
     branches: [main]
-  pull_request:
 jobs:
-  test:
+  tests:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      TZ: Asia/Jakarta
+      TMPDIR: ${{ runner.temp }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - run: node scripts/check-globals.mjs
-        env:
-          TZ: Asia/Jakarta
-          TMPDIR: ${{ runner.temp }}
-      - run: node --test scripts/*.test.mjs
-        env:
-          TZ: Asia/Jakarta
-          TMPDIR: ${{ runner.temp }}
+      - run: node --test --test-concurrency=2 scripts/*.test.mjs

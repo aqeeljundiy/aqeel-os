@@ -141,7 +141,7 @@ export function createAgentAdspower({DATA,HERMES_HOME,screens,codeUser,agentName
   return {agent:a,name:nameOf(a),port:lp||port,own:port,state,kept:!db.off[a],user:(await codeUser(a).catch(()=>null))||'this box user'}}
  async function list(){const r=await running();return Promise.all((await agents()).map(a=>status(a,r)))}
  // kept on while it runs: the agent's engine screen is not stopped as idle (screens.mjs asks this, and the activity file is touched)
- let keepSet=new Set();const keepOn=a=>keepSet.has(baseOf(a));
+ let keepSet=new Set(),keepKnown=false;const keepOn=a=>keepSet.has(baseOf(a));
 
  // the AdsPower tool of every agent (and the main agent's extra numbers) talks to its own copy; through the engine's MCP route
  // (DELETE then POST, one agent at a time) so the running engine picks it up
@@ -199,7 +199,7 @@ its own data and its own sign-in. No other agent uses it.
    if(!await codeUser(a).catch(()=>null)){keep.add(a);const t=new Date();await utimes(path.join(screens.homeOf(a),'bot-desktop','activity'),t,t).catch(()=>{})}}
   // a copy still running for an agent switched off (or after the switch was turned off): stopped
   const on=new Set(await agents());for(const [a,port] of Object.entries(db.ports||{})){if(on.has(a)||!NAME.test(a)||help(a))continue;const p=r.get(port)||{};if(p.loop||p.app)await retire(a).catch(()=>{})}
-  keepSet=keep;if(moved)tools().catch(()=>{})}finally{ticking=false}}
+  keepSet=keep;keepKnown=true;if(moved)tools().catch(()=>{})}finally{ticking=false}}
  if(live){setTimeout(()=>{tick().catch(e=>log('AdsPower tick: '+e.message));tools().catch(()=>{});skill().catch(()=>{})},45000).unref?.();
   setInterval(()=>tick().catch(()=>{}),60000).unref();setInterval(()=>{tools().catch(()=>{});skill().catch(()=>{})},600000).unref()}
 
@@ -211,4 +211,4 @@ its own data and its own sign-in. No other agent uses it.
   if(!m[2])return req.method==='GET'?send(res,200,await status(a)):send(res,405,{error:'GET only'});
   if(req.method!=='POST')return send(res,405,{error:'POST only'});if(!admin)return send(res,403,{error:'Only admins can start or stop AdsPower.'});
   try{return send(res,200,m[2]==='start'?await start(a):await stop(a))}catch(e){return send(res,409,{error:e.message})}}
- return {handle,status,list,start,stop,tick,tools,skill,ports,keepOn,retire}}
+ return {handle,status,list,start,stop,tick,tools,skill,ports,keepOn,keepKnown:()=>keepKnown,retire}}

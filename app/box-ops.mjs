@@ -10,6 +10,8 @@
 //  - rule 2 (OPS-2, OPS-4): each agent's memory cap and sleep minutes go to ~/.aqeelos-agent-limits for the root script,
 //    from hermes-ui-data/agent-limits.json ({"default":{"memory_cap_gb":4,"sleep_minutes":15,"screen_mode":"lean"},"agents":{"<agent>":{…}}});
 //    an agent whose screen runs its own AdsPower never sleeps and gets 8 GB unless set. wake(agent) starts a sleeping
+//    screen (the viewer uses it). Until the AdsPower state is known (right after an app start) nothing is written: the last written
+//    caps stay (13 Nov: a 4 GB cap written too early restarted the 8 GB agent's Chrome for nothing); wake(agent) starts a sleeping
 //    screen (the viewer uses it); stopAll(agent) stops everything the agent's user runs.
 //  - OPS-13: every minute, the agents mid-reply go to ~/.aqeelos-agent-busy, one per line, so the root script's janitor
 //    does not start a missing desktop part again while the agent works. Since OPS-17 also the agents with an engine
@@ -21,7 +23,7 @@
 //    scratch) goes after 3 days, checked every 6 hours. The root script (scripts/agent-users.sh) gives each agent's user the
 //    folder and stops leftover scratch servers.
 // The parts that only decide are exported and tested in scripts/box-ops.test.mjs.
-import {readFile,writeFile,readdir,stat,lstat,rm,open,rename,chmod} from 'node:fs/promises';
+import {readFile,writeFile,readdir,stat,lstat,rm,open,rename,chmod,mkdir} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
 import path from 'node:path';
 
@@ -52,6 +54,10 @@ export const TMP_OWN=/^(aq-deploy-[\w-]+(\.(log|sh))?|box-pack-[\w-]+\.sh|hui-ch
 // which of /tmp's entries to remove: {name,mtimeMs}
 export function tmpExpired(entries,now=Date.now(),{checking=false,days=TMP_DAYS}={}){
  return entries.filter(e=>(TMP_OWN.test(e.name)||e.name==='aq-stage'&&!checking)&&now-e.mtimeMs>days*864e5).map(e=>e.name)}
+// OPS-16: the "My browser" check's workspace folders (~/workspaces/mb-xxxxx) that outlived their agent: older than a day, no profile, no Linux user
+export const MB_NAME=/^mb-[0-9a-z]{5}$/;
+export const mbLeftovers=(entries,{now=Date.now(),hasProfile=()=>false,hasUser=()=>false}={})=>entries.filter(e=>MB_NAME.test(e.name)&&now-e.mtimeMs>864e5&&!hasProfile(e.name)&&!hasUser(e.name)).map(e=>e.name);
+export const REMOVED_DAYS=14;
 // a file in ~/uploads that agents cannot read: not readable by its group (that is also the access list's mask) and by others.
 // Mode only: the folder itself is closed to everyone but the owner and the agents named in its access list.
 export const unreadable=mode=>(mode&0o044)!==0o044;
@@ -86,7 +92,7 @@ export function screensLine(j,events,now=Date.now()){
 const NAME=/^[a-z0-9][a-z0-9_-]{0,63}$/;
 // the agents mid-reply, from live reply keys "<agent>|<chat>": one valid name per line
 export const busyText=keys=>[...new Set([...keys].map(k=>String(k).split('|')[0]).filter(a=>NAME.test(a)))].sort().map(a=>a+'\n').join('');
-export function createBoxOps({HOME,DATA,HERMES_HOME,fileIssue=null,TMP='/tmp',keepOn=()=>false,WAKE='/var/lib/aqeelos/wake',busyKeys=()=>[],engineBusy=async()=>[]}){
+export function createBoxOps({HOME,DATA,HERMES_HOME,fileIssue=null,TMP='/tmp',keepOn=()=>false,keepKnown=()=>true,WAKE='/var/lib/aqeelos/wake',busyKeys=()=>[],engineBusy=async()=>[]}){
  const STATE=path.join(DATA,'box-ops.json'),ISSUES=path.join(HOME,'.aqeelos-agent-issues.jsonl'),JAN=path.join(HOME,'.aqeelos-janitor.json');
  let st=null;const load=async()=>{if(!st)st=JSON.parse(await readFile(STATE,'utf8').catch(()=>'{}'))||{};st.filed||={};return st};
  const save=async()=>{await writeFile(STATE+'.tmp',JSON.stringify(st));await rename(STATE+'.tmp',STATE)};
@@ -131,6 +137,14 @@ export function createBoxOps({HOME,DATA,HERMES_HOME,fileIssue=null,TMP='/tmp',ke
   // broken Python environments (automation-guard.mjs keeps them as <name>.broken-<version>-<date>), one and two levels down
   for(const dir of [HERMES_HOME,...(await entries(HERMES_HOME)).map(e=>path.join(HERMES_HOME,e.name))])await del(dir,expired(await entries(dir,n=>/\.broken-/.test(n)),now));
   let cut=0;for(const e of await entries(path.join(HERMES_HOME,'logs'),n=>/\.log$/.test(n)&&n!=='agent.log'))if(await cutLog(path.join(HERMES_HOME,'logs',e.name)).catch(()=>false))cut++;
+  // OPS-16: leftover check workspaces move to ~/workspaces/.removed, which keeps them 14 days
+  {const W=path.join(HOME,'workspaces'),R=path.join(W,'.removed');const users=new Set((await readFile(path.join(HOME,'.aqeelos-agent-users'),'utf8').catch(()=>'')).split(String.fromCharCode(10)).map(x=>x.trim()));
+   const pw=await readFile('/etc/passwd','utf8').catch(()=>'');const hasUser=n=>users.has(n)||new RegExp('^ag-'+n+':','m').test(pw);
+   const profiles=new Set(await readdir(path.join(HERMES_HOME,'profiles')).catch(()=>[]));
+   const mine=mbLeftovers(await entries(W),{now,hasProfile:n=>profiles.has(n),hasUser});
+   if(mine.length)await mkdir(R,{recursive:true});
+   for(const n of mine){try{await rename(path.join(W,n),path.join(R,n+(await stat(path.join(R,n)).catch(()=>null)?'-'+now:'')));gone.push(path.join(W,n))}catch(e){console.warn('box: workspace '+n+': '+e.message)}}
+   await del(R,expired(await entries(R),now,REMOVED_DAYS))}
   // the test agents list
   await load();const LIST=path.join(HERMES_HOME,'.aqeelos-test-agents'),text=await readFile(LIST,'utf8').catch(()=>null);let removed=0;
   if(text!=null){const have=new Set((await readdir(path.join(HERMES_HOME,'profiles')).catch(()=>[])));
@@ -140,7 +154,7 @@ export function createBoxOps({HOME,DATA,HERMES_HOME,fileIssue=null,TMP='/tmp',ke
   return {gone,cut,removed}}
 
  // rule 2: limits for the root script (rewritten only when they change)
- async function writeLimits(){const agents=(await readFile(path.join(HOME,'.aqeelos-agent-users'),'utf8').catch(()=>'')).split('\n').map(x=>x.trim()).filter(Boolean);
+ async function writeLimits(){if(!keepKnown())return null;const agents=(await readFile(path.join(HOME,'.aqeelos-agent-users'),'utf8').catch(()=>'')).split('\n').map(x=>x.trim()).filter(Boolean);
   const cfg=JSON.parse(await readFile(path.join(DATA,'agent-limits.json'),'utf8').catch(()=>'{}')||'{}');
   const text=limitLines(agents,cfg,a=>{try{return !!keepOn(a)}catch{return false}}),f=path.join(HOME,'.aqeelos-agent-limits');
   if(text!==await readFile(f,'utf8').catch(()=>null)){await writeFile(f+'.tmp',text);await rename(f+'.tmp',f)}return text}
