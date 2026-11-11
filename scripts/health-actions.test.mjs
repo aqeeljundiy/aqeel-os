@@ -26,6 +26,7 @@ const SAMPLES={
  account:['signedout','credit','rejected','exhausted'].map(acct),
  invite:[{kind:'invite',id:'invite|c',title:'x',invite:{name:'N',code:'c'}}],
  access:[{kind:'access',id:'access|r',rid:'r',agentName:'A',title:'x'}],
+ cadence:[{kind:'cadence',id:'cadence|a',agent:'a',title:'x',jobs:[{job:'j',name:'Runner',every:10,suggest:{what:'unread DMs'}}]},{kind:'cadence',id:'cadence|b',agent:'b',title:'x',jobs:[{job:'k',name:'Recap',every:5}]}],
  conflict:[{kind:'conflict',id:'conflict|c',cid:'c',title:'x',sides:[{key:'a',label:'A'},{key:'b',label:'B'}]}],
  question:[{kind:'question',id:'question|q',qid:'q',title:'Which way?',options:[{key:'a',label:'Wait',effect:'Nothing changes',recommended:false},{key:'b',label:'Roll back',effect:'Back to Monday',recommended:true}],allowOther:true}],
  instructions:[{kind:'instructions',id:'instr|a|p',agent:'a',pid:'p',title:'x'}],
