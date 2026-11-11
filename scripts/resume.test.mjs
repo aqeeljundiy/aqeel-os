@@ -1,0 +1,141 @@
+// Continue after a restart (app/resume.mjs): the journal, one continuation per interrupted thing, care with what may
+// already have gone out, the age limit, a provider that does not answer. Run: node --test scripts/resume.test.mjs
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtempSync,readFileSync,writeFileSync,mkdirSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
+import {createResume,chatPlan,runPlan,fixerPlan,noteFor,healthLine,NOTE_RE,outward} from '../app/resume.mjs';
+
+const dir=()=>mkdtempSync(path.join(tmpdir(),'aq-resume-'));
+const T0=Date.parse('2026-11-11T17:10:00Z');   // 00:10 in Jakarta
+// one "app": a clock it shares with the test, and a record of what it sent
+function app(DATA,clock,over={}){const sent=[],triggered=[],kicked=[];
+ const r=createResume({DATA,now:()=>clock.t,log:()=>{},tz:()=>'Asia/Jakarta',stagger:0,sleep:async()=>{},
+  probeChat:async()=>({stored:true,tools:[],lastAt:clock.t-10*60e3}),sendChat:async(e,note)=>{sent.push({id:e.id,session:e.session,note});return {ok:true}},
+  probeRun:async()=>({status:'unknown',error:'owner process gone',ownerLive:false,newer:false,enabled:true,jobKnown:true}),triggerRun:async e=>{triggered.push(e.job);return {ok:true}},
+  probeFixer:async()=>({done:false,alive:false}),kickFixer:async e=>{kicked.push(e.run);return {ok:true}},...over});
+ return {r,sent,triggered,kicked}}
+const chat={agent:'donna',session:'s1',user:'u1',userName:'Aqeel',text:'Post the weekly report',opts:{model:'m1'}};
+
+test('a reply in progress is journaled at once, and one that ends leaves nothing behind',()=>{const D=dir(),c={t:T0},{r}=app(D,c);
+ const a=r.begin(chat),b=r.begin({...chat,session:'s2'});
+ const onDisk=JSON.parse(readFileSync(path.join(D,'resume','journal.json'),'utf8'));
+ assert.equal(onDisk.entries.length,2);assert.equal(onDisk.entries[0].text,'Post the weekly report');assert.equal(onDisk.entries[0].state,'open');
+ r.end(a);assert.equal(r.inFlight(),1);r.end(b);assert.equal(r.inFlight(),0);assert.equal(r.pending(),0)});
+
+test('after a restart the interrupted reply is continued once, in the same chat, and never again',async()=>{const D=dir(),c={t:T0};
+ app(D,c).r.begin(chat);                       // the app dies here (a crash: nothing else is written)
+ c.t+=90e3;const two=app(D,c);assert.equal(two.r.boot(),1);
+ assert.deepEqual(two.r.pendingFor('donna','s1')?.why,'restart');
+ await two.r.run();await two.r.run();
+ assert.equal(two.sent.length,1);assert.equal(two.sent[0].session,'s1');assert.match(two.sent[0].note,NOTE_RE);
+ assert.equal(two.r.pending(),0);assert.equal(two.r.pendingFor('donna','s1'),null);
+ // a third start finds nothing left to continue
+ c.t+=60e3;const three=app(D,c);assert.equal(three.r.boot(),0);await three.r.run();assert.equal(three.sent.length,0);
+ assert.equal(two.r.last().chats,1)});
+
+test('two passes at the same moment send one message',async()=>{const D=dir(),c={t:T0};app(D,c).r.begin(chat);c.t+=60e3;
+ let n=0;const two=app(D,c,{sendChat:async()=>{n++;await new Promise(r=>setTimeout(r,20));return {ok:true}}});two.r.boot();
+ await Promise.all([two.r.run(),two.r.run(),two.r.run()]);assert.equal(n,1)});
+
+test('the app ending while it continues a reply does not send it twice: the engine is read first',async()=>{const D=dir(),c={t:T0};app(D,c).r.begin(chat);c.t+=60e3;
+ // the second app claims the entry and dies before it hears back
+ const two=app(D,c,{sendChat:()=>new Promise(()=>{})});two.r.boot();void two.r.run();await new Promise(r=>setTimeout(r,20));
+ assert.equal(JSON.parse(readFileSync(path.join(D,'resume','journal.json'),'utf8')).entries[0].state,'resuming');
+ // the third app: the engine shows the reply was given meanwhile, so nothing is sent
+ c.t+=60e3;const three=app(D,c,{probeChat:async()=>({stored:true,answered:true,tools:['terminal'],lastAt:c.t-5*60e3})});three.r.boot();await three.r.run();
+ assert.equal(three.sent.length,0);assert.equal(three.r.pending(),0)});
+
+test('a reply that was already answered, or that the person wrote after, is left alone',async()=>{
+ for(const p of [{stored:true,answered:true},{stored:true,personAfter:true}]){const D=dir(),c={t:T0};app(D,c).r.begin(chat);c.t+=60e3;
+  const two=app(D,c,{probeChat:async()=>p});two.r.boot();await two.r.run();assert.equal(two.sent.length,0);assert.equal(two.r.pending(),0);assert.equal(two.r.last().failed.length,0)}});
+
+test('what may already have gone out: the note asks the agent to check before repeating it',()=>{const e={at:T0,cutAt:T0+60e3,why:'update',text:'Post the weekly report'},now=T0+10*60e3;
+ // nothing was done yet: carry on, plainly
+ let p=chatPlan(e,{stored:true,tools:[],lastAt:T0},now,{tz:'Asia/Jakarta'});assert.equal(p.do,'send');assert.equal(p.caution,false);
+ assert.match(p.note,/interrupted by an update at 00:11; nothing had been done yet/);
+ // only reading so far: continue, no warning needed
+ p=chatPlan(e,{stored:true,tools:['read_file','web_search'],lastAt:T0},now);assert.equal(p.caution,false);assert.match(p.note,/do not redo steps/);
+ // a tool that can act outward ran, a call has no result, or a post was recorded: check first
+ for(const x of [{tools:['terminal']},{tools:['mcp_kirimdev_send_message']},{tools:['read_file'],openCall:true},{tools:['read_file'],posted:true}]){
+  p=chatPlan(e,{stored:true,lastAt:T0,...x},now);assert.equal(p.do,'send');assert.equal(p.caution,true,JSON.stringify(x));assert.match(p.note,/check what already went out before repeating it/)}
+ assert.equal(outward(['read_file','memory']),false);assert.equal(outward(['browser_navigate']),true);
+ // the engine never stored the person's message: it goes along with the note, once
+ p=chatPlan(e,{stored:false,tools:[],lastAt:0},now);assert.ok(p.note.endsWith('\n\nPost the weekly report'));
+ assert.equal(noteFor({why:'restart',at:T0,tz:'UTC',started:true,caution:true}).startsWith('[System note from aqeelOS: you were interrupted by a restart at 17:10; check'),true)});
+
+test('a schedule whose result already went out is not run again',()=>{const e={cutAt:T0},now=T0+60e3;
+ assert.equal(runPlan(e,{status:'unknown',delivered:true,enabled:true,jobKnown:true},now).do,'giveup');
+ assert.match(runPlan(e,{status:'unknown',posted:true,enabled:true,jobKnown:true},now).why,/already posted/);
+ assert.equal(runPlan(e,{status:'unknown',enabled:true,jobKnown:true},now).do,'trigger');
+ assert.equal(runPlan(e,{status:'completed'},now).do,'skip');
+ assert.equal(runPlan(e,{status:'unknown',newer:true},now).do,'skip');
+ assert.equal(runPlan(e,{status:'running',ownerLive:true},now).do,'wait');
+ assert.equal(runPlan(e,{status:'running',ownerLive:false,enabled:true,jobKnown:true},now).do,'trigger');   // its process is gone
+ assert.equal(runPlan(e,{status:'failed',error:'the model returned nothing'},now).do,'skip');               // failed by itself: the engine's own business
+ assert.equal(runPlan(e,{status:'failed',error:'interrupted by gateway shutdown',enabled:true,jobKnown:true},now).do,'trigger');
+ assert.equal(runPlan(e,{status:'unknown',enabled:false,jobKnown:true},now).do,'giveup');
+ assert.equal(runPlan(e,null,now).do,'wait')});
+
+test('a schedule run seen in progress is run again once after it was cut off, and not when it finished',async()=>{const D=dir(),c={t:T0},a=app(D,c);
+ const runs=[{kind:'schedule',agent:'default',exec:'x1',job:'j1',name:'Weekly report',since:new Date(T0).toISOString()},{kind:'schedule',agent:'cove',exec:'x2',job:'j2',name:'Comments',since:new Date(T0).toISOString()}];
+ a.r.sync(runs,'schedule');a.r.sync(runs,'schedule');assert.equal(a.r.inFlight(),2);
+ // the engine restarts: neither is running any more. One finished in time, the other was cut
+ c.t+=60e3;a.r.sync([],'schedule');
+ const b=app(D,c,{probeRun:async e=>e.exec==='x1'?{status:'unknown',error:'owner gone',enabled:true,jobKnown:true}:{status:'completed'}});
+ await b.r.run();await b.r.run();
+ assert.deepEqual(b.triggered,['j1']);assert.equal(b.r.pending(),0);assert.equal(b.r.last().schedules,1);
+ assert.match(b.r.line(),/^Restarted at 00:11: 1 schedule continued\.$/)});
+
+test('nothing older than the limit is continued; it is listed with the reason',async()=>{const D=dir(),c={t:T0};app(D,c).r.begin(chat);
+ c.t+=3*3600e3;const two=app(D,c);two.r.boot();await two.r.run();
+ assert.equal(two.sent.length,0);assert.equal(two.r.pending(),0);
+ assert.equal(two.r.last().failed.length,1);assert.match(two.r.last().failed[0].why,/older than 2 h/);
+ // the limit is the install's setting
+ const D2=dir(),c2={t:T0};app(D2,c2).r.begin(chat);c2.t+=3*3600e3;const far=app(D2,c2,{maxAge:()=>6*3600e3});far.r.boot();await far.r.run();assert.equal(far.sent.length,1);
+ assert.equal(chatPlan({at:T0,cutAt:T0},{stored:true,tools:[]},T0+2*3600e3+1).do,'giveup');assert.equal(chatPlan({at:T0,cutAt:T0},{stored:true,tools:[]},T0+2*3600e3-1e3).do,'send')});
+
+test('a provider that does not answer: tried again later, not dropped, and still only one continuation',async()=>{const D=dir(),c={t:T0};app(D,c).r.begin(chat);c.t+=60e3;
+ let calls=0;const two=app(D,c,{sendChat:async()=>{calls++;return calls<3?{retry:true,why:'rate limit reached'}:{ok:true}}});two.r.boot();
+ await two.r.run();assert.equal(calls,1);assert.equal(two.r.pending(),1);assert.equal(two.r.last().waiting,1);
+ await two.r.run();assert.equal(calls,1,'not before its wait is over');
+ c.t+=61e3;await two.r.run();assert.equal(calls,2);assert.equal(two.r.pending(),1);
+ c.t+=121e3;await two.r.run();assert.equal(calls,3);assert.equal(two.r.pending(),0);
+ assert.equal(two.r.last().chats,1);assert.equal(two.r.last().failed.length,0);
+ // a provider that stays away past the limit: given up, with the reason
+ const D2=dir(),c2={t:T0};app(D2,c2).r.begin(chat);c2.t+=60e3;const down=app(D2,c2,{sendChat:async()=>({retry:true,why:'overloaded'})});down.r.boot();
+ for(let i=0;i<20;i++){await down.r.run();c2.t+=11*60e3}
+ assert.equal(down.r.pending(),0);assert.match(down.r.last().failed[0].why,/older than 2 h/)});
+
+test('the engine not back yet: nothing is sent until it answers',async()=>{const D=dir(),c={t:T0};app(D,c).r.begin(chat);c.t+=60e3;
+ let up=false;const two=app(D,c,{ready:async()=>up});two.r.boot();await two.r.run();assert.equal(two.sent.length,0);assert.equal(two.r.pending(),1);
+ up=true;await two.r.run();assert.equal(two.sent.length,1)});
+
+test('the same reply interrupted again and again stops after three times',async()=>{const D=dir(),c={t:T0};let id=app(D,c).r.begin(chat),n=0;
+ for(let i=0;i<5;i++){c.t+=60e3;const a=app(D,c,{sendChat:async e=>{n++;a.r.begin({...chat,from:e.id,n:e.n,cut0:e.cut0});return {ok:true}}});a.r.boot();await a.r.run()}
+ assert.equal(n,3);void id});
+
+test('a reply cut by an engine restart while the app stayed up: continued, and the chat is told meanwhile',async()=>{const D=dir(),c={t:T0},a=app(D,c);
+ const id=a.r.begin(chat);assert.equal(a.r.cut(id,'update'),true);assert.equal(a.r.cut(id,'update'),false);
+ assert.deepEqual(a.r.pendingFor('donna','s1'),{why:'update',at:T0,user:'u1'});
+ c.t+=5*60e3;await a.r.run();assert.equal(a.sent.length,1);assert.match(a.sent[0].note,/by an update at 00:10/);assert.equal(a.r.pendingFor('donna','s1'),null)});
+
+test('a deploy leaves a note, so the chat says "an update"; a signal alone says "a restart"',async()=>{const D=dir(),c={t:T0},a=app(D,c);a.r.begin(chat);a.r.planned('restart');
+ mkdirSync(path.join(D,'resume'),{recursive:true});writeFileSync(path.join(D,'resume','planned.json'),JSON.stringify({at:c.t,why:'update'}));
+ c.t+=30e3;const b=app(D,c);b.r.boot();assert.equal(b.r.pendingFor('donna','s1').why,'update');assert.equal(b.r.pendingFor('donna','s1').at,T0);
+ const D2=dir(),c2={t:T0},x=app(D2,c2);x.r.begin(chat);x.r.planned('restart');c2.t+=30e3;const y=app(D2,c2);y.r.boot();assert.equal(y.r.pendingFor('donna','s1').why,'restart')});
+
+test('a fixer run outlives the app: looked at again, started again only when its process is gone',async()=>{
+ assert.equal(fixerPlan({cutAt:T0},{done:true},T0).do,'skip');assert.equal(fixerPlan({cutAt:T0},{alive:true},T0).do,'wait');assert.equal(fixerPlan({cutAt:T0},{alive:false,done:false},T0).do,'kick');
+ const D=dir(),c={t:T0},a=app(D,c);a.r.sync([{kind:'fixer',run:'i1-1',pid:42,agent:'default'}],'fixer');c.t+=60e3;
+ const b=app(D,c);b.r.boot();await b.r.run();assert.deepEqual(b.kicked,['i1-1']);assert.equal(b.r.last().helpers,1)});
+
+test('the line on Health',()=>{const now=T0+60e3,tz='Asia/Jakarta';
+ assert.equal(healthLine({at:T0,chats:3,schedules:2,helpers:0,failed:[{what:'Donna’s chat',why:'older than 2 h'}],waiting:0},{tz,now}),'Restarted at 00:10: 3 chats and 2 schedules continued, 1 could not (Donna’s chat: older than 2 h).');
+ assert.equal(healthLine({at:T0,chats:1,schedules:0,helpers:0,failed:[],waiting:2},{tz,now}),'Restarted at 00:10: 1 chat continued, 2 are still waiting to continue.');
+ assert.equal(healthLine({at:T0,chats:0,schedules:0,helpers:0,failed:[],waiting:0},{tz,now}),'Restarted at 00:10: nothing was in progress.');
+ assert.equal(healthLine({at:T0,chats:1,failed:[]},{tz,now:T0+25*3600e3}),'');assert.equal(healthLine(null),'')});
+
+test('a test copy journals nothing and continues nothing',async()=>{const D=dir(),c={t:T0},a=app(D,c,{on:false});
+ assert.equal(a.r.begin(chat),'');assert.equal(a.r.boot(),0);await a.r.run();assert.equal(a.sent.length,0)});

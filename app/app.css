@@ -1207,6 +1207,10 @@ body:has(.drawer.pop) .scrim{backdrop-filter:blur(5px);background:rgba(11,12,16,
 /* steer: an ordinary bubble; one quiet line under it while it waits (as in Claude) */
 .steer-meta{align-self:flex-end;display:flex;align-items:center;gap:10px;margin:-8px 4px 0;font-size:12.5px;color:var(--muted);animation:fadeIn .25s var(--ease) both}
 .steer-meta.failed{color:var(--bad)}
+/* a reply a restart interrupted: one quiet line in the thread (chat.js resumeLine) */
+.resume-line{align-self:center;display:flex;align-items:center;gap:8px;margin:2px 0;padding:6px 12px;border-radius:999px;background:var(--surface-2,var(--surface));border:1px solid var(--border);font-size:12.5px;color:var(--muted);animation:fadeIn .3s var(--ease) both}
+.resume-line .spinner{width:12px;height:12px}.resume-line.going{color:var(--ink-2)}
+.mw-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}.mw-row label{display:block}.mw-tz{height:auto;max-height:200px;margin:6px 0 12px}
 .steer-meta .steer-now{background:none;border:0;padding:2px 4px;min-height:0;font-size:12.5px;color:var(--ink-2);cursor:pointer;border-radius:6px;transition:color .2s,background .2s}
 .steer-meta .steer-now:hover{color:var(--ink);background:var(--soft)}
 /* attachments: real previews in the composer and in the message */

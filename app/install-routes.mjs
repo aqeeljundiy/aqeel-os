@@ -7,6 +7,7 @@ import {cp,mkdir,stat} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import path from 'node:path';
 import * as I from './install.mjs';
+import {windowOf,cleanWindow,windowText,resumeMaxMs} from './maintenance.mjs';
 export * from './install.mjs';
 
 const json=async(req,readBody,n=8192)=>{try{return JSON.parse(await readBody(req,n))}catch{return {}}};
@@ -31,6 +32,9 @@ export function createInstallRoutes({recentLookups=async()=>[],send,readBody,isA
   out.live={on:I.isLive(),from:I.liveFrom()};
   let au={};try{au=JSON.parse(readFileSync(path.join(I.DATA_DIR,'auto-update.json'),'utf8'))}catch{}
   out.autoUpdate={on:s.autoUpdate!==false,last:au.last||null};
+  // the maintenance window (maintenance.mjs): when updates and waiting restarts happen, and how long an interrupted
+  // reply or run is still continued afterwards
+  {const w=windowOf(s);out.maintenance={...w,text:windowText(w),own:!!s.maintenance,resumeHours:resumeMaxMs(s)/3600e3}}
   if(admin)out.supervision={on:s.supervision===true,recent:await recentLookups(10).catch(()=>[])};
   // ok | auth (the engine refuses aqeelOS's keys: it has not restarted since they were written) | down
   out.engine={state:await engineProbe().catch(()=>'down')};
@@ -84,6 +88,9 @@ export function createInstallRoutes({recentLookups=async()=>[],send,readBody,isA
    // a quick engine answers inside the wait; otherwise the agents follow within a minute or two
    const r=await Promise.race([job,new Promise(x=>setTimeout(x,wait,null))]);return send(res,200,{ok:true,zone:z,agents:n,failed:r?.failed||[],pending:!r}),true}
   if(p==='/ui/install/supervision'&&M==='POST'){I.saveSettings({supervision:!!b.on});return send(res,200,{on:!!b.on}),true}
+  if(p==='/ui/install/maintenance'&&M==='POST'){let w;try{w=cleanWindow({from:b.from,to:b.to,tz:b.tz})}catch(e){return send(res,400,{error:e.message}),true}
+   const h=Number(b.resumeHours);if(b.resumeHours!==undefined&&!(h>=0.25&&h<=24))return send(res,400,{error:'Continue work that is at most 0.25 to 24 hours old.'}),true;
+   I.saveSettings({maintenance:w,...(b.resumeHours!==undefined?{resumeMaxHours:h}:{})});log('maintenance window: '+windowText(w));return send(res,200,{ok:true,...w,text:windowText(w)}),true}
   if(p==='/ui/install/auto-update'&&M==='POST'){I.saveSettings({autoUpdate:!!b.on});return send(res,200,{on:!!b.on}),true}
   if(p==='/ui/install/hosts'&&M==='POST'){const patch={};
    try{for(const k of Object.keys(I.HOSTS))if(k in b){if(I.hostFrom(k)==='env')throw Error(I.HOSTS[k][0]+' is set in this install’s environment, so it can’t be changed here.');patch[k]=I.cleanHost(b[k])}}catch(e){return send(res,400,{error:e.message}),true}

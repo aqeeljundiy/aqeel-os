@@ -1,15 +1,19 @@
-// Automatic updates: when they may run (scripts/auto-update.mjs).
+// Automatic updates: when they may run (scripts/auto-update.mjs). Since 12 Nov 2026 that is the install's maintenance
+// window (app/maintenance.mjs), 00:00 to 01:00 Jakarta time unless the install sets its own.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {inQuietHours} from './auto-update.mjs';
+import {mayUpdateNow} from './auto-update.mjs';
 
 const at=(iso)=>new Date(iso);
-test('runs only between 01:00 and 05:00 in the install\'s time zone',()=>{
- assert.equal(inQuietHours(at('2026-11-09T18:30:00Z'),'Asia/Jakarta'),true);   // 01:30 in Jakarta
- assert.equal(inQuietHours(at('2026-11-09T21:59:00Z'),'Asia/Jakarta'),true);   // 04:59
- assert.equal(inQuietHours(at('2026-11-09T22:00:00Z'),'Asia/Jakarta'),false);  // 05:00
- assert.equal(inQuietHours(at('2026-11-09T17:59:00Z'),'Asia/Jakarta'),false);  // 00:59
- assert.equal(inQuietHours(at('2026-11-09T02:00:00Z'),'UTC'),true)});
-test('a broken time zone falls back to UTC instead of stopping',()=>{
- assert.equal(inQuietHours(at('2026-11-09T02:00:00Z'),'Not/AZone'),true);
- assert.equal(inQuietHours(at('2026-11-09T12:00:00Z'),'Not/AZone'),false)});
+test('runs only inside the maintenance window, 00:00 to 01:00 Jakarta time by default',()=>{
+ assert.equal(mayUpdateNow(at('2026-11-09T17:00:00Z'),{}),true);    // 00:00 in Jakarta
+ assert.equal(mayUpdateNow(at('2026-11-09T17:45:00Z'),{}),true);    // 00:45
+ assert.equal(mayUpdateNow(at('2026-11-09T18:00:00Z'),{}),false);   // 01:00
+ assert.equal(mayUpdateNow(at('2026-11-09T18:30:00Z'),{}),false);   // 01:30: the old quiet hours no longer count
+ assert.equal(mayUpdateNow(at('2026-11-09T16:59:00Z'),{}),false);   // 23:59
+ assert.equal(mayUpdateNow(at('2026-11-09T17:30:00Z'),{timezone:'Europe/Amsterdam'}),true)});   // the window has its own zone
+test('an install with its own window follows that one',()=>{const s={maintenance:{from:'02:00',to:'03:00',tz:'UTC'}};
+ assert.equal(mayUpdateNow(at('2026-11-09T02:10:00Z'),s),true);assert.equal(mayUpdateNow(at('2026-11-09T17:10:00Z'),s),false)});
+test('a broken window setting falls back to the default instead of stopping updates',()=>{
+ assert.equal(mayUpdateNow(at('2026-11-09T17:10:00Z'),{maintenance:{from:'x',to:'y',tz:'Not/AZone'}}),true);
+ assert.equal(mayUpdateNow(at('2026-11-09T12:00:00Z'),{maintenance:{tz:'Not/AZone'}}),false)});

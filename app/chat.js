@@ -228,7 +228,7 @@ const Chat={
   const keep=$$('.step.open',th).map(x=>x.dataset.k);
   // an opened chat shows its history at once (no rise-in for old messages); new turns still animate
   const opening=this._opening===this.id;if(opening){this._opening=null;s._seen={n:1e9,k:new Set()}}   // what is there when a chat opens is history: shown at once
-  const parts=[s.more?`<div class="hist-more"><button class="ghost" data-act="hist-more">${icon('chevU',15)}Show earlier messages</button></div>`:'',...s.turns.map((t,i)=>this.turnHtml(t,i,s))];
+  const parts=[s.more?`<div class="hist-more"><button class="ghost" data-act="hist-more">${icon('chevU',15)}Show earlier messages</button></div>`:'',...s.turns.map((t,i)=>this.turnHtml(t,i,s)),s.interrupted&&!s.running?this.resumeLine(s.interrupted,true):''];
   // only the messages that changed are redrawn; earlier ones (and their videos and pictures) stay as they are
   const frag=list=>{const f=document.createDocumentFragment(),n=[];for(const h of list){const x=document.createElement('template');x.innerHTML=h;n.push(x.content.childNodes.length);f.append(x.content)}return {f,n}};
   const old=th._parts;let j=0;if(old&&th.childNodes.length===th._cnt.reduce((a,b)=>a+b,0)&&old.length<=parts.length){while(j<old.length&&old[j]===parts[j])j++}else{j=-1}
@@ -253,7 +253,13 @@ const Chat={
   if(!first&&s.more&&!h.deeper){h.deeper=true;return this.loadHistory(this.id,true)}
   this._hit=null;const sc=$('#scroll');if(!first){if(sc)sc.scrollTop=sc.scrollHeight;return toast('The words you searched for are not in the messages shown here')}
   setTimeout(()=>{if(!first.isConnected)return;if(sc)sc.style.scrollBehavior='auto';first.scrollIntoView({block:'center'});first.classList.add('first');if(sc)requestAnimationFrame(()=>sc.style.scrollBehavior='')},60)},
+ // a reply a restart interrupted is continued by aqeelOS with a system note as the next message (app/resume.mjs): the
+ // chat shows it as one small line, not as something the person wrote
+ RESUME_RE:/^\[System note from aqeelOS: you were interrupted by (an update|a restart) at [^\]]*\]\s*/,
+ resumeLine(why,going){return `<div class="resume-line${going?' going':''}">${going?'<span class="spinner"></span>':icon('refresh',13)}Interrupted by ${why==='update'||why==='an update'?'an update':'a restart'}, ${going?'continuing…':'continued by itself'}</div>`},
  turnHtml(t,i,s){
+  if(t.role==='user'){const rm=this.RESUME_RE.exec(t.text||'');if(rm){const rest=t.text.slice(rm[0].length).trim(),going=s.running&&i>=s.turns.length-2;
+   return this.resumeLine(rm[1],going)+(rest?`<div class="msg user">${this.userHtml(rest,t)}</div>`:'')}}
   if(t.role==='sys'||t.role==='handoff')return `<details class="sys-msg ${t.role}"${t.at?` title="${esc(msgStamp(t.at))}"`:''}><summary>${icon(t.role==='handoff'?'layers':'sliders',14)}${t.role==='handoff'?'Context handoff: the chat so far, summarised':'System message'}${icon('chevR',13)}</summary><div class="sys-body">${esc(t.text)}</div></details>`;
   if(t.role==='user')return `<div class="msg user"${t.at?` title="${esc(msgStamp(t.at))}"`:''}>${this.userHtml(t.text,t)}${t.images&&!(t.imgs||[]).length?`<span class="attach">${icon('clip',12)} ${plural(t.images,'image')}</span>`:''}</div>${t.steer&&t.steer!=='delivered'?`<div class="steer-meta ${t.steer}">${t.steer==='failed'?icon('alert',12)+esc(t.err||'Not delivered'):t.steer==='sending'?'Sending…':`<span class="sm-hint" title="${esc(AGENT())} reads it as soon as the step it is on finishes, without stopping its work">In the reply in progress</span><button class="steer-now" data-act="steer-now" title="Stops the step it is on and sends this message right away">Send now</button>`}</div>`:''}`;
   const last=i===s.turns.length-1;if(!last&&!t.text&&!(t.steps||[]).length&&!t.think&&!t.approval&&!t.error&&!t.dropped)return '';
@@ -271,7 +277,7 @@ const Chat={
   const typing=s.running&&last&&!t.text&&!t.approval&&!(t.steps||[]).some(x=>!x.done);
   const body=t.text?this.replyHtml(t.text,rm):'';
   const text=t.text?`<div class="text md ${s.running&&last?'streaming':''}">${body}</div>`:typing?'<div class="text"><span class="typing"><i></i><i></i><i></i></span></div>':'';
-  const err=t.error||t.dropped&&!(s.running&&last)?this.errHtml(t,last):'';
+  const err=t.error||t.dropped&&!(s.running&&last)&&!s.interrupted?this.errHtml(t,last):'';
   const tools=!s.running||!last?`<div class="msg-tools"><button title="Copy" aria-label="Copy" data-act="copymsg" data-i="${i}">${icon('copy',15)}</button>${last?`<button title="Retry" aria-label="Retry" data-act="retry">${icon('retry',15)}</button>`:''}${last?`<button title="Fork this chat" aria-label="Fork this chat" data-act="fork">${icon('fork',15)}</button>`:''}${t.meta?`<span class="meta">${esc(t.meta)}</span>`:''}</div>`:'';
   return `<div class="msg ai"><span class="who">${agentAvatar(S.profile||'default',28,{title:false})}</span><div class="body">${sys}${think}${steps}${appr}${text}${err}${last&&!s.running&&t.result?RunStatus.endHtml(t.result):''}${tools}</div></div>`},
  // a reply's text: tagged reasoning as labelled cards (its thinking goes in the Thought fold), the rest as markdown
@@ -384,7 +390,7 @@ const Chat={
   const ctl=new AbortController();   // switching agents stops reading it (the reply goes on on the box)
   try{const r=await fetch('/ui/live?agent='+encodeURIComponent(S.profile||'default')+'&session='+encodeURIComponent(id),{headers:{'x-hui':'1'},credentials:'same-origin',signal:ctl.signal});
    if(r.status!==200||!r.body)return;const ai={role:'ai',steps:[],text:'',think:''};let shown=false;
-   const was=await this.peek(id).catch(()=>null);this.undrop(s);s.ai=ai;s.runTurns=[ai];s.running=true;s.started=was?.since||Date.now();s.lastAct=Date.now();s.conn='live';s.abort=ctl;
+   const was=await this.peek(id).catch(()=>null);this.undrop(s);s.interrupted=null;s.ai=ai;s.runTurns=[ai];s.running=true;s.started=was?.since||Date.now();s.lastAct=Date.now();s.conn='live';s.abort=ctl;
    const show=um=>{if(shown)return;shown=true;const txt=typeof um==='string'?um:Array.isArray(um)?um.filter(x=>x.type==='text').map(x=>x.text).join(' '):'';
     const last=s.turns[s.turns.length-1];if(txt&&!(last?.role==='user'&&last.text===txt))s.turns.push({role:'user',text:txt});s.turns.push(ai);if(this.id===id){this.paint();this.paintComposerBar()}paintSide()};
    await this.readStream(r,ev=>{if(!shown)show(ev.type==='run.started'?ev.user_message?.content:'');this.onEvent(id,ev)});
@@ -396,7 +402,11 @@ const Chat={
  // other tabs: notice when a reply starts on the open chat; after a dropped connection, pick the reply up again
  // (or load how it ended). A server that does not answer is asked less and less often.
  watchLive(){clearInterval(this._lv);this._lv=setInterval(async()=>{const id=this.id,s=this.live[id];if(!id||document.hidden||!s||s.running||s.following)return;if(this._lvSkip>0){this._lvSkip--;return}
-  try{const j=await this.peek(id);this._lvFail=0;if(this.id!==id)return;if(j.live)this.follow(id);else if(s.turns[s.turns.length-1]?.dropped){s.conn=null;this.loadHistory(id)}}
+  try{const j=await this.peek(id);this._lvFail=0;if(this.id!==id)return;if(j.live)this.follow(id);
+   // a restart interrupted this chat's reply: say so, and wait; aqeelOS continues it and the reply is followed like any other
+   else if(j.interrupted){if(s.interrupted!==j.interrupted){s.interrupted=j.interrupted;s.conn=null;this.paint();this.paintComposerBar()}}
+   else if(s.interrupted){s.interrupted=null;s.conn=null;this.loadHistory(id)}   // it was finished or left alone meanwhile: show how it ended
+   else if(s.turns[s.turns.length-1]?.dropped){s.conn=null;this.loadHistory(id)}}
   catch{this._lvFail=(this._lvFail||0)+1;this._lvSkip=Math.min(2**this._lvFail,20);if(s.conn==='reconnecting'&&this._lvFail>=4&&this.id===id){s.conn='lost';this.paint();this.paintComposerBar()}}},3000)},
  async peek(id){const r=await fetch('/ui/live?peek=1&agent='+encodeURIComponent(S.profile||'default')+'&session='+encodeURIComponent(id),{headers:{'x-hui':'1'},credentials:'same-origin'});if(!r.ok)throw new Error('The server answered '+r.status);return r.json()},
  reconnect(){const p=(async()=>{const id=this.id,s=this.live[id];if(!s)return;s.conn='reconnecting';this._lvFail=0;this._lvSkip=0;this.paint();this.paintComposerBar();

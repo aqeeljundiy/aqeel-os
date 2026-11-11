@@ -57,10 +57,24 @@ function hostsDialog(){const h=Install.d?.hosts||{};
  d.querySelector('#ihSave').onclick=async e=>{const b=e.currentTarget;b.disabled=true;const body={};d.querySelectorAll('input[data-k]:not(:disabled)').forEach(i=>body[i.dataset.k]=i.value);
   try{await post(UI,'/ui/install/hosts',body);closeLayers();toast('Saved. Used from the next start.');await Install.load();reload()}catch(er){fail(er)}finally{b.disabled=false}}}
 ACT['inst-hosts']=()=>hostsDialog();
+/* ---------- the maintenance window: start, end, its time zone, and how long interrupted work is still continued ---------- */
+function windowDialog(){const m=Install.d?.maintenance||{from:'00:00',to:'01:00',tz:'Asia/Jakarta',resumeHours:2};
+ const d=drawer('Maintenance window',`<p class="sub" style="margin-top:0">Once a night aqeelOS updates itself and does the restarts that could wait. It no longer waits for a quiet moment: whatever a restart interrupts continues by itself right after.</p>
+  <div class="mw-row"><div><label for="mwFrom">From</label><input id="mwFrom" inputmode="numeric" autocomplete="off" placeholder="00:00" value="${esc(m.from)}"></div><div><label for="mwTo">To</label><input id="mwTo" inputmode="numeric" autocomplete="off" placeholder="01:00" value="${esc(m.to)}"></div></div>
+  <label for="mwTz">Time zone of the window</label><input id="mwTz" autocomplete="off" spellcheck="false" placeholder="Asia/Jakarta" value="${esc(m.tz)}"><div class="tz-list mw-tz" id="mwList" role="listbox" aria-label="Time zones" hidden></div>
+  <label for="mwAge">Continue interrupted work for (hours)</label><input id="mwAge" inputmode="decimal" autocomplete="off" value="${esc(String(m.resumeHours))}"><p class="hint" style="margin:4px 0 0">Anything interrupted longer ago than this is left alone and listed on System › Health.</p>`,
+  `<button class="ghost" data-act="close">Cancel</button><button class="primary" id="mwSave">Save</button>`);
+ const tz=d.querySelector('#mwTz'),list=d.querySelector('#mwList'),all=zoneList();
+ // the zone is picked from the same list as the install's time zone: type to search, press one to take it
+ tz.oninput=()=>{const q=tz.value.trim().toLowerCase().replace(/\s+/g,'_'),l=q?all.filter(z=>z.toLowerCase().includes(q)).slice(0,30):[];list.hidden=!l.length||(l.length===1&&l[0]===tz.value);list.innerHTML=l.map(z=>`<button type="button" role="option" class="tz-opt" data-z="${esc(z)}"><span>${esc(zoneLabel(z))}</span></button>`).join('')};
+ list.onclick=e=>{const b=e.target.closest('.tz-opt');if(!b)return;tz.value=b.dataset.z;list.hidden=true};
+ d.querySelector('#mwSave').onclick=async e=>{const b=e.currentTarget;b.disabled=true;
+  try{const r=await post(UI,'/ui/install/maintenance',{from:d.querySelector('#mwFrom').value,to:d.querySelector('#mwTo').value,tz:tz.value.trim(),resumeHours:Number(d.querySelector('#mwAge').value)});closeLayers();toast('Maintenance window: '+r.text);await Install.load();reload()}catch(er){fail(er)}finally{b.disabled=false}}}
+ACT['inst-window']=()=>windowDialog();
 
 /* ---------- System › Settings › This install ---------- */
 // what Automatic updates says: what it does, and how the last one went
-const autoUpdateLine=a=>{const base=a.on?'New versions and fixes install by themselves between 01:00 and 05:00. Your skills, agents and data are not touched.':'Off: this server stays on its current version.';const l=a.last;if(!l||l.result==='current')return base;const w=ago(Math.round(l.at/1000));return base+' '+(l.result==='updated'?'Last updated '+w+'.':l.result==='refused'?'Last check, '+w+': '+l.why:'Last try, '+w+', failed: '+l.why)};
+const autoUpdateLine=(a,m)=>{const base=a.on?'New versions and fixes install by themselves in the maintenance window'+(m?', '+m.text:'')+'. Your skills, agents and data are not touched.':'Off: this server stays on its current version.';const l=a.last;if(!l||l.result==='current')return base;const w=ago(Math.round(l.at/1000));return base+' '+(l.result==='updated'?'Last updated '+w+'.':l.result==='refused'?'Last check, '+w+': '+l.why:'Last try, '+w+', failed: '+l.why)};
 {const settings=PAGES.settings;PAGES.settings=async(p,el,r)=>{const gone=pageTok(el);await settings(p,el,r);if(gone()||S.me?.admin===false||el.querySelector('#instBox'))return;
  const d=await Install.load();if(gone()||!d?.live)return;const a=d.address,tz=d.timezone;
  const chip=(kind,t)=>`<span class="chip ${kind}">${esc(t)}</span>`;
@@ -73,7 +87,8 @@ const autoUpdateLine=a=>{const base=a.on?'New versions and fixes install by them
   ${fieldRow('Code and app addresses',hostLine,`<div class="inst-val"><button class="small" data-act="inst-hosts">Change</button></div>`)}
   ${d.engine&&d.engine.state!=='ok'?fieldRow('Engine',esc(ENGINE_SAY[d.engine.state]?.[0]||''),`<div class="inst-val">${chip('warn',d.engine.state==='auth'?'Needs a restart':'Not answering')}<a href="#/system/health">See Health</a></div>`):''}
   ${d.supervision?fieldRow('Team view',esc(d.supervision.on?'The main agent can review everyone’s chats for admins. The team sees a note in the chat page.':'Off: chats stay private to each person.')+(d.supervision.recent.length?'<div class="inst-lookups">'+d.supervision.recent.map(e=>'<div>'+esc(String(e.at).slice(0,16).replace('T',' ')+' · '+e.who+' · '+e.action+(e.person?' · '+e.person:'')+(e.agent?' · '+e.agent:''))+'</div>').join('')+'</div>':''),`<div class="inst-val">${toggle(d.supervision.on,'Team view','id="instSup"')}</div>`):''}
-  ${d.autoUpdate?fieldRow('Automatic updates',esc(autoUpdateLine(d.autoUpdate)),`<div class="inst-val">${toggle(d.autoUpdate.on,'Automatic updates','id="instAuto"')}</div>`):''}
+  ${d.autoUpdate?fieldRow('Automatic updates',esc(autoUpdateLine(d.autoUpdate,d.maintenance)),`<div class="inst-val">${toggle(d.autoUpdate.on,'Automatic updates','id="instAuto"')}</div>`):''}
+  ${d.maintenance?fieldRow('Maintenance window',esc('Updates and restarts that can wait happen here, without waiting for a quiet moment. A reply or schedule that gets interrupted continues by itself afterwards (up to '+d.maintenance.resumeHours+' h later).'),`<div class="inst-val"><span>${esc(d.maintenance.text)}</span><button class="small" data-act="inst-window">Change</button></div>`):''}
   ${fieldRow('Background jobs',esc(d.live.on?'This copy is the live one: it looks after agents, backups and Help.':'This copy is a test copy: it changes nothing on its own (AQEELOS_LIVE=0).'),`<div class="inst-val">${chip(d.live.on?'ok':'',d.live.on?'Live':'Test copy')}</div>`)}`;
  el.prepend(box);
  const sv=box.querySelector('#instSup');if(sv)sv.onchange=async()=>{const on=sv.checked;sv.disabled=true;try{await post(UI,'/ui/install/supervision',{on});Install.d=null;toast(on?'Team view is on':'Team view is off')}catch(e){sv.checked=!on;fail(e)}finally{sv.disabled=false}};
