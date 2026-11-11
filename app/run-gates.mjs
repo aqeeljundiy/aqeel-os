@@ -102,7 +102,7 @@ export function gateBody({port,agent,jobId,sig,original}){const U='http://127.0.
   ...(original?['exec bash "$D/'+original+'"']
    :['[ -n "$out" ] || out=$(printf \'aqeelOS run check: clear to run.\\n{"wakeAgent": true}\')','printf \'%s\\n\' "$out"']),''].join('\n')}
 
-export function createRunGates({HERMES_HOME,DATA,WORK,PORT,sig,live=true,lock=async(f,fn)=>fn(),skipAgent=async()=>false,now=()=>Date.now(),log=m=>console.log(m),dayOf=t=>new Date(t).toISOString().slice(0,10).replace(/-/g,'')}){
+export function createRunGates({strict=async()=>({}),HERMES_HOME,DATA,WORK,PORT,sig,live=true,lock=async(f,fn)=>fn(),skipAgent=async()=>false,now=()=>Date.now(),log=m=>console.log(m),dayOf=t=>new Date(t).toISOString().slice(0,10).replace(/-/g,'')}){
  const FILE=path.join(DATA,'run-gates.json'),OFF=path.join(HERMES_HOME,'.aqeelos-run-gates-off');
  const home=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  let db=null;
@@ -138,7 +138,9 @@ export function createRunGates({HERMES_HOME,DATA,WORK,PORT,sig,live=true,lock=as
   return 'aqeelOS run check: clear to run.\n{"wakeAgent": true}'}
 
  async function postingDecision(a,t){let d;try{d=JSON.parse(await readFile(path.join(DATA,'posting-limits.json'),'utf8'))}catch{return null}
-  const raw=d?.agents?.[a];if(!raw?.on)return null;const r=postClean(raw);let entries=[];try{entries=JSON.parse(await readFile(path.join(DATA,'posting-log',a+'.json'),'utf8'))}catch{}
+  const raw=d?.agents?.[a];if(!raw?.on)return null;const r=postClean(raw);
+  // a conflict nobody answered yet (rule-conflicts.mjs): the strictest side counts, never more than any side allows
+  const st=await strict(a).catch(()=>({}));if(st.gapMin!=null)r.gapMin=Math.max(r.gapMin,st.gapMin);for(const k of ['perDay','perHour'])if(st[k]!=null)r[k]=Math.min(r[k],st[k]);let entries=[];try{entries=JSON.parse(await readFile(path.join(DATA,'posting-log',a+'.json'),'utf8'))}catch{}
   const stopped=!!(r.stopFile&&WORK&&await stat(path.join(WORK,a,r.stopFile)).then(()=>true,()=>false));return postDecide(r,entries,{now:t,stopped})}
 
  // gate script for one job, written only when its text changed

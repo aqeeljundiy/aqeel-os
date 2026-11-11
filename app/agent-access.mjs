@@ -32,6 +32,11 @@ export const MAIN_RULE_LINES=[
  'When a person (the owner or someone on the team) tells you about a problem with another agent: 1) check what access or tools that agent lacks for it (manage_agent show, its logs, its settings); 2) give it exactly that; 3) answer the person along these lines: "I have given <agent> the access it needs to fix this itself (<what you gave it>). Please ask <agent> directly in its chat or topic to fix it now." If it already had everything it needs, say so and send the person to that agent the same way.',
  'Then tell that agent too (in its own chat or topic) what it now has and that it should fix the problem. Do the fix yourself only when the owner explicitly asks you to fix it directly, or when it is aqeelOS code that no agent can reach.'];
 
+// Conflict rule (11 Nov 2026, owner): with ANY conflict, two sides or more, the agent asks and never picks. In every agent's turn.
+export const CONFLICT_RULE_LINES=[
+ '','## Conflicts: ask, never pick','',
+ 'If two or more things disagree (instructions, saved decisions, a schedule prompt against Run rules or posting limits, people asking for different things, a request against a policy or a tool limit, what you were told against what you see, a skill against your instructions, a new request against an earlier one), do not choose. Ask the person who gave the instructions (the owner when people disagree): "You said A (where, when) and B (where, when), and C. What should I do?" List every side, one choice per side and "something else"; one question for all conflicts on a topic. Also call file_conflict so it shows on Health until answered. Until it is answered, follow the strictest side: never post, send, spend or delete more than any side allows. When answered, write the answer in one place (your decisions file; timing and limits in Run rules), delete every losing version, then call conflict_done.'];
+
 // what an agent's own answer from manage_agent says to the main agent when it changes another agent's own work
 export const MAIN_RULE_NOTE='Main agent rule: this was another agent\'s own work. Unless the owner asked you to fix it directly, give that agent the access it lacks instead (manage_agent share, a tool, a connection) and tell it in its own chat or topic to fix it itself.';
 
