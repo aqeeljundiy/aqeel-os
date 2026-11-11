@@ -16,7 +16,7 @@ import {randomBytes} from 'node:crypto';
 // personNeed(item) → what the person must do, in one plain sentence, or null when it is not for a person.
 const PERSON_TEXT=/\b(pay|paid|payment|invoice|top ?up|billing|credit card|out of credit|subscription|purchase|api key|new key|password|log[ -]?in|sign[ -]?in|oauth|qr|scan|add (the )?bot|add .{0,30}back|removed from (the )?(telegram )?group|bot is left|kicked|invite|decid|decision|choose|which one|approve the new instructions)/i;
 const NOT_PERSON=/\b(tester (phone|number)|test (phone|number))\b|planned (ladder )?test|dummy test|no action needed/i;
-const APPS=['composio','notion','slack','google','gmail','github','linear','figma','airtable','hubspot','shopify','meta','facebook','instagram','tiktok','canva','xendit'];
+const APPS=['notion','slack','google','gmail','github','linear','figma','airtable','hubspot','shopify','meta','facebook','instagram','tiktok','canva','xendit'];
 export const appsIn=t=>APPS.filter(a=>new RegExp('\\b'+a+'\\b','i').test(String(t||'')));
 export const groupReport=t=>/removed from (the )?(telegram )?group|bot is left|kicked from/i.test(String(t||''));
 export function personNeed(x){const k=x?.kind,t=[x?.title,x?.missing,x?.text].filter(Boolean).join(' ');

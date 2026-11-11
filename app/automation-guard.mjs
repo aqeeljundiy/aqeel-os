@@ -273,7 +273,7 @@ export function createAutomationGuard({DATA,HERMES_HOME,LIVE,listAgents,readConf
  /* ---------- the passes ---------- */
  async function fixPass(){const now=Date.now();const out=[];const signins={};
   for(const r of Object.values(db.servers)){const st=nextStep(r,now,{stdio:!!r.stdio});
-   // an app nobody ever signed in to for this agent (no saved sign-in, e.g. Sela's Composio, kept unsigned on purpose
+   // an app nobody ever signed in to for this agent (no saved sign-in, e.g. an app Sela kept unsigned on purpose
    // 25 Oct 2026) is not a problem: it stays quiet; only a sign-in that existed and was lost is reported
    if(st==='signin'&&!await signedBefore(r.agent,r.name)){r.unused=true;continue}
    // an extra number (default--whatsapp-2) shares its agent's sign-ins (links.mjs links mcp-tokens): the agent's own alert covers it

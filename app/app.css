@@ -2177,6 +2177,16 @@ button.acct-more{font:inherit;cursor:pointer;width:100%;background:var(--surface
 .cn-o.none{color:var(--muted)}
 .cn-n{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
 .cn-foot{margin:12px 2px 0}
+/* Check now (11 Nov 2026): the rows dim under a thin moving line while everything is asked again; how fresh the list is, quietly under it */
+.cn-list{position:relative}
+.cn-list .cn-row,.cn-list .ul-cat{transition:opacity .3s var(--ease),background var(--t-fast) var(--ease)}
+.cn-list.cn-checking .cn-row,.cn-list.cn-checking .ul-cat{opacity:.45}
+.cn-list::after{content:'';position:absolute;left:0;top:0;height:2px;width:30%;border-radius:2px;background:var(--blue);opacity:0;transform:translateX(-100%);transition:opacity .3s var(--ease);pointer-events:none}
+.cn-list.cn-checking::after{opacity:1;animation:cnScan 1.2s var(--ease) infinite}
+@keyframes cnScan{from{transform:translateX(-100%)}to{transform:translateX(340%)}}
+.cn-checked{margin:10px 2px 0;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;flex-wrap:wrap;animation:fade .3s var(--ease)}
+.cn-checked .link{all:unset;cursor:pointer;color:var(--blue);font-weight:600}.cn-checked .link:hover{text-decoration:underline}.cn-checked .link:focus-visible{outline:2px solid var(--blue);outline-offset:2px;border-radius:3px}
+.cn-checked .link[disabled]{color:var(--muted);cursor:default;text-decoration:none}
 .cn-needs-slot:empty{display:none}.cn-needs-slot .alert{margin-bottom:14px}
 /* by the list's own width, not the window's (1 Nov 2026: with the agent's screen open beside it the list was squeezed
    while the window stayed wide, and names broke one letter per line); .card.list and .page report their width */
@@ -3005,3 +3015,10 @@ button.bad:hover{background:color-mix(in srgb,var(--bad) 8%,transparent);border-
 .hh-oc.fixed{background:color-mix(in srgb,var(--ok) 14%,var(--surface));color:var(--ok)}.hh-oc.gone{background:var(--blue-soft);color:var(--blue)}.hh-oc.closed{background:var(--soft);color:var(--muted)}
 .hi-top{flex-wrap:wrap}.hi-top>h2{flex:none}
 @media (max-width:640px){.hf-qi .txt b{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}.hf-qi{align-items:flex-start}.hf-ctl{margin-top:-2px}}
+/* Connect Slack and Connect Microsoft (slack-connect.js, microsoft-connect.js, 11 Nov 2026): the Connect Google look, plus these */
+.sl-go{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;margin-top:8px}.sl-go .logo{width:18px;height:18px;padding:2px;border:0;margin-right:2px}
+.sl-keys{display:grid;grid-template-columns:1fr 1fr;gap:0 12px;margin-top:6px}.sl-keys input{font-family:var(--mono);font-size:12px}
+.sl-more{margin:0 0 10px;font-size:13px;color:var(--ink-2)}.sl-more summary{cursor:pointer;color:var(--blue);font-weight:500;border-radius:4px}.sl-more[open]>*:not(summary){animation:rise var(--t-med) var(--ease) both}.sl-more .hint{margin:6px 0}
+.ms-perms{margin-top:8px}
+@media (max-width:620px){.sl-keys{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){.sl-more[open]>*:not(summary){animation:none}}

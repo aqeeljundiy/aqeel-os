@@ -1,7 +1,6 @@
-// Edit agent › Abilities (agent-optins.mjs): AdsPower and Composio per agent, each switch saving at once. Off means the
+// Edit agent › Abilities (agent-optins.mjs): AdsPower and sign-in apps per agent, each switch saving at once. Off means the
 // agent has none of its tools and nothing asks it to sign in; the first start kept each only where it was used.
-const ABIL_SAY={adspower:'Separate browser profiles for logins that must look like different people. Runs its own app on the box (heavy: about a gigabyte per agent).',
- composio:'Hundreds of outside apps through one Composio sign-in.'};
+const ABIL_SAY={adspower:'Separate browser profiles for logins that must look like different people. Runs its own app on the box (heavy: about a gigabyte per agent).'};
 // an app's plain name and line from Names (labels.js) when it has one, else its id
 const abilApp=n=>{const l=typeof labelOf==='function'?labelOf('mcp',n):null;return {name:(l&&l.name)||n,desc:(l&&l.description)||(l&&l.name&&l.name!==n?n:'')}};
 const abilUsed=u=>u&&u.n?`Used ${plural(u.n,'time')} in the 14 days before the switch, last ${ago(u.last)}.`:'';

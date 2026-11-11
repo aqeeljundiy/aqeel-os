@@ -61,7 +61,7 @@ export function fromDeploys(logs,{since,until=Infinity,tz}){const out=[],at=t=>n
  return {items:out,ok:l.filter(d=>/AQ-DEPLOY DONE/.test(d.text||'')).length}}
 
 // kinds that come in batches, one item each: [key, label, the name inside the problem]
-const KINDS=[['skill','missing skill files',/^The skill (\S+) points to/i],['signin','app sign-ins',/sign-?in|oauth/i,/\b(composio|notion|slack[\w-]*|google|gmail|github|linear)\b/gi],
+const KINDS=[['skill','missing skill files',/^The skill (\S+) points to/i],['signin','app sign-ins',/sign-?in|oauth/i,/\b(notion|slack[\w-]*|google|gmail|github|linear)\b/gi],
  ['group','bot removed from Telegram groups',/^Removed from the Telegram group\s*(.*)$/i],['access','file access',/\b(?:read\/?exec(?:ute)?|access|permission)\b/i]];
 export function kindOf(x){if(x.deploy||/^tool:|^rollback:/.test(x.key))return null;for(const [k,label,re,names] of KINDS){const m=re.exec(x.what);if(!m)continue;
   const n=names?[...new Set([...x.what.matchAll(names)].map(y=>y[1].toLowerCase()))]:m[1]?[m[1]]:[];return {key:'kind:'+k,label,names:n}}return null}

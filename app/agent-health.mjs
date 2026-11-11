@@ -239,7 +239,7 @@ export function mcpState(log,now=Date.now()){let last=null;const hist=[],parked=
   const one=/MCP server '([\w.@-]+)' \(\w+\): registered \d+ tool\(s\)/.exec(l);if(one){parked.delete(one[1]);okAt.set(one[1],logTime(l))}
   if(!/MCP: registered \d+ tool\(s\)/.test(l))continue;const t=logTime(l);const f=/\(\d+ failed: (.*)$/.exec(l);for(const [k,pt] of parked)if(pt<=t)parked.delete(k);
   // a server waiting for someone to sign in (OAuth, no tokens yet) is not broken: the sign-in shows on the agent's
-  // Connected apps, and no fixer can sign in for a person (7 Nov 2026: Slack, Composio and Notion on every agent)
+  // Connected apps, and no fixer can sign in for a person (7 Nov 2026: Slack and Notion on every agent)
   const failed=f?[...('; '+f[1]).matchAll(/;\s+([\w.@-]+) \(([^;]*)/g)].filter(m=>!/OAuth|no cached tokens|mcp login|sign[ -]?in|authoriz/i.test(m[2])).map(m=>m[1]):[];last={t,failed};if(now-t<H)hist.push(failed)}
  const seen=new Set(hist.flat()),flaps={};for(const sv of seen){let n=0;for(let k=1;k<hist.length;k++)if(hist[k].includes(sv)!==hist[k-1].includes(sv))n++;if(n>2)flaps[sv]=n}
  const cust=[...String(log||'').matchAll(/MCP server 'aqeelos-customer' \(\w+\): registered (\d+) tool\(s\)/g)].pop();
