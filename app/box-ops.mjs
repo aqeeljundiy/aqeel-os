@@ -8,7 +8,7 @@
 //    guard set aside, the deploy's scripts and logs in /tmp; long logs in the engine's logs folder are cut to their end;
 //    names in the test-agents list whose agent is gone (on two passes in a row) are taken off it.
 //  - rule 2 (OPS-2, OPS-4): each agent's memory cap and sleep minutes go to ~/.aqeelos-agent-limits for the root script,
-//    from hermes-ui-data/agent-limits.json ({"default":{"memory_cap_gb":4,"sleep_minutes":30},"agents":{"<agent>":{…}}});
+//    from hermes-ui-data/agent-limits.json ({"default":{"memory_cap_gb":4,"sleep_minutes":15,"screen_mode":"lean"},"agents":{"<agent>":{…}}});
 //    an agent whose screen runs its own AdsPower never sleeps and gets 8 GB unless set. wake(agent) starts a sleeping
 //    screen (the viewer uses it); stopAll(agent) stops everything the agent's user runs.
 //  - OPS-13: every minute, the agents mid-reply go to ~/.aqeelos-agent-busy, one per line, so the root script's janitor
@@ -63,11 +63,26 @@ export function pruneTests(text,exists,goneBefore=new Set()){const gone=new Set(
  while(out.length&&out[out.length-1]==='')out.pop();return {text:out.join('\n')+(out.length?'\n':''),gone,removed}}
 
 // one line per agent with its own user: "<agent> <cap MB> <sleep minutes>"
-export const LIMIT_DEFAULTS={memory_cap_gb:4,sleep_minutes:30};
+// OPS-19 (12 Nov 2026): sleep after 15 idle minutes (was 30); screen_mode lean (X server + one tiny window manager, the default)
+// or desktop (the old XFCE desktop), per install and per agent in hermes-ui-data/agent-limits.json
+export const LIMIT_DEFAULTS={memory_cap_gb:4,sleep_minutes:15,screen_mode:'lean'};
 export function limitLines(agents,cfg={},keep=()=>false){const d={...LIMIT_DEFAULTS,...(cfg?.default||{})};
  return agents.filter(a=>NAME.test(a)).map(a=>{const o=cfg?.agents?.[a]||{},k=keep(a);
   const gb=Number(o.memory_cap_gb??(k?Math.max(8,Number(d.memory_cap_gb)||0):d.memory_cap_gb)),min=k?0:Number(o.sleep_minutes??d.sleep_minutes);
-  return a+' '+Math.max(0,Math.round((gb||0)*1024))+' '+Math.max(0,Math.round(min||0))}).join('\n')+(agents.length?'\n':'')}
+  const mode=String(o.screen_mode??d.screen_mode)==='desktop'?'desktop':'lean';
+  return a+' '+Math.max(0,Math.round((gb||0)*1024))+' '+Math.max(0,Math.round(min||0))+' '+mode}).join('\n')+(agents.length?'\n':'')}
+
+// The sleep and wake log (scripts/agent-users.sh writes one JSON line per event to <wake dir>/events.jsonl) as the Health line:
+// "Screens: N awake, M asleep; wakes in the last 24 h: X, failed: Y, slowest: Z s". The janitor's file gives awake and asleep.
+export function parseEvents(text){const out=[];for(const l of String(text||'').split('\n')){if(!l.trim())continue;try{const j=JSON.parse(l);if(j&&j.agent&&j.event&&Number.isFinite(j.at))out.push(j)}catch{}}return out}
+export function screensLine(j,events,now=Date.now()){
+ const ag=Object.entries(j?.agents||{});const asleep=ag.filter(([,a])=>a.asleep).length,awake=ag.length-asleep;
+ const since=now/1000-86400,w=events.filter(e=>e.event==='wake'&&e.at>=since),failed=w.filter(e=>e.ok===false).length;
+ const slow=w.filter(e=>e.ok!==false).reduce((m,e)=>Math.max(m,Number(e.ms)||0),0);
+ const always=ag.filter(([,a])=>a.nosleep).map(([n])=>n),old=ag.filter(([,a])=>a.mode==='desktop'&&!a.asleep).length,fb=events.filter(e=>e.event==='fallback'&&e.at>=since).length;
+ const text='Screens: '+awake+' awake, '+asleep+' asleep; wakes in the last 24 h: '+w.length+', failed: '+failed+', slowest: '+(Math.round(slow/100)/10)+' s'
+  +(always.length?'. Kept always on after failed wakes: '+always.join(', '):'')+(fb?'. Fell back to the old desktop '+fb+' time'+(fb>1?'s':''):'');
+ return {text,awake,asleep,wakes:w.length,failed,slowest:slow/1000,always,fallbacks:fb,oldDesktop:old,ok:!failed&&!always.length}}
 const NAME=/^[a-z0-9][a-z0-9_-]{0,63}$/;
 // the agents mid-reply, from live reply keys "<agent>|<chat>": one valid name per line
 export const busyText=keys=>[...new Set([...keys].map(k=>String(k).split('|')[0]).filter(a=>NAME.test(a)))].sort().map(a=>a+'\n').join('');
@@ -85,6 +100,9 @@ export function createBoxOps({HOME,DATA,HERMES_HOME,fileIssue=null,TMP='/tmp',ke
   await save();return n}
 
  async function janitor(){return processesLine(JSON.parse(await readFile(JAN,'utf8').catch(()=>'null')))}
+ // the sleep and wake line for System › Health (OPS-19)
+ async function screens(now=Date.now()){const j=JSON.parse(await readFile(JAN,'utf8').catch(()=>'null'));if(!j||!j.agents)return null;
+  return screensLine(j,parseEvents(await readFile(path.join(WAKE,'events.jsonl'),'utf8').catch(()=>'')),now)}
  // each agent's memory: everything its own Linux user runs (ag-<agent>)
  const agentMemory=()=>new Promise(res=>execFile('ps',['-eo','user:32=,rss='],{maxBuffer:8e6},(e,o)=>{const m=new Map();
   for(const l of String(o||'').split('\n')){const x=/^(ag-\S+)\s+(\d+)/.exec(l.trim());if(x)m.set(x[1].slice(3),(m.get(x[1].slice(3))||0)+Number(x[2])*1024)}
@@ -134,4 +152,4 @@ export function createBoxOps({HOME,DATA,HERMES_HOME,fileIssue=null,TMP='/tmp',ke
   if(!st.expiredAt||Date.now()-st.expiredAt>864e5)await expire().catch(e=>console.warn('box: expire',e.message));
   if(!st.tmpAt||Date.now()-st.tmpAt>6*36e5)await pruneTmp().catch(e=>console.warn('box: tmp',e.message))}
  function start(){uploadsReadable().catch(()=>{});setTimeout(()=>writeLimits().catch(()=>{}),10000).unref?.();setTimeout(()=>tick().catch(()=>{}),30000).unref?.();setInterval(()=>tick().catch(()=>{}),60000).unref?.()}
- return {intake,janitor,agentMemory,expire,pruneTmp,uploadsReadable,tick,start,writeLimits,writeBusy,wake,stopAll}}
+ return {intake,janitor,screens,agentMemory,expire,pruneTmp,uploadsReadable,tick,start,writeLimits,writeBusy,wake,stopAll}}

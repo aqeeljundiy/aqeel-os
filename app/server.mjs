@@ -1645,7 +1645,7 @@ const memWatch=createMemWatch({DATA,HOME:homedir(),HERMES_HOME,sessions:a=>engin
  keepOn:a=>{try{return !!agentAds.keepOn(a)}catch{return true}},restarting:()=>!!gwRestarting,restartEngine:why=>restartLater(why),
  // the agent's own screen Chrome keeps its 2 newest tabs (repeats of one page go first)
  closeTabs:async a=>{const l=(await readFile(path.join(homedir(),'.aqeelos-agent-ports'),'utf8').catch(()=>'')).split('\n').map(x=>x.trim().split(' ')).find(x=>x[0]===a&&/^\d+$/.test(x[2]||''));if(!l)return 0;
-  const cdp=(q,m='GET')=>fetch('http://127.0.0.1:'+l[2]+q,{method:m,signal:AbortSignal.timeout(8000)}).then(r=>r.ok?r.json().catch(()=>({})):null).catch(()=>null);
+  const cdp=(q,m='GET')=>fetch('http://127.0.0.1:'+l[2]+q,{method:m,headers:{'x-aqeel-poll':'1'},signal:AbortSignal.timeout(8000)}).then(r=>r.ok?r.json().catch(()=>({})):null).catch(()=>null);
   const list=await cdp('/json/list');if(!Array.isArray(list))return 0;let n=0;for(const id of planExcess(list,{max:2,keepNewest:1}).close)if(await cdp('/json/close/'+encodeURIComponent(id)))n++;return n},
  tell:async text=>{noteSys('memory',text.split('\n')[0]);await ownerSend(text,'telegram')}});
 if(LIVE_APP){setTimeout(()=>memWatch.tick().catch(e=>console.warn('memory watch',e.message)),90e3).unref();setInterval(()=>memWatch.tick().catch(e=>console.warn('memory watch',e.message)),120e3).unref()}
@@ -2963,7 +2963,7 @@ const server=createServer(async(req,res)=>{
    // today's US dollar → rupiah rate, so costs can be shown in rupiah (fetched twice a day, last good one kept)
    if(p==='/ui/fx'&&req.method==='GET'){if(!FX.at||Date.now()-FX.at>12*3600e3){try{const r=await fetch('https://open.er-api.com/v6/latest/USD',{signal:AbortSignal.timeout(8000)});const j=await r.json();const rates=Object.fromEntries(Object.entries(j?.rates||{}).filter(([k,v])=>/^[A-Z]{3}$/.test(k)&&+v>0));if(rates.EUR)Object.assign(FX,{rates,at:Date.now(),day:(j.time_last_update_utc||'').slice(5,16)})}catch{}}
     return send(res,200,{rates:FX.rates,IDR:FX.rates.IDR,updated:FX.day||null})}
-   if(p==='/ui/box'&&req.method==='GET')return send(res,200,{...await boxMemory(),processes:await boxOps.janitor().catch(()=>null),agents:await boxOps.agentMemory().catch(()=>[])});
+   if(p==='/ui/box'&&req.method==='GET')return send(res,200,{...await boxMemory(),processes:await boxOps.janitor().catch(()=>null),screens:await boxOps.screens().catch(()=>null),agents:await boxOps.agentMemory().catch(()=>[])});
    // Google accounts an agent can use (the Google Workspace skill keeps one sign-in per account); never the tokens themselves
    if(p==='/ui/google-accounts'){const a=String(url.searchParams.get('agent')||'default');if(!(await listAllProfiles()).includes(a))return send(res,400,{error:'Unknown agent'});
     if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a))return send(res,403,{error:'Not your agent'});

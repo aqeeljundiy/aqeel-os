@@ -13,6 +13,12 @@ import {decide,clean} from './posting-limits.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const getJson=u=>fetch(u,{signal:AbortSignal.timeout(4000)}).then(r=>r.ok?r.json():null).catch(()=>null);
 
+// A sleeping browser (OPS-19: scripts/agent-users.sh, scripts/wake-proxy.mjs): the first plain connection to the agent's port wakes it
+// and the proxy holds that connection until Chrome answers (up to 90 s). A check that needs the browser asks first and waits for
+// that answer, so it never reads a sleeping browser as 'not signed in'. fetchJson answers null when it did not come up.
+export async function wakeBrowser({port,fetchJson=u=>fetch(u,{signal:AbortSignal.timeout(100000)}).then(r=>r.ok?r.json():null).catch(()=>null)}){
+ if(!port)return false;const v=await fetchJson('http://127.0.0.1:'+port+'/json/version');return !!v?.webSocketDebuggerUrl}
+
 // ---- the agent's own Chrome ------------------------------------------------------------------------------------------
 // the DevTools port the agent's browser tool drives: browser.cdp_url in its config.yaml (http://127.0.0.1:9600)
 export const cdpPortOf=yaml=>{const m=/^\s*cdp_url:\s*['"]?https?:\/\/(?:127\.0\.0\.1|localhost):(\d{2,5})/m.exec(String(yaml||''));return m?+m[1]:null};
@@ -40,8 +46,9 @@ export async function look({port,url,probe,wait=7000,fetchJson=getJson,WS=global
 
 // unread DMs. count=null means unknown. mode: 'title' (a tab's title only, no navigation), 'inbox' (a fresh tab on the
 // inbox), 'both' (the default: the larger of the two; unknown only when neither could be read)
-export async function unreadDms({port,mode='both',url='https://www.threads.com/messages',fetchJson=getJson,lookFn=look,wait}={}){
+export async function unreadDms({port,mode='both',url='https://www.threads.com/messages',fetchJson=getJson,lookFn=look,wait,wake=fetchJson===getJson?wakeBrowser:async()=>true}={}){
  if(!port)return {count:null,known:false,why:'no DevTools port for this agent'};
+ if(!await wake({port}))return {count:null,known:false,why:'the browser was asleep and did not wake up'};
  const parts=[];
  if(mode!=='inbox'){const pages=await fetchJson('http://127.0.0.1:'+port+'/json/list');
   if(Array.isArray(pages)){const t=pages.filter(p=>p.type==='page'&&/threads\.(com|net)/.test(p.url||'')).map(p=>titleCount(p.title));if(t.length)parts.push({src:'title',n:Math.max(...t)})}}
