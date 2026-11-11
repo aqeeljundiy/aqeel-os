@@ -80,7 +80,7 @@ const AgentHealth={
  draw(box,d,again,mem){const rows=d.agents||[],first=!!box.querySelector('.skel'),M=mem?.agents||{};
   const head=mem?'<p class="hint ah-hint">What each agent’s programs hold in memory now, and its last 7 days. The main agent’s line includes the engine.</p>':'';
   box.innerHTML=head+'<div class="card list ah-list">'+rows.map((r,i)=>{const dl=AgentHealth.dropLine(r.drops),m=r.agent?M[r.agent]:null,g=m?.growing;
-   const memH=m&&m.now?'<div class="ah-mem'+(g?' warn':'')+'">'+HealthVerdict.spark([...(m.days||[]),m.now],!!g)+'<span><b>'+bytes(m.now)+'</b><small>'+(g?'+'+bytes(g.to-g.from):'last 7 days')+'</small></span></div>':'';
+   const memH=m&&m.now?'<div class="ah-mem'+(g?' warn':'')+'">'+((m.days||[]).length>=2?HealthVerdict.spark([...m.days,m.now],!!g):'')+'<span><b>'+bytes(m.now)+'</b><small>'+(g?'+'+bytes(g.to-g.from)+' in '+g.days+' days':(m.days||[]).length>=2?'last '+m.days.length+' days':'now')+'</small></span></div>':'';
    return '<div class="row ah-row'+(r.ok?'':' bad')+'"'+(first?' style="animation-delay:'+Math.min(i,8)*30+'ms"':'')+'><div class="main-c"><i class="ah-dot'+(r.ok?' ok':'')+'"></i><div class="txt"><b>'+esc(r.name)+'</b><span>'+(r.ok?'Working':r.problems.length===1?'1 problem':r.problems.length+' problems')+(dl?' · '+esc(dl):'')+'</span>'+
     (g?'<div class="ah-warn">'+icon('alert',15)+'<span>'+AgentHealth.memWarn(r.name,g,mem)+'</span></div>':'')+
     (r.ok?'':'<div class="ah-probs">'+r.problems.map((x,j)=>'<div class="ah-p"><i class="bn-ic bn-'+esc(x.kind)+'">'+icon(Bottlenecks.icon[x.kind]||'alert',15)+'</i><div><b>'+esc(x.kind==='report'?'Blocked: '+(x.missing||x.title):x.title)+'</b>'+(x.text?'<p>'+esc(x.text)+'</p>':'')+'<div class="bn-acts" data-r="'+i+'" data-j="'+j+'"></div></div></div>').join('')+'</div>')+'</div>'+memH+'</div></div>'}).join('')+'</div>';
@@ -96,7 +96,7 @@ const HealthCost={
   const col=(t,rows)=>{const mx=Math.max(...rows.map(r=>r.cost),0.01);return '<div class="panel card hc-col"><h2>'+t+'</h2>'+(rows.length?rows.map((r,i)=>'<div class="hc-r"><span>'+esc(r.name)+'</span><b>'+usd(r.cost)+'</b><i style="--w:'+Math.max(2,Math.round(r.cost/mx*100))+'%;animation-delay:'+i*40+'ms"></i></div>').join(''):'<p class="sub">Nothing this week.</p>')+'</div>'};
   const first=!box.dataset.drawn;box.dataset.drawn='1';
   box.innerHTML='<div class="hi-top"><h2 class="ach-cat" style="margin:0">Cost this week</h2><a class="hc-all" href="#/system/usage">All usage</a></div><div class="two hc-two">'+col('By agent',A)+col('By person',P)+'</div>'+
-   '<p class="hint" style="margin:8px 2px 22px">Estimates from the engine’s records. By person counts the chats each person started'+(d.failed?.length?'; some agents could not be read, so it is incomplete':'')+'.</p>';
+   '<p class="hint" style="margin:8px 2px 22px">Estimates from the engine’s records. By person counts who started each chat, here or on a channel; work nobody started has lines of its own'+(d.failed?.length?'; some agents could not be read, so it is incomplete':'')+'.</p>';
   if(!first)box.querySelectorAll('.hc-r i,.panel').forEach(x=>x.style.animation='none')}};
 
 
@@ -217,7 +217,7 @@ const HealthIssues={
   B.need.innerHTML=groups.length?'<div class="hi-top"><h2 class="ach-cat" style="margin:0">Needs you</h2><span class="hint">Only what a person has to do. Everything technical stays with the fixer.</span></div><div class="card list hn-list">'+groups.map((g,k)=>{const ag=g.agents;
     const who=ag.length>1?ag.slice(0,-1).join(', ')+' and '+ag.at(-1):ag[0]||'';
     return '<div class="row hn-row" style="animation-delay:'+Math.min(k,6)*40+'ms"><div class="main-c"><i class="hn-ic">'+icon('user',16)+'</i><div class="txt"><b>'+t(g.title)+(g.reports>1?'<span class="hi-tag">'+g.reports+' reports, merged</span>':'')+'</b>'+
-     '<p>'+t(g.need||'Someone has to do this before the fixer can go on.')+'</p><span>'+t(who)+(ag.length>1?' · one fix covers all '+ag.length:'')+(g.told?' · told '+t(g.told):'')+'</span>'+
+     '<p>'+t(g.need||'Someone has to do this before the fixer can go on.')+'</p><span>'+t(who)+(ag.length>1?' · one fix covers all '+ag.length:'')+(g.told&&g.told!=='logged'?' · told '+t(g.told):'')+'</span>'+
      '<div class="hi-acts"><button type="button" class="primary small" data-need="retry" data-ids="'+t(g.ids.join(','))+'">Done, check again</button><button type="button" class="ghost small hi-close" data-need="close" data-ids="'+t(g.ids.join(','))+'">Not needed</button></div></div></div></div>'}).join('')+'</div>':'';
   // the fixer
   const L=f.line||[],run=f.now,w=f.wait,cap=f.cap||{used:0,cap:20};
@@ -241,7 +241,7 @@ const HealthIssues={
   B.fixer.innerHTML='<div class="card hf'+(first?'':' still')+'"><div class="hf-head"><h2>Fixer</h2><span class="hf-state '+state[0]+'"><i></i>'+state[1]+'</span>'+
     (f.on===false?'<a class="hf-link" href="#/system/teams">Switch it on</a>':'<button type="button" class="ghost small" data-fx="'+(f.paused?'resume':'pause')+'">'+icon(f.paused?'play':'pause',14)+(f.paused?'Resume':'Pause')+'</button>')+'</div>'+
    '<div class="hf-body">'+nowH+waitH+(why?'<div class="hf-why'+(f.paused||f.on===false?' calm':'')+'">'+icon('clock',16)+'<span>'+t(why)+'</span></div>':!run&&!w&&!L.length?'<div class="hf-why calm">'+icon('check',16)+'<span>Nothing in line.</span></div>':'')+capH+'</div>'+
-   (L.length?'<div class="hf-qh"><b>In line <span>· '+L.length+'</span></b><span class="hint">Proof runs first, then urgent agents, then oldest first. Moving one up puts it ahead.</span></div><ol class="hf-q">'+L.map(li).join('')+'</ol>':'')+
+   (L.length?'<div class="hf-qh"><b>In line <span>· '+L.length+'</span></b><span class="hint">Proof runs first, then urgent agents, then oldest first. Moving one up puts it ahead.</span></div><ol class="hf-q">'+L.slice(0,HealthIssues.allLine?L.length:8).map(li).join('')+'</ol>'+(L.length>8?'<div class="hf-sub"><button type="button" class="hf-link" data-fx="all">'+(HealthIssues.allLine?'Show the first 8':'Show all '+L.length)+'</button></div>':''):'')+
    (sk.length?'<div class="hf-sub">Skipped for today: '+sk.map(i=>t(HealthIssues.title(i))+' <button type="button" class="hf-link" data-fx="unskip" data-id="'+t(i.id)+'">Put back</button>').join(' · ')+'. They come back at '+t(hm(cap.resetAt||Date.now()))+'.</div>':'')+
    (st.length?'<div class="hf-qh"><b>Stuck after 3 tries <span>· '+st.length+'</span></b><span class="hint">Nothing a person can do was found. Try again after a change, or close it.</span></div><div class="hf-stuck">'+st.map(i=>'<div class="hf-qi"><span class="n"></span><div class="txt"><b>'+t(HealthIssues.title(i))+'</b><span>'+t(i.agentName)+'</span></div><div class="hi-acts" style="margin:0">'+btn('retry',i.id,'Try again')+btn('close',i.id,'Close','ghost hi-close')+'</div></div>').join('')+'</div>':'')+
    (other.length?'<div class="hf-qh"><b>Also waiting <span>· '+other.length+'</span></b></div><div class="hf-stuck">'+other.map(i=>'<div class="hf-qi"><span class="n"></span><div class="txt"><b>'+t(HealthIssues.title(i))+'</b><span>'+t([i.agentName,i.sorting?'Being sorted':HealthIssues.ST[i.state]||i.state].filter(Boolean).join(' · '))+'</span></div><div class="hi-acts" style="margin:0">'+(['stopped','open'].includes(i.state)?btn('retry',i.id,'Try again'):'')+btn('close',i.id,'Close','ghost hi-close')+'</div></div>').join('')+'</div>':'')+
@@ -270,7 +270,7 @@ const HealthIssues={
    b.disabled=true;try{for(const id of ids)await post(UI,'/ui/health/issues/'+(k==='retry'?'retry':'close'),{id});toast(k==='retry'?'The fixer checks it again.':'Closed.')}catch(e){b.disabled=false;toast(e.message,'err');return}
    const row=b.closest('.row');if(!calm()&&row){row.style.animation='cardOut 180ms var(--ease) both';await new Promise(r=>setTimeout(r,180))}B.fixer.dataset.sig='';again()});
   // the fixer's line: move, skip and put back, pause and resume
-  B.fixer.querySelectorAll('button[data-fx]').forEach(b=>b.onclick=async()=>{const k=b.dataset.fx,li=b.closest('.hf-qi'),id=b.dataset.id||li?.dataset.id||'';b.disabled=true;
+  B.fixer.querySelectorAll('button[data-fx]').forEach(b=>b.onclick=async()=>{const k=b.dataset.fx,li=b.closest('.hf-qi'),id=b.dataset.id||li?.dataset.id||'';if(k==='all'){HealthIssues.allLine=!HealthIssues.allLine;B.fixer.dataset.sig='';return HealthIssues.draw(B,d,again)}b.disabled=true;
    if(k==='pause'&&!await confirmBox('Pause the fixer?','A run already going finishes its step. Nothing new starts until you press Resume. New problems still join the line.','Pause',false)){b.disabled=false;return}
    try{const path=k==='up'||k==='down'?'move':k;await post(UI,'/ui/health/fixer/'+path,{id,dir:k});
     if(k==='skip'&&li&&!calm()){li.classList.add('out');await new Promise(r=>setTimeout(r,220))}

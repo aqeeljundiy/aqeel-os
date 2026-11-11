@@ -12,7 +12,7 @@ import {allowed as skillAllowed,setRule as setSkillRule,rules as skillRules} fro
 import {createAgentDefaults} from './agent-defaults.mjs';
 import {createWhy} from './why.mjs';
 import {createChatHistory} from './chat-history.mjs';
-import {createIssues,engineSortRun} from './issues.mjs';
+import {createIssues,engineSortRun,personOf} from './issues.mjs';
 import {createAgentMemory} from './agent-memory.mjs';
 import {createTeamSettings} from './team-settings.mjs';
 import {createCodeChanges} from './code-changes.mjs';
@@ -3006,11 +3006,17 @@ const server=createServer(async(req,res)=>{
   // memory per agent (HEALTH-6) and this week's cost by agent and by person (HEALTH-7)
   if(p==='/ui/health/memory'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});const v=await agentMemory.view();return send(res,200,{...v,names:Object.fromEntries(Object.keys(v.agents).map(a=>[a,agentName(a)]))})}
   if(p==='/ui/health/cost'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});
-   // a chat nobody in aqeelOS started (a schedule, a channel's customer) is its own line, not the owner's
-   const all=await usage.breakdown([...await listAllProfiles(),HELP_AGENT],7,id=>users.sessionOwner(id)||'_auto');const ppl=Object.fromEntries(users.people().map(x=>[x.id,x.name]));
+   // whose chat it was: the person who started it in aqeelOS, else a person the team policy knows on that channel (the owner
+   // on Telegram), else what started it: a schedule, a customer on a channel, or background work (the fixer, helpers)
+   const pol=await issues.policy().catch(()=>({})),CH=['telegram','whatsapp','slack','discord','signal'];
+   const who=(id,s)=>{const o=users.sessionOwner(id);if(o)return o;const src=String(s?.source||'');
+    if(s?.user_id&&CH.includes(src)){const x=personOf(pol,src,s.user_id);if(x)return x.owner?'owner':'@'+x.name}
+    return src==='cron'?'_cron':[...CH,'webhook','local','api_server'].includes(src)?'_chan':'_bg'};
+   const AUTO={_cron:'Schedules',_chan:'Customers and channels',_bg:'Background work (fixer, helpers)'};
+   const all=await usage.breakdown([...await listAllProfiles(),HELP_AGENT],7,who);const ppl=Object.fromEntries(users.people().map(x=>[x.id,x.name]));
    const agentOf=a=>String(a).split('--')[0],ba={};for(const [a,o] of Object.entries(all.byAgent||{})){const k=agentOf(a);ba[k]=(ba[k]||0)+(o.cost||0)}
    const rows=o=>Object.entries(o).map(([k,c])=>({id:k,cost:Math.round(c*100)/100})).filter(r=>r.cost>0).sort((a,b)=>b.cost-a.cost);
-   return send(res,200,{days:7,byAgent:rows(ba).map(r=>({...r,name:r.id===HELP_AGENT?'Help':agentName(r.id)})),byPerson:rows(Object.fromEntries(Object.entries(all.byPerson||{}).map(([k,o])=>[k,o.cost||0]))).map(r=>({...r,name:r.id==='_auto'?'Schedules and channels':ppl[r.id]||r.id})),failed:all.failed||null})}
+   return send(res,200,{days:7,byAgent:rows(ba).map(r=>({...r,name:r.id===HELP_AGENT?'Help':agentName(r.id)})),byPerson:rows(Object.fromEntries(Object.entries(all.byPerson||{}).map(([k,o])=>[k,o.cost||0]))).map(r=>({...r,name:AUTO[r.id]||(r.id.startsWith('@')?r.id.slice(1):ppl[r.id]||r.id),auto:!!AUTO[r.id]})),failed:all.failed||null})}
   if(p==='/ui/health/issues/retry'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});let b={};try{b=JSON.parse(await readBody(req,2048))}catch{}const i=await issues.retry(String(b.id||''));if(!i)return send(res,404,{error:'No such issue.'});return send(res,200,{ok:true,state:i.state})}
    if(p==='/ui/health/agents'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,await health.view())}
    // an agent's instructions (instructions.mjs): history, a version with its changes, save, bring back, rewrites waiting for approval, flags

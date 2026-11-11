@@ -46,7 +46,7 @@ export function createUsage(DASH,TOKEN,DATA,opt={}){
  // agents that could not be read are named in `failed`, the rest still add up
  async function breakdown(agents,days,ownerOf){const since=Date.now()/1000-days*86400;const byPerson={},byAgent={},byModel={},failed=[];
   const per=await each(agents,a=>chats(a,since).catch(e=>{console.warn('usage',a,e.message);failed.push(a);return []}));
-  agents.forEach((a,i)=>{for(const s of per[i]){const p=ownerOf(s.id);add(byPerson[p]||=blank(),s);add(byAgent[a]||=blank(),s);add(byModel[s.model||'unknown']||=blank(),s)}});
+  agents.forEach((a,i)=>{for(const s of per[i]){const p=ownerOf(s.id,s);add(byPerson[p]||=blank(),s);add(byAgent[a]||=blank(),s);add(byModel[s.model||'unknown']||=blank(),s)}});
   return {days,byPerson,byAgent,byModel,...(failed.length?{failed}:{})}}
  // today's use counts only what a chat added today: each chat's totals at the first sight of the day are kept
  // (DATA/usage-day.json, reset at midnight) and subtracted. A chat started today starts from 0. Use before the first
