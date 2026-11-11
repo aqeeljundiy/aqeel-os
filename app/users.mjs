@@ -7,6 +7,7 @@ import {homedir} from 'node:os';
 import path from 'node:path';
 import {readPicture,emojiSlugs,AVATAR_TYPES} from './avatar-file.mjs';
 import {HELP_AGENT} from './agentops.mjs';
+import {addonDecision} from './addons.mjs';
 
 export const LEVELS=['chat','edit','owner'];           // per-agent share levels, weakest first
 // What a member may do beyond chatting. Admins can do everything. Each one only ever applies to agents
@@ -103,6 +104,8 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
  // may do on agents others share with them, and everything beyond (making agents, models, tools, usage)
  const OWNER_CAPS=['schedules','skills','mcp'];
  const canOn=(u,cap,agent)=>can(u,cap)||OWNER_CAPS.includes(cap)&&level(u,agent)==='owner';
+ // personal add-ons (addons.mjs, 11 Nov 2026): may this person add an app, skill or plugin to this agent? null, or why not
+ const addonCheck=(u,agent,kind,runsCode=false)=>addonDecision({admin:isAdmin(u),level:level(u,String(agent||'default')),caps:eff(u).caps,kind,runsCode});
  // whose schedules (with their runbooks, results and costs) a person may see
  const schedOk=(u,agent)=>isAdmin(u)?!!level(u,agent):atLeast(u,agent,'edit')&&canOn(u,'schedules',agent);
  const ownsAny=u=>Object.keys({...db.agentOwners,...db.shares}).some(a=>level(u,a)==='owner');
@@ -216,6 +219,9 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
    if(G&&(/^\/mcp\/oauth\/flows\/[^/]+$/.test(rest)||rest==='/mcp/catalog')||rest==='/mcp/catalog/install'&&method==='POST')return edit('mcp');
    if(/^\/tools\/toolsets$/.test(rest)&&G)return edit();
    const ts=/^\/tools\/toolsets\/([^/]+)$/.exec(rest);if(ts&&method==='PUT')return edit(UNSAFE_TOOLSETS.includes(decodeURIComponent(ts[1]))?'unsafe':'tools',UNSAFE_TOOLSETS.includes(decodeURIComponent(ts[1]))?'Terminal, files and code tools are only for admins.':'Your role does not include turning tools on or off.');
+   // plugins (personal add-ons): the list and the reviewed catalog for anyone who owns an agent; an install is checked on
+   // its body in server.mjs (one from any GitHub repo runs code, so it needs "unsafe"); turning one on is per agent
+   if(G&&/^\/dashboard\/plugins\/(hub|catalog)$/.test(rest)||rest==='/dashboard/agent-plugins/install'&&method==='POST')return ownsAny(u)?null:no('Plugins are added to an agent you own. Ask the owner for an agent of your own.');
    if(/^\/cron\/jobs(\/[^/]+(\/(pause|resume|trigger|runs))?)?$/.test(rest))return edit('schedules');
    if(/^\/cron\/(delivery-targets|blueprints(\/instantiate)?)$/.test(rest))return edit('schedules');
    if(rest==='/model/set'&&method==='POST')return edit('models');
@@ -231,6 +237,7 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
    // "Open in Code" links (the handler checks the person may chat with the agent that made it)
    if(/^\/ui\/code\/(pair|devices|unpair|online|handoff|download\/(windows|mac))$/.test(p))return null;
    if(p==='/ui/supervision'&&method==='GET')return null;   // the team must be able to learn that admins can review chats
+   if(p==='/ui/plugins/toggle'&&method==='POST')return null;   // per agent; the handler checks addonCheck (their own agents)
    if(p==='/ui/files/search'||p==='/ui/files/exist'||p==='/ui/code/usage'||p.startsWith('/ui/bottlenecks')||p==='/ui/apps'||p.startsWith('/ui/apps/')||p==='/ui/defaults'||p==='/ui/code/app-version')return null;   // the handler keeps members inside their own folder
    return no()}
   return no()}
@@ -426,5 +433,5 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
  async function finishReset(tok,pw){await load();sweep();const r=db.resets.find(y=>y.h===tokHash(tok));const x=r&&byId(r.uid);if(!x||x.disabled)return {error:'This reset link has expired or was already used. Ask for a new one.'};
   if(String(pw||'').length<8)return {error:'Use a password of at least 8 characters.'};
   if(x.id==='owner')db.ownerPw=hash(pw);else db.users.find(y=>y.id===x.id).pw=hash(pw);db.resets=db.resets.filter(y=>y.uid!==x.id);await save();return {ok:true,user:byId(x.id)}}
- return {needsOwner,createOwner,makeRecovery,recoverOwner,forgot,resetInfo,finishReset,hooks,leadOf,leadPerson,setLead,agentPerson,tierOf,agentMayManage,powerOf,needLead,face,expiredInvites,agentOwner,byId,ownerOf,sessionOwner,memberChat,lockedByOwner,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginNote,emailOnly,applyEmailMoves,loginCode,finishLogin,created,reserve,can,canOn,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home,level,atLeast,schedOk,dropAgent,restoreAgent};
+ return {needsOwner,createOwner,makeRecovery,recoverOwner,forgot,resetInfo,finishReset,hooks,leadOf,leadPerson,setLead,agentPerson,tierOf,agentMayManage,powerOf,needLead,face,expiredInvites,agentOwner,byId,ownerOf,sessionOwner,memberChat,lockedByOwner,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginNote,emailOnly,applyEmailMoves,loginCode,finishLogin,created,reserve,can,canOn,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home,level,atLeast,schedOk,dropAgent,restoreAgent,addonCheck};
 }
