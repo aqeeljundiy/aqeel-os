@@ -12,11 +12,13 @@ jobs:
     timeout-minutes: 20
     env:
       TZ: Asia/Jakarta
-      TMPDIR: ${{ runner.temp }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - run: node scripts/check-globals.mjs
+      # the runner context only exists inside a step: at job level it made the whole workflow invalid (every run failed with no job)
       - run: node --test --test-concurrency=2 scripts/*.test.mjs
+        env:
+          TMPDIR: ${{ runner.temp }}
