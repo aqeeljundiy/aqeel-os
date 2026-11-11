@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """queue_post.py: the comment queue of Continue Threads. PROTOTYPE (12 Nov 2026), not run on the box. No model.
   --add URL TEXTFILE --lead hot|warm --author "..."   put a drafted comment in the queue (refuses: exit 3 banned phrase, exit 4 already commented or queued)
+  --resume                                             after a pause (2 failures in a row) and a fix: start posting again
   --status                                             how many drafts wait, their post ids, and what aqeelOS allows now
   (no flag)                                            post the next draft if aqeelOS says posting is allowed now; run by a script-only schedule every 10 minutes
 Lives in <workspace>/.tools next to comment_send.py, runs as the agent's own user. Needs a file .tools/.aqeelos-sig (mode 600) holding the agent's signature: the last part of the address in the agent's scripts/aqeelos-posting-gate.sh. Queue: .tools/comment_queue.json.
@@ -72,6 +73,11 @@ def main():
         st, al = aq("/posting-gate/%s/%s?json=1" % (AGENT, sig()))
         print(json.dumps({"waiting": len([i for i in d["items"] if not i.get("done")]), "ids": [post_id(i["url"]) for i in d["items"] if not i.get("done")], "allowed_now": al, "paused": d.get("fails", 0) >= 2}))
         return
+    if "--resume" in a:
+        d["fails"] = 0
+        save(d)
+        print("resumed")
+        return
     if "--add" in a:
         url, tf = a[a.index("--add") + 1], a[a.index("--add") + 2]
         lead = a[a.index("--lead") + 1] if "--lead" in a else "hot"
@@ -98,6 +104,9 @@ def main():
     if st != 200 or not al.get("allow"):
         return
     it = items[0]
+    if "--dry" in a:
+        print("would post", it["url"], it["text"][:60].replace("\n", " "))
+        return
     tf = os.path.join(HERE, "current_comment.txt")
     open(tf, "w").write(it["text"])
     rc, out = send(it["url"], tf)

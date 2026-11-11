@@ -29,7 +29,7 @@ if(after&&!/^[\w-]{1,64}$/.test(after)){console.error('--after is a job id');pro
 const events=(after?'schedule.finished':opt('events','comment.created')).split(',').map(s=>s.trim()).filter(Boolean),platforms=(opt('platforms','')||'').split(',').map(s=>s.trim()).filter(Boolean);
 const checks=opt('checks','--dms'),expr=opt('expr','23 * * * *'),gap=+opt('min-gap',after?0:120);
 const here=path.dirname(fileURLToPath(import.meta.url)),runCheck=path.join(here,'run-check.mjs');
-if(/[^\w\s.=:\/"-]/.test(checks)||(checks.match(/"/g)||[]).length%2){console.error('--checks holds run-check.mjs flags only (letters, digits, . = : / - and balanced double quotes)');process.exit(2)}
+if(/[^\w\s.=:\/!"-]/.test(checks)||(checks.match(/"/g)||[]).length%2){console.error('--checks holds run-check.mjs flags only (letters, digits, . = : / ! - and balanced double quotes)');process.exit(2)}
 
 export const checkScript=({runCheck,agent,home,data,checks,job})=>['#!/bin/bash','# Written by aqeelOS (events-wire.mjs). The run gate runs this before the AI; the last line says whether there is anything to do.',
  'exec node '+JSON.stringify(runCheck)+' --agent '+agent+' --home '+JSON.stringify(home)+' --data '+JSON.stringify(data)+(job?' --job '+job:'')+' '+checks,''].join('\n');
