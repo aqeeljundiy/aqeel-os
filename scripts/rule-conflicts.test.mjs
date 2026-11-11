@@ -36,7 +36,7 @@ test('threads, comments and DMs are never mixed: only same-subject numbers meet,
 
 test('what a number is about, and what Run rules govern',()=>{
  assert.deepEqual(claimsIn(PROMPT).map(x=>[x.topic,x.subject]),[['gap','thread'],['perDay','thread']]);
- assert.deepEqual(claimsIn(CPROMPT).map(x=>[x.topic,x.value,x.subject]).sort(),[['perDay',70,'comment'],['perHour',5,'comment']]);
+ assert.deepEqual(claimsIn(CPROMPT).map(x=>[x.topic,x.value,x.subject]).sort(),[['perDay',70,'comment'],['perHour',5,'comment'],['perHour',5,'comment']]);
  assert.equal(claimsIn('Reply within max 3 DMs/h').find(x=>x.topic==='perHour').subject,'dm');assert.equal(claimsIn('Never more than 9/day.')[0].subject,null);
  assert.equal(ruleSubject(RULES['continue-threads']),'comment');assert.equal(ruleSubject({on:true}),null);assert.equal(ruleSubject({on:true,stopFile:'.tools/STOP_COMMENTS',subject:'thread'}),'thread')});
 
@@ -120,3 +120,17 @@ test('people who disagree go to the owner only; the popup shows a conflict with 
  assert.equal((await C.open(()=>true,true)).length,2);const m=await C.open(()=>true,false);assert.equal(m.length,1);assert.equal(m[0].topic,'Greeting');
  const it=(await C.open())[0];assert.match(personNeed(it),/strictest/);assert.equal(memberCan(it),true);assert.equal(forPopup([it]).length,1);
  const t=CONFLICT_RULE_LINES.join(' ');for(const w of ['strictest','file_conflict','every side','something else','conflict_done'])assert.match(t,new RegExp(w));assert.ok(t.length<1700,'short: it is added to every turn')});
+
+test('"until this hour has 5 comments" is the hour\'s number too: the conflict is found, and the answer is written into every place (12 Nov, Continue Threads comment runner)',async()=>{
+ const REAL='You are Continue Threads Manager. JOB: post comments (and comment-first DM pairings) until this hour has 5 comments, max 6/h, 8+ min apart, 70/day. Never end with 0.';
+ assert.deepEqual(claimsIn(REAL).filter(c=>c.topic==='perHour').map(c=>[c.value,c.subject,c.text]),[[5,'comment','5'],[6,'comment','6']]);
+ assert.deepEqual(claimsIn('keep going till the hour reaches 4 posts').map(c=>[c.topic,c.value]),[['perHour',4]]);assert.deepEqual(claimsIn('wait until this hour is over'),[]);
+ const job={...COMMENTS,prompt:REAL};
+ const found=scan({agents:[{agent:'continue-threads',jobs:[job]}],limits:{'continue-threads':{...RULES['continue-threads'],perHour:6,perDay:70}}});
+ const c=found.find(x=>x.topic==='perHour');assert.ok(c,'5 against 6 is a conflict');assert.deepEqual(c.sides.map(s=>s.value),[5,6]);assert.equal(c.gates,true);
+ const fixed=rewritePrompt(REAL,'perHour',6,'comment');assert.match(fixed,/until this hour has 6 comments, max 6\/h, 8\+ min apart, 70\/day/);
+ assert.deepEqual(scan({agents:[{agent:'continue-threads',jobs:[{...job,prompt:fixed}]}],limits:{'continue-threads':{...RULES['continue-threads'],perHour:6,perDay:70}}}),[],'nothing left to ask after the rewrite');
+ // through the apply path: Run rules and the prompt, with a backup, under the jobs lock
+ const {C,jobs2,locks}=await make({jobs:[job],limits:{'continue-threads':{...RULES['continue-threads'],perHour:6,perDay:70}}});
+ await C.sync();const item=(await C.list()).find(x=>x.topic==='perHour');await C.decide(item.cid,{choice:item.sides.find(s=>s.value===6).key},'owner');
+ assert.match((await jobs2())[0].prompt,/has 6 comments, max 6\/h/);assert.equal(locks.length,1);assert.equal(await C.sync(),0)});

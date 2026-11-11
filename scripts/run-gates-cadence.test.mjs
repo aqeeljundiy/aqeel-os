@@ -66,7 +66,7 @@ test('one Health item per agent lists its schedules, with the proposed check whe
 test('"Add a check" writes the standard check and lifts the slowdown; "Keep" is stored and the item never comes back',async()=>{
  const {G,at,home,DATA}=await make({a:[job('dm','DM runner',{prompt:'answer waiting DMs'}),job('rc','Sales recap',{prompt:'run recap.py'})]});
  await G.check('a','dm');const r=await G.decide('a','dm','check');assert.equal(r.checks,'--dms');
- const f=path.join(home('a'),'scripts',CHECK_PREFIX+'dm.sh');assert.ok((await readFile(f,'utf8')).endsWith(' --dms\n'));if(process.platform!=='win32')assert.equal((await stat(f)).mode&0o100,0o100);
+ const f=path.join(home('a'),'scripts',CHECK_PREFIX+'dm.sh');assert.ok((await readFile(f,'utf8')).endsWith(' --job dm --dms --max-idle 60\n'));if(process.platform!=='win32')assert.equal((await stat(f)).mode&0o100,0o100);
  at(10);assert.ok(go(await G.check('a','dm')),'with a check of its own it is no longer held');
  await assert.rejects(()=>G.decide('a','rc','check'),/No standard check fits/);assert.equal((await G.needs())[0].jobs.length,1);
  assert.equal((await G.decide('a','rc','keep')).kept,true);assert.deepEqual(await G.needs(),[]);
