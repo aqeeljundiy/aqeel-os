@@ -139,6 +139,20 @@ export function displayName(x={}){const who=x.who||{};
  if(x.kind==='mcp-oauth'){const p=providerOf(x.mcp,x.url,x.provider);const last=String(x.identity||'').split(' · ').pop();return serviceName(p.id,p.name)+' · '+(who.workspace||who.user||who.email||last||x.mcp)}
  if(x.kind==='telegram-user')return 'Telegram · '+(x.identity||path.basename(String(x.paths?.[0]||x.files?.[0]?.path||'')).replace(/\.session(\.paused)?$/,'')||'personal account');
  const p=providerOf(x.provider);return serviceName(p.id,p.name)+' · '+(x.identity||path.basename(String(x.where||''))||x.id)}
+// a login's state right now (11 Nov 2026, owner: "it sometimes shows things that are connected"). The check of the
+// sign-in itself runs at most every 30 min and its result stays stored; what is known since is laid over it here and
+// never stored, so it can't go stale: Pause, a change being applied, switched off, a saved sign-in that ran out and
+// can't renew, and the engine's own "sign-in needed" for an agent that holds it (server.mjs checkSignins: the list
+// Bottlenecks and the bell show). signinNeeded(agent, server) → that entry ({why}) or nothing.
+export const SIGNIN_AGAIN='It needs someone to sign in again';
+export function stateNow(x={},{now=Date.now(),signinNeeded=()=>null,busy=false,nameOf=a=>a}={}){
+ if(x.paused){const s=x.paused.state||'paused';return {state:s,why:s==='failed'?Object.entries(x.paused.agents||{}).filter(([,v])=>String(v).startsWith('failed')).map(([a,v])=>nameOf(a)+': '+String(v).slice(8)).join('; '):''}}
+ if(x.applying||busy)return {state:'applying',why:''};if(x.off)return {state:'off',why:''};
+ if(x.state==='signed-out')return {state:'signed-out',why:x.why||''};
+ if(x.kind==='mcp-oauth'){if(x.expires&&x.expires*1000<now&&!x.refreshable)return {state:'signed-out',why:'The sign-in ran out'};
+  const due=new Map();for(const a of x.agents||[]){const v=signinNeeded(a,x.mcp);const b=String(a).split('--')[0];if(v&&!due.has(b))due.set(b,nameOf(b)+(v.why?': '+v.why:''))}
+  if(due.size)return {state:'signed-out',why:SIGNIN_AGAIN+' ('+[...due.values()].join('; ')+')'}}
+ return {state:x.state||'checking',why:x.why||''}}
 export const normCan=v=>{const l=(Array.isArray(v)?v:String(v||'').split(/[\s,·]+/)).map(x=>String(x).toLowerCase().trim()).map(x=>x==='write'?'send':x).filter(x=>CAN.includes(x));return CAN.filter(c=>l.includes(c))};
 
 /* ---------- gapi.py: the paused marker and the allowed actions (an idempotent patch, applied at start) ---------- */
@@ -440,7 +454,9 @@ export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir
  const load=async()=>{if(!db){db=await readJson(FILE)||{};for(const k of ['accounts','offsets','chats','events','alias','told'])db[k]||={};db.pending||=[];
   // names are worked out now (1 Nov 2026): what an agent called a login becomes its note, the owner's own name for a
   // Google account stays as ownerLabel, and no stored label is shown as the name any more
-  for(const x of Object.values(db.accounts)){if(x.labelBy==='agent'&&x.label)x.agentLabel||=x.label;delete x.label;delete x.labelBy}}return db};
+  for(const x of Object.values(db.accounts)){if(x.labelBy==='agent'&&x.label)x.agentLabel||=x.label;delete x.label;delete x.labelBy;
+   // the engine's "sign-in needed" was stored as the state until 11 Nov 2026 and stayed up to 30 min after a new sign-in: checked again
+   if(x.state==='signed-out'&&x.why===SIGNIN_AGAIN){x.state='connected';x.why='';x.checkedAt=0}}}return db};
  let saving=Promise.resolve();const save=()=>saving=saving.then(async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1),{mode:0o600});await rename(FILE+'.tmp',FILE)}).catch(e=>console.warn('accounts: saving',e.message));
  const tail=createTail(()=>db.offsets,3e6);
  const servers=async a=>{const c=await readConfig(a).catch(()=>null);const m=c?.mcp_servers;return m&&typeof m==='object'?m:{}};
@@ -481,6 +497,8 @@ export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir
    for(const [id,f] of found){let x=db.accounts[id];
     if(!x){const reg=db.pending.find(r=>matches(r,f,homedir()));x=db.accounts[id]={id,kind:f.kind,provider:f.provider,identity:'',can:[...CAN],canSet:false,canBy:{},registered:first||!!reg,registeredBy:first?'seed':reg?reg.by:'',firstSeen:now};
      if(reg){db.pending=db.pending.filter(r=>r!==reg);if(reg.label)x.agentLabel=reg.label;if(reg.can?.length){x.can=reg.can;x.canSet=true;x.wantCan=true}if(reg.note)x.note=reg.note}}
+    // signed out, and the saved sign-in changed since (someone signed in again): checked again on the next round, not in 30 min
+    if(x.state==='signed-out'&&JSON.stringify([f.expires,f.refreshable,f.paths])!==JSON.stringify([x.expires,x.refreshable,x.paths]))x.checkedAt=0;
     for(const k of ['kind','provider','mcp','host','url','agents','paths','files','tokens','off','expires','refreshable','orphan','refresh','byApp'])x[k]=f[k];
     if(f.ownerLabel!==undefined)x.ownerLabel=f.ownerLabel;if(f.identity&&!x.identity)x.identity=f.identity;x.seenAt=now;
     // the owner's own login is his at once, also one that was asked about before this rule (its item leaves)
@@ -524,7 +542,6 @@ export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir
    if(!tok?.access_token&&!tok?.refresh_token){state='signed-out';why='No saved sign-in'}
    else if(x.provider==='slack'&&/^xoxp-/.test(tok.access_token||'')){const r=await slackTest(tok.access_token);if(r.ok){const name=await slackName(tok.access_token,r.user_id);x.who={user:name||String(r.user||'').replace(/^./,c=>c.toUpperCase()),workspace:r.team||''}}else if(!r.net){state='signed-out';why='Slack says: '+String(r.error||'not signed in').replace(/_/g,' ')}}
    else if(tok.expires_at&&tok.expires_at*1000<now&&!tok.refresh_token){state='signed-out';why='The sign-in ran out'}
-   if(state==='connected'&&x.agents?.some(a=>signinNeeded(a,x.mcp))){state='signed-out';why='It needs someone to sign in again'}
    if(x.provider!=='slack'&&whyOf&&x.agents?.length){const a=x.agents[0];let acc=await whyOf.accountOf(a,x.mcp).catch(()=>null);if(!acc&&state==='connected'&&x.url&&t)acc=await whyOf.learnAccount(a,x.mcp,x.url,t.path).catch(()=>null);
     if(acc)x.who={user:acc.user||'',workspace:acc.workspace||'',email:acc.email||''}}
    // "Slack, Sam (Acme)": the user, then the workspace
@@ -534,7 +551,8 @@ export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir
   else if(x.manual&&x.where){if(!await stat(tilde(x.where)).catch(()=>null)){state='signed-out';why='Its saved sign-in is not there any more'}}
   x.state=state;x.why=why;await save()}
  let checking=null;
- function checkAll(o){if(checking)return checking;checking=(async()=>{for(const x of Object.values(db.accounts))await check(x,o).catch(e=>console.warn('accounts: check',x.id,e.message))})().finally(()=>{checking=null});return checking}
+ // a forced round (Check now) never settles for a round that was already running without force: it runs after it
+ function checkAll(o){if(checking)return o?.force?checking.catch(()=>{}).then(()=>checkAll(o)):checking;checking=(async()=>{for(const x of Object.values(db.accounts))await check(x,o).catch(e=>console.warn('accounts: check',x.id,e.message))})().finally(()=>{checking=null});return checking}
 
  /* ---------- what the agents did with each login ---------- */
  const push=(id,e)=>{const l=db.events[id]||=[];l.push(e);if(l.length>300)l.splice(0,l.length-300)};
@@ -660,16 +678,19 @@ export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir
  async function approve(id,by=''){await load();const x=db.accounts[id];if(!x)throw new Error('That login is gone. Reload the page.');x.registered=true;x.registeredBy='owner'+(by?': '+by:'');await save();await solve(id).catch(()=>{});return {ok:true}}
 
  /* ---------- what the page shows ---------- */
+ const nowOf=x=>stateNow(x,{signinNeeded,busy:busy(x.id),nameOf});
+ // every login's state right now, without scanning or checking (Connections lays it over a list it kept)
+ async function states(){await load();return Object.fromEntries(Object.values(db.accounts).map(x=>[x.id,nowOf(x)]))}
  async function list({fresh=false}={}){await load();if(fresh||!db.scanAt||Date.now()-db.scanAt>2*60e3)await scan();if(fresh||!db.actionsAt)await readActions();else if(Date.now()-db.actionsAt>2*60e3)readActions().catch(()=>{});   // older ones show while the logs are read again
   if(fresh)await checkAll({force:true});else checkAll().catch(()=>{});
   const acc={};for(const k of ['mcp','google']){try{acc[k]=await access?.list?.(k)}catch{acc[k]=null}}
   const items=Object.values(db.accounts).map(x=>{const it=x.kind==='mcp-oauth'?acc.mcp?.items?.find(y=>y.id===x.mcp):x.kind==='google'?acc.google?.items?.find(y=>y.id===x.identity):null;
    const pv=x.kind==='mcp-oauth'?providerOf(x.mcp,x.url,x.provider):providerOf(x.provider);
    const users=(it?.users||[]).map(u=>({id:u.id,name:u.name}));for(const a of x.agents||[]){const b=String(a).split('--')[0];if(!users.some(u=>u.id===b))users.push({id:b,name:nameOf(b)})}
-   const state=x.paused?(x.paused.state==='paused'?'paused':x.paused.state==='failed'?'failed':x.paused.state):x.applying||busy(x.id)?'applying':x.off?'off':x.state||'checking';
+   const {state,why}=nowOf(x);
    return {id:x.id,kind:x.kind,provider:pv.id,logo:pv.logo,app:serviceName(pv.id,pv.name),label:labelOf(x),name:labelOf(x),identity:x.identity||'',mcp:x.mcp||'',who:x.who||null,ownerLabel:x.ownerLabel||'',agentLabel:x.agentLabel||'',
     agents:users,owner:it?.owner||users[0]?.id||null,can:x.can||[...CAN],canSet:!!x.canSet,canBy:Object.fromEntries(users.map(u=>[u.id,canFor(x,u.id)])),
-    state,why:x.paused?.state==='failed'?Object.entries(x.paused.agents||{}).filter(([,v])=>v.startsWith('failed')).map(([a,v])=>nameOf(a)+': '+v.slice(8)).join('; '):x.why||'',pausedAt:x.paused?.at||null,
+    state,why,pausedAt:x.paused?.at||null,
     lastUsed:x.lastUsed||null,recent:summarise(db.events[x.id]),registered:!!x.registered,registeredBy:x.registeredBy||'',where:(x.where||x.paths?.[0]||'').replace(homedir(),'~'),note:x.note||'',
     enforce:x.kind==='google'?'gapi':x.kind==='mcp-oauth'?'tools':'note',mayPause:['google','mcp-oauth','telegram-user'].includes(x.kind),firstSeen:x.firstSeen||null}});
   items.sort((a,b)=>(a.registered-b.registered)||a.label.localeCompare(b.label));
@@ -684,4 +705,4 @@ export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir
   setTimeout(tick,8000).unref?.();setInterval(tick,2*60e3).unref?.()}
  // a share, a revoke or a transfer on an account: write its allowed actions again right away
  async function levelsChanged(id){await load();const x=db.accounts[id];if(x)await applyCan(x)}
- return {ownerMade,askAbout,levelsChanged,claimAll,canNow:async(id,a)=>{await load();const x=db.accounts[id];return x?canNow(x,a):[]},list,actions,scan,readActions,pause,setCan,setAgentCan,applyTools,toolsOf,busy,disconnect,register,approve,patchGapi,levelFor:async(email,agent)=>{await load();const x=Object.values(db.accounts).find(y=>y.kind==='google'&&String(y.identity||'').toLowerCase()===String(email).toLowerCase());if(!x)return null;const c=new Set(canFor(x,agent));return c.has('send')?'full':c.has('draft')?'draft':c.has('edit')?'edit':'read'},check:async id=>{await load();const x=db.accounts[id];if(x)await check(x,{force:true})},_db:async()=>load()}}
+ return {ownerMade,askAbout,levelsChanged,claimAll,states,canNow:async(id,a)=>{await load();const x=db.accounts[id];return x?canNow(x,a):[]},list,actions,scan,readActions,pause,setCan,setAgentCan,applyTools,toolsOf,busy,disconnect,register,approve,patchGapi,levelFor:async(email,agent)=>{await load();const x=Object.values(db.accounts).find(y=>y.kind==='google'&&String(y.identity||'').toLowerCase()===String(email).toLowerCase());if(!x)return null;const c=new Set(canFor(x,agent));return c.has('send')?'full':c.has('draft')?'draft':c.has('edit')?'edit':'read'},check:async id=>{await load();const x=db.accounts[id];if(x)await check(x,{force:true})},_db:async()=>load()}}

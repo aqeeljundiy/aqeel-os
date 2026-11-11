@@ -13,7 +13,7 @@
 // The parts that only decide are exported and tested in scripts/connections.test.mjs.
 import {readFile,writeFile,mkdir,rename,rm} from 'node:fs/promises';
 import path from 'node:path';
-import {providerOf,toolNeed,serviceName,displayName,PROVIDERS,CAN} from './connected-accounts.mjs';
+import {providerOf,toolNeed,serviceName,displayName,PROVIDERS,CAN,SIGNIN_AGAIN} from './connected-accounts.mjs';
 import {allowed as skillOk,allowedNames} from './skills-policy.mjs';
 
 /* ---------- the parts that only decide (tested) ---------- */
@@ -26,6 +26,10 @@ export const toolLevel=(prov,tool)=>({read:'read',draft:'draft',send:'full'})[to
 export function toolCounts(tools,prov){const n={read:0,draft:0,full:0,total:0};for(const t of tools||[]){const l=toolLevel(prov,t);n.total++;n.full++;if(l!=='full')n.draft++;if(l==='read')n.read++}return n}
 export const baseOf=a=>String(a).split('--')[0];
 const has=(l,id)=>l.some(u=>u.id===id);
+// the engine's own "sign-in needed" for one app (server.mjs checkSignins: the list Bottlenecks, the bell and "N need you"
+// show), as agent → why. A row says Needs sign-in when this or its own sign-in check says so (11 Nov 2026)
+export function dueOf(signins,name){const m=new Map();if(!name)return m;for(const s of signins||[])if(s&&s.name===name){const b=baseOf(s.agent);if(!m.has(b))m.set(b,s.why||'')}return m}
+const dueWhy=(due,ids,names)=>{const l=ids.filter(a=>due.has(a));return l.length?SIGNIN_AGAIN+' ('+l.map(a=>names(a)+(due.get(a)?': '+due.get(a):'')).join('; ')+')':''};
 
 // an app's name: the service it is, then the server's own name when that says more ("Slack · slack-bot")
 export function appName(id,url){const p=PROVIDERS.find(x=>x.re.test(id))||PROVIDERS.find(x=>x.re.test(url||''));const svc=p?p.name:serviceName(id),slug=String(id).toLowerCase();
@@ -40,24 +44,25 @@ const TYPE_ORDER={account:0,app:1,plugin:2,key:3,skill:4};
 // every connection as one row. in: {agents:[{id,name}], acc:{mcp,google,plugin,key} (access.mjs lists, null when not
 // loaded), accounts (connected-accounts.mjs list items), skills:{agent:[{name,category,description,enabled}]},
 // ads (agent-adspower.mjs items), levels ({'mcp|name':{agent:level}}), code ({devices,live} or null), busy (Set of keys),
-// names (agent → name)}
+// names (agent → name), signins (the engine's [{agent,name,why}] sign-ins needed, laid over every status)}
 export function buildRows(i){const names=i.names||(a=>a),out=[],acc=i.acc||{};const av=a=>({id:a,name:names(a)});
  const accounts=i.accounts||[],taken=new Set();
  // logins as you (connected-accounts.mjs): their owner and users from Access, what each may do from their canBy
  for(const x of accounts){const it=x.kind==='mcp-oauth'?acc.mcp?.items?.find(y=>y.id===x.mcp):x.kind==='google'?acc.google?.items?.find(y=>y.id===x.identity):null;
   if(it)taken.add(it.kind+'|'+it.id);const users=[];
-  for(const u of [...(it?.users||[]),...(x.agents||[])]){const b=baseOf(u.id);if(has(users,b))continue;users.push({id:b,name:u.name||names(b),level:levelOf(x.canBy?.[b]||x.can),signed:u.signed!==false})}
-  const owner=it?.owner||x.owner||users[0]?.id||null;const st=STATE[x.state]||'connected';
+  const due=x.kind==='mcp-oauth'?dueOf(i.signins,x.mcp):new Map();
+  for(const u of [...(it?.users||[]),...(x.agents||[])]){const b=baseOf(u.id);if(has(users,b))continue;users.push({id:b,name:u.name||names(b),level:levelOf(x.canBy?.[b]||x.can),signed:u.signed!==false&&!due.has(b)})}
+  const owner=it?.owner||x.owner||users[0]?.id||null;const dw=dueWhy(due,users.map(u=>u.id),names);let st=STATE[x.state]||'connected';if(dw&&st==='connected')st='signin';
   out.push({key:'ca:'+x.id,type:'account',kind:x.kind==='mcp-oauth'?'mcp':x.kind,id:x.kind==='mcp-oauth'?x.mcp:x.kind==='google'?x.identity:x.id,caId:x.id,name:x.name||displayName(x),service:x.app||'',logo:x.logo||'',
    what:x.kind==='google'?'Your Google account: Gmail, Drive, Sheets, Docs, Calendar':x.kind==='mcp-oauth'?'Signed in as you: what agents do goes out under your name':x.kind==='telegram-user'?'Your personal Telegram account':'A login as you',
-   owner,users,status:st,why:x.why||'',busy:['pausing','resuming','applying'].includes(x.state)||i.busy?.has('ca:'+x.id),lastUsed:x.lastUsed||null,recent:(x.recent||[]).slice(0,10),
+   owner,users,status:st,why:x.why||(st==='signin'?dw:''),busy:['pausing','resuming','applying'].includes(x.state)||i.busy?.has('ca:'+x.id),lastUsed:x.lastUsed||null,recent:(x.recent||[]).slice(0,10),
    note:[x.ownerLabel?'You call it '+x.ownerLabel:'',x.agentLabel?'Registered as “'+x.agentLabel+'”':'',x.note||''].filter(Boolean).join(' · '),registered:x.registered!==false,mayPause:!!x.mayPause,paused:st==='paused',
    levels:x.kind==='google'||x.kind==='mcp-oauth'?'level':'none',enforce:x.kind==='google'?'gapi':x.kind==='mcp-oauth'?'tools':'note',ownerFixed:!it,where:x.where||''})}
  // apps (every other MCP server) and Google accounts aqeelOS has not checked as a login yet
  for(const it of acc.mcp?.items||[]){if(taken.has('mcp|'+it.id)||INTERNAL.test(it.id))continue;const lv=i.levels?.['mcp|'+it.id]||{};
-  const st=it.off?'off':it.users.some(u=>!u.signed)||it.ownerSigned===false?'signin':'connected';const host=(/https?:\/\/([^/\s:]+)/.exec(it.detail||'')||[])[1]||'';
+  const due=dueOf(i.signins,it.id),dw=dueWhy(due,it.users.map(u=>baseOf(u.id)),names);const st=it.off?'off':dw||it.users.some(u=>!u.signed)||it.ownerSigned===false?'signin':'connected';const host=(/https?:\/\/([^/\s:]+)/.exec(it.detail||'')||[])[1]||'';
   out.push({key:'mcp:'+it.id,type:'app',kind:'mcp',id:it.id,name:appName(it.id,it.detail),service:appName(it.id,it.detail).split(' · ')[0],logo:host?host.split('.').slice(-2).join('.'):'',what:it.own?it.ownNote:host?'An app at '+host:'A tool that runs on the AI box',
-   owner:it.own?null:it.owner,ownerName:it.own?it.ownerName:'',users:it.users.map(u=>({id:u.id,name:u.name,level:lv[u.id]||'full',signed:u.signed,off:u.off})),status:st,busy:i.busy?.has('mcp:'+it.id),oauth:!!it.oauth,own:!!it.own,mixed:!!it.mixed,
+   owner:it.own?null:it.owner,ownerName:it.own?it.ownerName:'',users:it.users.map(u=>({id:u.id,name:u.name,level:lv[u.id]||'full',signed:u.signed&&!due.has(baseOf(u.id)),off:u.off})),status:st,why:st==='signin'?dw:'',busy:i.busy?.has('mcp:'+it.id),oauth:!!it.oauth,own:!!it.own,mixed:!!it.mixed,
    levels:it.own?'none':'level',enforce:'tools',ownerFixed:!!it.own,lastUsed:null,recent:[]})}
  for(const it of acc.google?.items||[]){if(taken.has('google|'+it.id))continue;
   out.push({key:'google:'+it.id,type:'account',kind:'google',id:it.id,name:'Google · '+it.id,service:'Google',logo:'google.com',what:'Your Google account: Gmail, Drive, Sheets, Docs, Calendar',owner:it.owner,
@@ -96,29 +101,37 @@ export function mayChange(p,row,what,agent){if(p?.admin)return true;if(!p||!row)
  return false}
 
 /* ---------- the store: each app's level per agent, and its own tools setting from before ---------- */
-export function createConnections({DATA,access,accounts,listAgents,listCopies=async()=>[],names=a=>a,engine,sharing,ads=null,code=null}){
+export function createConnections({DATA,access,accounts,listAgents,listCopies=async()=>[],names=a=>a,engine,sharing,ads=null,code=null,signins=async()=>[],recheck=null}){
  const FILE=path.join(DATA,'connections.json');let db=null;
  const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.levels||={};db.orig||={}}return db};
  let saving=Promise.resolve();const save=()=>saving=saving.then(async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)}).catch(e=>console.warn('connections: saving',e.message));
  // shown at once, refreshed behind (1 Nov 2026: gathering every app, login, skill and key took ~10 s, the page waited):
  // the last list per viewer is answered straight away and a newer one is gathered in the background; the owner's list is
- // kept on disk too, so it is instant after a restart. ?fresh=1 (Check now, a change) still waits for a new one
+ // kept on disk too, so it is instant after a restart. ?fresh=1 (a change) still waits for a new one; ?check=1 (Check now)
+ // also scans and checks every login again first. Statuses never come from the kept list: every login's state and the
+ // engine's sign-ins needed are read again on each ask (cheap, nothing is scanned), so a kept list is only ever behind on
+ // which rows there are, never on whether one needs a sign-in (11 Nov 2026)
  const busy=new Set(),CACHE=path.join(DATA,'connections-cache.json');const caches=new Map(),pending=new Map();let gen=0;const drop=()=>{gen++;caches.clear();rm(CACHE,{force:true}).catch(()=>{})};   // a change: no stale list from memory or disk
- const regather=(k,only)=>{if(pending.has(k))return pending.get(k);const g0=gen;const p=gather(only).then(g=>{const c={at:Date.now(),g};if(g0===gen){caches.set(k,c);if(k==='*')writeFile(CACHE,JSON.stringify(c)).catch(()=>{})}return c}).finally(()=>pending.delete(k));pending.set(k,p);return p};
- async function cached(k,only,fresh){let c=caches.get(k);if(!c&&k==='*'&&!fresh){try{c=JSON.parse(await readFile(CACHE,'utf8'));caches.set(k,c)}catch{}}
-  if(fresh||!c)return regather(k,only);if(Date.now()-c.at>20000)regather(k,only).catch(()=>{});return c}
+ // a gather already under way is shared only when it began after the last change and looks as deep (11 Nov 2026: Check
+ // now got the background gather that had started before it, so it showed the same old list)
+ const regather=(k,only,check=false)=>{const w=pending.get(k);if(w&&w.gen===gen&&(w.check||!check))return w.p;const g0=gen,t0=Date.now();
+  const p=gather(only,check).then(g=>{const c={at:t0,g};if(g0===gen){caches.set(k,c);if(k==='*')writeFile(CACHE,JSON.stringify(c)).catch(()=>{})}return c}).finally(()=>{if(pending.get(k)?.p===p)pending.delete(k)});pending.set(k,{p,gen:g0,check});return p};
+ async function cached(k,only,fresh,check){let c=caches.get(k);if(!c&&k==='*'&&!fresh){try{c=JSON.parse(await readFile(CACHE,'utf8'));caches.set(k,c)}catch{}}
+  if(fresh||!c)return regather(k,only,check);if(Date.now()-c.at>20000)regather(k,only).catch(()=>{});return c}
  const skillsOf=async a=>{const r=await engine('GET','/api/skills?profile='+encodeURIComponent(a)).catch(()=>null);const l=Array.isArray(r?.j)?r.j:r?.j?.skills;return Array.isArray(l)?l:null};
  // everything, for an admin; a member gets the agents they may use only, and no logins as you, keys, AdsPower or Code
- async function gather(only){const agents=await listAgents();const seen=a=>!only||only.has(a);const acc={};
+ async function gather(only,check=false){const agents=await listAgents();const seen=a=>!only||only.has(a);const acc={};
   await Promise.all(['mcp','google','plugin',...(only?[]:['key'])].map(async k=>{try{acc[k]=await access.list(k,only)}catch{acc[k]=null}}));
   const sk={};await Promise.all(agents.filter(seen).map(async a=>{const l=await skillsOf(a);if(l)sk[a]=l}));
-  let ca=[];if(!only){try{ca=(await accounts.list()).items}catch{}}
+  let ca=[];if(!only){try{ca=(await accounts.list({fresh:check})).items}catch{}}
   const ad=only||!ads?[]:await ads().catch(()=>[]);const cd=only||!code?null:await code().catch(()=>null);
   return {agents:agents.filter(seen).map(a=>({id:a,name:names(a)})),acc,accounts:ca,skills:sk,ads:ad,code:cd,partial:Object.entries(acc).filter(([,v])=>!v).map(([k])=>k)}}
- async function list(perm={admin:true},{fresh=false}={}){await load();const only=perm.admin?null:new Set((await listAgents()).filter(a=>perm.level?.(a)));const k=only?[...only].sort().join(','):'*';
-  if(fresh){drop();access.fresh?.()}const cache=await cached(k,only,fresh);const g=cache.g;
-  const rows=buildRows({...g,levels:db.levels,busy,names}).map(r=>({...r,may:{level:mayChange(perm,r,'level',r.owner)||r.users.some(u=>mayChange(perm,r,'level',u.id)),owner:mayChange(perm,r,'owner',perm.admin?r.owner:null)||g.agents.some(a=>mayChange(perm,r,'owner',a.id)),add:g.agents.some(a=>!has(r.users,a.id)&&mayChange(perm,r,'add',a.id))}}));
-  return {rows,agents:g.agents,canEdit:!!perm.admin,partial:g.partial,at:cache.at}}
+ async function list(perm={admin:true},{fresh=false,check=false}={}){await load();const only=perm.admin?null:new Set((await listAgents()).filter(a=>perm.level?.(a)));const k=only?[...only].sort().join(','):'*';
+  if(check)fresh=true;if(fresh){drop();access.fresh?.()}if(check&&perm.admin&&recheck)Promise.resolve().then(recheck).catch(()=>{});   // the engine's own sign-in tests take minutes: behind
+  const cache=await cached(k,only,fresh,check),g=cache.g;
+  const [st,due]=await Promise.all([only?null:accounts.states?.().catch(()=>null),signins().catch(()=>[])]);
+  const rows=buildRows({...g,accounts:st?(g.accounts||[]).map(a=>st[a.id]?{...a,...st[a.id]}:a):g.accounts,levels:db.levels,busy,names,signins:due}).map(r=>({...r,may:{level:mayChange(perm,r,'level',r.owner)||r.users.some(u=>mayChange(perm,r,'level',u.id)),owner:mayChange(perm,r,'owner',perm.admin?r.owner:null)||g.agents.some(a=>mayChange(perm,r,'owner',a.id)),add:g.agents.some(a=>!has(r.users,a.id)&&mayChange(perm,r,'add',a.id))}}));
+  return {rows,agents:g.agents,canEdit:!!perm.admin,partial:g.partial,at:cache.at,stale:Date.now()-cache.at>20000}}
  async function find(key,perm){const l=await list({admin:true});const r=l.rows.find(x=>x.key===key);if(!r)throw Object.assign(new Error('That connection is gone. Reload the page.'),{status:404});return {r,agents:l.agents}}
  const check=(perm,r,what,agent)=>{if(!mayChange(perm,r,what,agent))throw Object.assign(new Error(what==='owner'?'Only an admin or the owner of both agents can move this.':'You can’t change who uses '+r.name+'. Ask an admin.'),{status:403})};
  const job=(key,fn)=>{busy.add(key);drop();return Promise.resolve().then(fn).catch(e=>console.warn('connections:',key,e.message)).finally(()=>{busy.delete(key);drop()})};

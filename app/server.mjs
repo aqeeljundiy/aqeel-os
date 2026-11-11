@@ -468,7 +468,10 @@ function appInfo(name,url){const k=APP_KINDS.find(([re])=>re.test(String(url||''
  const acct=String(name).toLowerCase().replace(/^(slack|notion|n8n|composio|github|linear|google)[-_]?/,'');const account=acct&&acct!==String(name).toLowerCase()?pretty0(acct):'';
  return {app:k[1],account,label:k[1]+(account?' ('+account+')':''),does:k[2],url:url||''}}
 const pretty0=x=>String(x||'').replace(/[-_]+/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
-async function checkSignins(){const h={'x-hermes-session-token':DASH_TOKEN};const seen=new Set();
+// one round at a time (Connections › Check now asks for one too; it takes minutes with many agents)
+let signinsRun=null;
+function checkSignins(){return signinsRun||=checkSigninsNow().finally(()=>{signinsRun=null})}
+async function checkSigninsNow(){const h={'x-hermes-session-token':DASH_TOKEN};const seen=new Set();
  for(const a of await listAgents()){let list=[];try{const r=await fetch(DASH.origin+'/api/mcp/servers?profile='+encodeURIComponent(a),{headers:h,signal:AbortSignal.timeout(15000)});list=(await r.json()).servers||[]}catch{continue}
   for(const s of list){if(s.auth!=='oauth'||s.enabled===false)continue;const key=a+'|'+s.name;seen.add(key);
    const tok=path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'mcp-tokens',s.name+'.json');let why='';
@@ -957,7 +960,7 @@ const agentAccess=createAgentAccess({sharing:shareLevels,HERMES_HOME,MAIN:env.MA
   resume:(t,id)=>cronApi(t,'/'+encodeURIComponent(id)+'/resume',{method:'POST'}),remove:(t,id)=>cronApi(t,'/'+encodeURIComponent(id),{method:'DELETE'})}});
 const connAccounts=createConnectedAccounts({sharing:shareLevels,DATA,HERMES_HOME,active:LIVE_APP||caTest,listAgents:()=>agentNames({copies:true}),readConfig,setKey,withAgent,python:enginePython,access,whyOf,nameOf:a=>agentName(a),
  ...(caTest?{WORK:env.ACCOUNTS_WORK||path.join(path.dirname(HERMES_HOME),'workspaces'),ends:{slack:env.ACCOUNTS_SLACK_API,revoke:env.ACCOUNTS_GOOGLE_REVOKE},STEP:1000}:{}),
- googleLabel:async(a,n)=>((await googleLabels())[a+'|'+n]||{}).label||'',signinNeeded:(a,n)=>signinsDue.has(a+'|'+n),
+ googleLabel:async(a,n)=>((await googleLabels())[a+'|'+n]||{}).label||'',signinNeeded:(a,n)=>signinsDue.get(a+'|'+n)||signinsDue.get(String(a).split('--')[0]+'|'+n)||null,
  dash:(method,p,body)=>fetch(DASH.origin+p,{method,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:body&&method!=='GET'&&method!=='DELETE'?JSON.stringify(body):undefined,signal:AbortSignal.timeout(60000)}).then(async r=>({ok:r.ok,status:r.status,j:await r.json().catch(()=>({}))})),
  bell:(text,detail,o)=>bottlenecks.event('accounts',text,detail||'',o||{}),solve:id=>bottlenecks.resolve(id?'accounts|'+id:'accounts')});
 // planned changes put in DATA/apply-on-start/ are carried out once at start (apply-on-start.mjs): share levels,
@@ -987,6 +990,9 @@ if(LIVE_APP)setTimeout(()=>{import('./apply-on-start.mjs').then(({applyOnStart})
 /* Abilities › Connections (connections.mjs, 1 Nov 2026): every app, login as you, skill, plugin and key in one list, who
    owns it, who may use it and how much (Read, Read & draft, Full; On or Off). AdsPower and Code come in when asked. */
 const connections=createConnections({DATA,access,accounts:connAccounts,listAgents:()=>listAgents(),listCopies:()=>agentNames({copies:true}),names:a=>agentName(a),sharing,
+ // the engine's own sign-ins needed (the Bottlenecks list), read on every ask; Check now also tests the apps again (live app
+ // only, at most every 10 min: each test can renew a sign-in, which a test copy must leave to the live app)
+ signins:async()=>{await freshSignins();return [...signinsDue.values()]},recheck:()=>{if(LIVE_APP&&!signinsRun&&Date.now()-signinsAt>10*60e3)checkSignins().catch(()=>{})},
  engine:(method,p,body)=>fetch(DASH.origin+p,{method,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:body&&method!=='GET'&&method!=='DELETE'?JSON.stringify(body):undefined,signal:AbortSignal.timeout(60000)}).then(async r=>({ok:r.ok,status:r.status,j:await r.json().catch(()=>({}))})),
  ads:()=>agentAds.list(),code:async()=>{const nm=Object.fromEntries(users.people().map(x=>[x.id,x.name||x.username||'Someone']));return {devices:(await code.allDevices()).map(d=>({...d,person:nm[d.user]||'Someone'})),live:{connected:(await live.list(null,true)).connected}}}});
 // engine updates at night, checked after; the owner is told on the main agent's channel (as when the server was off)
@@ -3137,7 +3143,7 @@ const server=createServer(async(req,res)=>{
    // Abilities › Connections (connections.mjs): everyone sees the agents they may use; changes are checked per row and agent
    if(p.startsWith('/ui/connections')){const perm={admin:users.isAdmin(u),level:a=>users.level(u,a),canOn:(cap,a)=>users.canOn(u,cap,a)};let b={};if(req.method==='POST'){try{b=JSON.parse(await readBody(req,8192)||'{}')}catch{}}
     const key=String(b.key||url.searchParams.get('key')||''),agent=String(b.agent||'');
-    try{if(p==='/ui/connections'&&req.method==='GET')return send(res,200,await keysId.decorate(await labels.applyRows(await connections.list(perm,{fresh:url.searchParams.get('fresh')==='1'}))));
+    try{if(p==='/ui/connections'&&req.method==='GET')return send(res,200,await keysId.decorate(await labels.applyRows(await connections.list(perm,{fresh:url.searchParams.get('fresh')==='1',check:url.searchParams.get('check')==='1'}))));
      if(p==='/ui/connections/detail'&&req.method==='GET')return send(res,200,await keysId.decorate(await labels.applyRows(await connections.detail(key,perm))));
      if(req.method!=='POST')return send(res,405,{error:'POST only'});if(!key)return send(res,400,{error:'Which connection?'});
      if(p!=='/ui/connections/disconnect'&&!(await listAgents()).includes(agent))return send(res,400,{error:'Unknown agent'});let r;

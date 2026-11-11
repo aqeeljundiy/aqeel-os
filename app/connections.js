@@ -36,9 +36,8 @@ const cxRow=(r,i)=>{const u=cxUsing(r);return `<div class="row clickable cn-row"
 PAGES.connections=async(p,el)=>{const gone=pageTok(el);Pages._cxEl=el;
  setActions(`<button data-act="cn-check">${icon('refresh',16)}Check now</button><button class="primary" data-act="cn-add" aria-haspopup="menu">${icon('plus',16)}Add</button>`);
  if(!el.querySelector('.cn-list'))el.innerHTML=skeletonRows(6);
- const fresh=Pages._cxFresh;Pages._cxFresh=false;
- if(fresh&&S.me?.admin!==false){await UI('/ui/connected-accounts?fresh=1').catch(()=>null);if(gone())return}
- const d=await UI('/ui/connections'+(fresh?'?fresh=1':''));if(gone())return;Pages._cx=d;
+ // a list Check now just got is drawn as it is, without asking again
+ const pre=Cx.pre;Cx.pre=null;const d=pre||await UI('/ui/connections');if(gone())return;Pages._cx=d;
  if(!d.agents.some(a=>a)||!d.rows.length){el.innerHTML=emptyBox('Nothing connected yet','Add an app like Slack or Notion, connect a Google account, or install a skill. Each one shows here with who owns it and who can use it.',`<button class="primary" data-act="cn-add">${icon('plus',15)}Add</button>`);return}
  const nNeed=d.rows.filter(cxNeeds).length;const tabsL=Object.keys(CX_TYPES).filter(t=>(t!=='Keys'||d.rows.some(r=>r.type==='key'))&&(t!=='Needs you'||nNeed));if(!tabsL.includes(S.tab.connections))S.tab.connections='All';
  el.innerHTML=`<div class="cn-needs-slot"></div><div class="toolbar cn-bar"><div class="search${S.cxQ?' has-q':''}">${icon('search',16)}<input id="cnQ" type="search" enterkeyhint="search" placeholder="Search connections and agents" value="${esc(S.cxQ||'')}" aria-label="Search connections"><button class="ghost icon s-clear" data-act="cn-clear" aria-label="Clear search" title="Clear search">${icon('x',14)}</button></div>${tabs('connections',tabsL)}</div>
@@ -46,7 +45,7 @@ PAGES.connections=async(p,el)=>{const gone=pageTok(el);Pages._cxEl=el;
   <div class="card list cn-list"><div class="cn-head" aria-hidden="true"><span>Connection</span><span>Belongs to</span><span>Who can use</span><span>Status</span></div><div class="cn-rows"></div></div>
   <p class="hint cn-foot">${d.canEdit?'Click a row to change which agent it belongs to, who can use it and how much.':'You see the agents you use. An admin changes which agent each belongs to and who can use what; you can ask for access from a row.'} Bots people message are under Channels.</p>`;placePills();
  {const b=el.querySelector('[data-tabs="connections"] [data-tab="Needs you"]');if(b&&nNeed)b.insertAdjacentHTML('beforeend',` <span class="tab-n">${nNeed}</span>`)}
- Cx.paintList(el,true);
+ Cx.paintList(el,true);Cx.stamp(el);Cx.follow(el);
  const q=el.querySelector('#cnQ');let t;q.oninput=()=>{q.closest('.search').classList.toggle('has-q',!!q.value);clearTimeout(t);t=setTimeout(()=>{if(!el.isConnected)return;S.cxQ=q.value;Cx.paintList(el)},120)};
  el.querySelector('[data-tabs="connections"]').addEventListener('click',e=>{if(e.target.closest('[data-tab]'))setTimeout(()=>Cx.paintList(el),0)});
  Cx.poll(el)};
@@ -68,8 +67,32 @@ const Cx={
   if(slot)slot.innerHTML=need.length&&!onTab?alertBox(`<b>${need.length===1?'1 needs you':need.length+' need you'}</b><ul class="cn-need-l">${need.slice(0,4).map(r=>`<li>${esc(r.name)}: ${esc(why(r))}</li>`).join('')}${need.length>4?`<li>and ${need.length-4} more</li>`:''}</ul>`,{act:'cn-needs',label:'Show them',ic:'chevR'}):''},
  // looked at again while something is still being applied (the engine drops and adds an app on its own clock)
  poll(el){clearTimeout(this._t);if(!this.rows().some(r=>r.busy))return;this._t=setTimeout(()=>{if(el.isConnected&&!document.hidden)this.refresh()},4000)},
+ // how fresh the list is, from the data's own time, quietly under it (11 Nov 2026); pages without the Check now button
+ // at the top (Skills, Plugins, Keys) get it here
+ stamp(el){const d=Pages._cx;if(!el?.isConnected||!d)return;let p=el.querySelector('.cn-checked');const f=el.querySelector('.cn-foot');
+  if(!p){if(!f)return;f.insertAdjacentHTML('beforebegin','<p class="hint cn-checked" aria-live="polite"></p>');p=el.querySelector('.cn-checked')}
+  const t=()=>{if(!p.isConnected)return clearInterval(this._st);const at=Pages._cx?.at,busy=!!this.checking;
+   p.innerHTML=(busy?'<span class="spinner tiny"></span>Checking everything again…':at?`<span title="${esc(new Date(at).toLocaleString())}">Checked ${esc(ago(at/1000))}</span>`+(Pages._cx.stale?' · getting a newer list…':''):'')+(this.fixed&&!busy?` · <button class="link" data-act="cn-check">Check now</button>`:'')};
+  t();clearInterval(this._st);this._st=setInterval(t,30000)},
+ // a list kept from a while ago was shown at once while the server gathers a new one: drawn again in place when it is in
+ follow(el){clearTimeout(this._f);if(!Pages._cx?.stale)return;let n=0;const go=()=>{this._f=setTimeout(async()=>{if(!el.isConnected||Pages._cxEl!==el||this.checking)return;
+   let d=null;try{d=await UI('/ui/connections')}catch{}if(!el.isConnected||Pages._cxEl!==el||this.checking)return;
+   if(d&&d.at!==Pages._cx?.at){Pages._cx=d;if(typeof UL!=='undefined')UL.at=Date.now();this.repaint(el)}else if(++n<4)go();else{Pages._cx.stale=false;this.stamp(el)}},6000)};go()},
+ // new data drawn where it is: the rows that differ, the Needs you count and the time (the page again only when the Needs you tab comes or goes)
+ repaint(el){const d=Pages._cx;if(!el?.isConnected||!d)return;const n=d.rows.filter(cxNeeds).length,tb=el.querySelector('[data-tabs="connections"]');
+  if(tb){const nb=tb.querySelector('[data-tab="Needs you"]');if(!!nb!==!!n){this.pre=d;return reload()}const c=nb?.querySelector('.tab-n');if(c)c.textContent=n}
+  this.paintList(el);this.stamp(el);this.poll(el);if(this.d?.isConnected&&this.key){if(this.row(this.key))this.detail(this.key);else closeLayers()}},
+ // Check now (11 Nov 2026, owner: "the refresh don't work"): shows it is working (the button spins, the rows dim under a
+ // thin moving line), asks past every kept list (?check=1: every login scanned and checked again too), then says what it found
+ async check(){if(this.checking)return;const el=Pages._cxEl;if(!el?.isConnected)return reload();this.checking=true;
+  const btns=[...document.querySelectorAll('[data-act="cn-check"]')].filter(b=>!b.closest('.cn-checked')),was=btns.map(b=>b.innerHTML),lists=[...el.querySelectorAll('.cn-list')];
+  btns.forEach(b=>{b.disabled=true;b.setAttribute('aria-busy','true');b.innerHTML='<span class="spinner tiny"></span>Checking…'});lists.forEach(l=>l.classList.add('cn-checking'));this.stamp(el);
+  try{const d=await UI('/ui/connections?check=1');if(!el.isConnected)return;Pages._cx=d;if(typeof UL!=='undefined')UL.at=Date.now();clearTimeout(this._f);
+   const n=d.rows.filter(cxNeeds).length;toast('Checked just now · '+(n?(n===1?'1 needs you':n+' need you'):'nothing needs you'));this.checking=false;this.repaint(el)}
+  catch(e){fail(e)}
+  finally{this.checking=false;btns.forEach((b,i)=>{if(b.isConnected){b.disabled=false;b.removeAttribute('aria-busy');b.innerHTML=was[i]}});lists.forEach(l=>l.classList.remove('cn-checking'));if(el.isConnected)this.stamp(el)}},
  // fresh data in place: the list, and the open panel, without closing it
- async refresh(){const el=Pages._cxEl;try{const d=await UI('/ui/connections?fresh=1');if(!el?.isConnected)return;Pages._cx=d;this.paintList(el);this.poll(el);
+ async refresh(){const el=Pages._cxEl;try{const d=await UI('/ui/connections?fresh=1');if(!el?.isConnected)return;Pages._cx=d;this.paintList(el);this.stamp(el);this.poll(el);
   if(this.d?.isConnected&&this.key){const r=this.row(this.key);if(!r){closeLayers();return}await this.detail(this.key)}}catch(e){fail(e)}},
  async detail(key){const d=this.d;try{const x=await UI('/ui/connections/detail?key='+encodeURIComponent(key));if(!d?.isConnected||this.key!==key)return;this.cur=x;this.paint()}catch(e){if(d?.isConnected&&this.key===key&&!this.cur)d.querySelector('.cn-p').insertAdjacentHTML('beforeend',errLine('the rest of '+(this.row(key)?.name||'it')))}},
  open(key){const r=this.row(key);if(!r)return toast('That connection is gone. Reload the page.','err');this.key=key;this.cur={...r,tools:null};
@@ -111,7 +134,7 @@ const Cx={
   try{const r=await post(UI,path,{key:this.key,...body});if(ok)toast(typeof ok==='function'?ok(r):ok);await this.refresh();return r}catch(e){if(btn?.isConnected){btn.disabled=false;btn.innerHTML=was}fail(e)}}};
 ACT['cn-open']=a=>Cx.open(a.dataset.key);
 ACT['cn-clear']=()=>{S.cxQ='';const i=$('#cnQ');if(i){i.value='';i.closest('.search')?.classList.remove('has-q');i.focus()}if(Pages._cxEl)Cx.paintList(Pages._cxEl)};
-ACT['cn-check']=()=>{Pages._cxFresh=true;reload()};
+ACT['cn-check']=()=>Cx.check();
 ACT['cn-go']=a=>{closeLayers();go(a.dataset.to)};
 ACT['cn-skill']=a=>{closeLayers();Pages.openSkill(a.dataset.name)};
 ACT['cn-lvl']=a=>{const r=Cx.cur,ag=a.dataset.agent,u=r?.users.find(x=>x.id===ag);if(!u)return;const opts=r.levels==='onoff'?['on','off']:r.provider==='google'||r.kind==='google'||/^Google/.test(r.label||'')?['read','edit','draft','full']:['read','draft','full'];   // edit: Google only (Sheets/Docs)
