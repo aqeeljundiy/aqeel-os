@@ -87,6 +87,7 @@ export const LABEL_DEFAULTS={
  'plugin:claude-subscription-directsdk-experimental':S('Claude Pro or Max sign-in','Lets the agents use a Claude Pro or Max plan as their model, through the official Claude app.'),
  'plugin:antigravity-subscription':S('Google AI plan through Antigravity','Lets the agents use Gemini and Claude on a Google AI Pro or Ultra plan, through Google’s Antigravity app.'),
  'plugin:gemini-subscription':S('Google AI plan through the Gemini app','Lets the agents use Gemini on a Google AI Pro or Ultra plan, through the official Gemini app.'),
+ 'plugin:billion-context':S('Shorter long chats (billion-context)','Folds older parts of a long chat into summaries it can reopen, so replies send fewer tokens. Made by ranxianglei (github.com/ranxianglei/billion-context).'),
  'plugin:disk-cleanup':S('Temporary file cleanup','Clears test scripts, temporary outputs and old schedule logs the agents leave behind, by itself.'),
  // tool servers aqeelOS adds itself, and the common ones it sets up
  'mcp:aqeelos-notify':S('aqeelOS messages and setup','Lets the agent message people, file its schedules, report problems and ask for keys.'),

@@ -99,6 +99,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createAgentVersions,VERSION_TOOLS} from './agent-versions.mjs';   // self-repair kit (workstream E)
 import {createAgentLive} from './agent-live.mjs';
+import {createBillionContext} from './billion-context.mjs';
 import {createTeamView} from './team-view.mjs';
 import {settings as installSettings} from './install.mjs';
 import {sysTz,localParts,zoneName} from './tz.mjs';
@@ -1627,6 +1628,10 @@ const agentLive=createAgentLive({HERMES_HOME,DATA,chatInfo:(a,pf,id)=>pf==='tele
 const liveStale=async()=>{try{const pid=await gatewayPid();if(!pid)return false;const g=(await stat('/proc/'+pid)).mtimeMs;const f=(await stat(path.join(HERMES_HOME,'plugins','aqeelos-live','__init__.py'))).mtimeMs;return g<f}catch{return false}};
 if(LIVE_APP){const liveInstall=()=>agentLive.install().then(async c0=>{const c=[];for(const a of c0)if(!await isTestAgent(typeof a==='string'?a:a?.agent||'').catch(()=>false))c.push(a);if(c.length||await liveStale())restartLater('aqeelos-live plugin for '+(c.length||'all')+' agent(s)')}).catch(e=>console.warn('agent-live install',e.message));
  setTimeout(liveInstall,60e3).unref();setInterval(liveInstall,10*60e3).unref()}
+// billion-context (fewer tokens in long chats) in every agent's home, same rhythm; the engine reloads once no reply runs
+const billion=createBillionContext({HERMES_HOME,readConfig,setKey,pick});
+if(LIVE_APP){const biliInstall=()=>billion.install().then(async c0=>{const c=[];for(const a of c0)if(!await isTestAgent(a).catch(()=>false))c.push(a);if(c.length)restartLater('billion-context plugin for '+c.length+' agent(s)')}).catch(e=>console.warn('billion-context install',e.message));
+ setTimeout(biliInstall,90e3).unref();setInterval(biliInstall,10*60e3).unref()}
 // the engine reads each tool server's list once, when it connects: a tool aqeelOS adds later (the lockbox link, the
 // self-repair kit) stayed invisible in open chats. The lists are fingerprinted per agent; a change reloads the engine
 // once no reply runs (7 Nov 2026)

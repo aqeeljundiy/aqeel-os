@@ -62,6 +62,9 @@ Owner-private files are listed in `PUBLIC_EXCLUDE` and `.gitignore` (product not
 ## License
 MIT, see `LICENSE`.
 
+### Third-party credit
+aqeelOS uses [billion-context](https://github.com/ranxianglei/billion-context) by ranxianglei, with its compression kernel [acp-kernel](https://github.com/ranxianglei/acp-kernel), to keep long chats short (MIT with an attribution term). Every install downloads the pinned version (`app/billion-context.mjs`) and switches its engine plugin on in each agent; switch it off per agent on the Plugins page.
+
 ---
 
 ## More details
