@@ -3015,6 +3015,15 @@ button.bad:hover{background:color-mix(in srgb,var(--bad) 8%,transparent);border-
 .hc-r span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hc-r b{font-weight:600;font-variant-numeric:tabular-nums}
 .hc-r i{grid-column:1/-1;height:4px;border-radius:4px;background:var(--soft);overflow:hidden}.hc-r i::after{content:"";display:block;height:100%;width:var(--w);border-radius:4px;background:var(--blue);opacity:.55;animation:growW .7s var(--ease) both;animation-delay:inherit}
 .hc-all{font-size:13px;font-weight:600;color:var(--blue);text-decoration:none}.hc-all:hover{color:var(--blue-deep)}
+/* Efficiency on Health (efficiency.mjs) */
+.ef-flags{margin:0 0 14px}.ef-flag{margin-top:6px}.ef-flag.ok{background:color-mix(in srgb,var(--ok) 10%,var(--surface))}.ef-flag.ok svg{color:var(--ok)}
+.ef-two{gap:14px;margin-bottom:6px;align-items:start}.ef-a{margin-top:14px;padding-top:12px;border-top:1px solid var(--border);animation:rise var(--t-med) var(--ease) both}.ef-a:first-of-type{border-top:0;padding-top:0}
+.ef-m{color:var(--muted);font-size:12px;font-weight:400}
+.ef-kh,.ef-k{display:grid;grid-template-columns:minmax(0,1fr) 54px 54px 54px;gap:8px;align-items:baseline;font-size:13px}.ef-kh{font-size:11.5px;color:var(--muted);margin:4px 0 2px}.ef-kh span:not(:first-child),.ef-v{text-align:right}
+.ef-k{padding:3px 0}.ef-n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ef-n small{margin-left:6px;color:var(--muted);font-size:11.5px}.ef-v{font-variant-numeric:tabular-nums}.ef-v.bad{color:var(--warn);font-weight:600}.ef-s{grid-column:1/-1;font-size:12px;color:var(--muted)}
+.ef-b{display:flex;gap:12px;justify-content:space-between;align-items:flex-start;padding:9px 0;border-top:1px solid var(--border)}.ef-b:first-of-type{border-top:0}.ef-b .txt{min-width:0}.ef-b .txt b{display:block;font-weight:600;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ef-b .txt span{font-size:12.5px;color:var(--muted)}
+.ef-b>.ef-v{flex:none;font-weight:600}.ef-b>.ef-v small{display:block;font-weight:400;font-size:11.5px;color:var(--muted)}.ef-b.bad>.ef-v{color:var(--warn)}
+@media (max-width:640px){.ef-kh,.ef-k{grid-template-columns:minmax(0,1fr) 44px 40px 46px;gap:6px}}
 .hh-chips{display:flex;gap:6px;flex-wrap:wrap}
 .hh-chip{min-height:30px;padding:0 12px;border:1px solid var(--border);border-radius:var(--r-pill);background:var(--surface);box-shadow:none;font-size:12.5px;font-weight:500;color:var(--ink-2);transition:background var(--t-fast) var(--ease),color var(--t-fast) var(--ease),border-color var(--t-fast) var(--ease)}
 .hh-chip:hover{transform:none;background:var(--soft-2);box-shadow:none}.hh-chip[aria-pressed=true]{background:var(--blue-soft);border-color:transparent;color:var(--blue);font-weight:600}
