@@ -74,7 +74,13 @@ const ReadShare={m:new Map(),keep:/^(\/ui\/(identities|agents|access|channels|bo
 async function call(base,path,opt={}){const read=(!opt.method||opt.method==='GET')&&!opt.raw&&!opt.signal;if(!read)ReadShare.clear();
  const k=read&&!opt.fresh&&(S._nav||0)+'|'+base+path,hit=k&&ReadShare.m.get(k);
  if(hit&&(hit.live||Date.now()-hit.t<5000))return hit.p.then(d=>d&&typeof d==='object'?structuredClone(d):d);
- const req=callRaw(base,path,opt);pressBusy(req);if(!read){req.finally(()=>ReadShare.clear()).catch(()=>{});return req}if(!k)return req;
+ const get=!opt.method||opt.method==='GET';if(!get)Swr.clear();
+ // a page being drawn gets the last-known answer at once, and the read is asked again behind it (Swr, below)
+ const last=k?Swr.take(base+path,()=>callRaw(base,path,opt)):undefined;
+ const req=last!==undefined?Promise.resolve(last):callRaw(base,path,opt);if(last===undefined){pressBusy(req);if(read)Swr.fly(req)}
+ if(!read){req.finally(()=>{ReadShare.clear();if(!get)Swr.clear()}).catch(()=>{});return req}
+ if(last===undefined)req.then(d=>Swr.put(base+path,d),()=>{});
+ if(!k)return req;
  const e={p:req,live:true,t:0};ReadShare.m.set(k,e);
  req.then(()=>{e.live=false;e.t=Date.now();if(!ReadShare.keep.test(base+path)&&ReadShare.m.get(k)===e)ReadShare.m.delete(k)},()=>{if(ReadShare.m.get(k)===e)ReadShare.m.delete(k)});
  return req.then(d=>d&&typeof d==='object'?structuredClone(d):d)}
@@ -379,7 +385,11 @@ function render(){
  if(!$('.app'))root.innerHTML=`<div class="app"><aside class="side" aria-label="Navigation"></aside><div class="main"><div class="topbar"></div><div id="bannerSlot"></div><div class="view" id="view"></div></div><aside class="screen-pane" id="screenPane" aria-label="Live screen" hidden></aside></div>`;
  const app=$('.app');app.classList.toggle('collapsed',S.collapsed);const sw=store.get('sideW',null);if(sw)app.style.setProperty('--side-open',sw+'px');app.classList.remove('nav-open');
  paintSide(r);paintTop(r);paintBanner();if(typeof Screen!=='undefined')Screen.paint();
- const v=$('#view');{const key=location.hash.split('?')[0];if(v._key!==key){v._key=key;Calm.opening();v.classList.remove('enter');void v.offsetWidth;v.classList.add('enter')}}watchReveal(v);watchLate(v);
+ const v=$('#view');let fresh=false;{const key=location.hash.split('?')[0];if(v._key!==key){v._key=key;fresh=true}}watchReveal(v);watchLate(v);
+ // the entrance of a newly opened view; a page plays it when it is shown (Stage), not when its address changes
+ const enter=()=>{Calm.opening();v.classList.remove('enter');void v.offsetWidth;v.classList.add('enter')};
+ const page=r.chat===undefined&&!r.help&&!(noAgent()&&!['usage','code'].includes(r.page.id));
+ if(!page){Stage.drop(v);if(fresh)enter()}
  if(r.chat!==undefined)Chat.view(v,r.chat);
  else if(r.help){S._pageKey=null;Help.view(v)}
  // a member with no agent yet: every agent's page would only say "not shared with you", and its buttons could not work
@@ -389,8 +399,8 @@ function render(){
   const same=S._pageKey===key&&$('#pg');S._pageKey=key;
   // another agent on the same address: answers still on the way for the old one are dropped
   if(!same)navNext();
-  if(same){const pg=$('#pg');pg.classList.add('soft');if(P)runPage(P,r,pg).finally(()=>setTimeout(()=>pg.classList.remove('soft'),400))}
-  else{v.innerHTML=`<div class="page">${head(r.page)}<div id="pg">${skeleton()}</div></div>`;const pg=$('#pg');if(P)runPage(P,r,pg)}}
+  const run=pg=>P?runPage(P,r,pg):null;
+  if(same)Stage.same(v,run);else Stage.open(v,head(r.page),run,fresh?enter:null)}
  // plugin slots on this page, when some plugin fills one (plugin-host.js)
  if(Plugins.slotNames.size)Plugins.patch();
 // draw a page; if it fails (the engine busy for a moment), try once more quietly before saying so
@@ -398,6 +408,76 @@ function render(){
 function runPage(P,r,pg){const nav=S._nav;let gone=pageRun(pg);return Promise.resolve(P(r.page,pg,r)).catch(async e=>{if(e?.stale||gone()||nav!==S._nav||!pg.isConnected)return;if(e?.status&&e.status<500&&e.status!==429)return showError(pg,e);
  await sleep(1200);if(gone()||nav!==S._nav||!pg.isConnected)return;gone=pageRun(pg);return Promise.resolve(P(r.page,pg,r)).catch(e2=>{if(!gone())showError(pg,e2)})})}
 }
+/* A page is drawn out of sight and shown whole (12 Nov 2026: "flicker, happening again"). Opening a page used to blank the
+   view to a loading ring at once, draw the list when its read came back and then add each card a layer round the page
+   fetches for itself (This install, Cloud fixer, Notifications, the Claude sign-in, alerts…) one after another, every one
+   pushing the rest down (Settings moved six times in 0.9 s, Health five); a redraw of the same page (a save, a toggle, a
+   tab) emptied the page back to its base and added those cards again.
+   Now what is on screen stays until the new drawing is whole (its page function and every layer round it have finished),
+   then one swap in one frame. A drawing slower than Stage.ms shows the new heading and the loading ring meanwhile, and
+   one slower than Stage.max is shown as far as it is. The new drawing sits in the document before the old one, so every
+   lookup by id finds the new one; it is laid out (sizes can be measured) but takes no room and shows nothing. */
+const Stage={ms:450,max:2200,
+ drop(v){const st=v._stage;if(st){clearTimeout(st.t);clearTimeout(st.t2);v._stage=null;st.fin?.()}for(const x of v.querySelectorAll('.staged'))x.remove()},
+ // st: {pg (the content being drawn, out of sight), kind, early (optional: show the heading and the ring), reveal (show pg)}
+ hold(v,st,run){const prev=v._stage;v._stage=st;v._run=run;if(prev){clearTimeout(prev.t);clearTimeout(prev.t2);prev.fin?.()}
+  const done=()=>{if(v._stage!==st)return;clearTimeout(st.t);clearTimeout(st.t2);v._stage=null;if(!st.pg.isConnected)return;if(st.early){st.early();st.early=null}st.reveal()};
+  if(st.early)st.t=setTimeout(()=>{if(v._stage===st&&st.pg.isConnected&&st.early){st.early();st.early=null;st.rung=true}},this.ms);
+  let ended=false;const tok=Swr.begin(),fin=st.fin=()=>{if(ended)return;ended=true;done();Swr.end(tok)};
+  // whole: the page function has finished and nothing it began is still being read (parts a page fills without waiting
+  // for them: the links under Keys, a list's second half)
+  const quiet=()=>{if(ended)return;if(v._stage!==st||S._nav!==tok||!Swr.flying)return fin();Swr.idle=()=>setTimeout(quiet,0)};
+  // too slow to wait for: shown as far as it is (a page with nothing drawn yet keeps the ring; the same page drawn again keeps what it shows)
+  st.t2=setTimeout(()=>{if(st.kind==='pg'&&!st.pg.firstChild)return;done()},this.max);   // the drawing goes on in view; fin comes when it ends
+  let p;try{p=run(st.pg)}catch{}Promise.resolve(p).catch(()=>{}).finally(()=>setTimeout(quiet,0))},
+ // another page: the whole page (its heading too) is staged; what is on screen (a page, the chat, Help) stays meanwhile
+ open(v,headHtml,run,enter){this.drop(v);
+  for(const o of v.querySelectorAll('#pg'))o._rt=(o._rt||0)+1;   // drawings still on their way to the old page stop
+  const pageEl=document.createElement('div');pageEl.className='page staged';pageEl.innerHTML=`${headHtml}<div id="pg" class="staged"></div><div class="pg-wait">${skeleton()}</div>`;v.prepend(pageEl);
+  const pg=pageEl.querySelector('#pg'),st={pg,kind:'page',
+   early(){for(const o of [...v.children])if(o!==pageEl)o.remove();pageEl.classList.remove('staged');v.scrollTop=0;enter?.()},
+   reveal(){pageEl.querySelector('.pg-wait')?.remove();if(!pg.firstChild)pg.innerHTML=skeleton();pg.classList.remove('staged');if(st.rung&&!pg.querySelector('.skel.loading'))pg.classList.add('reveal')}};
+  if(v.children.length===1){st.early();st.early=null;st.rung=true}   // nothing on screen to keep (the first page after signing in)
+  this.hold(v,st,run)},
+ // the same page again: only its content is staged, and replaces the old content in one frame (scroll and focus stay)
+ same(v,run){const st=v._stage;
+  // its first drawing is still out of sight: draw there again, and wait for this drawing
+  if(st&&st.kind==='page'&&st.pg.isConnected){const n={pg:st.pg,kind:'page',early:st.early,rung:st.rung,reveal(){st.rung=n.rung;st.reveal()}};return this.hold(v,n,run)}
+  this.drop(v);const live=$('#pg');if(!live)return;
+  live._rt=(live._rt||0)+1;const pg=document.createElement('div');pg.id='pg';pg.className='staged';live.before(pg);
+  this.hold(v,{pg,kind:'pg',reveal(){const a=document.activeElement,keep=a&&a.id&&live.contains(a)?a:null;
+   live.remove();pg.classList.remove('staged');
+   if(keep){const b=pg.querySelector('#'+CSS.escape(keep.id));if(b){b.focus({preventScroll:true});try{b.setSelectionRange(keep.selectionStart,keep.selectionEnd)}catch{}}}}},run)},
+ // newer answers came in after a page was drawn from its last-known ones (Swr): draw it once more, unless someone is in
+ // the middle of something on it (a pop-up open, typing in a field): then a little later
+ again(n=0){const v=$('#view'),nav=S._nav;if(!v||!v._run||!$('#pg')||route().chat!==undefined||route().help)return;
+  if($('#pg iframe,#pg video,#pg audio'))return;   // a page holding something live (Code's own window) is never drawn again by itself
+  const a=document.activeElement,busy=$('dialog[open],.menu,.aq-menu,.drawer,.palette,.cron-pop')||a&&a!==document.body&&a.closest?.('#pg')&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)&&a.type!=='checkbox';
+  if(busy){if(n<6)setTimeout(()=>{if(nav===S._nav)this.again(n+1)},1500);return}
+  ReadShare.clear();this.same(v,v._run)}};
+/* Last-known answers while a page is being drawn (stale-while-revalidate, the rule of the server's swr.mjs, for the
+   browser). A page's reads used to start from nothing on every visit, so every visit showed the ring and then the cards
+   one by one. Now a read a page has made before answers at once from the last answer while the page is being drawn, so
+   the whole page lands in its first frame, and the read is asked again behind the scenes; when an answer turns out to
+   differ the page is drawn once more (out of sight, swapped whole: Stage.again). Only while a page is being drawn and
+   only for the visit that began the drawing: timers and buttons always ask the server. Any change (POST, PUT, DELETE…)
+   forgets every answer, so a save never shows old data; answers older than 15 minutes are not used. */
+const Swr={m:new Map(),gen:0,nav:-1,drawing:0,wait:0,changed:false,fresh:8000,old:15*60e3,flying:0,flyNav:-1,idle:null,
+ // reads on their way for this visit (Stage waits for them before it shows a page)
+ fly(p){const nav=S._nav;if(nav!==this.flyNav){this.flyNav=nav;this.flying=0;this.idle=null}this.flying++;
+  const end=()=>{if(nav!==this.flyNav)return;this.flying=Math.max(0,this.flying-1);if(!this.flying&&this.idle){const f=this.idle;this.idle=null;f()}};p.then(end,end);return p},
+ skip:/\/(logs|stream|events|export|download)\b/,
+ begin(){if(this.nav!==S._nav){this.nav=S._nav;this.drawing=0;this.changed=false}this.drawing++;return this.nav},
+ end(tok){if(tok!==this.nav)return;this.drawing=Math.max(0,this.drawing-1);this.settle()},
+ // key: the address; again(): asks the server. Answers undefined when there is nothing to use
+ take(key,again){if(!this.drawing||this.nav!==S._nav)return;const e=this.m.get(key);if(!e)return;const age=Date.now()-e.t;if(age>this.old){this.m.delete(key);return}
+  if(age>this.fresh&&!e.p){const g=this.gen,nav=S._nav;this.wait++;
+   e.p=Promise.resolve().then(again).then(d=>{if(g!==this.gen)return;const t=JSON.stringify(d);if(t===e.s){e.t=Date.now();return}this.put(key,d,t);if(nav===S._nav)this.changed=true},()=>{})
+    .finally(()=>{e.p=null;if(g===this.gen){this.wait=Math.max(0,this.wait-1);this.settle()}})}
+  return JSON.parse(e.s)},
+ put(key,d,t){if(this.skip.test(key))return;t??=JSON.stringify(d);this.m.delete(key);if(t===undefined||t.length>2.5e5)return;this.m.set(key,{t:Date.now(),s:t,p:null});if(this.m.size>160)this.m.delete(this.m.keys().next().value)},
+ clear(){this.m.clear();this.gen++;this.wait=0;this.changed=false},
+ settle(){if(this.drawing||this.wait||!this.changed||this.nav!==S._nav)return;this.changed=false;Stage.again()}};
 function paintSide(r){const el=$('.side'),h=sidebar(r||route());if(el._h!==h){el._h=h;morph(el,h)}}
 function paintTop(r){const el=$('.topbar'),h=topbar(r||route());if(el._h!==h){el._h=h;morph(el,h)}}
 /* Redraw in place: el gets the new markup, but every element that is still there stays the same element, and only what
@@ -717,7 +797,7 @@ async function signOut(){try{Prefs.clear()}catch{}await fetch('/auth/logout',{me
 
 /* Loading → loaded: wherever loading placeholders (.skel) are replaced, the new content fades and rises in,
    a little staggered, instead of snapping into place. Works for whole pages and for panels that load later. */
-function watchReveal(root){if(!root||root._reveal)return;root._reveal=new MutationObserver(ms=>{for(const m of ms){
+function watchReveal(root){if(!root||root._reveal)return;root._reveal=new MutationObserver(ms=>{for(const m of ms){if(m.target.closest?.('.staged'))continue;   // drawn out of sight: shown whole, with the view's one entrance
  // one loaded fade per visit to a page: the first content that arrives may fade in; later redraws never do
  {const key=location.hash.split('?')[0]+'#'+(S._nav||0);if(root._fadeKey!==key){root._fadeKey=key;root._fadeUntil=0}if(root._fadeUntil&&performance.now()>root._fadeUntil)continue}
  // what was on screen is noted, but its text is read only when something is about to fade in (reading every removed
@@ -752,7 +832,7 @@ function smoothHeight(box,fn){if(!box||calm()||!box.isConnected){fn();return}con
  box._sh?.cancel();box.style.overflow='hidden';const a=box._sh=box.animate([{height:h0+'px'},{height:h1+'px'}],{duration:220,easing:'cubic-bezier(.2,.7,.2,1)',id:'smooth-height'});const done=()=>{if(box._sh===a){box.style.overflow='';box._sh=null}};a.onfinish=done;a.oncancel=done}
 function watchLate(root){if(!root||root._late)return;root._late=new MutationObserver(ms=>{const t=performance.now(),batch=new Set();
  for(const m of ms)for(const n of m.addedNodes)if(n.nodeType===1)batch.add(n);
- for(const m of ms){if([...m.removedNodes].some(x=>x.nodeType===1&&!x.classList?.contains('skel')))continue;if(!m.target.closest?.('#pg'))continue;
+ for(const m of ms){if([...m.removedNodes].some(x=>x.nodeType===1&&!x.classList?.contains('skel')))continue;if(!m.target.closest?.('#pg')||m.target.closest('.staged'))continue;
   for(const n of m.addedNodes){if(n.nodeType!==1||n.hidden||/^(SCRIPT|STYLE|TEMPLATE|SPAN|B|I|EM|SVG|BR|A)$/i.test(n.tagName))continue;
    if(n.closest('.menu,.toast,dialog,.drawer,.notice,[data-anim],.aq-menu,.skel')||n.classList.contains('skel'))continue;
    let below=n.nextElementSibling;while(below&&(batch.has(below)||below.hidden))below=below.nextElementSibling;

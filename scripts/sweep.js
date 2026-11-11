@@ -5,25 +5,41 @@
 // happen"): settled content jumping 40 px or more in one frame (a card added above it, text that changed size), pictures
 // in the sidebar, topbar or chat loading again because their part was drawn anew, the bell's count popping in again on a
 // page switch, and pop-ups that appear without fading in or snap back before they leave.
+// Since 12 Nov 2026 ("flicker, happening again": Settings moved six times while its cards arrived, Health five, and none
+// of the checks above saw it because each card glided) it also fails on:
+//   the shell drawn again: any element added to or taken out of the sidebar or the topbar while pages change, other than
+//     the sidebar's own list for the section (.side-sub) and the title in the topbar (.crumbs);
+//   a page that moves: the browser's own layout-shift score, summed per page from the moment it is opened, above SHIFT_MAX.
+// SWEEP_ONLY (a list of addresses set on window before this runs) checks only those pages: the quick run in GitHub Actions.
 (async()=>{const errs=[];window.addEventListener('error',e=>errs.push('script error: '+e.message));
 const jumps=[],pics=[];let skelAt=0;const since=new Map();
+const SHIFT_MAX=0.05;let shift=0,shiftBy=[];const shell=[];let shellOn=false;
+const nm=n=>n.id?'#'+n.id:n.tagName.toLowerCase()+(String(n.className?.baseVal??n.className??'').trim()?'.'+String(n.className?.baseVal??n.className).trim().split(/\s+/).slice(0,2).join('.'):'');
+for(const part of ['.side','.topbar']){const el=document.querySelector(part);if(el)new MutationObserver(ms=>{if(!shellOn)return;for(const m of ms){const tg=m.target.nodeType===1?m.target:m.target.parentElement;if(!tg||tg.closest('.side-sub,.crumbs'))continue;
+ for(const n of [...m.addedNodes,...m.removedNodes])if(n.nodeType===1&&!n.matches('.side-sub,.sec-dot'))shell.push(location.hash.split('?')[0]+' '+nm(n)+' in '+nm(tg))}}).observe(el,{childList:true,subtree:true})}
 // text on screen and since when (a block counts as settled 400 ms after it first showed)
 const tsig=t=>(t.textContent||'').replace(/\s+/g,' ').trim().slice(0,60);
 const scan=()=>{const t=performance.now();for(const el of document.querySelectorAll('#view *'))if(el.children.length<40){const x=tsig(el);if(x.length>3&&!since.has(x))since.set(x,t)}};const scanT=setInterval(scan,100);
 new MutationObserver(ms=>{const gone=new Map();for(const m of ms)for(const r of m.removedNodes)if(r.nodeType===1){if(r.classList?.contains('skel')||r.querySelector?.('.skel,.skel-row'))skelAt=performance.now();for(const i of [r,...r.querySelectorAll('img')])if(i.tagName==='IMG'&&i.complete&&i.naturalWidth)gone.set(i.getAttribute('src'),i)}
  if(!gone.size)return;for(const m of ms)for(const a of m.addedNodes)if(a.nodeType===1)for(const i of [a,...a.querySelectorAll('img')]){const w=i.tagName==='IMG'&&i.isConnected&&gone.has(i.getAttribute('src'))&&i.closest('.side,.topbar,#thread');
   if(w){pics.push(w.matches('#thread')?'chat reply':w.matches('.side')?'sidebar':'topbar');gone.delete(i.getAttribute('src'))}}}).observe(document.body,{childList:true,subtree:true});
-try{new PerformanceObserver(l=>{const t=performance.now();if(t-skelAt<150)return;   // content replacing its loading placeholder may move what is below
+try{new PerformanceObserver(l=>{const t=performance.now();
+ for(const e of l.getEntries())if(!e.hadRecentInput){shift+=e.value;for(const so of e.sources||[]){const n=so.node;if(n&&n.nodeType===1&&e.value>.005)shiftBy.push(nm(n)+' '+Math.round(so.currentRect.y-so.previousRect.y)+' px')}}
+ if(t-skelAt<150)return;   // content replacing its loading placeholder may move what is below
  if(document.getAnimations().some(a=>(a.id==='late'||a.id==='smooth-height')&&a.playState==='running'))return;   // a block opening its space: a glide, not a jump
  for(const e of l.getEntries())for(const so of e.sources||[]){const n=so.node;if(!n||n.nodeType!==1||!n.closest?.('#view')||n.closest('.menu,.drawer,.toast,dialog,.palette'))continue;
   const dy=Math.abs(so.currentRect.y-so.previousRect.y),dh=Math.abs(so.currentRect.height-so.previousRect.height);if(Math.max(dy,dh)<40||!so.currentRect.height)continue;
   const x=tsig(n),at=since.get(x);if(!at||t-at<400)continue;jumps.push(location.hash.split('?')[0]+' '+(n.id?'#'+n.id:String(n.className||n.tagName).split(' ').slice(0,2).join('.'))+' moved '+Math.round(Math.max(dy,dh))+' px')}}).observe({type:'layout-shift'})}catch{}
 // the bell: one unread item here (in this tab only), and nothing about it may pop in or ring again while pages change
 let bellPops=0;const bellOn=typeof Inbox!=='undefined'&&Inbox.items;if(bellOn){Inbox.items.unshift({id:'l-sweep',title:'Sweep check',text:'',read:false,at:Date.now()});Inbox.paintBell()}
-document.addEventListener('animationstart',e=>{if(/^(popIn2|ring)$/.test(e.animationName)&&e.target.closest?.('.topbar'))bellPops++},true);
-await new Promise(r=>setTimeout(r,800));bellPops=0;
+// a notification that really arrives during the run (an achievement earned by opening a page) may pop and ring once: only a
+// pop with no new unread item is the topbar drawn without its count (OPS-14: P&P failed on exactly two, one pop and one ring)
+let bellN=Infinity,bellGrew=-1e9;
+document.addEventListener('animationstart',e=>{if(!/^(popIn2|ring)$/.test(e.animationName)||!e.target.closest?.('.topbar'))return;const n=bellOn?Inbox.unread():0,t=performance.now();if(n>bellN){bellN=n;bellGrew=t}if(t-bellGrew>1500)bellPops++},true);
+await new Promise(r=>setTimeout(r,800));bellPops=0;shellOn=true;if(bellOn)bellN=Inbox.unread();
 // every page in the navigation (new ones are checked without editing this list), plus Help
-const pages=[...new Set(['#/chat',...SECTIONS.flatMap(x=>x.pages?x.pages.filter(p=>!p.hidden).map(p=>'#/'+x.id+'/'+p.id):[]),'#/help'])];
+const pages=window.SWEEP_ONLY||[...new Set(['#/chat',...SECTIONS.flatMap(x=>x.pages?x.pages.filter(p=>!p.hidden).map(p=>'#/'+x.id+'/'+p.id):[]),'#/help'])];
+const DWELL=window.SWEEP_DWELL||[2500,5500];let worst=0;
 const sl=ms=>new Promise(r=>setTimeout(r,ms));const out=[];let bad=0;
 let settled=Infinity,shown=new Set();const flick=[];const sig=t=>(t.textContent||'').replace(/\s+/g,' ').trim().slice(0,80);
  // only what has settled counts as shown: content drawn a moment before this look is still in its first entrance (its
@@ -48,12 +64,14 @@ document.addEventListener('animationstart',e=>{if(performance.now()<settled||typ
 for(let i=0;i<pages.length;i++){const p=pages[i];
  location.hash=pages[(i+3)%pages.length];await sl(120);location.hash=pages[(i+7)%pages.length];await sl(200);
  if(i%3===0)S.viewAll=!S.viewAll;if(i%4===1)S.viewAgent=S.viewAgent?null:(S._viewList||[])[1]||null;
- location.hash=p;flick.length=0;await sl(2500);snap();settled=performance.now();await sl(5500);settled=Infinity;
+ location.hash=p;flick.length=0;shift=0;shiftBy=[];await sl(DWELL[0]);snap();settled=performance.now();await sl(DWELL[1]);settled=Infinity;
+ worst=Math.max(worst,shift);if(shift>SHIFT_MAX){bad++;out.push('✗ '+p+' moves while it loads (layout shift '+shift.toFixed(2)+', limit '+SHIFT_MAX+'): '+[...new Set(shiftBy)].slice(0,4).join(', ')+': draw it whole (Stage) or keep the space')}
  if(flick.length){bad++;out.push('✗ '+p+' flickers: '+[...new Set(flick)].slice(0,3).join(', '))}
  const err=[...document.querySelectorAll('#view .state-box.err')].map(x=>x.textContent.trim().slice(0,140));
  const txt=(()=>{const v=document.querySelector('#view');if(!v)return '';const c=v.cloneNode(true);c.querySelectorAll('.log,pre,code,#logBox').forEach(e=>e.remove());return c.textContent||''})();const nul=/\bnull\b|\bundefined\b|NaN|\[object Object\]/.test(txt);
- if(err.length||nul){bad++;out.push('✗ '+p+' '+(err.join(' / ')||'shows null/undefined text'))}}
-clearInterval(scanT);
+ if(!window.SWEEP_LOOSE&&(err.length||nul)){bad++;out.push('✗ '+p+' '+(err.join(' / ')||'shows null/undefined text'))}}
+clearInterval(scanT);shellOn=false;
+if(shell.length){bad++;out.push('✗ the sidebar or topbar was drawn again while pages changed ('+shell.length+' elements): '+[...new Set(shell)].slice(0,5).join(', '))}
 if(jumps.length){bad++;out.push('✗ content jumps instead of gliding: '+[...new Set(jumps)].slice(0,4).join(', '))}
 if(pics.length){bad++;out.push('✗ pictures load again on a redraw ('+[...new Set(pics)].join(', ')+': '+pics.length+' times): update in place with morph()')}
 if(bellOn&&bellPops){bad++;out.push('✗ the bell popped in or rang again '+bellPops+' times while pages changed (topbar drawn without its count)')}
@@ -69,4 +87,4 @@ if(bellOn&&bellPops){bad++;out.push('✗ the bell popped in or rang again '+bell
   if(up){bad++;out.push('✗ a panel closed while still opening flashes back to fully shown before it leaves (+'+up.toFixed(2)+' opacity)')}}}}
 if(bellOn){Inbox.items=Inbox.items.filter(x=>x.id!=='l-sweep');Inbox.paintBell()}
 if(errs.length){bad+=errs.length;out.push(...[...new Set(errs)].map(e=>'✗ '+e))}
-return JSON.stringify({out,bad})})()
+return JSON.stringify({out,bad,pages:pages.length,worstShift:+worst.toFixed(3),shell:shell.length})})()
