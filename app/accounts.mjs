@@ -11,6 +11,7 @@ import {allowed,trim,setRule,ownerOf} from './skills-policy.mjs';
 import {swr} from './swr.mjs';
 import {createClaudeRenew} from './claude-renew.mjs';
 import {providerUnavailable} from './provider-limits.mjs';
+import {createAgyQuota,claudeHeaderUsage,deadLogins} from './usage-extra.mjs';
 
 const HOME=homedir();
 const CLAUDE=process.env.CLAUDE_BIN||path.join(HOME,'.local','bin','claude');
@@ -61,7 +62,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
  // Retry-After, else 5 minutes, doubling up to 30). Only an expired sign-in (401) clears what is shown.
  // Kept on disk too (9 Nov 2026): after a restart the numbers stayed blank until Anthropic answered again, and every restart asked anew.
  const usageSeen=new Map(),USAGE_EVERY=5*60e3,USAGE_FILE=path.join(DATA,'claude-usage.json');let usageLoaded=false;
- const usageSave=()=>{const o={};for(const [k,v] of usageSeen){const {usage,extra,at,next,wait,error,dead}=v;o[k]={usage,extra,at,next,wait,error,dead}}return writeFile(USAGE_FILE+'.tmp',JSON.stringify(o)).then(()=>rename(USAGE_FILE+'.tmp',USAGE_FILE)).catch(()=>{})};
+ const usageSave=()=>{const o={};for(const [k,v] of usageSeen){const {usage,extra,at,next,wait,error,dead,via}=v;o[k]={usage,extra,at,next,wait,error,dead,via}}return writeFile(USAGE_FILE+'.tmp',JSON.stringify(o)).then(()=>rename(USAGE_FILE+'.tmp',USAGE_FILE)).catch(()=>{})};
  async function usageFetch(id,token){if(!usageLoaded){usageLoaded=true;try{for(const [k,v] of Object.entries(JSON.parse(await readFile(USAGE_FILE,'utf8'))))if(!usageSeen.has(k))usageSeen.set(k,v)}catch{}}
   const s=usageSeen.get(id)||{};usageSeen.set(id,s);const now=Date.now();
   if(s.asking)return s;if(s.at&&now-s.at<USAGE_EVERY||now<(s.next||0))return s;
@@ -69,10 +70,13 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
     if(r.ok){const u=await r.json();const win=k=>u[k]?{used:Math.round(Number(u[k].utilization)||0),resets:u[k].resets_at||null}:null;
      s.usage={session:win('five_hour'),week:win('seven_day'),opus:win('seven_day_opus'),sonnet:win('seven_day_sonnet')};
      const ex=u.extra_usage;s.extra=ex?.is_enabled?{used:ex.used_credits,limit:ex.monthly_limit,currency:ex.currency||'USD'}:null;
-     Object.assign(s,{at:Date.now(),next:0,wait:0,error:null,dead:false})}
+     Object.assign(s,{at:Date.now(),next:0,wait:0,error:null,dead:false,via:null})}
     else if(r.status===401){Object.assign(s,{usage:null,extra:null,dead:true,error:'Sign-in expired. It refreshes the next time this account is used.',next:Date.now()+60e3})}
     else{const ra=Number(r.headers.get('retry-after'))||0;s.wait=Math.min(30*60e3,Math.max(5*60e3,ra*1000,(s.wait||0)*2));s.next=Date.now()+s.wait;s.dead=false;
-     s.error=r.status===429?'Anthropic is not giving out usage right now. It tries again by itself.':'Usage unavailable ('+r.status+')'}}
+     s.error=r.status===429?'Anthropic is not giving out usage right now. It tries again by itself.':'Usage unavailable ('+r.status+')';
+     // 12 Nov 2026: the main account's call answered 429 all day while the account itself was fine (34% / 24%): the engine's gateways ask the
+     // same token for the same numbers. A 1-token answer carries them in its headers (also at the limit), so show those instead of a blank.
+     if(r.status===429){const h=await claudeHeaderUsage(token);if(h){s.usage=h;s.via='headers';Object.assign(s,{at:Date.now(),wait:0,next:Date.now()+10*60e3,error:null})}}}}
    catch{s.wait=Math.min(30*60e3,Math.max(5*60e3,(s.wait||0)*2));s.next=Date.now()+s.wait;s.error='Could not reach Anthropic.'}usageSave()})().finally(()=>{s.asking=null});
   await s.asking;return s}
  const details=(a,fresh,quick)=>cache.get(a.id,()=>readDetails(a),{force:!!fresh,partial:quick?()=>({id:a.id,label:a.label,main:a.id==='main',signedIn:false,partial:true}):undefined});
@@ -92,7 +96,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
   if(creds){v.plan=v.plan||creds.subscriptionType||'';v.tier=creds.rateLimitTier||'';v.tokenExpires=creds.expiresAt||null}
   const lost=renew.out(a.id);if(lost&&v.signedIn){v.signedIn=false;v.usageError=lost.why}
   if(v.signedIn&&creds?.accessToken){const s=await usageFetch(a.id,creds.accessToken);
-   if(s.usage){v.usage=s.usage;if(s.extra)v.extra=s.extra;v.usageAt=s.at}
+   if(s.usage){v.usage=s.usage;if(s.extra)v.extra=s.extra;v.usageAt=s.at;if(s.via)v.usageVia=s.via}
    if(s.error&&(!s.usage||s.dead))v.usageError=s.error;
    const ln=limitNote(!!s.error&&!s.usage&&!s.dead,(await limits())[a.id]);if(ln){v.limit={until:ln.until};v.usageError=ln.text}}
   return v;
@@ -180,7 +184,15 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
   try{const j=await options(profile);
    const allow=(await load()).allow||[];const v=(j.providers||[]).filter(p=>p.authenticated&&(!SKIP.test(p.slug)||allow.includes(p.slug))&&p.slug!=='gemini-subscription').map(p=>({slug:p.slug,name:p.name,models:p.models||[],
     windows:(p.usage?.windows||[]).map(w=>({label:w.label,used:Math.round(Number(w.used_percent)||0),resets:w.resets_at||null,scope:w.scope||'account'})),details:p.usage?.details||[]}));
-   provCache.set(profile,{t:Date.now(),v});return withPics(v,profile)}catch{if(hit)hit.r=0;return hit?withPics(hit.v,profile):null}}
+   await agyFill(v);await deadFill(v,profile);provCache.set(profile,{t:Date.now(),v});return withPics(v,profile)}catch{if(hit)hit.r=0;return hit?withPics(hit.v,profile):null}}
+ // Google AI plan (Antigravity): the engine reports no limits for it, so they are read from Google with agy's own sign-in (usage-extra.mjs, every 10 min).
+ const agy=createAgyQuota({log:m=>console.log(m)});
+ async function deadFill(v,profile){const dead=await deadLogins(path.join(profile==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',profile),'auth.json'));
+  for(const p of v)if(dead.has(p.slug)&&!p.windows.length)p.details=[...p.details,'Its sign-in was refused (401), so no limits show. Sign in again.']}
+ async function agyFill(v){const p=v.find(x=>/antigravity|^agy/i.test(x.slug));if(!p||p.windows.length)return;const q=await agy.read().catch(()=>null);if(!q)return;
+  if(q.signedIn===false){p.details=[...p.details,'Not signed in to Antigravity on this server.'];return}
+  p.windows=q.windows;if(q.plan)p.details=[...p.details,'Plan: '+q.plan];
+  if(q.error)p.details=[...p.details,q.windows.length&&q.at?q.error+' Last read '+new Date(q.at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+'.':q.error]}
  const worstOf=ws=>Math.max(0,...(ws||[]).filter(w=>w.scope!=='model'&&w.scope!=='image').map(w=>w.used||0));
 
  /* ---------- the ChatGPT pictures quota: separate from chat use and not in what the gateway reports. The engine logs
