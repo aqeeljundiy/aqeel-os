@@ -34,11 +34,10 @@ const cxRow=(r,i)=>{const u=cxUsing(r);return `<div class="row clickable cn-row"
  <div class="cn-st">${cxChip(r)}</div></div>`};
 
 PAGES.connections=async(p,el)=>{const gone=pageTok(el);Pages._cxEl=el;
- setActions(`<button data-act="cn-check">${icon('refresh',16)}Check now</button><button class="primary" data-act="cn-add" aria-haspopup="menu">${icon('plus',16)}Add</button>`);
+ setActions(`${S.me?.admin?`<button data-act="cn-addons" title="What each person added, and apps nobody may add">${icon('user',16)}Added by people</button>`:''}<button data-act="cn-check">${icon('refresh',16)}Check now</button><button class="primary" data-act="cn-add" aria-haspopup="menu">${icon('plus',16)}Add</button>`);
  if(!el.querySelector('.cn-list'))el.innerHTML=skeletonRows(6);
- const fresh=Pages._cxFresh;Pages._cxFresh=false;
- if(fresh&&S.me?.admin!==false){await UI('/ui/connected-accounts?fresh=1').catch(()=>null);if(gone())return}
- const d=await UI('/ui/connections'+(fresh?'?fresh=1':''));if(gone())return;Pages._cx=d;
+ // a list Check now just got is drawn as it is, without asking again
+ const pre=Cx.pre;Cx.pre=null;const d=pre||await UI('/ui/connections');if(gone())return;Pages._cx=d;
  if(!d.agents.some(a=>a)||!d.rows.length){el.innerHTML=emptyBox('Nothing connected yet','Add an app like Slack or Notion, connect a Google account, or install a skill. Each one shows here with who owns it and who can use it.',`<button class="primary" data-act="cn-add">${icon('plus',15)}Add</button>`);return}
  const nNeed=d.rows.filter(cxNeeds).length;const tabsL=Object.keys(CX_TYPES).filter(t=>(t!=='Keys'||d.rows.some(r=>r.type==='key'))&&(t!=='Needs you'||nNeed));if(!tabsL.includes(S.tab.connections))S.tab.connections='All';
  el.innerHTML=`<div class="cn-needs-slot"></div><div class="toolbar cn-bar"><div class="search${S.cxQ?' has-q':''}">${icon('search',16)}<input id="cnQ" type="search" enterkeyhint="search" placeholder="Search connections and agents" value="${esc(S.cxQ||'')}" aria-label="Search connections"><button class="ghost icon s-clear" data-act="cn-clear" aria-label="Clear search" title="Clear search">${icon('x',14)}</button></div>${tabs('connections',tabsL)}</div>
@@ -46,7 +45,7 @@ PAGES.connections=async(p,el)=>{const gone=pageTok(el);Pages._cxEl=el;
   <div class="card list cn-list"><div class="cn-head" aria-hidden="true"><span>Connection</span><span>Belongs to</span><span>Who can use</span><span>Status</span></div><div class="cn-rows"></div></div>
   <p class="hint cn-foot">${d.canEdit?'Click a row to change which agent it belongs to, who can use it and how much.':'You see the agents you use. An admin changes which agent each belongs to and who can use what; you can ask for access from a row.'} Bots people message are under Channels.</p>`;placePills();
  {const b=el.querySelector('[data-tabs="connections"] [data-tab="Needs you"]');if(b&&nNeed)b.insertAdjacentHTML('beforeend',` <span class="tab-n">${nNeed}</span>`)}
- Cx.paintList(el,true);
+ Cx.paintList(el,true);Cx.stamp(el);Cx.follow(el);
  const q=el.querySelector('#cnQ');let t;q.oninput=()=>{q.closest('.search').classList.toggle('has-q',!!q.value);clearTimeout(t);t=setTimeout(()=>{if(!el.isConnected)return;S.cxQ=q.value;Cx.paintList(el)},120)};
  el.querySelector('[data-tabs="connections"]').addEventListener('click',e=>{if(e.target.closest('[data-tab]'))setTimeout(()=>Cx.paintList(el),0)});
  Cx.poll(el)};
@@ -68,8 +67,32 @@ const Cx={
   if(slot)slot.innerHTML=need.length&&!onTab?alertBox(`<b>${need.length===1?'1 needs you':need.length+' need you'}</b><ul class="cn-need-l">${need.slice(0,4).map(r=>`<li>${esc(r.name)}: ${esc(why(r))}</li>`).join('')}${need.length>4?`<li>and ${need.length-4} more</li>`:''}</ul>`,{act:'cn-needs',label:'Show them',ic:'chevR'}):''},
  // looked at again while something is still being applied (the engine drops and adds an app on its own clock)
  poll(el){clearTimeout(this._t);if(!this.rows().some(r=>r.busy))return;this._t=setTimeout(()=>{if(el.isConnected&&!document.hidden)this.refresh()},4000)},
+ // how fresh the list is, from the data's own time, quietly under it (11 Nov 2026); pages without the Check now button
+ // at the top (Skills, Plugins, Keys) get it here
+ stamp(el){const d=Pages._cx;if(!el?.isConnected||!d)return;let p=el.querySelector('.cn-checked');const f=el.querySelector('.cn-foot');
+  if(!p){if(!f)return;f.insertAdjacentHTML('beforebegin','<p class="hint cn-checked" aria-live="polite"></p>');p=el.querySelector('.cn-checked')}
+  const t=()=>{if(!p.isConnected)return clearInterval(this._st);const at=Pages._cx?.at,busy=!!this.checking;
+   p.innerHTML=(busy?'<span class="spinner tiny"></span>Checking everything again…':at?`<span title="${esc(new Date(at).toLocaleString())}">Checked ${esc(ago(at/1000))}</span>`+(Pages._cx.stale?' · getting a newer list…':''):'')+(this.fixed&&!busy?` · <button class="link" data-act="cn-check">Check now</button>`:'')};
+  t();clearInterval(this._st);this._st=setInterval(t,30000)},
+ // a list kept from a while ago was shown at once while the server gathers a new one: drawn again in place when it is in
+ follow(el){clearTimeout(this._f);if(!Pages._cx?.stale)return;let n=0;const go=()=>{this._f=setTimeout(async()=>{if(!el.isConnected||Pages._cxEl!==el||this.checking)return;
+   let d=null;try{d=await UI('/ui/connections')}catch{}if(!el.isConnected||Pages._cxEl!==el||this.checking)return;
+   if(d&&d.at!==Pages._cx?.at){Pages._cx=d;if(typeof UL!=='undefined')UL.at=Date.now();this.repaint(el)}else if(++n<4)go();else{Pages._cx.stale=false;this.stamp(el)}},6000)};go()},
+ // new data drawn where it is: the rows that differ, the Needs you count and the time (the page again only when the Needs you tab comes or goes)
+ repaint(el){const d=Pages._cx;if(!el?.isConnected||!d)return;const n=d.rows.filter(cxNeeds).length,tb=el.querySelector('[data-tabs="connections"]');
+  if(tb){const nb=tb.querySelector('[data-tab="Needs you"]');if(!!nb!==!!n){this.pre=d;return reload()}const c=nb?.querySelector('.tab-n');if(c)c.textContent=n}
+  this.paintList(el);this.stamp(el);this.poll(el);if(this.d?.isConnected&&this.key){if(this.row(this.key))this.detail(this.key);else closeLayers()}},
+ // Check now (11 Nov 2026, owner: "the refresh don't work"): shows it is working (the button spins, the rows dim under a
+ // thin moving line), asks past every kept list (?check=1: every login scanned and checked again too), then says what it found
+ async check(){if(this.checking)return;const el=Pages._cxEl;if(!el?.isConnected)return reload();this.checking=true;
+  const btns=[...document.querySelectorAll('[data-act="cn-check"]')].filter(b=>!b.closest('.cn-checked')),was=btns.map(b=>b.innerHTML),lists=[...el.querySelectorAll('.cn-list')];
+  btns.forEach(b=>{b.disabled=true;b.setAttribute('aria-busy','true');b.innerHTML='<span class="spinner tiny"></span>Checking…'});lists.forEach(l=>l.classList.add('cn-checking'));this.stamp(el);
+  try{const d=await UI('/ui/connections?check=1');if(!el.isConnected)return;Pages._cx=d;if(typeof UL!=='undefined')UL.at=Date.now();clearTimeout(this._f);
+   const n=d.rows.filter(cxNeeds).length;toast('Checked just now · '+(n?(n===1?'1 needs you':n+' need you'):'nothing needs you'));this.checking=false;this.repaint(el)}
+  catch(e){fail(e)}
+  finally{this.checking=false;btns.forEach((b,i)=>{if(b.isConnected){b.disabled=false;b.removeAttribute('aria-busy');b.innerHTML=was[i]}});lists.forEach(l=>l.classList.remove('cn-checking'));if(el.isConnected)this.stamp(el)}},
  // fresh data in place: the list, and the open panel, without closing it
- async refresh(){const el=Pages._cxEl;try{const d=await UI('/ui/connections?fresh=1');if(!el?.isConnected)return;Pages._cx=d;this.paintList(el);this.poll(el);
+ async refresh(){const el=Pages._cxEl;try{const d=await UI('/ui/connections?fresh=1');if(!el?.isConnected)return;Pages._cx=d;this.paintList(el);this.stamp(el);this.poll(el);
   if(this.d?.isConnected&&this.key){const r=this.row(this.key);if(!r){closeLayers();return}await this.detail(this.key)}}catch(e){fail(e)}},
  async detail(key){const d=this.d;try{const x=await UI('/ui/connections/detail?key='+encodeURIComponent(key));if(!d?.isConnected||this.key!==key)return;this.cur=x;this.paint()}catch(e){if(d?.isConnected&&this.key===key&&!this.cur)d.querySelector('.cn-p').insertAdjacentHTML('beforeend',errLine('the rest of '+(this.row(key)?.name||'it')))}},
  open(key){const r=this.row(key);if(!r)return toast('That connection is gone. Reload the page.','err');this.key=key;this.cur={...r,tools:null};
@@ -105,13 +128,13 @@ const Cx={
   if(r.kind==='plugin'&&route().page?.id!=='plugins')B.push(`<button class="small" data-act="cn-go" data-to="/abilities/plugins">${icon('layers',14)}Open in Plugins</button>`);
   // on Keys itself: change the value or remove it, on the agent it belongs to
   if(r.kind==='key'&&admin){const env=String(r.id).split('@')[0];if(route().page?.id==='keys'){B.push(`<button class="small" data-act="key-edit" data-agent="${esc(r.owner||'')}" data-k="${esc(env)}">${icon('edit',14)}Change the value</button>`);if(!r.bot)B.push(`<button class="ghost small cn-dis" data-act="key-del" data-agent="${esc(r.owner||'')}" data-k="${esc(env)}">${icon('trash',14)}Remove from ${esc(cxOwnerName(r))}</button>`)}else B.push(`<button class="small" data-act="cn-go" data-to="/system/keys">${icon('key',14)}Change it under Keys</button>`)}
-  return top+reg+own+acc+code+rec+(B.length?`<section class="cn-sec cn-do"><div class="cn-btns">${B.join('')}</div><p class="hint cn-signst" hidden></p></section>`:'')},
+  return top+reg+own+acc+code+rec+(typeof TbHook!=='undefined'?TbHook.section(r):'')+(B.length?`<section class="cn-sec cn-do"><div class="cn-btns">${B.join('')}</div><p class="hint cn-signst" hidden></p></section>`:'')},
  // one change, then fresh data in place; the button shows it is working meanwhile
  async act(btn,path,body,ok){const was=btn?.innerHTML;if(btn){btn.disabled=true;btn.innerHTML='<span class="spinner tiny"></span>'+esc(btn.textContent.trim()||'')}
   try{const r=await post(UI,path,{key:this.key,...body});if(ok)toast(typeof ok==='function'?ok(r):ok);await this.refresh();return r}catch(e){if(btn?.isConnected){btn.disabled=false;btn.innerHTML=was}fail(e)}}};
 ACT['cn-open']=a=>Cx.open(a.dataset.key);
 ACT['cn-clear']=()=>{S.cxQ='';const i=$('#cnQ');if(i){i.value='';i.closest('.search')?.classList.remove('has-q');i.focus()}if(Pages._cxEl)Cx.paintList(Pages._cxEl)};
-ACT['cn-check']=()=>{Pages._cxFresh=true;reload()};
+ACT['cn-check']=()=>Cx.check();
 ACT['cn-go']=a=>{closeLayers();go(a.dataset.to)};
 ACT['cn-skill']=a=>{closeLayers();Pages.openSkill(a.dataset.name)};
 ACT['cn-lvl']=a=>{const r=Cx.cur,ag=a.dataset.agent,u=r?.users.find(x=>x.id===ag);if(!u)return;const opts=r.levels==='onoff'?['on','off']:r.provider==='google'||r.kind==='google'||/^Google/.test(r.label||'')?['read','edit','draft','full']:['read','draft','full'];   // edit: Google only (Sheets/Docs)
@@ -159,7 +182,7 @@ ACT['cn-test']=async a=>{const r=Cx.cur;if(!r)return;const st_=Cx.d?.querySelect
    agent you pick); Google accounts in their own dialog (google-connect.js), skills and plugins on their own pages */
 ACT['cn-more']=()=>{const el=Pages._cxEl;if(!el?.isConnected)return;const box=el.querySelector('.cn-rows'),y=box?.lastElementChild;Cx.shown=(Cx.shown||40)+60;Cx.paintList(el);y?.blur?.()};
 ACT['cn-add']=a=>menu(a,[{header:'Add'},{label:'An app from the catalog',icon:'plug',sub:'Slack, Notion, GitHub and more',run:()=>Cx.catalog()},{label:'An app by its address',icon:'link',sub:'A web address, or a command on the AI box',run:()=>Cx.byAddress()},
- {label:'A Google account',icon:'mail',sub:'Sign in with Google here',run:()=>GC.open({})},...(Pages._cx?.canEdit?[{label:'A login an agent uses as you',icon:'shield',sub:'A Telegram or other account in your name',run:()=>AccAdd.open()}]:[]),'-',
+ {label:'A Google account',icon:'mail',sub:'Sign in with Google here',run:()=>GC.open({})},{label:'Slack',icon:'chat',sub:'Your agent uses Slack as you',run:()=>SlackSetup.open({})},{label:'A Microsoft account',icon:'mail',sub:'Outlook mail, Calendar and OneDrive',run:()=>MsConnect.open({})},...(Pages._cx?.canEdit?[{label:'A login an agent uses as you',icon:'shield',sub:'A Telegram or other account in your name',run:()=>AccAdd.open()}]:[]),'-',
  {label:'A skill',icon:'wand',sub:'From the skill hub',run:()=>{S.tab.skills='Find more skills';go('/abilities/skills')}},{label:'A plugin',icon:'layers',run:()=>{S.tab.plugins='Browse';go('/abilities/plugins')}},...(Pages._cx?.canEdit?[{label:'A key',icon:'key',run:()=>go('/system/keys')}]:[])]);
 Cx.forAg=null;
 Cx.forBtn=()=>{const ag=Cx.forAg||S.profile||'default';return `<div class="cn-for"><span class="hint">For</span><button type="button" class="sel-btn inline" data-act="cn-for" aria-haspopup="menu">${agentAvatar(ag,18,{title:false})}<span class="sv">${esc(ident(ag).name)}</span>${icon('chevD',15)}</button><span class="hint">It owns it; give it to others after.</span></div>`};

@@ -21,7 +21,7 @@ test('names: the service and who it is, never an agent label',()=>{
  assert.equal(displayName({kind:'mcp-oauth',mcp:'notion-abel',url:'https://mcp.notion.com/mcp',identity:'Abel Owner · Abel For Work'}),'Notion · Abel For Work');
  assert.equal(displayName({kind:'mcp-oauth',mcp:'linear',url:'https://mcp.linear.app/mcp'}),'Linear · linear');
  assert.equal(displayName({kind:'telegram-user',paths:['/w/tg/abel.session']}),'Telegram · abel');
- assert.equal(appName('composio','https://connect.composio.dev/mcp'),'Composio');
+ assert.equal(appName('zapier','https://mcp.zapier.com/mcp'),'Zapier');
  assert.equal(appName('n8n','https://n8n.elmora.example/mcp-server/http'),'n8n');
  assert.equal(appName('slack-bot','https://mcp.slack.com/mcp'),'Slack · slack-bot');
  assert.equal(appName('pixel',''),'Pixel');assert.equal(appName('n8n-default','https://n8n.elmora.example/mcp-server/http'),'n8n default');assert.equal(appName('sesi-schedule',''),'Sesi schedule');
@@ -37,13 +37,13 @@ test('levels: which tools each level lets an agent use',()=>{
  assert.deepEqual(blockedTools(slack,canOf('read'),'slack').sort(),slack.filter(t=>toolLevel('slack',t)!=='read').sort());
  assert.deepEqual(blockedTools(slack,canOf('draft'),'slack').sort(),slack.filter(t=>toolLevel('slack',t)==='full').sort());
  assert.deepEqual(blockedTools(slack,canOf('full'),'slack'),[]);
- assert.deepEqual(['COMPOSIO_SEARCH_TOOLS','COMPOSIO_EXECUTE','COMPOSIO_MANAGE_CONNECTIONS'].map(t=>toolLevel('composio',t)),['read','full','full']);
+ assert.deepEqual(['ZAPIER_SEARCH_TOOLS','ZAPIER_EXECUTE','ZAPIER_MANAGE_CONNECTIONS'].map(t=>toolLevel('zapier',t)),['read','full','full']);
  assert.equal(levelOf(['read']),'read');assert.equal(levelOf(['read','draft']),'draft');assert.equal(levelOf(['read','draft','send']),'full');assert.equal(levelOf(undefined),'full')});
 
 // the sources as the box has them: one login shared by three agents, an app, a plugin, a key, skills, AdsPower
-const SRC=()=>({names,levels:{'mcp|composio':{'pine-agent':'read'}},
+const SRC=()=>({names,levels:{'mcp|zapier':{'pine-agent':'read'}},
  acc:{mcp:{items:[{kind:'mcp',id:'slack-pixel',label:'slack-pixel',detail:'https://mcp.slack.com/mcp',owner:'default',users:[{id:'default',name:'aqeelOS',signed:true}],ownerSigned:true,oauth:true},
-   {kind:'mcp',id:'composio',label:'composio',detail:'https://connect.composio.dev/mcp',owner:'default',users:[{id:'default',name:'aqeelOS',signed:true},{id:'pine-agent',name:'PixelAgent',signed:false}],ownerSigned:true,oauth:true},
+   {kind:'mcp',id:'zapier',label:'zapier',detail:'https://mcp.zapier.com/mcp',owner:'default',users:[{id:'default',name:'aqeelOS',signed:true},{id:'pine-agent',name:'PixelAgent',signed:false}],ownerSigned:true,oauth:true},
    {kind:'mcp',id:'n8n',label:'n8n',detail:'https://n8n.elmora.example/mcp-server/http',owner:'default',own:true,ownerName:'aqeelOS',ownNote:'every agent has its own n8n user',users:[{id:'pine-agent',name:'PixelAgent',signed:true}]}]},
   google:{items:[{kind:'google',id:'owner@example.com',owner:'default',users:[{id:'default',name:'aqeelOS',signed:true},{id:'cove-threads',name:'Threads',signed:true}]}]},
   plugin:{items:[{kind:'plugin',id:'claude-login',label:'claude-login',owner:'default',users:[{id:'default',name:'aqeelOS'},{id:'sela',name:'Sela'}]}]},
@@ -65,7 +65,7 @@ test('one row per connection, merged from every source',()=>{const rows=buildRow
  // two Notion sign-ins to one workspace are told apart; the one nobody registered comes first
  assert.deepEqual(rows.filter(r=>r.name.startsWith('Notion')).map(r=>r.name).sort(),['Notion · Abel For Work (notion)','Notion · Abel For Work (notion-abel)']);assert.equal(rows[0].key,'ca:mcp:notion-abel');
  // an app with its levels, one agent not signed in; n8n has no owner agent
- const c=by('mcp:composio');assert.equal(c.type,'app');assert.equal(c.name,'Composio');assert.deepEqual(c.users.map(u=>u.level),['full','read']);assert.equal(c.status,'signin');
+ const c=by('mcp:zapier');assert.equal(c.type,'app');assert.equal(c.name,'Zapier');assert.deepEqual(c.users.map(u=>u.level),['full','read']);assert.equal(c.status,'signin');
  assert.equal(by('mcp:n8n').owner,null);assert.equal(by('mcp:n8n').levels,'none');
  // skills: on or off per agent; a skill kept for the main agent says so
  const k=by('skill:seo');assert.deepEqual(k.users.map(u=>[u.id,u.level]),[['default','on'],['pine-agent','off']]);assert.deepEqual(k.canUse,['default']);assert.deepEqual(by('skill:my-task-hub').only,[]);
@@ -83,7 +83,7 @@ test('who may change what',()=>{const rows=buildRows(SRC());const by=k=>rows.fin
  // skills on an agent they may edit, with the skills right there
  assert.ok(mayChange(member,by('skill:seo'),'level','pine-agent'));assert.ok(!mayChange(member,by('skill:seo'),'level','default'));assert.ok(!mayChange(member,by('skill:seo'),'owner','pine-agent'));
  // apps: a level on their own agent, but adding copies the owner's sign-in, so it needs the owner agent too
- const c=by('mcp:composio');assert.ok(mayChange(member,c,'level','sela'));assert.ok(!mayChange(member,c,'add','sela'));assert.ok(!mayChange(member,c,'owner','sela'));
+ const c=by('mcp:zapier');assert.ok(mayChange(member,c,'level','sela'));assert.ok(!mayChange(member,c,'add','sela'));assert.ok(!mayChange(member,c,'owner','sela'));
  assert.ok(mayChange({...member,level:a=>a==='sela'||a==='default'?'owner':null},c,'add','sela'));assert.ok(!mayChange(member,c,'level','pine-agent'))});
 
 // a level change end to end: the app's tools on one agent (and its extra number), through the engine dashboard

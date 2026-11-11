@@ -42,7 +42,7 @@ function applyRole(){
  // Code on their own computer, with the agents shared with them (online projects stay with admins: the AI box has one Linux user)
  {const c=SECTIONS.find(s=>s.id==='code');if(c)out.push(c)}
  if(has('schedules'))out.push({id:'automations',label:'Automations',icon:'zap',pages:[pg('automations','schedules')]});
- out.push({id:'abilities',label:'Abilities',icon:'puzzle',pages:[...(has('skills')?[pg('abilities','skills')]:[]),...(has('mcp')?[pg('abilities',SECTIONS.find(x=>x.id==='abilities')?.pages.some(q=>q.id==='connections')?'connections':'mcp')]:[])   /* Connected apps became Connections (1 Nov 2026): members with the apps right get the new page */,pg('agents','files',{desc:'Your own folder. Your agents can read what you put here.'})]});
+ out.push({id:'abilities',label:'Abilities',icon:'puzzle',pages:[...(has('skills')?[pg('abilities','skills')]:[]),...(has('mcp')?[pg('abilities',SECTIONS.find(x=>x.id==='abilities')?.pages.some(q=>q.id==='connections')?'connections':'mcp')]:[])   /* Connected apps became Connections (1 Nov 2026): members with the apps right get the new page */,...(owns?[pg('abilities','plugins',{desc:'Add-ons for the agents you own. Turn one on for an agent there.'})]:[])   /* personal add-ons (11 Nov 2026) */,pg('agents','files',{desc:'Your own folder. Your agents can read what you put here.'})]});
  // their Usage page: the same page as admins', for them only, with how full each AI account is (1 Nov 2026; it was called Accounts)
  if(has('usage'))out.push({id:'models',label:'Models',icon:'cpu',pages:[{id:'usage',label:'Usage',icon:'chart',desc:'What you used, and how much of each AI account is used.'}]});
  {const h=SECTIONS.find(s=>s.id==='help');if(h)out.push(h)}   // Help is everyone's, last in the menu
@@ -834,12 +834,10 @@ const OAUTH_APP_HELP={slack:['Slack','https://api.slack.com/apps','Create New Ap
  github:['GitHub','https://github.com/settings/developers','New OAuth App, with the Redirect URL below as the callback URL.']};
 async function mcpClientDrawer(name,reason,agent=agentProfile()||'default'){let redirect='';try{redirect=(await UI('/ui/mcp/oauth-redirect?name='+encodeURIComponent(name))).redirect}catch{}
  const key=Object.keys(OAUTH_APP_HELP).find(k=>name.toLowerCase().includes(k));const [who,link,how]=OAUTH_APP_HELP[key]||[pretty(name),'','Create an OAuth app with this service, add the Redirect URL below to it, then paste its Client ID and Secret.'];
- const d=drawer('Connect '+pretty(name),`<div class="panel card" style="box-shadow:none;margin:0 0 14px;padding:14px 16px"><b style="font-size:13.5px">Can’t create an app?</b><p class="hint" style="margin:4px 0 10px">Composio has a ready-made ${esc(who)} connection: one click on Allow. Its free plan has a limit on actions and costs money beyond it, so the steps below (free) come first.</p><button id="ocComposio">${icon('plug',15)}Use Composio instead</button></div>
-  <p class="hint" style="margin:0 0 10px"><b>Or set up your own app.</b> ${esc(who)} does not let apps register themselves, so it needs an app of your own (one time). ${esc(how)}${link?` <a href="${esc(link)}" target="_blank" rel="noopener">Open ${esc(who)}’s app page</a>`:''}</p>
+ const d=drawer('Connect '+pretty(name),`<p class="hint" style="margin:0 0 10px"><b>Set up your own app.</b> ${esc(who)} does not let apps register themselves, so it needs an app of your own (one time). ${esc(how)}${link?` <a href="${esc(link)}" target="_blank" rel="noopener">Open ${esc(who)}’s app page</a>`:''}</p>
   <label>Redirect URL (paste into ${esc(who)})</label><div style="display:flex;gap:8px"><input id="ocRedir" readonly value="${esc(redirect)}"><button class="ghost" id="ocCopy">${icon('copy',15)}Copy</button></div>
   <label>Client ID</label><input id="ocId" autocomplete="off"><label>Client Secret</label><input id="ocSecret" type="password" autocomplete="new-password">
   ${reason?`<p class="hint" style="margin-top:12px">Engine said: ${esc(reason.split('\n')[0])}</p>`:''}`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="ocGo">Save and sign in</button>`);
- d.querySelector('#ocComposio').onclick=()=>{closeLayers();useComposio(who)};
  d.querySelector('#ocCopy').onclick=()=>copyText(redirect);
  d.querySelector('#ocGo').onclick=async()=>{try{await post(UI,'/ui/mcp/oauth-client',{agent,name,client_id:$('#ocId').value,client_secret:$('#ocSecret').value});closeLayers();await new Promise(r=>setTimeout(r,2500));ACT['mcp-auth']({dataset:{name,agent}})}catch(e){fail(e)}}}
 ACT['mcp-auth']=async a=>{const name=a.dataset.name,agent=a.dataset.agent||agentProfile()||'default';
@@ -881,19 +879,6 @@ ACT['agent-purge']=async a=>{if(!await confirmBox('Delete '+a.dataset.name+' for
 ACT['agent-restore']=async a=>{if(!await confirmBox('Restore '+a.dataset.name+'?','It comes back as it was when it was deleted.','Restore',false))return;a.disabled=true;
  try{await post(UI,'/ui/agent-restore',{file:a.dataset.file});S._viewList=null;toast(a.dataset.name+' is back');laterReload(1500)}catch(e){a.disabled=false;fail(e)}};
 
-/* Composio: one sign-in for hundreds of apps (Slack, Gmail, Google Drive, GitHub…). The rule: an app's own
-   MCP tool when it connects easily, otherwise Composio. Added to the agent on first use. */
-async function useComposio(app){const agent=(agentProfile()||'default');
- try{const have=((await H('/mcp/servers')).servers||[]).find(x=>/connect.composio.dev|rube.app/.test(x.url||''));
-  const name=have?.name||'composio';if(!have){await post(H,'/mcp/servers',{name,url:'https://connect.composio.dev/mcp'});toast('Composio added')}
-  if(have&&have.auth==='oauth'&&have.tools?.length){toast('Composio is connected. Ask '+ident(agent).name+' to use '+(app||'the app')+'; it gives you a link if '+(app||'that app')+' still needs connecting.');return}
-  ACT['mcp-auth']({dataset:{name}});toast('Sign in to Composio in the new tab'+(app?', then connect '+app+' there':''))}catch(e){fail(e)}}
-ACT['use-composio']=a=>useComposio(a.dataset.app||'');
-// catalog: apps that need their own app (no automatic sign-in) get a Composio shortcut
-{const base=PAGES.mcp;PAGES.mcp=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;if(S.me?.admin===false)return;
- const tabs_=el.querySelector('.tabs, [role=tablist]');if(!el.querySelector('.composio-note')&&!(Pages._mcp||[]).some(m=>/composio/.test((m.name||'')+' '+(m.url||'')))){const n=document.createElement('div');n.className='panel card composio-note';
-  n.innerHTML=`<div class="row" style="padding:0;border:0"><div class="main-c"><span class="ic blue">${icon('plug',16)}</span><div class="txt"><b>Last resort for hard-to-connect apps: Composio</b><span>One sign-in reaches 500+ apps, but its free plan has a limit on actions and costs money beyond it. Agents try an app’s own tool, a built-in skill or the browser first, and ask before using Composio.</span></div></div><div class="act"><button data-act="use-composio">${icon('plug',15)}Set up Composio</button></div></div>`;
-  (tabs_||el.firstElementChild)?.after(n)}}}
 
 /* ---------- Chat › usage %: a small card with this account's limits, right where you are ---------- */
 ACT['meter-card']=a=>{document.querySelector('.meter-card')?.remove();const prov=Chat.cur()?.provider||Chat.defProv;const ws=(Chat.usage||{})[prov]||[];if(!ws.length)return;

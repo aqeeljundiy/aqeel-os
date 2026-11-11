@@ -16,10 +16,14 @@ import {createIssues,engineSortRun,personOf} from './issues.mjs';
 import {createAgentMemory} from './agent-memory.mjs';
 import {createTeamSettings} from './team-settings.mjs';
 import {createCodeChanges} from './code-changes.mjs';
+import {withTebar} from './tebar-app.mjs';   // Tebar in the catalog: one click sign-in, or a pasted API key (11 Nov 2026)
+import {createTebar} from './tebar.mjs';   // Tebar webhooks: failed posts and expired accounts as alerts, comments and DMs as notices (11 Nov 2026)
 import {mcpAddProblem} from './mcp-add-check.mjs';   // an app added by address: no spaces in its name, no Google file links (11 Nov 2026)
+import {createAddons,probeMcp,RUNS_CODE_MSG} from './addons.mjs';   // personal add-ons: who added what, the admin block list, "is it an MCP tool" (11 Nov 2026)
+import {setupGuideLines} from './setup-guide.mjs';   // how every agent onboards people to any app (11 Nov 2026)
 import {createEscalations} from './escalations.mjs';
 import {createConnect,firstModelFor} from './connect.mjs';
-import {createOptins,COMPOSIO as COMPOSIO_URL,appNames,solvedIssues} from './agent-optins.mjs';
+import {createOptins,appNames,solvedIssues} from './agent-optins.mjs';
 import {isConnector as isConnectorEntry} from './connectors.mjs';
 import {createAntigravity} from './antigravity.mjs';
 import {createSlackQuiet,slackQuietPlan} from './slack-quiet.mjs';
@@ -71,6 +75,8 @@ import {createHelp} from './help.mjs';
 import {createLive} from './live.mjs';
 import {createBackups} from './backup.mjs';
 import {createGoogleConnect} from './google-connect.mjs';   // Connect Google in the app (7 Nov 2026)
+import {createSlackConnect} from './slack-connect.mjs';   // Set up Slack: one install app for the official Slack MCP (11 Nov 2026)
+import {createMicrosoftConnect} from './microsoft-connect.mjs';   // Connect Microsoft 365 in the app (11 Nov 2026)
 import {createMcpEdit} from './mcp-edit.mjs';   // edit an app that is already added, its key (7 Nov 2026)
 import {createPluginHost} from './plugin-host.mjs';
 import {createEngineUpdates} from './engine-updates.mjs';
@@ -84,6 +90,7 @@ import {createConnections} from './connections.mjs';
 import {createSecretLinks,createLimiter} from './secret-links.mjs';
 import {createGoogleShares} from './google-shares.mjs';
 import {createGoogleFiles} from './google-files.mjs';
+import {createGoogleTools,GOOGLE_TOOLS,GOOGLE_TOOL_NAMES} from './google-tools.mjs';   // Google with no terminal (11 Nov 2026)
 import {createKirimdev,publicReach,LABEL_NEVER} from './kirimdev.mjs';
 import {createKirimdevAgent,createImageReader} from './kirimdev-agent.mjs';
 import {createPostingLimits} from './posting-limits.mjs';
@@ -329,7 +336,7 @@ async function writeJsonAtomic(f,v){await mkdir(path.dirname(f),{recursive:true}
 // the Google accounts an agent has, with what the person called them, for its working notes
 async function googleContext(a){const home=a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);const L=await googleLabels();const out=[];
  for(const f of (await readdir(home).catch(()=>[])).sort()){const m=/^google_token(?:_([\w.-]+))?\.json$/.exec(f);if(!m)continue;let email='';try{email=JSON.parse(await readFile(path.join(home,f),'utf8')).account||''}catch{}
-  const n=m[1]||'',x=L[a+'|'+n]||{};out.push('- '+(x.label?'"'+x.label+'"':n?'"'+n+'"':'"Main Google account"')+(email?' ('+email+')':'')+': '+(n?'use --account '+n:'the default, no --account flag')+(x.note?'. '+x.note:''))}
+  const n=m[1]||'',x=L[a+'|'+n]||{};out.push('- '+(x.label?'"'+x.label+'"':n?'"'+n+'"':'"Main Google account"')+(email?' ('+email+')':'')+': '+(n?'account: '+n+' in the google_* tools (--account '+n+' in the skill)':'the main one: leave account out (no --account flag)')+(x.note?'. '+x.note:''))}
  return out}
 /* Every agent and every extra-number copy gets the aqeelOS tool (aqeelos-notify): send_to_person, and
    connect_mcp_tool for sign-ins. Its address is signed per agent. A test copy only touches agents it made. */
@@ -376,7 +383,7 @@ async function ensureChatHint(a){const cfgFile=path.join(a==='default'?HERMES_HO
 async function refreshNames(){for(const a of await listAgents().catch(()=>[]))NAMES[a]=await displayName(a).catch(()=>NAMES[a]||prettyId(a))}
 setTimeout(()=>refreshNames().catch(()=>{}),0);setInterval(()=>refreshNames().catch(()=>{}),300000).unref();
 async function writeAgentContext(){const all=await listAgents();const names={};for(const a of all)names[a]=NAMES[a]=await displayName(a);
- // whether this install has its Google client yet (11 Nov 2026: Fakhri's agent offered Composio because it knew no free Google route)
+ // whether this install has its Google client yet (11 Nov 2026: Fakhri's agent offered a paid middleman because it knew no free Google route)
  const gClient=!!(await gconnect.info().catch(()=>null))?.client;
  for(const a of all){await ensureChatHint(a).catch(e=>console.warn('chat hint',a,e.message));try{const me=names[a];
   // every agent has its own screen and its own AdsPower on it (1 Nov 2026: the AdsPower copy agents shared is gone)
@@ -397,7 +404,7 @@ async function writeAgentContext(){const all=await listAgents();const names={};f
    others?'- Other agents have their own screens: '+others+'.':null,
    'When you start working in a browser or in AdsPower, say which screen to watch, for example: "I am working on '+me+"'s screen"+'." If the person needs to sign in or solve a check themselves, tell them to open that screen and press Take over.',
    // F: what this agent's person's role lets it do (read live from People; a promotion or demotion changes it at once)
-   ...((pw=>pw.tier==='member'?['','## Your power','','You act for '+pw.person.name+' and your power is their role in aqeelOS, never more: aqeelOS checks it on every call. You may run and change yourself and the agents '+pw.person.name+' owns (manage_agent'+(pw.lead?', you are their lead agent':'')+')'+(pw.maxAgents!=null?'; they may own up to '+pw.maxAgents+' agents':'')+(pw.models?'; only the models their role allows':'')+'. You cannot change aqeelOS itself (its code, the web app), deploy websites, touch other people\'s agents, see the owner\'s keys or accounts unless shared with you, change permissions or sharing levels, spend money or delete anything outside your person\'s agents. When asked for one of those, say plainly that it is for the owner of aqeelOS.']:[])(users.powerOf(a))),
+   ...((pw=>pw.tier==='member'?['','## Your power','','You act for '+pw.person.name+' and your power is their role in aqeelOS, never more: aqeelOS checks it on every call. You may run and change yourself and the agents '+pw.person.name+' owns (manage_agent'+(pw.lead?', you are their lead agent':'')+')'+(pw.maxAgents!=null?'; they may own up to '+pw.maxAgents+' agents':'')+(pw.models?'; only the models their role allows':'')+'. You cannot change aqeelOS itself (its code, the web app), deploy websites, touch other people\'s agents, see the owner\'s keys or accounts unless shared with you, change permissions or sharing levels, spend money or delete anything outside your person\'s agents. When asked for one of those, say plainly that it is for the owner of aqeelOS. Connecting apps (MCP links, the catalog, API keys), skills and reviewed plugins to yourself is not one of those: it is '+pw.person.name+'\'s own add-on, never limited by their role, so do it (Setup guide below).']:[])(users.powerOf(a))),
    ...(locked?['','## Changing settings','',
     'You have no terminal or file tools, so you cannot change your own settings, and that is on purpose. When someone asks to change how you or your channels behave (notices such as "Redirected current run", your model, what you may use, who may message you), say plainly that you cannot change it yourself and that it is changed in aqeelOS on the Settings page (System › Settings, with "Showing: '+me+'" picked at the top). Who may message you is on Channels › Who can message (that page approves people; which Slack channels you listen to is not on any page yet, so say the aqeelOS owner changes it on the AI box); apps are on Abilities › Connected apps.',
     'Never send anyone to a website or to documentation for this, and never say "an admin" has to do it.']
@@ -411,31 +418,34 @@ async function writeAgentContext(){const all=await listAgents();const names={};f
    ...(!locked&&!lockedAgent(a,{})?['','## When you are missing a tool, a permission or a connection','',
     'Nothing here waits for a developer. When you (or another agent, when the person asks about it) cannot do something only because of a setting, a missing connection or a missing action in a tool, fix it yourself, then do the job. Never answer that it needs a developer, a code change, Claude, the app instead of Slack, or more permission from the person when you can change it from here:',
     '1. Settings: `aqeelos -p <agent> config show` shows what limits an agent: `platform_toolsets` (tools per channel; a channel should have the same as the app unless the person said otherwise), `agent.disabled_toolsets`, `approvals.mode`, `mcp_servers.<name>.enabled`. Change it with `aqeelos -p <agent> config set <key> <value>`.',
-    '2. A connected app another agent already has (Notion, Slack, Composio…): aqeelOS gives every agent a plain copy of each app, not signed in. Sign in your own with connect_mcp_tool, or ask the owner to share theirs with you (Abilities › Access, sharing levels). Never copy another agent’s `mcp-tokens` sign-in files or app keys: that would act as them.',
+    '2. A connected app another agent already has (Notion, Slack…): aqeelOS gives every agent a plain copy of each app, not signed in. Sign in your own with connect_mcp_tool, or ask the owner to share theirs with you (Abilities › Access, sharing levels). Never copy another agent’s `mcp-tokens` sign-in files or app keys: that would act as them.',
     '3. A tool that lacks one action (it can update a sheet but not create one): add the action to that tool\'s server, or write a small skill or MCP tool for it, and try it once from the terminal before using it.',
     '4. Then call apply_changes (from aqeelos-notify) once, finish your turn with what you changed, and do the job in the next turn. Never restart the gateway any other way.',
     'Ask the person first only when the change reaches outside the team (sharing with outside people, messaging clients), spends money, or deletes something. Everything else: do it and say in one line what you changed.']:[]),
    // the main agent rule (agent-access.mjs): give another agent what it lacks so it fixes its own work; others: the agents shared with them
    ...(a===agentAccess.MAIN?MAIN_RULE_LINES:await agentAccess.managed(a).then(m=>m.length?['','## Agents you look after','','You may look after these agents with manage_agent, at the level shown: '+m.map(x=>(names[x.agent]||x.agent)+' ('+x.agent+', '+x.level+')').join(', ')+'. Viewer reads its setup and logs; editor also changes its instructions, skills and schedules; manager also its settings and who else may look after it. Their keys are never shown to you.']:[]).catch(()=>[])),
-   '','## Apps and accounts: free ways first','',
-   'For an outside app (Slack, Gmail, Google Drive, Notion, GitHub, Google Cloud…), try the free ways first, in this order:',
-   '1. That app’s own MCP tool, if you have it (connect it with connect_mcp_tool when it needs a sign-in).',
-   '2. A built-in skill that covers it (for example the Google Workspace skill for Gmail, Drive, Calendar, Sheets and Docs).',
-   '3. The browser on your screen, where the person can watch and sign in themselves. Good for one-off jobs in a web console (setting something up, inviting someone, changing a setting).',
-   'Only when those cannot do it, or the setup needs an app or admin access the person does not have, suggest Composio. Say plainly: "Composio is quick (one click on Allow, nothing to set up), but its free plan has a limit on actions and costs money beyond it." Use it only after the person agrees.',
+   '','## Apps and accounts: connect the app directly','',
+   'For an outside app (Slack, Gmail, Google Drive, Notion, GitHub, Google Cloud…), connect to the app itself, never through a middleman service. In this order:',
+   '1. That app’s own MCP tool from the aqeelOS catalog, with its own sign-in (connect it with connect_mcp_tool).',
+   '2. The app’s own API key: the person creates it in that app’s settings and gives it to you with ask_secret or request_secret_link (never in the chat).',
+   '3. A built-in tool or skill that covers it (for Gmail, Drive, Calendar, Sheets and Docs: the google_* tools from aqeelos-notify), or a small skill or MCP tool of your own on this server.',
+   '4. The browser on your screen, where the person can watch and sign in themselves. Good for one-off jobs in a web console (setting something up, inviting someone, changing a setting).',
+   'When none of these works yet (the setup needs an app or admin access the person does not have), say plainly what is missing and who can give it, and report it with report_bottleneck.',
    'Choosing where it runs: a one-off job can be done in the browser now. Anything that must keep running (schedules, automatic replies, regular reports) needs a tool or skill on this server, so set that up instead of relying on the browser.',
    'Which browser: before your first browser step in a chat, call choose_browser (from aqeelos-notify) with the task and your suggestion: "yours" (the person\'s own Chrome, where they are already signed in) for one-off jobs in web consoles, "server" (your screen on the AI box) for anything scheduled, long-running or done while they are away. Follow their answer for the rest of that chat.',
    ...connectLines(notConnected(cfgA,n=>connTok.has(n))),
+   ...setupGuideLines({publicUrl:PUBLIC_URL,google:gClient,admin:adminTier(a)}),
    '','## Google (Gmail, Drive, Sheets, Calendar, Docs)','',
-   gClient?'Google is set up on this aqeelOS. To connect a Google account, use the Google Workspace skill and send the person its sign-in link (setup.py --auth-url), or tell them to do it themselves in aqeelOS: Connections › Add › A Google account (anyone can, for their own agents). Never offer Composio for Google.'
-    :'Google is not set up on this aqeelOS yet. Tell the person exactly this: "An admin sets up Google once for everyone (free, about 5 minutes) in aqeelOS: Connections › Add › A Google account. After that you connect your own Google account there, or I send you a sign-in link." Offer Composio only if they say no admin can do it, and say its free plan has a limit on actions and costs money beyond it.',
-   'A link to a Google Sheet, Doc or Drive file is not a tool: never add one as an MCP tool or app. Keep the link in your notes and reach the file with the Google Workspace skill once a Google account is connected.',
+   'Use the google_* tools (from aqeelos-notify) for Google: google_gmail (search, read, draft, send), google_sheets (read, write, append, create), google_drive (search, read, upload), google_docs (read, create, append), google_calendar (list, create); google_accounts lists your accounts and what each may do. They need no terminal and act with your own Google sign-in. Send mail (google_gmail send) or calendar invitations (notify true) only after the person approved the exact text and recipients; otherwise save a draft.'+(locked?' You have no terminal, so these tools are your only way to Google: never offer the Google Workspace skill, gws or a terminal command.':' For anything they do not cover, use the Google Workspace skill in your terminal.'),
+   gClient?'Google is set up on this aqeelOS. To connect a Google account, call google_accounts with connect true and send the person the link it gives (works without a terminal), or tell them to do it themselves in aqeelOS: Connections › Add › A Google account (anyone can, for their own agents).'
+    :'Google is not set up on this aqeelOS yet. Tell the person exactly this: "An admin sets up Google once for everyone (free, about 10 minutes): in aqeelOS, Connections › Add › A Google account walks them through it step by step. After that you connect your own Google account there, or I send you a sign-in link." If they say no admin can do it, report it with report_bottleneck so the owner sets it up.',
+   'A link to a Google Sheet, Doc or Drive file is not a tool: never add one as an MCP tool or app. Keep the link in your notes and reach the file with the google_* tools (the id or the link works) once a Google account is connected.',
    '','## Connecting an MCP tool that needs a sign-in','',
-   'Never use manage_connections (authorize/install/enable) or “hermes mcp login” for MCP tools, and never a 127.0.0.1 / localhost callback: the person is not at this server, so that page never opens for them. Add the tool (with its client ID/secret if the service needs its own app), then call the connect_mcp_tool tool (from aqeelos-notify) and send the person its steps exactly as written. Never make up steps, addresses or commands for connecting: the people using this are often not technical, so keep it to what the tool says. When the tool recommends Composio, offer that first. aqeelOS sets the return address itself: '+PUBLIC_URL+'/mcp-oauth/api/mcp/oauth/callback/<tool name> (this is what goes in the service’s Redirect URLs).',
+   'Never use manage_connections (authorize/install/enable) or “hermes mcp login” for MCP tools, and never a 127.0.0.1 / localhost callback: the person is not at this server, so that page never opens for them. Add the tool (with its client ID/secret if the service needs its own app), then call the connect_mcp_tool tool (from aqeelos-notify) and send the person its steps exactly as written. Never make up steps, addresses or commands for connecting: the people using this are often not technical, so keep it to what the tool says. aqeelOS sets the return address itself: '+PUBLIC_URL+'/mcp-oauth/api/mcp/oauth/callback/<tool name> (this is what goes in the service’s Redirect URLs).',
    '','## Logins that act as the person','',
-   'When you create a login that acts as the person (their own Google account, a Slack or Notion sign-in as them, their personal Telegram account, anything where what you do goes out under their name), call register_account (from aqeelos-notify) right after, with what it is, what they agreed you may do (read, draft, send) and where the credential is stored. Bots and services (n8n, Composio, API keys) are not this. The owner sees these under Abilities › Connections and can pause or disconnect them; a paused account says so when you use it: then stop and tell the person.',
+   'When you create a login that acts as the person (their own Google account, a Slack or Notion sign-in as them, their personal Telegram account, anything where what you do goes out under their name), call register_account (from aqeelos-notify) right after, with what it is, what they agreed you may do (read, draft, send) and where the credential is stored. Bots and services (n8n, API keys) are not this. The owner sees these under Abilities › Connections and can pause or disconnect them; a paused account says so when you use it: then stop and tell the person.',
    ...(gacc.length?['','## Your Google accounts','',
-    'The person named these and said what each is for. When they mention one by its name ("from my work account") or the job fits its note, use that account with the Google Workspace skill; when it is unclear which one, ask.',...gacc]:[]),
+    'The person named these and said what each is for. When they mention one by its name ("from my work account") or the job fits its note, use that account (account in the google_* tools); when it is unclear which one, ask.',...gacc]:[]),
    '','## Your instructions','',
    'Your standing instructions are your SOUL. When the person who owns you gives you a new rule, limit, target or correction, change it with change_instructions (from aqeelos-notify): edit the rule where it is written, so each rule is said once. Never append an "override" section, never edit SOUL.md directly, and never keep rules, caps or limits in memory or in a separate decisions file: aqeelOS keeps the history of your instructions with who decided what and when, and that is the one place for decisions. Run reports and logs go to your log channel, not into your instructions.',
    '','## Keep schedules tidy','',
@@ -465,12 +475,15 @@ async function writeAgentContext(){const all=await listAgents();const names={};f
 const signinsDue=new Map();let signinsAt=0;
 // a connected app in words people know: which service, which account, and what stops working without it
 const APP_KINDS=[[/slack\.com/,'Slack','read and post in Slack'],[/notion\.com/,'Notion','read and edit your Notion pages'],[/n8n/,'n8n','find and run your n8n workflows'],
- [/composio/,'App connector (Composio)','use the apps you linked in Composio'],[/github/,'GitHub','work with your GitHub repositories'],[/linear/,'Linear','read and update Linear issues'],[/google|gmail/,'Google','use your Google apps']];
+ [/github/,'GitHub','work with your GitHub repositories'],[/linear/,'Linear','read and update Linear issues'],[/google|gmail/,'Google','use your Google apps']];
 function appInfo(name,url){const k=APP_KINDS.find(([re])=>re.test(String(url||'')+' '+name))||[null,pretty0(name),'use '+pretty0(name)];
- const acct=String(name).toLowerCase().replace(/^(slack|notion|n8n|composio|github|linear|google)[-_]?/,'');const account=acct&&acct!==String(name).toLowerCase()?pretty0(acct):'';
+ const acct=String(name).toLowerCase().replace(/^(slack|notion|n8n|github|linear|google)[-_]?/,'');const account=acct&&acct!==String(name).toLowerCase()?pretty0(acct):'';
  return {app:k[1],account,label:k[1]+(account?' ('+account+')':''),does:k[2],url:url||''}}
 const pretty0=x=>String(x||'').replace(/[-_]+/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
-async function checkSignins(){const h={'x-hermes-session-token':DASH_TOKEN};const seen=new Set();
+// one round at a time (Connections › Check now asks for one too; it takes minutes with many agents)
+let signinsRun=null;
+function checkSignins(){return signinsRun||=checkSigninsNow().finally(()=>{signinsRun=null})}
+async function checkSigninsNow(){const h={'x-hermes-session-token':DASH_TOKEN};const seen=new Set();
  for(const a of await listAgents()){let list=[];try{const r=await fetch(DASH.origin+'/api/mcp/servers?profile='+encodeURIComponent(a),{headers:h,signal:AbortSignal.timeout(15000)});list=(await r.json()).servers||[]}catch{continue}
   for(const s of list){if(s.auth!=='oauth'||s.enabled===false)continue;const key=a+'|'+s.name;seen.add(key);
    const tok=path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'mcp-tokens',s.name+'.json');let why='';
@@ -602,8 +615,8 @@ async function agentHealth(only){const h={'x-hermes-session-token':DASH_TOKEN};c
    if(y.includes('aqeelos-notify')&&!/^  connectors:\n(?:    .*\n)*?    enabled: false/m.test(y)){const r=await setKey(a,'tools.connectors.enabled','false');
     if(r.ok)console.log('health',a,'switched off the engine connector tool (agents use connect_mcp_tool)');else if(await isAgent(a))console.warn('health',a,'connector tool:',r.err)}}
   const sv=await fetch(DASH.origin+'/api/mcp/servers?profile='+encodeURIComponent(a),{headers:h}).then(r=>r.json()).catch(()=>({}));
-  for(const m of sv.servers||[]){if(!m.url||/127.0.0.1|localhost/.test(m.url))continue;if(m.auth!=='oauth'&&!/connect.composio.dev|rube.app/.test(m.url))continue;
-   const r=await sharing.prepareSignin(a,m.name,MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(m.name)).catch(()=>null);if(r?.changed)console.log('health',a,m.name,'set the public sign-in address')}}
+  for(const m of sv.servers||[]){if(!m.url||/127.0.0.1|localhost/.test(m.url))continue;if(m.auth!=='oauth')continue;
+   const r=await sharing.prepareSignin(a,m.name,MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(m.name),null,slackClientFor).catch(()=>null);if(r?.changed)console.log('health',a,m.name,'set the public sign-in address')}}
   catch(e){if(await isAgent(a))console.warn('health',a,e.message)}}}
 /* The engine. aqeelOS restarts it one way only: wait for replies in progress (up to 10 minutes), stop whichever
    gateway runs (also one the engine started by itself), and start it in its managed session with the full
@@ -745,35 +758,34 @@ const sweepGhosts=async()=>{for(const d of await readdir(path.join(HERMES_HOME,'
 if(LIVE_APP){setTimeout(()=>sweepGhosts().catch(()=>{}),40000);setInterval(()=>sweepGhosts().catch(()=>{}),30*60e3).unref()}
 const sharing=createShare({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAgents()});
 // every sign-in-page app any agent has, on every agent, not signed in (connectors.mjs): each signs in its own or the owner shares
-/* AdsPower and Composio per agent (agent-optins.mjs, 7 Nov 2026): off unless switched on in Edit agent › Abilities; the first
-   start keeps each only for agents that ran its tools in the last 14 days. Copies follow their agent. */
+/* AdsPower and sign-in apps per agent (agent-optins.mjs, 7 Nov 2026): off unless switched on in Edit agent › Abilities; the
+   first start keeps each only for agents that ran its tools in the last 14 days. Copies follow their agent. */
 const optins=createOptins({DATA,HERMES_HOME,listAgents:()=>agentNames({copies:true}),readConfig,python:enginePython,live:LIVE_APP,
  note:(t,d)=>bottlenecks.event('abilities',t,d,{info:true}),log:m=>console.log(m)});
-// Composio entries of agents switched off for it go (through the engine's MCP route, so the running engine follows)
-// sign-in app entries an agent has switched off go (Composio by its own switch, every other sign-in app by its name), through
-// the engine's MCP route so the running engine follows; one pass for every agent, then nothing more to remove
+// sign-in app entries an agent has switched off go (by their name), through the engine's MCP route so the running engine
+// follows; one pass for every agent, then nothing more to remove
 const keepNewApp=async(a,n)=>{if(await optins.appOffOnPurpose(a,n))return false;if(a.split('--')[0]==='default')return true;
  const home=a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);return !!await stat(path.join(home,'mcp-tokens',n+'.json')).catch(()=>null)};
-async function composioOff(only){for(const a of await agentNames({copies:true})){if(only&&a.split('--')[0]!==only)continue;
+async function appsOff(only){for(const a of await agentNames({copies:true})){if(only&&a.split('--')[0]!==only)continue;
  const c=await readConfig(a).catch(()=>null)||{};for(const [n,e] of Object.entries(c.mcp_servers||{})){if(!e)continue;
-  const comp=COMPOSIO_URL.test(String(e.url||''));if(comp?await optins.on('composio',a):!isConnectorEntry(e)||await optins.appOn(a,n))continue;
+  if(!isConnectorEntry(e)||await optins.appOn(a,n))continue;
   // a sign-in app added after the first count (7 Nov 2026: Higgsfield) stays where it is wanted: on the main agent (the
   // owner's own), or on an agent that signed in to it itself; never one switched off on purpose. Elsewhere it goes, so no
   // agent nags for a sign-in it never asked for.
-  if(!comp&&await keepNewApp(a,n)){await optins.setApp(a,n,true).catch(()=>{});console.log('abilities: '+n+' kept on '+a+' (main agent or signed in)');continue}
+  if(await keepNewApp(a,n)){await optins.setApp(a,n,true).catch(()=>{});console.log('abilities: '+n+' kept on '+a+' (main agent or signed in)');continue}
   await withAgent(a,()=>fetch(DASH.origin+'/api/mcp/servers/'+encodeURIComponent(n)+'?profile='+encodeURIComponent(a),{method:'DELETE',headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(60000)}))
    .then(r=>console.log('abilities: '+n+' removed from '+a+(r.ok?'':' failed: '+r.status)),er=>console.warn('abilities: '+n+' '+a+': '+er.message))}}}
 // its own reports about sign-ins for apps that are now off for it are solved: closed with a note (7 Nov 2026)
 async function closeSolvedSignins(){const l=(await issues.list().catch(()=>({items:[]}))).items||[];
- const stillOn=async(a,w)=>{if(w==='composio'||w==='rube')return optins.on('composio',a);if(w==='*'&&await optins.on('composio',a))return true;const c=await readConfig(a).catch(()=>null)||{};for(const n of appNames(c))if((w==='*'||n.toLowerCase().includes(w))&&await optins.appOn(a,n))return true;return false};
+ const stillOn=async(a,w)=>{const c=await readConfig(a).catch(()=>null)||{};for(const n of appNames(c))if((w==='*'||n.toLowerCase().includes(w))&&await optins.appOn(a,n))return true;return false};
  for(const id of await solvedIssues(l,stillOn)){await issues.close(id,'aqeelOS: the app is switched off for this agent, so no sign-in is needed').catch(()=>{});console.log('abilities: closed solved sign-in issue',id)}}
 // the sign-in apps an agent can switch: its own, and every one in the catalog (one per address) it could get
-async function knownApps(a){const own=appNames(await readConfig(a).catch(()=>null)||{});let cat=[];try{cat=(await connectors.plan()).catalog.map(x=>x.name).filter(n=>!/composio/i.test(n))}catch{}return [...new Set([...own,...cat])].sort()}
-const connectors=createConnectors({listAgents:()=>listAgents(),readConfig,setKey,allow:async(a,e,n)=>COMPOSIO_URL.test(String(e?.url||''))?await optins.on('composio',a):await optins.appOn(a,n),redirect:n=>MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(n),
+async function knownApps(a){const own=appNames(await readConfig(a).catch(()=>null)||{});let cat=[];try{cat=(await connectors.plan()).catalog.map(x=>x.name)}catch{}return [...new Set([...own,...cat])].sort()}
+const connectors=createConnectors({listAgents:()=>listAgents(),readConfig,setKey,allow:async(a,e,n)=>await optins.appOn(a,n),redirect:n=>MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(n),
  hasEnv:async(a,v)=>new RegExp('^'+v.replace(/[^\w]/g,'')+'=.+','m').test(await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'.env'),'utf8').catch(()=>'')),
  noteApp:(a,n,r)=>whyOf.noteApp(a,n,r),origin:(a,n,u)=>whyOf.app(a,n,u),eligible:async(a,c)=>!await isTestAgent(a)&&!!c?.mcp_servers?.['aqeelos-notify'],log:(...x)=>console.log(...x)});
-if(LIVE_APP){setTimeout(()=>optins.migrate().then(async r=>{const ra=await optins.migrateApps().catch(e=>{console.warn('abilities: sign-in apps count',e.message);return null});if(r||ra)composioOff().then(()=>closeSolvedSignins()).catch(()=>{});if(r){agentAds.tick().catch(()=>{});agentAds.tools().catch(()=>{})}}).catch(e=>console.warn('abilities: first-start count',e.message)),60000).unref()}
-if(LIVE_APP){const run=()=>composioOff().catch(()=>{}).then(()=>closeSolvedSignins()).catch(()=>{}).then(()=>connectors.ensureAll()).then(r=>{if(r.changed)console.log('connectors added (apply at the next agent restart):',r.added.join(', '))}).catch(e=>console.warn('connectors',e.message));setTimeout(run,100000);setInterval(run,600000).unref()}
+if(LIVE_APP){setTimeout(()=>optins.migrate().then(async r=>{const ra=await optins.migrateApps().catch(e=>{console.warn('abilities: sign-in apps count',e.message);return null});if(r||ra)appsOff().then(()=>closeSolvedSignins()).catch(()=>{});if(r){agentAds.tick().catch(()=>{});agentAds.tools().catch(()=>{})}}).catch(e=>console.warn('abilities: first-start count',e.message)),60000).unref()}
+if(LIVE_APP){const run=()=>appsOff().catch(()=>{}).then(()=>closeSolvedSignins()).catch(()=>{}).then(()=>connectors.ensureAll()).then(r=>{if(r.changed)console.log('connectors added (apply at the next agent restart):',r.added.join(', '))}).catch(e=>console.warn('connectors',e.message));setTimeout(run,100000);setInterval(run,600000).unref()}
 const channels=createChannels({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAllProfiles(),cached:a=>platformsCached(a),restart:why=>restartGateway(why),paused:()=>pausedLoad(),pendingOf:(a,id)=>id==='whatsapp'?waSettingsPending(a):false,stop:a=>stopBridges(a),
  // after a move: a pause, the sharing, schedules relayed through it and its note follow the channel to its new agent
  moved:async(pf,from,to)=>{const ps=await pausedLoad();if(ps[from+'|'+pf]||ps[to+'|'+pf]){delete ps[from+'|'+pf];delete ps[to+'|'+pf];await pausedSave(ps)}
@@ -843,6 +855,21 @@ const install=createInstallRoutes({recentLookups:n=>teamView.recent(n),send,read
 if(LIVE_APP){setTimeout(()=>install.tick(),120000).unref();setInterval(()=>install.tick(),15*60e3).unref()}
 const homeOfAgent=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
 const gconnect=createGoogleConnect({HERMES_HOME,DATA,PUBLIC_URL:()=>String(PUBLIC_URL),homeOf:homeOfAgent,log:m=>console.log(m)});
+// Google tools in aqeelos-notify (google-tools.mjs, 11 Nov 2026): Gmail, Sheets, Drive, Docs and Calendar with the agent's own
+// sign-in, for agents with no terminal. A share gets a fresh key at the agent's level; a file-locked agent goes through googleFiles.
+const googleTools=createGoogleTools({HERMES_HOME,homeOf:homeOfAgent,log:m=>console.log(m),locked:a=>googleFiles.locked(a),filesCall:(a,r)=>googleFiles.call(a,r),
+ sharedKey:async(email,a)=>{const l=await gfLevel(email,String(a).split('--')[0]);if(!l||l==='none')throw Error('it is not shared with you any more');return googleShares.keyFor(email,l)},
+ labels:async(a,n)=>{const L=await googleLabels();return L[a+'|'+n]||L[String(a).split('--')[0]+'|'+n]||{}},
+ // a Web-application client: Google's sign-in for this agent at once (20 minutes); otherwise, or for a reconnect, the Connections page
+ connectLink:async(a,name)=>{const inf=await gconnect.info();if(!inf.client)return null;const page=String(PUBLIC_URL).replace(/\/$/,'')+'/#/abilities/connections';
+  if(inf.client.type==='web')try{const r=await gconnect.start({agent:String(a).split('--')[0],name});return {url:r.url,expires:'20 minutes',how:'They open it, pick the Google account and press Allow. They can also connect it in aqeelOS: '+page}}catch(x){return {url:page,how:'There: Abilities › Connections, then Reconnect on the Google account (or Add › A Google account). ('+x.message+')'}}
+  return {url:page,how:'There: Abilities › Connections › Add › A Google account, for this agent.'}}});
+// Slack (slack-connect.mjs): the install's Slack app for the official Slack MCP; every Slack sign-in without an app of its
+// own uses it (slackClientFor below, passed to sharing.prepareSignin). Microsoft (microsoft-connect.mjs): like Google.
+const slackc=createSlackConnect({HERMES_HOME,homeOf:homeOfAgent,redirectFor:n=>MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(n),readConfig,setKey,
+ prepareSignin:(...a)=>sharing.prepareSignin(...a),startSignin:(a,t)=>startSignin(a,t),log:m=>console.log(m)});
+const slackClientFor=b=>slackc.fallback(b);
+const msconnect=createMicrosoftConnect({HERMES_HOME,DATA,PUBLIC_URL:()=>String(PUBLIC_URL),homeOf:homeOfAgent,log:m=>console.log(m)});
 // a sign-in made here is the owner's own: registered at once (Connections never flags it), and the agents are told
 async function googleConnected(r,who=''){if(!r?.ok)return;connAccounts.register(r.agent,{kind:'google',label:'Google, '+(r.email||r.name||'main'),where:path.join(homeOfAgent(r.agent),r.file)},{owner:who}).catch(e=>console.warn('google: register',e.message));if(LIVE_APP)writeAgentContext().catch(()=>{})}
 const mcpEdit=createMcpEdit({readConfig,setKey,readEnv:a=>readFile(path.join(homeOfAgent(a),'.env'),'utf8').catch(()=>''),editEnv:(a,f)=>editEnv(path.join(homeOfAgent(a),'.env'),f),restart:why=>restartGateway(why),log:m=>console.log(m)});
@@ -959,7 +986,7 @@ const agentAccess=createAgentAccess({sharing:shareLevels,HERMES_HOME,MAIN:env.MA
   resume:(t,id)=>cronApi(t,'/'+encodeURIComponent(id)+'/resume',{method:'POST'}),remove:(t,id)=>cronApi(t,'/'+encodeURIComponent(id),{method:'DELETE'})}});
 const connAccounts=createConnectedAccounts({sharing:shareLevels,DATA,HERMES_HOME,active:LIVE_APP||caTest,listAgents:()=>agentNames({copies:true}),readConfig,setKey,withAgent,python:enginePython,access,whyOf,nameOf:a=>agentName(a),
  ...(caTest?{WORK:env.ACCOUNTS_WORK||path.join(path.dirname(HERMES_HOME),'workspaces'),ends:{slack:env.ACCOUNTS_SLACK_API,revoke:env.ACCOUNTS_GOOGLE_REVOKE},STEP:1000}:{}),
- googleLabel:async(a,n)=>((await googleLabels())[a+'|'+n]||{}).label||'',signinNeeded:(a,n)=>signinsDue.has(a+'|'+n),
+ googleLabel:async(a,n)=>((await googleLabels())[a+'|'+n]||{}).label||'',signinNeeded:(a,n)=>signinsDue.get(a+'|'+n)||signinsDue.get(String(a).split('--')[0]+'|'+n)||null,
  dash:(method,p,body)=>fetch(DASH.origin+p,{method,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:body&&method!=='GET'&&method!=='DELETE'?JSON.stringify(body):undefined,signal:AbortSignal.timeout(60000)}).then(async r=>({ok:r.ok,status:r.status,j:await r.json().catch(()=>({}))})),
  bell:(text,detail,o)=>bottlenecks.event('accounts',text,detail||'',o||{}),solve:id=>bottlenecks.resolve(id?'accounts|'+id:'accounts')});
 // planned changes put in DATA/apply-on-start/ are carried out once at start (apply-on-start.mjs): share levels,
@@ -989,6 +1016,9 @@ if(LIVE_APP)setTimeout(()=>{import('./apply-on-start.mjs').then(({applyOnStart})
 /* Abilities › Connections (connections.mjs, 1 Nov 2026): every app, login as you, skill, plugin and key in one list, who
    owns it, who may use it and how much (Read, Read & draft, Full; On or Off). AdsPower and Code come in when asked. */
 const connections=createConnections({DATA,access,accounts:connAccounts,listAgents:()=>listAgents(),listCopies:()=>agentNames({copies:true}),names:a=>agentName(a),sharing,
+ // the engine's own sign-ins needed (the Bottlenecks list), read on every ask; Check now also tests the apps again (live app
+ // only, at most every 10 min: each test can renew a sign-in, which a test copy must leave to the live app)
+ signins:async()=>{await freshSignins();return [...signinsDue.values()]},recheck:()=>{if(LIVE_APP&&!signinsRun&&Date.now()-signinsAt>10*60e3)checkSignins().catch(()=>{})},
  engine:(method,p,body)=>fetch(DASH.origin+p,{method,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:body&&method!=='GET'&&method!=='DELETE'?JSON.stringify(body):undefined,signal:AbortSignal.timeout(60000)}).then(async r=>({ok:r.ok,status:r.status,j:await r.json().catch(()=>({}))})),
  ads:()=>agentAds.list(),code:async()=>{const nm=Object.fromEntries(users.people().map(x=>[x.id,x.name||x.username||'Someone']));return {devices:(await code.allDevices()).map(d=>({...d,person:nm[d.user]||'Someone'})),live:{connected:(await live.list(null,true)).connected}}}});
 // engine updates at night, checked after; the owner is told on the main agent's channel (as when the server was off)
@@ -1016,6 +1046,10 @@ const connect=createConnect({HERMES_HOME,DASH,DASH_TOKEN,live:LIVE_APP,afterSave
 const antigravity=createAntigravity({HERMES_HOME,hcmd,listAgents,moveOff:(a,k)=>accountHooks.moveOff?accountHooks.moveOff(a,k):null});
 async function agentModel(a){const y=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>'');const k=key=>((new RegExp('^model:[\\s\\S]*?\\n\\s+'+key+':\\s*(\\S+)','m').exec(y)||[])[1]||'').replace(/^["']|["']$/g,'');return {provider:k('provider'),model:k('default')}}
 const users=createUsers(DATA,mailer,{ownerCheck:pw=>!!PW_HASH&&checkPassword(pw),envOwner:()=>!!PW_HASH,brandName:()=>brand.name(),relaxed:!LIVE_APP,ownerSeesAll:()=>installSettings().supervision===true});
+const addons=createAddons({DATA});
+// who an add-on was added by, for the admins' list: the person, or the person an agent acts for
+const addonBy=u=>({id:u?.id||null,name:u?.name||(u?.role==='owner'?'Owner':null)});
+const addonByAgent=a=>{const o=users.agentPerson(a);return {id:o?.id||null,name:(o?.name||'Owner')+' (via '+(NAMES[a]||a)+')'}};
 // an action about ONE agent's own connections (its apps and keys, its channels, its Google accounts): an admin, or that
 // agent's owner (11 Nov 2026: an employee could not fix, reconnect or remove anything on his own agent). Install-wide
 // things (branding, plugins, sharing between agents, every agent's list) stay admin-only.
@@ -1079,6 +1113,36 @@ async function deliverToGateway(search){try{const pid=JSON.parse(await readFile(
   const ports=[];for(const line of (await readFile('/proc/net/tcp','utf8')).split('\n').slice(1)){const c=line.trim().split(/\s+/);if(c[3]==='0A'&&c[1]?.startsWith('0100007F:')&&inodes.has(c[9])){const port=parseInt(c[1].split(':')[1],16);if(![8642,8644,9119].includes(port))ports.push(port)}}
   for(const port of ports){const r=await fetch('http://127.0.0.1:'+port+'/callback'+search,{signal:AbortSignal.timeout(4000)}).catch(()=>null);if(r&&r.ok){console.log('sign-in delivered to the chat engine on',port);return true}}}catch(e){console.warn('deliverToGateway',e.message)}return false}
 const linkSeen=new Map();   // flow|link → when that link was first handed out
+/* connect_mcp_tool with a url (11 Nov 2026): an agent adds an MCP address the person gave it to itself, with no terminal.
+   The same checks as Connections › Add › An app by its address (mcpAddProblem, the admins' block list, a public address,
+   probeMcp), and the agent's person must be allowed to add apps to it (addonCheck: an agent they own always is).
+   Returns {error} | {name} (signs in with the service: the caller starts the sign-in) | {name,text} (added and tested). */
+async function addMcpByUrl(ag,A){const url=String(A.url||'').trim();let u;try{u=new URL(url)}catch{return {error:'Give the full MCP address, starting with https://'}}
+ const derive=h=>h.replace(/^(www|mcp|api)\./,'').split('.')[0];
+ let name=String(A.name||'').trim().toLowerCase().replace(/[^a-z0-9_-]+/g,'-').replace(/^-+|-+$/g,'')||derive(u.hostname).toLowerCase().replace(/[^a-z0-9_-]+/g,'-')||'app';
+ const why=mcpAddProblem({name,url});if(why)return {error:why};
+ {const no=await addons.refusal({name,url});if(no)return {error:no}}
+ const o=users.agentPerson(ag);if(!o)return {error:'Nobody owns you right now, so nothing can be added. Report it with report_bottleneck.'};
+ {const no=users.addonCheck(o,ag,'mcp');if(no)return {error:no}}
+ if(await privateAddress(url))return {error:'Tools must use a public web address.'};
+ const pr=await probeMcp(url);if(!pr.ok)return {error:pr.why+' Do not save it as an app. Tell the person what to do instead, in one short line.'};
+ const cfg=await readConfig(ag).catch(()=>null)||{};const have=cfg.mcp_servers||{};
+ if(have[name]&&String(have[name].url||'')!==url){let n=2;while(have[name+'-'+n])n++;name=name+'-'+n}
+ const body={name,url};let key=null;
+ if(A.key_name){const kn=String(A.key_name).trim().toUpperCase();const sa=await secretAccess.resolve(ag,kn,'use');if(!sa.ok)return {error:sa.why+' Ask the person for the key with ask_secret (mode save) or request_secret_link first.'};
+  key=(await readFile(sa.file,'utf8').catch(()=>'')).trim();if(!key)return {error:'The saved key '+kn+' is empty. Ask the person for it again.'};body.auth='header';body.bearer_token=key}
+ else if(pr.auth==='oauth')body.auth='oauth';
+ const h={'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},q='?profile='+encodeURIComponent(ag);
+ if(!have[name]){const r=await withAgent(ag,()=>fetch(DASH.origin+'/api/mcp/servers'+q,{method:'POST',headers:h,body:JSON.stringify(body),signal:AbortSignal.timeout(60000)}));
+  if(!r.ok)return {error:'Could not add it: '+(await r.text().catch(()=>'')).slice(0,200)}}
+ addons.note({kind:'mcp',agent:ag,name,url,by:addonByAgent(ag),via:'agent'}).catch(()=>{});
+ console.log('connect_mcp_tool: '+ag+' added '+name+' ('+u.hostname+', '+(body.auth||'no sign-in')+')');
+ if(body.auth==='oauth')return {name};
+ // no sign-in (or the person's key): the tools must answer before anyone says it works
+ const t=await fetch(DASH.origin+'/api/mcp/servers/'+encodeURIComponent(name)+'/test'+q,{method:'POST',headers:h,body:'{}',signal:AbortSignal.timeout(70000)}).then(r=>r.json()).catch(e=>({ok:false,error:e.message}));
+ const tools=(t.tools||[]).map(x=>x.name||x);
+ if(t.ok===false||!tools.length)return {error:'Added '+name+', but its tools did not answer ('+String(t.error||'no tools came back').slice(0,160)+'). '+(key?'Check the key is right (ask for it again with ask_secret), then call connect_mcp_tool with tool '+name+'.':'It may need a key: ask the person for the service\'s API key with ask_secret (mode save), then call connect_mcp_tool again with url and key_name.')};
+ return {name,text:'Connected '+name+' to you: '+tools.length+' tools work ('+tools.slice(0,8).join(', ')+(tools.length>8?'…':'')+'). They are yours from your next message (aqeelOS reloads the tools within a minute or two). Tell the person in one line that it is connected and what you can now do with it.'}}
 async function startSignin(agent,tool){const k=agent+'|'+tool,prev=signinFlows.get(k),h={'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'};
  // a link still open is given again, but only while it is young: each link works for 5 minutes, after which the
  // engine quietly makes a new one, so an older link would fail when the person opens it
@@ -1411,6 +1475,12 @@ const kirimdev=createKirimdev({DATA,WORK:path.join(homedir(),'workspaces'),PUBLI
   const j=r&&r.ok?await r.json().catch(()=>({})):{};return j.ok?(j.result?.message_id||true):false},   // the post's id once Telegram confirmed it
  activity:(a,title,text)=>news.add({aud:'admins',icon:'tag',kind:'blue',title,text,go:'/channels/kirimdev',label:'Kirimdev'}),
  tell:(text,detail)=>bottlenecks.event('kirimdev',text,detail,{info:true})});
+/* Tebar webhooks (tebar.mjs, 11 Nov 2026): POST /hooks/tebar/<agent>, signed with the secret the person pasted. Failed posts
+   and expired or disconnected accounts are alerts (Health, Bottlenecks, the alert chat); comments, DMs and the other
+   events picked are a notice in the bell of the agent's owner (admins for the main agents) */
+const tebar=createTebar({DATA,publicUrl:()=>String(PUBLIC_URL??''),nameOf:a=>NAMES[a]||a,log:m=>console.log(m),
+ problem:(a,topic,title,fix)=>health.problem(a,'tebar',title,{topic,fix}),solved:(a,topic)=>health.ok(a,topic),
+ notice:(a,title,text,type)=>{const o=users.byId(users.agentOwner(a));return news.add({aud:o&&!users.isAdmin(o)?'u:'+o.id:'admins',group:'tebar|'+a+'|'+type,icon:'bell',kind:'blue',title,text,go:'/abilities/connections',label:'Connections'})}});
 if(LIVE_APP)setTimeout(()=>kirimdev.resume().catch(e=>console.warn('kirimdev resume',e.message)),30000).unref();
 // a confirmed payment labels the contact (Customer, S-…, no Checkout): code, every minute, on the live box only
 // a paid order goes to the line's Orders topic with the same check (8 Nov 2026)
@@ -1884,7 +1954,7 @@ async function hermesCall(req,res,u,url){
    try{return send(res,200,await finishWhatsAppLink(ag,decodeURIComponent(am[1]),b))}catch(e){return send(res,e.status||400,{error:e.message})}}}
  // channel set-up (WhatsApp QR, Telegram bot…) reads the agent from the request BODY, not the address; without it
  // the engine pairs the main agent instead (Husband Mode's WhatsApp "never paired"). Always pass it along.
- let body;
+ let body,addonNote=null;   // addonNote: an app, skill or plugin being added, recorded once the engine says it is done
  // Same for every change the engine scopes by body (pairing approvals, chat import/update…): if the address names the
  // agent and the JSON body doesn't, the body gets it too. Uploads and non-JSON bodies are left alone.
  // An engine update starts from the engine's own files: aqeelOS's renames (aqeelOS instead of Hermes in what people
@@ -2001,23 +2071,35 @@ async function hermesCall(req,res,u,url){
  // refused by its name, and the agent's folder is checked again once the install (it runs in the background) is done
  if(req.method==='POST'&&/^\/hapi\/skills\/hub\/(install|update)$/.test(p)){const a=agent||'default';let b={};try{body=body||await readRaw(req,65536);b=JSON.parse(body.toString('utf8'))}catch{}
   const nm=String(b.identifier||b.name||'').split(/[/:@]/).filter(Boolean).pop()||'';if(nm&&!skillAllowed(nm,a))return send(res,403,{error:'That skill is kept for other agents, so it can’t be added to this one.'});
+  {const no=await addons.refusal({name:nm,url:String(b.identifier||'')});if(no)return send(res,403,{error:no})}
+  if(/install$/.test(p)&&nm)addonNote={kind:'skill',agent:a,name:nm,url:String(b.identifier||''),by:addonBy(u),via:'skill library'};
   for(const d of [20e3,90e3,300e3])setTimeout(()=>accountHooks.trimSkills?.(a).catch(()=>{}),d).unref?.()}
+ // a skill written in the app: recorded for the admins' list (who added what)
+ if(req.method==='POST'&&p==='/hapi/skills'){let b={};try{body=body||await readRaw(req,4e6)}catch{return send(res,413,{error:'That skill is too large.'})}try{b=JSON.parse(body.toString('utf8'))}catch{}
+  const nm=String(b.name||'').trim();{const no=nm&&await addons.refusal({name:nm});if(no)return send(res,403,{error:no})}if(nm)addonNote={kind:'skill',agent:agent||'default',name:nm,by:addonBy(u),via:'written in the app'}}
  // an app added by its address, by anyone (11 Nov 2026: "WO Dashboard - Google Sheet" was saved as an app with a spreadsheet's
- // link; it showed a Sign in button, never had tools, and its name with spaces broke the sign-in with "Bad name")
+ // link; it showed a Sign in button, never had tools, and its name with spaces broke the sign-in with "Bad name").
+ // Then the admins' block list, then the address is asked the MCP way (addons.mjs probeMcp): an ordinary web page is
+ // refused with what to do instead, and one that answers with a sign-in is saved as "signs in with the service".
  if(req.method==='POST'&&p==='/hapi/mcp/servers'){let b={};try{body=body||await readRaw(req,65536);b=JSON.parse(body.toString('utf8'))}catch{}
-  const why=mcpAddProblem(b);if(why)return send(res,400,{error:why})}
+  const why=mcpAddProblem(b);if(why)return send(res,400,{error:why});
+  {const no=await addons.refusal({name:b.name,url:b.url});if(no)return send(res,403,{error:no})}
+  if(b.url&&!b.command){if(!users.isAdmin(u)&&await privateAddress(b.url))return send(res,403,{error:'Tools must use a public web address.'});
+   const pr=await probeMcp(String(b.url));if(!pr.ok)return send(res,400,{error:pr.why});
+   if(pr.auth==='oauth'&&!b.auth){b.auth='oauth';body=Buffer.from(JSON.stringify(b))}}
+  addonNote={kind:'mcp',agent:agent||'default',name:String(b.name),url:String(b.url||b.command||''),by:addonBy(u),via:'by address'}}
  let made=null;
  if(!users.isAdmin(u)&&(req.method==='POST'&&(p==='/hapi/mcp/servers'||p==='/hapi/profiles')||/^(PUT|PATCH)$/.test(req.method)&&/^\/hapi\/mcp\/servers\/[^/]+$/.test(p))){
   let b={};try{b=JSON.parse((body||await readRaw(req,65536)).toString('utf8'))}catch{}
   // an MCP server started by command runs code on the box: same rule as the terminal
-  if(/^\/hapi\/mcp\/servers(\/[^/]+)?$/.test(p)&&/^(POST|PUT|PATCH)$/.test(req.method)&&(b.command||b.args||b.transport==='stdio')&&!users.can(u,'unsafe'))return send(res,403,{error:'Only admins can add tools that run a command on the box. Use a server URL instead.'});
+  if(/^\/hapi\/mcp\/servers(\/[^/]+)?$/.test(p)&&/^(POST|PUT|PATCH)$/.test(req.method)&&(b.command||b.args||b.transport==='stdio')&&!users.can(u,'unsafe'))return send(res,403,{error:RUNS_CODE_MSG});
   // a member's tool address may not point inside the box or at a cloud's metadata service
   if(/^\/hapi\/mcp\/servers/.test(p)&&b.url&&await privateAddress(b.url))return send(res,403,{error:'Tools must use a public web address.'});
   // a member's new agent starts empty: copying the main agent would copy its keys and memory
   if(p==='/hapi/profiles'){const rel=users.reserve(u);if(!rel)return send(res,403,{error:'You reached the number of agents your role allows. Delete one first or ask the owner.'});res.once('close',rel);
    b.clone_from_default=false;b.clone_all=false;if(b.clone_from&&users.level(u,String(b.clone_from))!=='owner')delete b.clone_from;made=String(b.name||'');
    // the apps and library skills a new agent starts with follow the same rules as adding them later
-   delete b.hub_skills;const ms=Array.isArray(b.mcp_servers)?b.mcp_servers:[];if(ms.some(s=>s&&(s.command||s.args||s.transport==='stdio'))&&!users.can(u,'unsafe'))return send(res,403,{error:'Only admins can add tools that run a command on the box. Use a server URL instead.'});
+   delete b.hub_skills;const ms=Array.isArray(b.mcp_servers)?b.mcp_servers:[];if(ms.some(s=>s&&(s.command||s.args||s.transport==='stdio'))&&!users.can(u,'unsafe'))return send(res,403,{error:RUNS_CODE_MSG});
    for(const s of ms)if(s?.url&&await privateAddress(s.url))return send(res,403,{error:'Tools must use a public web address.'})}
   body=Buffer.from(JSON.stringify(b))}
  // a member's catalog install: the same rules as adding that server by hand (a plain public address, or "unsafe" for anything that runs on the box)
@@ -2025,9 +2107,22 @@ async function hermesCall(req,res,u,url){
   const cat=await fetch(DASH.origin+'/api/mcp/catalog?profile='+encodeURIComponent(agent||'default'),{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(20000)}).then(r=>r.json()).catch(()=>null);
   const e=(cat?.entries||[]).find(x=>x.name===String(b.name||''));if(!e)return send(res,404,{error:'That tool is not in the catalog.'});
   const plain=e.url&&!e.command&&!e.args&&e.transport!=='stdio'&&!(e.bootstrap||[]).length&&!e.needs_install;
-  if(!plain&&!users.can(u,'unsafe'))return send(res,403,{error:'Only admins can add tools that run a command on the box. Use a server URL instead.'});
+  if(!plain&&!users.can(u,'unsafe'))return send(res,403,{error:RUNS_CODE_MSG});
   if(e.url&&await privateAddress(e.url))return send(res,403,{error:'Tools must use a public web address.'})}
+ // a catalog install, by anyone: the admins' block list, and a line in their list of who added what
+ if(req.method==='POST'&&p==='/hapi/mcp/catalog/install'){let b={};try{body=body||await readRaw(req,65536);b=JSON.parse(body.toString('utf8'))}catch{}
+  {const no=await addons.refusal({name:String(b.name||'')});if(no)return send(res,403,{error:no})}
+  addonNote={kind:'mcp',agent:agent||'default',name:String(b.name||''),by:addonBy(u),via:'catalog'}}
+ // a plugin, by anyone who owns an agent (users.mjs gate): one from the reviewed catalog is fine; one from any GitHub repo
+ // runs code on the box, so it needs the "Terminal, files and code" permission (addons.mjs addonDecision)
+ if(req.method==='POST'&&p==='/hapi/dashboard/agent-plugins/install'){let b={};try{body=body||await readRaw(req,65536);b=JSON.parse(body.toString('utf8'))}catch{}
+  const any=!!String(b.identifier||'').trim(),nm=String(b.catalog_name||b.identifier||'').split('/').filter(Boolean).pop()||'';
+  if(!users.isAdmin(u)&&any&&!users.can(u,'unsafe'))return send(res,403,{error:RUNS_CODE_MSG});
+  {const no=await addons.refusal({name:nm,url:any?String(b.identifier):''});if(no)return send(res,403,{error:no})}
+  addonNote={kind:'plugin',agent:null,name:nm,url:any?String(b.identifier):'',by:addonBy(u),via:any?'GitHub':'catalog'}}
  const transform=/^\/hapi\/(sessions|sessions\/search|profiles|cron\/jobs)$/.test(p)&&req.method==='GET'?d=>users.filter(u,p,d,agent)
+  // Add an app: Tebar first (app/tebar-app.mjs), then the engine's own
+  :p==='/hapi/mcp/catalog'&&req.method==='GET'?async d=>withTebar(d,await readConfig(agent).catch(()=>null))
   // System › Logs: the agents' tool addresses carry a secret part (/mcp/<kind>/<agent>/<secret>), and keys can turn up in a line: hidden before they reach the page
   :p==='/hapi/logs'&&req.method==='GET'?d=>Array.isArray(d?.lines)?{...d,lines:d.lines.map(l=>redactText(String(l).replace(/(\/mcp\/[\w-]+\/[\w.-]+\/)[A-Za-z0-9_-]{8,}/g,'$1(hidden)')))}:d
   :p==='/hapi/status'&&req.method==='GET'?d=>Array.isArray(d?.profiles)?{...d,profiles:d.profiles.filter(x=>(x?.name||x)!==HELP_AGENT)}:d
@@ -2035,6 +2130,7 @@ async function hermesCall(req,res,u,url){
   :/^\/gapi(\/p\/[^/]+)?\/api\/sessions$/.test(p)&&req.method==='POST'?async d=>{await users.own(d.id||d.session?.id||d.session_id,u);return d}
   // a fork belongs to the person who forked it (else it would count as the owner's and they could not open it)
   :/^\/(gapi(\/p\/[^/]+)?\/api|hapi)\/sessions\/[^/]+\/fork$/.test(p)&&req.method==='POST'?async d=>{await users.own(d?.session?.id||d?.id||d?.session_id||d?.new_session_id,u);return d}
+  :addonNote?async d=>{if(!d?.error&&d?.ok!==false)addons.note(addonNote).catch(e=>console.warn('addons',e.message));return d}
   :made?async d=>{await memberAgent(u,String(d?.name||d?.profile?.name||made));return d}
   :p==='/hapi/profiles'&&req.method==='POST'?async d=>{const n=d?.name||d?.profile?.name;if(n){if(u.role!=='owner')await users.created(u,n).catch(e=>console.warn('owner of',n,e.message));noteMade(n);syncNotifyTool().catch(()=>{});   // the aqeelOS tool needs nothing from the setup: a new agent gets it at once, not minutes later
    (setupAgentFn?setupAgentFn(n):Promise.resolve()).catch(e=>console.warn('setup',n,e.message)).finally(async()=>{await agentHealth(n).catch(()=>{});await syncNotifyTool().catch(()=>{});if(LIVE_APP)writeAgentContext().catch(()=>{});
@@ -2179,17 +2275,26 @@ const server=createServer(async(req,res)=>{
    // nothing is made without a plain name and one line on what it is for (name-rules.mjs): refused with what to add
    if(signed&&msg.method==='tools/call'&&msg.params?.name==='name_thing'){const r=await nameThing(mn[1].split('--')[0],msg.params?.arguments||{}).catch(e=>({isError:true,text:e.message}));return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text:r.text}],...(r.isError?{isError:true}:{})}})}
    if(signed&&msg.method==='tools/call'){const why=nameRefusal(msg.params?.name,msg.params?.arguments);if(why){console.log('names: refused',msg.params?.name,'for',mn[1]);return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text:why}],isError:true}})}}
-   if(signed&&msg.method==='tools/call'&&msg.params?.name==='connect_mcp_tool'){const tool=String(msg.params?.arguments?.tool||'').trim();const reply=(text,isError)=>send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text}],...(isError?{isError:true}:{})}});
-    const redirect=MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(tool);
+   if(signed&&msg.method==='tools/call'&&msg.params?.name==='connect_mcp_tool'){let tool=String(msg.params?.arguments?.tool||'').trim();const reply=(text,isError)=>send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text}],...(isError?{isError:true}:{})}});
     const ag=mn[1].split('--')[0];
+    // an MCP address the person gave: checked (not a Google/Slack/web page, not blocked, answers the MCP way), added to
+    // this agent, then tested or signed in below (11 Nov 2026: a Google Sheet link was saved as an app with no tools)
+    if(msg.params?.arguments?.url){const r=await addMcpByUrl(ag,msg.params.arguments).catch(e=>({error:'Could not add it: '+e.message}));if(r.error)return reply(r.error,true);if(r.text)return reply(r.text);tool=r.name}
+    if(!tool)return reply('Give tool (the name of one of your MCP tools) or url (an MCP address the person gave you).',true);
+    // check: after the person signed in, the agent proves the tools answer before it says done
+    if(msg.params?.arguments?.check){const t=await fetch(DASH.origin+'/api/mcp/servers/'+encodeURIComponent(tool)+'/test?profile='+encodeURIComponent(ag),{method:'POST',headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:'{}',signal:AbortSignal.timeout(70000)}).then(r=>r.json()).catch(e=>({ok:false,error:e.message}));
+     const tl=(t.tools||[]).map(x=>x.name||x);return tl.length&&t.ok!==false?reply(tool+' works: '+tl.length+' tools answer ('+tl.slice(0,8).join(', ')+(tl.length>8?'…':'')+'). You can use them from your next message.'):reply(tool+' does not answer yet ('+String(t.error||'no tools came back').slice(0,160)+'). If the person has not finished signing in, call connect_mcp_tool with tool '+tool+' again for a fresh link.',true)}
+    const redirect=MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(tool);
     await whyOf.noteApp(ag,tool,{by:'agent',purpose:String(msg.params?.arguments?.why||'').slice(0,300),from:await whyOf.from(ag)}).catch(()=>{});
-    try{const pr=await sharing.prepareSignin(ag,tool,redirect);if(pr.changed)await new Promise(r=>setTimeout(r,2500));const [svc,where,save]=appSettings(tool,pr.url);
+    try{const pr=await sharing.prepareSignin(ag,tool,redirect,null,slackClientFor);if(pr.changed)await new Promise(r=>setTimeout(r,2500));const [svc,where,save]=appSettings(tool,pr.url);
      const j=await startSignin(ag,tool);
      // the answer is written for anyone on the team: the easy way first, exact steps only when an app of their own is involved
      if(j.authorization_url&&!pr.own)return reply(`Send the person exactly this (no technical steps needed):\n\nTo connect ${svc}, open this link and click Allow: ${j.authorization_url}\nYou'll land on a page that says "Signed in". That's it.\n\n(Open it within 5 minutes; after that, ask again for a fresh link.)`);
-     if(j.authorization_url)return reply(`${svc} is connected through the person's own ${svc} app, so that app must list aqeelOS's address first. Send exactly this:\n\n1. Open ${where}.\n2. Add this address exactly: ${redirect}\n3. Click ${save}. (It doesn't work until it's saved.)\n4. Then open this link and click Allow: ${j.authorization_url}\n5. You'll land on a page that says "Signed in".\n\nIf ${svc} says "redirect_uri did not match", steps 2–3 weren't saved: redo them, then open the link again. Only an admin of that ${svc} app can do steps 1–3. If the person is not one and cannot ask one, offer Composio as the fallback and tell them: "Composio is quick (one click on Allow, nothing to set up), but its free plan has a limit on actions and costs money beyond it." Use it only if they agree.`);
+     if(j.authorization_url)return reply(`${svc} is connected through the person's own ${svc} app, so that app must list aqeelOS's address first. Send exactly this:\n\n1. Open ${where}.\n2. Add this address exactly: ${redirect}\n3. Click ${save}. (It doesn't work until it's saved.)\n4. Then open this link and click Allow: ${j.authorization_url}\n5. You'll land on a page that says "Signed in".\n\nIf ${svc} says "redirect_uri did not match", steps 2–3 weren't saved: redo them, then open the link again. Only an admin of that ${svc} app can do steps 1–3. If the person is not one and cannot ask one, offer ${svc}'s own API key instead (they create it in ${svc}'s settings and give it with ask_secret or request_secret_link), or report what is missing with report_bottleneck.`);
      const err=j.error||j.detail||'no link came back';
-     if(/client registration|client_id|client id/i.test(err))return reply(`${svc} needs an app of the person's own (a one-time setup, free). Offer to walk them through it, or do it with them in the browser: create an app at ${where.split(' → ')[0]}, add this Redirect URL: ${redirect}, then they paste its Client ID and Client Secret with the lock button (or in Abilities › MCP tools › ${tool} › Sign in). If they cannot (no admin access) or do not want to, offer Composio as the fallback and tell them: "Composio is quick (one click on Allow, nothing to set up), but its free plan has a limit on actions and costs money beyond it." Use it only if they agree.`,true);
+     // Slack with no app yet: an admin sets it up once in the app (slack-connect.mjs), then everyone just clicks Allow
+     if(svc==='Slack'&&/client registration|client_id|client id/i.test(err)&&!await slackc.client())return reply(`Slack is not set up on this aqeelOS yet. Tell the person: "An admin sets up Slack once (about 3 minutes, free): Connections › Add › Slack, then follow the steps there. After that, press Connect Slack there, or ask me again." Do not send them to api.slack.com yourself.`,true);
+     if(/client registration|client_id|client id/i.test(err))return reply(`${svc} needs an app of the person's own (a one-time setup, free). Offer to walk them through it, or do it with them in the browser: create an app at ${where.split(' → ')[0]}, add this Redirect URL: ${redirect}, then they paste its Client ID and Client Secret with the lock button (or in Abilities › MCP tools › ${tool} › Sign in). If they cannot (no admin access) or do not want to, offer ${svc}'s own API key instead (created in ${svc}'s settings, given with ask_secret or request_secret_link), or report what is missing with report_bottleneck.`,true);
      return reply('Could not start the sign-in: '+err,true)}catch(e){return reply('Could not start the sign-in: '+e.message,true)}}
    // manage_agent (agent-access.mjs): change another agent at the level shared with the caller; checked here on every call
    if(signed&&msg.method==='tools/call'&&msg.params?.name==='manage_agent'){const r=await agentAccess.call(mn[1],msg.params?.arguments||{}).catch(e=>({isError:true,text:e.message}));return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text:r.text}],...(r.isError?{isError:true}:{})}})}
@@ -2285,11 +2390,10 @@ const server=createServer(async(req,res)=>{
     const reply=(text,isError)=>send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text}],...(isError?{isError:true}:{})}});
     try{const c=await readConfig(mn[1]).catch(()=>null)||{},e=c.mcp_servers?.[app];
      if(/^adspower$/i.test(app)){await optins.set('adspower',base,false);agentAds.retire(base).catch(()=>{});console.log('abilities: '+base+' switched its own AdsPower off');return reply('AdsPower is off for you now; its app stops within a minute. An admin can switch it on again in Edit agent › Abilities.')}
-     if(!e)return reply('You have no app called '+app+'. Your apps: '+(appNames(c).concat(Object.entries(c.mcp_servers||{}).filter(([,x])=>COMPOSIO_URL.test(String(x?.url||''))).map(([n])=>n)).join(', ')||'none')+'.',true);
-     if(COMPOSIO_URL.test(String(e.url||'')))await optins.set('composio',base,false);
-     else if(isConnectorEntry(e))await optins.setApp(base,app,false);
+     if(!e)return reply('You have no app called '+app+'. Your apps: '+(appNames(c).join(', ')||'none')+'.',true);
+     if(isConnectorEntry(e))await optins.setApp(base,app,false);
      else return reply(app+' is not a sign-in app, so it cannot be turned off this way. Ask the owner (report_bottleneck) if you do not need it.',true);
-     await composioOff(base);closeSolvedSignins().catch(()=>{});console.log('abilities: '+base+' switched its own '+app+' off');
+     await appsOff(base);closeSolvedSignins().catch(()=>{});console.log('abilities: '+base+' switched its own '+app+' off');
      return reply(app+' is off for you now: its tools go away and it no longer asks you to sign in. An admin can switch it on again in Edit agent › Abilities.')}
     catch(er){return reply('Could not turn it off: '+er.message,true)}}
    if(signed&&msg.method==='tools/call'&&msg.params?.name==='my_settings'){const base=mn[1].split('--')[0],a=msg.params?.arguments||{},key=String(a.key||'').trim();
@@ -2314,17 +2418,22 @@ const server=createServer(async(req,res)=>{
    if(signed&&msg.method==='tools/call'&&msg.params?.name==='open_in_code'){const base=mn[1].split('--')[0],a=msg.params?.arguments||{};const reply=(text,isError)=>send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text}],...(isError?{isError:true}:{})}});
     const t=String(a.request||'').trim();if(!t)return reply('Give the request in plain words.',true);try{const id=await codeAgents.handoff(base,t),link=PUBLIC_URL+'/#/code/code/'+id;
      return reply('Give the person this link in your reply, on a line of its own: [Open in Code]('+link+')\nIt opens aqeelOS Code (the desktop app on their computer) with the request filled in and you attached. Nothing runs until they press send. Do not start building it yourself.')}catch(e){return reply(e.message,true)}}
+   // Google with the agent's own sign-in, no terminal needed (google-tools.mjs); the same pause, sharing and allowed actions as gapi.py
+   if(signed&&msg.method==='tools/call'&&GOOGLE_TOOL_NAMES.has(msg.params?.name)){const r=await googleTools.call(mn[1],msg.params.name,msg.params?.arguments||{});
+    console.log('google tools:',mn[1],msg.params.name,msg.params?.arguments?.action||'',r.isError?'refused/failed':'ok');
+    return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text:r.text}],...(r.isError?{isError:true}:{})}})}
    const out=await relay.mcp(mn[1],mn[2],msg);
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools)&&(await kirimdev.lines().catch(()=>({})))[mn[1].split('--')[0]])out.body.result.tools.push({name:'whatsapp_reply',description:'Send a message to a customer on your own Kirimdev line (the team\'s WhatsApp CRM; not a WhatsApp channel of yours). Use it when the team answers a HANDOFF question in your Questions topic: send their answer to that customer (the number is in the handoff post). Your normal replies to customers are sent for you; do not use this for them. Only works for someone who wrote to you in the last 24 hours. Separate several messages with a line containing only ---; [FOTO: file] and [TEMPLATE: name] send pictures.',inputSchema:{type:'object',properties:{to:{type:'string',description:'The customer\'s WhatsApp number, e.g. 6281234567890'},text:{type:'string',description:'What to send, in the customer\'s language'}},required:['to','text']}});
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools)&&(await kirimdev.lines().catch(()=>({})))[mn[1].split('--')[0]])out.body.result.tools.push({name:'whatsapp_draft',description:'Draft mode: when the team answers one of your DRAFT #<n> posts in your Questions topic, act on it here. "ok" (or yes, kirim, send) = action send. A reply with changed text = action send with that text, exactly as they wrote it. "no" (or jangan, drop) = action discard. Never send a draft nobody approved.',inputSchema:{type:'object',properties:{id:{type:'integer',description:'The draft number from the post, e.g. 12 for DRAFT #12'},action:{type:'string',enum:['send','discard']},text:{type:'string',description:'Only when the team changed the text: their text, exactly. Separate several messages with a line containing only ---'}},required:['id','action']}});
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push(...VERSION_TOOLS);
+   if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push(...GOOGLE_TOOLS);
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'team_group',description:'Your team Telegram group and its topics (Questions, Orders, Log, your own topic), as set in aqeelOS. Use action get to read where to post. Use action set ONLY when the owner tells you in chat to use another group or topic; send just what changes. Every change is shown to the owner.',inputSchema:{type:'object',properties:{action:{type:'string',enum:['get','set']},name:{type:'string',description:'The group\'s name'},chatId:{type:'string',description:'The group id, e.g. -1001234567890'},questions:{type:'integer',description:'Topic number for questions and drafts'},orders:{type:'integer',description:'Topic number for new orders'},log:{type:'integer',description:'Topic number for the activity log'},own:{type:'integer',description:'Your own topic number'},mention:{type:'string',description:'Who to mention for a person, e.g. @illusiveminds @diabloxd1337'}},required:['action']}});
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools)&&mayApply)out.body.result.tools.push({name:'apply_changes',description:'Make settings changes take effect: after you changed an agent\'s config (yours or another agent\'s), a plugin or a toolset, call this once. Apps and tool servers (MCP) apply by themselves within a minute or two; everything else is applied at the next restart in the quiet hours (01:00-05:00). Never restart the gateway any other way.',inputSchema:{type:'object',properties:{why:{type:'string',description:'What changed, in a few words'}},required:['why']}});
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools)&&mayApply)out.body.result.tools.push({name:'reconnect_channel',description:'Make a change to one of YOUR OWN channels take effect, for example after you changed WHATSAPP_GROUP_POLICY or another WHATSAPP_* / TELEGRAM_* setting. A WhatsApp connection is its own process that reads its settings only when it starts, so apply_changes does not reach it: call this instead. It restarts only that connection of yours (saved login kept, no new QR). Never kill or restart processes yourself.',inputSchema:{type:'object',properties:{channel:{type:'string',description:'Your channel, e.g. whatsapp or telegram'}},required:['channel']}});
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools)&&await postingLimits.usesLimits(mn[1].split('--')[0]).catch(()=>false))out.body.result.tools.push({name:'record_post',description:'Right after EACH public post or comment you publish, call this once with the link of the post you replied to (or your own post), the exact text you posted and whether it went to a hot or warm lead. aqeelOS counts it against your posting limits and checks, signed out, that the public can see it. If it answers NOT visible, stop posting and report the failure as it says.',inputSchema:{type:'object',properties:{post_url:{type:'string',description:'Full https link of the post you replied to (or your own new post)'},text:{type:'string',description:'The exact text you posted'},lead:{type:'string',enum:['hot','warm']}},required:['post_url','text','lead']}});
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push(agentAccess.TOOL);
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'change_instructions',description:'Change your own standing instructions (your SOUL) when the person who owns you, or someone with their authority, gives you a new rule, limit, target or correction. Change the rule where it is written so it is said once: for each place give the exact current text (old_text, copied from your instructions) and its replacement (new_text). Never add an "override" section and never edit SOUL.md yourself. aqeelOS keeps every version with who said it and why (that history is your decisions log) and the owner can undo it. Every change applies at once (from your next message), a full rewrite too (rewrite = the whole new text); nobody needs to approve it, and it can be undone. Do not save rules, caps or limits in memory.',inputSchema:{type:'object',properties:{edits:{type:'array',items:{type:'object',properties:{old_text:{type:'string',description:'Exact text now in your instructions (unique)'},new_text:{type:'string',description:'What it becomes'}},required:['old_text','new_text']}},rewrite:{type:'string',description:'Only for a full rewrite: the whole new text (always waits for approval)'},why:{type:'string',description:'What changes and why, in one line, e.g. "comments 3 per hour instead of 5"'},said_by:{type:'string',description:'Who decided it, e.g. "the owner on Telegram"'}},required:['why']}});
-   if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'choose_browser',description:'Before a browser job in a chat, ask the person once where to do it: their own Chrome ("yours": a separate window on their computer, with the sign-ins they already have; best for one-off jobs such as Google Cloud or admin consoles) or your screen on the AI box ("server": keeps working when their computer is off; needed for anything scheduled or long-running). When you also have computer_browser, there is a third choice: the guarded browser in aqeelOS Code on their computer ("computer": no extension needed, they watch it live in Code, only the sites they allowed there). Give your suggestion. Wait for the answer, then follow it for the rest of the chat.',inputSchema:{type:'object',properties:{task:{type:'string',description:'What you will do in the browser, in a few words'},suggest:{type:'string',enum:['yours','server']},why:{type:'string',description:'One short reason for your suggestion'}},required:['task','suggest']}},{name:'type_secret',description:'Type a secret the person saved for you (a password, code or key) into the sign-in field that has focus in your browser, without seeing it. Focus the field first (click it, or focus it with browser_exec). Saved secrets: '+((await readdir(secretDir(mn[1].split('--')[0])).catch(()=>[])).join(', ')||'none yet (ask with ask_secret)')+'.',inputSchema:{type:'object',properties:{name:{type:'string',description:'The saved name, e.g. GMAIL_PASSWORD'},press_enter:{type:'boolean'}},required:['name']}},{name:'ask_secret',description:'Ask the person for a password, API key or other secret through a protected field in their aqeelOS chat. You never see the value. mode "type": it is typed into the field that has focus on your screen (click the field first; set press_enter to submit). mode "save": it is stored as a named key (name in capitals, e.g. OPENAI_API_KEY) that the engine and your commands can use. Never ask for a secret in plain chat or on the screen viewer; always use this.',inputSchema:{type:'object',properties:{label:{type:'string',description:'What it is, e.g. "Gmail password for ops@company.com"'},mode:{type:'string',enum:['type','save']},name:{type:'string',description:'For save: the key name in capitals'},press_enter:{type:'boolean',description:'For type: press Enter after typing'}},required:['label','mode']}},{name:'organize_schedule',description:'File one of your schedules so the person understands it at a glance: put it in a folder (the project or client it is for, e.g. a client name, Personal Finance), give it a clear title and a one-sentence description of what it does and why. Use it right after you create or change a schedule, and when the person asks you to tidy, move or rename schedules.',inputSchema:{type:'object',properties:{job_id:{type:'string',description:'The schedule id (from cronjob list)'},folder:{type:'string',description:'Folder name, 1-2 words'},title:{type:'string',description:'Clear title, max 6 words (optional)'},description:{type:'string',description:'One plain sentence: what it does and why'}},required:['job_id']}},{name:'connect_mcp_tool',description:'Start the sign-in for one of your MCP tools (slack, composio, notion…) and get the link to give the person. Always use this to connect an MCP tool; never a command-line login or a localhost callback.',inputSchema:{type:'object',properties:{tool:{type:'string',description:'The MCP tool name as listed, e.g. "slack" or "composio"'},why:{type:'string',description:'What you need it for, in one line the person understands (e.g. "to read the Q3 numbers in your Notion for the report you asked for"). It is shown on the sign-in notice.'}},required:['tool','why']}});
+   if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'choose_browser',description:'Before a browser job in a chat, ask the person once where to do it: their own Chrome ("yours": a separate window on their computer, with the sign-ins they already have; best for one-off jobs such as Google Cloud or admin consoles) or your screen on the AI box ("server": keeps working when their computer is off; needed for anything scheduled or long-running). When you also have computer_browser, there is a third choice: the guarded browser in aqeelOS Code on their computer ("computer": no extension needed, they watch it live in Code, only the sites they allowed there). Give your suggestion. Wait for the answer, then follow it for the rest of the chat.',inputSchema:{type:'object',properties:{task:{type:'string',description:'What you will do in the browser, in a few words'},suggest:{type:'string',enum:['yours','server']},why:{type:'string',description:'One short reason for your suggestion'}},required:['task','suggest']}},{name:'type_secret',description:'Type a secret the person saved for you (a password, code or key) into the sign-in field that has focus in your browser, without seeing it. Focus the field first (click it, or focus it with browser_exec). Saved secrets: '+((await readdir(secretDir(mn[1].split('--')[0])).catch(()=>[])).join(', ')||'none yet (ask with ask_secret)')+'.',inputSchema:{type:'object',properties:{name:{type:'string',description:'The saved name, e.g. GMAIL_PASSWORD'},press_enter:{type:'boolean'}},required:['name']}},{name:'ask_secret',description:'Ask the person for a password, API key or other secret through a protected field in their aqeelOS chat. You never see the value. mode "type": it is typed into the field that has focus on your screen (click the field first; set press_enter to submit). mode "save": it is stored as a named key (name in capitals, e.g. OPENAI_API_KEY) that the engine and your commands can use. Never ask for a secret in plain chat or on the screen viewer; always use this.',inputSchema:{type:'object',properties:{label:{type:'string',description:'What it is, e.g. "Gmail password for ops@company.com"'},mode:{type:'string',enum:['type','save']},name:{type:'string',description:'For save: the key name in capitals'},press_enter:{type:'boolean',description:'For type: press Enter after typing'}},required:['label','mode']}},{name:'organize_schedule',description:'File one of your schedules so the person understands it at a glance: put it in a folder (the project or client it is for, e.g. a client name, Personal Finance), give it a clear title and a one-sentence description of what it does and why. Use it right after you create or change a schedule, and when the person asks you to tidy, move or rename schedules.',inputSchema:{type:'object',properties:{job_id:{type:'string',description:'The schedule id (from cronjob list)'},folder:{type:'string',description:'Folder name, 1-2 words'},title:{type:'string',description:'Clear title, max 6 words (optional)'},description:{type:'string',description:'One plain sentence: what it does and why'}},required:['job_id']}},{name:'connect_mcp_tool',description:'Connect an MCP tool to yourself. With tool: start the sign-in for one of your MCP tools (slack, notion…) and get the link to give the person. With url: add an MCP address the person gave you (it is checked first: a Google, Slack or Microsoft link, or an ordinary web page, is refused with what to do instead), then it is tested, or you get the sign-in link. With tool and check: true: test that its tools answer (do this after the person signed in, before you say it works). Always use this to connect an MCP tool; never a command-line login or a localhost callback.',inputSchema:{type:'object',properties:{tool:{type:'string',description:'The MCP tool name as listed, e.g. "slack" or "notion"'},url:{type:'string',description:'An MCP address to add, e.g. https://mcp.example.com/mcp'},name:{type:'string',description:'With url: a short name for it (letters, digits, -), e.g. "linear"'},key_name:{type:'string',description:'With url: the saved key (from ask_secret mode save or request_secret_link) the service wants as its API key'},check:{type:'boolean',description:'With tool: only test that its tools answer'},why:{type:'string',description:'What you need it for, in one line the person understands (e.g. "to read the Q3 numbers in your Notion for the report you asked for"). It is shown on the sign-in notice.'}},required:['why']}});
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push(
     {name:'access_list',description:'What you have (apps, Google accounts, plugins, keys) and what the other agents have that you cannot use yet (names only, never values), plus your open access requests.',inputSchema:{type:'object',properties:{}}},
     {name:'request_access',description:'Ask to use something another agent has (from access_list): an app, a Google account, a plugin or a key. An admin decides under Bottlenecks; it is never shared without that. Use it when the work needs it, not just in case.',inputSchema:{type:'object',properties:{kind:{type:'string',enum:['mcp','google','plugin','key']},id:{type:'string',description:'id from access_list'},why:{type:'string',description:'one line: what you need it for'}},required:['kind','id','why']}},
@@ -2333,8 +2442,8 @@ const server=createServer(async(req,res)=>{
     {name:'request_secret_link',description:'Lock box link (lockbox, secret link): when you need a token, password or API key saved and the person is talking to you on Telegram, WhatsApp, Slack or any channel other than the aqeelOS app: get a one-time link to send them. They open it on their phone and paste the value; it is saved as the key you name, exactly like ask_secret mode "save". You never see it. The link works once, for 30 minutes.'+(mn[1].split('--')[0]==='default'?' You may also ask for a key for another agent the owner owns (agent).':''),inputSchema:{type:'object',properties:{label:{type:'string',description:'What it is, in words the person recognises, e.g. "Support Telegram bot token"'},name:{type:'string',description:'The key name in capitals, ending in _KEY, _TOKEN, _SECRET or _PASSWORD, e.g. SALES_SUPPORT_BOT_TOKEN. It must be a new key: a link never replaces one that is set.'},...(mn[1].split('--')[0]==='default'?{agent:{type:'string',description:'Optional: the agent id the key is for (default: you)'}}:{})},required:['label','name']}},
     {name:'secret_link_status',description:'Whether the person saved the key through the link from request_secret_link. With wait true it waits up to 20 seconds; otherwise check again a minute later or when they say it is saved.',inputSchema:{type:'object',properties:{name:{type:'string',description:'The key name you asked for'},wait:{type:'boolean',description:'Wait (up to 20 seconds) until it is saved'},...(mn[1].split('--')[0]==='default'?{agent:{type:'string',description:'The agent id, if you asked for another agent'}}:{})},required:['name']}});
    // both tools only on a tools list (7 Nov 2026: the second push ran unguarded and broke every "initialize" with a 500)
-   if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'switch_my_app_off',description:'Turn off one of your own apps you do not need (a sign-in app such as notion-abel or slack, Composio, or AdsPower), so it stops asking you to sign in and its tools go away. Only off: turning one on again is for an admin (Edit agent › Abilities). Use it when the person says you do not need that app, or an app you never use keeps asking for a sign-in.',inputSchema:{type:'object',properties:{app:{type:'string',description:'the app as your tools name it, e.g. notion-abel, slack, composio, AdsPower'}},required:['app']}},{name:'my_settings',description:'Read or change your own everyday settings yourself, without asking the owner: voice notes (stt.language: "" detects the language each time, or a code like "id" or "en"; stt.*), your voice (tts.*), your time zone (timezone, e.g. Europe/Berlin) and how replies show (display.*). Leave value out to read the current value. Do this when the person asks for such a change or a setting clearly gets in their way.',inputSchema:{type:'object',properties:{key:{type:'string',description:'e.g. stt.language, tts.provider, timezone'},value:{description:'the new value; leave out to read'}},required:['key']}});
-   if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'register_account',description:'Call this right after you create a login that acts AS THE PERSON (their own Google account, a Slack or Notion sign-in as them, their personal Telegram account, any account where what you do goes out under their name), not a bot and not a service such as n8n or Composio. It shows in aqeelOS under Abilities › Connections, where the owner sees what you do with it and can pause or disconnect it. A login that is not registered is flagged to the owner.',inputSchema:{type:'object',properties:{kind:{type:'string',enum:['google','mcp-oauth','telegram-user','other'],description:'google (a google_token file), mcp-oauth (an app sign-in), telegram-user (a personal Telegram session), other'},label:{type:'string',description:'Plain name, e.g. "Slack, Sam (Acme)" or "Google, work"'},can:{type:'array',items:{type:'string',enum:['read','draft','send']},description:'What you may do with it, as the person agreed'},where:{type:'string',description:'Where the credential is stored, e.g. ~/.hermes/mcp-tokens/slack-pixel.json'},note:{type:'string',description:'What it is for, in one line'}},required:['kind','label','where']}});
+   if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'switch_my_app_off',description:'Turn off one of your own apps you do not need (a sign-in app such as notion-abel or slack, or AdsPower), so it stops asking you to sign in and its tools go away. Only off: turning one on again is for an admin (Edit agent › Abilities). Use it when the person says you do not need that app, or an app you never use keeps asking for a sign-in.',inputSchema:{type:'object',properties:{app:{type:'string',description:'the app as your tools name it, e.g. notion-abel, slack, AdsPower'}},required:['app']}},{name:'my_settings',description:'Read or change your own everyday settings yourself, without asking the owner: voice notes (stt.language: "" detects the language each time, or a code like "id" or "en"; stt.*), your voice (tts.*), your time zone (timezone, e.g. Europe/Berlin) and how replies show (display.*). Leave value out to read the current value. Do this when the person asks for such a change or a setting clearly gets in their way.',inputSchema:{type:'object',properties:{key:{type:'string',description:'e.g. stt.language, tts.provider, timezone'},value:{description:'the new value; leave out to read'}},required:['key']}});
+   if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'register_account',description:'Call this right after you create a login that acts AS THE PERSON (their own Google account, a Slack or Notion sign-in as them, their personal Telegram account, any account where what you do goes out under their name), not a bot and not a service such as n8n. It shows in aqeelOS under Abilities › Connections, where the owner sees what you do with it and can pause or disconnect it. A login that is not registered is flagged to the owner.',inputSchema:{type:'object',properties:{kind:{type:'string',enum:['google','mcp-oauth','telegram-user','other'],description:'google (a google_token file), mcp-oauth (an app sign-in), telegram-user (a personal Telegram session), other'},label:{type:'string',description:'Plain name, e.g. "Slack, Sam (Acme)" or "Google, work"'},can:{type:'array',items:{type:'string',enum:['read','draft','send']},description:'What you may do with it, as the person agreed'},where:{type:'string',description:'Where the credential is stored, e.g. ~/.hermes/mcp-tokens/slack-pixel.json'},note:{type:'string',description:'What it is for, in one line'}},required:['kind','label','where']}});
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'report_bottleneck',description:'When you cannot do something because a person has to act first, report it once (aqeelOS adds the chat and message that led to it, so say the purpose plainly in what): access you are missing (a folder, a sheet, an account, a channel), a sign-in, a permission or a setting, or information only they have. Also use it, with system true, when something is broken outside your own files and tools (the engine, aqeelOS, a channel or bridge, another agent, a server): you cannot fix that yourself, so never say it is fixed. Not for ordinary errors you can fix or work around yourself. Say what you were trying to do, what is missing, and what would fix it. It appears under Bottlenecks in aqeelOS with a fix button.',inputSchema:{type:'object',properties:{what:{type:'string',description:'What you were trying to do, in a few words'},missing:{type:'string',description:'What is missing, plainly (for example: access to the Finance folder in Google Drive)'},fix:{type:'string',description:'What would fix it (for example: share the folder with me, or connect Drive for me)'},system:{type:'boolean',description:'true when the cause is outside your own files and tools: the engine, aqeelOS, the sending code, a channel or bridge, a tool server, another agent. It becomes an issue that the aqeelOS fixer on this server fixes by itself (or after the owner\'s OK when it touches other teams, keys, permissions, money or deleting data) and you get the answer in this chat.'},evidence:{type:'string',description:'With system true: what you saw that proves it (error text, message ids, file and line, what you ran and what came back)'},proposed_fix:{type:'string',description:'With system true: what you think should change, and where'},affects:{type:'array',items:{type:'string'},description:'With system true: other agent ids the fix would change (leave out when only you)'},needs:{type:'array',items:{type:'string',enum:['keys','permissions','money','delete']},description:'With system true: mark when the fix needs new keys/secrets, permission or sharing changes, spending money or deleting data'}},required:['missing']}});
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools))out.body.result.tools.push({name:'my_issues',description:'The system issues you filed (report_bottleneck with system true) and where each one is: queued, fixing, applying (waiting to reload safely), verifying (the original check runs again), fixed (proven, with the proof), needs_human (what a person must do), stuck (3 tries failed) or gone.',inputSchema:{type:'object',properties:{}}});
    if(signed&&msg.method==='tools/list'&&Array.isArray(out.body?.result?.tools)&&await chatHistory.has(mn[1].split('--')[0]).catch(()=>false))out.body.result.tools.push({name:'past_chats',description:'Search the past customer chats of YOUR OWN Kirimdev line (your brand only; read only) for how our team answered something before: product facts (cartridges per vial, how long a vial lasts), payment links, shipping, objections. Use it BEFORE you ask the team anything. Give a few words in the customer\'s language and English, e.g. "cartridge vial". Returns matching messages with the chat around them, newest first.',inputSchema:{type:'object',properties:{query:{type:'string',description:'A few words that must all appear, e.g. cartridge vial; "quoted phrase" for an exact phrase'},limit:{type:'integer',description:'How many matches (default 8, max 15)'}},required:['query']}});
@@ -2361,6 +2470,10 @@ const server=createServer(async(req,res)=>{
   // WhatsApp Business (Meta's Cloud API) calls here: GET is Meta's address check, POST the messages. No sign-in:
   // the engine checks Meta's signature with the app secret. The main agent's listener serves every agent (/p/<agent>/…).
   {const cm=/^\/whatsapp-cloud(?:\/([a-z0-9][a-z0-9_-]{0,63}))?$/.exec(p);if(cm&&(req.method==='GET'||req.method==='POST')){req.url=(cm[1]&&cm[1]!=='default'?'/p/'+cm[1]:'')+'/whatsapp/webhook'+url.search;return proxy(req,res,WA_CLOUD,'',{})}}
+  // Tebar posts its events here, signed with the secret pasted for that agent (tebar.mjs): answered at once (Tebar waits 5 s), handled after
+  {const tm=/^\/hooks\/tebar\/([a-z0-9][a-z0-9_-]{0,63})$/.exec(p);if(tm){if(req.method!=='POST')return send(res,405,{error:'POST only'});let raw;
+   if(+req.headers['content-length']>1024*1024)return send(res,413,{error:'Too large'});try{raw=await readRaw(req,1024*1024)}catch{return send(res,413,{error:'Too large'})}
+   try{const r=await tebar.receive(tm[1],req.headers,raw);send(res,r.status,r.body);if(r.after)setImmediate(()=>r.after().catch(e=>console.warn('tebar event',e.message)));return}catch(e){console.warn('tebar receive',e.message);return send(res,500,{error:'Try again'})}}}
   // one-time secret links (no sign-in: the token after # is the credential)
   // Kirimdev posts customer messages here, signed; nothing else is taken (kirimdev.mjs)
   {const km=/^\/kirimdev\/([a-z0-9][a-z0-9_-]{0,63})$/.exec(p);if(km){if(req.method!=='POST')return send(res,405,{error:'POST only'});let raw;
@@ -2394,6 +2507,11 @@ const server=createServer(async(req,res)=>{
   // MCP sign-in (OAuth) returns here from Slack, Notion…; the engine checks the one-time state. No sign-in needed.
   // Google sign-ins (Google Workspace skill with a Web-application client) return here, and aqeelOS finishes them:
   // it finds the agent and account whose pending sign-in has this state and runs the skill's --auth-code step.
+  // Microsoft sign-ins started with Connect Microsoft (microsoft-connect.mjs) come back here; the one-time state is the check
+  if(p==='/microsoft-oauth/callback'&&req.method==='GET'){
+   const page=(t,m)=>{res.writeHead(200,{'content-type':'text/html; charset=utf-8',...security});return res.end(`<!doctype html><meta name="viewport" content="width=device-width"><title>aqeelOS</title><style>@font-face{font-family:'Plus Jakarta Sans';font-weight:200 800;font-display:swap;src:url('/assets/plus-jakarta-sans.woff2') format('woff2')}</style><body style="font-family:'Plus Jakarta Sans',system-ui,sans-serif;max-width:440px;margin:15vh auto;text-align:center;color:#111;line-height:1.5"><h2>${t}</h2><p>${m}</p></body>`)};
+   if(!await msconnect.has(url.searchParams.get('state')||''))return page('Not connected','This sign-in link has expired or was already used. Go back to aqeelOS and press Connect Microsoft again.');
+   try{const r=await msconnect.finish(url.search);if(LIVE_APP)writeAgentContext().catch(()=>{});return page('Microsoft account connected',(r.email?'<b>'+esc(r.email)+'</b> is':'Your Microsoft account is')+' connected to '+esc(NAMES[r.agent]||r.agent)+'. You can close this tab and go back to aqeelOS.')}catch(e){return page('Not connected',esc(e.message))}}
   if(p==='/google-oauth/callback'&&req.method==='GET'){const st=url.searchParams.get('state')||'';
    const page=(t,m)=>{res.writeHead(200,{'content-type':'text/html; charset=utf-8',...security});return res.end(`<!doctype html><meta name="viewport" content="width=device-width"><title>aqeelOS</title><style>@font-face{font-family:'Plus Jakarta Sans';font-weight:200 800;font-display:swap;src:url('/assets/plus-jakarta-sans.woff2') format('woff2')}</style><body style="font-family:'Plus Jakarta Sans',system-ui,sans-serif;max-width:440px;margin:15vh auto;text-align:center;color:#111;line-height:1.5"><h2>${t}</h2><p>${m}</p></body>`)};
    // a sign-in started in the app (Connect Google): finished here, nothing for an agent to do
@@ -2574,7 +2692,7 @@ const server=createServer(async(req,res)=>{
    else if(!r.ok)[title,msg]=['Sign-in did not finish','The service sent back something unexpected. Press Sign in again.'];
    else{const ids=[...signinFlows.entries()].filter(([k])=>k.endsWith('|'+tool)).map(([,v])=>v);const h={'x-hermes-session-token':DASH_TOKEN};let st=null;
     for(let i=0;i<20&&ids.length;i++){for(const id of ids){const f=await fetch(DASH.origin+'/api/mcp/oauth/flows/'+encodeURIComponent(id),{headers:h}).then(x=>x.ok?x.json():null).catch(()=>null);if(f&&!/authorization_required|pending|exchang|connecting/i.test(f.status||'')){st=f;break}}if(st)break;await new Promise(x=>setTimeout(x,750))}
-    if(st&&/error|fail/i.test(st.status||''))[title,msg]=['Sign-in did not finish',esc(String(st.error||'The service refused the sign-in.').slice(0,300))+' Press Sign in again; if it keeps happening, ask your agent to connect it through Composio.'];
+    if(st&&/error|fail/i.test(st.status||''))[title,msg]=['Sign-in did not finish',esc(String(st.error||'The service refused the sign-in.').slice(0,300))+' Press Sign in again; if it keeps happening, ask your agent to connect it with the app’s own API key instead.'];
     else if(st&&st.tools?.length)msg=`${esc(tool)} is connected with ${st.tools.length} tools. You can close this tab and go back to aqeelOS.`}
    res.writeHead(r?.status&&r.status<500?200:502,{'content-type':'text/html; charset=utf-8',...security});
    return res.end(`<!doctype html><meta name="viewport" content="width=device-width"><title>aqeelOS</title><style>@font-face{font-family:'Plus Jakarta Sans';font-weight:200 800;font-display:swap;src:url('/assets/plus-jakarta-sans.woff2') format('woff2')}</style><body style="font-family:'Plus Jakarta Sans',system-ui,sans-serif;max-width:440px;margin:15vh auto;text-align:center;color:#111;line-height:1.5"><h2>${title}</h2><p>${msg}</p></body>`)}
@@ -2621,14 +2739,14 @@ const server=createServer(async(req,res)=>{
    if((p==='/ui/install'||p.startsWith('/ui/install/'))&&await install.handle(req,res,u,url))return;
    // the real-life test after each deploy (scripts/live-test.mjs) and any automatic undo (box-live.sh), for System › Health
    if(p==='/ui/live-test'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});try{return send(res,200,JSON.parse(await readFile(path.join(DATA,'live-test.json'),'utf8')))}catch{return send(res,200,{runs:[]})}}
-   // Edit agent › Abilities: AdsPower and Composio per agent (admins change them; the agent's editors may read them)
+   // Edit agent › Abilities: AdsPower and sign-in apps per agent (admins change them; the agent's editors may read them)
    if(p==='/ui/optins'&&req.method==='GET'){const a=String(url.searchParams.get('agent')||'default');if(!users.isAdmin(u)&&!users.atLeast(u,a,'edit'))return send(res,403,{error:'Not your agent.'});return send(res,200,{agent:a,admin:users.isAdmin(u),abilities:await optins.state(a),apps:await optins.appsState(a,await knownApps(a))})}
    if(p==='/ui/optins'&&req.method==='PUT'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can change this.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
     const a=String(b.agent||'').split('--')[0],k=String(b.kind||''),v=!!b.on;if(!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(a)||!await isAgent(a))return send(res,400,{error:'Unknown agent'});
     try{if(k==='app')await optins.setApp(a,String(b.name||''),v);else await optins.set(k,a,v)}catch(e){return send(res,400,{error:e.message})}
-    // applied now: AdsPower starts (or stops and loses its tool); Composio is added (or removed)
+    // applied now: AdsPower starts (or stops and loses its tool); a sign-in app is added (or removed)
     if(k==='adspower')(v?agentAds.tick().then(()=>agentAds.tools()):agentAds.retire(a)).catch(e=>console.warn('abilities',e.message));
-    if(k==='composio'||k==='app')(v?connectors.ensureAll():composioOff(a).then(()=>closeSolvedSignins())).catch(e=>console.warn('abilities',e.message));
+    if(k==='app')(v?connectors.ensureAll():appsOff(a).then(()=>closeSolvedSignins())).catch(e=>console.warn('abilities',e.message));
     return send(res,200,{ok:true,abilities:await optins.state(a),apps:await optins.appsState(a,await knownApps(a))})}
    // a new password signs out every other browser and phone; this one gets a fresh sign-in
    if(p==='/ui/me/password'&&req.method==='PUT')return users.api(u,req,res,p,async(r,code,data,h)=>{if(code===200){await revokeSessions(u.id);return send(r,code,data,{...(h||{}),'set-cookie':'hui='+makeCookie(u.id)+'; '+cookieAttrs(SESSION_DAYS*86400)})}return send(r,code,data,h)},readBody);
@@ -2684,12 +2802,20 @@ const server=createServer(async(req,res)=>{
     await users.restoreAgent(m[1]).catch(()=>{});await rename(path.join(DATA,'agent-trash',f),path.join(DATA,'agent-trash',f+'.restored')).catch(()=>{});restartGateway('restored '+m[1]).then(()=>agentHealth(m[1])).catch(()=>{});
     return send(res,200,{ok:true,agent:m[1]})}
    // plugins on/off for ONE agent (the engine's own plugin routes always change the main agent)
-   if(p==='/ui/plugins/toggle'&&req.method==='POST'&&!users.isAdmin(u))return send(res,403,{error:'Only admins can turn plugins on or off.'});
+   // what each person added (apps, skills, plugins) and the block list of apps and hosts: admins only (addons.mjs)
+   if(p==='/ui/addons'||p==='/ui/addons/block'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins see what each person added.'});
+    if(p==='/ui/addons'&&req.method==='GET'){const d=await addons.list();return send(res,200,{...d,added:d.added.map(x=>({...x,agentName:x.agent?(NAMES[x.agent]||x.agent):null}))})}
+    if(p==='/ui/addons/block'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{return send(res,200,{blocked:await addons.block(b.value,{note:b.note,by:addonBy(u)})})}catch(e){return send(res,400,{error:e.message})}}
+    if(p==='/ui/addons/block'&&req.method==='DELETE')return send(res,200,{blocked:await addons.unblock(url.searchParams.get('value')||'')});
+    return send(res,405,{error:'Not allowed'})}
+   // personal add-ons (11 Nov 2026): anyone turns plugins on or off on the agents they own; admins on every agent
    if(p==='/ui/plugins/toggle'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||'default'),name=String(b.name||'');
     if(!/^[\w.@-]{1,80}$/.test(name))return send(res,400,{error:'Unknown plugin'});
-    if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag+'/soul','PUT',new URLSearchParams(),ag)!==null)return send(res,403,{error:'You can only change agents you may edit.'});
+    {const no=users.addonCheck(u,ag,'plugin');if(no)return send(res,403,{error:no})}
+    if(b.enabled){const no=await addons.refusal({name});if(no)return send(res,403,{error:no})}
     if(!(await listAllProfiles()).includes(ag))return send(res,400,{error:'Unknown agent'});
     const r=await hcmd(ag,['plugins',b.enabled?'enable':'disable',name],{timeout:150000});
+    if(r.ok&&b.enabled)addons.note({kind:'plugin',agent:ag,name,by:addonBy(u),via:'turned on'}).catch(()=>{});
     return r.ok?send(res,200,{ok:true,restart_required:/restart/i.test(r.out)}):send(res,400,{error:(r.err||'Could not change the plugin').slice(0,300)})}
    // Google AI Pro through Antigravity (Google's agy tool): status for everyone, connecting, cancelling and removing for admins
    if(p.startsWith('/ui/antigravity/')){const act=p.slice(16);if(act==='status'&&req.method==='GET')return send(res,200,await antigravity.status(url.searchParams.has('fresh')));
@@ -2850,8 +2976,8 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/share'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const from=String(b.from||''),to=(Array.isArray(b.to)?b.to:[]).map(String);
     const may=a=>users.isAdmin(u)||users.gate(u,'/hapi/profiles/'+a+'/soul','PUT',new URLSearchParams(),a)===null;if(!may(from)||!to.every(may))return send(res,403,{error:'You can only share between agents you can edit.'});
     if(!users.isAdmin(u)&&b.kind==='mcp')return send(res,403,{error:'Only admins can copy MCP tools between agents.'});
-    // the same rights as doing it on each agent directly: plugins are admin-only, skills and schedules need that permission
-    if(!users.isAdmin(u)&&b.kind==='plugin')return send(res,403,{error:'Only admins can turn plugins on.'});
+    // the same rights as doing it on each agent directly: plugins on agents they own (addonCheck), skills and schedules need that permission
+    if(!users.isAdmin(u)&&b.kind==='plugin'){const no=to.map(a=>users.addonCheck(u,a,'plugin')).find(Boolean);if(no)return send(res,403,{error:no})}
     if(!users.isAdmin(u)&&b.kind==='skill'&&!to.every(a=>users.canOn(u,'skills',a)))return send(res,403,{error:'Your role does not include adding skills to that agent.'});
     if(!users.isAdmin(u)&&b.kind==='schedule'&&!to.every(a=>users.canOn(u,'schedules',a)))return send(res,403,{error:'Your role does not include schedules on that agent.'});
     try{return send(res,200,await sharing.share(String(b.kind||''),String(b.name||''),from,to,b.replace===true))}catch(e){return send(res,400,{error:e.message})}}
@@ -2959,14 +3085,51 @@ const server=createServer(async(req,res)=>{
    // Connect Google (google-connect.mjs): the OAuth client file, Connect and Reconnect, a pasted address, check, remove.
    // 11 Nov 2026 (Fakhri, an employee on P&P, could not connect Google for his own agent): the install's Google client is
    // an admin's one-time setup; connecting a Google account is for admins and for the agent's own owner, on that agent only.
+   // Tebar webhook settings (tebar.mjs, 11 Nov 2026): the address to give Tebar, the whsec_ secret it showed once (never sent
+   // back), the events. One agent's own connection: an admin or that agent's owner
+   if(p==='/ui/tebar/hook'){let b={};if(req.method!=='GET'){try{b=JSON.parse(await readBody(req,16384)||'{}')}catch{return send(res,400,{error:'Bad request'})}}
+    const a=String(b.agent||url.searchParams.get('agent')||'');if(!(await agentNames()).includes(a))return send(res,400,{error:'Unknown agent'});
+    if(!ownsAgent(u,a))return send(res,403,{error:'Only an admin or this agent’s owner sets up its Tebar webhook.'});
+    try{if(req.method==='GET')return send(res,200,await tebar.view(a));if(req.method==='POST')return send(res,200,await tebar.set(a,{secret:b.secret,events:b.events}));if(req.method==='DELETE')return send(res,200,await tebar.remove(a))}catch(e){return send(res,e.status||400,{error:e.message})}
+    return send(res,405,{error:'GET, POST or DELETE'})}
+   // Set up Slack and Connect Microsoft (slack-connect.mjs, microsoft-connect.mjs), 11 Nov 2026: the same rules as Google.
+   // The install's app (ID and secret) is an admin's one-time setup; connecting an account is for admins and the
+   // agent's own owner, on that agent only. A secret is never sent back or logged.
+   if(p.startsWith('/ui/slack/')||p.startsWith('/ui/microsoft/')){const admin=users.isAdmin(u),slack=p.startsWith('/ui/slack/');let b={};
+    if(req.method!=='GET'){try{b=JSON.parse(await readBody(req,16384)||'{}')}catch{return send(res,400,{error:'Bad request'})}}
+    const ok=x=>send(res,200,x),bad=e=>send(res,e.status||400,{error:e.message}),ag=String(b.agent||url.searchParams.get('agent')||(admin?'default':''));
+    const mine=a=>admin||users.level(u,a)==='owner',all=await agentNames(),own=all.filter(mine),sub=p.replace(/^\/ui\/(slack|microsoft)/,'');
+    if(sub==='/client'&&!admin)return send(res,403,{error:'Only an admin sets this up for the install (once).'});
+    if(['/connect','/check','/account','/flow'].includes(sub)){if(!all.includes(ag))return send(res,400,{error:'Unknown agent'});if(!mine(ag))return send(res,403,{error:'You can connect accounts only for your own agents.'})}
+    const agentsOut=async()=>Promise.all(own.map(async a=>({id:a,name:NAMES[a]||a,...(slack?{slack:await slackc.slackOf(a).catch(()=>null)}:{})})));
+    if(slack){
+     if(sub==='/state'&&req.method==='GET')return ok({...await slackc.info(all),agents:await agentsOut(),canSetUp:admin});
+     if(sub==='/client'&&req.method==='POST')return slackc.saveClient(b,all).then(ok,bad);
+     if(sub==='/client'&&req.method==='DELETE')return slackc.removeClient(all).then(ok,bad);
+     if(sub==='/connect'&&req.method==='POST'){const s=await slackc.slackOf(ag).catch(()=>null);await whyOf.noteApp(ag,s?.name||'slack',{by:'person',admin,who:u.name||u.username||''}).catch(()=>{});return slackc.connect(ag).then(ok,bad)}
+     if(sub==='/flow'&&req.method==='GET'){const id=String(url.searchParams.get('id')||'');if(!/^[\w.-]{1,120}$/.test(id))return send(res,400,{error:'Bad flow'});
+      const f=await fetch(DASH.origin+'/api/mcp/oauth/flows/'+encodeURIComponent(id)+'?profile='+encodeURIComponent(ag),{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(15000)}).then(r=>r.json()).catch(()=>({}));
+      return ok({status:String(f.status||''),error:f.error?String(f.error).slice(0,300):''})}}
+    else{
+     if(sub==='/state'&&req.method==='GET'){const accounts=(await Promise.all(own.map(a=>msconnect.accounts(a)))).flat().map(x=>({...x,agentName:NAMES[x.agent]||x.agent}));return ok({...await msconnect.info(),accounts,agents:await agentsOut(),canSetUp:admin})}
+     if(sub==='/client'&&req.method==='POST')return msconnect.saveClient(b).then(ok,bad);
+     if(sub==='/client'&&req.method==='DELETE')return msconnect.removeClient().then(ok,bad);
+     if(sub==='/connect'&&req.method==='POST')return msconnect.start({agent:ag,name:b.name,services:Array.isArray(b.services)?b.services:undefined,reconnect:!!b.reconnect}).then(ok,bad);
+     if(sub==='/result'&&req.method==='GET')return msconnect.result(String(url.searchParams.get('state')||'')).then(ok,bad);
+     if(sub==='/check'&&req.method==='POST')return msconnect.check(ag,String(b.name||'')).then(ok,bad);
+     if(sub==='/account'&&req.method==='DELETE')return msconnect.remove(ag,String(b.name||'')).then(r=>{if(LIVE_APP)writeAgentContext().catch(()=>{});return ok(r)},bad)}
+    return send(res,404,{error:'Not found'})}
    if(p.startsWith('/ui/google/')){const admin=users.isAdmin(u);let b={};if(req.method!=='GET'){try{b=JSON.parse(await readBody(req,65536)||'{}')}catch{return send(res,400,{error:'Bad request'})}}
     const ok=x=>send(res,200,x),bad=e=>send(res,e.status||400,{error:e.message}),ag=String(b.agent||url.searchParams.get('agent')||(admin?'default':''));
     if(p==='/ui/google/client'&&!admin)return send(res,403,{error:'Only an admin sets up Google for this install (once, in Connections › Connect Google).'});
+    if(p==='/ui/google/client/check'&&!admin)return send(res,403,{error:'Only an admin sets up Google for this install.'});
     const mine=a=>admin||users.level(u,a)==='owner';
-    if(p!=='/ui/google/result'&&p!=='/ui/google/finish'&&p!=='/ui/google/client'&&p!=='/ui/google/state'&&!(await agentNames()).includes(ag))return send(res,400,{error:'Unknown agent'});
+    if(p!=='/ui/google/result'&&p!=='/ui/google/finish'&&p!=='/ui/google/client'&&p!=='/ui/google/client/check'&&p!=='/ui/google/state'&&!(await agentNames()).includes(ag))return send(res,400,{error:'Unknown agent'});
     if(['/ui/google/connect','/ui/google/check','/ui/google/account'].includes(p)&&!mine(ag))return send(res,403,{error:'You can connect Google only for your own agents.'});
     if(p==='/ui/google/state'&&req.method==='GET'&&!admin){const own=(await agentNames()).filter(mine);const accounts=(await Promise.all(own.map(a=>gconnect.accounts(a)))).flat().map(x=>({...x,agentName:NAMES[x.agent]||x.agent}));const inf=await gconnect.info();return ok({...inf,accounts,agents:own.map(a=>({id:a,name:NAMES[a]||a})),canSetUp:false})}
     if(p==='/ui/google/state'&&req.method==='GET'){const all=await agentNames();const accounts=(await Promise.all(all.map(a=>gconnect.accounts(a)))).flat().map(x=>({...x,agentName:NAMES[x.agent]||x.agent}));return ok({...await gconnect.info(),accounts,agents:all.map(a=>({id:a,name:NAMES[a]||a}))})}
+    // the guided setup (11 Nov 2026): check a client file against this install without saving it, and ask Google whether it takes it
+    if(p==='/ui/google/client/check'&&req.method==='POST')return gconnect.checkFile({json:b.json==null?'':String(b.json),project:String(b.project||''),test:!!b.test}).then(ok,bad);
     if(p==='/ui/google/client'&&req.method==='POST')return gconnect.saveClient(String(b.json||'')).then(ok,bad);
     if(p==='/ui/google/client'&&req.method==='DELETE')return gconnect.removeClient().then(ok,bad);
     if(p==='/ui/google/connect'&&req.method==='POST')return gconnect.start({agent:ag,name:b.name,services:Array.isArray(b.services)?b.services:undefined,reconnect:!!b.reconnect}).then(ok,bad);
@@ -3160,7 +3323,7 @@ const server=createServer(async(req,res)=>{
    // Abilities › Connections (connections.mjs): everyone sees the agents they may use; changes are checked per row and agent
    if(p.startsWith('/ui/connections')){const perm={admin:users.isAdmin(u),level:a=>users.level(u,a),canOn:(cap,a)=>users.canOn(u,cap,a)};let b={};if(req.method==='POST'){try{b=JSON.parse(await readBody(req,8192)||'{}')}catch{}}
     const key=String(b.key||url.searchParams.get('key')||''),agent=String(b.agent||'');
-    try{if(p==='/ui/connections'&&req.method==='GET')return send(res,200,await keysId.decorate(await labels.applyRows(await connections.list(perm,{fresh:url.searchParams.get('fresh')==='1'}))));
+    try{if(p==='/ui/connections'&&req.method==='GET')return send(res,200,await keysId.decorate(await labels.applyRows(await connections.list(perm,{fresh:url.searchParams.get('fresh')==='1',check:url.searchParams.get('check')==='1'}))));
      if(p==='/ui/connections/detail'&&req.method==='GET')return send(res,200,await keysId.decorate(await labels.applyRows(await connections.detail(key,perm))));
      if(req.method!=='POST')return send(res,405,{error:'POST only'});if(!key)return send(res,400,{error:'Which connection?'});
      if(p!=='/ui/connections/disconnect'&&!(await listAgents()).includes(agent))return send(res,400,{error:'Unknown agent'});let r;
@@ -3210,10 +3373,10 @@ const server=createServer(async(req,res)=>{
     if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag+'/soul','PUT',new URLSearchParams(),ag)!==null)return send(res,403,{error:'Not your agent.'});
     // who started it: an admin's own sign-in is never asked about as an unknown login (connected-accounts.mjs ownerMade)
     await whyOf.noteApp(ag,tool,{by:'person',admin:users.isAdmin(u),who:u.name||u.username||''}).catch(()=>{});
-    try{const pr=await sharing.prepareSignin(ag,tool,MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(tool));if(pr.changed)await new Promise(r=>setTimeout(r,2500));return send(res,200,await startSignin(ag,tool))}catch(e){return send(res,400,{error:e.message})}}
+    try{const pr=await sharing.prepareSignin(ag,tool,MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(tool),null,slackClientFor);if(pr.changed)await new Promise(r=>setTimeout(r,2500));return send(res,200,await startSignin(ag,tool))}catch(e){return send(res,400,{error:e.message})}}
    if(p==='/ui/mcp/prepare-signin'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||'default');
     if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag+'/soul','PUT',new URLSearchParams(),ag)!==null)return send(res,403,{error:'Not your agent.'});
-    try{const r=await sharing.prepareSignin(ag,String(b.name||''),MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(String(b.name||'')));if(r.changed)await new Promise(r=>setTimeout(r,2500));return send(res,200,r)}catch(e){return send(res,400,{error:e.message})}}
+    try{const r=await sharing.prepareSignin(ag,String(b.name||''),MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(String(b.name||'')),null,slackClientFor);if(r.changed)await new Promise(r=>setTimeout(r,2500));return send(res,200,r)}catch(e){return send(res,400,{error:e.message})}}
    if(p==='/ui/mcp/oauth-redirect'&&req.method==='GET')return send(res,200,{redirect:MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(url.searchParams.get('name')||'')});
    if(p==='/ui/share/duplicate'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||'default');
     if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag+'/soul','PUT',new URLSearchParams(),ag)!==null)return send(res,403,{error:'You can only change agents you may edit.'});

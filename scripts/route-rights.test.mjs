@@ -19,6 +19,7 @@ test('own-agent routes: an admin or the agent\'s owner',()=>{
 test('Connect Google: the client is an admin\'s, an account is the owner\'s',()=>{
  const h=src.slice(src.indexOf("if(p.startsWith('/ui/google/'))"),src.indexOf("if(p.startsWith('/ui/google/'))")+2200);
  assert.match(h,/p==='\/ui\/google\/client'&&!admin\)return send\(res,403/);
+ assert.match(h,/p==='\/ui\/google\/client\/check'&&!admin\)return send\(res,403/,'checking a client file (the guided setup) is admin-only too');
  assert.match(h,/\['\/ui\/google\/connect','\/ui\/google\/check','\/ui\/google\/account'\]\.includes\(p\)&&!mine\(ag\)/)});
 
 test('the Connected apps panel removes a Google account for its owner too',()=>{
@@ -26,7 +27,13 @@ test('the Connected apps panel removes a Google account for its owner too',()=>{
 
 test('install-wide routes stay admin-only',()=>{
  for(const r of ADMIN_ONLY)assert.match(handler(r).slice(0,200),/if\(!users\.isAdmin\(u\)\)return send\(res,403/,r);
- assert.match(src,/Only admins change the branding\./);assert.match(src,/Only admins can turn plugins on\./);assert.match(src,/Only admins can share connected apps between agents\./)});
+ assert.match(src,/Only admins change the branding\./);assert.match(src,/Only admins can share connected apps between agents\./);
+ assert.match(handler('/ui/addons'),/if\(!users\.isAdmin\(u\)\)return send\(res,403/,'who added what, and the block list, are for admins')});
+
+// personal add-ons (11 Nov 2026): plugins are turned on per agent by its owner (or an admin), never install-wide by a member
+test('plugins on an agent: an admin or that agent\'s owner (addonCheck)',()=>{
+ assert.match(handler('/ui/plugins/toggle'),/users\.addonCheck\(u,ag,'plugin'\)/);
+ assert.match(src,/b\.kind==='plugin'\)\{const no=to\.map\(a=>users\.addonCheck\(u,a,'plugin'\)\)/)});
 
 test('ownsAgent is an admin, or the owner level on that agent',()=>{
  assert.match(src,/const ownsAgent=\(u,a\)=>!!u&&\(users\.isAdmin\(u\)\|\|users\.level\(u,String\(a\|\|'default'\)\)==='owner'\);/)});

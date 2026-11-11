@@ -45,7 +45,7 @@ const Signins={shown:new Set(),
     <button class="ghost" data-si="remove">${icon('trash',15)}${esc(x.agentName)} doesn’t need it: remove</button>
     <button class="ghost" data-si="later">${icon('clock',15)}Remind me tomorrow</button>
     <button class="ghost" data-si="other">${icon('chat',15)}Something else…</button></div>
-   <div class="si-other" hidden><label for="siTxt">Tell ${esc(x.agentName)} why, or ask something</label><textarea id="siTxt" rows="3" placeholder="For example: you don’t need Composio for this, use the Gmail connection instead"></textarea><div class="si-other-acts"><button class="primary small" data-si="send">Send to ${esc(x.agentName)}</button><span class="hint">It goes to a new chat with ${esc(x.agentName)}; this reminder waits a day.</span></div></div>
+   <div class="si-other" hidden><label for="siTxt">Tell ${esc(x.agentName)} why, or ask something</label><textarea id="siTxt" rows="3" placeholder="For example: you don’t need Notion for this, use the Gmail connection instead"></textarea><div class="si-other-acts"><button class="primary small" data-si="send">Send to ${esc(x.agentName)}</button><span class="hint">It goes to a new chat with ${esc(x.agentName)}; this reminder waits a day.</span></div></div>
    <p class="hint" style="margin:12px 0 0">Signing in opens ${esc(x.app||'the app')}’s own page in a new tab. Pick the account ${x.account?`for <b>${esc(x.account)}</b> `:''}and allow access, then come back here.</p>`,`<button class="ghost" data-act="close">Close</button>`);
   Why.wire(d,x.agent);
   const done=msg=>{closeLayers();toast(msg);document.querySelector('.cron-pop[data-k="'+CSS.escape('signin|'+k)+'"] .np-x')?.click()};

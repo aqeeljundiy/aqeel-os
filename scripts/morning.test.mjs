@@ -15,12 +15,12 @@ await t('issues: fixed by itself, a person, the daily deploy, being fixed; old, 
  const l=fromIssues([{id:'i1',agent:'agenta',state:'fixed',created:NOW-5*H,fixed:NOW-4*H,missing:'The skill maps points to a file that is not there. Missing: x.py'},
   {id:'i2',agent:'agent-d',state:'needs_human',created:NOW-3*H,missing:'A new API key for Xendit; the old one was revoked'},
   {id:'i3',agent:'agenta',state:'deploy',created:NOW-2*H,missing:'Kirimdev labels are not set after a payment'},
-  {id:'i4',agent:'agenta',state:'fixing',created:NOW-H,missing:'Composio sign-in fails'},
+  {id:'i4',agent:'agenta',state:'fixing',created:NOW-H,missing:'GitHub sign-in fails'},
   {id:'i5',agent:'agenta',state:'stuck',created:NOW-9*864e5,updated:NOW-9*864e5,missing:'old and quiet'},
   {id:'i6',agent:'agenta',state:'closed',created:NOW-H,missing:'closed by a person'},{id:'i7',agent:'mb-z4b1u',state:'queued',created:NOW-H,missing:'a test agent'},
   {id:'i8',agent:'agenta',state:'queued',created:NOW-H,missing:'PLANNED TEST, no action needed: ladder'}],o);
- assert.deepEqual(l.map(x=>[x.what,x.state]),[['The skill maps points to a file that is not there','fixed'],['A new API key for Xendit','person'],['Kirimdev labels are not set after a payment','deploy'],['Composio sign-in fails','working']]);
- const line=morningLine(l);assert.equal(line,'Yesterday: 4 things went wrong. Fixed by itself: missing skill files: maps (Agent A).\nNot fixed yet: A new API key for Xendit (Agent D, needs you in Bottlenecks); app sign-ins: composio (Agent A, the fixer is on it); Kirimdev labels are not set after a payment (Agent A, fix waits for the daily deploy).')});
+ assert.deepEqual(l.map(x=>[x.what,x.state]),[['The skill maps points to a file that is not there','fixed'],['A new API key for Xendit','person'],['Kirimdev labels are not set after a payment','deploy'],['GitHub sign-in fails','working']]);
+ const line=morningLine(l);assert.equal(line,'Yesterday: 4 things went wrong. Fixed by itself: missing skill files: maps (Agent A).\nNot fixed yet: A new API key for Xendit (Agent D, needs you in Bottlenecks); app sign-ins: github (Agent A, the fixer is on it); Kirimdev labels are not set after a payment (Agent A, fix waits for the daily deploy).')});
 await t('Activity: a tool server that stopped on several agents and works again is one fixed item; one still down is not',()=>{
  const row=(title,t,x={})=>({title,t,cls:'activity',...x});
  const l=fromActivity([row('Donna AI: the tool server "aqeelos-notify" works again',NOW-H),row('Sample Agent: the tool server "aqeelos-notify" stopped connecting',NOW-3*H,{count:4,since:NOW-6*H}),
@@ -30,7 +30,7 @@ await t('Activity: a tool server that stopped on several agents and works again 
  assert.deepEqual(l.map(x=>[x.what,x.state,x.agents.length]),[['the tool server aqeelos-notify','fixed',4],['the tool server notion','open',1]]);
  assert.equal(morningLine(l),'Yesterday: 2 things went wrong. Fixed by itself: the tool server aqeelos-notify (4 agents).\nNot fixed yet: the tool server notion (Donna AI, still broken).');
  // still broken only when Health still has it open now
- const rows=[row('Donna AI: the tool server "notion" stopped connecting',NOW-2*H),row('Agent A: the tool server "composio" stopped connecting',NOW-2*H)];
+ const rows=[row('Donna AI: the tool server "notion" stopped connecting',NOW-2*H),row('Agent A: the tool server "github" stopped connecting',NOW-2*H)];
  assert.deepEqual(fromActivity(rows,{...o,open:['Tool servers do not start: notion']}).map(x=>x.state),['open','fixed'])});
 await t('the same problem from an issue and Activity is one item; fixed only when every source says so',()=>{
  const l=merge([...fromIssues([{id:'i9',agent:'default',state:'fixed',created:NOW-2*H,fixed:NOW-H,healthKey:'health|aqeelos|tool|aqeelos-notify',missing:'aqeelOS\'s own tool server aqeelos-notify is failing for 5 agents'}],o),
@@ -52,11 +52,11 @@ await t('the live test after a deploy: undone by itself is fixed; no undo or a f
  assert.deepEqual(l.map(x=>[x.what,x.state]),[['the deploy of 2b560f9a failed its live test (tools, agent), so the previous version was put back','fixed'],['the deploy of abcdef12 failed its live test (engine) and putting the previous version back failed','open']])});
 await t('a batch of one kind is one item: missing skill files, app sign-ins, groups, file access',()=>{const is=(id,agent,missing,state='fixed')=>({id,agent,state,created:NOW-H,missing});
  const l=merge(fromIssues([is('a','agenta','The skill maps points to a file that is not there'),is('b','agent-d','The skill continue-vial-labels points to a file that is not there'),is('c','default','The skill whatsapp-support-agents points to 2 files that are not there','queued'),
-  is('d','agenta','Agent A reported a system problem: A sign-in for composio, notion and slack'),is('e','cont-socmed','Continue Social Media is blocked: A sign-in for Notion and for Slack (OAuth)'),
+  is('d','agenta','Agent A reported a system problem: A sign-in for github, notion and slack'),is('e','cont-socmed','Continue Social Media is blocked: A sign-in for Notion and for Slack (OAuth)'),
   is('f','agent-c','Read/execute access for ag-agent-c to /home/claude/work/labels'),is('g','cont-socmed','Removed from the Telegram group Continue - Socials')],o));
  assert.deepEqual(l.map(x=>[x.what,x.state,x.agents.length]),[['missing skill files','working',3],['app sign-ins','fixed',2],['file access','fixed',1],['bot removed from Telegram groups','fixed',1]]);
- assert.equal(morningLine(l),'Yesterday: 4 things went wrong. Fixed by itself: app sign-ins: composio, notion and 1 more (2 agents); file access (agent-c); bot removed from Telegram groups: Continue - Socials (cont-socmed).\nNot fixed yet: missing skill files: maps, continue-vial-labels and 1 more (3 agents, the fixer is on it).')});
-await t('short names and long lists stay one or two lines',()=>{assert.equal(short('Tool servers do not start: composio, notion (OAuth). More text here'),'Tool servers do not start: composio, notion');
+ assert.equal(morningLine(l),'Yesterday: 4 things went wrong. Fixed by itself: app sign-ins: github, notion and 1 more (2 agents); file access (agent-c); bot removed from Telegram groups: Continue - Socials (cont-socmed).\nNot fixed yet: missing skill files: maps, continue-vial-labels and 1 more (3 agents, the fixer is on it).')});
+await t('short names and long lists stay one or two lines',()=>{assert.equal(short('Tool servers do not start: github, notion (OAuth). More text here'),'Tool servers do not start: github, notion');
  assert.ok(short('x '.repeat(80)).length<=70);
  const many=Array.from({length:6},(_,k)=>({key:'k'+k,what:'problem number '+k,agents:[],state:k<4?'fixed':'open',at:k}));const line=morningLine(many);
  assert.match(line,/Fixed by itself: problem number 0; problem number 1; problem number 2; 1 more\./);assert.equal(line.split('\n').length,2)});

@@ -1,7 +1,7 @@
 // Abilities an agent gets only when switched on (7 Nov 2026, owner): AdsPower (browser profiles: about 96 processes and
-// 6 GB on the box when every agent had it) and Composio (it asked every agent for a sign-in). Off by default: new agents
-// and a clean install have neither. Edit agent › Abilities switches them; when off, the agent has no AdsPower copy,
-// screen or tool and no Composio entry, so nothing asks for a sign-in.
+// 6 GB on the box when every agent had it) and sign-in apps per agent. Off by default: new agents and a clean install
+// have none. Edit agent › Abilities switches them; when off, the agent has no AdsPower copy, screen or tool.
+// Composio is gone (11 Nov 2026, owner: apps connect directly); an old "composio" key in agent-optins.json is ignored.
 // The first start with this file keeps each one only for agents that really used it: tool calls that ran (role "tool"
 // in the engine's state.db, the last 14 days), never mentions in logs.
 import {readFile,writeFile,rename,mkdir,copyFile,stat} from 'node:fs/promises';
@@ -9,22 +9,20 @@ import {execFile} from 'node:child_process';
 import path from 'node:path';
 import {isConnector} from './connectors.mjs';
 
-export const KINDS={adspower:'Browser profiles (AdsPower)',composio:'Composio apps'};
-export const COMPOSIO=/connect\.composio\.dev|rube\.app|composio/i;
+export const KINDS={adspower:'Browser profiles (AdsPower)'};
 export const baseOf=a=>String(a).split('--')[0];
-// the MCP names one agent's tools of a kind run under: AdsPower's own name, and whatever name its Composio entry has
-export function toolNames(config){const out={adspower:['AdsPower'],composio:[]};for(const [n,e] of Object.entries(config?.mcp_servers||{}))if(e&&COMPOSIO.test(String(e.url||'')))out.composio.push(n);
- if(!out.composio.length)out.composio.push('composio');return out}
-// sign-in apps (Notion, Slack, any OAuth tool server) are switched per agent by their name there; Composio has its own switch
-export const appNames=config=>Object.entries(config?.mcp_servers||{}).filter(([,e])=>isConnector(e)&&!COMPOSIO.test(String(e.url||''))).map(([n])=>n);
+// the MCP names one agent's tools of a kind run under
+export function toolNames(){return {adspower:['AdsPower']}}
+// sign-in apps (Notion, Slack, any OAuth tool server) are switched per agent by their name there
+export const appNames=config=>Object.entries(config?.mcp_servers||{}).filter(([,e])=>isConnector(e)).map(([n])=>n);
 // which apps an agent keeps at the first count: the ones it ran a tool of; the main agent also keeps all of its own, which
 // are the owner's sign-ins (7 Nov 2026: notion-abel, notion-polar, slack, slack-pixel, slack-as2)
 export function decideApps(counts,configs){const on={};
  for(const [a,c] of Object.entries(configs||{})){const b=baseOf(a);for(const n of appNames(c)){if(b==='default'||(counts?.[a]?.['app:'+n]?.n||0)>0)(on[b]||={})[n]=true}}
  return on}
 // an agent's own open report about a sign-in it lacks, which every app it names is now switched off for: solved.
-// stillOn(agent,word): whether any app of that agent matching the word (composio, notion, slack, …) is still on
-const APP_WORD=/\b(composio|notion|slack|rube)\b/gi,ABOUT_SIGNIN=/sign[- ]?in|oauth|tool servers?|mcp|engine[- ]start|start failures/i;
+// stillOn(agent,word): whether any app of that agent matching the word (notion, slack) is still on
+const APP_WORD=/\b(notion|slack)\b/gi,ABOUT_SIGNIN=/sign[- ]?in|oauth|tool servers?|mcp|engine[- ]start|start failures/i;
 export async function solvedIssues(items,stillOn){const out=[];
  for(const i of items||[]){if(!['open','queued'].includes(i.state)||i.source!=='agent'||i.healthKey)continue;const t=String(i.what||'')+' '+String(i.missing||'');
   if(!ABOUT_SIGNIN.test(t))continue;let words=[...new Set((t.match(APP_WORD)||[]).map(w=>w.toLowerCase()))];
@@ -32,8 +30,8 @@ export async function solvedIssues(items,stillOn){const out=[];
   if(!words.length){if(!/\b(mcp|sign[- ]?in) apps?\b|tool servers?/i.test(t))continue;words=['*']}
   let any=false;for(const w of words)if(await stillOn(i.agent,w)){any=true;break}if(!any)out.push(i.id)}
  return out}
-// counts per agent: {agent:{adspower:{n,last},composio:{n,last}}}, copies (default--whatsapp-2) counted for their agent
-export function decide(counts,agents){const on={adspower:{},composio:{}};
+// counts per agent: {agent:{adspower:{n,last}}}, copies (default--whatsapp-2) counted for their agent
+export function decide(counts,agents){const on={adspower:{}};
  for(const a of agents){const b=baseOf(a);for(const k of Object.keys(on)){const c=counts?.[a]?.[k];if(c&&c.n>0)on[k][b]=true}}
  return on}
 
@@ -76,16 +74,16 @@ export function createOptins({DATA,HERMES_HOME,listAgents,readConfig,python,live
   for(const [a,v] of Object.entries(raw)){const b=baseOf(a);out[b]||={};for(const k of Object.keys(KINDS)){const x=v?.[k];if(!x)continue;const cur=out[b][k]||{n:0,last:0};out[b][k]={n:cur.n+x.n,last:Math.max(cur.last,x.last)}}}
   return {agents,counts:out}}
 
- // once: before this, every agent had both. Backups first (the AdsPower ports file and each agent's config.yaml that
- // will lose its Composio entry), then the switches from real use; the result goes to the log and the Activity feed.
+ // once: before this, every agent had AdsPower. Backup first (the AdsPower ports file), then the switch from real use;
+ // the result goes to the log and the Activity feed.
  async function migrate({force=false}={}){await load();if(db?.migration&&!force)return null;if(!live&&!force)return null;
   const {agents,counts}=await usage(14);const dec=decide(counts,agents);const stamp=new Date(now()).toISOString().slice(0,19).replace(/[-:T]/g,'');
   const bak=[];const cp=async f=>{if(await stat(f).catch(()=>null)){await copyFile(f,f+'.bak-optins-'+stamp);bak.push(f+'.bak-optins-'+stamp)}};
-  await cp(path.join(DATA,'agent-adspower.json'));for(const a of agents){const c=await readConfig(a).catch(()=>null)||{};if(!dec.composio[baseOf(a)]&&toolNames(c).composio.some(n=>c.mcp_servers?.[n]))await cp(path.join(home(a),'config.yaml'))}
-  db={v:1,adspower:dec.adspower,composio:dec.composio,migration:{at:now(),days:14,counts,backups:bak}};await save();
+  await cp(path.join(DATA,'agent-adspower.json'));
+  db={v:1,adspower:dec.adspower,migration:{at:now(),days:14,counts,backups:bak}};await save();
   const bases=[...new Set(agents.map(baseOf))],kept=k=>bases.filter(b=>dec[k][b]),fmt=l=>l.length?l.join(', '):'nobody';
-  const text='AdsPower kept for '+fmt(kept('adspower'))+'; Composio kept for '+fmt(kept('composio'))+'. Everyone else has them off (no tool call in 14 days). Switch them on per agent in Edit agent › Abilities.';
-  log('abilities: first start: '+text+' Backups: '+bak.length);await note('AdsPower and Composio are now per agent',text).catch(()=>{});
+  const text='AdsPower kept for '+fmt(kept('adspower'))+'. Everyone else has it off (no tool call in 14 days). Switch it on per agent in Edit agent › Abilities.';
+  log('abilities: first start: '+text+' Backups: '+bak.length);await note('AdsPower is now per agent',text).catch(()=>{});
   return {decision:dec,counts,backups:bak,text}}
 
  // sign-in apps: before their first count everything stays as it was (on); after it, an app not kept is off

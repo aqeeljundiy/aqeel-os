@@ -1,5 +1,5 @@
 // Connectors for every agent (workstream C, 6 Nov 2026): every app that signs in through a sign-in page (Slack, Notion,
-// Composio, any future one an agent adds) is available to every agent, without anyone's login. The catalog is not a
+// any future one an agent adds) is available to every agent, without anyone's login. The catalog is not a
 // hand-written list: it is every sign-in-page app any agent has, by address. Each agent missing one gets a plain copy of
 // the setup (address, scopes, safety excludes), never the sign-in files and never someone's own app keys (client id or
 // secret). The agent then signs in its own with connect_mcp_tool, or the owner shares theirs on the Access page
@@ -11,8 +11,8 @@ const LOCAL=/^https?:\/\/(127\.|localhost|\[::1\])/i;
 export const hostOf=u=>{try{return new URL(String(u)).host.toLowerCase()}catch{return ''}};
 // a header or token sign-in is someone's own key: not a connector to hand out (n8n has its own per-agent users)
 const keyed=e=>!!(e.bearer||e.bearer_token||e.token||(e.auth&&e.auth!=='oauth')||Object.keys(e.headers||{}).some(k=>/auth|token|key|bearer/i.test(k)));
-// a sign-in-page app: an address, oauth (or Composio's connector, which signs in the same way), no key of its own
-export const isConnector=e=>!!(e&&typeof e==='object'&&e.url&&!LOCAL.test(e.url)&&!keyed(e)&&(e.auth==='oauth'||/connect\.composio\.dev|rube\.app/.test(e.url)));
+// a sign-in-page app: an address, oauth, no key of its own
+export const isConnector=e=>!!(e&&typeof e==='object'&&e.url&&!LOCAL.test(e.url)&&!keyed(e)&&e.auth==='oauth');
 
 // the setup without anyone's login: no client id/secret (someone's own app), no token, the return address set per agent later
 export function vanilla(e){const out={url:e.url,auth:'oauth'};const o={};
@@ -45,7 +45,7 @@ export function notConnected(config,hasToken){return Object.entries(config?.mcp_
 // hasEnv(agent,VAR): whether the agent's own settings file has that name (a ${VAR} app key is kept only then)
 export function forAgent(entry,has){const o={...entry.oauth};for(const k of ['client_id','client_secret']){const m=/^\$\{(?:env:)?([^}]+)\}$/.exec(String(o[k]||''));if(m&&!has(m[1].trim()))delete o[k]}
  if(!o.client_id)delete o.client_secret;return {...entry,oauth:o}}
-// allow(agent,entry): whether this agent may get this app at all (Composio only for agents switched on for it, agent-optins.mjs)
+// allow(agent,entry,name): whether this agent may get this app at all (its sign-in app switch, agent-optins.mjs)
 export function createConnectors({listAgents,readConfig,setKey,redirect,allow=async()=>true,hasEnv=async()=>false,noteApp=async()=>{},origin=async()=>null,eligible=async()=>true,log=()=>{}}){
  async function plan(){const agents=await listAgents();const cfg={};for(const a of agents)cfg[a]=await readConfig(a).catch(()=>null)||{};
   const cat=catalog(cfg);const out=[];

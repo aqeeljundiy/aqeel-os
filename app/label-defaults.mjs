@@ -96,5 +96,4 @@ export const LABEL_DEFAULTS={
  'mcp:aqeelos-customer':S('Customer tools','The safe tools a support agent uses with customers: past chats, files, sheets and payment links.'),
  'mcp:aqeelos-code':S('Code projects','Lets the agent read, edit and run projects in Code.'),
  'mcp:AdsPower':S('AdsPower browsers','Opens and drives the agent’s AdsPower browser profiles.'),
- 'mcp:composio':S('Composio apps','Many outside apps through one Composio sign-in.'),
  'mcp:n8n':S('n8n automations','Runs and builds automations in n8n.')};
