@@ -27,6 +27,8 @@ export function personNeed(x){const k=x?.kind,t=[x?.title,x?.missing,x?.text].fi
   case 'access':return 'Decide: allow or decline.';
   // a conflict (rule-conflicts.mjs): two sides or more, the agent never picks; the strictest side applies until you choose
   case 'conflict':return 'Choose one. Until you do, the strictest side applies.';
+  // schedules that start the AI every few minutes with no check (run-gates.mjs): per schedule, add a check or keep it
+  case 'cadence':return 'For each schedule: add a check, or keep it as it is.';
   case 'instructions':return 'Read the new instructions and approve or decline them.';
   // the fixer's fixes wait as branches until it has a GitHub token (issues.mjs, fixer-git.mjs)
   case 'github_token':return 'Make a GitHub token for the fixer (aqeel-os only: pull requests and contents on branches, no admin) and set it as AQEELOS_FIXER_GITHUB_TOKEN on the server.';

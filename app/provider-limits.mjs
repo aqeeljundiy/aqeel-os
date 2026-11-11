@@ -53,6 +53,10 @@ export function providerUnavailable(text,{now=Date.now(),strict=false}={}){const
 // when to try again: the reset time if known (never more than `max` away), else `fallback` from now
 export const retryAt=(info,{now=Date.now(),fallback=30*60e3,max=3*3600e3,pad=60e3}={})=>info?.resetAt&&info.resetAt>now?Math.min(info.resetAt+pad,now+max):now+fallback;
 
+// the hold another process wrote (DATA/provider-hold.json), for a script that runs outside the app (the deploy live test): the
+// hold while it is still in the future, else null. Never throws.
+export function readHold(DATA,now=Date.now()){try{const h=JSON.parse(readFileSync(path.join(DATA,'provider-hold.json'),'utf8'));return h&&h.until>now?h:null}catch{return null}}
+
 // what every part of the app shares: while one holds, nothing new is started that needs a model. In memory, kept in
 // DATA/provider-hold.json so a restart does not forget it.
 export function createLimitState({DATA=null,now=()=>Date.now(),log=()=>{}}={}){

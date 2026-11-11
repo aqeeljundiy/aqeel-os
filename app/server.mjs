@@ -98,6 +98,7 @@ import {createConnectedAccounts} from './connected-accounts.mjs';
 import {createSharing,createSecretAccess,LEVELS as SHARE_LEVELS} from './sharing.mjs';
 import {createAgentAccess,MAIN_RULE_LINES,CONFLICT_RULE_LINES,redactText} from './agent-access.mjs';
 import {createConflicts} from './rule-conflicts.mjs';
+import {createBrowserChecks} from './browser-checks.mjs';
 import {createConnections} from './connections.mjs';
 import {createSecretLinks,createLimiter} from './secret-links.mjs';
 import {createGoogleShares} from './google-shares.mjs';
@@ -908,7 +909,8 @@ const mcpEdit=createMcpEdit({readConfig,setKey,readEnv:a=>readFile(path.join(hom
 const news=createNews({DATA});
 // "Needs you" (7 Nov 2026): the Bottlenecks person items, one list shown in two places, the Bottlenecks popup and the
 // bell; only what truly needs a person (forPopup), each once
-async function needsFor(u){const admin=users.isAdmin(u);if(admin)await freshSignins();const items=await bottlenecks.list({admin,uid:admin?null:u.id,mayUse:a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a),signins:admin?[...signinsDue.values()]:[],invites:admin?users.expiredInvites():[],accounts:admin?await accountsApi.signedOut().catch(()=>[]):[],channels:admin?await channelAttention(false).catch(()=>[]):[]});const mayU=a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a);items.push(...await accessAsk.open(admin?()=>true:mayU).catch(()=>[]));items.push(...await conflicts.open(mayU,admin).catch(()=>[]));items.push(...await help.items(u).catch(()=>[]));
+async function needsFor(u){const admin=users.isAdmin(u);if(admin)await freshSignins();const items=await bottlenecks.list({admin,uid:admin?null:u.id,mayUse:a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a),signins:admin?[...signinsDue.values()]:[],invites:admin?users.expiredInvites():[],accounts:admin?await accountsApi.signedOut().catch(()=>[]):[],channels:admin?await channelAttention(false).catch(()=>[]):[]});const mayU=a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a);items.push(...await accessAsk.open(admin?()=>true:mayU).catch(()=>[]));items.push(...await conflicts.open(mayU,admin).catch(()=>[]));items.push(...await runGates.needs(admin).catch(()=>[]));   // schedules that wake the AI every few minutes with no check (run-gates.mjs)
+   items.push(...await help.items(u).catch(()=>[]));
     for(const {a,p:pr} of await instructions.openProposals(await listAgents()).catch(()=>[]))if(admin||users.agentOwner(a)===u.id)items.push({id:'instr|'+a+'|'+pr.id,kind:'instructions',agent:a,pid:pr.id,title:(NAMES[a]||a)+': new instructions wait for your approval',detail:pr.why,created:pr.at,from:null});
     // the message that led to it is from the agent's newest chat, whoever's: a member sees it only when that chat is theirs
     // a member sees (and counts) only what they can act on themselves (7 Nov 2026, clean-install test: members saw the
@@ -937,6 +939,9 @@ if(LIVE_APP){setTimeout(()=>listAgents().then(l=>instructions.tick(l)).catch(()=
 // Automatic updates (scripts/auto-update.mjs) on a Docker box; installer installs use a systemd timer. Checked every 15 minutes;
 // the script itself keeps to the quiet hours. A failed or refused update goes under Bottlenecks once.
 if(LIVE_APP&&existsSync(path.join(homedir(),'services.sh'))){const tick=()=>{try{spawn(process.execPath,[path.join(root,'scripts','auto-update.mjs')],{detached:true,stdio:'ignore',env:process.env}).unref()}catch{}};setTimeout(tick,120000).unref();setInterval(tick,15*60000).unref()}
+// The night's page checks (browser-checks.mjs, 12 Nov 2026): the browser checks that no longer run at every deploy run once a night in the maintenance window, after the update; a failure is one Health item
+const browserChecks=createBrowserChecks({DATA,APP:root,settings:()=>installSettings(),bottlenecks,live:async()=>({box:existsSync(path.join(homedir(),'services.sh')),sha:(await readFile(path.join(root,'.deployed-commit'),'utf8').catch(()=>'')).trim()})});
+if(LIVE_APP)setInterval(()=>browserChecks.tick().catch(e=>console.warn('browser checks',e.message)),5*60e3).unref();
 if(LIVE_APP)setInterval(async()=>{const f=path.join(DATA,'auto-update.json');let a;try{a=JSON.parse(await readFile(f,'utf8'))}catch{return}const l=a.last;if(!l||!/failed|refused/.test(l.result)||a.told===l.at)return;a.told=l.at;await writeFile(f,JSON.stringify(a,null,1)).catch(()=>{});await bottlenecks.event('update',l.result==='refused'?'An automatic update was skipped':'An automatic update failed',l.why).catch(()=>{})},5*60000).unref();
 // The desktop app for everyone: the public GitHub release (.github/workflows/desktop-app.yml). DESKTOP_RELEASES points elsewhere for a
 // private build; files in DATA/desktop are used when they are newer, or when no release can be reached.
@@ -1881,7 +1886,7 @@ if(LIVE_APP){const effApply=()=>efficiency.apply().then(async c0=>{const c=[];fo
  setTimeout(effApply,100e3).unref();setInterval(effApply,10*60e3).unref()}
 // Run gates (run-gates.mjs, 11 Nov 2026): every schedule that starts the AI first asks this app whether the run can do
 // anything (the AI service asked for a pause, posting limits, a check of the job's own); if not, no run starts. Same rhythm.
-const runGates=createRunGates({strict:a=>conflicts.strict(a),HERMES_HOME,DATA,WORK:path.join(homedir(),'workspaces'),PORT,sig:a=>relay.sig(a),live:LIVE_APP,lock:withFlock,skipAgent:a=>isTestAgent(a)});
+const runGates=createRunGates({strict:a=>conflicts.strict(a),HERMES_HOME,DATA,WORK:path.join(homedir(),'workspaces'),PORT,sig:a=>relay.sig(a),live:LIVE_APP,lock:withFlock,skipAgent:a=>isTestAgent(a),names:a=>agentName(a),rule:()=>installSettings().cadenceRule!==false});
 if(LIVE_APP){setTimeout(()=>conflicts.sync().catch(e=>console.warn('conflicts',e.message)),130e3).unref();setInterval(()=>conflicts.sync().catch(e=>console.warn('conflicts',e.message)),10*60e3).unref()}
 if(LIVE_APP){const gatesInstall=()=>runGates.install().catch(e=>console.warn('run gates',e.message));setTimeout(gatesInstall,100e3).unref();setInterval(gatesInstall,10*60e3).unref()}
 // graphify (code and document maps) in the agents' shared Python, its skill copied to every agent; same rhythm
@@ -3775,6 +3780,9 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/explain'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,300000))}catch{}const items=(Array.isArray(b.items)?b.items:[]).slice(0,300).map(x=>({id:String(x?.id||'').slice(0,120),name:String(x?.name||'').slice(0,160),desc:String(x?.desc||'').slice(0,600)}));return send(res,200,await explain.get(String(b.kind||''),items,{write:users.isAdmin(u)}))}
    // what billion-context saved and whether graphify is ready, for the Usage page (admins: it covers every agent)
    // run gates (run-gates.mjs): per schedule how many runs the gate stopped, and the rate proposals (admins)
+   // "Add a check" / "Keep every N min" on the Health item of a schedule that starts the AI too often with no check (run-gates.mjs)
+   if(p==='/ui/run-gates/decide'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins decide this.'});let b={};try{b=JSON.parse(await readBody(req,2048))}catch{}
+    try{return send(res,200,await runGates.decide(String(b.agent||''),String(b.job||''),String(b.choice||'')))}catch(e){return send(res,409,{error:e.message})}}
    if(p==='/ui/run-gates'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins see this.'});return send(res,200,await runGates.view())}
    if(p==='/ui/usage/savings'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins see savings for every agent.'});
     const [compress,maps]=await Promise.all([billion.savings().catch(()=>null),graphify.status().catch(()=>null)]);return send(res,200,{compress,maps})}

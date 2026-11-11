@@ -54,6 +54,10 @@ A janitor compares, every minute, what should run for each agent with what does 
 
 *Incident, 10 Nov:* deploys failed six times on random misses, and every check passed when run alone.
 
+*Light deploys (12 Nov 2026):* both servers are CPU-bound, so an on-box deploy runs only what is cheap and decisive: scripts parse, no browser script clashes, the engine update check, the drift check and the live test (which still puts the previous version back by itself when it fails; its agent check starts no model while the provider is on hold). The four browser checks (pages, fast switching, buttons and tabs, My browser) run once a night in the maintenance window after the update (`app/browser-checks.mjs`; one Health item on failure, never an undo), or at a deploy with `FULL_CHECK=1`. Each deploy log ends with its timings.
+
+*The 30-minute rule (12 Nov 2026):* a schedule that starts the AI more often than every 30 minutes needs a no-model check (`aqeelos-check-<job>.sh`) or an event rule; without either the run gate lets it start once per 30 minutes (`app/run-gates.mjs`). One Health item per agent offers "Add a check" or "Keep every N min". System > Settings > This install switches the rule off.
+
 ## 7. Everything temporary expires
 
 Logs rotate. Fixer patches, drift saves, test users and old backups are removed after 30 days.

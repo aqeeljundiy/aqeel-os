@@ -1,4 +1,5 @@
 #!/bin/bash
+# Light by default since 12 Nov 2026 (static checks and the engine update check only); FULL_CHECK=1 runs everything below.
 # Checks before every deploy (deploy.sh runs this unless SKIP_CHECKS=1). The new version starts as the private
 # test copy on the box (port 4402, its own data and password) and must pass, in about 5 minutes:
 #   1. every page loads without an error            (pages-check)
@@ -30,4 +31,4 @@ PACK=""; for p in app assets backlog data engine extension mockup scripts code-i
  tar --force-local -czf ../hui-check.tgz $PACK
 scp -q ../hui-check.tgz "$AQ_BOX":$TGZ && rm ../hui-check.tgz
 fi
-ssh "$AQ_BOX" "MB=$MB TGZ=$TGZ bash -s" < scripts/box-check.sh
+ssh "$AQ_BOX" "FULL_CHECK=${FULL_CHECK:-0} MB=$MB TGZ=$TGZ bash -s" < scripts/box-check.sh
