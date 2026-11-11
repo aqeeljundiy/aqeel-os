@@ -23,6 +23,8 @@ const Signins={shown:new Set(),
  // after a sign-in: check every 10 s for two minutes, so the reminder goes away as soon as it lands
  watch(x){const k=x.agent+'|'+x.name;let n=0;clearInterval(this['w'+k]);this['w'+k]=setInterval(async()=>{if(++n>=12||!S.signedIn)clearInterval(this['w'+k]);if(!S.signedIn)return;let d;try{d=await UI('/ui/mcp/signins')}catch{return}
   if(!(d.items||[]).some(y=>y.agent===x.agent&&y.name===x.name)){clearInterval(this['w'+k]);this.shown.delete(k);toast((x.label||x.name)+' is signed in for '+x.agentName);if(typeof Bottlenecks!=='undefined')Bottlenecks.check()}},10000)},
+ // the sign-in itself, started from a button anywhere (Needs you): the app's own page opens in a new tab; the tab opens on the click so it is not blocked
+ async go(x){const w=window.open('about:blank','_blank');try{const r=await post(UI,'/ui/mcp/start-signin',{agent:x.agent,name:x.name});const u=r.authorization_url||r.auth_url||r.url;if(!u)throw new Error(r.error||'No sign-in page came back.');if(w)w.location=u;else window.open(u,'_blank');toast('Finish signing in on the page that opened');this.watch({agent:x.agent,name:x.name,label:x.label||x.name,agentName:x.agentName||x.agent})}catch(e){w?.close();fail(e)}},
  snooze(k){try{const m=JSON.parse(localStorage.getItem('signinLater')||'{}');m[k]=Date.now()+24*3600e3;localStorage.setItem('signinLater',JSON.stringify(m))}catch{}},
  async check(){if(!S.signedIn||S.me?.admin===false||document.hidden)return;let d;try{d=await UI('/ui/mcp/signins')}catch{return}this.items=(d.items||[]).map(x=>x.agent?{...x,agentName:agentNameOf(x.agent,x.agentName)}:x);
   for(const x of this.items){const k=x.agent+'|'+x.name;if(this.shown.has(k)||this.snoozed(k))continue;this.shown.add(k);

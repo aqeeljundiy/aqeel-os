@@ -72,8 +72,7 @@ const Inbox={items:[],needs:[],ids:{},
   if(l.length)h+='<div class="group-label">You started it</div>'+l.map(x=>`<div class="ib-item ${x.read?'':'unread'}" data-inbox="${esc(x.id)}" ${st(Math.min(k++,10))} tabindex="0"><span class="ic ${esc(x.kind)}">${icon(x.icon,15)}</span><div class="txt"><b>${esc(x.title)}</b>${x.text?`<span>${esc(x.text)}</span>`:''}<small>${esc(when(x.t))}${x.go?' · '+esc(x.label):''}</small></div><button class="ghost icon ib-x" data-ib-x aria-label="Clear">${icon('x',13)}</button></div>`).join('');
   el.innerHTML=h;
   // the same buttons as Bottlenecks; after one, both lists are drawn again
-  el.querySelectorAll('.bn-acts').forEach(box=>{const x=n[+box.dataset.i];for(const [label,run,primary] of Bottlenecks.actions(x)){const b=document.createElement('button');b.type='button';b.className=primary?'primary small':'ghost small';b.textContent=label;
-   b.onclick=async()=>{b.disabled=true;try{await run();await Promise.all([this.load(),Bottlenecks.check()])}catch(e){b.disabled=false;fail(e)}};box.append(b)}})}};
+  el.querySelectorAll('.bn-acts').forEach(box=>Bottlenecks.paint(box,Bottlenecks.actions(n[+box.dataset.i]),()=>Promise.all([this.load(),Bottlenecks.check()])))}};
 Poll.add(()=>Inbox.load(),60000,1500);
 // a pop-up that is news also lands in the bell's list, and reading it in either place counts; a to-do's pop-up does not
 // 7 Nov 2026 (owner: "annoying"): nothing pops up in the corner any more. News goes to the bell's list, to-dos to
