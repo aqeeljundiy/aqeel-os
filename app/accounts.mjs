@@ -328,6 +328,16 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
  const signedOut=async()=>{const x=await load(),ks=accountHooks.keyStatus?.()||{};
   return [...(x.exhausted?[{key:'exhausted',name:'Every AI account',since:x.exhausted.since,state:'exhausted',until:x.exhausted.until}]:[]),...Object.values(x.signedOut||{}),...Object.entries(ks).filter(([k,c])=>c.since&&!x.signedOut?.[k]).map(([k,c])=>({key:k,name:x.labels?.[k]||x.seen?.[k]?.name||k.slice(2),since:c.since,state:c.state}))]};
 
+ // every AI account aqeelOS knows, for the buttons of a need (need-action.mjs): its key and name, its state while it is
+ // signed out or refused, and whether it is in the priority list (then "Take it out of the priority list" is a real choice)
+ const known=async()=>{const x=await load(),pr=new Set((x.priority||[]).map(e=>e.key)),m=new Map();
+  for(const a of all(x))m.set('claude:'+a.id,{key:'claude:'+a.id,name:a.label||a.name||a.id});
+  for(const [k,v] of Object.entries(x.seen||{}))m.set(k,{key:k,name:x.labels?.[k]||v?.name||k.slice(2),aka:[v?.name].filter(Boolean)});
+  for(const e of x.priority||[])if(!m.has(e.key)&&e.key.startsWith('p:'))m.set(e.key,{key:e.key,name:x.labels?.[e.key]||e.key.slice(2)});
+  for(const s of await signedOut())if(s.key!=='exhausted')m.set(s.key,{...(m.get(s.key)||{}),key:s.key,name:m.get(s.key)?.name||s.name,state:s.state||'signedout'});
+  return [...m.values()].map(a=>({...a,listed:pr.has(a.key)}))};
+ const unlist=async key=>{let n=0;await update(x=>{const was=x.priority||[];const nz=normalise(was.filter(e=>e.key!==key),x.solo||[]);n=was.length-nz.priority.length;x.priority=nz.priority;x.solo=nz.solo});if(n){autoTick().catch(()=>{});accountHooks.backupSync?.('priority')}return {ok:true,removed:n}};
+
  /* ---------- HTTP ---------- */
  /* ---------- a new agent gets everything it needs, checked step by step (any model provider) ----------
     One setup per agent at a time (a second call joins the running one). Each step is skipped when already
@@ -489,6 +499,8 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    const groups=groupsOf(d,prov).map(g=>({id:g.id,kind:g.kind,mode:g.mode,canRoom:g.canRoom,pool:g.pool,alone:g.alone,members:g.members,next:g.pool?nextPick(g.members.map(e=>reading(e,detNow,prov,e.model,onIt)),{lim}):null}));
    const moves=moves24((await tailOf(path.join(DATA,'model-moves.jsonl'))).split('\n'),{see});
    return send(res,200,{accounts:list,providers:prov,groups,solo:d.solo||[],moves24:moves,priority:d.priority||[],labels:d.labels||{},route,assign:Object.fromEntries(ag.map(n=>[n,d.assign[n]||'main'])),auto:d.auto||{on:false,threshold:90},events:(d.events||[]).filter(e=>see(e.profile)),signedOut:await signedOut(),keys:accountHooks.keyStatus?.()||{},allow:d.allow||[]})}
+  // a Needs-you button (need-action.mjs unlist-account): one account out of the priority list, the rest as it is
+  if(p==='/ui/accounts/unlist'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const k=String(b.key||'');if(!(d.priority||[]).some(e=>e.key===k))return send(res,400,{error:'That account is not in the priority list.'});return send(res,200,await unlist(k))}
   if(p==='/ui/accounts/priority'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
    // an account may be in the list more than once, with another model each time (more than 4 entries, 6 Nov 2026)
    const seenE=new Set();const pr=(Array.isArray(b.priority)?b.priority:[]).filter(e=>e&&typeof e.key==='string'&&/^(claude:[a-z0-9-]+|p:[a-z0-9_.-]+)$/.test(e.key)).map(e=>({key:e.key,model:String(e.model||'').slice(0,120)}))
@@ -533,7 +545,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    await update(x=>{for(const n of Object.keys(x.assign||{}))if(!live.has(n))delete x.assign[n]});
    await run(CLAUDE,['auth','logout'],{CLAUDE_CONFIG_DIR:a.dir},20000);await rm(a.dir,{recursive:true,force:true});await update(x=>{x.accounts=x.accounts.filter(y=>y.id!==id)});cache.drop(id);return send(res,200,{ok:true})}
   send(res,404,{error:'Not found'});
- },{codeRoute,signedOut,forget,noteLimit,
+ },{codeRoute,signedOut,known,forget,noteLimit,
   // what backup-models.mjs needs to build each agent's backup list and to move agents in an outage
   backup:{load,all,details:a=>details(a),options,entryOf,agentRoute,useEntry,keyStatus:()=>accountHooks.keyStatus?.()||{}}});
 }

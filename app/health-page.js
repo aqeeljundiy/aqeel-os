@@ -261,13 +261,13 @@ const HealthIssues={
    return x&&seen.includes(x)?seen.slice(seen.indexOf(x)).map(y=>y.id).sort()[0]:seen.at(-1)?.id||i.id};
   for(const i of items){if(!need(i))continue;
    const k=keyOf(i);let x=g.get(k);if(!x)g.set(k,x={key:k,title:i.group||HealthIssues.title(i),need:i.need||'',ids:[],agents:new Set(),reports:0,told:i.told||null,stuck:false,acts:null,question:null});
-   x.ids.push(i.id);x.reports+=i.count||1;if(i.question&&!x.question)x.question=i.question;if(!x.acts){const a=(i.acts||[]).filter(a=>a.do!=='recheck');if(a.length)x.acts=a}x.stuck||=i.state==='stuck';for(const a of [i.agentName||i.agent,...(i.reports||[]).map(r=>r.agentName||r.agent)])if(a)x.agents.add(a)}
+   x.ids.push(i.id);x.reports+=i.count||1;if(i.question&&!x.question)x.question=i.question;if(!x.acts){const a=(i.acts||[]).filter(a=>a.do!=='recheck'&&!(a.do==='go'&&a.to==='/system/health'));if(a.some(y=>y.do!=='done'))x.acts=a}x.stuck||=i.state==='stuck';for(const a of [i.agentName||i.agent,...(i.reports||[]).map(r=>r.agentName||r.agent)])if(a)x.agents.add(a)}
   return [...g.values()].map(x=>({...x,agents:[...x.agents]}))},
  // the buttons of one Needs-you card (need-action.mjs, questions.mjs): the primary does the thing; Check again looks again; Not needed closes it
  needActs(g){const ids=g.ids,all=k=>Promise.all(ids.map(id=>post(UI,'/ui/health/issues/'+k,{id})));
   const close=['Not needed',async()=>{if(!await confirmBox('Not needed?','It closes'+(ids.length>1?' for all '+ids.length+' reports':'')+' and goes to History. If the problem comes back, it is filed again.','Close',false))return false;await all('close');toast('Closed.')}];
   if(g.question)return [...Bottlenecks.questionActs(g.question),close];
-  return [...(g.acts||[]).map((a,i)=>[a.label,()=>Bottlenecks.act(a,{id:ids[0]}),i===0]),['Check again',async()=>{await all('retry');toast('The fixer checks it again.')},!g.acts],close]},
+  return [...Bottlenecks.needBtns(g.acts||[],{id:ids[0]}),['Check again',async()=>{await all('retry');toast('The fixer checks it again.')},!g.acts],close]},
  // why the fixer is not starting the next one, in one sentence (also used by the verdict)
  waitLine(f){const at=t=>new Date(t).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),day=t=>new Date(t).toDateString()===new Date().toDateString()?'today':'tomorrow';
   if(f.paused)return 'Paused'+(f.paused.by?' by '+f.paused.by:'')+' at '+at(f.paused.at)+'. Nothing new starts until you press Resume; new problems still join the line.';
@@ -281,7 +281,7 @@ const HealthIssues={
   return ''},
  draw(B,d,again){const it=d.items||[],t=x=>esc(String(x??''));HealthIssues.agents=d.agents||[];const f=d.fixer||{};
   // a refresh that changes nothing leaves the page alone (no flicker under the mouse)
-  const sig=JSON.stringify([f,it.map(i=>[i.id,i.state,i.tries,i.count,i.title,i.need,i.updated])]);if(B.fixer.dataset.sig===sig)return;const first=!B.fixer.dataset.sig;B.fixer.dataset.sig=sig;
+  const sig=JSON.stringify([f,it.map(i=>[i.id,i.state,i.tries,i.count,i.title,i.need,i.updated,(i.acts||[]).map(a=>a.do+(a.key||a.name||a.agent||"")).join()])]);if(B.fixer.dataset.sig===sig)return;const first=!B.fixer.dataset.sig;B.fixer.dataset.sig=sig;
   const END=HealthIssues.END,cut=(x,n)=>{x=String(x||'');return x.length>n?x.slice(0,n)+'…':x},hm=ms=>new Date(ms).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
   const btn=(k,id,label,cls='')=>'<button type="button" class="small '+cls+'" data-iss="'+k+'" data-id="'+t(id)+'">'+label+'</button>';
   // Needs you

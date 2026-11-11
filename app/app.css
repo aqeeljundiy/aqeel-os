@@ -3133,3 +3133,65 @@ button.bad:hover{background:color-mix(in srgb,var(--bad) 8%,transparent);border-
 label.cf-gh{display:flex;align-items:flex-start;gap:12px;margin:0;padding:8px 0;cursor:pointer;font-size:13.5px;color:var(--ink)}.cf-gh input{margin-top:1px;flex:none}.cf-gh>span{display:grid;gap:2px;min-width:0}.cf-gh b{font-weight:600}.cf-gh small{font-size:12.5px;font-weight:400;color:var(--muted);line-height:1.45}
 @container (max-width:640px){.cf-row.pri-row{grid-template-columns:24px 32px minmax(0,1fr);grid-template-areas:'n logo txt' '. . lim' '. . btn'}.cf-row .cf-btns{justify-content:flex-start;min-width:0}.cf-row .txt b .cf-name{white-space:normal}.cf-fields{grid-template-columns:minmax(0,1fr)}.cf-say-row{margin-left:12px}.cf-ol{padding-right:12px}}
 @media (prefers-reduced-motion:reduce){.cf-steps,.cf-item{transition:none}}
+
+/* ---------- Needs you: several steps are a short numbered list, a real button each (bottlenecks.js paint, 12 Nov 2026) ---------- */
+.bn-acts>.bn-stepl,.bn-acts>.bn-row{flex:1 0 100%;min-width:0}
+.bn-row{display:flex;flex-wrap:wrap;gap:6px}
+.bn-stepl{list-style:none;margin:6px 0 4px;padding:0;display:grid;gap:8px}
+.bn-stepl li{display:grid;grid-template-columns:24px minmax(0,1fr);column-gap:10px;row-gap:8px;align-items:start;padding:12px 14px;border-radius:var(--r-md);border:1px solid var(--border);background:var(--surface);animation:lbUp var(--t-med) var(--ease) both}
+.bn-stepl li:nth-child(2){animation-delay:50ms}.bn-stepl li:nth-child(3){animation-delay:100ms}.bn-stepl li:nth-child(n+4){animation-delay:150ms}
+.bn-num{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-style:normal;font-size:12px;font-weight:600;background:var(--soft);color:var(--ink-2);flex:none}
+.bn-acts .bn-stepl li .bn-say{display:block;font-size:13.5px;line-height:1.5;color:var(--ink);padding-top:2px;white-space:normal;overflow:visible;text-overflow:clip;margin:0}
+.bn-acts .bn-stepl li .bn-sbtns{grid-column:2;display:flex;flex-wrap:wrap;gap:6px;white-space:normal;overflow:visible;margin:0}
+@container (max-width:460px){.bn-stepl li{padding:10px 12px}.hn-row .hi-acts{margin-left:-44px}}
+.bn-stepl li.done{background:transparent;border-style:dashed}.bn-stepl li.done .bn-num{background:color-mix(in srgb,var(--ok,#3f9b5a) 16%,var(--surface));color:var(--ok,#3f9b5a)}.bn-acts .bn-stepl li.done .bn-say{color:var(--muted)}.bn-stepl li.done .bn-sbtns{display:none}
+@media (prefers-reduced-motion:reduce){.bn-stepl li{animation:none}}
+
+/* ---------- Tool groups on all agents: rows with a count and a few faces, a side panel per row (all-agents-more.js) ---------- */
+.tsr-bar{gap:12px}.tsr-bar .search{max-width:360px;min-width:200px}.tsr-bar .tabs{margin:0}
+.tsr-list{container-type:inline-size}
+.row.tsr{display:grid;grid-template-columns:minmax(0,1fr) minmax(150px,220px) auto;column-gap:18px;align-items:start;transition:background var(--t-fast) var(--ease)}
+.row.tsr .main-c{min-width:0;grid-column:1}.row.tsr .tsr-who{grid-column:2}.row.tsr .act{padding-top:2px;grid-column:3;justify-self:end}
+.tsr-who{display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding-top:4px;min-width:0}
+.tsr-n{font-size:12.5px;color:var(--muted);white-space:nowrap}.tsr-n b{color:var(--ink-2);font-weight:600}
+.tsr-who .acc-who{margin:0}.tsr-who .acc-av{transition:transform var(--t-fast) var(--ease)}
+.tsr-dot{width:7px;height:7px;border-radius:50%;background:var(--blue);display:inline-block;flex:none;margin-left:6px;animation:fade var(--t-med) var(--ease) both}
+.row.tsr.dirty{background:var(--blue-soft)}
+.row.tsr .ts-say .tsr-dot{vertical-align:middle}
+/* narrow: what it does takes the full width; who has it and Change share the line under it */
+@container (max-width:640px){.tsr-list .row.tsr{grid-template-columns:minmax(0,1fr) auto;row-gap:10px}.tsr-list .row.tsr .main-c{grid-column:1/-1}.tsr-list .row.tsr .tsr-who{grid-column:1;grid-row:2;flex-direction:row;align-items:center;flex-wrap:wrap;gap:6px 10px;padding:0 0 0 50px}.tsr-list .row.tsr .act{grid-column:2;grid-row:2;padding:0!important;width:auto;align-self:center;justify-content:flex-end}}
+@container (max-width:420px){.tsr-list .row.tsr .tsr-who{padding-left:0}}
+.tsd-drawer{width:min(480px,100vw)}
+.tsd{display:flex;flex-direction:column;gap:12px}
+.tsd-say{margin:0;font-size:14px;line-height:1.5;color:var(--ink-2)}
+.tsd-risk{margin:-4px 0 0;display:flex;align-items:flex-start;gap:6px;font-size:12.5px;line-height:1.45;color:var(--warn)}
+.tsd-bar{display:flex;align-items:center;gap:12px}.tsd-bar .search{position:relative;flex:1;min-width:0}.tsd-bar .search input{padding-left:38px;width:100%}.tsd-bar .search svg{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--muted)}
+.tsd-n{font-size:12.5px;color:var(--muted);white-space:nowrap}.tsd-n b{color:var(--ink);font-weight:600}
+.tsd-all{display:flex;gap:16px;margin:-4px 0 -2px}.tsd-all[hidden]{display:none}
+.tsd-all .link{all:unset;cursor:pointer;color:var(--blue);font-weight:600;font-size:13px;padding:4px 0}.tsd-all .link:hover{text-decoration:underline}.tsd-all .link:focus-visible{outline:2px solid var(--blue);outline-offset:2px;border-radius:3px}
+.card.tsd-list{padding:2px 16px;box-shadow:none}
+.tsd-line{transition:background var(--t-fast) var(--ease);margin:0 -16px;padding:11px 16px}.tsd-line .cn-lt{gap:2px}
+.tsd-line.dirty{background:var(--blue-soft)}
+.tsd-line .cn-lt small{white-space:normal}.tsd-line .cn-lt small.ts-risk{color:var(--warn);display:flex;gap:5px;align-items:flex-start;margin-top:2px}.tsd-line .cn-lt small.ts-risk svg{flex:none;margin-top:2px}
+.tsd-na{font-size:12px;color:var(--muted);white-space:nowrap}
+.tsd-drawer .drawer-foot{align-items:center}.tsd-foot{flex:1;min-width:0;font-size:12.5px;margin:0}
+.tsd-list .cn-more,.tsr-list .cn-more{margin:8px auto;display:flex}
+
+/* ---------- Abilities › Apps: the catalog as a page (apps-page.js) ---------- */
+.ap-bar .search{max-width:360px;min-width:200px}
+.ap-grid{grid-template-columns:repeat(auto-fill,minmax(270px,1fr))}
+.tile.ap-card{cursor:default;gap:10px;animation:lbUp var(--t-med) var(--ease) both}
+.ap-card .ap-t{min-width:0}.ap-card h3{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ap-cat{display:block;font-size:12px;color:var(--muted);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ap-card>p:not(.t-meta){display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.ap-card .tile-foot{gap:10px;padding-top:4px;min-height:34px}
+.ap-st{display:inline-flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap}.ap-st .acc-who{margin:0}.ap-st .hint{font-size:12.5px;margin:0;line-height:1.35}
+.ap-card .tile-foot button:not(.primary){border:1px solid var(--border);background:var(--surface);box-shadow:none}.ap-card .tile-foot button:not(.primary):hover{border-color:var(--blue-2);background:var(--soft)}
+.ap-card .tile-foot button{flex:none}
+.ap-top{display:flex;gap:14px;align-items:flex-start;margin:0 0 16px}.ap-top .logo{width:44px;height:44px;border-radius:var(--r-md);display:grid;place-items:center;font-weight:700;color:#fff;flex:none}
+.ap-say{margin:0 0 4px;font-size:14px;line-height:1.5;color:var(--ink)}
+.ap-have{margin:10px 0 0;color:var(--warn)}.ap-next{margin:14px 0 0}
+.drawer-foot .cn-browse{margin-right:auto}
+.cn-bar .cn-apps{margin-left:auto;color:var(--ink-2);flex:none}.cn-bar .cn-apps:hover{color:var(--ink)}
+#apGrid>.cn-more{margin:16px auto 0;display:flex}
+@media (prefers-reduced-motion:reduce){.tile.ap-card,.tsr-dot{animation:none}}
