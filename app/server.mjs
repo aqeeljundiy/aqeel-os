@@ -31,6 +31,7 @@ import {createAddons,probeMcp,RUNS_CODE_MSG} from './addons.mjs';   // personal 
 import {setupGuideLines} from './setup-guide.mjs';   // how every agent onboards people to any app (11 Nov 2026)
 import {createEscalations} from './escalations.mjs';
 import {createEfficiencyView} from './efficiency-view.mjs';
+import {createReconciler,createAgentGate,statSig,ledgerSig} from './reconcile.mjs';
 import {createConnect,firstModelFor} from './connect.mjs';
 import {createOptins,appNames,solvedIssues} from './agent-optins.mjs';
 import {isConnector as isConnectorEntry} from './connectors.mjs';
@@ -324,6 +325,14 @@ async function identities(req,res,p,u){
 }
 
 const accountsApi=createAccounts(DATA);
+/* Background work follows changes (reconcile.mjs, 12 Nov 2026). The "apply this to every agent" jobs ran every 10 minutes
+   whether or not anything had changed; now each runs at start, when what it reads moved (a stat check of every agent's home,
+   once a minute for all of them), when an event asks (rec.trigger: an agent made), and as a safety sweep. A failed run is
+   tried again in 10 minutes. The counters show on System > Health > Efficiency. */
+const homeOfAg=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
+const rec=createReconciler({homes:()=>agentNames({copies:true}),homeOf:homeOfAg,fixedSig:()=>statSig([path.join(DATA,'install.json'),path.join(DATA,'skills-policy.json')])});
+const loops=rec.loops;
+const defGate=createAgentGate({homeOf:homeOfAg,reads:['cfg','top'],extra:()=>statSig([path.join(DATA,'install.json'),path.join(DATA,'users.json'),path.join(DATA,'skills-policy.json')])});
 // every agent's defaults from aqeelOS itself (tools, screen and browser, skills, its own Linux user): at start and for new agents
 // the settings an agent may change for itself (my_settings): only everyday ones, never what it can reach
 const OWN_SETTINGS=/^(stt|tts)\.[a-z0-9_.]+$|^timezone$|^display\.[a-z0-9_.]+$/;
@@ -331,15 +340,15 @@ const whyOf=createWhy({DATA,HERMES_HOME,python:enginePython});
 // locked agents (owner without "unsafe", or the admin's safe lock) keep terminal, files and code off through the defaults too
 // F: only agents of admins may run as the box's main user; the lead of an admin does (aqeelOS itself is theirs), and goes
 // back to its own user when its person is made a member again
-const agentDefaults=createAgentDefaults({DATA,isTest:a=>isTestAgent(a),resumeSecs:()=>resumeMaxMs(installSettings())/1000,mayTrust:async a=>{await users.load();return users.tierOf(a)==='admin'},adminLeads:async()=>{await users.load();return users.people().map(x=>users.leadOf(x.id)).filter(a=>a&&a!=='default'&&users.tierOf(a)==='admin')},giveSkills:n=>accountHooks.giveSkills?.(n),trimSkills:n=>accountHooks.trimSkills?.(n),locked:async a=>{await users.load();return a!=='default'&&lockedAgent(a,await getStatus())}});
-accountHooks.afterSetup=n=>agentDefaults.added(n).catch(e=>console.warn('agent defaults',n,e.message));
+const agentDefaults=createAgentDefaults({DATA,isTest:a=>isTestAgent(a),resumeSecs:()=>resumeMaxMs(installSettings())/1000,mayTrust:async a=>{await users.load();return users.tierOf(a)==='admin'},adminLeads:async()=>{await users.load();return users.people().map(x=>users.leadOf(x.id)).filter(a=>a&&a!=='default'&&users.tierOf(a)==='admin')},giveSkills:n=>accountHooks.giveSkills?.(n),trimSkills:n=>accountHooks.trimSkills?.(n),note:(n,o)=>loops.note(n,o),locked:async a=>{await users.load();return a!=='default'&&lockedAgent(a,await getStatus())}});
+accountHooks.afterSetup=n=>{rec.trigger();return agentDefaults.added(n).catch(e=>console.warn('agent defaults',n,e.message))};   // a new or changed agent: every apply looks at it now
 // at start, then every 10 minutes: agents made outside aqeelOS (by Claude, by another agent, from the command line) get them too
-const applyDefaults=()=>agentDefaults.all().then(n=>{if(n){console.log('agent defaults: '+n+' settings applied; restarting the agents when idle');restartLater('agent defaults')}}).catch(e=>console.warn('agent defaults:',e.message));
+const applyDefaults=async({why}={})=>{await defGate.prepare(await agentNames(),{force:why==='start'||why==='safety sweep'});const n=await agentDefaults.all({gate:defGate});if(n){console.log('agent defaults: '+n+' settings applied; restarting the agents when idle');restartLater('agent defaults')}};   // an agent whose settings did not move since its last pass is skipped
 // about every minute: new agents (made any way) get the defaults, every agent gets the main agent's skills it lacks
 const defaultsTick=()=>agentDefaults.tick().then(n=>{if(n){console.log('agent defaults: new agent set up; restarting the agents when idle');restartLater('new agent defaults')}}).catch(e=>console.warn('agent defaults tick:',e.message));
 // the tab an agent works in comes to the front of its screen (screen-follow.mjs)
 if(LIVE_APP)startScreenFollow();
-if(LIVE_APP){setTimeout(applyDefaults,60000);setInterval(applyDefaults,600000).unref();setTimeout(()=>{defaultsTick();setInterval(defaultsTick,60000).unref()},90000)}
+if(LIVE_APP){rec.add('agent defaults',{run:applyDefaults,reads:['cfg','top'],files:[path.join(DATA,'users.json')],why:'was every 10 min, every agent'});setTimeout(()=>{defaultsTick();setInterval(loops.track('new agents and skills (every minute)',defaultsTick),60000).unref()},90000)}   // the minute check only lists agents and compares skill folder times
 const mailer=createMail(DATA);
 const usage=createUsage(DASH.origin,DASH_TOKEN,DATA);
 const explain=createExplain(DATA,{python:enginePython,root});
@@ -353,7 +362,7 @@ if(LIVE_APP)setTimeout(()=>builtins.install({log:m=>console.log(m)}).catch(e=>co
 const keysId=createKeysIdentity({DATA,HERMES_HOME,root,listAgents:()=>listAgents(),live:()=>LIVE_APP});
 if(LIVE_APP){setTimeout(()=>keysId.tick().catch(e=>console.warn('key checks',e.message)),120000).unref();setInterval(()=>keysId.tick().catch(()=>{}),10*60000).unref()}
 const schedules=createSchedules({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAgents(),python:enginePython,root,live:()=>LIVE_APP||process.env.SCHED_DESCRIBE==='1',relays:()=>relay.jobRelays()});
-setTimeout(()=>schedules.tick(),40000).unref();setInterval(()=>schedules.tick(),10*60000).unref();
+if(LIVE_APP||process.env.SCHED_DESCRIBE==='1')rec.add('schedule descriptions',{run:()=>schedules.tick(),reads:['jobs'],every:3600e3,why:'was every 10 min'});
 const relay=createRelay({ownerAgent:a=>{const o=users.agentOwner(String(a).split('--')[0]);return !o||o==='owner'},DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,SECRET,listAgents:()=>listAgents(),links:{list:a=>links.list(a)},platformsOf:a=>platformsCached(a),nameOf:a=>NAMES[a]||a,ownerName:()=>users.people()[0]?.name});
 const NAMES={};   // agents' display names (refreshed with the agent context), for messages people read
 const agentName=agentNameFrom(NAMES);   // agent-name.mjs: display names everywhere, never a profile id
@@ -536,7 +545,7 @@ async function freshSignins(){for(const [k,x] of [...signinsDue]){const tok=path
   if(st&&st.size>2&&(x.why==='not signed in'||st.mtimeMs>(x.last||0)+1000))signinsDue.delete(k)}}
 // every agent gets its own n8n user once n8n is connected (new agents within a few minutes); nothing happens before that
 async function n8nForAll(){if(!await n8n.ready())return;for(const a of await listAgents()){if(await isTestAgent(a))continue;try{await n8n.ensure(a)}catch(e){console.warn('n8n for',a,e.message)}}}
-if(LIVE_APP){setTimeout(()=>n8nForAll().catch(()=>{}),90000);setInterval(()=>n8nForAll().catch(()=>{}),600000).unref()}
+if(LIVE_APP)rec.add('n8n users',{run:()=>n8nForAll(),reads:['cfg'],files:[path.join(DATA,'n8n.json')],every:3600e3,why:'was every 10 min'});
 // decided 20 Oct (ABIL-64): apps added to an agent but never signed in to use their owner's sign-in. Done once; apps whose
 // owner isn't signed in either stay on the sign-in list.
 async function useOwnerSigninsOnce(){const flag=path.join(DATA,'once-owner-signins.json');if(await stat(flag).catch(()=>null))return;const l=await access.list('mcp').catch(()=>null);if(!l)return;const done=[];
@@ -544,7 +553,7 @@ async function useOwnerSigninsOnce(){const flag=path.join(DATA,'once-owner-signi
   try{await access.grant('mcp',x.name,x.agent);done.push(x.name+' for '+(NAMES[x.agent]||x.agent))}catch(e){console.warn('owner sign-in',x.name,x.agent+':',e.message)}}
  await writeFile(flag,JSON.stringify({at:Date.now(),done},null,1));await freshSignins();console.log('used owners’ sign-ins:',done.join(', ')||'none')}
 if(LIVE_APP){setTimeout(()=>checkSignins().then(()=>useOwnerSigninsOnce()).catch(()=>{}),120000);setInterval(()=>checkSignins().catch(()=>{}),3*3600e3).unref()}
-if(LIVE_APP){setTimeout(()=>writeAgentContext().catch(()=>{}),25000);setInterval(()=>writeAgentContext().catch(()=>{}),600000).unref()}
+if(LIVE_APP){setTimeout(()=>writeAgentContext().catch(()=>{}),25000);setInterval(loops.track('agent context (10 min)',()=>writeAgentContext().catch(()=>{}),{every:600e3,why:'reads many live sources, writes only on change: not moved'}),600000).unref()}
 /* Slack: every agent with its own Slack bot answers in any channel it is invited to (private ones too) when a team
    member mentions it, except quiet channels: a name prefix set per Slack workspace (slack-quiet.mjs), e.g. ext- for client
    channels in one company's Slack. Other workspaces answer normally. Once per agent, a fixed channel list
@@ -784,7 +793,7 @@ if(LIVE_APP)setInterval(async()=>{if(dashStopped)return;const ok=await fetch(DAS
  await shx('tmux kill-session -t dashboard 2>/dev/null; ~/services.sh >/dev/null 2>&1')},60000).unref();
 // only the live app (isLive, install.mjs) sets agents' tools; a test copy on another port must not repoint them
 if(LIVE_APP){setTimeout(()=>agentHealth().catch(()=>{}),30000);setInterval(()=>agentHealth().catch(()=>{}),300000).unref()}
-if(LIVE_APP){setTimeout(()=>syncNotifyTool().catch(e=>console.warn('notify tool',e.message)),20000);setInterval(()=>syncNotifyTool().catch(()=>{}),600000).unref()}
+if(LIVE_APP){rec.add('notify tool',{run:()=>syncNotifyTool(),reads:['cfg'],every:3600e3,why:'was every 10 min'})}
 // old engine environments (each plugin enable builds one, ~400 MB): the engine's own cleanup once a day; it keeps the one in use, any still held, and any less than a day old
 if(LIVE_APP){const gc=()=>shx('timeout 900 hermes pm gc >/dev/null 2>&1').catch(()=>{});setTimeout(gc,30*60e3).unref();setInterval(gc,24*3600e3).unref()}
 // leftovers of deleted agents: a folder with only logs/ (a command still ran during the delete) is removed
@@ -821,7 +830,7 @@ const connectors=createConnectors({listAgents:()=>listAgents(),readConfig,setKey
  hasEnv:async(a,v)=>new RegExp('^'+v.replace(/[^\w]/g,'')+'=.+','m').test(await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'.env'),'utf8').catch(()=>'')),
  noteApp:(a,n,r)=>whyOf.noteApp(a,n,r),origin:(a,n,u)=>whyOf.app(a,n,u),eligible:async(a,c)=>!await isTestAgent(a)&&!!c?.mcp_servers?.['aqeelos-notify'],log:(...x)=>console.log(...x)});
 if(LIVE_APP){setTimeout(()=>optins.migrate().then(async r=>{const ra=await optins.migrateApps().catch(e=>{console.warn('abilities: sign-in apps count',e.message);return null});if(r||ra)appsOff().then(()=>closeSolvedSignins()).catch(()=>{});if(r){agentAds.tick().catch(()=>{});agentAds.tools().catch(()=>{})}}).catch(e=>console.warn('abilities: first-start count',e.message)),60000).unref()}
-if(LIVE_APP){const run=()=>appsOff().catch(()=>{}).then(()=>closeSolvedSignins()).catch(()=>{}).then(()=>connectors.ensureAll()).then(r=>{if(r.changed)console.log('connectors added (apply at the next agent restart):',r.added.join(', '))}).catch(e=>console.warn('connectors',e.message));setTimeout(run,100000);setInterval(run,600000).unref()}
+if(LIVE_APP){const run=()=>appsOff().catch(()=>{}).then(()=>closeSolvedSignins()).catch(()=>{}).then(()=>connectors.ensureAll()).then(r=>{if(r.changed)console.log('connectors added (apply at the next agent restart):',r.added.join(', '))}).catch(e=>{console.warn('connectors',e.message);throw e});rec.add('connectors and sign-ins',{run,reads:['cfg','tokens'],every:3600e3,why:'was every 10 min'})}
 const channels=createChannels({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAllProfiles(),cached:a=>platformsCached(a),restart:why=>restartGateway(why),paused:()=>pausedLoad(),pendingOf:(a,id)=>id==='whatsapp'?waSettingsPending(a):false,stop:a=>stopBridges(a),
  // after a move: a pause, the sharing, schedules relayed through it and its note follow the channel to its new agent
  moved:async(pf,from,to)=>{const ps=await pausedLoad();if(ps[from+'|'+pf]||ps[to+'|'+pf]){delete ps[from+'|'+pf];delete ps[to+'|'+pf];await pausedSave(ps)}
@@ -892,11 +901,11 @@ const live=createLive({DATA,DOMAIN:hostSetting('liveDomain'),SECRET,PUBLIC_URL,a
 async function patientFetch(url,opt={}){for(const ms of [5000,20000]){try{return await fetch(url,{...opt,signal:AbortSignal.timeout(ms)})}catch(e){if(e?.name!=='TimeoutError')return null}}return null}
 const install=createInstallRoutes({recentLookups:n=>teamView.recent(n),send,readBody,isAdmin:u=>users.isAdmin(u),listAgents:()=>listAgents(),readConfig,setKey,hermes:hcmd,engineProbe:async()=>{const d=await patientFetch(DASH.origin+'/api/status',{headers:{'x-hermes-session-token':DASH_TOKEN}});if(!d)return 'down';if(d.status===401||d.status===403)return 'auth';const g=await patientFetch(GATE.origin+'/api/model/options',{headers:{authorization:'Bearer '+API_KEY}});return !g?'down':g.status===401||g.status===403?'auth':'ok'},claudeOn:async()=>(pick(await readConfig('default')||{},'plugins.enabled')||[]).includes('claude-subscription-directsdk-experimental'),onTz:z=>{tzNow=z;SR_TZ=z}});
 if(LIVE_APP){setTimeout(()=>install.tick(),120000).unref();setInterval(()=>install.tick(),15*60e3).unref()}
-const homeOfAgent=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
-const gconnect=createGoogleConnect({HERMES_HOME,DATA,PUBLIC_URL:()=>String(PUBLIC_URL),homeOf:homeOfAgent,log:m=>console.log(m)});
+const homeOfAggent=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
+const gconnect=createGoogleConnect({HERMES_HOME,DATA,PUBLIC_URL:()=>String(PUBLIC_URL),homeOf:homeOfAggent,log:m=>console.log(m)});
 // Google tools in aqeelos-notify (google-tools.mjs, 11 Nov 2026): Gmail, Sheets, Drive, Docs and Calendar with the agent's own
 // sign-in, for agents with no terminal. A share gets a fresh key at the agent's level; a file-locked agent goes through googleFiles.
-const googleTools=createGoogleTools({HERMES_HOME,homeOf:homeOfAgent,log:m=>console.log(m),locked:a=>googleFiles.locked(a),filesCall:(a,r)=>googleFiles.call(a,r),
+const googleTools=createGoogleTools({HERMES_HOME,homeOf:homeOfAggent,log:m=>console.log(m),locked:a=>googleFiles.locked(a),filesCall:(a,r)=>googleFiles.call(a,r),
  sharedKey:async(email,a)=>{const l=await gfLevel(email,String(a).split('--')[0]);if(!l||l==='none')throw Error('it is not shared with you any more');return googleShares.keyFor(email,l)},
  labels:async(a,n)=>{const L=await googleLabels();return L[a+'|'+n]||L[String(a).split('--')[0]+'|'+n]||{}},
  // a Web-application client: Google's sign-in for this agent at once (20 minutes); otherwise, or for a reconnect, the Connections page
@@ -905,13 +914,13 @@ const googleTools=createGoogleTools({HERMES_HOME,homeOf:homeOfAgent,log:m=>conso
   return {url:page,how:'There: Abilities › Connections › Add › A Google account, for this agent.'}}});
 // Slack (slack-connect.mjs): the install's Slack app for the official Slack MCP; every Slack sign-in without an app of its
 // own uses it (slackClientFor below, passed to sharing.prepareSignin). Microsoft (microsoft-connect.mjs): like Google.
-const slackc=createSlackConnect({HERMES_HOME,homeOf:homeOfAgent,redirectFor:n=>MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(n),readConfig,setKey,
+const slackc=createSlackConnect({HERMES_HOME,homeOf:homeOfAggent,redirectFor:n=>MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(n),readConfig,setKey,
  prepareSignin:(...a)=>sharing.prepareSignin(...a),startSignin:(a,t)=>startSignin(a,t),log:m=>console.log(m)});
 const slackClientFor=b=>slackc.fallback(b);
-const msconnect=createMicrosoftConnect({HERMES_HOME,DATA,PUBLIC_URL:()=>String(PUBLIC_URL),homeOf:homeOfAgent,log:m=>console.log(m)});
+const msconnect=createMicrosoftConnect({HERMES_HOME,DATA,PUBLIC_URL:()=>String(PUBLIC_URL),homeOf:homeOfAggent,log:m=>console.log(m)});
 // a sign-in made here is the owner's own: registered at once (Connections never flags it), and the agents are told
-async function googleConnected(r,who=''){if(!r?.ok)return;connAccounts.register(r.agent,{kind:'google',label:'Google, '+(r.email||r.name||'main'),where:path.join(homeOfAgent(r.agent),r.file)},{owner:who}).catch(e=>console.warn('google: register',e.message));if(LIVE_APP)writeAgentContext().catch(()=>{})}
-const mcpEdit=createMcpEdit({readConfig,setKey,readEnv:a=>readFile(path.join(homeOfAgent(a),'.env'),'utf8').catch(()=>''),editEnv:(a,f)=>editEnv(path.join(homeOfAgent(a),'.env'),f),restart:why=>restartGateway(why),log:m=>console.log(m)});
+async function googleConnected(r,who=''){if(!r?.ok)return;connAccounts.register(r.agent,{kind:'google',label:'Google, '+(r.email||r.name||'main'),where:path.join(homeOfAggent(r.agent),r.file)},{owner:who}).catch(e=>console.warn('google: register',e.message));if(LIVE_APP)writeAgentContext().catch(()=>{})}
+const mcpEdit=createMcpEdit({readConfig,setKey,readEnv:a=>readFile(path.join(homeOfAggent(a),'.env'),'utf8').catch(()=>''),editEnv:(a,f)=>editEnv(path.join(homeOfAggent(a),'.env'),f),restart:why=>restartGateway(why),log:m=>console.log(m)});
 // two places for what aqeelOS tells (1 Nov 2026): Bottlenecks is the to-do list (needs someone), the bell's list (news.mjs)
 // the history (done, fixed, works again). Every event goes to one of them, never both: info:true means the bell
 const news=createNews({DATA});
@@ -1822,7 +1831,7 @@ if(LIVE_APP){setTimeout(()=>issues.tick().catch(e=>console.warn('issues',e.messa
    watched here, for Health. */
 let gwPidNow=0;{const t=()=>gatewayPid().then(p=>{if(p)gwPidNow=p}).catch(()=>{});t();setInterval(t,10000).unref()}
 const resumeOpts=b=>({...(b.model?{model:b.model}:{}),...(b.provider?{provider:b.provider}:{}),...(b.require_model_lock?{require_model_lock:true}:{}),...(b.model_options?{model_options:b.model_options}:{})});
-const resumeEng=createResumeEngine({python:enginePython,homeOf:homeOfAgent,agents:()=>listAllProfiles(),gatewayPid,
+const resumeEng=createResumeEngine({python:enginePython,homeOf:homeOfAggent,agents:()=>listAllProfiles(),gatewayPid,
  posted:(a,from,to)=>postingLimits.view(a).then(v=>(v.recent||[]).some(e=>e.at>=from&&e.at<=to+60e3))});
 // a provider that is busy, out of room or signed out is tried again later; anything else is said and left
 const PROVIDER_WAIT=/rate.?limit|overload|\b(429|5\d\d)\b|time(d)? ?out|unavailable|quota|credit|capacity|connection|network|temporar|no (available )?(account|credential|provider)|auth|unauthori|api.?key|log.?in|sign.?in|expired/i;
@@ -1860,13 +1869,20 @@ const resume=createResume({DATA,on:LIVE_APP,maxAge:()=>resumeMaxMs(installSettin
  probeFixer:async e=>{const r=(await issues._db()).runs[e.run];return {done:!r||!!r.done,alive:pidLives(r?.pid)}},
  kickFixer:async()=>{await issues.tick();return {ok:true}}});
 resume.boot();
+// the Python that reads the engine's ledgers (resumeEng) starts only when something may have changed (12 Nov 2026; it started
+// twice every 30 seconds): the engine's run ledger moved (a run started or ended), the engine restarted (its process changed),
+// something is waiting, or five minutes passed. The fixer's journal is read in-process every time, so it costs nothing.
+let rtLedger=null,rtGw=0,rtFull=0;
 async function resumeTick(){if(!LIVE_APP)return;resume.beat();
- const runs=await resumeEng.runsNow().catch(()=>null);if(runs)resume.sync(runs,'schedule');
+ const hs=await agentNames().then(l=>l.map(homeOfAg)).catch(()=>[]),led=await ledgerSig(hs).catch(()=>null),gw=await gatewayPid().catch(()=>0);
+ const look=led===null||led!==rtLedger||gw!==rtGw||resume.pending()>0||Date.now()-rtFull>=300e3;
+ const runs=look?await resumeEng.runsNow().catch(()=>null):null;if(runs)resume.sync(runs,'schedule');
  const fx=await issues._db().then(db=>Object.values(db.runs).filter(r=>!r.done).map(r=>({kind:'fixer',run:r.id,pid:r.pid||0,agent:r.agent||'default'}))).catch(()=>null);if(fx)resume.sync(fx,'fixer');
  // Telegram / WhatsApp chats: the engine carries them on itself (engine patch channel-resume-continue); this only watches
- const ch=await resumeEng.channelsNow().catch(()=>null);if(ch)resume.syncChannels(ch);
+ const ch=look?await resumeEng.channelsNow().catch(()=>null):null;if(ch)resume.syncChannels(ch);
+ if(look){rtLedger=led;rtGw=gw;rtFull=Date.now();loops.note('resume check (30 s)',{ms:0})}else loops.note('resume check (30 s)',{ran:false});   // two Python starts, or none
  if(resume.pending())await resume.run()}
-if(LIVE_APP){setTimeout(()=>resumeTick().catch(e=>console.warn('resume',e.message)),20e3).unref();setInterval(()=>resumeTick().catch(e=>console.warn('resume',e.message)),30e3).unref()}
+if(LIVE_APP){setTimeout(()=>resumeTick().catch(e=>console.warn('resume',e.message)),20e3).unref();setInterval(()=>resumeTick().catch(e=>console.warn('resume',e.message)),30e3).unref();Object.assign(loops.row('resume check (30 s)'),{every:30e3,why:'was two Python starts every 30 s'})}
 // a signal means the app is being replaced (a deploy, an update, a restart by hand): the moment is noted so what was in
 // progress is continued by the next start. A crash leaves no note; the journal itself covers it.
 for(const sig of ['SIGTERM','SIGHUP','SIGINT'])process.on(sig,()=>{try{resume.planned('restart')}catch{}process.exit(0)});
@@ -1898,27 +1914,27 @@ const agentLive=createAgentLive({HERMES_HOME,DATA,chatInfo:(a,pf,id)=>pf==='tele
 // the engine also reloads when it started before the plugin's files were written (a reload asked for by an earlier run of
 // this app is lost when the app restarts)
 const liveStale=async()=>{try{const pid=await gatewayPid();if(!pid)return false;const g=(await stat('/proc/'+pid)).mtimeMs;const f=(await stat(path.join(HERMES_HOME,'plugins','aqeelos-live','__init__.py'))).mtimeMs;return g<f}catch{return false}};
-if(LIVE_APP){const liveInstall=()=>agentLive.install().then(async c0=>{const c=[];for(const a of c0)if(!await isTestAgent(typeof a==='string'?a:a?.agent||'').catch(()=>false))c.push(a);if(c.length||await liveStale())restartLater('aqeelos-live plugin for '+(c.length||'all')+' agent(s)')}).catch(e=>console.warn('agent-live install',e.message));
- setTimeout(liveInstall,60e3).unref();setInterval(liveInstall,10*60e3).unref()}
+if(LIVE_APP){const liveInstall=()=>agentLive.install().then(async c0=>{const c=[];for(const a of c0)if(!await isTestAgent(typeof a==='string'?a:a?.agent||'').catch(()=>false))c.push(a);if(c.length||await liveStale())restartLater('aqeelos-live plugin for '+(c.length||'all')+' agent(s)')}).catch(e=>{console.warn('agent-live install',e.message);throw e});
+ rec.add('aqeelos-live plugin',{run:liveInstall,reads:['cfg','plugins'],why:'was every 10 min'})}
 // billion-context (fewer tokens in long chats) in every agent's home, same rhythm; the engine reloads once no reply runs
 const billion=createBillionContext({HERMES_HOME,readConfig,setKey,pick});
 // Efficiency on System › Health (efficiency-view.mjs): where model use goes and what drifts back, read only, kept a minute
-const effView=createEfficiencyView({HERMES_HOME,DATA,python:enginePython,nameOf:a=>a===HELP_AGENT?'Help':agentName(a),savings:()=>billion.savings(),accountLabels:async()=>{const d=await accountsApi.backup.load();return Object.fromEntries(accountsApi.backup.all(d).map(a=>[a.id,a.label]))}});
-if(LIVE_APP){const biliInstall=()=>billion.install().then(async c0=>{const c=[];for(const a of c0)if(!await isTestAgent(a).catch(()=>false))c.push(a);if(c.length)restartLater('billion-context plugin for '+c.length+' agent(s)')}).catch(e=>console.warn('billion-context install',e.message));
- setTimeout(biliInstall,90e3).unref();setInterval(biliInstall,10*60e3).unref()}
+const effView=createEfficiencyView({loops:()=>rec.stats(),HERMES_HOME,DATA,python:enginePython,nameOf:a=>a===HELP_AGENT?'Help':agentName(a),savings:()=>billion.savings(),accountLabels:async()=>{const d=await accountsApi.backup.load();return Object.fromEntries(accountsApi.backup.all(d).map(a=>[a.id,a.label]))}});
+if(LIVE_APP){const biliInstall=()=>billion.install().then(async c0=>{const c=[];for(const a of c0)if(!await isTestAgent(a).catch(()=>false))c.push(a);if(c.length)restartLater('billion-context plugin for '+c.length+' agent(s)')}).catch(e=>{console.warn('billion-context install',e.message);throw e});
+ rec.add('billion-context',{run:biliInstall,reads:['cfg','plugins'],why:'was every 10 min'})}
 // efficient by default (11 Nov 2026): every agent's home, new ones too, shortens chats at a fixed size and keeps the
 // cache for an hour in chats a person types into; same rhythm, the engine reloads once no reply runs
 const efficiency=createEfficiency({HERMES_HOME,DATA,readConfig,setKey,pick});
-if(LIVE_APP){const effApply=()=>efficiency.apply().then(async c0=>{const c=[];for(const a of c0)if(!await isTestAgent(a).catch(()=>false))c.push(a);if(c.length)restartLater('efficient defaults for '+c.length+' agent(s)')}).catch(e=>console.warn('efficiency',e.message));
- setTimeout(effApply,100e3).unref();setInterval(effApply,10*60e3).unref()}
+if(LIVE_APP){const effApply=()=>efficiency.apply().then(async c0=>{const c=[];for(const a of c0)if(!await isTestAgent(a).catch(()=>false))c.push(a);if(c.length)restartLater('efficient defaults for '+c.length+' agent(s)')}).catch(e=>{console.warn('efficiency',e.message);throw e});
+ rec.add('efficient defaults',{run:effApply,reads:['cfg'],why:'was every 10 min'})}
 // Run gates (run-gates.mjs, 11 Nov 2026): every schedule that starts the AI first asks this app whether the run can do
 // anything (the AI service asked for a pause, posting limits, a check of the job's own); if not, no run starts. Same rhythm.
 const runGates=createRunGates({strict:a=>conflicts.strict(a),HERMES_HOME,DATA,WORK:path.join(homedir(),'workspaces'),PORT,sig:a=>relay.sig(a),live:LIVE_APP,lock:withFlock,skipAgent:a=>isTestAgent(a),names:a=>agentName(a),rule:()=>installSettings().cadenceRule!==false});
-if(LIVE_APP){setTimeout(()=>conflicts.sync().catch(e=>console.warn('conflicts',e.message)),130e3).unref();setInterval(()=>conflicts.sync().catch(e=>console.warn('conflicts',e.message)),10*60e3).unref()}
-if(LIVE_APP){const gatesInstall=()=>runGates.install().catch(e=>console.warn('run gates',e.message));setTimeout(gatesInstall,100e3).unref();setInterval(gatesInstall,10*60e3).unref()}
+if(LIVE_APP)rec.add('rule conflicts',{run:()=>conflicts.sync(),reads:['jobs'],files:[path.join(DATA,'posting-limits.json')],why:'was every 10 min'});
+if(LIVE_APP){rec.add('run gates',{run:()=>runGates.install(),reads:['jobs','cfg'],files:[path.join(HERMES_HOME,'.aqeelos-run-gates-off')],every:3600e3,why:'was every 10 min'})}
 // graphify (code and document maps) in the agents' shared Python, its skill copied to every agent; same rhythm
 const graphify=createGraphify({HERMES_HOME});
-if(LIVE_APP){const gfInstall=()=>graphify.ensure().catch(e=>console.warn('graphify',e.message));setTimeout(gfInstall,120e3).unref();setInterval(gfInstall,10*60e3).unref()}
+if(LIVE_APP){rec.add('graphify',{run:()=>graphify.ensure(),reads:['skills','cfg'],every:3600e3,why:'was every 10 min'})}
 // each agent's own map and its small search tool, and the size of what it sends on every call (agent-graph.mjs, 11 Nov 2026).
 // One agent per pass, never one that is replying (a reply here, or a session the engine reports running; no answer counts as running)
 const graphBusy=async a=>{if([...LIVE].some(([k,r])=>!r.done&&String(k).split('|')[0]===a))return true;const s=await engineSessions(a).catch(()=>null);return !s||!!s.active};
@@ -1939,14 +1955,14 @@ async function toolSigs(){const out={};for(const a of await agentLive.homes()){i
 if(LIVE_APP){const sigFile=path.join(DATA,'agent-live','tool-sigs.json');const toolTick=async()=>{const now=await toolSigs();if(!Object.keys(now).length)return;const old=JSON.parse(await readFile(sigFile,'utf8').catch(()=>'{}')||'{}');
   const changed=Object.keys(now).filter(a=>old[a]!==now[a]);await mkdir(path.dirname(sigFile),{recursive:true});await writeFile(sigFile,JSON.stringify(now));
   if(changed.length&&Object.keys(old).length){console.log('agent tools changed for',changed.join(', '));restartLater('new or changed aqeelOS tools for '+changed.length+' agent(s)')}};
- setTimeout(()=>toolTick().catch(e=>console.warn('tool sigs',e.message)),5*60e3).unref();setInterval(()=>toolTick().catch(e=>console.warn('tool sigs',e.message)),10*60e3).unref()}
+ rec.add('tool lists',{run:toolTick,reads:['cfg'],every:3600e3,why:'was every 10 min: one HTTP call per agent'})}
 const agentCare=createAgentCare({HERMES_HOME,DATA,fpKey:()=>agentLive.key(),teamOf:async a=>((await issues.policy())?.teams||[]).find(t=>(t.agents||[]).includes(a))?.name||null,WORK:path.join(homedir(),'workspaces'),homes:()=>agentLive.homes(),readConfig,pick,jobs:a=>versions.myJobs(a),updateJob:(a,id,up)=>versions.updateJob(a,id,up),
  record:(a,e)=>versions.noteSelfChange(a,{...e,by:'aqeelOS',undoable:false}),notices:agentLive,extraRetired:async()=>JSON.parse(await readFile(path.join(DATA,'retired-setup.json'),'utf8').catch(()=>'[]'))});
-if(LIVE_APP){const careTick=()=>agentCare.tick().then(r=>{if(Object.keys(r).length)console.log('agent-care: '+JSON.stringify(r))}).catch(e=>console.warn('agent-care',e.message));
- setTimeout(careTick,3*60e3).unref();setInterval(careTick,2*60e3).unref()}
+if(LIVE_APP){const careTick=()=>agentCare.tick().then(r=>{if(Object.keys(r).length)console.log('agent-care: '+JSON.stringify(r))}).catch(e=>{console.warn('agent-care',e.message);throw e});
+ rec.add('agent care',{run:careTick,reads:['jobs','cfg'],files:[path.join(DATA,'team-policy.json'),path.join(DATA,'retired-setup.json'),path.join(DATA,'keys-shared-ok.json')],every:30*60e3,why:'was every 2 min'})}
 // rollbacks made in the last 48 hours only because the AI provider was not available are put back once, a couple of minutes after start
 if(LIVE_APP)setTimeout(()=>versions.restoreAllFalseRollbacks().then(r=>{if(Object.keys(r).length)console.log('agent-versions: false rollbacks found: '+JSON.stringify(r))}).catch(e=>console.warn('agent-versions restore',e.message)),2*60e3).unref();
-if(LIVE_APP){setInterval(()=>versions.watchTick().catch(e=>console.warn('agent-versions watch',e.message)),60e3).unref();setTimeout(()=>versions.skillsTick().catch(()=>{}),90e3).unref();setInterval(()=>versions.skillsTick().catch(e=>console.warn('agent-versions skills',e.message)),10*60e3).unref()}
+if(LIVE_APP){setInterval(loops.track('change watch (every minute)',()=>versions.watchTick().catch(e=>console.warn('agent-versions watch',e.message))),60e3).unref();rec.add('skill change snapshots',{run:()=>versions.skillsTick(),reads:['skillfiles'],every:3600e3,why:'was every 10 min: a git add and diff per agent'});rec.start()}
 // which agents get it: their own Linux user is set up (commands and files run as ag-<agent>); never the main agent,
 // its extra-number copies, the help agent or (on the live app) a test copy's agents
 async function srEligible(a){if(!SR_AGENT.test(a)||a==='default'||a.includes('--')||a===HELP_AGENT)return false;if(LIVE_APP&&await isTestAgent(a))return false;if(!await isAgent(a))return false;

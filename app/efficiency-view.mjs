@@ -75,7 +75,7 @@ export async function readAccounts(file,nameOf=id=>id){let j;try{j=JSON.parse(aw
  const L={session:'5-hour limit',week:'weekly limit',opus:'weekly Opus limit',sonnet:'weekly Sonnet limit'};
  return Object.entries(j||{}).map(([id,v])=>{const u=v?.usage||{};return {id,name:nameOf(id),dead:!!v?.dead,windows:Object.entries(L).filter(([k])=>u[k]).map(([k,label])=>({label,used:u[k].used||0,resets:u[k].resets||null}))}})}
 
-export function createEfficiencyView({HERMES_HOME,DATA,python,nameOf=a=>a,accountLabels=async()=>({}),readRows=null,savings=async()=>null,now=()=>Date.now(),timeout=25000}){
+export function createEfficiencyView({loops=()=>[],HERMES_HOME,DATA,python,nameOf=a=>a,accountLabels=async()=>({}),readRows=null,savings=async()=>null,now=()=>Date.now(),timeout=25000}){
  let cache={at:0,v:null},flight=null;
  const home=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const run=readRows?async(py,db)=>(await readRows(py,db))?.map(rowOf)||null:((py,db)=>new Promise(res=>execFile(py,['-c',PY,db,'7'],{timeout,maxBuffer:6e7},(e,o)=>{try{res(e?null:JSON.parse(o).map(rowOf))}catch{res(null)}})));
@@ -96,7 +96,9 @@ export function createEfficiencyView({HERMES_HOME,DATA,python,nameOf=a=>a,accoun
   if(gates)for(const w of [sum.h24,sum.d7])for(const A of w.agents)for(const K of A.kinds)if(K.kind==='schedule')K.gate=gateOf(gates,A.agent,K.jobId,K.label);
   return {at:now(),failed,...sum,proxyFolds:sv&&sv.state==='on'?sv.folds:null,gates:!!gates,cadence:gates?savedStarts(gates,now()):null,flags:flags(sum,{gates,accounts,now:now()}),accounts:accounts.filter(a=>!a.dead&&a.windows.length).map(a=>({name:a.name,windows:a.windows}))}}
  // the last answer at once, read again behind once it is a minute old; only the very first read waits
- async function view({fresh=false}={}){
+ // the background-loop counters are read live (they are in memory, never cached with the records)
+ async function view(o={}){const v=await view0(o);if(v&&!v.error)v.loops=loops();return v}
+ async function view0({fresh=false}={}){
   if(cache.v&&now()-cache.at<60e3&&!fresh)return cache.v;
   if(!flight)flight=build().then(v=>{cache={at:now(),v}}).catch(e=>{console.warn('efficiency:',e.message)}).finally(()=>{flight=null});
   if(cache.v&&!fresh)return cache.v;await flight;return cache.v||{error:'Could not read the agents’ records.',at:now()}}
