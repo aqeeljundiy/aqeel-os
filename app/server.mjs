@@ -83,8 +83,8 @@ import {createMorning} from './morning.mjs';
 import {mayStartAgents,busyTotal,holdTotal,guardPaused} from './busy.mjs';
 import {createResume} from './resume.mjs';   // continue what a restart cut off (12 Nov 2026)
 import {createResumeEngine} from './resume-engine.mjs';
-import {windowOf,inWindow,resumeMaxMs} from './maintenance.mjs';
-import {stopGatewayCmd,stopTimeoutMs} from './gateway-stop.mjs';
+import {windowOf,inWindow,resumeMaxMs,restartGraceMs,restartWaitPolls} from './maintenance.mjs';
+import {stopGatewayCmd,stopTimeoutMs,parseGatewayList,ownGateways,stopOwnGatewayCmd,startOwnGatewayCmd} from './gateway-stop.mjs';
 import {createRestartLater,inQuiet} from './restart-later.mjs';
 import {createHelp} from './help.mjs';
 import {createLive} from './live.mjs';
@@ -715,7 +715,7 @@ function restartGateway(why,{wait=true,waitMax=360,auto=false,bridges=false,rest
  if(!mayStartAgents({restoring:restoreBusy(),forRestore:restore})){console.log('gateway restart left for after the restore:',why);return Promise.resolve()}
  if(gwRestarting){if(!gwRun.started&&!(bridges&&gwRun.bridgesDone)){gwRun.bridges||=bridges;return gwRestarting}
   gwAgain={why:gwAgain?.why||why,bridges:!!(gwAgain?.bridges||bridges)};return gwRestarting.then(()=>{if(!gwAgain)return gwRestarting||undefined;const a=gwAgain;gwAgain=null;return restartGateway(a.why,{bridges:a.bridges})})}if(auto){autoRestarts=autoRestarts.filter(t=>Date.now()-t<30*60e3);if(autoRestarts.length>=3){if(Date.now()-(globalThis.__rf||0)>30*60e3){globalThis.__rf=Date.now();noteSys('restart-failed','The engine kept stopping, so it was left off. Open System › Host and press Start.')}return Promise.resolve()}autoRestarts.push(Date.now())}if(!LIVE_APP){console.log('gateway restart skipped (test copy):',why);return Promise.resolve()}
- const run=gwRun={bridges,stopping:false};gwRestarting=(async()=>{if(wait){let said=false;for(let i=0;i<waitMax&&(liveCount()>0||await engineAgents()>0);i++){if(!said&&i===12){said=true;console.log('gateway restart: still waiting for',Math.max(liveCount(),engAgents.n),'agent(s) at work:',why);
+ const run=gwRun={bridges,stopping:false};gwRestarting=(async()=>{if(wait){let said=false;for(let i=0;i<waitMax&&(liveCount()>0||await engineAgents()>0||resume.openOf('deleg')>0);i++){if(!said&&i===12){said=true;console.log('gateway restart: still waiting for',Math.max(liveCount(),engAgents.n),'agent(s) and',resume.openOf('deleg'),'background task(s) at work:',why);
    // no new scheduled runs meanwhile (engine fix aqeelos:hold-cron-for-restart), so the agents at work finish and none start: the quiet moment comes
    await writeFile(path.join(HERMES_HOME,'aqeelos-hold-cron'),JSON.stringify({why,at:Date.now()})).catch(()=>{})}await new Promise(r=>setTimeout(r,5000))}
    await unlink(path.join(HERMES_HOME,'aqeelos-hold-cron')).catch(()=>{})}
@@ -723,15 +723,21 @@ function restartGateway(why,{wait=true,waitMax=360,auto=false,bridges=false,rest
   // --yes: the engine refuses to stop while chats are live, and then nothing restarted at all (5 Nov 2026: a gateway the
   // engine started kept running without a Claude login for an hour); the wait above already gave them their time
   // the engine needs 30 to 45 s to shut down cleanly; it is waited for before its window closes (gateway-stop.mjs)
+  // an agent with a gateway process of its own is restarted with it (on a shared gateway there is none: the default one serves every agent)
+  await syncDelegs().catch(()=>{});   // what runs now is journaled before the stop cuts it
+  const own=ownGateways(parseGatewayList((await shx('hermes gateway list 2>/dev/null',30000)).out));if(own.length)console.log('gateway restart: agents with their own gateway too:',own.join(', '));
+  for(const a of own)await shx(stopOwnGatewayCmd(a),90000);
   {const t0=Date.now(),st=await shx(stopGatewayCmd(),stopTimeoutMs());console.log('gateway restart: engine stopped after',Math.round((Date.now()-t0)/1000)+' s'+(/FORCED/.test(st.out)?' (it did not stop by itself in time and was closed)':' (clean)'))}
   // a WhatsApp bridge is its own process and reads its settings only when it starts: when channel settings changed, stop them so the engine starts fresh ones
   if(run.bridges)for(const a of await listAllProfiles().catch(()=>[]))await stopBridges(a).catch(()=>{});
-  run.bridgesDone=true;run.started=true;later.covered().catch(()=>{});await shx('~/services.sh >/dev/null 2>&1');
+  run.bridgesDone=true;run.started=true;later.covered().catch(()=>{});await shx('~/services.sh >/dev/null 2>&1');for(const a of own)await shx(startOwnGatewayCmd(a),60000);
   platCache.clear();hapiStatus.drop();hapiLists.drop();guardAfterRestart(Date.now())})().finally(()=>{gwRestarting=null});return gwRestarting}
 // restarts that can wait go to the quiet hours (restart-later.mjs); an immediate one covers them
 // since 12 Nov 2026 they go in the maintenance window (maintenance.mjs) and no longer wait for an idle box: what the
 // restart cuts off is continued afterwards (resume.mjs)
-const later=createRestartLater({DATA,restart:why=>restartGateway(why,{wait:false}),tz:()=>installTz()||process.env.TZ||'',inWindow:d=>inWindow(d,windowOf(installSettings())),label:()=>{const w=windowOf(installSettings());return 'the maintenance window ('+w.from+'-'+w.to+' '+w.tz+')'}});
+// a restart in the window waits gently for what is running (restartGraceMs, 10 minutes unless the install says otherwise), then restarts
+// with --interrupt (stopGatewayCmd passes --yes) and resume.mjs continues what that cut off
+const later=createRestartLater({DATA,restart:why=>restartGateway(why,{wait:true,waitMax:restartWaitPolls(restartGraceMs(installSettings()))}),tz:()=>installTz()||process.env.TZ||'',inWindow:d=>inWindow(d,windowOf(installSettings())),label:()=>{const w=windowOf(installSettings());return 'the maintenance window ('+w.from+'-'+w.to+' '+w.tz+')'}});
 const restartLater=why=>later.add(why).catch(e=>console.warn('restart later',e.message));
 if(LIVE_APP)setInterval(()=>later.tick().catch(e=>console.warn('quiet-hours restart',e.message)),5*60e3).unref();
 // a minute after aqeelOS restarted the engine, every tool server is checked and fixed (automation-guard.mjs); an engine
@@ -1848,7 +1854,7 @@ const resumeEng=createResumeEngine({python:enginePython,homeOf:homeOfAggent,agen
  posted:(a,from,to)=>postingLimits.view(a).then(v=>(v.recent||[]).some(e=>e.at>=from&&e.at<=to+60e3))});
 // a provider that is busy, out of room or signed out is tried again later; anything else is said and left
 const PROVIDER_WAIT=/rate.?limit|overload|\b(429|5\d\d)\b|time(d)? ?out|unavailable|quota|credit|capacity|connection|network|temporar|no (available )?(account|credential|provider)|auth|unauthori|api.?key|log.?in|sign.?in|expired/i;
-async function resumeSend(e,note){const key=e.agent+'|'+e.session,cur=LIVE.get(key);if(cur&&!cur.done)return {skip:true,why:'a reply is already running there'};
+async function resumeSend(e,note){const key=e.agent+'|'+e.session,cur=LIVE.get(key);if(cur&&!cur.done)return e.kind==='deleg'?{retry:true,why:'a reply is already running there'}:{skip:true,why:'a reply is already running there'};
  const pre=e.agent==='default'?'':'/p/'+encodeURIComponent(e.agent);
  const up=await fetch(GATE.origin+pre+'/api/sessions/'+encodeURIComponent(e.session)+'/chat/stream',{method:'POST',headers:{authorization:'Bearer '+API_KEY,'content-type':'application/json',accept:'text/event-stream'},body:JSON.stringify({message:note,...(e.opts||{})}),...longFetch()}).catch(er=>({ok:false,status:0,text:async()=>er.message}));
  if(!up.ok||!up.body){const t=String(await up.text().catch(()=>'')).replace(/\s+/g,' ').slice(0,120);return up.status===404?{fail:true,why:'the chat no longer exists'}:{retry:true,why:'the engine did not take it ('+(up.status||t)+')'}}
@@ -1876,7 +1882,7 @@ function resumeLiveEnd(rec){if(!rec.jid)return null;return rec.ended||=(async()=
 const pidLives=p=>{if(!p)return false;try{process.kill(p,0);return true}catch{return false}};
 const resume=createResume({DATA,on:LIVE_APP,maxAge:()=>resumeMaxMs(installSettings()),tz:()=>installTz()||process.env.TZ||'',nameOf:a=>NAMES[a]||a,
  ready:async()=>!gwStopped&&!gwRestarting&&!engineUpd.busy()&&!backups.busy()&&!!await gatewayPid()&&await fetch(DASH.origin+'/api/status',{signal:AbortSignal.timeout(8000)}).then(r=>r.ok,()=>false),
- probeChat:e=>resumeEng.probeChat(e),probeChannel:e=>resumeEng.probeChannel(e),sendChat:resumeSend,probeRun:e=>resumeEng.probeRun(e),
+ probeChat:e=>resumeEng.probeChat(e),probeChannel:e=>resumeEng.probeChannel(e),sendChat:resumeSend,probeRun:e=>resumeEng.probeRun(e),probeDeleg:e=>resumeEng.probeDeleg(e),
  triggerRun:async e=>{runGates.noteManual(e.agent,e.job);const r=await fetch(DASH.origin+'/api/cron/jobs/'+encodeURIComponent(e.job)+'/trigger?profile='+encodeURIComponent(e.agent),{method:'POST',headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:'{}',signal:AbortSignal.timeout(30000)}).catch(er=>({ok:false,status:0,text:async()=>er.message}));
   if(r.ok)return {ok:true};const t=String(await r.text().catch(()=>'')).replace(/\s+/g,' ').slice(0,120);return r.status===404?{fail:true,why:'the schedule no longer exists'}:{retry:true,why:'the engine did not start it ('+(r.status||t)+')'}},
  probeFixer:async e=>{const r=(await issues._db()).runs[e.run];return {done:!r||!!r.done,alive:pidLives(r?.pid)}},
@@ -1886,13 +1892,18 @@ resume.boot();
 // twice every 30 seconds): the engine's run ledger moved (a run started or ended), the engine restarted (its process changed),
 // something is waiting, or five minutes passed. The fixer's journal is read in-process every time, so it costs nothing.
 let rtLedger=null,rtGw=0,rtFull=0;
+// background tasks (the engine's ledger in each agent's state.db, which changes all day, so it is read once a minute, when the engine
+// restarted or something waits, and just before aqeelOS itself restarts the engine) instead of every 30 s
+let rtDeleg=0;async function syncDelegs(){const dl=await resumeEng.delegsNow().catch(()=>null);if(dl)resume.sync(dl,'deleg');rtDeleg=Date.now();return !!dl}
 async function resumeTick(){if(!LIVE_APP)return;resume.beat();
  const hs=await agentNames().then(l=>l.map(homeOfAg)).catch(()=>[]),led=await ledgerSig(hs).catch(()=>null),gw=await gatewayPid().catch(()=>0);
- const look=led===null||led!==rtLedger||gw!==rtGw||resume.pending()>0||Date.now()-rtFull>=300e3;
+ const look=led===null||led!==rtLedger||gw!==rtGw||resume.pending()>0||Date.now()-rtFull>=300e3,lookD=look||Date.now()-rtDeleg>=60e3;
  const runs=look?await resumeEng.runsNow().catch(()=>null):null;if(runs)resume.sync(runs,'schedule');
  const fx=await issues._db().then(db=>Object.values(db.runs).filter(r=>!r.done).map(r=>({kind:'fixer',run:r.id,pid:r.pid||0,agent:r.agent||'default'}))).catch(()=>null);if(fx)resume.sync(fx,'fixer');
  // Telegram / WhatsApp chats: the engine carries them on itself (engine patch channel-resume-continue); this only watches
  const ch=look?await resumeEng.channelsNow().catch(()=>null):null;if(ch)resume.syncChannels(ch);
+ // background tasks an agent handed to a sub-run: journaled while they run, so a restart that cuts them is known (kind 'deleg')
+ if(lookD)await syncDelegs();
  if(look){rtLedger=led;rtGw=gw;rtFull=Date.now();loops.note('resume check (30 s)',{ms:0})}else loops.note('resume check (30 s)',{ran:false});   // two Python starts, or none
  if(resume.pending())await resume.run()}
 if(LIVE_APP){setTimeout(()=>resumeTick().catch(e=>console.warn('resume',e.message)),20e3).unref();setInterval(()=>resumeTick().catch(e=>console.warn('resume',e.message)),30e3).unref();Object.assign(loops.row('resume check (30 s)'),{every:30e3,why:'was two Python starts every 30 s'})}

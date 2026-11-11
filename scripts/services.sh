@@ -4,7 +4,7 @@
 # apart); every deploy installs it through scripts/services-install.sh, which never overwrites a box-specific edit.
 # What differs per install is detected or set in <data folder>/services.conf (one "name=on|off" per line, default auto):
 #   adspower-bridge  auto: on when the data folder has agent-adspower.json (agents with their own AdsPower)
-#   nightly          auto: on when ~/nightly-engine-restart.sh is executable (graceful engine restart at 02:00 Jakarta)
+#   nightly          auto: on when ~/nightly-engine-restart.sh is executable (asks aqeelOS for the nightly engine restart at 02:00 Jakarta; the file itself is only the marker now)
 # Online Code starts only while ~/.aqeelos-online-code exists (aqeelOS writes it from System > Settings). Its public hosts are
 # CODE_HOST / CODE_PREVIEW_HOST from ~/apps/hermes-ui.env (read as text, never run). Secrets stay in the env files: nothing here.
 # NEVER exits non-zero: a deploy treats that as a failed go-live (11 Nov 2026), so every optional part is an if, every start
@@ -42,7 +42,11 @@ if [ -f $HOME/.aqeelos-online-code ]; then
  CH=$(hostok "${CODE_HOST:-$(kv $HOME/apps/hermes-ui.env CODE_HOST)}" code.localhost); CP=$(hostok "${CODE_PREVIEW_HOST:-$(kv $HOME/apps/hermes-ui.env CODE_PREVIEW_HOST)}" code-preview.localhost)
  start code "while true; do cd \$HOME/apps/aqeel-code && env -i HOME=\$HOME PATH=\$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 HUB_PORT=4321 CBA_ONLINE=1 CBA_PUBLIC_APP=https://$CH CBA_PUBLIC_PREVIEW=https://$CP node --max-old-space-size=2048 server.mjs; sleep 3; done"
 fi
-# nightly graceful engine restart at 02:00 Jakarta (10 Nov 2026): never forced, see the script
+# nightly engine restart (10 Nov 2026; through the app since 12 Nov). The engine's memory builds up over a day. Once a day (02:00 Jakarta)
+# this asks aqeelOS for a restart by dropping <data>/restart-request.json; aqeelOS queues it like every other restart that can wait
+# and does it in the maintenance window: first gently for up to restartGraceMinutes (default 10), then with --interrupt, and what that
+# cut off is continued (app/restart-later.mjs, app/maintenance.mjs, app/resume.mjs). The old ~/nightly-engine-restart.sh (50 tries, never
+# forced, so a background task blocked it for good) is not run any more.
 nt=$(opt nightly); if [ "$nt" = auto ]; then if [ -x "$HOME/nightly-engine-restart.sh" ]; then nt=on; else nt=off; fi; fi
-if [ "$nt" = on ]; then start nightly "while true; do [ \$(date -u +%H%M) = 1900 ] && { \$HOME/nightly-engine-restart.sh; sleep 61; }; sleep 30; done"; fi
+if [ "$nt" = on ]; then start nightly "while true; do [ \$(date -u +%H%M) = 1900 ] && { printf '{\"why\":\"nightly engine restart\"}' > $DATA/restart-request.json.tmp && mv $DATA/restart-request.json.tmp $DATA/restart-request.json; sleep 61; }; sleep 30; done"; fi
 exit 0

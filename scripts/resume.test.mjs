@@ -175,3 +175,46 @@ test('the engine patch and the settings that switch it on are in place',()=>{con
  for(const m of ['HERMES_RESUME_CONTINUE','gateway_resume_continue','+++ b/gateway/run.py','+++ b/gateway/run_turn_runner.py','+++ b/hermes_cli/config_defaults.py','do NOT ask'.replace('do NOT ask','do NOT say the session was restored')])assert.ok(patch.includes(m)||patch.includes(m.replace('do NOT say','Do NOT say')),m);
  const ad=rd('../app/agent-defaults.mjs');assert.ok(ad.includes("'agent.gateway_resume_continue'")&&ad.includes("'agent.gateway_auto_continue_freshness'"));
  assert.match(rd('../app/server.mjs'),/resumeSecs:\(\)=>resumeMaxMs\(installSettings\(\)\)\/1000/)});
+
+/* ---------- background tasks (the engine's "background delegation"): journaled while they run, handed back by the engine, else told once (12 Nov 2026) ---------- */
+import {delegPlan,delegNote} from '../app/resume.mjs';
+const dg=(over={})=>({kind:'deleg',agent:'donna',deleg:'deleg_1',title:'Research the competitor pricing pages',session:'s1',key:'agent:main:telegram:group:9',since:T0-5*60e3,...over});
+const cut={status:'unknown',state:'unknown',delivery:'pending',error:'Delegation owner exited before recording a terminal result; outcome unknown.',appChat:true,newer:false,ownerLive:false};
+
+test('a background task is journaled while it runs; when the engine restarts under it, a web chat is told once, with the title and the time',async()=>{const D=dir(),c={t:T0};let p={state:'running',ownerLive:true},sent=[];
+ const a=app(D,c,{probeDeleg:async()=>p,sendChat:async(e,note)=>{sent.push({session:e.session,agent:e.agent,note,text:e.text});return {ok:true}}});a.r.boot();
+ assert.equal(a.r.sync([dg()],'deleg'),1);assert.equal(a.r.sync([dg()],'deleg'),0,'seen again: still one entry');assert.equal(a.r.openOf('deleg'),1);
+ await a.r.run();assert.equal(sent.length,0,'running: nothing is sent');
+ c.t+=60e3;assert.equal(a.r.sync([],'deleg'),1,'no longer running: looked at');assert.equal(a.r.openOf('deleg'),0);
+ p={...cut};await a.r.run();assert.equal(sent.length,0,'the engine is handing it back: it gets its minutes');
+ c.t+=5*60e3;await a.r.run();await a.r.run();
+ assert.equal(sent.length,1);assert.equal(sent[0].session,'s1');assert.equal(sent[0].agent,'donna');
+ assert.equal(sent[0].note,'[System note from aqeelOS: your background task “Research the competitor pricing pages” was interrupted by a restart at 00:11; start it again if it is still needed.]');
+ assert.equal(sent[0].text,sent[0].note,'if the reply to the note is cut as well, the chat journal continues from the note');
+ assert.equal(a.r.pending(),0);assert.equal(a.r.last().delegs,1);assert.match(a.r.line(),/1 background task continued/)});
+
+test('a task the engine itself handed back (delivered), or that finished, or that failed by itself, is never told again',()=>{const e=dg({cutAt:T0}),now=T0+10*60e3;
+ assert.equal(delegPlan(e,{...cut,delivery:'delivered',status:'error',error:' interrupted'},now).do,'done');
+ assert.equal(delegPlan(e,{...cut,status:'completed',delivery:'pending'},now).do,'skip');
+ assert.equal(delegPlan(e,{...cut,status:'error',error:'Billing or credits exhausted: HTTP 429'},now).do,'skip');
+ assert.equal(delegPlan(e,{...cut,newer:true},now).do,'skip','the agent already started it again');
+ assert.equal(delegPlan(e,{missing:true},now).do,'skip');
+ assert.equal(delegPlan(e,{state:'running',ownerLive:true},now).do,'wait');assert.equal(delegPlan(e,{state:'running',ownerLive:false},now).do,'wait','the engine has not closed it yet')});
+
+test('a Telegram or WhatsApp chat gets nothing from here: it is listed when the engine did not hand the task back; old ones are not continued',()=>{const e=dg({cutAt:T0}),now=T0+10*60e3;
+ const ch=delegPlan(e,{...cut,appChat:false},now);assert.equal(ch.do,'giveup');assert.match(ch.why,/nothing is sent from here/);
+ assert.equal(delegPlan(e,{...cut},T0+3*3600e3).do,'giveup');assert.match(delegPlan(e,cut,T0+3*3600e3).why,/older than 2 h/);
+ assert.equal(delegPlan(e,null,now).do,'wait');assert.equal(delegPlan(e,null,T0+3*3600e3).do,'giveup');
+ assert.equal(delegPlan({...e,n:3},cut,now).do,'giveup');
+ assert.match(delegNote({title:'x\ny',at:T0,tz:'Asia/Jakarta',why:'update'}),/“x y” was interrupted by an update at 00:10/)});
+
+test('a task in a web chat while a reply runs there, or while the provider is down, is tried again later and still told once',async()=>{const D=dir(),c={t:T0};let sent=0,mode='retry';
+ const a=app(D,c,{probeDeleg:async()=>cut,sendChat:async()=>{if(mode==='retry')return {retry:true,why:'a reply is already running there'};sent++;return {ok:true}}});a.r.boot();
+ a.r.sync([dg()],'deleg');c.t+=60e3;a.r.sync([],'deleg');c.t+=5*60e3;await a.r.run();assert.equal(sent,0);assert.equal(a.r.pending(),1);
+ mode='ok';c.t+=10*60e3;await a.r.run();await a.r.run();assert.equal(sent,1);assert.equal(a.r.pending(),0)});
+
+test('background tasks are wired: read from the engine’s ledger on the tick, before aqeelOS restarts the engine, and counted on Health',()=>{
+ const rd=f=>readFileSync(new URL(f,import.meta.url),'utf8'),s=rd('../app/server.mjs'),e=rd('../app/resume-engine.mjs');
+ assert.ok(s.includes("resume.sync(dl,'deleg')")&&s.includes("probeDeleg:e=>resumeEng.probeDeleg(e)")&&s.includes('await syncDelegs().catch(()=>{});'),'tick, probe and the moment before an own restart');
+ assert.ok(e.includes('from async_delegations')&&e.includes('delegation_id')&&e.includes('mode=ro'),'read-only, the engine’s own ledger');
+ assert.equal(healthLine({at:T0,chats:0,schedules:0,delegs:2,helpers:0,failed:[],waiting:0},{tz:'Asia/Jakarta',now:T0+6e4}),'Restarted at 00:10: 2 background tasks continued.')});
