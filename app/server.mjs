@@ -23,6 +23,7 @@ import {createFixerGit} from './fixer-git.mjs';
 import {createCloudFixer} from './cloud-fixer.mjs';
 import {createLiveDrift} from './live-drift.mjs';
 import {withTebar} from './tebar-app.mjs';   // Tebar in the catalog: one click sign-in, or a pasted API key (11 Nov 2026)
+import {createPaymentCallbacks} from './payment-callbacks.mjs';   // Tripay / Xendit "paid" callbacks wake the payment check at once (12 Nov 2026)
 import {createEventHooks} from './event-hooks.mjs';   // a payment found PAID runs the agent's recap script at once, no model (12 Nov 2026)
 import {createEventRuns} from './event-runs.mjs';   // a Tebar event starts the matching schedule at once (11 Nov 2026)
 import {createTebar} from './tebar.mjs';   // Tebar webhooks: failed posts and expired accounts as alerts, comments and DMs as notices (11 Nov 2026)
@@ -1544,7 +1545,9 @@ const eventHooks=createEventHooks({DATA,WORK:path.join(homedir(),'workspaces'),e
  deliver:async(a,target,text)=>{const m=/^telegram:(-?\d+)(?::(\d+))?$/.exec(String(target||''));if(!m)throw Error('delivery to '+target+' is not supported (telegram:<chat>[:<topic>])');
   if(!await kirimdev.teamPost(a,m[1],m[2]?Number(m[2]):null,text))throw Error('Telegram did not take the message')},
  problem:(a,topic,title,fix)=>health.problem(a,'run',title,{topic,fix}),solved:(a,topic)=>health.ok(a,topic),log:m=>console.log(m)});
-const paidLabels=createPaidLabels({DATA,WORK:path.join(homedir(),'workspaces'),onEvent:(a,ev)=>eventHooks.fire(a,ev),label:(a,o)=>kirimdev.labelContact(a,o),orders:lineOrders,post:(a,t,text)=>kirimdev.teamPost(a,t.chatId,t.threadId,text),failed:(a,topic,title,detail)=>health.problem(a,'handoff',title,{topic,fix:detail})});
+const paidLabels=createPaidLabels({DATA,WORK:path.join(homedir(),'workspaces'),onEvent:(a,ev)=>eventHooks.fire(a,ev),callbackActive:(a,k)=>paymentCallbacks.active(a,k),label:(a,o)=>kirimdev.labelContact(a,o),orders:lineOrders,post:(a,t,text)=>kirimdev.teamPost(a,t.chatId,t.threadId,text),failed:(a,topic,title,detail)=>health.problem(a,'handoff',title,{topic,fix:detail})});
+// the providers call us when a payment is paid (payment-callbacks.mjs); the minute tick stays as the fallback and slows to 10 minutes per agent once a callback has been seen
+const paymentCallbacks=createPaymentCallbacks({DATA,WORK:path.join(homedir(),'workspaces'),nudge:a=>paidLabels.nudge(a),log:m=>console.log(m)});
 if(LIVE_APP)setInterval(()=>paidLabels.tick().catch(e=>console.warn('paid labels',e.message)),60e3).unref();
 // the labels a line's agent may set (Line settings) that Kirimdev still has, and Kirimdev's S- labels for create_payment
 async function kirimdevLabelRules(a){const l=(await kirimdev.lines().catch(()=>({})))[a];if(!l)return {};const all=await kirimdev.labelList().catch(()=>null);if(!all)return {allowed:l.labels?.allowed||[]};
@@ -2666,6 +2669,10 @@ const server=createServer(async(req,res)=>{
   {const tm=/^\/hooks\/tebar\/([a-z0-9][a-z0-9_-]{0,63})$/.exec(p);if(tm){if(req.method!=='POST')return send(res,405,{error:'POST only'});let raw;
    if(+req.headers['content-length']>1024*1024)return send(res,413,{error:'Too large'});try{raw=await readRaw(req,1024*1024)}catch{return send(res,413,{error:'Too large'})}
    try{const r=await tebar.receive(tm[1],req.headers,raw);send(res,r.status,r.body);if(r.after)setImmediate(()=>r.after().catch(e=>console.warn('tebar event',e.message)));return}catch(e){console.warn('tebar receive',e.message);return send(res,500,{error:'Try again'})}}}
+  // Tripay and Xendit call here when a payment is paid, no sign-in: each call is checked with the agent's own provider secret (payment-callbacks.mjs)
+  {const pm=/^\/hooks\/pay\/(tripay|xendit)\/([a-z0-9][a-z0-9_-]{0,63})$/.exec(p);if(pm){if(req.method!=='POST')return send(res,405,{success:false});let raw;
+   if(+req.headers['content-length']>65536)return send(res,413,{success:false});try{raw=await readRaw(req,65536)}catch{return send(res,413,{success:false})}
+   try{const r=await paymentCallbacks.receive(pm[1],pm[2],req.headers,raw);send(res,r.status,r.body);if(r.after&&LIVE_APP)setImmediate(()=>r.after().catch(e=>console.warn('payment callback',e.message)));return}catch(e){console.warn('payment callback',e.message);return send(res,500,{success:false})}}}
   // one-time secret links (no sign-in: the token after # is the credential)
   // Kirimdev posts customer messages here, signed; nothing else is taken (kirimdev.mjs)
   {const km=/^\/kirimdev\/([a-z0-9][a-z0-9_-]{0,63})$/.exec(p);if(km){if(req.method!=='POST')return send(res,405,{error:'POST only'});let raw;
