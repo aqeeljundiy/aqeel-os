@@ -1,7 +1,7 @@
 // One-purpose public links for a file WhatsApp has to fetch (12 Nov 2026, issue i19b649d9): Kirimdev's document message wants a
 // public https link, not bytes. A customer's protocol PDF is health data, so the link is made for ONE file, is 32 random bytes
 // (only the hash is kept), works for 15 minutes and 6 downloads at most (Kirimdev and Meta each fetch it once), and is dropped
-// the moment the send is done or failed. Not a general file share (that is public-files.mjs): PDFs only, nothing listed, nothing
+// once the send is known delivered, read or failed (not when Kirimdev merely accepted it: WhatsApp fetches the file after that). Not a general file share (that is public-files.mjs): PDFs only, nothing listed, nothing
 // kept across a restart (the folder is emptied at start). Served at <PUBLIC_URL>/doc/<token>/<name>.pdf without a sign-in.
 import {writeFile,mkdir,rm,readdir,readFile} from 'node:fs/promises';
 import {createHash,randomBytes} from 'node:crypto';
@@ -36,4 +36,7 @@ export function createDocLinks({DATA,PUBLIC_URL,now=()=>Date.now(),random=n=>ran
   res.writeHead(200,{'content-type':'application/pdf','content-length':buf.length,'cache-control':'no-store','x-content-type-options':'nosniff','referrer-policy':'no-referrer','x-robots-tag':'noindex',
    'content-disposition':"inline; filename*=UTF-8''"+encodeURIComponent(l.name),'content-security-policy':"sandbox; default-src 'none'"});
   res.end(req.method==='HEAD'?undefined:buf)}
- return {put,serve,sweep,count:()=>links.size,files:()=>readdir(DIR).catch(()=>[])}}
+ // drop a link by its address: when the send that carried it is known delivered, read or failed (audit M4: a link dropped the moment
+ // Kirimdev accepted the message could be gone before WhatsApp fetched the file). Anything that is not one of our links does nothing.
+ async function revokeUrl(url){const m=/\/doc\/([A-Za-z0-9_-]{43})\//.exec(String(url||''));if(!m)return false;const h=hash(m[1]);if(!links.has(h))return false;await drop(h);return true}
+ return {put,serve,sweep,revokeUrl,count:()=>links.size,files:()=>readdir(DIR).catch(()=>[])}}
