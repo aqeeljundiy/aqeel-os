@@ -17,18 +17,25 @@
 //     lists sections that are clearly reference (a price table, a glossary), as a file for a person to accept. accept()
 //     is the only thing that rewrites SOUL.md, only on a person's request, after a backup, and it leaves a one-line
 //     pointer where the section was. Nothing here changes an agent's instructions by itself.
-// Which model reads the documents is not chosen here: graphify takes the first one that has a key in the server's
-// environment, or the one named in DATA/agent-graph/model.json ({"backend":"...","model":"..."}). Without one, documents
-// wait and code is still mapped.
+// Which model reads the documents (owner, 11 Nov 2026: the FREE Gemini route, never a paid key, never forced Claude):
+// graph-relay.mjs, a loopback relay that exists only while a run lasts and answers graphify's OpenAI-style calls through
+// the owner's Google AI plan (Antigravity's agy), with a Gemini model (DATA/agent-graph/model.json {"model":"gemini-..."}
+// changes it, {"route":"none"} turns documents off). graphify is run with a bare environment, so no key that happens to
+// be in the server's environment can ever be picked up. When the plan says its limit is reached, documents wait 6 hours
+// and code is still mapped. Without agy or its sign-in, the same: code only.
+// Until a person turns the rest on (DATA/agent-graph/enabled.json, setEnabled), only a pilot agent is mapped, because each
+// agent with a map adds a tool process (~1 to 1.5 GB for all agents on Elkiya).
 import {readFile,writeFile,mkdir,rename,readdir,lstat,stat,copyFile,rm} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {execFile} from 'node:child_process';
 import path from 'node:path';
 import {homedir} from 'node:os';
+import {createRelay,FREE_MODEL,isFreeModel} from './graph-relay.mjs';
 
 export const SIZE_BUDGET=16*1024;                 // bytes sent on every call before Health warns
 export const TOOL='graphify';
 export const TOOL_NAMES=['query_graph','get_node','get_neighbors'];
+export const PILOT=['sesa'];   // one small agent (a document and no code on Elkiya, 11 Nov); pepclub-social has nothing to map
 export const PASS_MS=20*60e3,GAP_MS=6*3600e3,MAX_DOCS_PER_RUN=30,RUN_MS=40*60e3,BUSY_POLL_MS=20e3;
 export const LIMITS={docBytes:400e3,codeBytes:300e3,files:1500,depth:8,scan:20000};
 
@@ -80,14 +87,14 @@ export const sameEntry=(a,b)=>!!a&&!!b&&a.command===b.command&&JSON.stringify(a.
 
 // the arguments of the graphify run: documents (a model, only the changed files) or code only (none)
 export function runArgs({corpus,docs,first,backend,model}){
- if(docs)return ['extract',corpus,'--max-concurrency','2',...(backend?['--backend',backend]:[]),...(model?['--model',model]:[])];
+ if(docs)return ['extract',corpus,'--max-concurrency','1',...(backend?['--backend',backend]:[]),...(model?['--model',model]:[])];
  return first?['extract',corpus,'--code-only']:['update',corpus]}
 
 const sha=t=>createHash('sha1').update(String(t)).digest('hex');
 const posix=p=>p.split(path.sep).join('/');
 
 export function createAgentGraph({HERMES_HOME,DATA,home0=homedir(),readConfig,setKey,pick,agents=async()=>[],skip=async()=>false,busy=async()=>false,paused=()=>false,writeSoul=null,
- run=null,now=()=>Date.now(),log=m=>console.log(m),env=process.env,nice=process.platform==='linux',budget=SIZE_BUDGET,limits=LIMITS,busyPoll=BUSY_POLL_MS}){
+ run=null,relay=null,now=()=>Date.now(),log=m=>console.log(m),env=process.env,nice=process.platform==='linux',budget=SIZE_BUDGET,limits=LIMITS,busyPoll=BUSY_POLL_MS}){
  const PY=path.join(home0,'workspaces','.aqeelos-python'),bin=path.join(PY,'bin','graphify'),py=path.join(PY,'bin','python');
  const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const wsOf=a=>path.join(home0,'workspaces',a);
@@ -98,6 +105,9 @@ export function createAgentGraph({HERMES_HOME,DATA,home0=homedir(),readConfig,se
  const wjson=async(f,v)=>{await mkdir(path.dirname(f),{recursive:true});const t=f+'.'+process.pid+'.tmp';await writeFile(t,JSON.stringify(v,null,1));await rename(t,f)};
  const rjson=async(f,d)=>{try{return JSON.parse(await readFile(f,'utf8'))}catch{return d}};
  let st=null,running=false,backendAt=0,backendIs=null;
+ const startRelay=relay||(o=>createRelay({home:home0,env,log}).start(o));
+ // graphify runs with this and nothing else: no key from the server's own environment can reach it
+ const bare=(extra={})=>({PATH:env.PATH||'/usr/bin:/bin',HOME:home0,LANG:env.LANG||'C.UTF-8',GRAPHIFY_NO_AUTO_REFRESH:'1',...extra});
  const load=async()=>{if(!st){st=await rjson(STATE,{});st.agents||={}}return st};
  const save=()=>wjson(STATE,st);
  const off=()=>has(path.join(HERMES_HOME,'.aqeelos-graph-off'));
@@ -106,12 +116,17 @@ export function createAgentGraph({HERMES_HOME,DATA,home0=homedir(),readConfig,se
 
  // graphify installed with its MCP extra (graphify.mjs), and the Python that runs it
  const toolReady=async()=>await has(bin)&&await exec(py,['-c','import mcp, graphify.serve'],{timeout:30e3}).then(()=>true,()=>false);
- // the model for documents: the owner's choice, else whatever graphify finds a key for; null means documents wait
- async function backend(){if(now()-backendAt<3600e3&&backendAt)return backendIs;backendAt=now();
-  const own=await rjson(path.join(D,'model.json'),{});
-  const e={...env,GRAPHIFY_NO_AUTO_REFRESH:'1',...(own.backend?{GRAPHIFY_BACKEND:String(own.backend)}:{})};
-  const found=String(await exec(py,['-c','from graphify.llm import detect_backend; print(detect_backend() or "")'],{timeout:30e3,env:e,cwd:home0}).catch(()=>'')).trim();
-  backendIs=found?{name:found,model:own.model?String(own.model):null,named:!!own.backend,env:e}:null;return backendIs}
+ // the model for documents: the free Gemini route when agy is there and signed in, and not in a limit pause; null means
+ // documents wait (code is still mapped). Checked at most once an hour.
+ async function backend(){await load();if(st.quotaUntil>now())return null;if(backendAt&&now()-backendAt<3600e3)return backendIs;backendAt=now();
+  const own=await rjson(path.join(D,'model.json'),{});const model=String(own.model||FREE_MODEL);
+  if(own.route==='none'||!isFreeModel(model)||st?.quotaUntil>now()){backendIs=null;return null}
+  const ok=await has(path.join(home0,'.gemini','antigravity-cli'))&&await exec(path.join(home0,'.local','bin','agy'),['--version'],{timeout:30e3,env:bare({PATH:path.join(home0,'.local','bin')+':'+(env.PATH||'/usr/bin:/bin')})}).then(()=>true,()=>false);
+  backendIs=ok?{name:'openai',model,named:true,free:true}:null;return backendIs}
+ // who has a map: the pilot until a person turns on the rest
+ const sw=()=>rjson(path.join(D,'enabled.json'),{});
+ async function isOn(a){const e=await sw();return e.all===true||(Array.isArray(e.agents)?e.agents:PILOT).includes(a)}
+ async function setEnabled({all,agents:list}){const e=await sw();if(typeof all==='boolean')e.all=all;if(Array.isArray(list))e.agents=list.map(String).filter(x=>/^[a-z0-9][a-z0-9_-]{0,80}$/.test(x));await wjson(path.join(D,'enabled.json'),e);return {all:e.all===true,agents:e.agents||PILOT}}
 
  /* ---------- the size of what is sent every time ---------- */
  async function size(a){const soul=await readFile(path.join(homeOf(a),'SOUL.md')).then(b=>b.length,()=>0);let memory=0;
@@ -148,10 +163,10 @@ export function createAgentGraph({HERMES_HOME,DATA,home0=homedir(),readConfig,se
   // what is new or changed, and gone; documents only when a model is there, and only a few at a time
   const want=new Map(files.filter(f=>f.kind==='code'||be).map(f=>[f.rel,f]));
   const changed=[...want.values()].filter(f=>{const m=manifest[f.rel];return !m||m.size!==f.size||m.mtime!==f.mtime});
-  const gone=Object.keys(manifest).filter(k=>!want.has(k));
+  const present=new Set(files.map(f=>f.rel)),gone=Object.keys(manifest).filter(k=>!present.has(k));   // not documents that only wait for a model
   const docs=changed.filter(f=>f.kind==='doc').slice(0,MAX_DOCS_PER_RUN),code=changed.filter(f=>f.kind==='code'),later=changed.length-docs.length-code.length;
   const stage=[...docs,...code];
-  s.lastTry=t;s.files={docs:files.filter(f=>f.kind==='doc').length,code:files.filter(f=>f.kind==='code').length};s.model=be?be.name:null;
+  s.lastTry=t;s.files={docs:files.filter(f=>f.kind==='doc').length,code:files.filter(f=>f.kind==='code').length};s.model=be?be.model:null;
   if(!stage.length&&!gone.length&&!first){s.state=later>0?'building':'ready';s.waiting=later>0?later:0;await save();return {skipped:'nothing changed'}}
   // nothing to build from yet: no files at all, or only documents and no model to read them
   if(first&&!stage.length){s.state=files.length?'needs-model':'nothing';s.error=null;await save();return {skipped:'nothing to map'}}
@@ -165,17 +180,21 @@ export function createAgentGraph({HERMES_HOME,DATA,home0=homedir(),readConfig,se
   for(const k of gone){await rm(path.join(corpusOf(a),...k.split('/')),{force:true}).catch(()=>{});delete next[k]}
   s.skippedSecret=Object.values(next).filter(x=>x.secret).length;
   const needDocs=!!be&&(docs.length>0||gone.some(k=>manifest[k]?.kind==='doc'));
-  const args=runArgs({corpus:corpusOf(a),docs:needDocs,first,backend:be?.named?be.name:null,model:be?.model});
-  const ac=new AbortController(),unwatch=watch(a,ac);s.state=first?'building':'updating';s.error=null;await save();
-  try{const [cmd,cargs]=nice?['nice',['-n','19',bin,...args]]:[bin,args];
-   await exec(cmd,cargs,{timeout:RUN_MS,maxBuffer:16e6,cwd:corpusOf(a),env:be?.env||{...env,GRAPHIFY_NO_AUTO_REFRESH:'1'},signal:ac.signal});
-   unwatch();if(!await has(graphOf(a)))throw new Error('graphify wrote no graph');
+  const args=runArgs({corpus:corpusOf(a),docs:needDocs,first,backend:needDocs?be.name:null,model:needDocs?be.model:null});
+  const ac=new AbortController(),unwatch=watch(a,ac);s.state=first?'building':'updating';s.error=null;await save();let rl=null;
+  try{let genv=bare();
+   if(needDocs){rl=await startRelay({model:be.model,onQuota:()=>{ac.quota=true;ac.abort()}});genv=bare({GRAPHIFY_BACKEND:'openai',OPENAI_BASE_URL:rl.url,OPENAI_API_KEY:rl.key,OPENAI_MODEL:be.model})}
+   const [cmd,cargs]=nice?['nice',['-n','19',bin,...args]]:[bin,args];
+   await exec(cmd,cargs,{timeout:RUN_MS,maxBuffer:16e6,cwd:corpusOf(a),env:genv,signal:ac.signal});
+   unwatch();await rl?.stop?.();rl=null;if(!await has(graphOf(a)))throw new Error('graphify wrote no graph');
    await wjson(path.join(gdir(a),'staged.json'),next);
    const g=await stat(graphOf(a));s.state=later>0?'building':'ready';s.waiting=Math.max(0,later);s.lastOk=t;s.error=null;s.fails=0;s.graphBytes=g.size;s.fp=sha(JSON.stringify(Object.entries(next)));
    const nodes=g.size<30e6?await rjson(graphOf(a),null):null;s.nodes=Array.isArray(nodes?.nodes)?nodes.nodes.length:null;
    await save();const added=await ensureTool(a).catch(e=>{log('graph: tool for '+a+': '+e.message);return false});
    log('graph: '+a+' map '+(first?'built':'updated')+' ('+stage.length+' files'+(gone.length?', '+gone.length+' gone':'')+')');return {ok:true,tool:added}}
-  catch(e){unwatch();
+  catch(e){unwatch();await rl?.stop?.().catch(()=>{});
+   // the free plan's limit: documents wait 6 hours, nothing is marked failed, no other route is tried
+   if(ac.quota||rl?.stats?.quota){st.quotaUntil=now()+6*3600e3;backendIs=null;for(const f of docs)if(!manifest[f.rel])await rm(path.join(corpusOf(a),...f.rel.split('/')),{force:true}).catch(()=>{});s.state=s.lastOk?'ready':'waiting';s.error=null;s.notice='The free Gemini plan\u2019s limit was reached; documents wait about 6 hours.';await save();log('graph: '+a+': the free Gemini plan\u2019s limit was reached, documents wait 6 hours');return {skipped:'quota'}}
    if(ac.stopped){s.state=s.lastOk?'ready':'waiting';s.error=null;await save();log('graph: '+a+' started replying, map run stopped (retried later)');return {skipped:'busy'}}
    s.state='failed';s.fails=(s.fails||0)+1;s.error=String(e.message||e).slice(0,300);await save();log('graph: '+a+': '+s.error);return {error:s.error}}}
 
@@ -189,13 +208,13 @@ export function createAgentGraph({HERMES_HOME,DATA,home0=homedir(),readConfig,se
  // one pass: the agent longest without a look, if its time has come; an agent with nothing new costs one folder scan
  async function tick(){if(running||paused()||await off())return null;running=true;
   try{await load();if(!await toolReady())return null;
-   const names=[];for(const a of await agents().catch(()=>[]))if(!await skip(a).catch(()=>false)&&await has(homeOf(a)))names.push(a);
+   const names=[];for(const a of await agents().catch(()=>[]))if(!await skip(a).catch(()=>false)&&await has(homeOf(a))&&await isOn(a))names.push(a);
    const due=names.filter(a=>{const s=st.agents[a]||{};return !s.lastTry||now()-s.lastTry>=GAP_MS*Math.min(4,2**(s.fails||0))||s.state==='building'&&now()-s.lastTry>=PASS_MS}).sort((x,y)=>(st.agents[x]?.lastTry||0)-(st.agents[y]?.lastTry||0));
    const changed=[];let looked=0;
-   for(const a of due){if(looked++>=4)break;const r=await refresh(a);if(r.ok){if(r.tool)changed.push(a);break}if(r.error||r.skipped==='busy')break}
+   for(const a of due){if(looked++>=4)break;const r=await refresh(a);if(r.ok){if(r.tool)changed.push(a);break}if(r.error||r.skipped==='busy'||r.skipped==='quota')break}
    // an agent that already has a map but lost its tool entry (a new copy of its settings) gets it back
    for(const a of names)if((st.agents[a]?.lastOk)&&await ensureTool(a).catch(()=>false))changed.push(a);
-   for(const k of Object.keys(st.agents))if(!names.includes(k)&&!await has(homeOf(k)))delete st.agents[k];
+   for(const k of Object.keys(st.agents))if(!await has(homeOf(k)))delete st.agents[k];
    await save();return {changed:[...new Set(changed)]}}
   finally{running=false}}
 
@@ -216,7 +235,7 @@ export function createAgentGraph({HERMES_HOME,DATA,home0=homedir(),readConfig,se
   const file=path.join(homeOf(a),'SOUL.md'),soul=await readFile(file,'utf8').catch(()=>null);if(soul===null)throw new Error('This agent has no instructions file.');
   if(sha(soul)!==p.soulSha)throw new Error('The instructions changed since this was proposed. A new proposal will follow.');
   // the moved text has to be findable: a model must be there to map documents, and the agent must have its tool
-  if(!await backend())throw new Error('Documents cannot be mapped yet: no AI model is set up for it. Nothing was moved.');
+  if(!await backend())throw new Error('Documents cannot be mapped yet: the free Gemini route is not available right now. Nothing was moved.');
   const stamp=new Date(now()).toISOString().replace(/[-:]/g,'').replace(/\..*/,'').replace('T','-');
   await mkdir(path.join(D,'backups',a),{recursive:true});await writeFile(path.join(D,'backups',a,'SOUL-'+stamp+'.md'),soul);await writeFile(path.join(homeOf(a),'SOUL.md.bak-'+stamp+'-graph'),soul);
   await mkdir(refOf(a),{recursive:true});
@@ -232,7 +251,7 @@ export function createAgentGraph({HERMES_HOME,DATA,home0=homedir(),readConfig,se
  async function view(){await load();const out={};
   for(const a of await agents().catch(()=>[])){if(await skip(a).catch(()=>false)||!await has(homeOf(a)))continue;
    const s=st.agents[a]||{},p=await proposal(a),z=await size(a);
-   out[a]={size:z,map:{state:s.state||'waiting',nodes:s.nodes??null,files:s.files||null,lastOk:s.lastOk||null,waiting:s.waiting||0,error:s.error||null,model:s.model??null,skippedSecret:s.skippedSecret||0},
+   out[a]={size:z,map:{state:s.state||'waiting',nodes:s.nodes??null,files:s.files||null,lastOk:s.lastOk||null,waiting:s.waiting||0,error:s.error||null,notice:s.notice||null,model:s.model??null,on:await isOn(a),skippedSecret:s.skippedSecret||0},
     proposal:p&&!p.dismissed&&!p.accepted?{saves:p.saves,sections:p.sections.map(x=>({id:x.id,title:x.title,bytes:x.bytes,reason:x.reason}))}:null}}
-  return {budget,agents:out}}
- return {tick,refresh,ensureTool,size,propose,proposal,dismiss,accept,view,walk,backend,toolReady,corpusOf,graphOf}}
+  return {budget,enabled:{...(await sw()),all:(await sw()).all===true,agents:(await sw()).agents||PILOT},quotaUntil:st.quotaUntil>now()?st.quotaUntil:null,agents:out}}
+ return {tick,refresh,setEnabled,isOn,ensureTool,size,propose,proposal,dismiss,accept,view,walk,backend,toolReady,corpusOf,graphOf}}

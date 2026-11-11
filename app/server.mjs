@@ -3229,6 +3229,8 @@ const server=createServer(async(req,res)=>{
   if(p==='/ui/health/memory'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});const v=await agentMemory.view();const box=await memWatch.view().catch(()=>null);return send(res,200,{...v,box,names:Object.fromEntries(Object.keys(v.agents).map(a=>[a,agentName(a)]))})}
   // size of what each agent sends on every call, its map, and sections a person may move out of its instructions (agent-graph.mjs)
   if(p==='/ui/health/graph'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,await agentGraph.view())}
+  if(p==='/ui/health/graph/enable'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});let b={};try{b=JSON.parse(await readBody(req,20000))}catch{}
+   const r=await agentGraph.setEnabled({all:typeof b.all==='boolean'?b.all:undefined,agents:Array.isArray(b.agents)?b.agents:undefined});console.log('graph: maps on for',r.all?'every agent':r.agents.join(', '),'by',u.id||u.name||'?');return send(res,200,{ok:true,...r})}
   if((p==='/ui/health/graph/accept'||p==='/ui/health/graph/dismiss')&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});
    let b={};try{b=JSON.parse(await readBody(req,20000))}catch{}const a=String(b.agent||'');if(!await isAgent(a))return send(res,404,{error:'No such agent.'});
    try{if(p.endsWith('/dismiss'))return send(res,200,{ok:await agentGraph.dismiss(a)});

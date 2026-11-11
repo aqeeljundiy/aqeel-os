@@ -12,9 +12,10 @@ const exists=f=>stat(f).then(()=>true,()=>false);
 const walkAll=async(d,rel='')=>{const out=[];for(const e of await readdir(d,{withFileTypes:true}).catch(()=>[])){const r=rel?rel+'/'+e.name:e.name;if(e.isDirectory())out.push(...await walkAll(path.join(d,e.name),r));else out.push(r)}return out};
 
 // one agent "sales" with a workspace full of things that must never be mapped, and a fake graphify
-async function make({backend='claude',agents=['sales'],busy=()=>false,budget=16*1024,pause=()=>false}={}){
+async function make({backend=true,agents=['sales'],busy=()=>false,budget=16*1024,pause=()=>false,pilot=false,custom=null,quota=false}={}){
  const root=await mkdtemp(path.join(tmpdir(),'ag-'));const H=path.join(root,'.hermes'),DATA=path.join(root,'data');const PY=path.join(root,'workspaces','.aqeelos-python','bin');
  await mkdir(PY,{recursive:true});await writeFile(path.join(PY,'graphify'),'');
+ if(backend){await mkdir(path.join(root,'.gemini','antigravity-cli'),{recursive:true});await w(path.join(root,'.local','bin','agy'),'')}
  for(const a of agents){await mkdir(path.join(H,'profiles',a,'memories'),{recursive:true});await writeFile(path.join(H,'profiles',a,'config.yaml'),'');}
  const ws=path.join(root,'workspaces','sales');
  await w(path.join(ws,'PRICES.md'),'# Prices\nBasic costs 10.\n');
@@ -32,16 +33,20 @@ async function make({backend='claude',agents=['sales'],busy=()=>false,budget=16*
  await w(path.join(ws,'notes','data.db'),'binary');
  await w(path.join(ws,'.tools','sync.py'),'def sync():\n    return 1\n');
  await w(path.join(ws,'.tools','state.json'),'{}');
- const cfg=Object.fromEntries(agents.map(a=>[a,{}]));const sets=[];const runs=[];let model=backend,t=1e12,isBusy=busy;
+ const cfg=Object.fromEntries(agents.map(a=>[a,{}]));const sets=[];const runs=[];const relays=[];let t=1e12,isBusy=busy;
+ const relay=async o=>{const r={url:'http://127.0.0.1:1/v1',key:'one-run-key',stats:{quota:false},stopped:false,stop:async()=>{r.stopped=true},o};relays.push(r);return r};
  const run=async(cmd,args,o)=>{const b=path.basename(cmd);
-  if(b==='python'&&args[0]==='-c'){if(args[1].includes('detect_backend'))return model||'\n';return ''}
-  if(b==='graphify'){runs.push({args,o});if(o?.fail)throw new Error('x');const g=path.join(args[1],'graphify-out','graph.json');await w(g,JSON.stringify({nodes:[{id:'a'},{id:'b'}],links:[]}));return ''}
+  if(b==='agy')return 'agy 1.5.5';
+  if(b==='python')return '';
+  if(custom)return custom(cmd,args,o,relays);
+  if(b==='graphify'){runs.push({args,o});if(quota&&args.includes('--backend')){relays.at(-1).o.onQuota();throw new Error('aborted')}const g=path.join(args[1],'graphify-out','graph.json');await w(g,JSON.stringify({nodes:[{id:'a'},{id:'b'}],links:[]}));return ''}
   return ''};
- const G=createAgentGraph({HERMES_HOME:H,DATA,home0:root,run,nice:false,now:()=>t,log:()=>{},env:{},budget,busy:a=>isBusy(a),paused:()=>pause(),
+ const G=createAgentGraph({HERMES_HOME:H,DATA,home0:root,run,relay,nice:false,now:()=>t,log:()=>{},env:{},budget,busy:a=>isBusy(a),paused:()=>pause(),
   agents:async()=>agents,readConfig:async a=>cfg[a],pick:(c,k)=>k.split('.').reduce((o,x)=>o?.[x],c),
   setKey:async(a,k,v)=>{sets.push([a,k,v]);const ks=k.split('.');let o=cfg[a];for(const x of ks.slice(0,-1))o=o[x]??={};o[ks.at(-1)]=v;return {ok:true}},
   writeSoul:null,busyPoll:5});
- return {G,H,DATA,root,ws,cfg,sets,runs,tick:ms=>{t+=ms},noModel:()=>{model=''},setBusy:f=>{isBusy=f}}}
+ if(!pilot)await G.setEnabled({all:true});
+ return {G,H,DATA,root,ws,cfg,sets,runs,tick:ms=>{t+=ms},relays,setBusy:f=>{isBusy=f}}}
 
 test('only documents and code that cannot hold a secret are allowed',()=>{
  assert.equal(kindOf('notes.md'),'doc');assert.equal(kindOf('a.txt'),'doc');assert.equal(kindOf('sync.py'),'code');assert.equal(kindOf('data.json'),null);assert.equal(kindOf('page.html'),null);
@@ -70,14 +75,17 @@ test('only clearly-reference sections are proposed, never rules or the opening',
 test('the tool entry has three tools only and is recognised again',()=>{
  const e=toolEntry({py:'/py/bin/python',graph:'/g/graph.json'});assert.deepEqual(e.args,['-m','graphify.serve','/g/graph.json']);assert.deepEqual(e.tools.include,TOOL_NAMES);assert.equal(e.env.GRAPHIFY_NO_AUTO_REFRESH,'1');
  assert.equal(sameEntry(e,toolEntry({py:'/py/bin/python',graph:'/g/graph.json'})),true);assert.equal(sameEntry(e,{...e,args:['x']}),false);assert.equal(sameEntry(e,null),false);
- assert.deepEqual(runArgs({corpus:'/c',docs:true,first:true,backend:'openai',model:'m'}),['extract','/c','--max-concurrency','2','--backend','openai','--model','m']);
+ assert.deepEqual(runArgs({corpus:'/c',docs:true,first:true,backend:'openai',model:'m'}),['extract','/c','--max-concurrency','1','--backend','openai','--model','m']);
  assert.deepEqual(runArgs({corpus:'/c',docs:false,first:true}),['extract','/c','--code-only']);assert.deepEqual(runArgs({corpus:'/c',docs:false,first:false}),['update','/c'])});
 
-test('the first map holds only allowed files, then the tool is added, once',async()=>{const {G,cfg,sets,runs,root,H}=await make();
+test('the first map holds only allowed files, then the tool is added, once',async()=>{const t=await make();const {G,cfg,sets,runs,root,H}=t;
  const r=await G.refresh('sales');assert.equal(r.ok,true);assert.equal(r.tool,true);
  const files=(await walkAll(G.corpusOf('sales'))).filter(f=>!f.startsWith('graphify-out')).sort();
  assert.deepEqual(files,['workspace/.tools/sync.py','workspace/PRICES.md','workspace/notes/guide.txt']);
  assert.equal(runs.length,1);assert.deepEqual(runs[0].args.slice(0,2),['extract',G.corpusOf('sales')]);assert.ok(!runs[0].args.includes('--code-only'));assert.equal(runs[0].o.env.GRAPHIFY_NO_AUTO_REFRESH,'1');
+ // the free route only: graphify gets the relay and a bare environment, never the server's own keys
+ assert.equal(runs[0].o.env.OPENAI_BASE_URL,'http://127.0.0.1:1/v1');assert.equal(runs[0].o.env.OPENAI_API_KEY,'one-run-key');assert.equal(runs[0].o.env.OPENAI_MODEL,'gemini-3.8-flash-low');assert.equal(runs[0].o.env.GRAPHIFY_BACKEND,'openai');
+ assert.ok(Object.keys(runs[0].o.env).every(k=>/^(PATH|HOME|LANG|GRAPHIFY_.*|OPENAI_.*)$/.test(k)),'nothing else in its environment');assert.equal(t.relays[0].stopped,true,'the relay ends with the run');
  assert.equal(cfg.sales.mcp_servers.graphify.command,path.join(root,'workspaces','.aqeelos-python','bin','python'));
  assert.equal(cfg.sales.mcp_servers.graphify.args[2],G.graphOf('sales'));assert.deepEqual(cfg.sales.mcp_servers.graphify.tools.include,TOOL_NAMES);
  const v=await G.view();assert.equal(v.agents.sales.map.state,'ready');assert.equal(v.agents.sales.map.nodes,2);assert.equal(v.agents.sales.map.skippedSecret,1);
@@ -93,12 +101,12 @@ test('after the first build only changed files are looked at: a document uses th
  await (await import('node:fs/promises')).rm(path.join(ws,'PRICES.md'));await G.refresh('sales');assert.equal(runs.length,4,'a document that is gone is taken out');assert.equal(runs[3].args[0],'extract');
  assert.ok(!await exists(path.join(G.corpusOf('sales'),'workspace','PRICES.md')))});
 
-test('without a model the documents wait and the code is mapped; with one, they follow',async()=>{const t=await make({backend:''});const {G,runs}=t;
+test('without a model the documents wait and the code is mapped; with one, they follow',async()=>{const t=await make({backend:false});const {G,runs}=t;
  const r=await G.refresh('sales');assert.equal(r.ok,true);assert.deepEqual(runs[0].args,['extract',G.corpusOf('sales'),'--code-only']);
  const files=(await walkAll(G.corpusOf('sales'))).filter(f=>!f.startsWith('graphify-out'));assert.deepEqual(files,['workspace/.tools/sync.py']);
  assert.equal((await G.view()).agents.sales.map.model,null);
  // an agent with documents only and no model has no map yet
- const u=await make({backend:''});await (await import('node:fs/promises')).rm(path.join(u.ws,'.tools'),{recursive:true});
+ const u=await make({backend:false});await (await import('node:fs/promises')).rm(path.join(u.ws,'.tools'),{recursive:true});
  assert.deepEqual(await u.G.refresh('sales'),{skipped:'nothing to map'});assert.equal((await u.G.view()).agents.sales.map.state,'needs-model');assert.equal(u.runs.length,0);assert.equal(u.sets.length,0,'no tool without a map')});
 
 test('a few documents at a time, so a first build stays small',async()=>{const {G,ws,runs}=await make();
@@ -110,18 +118,14 @@ test('a few documents at a time, so a first build stays small',async()=>{const {
 test('never while the agent is replying: before, and during a run',async()=>{
  const a=await make({busy:()=>true});assert.deepEqual(await a.G.refresh('sales'),{skipped:'busy'});assert.equal(a.runs.length,0);assert.deepEqual(await a.G.tick(),{changed:[]});assert.equal(a.runs.length,0);
  // it starts replying while graphify runs: the run is stopped, nothing is marked failed, the next pass retries
- const b=await make();let go=false;const slow=createAgentGraph({HERMES_HOME:b.H,DATA:b.DATA,home0:b.root,nice:false,now:()=>1e12,log:()=>{},env:{},busyPoll:5,busy:async()=>go,agents:async()=>['sales'],
-  readConfig:async()=>({}),pick:()=>undefined,setKey:async()=>({ok:true}),
-  run:(cmd,args,o)=>path.basename(cmd)==='python'?Promise.resolve(args[1].includes('detect')?'claude':''):new Promise((res,rej)=>{go=true;o.signal.addEventListener('abort',()=>rej(new Error('aborted')))})});
+ let go=false;const b=await make({custom:(cmd,args,o)=>new Promise((res,rej)=>{go=true;o.signal.addEventListener('abort',()=>rej(new Error('aborted')))})});b.setBusy(async()=>go);
+ const slow=b.G;
  const r=await slow.refresh('sales');assert.deepEqual(r,{skipped:'busy'});const v=await slow.view();assert.equal(v.agents.sales.map.error,null);assert.notEqual(v.agents.sales.map.state,'failed')});
 
 
-test('a failed run leaves no tool, says why, and waits longer before the next try',async()=>{const t=await make();let t0=1e12,calls=0;
- const G=createAgentGraph({HERMES_HOME:t.H,DATA:t.DATA,home0:t.root,nice:false,now:()=>t0,log:()=>{},env:{},agents:async()=>['sales'],busy:async()=>false,
-  readConfig:async a=>t.cfg[a],pick:(c,k)=>k.split('.').reduce((o,x)=>o?.[x],c),setKey:async()=>({ok:true}),
-  run:async(cmd,args)=>{if(path.basename(cmd)==='python')return args[1].includes('detect')?'claude':'';calls++;throw new Error('no network')}});
+test('a failed run leaves no tool, says why, and waits longer before the next try',async()=>{let calls=0;const t=await make({custom:()=>{calls++;throw new Error('no network')}});const G=t.G;
  const r=await G.refresh('sales');assert.match(r.error,/no network/);const v=(await G.view()).agents.sales.map;assert.equal(v.state,'failed');assert.match(v.error,/no network/);assert.equal(t.cfg.sales.mcp_servers,undefined);
- t0+=7*3600e3;await G.tick();assert.equal(calls,1,'after one failure it waits twice the usual gap');t0+=6*3600e3;await G.tick();assert.equal(calls,2);t0+=13*3600e3;await G.tick();assert.equal(calls,2,'after two, four times');t0+=12*3600e3;await G.tick();assert.equal(calls,3)});
+ t.tick(7*3600e3);await G.tick();assert.equal(calls,1,'after one failure it waits twice the usual gap');t.tick(6*3600e3);await G.tick();assert.equal(calls,2);t.tick(13*3600e3);await G.tick();assert.equal(calls,2,'after two, four times');t.tick(12*3600e3);await G.tick();assert.equal(calls,3)});
 
 test('one agent per pass, the one longest without a look; a pause or the off switch stops it',async()=>{
  const t=await make({agents:['sales','help']});await w(path.join(t.root,'workspaces','help','h.md'),'# help doc\n');
@@ -163,8 +167,27 @@ test('accepting is refused when the instructions changed meanwhile, or when no m
  const a=await make({budget:1000});const sf=path.join(a.H,'profiles','sales','SOUL.md');await w(sf,SOUL);const p=await a.G.propose('sales');
  await writeFile(sf,SOUL+'\nA new line.\n');await assert.rejects(a.G.accept('sales',[p.sections[0].id]),/changed since/);
  assert.equal(await readFile(sf,'utf8'),SOUL+'\nA new line.\n');
- const b=await make({budget:1000,backend:''});const sb=path.join(b.H,'profiles','sales','SOUL.md');await w(sb,SOUL);const q=await b.G.propose('sales');
- await assert.rejects(b.G.accept('sales',[q.sections[0].id]),/no AI model/);assert.equal(await readFile(sb,'utf8'),SOUL,'nothing moved');assert.ok(!await exists(path.join(b.H,'profiles','sales','reference')))});
+ const b=await make({budget:1000,backend:false});const sb=path.join(b.H,'profiles','sales','SOUL.md');await w(sb,SOUL);const q=await b.G.propose('sales');
+ await assert.rejects(b.G.accept('sales',[q.sections[0].id]),/free Gemini route is not available/);assert.equal(await readFile(sb,'utf8'),SOUL,'nothing moved');assert.ok(!await exists(path.join(b.H,'profiles','sales','reference')))});
 
 test('a dismissed proposal is not shown again for the same instructions',async()=>{const t=await make({budget:1000});await w(path.join(t.H,'profiles','sales','SOUL.md'),SOUL);await t.G.propose('sales');
  assert.equal(await t.G.dismiss('sales'),true);assert.equal((await t.G.view()).agents.sales.proposal,null);await t.G.propose('sales');assert.equal((await t.G.view()).agents.sales.proposal,null)});
+
+test('only the pilot agent is mapped until a person turns on the rest',async()=>{const t=await make({agents:['sesa','sales'],pilot:true});await w(path.join(t.root,'workspaces','sesa','s.md'),'# sesa doc\n');
+ await t.G.tick();assert.equal(t.runs.length,1);assert.ok(t.runs[0].args[1].includes('sesa'));await t.G.tick();t.tick(7*3600e3);await t.G.tick();assert.equal(t.runs.length,1,'the other agent is not mapped');assert.equal((await t.G.view()).agents.sales.map.on,false);
+ assert.deepEqual(await t.G.setEnabled({all:true}),{all:true,agents:['sesa']});await t.G.tick();assert.equal(t.runs.length,2,'now it is');assert.deepEqual((await t.G.view()).enabled.all,true)});
+
+test('the free plan\'s limit pauses documents for 6 hours, code is still mapped, nothing is failed and no other route is tried',async()=>{const t=await make({quota:true});
+ const r=await t.G.refresh('sales');assert.deepEqual(r,{skipped:'quota'});const m=(await t.G.view()).agents.sales.map;assert.notEqual(m.state,'failed');assert.match(m.notice,/limit was reached/);assert.equal(t.relays[0].stopped,true);
+ t.tick(3600e3);const r2=await t.G.refresh('sales');assert.equal(r2.ok,true,'code is mapped meanwhile');assert.deepEqual(t.runs.at(-1).args,['extract',t.G.corpusOf('sales'),'--code-only']);assert.equal(t.relays.length,1,'no relay while paused');
+ const files=(await walkAll(t.G.corpusOf('sales'))).filter(f=>!f.startsWith('graphify-out'));assert.ok(!files.includes('workspace/notes/guide.txt'),'documents were not staged during the pause');
+ assert.ok(!(await t.G.view()).agents.sales.map.error)});
+
+test('a model that is not Gemini, or the owner turning documents off, means code only',async()=>{
+ const a=await make();await w(path.join(a.DATA,'agent-graph','model.json'),JSON.stringify({model:'claude-sonnet-5-5-low'}));await a.G.refresh('sales');assert.equal(a.relays.length,0);assert.deepEqual(a.runs[0].args,['extract',a.G.corpusOf('sales'),'--code-only']);
+ const b=await make();await w(path.join(b.DATA,'agent-graph','model.json'),JSON.stringify({route:'none'}));await b.G.refresh('sales');assert.equal(b.relays.length,0);
+ const c=await make();await w(path.join(c.DATA,'agent-graph','model.json'),JSON.stringify({model:'gemini-4-argon-low'}));await c.G.refresh('sales');assert.equal(c.runs[0].o.env.OPENAI_MODEL,'gemini-4-argon-low')});
+
+test('documents already in the map stay when the model is away for a while',async()=>{const t=await make();await t.G.refresh('sales');
+ await w(path.join(t.DATA,'agent-graph','model.json'),JSON.stringify({route:'none'}));t.tick(2*3600e3);await w(path.join(t.ws,'.tools','sync.py'),'def sync():\n    return 3\n');await t.G.refresh('sales');
+ assert.ok(await exists(path.join(t.G.corpusOf('sales'),'workspace','notes','guide.txt')))});
