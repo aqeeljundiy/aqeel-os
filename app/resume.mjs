@@ -8,7 +8,12 @@
 //  - a schedule run the engine had running: its "run now" (POST /api/cron/jobs/<id>/trigger), unless it finished,
 //    delivered, or ran again meanwhile (runPlan);
 //  - a fixer run: its process outlives the app, so it is only looked at again (the fixer loop takes it from there).
-// Channel chats (Telegram, WhatsApp) are continued by the engine itself (its resume_pending), so they are not here.
+//  - a Telegram, WhatsApp (any channel) chat: the engine itself carries on from the person's last message (its
+//    resume_pending, which the patch engine/patches/2026-11-12-channel-resume-continue.patch turns from "session restored,
+//    what next?" into "continue; check what already went out"). aqeelOS only watches: it journals every channel chat the
+//    engine has marked (kind 'channel', syncChannels), counts it on Health when the engine has carried on (the mark is
+//    gone), and lists it when the engine did not (older than the limit, or the provider never answered). It sends nothing
+//    there: a second message from here would be a second reply to a person or customer.
 // Rules: an entry is continued once (claimed on disk before the call; what happened is read from the engine before any
 // second try), nothing older than the limit (2 h unless the install says otherwise), three interruptions of the same
 // thing and it stops, a provider that does not answer is tried again later instead of dropped.
@@ -41,6 +46,14 @@ export function noteFor({why='restart',at,tz='',started=false,caution=false,text
 const tooOld=(e,now,maxAge)=>now-(e.cut0||e.cutAt||e.at)>maxAge;
 const ageWhy=maxAge=>'older than '+(maxAge>=3600e3?Math.round(maxAge/360e3)/10+' h':Math.round(maxAge/60e3)+' min');
 export const MAX_TIMES=3;
+// p: {missing, pending, markedAt (ms)}: the engine's own routing record of the chat (gateway_routing.resume_pending)
+export function channelPlan(e,p,now,{maxAge=7200e3}={}){
+ const old=tooOld(e,now,maxAge);
+ if(!p)return old?{do:'giveup',why:ageWhy(maxAge)}:{do:'wait',why:'the engine’s record of the chat could not be read'};
+ if(p.missing)return {do:'skip',why:'the chat no longer exists'};
+ if(!p.pending)return {do:'done'};   // the engine carried on and cleared its mark
+ if(old)return {do:'giveup',why:'the engine did not carry on within '+ageWhy(maxAge).replace('older than ','')+' (the provider may not have answered)'};
+ return {do:'wait',why:'the engine is continuing it'}}
 // p: {missing, stored, answered, personAfter, tools:[names], openCall, posted, lastAt (ms), engineSame}
 export function chatPlan(e,p,now,{maxAge=7200e3,tz=''}={}){
  const old=tooOld(e,now,maxAge);
@@ -93,7 +106,7 @@ const BACKOFF=[60e3,120e3,300e3,600e3];
 export function createResume({DATA,now=()=>Date.now(),log=m=>console.log(m),on=true,maxAge=()=>7200e3,tz=()=>'',stagger=4000,sleep=ms=>new Promise(r=>setTimeout(r,ms)),
  // ready(): the app and the engine answer. probe*/act*: see the plans above. Each act answers {ok} | {retry,why} | {fail,why}
  ready=async()=>true,probeChat=async()=>null,sendChat=async()=>({fail:true,why:'not wired'}),probeRun=async()=>null,triggerRun=async()=>({fail:true,why:'not wired'}),
- probeFixer=async()=>null,kickFixer=async()=>({ok:true}),nameOf=a=>a}={}){
+ probeChannel=async()=>null,probeFixer=async()=>null,kickFixer=async()=>({ok:true}),nameOf=a=>a}={}){
  const FILE=path.join(DATA,'resume','journal.json'),NOTE=path.join(DATA,'resume','planned.json'),PROC=randomBytes(6).toString('hex');
  let j=null;
  const load=()=>{if(j)return j;try{j=JSON.parse(readFileSync(FILE,'utf8'))}catch{j=null}if(!j||typeof j!=='object'||!Array.isArray(j.entries))j={v:1,entries:[],done:[],last:null};j.done||=[];return j};
@@ -101,10 +114,10 @@ export function createResume({DATA,now=()=>Date.now(),log=m=>console.log(m),on=t
  const save=()=>{try{mkdirSync(path.dirname(FILE),{recursive:true});j.saved=now();const t=FILE+'.'+process.pid+'.tmp';writeFileSync(t,JSON.stringify(j));renameSync(t,FILE)}catch(e){log('resume: journal not saved: '+e.message)}};
  const find=id=>load().entries.find(e=>e.id===id);
  const drop=e=>{j.entries=j.entries.filter(x=>x!==e)};
- const what=e=>e.kind==='chat'?nameOf(e.agent)+'’s chat'+(e.userName?' with '+e.userName:''):e.kind==='schedule'?'“'+(e.name||e.job)+'”':'fixer run '+(e.run||'');
+ const what=e=>e.kind==='chat'?nameOf(e.agent)+'’s chat'+(e.userName?' with '+e.userName:''):e.kind==='channel'?nameOf(e.agent)+'’s '+(e.platform||'channel')+' chat':e.kind==='schedule'?'“'+(e.name||e.job)+'”':'fixer run '+(e.run||'');
  const event=(why,at)=>{load();if(!j.last||Math.abs(at-j.last.at)>10*60e3)j.last={at,why,chats:0,schedules:0,helpers:0,failed:[],waiting:0};else if(why==='update')j.last.why='update';return j.last};
- const finish=(e,result,why='')=>{drop(e);j.done.push({id:e.id,kind:e.kind,agent:e.agent,what:what(e),result,why,at:now()});j.done=j.done.slice(-200);
-  if(result==='resumed'||result==='gaveup'){const L=event(e.why||'restart',e.cutAt||now());if(result==='resumed')L[e.kind==='chat'?'chats':e.kind==='schedule'?'schedules':'helpers']++;else L.failed.push({what:what(e),why})}
+ const finish=(e,result,why='')=>{drop(e);j.done.push({id:e.id,kind:e.kind,agent:e.agent,what:what(e),result,why,at:now(),...(e.kind==='channel'?{key:e.key,mk:e.mk}:{})});j.done=j.done.slice(-200);
+  if(result==='resumed'||result==='gaveup'){const L=event(e.why||'restart',e.cutAt||now());if(result==='resumed')L[e.kind==='chat'||e.kind==='channel'?'chats':e.kind==='schedule'?'schedules':'helpers']++;else L.failed.push({what:what(e),why})}
   if(result!=='skipped'||why!=='it finished')log('resume: '+what(e)+' '+(result==='resumed'?'continued':result==='gaveup'?'not continued: '+why:'left alone: '+why))};
 
  /* a chat reply starts: {agent,session,user,userName,text,opts,gw,from,n,cut0} → id. Ends with end() or cut(). */
@@ -122,6 +135,16 @@ export function createResume({DATA,now=()=>Date.now(),log=m=>console.log(m),on=t
    j.entries.push({id:randomBytes(8).toString('hex'),kind,...x,at:now(),state:'open',n:0});changed++}
   for(const e of j.entries)if(e.kind===kind&&e.state==='open'&&!seen.has(key(e))){e.state='cut';e.cutAt=now();e.cut0||=e.cutAt;e.why=e.why||j.planned?.why||'restart';e.quiet=true;changed++}
   if(changed)save();return changed}
+ // the engine's channel chats (Telegram, WhatsApp, ...) it has marked as cut off by a restart now: [{agent,key,platform,session,markedAt (ms)}].
+ // Each new mark is journaled (state 'cut', waiting for the engine to carry on); marks older than the limit are the engine's
+ // own old leftovers and are not journaled; a mark already settled here (same key and time) is never journaled again.
+ function syncChannels(list){if(!on)return 0;load();let n=0;const old=now()-maxAge();
+  for(const x of list||[]){const mk=Math.round(+x.markedAt||0);if(!mk||mk<old)continue;
+   if(j.entries.some(e=>e.kind==='channel'&&e.key===x.key&&e.agent===x.agent&&e.mk===mk)||j.done.some(d=>d.kind==='channel'&&d.key===x.key&&d.agent===x.agent&&d.mk===mk))continue;
+   // the engine marks a chat before it restarts, so one mark may be seen again after the engine's restart: one entry per key while one is open
+   if(j.entries.some(e=>e.kind==='channel'&&e.key===x.key&&e.agent===x.agent)){const e=j.entries.find(e=>e.kind==='channel'&&e.key===x.key&&e.agent===x.agent);e.mk=mk;e.cutAt=mk;continue}
+   j.entries.push({id:randomBytes(8).toString('hex'),kind:'channel',agent:String(x.agent||'default'),key:String(x.key||''),platform:String(x.platform||''),session:String(x.session||''),mk,at:now(),cutAt:mk,cut0:mk,why:'restart',state:'cut',n:0});n++}
+  if(n)save();return n}
  // every half minute while replies are in progress: the journal's time stays close to the moment a crash would cut them
  function beat(){if(on&&load().entries.some(e=>e.state==='open'&&e.kind==='chat'))save()}
  // a planned stop (the app got a signal: a deploy or an update is replacing it). Synchronous: it runs as the app ends
@@ -145,11 +168,12 @@ export function createResume({DATA,now=()=>Date.now(),log=m=>console.log(m),on=t
  async function pass(){if(!on)return summary();load();const due=()=>j.entries.filter(e=>e.state==='cut'&&!(e.next>now()));
   if(!due().length)return summary();
   if(!await ready().catch(()=>false))return summary();
-  const order={chat:0,schedule:1,fixer:2},list=due().sort((a,b)=>order[a.kind]-order[b.kind]||a.at-b.at),cfg={maxAge:maxAge(),tz:tz()};let acted=0;
+  const order={chat:0,channel:0,schedule:1,fixer:2},list=due().sort((a,b)=>order[a.kind]-order[b.kind]||a.at-b.at),cfg={maxAge:maxAge(),tz:tz()};let acted=0;
   for(const e of list){if(e.state!=='cut')continue;let p=null,plan;
-   try{p=await (e.kind==='chat'?probeChat:e.kind==='schedule'?probeRun:probeFixer)(e)}catch(er){log('resume: probe failed for '+what(e)+': '+er.message)}
+   try{p=await (e.kind==='chat'?probeChat:e.kind==='channel'?probeChannel:e.kind==='schedule'?probeRun:probeFixer)(e)}catch(er){log('resume: probe failed for '+what(e)+': '+er.message)}
    if(e.state!=='cut'||!j.entries.includes(e))continue;   // ended or cut again while the engine was read
-   plan=(e.kind==='chat'?chatPlan:e.kind==='schedule'?runPlan:fixerPlan)(e,p,now(),cfg);
+   plan=(e.kind==='chat'?chatPlan:e.kind==='channel'?channelPlan:e.kind==='schedule'?runPlan:fixerPlan)(e,p,now(),cfg);
+   if(plan.do==='done'){finish(e,'resumed');save();continue}
    if(plan.do==='wait'){later(e,plan.why);continue}
    if(plan.do==='skip'){finish(e,'skipped',plan.why);save();continue}
    if(plan.do==='giveup'){if(e.quiet&&/no longer exists|switched off/.test(plan.why))finish(e,'skipped',plan.why);else finish(e,'gaveup',plan.why);save();continue}
@@ -169,4 +193,4 @@ export function createResume({DATA,now=()=>Date.now(),log=m=>console.log(m),on=t
  const pendingFor=(agent,session)=>{const e=load().entries.find(e=>e.kind==='chat'&&e.agent===agent&&e.session===session&&(e.state==='cut'||e.state==='resuming'));return e?{why:e.why||'restart',at:e.cutAt,user:e.user}:null};
  const pending=()=>load().entries.filter(e=>e.state==='cut'||e.state==='resuming').length;
  const inFlight=()=>load().entries.filter(e=>e.state==='open').length;
- return {begin,end,cut,sync,beat,planned,boot,run,pendingFor,pending,inFlight,last:()=>load().last,line:()=>healthLine(load().last,{tz:tz(),now:now()}),entries:()=>load().entries.map(e=>({...e})),_file:FILE}}
+ return {begin,end,cut,sync,syncChannels,beat,planned,boot,run,pendingFor,pending,inFlight,last:()=>load().last,line:()=>healthLine(load().last,{tz:tz(),now:now()}),entries:()=>load().entries.map(e=>({...e})),_file:FILE}}

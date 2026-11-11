@@ -75,6 +75,51 @@ if r:
     o['newer']=bool(c.execute("select 1 from executions where job_id=? and claimed_at>? limit 1",(job,r[2])).fetchone())
 print(json.dumps(o))`;
 
+// the engine's own record of channel chats (Telegram, WhatsApp, ...): gateway_routing in each agent's state.db keeps a
+// resume_pending mark (and when it was set) on a chat whose turn a restart cut off; the engine clears it once the resumed turn
+// finished. Read-only. Only the reasons the engine itself resumes at start (restart_timeout, shutdown_timeout,
+// restart_interrupted) and only chats that are not the web UI, the API or a webhook.
+const CHAN_SKIP="('local','api_server','webhook','cron','acp','cli','tui')";
+const CHAN_HEAD=`import sqlite3,sys,json,os
+from datetime import datetime
+SKIP=${CHAN_SKIP.replace(/'/g,'"')}
+REASONS=('restart_timeout','shutdown_timeout','restart_interrupted')
+def marked(j,u):
+    t=j.get('last_resume_marked_at')
+    if t:
+        try: return int(datetime.fromisoformat(str(t)).timestamp()*1000)
+        except Exception: pass
+    return int((u or 0)*1000)
+def rows(home):
+    db=os.path.join(home,'state.db')
+    if not os.path.exists(db): return []
+    try:
+        c=sqlite3.connect('file:'+db+'?mode=ro',uri=True,timeout=5)
+        return list(c.execute("select session_key,entry_json,updated_at from gateway_routing"))
+    except Exception: return None
+`;
+const CHANNELS_PY=CHAN_HEAD+`out=[]
+for a in sys.argv[1:]:
+    name,home=a.split('=',1)
+    for k,e,u in rows(home) or []:
+        try: j=json.loads(e)
+        except Exception: continue
+        o=j.get('origin') or {}
+        if j.get('resume_pending') and not j.get('suspended') and o and (o.get('platform') or j.get('platform')) not in SKIP and j.get('resume_reason') in REASONS:
+            out.append({'agent':name,'key':k,'platform':o.get('platform') or j.get('platform'),'session':j.get('session_id') or '','markedAt':marked(j,u)})
+print(json.dumps(out))`;
+const CHANNEL_PY=CHAN_HEAD+`home,key=sys.argv[1],sys.argv[2]
+r=rows(home)
+if r is None: print('null'); sys.exit()
+o={'missing':True,'pending':False,'markedAt':0}
+for k,e,u in r:
+    if k!=key: continue
+    try: j=json.loads(e)
+    except Exception: continue
+    o['missing']=False
+    if j.get('resume_pending') and not j.get('suspended'): o['pending']=True;o['markedAt']=marked(j,u)
+print(json.dumps(o))`;
+
 export function createResumeEngine({python,homeOf,agents=async()=>['default'],gatewayPid=async()=>0,posted=async()=>false}){
  const py=async(code,args,ms=20000)=>{const bin=await python();return new Promise((res,rej)=>execFile(bin,['-c',code,...args],{timeout:ms,maxBuffer:4e6},(e,o)=>{if(e)return rej(Error('the engine’s record did not open ('+(e.code??e.signal)+')'));try{res(JSON.parse(String(o||'null')))}catch{rej(Error('the engine’s record was not readable'))}}))};
  // e.at - 30 s: the engine stores the person's message a moment after aqeelOS passes it on, never before
@@ -85,4 +130,9 @@ export function createResumeEngine({python,homeOf,agents=async()=>['default'],ga
  async function probeRun(e){const p=await py(RUN_PY,[homeOf(e.agent),e.exec,e.job]);if(!p)return p;
   // a post the agent recorded during the run already went out: the run is not started again
   if(!p.delivered&&p.status!=='completed')p.posted=await posted(e.agent,Date.parse(e.since)||e.at,e.cutAt||Date.now()).catch(()=>false);return p}
- return {probeChat,runsNow,probeRun}}
+ // channel chats the engine has marked now ([] when none; null when nothing could be read)
+ async function channelsNow(){const l=await agents();return py(CHANNELS_PY,l.map(a=>a+'='+homeOf(a)))}
+ // one marked chat: still marked (the engine has not carried on yet), no longer marked (it has), or gone
+ async function probeChannel(e){const p=await py(CHANNEL_PY,[homeOf(e.agent),e.key]);if(p&&p.pending&&p.markedAt>(e.mk||0)+1000)e.mk=p.markedAt;return p}
+ return {probeChat,runsNow,probeRun,channelsNow,probeChannel}}
+export const _PY={CHANNELS_PY,CHANNEL_PY};

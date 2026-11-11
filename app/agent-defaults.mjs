@@ -31,7 +31,7 @@ export const ownScreenCdp=u=>{const m=/^https?:\/\/(?:127\.0\.0\.1|localhost):(\
 
 // isTest: a throwaway agent of a check (deploy checks make and delete them on the shared engine). It still gets the
 // defaults, but they never count toward an engine restart: 6-7 Nov 2026 each check's agent restarted every agent.
-export function createAgentDefaults({DATA,giveSkills,trimSkills=async()=>0,locked=async()=>false,isTest=async()=>false,log=m=>console.log(m)}){
+export function createAgentDefaults({DATA,giveSkills,trimSkills=async()=>0,locked=async()=>false,isTest=async()=>false,resumeSecs=()=>7200,log=m=>console.log(m)}){
  const TRUST=path.join(DATA,'agent-trust.json'),SEEN=path.join(DATA,'agents-seen.json');
  const REQ=path.join(homedir(),'.aqeelos-agent-users'),KEY=path.join(HERMES_HOME,'agent-ssh','id_ed25519');
  const userOf=a=>('ag-'+a).slice(0,32);
@@ -113,6 +113,12 @@ export function createAgentDefaults({DATA,giveSkills,trimSkills=async()=>0,locke
   if(pick(c,'stt.language')===undefined)changes.push(['stt.language','']);
   // IPv6 that does not work (Elkiya's Telegram, 11 Nov 2026): the engine is told to use IPv4 only, found out here, not set by hand (app/net-prefer.mjs)
   if(String(pick(c,'network.force_ipv4'))!=='true'&&await preferIpv4().catch(()=>false))changes.push(['network.force_ipv4','true']);
+  // a Telegram / WhatsApp chat that a restart cut off carries on by itself, like a "try again" nobody presses (owner, 12 Nov
+  // 2026): the engine's own restart recovery says "session restored, what next?" unless this is on (engine patch
+  // engine/patches/2026-11-12-channel-resume-continue.patch; an engine without it keeps the key and ignores it). An owner's
+  // explicit false stays. The engine only resumes marks younger than its freshness window: the install's resumeMaxHours.
+  if(!['true','false'].includes(String(pick(c,'agent.gateway_resume_continue'))))changes.push(['agent.gateway_resume_continue','true']);
+  {const want=Math.round(resumeSecs());if(want>0&&Number(pick(c,'agent.gateway_auto_continue_freshness'))!==want)changes.push(['agent.gateway_auto_continue_freshness',String(want)])}
   // the engine's code checkers (language servers it starts after file edits) held ~2.7 GB on Elkiya (OPS-17, 11 Nov
   // 2026), a box with a 28 GB limit: TypeScript's at most 1.5 GB of heap, Python's 1 GB, and each stops after 5 idle
   // minutes (the engine's own default is 10). Set once; values a person set stay.

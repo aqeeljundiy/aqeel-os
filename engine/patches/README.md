@@ -75,3 +75,20 @@ answer IPv4 first, read when the gateway starts) is what the engine offers for a
 `curl -4 https://api.telegram.org/` answers in 0.7 s, `curl -6` cannot connect; about 100 Telegram warnings an hour from the
 dual-stack path). aqeelOS writes it itself: `app/net-prefer.mjs` probes a real connection to api.telegram.org:443 over IPv4 and
 over IPv6, and `app/agent-defaults.mjs` sets the key for every agent when only IPv6 fails (engine restarts in the quiet hours).
+
+## 2026-11-12-channel-resume-continue.patch (applied by step 17b)
+
+A Telegram or WhatsApp chat whose turn a restart cut off (a deploy, the nightly update, a crash) was picked up by the engine's
+own boot recovery (`gateway/run_startup.py` `_schedule_resume_pending_sessions`, the chat's `resume_pending` mark; a reply that
+was already stored is delivered, not regenerated) but with the interactive wording of `build_resume_recovery_note`: "report that the
+session was restored and ask what they would like to do next". The patch adds `agent.gateway_resume_continue` (default false,
+bridged to `HERMES_RESUME_CONTINUE`; files `gateway/run.py`, `gateway/run_turn_runner.py`, `hermes_cli/config_defaults.py`, marked
+`aqeelos:channel-resume-continue`). When it is true the note instead says: you were interrupted by a restart at HH:MM (the mark's
+time, in the engine's timezone); continue the person's last request in this chat; check what already went out before repeating it;
+never send the same thing twice; no "session restored", no "what next?". Real text from the person while the mark is pending still
+wins (the note then only wraps their message, as before). Nothing else changes: once only (the mark is cleared after a successful
+turn), the engine's own restart-loop breaker, and `agent.gateway_auto_continue_freshness` as the age limit.
+aqeelOS switches the flag on for every agent and sets the freshness to the install's `resumeMaxHours` (`app/agent-defaults.mjs`), and
+watches the marks (`app/resume.mjs` kind `channel`, read from `gateway_routing` in each agent's state.db) to count them on Health.
+Checked 12 Nov on both live engines (same commit bf0203a, same md5 for the three files on Elkiya and P&P): `git apply --check` clean
+on each live engine and on a clean checkout of that commit with the Telegram digest patch applied before it.
