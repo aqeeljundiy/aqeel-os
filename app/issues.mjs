@@ -144,8 +144,16 @@ export function proofPrompt(i,fix,{reloaded=null,recheck=false,deployed=false}={
  '','End with exactly one line (JSON on one line):',
  'RESULT: {"status":"proven|not_proven","proof":"the commands you ran and what you saw, with times","need":""}'].filter(x=>x!==null).join('\n')}
 
+// The model and effort of a fixer run, from the team policy (11 Nov 2026, the owner: fewer tokens for the same fixes):
+// fixer.models {fix, proof, escalate} and fixer.effort {fix, proof, escalate}; escalate is the third try of a fix. Empty =
+// the fixer agent's own model. aqeelOS names no model itself (any provider's names go here).
+const MODEL_OK=/^[\w.:\/\[\]@-]{1,100}$/,EFFORT_OK=/^(minimal|low|medium|high|xhigh|max)$/;
+export function fixerModel(pol,kind,attempt){const m=pol?.fixer?.models||{},e=pol?.fixer?.effort||{};const esc=kind==='fix'&&attempt>=TRIES&&m.escalate;
+ const model=String((esc?m.escalate:m[kind])||''),effort=String((esc?e.escalate||e.fix:e[kind])||'');
+ return {model:MODEL_OK.test(model)?model:'',effort:EFFORT_OK.test(effort)?effort:''}}
+
 export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=async()=>false,tellOwner=async()=>{},toTeam=async()=>false,busy=async()=>0,ready=async()=>true,
- apply=async()=>({ok:true}),nameOf=a=>a,codeRoots=[],onFixed=async()=>{},checks={},quiet=()=>null,log=m=>console.log(m),launch=null,alive=null,envFiles=async()=>[],
+ apply=async()=>({ok:true}),usageOf=async()=>null,nameOf=a=>a,codeRoots=[],onFixed=async()=>{},checks={},quiet=()=>null,log=m=>console.log(m),launch=null,alive=null,envFiles=async()=>[],
  // kept for older callers (the Approve/Decline flow is gone)
  askOwner=null,approvalLink=null,restartSelf=null,engineOk=()=>true}){
  const FILE=path.join(DATA,'issues.json'),POL=path.join(DATA,'team-policy.json'),DIR=path.join(DATA,'issues');let db=null,chain=Promise.resolve();
@@ -229,7 +237,10 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   return null}
  const checkable=i=>/\b(duplicate of|same as)\s+i[0-9a-f]{8}|sign[ -]?in|oauth|not there|missing|no such file|does not exist|\bcommit [0-9a-f]{7,}|access|permission denied/i.test([i.missing,i.evidence].join(' '))||i.history.some(h=>(h.changes||[]).length);
  const forAgent=async a=>{await load();return db.items.filter(i=>i.agent===a).slice(0,10).map(view)};
- const list=async()=>{await load();return {items:db.items.slice(0,60).map(view),policy:await policy()}};
+ const spend=()=>{const d=today(),mo=d.slice(0,7),t={runs:0,tokens:0,cost:0},m={runs:0,tokens:0,cost:0};
+  for(const r of Object.values(db.runs||{})){const k=String(r.day||'');const add=x=>{x.runs++;const u=r.usage||{};x.tokens+=(u.input||0)+(u.output||0)+(u.cacheRead||0)+(u.cacheWrite||0);x.cost+=Number(u.cost)||0};if(k===d)add(t);if(k.startsWith(mo))add(m)}
+  return {today:t,month:m}};
+ const list=async()=>{await load();return {items:db.items.slice(0,60).map(view),policy:await policy(),spend:spend()}};
  // kept so old Telegram buttons and links answer something sensible
  const decideOwner=async(id)=>{await load();const i=db.items.find(x=>x.id===id);return i?view(i):null};
  const press=async()=>({ok:false,toast:'Nothing to approve any more: the fixer handles every issue by itself.'});
@@ -263,13 +274,13 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   const last=i.history.filter(h=>h.kind==='fix').at(-1);
   await writeFile(path.join(dir,'prompt.txt'),kind==='fix'?fixerPrompt(i,{rules:pol.fixer?.rules||'',attempt:n}):proofPrompt(i,last,{reloaded:i.applied||null,recheck:!!i.recheck,deployed:i.recheck==='deploy'}),{mode:0o600});
   if(kind==='fix'){i.tries=n;i.state='fixing'}else i.state='verifying';i.run=id;i.updated=now();
-  const r={id,issue:i.id,kind,day:today(),at:now(),agent:pol.fixer?.agent||'default'};db.runs[id]=r;await save();
+  const mdl=fixerModel(pol,kind,n);const r={id,issue:i.id,kind,day:today(),at:now(),agent:pol.fixer?.agent||'default',...(mdl.model?{model:mdl.model}:{}),...(mdl.effort?{effort:mdl.effort}:{})};db.runs[id]=r;await save();
   const minutes=kind==='fix'?Math.min(40,pol.fixer?.minutes||25):Math.min(30,pol.fixer?.proof_minutes||15);
-  try{r.pid=await (launch||spawnRun)({dir,agent:r.agent,minutes})}catch(e){r.done=now();r.exit=-1;r.notStarted=true;if(kind==='fix')i.tries--;i.state=kind==='fix'?'queued':'verify';await save();log('issues: fixer could not start: '+e.message);return}
+  try{r.pid=await (launch||spawnRun)({dir,agent:r.agent,minutes,model:mdl.model,effort:mdl.effort})}catch(e){r.done=now();r.exit=-1;r.notStarted=true;if(kind==='fix')i.tries--;i.state=kind==='fix'?'queued':'verify';await save();log('issues: fixer could not start: '+e.message);return}
   await save();log('issues: '+kind+' run started for '+i.id+' ('+id+')')}
- async function spawnRun({dir,agent,minutes}){const out=await open(path.join(dir,'out.txt'),'w',0o600);
-  try{const script='timeout -k 20 '+minutes*60+' "$1" -p "$2" chat --query-file "$3/prompt.txt" -Q --source tool </dev/null; printf %s "$?" > "$3/exit"';
-   const p=spawn('bash',['-c',script,'aqeelos-fixer',bin,agent,dir],{detached:true,cwd:fixerHome,env:{HOME:fixerHome,USER:process.env.USER||'claude',PATH:path.join(fixerHome,'.local','bin')+':/usr/local/bin:/usr/bin:/bin',LANG:'C.UTF-8',TERM:'dumb',AQEELOS_FIXER:'1'},stdio:['ignore',out.fd,out.fd]});
+ async function spawnRun({dir,agent,minutes,model='',effort=''}){const out=await open(path.join(dir,'out.txt'),'w',0o600);
+  try{const script='timeout -k 20 '+minutes*60+' "$1" -p "$2" chat --query-file "$3/prompt.txt" -Q --source tool ${4:+-m "$4"} ${5:+--reasoning "$5"} </dev/null; printf %s "$?" > "$3/exit"';
+   const p=spawn('bash',['-c',script,'aqeelos-fixer',bin,agent,dir,model||'',effort||''],{detached:true,cwd:fixerHome,env:{HOME:fixerHome,USER:process.env.USER||'claude',PATH:path.join(fixerHome,'.local','bin')+':/usr/local/bin:/usr/bin:/bin',LANG:'C.UTF-8',TERM:'dumb',AQEELOS_FIXER:'1'},stdio:['ignore',out.fd,out.fd]});
    await new Promise((res,rej)=>{p.once('spawn',res);p.once('error',rej)});p.unref();return p.pid}finally{await out.close().catch(()=>{})}}
  const exists=f=>stat(f).then(()=>true,()=>false);
  // the code side of the hard rules, after a fix run: every changed file has a backup that exists, no listed file was
@@ -328,7 +339,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   await save();log('issues: '+i.id+' code fix filed for the daily deploy: '+pf);return}
  async function check(r,pol){const dir=path.join(DIR,r.id);const ex=await readFile(path.join(dir,'exit'),'utf8').catch(()=>null);
   const up=r.pid&&(alive?await alive(r):(()=>{try{process.kill(r.pid,0);return true}catch{return false}})());
-  if(ex===null&&up)return;const out=await readFile(path.join(dir,'out.txt'),'utf8').catch(()=>'');r.done=now();r.exit=ex===null?null:Number(ex);
+  if(ex===null&&up)return;const out=await readFile(path.join(dir,'out.txt'),'utf8').catch(()=>'');r.done=now();r.exit=ex===null?null:Number(ex);r.usage=await usageOf(r).catch(()=>null)||undefined;
   const i=db.items.find(x=>x.id===r.issue);const kind=r.kind||'fix';const res=parseResult(out,kind);
   if(!i){await save();return}i.updated=now();
   // never reached the model: not a try; again in 5 minutes

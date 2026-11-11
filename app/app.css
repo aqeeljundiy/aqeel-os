@@ -2866,3 +2866,6 @@ button.bad:hover{background:color-mix(in srgb,var(--bad) 8%,transparent);border-
 
 /* Connect Google for someone who is not an admin, before an admin set Google up (11 Nov 2026) */
 .gc-noset{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-radius:14px;background:var(--surface-2,rgba(127,127,127,.08));animation:rise var(--t-med) var(--ease) both}.gc-noset>svg{flex:none;margin-top:2px;opacity:.7}
+
+/* Health › Issues: what the fixer spent (11 Nov 2026) */
+.hi-spend{margin:-4px 0 12px}
