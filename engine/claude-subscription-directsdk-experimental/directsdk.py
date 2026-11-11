@@ -208,9 +208,13 @@ def request_body(kwargs):
         raise ValueError('Unsupported request parameters: ' + ', '.join(sorted(unknown)))
     # Hermes Relay attaches host tracing to chat-completions clients. Keep it host-local:
     # never project it into generation fields or override the official CLI's identity.
+    # aqeelOS (11 Nov 2026): the billion-context plugin stamps its own x-bili-* metadata on every
+    # request; it is host-local too and is never forwarded, so it is accepted like traceparent.
+    # Anything else (Authorization, API keys, custom identity headers) still fails closed.
     headers = kwargs.get('extra_headers')
     if headers is not None and (not isinstance(headers, dict) or any(
-            not isinstance(key, str) or key.lower() != 'traceparent' or not isinstance(value, str)
+            not isinstance(key, str) or not isinstance(value, str)
+            or not (key.lower() == 'traceparent' or key.lower().startswith('x-bili-'))
             for key, value in headers.items())):
         raise ValueError('extra_headers supports host traceparent metadata only')
     if kwargs.get('n', 1) != 1 or kwargs.get('tool_choice', 'auto') not in ('auto', None):

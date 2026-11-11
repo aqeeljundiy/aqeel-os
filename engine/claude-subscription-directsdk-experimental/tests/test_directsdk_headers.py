@@ -45,6 +45,21 @@ class RequestHeaders(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'host traceparent metadata only'):
                     directsdk.request_body({'extra_headers': headers})
 
+    def test_billion_context_metadata_is_accepted_without_forwarding(self) -> None:
+        headers = {'traceparent': 'host-trace', 'x-bili-plugin': 'agent', 'x-bili-plugin-conversation': 's1',
+                   'X-Bili-Plugin-Model': 'sonnet', 'x-bili-compression': 'proxy'}
+        encoded, _, _ = directsdk.request_body({'extra_headers': headers})
+        self.assertEqual(json.loads(encoded), {'tools': []})
+        for value in headers.values():
+            self.assertNotIn(value, encoded)
+
+    def test_billion_context_does_not_open_the_door_to_other_headers(self) -> None:
+        for headers in ({'x-bili-plugin': 'agent', 'Authorization': 'test-not-a-secret'},
+                        {'x-bili-plugin': None}, {'x-bilix': 'value'}):
+            with self.subTest(headers=headers):
+                with self.assertRaisesRegex(ValueError, 'host traceparent metadata only'):
+                    directsdk.request_body({'extra_headers': headers})
+
     def test_trace_header_name_is_case_insensitive(self) -> None:
         encoded, _, _ = directsdk.request_body({'extra_headers': {'TraceParent': 'host-trace'}})
         self.assertEqual(json.loads(encoded), {'tools': []})
