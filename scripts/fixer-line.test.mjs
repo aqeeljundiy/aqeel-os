@@ -89,6 +89,16 @@ await t('a merge follows a chain: what was merged into an issue moves on when th
  // a merge into an item that was merged already lands at the end of the chain
  const d=(await S.file({agent:'d',missing:'delta sign-in expired'})).issue;map[d.id]=b.id;await S.I.sortNext();assert.equal(db.items.find(i=>i.id===d.id).mergedInto,a.id);assert.equal(A.count,4)});
 
+await t('a duplicate that already had tries is not merged but linked, so Needs you can show one card',async()=>{let map={};
+ const S=await setup({sortRun:async o=>{const id=/ISSUE (i[0-9a-f]{8})/.exec(o.prompt)[1];return map[id]?'SORT: '+JSON.stringify({kind:'duplicate',duplicateOf:map[id],title:'t2'}):'SORT: {"kind":"fixer","title":"t"}'}});
+ const a=(await S.file({agent:'a',missing:'alpha connector needs a sign-in'})).issue;await S.I.sortNext();
+ const b=(await S.file({agent:'b',missing:'beta connector needs a sign-in'})).issue;
+ const db=await S.db();const A=db.items.find(i=>i.id===a.id),B=db.items.find(i=>i.id===b.id);A.state='needs_human';B.sorting=0;B.state='needs_human';B.tries=1;map[b.id]=a.id;await S.I.sortNext();
+ assert.equal(B.state,'needs_human','not merged: it had tries of its own');assert.equal(B.dupOf,a.id);assert.equal(B.title,'t2');
+ // an older duplicate sorted before the link existed is sorted once more
+ const C=db.items.find(i=>i.id===b.id);delete C.dupOf;C.sorted='duplicate';delete db.dupLink;
+ const src=await readFile(new URL('../app/issues.mjs',import.meta.url),'utf8');assert.match(src,/db\.dupLink=1/)});
+
 await t('sorting helpers: the answer line, the prompt, the model, days in the install’s time zone',()=>{
  assert.deepEqual(parseSort('x\nSORT: {"kind":"duplicate","duplicateOf":"i0123abcd","title":" T ","need":"","group":""}'),{kind:'duplicate',duplicateOf:'i0123abcd',title:'T',need:'',group:''});
  assert.equal(parseSort('SORT: {"kind":"maybe"}'),null);assert.equal(parseSort('nothing'),null);assert.equal(parseSort('SORT: {"kind":"fixer","duplicateOf":"../x"}').duplicateOf,null);

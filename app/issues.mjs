@@ -188,7 +188,8 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  // older states: approved and waiting (the old owner's OK) are queued; a failed one gets its tries again once
  // one time (8 Nov 2026): these were built and tested in git, so the fixer must not also patch them by hand on the live box. Safe to remove once deployed.
  const BUILT_IN_GIT=new Set(['i0d5eb2ec','i5d6243c8','iea75bff3','ib4edc25e','i1180523a','if33d6e3d','ieffb23a5','id69659c6','i914aaad7','i4f162796']);
- const migrate=()=>{for(const i of db.items)if(i.mergedInto&&i.state==='closed'){const e=(x=>{for(let k=0;x?.mergedInto&&k<20;k++){const n=db.items.find(y=>y.id===x.mergedInto);if(!n)break;x=n}return x})(i);
+ const migrate=()=>{if(!db.dupLink){db.dupLink=1;for(const i of db.items)if(i.sorted==='duplicate'&&!i.mergedInto&&!i.dupOf)delete i.sorted}
+  for(const i of db.items)if(i.mergedInto&&i.state==='closed'){const e=(x=>{for(let k=0;x?.mergedInto&&k<20;k++){const n=db.items.find(y=>y.id===x.mergedInto);if(!n)break;x=n}return x})(i);
    if(e&&e!==i&&e.id!==i.mergedInto){const mid=db.items.find(y=>y.id===i.mergedInto);i.mergedInto=e.id;(e.reports||=[]).push({agent:i.agent,missing:clip(i.missing,300),at:i.created,id:i.id});e.reports=e.reports.slice(-20);e.count=(e.count||1)+1;if(mid){mid.count=Math.max(1,(mid.count||1)-1);mid.reports=(mid.reports||[]).filter(r=>r.id!==i.id)}
     if(i.agent&&i.agent!==e.agent&&!(e.affects||=[]).includes(i.agent))e.affects.push(i.agent)}}
   for(const i of db.items){if(i.state==='queued'&&BUILT_IN_GIT.has(i.id)){i.state='closed';i.notBefore=0;i.updated=now();(i.history||=[]).push({kind:'person',at:now(),status:'close',summary:'Built, tested and deployed in git'})}
@@ -263,6 +264,8 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
    if(s?.kind==='person'&&s.need&&!noPersonNeeded(s.need)&&i.state==='queued'&&!i.tries){i.state='needs_human';i.need=s.need;i.group=s.group||null;i.history.push({kind:'sorted',at:now(),status:'needs_human',summary:s.need});await save();
     const w=await tell(i,nameOf(i.agent)+' needs a person\n\nProblem: '+(i.title||i.missing)+'\nWhat is needed: '+s.need+'\n\naqeelOS does the rest by itself once this is done (System › Health).');i.told=w;await save();log('issues: '+i.id+' sorted: needs a person, told '+w);return}
    if(s?.kind==='person'&&s.group&&i.state==='needs_human')i.group=s.group;
+   // the same problem as an open one, but this one already had tries of its own: kept apart, linked, so Needs you shows one card
+   if(to&&live(to)&&to!==i)i.dupOf=to.id;
    await save()})}
  // Health saw the problem go away before the fixer started: closed, nobody told
  // 7 Nov 2026 (owner: solved problems close by themselves, nobody is asked to close anything): every waiting item is
