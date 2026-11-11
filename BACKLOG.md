@@ -27,7 +27,7 @@ _Last updated: 11 Nov 2026_
 
 ## Waiting on you
 
-- [ ] **DEPLOY-3** Approve deploying b983ba0 (employee Google fixes plus the delivery check) to Elkiya and P&P. Elkiya's deploy of 4ceac9e was rolled back on 11 Nov: its live test timed out on the aqeelos-notify tool server under load, while P&P passed with the same code.
+- [~] **DEPLOY-6** Deploying 86a2772 (owner rule), 0bd063f (fixer rule, one alert per app), e5da3a7 (engine limit patch) and c384c27 (type_secret) to both servers.
 - [ ] **MODEL-0** Pick the model plan (see section 6).
 
 - [ ] **DEPLOY** Approve deploying `4f7243a` (the recovered fixes) to Elkiya and P&P. Claude Code's safety check blocks each production deploy until you say yes in chat.
@@ -100,18 +100,20 @@ Found:
 
 ### 5c. The same pattern beyond Google (audit of both servers, 11 Nov)
 **Apps that can never work**
-- [ ] **APP-1** Higgsfield is on 7 Elkiya agents, and its sign-in can't succeed: the engine's tool client rejects Higgsfield's reply (over its 1 MB limit). The fixer keeps filing "higgsfield needs someone to sign in" (4 open issues) that no person can solve. Fix the engine limit (an engine patch), and until then take Higgsfield off agents that never used it and mark it "doesn't work yet" instead of "sign in".
-- [ ] **APP-2** Health: a "needs a person" issue must name something a person can actually do. A sign-in that fails for a technical reason is the fixer's job, not a person's.
+- [x] **APP-1** The engine limit was already raised by hand on 7 Nov (tools/mcp_tool_transport.py, 10 MB), and the 1 MB error hasn't come back since. It is now in git as engine/patches/2026-11-11-mcp-sse-event-cap.patch (e5da3a7), so engine updates keep it. Higgsfield now only needs a normal sign-in on the agents that should have it (see HIGGS-1). One alert per app instead of one per agent is in 0bd063f.
+- [ ] **HIGGS-1** (your call) Which Elkiya agents should have Higgsfield? Sign it in once on those; take it off the rest.
+- [ ] **ENG-2** The live engines have more hand edits outside git than the known patches (git diff on Elkiya lists dozens of files, most from aqeelOS's renaming, which is re-applied after updates). Compare each against engine/patches and take the real fixes into git, so the next engine update loses nothing.
+- [~] **APP-2** (built in 0bd063f, not deployed: technicalOnly in the fixer, and one sign-in alert per app instead of one per agent) Health: a "needs a person" issue must name something a person can actually do. A sign-in that fails for a technical reason is the fixer's job, not a person's.
 - All other apps on both servers (88 entries) are fine. The only broken entry is Fakhri's Sheets link (GOOG-7).
 
 **Things an employee can't do for their own agent (same as Google was)**
-- [ ] **OWN-1** Edit or rename an app on their own agent, or change its key (`/ui/mcp/server`, `/ui/mcp/keys`, `/ui/share/rename-mcp` are admin-only). For example, Fakhri can't fix his own "WO Dashboard" entry.
-- [ ] **OWN-2** Reconnect or pause their own agent's Telegram or WhatsApp channel when it drops (`/ui/channels/reconnect`, `/ui/channels/pause`).
-- [ ] **OWN-3** Remove a Google account from their own agent in the Connected apps panel (`/ui/google-accounts` DELETE is still admin-only, while Connect Google now allows the owner).
+- [~] **OWN-1** (built in 86a2772, not deployed: ownsAgent rule plus scripts/route-rights.test.mjs) Edit or rename an app on their own agent, or change its key (`/ui/mcp/server`, `/ui/mcp/keys`, `/ui/share/rename-mcp` are admin-only). For example, Fakhri can't fix his own "WO Dashboard" entry.
+- [~] **OWN-2** (built in 86a2772, not deployed) Reconnect or pause their own agent's Telegram or WhatsApp channel when it drops (`/ui/channels/reconnect`, `/ui/channels/pause`).
+- [~] **OWN-3** (built in 86a2772, not deployed) Remove a Google account from their own agent in the Connected apps panel (`/ui/google-accounts` DELETE is still admin-only, while Connect Google now allows the owner).
 - Stay admin-only, on purpose: branding, gateway restarts, plugins, sharing between agents, the owner's view of n8n, keys of other people, WhatsApp Business setup.
 
 **Agents that get stuck signing in**
-- [ ] **AUTH-1** Donna can't log back in to KirimDev (session expired) because `type_secret` refuses. Same shape as Google: the agent has no route it may take, so the issue waits for a person. Find out why type_secret refuses, and give agents a sign-in route for KirimDev.
+- [~] **AUTH-1** Fixed in c384c27 (live once deployed): type_secret finds the browser the agent's browser tool drives (config port, the engine Chromium's DevToolsActivePort file, or its own Chrome) and types into the focused sign-in field through it, with the same checks. Tested against real Chrome on Elkiya. Done once Donna signs in to KirimDev with it.
 
 **Answers that went to the wrong person**
 - P&P: 3 issues came from web chats; 1 answer went to the owner and 2 aren't answered yet. Elkiya: 1, not answered yet. GOOG-6 fixes all of these once deployed.
