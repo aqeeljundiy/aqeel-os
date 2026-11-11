@@ -27,7 +27,7 @@ _Last updated: 11 Nov 2026_
 
 ## Waiting on you
 
-- [~] **DEPLOY-6** Deploying 86a2772 (owner rule), 0bd063f (fixer rule, one alert per app), e5da3a7 (engine limit patch) and c384c27 (type_secret) to both servers.
+- [x] **DEPLOY-6** Both servers run 8abacb9 (11 Nov): owner rule, fixer rule, one alert per app, engine limit patch, type_secret through the browser. Live tests passed on both.
 - [ ] **MODEL-0** Pick the model plan (see section 6).
 
 - [ ] **DEPLOY** Approve deploying `4f7243a` (the recovered fixes) to Elkiya and P&P. Claude Code's safety check blocks each production deploy until you say yes in chat.
@@ -92,28 +92,28 @@ Found:
 - So Fakhri's agent had no free route it could take for an employee. Its standing rule says to suggest Composio "when the setup needs admin access the person does not have", and no agent text mentions Connect Google at all.
 - [ ] **GOOG-1** (needs an admin) One Web-type Google client per install: in Google Cloud (Pixel's existing project peaceful-app-511818-u2 is fine), create an OAuth client of type Web application with redirect https://ai.pixelandprofits.com/google-oauth/callback, and upload its file in Connections › Add › A Google account. Same once on Elkiya if it has none.
 - [ ] **GOOG-7** Remove the "WO Dashboard - Google Sheet" entry from Fakhri Agent once his Google account is connected.
-- [~] **GOOG-2** (built in b983ba0, not deployed) Employees connect their **own** Google account for their own agents (sign-in link or the Connect Google card). Setting up the Google Cloud client stays admin-only.
-- [~] **GOOG-4** (built in b983ba0, not deployed) The "Add MCP tool" form accepted a Google Sheets link as a tool: "WO Dashboard - Google Sheet" in Fakhri Agent's config is just `url: https://docs.google.com/spreadsheets/...`. Fakhri saw a sign-in button and thought it was connected, then sign-in failed with "Bad name". The form must refuse a web page that isn't an MCP server, recognise Google links and send the person to Connect Google, and refuse tool names with spaces up front.
+- [~] **GOOG-2** (live since 411d62b, built in b983ba0) Employees connect their **own** Google account for their own agents (sign-in link or the Connect Google card). Setting up the Google Cloud client stays admin-only.
+- [~] **GOOG-4** (live since 411d62b, built in b983ba0) The "Add MCP tool" form accepted a Google Sheets link as a tool: "WO Dashboard - Google Sheet" in Fakhri Agent's config is just `url: https://docs.google.com/spreadsheets/...`. Fakhri saw a sign-in button and thought it was connected, then sign-in failed with "Bad name". The form must refuse a web page that isn't an MCP server, recognise Google links and send the person to Connect Google, and refuse tool names with spaces up front.
 - [ ] **GOOG-5** Issue i7d96eb8c was closed as "needs a person" with the wrong person (the sheet owner). The real fix was the install-wide Google client. Once GOOG-1 to GOOG-3 are done, the fixer can guide this itself.
-- [~] **GOOG-6** (built in b983ba0, not deployed: the fixer tells the person who asked in their bell, linked to the chat) "Tell me when it's fixed": Fakhri's agent said it can't send a message on its own when an issue it filed is solved. The fixer should tell the chat that filed the issue when it's fixed, the aqeelOS web chat included.
-- [~] **GOOG-3** (built in b983ba0, not deployed) Agent guidance: if a client exists, send the sign-in link yourself. If not, say "an admin does the free 5-minute setup once in Connections › Connect Google". Composio only after that.
+- [~] **GOOG-6** (live since 411d62b, built in b983ba0: the fixer tells the person who asked in their bell, linked to the chat) "Tell me when it's fixed": Fakhri's agent said it can't send a message on its own when an issue it filed is solved. The fixer should tell the chat that filed the issue when it's fixed, the aqeelOS web chat included.
+- [~] **GOOG-3** (live since 411d62b, built in b983ba0) Agent guidance: if a client exists, send the sign-in link yourself. If not, say "an admin does the free 5-minute setup once in Connections › Connect Google". Composio only after that.
 
 ### 5c. The same pattern beyond Google (audit of both servers, 11 Nov)
 **Apps that can never work**
 - [x] **APP-1** The engine limit was already raised by hand on 7 Nov (tools/mcp_tool_transport.py, 10 MB), and the 1 MB error hasn't come back since. It is now in git as engine/patches/2026-11-11-mcp-sse-event-cap.patch (e5da3a7), so engine updates keep it. Higgsfield now only needs a normal sign-in on the agents that should have it (see HIGGS-1). One alert per app instead of one per agent is in 0bd063f.
 - [ ] **HIGGS-1** (your call) Which Elkiya agents should have Higgsfield? Sign it in once on those; take it off the rest.
 - [ ] **ENG-2** The live engines have more hand edits outside git than the known patches (git diff on Elkiya lists dozens of files, most from aqeelOS's renaming, which is re-applied after updates). Compare each against engine/patches and take the real fixes into git, so the next engine update loses nothing.
-- [~] **APP-2** (built in 0bd063f, not deployed: technicalOnly in the fixer, and one sign-in alert per app instead of one per agent) Health: a "needs a person" issue must name something a person can actually do. A sign-in that fails for a technical reason is the fixer's job, not a person's.
+- [x] **APP-2** (live in 8abacb9, built in 0bd063f: technicalOnly in the fixer, and one sign-in alert per app instead of one per agent) Health: a "needs a person" issue must name something a person can actually do. A sign-in that fails for a technical reason is the fixer's job, not a person's.
 - All other apps on both servers (88 entries) are fine. The only broken entry is Fakhri's Sheets link (GOOG-7).
 
 **Things an employee can't do for their own agent (same as Google was)**
-- [~] **OWN-1** (built in 86a2772, not deployed: ownsAgent rule plus scripts/route-rights.test.mjs) Edit or rename an app on their own agent, or change its key (`/ui/mcp/server`, `/ui/mcp/keys`, `/ui/share/rename-mcp` are admin-only). For example, Fakhri can't fix his own "WO Dashboard" entry.
-- [~] **OWN-2** (built in 86a2772, not deployed) Reconnect or pause their own agent's Telegram or WhatsApp channel when it drops (`/ui/channels/reconnect`, `/ui/channels/pause`).
-- [~] **OWN-3** (built in 86a2772, not deployed) Remove a Google account from their own agent in the Connected apps panel (`/ui/google-accounts` DELETE is still admin-only, while Connect Google now allows the owner).
+- [x] **OWN-1** (live in 8abacb9, built in 86a2772: ownsAgent rule plus scripts/route-rights.test.mjs) Edit or rename an app on their own agent, or change its key (`/ui/mcp/server`, `/ui/mcp/keys`, `/ui/share/rename-mcp` are admin-only). For example, Fakhri can't fix his own "WO Dashboard" entry.
+- [x] **OWN-2** (live in 8abacb9, built in 86a2772) Reconnect or pause their own agent's Telegram or WhatsApp channel when it drops (`/ui/channels/reconnect`, `/ui/channels/pause`).
+- [x] **OWN-3** (live in 8abacb9, built in 86a2772) Remove a Google account from their own agent in the Connected apps panel (`/ui/google-accounts` DELETE is still admin-only, while Connect Google now allows the owner).
 - Stay admin-only, on purpose: branding, gateway restarts, plugins, sharing between agents, the owner's view of n8n, keys of other people, WhatsApp Business setup.
 
 **Agents that get stuck signing in**
-- [~] **AUTH-1** Fixed in c384c27 (live once deployed): type_secret finds the browser the agent's browser tool drives (config port, the engine Chromium's DevToolsActivePort file, or its own Chrome) and types into the focused sign-in field through it, with the same checks. Tested against real Chrome on Elkiya. Done once Donna signs in to KirimDev with it.
+- [~] **AUTH-1** Fixed in c384c27, live in 8abacb9: type_secret finds the browser the agent's browser tool drives (config port, the engine Chromium's DevToolsActivePort file, or its own Chrome) and types into the focused sign-in field through it, with the same checks. Tested against real Chrome on Elkiya. Done once Donna signs in to KirimDev with it.
 
 **Answers that went to the wrong person**
 - P&P: 3 issues came from web chats; 1 answer went to the owner and 2 aren't answered yet. Elkiya: 1, not answered yet. GOOG-6 fixes all of these once deployed.
@@ -124,7 +124,8 @@ Today: the fixer runs on the main agent's profile, Sonnet 5.5 with the 1M contex
 - [ ] **MODEL-2** Model per step, as settings (aqeelOS stays model-agnostic): sorting new issues (duplicates, needs a person, priority) is one cheap call on a small model, not an agent run. Fix runs use the mid model at medium effort, proof runs the small model, and the big model is used only on a third try or a stuck issue.
 - [ ] **MODEL-3** Fewer wasted runs, which saves more than any model choice: merge duplicates, send person-only items to "Needs you", prove with delivery checks instead of fix-and-roll-back rounds, and don't spend the 20 daily runs on issues that will come back.
 - [ ] **MODEL-4** Log tokens per fixer run, then compare cost per fixed issue before and after.
-- [ ] **MODEL-5** billion-context (github.com/ranxianglei/billion-context) in every install, so long chats use fewer tokens. Waiting on the owner's choice of rollout (11 Nov). Found: it hooks the engine through an HTTPS proxy, but the Claude sign-in runs the `claude` program as a separate process and the ChatGPT sign-in uses the Codex transport, so it may not compress either one; check on one agent first. Its license needs a visible credit (About page or docs). The engine's own summariser must be off where it runs, or chats get compressed twice.
+- [~] **MODEL-5** billion-context (github.com/ranxianglei/billion-context) in every install, so long chats use fewer tokens. Owner: "ship to all now" (11 Nov). On main as `8f2353a` (`app/billion-context.mjs`, pinned 0.1.213, self-update off, credit in README and the plugin's description), live on Elkiya since 05:32 UTC: every agent has the plugin switched on. The engine loads it at its next restart, which aqeelOS holds for the quiet hours (01:00-05:00). Emergency off: `touch ~/.hermes/.aqeelos-billion-context-off`.
+  - Still to do: after tonight's restart, check that agents still answer on the Claude and ChatGPT sign-ins and whether chats actually get compressed (the Claude sign-in runs the `claude` program as its own process, so the proxy may not see that traffic). P&P (ai.pixelandprofits.com) runs `8abacb9` since 06:07 UTC (automatic deploy) and every agent there has the plugin switched on too; same quiet-hours restart. The engine's own summariser stays on as a fallback; it only acts if billion-context doesn't keep the chat short.
 
 ### 5. Small leftovers
 - [ ] **OPS-9** The live test's setup test agent is missing on Elkiya (404 warning).
