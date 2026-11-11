@@ -5,6 +5,7 @@ import {mkdtemp,writeFile,mkdir,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {createHmac} from 'node:crypto';
+import {createDocLinks} from '../app/doc-links.mjs';
 import {createKirimdev,verifySignature,parseInbound,parseSent,splitReply,withCaptions} from '../app/kirimdev.mjs';
 
 const SECRET='whsec_test_123';
@@ -74,7 +75,7 @@ const sentEv=(to,source,id='msg_'+Math.random(),conv='cnv_A',pid='111')=>JSON.st
 
 // an Indonesian line, as the owner runs it: these are settings (kirimdev.json), not code
 const LOCALE={language:'Indonesian',localPrefix:{country:'62',local:'0'},resetText:'✅ Test reset. Chat dari awal ya, anggap kamu customer baru.',handoff:{customerText:'Baik kak, untuk pertanyaan ini saya bantu teruskan ke tim kami dulu ya 🙏 Mohon ditunggu sebentar.'}};
-async function make({mode='test',agentSays='Halo kak 😊',testers=[{who:'Ari',conversationId:'cnv_A'}],postOk=true,team={chatId:-100,topics:{questions:3},mention:'@team'},pauseMin,extra={},paidSince=null,bridge={self:async()=>'',send:async()=>{},result:async()=>null},probs=[],oks=[],health=false}={}){
+async function make({mode='test',agentSays='Halo kak 😊',testers=[{who:'Ari',conversationId:'cnv_A'}],postOk=true,team={chatId:-100,topics:{questions:3},mention:'@team'},pauseMin,extra={},paidSince=null,bridge={self:async()=>'',send:async()=>{},result:async()=>null},probs=[],oks=[],health=false,docLinks=null}={}){
  const DATA=await mkdtemp(path.join(tmpdir(),'kd-')),WORK=path.join(DATA,'work');
  await mkdir(path.join(WORK,'cove-support','media','staff'),{recursive:true});
  await writeFile(path.join(WORK,'cove-support','media','staff','urls.txt'),'https://media.kirimdev.com/x/Kit.jpeg\n');
@@ -92,7 +93,7 @@ async function make({mode='test',agentSays='Halo kak 😊',testers=[{who:'Ari',c
   return {ok:false,status:404,json:async()=>({})}};
  // fake timers: the burst window only closes when the test calls settle(), never because the box was slow
  const due=new Map();let tid=0;const setTimer=(fn)=>{const i=++tid;due.set(i,fn);return i},clearTimer=i=>{due.delete(i)};
- const k=createKirimdev({DATA,WORK,setTimer,clearTimer,apiKey:async()=>'kdv_test',PUBLIC_URL:'https://ai.example',fetchImpl,wait:async()=>{},log:m=>process.env.KDLOG&&console.log(m),now:()=>clock,echoWait:0,paidSince,bridge,...(health?{problem:async(...x)=>{probs.push(x)},solved:async(...x)=>{oks.push(x)}}:{}),
+ const k=createKirimdev({DATA,WORK,setTimer,clearTimer,apiKey:async()=>'kdv_test',PUBLIC_URL:'https://ai.example',fetchImpl,wait:async()=>{},log:m=>process.env.KDLOG&&console.log(m),now:()=>clock,echoWait:0,paidSince,bridge,docLinks,...(health?{problem:async(...x)=>{probs.push(x)},solved:async(...x)=>{oks.push(x)}}:{}),
   teamGroup:async a=>a==='cove-support'?team:null,
   runAgent:async(a,q,context)=>{asked.push([a,q,context]);return typeof agentSays==='function'?agentSays(q,context):agentSays},telegram:async(...x)=>{posts.push(x);return tg.ok?4242:false},tell:async t=>{told.push(t)}});
  const post=(raw,h={},agent='cove-support')=>k.receive(agent,{'x-kirim-signature':sign(raw,Math.floor(clock/1000)),'x-kirim-event':'message.received',...h},Buffer.from(raw));
@@ -361,3 +362,25 @@ test('a used-up provider is not the chat fault: the chat waits for the reset, on
 test('a stop that is not the provider keeps the breaker, and its reason reaches the Health problem (12 Nov 2026)',async()=>{
  let runs=0;const t=await make({health:true,agentSays:async()=>{runs++;throw Error('the agent stopped (1): Gateway did not answer session.create')}});
  await t.post(meta('628123','tolong','m1'));await t.settle();assert.equal(runs,3);assert.ok(t.probs.some(x=>x[1].startsWith('stopped|')&&/Gateway did not answer session.create/.test(x[3])),'the reason is in the problem');assert.ok(!t.probs.some(x=>x[1]==='kirimdev|provider'))});
+
+// the protocol PDF over WhatsApp (12 Nov 2026, issue i19b649d9): Kirimdev's document message takes a public https link, never bytes
+test('sendDocument: a document message with a public https link, to a number that wrote in the last 24 hours; never in Draft or to a stranger in Test',async()=>{
+ const t=await make();await t.post(meta('628123','halo'));await t.settle();const n=t.sent.length;
+ await assert.rejects(t.k.sendDocument('cove-support','628123',{link:'http://x/a.pdf',filename:'a.pdf'}),/public https link/);
+ await assert.rejects(t.k.sendDocument('cove-support','628123',{link:Buffer.from('%PDF-1.4'),filename:'a.pdf'}),/public https link/,'bytes are not a link');
+ await assert.rejects(t.k.sendDocument('cove-support','629999',{link:'https://ai.example/doc/x/a.pdf'}),/24 hours/);
+ await assert.rejects(t.k.sendDocument('cove-support','628123',{link:'https://ai.example/doc/x/a.pdf',caption:'Traceback (most recent call last):\n  File "x.py", line 3, in <module>'}),/looks meant for the team/);
+ assert.equal(t.sent.length,n);
+ await t.k.sendDocument('cove-support','628123',{link:'https://ai.example/doc/T/Protokol.pdf',filename:'Protokol.pdf',caption:'Ini protokolnya, kak.'});
+ const b=t.sent.at(-1);assert.deepEqual([b.type,b.to,b.document.link,b.document.filename,b.document.caption],['document','628123','https://ai.example/doc/T/Protokol.pdf','Protokol.pdf','Ini protokolnya, kak.']);
+ const d=await make({mode:'draft'});await d.post(meta('628123','halo'));await d.settle();
+ await assert.rejects(d.k.sendDocument('cove-support','628123',{link:'https://ai.example/doc/x/a.pdf'}),/Draft/)});
+
+test('a PDF delivery check goes through the real link, the bridge must download a PDF, and the link is gone afterwards',async()=>{
+ const DATA=await mkdtemp(path.join(tmpdir(),'dl-'));const docLinks=createDocLinks({DATA,PUBLIC_URL:'https://ai.example'});let arrived={ok:true,bytes:640,type:'document'};
+ const t=await make({docLinks,bridge:{self:async()=>'628999',send:async()=>{},result:async id=>arrived&&{id,...arrived}}});
+ await t.post(meta('628999','aqeelos-probe:open000001w'));await t.settle();
+ const r=await t.k.deliveryCheck('cove-support',{document:true});const b=t.sent.at(-1);
+ assert.equal(b.type,'document');assert.equal(b.to,'628999');assert.match(b.document.link,/^https:\/\/ai\.example\/doc\/[\w-]{43}\/aqeelOS%20delivery%20check\.pdf$/);assert.match(b.document.caption,new RegExp('aqeelos-probe:'+r.id));
+ assert.deepEqual([r.sent,r.arrived,r.document,r.bytes],[true,true,true,640]);assert.equal(docLinks.count(),0,'the link was dropped');assert.ok(!/doc\/[\w-]{43}\//.test(r.link),'the token is not kept in the result');
+ arrived={ok:false,bytes:12,type:'document',error:'not a PDF'};const r2=await t.k.deliveryCheck('cove-support',{document:true});assert.equal(r2.document,false);assert.match(r2.why,/did not download/)});

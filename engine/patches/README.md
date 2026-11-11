@@ -75,3 +75,11 @@ answer IPv4 first, read when the gateway starts) is what the engine offers for a
 `curl -4 https://api.telegram.org/` answers in 0.7 s, `curl -6` cannot connect; about 100 Telegram warnings an hour from the
 dual-stack path). aqeelOS writes it itself: `app/net-prefer.mjs` probes a real connection to api.telegram.org:443 over IPv4 and
 over IPv6, and `app/agent-defaults.mjs` sets the key for every agent when only IPv6 fails (engine restarts in the quiet hours).
+
+## 2026-11-12-delivery-probe-document.patch (issue i19b649d9, applied by step 17b)
+
+The delivery probe (`scripts/whatsapp-bridge/probe_watch.js`, 11 Nov patch) only downloaded pictures. A document probe now
+downloads the file too and counts as arrived only when it starts with `%PDF` (`ok`, `bytes`, `type: document` in
+`<session>/../probes/<id>.json`). aqeelOS uses it to prove that the protocol PDF path works end to end:
+`node scripts/delivery-check.mjs <agent> --document`. Applies on top of the 11 Nov probe patch; takes effect after the engine's
+WhatsApp bridge restarts.

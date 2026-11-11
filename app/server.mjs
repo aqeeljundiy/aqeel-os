@@ -134,6 +134,7 @@ import {sysTz,localParts,zoneName} from './tz.mjs';
 import {engineKeys,ensureEngineKeys,uiSecret,PUBLIC_URL_REF,PUBLIC_HOST_REF,urlRef,hostSetting,installTz,applyTz,validTz,createInstallRoutes} from './install-routes.mjs';   // the box's time zone (7 Nov 2026: was Asia/Jakarta in code)   // live context each message + traceback guard (7 Nov 2026)
 import {createAgentCare} from './agent-care.mjs';
 import {createPaidLabels} from './paid-labels.mjs';   // Customer and S- labels once a payment is confirmed paid (8 Nov 2026)
+import {createDocLinks} from './doc-links.mjs';import {createProtocolPdf,createProtocolSender} from './protocol-pdf.mjs';   // one-purpose PDF links and the member app's protocol PDF (12 Nov 2026)
 import {createCustomerTools,DEFAULT_CARD_MAX} from './customer-tools.mjs';   // customer-run sandbox (7 Nov 2026)   // old setup, checks after changes, script-only schedules (7 Nov 2026)
 import {readPicture,emojiSlugs,emojiAuto,AVATAR_TYPES} from './avatar-file.mjs';
 import {parseEnv,setEnvLine,channelWho,globalWho,removePerson,engineChange,approvedWithout,samePerson as allowSame} from './allowlist.mjs';
@@ -1493,7 +1494,8 @@ const secretHits=createLimiter(30,600e3);
 // Team group per agent (team-group.mjs, brief item 8): Telegram group and topics; every change is shown in the bell
 const teamGroups=createTeamGroups({DATA,tell:async(a,before,g)=>{const t=x=>x?.chatId?(x.name||x.chatId)+' · '+TEAM_ROLES.map(([k,l])=>l+' '+(x.topics?.[k]??'-')).join(', '):'none';
  await bottlenecks.event('team-group',(NAMES[a]||a)+'’s team group changed','By '+(g.by||'?')+'.\nBefore: '+t(before)+'\nNow: '+t(g),{info:true}).catch(()=>{});if(LIVE_APP)writeAgentContext().catch(()=>{})}});
-const kirimdev=createKirimdev({DATA,WORK:path.join(homedir(),'workspaces'),PUBLIC_URL,log:m=>console.log(m),teamGroup:a=>teamGroups.get(a),
+const docLinks=createDocLinks({DATA,PUBLIC_URL:()=>String(PUBLIC_URL)});
+const kirimdev=createKirimdev({DATA,docLinks,WORK:path.join(homedir(),'workspaces'),PUBLIC_URL,log:m=>console.log(m),teamGroup:a=>teamGroups.get(a),
  problem:(a,topic,title,detail)=>health.problem(a,String(topic).startsWith('kirimdev|')?'kirimdev':'handoff',title,{topic,fix:detail}),solved:(a,topic)=>health.ok(a,topic),
  // a new API key (checked with Kirimdev first): aqeelOS's copy, and the copy in each line's workspace that its scripts use
  // (.tools/kirim reads .secrets/KIRIMDEV_API_KEY); written in place, so their owner and access stay as they are
@@ -1544,7 +1546,8 @@ const kirimdevChanged=()=>{ensureCustomerServer().catch(e=>console.warn('custome
 // customer runs get only these tools (customer-tools.mjs); the payment helper runs as the agent's own user
 const custQ=x=>"'"+String(x).replace(/'/g,"'\\''")+"'";
 let customerTools=null;
-customerTools=createCustomerTools({WORK:path.join(homedir(),'workspaces'),DATA,formRules:async a=>(await kirimdev.lines().catch(()=>({})))[a]?.websiteForm||null,payments:paidLabels,ordersOf:lineOrders,labelRules:a=>kirimdevLabelRules(a),labelContact:(a,o)=>kirimdev.labelContact(a,o),payRules:async a=>(await kirimdev.lines().catch(()=>({})))[a]?.payment||{},googleCall:(a,req)=>googleFiles.call(a,req),chatFind:(a,q,o)=>chatHistory.find(a,q,o),
+customerTools=createCustomerTools({WORK:path.join(homedir(),'workspaces'),DATA,formRules:async a=>(await kirimdev.lines().catch(()=>({})))[a]?.websiteForm||null,payments:paidLabels,ordersOf:lineOrders,labelRules:a=>kirimdevLabelRules(a),labelContact:(a,o)=>kirimdev.labelContact(a,o),pdfRules:async a=>(await kirimdev.lines().catch(()=>({})))[a]?.protocolPdf||null,
+ sendProtocolPdf:createProtocolSender({make:createProtocolPdf({WORK:path.join(homedir(),'workspaces')}),docLinks,sendDocument:(a,to,o)=>kirimdev.sendDocument(a,to,o),log:m=>console.log(m)}),payRules:async a=>(await kirimdev.lines().catch(()=>({})))[a]?.payment||{},googleCall:(a,req)=>googleFiles.call(a,req),chatFind:(a,q,o)=>chatHistory.find(a,q,o),
  history:async(r,limit)=>{const q=new URLSearchParams({conversation_id:r.conversation,limit:String(limit)});if(!r.conversation)return 'No conversation.';
   const l=((await kirimdev._api(r.line+'/messages?'+q)).data||[]).filter(m=>m.type!=='reaction').sort((a,b)=>String(a.created_at).localeCompare(String(b.created_at)));
   return l.map(m=>m.created_at.slice(0,16).replace('T',' ')+' '+(m.direction==='inbound'?'CUSTOMER':'YOU')+': '+kirimdev.msgText(m)).join('\n')||'No messages.'},
@@ -2644,6 +2647,8 @@ const server=createServer(async(req,res)=>{
    const e=x=>String(x??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
    const l=(await issues.list()).items.find(x=>x.id===im[1]);if(!l)return page('<h2>Link not valid</h2>');
    return page('<h2>'+e(l.agentName)+': '+e(l.missing)+'</h2><p>Nothing to approve any more: the fixer handles every issue by itself and proves the fix (7 Nov 2026).</p><p>State: '+e(l.state)+'</p>')}}
+  // a one-purpose PDF link for a WhatsApp document (doc-links.mjs): unguessable, 15 minutes, no sign-in
+  {const dm=/^\/doc\/([\w-]{43})\/([^/]+)$/.exec(p);if(dm&&(req.method==='GET'||req.method==='HEAD'))return await docLinks.serve(req,res,dm[1],dm[2])}
   if(p==='/secret'||p.startsWith('/secret/'))return await secretRoute(req,res,p);
   // MCP sign-in (OAuth) returns here from Slack, Notion…; the engine checks the one-time state. No sign-in needed.
   // Google sign-ins (Google Workspace skill with a Web-application client) return here, and aqeelOS finishes them:
