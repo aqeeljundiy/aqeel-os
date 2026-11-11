@@ -406,7 +406,7 @@ function paintTop(r){const el=$('.topbar'),h=topbar(r||route());if(el._h!==h){el
    focus, and could replay entrances: the "flicker when text changes" (7 Nov 2026). Elements are matched by id, data-go,
    data-id, data-key or data-tab, else by tag in order. What scripts own is kept: the tab pill's place, a running spinner
    (is-busy), a finished fade (reveal, still), a <details> someone opened, and the text of a field someone is typing in. */
-const MORPH_KEEP_CLS=['is-busy','reveal','closing','still'];
+const MORPH_KEEP_CLS=['is-busy','reveal','closing','still','bell-new'];
 function morph(el,html){const t=document.createElement('template');t.innerHTML=html;morphKids(el,t.content);return el}
 function morphKey(n){return n.nodeType!==1?null:n.id?'#'+n.id:n.getAttribute('data-go')!=null?'g'+n.getAttribute('data-go'):n.getAttribute('data-id')!=null?'i'+n.getAttribute('data-id'):n.getAttribute('data-key')!=null?'k'+n.getAttribute('data-key'):n.getAttribute('data-tab')!=null?'t'+n.getAttribute('data-tab'):null}
 // from: only a's children from this node on are matched and replaced (the ones before it are left alone)
@@ -491,7 +491,9 @@ function paintBanner(){const slot=$('#bannerSlot');if(!slot)return;const st=S.st
   if(m==='elevated')list.push({key:at('mem-e'),msg:`<b>Memory is running low</b> on the AI box${S.box?.memory?.pct?' ('+S.box.memory.pct+'% of its '+bytes(S.box.memory.limit)+')':''}. See System › Health for what uses it.`})}
  const show=list.filter(x=>!off.includes(x.key)),res=show.find(x=>!x.key.startsWith('mux:'));
  const h=[show.find(x=>x.key.startsWith('mux:')),res].filter(Boolean).map(x=>`<div class="banner" role="alert">${icon('alert',16)}<span>${x.msg}</span>${x.btn||''}<button data-act="banner" data-key="${esc(x.key)}">Dismiss</button></div>`).join('');
- if(slot._h!==h){slot._h=h;morph(slot,h)}}
+ // a banner coming or going (the 30-second status check: memory back to normal, another agent viewed) opens or closes
+ // its 51 px instead of pushing the page down or up in one frame (OPS-14, Elkiya 11 Nov 2026: "#view moved 51 px")
+ if(slot._h!==h){slot._h=h;smoothHeight(slot,()=>morph(slot,h))}}
 // what the engine is doing, in plain words (gateway_state); a live process that stopped checking in is "Not responding"
 // no status yet: a member with no agent has none to ask; a failed check says so (amber); still asking is grey, never green
 function gwState(s){if(!s)return typeof noAgent==='function'&&noAgent()?{label:'Ask an admin',c:'var(--muted)',say:'No agent is shared with you yet'}:S.statusFail?{label:'Not reachable',c:'var(--warn)',say:'The status check did not answer. It tries again by itself.'}:{label:'Connecting…',c:'var(--muted)',say:''};const run=s.gateway_running,stale=s.gateway_heartbeat_stale_s;

@@ -330,7 +330,10 @@ const achDeH=s=>String(s||'').replace(/Hermes Agent/g,'aqeelOS').replace(/Hermes
 PAGES.achievements=async(p,el)=>{const gone=pageTok(el);
  setActions(`<button data-act="ach-rescan">${icon('refresh',16)}Rescan history</button>`);
  const [a,recent,scan]=await Promise.all([H('/plugins/hermes-achievements/achievements'),H('/plugins/hermes-achievements/recent-unlocks').catch(()=>null),H('/plugins/hermes-achievements/scan-status').catch(()=>null)]);if(gone())return;
- Pages._ach={a,recent,scan,list:(a.achievements||[]).map(x=>({...x,name:achDeH(x.name),description:achDeH(x.description),criteria:achDeH(x.criteria)}))};achPaint(el);
+ Pages._ach={a,recent,scan,list:(a.achievements||[]).map(x=>({...x,name:achDeH(x.name),description:achDeH(x.description),criteria:achDeH(x.criteria)}))};
+ // drawn again on the same visit (every 4 s while a scan runs): the page keeps still instead of playing its entrance
+ // again (OPS-14, P&P 11 Nov 2026: "reveal on ach-cat, reveal on ach-grid"); a new visit animates in (navNext clears it)
+ el.toggleAttribute('data-still',Pages._achNav===S._nav);achPaint(el);Pages._achNav=S._nav;
  // while a scan runs, badges arrive as it goes: look again every 4 s until it is done
  const busy=achScanning(a,scan);
  clearTimeout(Pages._achT);if(busy)Pages._achT=setTimeout(()=>{if(route().page?.id==='achievements')(pageRun(el),PAGES.achievements(p,el)).catch(()=>{})},4000);
