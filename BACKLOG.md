@@ -35,7 +35,13 @@ Checked against P&P's live data and the code on 11 Nov: Aldillah is an employee,
 - [ ] **ACC-4** Employees with no agent can create one.
 
 ### 2. Code that only exists on the servers (the next deploy would undo it)
-- [ ] **GIT-2** Fixer ships through GitHub instead of patching live code, so this list stays empty.
+- [ ] **GIT-2** (design proposed 11 Nov, waits for your OK and a token) The fixer ships through GitHub instead of patching live code. Proposal:
+  1. The fixer works in its own git checkout on each server (`~/apps/aqeel-os-src`, which Elkiya has), on a branch per issue, never in the live folder.
+  2. It proves the fix on the test copy (:4402) and with the tests, as today.
+  3. It pushes the branch and opens a pull request, using a GitHub token that may open PRs on aqeel-os but never push to main.
+  4. You or a coding session merge it; the normal deploy ships it. An engine fix becomes an `engine/patches` file in the same PR.
+  5. Health's "Code changes" becomes "Fixes waiting for review", linking each PR.
+  Needs from you: OK on the design, and that token (a fine-grained GitHub token: aqeel-os only, pull requests and contents on branches, no admin).
 
 ### 3. Long-term reliability rules
 - [~] **OPS-2** Each agent's Linux user is its group: `aq-agent-users stop <agent>` stops all it runs; a soft memory cap per agent (default 4 GB, 8 GB with its own AdsPower) restarts its Chrome, then files an issue (your choice, 11 Nov: no kernel cgroups, which would need a privileged box). Built and tested on the box as the claude user; waiting for your yes to deploy. Was: Each agent runs in its own container group with a memory cap, and one command stops everything it started.
@@ -53,7 +59,7 @@ Checked against P&P's live data and the code on 11 Nov: Aldillah is an employee,
 - [x] **HEALTH-2** Live on both servers (1f5a2c1, follow-ups in 60da9a7), checked on ai.elkiya.com and ai.pixelandprofits.com, 11 Nov: the fixer panel shows its step, try and model, why the rest waits (quiet-hours reload, runs used today, pause), and its line with move up/down, skip for today and pause. Proof runs go on while an engine reload waits; the daily limit resets at the install's midnight. Elkiya's fixer had started nothing since 09:37 (the engine unlinked gateway.pid); since 99a006d it runs again (proof runs from 10:29). The engine stop follows gateway_state.json too (5408dcb).
 - [~] **HEALTH-3** Live on both servers (1f5a2c1, follow-ups in 60da9a7), checked on ai.elkiya.com and ai.pixelandprofits.com, 11 Nov: Needs you holds only what a person must do, with plain titles, one card per task (the six Higgsfield reports are one card, the two Higgsfield items one card). Open: the two Notion items each name the other as their duplicate and still show as two cards; fixed on main in the commit after 60da9a7 (grouping copes with a loop, the sorter makes none), waiting for the owner's deploy OK.
 - [x] **HEALTH-4** Live in 1f5a2c1 on both servers, checked on ai.elkiya.com and ai.pixelandprofits.com (11 Nov): Now and History tabs; History has what was fixed, resolved by itself or closed, by day, with the proof (120 items on Elkiya, 11 on P&P).
-- [ ] **HEALTH-5** "Code changes" in plain words, with a button that takes them into git.
+- **HEALTH-5** Dropped (11 Nov): the Code changes list was emptied after review, and GIT-2 keeps it empty by sending fixes as pull requests.
 - [x] **HEALTH-6** Live in 1f5a2c1 on both servers, checked on ai.elkiya.com and ai.pixelandprofits.com (11 Nov): memory per agent (each agent's Linux user; the main agent includes the engine), sampled every 10 minutes and kept 7 days, a warning when it rose 3 days in a row. The 7-day line fills in over the coming days.
 - [x] **HEALTH-7** Live in 1f5a2c1 on both servers, checked on ai.elkiya.com and ai.pixelandprofits.com (11 Nov): cost this week by agent and by person side by side. Usage counted every chat nobody started in aqeelOS as the owner; now the owner on Telegram counts as the owner, and Schedules, Customers and channels, and Background work (fixer, helpers) have their own lines.
 - [~] **HEALTH-8** Built (not yet deployed): a slow engine answer gets a second, 20 s try before Health says "can't reach the engine"; a refused connection still counts as down at once.
@@ -64,7 +70,7 @@ Found 11 Nov:
 - Kirimdev and WhatsApp mark every QR as "delivered" and report no media error. Tripay serves the QR as a normal PNG, crawlers included.
 - Gilang's working QRs use the same Tripay link, but go as **one picture with a caption**. Randy's went as text, a bare picture, then text, all in the same second.
 - The fixer's caption fix was rolled back only because its proof needed a person to look at Amri's phone.
-- [~] **QR-1** Fix: `06a44a6` (see "Waiting on you"). Done once a delivery check or a phone shows the QR.
+- [~] **QR-1** Fix 06a44a6 is live. Proof waits for the delivery check (QR-2): it starts working when the WhatsApp bridge restarts. Found 11 Nov: the bridge was started by hand from an SSH session 10 days ago, so engine restarts never restarted it. The engine replaces a bridge whose code changed at its next full start (its script hash differs now: running 5c0e6bc7, file ba5b70eb), normally tonight's quiet-hours restart. Then run `node scripts/delivery-check.mjs continue-support` on Elkiya.
 - [~] **QR-2** Built in `4ceac9e` (69 tests pass, plus the bridge add-on's own 4 cases). Delivery probe, so the fixer can prove a picture arrived without a person:
   - The main agent's WhatsApp bridge on Elkiya messages the line once a day, which opens WhatsApp's 24-hour window.
   - aqeelOS sends a test picture to it with a hidden probe code.
@@ -84,7 +90,7 @@ Found:
 - [ ] **GOOG-7** Remove the "WO Dashboard - Google Sheet" entry from Fakhri Agent once his Google account is connected.
 - [~] **GOOG-2** (live since 411d62b, built in b983ba0) Employees connect their **own** Google account for their own agents (sign-in link or the Connect Google card). Setting up the Google Cloud client stays admin-only.
 - [~] **GOOG-4** (live since 411d62b, built in b983ba0) The "Add MCP tool" form accepted a Google Sheets link as a tool: "WO Dashboard - Google Sheet" in Fakhri Agent's config is just `url: https://docs.google.com/spreadsheets/...`. Fakhri saw a sign-in button and thought it was connected, then sign-in failed with "Bad name". The form must refuse a web page that isn't an MCP server, recognise Google links and send the person to Connect Google, and refuse tool names with spaces up front.
-- [ ] **GOOG-5** Issue i7d96eb8c was closed as "needs a person" with the wrong person (the sheet owner). The real fix was the install-wide Google client. Once GOOG-1 to GOOG-3 are done, the fixer can guide this itself.
+- [ ] **GOOG-5** Waits on GOOG-1: issue i7d96eb8c named the wrong person (the sheet owner). Once the install has its Google client, the fixer's guidance points to it, and Fakhri hears in his bell when it is fixed (GOOG-6).
 - [~] **GOOG-6** (live since 411d62b, built in b983ba0: the fixer tells the person who asked in their bell, linked to the chat) "Tell me when it's fixed": Fakhri's agent said it can't send a message on its own when an issue it filed is solved. The fixer should tell the chat that filed the issue when it's fixed, the aqeelOS web chat included.
 - [~] **GOOG-3** (live since 411d62b, built in b983ba0) Agent guidance: if a client exists, send the sign-in link yourself. If not, say "an admin does the free 5-minute setup once in Connections › Connect Google". Composio only after that.
 
@@ -125,7 +131,7 @@ Today: the fixer runs on the main agent's profile, Sonnet 5.5 with the 1M contex
 ### 5. Small leftovers
 - [~] **OPS-9** Elkiya's gateway answers "Unknown or unconfigured profile" for the test agent aq-livetest (P&P's works), so every Elkiya live test skips its agent check. The terminal chat command fails for it too ("Gateway starting: deadline"). Why: a `hermes -p aq-livetest gateway stop` on 9 Nov 12:32 left `gateway.parked` in its profile, and the engine does not serve parked profiles. Fixed 11 Nov in live-test.mjs: the live test unparks its own test agent with the engine's `gateway start` (no engine restart). Done once Elkiya's next live test runs its agent check.
 - [ ] **TEST-1** (your call) Elkiya's ~/.hermes/.aqeelos-test-agents lists two real customer agents, continue-support and biomarkers-support, as test agents ("temp: round 7 proof 11 Nov, remove after"). While listed, their alerts only go to the log and the fixer may run live tests on them. Remove those two lines once that proof is done. The same file also lists about 200 test agents that no longer exist; clean those up too.
-- [ ] **OPS-10** Remove the leftover test user `ag-zz-fornew` on P&P.
+- [x] **OPS-10** The user ag-zz-fornew was already removed by the root script; its leftover folder (51 MB) was moved to ~/workspaces/.removed/zz-fornew-20261111 on P&P (11 Nov).
 - [x] **OPS-11** P&P's live test hung because live-test.mjs had no engine key from a shell. Fixed in 4f7243a; every P&P live test since has passed.
 
 ## Done (11 Nov)
