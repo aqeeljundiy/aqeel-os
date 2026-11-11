@@ -35,7 +35,7 @@
   // Report an issue and the engine console (1 Nov 2026: Restart is in Start and stop agents, Check again in the engine updates card)
   setActions(admin?`<button data-act="issue-report">${icon('plus',16)}Report an issue</button><button data-act="console-open" title="Type the engine’s own commands">${icon('terminal',16)}Engine console</button>`:'');
   // agents, channels and the fixer change often: refresh those, while the page is open and visible
-  const tick=()=>{clearTimeout(Pages._healthT);Pages._healthT=setTimeout(async()=>{if(stale()||route().page?.id!=='health')return;if(!document.hidden)await Promise.all([drawStatus().catch(()=>{}),drawAgents().catch(()=>{}),drawIssues().catch(()=>{})]);tick()},15000)};tick()}}
+  const tick=()=>{clearTimeout(Pages._healthT);Pages._healthT=setTimeout(async()=>{if(stale()||route().page?.id!=='health')return;if(!document.hidden)await Promise.all([drawStatus().catch(()=>{}),drawAgents().catch(()=>{}),drawIssues().catch(()=>{}),q('#hCost')?.dataset.drawn?null:drawCost()]);tick()},15000)};tick()}}
 ACT['issue-report']=()=>HealthIssues.report(HealthIssues.again||(()=>{}));
 
 /* ---------- the verdict (HEALTH-1): one sentence, "Everything is patched and working" or exactly what needs you, then a
