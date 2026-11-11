@@ -12,17 +12,18 @@ export const QUIET={from:1,to:5};
 export function hourIn(date,tz){try{return Number(new Intl.DateTimeFormat('en-GB',{timeZone:tz||undefined,hour:'2-digit',hourCycle:'h23'}).format(date))%24}catch{return date.getHours()}}
 export const inQuiet=(date,tz)=>{const h=hourIn(date,tz);return h>=QUIET.from&&h<QUIET.to};
 
-export function createRestartLater({DATA,restart,tz=()=>'',now=()=>new Date(),log=m=>console.log(m)}){
+// inWindow/label: the install's maintenance window (maintenance.mjs) instead of the fixed hours above (12 Nov 2026)
+export function createRestartLater({DATA,restart,tz=()=>'',now=()=>new Date(),log=m=>console.log(m),inWindow=d=>inQuiet(d,tz()),label=()=>'the quiet hours ('+QUIET.from+':00-'+QUIET.to+':00)'}){
  const FILE=path.join(DATA,'restart-later.json');let st=null;
  const load=async()=>st||=await readFile(FILE,'utf8').then(JSON.parse).catch(()=>({whys:[],since:0}));
  const save=async()=>{await mkdir(DATA,{recursive:true});const t=FILE+'.'+process.pid+'.tmp';await writeFile(t,JSON.stringify(st));await rename(t,FILE)};
  // queue a reason; the same reason once
  async function add(why){await load();const w=String(why||'settings changed').slice(0,160);if(!st.whys.includes(w)){st.whys.push(w);st.whys=st.whys.slice(-20)}
-  if(!st.since)st.since=now().getTime();await save();log('engine restart waits for the quiet hours ('+QUIET.from+':00-'+QUIET.to+':00): '+w);return {queued:true,whys:[...st.whys]}}
+  if(!st.since)st.since=now().getTime();await save();log('engine restart waits for '+label()+': '+w);return {queued:true,whys:[...st.whys]}}
  // an immediate restart happened: everything waiting is covered by it
  async function covered(){await load();if(!st.whys.length)return;st={whys:[],since:0};await save()}
  // every few minutes: in the quiet hours, one restart for everything waiting
- async function tick(){await load();if(!st.whys.length||!inQuiet(now(),tz()))return false;const whys=st.whys;st={whys:[],since:0};await save();
+ async function tick(){await load();if(!st.whys.length||!inWindow(now()))return false;const whys=st.whys;st={whys:[],since:0};await save();
   await restart('quiet-hours restart: '+whys.join('; ').slice(0,300));return true}
  const pending=async()=>{await load();return {whys:[...st.whys],since:st.since}};
  return {add,covered,tick,pending}}

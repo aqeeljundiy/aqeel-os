@@ -16,6 +16,8 @@
   const drawIssues=async()=>{if(!q('#hNeed'))return;let d;try{d=await UI('/ui/health/issues')}catch{return}if(stale()||!el.isConnected)return;V.iss=d;
    HealthIssues.draw({need:q('#hNeed'),fixer:q('#hFixer'),hist:q('#hHist'),esc:q('#hEsc')},d,drawIssues);verdict()};
   HealthIssues.again=drawIssues;
+  // after a restart: what was in progress and continued by itself (app/resume.mjs), one line under the verdict
+  if(admin)UI('/ui/health/resume').then(d=>{if(stale())return;V.resume=d.line||'';verdict()}).catch(()=>{});
   const cBox=q('#hCode');const drawCode=async()=>{if(!cBox)return;let d;try{d=await UI('/ui/health/code-changes')}catch{return}if(stale()||!cBox.isConnected)return;HealthCode.draw(cBox,d,drawCode)};
   const drawAgents=async()=>{if(!aBox)return;let d,m,gr;try{[d,m,gr]=await Promise.all([UI('/ui/health/agents'),UI('/ui/health/memory').catch(()=>null),UI('/ui/health/graph').catch(()=>null)])}catch(e){if(!stale()&&aBox.isConnected&&aBox.querySelector('.skel'))aBox.innerHTML=alertBox(esc(e.message));V.ag={failed:true};verdict();return}
    if(stale()||!aBox.isConnected)return;V.ag=d;V.mem=m;AgentHealth.draw(aBox,d,drawAgents,m,gr);verdict()};
@@ -58,6 +60,7 @@ const HealthVerdict={
   if(!n&&!line&&grow.length){tone=tone==='ok'?'work':tone;sub.push(grow.join(', ')+(grow.length===1?'’s memory keeps':' keep')+' growing (see Agents).')}
   const bx=mem?.box,bl=AgentHealth.boxLine(bx);if(bl&&(bx.level!=='ok'||bx.growing?.length)){tone=tone==='ok'?'work':tone;sub.push(bl)}
   if(tone==='ok')sub.push(rows.length?'Every agent answers and nothing waits for a fix.':'Nothing waits for a fix.');
+  if(V.resume)sub.push(V.resume);
   const facts=[];if(rows.length)facts.push([bad?'a':'g',(rows.length-bad)+' of '+rows.length+' agents working']);
   if(f.now)facts.push(['b','Fixer: '+(f.now.step==='prove'?'proving a fix':'fixing')]);else if(f.paused)facts.push(['a','Fixer paused']);else if(f.wait&&!f.wait.quiet)facts.push(['a','Fixer waits for quiet hours']);else if(line)facts.push(['b','Fixer: '+line+' in line']);else facts.push(['g','Fixer: nothing in line']);
   if(f.cap&&f.cap.used>=f.cap.cap)facts.push(['a','All '+f.cap.cap+' fix runs used today']);

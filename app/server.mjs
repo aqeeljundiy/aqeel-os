@@ -75,7 +75,10 @@ import {createBottlenecks,forPopup,memberCan} from './bottlenecks.mjs';
 import {createInstructions} from './instructions.mjs';
 import {createNews,eveningLine} from './news.mjs';
 import {createMorning} from './morning.mjs';
-import {mayStartAgents,busyTotal,guardPaused} from './busy.mjs';
+import {mayStartAgents,busyTotal,holdTotal,guardPaused} from './busy.mjs';
+import {createResume} from './resume.mjs';   // continue what a restart cut off (12 Nov 2026)
+import {createResumeEngine} from './resume-engine.mjs';
+import {windowOf,inWindow,resumeMaxMs} from './maintenance.mjs';
 import {stopGatewayCmd,stopTimeoutMs} from './gateway-stop.mjs';
 import {createRestartLater,inQuiet} from './restart-later.mjs';
 import {createHelp} from './help.mjs';
@@ -209,9 +212,9 @@ const codeRuns=new Map();   // Code's engine runs (aqeelOS models): handle → a
 let longOne=null;const longFetch=()=>{if(!longOne){const d=globalThis[Symbol.for('undici.globalDispatcher.1')];try{if(d?.constructor)longOne=new d.constructor({bodyTimeout:0})}catch{}}return longOne?{dispatcher:longOne}:{}};
 // a provider's name as the chat's model menu shows it (core.js provLabel)
 const codeProvName=p=>{const s=String(p?.slug||''),n=String(p?.name||s);if(s==='moa')return 'Team of models';if(/claude-subscription|^claude-code/.test(s))return 'Claude';if(/codex/.test(s))return 'ChatGPT';if(s==='openrouter')return 'OpenRouter';if(/gemini/.test(s))return 'Gemini';return n.replace(/\s*\((experimental|beta)\)$/i,'')};
-function liveStart(key,user){const rec={user,chunks:[],size:0,subs:new Set(),done:false,t:Date.now(),last:Date.now()};LIVE.set(key,rec);return rec}
+function liveStart(key,user){const rec={user,chunks:[],size:0,subs:new Set(),done:false,t:Date.now(),last:Date.now(),gw:gwPidNow};LIVE.set(key,rec);return rec}
 setInterval(()=>{for(const [k,r] of LIVE)if(!r.done&&!r.asking&&Date.now()-r.last>20*60e3){console.warn('live stream idle for 20 min, ending it:',k);liveEnd(k,r)}},60000).unref();
-function liveEnd(key,rec){if(rec.done)return;rec.done=true;saveThinking(key,rec);for(const r of rec.subs)r.end();rec.subs.clear();setTimeout(()=>{if(LIVE.get(key)===rec)LIVE.delete(key)},120000)}
+function liveEnd(key,rec){if(rec.done)return;rec.done=true;resumeLiveEnd(rec);saveThinking(key,rec);for(const r of rec.subs)r.end();rec.subs.clear();setTimeout(()=>{if(LIVE.get(key)===rec)LIVE.delete(key)},120000)}
 function proxy(req,res,target,prefix,authHeaders,{transform,body,live}={}){
  const url=new URL(req.url,'http://x');
  // /hapi/status → dashboard /api/status · /gapi/api/sessions → gateway /api/sessions
@@ -222,20 +225,22 @@ function proxy(req,res,target,prefix,authHeaders,{transform,body,live}={}){
  if(body!==undefined){delete headers['transfer-encoding'];headers['content-length']=String(body.length)}
  if(transform)delete headers['accept-encoding'];
  const up=httpRequest({hostname:target.hostname,port:target.port,path:upstreamPath,method:req.method,headers},r=>{
+  // a reply the engine refused never started: its journal entry (resume.mjs) ends here
+  if(live?.jid&&!((r.statusCode||500)<300&&String(r.headers['content-type']||'').includes('text/event-stream')))resume.end(live.jid);
   const out={...r.headers};delete out['set-cookie'];delete out['content-security-policy'];
   if(String(r.headers['content-type']||'').includes('text/event-stream')){out['cache-control']='no-cache';out['x-accel-buffering']='no';res.socket?.setNoDelay(true)}
   if(transform&&String(r.headers['content-type']||'').includes('json')){const chunks=[];r.on('data',c=>chunks.push(c));r.on('end',async()=>{let txt=Buffer.concat(chunks).toString('utf8');
     if((r.statusCode||500)<300){try{txt=JSON.stringify(await transform(JSON.parse(txt)))}catch{res.writeHead(502,{'content-type':'application/json',...security});return res.end('{"error":"Could not check what you may see. Try again."}')}}delete out['content-length'];delete out['content-encoding'];res.writeHead(r.statusCode||502,{...out,...security});res.end(txt)});return}
   if(live&&(r.statusCode||500)<300&&String(r.headers['content-type']||'').includes('text/event-stream')){
-   const rec=liveStart(live.key,live.user);res.writeHead(r.statusCode,{...out,...security});
-   r.on('data',c=>{rec.last=Date.now();rec.size+=c.length;rec.chunks.push(c);if(rec.size>8e6){const head=rec.chunks.slice(0,40);let tail=[],sz=0;for(let i=rec.chunks.length-1;i>=40&&sz<4e6;i--){tail.unshift(rec.chunks[i]);sz+=rec.chunks[i].length}rec.chunks=[...head,...tail];rec.size=rec.chunks.reduce((a,b)=>a+b.length,0)}{const t=c.toString('utf8');if(!rec.runId){const m=/"run_id"\s*:\s*"([^"]+)"/.exec(t);if(m){rec.runId=m[1];runOwner.set(m[1],{user:rec.user,t:Date.now()});if(runOwner.size>2000)for(const k of [...runOwner.keys()].slice(0,500))runOwner.delete(k)}}if(/approval\.request/.test(t))rec.asking=true;if(/approval\.responded/.test(t))rec.asking=false}if(!res.writableEnded&&!res.destroyed)res.write(c);for(const sub of rec.subs)sub.write(c)});
+   const rec=liveStart(live.key,live.user);rec.jid=live.jid||'';res.writeHead(r.statusCode,{...out,...security});
+   r.on('data',c=>{rec.last=Date.now();rec.size+=c.length;rec.chunks.push(c);if(rec.size>8e6){const head=rec.chunks.slice(0,40);let tail=[],sz=0;for(let i=rec.chunks.length-1;i>=40&&sz<4e6;i--){tail.unshift(rec.chunks[i]);sz+=rec.chunks[i].length}rec.chunks=[...head,...tail];rec.size=rec.chunks.reduce((a,b)=>a+b.length,0)}{const t=c.toString('utf8');if(!rec.runId){const m=/"run_id"\s*:\s*"([^"]+)"/.exec(t);if(m){rec.runId=m[1];runOwner.set(m[1],{user:rec.user,t:Date.now()});if(runOwner.size>2000)for(const k of [...runOwner.keys()].slice(0,500))runOwner.delete(k)}}if(/approval\.request/.test(t))rec.asking=true;if(/approval\.responded/.test(t))rec.asking=false;{const mt=/(?:"type"\s*:\s*"|^event: *|\nevent: *)run\.(completed|failed|cancelled|interrupted)\b/.exec(t);if(mt)rec.term=mt[1]}}if(!res.writableEnded&&!res.destroyed)res.write(c);for(const sub of rec.subs)sub.write(c)});
    r.on('end',()=>{liveEnd(live.key,rec);if(!res.writableEnded)res.end()});r.on('error',()=>{liveEnd(live.key,rec);res.end()});live.started=true;return}
   // a file uploaded through the engine (chat attachments, /hapi/files): readable by the agents once it is written (OPS-18; the engine's own
   // writer has the same fix, this covers an engine without it)
   if(prefix==='/hapi'&&req.method==='POST'&&url.pathname==='/hapi/files'&&(r.statusCode||500)<300)res.on('finish',()=>boxOps.uploadsReadable().catch(()=>{}));
   res.writeHead(r.statusCode||502,{...out,...security});r.pipe(res);
  });
- up.on('error',e=>{if(!res.headersSent)send(res,502,{error:'The aqeelOS engine is not reachable',detail:e.code||e.message});else res.end()});
+ up.on('error',e=>{if(live?.jid&&!live.started)resume.end(live.jid);if(!res.headersSent)send(res,502,{error:'The aqeelOS engine is not reachable',detail:e.code||e.message});else res.end()});
  req.on('aborted',()=>{if(!live?.started)up.destroy()});res.on('close',()=>{if(!res.writableEnded&&!live?.started)up.destroy()});
  if(body!==undefined)up.end(body);else req.pipe(up);
 }
@@ -702,7 +707,9 @@ function restartGateway(why,{wait=true,waitMax=360,auto=false,bridges=false,rest
   run.bridgesDone=true;run.started=true;later.covered().catch(()=>{});await shx('~/services.sh >/dev/null 2>&1');
   platCache.clear();hapiStatus.drop();hapiLists.drop();guardAfterRestart(Date.now())})().finally(()=>{gwRestarting=null});return gwRestarting}
 // restarts that can wait go to the quiet hours (restart-later.mjs); an immediate one covers them
-const later=createRestartLater({DATA,restart:why=>restartGateway(why),tz:()=>installTz()||process.env.TZ||''});
+// since 12 Nov 2026 they go in the maintenance window (maintenance.mjs) and no longer wait for an idle box: what the
+// restart cuts off is continued afterwards (resume.mjs)
+const later=createRestartLater({DATA,restart:why=>restartGateway(why,{wait:false}),tz:()=>installTz()||process.env.TZ||'',inWindow:d=>inWindow(d,windowOf(installSettings())),label:()=>{const w=windowOf(installSettings());return 'the maintenance window ('+w.from+'-'+w.to+' '+w.tz+')'}});
 const restartLater=why=>later.add(why).catch(e=>console.warn('restart later',e.message));
 if(LIVE_APP)setInterval(()=>later.tick().catch(e=>console.warn('quiet-hours restart',e.message)),5*60e3).unref();
 // a minute after aqeelOS restarted the engine, every tool server is checked and fixed (automation-guard.mjs); an engine
@@ -1774,6 +1781,59 @@ async function originOf(agent,tool='report_bottleneck'){const py=await enginePyt
 const agentMemory=createAgentMemory({DATA,listAgents:()=>listAgents(),boxMemory:()=>boxMemory()});if(LIVE_APP)agentMemory.start();
 if(LIVE_APP){setTimeout(()=>codeChanges.raise().catch(e=>console.warn("code changes",e.message)),45e3).unref();setInterval(()=>codeChanges.raise().catch(()=>{}),3600e3).unref()}   // drift patches become one Needs-you item each
 if(LIVE_APP){setTimeout(()=>issues.tick().catch(e=>console.warn('issues',e.message)),60e3).unref();setInterval(()=>issues.tick().catch(e=>console.warn('issues',e.message)),30e3).unref()}
+/* Continue after a restart (resume.mjs, owner 12 Nov 2026). Nothing waits for an idle box any more: a reply aqeelOS was
+   streaming, a schedule run or a fixer run that a deploy, the nightly update, a crash or an engine restart cut off is
+   journaled as it starts and continued once the app and the engine answer again. A reply is continued the way the
+   chat's Retry does it (one more message into the same chat, here a short system note), streamed into LIVE so an open
+   chat page follows it; a schedule by the engine's "run now". Channel chats are continued by the engine itself. */
+let gwPidNow=0;{const t=()=>gatewayPid().then(p=>{if(p)gwPidNow=p}).catch(()=>{});t();setInterval(t,10000).unref()}
+const resumeOpts=b=>({...(b.model?{model:b.model}:{}),...(b.provider?{provider:b.provider}:{}),...(b.require_model_lock?{require_model_lock:true}:{}),...(b.model_options?{model_options:b.model_options}:{})});
+const resumeEng=createResumeEngine({python:enginePython,homeOf:homeOfAgent,agents:()=>listAllProfiles(),gatewayPid,
+ posted:(a,from,to)=>postingLimits.view(a).then(v=>(v.recent||[]).some(e=>e.at>=from&&e.at<=to+60e3))});
+// a provider that is busy, out of room or signed out is tried again later; anything else is said and left
+const PROVIDER_WAIT=/rate.?limit|overload|\b(429|5\d\d)\b|time(d)? ?out|unavailable|quota|credit|capacity|connection|network|temporar|no (available )?(account|credential|provider)|auth|unauthori|api.?key|log.?in|sign.?in|expired/i;
+async function resumeSend(e,note){const key=e.agent+'|'+e.session,cur=LIVE.get(key);if(cur&&!cur.done)return {skip:true,why:'a reply is already running there'};
+ const pre=e.agent==='default'?'':'/p/'+encodeURIComponent(e.agent);
+ const up=await fetch(GATE.origin+pre+'/api/sessions/'+encodeURIComponent(e.session)+'/chat/stream',{method:'POST',headers:{authorization:'Bearer '+API_KEY,'content-type':'application/json',accept:'text/event-stream'},body:JSON.stringify({message:note,...(e.opts||{})}),...longFetch()}).catch(er=>({ok:false,status:0,text:async()=>er.message}));
+ if(!up.ok||!up.body){const t=String(await up.text().catch(()=>'')).replace(/\s+/g,' ').slice(0,120);return up.status===404?{fail:true,why:'the chat no longer exists'}:{retry:true,why:'the engine did not take it ('+(up.status||t)+')'}}
+ const rec=liveStart(key,e.user);rec.jid=resume.begin({agent:e.agent,session:e.session,user:e.user,userName:e.userName,text:e.text,opts:e.opts,gw:gwPidNow,from:e.id,n:e.n,cut0:e.cut0});
+ return new Promise(res=>{let said=false;const say=r=>{if(!said){said=true;res(r)}};
+  (async()=>{const dec=new TextDecoder();let pend='';
+   const onEvent=raw=>{let ev='',data='';for(const line of raw.split(/\r?\n/)){if(line.startsWith('event:'))ev=line.slice(6).trim();else if(line.startsWith('data:'))data+=line.slice(5).trimStart()}
+    let d=null;try{d=JSON.parse(data)}catch{}const type=d?.type||ev;
+    if(!rec.runId&&(type==='run.started'||d?.run_id)){const id=String(d?.run_id||'');if(id&&/^[\w.:-]{1,200}$/.test(id)){rec.runId=id;runOwner.set(id,{user:e.user,t:Date.now()})}}
+    if(type==='approval.request')rec.asking=true;else if(type==='approval.responded')rec.asking=false;
+    const mt=/^run\.(completed|failed|cancelled|interrupted)$/.exec(type);if(mt)rec.term=mt[1];
+    if(/^(assistant\.|tool\.|reasoning\.)/.test(type)||type==='run.completed')say({ok:true});
+    else if(type==='run.failed'){const why=String(d?.error?.message||d?.error||'it stopped with an error').replace(/\s+/g,' ').slice(0,160);say(PROVIDER_WAIT.test(why)?{retry:true,why}:{fail:true,why})}};
+   try{for await(const c of up.body){const buf=Buffer.from(c);rec.last=Date.now();rec.size+=buf.length;rec.chunks.push(buf);if(rec.size>8e6)rec.size-=rec.chunks.splice(40,Math.max(0,rec.chunks.length-200)).reduce((x,y)=>x+y.length,0);
+     pend+=dec.decode(buf,{stream:true});let i;while((i=pend.search(/\r?\n\r?\n/))>=0){const raw=pend.slice(0,i);pend=pend.slice(i).replace(/^\r?\n\r?\n/,'');onEvent(raw)}if(pend.length>4e6)pend='';
+     for(const sub of rec.subs)sub.write(buf)}}catch{}
+   liveEnd(key,rec);
+   // ended before anything came: cut again by another restart (the new journal entry carries on), or the engine closed it
+   if(!said)say(await rec.ended==='cut'?{skip:true,why:'interrupted again; it continues from there'}:{retry:true,why:'the engine closed the reply before it began'})})()})}
+// a streamed reply ended: by itself or by the person (the entry is closed), or under an engine that went away (continued)
+function resumeLiveEnd(rec){if(!rec.jid)return null;return rec.ended||=(async()=>{if(rec.stopped||rec.term==='completed'||rec.term==='failed'){resume.end(rec.jid);return 'end'}
+ await new Promise(r=>setTimeout(r,3000));const pid=await gatewayPid().catch(()=>0),upd=engineUpd.busy();
+ if(gwRestarting||upd||!pid||(rec.gw&&pid!==rec.gw)){resume.cut(rec.jid,upd?'update':'restart');setTimeout(()=>resumeTick().catch(()=>{}),15000).unref();return 'cut'}
+ resume.end(rec.jid);return 'end'})()}
+const pidLives=p=>{if(!p)return false;try{process.kill(p,0);return true}catch{return false}};
+const resume=createResume({DATA,on:LIVE_APP,maxAge:()=>resumeMaxMs(installSettings()),tz:()=>installTz()||process.env.TZ||'',nameOf:a=>NAMES[a]||a,
+ ready:async()=>!gwStopped&&!gwRestarting&&!engineUpd.busy()&&!backups.busy()&&!!await gatewayPid()&&await fetch(DASH.origin+'/api/status',{signal:AbortSignal.timeout(8000)}).then(r=>r.ok,()=>false),
+ probeChat:e=>resumeEng.probeChat(e),sendChat:resumeSend,probeRun:e=>resumeEng.probeRun(e),
+ triggerRun:async e=>{const r=await fetch(DASH.origin+'/api/cron/jobs/'+encodeURIComponent(e.job)+'/trigger?profile='+encodeURIComponent(e.agent),{method:'POST',headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:'{}',signal:AbortSignal.timeout(30000)}).catch(er=>({ok:false,status:0,text:async()=>er.message}));
+  if(r.ok)return {ok:true};const t=String(await r.text().catch(()=>'')).replace(/\s+/g,' ').slice(0,120);return r.status===404?{fail:true,why:'the schedule no longer exists'}:{retry:true,why:'the engine did not start it ('+(r.status||t)+')'}},
+ probeFixer:async e=>{const r=(await issues._db()).runs[e.run];return {done:!r||!!r.done,alive:pidLives(r?.pid)}},
+ kickFixer:async()=>{await issues.tick();return {ok:true}}});
+resume.boot();
+async function resumeTick(){if(!LIVE_APP)return;resume.beat();
+ const runs=await resumeEng.runsNow().catch(()=>null);if(runs)resume.sync(runs,'schedule');
+ const fx=await issues._db().then(db=>Object.values(db.runs).filter(r=>!r.done).map(r=>({kind:'fixer',run:r.id,pid:r.pid||0,agent:r.agent||'default'}))).catch(()=>null);if(fx)resume.sync(fx,'fixer');
+ if(resume.pending())await resume.run()}
+if(LIVE_APP){setTimeout(()=>resumeTick().catch(e=>console.warn('resume',e.message)),20e3).unref();setInterval(()=>resumeTick().catch(e=>console.warn('resume',e.message)),30e3).unref()}
+// a signal means the app is being replaced (a deploy, an update, a restart by hand): the moment is noted so what was in
+// progress is continued by the next start. A crash leaves no note; the journal itself covers it.
+for(const sig of ['SIGTERM','SIGHUP','SIGINT'])process.on(sig,()=>{try{resume.planned('restart')}catch{}process.exit(0)});
 if(LIVE_APP){setTimeout(()=>health.tick().catch(e=>console.warn('health',e.message)),3*60e3).unref();setInterval(()=>health.tick().catch(e=>console.warn('health',e.message)),5*60e3).unref()}
 /* Self-repair kit (agent-versions.mjs, workstream E, 6 Nov 2026): each agent's own changes are versions with undo
    (Edit agent › Changes and undo_my_change), a ping run checks it still answers after a self-change and undoes the
@@ -2226,6 +2286,12 @@ async function hermesCall(req,res,u,url){
    if(r.ok){let text='';try{text=String(JSON.parse(raw.toString('utf8')).text||'')}catch{}
     for(const rec of LIVE.values())if(rec.runId===sm[2]&&!rec.done){const c=Buffer.from('event: aqeelos.steer\ndata: '+JSON.stringify({type:'aqeelos.steer',text,run_id:sm[2],from:u.id})+'\n\n');rec.chunks.push(c);for(const sub of rec.subs)sub.write(c)}}
    res.writeHead(r.status,{'content-type':'application/json',...security});return res.end(t)}}
+ // Stop pressed: the reply's end is the person's doing, not a restart's (resume.mjs)
+ {const st=/^\/gapi(?:\/p\/[^/]+)?\/v1\/runs\/([^/]+)\/stop$/.exec(p);if(st&&req.method==='POST')for(const rec of LIVE.values())if(rec.runId===decodeURIComponent(st[1]))rec.stopped=true}
+ // the reply is journaled as it starts, so a restart in the middle of it can continue it (resume.mjs)
+ if(live&&LIVE_APP){if(body===undefined){try{body=await readRaw(req,40e6)}catch{return send(res,413,{error:'That message is too large to send.'})}}
+  try{const b=JSON.parse(body.toString('utf8')),m=b.message,text=typeof m==='string'?m:Array.isArray(m)?m.filter(x=>x?.type==='text').map(x=>x.text||'').join('\n'):'';
+   live.jid=resume.begin({agent,session:decodeURIComponent(chatM[1]),user:u.id,userName:u.name||'',text,gw:gwPidNow,opts:resumeOpts(b)})}catch{}}
  return proxy(req,res,GATE,'/gapi',{authorization:'Bearer '+API_KEY},{transform,body,live});
 }
 
@@ -2287,7 +2353,9 @@ const server=createServer(async(req,res)=>{
   await users.load();   // people (owners, shares) are read before any route uses them, also right after a restart
   if(codeOnline.handle(req,res))return;   // code.elmora.example and code-preview.elmora.example: Code online, behind sign-in
   if(p==='/install-ping')return install.ping(req,res);
-  if(p==='/healthz')return send(res,200,{ok:true,build:BUILD,live:liveCount(),engine:(void engineAgents(),engAgents.n),busy:busyTotal({live:liveCount(),setups:export_setups.running(),ops:opsBusy(),relay:relay.sending(),gwRestarting:!!gwRestarting,engineUpdate:engineUpd.busy(),restore:backups.busy()})});
+  if(p==='/healthz')return send(res,200,{ok:true,build:BUILD,live:liveCount(),engine:(void engineAgents(),engAgents.n),busy:busyTotal({live:liveCount(),setups:export_setups.running(),ops:opsBusy(),relay:relay.sending(),gwRestarting:!!gwRestarting,engineUpdate:engineUpd.busy(),restore:backups.busy()}),
+   // hold: what a deploy still waits for (it cannot be continued afterwards); resume: what is waiting to continue
+   hold:holdTotal({setups:export_setups.running(),ops:opsBusy(),relay:relay.sending(),gwRestarting:!!gwRestarting,engineUpdate:engineUpd.busy(),restore:backups.busy()}),resume:{inFlight:resume.inFlight(),waiting:resume.pending()}});
   // the code bridge agents' engines call during a Code run for a computer project (app/code-bridge.mjs)
   if(p.startsWith('/mcp/code/')&&await codeBridge.handle(req,res,{send,readBody}))return;
   // run_self and the rest (aqeelos-self): from this box only, each agent's address signed
@@ -2982,7 +3050,8 @@ const server=createServer(async(req,res)=>{
     if(p==='/ui/news/hide')return send(res,200,{n:await news.hide(u,admin,{id:b.id?String(b.id):'',read:!!b.read})})}
    if(p==='/ui/thinking'&&req.method==='GET'){const sid=String(url.searchParams.get('session')||'');if(!/^[\w.-]{3,120}$/.test(sid))return send(res,200,{items:[]});const l=await readFile(path.join(DATA,'thinking',sid+'.json'),'utf8').then(JSON.parse).catch(()=>[]);return send(res,200,{items:l.filter(x=>users.isAdmin(u)||x.by===u.id).map(({u:q,think})=>({u:q,think}))})}
    if(p==='/ui/live'&&req.method==='GET'){const rec=LIVE.get((url.searchParams.get('agent')||'default')+'|'+(url.searchParams.get('session')||''));
-    if(!rec||rec.done||rec.user!==u.id)return send(res,url.searchParams.has('peek')?200:204,url.searchParams.has('peek')?{live:false}:'');
+    if(!rec||rec.done||rec.user!==u.id){const it=url.searchParams.has('peek')?resume.pendingFor(url.searchParams.get('agent')||'default',url.searchParams.get('session')||''):null;
+     return send(res,url.searchParams.has('peek')?200:204,url.searchParams.has('peek')?{live:false,...(it&&it.user===u.id?{interrupted:it.why}:{})}:'')}
     if(url.searchParams.has('peek'))return send(res,200,{live:true,since:rec.t});
     res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-cache','x-accel-buffering':'no',...security});res.socket?.setNoDelay(true);
     for(const c of rec.chunks)res.write(c);rec.subs.add(res);res.on('close',()=>rec.subs.delete(res));return}
@@ -3257,6 +3326,7 @@ const server=createServer(async(req,res)=>{
    return send(res,404,{error:'Not found'})}
   // "Try again" (after a person did what was needed, or for a stuck issue): a fresh set of tries
   // code changes on the box that git lacks (code-changes.mjs): the list, one patch's text, and "taken into git"
+  if(p==='/ui/health/resume'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,{line:resume.line(),last:resume.last()})}
   if(p==='/ui/health/code-changes'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});
    if(url.searchParams.get('name')){try{return send(res,200,{text:await codeChanges.read(url.searchParams.get('kind'),url.searchParams.get('name'))})}catch(e){return send(res,404,{error:e.code==='ENOENT'?'That patch is gone.':e.message})}}
    return send(res,200,{items:await codeChanges.list()})}

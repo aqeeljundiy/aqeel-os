@@ -10,3 +10,8 @@ export const busyTotal=({live=0,setups=0,ops=0,relay=0,gwRestarting=false,engine
 
 // the automations guard waits (no repairs, no config writes) while the engine updates, restarts or is being restored
 export const guardPaused=({engineUpdate=false,gwRestarting=false,restore=false}={})=>engineUpdate||gwRestarting||restore;
+
+// /healthz "hold" (12 Nov 2026): what a deploy or update still waits for. Replies and runs in progress are no longer
+// waited for (they are continued afterwards, resume.mjs); an agent being set up, a settings change, an engine restart or
+// update and a restore cannot be continued, so those still finish first.
+export const holdTotal=o=>busyTotal({...o,live:0});

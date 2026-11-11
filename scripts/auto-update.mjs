@@ -1,8 +1,11 @@
 #!/usr/bin/env node
-// Automatic updates (owner, 9 Nov 2026): every install takes GitHub's main by itself in the quiet hours (01:00-05:00 in the
-// install's time zone), so a fix reaches everyone. System › Settings › This install switches it off.
+// Automatic updates (owner, 9 Nov 2026): every install takes GitHub's main by itself in its maintenance window, so a fix
+// reaches everyone. System › Settings › This install switches it off and sets the window.
+// The window (owner, 12 Nov 2026; app/maintenance.mjs): 00:00 to 01:00 Jakarta time unless the install sets its own. Inside
+// it the update no longer waits for an idle box (with this many schedules there is none): it goes ahead, and what it cuts
+// off is continued once the new version answers (app/resume.mjs).
 // Only code travels: skills, memory, agents, keys and settings stay on each server.
-//   node scripts/auto-update.mjs [--now]    --now skips the quiet hours and the switch (for a person running it by hand)
+//   node scripts/auto-update.mjs [--now]    --now skips the window and the switch (for a person running it by hand)
 // Two kinds of install:
 //   a Docker box (~/services.sh and .deployed-commit): runs scripts/box-deploy.sh from the new commit, the same path as a
 //     deploy: checks on a test copy, go live, real-life test, previous version back by itself if it fails.
@@ -15,6 +18,7 @@ import {execFileSync,spawn} from 'node:child_process';
 import {homedir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {windowOf,inWindow} from '../app/maintenance.mjs';
 
 const APP=path.resolve(process.env.AQEELOS_APP||path.join(path.dirname(fileURLToPath(import.meta.url)),'..'));
 const HOME=process.env.AQEELOS_HOME||homedir();
@@ -26,8 +30,10 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const git=(args,cwd=APP)=>execFileSync('git',args,{cwd,encoding:'utf8',stdio:['ignore','pipe','pipe'],timeout:300000}).trim();
 const tryGit=(args,cwd)=>{try{return git(args,cwd)}catch{return null}};
 
-// a pure rule, tested in scripts/auto-update.test.mjs
-export function inQuietHours(date,tz){let h;try{h=+new Intl.DateTimeFormat('en-GB',{hour:'2-digit',hourCycle:'h23',timeZone:tz||'UTC'}).format(date)}catch{h=date.getUTCHours()}return h>=1&&h<5}
+// a pure rule, tested in scripts/auto-update.test.mjs: may the update run now? s = the install's settings (install.json)
+export const mayUpdateNow=(date,s={})=>inWindow(date,windowOf(s));
+// the note the next start of the app reads: it was an update that restarted it (app/resume.mjs)
+function noteUpdate(){try{const d=path.join(DATA,'resume');mkdirSync(d,{recursive:true});writeFileSync(path.join(d,'planned.json'),JSON.stringify({at:Date.now(),why:'update'}))}catch{}}
 
 const read=(f,d)=>{try{return JSON.parse(readFileSync(f,'utf8'))}catch{return d}};
 const STATE=path.join(DATA,'auto-update.json');
@@ -71,14 +77,14 @@ async function updateClone(latest){
  git(['fetch','-q','origin','main']);
  if(tryGit(['merge-base','--is-ancestor',cur,latest])===null)return record('refused','This server has commits GitHub does not have ('+short(cur)+').',cur,latest);
  git(['merge','-q','--ff-only',latest]);
- try{for(const f of readdirSync(path.join(APP,'app')))if(f.endsWith('.mjs'))execFileSync(process.execPath,['--check',path.join(APP,'app',f)],{stdio:'ignore'});restartService();if(!await answers())throw Error('it did not answer after the restart')}
+ try{for(const f of readdirSync(path.join(APP,'app')))if(f.endsWith('.mjs'))execFileSync(process.execPath,['--check',path.join(APP,'app',f)],{stdio:'ignore'});noteUpdate();restartService();if(!await answers())throw Error('it did not answer after the restart')}
  catch(e){git(['reset','-q','--hard',cur]);let back=false;try{restartService();back=await answers()}catch{}state.skip=latest;
   return record('failed',e.message+'. '+(back?'The previous version is back and answers.':'Going back to the previous version did not bring it up: check the server.'),cur,latest)}
  record('updated','',cur,latest)}
 
 async function main(){const s=read(path.join(DATA,'install.json'),{});
  if(!NOW&&s.autoUpdate===false)return;
- if(!NOW&&!inQuietHours(new Date(),s.timezone||process.env.TZ||'UTC'))return;
+ if(!NOW&&!mayUpdateNow(new Date(),s))return;
  mkdirSync(DATA,{recursive:true});const L=path.join(DATA,'auto-update.lock');
  try{mkdirSync(L)}catch{if(Date.now()-statSync(L).mtimeMs<90*60000)return;rmdirSync(L);mkdirSync(L)}
  try{const repo=repoUrl();const latest=execFileSync('git',['ls-remote',repo,'refs/heads/main'],{encoding:'utf8',timeout:60000,stdio:['ignore','pipe','ignore']}).split(/\s/)[0];

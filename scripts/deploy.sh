@@ -2,6 +2,8 @@
 # Copies the app to the AI box and restarts the UI. Run from the hermes-ui folder: bash scripts/deploy.sh
 # Needs an SSH host for the box (AQ_BOX, default `ai-vps`, see ~/.ssh/config). Secrets stay on the box in ~/apps/hermes-ui.env.
 # DRY_RUN=1 bash scripts/deploy.sh: runs the local checks and builds the archives, then stops (no ssh, nothing sent).
+# Since 12 Nov 2026 a deploy no longer waits for an idle box: replies and runs in progress are journaled by aqeelOS and
+# continued by themselves once the new version answers (app/resume.mjs). WAIT_IDLE=1 bash scripts/deploy.sh waits as before.
 # Optional paths (data, mockup, PRD.md, scripts/features.mjs) are private and not in the public repo: skipped if missing.
 DRY=${DRY_RUN:-0}
 set -e
@@ -35,7 +37,7 @@ if [ "$PULL" = 1 ] && [ "${SKIP_CHECKS:-0}" != 1 ]; then
  MB=1;[ "${MB_CHECK:-}" = 0 ] && MB=0   # every deploy runs the My browser check; MB_CHECK=0 is the only skip
  ID=$(date +%s)-$$
  ssh "$AQ_BOX" "cat > /tmp/aq-deploy-$ID.sh" < scripts/box-deploy.sh && ssh "$AQ_BOX" "cat > /tmp/box-pack-$ID.sh" < scripts/box-pack.sh || { echo "✗ could not reach the box; nothing changed."; exit 1; }
- ssh "$AQ_BOX" "FLICKER_CHECK=${FLICKER_CHECK:-1} AQ_REPO=$AQ_REPO setsid nohup bash /tmp/aq-deploy-$ID.sh $SHA ${BOX_SHA:-none} ${FORCE:-0} $MB $ID </dev/null >/dev/null 2>&1 &" || { echo "✗ could not start the deploy on the box; nothing changed."; exit 1; }
+ ssh "$AQ_BOX" "FLICKER_CHECK=${FLICKER_CHECK:-1} WAIT_IDLE=${WAIT_IDLE:-0} AQ_REPO=$AQ_REPO setsid nohup bash /tmp/aq-deploy-$ID.sh $SHA ${BOX_SHA:-none} ${FORCE:-0} $MB $ID </dev/null >/dev/null 2>&1 &" || { echo "✗ could not start the deploy on the box; nothing changed."; exit 1; }
  echo "· running on the box (log /tmp/aq-deploy-$ID.log)"
  n=0; end=$(( $(date +%s) + 3600 ))
  while [ "$(date +%s)" -lt "$end" ]; do
@@ -51,10 +53,10 @@ if [ "$PULL" = 1 ] && [ "${SKIP_CHECKS:-0}" != 1 ]; then
 fi
 # the new version must pass the checks on the private test copy first (about 5 minutes; SKIP_CHECKS=1 skips them)
 [ "${SKIP_CHECKS:-0}" = 1 ] || [ "$DRY" = 1 ] || bash scripts/predeploy.sh
-# 1) Never cut off work in progress (a reply, an agent being set up, a settings change, an engine restart):
-#    wait until the box is idle. After 10 minutes the deploy is cancelled, with nothing changed on the box
-#    (FORCE=1 bash scripts/deploy.sh deploys anyway).
-[ "$DRY" = 1 ] || ssh "$AQ_BOX" "FORCE=${FORCE:-0} bash -s" < scripts/box-idle.sh
+# 1) Wait only for what cannot be continued afterwards (an agent being set up, a settings change, an engine restart, a
+#    restore): after 10 minutes the deploy is cancelled, with nothing changed on the box (FORCE=1 deploys anyway).
+#    Replies and runs in progress are not waited for; they continue by themselves after the restart. WAIT_IDLE=1 waits.
+[ "$DRY" = 1 ] || ssh "$AQ_BOX" "FORCE=${FORCE:-0} WAIT_IDLE=${WAIT_IDLE:-0} bash -s" < scripts/box-idle.sh
 # 2) Only now pack the files, so what goes live is what is here at this moment (not what was here before the wait).
 if [ -f scripts/features.mjs ]; then node scripts/features.mjs >/dev/null; fi
 ID=$(date +%s)-$$;LH=../hui-$ID.tgz;LC=../code-$ID.tgz
@@ -79,7 +81,7 @@ else
 fi
 # the commits this version holds (newest first): issues that name a fix commit close by themselves once it is live
 DC=/tmp/aq-commits-$ID; git rev-list -n 5000 HEAD | ssh "$AQ_BOX" "cat > $DC" || DC=
-ssh "$AQ_BOX" "CODE_V=$CODE_V FORCE=${FORCE:-0} HT=$HT CT=$CT HS=$HS CS=$CS SHA=$SHA BOX_SHA=$BOX_SHA DC=$DC bash -s" < scripts/box-live.sh
+ssh "$AQ_BOX" "CODE_V=$CODE_V FORCE=${FORCE:-0} WAIT_IDLE=${WAIT_IDLE:-0} HT=$HT CT=$CT HS=$HS CS=$CS SHA=$SHA BOX_SHA=$BOX_SHA DC=$DC bash -s" < scripts/box-live.sh
 
 # the update history on /backlog: recorded once the new version answers (it travels with the next deploy)
 node -e "const fs=require('fs'),f='data/deploys.json';let l=[];try{l=JSON.parse(fs.readFileSync(f,'utf8'))}catch{}let h='';try{h=require('child_process').execFileSync('git',['rev-parse','--short','HEAD'],{encoding:'utf8'}).trim()}catch{}l.push({at:new Date().toISOString(),commit:h});fs.mkdirSync('data',{recursive:true});fs.writeFileSync(f,JSON.stringify(l.slice(-200),null,1))"

@@ -25,9 +25,15 @@ trap 'rmdir /tmp/aq-live.lock 2>/dev/null' EXIT
 # another deploy went live while this one was checked and sent: it may hold work this one lacks
 NOW_SHA=$(cat ~/apps/hermes-ui/.deployed-commit 2>/dev/null || true)
 if [ "$NOW_SHA" != "$BOX_SHA" ] && [ "$NOW_SHA" != "$SHA" ]; then echo "✗ another deploy (${NOW_SHA:0:8}) went live meanwhile; nothing changed. Merge it in and deploy again."; rm -f $HT $CT; exit 1; fi
-# a reply may have started while the files were on their way: wait again right before the restart (up to 5 minutes)
-for i in $(seq 1 60); do n=$(curl -fs http://127.0.0.1:4400/healthz | grep -o '"busy":[0-9]*' | cut -d: -f2); [ "${n:-0}" = 0 ] && break; [ "$i" = 1 ] && echo "a reply started meanwhile; waiting for it…"; sleep 5; done
-n=$(curl -fs http://127.0.0.1:4400/healthz | grep -o '"busy":[0-9]*' | cut -d: -f2); if [ "${n:-0}" != 0 ] && [ "${FORCE:-0}" != 1 ]; then echo "✗ still busy; nothing changed on the box. Try again later, or FORCE=1."; rm -f $HT $CT; exit 1; fi
+# Right before the restart, once more (up to 5 minutes): what cannot be continued afterwards must be finished ("hold": an
+# agent being set up, an engine restart, a restore). Replies and runs in progress are not waited for since 12 Nov 2026:
+# aqeelOS journals them and continues them when the new version answers (app/resume.mjs). WAIT_IDLE=1 waits for them too.
+aq_n(){ local h b l n; h=$(curl -fs http://127.0.0.1:4400/healthz || true); b=$(echo "$h" | grep -o '"busy":[0-9]*' | cut -d: -f2); l=$(echo "$h" | grep -o '"live":[0-9]*' | cut -d: -f2)
+ if [ "${WAIT_IDLE:-0}" = 1 ]; then echo "${b:-0}"; return; fi
+ n=$(echo "$h" | grep -o '"hold":[0-9]*' | cut -d: -f2); [ -z "$n" ] && n=$(( ${b:-0} - ${l:-0} )); [ "$n" -lt 0 ] && n=0; echo "$n"; }
+for i in $(seq 1 60); do n=$(aq_n); [ "${n:-0}" = 0 ] && break; [ "$i" = 1 ] && echo "something that cannot be continued is in progress; waiting for it…"; sleep 5; done
+n=$(aq_n); if [ "${n:-0}" != 0 ] && [ "${FORCE:-0}" != 1 ]; then echo "✗ still busy; nothing changed on the box. Try again later, or FORCE=1."; rm -f $HT $CT; exit 1; fi
+AQ_CUT=$(curl -fs http://127.0.0.1:4400/healthz | grep -o '"inFlight":[0-9]*' | cut -d: -f2)
 # Drift guard (7 Nov 2026: the fixer patched app code on the box and the next deploy silently put the old file back).
 # Before unpacking, the live files are compared with what the box last unpacked (.deployed.tgz, kept below; before the
 # first one, the box's git copy of the commit it says it runs). Any difference is saved as DATA/drift/<time>.patch,
@@ -67,6 +73,8 @@ mkdir -p ~/apps/hermes-ui; tar -xzf $HT -C ~/apps/hermes-ui || { echo '✗ unpac
 C=~/apps/aqeel-code; mkdir -p $C; before=$(md5sum $C/package-lock.json 2>/dev/null)
 tar -xzf $CT -C $C --strip-components=1 || { echo "✗ unpacking Code failed; aqeelOS was not restarted."; exit 1; }; rm $CT; echo "$CODE_V" > $C/VERSION
 [ "$before" = "$(md5sum $C/package-lock.json 2>/dev/null)" ] || (cd $C && npm install --omit=dev --no-audit --no-fund >/dev/null 2>&1 || echo "! Code packages: npm install failed")
+# the note the new version reads when it starts: an update restarted it, so what was in progress says "interrupted by an update"
+AQ_DATA=${UI_DATA_DIR:-$HOME/apps/hermes-ui-data}; mkdir -p "$AQ_DATA/resume" && printf '{"at":%s000,"why":"update"}' "$(date +%s)" > "$AQ_DATA/resume/planned.json" || true
 tmux kill-session -t "=ui" 2>/dev/null || true   # "=" = exactly ui (a bare -t ui also matches ui-staging)
 # the box's ~/services.sh must match sessions exactly too (has-session -t "=$1"), or ui-staging keeps ui from starting (7 Nov 2026)
 node ~/apps/hermes-ui/scripts/apply-skill-patches.mjs || echo "! skill patches: see the message above"
@@ -80,3 +88,5 @@ if [ "${LIVE_TEST:-1}" != 0 ] && [ -f ~/apps/hermes-ui/scripts/live-test.mjs ]; 
  echo "$lt" | tail -12
  [ "$rc" = 0 ] || { aq_undo "the live test failed"; exit 1; }
 fi
+# what the restart cut off continues by itself (app/resume.mjs); said here so the deploy's log shows it
+w=$(curl -fs http://127.0.0.1:4400/healthz | grep -o '"waiting":[0-9]*' | cut -d: -f2); [ "${AQ_CUT:-0}" = 0 ] && [ "${w:-0}" = 0 ] || echo "· ${AQ_CUT:-0} reply(ies) were in progress at the restart; ${w:-0} thing(s) are being continued (System › Health shows the result)"
