@@ -283,7 +283,10 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
  async function giveSkills(name){const from=path.join(HERMES_HOME,'skills'),to=path.join(HERMES_HOME,'profiles',name,'skills');let n=0;
   await access(path.join(HERMES_HOME,'profiles',name,'config.yaml'));const rec=await gLoad();let ch=!rec[name];const mine=rec[name]||={};
   for(const cat of await readdir(from,{withFileTypes:true}).catch(()=>[])){if(!cat.isDirectory()||cat.name.startsWith('.'))continue;
-   for(const sk of await readdir(path.join(from,cat.name),{withFileTypes:true}).catch(()=>[])){if(!sk.isDirectory())continue;const src=path.join(from,cat.name,sk.name),dst=path.join(to,cat.name,sk.name),key=cat.name+'/'+sk.name;
+   // a skill right at the top (skills/<skill>/SKILL.md, no category) is a skill too (11 Nov 2026: threads-fast-search
+   // never reached 4 agents, the copy only looked one folder down)
+   const top=await access(path.join(from,cat.name,'SKILL.md')).then(()=>true,()=>false);
+   for(const sk of top?[{name:'',isDirectory:()=>true}]:await readdir(path.join(from,cat.name),{withFileTypes:true}).catch(()=>[])){if(!sk.isDirectory())continue;const src=path.join(from,cat.name,sk.name),dst=path.join(to,cat.name,sk.name),key=top?cat.name:cat.name+'/'+sk.name;
     if(await access(path.join(src,'SKILL.md')).then(()=>false,()=>true))continue;if(!allowed(key,name))continue;
     if(await access(dst).then(()=>true,()=>false)){if(!mine[key]){mine[key]=Date.now();ch=true}continue}
     if(mine[key])continue;   // it had it and someone took it off: it stays off
