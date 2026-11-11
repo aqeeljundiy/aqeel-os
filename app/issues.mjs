@@ -30,6 +30,8 @@ import {spawn} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
 import path from 'node:path';
 import {providerUnavailable,retryAt} from './provider-limits.mjs';
+import {beforeWindow,DEFAULT_WINDOW} from './maintenance.mjs';
+import {evHash} from './cloud-fixer.mjs';
 
 const clip=(s,n)=>String(s??'').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g,' ').slice(0,n);
 export const TRIES=3;
@@ -37,7 +39,9 @@ export const TRIES=3;
 export const urgentFor=(pol,o)=>{const u=[].concat(pol?.fixer?.urgentAgents||[]);return !!u.length&&[o?.agent,...[].concat(o?.affects||[])].some(a=>u.includes(a))};
 export const OPEN=['queued','fixing','applying','verify','verifying','rollback','reloaded-back'];
 // waiting for something (re-checked by the sweep): not in the middle of a run
-export const WAITING=['queued','open','stuck','needs_human','stopped','deploy'];
+export const WAITING=['queued','open','stuck','needs_human','stopped','deploy','cloud','cloud_wait'];
+// 12 Nov 2026: with a cloud fixer set up, a code fix to aqeelOS itself is made in Anthropic's cloud (cloud-fixer.mjs): states cloud (sent) and cloud_wait
+export const CLOUD_MAX=3;
 // how alike two problems are (shared words, ignoring the short ones): 1 is the same text
 const COMMON=new Set('that there this with from file files points does have when into were been will what which their they them need needs skill agent agents should could would make sure after before about only also than then just more some like every because still while where being other most same work works working'.split(' '));
 export function similar(a,b){const w=t=>new Set(String(t||'').toLowerCase().split(/[^a-z0-9]+/).filter(x=>x.length>3&&!COMMON.has(x)));const A=w(a),B=w(b);if(A.size<4||B.size<4)return 0;let n=0;for(const x of A)if(B.has(x))n++;return n/Math.min(A.size,B.size)}
@@ -61,9 +65,9 @@ export function whoToTell(policy,issue){const p=personOf(policy,issue?.by?.platf
  if(m)return {kind:'team',name:m.name,member:m,team:t.name};
  return {kind:'owner',name:policy?.owner?.name||'Owner'}}
 
-// the fix run's last line:   RESULT: {"status":"changed|patch|no_change|needs_human|failed","apply":"none|engine|ui","changes":[{"file","backup"}],"patches":[{"file","copy"}],"check":"…","summary":"…","proof":"…","need":"…"}
+// the fix run's last line:   RESULT: {"status":"changed|patch|no_change|needs_human|failed|code","apply":"none|engine|ui","changes":[{"file","backup"}],"patches":[{"file","copy"}],"check":"…","summary":"…","proof":"…","need":"…"}
 // the proof run's last line: RESULT: {"status":"proven|not_proven","proof":"…","need":"…"}
-const FIX=['changed','patch','no_change','needs_human','failed'],PROOF=['proven','not_proven'];
+const FIX=['changed','patch','no_change','needs_human','failed','code'],PROOF=['proven','not_proven'];
 export function parseResult(out,kind='fix'){const m=[...String(out||'').matchAll(/RESULT:\s*(\{[^\n]*\})/g)].pop();if(!m)return null;let j;try{j=JSON.parse(m[1])}catch{return null}
  // older wording from a run that was going when this was deployed
  if(j.status==='fixed')j.status=kind==='proof'?'proven':'changed';if(j.status==='needs_owner')j.status='needs_human';
@@ -120,7 +124,9 @@ const DELIVERY_PROOF='A picture (QRIS, product photo) that does not reach the ph
 const KIRIM_TEST='on a real agent, a real reply it delivered after the change (~/apps/hermes-ui-data/kirimdev-state.json "ours", the log lines "kirimdev <agent>"); none yet means not proven yet. Only on a test agent you may write as a tester: never ask a person to write from a tester phone, run node ~/apps/hermes-ui/scripts/kirimdev-test-message.mjs <agent> "<text>" (optionally --tester <name>). It posts the same signed webhook Kirimdev posts when a customer writes, as one of the line\'s testers, to this box; the agent then answers that tester for real through Kirimdev. Check the reply was sent (~/apps/hermes-ui-data/kirimdev-state.json "ours", and the log lines "kirimdev <agent>"). Only testers, never a customer number; the script refuses a real agent';
 // the code-change rule when the fixer has its own git work dir (fixer-git.mjs)
 export const gitRule=(i,g)=>'- aqeelOS\'s own code is NEVER changed in the live folders (~/apps/hermes-ui, ~/.hermes/hermes-agent), urgent or not: the next deploy would put the old file back and nobody would have reviewed it. Your own git checkout for this issue is '+g.dir+' (branch '+g.branch+', cut from main). Change the app code (app/, scripts/, engine/, assets/) there and nowhere else. Do not commit or push: aqeelOS commits the branch and opens the pull request. Run the tests there (node --test scripts/<name>.test.mjs). Then prove it on the test copy: bash '+g.dir+'/scripts/fixer-testcopy.sh '+g.dir+' starts the checkout as the private test copy on port 4402 (its own password and data, never the live app); rerun the original check against http://127.0.0.1:4402 and paste what you saw in "proof". Use status "patch" and name the changed files in "summary". '+(i.urgent?'This issue is URGENT: say so in "summary"; it still goes through the pull request. ':'')+'The engine source ~/.hermes/hermes-agent is never changed in place either: copy the file to ~/apps/hermes-ui-data/fixer-work/'+i.id+'/<its full path without the leading slash>, change and check the copy, and list it in "patches" as {"file":"<live path>","copy":"<copy path>"}; aqeelOS makes it an engine/patches file in the same pull request. The change goes live only when a person merges the pull request and the next deploy runs; aqeelOS then checks the problem again. If the same fix is already waiting as a branch or pull request (System › Health › Fixes waiting for review), say so with status "no_change".';
-export function fixerPrompt(i,{rules='',day=new Date().toISOString().slice(0,10).replace(/-/g,''),attempt=1,tries=TRIES,git=null}={}){
+// with a cloud fixer the server writes no code at all: it diagnoses, and does the repairs that need none
+export const cloudRule=i=>'- You do NOT write or change aqeelOS\'s own code (~/apps/hermes-ui app/, scripts/, engine/, the engine source ~/.hermes/hermes-agent), not even a copy or a patch: a Claude Code routine in the cloud writes code fixes and opens the pull request. You diagnose, and you do the repairs that need no code: reconnect a tool, rerun a schedule, fix a permission, restart a stuck part the safe way (see apply). If the fix needs a code change, change nothing and end with status "code": put the root cause and the files you suspect in "summary", and how to prove it in "check".';
+export function fixerPrompt(i,{rules='',day=new Date().toISOString().slice(0,10).replace(/-/g,''),attempt=1,tries=TRIES,git=null,cloud=false}={}){
  const past=(i.history||[]).filter(h=>h.kind==='fix').map((h,n)=>'Try '+(n+1)+': '+(h.summary||'-')+(h.outcome?' → '+h.outcome:'')+(h.proof?' (proof run: '+clip(h.proof,400)+')':'')).join('\n');
  return [
  'You are the aqeelOS fixer: a headless coding run on this server. Nobody is chatting with you and nobody approves anything: fix ONE issue by yourself, then stop.',
@@ -143,7 +149,7 @@ export function fixerPrompt(i,{rules='',day=new Date().toISOString().slice(0,10)
  '- Write in "check" exactly how to rerun the ORIGINAL failing check end to end after the reload (the real thing that failed, not a unit test). For a Kirimdev reply problem: '+KIRIM_TEST+'.',
  '- '+NO_LIVE_TEST+'.',
  '- '+DELIVERY_PROOF+'. Write that command in "check" when the problem is a picture that did not arrive.',
- git?gitRule(i,git):i.urgent?'- aqeelOS\'s own code lives in git: ~/apps/hermes-ui (app/, scripts/, engine/) and the engine source ~/.hermes/hermes-agent are replaced by the next deploy. This issue is URGENT (an outage), so you may change those files on the box (back them up as above). Keep the change small. Once it is proven, aqeelOS saves it as ~/apps/hermes-ui-data/fixer-patches/'+i.id+'-try<n>.patch for git; say in "summary" that it is a code change and name the file. Never commit or push. First look in ~/apps/hermes-ui-data/fixer-patches and ~/apps/hermes-ui-data/drift: if the same fix was made before and a deploy put the old file back, apply that patch again and say so.'
+ cloud?cloudRule(i):git?gitRule(i,git):i.urgent?'- aqeelOS\'s own code lives in git: ~/apps/hermes-ui (app/, scripts/, engine/) and the engine source ~/.hermes/hermes-agent are replaced by the next deploy. This issue is URGENT (an outage), so you may change those files on the box (back them up as above). Keep the change small. Once it is proven, aqeelOS saves it as ~/apps/hermes-ui-data/fixer-patches/'+i.id+'-try<n>.patch for git; say in "summary" that it is a code change and name the file. Never commit or push. First look in ~/apps/hermes-ui-data/fixer-patches and ~/apps/hermes-ui-data/drift: if the same fix was made before and a deploy put the old file back, apply that patch again and say so.'
   :'- Nobody edits aqeelOS\'s live code by hand, you included. Its code (~/apps/hermes-ui app/, scripts/, engine/, and the engine source ~/.hermes/hermes-agent) is never changed in place: copy the file to ~/apps/hermes-ui-data/fixer-work/'+i.id+'/<its full path without the leading slash>, change and check the copy (node --check, or the test against a copy), and list it in "patches" as {"file":"<live path>","copy":"<copy path>"} with status "patch". aqeelOS files it as ~/apps/hermes-ui-data/fixer-patches/'+i.id+'-try<n>.patch for the daily deploy and checks the problem again after that deploy. A live code file you change anyway is put back and filed the same way. Never commit or push. First look in ~/apps/hermes-ui-data/fixer-patches and ~/apps/hermes-ui-data/drift: the same fix may be filed already; then say so with status "patch" and that patch\'s file in "patches".',
  '- If you find nothing to change (it already works), use status "no_change": a proof run still has to show it works.',
  '- A skill that points to a file that is not there (Health kind skill): find the file and put it back in every skill folder listed. Look in this order: the *.bak* copies next to it, other agents\' copies of the same skill (~/.hermes/profiles/*/skills and ~/.hermes/skills), ~/.hermes/backups and ~/apps/hermes-ui-data backups, the skill\'s git history if it has one. Only if it is nowhere, change the SKILL.md so it no longer needs the file (remove or replace that step); never invent the file\'s content. The check: every file each SKILL.md points to exists (node ~/apps/hermes-ui/scripts/skill-check.mjs <skill folder> lists what is still missing; nothing listed means proven).',
@@ -186,7 +192,7 @@ export function lineOf(items,t){return items.filter(i=>(i.state==='verify'||i.st
 export function dayIn(t,tz){try{return new Intl.DateTimeFormat('en-CA',{timeZone:tz||undefined,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(t))}catch{return new Date(t).toISOString().slice(0,10)}}
 export function nextDay(t,tz){const d=dayIn(t,tz);let x=t;while(dayIn(x+3600e3,tz)===d&&x-t<49*3600e3)x+=3600e3;while(dayIn(x,tz)===d)x+=60e3;return x-(x%60e3)}
 // a short plain line for a person: what one issue is, from what the sorter wrote, else the problem text
-const SORT_KINDS=['fixer','person','duplicate'];
+const SORT_KINDS=['fixer','person','duplicate','code'];
 export function parseSort(out){const m=[...String(out||'').matchAll(/SORT:\s*(\{[^\n]*\})/g)].pop();if(!m)return null;let j;try{j=JSON.parse(m[1])}catch{return null}
  if(!SORT_KINDS.includes(j.kind))return null;
  return {kind:j.kind,duplicateOf:/^i[0-9a-f]{8}$/.test(String(j.duplicateOf||''))?j.duplicateOf:null,title:clip(j.title,140).trim(),need:clip(j.need,600).trim(),group:clip(j.group,80).trim()}}
@@ -197,10 +203,11 @@ export function sortPrompt(i,others){return [
  '','Decide:',
  '- "duplicate" if one open problem above is the same problem (the same cause and the same fix; the same thing for another agent counts too, for example one app that needs signing in again). Put its id in duplicateOf.',
  '- "person" only if nothing on the server can fix it and a person must physically act: pay, give a key or login only they have, sign in to an app, add a bot to a group, or make a decision only the owner can make. Never for an approval, never for something technical (errors, crashes, limits, timeouts, code). Put in need what they must do, in one plain sentence.',
+ '- "code" if the problem is a bug in aqeelOS\'s own code (its app, scripts or engine) that only a code change can fix; a problem a reconnect, a rerun, a permission or a restart can fix is "fixer".',
  '- "fixer" for everything else.',
  'title: the problem in plain words a non-technical owner understands, at most 12 words, no ids, key names, file paths or versions.',
  'group: for "person", a short name of the task that stays the same across agents (for example "Sign in to Higgsfield again"); otherwise empty.',
- '','The line (JSON on one line):','SORT: {"kind":"fixer|person|duplicate","duplicateOf":"","title":"","need":"","group":""}'].join('\n')}
+ '','The line (JSON on one line):','SORT: {"kind":"fixer|person|duplicate|code","duplicateOf":"","title":"","need":"","group":""}'].join('\n')}
 
 export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=async()=>false,tellOwner=async()=>{},toTeam=async()=>false,busy=async()=>0,ready=async()=>true,
  apply=async()=>({ok:true}),usageOf=async()=>null,nameOf=a=>a,codeRoots=[],onFixed=async()=>{},checks={},quiet=()=>null,log=m=>console.log(m),launch=null,alive=null,envFiles=async()=>[],
@@ -208,6 +215,8 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  tz=()=>'',sortRun=null,
  // GIT-2: the fixer's own git checkout (fixer-git.mjs); needToken / tokenOk: the one "Needs you" item that asks for the GitHub token
  git=null,needToken=async()=>{},tokenOk=async()=>{},
+ // 12 Nov 2026: the cloud fixer (cloud-fixer.mjs); needCloud / cloudOk: the one "Needs you" item that asks to set it up; window: the maintenance window; onLimit(agent, text): an answer that said a Claude account hit a limit
+ cloud=null,needCloud=async()=>{},cloudOk=async()=>{},window=()=>DEFAULT_WINDOW,onLimit=async()=>{},
  // limits: the shared "AI provider not available" state (provider-limits.mjs); nothing that needs a model starts while it holds
  limits=null,
  // kept for older callers (the Approve/Decline flow is gone)
@@ -242,14 +251,16 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
 // an issue: o = {agent, what, missing, evidence, proposed_fix, affects, needs, source, healthKey, origin:{platform, uid, who, chat, thread}}
  const file=o=>queue(async()=>{await load();const pol=await policy();const m=clip(o.missing,500).trim();if(!m)throw Error('Say what is broken (missing).');
   const key=o.healthKey?'health|'+o.healthKey:o.agent+'|'+m.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().slice(0,100);
-  let i=db.items.find(x=>x.key===key&&(OPEN.includes(x.state)||['needs_human','stopped','open','deploy'].includes(x.state)));
+  let i=db.items.find(x=>x.key===key&&(OPEN.includes(x.state)||['needs_human','stopped','open','deploy','cloud','cloud_wait'].includes(x.state)));
   // filed again while it waited for a person: they may have done it, so the fixer tries again
-  if(i){i.count++;i.updated=now();if(o.evidence)i.evidence=clip(o.evidence,2000);if((i.state==='needs_human'||i.state==='open'&&pol.fixer?.on!==false)&&!i.noRetry&&!i.capped){i.state='queued';i.tries=0}await save();return {issue:view(i),again:true}}
+  if(i){i.count++;i.updated=now();const newEv=i.cloud&&o.evidence&&evHash(clip(o.evidence,2000))!==i.cloud.ev;if(o.evidence)i.evidence=clip(o.evidence,2000);
+   // sent to the cloud fixer once; again only on new evidence (after a merged fix: at once; else at most every 6 hours)
+   if(i.state==='cloud'&&newEv&&(i.cloud.merged||now()-(i.cloud.sentAt||0)>6*3600e3)){await cloudAgain(i,i.cloud.merged?'':'new evidence came in');await save();return {issue:view(i),again:true}}if((i.state==='needs_human'||i.state==='open'&&pol.fixer?.on!==false)&&!i.noRetry&&!i.capped){i.state='queued';i.tries=0}await save();return {issue:view(i),again:true}}
   // filed again after the sorter merged it into another issue that is still open: that one counts it, no new sorting
   {const g=db.items.find(x=>x.key===key&&x.mergedInto),to=g&&db.items.find(x=>x.id===g.mergedInto);
    if(to&&[...OPEN,'needs_human','open','deploy','stuck'].includes(to.state)){to.count=(to.count||1)+1;to.updated=now();await save();return {issue:view(to),again:true,merged:true}}}
   // HEALTH-9: the same problem for the same agent in other words joins the open one (the sorter also merges across agents)
-  if(!o.healthKey){const d=db.items.find(x=>x.agent===o.agent&&[...OPEN,'queued','needs_human','open','deploy'].includes(x.state)&&similar(x.missing,m)>=0.8);
+  if(!o.healthKey){const d=db.items.find(x=>x.agent===o.agent&&[...OPEN,'queued','needs_human','open','deploy','cloud','cloud_wait'].includes(x.state)&&similar(x.missing,m)>=0.8);
    if(d){merge(d,{agent:o.agent,missing:m,evidence:o.evidence,at:now()});await save();log('issue merged into '+d.id+' (same problem)');return {issue:view(d),again:true,merged:true}}}
   const by=o.origin||{},p=personOf(pol,by.platform,by.uid);
   i={id:'i'+randomBytes(4).toString('hex'),key,agent:o.agent,source:o.source||(p?'person':'agent'),what:clip(o.what,400),missing:m,evidence:clip(o.evidence,2000),proposed_fix:clip(o.proposed_fix,1000),
@@ -293,6 +304,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
     i.state='closed';i.mergedInto=to.id;i.updated=now();i.history.push({kind:'sorted',at:now(),status:'merged',summary:'The same problem as '+to.id+'; merged into it.'});await save();log('issues: '+i.id+' merged into '+to.id);return}
    if(s?.kind==='person'&&s.need&&!noPersonNeeded(s.need)&&i.state==='queued'&&!i.tries){i.state='needs_human';i.need=s.need;i.group=s.group||null;i.history.push({kind:'sorted',at:now(),status:'needs_human',summary:s.need});await save();
     const w=await tell(i,nameOf(i.agent)+' needs a person\n\nProblem: '+(i.title||i.missing)+'\nWhat is needed: '+s.need+'\n\naqeelOS does the rest by itself once this is done (System › Health).');i.told=w;await save();log('issues: '+i.id+' sorted: needs a person, told '+w);return}
+   if(s?.kind==='code'&&i.state==='queued'&&!i.tries){if(await cloud?.ready().catch(()=>false)){await toCloud(i,{why:'sorted as a bug in aqeelOS\'s own code'});return}await noteCloud()}   // no cloud fixer: the older way below
    if(s?.kind==='person'&&s.group&&i.state==='needs_human')i.group=s.group;
    // the same problem as an open one, but this one already had tries of its own: kept apart, linked, so Needs you shows one card
    // never a loop: no link to an item whose own links lead back here
@@ -308,11 +320,12 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   return n});
  let sweptAt=0;
  const sweep=(force=false)=>queue(async()=>{await load();if(!force&&now()-sweptAt<10*60e3)return 0;sweptAt=now();let n=0;const pol=await policy();
-  for(const i of db.items){if(!WAITING.includes(i.state)||i.healthKey&&!['stuck','deploy'].includes(i.state))continue;   // Health items: healthGone
+  for(const i of db.items){if(!WAITING.includes(i.state)||i.healthKey&&!['stuck','deploy','cloud'].includes(i.state))continue;   // Health items: healthGone
    // a planned test (the ladder proof and the like) is not a problem to keep: closed at once
    if(/PLANNED TEST|planned (?:ladder )?test|ladder[- ]proof/i.test([i.missing,i.evidence].join(' '))){i.state='closed';i.updated=now();i.result={...(i.result||{}),summary:'Test item, closed.'};
     i.history.push({kind:'resolved',at:now(),summary:'Test item, closed.'});await save();log('issues: '+i.id+' test item, closed');n++;continue}
    const why=await whyGone(i).catch(e=>{log('issues: sweep '+i.id+': '+e.message);return null});if(why){await resolved(i,why);n++;continue}
+   if(i.state==='cloud'){if(await cloudCheck(i).catch(e=>{log('issues: cloud check '+i.id+': '+e.message);return false}))n++;continue}
    // a stuck issue whose files a deploy changed since: one proof run checks whether the problem is gone now
    // a fix filed as a patch for the daily deploy (state deploy): the same, once a deploy changed the files it patches
    if((i.state==='stuck'||i.state==='deploy')&&!i.recheck&&checks.changedSince){const files=[...new Set(i.history.flatMap(h=>[...(h.changes||[]).map(c=>c.file),...(h.patchFiles||[])]))];const since=Math.max(i.state==='deploy'?i.patchedAt||0:i.updated||0,i.recheckedAt||0);
@@ -320,7 +333,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
      // a deploy does not start proofs for an issue at its cap: once a person is asked, nothing more runs; at the daily cap it waits a day
      const cp=capHit(db.runs,i,'proof',pol,today());if(cp==='total'){await capOut(i,pol);n++;continue}if(cp==='day')continue;const dep=i.state==='deploy';i.recheck=dep?'deploy':true;i.state='verify';i.updated=now();await save();log('issues: '+i.id+(dep?' its patch waited for a deploy, and a deploy changed its files':' stuck, but a deploy changed its files')+': a proof run checks it again');continue}}
    // nothing left to check for 7 days: it leaves quietly, to the Activity log
-   if(!checkable(i)&&now()-(i.updated||i.created||0)>7*864e5){i.state='expired';i.updated=now();i.history.push({kind:'expired',at:now(),summary:'No check could tell whether it was solved; closed after 7 days.'});await save();
+   if(!i.cloud&&!checkable(i)&&now()-(i.updated||i.created||0)>7*864e5){i.state='expired';i.updated=now();i.history.push({kind:'expired',at:now(),summary:'No check could tell whether it was solved; closed after 7 days.'});await save();
     await (checks.activity?checks.activity(nameOf(i.agent)+': '+clip(i.missing,120)+' closed after 7 days with nothing left to check',i):null)?.catch?.(()=>{});n++}}
   return n});
  // the condition an item is about, checked again: the duplicate's original is closed, an app it needed a sign-in for
@@ -363,7 +376,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   const now_=ci?{...card(ci),kind:cur.kind||'fix',step:cur.kind==='proof'?'prove':'fix',model:cur.model||null,effort:cur.effort||null,at:cur.at,minutes:cur.kind==='proof'?Math.min(30,pol.fixer?.proof_minutes||15):Math.min(40,pol.fixer?.minutes||25)}:null;
   const wait=ap?{...card(ap),step:step(ap.state),kind:ap.applyKind||'engine',since:ap.waitingSince||ap.updated,back:ap.state!=='applying',quiet:engineOk(),
    model:db.runs[ap.run]?.model||null,effort:db.runs[ap.run]?.effort||null}:null;
-  return {on:pol.fixer?.on!==false,paused:db.pause||null,provider:limits?.hold?.()||null,now:now_,wait,cap:{used,cap,resetAt:nextDay(t,tz())},quiet:{from:1,to:5},
+  return {cloud:await cloudStatus().catch(()=>null),on:pol.fixer?.on!==false,paused:db.pause||null,provider:limits?.hold?.()||null,now:now_,wait,cap:{used,cap,resetAt:nextDay(t,tz())},quiet:{from:1,to:5},
    line:lineOf(db.items,t).map(card),skipped:db.items.filter(i=>i.skipUntil>t&&['queued','verify'].includes(i.state)).map(card),
    sorting:db.items.filter(i=>i.sorting).length,stuck:db.items.filter(i=>i.state==='stuck'&&!i.need).map(card)}}
  // move one place up or down in the line; the two swap their places
@@ -383,7 +396,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  const today=()=>dayIn(now(),tz());
  const fixRunsToday=()=>Object.values(db.runs).filter(r=>r.day===today()&&r.kind!=='proof'&&!r.notStarted).length;
  // switched off (fixer.on false): a run already going still has its result saved; nothing new starts and nothing reloads
- async function tick(){if(running)return;running=true;try{await load();const pol=await policy();await sweep().catch(e=>log('issues: sweep: '+e.message));await publishWaiting().catch(e=>log('issues: publish: '+e.message));
+ async function tick(){if(running)return;running=true;try{await load();const pol=await policy();await sweep().catch(e=>log('issues: sweep: '+e.message));await publishWaiting().catch(e=>log('issues: publish: '+e.message));await cloudTick(pol).catch(e=>log('issues: cloud: '+e.message));
   sortNext().catch(e=>log('issues: sort: '+e.message));
   const cur=Object.values(db.runs).find(r=>!r.done);if(cur)return await check(cur,pol);if(pol.fixer?.on===false||db.pause)return;
   // a change waiting to be reloaded or rolled back comes first
@@ -409,6 +422,33 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
    if(cp==='total'){await capOut(i,pol);continue}if(cp==='day'){i.notBefore=nextDay(now(),tz());await save();continue}
    if(kind==='proof')return await start(i,pol,'proof');
    if(!i.urgent&&(held||capped))continue;return await start(i,pol,'fix')}}finally{running=null}}
+ // ---- the cloud fixer: sent once, again only on new evidence or Try again; the nightly batch sends what waits; a fix that did not hold is sent again, up to CLOUD_MAX
+ const fixBit=f=>f?{summary:clip(f.summary,800),check:clip(f.check,800),proof:clip(f.proof,800)}:null;
+ async function toCloud(i,o={}){const prev=i.cloud||{},fix=o.fix||prev.fix||null;
+  const r=await cloud.fire(i,{why:o.why||prev.pending||'',fix,prev:prev.merged}).catch(e=>({ok:false,until:now()+30*60e3,why:e.message}));i.updated=now();
+  if(r.ok){i.state='cloud';i.cloud={...prev,sends:(prev.sends||0)+1,sentAt:now(),session:r.session,url:r.url,account:r.account,label:r.label,ev:evHash(i.evidence),wait:null,waitUntil:0,pending:null,merged:null,deployedAt:0,prs:[...(prev.prs||[]),...(prev.merged?[prev.merged.url]:[])],fix:fixBit(fix)};
+   i.history.push({kind:'cloud',at:now(),status:'sent',summary:'Sent to the cloud fixer ('+r.label+')'+(o.why?': '+clip(o.why,200):''),url:r.url});await save();return true}
+  i.state='cloud_wait';i.cloud={...prev,wait:clip(r.why,200),waitUntil:r.until||0,pending:o.why||prev.pending||'',ev:prev.ev||evHash(i.evidence),fix:fixBit(fix)};
+  if(!prev.waitNoted){i.cloud.waitNoted=true;i.history.push({kind:'cloud',at:now(),status:'waiting',summary:'Waits for the cloud fixer: '+clip(r.why,200)})}await save();return false}
+ // the same issue again: sent again (state cloud_wait, the tick sends it), or a person is asked after CLOUD_MAX sends
+ async function cloudAgain(i,why,byPerson=false){const c=i.cloud||(i.cloud={}),pol=await policy(),max=Number(pol.fixer?.cloudMax)>0?Math.floor(pol.fixer.cloudMax):CLOUD_MAX;
+  why=why||'the previous fix ('+(c.merged?.url||'its pull request')+') did not hold';
+  if(!byPerson&&(c.sends||0)>=max){i.state='needs_human';i.need='The cloud fixer was sent this '+c.sends+' times ('+(c.prs||[]).concat(c.merged?.url||[]).filter(Boolean).join(', ')+') and the problem is still there. A person must look at it. Try again starts a fresh count.';i.updated=now();
+   i.history.push({kind:'cloud',at:now(),status:'needs_human',summary:'Sent '+c.sends+' times and still there'});await save();const to=await tell(i,nameOf(i.agent)+': the cloud fixer could not fix this\n\nProblem: '+i.missing+'\nWhat is needed from you: '+i.need);i.told=to;await save();return}
+  i.state='cloud_wait';c.pending=why;c.waitUntil=0;c.deployedAt=0;i.updated=now();i.history.push({kind:'cloud',at:now(),status:'again',summary:'To be sent again: '+clip(why,200)});await save()}
+ // the merged pull request, and whether a deploy took it; Health items are checked again by Health itself
+ async function cloudCheck(i){const c=i.cloud||{};
+  if(!c.merged){const m=await cloud.merged(i.id);if(!m)return false;c.merged={url:m.url||null,number:m.number||null,sha:m.sha||null,deployed:!!m.deployed,at:now()};i.history.push({kind:'cloud',at:now(),status:'merged',summary:'The fix was merged'+(m.url?': '+m.url:''),url:m.url});await save()}
+  if(!c.deployedAt){const dep=c.merged.deployed||(c.merged.sha&&checks.commitLive?await checks.commitLive(c.merged.sha).catch(()=>false):false);if(!dep)return false;c.deployedAt=now();c.merged.deployed=true;
+   // no model for Health items: Health looks again by itself. The others get one proof run.
+   if(!i.healthKey){i.state='verify';i.recheck='deploy';i.updated=now();await save();log('issues: '+i.id+' the cloud fix is deployed: a proof run checks it');return true}await save();return false}
+  if(i.healthKey&&now()-c.deployedAt>30*60e3){await cloudAgain(i);return true}return false}
+ async function noteCloud(){if(db.cloudAsked)return;db.cloudAsked=now();await save();await needCloud().catch(e=>log('issues: cloud note: '+e.message))}
+ async function cloudTick(pol){if(!cloud)return;const on=await cloud.ready().catch(()=>false);if(!on)return;if(db.cloudAsked){db.cloudAsked=0;await save();await cloudOk().catch(()=>{})}
+  const batch=beforeWindow(new Date(now()),window())&&db.cloudBatch!==today();if(batch){db.cloudBatch=today();await save()}
+  for(const i of db.items.filter(x=>x.state==='cloud_wait'))if(batch||!(i.cloud?.waitUntil>now()))await toCloud(i,{why:i.cloud?.pending||'',fix:i.cloud?.fix})}
+ async function cloudStatus(){if(!cloud)return null;const on=await cloud.ready().catch(()=>false),c=db.items.filter(x=>x.cloud);
+  return {on,sent:c.filter(x=>x.cloud.sends>0).length,merged:c.filter(x=>x.cloud.merged||x.cloud.prs?.length).length,waiting:c.filter(x=>x.state==='cloud_wait').length,using:on?(await cloud.pick().catch(()=>null))?.best?.label||null:null}}
  // an issue at its total cap becomes one "needs a person" item, once (it is not queued again by new reports; Try again gives a fresh count)
  async function capOut(i,pol){if(i.capped)return;const c=runCounts(db.runs,i,today()),m=runCaps(pol);
   i.capped={at:now(),proofs:c.proofTotal,fixes:c.fixTotal};i.state='needs_human';i.updated=now();i.notBefore=0;
@@ -417,8 +457,8 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   const to=await tell(i,nameOf(i.agent)+': aqeelOS stopped trying to fix this by itself\n\nProblem: '+i.missing+'\nWhat is needed from you: '+i.need);i.told=to;await save();log('issues: '+i.id+' at its run limit ('+c.fixTotal+' fix, '+c.proofTotal+' proof); needs a person, told '+to)}
  async function start(i,pol,kind){const n=kind==='fix'?i.tries+1:i.tries,id=i.id+'-'+n+(kind==='proof'?'p':''),dir=path.join(DIR,id);await mkdir(dir,{recursive:true,mode:0o700});
   const last=i.history.filter(h=>h.kind==='fix').at(-1);
-  let gw=null;if(git&&kind==='fix'){gw=await git.prepare(i.id).catch(e=>({ok:false,why:e.message}));if(!gw.ok){log('issues: '+i.id+' no git work dir ('+gw.why+'); the older patch-file way');gw=null}}
-  await writeFile(path.join(dir,'prompt.txt'),kind==='fix'?fixerPrompt(i,{rules:pol.fixer?.rules||'',attempt:n,git:gw}):proofPrompt(i,last,{reloaded:i.applied||null,recheck:!!i.recheck,deployed:i.recheck==='deploy'}),{mode:0o600});
+  const cl=kind==='fix'&&!!await cloud?.ready().catch(()=>false);let gw=null;if(git&&kind==='fix'&&!cl){gw=await git.prepare(i.id).catch(e=>({ok:false,why:e.message}));if(!gw.ok){log('issues: '+i.id+' no git work dir ('+gw.why+'); the older patch-file way');gw=null}}
+  await writeFile(path.join(dir,'prompt.txt'),kind==='fix'?fixerPrompt(i,{rules:pol.fixer?.rules||'',attempt:n,git:gw,cloud:cl}):proofPrompt(i,last,{reloaded:i.applied||null,recheck:!!i.recheck,deployed:i.recheck==='deploy'}),{mode:0o600});
   if(kind==='fix'){i.tries=n;i.state='fixing'}else i.state='verifying';i.run=id;i.updated=now();
   const mdl=fixerModel(pol,kind,n);const r={id,issue:i.id,kind,day:today(),at:now(),agent:pol.fixer?.agent||'default',...(mdl.model?{model:mdl.model}:{}),...(mdl.effort?{effort:mdl.effort}:{})};if(gw)r.git={dir:gw.dir,branch:gw.branch};db.runs[id]=r;await save();
   const minutes=kind==='fix'?Math.min(40,pol.fixer?.minutes||25):Math.min(30,pol.fixer?.proof_minutes||15);
@@ -524,7 +564,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   if(!i){await save();return}i.updated=now();
   // the AI provider was not available (limit, used up, no model reachable): inconclusive, not a try, again after the reset time
   {const lim=(i.unavail||0)<6&&runUnavailable(out,res,now());if(lim){r.notStarted=r.inconclusive=true;i.unavail=(i.unavail||0)+1;if(kind==='fix'){i.tries--;await rollBack(res?.changes)}
-   const at=retryAt(lim,{now:now()});limits?.set(at,lim.why,lim.kind);i.notBefore=at;
+   Promise.resolve(onLimit(r.agent,out)).catch(()=>{});const at=retryAt(lim,{now:now()});limits?.set(at,lim.why,lim.kind);i.notBefore=at;
    if(kind==='fix'&&i.noRetry){await save();return await afterTry(i)}i.state=kind==='fix'?'queued':'verify';await save();log('issues: '+r.id+' inconclusive, the AI provider is not available ('+lim.kind+'); again at '+new Date(at).toISOString());return}
   i.unavail=0}
   // never reached the model: not a try; again in 5 minutes
@@ -539,6 +579,9 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
     const to=await tell(i,nameOf(i.agent)+' needs a person for a fix\n\nProblem: '+i.missing+'\nWhat is needed: '+(i.need||'-')+'\n\naqeelOS fixes the rest by itself once this is done (issue '+i.id+' on System › Health).');i.told=to;await save();log('issues: '+i.id+' needs a human, told '+to);return}
    // put back before it was ever reloaded: nothing to reload
    if(fr.status==='failed'){await rollBack(fr.changes);h.outcome='failed, rolled back';return await nextTry(i,null)}
+   // with a cloud fixer the server writes no code: a code change goes to the cloud, whatever the run left (put back first)
+   if(await cloud?.ready().catch(()=>false)){if(fr.status==='code'||fr.status==='patch'||fr.patches.length||fr.changes.some(c=>codeRoot(c.file))){await rollBack(fr.changes);i.tries--;h.outcome='needs a code change: handed to the cloud fixer';await toCloud(i,{fix:fr,why:'the server fixer diagnosed a code change'});return}}
+   else if(fr.status==='code'){await rollBack(fr.changes);h.outcome='needs a code change, and no cloud fixer is set up';await noteCloud();return await nextTry(i,null)}
    const bad=await guard(fr);
    if(bad.length){const back=await rollBack(fr.changes);h.outcome='unsafe ('+bad.join('; ')+'), '+(back.length?'put back':'nothing to put back');log('issues: '+i.id+' try '+i.tries+' broke a rule: '+bad.join('; '));return await nextTry(i,null)}
    // 8 Nov 2026: not urgent and it touches aqeelOS's code: filed as a patch for the daily deploy, nothing stays live
@@ -555,6 +598,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   if(i.recheck==='deploy'){i.recheck=false;i.recheckedAt=now();i.rechecks=(i.rechecks||0)+1;
    if(pr.status==='proven'){i.state='fixed';i.fixed=now();i.proof=pr.proof;i.result={...(i.result||{}),status:'fixed',proof:pr.proof,summary:clip('Fixed by the daily deploy ('+(i.patch||'its patch')+'). '+(i.result?.summary||''),1600)};if(last)last.outcome='proven after the deploy';
     await save();log('issues: '+i.id+' fixed by the deploy and proven');await onFixed(view(i)).catch(e=>log('issues: '+i.id+' after the fix: '+e.message));return}
+   if(i.cloud)return await cloudAgain(i);   // the merged fix is deployed and the problem is still there
    // not in that deploy, or not enough: it keeps waiting for the next one; after 3 deploys it is stuck (nobody told)
    i.state=i.rechecks>=TRIES?'stuck':'deploy';await save();log('issues: '+i.id+' not proven after the deploy ('+i.rechecks+'), '+i.state);return}
   if(i.recheck){i.recheck=false;i.recheckedAt=now();if(pr.status==='proven')return await resolved(i,'a recheck after a deploy proved it gone: '+clip(pr.proof,600));i.state='stuck';await save();return}
@@ -587,7 +631,8 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   if(!r?.ok){if(kind==='ui'){i.state=back?'rollback':'applying';await save()}log('issues: '+i.id+' reload waits: '+(r?.why||'not done'));return}
   i.applied=kind;i.waitingSince=null;if(back)return await afterTry(i);i.state='verify';await save();log('issues: '+i.id+' reloaded ('+kind+')')}
  // "Try again" on Health (after a person did what was needed, or for a stuck one): a fresh set of tries
- const retry=id=>queue(async()=>{await load();const i=db.items.find(x=>x.id===id);if(!i||OPEN.includes(i.state))return i?view(i):null;i.state='queued';i.tries=0;i.notBefore=0;i.noRetry=i.closeAfter=false;i.unavail=0;if(i.capped){delete i.capped;i.runBase={...runCounts(db.runs,{id:i.id},today()),day:today()}}i.updated=now();await save();return view(i)});
+ const retry=id=>queue(async()=>{await load();const i=db.items.find(x=>x.id===id);if(!i||OPEN.includes(i.state))return i?view(i):null;
+  if(i.cloud&&['cloud','cloud_wait','needs_human'].includes(i.state)){i.cloud.sends=0;await cloudAgain(i,'a person pressed Try again',true);return view(i)}i.state='queued';i.tries=0;i.notBefore=0;i.noRetry=i.closeAfter=false;i.unavail=0;if(i.capped){delete i.capped;i.runBase={...runCounts(db.runs,{id:i.id},today()),day:today()}}i.updated=now();await save();return view(i)});
  // Stop retrying (System › Health): a queued one stops now; one in the middle of a try finishes that try (a proven fix
  // still counts as fixed, a change that fails its proof is still put back) and then stops
  const IDLE=['queued','open','needs_human','stuck','failed'];
