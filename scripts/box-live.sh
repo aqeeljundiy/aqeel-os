@@ -44,7 +44,7 @@ aq_drift(){ local L=${AQ_LIVE:-$HOME/apps/hermes-ui} D=${AQ_DRIFT_DATA:-${UI_DAT
   find "$L/$d" -type f -newer "$L/.deployed-commit" ! -name '*.bak*' ! -name '*.prev' ! -name '*.orig' ! -name '*.tmp' ! -name '*.rej' ! -name '*.pyc' ! -path '*/node_modules/*' ! -name features.mjs 2>/dev/null | while read -r f; do r=${f#$L/}; [ -e "$B/$r" ] || diff -u --label /dev/null --label "$r" /dev/null "$f" >> "$P"; done
  done
  rm -rf "$B"
- if [ -s "$P" ]; then mkdir -p "$D/drift"; local O E same=""; O="$D/drift/$(date -u +%Y%m%d-%H%M%S).patch"
+ if [ -s "$P" ]; then mkdir -p "$D/drift"; local O E same=""; O="$D/drift/$(date -u +%Y%m%d-%H%M%S).patch"; local i=1; while [ -e "$O" ]; do i=$((i+1)); O="$D/drift/$(date -u +%Y%m%d-%H%M%S)-$i.patch"; done   # two differences in one second keep their own file
   # the same difference saved by an earlier, stopped deploy is not saved twice
   for E in "$D"/drift/*.patch; do [ -f "$E" ] && [ "$(tail -n +4 "$E")" = "$(cat "$P")" ] && { same=$E; break; }; done
   if [ -n "$same" ]; then O=$same; else
