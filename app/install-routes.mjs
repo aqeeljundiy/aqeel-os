@@ -35,6 +35,7 @@ export function createInstallRoutes({recentLookups=async()=>[],send,readBody,isA
   // the maintenance window (maintenance.mjs): when updates and waiting restarts happen, and how long an interrupted
   // reply or run is still continued afterwards
   {const w=windowOf(s);out.maintenance={...w,text:windowText(w),own:!!s.maintenance,resumeHours:resumeMaxMs(s)/3600e3}}
+  out.cadenceRule={on:s.cadenceRule!==false};
   if(admin)out.supervision={on:s.supervision===true,recent:await recentLookups(10).catch(()=>[])};
   // ok | auth (the engine refuses aqeelOS's keys: it has not restarted since they were written) | down
   out.engine={state:await engineProbe().catch(()=>'down')};
@@ -91,6 +92,7 @@ export function createInstallRoutes({recentLookups=async()=>[],send,readBody,isA
   if(p==='/ui/install/maintenance'&&M==='POST'){let w;try{w=cleanWindow({from:b.from,to:b.to,tz:b.tz})}catch(e){return send(res,400,{error:e.message}),true}
    const h=Number(b.resumeHours);if(b.resumeHours!==undefined&&!(h>=0.25&&h<=24))return send(res,400,{error:'Continue work that is at most 0.25 to 24 hours old.'}),true;
    I.saveSettings({maintenance:w,...(b.resumeHours!==undefined?{resumeMaxHours:h}:{})});log('maintenance window: '+windowText(w));return send(res,200,{ok:true,...w,text:windowText(w)}),true}
+  if(p==='/ui/install/cadence-rule'&&M==='POST'){I.saveSettings({cadenceRule:b.on?undefined:false});return send(res,200,{on:!!b.on}),true}
   if(p==='/ui/install/auto-update'&&M==='POST'){I.saveSettings({autoUpdate:!!b.on});return send(res,200,{on:!!b.on}),true}
   if(p==='/ui/install/hosts'&&M==='POST'){const patch={};
    try{for(const k of Object.keys(I.HOSTS))if(k in b){if(I.hostFrom(k)==='env')throw Error(I.HOSTS[k][0]+' is set in this install’s environment, so it can’t be changed here.');patch[k]=I.cleanHost(b[k])}}catch(e){return send(res,400,{error:e.message}),true}

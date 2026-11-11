@@ -4,6 +4,9 @@
 # DRY_RUN=1 bash scripts/deploy.sh: runs the local checks and builds the archives, then stops (no ssh, nothing sent).
 # Since 12 Nov 2026 a deploy no longer waits for an idle box: replies and runs in progress are journaled by aqeelOS and
 # continued by themselves once the new version answers (app/resume.mjs). WAIT_IDLE=1 bash scripts/deploy.sh waits as before.
+# FULL_CHECK=1 bash scripts/deploy.sh: also runs the test copy and the browser checks (pages, fast switching, buttons and tabs, My browser)
+# before going live. By default a deploy is light (static checks, engine update check, drift check, live test) and the browser checks run once
+# a night in the maintenance window (app/browser-checks.mjs).
 # Optional paths (data, mockup, PRD.md, scripts/features.mjs) are private and not in the public repo: skipped if missing.
 DRY=${DRY_RUN:-0}
 set -e
@@ -37,7 +40,7 @@ if [ "$PULL" = 1 ] && [ "${SKIP_CHECKS:-0}" != 1 ]; then
  MB=1;[ "${MB_CHECK:-}" = 0 ] && MB=0   # every deploy runs the My browser check; MB_CHECK=0 is the only skip
  ID=$(date +%s)-$$
  ssh "$AQ_BOX" "cat > /tmp/aq-deploy-$ID.sh" < scripts/box-deploy.sh && ssh "$AQ_BOX" "cat > /tmp/box-pack-$ID.sh" < scripts/box-pack.sh || { echo "✗ could not reach the box; nothing changed."; exit 1; }
- ssh "$AQ_BOX" "FLICKER_CHECK=${FLICKER_CHECK:-1} WAIT_IDLE=${WAIT_IDLE:-0} AQ_REPO=$AQ_REPO setsid nohup bash /tmp/aq-deploy-$ID.sh $SHA ${BOX_SHA:-none} ${FORCE:-0} $MB $ID </dev/null >/dev/null 2>&1 &" || { echo "✗ could not start the deploy on the box; nothing changed."; exit 1; }
+ ssh "$AQ_BOX" "FULL_CHECK=${FULL_CHECK:-0} FLICKER_CHECK=${FLICKER_CHECK:-1} WAIT_IDLE=${WAIT_IDLE:-0} AQ_REPO=$AQ_REPO setsid nohup bash /tmp/aq-deploy-$ID.sh $SHA ${BOX_SHA:-none} ${FORCE:-0} $MB $ID </dev/null >/dev/null 2>&1 &" || { echo "✗ could not start the deploy on the box; nothing changed."; exit 1; }
  echo "· running on the box (log /tmp/aq-deploy-$ID.log)"
  n=0; end=$(( $(date +%s) + 3600 ))
  while [ "$(date +%s)" -lt "$end" ]; do

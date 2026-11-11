@@ -15,7 +15,7 @@ import {homedir} from 'node:os';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {randomBytes} from 'node:crypto';
-import {providerUnavailable} from '../app/provider-limits.mjs';
+import {providerUnavailable,readHold} from '../app/provider-limits.mjs';
 
 const HOME=homedir(),HERMES_HOME=(process.env.HERMES_HOME||path.join(HOME,'.hermes')).replace(/^~(?=\/|$)/,HOME);
 const DATA=path.resolve(process.env.UI_DATA_DIR||path.join(HOME,'apps','hermes-ui-data'));
@@ -123,7 +123,10 @@ async function equipTestAgent(){const {editEnv,readConfig,pick,hermes}=await imp
  if(pl&&!(pick(me,'plugins.enabled')||[]).includes(pl)){await mk(path.join(dir,'plugins'),{recursive:true});await cp(path.join(HERMES_HOME,'plugins',pl),path.join(dir,'plugins',pl),{recursive:true}).catch(()=>{});await cp(path.join(HERMES_HOME,'plugins','.install-metadata.json'),path.join(dir,'plugins','.install-metadata.json')).catch(()=>{});
   const r=await hermes(TEST_AGENT,['plugins','enable',pl],{timeout:150000,retries:2});if(r?.ok===false)throw Error('could not turn the model plugin on: '+String(r.err||'').slice(0,120));changed=true}
  return changed}
-async function checkAgent(){const key=process.env.API_SERVER_KEY||'';const h={authorization:'Bearer '+key,'content-type':'application/json'};
+// 12 Nov 2026: when the app already knows the AI provider is unavailable (DATA/provider-hold.json, app/provider-limits.mjs), the test
+// agent is not asked: that call would start a model only to learn what is known. Skipped and inconclusive, never a failure.
+export const holdSkip=(h,now=Date.now())=>h&&h.until>now?{skipped:true,inconclusive:true,resetAt:h.until,why:'the AI provider is on hold ('+String(h.why||h.kind||'unavailable').slice(0,100)+') until '+new Date(h.until).toISOString().slice(11,16)+' UTC, so the test agent was not asked'}:null;
+async function checkAgent(){{const s=holdSkip(readHold(DATA));if(s)return s}const key=process.env.API_SERVER_KEY||'';const h={authorization:'Bearer '+key,'content-type':'application/json'};
  const st=await ensureTestAgent();let fresh=st==='made';
  try{if(await equipTestAgent())fresh=true}catch(e){return {skipped:true,setup:true,why:'the test agent is not set up: '+e.message}}
  // a test agent made or equipped just now may need a minute or two before the engine serves it

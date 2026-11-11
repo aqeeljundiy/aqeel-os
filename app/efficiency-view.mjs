@@ -6,6 +6,7 @@
 import {readFile,readdir,stat} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
 import path from 'node:path';
+import {savedStarts} from './run-gates.mjs';
 
 // one agent's rows from the last argv[2] days, newest activity first:
 // [id, source, title, model, started, last activity, api calls, input, output, cache read, cache write, cost, continued]
@@ -54,14 +55,14 @@ export function summarize(agents,{jobs={},now=Date.now()}={}){const t=now/1000,W
 // under "jobs" or "schedules"; skips are runs that never reached the model.
 export function gateOf(gates,agent,jobId,label){const m=gates&&(gates.jobs||gates.schedules||gates);if(!m||typeof m!=='object')return null;
  const v=[agent+'/'+jobId,agent+'/'+label,jobId,label].map(k=>k&&m[k]).find(x=>x&&typeof x==='object');if(!v)return null;
- return {skips:Number(v.skips??v.skipped)||0,runs:Number(v.runs??v.ran)||0}}
+ return {skips:Number(v.skips??v.skipped)||0,runs:Number(v.runs??v.ran)||0,...(v.by?.cadence>0?{cadence:+v.by.cadence}:{})}}
 
 // plain sentences for what needs a look. level: 'warn' for use going to waste, 'note' for good news
 export function flags(sum,{gates=null,accounts=[],now=Date.now()}={}){const f=[],d7=sum.d7;
  for(const b of sum.bigList||[])f.push({level:'warn',kind:'big',agent:b.agent,text:`${b.name}: the chat “${b.title}” has grown to about ${Math.round(b.context/1000)}k tokens. Every message in a long chat sends all of it again, so a new chat is cheaper.`});
  for(const A of d7.agents)for(const K of A.kinds){
   if(K.kind==='schedule'){const g=gateOf(gates,A.agent,K.jobId,K.label);
-   if(g&&g.skips+g.runs>=5&&g.skips/(g.skips+g.runs)>=.5)f.push({level:'note',kind:'skips',agent:A.agent,text:`${A.name}: “${K.label}” found nothing to do in ${g.skips} of ${g.skips+g.runs} checks and was skipped before using the model. That is working.`});
+   if(g&&(g.skips-(g.cadence||0))+g.runs>=5&&((g.skips-(g.cadence||0)))/((g.skips-(g.cadence||0))+g.runs)>=.5)f.push({level:'note',kind:'skips',agent:A.agent,text:`${A.name}: “${K.label}” found nothing to do in ${(g.skips-(g.cadence||0))} of ${(g.skips-(g.cadence||0))+g.runs} checks and was skipped before using the model. That is working.`});
    else if(!g&&K.runs>=6&&K.quiet/K.runs>=.7)f.push({level:'warn',kind:'quiet',agent:A.agent,text:`${A.name}: “${K.label}” ran ${K.runs} times this week and ${K.quiet} of them wrote almost nothing, so it mostly finds nothing to do. A check before it starts would save that model use.`})}
   if(K.reuse!=null&&K.reuse<LOW_CACHE&&K.tokens>=300000&&K.kind!=='subagent')f.push({level:'warn',kind:'cache',agent:A.agent,text:`${A.name}: ${K.kind==='schedule'?'“'+K.label+'” reuses':K.label.toLowerCase()+' reuse'} only ${K.reuse}% of what they read (under ${LOW_CACHE}%), so more of it is paid at full price.`})}
  const live=accounts.filter(a=>!a.dead&&a.windows.length),isFull=a=>a.windows.some(w=>w.used>=100&&!(w.resets&&Date.parse(w.resets)<now)),full=live.filter(isFull);
@@ -93,7 +94,7 @@ export function createEfficiencyView({HERMES_HOME,DATA,python,nameOf=a=>a,accoun
   const accounts=await readAccounts(path.join(DATA,'claude-usage.json'),id=>labels[id]||(id==='main'?'Main account':id));
   const sv=await savings().catch(()=>null);
   if(gates)for(const w of [sum.h24,sum.d7])for(const A of w.agents)for(const K of A.kinds)if(K.kind==='schedule')K.gate=gateOf(gates,A.agent,K.jobId,K.label);
-  return {at:now(),failed,...sum,proxyFolds:sv&&sv.state==='on'?sv.folds:null,gates:!!gates,flags:flags(sum,{gates,accounts,now:now()}),accounts:accounts.filter(a=>!a.dead&&a.windows.length).map(a=>({name:a.name,windows:a.windows}))}}
+  return {at:now(),failed,...sum,proxyFolds:sv&&sv.state==='on'?sv.folds:null,gates:!!gates,cadence:gates?savedStarts(gates,now()):null,flags:flags(sum,{gates,accounts,now:now()}),accounts:accounts.filter(a=>!a.dead&&a.windows.length).map(a=>({name:a.name,windows:a.windows}))}}
  // the last answer at once, read again behind once it is a minute old; only the very first read waits
  async function view({fresh=false}={}){
   if(cache.v&&now()-cache.at<60e3&&!fresh)return cache.v;

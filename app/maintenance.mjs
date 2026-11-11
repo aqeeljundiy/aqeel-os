@@ -27,3 +27,19 @@ export const windowText=w=>w.from+' to '+w.to+' ('+w.tz.split('/').pop().replace
 export const resumeMaxMs=settings=>{const h=Number(settings?.resumeMaxHours);return (Number.isFinite(h)&&h>=0.25&&h<=24?h:2)*3600e3};
 // the half hour before the window opens (the nightly batch of the cloud fixer sends what still waits, shortly before the update)
 export function beforeWindow(date,w=DEFAULT_WINDOW,lead=30){const d=(mins(w.from)-minuteIn(date,w.tz)+1440)%1440;return d>0&&d<=lead}
+
+// The night's browser page checks (12 Nov 2026): the four checks that used to run at every deploy on the box that also runs the agents
+// (pages, fast switching, buttons and tabs, My browser; scripts/box-check.sh BROWSER_ONLY=1) run once a night instead, inside the window,
+// after the nightly update had its turn. A failure goes on Health as one item; it never undoes a deploy. Pure rules, tested in
+// scripts/maintenance.test.mjs; app/browser-checks.mjs runs them.
+// when the window that contains `date` opened
+export function windowOpened(date,w=DEFAULT_WINDOW){const d=(minuteIn(date,w.tz)-mins(w.from)+1440)%1440;return new Date(date.getTime()-d*60e3-date.getUTCSeconds()*1e3-date.getUTCMilliseconds())}
+// {due, why}. last = {at, ok, sha} of the latest run; sha = the version live now; updating = an update is running; running = a check is
+export function browserChecksDue({now=new Date(),w=DEFAULT_WINDOW,last=null,sha='',updating=false,running=false,sameVersionDays=7}={}){
+ if(!inWindow(now,w))return {due:false,why:'outside the maintenance window'};
+ if(running)return {due:false,why:'already running'};if(updating)return {due:false,why:'an update is running'};
+ const open=windowOpened(now,w),len=(mins(w.to)-mins(w.from)+1440)%1440,wait=Math.min(25,Math.floor(len/2));
+ if(now-open<wait*60e3)return {due:false,why:'the nightly update goes first ('+wait+' minutes into the window)'};
+ if(last&&last.at>=open.getTime())return {due:false,why:'already ran in this window'};
+ if(last&&last.ok&&sha&&last.sha===sha&&now.getTime()-last.at<sameVersionDays*864e5)return {due:false,why:'this version already passed'};
+ return {due:true,why:'once a night, after the update'}}

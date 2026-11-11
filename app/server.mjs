@@ -100,6 +100,7 @@ import {createAgentAccess,MAIN_RULE_LINES,CONFLICT_RULE_LINES,redactText} from '
 import {createConflicts} from './rule-conflicts.mjs';
 import {createQuestions} from './questions.mjs';
 import {issueActs,itemActs} from './need-action.mjs';
+import {createBrowserChecks} from './browser-checks.mjs';
 import {createConnections} from './connections.mjs';
 import {createSecretLinks,createLimiter} from './secret-links.mjs';
 import {createGoogleShares} from './google-shares.mjs';
@@ -912,7 +913,7 @@ const news=createNews({DATA});
 // bell; only what truly needs a person (forPopup), each once
 // what this install really has, for working out the one button of a need (need-action.mjs): connected apps and who is signed in, signed-out AI accounts
 async function needCtx(){const [m,a]=await Promise.all([access.list('mcp').catch(()=>({items:[]})),accountsApi.signedOut().catch(()=>[])]);return {mcp:(m.items||[]).map(x=>({id:x.id,label:x.label,users:(x.users||[]).map(y=>({id:y.id,name:y.name,signed:!!y.signed}))})),accounts:a}}
-async function needsFor(u){const admin=users.isAdmin(u);if(admin)await freshSignins();const items=await bottlenecks.list({admin,uid:admin?null:u.id,mayUse:a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a),signins:admin?[...signinsDue.values()]:[],invites:admin?users.expiredInvites():[],accounts:admin?await accountsApi.signedOut().catch(()=>[]):[],channels:admin?await channelAttention(false).catch(()=>[]):[]});const mayU=a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a);items.push(...await accessAsk.open(admin?()=>true:mayU).catch(()=>[]));items.push(...await conflicts.open(mayU,admin).catch(()=>[]));items.push(...await questions.open(mayU,admin).catch(()=>[]));items.push(...await help.items(u).catch(()=>[]));
+async function needsFor(u){const admin=users.isAdmin(u);if(admin)await freshSignins();const items=await bottlenecks.list({admin,uid:admin?null:u.id,mayUse:a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a),signins:admin?[...signinsDue.values()]:[],invites:admin?users.expiredInvites():[],accounts:admin?await accountsApi.signedOut().catch(()=>[]):[],channels:admin?await channelAttention(false).catch(()=>[]):[]});const mayU=a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a);items.push(...await accessAsk.open(admin?()=>true:mayU).catch(()=>[]));items.push(...await conflicts.open(mayU,admin).catch(()=>[]));items.push(...await questions.open(mayU,admin).catch(()=>[]));items.push(...await runGates.needs(admin).catch(()=>[]));items.push(...await help.items(u).catch(()=>[]));
     for(const {a,p:pr} of await instructions.openProposals(await listAgents()).catch(()=>[]))if(admin||users.agentOwner(a)===u.id)items.push({id:'instr|'+a+'|'+pr.id,kind:'instructions',agent:a,pid:pr.id,title:(NAMES[a]||a)+': new instructions wait for your approval',detail:pr.why,created:pr.at,from:null});
     // the message that led to it is from the agent's newest chat, whoever's: a member sees it only when that chat is theirs
     // a member sees (and counts) only what they can act on themselves (7 Nov 2026, clean-install test: members saw the
@@ -941,6 +942,9 @@ if(LIVE_APP){setTimeout(()=>listAgents().then(l=>instructions.tick(l)).catch(()=
 // Automatic updates (scripts/auto-update.mjs) on a Docker box; installer installs use a systemd timer. Checked every 15 minutes;
 // the script itself keeps to the quiet hours. A failed or refused update goes under Bottlenecks once.
 if(LIVE_APP&&existsSync(path.join(homedir(),'services.sh'))){const tick=()=>{try{spawn(process.execPath,[path.join(root,'scripts','auto-update.mjs')],{detached:true,stdio:'ignore',env:process.env}).unref()}catch{}};setTimeout(tick,120000).unref();setInterval(tick,15*60000).unref()}
+// The night's page checks (browser-checks.mjs, 12 Nov 2026): the browser checks that no longer run at every deploy run once a night in the maintenance window, after the update; a failure is one Health item
+const browserChecks=createBrowserChecks({DATA,APP:root,settings:()=>installSettings(),bottlenecks,live:async()=>({box:existsSync(path.join(homedir(),'services.sh')),sha:(await readFile(path.join(root,'.deployed-commit'),'utf8').catch(()=>'')).trim()})});
+if(LIVE_APP)setInterval(()=>browserChecks.tick().catch(e=>console.warn('browser checks',e.message)),5*60e3).unref();
 if(LIVE_APP)setInterval(async()=>{const f=path.join(DATA,'auto-update.json');let a;try{a=JSON.parse(await readFile(f,'utf8'))}catch{return}const l=a.last;if(!l||!/failed|refused/.test(l.result)||a.told===l.at)return;a.told=l.at;await writeFile(f,JSON.stringify(a,null,1)).catch(()=>{});await bottlenecks.event('update',l.result==='refused'?'An automatic update was skipped':'An automatic update failed',l.why).catch(()=>{})},5*60000).unref();
 // The desktop app for everyone: the public GitHub release (.github/workflows/desktop-app.yml). DESKTOP_RELEASES points elsewhere for a
 // private build; files in DATA/desktop are used when they are newer, or when no release can be reached.
@@ -1517,7 +1521,7 @@ const kirimdev=createKirimdev({DATA,WORK:path.join(homedir(),'workspaces'),PUBLI
 /* Tebar webhooks (tebar.mjs, 11 Nov 2026): POST /hooks/tebar/<agent>, signed with the secret the person pasted. Failed posts
    and expired or disconnected accounts are alerts (Health, Bottlenecks, the alert chat); comments, DMs and the other
    events picked are a notice in the bell of the agent's owner (admins for the main agents) */
-const eventRuns=createEventRuns({DATA,trigger:async(a,id)=>{const r=await fetch(DASH.origin+'/api/cron/jobs/'+encodeURIComponent(id)+'/trigger?profile='+encodeURIComponent(a),{method:'POST',headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:'{}',signal:AbortSignal.timeout(90000)});if(!r.ok)throw Error('the engine answered '+r.status)}});
+const eventRuns=createEventRuns({DATA,trigger:async(a,id)=>{runGates.noteManual(a,id);const r=await fetch(DASH.origin+'/api/cron/jobs/'+encodeURIComponent(id)+'/trigger?profile='+encodeURIComponent(a),{method:'POST',headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:'{}',signal:AbortSignal.timeout(90000)});if(!r.ok)throw Error('the engine answered '+r.status)}});
 const tebar=createTebar({DATA,onEvent:(a,ev)=>eventRuns.fire(a,ev),publicUrl:()=>String(PUBLIC_URL??''),nameOf:a=>NAMES[a]||a,log:m=>console.log(m),
  problem:(a,topic,title,fix)=>health.problem(a,'tebar',title,{topic,fix}),solved:(a,topic)=>health.ok(a,topic),
  notice:(a,title,text,type)=>{const o=users.byId(users.agentOwner(a));return news.add({aud:o&&!users.isAdmin(o)?'u:'+o.id:'admins',group:'tebar|'+a+'|'+type,icon:'bell',kind:'blue',title,text,go:'/abilities/connections',label:'Connections'})}});
@@ -1833,7 +1837,7 @@ const pidLives=p=>{if(!p)return false;try{process.kill(p,0);return true}catch{re
 const resume=createResume({DATA,on:LIVE_APP,maxAge:()=>resumeMaxMs(installSettings()),tz:()=>installTz()||process.env.TZ||'',nameOf:a=>NAMES[a]||a,
  ready:async()=>!gwStopped&&!gwRestarting&&!engineUpd.busy()&&!backups.busy()&&!!await gatewayPid()&&await fetch(DASH.origin+'/api/status',{signal:AbortSignal.timeout(8000)}).then(r=>r.ok,()=>false),
  probeChat:e=>resumeEng.probeChat(e),probeChannel:e=>resumeEng.probeChannel(e),sendChat:resumeSend,probeRun:e=>resumeEng.probeRun(e),
- triggerRun:async e=>{const r=await fetch(DASH.origin+'/api/cron/jobs/'+encodeURIComponent(e.job)+'/trigger?profile='+encodeURIComponent(e.agent),{method:'POST',headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:'{}',signal:AbortSignal.timeout(30000)}).catch(er=>({ok:false,status:0,text:async()=>er.message}));
+ triggerRun:async e=>{runGates.noteManual(e.agent,e.job);const r=await fetch(DASH.origin+'/api/cron/jobs/'+encodeURIComponent(e.job)+'/trigger?profile='+encodeURIComponent(e.agent),{method:'POST',headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:'{}',signal:AbortSignal.timeout(30000)}).catch(er=>({ok:false,status:0,text:async()=>er.message}));
   if(r.ok)return {ok:true};const t=String(await r.text().catch(()=>'')).replace(/\s+/g,' ').slice(0,120);return r.status===404?{fail:true,why:'the schedule no longer exists'}:{retry:true,why:'the engine did not start it ('+(r.status||t)+')'}},
  probeFixer:async e=>{const r=(await issues._db()).runs[e.run];return {done:!r||!!r.done,alive:pidLives(r?.pid)}},
  kickFixer:async()=>{await issues.tick();return {ok:true}}});
@@ -1891,7 +1895,7 @@ if(LIVE_APP){const effApply=()=>efficiency.apply().then(async c0=>{const c=[];fo
  setTimeout(effApply,100e3).unref();setInterval(effApply,10*60e3).unref()}
 // Run gates (run-gates.mjs, 11 Nov 2026): every schedule that starts the AI first asks this app whether the run can do
 // anything (the AI service asked for a pause, posting limits, a check of the job's own); if not, no run starts. Same rhythm.
-const runGates=createRunGates({strict:a=>conflicts.strict(a),HERMES_HOME,DATA,WORK:path.join(homedir(),'workspaces'),PORT,sig:a=>relay.sig(a),live:LIVE_APP,lock:withFlock,skipAgent:a=>isTestAgent(a)});
+const runGates=createRunGates({strict:a=>conflicts.strict(a),HERMES_HOME,DATA,WORK:path.join(homedir(),'workspaces'),PORT,sig:a=>relay.sig(a),live:LIVE_APP,lock:withFlock,skipAgent:a=>isTestAgent(a),names:a=>agentName(a),rule:()=>installSettings().cadenceRule!==false});
 if(LIVE_APP){setTimeout(()=>conflicts.sync().catch(e=>console.warn('conflicts',e.message)),130e3).unref();setInterval(()=>conflicts.sync().catch(e=>console.warn('conflicts',e.message)),10*60e3).unref()}
 if(LIVE_APP){const gatesInstall=()=>runGates.install().catch(e=>console.warn('run gates',e.message));setTimeout(gatesInstall,100e3).unref();setInterval(gatesInstall,10*60e3).unref()}
 // graphify (code and document maps) in the agents' shared Python, its skill copied to every agent; same rhythm
@@ -2075,6 +2079,7 @@ async function hermesCall(req,res,u,url){
  {const am=/^\/hapi\/analytics\/(usage|models)$/.exec(p);if(am&&req.method==='GET'){const days=Math.min(365,Math.max(1,+q.get('days')||30));try{return send(res,200,await usage.report(am[1],q.get('profile')||'default',days,{fresh:!!req.headers['x-fresh']}))}catch(e){return send(res,e.status||504,{error:e.name==='TimeoutError'?'The engine took too long to add up this agent’s usage.':e.message})}}}
  if(p==='/hapi/messaging/platforms'&&req.method==='GET'){try{return send(res,200,await platformsCached(q.get('profile')||'default'))}catch(e){return send(res,e.status||502,{error:e.message})}}
  if(p.startsWith('/hapi/messaging/')&&req.method!=='GET')platCache.clear();
+ {const mt=/^\/hapi\/cron\/jobs\/([\w-]+)\/trigger$/.exec(p);if(mt&&req.method==='POST')runGates.noteManual(agent,mt[1])}   // the UI's Run now: never limited by the 30-minute rule (run-gates.mjs)
  if(p.startsWith('/hapi/')&&req.method!=='GET'){hapiStatus.drop();hapiLists.drop()}   // any engine change: the next status is read new
  {const m=req.method==='DELETE'&&/^\/hapi\/providers\/oauth\/([^/]+)$/.exec(p);if(m&&users.isAdmin(u)&&(q.get('profile')||'default')==='default')accountsApi.forget('p:'+decodeURIComponent(m[1])).catch(()=>{})}   // signed out on purpose: no "is signed out" notice
  if(p==='/hapi/skills'&&req.method==='GET'&&/^[\w-]+$/.test(agent||'default')){try{return send(res,200,await skillsCached(agent||'default'))}catch(e){return send(res,e.status||502,{error:e.message})}}
@@ -3799,6 +3804,9 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/explain'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,300000))}catch{}const items=(Array.isArray(b.items)?b.items:[]).slice(0,300).map(x=>({id:String(x?.id||'').slice(0,120),name:String(x?.name||'').slice(0,160),desc:String(x?.desc||'').slice(0,600)}));return send(res,200,await explain.get(String(b.kind||''),items,{write:users.isAdmin(u)}))}
    // what billion-context saved and whether graphify is ready, for the Usage page (admins: it covers every agent)
    // run gates (run-gates.mjs): per schedule how many runs the gate stopped, and the rate proposals (admins)
+   // "Add a check" / "Keep every N min" on the Health item of a schedule that starts the AI too often with no check (run-gates.mjs)
+   if(p==='/ui/run-gates/decide'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins decide this.'});let b={};try{b=JSON.parse(await readBody(req,2048))}catch{}
+    try{return send(res,200,await runGates.decide(String(b.agent||''),String(b.job||''),String(b.choice||'')))}catch(e){return send(res,409,{error:e.message})}}
    if(p==='/ui/run-gates'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins see this.'});return send(res,200,await runGates.view())}
    if(p==='/ui/usage/savings'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins see savings for every agent.'});
     const [compress,maps]=await Promise.all([billion.savings().catch(()=>null),graphify.status().catch(()=>null)]);return send(res,200,{compress,maps})}

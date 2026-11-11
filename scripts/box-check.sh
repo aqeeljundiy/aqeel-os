@@ -1,7 +1,15 @@
 #!/bin/bash
-# Runs ON THE BOX: the new version starts as the private test copy (port 4402) and must pass the checks (see predeploy.sh).
+# Runs ON THE BOX: the checks the new version must pass before it goes live (see predeploy.sh).
 # deploy.sh / predeploy.sh send it with ssh (bash -s), and box-deploy.sh runs it from the commit being deployed. Env: MB (1 = run the My browser check), TGZ (the packed version)
+# Light by default (12 Nov 2026: both servers were CPU-bound and a deploy's browser checks ran on the same box as the agents):
+#   what runs at a deploy: every script parses, no browser script clashes (check-globals), and the engine update check (engine-sim.sh).
+#   Not at a deploy any more: the test copy (port 4402) and the four browser checks (pages, fast switching, buttons and tabs, My browser).
+#   FULL_CHECK=1        runs them at the deploy too, as before (for a person who wants them before going live).
+#   BROWSER_ONLY=1     runs only those four, on the test copy; app/browser-checks.mjs does that once a night in the maintenance window
+#                      and reports a failure on Health, it never undoes a deploy.
+# The auto-undo after a failed live test (box-live.sh) is not part of this script and is unchanged.
 set -e
+FULL=${FULL_CHECK:-0}; BO=${BROWSER_ONLY:-0}; HEAVY=0; { [ "$FULL" = 1 ] || [ "$BO" = 1 ]; } && HEAVY=1
 L=/tmp/aq-check.lock;got=0
 for i in $(seq 1 180); do mkdir $L 2>/dev/null && { got=1; break; }
  # a lock left by a run that died more than 90 minutes ago is stale (one run, every check tried twice at its limit, takes up to ~75)
@@ -11,6 +19,11 @@ for i in $(seq 1 180); do mkdir $L 2>/dev/null && { got=1; break; }
 trap 'rmdir /tmp/aq-check.lock 2>/dev/null' EXIT
 rm -rf /tmp/aq-stage && mkdir -p /tmp/aq-stage && tar -xzf $TGZ -C /tmp/aq-stage && rm $TGZ
 D=/tmp/ppl
+if [ "$HEAVY" != 1 ]; then cd /tmp/aq-stage; echo "· light checks (FULL_CHECK=1 adds the test copy and the browser checks)"
+ echo "· 1/2 every script parses, no browser script clashes"
+ for f in app/*.js app/*.mjs; do node --check "$f" || { echo "✗ $f does not parse"; exit 1; }; done
+ node scripts/check-globals.mjs || { echo "✗ browser scripts clash (see above)"; exit 1; }
+else
 # the test copy's own data and password (made again if the box restarted and /tmp was emptied)
 if [ ! -f $D/env ]; then mkdir -p $D; rm -rf $D/data; cp -a ~/apps/hermes-ui-data $D/data
  # the test copy signs in with its own password: on an install whose owner set one in the app, that one would win and every check would be signed out
@@ -23,12 +36,14 @@ cd ~; SCHED_DESCRIBE=1 setsid nohup node --env-file=$HOME/.hermes/.env --env-fil
 for i in $(seq 1 30); do curl -fs 127.0.0.1:4402/healthz >/dev/null && break; sleep 1; done
 curl -fs 127.0.0.1:4402/healthz >/dev/null || { echo "✗ the new version did not start:"; tail -5 $D/log; exit 1; }
 cd /tmp/aq-stage
+fi
 # OPS-6 (11 Nov 2026): on 10 Nov deploys failed six times on random misses that passed when run alone (the button check,
 # My browser). Every check now gets one more try before it counts, and a check that rests on a model's choices (My
 # browser: whether the test agent picks the right tool) reports but never stops a deploy.
 again(){ echo "  · $1 missed once; trying again ($(printf '%s' "$2" | tr '\n' ' ' | cut -c1-200))"; }
 # 5/5 the engine update check (ENG-3, scripts/engine-sim.sh) needs no test copy: it runs alongside the others, under /tmp
-ES=/tmp/aq-engsim-$$.out; nice -n 10 bash scripts/engine-sim.sh /tmp/aq-stage > $ES 2>&1 & ESP=$!
+ES=/tmp/aq-engsim-$$.out; [ "$BO" = 1 ] || { nice -n 10 bash scripts/engine-sim.sh /tmp/aq-stage > $ES 2>&1 & ESP=$!; }
+if [ "$HEAVY" = 1 ]; then
 echo "· 1/5 pages"
 pages(){ BASE=http://127.0.0.1:4402 PWFILE=$D/pw OUT=/tmp/aud-check timeout 400 node scripts/pages-check.mjs 2>&1 | tail -1; }
 r=$(pages); echo "$r" | grep -q '"errors":\[\]' || { again pages "$r"; r=$(pages); }
@@ -51,7 +66,10 @@ echo "· 4/5 my browser (reports only: it rests on the test agent's choices)"
 m=$(timeout 480 node scripts/mybrowser-check.mjs 2>&1 | tail -1); echo "$m" | grep -q '7/7' || { again "my browser" "$m"; m=$(timeout 480 node scripts/mybrowser-check.mjs 2>&1 | tail -1); }
 if echo "$m" | grep -q '7/7'; then echo "  ✓ my browser: $m"; else echo "  ! my browser check missed twice (not counted, it rests on the model): $(echo "$m" | cut -c1-400)"; fi
 fi
-echo "· 5/5 engine update (a clean engine update plus the patch steps gives the live engine)"
+fi   # HEAVY: the four browser checks
+# the nightly run leaves no test copy standing; a deploy's own full run keeps it, as before
+[ "$BO" = 1 ] && { [ -f $D/pid ] && kill $(cat $D/pid) 2>/dev/null; echo "✓ browser checks passed"; exit 0; }
+echo "· $([ "$HEAVY" = 1 ] && echo 5/5 || echo 2/2) engine update (a clean engine update plus the patch steps gives the live engine)"
 er=0; wait $ESP || er=$?
 # 2 = the simulation itself could not run (disk, git): one more try, then reported without stopping the deploy
 [ "$er" = 2 ] && { again "the engine update check" "$(tail -3 $ES)"; er=0; bash scripts/engine-sim.sh /tmp/aq-stage > $ES 2>&1 || er=$?; }
