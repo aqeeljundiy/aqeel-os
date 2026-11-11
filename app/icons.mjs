@@ -10,6 +10,7 @@ import {parseSvg,renderSvg,bounds,parseColour} from './raster.mjs';
 export const GEN='g2';
 export const RADIUS=.2237;      // the iOS home-screen corner, also used for the rounded 'any' icons and the favicon
 const SAFE=.56;                 // mark box inside a maskable icon: its corners stay within the centre 80% circle
+const ANY=.6;                   // mark box in the rounded 'any' icons and the iPhone icon (the mark is about 60% of the tile)
 const TAB=.7;                   // mark box in the tiny tab icons (little padding so it stays readable)
 
 const hex=c=>'#'+c.slice(0,3).map(x=>Math.max(0,Math.min(255,Math.round(x))).toString(16).padStart(2,'0')).join('');
@@ -42,7 +43,7 @@ function readMark(cands){const why=[];
   const inf=pngInfo(c.data);if(inf){let img;try{img=decodePng(c.data)}catch(e){why.push(c.file+': '+e.message);continue}
    let clear=0;for(let i=3;i<img.data.length;i+=4)if(img.data[i]<250)clear++;
    if(clear<img.w*img.h*.02){if(Math.abs(img.w-img.h)<=img.w*.02&&img.w>=512)return {kind:'art',img,file:c.file,note:'a full-bleed picture, used as it is',from:c.from||'brand'};why.push(c.file+': a PNG with a solid background that is not a square of at least 512 px');continue}
-   if(Math.min(img.w,img.h)<320){why.push(c.file+': a PNG of '+img.w+'x'+img.h+' is too small to scale up cleanly (needs 320 px or more, or an SVG)');continue}return {kind:'png',img,file:c.file,note:'',from:c.from||'brand'}}
+   if(Math.min(img.w,img.h)<320){why.push(c.file+': a PNG of '+img.w+'x'+img.h+' is too small to scale up cleanly (needs 320 px or more, or an SVG)');continue}return {kind:'png',img,file:c.file,note:c.note||'',bg:c.bg?toRgb(c.bg):null,from:c.from||'brand'}}
   why.push(c.file+': not an SVG or PNG')}
  return {kind:null,why:why.join('; ')}}
 
@@ -60,8 +61,8 @@ export function buildIcons(spec){const name=String(spec.name||'App').slice(0,40)
  // the tile colour: the owner's, the install's default, the source's own background, else what makes its colours readable
  let tileRgb=toRgb(spec.colour),colourFrom=tileRgb?'the colour set in Branding':'';
  if(!tileRgb&&spec.defaultColour){tileRgb=toRgb(spec.defaultColour);colourFrom=tileRgb?'this install\'s brand colour':''}
- if(mark?.kind==='svg'){markDoc=mark.doc;bg=mark.bg}
- if(!tileRgb&&bg){tileRgb=bg;colourFrom='the background of '+mark.file}
+ if(mark?.kind==='svg'){markDoc=mark.doc;bg=mark.bg}else if(mark?.kind==='png')bg=mark.bg;
+ if(!tileRgb&&bg){tileRgb=bg;colourFrom='the tile colour of '+mark.file}
  if(!tileRgb&&markDoc){const cs=colours(markDoc),mean=cs.length?cs.reduce((s,c)=>s+lum(c),0)/cs.length:0;tileRgb=mean<.4?[255,255,255]:[17,24,39];colourFrom='chosen so the mark of '+mark.file+' reads on it'}
  if(!tileRgb&&mark?.kind==='png'){tileRgb=[255,255,255];colourFrom='white, behind a PNG mark'}
  if(!tileRgb){tileRgb=[17,24,39];colourFrom='the default brand colour'}
@@ -84,8 +85,8 @@ export function buildIcons(spec){const name=String(spec.name||'App').slice(0,40)
  const iconAt=(S,{radius,s,opaque})=>{let px;if(art){px=artAt(S,radius);if(opaque){const b=tile(S,tileRgb,0);px=over(b,px)}}else{px=tile(S,tileRgb,radius);const l=layer(S,s);if(l)over(px,l)}return px};
  const png=(S,o)=>encodePng(S,S,iconAt(S,o),{opaque:!!o.opaque});
  const files={};const add=(n,type,data)=>{files[n]={type,data}};
- add('apple-touch-icon.png','image/png',png(180,{radius:0,s:SAFE,opaque:true}));
- for(const S of [192,512]){add('icon-'+S+'.png','image/png',png(S,{radius:RADIUS,s:SAFE}));add('icon-maskable-'+S+'.png','image/png',png(S,{radius:0,s:SAFE,opaque:true}))}
+ add('apple-touch-icon.png','image/png',png(180,{radius:0,s:ANY,opaque:true}));
+ for(const S of [192,512]){add('icon-'+S+'.png','image/png',png(S,{radius:RADIUS,s:ANY}));add('icon-maskable-'+S+'.png','image/png',png(S,{radius:0,s:SAFE,opaque:true}))}
  const fav={};for(const S of [16,32,48]){fav[S]=png(S,{radius:RADIUS,s:TAB});add('favicon-'+S+'.png','image/png',fav[S])}
  add('favicon.ico','image/x-icon',encodeIco([16,32,48].map(S=>({size:S,png:fav[S]}))));
  // favicon.svg: the rounded tile with the mark in it (drawn at 256 from the vector, embedded), fine on light and dark tabs

@@ -18,7 +18,7 @@ const R=f=>readFileSync(path.join(root,f));
 // the real P&P logo (a plain SVG of four stroked squares, dark on nothing) and the two marks this repo ships
 const PNP=Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="57 57 366 366"><g transform="translate(-317.5 -292.5)" fill="none" stroke="#111111" stroke-width="36" stroke-linejoin="round"><rect x="395" y="420" width="133" height="137" rx="12"/><rect x="395" y="557" width="133" height="137" rx="12"/><rect x="528" y="557" width="144" height="137" rx="12"/><rect x="585" y="371" width="135" height="134" rx="12"/></g></svg>');
 const cand=(file,data,type='image/svg+xml',alt)=>({file,type,data,alt});
-const AQ=cand('assets/aqeelos-mark.svg',R('assets/aqeelos-mark.svg'),'image/svg+xml',{file:'assets/aqeelos-mark-outline.svg',data:R('assets/aqeelos-mark-outline.svg')});
+const AQ={...cand('assets/aqeelos-mark.svg',R('assets/aqeelos-mark-render.png'),'image/png'),bg:'#111827',note:'its "a" rendered once'};
 const ELK=cand('assets/elkiya-mark.svg',R('assets/elkiya-mark.svg'));
 const spec=(o={})=>({name:'aqeelOS',colour:'',defaultColour:'',accent:'',mono:false,custom:null,markCands:[cand('brand-logo.svg',PNP)],v:1,...o});
 const px=(png)=>decodePng(png);
@@ -48,8 +48,8 @@ test('icon set: made from the real mark, says where it came from, keeps its colo
  const r=buildIcons(spec({markCands:[ELK]}));assert.equal(r.source.file,'assets/elkiya-mark.svg');assert.equal(r.source.kind,'svg');assert.equal(r.hasMark,true);
  // the mark is dark ink: the tile is chosen so that it reads (white), the ink colour is kept
  assert.equal(r.colour,'#ffffff');const c=px(r.files['icon-512.png'].data);let ink=0;for(let i=0;i<c.data.length;i+=4)if(c.data[i+3]>250&&c.data[i]<60&&c.data[i+1]<60)ink++;assert.ok(ink>3000,'the original dark ink is drawn');
- // aqeelOS's own mark: a tile with a letter: the letter comes as outlines, its own tile colour becomes the brand colour
- const a=buildIcons(spec({markCands:[AQ]}));assert.equal(a.source.file,'assets/aqeelos-mark.svg');assert.match(a.source.note,/outlines/);assert.equal(a.colour,'#111827')});
+ // aqeelOS's own mark: its SVG has text, so its "a" is one stored render (Plus Jakarta Sans 700) on the SVG's own tile colour
+ const a=buildIcons(spec({markCands:[AQ]}));assert.equal(a.source.file,'assets/aqeelos-mark.svg');assert.match(a.source.note,/rendered/);assert.equal(a.colour,'#111827')});
 
 test('icon set: a mark that cannot be read on the colour is recoloured, never lost; an accent is used when set',()=>{
  const dark=buildIcons(spec({colour:'#111111'}));assert.match(dark.source.recoloured,/does not read|recoloured/);const c=px(dark.files['icon-512.png'].data);let light=0;for(let i=0;i<c.data.length;i+=4)if(c.data[i+3]>250&&c.data[i]>200)light++;assert.ok(light>3000);
