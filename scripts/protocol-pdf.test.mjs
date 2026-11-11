@@ -18,7 +18,7 @@ test('a file link: one PDF, an unguessable token, 15 minutes, a few downloads, t
  await assert.rejects(L.put({buffer:Buffer.from('<html>'),name:'a.pdf'}),/not a PDF/);
  await assert.rejects(createDocLinks({DATA,PUBLIC_URL:'http://ai.example'}).put({buffer:PDF,name:'a.pdf'}),/https/);
  const a=await L.put({buffer:PDF,name:'Protocol.pdf'}),b=await L.put({buffer:PDF,name:'Protocol.pdf'});
- assert.match(a.url,/^https:\/\/ai\.example\/doc\/[\w-]{43}\/Protokol%20Continue\.pdf$/);assert.notEqual(tokenOf(a.url),tokenOf(b.url));assert.equal(a.exp,t+DOC_TTL);
+ assert.match(a.url,/^https:\/\/ai\.example\/doc\/[\w-]{43}\/Protocol.pdf$/);assert.notEqual(tokenOf(a.url),tokenOf(b.url));assert.equal(a.exp,t+DOC_TTL);
  const get=async(url,method='GET')=>{const r=res();await L.serve({method},r,tokenOf(url),url.split('/').pop());return r};
  const ok=await get(a.url);assert.equal(ok.code,200);assert.equal(ok.head['content-type'],'application/pdf');assert.deepEqual(ok.body,PDF);assert.equal(ok.head['cache-control'],'no-store');
  const wrong=res();await L.serve({method:'GET'},wrong,tokenOf(a.url),'other.pdf');assert.equal(wrong.code,404,'wrong name');
