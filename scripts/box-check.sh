@@ -4,8 +4,8 @@
 set -e
 L=/tmp/aq-check.lock;got=0
 for i in $(seq 1 180); do mkdir $L 2>/dev/null && { got=1; break; }
- # a lock left by a run that died more than 40 minutes ago is stale
- [ -n "$(find $L -maxdepth 0 -mmin +40 2>/dev/null)" ] && { rmdir $L 2>/dev/null; continue; }
+ # a lock left by a run that died more than 90 minutes ago is stale (one run, every check tried twice at its limit, takes up to ~75)
+ [ -n "$(find $L -maxdepth 0 -mmin +90 2>/dev/null)" ] && { rmdir $L 2>/dev/null; continue; }
  [ "$i" = 1 ] && echo "· another check is using the test copy; waiting for it…"; sleep 10; done
 [ "${got:-0}" = 1 ] || { echo "✗ the test copy stayed busy for 30 minutes"; exit 1; }
 trap 'rmdir /tmp/aq-check.lock 2>/dev/null' EXIT
@@ -41,7 +41,9 @@ s=$(sweep); echo "$s" | grep -q '\\"bad\\":0' || { again "fast page switching" "
 echo "$s" | grep -q '\\"bad\\":0' || { echo "✗ fast page switching found problems (twice):"; echo "$s" | cut -c1-900; exit 1; }
 fi
 echo "· 3/5 every page keeps its buttons and tabs (owner and team member, All agents and one agent)"
-controls(){ CONTROLS_LOCAL=$HOME/apps/hermes-ui-data/controls-seen.json timeout 600 node scripts/controls-check.mjs 2>&1 | tail -1; }
+# 52 page views as the owner and a team member: about 7 minutes on a busy P&P (11 Nov 2026), so 10 minutes was too close; a run
+# stopped at its limit prints nothing, and says so instead of an empty miss
+controls(){ local o; o=$(CONTROLS_LOCAL=$HOME/apps/hermes-ui-data/controls-seen.json timeout 900 node scripts/controls-check.mjs 2>&1 | tail -1); echo "${o:-it ran out of time (15 minutes) before it finished}"; }
 c=$(controls); echo "$c" | grep -qF '"missing":[]' || { again "the button check" "$c"; c=$(controls); }
 echo "$c" | grep -qF '"missing":[]' || { echo "✗ a page lost a button or tab (twice): $c" | cut -c1-900; echo "  (on purpose? node scripts/controls-check.mjs --save on the test copy, then commit scripts/controls-baseline.json)"; exit 1; }
 if [ "$MB" = 0 ]; then echo "· 4/5 my browser: skipped (MB_CHECK=0)"; else
