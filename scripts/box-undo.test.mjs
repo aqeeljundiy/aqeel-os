@@ -46,3 +46,35 @@ test('when putting it back fails (it does not answer, or there is nothing to put
 
 test('box-live.sh keeps the running version before unpacking the new one',()=>{
  assert.ok(src.indexOf('.deployed.prev.tgz')<src.indexOf('tar -xzf $HT -C ~/apps/hermes-ui'));assert.match(src,/cp ~\/apps\/hermes-ui\/\.deployed-commit ~\/apps\/hermes-ui\/\.deployed\.prev-commit/)});
+
+// 12 Nov 2026: ~/services.sh returned 1 after the new files were unpacked; with set -e the deploy said "FAILED go live" and left the
+// new version running untested. Now any unhandled failure after the unpack puts the previous version back (aq_exit), and a failing
+// launcher alone neither stops the undo nor the go-live.
+const run=(b,body,{e=true}={})=>spawnSync('bash',['-c',(e?'set -e\n':'')+fns+'\ntrap aq_exit EXIT\n'+body],{env:b.env,encoding:'utf8'});
+const failingServices=b=>{writeFileSync(path.join(b.H,'services.sh'),'#!/bin/bash\necho "services" >> '+b.log+'\nexit 1\n');chmodSync(path.join(b.H,'services.sh'),0o755)};
+
+test('an unhandled failure after the unpack (a step that exits non-zero) puts the previous version back and still fails the deploy',()=>{
+ const b=box();const r=run(b,'AQ_STAGE=golive\nfalse\necho not-reached');
+ assert.equal(r.status,1,r.stdout+r.stderr);assert.doesNotMatch(r.stdout,/not-reached/);assert.match(r.stdout,/going live stopped \(exit 1\)/);assert.match(r.stdout,/aaaaaaaa is back and answers/);
+ assert.equal(readFileSync(path.join(b.A,'app','v.txt'),'utf8'),'old');assert.equal(readFileSync(path.join(b.A,'.deployed-commit'),'utf8').trim(),'aaaaaaaa1111');
+ assert.equal(JSON.parse(readFileSync(path.join(b.D,'live-test.json'),'utf8')).runs[0].undo.why,'going live failed')});
+
+test('a failing ~/services.sh does not stop the undo (set -e), and the version is back when the UI answers',()=>{
+ const b=box();failingServices(b);const r=run(b,'aq_undo "the live test failed"');
+ assert.equal(r.status,0,r.stdout+r.stderr);assert.match(r.stdout,/services\.sh exited with an error \(1\)/);assert.match(r.stdout,/aaaaaaaa is back and answers/);assert.equal(readFileSync(path.join(b.A,'app','v.txt'),'utf8'),'old')});
+
+test('a failure that was handled (undo already ran) is not undone a second time',()=>{
+ const b=box();const r=run(b,'AQ_STAGE=golive\naq_undo "the UI did not answer"; exit 1');
+ assert.equal(r.status,1);assert.equal((readFileSync(b.log,'utf8').match(/^services$/gm)||[]).length,1,'the launcher ran once')});
+
+test('before the unpack, or after a passed live test, nothing is undone: the log says which version runs',()=>{
+ let b=box();let r=run(b,'false');assert.equal(r.status,1);assert.equal(readFileSync(path.join(b.A,'app','v.txt'),'utf8'),'new');
+ b=box();r=run(b,'AQ_STAGE=done\nfalse');assert.equal(r.status,1);assert.equal(readFileSync(path.join(b.A,'app','v.txt'),'utf8'),'new');assert.match(r.stdout,/new version bbbbbbbb is running and passed its live test/)});
+
+test('no previous version to put back: the log names the NEW version as running, untested',()=>{
+ const b=box({prev:false});const r=run(b,'AQ_STAGE=golive\nfalse');
+ assert.equal(r.status,1);assert.match(r.stdout,/no previous version/);assert.match(r.stdout,/the NEW version bbbbbbbb is running: it was not live-tested/)});
+
+test('box-live.sh: the stage is set after both unpacks, and the launcher call cannot fail the go-live',()=>{
+ assert.ok(src.indexOf('\nAQ_STAGE=golive')>src.indexOf('tar -xzf $HT -C ~/apps/hermes-ui'));assert.ok(src.indexOf('\nAQ_STAGE=done')>src.indexOf('scripts/live-test.mjs'));
+ assert.match(src,/trap aq_exit EXIT/);assert.doesNotMatch(src,/^~\/services\.sh;/m);assert.match(src,/services-install\.sh/)});

@@ -42,7 +42,8 @@ export function createAgyQuota({every=10*60e3,now=()=>Date.now(),fetchImpl=fetch
  // {signedIn, windows, plan, at, error}: never throws, never waits more than one ask
  async function read(){if(!asking&&now()>=st.next&&(!st.at||now()-st.at>=every)){asking=ask().finally(()=>{asking=null})}
   if(asking&&!st.at)await asking;return {signedIn:st.signedIn,windows:st.windows,plan:st.plan,at:st.at,error:st.error}}
- return {read}}
+// idle(): resolves when the background ask a read() started has finished (tests wait on this, not on a timer)
+ return {read,idle:()=>asking||Promise.resolve()}}
 
 // Claude: the usage numbers from the headers of a 1-token answer (what Claude Code itself does at start). Works when /api/oauth/usage refuses,
 // also when the account is at its limit (the 429 carries the same headers). Returns {session,week,opus:null,sonnet:null,status} or null.

@@ -40,7 +40,7 @@ if [ "$PULL" = 1 ] && [ "${SKIP_CHECKS:-0}" != 1 ]; then
  MB=1;[ "${MB_CHECK:-}" = 0 ] && MB=0   # every deploy runs the My browser check; MB_CHECK=0 is the only skip
  ID=$(date +%s)-$$
  ssh "$AQ_BOX" "cat > /tmp/aq-deploy-$ID.sh" < scripts/box-deploy.sh && ssh "$AQ_BOX" "cat > /tmp/box-pack-$ID.sh" < scripts/box-pack.sh || { echo "✗ could not reach the box; nothing changed."; exit 1; }
- ssh "$AQ_BOX" "FULL_CHECK=${FULL_CHECK:-0} FLICKER_CHECK=${FLICKER_CHECK:-1} WAIT_IDLE=${WAIT_IDLE:-0} AQ_REPO=$AQ_REPO setsid nohup bash /tmp/aq-deploy-$ID.sh $SHA ${BOX_SHA:-none} ${FORCE:-0} $MB $ID </dev/null >/dev/null 2>&1 &" || { echo "✗ could not start the deploy on the box; nothing changed."; exit 1; }
+ ssh "$AQ_BOX" "FULL_CHECK=${FULL_CHECK:-0} FLICKER_CHECK=${FLICKER_CHECK:-1} WAIT_IDLE=${WAIT_IDLE:-0} SERVICES_ADOPT=${SERVICES_ADOPT:-0} AQ_REPO=$AQ_REPO setsid nohup bash /tmp/aq-deploy-$ID.sh $SHA ${BOX_SHA:-none} ${FORCE:-0} $MB $ID </dev/null >/dev/null 2>&1 &" || { echo "✗ could not start the deploy on the box; nothing changed."; exit 1; }
  echo "· running on the box (log /tmp/aq-deploy-$ID.log)"
  n=0; end=$(( $(date +%s) + 3600 ))
  while [ "$(date +%s)" -lt "$end" ]; do
@@ -84,7 +84,7 @@ else
 fi
 # the commits this version holds (newest first): issues that name a fix commit close by themselves once it is live
 DC=/tmp/aq-commits-$ID; git rev-list -n 5000 HEAD | ssh "$AQ_BOX" "cat > $DC" || DC=
-ssh "$AQ_BOX" "CODE_V=$CODE_V FORCE=${FORCE:-0} WAIT_IDLE=${WAIT_IDLE:-0} HT=$HT CT=$CT HS=$HS CS=$CS SHA=$SHA BOX_SHA=$BOX_SHA DC=$DC bash -s" < scripts/box-live.sh
+ssh "$AQ_BOX" "SERVICES_ADOPT=${SERVICES_ADOPT:-0} CODE_V=$CODE_V FORCE=${FORCE:-0} WAIT_IDLE=${WAIT_IDLE:-0} HT=$HT CT=$CT HS=$HS CS=$CS SHA=$SHA BOX_SHA=$BOX_SHA DC=$DC bash -s" < scripts/box-live.sh
 
 # the update history on /backlog: recorded once the new version answers (it travels with the next deploy)
 node -e "const fs=require('fs'),f='data/deploys.json';let l=[];try{l=JSON.parse(fs.readFileSync(f,'utf8'))}catch{}let h='';try{h=require('child_process').execFileSync('git',['rev-parse','--short','HEAD'],{encoding:'utf8'}).trim()}catch{}l.push({at:new Date().toISOString(),commit:h});fs.mkdirSync('data',{recursive:true});fs.writeFileSync(f,JSON.stringify(l.slice(-200),null,1))"

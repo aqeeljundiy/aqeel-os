@@ -6,14 +6,22 @@ set -e
 # app. Recorded in DATA/live-test.json (System › Health). The owner is messaged on Telegram only if this fails too.
 aq_tell_owner(){ local t c; t=$(grep -m1 '^TELEGRAM_BOT_TOKEN=' ~/.hermes/.env | cut -d= -f2-); c=$(grep -m1 '^TELEGRAM_HOME_CHANNEL=' ~/.hermes/.env | cut -d= -f2-)
  [ -n "$t" ] && [ -n "$c" ] && curl -fs -m 20 "https://api.telegram.org/bot$t/sendMessage" --data-urlencode "chat_id=$c" --data-urlencode "text=$1" >/dev/null || echo "! could not message the owner"; }
-aq_undo(){ local why=$1 A=~/apps/hermes-ui P; P=$(cat $A/.deployed.prev-commit 2>/dev/null)
+aq_undo(){ local why=$1 A=~/apps/hermes-ui P; AQ_UNDONE=1; P=$(cat $A/.deployed.prev-commit 2>/dev/null)
  if [ ! -s $A/.deployed.prev.tgz ] || [ -z "$P" ]; then echo "✗ $why, and there is no previous version to put back"; aq_tell_owner "aqeelOS: the deploy of ${SHA:0:8} failed its check ($why) and there was no previous version to put back. Open System › Health."; return 1; fi
  echo "↩ $why: putting ${P:0:8} back…"
  tar -xzf $A/.deployed.prev.tgz -C $A && cp $A/.deployed.prev.tgz $A/.deployed.tgz && echo "$P" > $A/.deployed-commit || { aq_tell_owner "aqeelOS: the deploy of ${SHA:0:8} failed ($why) and putting ${P:0:8} back failed while unpacking. Please check the server."; return 1; }
- tmux kill-session -t "=ui" 2>/dev/null || true; ~/services.sh; local h=""; for i in $(seq 1 30); do sleep 1; h=$(curl -fs http://127.0.0.1:4400/healthz) && break; done
+ tmux kill-session -t "=ui" 2>/dev/null || true; ~/services.sh || echo "! ~/services.sh exited with an error ($?); the check below decides"; local h=""; for i in $(seq 1 30); do sleep 1; h=$(curl -fs http://127.0.0.1:4400/healthz) && break; done
  node -e "const fs=require('fs'),f=(process.env.UI_DATA_DIR||require('os').homedir()+'/apps/hermes-ui-data')+'/live-test.json';let d={runs:[]};try{d=JSON.parse(fs.readFileSync(f,'utf8'))}catch{}const r=d.runs&&d.runs[0];const u={at:Date.now(),to:process.argv[1],why:process.argv[2],ok:!!process.argv[3]};if(r&&r.sha===process.argv[4])r.undo=u;else d.runs=[{at:Date.now(),sha:process.argv[4],ok:false,failed:[process.argv[2]],results:[],undo:u},...(d.runs||[])].slice(0,30);fs.writeFileSync(f,JSON.stringify(d,null,1))" "$P" "$why" "$h" "$SHA" 2>/dev/null || true
  if [ -n "$h" ]; then echo "↩ ${P:0:8} is back and answers. The deploy of ${SHA:0:8} was undone ($why); System › Health shows why."; return 0; fi
  echo "✗ ${P:0:8} was put back but does not answer"; aq_tell_owner "aqeelOS: the deploy of ${SHA:0:8} failed ($why); ${P:0:8} was put back but does not answer yet. Please check the server."; return 1; }
+# Once the new files are unpacked (AQ_STAGE=golive) any failure that is not handled below (12 Nov 2026: ~/services.sh returned 1 and the
+# deploy said "FAILED go live" with the new version running, untested and not undone) puts the previous version back, as a failed live
+# test does; if that is impossible the log says which version is running. Past the live test (AQ_STAGE=done) the new, tested version stays.
+aq_exit(){ local rc=$?
+ if [ "$rc" != 0 ] && [ "${AQ_STAGE:-}" = golive ] && [ -z "${AQ_UNDONE:-}" ]; then set +e; echo "✗ going live stopped (exit $rc) after the new files were unpacked, before the live test"
+  if aq_undo "going live failed"; then :; else echo "! the NEW version ${SHA:0:8} is running: it was not live-tested and the previous version could not be put back"; fi
+ elif [ "$rc" != 0 ] && [ "${AQ_STAGE:-}" = done ]; then echo "! a final step stopped (exit $rc); the new version ${SHA:0:8} is running and passed its live test"; fi
+ rmdir /tmp/aq-live.lock 2>/dev/null || true; return $rc; }
 # the files arrived whole: same size as sent, and readable
 for x in "$HT:$HS" "$CT:$CS"; do f=${x%%:*};z=${x##*:};[ "$(wc -c < "$f" 2>/dev/null)" = "$z" ] && tar -tzf "$f" >/dev/null 2>&1 || { echo "✗ $f did not arrive whole; nothing changed."; rm -f $HT $CT; exit 1; }; done
 L=/tmp/aq-live.lock;got=0
@@ -21,7 +29,7 @@ for i in $(seq 1 90); do mkdir $L 2>/dev/null && { got=1; break; }
  [ -n "$(find $L -maxdepth 0 -mmin +20 2>/dev/null)" ] && { rmdir $L 2>/dev/null; continue; }
  [ "$i" = 1 ] && echo "· another deploy is going live; waiting for it…"; sleep 10; done
 [ "${got:-0}" = 1 ] || { echo "✗ another deploy kept going for 15 minutes; nothing changed."; rm -f $HT $CT; exit 1; }
-trap 'rmdir /tmp/aq-live.lock 2>/dev/null' EXIT
+trap aq_exit EXIT
 # another deploy went live while this one was checked and sent: it may hold work this one lacks
 NOW_SHA=$(cat ~/apps/hermes-ui/.deployed-commit 2>/dev/null || true)
 if [ "$NOW_SHA" != "$BOX_SHA" ] && [ "$NOW_SHA" != "$SHA" ]; then echo "✗ another deploy (${NOW_SHA:0:8}) went live meanwhile; nothing changed. Merge it in and deploy again."; rm -f $HT $CT; exit 1; fi
@@ -70,6 +78,7 @@ if [ "$rc" = 3 ]; then echo "✗ the box has live changes that git does not have
 T0=$(( $(date +%s) * 1000 ))
 if [ -s ~/apps/hermes-ui/.deployed.tgz ]; then cp ~/apps/hermes-ui/.deployed.tgz ~/apps/hermes-ui/.deployed.prev.tgz && cp ~/apps/hermes-ui/.deployed-commit ~/apps/hermes-ui/.deployed.prev-commit 2>/dev/null || true; fi
 mkdir -p ~/apps/hermes-ui; tar -xzf $HT -C ~/apps/hermes-ui || { echo '✗ unpacking aqeelOS failed; it was not restarted.'; exit 1; }; cp $HT ~/apps/hermes-ui/.deployed.tgz.new && mv ~/apps/hermes-ui/.deployed.tgz.new ~/apps/hermes-ui/.deployed.tgz; rm $HT; echo "$SHA" > ~/apps/hermes-ui/.deployed-commit; [ -n "$DC" ] && [ -s "$DC" ] && mv "$DC" ~/apps/hermes-ui/.deployed-commits
+AQ_STAGE=golive   # from here on aq_exit undoes an unhandled failure
 C=~/apps/aqeel-code; mkdir -p $C; before=$(md5sum $C/package-lock.json 2>/dev/null)
 tar -xzf $CT -C $C --strip-components=1 || { echo "✗ unpacking Code failed; aqeelOS was not restarted."; exit 1; }; rm $CT; echo "$CODE_V" > $C/VERSION
 # Online Code is off unless this install switched it on (12 Nov 2026): the Code files above stay (the Build app downloads and Live are made from
@@ -82,7 +91,9 @@ AQ_DATA=${UI_DATA_DIR:-$HOME/apps/hermes-ui-data}; mkdir -p "$AQ_DATA/resume" &&
 tmux kill-session -t "=ui" 2>/dev/null || true   # "=" = exactly ui (a bare -t ui also matches ui-staging)
 # the box's ~/services.sh must match sessions exactly too (has-session -t "=$1"), or ui-staging keeps ui from starting (7 Nov 2026)
 node ~/apps/hermes-ui/scripts/apply-skill-patches.mjs || echo "! skill patches: see the message above"
-~/services.sh; for i in $(seq 1 20); do sleep 1; h=$(curl -fs http://127.0.0.1:4400/healthz) && break; done; [ -n "$h" ] && echo "$h · UI restarted" || { echo "✗ the UI did not answer within 20 s"; aq_undo "the UI did not answer"; exit 1; }
+# ~/services.sh comes from git (scripts/services.sh) unless this box edited it by hand (scripts/services-install.sh says which); it never fails the deploy
+SERVICES_ADOPT=${SERVICES_ADOPT:-0} bash ~/apps/hermes-ui/scripts/services-install.sh || echo "! services.sh install: see the message above"
+~/services.sh || echo "! ~/services.sh exited with an error ($?); the UI check below decides"; for i in $(seq 1 20); do sleep 1; h=$(curl -fs http://127.0.0.1:4400/healthz) && break; done; [ -n "$h" ] && echo "$h · UI restarted" || { echo "✗ the UI did not answer within 20 s"; aq_undo "the UI did not answer"; exit 1; }
 # The real-life test (8 Nov 2026, the owner's stability plan): tool servers, schedules, engine, a Kirimdev tester message and
 # one short reply from the test agent. If it fails, the previous version goes back by itself (no engine restart), the
 # failure shows on System › Health, and the owner hears about it only if putting it back fails too. LIVE_TEST=0 skips it.
@@ -92,5 +103,6 @@ if [ "${LIVE_TEST:-1}" != 0 ] && [ -f ~/apps/hermes-ui/scripts/live-test.mjs ]; 
  echo "$lt" | tail -12
  [ "$rc" = 0 ] || { aq_undo "the live test failed"; exit 1; }
 fi
+AQ_STAGE=done
 # what the restart cut off continues by itself (app/resume.mjs); said here so the deploy's log shows it
 w=$(curl -fs http://127.0.0.1:4400/healthz | grep -o '"waiting":[0-9]*' | cut -d: -f2); [ "${AQ_CUT:-0}" = 0 ] && [ "${w:-0}" = 0 ] || echo "· ${AQ_CUT:-0} reply(ies) were in progress at the restart; ${w:-0} thing(s) are being continued (System › Health shows the result)"

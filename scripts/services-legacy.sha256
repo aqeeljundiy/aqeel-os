@@ -1,0 +1,4 @@
+# sha256 of the ~/services.sh files that were hand-edited on the two servers before the launcher was in git (11 Nov 2026).
+# services-install.sh replaces exactly these without a drift report (the deploy log still says it did). Format: <hash>  <note>
+5fde0ecd7fa75944157ea481425844f0c481adcedb9b9ecb502b13c7d2a99f88  server 1, 11 Nov 2026
+d1a8dda0c7213acb52f919453ed5817543323ad4139ec4a6ea9b8a20bd4992e4  server 2, 11 Nov 2026
