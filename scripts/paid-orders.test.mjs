@@ -102,3 +102,20 @@ test('check_payment marks a tester\'s test-amount QRIS as standing for the full 
  const st=await s.P.statusFor(A,PHONE);assert.deepEqual(st.map(x=>[x.total,x.status,x.testAmount,x.orderTotal]),[[10000,'PAID',true,955000]]);
  const C=createCustomerTools({WORK:s.W,DATA:s.D,payments:s.P,googleCall:async()=>({}),chatFind:async()=>({}),history:async()=>'',log:()=>{},runAsAgent:async()=>({})});const tok=C.begin({agent:A,line:'1',conversation:'cnv_1',phone:PHONE,mode:'test',tester:true});
  const x=(await C.call(A,tok,'check_payment',{})).text;assert.match(x,/10,000: PAID \(TEST payment/);assert.match(x,/955,000/);assert.match(x,/send your payment-confirmed message right away/)});
+
+// ---- audit 12 Nov 2026, H8b: a split payment that is only partly paid tells the team and stays open
+test('a part-paid split payment: one team post and one Health line, no labels, not closed as unpaid, check_payment keeps saying PARTLY_PAID',async()=>{
+ const W=await mkdtemp(path.join(tmpdir(),'pp-')),D=path.join(W,'data');await mkdir(D,{recursive:true});const posts=[],labels=[],alerts=[],asked=[];let t=Date.parse('2026-11-08T05:00:00Z');
+ const states={T1000000000001AAAAA:'PAID',T1000000000002BBBBB:'EXPIRED'};
+ const P=createPaidLabels({DATA:D,WORK:W,log:()=>{},now:()=>t,keyOf:async(a,n)=>{asked.push(n);return 'key-from-the-app'},failed:async(...a)=>{alerts.push(a)},orders:async()=>({chatId:-100123,threadId:101,persona:'Sam',currency:'Rp'}),
+  post:async(a,o,text)=>{posts.push([a,o,text]);return 77},label:async(a,o)=>{labels.push([a,o]);return {set:true}},
+  fetchImpl:async(url,o)=>{assert.equal(o.headers.authorization,'Bearer key-from-the-app');const ref=new URL(url).searchParams.get('reference');return {ok:true,json:async()=>({success:true,data:{status:states[ref]}})}}});
+ await appendFile(path.join(D,'payments.jsonl'),JSON.stringify({at:new Date(t-60e3).toISOString(),agent:A,line:'1',conversation:'cnv_1',phone:PHONE,mode:'live',run:'r1',kind:'qris',amounts:[5000000,700000],total:5700000,products:['S-X'],refs:Object.keys(states),orders:[],name:'Nadia',form:'Nama: Nadia\nTotal Pembayaran: Rp5.700.000',ok:true})+'\n');
+ await P.tick();await P.tick();t+=60e3;await P.tick();
+ assert.equal(posts.length,1,'told once');assert.match(posts[0][2],/PARTLY PAID ORDER[\s\S]*Rp 5,000,000 of Rp 5,700,000 paid; the rest expired[\s\S]*stays open/i);assert.equal(posts[0][1].threadId,101);
+ assert.equal(alerts.length,1);assert.equal(alerts[0][1].split('|')[0],'part-paid');assert.ok(!alerts[0].join(' ').includes(PHONE),'Health shows the last four digits only');
+ assert.equal(labels.length,0,'no Customer or S- labels for a part payment');
+ const db=JSON.parse(await readFile(path.join(D,'paid-labels.json'),'utf8'));assert.equal(Object.values(db.done)[0].state,'partly');assert.equal(Object.values(db.done)[0].paid,5000000);
+ assert.equal((await P.statusFor(A,PHONE))[0].status,'PARTLY_PAID');assert.ok(asked.includes('TRIPAY_API_KEY'))});
+test('every part expired or failed with nothing paid is still closed quietly',async()=>{const s=await make();s.state.v='EXPIRED';await s.pay();await s.P.tick();
+ assert.equal(s.posts.length,0);assert.equal(s.alerts.length,0);assert.equal(Object.values(JSON.parse(await readFile(path.join(s.D,'paid-labels.json'),'utf8')).done)[0].state,'closed')});
