@@ -32,7 +32,8 @@
 // hourly buckets for the Efficiency view). The person's schedule is never rewritten for this. ONE Health item per agent lists
 // them: "Add a check" where a standard check fits (suggestCheck reads the prompt's words: --dms, --comments, --posting) and
 // "Keep every N min", which is stored and never asked again. install.json "cadenceRule": false turns the rule off.
-// A manual "Run now" goes through the same gate, so it is skipped too when the last start was under 28 minutes ago.
+// A manual "Run now", an event-started run and a resume after a restart are never limited: the app calls noteManual() just before the
+// engine's trigger and the gate consumes that note (only the schedule's own clock firings are limited).
 //
 // Rate: a job that sends N messages an hour gains nothing from running more often than once an hour. aqeelOS does not
 // change a schedule silently: it records a proposal (proposals in DATA/run-gates.json, shown by view()). A proposal
@@ -161,6 +162,12 @@ export function createRunGates({strict=async()=>({}),HERMES_HOME,DATA,WORK,PORT,
  // check script, no event rule, was not kept by the person, the rule is on), else null
  const rule=async()=>{try{return (await Promise.resolve(ruleFn()))!==false}catch{return true}};
  const exists=f=>stat(f).then(()=>true,()=>false);
+ // A start somebody asked for (the UI's Run now, an event run, a resume after a restart) is never limited by the 30-minute rule: only the
+ // schedule's own clock firings are. The app notes "manual start for <agent>/<job>" for 2 minutes right before it calls the engine's
+ // trigger; the gate's next check for that job consumes the note. In memory: the gate and the app are one process.
+ const manual=new Map();
+ const noteManual=(a,id,ttl=120e3)=>{manual.set(key(a,id),now()+ttl);for(const [k,t] of manual)if(t<=now())manual.delete(k)};
+ const takeManual=(a,id)=>{const k=key(a,id),t=manual.get(k);if(t==null)return false;manual.delete(k);return t>now()};
  let evCache={at:0,v:{}};
  const eventRules=async()=>{if(now()-evCache.at>60e3){let v={};try{v=JSON.parse(await readFile(path.join(DATA,'event-runs.json'),'utf8')).rules||{}}catch{}evCache={at:now(),v}}return evCache.v};
  const hasEvent=async(a,id)=>((await eventRules())[a]||[]).some(r=>r&&r.job===id);
@@ -186,7 +193,7 @@ export function createRunGates({strict=async()=>({}),HERMES_HOME,DATA,WORK,PORT,
    if(rules.posting===true||orig===POSTING_GATE){const pd=await postingDecision(a,t);
     if(pd&&!pd.allow)return await skip('limits','aqeelOS run check: no run started, the posting limits do not allow a post now. '+pd.reason)}
    // the 30-minute rule: no check of its own and no event rule, so at most one start per 30 minutes
-   const cad=await unchecked(a,job);
+   const asked=takeManual(a,jobId),cad=asked?null:await unchecked(a,job);
    if(cad!=null&&row.lastRunAt&&t-row.lastRunAt<SLOT_MS)return await skip('cadence','aqeelOS run check: no run started. This schedule starts every '+cad+' min and has no check that says whether there is anything to do, so it starts at most once every '+MIN_CADENCE+' minutes ('+Math.round((t-row.lastRunAt)/60e3)+' min since the last start).')
   }catch(e){log('run gate '+a+'/'+jobId+': '+e.message)}
   row.runs++;row.lastRunAt=t;await save().catch(()=>{});
@@ -268,4 +275,4 @@ export function createRunGates({strict=async()=>({}),HERMES_HOME,DATA,WORK,PORT,
   if(!/^[\w-]{1,64}$/.test(jobId)||!/^[a-z0-9][a-z0-9_-]{0,80}$/.test(a))throw Error('Unknown schedule');
   const f=path.join(home(a),'scripts',CHECK_PREFIX+jobId+'.sh');await mkdir(path.dirname(f),{recursive:true});await writeFile(f,checkBody({runCheck,agent:a,home:home(a),data:DATA,checks:s.checks}),{mode:0o700});await chmod(f,0o700);
   r.check={at:now(),checks:s.checks};await save();return {ok:true,checks:s.checks,what:s.what}}
- return {check,install,view,offAll,needs,pending,decide,gateName:id=>GATE_PREFIX+id+'.sh'}}
+ return {check,install,view,offAll,needs,pending,decide,noteManual,gateName:id=>GATE_PREFIX+id+'.sh'}}

@@ -1518,7 +1518,7 @@ const kirimdev=createKirimdev({DATA,WORK:path.join(homedir(),'workspaces'),PUBLI
 /* Tebar webhooks (tebar.mjs, 11 Nov 2026): POST /hooks/tebar/<agent>, signed with the secret the person pasted. Failed posts
    and expired or disconnected accounts are alerts (Health, Bottlenecks, the alert chat); comments, DMs and the other
    events picked are a notice in the bell of the agent's owner (admins for the main agents) */
-const eventRuns=createEventRuns({DATA,trigger:async(a,id)=>{const r=await fetch(DASH.origin+'/api/cron/jobs/'+encodeURIComponent(id)+'/trigger?profile='+encodeURIComponent(a),{method:'POST',headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:'{}',signal:AbortSignal.timeout(90000)});if(!r.ok)throw Error('the engine answered '+r.status)}});
+const eventRuns=createEventRuns({DATA,trigger:async(a,id)=>{runGates.noteManual(a,id);const r=await fetch(DASH.origin+'/api/cron/jobs/'+encodeURIComponent(id)+'/trigger?profile='+encodeURIComponent(a),{method:'POST',headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:'{}',signal:AbortSignal.timeout(90000)});if(!r.ok)throw Error('the engine answered '+r.status)}});
 const tebar=createTebar({DATA,onEvent:(a,ev)=>eventRuns.fire(a,ev),publicUrl:()=>String(PUBLIC_URL??''),nameOf:a=>NAMES[a]||a,log:m=>console.log(m),
  problem:(a,topic,title,fix)=>health.problem(a,'tebar',title,{topic,fix}),solved:(a,topic)=>health.ok(a,topic),
  notice:(a,title,text,type)=>{const o=users.byId(users.agentOwner(a));return news.add({aud:o&&!users.isAdmin(o)?'u:'+o.id:'admins',group:'tebar|'+a+'|'+type,icon:'bell',kind:'blue',title,text,go:'/abilities/connections',label:'Connections'})}});
@@ -1830,7 +1830,7 @@ const pidLives=p=>{if(!p)return false;try{process.kill(p,0);return true}catch{re
 const resume=createResume({DATA,on:LIVE_APP,maxAge:()=>resumeMaxMs(installSettings()),tz:()=>installTz()||process.env.TZ||'',nameOf:a=>NAMES[a]||a,
  ready:async()=>!gwStopped&&!gwRestarting&&!engineUpd.busy()&&!backups.busy()&&!!await gatewayPid()&&await fetch(DASH.origin+'/api/status',{signal:AbortSignal.timeout(8000)}).then(r=>r.ok,()=>false),
  probeChat:e=>resumeEng.probeChat(e),sendChat:resumeSend,probeRun:e=>resumeEng.probeRun(e),
- triggerRun:async e=>{const r=await fetch(DASH.origin+'/api/cron/jobs/'+encodeURIComponent(e.job)+'/trigger?profile='+encodeURIComponent(e.agent),{method:'POST',headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:'{}',signal:AbortSignal.timeout(30000)}).catch(er=>({ok:false,status:0,text:async()=>er.message}));
+ triggerRun:async e=>{runGates.noteManual(e.agent,e.job);const r=await fetch(DASH.origin+'/api/cron/jobs/'+encodeURIComponent(e.job)+'/trigger?profile='+encodeURIComponent(e.agent),{method:'POST',headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:'{}',signal:AbortSignal.timeout(30000)}).catch(er=>({ok:false,status:0,text:async()=>er.message}));
   if(r.ok)return {ok:true};const t=String(await r.text().catch(()=>'')).replace(/\s+/g,' ').slice(0,120);return r.status===404?{fail:true,why:'the schedule no longer exists'}:{retry:true,why:'the engine did not start it ('+(r.status||t)+')'}},
  probeFixer:async e=>{const r=(await issues._db()).runs[e.run];return {done:!r||!!r.done,alive:pidLives(r?.pid)}},
  kickFixer:async()=>{await issues.tick();return {ok:true}}});
@@ -2070,6 +2070,7 @@ async function hermesCall(req,res,u,url){
  {const am=/^\/hapi\/analytics\/(usage|models)$/.exec(p);if(am&&req.method==='GET'){const days=Math.min(365,Math.max(1,+q.get('days')||30));try{return send(res,200,await usage.report(am[1],q.get('profile')||'default',days,{fresh:!!req.headers['x-fresh']}))}catch(e){return send(res,e.status||504,{error:e.name==='TimeoutError'?'The engine took too long to add up this agent’s usage.':e.message})}}}
  if(p==='/hapi/messaging/platforms'&&req.method==='GET'){try{return send(res,200,await platformsCached(q.get('profile')||'default'))}catch(e){return send(res,e.status||502,{error:e.message})}}
  if(p.startsWith('/hapi/messaging/')&&req.method!=='GET')platCache.clear();
+ {const mt=/^\/hapi\/cron\/jobs\/([\w-]+)\/trigger$/.exec(p);if(mt&&req.method==='POST')runGates.noteManual(agent,mt[1])}   // the UI's Run now: never limited by the 30-minute rule (run-gates.mjs)
  if(p.startsWith('/hapi/')&&req.method!=='GET'){hapiStatus.drop();hapiLists.drop()}   // any engine change: the next status is read new
  {const m=req.method==='DELETE'&&/^\/hapi\/providers\/oauth\/([^/]+)$/.exec(p);if(m&&users.isAdmin(u)&&(q.get('profile')||'default')==='default')accountsApi.forget('p:'+decodeURIComponent(m[1])).catch(()=>{})}   // signed out on purpose: no "is signed out" notice
  if(p==='/hapi/skills'&&req.method==='GET'&&/^[\w-]+$/.test(agent||'default')){try{return send(res,200,await skillsCached(agent||'default'))}catch(e){return send(res,e.status||502,{error:e.message})}}

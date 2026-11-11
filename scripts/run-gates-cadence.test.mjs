@@ -72,3 +72,11 @@ test('"Add a check" writes the standard check and lifts the slowdown; "Keep" is 
  assert.equal((await G.decide('a','rc','keep')).kept,true);assert.deepEqual(await G.needs(),[]);
  const st=JSON.parse(await readFile(path.join(DATA,'run-gates.json'),'utf8'));assert.equal(st.rules['a/rc'].keep.min,10);
  await assert.rejects(()=>G.decide('a','gone','keep'),/gone/);await assert.rejects(()=>G.decide('a','rc','x'),/Unknown choice/)});
+
+test('a manual Run now, an event run or a resume is never skipped by the rule; the note is used once and lasts 2 minutes; clock firings are still limited',async()=>{
+ const {G,at}=await make({a:[job('j1','Sales recap')]});
+ assert.ok(go(await G.check('a','j1')));at(5);assert.equal(last(await G.check('a','j1')),'{"wakeAgent": false}','a clock firing');
+ G.noteManual('a','j1');at(6);assert.ok(go(await G.check('a','j1')),'asked for: starts');
+ at(7);assert.equal(last(await G.check('a','j1')),'{"wakeAgent": false}','the note was used up; the next clock firing is limited again (the asked start counts as the last start)');
+ at(20);G.noteManual('a','j1');at(23);assert.equal(last(await G.check('a','j1')),'{"wakeAgent": false}','a note older than 2 minutes is no note');
+ G.noteManual('a','other');at(24);assert.equal(last(await G.check('a','j1')),'{"wakeAgent": false}','a note is for one schedule')});
