@@ -34,5 +34,10 @@ Found by simulating an engine update on a clean copy (the live engine's commit, 
   next update step.
 - `2026-11-06-tonight.patch` no longer fits a clean engine of this version, so step 16 warns "6 Nov patch does not fit".
   That is expected now: its content is in the hand-edits patch above. Keep branding.py here (step 16 still copies it).
+- Since 11 Nov this runs in every deploy check (ENG-3): `scripts/engine-sim.sh` makes two throwaway copies under /tmp
+  (a clean update of the live engine's commit, and the live engine itself), runs every patch step on both with HOME
+  pointed at each copy, and fails the deploy with the names of the files that differ. Allowed differences are listed in
+  `known-differences.txt` (today only gateway/platforms/webhook.py). To look at one by hand on the box:
+  `ENGINE_SIM_KEEP=1 bash ~/apps/hermes-ui/scripts/engine-sim.sh`, then diff the two copies it names.
 - Proof (11 Nov): on Elkiya, a simulated update plus these patches gives every file exactly as live; both live engines
   already have both patches (git apply --reverse --check), except the Telegram digest on P&P.

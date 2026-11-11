@@ -1,0 +1,7 @@
+# Engine files where a simulated engine update (scripts/engine-sim.sh, run in every deploy check) may differ from the
+# live engine without failing the deploy. One engine path per line. Keep this short: every line here is a file whose
+# next engine update result nobody checks.
+#
+# 11 Nov 2026: the repo's Kirimdev step (scripts/kirim-signature-patch.mjs) is newer than what the live engines have;
+# it skips files that already carry its marker, so the live engines keep the older text until an engine update.
+gateway/platforms/webhook.py

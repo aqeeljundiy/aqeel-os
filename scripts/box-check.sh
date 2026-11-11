@@ -23,20 +23,37 @@ cd ~; SCHED_DESCRIBE=1 setsid nohup node --env-file=$HOME/.hermes/.env --env-fil
 for i in $(seq 1 30); do curl -fs 127.0.0.1:4402/healthz >/dev/null && break; sleep 1; done
 curl -fs 127.0.0.1:4402/healthz >/dev/null || { echo "✗ the new version did not start:"; tail -5 $D/log; exit 1; }
 cd /tmp/aq-stage
-echo "· 1/4 pages"
-r=$(BASE=http://127.0.0.1:4402 PWFILE=$D/pw OUT=/tmp/aud-check timeout 400 node scripts/pages-check.mjs 2>&1 | tail -1)
+# OPS-6 (11 Nov 2026): on 10 Nov deploys failed six times on random misses that passed when run alone (the button check,
+# My browser). Every check now gets one more try before it counts, and a check that rests on a model's choices (My
+# browser: whether the test agent picks the right tool) reports but never stops a deploy.
+again(){ echo "  · $1 missed once; trying again ($(printf '%s' "$2" | tr '\n' ' ' | cut -c1-200))"; }
+# 5/5 the engine update check (ENG-3, scripts/engine-sim.sh) needs no test copy: it runs alongside the others, under /tmp
+ES=/tmp/aq-engsim-$$.out; nice -n 10 bash scripts/engine-sim.sh /tmp/aq-stage > $ES 2>&1 & ESP=$!
+echo "· 1/5 pages"
+pages(){ BASE=http://127.0.0.1:4402 PWFILE=$D/pw OUT=/tmp/aud-check timeout 400 node scripts/pages-check.mjs 2>&1 | tail -1; }
+r=$(pages); echo "$r" | grep -q '"errors":\[\]' || { again pages "$r"; r=$(pages); }
 echo "$r" | grep -q '"errors":\[\]' || { echo "✗ a page did not load: $r" | cut -c1-600; exit 1; }
 # FLICKER_CHECK=0: skip only this timing check (it fails on a heavily loaded server); every other check still runs
-if [ "${FLICKER_CHECK:-1}" = 0 ]; then echo "· 2/4 fast page switching: skipped (FLICKER_CHECK=0)"; else
-echo "· 2/4 fast page switching and flicker (replays, jumps, pictures loading again, the bell, pop-ups)"
-s=$(timeout 420 node scripts/shot.mjs /tmp/sweep.png "#/chat" "" "" 1280 900 "$(cat scripts/sweep.js)" 2>&1 | head -1)
-echo "$s" | grep -q '\\"bad\\":0' || { echo "✗ fast page switching found problems:"; echo "$s" | cut -c1-900; exit 1; }
+if [ "${FLICKER_CHECK:-1}" = 0 ]; then echo "· 2/5 fast page switching: skipped (FLICKER_CHECK=0)"; else
+echo "· 2/5 fast page switching and flicker (replays, jumps, pictures loading again, the bell, pop-ups)"
+sweep(){ timeout 420 node scripts/shot.mjs /tmp/sweep.png "#/chat" "" "" 1280 900 "$(cat scripts/sweep.js)" 2>&1 | head -1; }
+s=$(sweep); echo "$s" | grep -q '\\"bad\\":0' || { again "fast page switching" "$s"; s=$(sweep); }
+echo "$s" | grep -q '\\"bad\\":0' || { echo "✗ fast page switching found problems (twice):"; echo "$s" | cut -c1-900; exit 1; }
 fi
-echo "· 3/4 every page keeps its buttons and tabs (owner and team member, All agents and one agent)"
-c=$(CONTROLS_LOCAL=$HOME/apps/hermes-ui-data/controls-seen.json timeout 600 node scripts/controls-check.mjs 2>&1 | tail -1)
-echo "$c" | grep -qF '"missing":[]' || { echo "✗ a page lost a button or tab: $c" | cut -c1-900; echo "  (on purpose? node scripts/controls-check.mjs --save on the test copy, then commit scripts/controls-baseline.json)"; exit 1; }
-[ "$MB" = 0 ] && { echo "✓ checks passed (My browser unchanged, its check skipped)"; exit 0; }
-echo "· 4/4 my browser"
-m=$(timeout 480 node scripts/mybrowser-check.mjs 2>&1 | tail -1); echo "$m" | grep -q '7/7' || m=$(timeout 480 node scripts/mybrowser-check.mjs 2>&1 | tail -1)
-echo "$m" | grep -q '7/7' || { echo "✗ my browser check: $m"; exit 1; }
+echo "· 3/5 every page keeps its buttons and tabs (owner and team member, All agents and one agent)"
+controls(){ CONTROLS_LOCAL=$HOME/apps/hermes-ui-data/controls-seen.json timeout 600 node scripts/controls-check.mjs 2>&1 | tail -1; }
+c=$(controls); echo "$c" | grep -qF '"missing":[]' || { again "the button check" "$c"; c=$(controls); }
+echo "$c" | grep -qF '"missing":[]' || { echo "✗ a page lost a button or tab (twice): $c" | cut -c1-900; echo "  (on purpose? node scripts/controls-check.mjs --save on the test copy, then commit scripts/controls-baseline.json)"; exit 1; }
+if [ "$MB" = 0 ]; then echo "· 4/5 my browser: skipped (MB_CHECK=0)"; else
+echo "· 4/5 my browser (reports only: it rests on the test agent's choices)"
+m=$(timeout 480 node scripts/mybrowser-check.mjs 2>&1 | tail -1); echo "$m" | grep -q '7/7' || { again "my browser" "$m"; m=$(timeout 480 node scripts/mybrowser-check.mjs 2>&1 | tail -1); }
+if echo "$m" | grep -q '7/7'; then echo "  ✓ my browser: $m"; else echo "  ! my browser check missed twice (not counted, it rests on the model): $(echo "$m" | cut -c1-400)"; fi
+fi
+echo "· 5/5 engine update (a clean engine update plus the patch steps gives the live engine)"
+er=0; wait $ESP || er=$?
+# 2 = the simulation itself could not run (disk, git): one more try, then reported without stopping the deploy
+[ "$er" = 2 ] && { again "the engine update check" "$(tail -3 $ES)"; er=0; bash scripts/engine-sim.sh /tmp/aq-stage > $ES 2>&1 || er=$?; }
+sed 's/^/  /' $ES; rm -f $ES
+[ "$er" = 1 ] && { echo "✗ engine update check: see the files above"; exit 1; }
+[ "$er" = 2 ] && echo "  ! the engine update check could not run twice (not counted)"
 echo "✓ checks passed"

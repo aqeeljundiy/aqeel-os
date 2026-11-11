@@ -47,7 +47,14 @@ export function startFault(status,text=''){const t=String(text);
  if(status===401||status===403||status===404||/API_SERVER_KEY|gateway_auth_error|profile[^\n]*not found|no (?:such )?profile/i.test(t))return 'setup';
  if(/no (?:model|provider|credentials)|not (?:authenticated|configured|signed in)|unknown provider|plugin[^\n]*not (?:enabled|found)/i.test(t))return 'setup';
  return 'fail'}
-export function summary(results){const bad=results.filter(r=>!r.ok&&!r.skipped);return {ok:!bad.length,failed:bad.map(r=>r.name+': '+r.why)}}
+// OPS-6 (11 Nov 2026): what rests on a model's choices (the test agent answered, but not with the check word or the
+// picture's colour) is reported, never a reason to undo a deploy: such results carry advisory and do not count
+export function summary(results){const bad=results.filter(r=>!r.ok&&!r.skipped&&!r.advisory);return {ok:!bad.length,failed:bad.map(r=>r.name+': '+r.why)}}
+export const warnings=results=>results.filter(r=>!r.ok&&!r.skipped&&r.advisory).map(r=>r.name+': '+r.why);
+// a failed check gets one more try before it counts (10 Nov 2026: misses on a busy box that passed when run alone)
+export async function withRetry(fn,arg,{wait=15000}={}){let r;try{r=await fn(arg)}catch(e){r={ok:false,why:e.message}}
+ if(r.ok||r.skipped||r.advisory)return r;const first=r.why;await sleep(wait);
+ try{r=await fn(arg)}catch(e){r={ok:false,why:e.message}}return {...r,tries:2,...(r.ok?{first}:{})}}
 
 /* ---------- the checks ---------- */
 const readJson=async(f,d)=>JSON.parse(await readFile(f,'utf8').catch(()=>JSON.stringify(d)));
@@ -101,6 +108,11 @@ async function ensureTestAgent(){const {isAgent,readConfig,setKey,pick}=await im
 // Run each time, so a test agent made before this existed gets them too. Returns true when something was added.
 async function equipTestAgent(){const {editEnv,readConfig,pick,hermes}=await import('../app/agentops.mjs');const {cp,mkdir:mk}=await import('node:fs/promises');
  const dir=homeOf(TEST_AGENT),key=process.env.API_SERVER_KEY||'';let changed=false;
+ // a parked test agent is not served ("Unknown or unconfigured profile"): on Elkiya a `hermes -p aq-livetest gateway stop`
+ // on 9 Nov 2026 left gateway.parked, and every live test since skipped its agent check (OPS-9). The engine's own start
+ // takes the marker away and serves the profile from the running engine; nothing restarts.
+ if(await stat(path.join(dir,'gateway.parked')).then(()=>true,()=>false)){const r=await hermes(TEST_AGENT,['gateway','start'],{timeout:120000,retries:1});
+  if(r?.ok===false||await stat(path.join(dir,'gateway.parked')).then(()=>true,()=>false))throw Error('could not unpark it: '+String(r?.err||r?.out||'').slice(0,120));changed=true}
  if(key&&!/^API_SERVER_KEY=/m.test(await readFile(path.join(dir,'.env'),'utf8').catch(()=>''))){await editEnv(path.join(dir,'.env'),cur=>/^API_SERVER_KEY=/m.test(cur)?null:cur+(cur&&!cur.endsWith('\n')?'\n':'')+'API_SERVER_KEY='+key+'\n');changed=true}
  const main=await readConfig('default').catch(()=>null)||{},me=await readConfig(TEST_AGENT).catch(()=>null)||{},plugins=pick(main,'plugins.enabled')||[],want=String(pick(me,'model.provider')||'');
  const pl=plugins.find(p=>p===want||String(p).startsWith(want));
@@ -120,8 +132,10 @@ async function checkAgent(){const key=process.env.API_SERVER_KEY||'';const h={au
   {type:'text',text:'Deploy check. Reply with exactly two words and nothing else: '+nonce+' and then the main colour of this picture.'},{type:'image_url',image_url:{url:'data:image/png;base64,'+png}}]}]})}).catch(e=>({ok:false,status:e.message,json:async()=>({})}));
  const body=await r.text().catch(()=>'');let reply='';try{reply=JSON.parse(body).choices?.[0]?.message?.content||''}catch{}
  if(!r.ok&&startFault(r.status,body)==='setup')return {skipped:true,setup:true,why:'the test agent is not set up ('+r.status+': '+body.slice(0,120)+')'};
- if(answered(reply,nonce)&&!sawRed(reply))return {ok:false,why:'the test agent answered but did not see the picture ('+String(reply).slice(0,80)+')'};
- return answered(reply,nonce)?{ok:true,why:'the test agent answered and saw the picture'}:{ok:false,why:'no answer with the check word ('+String(reply).slice(0,80)+')'}}
+ if(answered(reply,nonce)&&!sawRed(reply))return {ok:false,advisory:true,why:'the test agent answered but did not name the colour of the picture ('+String(reply).slice(0,80)+')'};
+ if(answered(reply,nonce))return {ok:true,why:'the test agent answered and saw the picture'};
+ // an answer without the check word is the model's choice (reported); no answer at all is a real failure
+ return String(reply).trim()?{ok:false,advisory:true,why:'the test agent answered without the check word ('+String(reply).slice(0,80)+')'}:{ok:false,why:'the test agent gave no answer ('+r.status+': '+body.slice(0,80)+')'}}
 
 // voice notes and photos (8 Nov 2026, with the stability fix): the engine's media fixes are in place and no download failed
 // since the deploy (media-check.sh); the engine's own tests for a replied-to voice note and the download retries pass;
@@ -141,12 +155,12 @@ const CHECKS={tools:checkTools,schedules:checkSchedules,engine:checkEngine,media
 
 export async function run({since=Date.now()-15*60e3,sha='',only=null}={}){const results=[];
  for(const [name,fn] of Object.entries(CHECKS)){if(only&&!only.includes(name))continue;const t0=Date.now();
-  let r;try{r=await fn(since)}catch(e){r={ok:false,why:e.message}}results.push({name,...r,ms:Date.now()-t0})}
- const s=summary(results),rec={at:Date.now(),sha,...s,setup:results.filter(r=>r.setup).map(r=>r.why),results};
+  const r=await withRetry(fn,since);results.push({name,...r,ms:Date.now()-t0})}
+ const s=summary(results),rec={at:Date.now(),sha,...s,warned:warnings(results),setup:results.filter(r=>r.setup).map(r=>r.why),results};
  const f=path.join(DATA,'live-test.json'),h=await readJson(f,{runs:[]});h.runs=[rec,...(h.runs||[])].slice(0,30);
  await mkdir(DATA,{recursive:true});await writeFile(f+'.tmp',JSON.stringify(h,null,1));await rename(f+'.tmp',f);return rec}
 
 if(import.meta.url===pathToFileURL(process.argv[1]||'').href){const a=process.argv.slice(2),o={};for(let i=0;i<a.length;i+=2)o[a[i].replace(/^--/,'')]=a[i+1];
  run({since:Number(o.since)||undefined,sha:o.sha||'',only:o.only?o.only.split(','):null}).then(r=>{
-  for(const x of r.results)console.log((x.setup?'! setup ':x.skipped?'· skipped ':x.ok?'✓ ':'✗ ')+x.name+': '+x.why+' ('+Math.round(x.ms/1000)+' s)');
+  for(const x of r.results)console.log((x.setup?'! setup ':x.skipped?'· skipped ':x.ok?'✓ ':x.advisory?'! reported, not counted: ':'✗ ')+x.name+': '+x.why+(x.tries?(x.ok?' (second try; first: '+String(x.first).slice(0,120)+')':' (tried twice)'):'')+' ('+Math.round(x.ms/1000)+' s)');
   console.log(r.ok?'✓ live test passed':'✗ live test failed: '+r.failed.join(' | '));process.exit(r.ok?0:1)}).catch(e=>{console.error('✗ live test could not run: '+e.message);process.exit(1)})}

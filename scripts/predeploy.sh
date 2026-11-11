@@ -6,8 +6,10 @@
 #      no flicker: replayed fades, content jumping instead of gliding, pictures loading again, the bell re-popping,
 #      pop-ups that skip their fade or snap before leaving)
 #   3. every page keeps its buttons and tabs     (controls-check against scripts/controls-baseline.json)
-#   4. "My browser" end to end with a stand-in extension (mybrowser-check; tried twice, its agent setup is slow)
-# Any failure stops the deploy with what failed; the live app is never touched by this script.
+#   4. "My browser" end to end with a stand-in extension (mybrowser-check): reports only, it rests on the test agent's choices
+#   5. an engine update, simulated (engine-sim.sh): a clean update plus the patch steps must give the live engine
+# Each check gets one more try before it counts (OPS-6, 11 Nov 2026). A failure stops the deploy with what failed; the
+# live app is never touched by this script.
 set -e
 cd "$(dirname "$0")/.."
 AQ_BOX=${AQ_BOX:-ai-vps}

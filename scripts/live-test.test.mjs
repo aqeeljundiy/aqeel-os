@@ -1,7 +1,7 @@
 // The real-life test after every deploy (scripts/live-test.mjs): its decisions, without a box.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {ownServers,mustList,overdue,replied,answered,summary,heard,sawRed,startFault} from './live-test.mjs';
+import {ownServers,mustList,overdue,replied,answered,summary,heard,sawRed,startFault,warnings,withRetry} from './live-test.mjs';
 
 test('only the agent’s own local aqeelOS tool servers are checked',()=>{
  assert.deepEqual(ownServers({mcp_servers:{'aqeelos-notify':{url:'http://127.0.0.1:4400/mcp/notify/a/x'},'aqeelos-self':{url:'http://127.0.0.1:4400/mcp/self/a/y'},'aqeelos-off':{url:'http://127.0.0.1:4400/x',enabled:false},
@@ -31,3 +31,16 @@ test('the test agent not being set up is a setup fault, never a reason to undo; 
  assert.equal(startFault(404,'not found'),'setup');assert.equal(startFault(400,'unknown provider x'),'setup');assert.equal(startFault(400,'Model is not authenticated'),'setup');
  assert.equal(startFault(500,'Internal Server Error'),'fail');assert.equal(startFault(0,'fetch failed'),'fail');assert.equal(startFault(503,'engine is restarting'),'fail');
  assert.deepEqual(summary([{name:'agent',skipped:true,setup:true,why:'the test agent is not set up'},{name:'tools',ok:true}]),{ok:true,failed:[]})});
+
+test('OPS-6: a failed check gets one more try before it counts; a pass or a skip is not run again',async()=>{
+ let n=0;const flaky=async()=>++n===1?{ok:false,why:'timeout'}:{ok:true,why:'fine'};
+ assert.deepEqual(await withRetry(flaky,0,{wait:0}),{ok:true,why:'fine',tries:2,first:'timeout'});assert.equal(n,2);
+ let m=0;const broken=async()=>{m++;throw Error('down')};
+ assert.deepEqual(await withRetry(broken,0,{wait:0}),{ok:false,why:'down',tries:2});assert.equal(m,2);
+ let k=0;const pass=async()=>{k++;return {ok:true,why:'ok'}};await withRetry(pass,0,{wait:0});assert.equal(k,1);
+ let s=0;const skip=async()=>{s++;return {skipped:true,why:'no line'}};await withRetry(skip,0,{wait:0});assert.equal(s,1)});
+
+test('OPS-6: a miss that rests on the model is reported, never counted',()=>{
+ const r=[{name:'tools',ok:true},{name:'agent',ok:false,advisory:true,why:'answered without the check word'}];
+ assert.deepEqual(summary(r),{ok:true,failed:[]});assert.deepEqual(warnings(r),['agent: answered without the check word']);
+ assert.deepEqual(summary([...r,{name:'engine',ok:false,why:'1 unclean exit'}]),{ok:false,failed:['engine: 1 unclean exit']})});
