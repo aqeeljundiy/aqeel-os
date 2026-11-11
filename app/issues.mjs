@@ -233,11 +233,12 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   (into.reports||=[]).push({agent:r.agent,missing:clip(r.missing,300),at:r.at||now(),...(r.id?{id:r.id}:{})});into.reports=into.reports.slice(-20);
   if(r.agent&&r.agent!==into.agent&&!(into.affects||=[]).includes(r.agent))into.affects.push(r.agent);
   if(r.evidence&&!into.evidence)into.evidence=clip(r.evidence,2000)}
- // the sorter (MODEL-3): one item at a time, new ones first, then (once) the older ones still waiting, so duplicates
- // filed before this existed merge too. A failed or unclear answer leaves the item with the fixer.
+ // the sorter (MODEL-3): one item at a time, new ones first, then (once) the older ones still open, so duplicates filed
+ // before this existed merge too and every open item gets a plain title. Only an item that has not started its tries is
+ // merged or moved to Needs you. A failed or unclear answer leaves the item with the fixer.
  // one sorting pass at a time; a second caller waits for the one going
  let sorting=null;
- const unsorted=()=>db.items.find(i=>i.sorting)||[...db.items].reverse().find(i=>!i.sorted&&!i.urgent&&['queued','needs_human'].includes(i.state));
+ const unsorted=()=>db.items.find(i=>i.sorting)||[...db.items].reverse().find(i=>!i.sorted&&['queued','needs_human','verify','stuck','deploy','stopped','open'].includes(i.state));
  function sortNext(){if(!sortRun)return Promise.resolve();return sorting||=(async()=>{try{for(let k=0;k<40;k++){await load();const i=unsorted();if(!i)return;await sortOne(i)}}finally{sorting=null}})()}
  async function sortOne(i){const pol=await policy(),mdl=fixerModel(pol,'sort');
   const others=db.items.filter(x=>x!==i&&!x.sorting&&[...OPEN,...WAITING].includes(x.state)&&x.state!=='stopped').slice(0,40).map(x=>({id:x.id,agent:nameOf(x.agent),title:x.title,missing:x.missing}));
@@ -251,7 +252,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
    // only an item that has not started its own tries is folded into another
    if(to&&live(to)&&['queued','needs_human'].includes(i.state)&&!i.tries){merge(to,{agent:i.agent,missing:i.missing,evidence:i.evidence,at:i.created,id:i.id});
     i.state='closed';i.mergedInto=to.id;i.updated=now();i.history.push({kind:'sorted',at:now(),status:'merged',summary:'The same problem as '+to.id+'; merged into it.'});await save();log('issues: '+i.id+' merged into '+to.id);return}
-   if(s?.kind==='person'&&s.need&&!noPersonNeeded(s.need)&&i.state==='queued'){i.state='needs_human';i.need=s.need;i.group=s.group||null;i.history.push({kind:'sorted',at:now(),status:'needs_human',summary:s.need});await save();
+   if(s?.kind==='person'&&s.need&&!noPersonNeeded(s.need)&&i.state==='queued'&&!i.tries){i.state='needs_human';i.need=s.need;i.group=s.group||null;i.history.push({kind:'sorted',at:now(),status:'needs_human',summary:s.need});await save();
     const w=await tell(i,nameOf(i.agent)+' needs a person\n\nProblem: '+(i.title||i.missing)+'\nWhat is needed: '+s.need+'\n\naqeelOS does the rest by itself once this is done (System › Health).');i.told=w;await save();log('issues: '+i.id+' sorted: needs a person, told '+w);return}
    if(s?.kind==='person'&&s.group&&i.state==='needs_human')i.group=s.group;
    await save()})}

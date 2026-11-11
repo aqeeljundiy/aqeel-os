@@ -187,7 +187,9 @@ const HealthIssues={
    return s?s[0].toUpperCase()+s.slice(1):'Something needs a look'};
   const l=[...new Set(parts.map(one))];return l.length>2?l[0]+', and '+(l.length-1)+' more things':l.join('. ')},
  // the title a person reads: the sorter's plain one, else the problem made plain
- title(i){return i.title||HealthIssues.plain(i.missing,i.agentName||'')},
+ // (one not sorted yet: its first sentence, without the bracketed details, at most about 100 characters)
+ title(i){if(i.title)return i.title;let s=HealthIssues.plain(i.missing,i.agentName||'').replace(/\s*\([^)]*\)/g,'').split(/(?<=[.!?])\s+|;\s+|\s+—\s+/)[0].replace(/[.:,;]+$/,'').trim();
+  if(s.length>104){s=s.slice(0,100);s=s.slice(0,Math.max(60,s.lastIndexOf(' ')))+'…'}return s||'Something needs a look'},
  // Needs you (HEALTH-3): only what a person must do (needs a person, or stuck with something only a person can do),
  // one card per task: the same sign-in for four agents is one card
  needGroups(items){const g=new Map();for(const i of items){if(!(i.state==='needs_human'||i.state==='stuck'&&i.need))continue;
