@@ -374,7 +374,35 @@ jan_count(){
     { run++; if(!(k in best) || $3+0>bet[k]){ if(k in best) ex=ex " " best[k]; best[k]=$1; bet[k]=$3+0 } else ex=ex " " $1 }
     END { print n, want, run+0 ex }'
 }
+# OPS-16: the engine's browser helpers (browser_exec's `python -m browser_harness.daemon`) never exit by themselves, not
+# even when their Chrome is gone: on 10 Nov 2026 Elkiya had 35 of ~45 MB, one per agent per day. They always run detached
+# (parent 1), so that alone says nothing. One over 2 hours old whose Chrome no longer listens, or over a day old whatever
+# (Chrome unknown or alive), is stopped. The engine stops its own idle ones (engine/patches/2026-11-11-harness-idle-stop.patch);
+# this takes those of a process that died first. Root reaches every user's: the claude user's and each ag-<agent>'s.
+# From "pid ppid etimes cdp-port" lines on stdin ("-" when the port is unknown) and the listening ports in $1: the pids to stop.
+harness_orphans(){
+  awk -v listen=" $1 " '$2==1 && ($3>86400 || ($3>7200 && $4!="-" && index(listen, " " $4 " ")==0)) {print $1}'
+}
+# the Chrome port a daemon was started on (BU_CDP_WS / BU_CDP_URL); root in the box may not read another user's
+# environ (no ptrace right), so it is read as the process's own user then
+harness_port(){
+  local pid=$1 env
+  env=$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null) || env=""
+  [ -n "$env" ] || env=$(runuser -u "$(ps -o user= -p "$pid" 2>/dev/null | tr -d ' ')" -- cat "/proc/$pid/environ" 2>/dev/null | tr '\0' '\n')
+  printf '%s\n' "$env" | sed -n 's#^BU_CDP_\(WS\|URL\)=[a-z]*://[^/]*:\([0-9][0-9]*\).*#\2#p' | head -1
+}
+harness_sweep(){
+  local listen lines="" pid pp et port
+  listen=$(ss -Hltn 2>/dev/null | awk '{n=split($4,a,":"); printf "%s ", a[n]}')
+  while read -r pid pp et; do
+    port=$(harness_port "$pid"); lines="$lines$pid $pp $et ${port:--}"$'\n'
+  done < <(ps -eo pid=,ppid=,etimes=,args= 2>/dev/null | awk '$4 ~ /python/ && index($0, "-m browser_harness.daemon") {print $1, $2, $3}')
+  for pid in $(printf '%s' "$lines" | harness_orphans "$listen"); do
+    echo "janitor: stopped a leftover browser helper $pid ($(ps -o user=,etime= -p "$pid" 2>/dev/null | xargs))"; kill -TERM "$pid" 2>/dev/null
+  done
+}
 janitor(){
+  harness_sweep
   local ps n u line disp ws out="" tot_e=0 tot_r=0 res e r x pid prev
   ps=$(ps -eo pid=,user:32=,etimes=,args= 2>/dev/null)
   mkdir -p "$(dirname "$SEEN")"; touch "$SEEN"; prev=$(cat "$SEEN"); : > "$SEEN.tmp"
