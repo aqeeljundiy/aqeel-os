@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
-import {mkdtempSync,readFileSync,existsSync,mkdirSync,writeFileSync} from 'node:fs';
+import {mkdtempSync,readFileSync,existsSync,mkdirSync,writeFileSync,utimesSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -87,3 +87,52 @@ test('memory cap: 3 min over restarts Chrome, 3 more min files one issue, twice 
  assert.equal(step(5000,4096,1300,900,1100),'report');   // still over 3 min later
  assert.equal(step(5000,4096,9000,900,-1),'none');       // reported once
  assert.equal(step(9000,4096,1000,1000,0),'biggest')});
+
+test('OPS-13: missing desktop parts are named only while the agent\'s display runs',()=>{
+ const d=tmp();const miss=lines=>{writeFileSync(d+'/ps.txt',lines.join('\n')+'\n');return sh(`jan_missing ag-a1 42 < '${d}/ps.txt'`,d).out};
+ const full=['1 ag-a1 900 Xvnc :42 -geometry 1280x800','2 ag-a1 900 xfwm4','3 ag-a1 900 xfdesktop','4 ag-a1 900 xfce4-panel','5 ag-b2 900 xfdesktop'];
+ assert.equal(miss(full),'');
+ assert.equal(miss(full.filter(l=>!/xfdesktop$|panel$/.test(l)||/ag-b2/.test(l))),'desktop background, panel');   // P&P pixel-agent, 9 Nov
+ assert.equal(miss(full.filter(l=>!/xfwm4/.test(l))),'window manager');
+ assert.equal(miss(['1 ag-a1 900 Xvnc :43','9 ag-a1 9 /usr/lib/x86_64-linux-gnu/xfce4/panel/wrapper-2.0 x']),'');  // not its display: not this check
+ assert.equal(miss([]),'')});
+
+test('OPS-13: a part missing 10 min starts again unless the agent uses its screen within 5 min',()=>{
+ const d=tmp();const step=(now,since,used,busy)=>sh(`part_step ${now} ${since} ${used} ${busy}`,d).out;
+ assert.equal(step(5000,0,0,0),'none');
+ assert.equal(step(5000,4500,0,0),'wait');        // 8 min
+ assert.equal(step(5000,4400,0,0),'restart');     // 10 min
+ assert.equal(step(5000,4400,4800,0),'busy');     // used 200 s ago
+ assert.equal(step(5000,4400,4700,0),'restart');  // used 5 min ago
+ assert.equal(step(5000,4400,0,1),'busy')});      // mid-reply
+
+test('OPS-13: desk_check waits 10 min, skips a busy agent, restarts the desktop alone and tries again 10 min later',()=>{
+ const d=tmp(),ws=d+'/workspaces/a1';mkdirSync(ws+'/.screen',{recursive:true});mkdirSync(d+'/wake');
+ writeFileSync(ws+'/.screen/activity','');utimesSync(ws+'/.screen/activity',1000,1000);
+ writeFileSync(d+'/ps.txt',['1 ag-a1 900 Xvnc :42','2 ag-a1 900 xfwm4'].join('\n')+'\n');
+ const check=(now,pre='')=>sh(`WAKE='${d}/wake'; screen_up(){ echo "UP $*"; }; ${pre} desk_check a1 ag-a1 42 '${ws}' ${now} < '${d}/ps.txt'`,d).out;
+ assert.equal(check(100000),'');                                   // first seen missing
+ assert.equal(readFileSync(d+'/rst/a1.part','utf8').trim(),'100000');
+ assert.equal(check(100540),'');                                   // 9 min
+ // mid-reply: the app's list names it, written 1 min ago
+ writeFileSync(d+'/.aqeelos-agent-busy','zz\na1\n');utimesSync(d+'/.aqeelos-agent-busy',100560,100560);
+ assert.equal(check(100620),'');
+ // the list is stale (the app stopped writing it): not busy any more; DevTools traffic 2 min ago is
+ writeFileSync(d+'/wake/a1.active','');utimesSync(d+'/wake/a1.active',100800,100800);
+ assert.equal(check(100920),'');
+ assert.equal(check(101200),'UP a1 ag-a1 desktop desktop background, panel missing for 20 min');
+ assert.equal(readFileSync(d+'/rst/a1.part','utf8').trim(),'101200');
+ assert.equal(check(101500),'');                                   // still missing: the next try is 10 min on
+ assert.equal(check(101800),'UP a1 ag-a1 desktop desktop background, panel missing for 10 min');
+ // whole again: the record goes
+ writeFileSync(d+'/ps.txt',['1 ag-a1 900 Xvnc :42','2 ag-a1 900 xfwm4','3 ag-a1 900 xfdesktop','4 ag-a1 900 xfce4-panel'].join('\n')+'\n');
+ assert.equal(check(101860),'');assert.ok(!existsSync(d+'/rst/a1.part'));
+ // an asleep screen is never checked
+ writeFileSync(d+'/ps.txt','');writeFileSync(ws+'/.screen/asleep','');assert.equal(check(200000),'');assert.ok(!existsSync(d+'/rst/a1.part'))});
+
+test('OPS-13: the desktop restart goes through restart_gate and desk_kill, and only on a running display',()=>{
+ const src=readFileSync(SCRIPT,'utf8');const up=src.slice(src.indexOf('\nscreen_up(){'),src.indexOf('\n}\n',src.indexOf('\nscreen_up(){')));
+ const br=up.slice(up.indexOf('if [ "$part" = desktop ]'),up.indexOf('  fi\n',up.indexOf('if [ "$part" = desktop ]')));
+ assert.ok(br.indexOf('kill -0')<br.indexOf('restart_gate')&&br.indexOf('restart_gate')<br.indexOf('desk_kill')&&br.indexOf('desk_kill')<br.indexOf('$desk'));
+ assert.ok(!/Xvnc|chrome_loop|screen_kill/.test(br),'the desktop alone: its display and Chrome keep running');
+ assert.ok(src.includes('| desk_check "$n" "$u" "$disp" "$ws"'),'the janitor checks the desktop parts every minute')});

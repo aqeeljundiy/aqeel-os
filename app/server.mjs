@@ -1520,7 +1520,7 @@ const healthFix=async(a,x)=>{if(!await srEligible(a))throw Error('it cannot run 
   '\n\nFind the cause (my_health, my_logs, my_runs, my_schedules, your files and scripts), fix it in your own work, and check it works again (run the schedule or script once). Do not message the owner or customers. If the fix needs something only a person can give (a password, a sign-in, a decision), file it with report_bottleneck and stop. End with two lines: what was wrong, what you changed.';
  return selfRuns.start({agent:a,args:{prompt,reason:'aqeelOS health: '+String(x.title||'').slice(0,120),timeout_minutes:20},origin:{ok:true,by:{kind:'aqeelos',name:'aqeelOS health check'}},ws:path.join(homedir(),'workspaces',a)})};
 // operations rules on the app side (OPS-3 issues from the root script, OPS-5 process count, OPS-7 expiry): box-ops.mjs
-const boxOps=createBoxOps({HOME:homedir(),DATA,HERMES_HOME,fileIssue:o=>issues.file(o),keepOn:a=>agentAds.keepOn(a)});if(LIVE_APP)boxOps.start();
+const boxOps=createBoxOps({HOME:homedir(),DATA,HERMES_HOME,fileIssue:o=>issues.file(o),keepOn:a=>agentAds.keepOn(a),busyKeys:()=>[...LIVE].filter(([,r])=>!r.done).map(([k])=>k)});if(LIVE_APP)boxOps.start();
 // 7 Nov 2026: Health tells nobody; the agent fixes its own problem first (healthFix), then it is filed for the fixer (issues.mjs)
 const health=createAgentHealth({DATA,HERMES_HOME,bottlenecks,quiet:alertQuiet,fixFirst:(a,x)=>healthFix(a,x),fileIssue:o=>issues.file(o),healthGone:k=>issues.healthGone(k),
  // plain-code live checks (no model): the customer tools of each Kirimdev agent answer tools/list on the local route

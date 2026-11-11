@@ -54,3 +54,8 @@ import {limitLines} from '../app/box-ops.mjs';
 test('limits: defaults 4 GB and 30 min, set per agent; an AdsPower screen never sleeps and gets 8 GB',()=>{
  assert.equal(limitLines(['a','b','c'],{agents:{b:{memory_cap_gb:2,sleep_minutes:0}}},n=>n==='c'),['a 4096 30','b 2048 0','c 8192 0',''].join('\n'));
  assert.equal(limitLines(['a'],{default:{sleep_minutes:0}}),'a 4096 0\n');assert.equal(limitLines([]),'')});
+
+test('OPS-13: the agents mid-reply, once each, from live reply keys',async()=>{
+ const {busyText}=await import('../app/box-ops.mjs');
+ assert.equal(busyText(['b|s1','a|s2','b|s3','../x|s','default|s']),'a\nb\ndefault\n');
+ assert.equal(busyText([]),'')});
