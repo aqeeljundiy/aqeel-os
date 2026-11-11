@@ -136,6 +136,9 @@ export async function memFree(root='/sys/fs/cgroup',meminfo='/proc/meminfo'){
  if(/^\d+$/.test(max)&&cur>=0&&!Number.isNaN(cur))return Number(max)-cur;
  const m=/MemAvailable:\s+(\d+)\s*kB/.exec(await readFile(meminfo,'utf8').catch(()=>''));return m?Number(m[1])*1024:null}
 
+// what a backup cut off by an app restart left in /tmp (its finally never ran): the archive and its .err/.skipped notes.
+// Called when the app starts, before any backup can run (11 Nov 2026: 186 GB of them on Elkiya).
+export const LEFTOVER=/^aqeelos-\d{4}-\d\d-\d\d-\d\d-\d\d\.tar\.gz\.enc(\.err|\.skipped)?$/;
 export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=process.env.BACKUP_GOOGLE_ACCOUNT||'',notify=()=>{},solved=()=>{},restored=()=>{},stopEngine=async()=>{},startEngine=async()=>{},fetchImpl=fetch,tar='tar',TMP='/tmp',disk:diskImpl,mem=memFree,drop=dropCache,PIECE=64*1024*1024}){
  const STATE=path.join(DATA,'backups.json'),KEYF=path.join(DATA,'backup-key'),JOURNAL=path.join(DATA,'restore-journal.jsonl');let state=null,running=null,preparing=null,copying=false,held=false,testing=null,prep=null;   // prep: the running Prepare's stop switch
  const load=async()=>{if(!state){try{state=JSON.parse(await readFile(STATE,'utf8'))}catch{state={}}
@@ -193,6 +196,9 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
   await sh('ssh -i '+q(k)+' -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=15 '+q(u+'@127.0.0.1')+' '+q('find '+q(ws)+' -user '+u+' \\( -type d -o -type f \\) -print0 2>/dev/null | xargs -0 -r setfacl -m u:claude:rwX,m::rwX 2>/dev/null; true')).catch(e=>console.warn('backup: read access for',a,e.message))}}
  // pack, encrypt, upload, prune
  async function run(why='scheduled'){if(copying)throw Error('A restore is running. Back up after it finishes.');if(running)return running;running=(async()=>{await load();const at=Date.now();const name='aqeelos-'+new Date(at+7*3600e3).toISOString().slice(0,16).replace(/[:T]/g,'-')+'.tar.gz.enc';const tmp=path.join(TMP,name);
+  // a try counts when it starts (11 Nov 2026: each deploy restarted the app mid-backup, the cut-off run was never counted,
+  // and the next start tried again: seven 26 GB archives in /tmp filled Elkiya's disk to 99%)
+  {const day=localParts(at,tz()).day;state.tries=state.tries?.day===day?{day,n:state.tries.n+1}:{day,n:1};await save()}
   try{const g0=await google();   // no Google: said at once, before minutes of packing
    const inc=[];for(const p of INCLUDE)if(await stat(path.join(HOME,p)).catch(()=>null))inc.push(p);
    // agents with their own Linux user own their workspace files, and some programs write them private, so tar could not
@@ -215,7 +221,7 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
   // a failed scheduled backup is tried again within the hour, 3 times a morning; only the third failure is told (a
   // dropped upload is usually gone an hour later). A manual one shows its result on Health, so it never goes to Bottlenecks.
   // No Google account is not a failure to tell about: the card says "Connect Google first"
-  catch(e){const day=localParts(at,tz()).day;state.tries=state.tries?.day===day?{day,n:state.tries.n+1}:{day,n:1};
+  catch(e){
    state.last={at,ok:false,error:e.message,why,...(e.code==='NOGOOGLE'?{nogoogle:true}:{})};await save();console.warn('backup failed ('+state.tries.n+' today):',e.message);if(why==='scheduled'&&state.tries.n>=3&&e.code!=='NOGOOGLE')notify('Backup to Google Drive failed 3 times this morning',e.message);throw e}
   finally{await rm(tmp,{force:true}).catch(()=>{});running=null}})();return running}
  // a backup from Drive to a file, 256 MB at a time (each piece has 20 minutes and 5 tries), so a long download is never cut
@@ -316,7 +322,9 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
  async function accounts(){const out=[];for(const f of (await readdir(HERMES_HOME).catch(()=>[])).filter(f=>/^google_token(_[\w.-]+)?\.json$/.test(f)).sort()){try{const t=JSON.parse(await readFile(path.join(HERMES_HOME,f),'utf8'));if(t.aqeelos_managed)continue;
   out.push({file:f,email:t.account||'',drive:!Array.isArray(t.scopes)||!t.scopes.length||t.scopes.some(s=>/\/auth\/drive(\.file)?$/.test(s)),renews:!!t.refresh_token})}catch{}}return out}
  // every 15 minutes: the backup is due from the set hour, for 6 hours; a restore test every Sunday after it
- function schedule(){recover().catch(e=>console.warn('backup: roll back on start',e.message));const tick=async()=>{await load();const j=localParts(Date.now(),tz());const today=j.day,H=settings().hour;
+ async function dropLeftovers(){if(running)return 0;let n=0,bytes=0;for(const f of (await readdir(TMP).catch(()=>[])).filter(f=>LEFTOVER.test(f))){const p=path.join(TMP,f);const st=await stat(p).catch(()=>null);if(!st?.isFile())continue;await rm(p,{force:true}).catch(()=>{});n++;bytes+=st.size}
+  if(n)console.log('backup: removed '+n+' file(s) a cut-off backup left in '+TMP+' ('+Math.round(bytes/1e9)+' GB)');return n}
+ function schedule(){recover().catch(e=>console.warn('backup: roll back on start',e.message));dropLeftovers().catch(e=>console.warn('backup: leftovers',e.message));const tick=async()=>{await load();const j=localParts(Date.now(),tz());const today=j.day,H=settings().hour;
    const tries=state.tries?.day===today?state.tries.n:0,doneToday=state.last?.ok&&localParts(state.last.at,tz()).day===today;
    if(j.hour>=H&&j.hour<H+6&&!doneToday&&tries<3&&!copying&&!preparing&&(!state.last||state.last.ok||Date.now()-state.last.at>3600e3)){try{await run();if(j.weekday===0)await test()}catch{}}};
   setInterval(()=>tick().catch(()=>{}),15*60e3).unref?.()}
