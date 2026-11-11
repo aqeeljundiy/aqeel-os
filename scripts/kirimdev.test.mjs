@@ -6,9 +6,10 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {createHmac} from 'node:crypto';
 import {createDocLinks} from '../app/doc-links.mjs';
-import {createKirimdev,verifySignature,parseInbound,parseSent,splitReply,withCaptions} from '../app/kirimdev.mjs';
+import {createKirimdev,verifySignature,parseInbound,parseSent,splitReply,withCaptions,parseApproval,chunkText} from '../app/kirimdev.mjs';
 
 const SECRET='whsec_test_123';
+const PERSON={human:true,via:'page'};   // what only the Channels page (a signed-in admin) and teamMessage (a checked Telegram sender) give
 
 const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve}};
 const flush=()=>new Promise(r=>setImmediate(r));
@@ -83,9 +84,10 @@ async function make({mode='test',agentSays='Halo kak 😊',testers=[{who:'Ari',c
   autoPhotos:{pattern:'rekomendasi utama',tags:['[FOTO: Kit.jpeg]']}},
   'bay-sales':{phoneNumberId:'222',persona:'Gino',business:'Baylabs',mode:'test',debounceSec:0,testers:[{who:'Ari',conversationId:'cnv_B'}]}}}));
  await writeFile(path.join(DATA,'kirimdev-secrets.json'),JSON.stringify({'cove-support':{id:'wbs_1',secrets:[SECRET]},'bay-sales':{id:'wbs_2',secrets:[SECRET],events:['message.received','message.sent']}}));
- const sent=[],asked=[],posts=[],told=[],patched=[];let clock=Date.now();const tg={ok:postOk};
+ const sent=[],asked=[],posts=[],told=[],patched=[];let clock=Date.now();const tg={ok:postOk},box={receipt:null};
  const fetchImpl=async(url,o)=>{const p=url.replace('https://api.kirimdev.com/v1/','');
   if(o.method==='POST'&&/^(111|222)\/messages$/.test(p)){const b=JSON.parse(o.body);b.pid=p.split('/')[0];sent.push(b);return {ok:true,json:async()=>({data:{id:'msg_'+sent.length,status:'queued'}})}}
+  if(/^(111|222)\/messages\/msg_\d+$/.test(p)&&box.receipt)return {ok:true,json:async()=>({data:{id:p.split('/').pop(),...box.receipt}})};
   if(/^(111|222)\/messages\?/.test(p))return {ok:true,json:async()=>({data:[{direction:'inbound',content:'mau tanya',created_at:'2026-11-05T10:00:00.000Z',type:'text'}]})};
   if(p==='accounts')return {ok:true,json:async()=>({data:[{phone_number_id:'111',phone_number:'+62 811-1111-111',name:'Cove',status:'connected'}]})};
   if(p==='webhook_subscriptions')return {ok:true,json:async()=>({data:{id:'wbs_9',status:'active',initial_secret:'whsec_new'}})};
@@ -99,7 +101,7 @@ async function make({mode='test',agentSays='Halo kak 😊',testers=[{who:'Ari',c
  const post=(raw,h={},agent='cove-support')=>k.receive(agent,{'x-kirim-signature':sign(raw,Math.floor(clock/1000)),'x-kirim-event':'message.received',...h},Buffer.from(raw));
  const postSent=(raw,agent='cove-support')=>k.receive(agent,{'x-kirim-signature':sign(raw,Math.floor(clock/1000)),'x-kirim-event':'message.sent'},Buffer.from(raw));
  const settle=async()=>{for(let n=0;n<20&&due.size;n++){const fns=[...due.values()];due.clear();await Promise.all(fns.map(f=>f()))}await new Promise(r=>setImmediate(r))};
- return {k,DATA,probs,oks,sent,asked,posts,told,patched,post,postSent,settle,tg,due,setTimer,clearTimer,later:ms=>{clock+=ms}}}
+ return {k,DATA,probs,oks,sent,asked,posts,told,patched,post,postSent,settle,tg,due,setTimer,clearTimer,later:ms=>{clock+=ms},set receipt(v){box.receipt=v}}}
 
 test('signature: any v1 from any secret, within 5 minutes, raw bytes',()=>{const raw='{"a":1}',t=Math.floor(Date.now()/1000);
  assert.equal(verifySignature(Buffer.from(raw),sign(raw,t),[SECRET]),true);
@@ -151,21 +153,52 @@ test('a failed handoff post tells the customer nothing, tells the owner, and is 
  await t.k._tick();assert.equal(t.posts.length,1,'not before its time');
  t.later(61e3);await t.k._tick();assert.equal(t.posts.length,2);assert.equal(t.sent.length,0);assert.equal(t.told.length,1,'the owner is told once');
  t.tg.ok=true;t.later(5*60e3+1);await t.k._tick();assert.equal(t.posts.length,3);assert.equal(t.sent.length,1);assert.match(t.sent[0].text.body,/teruskan ke tim/);
- t.later(3600e3);await t.k._tick();assert.equal(t.posts.length,3,'done, not posted again')});
+ // an hour on, nobody answered: the handoff is not posted again, the team is reminded once in their topic (audit H7)
+ t.later(3600e3);await t.k._tick();assert.equal(t.posts.length,4);assert.match(t.posts[3][3],/NO REPLY SENT[\s\S]*no answer after 30 minutes[\s\S]*wa\.me\/628123/);
+ t.later(3600e3);await t.k._tick();assert.equal(t.posts.length,4,'reminded once')});
 
 test('no team group: the handoff is not posted, the customer is not told, the owner is told where to set it',async()=>{const t=await make({agentSays:'HANDOFF: x',team:null});
  await t.post(meta('628123','?'));await t.settle();assert.equal(t.posts.length,0);assert.equal(t.sent.length,0);assert.match(t.told[0],/handoff/)});
 
-test('Draft: every customer gets a draft in the Questions topic, nothing is sent until a person approves it',async()=>{const t=await make({mode:'draft',agentSays:'Halo kak\n---\nIni *rekomendasi utama*'});
+test('Draft: every customer gets a draft in the Questions topic, nothing is sent until a PERSON approves it (audit H5)',async()=>{const t=await make({mode:'draft',agentSays:'Halo kak\n---\nIni *rekomendasi utama*'});
  await t.post(meta('629999','halo',undefined,'cnv_Z'));await t.settle();
- assert.equal(t.sent.length,0);assert.equal(t.posts.length,1);assert.deepEqual(t.posts[0].slice(0,3),['cove-support',-100,3]);assert.match(t.posts[0][3],/DRAFT #1/);assert.match(t.posts[0][3],/\+629999/);
+ // the draft, then the short message a person answers
+ assert.equal(t.sent.length,0);assert.equal(t.posts.length,2);assert.deepEqual(t.posts[0].slice(0,3),['cove-support',-100,3]);assert.match(t.posts[0][3],/^📝 DRAFT #1/);assert.match(t.posts[0][3],/\+629999/);assert.match(t.posts[1][3],/DRAFT #1 waits for a person/);
  const s=(await t.k.status()).find(l=>l.agent==='cove-support');assert.equal(s.mode,'draft');assert.equal(s.drafts.length,1);assert.equal(s.drafts[0].posted,true);
- await assert.rejects(t.k.draft('bay-sales',1,'send'),/no draft #1/);
- assert.deepEqual(await t.k.draft('cove-support',1,'send',undefined,'Ari'),{sent:3});assert.deepEqual(t.sent.map(b=>[b.to,b.type]),[['629999','text'],['629999','text'],['629999','image']]);
- await assert.rejects(t.k.draft('cove-support',1,'send'),/already sent/);
+ await assert.rejects(t.k.draft('bay-sales',1,'send','','x',PERSON),/no draft #1/);
+ // the agent's own tool call carries no person: it can neither send nor drop its draft
+ await assert.rejects(t.k.draft('cove-support',1,'send',undefined,'Rory (approved in Telegram)'),/Only a person on the team/);
+ await assert.rejects(t.k.draft('cove-support',1,'discard',undefined,'Rory'),/Only a person on the team/);
+ await assert.rejects(t.k.draft('cove-support',1,'send','teks dari agent','Rory',{human:false}),/Only a person on the team/);assert.equal(t.sent.length,0);
+ // whatsapp_reply is no way around Draft either
+ await assert.rejects(t.k.reply('cove-support','629999','Halo kak'),/Draft: only a person/);assert.equal(t.sent.length,0);
+ assert.deepEqual(await t.k.draft('cove-support',1,'send',undefined,'Ari',PERSON),{sent:3});assert.deepEqual(t.sent.map(b=>[b.to,b.type]),[['629999','text'],['629999','text'],['629999','image']]);
+ await assert.rejects(t.k.draft('cove-support',1,'send','','Ari',PERSON),/already sent/);
  await t.post(meta('629999','lagi',undefined,'cnv_Z'));await t.settle();
- assert.deepEqual(await t.k.draft('cove-support',2,'send','Jawaban yang diubah tim'),{sent:1});assert.equal(t.sent.at(-1).text.body,'Jawaban yang diubah tim');
- await t.post(meta('629999','lagi 2',undefined,'cnv_Z'));await t.settle();assert.deepEqual(await t.k.draft('cove-support',3,'discard'),{dropped:true});assert.equal(t.sent.length,4)});
+ assert.deepEqual(await t.k.draft('cove-support',2,'send','Jawaban yang diubah tim','Ari',PERSON),{sent:1});assert.equal(t.sent.at(-1).text.body,'Jawaban yang diubah tim');
+ await t.post(meta('629999','lagi 2',undefined,'cnv_Z'));await t.settle();assert.deepEqual(await t.k.draft('cove-support',3,'discard','','Ari',PERSON),{dropped:true});assert.equal(t.sent.length,4)});
+test('Draft approval from Telegram: only a message from someone on the approvers list, in the team group, that is exactly an approval (audit H5)',async()=>{
+ const t=await make({mode:'draft',agentSays:'Halo kak, ini jawabannya',extra:{approvers:[{who:'Amri',telegramId:'7001'}]}});
+ await t.post(meta('629999','halo',undefined,'cnv_Z'));await t.settle();assert.equal(t.sent.length,0);
+ const say=(text,o={})=>t.k.teamMessage('cove-support',{chatId:-100,threadId:3,userId:'7001',text,...o});
+ // the audit's case: "ok nanti saya cek" is not an approval
+ assert.equal((await say('[Replying to your previous message: "✋ DRAFT #1 waits for a person."]\n\nok nanti saya cek')).handled,false);assert.equal(t.sent.length,0);
+ // someone who is not on the list, another group, a made-up user id
+ assert.equal((await say('ok',{userId:'9999'})).why,'not an approver');assert.equal((await say('ok',{chatId:-555})).why,'not the team group');assert.equal((await say('ok',{userId:''})).why,'not an approver');assert.equal(t.sent.length,0);
+ const r=await say('[Replying to your previous message: "✋ DRAFT #1 waits for a person. @team Reply to THIS message"]\n\nOk');assert.equal(r.handled,true);assert.equal(r.sent,1);assert.equal(t.sent.at(-1).text.body,'Halo kak, ini jawabannya');
+ assert.match(t.posts.at(-1)[3],/Draft #1 sent to the customer[\s\S]*approved by Amri/);assert.match((await t.k._state()).drafts[1].by,/Amri \(Telegram 7001\)/);
+ // the changed text must be marked; two waiting drafts need a number
+ await t.post(meta('629999','lagi',undefined,'cnv_Z'));await t.settle();await t.post(meta('628888','halo juga',undefined,'cnv_Y'));await t.settle();
+ assert.equal((await say('ok')).why,'which draft');
+ const r2=await say('kirim: Jawaban dari Amri ya kak #2');assert.equal(r2.handled,true);assert.equal(t.sent.at(-1).text.body,'Jawaban dari Amri ya kak');
+ const r3=await say('no #3');assert.equal(r3.dropped,true);
+ // a line with no approvers: Telegram approves nothing, the Channels page still does
+ const n=await make({mode:'draft',agentSays:'Halo kak'});await n.post(meta('629999','halo',undefined,'cnv_Z'));await n.settle();
+ assert.equal((await n.k.teamMessage('cove-support',{chatId:-100,threadId:3,userId:'7001',text:'ok'})).why,'not an approver');assert.equal(n.sent.length,0)});
+test('parseApproval: ok, no, a marked text; chatter is nothing',()=>{
+ for(const [t,want] of [['ok',{action:'send',id:null}],['Oke.',{action:'send',id:null}],['ok #12',{action:'send',id:12}],['👍',{action:'send',id:null}],['no',{action:'discard',id:null}],['batal #4',{action:'discard',id:4}],
+  ['kirim: Halo kak, stok ada ya',{action:'text',text:'Halo kak, stok ada ya',id:null}],['[Replying to your previous message: "✋ DRAFT #7 waits"]\n\nya',{action:'send',id:7}]])assert.deepEqual(parseApproval(t),want,t);
+ for(const t of ['ok nanti saya cek','oke sip, tapi harganya salah','Halo kak, stok ada ya','','kirim:','no problem, lanjut','[Replying to: "DRAFT #7"]\n\nsebentar'])assert.equal(parseApproval(t),null,t)});
 
 test('a team member who replies pauses the agent in that chat for the quiet time; our own sends do not',async()=>{const t=await make({mode:'live',pauseMin:10});
  // our own send echoes back: no pause
@@ -303,28 +336,39 @@ test('a delivery check first opens the window from the main WhatsApp, and says s
  assert.equal(r.sent,false);assert.match(r.why,/never received the check message/)});
 
 // wait-then-resume after a handoff (11 Nov 2026, taken into git from fixer issue i87fbcb7b)
-test('after a handoff with no team reply in humanWaitMin minutes, the agent continues with the wait text and does not hand off again',async()=>{
- const t=await make({agentSays:q=>/NOTE: you handed/.test(q)?'Untuk COA bisa saya bantu kak':'HANDOFF: wants a person',extra:{humanWaitMin:5,humanWaitText:'Halo Kak, tim kami masih sibuk 🙏'}});
+test('after a handoff the agent stays silent: only the wait text goes out, the agent is never asked to answer the handed-off question (audit H4)',async()=>{
+ const t=await make({agentSays:q=>/NOTE: you handed|Do not hand off again/.test(q)?'Untuk COA bisa saya bantu kak':'HANDOFF: wants a person',extra:{humanWaitMin:5,humanWaitText:'Halo Kak, tim kami masih sibuk 🙏'}});
  await t.post(meta('628123','mau ngomong sama orang'));await t.settle();
- assert.equal(t.posts.length,1);assert.match(t.sent.at(-1).text.body,/teruskan ke tim/);const n=t.sent.length;
+ assert.equal(t.posts.length,1);assert.match(t.sent.at(-1).text.body,/teruskan ke tim/);const n=t.sent.length,runs=t.asked.length;
  t.later(4*60e3);await t.k._tick();await t.settle();assert.equal(t.sent.length,n,'not before 5 minutes');
  t.later(2*60e3);await t.k._tick();await t.settle();
- assert.equal(t.posts.length,1,'no second handoff');assert.equal(t.sent[n].text.body,'Halo Kak, tim kami masih sibuk 🙏');assert.match(t.sent[n+1].text.body,/COA/);
- t.later(14*60e3);await t.k._tick();await t.settle();assert.equal(t.sent.length,n+2,'resumes once')});
-test('a HANDOFF reply on resume is dropped: only the wait text goes out',async()=>{
- const t=await make({agentSays:'HANDOFF: still wants a person',extra:{humanWaitText:'W'}});
- await t.post(meta('628123','orang dong'));await t.settle();const n=t.sent.length;
- t.later(6*60e3);await t.k._tick();await t.settle();assert.equal(t.posts.length,1);assert.deepEqual(t.sent.slice(n).map(b=>b.text.body),['W'])});
-test('a team reply after the handoff cancels the resume; humanWaitMin 0 never resumes',async()=>{for(const [wm,team] of [[5,true],[0,false]]){
+ assert.deepEqual(t.sent.slice(n).map(b=>b.text.body),['Halo Kak, tim kami masih sibuk 🙏'],'exactly the wait text');assert.equal(t.asked.length,runs,'the agent was not run again');
+ assert.ok(!t.asked.some(x=>/Do not hand off again|continue helping the customer yourself/.test(x[1])));
+ // the customer writes again while the chat is with the team: kept, the team's alert is refreshed, the agent still does not answer
+ t.later(11*60e3);await t.post(meta('628123','halo? ada orang?','m2'));await t.settle();
+ assert.equal(t.asked.length,runs,'still silent');assert.equal(t.posts.length,2);assert.match(t.posts[1][3],/STILL WAITING[\s\S]*halo\? ada orang\?/);assert.equal(t.sent.length,n+1,'the wait text is not repeated within the hour');
+ assert.equal((await t.k.status())[0].holds.length,1);
+ // a person answers in Kirimdev: the hold ends, and what the tester wrote meanwhile is answered
+ t.later(60e3);await t.postSent(sentEv('628123','dashboard','msg_person'));assert.deepEqual((await t.k._state()).holds,{});await t.settle();assert.equal(t.asked.length,runs+1)});
+test('a second HANDOFF for the same chat refreshes the team alert instead of being dropped, and the customer is not told twice (audit H4, M5)',async()=>{
+ const t=await make({mode:'live',agentSays:'HANDOFF: dose question',extra:{handoff:{...LOCALE.handoff,releaseMin:10},humanWaitMin:0}});
+ await t.post(meta('628999','aman tidak dengan obat saya?','a1','cnv_Z'));await t.settle();assert.equal(t.posts.length,1);assert.match(t.posts[0][3],/^❓ HANDOFF/);const n=t.sent.length;assert.equal(n,1);
+ // the long timeout (here 10 minutes) passes with no person: the next message is the agent's again, it hands off again
+ t.later(11*60e3);await t.post(meta('628999','halo?','a2','cnv_Z'));await t.settle();
+ assert.equal(t.posts.length,2);assert.match(t.posts[1][3],/^🔁 HANDOFF AGAIN[\s\S]*dose question/);assert.equal(t.sent.length,n,'"passed to the team" is said once');
+ assert.equal(Object.keys((await t.k._state()).asked).length,1,'one open handoff per chat')});
+test('a team reply after the handoff cancels the wait text; humanWaitMin 0 never sends it',async()=>{for(const [wm,team] of [[5,true],[0,false]]){
  const t=await make({mode:'live',agentSays:'HANDOFF: x',extra:{humanWaitMin:wm,humanWaitText:'W'}});
  await t.post(meta('628999','orang dong','w'+wm,'cnv_Z'));await t.settle();const n=t.sent.length;
- if(team){t.later(60e3);await t.postSent(sentEv('628999','app','msg_team','cnv_Z'));assert.deepEqual((await t.k._state()).waits,{})}
- t.later(30*60e3);await t.k._tick();await t.settle();assert.equal(t.sent.length,n,'no resume (wm='+wm+')')}});
-test('whatsapp_reply relaying the team answer cancels the resume',async()=>{
+ if(team){t.later(60e3);await t.postSent(sentEv('628999','app','msg_team','cnv_Z'));assert.deepEqual((await t.k._state()).waits,{});assert.deepEqual((await t.k._state()).holds,{})}
+ t.later(30*60e3);await t.k._tick();await t.settle();assert.equal(t.sent.length,n,'no wait text (wm='+wm+')')}});
+test('whatsapp_reply relaying the team answer ends the hold and the wait; the same text is not sent twice (audit M5)',async()=>{
  const t=await make({agentSays:'HANDOFF: x',extra:{humanWaitText:'W'}});
  await t.post(meta('628123','orang dong'));await t.settle();assert.equal(Object.keys((await t.k._state()).waits).length,1);
- await t.k.reply('cove-support','628123','Jawaban tim: ada');const n=t.sent.length;assert.deepEqual((await t.k._state()).waits,{});
- t.later(10*60e3);await t.k._tick();await t.settle();assert.equal(t.sent.length,n)});
+ await t.k.reply('cove-support','628123','Jawaban tim: ada');const n=t.sent.length;assert.deepEqual((await t.k._state()).waits,{});assert.deepEqual((await t.k._state()).holds,{});
+ await assert.rejects(t.k.reply('cove-support','628123','Jawaban tim: ada'),/already sent to this customer/);assert.equal(t.sent.length,n);
+ t.later(10*60e3);await t.k._tick();await t.settle();assert.equal(t.sent.length,n);
+ await t.k.reply('cove-support','628123','Jawaban tim: ada');assert.equal(t.sent.length,n+1,'after 10 minutes it is a new message')});
 
 // a payment from a recent earlier run counts for the guard (11 Nov 2026, taken into git from the box's 10 Nov drift)
 test('a reply pointing back to a QRIS made in an earlier run is not held; the window is paymentRecentMin',async()=>{for(const [min,held] of [[undefined,false],[5,true]]){
@@ -336,7 +380,8 @@ test('the one exit guard: whatsapp_reply, a draft and a send of internal text ne
  await t.post(meta('628123','halo'));await t.settle();const n=t.sent.length;
  await assert.rejects(t.k.reply('cove-support','628123','Dari rules: paket 1\n---\nHalo kak'),/not sent to the customer/);
  await assert.rejects(t.k.reply('cove-support','628123','Traceback (most recent call last):\n  File "x.py", line 3, in <module>'),/not sent to the customer/);
- assert.equal(t.sent.length,n);assert.ok(t.told.some(x=>/internal text was stopped/.test(x)));
+ // nothing went out, and the team (not only the bell) was told once, with the chat link
+ assert.equal(t.sent.length,n);assert.equal(t.posts.filter(x=>/NO REPLY SENT[\s\S]*stopped before it reached the customer[\s\S]*wa\.me\/628123/.test(x[3])).length,1);
  await t.k.reply('cove-support','628123','Halo kak, ini jawabannya ya');assert.equal(t.sent.length,n+1)});
 test('an agent that keeps stopping on one chat is tried again twice with waits, then handed to the team once, with one Health problem (12 Nov 2026)',async()=>{
  let runs=0;const probs=[];const t=await make({agentSays:async()=>{runs++;throw Error('the agent stopped (1)')}});
@@ -369,7 +414,7 @@ test('sendDocument: a document message with a public https link, to a number tha
  await assert.rejects(t.k.sendDocument('cove-support','628123',{link:'http://x/a.pdf',filename:'a.pdf'}),/public https link/);
  await assert.rejects(t.k.sendDocument('cove-support','628123',{link:Buffer.from('%PDF-1.4'),filename:'a.pdf'}),/public https link/,'bytes are not a link');
  await assert.rejects(t.k.sendDocument('cove-support','629999',{link:'https://ai.example/doc/x/a.pdf'}),/24 hours/);
- await assert.rejects(t.k.sendDocument('cove-support','628123',{link:'https://ai.example/doc/x/a.pdf',caption:'Traceback (most recent call last):\n  File "x.py", line 3, in <module>'}),/looks meant for the team/);
+ await assert.rejects(t.k.sendDocument('cove-support','628123',{link:'https://ai.example/doc/x/a.pdf',caption:'Traceback (most recent call last):\n  File "x.py", line 3, in <module>'}),/not sent to the customer/);
  assert.equal(t.sent.length,n);
  await t.k.sendDocument('cove-support','628123',{link:'https://ai.example/doc/T/Protokol.pdf',filename:'Protokol.pdf',caption:'Ini protokolnya, kak.'});
  const b=t.sent.at(-1);assert.deepEqual([b.type,b.to,b.document.link,b.document.filename,b.document.caption],['document','628123','https://ai.example/doc/T/Protokol.pdf','Protokol.pdf','Ini protokolnya, kak.']);
@@ -391,3 +436,62 @@ test('a delivery check reports each step as it goes, so a waiting person sees wh
  await t.post(meta('628999','aqeelos-probe:open000001w'));await t.settle();
  const r=await t.k.deliveryCheck('cove-support',{document:true,step:async s=>{steps.push(s)}});
  assert.equal(r.document,true);assert.ok(steps.length>=3,steps.join(' | '));assert.ok(steps.some(s=>/file link/.test(s)),'names the link step');assert.ok(steps.some(s=>/waiting up to 3 minutes/.test(s)),'names the wait')});
+
+// ---- customer-safety audit, 12 Nov 2026 (H6, H7, C2, M3, M5-M8, L1)
+test('a reply the exit guard holds is written once more with the reason; the clean second try goes out (audit H6)',async()=>{let n=0;
+ const t=await make({mode:'live',agentSays:q=>++n===1?'Halo kak!\nSesuai SOP, saya harus tanya dulu riwayat peptide.\nBoleh tahu sebelumnya pernah pakai?':'Halo kak! Boleh tahu sebelumnya pernah pakai peptide?'});
+ await t.post(meta('628777','halo kak mau tanya',undefined,'cnv_Q'));await t.settle();
+ assert.equal(t.asked.length,2);assert.match(t.asked[1][1],/NOTE: your last reply was NOT sent[\s\S]*citing its rules/);assert.equal(t.asked[0][2].session,t.asked[1][2].session);
+ assert.deepEqual(t.sent.map(b=>b.text.body),['Halo kak! Boleh tahu sebelumnya pernah pakai peptide?']);assert.equal(t.posts.length,0)});
+test('held twice: the customer gets nothing wrong, a person gets the chat with the held text, which only the team sees (audit H6)',async()=>{
+ const t=await make({mode:'live',agentSays:'Kak Budi Santoso di Jl. Melati 12 Bandung (081234567890) kemarin pesan paket yang sama kok kak'});
+ await t.post(meta('628777','ada yang pesan paket ini?',undefined,'cnv_Q'));await t.settle();
+ assert.equal(t.asked.length,2,'one more try, not more');assert.equal(t.posts.length,1);assert.match(t.posts[0][3],/^❓ HANDOFF[\s\S]*exit guard stopped[\s\S]*Held text \(NOT sent to the customer\):[\s\S]*Budi Santoso/);
+ // the customer hears only the line's own "passed on" text
+ assert.equal(t.sent.length,1);assert.match(t.sent[0].text.body,/teruskan ke tim/);assert.ok(!JSON.stringify(t.sent).includes('Budi'))});
+test('another customer\'s number never leaves through whatsapp_reply either; the customer\'s own number and a number the line allows do (audit C1)',async()=>{
+ const t=await make({mode:'live',extra:{guard:{phones:['0811-2222-3333']}}});await t.post(meta('6281200001111','halo, nomor saya 0812-0000-1111'));await t.settle();const n=t.sent.length;
+ await assert.rejects(t.k.reply('cove-support','6281200001111','Kemarin ada yang pesan juga, nomornya 0857-1111-2222 kak'),/not sent to the customer \(a phone number that is not this customer/);assert.equal(t.sent.length,n);
+ await t.k.reply('cove-support','6281200001111','Nomor kakak 0812-0000-1111 sudah kami catat ya. Admin kami: 0811-2222-3333');assert.equal(t.sent.length,n+1)});
+test('the agent wrote nothing, or only pictures aqeelOS does not have: ONE team alert with the chat link, counted for Health, never silence (audit H7)',async()=>{
+ const probs=[];const t=await make({mode:'live',agentSays:'',probs,health:true});
+ await t.post(meta('628777','halo?','e1','cnv_Q'));await t.settle();await t.post(meta('628777','halo??','e2','cnv_Q'));await t.settle();
+ assert.equal(t.sent.length,0);assert.equal(t.posts.length,1,'one alert, not one per message');assert.match(t.posts[0][3],/NO REPLY SENT[\s\S]*wrote nothing[\s\S]*wa\.me\/628777/);
+ assert.equal(probs.length,1);assert.equal(probs[0][1],'customer|empty|628777');assert.ok(!/628777/.test(probs[0][2]+probs[0][3]),'Health shows the last four digits only');
+ assert.equal((await t.k.status())[0].noReply.today,1);
+ const p=await make({mode:'live',agentSays:'[FOTO: missing.png]'});await p.post(meta('628777','lihat fotonya',undefined,'cnv_Q'));await p.settle();
+ assert.equal(p.sent.length,0);assert.equal(p.posts.length,1);assert.match(p.posts[0][3],/only pictures aqeelOS does not have/)});
+test('a message WhatsApp did not deliver is told to the team in their topic, once (audit H7)',async()=>{const t=await make({mode:'live'});
+ await t.post(meta('628777','halo',undefined,'cnv_Q'));await t.settle();assert.equal(t.sent.length,1);
+ t.receipt={status:'failed',error:{code:'131047'}};await t.k._tick();await t.k._tick();
+ assert.equal(t.posts.filter(x=>/WhatsApp did not deliver a message[\s\S]*131047/.test(x[3])).length,1)});
+test('a removed tester is a customer again: Test mode no longer answers them (audit C2)',async()=>{const t=await make();
+ await t.post(meta('628123','halo'));await t.settle();assert.equal(t.sent.length,1);
+ const c=JSON.parse(await readFile(path.join(t.DATA,'kirimdev.json'),'utf8'));c.lines['cove-support'].testers=[];await writeFile(path.join(t.DATA,'kirimdev.json'),JSON.stringify(c));
+ await assert.rejects(t.k.reply('cove-support','628123','Halo lagi kak'),/only answers its testers/);
+ await t.post(meta('628123','halo lagi','x2'));await t.settle();assert.equal(t.asked.length,1,'not answered any more')});
+test('a mode change is written down with who; a mode edited in the file is not believed, the stricter one applies (audit M6)',async()=>{const probs=[];const t=await make({probs,health:true});
+ await t.k.status();await t.k.setMode('cove-support','draft','Aqeel');const m=(await t.k._state()).modes['cove-support'];assert.equal(m.mode,'draft');assert.equal(m.by,'Aqeel');assert.equal(m.was,'test');
+ const c=JSON.parse(await readFile(path.join(t.DATA,'kirimdev.json'),'utf8'));c.lines['cove-support'].mode='live';await writeFile(path.join(t.DATA,'kirimdev.json'),JSON.stringify(c));
+ assert.equal((await t.k.status())[0].mode,'draft','a hand edit to live does not make it live');assert.ok(probs.some(x=>x[1]==='kirimdev|mode'));
+ await t.post(meta('629999','halo',undefined,'cnv_Z'));await t.settle();assert.equal(t.sent.length,0,'still Draft: nothing reaches the customer')});
+test('the 24-hour window counts from when the customer wrote, and a made-up test event never opens it (audit M8)',async()=>{const t=await make({mode:'live'});
+ const old=JSON.parse(meta('628555','halo dari kemarin','old1','cnv_O'));old.entry[0].changes[0].value.messages[0].timestamp=String(Math.floor(Date.now()/1000)-25*3600);
+ await t.post(JSON.stringify(old));await t.settle();assert.equal(t.sent.length,0,'outside the window: nothing is sent');
+ await t.post(meta('628556','halo','wamid.aqtest-abc123','cnv_T').replace('"id":"wamid.aqtest-abc123"','"id":"wamid.aqtest-abc123"'));await t.settle();assert.equal(t.sent.length,0);
+ await t.post(meta('628557','halo','real1','cnv_R'));await t.settle();assert.equal(t.sent.length,1)});
+test('nothing is cut silently: a long text is split at a paragraph, parts beyond eight are joined (audit L1)',()=>{
+ const long=('Paragraf satu. '.repeat(100)+'\n\n').repeat(4);const c=chunkText(long.trim());assert.ok(c.length>=2&&c.every(x=>x.length<=3900));assert.equal(c.join(' ').replace(/\s+/g,' '),long.trim().replace(/\s+/g,' '));
+ const many=splitReply(Array.from({length:11},(_,i)=>'bagian '+(i+1)).join('\n---\n'));assert.equal(many.length,8);assert.match(many[7],/bagian 8[\s\S]*bagian 11/)});
+test('finished sends leave the state after 48 hours; left-over run files are removed at start (audit M3)',async()=>{const t=await make({mode:'live'});
+ await t.post(meta('628777','halo',undefined,'cnv_Q'));await t.settle();t.receipt={status:'delivered'};await t.k._tick();
+ const first=Object.keys((await t.k._state()).outbox);assert.equal(first.length,1);
+ // two days on, the next save drops the delivered send; the new one stays
+ t.later(49*3600e3);await t.post(meta('628778','halo','n2','cnv_N'));await t.settle();
+ const left=Object.keys((await t.k._state()).outbox);assert.equal(left.length,1);assert.ok(!left.includes(first[0]));
+ const {utimes,stat}=await import('node:fs/promises');const old=path.join(t.DATA,'kirimdev-query-11111111-2222-3333-4444-555555555555.txt'),fresh=path.join(t.DATA,'kirimdev-query-99999999-2222-3333-4444-555555555555.txt');
+ await writeFile(old,'old prompt');await writeFile(fresh,'a run in progress');const now=Date.now()+49*3600e3;await utimes(old,new Date((now-3600e3)),new Date(now-3600e3));await utimes(fresh,new Date(now),new Date(now));
+ assert.equal(await t.k.sweepQueries(),1);assert.equal(await stat(old).catch(()=>null),null);assert.ok(await stat(fresh))});
+test('a turn that waited more than two hours goes to a person instead of a late answer (audit M7)',async()=>{const t=await make({mode:'live'});
+ await t.post(meta('628777','halo',undefined,'cnv_Q'));t.later(3*3600e3);await t.settle();
+ assert.equal(t.asked.length,0);assert.equal(t.sent.length,0);assert.equal(t.posts.length,1);assert.match(t.posts[0][3],/waited 180 minutes/)});

@@ -65,7 +65,7 @@ test('Test labels testers only; Live labels anyone; Draft proposes with the draf
  let d;d=await make({mode:'draft',agentSays:async ctx=>{const r=await d.k.labelContact('cove-support',{conversationId:ctx.run.conversation,phone:ctx.run.phone,add:['Consult','I-NAD']});assert.equal(r.proposed,true);return 'Halo kak'}});
  await d.post(meta('628123','mau konsultasi NAD'));await d.settle();
  assert.deepEqual(d.names('ctc_A'),[],'Draft: not set');assert.match(d.posts[0][3],/DRAFT #1[\s\S]*Labels, set when it is sent: \+Consult, \+I-NAD/);
- const r=await d.k.draft('cove-support',1,'send','',  'Aqeel');assert.equal(r.labels.set,true);assert.deepEqual(d.names('ctc_A'),['Consult','I-NAD']);
+ const r=await d.k.draft('cove-support',1,'send','',  'Aqeel',{human:true,via:'page'});assert.equal(r.labels.set,true);assert.deepEqual(d.names('ctc_A'),['Consult','I-NAD']);
  assert.match(d.acts[0][2],/A sent draft \(run draft1\)/)});
 
 test('a confirmed payment sets Customer and S- labels and removes Checkout, and nothing else',async()=>{const t=await make();
