@@ -1,0 +1,5 @@
+/* Home-screen app (12 Nov 2026): the page never sits under the notch, the status bar or the home bar when it is opened from an
+   icon (viewport-fit=cover lets it draw there, these keep the content out). Nothing changes in a normal tab: the insets are 0. */
+html{background:var(--bg,#fff);overscroll-behavior:none}
+body{box-sizing:border-box;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)}
+.toasts{margin-bottom:env(safe-area-inset-bottom,0px)}

@@ -47,6 +47,11 @@ async function models(agent,act){if(Date.now()-codexModels.at>600000||!codexMode
 // claude-opus-4-5-20251101 → Opus 4.5, gpt-5.1-codex-max → GPT-5.1 Codex Max (a model Code has no name for)
 const niceModel=id=>String(id).replace(/^claude-/,'').replace(/-\d{8}$/,'').replace(/-(\d+)-(\d+)(?=-|$)/g,' $1.$2').split(/[-\s]+/).map(w=>/^gpt$/i.test(w)?'GPT':w.charAt(0).toUpperCase()+w.slice(1)).join(' ').replace(/^GPT (\d)/,'GPT-$1');
 const root=path.dirname(fileURLToPath(import.meta.url));
+// home-screen app (app/pwa.mjs, 12 Nov 2026): this copy's own icons drawn from aqeelOS's mark, the manifest and the head tags on every page; when it runs
+// inside aqeelOS (online) aqeelOS swaps them for the install's own brand. Absent (a standalone copy without app/) = nothing changes.
+const pwaLocal=await import('../app/pwa.mjs').then(({createPwa})=>{let spec=null;const mk=f=>readFile(path.join(root,...f)).catch(()=>null);
+ return createPwa({brand:{iconSpec:async()=>spec||=await(async()=>{const d=await mk(['assets','aqeelos-mark.svg']),alt=await mk(['..','assets','aqeelos-mark-outline.svg'])||await mk(['assets','aqeelos-mark-outline.svg']);
+  return {name:'aqeelOS',colour:'',defaultColour:'',accent:'',mono:false,custom:null,v:1,markCands:d?[{file:'assets/aqeelos-mark.svg',type:'image/svg+xml',data:d,alt:alt?{file:'assets/aqeelos-mark-outline.svg',data:alt}:undefined}]:[]}})()}})}).catch(()=>null);
 const aqeelos=createAqeelos({root});
 const work=path.join(root,'scratch');
 await mkdir(work,{recursive:true});
@@ -157,6 +162,7 @@ async function run(job){
 const workspaceAPI=await createWorkspaceAPI({aqeelos,claudeAccounts,root,platform,appUrl:()=>'http://127.0.0.1:'+(server.address()?.port||4321),findExecutable,status:selectAccount,execute,parseResponse,env:cleanEnv,token,accounts});
 const planning=await createPlanning(root);
 const server=http.createServer(async(req,res)=>{
+ pwaLocal?.hook(req,res);
  const send=(code,data)=>{res.writeHead(code,{'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(data))};
  const url=new URL(req.url,'http://127.0.0.1'),local=isLoopback(req.socket.remoteAddress);
  if(local){const hostname=(req.headers.host||'').split(':')[0];if(!['127.0.0.1','localhost'].includes(hostname))return send(403,{error:'Local access only.'})}
@@ -165,10 +171,11 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/pair'){if(req.method==='POST'){let body='';for await(const c of req){body+=c;if(body.length>2000)return send(413,{error:'Too large.'})}const f=new URLSearchParams(body);
     try{const t=await remote.pair(f.get('code'),f.get('name'));res.writeHead(303,{Location:'/','Set-Cookie':'cba_device='+t+'; HttpOnly; SameSite=Strict; Path=/; Max-Age=7776000'});return res.end()}catch(e){res.writeHead(400,{'Content-Type':'text/html; charset=utf-8'});return res.end(pairPage(e.message))}}
    res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'});return res.end(pairPage())}
-  const open=/^\/assets\/(icon-\d+\.png|plus-jakarta-sans\.woff2|aqeelos-mark\.svg)$/.test(url.pathname)||url.pathname==='/manifest.webmanifest';
+  const open=/^\/assets\/(icon-\d+\.png|plus-jakarta-sans\.woff2|aqeelos-mark\.svg)$/.test(url.pathname)||url.pathname==='/manifest.webmanifest'||!!pwaLocal?.isPwaPath(url.pathname);
   if(!open&&!remote.device(req.headers.cookie)){if(req.method==='GET'&&!url.pathname.startsWith('/api/')){res.writeHead(303,{Location:'/pair'});return res.end()}return send(401,{error:'Pair this device first.'})}
   if(url.pathname.startsWith('/api/remote'))return send(403,{error:'Manage phone access from the computer.'})}
  try{
+  if(pwaLocal&&(req.method==='GET'||req.method==='HEAD')&&pwaLocal.isPwaPath(url.pathname)&&await pwaLocal.serve(req,res,url.pathname,{head:req.method==='HEAD',code:true}))return;
   // Code online: the short signed note of who sent this (aqeelOS checks it; kept as that person's newest)
   const act=process.env.CBA_ONLINE?aqeelos.noteAct(req.headers['x-aq-act']):'';
   // online (the AI box): runs use the agents' accounts from aqeelOS › Models, so Code's own sign-ins are only shown, never changed here
