@@ -113,6 +113,7 @@ import {createAgentVersions,VERSION_TOOLS} from './agent-versions.mjs';   // sel
 import {createAgentLive} from './agent-live.mjs';
 import {createBillionContext} from './billion-context.mjs';
 import {createGraphify} from './graphify.mjs';
+import {createEfficiency} from './efficiency.mjs';
 import {createTeamView} from './team-view.mjs';
 import {settings as installSettings} from './install.mjs';
 import {sysTz,localParts,zoneName} from './tz.mjs';
@@ -1773,6 +1774,11 @@ if(LIVE_APP){const liveInstall=()=>agentLive.install().then(async c0=>{const c=[
 const billion=createBillionContext({HERMES_HOME,readConfig,setKey,pick});
 if(LIVE_APP){const biliInstall=()=>billion.install().then(async c0=>{const c=[];for(const a of c0)if(!await isTestAgent(a).catch(()=>false))c.push(a);if(c.length)restartLater('billion-context plugin for '+c.length+' agent(s)')}).catch(e=>console.warn('billion-context install',e.message));
  setTimeout(biliInstall,90e3).unref();setInterval(biliInstall,10*60e3).unref()}
+// efficient by default (11 Nov 2026): every agent's home, new ones too, shortens chats at a fixed size and keeps the
+// cache for an hour in chats a person types into; same rhythm, the engine reloads once no reply runs
+const efficiency=createEfficiency({HERMES_HOME,DATA,readConfig,setKey,pick});
+if(LIVE_APP){const effApply=()=>efficiency.apply().then(async c0=>{const c=[];for(const a of c0)if(!await isTestAgent(a).catch(()=>false))c.push(a);if(c.length)restartLater('efficient defaults for '+c.length+' agent(s)')}).catch(e=>console.warn('efficiency',e.message));
+ setTimeout(effApply,100e3).unref();setInterval(effApply,10*60e3).unref()}
 // graphify (code and document maps) in the agents' shared Python, its skill copied to every agent; same rhythm
 const graphify=createGraphify({HERMES_HOME});
 if(LIVE_APP){const gfInstall=()=>graphify.ensure().catch(e=>console.warn('graphify',e.message));setTimeout(gfInstall,120e3).unref();setInterval(gfInstall,10*60e3).unref()}

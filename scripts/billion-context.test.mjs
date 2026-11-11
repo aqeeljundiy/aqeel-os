@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,readFile} from 'node:fs/promises';
 import path from 'node:path';
 import {tmpdir} from 'node:os';
-import {createBillionContext,BILI_VERSION} from '../app/billion-context.mjs';
+import {createBillionContext,BILI_VERSION,FOLD_AT} from '../app/billion-context.mjs';
 
 async function make({fail=false}={}){const root=await mkdtemp(path.join(tmpdir(),'bili-'));const H=path.join(root,'.hermes');
  for(const p of ['sales','help'])await mkdir(path.join(H,'profiles',p),{recursive:true}).then(()=>writeFile(path.join(H,'profiles',p,'config.yaml'),''));
@@ -30,7 +30,13 @@ test('installs the pinned package once, copies the plugin with its sidecar into 
 
 test('the proxy keeps to the pin: self-update and advisory installs off, other settings kept',async()=>{const {B,root}=await make();
  const f=path.join(root,'.config','billion-context','billion-context.json');await mkdir(path.dirname(f),{recursive:true});await writeFile(f,JSON.stringify({port:9000}));
- await B.install();assert.deepEqual(JSON.parse(await readFile(f,'utf8')),{port:9000,autoUpdate:false,advisoryCheck:false})});
+ await B.install();assert.deepEqual(JSON.parse(await readFile(f,'utf8')),{port:9000,autoUpdate:false,advisoryCheck:false,compress:{maxContextLimit:FOLD_AT}})});
+
+test('long chats fold at a fixed size, not 75% of a 1M window; a size set by hand is kept',async()=>{const {B,root}=await make();
+ const f=path.join(root,'.config','billion-context','billion-context.json');await mkdir(path.dirname(f),{recursive:true});
+ await writeFile(f,JSON.stringify({autoUpdate:false,advisoryCheck:false}));await B.install();assert.equal(JSON.parse(await readFile(f,'utf8')).compress.maxContextLimit,FOLD_AT,'an install from before gets it too');
+ await writeFile(f,JSON.stringify({compress:{maxContextLimit:'60%',nudgeGrowthTokens:30000}}));await B.install();
+ assert.deepEqual(JSON.parse(await readFile(f,'utf8')).compress,{maxContextLimit:'60%',nudgeGrowthTokens:30000})});
 
 test('a failed download changes nothing and waits an hour before trying again',async()=>{const {B,H,runs,tick}=await make({fail:true});
  assert.deepEqual(await B.install(),[]);assert.deepEqual(await B.install(),[]);assert.equal(runs.length,1);
