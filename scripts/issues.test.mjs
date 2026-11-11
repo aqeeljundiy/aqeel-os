@@ -109,6 +109,10 @@ await t('escalations skip engine notices and read past the origin header',()=>{c
  assert.equal(c.a1.thisWeek,1)});
 await t('ladder: an approval is never a reason to message; stuck with nothing a person must do stays silent',async()=>{
  assert.equal(approvalOnly('Please approve the new greeting rule'),true);assert.equal(approvalOnly('The owner must approve and pay the Kirimdev invoice'),false);assert.equal(approvalOnly('Add the bot to the group'),false);
+ // a technical failure is the fixer's, never a person's (11 Nov 2026, Higgsfield on Elkiya)
+ assert.equal(noPersonNeeded('Someone must sign in to higgsfield again, but the MCP client rejects the response: Server-sent event exceeded the 1048576 byte limit'),true);
+ assert.equal(noPersonNeeded('The engine parks the server after failed initial connection; a code change is needed'),true);
+ assert.equal(noPersonNeeded('The owner must top up the Kie.ai balance'),false);assert.equal(noPersonNeeded('Fakhri must sign in with his Google account'),false);
  const S=await setup({fix:[{status:'needs_human',need:'Owner should approve the greeting rule change'},{status:'failed',summary:'b'},{status:'failed',summary:'c'}]});
  await S.I.file({agent:'a1',missing:'greeting'});for(let k=0;k<12&&(await S.db()).state!=='stuck';k++){await S.I.tick();const i=await S.db();if(i.state==='queued')i.notBefore=0}
  const i=await S.db();assert.equal(i.state,'stuck');assert.match(i.history[0].outcome,/nobody approves/);assert.equal(quietAll(S.said),0,'nobody messaged');assert.equal(i.need,null)});

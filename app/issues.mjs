@@ -73,7 +73,12 @@ export function parseResult(out,kind='fix'){const m=[...String(out||'').matchAll
 // "a person must send a WhatsApp message from the tester phone" is never a need (7 Nov 2026): the fixer posts the same
 // signed webhook Kirimdev posts, as one of the line's testers (scripts/kirimdev-test-message.mjs)
 export const testerSendOnly=t=>{t=String(t||'');return /\b(tester|test(ing)? (phone|number|nomor|hp)|nomor (tester|test))\b/i.test(t)&&/\b(send|sends|sent|message|write|writes|kirim|chat|reply|replies|whatsapp|wa)\b/i.test(t)&&!/\b(pay|paid|invoice|top ?up|billing|key|token|password|log ?in|sign ?in|qr|scan|add (the )?bot|invite|decid|choose|which one)/i.test(t)};
-export const noPersonNeeded=t=>approvalOnly(t)||testerSendOnly(t);
+// a "need" that is really a technical failure is the fixer's, never a person's (11 Nov 2026: four "higgsfield needs someone
+// to sign in" issues on Elkiya, where the sign-in itself fails in the engine: "Server-sent event exceeded the 1048576 byte
+// limit"). Signing in does nothing there; a person is asked only for money, a key or login only they have that can work,
+// adding a bot, or a decision only they can make.
+export const technicalOnly=t=>{t=String(t||'');return /\b(engine|MCP client|server-sent event|SSE|byte limit|\d+ ?MB limit|rejects? (the|its) (response|reply)|time[sd]? ?out|exit code|traceback|stack trace|bug|code (change|fix)|patch|crash(es|ed)?|HTTP 5\d\d|internal error|parking|failed initial connection)\b/i.test(t)&&!/\b(pay|paid|invoice|top ?up|billing|password only|add (the )?bot|invite|decid|choose|which one)\b/i.test(t)};
+export const noPersonNeeded=t=>approvalOnly(t)||testerSendOnly(t)||technicalOnly(t);
 export const approvalOnly=t=>{t=String(t||'');return /\b(approv|sign[ -]?off|give (the |your )?ok|ok (it|this|the change)|confirm (that|whether|the change|this change)|review (the|this) (change|fix|rule))/i.test(t)&&!/\b(pay|paid|invoice|top ?up|billing|key|token|password|log ?in|sign ?in|qr|add (the )?bot|invite|decid|choose|which one)/i.test(t)};
 export const notStarted=out=>/couldn'?t start the model connection|Gateway draining|not_ready|Connection refused.*gateway/i.test(String(out||'').slice(-3000));
 

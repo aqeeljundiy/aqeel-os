@@ -271,17 +271,21 @@ export function createAutomationGuard({DATA,HERMES_HOME,LIVE,listAgents,readConf
   x.failWhy=b.why;await save();await say('venv|'+dir+'|failed','The Python environment '+path.basename(dir)+' is broken and could not be built again',{detail:String(b.why).replace(/\.$/,'')+'. Open System › Health to try again.',whatsapp:true});return b}
 
  /* ---------- the passes ---------- */
- async function fixPass(){const now=Date.now();const out=[];
+ async function fixPass(){const now=Date.now();const out=[];const signins={};
   for(const r of Object.values(db.servers)){const st=nextStep(r,now,{stdio:!!r.stdio});
    // an app nobody ever signed in to for this agent (no saved sign-in, e.g. Sela's Composio, kept unsigned on purpose
    // 25 Oct 2026) is not a problem: it stays quiet; only a sign-in that existed and was lost is reported
    if(st==='signin'&&!await signedBefore(r.agent,r.name)){r.unused=true;continue}
    // an extra number (default--whatsapp-2) shares its agent's sign-ins (links.mjs links mcp-tokens): the agent's own alert covers it
    if(st==='signin'&&r.agent.includes('--')&&db.servers[key(r.agent.split('--')[0],r.name)]?.state==='signin'){r.unused=false;continue}
-   if(st==='signin'){r.unused=false;await say('srv|'+key(r.agent,r.name)+'|signin',nameOf(r.agent)+': "'+r.name+'" needs someone to sign in',{detail:'Its sign-in ran out, so its tools stay off until someone signs in again. Sign in under Bottlenecks or System › Health. aqeelOS will not retry it by itself.',every:Infinity});continue}
+   if(st==='signin'){r.unused=false;(signins[r.name]||=[]).push(r.agent);continue}
    if(st!=='repair')continue;
    await say('srv|'+key(r.agent,r.name)+'|found|'+(r.since||0),nameOf(r.agent)+': the tool server "'+r.name+'" '+(r.state==='broken'?'is broken':r.state==='missing'?'is missing its tools':'stopped connecting'),{info:true,detail:String(r.reason||'').replace(/\.$/,'')+'. aqeelOS is fixing it.',every:Infinity});
    out.push(repair(r.agent,r.name,{why:r.reason}).catch(e=>({ok:false,why:e.message})))}
+  // one alert per app, naming its agents (11 Nov 2026: Higgsfield on 7 Elkiya agents made one "needs someone to sign in"
+  // per agent, four issues for one problem); a new agent joining the list tells again
+  for(const [n,ags] of Object.entries(signins)){const who=[...new Set(ags)].sort();
+   await say('srv|'+n+'|signin|'+who.join(','),(who.length===1?nameOf(who[0])+': "'+n+'" needs someone to sign in':'"'+n+'" needs someone to sign in on '+who.length+' agents ('+who.map(nameOf).join(', ')+')'),{detail:'Its sign-in ran out, so its tools stay off until someone signs in again. Sign in under Bottlenecks or System › Health. aqeelOS will not retry it by itself.',every:Infinity})}
   for(const [dir,v] of Object.entries(db.venvs))if(v.state==='broken'&&!Object.values(db.servers).some(r=>r.venvs?.includes(dir))&&mayTry(v,now))out.push(repairVenv(dir).catch(e=>({ok:false,why:e.message})));
   return Promise.all(out)}
  // the fixes of earlier days, once a day in the daytime (today's wait for tomorrow)
