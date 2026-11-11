@@ -3057,3 +3057,8 @@ button.bad:hover{background:color-mix(in srgb,var(--bad) 8%,transparent);border-
 .ad-h{font-size:13px;font-weight:600;color:var(--ink-2);margin:18px 0 8px}.ad-h:first-of-type{margin-top:4px}
 .ad-block-row{display:flex;gap:8px;margin:0 0 10px;flex-wrap:wrap}.ad-block-row input{flex:1 1 180px;min-width:0}.ad-block-row button{flex:none}
 .ad-by{flex-direction:column;align-items:flex-end;gap:1px;text-align:right;min-width:96px}.ad-by span{font-size:13px;font-weight:600}
+
+/* a question in Needs you (questions.mjs): options with their effect, one marked recommended; an inline field in an item */
+.bn-opts{list-style:none;margin:4px 0 10px;padding:0;display:grid;gap:6px}.bn-opts li{display:grid;gap:1px;padding:8px 10px;border-radius:10px;background:var(--bg-2,rgba(127,127,127,.08));font-size:13px;line-height:1.45}.bn-opts li b{font-weight:600}.bn-opts li span:not(.bn-rec){color:var(--ink-2)}
+.bn-rec{justify-self:start;font-size:11px;font-weight:600;color:var(--accent,#2a7de1);letter-spacing:.02em}
+.bn-in{display:flex;flex-wrap:wrap;gap:6px;width:100%;animation:cardIn 180ms var(--ease,ease) both}.bn-in input,.bn-in textarea{flex:1 1 220px;min-width:0;border-radius:10px}

@@ -145,6 +145,8 @@ if(Screen.open)setTimeout(()=>{Screen.watch();Screen.mirror()},300);
 ACT['scr-src']=a=>{Screen.setSrc(a.dataset.v);paintTop()};
 // the two top-bar buttons: each opens the panel on its screen, or closes it when that screen is already showing
 const openScreen=v=>{if(Screen.open&&Screen.src_===v){Screen.toggle();return}Screen.src_=v;store.set('screenSrc',v);if(!Screen.open)Screen.toggle();else{Screen.paint(true);Screen.mirror();paintTop()}};
+// the screen of one agent, with Take over on: where a sign-in only a person can do happens (a button in Needs you)
+const openAgentScreen=a=>{if(a&&(S.profile||'default')!==a&&typeof switchAgent==='function')switchAgent(a);Screen.src_='box';store.set('screenSrc','box');if(!Screen.open)Screen.toggle();else{Screen.paint(true);Screen.mirror();paintTop()}setTimeout(()=>Screen.setControl(true),700)};
 ACT['screen-box']=()=>openScreen('box');ACT['screen-mine']=()=>openScreen('mine');
 ACT['lb-focus']=async()=>{try{const r=await post((p,o)=>call('',p,o),'/ui/local-browser/focus?session='+encodeURIComponent(Chat.id||''));if(r.offline)toast('Your browser isn’t connected','err');else if(r.none)toast('No agent tab yet','err');else toast('Brought to the front in Chrome')}catch(e){fail(e)}};
 ACT['lb-retry']=()=>{const n=$('#lbNote');if(n){n.dataset.h='';n.innerHTML='<span class="spinner"></span><span>Connecting to your browser…</span>'}Screen.mirror()};

@@ -256,9 +256,14 @@ const HealthIssues={
   const keyOf=i=>{const seen=[];let x=i;for(;x&&need(x)&&!seen.includes(x);x=by.get(x.dupOf)){if(x.group)return x.group.toLowerCase().trim();seen.push(x)}
    return x&&seen.includes(x)?seen.slice(seen.indexOf(x)).map(y=>y.id).sort()[0]:seen.at(-1)?.id||i.id};
   for(const i of items){if(!need(i))continue;
-   const k=keyOf(i);let x=g.get(k);if(!x)g.set(k,x={key:k,title:i.group||HealthIssues.title(i),need:i.need||'',ids:[],agents:new Set(),reports:0,told:i.told||null,stuck:false});
-   x.ids.push(i.id);x.reports+=i.count||1;x.stuck||=i.state==='stuck';for(const a of [i.agentName||i.agent,...(i.reports||[]).map(r=>r.agentName||r.agent)])if(a)x.agents.add(a)}
+   const k=keyOf(i);let x=g.get(k);if(!x)g.set(k,x={key:k,title:i.group||HealthIssues.title(i),need:i.need||'',ids:[],agents:new Set(),reports:0,told:i.told||null,stuck:false,acts:null,question:null});
+   x.ids.push(i.id);x.reports+=i.count||1;if(i.question&&!x.question)x.question=i.question;if(!x.acts){const a=(i.acts||[]).filter(a=>a.do!=='recheck');if(a.length)x.acts=a}x.stuck||=i.state==='stuck';for(const a of [i.agentName||i.agent,...(i.reports||[]).map(r=>r.agentName||r.agent)])if(a)x.agents.add(a)}
   return [...g.values()].map(x=>({...x,agents:[...x.agents]}))},
+ // the buttons of one Needs-you card (need-action.mjs, questions.mjs): the primary does the thing; Check again looks again; Not needed closes it
+ needActs(g){const ids=g.ids,all=k=>Promise.all(ids.map(id=>post(UI,'/ui/health/issues/'+k,{id})));
+  const close=['Not needed',async()=>{if(!await confirmBox('Not needed?','It closes'+(ids.length>1?' for all '+ids.length+' reports':'')+' and goes to History. If the problem comes back, it is filed again.','Close',false))return false;await all('close');toast('Closed.')}];
+  if(g.question)return [...Bottlenecks.questionActs(g.question),close];
+  return [...(g.acts||[]).map((a,i)=>[a.label,()=>Bottlenecks.act(a,{id:ids[0]}),i===0]),['Check again',async()=>{await all('retry');toast('The fixer checks it again.')},!g.acts],close]},
  // why the fixer is not starting the next one, in one sentence (also used by the verdict)
  waitLine(f){const at=t=>new Date(t).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),day=t=>new Date(t).toDateString()===new Date().toDateString()?'today':'tomorrow';
   if(f.paused)return 'Paused'+(f.paused.by?' by '+f.paused.by:'')+' at '+at(f.paused.at)+'. Nothing new starts until you press Resume; new problems still join the line.';
@@ -280,8 +285,8 @@ const HealthIssues={
   B.need.innerHTML=groups.length?'<div class="hi-top"><h2 class="ach-cat" style="margin:0">Needs you</h2><span class="hint">Only what a person has to do. Everything technical stays with the fixer.</span></div><div class="card list hn-list">'+groups.map((g,k)=>{const ag=g.agents;
     const who=ag.length>1?ag.slice(0,-1).join(', ')+' and '+ag.at(-1):ag[0]||'';
     return '<div class="row hn-row" style="animation-delay:'+Math.min(k,6)*40+'ms"><div class="main-c"><i class="hn-ic">'+icon('user',16)+'</i><div class="txt"><b>'+t(g.title)+(g.reports>1?'<span class="hi-tag">'+g.reports+' reports, merged</span>':'')+'</b>'+
-     '<p>'+t(g.need||'Someone has to do this before the fixer can go on.')+'</p><span>'+t(who)+(ag.length>1?' · one fix covers all '+ag.length:'')+(g.told&&g.told!=='logged'?' · told '+t(g.told):'')+'</span>'+
-     '<div class="hi-acts"><button type="button" class="primary small" data-need="retry" data-ids="'+t(g.ids.join(','))+'">Done, check again</button><button type="button" class="ghost small hi-close" data-need="close" data-ids="'+t(g.ids.join(','))+'">Not needed</button></div></div></div></div>'}).join('')+'</div>':'';
+     '<p>'+t(g.need||'Someone has to do this before the fixer can go on.')+'</p>'+(g.question?'<ul class="bn-opts">'+g.question.options.map(o=>'<li><b>'+t(o.label)+'</b>'+(o.recommended?'<span class="bn-rec">Recommended</span>':'')+'<span>'+t(o.effect)+'</span></li>').join('')+'</ul>':'')+'<span>'+t(who)+(ag.length>1?' · one fix covers all '+ag.length:'')+(g.told&&g.told!=='logged'?' · told '+t(g.told):'')+'</span>'+
+     '<div class="hi-acts bn-acts" data-g="'+k+'"></div></div></div></div>'}).join('')+'</div>':'';
   // the fixer
   const L=f.line||[],run=f.now,w=f.wait,cap=f.cap||{used:0,cap:20};
   const state=f.paused?['paused','Paused']:f.on===false?['paused','Switched off']:run?['run',run.step==='prove'?'Proving a fix':'Fixing']:w?['wait',w.kind==='engine'&&!w.quiet?'Waiting for quiet hours':'Reloading soon']:L.length?['wait','Waiting']:['idle','Idle'];
@@ -328,11 +333,8 @@ const HealthIssues={
   // Details open in place; History's filters; one listener per box
   for(const b of [B.hist,B.fixer])if(!b.dataset.det){b.dataset.det='1';b.addEventListener('click',e=>{const m=e.target.closest('.act-more');if(m){const on=m.getAttribute('aria-expanded')!=='true';m.setAttribute('aria-expanded',String(on));m.nextElementSibling?.classList.toggle('open',on);return}
    const c=e.target.closest('[data-hf]');if(c){HealthIssues.flt=c.dataset.hf;B.fixer.dataset.sig='';HealthIssues.draw(B,d,again)}})}
-  // Needs you: done (the fixer tries again) or not needed (closed)
-  B.need.querySelectorAll('button[data-need]').forEach(b=>b.onclick=async()=>{const ids=b.dataset.ids.split(',').filter(Boolean),k=b.dataset.need;
-   if(k==='close'&&!await confirmBox('Not needed?','It closes'+(ids.length>1?' for all '+ids.length+' reports':'')+' and goes to History. If the problem comes back, it is filed again.','Close',false))return;
-   b.disabled=true;try{for(const id of ids)await post(UI,'/ui/health/issues/'+(k==='retry'?'retry':'close'),{id});toast(k==='retry'?'The fixer checks it again.':'Closed.')}catch(e){b.disabled=false;toast(e.message,'err');return}
-   const row=b.closest('.row');if(!calm()&&row){row.style.animation='cardOut 180ms var(--ease) both';await new Promise(r=>setTimeout(r,180))}B.fixer.dataset.sig='';again()});
+  // Needs you: the one button that does the thing (a sign-in, an option), then check again, or not needed
+  B.need.querySelectorAll('.bn-acts[data-g]').forEach(box=>Bottlenecks.paint(box,HealthIssues.needActs(groups[+box.dataset.g]),async()=>{B.fixer.dataset.sig='';await again()}));
   // the fixer's line: move, skip and put back, pause and resume
   B.fixer.querySelectorAll('button[data-fx]').forEach(b=>b.onclick=async()=>{const k=b.dataset.fx,li=b.closest('.hf-qi'),id=b.dataset.id||li?.dataset.id||'';if(k==='all'){HealthIssues.allLine=!HealthIssues.allLine;B.fixer.dataset.sig='';return HealthIssues.draw(B,d,again)}b.disabled=true;
    if(k==='pause'&&!await confirmBox('Pause the fixer?','A run already going finishes its step. Nothing new starts until you press Resume. New problems still join the line.','Pause',false)){b.disabled=false;return}

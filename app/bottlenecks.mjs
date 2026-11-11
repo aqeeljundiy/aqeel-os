@@ -22,14 +22,16 @@ export const groupReport=t=>/removed from (the )?(telegram )?group|bot is left|k
 export function personNeed(x){const k=x?.kind,t=[x?.title,x?.missing,x?.text].filter(Boolean).join(' ');
  switch(k){
   case 'signin':return 'Sign in. Only you have this login.';
-  case 'account':return x.account?.state==='credit'?'Top up this account, or switch the agents to another model.':x.account?.state==='rejected'?'Put in a working key for this account (the old one was rejected).':'Sign in to this account again. Only you have this login.';
+  case 'account':{const s=x.account?.state;return s==='exhausted'?'Add another AI account, or wait: nothing is lost and the agents go on once one has room.':s==='credit'?'Top up this account with its provider, or add another account for the agents to use.':s==='rejected'?'Paste a working key for this account (the old one was rejected).':'Sign in to this account again. Only you have this login.'}
   case 'invite':return 'If they still need to join, make a new invite link and send it to them.';
   case 'access':return 'Decide: allow or decline.';
   // a conflict (rule-conflicts.mjs): two sides or more, the agent never picks; the strictest side applies until you choose
+  // a question (questions.mjs): the fixer, an agent or the app asks with options to tap
+  case 'question':return 'Tap the choice you want. Nothing changes until you do.';
   case 'conflict':return 'Choose one. Until you do, the strictest side applies.';
   case 'instructions':return 'Read the new instructions and approve or decline them.';
   // the fixer's fixes wait as branches until it has a GitHub token (issues.mjs, fixer-git.mjs)
-  case 'github_token':return 'Make a GitHub token for the fixer (aqeel-os only: pull requests and contents on branches, no admin) and set it as AQEELOS_FIXER_GITHUB_TOKEN on the server.';
+  case 'github_token':return 'Paste a GitHub token for the fixer: only the aqeel-os repository, pull requests and contents, no admin.';
   case 'ticket':return 'Answer the waiting help tickets.';
   case 'accounts':return 'Keep it if you meant it; otherwise disconnect it.';
   // a message for the owner that landed here with no channel set: only one that needs them (the fixer's "needs a person")
@@ -49,7 +51,7 @@ const list=a=>a.length>1?a.slice(0,-1).join(', ')+' and '+a.at(-1):a[0]||'';
 // what a member (not an admin) can act on: their agent being blocked (they ask it to try again once they gave it what it
 // needs) and new instructions for an agent they own. Not access requests (an admin decides), not help tickets, not app
 // sign-ins on Connected apps, not sign-ins, accounts, channels or groups (admin pages).
-export const memberCan=x=>x?.kind==='report'||x?.kind==='instructions'||x?.kind==='conflict';
+export const memberCan=x=>x?.kind==='report'||x?.kind==='instructions'||x?.kind==='conflict'||x?.kind==='question';
 // the same need shown once: a group by its chat, an app sign-in by its apps (across agents), a report by what is missing
 export function popupKey(x){const t=[x.title,x.missing].filter(Boolean).join(' ');
  if(x.kind==='group')return 'group|'+String(x.topic||x.title).replace(/^health\|[^|]+\|/,'');

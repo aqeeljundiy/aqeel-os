@@ -32,6 +32,7 @@ import path from 'node:path';
 import {providerUnavailable,retryAt} from './provider-limits.mjs';
 import {beforeWindow,DEFAULT_WINDOW} from './maintenance.mjs';
 import {evHash} from './cloud-fixer.mjs';
+import {cleanQuestion} from './questions.mjs';
 
 const clip=(s,n)=>String(s??'').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g,' ').slice(0,n);
 export const TRIES=3;
@@ -75,7 +76,7 @@ export function parseResult(out,kind='fix'){const m=[...String(out||'').matchAll
  const apply=['engine','ui'].includes(j.apply)?j.apply:j.restart_ui===true?'ui':'none';
  const changes=(Array.isArray(j.changes)?j.changes:[]).filter(c=>c&&typeof c.file==='string'&&c.file.startsWith('/')).slice(0,40).map(c=>({file:clip(c.file,400),backup:typeof c.backup==='string'&&c.backup.startsWith('/')?clip(c.backup,400):null}));
  const patches=(Array.isArray(j.patches)?j.patches:[]).filter(c=>c&&typeof c.file==='string'&&c.file.startsWith('/')&&typeof c.copy==='string'&&c.copy.startsWith('/')).slice(0,40).map(c=>({file:clip(c.file,400),copy:clip(c.copy,400)}));
- return {status:j.status,summary:clip(j.summary,1500),proof:clip(j.proof,3000),need:clip(j.need,600),check:clip(j.check,1000),apply,changes,patches}}
+ return {status:j.status,summary:clip(j.summary,1500),proof:clip(j.proof,3000),need:clip(j.need,600),check:clip(j.check,1000),apply,changes,patches,question:(()=>{try{return j.question?cleanQuestion(j.question):null}catch{return null}})()}}
 // a run that never reached the model (the engine was restarting or draining) is not a try
 // owner's ladder (7 Nov 2026): a person is asked only for what physically needs them (money, a key or login only they
 // have, a person adding a bot, a decision only they can make), never for a plain approval of a fix
@@ -131,7 +132,7 @@ export function fixerPrompt(i,{rules='',day=new Date().toISOString().slice(0,10)
  return [
  'You are the aqeelOS fixer: a headless coding run on this server. Nobody is chatting with you and nobody approves anything: fix ONE issue by yourself, then stop.',
  '','ISSUE '+i.id+' (agent '+i.agent+(i.source==='health'?', found by the Health check':'')+(i.byName?', asked by '+i.byName:'')+'). This is try '+attempt+' of '+tries+'.',
- 'What it was doing: '+(i.what||'-'),'Problem: '+i.missing,'Evidence: '+(i.evidence||'-'),'Proposed fix: '+(i.proposed_fix||i.fix||'-'),
+ 'What it was doing: '+(i.what||'-'),'Problem: '+i.missing,'Evidence: '+(i.evidence||'-'),...(i.answers?.length?['The owner already answered: '+i.answers.map(a=>'"'+a.question+'" -> '+a.text+(a.effect?' ('+a.effect+')':'')).join('; ')+'. Do what they chose; do not ask again.']:[]),'Proposed fix: '+(i.proposed_fix||i.fix||'-'),
  'Agents it may affect: '+[i.agent,...(i.affects||[])].join(', '),
  past?'\nEARLIER TRIES (they did not prove the problem gone and were rolled back). Use a different approach:\n'+past:null,
  '','HARD RULES (the code checks these too)',
@@ -153,10 +154,10 @@ export function fixerPrompt(i,{rules='',day=new Date().toISOString().slice(0,10)
   :'- Nobody edits aqeelOS\'s live code by hand, you included. Its code (~/apps/hermes-ui app/, scripts/, engine/, and the engine source ~/.hermes/hermes-agent) is never changed in place: copy the file to ~/apps/hermes-ui-data/fixer-work/'+i.id+'/<its full path without the leading slash>, change and check the copy (node --check, or the test against a copy), and list it in "patches" as {"file":"<live path>","copy":"<copy path>"} with status "patch". aqeelOS files it as ~/apps/hermes-ui-data/fixer-patches/'+i.id+'-try<n>.patch for the daily deploy and checks the problem again after that deploy. A live code file you change anyway is put back and filed the same way. Never commit or push. First look in ~/apps/hermes-ui-data/fixer-patches and ~/apps/hermes-ui-data/drift: the same fix may be filed already; then say so with status "patch" and that patch\'s file in "patches".',
  '- If you find nothing to change (it already works), use status "no_change": a proof run still has to show it works.',
  '- A skill that points to a file that is not there (Health kind skill): find the file and put it back in every skill folder listed. Look in this order: the *.bak* copies next to it, other agents\' copies of the same skill (~/.hermes/profiles/*/skills and ~/.hermes/skills), ~/.hermes/backups and ~/apps/hermes-ui-data backups, the skill\'s git history if it has one. Only if it is nowhere, change the SKILL.md so it no longer needs the file (remove or replace that step); never invent the file\'s content. The check: every file each SKILL.md points to exists (node ~/apps/hermes-ui/scripts/skill-check.mjs <skill folder> lists what is still missing; nothing listed means proven).',
- '- needs_human only when a person must physically act and no tool or key on this box can do it: money, a new key or login only a person has, someone adding a bot to a Telegram group, or a decision only the owner can make. Never to ask for approval or an OK: nobody approves fixes, you decide. Never to have someone send a WhatsApp message from a tester phone: you can do that yourself (see above). Put in "need" exactly what they must do, in one or two plain sentences.',
+ '- needs_human only when a person must physically act and no tool or key on this box can do it: money, a new key or login only a person has, someone adding a bot to a Telegram group, or a decision only the owner can make. Never to ask for approval or an OK: nobody approves fixes, you decide. Never to have someone send a WhatsApp message from a tester phone: you can do that yourself (see above). Put in "need" exactly what they must do, in one or two plain sentences. When what is needed is a CHOICE between approaches (not an action), do not describe it in "need": add "question" with one plain question and 2 to 4 options, each {"label":"2-4 words","effect":"one line: what happens if chosen","recommended":true on the one you advise}; the owner taps one and you are run again with the answer.',
  rules?'- '+rules:null,
  '','End with exactly one line (JSON on one line):',
- 'RESULT: {"status":"changed|patch|no_change|needs_human|failed","apply":"none|engine|ui","changes":[{"file":"/abs/path","backup":"/abs/path.bak-…"}],"patches":[{"file":"/live/path","copy":"/copy/path"}],"check":"how to rerun the original check","summary":"one or two plain sentences","proof":"what you ran and saw","need":"only for needs_human or failed: what a person must do"}'].filter(x=>x!==null).join('\n')}
+ 'RESULT: {"status":"changed|patch|no_change|needs_human|failed","apply":"none|engine|ui","changes":[{"file":"/abs/path","backup":"/abs/path.bak-…"}],"patches":[{"file":"/live/path","copy":"/copy/path"}],"check":"how to rerun the original check","summary":"one or two plain sentences","proof":"what you ran and saw","need":"only for needs_human or failed: what a person must do","question":{"question":"only for a choice","options":[{"label":"","effect":"","recommended":true}]}}'].filter(x=>x!==null).join('\n')}
 
 export function proofPrompt(i,fix,{reloaded=null,recheck=false,deployed=false}={}){return [
  'You are the aqeelOS fixer\'s proof run: a headless run on this server. Nobody is chatting with you. Do NOT change any file. Only prove whether ONE problem is gone.',
@@ -217,6 +218,8 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  git=null,needToken=async()=>{},tokenOk=async()=>{},
  // 12 Nov 2026: the cloud fixer (cloud-fixer.mjs); needCloud / cloudOk: the one "Needs you" item that asks to set it up; window: the maintenance window; onLimit(agent, text): an answer that said a Claude account hit a limit
  cloud=null,needCloud=async()=>{},cloudOk=async()=>{},window=()=>DEFAULT_WINDOW,onLimit=async()=>{},
+ // ask: files a Question for the owner (questions.mjs) → {qid}; a fix run that needs a choice between approaches asks it instead of telling
+ ask=async()=>null,
  // limits: the shared "AI provider not available" state (provider-limits.mjs); nothing that needs a model starts while it holds
  limits=null,
  // kept for older callers (the Approve/Decline flow is gone)
@@ -575,7 +578,9 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
    if(fr.status==='needs_human'&&(!fr.need||approvalOnly(fr.need))){await rollBack(fr.changes);h.outcome='asked for an approval; nobody approves fixes, so it decides itself';return await nextTry(i,null)}
    if(fr.status==='needs_human'&&testerSendOnly(fr.need)){await rollBack(fr.changes);h.outcome='asked a person to send a test message; it posts a signed test webhook as the tester itself (scripts/kirimdev-test-message.mjs)';return await nextTry(i,null)}
    if(fr.status==='needs_human'&&i.closeAfter){await rollBack(fr.changes);i.state='closed';i.updated=now();await save();log('issues: '+i.id+' closed after its last try');return}
-   if(fr.status==='needs_human'){await rollBack(fr.changes);i.state='needs_human';i.need=fr.need||fr.summary;await save();
+   if(fr.status==='needs_human'){await rollBack(fr.changes);i.state='needs_human';i.need=fr.question?.question||fr.need||fr.summary;
+    if(fr.question){const q=await ask({kind:'fixer',issue:i.id,agent:i.agent,...fr.question}).catch(e=>{log('issues: question not filed: '+e.message);return null});if(q)i.qid=q.qid}
+    await save();
     const to=await tell(i,nameOf(i.agent)+' needs a person for a fix\n\nProblem: '+i.missing+'\nWhat is needed: '+(i.need||'-')+'\n\naqeelOS fixes the rest by itself once this is done (issue '+i.id+' on System › Health).');i.told=to;await save();log('issues: '+i.id+' needs a human, told '+to);return}
    // put back before it was ever reloaded: nothing to reload
    if(fr.status==='failed'){await rollBack(fr.changes);h.outcome='failed, rolled back';return await nextTry(i,null)}
@@ -633,6 +638,9 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  // "Try again" on Health (after a person did what was needed, or for a stuck one): a fresh set of tries
  const retry=id=>queue(async()=>{await load();const i=db.items.find(x=>x.id===id);if(!i||OPEN.includes(i.state))return i?view(i):null;
   if(i.cloud&&['cloud','cloud_wait','needs_human'].includes(i.state)){i.cloud.sends=0;await cloudAgain(i,'a person pressed Try again',true);return view(i)}i.state='queued';i.tries=0;i.notBefore=0;i.noRetry=i.closeAfter=false;i.unavail=0;if(i.capped){delete i.capped;i.runBase={...runCounts(db.runs,{id:i.id},today()),day:today()}}i.updated=now();await save();return view(i)});
+ // the owner answered a question about this issue (questions.mjs onAnswer): the answer goes into the next try, which starts at once
+ const answered=(id,q)=>queue(async()=>{await load();const i=db.items.find(x=>x.id===id);if(!i)return null;(i.answers||=[]).push({question:q.question,text:q.answered.text,effect:q.answered.effect||'',at:now()});delete i.qid;if(!OPEN.includes(i.state)){i.state='queued';i.tries=0;i.notBefore=0;i.noRetry=i.closeAfter=false;i.unavail=0}
+  i.history.push({kind:'person',at:now(),status:'answer',summary:'Answered: '+clip(q.answered.text,120)});await save();return view(i)});
  // Stop retrying (System › Health): a queued one stops now; one in the middle of a try finishes that try (a proven fix
  // still counts as fixed, a change that fails its proof is still put back) and then stops
  const IDLE=['queued','open','needs_human','stuck','failed'];
@@ -643,7 +651,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  const close=(id,who)=>queue(async()=>{await load();const i=db.items.find(x=>x.id===id);if(!i)return null;if(['closed','fixed','gone','expired'].includes(i.state))return view(i);
   i.history.push({kind:'person',at:now(),status:'close',summary:'Closed'+(who?' by '+clip(who,60):'')});
   if(IDLE.includes(i.state)||!OPEN.includes(i.state)){i.state='closed';i.notBefore=0}else{i.noRetry=true;i.closeAfter=true}i.updated=now();await save();return view(i)});
- return {file,reviews,healthGone,sweep,retry,stop,close,decideOwner,press,forAgent,list,tick,policy,move,skip,pause,fixerView:async()=>{await load();return fixerView()},sortNext,_db:async()=>{await load();return db}}}
+ return {file,reviews,healthGone,sweep,retry,answered,stop,close,decideOwner,press,forAgent,list,tick,policy,move,skip,pause,fixerView:async()=>{await load();return fixerView()},sortNext,_db:async()=>{await load();return db}}}
 // one short sorting call through the engine (MODEL-3): no tools, no agent rules or memory, one turn, at most 2 minutes;
 // its answer is the last line of what it prints
 export function engineSortRun({bin,home,dir}){return async({prompt,agent,model='',effort=''})=>{await mkdir(dir,{recursive:true,mode:0o700});
