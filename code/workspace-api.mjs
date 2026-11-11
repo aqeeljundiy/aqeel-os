@@ -302,7 +302,7 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
  // (one-way since 25 Oct 2026: a Code run uses agents through aqeelos_ask, an agent never changes a project)
  // and the code bridge's calls of a run on aqeelOS models that this computer started itself (bridge.mjs refuses others)
  aqeelos?.serve({work:async job=>{if(job.kind==='browser')return browserJob(job);if(job.kind==='bridge')return bridge.job(job);throw Error('Agents cannot work on Code projects. Ask in Code instead.')}});
- aqeelos?.autoUpdate(()=>[...agents.values()].some(live)||[...builds.values(),...commands.values()].some(j=>j.state==='running')||[...dev.servers.values()].some(s=>s.state==='running'));
+ aqeelos?.autoUpdate(()=>[...agents.values()].some(live)||[...builds.values(),...commands.values()].some(j=>j.state==='running')||[...dev.servers.values()].some(s=>s.state==='running')||terminals.busy());
  // tell aqeelOS what this computer's Code has connected (shown under Connected apps › Code)
  {const tellAqeelos=async()=>{try{let github=[];const gh=await locate('gh',findExecutable).catch(()=>null);if(gh){const r=await tool(gh,['auth','status','--hostname','github.com'],{env,timeout:20000}).catch(()=>null);if(r)github=parseAccounts(r.stdout+'\n'+r.stderr)}
    const s=await readSettings();await aqeelos?.report({github,mcp:(s.mcpServers||[]).filter(m=>m.enabled!==false).map(m=>m.name)})}catch{}};

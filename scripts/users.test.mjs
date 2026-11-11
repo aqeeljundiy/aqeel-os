@@ -79,6 +79,13 @@ test('an admin can make their own agent private from other admins; a member cann
  assert.equal(users.gate(ada,'/gapi/p/beabot/api/sessions','POST',Q,'beabot')?.status,403);
  assert.equal(users.level(owner,'beabot'),'owner');assert.equal(users.lockedByOwner('beabot'),true);
  const l=(await list(ada,'beabot')).beabot;assert.equal(l.private,true);assert.equal(l.access,null);
+ // AUDIT-2 (11 Nov 2026): another admin can't get in by sharing it with themselves or by putting it in an invite
+ assert.equal((await call(ada,'PUT','/ui/people/share',{agent:'beabot',user:ada.id,level:'owner'})).status,403);
+ assert.equal(users.level(ada,'beabot'),null);
+ const sneak=(await call(ada,'POST','/ui/people/invite',{name:'Sneak',role:'member',agents:{beabot:'owner'}})).body;
+ assert.deepEqual((await users.invites?.()||[]).find(i=>i.code===sneak.code)?.agents||sneak.agents||{},{});
+ assert.equal((await call(bea,'PUT','/ui/people/share',{agent:'beabot',user:ada.id,level:'chat'})).status,200,'its owner still shares it');
+ assert.equal((await call(bea,'PUT','/ui/people/share',{agent:'beabot',user:ada.id,level:'none'})).status,200);
  assert.equal((await call(bea,'PUT','/ui/agents/beabot/private',{on:false})).status,200);assert.equal(users.level(ada,'beabot'),'owner');
  // an agent made for someone invited shows them as its owner until they join
  await users.created(bea,'forzed');const iv=(await call(bea,'POST','/ui/people/invite',{name:'Zed',role:'member',agents:{forzed:'owner'},ownAgent:'forzed'})).body;

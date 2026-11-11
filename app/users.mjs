@@ -332,15 +332,16 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
    try{await mail.deliver(String(b.to||'').trim(),(byId(u.id)?.name||'Someone')+' invited you to aqeelOS',`Hi${i.name?' '+i.name:''},\n\n${byId(u.id)?.name||'Someone'} invited you to aqeelOS. Open this link to pick a username and password:\n\n${String(b.link||'')}\n\nThe link works once and expires in 7 days.`);return send(res,200,{ok:true})}catch(e){return send(res,502,{error:e.message})}}
   if(p==='/ui/people'&&req.method==='GET')return send(res,200,{caps:CAPS,presets:PRESETS,owner:pub(owner()),roles:db.roles,users:db.users.map(x=>({...pub(x),lead:db.leads[x.id]||null,roleId:x.roleId||'custom',caps:x.caps||[],models:x.models||null,limit:x.limit||null})),invites:db.invites.filter(i=>!i.used&&i.expires>Date.now()).map(i=>({code:i.code,name:i.name,role:i.role,agents:i.agents,expires:i.expires})),expired:expiredInvites(),shares:db.shares});
   if(p==='/ui/people/invite'&&req.method==='POST'){const b=await body();if(b.roleId&&unsafeRole(b.roleId))return send(res,403,UNSAFE_ROLE);const role=b.role==='admin'&&u.role==='owner'?'admin':'member';
-   const inv={code:randomBytes(18).toString('base64url'),name:String(b.name||'').trim().slice(0,60),role,roleId:b.roleId&&db.roles[b.roleId]?b.roleId:null,caps:(Array.isArray(b.caps)?b.caps:[]).filter(k=>k in CAPS&&(k!=='unsafe'||u.role==='owner')),agents:b.agents&&typeof b.agents==='object'?Object.fromEntries(Object.entries(b.agents).filter(([a])=>!isPrivate(a)||level(u,a)==='owner')):{},expires:Date.now()+7*864e5,by:u.id,...(EMAIL.test(norm(b.email))?{email:norm(b.email)}:{})};
+   const inv={code:randomBytes(18).toString('base64url'),name:String(b.name||'').trim().slice(0,60),role,roleId:b.roleId&&db.roles[b.roleId]?b.roleId:null,caps:(Array.isArray(b.caps)?b.caps:[]).filter(k=>k in CAPS&&(k!=='unsafe'||u.role==='owner')),agents:b.agents&&typeof b.agents==='object'?Object.fromEntries(Object.entries(b.agents).filter(([a])=>!(isPrivate(a)||lockedByOwner(a))||level(u,a)==='owner')):{},expires:Date.now()+7*864e5,by:u.id,...(EMAIL.test(norm(b.email))?{email:norm(b.email)}:{})};
    // the agent made for them in this invite becomes theirs (private) when they accept, if the inviter still owns it then
    if(typeof b.ownAgent==='string'&&inv.agents[b.ownAgent]==='owner'&&(agentOwner(b.ownAgent)===u.id||isAdmin(u)&&!(b.ownAgent in db.agentOwners)))inv.ownAgent=b.ownAgent;
    // "Also make them their own agent" unticked: no lead agent is made for them when they join (7 Nov 2026)
    if(b.noLead===true&&role!=='admin')inv.noLead=true;db.invites.push(inv);await save();return send(res,200,inv)}
   const iv=/^\/ui\/people\/invite\/([\w-]+)$/.exec(p);if(iv&&req.method==='DELETE'){db.invites=db.invites.filter(i=>i.code!==iv[1]);await save();return send(res,200,{ok:true})}
   if(p==='/ui/people/share'&&req.method==='PUT'){const b=await body();const a=String(b.agent||''),id=String(b.user||'');if(!/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(a)||!byId(id)||id==='owner')return send(res,400,{error:'Unknown agent or person'});
-   // a private agent's people are its owner's to change (admins included)
-   if(isPrivate(a)&&level(u,a)!=='owner')return send(res,403,{error:'Only the owner of this agent can change who has it.'});
+   // a private agent's people are its owner's to change (admins included); an admin's own agent made Private too (AUDIT-2,
+   // 11 Nov 2026: another admin could share it with themselves or put it in an invite, then open it)
+   if((isPrivate(a)||lockedByOwner(a))&&level(u,a)!=='owner')return send(res,403,{error:'Only the owner of this agent can change who has it.'});
    db.shares[a]||={};if(LEVELS.includes(b.level))db.shares[a][id]=b.level;else delete db.shares[a][id];await save();return send(res,200,{ok:true,shares:db.shares[a]})}
   const um=/^\/ui\/people\/([\w-]+)$/.exec(p);
   // admins are the owner's to change or remove, not each other's
