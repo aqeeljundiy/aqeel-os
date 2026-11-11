@@ -682,7 +682,7 @@ ACT['mcp-install']=async a=>{const ce=(Pages._mcpCat||[]).find(x=>x.name===a.dat
 
 /* ===================== Abilities › Plugins ===================== */
 PAGES.plugins=async(p,el)=>{const gone=pageTok(el);
- const tab=S.tab.plugins||'Installed';setActions(`<button data-act="pl-rescan">${icon('refresh',16)}Rescan</button>`);
+ const tab=S.tab.plugins||'Installed';setActions(S.me?.admin===false?'':`<button data-act="pl-rescan">${icon('refresh',16)}Rescan</button>`);   // rescanning the box is an admin's; members turn plugins on for their own agents
  if(tab==='Browse')return pluginBrowse(el,gone);
  const h=await H('/dashboard/plugins/hub');if(gone())return;const list=h.plugins||[];
  el.innerHTML=`${tabs('plugins',['Installed','Browse'])}<div class="card list">${list.map((x,i)=>{const on=x.runtime_status==='enabled';return `<div class="row" ${st(i)}><div class="main-c"><span class="ic ${on?'blue':''}">${icon('layers',17)}</span><div class="txt"><b>${esc(x.name)}</b><span>${esc(x.source)} · v${esc(x.version||'?')} · ${esc((x.description||'').slice(0,110))}</span></div></div><div class="act">${toggle(on,x.name,'data-act="pl-toggle" data-name="'+esc(x.name)+'"')}<button class="ghost icon" data-menu="plugin" data-name="${esc(x.name)}" data-remove="${x.can_remove?1:''}" data-update="${x.can_update_git?1:''}" data-dash="${x.has_dashboard_manifest?1:''}" data-hidden="${x.user_hidden?1:''}" aria-label="More">${icon('more',18)}</button></div></div>`}).join('')}</div>`;placePills();

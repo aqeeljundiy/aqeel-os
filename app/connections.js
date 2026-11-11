@@ -34,7 +34,7 @@ const cxRow=(r,i)=>{const u=cxUsing(r);return `<div class="row clickable cn-row"
  <div class="cn-st">${cxChip(r)}</div></div>`};
 
 PAGES.connections=async(p,el)=>{const gone=pageTok(el);Pages._cxEl=el;
- setActions(`<button data-act="cn-check">${icon('refresh',16)}Check now</button><button class="primary" data-act="cn-add" aria-haspopup="menu">${icon('plus',16)}Add</button>`);
+ setActions(`${S.me?.admin?`<button data-act="cn-addons" title="What each person added, and apps nobody may add">${icon('user',16)}Added by people</button>`:''}<button data-act="cn-check">${icon('refresh',16)}Check now</button><button class="primary" data-act="cn-add" aria-haspopup="menu">${icon('plus',16)}Add</button>`);
  if(!el.querySelector('.cn-list'))el.innerHTML=skeletonRows(6);
  // a list Check now just got is drawn as it is, without asking again
  const pre=Cx.pre;Cx.pre=null;const d=pre||await UI('/ui/connections');if(gone())return;Pages._cx=d;
