@@ -6,7 +6,12 @@ import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,appendFile,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {createCustomerTools,TOOLS,DEFAULT_VA_MAX,vaMaxOf} from '../app/customer-tools.mjs';
+import {createCustomerTools as _createCustomerTools,TOOLS,DEFAULT_VA_MAX,vaMaxOf} from '../app/customer-tools.mjs';
+// The amount charged is the total line of the confirmed order form (audit 12 Nov 2026, C2). These tests are about limits, repeats and
+// logging on a line without a price list ("prices: form"), so the harness writes the form's total line from the test's order_total.
+const createCustomerTools=o=>{const C=_createCustomerTools({...o,payRules:async a=>({prices:'form',...(o.payRules?await o.payRules(a):{})})}),call=C.call;
+ C.call=(a,t,n,args)=>call(a,t,n,n==='create_payment'&&args?.order_form&&args.order_total!=null&&!/^total/im.test(args.order_form)?{...args,order_form:args.order_form+'\nTotal Pembayaran: Rp'+args.order_total}:args);return C};
+
 import {orderContextOf} from '../app/paid-labels.mjs';
 import {createPaidLabels} from '../app/paid-labels.mjs';
 import {splitReply,guardReply} from '../app/kirimdev.mjs';
