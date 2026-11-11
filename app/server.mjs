@@ -131,7 +131,7 @@ import {createEfficiency} from './efficiency.mjs';
 import {createTeamView} from './team-view.mjs';
 import {settings as installSettings} from './install.mjs';
 import {sysTz,localParts,zoneName} from './tz.mjs';
-import {engineKeys,ensureEngineKeys,uiSecret,PUBLIC_URL_REF,PUBLIC_HOST_REF,urlRef,hostSetting,installTz,applyTz,validTz,createInstallRoutes} from './install-routes.mjs';   // the box's time zone (7 Nov 2026: was Asia/Jakarta in code)   // live context each message + traceback guard (7 Nov 2026)
+import {engineKeys,ensureEngineKeys,uiSecret,PUBLIC_URL_REF,PUBLIC_HOST_REF,urlRef,hostSetting,onlineCodeOn,ONLINE_CODE_MSG,syncOnlineCodeMarker,installTz,applyTz,validTz,createInstallRoutes} from './install-routes.mjs';   // the box's time zone (7 Nov 2026: was Asia/Jakarta in code)   // live context each message + traceback guard (7 Nov 2026)
 import {createAgentCare} from './agent-care.mjs';
 import {createPaidLabels} from './paid-labels.mjs';   // Customer and S- labels once a payment is confirmed paid (8 Nov 2026)
 import {createCustomerTools,DEFAULT_CARD_MAX} from './customer-tools.mjs';   // customer-run sandbox (7 Nov 2026)   // old setup, checks after changes, script-only schedules (7 Nov 2026)
@@ -855,7 +855,8 @@ async function codeAsk(who,a,task,{project='',plan=false}={}){const pre=a!=='def
   return {agent:a,agentName:NAMES[a]||await displayName(a),text,files:box?await codeAgents.collect(a,box,text):[]}}
  catch(e){if(box)await codeAgents.collect(a,box,'').catch(()=>{});if(e.status)throw e;throw Object.assign(Error('The agent took too long: '+e.message),{status:504})}}
 // the box's own Code copy (online projects) is paired with this aqeelOS by itself, and again if its key is lost
-if(LIVE_APP)setTimeout(async()=>{try{const f=path.join(homedir(),'apps','aqeel-code','data','aqeelos.json');let l={};try{l=JSON.parse(await readFile(f,'utf8'))}catch{}if(l.token&&await code.who(l.token)){await code.markBox(l.token);return}
+if(LIVE_APP)syncOnlineCodeMarker();   // the box's start script reads it: no marker, no Code workspace process
+if(LIVE_APP&&onlineCodeOn())setTimeout(async()=>{try{const f=path.join(homedir(),'apps','aqeel-code','data','aqeelos.json');let l={};try{l=JSON.parse(await readFile(f,'utf8'))}catch{}if(l.token&&await code.who(l.token)){await code.markBox(l.token);return}
  const token=await code.pair('owner','AI box · online',{box:true});await mkdir(path.dirname(f),{recursive:true});await writeFile(f,JSON.stringify({base:'http://127.0.0.1:'+PORT,token,user:users.people?.()?.[0]?.name||'Owner',pairedAt:Date.now()},null,1),{mode:0o600});console.log('code: paired the online copy')}catch(e){console.warn('code: online pairing',e.message)}},8000).unref();
 // After the server was off: tell the owner on the main agent's channel how long (it cannot report while it is off;
 // a check from outside, .github/workflows/uptime.yml, emails while it is down). A heartbeat every minute marks it alive.
@@ -1062,7 +1063,7 @@ const engineUpd=createEngineUpdates({guard,DATA,HERMES_HOME,PORT,LIVE:LIVE_APP,r
  busy:()=>liveCount()+export_setups.running()+opsBusy()+relay.sending()+(gwRestarting?1:0)+(backups.busy()?1:0),   // never during a restore
  stopGateway:async()=>{gwStopped=true;await shx(stopGatewayCmd({yes:false}),stopTimeoutMs())},
  tellOwner:async(text,{bell,kind,detail}={})=>{if(bell||/failed|rolled-back/.test(kind||''))await bottlenecks.event('update',text,detail||'').catch(()=>{});else await bottlenecks.event('update',text,detail||'',{info:true}).catch(()=>{});if(bell)return;await toOwner(text)}});
-const codeOnline=createCodeOnline({SECRET,SECURE:SECURE_COOKIE,users:()=>users,revokedAt:uid=>revoked[uid]||0,HOST:CODE_HOST,PREVIEW_HOST:CODE_PREVIEW_HOST,HOME:PUBLIC_URL});
+const codeOnline=createCodeOnline({SECRET,SECURE:SECURE_COOKIE,users:()=>users,revokedAt:uid=>revoked[uid]||0,HOST:CODE_HOST,PREVIEW_HOST:CODE_PREVIEW_HOST,HOME:PUBLIC_URL,enabled:onlineCodeOn,OFF_MSG:ONLINE_CODE_MSG});
 const localBrowser=createLocalBrowser({DATA,GATE:GATE.origin,API_KEY,EXT_DIR:path.join(root,'extension'),NAMES,PUBLIC_URL});
 const engineConsole=createEngineConsole({DASH,DASH_TOKEN});
 const links=createLinks({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,python:()=>sharing.python(),setupAgent:n=>setupAgentFn?.(n)});
@@ -2673,6 +2674,7 @@ const server=createServer(async(req,res)=>{
    // publishing, models and engine runs act only as a person aqeelOS signed for (x-aq-act: <uid>.<exp>.<sig>, a few
    // minutes), never as the owner. The box's copy is known by the flag aqeelOS set when it paired it, not by its name.
    const BOX=dev.user==='owner'&&dev.box===true;
+   if(BOX&&!onlineCodeOn())return send(res,410,{error:ONLINE_CODE_MSG});   // a leftover workspace on the server is refused too
    if(BOX&&/^\/ui\/code\/(ask|publish|agents|agent-model|run-ticket|engine\/(run|stop|approval))$/.test(p)){const [uid,exp,sg]=String(req.headers['x-aq-act']||'').split('.');
     const ok=!!uid&&Number(exp)>Date.now()&&Number(exp)<Date.now()+600e3&&!!sg&&(()=>{const x=Buffer.from(sg),y=Buffer.from(sign('code-act:'+uid+'.'+exp));return x.length===y.length&&timingSafeEqual(x,y)})();
     who=ok?users.byId(uid):null;if(!who)return send(res,403,{error:'Online Code can do this only for a signed-in person. Use Code on your own computer for now.'})}
@@ -3135,7 +3137,7 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/code/handoff'&&req.method==='GET'){const v=await codeAgents.handoffGet(url.searchParams.get('id'));if(!v)return send(res,404,{error:'This link has expired. Ask the agent again.'});
     if(users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),v.agent))return send(res,403,{error:'You can’t use that agent.'});return send(res,200,{agent:v.agent,agentName:NAMES[v.agent]||await displayName(v.agent),text:v.text})}
    if(p==='/ui/code/pair'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}return send(res,200,{token:await code.pair(u.id,b.name)})}
-   if(p==='/ui/code/online'&&req.method==='GET'){return send(res,200,{url:codeOnline.url(u.id),origin:new URL(codeOnline.url(u.id)).origin})}
+   if(p==='/ui/code/online'&&req.method==='GET'){if(!onlineCodeOn())return send(res,410,{error:ONLINE_CODE_MSG});return send(res,200,{url:codeOnline.url(u.id),origin:new URL(codeOnline.url(u.id)).origin})}
    // Files: search a folder and everything inside it (names only), and which of the quick places exist
    if(p==='/ui/files/search'&&req.method==='GET'){const root=path.resolve(url.searchParams.get('path')||homedir()),q=String(url.searchParams.get('q')||'').trim().toLowerCase(),hid=url.searchParams.get('hidden')==='1';
     if(!q)return send(res,200,{results:[]});if(!users.filePathOk(u,root))return send(res,403,{error:'You can only search your own files.'});

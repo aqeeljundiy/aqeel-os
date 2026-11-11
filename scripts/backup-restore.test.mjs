@@ -72,7 +72,7 @@ test('a typed key is checked on the first bytes of a backup',async()=>{const T=m
 
 // the whole flow through createBackups, with the safety copy on the box as the backup (no Google needed)
 function app(s,x={}){const DATA=path.join(s.T,'data');mkdirSync(DATA,{recursive:true});const n={stop:0,start:0,told:[]};const TMP=path.join(s.T,'tmp');mkdirSync(TMP,{recursive:true});
- const b=createBackups({DATA,HOME:s.HOME,HERMES_HOME:s.H,TMP,tar:shim(s.T),fetchImpl:async()=>{throw Error('no network in tests')},disk:async()=>({free:1e12,dev:'d'}),notify:(...a)=>n.told.push(a),
+ const b=createBackups({DATA,HOME:s.HOME,HERMES_HOME:s.H,TMP,tar:shim(s.T),fetchImpl:async()=>{throw Error('no network in tests')},disk:async()=>({free:1e12,dev:'d'}),mem:async()=>20e9,notify:(...a)=>n.told.push(a),
   stopEngine:async()=>{n.stop++},startEngine:async()=>{n.start++},restored:(ok,t)=>n.told.push([ok,t]),...x});return {b,n,DATA,TMP}}
 const until=async f=>{for(let i=0;i<200;i++){if(await f())return;await new Promise(r=>setTimeout(r,25))}throw Error('timed out')};
 

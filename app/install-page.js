@@ -50,8 +50,10 @@ ACT['inst-tz']=()=>zoneDialog();
 
 /* ---------- Code and published-app addresses ---------- */
 const HOST_TEXT={codeHost:['Code app','Where Code runs online, behind your sign-in.','code.example.com'],codePreviewHost:['Code previews','Where Code shows live previews of what it builds.','code-preview.example.com'],liveDomain:['Published apps','Apps published from Code get name.this-domain.','app.example.com']};
+// the Code addresses belong to online Code only: while it is off they are not shown, and the published-app address stays
+const hostRows=()=>Object.entries(HOST_TEXT).filter(([k])=>Install.d?.onlineCode?.on||!/^code/.test(k));
 function hostsDialog(){const h=Install.d?.hosts||{};
- const d=drawer('Code and app addresses',`<p class="sub" style="margin-top:0">Point each address at this server in your DNS and proxy first. Changes are used from the next start of aqeelOS.</p>${Object.entries(HOST_TEXT).map(([k,[t,hint,ph]])=>{const v=h[k]||{};const locked=v.from==='env';
+ const d=drawer('Code and app addresses',`<p class="sub" style="margin-top:0">Point each address at this server in your DNS and proxy first. Changes are used from the next start of aqeelOS.</p>${hostRows().map(([k,[t,hint,ph]])=>{const v=h[k]||{};const locked=v.from==='env';
   return `<label for="ih-${k}">${esc(t)}</label><input id="ih-${k}" data-k="${k}" autocomplete="off" spellcheck="false" placeholder="${esc(ph)}" value="${esc(v.from==='default'?'':v.value||'')}" ${locked?'disabled':''}><p class="hint" style="margin:4px 0 12px">${esc(locked?'Set in the environment ('+v.env+').':hint)}</p>`}).join('')}`,
   `<button class="ghost" data-act="close">Cancel</button><button class="primary" id="ihSave">Save</button>`);
  d.querySelector('#ihSave').onclick=async e=>{const b=e.currentTarget;b.disabled=true;const body={};d.querySelectorAll('input[data-k]:not(:disabled)').forEach(i=>body[i.dataset.k]=i.value);
@@ -79,12 +81,13 @@ const autoUpdateLine=(a,m)=>{const base=a.on?'New versions and fixes install by 
  const d=await Install.load();if(gone()||!d?.live)return;const a=d.address,tz=d.timezone;
  const chip=(kind,t)=>`<span class="chip ${kind}">${esc(t)}</span>`;
  const addrState=a.from==='env'?chip('','Set in the environment'):a.from==='default'?chip('warn','Not set yet'):a.checkedAt?chip('ok','Checked'):chip('warn','Not checked');
- const hostLine=Object.entries(HOST_TEXT).map(([k,[t]])=>{const v=d.hosts[k];return `${esc(t)}: <b>${esc(v.from==='default'?'not set':v.value)}</b>`}).join(' · ');
+ const hostLine=hostRows().map(([k,[t]])=>{const v=d.hosts[k];return `${esc(t)}: <b>${esc(v.from==='default'?'not set':v.value)}</b>`}).join(' · ');
  const box=document.createElement('div');box.className='panel card inst-box';box.id='instBox';box.style.marginBottom='16px';
  box.innerHTML=`<h2>This install</h2><p class="sub">Where people reach this aqeelOS, and the settings every agent shares.</p>
   ${fieldRow('Your address',esc(a.from==='env'?'Set in the environment (PUBLIC_URL).':'Invites, WhatsApp Business, Kirimdev and app sign-ins send people here.'),`<div class="inst-val">${a.from==='default'?`<span class="inst-unset">Not set <small>(using <span class="mono">${esc(a.url)}</span>)</small></span>`:`<span class="mono">${esc(a.url)}</span>${addrState}`}${a.from==='env'?'':'<button class="small" data-act="inst-address">Change</button>'}</div>`)}
   ${fieldRow('Time zone',esc(tz.zone?'Schedules, posting limits, backups and notices use it.':'Not chosen yet, so the server’s own zone is used ('+tz.box+').'),`<div class="inst-val"><span>${esc(tz.zone?zoneLabel(tz.zone):'Server: '+zoneLabel(tz.box))}</span><button class="small" data-act="inst-tz">Change</button></div>`)}
-  ${fieldRow('Code and app addresses',hostLine,`<div class="inst-val"><button class="small" data-act="inst-hosts">Change</button></div>`)}
+  ${d.onlineCode?fieldRow('Online Code',esc(d.onlineCode.on?'On: the server runs a Code workspace for people who code online.':'Off: coding happens on people’s own computers (the Build app). Publishing to Live and the agents are not affected.')+(d.onlineCode.from==='env'?' Set in the environment (ONLINE_CODE).':''),`<div class="inst-val">${toggle(d.onlineCode.on,'Online Code','id="instOc"'+(d.onlineCode.from==='env'?' disabled':''))}</div>`):''}
+  ${fieldRow(d.onlineCode?.on?'Code and app addresses':'Published app address',hostLine,`<div class="inst-val"><button class="small" data-act="inst-hosts">Change</button></div>`)}
   ${d.engine&&d.engine.state!=='ok'?fieldRow('Engine',esc(ENGINE_SAY[d.engine.state]?.[0]||''),`<div class="inst-val">${chip('warn',d.engine.state==='auth'?'Needs a restart':'Not answering')}<a href="#/system/health">See Health</a></div>`):''}
   ${d.supervision?fieldRow('Team view',esc(d.supervision.on?'The main agent can review everyone’s chats for admins. The team sees a note in the chat page.':'Off: chats stay private to each person.')+(d.supervision.recent.length?'<div class="inst-lookups">'+d.supervision.recent.map(e=>'<div>'+esc(String(e.at).slice(0,16).replace('T',' ')+' · '+e.who+' · '+e.action+(e.person?' · '+e.person:'')+(e.agent?' · '+e.agent:''))+'</div>').join('')+'</div>':''),`<div class="inst-val">${toggle(d.supervision.on,'Team view','id="instSup"')}</div>`):''}
   ${d.autoUpdate?fieldRow('Automatic updates',esc(autoUpdateLine(d.autoUpdate,d.maintenance)),`<div class="inst-val">${toggle(d.autoUpdate.on,'Automatic updates','id="instAuto"')}</div>`):''}
@@ -92,6 +95,7 @@ const autoUpdateLine=(a,m)=>{const base=a.on?'New versions and fixes install by 
   ${fieldRow('Background jobs',esc(d.live.on?'This copy is the live one: it looks after agents, backups and Help.':'This copy is a test copy: it changes nothing on its own (AQEELOS_LIVE=0).'),`<div class="inst-val">${chip(d.live.on?'ok':'',d.live.on?'Live':'Test copy')}</div>`)}`;
  el.prepend(box);
  const sv=box.querySelector('#instSup');if(sv)sv.onchange=async()=>{const on=sv.checked;sv.disabled=true;try{await post(UI,'/ui/install/supervision',{on});Install.d=null;toast(on?'Team view is on':'Team view is off')}catch(e){sv.checked=!on;fail(e)}finally{sv.disabled=false}};
+ const oc=box.querySelector('#instOc');if(oc)oc.onchange=async()=>{const on=oc.checked;oc.disabled=true;try{await post(UI,'/ui/install/online-code',{on});Install.d=null;toast(on?'Online Code is on. Used from the next start.':'Online Code is off. Used from the next start.')}catch(e){oc.checked=!on;fail(e)}finally{oc.disabled=false}};
  const au=box.querySelector('#instAuto');if(au)au.onchange=async()=>{const on=au.checked;au.disabled=true;try{await post(UI,'/ui/install/auto-update',{on});Install.d=null;toast(on?'Automatic updates are on':'Automatic updates are off')}catch(e){au.checked=!on;fail(e)}finally{au.disabled=false}}}}
 
 /* ---------- the engine is not reachable with aqeelOS's keys (a fresh engine before its one restart) ---------- */

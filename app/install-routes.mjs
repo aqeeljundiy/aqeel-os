@@ -38,6 +38,7 @@ export function createInstallRoutes({recentLookups=async()=>[],send,readBody,isA
   if(admin)out.supervision={on:s.supervision===true,recent:await recentLookups(10).catch(()=>[])};
   // ok | auth (the engine refuses aqeelOS's keys: it has not restarted since they were written) | down
   out.engine={state:await engineProbe().catch(()=>'down')};
+  out.onlineCode={on:I.onlineCodeOn(),from:I.onlineCodeFrom()};
   out.hosts=Object.fromEntries(Object.keys(I.HOSTS).map(k=>[k,{value:I.hostSetting(k),from:I.hostFrom(k),env:I.HOSTS[k][0]}]));
   out.agentUsers=I.agentUsersState();
   out.claude={...I.claudeState({bin:claudeBin,hermesHome}),on:await claudeOn().catch(()=>false),job:claudeJob};
@@ -92,6 +93,8 @@ export function createInstallRoutes({recentLookups=async()=>[],send,readBody,isA
    const h=Number(b.resumeHours);if(b.resumeHours!==undefined&&!(h>=0.25&&h<=24))return send(res,400,{error:'Continue work that is at most 0.25 to 24 hours old.'}),true;
    I.saveSettings({maintenance:w,...(b.resumeHours!==undefined?{resumeMaxHours:h}:{})});log('maintenance window: '+windowText(w));return send(res,200,{ok:true,...w,text:windowText(w)}),true}
   if(p==='/ui/install/auto-update'&&M==='POST'){I.saveSettings({autoUpdate:!!b.on});return send(res,200,{on:!!b.on}),true}
+  if(p==='/ui/install/online-code'&&M==='POST'){if(I.onlineCodeFrom()==='env')return send(res,409,{error:'ONLINE_CODE is set in this install’s environment, so it can’t be changed here.'}),true;
+   I.saveSettings({onlineCode:b.on===true?true:''});I.syncOnlineCodeMarker();log('online Code: '+(b.on===true?'switched on':'switched off'));return send(res,200,{on:I.onlineCodeOn(),restart:true}),true}
   if(p==='/ui/install/hosts'&&M==='POST'){const patch={};
    try{for(const k of Object.keys(I.HOSTS))if(k in b){if(I.hostFrom(k)==='env')throw Error(I.HOSTS[k][0]+' is set in this install’s environment, so it can’t be changed here.');patch[k]=I.cleanHost(b[k])}}catch(e){return send(res,400,{error:e.message}),true}
    I.saveSettings(patch);return send(res,200,{ok:true,restart:true}),true}

@@ -115,7 +115,7 @@ export function createConnections({DATA,access,accounts,listAgents,listCopies=as
  // a gather already under way is shared only when it began after the last change and looks as deep (11 Nov 2026: Check
  // now got the background gather that had started before it, so it showed the same old list)
  const regather=(k,only,check=false)=>{const w=pending.get(k);if(w&&w.gen===gen&&(w.check||!check))return w.p;const g0=gen,t0=Date.now();
-  const p=gather(only,check).then(g=>{const c={at:t0,g};if(g0===gen){caches.set(k,c);if(k==='*')writeFile(CACHE,JSON.stringify(c)).catch(()=>{})}return c}).finally(()=>{if(pending.get(k)?.p===p)pending.delete(k)});pending.set(k,{p,gen:g0,check});return p};
+  const p=gather(only,check).then(async g=>{const c={at:t0,g};if(g0===gen){caches.set(k,c);if(k==='*')await writeFile(CACHE,JSON.stringify(c)).catch(()=>{})}return c}).finally(()=>{if(pending.get(k)?.p===p)pending.delete(k)});pending.set(k,{p,gen:g0,check});return p};
  async function cached(k,only,fresh,check){let c=caches.get(k);if(!c&&k==='*'&&!fresh){try{c=JSON.parse(await readFile(CACHE,'utf8'));caches.set(k,c)}catch{}}
   if(fresh||!c)return regather(k,only,check);if(Date.now()-c.at>20000)regather(k,only).catch(()=>{});return c}
  const skillsOf=async a=>{const r=await engine('GET','/api/skills?profile='+encodeURIComponent(a)).catch(()=>null);const l=Array.isArray(r?.j)?r.j:r?.j?.skills;return Array.isArray(l)?l:null};

@@ -72,7 +72,11 @@ if [ -s ~/apps/hermes-ui/.deployed.tgz ]; then cp ~/apps/hermes-ui/.deployed.tgz
 mkdir -p ~/apps/hermes-ui; tar -xzf $HT -C ~/apps/hermes-ui || { echo '✗ unpacking aqeelOS failed; it was not restarted.'; exit 1; }; cp $HT ~/apps/hermes-ui/.deployed.tgz.new && mv ~/apps/hermes-ui/.deployed.tgz.new ~/apps/hermes-ui/.deployed.tgz; rm $HT; echo "$SHA" > ~/apps/hermes-ui/.deployed-commit; [ -n "$DC" ] && [ -s "$DC" ] && mv "$DC" ~/apps/hermes-ui/.deployed-commits
 C=~/apps/aqeel-code; mkdir -p $C; before=$(md5sum $C/package-lock.json 2>/dev/null)
 tar -xzf $CT -C $C --strip-components=1 || { echo "✗ unpacking Code failed; aqeelOS was not restarted."; exit 1; }; rm $CT; echo "$CODE_V" > $C/VERSION
-[ "$before" = "$(md5sum $C/package-lock.json 2>/dev/null)" ] || (cd $C && npm install --omit=dev --no-audit --no-fund >/dev/null 2>&1 || echo "! Code packages: npm install failed")
+# Online Code is off unless this install switched it on (12 Nov 2026): the Code files above stay (the Build app downloads and Live are made from
+# them), but their npm packages are only for the workspace that runs on the server, so they are installed only while it is on.
+AQ_OC=$(cd ~/apps/hermes-ui && UI_DATA_DIR=${UI_DATA_DIR:-$HOME/apps/hermes-ui-data} node $( [ -f $HOME/apps/hermes-ui.env ] && echo --env-file=$HOME/apps/hermes-ui.env ) scripts/online-code.mjs 2>/dev/null || echo off)
+if [ "$AQ_OC" = on ]; then [ "$before" = "$(md5sum $C/package-lock.json 2>/dev/null)" ] || (cd $C && npm install --omit=dev --no-audit --no-fund >/dev/null 2>&1 || echo "! Code packages: npm install failed")
+else echo "· online Code is off: its packages are not installed or updated (coding happens on people's own computers)"; fi
 # the note the new version reads when it starts: an update restarted it, so what was in progress says "interrupted by an update"
 AQ_DATA=${UI_DATA_DIR:-$HOME/apps/hermes-ui-data}; mkdir -p "$AQ_DATA/resume" && printf '{"at":%s000,"why":"update"}' "$(date +%s)" > "$AQ_DATA/resume/planned.json" || true
 tmux kill-session -t "=ui" 2>/dev/null || true   # "=" = exactly ui (a bare -t ui also matches ui-staging)

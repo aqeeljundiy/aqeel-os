@@ -9,7 +9,7 @@
 //    test copies 0);
 //  - installTz(): the one time zone of the install (schedules, posting limits, backups, notices).
 // Other areas import publicUrl() for their callbacks: it always answers the current address.
-import {readFileSync,writeFileSync,mkdirSync,renameSync,existsSync,chmodSync,statSync} from 'node:fs';
+import {readFileSync,writeFileSync,mkdirSync,renameSync,existsSync,chmodSync,statSync,unlinkSync} from 'node:fs';
 import {randomBytes} from 'node:crypto';
 import {homedir} from 'node:os';
 import path from 'node:path';
@@ -98,6 +98,18 @@ export const HOSTS={codeHost:['CODE_HOST','code.localhost'],codePreviewHost:['CO
 export const cleanHost=host();
 export const hostSetting=k=>{const [e,d]=HOSTS[k];return env[e]||settings()[k]||d};
 export const hostFrom=k=>env[HOSTS[k][0]]?'env':settings()[k]?'setting':'default';
+
+/* ---------- online Code (owner's decision, 12 Nov 2026: coding happens only on people's own computers) ---------- */
+// OFF unless this install switched it on: the environment (ONLINE_CODE=1/0) wins, else the install's setting. Off means the server
+// runs no Code workspace, answers its addresses with ONLINE_CODE_MSG, hides its settings, and deploys do not install or update
+// what only online Code needs (scripts/box-live.sh asks the same rule). Live (published apps) and the agents never depend on it.
+export const ONLINE_CODE_MSG='Coding happens on your own computer; publish from the Build app.';
+export function onlineCodeRule(e=env,s=settings()){const x=String(e.ONLINE_CODE??'').trim().toLowerCase();if(/^(1|true|yes|on)$/.test(x))return true;if(/^(0|false|no|off)$/.test(x))return false;return s.onlineCode===true}
+export const onlineCodeOn=()=>onlineCodeRule();
+export const onlineCodeFrom=(e=env)=>String(e.ONLINE_CODE??'').trim()?'env':'setting';
+// the box's own start script (~/services.sh, outside this repo) starts the workspace only while this file exists
+export function syncOnlineCodeMarker({home=env.AQEELOS_HOME||homedir(),on=onlineCodeOn()}={}){const f=path.join(home,'.aqeelos-online-code');
+ try{if(on){writeFileSync(f,'online Code is switched on in aqeelOS (System › Settings)'+String.fromCharCode(10))}else{try{unlinkSync(f)}catch(e){if(e.code!=='ENOENT')throw e}}return on}catch{return null}}
 
 /* ---------- per-agent Linux users (scripts/agent-users.sh, run as root) ---------- */
 // The root script beats ~/.aqeelos-agent-users.alive every 30 s while it watches; without a recent beat, agents other
