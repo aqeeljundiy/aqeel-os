@@ -256,6 +256,8 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
    affects:[].concat(o.affects||[]).map(x=>clip(x,64)).filter(Boolean),needs:[].concat(o.needs||[]).map(String),created:now(),updated:now(),count:1,
    by:{platform:by.platform||null,uid:by.uid||null,chat:by.chat||null,thread:by.thread||null},byName:p?.name||by.who||null,tries:0,history:[],...(o.healthKey?{healthKey:String(o.healthKey)}:{}),...(o.report?{report:String(o.report)}:{}),...(o.urgent||urgentFor(pol,o)?{urgent:true}:{})};
   i.decision=decide(pol,i,by).why;i.state=pol.fixer?.on===false?'open':'queued';if(i.state==='open')i.decision='the fixer is switched off in the team policy';
+  // o.hold: only a person can do this (a live code change to take into git); the fixer never tries it (12 Nov 2026)
+  if(o.hold){i.state='needs_human';i.noRetry=true;i.need=clip(o.hold,500);i.decision='needs a person: '+clip(o.hold,200)}
   // MODEL-3: one short call sorts it before it joins the line (duplicate, person-only, or the fixer's); urgent ones go at once
   if(i.state==='queued'&&!i.urgent&&sortRun)i.sorting=now();
   db.items.unshift(i);db.items=db.items.slice(0,300);await save();log('issue '+i.id+' filed by '+(i.source==='health'?'Health':i.agent)+': '+i.state);

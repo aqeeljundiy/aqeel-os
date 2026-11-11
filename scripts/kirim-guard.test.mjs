@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {splitReply,guardReply} from '../app/kirimdev.mjs';
+import {splitReply,guardReply,internalText} from '../app/kirimdev.mjs';
 const held=t=>{const g=guardReply(splitReply(t));assert.ok(g.hold&&g.removed.length,'should hold: '+t);return g};
 test('team notes and image descriptions hold the whole reply',()=>{
  {const g=guardReply(splitReply('Halo kak, ini rekomendasinya.\n[Gambar: Package 1 - Basic Kit]\n---\n[FOTO: Cove_pen_kit.jpeg]'));assert.equal(g.hold,null);assert.deepEqual(g.parts,['Halo kak, ini rekomendasinya.','[FOTO: Cove_pen_kit.jpeg]'])}   // only a note: dropped, the rest goes out
@@ -53,3 +53,14 @@ test('loose photo tags become real picture tags, never text (11 Nov 2026, taken 
   const g=guardReply(splitReply('Ini paketnya kak\n'+t));assert.equal(g.hold,null,t);assert.deepEqual(g.parts,['Ini paketnya kak',want])}
  assert.ok(guardReply(['[tolong kirim foto paket ya]']).hold);
  {const g=guardReply(splitReply('Ini paketnya kak\n[tolong kirim foto paket ya]\n[FOTO: kit.jpg]'));assert.equal(g.hold,null);assert.deepEqual(g.parts,['Ini paketnya kak','[FOTO: kit.jpg]']);assert.deepEqual(g.dropped,['[tolong kirim foto paket ya]'])}});
+test('leading rule quotes and plans are dropped; reasoning-only is held (i5e349bf6, taken from the box drift)',()=>{
+ const r='Halo kak, pen itu sekali pakai dan vial perlu dilarutkan dulu ya.';
+ const lead='Dari rules: Paket 1 = Basic Kit\nPertanyaan pertama adalah soal produk, jadi saya jawab dulu, lalu minta data profil.';
+ const g=guardReply(splitReply(lead+'\n\n'+r));assert.equal(g.hold,null);assert.deepEqual(g.parts,[r]);
+ assert.ok(guardReply(splitReply(lead)).hold);
+ for(const x of ['Rules: Paket 1','Aturannya: tanya dulu','Thinking: jawab']){assert.equal(guardReply(splitReply(x+'\n\n'+r)).hold,null)}
+ assert.deepEqual(guardReply(splitReply('Saya akan cek stok dulu ya kak.')).parts,['Saya akan cek stok dulu ya kak.']);
+});
+test('internalText: notes, reasoning and error traces are caught, ordinary sales text is not',()=>{
+ for(const t of ['Dari rules: x','Catatan untuk tim: cek','Draft reply:','Traceback (most recent call last):\n  File "x.py", line 3','TypeError: Cannot read properties of undefined','    at foo (/app/server.mjs:12:3)','Halo kak\n(test mode) ya'])assert.equal(internalText(t),true,t);
+ for(const t of ['Halo kak, pesanannya sudah kami catat ya 😊','Total Rp3.200.000, transfer ke QRIS di bawah','Saya akan cek stok dulu ya kak.'])assert.equal(internalText(t),false,t)});

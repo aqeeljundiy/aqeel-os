@@ -934,7 +934,7 @@ const teamSettings=createTeamSettings({DATA,HERMES_HOME,listAgents:()=>listAgent
 // is checked against the deployed commit for hand edits (live-drift.mjs), no model
 const fixerGit=createFixerGit({DATA,home:homedir(),log:m=>console.log(m)});
 const liveDrift=createLiveDrift({DATA,live:root,repo:fixerGit.src});
-const codeChanges=createCodeChanges({DATA,fixes:()=>issues.reviews(),hand:()=>liveDrift.item(),diff:id=>fixerGit.diff(id)});   // fixes waiting for review, hand edits, deploy drift, fixer patches (System › Health)
+const codeChanges=createCodeChanges({DATA,fileIssue:o=>issues.file(o),fixes:()=>issues.reviews(),hand:()=>liveDrift.item(),diff:id=>fixerGit.diff(id)});   // fixes waiting for review, hand edits, deploy drift, fixer patches (System › Health)
 if(LIVE_APP){setTimeout(()=>liveDrift.check().catch(e=>console.warn('hand-edit check',e.message)),3*60e3).unref();setInterval(()=>liveDrift.check().catch(()=>{}),30*60e3).unref()}
 // Where owner alerts go: the channel and chat chosen on System › Teams; else the main agent's own chat (Telegram first for
 // its reports, WhatsApp first for the rest). No channel at all, or the send fails: the bell, so an alert is never lost.
@@ -1763,6 +1763,7 @@ async function originOf(agent,tool='report_bottleneck'){const py=await enginePyt
  return r}
 // memory per agent (HEALTH-6): a sample every 10 minutes while the live app runs
 const agentMemory=createAgentMemory({DATA,listAgents:()=>listAgents(),boxMemory:()=>boxMemory()});if(LIVE_APP)agentMemory.start();
+if(LIVE_APP){setTimeout(()=>codeChanges.raise().catch(e=>console.warn("code changes",e.message)),45e3).unref();setInterval(()=>codeChanges.raise().catch(()=>{}),3600e3).unref()}   // drift patches become one Needs-you item each
 if(LIVE_APP){setTimeout(()=>issues.tick().catch(e=>console.warn('issues',e.message)),60e3).unref();setInterval(()=>issues.tick().catch(e=>console.warn('issues',e.message)),30e3).unref()}
 if(LIVE_APP){setTimeout(()=>health.tick().catch(e=>console.warn('health',e.message)),3*60e3).unref();setInterval(()=>health.tick().catch(e=>console.warn('health',e.message)),5*60e3).unref()}
 /* Self-repair kit (agent-versions.mjs, workstream E, 6 Nov 2026): each agent's own changes are versions with undo

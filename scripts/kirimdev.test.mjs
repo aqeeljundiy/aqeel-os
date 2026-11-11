@@ -330,3 +330,18 @@ test('a reply pointing back to a QRIS made in an earlier run is not held; the wi
  const paidAt=Date.now()-10*60e3;const t=await make({mode:'live',agentSays:'QRIS sudah saya kirim ya kak, silakan dicek',extra:min===undefined?{}:{paymentRecentMin:min},paidSince:async(a,num,since)=>since<=paidAt});
  await t.post(meta('628777','sudah ada qrisnya?',undefined,'cnv_Q'));await t.settle();
  assert.equal(t.sent.some(b=>/QRIS sudah saya kirim/.test(b.text?.body||'')),!held,'paymentRecentMin='+min)}});
+
+test('the one exit guard: whatsapp_reply, a draft and a send of internal text never reach the customer (12 Nov 2026)',async()=>{const t=await make({mode:'live'});
+ await t.post(meta('628123','halo'));await t.settle();const n=t.sent.length;
+ await assert.rejects(t.k.reply('cove-support','628123','Dari rules: paket 1\n---\nHalo kak'),/not sent to the customer/);
+ await assert.rejects(t.k.reply('cove-support','628123','Traceback (most recent call last):\n  File "x.py", line 3, in <module>'),/not sent to the customer/);
+ assert.equal(t.sent.length,n);assert.ok(t.told.some(x=>/internal text was stopped/.test(x)));
+ await t.k.reply('cove-support','628123','Halo kak, ini jawabannya ya');assert.equal(t.sent.length,n+1)});
+test('an agent that keeps stopping on one chat is tried again twice with waits, then handed to the team once, with one Health problem (12 Nov 2026)',async()=>{
+ let runs=0;const probs=[];const t=await make({agentSays:async()=>{runs++;throw Error('the agent stopped (1)')}});
+ await t.post(meta('628123','tolong','m1'));await t.settle();
+ assert.equal(runs,3);assert.equal(t.sent.length,0);assert.equal(t.due.size,0,'no timer is left: nothing retries any more');
+ assert.ok(t.posts.some(x=>/agent stopped 3 times/.test(String(x[3]))),'the team got the chat once');
+ await t.settle();assert.equal(runs,3);
+ // a new message from the customer starts a fresh try
+ await t.post(meta('628123','halo lagi','m2'));await t.settle();assert.equal(runs,6)});
