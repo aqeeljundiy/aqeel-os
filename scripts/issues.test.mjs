@@ -4,7 +4,7 @@ import {mkdtemp,writeFile,mkdir,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {terms,parseLines,search,createChatHistory} from '../app/chat-history.mjs';
-import {decide,whoToTell,parseResult,createIssues,fixerPrompt,proofPrompt,newSecrets,approvalOnly,testerSendOnly,noPersonNeeded,similar,urgentFor} from '../app/issues.mjs';
+import {decide,whoToTell,parseResult,createIssues,fixerPrompt,proofPrompt,newSecrets,approvalOnly,testerSendOnly,noPersonNeeded,similar,urgentFor,lineOf,parseSort,dayIn,nextDay,fixerModel,sortPrompt} from '../app/issues.mjs';
 import {count,weekOf} from '../app/escalations.mjs';
 let n=0;const t=async(name,f)=>{await f();n++;console.log('ok',name)};
 const POL={owner:{name:'Owner',telegram:['1']},teams:[{name:'Brand',agents:['a1','a2'],members:[{name:'Mem',telegram:['2']}],aliases:{a1:['Rory']}}],fixer:{on:true,agent:'default'}};
@@ -29,7 +29,7 @@ async function setup(extra={}){const d=await mkdtemp(path.join(tmpdir(),'is-'));
  const said={reply:[],owner:[],team:[]},applied=[];let busyN=0;
  const f=fake(d,extra);const I=createIssues({DATA:d,bin:'x',fixerHome:d,log:()=>{},launch:f.launch,alive:async()=>false,quiet:extra.quiet||(()=>null),
   reply:async(i,x)=>{said.reply.push(x);return true},tellOwner:async x=>said.owner.push(x),toTeam:async(a,m,x)=>{said.team.push([a,m.name,x]);return true},
-  engineOk:extra.engineOk,busy:async()=>busyN,apply:async(k,why)=>{applied.push(k);return {ok:true}},envFiles:async()=>extra.envFiles||[],codeRoots:extra.codeRoots||[],onFixed:async i=>(extra.fixedOut||[]).push(i),checks:extra.checks||{}});
+  engineOk:extra.engineOk,sortRun:extra.sortRun||null,tz:extra.tz||(()=>'UTC'),busy:async()=>busyN,apply:async(k,why)=>{applied.push(k);return {ok:true}},envFiles:async()=>extra.envFiles||[],codeRoots:extra.codeRoots||[],onFixed:async i=>(extra.fixedOut||[]).push(i),checks:extra.checks||{}});
  return {d,I,f,said,applied,setBusy:n=>{busyN=n},db:async()=>(await I._db()).items[0],ticks:async n=>{for(let k=0;k<n;k++)await I.tick()}}}
 const quietAll=s=>s.reply.length+s.owner.length+s.team.length;
 
@@ -219,14 +219,15 @@ await t('sweep: missing files that are there now, a fix commit that is live, a c
  await S.I.file({agent:'a2',missing:'Tester replies held after a reset',evidence:'Fixed in fc0edf9 by the Kirimdev session'});
  await S.I.file({agent:'a3',missing:'Webhook problem again, duplicate of i00000000'});
  assert.equal(await S.I.sweep(true),2);const st=Object.fromEntries((await S.I._db()).items.map(i=>[i.agent,i.state]));assert.deepEqual(st,{a1:'gone',a2:'gone',a3:'open'})});
-await t('sweep: the same problem filed again by the same agent closes the older one; a different skill is not the same problem',async()=>{const S=await setup({policy:off});
+await t('the same problem filed again by the same agent in other words joins the open one when filed (HEALTH-9); a different skill is not the same problem',async()=>{const S=await setup({policy:off});
  await S.I.file({agent:'ct',missing:'Read/execute access for ag-agent-c to /home/claude/work/labels and /home/claude/work/tiktok/.venv'});
  await S.I.file({agent:'ct',missing:'Read/execute access for ag-agent-c to /home/claude/work/labels (gen.py, assets, fonts, taglines.json) and /home/claude/work/tiktok/.venv. /home/claude/work is claude:claude'});
  await S.I.file({agent:'ct',missing:'The skill maps points to a file that is not there'});await S.I.file({agent:'ct',missing:'The skill continue-vial-labels points to a file that is not there'});
- await S.I.sweep(true);const l=(await S.I._db()).items;assert.equal(l.find(i=>/tiktok\/\.venv$/.test(i.missing)).state,'gone');assert.match(l.find(i=>/tiktok\/\.venv$/.test(i.missing)).resolvedBy,/filed again/);
+ await S.I.sweep(true);const l=(await S.I._db()).items;const acc=l.filter(i=>/Read\/execute access/.test(i.missing));assert.equal(acc.length,1,'merged when filed');assert.equal(acc[0].count,2);assert.equal(acc[0].reports.length,1);
  assert.equal(l.filter(i=>/skill/.test(i.missing)&&i.state==='open').length,2);
  const S2=await setup({policy:off});await S2.I.file({agent:'d',missing:'Customer WhatsApp runs have no label tool: customer-tools.mjs only exposes conversation and payments'});
- await S2.I.file({agent:'d',missing:'Donna reported: Customer WhatsApp runs have no label tool: customer-tools.mjs only exposes conversation and payments'});(await S2.I._db()).items[0].state='gone';
+ // (a second filing merges now, so the newer one is put in by hand: one filed before merging existed)
+ {const db=await S2.I._db();db.items.unshift({...db.items[0],id:'i0000beef',key:'d|newer',missing:'Donna reported: Customer WhatsApp runs have no label tool: customer-tools.mjs only exposes conversation and payments',created:db.items[0].created+1,history:[],state:'gone'})}
  await S2.I.sweep(true);assert.equal((await S2.I._db()).items[1].state,'open','a newer one that went away carries nothing on');assert.equal(similar('The skill maps points to a file that is not there','The skill continue-vial-labels points to a file that is not there'),0)});
 await t('sweep: a stuck issue whose files a deploy changed gets one proof run; proven closes it, otherwise it stays stuck with nothing rolled back',async()=>{
  const d0=await mkdtemp(path.join(tmpdir(),'f-')),file=path.join(d0,'kd.mjs');await writeFile(file,'old');let changed=false;
@@ -255,7 +256,7 @@ await t('sweep: a planned test item closes at once as a test item; an access iss
  assert.deepEqual(st.default,['closed','Test item, closed.']);assert.equal(st['agent-c'][0],'gone');assert.match(st['agent-c'][1],/own workspace/);assert.equal(st.agenta[0],'open');assert.equal(quietAll(S.said),0)});
 console.log(n+' passed');
 
-await t('a fixer reload of the engine, fix or rollback, waits for the quiet hours; a web-app reload does not; only urgent items start meanwhile',async()=>{
+await t('a fixer reload of the engine, fix or rollback, waits for the quiet hours; a web-app reload does not; only proof runs and urgent fixes start meanwhile',async()=>{
  let quiet=false;const d0=await mkdtemp(path.join(tmpdir(),'iss-q-')),file=path.join(d0,'f.py');await writeFile(file,'x');await writeFile(file+'.bak','y');
  const S=await setup({engineOk:()=>quiet,fix:[{status:'changed',apply:'engine',changes:[{file,backup:file+'.bak'}],check:'c',summary:'needs the engine'}],proof:[{status:'proven',proof:'ok'}]});
  await S.I.file({agent:'a1',missing:'needs the engine'});await S.ticks(3);

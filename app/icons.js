@@ -54,6 +54,8 @@ const ICONS={
  edit:'<path d="M4 20h4L19 9l-4-4L4 16z"/>',
  play:'<path d="M7 5v14l11-7z"/>',
  pause:'<path d="M8 5v14M16 5v14"/>',
+ skip:'<path d="m5 5 9 7-9 7zM18 5v14"/>',
+ minus:'<path d="M6 12h12"/>',
  refresh:'<path d="M20 12a8 8 0 1 1-2.3-5.7L20 8"/><path d="M20 3v5h-5"/>',
  lock:'<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
  eye:'<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',

@@ -12,7 +12,8 @@ import {allowed as skillAllowed,setRule as setSkillRule,rules as skillRules} fro
 import {createAgentDefaults} from './agent-defaults.mjs';
 import {createWhy} from './why.mjs';
 import {createChatHistory} from './chat-history.mjs';
-import {createIssues} from './issues.mjs';
+import {createIssues,engineSortRun} from './issues.mjs';
+import {createAgentMemory} from './agent-memory.mjs';
 import {createTeamSettings} from './team-settings.mjs';
 import {createCodeChanges} from './code-changes.mjs';
 import {mcpAddProblem} from './mcp-add-check.mjs';   // an app added by address: no spaces in its name, no Google file links (11 Nov 2026)
@@ -1573,6 +1574,7 @@ async function fixerRunUsage(r){if(!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(String(r.a
  let v=null;try{v=JSON.parse(out.trim()||'null')}catch{}
  return v?{model:v[0]||null,input:v[1]||0,output:v[2]||0,cacheRead:v[3]||0,cacheWrite:v[4]||0,cost:Math.round((Number(v[5])||0)*1e5)/1e5}:null}
 const issues=createIssues({DATA,usageOf:fixerRunUsage,home:homedir(),bin:path.join(homedir(),'.local','bin','aqeelos'),fixerHome:homedir(),nameOf:a=>agentName(a),
+ tz:()=>installTz()||process.env.TZ||'',sortRun:engineSortRun({bin:path.join(homedir(),'.local','bin','aqeelos'),home:homedir(),dir:path.join(DATA,'issues','sort')}),
  reply:replyInTopic,tellOwner:srToOwner,toTeam:issueToTeam,quiet:alertQuiet,busy:async()=>busyNow(),ready:async()=>!gwStopped&&!gwRestarting&&!!await gatewayPid(),apply:issueApply,engineOk:()=>inQuiet(new Date(),installTz()||process.env.TZ||''),envFiles:issueEnvFiles,
  // a proven fix for an agent's report closes the report too (it stays on Health until then, never in the popup)
  onFixed:async i=>{const k=String(i.healthKey||'');if(k.startsWith('report|'))await bottlenecks.done(k);else if(i.report)await bottlenecks.done('report|'+i.report)},
@@ -1636,6 +1638,8 @@ async function originOf(agent,tool='report_bottleneck'){const py=await enginePyt
   if(!hit&&[pol.owner?.name,...[].concat(pol.owner?.telegram_names||[])].some(n=>String(n||'').toLowerCase()===low))hit=pol.owner;
   if(hit)return {...r,uid:[].concat(hit[r.platform]||[])[0]||null,who:r.sender};return {...r,uid:null,who:r.sender}}
  return r}
+// memory per agent (HEALTH-6): a sample every 10 minutes while the live app runs
+const agentMemory=createAgentMemory({DATA,listAgents:()=>listAgents(),boxMemory:()=>boxMemory()});if(LIVE_APP)agentMemory.start();
 if(LIVE_APP){setTimeout(()=>issues.tick().catch(e=>console.warn('issues',e.message)),60e3).unref();setInterval(()=>issues.tick().catch(e=>console.warn('issues',e.message)),30e3).unref()}
 if(LIVE_APP){setTimeout(()=>health.tick().catch(e=>console.warn('health',e.message)),3*60e3).unref();setInterval(()=>health.tick().catch(e=>console.warn('health',e.message)),5*60e3).unref()}
 /* Self-repair kit (agent-versions.mjs, workstream E, 6 Nov 2026): each agent's own changes are versions with undo
@@ -2963,7 +2967,7 @@ const server=createServer(async(req,res)=>{
      if(p==='/ui/apps/visits'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,await live.countVisits(!!b.on))}
      if(p==='/ui/apps/connect'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,await live.connect(b))}}catch(e){return send(res,400,{error:e.message})}}
    // System › Health: each agent fine or with its problems, and its failed messages this week (agent-health.mjs)
-   if(p==='/ui/health/issues'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});const l=await issues.list();return send(res,200,{items:l.items.map(i=>({id:i.id,agent:i.agent,agentName:i.agentName,state:i.state,source:i.source||null,missing:i.missing,proposed_fix:i.proposed_fix,byName:i.byName,decision:i.decision,created:i.created,updated:i.updated,count:i.count,result:i.result||null,tries:i.tries??i.attempts??0,proof:i.proof||null,need:i.need||null,told:i.told||null,patch:i.patch||null,noRetry:!!i.noRetry,closeAfter:!!i.closeAfter,history:(i.history||[]).slice(-8).map(h=>({kind:h.kind,at:h.at,status:h.status,summary:h.summary||null,outcome:h.outcome||null}))})),spend:l.spend||null,escalations:await escalations.view().catch(()=>({agents:{}})),agents:(await listAgents().catch(()=>[])).map(a=>({id:a,name:agentName(a)})),sources:await chatHistory.sources().catch(()=>[]),policy:{teams:(l.policy.teams||[]).map(t=>({name:t.name,agents:t.agents,contact:t.contact||(t.members||[])[0]?.name||null,members:(t.members||[]).map(m=>m.name)})),fixer:l.policy.fixer||{}}})}
+   if(p==='/ui/health/issues'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});const l=await issues.list();return send(res,200,{items:l.items.map(i=>({id:i.id,agent:i.agent,agentName:i.agentName,state:i.state,source:i.source||null,missing:i.missing,proposed_fix:i.proposed_fix,byName:i.byName,decision:i.decision,created:i.created,updated:i.updated,count:i.count,result:i.result||null,tries:i.tries??i.attempts??0,proof:i.proof||null,need:i.need||null,told:i.told||null,patch:i.patch||null,noRetry:!!i.noRetry,closeAfter:!!i.closeAfter,title:i.title||null,group:i.group||null,urgent:!!i.urgent,sorting:!!i.sorting,mergedInto:i.mergedInto||null,affects:i.affects||[],reports:(i.reports||[]).map(r=>({agent:r.agent,agentName:agentName(r.agent),at:r.at,id:r.id||null})),history:(i.history||[]).slice(-8).map(h=>({kind:h.kind,at:h.at,status:h.status,summary:h.summary||null,outcome:h.outcome||null}))})),spend:l.spend||null,fixer:l.fixer||null,escalations:await escalations.view().catch(()=>({agents:{}})),agents:(await listAgents().catch(()=>[])).map(a=>({id:a,name:agentName(a)})),sources:await chatHistory.sources().catch(()=>[]),policy:{teams:(l.policy.teams||[]).map(t=>({name:t.name,agents:t.agents,contact:t.contact||(t.members||[])[0]?.name||null,members:(t.members||[]).map(m=>m.name)})),fixer:l.policy.fixer||{}}})}
   // Report an issue, Stop retrying and Close (System › Health): a person files one for the fixer, or ends one
   if(/^\/ui\/health\/issues\/(report|close|stop)$/.test(p)&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}
    try{if(p.endsWith('/report')){const a=String(b.agent||'');if(!(await listAgents()).includes(a))return send(res,400,{error:'Pick the agent it is about.'});
@@ -2994,6 +2998,19 @@ const server=createServer(async(req,res)=>{
    return send(res,200,{items:await codeChanges.list()})}
   if(p==='/ui/health/code-changes/done'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});let b={};try{b=JSON.parse(await readBody(req,2048))}catch{}
    try{await codeChanges.done(String(b.kind||''),String(b.name||''));return send(res,200,{ok:true})}catch(e){return send(res,400,{error:e.code==='ENOENT'?'That patch is gone.':e.message})}}
+  // the fixer's line (HEALTH-2): move up or down, skip for today and put back, pause and resume
+  if(/^\/ui\/health\/fixer\/(move|skip|unskip|pause|resume)$/.test(p)&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});let b={};try{b=JSON.parse(await readBody(req,2048))}catch{}
+   const k=p.split('/').pop(),id=String(b.id||'');let r;
+   if(k==='move')r=await issues.move(id,b.dir==='down'?'down':'up');else if(k==='skip'||k==='unskip')r=await issues.skip(id,k==='skip');else{r=await issues.pause(k==='pause',u.name||'an admin');if(k==='resume'&&LIVE_APP)issues.tick().catch(()=>{});return send(res,200,{ok:true,paused:r})}
+   if(!r)return send(res,404,{error:'That issue is not in the line any more.'});if(LIVE_APP)issues.tick().catch(()=>{});return send(res,200,{ok:true,fixer:await issues.fixerView()})}
+  // memory per agent (HEALTH-6) and this week's cost by agent and by person (HEALTH-7)
+  if(p==='/ui/health/memory'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});const v=await agentMemory.view();return send(res,200,{...v,names:Object.fromEntries(Object.keys(v.agents).map(a=>[a,agentName(a)]))})}
+  if(p==='/ui/health/cost'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});
+   // a chat nobody in aqeelOS started (a schedule, a channel's customer) is its own line, not the owner's
+   const all=await usage.breakdown([...await listAllProfiles(),HELP_AGENT],7,id=>users.sessionOwner(id)||'_auto');const ppl=Object.fromEntries(users.people().map(x=>[x.id,x.name]));
+   const agentOf=a=>String(a).split('--')[0],ba={};for(const [a,o] of Object.entries(all.byAgent||{})){const k=agentOf(a);ba[k]=(ba[k]||0)+(o.cost||0)}
+   const rows=o=>Object.entries(o).map(([k,c])=>({id:k,cost:Math.round(c*100)/100})).filter(r=>r.cost>0).sort((a,b)=>b.cost-a.cost);
+   return send(res,200,{days:7,byAgent:rows(ba).map(r=>({...r,name:r.id===HELP_AGENT?'Help':agentName(r.id)})),byPerson:rows(Object.fromEntries(Object.entries(all.byPerson||{}).map(([k,o])=>[k,o.cost||0]))).map(r=>({...r,name:r.id==='_auto'?'Schedules and channels':ppl[r.id]||r.id})),failed:all.failed||null})}
   if(p==='/ui/health/issues/retry'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});let b={};try{b=JSON.parse(await readBody(req,2048))}catch{}const i=await issues.retry(String(b.id||''));if(!i)return send(res,404,{error:'No such issue.'});return send(res,200,{ok:true,state:i.state})}
    if(p==='/ui/health/agents'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,await health.view())}
    // an agent's instructions (instructions.mjs): history, a version with its changes, save, bring back, rewrites waiting for approval, flags

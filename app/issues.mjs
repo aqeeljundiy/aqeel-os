@@ -21,7 +21,7 @@
 // code is made in a copy and filed as a patch for the daily deploy (state "deploy"); after the deploy one proof run
 // checks it. Only an urgent outage (aqeelOS's own tool server down for every agent) may be hot-patched on the box, and
 // that patch is saved for git too. No live tests on real agents, ever: a test message only on a test agent.
-import {readFile,writeFile,mkdir,rename,open,stat,copyFile,readdir} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,rename,open,stat,copyFile,readdir,rm} from 'node:fs/promises';
 import {spawn} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
 import path from 'node:path';
@@ -148,12 +148,40 @@ export function proofPrompt(i,fix,{reloaded=null,recheck=false,deployed=false}={
 // fixer.models {fix, proof, escalate} and fixer.effort {fix, proof, escalate}; escalate is the third try of a fix. Empty =
 // the fixer agent's own model. aqeelOS names no model itself (any provider's names go here).
 const MODEL_OK=/^[\w.:\/\[\]@-]{1,100}$/,EFFORT_OK=/^(minimal|low|medium|high|xhigh|max)$/;
+// kind 'sort' (sorting a new issue, one short call) falls back to the proof run's model, at low effort
 export function fixerModel(pol,kind,attempt){const m=pol?.fixer?.models||{},e=pol?.fixer?.effort||{};const esc=kind==='fix'&&attempt>=TRIES&&m.escalate;
- const model=String((esc?m.escalate:m[kind])||''),effort=String((esc?e.escalate||e.fix:e[kind])||'');
+ const model=String((esc?m.escalate:kind==='sort'?m.sort||m.proof:m[kind])||''),effort=String((esc?e.escalate||e.fix:kind==='sort'?e.sort||'low':e[kind])||'');
  return {model:MODEL_OK.test(model)?model:'',effort:EFFORT_OK.test(effort)?effort:''}}
+
+// The fixer's line (System › Health, 11 Nov 2026, owner's agreed mock-up): proof runs first, then urgent agents, then
+// the rest oldest first. A person can move one up or down (its place is kept as `rank`), or skip it until the daily
+// runs reset (`skipUntil`). Items still being sorted (MODEL-3) are not in it yet.
+export const lineKey=i=>i.rank??((i.state==='verify'?0:i.urgent?1:2)*1e13+(i.created||0));
+export function lineOf(items,t){return items.filter(i=>(i.state==='verify'||i.state==='queued')&&!(i.skipUntil>t)&&!i.sorting).sort((a,b)=>lineKey(a)-lineKey(b))}
+// the install's own day ('YYYY-MM-DD' in its time zone), and when the next one starts
+export function dayIn(t,tz){try{return new Intl.DateTimeFormat('en-CA',{timeZone:tz||undefined,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(t))}catch{return new Date(t).toISOString().slice(0,10)}}
+export function nextDay(t,tz){const d=dayIn(t,tz);let x=t;while(dayIn(x+3600e3,tz)===d&&x-t<49*3600e3)x+=3600e3;while(dayIn(x,tz)===d)x+=60e3;return x-(x%60e3)}
+// a short plain line for a person: what one issue is, from what the sorter wrote, else the problem text
+const SORT_KINDS=['fixer','person','duplicate'];
+export function parseSort(out){const m=[...String(out||'').matchAll(/SORT:\s*(\{[^\n]*\})/g)].pop();if(!m)return null;let j;try{j=JSON.parse(m[1])}catch{return null}
+ if(!SORT_KINDS.includes(j.kind))return null;
+ return {kind:j.kind,duplicateOf:/^i[0-9a-f]{8}$/.test(String(j.duplicateOf||''))?j.duplicateOf:null,title:clip(j.title,140).trim(),need:clip(j.need,600).trim(),group:clip(j.group,80).trim()}}
+export function sortPrompt(i,others){return [
+ 'You sort ONE new problem for the aqeelOS fixer. Do not use any tool. Answer with one line only.',
+ '','ISSUE '+i.id+' (agent '+i.agent+')','Problem: '+clip(i.missing,600),'Evidence: '+clip(i.evidence||'-',600),
+ '','Problems already open (id · agent · what):',...(others.length?others.map(o=>o.id+' · '+o.agent+' · '+clip(o.title||o.missing,160).replace(/\n/g,' ')):['(none)']),
+ '','Decide:',
+ '- "duplicate" if one open problem above is the same problem (the same cause and the same fix; the same thing for another agent counts too, for example one app that needs signing in again). Put its id in duplicateOf.',
+ '- "person" only if nothing on the server can fix it and a person must physically act: pay, give a key or login only they have, sign in to an app, add a bot to a group, or make a decision only the owner can make. Never for an approval, never for something technical (errors, crashes, limits, timeouts, code). Put in need what they must do, in one plain sentence.',
+ '- "fixer" for everything else.',
+ 'title: the problem in plain words a non-technical owner understands, at most 12 words, no ids, key names, file paths or versions.',
+ 'group: for "person", a short name of the task that stays the same across agents (for example "Sign in to Higgsfield again"); otherwise empty.',
+ '','The line (JSON on one line):','SORT: {"kind":"fixer|person|duplicate","duplicateOf":"","title":"","need":"","group":""}'].join('\n')}
 
 export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=async()=>false,tellOwner=async()=>{},toTeam=async()=>false,busy=async()=>0,ready=async()=>true,
  apply=async()=>({ok:true}),usageOf=async()=>null,nameOf=a=>a,codeRoots=[],onFixed=async()=>{},checks={},quiet=()=>null,log=m=>console.log(m),launch=null,alive=null,envFiles=async()=>[],
+ // tz: the install's time zone (the daily runs and Skip reset at its midnight); sortRun: one short model call, {prompt,agent,model,effort} → its output
+ tz=()=>'',sortRun=null,
  // kept for older callers (the Approve/Decline flow is gone)
  askOwner=null,approvalLink=null,restartSelf=null,engineOk=()=>true}){
  const FILE=path.join(DATA,'issues.json'),POL=path.join(DATA,'team-policy.json'),DIR=path.join(DATA,'issues');let db=null,chain=Promise.resolve();
@@ -185,12 +213,48 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   let i=db.items.find(x=>x.key===key&&(OPEN.includes(x.state)||['needs_human','stopped','open','deploy'].includes(x.state)));
   // filed again while it waited for a person: they may have done it, so the fixer tries again
   if(i){i.count++;i.updated=now();if(o.evidence)i.evidence=clip(o.evidence,2000);if((i.state==='needs_human'||i.state==='open'&&pol.fixer?.on!==false)&&!i.noRetry){i.state='queued';i.tries=0}await save();return {issue:view(i),again:true}}
+  // filed again after the sorter merged it into another issue that is still open: that one counts it, no new sorting
+  {const g=db.items.find(x=>x.key===key&&x.mergedInto),to=g&&db.items.find(x=>x.id===g.mergedInto);
+   if(to&&[...OPEN,'needs_human','open','deploy','stuck'].includes(to.state)){to.count=(to.count||1)+1;to.updated=now();await save();return {issue:view(to),again:true,merged:true}}}
+  // HEALTH-9: the same problem for the same agent in other words joins the open one (the sorter also merges across agents)
+  if(!o.healthKey){const d=db.items.find(x=>x.agent===o.agent&&[...OPEN,'queued','needs_human','open','deploy'].includes(x.state)&&similar(x.missing,m)>=0.8);
+   if(d){merge(d,{agent:o.agent,missing:m,evidence:o.evidence,at:now()});await save();log('issue merged into '+d.id+' (same problem)');return {issue:view(d),again:true,merged:true}}}
   const by=o.origin||{},p=personOf(pol,by.platform,by.uid);
   i={id:'i'+randomBytes(4).toString('hex'),key,agent:o.agent,source:o.source||(p?'person':'agent'),what:clip(o.what,400),missing:m,evidence:clip(o.evidence,2000),proposed_fix:clip(o.proposed_fix,1000),
    affects:[].concat(o.affects||[]).map(x=>clip(x,64)).filter(Boolean),needs:[].concat(o.needs||[]).map(String),created:now(),updated:now(),count:1,
    by:{platform:by.platform||null,uid:by.uid||null,chat:by.chat||null,thread:by.thread||null},byName:p?.name||by.who||null,tries:0,history:[],...(o.healthKey?{healthKey:String(o.healthKey)}:{}),...(o.report?{report:String(o.report)}:{}),...(o.urgent||urgentFor(pol,o)?{urgent:true}:{})};
   i.decision=decide(pol,i,by).why;i.state=pol.fixer?.on===false?'open':'queued';if(i.state==='open')i.decision='the fixer is switched off in the team policy';
-  db.items.unshift(i);db.items=db.items.slice(0,300);await save();log('issue '+i.id+' filed by '+(i.source==='health'?'Health':i.agent)+': '+i.state);return {issue:view(i)}});
+  // MODEL-3: one short call sorts it before it joins the line (duplicate, person-only, or the fixer's); urgent ones go at once
+  if(i.state==='queued'&&!i.urgent&&sortRun)i.sorting=now();
+  db.items.unshift(i);db.items=db.items.slice(0,300);await save();log('issue '+i.id+' filed by '+(i.source==='health'?'Health':i.agent)+': '+i.state);
+  if(i.sorting)setTimeout(()=>sortNext().catch(e=>log('issues: sort: '+e.message)),0);return {issue:view(i)}});
+ // one report joins another: counted, the agent added, kept for the history
+ function merge(into,r){into.count=(into.count||1)+1;into.updated=now();
+  (into.reports||=[]).push({agent:r.agent,missing:clip(r.missing,300),at:r.at||now(),...(r.id?{id:r.id}:{})});into.reports=into.reports.slice(-20);
+  if(r.agent&&r.agent!==into.agent&&!(into.affects||=[]).includes(r.agent))into.affects.push(r.agent);
+  if(r.evidence&&!into.evidence)into.evidence=clip(r.evidence,2000)}
+ // the sorter (MODEL-3): one item at a time, new ones first, then (once) the older ones still waiting, so duplicates
+ // filed before this existed merge too. A failed or unclear answer leaves the item with the fixer.
+ // one sorting pass at a time; a second caller waits for the one going
+ let sorting=null;
+ const unsorted=()=>db.items.find(i=>i.sorting)||[...db.items].reverse().find(i=>!i.sorted&&!i.urgent&&['queued','needs_human'].includes(i.state));
+ function sortNext(){if(!sortRun)return Promise.resolve();return sorting||=(async()=>{try{for(let k=0;k<40;k++){await load();const i=unsorted();if(!i)return;await sortOne(i)}}finally{sorting=null}})()}
+ async function sortOne(i){const pol=await policy(),mdl=fixerModel(pol,'sort');
+  const others=db.items.filter(x=>x!==i&&!x.sorting&&[...OPEN,...WAITING].includes(x.state)&&x.state!=='stopped').slice(0,40).map(x=>({id:x.id,agent:nameOf(x.agent),title:x.title,missing:x.missing}));
+  const at=now();let out='';try{out=await sortRun({prompt:sortPrompt({...i,agent:nameOf(i.agent)},others),agent:pol.fixer?.agent||'default',model:mdl.model,effort:mdl.effort})}catch(e){log('issues: sorting '+i.id+' failed: '+e.message)}
+  const s=parseSort(out);const rec={issue:i.id,kind:'sort',day:today(),at,done:now(),agent:pol.fixer?.agent||'default',...(mdl.model?{model:mdl.model}:{})};
+  rec.usage=await usageOf(rec).catch(()=>null)||undefined;
+  await queue(async()=>{(db.sorts||={})[i.id+'-s'+at]=rec;const ks=Object.keys(db.sorts);if(ks.length>400)for(const k of ks.slice(0,ks.length-400))delete db.sorts[k];
+   i.sorting=0;i.sorted=s?.kind||'unclear';if(s?.title)i.title=s.title;
+   const live=x=>x&&[...OPEN,'needs_human','open','deploy','stuck'].includes(x.state);
+   const to=s?.kind==='duplicate'&&s.duplicateOf!==i.id?db.items.find(x=>x.id===s.duplicateOf):null;
+   // only an item that has not started its own tries is folded into another
+   if(to&&live(to)&&['queued','needs_human'].includes(i.state)&&!i.tries){merge(to,{agent:i.agent,missing:i.missing,evidence:i.evidence,at:i.created,id:i.id});
+    i.state='closed';i.mergedInto=to.id;i.updated=now();i.history.push({kind:'sorted',at:now(),status:'merged',summary:'The same problem as '+to.id+'; merged into it.'});await save();log('issues: '+i.id+' merged into '+to.id);return}
+   if(s?.kind==='person'&&s.need&&!noPersonNeeded(s.need)&&i.state==='queued'){i.state='needs_human';i.need=s.need;i.group=s.group||null;i.history.push({kind:'sorted',at:now(),status:'needs_human',summary:s.need});await save();
+    const w=await tell(i,nameOf(i.agent)+' needs a person\n\nProblem: '+(i.title||i.missing)+'\nWhat is needed: '+s.need+'\n\naqeelOS does the rest by itself once this is done (System › Health).');i.told=w;await save();log('issues: '+i.id+' sorted: needs a person, told '+w);return}
+   if(s?.kind==='person'&&s.group&&i.state==='needs_human')i.group=s.group;
+   await save()})}
  // Health saw the problem go away before the fixer started: closed, nobody told
  // 7 Nov 2026 (owner: solved problems close by themselves, nobody is asked to close anything): every waiting item is
  // re-checked against its own condition (sweep) and closes as "resolved by itself", silently, with the evidence kept
@@ -238,38 +302,65 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  const checkable=i=>/\b(duplicate of|same as)\s+i[0-9a-f]{8}|sign[ -]?in|oauth|not there|missing|no such file|does not exist|\bcommit [0-9a-f]{7,}|access|permission denied/i.test([i.missing,i.evidence].join(' '))||i.history.some(h=>(h.changes||[]).length);
  const forAgent=async a=>{await load();return db.items.filter(i=>i.agent===a).slice(0,10).map(view)};
  const spend=()=>{const d=today(),mo=d.slice(0,7),t={runs:0,tokens:0,cost:0},m={runs:0,tokens:0,cost:0};
-  for(const r of Object.values(db.runs||{})){const k=String(r.day||'');const add=x=>{x.runs++;const u=r.usage||{};x.tokens+=(u.input||0)+(u.output||0)+(u.cacheRead||0)+(u.cacheWrite||0);x.cost+=Number(u.cost)||0};if(k===d)add(t);if(k.startsWith(mo))add(m)}
-  return {today:t,month:m}};
- const list=async()=>{await load();return {items:db.items.slice(0,60).map(view),policy:await policy(),spend:spend()}};
+  for(const r of [...Object.values(db.runs||{}),...Object.values(db.sorts||{})]){const k=String(r.day||'');const add=x=>{x.runs++;const u=r.usage||{};x.tokens+=(u.input||0)+(u.output||0)+(u.cacheRead||0)+(u.cacheWrite||0);x.cost+=Number(u.cost)||0};if(k===d)add(t);if(k.startsWith(mo))add(m)}
+  const so=Object.values(db.sorts||{}).filter(r=>String(r.day).startsWith(mo));
+  return {today:t,month:m,sorts:{month:so.length,cost:so.reduce((a,r)=>a+(Number(r.usage?.cost)||0),0)}}};
+ // every open item, and the last 120 that ended (History, HEALTH-4)
+ const list=async()=>{await load();const end=['fixed','declined','gone','closed','expired'];
+  return {items:[...db.items.filter(i=>!end.includes(i.state)),...db.items.filter(i=>end.includes(i.state)).slice(0,120)].map(view),policy:await policy(),spend:spend(),fixer:await fixerView()}};
+ // what the fixer is doing now and why the rest waits (HEALTH-2)
+ async function fixerView(){const pol=await policy(),t=now(),cap=pol.fixer?.cap||20,used=fixRunsToday();
+  const cur=Object.values(db.runs).find(r=>!r.done),ci=cur&&db.items.find(i=>i.id===cur.issue);
+  const ap=db.items.find(i=>i.state==='applying'||i.state==='rollback'||i.state==='reloaded-back');
+  const card=i=>({id:i.id,state:i.state,agent:i.agent,agentName:nameOf(i.agent),title:i.title||null,missing:i.missing,urgent:!!i.urgent,tries:i.tries||0,count:i.count||1,
+   why:i.state==='verify'?'proof':i.urgent?'urgent':'line',...(i.notBefore>t?{notBefore:i.notBefore}:{}),...(i.rank!=null?{moved:true}:{}),...(i.skipUntil>t?{skipUntil:i.skipUntil}:{})});
+  const step=s=>s==='fixing'?'fix':['applying','rollback','reloaded-back'].includes(s)?'reload':'prove';
+  const now_=ci?{...card(ci),kind:cur.kind||'fix',step:cur.kind==='proof'?'prove':'fix',model:cur.model||null,effort:cur.effort||null,at:cur.at,minutes:cur.kind==='proof'?Math.min(30,pol.fixer?.proof_minutes||15):Math.min(40,pol.fixer?.minutes||25)}:null;
+  const wait=ap?{...card(ap),step:step(ap.state),kind:ap.applyKind||'engine',since:ap.waitingSince||ap.updated,back:ap.state!=='applying',quiet:engineOk(),
+   model:db.runs[ap.run]?.model||null,effort:db.runs[ap.run]?.effort||null}:null;
+  return {on:pol.fixer?.on!==false,paused:db.pause||null,now:now_,wait,cap:{used,cap,resetAt:nextDay(t,tz())},quiet:{from:1,to:5},
+   line:lineOf(db.items,t).map(card),skipped:db.items.filter(i=>i.skipUntil>t&&['queued','verify'].includes(i.state)).map(card),
+   sorting:db.items.filter(i=>i.sorting).length,stuck:db.items.filter(i=>i.state==='stuck'&&!i.need).map(card)}}
+ // move one place up or down in the line; the two swap their places
+ const move=(id,dir)=>queue(async()=>{await load();const l=lineOf(db.items,now()),k=l.findIndex(i=>i.id===id);if(k<0)return null;const j=dir==='up'?k-1:k+1;if(j<0||j>=l.length)return view(l[k]);
+  const a=l[k],b=l[j],ka=lineKey(a),kb=lineKey(b);a.rank=kb;b.rank=ka===kb?ka+(dir==='up'?1:-1):ka;await save();return view(a)});
+ // skip until the daily runs reset; Put back undoes it
+ const skip=(id,on=true)=>queue(async()=>{await load();const i=db.items.find(x=>x.id===id);if(!i||!['queued','verify'].includes(i.state))return null;
+  if(on){i.skipUntil=nextDay(now(),tz());i.history.push({kind:'person',at:now(),status:'skip',summary:'Skipped for today'})}else delete i.skipUntil;await save();return view(i)});
+ // Pause holds the whole line (a run already going finishes its step); new issues still join it
+ const pause=(on,who)=>queue(async()=>{await load();db.pause=on?{at:now(),by:clip(who,60)||null}:null;await save();return db.pause});
  // kept so old Telegram buttons and links answer something sensible
  const decideOwner=async(id)=>{await load();const i=db.items.find(x=>x.id===id);return i?view(i):null};
  const press=async()=>({ok:false,toast:'Nothing to approve any more: the fixer handles every issue by itself.'});
 
  // ---- the loop
  let running=null;
- const today=()=>new Date(now()).toISOString().slice(0,10);
+ const today=()=>dayIn(now(),tz());
  const fixRunsToday=()=>Object.values(db.runs).filter(r=>r.day===today()&&r.kind!=='proof'&&!r.notStarted).length;
  // switched off (fixer.on false): a run already going still has its result saved; nothing new starts and nothing reloads
  async function tick(){if(running)return;running=true;try{await load();const pol=await policy();await sweep().catch(e=>log('issues: sweep: '+e.message));
-  const cur=Object.values(db.runs).find(r=>!r.done);if(cur)return await check(cur,pol);if(pol.fixer?.on===false)return;
+  sortNext().catch(e=>log('issues: sort: '+e.message));
+  const cur=Object.values(db.runs).find(r=>!r.done);if(cur)return await check(cur,pol);if(pol.fixer?.on===false||db.pause)return;
   // a change waiting to be reloaded or rolled back comes first
   {const b=db.items.find(i=>i.state==='reloaded-back');if(b)return await afterTry(b)}
-  const ap=db.items.find(i=>i.state==='applying'||i.state==='rollback');
+  const ap=db.items.find(i=>i.state==='applying'||i.state==='rollback');let held=false;
   if(ap){
    // a fix or rollback that needs the engine reloaded waits for the quiet hours like every other restart that can wait (8 Nov
    // 2026: four fixer restarts between 08:33 and 08:49 WIB). A web-app reload is not an engine restart and goes on. While one
-   // waits, only urgent items start, so no second fix lands on files with an unloaded change.
+   // waits, no other fix starts (urgent ones aside), so no second fix lands on files with an unloaded change. Proof runs
+   // change no file, so they go on (owner, 11 Nov 2026: one waiting reload held 20 proof runs for a day).
    if((ap.applyKind||'engine')!=='engine'||engineOk())return await reload(ap);
    if(!ap.quietNoted){ap.quietNoted=true;await save();log('issues: '+ap.id+(ap.state==='rollback'?' rollback':'')+' needs an engine reload; it waits for the quiet hours')}
-   if(!await ready().catch(()=>false))return;const u=[...db.items].reverse().find(i=>i.urgent&&i.state==='queued'&&!(i.notBefore>now()));if(u)return await start(u,pol,'fix');return}
-  {const d=db.items.find(i=>i.uiDirty&&!OPEN.includes(i.state));if(d){if(await busy().catch(()=>1)>0)return;d.uiDirty=false;await save();
+   held=true}
+  if(!held){const d=db.items.find(i=>i.uiDirty&&!OPEN.includes(i.state));if(d){if(await busy().catch(()=>1)>0)return;d.uiDirty=false;await save();
    const r=await apply('ui','fixer '+d.id+' (files put back)').catch(e=>({ok:false,why:e.message}));if(!r?.ok){d.uiDirty=true;await save();log('issues: '+d.id+' reload of the put-back files waits: '+(r?.why||'not done'))}return}}
   if(!await ready().catch(()=>false))return;
-  const v=[...db.items].reverse().find(i=>i.state==='verify');if(v)return await start(v,pol,'proof');
-  // urgent first (aqeelOS's own tool server failing for every agent), and not held back by the daily limit
-  const due=i=>i.state==='queued'&&!(i.notBefore>now());const u=[...db.items].reverse().find(i=>i.urgent&&due(i));if(u)return await start(u,pol,'fix');
-  if(fixRunsToday()>=(pol.fixer?.cap||20))return;
-  const q=[...db.items].reverse().find(due);if(q)return await start(q,pol,'fix')}finally{running=null}}
+  // the line in its order (proof runs, urgent, the rest, or as a person moved them); the daily limit holds back fixes
+  // that are not urgent, never proof runs
+  const capped=fixRunsToday()>=(pol.fixer?.cap||20);
+  for(const i of lineOf(db.items,now())){if(i.notBefore>now())continue;
+   if(i.state==='verify')return await start(i,pol,'proof');
+   if(!i.urgent&&(held||capped))continue;return await start(i,pol,'fix')}}finally{running=null}}
  async function start(i,pol,kind){const n=kind==='fix'?i.tries+1:i.tries,id=i.id+'-'+n+(kind==='proof'?'p':''),dir=path.join(DIR,id);await mkdir(dir,{recursive:true,mode:0o700});
   const last=i.history.filter(h=>h.kind==='fix').at(-1);
   await writeFile(path.join(dir,'prompt.txt'),kind==='fix'?fixerPrompt(i,{rules:pol.fixer?.rules||'',attempt:n}):proofPrompt(i,last,{reloaded:i.applied||null,recheck:!!i.recheck,deployed:i.recheck==='deploy'}),{mode:0o600});
@@ -412,4 +503,12 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  const close=(id,who)=>queue(async()=>{await load();const i=db.items.find(x=>x.id===id);if(!i)return null;if(['closed','fixed','gone','expired'].includes(i.state))return view(i);
   i.history.push({kind:'person',at:now(),status:'close',summary:'Closed'+(who?' by '+clip(who,60):'')});
   if(IDLE.includes(i.state)||!OPEN.includes(i.state)){i.state='closed';i.notBefore=0}else{i.noRetry=true;i.closeAfter=true}i.updated=now();await save();return view(i)});
- return {file,healthGone,sweep,retry,stop,close,decideOwner,press,forAgent,list,tick,policy,_db:async()=>{await load();return db}}}
+ return {file,healthGone,sweep,retry,stop,close,decideOwner,press,forAgent,list,tick,policy,move,skip,pause,fixerView:async()=>{await load();return fixerView()},sortNext,_db:async()=>{await load();return db}}}
+// one short sorting call through the engine (MODEL-3): no tools, no agent rules or memory, one turn, at most 2 minutes;
+// its answer is the last line of what it prints
+export function engineSortRun({bin,home,dir}){return async({prompt,agent,model='',effort=''})=>{await mkdir(dir,{recursive:true,mode:0o700});
+ const f=path.join(dir,'sort-'+randomBytes(4).toString('hex')+'.txt');await writeFile(f,prompt,{mode:0o600});
+ try{return await new Promise((res,rej)=>{let out='';const script='timeout -k 10 120 "$1" -p "$2" chat --query-file "$3" -Q --source tool --max-turns 1 --ignore-rules -t "" ${4:+-m "$4"} ${5:+--reasoning "$5"} </dev/null';
+  const p=spawn('bash',['-c',script,'aqeelos-sort',bin,agent,f,model||'',effort||''],{cwd:home,env:{HOME:home,USER:process.env.USER||'claude',PATH:path.join(home,'.local','bin')+':/usr/local/bin:/usr/bin:/bin',LANG:'C.UTF-8',TERM:'dumb',AQEELOS_FIXER:'1'},stdio:['ignore','pipe','pipe']});
+  p.stdout.on('data',d=>{out+=d;if(out.length>200000)out=out.slice(-100000)});p.stderr.on('data',()=>{});p.on('error',rej);p.on('close',()=>res(out))})}
+ finally{await rm(f,{force:true}).catch(()=>{})}}}
