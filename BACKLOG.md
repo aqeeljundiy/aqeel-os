@@ -28,7 +28,7 @@ _Last updated: 11 Nov 2026_
 ## Waiting on you
 
 - [x] **DEPLOY-6** Both servers run 8abacb9 (11 Nov): owner rule, fixer rule, one alert per app, engine limit patch, type_secret through the browser. Live tests passed on both.
-- [ ] **MODEL-0** Pick the model plan (see section 6).
+- [x] **MODEL-0** Plan agreed (11 Nov): see MODEL-1 to MODEL-4.
 
 - [ ] **DEPLOY** Approve deploying `4f7243a` (the recovered fixes) to Elkiya and P&P. Claude Code's safety check blocks each production deploy until you say yes in chat.
 
@@ -121,12 +121,13 @@ Found:
 
 ### 6. Token use and model choice
 Today: the fixer runs on the main agent's profile, Sonnet 5.5 with the 1M context, through the Claude subscription, and its use is mixed into Donna's. This Claude Code work runs on Opus 5.5 at medium effort. API prices per million tokens in/out: Opus 5.5 $4/$20, Sonnet 5.5 $2/$10, Haiku 5.5 $0.10/$0.50.
-- [ ] **MODEL-1** The fixer gets its own profile, so Usage shows its cost on its own line (also part of HEALTH-7).
-- [ ] **MODEL-2** Model per step, as settings (aqeelOS stays model-agnostic): sorting new issues (duplicates, needs a person, priority) is one cheap call on a small model, not an agent run. Fix runs use the mid model at medium effort, proof runs the small model, and the big model is used only on a third try or a stuck issue.
+- [~] **MODEL-1** Done differently (2596157): each fixer run records its own tokens and cost from the engine's session records, and Health › Issues shows the fixer's runs and cost today and this month. A separate profile would have lost the main agent's access the fixer needs. Cost by person (HEALTH-7) is still open.
+- [~] **MODEL-2** Live in 2596157 on both servers since 11 Nov, settings in team-policy.json (backups .bak-20261111-models): fix claude-sonnet-5-5[1m] at medium, proof claude-haiku-5-5 at low, escalate claude-opus-5-5[1m]. Still to build: sorting new issues with one small call (no agent run).
 - [ ] **MODEL-3** Fewer wasted runs, which saves more than any model choice: merge duplicates, send person-only items to "Needs you", prove with delivery checks instead of fix-and-roll-back rounds, and don't spend the 20 daily runs on issues that will come back.
-- [ ] **MODEL-4** Log tokens per fixer run, then compare cost per fixed issue before and after.
+- [~] **MODEL-4** Tokens per fixer run are logged (2596157). Baseline on Elkiya, 11 Nov: fix runs about $0.12-0.23, proof runs about $0.15, all on Sonnet. Compare after a week on the new settings.
 - [~] **MODEL-5** billion-context (github.com/ranxianglei/billion-context) in every install, so long chats use fewer tokens. Owner: "ship to all now" (11 Nov). On main as `8f2353a` (`app/billion-context.mjs`, pinned 0.1.213, self-update off, credit in README and the plugin's description), live on Elkiya since 05:32 UTC: every agent has the plugin switched on. The engine loads it at its next restart, which aqeelOS holds for the quiet hours (01:00-05:00). Emergency off: `touch ~/.hermes/.aqeelos-billion-context-off`.
   - Tested 11 Nov 07:15 UTC on Elkiya, Claude sign-in `claude-account-4` (the agents' login): a real message through the Claude plugin with billion-context loaded answers normally, and billion-context tracks the chat (one session, 6,819 tokens, anthropic protocol). The `claude` program sends its request through the proxy on its way to the plugin's relay, so no extra setting is needed. Earlier "saw nothing" was because `chat --oneshot` never loads engine plugins (and silences all logs): one-shot can't test this, only the always-on engine.
+  - Owner (11 Nov): "on my OS no matter what model, on main so all people pulling the app use it". It is on main and switched on for every agent whatever its model. Tested 07:40 UTC: ChatGPT sign-in (openai-codex, gpt-6.1-sol) runs inside OpenAI's own Codex program, which ignores the proxy setting (it answered with HTTPS_PROXY pointed at a dead port) and keeps and compacts the chat itself, so billion-context can't reach it without engine work. Anthropic API key (aqeelos-help): its request was not seen either, even with api.anthropic.com on the list; not understood yet. Google sign-ins (Gemini, Antigravity): not tested. Owner (11 Nov): "Claude is enough": no further work on the other sign-ins.
   - Found on the way: the server's default Claude login (`~/.claude`) is at its weekly limit until 14 Nov 05:00 UTC; only the test agent aq-livetest uses it.
   - Still to do: after tonight's restart, check that agents still answer and that long chats get folded (`/__bili/sessions` on the proxy shows tokensSaved). ChatGPT-sign-in agents are not tested. P&P (ai.pixelandprofits.com) runs `8abacb9` since 06:07 UTC (automatic deploy) and every agent there has the plugin switched on too; same quiet-hours restart. The engine's own summariser stays on as a fallback; it only acts if billion-context doesn't keep the chat short.
 
