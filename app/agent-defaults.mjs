@@ -14,6 +14,7 @@ import {execFile} from 'node:child_process';
 import {setKey,readConfig,pick,agentNames,HERMES_HOME} from './agentops.mjs';
 import {UNSAFE_TOOLSETS} from './users.mjs';
 import {preferIpv4} from './net-prefer.mjs';
+import {homeSig,statSig} from './reconcile.mjs';
 
 const PLATFORMS=['whatsapp','telegram','slack','discord','signal','api_server'];
 // the engine's API-server bundle leaves out clarify, computer_use and tts; the app chat gets them back so it matches every other channel
@@ -31,7 +32,7 @@ export const ownScreenCdp=u=>{const m=/^https?:\/\/(?:127\.0\.0\.1|localhost):(\
 
 // isTest: a throwaway agent of a check (deploy checks make and delete them on the shared engine). It still gets the
 // defaults, but they never count toward an engine restart: 6-7 Nov 2026 each check's agent restarted every agent.
-export function createAgentDefaults({DATA,giveSkills,trimSkills=async()=>0,locked=async()=>false,isTest=async()=>false,resumeSecs=()=>7200,log=m=>console.log(m)}){
+export function createAgentDefaults({DATA,giveSkills,trimSkills=async()=>0,locked=async()=>false,isTest=async()=>false,resumeSecs=()=>7200,note=()=>{},log=m=>console.log(m)}){
  const TRUST=path.join(DATA,'agent-trust.json'),SEEN=path.join(DATA,'agents-seen.json');
  const REQ=path.join(homedir(),'.aqeelos-agent-users'),KEY=path.join(HERMES_HOME,'agent-ssh','id_ed25519');
  const userOf=a=>('ag-'+a).slice(0,32);
@@ -139,13 +140,19 @@ export function createAgentDefaults({DATA,giveSkills,trimSkills=async()=>0,locke
  async function settled(names){if(!first){try{first=JSON.parse(await readFile(FIRST,'utf8'))}catch{first={};for(const a of names)first[a]=0}}
   let ch=false;for(const a of names)if(!(a in first)){first[a]=Date.now();ch=true}if(ch)await writeFile(FIRST,JSON.stringify(first)).catch(()=>{});
   return names.filter(a=>a==='default'||Date.now()-first[a]>=300000)}
- async function tick(){const names=await settled(await agentNames());await skills(names);let seen;try{seen=new Set(JSON.parse(await readFile(SEEN,'utf8')))}catch{seen=null}
+ // the skills copy looks at stat times first (main agent's skills, each agent's, the policy file) and walks the folders only when one moved
+ // (12 Nov 2026: it walked every skill folder of every agent every minute)
+ const skillsKey=async names=>{const hs=await Promise.all(names.map(a=>homeSig(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a)).then(s=>a+'='+s.skills,()=>a+'=?')));return hs.join(';')+'|'+await statSig([path.join(DATA,'skills-policy.json'),path.join(DATA,'skills-given.json')])};
+ let skillsSeen=null;
+ async function skillsIfChanged(names,force=false){const t=Date.now(),k=await skillsKey(names);if(!force&&k===skillsSeen){note('skills copy (every minute)',{ran:false});return 0}
+  const n=await skills(names);skillsSeen=await skillsKey(names);note('skills copy (every minute)',{ms:Date.now()-t});return n}
+ async function tick({force=false}={}){const names=await settled(await agentNames());await skillsIfChanged(names,force);let seen;try{seen=new Set(JSON.parse(await readFile(SEEN,'utf8')))}catch{seen=null}
   if(!seen){await writeFile(SEEN,JSON.stringify(names));return 0}let n=0;
   for(const a of names)if(!seen.has(a)){log('new agent '+a+': giving it the defaults');const k=await added(a).catch(e=>{log('agent defaults '+a+': '+e.message);return 0});if(!await isTest(a).catch(()=>false))n+=k;seen.add(a);await writeFile(SEEN,JSON.stringify([...seen]))}
   return n}
- async function all(){await ensureKey().catch(e=>log('agent key: '+e.message));await knownHost().catch(()=>{});const names=await agentNames(),tr=await trusted();
-  await requestUsers(names.filter(a=>!tr.has(a)));await skills(names);
-  let n=0;for(const a of await settled(names)){const k=await ensure(a).catch(e=>{log('agent defaults '+a+': '+e.message);return 0});if(!await isTest(a).catch(()=>false))n+=k}return n}
+ async function all({gate=null}={}){await ensureKey().catch(e=>log('agent key: '+e.message));await knownHost().catch(()=>{});const names=await agentNames(),tr=await trusted();
+  await requestUsers(names.filter(a=>!tr.has(a)));await skills(names);skillsSeen=await skillsKey(names);
+  let n=0;for(const a of await settled(names)){if(gate?.skip(a))continue;const k=await ensure(a).then(async v=>{await gate?.commit(a);return v},e=>{log('agent defaults '+a+': '+e.message);return 0});if(!await isTest(a).catch(()=>false))n+=k}return n}
  // a new agent: its user (when it is not trusted), then the defaults
  async function added(a){const names=await agentNames(),tr=await trusted();await requestUsers(names.filter(x=>!tr.has(x)));
   if(!tr.has(a))for(let i=0;i<8&&!await ready(a);i++)await new Promise(r=>setTimeout(r,2000));return ensure(a)}
