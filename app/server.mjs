@@ -17,6 +17,7 @@ import {createAgentMemory} from './agent-memory.mjs';
 import {createTeamSettings} from './team-settings.mjs';
 import {createCodeChanges} from './code-changes.mjs';
 import {withTebar} from './tebar-app.mjs';   // Tebar in the catalog: one click sign-in, or a pasted API key (11 Nov 2026)
+import {createEventRuns} from './event-runs.mjs';   // a Tebar event starts the matching schedule at once (11 Nov 2026)
 import {createTebar} from './tebar.mjs';   // Tebar webhooks: failed posts and expired accounts as alerts, comments and DMs as notices (11 Nov 2026)
 import {mcpAddProblem} from './mcp-add-check.mjs';   // an app added by address: no spaces in its name, no Google file links (11 Nov 2026)
 import {createAddons,probeMcp,RUNS_CODE_MSG} from './addons.mjs';   // personal add-ons: who added what, the admin block list, "is it an MCP tool" (11 Nov 2026)
@@ -1482,7 +1483,8 @@ const kirimdev=createKirimdev({DATA,WORK:path.join(homedir(),'workspaces'),PUBLI
 /* Tebar webhooks (tebar.mjs, 11 Nov 2026): POST /hooks/tebar/<agent>, signed with the secret the person pasted. Failed posts
    and expired or disconnected accounts are alerts (Health, Bottlenecks, the alert chat); comments, DMs and the other
    events picked are a notice in the bell of the agent's owner (admins for the main agents) */
-const tebar=createTebar({DATA,publicUrl:()=>String(PUBLIC_URL??''),nameOf:a=>NAMES[a]||a,log:m=>console.log(m),
+const eventRuns=createEventRuns({DATA,trigger:async(a,id)=>{const r=await fetch(DASH.origin+'/api/cron/jobs/'+encodeURIComponent(id)+'/trigger?profile='+encodeURIComponent(a),{method:'POST',headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:'{}',signal:AbortSignal.timeout(90000)});if(!r.ok)throw Error('the engine answered '+r.status)}});
+const tebar=createTebar({DATA,onEvent:(a,ev)=>eventRuns.fire(a,ev),publicUrl:()=>String(PUBLIC_URL??''),nameOf:a=>NAMES[a]||a,log:m=>console.log(m),
  problem:(a,topic,title,fix)=>health.problem(a,'tebar',title,{topic,fix}),solved:(a,topic)=>health.ok(a,topic),
  notice:(a,title,text,type)=>{const o=users.byId(users.agentOwner(a));return news.add({aud:o&&!users.isAdmin(o)?'u:'+o.id:'admins',group:'tebar|'+a+'|'+type,icon:'bell',kind:'blue',title,text,go:'/abilities/connections',label:'Connections'})}});
 if(LIVE_APP)setTimeout(()=>kirimdev.resume().catch(e=>console.warn('kirimdev resume',e.message)),30000).unref();
