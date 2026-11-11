@@ -1,27 +1,33 @@
-// Pools in the priority list (owner, 12 Nov 2026: "I have 4 Claude Max: I want to group those, and the priority to be the one
+// Groups in the priority list (owner, 12 Nov 2026: "I have 4 Claude Max: I want to group those, and the priority to be the one
 // that has the most session left on the 5-hour one first, then the weekly").
-// The saved list stays flat ({key, model} entries, as backup-models.mjs reads it). On top of it, entries of the same kind
-// with the same model form one group (a pool) at the place of its first member, unless a person took an entry out (solo).
-// Inside a pool there is no order: an agent gets the member with the most room. Everything here is pure, so it is tested
+// The saved list stays flat ({key, model} entries, as backup-models.mjs reads it). On top of it, the entries of one provider
+// form one group at the place of its first member, unless a person took an entry out (solo).
+// A group set to "Most room first" is a pool: no order inside, an agent gets the member with the most room. Everything here is pure, so it is tested
 // (scripts/account-pools.test.mjs); accounts.mjs gives it the readings and makes the moves.
 export const SPREAD=10;   // points of room one agent already on a member costs it in the ranking, so agents spread out
 export const HYST=15;     // points a member must be better by to pull an agent that is between chats
 
-// which accounts pool together: every Claude subscription is one kind; another provider has one sign-in, so it is its own kind
+// which accounts belong together: every Claude subscription is one provider; another provider is its own
 export const kindOf=key=>String(key).startsWith('claude:')?'claude':String(key);
 export const entryId=e=>e.key+'|'+(e.model||'');
-export const poolable=e=>kindOf(e.key)!==e.key;
 
-// flat list → groups in the person's order: {id, kind, model, pool, alone, members:[entry]}. A pool needs two members.
-export function groupEntries(priority,solo=[]){const out=[],by=new Map(),alone=new Set(solo||[]);
- for(const e of priority||[]){const kind=kindOf(e.key),model=e.model||'';
-  if(!poolable(e)||alone.has(entryId(e))){out.push({id:entryId(e),kind,model,pool:false,alone:poolable(e),members:[e]});continue}
-  let g=by.get(kind+'|'+model);if(!g){g={id:'pool:'+kind+'|'+model,kind,model,pool:true,alone:false,members:[]};by.set(kind+'|'+model,g);out.push(g)}g.members.push(e)}
- for(const g of out)if(g.pool&&g.members.length<2){g.pool=false;g.id=entryId(g.members[0])}
+// flat list → groups in the person's order, one per provider (owner, 12 Nov 2026: "the same option for every provider"):
+// {id, kind, mode, canRoom, pool, alone, members:[entry]}. A group of one is fine. An entry a person took out (solo) is a
+// group of its own, where it stands.
+// mode: 'room' (Most room first: no order inside, an agent gets the member with the most room) or 'order' (In my order: the
+// members are used top to bottom, each like an entry of its own). modes: the person's choice per kind; readable(kind): usage
+// can be read for that provider, else only 'order' is possible. pool: 'room' with two or more members.
+export function groupEntries(priority,solo=[],{modes={},readable=()=>true}={}){const out=[],by=new Map(),alone=new Set(solo||[]);
+ for(const e of priority||[]){const kind=kindOf(e.key);
+  if(alone.has(entryId(e))){out.push({id:entryId(e),kind,mode:'order',canRoom:false,pool:false,alone:true,members:[e]});continue}
+  let g=by.get(kind);if(!g){const canRoom=!!readable(kind);g={id:'g:'+kind,kind,mode:canRoom&&modes?.[kind]!=='order'?'room':'order',canRoom,pool:false,alone:false,members:[]};by.set(kind,g);out.push(g)}g.members.push(e)}
+ for(const g of out)g.pool=g.mode==='room'&&g.members.length>1;
  return out}
+// what planMove walks: a group used in the person's order is each member on its own, top to bottom (the old behaviour)
+export const planGroups=groups=>groups.flatMap(g=>g.pool?[g]:g.members.map(e=>({...g,id:g.members.length>1?entryId(e):g.id,pool:false,members:[e]})));
 export const flatten=groups=>groups.flatMap(g=>g.members);
 // the saved shape: pool members next to each other (the first entry stays first), solo ids only for entries that exist
-export function normalise(priority,solo=[]){const pr=flatten(groupEntries(priority,solo)),ids=new Set(pr.filter(poolable).map(entryId));
+export function normalise(priority,solo=[]){const pr=flatten(groupEntries(priority,solo)),ids=new Set(pr.map(entryId));
  return {priority:pr,solo:[...new Set(solo||[])].filter(id=>ids.has(id))}}
 
 /* A member's reading: {key, used, sess, week, agents, held}
@@ -48,18 +54,21 @@ export const nextPick=(members,o)=>rankMembers(members,o)[0]?.key||null;
    mayGoUp / mayRebalance: false for an agent a person placed by hand or that moved less than 30 minutes ago
    upConfirmed(groupId|null) → true once the same higher group had room two checks in a row (called once when going up is allowed)
    idle: the agent is between chats (nothing running, quiet for a while), so a move costs no prompt cache
+   serves(entry) → that member can answer with the model the agent is set to: inside a pool only such members are picked
+   (two accounts are interchangeable only on the same model); when none is left, the agent goes on to the next group
    kinds: up (back to a higher entry), pool (its member is past the number: another member), down (the pool or entry is
    used up: the next entry with room), rebalance (between chats, another member is at least HYST points better) */
-export function planMove({groups,at,cur,state,curState,th,backAt,on=true,back=true,mayGoUp=true,mayRebalance=true,upConfirmed=()=>true,idle=false,hyst=HYST,spread=SPREAD}){
+export function planMove({groups,at,cur,state,curState,th,backAt,on=true,back=true,mayGoUp=true,mayRebalance=true,upConfirmed=()=>true,idle=false,serves=()=>true,hyst=HYST,spread=SPREAD}){
  const mem=g=>g.members.map(e=>({...state(e),entry:e})),cands=[],g=at>=0?groups[at]:null;let upAt=-1;
+ const same=g=>mem(g).filter(m=>m.key===cur||serves(m.entry));   // its own pool: the members on the agent's model
  if(at>0&&back&&mayGoUp){let hit=null;
   for(let i=0;i<at&&!hit;i++){const r=rankMembers(mem(groups[i]),{lim:backAt,floor:th,spread}).filter(x=>!x.unknown);if(r.length)hit={i,r}}
   if(upConfirmed(hit?groups[hit.i].id:null)&&hit){upAt=hit.i;for(const x of hit.r)cands.push({entry:x.member.entry,kind:'up',why:'Back to a higher entry: it has '+(100-backAt)+'% free again'})}}
  const isPast=on&&known(curState)&&(curState.used>=th||!!g?.pool&&(curState.week??0)>=th);
  if(isPast){const said=curState.used>=th?curState.used:curState.week;
-  if(g?.pool)for(const x of rankMembers(mem(g),{lim:th,spread,self:cur,skip:cur}))cands.push({entry:x.member.entry,kind:'pool',why:`Reached ${said}%: the account in its group with the most room`});
+  if(g?.pool)for(const x of rankMembers(same(g),{lim:th,spread,self:cur,skip:cur}))cands.push({entry:x.member.entry,kind:'pool',why:`Reached ${said}%: the account in its group with the most room`});
   groups.forEach((o,i)=>{if(i===at||i===upAt)return;for(const x of rankMembers(mem(o),{lim:th,spread}).filter(x=>!x.unknown))cands.push({entry:x.member.entry,kind:'down',why:`Reached ${said}%`+(g?.pool?', and so did the rest of its group':'')})})}
- else if(on&&g?.pool&&idle&&mayRebalance&&known(curState)){const r=rankMembers(mem(g),{lim:th,spread,self:cur}),mine=r.find(x=>x.key===cur),best=r.find(x=>x.key!==cur&&!x.unknown);
+ else if(on&&g?.pool&&idle&&mayRebalance&&known(curState)){const r=rankMembers(same(g),{lim:th,spread,self:cur}),mine=r.find(x=>x.key===cur),best=r.find(x=>x.key!==cur&&!x.unknown);
   if(mine&&best&&best.score-mine.score>=hyst)cands.push({entry:best.member.entry,kind:'rebalance',why:`Between chats: ${Math.round(best.score-mine.score)} points more room in its group`})}
  return {cands}}
 
