@@ -216,7 +216,7 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
   // a try counts when it starts (11 Nov 2026: each deploy restarted the app mid-backup, the cut-off run was never counted,
   // and the next start tried again: seven 26 GB archives in /tmp filled Elkiya's disk to 99%)
   {const day=localParts(at,tz()).day;state.tries=state.tries?.day===day?{day,n:state.tries.n+1}:{day,n:1};await save()}
-  try{let g0=null;try{g0=await google()}catch(e){if(e.code!=='NOGOOGLE')throw e}   // no Google: the backup stays on this box (LOCALDIR)
+  try{let g0=null,gwhy='';try{g0=await google()}catch(e){if(e.code!=='NOGOOGLE')throw e;if(!/Connect Google first/.test(e.message))gwhy=e.message}   // a Google account that cannot be used is said on the result, the backup still happens   // no Google: the backup stays on this box (LOCALDIR)
    const local=!g0,dest=path.join(LOCALDIR,name);
    if(local){await mkdir(LOCALDIR,{recursive:true,mode:0o700});work=dest+'.part'}
    // the disk first: a full one made openssl fail, tar got SIGPIPE and the cause was lost as "tar exit 141" (11 Nov 2026)
@@ -238,7 +238,7 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
    const skipped=Number((await readFile(work+'.skipped','utf8').catch(()=>'0')).trim())||0;await rm(work+'.skipped',{force:true}).catch(()=>{});
    const size=(await stat(work)).size;if(size<MIN)throw Error('The backup came out too small ('+size+' bytes).');
    if(local){await rename(work,dest);const pruned=await pruneLocalDir();
-    state.last={at,ok:true,name,size,local:true,why,secs:Math.round((Date.now()-at)/1000),skipped};state.lastOkAt=at;state.made=true;delete state.staleTold;await save();
+    state.last={at,ok:true,name,size,local:true,...(gwhy?{googleWhy:gwhy}:{}),why,secs:Math.round((Date.now()-at)/1000),skipped};state.lastOkAt=at;state.made=true;delete state.staleTold;await save();
     console.log('backup: '+name+' ('+Math.round(size/1e6)+' MB) kept on this box in '+LOCALDIR+' (no Google account)'+(pruned?', '+pruned+' older one(s) removed':'')+(skipped?', '+skipped+' unreadable file(s) skipped':''));solved();return state.last}
    const g=await google().catch(()=>g0),fid=await folder(g);
    const start=await drive(g,'upload/drive/v3/files?uploadType=resumable',{method:'POST',raw:true,headers:{'content-type':'application/json; charset=UTF-8','x-upload-content-type':'application/octet-stream','x-upload-content-length':String(size)},body:JSON.stringify({name,parents:[fid]})});

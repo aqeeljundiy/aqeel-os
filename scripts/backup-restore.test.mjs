@@ -79,9 +79,10 @@ const until=async f=>{for(let i=0;i<200;i++){if(await f())return;await new Promi
 test('no Google: the backup stays on the box (12 Nov 2026), nobody told; the Drive list says Connect Google first',async()=>{const s=scene();try{const {b,n}=app(s,{MIN:1});const st=await b.status();
  assert.equal(st.google.connected,false);await b.run('by hand');const l1=(await b.status()).last;assert.equal(l1.ok,true);assert.equal(l1.local,true);assert.deepEqual(n.told,[]);
  const l=await b.list();assert.equal(l.google,false);assert.match(l.error,/Connect Google first/)}finally{s.done()}});
-test('a Google account without Drive or a lasting sign-in is said plainly',async()=>{const s=scene();try{const {b}=app(s);
- w(path.join(s.H,'google_token.json'),JSON.stringify({account:'a@b.test',refresh_token:'r',scopes:['https://www.googleapis.com/auth/gmail.readonly']}));await assert.rejects(()=>b.run(),/without Drive/);
- w(path.join(s.H,'google_token.json'),JSON.stringify({account:'a@b.test',scopes:['https://www.googleapis.com/auth/drive']}));await assert.rejects(()=>b.run(),/no lasting sign-in/);
+test('a Google account without Drive or a lasting sign-in is said plainly',async()=>{const s=scene();try{const {b}=app(s,{MIN:1});
+ // 12 Nov 2026: the backup still happens, on the box, and the result says why Google was not used
+ w(path.join(s.H,'google_token.json'),JSON.stringify({account:'a@b.test',refresh_token:'r',scopes:['https://www.googleapis.com/auth/gmail.readonly']}));await b.run();assert.match((await b.status()).last.googleWhy,/without Drive/);
+ w(path.join(s.H,'google_token.json'),JSON.stringify({account:'a@b.test',scopes:['https://www.googleapis.com/auth/drive']}));await b.run();assert.match((await b.status()).last.googleWhy,/no lasting sign-in/);
  w(path.join(s.H,'google_token.json'),JSON.stringify({account:'a@b.test',refresh_token:'r',scopes:['https://www.googleapis.com/auth/drive']}));assert.equal((await b.status()).google.connected,true)}finally{s.done()}});
 
 test('settings: account, hour, how many to keep, folder, each checked',async()=>{const s=scene();try{const {b}=app(s);w(path.join(s.H,'google_token_work.json'),JSON.stringify({account:'w@b.test',refresh_token:'r',scopes:['https://www.googleapis.com/auth/drive']}));
