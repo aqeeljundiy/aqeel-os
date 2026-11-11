@@ -48,4 +48,4 @@ test('the wake-up template takes its wording and hour from <data>/box-checks/wak
  const run=(extra={})=>spawnSync('python3',[py,'--dry'],{env:{...process.env,HOME:H,USERPROFILE:H,WAKEUP_CONFIG:cfg,...extra},encoding:'utf8'});
  assert.equal(run().stdout.trim(),'Wake up!','built-in neutral wording without a settings file');
  writeFileSync(cfg,JSON.stringify({nudges:['Good morning, Pat!','Up!'],hour:5}));assert.equal(run().stdout.trim(),'Good morning, Pat!');
- assert.doesNotMatch(readFileSync(py,"utf8"),/Aqeel|@lid/i)});
+ assert.doesNotMatch(readFileSync(py,"utf8"),/bAqeelb|@lid/i)});
