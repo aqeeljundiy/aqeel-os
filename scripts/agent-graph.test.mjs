@@ -118,7 +118,7 @@ test('a few documents at a time, so a first build stays small',async()=>{const {
 test('never while the agent is replying: before, and during a run',async()=>{
  const a=await make({busy:()=>true});assert.deepEqual(await a.G.refresh('sales'),{skipped:'busy'});assert.equal(a.runs.length,0);assert.deepEqual(await a.G.tick(),{changed:[]});assert.equal(a.runs.length,0);
  // it starts replying while graphify runs: the run is stopped, nothing is marked failed, the next pass retries
- let go=false;const b=await make({custom:(cmd,args,o)=>new Promise((res,rej)=>{go=true;o.signal.addEventListener('abort',()=>rej(new Error('aborted')))})});b.setBusy(async()=>go);
+ let go=false;const b=await make({custom:(cmd,args,o)=>new Promise((res,rej)=>{go=true;const keep=setTimeout(res,60e3);o.signal.addEventListener('abort',()=>{clearTimeout(keep);rej(new Error('aborted'))})})});b.setBusy(async()=>go);
  const slow=b.G;
  const r=await slow.refresh('sales');assert.deepEqual(r,{skipped:'busy'});const v=await slow.view();assert.equal(v.agents.sales.map.error,null);assert.notEqual(v.agents.sales.map.state,'failed')});
 

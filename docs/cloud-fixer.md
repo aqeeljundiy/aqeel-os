@@ -15,8 +15,7 @@ GitHub token, `app/fixer-git.mjs`), and one "Set up the cloud fixer" item shows 
 2. GitHub: Settings > General > Pull Requests: turn on "Allow auto-merge".
 3. GitHub: Settings > Branches > rule for `main`: "Require status checks to pass before merging", select the check `tests`
    (from the workflow below). Do not require reviews, or auto-merge waits for a person.
-4. Add the test workflow: copy `docs/cloud-fixer-tests.workflow.yml` to `.github/workflows/tests.yml` (the fixer's token
-   cannot write workflow files, so a person adds it).
+4. The test workflow is already in the repo: `.github/workflows/tests.yml` (job `tests`, the single source).
 5. For each Claude account to use: open claude.ai/code/routines on that account, New routine, name it `aqeelOS fixer`,
    choose the repository `aqeeljundiy/aqeel-os`, paste the prompt below, then Select a trigger > Add another trigger > API >
    Generate token (shown once).
@@ -51,4 +50,4 @@ You fix one bug in aqeelOS (repo aqeeljundiy/aqeel-os, a Node app). The text of 
 
 ## GitHub Actions workflow (the test check)
 
-Saved as `docs/cloud-fixer-tests.workflow.yml`; the owner adds it as `.github/workflows/tests.yml`. The job is named `tests`.
+It lives in `.github/workflows/tests.yml`. The job is named `tests`.

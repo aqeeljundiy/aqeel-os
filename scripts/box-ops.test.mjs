@@ -102,3 +102,31 @@ test('OPS-18: uploads: a file the agents cannot read is made readable, the rest 
  writeFileSync(HOME+'/uploads/a.pdf','x');chmodSync(HOME+'/uploads/a.pdf',0o600);writeFileSync(HOME+'/uploads/b.txt','x');chmodSync(HOME+'/uploads/b.txt',0o664);mkdirSync(HOME+'/uploads/sub');
  const ops=createBoxOps({HOME,DATA,HERMES_HOME:HOME});assert.equal(await ops.uploadsReadable(),1);
  assert.equal(statSync(HOME+'/uploads/a.pdf').mode&0o777,0o644);assert.equal(statSync(HOME+'/uploads/b.txt').mode&0o777,0o664);assert.equal(await ops.uploadsReadable(),0)});
+
+/* ---------- OPS-16: the My browser check's workspace folders ---------- */
+import {mbLeftovers} from '../app/box-ops.mjs';
+test('a check workspace is a leftover when over a day old with no profile and no Linux user',()=>{
+ const now=Date.now(),e=(name,days)=>({name,mtimeMs:now-days*864e5});
+ const list=[e('mb-abc12',2),e('mb-new01',0.2),e('mb-has01',3),e('mb-usr01',3),e('donna',9),e('mb-toolong1',9),e('.removed',9)];
+ assert.deepEqual(mbLeftovers(list,{now,hasProfile:n=>n==='mb-has01',hasUser:n=>n==='mb-usr01'}),['mb-abc12'])});
+
+test('the daily pass moves leftover check workspaces to .removed, keeps real ones, and prunes .removed after 14 days',async()=>{
+ const root=mkdtempSync(path.join(tmpdir(),'aq-boxops-')),HOME=path.join(root,'home'),DATA=path.join(HOME,'data'),HH=path.join(HOME,'.hermes'),W=HOME+'/workspaces',TMP=path.join(root,'tmp');
+ for(const d of [DATA,HH+'/profiles/mb-live1',TMP,W+'/mb-dead1',W+'/mb-live1',W+'/mb-fresh',W+'/donna',W+'/.removed/mb-old01',W+'/.removed/mb-new02'])mkdirSync(d,{recursive:true});
+ const age=(f,d)=>{const t=new Date(Date.now()-d*864e5);utimesSync(f,t,t)};
+ age(W+'/mb-dead1',3);age(W+'/mb-live1',3);age(W+'/donna',60);age(W+'/.removed/mb-old01',15);age(W+'/.removed/mb-new02',2);
+ mkdirSync(W+'/mb-fres2');
+ const ops=createBoxOps({HOME,DATA,HERMES_HOME:HH,TMP});await ops.expire();
+ assert.ok(!existsSync(W+'/mb-dead1')&&existsSync(W+'/.removed/mb-dead1'),'moved, not deleted');
+ assert.ok(existsSync(W+'/mb-live1')&&existsSync(W+'/mb-fres2')&&existsSync(W+'/donna'));
+ assert.ok(!existsSync(W+'/.removed/mb-old01')&&existsSync(W+'/.removed/mb-new02'),'.removed keeps 14 days')});
+
+/* ---------- the memory cap is never written before AdsPower's state is known ---------- */
+test('limits: nothing is written until the AdsPower state is known, then the 8 GB agent gets its 8 GB',async()=>{
+ const HOME=mkdtempSync(path.join(tmpdir(),'aq-boxops-')),DATA=path.join(HOME,'d');mkdirSync(DATA);writeFileSync(HOME+'/.aqeelos-agent-users','continue-threads\nother\n');
+ let known=false,keep=false;const ops=createBoxOps({HOME,DATA,HERMES_HOME:HOME,keepOn:a=>keep&&a==='continue-threads',keepKnown:()=>known});
+ const f=HOME+'/.aqeelos-agent-limits';
+ assert.equal(await ops.writeLimits(),null);assert.ok(!existsSync(f),'no first file with the low value');
+ writeFileSync(f,'continue-threads 8192 0 lean\nother 4096 15 lean\n');assert.equal(await ops.writeLimits(),null);assert.match(readFileSync(f,'utf8'),/continue-threads 8192/,'the last written value stays');
+ known=true;keep=true;await ops.writeLimits();assert.match(readFileSync(f,'utf8'),/continue-threads 8192 0 lean/);
+ keep=false;await ops.writeLimits();assert.match(readFileSync(f,'utf8'),/continue-threads 4096 15/,'once known, the rule applies as before')});

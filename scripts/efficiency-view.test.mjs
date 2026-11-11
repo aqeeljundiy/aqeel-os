@@ -61,7 +61,7 @@ async function makeHome(){const root=await mkdtemp(path.join(tmpdir(),'eff-'));c
   const ins=db.prepare('insert into sessions values(?,?,?,?,?,?,?,?,?,?,?,?,?)');for(const r of rows)ins.run(...r);db.close()};
  const t=Date.now()/1000;
  await mk(H,[['cron_ab12_1','cron','Nightly · Nov 11 01:00','claude-haiku-5-5',t-500,t-400,1,100,10,900,0,0.01,null],['s1','telegram','Hello','claude-sonnet-5-5',t-300,t-200,4,1000,400,4000,500,0.2,null],['old','telegram','Ancient','claude-sonnet-5-5',t-90*86400,t-90*86400,1,1,1,1,1,1,null]]);
- await mk(path.join(H,'profiles','rory'),[['sub1','subagent','Research','claude-opus-5-5',t-100,t-50,3,500,200,0,0,0.5,'s1'],['s2','whatsapp','Customer','claude-sonnet-5-5',t-90000,t-80000,2,100,50,100,0,0.02,'s0']]);
+ await mk(path.join(H,'profiles','rory'),[['sub1','subagent','Research','claude-opus-5-5',t-100,t-50,3,500,200,0,0,0.5,'s1'],['s2','whatsapp','Customer','claude-sonnet-5-5',t-100000,t-90000,2,100,50,100,0,0.02,'s0']]);
  await mkdir(path.join(H,'profiles','.deleted'),{recursive:true});await mkdir(path.join(H,'cron'),{recursive:true});
  await writeFile(path.join(H,'cron','jobs.json'),JSON.stringify({jobs:[{id:'ab12',name:'[Ops] Nightly check'}]}));
  await writeFile(path.join(DATA,'claude-usage.json'),JSON.stringify({main:{usage:{session:null,week:{used:100,resets:null}}},b:{usage:{week:{used:10,resets:null}}}}));

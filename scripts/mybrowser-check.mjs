@@ -1,7 +1,7 @@
 // "Use my browser" check, end to end with a stand-in extension: pairing, the agent asking choose_browser, the
 // person answering "My browser", and the agent's browser_navigate arriving in that browser. Run on the box against
 // a test copy: node scripts/mybrowser-check.mjs [base] [password file]
-import {readFileSync,writeFileSync,appendFileSync,existsSync,readdirSync} from 'node:fs';import {homedir} from 'node:os';import {execFile} from 'node:child_process';
+import {readFileSync,writeFileSync,appendFileSync,existsSync,readdirSync,rmSync,mkdirSync,renameSync} from 'node:fs';import {homedir} from 'node:os';import {execFile} from 'node:child_process';
 import {NAME,nameFor,stale,withoutNames} from './mybrowser-leftovers.mjs';
 const BASE=process.argv[2]||'http://127.0.0.1:4402',PW=readFileSync(process.argv[3]||'/tmp/ppl/pw','utf8').trim();
 const PROFILES=homedir()+'/.hermes/profiles',MARKS=homedir()+'/.hermes/.aqeelos-test-agents',AG=nameFor(),HOME=PROFILES+'/'+AG;
@@ -25,7 +25,11 @@ async function remove(n){await call('/hapi/profiles/'+encodeURIComponent(n),{met
  for(let i=0;i<3;i++){await sleep(10000);if(existsSync(PROFILES+'/'+n))await engineDelete(n)}
  return !existsSync(PROFILES+'/'+n)}
 let cleaning=null;   // one clean-up, whichever of the end, the time limit or a signal comes first (the others wait for it)
-const gone=()=>cleaning||=(async()=>{try{ext?.close()}catch{}return made?remove(AG):true})();
+// its workspace folder (~/workspaces/mb-xxxxx) goes with it, whatever happened (deleting the agent never removes it); one owned by the agent's
+// deleted Linux user may refuse the delete, then it is moved into ~/workspaces/.removed, which the app's janitor prunes
+const WS=homedir()+'/workspaces/'+AG;
+const dropWorkspace=()=>{try{rmSync(WS,{recursive:true,force:true})}catch{}if(existsSync(WS)){try{mkdirSync(homedir()+'/workspaces/.removed',{recursive:true});renameSync(WS,homedir()+'/workspaces/.removed/'+AG+'-'+Date.now())}catch{}}return !existsSync(WS)};
+const gone=()=>cleaning||=(async()=>{try{ext?.close()}catch{}const ok=made?await remove(AG):true;dropWorkspace();return ok})();
 for(const sig of ['SIGTERM','SIGINT','SIGHUP'])process.on(sig,()=>gone().finally(()=>process.exit(1)));
 // under box-check.sh's 480 s limit with room for the clean-up
 setTimeout(async()=>{console.log('FAIL | took over 400 s');await gone();process.exit(1)},400000).unref();

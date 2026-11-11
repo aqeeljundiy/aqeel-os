@@ -6,7 +6,7 @@
 import {request as httpRequest} from 'node:http';
 import {createHmac,timingSafeEqual} from 'node:crypto';
 
-export function createCodeOnline({SECRET,SECURE,users,revokedAt=()=>0,HOST='code.localhost',PREVIEW_HOST='code-preview.localhost',APP='127.0.0.1:4321',PREVIEW='127.0.0.1:4322',HOME='http://localhost:4400'}){
+export function createCodeOnline({SECRET,SECURE,users,revokedAt=()=>0,HOST='code.localhost',PREVIEW_HOST='code-preview.localhost',APP='127.0.0.1:4321',PREVIEW='127.0.0.1:4322',HOME='http://localhost:4400',enabled=()=>true,OFF_MSG='Coding happens on your own computer; publish from the Build app.'}){
  const sig=s=>createHmac('sha256',SECRET).update(s).digest('base64url').slice(0,32);
  const same=(a,b)=>{a=Buffer.from(String(a));b=Buffer.from(String(b));return a.length===b.length&&timingSafeEqual(a,b)};
  // a ticket (two minutes, one person) and the cookie it becomes (seven days)
@@ -38,6 +38,8 @@ export function createCodeOnline({SECRET,SECURE,users,revokedAt=()=>0,HOST='code
   req.pipe(up)}
  // true when the request was for one of Code online's addresses (and is now answered)
  function handle(req,res){const w=which(req);if(!w)return false;const url=new URL(req.url,'http://x');
+  // switched off (install setting onlineCode): nothing reaches the workspace, and nobody is sent to a sign-in for it
+  if(!enabled()){res.writeHead(410,{'content-type':'text/html; charset=utf-8','cache-control':'no-store'});res.end(`<!doctype html><meta name=viewport content="width=device-width,initial-scale=1"><title>Coding happens on your computer</title><body style="font-family:'Plus Jakarta Sans',system-ui,sans-serif;display:grid;place-items:center;min-height:90vh;color:#0b0c10"><div style="max-width:420px;text-align:center"><h1 style="font-size:20px">${OFF_MSG}</h1><p><a href="${HOME}/#/code/code" style="color:#0158cb">Open Code in aqeelOS</a></p></div>`);return true}
   // Code exists only inside aqeelOS: opened as a page of its own (typed in the address bar, a link, a new tab), it goes to
   // Code in aqeelOS instead. Inside aqeelOS it loads as a frame, which browsers mark as Sec-Fetch-Dest: iframe.
   if(req.method==='GET'&&req.headers['sec-fetch-dest']==='document'){res.writeHead(302,{location:HOME+'/#/code/code','cache-control':'no-store'});res.end();return true}
@@ -54,4 +56,4 @@ export function createCodeOnline({SECRET,SECURE,users,revokedAt=()=>0,HOST='code
  const GATE=process.env.CODE_GATE_SECRET||'';
  const gateTicket=(uid,role)=>{const exp=Date.now()+120000;return [uid,role,exp,createHmac('sha256',GATE).update('code-ticket:'+uid+'.'+role+'.'+exp).digest('base64url').slice(0,32)].join('.')};
  const urlFor=(uid,to)=>{const u=users().byId(uid);const t=GATE?gateTicket(uid,u?roleOf(u):'member'):ticket(uid);return scheme+HOST+'/aqeelos-login?t='+encodeURIComponent(t)+(to?'&to='+encodeURIComponent(to):'')};
- return {handle:(req,res)=>GATE?false:handle(req,res),ticket,url:urlFor,remote:()=>Boolean(GATE)}}
+ return {handle:(req,res)=>GATE&&enabled()?false:handle(req,res),enabled,ticket,url:urlFor,remote:()=>Boolean(GATE)}}
