@@ -15,7 +15,8 @@ const Screen={
  wakeHtml(cls=''){const n=esc(ident(this.agent()).name);return `<div class="scr-waking ${cls}" id="scrWaking" ${this.waking()?'':'hidden'}><span class="spinner"></span><b>Waking the browser…</b><span>${n}'s browser was asleep. It opens again with its tabs in a few seconds.</span></div>`},
  // the view is open on a sleeping screen: wake it (once per agent), nobody has to press a button
  async autoWake(){const a=this.agent();if(this._wk===a)return;this._wk=a;try{this.st=await post((p,o)=>call('',p,o),'/ui/screens/'+encodeURIComponent(a)+'/start');this.paint(true)}catch{}},
- src(){return '/screen/vnc.html?autoconnect=1&reconnect=1&reconnect_delay=1500&resize=scale&show_dot=1&path='+encodeURIComponent('screen/websockify?agent='+this.agent()+(this.ads?'&screen=ads':''))+'&view_only='+(this.control?0:1)},
+ // autoconnect=0: the noVNC page connects by itself once it holds a ticket for that one connection (app/vnc-ticket.js, AUD-15)
+ src(){return '/screen/vnc.html?autoconnect=0&reconnect=1&reconnect_delay=1500&resize=scale&show_dot=1&path='+encodeURIComponent('screen/websockify?agent='+this.agent()+(this.ads?'&screen=ads':''))+'&view_only='+(this.control?0:1)},
  async refresh(){const a=this.agent();try{const st=await call('','/ui/screens/'+encodeURIComponent(a));const was=this.st;this.st=st;
   if(!was||was.agent!==st.agent||was.running!==st.running||was.kind!==st.kind||(!st.running&&was.waking!==st.waking))this.paint(true);
   else for(const el of document.querySelectorAll('#scrWaking'))el.hidden=!this.waking();
@@ -121,7 +122,7 @@ ACT['scr-start']=async a=>{a.disabled=true;a.innerHTML='<span class="spinner"></
 ACT['ads-start']=async a=>{const ag=a.dataset.agent;a.disabled=true;a.innerHTML='<span class="spinner tiny"></span>Starting…';try{const r=await post((p,o)=>call('',p,o),'/ui/screens/'+encodeURIComponent(ag)+'/adspower/start');if(Screen.agent().split('--')[0]===ag){Screen.adsSt=r;Screen.adsPaint()}toast('AdsPower is starting on '+ident(ag).name+'’s screen');if(route().page?.id==='logins')reload()}catch(e){a.disabled=false;a.innerHTML=icon('power',14)+'Start AdsPower';fail(e)}};
 ACT['ads-stop']=async a=>{const ag=a.dataset.agent;a.disabled=true;try{await post((p,o)=>call('',p,o),'/ui/screens/'+encodeURIComponent(ag)+'/adspower/stop');toast('AdsPower stopped for '+ident(ag).name);reload()}catch(e){a.disabled=false;fail(e)}};
 // open an agent's screen on the AI box in its own tab, ready to click and type (to sign in to its AdsPower)
-ACT['ads-screen']=a=>window.open('/screen/vnc.html?autoconnect=1&reconnect=1&reconnect_delay=1500&resize=scale&show_dot=1&path='+encodeURIComponent('screen/websockify?agent='+a.dataset.agent)+'&view_only=0','_blank','noopener');
+ACT['ads-screen']=a=>window.open('/screen/vnc.html?autoconnect=0&reconnect=1&reconnect_delay=1500&resize=scale&show_dot=1&path='+encodeURIComponent('screen/websockify?agent='+a.dataset.agent)+'&view_only=0','_blank','noopener');
 ACT['scr-browser']=async()=>{try{await post((p,o)=>call('',p,o),'/ui/screen/browser?agent='+encodeURIComponent(Screen.agent()));toast('Opening a browser on the screen…')}catch(e){fail(e)}};
 
 /* ---------- dragging: sidebar width, screen width, floating window move/resize ---------- */

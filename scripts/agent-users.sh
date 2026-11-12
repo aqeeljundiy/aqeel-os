@@ -126,6 +126,7 @@ setup_box(){
   x11_dir
   local_fw
   fixer_step
+  devtools_fw full
   if [ -n "$CHROME_SRC" ] && [ ! -x "$CHROME" ]; then mkdir -p /opt/aqeelos; rm -rf /opt/aqeelos/chrome; cp -a --no-preserve=ownership "$CHROME_SRC" /opt/aqeelos/chrome; chmod -R a+rX /opt/aqeelos; fi
 }
 
@@ -158,6 +159,111 @@ local_fw(){
   if [ "$ok" = 1 ]; then rm -f -- "$RST/.fw-failed"; return 0; fi
   echo "agent users: LOCAL FIREWALL NOT APPLIED: $why. Every agent can reach the engine's dashboard and gateway on this box."
   [ -f "$RST/.fw-failed" ] || { : > "$RST/.fw-failed"; report default "local-firewall" "the box's local firewall could not be applied: $why. Until it is, every agent's user can call the engine's dashboard (9119), the gateway (8642) and the WhatsApp bridges directly. The box needs iptables and the NET_ADMIN right (the ai-box compose)." "Local firewall not applied"; }
+  return 1
+}
+
+# AUD-15 part 2 (13 Nov 2026): the browsers' debugging ports. Whoever connects to a DevTools port controls that browser and every
+# sign-in in it, and any user on the box may connect to 127.0.0.1. Only each agent's own Chrome port had a rule (screen_up, until
+# now); the engine's browsers (the box user's Chromes on random ports, agent-browser, the AdsPower bridge on 9333), the deploy
+# checks' Chromes and each agent's own AdsPower (its API and its browsers, on every address) took any caller. Same mechanism as
+# local_fw: a chain on the box's own addresses (AQ-DEVTOOLS, from OUTPUT -o lo), plus one for connections from outside the box
+# (AQ-DEVIN, from INPUT ! -i lo) for a debugging port that listens on every address. Every rule only refuses: "port P, anyone but
+# root, the box user and the port's own user(s) -> refused at once", so rules can be added and removed in any order and a change
+# never opens anything for a moment. What is a debugging port is read from what listens (ss, as root) and its command line; each
+# agent's two Chrome ports (the wake proxy's outer one and Chrome's inner one) are covered from its port line, also while it sleeps:
+#   outer port (the wake proxy, aq-wake): the agent's user;   inner port (its Chrome): the agent's user and the wake proxy.
+# A port of an agent held by another user (someone listening on it while the agent's Chrome sleeps) is that user's alone, so the
+# wake proxy cannot be led to it, and is reported. Looked at every pass of the watcher (5 s); a change is applied at once.
+DEVTOOLS_RX=${AQ_DEVTOOLS_RX:-'--remote-debugging-port=|/agent-browser|adspower_global|SunBrowser|adspower-bridge[.]mjs|wake-proxy[.]mjs'}
+# what listens, one "<port> <uid> <lo|any> <command line>" per TCP listener (root sees every process)
+devtools_scan(){
+  ss -Hltnpe 2>/dev/null | awk '{a=$4; u=0; p=""
+    for(i=5;i<=NF;i++){ if($i ~ /^uid:[0-9]+$/) u=substr($i,5); if(p=="" && match($i,/pid=[0-9]+/)) p=substr($i,RSTART+4,RLENGTH-4) }
+    n=split(a,x,":"); port=x[n]; host=substr(a,1,length(a)-length(port)-1)
+    sc=(host ~ /^(127[.]|[[]::1[]]|[[]::ffff:127[.])/)?"lo":"any"
+    if(port ~ /^[0-9]+$/ && p!="") print port, u, sc, p}' | sort -u | while read -r port uid sc pid; do
+      printf '%s %s %s %s\n' "$port" "$uid" "$sc" "$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | head -c 400 | tr -d '\n')"
+    done
+}
+# each agent with its own user: "A <agent> <outer port> <inner port> <its user number>"
+devtools_agents(){
+  local n d cdp uid
+  [ -f "$PORTS" ] || return 0
+  while read -r n d cdp; do
+    ok_name "$n" && [[ "$cdp" =~ ^[0-9]{2,5}$ ]] || continue
+    uid=$(id -u "ag-$n" 2>/dev/null) || continue
+    echo "A $n $cdp $((cdp+10000)) $uid"
+  done < "$PORTS"
+}
+# The rules, from "L <port> <uid> <lo|any> <command line>" and "A ..." lines on stdin: devtools_rules <box user's number>
+# <wake proxy's number or ->. Prints "OUT <iptables arguments>" (AQ-DEVTOOLS), "IN <arguments>" (AQ-DEVIN) and
+# "SQUAT <port> <agent> <user number>", ports in order. Nothing is run: scripts/devtools-firewall.test.mjs checks what it prints.
+# Anything listening on an agent's port counts, whatever it is (in any order of the lines).
+devtools_rules(){
+  awk -v own="$1" -v wake="${2:--}" -v rx="$DEVTOOLS_RX" '
+    $1=="A" && $3 ~ /^[0-9]+$/ && $4 ~ /^[0-9]+$/ && $5 ~ /^[0-9]+$/ {outer[$3]=$5; inner[$4]=$5; name[$3]=$2; name[$4]=$2; ports[$3]=1; ports[$4]=1; next}
+    $1=="L" && $2 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ {cmd=$0; sub(/^L +[^ ]+ +[^ ]+ +[^ ]+ */,"",cmd); nl++; lp[nl]=$2; lu[nl]=$3; ls[nl]=$4; lc[nl]=cmd}
+    END{
+      for(i=1;i<=nl;i++){ p=lp[i]; if(lc[i] ~ rx || (p in outer) || (p in inner)){ if(!(p in lis)) lis[p]=lu[i]; if(ls[i]=="any") wide[p]=1; ports[p]=1 } }
+      for(p in ports){ n=0; delete ok; sq=""
+        if(p in outer){ a=outer[p]; if(!(p in lis) || lis[p]==a || lis[p]==wake){ ok[a]=1; if(p in lis) ok[lis[p]]=1 } else { ok[lis[p]]=1; sq=lis[p] } }
+        else if(p in inner){ a=inner[p]; if(!(p in lis) || lis[p]==a){ ok[a]=1; if(wake!="-") ok[wake]=1 } else { ok[lis[p]]=1; sq=lis[p] } }
+        else ok[lis[p]]=1
+        m=""; delete l
+        # in number order, so the same set always gives the same rule
+        k=0; for(u in ok) if(u!=0 && u!=own) l[++k]=u+0
+        for(i=1;i<=k;i++) for(j=i+1;j<=k;j++) if(l[j]<l[i]){t=l[i]; l[i]=l[j]; l[j]=t}
+        for(i=1;i<=k;i++) m=m " -m owner ! --uid-owner " l[i]
+        printf "%d 1 OUT -p tcp --dport %d -m owner ! --uid-owner 0 -m owner ! --uid-owner %s%s -j REJECT --reject-with tcp-reset\n", p, p, own, m
+        if(p in wide) printf "%d 2 IN -p tcp --dport %d -j REJECT --reject-with tcp-reset\n", p, p
+        if(sq!="") printf "%d 3 SQUAT %d %s %s\n", p, p, name[p], sq
+      } }' | sort -n -k1,1 -k2,2 | cut -d' ' -f3-
+}
+# applies them: what is missing is added, what is no longer wanted removed (after the adds), for iptables and ip6tables. $1=full:
+# every rule is looked for again (the watcher does this once a minute), else only a change is applied. Safe to run again.
+devtools_fw(){
+  command -v iptables >/dev/null 2>&1 && command -v ss >/dev/null 2>&1 || return 0
+  local ou wu rules ipt st kind args ok=1 good
+  ou=$(id -u "$OWNER" 2>/dev/null) || return 0; wu=$(id -u "$WAKE_USER" 2>/dev/null || echo -)
+  rules=$( { devtools_agents; devtools_scan | sed 's/^/L /'; } | devtools_rules "$ou" "$wu")
+  mkdir -p "$RST"
+  for ipt in iptables ip6tables; do
+    command -v "$ipt" >/dev/null 2>&1 || continue
+    st="$RST/.devtools.$ipt"; good=1
+    [ "${1:-}" != full ] && [ "$rules" = "$(cat "$st" 2>/dev/null)" ] && continue
+    "$ipt" -N AQ-DEVTOOLS 2>/dev/null; "$ipt" -N AQ-DEVIN 2>/dev/null
+    "$ipt" -C OUTPUT -o lo -p tcp -j AQ-DEVTOOLS 2>/dev/null || "$ipt" -I OUTPUT 1 -o lo -p tcp -j AQ-DEVTOOLS 2>/dev/null || good=0
+    "$ipt" -C INPUT ! -i lo -p tcp -j AQ-DEVIN 2>/dev/null || "$ipt" -I INPUT 1 ! -i lo -p tcp -j AQ-DEVIN 2>/dev/null || good=0
+    while read -r kind args; do
+      case $kind in OUT) "$ipt" -C AQ-DEVTOOLS $args 2>/dev/null || "$ipt" -A AQ-DEVTOOLS $args 2>/dev/null || good=0 ;;
+                    IN) "$ipt" -C AQ-DEVIN $args 2>/dev/null || "$ipt" -A AQ-DEVIN $args 2>/dev/null || good=0 ;; esac
+    done <<< "$rules"
+    # not all in place: nothing is removed and the record stays as it was, so the next pass tries again
+    [ "$good" = 1 ] || { [ "$ipt" = iptables ] && ok=0; continue; }
+    # rules of ports nobody listens on any more go, once the new ones are in
+    [ -f "$st" ] && while read -r kind args; do
+      [ -n "$kind" ] || continue; grep -qxF -- "$kind $args" <<< "$rules" && continue
+      case $kind in OUT) "$ipt" -D AQ-DEVTOOLS $args 2>/dev/null ;; IN) "$ipt" -D AQ-DEVIN $args 2>/dev/null ;; esac
+    done < "$st"
+    printf '%s\n' "$rules" > "$st"
+  done
+  # the rules screen_up used to put straight into OUTPUT for each agent's two Chrome ports are now in AQ-DEVTOOLS: removed once
+  if [ "$ok" = 1 ] && [ ! -f "$RST/.devtools-legacy-gone" ] && [ -f "$PORTS" ]; then
+    local n d cdp u
+    while read -r n d cdp; do ok_name "$n" && [[ "$cdp" =~ ^[0-9]{2,5}$ ]] || continue; u="ag-$n"; u=${u:0:32}
+      while iptables -D OUTPUT -o lo -p tcp --dport "$cdp" -m owner ! --uid-owner "$OWNER" -m owner ! --uid-owner "$u" -j REJECT 2>/dev/null; do :; done
+      while iptables -D OUTPUT -o lo -p tcp --dport "$((cdp+10000))" -m owner ! --uid-owner "$OWNER" -m owner ! --uid-owner "$u" -m owner ! --uid-owner aq-wake -j REJECT 2>/dev/null; do :; done
+    done < "$PORTS"
+    : > "$RST/.devtools-legacy-gone"
+  fi
+  # someone else listens on an agent's Chrome port: said once per port and user
+  while read -r kind args; do
+    [ "$kind" = SQUAT ] || continue; set -- $args
+    [ -f "$RST/.squat-$1-$3" ] && continue; : > "$RST/.squat-$1-$3"
+    report "$2" "devtools-port-taken" "another user (number $3) listens on port $1, which belongs to this agent's browser. Only that user may reach it now, and this agent's browser cannot start there until it stops." "Browser port taken"
+  done <<< "$rules"
+  [ "$ok" = 1 ] && { rm -f -- "$RST/.devtools-fw-failed"; return 0; }
+  [ -f "$RST/.devtools-fw-failed" ] || { : > "$RST/.devtools-fw-failed"; report default "devtools-firewall" "the rules that keep each browser's debugging port to its own user could not be applied (iptables refused them). Until they are, every agent's user can control the engine's browsers and the other agents' Chromes." "Browser port rules not applied"; }
   return 1
 }
 
@@ -817,9 +923,7 @@ screen_up(){
   line=$(port_of "$n") || return 0; disp=$(echo "$line" | cut -d' ' -f2); cdp=$(echo "$line" | cut -d' ' -f3)
   read -r cap sl <<< "$(limit_of "$n")"; cport=$(chrome_port "$cdp" "$sl")
   # only aqeelOS (claude) and the agent's own user may reach its Chrome's control port; behind the proxy, the proxy's
-  # user may reach the inner one too
-  iptables -C OUTPUT -o lo -p tcp --dport "$cdp" -m owner ! --uid-owner "$OWNER" -m owner ! --uid-owner "$u" -j REJECT 2>/dev/null || iptables -I OUTPUT 1 -o lo -p tcp --dport "$cdp" -m owner ! --uid-owner "$OWNER" -m owner ! --uid-owner "$u" -j REJECT 2>/dev/null
-  if [ "$cport" != "$cdp" ]; then iptables -C OUTPUT -o lo -p tcp --dport "$cport" -m owner ! --uid-owner "$OWNER" -m owner ! --uid-owner "$u" -m owner ! --uid-owner aq-wake -j REJECT 2>/dev/null || iptables -I OUTPUT 1 -o lo -p tcp --dport "$cport" -m owner ! --uid-owner "$OWNER" -m owner ! --uid-owner "$u" -m owner ! --uid-owner aq-wake -j REJECT 2>/dev/null; fi
+  # user may reach the inner one too: rules in AQ-DEVTOOLS (devtools_fw, from the port line), applied before Chrome starts below
   # the profile's bot-desktop folder is the agent's own .screen folder (where aqeelOS looks for any agent's screen)
   local prof="$HOMEC/.hermes/profiles/$n"
   # (the profile is the owner's: the link is made as the owner, not as root)
@@ -868,6 +972,8 @@ screen_up(){
   # waiting before trying again, or given up on after 5 failures (OPS-3): not started now
   restart_gate "$n" || return 0
   screen_kill "$u" "$disp" "$ws"
+  # its Chrome's two ports are this agent's (and the box user's) before Chrome listens on them
+  [ "$EUID" = 0 ] && devtools_fw >/dev/null
   ag_dir "$u" "$sd"
   # the display's lock and socket: names in /tmp and in /tmp/.X11-unix, both root's and sticky (x11_dir), so nobody can swap
   # the folder under this, and rm removes a name, never a link's target
@@ -1323,5 +1429,5 @@ case "${1:-watch}" in
   reset) ok_name "${2:-}" && echo "$2" | own_add "$RESET" && take_resets ;;
   janitor) janitor ;;
   stop) ok_name "${2:-}" && echo "$2" | own_add "$REQ.stop" && take_stops ;;
-  watch) last=""; n=0; while true; do take_resets; take_stops; take_mem; take_wakes; proxy_up; [ $((n % 12)) -eq 0 ] && [ -f "$REQ" ] && { janitor; sleep_idle; setup_wake; local_fw; fixer_step; }; [ $((n % 720)) -eq 0 ] && [ -f "$REQ" ] && trim_logs; [ $((n % 60)) -eq 0 ] && [ -f "$REQ" ] && { uploads_fix; orphan_sweep; }; [ $((n % 6)) -eq 0 ] && { date +%s | own_put "$ALIVE"; }; self_update && exec "$0" watch; s=$(stat -c %Y "$REQ" 2>/dev/null || echo none); if [ "$s" != "$last" ]; then once; last=$s; fi; n=$((n+1)); [ $((n % 6)) -eq 0 ] && [ -f "$REQ" ] && screens; sleep 5; done ;;
+  watch) last=""; n=0; while true; do take_resets; take_stops; take_mem; take_wakes; proxy_up; if [ $((n % 12)) -eq 0 ]; then devtools_fw full; else devtools_fw; fi; [ $((n % 12)) -eq 0 ] && [ -f "$REQ" ] && { janitor; sleep_idle; setup_wake; local_fw; fixer_step; }; [ $((n % 720)) -eq 0 ] && [ -f "$REQ" ] && trim_logs; [ $((n % 60)) -eq 0 ] && [ -f "$REQ" ] && { uploads_fix; orphan_sweep; }; [ $((n % 6)) -eq 0 ] && { date +%s | own_put "$ALIVE"; }; self_update && exec "$0" watch; s=$(stat -c %Y "$REQ" 2>/dev/null || echo none); if [ "$s" != "$last" ]; then once; last=$s; fi; n=$((n+1)); [ $((n % 6)) -eq 0 ] && [ -f "$REQ" ] && screens; sleep 5; done ;;
 esac
